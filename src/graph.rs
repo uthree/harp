@@ -34,7 +34,16 @@ pub enum Operator {
 #[derive(Debug, Clone)]
 pub struct Node {
     operator: Operator,
+    inputs: Vec<Arc<RefCell<Self>>>,
+    parent: Arc<RefCell<Graph>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Graph {}
+
+impl Graph {
+    pub fn new() -> Arc<RefCell<Graph>> {
+        let graph = Graph {};
+        Arc::new(RefCell::new(graph))
+    }
+}
