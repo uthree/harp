@@ -1,13 +1,24 @@
-use std::cell::RefCell;
-use std::sync::Arc;
+use petgraph::prelude::{Directed, StableGraph};
 
-struct Graph {}
+#[derive(Debug, Clone)]
+pub enum Operator {
+    Input,
+}
 
+#[derive(Debug, Clone)]
+pub struct Node {}
+
+type StorageGraph = StableGraph<Box<Node>, usize, Directed, usize>;
+
+#[derive(Debug, Clone, Default)]
+
+pub struct Graph {
+    body: StorageGraph,
+}
+
+// Computation graph
 impl Graph {
-    // initialize graph
-    fn new() -> Arc<RefCell<Graph>> {
-        let ctx = Graph {};
-        let ptr = Arc::new(RefCell::new(ctx));
-        ptr
+    fn new() -> Graph {
+        Self::default()
     }
 }
