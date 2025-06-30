@@ -4,4 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+half = "2.6.0"
+num-traits = "0.2.19"
 petgraph = "0.8.2"
+rand = "0.9.1"
+rustc-hash = "2.1.1"
