@@ -1,9 +1,8 @@
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
-    Index,
     Int(isize),
     Var(String),
 
@@ -13,6 +12,21 @@ pub enum Expr {
     Div(Box<Self>, Box<Self>),
     Rem(Box<Self>, Box<Self>),
     Neg(Box<Self>),
+}
+
+impl Display for Expr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Expr::Int(i) => write!(f, "{}", i),
+            Expr::Var(s) => write!(f, "{}", s),
+            Expr::Add(a, b) => write!(f, "({} + {})", a, b),
+            Expr::Sub(a, b) => write!(f, "({} - {})", a, b),
+            Expr::Mul(a, b) => write!(f, "({} * {})", a, b),
+            Expr::Div(a, b) => write!(f, "({} / {})", a, b),
+            Expr::Rem(a, b) => write!(f, "({} % {})", a, b),
+            Expr::Neg(a) => write!(f, "(-{})", a),
+        }
+    }
 }
 
 impl Expr {
@@ -78,7 +92,6 @@ impl Expr {
                 Expr::Neg(inner_expr) => *inner_expr,
                 e => Expr::Neg(Box::new(e)),
             },
-            Expr::Index => Expr::Index,
         }
     }
 }
@@ -291,5 +304,23 @@ mod tests {
 
         let expr: Expr = 42u64.into();
         assert_eq!(expr, Expr::Int(42));
+    }
+
+    #[test]
+    fn test_display() {
+        let expr = Expr::Add(Box::new(Expr::Var("i".to_string())), Box::new(Expr::Int(1)));
+        assert_eq!(expr.to_string(), "(i + 1)");
+
+        let expr = Expr::Mul(
+            Box::new(Expr::Var("x".to_string())),
+            Box::new(Expr::Sub(
+                Box::new(Expr::Var("y".to_string())),
+                Box::new(Expr::Int(2)),
+            )),
+        );
+        assert_eq!(expr.to_string(), "(x * (y - 2))");
+
+        let expr = Expr::Neg(Box::new(Expr::Var("z".to_string())));
+        assert_eq!(expr.to_string(), "(-z)");
     }
 }
