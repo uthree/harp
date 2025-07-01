@@ -9,3 +9,8 @@ num-traits = "0.2.19"
 petgraph = "0.8.2"
 rand = "0.9.1"
 rustc-hash = "2.1.1"
+
+[workspace]
+members = [
+	"examples/*",
+]
