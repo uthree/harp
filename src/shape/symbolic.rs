@@ -125,6 +125,42 @@ impl Neg for Expr {
     }
 }
 
+impl From<isize> for Expr {
+    fn from(i: isize) -> Self {
+        Self::Int(i)
+    }
+}
+
+impl From<i32> for Expr {
+    fn from(i: i32) -> Self {
+        Self::Int(i as isize)
+    }
+}
+
+impl From<i64> for Expr {
+    fn from(i: i64) -> Self {
+        Self::Int(i as isize)
+    }
+}
+
+impl From<usize> for Expr {
+    fn from(i: usize) -> Self {
+        Self::Int(i as isize)
+    }
+}
+
+impl From<u32> for Expr {
+    fn from(i: u32) -> Self {
+        Self::Int(i as isize)
+    }
+}
+
+impl From<u64> for Expr {
+    fn from(i: u64) -> Self {
+        Self::Int(i as isize)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,5 +257,26 @@ mod tests {
             Box::new(Expr::Mul(Box::new(Expr::Var("z".to_string())), Box::new(Expr::Int(9))))
         );
         assert_eq!(expr.simplify(), expected.simplify());
+    }
+
+    #[test]
+    fn test_from_into() {
+        let expr: Expr = 42.into();
+        assert_eq!(expr, Expr::Int(42));
+
+        let expr: Expr = 42i32.into();
+        assert_eq!(expr, Expr::Int(42));
+
+        let expr: Expr = 42i64.into();
+        assert_eq!(expr, Expr::Int(42));
+
+        let expr: Expr = 42usize.into();
+        assert_eq!(expr, Expr::Int(42));
+
+        let expr: Expr = 42u32.into();
+        assert_eq!(expr, Expr::Int(42));
+
+        let expr: Expr = 42u64.into();
+        assert_eq!(expr, Expr::Int(42));
     }
 }
