@@ -21,7 +21,7 @@ impl ShapeTracker {
         let mut maps = vec![];
         let mut maxs = vec![];
         for d in dims.iter().rev() {
-            maps.push(Expr::Var("i".to_string()) * Expr::Int(stride));
+            maps.push(Expr::Index * Expr::Int(stride));
             maxs.push(Expr::Int(*d as isize));
             stride = stride * (*d as isize);
         }
@@ -31,8 +31,8 @@ impl ShapeTracker {
         let mut axes = vec![];
         for (map, max) in maps.iter().zip(maxs.iter()) {
             axes.push(Axis {
-                map: map.to_owned().clone(),
-                max: max.clone(),
+                map: map.to_owned().clone().simplify(),
+                max: max.clone().simplify(),
             })
         }
         ShapeTracker { axes }

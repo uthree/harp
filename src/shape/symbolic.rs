@@ -3,6 +3,7 @@ use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
+    Index,
     Int(isize),
     Var(String),
 
@@ -25,6 +26,7 @@ impl Display for Expr {
             Expr::Div(a, b) => write!(f, "({} / {})", a, b),
             Expr::Rem(a, b) => write!(f, "({} % {})", a, b),
             Expr::Neg(a) => write!(f, "(-{})", a),
+            Expr::Index => write!(f, "idx"),
         }
     }
 }
@@ -92,6 +94,7 @@ impl Expr {
                 Expr::Neg(inner_expr) => *inner_expr,
                 e => Expr::Neg(Box::new(e)),
             },
+            Expr::Index => Expr::Index,
         }
     }
 }
