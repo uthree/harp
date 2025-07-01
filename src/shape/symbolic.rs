@@ -251,10 +251,17 @@ mod tests {
         let expr = (Expr::Var("y".to_string()) - Expr::Var("y".to_string())) + Expr::Int(5);
         assert_eq!(expr.simplify(), Expr::Int(5));
 
-        let expr = (Expr::Int(10) * Expr::Var("z".to_string())) - (Expr::Var("z".to_string()) * Expr::Int(9));
+        let expr = (Expr::Int(10) * Expr::Var("z".to_string()))
+            - (Expr::Var("z".to_string()) * Expr::Int(9));
         let expected = Expr::Sub(
-            Box::new(Expr::Mul(Box::new(Expr::Int(10)), Box::new(Expr::Var("z".to_string())))),
-            Box::new(Expr::Mul(Box::new(Expr::Var("z".to_string())), Box::new(Expr::Int(9))))
+            Box::new(Expr::Mul(
+                Box::new(Expr::Int(10)),
+                Box::new(Expr::Var("z".to_string())),
+            )),
+            Box::new(Expr::Mul(
+                Box::new(Expr::Var("z".to_string())),
+                Box::new(Expr::Int(9)),
+            )),
         );
         assert_eq!(expr.simplify(), expected.simplify());
     }
