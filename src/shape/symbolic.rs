@@ -3,6 +3,7 @@ use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
+    Index,
     Int(isize),
     Var(String),
 
@@ -15,6 +16,10 @@ pub enum Expr {
 }
 
 impl Expr {
+    pub fn zero() -> Self {
+        Expr::Int(0)
+    }
+
     pub fn simplify(self) -> Self {
         match self {
             Expr::Int(_) | Expr::Var(_) => self,
@@ -73,6 +78,7 @@ impl Expr {
                 Expr::Neg(inner_expr) => *inner_expr,
                 e => Expr::Neg(Box::new(e)),
             },
+            Expr::Index => Expr::Index,
         }
     }
 }
