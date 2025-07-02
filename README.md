@@ -5,3 +5,4 @@
 - Easy to add device support (as trait implementation).
 - Graph optimization.
 - Fuse operator for reduce memory access and performance.
+- Automatic differentation

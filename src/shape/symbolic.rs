@@ -26,7 +26,7 @@ impl Display for Expr {
             Expr::Div(a, b) => write!(f, "({} / {})", a, b),
             Expr::Rem(a, b) => write!(f, "({} % {})", a, b),
             Expr::Neg(a) => write!(f, "(-{})", a),
-            Expr::Index => write!(f, "idx"),
+            Expr::Index => write!(f, "[IDX]"),
         }
     }
 }
@@ -99,43 +99,43 @@ impl Expr {
     }
 }
 
-impl Add for Expr {
+impl<T: Into<Expr>> Add<T> for Expr {
     type Output = Self;
 
-    fn add(self, rhs: Self) -> Self::Output {
-        Self::Add(Box::new(self), Box::new(rhs))
+    fn add(self, rhs: T) -> Self::Output {
+        Self::Add(Box::new(self), Box::new(rhs.into()))
     }
 }
 
-impl Sub for Expr {
+impl<T: Into<Expr>> Sub<T> for Expr {
     type Output = Self;
 
-    fn sub(self, rhs: Self) -> Self::Output {
-        Self::Sub(Box::new(self), Box::new(rhs))
+    fn sub(self, rhs: T) -> Self::Output {
+        Self::Sub(Box::new(self), Box::new(rhs.into()))
     }
 }
 
-impl Mul for Expr {
+impl<T: Into<Expr>> Mul<T> for Expr {
     type Output = Self;
 
-    fn mul(self, rhs: Self) -> Self::Output {
-        Self::Mul(Box::new(self), Box::new(rhs))
+    fn mul(self, rhs: T) -> Self::Output {
+        Self::Mul(Box::new(self), Box::new(rhs.into()))
     }
 }
 
-impl Div for Expr {
+impl<T: Into<Expr>> Div<T> for Expr {
     type Output = Self;
 
-    fn div(self, rhs: Self) -> Self::Output {
-        Self::Div(Box::new(self), Box::new(rhs))
+    fn div(self, rhs: T) -> Self::Output {
+        Self::Div(Box::new(self), Box::new(rhs.into()))
     }
 }
 
-impl Rem for Expr {
+impl<T: Into<Expr>> Rem<T> for Expr {
     type Output = Self;
 
-    fn rem(self, rhs: Self) -> Self::Output {
-        Self::Rem(Box::new(self), Box::new(rhs))
+    fn rem(self, rhs: T) -> Self::Output {
+        Self::Rem(Box::new(self), Box::new(rhs.into()))
     }
 }
 
@@ -147,39 +147,23 @@ impl Neg for Expr {
     }
 }
 
+macro_rules! impl_from_int_for_expr {
+    ($($t:ty),*) => {
+        $(
+            impl From<$t> for Expr {
+                fn from(i: $t) -> Self {
+                    Self::Int(i as isize)
+                }
+            }
+        )*
+    };
+}
+
+impl_from_int_for_expr!(i32, i64, usize, u32, u64);
+
 impl From<isize> for Expr {
     fn from(i: isize) -> Self {
         Self::Int(i)
-    }
-}
-
-impl From<i32> for Expr {
-    fn from(i: i32) -> Self {
-        Self::Int(i as isize)
-    }
-}
-
-impl From<i64> for Expr {
-    fn from(i: i64) -> Self {
-        Self::Int(i as isize)
-    }
-}
-
-impl From<usize> for Expr {
-    fn from(i: usize) -> Self {
-        Self::Int(i as isize)
-    }
-}
-
-impl From<u32> for Expr {
-    fn from(i: u32) -> Self {
-        Self::Int(i as isize)
-    }
-}
-
-impl From<u64> for Expr {
-    fn from(i: u64) -> Self {
-        Self::Int(i as isize)
     }
 }
 
@@ -326,4 +310,23 @@ mod tests {
         let expr = Expr::Neg(Box::new(Expr::Var("z".to_string())));
         assert_eq!(expr.to_string(), "(-z)");
     }
+
+    #[test]
+    fn test_ops_with_into() {
+        let x = Expr::Var("x".to_string());
+        assert_eq!(x.clone() + 1, Expr::Add(Box::new(x.clone()), Box::new(Expr::Int(1))));
+
+        let x = Expr::Var("x".to_string());
+        assert_eq!(x.clone() - 1, Expr::Sub(Box::new(x.clone()), Box::new(Expr::Int(1))));
+
+        let x = Expr::Var("x".to_string());
+        assert_eq!(x.clone() * 1, Expr::Mul(Box::new(x.clone()), Box::new(Expr::Int(1))));
+
+        let x = Expr::Var("x".to_string());
+        assert_eq!(x.clone() / 1, Expr::Div(Box::new(x.clone()), Box::new(Expr::Int(1))));
+
+        let x = Expr::Var("x".to_string());
+        assert_eq!(x.clone() % 1, Expr::Rem(Box::new(x.clone()), Box::new(Expr::Int(1))));
+    }
 }
+

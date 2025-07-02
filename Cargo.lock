@@ -7,13 +7,6 @@ name = "harp"
 version = "0.1.0"
 
 [[package]]
-name = "harp_script"
-version = "0.1.0"
-dependencies = [
- "harp",
-]
-
-[[package]]
 name = "tmp"
 version = "0.1.0"
 dependencies = [
