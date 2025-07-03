@@ -1,7 +1,10 @@
 use crate::tensor_node::TensorNode;
 use std::fmt::Debug;
 
-pub trait Operator: Debug {
-    fn forward(&self, inputs: Vec<TensorNode>) -> Vec<TensorNode>;
+#[derive(Debug)]
+pub enum Operator {
+    Input,
+    Add,
+    Mul,
+    Recip,
 }
-pub trait Differentiable: Operator {}

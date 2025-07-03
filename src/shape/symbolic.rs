@@ -32,10 +32,6 @@ impl Display for Expr {
 }
 
 impl Expr {
-    pub fn zero() -> Self {
-        Expr::Int(0)
-    }
-
     pub fn simplify(self) -> Self {
         match self {
             Expr::Int(_) | Expr::Var(_) => self,
@@ -314,19 +310,33 @@ mod tests {
     #[test]
     fn test_ops_with_into() {
         let x = Expr::Var("x".to_string());
-        assert_eq!(x.clone() + 1, Expr::Add(Box::new(x.clone()), Box::new(Expr::Int(1))));
+        assert_eq!(
+            x.clone() + 1,
+            Expr::Add(Box::new(x.clone()), Box::new(Expr::Int(1)))
+        );
 
         let x = Expr::Var("x".to_string());
-        assert_eq!(x.clone() - 1, Expr::Sub(Box::new(x.clone()), Box::new(Expr::Int(1))));
+        assert_eq!(
+            x.clone() - 1,
+            Expr::Sub(Box::new(x.clone()), Box::new(Expr::Int(1)))
+        );
 
         let x = Expr::Var("x".to_string());
-        assert_eq!(x.clone() * 1, Expr::Mul(Box::new(x.clone()), Box::new(Expr::Int(1))));
+        assert_eq!(
+            x.clone() * 1,
+            Expr::Mul(Box::new(x.clone()), Box::new(Expr::Int(1)))
+        );
 
         let x = Expr::Var("x".to_string());
-        assert_eq!(x.clone() / 1, Expr::Div(Box::new(x.clone()), Box::new(Expr::Int(1))));
+        assert_eq!(
+            x.clone() / 1,
+            Expr::Div(Box::new(x.clone()), Box::new(Expr::Int(1)))
+        );
 
         let x = Expr::Var("x".to_string());
-        assert_eq!(x.clone() % 1, Expr::Rem(Box::new(x.clone()), Box::new(Expr::Int(1))));
+        assert_eq!(
+            x.clone() % 1,
+            Expr::Rem(Box::new(x.clone()), Box::new(Expr::Int(1)))
+        );
     }
 }
-
