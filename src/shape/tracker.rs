@@ -4,8 +4,8 @@ use crate::shape::symbolic::Expr;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Axis {
-    map: Expr,
-    max: Expr,
+    pub map: Expr,
+    pub max: Expr,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,15 +15,15 @@ pub struct ShapeTracker {
 
 impl ShapeTracker {
     // generate full mapping
-    pub fn full(dims: Vec<usize>) -> Self {
+    pub fn full(dims: Vec<Expr>) -> Self {
         // calculate maps and strides
-        let mut stride = 1;
+        let mut alu: Expr = 1.into();
         let mut maps = vec![];
         let mut maxs = vec![];
         for d in dims.iter().rev() {
-            maps.push(Expr::Index * Expr::Int(stride));
-            maxs.push(Expr::Int(*d as isize));
-            stride = stride * (*d as isize);
+            maps.push(Expr::Index * alu.clone());
+            maxs.push(d.clone());
+            alu = alu * d.clone();
         }
         let maps = maps.iter().rev().collect::<Vec<_>>();
 

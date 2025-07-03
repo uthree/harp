@@ -176,6 +176,23 @@ impl From<isize> for Expr {
     }
 }
 
+#[macro_export]
+macro_rules! vec_expr {
+    ($($x:expr),*) => {
+        vec![
+            $(
+                $crate::shape::symbolic::Expr::from($x)
+            ),*
+        ]
+    };
+}
+
+impl From<&str> for Expr {
+    fn from(s: &str) -> Self {
+        Self::Var(s.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -360,5 +377,23 @@ mod tests {
         let expr = x.clone() + Expr::Int(1);
         let replaced_expr = expr.replace(&"x".to_string(), &y);
         assert_eq!(replaced_expr, y + Expr::Int(1));
+    }
+
+    #[test]
+    fn test_vec_expr_macro() {
+        let a = 1;
+        let b = "x";
+        let c = 2;
+        let d = "y";
+        let vec = vec_expr![a, b, c, d];
+        assert_eq!(
+            vec,
+            vec![
+                Expr::Int(1),
+                Expr::Var("x".to_string()),
+                Expr::Int(2),
+                Expr::Var("y".to_string())
+            ]
+        );
     }
 }
