@@ -1,5 +1,7 @@
 use crate::operator::Operator;
-use crate::tensor_node::{TensorNode, TensorNodeStore};
+use crate::prelude::*;
+use crate::shape::symbolic::Expr;
+use crate::tensor_node::{DataType, TensorNode, TensorNodeStore};
 use std::cell::RefCell;
 use std::sync::Arc;
 
@@ -21,12 +23,12 @@ impl Graph {
         }
     }
 
-    pub fn input(&mut self) -> TensorNode {
+    pub fn input(&mut self, shape: Vec<Expr>, dtype: DataType) -> TensorNode {
         let node = Arc::new(RefCell::new(TensorNodeStore::new(
             Operator::Input,
             vec![],
-            crate::shape::tracker::ShapeTracker::full(vec![]), // 仮のShapeTracker
-            crate::tensor_node::DataType::Float32, // 仮のDataType
+            ShapeTracker::full(shape),
+            dtype,
         )));
         self.nodes.push(node.clone());
         Arc::downgrade(&node)
