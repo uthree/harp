@@ -41,7 +41,14 @@ impl Expr {
                 match (a, b) {
                     (Expr::Int(a), Expr::Int(b)) => Expr::Int(a + b),
                     (expr, Expr::Int(0)) | (Expr::Int(0), expr) => expr,
-                    (a, b) => Expr::Add(Box::new(a), Box::new(b)),
+                    (a, b) => {
+                        // If Index is on the right, swap to the left
+                        if matches!(b, Expr::Index) && !matches!(a, Expr::Index) {
+                            Expr::Add(Box::new(b), Box::new(a))
+                        } else {
+                            Expr::Add(Box::new(a), Box::new(b))
+                        }
+                    }
                 }
             }
             Expr::Sub(a, b) => {
@@ -61,7 +68,14 @@ impl Expr {
                     (Expr::Int(a), Expr::Int(b)) => Expr::Int(a * b),
                     (_, Expr::Int(0)) | (Expr::Int(0), _) => Expr::Int(0),
                     (expr, Expr::Int(1)) | (Expr::Int(1), expr) => expr,
-                    (a, b) => Expr::Mul(Box::new(a), Box::new(b)),
+                    (a, b) => {
+                        // If Index is on the right, swap to the left
+                        if matches!(b, Expr::Index) && !matches!(a, Expr::Index) {
+                            Expr::Mul(Box::new(b), Box::new(a))
+                        } else {
+                            Expr::Mul(Box::new(a), Box::new(b))
+                        }
+                    }
                 }
             }
             Expr::Div(a, b) => {
@@ -295,6 +309,18 @@ mod tests {
             )),
         );
         assert_eq!(expr.simplify(), expected.simplify());
+
+        let expr = Expr::Int(1) + Expr::Index;
+        assert_eq!(
+            expr.simplify(),
+            Expr::Add(Box::new(Expr::Index), Box::new(Expr::Int(1)))
+        );
+
+        let expr = Expr::Int(2) * Expr::Index;
+        assert_eq!(
+            expr.simplify(),
+            Expr::Mul(Box::new(Expr::Index), Box::new(Expr::Int(2)))
+        );
     }
 
     #[test]
