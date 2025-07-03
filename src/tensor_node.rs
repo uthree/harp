@@ -76,6 +76,44 @@ impl Add for TensorNode {
     }
 }
 
+impl std::ops::Mul for TensorNode {
+    type Output = Self;
+    fn mul(self, rhs: Self) -> Self::Output {
+        let mut store = self.store.borrow_mut();
+        let output_node = TensorNode::new(
+            Operator::Mul,
+            vec![self.clone(), rhs.clone()],
+            store.shape_tracker.clone(),
+            store.dtype.clone(),
+            store.graph.clone(),
+        );
+        store.graph.apply_node(output_node.clone());
+        output_node
+    }
+}
+
+impl std::ops::Div for TensorNode {
+    type Output = Self;
+    fn div(self, rhs: Self) -> Self::Output {
+        self * rhs.recip()
+    }
+}
+
+impl TensorNode {
+    pub fn recip(self) -> Self {
+        let mut store = self.store.borrow_mut();
+        let output_node = TensorNode::new(
+            Operator::Recip,
+            vec![self.clone()],
+            store.shape_tracker.clone(),
+            store.dtype.clone(),
+            store.graph.clone(),
+        );
+        store.graph.apply_node(output_node.clone());
+        output_node
+    }
+}
+
 impl std::fmt::Debug for TensorNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let store = self.store.borrow();
