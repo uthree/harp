@@ -1,6 +1,9 @@
 use harp::prelude::*;
 
 fn main() {
-    let tracker = ShapeTracker::full(s![2, "a", 4]);
-    println!("{:?}", tracker);
+    let mut graph = Graph::new();
+    let a = graph.input(s![1], DataType::Float32);
+    let b = graph.input(s![1], DataType::Float32);
+    let c = a + b;
+    println!("{:?}", c)
 }
