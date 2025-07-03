@@ -187,6 +187,13 @@ macro_rules! vec_expr {
     };
 }
 
+#[macro_export]
+macro_rules! shape {
+    ($($x:expr),*) => {
+        vec_expr![$($x),*]
+    };
+}
+
 impl From<&str> for Expr {
     fn from(s: &str) -> Self {
         Self::Var(s.to_string())
@@ -393,6 +400,19 @@ mod tests {
                 Expr::Var("x".to_string()),
                 Expr::Int(2),
                 Expr::Var("y".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    fn test_shape_macro() {
+        let vec = shape![2, "a", 4];
+        assert_eq!(
+            vec,
+            vec![
+                Expr::Int(2),
+                Expr::Var("a".to_string()),
+                Expr::Int(4)
             ]
         );
     }
