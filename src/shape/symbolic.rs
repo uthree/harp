@@ -97,11 +97,21 @@ impl Expr {
     pub fn replace(&self, var: &String, val: &Expr) -> Expr {
         match self {
             Expr::Var(s) if s == var => val.clone(),
-            Expr::Add(a, b) => Expr::Add(Box::new(a.replace(var, val)), Box::new(b.replace(var, val))),
-            Expr::Sub(a, b) => Expr::Sub(Box::new(a.replace(var, val)), Box::new(b.replace(var, val))),
-            Expr::Mul(a, b) => Expr::Mul(Box::new(a.replace(var, val)), Box::new(b.replace(var, val))),
-            Expr::Div(a, b) => Expr::Div(Box::new(a.replace(var, val)), Box::new(b.replace(var, val))),
-            Expr::Rem(a, b) => Expr::Rem(Box::new(a.replace(var, val)), Box::new(b.replace(var, val))),
+            Expr::Add(a, b) => {
+                Expr::Add(Box::new(a.replace(var, val)), Box::new(b.replace(var, val)))
+            }
+            Expr::Sub(a, b) => {
+                Expr::Sub(Box::new(a.replace(var, val)), Box::new(b.replace(var, val)))
+            }
+            Expr::Mul(a, b) => {
+                Expr::Mul(Box::new(a.replace(var, val)), Box::new(b.replace(var, val)))
+            }
+            Expr::Div(a, b) => {
+                Expr::Div(Box::new(a.replace(var, val)), Box::new(b.replace(var, val)))
+            }
+            Expr::Rem(a, b) => {
+                Expr::Rem(Box::new(a.replace(var, val)), Box::new(b.replace(var, val)))
+            }
             Expr::Neg(a) => Expr::Neg(Box::new(a.replace(var, val))),
             _ => self.clone(),
         }
@@ -177,20 +187,13 @@ impl From<isize> for Expr {
 }
 
 #[macro_export]
-macro_rules! vec_expr {
+macro_rules! shape {
     ($($x:expr),*) => {
         vec![
             $(
                 $crate::shape::symbolic::Expr::from($x)
             ),*
         ]
-    };
-}
-
-#[macro_export]
-macro_rules! shape {
-    ($($x:expr),*) => {
-        vec_expr![$($x),*]
     };
 }
 
@@ -392,7 +395,7 @@ mod tests {
         let b = "x";
         let c = 2;
         let d = "y";
-        let vec = vec_expr![a, b, c, d];
+        let vec = shape![a, b, c, d];
         assert_eq!(
             vec,
             vec![
@@ -409,11 +412,7 @@ mod tests {
         let vec = shape![2, "a", 4];
         assert_eq!(
             vec,
-            vec![
-                Expr::Int(2),
-                Expr::Var("a".to_string()),
-                Expr::Int(4)
-            ]
+            vec![Expr::Int(2), Expr::Var("a".to_string()), Expr::Int(4)]
         );
     }
 }
