@@ -1,4 +1,3 @@
-use std::isize;
 
 use crate::shape::symbolic::Expr;
 

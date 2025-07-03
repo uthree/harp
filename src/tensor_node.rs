@@ -4,6 +4,7 @@ use std::cell::RefCell;
 use std::sync::Weak;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[allow(dead_code)]
 static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug, Clone, Copy)]
@@ -24,6 +25,7 @@ pub enum DataType {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct TensorNodeStore {
     id: usize,
     shape_tracker: ShapeTracker,
@@ -33,10 +35,10 @@ pub struct TensorNodeStore {
 }
 
 impl TensorNodeStore {
-    pub(crate) fn new(
-        shape_tracker: ShapeTracker,
+    pub fn new(
         operator: Operator,
         inputs: Vec<TensorNode>,
+        shape_tracker: ShapeTracker,
         dtype: DataType,
     ) -> Self {
         Self {
