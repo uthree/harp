@@ -93,6 +93,19 @@ impl Expr {
             Expr::Index => Expr::Index,
         }
     }
+
+    pub fn replace(&self, var: &String, val: &Expr) -> Expr {
+        match self {
+            Expr::Var(s) if s == var => val.clone(),
+            Expr::Add(a, b) => Expr::Add(Box::new(a.replace(var, val)), Box::new(b.replace(var, val))),
+            Expr::Sub(a, b) => Expr::Sub(Box::new(a.replace(var, val)), Box::new(b.replace(var, val))),
+            Expr::Mul(a, b) => Expr::Mul(Box::new(a.replace(var, val)), Box::new(b.replace(var, val))),
+            Expr::Div(a, b) => Expr::Div(Box::new(a.replace(var, val)), Box::new(b.replace(var, val))),
+            Expr::Rem(a, b) => Expr::Rem(Box::new(a.replace(var, val)), Box::new(b.replace(var, val))),
+            Expr::Neg(a) => Expr::Neg(Box::new(a.replace(var, val))),
+            _ => self.clone(),
+        }
+    }
 }
 
 impl<T: Into<Expr>> Add<T> for Expr {
@@ -338,5 +351,14 @@ mod tests {
             x.clone() % 1,
             Expr::Rem(Box::new(x.clone()), Box::new(Expr::Int(1)))
         );
+    }
+
+    #[test]
+    fn test_replace() {
+        let x = Expr::Var("x".to_string());
+        let y = Expr::Var("y".to_string());
+        let expr = x.clone() + Expr::Int(1);
+        let replaced_expr = expr.replace(&"x".to_string(), &y);
+        assert_eq!(replaced_expr, y + Expr::Int(1));
     }
 }

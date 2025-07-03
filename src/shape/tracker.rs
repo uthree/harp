@@ -14,8 +14,8 @@ pub struct ShapeTracker {
 }
 
 impl ShapeTracker {
-    // generate linear mapping
-    pub fn from_shape(dims: Vec<usize>) -> Self {
+    // generate full mapping
+    pub fn full(dims: Vec<usize>) -> Self {
         // calculate maps and strides
         let mut stride = 1;
         let mut maps = vec![];
@@ -40,5 +40,22 @@ impl ShapeTracker {
 
     pub fn ndim(&self) -> usize {
         self.axes.len()
+    }
+
+    // insert dimension
+    pub fn unsq(&mut self, dim: usize) {
+        let axis = Axis {
+            map: 0.into(),
+            max: 1.into(),
+        };
+        self.axes.insert(dim, axis);
+    }
+
+    pub fn permute(&mut self, idxs: Vec<usize>) {
+        let mut new_axes = vec![];
+        for i in idxs.iter() {
+            new_axes.push(self.axes[*i].clone())
+        }
+        self.axes = new_axes;
     }
 }

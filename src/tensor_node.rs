@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::sync::{Arc, Weak};
 
 #[derive(Debug)]
-struct TensorNodeStore {
+pub struct TensorNodeStore {
     shape_tracker: ShapeTracker,
     operator: Operator,
     inputs: Vec<TensorNode>,
