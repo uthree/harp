@@ -1,13 +1,11 @@
-pub mod graph;
-pub mod operator;
-pub mod shape;
-pub mod tensor_node;
-pub mod unique_id;
-pub mod util_macro;
+mod graph;
+mod operator;
+mod shape;
+mod tensor;
+
 pub mod prelude {
     pub use crate::graph::Graph;
+    pub use crate::operator::Operator;
     pub use crate::shape::tracker::ShapeTracker;
-    pub use crate::tensor_node::DataType;
-
-    pub use crate::s;
+    pub use crate::tensor::Tensor;
 }

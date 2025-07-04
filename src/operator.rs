@@ -1,25 +1,4 @@
-use std::fmt::Debug;
+pub trait Operator {}
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum Operator {
-    // Input node
-    Input,
-
-    // Unary Operators
-    Recip,
-    Sin,
-    Exp2,
-    Log2,
-    Sqrt,
-
-    // Binary Operators
-    Add,
-    Mul,
-    Rem,
-    LessThan,
-
-    // Dimensional Operators
-    SumReduce(usize),
-    MaxReduce(usize),
-    Contiguous,
-}
+pub struct Add {}
+impl Operator for Add {}
