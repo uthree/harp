@@ -1,11 +1,22 @@
+use crate::prelude::*;
 use std::{cell::RefCell, sync::Arc};
 
-#[derive(Debug, Clone)]
 pub struct Graph_ {
     id_counter: usize,
+    nodes: Vec<Tensor>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Graph {
-    content: Arc<RefCell<Graph>>,
+    content: Arc<RefCell<Graph_>>,
+}
+
+impl Graph {
+    pub fn new() -> Self {
+        let content = Graph_ {
+            id_counter: 0,
+            nodes: vec![],
+        };
+        let content = Arc::new(RefCell::new(content));
+        Graph { content }
+    }
 }

@@ -1,7 +1,6 @@
 use crate::prelude::*;
 use crate::shape::symbolic::Expr;
 
-#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ShapeTracker {
     graph: Graph,
     map: Vec<Expr>,
