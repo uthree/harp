@@ -9,7 +9,7 @@ pub struct ShapeTracker {
 
 impl ShapeTracker {
     // generate full mapping
-    pub(crate) fn full(graph: Graph, dims: Vec<Expr>) -> Self {
+    pub fn full(graph: Graph, dims: Vec<Expr>) -> Self {
         // calculate maps and strides
         let mut alu: Expr = 1.into();
         let mut maps = vec![];

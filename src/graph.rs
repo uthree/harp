@@ -1,9 +1,9 @@
 use crate::prelude::*;
+use crate::tensor::Tensor_;
 use std::{cell::RefCell, sync::Arc};
-use crate::tensor::Tensor_
 
 pub struct Graph_ {
-    id_counter: usize,
+    input_nodes: Vec<Tensor>,
     nodes: Vec<Tensor>,
 }
 
@@ -14,7 +14,7 @@ pub struct Graph {
 impl Graph {
     pub fn new() -> Self {
         let content = Graph_ {
-            id_counter: 0,
+            input_nodes: vec![],
             nodes: vec![],
         };
         let content = Arc::new(RefCell::new(content));
