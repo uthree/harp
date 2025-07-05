@@ -3,7 +3,7 @@ use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
     Index,
-    Var {},
+    Var(String),
     Int(isize),
 
     Add(Box<Self>, Box<Self>),
@@ -152,10 +152,16 @@ macro_rules! impl_from_int_for_expr {
     };
 }
 
-impl_from_int_for_expr!(i32, i64, usize, u32, u64);
+impl_from_int_for_expr!(i32, i64, usize, u32, u64, isize);
 
-impl From<isize> for Expr {
-    fn from(i: isize) -> Self {
-        Self::Int(i)
+impl From<&str> for Expr {
+    fn from(value: &str) -> Self {
+        Expr::Var(value.to_string())
+    }
+}
+
+impl From<String> for Expr {
+    fn from(value: String) -> Self {
+        Expr::Var(value)
     }
 }

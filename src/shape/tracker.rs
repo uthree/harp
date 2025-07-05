@@ -9,14 +9,14 @@ pub struct ShapeTracker {
 
 impl ShapeTracker {
     // generate full mapping
-    pub fn full(graph: Graph, dims: Vec<Expr>) -> Self {
+    pub(crate) fn full(graph: Graph, dims: Vec<Expr>) -> Self {
         // calculate maps and strides
         let mut alu: Expr = 1.into();
         let mut maps = vec![];
         let mut maxs = vec![];
         for d in dims.iter().rev() {
-            maps.push(Expr::Index * alu.clone());
-            maxs.push(d.clone());
+            maps.push((Expr::Index * alu.clone()).simplify());
+            maxs.push(d.clone().simplify());
             alu = alu * d.clone();
         }
         let maps = maps.iter().rev().map(|m| m.to_owned()).collect::<Vec<_>>();
