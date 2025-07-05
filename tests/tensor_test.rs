@@ -1,7 +1,5 @@
 use harp::graph::Graph;
-use harp::ops::Input;
 use harp::shape::symbolic::Expr;
-use harp::tensor::Tensor;
 
 #[test]
 fn test_tensor_downgrade_upgrade() {

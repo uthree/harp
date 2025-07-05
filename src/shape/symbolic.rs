@@ -1,4 +1,4 @@
-use std::ops::{Add, Div, Index, Mul, Neg, Rem, Sub};
+use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
