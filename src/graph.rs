@@ -6,6 +6,7 @@ use std::{cell::RefCell, sync::Arc, sync::Weak};
 pub struct GraphData {
     pub input_nodes: Vec<Tensor>,
     pub output_nodes: Vec<Tensor>,
+    pub inter_nodes: Vec<Tensor>,
 }
 
 pub struct Graph {
@@ -38,6 +39,7 @@ impl Graph {
         let content = GraphData {
             input_nodes: vec![],
             output_nodes: vec![],
+            inter_nodes: vec![],
         };
         let data = Arc::new(RefCell::new(content));
         Graph { data }
@@ -84,7 +86,7 @@ impl Clone for GraphRef {
     }
 }
 impl GraphRef {
-    fn upgrade(self) -> Option<Graph> {
+    pub fn upgrade(self) -> Option<Graph> {
         if let Some(data) = self.data.upgrade() {
             Some(Graph { data })
         } else {

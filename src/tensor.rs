@@ -34,6 +34,10 @@ impl Tensor {
             data: Arc::downgrade(&self.data),
         }
     }
+
+    pub fn graph(&self) -> GraphRef {
+        self.data.borrow().graph.clone()
+    }
 }
 
 impl TensorRef {
@@ -41,5 +45,46 @@ impl TensorRef {
     // Returns Some(Tensor) if the Tensor is still alive, otherwise None.
     pub fn upgrade(&self) -> Option<Tensor> {
         self.data.upgrade().map(|data| Tensor { data })
+    }
+
+    pub fn graph(&self) -> GraphRef {
+        self.upgrade()
+            .expect("TensorRef is dropped")
+            .data
+            .borrow()
+            .graph
+            .clone()
+    }
+}
+
+impl std::ops::Add for TensorRef {
+    type Output = TensorRef;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        let lhs_tensor = self.upgrade().expect("Left-hand side tensor is dropped");
+        let rhs_tensor = rhs.upgrade().expect("Right-hand side tensor is dropped");
+
+        let graph = lhs_tensor
+            .data
+            .borrow()
+            .graph
+            .clone()
+            .upgrade()
+            .expect("Graph is dropped");
+
+        let new_tensor_data = TensorData {
+            graph: graph.clone().downgrade(),
+            shape_tracker: lhs_tensor.data.borrow().shape_tracker.clone(), // Simplified: using lhs shape_tracker
+            inputs: vec![lhs_tensor.clone(), rhs_tensor],
+            operator: Box::new(crate::ops::Add {}),
+        };
+
+        let new_tensor = Tensor {
+            data: std::sync::Arc::new(std::cell::RefCell::new(new_tensor_data)),
+        };
+
+        graph.data.borrow_mut().inter_nodes.push(new_tensor.clone());
+
+        new_tensor.downgrade()
     }
 }
