@@ -1,7 +1,7 @@
-use harp::tensor::Tensor;
 use harp::graph::Graph;
 use harp::ops::Input;
 use harp::shape::symbolic::Expr;
+use harp::tensor::Tensor;
 
 #[test]
 fn test_tensor_downgrade_upgrade() {
@@ -13,8 +13,8 @@ fn test_tensor_downgrade_upgrade() {
     let upgraded_tensor = tensor_ref.upgrade().unwrap();
 
     assert_eq!(
-        tensor.content.borrow().shape_tracker,
-        upgraded_tensor.content.borrow().shape_tracker
+        tensor.data.borrow().shape_tracker,
+        upgraded_tensor.data.borrow().shape_tracker
     );
 }
 
@@ -26,8 +26,8 @@ fn test_tensor_clone() {
     let tensor_clone = tensor.clone();
 
     assert_eq!(
-        tensor.content.borrow().shape_tracker,
-        tensor_clone.content.borrow().shape_tracker
+        tensor.data.borrow().shape_tracker,
+        tensor_clone.data.borrow().shape_tracker
     );
     // Ensure they are different objects
     assert!(!std::ptr::eq(&tensor, &tensor_clone));

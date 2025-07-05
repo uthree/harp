@@ -17,7 +17,7 @@ fn test_graph_input() {
     assert_eq!(graph.data.borrow().input_nodes.len(), 1);
     assert_eq!(
         graph.data.borrow().input_nodes[0]
-            .content
+            .data
             .borrow()
             .shape_tracker
             .map,

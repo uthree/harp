@@ -52,7 +52,7 @@ impl Graph {
             operator: Box::new(Input {}),
         };
         let tensor = Tensor {
-            content: Arc::new(RefCell::new(tensor_data)),
+            data: Arc::new(RefCell::new(tensor_data)),
         };
         let mut data = self.data.borrow_mut();
         data.input_nodes.push(tensor.clone());

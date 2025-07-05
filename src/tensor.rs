@@ -19,19 +19,19 @@ pub struct TensorData {
 // It uses Arc<RefCell<>> to provide shared ownership and interior mutability.
 #[derive(Clone)]
 pub struct Tensor {
-    pub content: Arc<RefCell<TensorData>>,
+    pub data: Arc<RefCell<TensorData>>,
 }
 
 // A weak reference to a Tensor, which doesn't prevent the Tensor from being dropped.
 pub struct TensorRef {
-    content: Weak<RefCell<TensorData>>,
+    data: Weak<RefCell<TensorData>>,
 }
 
 impl Tensor {
     // Creates a weak reference (TensorRef) from a Tensor.
     pub fn downgrade(&self) -> TensorRef {
         TensorRef {
-            content: Arc::downgrade(&self.content),
+            data: Arc::downgrade(&self.data),
         }
     }
 }
@@ -40,6 +40,6 @@ impl TensorRef {
     // Attempts to upgrade a TensorRef to a Tensor.
     // Returns Some(Tensor) if the Tensor is still alive, otherwise None.
     pub fn upgrade(&self) -> Option<Tensor> {
-        self.content.upgrade().map(|content| Tensor { content })
+        self.data.upgrade().map(|data| Tensor { data })
     }
 }
