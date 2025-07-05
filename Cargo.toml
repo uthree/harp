@@ -5,6 +5,5 @@ edition = "2024"
 
 [workspace]
 members = [
-	"crates/macros",
 	"examples/*",
 ]

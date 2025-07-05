@@ -1,4 +1,5 @@
 mod graph;
+mod macros;
 mod ops;
 mod shape;
 mod tensor;
