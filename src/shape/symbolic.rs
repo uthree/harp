@@ -3,7 +3,7 @@ use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
     Index,
-    Var {},
+    Var(String),
     Int(isize),
 
     Add(Box<Self>, Box<Self>),

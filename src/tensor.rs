@@ -5,7 +5,8 @@ use std::{cell::RefCell, sync::Arc};
 pub struct Tensor_ {
     graph: Graph,
     shape_tracker: ShapeTracker,
-    operator: dyn Operator,
+    inputs: Vec<Tensor>,
+    operator: Box<dyn Operator>,
 }
 
 pub struct Tensor {
