@@ -12,3 +12,11 @@ pub struct Tensor_ {
 pub struct Tensor {
     content: Arc<RefCell<Tensor_>>,
 }
+
+impl Clone for Tensor {
+    fn clone(&self) -> Self {
+        Tensor {
+            content: self.content.clone(),
+        }
+    }
+}

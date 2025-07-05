@@ -1,5 +1,4 @@
 use crate::prelude::*;
-use crate::tensor::Tensor_;
 use std::{cell::RefCell, sync::Arc};
 
 pub struct Graph_ {
@@ -19,5 +18,13 @@ impl Graph {
         };
         let content = Arc::new(RefCell::new(content));
         Graph { content }
+    }
+}
+
+impl Clone for Graph {
+    fn clone(&self) -> Self {
+        Graph {
+            content: self.content.clone(),
+        }
     }
 }
