@@ -2,7 +2,7 @@ use crate::prelude::*;
 
 use std::{cell::RefCell, sync::Arc};
 
-pub struct Tensor_ {
+pub struct TensorData {
     graph: Graph,
     shape_tracker: ShapeTracker,
     inputs: Vec<Tensor>,
@@ -10,13 +10,13 @@ pub struct Tensor_ {
 }
 
 pub struct Tensor {
-    content: Arc<RefCell<Tensor_>>,
+    data: Arc<RefCell<TensorData>>,
 }
 
 impl Clone for Tensor {
     fn clone(&self) -> Self {
         Tensor {
-            content: self.content.clone(),
+            data: self.data.clone(),
         }
     }
 }

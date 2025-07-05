@@ -1,5 +1,8 @@
 pub trait Operator {}
 
+pub struct Input {}
+impl Operator for Input {}
+
 pub struct Add {}
 impl Operator for Add {}
 
