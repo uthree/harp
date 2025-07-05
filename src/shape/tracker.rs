@@ -2,14 +2,14 @@ use crate::prelude::*;
 use crate::shape::symbolic::Expr;
 
 pub struct ShapeTracker {
-    graph: Graph,
+    graph: GraphRef,
     map: Vec<Expr>,
     max: Vec<Expr>,
 }
 
 impl ShapeTracker {
     // generate full mapping
-    pub fn full(graph: Graph, dims: Vec<Expr>) -> Self {
+    pub fn full(graph: GraphRef, dims: Vec<Expr>) -> Self {
         // calculate maps and strides
         let mut alu: Expr = 1.into();
         let mut maps = vec![];

@@ -27,9 +27,9 @@ impl Graph {
     }
 
     pub fn input(&mut self, shape: Vec<Expr>) -> Tensor {
-        let shape_tracker = ShapeTracker::full(self.clone(), shape);
+        let shape_tracker = ShapeTracker::full(self.clone().downgrade(), shape);
         let tensor_data = TensorData {
-            graph: self.clone(),
+            graph: self.clone().downgrade(),
             shape_tracker: shape_tracker,
             inputs: vec![],
             operator: Box::new(Input {}),

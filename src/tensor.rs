@@ -1,4 +1,4 @@
-use crate::graph::Graph;
+use crate::graph::GraphRef;
 use crate::ops::Operator;
 use crate::prelude::ShapeTracker;
 
@@ -9,7 +9,7 @@ use std::{
 
 // This struct holds the actual data and computation graph information for a tensor.
 pub struct TensorData {
-    pub graph: Graph,
+    pub graph: GraphRef,
     pub shape_tracker: ShapeTracker,
     pub inputs: Vec<Tensor>,
     pub operator: Box<dyn Operator>,
