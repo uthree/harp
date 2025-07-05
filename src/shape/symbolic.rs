@@ -152,10 +152,16 @@ macro_rules! impl_from_int_for_expr {
     };
 }
 
-impl_from_int_for_expr!(i32, i64, usize, u32, u64);
+impl_from_int_for_expr!(i32, i64, usize, u32, u64, isize);
 
-impl From<isize> for Expr {
-    fn from(i: isize) -> Self {
-        Self::Int(i)
+impl From<&str> for Expr {
+    fn from(value: &str) -> Self {
+        Expr::Var(value.to_string())
+    }
+}
+
+impl From<String> for Expr {
+    fn from(value: String) -> Self {
+        Expr::Var(value)
     }
 }
