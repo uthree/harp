@@ -12,9 +12,26 @@ pub struct Graph {
     pub data: Arc<RefCell<GraphData>>,
 }
 
+#[derive(Debug)]
 pub struct GraphRef {
     pub data: Weak<RefCell<GraphData>>,
 }
+
+impl PartialEq for GraphRef {
+    fn eq(&self, other: &Self) -> bool {
+        self.clone()
+            .upgrade()
+            .and_then(|s| {
+                other
+                    .clone()
+                    .upgrade()
+                    .map(|o| Arc::ptr_eq(&s.data, &o.data))
+            })
+            .unwrap_or(false)
+    }
+}
+
+impl Eq for GraphRef {}
 
 impl Graph {
     pub fn new() -> Self {
@@ -52,7 +69,7 @@ impl Clone for Graph {
 }
 
 impl Graph {
-    fn downgrade(self) -> GraphRef {
+    pub fn downgrade(self) -> GraphRef {
         GraphRef {
             data: Arc::downgrade(&self.data),
         }

@@ -3,6 +3,14 @@ name = "harp"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+petgraph = "0.6"
+
+[dev-dependencies]
+
 [workspace]
 members = [
 	"examples/*",

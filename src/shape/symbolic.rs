@@ -1,4 +1,4 @@
-use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
+use std::ops::{Add, Div, Index, Mul, Neg, Rem, Sub};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
@@ -87,7 +87,8 @@ impl Expr {
                 Expr::Neg(inner_expr) => *inner_expr,
                 e => Expr::Neg(Box::new(e)),
             },
-            _ => self,
+            Expr::Index => Expr::Index,
+            Expr::Var(v) => Expr::Var(v),
         }
     }
 
@@ -109,6 +110,7 @@ impl Expr {
                 Expr::Rem(Box::new(a.replace(var, val)), Box::new(b.replace(var, val)))
             }
             Expr::Neg(a) => Expr::Neg(Box::new(a.replace(var, val))),
+            Expr::Var(s) if &s == var => val.clone(),
             _ => self,
         }
     }
