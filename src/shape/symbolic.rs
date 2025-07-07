@@ -93,30 +93,74 @@ impl Expr {
         }
     }
 
-    pub fn replace(self, var: &String, val: &Expr) -> Expr {
+    pub fn replace(self, old_expr: &Expr, new_expr: &Expr) -> Expr {
+        if &self == old_expr {
+            return new_expr.clone();
+        }
+
         match self {
             Expr::Add(a, b) => {
-                Expr::Add(Box::new(a.replace(var, val)), Box::new(b.replace(var, val)))
+                Expr::Add(Box::new(a.replace(old_expr, new_expr)), Box::new(b.replace(old_expr, new_expr)))
             }
             Expr::Sub(a, b) => {
-                Expr::Sub(Box::new(a.replace(var, val)), Box::new(b.replace(var, val)))
+                Expr::Sub(Box::new(a.replace(old_expr, new_expr)), Box::new(b.replace(old_expr, new_expr)))
             }
             Expr::Mul(a, b) => {
-                Expr::Mul(Box::new(a.replace(var, val)), Box::new(b.replace(var, val)))
+                Expr::Mul(Box::new(a.replace(old_expr, new_expr)), Box::new(b.replace(old_expr, new_expr)))
             }
             Expr::Div(a, b) => {
-                Expr::Div(Box::new(a.replace(var, val)), Box::new(b.replace(var, val)))
+                Expr::Div(Box::new(a.replace(old_expr, new_expr)), Box::new(b.replace(old_expr, new_expr)))
             }
             Expr::Rem(a, b) => {
-                Expr::Rem(Box::new(a.replace(var, val)), Box::new(b.replace(var, val)))
+                Expr::Rem(Box::new(a.replace(old_expr, new_expr)), Box::new(b.replace(old_expr, new_expr)))
             }
-            Expr::Neg(a) => Expr::Neg(Box::new(a.replace(var, val))),
-            Expr::Var(s) if &s == var => val.clone(),
-            _ => self,
+            Expr::Neg(a) => Expr::Neg(Box::new(a.replace(old_expr, new_expr))),
+            Expr::Index => self,
+            Expr::Var(_) => self,
+            Expr::Int(_) => self,
         }
     }
 }
 
+// New wrapper struct for Displaying Expr with dimension context
+pub struct DisplayExprWithDim<'a> {
+    pub expr: &'a Expr,
+    pub dim: Option<usize>,
+}
+
+impl<'a> fmt::Display for DisplayExprWithDim<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.expr {
+            Expr::Index => {
+                if let Some(d) = self.dim {
+                    write!(f, "idx{}", d)
+                } else {
+                    write!(f, "idx") // Fallback if dim is not provided
+                }
+            },
+            Expr::Var(s) => write!(f, "{}", s),
+            Expr::Int(i) => write!(f, "{}", i),
+            Expr::Add(a, b) => write!(f, "({} + {})",
+                                      DisplayExprWithDim { expr: a, dim: self.dim },
+                                      DisplayExprWithDim { expr: b, dim: self.dim }),
+            Expr::Sub(a, b) => write!(f, "({} - {})",
+                                      DisplayExprWithDim { expr: a, dim: self.dim },
+                                      DisplayExprWithDim { expr: b, dim: self.dim }),
+            Expr::Mul(a, b) => write!(f, "({} * {})",
+                                      DisplayExprWithDim { expr: a, dim: self.dim },
+                                      DisplayExprWithDim { expr: b, dim: self.dim }),
+            Expr::Div(a, b) => write!(f, "({} / {})",
+                                      DisplayExprWithDim { expr: a, dim: self.dim },
+                                      DisplayExprWithDim { expr: b, dim: self.dim }),
+            Expr::Rem(a, b) => write!(f, "({} % {})",
+                                      DisplayExprWithDim { expr: a, dim: self.dim },
+                                      DisplayExprWithDim { expr: b, dim: self.dim }),
+            Expr::Neg(a) => write!(f, "(-{})", DisplayExprWithDim { expr: a, dim: self.dim }),
+        }
+    }
+}
+
+// Original Display implementation for Expr (for cases where dim context is not needed)
 impl fmt::Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
