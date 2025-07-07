@@ -122,45 +122,6 @@ impl Expr {
     }
 }
 
-// New wrapper struct for Displaying Expr with dimension context
-pub struct DisplayExprWithDim<'a> {
-    pub expr: &'a Expr,
-    pub dim: Option<usize>,
-}
-
-impl<'a> fmt::Display for DisplayExprWithDim<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.expr {
-            Expr::Index => {
-                if let Some(d) = self.dim {
-                    write!(f, "idx{}", d)
-                } else {
-                    write!(f, "idx") // Fallback if dim is not provided
-                }
-            },
-            Expr::Var(s) => write!(f, "{}", s),
-            Expr::Int(i) => write!(f, "{}", i),
-            Expr::Add(a, b) => write!(f, "({} + {})",
-                                      DisplayExprWithDim { expr: a, dim: self.dim },
-                                      DisplayExprWithDim { expr: b, dim: self.dim }),
-            Expr::Sub(a, b) => write!(f, "({} - {})",
-                                      DisplayExprWithDim { expr: a, dim: self.dim },
-                                      DisplayExprWithDim { expr: b, dim: self.dim }),
-            Expr::Mul(a, b) => write!(f, "({} * {})",
-                                      DisplayExprWithDim { expr: a, dim: self.dim },
-                                      DisplayExprWithDim { expr: b, dim: self.dim }),
-            Expr::Div(a, b) => write!(f, "({} / {})",
-                                      DisplayExprWithDim { expr: a, dim: self.dim },
-                                      DisplayExprWithDim { expr: b, dim: self.dim }),
-            Expr::Rem(a, b) => write!(f, "({} % {})",
-                                      DisplayExprWithDim { expr: a, dim: self.dim },
-                                      DisplayExprWithDim { expr: b, dim: self.dim }),
-            Expr::Neg(a) => write!(f, "(-{})", DisplayExprWithDim { expr: a, dim: self.dim }),
-        }
-    }
-}
-
-// Original Display implementation for Expr (for cases where dim context is not needed)
 impl fmt::Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {

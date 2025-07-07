@@ -1,4 +1,4 @@
-use crate::{node::Node, operator, shape::tracker::ShapeTracker, tensor::Tensor};
+use crate::{node::Node, operator, shape::{symbolic::Expr, tracker::ShapeTracker}, tensor::Tensor};
 use petgraph::{
     Direction,
     graph::{DiGraph, NodeIndex},
@@ -87,10 +87,21 @@ impl Graph {
             &|_, node_data: (NodeIndex, &Node)| {
                 let id = node_data.0;
                 let node = node_data.1;
-                let mut attrs = vec![format!("label = \"{:?}\n{}\"", node.op(), node.shape)];
+
+                // Create a temporary ShapeTracker with replaced Index expressions
+                let mut temp_shape = node.shape.clone();
+                for (i, expr) in temp_shape.map.iter_mut().enumerate() {
+                    *expr = expr.clone().replace(&Expr::Index, &Expr::Var(format!("idx{}", i)));
+                }
+                for (i, expr) in temp_shape.max.iter_mut().enumerate() {
+                    *expr = expr.clone().replace(&Expr::Index, &Expr::Var(format!("idx{}", i)));
+                }
+
+                let mut attrs = vec![format!("label = \"{:?}\n{}\"", node.op(), temp_shape)];
                 if outputs.contains(&id) {
                     attrs.push("peripheries=2".to_string());
-                } else if inputs.contains(&id) {
+                }
+                else if inputs.contains(&id) {
                     attrs.push("style=filled".to_string());
                     attrs.push("fillcolor=lightgray".to_string());
                 }
