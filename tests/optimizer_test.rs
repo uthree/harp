@@ -331,14 +331,14 @@ fn test_constant_folding_complex() {
     let b_data = TensorData(ArrayD::from_elem(vec![1], 3.0));
     let c_data = TensorData(ArrayD::from_elem(vec![1], 4.0));
 
-    let a = Node::new(operator::Const { data: a_data }, shape.clone());
-    let b = Node::new(operator::Const { data: b_data }, shape.clone());
-    let c = Node::new(operator::Const { data: c_data }, shape.clone());
+    let a = Graph::new_const(graph.clone(), a_data, shape.clone());
+    let b = Graph::new_const(graph.clone(), b_data, shape.clone());
+    let c = Graph::new_const(graph.clone(), c_data, shape.clone());
 
     let mut g = graph.lock().unwrap();
-    let a_idx = g.add_node(a);
-    let b_idx = g.add_node(b);
-    let c_idx = g.add_node(c);
+    let a_idx = a.node_index;
+    let b_idx = b.node_index;
+    let c_idx = c.node_index;
 
     // (a + b) * c
     let add_node = Node::new(operator::Add, shape.clone());

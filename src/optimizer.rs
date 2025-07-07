@@ -42,6 +42,7 @@ impl GraphOptimizer for EliminateUnusedNodes {
 
         // Remove identified unused nodes from the graph.
         for node_idx in nodes_to_remove {
+            println!("EliminateUnusedNodes: Removing unused node: {:?}", node_idx);
             graph.graph.remove_node(node_idx);
         }
     }
@@ -88,13 +89,18 @@ impl GraphOptimizer for ConstantFolding {
             }
 
             for (parent_idx, _arg_idx) in &incoming_edges {
-                let parent_node = graph.node_weight(*parent_idx).unwrap();
-                if let Some(const_op) = parent_node.op().as_any().downcast_ref::<operator::Const>()
-                {
-                    parent_eval_data.insert(*parent_idx, const_op.data.clone());
+                // Check if the parent has already been folded into a constant in this pass.
+                if let Some(folded_data) = nodes_to_fold.get(parent_idx) {
+                    parent_eval_data.insert(*parent_idx, folded_data.clone());
                 } else {
-                    all_parents_are_const = false;
-                    break;
+                    let parent_node = graph.node_weight(*parent_idx).unwrap();
+                    if let Some(const_op) = parent_node.op().as_any().downcast_ref::<operator::Const>()
+                    {
+                        parent_eval_data.insert(*parent_idx, const_op.data.clone());
+                    } else {
+                        all_parents_are_const = false;
+                        break;
+                    }
                 }
             }
 
@@ -164,6 +170,7 @@ impl GraphOptimizer for ConstantFolding {
 
         // Remove the old nodes that have been replaced by new constant nodes.
         for (old_node_idx, _) in old_to_new_node_map {
+            println!("ConstantFolding: Removing old node: {:?}", old_node_idx);
             graph.graph.remove_node(old_node_idx);
         }
     }

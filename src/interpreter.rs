@@ -60,11 +60,7 @@ impl Interpreter {
         println!("Evaluating node: {node_index:?}");
         println!("Operator: {op:?}");
 
-        let result = if let Some(input_data) = local_inputs.get(&node_index) {
-            // If the node's value is provided locally (e.g., by ConstantFolding),
-            // use that value directly.
-            input_data.clone()
-        } else if let Some(input_data) = global_inputs.get(&node_index) {
+        let result = if let Some(input_data) = global_inputs.get(&node_index) {
             // If it's a global input node, use the provided input data.
             input_data.clone()
         } else if let Some(const_op) = op.as_any().downcast_ref::<operator::Const>() {
@@ -79,7 +75,11 @@ impl Interpreter {
 
             let mut parent_data = HashMap::<usize, TensorData>::new();
             for (parent_idx, arg_idx) in parents {
-                let data = self.evaluate(parent_idx, graph, global_inputs, &HashMap::new())?;
+                let data = if let Some(data) = local_inputs.get(&parent_idx) {
+                    data.clone()
+                } else {
+                    self.evaluate(parent_idx, graph, global_inputs, local_inputs)?
+                };
                 parent_data.insert(arg_idx, data);
             }
 
