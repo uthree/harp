@@ -1,5 +1,5 @@
-use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 use std::fmt;
+use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 
 /// Represents a symbolic expression for shape dimensions.
 ///
@@ -156,21 +156,26 @@ impl Expr {
         }
 
         match self {
-            Expr::Add(a, b) => {
-                Expr::Add(Box::new(a.replace(old_expr, new_expr)), Box::new(b.replace(old_expr, new_expr)))
-            }
-            Expr::Sub(a, b) => {
-                Expr::Sub(Box::new(a.replace(old_expr, new_expr)), Box::new(b.replace(old_expr, new_expr)))
-            }
-            Expr::Mul(a, b) => {
-                Expr::Mul(Box::new(a.replace(old_expr, new_expr)), Box::new(b.replace(old_expr, new_expr)))
-            }
-            Expr::Div(a, b) => {
-                Expr::Div(Box::new(a.replace(old_expr, new_expr)), Box::new(b.replace(old_expr, new_expr)))
-            }
-            Expr::Rem(a, b) => {
-                Expr::Rem(Box::new(a.replace(old_expr, new_expr)), Box::new(b.replace(old_expr, new_expr)))
-            }
+            Expr::Add(a, b) => Expr::Add(
+                Box::new(a.replace(old_expr, new_expr)),
+                Box::new(b.replace(old_expr, new_expr)),
+            ),
+            Expr::Sub(a, b) => Expr::Sub(
+                Box::new(a.replace(old_expr, new_expr)),
+                Box::new(b.replace(old_expr, new_expr)),
+            ),
+            Expr::Mul(a, b) => Expr::Mul(
+                Box::new(a.replace(old_expr, new_expr)),
+                Box::new(b.replace(old_expr, new_expr)),
+            ),
+            Expr::Div(a, b) => Expr::Div(
+                Box::new(a.replace(old_expr, new_expr)),
+                Box::new(b.replace(old_expr, new_expr)),
+            ),
+            Expr::Rem(a, b) => Expr::Rem(
+                Box::new(a.replace(old_expr, new_expr)),
+                Box::new(b.replace(old_expr, new_expr)),
+            ),
             Expr::Neg(a) => Expr::Neg(Box::new(a.replace(old_expr, new_expr))),
             Expr::Index => self,
             Expr::Var(_) => self,

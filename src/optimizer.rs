@@ -100,7 +100,9 @@ impl GraphOptimizer for ConstantFolding {
 
             if all_parents_are_const {
                 // If all parents are constants, evaluate this node.
-                if let Ok(result_data) = interpreter.evaluate(node_idx, &graph.graph, &HashMap::new(), &parent_eval_data) {
+                if let Ok(result_data) =
+                    interpreter.evaluate(node_idx, &graph.graph, &HashMap::new(), &parent_eval_data)
+                {
                     nodes_to_fold.insert(node_idx, result_data);
                 }
             }

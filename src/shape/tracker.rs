@@ -89,9 +89,19 @@ impl fmt::Display for ShapeTracker {
     ///
     /// This provides a human-readable representation of the shape and map.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Shape[({}), ({})]",
-            self.max.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", "),
-            self.map.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", "),
+        write!(
+            f,
+            "Shape[({}), ({})]",
+            self.max
+                .iter()
+                .map(|e| e.to_string())
+                .collect::<Vec<_>>()
+                .join(", "),
+            self.map
+                .iter()
+                .map(|e| e.to_string())
+                .collect::<Vec<_>>()
+                .join(", "),
         )
     }
 }

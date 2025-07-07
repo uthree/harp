@@ -1,4 +1,9 @@
-use crate::{node::Node, operator, shape::{symbolic::Expr, tracker::ShapeTracker}, tensor::Tensor};
+use crate::{
+    node::Node,
+    operator,
+    shape::{symbolic::Expr, tracker::ShapeTracker},
+    tensor::Tensor,
+};
 use petgraph::{
     Direction,
     graph::{DiGraph, NodeIndex},
@@ -14,7 +19,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Debug)]
 pub struct Graph {
     /// The underlying directed graph storing nodes and their connections.
-    pub graph: DiGraph<Node, (usize, usize)>,
+    pub graph: DiGraph<Node, (usize, usize)>, // The 0th element of Edge indicates which argument the edge is input as, and the 1st element indicates which output it is taking out.
     /// Indices of the output nodes in the graph.
     pub outputs: Vec<NodeIndex>,
     /// Indices of the input nodes in the graph.
@@ -151,7 +156,10 @@ impl Graph {
     /// # Arguments
     ///
     /// * `index` - The `NodeIndex` of the child node.
-    pub fn parents(&self, index: NodeIndex) -> impl Iterator<Item = (NodeIndex, (usize, usize))> + '_ {
+    pub fn parents(
+        &self,
+        index: NodeIndex,
+    ) -> impl Iterator<Item = (NodeIndex, (usize, usize))> + '_ {
         self.graph
             .edges_directed(index, Direction::Incoming)
             .map(|edge| (edge.source(), *edge.weight()))
@@ -172,10 +180,14 @@ impl Graph {
         for (id, node) in self.graph.node_indices().map(|i| (i, &self.graph[i])) {
             let mut temp_shape = node.shape.clone();
             for (i, expr) in temp_shape.map.iter_mut().enumerate() {
-                *expr = expr.clone().replace(&Expr::Index, &Expr::Var(format!("idx{}", i)));
+                *expr = expr
+                    .clone()
+                    .replace(&Expr::Index, &Expr::Var(format!("idx{}", i)));
             }
             for (i, expr) in temp_shape.max.iter_mut().enumerate() {
-                *expr = expr.clone().replace(&Expr::Index, &Expr::Var(format!("idx{}", i)));
+                *expr = expr
+                    .clone()
+                    .replace(&Expr::Index, &Expr::Var(format!("idx{}", i)));
             }
 
             let label = format!("{:?}\n{}", node.op(), temp_shape);
@@ -199,9 +211,7 @@ impl Graph {
             let label = format!("({}, {})", weight.0, weight.1);
             dot.push_str(&format!(
                 "    {} -> {} [label = \"{}\"]\n",
-                source,
-                target,
-                label
+                source, target, label
             ));
         }
 
