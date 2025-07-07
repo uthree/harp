@@ -1,6 +1,6 @@
 use crate::{
     node::Node,
-    operator::{self, BinaryOp, Operator, ReduceOp, UnaryOp},
+    operator::{self, Operator},
     tensor::TensorData,
 };
 use ndarray::{ArrayD, Axis};
@@ -50,88 +50,54 @@ impl Interpreter {
                 parent_data.insert(arg_idx, data);
             }
 
-            if let Some(unary_op) = op.as_any().downcast_ref::<dyn UnaryOp>() {
-                let input = parent_data
-                    .get(&0)
-                    .ok_or("Unary op missing input")?
-                    .0
-                    .clone();
-                let output = if unary_op.as_any().downcast_ref::<operator::Exp2>().is_some() {
-                    input.mapv(|x| 2.0f32.powf(x))
-                } else if unary_op.as_any().downcast_ref::<operator::Log2>().is_some() {
-                    input.mapv(|x| x.log2())
-                } else if unary_op.as_any().downcast_ref::<operator::Sin>().is_some() {
-                    input.mapv(|x| x.sin())
-                } else if unary_op.as_any().downcast_ref::<operator::Sqrt>().is_some() {
-                    input.mapv(|x| x.sqrt())
-                } else if unary_op
-                    .as_any()
-                    .downcast_ref::<operator::Recip>()
-                    .is_some()
-                {
-                    input.mapv(|x| 1.0 / x)
-                } else {
-                    return Err(format!("Unsupported unary op: {:?}", unary_op));
-                };
-                TensorData(output)
-            } else if let Some(binary_op) = op.as_any().downcast_ref::<dyn BinaryOp>() {
-                let lhs = parent_data
-                    .get(&0)
-                    .ok_or("Binary op missing lhs")?
-                    .0
-                    .clone();
-                let rhs = parent_data
-                    .get(&1)
-                    .ok_or("Binary op missing rhs")?
-                    .0
-                    .clone();
-                let output = if binary_op.as_any().downcast_ref::<operator::Add>().is_some() {
-                    lhs + rhs
-                } else if binary_op.as_any().downcast_ref::<operator::Mul>().is_some() {
-                    lhs * rhs
-                } else if binary_op.as_any().downcast_ref::<operator::Rem>().is_some() {
-                    lhs % rhs
-                } else if binary_op
-                    .as_any()
-                    .downcast_ref::<operator::LessThan>()
-                    .is_some()
-                {
-                    lhs.mapv(|a| if a < rhs[[0]] { 1.0 } else { 0.0 })
-                } else {
-                    return Err(format!("Unsupported binary op: {:?}", binary_op));
-                };
-                TensorData(output)
-            } else if let Some(reduce_op) = op.as_any().downcast_ref::<dyn ReduceOp>() {
-                let input = parent_data
-                    .get(&0)
-                    .ok_or("Reduce op missing input")?
-                    .0
-                    .clone();
-                let dim = reduce_op.dim();
-                let output = if reduce_op
-                    .as_any()
-                    .downcast_ref::<operator::SumReduce>()
-                    .is_some()
-                {
-                    input.sum_axis(Axis(dim))
-                } else if reduce_op
-                    .as_any()
-                    .downcast_ref::<operator::MaxReduce>()
-                    .is_some()
-                {
-                    input.fold_axis(Axis(dim), f32::MIN, |&acc, &x| acc.max(x))
-                } else {
-                    return Err(format!("Unsupported reduce op: {:?}", reduce_op));
-                };
-                TensorData(output.into_dyn())
-            } else if op.as_any().downcast_ref::<operator::Contiguous>().is_some() {
-                // Contiguous: For now, assume it's already contiguous or handle simple cases.
-                // This is a movement op, actual data manipulation depends on ShapeTracker.
-                // For interpreter, we might just return the input data as is if shapes match.
-                parent_data
-                    .get(&0)
-                    .ok_or("Contiguous op missing input")?
-                    .clone()
+            // Handle Unary Operators
+            if op.as_any().downcast_ref::<operator::Exp2>().is_some() {
+                let input = parent_data.get(&0).ok_or("Exp2 op missing input")?.0.clone();
+                TensorData(input.mapv(|x| 2.0f32.powf(x)))
+            } else if op.as_any().downcast_ref::<operator::Log2>().is_some() {
+                let input = parent_data.get(&0).ok_or("Log2 op missing input")?.0.clone();
+                TensorData(input.mapv(|x| x.log2()))
+            } else if op.as_any().downcast_ref::<operator::Sin>().is_some() {
+                let input = parent_data.get(&0).ok_or("Sin op missing input")?.0.clone();
+                TensorData(input.mapv(|x| x.sin()))
+            } else if op.as_any().downcast_ref::<operator::Sqrt>().is_some() {
+                let input = parent_data.get(&0).ok_or("Sqrt op missing input")?.0.clone();
+                TensorData(input.mapv(|x| x.sqrt()))
+            } else if op.as_any().downcast_ref::<operator::Recip>().is_some() {
+                let input = parent_data.get(&0).ok_or("Recip op missing input")?.0.clone();
+                TensorData(input.mapv(|x| 1.0 / x))
+            }
+            // Handle Binary Operators
+            else if op.as_any().downcast_ref::<operator::Add>().is_some() {
+                let lhs = parent_data.get(&0).ok_or("Add op missing lhs")?.0.clone();
+                let rhs = parent_data.get(&1).ok_or("Add op missing rhs")?.0.clone();
+                TensorData(lhs + rhs)
+            } else if op.as_any().downcast_ref::<operator::Mul>().is_some() {
+                let lhs = parent_data.get(&0).ok_or("Mul op missing lhs")?.0.clone();
+                let rhs = parent_data.get(&1).ok_or("Mul op missing rhs")?.0.clone();
+                TensorData(lhs * rhs)
+            } else if op.as_any().downcast_ref::<operator::Rem>().is_some() {
+                let lhs = parent_data.get(&0).ok_or("Rem op missing lhs")?.0.clone();
+                let rhs = parent_data.get(&1).ok_or("Rem op missing rhs")?.0.clone();
+                TensorData(lhs % rhs)
+            } else if op.as_any().downcast_ref::<operator::LessThan>().is_some() {
+                let lhs = parent_data.get(&0).ok_or("LessThan op missing lhs")?.0.clone();
+                let rhs = parent_data.get(&1).ok_or("LessThan op missing rhs")?.0.clone();
+                TensorData(lhs.mapv(|a| if a < rhs[[0]] { 1.0 } else { 0.0 }))
+            }
+            // Handle Reduce Operators
+            else if let Some(sum_reduce_op) = op.as_any().downcast_ref::<operator::SumReduce>() {
+                let input = parent_data.get(&0).ok_or("SumReduce op missing input")?.0.clone();
+                let dim = sum_reduce_op.dim; // Access dim directly from concrete type
+                TensorData(input.sum_axis(Axis(dim)).into_dyn())
+            } else if let Some(max_reduce_op) = op.as_any().downcast_ref::<operator::MaxReduce>() {
+                let input = parent_data.get(&0).ok_or("MaxReduce op missing input")?.0.clone();
+                let dim = max_reduce_op.dim; // Access dim directly from concrete type
+                TensorData(input.fold_axis(Axis(dim), f32::MIN, |&acc, &x| acc.max(x)).into_dyn())
+            }
+            // Handle Movement Operators
+            else if op.as_any().downcast_ref::<operator::Contiguous>().is_some() {
+                parent_data.get(&0).ok_or("Contiguous op missing input")?.clone()
             } else {
                 return Err(format!("Unsupported operator for interpretation: {:?}", op));
             }

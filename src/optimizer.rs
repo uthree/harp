@@ -55,12 +55,7 @@ impl GraphOptimizer for ConstantFolding {
                 if let Some(const_op) = parent_node.op().as_any().downcast_ref::<operator::Const>()
                 {
                     parent_data.insert(edge.source(), const_op.data.clone());
-                } else if parent_node
-                    .op()
-                    .as_any()
-                    .downcast_ref::<operator::Input>()
-                    .is_some()
-                {
+                } else if parent_node.op().as_any().downcast_ref::<operator::Input>().is_some() {
                     all_parents_are_const_or_input = false;
                     break;
                 } else {
