@@ -12,6 +12,12 @@ pub struct Interpreter {
     cache: HashMap<NodeIndex, TensorData>,
 }
 
+impl Default for Interpreter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Interpreter {
     /// Creates a new `Interpreter` with an empty cache.
     pub fn new() -> Self {
@@ -51,8 +57,8 @@ impl Interpreter {
 
         let node = graph.node_weight(node_index).ok_or("Node not found")?;
         let op = node.op();
-        println!("Evaluating node: {:?}", node_index);
-        println!("Operator: {:?}", op);
+        println!("Evaluating node: {node_index:?}");
+        println!("Operator: {op:?}");
 
         let result = if let Some(input_data) = local_inputs.get(&node_index) {
             // If the node's value is provided locally (e.g., by ConstantFolding),
@@ -165,7 +171,7 @@ impl Interpreter {
                     .ok_or("Contiguous op missing input")?
                     .clone()
             } else {
-                return Err(format!("Unsupported operator for interpretation: {:?}", op));
+                return Err(format!("Unsupported operator for interpretation: {op:?}"));
             }
         };
 

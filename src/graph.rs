@@ -182,12 +182,12 @@ impl Graph {
             for (i, expr) in temp_shape.map.iter_mut().enumerate() {
                 *expr = expr
                     .clone()
-                    .replace(&Expr::Index, &Expr::Var(format!("idx{}", i)));
+                    .replace(&Expr::Index, &Expr::Var(format!("idx{i}")));
             }
             for (i, expr) in temp_shape.max.iter_mut().enumerate() {
                 *expr = expr
                     .clone()
-                    .replace(&Expr::Index, &Expr::Var(format!("idx{}", i)));
+                    .replace(&Expr::Index, &Expr::Var(format!("idx{i}")));
             }
 
             let label = format!("{:?}\n{}", node.op(), temp_shape);
@@ -210,12 +210,11 @@ impl Graph {
             let weight = edge.weight();
             let label = format!("({}, {})", weight.0, weight.1);
             dot.push_str(&format!(
-                "    {} -> {} [label = \"{}\"]\n",
-                source, target, label
+                "    {source} -> {target} [label = \"{label}\"]\n"
             ));
         }
 
-        dot.push_str("}");
+        dot.push('}');
         dot
     }
 

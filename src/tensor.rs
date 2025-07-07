@@ -200,7 +200,7 @@ impl Tensor {
 
 // --- Binary Ops ---
 
-impl<'a, 'b> Add<&'b Tensor> for &'a Tensor {
+impl<'b> Add<&'b Tensor> for &Tensor {
     type Output = Tensor;
     /// Overloads the `+` operator for tensor addition.
     ///
@@ -233,7 +233,7 @@ impl<'a, 'b> Add<&'b Tensor> for &'a Tensor {
     }
 }
 
-impl<'a, 'b> Mul<&'b Tensor> for &'a Tensor {
+impl<'b> Mul<&'b Tensor> for &Tensor {
     type Output = Tensor;
     /// Overloads the `*` operator for tensor multiplication.
     ///
@@ -251,7 +251,7 @@ impl<'a, 'b> Mul<&'b Tensor> for &'a Tensor {
     }
 }
 
-impl<'a, 'b> Rem<&'b Tensor> for &'a Tensor {
+impl<'b> Rem<&'b Tensor> for &Tensor {
     type Output = Tensor;
     /// Overloads the `%` operator for tensor remainder.
     ///
