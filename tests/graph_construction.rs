@@ -91,3 +91,29 @@ fn test_simple_graph_construction() {
     assert_eq!(e_parents.len(), 1);
     assert_eq!(e_parents[0], (d.node_index, 0)); // d is 0th arg
 }
+
+#[test]
+fn test_to_dot_output() {
+    let graph = Arc::new(Mutex::new(Graph::new()));
+    let shape = ShapeTracker::full(vec![1.into(), 1.into()]);
+
+    let a = Graph::new_input(graph.clone(), shape.clone());
+    let b = Graph::new_input(graph.clone(), shape.clone());
+    let c = &a + &b;
+    let e = c.exp2();
+
+    graph.lock().unwrap().add_output(&e);
+
+    let g = graph.lock().unwrap();
+    let dot_output = g.to_dot();
+
+    // Basic checks for expected strings in the DOT output
+    assert!(dot_output.contains("Input\nShape[(1, 1), (idx0, idx1)]"));
+    assert!(dot_output.contains("Add\nShape[(1, 1), (idx0, idx1)]"));
+    assert!(dot_output.contains("Exp2\nShape[(1, 1), (idx0, idx1)]"));
+    assert!(dot_output.contains("peripheries=2")); // Output node style
+    assert!(dot_output.contains("style=filled")); // Input node style
+    assert!(dot_output.contains("fillcolor=lightgray")); // Input node style
+    assert!(dot_output.contains("label = \"0\"")); // Edge label
+    assert!(dot_output.contains("label = \"1\"")); // Edge label
+}
