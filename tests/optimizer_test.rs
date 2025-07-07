@@ -198,7 +198,7 @@ fn test_interpreter_reduce_ops() {
     let result = interpreter
         .evaluate(sum_reduce_idx_0, &g.graph, &inputs, &HashMap::new())
         .unwrap();
-    assert_eq!(result.0.into_raw_vec(), vec![5.0, 7.0, 9.0]); // [1+4, 2+5, 3+6]
+    assert_eq!(result.0.into_raw_vec_and_offset().0, vec![5.0, 7.0, 9.0]); // [1+4, 2+5, 3+6]
 
     // SumReduce dim 1
     let sum_reduce_node_1 = Node::new(
@@ -210,7 +210,7 @@ fn test_interpreter_reduce_ops() {
     let result = interpreter
         .evaluate(sum_reduce_idx_1, &g.graph, &inputs, &HashMap::new())
         .unwrap();
-    assert_eq!(result.0.into_raw_vec(), vec![6.0, 15.0]); // [1+2+3, 4+5+6]
+    assert_eq!(result.0.into_raw_vec_and_offset().0, vec![6.0, 15.0]); // [1+2+3, 4+5+6]
 
     // MaxReduce dim 0
     let max_reduce_node_0 = Node::new(
@@ -248,7 +248,7 @@ fn test_eliminate_unused_nodes() {
     let _d = &a * &b; // Unused
 
     // Mark c as an output
-    graph.lock().unwrap().add_output(&c);
+    Graph::add_output_node(graph.clone(), &c);
 
     let initial_node_count = graph.lock().unwrap().node_count();
     assert_eq!(initial_node_count, 4); // a, b, c, d

@@ -80,16 +80,17 @@ impl Tensor {
     /// # Examples
     ///
     /// ```
+    /// ```
     /// use std::sync::{Arc, Mutex};
     /// use harp::graph::Graph;
     /// use harp::shape::tracker::ShapeTracker;
     ///
     /// let graph_arc = Arc::new(Mutex::new(Graph::new()));
-    /// let input_shape = ShapeTracker::new(vec![2, 2]);
+    /// let input_shape: ShapeTracker = vec![2, 2].into();
     /// let input_tensor = Graph::new_input(graph_arc.clone(), input_shape);
     /// let result_tensor = input_tensor.exp2();
     /// // The graph now contains nodes for input and exp2 operation.
-    /// ```
+    /// ``` ```
     pub fn exp2(&self) -> Self {
         Self::new(
             self.graph.clone(),
@@ -218,17 +219,18 @@ impl<'b> Add<&'b Tensor> for &Tensor {
     /// # Examples
     ///
     /// ```
+    /// ```
     /// use std::sync::{Arc, Mutex};
     /// use harp::graph::Graph;
     /// use harp::shape::tracker::ShapeTracker;
     ///
     /// let graph_arc = Arc::new(Mutex::new(Graph::new()));
-    /// let shape = ShapeTracker::new(vec![2, 2]);
+    /// let shape: ShapeTracker = vec![2, 2].into();
     /// let a = Graph::new_input(graph_arc.clone(), shape.clone());
     /// let b = Graph::new_input(graph_arc.clone(), shape.clone());
     /// let c = &a + &b;
     /// // The graph now contains nodes for inputs and an addition operation.
-    /// ```
+    /// ``` ```
     fn add(self, rhs: &'b Tensor) -> Self::Output {
         // TODO: Broadcasting and shape calculation
         let new_shape = self.shape.clone();

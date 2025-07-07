@@ -148,7 +148,7 @@ fn test_to_dot_output() {
     let c = &a + &b;
     let e = c.exp2();
 
-    graph.lock().unwrap().add_output(&e);
+    Graph::add_output_node(graph.clone(), &e);
 
     let g = graph.lock().unwrap();
     let dot_output = g.to_dot();

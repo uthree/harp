@@ -57,7 +57,9 @@ impl ShapeTracker {
             map: maps,
         }
     }
+}
 
+impl From<Vec<usize>> for ShapeTracker {
     /// Creates a new `ShapeTracker` from a vector of integer dimensions.
     /// This is a convenience method that converts integers to `Expr::Int`.
     ///
@@ -74,11 +76,11 @@ impl ShapeTracker {
     /// ```
     /// use harp::shape::tracker::ShapeTracker;
     ///
-    /// let tracker = ShapeTracker::new(vec![2, 3, 4]);
+    /// let tracker: ShapeTracker = vec![2, 3, 4].into();
     /// assert_eq!(tracker.max.len(), 3);
     /// assert_eq!(tracker.map.len(), 3);
     /// ```
-    pub fn new(dims: Vec<usize>) -> Self {
+    fn from(dims: Vec<usize>) -> Self {
         Self::full(dims.into_iter().map(|d| d.into()).collect())
     }
 }

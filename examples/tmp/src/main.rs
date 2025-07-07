@@ -18,7 +18,7 @@ fn main() {
     let e = d.exp2(); // Exp2
 
     // 4. 出力ノードを指定
-    graph.lock().unwrap().add_output(&e);
+    Graph::add_output_node(graph.clone(), &e);
 
     // 5. 構築されたグラフをDOT形式で出力
     let g = graph.lock().unwrap();

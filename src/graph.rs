@@ -79,16 +79,17 @@ impl Graph {
     /// # Examples
     ///
     /// ```
+    /// ```
     /// use std::sync::{Arc, Mutex};
     /// use harp::graph::Graph;
     /// use harp::shape::tracker::ShapeTracker;
     ///
     /// let graph_arc = Arc::new(Mutex::new(Graph::new()));
-    /// let shape = ShapeTracker::new(vec![2, 3]);
+    /// let shape: ShapeTracker = vec![2, 3].into();
     /// let input_tensor = Graph::new_input(graph_arc.clone(), shape);
     ///
     /// assert_eq!(graph_arc.lock().unwrap().inputs.len(), 1);
-    /// ```
+    /// ``` ```
     pub fn new_input(graph: Arc<Mutex<Self>>, shape: ShapeTracker) -> Tensor {
         let mut graph_mut = graph.lock().unwrap();
         let node = Node::new(operator::Input, shape.clone());
@@ -166,6 +167,36 @@ impl Graph {
     /// * `tensor` - A reference to the `Tensor` to register as an output.
     pub fn add_output(&mut self, tensor: &Tensor) {
         self.outputs.push(tensor.node_index);
+    }
+
+    /// Registers a tensor as an output of the graph using an Arc<Mutex<Graph>>.
+    ///
+    /// This method simplifies the process of adding an output node to the graph
+    /// by handling the locking mechanism internally.
+    ///
+    /// # Arguments
+    ///
+    /// * `graph_arc` - An `Arc<Mutex<Self>>` reference to the graph.
+    /// * `tensor` - The `Tensor` to register as an output.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::{Arc, Mutex};
+    /// use harp::graph::Graph;
+    /// use harp::shape::tracker::ShapeTracker;
+    /// use harp::tensor::Tensor;
+    ///
+    /// let graph_arc = Arc::new(Mutex::new(Graph::new()));
+    /// let shape: ShapeTracker = vec![2, 3].into();
+    /// let input_tensor = Graph::new_input(graph_arc.clone(), shape);
+    ///
+    /// Graph::add_output_node(graph_arc.clone(), &input_tensor);
+    ///
+    /// assert_eq!(graph_arc.lock().unwrap().outputs.len(), 1);
+    /// ```
+    pub fn add_output_node(graph_arc: Arc<Mutex<Self>>, tensor: &Tensor) {
+        graph_arc.lock().unwrap().add_output(tensor);
     }
 
     // --- Accessors for testing and debugging ---

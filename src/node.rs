@@ -32,7 +32,7 @@ impl Node {
     /// use harp::operator::Input;
     /// use harp::shape::tracker::ShapeTracker;
     ///
-    /// let shape = ShapeTracker::new(vec![1, 2, 3]);
+    /// let shape: ShapeTracker = vec![1, 2, 3].into();
     /// let node = Node::new(Input, shape.clone());
     ///
     /// assert_eq!(format!("{:?}", node.op()), "Input");
