@@ -1,4 +1,10 @@
-use crate::{graph::Graph, interpreter::Interpreter, node::Node, operator, tensor::TensorData};
+use crate::{
+    graph::{EdgeMetadata, Graph},
+    interpreter::Interpreter,
+    node::Node,
+    operator,
+    tensor::TensorData,
+};
 use petgraph::{Direction, algo::toposort, graph::NodeIndex, visit::EdgeRef};
 use std::collections::HashMap;
 
@@ -79,7 +85,7 @@ impl GraphOptimizer for ConstantFolding {
             let incoming_edges: Vec<(NodeIndex, usize)> = graph
                 .graph
                 .edges_directed(node_idx, Direction::Incoming)
-                .map(|edge| (edge.source(), edge.weight().0))
+                .map(|edge| (edge.source(), edge.weight().arg_index))
                 .collect();
 
             // If a node has no incoming edges and is not an Input, it cannot be evaluated by interpreter.
@@ -94,7 +100,8 @@ impl GraphOptimizer for ConstantFolding {
                     parent_eval_data.insert(*parent_idx, folded_data.clone());
                 } else {
                     let parent_node = graph.node_weight(*parent_idx).unwrap();
-                    if let Some(const_op) = parent_node.op().as_any().downcast_ref::<operator::Const>()
+                    if let Some(const_op) =
+                        parent_node.op().as_any().downcast_ref::<operator::Const>()
                     {
                         parent_eval_data.insert(*parent_idx, const_op.data.clone());
                     } else {
@@ -116,7 +123,7 @@ impl GraphOptimizer for ConstantFolding {
 
         // Second pass: Perform the actual graph transformation (replace nodes).
         let mut old_to_new_node_map: HashMap<NodeIndex, NodeIndex> = HashMap::new();
-        let mut edges_to_add: Vec<(NodeIndex, NodeIndex, (usize, usize))> = Vec::new();
+        let mut edges_to_add: Vec<(NodeIndex, NodeIndex, EdgeMetadata)> = Vec::new();
         let mut edges_to_remove: Vec<(NodeIndex, NodeIndex)> = Vec::new();
 
         for (old_node_idx, new_const_data) in nodes_to_fold {

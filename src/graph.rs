@@ -11,6 +11,18 @@ use petgraph::{
 };
 use std::sync::{Arc, Mutex};
 
+/// Represents the metadata associated with an edge in the computation graph.
+///
+/// An edge connects a source node's output to a target node's input.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct EdgeMetadata {
+    /// The index of the argument (input) on the target node that this edge connects to.
+    pub arg_index: usize,
+    /// The index of the output on the source node that this edge originates from.
+    /// Currently, only 0 is supported as nodes are assumed to have a single output.
+    pub output_index: usize,
+}
+
 /// Represents a computation graph.
 ///
 /// A `Graph` consists of nodes (operations or data) and edges (data flow)
@@ -19,7 +31,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Debug)]
 pub struct Graph {
     /// The underlying directed graph storing nodes and their connections.
-    pub graph: DiGraph<Node, (usize, usize)>, // The 0th element of Edge indicates which argument the edge is input as, and the 1st element indicates which output it is taking out.
+    pub graph: DiGraph<Node, EdgeMetadata>,
     /// Indices of the output nodes in the graph.
     pub outputs: Vec<NodeIndex>,
     /// Indices of the input nodes in the graph.
@@ -137,7 +149,14 @@ impl Graph {
     /// * `to` - The `NodeIndex` of the destination node.
     /// * `arg_index` - The argument index for the edge, indicating which input of the `to` node this edge represents.
     pub fn add_edge(&mut self, from: NodeIndex, to: NodeIndex, arg_index: usize) {
-        self.graph.add_edge(from, to, (arg_index, 0));
+        self.graph.add_edge(
+            from,
+            to,
+            EdgeMetadata {
+                arg_index,
+                output_index: 0,
+            },
+        );
     }
 
     /// Registers a tensor as an output of the graph.
@@ -185,7 +204,7 @@ impl Graph {
     pub fn parents(
         &self,
         index: NodeIndex,
-    ) -> impl Iterator<Item = (NodeIndex, (usize, usize))> + '_ {
+    ) -> impl Iterator<Item = (NodeIndex, EdgeMetadata)> + '_ {
         self.graph
             .edges_directed(index, Direction::Incoming)
             .map(|edge| (edge.source(), *edge.weight()))
@@ -234,10 +253,8 @@ impl Graph {
             let source = edge.source().index();
             let target = edge.target().index();
             let weight = edge.weight();
-            let label = format!("({}, {})", weight.0, weight.1);
-            dot.push_str(&format!(
-                "    {source} -> {target} [label = \"{label}\"]\n"
-            ));
+            let label = format!("({}, {})", weight.arg_index, weight.output_index);
+            dot.push_str(&format!("    {source} -> {target} [label = \"{label}\"]\n"));
         }
 
         dot.push('}');

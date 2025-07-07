@@ -1,4 +1,4 @@
-use crate::{node::Node, operator, tensor::TensorData};
+use crate::{graph::EdgeMetadata, node::Node, operator, tensor::TensorData};
 use ndarray::Axis;
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
 use std::collections::HashMap;
@@ -46,7 +46,7 @@ impl Interpreter {
     pub fn evaluate(
         &mut self,
         node_index: NodeIndex,
-        graph: &petgraph::graph::DiGraph<Node, (usize, usize)>,
+        graph: &petgraph::graph::DiGraph<Node, EdgeMetadata>,
         global_inputs: &HashMap<NodeIndex, TensorData>,
         local_inputs: &HashMap<NodeIndex, TensorData>,
     ) -> Result<TensorData, String> {
@@ -70,7 +70,7 @@ impl Interpreter {
             // Evaluate based on operator type by recursively evaluating parent nodes.
             let parents: Vec<(NodeIndex, usize)> = graph
                 .edges_directed(node_index, petgraph::Direction::Incoming)
-                .map(|edge| (edge.source(), edge.weight().0))
+                .map(|edge| (edge.source(), edge.weight().arg_index))
                 .collect();
 
             let mut parent_data = HashMap::<usize, TensorData>::new();
