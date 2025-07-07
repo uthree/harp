@@ -1,4 +1,5 @@
 use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
+use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
@@ -112,6 +113,22 @@ impl Expr {
             Expr::Neg(a) => Expr::Neg(Box::new(a.replace(var, val))),
             Expr::Var(s) if &s == var => val.clone(),
             _ => self,
+        }
+    }
+}
+
+impl fmt::Display for Expr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Expr::Index => write!(f, "idx"),
+            Expr::Var(s) => write!(f, "{}", s),
+            Expr::Int(i) => write!(f, "{}", i),
+            Expr::Add(a, b) => write!(f, "({} + {})", a, b),
+            Expr::Sub(a, b) => write!(f, "({} - {})", a, b),
+            Expr::Mul(a, b) => write!(f, "({} * {})", a, b),
+            Expr::Div(a, b) => write!(f, "({} / {})", a, b),
+            Expr::Rem(a, b) => write!(f, "({} % {})", a, b),
+            Expr::Neg(a) => write!(f, "(-{})", a),
         }
     }
 }

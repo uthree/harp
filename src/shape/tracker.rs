@@ -1,4 +1,5 @@
 use crate::shape::symbolic::Expr;
+use std::fmt;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ShapeTracker {
@@ -24,5 +25,14 @@ impl ShapeTracker {
             max: maxs,
             map: maps,
         }
+    }
+}
+
+impl fmt::Display for ShapeTracker {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Shape[({}), ({})]",
+            self.max.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", "),
+            self.map.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", "),
+        )
     }
 }

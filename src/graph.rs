@@ -87,7 +87,7 @@ impl Graph {
             &|_, node_data: (NodeIndex, &Node)| {
                 let id = node_data.0;
                 let node = node_data.1;
-                let mut attrs = vec![format!("label = \"{:?}\n{:?}\"", node.op(), node.shape)];
+                let mut attrs = vec![format!("label = \"{:?}\n{}\"", node.op(), node.shape)];
                 if outputs.contains(&id) {
                     attrs.push("peripheries=2".to_string());
                 } else if inputs.contains(&id) {
