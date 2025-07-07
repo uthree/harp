@@ -29,11 +29,46 @@ fn test_simple_graph_construction() {
     assert_eq!(g.edge_count(), 4);
 
     // Check node types
-    assert!(g.node_weight(a.node_index).unwrap().op().as_any().downcast_ref::<Input>().is_some());
-    assert!(g.node_weight(b.node_index).unwrap().op().as_any().downcast_ref::<Input>().is_some());
-    assert!(g.node_weight(c.node_index).unwrap().op().as_any().downcast_ref::<Add>().is_some());
-    assert!(g.node_weight(d.node_index).unwrap().op().as_any().downcast_ref::<Mul>().is_some());
-    assert!(g.node_weight(e.node_index).unwrap().op().as_any().downcast_ref::<Exp2>().is_some());
+    assert!(
+        g.node_weight(a.node_index)
+            .unwrap()
+            .op()
+            .as_any()
+            .downcast_ref::<Input>()
+            .is_some()
+    );
+    assert!(
+        g.node_weight(b.node_index)
+            .unwrap()
+            .op()
+            .as_any()
+            .downcast_ref::<Input>()
+            .is_some()
+    );
+    assert!(
+        g.node_weight(c.node_index)
+            .unwrap()
+            .op()
+            .as_any()
+            .downcast_ref::<Add>()
+            .is_some()
+    );
+    assert!(
+        g.node_weight(d.node_index)
+            .unwrap()
+            .op()
+            .as_any()
+            .downcast_ref::<Mul>()
+            .is_some()
+    );
+    assert!(
+        g.node_weight(e.node_index)
+            .unwrap()
+            .op()
+            .as_any()
+            .downcast_ref::<Exp2>()
+            .is_some()
+    );
 
     // Check edges and argument order
     // c = a + b

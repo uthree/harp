@@ -62,6 +62,16 @@ impl Graph {
             .map(|edge| (edge.source(), *edge.weight()))
     }
 
+    pub fn to_dot(&self) -> String {
+        format!("{:?}", petgraph::dot::Dot::with_config(
+            &self.graph,
+            &[
+                petgraph::dot::Config::NodeNoLabel,
+                petgraph::dot::Config::EdgeNoLabel,
+            ],
+        ))
+    }
+
     pub fn optimize(&mut self) {
         // Implement optimization passes here, such as:
         // - Dead code elimination
