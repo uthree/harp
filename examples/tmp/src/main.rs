@@ -19,7 +19,10 @@ fn main() {
     let d = &c * &a; // Mul
     let e = d.exp2(); // Exp2
 
-    // 4. 構築されたグラフをDOT形式で出力
+    // 4. 出力ノードを指定
+    graph.lock().unwrap().add_output(&e);
+
+    // 5. 構築されたグラフをDOT形式で出力
     let g = graph.lock().unwrap();
     println!("{}", g.to_dot());
 }

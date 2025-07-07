@@ -6,9 +6,19 @@ use petgraph::{
 };
 use std::sync::{Arc, Mutex};
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Graph {
     pub graph: DiGraph<Node, usize>,
+    pub outputs: Vec<NodeIndex>,
+}
+
+impl Default for Graph {
+    fn default() -> Self {
+        Self {
+            graph: DiGraph::new(),
+            outputs: Vec::new(),
+        }
+    }
 }
 
 impl Graph {
@@ -36,6 +46,10 @@ impl Graph {
         self.graph.add_edge(from, to, arg_index);
     }
 
+    pub fn add_output(&mut self, tensor: &Tensor) {
+        self.outputs.push(tensor.node_index);
+    }
+
     // --- Accessors for testing and debugging ---
 
     pub fn node_count(&self) -> usize {
@@ -57,7 +71,25 @@ impl Graph {
     }
 
     pub fn to_dot(&self) -> String {
-        petgraph::dot::Dot::new(&self.graph).to_string()
+        let graph = &self.graph;
+        let outputs = &self.outputs;
+
+        petgraph::dot::Dot::with_attr_getters(
+            graph,
+            &[], // No global config
+            &|_, edge_data| {
+                format!("label = \"{}\"", edge_data.weight())
+            },
+            &|_, node_data: (NodeIndex, &Node)| {
+                let id = node_data.0;
+                let node = node_data.1;
+                let mut attrs = vec![format!("label = \"{:?}\n{:?}\"", node.op(), node.shape)];
+                if outputs.contains(&id) {
+                    attrs.push("peripheries=2".to_string());
+                }
+                attrs.join(", ")
+            },
+        ).to_string()
     }
 
     pub fn optimize(&mut self) {

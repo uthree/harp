@@ -59,6 +59,9 @@ fn test_eliminate_unused_nodes() {
     let c = &a + &b; // Used
     let d = &a * &b; // Unused
 
+    // Mark c as an output
+    graph.lock().unwrap().add_output(&c);
+
     let initial_node_count = graph.lock().unwrap().node_count();
     assert_eq!(initial_node_count, 4); // a, b, c, d
 

@@ -21,8 +21,8 @@ impl GraphOptimizer for EliminateUnusedNodes {
                 .edges_directed(*node_idx, Direction::Outgoing)
                 .count()
                 == 0
+                && !graph.outputs.contains(node_idx)
             {
-                // TODO: Properly identify output nodes that should not be removed.
                 nodes_to_remove.push(*node_idx);
             }
         }
