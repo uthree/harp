@@ -3,7 +3,7 @@ use petgraph::graph::{DiGraph, NodeIndex};
 
 #[derive(Debug, Default)]
 pub struct Graph {
-    graph: DiGraph<Node, ()>,
+    graph: DiGraph<Node, usize>,
 }
 
 impl Graph {
@@ -15,8 +15,8 @@ impl Graph {
         self.graph.add_node(node)
     }
 
-    pub fn add_edge(&mut self, from: NodeIndex, to: NodeIndex) {
-        self.graph.add_edge(from, to, ());
+    pub fn add_edge(&mut self, from: NodeIndex, to: NodeIndex, arg_index: usize) {
+        self.graph.add_edge(from, to, arg_index);
     }
 
     pub fn optimize(&mut self) {
