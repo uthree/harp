@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 pub struct Graph {
     pub graph: DiGraph<Node, usize>,
     pub outputs: Vec<NodeIndex>,
+    pub inputs: Vec<NodeIndex>,
 }
 
 impl Default for Graph {
@@ -17,6 +18,7 @@ impl Default for Graph {
         Self {
             graph: DiGraph::new(),
             outputs: Vec::new(),
+            inputs: Vec::new(),
         }
     }
 }
@@ -30,6 +32,7 @@ impl Graph {
         let mut graph_mut = graph.lock().unwrap();
         let node = Node::new(operator::Input, shape.clone());
         let node_index = graph_mut.add_node(node);
+        graph_mut.inputs.push(node_index);
 
         Tensor {
             graph: graph.clone(),
@@ -73,6 +76,7 @@ impl Graph {
     pub fn to_dot(&self) -> String {
         let graph = &self.graph;
         let outputs = &self.outputs;
+        let inputs = &self.inputs;
 
         petgraph::dot::Dot::with_attr_getters(
             graph,
@@ -86,6 +90,9 @@ impl Graph {
                 let mut attrs = vec![format!("label = \"{:?}\n{:?}\"", node.op(), node.shape)];
                 if outputs.contains(&id) {
                     attrs.push("peripheries=2".to_string());
+                } else if inputs.contains(&id) {
+                    attrs.push("style=filled".to_string());
+                    attrs.push("fillcolor=lightgray".to_string());
                 }
                 attrs.join(", ")
             },

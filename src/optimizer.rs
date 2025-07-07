@@ -22,6 +22,7 @@ impl GraphOptimizer for EliminateUnusedNodes {
                 .count()
                 == 0
                 && !graph.outputs.contains(node_idx)
+                && !graph.inputs.contains(node_idx)
             {
                 nodes_to_remove.push(*node_idx);
             }

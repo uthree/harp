@@ -130,3 +130,17 @@ fn test_constant_folding() {
     }
     assert!(found_folded_const);
 }
+
+#[test]
+fn test_graph_inputs() {
+    let graph = Arc::new(Mutex::new(Graph::new()));
+    let shape = ShapeTracker::full(vec![1.into()]);
+
+    let a = Graph::new_input(graph.clone(), shape.clone());
+    let b = Graph::new_input(graph.clone(), shape.clone());
+
+    let g = graph.lock().unwrap();
+    assert_eq!(g.inputs.len(), 2);
+    assert!(g.inputs.contains(&a.node_index));
+    assert!(g.inputs.contains(&b.node_index));
+}
