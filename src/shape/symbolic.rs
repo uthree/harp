@@ -2,7 +2,7 @@ use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
-    Index,
+    Index, // This represents a subscript, and its name is determined at compile time.
     Var(String),
     Int(isize),
 

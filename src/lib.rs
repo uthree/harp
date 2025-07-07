@@ -1,8 +1,8 @@
 pub mod graph;
 pub mod macros;
+pub mod node;
 pub mod operator;
 pub mod shape;
-pub mod tensor;
 
 pub mod prelude {
     pub use crate::graph::Graph;
