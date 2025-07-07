@@ -187,8 +187,11 @@ impl Tensor {
     ///
     /// A new `Tensor` representing the result of the max reduction.
     pub fn max_reduce(&self, dim: usize) -> Self {
-        // TODO: Calculate output shape properly
-        let new_shape = self.shape.clone();
+        let mut new_dims = self.shape.max.clone();
+        if dim < new_dims.len() {
+            new_dims.remove(dim);
+        }
+        let new_shape = ShapeTracker::full(new_dims);
         Self::new(
             self.graph.clone(),
             new_shape,

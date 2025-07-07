@@ -1,15 +1,12 @@
 use harp::{
     interpreter::Interpreter,
     node::Node,
-    operator::{
-        self, Add, Const, Exp2, Input, LessThan, Log2, MaxReduce, Mul, Recip, Rem, Sin, Sqrt,
-        SumReduce,
-    },
-    optimizer::{ConstantFolding, EliminateUnusedNodes, GraphOptimizer, OptimizerPipeline},
+    operator::{self},
+    optimizer::{ConstantFolding, EliminateUnusedNodes, GraphOptimizer},
     prelude::*,
     tensor::TensorData,
 };
-use ndarray::{ArrayD, Axis};
+use ndarray::ArrayD;
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -225,7 +222,7 @@ fn test_interpreter_reduce_ops() {
     let result = interpreter
         .evaluate(max_reduce_idx_0, &g.graph, &inputs, &HashMap::new())
         .unwrap();
-    assert_eq!(result.0.into_raw_vec(), vec![4.0, 5.0, 6.0]); // [max(1,4), max(2,5), max(3,6)]
+    assert_eq!(result.0.into_raw_vec_and_offset().0, vec![4.0, 5.0, 6.0]); // [max(1,4), max(2,5), max(3,6)]
 
     // MaxReduce dim 1
     let max_reduce_node_1 = Node::new(
@@ -237,7 +234,7 @@ fn test_interpreter_reduce_ops() {
     let result = interpreter
         .evaluate(max_reduce_idx_1, &g.graph, &inputs, &HashMap::new())
         .unwrap();
-    assert_eq!(result.0.into_raw_vec(), vec![3.0, 6.0]); // [max(1,2,3), max(4,5,6)]
+    assert_eq!(result.0.into_raw_vec_and_offset().0, vec![3.0, 6.0]); // [max(1,2,3), max(4,5,6)]
 }
 
 #[test]
@@ -248,7 +245,7 @@ fn test_eliminate_unused_nodes() {
     let a = Graph::new_input(graph.clone(), shape.clone());
     let b = Graph::new_input(graph.clone(), shape.clone());
     let c = &a + &b; // Used
-    let d = &a * &b; // Unused
+    let _d = &a * &b; // Unused
 
     // Mark c as an output
     graph.lock().unwrap().add_output(&c);
