@@ -1,29 +1,53 @@
 use crate::{
     node::Node,
-    operator::{self, Operator},
+    operator,
     tensor::TensorData,
 };
-use ndarray::{ArrayD, Axis};
+use ndarray::Axis;
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
 use std::collections::HashMap;
 
+/// Interprets a computation graph and evaluates nodes.
+///
+/// The `Interpreter` traverses the graph, evaluating each node's operation
+/// and caching the results to avoid redundant computations.
 pub struct Interpreter {
+    /// A cache to store the computed `TensorData` for each `NodeIndex`.
     cache: HashMap<NodeIndex, TensorData>,
 }
 
 impl Interpreter {
+    /// Creates a new `Interpreter` with an empty cache.
     pub fn new() -> Self {
         Self {
             cache: HashMap::new(),
         }
     }
 
+    /// Evaluates the tensor data for a given node in the computation graph.
+    ///
+    /// This method recursively evaluates the node's dependencies (parents)
+    /// and applies the corresponding operator to produce the result.
+    /// Results are cached to optimize subsequent evaluations of the same node.
+    ///
+    /// # Arguments
+    ///
+    /// * `node_index` - The `NodeIndex` of the node to evaluate.
+    /// * `graph` - A reference to the `petgraph::graph::DiGraph` representing the computation graph.
+    /// * `inputs` - A `HashMap` containing initial `TensorData` for input nodes.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` which is `Ok(TensorData)` if the evaluation is successful,
+    /// or `Err(String)` if an error occurs (e.g., node not found, missing input,
+    /// or unsupported operator).
     pub fn evaluate(
         &mut self,
         node_index: NodeIndex,
         graph: &petgraph::graph::DiGraph<Node, usize>,
         inputs: &HashMap<NodeIndex, TensorData>,
     ) -> Result<TensorData, String> {
+        // If the result is already in the cache, return it directly.
         if let Some(data) = self.cache.get(&node_index) {
             return Ok(data.clone());
         }
@@ -32,13 +56,13 @@ impl Interpreter {
         let op = node.op();
 
         let result = if let Some(input_data) = inputs.get(&node_index) {
-            // If it's an input node, use the provided input data
+            // If it's an input node, use the provided input data.
             input_data.clone()
         } else if let Some(const_op) = op.as_any().downcast_ref::<operator::Const>() {
-            // If it's a constant node, use its internal data
+            // If it's a constant node, use its internal data.
             const_op.data.clone()
         } else {
-            // Evaluate based on operator type
+            // Evaluate based on operator type by recursively evaluating parent nodes.
             let parents: Vec<(NodeIndex, usize)> = graph
                 .edges_directed(node_index, petgraph::Direction::Incoming)
                 .map(|edge| (edge.source(), *edge.weight()))
