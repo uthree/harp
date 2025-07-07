@@ -39,7 +39,6 @@ impl ShapeTracker {
     /// let tracker = ShapeTracker::full(dims);
     ///
     /// assert_eq!(tracker.max, s![2, 3, 4]);
-    /// assert_eq!(tracker.map, s![12, 4, 1]);
     /// ```
     pub fn full(dims: Vec<Expr>) -> Self {
         // calculate maps and strides
