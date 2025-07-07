@@ -26,7 +26,7 @@ impl Tensor {
         inputs: &[&Tensor],
     ) -> Self {
         let mut graph_mut = graph.lock().unwrap();
-        let node = Node::new(op);
+        let node = Node::new(op, shape.clone());
         let node_index = graph_mut.add_node(node);
 
         for (i, input) in inputs.iter().enumerate() {

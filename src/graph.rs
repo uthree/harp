@@ -23,7 +23,7 @@ impl Graph {
 
     pub fn new_input(graph: Arc<Mutex<Self>>, shape: ShapeTracker) -> Tensor {
         let mut graph_mut = graph.lock().unwrap();
-        let node = Node::new(operator::Input);
+        let node = Node::new(operator::Input, shape.clone());
         let node_index = graph_mut.add_node(node);
 
         Tensor {
@@ -63,13 +63,7 @@ impl Graph {
     }
 
     pub fn to_dot(&self) -> String {
-        format!("{:?}", petgraph::dot::Dot::with_config(
-            &self.graph,
-            &[
-                petgraph::dot::Config::NodeNoLabel,
-                petgraph::dot::Config::EdgeNoLabel,
-            ],
-        ))
+        petgraph::dot::Dot::new(&self.graph).to_string()
     }
 
     pub fn optimize(&mut self) {
