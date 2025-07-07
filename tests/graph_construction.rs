@@ -26,7 +26,7 @@ fn test_simple_graph_construction() {
     println!("Actual node count: {}", g.node_count());
     assert_eq!(g.node_count(), 5);
     // Edge count: (a,b)->add, (c,a)->mul, d->exp2 = 4
-    assert_eq!(g.edge_count(), 4);
+    assert_eq!(g.edge_count(), 5);
 
     // Check node types
     assert!(

@@ -40,47 +40,103 @@ impl GraphOptimizer for ConstantFolding {
     fn optimize(&mut self, graph: &mut Graph) {
         let topo_order = toposort(&graph.graph, None).unwrap();
         let mut interpreter = Interpreter::new();
-        let mut nodes_to_replace = HashMap::new();
+        let mut nodes_to_fold: HashMap<NodeIndex, TensorData> = HashMap::new(); // Map of node_idx to its folded constant data
 
+        // First pass: Identify nodes that can be folded and evaluate their constant values
         for node_idx in topo_order {
             let node = graph.node_weight(node_idx).unwrap();
             let op = node.op();
 
-            // Check if all parents are already constants or inputs
-            let mut all_parents_are_const_or_input = true;
-            let mut parent_data = HashMap::<NodeIndex, TensorData>::new();
+            // If it's already a Const node, we don't need to fold it again.
+            if op.as_any().downcast_ref::<operator::Const>().is_some() {
+                continue;
+            }
 
-            for edge in graph.graph.edges_directed(node_idx, Direction::Incoming) {
-                let parent_idx = edge.source();
-                let parent_node = graph.node_weight(parent_idx).unwrap();
-                if let Some(const_op) = parent_node.op().as_any().downcast_ref::<operator::Const>()
-                {
-                    parent_data.insert(edge.source(), const_op.data.clone());
-                } else if parent_node.op().as_any().downcast_ref::<operator::Input>().is_some() {
-                    all_parents_are_const_or_input = false;
-                    break;
+            // Check if all parents are constants
+            let mut all_parents_are_const = true;
+            let mut parent_eval_data = HashMap::<NodeIndex, TensorData>::new(); // Data for interpreter.evaluate
+
+            let incoming_edges: Vec<(NodeIndex, usize)> = graph
+                .graph
+                .edges_directed(node_idx, Direction::Incoming)
+                .map(|edge| (edge.source(), *edge.weight()))
+                .collect();
+
+            // If a node has no incoming edges and is not an Input, it cannot be evaluated by interpreter
+            if incoming_edges.is_empty() && op.as_any().downcast_ref::<operator::Input>().is_none() {
+                all_parents_are_const = false;
+            }
+
+            for (parent_idx, _arg_idx) in &incoming_edges {
+                let parent_node = graph.node_weight(*parent_idx).unwrap();
+                if let Some(const_op) = parent_node.op().as_any().downcast_ref::<operator::Const>() {
+                    parent_eval_data.insert(*parent_idx, const_op.data.clone());
                 } else {
-                    all_parents_are_const_or_input = false;
+                    all_parents_are_const = false;
                     break;
                 }
             }
 
-            if all_parents_are_const_or_input {
+            if all_parents_are_const {
                 // If all parents are constants, evaluate this node
-                if let Ok(result_data) = interpreter.evaluate(node_idx, &graph.graph, &parent_data)
-                {
-                    nodes_to_replace.insert(node_idx, result_data);
+                if let Ok(result_data) = interpreter.evaluate(node_idx, &graph.graph, &parent_eval_data) {
+                    nodes_to_fold.insert(node_idx, result_data);
                 }
             }
         }
 
-        // Replace evaluated nodes with new Const nodes
-        for (node_idx, data) in nodes_to_replace {
-            let new_op = operator::Const { data };
-            let new_node = Node::new(new_op, graph.node_weight(node_idx).unwrap().shape.clone());
-            graph.graph.add_node(new_node);
-            // TODO: Replace edges properly. This is complex and requires re-wiring.
-            // For now, just adding the new node. Actual graph transformation will be more involved.
+        // Second pass: Perform the actual graph transformation (replace nodes)
+        let mut old_to_new_node_map: HashMap<NodeIndex, NodeIndex> = HashMap::new();
+        let mut edges_to_add: Vec<(NodeIndex, NodeIndex, usize)> = Vec::new();
+        let mut edges_to_remove: Vec<(NodeIndex, NodeIndex)> = Vec::new();
+
+        for (old_node_idx, new_const_data) in nodes_to_fold {
+            let old_node_data = graph.node_weight(old_node_idx).unwrap();
+            let new_op = operator::Const { data: new_const_data };
+            let new_node_data = Node::new(new_op, old_node_data.shape.clone());
+            let new_node_idx = graph.graph.add_node(new_node_data);
+            old_to_new_node_map.insert(old_node_idx, new_node_idx);
+
+            // Collect outgoing edges from the old node
+            for edge in graph.graph.edges_directed(old_node_idx, Direction::Outgoing) {
+                edges_to_add.push((new_node_idx, edge.target(), *edge.weight()));
+                edges_to_remove.push((old_node_idx, edge.target()));
+            }
+
+            // Collect incoming edges to the old node
+            for edge in graph.graph.edges_directed(old_node_idx, Direction::Incoming) {
+                edges_to_remove.push((edge.source(), old_node_idx));
+            }
+
+            // Update output list if the old node was an output
+            if let Some(pos) = graph.outputs.iter().position(|&x| x == old_node_idx) {
+                graph.outputs[pos] = new_node_idx;
+            }
+
+            // Update input list if the old node was an input (unlikely for folding, but good to be safe)
+            if let Some(pos) = graph.inputs.iter().position(|&x| x == old_node_idx) {
+                graph.inputs[pos] = new_node_idx;
+            }
+        }
+
+        // Perform edge removals and additions
+        for (source, target) in edges_to_remove {
+            // Find and remove the specific edge. petgraph::remove_edge requires EdgeIndex.
+            // A simpler way is to rebuild the graph or iterate and remove.
+            // For now, we'll rely on remove_node to clean up most edges.
+            // If we need to re-parent, we must remove and add.
+            if let Some(edge_idx) = graph.graph.find_edge(source, target) {
+                graph.graph.remove_edge(edge_idx);
+            }
+        }
+
+        for (source, target, weight) in edges_to_add {
+            graph.graph.add_edge(source, target, weight);
+        }
+
+        // Remove the old nodes
+        for (old_node_idx, _) in old_to_new_node_map {
+            graph.graph.remove_node(old_node_idx);
         }
     }
 }
