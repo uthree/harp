@@ -48,7 +48,7 @@ impl GraphOptimizer for EliminateUnusedNodes {
 
         // Remove identified unused nodes from the graph.
         for node_idx in nodes_to_remove {
-            println!("EliminateUnusedNodes: Removing unused node: {:?}", node_idx);
+            println!("EliminateUnusedNodes: Removing unused node: {node_idx:?}");
             graph.graph.remove_node(node_idx);
         }
     }
@@ -177,7 +177,7 @@ impl GraphOptimizer for ConstantFolding {
 
         // Remove the old nodes that have been replaced by new constant nodes.
         for (old_node_idx, _) in old_to_new_node_map {
-            println!("ConstantFolding: Removing old node: {:?}", old_node_idx);
+            println!("ConstantFolding: Removing old node: {old_node_idx:?}");
             graph.graph.remove_node(old_node_idx);
         }
     }
