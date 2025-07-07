@@ -284,7 +284,10 @@ impl Graph {
             let source = edge.source().index();
             let target = edge.target().index();
             let weight = edge.weight();
-            let label = format!("({}, {})", weight.arg_index, weight.output_index);
+            let label = format!(
+                "output {} to input {}",
+                weight.output_index, weight.arg_index
+            );
             dot.push_str(&format!("    {source} -> {target} [label = \"{label}\"]\n"));
         }
 

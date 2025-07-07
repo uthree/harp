@@ -154,12 +154,21 @@ fn test_to_dot_output() {
     let dot_output = g.to_dot();
 
     // Basic checks for expected strings in the DOT output
-    assert!(dot_output.contains("Input\nShape[(1, 1), (idx0, idx1)]"));
-    assert!(dot_output.contains("Add\nShape[(1, 1), (idx0, idx1)]"));
-    assert!(dot_output.contains("Exp2\nShape[(1, 1), (idx0, idx1)]"));
+    assert!(dot_output.contains(
+        "Input
+shape=[1, 1], map=idx0 + idx1"
+    ));
+    assert!(dot_output.contains(
+        "Add
+shape=[1, 1], map=idx0 + idx1"
+    ));
+    assert!(dot_output.contains(
+        "Exp2
+shape=[1, 1], map=idx0 + idx1"
+    ));
     assert!(dot_output.contains("peripheries=2")); // Output node style
     assert!(dot_output.contains("style=filled")); // Input node style
     assert!(dot_output.contains("fillcolor=lightgray")); // Input node style
-    assert!(dot_output.contains("label = \"(0, 0)\"")); // Edge label
-    assert!(dot_output.contains("label = \"(1, 0)\"")); // Edge label
+    assert!(dot_output.contains("label = \"output 0 to input 0\"")); // Edge label
+    assert!(dot_output.contains("label = \"output 0 to input 1\"")); // Edge label
 }

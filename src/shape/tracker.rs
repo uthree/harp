@@ -92,7 +92,7 @@ impl fmt::Display for ShapeTracker {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "Shape[({}), ({})]",
+            "shape=[{}], map={}",
             self.max
                 .iter()
                 .map(|e| e.to_string())
@@ -102,7 +102,7 @@ impl fmt::Display for ShapeTracker {
                 .iter()
                 .map(|e| e.to_string())
                 .collect::<Vec<_>>()
-                .join(", "),
+                .join(" + "),
         )
     }
 }
