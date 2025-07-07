@@ -44,8 +44,9 @@ impl Interpreter {
     pub fn evaluate(
         &mut self,
         node_index: NodeIndex,
-        graph: &petgraph::graph::DiGraph<Node, usize>,
-        inputs: &HashMap<NodeIndex, TensorData>,
+        graph: &petgraph::graph::DiGraph<Node, (usize, usize)>,
+        global_inputs: &HashMap<NodeIndex, TensorData>,
+        local_inputs: &HashMap<NodeIndex, TensorData>,
     ) -> Result<TensorData, String> {
         // If the result is already in the cache, return it directly.
         if let Some(data) = self.cache.get(&node_index) {
@@ -54,9 +55,15 @@ impl Interpreter {
 
         let node = graph.node_weight(node_index).ok_or("Node not found")?;
         let op = node.op();
+        println!("Evaluating node: {:?}", node_index);
+        println!("Operator: {:?}", op);
 
-        let result = if let Some(input_data) = inputs.get(&node_index) {
-            // If it's an input node, use the provided input data.
+        let result = if let Some(input_data) = local_inputs.get(&node_index) {
+            // If the node's value is provided locally (e.g., by ConstantFolding),
+            // use that value directly.
+            input_data.clone()
+        } else if let Some(input_data) = global_inputs.get(&node_index) {
+            // If it's a global input node, use the provided input data.
             input_data.clone()
         } else if let Some(const_op) = op.as_any().downcast_ref::<operator::Const>() {
             // If it's a constant node, use its internal data.
@@ -65,12 +72,12 @@ impl Interpreter {
             // Evaluate based on operator type by recursively evaluating parent nodes.
             let parents: Vec<(NodeIndex, usize)> = graph
                 .edges_directed(node_index, petgraph::Direction::Incoming)
-                .map(|edge| (edge.source(), *edge.weight()))
+                .map(|edge| (edge.source(), edge.weight().0))
                 .collect();
 
-            let mut parent_data = HashMap::new();
+            let mut parent_data = HashMap::<usize, TensorData>::new();
             for (parent_idx, arg_idx) in parents {
-                let data = self.evaluate(parent_idx, graph, inputs)?;
+                let data = self.evaluate(parent_idx, graph, global_inputs, &HashMap::new())?;
                 parent_data.insert(arg_idx, data);
             }
 

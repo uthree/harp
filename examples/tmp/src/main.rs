@@ -1,7 +1,5 @@
 use harp::prelude::*;
-use std::{
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 fn main() {
     // 1. 新しいグラフを作成

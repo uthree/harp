@@ -75,21 +75,21 @@ fn test_simple_graph_construction() {
     let mut c_parents = g.parents(c.node_index).collect::<Vec<_>>();
     c_parents.sort_by_key(|k| k.1); // Sort by argument index
     assert_eq!(c_parents.len(), 2);
-    assert_eq!(c_parents[0], (a.node_index, 0)); // a is 0th arg
-    assert_eq!(c_parents[1], (b.node_index, 1)); // b is 1st arg
+    assert_eq!(c_parents[0], (a.node_index, (0, 0))); // a is 0th arg
+    assert_eq!(c_parents[1], (b.node_index, (1, 0))); // b is 1st arg
 
     // d = c * a
     let mut d_parents = g.parents(d.node_index).collect::<Vec<_>>();
     d_parents.sort_by_key(|k| k.1);
     assert_eq!(d_parents.len(), 2);
-    assert_eq!(d_parents[0], (c.node_index, 0)); // c is 0th arg
-    assert_eq!(d_parents[1], (a.node_index, 1)); // a is 1st arg
+    assert_eq!(d_parents[0], (c.node_index, (0, 0))); // c is 0th arg
+    assert_eq!(d_parents[1], (a.node_index, (1, 0))); // a is 1st arg
 
     // e = d.exp2()
     let mut e_parents = g.parents(e.node_index).collect::<Vec<_>>();
     e_parents.sort_by_key(|k| k.1);
     assert_eq!(e_parents.len(), 1);
-    assert_eq!(e_parents[0], (d.node_index, 0)); // d is 0th arg
+    assert_eq!(e_parents[0], (d.node_index, (0, 0))); // d is 0th arg
 }
 
 #[test]
@@ -114,6 +114,6 @@ fn test_to_dot_output() {
     assert!(dot_output.contains("peripheries=2")); // Output node style
     assert!(dot_output.contains("style=filled")); // Input node style
     assert!(dot_output.contains("fillcolor=lightgray")); // Input node style
-    assert!(dot_output.contains("label = \"0\"")); // Edge label
-    assert!(dot_output.contains("label = \"1\"")); // Edge label
+    assert!(dot_output.contains("label = \"(0, 0)\"")); // Edge label
+    assert!(dot_output.contains("label = \"(1, 0)\"")); // Edge label
 }

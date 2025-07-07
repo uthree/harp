@@ -78,17 +78,19 @@ impl GraphOptimizer for ConstantFolding {
             let incoming_edges: Vec<(NodeIndex, usize)> = graph
                 .graph
                 .edges_directed(node_idx, Direction::Incoming)
-                .map(|edge| (edge.source(), *edge.weight()))
+                .map(|edge| (edge.source(), edge.weight().0))
                 .collect();
 
             // If a node has no incoming edges and is not an Input, it cannot be evaluated by interpreter.
-            if incoming_edges.is_empty() && op.as_any().downcast_ref::<operator::Input>().is_none() {
+            if incoming_edges.is_empty() && op.as_any().downcast_ref::<operator::Input>().is_none()
+            {
                 all_parents_are_const = false;
             }
 
             for (parent_idx, _arg_idx) in &incoming_edges {
                 let parent_node = graph.node_weight(*parent_idx).unwrap();
-                if let Some(const_op) = parent_node.op().as_any().downcast_ref::<operator::Const>() {
+                if let Some(const_op) = parent_node.op().as_any().downcast_ref::<operator::Const>()
+                {
                     parent_eval_data.insert(*parent_idx, const_op.data.clone());
                 } else {
                     all_parents_are_const = false;
@@ -98,7 +100,7 @@ impl GraphOptimizer for ConstantFolding {
 
             if all_parents_are_const {
                 // If all parents are constants, evaluate this node.
-                if let Ok(result_data) = interpreter.evaluate(node_idx, &graph.graph, &parent_eval_data) {
+                if let Ok(result_data) = interpreter.evaluate(node_idx, &graph.graph, &HashMap::new(), &parent_eval_data) {
                     nodes_to_fold.insert(node_idx, result_data);
                 }
             }
@@ -106,24 +108,32 @@ impl GraphOptimizer for ConstantFolding {
 
         // Second pass: Perform the actual graph transformation (replace nodes).
         let mut old_to_new_node_map: HashMap<NodeIndex, NodeIndex> = HashMap::new();
-        let mut edges_to_add: Vec<(NodeIndex, NodeIndex, usize)> = Vec::new();
+        let mut edges_to_add: Vec<(NodeIndex, NodeIndex, (usize, usize))> = Vec::new();
         let mut edges_to_remove: Vec<(NodeIndex, NodeIndex)> = Vec::new();
 
         for (old_node_idx, new_const_data) in nodes_to_fold {
             let old_node_data = graph.node_weight(old_node_idx).unwrap();
-            let new_op = operator::Const { data: new_const_data };
+            let new_op = operator::Const {
+                data: new_const_data,
+            };
             let new_node_data = Node::new(new_op, old_node_data.shape.clone());
             let new_node_idx = graph.graph.add_node(new_node_data);
             old_to_new_node_map.insert(old_node_idx, new_node_idx);
 
             // Collect outgoing edges from the old node to re-point them to the new constant node.
-            for edge in graph.graph.edges_directed(old_node_idx, Direction::Outgoing) {
+            for edge in graph
+                .graph
+                .edges_directed(old_node_idx, Direction::Outgoing)
+            {
                 edges_to_add.push((new_node_idx, edge.target(), *edge.weight()));
                 edges_to_remove.push((old_node_idx, edge.target()));
             }
 
             // Collect incoming edges to the old node for removal.
-            for edge in graph.graph.edges_directed(old_node_idx, Direction::Incoming) {
+            for edge in graph
+                .graph
+                .edges_directed(old_node_idx, Direction::Incoming)
+            {
                 edges_to_remove.push((edge.source(), old_node_idx));
             }
 
@@ -191,7 +201,10 @@ impl OptimizerPipeline {
     /// // Then you can use pipeline.optimize(graph);
     /// ```
     pub fn new(optimizers: Vec<Box<dyn GraphOptimizer>>, max_iterations: usize) -> Self {
-        Self { optimizers, max_iterations }
+        Self {
+            optimizers,
+            max_iterations,
+        }
     }
 }
 
@@ -208,7 +221,8 @@ impl GraphOptimizer for OptimizerPipeline {
             for optimizer in self.optimizers.iter_mut() {
                 optimizer.optimize(graph);
                 // Check if the graph has changed after applying the current optimizer.
-                if graph.to_dot() != initial_graph_dot { // This check is simplistic; a more robust check would compare graph structure, not just DOT string.
+                if graph.to_dot() != initial_graph_dot {
+                    // This check is simplistic; a more robust check would compare graph structure, not just DOT string.
                     changed = true;
                 }
             }

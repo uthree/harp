@@ -44,7 +44,7 @@ fn test_interpreter_simple_add() {
 
     let mut interpreter = Interpreter::new();
     let inputs = HashMap::new(); // No external inputs for this test
-    let result = interpreter.evaluate(add_idx, &g.graph, &inputs).unwrap();
+    let result = interpreter.evaluate(add_idx, &g.graph, &inputs, &HashMap::new()).unwrap();
 
     assert_eq!(result.0[[0]], 5.0);
 }
@@ -66,35 +66,35 @@ fn test_interpreter_unary_ops() {
     let exp2_node = Node::new(operator::Exp2, shape.clone());
     let exp2_idx = g.add_node(exp2_node);
     g.add_edge(const_idx, exp2_idx, 0);
-    let result = interpreter.evaluate(exp2_idx, &g.graph, &inputs).unwrap();
+    let result = interpreter.evaluate(exp2_idx, &g.graph, &inputs, &HashMap::new()).unwrap();
     assert_eq!(result.0[[0]], 2.0f32.powf(1.0));
 
     // Log2
     let log2_node = Node::new(operator::Log2, shape.clone());
     let log2_idx = g.add_node(log2_node);
     g.add_edge(const_idx, log2_idx, 0);
-    let result = interpreter.evaluate(log2_idx, &g.graph, &inputs).unwrap();
+    let result = interpreter.evaluate(log2_idx, &g.graph, &inputs, &HashMap::new()).unwrap();
     assert_eq!(result.0[[0]], 1.0f32.log2());
 
     // Sin
     let sin_node = Node::new(operator::Sin, shape.clone());
     let sin_idx = g.add_node(sin_node);
     g.add_edge(const_idx, sin_idx, 0);
-    let result = interpreter.evaluate(sin_idx, &g.graph, &inputs).unwrap();
+    let result = interpreter.evaluate(sin_idx, &g.graph, &inputs, &HashMap::new()).unwrap();
     assert_eq!(result.0[[0]], 1.0f32.sin());
 
     // Sqrt
     let sqrt_node = Node::new(operator::Sqrt, shape.clone());
     let sqrt_idx = g.add_node(sqrt_node);
     g.add_edge(const_idx, sqrt_idx, 0);
-    let result = interpreter.evaluate(sqrt_idx, &g.graph, &inputs).unwrap();
+    let result = interpreter.evaluate(sqrt_idx, &g.graph, &inputs, &HashMap::new()).unwrap();
     assert_eq!(result.0[[0]], 1.0f32.sqrt());
 
     // Recip
     let recip_node = Node::new(operator::Recip, shape.clone());
     let recip_idx = g.add_node(recip_node);
     g.add_edge(const_idx, recip_idx, 0);
-    let result = interpreter.evaluate(recip_idx, &g.graph, &inputs).unwrap();
+    let result = interpreter.evaluate(recip_idx, &g.graph, &inputs, &HashMap::new()).unwrap();
     assert_eq!(result.0[[0]], 1.0 / 1.0);
 }
 
@@ -121,7 +121,7 @@ fn test_interpreter_binary_ops() {
     let mul_idx = g.add_node(mul_node);
     g.add_edge(a_idx, mul_idx, 0);
     g.add_edge(b_idx, mul_idx, 1);
-    let result = interpreter.evaluate(mul_idx, &g.graph, &inputs).unwrap();
+    let result = interpreter.evaluate(mul_idx, &g.graph, &inputs, &HashMap::new()).unwrap();
     assert_eq!(result.0[[0]], 10.0);
 
     // Rem
@@ -129,7 +129,7 @@ fn test_interpreter_binary_ops() {
     let rem_idx = g.add_node(rem_node);
     g.add_edge(a_idx, rem_idx, 0);
     g.add_edge(b_idx, rem_idx, 1);
-    let result = interpreter.evaluate(rem_idx, &g.graph, &inputs).unwrap();
+    let result = interpreter.evaluate(rem_idx, &g.graph, &inputs, &HashMap::new()).unwrap();
     assert_eq!(result.0[[0]], 1.0); // 5 % 2 = 1
 
     // LessThan
@@ -137,7 +137,7 @@ fn test_interpreter_binary_ops() {
     let lt_idx = g.add_node(lt_node);
     g.add_edge(a_idx, lt_idx, 0);
     g.add_edge(b_idx, lt_idx, 1);
-    let result = interpreter.evaluate(lt_idx, &g.graph, &inputs).unwrap();
+    let result = interpreter.evaluate(lt_idx, &g.graph, &inputs, &HashMap::new()).unwrap();
     assert_eq!(result.0[[0]], 0.0); // 5 < 2 is false (0.0)
 
     let a_data_lt = TensorData(ArrayD::from_elem(vec![1], 1.0));
@@ -150,7 +150,7 @@ fn test_interpreter_binary_ops() {
     let lt_idx_2 = g.add_node(lt_node_2);
     g.add_edge(a_idx_lt, lt_idx_2, 0);
     g.add_edge(b_idx_lt, lt_idx_2, 1);
-    let result = interpreter.evaluate(lt_idx_2, &g.graph, &inputs).unwrap();
+    let result = interpreter.evaluate(lt_idx_2, &g.graph, &inputs, &HashMap::new()).unwrap();
     assert_eq!(result.0[[0]], 1.0); // 1 < 2 is true (1.0)
 }
 
@@ -171,28 +171,28 @@ fn test_interpreter_reduce_ops() {
     let sum_reduce_node_0 = Node::new(operator::SumReduce { dim: 0 }, ShapeTracker::full(vec![3.into()]));
     let sum_reduce_idx_0 = g.add_node(sum_reduce_node_0);
     g.add_edge(const_idx, sum_reduce_idx_0, 0);
-    let result = interpreter.evaluate(sum_reduce_idx_0, &g.graph, &inputs).unwrap();
+    let result = interpreter.evaluate(sum_reduce_idx_0, &g.graph, &inputs, &HashMap::new()).unwrap();
     assert_eq!(result.0.into_raw_vec(), vec![5.0, 7.0, 9.0]); // [1+4, 2+5, 3+6]
 
     // SumReduce dim 1
     let sum_reduce_node_1 = Node::new(operator::SumReduce { dim: 1 }, ShapeTracker::full(vec![2.into()]));
     let sum_reduce_idx_1 = g.add_node(sum_reduce_node_1);
     g.add_edge(const_idx, sum_reduce_idx_1, 0);
-    let result = interpreter.evaluate(sum_reduce_idx_1, &g.graph, &inputs).unwrap();
+    let result = interpreter.evaluate(sum_reduce_idx_1, &g.graph, &inputs, &HashMap::new()).unwrap();
     assert_eq!(result.0.into_raw_vec(), vec![6.0, 15.0]); // [1+2+3, 4+5+6]
 
     // MaxReduce dim 0
     let max_reduce_node_0 = Node::new(operator::MaxReduce { dim: 0 }, ShapeTracker::full(vec![3.into()]));
     let max_reduce_idx_0 = g.add_node(max_reduce_node_0);
     g.add_edge(const_idx, max_reduce_idx_0, 0);
-    let result = interpreter.evaluate(max_reduce_idx_0, &g.graph, &inputs).unwrap();
+    let result = interpreter.evaluate(max_reduce_idx_0, &g.graph, &inputs, &HashMap::new()).unwrap();
     assert_eq!(result.0.into_raw_vec(), vec![4.0, 5.0, 6.0]); // [max(1,4), max(2,5), max(3,6)]
 
     // MaxReduce dim 1
     let max_reduce_node_1 = Node::new(operator::MaxReduce { dim: 1 }, ShapeTracker::full(vec![2.into()]));
     let max_reduce_idx_1 = g.add_node(max_reduce_node_1);
     g.add_edge(const_idx, max_reduce_idx_1, 0);
-    let result = interpreter.evaluate(max_reduce_idx_1, &g.graph, &inputs).unwrap();
+    let result = interpreter.evaluate(max_reduce_idx_1, &g.graph, &inputs, &HashMap::new()).unwrap();
     assert_eq!(result.0.into_raw_vec(), vec![3.0, 6.0]); // [max(1,2,3), max(4,5,6)]
 }
 
@@ -387,7 +387,7 @@ fn test_optimizer_pipeline() {
     g.outputs.push(exp2_idx);
 
     let initial_node_count = g.node_count();
-    assert_eq!(initial_node_count, 6); // 2 Const + Add + Mul + Exp2 + 1 unused (a_idx, b_idx, add_idx, mul_idx, exp2_idx)
+    assert_eq!(initial_node_count, 5); // 2 Const + Add + Mul + Exp2
 
     drop(g); // Release lock
 

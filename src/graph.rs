@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Debug)]
 pub struct Graph {
     /// The underlying directed graph storing nodes and their connections.
-    pub graph: DiGraph<Node, usize>,
+    pub graph: DiGraph<Node, (usize, usize)>,
     /// Indices of the output nodes in the graph.
     pub outputs: Vec<NodeIndex>,
     /// Indices of the input nodes in the graph.
@@ -106,7 +106,7 @@ impl Graph {
     /// * `to` - The `NodeIndex` of the destination node.
     /// * `arg_index` - The argument index for the edge, indicating which input of the `to` node this edge represents.
     pub fn add_edge(&mut self, from: NodeIndex, to: NodeIndex, arg_index: usize) {
-        self.graph.add_edge(from, to, arg_index);
+        self.graph.add_edge(from, to, (arg_index, 0));
     }
 
     /// Registers a tensor as an output of the graph.
@@ -151,7 +151,7 @@ impl Graph {
     /// # Arguments
     ///
     /// * `index` - The `NodeIndex` of the child node.
-    pub fn parents(&self, index: NodeIndex) -> impl Iterator<Item = (NodeIndex, usize)> + '_ {
+    pub fn parents(&self, index: NodeIndex) -> impl Iterator<Item = (NodeIndex, (usize, usize))> + '_ {
         self.graph
             .edges_directed(index, Direction::Incoming)
             .map(|edge| (edge.source(), *edge.weight()))
@@ -166,40 +166,47 @@ impl Graph {
     ///
     /// A `String` containing the DOT representation of the graph.
     pub fn to_dot(&self) -> String {
-        let graph = &self.graph;
-        let outputs = &self.outputs;
-        let inputs = &self.inputs;
+        let mut dot = String::from("digraph {\n");
 
-        petgraph::dot::Dot::with_attr_getters(
-            graph,
-            &[], // No global config
-            &|_, edge_data| {
-                format!("label = \"{}\"", edge_data.weight())
-            },
-            &|_, node_data: (NodeIndex, &Node)| {
-                let id = node_data.0;
-                let node = node_data.1;
+        // Nodes
+        for (id, node) in self.graph.node_indices().map(|i| (i, &self.graph[i])) {
+            let mut temp_shape = node.shape.clone();
+            for (i, expr) in temp_shape.map.iter_mut().enumerate() {
+                *expr = expr.clone().replace(&Expr::Index, &Expr::Var(format!("idx{}", i)));
+            }
+            for (i, expr) in temp_shape.max.iter_mut().enumerate() {
+                *expr = expr.clone().replace(&Expr::Index, &Expr::Var(format!("idx{}", i)));
+            }
 
-                // Create a temporary ShapeTracker with replaced Index expressions
-                let mut temp_shape = node.shape.clone();
-                for (i, expr) in temp_shape.map.iter_mut().enumerate() {
-                    *expr = expr.clone().replace(&Expr::Index, &Expr::Var(format!("idx{}", i)));
-                }
-                for (i, expr) in temp_shape.max.iter_mut().enumerate() {
-                    *expr = expr.clone().replace(&Expr::Index, &Expr::Var(format!("idx{}", i)));
-                }
+            let label = format!("{:?}\n{}", node.op(), temp_shape);
+            let mut attrs = vec![format!("label = \"{}\"", label)];
 
-                let mut attrs = vec![format!("label = \"{:?}\n{}\"", node.op(), temp_shape)];
-                if outputs.contains(&id) {
-                    attrs.push("peripheries=2".to_string());
-                }
-                else if inputs.contains(&id) {
-                    attrs.push("style=filled".to_string());
-                    attrs.push("fillcolor=lightgray".to_string());
-                }
-                attrs.join(", ")
-            },
-        ).to_string()
+            if self.outputs.contains(&id) {
+                attrs.push("peripheries=2".to_string());
+            } else if self.inputs.contains(&id) {
+                attrs.push("style=filled".to_string());
+                attrs.push("fillcolor=lightgray".to_string());
+            }
+
+            dot.push_str(&format!("    {}[{}]\n", id.index(), attrs.join(", ")));
+        }
+
+        // Edges
+        for edge in self.graph.edge_references() {
+            let source = edge.source().index();
+            let target = edge.target().index();
+            let weight = edge.weight();
+            let label = format!("({}, {})", weight.0, weight.1);
+            dot.push_str(&format!(
+                "    {} -> {} [label = \"{}\"]\n",
+                source,
+                target,
+                label
+            ));
+        }
+
+        dot.push_str("}");
+        dot
     }
 
     /// Placeholder for graph optimization passes.
