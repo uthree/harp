@@ -16,3 +16,4 @@ members = [
 [dependencies]
 petgraph = "0.8.2"
 rustc-hash = "2.1.1"
+ndarray = "0.15.6"

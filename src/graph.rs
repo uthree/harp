@@ -1,19 +1,14 @@
-use crate::{
-    node::Node,
-    operator,
-    shape::tracker::ShapeTracker,
-    tensor::Tensor,
-};
+use crate::{node::Node, operator, shape::tracker::ShapeTracker, tensor::Tensor};
 use petgraph::{
+    Direction,
     graph::{DiGraph, NodeIndex},
     visit::EdgeRef,
-    Direction,
 };
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Default)]
 pub struct Graph {
-    graph: DiGraph<Node, usize>,
+    pub graph: DiGraph<Node, usize>,
 }
 
 impl Graph {
@@ -55,8 +50,7 @@ impl Graph {
         self.graph.node_weight(index)
     }
 
-    pub fn parents(&self, index: NodeIndex) -> impl Iterator<Item = (NodeIndex, usize)> + '_
-    {
+    pub fn parents(&self, index: NodeIndex) -> impl Iterator<Item = (NodeIndex, usize)> + '_ {
         self.graph
             .edges_directed(index, Direction::Incoming)
             .map(|edge| (edge.source(), *edge.weight()))

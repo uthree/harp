@@ -1,3 +1,4 @@
+use crate::tensor::TensorData;
 use std::fmt::Debug;
 
 // Base trait for all operators
@@ -163,3 +164,14 @@ impl Operator for Contiguous {
     }
 }
 impl MovementOp for Contiguous {}
+
+#[derive(Debug, Clone)]
+pub struct Const {
+    pub data: TensorData,
+}
+
+impl Operator for Const {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}

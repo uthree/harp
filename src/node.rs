@@ -9,7 +9,10 @@ pub struct Node {
 
 impl Node {
     pub fn new(op: impl Operator + 'static, shape: ShapeTracker) -> Self {
-        Self { op: Box::new(op), shape }
+        Self {
+            op: Box::new(op),
+            shape,
+        }
     }
 
     pub fn op(&self) -> &dyn Operator {

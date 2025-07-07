@@ -1,14 +1,18 @@
 use crate::{
     graph::Graph,
     node::Node,
-    operator::{self, BinaryOp, Operator, ReduceOp, UnaryOp},
+    operator::{self, Operator},
     shape::tracker::ShapeTracker,
 };
+use ndarray::ArrayD;
 use petgraph::graph::NodeIndex;
 use std::{
     ops::{Add, Mul, Rem},
     sync::{Arc, Mutex},
 };
+
+#[derive(Clone, Debug)]
+pub struct TensorData(pub ArrayD<f32>);
 
 #[derive(Clone)]
 pub struct Tensor {
@@ -113,12 +117,7 @@ impl<'a, 'b> Add<&'b Tensor> for &'a Tensor {
     fn add(self, rhs: &'b Tensor) -> Self::Output {
         // TODO: Broadcasting and shape calculation
         let new_shape = self.shape.clone();
-        Tensor::new(
-            self.graph.clone(),
-            new_shape,
-            operator::Add,
-            &[self, rhs],
-        )
+        Tensor::new(self.graph.clone(), new_shape, operator::Add, &[self, rhs])
     }
 }
 
@@ -127,12 +126,7 @@ impl<'a, 'b> Mul<&'b Tensor> for &'a Tensor {
     fn mul(self, rhs: &'b Tensor) -> Self::Output {
         // TODO: Broadcasting and shape calculation
         let new_shape = self.shape.clone();
-        Tensor::new(
-            self.graph.clone(),
-            new_shape,
-            operator::Mul,
-            &[self, rhs],
-        )
+        Tensor::new(self.graph.clone(), new_shape, operator::Mul, &[self, rhs])
     }
 }
 
@@ -141,12 +135,7 @@ impl<'a, 'b> Rem<&'b Tensor> for &'a Tensor {
     fn rem(self, rhs: &'b Tensor) -> Self::Output {
         // TODO: Broadcasting and shape calculation
         let new_shape = self.shape.clone();
-        Tensor::new(
-            self.graph.clone(),
-            new_shape,
-            operator::Rem,
-            &[self, rhs],
-        )
+        Tensor::new(self.graph.clone(), new_shape, operator::Rem, &[self, rhs])
     }
 }
 
