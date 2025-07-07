@@ -2,7 +2,7 @@ use crate::{
     node::Node,
     operator,
     shape::{symbolic::Expr, tracker::ShapeTracker},
-    tensor::Tensor,
+    tensor::{Tensor, TensorData},
 };
 use petgraph::{
     Direction,
@@ -82,6 +82,32 @@ impl Graph {
         let node = Node::new(operator::Input, shape.clone());
         let node_index = graph_mut.add_node(node);
         graph_mut.inputs.push(node_index);
+
+        Tensor {
+            graph: graph.clone(),
+            node_index,
+            shape,
+        }
+    }
+
+    /// Adds a new constant tensor to the graph.
+    ///
+    /// This creates a new `Node` of type `operator::Const` with the given data and shape,
+    /// adds it to the graph.
+    ///
+    /// # Arguments
+    ///
+    /// * `graph` - An `Arc<Mutex<Self>>` reference to the graph.
+    /// * `data` - The `TensorData` containing the constant values.
+    /// * `shape` - The `ShapeTracker` defining the shape of the constant tensor.
+    ///
+    /// # Returns
+    ///
+    /// A `Tensor` representing the newly created constant.
+    pub fn new_const(graph: Arc<Mutex<Self>>, data: TensorData, shape: ShapeTracker) -> Tensor {
+        let mut graph_mut = graph.lock().unwrap();
+        let node = Node::new(operator::Const { data }, shape.clone());
+        let node_index = graph_mut.add_node(node);
 
         Tensor {
             graph: graph.clone(),
