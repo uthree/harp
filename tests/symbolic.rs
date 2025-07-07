@@ -70,21 +70,26 @@ fn test_expr_replace() {
     let expr = (x.clone() + Expr::from(1)) * y.clone();
 
     // Replace 'x' with '10'
-    let replaced_expr = expr.clone().replace(&"x".to_string(), &Expr::from(10));
+    let replaced_expr = expr.clone().replace(&Expr::Var("x".to_string()), &Expr::from(10));
     assert_eq!(replaced_expr, (Expr::from(10) + Expr::from(1)) * y.clone());
 
     // Replace 'y' with 'x + 5'
     let replaced_expr_2 = expr
         .clone()
-        .replace(&"y".to_string(), &(x.clone() + Expr::from(5)));
+        .replace(&Expr::Var("y".to_string()), &(x.clone() + Expr::from(5)));
     assert_eq!(
         replaced_expr_2,
         (x.clone() + Expr::from(1)) * (x.clone() + Expr::from(5))
     );
 
+    // Replace Index with a variable
+    let index_expr = Expr::Index;
+    let replaced_index = index_expr.clone().replace(&Expr::Index, &Expr::Var("idx0".to_string()));
+    assert_eq!(replaced_index, Expr::Var("idx0".to_string()));
+
     // No replacement if variable not found
     let _z = Expr::Var("z".to_string());
-    let replaced_expr_3 = expr.clone().replace(&"z".to_string(), &Expr::from(100));
+    let replaced_expr_3 = expr.clone().replace(&Expr::Var("z".to_string()), &Expr::from(100));
     assert_eq!(replaced_expr_3, expr.clone());
 }
 

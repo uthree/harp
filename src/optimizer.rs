@@ -84,3 +84,36 @@ impl GraphOptimizer for ConstantFolding {
         }
     }
 }
+
+pub struct OptimizerPipeline {
+    optimizers: Vec<Box<dyn GraphOptimizer>>,
+    max_iterations: usize,
+}
+
+impl OptimizerPipeline {
+    pub fn new(optimizers: Vec<Box<dyn GraphOptimizer>>, max_iterations: usize) -> Self {
+        Self { optimizers, max_iterations }
+    }
+}
+
+impl GraphOptimizer for OptimizerPipeline {
+    fn optimize(&mut self, graph: &mut Graph) {
+        let mut iteration = 0;
+        loop {
+            iteration += 1;
+            let mut changed = false;
+            let initial_graph_dot = graph.to_dot(); // Capture initial state for comparison
+
+            for optimizer in self.optimizers.iter_mut() {
+                optimizer.optimize(graph);
+                if graph.to_dot() != initial_graph_dot { // Check if graph changed after this optimizer
+                    changed = true;
+                }
+            }
+
+            if !changed || iteration >= self.max_iterations {
+                break;
+            }
+        }
+    }
+}
