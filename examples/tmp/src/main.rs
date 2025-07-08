@@ -1,8 +1,4 @@
-use harp::{
-    dtype,
-    graph::Graph,
-    shape::tracker::ShapeTracker,
-};
+use harp::{dtype, graph::Graph, shape::tracker::ShapeTracker};
 use std::sync::{Arc, Mutex};
 
 fn main() {
@@ -13,8 +9,8 @@ fn main() {
     let shape: ShapeTracker = vec![2, 3].into();
 
     // 3. Create two input tensors
-    let a = Graph::new_input(graph.clone(), shape.clone(), dtype::F32_DTYPE);
-    let b = Graph::new_input(graph.clone(), shape.clone(), dtype::F32_DTYPE);
+    let a = Graph::new_input(graph.clone(), shape.clone(), dtype::DType::F32);
+    let b = Graph::new_input(graph.clone(), shape.clone(), dtype::DType::F32);
 
     // 4. Perform an addition operation
     let c = &a + &b;
@@ -23,7 +19,7 @@ fn main() {
     let d = c.exp2();
 
     // 6. Cast the result to a different data type (e.g., I32)
-    let e = d.cast(dtype::I32_DTYPE);
+    let e = d.cast(dtype::DType::I32);
 
     // 7. Register the final tensor as a graph output
     Graph::add_output_node(graph.clone(), &e);
