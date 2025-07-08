@@ -1,6 +1,5 @@
 use harp::{
-    dtype::DType,
-    graph::Graph,
+    graph::{dtype::DType, graph::Graph},
     shape::tracker::ShapeTracker,
 };
 use std::sync::{Arc, Mutex};

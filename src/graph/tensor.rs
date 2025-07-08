@@ -1,8 +1,10 @@
 use crate::{
-    dtype::DType,
-    graph::Graph,
-    node::Node,
-    operator::{self, Operator},
+    graph::{
+        dtype::DType,
+        graph::Graph,
+        node::Node,
+        operator::{self, Operator},
+    },
     shape::tracker::ShapeTracker,
 };
 use petgraph::graph::NodeIndex;
@@ -78,9 +80,9 @@ impl Tensor {
     ///
     /// ```
     /// use std::sync::{Arc, Mutex};
-    /// use harp::graph::Graph;
+    /// use harp::graph::graph::Graph;
     /// use harp::shape::tracker::ShapeTracker;
-    /// use harp::dtype::DType;
+    /// use harp::graph::dtype::DType;
     ///
     /// let graph_arc = Arc::new(Mutex::new(Graph::new()));
     /// let input_shape: ShapeTracker = vec![2, 2].into();
@@ -238,9 +240,9 @@ impl<'b> Add<&'b Tensor> for &Tensor {
     ///
     /// ```
     /// use std::sync::{Arc, Mutex};
-    /// use harp::graph::Graph;
+    /// use harp::graph::graph::Graph;
     /// use harp::shape::tracker::ShapeTracker;
-    /// use harp::dtype::DType;
+    /// use harp::graph::dtype::DType;
     ///
     /// let graph_arc = Arc::new(Mutex::new(Graph::new()));
     /// let shape: ShapeTracker = vec![2, 2].into();

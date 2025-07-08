@@ -1,4 +1,4 @@
-use crate::dtype::{DType, Scalar};
+use crate::graph::dtype::{DType, Scalar};
 use std::fmt::Debug;
 
 /// Base trait for all operators in the computation graph.

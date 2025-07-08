@@ -1,5 +1,7 @@
-use crate::{operator::Operator, shape::tracker::ShapeTracker};
-use crate::dtype::DType;
+use crate::{
+    graph::{dtype::DType, operator::Operator},
+    shape::tracker::ShapeTracker,
+};
 use std::fmt;
 
 /// Represents a node in the computation graph.
@@ -31,10 +33,9 @@ impl Node {
     /// # Examples
     ///
     /// ```
-    /// use harp::node::Node;
-    /// use harp::operator::Input;
+    /// use harp::graph::{node::Node, operator::Input};
     /// use harp::shape::tracker::ShapeTracker;
-    /// use harp::dtype::DType;
+    /// use harp::graph::dtype::DType;
     ///
     /// let shape: ShapeTracker = vec![1, 2, 3].into();
     /// let node = Node::new(Input { dtype: DType::F32 }, shape.clone());

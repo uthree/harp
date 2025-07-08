@@ -1,11 +1,4 @@
-use crate::{
-    graph::{EdgeMetadata, Graph},
-    node::Node,
-    operator,
-    tensor::TensorData,
-};
-use petgraph::{Direction, algo::toposort, graph::NodeIndex, visit::EdgeRef};
-use std::collections::HashMap;
+use crate::graph::graph::Graph;
 
 /// Trait for graph optimization passes.
 ///

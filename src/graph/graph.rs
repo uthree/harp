@@ -1,9 +1,11 @@
 use crate::{
-    dtype::{DType, Scalar},
-    node::Node,
-    operator,
+    graph::{
+        dtype::{DType, Scalar},
+        node::Node,
+        operator,
+        tensor::Tensor,
+    },
     shape::{symbolic::Expr, tracker::ShapeTracker},
-    tensor::Tensor,
 };
 use petgraph::{
     Direction,
@@ -55,7 +57,7 @@ impl Graph {
     /// # Examples
     ///
     /// ```
-    /// use harp::graph::Graph;
+    /// use harp::graph::graph::Graph;
     /// let graph = Graph::new();
     /// assert_eq!(graph.node_count(), 0);
     /// ```
@@ -82,9 +84,9 @@ impl Graph {
     ///
     /// ```
     /// use std::sync::{Arc, Mutex};
-    /// use harp::graph::Graph;
+    /// use harp::graph::graph::Graph;
     /// use harp::shape::tracker::ShapeTracker;
-    /// use harp::dtype::DType;
+    /// use harp::graph::dtype::DType;
     ///
     /// let graph_arc = Arc::new(Mutex::new(Graph::new()));
     /// let shape: ShapeTracker = vec![2, 3].into();
@@ -272,10 +274,10 @@ impl Graph {
     ///
     /// ```
     /// use std::sync::{Arc, Mutex};
-    /// use harp::graph::Graph;
+    /// use harp::graph::graph::Graph;
     /// use harp::shape::tracker::ShapeTracker;
-    /// use harp::tensor::Tensor;
-    /// use harp::dtype::DType;
+    /// use harp::graph::tensor::Tensor;
+    /// use harp::graph::dtype::DType;
     ///
     /// let graph_arc = Arc::new(Mutex::new(Graph::new()));
     /// let shape: ShapeTracker = vec![2, 3].into();

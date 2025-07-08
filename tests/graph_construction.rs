@@ -1,6 +1,8 @@
 use harp::{
-    dtype::{DType, Scalar},
-    graph::Graph,
+    graph::{
+        dtype::{DType, Scalar},
+        graph::Graph,
+    },
     shape::tracker::ShapeTracker,
 };
 use std::sync::{Arc, Mutex};
@@ -67,12 +69,12 @@ fn test_ones_and_zeros_construction() {
     let ones_op = ones_node
         .op()
         .as_any()
-        .downcast_ref::<harp::operator::Const>()
+        .downcast_ref::<harp::graph::operator::Const>()
         .unwrap();
     let zeros_op = zeros_node
         .op()
         .as_any()
-        .downcast_ref::<harp::operator::Const>()
+        .downcast_ref::<harp::graph::operator::Const>()
         .unwrap();
 
     assert_eq!(ones_op.scalar, Scalar::F32(1.0));
@@ -96,12 +98,12 @@ fn test_rand_nodes_construction() {
     let randu_op = randu_node
         .op()
         .as_any()
-        .downcast_ref::<harp::operator::RandU>()
+        .downcast_ref::<harp::graph::operator::RandU>()
         .unwrap();
     let randn_op = randn_node
         .op()
         .as_any()
-        .downcast_ref::<harp::operator::RandN>()
+        .downcast_ref::<harp::graph::operator::RandN>()
         .unwrap();
 
     assert_eq!(randu_op.dtype, DType::F32);
