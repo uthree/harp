@@ -22,13 +22,16 @@ fn main() {
     // 5. Perform an exponentiation operation
     let d = c.exp2();
 
-    // 6. Register the final tensor as a graph output
-    Graph::add_output_node(graph.clone(), &d);
+    // 6. Cast the result to a different data type (e.g., I32)
+    let e = d.cast(dtype::I32_DTYPE);
 
-    // 7. Lock the graph and generate the DOT representation
+    // 7. Register the final tensor as a graph output
+    Graph::add_output_node(graph.clone(), &e);
+
+    // 8. Lock the graph and generate the DOT representation
     let graph_locked = graph.lock().unwrap();
     let dot_output = graph_locked.to_dot();
 
-    // 8. Print the DOT output to the console
+    // 9. Print the DOT output to the console
     println!("{}", dot_output);
 }
