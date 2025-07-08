@@ -1,5 +1,4 @@
-use crate::{dtype, tensor::TensorData};
-use crate::dtype::DType;
+use crate::dtype::{self, DType, Scalar};
 use std::fmt::Debug;
 
 /// Base trait for all operators in the computation graph.
@@ -55,11 +54,11 @@ impl Operator for Input {
 impl SpecialOp for Input {}
 
 /// Represents a constant value in the computation graph.
-/// This operator holds a fixed `TensorData` value.
-#[derive(Debug, Clone)]
+/// This operator holds a single value that will be broadcast to the node's shape.
+#[derive(Debug, Clone, Copy)]
 pub struct Const {
-    /// The constant tensor data.
-    pub data: TensorData,
+    /// The constant value.
+    pub scalar: Scalar,
 }
 
 impl Operator for Const {
@@ -67,7 +66,7 @@ impl Operator for Const {
         self
     }
     fn output_dtype(&self) -> &'static dyn DType {
-        self.data.dtype
+        self.scalar.dtype()
     }
 }
 

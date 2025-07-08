@@ -1,9 +1,9 @@
 use crate::{
-    dtype::DType,
+    dtype::{self, DType, Scalar},
     node::Node,
     operator,
     shape::{symbolic::Expr, tracker::ShapeTracker},
-    tensor::{Tensor, TensorData},
+    tensor::Tensor,
 };
 use petgraph::{
     graph::{DiGraph, NodeIndex},
@@ -118,23 +118,72 @@ impl Graph {
     /// # Arguments
     ///
     /// * `graph` - An `Arc<Mutex<Self>>` reference to the graph.
-    /// * `data` - The `TensorData` containing the constant values.
+    /// * `scalar` - The `Scalar` value of the constant.
     /// * `shape` - The `ShapeTracker` defining the shape of the constant tensor.
     ///
     /// # Returns
     ///
     /// A `Tensor` representing the newly created constant.
-    pub fn new_const(graph: Arc<Mutex<Self>>, data: TensorData, shape: ShapeTracker) -> Tensor {
+    pub fn new_const(
+        graph: Arc<Mutex<Self>>,
+        scalar: Scalar,
+        shape: ShapeTracker,
+    ) -> Tensor {
         let mut graph_mut = graph.lock().unwrap();
-        let node = Node::new(operator::Const { data: data.clone() }, shape.clone());
+        let dtype = scalar.dtype();
+        let node = Node::new(operator::Const { scalar }, shape.clone());
         let node_index = graph_mut.add_node(node);
 
         Tensor {
             graph: graph.clone(),
             node_index,
             shape,
-            dtype: data.dtype,
+            dtype,
         }
+    }
+
+    /// Creates a new tensor of ones with the given shape.
+    ///
+    /// # Arguments
+    ///
+    /// * `graph` - An `Arc<Mutex<Self>>` reference to the graph.
+    /// * `shape` - The `ShapeTracker` defining the shape of the tensor.
+    /// * `dtype` - The `DType` of the tensor.
+    ///
+    /// # Returns
+    ///
+    /// A `Tensor` filled with ones.
+    pub fn ones(
+        graph: Arc<Mutex<Self>>,
+        shape: ShapeTracker,
+        dtype: &'static dyn DType,
+    ) -> Tensor {
+        // For now, we only support F32 for ones.
+        // TODO: Support other dtypes.
+        assert_eq!(dtype.id(), std::any::TypeId::of::<dtype::F32>());
+        Self::new_const(graph, Scalar::F32(1.0), shape)
+    }
+
+    /// Creates a new tensor of zeros with the given shape.
+    ///
+    /// # Arguments
+    ///
+    /// * `graph` - An `Arc<Mutex<Self>>` reference to the graph.
+    /// * `shape` - The `ShapeTracker` defining the shape of the tensor.
+    /// * `dtype` - The `DType` of the tensor.
+    ///
+    /// # Returns
+    ///
+    /// A `Tensor` filled with zeros.
+    pub fn zeros(
+        graph: Arc<Mutex<Self>>,
+        shape: ShapeTracker,
+        dtype: &'static dyn DType,
+    ) -> Tensor {
+        // For now, we only support F32 for zeros.
+        // TODO: Support other dtypes.
+        assert_eq!(dtype.id(), std::any::TypeId::of::<dtype::F32>());
+        Self::new_const(graph, Scalar::F32(0.0), shape)
     }
 
     /// Adds a new node to the graph.

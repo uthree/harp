@@ -1,5 +1,5 @@
 use harp::{
-    dtype,
+    dtype::{self, Scalar},
     graph::Graph,
     shape::tracker::ShapeTracker,
 };
@@ -44,8 +44,37 @@ fn test_to_dot_output() {
     // Basic checks for DOT format
     assert!(dot_output.starts_with("digraph {"));
     assert!(dot_output.ends_with("}"));
-    assert!(dot_output.contains("Input { dtype: F32 }\nshape=[2, 3], map=(idx * 3) + idx\nF32"));
-    assert!(dot_output.contains("Add\nshape=[2, 3], map=(idx * 3) + idx\nF32"));
-    assert!(dot_output.contains("Exp2\nshape=[2, 3], map=(idx * 3) + idx\nF32"));
+    assert!(dot_output.contains("Input { dtype: F32 }\nshape=[2, 3], map=(idx0*3) + idx1\nF32"));
+    assert!(dot_output.contains("Add\nshape=[2, 3], map=(idx0*3) + idx1\nF32"));
+    assert!(dot_output.contains("Exp2\nshape=[2, 3], map=(idx0*3) + idx1\nF32"));
     assert!(dot_output.contains("->"));
+}
+
+#[test]
+fn test_ones_and_zeros_construction() {
+    let graph = Arc::new(Mutex::new(Graph::new()));
+    let shape: ShapeTracker = vec![10, 10].into();
+
+    let ones_tensor = Graph::ones(graph.clone(), shape.clone(), dtype::F32_DTYPE);
+    let zeros_tensor = Graph::zeros(graph.clone(), shape.clone(), dtype::F32_DTYPE);
+
+    let graph_locked = graph.lock().unwrap();
+    assert_eq!(graph_locked.node_count(), 2);
+
+    let ones_node = &graph_locked.graph[ones_tensor.node_index];
+    let zeros_node = &graph_locked.graph[zeros_tensor.node_index];
+
+    let ones_op = ones_node
+        .op()
+        .as_any()
+        .downcast_ref::<harp::operator::Const>()
+        .unwrap();
+    let zeros_op = zeros_node
+        .op()
+        .as_any()
+        .downcast_ref::<harp::operator::Const>()
+        .unwrap();
+
+    assert_eq!(ones_op.scalar, Scalar::F32(1.0));
+    assert_eq!(zeros_op.scalar, Scalar::F32(0.0));
 }

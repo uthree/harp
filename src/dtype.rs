@@ -54,3 +54,42 @@ pub const F16_DTYPE: &dyn DType = &F16;
 pub const BF16_DTYPE: &dyn DType = &BF16;
 pub const F32_DTYPE: &dyn DType = &F32;
 pub const F64_DTYPE: &dyn DType = &F64;
+
+/// Represents a scalar value of any supported data type.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Scalar {
+    Bool(bool),
+    I8(i8),
+    U8(u8),
+    I16(i16),
+    U16(u16),
+    I32(i32),
+    U32(u32),
+    I64(i64),
+    U64(u64),
+    // F16(f16),
+    // BF16(bf16),
+    F32(f32),
+    F64(f64),
+}
+
+impl Scalar {
+    /// Returns the `DType` of the scalar value.
+    pub fn dtype(&self) -> &'static dyn DType {
+        match self {
+            Scalar::Bool(_) => BOOL_DTYPE,
+            Scalar::I8(_) => I8_DTYPE,
+            Scalar::U8(_) => U8_DTYPE,
+            Scalar::I16(_) => I16_DTYPE,
+            Scalar::U16(_) => U16_DTYPE,
+            Scalar::I32(_) => I32_DTYPE,
+            Scalar::U32(_) => U32_DTYPE,
+            Scalar::I64(_) => I64_DTYPE,
+            Scalar::U64(_) => U64_DTYPE,
+            // Scalar::F16(_) => F16_DTYPE,
+            // Scalar::BF16(_) => BF16_DTYPE,
+            Scalar::F32(_) => F32_DTYPE,
+            Scalar::F64(_) => F64_DTYPE,
+        }
+    }
+}
