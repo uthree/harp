@@ -1,4 +1,4 @@
-use crate::dtype::{self, DType, Scalar};
+use crate::dtype::{DType, Scalar};
 use std::fmt::Debug;
 
 /// Base trait for all operators in the computation graph.
@@ -11,7 +11,7 @@ pub trait Operator: Debug + Send + Sync {
     fn as_any(&self) -> &dyn std::any::Any;
 
     /// Returns the data type of the output tensor produced by this operator.
-    fn output_dtype(&self) -> &'static dyn DType;
+    fn output_dtype(&self) -> DType;
 }
 
 // --- Sub-traits for categorization ---
@@ -41,13 +41,13 @@ pub trait MovementOp: Operator {}
 /// This operator does not perform any computation but serves as a placeholder for external data.
 #[derive(Debug, Clone, Copy)]
 pub struct Input {
-    pub dtype: &'static dyn DType,
+    pub dtype: DType,
 }
 impl Operator for Input {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> &'static dyn DType {
+    fn output_dtype(&self) -> DType {
         self.dtype
     }
 }
@@ -65,7 +65,7 @@ impl Operator for Const {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> &'static dyn DType {
+    fn output_dtype(&self) -> DType {
         self.scalar.dtype()
     }
 }
@@ -73,14 +73,14 @@ impl Operator for Const {
 /// Represents a type casting operation.
 #[derive(Debug, Clone, Copy)]
 pub struct Cast {
-    pub dtype: &'static dyn DType,
+    pub dtype: DType,
 }
 
 impl Operator for Cast {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> &'static dyn DType {
+    fn output_dtype(&self) -> DType {
         self.dtype
     }
 }
@@ -94,8 +94,8 @@ impl Operator for Exp2 {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> &'static dyn DType {
-        dtype::F32_DTYPE // Assuming float output for now
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
     }
 }
 impl UnaryOp for Exp2 {}
@@ -107,8 +107,8 @@ impl Operator for Log2 {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> &'static dyn DType {
-        dtype::F32_DTYPE // Assuming float output for now
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
     }
 }
 impl UnaryOp for Log2 {}
@@ -120,8 +120,8 @@ impl Operator for Sin {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> &'static dyn DType {
-        dtype::F32_DTYPE // Assuming float output for now
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
     }
 }
 impl UnaryOp for Sin {}
@@ -133,8 +133,8 @@ impl Operator for Sqrt {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> &'static dyn DType {
-        dtype::F32_DTYPE // Assuming float output for now
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
     }
 }
 impl UnaryOp for Sqrt {}
@@ -146,8 +146,8 @@ impl Operator for Recip {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> &'static dyn DType {
-        dtype::F32_DTYPE // Assuming float output for now
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
     }
 }
 impl UnaryOp for Recip {}
@@ -161,8 +161,8 @@ impl Operator for Add {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> &'static dyn DType {
-        dtype::F32_DTYPE // Assuming float output for now
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
     }
 }
 impl BinaryOp for Add {}
@@ -174,8 +174,8 @@ impl Operator for Mul {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> &'static dyn DType {
-        dtype::F32_DTYPE // Assuming float output for now
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
     }
 }
 impl BinaryOp for Mul {}
@@ -187,8 +187,8 @@ impl Operator for Rem {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> &'static dyn DType {
-        dtype::F32_DTYPE // Assuming float output for now
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
     }
 }
 impl BinaryOp for Rem {}
@@ -201,8 +201,8 @@ impl Operator for LessThan {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> &'static dyn DType {
-        dtype::F32_DTYPE // Assuming float output for now
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
     }
 }
 impl BinaryOp for LessThan {}
@@ -219,8 +219,8 @@ impl Operator for SumReduce {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> &'static dyn DType {
-        dtype::F32_DTYPE // Assuming float output for now
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
     }
 }
 impl ReduceOp for SumReduce {
@@ -239,8 +239,8 @@ impl Operator for MaxReduce {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> &'static dyn DType {
-        dtype::F32_DTYPE // Assuming float output for now
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
     }
 }
 impl ReduceOp for MaxReduce {
@@ -259,8 +259,107 @@ impl Operator for Contiguous {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> &'static dyn DType {
-        dtype::F32_DTYPE // Assuming float output for now
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
     }
 }
 impl MovementOp for Contiguous {}
+
+/// Represents a permutation of tensor dimensions.
+#[derive(Debug, Clone)]
+pub struct Permute {
+    /// The new order of dimensions.
+    pub order: Vec<usize>,
+}
+impl Operator for Permute {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
+    }
+}
+impl MovementOp for Permute {}
+
+/// Represents an expansion of tensor dimensions.
+/// This operation adds new dimensions of size 1.
+#[derive(Debug, Clone)]
+pub struct Expand {
+    /// The new shape of the tensor.
+    pub shape: Vec<usize>,
+}
+impl Operator for Expand {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
+    }
+}
+impl MovementOp for Expand {}
+
+/// Represents a reshaping of the tensor.
+/// This operation changes the shape of the tensor without changing its data.
+#[derive(Debug, Clone)]
+pub struct Reshape {
+    /// The new shape of the tensor.
+    pub shape: Vec<usize>,
+}
+impl Operator for Reshape {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
+    }
+}
+impl MovementOp for Reshape {}
+
+/// Represents a padding operation on the tensor.
+#[derive(Debug, Clone)]
+pub struct Pad {
+    /// The padding arguments, specified as `(padding_before, padding_after)` for each dimension.
+    pub arg: Vec<(usize, usize)>,
+}
+impl Operator for Pad {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
+    }
+}
+impl MovementOp for Pad {}
+
+/// Represents a shrinking operation on the tensor.
+#[derive(Debug, Clone)]
+pub struct Shrink {
+    /// The shrinking arguments, specified as `(start, end)` for each dimension.
+    pub arg: Vec<(usize, usize)>,
+}
+impl Operator for Shrink {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
+    }
+}
+impl MovementOp for Shrink {}
+
+/// Represents a striding operation on the tensor.
+#[derive(Debug, Clone)]
+pub struct Stride {
+    /// The stride for each dimension.
+    pub arg: Vec<usize>,
+}
+impl Operator for Stride {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
+    }
+}
+impl MovementOp for Stride {}
+

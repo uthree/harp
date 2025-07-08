@@ -13,7 +13,7 @@ pub struct Node {
     /// The shape tracker describing the output shape of this node.
     pub shape: ShapeTracker,
     /// The data type of the tensor produced by this node.
-    pub dtype: &'static dyn DType,
+    pub dtype: DType,
 }
 
 impl Node {
@@ -34,10 +34,10 @@ impl Node {
     /// use harp::node::Node;
     /// use harp::operator::Input;
     /// use harp::shape::tracker::ShapeTracker;
-    /// use harp::dtype;
+    /// use harp::dtype::DType;
     ///
     /// let shape: ShapeTracker = vec![1, 2, 3].into();
-    /// let node = Node::new(Input { dtype: dtype::F32_DTYPE }, shape.clone());
+    /// let node = Node::new(Input { dtype: DType::F32 }, shape.clone());
     ///
     /// assert_eq!(format!("{:?}", node.op()), "Input { dtype: F32 }");
     /// assert_eq!(node.shape, shape);

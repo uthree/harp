@@ -1,5 +1,5 @@
 use crate::{
-    dtype::{self, DType, Scalar},
+    dtype::{DType, Scalar},
     node::Node,
     operator,
     shape::{symbolic::Expr, tracker::ShapeTracker},
@@ -84,18 +84,18 @@ impl Graph {
     /// use std::sync::{Arc, Mutex};
     /// use harp::graph::Graph;
     /// use harp::shape::tracker::ShapeTracker;
-    /// use harp::dtype;
+    /// use harp::dtype::DType;
     ///
     /// let graph_arc = Arc::new(Mutex::new(Graph::new()));
     /// let shape: ShapeTracker = vec![2, 3].into();
-    /// let input_tensor = Graph::new_input(graph_arc.clone(), shape, dtype::F32_DTYPE);
+    /// let input_tensor = Graph::new_input(graph_arc.clone(), shape, DType::F32);
     ///
     /// assert_eq!(graph_arc.lock().unwrap().inputs.len(), 1);
     /// ```
     pub fn new_input(
         graph: Arc<Mutex<Self>>,
         shape: ShapeTracker,
-        dtype: &'static dyn DType,
+        dtype: DType,
     ) -> Tensor {
         let mut graph_mut = graph.lock().unwrap();
         let node = Node::new(operator::Input { dtype }, shape.clone());
@@ -156,11 +156,11 @@ impl Graph {
     pub fn ones(
         graph: Arc<Mutex<Self>>,
         shape: ShapeTracker,
-        dtype: &'static dyn DType,
+        dtype: DType,
     ) -> Tensor {
         // For now, we only support F32 for ones.
         // TODO: Support other dtypes.
-        assert_eq!(dtype.id(), std::any::TypeId::of::<dtype::F32>());
+        assert_eq!(dtype, DType::F32);
         Self::new_const(graph, Scalar::F32(1.0), shape)
     }
 
@@ -178,11 +178,11 @@ impl Graph {
     pub fn zeros(
         graph: Arc<Mutex<Self>>,
         shape: ShapeTracker,
-        dtype: &'static dyn DType,
+        dtype: DType,
     ) -> Tensor {
         // For now, we only support F32 for zeros.
         // TODO: Support other dtypes.
-        assert_eq!(dtype.id(), std::any::TypeId::of::<dtype::F32>());
+        assert_eq!(dtype, DType::F32);
         Self::new_const(graph, Scalar::F32(0.0), shape)
     }
 
@@ -243,11 +243,11 @@ impl Graph {
     /// use harp::graph::Graph;
     /// use harp::shape::tracker::ShapeTracker;
     /// use harp::tensor::Tensor;
-    /// use harp::dtype;
+    /// use harp::dtype::DType;
     ///
     /// let graph_arc = Arc::new(Mutex::new(Graph::new()));
     /// let shape: ShapeTracker = vec![2, 3].into();
-    /// let input_tensor = Graph::new_input(graph_arc.clone(), shape, dtype::F32_DTYPE);
+    /// let input_tensor = Graph::new_input(graph_arc.clone(), shape, DType::F32);
     ///
     /// Graph::add_output_node(graph_arc.clone(), &input_tensor);
     ///
