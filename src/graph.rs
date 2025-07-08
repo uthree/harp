@@ -265,17 +265,15 @@ impl Graph {
         for (id, node) in self.graph.node_indices().map(|i| (i, &self.graph[i])) {
             let mut temp_shape = node.shape.clone();
             for (i, expr) in temp_shape.map.iter_mut().enumerate() {
-                *expr = expr
-                    .clone()
-                    .replace(&Expr::Index, &Expr::Var(format!("idx{i}")));
+                let expr_str = expr.to_string().replace(" ", "");
+                *expr = Expr::Var(expr_str.replace("idx", &format!("idx{}", i)));
             }
             for (i, expr) in temp_shape.max.iter_mut().enumerate() {
-                *expr = expr
-                    .clone()
-                    .replace(&Expr::Index, &Expr::Var(format!("idx{i}")));
+                let expr_str = expr.to_string().replace(" ", "");
+                *expr = Expr::Var(expr_str.replace("idx", &format!("idx{}", i)));
             }
 
-            let label = format!("{:?}\n{}\n{}", node.op(), node.shape, node.dtype.name());
+            let label = format!("{:?}\n{}\n{}", node.op(), temp_shape, node.dtype.name());
             let mut attrs = vec![format!("label = \"{}\"", label)];
 
             if self.outputs.contains(&id) {
