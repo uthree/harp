@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 harp = { path="../.." }
+ndarray = "0.16.1"

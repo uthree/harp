@@ -1,4 +1,5 @@
 use crate::tensor::TensorData;
+use crate::dtype::DType;
 use std::fmt::Debug;
 
 /// Base trait for all operators in the computation graph.
@@ -9,6 +10,9 @@ pub trait Operator: Debug + Send + Sync {
     /// Returns a reference to `self` as a `dyn Any` trait object.
     /// This allows downcasting to concrete operator types.
     fn as_any(&self) -> &dyn std::any::Any;
+
+    /// Returns the data type of the output tensor produced by this operator.
+    fn output_dtype(&self) -> DType;
 }
 
 // --- Sub-traits for categorization ---
@@ -36,14 +40,51 @@ pub trait MovementOp: Operator {}
 // --- Special Operators ---
 /// Represents an input node in the computation graph.
 /// This operator does not perform any computation but serves as a placeholder for external data.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct Input;
+#[derive(Debug, Clone, Copy)]
+pub struct Input {
+    pub dtype: DType,
+}
 impl Operator for Input {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
+    fn output_dtype(&self) -> DType {
+        self.dtype
+    }
 }
 impl SpecialOp for Input {}
+
+/// Represents a constant value in the computation graph.
+/// This operator holds a fixed `TensorData` value.
+#[derive(Debug, Clone)]
+pub struct Const {
+    /// The constant tensor data.
+    pub data: TensorData,
+}
+
+impl Operator for Const {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn output_dtype(&self) -> DType {
+        self.data.dtype
+    }
+}
+
+/// Represents a type casting operation.
+#[derive(Debug, Clone, Copy)]
+pub struct Cast {
+    pub dtype: DType,
+}
+
+impl Operator for Cast {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn output_dtype(&self) -> DType {
+        self.dtype
+    }
+}
 
 // --- Unary Operators ---
 
@@ -53,6 +94,9 @@ pub struct Exp2;
 impl Operator for Exp2 {
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
     }
 }
 impl UnaryOp for Exp2 {}
@@ -64,6 +108,9 @@ impl Operator for Log2 {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
+    }
 }
 impl UnaryOp for Log2 {}
 
@@ -73,6 +120,9 @@ pub struct Sin;
 impl Operator for Sin {
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
     }
 }
 impl UnaryOp for Sin {}
@@ -84,6 +134,9 @@ impl Operator for Sqrt {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
+    }
 }
 impl UnaryOp for Sqrt {}
 
@@ -93,6 +146,9 @@ pub struct Recip;
 impl Operator for Recip {
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
     }
 }
 impl UnaryOp for Recip {}
@@ -106,6 +162,9 @@ impl Operator for Add {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
+    }
 }
 impl BinaryOp for Add {}
 
@@ -115,6 +174,9 @@ pub struct Mul;
 impl Operator for Mul {
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
     }
 }
 impl BinaryOp for Mul {}
@@ -126,6 +188,9 @@ impl Operator for Rem {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
+    }
 }
 impl BinaryOp for Rem {}
 
@@ -136,6 +201,9 @@ pub struct LessThan;
 impl Operator for LessThan {
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
     }
 }
 impl BinaryOp for LessThan {}
@@ -151,6 +219,9 @@ pub struct SumReduce {
 impl Operator for SumReduce {
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
     }
 }
 impl ReduceOp for SumReduce {
@@ -169,6 +240,9 @@ impl Operator for MaxReduce {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
+    }
 }
 impl ReduceOp for MaxReduce {
     fn dim(&self) -> usize {
@@ -186,19 +260,8 @@ impl Operator for Contiguous {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-}
-impl MovementOp for Contiguous {}
-
-/// Represents a constant value in the computation graph.
-/// This operator holds a fixed `TensorData` value.
-#[derive(Debug, Clone)]
-pub struct Const {
-    /// The constant tensor data.
-    pub data: TensorData,
-}
-
-impl Operator for Const {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
+    fn output_dtype(&self) -> DType {
+        DType::F32 // Assuming float output for now
     }
 }
+impl MovementOp for Contiguous {}

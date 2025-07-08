@@ -17,7 +17,11 @@ pub trait GraphOptimizer {
     /// # Arguments
     ///
     /// * `graph` - A mutable reference to the `Graph` to be optimized.
-    fn optimize(&mut self, graph: &mut Graph);
+    ///
+    /// # Returns
+    ///
+    /// `true` if the graph was modified, `false` otherwise.
+    fn optimize(&mut self, graph: &mut Graph) -> bool;
 }
 
 /// An optimizer that eliminates nodes from the graph that have no outgoing edges
@@ -25,7 +29,7 @@ pub trait GraphOptimizer {
 pub struct EliminateUnusedNodes {}
 
 impl GraphOptimizer for EliminateUnusedNodes {
-    fn optimize(&mut self, graph: &mut Graph) {
+    fn optimize(&mut self, graph: &mut Graph) -> bool {
         let mut nodes_to_remove = Vec::new();
         // Perform a topological sort to process nodes in a valid order.
         let topo_order = toposort(&graph.graph, None).unwrap();
@@ -46,11 +50,14 @@ impl GraphOptimizer for EliminateUnusedNodes {
             }
         }
 
+        let changed = !nodes_to_remove.is_empty();
+
         // Remove identified unused nodes from the graph.
         for node_idx in nodes_to_remove {
             println!("EliminateUnusedNodes: Removing unused node: {node_idx:?}");
             graph.graph.remove_node(node_idx);
         }
+        changed
     }
 }
 
@@ -61,7 +68,7 @@ impl GraphOptimizer for EliminateUnusedNodes {
 pub struct ConstantFolding {}
 
 impl GraphOptimizer for ConstantFolding {
-    fn optimize(&mut self, graph: &mut Graph) {
+    fn optimize(&mut self, graph: &mut Graph) -> bool {
         let topo_order = toposort(&graph.graph, None).unwrap();
         let mut interpreter = Interpreter::new();
         // Map to store the evaluated constant data for nodes that can be folded.
@@ -120,6 +127,8 @@ impl GraphOptimizer for ConstantFolding {
                 }
             }
         }
+
+        let changed = !nodes_to_fold.is_empty();
 
         // Second pass: Perform the actual graph transformation (replace nodes).
         let mut old_to_new_node_map: HashMap<NodeIndex, NodeIndex> = HashMap::new();
@@ -180,6 +189,7 @@ impl GraphOptimizer for ConstantFolding {
             println!("ConstantFolding: Removing old node: {old_node_idx:?}");
             graph.graph.remove_node(old_node_idx);
         }
+        changed
     }
 }
 
@@ -225,28 +235,26 @@ impl OptimizerPipeline {
 }
 
 impl GraphOptimizer for OptimizerPipeline {
-    fn optimize(&mut self, graph: &mut Graph) {
+    fn optimize(&mut self, graph: &mut Graph) -> bool {
+        let mut total_changed = false;
         let mut iteration = 0;
         loop {
             iteration += 1;
-            let mut changed = false;
-            // Capture the graph's state before applying optimizers in this iteration.
-            let initial_graph_dot = graph.to_dot();
+            let mut changed_in_this_iteration = false;
 
             // Apply each optimizer in the pipeline.
             for optimizer in self.optimizers.iter_mut() {
-                optimizer.optimize(graph);
-                // Check if the graph has changed after applying the current optimizer.
-                if graph.to_dot() != initial_graph_dot {
-                    // This check is simplistic; a more robust check would compare graph structure, not just DOT string.
-                    changed = true;
+                if optimizer.optimize(graph) {
+                    changed_in_this_iteration = true;
+                    total_changed = true;
                 }
             }
 
             // Break if no changes occurred in this iteration or max iterations reached.
-            if !changed || iteration >= self.max_iterations {
+            if !changed_in_this_iteration || iteration >= self.max_iterations {
                 break;
             }
         }
+        total_changed
     }
 }

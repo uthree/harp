@@ -1,4 +1,4 @@
-use crate::{graph::EdgeMetadata, node::Node, operator, tensor::TensorData};
+use crate::{dtype::DType, graph::EdgeMetadata, node::Node, operator, tensor::TensorData};
 use ndarray::Axis;
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
 use std::collections::HashMap;
@@ -52,6 +52,7 @@ impl Interpreter {
     ) -> Result<TensorData, String> {
         // If the result is already in the cache, return it directly.
         if let Some(data) = self.cache.get(&node_index) {
+            println!("Evaluating node: {:?} (Cache Hit)", node_index);
             return Ok(data.clone());
         }
 
@@ -88,94 +89,161 @@ impl Interpreter {
                 let input = parent_data
                     .get(&0)
                     .ok_or("Exp2 op missing input")?
-                    .0
+                    .data
                     .clone();
-                TensorData(input.mapv(|x| 2.0f32.powf(x)))
+                TensorData {
+                    data: input.mapv(|x| 2.0f32.powf(x)),
+                    dtype: DType::F32,
+                }
             } else if op.as_any().downcast_ref::<operator::Log2>().is_some() {
                 let input = parent_data
                     .get(&0)
                     .ok_or("Log2 op missing input")?
-                    .0
+                    .data
                     .clone();
-                TensorData(input.mapv(|x| x.log2()))
+                TensorData {
+                    data: input.mapv(|x| x.log2()),
+                    dtype: DType::F32,
+                }
             } else if op.as_any().downcast_ref::<operator::Sin>().is_some() {
-                let input = parent_data.get(&0).ok_or("Sin op missing input")?.0.clone();
-                TensorData(input.mapv(|x| x.sin()))
+                let input = parent_data
+                    .get(&0)
+                    .ok_or("Sin op missing input")?
+                    .data
+                    .clone();
+                TensorData {
+                    data: input.mapv(|x| x.sin()),
+                    dtype: DType::F32,
+                }
             } else if op.as_any().downcast_ref::<operator::Sqrt>().is_some() {
                 let input = parent_data
                     .get(&0)
                     .ok_or("Sqrt op missing input")?
-                    .0
+                    .data
                     .clone();
-                TensorData(input.mapv(|x| x.sqrt()))
+                TensorData {
+                    data: input.mapv(|x| x.sqrt()),
+                    dtype: DType::F32,
+                }
             } else if op.as_any().downcast_ref::<operator::Recip>().is_some() {
                 let input = parent_data
                     .get(&0)
                     .ok_or("Recip op missing input")?
-                    .0
+                    .data
                     .clone();
-                TensorData(input.mapv(|x| 1.0 / x))
+                TensorData {
+                    data: input.mapv(|x| 1.0 / x),
+                    dtype: DType::F32,
+                }
+            } else if let Some(cast_op) = op.as_any().downcast_ref::<operator::Cast>() {
+                let input_tensor_data = parent_data.get(&0).ok_or("Cast op missing input")?.clone();
+                // For now, just return the input data with the new dtype
+                TensorData {
+                    data: input_tensor_data.data,
+                    dtype: cast_op.dtype,
+                }
             }
             // Handle Binary Operators
             else if op.as_any().downcast_ref::<operator::Add>().is_some() {
-                let lhs = parent_data.get(&0).ok_or("Add op missing lhs")?.0.clone();
-                let rhs = parent_data.get(&1).ok_or("Add op missing rhs")?.0.clone();
-                TensorData(lhs + rhs)
+                let lhs = parent_data
+                    .get(&0)
+                    .ok_or("Add op missing lhs")?
+                    .data
+                    .clone();
+                let rhs = parent_data
+                    .get(&1)
+                    .ok_or("Add op missing rhs")?
+                    .data
+                    .clone();
+                TensorData {
+                    data: lhs + rhs,
+                    dtype: DType::F32,
+                }
             } else if op.as_any().downcast_ref::<operator::Mul>().is_some() {
-                let lhs = parent_data.get(&0).ok_or("Mul op missing lhs")?.0.clone();
-                let rhs = parent_data.get(&1).ok_or("Mul op missing rhs")?.0.clone();
-                TensorData(lhs * rhs)
+                let lhs = parent_data
+                    .get(&0)
+                    .ok_or("Mul op missing lhs")?
+                    .data
+                    .clone();
+                let rhs = parent_data
+                    .get(&1)
+                    .ok_or("Mul op missing rhs")?
+                    .data
+                    .clone();
+                TensorData {
+                    data: lhs * rhs,
+                    dtype: DType::F32,
+                }
             } else if op.as_any().downcast_ref::<operator::Rem>().is_some() {
-                let lhs = parent_data.get(&0).ok_or("Rem op missing lhs")?.0.clone();
-                let rhs = parent_data.get(&1).ok_or("Rem op missing rhs")?.0.clone();
-                TensorData(lhs % rhs)
+                let lhs = parent_data
+                    .get(&0)
+                    .ok_or("Rem op missing lhs")?
+                    .data
+                    .clone();
+                let rhs = parent_data
+                    .get(&1)
+                    .ok_or("Rem op missing rhs")?
+                    .data
+                    .clone();
+                TensorData {
+                    data: lhs % rhs,
+                    dtype: DType::F32,
+                }
             } else if op.as_any().downcast_ref::<operator::LessThan>().is_some() {
                 let lhs = parent_data
                     .get(&0)
                     .ok_or("LessThan op missing lhs")?
-                    .0
+                    .data
                     .clone();
                 let rhs = parent_data
                     .get(&1)
                     .ok_or("LessThan op missing rhs")?
-                    .0
+                    .data
                     .clone();
-                TensorData(lhs.mapv(|a| {
-                    if a < *rhs.iter().next().unwrap() {
-                        1.0
-                    } else {
-                        0.0
-                    }
-                }))
+                TensorData {
+                    data: lhs.mapv(|a| {
+                        if a < *rhs.iter().next().unwrap() {
+                            1.0
+                        } else {
+                            0.0
+                        }
+                    }),
+                    dtype: DType::F32,
+                }
             }
             // Handle Reduce Operators
             else if let Some(sum_reduce_op) = op.as_any().downcast_ref::<operator::SumReduce>() {
                 let input = parent_data
                     .get(&0)
                     .ok_or("SumReduce op missing input")?
-                    .0
+                    .data
                     .clone();
                 let dim = sum_reduce_op.dim; // Access dim directly from concrete type
-                TensorData(input.sum_axis(Axis(dim)).into_dyn())
+                TensorData {
+                    data: input.sum_axis(Axis(dim)).into_dyn(),
+                    dtype: DType::F32,
+                }
             } else if let Some(max_reduce_op) = op.as_any().downcast_ref::<operator::MaxReduce>() {
                 let input = parent_data
                     .get(&0)
                     .ok_or("MaxReduce op missing input")?
-                    .0
+                    .data
                     .clone();
                 let dim = max_reduce_op.dim; // Access dim directly from concrete type
-                TensorData(
-                    input
+                TensorData {
+                    data: input
                         .fold_axis(Axis(dim), f32::MIN, |&acc, &x| acc.max(x))
                         .into_dyn(),
-                )
+                    dtype: DType::F32,
+                }
             }
             // Handle Movement Operators
             else if op.as_any().downcast_ref::<operator::Contiguous>().is_some() {
-                parent_data
+                let input = parent_data
                     .get(&0)
                     .ok_or("Contiguous op missing input")?
-                    .clone()
+                    .clone();
+                input
             } else {
                 return Err(format!("Unsupported operator for interpretation: {op:?}"));
             }

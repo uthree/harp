@@ -217,6 +217,7 @@ name = "tmp"
 version = "0.1.0"
 dependencies = [
  "harp",
+ "ndarray",
 ]
 
 [[package]]

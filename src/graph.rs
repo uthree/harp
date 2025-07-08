@@ -1,4 +1,5 @@
 use crate::{
+    dtype::DType,
     node::Node,
     operator,
     shape::{symbolic::Expr, tracker::ShapeTracker},
@@ -71,6 +72,7 @@ impl Graph {
     ///
     /// * `graph` - An `Arc<Mutex<Self>>` reference to the graph.
     /// * `shape` - The `ShapeTracker` defining the shape of the input tensor.
+    /// * `dtype` - The `DType` of the input tensor.
     ///
     /// # Returns
     ///
@@ -83,16 +85,17 @@ impl Graph {
     /// use std::sync::{Arc, Mutex};
     /// use harp::graph::Graph;
     /// use harp::shape::tracker::ShapeTracker;
+    /// use harp::dtype::DType;
     ///
     /// let graph_arc = Arc::new(Mutex::new(Graph::new()));
     /// let shape: ShapeTracker = vec![2, 3].into();
-    /// let input_tensor = Graph::new_input(graph_arc.clone(), shape);
+    /// let input_tensor = Graph::new_input(graph_arc.clone(), shape, DType::F32);
     ///
     /// assert_eq!(graph_arc.lock().unwrap().inputs.len(), 1);
     /// ``` ```
-    pub fn new_input(graph: Arc<Mutex<Self>>, shape: ShapeTracker) -> Tensor {
+    pub fn new_input(graph: Arc<Mutex<Self>>, shape: ShapeTracker, dtype: DType) -> Tensor {
         let mut graph_mut = graph.lock().unwrap();
-        let node = Node::new(operator::Input, shape.clone());
+        let node = Node::new(operator::Input { dtype }, shape.clone());
         let node_index = graph_mut.add_node(node);
         graph_mut.inputs.push(node_index);
 
@@ -100,6 +103,7 @@ impl Graph {
             graph: graph.clone(),
             node_index,
             shape,
+            dtype,
         }
     }
 
@@ -119,13 +123,14 @@ impl Graph {
     /// A `Tensor` representing the newly created constant.
     pub fn new_const(graph: Arc<Mutex<Self>>, data: TensorData, shape: ShapeTracker) -> Tensor {
         let mut graph_mut = graph.lock().unwrap();
-        let node = Node::new(operator::Const { data }, shape.clone());
+        let node = Node::new(operator::Const { data: data.clone() }, shape.clone());
         let node_index = graph_mut.add_node(node);
 
         Tensor {
             graph: graph.clone(),
             node_index,
             shape,
+            dtype: data.dtype,
         }
     }
 
@@ -186,10 +191,11 @@ impl Graph {
     /// use harp::graph::Graph;
     /// use harp::shape::tracker::ShapeTracker;
     /// use harp::tensor::Tensor;
+    /// use harp::dtype::DType;
     ///
     /// let graph_arc = Arc::new(Mutex::new(Graph::new()));
     /// let shape: ShapeTracker = vec![2, 3].into();
-    /// let input_tensor = Graph::new_input(graph_arc.clone(), shape);
+    /// let input_tensor = Graph::new_input(graph_arc.clone(), shape, DType::F32);
     ///
     /// Graph::add_output_node(graph_arc.clone(), &input_tensor);
     ///
@@ -266,7 +272,7 @@ impl Graph {
                     .replace(&Expr::Index, &Expr::Var(format!("idx{i}")));
             }
 
-            let label = format!("{:?}\n{}", node.op(), temp_shape);
+            let label = format!("{:?}\n{}\n{}", node.op(), node.shape, node.dtype);
             let mut attrs = vec![format!("label = \"{}\"", label)];
 
             if self.outputs.contains(&id) {

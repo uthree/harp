@@ -1,4 +1,4 @@
-use crate::{operator::Operator, shape::tracker::ShapeTracker};
+use crate::{operator::Operator, shape::tracker::ShapeTracker, dtype::DType};
 use std::fmt;
 
 /// Represents a node in the computation graph.
@@ -11,6 +11,8 @@ pub struct Node {
     op: Box<dyn Operator>,
     /// The shape tracker describing the output shape of this node.
     pub shape: ShapeTracker,
+    /// The data type of the tensor produced by this node.
+    pub dtype: DType,
 }
 
 impl Node {
@@ -31,6 +33,7 @@ impl Node {
     /// use harp::node::Node;
     /// use harp::operator::Input;
     /// use harp::shape::tracker::ShapeTracker;
+    /// use harp::dtype::DType;
     ///
     /// let shape: ShapeTracker = vec![1, 2, 3].into();
     /// let node = Node::new(Input, shape.clone());
@@ -39,9 +42,11 @@ impl Node {
     /// assert_eq!(node.shape, shape);
     /// ```
     pub fn new(op: impl Operator + 'static, shape: ShapeTracker) -> Self {
+        let dtype = op.output_dtype();
         Self {
             op: Box::new(op),
             shape,
+            dtype,
         }
     }
 
