@@ -140,7 +140,13 @@ impl Interpreter {
                     .ok_or("LessThan op missing rhs")?
                     .0
                     .clone();
-                TensorData(lhs.mapv(|a| if a < rhs[[0]] { 1.0 } else { 0.0 }))
+                TensorData(lhs.mapv(|a| {
+                    if a < *rhs.iter().next().unwrap() {
+                        1.0
+                    } else {
+                        0.0
+                    }
+                }))
             }
             // Handle Reduce Operators
             else if let Some(sum_reduce_op) = op.as_any().downcast_ref::<operator::SumReduce>() {
