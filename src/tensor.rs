@@ -19,7 +19,7 @@ use std::{
 #[derive(Clone, Debug)]
 pub struct TensorData {
     pub data: ArrayD<f32>,
-    pub dtype: DType,
+    pub dtype: &'static dyn DType,
 }
 
 /// Represents a tensor in the computation graph.
@@ -36,7 +36,7 @@ pub struct Tensor {
     /// The shape and stride information of this tensor.
     pub shape: ShapeTracker,
     /// The data type of the tensor.
-    pub dtype: DType,
+    pub dtype: &'static dyn DType,
 }
 
 impl Tensor {
@@ -88,18 +88,17 @@ impl Tensor {
     /// # Examples
     ///
     /// ```
-    /// ```
     /// use std::sync::{Arc, Mutex};
     /// use harp::graph::Graph;
     /// use harp::shape::tracker::ShapeTracker;
-    /// use harp::dtype::DType;
+    /// use harp::dtype;
     ///
     /// let graph_arc = Arc::new(Mutex::new(Graph::new()));
     /// let input_shape: ShapeTracker = vec![2, 2].into();
-    /// let input_tensor = Graph::new_input(graph_arc.clone(), input_shape, DType::F32);
+    /// let input_tensor = Graph::new_input(graph_arc.clone(), input_shape, dtype::F32_DTYPE);
     /// let result_tensor = input_tensor.exp2();
     /// // The graph now contains nodes for input and exp2 operation.
-    /// ``` ```
+    /// ```
     pub fn exp2(&self) -> Self {
         Self::new(
             self.graph.clone(),
@@ -174,7 +173,7 @@ impl Tensor {
     /// # Returns
     ///
     /// A new `Tensor` with the specified data type.
-    pub fn cast(&self, dtype: DType) -> Self {
+    pub fn cast(&self, dtype: &'static dyn DType) -> Self {
         Self::new(
             self.graph.clone(),
             self.shape.clone(),
@@ -249,19 +248,18 @@ impl<'b> Add<&'b Tensor> for &Tensor {
     /// # Examples
     ///
     /// ```
-    /// ```
     /// use std::sync::{Arc, Mutex};
     /// use harp::graph::Graph;
     /// use harp::shape::tracker::ShapeTracker;
-    /// use harp::dtype::DType;
+    /// use harp::dtype;
     ///
     /// let graph_arc = Arc::new(Mutex::new(Graph::new()));
     /// let shape: ShapeTracker = vec![2, 2].into();
-    /// let a = Graph::new_input(graph_arc.clone(), shape.clone(), DType::F32);
-    /// let b = Graph::new_input(graph_arc.clone(), shape.clone(), DType::F32);
+    /// let a = Graph::new_input(graph_arc.clone(), shape.clone(), dtype::F32_DTYPE);
+    /// let b = Graph::new_input(graph_arc.clone(), shape.clone(), dtype::F32_DTYPE);
     /// let c = &a + &b;
     /// // The graph now contains nodes for inputs and an addition operation.
-    /// ``` ```
+    /// ```
     fn add(self, rhs: &'b Tensor) -> Self::Output {
         // TODO: Broadcasting and shape calculation
         let new_shape = self.shape.clone();

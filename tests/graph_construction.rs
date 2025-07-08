@@ -1,8 +1,7 @@
 use harp::{
+    dtype,
     graph::Graph,
     shape::tracker::ShapeTracker,
-    tensor::Tensor,
-    dtype::DType,
 };
 use std::sync::{Arc, Mutex};
 
@@ -11,8 +10,8 @@ fn test_simple_graph_construction() {
     let graph = Arc::new(Mutex::new(Graph::new()));
     let shape: ShapeTracker = vec![2, 3].into();
 
-    let a = Graph::new_input(graph.clone(), shape.clone(), DType::F32);
-    let b = Graph::new_input(graph.clone(), shape.clone(), DType::F32);
+    let a = Graph::new_input(graph.clone(), shape.clone(), dtype::F32_DTYPE);
+    let b = Graph::new_input(graph.clone(), shape.clone(), dtype::F32_DTYPE);
 
     let c = &a + &b;
     let d = c.exp2();
@@ -31,8 +30,8 @@ fn test_to_dot_output() {
     let graph = Arc::new(Mutex::new(Graph::new()));
     let shape: ShapeTracker = vec![2, 3].into();
 
-    let a = Graph::new_input(graph.clone(), shape.clone(), DType::F32);
-    let b = Graph::new_input(graph.clone(), shape.clone(), DType::F32);
+    let a = Graph::new_input(graph.clone(), shape.clone(), dtype::F32_DTYPE);
+    let b = Graph::new_input(graph.clone(), shape.clone(), dtype::F32_DTYPE);
 
     let c = &a + &b;
     let d = c.exp2();

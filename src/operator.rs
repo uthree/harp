@@ -1,4 +1,4 @@
-use crate::tensor::TensorData;
+use crate::{dtype, tensor::TensorData};
 use crate::dtype::DType;
 use std::fmt::Debug;
 
@@ -12,7 +12,7 @@ pub trait Operator: Debug + Send + Sync {
     fn as_any(&self) -> &dyn std::any::Any;
 
     /// Returns the data type of the output tensor produced by this operator.
-    fn output_dtype(&self) -> DType;
+    fn output_dtype(&self) -> &'static dyn DType;
 }
 
 // --- Sub-traits for categorization ---
@@ -42,13 +42,13 @@ pub trait MovementOp: Operator {}
 /// This operator does not perform any computation but serves as a placeholder for external data.
 #[derive(Debug, Clone, Copy)]
 pub struct Input {
-    pub dtype: DType,
+    pub dtype: &'static dyn DType,
 }
 impl Operator for Input {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> DType {
+    fn output_dtype(&self) -> &'static dyn DType {
         self.dtype
     }
 }
@@ -66,7 +66,7 @@ impl Operator for Const {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> DType {
+    fn output_dtype(&self) -> &'static dyn DType {
         self.data.dtype
     }
 }
@@ -74,14 +74,14 @@ impl Operator for Const {
 /// Represents a type casting operation.
 #[derive(Debug, Clone, Copy)]
 pub struct Cast {
-    pub dtype: DType,
+    pub dtype: &'static dyn DType,
 }
 
 impl Operator for Cast {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> DType {
+    fn output_dtype(&self) -> &'static dyn DType {
         self.dtype
     }
 }
@@ -95,8 +95,8 @@ impl Operator for Exp2 {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> DType {
-        DType::F32 // Assuming float output for now
+    fn output_dtype(&self) -> &'static dyn DType {
+        dtype::F32_DTYPE // Assuming float output for now
     }
 }
 impl UnaryOp for Exp2 {}
@@ -108,8 +108,8 @@ impl Operator for Log2 {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> DType {
-        DType::F32 // Assuming float output for now
+    fn output_dtype(&self) -> &'static dyn DType {
+        dtype::F32_DTYPE // Assuming float output for now
     }
 }
 impl UnaryOp for Log2 {}
@@ -121,8 +121,8 @@ impl Operator for Sin {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> DType {
-        DType::F32 // Assuming float output for now
+    fn output_dtype(&self) -> &'static dyn DType {
+        dtype::F32_DTYPE // Assuming float output for now
     }
 }
 impl UnaryOp for Sin {}
@@ -134,8 +134,8 @@ impl Operator for Sqrt {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> DType {
-        DType::F32 // Assuming float output for now
+    fn output_dtype(&self) -> &'static dyn DType {
+        dtype::F32_DTYPE // Assuming float output for now
     }
 }
 impl UnaryOp for Sqrt {}
@@ -147,8 +147,8 @@ impl Operator for Recip {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> DType {
-        DType::F32 // Assuming float output for now
+    fn output_dtype(&self) -> &'static dyn DType {
+        dtype::F32_DTYPE // Assuming float output for now
     }
 }
 impl UnaryOp for Recip {}
@@ -162,8 +162,8 @@ impl Operator for Add {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> DType {
-        DType::F32 // Assuming float output for now
+    fn output_dtype(&self) -> &'static dyn DType {
+        dtype::F32_DTYPE // Assuming float output for now
     }
 }
 impl BinaryOp for Add {}
@@ -175,8 +175,8 @@ impl Operator for Mul {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> DType {
-        DType::F32 // Assuming float output for now
+    fn output_dtype(&self) -> &'static dyn DType {
+        dtype::F32_DTYPE // Assuming float output for now
     }
 }
 impl BinaryOp for Mul {}
@@ -188,8 +188,8 @@ impl Operator for Rem {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> DType {
-        DType::F32 // Assuming float output for now
+    fn output_dtype(&self) -> &'static dyn DType {
+        dtype::F32_DTYPE // Assuming float output for now
     }
 }
 impl BinaryOp for Rem {}
@@ -202,8 +202,8 @@ impl Operator for LessThan {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> DType {
-        DType::F32 // Assuming float output for now
+    fn output_dtype(&self) -> &'static dyn DType {
+        dtype::F32_DTYPE // Assuming float output for now
     }
 }
 impl BinaryOp for LessThan {}
@@ -220,8 +220,8 @@ impl Operator for SumReduce {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> DType {
-        DType::F32 // Assuming float output for now
+    fn output_dtype(&self) -> &'static dyn DType {
+        dtype::F32_DTYPE // Assuming float output for now
     }
 }
 impl ReduceOp for SumReduce {
@@ -240,8 +240,8 @@ impl Operator for MaxReduce {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> DType {
-        DType::F32 // Assuming float output for now
+    fn output_dtype(&self) -> &'static dyn DType {
+        dtype::F32_DTYPE // Assuming float output for now
     }
 }
 impl ReduceOp for MaxReduce {
@@ -260,8 +260,8 @@ impl Operator for Contiguous {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-    fn output_dtype(&self) -> DType {
-        DType::F32 // Assuming float output for now
+    fn output_dtype(&self) -> &'static dyn DType {
+        dtype::F32_DTYPE // Assuming float output for now
     }
 }
 impl MovementOp for Contiguous {}
