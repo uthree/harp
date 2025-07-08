@@ -6,9 +6,9 @@ use crate::{
     tensor::Tensor,
 };
 use petgraph::{
+    Direction,
     graph::{DiGraph, NodeIndex},
     visit::EdgeRef,
-    Direction,
 };
 use std::sync::{Arc, Mutex};
 
@@ -92,11 +92,7 @@ impl Graph {
     ///
     /// assert_eq!(graph_arc.lock().unwrap().inputs.len(), 1);
     /// ```
-    pub fn new_input(
-        graph: Arc<Mutex<Self>>,
-        shape: ShapeTracker,
-        dtype: DType,
-    ) -> Tensor {
+    pub fn new_input(graph: Arc<Mutex<Self>>, shape: ShapeTracker, dtype: DType) -> Tensor {
         let mut graph_mut = graph.lock().unwrap();
         let node = Node::new(operator::Input { dtype }, shape.clone());
         let node_index = graph_mut.add_node(node);
@@ -124,11 +120,7 @@ impl Graph {
     /// # Returns
     ///
     /// A `Tensor` representing the newly created constant.
-    pub fn new_const(
-        graph: Arc<Mutex<Self>>,
-        scalar: Scalar,
-        shape: ShapeTracker,
-    ) -> Tensor {
+    pub fn new_const(graph: Arc<Mutex<Self>>, scalar: Scalar, shape: ShapeTracker) -> Tensor {
         let mut graph_mut = graph.lock().unwrap();
         let dtype = scalar.dtype();
         let node = Node::new(operator::Const { scalar }, shape.clone());
@@ -153,11 +145,7 @@ impl Graph {
     /// # Returns
     ///
     /// A `Tensor` filled with ones.
-    pub fn ones(
-        graph: Arc<Mutex<Self>>,
-        shape: ShapeTracker,
-        dtype: DType,
-    ) -> Tensor {
+    pub fn ones(graph: Arc<Mutex<Self>>, shape: ShapeTracker, dtype: DType) -> Tensor {
         // For now, we only support F32 for ones.
         // TODO: Support other dtypes.
         assert_eq!(dtype, DType::F32);
@@ -175,11 +163,7 @@ impl Graph {
     /// # Returns
     ///
     /// A `Tensor` filled with zeros.
-    pub fn zeros(
-        graph: Arc<Mutex<Self>>,
-        shape: ShapeTracker,
-        dtype: DType,
-    ) -> Tensor {
+    pub fn zeros(graph: Arc<Mutex<Self>>, shape: ShapeTracker, dtype: DType) -> Tensor {
         // For now, we only support F32 for zeros.
         // TODO: Support other dtypes.
         assert_eq!(dtype, DType::F32);
@@ -226,7 +210,7 @@ impl Graph {
         self.outputs.push(tensor.node_index);
     }
 
-    /// Registers a tensor as an output of the graph using an Arc<Mutex<Graph>>.
+    /// Registers a tensor as an output of the graph using an `Arc<Mutex<Graph>>`.
     ///
     /// This method simplifies the process of adding an output node to the graph
     /// by handling the locking mechanism internally.
