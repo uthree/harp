@@ -170,6 +170,54 @@ impl Graph {
         Self::new_const(graph, Scalar::F32(0.0), shape)
     }
 
+    /// Creates a new tensor with values sampled from a uniform distribution (0 to 1).
+    ///
+    /// # Arguments
+    ///
+    /// * `graph` - An `Arc<Mutex<Self>>` reference to the graph.
+    /// * `shape` - The `ShapeTracker` defining the shape of the tensor.
+    /// * `dtype` - The `DType` of the tensor.
+    ///
+    /// # Returns
+    ///
+    /// A `Tensor` with random values.
+    pub fn randu(graph: Arc<Mutex<Self>>, shape: ShapeTracker, dtype: DType) -> Tensor {
+        let mut graph_mut = graph.lock().unwrap();
+        let node = Node::new(operator::RandU { dtype }, shape.clone());
+        let node_index = graph_mut.add_node(node);
+
+        Tensor {
+            graph: graph.clone(),
+            node_index,
+            shape,
+            dtype,
+        }
+    }
+
+    /// Creates a new tensor with values sampled from a standard normal distribution.
+    ///
+    /// # Arguments
+    ///
+    /// * `graph` - An `Arc<Mutex<Self>>` reference to the graph.
+    /// * `shape` - The `ShapeTracker` defining the shape of the tensor.
+    /// * `dtype` - The `DType` of the tensor.
+    ///
+    /// # Returns
+    ///
+    /// A `Tensor` with random values.
+    pub fn randn(graph: Arc<Mutex<Self>>, shape: ShapeTracker, dtype: DType) -> Tensor {
+        let mut graph_mut = graph.lock().unwrap();
+        let node = Node::new(operator::RandN { dtype }, shape.clone());
+        let node_index = graph_mut.add_node(node);
+
+        Tensor {
+            graph: graph.clone(),
+            node_index,
+            shape,
+            dtype,
+        }
+    }
+
     /// Adds a new node to the graph.
     ///
     /// # Arguments

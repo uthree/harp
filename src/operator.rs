@@ -70,6 +70,39 @@ impl Operator for Const {
     }
 }
 
+/// Represents a uniform random number generation operation (0 to 1).
+#[derive(Debug, Clone, Copy)]
+pub struct RandU {
+    pub dtype: DType,
+}
+
+impl Operator for RandU {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn output_dtype(&self) -> DType {
+        self.dtype
+    }
+}
+impl SpecialOp for RandU {}
+
+/// Represents a normal random number generation operation (mean 0, std 1).
+#[derive(Debug, Clone, Copy)]
+pub struct RandN {
+    pub dtype: DType,
+}
+
+impl Operator for RandN {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn output_dtype(&self) -> DType {
+        self.dtype
+    }
+}
+impl SpecialOp for RandN {}
+
+
 /// Represents a type casting operation.
 #[derive(Debug, Clone, Copy)]
 pub struct Cast {
