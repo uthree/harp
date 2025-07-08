@@ -3,14 +3,12 @@ use harp::{
     graph::Graph,
     shape::tracker::ShapeTracker,
 };
-use ndarray::array;
 use std::sync::{Arc, Mutex};
 
 #[test]
 fn test_tensor_exp2() {
     let graph_arc = Arc::new(Mutex::new(Graph::new()));
-    let input_data = array![[1.0, 2.0], [3.0, 4.0]].into_dyn();
-    let input_shape: ShapeTracker = input_data.shape().to_vec().into();
+    let input_shape: ShapeTracker = vec![2, 2].into();
     let input_tensor = Graph::new_input(graph_arc.clone(), input_shape.clone(), DType::F32);
 
     let result_tensor = input_tensor.exp2();
@@ -24,8 +22,7 @@ fn test_tensor_exp2() {
 #[test]
 fn test_tensor_log2() {
     let graph_arc = Arc::new(Mutex::new(Graph::new()));
-    let input_data = array![[2.0, 4.0], [8.0, 16.0]].into_dyn();
-    let input_shape: ShapeTracker = input_data.shape().to_vec().into();
+    let input_shape: ShapeTracker = vec![2, 2].into();
     let input_tensor = Graph::new_input(graph_arc.clone(), input_shape.clone(), DType::F32);
 
     let result_tensor = input_tensor.log2();
@@ -39,8 +36,7 @@ fn test_tensor_log2() {
 #[test]
 fn test_tensor_sin() {
     let graph_arc = Arc::new(Mutex::new(Graph::new()));
-    let input_data = array![[0.0, std::f32::consts::PI / 2.0]].into_dyn();
-    let input_shape: ShapeTracker = input_data.shape().to_vec().into();
+    let input_shape: ShapeTracker = vec![1, 2].into();
     let input_tensor = Graph::new_input(graph_arc.clone(), input_shape.clone(), DType::F32);
 
     let result_tensor = input_tensor.sin();
@@ -54,8 +50,7 @@ fn test_tensor_sin() {
 #[test]
 fn test_tensor_sqrt() {
     let graph_arc = Arc::new(Mutex::new(Graph::new()));
-    let input_data = array![[1.0, 4.0]].into_dyn();
-    let input_shape: ShapeTracker = input_data.shape().to_vec().into();
+    let input_shape: ShapeTracker = vec![1, 2].into();
     let input_tensor = Graph::new_input(graph_arc.clone(), input_shape.clone(), DType::F32);
 
     let result_tensor = input_tensor.sqrt();
@@ -69,8 +64,7 @@ fn test_tensor_sqrt() {
 #[test]
 fn test_tensor_recip() {
     let graph_arc = Arc::new(Mutex::new(Graph::new()));
-    let input_data = array![[1.0, 2.0]].into_dyn();
-    let input_shape: ShapeTracker = input_data.shape().to_vec().into();
+    let input_shape: ShapeTracker = vec![1, 2].into();
     let input_tensor = Graph::new_input(graph_arc.clone(), input_shape.clone(), DType::F32);
 
     let result_tensor = input_tensor.recip();
@@ -98,8 +92,7 @@ fn test_tensor_cast() {
 #[test]
 fn test_tensor_sum_reduce() {
     let graph_arc = Arc::new(Mutex::new(Graph::new()));
-    let input_data = array![[1.0, 2.0], [3.0, 4.0]].into_dyn();
-    let input_shape: ShapeTracker = input_data.shape().to_vec().into();
+    let input_shape: ShapeTracker = vec![2, 2].into();
     let input_tensor = Graph::new_input(graph_arc.clone(), input_shape.clone(), DType::F32);
 
     let result_tensor = input_tensor.sum_reduce(0);
@@ -114,8 +107,7 @@ fn test_tensor_sum_reduce() {
 #[test]
 fn test_tensor_max_reduce() {
     let graph_arc = Arc::new(Mutex::new(Graph::new()));
-    let input_data = array![[1.0, 2.0], [3.0, 4.0]].into_dyn();
-    let input_shape: ShapeTracker = input_data.shape().to_vec().into();
+    let input_shape: ShapeTracker = vec![2, 2].into();
     let input_tensor = Graph::new_input(graph_arc.clone(), input_shape.clone(), DType::F32);
 
     let result_tensor = input_tensor.max_reduce(1);

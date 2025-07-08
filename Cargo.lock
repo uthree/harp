@@ -46,7 +46,6 @@ name = "harp"
 version = "0.1.0"
 dependencies = [
  "approx",
- "ndarray",
  "petgraph",
  "rustc-hash",
 ]
