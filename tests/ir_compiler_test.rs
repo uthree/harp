@@ -25,20 +25,19 @@ fn test_compile_const_node() {
 }
 
 #[test]
-fn test_compile_add_op() {
-    // 1. Create a graph with two inputs and one add operation.
+fn test_compile_rand_node() {
+    // 1. Create a graph with one RandU node.
     let graph_arc = Arc::new(Mutex::new(Graph::new()));
     let shape: ShapeTracker = vec![2, 3].into();
-    let a = Graph::new_input(graph_arc.clone(), shape.clone(), DType::F32);
-    let b = Graph::new_input(graph_arc.clone(), shape.clone(), DType::F32);
-    let _c = &a + &b;
+    let _rand_tensor = Graph::randu(graph_arc.clone(), shape.clone(), DType::F32);
 
     // 2. Compile the graph.
     let mut compiler = Compiler::new();
-    let function = compiler.compile(&graph_arc.lock().unwrap(), "add_test");
+    let function = compiler.compile(&graph_arc.lock().unwrap(), "rand_test");
 
     // 3. Verify the generated IR.
-    let expected_ir = "\nfunction add_test:\nkernel main_kernel:\n  v0 = load buf0[shape=[2, 3], map=(idx * 3) + idx]\n  v1 = load buf1[shape=[2, 3], map=(idx * 3) + idx]\n  v2 = Add v0, v1\n";
+    let expected_ir = "\nfunction rand_test:\nkernel main_kernel:\n  v0 = Uniform [shape=[2, 3], map=(idx * 3) + idx]\n";
     assert_eq!(function.to_string().trim(), expected_ir.trim());
 }
+
 

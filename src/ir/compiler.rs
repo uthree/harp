@@ -3,9 +3,9 @@ use crate::{
         graph::Graph,
         operator::{self, Input, Operator},
     },
-    ir::{AluOp, Buffer, BufferId, Function, Instruction, Kernel, MemorySpace},
+    ir::{AluOp, Buffer, BufferId, Function, Instruction, Kernel, MemorySpace, RandOp},
 };
-use petgraph::{algo::toposort, graph::NodeIndex, Direction, visit::EdgeRef};
+use petgraph::{algo::toposort, graph::NodeIndex, visit::EdgeRef, Direction};
 use std::collections::HashMap;
 
 /// Compiles a computation graph into an executable IR function.
@@ -81,7 +81,6 @@ impl Compiler {
                 .graph
                 .edges_directed(node_idx, Direction::Incoming)
                 .collect();
-            // Sort parents by argument index to ensure correct order for lhs and rhs.
             parents.sort_by_key(|edge| edge.weight().arg_index);
 
             if let Some(const_op) = op.as_any().downcast_ref::<operator::Const>() {
@@ -90,7 +89,7 @@ impl Compiler {
                     val: const_op.scalar,
                 });
             } else if let Some(alu_op) = self.map_to_alu_op(op) {
-                if parents.len() == 1 { // UnaryOp
+                if parents.len() == 1 {
                     let lhs = self.vreg_map[&parents[0].source()];
                     instructions.push(Instruction::Alu {
                         op: alu_op,
@@ -98,7 +97,7 @@ impl Compiler {
                         lhs,
                         rhs: None,
                     });
-                } else if parents.len() == 2 { // BinaryOp
+                } else if parents.len() == 2 {
                     let lhs = self.vreg_map[&parents[0].source()];
                     let rhs = self.vreg_map[&parents[1].source()];
                     instructions.push(Instruction::Alu {
@@ -108,8 +107,14 @@ impl Compiler {
                         rhs: Some(rhs),
                     });
                 }
+            } else if let Some(rand_op) = self.map_to_rand_op(op) {
+                instructions.push(Instruction::Rand {
+                    op: rand_op,
+                    out: out_vreg,
+                    shape: node.shape.clone(),
+                });
             }
-            // TODO: Handle other operator types (Rand, Store, etc.)
+            // TODO: Handle other operator types (Store, etc.)
         }
 
         let kernel = Kernel {
@@ -142,6 +147,15 @@ impl Compiler {
             _ if op_any.is::<operator::Sqrt>() => Some(AluOp::Sqrt),
             _ if op_any.is::<operator::Recip>() => Some(AluOp::Recip),
             _ if op_any.is::<operator::LessThan>() => Some(AluOp::LessThan),
+            _ => None,
+        }
+    }
+
+    fn map_to_rand_op(&self, op: &dyn Operator) -> Option<RandOp> {
+        let op_any = op.as_any();
+        match op_any {
+            _ if op_any.is::<operator::RandU>() => Some(RandOp::Uniform),
+            _ if op_any.is::<operator::RandN>() => Some(RandOp::Normal),
             _ => None,
         }
     }
