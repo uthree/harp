@@ -36,9 +36,9 @@ impl Node {
     /// use harp::dtype::DType;
     ///
     /// let shape: ShapeTracker = vec![1, 2, 3].into();
-    /// let node = Node::new(Input, shape.clone());
+    /// let node = Node::new(Input { dtype: DType::F32 }, shape.clone());
     ///
-    /// assert_eq!(format!("{:?}", node.op()), "Input");
+    /// assert_eq!(format!("{:?}", node.op()), "Input { dtype: F32 }");
     /// assert_eq!(node.shape, shape);
     /// ```
     pub fn new(op: impl Operator + 'static, shape: ShapeTracker) -> Self {

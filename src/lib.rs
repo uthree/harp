@@ -1,10 +1,8 @@
 pub mod dtype;
 pub mod graph;
-pub mod interpreter;
 pub mod macros;
 pub mod node;
 pub mod operator;
-pub mod optimizer;
 pub mod shape;
 pub mod tensor;
 
