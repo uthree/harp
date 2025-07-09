@@ -2,6 +2,7 @@ use dyn_clone::DynClone;
 use std::any::Any;
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::ops::{Add, Deref, Div, Mul, Neg, Sub};
 use std::sync::Arc;
 
 // --- DType System ---
@@ -80,8 +81,8 @@ macro_rules! impl_operator {
     };
 }
 
-def_operators!(Add, Mul, Load, Store, Recip, Wildcard);
-impl_operator!(Add, Mul, Load, Store, Recip, Wildcard);
+def_operators!(OpAdd, OpMul, Load, Store, Recip, Wildcard);
+impl_operator!(OpAdd, OpMul, Load, Store, Recip, Wildcard);
 
 #[derive(Debug, Clone)]
 pub struct Const(pub Box<dyn DType>);
@@ -111,32 +112,46 @@ pub trait BinaryOp: Operator {}
 pub trait CommutativeOp: BinaryOp {}
 
 // --- Implement Marker Traits ---
-impl BinaryOp for Add {}
-impl CommutativeOp for Add {}
-impl BinaryOp for Mul {}
-impl CommutativeOp for Mul {}
+impl BinaryOp for OpAdd {}
+impl CommutativeOp for OpAdd {}
+impl BinaryOp for OpMul {}
+impl CommutativeOp for OpMul {}
 
 impl UnaryOp for Recip {}
 
-// --- Node Struct ---
+// --- Node & NodeRef Structs ---
 #[derive(Debug, Clone)]
 pub struct Node {
     pub op: Box<dyn Operator>,
-    pub src: Vec<Arc<Self>>,
+    pub src: Vec<NodeRef>,
 }
 
 impl PartialEq for Node {
     fn eq(&self, other: &Self) -> bool {
-        // Compare operators by their type and sources.
-        // Dereference the boxes to compare the `dyn Operator` trait objects.
         *self.op == *other.op && self.src == other.src
     }
 }
 impl Eq for Node {}
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeRef(Arc<Node>);
+
+impl Deref for NodeRef {
+    type Target = Arc<Node>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<Arc<Node>> for NodeRef {
+    fn from(arc_node: Arc<Node>) -> Self {
+        NodeRef(arc_node)
+    }
+}
+
 impl Node {
-    /// Visualizes the computation graph in DOT format.
     pub fn to_dot(&self) -> String {
+        // ... (implementation remains the same, but uses NodeRef)
         let mut nodes = Vec::new();
         let mut edges = Vec::new();
         let mut visited = HashMap::new();
@@ -147,11 +162,11 @@ impl Node {
         dot.push_str("  rankdir=TB;\n\n");
         dot.push_str("  // Nodes\n");
         for node_def in nodes {
-            dot.push_str(&format!("  {}\n", node_def));
+            dot.push_str(&format!("  {node_def}\n"));
         }
         dot.push_str("\n  // Edges\n");
         for edge_def in edges {
-            dot.push_str(&format!("  {}\n", edge_def));
+            dot.push_str(&format!("  {edge_def}\n"));
         }
         dot.push_str("}\n");
         dot
@@ -173,42 +188,89 @@ impl Node {
         *counter += 1;
         visited.insert(node_ptr, node_id.clone());
 
-        // Node definition
         let label = if let Some(const_op) = node.op.as_any().downcast_ref::<Const>() {
             format!("Const\n({:?})", const_op.0)
         } else {
             node.op.name().to_string()
         };
-        let shape = if node.op.as_any().is::<Const>() { "ellipse" } else { "box" };
-        nodes.push(format!("{} [label=\"{}\", shape=\"{}\"];", node_id, label, shape));
+        let shape = if node.op.as_any().is::<Const>() {
+            "ellipse"
+        } else {
+            "box"
+        };
+        nodes.push(format!(
+            "{node_id} [label=\"{label}\", shape=\"{shape}\"];"
+        ));
 
-        // Edges and recursion
         for src_node in &node.src {
             Self::build_dot_recursive(src_node, nodes, edges, visited, counter);
             let src_id = visited.get(&(src_node.as_ref() as *const Node)).unwrap();
-            edges.push(format!("{} -> {};", src_id, node_id));
+            edges.push(format!("{src_id} -> {node_id};"));
         }
     }
 }
 
 // --- Helper Functions ---
-pub fn add(a: Arc<Node>, b: Arc<Node>) -> Arc<Node> {
-    Arc::new(Node {
-        op: Box::new(Add),
+pub fn add(a: NodeRef, b: NodeRef) -> NodeRef {
+    NodeRef(Arc::new(Node {
+        op: Box::new(OpAdd),
         src: vec![a, b],
-    })
+    }))
 }
 
-pub fn mul(a: Arc<Node>, b: Arc<Node>) -> Arc<Node> {
-    Arc::new(Node {
-        op: Box::new(Mul),
+pub fn mul(a: NodeRef, b: NodeRef) -> NodeRef {
+    NodeRef(Arc::new(Node {
+        op: Box::new(OpMul),
         src: vec![a, b],
-    })
+    }))
 }
 
-pub fn constant<T: DType + 'static>(value: T) -> Arc<Node> {
-    Arc::new(Node {
+pub fn constant<T: DType + 'static>(value: T) -> NodeRef {
+    NodeRef(Arc::new(Node {
         op: Box::new(Const(Box::new(value))),
         src: vec![],
-    })
+    }))
+}
+
+pub fn recip(a: NodeRef) -> NodeRef {
+    NodeRef(Arc::new(Node {
+        op: Box::new(Recip),
+        src: vec![a],
+    }))
+}
+
+// --- Operator Overloads for NodeRef ---
+impl Add for NodeRef {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self::Output {
+        add(self, rhs)
+    }
+}
+
+impl Mul for NodeRef {
+    type Output = Self;
+    fn mul(self, rhs: Self) -> Self::Output {
+        mul(self, rhs)
+    }
+}
+
+impl Neg for NodeRef {
+    type Output = Self;
+    fn neg(self) -> Self::Output {
+        mul(self, constant(-1.0f32))
+    }
+}
+
+impl Sub for NodeRef {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self::Output {
+        add(self, rhs.neg())
+    }
+}
+
+impl Div for NodeRef {
+    type Output = Self;
+    fn div(self, rhs: Self) -> Self::Output {
+        mul(self, recip(rhs))
+    }
 }

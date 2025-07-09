@@ -1,21 +1,21 @@
-use crate::node::{Capture, Node, Wildcard};
+use crate::node::{Capture, Node, NodeRef, Wildcard};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 /// A map to store captured nodes, mapping capture names to the matched nodes.
-pub type Captures = HashMap<String, Arc<Node>>;
+pub type Captures = HashMap<String, NodeRef>;
 
 /// A rule for rewriting a `Node` graph.
 pub struct RewriteRule {
-    /// The pattern to search for, represented as a `Node`.
-    pub searcher: Arc<Node>,
-    /// The pattern to replace with, represented as a `Node`.
-    pub rewriter: Arc<Node>,
+    /// The pattern to search for, represented as a `NodeRef`.
+    pub searcher: NodeRef,
+    /// The pattern to replace with, represented as a `NodeRef`.
+    pub rewriter: NodeRef,
 }
 
 impl RewriteRule {
     /// Creates a new rewrite rule.
-    pub fn new(searcher: Arc<Node>, rewriter: Arc<Node>) -> Self {
+    pub fn new(searcher: NodeRef, rewriter: NodeRef) -> Self {
         Self { searcher, rewriter }
     }
 }
@@ -32,7 +32,7 @@ impl Rewriter {
     }
 
     /// Applies the rules to a node and its descendants, returning a rewritten node.
-    pub fn rewrite(&self, node: Arc<Node>) -> Arc<Node> {
+    pub fn rewrite(&self, node: NodeRef) -> NodeRef {
         // First, rewrite the children recursively.
         let rewritten_src = node
             .src
@@ -40,10 +40,10 @@ impl Rewriter {
             .map(|child| self.rewrite(child.clone()))
             .collect::<Vec<_>>();
 
-        let mut current_node = Arc::new(Node {
+        let mut current_node = NodeRef::from(Arc::new(Node {
             op: node.op.clone(),
             src: rewritten_src,
-        });
+        }));
 
         // Then, try to apply rules to the current node.
         for rule in &self.rules {
@@ -56,7 +56,7 @@ impl Rewriter {
     }
 
     /// Tries to apply a single rule to a node.
-    fn apply_rule(&self, node: &Arc<Node>, rule: &RewriteRule) -> Option<Arc<Node>> {
+    fn apply_rule(&self, node: &NodeRef, rule: &RewriteRule) -> Option<NodeRef> {
         let mut captures = Captures::new();
         if self.match_pattern(&rule.searcher, node, &mut captures) {
             self.build_from_pattern(&rule.rewriter, &captures)
@@ -66,12 +66,7 @@ impl Rewriter {
     }
 
     /// Matches a pattern node against a graph node, populating captures.
-    fn match_pattern(
-        &self,
-        pattern: &Arc<Node>,
-        node: &Arc<Node>,
-        captures: &mut Captures,
-    ) -> bool {
+    fn match_pattern(&self, pattern: &NodeRef, node: &NodeRef, captures: &mut Captures) -> bool {
         // Handle Wildcard
         if pattern.op.as_any().is::<Wildcard>() {
             return true;
@@ -98,7 +93,7 @@ impl Rewriter {
     }
 
     /// Builds a new node from a pattern and captured nodes.
-    fn build_from_pattern(&self, pattern: &Arc<Node>, captures: &Captures) -> Option<Arc<Node>> {
+    fn build_from_pattern(&self, pattern: &NodeRef, captures: &Captures) -> Option<NodeRef> {
         // If the pattern is a capture, retrieve the captured node.
         if let Some(capture) = pattern.op.as_any().downcast_ref::<Capture>() {
             return captures.get(&capture.0).cloned();
@@ -111,9 +106,9 @@ impl Rewriter {
             .map(|p| self.build_from_pattern(p, captures))
             .collect::<Option<Vec<_>>>()?;
 
-        Some(Arc::new(Node {
+        Some(NodeRef::from(Arc::new(Node {
             op: pattern.op.clone(),
             src: new_src,
-        }))
+        })))
     }
 }
