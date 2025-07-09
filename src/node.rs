@@ -117,7 +117,7 @@ impl PartialEq for Node {
     fn eq(&self, other: &Self) -> bool {
         // Compare operators by their type and sources.
         // Dereference the boxes to compare the `dyn Operator` trait objects.
-        &*self.op == &*other.op && self.src == other.src
+        *self.op == *other.op && self.src == other.src
     }
 }
 impl Eq for Node {}
