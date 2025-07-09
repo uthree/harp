@@ -9,14 +9,14 @@ use petgraph::{algo::toposort, graph::NodeIndex, visit::EdgeRef, Direction};
 use std::collections::HashMap;
 
 /// Compiles a computation graph into an executable IR function.
-pub struct Compiler {
+pub struct Linearizer {
     vreg_map: HashMap<NodeIndex, usize>,
     vreg_counter: usize,
     buffers: Vec<Buffer>,
     buffer_counter: usize,
 }
 
-impl Compiler {
+impl Linearizer {
     pub fn new() -> Self {
         Self {
             vreg_map: HashMap::new(),

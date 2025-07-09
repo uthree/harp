@@ -1,5 +1,5 @@
 /// The Intermediate Representation (IR) module.
-pub mod compiler;
+pub mod linearizer;
 
 use crate::graph::dtype::DType;
 use crate::graph::dtype::Scalar;

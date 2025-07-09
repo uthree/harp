@@ -3,7 +3,7 @@ use harp::{
         dtype::{DType, Scalar},
         graph::Graph,
     },
-    ir::compiler::Compiler,
+    ir::linearizer::Linearizer,
     shape::tracker::ShapeTracker,
 };
 use std::sync::{Arc, Mutex};
@@ -16,7 +16,7 @@ fn test_compile_const_node() {
     let _const_tensor = Graph::new_const(graph_arc.clone(), Scalar::F32(42.0), shape);
 
     // 2. Compile the graph.
-    let mut compiler = Compiler::new();
+    let mut compiler = Linearizer::new();
     let function = compiler.compile(&graph_arc.lock().unwrap(), "const_test");
 
     // 3. Verify the generated IR by comparing its string representation.
@@ -32,7 +32,7 @@ fn test_compile_rand_node() {
     let _rand_tensor = Graph::randu(graph_arc.clone(), shape.clone(), DType::F32);
 
     // 2. Compile the graph.
-    let mut compiler = Compiler::new();
+    let mut compiler = Linearizer::new();
     let function = compiler.compile(&graph_arc.lock().unwrap(), "rand_test");
 
     // 3. Verify the generated IR.

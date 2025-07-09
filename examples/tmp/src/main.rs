@@ -3,7 +3,7 @@ use harp::{
         dtype::{DType, Scalar},
         graph::Graph,
     },
-    ir::compiler::Compiler,
+    ir::linearizer::Linearizer,
     shape::tracker::ShapeTracker,
 };
 use std::sync::{Arc, Mutex};
@@ -28,9 +28,9 @@ fn main() {
     Graph::add_output_node(graph_arc.clone(), &e);
 
     // 6. Compile the graph into an IR function
-    let mut compiler = Compiler::new();
+    let mut linearizer = Linearizer::new();
     let graph_locked = graph_arc.lock().unwrap();
-    let ir_function = compiler.compile(&graph_locked, "my_cool_function");
+    let ir_function = linearizer.compile(&graph_locked, "my_cool_function");
 
     // 7. Print the generated IR to the console
     println!("--- Generated IR ---");

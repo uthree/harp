@@ -116,7 +116,7 @@ Memory is managed statically using a single memory arena per `Function`.
 
 - **Static Allocation**: Before a `Function` is executed, a single contiguous block of memory (`arena`) of size `required_memory` is allocated. It is freed only after the function completes.
 - **Buffers as Views**: `Buffer` objects do not own memory themselves. Instead, they represent a "view" or a slice of the main arena, defined by an `offset` and `size`.
-- **Memory Reuse**: The graph-to-IR compiler will be responsible for analyzing the liveness of tensors to allow non-overlapping tensors to share the same memory regions, minimizing the total `required_memory`.
+- **Memory Reuse**: The graph-to-IR linearizer will be responsible for analyzing the liveness of tensors to allow non-overlapping tensors to share the same memory regions, minimizing the total `required_memory`.
 
 ```rust
 // Represents a view into the memory arena.
