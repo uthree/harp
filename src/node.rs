@@ -80,8 +80,8 @@ macro_rules! impl_operator {
     };
 }
 
-def_operators!(Add, Mul, Load, Store, Recip);
-impl_operator!(Add, Mul, Load, Store, Recip);
+def_operators!(Add, Mul, Load, Store, Recip, Wildcard);
+impl_operator!(Add, Mul, Load, Store, Recip, Wildcard);
 
 #[derive(Debug, Clone)]
 pub struct Const(pub Box<dyn DType>);
@@ -91,6 +91,17 @@ impl Operator for Const {
     }
     fn name(&self) -> &'static str {
         "Const"
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Capture(pub String);
+impl Operator for Capture {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn name(&self) -> &'static str {
+        "Capture"
     }
 }
 
@@ -178,4 +189,26 @@ impl Node {
             edges.push(format!("{} -> {};", src_id, node_id));
         }
     }
+}
+
+// --- Helper Functions ---
+pub fn add(a: Arc<Node>, b: Arc<Node>) -> Arc<Node> {
+    Arc::new(Node {
+        op: Box::new(Add),
+        src: vec![a, b],
+    })
+}
+
+pub fn mul(a: Arc<Node>, b: Arc<Node>) -> Arc<Node> {
+    Arc::new(Node {
+        op: Box::new(Mul),
+        src: vec![a, b],
+    })
+}
+
+pub fn constant<T: DType + 'static>(value: T) -> Arc<Node> {
+    Arc::new(Node {
+        op: Box::new(Const(Box::new(value))),
+        src: vec![],
+    })
 }
