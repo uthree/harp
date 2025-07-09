@@ -1,5 +1,6 @@
 use dyn_clone::DynClone;
 use std::any::Any;
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -121,3 +122,60 @@ impl PartialEq for Node {
     }
 }
 impl Eq for Node {}
+
+impl Node {
+    /// Visualizes the computation graph in DOT format.
+    pub fn to_dot(&self) -> String {
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+        let mut visited = HashMap::new();
+        let mut counter = 0;
+        Self::build_dot_recursive(self, &mut nodes, &mut edges, &mut visited, &mut counter);
+
+        let mut dot = String::from("digraph G {\n");
+        dot.push_str("  rankdir=TB;\n\n");
+        dot.push_str("  // Nodes\n");
+        for node_def in nodes {
+            dot.push_str(&format!("  {}\n", node_def));
+        }
+        dot.push_str("\n  // Edges\n");
+        for edge_def in edges {
+            dot.push_str(&format!("  {}\n", edge_def));
+        }
+        dot.push_str("}\n");
+        dot
+    }
+
+    fn build_dot_recursive(
+        node: &Node,
+        nodes: &mut Vec<String>,
+        edges: &mut Vec<String>,
+        visited: &mut HashMap<*const Node, String>,
+        counter: &mut usize,
+    ) {
+        let node_ptr = node as *const Node;
+        if visited.contains_key(&node_ptr) {
+            return;
+        }
+
+        let node_id = format!("node{}", *counter);
+        *counter += 1;
+        visited.insert(node_ptr, node_id.clone());
+
+        // Node definition
+        let label = if let Some(const_op) = node.op.as_any().downcast_ref::<Const>() {
+            format!("Const\n({:?})", const_op.0)
+        } else {
+            node.op.name().to_string()
+        };
+        let shape = if node.op.as_any().is::<Const>() { "ellipse" } else { "box" };
+        nodes.push(format!("{} [label=\"{}\", shape=\"{}\"];", node_id, label, shape));
+
+        // Edges and recursion
+        for src_node in &node.src {
+            Self::build_dot_recursive(src_node, nodes, edges, visited, counter);
+            let src_id = visited.get(&(src_node.as_ref() as *const Node)).unwrap();
+            edges.push(format!("{} -> {};", src_id, node_id));
+        }
+    }
+}
