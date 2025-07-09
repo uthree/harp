@@ -44,7 +44,6 @@ impl_dtype!(i8, i16, i32, i64, isize);
 impl_integer!(i8, i16, i32, i64, isize);
 impl_signed!(i8, i16, i32, i64, isize);
 
-
 // --- Operator Trait ---
 pub trait Operator: Debug + DynClone + Any {
     fn as_any(&self) -> &dyn Any;
@@ -86,8 +85,12 @@ impl_operator!(Add, Mul, Load, Store, Recip);
 #[derive(Debug, Clone)]
 pub struct Const(pub Box<dyn DType>);
 impl Operator for Const {
-    fn as_any(&self) -> &dyn Any { self }
-    fn name(&self) -> &'static str { "Const" }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn name(&self) -> &'static str {
+        "Const"
+    }
 }
 
 // --- Marker Traits for Operators ---
