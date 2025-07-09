@@ -3,13 +3,47 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::sync::Arc;
 
-// --- DType system (no changes) ---
+// --- DType System ---
 pub trait DType: Debug + DynClone {}
-impl DType for f32 {}
-impl DType for f64 {}
-impl DType for i32 {}
-impl DType for i64 {}
 dyn_clone::clone_trait_object!(DType);
+
+// --- Marker Traits for DTypes ---
+pub trait Float: DType {}
+pub trait Integer: DType {}
+pub trait UnsignedInteger: Integer {}
+pub trait SignedInteger: Integer {}
+
+// --- DType Implementations ---
+macro_rules! impl_dtype {
+    ($($t:ty),*) => { $( impl DType for $t {} )* };
+}
+macro_rules! impl_float {
+    ($($t:ty),*) => { $( impl Float for $t {} )* };
+}
+macro_rules! impl_integer {
+    ($($t:ty),*) => { $( impl Integer for $t {} )* };
+}
+macro_rules! impl_unsigned {
+    ($($t:ty),*) => { $( impl UnsignedInteger for $t {} )* };
+}
+macro_rules! impl_signed {
+    ($($t:ty),*) => { $( impl SignedInteger for $t {} )* };
+}
+
+// Implement for Floats
+impl_dtype!(f32, f64);
+impl_float!(f32, f64);
+
+// Implement for Unsigned Integers
+impl_dtype!(u8, u16, u32, u64, usize);
+impl_integer!(u8, u16, u32, u64, usize);
+impl_unsigned!(u8, u16, u32, u64, usize);
+
+// Implement for Signed Integers
+impl_dtype!(i8, i16, i32, i64, isize);
+impl_integer!(i8, i16, i32, i64, isize);
+impl_signed!(i8, i16, i32, i64, isize);
+
 
 // --- Operator Trait ---
 pub trait Operator: Debug + DynClone + Any {
@@ -26,21 +60,28 @@ impl PartialEq for dyn Operator {
 impl Eq for dyn Operator {}
 
 // --- Operator Structs ---
-macro_rules! def_operator {
-    ($name:ident) => {
-        #[derive(Debug, Clone, PartialEq, Eq)]
-        pub struct $name;
-        impl Operator for $name {
-            fn as_any(&self) -> &dyn Any { self }
-            fn name(&self) -> &'static str { stringify!($name) }
-        }
+macro_rules! def_operators {
+    ($($name:ident),*) => {
+        $(
+            #[derive(Debug, Clone, PartialEq, Eq)]
+            pub struct $name;
+        )*
     };
 }
-def_operator!(Add);
-def_operator!(Mul);
-def_operator!(Load);
-def_operator!(Store);
-def_operator!(Recip); // Reciprocal (for division)
+
+macro_rules! impl_operator {
+    ($($name:ident),*) => {
+        $(
+            impl Operator for $name {
+                fn as_any(&self) -> &dyn Any { self }
+                fn name(&self) -> &'static str { stringify!($name) }
+            }
+        )*
+    };
+}
+
+def_operators!(Add, Mul, Load, Store, Recip);
+impl_operator!(Add, Mul, Load, Store, Recip);
 
 #[derive(Debug, Clone)]
 pub struct Const(pub Box<dyn DType>);
