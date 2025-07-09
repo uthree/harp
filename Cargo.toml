@@ -11,5 +11,4 @@ path = "src/lib.rs"
 [workspace]
 
 [dependencies]
-rustc-hash = "2.1.1"
-rand = "0.9.1"
+dyn-clone = "1.0.19"
