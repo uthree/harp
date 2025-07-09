@@ -37,11 +37,10 @@ macro_rules! def_operator {
     };
 }
 def_operator!(Add);
-def_operator!(Sub);
 def_operator!(Mul);
-def_operator!(Div);
 def_operator!(Load);
 def_operator!(Store);
+def_operator!(Recip); // Reciprocal (for division)
 
 #[derive(Debug, Clone)]
 pub struct Const(pub Box<dyn DType>);
@@ -61,8 +60,7 @@ impl CommutativeOp for Add {}
 impl BinaryOp for Mul {}
 impl CommutativeOp for Mul {}
 
-impl BinaryOp for Sub {}
-impl BinaryOp for Div {}
+impl UnaryOp for Recip {}
 
 // --- Node Struct ---
 #[derive(Debug, Clone)]
