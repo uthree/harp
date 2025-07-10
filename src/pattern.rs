@@ -73,25 +73,37 @@ impl Rewriter {
 
     /// Applies the rules to a node and its descendants, returning a rewritten node.
     pub fn rewrite(&self, node: Node) -> Node {
-        // First, rewrite the children recursively.
+        // 1. Rewrite children first (bottom-up)
         let rewritten_src = node
             .src()
             .iter()
             .map(|child| self.rewrite(child.clone()))
             .collect::<Vec<_>>();
 
-        let mut current_node = Node::from(Arc::new(NodeData {
-            op: node.op().clone(),
-            src: rewritten_src,
-        }));
+        let mut current_node = if !rewritten_src.iter().zip(node.src()).all(|(a, b)| a == b) {
+            Node::from(Arc::new(NodeData {
+                op: node.op().clone(),
+                src: rewritten_src,
+            }))
+        } else {
+            node
+        };
 
-        // Then, try to apply rules to the current node.
-        for rule in &self.rules {
-            if let Some(rewritten) = self.apply_rule(&current_node, rule) {
-                current_node = rewritten;
+        // 2. Apply rules to the current node until a fixed point is reached.
+        loop {
+            let mut changed = false;
+            for rule in &self.rules {
+                if let Some(rewritten) = self.apply_rule(&current_node, rule) {
+                    current_node = rewritten;
+                    changed = true;
+                    // Restart the rule application process from the beginning for the new node
+                    break;
+                }
+            }
+            if !changed {
+                break;
             }
         }
-
         current_node
     }
 
