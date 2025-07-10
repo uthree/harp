@@ -2,7 +2,7 @@ use dyn_clone::DynClone;
 use std::any::Any;
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::ops::{Add, Div, Mul, Neg, Sub};
+use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 use std::sync::Arc;
 
 // --- DType System ---
@@ -280,5 +280,29 @@ impl Div for Node {
     type Output = Self;
     fn div(self, rhs: Self) -> Self::Output {
         mul(self, recip(rhs))
+    }
+}
+
+impl AddAssign for Node {
+    fn add_assign(&mut self, rhs: Self) {
+        *self = self.clone() + rhs;
+    }
+}
+
+impl SubAssign for Node {
+    fn sub_assign(&mut self, rhs: Self) {
+        *self = self.clone() - rhs;
+    }
+}
+
+impl MulAssign for Node {
+    fn mul_assign(&mut self, rhs: Self) {
+        *self = self.clone() * rhs;
+    }
+}
+
+impl DivAssign for Node {
+    fn div_assign(&mut self, rhs: Self) {
+        *self = self.clone() / rhs;
     }
 }
