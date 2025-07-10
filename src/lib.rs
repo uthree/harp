@@ -54,5 +54,6 @@ pub mod dtype;
 pub mod macros;
 pub mod node;
 pub mod pattern;
+pub mod simplify;
 
 pub use node::capture;

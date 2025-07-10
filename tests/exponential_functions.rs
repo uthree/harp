@@ -1,10 +1,9 @@
-mod common;
-use common::eval_rules;
 use harp::node::{constant, exp, pow};
+use harp::simplify::default_rewriter;
 
 #[test]
 fn test_eval_exp() {
-    let rewriter = eval_rules();
+    let rewriter = default_rewriter();
     let graph = exp(constant(1.0f32));
     let rewritten_graph = rewriter.rewrite(graph);
     let result = rewritten_graph
@@ -21,7 +20,7 @@ fn test_eval_exp() {
 
 #[test]
 fn test_eval_pow() {
-    let rewriter = eval_rules();
+    let rewriter = default_rewriter();
     let graph = pow(constant(2.0f32), constant(3.0f32));
     let rewritten_graph = rewriter.rewrite(graph);
     let result = rewritten_graph

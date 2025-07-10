@@ -1,10 +1,9 @@
-mod common;
-use common::eval_rules;
 use harp::node::{constant, exp2, log2, sin, sqrt};
+use harp::simplify::default_rewriter;
 
 #[test]
 fn test_eval_sin() {
-    let rewriter = eval_rules();
+    let rewriter = default_rewriter();
     let graph = sin(constant(std::f32::consts::PI / 2.0));
     let rewritten_graph = rewriter.rewrite(graph);
     let result = rewritten_graph
@@ -21,7 +20,7 @@ fn test_eval_sin() {
 
 #[test]
 fn test_eval_exp2() {
-    let rewriter = eval_rules();
+    let rewriter = default_rewriter();
     let graph = exp2(constant(2.0f32));
     let rewritten_graph = rewriter.rewrite(graph);
     let result = rewritten_graph
@@ -38,7 +37,7 @@ fn test_eval_exp2() {
 
 #[test]
 fn test_eval_log2() {
-    let rewriter = eval_rules();
+    let rewriter = default_rewriter();
     let graph = log2(constant(8.0f32));
     let rewritten_graph = rewriter.rewrite(graph);
     let result = rewritten_graph
@@ -55,7 +54,7 @@ fn test_eval_log2() {
 
 #[test]
 fn test_eval_sqrt() {
-    let rewriter = eval_rules();
+    let rewriter = default_rewriter();
     let graph = sqrt(constant(16.0f32));
     let rewritten_graph = rewriter.rewrite(graph);
     let result = rewritten_graph

@@ -1,10 +1,9 @@
-mod common;
-use common::eval_rules;
 use harp::node::{constant, cos, tan};
+use harp::simplify::default_rewriter;
 
 #[test]
 fn test_eval_cos() {
-    let rewriter = eval_rules();
+    let rewriter = default_rewriter();
     let graph = cos(constant(0.0f32));
     let rewritten_graph = rewriter.rewrite(graph);
     let result = rewritten_graph
@@ -21,7 +20,7 @@ fn test_eval_cos() {
 
 #[test]
 fn test_eval_tan() {
-    let rewriter = eval_rules();
+    let rewriter = default_rewriter();
     let graph = tan(constant(std::f32::consts::PI / 4.0));
     let rewritten_graph = rewriter.rewrite(graph);
     let result = rewritten_graph

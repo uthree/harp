@@ -7,14 +7,10 @@ fn cast_rules() -> Rewriter {
         (
             let x = capture("x")
             => cast::<i32>(x)
-            => |node, x| {
-                let cast_op = node.op().as_any().downcast_ref::<harp::node::Cast>()?;
+            => |_node, x| {
                 let const_op = x.op().as_any().downcast_ref::<Const>()?;
-
-                if cast_op.0.as_any().is::<i32>() {
-                    if let Some(val) = const_op.0.as_any().downcast_ref::<f32>() {
-                        return Some(constant(*val as i32));
-                    }
+                if let Some(val) = const_op.0.as_any().downcast_ref::<f32>() {
+                    return Some(constant(*val as i32));
                 }
                 None
             }
