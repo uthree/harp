@@ -297,15 +297,14 @@ pub fn constant<T: DType + 'static>(value: T) -> Node {
     }))
 }
 
-pub(crate) fn recip(a: Node) -> Node {
+pub fn recip(a: Node) -> Node {
     Node(Arc::new(NodeData {
         op: Box::new(Recip),
         src: vec![a],
     }))
 }
 
-#[allow(dead_code)]
-pub(crate) fn capture(name: &str) -> Node {
+pub fn capture(name: &str) -> Node {
     Node(Arc::new(NodeData {
         op: Box::new(Capture(name.to_string())),
         src: vec![],
@@ -315,7 +314,7 @@ pub(crate) fn capture(name: &str) -> Node {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pattern::{RewriteRule, Rewriter};
+    use crate::pattern::Rewriter;
 
     #[test]
     fn test_double_recip_rewrite_with_node_pattern() {
@@ -323,11 +322,8 @@ mod tests {
         let a = constant(1.0f32);
         let graph = recip(recip(a.clone()));
 
-        // 2. Define the rewrite rule using Node patterns: recip(recip(x)) => x
-        let x = capture("x");
-        let searcher = recip(recip(x.clone()));
-        let rewriter = x;
-        let rule = RewriteRule::new(searcher, rewriter);
+        // 2. Define the rewrite rule using the macro
+        let rule = crate::rewrite_rule!(let x = capture("x"); recip(recip(x.clone())) => x);
 
         // 3. Apply the rule
         let rewriter = Rewriter::new(vec![rule]);

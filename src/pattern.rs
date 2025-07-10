@@ -20,6 +20,27 @@ impl RewriteRule {
     }
 }
 
+/// Creates a `RewriteRule` more concisely.
+///
+/// # Example
+///
+/// ```
+/// use harp::node::{self, Node};
+/// use harp::pattern::RewriteRule;
+/// use harp::rewrite_rule;
+///
+/// let rule = rewrite_rule!(let x = capture("x"); node::recip(node::recip(x.clone())) => x);
+/// ```
+#[macro_export]
+macro_rules! rewrite_rule {
+    ( $(let $var:ident = capture($name:literal));* ; $searcher:expr => $rewriter:expr ) => {
+        {
+            $(let $var = $crate::node::capture($name);)*
+            $crate::pattern::RewriteRule::new($searcher, $rewriter)
+        }
+    };
+}
+
 /// Applies a set of rewrite rules to a `Node` graph.
 pub struct Rewriter {
     rules: Vec<RewriteRule>,
