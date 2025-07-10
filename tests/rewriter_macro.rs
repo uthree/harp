@@ -27,4 +27,3 @@ fn test_rewriter_macro() {
     let val = const_op.0.as_any().downcast_ref::<f32>().unwrap();
     assert_eq!(*val, 15.0);
 }
-

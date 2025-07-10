@@ -10,8 +10,8 @@
 //! RUST_LOG=debug cargo run --example constant_folding
 //! ```
 
-use harp::op::Const;
 use harp::node::{self};
+use harp::op::Const;
 use harp::rewriter;
 
 fn main() {

@@ -12,7 +12,7 @@
 //!   expressions (e.g., `x + 0` becomes `x`, `x * 1` becomes `x`).
 //! - `default_rewriter`: A fused rewriter that combines all available simplifications.
 
-use crate::node::{constant, recip, sin, sqrt, exp2, log2};
+use crate::node::{constant, exp2, log2, recip, sin, sqrt};
 use crate::op::Const;
 use crate::pattern::Rewriter;
 use crate::rewriter;

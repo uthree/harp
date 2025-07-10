@@ -50,11 +50,11 @@
 //! println!("{}", rewritten_graph.to_dot());
 //! ```
 
+pub mod dtype;
 pub mod macros;
 pub mod node;
 pub mod op;
 pub mod pattern;
-pub mod dtype;
 pub mod simplify;
 
-pub use node::{capture, constant, recip, sin, cos, tan, exp, exp2, log2, sqrt, pow, cast};
+pub use node::{capture, cast, constant, cos, exp, exp2, log2, pow, recip, sin, sqrt, tan};

@@ -52,8 +52,7 @@ impl Node {
         let mut counter = 0;
         Self::build_dot_recursive(self, &mut nodes, &mut edges, &mut visited, &mut counter);
 
-        let mut dot = String::from(
-"digraph G {\n");
+        let mut dot = String::from("digraph G {\n");
         dot.push_str("  rankdir=TB;\n\n");
         dot.push_str("  // Nodes\n");
         for node_def in nodes {
