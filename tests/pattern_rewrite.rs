@@ -1,37 +1,15 @@
-use harp::node::{self, Capture, Node, NodeRef, Recip};
+use harp::node::{self};
 use harp::pattern::{RewriteRule, Rewriter};
-use std::sync::Arc;
-
-/// Helper function to create a capture node.
-fn capture(name: &str) -> NodeRef {
-    NodeRef::from(Arc::new(Node {
-        op: Box::new(Capture(name.to_string())),
-        src: vec![],
-    }))
-}
 
 #[test]
 fn test_double_recip_rewrite_with_node_pattern() {
     // 1. Define the graph to be rewritten: recip(recip(a))
     let a = node::constant(1.0f32);
-    let recip_a = NodeRef::from(Arc::new(Node {
-        op: Box::new(Recip),
-        src: vec![a.clone()],
-    }));
-    let graph = NodeRef::from(Arc::new(Node {
-        op: Box::new(Recip),
-        src: vec![recip_a],
-    }));
+    let graph = node::recip(node::recip(a.clone()));
 
     // 2. Define the rewrite rule using Node patterns: recip(recip(x)) => x
-    let x = capture("x");
-    let searcher = NodeRef::from(Arc::new(Node {
-        op: Box::new(Recip),
-        src: vec![NodeRef::from(Arc::new(Node {
-            op: Box::new(Recip),
-            src: vec![x.clone()],
-        }))],
-    }));
+    let x = node::capture("x");
+    let searcher = node::recip(node::recip(x.clone()));
     let rewriter = x;
     let rule = RewriteRule::new(searcher, rewriter);
 
@@ -40,5 +18,6 @@ fn test_double_recip_rewrite_with_node_pattern() {
     let rewritten_graph = rewriter.rewrite(graph);
 
     // 4. Assert that the rewritten graph is `a`
-    assert_eq!(*rewritten_graph, *a);
+    assert_eq!(rewritten_graph, a);
 }
+

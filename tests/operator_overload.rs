@@ -1,5 +1,4 @@
-use harp::node::{self, Node, NodeRef, OpAdd, OpMul, Recip};
-use std::sync::Arc;
+use harp::node::{self};
 
 #[test]
 fn test_operator_overloads() {
@@ -12,27 +11,12 @@ fn test_operator_overloads() {
     let result_node = a.clone() - b.clone() / c.clone();
 
     // Manually construct the expected graph structure.
-    // 1. recip(c)
-    let recip_c = NodeRef::from(Arc::new(Node {
-        op: Box::new(Recip),
-        src: vec![c],
-    }));
-    // 2. b * recip(c)
-    let b_div_c = NodeRef::from(Arc::new(Node {
-        op: Box::new(OpMul),
-        src: vec![b, recip_c],
-    }));
-    // 3. -(b * recip(c)) which is (b * recip(c)) * -1.0
-    let neg_b_div_c = NodeRef::from(Arc::new(Node {
-        op: Box::new(OpMul),
-        src: vec![b_div_c, node::constant(-1.0f32)],
-    }));
-    // 4. a + (-(b * recip(c)))
-    let expected_node = NodeRef::from(Arc::new(Node {
-        op: Box::new(OpAdd),
-        src: vec![a, neg_b_div_c],
-    }));
+    let recip_c = node::recip(c);
+    let b_div_c = node::mul(b, recip_c);
+    let neg_b_div_c = node::mul(b_div_c, node::constant(-1.0f32));
+    let expected_node = node::add(a, neg_b_div_c);
 
     // Compare the generated node with the expected node.
-    assert_eq!(*result_node, *expected_node);
+    assert_eq!(result_node, expected_node);
 }
+

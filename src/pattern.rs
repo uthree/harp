@@ -1,21 +1,21 @@
-use crate::node::{Capture, Node, NodeRef, Wildcard};
+use crate::node::{Capture, Node, NodeData, Wildcard};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 /// A map to store captured nodes, mapping capture names to the matched nodes.
-pub type Captures = HashMap<String, NodeRef>;
+pub type Captures = HashMap<String, Node>;
 
 /// A rule for rewriting a `Node` graph.
 pub struct RewriteRule {
-    /// The pattern to search for, represented as a `NodeRef`.
-    pub searcher: NodeRef,
-    /// The pattern to replace with, represented as a `NodeRef`.
-    pub rewriter: NodeRef,
+    /// The pattern to search for, represented as a `Node`.
+    pub searcher: Node,
+    /// The pattern to replace with, represented as a `Node`.
+    pub rewriter: Node,
 }
 
 impl RewriteRule {
     /// Creates a new rewrite rule.
-    pub fn new(searcher: NodeRef, rewriter: NodeRef) -> Self {
+    pub fn new(searcher: Node, rewriter: Node) -> Self {
         Self { searcher, rewriter }
     }
 }
@@ -32,16 +32,16 @@ impl Rewriter {
     }
 
     /// Applies the rules to a node and its descendants, returning a rewritten node.
-    pub fn rewrite(&self, node: NodeRef) -> NodeRef {
+    pub fn rewrite(&self, node: Node) -> Node {
         // First, rewrite the children recursively.
         let rewritten_src = node
-            .src
+            .src()
             .iter()
             .map(|child| self.rewrite(child.clone()))
             .collect::<Vec<_>>();
 
-        let mut current_node = NodeRef::from(Arc::new(Node {
-            op: node.op.clone(),
+        let mut current_node = Node::from(Arc::new(NodeData {
+            op: node.op().clone(),
             src: rewritten_src,
         }));
 
@@ -56,7 +56,7 @@ impl Rewriter {
     }
 
     /// Tries to apply a single rule to a node.
-    fn apply_rule(&self, node: &NodeRef, rule: &RewriteRule) -> Option<NodeRef> {
+    fn apply_rule(&self, node: &Node, rule: &RewriteRule) -> Option<Node> {
         let mut captures = Captures::new();
         if self.match_pattern(&rule.searcher, node, &mut captures) {
             self.build_from_pattern(&rule.rewriter, &captures)
@@ -66,14 +66,14 @@ impl Rewriter {
     }
 
     /// Matches a pattern node against a graph node, populating captures.
-    fn match_pattern(&self, pattern: &NodeRef, node: &NodeRef, captures: &mut Captures) -> bool {
+    fn match_pattern(&self, pattern: &Node, node: &Node, captures: &mut Captures) -> bool {
         // Handle Wildcard
-        if pattern.op.as_any().is::<Wildcard>() {
+        if pattern.op().as_any().is::<Wildcard>() {
             return true;
         }
 
         // Handle Capture
-        if let Some(capture) = pattern.op.as_any().downcast_ref::<Capture>() {
+        if let Some(capture) = pattern.op().as_any().downcast_ref::<Capture>() {
             captures
                 .entry(capture.0.clone())
                 .or_insert_with(|| node.clone());
@@ -81,11 +81,11 @@ impl Rewriter {
         }
 
         // General operator matching
-        if pattern.op.name() == node.op.name() && pattern.src.len() == node.src.len() {
+        if pattern.op().name() == node.op().name() && pattern.src().len() == node.src().len() {
             pattern
-                .src
+                .src()
                 .iter()
-                .zip(node.src.iter())
+                .zip(node.src().iter())
                 .all(|(p, n)| self.match_pattern(p, n, captures))
         } else {
             false
@@ -93,21 +93,21 @@ impl Rewriter {
     }
 
     /// Builds a new node from a pattern and captured nodes.
-    fn build_from_pattern(&self, pattern: &NodeRef, captures: &Captures) -> Option<NodeRef> {
+    fn build_from_pattern(&self, pattern: &Node, captures: &Captures) -> Option<Node> {
         // If the pattern is a capture, retrieve the captured node.
-        if let Some(capture) = pattern.op.as_any().downcast_ref::<Capture>() {
+        if let Some(capture) = pattern.op().as_any().downcast_ref::<Capture>() {
             return captures.get(&capture.0).cloned();
         }
 
         // Otherwise, build a new node, recursively building its sources.
         let new_src = pattern
-            .src
+            .src()
             .iter()
             .map(|p| self.build_from_pattern(p, captures))
             .collect::<Option<Vec<_>>>()?;
 
-        Some(NodeRef::from(Arc::new(Node {
-            op: pattern.op.clone(),
+        Some(Node::from(Arc::new(NodeData {
+            op: pattern.op().clone(),
             src: new_src,
         })))
     }
