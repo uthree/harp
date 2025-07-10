@@ -1,4 +1,4 @@
-use harp::node::{Node, constant};
+use harp::node::{constant, Node};
 use harp::simplify::default_rewriter;
 
 #[test]

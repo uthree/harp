@@ -1,4 +1,5 @@
-use harp::node::{self, Const};
+use harp::node::{self, constant};
+use harp::op::Const;
 use harp::pattern::{RewriteRule, Rewriter};
 
 #[test]
@@ -16,8 +17,8 @@ fn test_constant_folding_add() {
             let x_node = captures.get("x")?;
             let y_node = captures.get("y")?;
 
-            let x_const = x_node.op().as_any().downcast_ref::<node::Const>()?;
-            let y_const = y_node.op().as_any().downcast_ref::<node::Const>()?;
+            let x_const = x_node.op().as_any().downcast_ref::<Const>()?;
+            let y_const = y_node.op().as_any().downcast_ref::<Const>()?;
 
             let x_val = x_const.0.as_any().downcast_ref::<f32>()?;
             let y_val = y_const.0.as_any().downcast_ref::<f32>()?;

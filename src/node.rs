@@ -1,106 +1,11 @@
 use crate::dtype::DType;
-use dyn_clone::DynClone;
-use std::any::Any;
+use crate::op::*;
 use std::collections::HashMap;
 use std::convert::Into;
-use std::fmt::Debug;
 use std::ops::{
     Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
 use std::sync::Arc;
-
-// --- Operator Trait ---
-pub trait Operator: Debug + DynClone + Any {
-    fn as_any(&self) -> &dyn Any;
-    fn name(&self) -> &'static str;
-}
-dyn_clone::clone_trait_object!(Operator);
-
-impl PartialEq for dyn Operator {
-    fn eq(&self, other: &Self) -> bool {
-        self.as_any().type_id() == other.as_any().type_id()
-    }
-}
-impl Eq for dyn Operator {}
-
-// --- Operator Structs ---
-macro_rules! def_operators {
-    ($($name:ident),*) => {
-        $(
-            #[derive(Debug, Clone, PartialEq, Eq)]
-            pub struct $name;
-        )*
-    };
-}
-
-macro_rules! impl_operator {
-    ($($name:ident),*) => {
-        $(
-            impl Operator for $name {
-                fn as_any(&self) -> &dyn Any { self }
-                fn name(&self) -> &'static str { stringify!($name) }
-            }
-        )*
-    };
-}
-
-def_operators!(
-    OpAdd, OpMul, OpRem, Load, Store, Recip, Wildcard, Sin, Exp2, Log2, Sqrt
-);
-impl_operator!(
-    OpAdd, OpMul, OpRem, Load, Store, Recip, Wildcard, Sin, Exp2, Log2, Sqrt
-);
-
-#[derive(Debug, Clone)]
-pub struct Const(pub Box<dyn DType>);
-impl Operator for Const {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn name(&self) -> &'static str {
-        "Const"
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Capture(pub String);
-impl Operator for Capture {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn name(&self) -> &'static str {
-        "Capture"
-    }
-}
-
-// --- Marker Traits for Operators ---
-pub trait UnaryOp: Operator {}
-pub trait BinaryOp: Operator {}
-pub trait CommutativeOp: BinaryOp {}
-
-// --- Implement Marker Traits ---
-impl BinaryOp for OpAdd {}
-impl CommutativeOp for OpAdd {}
-impl BinaryOp for OpMul {}
-impl CommutativeOp for OpMul {}
-
-impl UnaryOp for Recip {}
-impl UnaryOp for Sin {}
-impl UnaryOp for Exp2 {}
-impl UnaryOp for Log2 {}
-impl UnaryOp for Sqrt {}
-
-#[derive(Debug, Clone)]
-pub struct Cast(pub Box<dyn DType>);
-impl Operator for Cast {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn name(&self) -> &'static str {
-        "Cast"
-    }
-}
-impl UnaryOp for Cast {}
 
 // --- Node & NodeData Structs ---
 #[derive(Debug, Clone)]
@@ -147,7 +52,8 @@ impl Node {
         let mut counter = 0;
         Self::build_dot_recursive(self, &mut nodes, &mut edges, &mut visited, &mut counter);
 
-        let mut dot = String::from("digraph G {\n");
+        let mut dot = String::from(
+"digraph G {\n");
         dot.push_str("  rankdir=TB;\n\n");
         dot.push_str("  // Nodes\n");
         for node_def in nodes {
@@ -304,10 +210,6 @@ impl_from_primitive_for_node!(f32, f64, u8, u16, u32, u64, usize, i8, i16, i32, 
 
 // --- Helper Functions ---
 
-/// Creates a new constant (leaf) node from a given value.
-///
-/// This is the primary way to introduce leaf nodes into the graph.
-/// The value must implement the `DType` trait.
 pub fn constant<T: DType + 'static>(value: T) -> Node {
     Node(Arc::new(NodeData {
         op: Box::new(Const(Box::new(value))),

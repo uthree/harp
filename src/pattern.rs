@@ -1,4 +1,5 @@
-use crate::node::{Capture, Node, NodeData, Wildcard};
+use crate::op::{Capture, Wildcard};
+use crate::node::{Node, NodeData};
 use std::collections::HashMap;
 use std::ops::Add;
 use std::sync::Arc;

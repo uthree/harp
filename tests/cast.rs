@@ -1,6 +1,7 @@
-use harp::node::{Const, cast, constant};
+use harp::node::{cast, constant};
+use harp::op::Const;
 use harp::pattern::Rewriter;
-use harp::{capture, rewriter};
+use harp::{rewriter, capture};
 
 fn cast_rules() -> Rewriter {
     rewriter!([
@@ -23,14 +24,7 @@ fn test_cast_f32_to_i32() {
     let rewriter = cast_rules();
     let graph = cast::<i32>(constant(12.34f32));
     let rewritten_graph = rewriter.rewrite(graph);
-    let result = rewritten_graph
-        .op()
-        .as_any()
-        .downcast_ref::<harp::node::Const>()
-        .unwrap()
-        .0
-        .as_any()
-        .downcast_ref::<i32>()
-        .unwrap();
+    let result = rewritten_graph.op().as_any().downcast_ref::<harp::op::Const>().unwrap().0.as_any().downcast_ref::<i32>().unwrap();
     assert_eq!(*result, 12);
 }
+
