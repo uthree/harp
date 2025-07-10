@@ -1,4 +1,4 @@
-use harp::node::{self, Const};
+use harp::node::{self, Const, Node};
 use harp::rewriter;
 
 #[test]
@@ -9,13 +9,13 @@ fn test_rewriter_macro() {
         // Rule 1: x + 0 -> x
         (
             let x = capture("x")
-            => x + 0.0f32.into()
+            => x + Node::from(0.0f32)
             => |x| Some(x)
         ),
         // Rule 2: x * 1 -> x
         (
             let x = capture("x")
-            => x * 1.0f32.into()
+            => x * Node::from(1.0f32)
             => |x| Some(x)
         ),
         // Rule 3: Constant Folding for addition
@@ -40,12 +40,12 @@ fn test_rewriter_macro() {
     ]);
 
     // Test case 1: 2.0 + 0.0 => 2.0
-    let graph1 = node::constant(2.0f32) + 0.0f32.into();
+    let graph1 = node::constant(2.0f32) + Node::from(0.0f32);
     let rewritten1 = symbolic_rewriter.rewrite(graph1);
     assert_eq!(rewritten1, node::constant(2.0f32));
 
     // Test case 2: (2.0 * 1.0) + 3.0 => 2.0 + 3.0 => 5.0
-    let graph2 = (node::constant(2.0f32) * 1.0f32.into()) + node::constant(3.0f32);
+    let graph2 = (node::constant(2.0f32) * Node::from(1.0f32)) + node::constant(3.0f32);
     let rewritten2 = symbolic_rewriter.rewrite(graph2);
     assert_eq!(rewritten2, node::constant(5.0f32));
 

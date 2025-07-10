@@ -3,6 +3,7 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
+use std::convert::Into;
 use std::sync::Arc;
 
 // --- DType System ---
@@ -217,22 +218,22 @@ impl From<Arc<NodeData>> for Node {
 }
 
 // --- Operator Overloads for Node ---
-impl Add for Node {
-    type Output = Self;
-    fn add(self, rhs: Self) -> Self::Output {
+impl<T: Into<Node>> Add<T> for Node {
+    type Output = Node;
+    fn add(self, rhs: T) -> Self::Output {
         Node(Arc::new(NodeData {
             op: Box::new(OpAdd),
-            src: vec![self, rhs],
+            src: vec![self, rhs.into()],
         }))
     }
 }
 
-impl Mul for Node {
-    type Output = Self;
-    fn mul(self, rhs: Self) -> Self::Output {
+impl<T: Into<Node>> Mul<T> for Node {
+    type Output = Node;
+    fn mul(self, rhs: T) -> Self::Output {
         Node(Arc::new(NodeData {
             op: Box::new(OpMul),
-            src: vec![self, rhs],
+            src: vec![self, rhs.into()],
         }))
     }
 }
@@ -244,41 +245,41 @@ impl Neg for Node {
     }
 }
 
-impl Sub for Node {
+impl<T: Into<Node>> Sub<T> for Node {
     type Output = Self;
-    fn sub(self, rhs: Self) -> Self::Output {
-        self + rhs.neg()
+    fn sub(self, rhs: T) -> Self::Output {
+        self + rhs.into().neg()
     }
 }
 
-impl Div for Node {
+impl<T: Into<Node>> Div<T> for Node {
     type Output = Self;
-    fn div(self, rhs: Self) -> Self::Output {
-        self * recip(rhs)
+    fn div(self, rhs: T) -> Self::Output {
+        self * recip(rhs.into())
     }
 }
 
-impl AddAssign for Node {
-    fn add_assign(&mut self, rhs: Self) {
-        *self = self.clone() + rhs;
+impl<T: Into<Node>> AddAssign<T> for Node {
+    fn add_assign(&mut self, rhs: T) {
+        *self = self.clone() + rhs.into();
     }
 }
 
-impl SubAssign for Node {
-    fn sub_assign(&mut self, rhs: Self) {
-        *self = self.clone() - rhs;
+impl<T: Into<Node>> SubAssign<T> for Node {
+    fn sub_assign(&mut self, rhs: T) {
+        *self = self.clone() - rhs.into();
     }
 }
 
-impl MulAssign for Node {
-    fn mul_assign(&mut self, rhs: Self) {
-        *self = self.clone() * rhs;
+impl<T: Into<Node>> MulAssign<T> for Node {
+    fn mul_assign(&mut self, rhs: T) {
+        *self = self.clone() * rhs.into();
     }
 }
 
-impl DivAssign for Node {
-    fn div_assign(&mut self, rhs: Self) {
-        *self = self.clone() / rhs;
+impl<T: Into<Node>> DivAssign<T> for Node {
+    fn div_assign(&mut self, rhs: T) {
+        *self = self.clone() / rhs.into();
     }
 }
 

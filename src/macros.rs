@@ -10,7 +10,7 @@
 /// let simple_rewriter = rewriter!([
 ///     (
 ///         let x = capture("x")
-///         => x + 0.0f32.into()
+///         => x + Node::from(0.0f32)
 ///         => |x| Some(x)
 ///     )
 /// ]);

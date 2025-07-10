@@ -15,10 +15,9 @@ fn test_from_i32() {
 }
 
 #[test]
-fn test_expression_with_from() {
+fn test_expression_with_primitive() {
     let a = node::constant(1.0f32);
-    let b: Node = 2.0f32.into();
-    let c = a + b;
+    let c = a + 2.0f32;
 
     let expected = node::constant(1.0f32) + node::constant(2.0f32);
     assert_eq!(c, expected);
