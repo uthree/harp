@@ -1,11 +1,11 @@
 //! An example of using the `Rewriter` to perform constant folding.
-//! 
+//!
 //! This example defines a simple rule to fold constant additions (`a + b` -> `c`)
 //! and applies it to a graph. It also demonstrates how to enable logging to see
 //! the rewrite process in action.
-//! 
+//!
 //! To see the log output, run this example with the `RUST_LOG` environment variable:
-//! 
+//!
 //! ```sh
 //! RUST_LOG=debug cargo run --example constant_folding
 //! ```

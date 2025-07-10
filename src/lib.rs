@@ -50,10 +50,9 @@
 //! println!("{}", rewritten_graph.to_dot());
 //! ```
 
+pub mod dtype;
 pub mod macros;
 pub mod node;
 pub mod pattern;
-pub mod dtype;
 
 pub use node::capture;
-

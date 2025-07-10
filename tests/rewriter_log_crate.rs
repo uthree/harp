@@ -15,10 +15,7 @@ impl log::Log for TestLogger {
 
     fn log(&self, record: &Record) {
         if self.enabled(record.metadata()) {
-            self.logs
-                .lock()
-                .unwrap()
-                .push(format!("{}", record.args()));
+            self.logs.lock().unwrap().push(format!("{}", record.args()));
         }
     }
 

@@ -119,7 +119,7 @@ impl Rewriter {
             let mut changed = false;
             for rule in &self.rules {
                 if let Some(rewritten) = self.apply_rule(&current_node, rule) {
-                    log::debug!("[Rewrite] {:?} -> {:?}", current_node, rewritten);
+                    log::debug!("[Rewrite] {current_node:?} -> {rewritten:?}");
                     current_node = rewritten;
                     changed = true;
                     // Restart the rule application process from the beginning for the new node
