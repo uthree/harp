@@ -345,6 +345,22 @@ pub fn sqrt(a: Node) -> Node {
     }))
 }
 
+pub fn cos(a: Node) -> Node {
+    sin(a + constant(std::f32::consts::PI / 2.0))
+}
+
+pub fn tan(a: Node) -> Node {
+    sin(a.clone()) / cos(a)
+}
+
+pub fn exp(a: Node) -> Node {
+    exp2(a * constant(std::f32::consts::LOG2_E))
+}
+
+pub fn pow(base: Node, exp: Node) -> Node {
+    exp2(exp * log2(base))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

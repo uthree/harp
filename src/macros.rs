@@ -19,7 +19,7 @@
 macro_rules! rewriter {
     ([$(
         (
-            let $($var:ident = capture($name:literal)),+
+            let $($var:ident = capture($name:literal)),*
             => $searcher:expr
             => |$($arg:ident),*| $rewriter_body:expr
         )
@@ -31,7 +31,7 @@ macro_rules! rewriter {
                         {
                             // This creates the searcher pattern.
                             // The variables ($var) are bound here and used in the $searcher expression.
-                            $(let $var = $crate::node::capture($name);)+
+                            $(let $var = $crate::node::capture($name);)*
                             $searcher
                         },
                         |captures| {
