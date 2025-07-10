@@ -1,3 +1,4 @@
+use crate::dtype::DType;
 use dyn_clone::DynClone;
 use std::any::Any;
 use std::collections::HashMap;
@@ -5,59 +6,6 @@ use std::convert::Into;
 use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 use std::sync::Arc;
-
-// --- DType System ---
-pub trait DType: Debug + DynClone + Any {
-    fn as_any(&self) -> &dyn Any;
-    fn type_name(&self) -> &'static str;
-}
-dyn_clone::clone_trait_object!(DType);
-
-// --- Marker Traits for DTypes ---
-pub trait Float: DType {}
-pub trait Integer: DType {}
-pub trait UnsignedInteger: Integer {}
-pub trait SignedInteger: Integer {}
-
-// --- DType Implementations ---
-macro_rules! impl_dtype {
-    ($($t:ty),*) => {
-        $(
-            impl DType for $t {
-                fn as_any(&self) -> &dyn Any { self }
-                fn type_name(&self) -> &'static str {
-                    std::any::type_name::<Self>()
-                }
-            }
-        )*
-    };
-}
-macro_rules! impl_float {
-    ($($t:ty),*) => { $( impl Float for $t {} )* };
-}
-macro_rules! impl_integer {
-    ($($t:ty),*) => { $( impl Integer for $t {} )* };
-}
-macro_rules! impl_unsigned {
-    ($($t:ty),*) => { $( impl UnsignedInteger for $t {} )* };
-}
-macro_rules! impl_signed {
-    ($($t:ty),*) => { $( impl SignedInteger for $t {} )* };
-}
-
-// Implement for Floats
-impl_dtype!(f32, f64);
-impl_float!(f32, f64);
-
-// Implement for Unsigned Integers
-impl_dtype!(u8, u16, u32, u64, usize);
-impl_integer!(u8, u16, u32, u64, usize);
-impl_unsigned!(u8, u16, u32, u64, usize);
-
-// Implement for Signed Integers
-impl_dtype!(i8, i16, i32, i64, isize);
-impl_integer!(i8, i16, i32, i64, isize);
-impl_signed!(i8, i16, i32, i64, isize);
 
 // --- Operator Trait ---
 pub trait Operator: Debug + DynClone + Any {
