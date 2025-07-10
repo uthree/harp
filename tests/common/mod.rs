@@ -1,10 +1,7 @@
-use harp::node::{constant, exp2, log2, recip, sin, sqrt};
+use harp::node::{Const, constant, exp2, log2, recip, sin, sqrt};
 use harp::pattern::Rewriter;
 #[allow(unused_imports)]
 use harp::{capture, rewriter};
-
-#[allow(unused_imports)]
-use harp::node::Node;
 
 pub fn eval_rules() -> Rewriter {
     rewriter!([

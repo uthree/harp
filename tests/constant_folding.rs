@@ -3,7 +3,7 @@ use harp::pattern::{RewriteRule, Rewriter};
 
 #[test]
 fn test_constant_folding_add() {
-    // Define the rule for constant folding: x + y => constant(x_val + y_val)
+    // Define the rewrite rule: x + y -> Const(x_val + y_val)
     let rule = RewriteRule::new_fn(
         // Search for "x + y"
         {
@@ -11,26 +11,18 @@ fn test_constant_folding_add() {
             let y = node::capture("y");
             x + y
         },
-        // Rewrite with a function
-        |captures| {
+        // Rewrite logic
+        |_node, captures| {
             let x_node = captures.get("x")?;
             let y_node = captures.get("y")?;
 
-            // Check if both are f32 constants
-            if let (Some(const_x), Some(const_y)) = (
-                x_node.op().as_any().downcast_ref::<Const>(),
-                y_node.op().as_any().downcast_ref::<Const>(),
-            ) {
-                if let (Some(val_x), Some(val_y)) = (
-                    const_x.0.as_any().downcast_ref::<f32>(),
-                    const_y.0.as_any().downcast_ref::<f32>(),
-                ) {
-                    // Return a new constant node with the sum
-                    return Some(node::constant(val_x + val_y));
-                }
-            }
-            // Otherwise, do not rewrite
-            None
+            let x_const = x_node.op().as_any().downcast_ref::<node::Const>()?;
+            let y_const = y_node.op().as_any().downcast_ref::<node::Const>()?;
+
+            let x_val = x_const.0.as_any().downcast_ref::<f32>()?;
+            let y_val = y_const.0.as_any().downcast_ref::<f32>()?;
+
+            Some(node::constant(x_val + y_val))
         },
     );
 
@@ -50,7 +42,7 @@ fn test_constant_folding_add() {
             let y = node::capture("y");
             x + y
         },
-        |captures| {
+        |_node, captures| {
             let x_node = captures.get("x")?;
             let y_node = captures.get("y")?;
             if let (Some(const_x), Some(const_y)) = (

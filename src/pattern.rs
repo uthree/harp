@@ -11,7 +11,7 @@ pub enum RewriterBody {
     /// A static pattern to replace with.
     Pattern(Node),
     /// A function that takes captures and returns a new node.
-    Func(Box<dyn Fn(&Captures) -> Option<Node>>),
+    Func(Box<dyn Fn(&Node, &Captures) -> Option<Node>>),
 }
 
 /// A rule for rewriting a `Node` graph.
@@ -39,7 +39,10 @@ impl RewriteRule {
     ///
     /// The function is passed a map of the captured nodes and should return
     /// a new `Node` if the rewrite is successful, or `None` otherwise.
-    pub fn new_fn(searcher: Node, rewriter: impl Fn(&Captures) -> Option<Node> + 'static) -> Self {
+    pub fn new_fn(
+        searcher: Node,
+        rewriter: impl Fn(&Node, &Captures) -> Option<Node> + 'static,
+    ) -> Self {
         Self {
             searcher,
             rewriter: RewriterBody::Func(Box::new(rewriter)),
@@ -139,7 +142,7 @@ impl Rewriter {
         if self.match_pattern(&rule.searcher, node, &mut captures) {
             match &rule.rewriter {
                 RewriterBody::Pattern(pattern) => self.build_from_pattern(pattern, &captures),
-                RewriterBody::Func(func) => func(&captures),
+                RewriterBody::Func(func) => func(node, &captures),
             }
         } else {
             None

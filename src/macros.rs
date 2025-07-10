@@ -17,6 +17,38 @@
 /// ```
 #[macro_export]
 macro_rules! rewriter {
+    // New rule syntax: allows capturing the matched node itself.
+    // Example: `(let x = capture("x") => |node, x| { ... })`
+    ([$(
+        (
+            let $($var:ident = capture($name:literal)),*
+            => $searcher:expr
+            => |$node:ident, $($arg:ident),*| $rewriter_body:expr
+        )
+    ),* $(,)?]) => {
+        {
+            let rules = vec![
+                $(
+                    $crate::pattern::RewriteRule::new_fn(
+                        {
+                            $(let $var = $crate::node::capture($name);)*
+                            $searcher
+                        },
+                        |$node, captures| {
+                            $(
+                                let $arg = captures.get(stringify!($arg))?.clone();
+                            )*
+                            $rewriter_body
+                        }
+                    )
+                ),*
+            ];
+            $crate::pattern::Rewriter::new(rules)
+        }
+    };
+
+    // Original rule syntax: for backward compatibility.
+    // Example: `(let x = capture("x") => |x| { ... })`
     ([$(
         (
             let $($var:ident = capture($name:literal)),*
@@ -29,15 +61,10 @@ macro_rules! rewriter {
                 $(
                     $crate::pattern::RewriteRule::new_fn(
                         {
-                            // This creates the searcher pattern.
-                            // The variables ($var) are bound here and used in the $searcher expression.
                             $(let $var = $crate::node::capture($name);)*
                             $searcher
                         },
-                        |captures| {
-                            // This creates the rewriter function.
-                            // It extracts the captured nodes from the `captures` map
-                            // and binds them to variables ($arg) for the user's rewriter body.
+                        |_node, captures| {
                             $(
                                 let $arg = captures.get(stringify!($arg))?.clone();
                             )*

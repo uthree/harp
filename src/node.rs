@@ -90,6 +90,18 @@ impl UnaryOp for Exp2 {}
 impl UnaryOp for Log2 {}
 impl UnaryOp for Sqrt {}
 
+#[derive(Debug, Clone)]
+pub struct Cast(pub Box<dyn DType>);
+impl Operator for Cast {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn name(&self) -> &'static str {
+        "Cast"
+    }
+}
+impl UnaryOp for Cast {}
+
 // --- Node & NodeData Structs ---
 #[derive(Debug, Clone)]
 pub(crate) struct NodeData {
@@ -359,6 +371,13 @@ pub fn exp(a: Node) -> Node {
 
 pub fn pow(base: Node, exp: Node) -> Node {
     exp2(exp * log2(base))
+}
+
+pub fn cast<T: DType + Default + 'static>(a: Node) -> Node {
+    Node(Arc::new(NodeData {
+        op: Box::new(Cast(Box::new(T::default()))),
+        src: vec![a],
+    }))
 }
 
 #[cfg(test)]
