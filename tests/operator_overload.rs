@@ -11,12 +11,10 @@ fn test_operator_overloads() {
     let result_node = a.clone() - b.clone() / c.clone();
 
     // Manually construct the expected graph structure.
-    let recip_c = node::recip(c);
-    let b_div_c = node::mul(b, recip_c);
-    let neg_b_div_c = node::mul(b_div_c, node::constant(-1.0f32));
-    let expected_node = node::add(a, neg_b_div_c);
+    let b_div_c = b.clone() / c.clone();
+    let neg_b_div_c = -b_div_c;
+    let expected_node = a.clone() + neg_b_div_c;
 
     // Compare the generated node with the expected node.
     assert_eq!(result_node, expected_node);
 }
-

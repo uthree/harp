@@ -192,9 +192,7 @@ impl Node {
         } else {
             "box"
         };
-        nodes.push(format!(
-            "{node_id} [label=\"{label}\", shape=\"{shape}\"];"
-        ));
+        nodes.push(format!("{node_id} [label=\"{label}\", shape=\"{shape}\"];"));
 
         for src_node in node.src() {
             Self::build_dot_recursive(src_node, nodes, edges, visited, counter);
@@ -210,76 +208,45 @@ impl From<Arc<NodeData>> for Node {
     }
 }
 
-
-// --- Helper Functions ---
-pub fn add(a: Node, b: Node) -> Node {
-    Node(Arc::new(NodeData {
-        op: Box::new(OpAdd),
-        src: vec![a, b],
-    }))
-}
-
-pub fn mul(a: Node, b: Node) -> Node {
-    Node(Arc::new(NodeData {
-        op: Box::new(OpMul),
-        src: vec![a, b],
-    }))
-}
-
-pub fn constant<T: DType + 'static>(value: T) -> Node {
-    Node(Arc::new(NodeData {
-        op: Box::new(Const(Box::new(value))),
-        src: vec![],
-    }))
-}
-
-pub fn recip(a: Node) -> Node {
-    Node(Arc::new(NodeData {
-        op: Box::new(Recip),
-        src: vec![a],
-    }))
-}
-
-pub fn capture(name: &str) -> Node {
-    Node(Arc::new(NodeData {
-        op: Box::new(Capture(name.to_string())),
-        src: vec![],
-    }))
-}
-
 // --- Operator Overloads for Node ---
 impl Add for Node {
     type Output = Self;
     fn add(self, rhs: Self) -> Self::Output {
-        add(self, rhs)
+        Node(Arc::new(NodeData {
+            op: Box::new(OpAdd),
+            src: vec![self, rhs],
+        }))
     }
 }
 
 impl Mul for Node {
     type Output = Self;
     fn mul(self, rhs: Self) -> Self::Output {
-        mul(self, rhs)
+        Node(Arc::new(NodeData {
+            op: Box::new(OpMul),
+            src: vec![self, rhs],
+        }))
     }
 }
 
 impl Neg for Node {
     type Output = Self;
     fn neg(self) -> Self::Output {
-        mul(self, constant(-1.0f32))
+        self * constant(-1.0f32)
     }
 }
 
 impl Sub for Node {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self::Output {
-        add(self, rhs.neg())
+        self + rhs.neg()
     }
 }
 
 impl Div for Node {
     type Output = Self;
     fn div(self, rhs: Self) -> Self::Output {
-        mul(self, recip(rhs))
+        self * recip(rhs)
     }
 }
 
@@ -304,5 +271,69 @@ impl MulAssign for Node {
 impl DivAssign for Node {
     fn div_assign(&mut self, rhs: Self) {
         *self = self.clone() / rhs;
+    }
+}
+
+// --- From Implementations for Primitives ---
+macro_rules! impl_from_primitive_for_node {
+    ($($t:ty),*) => {
+        $(
+            impl From<$t> for Node {
+                fn from(value: $t) -> Self {
+                    constant(value)
+                }
+            }
+        )*
+    };
+}
+
+impl_from_primitive_for_node!(f32, f64, u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
+
+// --- Helper Functions ---
+pub fn constant<T: DType + 'static>(value: T) -> Node {
+    Node(Arc::new(NodeData {
+        op: Box::new(Const(Box::new(value))),
+        src: vec![],
+    }))
+}
+
+pub(crate) fn recip(a: Node) -> Node {
+    Node(Arc::new(NodeData {
+        op: Box::new(Recip),
+        src: vec![a],
+    }))
+}
+
+#[allow(dead_code)]
+pub(crate) fn capture(name: &str) -> Node {
+    Node(Arc::new(NodeData {
+        op: Box::new(Capture(name.to_string())),
+        src: vec![],
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pattern::{RewriteRule, Rewriter};
+
+    #[test]
+    fn test_double_recip_rewrite_with_node_pattern() {
+        // 1. Define the graph to be rewritten: recip(recip(a))
+        let a = constant(1.0f32);
+        let graph = recip(recip(a.clone()));
+
+        // 2. Define the rewrite rule using Node patterns: recip(recip(x)) => x
+        let x = capture("x");
+        let searcher = recip(recip(x.clone()));
+        let rewriter = x;
+        let rule = RewriteRule::new(searcher, rewriter);
+
+        // 3. Apply the rule
+        let rewriter = Rewriter::new(vec![rule]);
+        let rewritten_graph = rewriter.rewrite(graph);
+
+        // 4. Assert that the rewritten graph is `a`
+        assert_eq!(rewritten_graph, a);
     }
 }
