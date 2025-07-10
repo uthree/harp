@@ -1,5 +1,6 @@
 use crate::node::{Capture, Node, NodeData, Wildcard};
 use std::collections::HashMap;
+use std::ops::Add;
 use std::sync::Arc;
 
 /// A map to store captured nodes, mapping capture names to the matched nodes.
@@ -69,6 +70,17 @@ impl Rewriter {
     /// Creates a new rewriter with a given set of rules.
     pub fn new(rules: Vec<RewriteRule>) -> Self {
         Self { rules }
+    }
+
+    /// Merges another rewriter's rules into this one.
+    fn merge(&mut self, other: Rewriter) {
+        self.rules.extend(other.rules);
+    }
+
+    /// Creates a new rewriter by merging two rewriters.
+    pub fn fused(mut self, other: Rewriter) -> Self {
+        self.merge(other);
+        self
     }
 
     /// Applies the rules to a node and its descendants, returning a rewritten node.
@@ -165,5 +177,13 @@ impl Rewriter {
             op: pattern.op().clone(),
             src: new_src,
         })))
+    }
+}
+
+impl Add for Rewriter {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        self.fused(rhs)
     }
 }
