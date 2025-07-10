@@ -9,6 +9,7 @@ use std::sync::Arc;
 // --- DType System ---
 pub trait DType: Debug + DynClone + Any {
     fn as_any(&self) -> &dyn Any;
+    fn type_name(&self) -> &'static str;
 }
 dyn_clone::clone_trait_object!(DType);
 
@@ -24,6 +25,9 @@ macro_rules! impl_dtype {
         $(
             impl DType for $t {
                 fn as_any(&self) -> &dyn Any { self }
+                fn type_name(&self) -> &'static str {
+                    std::any::type_name::<Self>()
+                }
             }
         )*
     };
@@ -192,7 +196,9 @@ impl Node {
         visited.insert(node_ptr, node_id.clone());
 
         let label = if let Some(const_op) = node.op().as_any().downcast_ref::<Const>() {
-            format!("Const\n({:?})", const_op.0)
+            let full_type_name = const_op.0.type_name();
+            let short_type_name = full_type_name.split("::").last().unwrap_or(full_type_name);
+            format!("Const\n({:?})\n<{}>", const_op.0, short_type_name)
         } else {
             node.op().name().to_string()
         };
