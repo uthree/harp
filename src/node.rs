@@ -44,8 +44,12 @@ macro_rules! impl_operator {
     };
 }
 
-def_operators!(OpAdd, OpMul, OpRem, Load, Store, Recip, Wildcard);
-impl_operator!(OpAdd, OpMul, OpRem, Load, Store, Recip, Wildcard);
+def_operators!(
+    OpAdd, OpMul, OpRem, Load, Store, Recip, Wildcard, Sin, Exp2, Log2, Sqrt
+);
+impl_operator!(
+    OpAdd, OpMul, OpRem, Load, Store, Recip, Wildcard, Sin, Exp2, Log2, Sqrt
+);
 
 #[derive(Debug, Clone)]
 pub struct Const(pub Box<dyn DType>);
@@ -81,6 +85,10 @@ impl BinaryOp for OpMul {}
 impl CommutativeOp for OpMul {}
 
 impl UnaryOp for Recip {}
+impl UnaryOp for Sin {}
+impl UnaryOp for Exp2 {}
+impl UnaryOp for Log2 {}
+impl UnaryOp for Sqrt {}
 
 // --- Node & NodeData Structs ---
 #[derive(Debug, Clone)]
@@ -306,6 +314,34 @@ pub fn capture(name: &str) -> Node {
     Node(Arc::new(NodeData {
         op: Box::new(Capture(name.to_string())),
         src: vec![],
+    }))
+}
+
+pub fn sin(a: Node) -> Node {
+    Node(Arc::new(NodeData {
+        op: Box::new(Sin),
+        src: vec![a],
+    }))
+}
+
+pub fn exp2(a: Node) -> Node {
+    Node(Arc::new(NodeData {
+        op: Box::new(Exp2),
+        src: vec![a],
+    }))
+}
+
+pub fn log2(a: Node) -> Node {
+    Node(Arc::new(NodeData {
+        op: Box::new(Log2),
+        src: vec![a],
+    }))
+}
+
+pub fn sqrt(a: Node) -> Node {
+    Node(Arc::new(NodeData {
+        op: Box::new(Sqrt),
+        src: vec![a],
     }))
 }
 

@@ -55,3 +55,5 @@ pub mod node;
 pub mod pattern;
 pub mod dtype;
 
+pub use node::capture;
+
