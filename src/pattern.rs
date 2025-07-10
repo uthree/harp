@@ -15,6 +15,10 @@ pub enum RewriterBody {
 }
 
 /// A rule for rewriting a `Node` graph.
+///
+/// A `RewriteRule` consists of a `searcher` pattern and a `rewriter` body.
+/// When the `searcher` pattern matches a part of the graph, the `rewriter`
+/// is used to generate the replacement node.
 pub struct RewriteRule {
     /// The pattern to search for, represented as a `Node`.
     pub searcher: Node,
@@ -32,6 +36,9 @@ impl RewriteRule {
     }
 
     /// Creates a new rewrite rule with a dynamic function.
+    ///
+    /// The function is passed a map of the captured nodes and should return
+    /// a new `Node` if the rewrite is successful, or `None` otherwise.
     pub fn new_fn(searcher: Node, rewriter: impl Fn(&Captures) -> Option<Node> + 'static) -> Self {
         Self {
             searcher,
@@ -62,6 +69,9 @@ macro_rules! rewrite_rule {
 }
 
 /// Applies a set of rewrite rules to a `Node` graph.
+///
+/// A `Rewriter` contains a list of `RewriteRule`s and applies them to a graph
+/// until a fixed point is reached.
 pub struct Rewriter {
     rules: Vec<RewriteRule>,
 }
@@ -84,6 +94,9 @@ impl Rewriter {
     }
 
     /// Applies the rules to a node and its descendants, returning a rewritten node.
+    ///
+    /// The rewriting process is bottom-up: children are rewritten first, and then
+    /// the rules are applied to the current node until no more rules can be applied.
     pub fn rewrite(&self, node: Node) -> Node {
         // 1. Rewrite children first (bottom-up)
         let rewritten_src = node
@@ -106,6 +119,7 @@ impl Rewriter {
             let mut changed = false;
             for rule in &self.rules {
                 if let Some(rewritten) = self.apply_rule(&current_node, rule) {
+                    log::debug!("[Rewrite] {:?} -> {:?}", current_node, rewritten);
                     current_node = rewritten;
                     changed = true;
                     // Restart the rule application process from the beginning for the new node

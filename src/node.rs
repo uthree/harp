@@ -146,18 +146,30 @@ impl PartialEq for NodeData {
 }
 impl Eq for NodeData {}
 
+/// A node in the computation graph.
+///
+/// `Node` is an immutable, reference-counted handle to the underlying graph data.
+/// Cloning a `Node` is cheap as it only increments a reference counter.
+///
+/// Nodes can be combined using standard arithmetic operators to build larger graphs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Node(Arc<NodeData>);
 
 impl Node {
+    /// Returns a reference to the node's operator.
     pub fn op(&self) -> &Box<dyn Operator> {
         &self.0.op
     }
 
+    /// Returns a reference to the node's source (child) nodes.
     pub fn src(&self) -> &Vec<Node> {
         &self.0.src
     }
 
+    /// Converts the graph to a string in DOT format for visualization.
+    ///
+    /// The resulting string can be used with tools like Graphviz to generate
+    /// a visual representation of the graph.
     pub fn to_dot(&self) -> String {
         let mut nodes = Vec::new();
         let mut edges = Vec::new();
@@ -305,6 +317,11 @@ macro_rules! impl_from_primitive_for_node {
 impl_from_primitive_for_node!(f32, f64, u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
 
 // --- Helper Functions ---
+
+/// Creates a new constant (leaf) node from a given value.
+///
+/// This is the primary way to introduce leaf nodes into the graph.
+/// The value must implement the `DType` trait.
 pub fn constant<T: DType + 'static>(value: T) -> Node {
     Node(Arc::new(NodeData {
         op: Box::new(Const(Box::new(value))),
