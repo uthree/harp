@@ -5,18 +5,37 @@ use std::sync::Arc;
 /// A map to store captured nodes, mapping capture names to the matched nodes.
 pub type Captures = HashMap<String, Node>;
 
+/// The body of a rewriter, which can be a static pattern or a dynamic function.
+pub enum RewriterBody {
+    /// A static pattern to replace with.
+    Pattern(Node),
+    /// A function that takes captures and returns a new node.
+    Func(Box<dyn Fn(&Captures) -> Option<Node>>),
+}
+
 /// A rule for rewriting a `Node` graph.
 pub struct RewriteRule {
     /// The pattern to search for, represented as a `Node`.
     pub searcher: Node,
-    /// The pattern to replace with, represented as a `Node`.
-    pub rewriter: Node,
+    /// The body of the rewriter.
+    pub rewriter: RewriterBody,
 }
 
 impl RewriteRule {
-    /// Creates a new rewrite rule.
+    /// Creates a new rewrite rule with a static pattern.
     pub fn new(searcher: Node, rewriter: Node) -> Self {
-        Self { searcher, rewriter }
+        Self {
+            searcher,
+            rewriter: RewriterBody::Pattern(rewriter),
+        }
+    }
+
+    /// Creates a new rewrite rule with a dynamic function.
+    pub fn new_fn(searcher: Node, rewriter: impl Fn(&Captures) -> Option<Node> + 'static) -> Self {
+        Self {
+            searcher,
+            rewriter: RewriterBody::Func(Box::new(rewriter)),
+        }
     }
 }
 
@@ -80,7 +99,10 @@ impl Rewriter {
     fn apply_rule(&self, node: &Node, rule: &RewriteRule) -> Option<Node> {
         let mut captures = Captures::new();
         if self.match_pattern(&rule.searcher, node, &mut captures) {
-            self.build_from_pattern(&rule.rewriter, &captures)
+            match &rule.rewriter {
+                RewriterBody::Pattern(pattern) => self.build_from_pattern(pattern, &captures),
+                RewriterBody::Func(func) => func(&captures),
+            }
         } else {
             None
         }

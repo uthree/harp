@@ -6,7 +6,9 @@ use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssi
 use std::sync::Arc;
 
 // --- DType System ---
-pub trait DType: Debug + DynClone {}
+pub trait DType: Debug + DynClone + Any {
+    fn as_any(&self) -> &dyn Any;
+}
 dyn_clone::clone_trait_object!(DType);
 
 // --- Marker Traits for DTypes ---
@@ -17,7 +19,13 @@ pub trait SignedInteger: Integer {}
 
 // --- DType Implementations ---
 macro_rules! impl_dtype {
-    ($($t:ty),*) => { $( impl DType for $t {} )* };
+    ($($t:ty),*) => {
+        $(
+            impl DType for $t {
+                fn as_any(&self) -> &dyn Any { self }
+            }
+        )*
+    };
 }
 macro_rules! impl_float {
     ($($t:ty),*) => { $( impl Float for $t {} )* };
