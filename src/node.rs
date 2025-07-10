@@ -4,7 +4,9 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::convert::Into;
 use std::fmt::Debug;
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
+use std::ops::{
+    Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
+};
 use std::sync::Arc;
 
 // --- Operator Trait ---
@@ -42,8 +44,8 @@ macro_rules! impl_operator {
     };
 }
 
-def_operators!(OpAdd, OpMul, Load, Store, Recip, Wildcard);
-impl_operator!(OpAdd, OpMul, Load, Store, Recip, Wildcard);
+def_operators!(OpAdd, OpMul, OpRem, Load, Store, Recip, Wildcard);
+impl_operator!(OpAdd, OpMul, OpRem, Load, Store, Recip, Wildcard);
 
 #[derive(Debug, Clone)]
 pub struct Const(pub Box<dyn DType>);
@@ -246,6 +248,22 @@ impl<T: Into<Node>> MulAssign<T> for Node {
 impl<T: Into<Node>> DivAssign<T> for Node {
     fn div_assign(&mut self, rhs: T) {
         *self = self.clone() / rhs.into();
+    }
+}
+
+impl<T: Into<Node>> Rem<T> for Node {
+    type Output = Node;
+    fn rem(self, rhs: T) -> Self::Output {
+        Node(Arc::new(NodeData {
+            op: Box::new(OpRem),
+            src: vec![self, rhs.into()],
+        }))
+    }
+}
+
+impl<T: Into<Node>> RemAssign<T> for Node {
+    fn rem_assign(&mut self, rhs: T) {
+        *self = self.clone() % rhs.into();
     }
 }
 
