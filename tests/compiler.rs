@@ -1,6 +1,6 @@
 use harp::backend::c::CCompiler;
-use harp::backend::codegen::CodeGenerator;
 use harp::backend::c::CRenderer;
+use harp::backend::codegen::CodeGenerator;
 use harp::backend::{Compiler, Kernel};
 use harp::node::{constant, variable};
 

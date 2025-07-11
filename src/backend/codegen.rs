@@ -63,7 +63,7 @@ impl<'a> CodeGenerator<'a> {
                 self.node_to_var.insert(node.ptr(), expr);
             } else {
                 let var_name = self.new_var();
-                self.statements.push(format!("float {} = {};", var_name, expr));
+                self.statements.push(format!("float {var_name} = {expr};"));
                 self.node_to_var.insert(node.ptr(), var_name);
             }
         // Handle Loop operator specifically
@@ -76,8 +76,7 @@ impl<'a> CodeGenerator<'a> {
 
             let loop_body_code = body_codegen.statements.join("\n        ");
             let loop_statement = format!(
-                "for (int i = 0; i < {}; ++i) {{\n        {}\n    }}",
-                count_var, loop_body_code
+                "for (int i = 0; i < {count_var}; ++i) {{\n        {loop_body_code}\n    }}"
             );
             self.statements.push(loop_statement);
             // Note: The result of the loop is not captured for now.
@@ -119,7 +118,7 @@ impl<'a> CodeGenerator<'a> {
             expr
         } else {
             let var_name = self.new_var();
-            self.statements.push(format!("float {} = {};", var_name, expr));
+            self.statements.push(format!("float {var_name} = {expr};"));
             self.node_to_var.insert(node.ptr(), var_name.clone());
             var_name
         }
