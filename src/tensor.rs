@@ -119,14 +119,21 @@ impl Tensor {
                 })))
             }
             "Reshape" => {
-                // Reshape modifies the ShapeTracker for subsequent compilations.
-                // It doesn't create a new computation node itself.
-                // Here, we would update the tracker's `dims` and `index_expr`.
-                // For now, we'll just pass it through as a placeholder.
-                // A real implementation needs to recalculate index_expr based on the new shape.
-                let mut new_tracker = shape_tracker.clone();
-                new_tracker.dims = self.shape().iter().map(|&d| Rc::new(node::constant(d))).collect();
-                src[0].compile(&new_tracker)
+                // A reshape operation modifies the logical view of the data. It doesn't
+                // create a computation node itself but alters the ShapeTracker for its source.
+                let source_tensor = &src[0];
+                let source_shape_dims = source_tensor.shape().iter().map(|&d| Rc::new(node::constant(d))).collect();
+
+                // The key insight: a reshape doesn't change the flat, linear index.
+                // We create a new tracker for the source tensor with the source's shape,
+                // but we keep the index expression from the *current* tracker.
+                let new_tracker = ShapeTracker {
+                    dims: source_shape_dims,
+                    index_expr: shape_tracker.index_expr.clone(),
+                };
+
+                // Continue compilation from the source tensor with the modified tracker.
+                source_tensor.compile(&new_tracker)
             }
             "OpAdd" | "OpSub" | "OpMul" | "OpDiv" => {
                 // For binary ops, compile the sources recursively and combine them.
