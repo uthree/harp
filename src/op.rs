@@ -123,6 +123,15 @@ impl Operator for Permute {
     fn name(&self) -> &'static str { "Permute" }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Expand {
+    pub shape: Vec<u64>,
+}
+impl Operator for Expand {
+    fn as_any(&self) -> &dyn Any { self }
+    fn name(&self) -> &'static str { "Expand" }
+}
+
 
 // --- Trait Implementations for Operators ---
 
@@ -151,6 +160,7 @@ impl TensorOperator for OpMul {}
 impl TensorOperator for OpDiv {}
 impl TensorOperator for Reshape {}
 impl TensorOperator for Permute {}
+impl TensorOperator for Expand {}
 // Add other ops that can be used in tensor graphs...
 impl TensorOperator for Sin {}
 impl TensorOperator for Exp2 {}
@@ -178,6 +188,7 @@ impl UnaryOp for Sqrt {}
 impl UnaryOp for Cast {}
 impl UnaryOp for Reshape {}
 impl UnaryOp for Permute {}
+impl UnaryOp for Expand {}
 
 // Elementwise
 impl Elementwise for OpAdd {}

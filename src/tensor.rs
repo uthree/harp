@@ -1,6 +1,7 @@
 use crate::node::{self, constant, Node};
 use crate::op::{
-    HasIdentityElement, Load, OpAdd, OpDiv, OpMul, OpSub, Operator, Permute, Reduce, Reshape,
+    Expand, HasIdentityElement, Load, OpAdd, OpDiv, OpMul, OpSub, Operator, Permute, Reduce,
+    Reshape,
 };
 use crate::simplify;
 use dyn_clone::clone_box;
@@ -95,6 +96,24 @@ impl Tensor {
         }
     }
 
+    /// Expands the tensor to a new shape by adding new dimensions or stretching existing ones of size 1.
+    pub fn expand(self, new_shape: Vec<u64>) -> Self {
+        assert!(
+            self.shape().len() <= new_shape.len(),
+            "New shape must have at least as many dimensions as the original shape"
+        );
+        // Add checks to ensure broadcast compatibility
+        // ...
+
+        Self {
+            data: Arc::new(TensorData {
+                op: Box::new(Expand { shape: new_shape.clone() }),
+                src: vec![self],
+                shape: new_shape,
+            }),
+        }
+    }
+
     /// Creates a new `Reduce` tensor.
     pub fn reduce(self, op: impl Operator + 'static, axis: usize) -> Self {
         // Calculate the new shape after reduction
@@ -163,6 +182,20 @@ impl Tensor {
                     index_expr: new_index_expr,
                 };
                 return source_tensor.compile(&new_tracker); // Early return to avoid double simplification
+            }
+            "Expand" => {
+                let source_tensor = &src[0];
+                let mut new_index_expr = shape_tracker.index_expr.clone();
+                let diff = self.shape().len() - source_tensor.shape().len();
+                for i in 0..diff {
+                    new_index_expr.remove(i);
+                }
+
+                let new_tracker = ShapeTracker {
+                    dims: source_tensor.shape().iter().map(|&d| Rc::new(constant(d))).collect(),
+                    index_expr: new_index_expr,
+                };
+                return source_tensor.compile(&new_tracker);
             }
             "Reduce" => {
                 let reduce_op = op.as_any().downcast_ref::<Reduce>().unwrap();

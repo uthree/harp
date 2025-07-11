@@ -1,5 +1,5 @@
 use harp::node::{self, constant, variable, Node};
-use harp::op::{Load, OpAdd, OpSub, OpMul, OpDiv, Operator, Permute, Reduce, Reshape};
+use harp::op::{Expand, Load, OpAdd, OpSub, OpMul, OpDiv, Operator, Permute, Reduce, Reshape};
 use harp::tensor::{ShapeTracker, Tensor};
 use rstest::rstest;
 use std::rc::Rc;
@@ -84,6 +84,23 @@ fn test_tensor_permute() {
         assert_eq!(permute_op.order, vec![2, 0, 1]);
     } else {
         panic!("Operator was not a Permute operator");
+    }
+}
+
+#[test]
+fn test_tensor_expand() {
+    let a = Tensor::new_load(vec![3]);
+    let b = a.clone().expand(vec![2, 3]);
+
+    assert_eq!(*b.shape(), vec![2, 3]);
+    assert_eq!(b.data.op.name(), "Expand");
+    assert_eq!(b.data.src.len(), 1);
+    assert!(Arc::ptr_eq(&a.data, &b.data.src[0].data));
+
+    if let Some(expand_op) = b.data.op.as_any().downcast_ref::<Expand>() {
+        assert_eq!(expand_op.shape, vec![2, 3]);
+    } else {
+        panic!("Operator was not an Expand operator");
     }
 }
 
@@ -174,6 +191,28 @@ fn test_compile_permute() {
     // Expected index is j * 2 + i (since the permuted shape is [3, 2])
     let expected_index = (*j).clone() * constant(2.0) + (*i).clone();
     assert_eq!(compiled_node.src()[0], expected_index);
+}
+
+#[test]
+fn test_compile_expand() {
+    let a = Tensor::new_load(vec![3]);
+    let b = a.expand(vec![2, 3]);
+
+    let i = Rc::new(variable("i"));
+    let j = Rc::new(variable("j"));
+    let tracker = ShapeTracker {
+        dims: vec![Rc::new(constant(2u64)), Rc::new(constant(3u64))],
+        index_expr: vec![i.clone(), j.clone()],
+    };
+
+    let compiled_node = b.compile(&tracker);
+
+    // The compilation of b[i, j] should result in compiling a[j].
+    // The final node should be a Load, and its source should be the
+    // flat index calculated from `j`.
+    assert_eq!(compiled_node.op().name(), "Load");
+    assert_eq!(compiled_node.src().len(), 1);
+    assert_eq!(compiled_node.src()[0], *j);
 }
 
 
