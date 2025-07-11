@@ -1,5 +1,13 @@
-use crate::op::*;
+use crate::backend::{Compiler, Kernel};
 use crate::backend::renderer::{Render, Renderer};
+use crate::op::*;
+use libloading::{Library, Symbol};
+use std::error::Error;
+use std::fs::File;
+use std::io::Write;
+use std::process::Command;
+use std::sync::Arc;
+use tempfile::TempDir;
 
 /// A renderer for generating C code from a computation graph.
 pub struct CRenderer;
@@ -14,45 +22,92 @@ impl Renderer for CRenderer {
             _ if op_any.is::<Const>() => Some(self.render(op_any.downcast_ref::<Const>().unwrap(), operands)),
             _ if op_any.is::<Variable>() => Some(self.render(op_any.downcast_ref::<Variable>().unwrap(), operands)),
             _ if op_any.is::<LoopVariable>() => Some(self.render(op_any.downcast_ref::<LoopVariable>().unwrap(), operands)),
-            // Loop operator is handled by the CodeGenerator itself.
             _ if op_any.is::<Loop>() => None,
-            _ => None, // Operator not supported by this renderer
+            _ => None,
         }
     }
 }
 
 impl Render<LoopVariable> for CRenderer {
-    fn render(&self, _op: &LoopVariable, _operands: &[String]) -> String {
-        "i".to_string() // A default loop variable name. This could be made more robust.
-    }
+    fn render(&self, _op: &LoopVariable, _operands: &[String]) -> String { "i".to_string() }
 }
-
 impl Render<OpAdd> for CRenderer {
-    fn render(&self, _op: &OpAdd, operands: &[String]) -> String {
-        format!("({} + {})", operands[0], operands[1])
-    }
+    fn render(&self, _op: &OpAdd, operands: &[String]) -> String { format!("({} + {})", operands[0], operands[1]) }
 }
-
 impl Render<OpMul> for CRenderer {
-    fn render(&self, _op: &OpMul, operands: &[String]) -> String {
-        format!("({} * {})", operands[0], operands[1])
-    }
+    fn render(&self, _op: &OpMul, operands: &[String]) -> String { format!("({} * {})", operands[0], operands[1]) }
 }
-
 impl Render<Sin> for CRenderer {
-    fn render(&self, _op: &Sin, operands: &[String]) -> String {
-        format!("sin({})", operands[0])
-    }
+    fn render(&self, _op: &Sin, operands: &[String]) -> String { format!("sin({})", operands[0]) }
 }
-
 impl Render<Const> for CRenderer {
-    fn render(&self, op: &Const, _operands: &[String]) -> String {
-        format!("{:?}", op.0)
+    fn render(&self, op: &Const, _operands: &[String]) -> String { format!("{:?}", op.0) }
+}
+impl Render<Variable> for CRenderer {
+    fn render(&self, op: &Variable, _operands: &[String]) -> String { op.0.clone() }
+}
+
+/// A compiled C kernel loaded from a dynamic library.
+pub struct CKernel {
+    _lib: Arc<Library>,
+    compute: Symbol<'static, unsafe extern "C" fn() -> f32>,
+}
+
+impl Kernel for CKernel {
+    fn execute(&self) -> f32 {
+        unsafe { (self.compute)() }
     }
 }
 
-impl Render<Variable> for CRenderer {
-    fn render(&self, op: &Variable, _operands: &[String]) -> String {
-        op.0.clone()
+/// A compiler for C code using `gcc`.
+pub struct CCompiler;
+
+impl Compiler for CCompiler {
+    type Kernel = CKernel;
+
+    fn is_available(&self) -> bool {
+        Command::new("gcc").arg("--version").output().is_ok()
+    }
+
+    fn compile(&self, code: &str) -> Result<Self::Kernel, Box<dyn Error>> {
+        let temp_dir = TempDir::new()?;
+        let source_path = temp_dir.path().join("kernel.c");
+        let lib_path = temp_dir.path().join(if cfg!(target_os = "windows") {
+            "kernel.dll"
+        } else if cfg!(target_os = "macos") {
+            "libkernel.dylib"
+        } else {
+            "libkernel.so"
+        });
+
+        let mut source_file = File::create(&source_path)?;
+        source_file.write_all(code.as_bytes())?;
+
+        let output = Command::new("gcc")
+            .arg("-shared")
+            .arg("-o")
+            .arg(&lib_path)
+            .arg(&source_path)
+            .arg("-fPIC")
+            .output()?;
+
+        if !output.status.success() {
+            return Err(format!(
+                "gcc compilation failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ).into());
+        }
+
+        unsafe {
+            let lib = Arc::new(Library::new(&lib_path)?);
+            let compute: Symbol<unsafe extern "C" fn() -> f32> = lib.get(b"compute")?;
+            
+            let compute = std::mem::transmute(compute);
+
+            Ok(CKernel {
+                _lib: lib.clone(),
+                compute,
+            })
+        }
     }
 }
