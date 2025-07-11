@@ -112,32 +112,18 @@ pub struct LoopVariable;
 // Define all operator structs
 def_operators!(
     OpAdd, OpSub, OpMul, OpDiv, OpRem, Recip, Wildcard, Sin, Exp2, Log2, Sqrt, Max,
-    Sink, Reshape, OpUniform, OpRandn
+    Sink, Reshape, OpUniform, OpRandn, Load, Store
 );
 impl_operator!(
     OpAdd, OpMul, OpRem, Recip, Wildcard, Sin, Exp2, Log2, Sqrt, Max, Sink,
-    Reshape, OpUniform, LoopVariable
+    Reshape, OpUniform, LoopVariable, Load, Store
 );
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Load(pub String, pub usize);
-impl Operator for Load {
+pub struct Input(pub String);
+impl Operator for Input {
     fn as_any(&self) -> &dyn Any { self }
-    fn name(&self) -> &'static str { "Load" }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NodeLoad;
-impl Operator for NodeLoad {
-    fn as_any(&self) -> &dyn Any { self }
-    fn name(&self) -> &'static str { "NodeLoad" }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Store(pub String, pub usize);
-impl Operator for Store {
-    fn as_any(&self) -> &dyn Any { self }
-    fn name(&self) -> &'static str { "Store" }
+    fn name(&self) -> &'static str { "Input" }
 }
 
 // --- Specialized Operator Structs ---
@@ -247,6 +233,7 @@ impl PrimitiveOp for OpMul {}
 impl PrimitiveOp for OpRem {}
 impl PrimitiveOp for Load {}
 impl PrimitiveOp for Store {}
+impl PrimitiveOp for Input {}
 impl PrimitiveOp for Recip {}
 impl PrimitiveOp for Sin {}
 impl PrimitiveOp for Exp2 {}

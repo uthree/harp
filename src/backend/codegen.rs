@@ -61,7 +61,7 @@ impl<'a> CodeGenerator<'a> {
         // Add a return statement if the root operation produces a value.
         if !root.op().as_any().is::<crate::op::Store>() && !root.op().as_any().is::<crate::op::Loop>() {
             if let Some(result_var) = self.node_to_var.get(&root.ptr()) {
-                trace!("Adding return statement for variable: {}", result_var);
+                trace!("Adding return statement for variable: {result_var}");
                 self.instructions.push(Instruction::Return {
                     value: result_var.clone(),
                 });
@@ -89,8 +89,9 @@ impl<'a> CodeGenerator<'a> {
             if node.op().as_any().is::<crate::op::Const>()
                 || node.op().as_any().is::<crate::op::Variable>()
                 || node.op().as_any().is::<crate::op::LoopVariable>()
+                || node.op().as_any().is::<crate::op::Input>()
             {
-                trace!("Node is a literal, assigning expression directly: {}", expr);
+                trace!("Node is a literal or input, assigning expression directly: {expr}");
                 self.node_to_var.insert(node.ptr(), expr);
             } else {
                 let var_name = self.new_var();
@@ -99,22 +100,23 @@ impl<'a> CodeGenerator<'a> {
                     dtype: "float".to_string(), // TODO: Handle types properly
                     value: expr,
                 };
-                trace!("Generated instruction: {:?}", instruction);
+                trace!("Generated instruction: {instruction:?}");
                 self.instructions.push(instruction);
                 self.node_to_var.insert(node.ptr(), var_name);
             }
-        } else if let Some(store_op) = node.op().as_any().downcast_ref::<crate::op::Store>() {
-            let index_var = self.node_to_var.get(&node.src()[0].ptr()).unwrap();
-            let value_var = self.node_to_var.get(&node.src()[1].ptr()).unwrap();
+        } else if let Some(_store_op) = node.op().as_any().downcast_ref::<crate::op::Store>() {
+            let buffer_var = self.node_to_var.get(&node.src()[0].ptr()).unwrap();
+            let index_var = self.node_to_var.get(&node.src()[1].ptr()).unwrap();
+            let value_var = self.node_to_var.get(&node.src()[2].ptr()).unwrap();
             let instruction = Instruction::Statement {
-                code: format!("{}[{}] = {}", store_op.0, index_var, value_var),
+                code: format!("{buffer_var}[{index_var}] = {value_var}"),
             };
-            trace!("Generated instruction: {:?}", instruction);
+            trace!("Generated instruction: {instruction:?}");
             self.instructions.push(instruction);
         } else if let Some(loop_op) = node.op().as_any().downcast_ref::<crate::op::Loop>() {
             let count_var = self.node_to_var.get(&loop_op.count.ptr()).unwrap();
             
-            debug!("Entering loop body generation for node: {:?}", loop_op);
+            debug!("Entering loop body generation for node: {loop_op:?}");
             let mut body_codegen = CodeGenerator::new(self.renderer);
             let body_instructions = body_codegen.generate(&loop_op.body);
             debug!("Finished loop body generation.");
@@ -123,7 +125,7 @@ impl<'a> CodeGenerator<'a> {
                 count: count_var.clone(),
                 body: body_instructions,
             };
-            trace!("Generated instruction: {:?}", instruction);
+            trace!("Generated instruction: {instruction:?}");
             self.instructions.push(instruction);
             self.node_to_var.insert(node.ptr(), "loop_result".to_string());
         } else if let Some(fused_op) = node.op().as_fused_op() {
@@ -147,6 +149,7 @@ impl<'a> CodeGenerator<'a> {
         if node.op().as_any().is::<crate::op::Const>()
             || node.op().as_any().is::<crate::op::Variable>()
             || node.op().as_any().is::<crate::op::LoopVariable>()
+            || node.op().as_any().is::<crate::op::Input>()
         {
             expr
         } else {

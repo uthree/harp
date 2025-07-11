@@ -25,8 +25,8 @@ fn test_node_to_dot() {
 #[test]
 fn test_tensor_to_dot() {
     let shape = vec![2, 3];
-    let a = Tensor::new_load(shape.clone(), "a".to_string(), 6);
-    let b = Tensor::new_load(shape.clone(), "b".to_string(), 6);
+    let a = Tensor::new_input(shape.clone(), "a".to_string());
+    let b = Tensor::new_input(shape.clone(), "b".to_string());
     let c = a + b;
 
     let dot_string = c.to_dot();
@@ -36,7 +36,7 @@ fn test_tensor_to_dot() {
     // Check for tensor node definitions (op name and shape)
     assert!(
         dot_string
-            .matches("[label=\"Load\nshape: [2, 3]\", shape=\"box\"]")
+            .matches("[label=\"Input\nshape: [2, 3]\", shape=\"box\"]")
             .count()
             == 2
     );

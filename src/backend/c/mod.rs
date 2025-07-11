@@ -1,7 +1,6 @@
 use crate::backend::codegen::Instruction;
-use crate::backend::Compiler;
-use crate::backend::Kernel;
 use crate::backend::renderer::{Render, Renderer};
+use crate::backend::{Compiler, Kernel};
 use crate::op::*;
 use libloading::{Library, Symbol};
 use std::error::Error;
@@ -25,6 +24,7 @@ impl Renderer for CRenderer {
             _ if op_any.is::<Variable>() => Some(self.render(op_any.downcast_ref::<Variable>().unwrap(), operands)),
             _ if op_any.is::<LoopVariable>() => Some(self.render(op_any.downcast_ref::<LoopVariable>().unwrap(), operands)),
             _ if op_any.is::<Load>() => Some(self.render(op_any.downcast_ref::<Load>().unwrap(), operands)),
+            _ if op_any.is::<Input>() => Some(self.render(op_any.downcast_ref::<Input>().unwrap(), operands)),
             _ => None,
         }
     }
@@ -39,13 +39,12 @@ impl Renderer for CRenderer {
         let rendered_body = self.render_body(body, 1);
         let arg_string = args
             .iter()
-            .map(|(dtype, name)| format!("{} {}", dtype, name))
+            .map(|(dtype, name)| format!("{dtype} {name}"))
             .collect::<Vec<_>>()
             .join(", ");
 
         format!(
-            "{} {}({}) {{\n{}}}",
-            return_type, fn_name, arg_string, rendered_body
+            "{return_type} {fn_name}({arg_string}) {{\n{rendered_body}}}"
         )
     }
 }
@@ -57,17 +56,16 @@ impl CRenderer {
         for inst in instructions {
             let line = match inst {
                 Instruction::DeclareVariable { name, dtype, value } => {
-                    format!("{} {} = {};", dtype, name, value)
+                    format!("{dtype} {name} = {value};")
                 }
-                Instruction::Statement { code } => format!("{};", code),
+                Instruction::Statement { code } => format!("{code};"),
                 Instruction::Loop { count, body } => {
                     let rendered_body = self.render_body(body, indent_level + 1);
                     format!(
-                        "for (int i = 0; i < {}; ++i) {{\n{}\n{}}}",
-                        count, rendered_body, indent
+                        "for (int i = 0; i < {count}; ++i) {{\n{rendered_body}\n{indent}}}"
                     )
                 }
-                Instruction::Return { value } => format!("return {};", value),
+                Instruction::Return { value } => format!("return {value};"),
             };
             body_str.push_str(&indent);
             body_str.push_str(&line);
@@ -77,34 +75,56 @@ impl CRenderer {
     }
 }
 
+impl Render<Input> for CRenderer {
+    fn render(&self, op: &Input, _operands: &[String]) -> String {
+        op.0.clone()
+    }
+}
+
 impl Render<Load> for CRenderer {
-    fn render(&self, op: &Load, operands: &[String]) -> String {
-        format!("{}[{}]", op.0, operands[0])
+    fn render(&self, _op: &Load, operands: &[String]) -> String {
+        // operands[0] is the buffer, operands[1] is the index
+        format!("{}[{}]", operands[0], operands[1])
     }
 }
 
 impl Render<LoopVariable> for CRenderer {
-    fn render(&self, _op: &LoopVariable, _operands: &[String]) -> String { "i".to_string() }
+    fn render(&self, _op: &LoopVariable, _operands: &[String]) -> String {
+        "i".to_string()
+    }
 }
 impl Render<OpAdd> for CRenderer {
-    fn render(&self, _op: &OpAdd, operands: &[String]) -> String { format!("({} + {})", operands[0], operands[1]) }
+    fn render(&self, _op: &OpAdd, operands: &[String]) -> String {
+        format!("({} + {})", operands[0], operands[1])
+    }
 }
 impl Render<OpMul> for CRenderer {
-    fn render(&self, _op: &OpMul, operands: &[String]) -> String { format!("({} * {})", operands[0], operands[1]) }
+    fn render(&self, _op: &OpMul, operands: &[String]) -> String {
+        format!("({} * {})", operands[0], operands[1])
+    }
 }
 impl Render<Sin> for CRenderer {
-    fn render(&self, _op: &Sin, operands: &[String]) -> String { format!("sin({})", operands[0]) }
+    fn render(&self, _op: &Sin, operands: &[String]) -> String {
+        format!("sin({})", operands[0])
+    }
 }
 impl Render<Const> for CRenderer {
-    fn render(&self, op: &Const, _operands: &[String]) -> String { format!("{:?}", op.0) }
+    fn render(&self, op: &Const, _operands: &[String]) -> String {
+        format!("{:?}", op.0)
+    }
 }
 impl Render<Variable> for CRenderer {
-    fn render(&self, op: &Variable, _operands: &[String]) -> String { op.0.clone() }
+    fn render(&self, op: &Variable, _operands: &[String]) -> String {
+        op.0.clone()
+    }
 }
 
 /// A compiled C kernel loaded from a dynamic library.
 pub struct CKernel {
     _lib: Arc<Library>,
+    // The Symbol's lifetime is tied to the Arc's lifetime.
+    // By using transmute, we are telling the compiler to trust us that the
+    // library will live long enough, which is ensured by holding the Arc.
     compute: Symbol<'static, unsafe extern "C" fn() -> f32>,
 }
 
@@ -150,13 +170,14 @@ impl Compiler for CCompiler {
             return Err(format!(
                 "gcc compilation failed: {}",
                 String::from_utf8_lossy(&output.stderr)
-            ).into());
+            )
+            .into());
         }
 
         unsafe {
             let lib = Arc::new(Library::new(&lib_path)?);
             let compute: Symbol<unsafe extern "C" fn() -> f32> = lib.get(b"compute")?;
-            
+
             let compute = std::mem::transmute(compute);
 
             Ok(CKernel {

@@ -2,7 +2,7 @@ use harp::backend::c::CRenderer;
 use harp::backend::codegen::CodeGenerator;
 use harp::backend::renderer::Renderer;
 use harp::node::{constant, variable, Node};
-use harp::op::{Load, Loop, LoopVariable, Store};
+use harp::op::{Input, Load, Loop, LoopVariable, Store};
 
 fn generate_code(graph: &Node, args: &[(&str, &str)], return_type: &str) -> String {
     let renderer = CRenderer;
@@ -43,14 +43,15 @@ fn test_fused_op_codegen() {
 #[test]
 fn test_loop_codegen() {
     let i = Node::new(LoopVariable, vec![]);
-    let store_node = Node::new(Store("c".to_string(), 10), vec![i.clone(), i]);
+    let c = Node::new(Input("c".to_string()), vec![]);
+    let store_node = Node::new(Store, vec![c.clone(), i.clone(), i]);
     let count = constant(10);
     let graph = Node::new(
         Loop {
             count: count.clone(),
             body: store_node,
         },
-        vec![count],
+        vec![count, c],
     );
     let code = generate_code(&graph, &[("float*", "c")], "void");
 
@@ -65,17 +66,21 @@ fn test_loop_codegen() {
 #[test]
 fn test_load_store_codegen() {
     let i = Node::new(LoopVariable, vec![]);
-    let a_i = Node::new(Load("a".to_string(), 10), vec![i.clone()]);
-    let b_i = Node::new(Load("b".to_string(), 10), vec![i.clone()]);
+    let a = Node::new(Input("a".to_string()), vec![]);
+    let b = Node::new(Input("b".to_string()), vec![]);
+    let c = Node::new(Input("c".to_string()), vec![]);
+
+    let a_i = Node::new(Load, vec![a.clone(), i.clone()]);
+    let b_i = Node::new(Load, vec![b.clone(), i.clone()]);
     let add_result = a_i + b_i;
-    let store_node = Node::new(Store("c".to_string(), 10), vec![i, add_result]);
+    let store_node = Node::new(Store, vec![c.clone(), i, add_result]);
     let count = constant(10);
     let graph = Node::new(
         Loop {
             count: count.clone(),
             body: store_node,
         },
-        vec![count],
+        vec![count, a, b, c],
     );
     let code = generate_code(
         &graph,
