@@ -230,6 +230,13 @@ pub fn capture(name: &str) -> Node {
     }))
 }
 
+pub fn variable(name: &str) -> Node {
+    Node(Arc::new(NodeData {
+        op: Box::new(Variable(name.to_string())),
+        src: vec![],
+    }))
+}
+
 pub fn sin(a: Node) -> Node {
     Node(Arc::new(NodeData {
         op: Box::new(Sin),

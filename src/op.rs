@@ -90,6 +90,13 @@ impl Operator for Capture {
     fn name(&self) -> &'static str { "Capture" }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Variable(pub String);
+impl Operator for Variable {
+    fn as_any(&self) -> &dyn Any { self }
+    fn name(&self) -> &'static str { "Variable" }
+}
+
 #[derive(Debug, Clone)]
 pub struct Cast(pub Box<dyn DType>);
 impl Operator for Cast {
@@ -135,6 +142,7 @@ impl PrimitiveOp for Sqrt {}
 impl PrimitiveOp for Const {}
 impl PrimitiveOp for Cast {}
 impl PrimitiveOp for Max {}
+impl PrimitiveOp for Variable {}
 
 // TensorOperators
 impl TensorOperator for OpAdd {}

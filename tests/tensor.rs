@@ -1,4 +1,4 @@
-use harp::node::{self, constant, Node};
+use harp::node::{self, constant, variable, Node};
 use harp::op::{Load, OpAdd, OpSub, OpMul, OpDiv, Operator, Permute, Reduce, Reshape};
 use harp::tensor::{ShapeTracker, Tensor};
 use rstest::rstest;
@@ -113,7 +113,7 @@ fn test_compile_add() {
     let b = Tensor::new_load(shape.clone());
     let c = a + b;
 
-    let idx = Rc::new(node::capture("idx"));
+    let idx = Rc::new(variable("idx"));
     let tracker = ShapeTracker {
         dims: shape.iter().map(|&d| Rc::new(constant(d))).collect(),
         index_expr: vec![idx.clone()],
@@ -140,7 +140,7 @@ fn test_compile_reshape() {
     let a = Tensor::new_load(vec![2, 6]);
     let b = a.reshape(vec![3, 4]);
 
-    let idx = Rc::new(node::capture("idx"));
+    let idx = Rc::new(variable("idx"));
     let initial_tracker = ShapeTracker {
         dims: vec![Rc::new(constant(3u64)), Rc::new(constant(4u64))],
         index_expr: vec![idx.clone()],
@@ -159,8 +159,8 @@ fn test_compile_permute() {
     let a = Tensor::new_load(vec![2, 3]);
     let b = a.permute(vec![1, 0]); // Shape becomes [3, 2]
 
-    let i = Rc::new(node::capture("i"));
-    let j = Rc::new(node::capture("j"));
+    let i = Rc::new(variable("i"));
+    let j = Rc::new(variable("j"));
     let tracker = ShapeTracker {
         dims: vec![Rc::new(constant(3u64)), Rc::new(constant(2u64))],
         index_expr: vec![i.clone(), j.clone()],
