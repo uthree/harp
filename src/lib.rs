@@ -1,3 +1,4 @@
+pub mod dot;
 pub mod dtype;
 pub mod macros;
 pub mod node;

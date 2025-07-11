@@ -1,4 +1,5 @@
-use crate::node::{self, Node, constant};
+use crate::dot::ToDot;
+use crate::node::{self, constant, Node};
 use crate::op::{
     Expand, HasIdentityElement, Load, OpAdd, OpDiv, OpMul, OpSub, Operator, Permute, Reduce,
     Reshape, Slice,
@@ -23,6 +24,61 @@ impl Tensor {
     /// Returns the shape of the tensor.
     pub fn shape(&self) -> &Vec<u64> {
         &self.data.shape
+    }
+}
+
+impl ToDot for Tensor {
+    fn to_dot(&self) -> String {
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+        let mut visited = HashMap::new();
+        let mut counter = 0;
+        Self::build_dot_recursive(self, &mut nodes, &mut edges, &mut visited, &mut counter);
+
+        let mut dot = String::from("digraph G {\n");
+        dot.push_str("  rankdir=TB;\n\n");
+        dot.push_str("  // Nodes\n");
+        for node_def in nodes {
+            dot.push_str(&format!("  {}\n", node_def));
+        }
+        dot.push_str("\n  // Edges\n");
+        for edge_def in edges {
+            dot.push_str(&format!("  {}\n", edge_def));
+        }
+        dot.push_str("}\n");
+        dot
+    }
+}
+
+impl Tensor {
+    fn build_dot_recursive(
+        tensor: &Tensor,
+        nodes: &mut Vec<String>,
+        edges: &mut Vec<String>,
+        visited: &mut HashMap<*const TensorData, String>,
+        counter: &mut usize,
+    ) {
+        let tensor_ptr = Arc::as_ptr(&tensor.data);
+        if visited.contains_key(&tensor_ptr) {
+            return;
+        }
+
+        let node_id = format!("node{}", *counter);
+        *counter += 1;
+        visited.insert(tensor_ptr, node_id.clone());
+
+        let label = format!("{}\nshape: {:?}", tensor.data.op.name(), tensor.shape());
+        let shape_style = "box";
+        nodes.push(format!(
+            "{} [label=\"{}\", shape=\"{}\"];",
+            node_id, label, shape_style
+        ));
+
+        for src_tensor in &tensor.data.src {
+            Self::build_dot_recursive(src_tensor, nodes, edges, visited, counter);
+            let src_id = visited.get(&Arc::as_ptr(&src_tensor.data)).unwrap();
+            edges.push(format!("{} -> {};", src_id, node_id));
+        }
     }
 }
 

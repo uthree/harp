@@ -1,3 +1,4 @@
+use harp::dot::ToDot;
 use harp::node;
 
 fn main() {

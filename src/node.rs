@@ -1,3 +1,4 @@
+use crate::dot::ToDot;
 use crate::dtype::DType;
 use crate::op::*;
 use std::collections::HashMap;
@@ -49,31 +50,6 @@ impl Node {
         &self.0.src
     }
 
-    /// Converts the graph to a string in DOT format for visualization.
-    ///
-    /// The resulting string can be used with tools like Graphviz to generate
-    /// a visual representation of the graph.
-    pub fn to_dot(&self) -> String {
-        let mut nodes = Vec::new();
-        let mut edges = Vec::new();
-        let mut visited = HashMap::new();
-        let mut counter = 0;
-        Self::build_dot_recursive(self, &mut nodes, &mut edges, &mut visited, &mut counter);
-
-        let mut dot = String::from("digraph G {\n");
-        dot.push_str("  rankdir=TB;\n\n");
-        dot.push_str("  // Nodes\n");
-        for node_def in nodes {
-            dot.push_str(&format!("  {node_def}\n"));
-        }
-        dot.push_str("\n  // Edges\n");
-        for edge_def in edges {
-            dot.push_str(&format!("  {edge_def}\n"));
-        }
-        dot.push_str("}\n");
-        dot
-    }
-
     fn build_dot_recursive(
         node: &Node,
         nodes: &mut Vec<String>,
@@ -109,6 +85,29 @@ impl Node {
             let src_id = visited.get(&Arc::as_ptr(&src_node.0)).unwrap();
             edges.push(format!("{src_id} -> {node_id};"));
         }
+    }
+}
+
+impl ToDot for Node {
+    fn to_dot(&self) -> String {
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+        let mut visited = HashMap::new();
+        let mut counter = 0;
+        Node::build_dot_recursive(self, &mut nodes, &mut edges, &mut visited, &mut counter);
+
+        let mut dot = String::from("digraph G {\n");
+        dot.push_str("  rankdir=TB;\n\n");
+        dot.push_str("  // Nodes\n");
+        for node_def in nodes {
+            dot.push_str(&format!("  {}\n", node_def));
+        }
+        dot.push_str("\n  // Edges\n");
+        for edge_def in edges {
+            dot.push_str(&format!("  {}\n", edge_def));
+        }
+        dot.push_str("}\n");
+        dot
     }
 }
 
