@@ -111,13 +111,34 @@ pub struct LoopVariable;
 
 // Define all operator structs
 def_operators!(
-    OpAdd, OpSub, OpMul, OpDiv, OpRem, Load, Store, Recip, Wildcard, Sin, Exp2, Log2, Sqrt, Max,
+    OpAdd, OpSub, OpMul, OpDiv, OpRem, Recip, Wildcard, Sin, Exp2, Log2, Sqrt, Max,
     Sink, Reshape, OpUniform, OpRandn
 );
 impl_operator!(
-    OpAdd, OpMul, OpRem, Load, Store, Recip, Wildcard, Sin, Exp2, Log2, Sqrt, Max, Sink,
+    OpAdd, OpMul, OpRem, Recip, Wildcard, Sin, Exp2, Log2, Sqrt, Max, Sink,
     Reshape, OpUniform, LoopVariable
 );
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Load(pub String, pub usize);
+impl Operator for Load {
+    fn as_any(&self) -> &dyn Any { self }
+    fn name(&self) -> &'static str { "Load" }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeLoad;
+impl Operator for NodeLoad {
+    fn as_any(&self) -> &dyn Any { self }
+    fn name(&self) -> &'static str { "NodeLoad" }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Store(pub String, pub usize);
+impl Operator for Store {
+    fn as_any(&self) -> &dyn Any { self }
+    fn name(&self) -> &'static str { "Store" }
+}
 
 // --- Specialized Operator Structs ---
 

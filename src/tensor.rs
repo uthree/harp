@@ -2,8 +2,8 @@ use crate::dot::ToDot;
 use crate::dtype::DType;
 use crate::node::{self, constant, Node};
 use crate::op::{
-    Const, Expand, HasIdentityElement, Load, OpAdd, OpDiv, OpMul, OpRandn, OpSub, OpUniform,
-    Operator, Permute, Reduce, Reshape, Slice,
+    Const, Expand, HasIdentityElement, Load, NodeLoad, OpAdd, OpDiv, OpMul, OpRandn, OpSub,
+    OpUniform, Operator, Permute, Reduce, Reshape, Slice,
 };
 use crate::simplify::simplify;
 use dyn_clone::clone_box;
@@ -173,10 +173,10 @@ impl Tensor {
     }
 
     /// Creates a new "leaf" tensor that represents loading data from a source.
-    pub fn new_load(shape: Vec<usize>) -> Self {
+    pub fn new_load(shape: Vec<usize>, name: String, size: usize) -> Self {
         Self {
             data: Arc::new(TensorData {
-                op: Box::new(Load),
+                op: Box::new(Load(name, size)),
                 src: vec![],
                 shape,
             }),
@@ -431,7 +431,7 @@ impl Tensor {
                 }
 
                 Rc::new(node::Node::from(Arc::new(node::NodeData {
-                    op: Box::new(Load),
+                    op: Box::new(NodeLoad),
                     src: vec![offset],
                 })))
             }

@@ -1,7 +1,7 @@
 use harp::backend::codegen::CodeGenerator;
 use harp::backend::c::CRenderer;
 use harp::node::{self, constant, variable, Node};
-use harp::op::{Loop, LoopVariable};
+use harp::op::{Load, Loop, LoopVariable, Store};
 
 #[test]
 fn test_simple_codegen() {
@@ -80,6 +80,45 @@ fn test_loop_codegen() {
         float v0 = (i + 1.0);
     }
     return loop_result;
+}"#;
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn test_load_codegen() {
+    let index = constant(0);
+    let load_op = Load("input".to_string(), 10);
+    let graph = Node::new(load_op, vec![index]) + constant(1.0f32);
+
+    let renderer = CRenderer;
+    let mut codegen = CodeGenerator::new(&renderer);
+    let result = codegen.generate(&graph);
+
+    let expected = r#"float compute() {
+    float v0 = input[0];
+    float v1 = (v0 + 1.0);
+    return v1;
+}"#;
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn test_store_codegen() {
+    let index = constant(0);
+    let value = constant(42.0f32);
+    let store_op = Store("output".to_string(), 10);
+    // Since Store returns no value, we can't chain it.
+    // The graph root is the Store node itself.
+    let graph = Node::new(store_op, vec![index, value]);
+
+    let renderer = CRenderer;
+    let mut codegen = CodeGenerator::new(&renderer);
+    let result = codegen.generate(&graph);
+
+    // Note: The return value is currently incorrect because the generator
+    // doesn't handle void functions yet. We are just testing the body.
+    let expected = r#"void compute() {
+    output[0] = 42.0;
 }"#;
     assert_eq!(result, expected);
 }

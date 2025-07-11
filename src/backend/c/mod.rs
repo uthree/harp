@@ -22,9 +22,17 @@ impl Renderer for CRenderer {
             _ if op_any.is::<Const>() => Some(self.render(op_any.downcast_ref::<Const>().unwrap(), operands)),
             _ if op_any.is::<Variable>() => Some(self.render(op_any.downcast_ref::<Variable>().unwrap(), operands)),
             _ if op_any.is::<LoopVariable>() => Some(self.render(op_any.downcast_ref::<LoopVariable>().unwrap(), operands)),
-            _ if op_any.is::<Loop>() => None,
+            _ if op_any.is::<Load>() => Some(self.render(op_any.downcast_ref::<Load>().unwrap(), operands)),
+            // Loop and Store operators are handled by the CodeGenerator itself.
+            _ if op_any.is::<Loop>() || op_any.is::<Store>() => None,
             _ => None,
         }
+    }
+}
+
+impl Render<Load> for CRenderer {
+    fn render(&self, op: &Load, operands: &[String]) -> String {
+        format!("{}[{}]", op.0, operands[0])
     }
 }
 

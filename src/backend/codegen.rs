@@ -36,11 +36,18 @@ impl<'a> CodeGenerator<'a> {
             self.render_node(node);
         }
 
-        let result_var = self.node_to_var.get(&root.ptr()).unwrap();
         let function_body = self.statements.join("\n    ");
-        format!(
-            "float compute() {{\n    {function_body}\n    return {result_var};\n}}"
-        )
+
+        // If the root node is a Store, it doesn't produce a return value.
+        if root.op().as_any().is::<crate::op::Store>() {
+            format!("void compute() {{\n    {}\n}}", function_body)
+        } else {
+            let result_var = self.node_to_var.get(&root.ptr()).unwrap();
+            format!(
+                "float compute() {{\n    {}\n    return {};\n}}",
+                function_body, result_var
+            )
+        }
     }
 
     /// Renders a single node and stores the result (variable name and statement).
@@ -66,17 +73,28 @@ impl<'a> CodeGenerator<'a> {
                 self.statements.push(format!("float {var_name} = {expr};"));
                 self.node_to_var.insert(node.ptr(), var_name);
             }
+        // Handle Store operator specifically
+        } else if let Some(store_op) = node.op().as_any().downcast_ref::<crate::op::Store>() {
+            // src[0] is the index, src[1] is the value to store.
+            let index_var = self.node_to_var.get(&node.src()[0].ptr()).unwrap();
+            let value_var = self.node_to_var.get(&node.src()[1].ptr()).unwrap();
+            let statement = format!("{}[{}] = {};", store_op.0, index_var, value_var);
+            self.statements.push(statement);
+            // Store does not produce a value, so we don't add it to node_to_var.
+            // Or we could add a special marker if needed. For now, we do nothing.
+            
         // Handle Loop operator specifically
         } else if let Some(loop_op) = node.op().as_any().downcast_ref::<crate::op::Loop>() {
             let count_var = self.node_to_var.get(&loop_op.count.ptr()).unwrap();
             
             // Generate the body of the loop using a separate generator
             let mut body_codegen = CodeGenerator::new(self.renderer);
-            let body_result_var = body_codegen.generate_loop_body(&loop_op.body);
+            let _body_result_var = body_codegen.generate_loop_body(&loop_op.body);
 
             let loop_body_code = body_codegen.statements.join("\n        ");
             let loop_statement = format!(
-                "for (int i = 0; i < {count_var}; ++i) {{\n        {loop_body_code}\n    }}"
+                "for (int i = 0; i < {}; ++i) {{\n        {}\n    }}",
+                count_var, loop_body_code
             );
             self.statements.push(loop_statement);
             // Note: The result of the loop is not captured for now.
