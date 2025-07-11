@@ -1,5 +1,6 @@
 use harp::backend::c::{CCompiler, CRenderer};
 use harp::backend::codegen::CodeGenerator;
+use harp::backend::renderer::Renderer;
 use harp::backend::Compiler;
 use harp::node::{constant, Node};
 use harp::op::{Load, Loop, LoopVariable, Store};
@@ -31,14 +32,16 @@ fn main() -> std::io::Result<()> {
     println!("--- Generating C code for vector addition ---");
     let renderer = CRenderer;
     let mut codegen = CodeGenerator::new(&renderer);
-    let kernel_code = codegen.generate(
-        &graph,
+    let instructions = codegen.generate(&graph);
+    let kernel_code = renderer.render_function(
         "vector_add",
         &[
             ("const float*", "a"),
             ("const float*", "b"),
             ("float*", "c"),
         ],
+        &instructions,
+        "void",
     );
     println!("{}", kernel_code);
 

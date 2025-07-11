@@ -1,8 +1,8 @@
-use harp::backend::c::CCompiler;
-use harp::backend::c::CRenderer;
+use harp::backend::c::{CCompiler, CRenderer};
 use harp::backend::codegen::CodeGenerator;
+use harp::backend::renderer::Renderer;
 use harp::backend::{Compiler, Kernel};
-use harp::node::{constant, variable};
+use harp::node::constant;
 
 #[test]
 fn test_c_compiler_is_available() {
@@ -27,7 +27,8 @@ fn test_compile_and_execute_simple_graph() {
     // 2. Generate C code
     let renderer = CRenderer;
     let mut codegen = CodeGenerator::new(&renderer);
-    let code = codegen.generate(&graph);
+    let instructions = codegen.generate(&graph);
+    let code = renderer.render_function("compute", &[], &instructions, "float");
 
     // 3. Compile the code
     let kernel = compiler.compile(&code).expect("Compilation failed");
@@ -53,7 +54,8 @@ fn test_compile_and_execute_fused_op() {
     // 2. Generate C code
     let renderer = CRenderer;
     let mut codegen = CodeGenerator::new(&renderer);
-    let code = codegen.generate(&graph);
+    let instructions = codegen.generate(&graph);
+    let code = renderer.render_function("compute", &[], &instructions, "float");
 
     // 3. Compile the code
     let kernel = compiler.compile(&code).expect("Compilation failed");

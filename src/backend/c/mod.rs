@@ -1,4 +1,6 @@
-use crate::backend::{Compiler, Kernel};
+use crate::backend::codegen::Instruction;
+use crate::backend::Compiler;
+use crate::backend::Kernel;
 use crate::backend::renderer::{Render, Renderer};
 use crate::op::*;
 use libloading::{Library, Symbol};
@@ -23,10 +25,55 @@ impl Renderer for CRenderer {
             _ if op_any.is::<Variable>() => Some(self.render(op_any.downcast_ref::<Variable>().unwrap(), operands)),
             _ if op_any.is::<LoopVariable>() => Some(self.render(op_any.downcast_ref::<LoopVariable>().unwrap(), operands)),
             _ if op_any.is::<Load>() => Some(self.render(op_any.downcast_ref::<Load>().unwrap(), operands)),
-            // Loop and Store operators are handled by the CodeGenerator itself.
-            _ if op_any.is::<Loop>() || op_any.is::<Store>() => None,
             _ => None,
         }
+    }
+
+    fn render_function(
+        &self,
+        fn_name: &str,
+        args: &[(&str, &str)],
+        body: &[Instruction],
+        return_type: &str,
+    ) -> String {
+        let rendered_body = self.render_body(body, 1);
+        let arg_string = args
+            .iter()
+            .map(|(dtype, name)| format!("{} {}", dtype, name))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        format!(
+            "{} {}({}) {{\n{}}}",
+            return_type, fn_name, arg_string, rendered_body
+        )
+    }
+}
+
+impl CRenderer {
+    fn render_body(&self, instructions: &[Instruction], indent_level: usize) -> String {
+        let indent = "    ".repeat(indent_level);
+        let mut body_str = String::new();
+        for inst in instructions {
+            let line = match inst {
+                Instruction::DeclareVariable { name, dtype, value } => {
+                    format!("{} {} = {};", dtype, name, value)
+                }
+                Instruction::Statement { code } => format!("{};", code),
+                Instruction::Loop { count, body } => {
+                    let rendered_body = self.render_body(body, indent_level + 1);
+                    format!(
+                        "for (int i = 0; i < {}; ++i) {{\n{}\n{}}}",
+                        count, rendered_body, indent
+                    )
+                }
+                Instruction::Return { value } => format!("return {};", value),
+            };
+            body_str.push_str(&indent);
+            body_str.push_str(&line);
+            body_str.push('\n');
+        }
+        body_str
     }
 }
 

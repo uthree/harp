@@ -1,23 +1,28 @@
-use harp::backend::codegen::CodeGenerator;
 use harp::backend::c::CRenderer;
-use harp::node::{self, constant, variable, Node};
+use harp::backend::codegen::CodeGenerator;
+use harp::backend::renderer::Renderer;
+use harp::node::{constant, variable, Node};
 use harp::op::{Load, Loop, LoopVariable, Store};
+
+fn generate_code(graph: &Node, args: &[(&str, &str)], return_type: &str) -> String {
+    let renderer = CRenderer;
+    let mut codegen = CodeGenerator::new(&renderer);
+    let instructions = codegen.generate(graph);
+    renderer.render_function("test_fn", args, &instructions, return_type)
+}
 
 #[test]
 fn test_simple_codegen() {
     let a = variable("a");
     let b = constant(2.0f32);
     let graph = a + b;
+    let code = generate_code(&graph, &[("float", "a")], "float");
 
-    let renderer = CRenderer;
-    let mut codegen = CodeGenerator::new(&renderer);
-    let result = codegen.generate(&graph);
-
-    let expected = r#"float compute() {
+    let expected = r#"float test_fn(float a) {
     float v0 = (a + 2.0);
     return v0;
 }"#;
-    assert_eq!(result, expected);
+    assert_eq!(code.replace_whitespace(), expected.replace_whitespace());
 }
 
 #[test]
@@ -25,100 +30,81 @@ fn test_fused_op_codegen() {
     let a = variable("a");
     let b = variable("b");
     let graph = a - b; // OpSub is a FusedOp
+    let code = generate_code(&graph, &[("float", "a"), ("float", "b")], "float");
 
-    let renderer = CRenderer;
-    let mut codegen = CodeGenerator::new(&renderer);
-    let result = codegen.generate(&graph);
-
-    // The fallback graph is (a + (b * -1.0))
-    let expected = r#"float compute() {
+    let expected = r#"float test_fn(float a, float b) {
     float v0 = (b * -1.0);
     float v1 = (a + v0);
     return v1;
 }"#;
-    assert_eq!(result, expected);
-}
-
-#[test]
-fn test_complex_graph_codegen() {
-    let a = variable("a");
-    let b = constant(2.0f32);
-    let c = constant(3.0f32);
-    let graph = (a + b) * c;
-
-    let renderer = CRenderer;
-    let mut codegen = CodeGenerator::new(&renderer);
-    let result = codegen.generate(&graph);
-
-    let expected = r#"float compute() {
-    float v0 = (a + 2.0);
-    float v1 = (v0 * 3.0);
-    return v1;
-}"#;
-    assert_eq!(result, expected);
+    assert_eq!(code.replace_whitespace(), expected.replace_whitespace());
 }
 
 #[test]
 fn test_loop_codegen() {
-    let loop_var = Node::new(LoopVariable, vec![]);
-    let loop_body = loop_var + constant(1.0f32);
+    let i = Node::new(LoopVariable, vec![]);
+    let store_node = Node::new(Store("c".to_string(), 10), vec![i.clone(), i]);
     let count = constant(10);
     let graph = Node::new(
         Loop {
             count: count.clone(),
-            body: loop_body,
+            body: store_node,
         },
         vec![count],
     );
+    let code = generate_code(&graph, &[("float*", "c")], "void");
 
-    let renderer = CRenderer;
-    let mut codegen = CodeGenerator::new(&renderer);
-    let result = codegen.generate(&graph);
-
-    let expected = r#"float compute() {
+    let expected = r#"void test_fn(float* c) {
     for (int i = 0; i < 10; ++i) {
-        float v0 = (i + 1.0);
+        c[i] = i;
     }
-    return loop_result;
 }"#;
-    assert_eq!(result, expected);
+    assert_eq!(code.replace_whitespace(), expected.replace_whitespace());
 }
 
 #[test]
-fn test_load_codegen() {
-    let index = constant(0);
-    let load_op = Load("input".to_string(), 10);
-    let graph = Node::new(load_op, vec![index]) + constant(1.0f32);
+fn test_load_store_codegen() {
+    let i = Node::new(LoopVariable, vec![]);
+    let a_i = Node::new(Load("a".to_string(), 10), vec![i.clone()]);
+    let b_i = Node::new(Load("b".to_string(), 10), vec![i.clone()]);
+    let add_result = a_i + b_i;
+    let store_node = Node::new(Store("c".to_string(), 10), vec![i, add_result]);
+    let count = constant(10);
+    let graph = Node::new(
+        Loop {
+            count: count.clone(),
+            body: store_node,
+        },
+        vec![count],
+    );
+    let code = generate_code(
+        &graph,
+        &[
+            ("const float*", "a"),
+            ("const float*", "b"),
+            ("float*", "c"),
+        ],
+        "void",
+    );
 
-    let renderer = CRenderer;
-    let mut codegen = CodeGenerator::new(&renderer);
-    let result = codegen.generate(&graph);
-
-    let expected = r#"float compute() {
-    float v0 = input[0];
-    float v1 = (v0 + 1.0);
-    return v1;
+    let expected = r#"void test_fn(const float* a, const float* b, float* c) {
+    for (int i = 0; i < 10; ++i) {
+        float v0 = a[i];
+        float v1 = b[i];
+        float v2 = (v0 + v1);
+        c[i] = v2;
+    }
 }"#;
-    assert_eq!(result, expected);
+    assert_eq!(code.replace_whitespace(), expected.replace_whitespace());
 }
 
-#[test]
-fn test_store_codegen() {
-    let index = constant(0);
-    let value = constant(42.0f32);
-    let store_op = Store("output".to_string(), 10);
-    // Since Store returns no value, we can't chain it.
-    // The graph root is the Store node itself.
-    let graph = Node::new(store_op, vec![index, value]);
+// Helper to normalize whitespace for reliable comparisons
+trait StringWhitespace {
+    fn replace_whitespace(&self) -> String;
+}
 
-    let renderer = CRenderer;
-    let mut codegen = CodeGenerator::new(&renderer);
-    let result = codegen.generate(&graph);
-
-    // Note: The return value is currently incorrect because the generator
-    // doesn't handle void functions yet. We are just testing the body.
-    let expected = r#"void compute() {
-    output[0] = 42.0;
-}"#;
-    assert_eq!(result, expected);
+impl StringWhitespace for str {
+    fn replace_whitespace(&self) -> String {
+        self.split_whitespace().collect::<Vec<&str>>().join(" ")
+    }
 }

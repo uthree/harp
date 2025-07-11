@@ -1,23 +1,42 @@
-use crate::node::{Node, NodeData};
-use crate::op::FusedOp;
 use crate::backend::renderer::Renderer;
+use crate::node::{Node, NodeData};
 use std::collections::{HashMap, HashSet};
 
-/// A code generation engine that traverses a computation graph and renders it to a string.
+/// Represents a language-agnostic instruction for code generation.
+#[derive(Debug, Clone)]
+pub enum Instruction {
+    /// Declares a new variable. e.g., `float v0 = ...;`
+    DeclareVariable {
+        name: String,
+        dtype: String,
+        value: String,
+    },
+    /// A standalone statement that doesn't declare a new variable. e.g., `c[i] = v0;`
+    Statement { code: String },
+    /// A loop construct. e.g., `for (int i = 0; i < count; ++i) { ... }`
+    Loop {
+        count: String,
+        body: Vec<Instruction>,
+    },
+    /// A return statement. e.g., `return v0;`
+    Return { value: String },
+}
+
+/// A code generation engine that traverses a computation graph and produces a
+/// language-agnostic list of `Instruction`s.
 pub struct CodeGenerator<'a> {
     renderer: &'a dyn Renderer,
     node_to_var: HashMap<*const NodeData, String>,
-    statements: Vec<String>,
+    instructions: Vec<Instruction>,
     var_counter: usize,
 }
 
 impl<'a> CodeGenerator<'a> {
-    /// Creates a new `CodeGenerator` with the given renderer.
     pub fn new(renderer: &'a dyn Renderer) -> Self {
         Self {
             renderer,
             node_to_var: HashMap::new(),
-            statements: Vec::new(),
+            instructions: Vec::new(),
             var_counter: 0,
         }
     }
@@ -28,33 +47,27 @@ impl<'a> CodeGenerator<'a> {
         name
     }
 
-    /// Generates the final code for the entire graph starting from the root node.
-    pub fn generate(&mut self, root: &Node, fn_name: &str, args: &[(&str, &str)]) -> String {
+    /// Generates a list of abstract `Instruction`s for the given graph.
+    pub fn generate(&mut self, root: &Node) -> Vec<Instruction> {
         let sorted_nodes = self.topological_sort(root);
 
         for node in &sorted_nodes {
             self.render_node(node);
         }
 
-        let function_body = self.statements.join("\n    ");
-        let arg_string = args
-            .iter()
-            .map(|(dtype, name)| format!("{dtype} {name}"))
-            .collect::<Vec<_>>()
-            .join(", ");
-
-        // If the root node is a Store or Loop, it doesn't produce a return value.
-        if root.op().as_any().is::<crate::op::Store>() || root.op().as_any().is::<crate::op::Loop>() {
-            format!("void {fn_name}({arg_string}) {{\n    {function_body}\n}}")
-        } else {
-            let result_var = self.node_to_var.get(&root.ptr()).unwrap();
-            format!(
-                "float {fn_name}({arg_string}) {{\n    {function_body}\n    return {result_var};\n}}"
-            )
+        // Add a return statement if the root operation produces a value.
+        if !root.op().as_any().is::<crate::op::Store>() && !root.op().as_any().is::<crate::op::Loop>() {
+            if let Some(result_var) = self.node_to_var.get(&root.ptr()) {
+                self.instructions.push(Instruction::Return {
+                    value: result_var.clone(),
+                });
+            }
         }
+        
+        std::mem::take(&mut self.instructions)
     }
 
-    /// Renders a single node and stores the result (variable name and statement).
+    /// Renders a single node into one or more `Instruction`s.
     fn render_node(&mut self, node: &Node) {
         if self.node_to_var.contains_key(&node.ptr()) {
             return;
@@ -74,52 +87,36 @@ impl<'a> CodeGenerator<'a> {
                 self.node_to_var.insert(node.ptr(), expr);
             } else {
                 let var_name = self.new_var();
-                self.statements.push(format!("float {var_name} = {expr};"));
+                self.instructions.push(Instruction::DeclareVariable {
+                    name: var_name.clone(),
+                    dtype: "float".to_string(), // TODO: Handle types properly
+                    value: expr,
+                });
                 self.node_to_var.insert(node.ptr(), var_name);
             }
-        // Handle Store operator specifically
         } else if let Some(store_op) = node.op().as_any().downcast_ref::<crate::op::Store>() {
-            // src[0] is the index, src[1] is the value to store.
             let index_var = self.node_to_var.get(&node.src()[0].ptr()).unwrap();
             let value_var = self.node_to_var.get(&node.src()[1].ptr()).unwrap();
-            let statement = format!("{}[{}] = {};", store_op.0, index_var, value_var);
-            self.statements.push(statement);
-            // Store does not produce a value, so we don't add it to node_to_var.
-            // Or we could add a special marker if needed. For now, we do nothing.
-            
-        // Handle Loop operator specifically
+            self.instructions.push(Instruction::Statement {
+                code: format!("{}[{}] = {}", store_op.0, index_var, value_var),
+            });
         } else if let Some(loop_op) = node.op().as_any().downcast_ref::<crate::op::Loop>() {
             let count_var = self.node_to_var.get(&loop_op.count.ptr()).unwrap();
             
-            // Generate the body of the loop using a separate generator to isolate scope
             let mut body_codegen = CodeGenerator::new(self.renderer);
-            body_codegen.generate_loop_body(&loop_op.body);
+            let body_instructions = body_codegen.generate(&loop_op.body);
 
-            let loop_body_code = body_codegen.statements.join("\n        ");
-            let loop_statement = format!(
-                "for (int i = 0; i < {count_var}; ++i) {{\n        {loop_body_code}\n    }}"
-            );
-            self.statements.push(loop_statement);
-            // Note: The result of the loop is not captured for now.
+            self.instructions.push(Instruction::Loop {
+                count: count_var.clone(),
+                body: body_instructions,
+            });
             self.node_to_var.insert(node.ptr(), "loop_result".to_string());
-
         } else if let Some(fused_op) = node.op().as_fused_op() {
             let fallback_node = fused_op.fallback(node.src());
-            // Recursively render the fallback graph. This is not the most efficient
-            // way, but it works for now. A better way would be to integrate the
-            // fallback graph directly into the topological sort.
             let var_name = self.render_fallback_node(&fallback_node);
             self.node_to_var.insert(node.ptr(), var_name);
         } else {
             panic!("Rendering not implemented for operator: {}", node.op().name());
-        }
-    }
-
-    /// Generates the body of a loop, returning the final variable name.
-    fn generate_loop_body(&mut self, root: &Node) {
-        let sorted_nodes = self.topological_sort(root);
-        for node in &sorted_nodes {
-            self.render_node(node);
         }
     }
     
@@ -130,6 +127,7 @@ impl<'a> CodeGenerator<'a> {
         let rendered_operands: Vec<String> =
             node.src().iter().map(|n| self.render_fallback_node(n)).collect();
         let expr = self.renderer.render_op(node.op().as_ref(), &rendered_operands).unwrap();
+        
         if node.op().as_any().is::<crate::op::Const>()
             || node.op().as_any().is::<crate::op::Variable>()
             || node.op().as_any().is::<crate::op::LoopVariable>()
@@ -137,13 +135,16 @@ impl<'a> CodeGenerator<'a> {
             expr
         } else {
             let var_name = self.new_var();
-            self.statements.push(format!("float {var_name} = {expr};"));
+            self.instructions.push(Instruction::DeclareVariable {
+                name: var_name.clone(),
+                dtype: "float".to_string(),
+                value: expr,
+            });
             self.node_to_var.insert(node.ptr(), var_name.clone());
             var_name
         }
     }
 
-    /// Performs a topological sort of the graph starting from the root node.
     fn topological_sort(&self, root: &Node) -> Vec<Node> {
         let mut sorted = Vec::new();
         let mut visited = HashSet::new();

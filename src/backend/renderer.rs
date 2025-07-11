@@ -1,33 +1,29 @@
+use crate::backend::codegen::Instruction;
 use crate::op::Operator;
 
-/// A trait for rendering a specific operator `O` into a string representation.
-///
-/// This trait is implemented by a `Renderer` for each primitive operator it supports.
+/// A trait for rendering a specific operator `O` into a string representation (an expression).
 pub trait Render<O: Operator> {
-    /// Renders the given operator.
-    ///
-    /// # Arguments
-    ///
-    /// * `op` - The operator to render.
-    /// * `operands` - A slice of strings, where each string is the already-rendered
-    ///   code for an operand of this operator.
-    ///
-    /// # Returns
-    ///
-    /// A string representing the rendered code for this operation.
     fn render(&self, op: &O, operands: &[String]) -> String;
 }
 
 /// A trait for a code generation backend.
 ///
-/// A `Renderer` is responsible for dispatching to the correct `Render<O>`
-/// implementation for a given dynamic `Operator` trait object. It also handles
-/// the fallback logic for `FusedOp` operators.
+/// A `Renderer` is responsible for two things:
+/// 1. Rendering individual operators into expression strings (`render_op`).
+/// 2. Rendering a complete list of abstract `Instruction`s into a final function string (`render_function`).
 pub trait Renderer {
-    /// Renders a dynamic operator trait object.
+    /// Renders a dynamic operator trait object into an expression string.
     ///
-    /// This method should handle downcasting the `&dyn Operator` to a concrete
-    /// type and calling the appropriate `Render<O>` implementation. If the
-    /// operator is not supported, it should return `None`.
+    /// If the operator is not supported for expression-level rendering (e.g., it's a
+    /// statement-level operator like `Store`), it should return `None`.
     fn render_op(&self, op: &dyn Operator, operands: &[String]) -> Option<String>;
+
+    /// Renders a complete function from a list of abstract `Instruction`s.
+    fn render_function(
+        &self,
+        fn_name: &str,
+        args: &[(&str, &str)],
+        body: &[Instruction],
+        return_type: &str,
+    ) -> String;
 }
