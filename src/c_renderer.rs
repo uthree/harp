@@ -1,6 +1,5 @@
 use crate::op::*;
 use crate::renderer::{Render, Renderer};
-use std::any::Any;
 
 /// A renderer for generating C code from a computation graph.
 pub struct CRenderer;
