@@ -1,4 +1,4 @@
-use crate::node::{self, constant, Node};
+use crate::node::{self, Node, constant};
 use crate::op::{
     Expand, HasIdentityElement, Load, OpAdd, OpDiv, OpMul, OpSub, Operator, Permute, Reduce,
     Reshape, Slice,
@@ -108,7 +108,9 @@ impl Tensor {
 
         Self {
             data: Arc::new(TensorData {
-                op: Box::new(Expand { shape: new_shape.clone() }),
+                op: Box::new(Expand {
+                    shape: new_shape.clone(),
+                }),
                 src: vec![self],
                 shape: new_shape,
             }),
@@ -210,13 +212,13 @@ impl Tensor {
 
             // Permute to make the group contiguous
             let mut permute_order: Vec<usize> = (0..current_dims.len()).collect();
-            let mut non_group_dims: Vec<usize> = (0..current_dims.len())
+            let non_group_dims: Vec<usize> = (0..current_dims.len())
                 .filter(|i| !group_indices.contains(i))
                 .collect();
 
             let first_group_idx = *group_indices.iter().min().unwrap();
             permute_order.splice(first_group_idx..first_group_idx, group_indices.clone());
-            
+
             let mut final_order = vec![];
             let mut group_added = false;
             for i in 0..current_dims.len() {
@@ -253,24 +255,30 @@ impl Tensor {
             if in_composition {
                 new_shape.push(composed_dim);
             }
-            
+
             current_tensor = current_tensor.reshape(new_shape);
             current_dims = next_right_dims.iter().map(|s| s.as_str()).collect();
         }
 
-
         // --- Permutation Step ---
-        let right_map: HashMap<&str, usize> =
-            current_dims.iter().enumerate().map(|(i, &s)| (s, i)).collect();
+        let right_map: HashMap<&str, usize> = current_dims
+            .iter()
+            .enumerate()
+            .map(|(i, &s)| (s, i))
+            .collect();
 
-        let order: Vec<usize> = right_str.split_whitespace().filter(|s| !s.starts_with('(') && !s.ends_with(')')).map(|s| {
-            *right_map
-                .get(s)
-                .unwrap_or_else(|| panic!("Dimension '{s}' not found on right side of pattern"))
-        }).collect();
-        
+        let order: Vec<usize> = right_str
+            .split_whitespace()
+            .filter(|s| !s.starts_with('(') && !s.ends_with(')'))
+            .map(|s| {
+                *right_map
+                    .get(s)
+                    .unwrap_or_else(|| panic!("Dimension '{s}' not found on right side of pattern"))
+            })
+            .collect();
+
         if !order.is_empty() && (0..order.len()).all(|i| order.contains(&i)) {
-             current_tensor.permute(order)
+            current_tensor.permute(order)
         } else {
             current_tensor
         }
@@ -287,10 +295,16 @@ impl Tensor {
                 // Calculate the flat, 1D memory offset from the multi-dimensional index.
                 let mut offset = constant(0.0);
                 let mut stride = constant(1.0);
-                for (i, (_dim, idx)) in shape_tracker.dims.iter().zip(shape_tracker.index_expr.iter()).enumerate().rev() {
+                for (i, (_dim, idx)) in shape_tracker
+                    .dims
+                    .iter()
+                    .zip(shape_tracker.index_expr.iter())
+                    .enumerate()
+                    .rev()
+                {
                     if i < shape_tracker.dims.len() - 1 {
                         let prev_dim = &shape_tracker.dims[i + 1];
-                        stride = stride * (**prev_dim).clone();
+                        stride *= (**prev_dim).clone();
                     }
                     offset += (**idx).clone() * stride.clone();
                 }
@@ -302,7 +316,11 @@ impl Tensor {
             }
             "Reshape" => {
                 let source_tensor = &src[0];
-                let source_shape_dims = source_tensor.shape().iter().map(|&d| Rc::new(constant(d))).collect();
+                let source_shape_dims = source_tensor
+                    .shape()
+                    .iter()
+                    .map(|&d| Rc::new(constant(d)))
+                    .collect();
                 let new_tracker = ShapeTracker {
                     dims: source_shape_dims,
                     index_expr: shape_tracker.index_expr.clone(),
@@ -312,10 +330,18 @@ impl Tensor {
             "Permute" => {
                 let permute_op = op.as_any().downcast_ref::<Permute>().unwrap();
                 let source_tensor = &src[0];
-                let new_index_expr = permute_op.order.iter().map(|&i| shape_tracker.index_expr[i].clone()).collect();
+                let new_index_expr = permute_op
+                    .order
+                    .iter()
+                    .map(|&i| shape_tracker.index_expr[i].clone())
+                    .collect();
 
                 let new_tracker = ShapeTracker {
-                    dims: source_tensor.shape().iter().map(|&d| Rc::new(constant(d))).collect(),
+                    dims: source_tensor
+                        .shape()
+                        .iter()
+                        .map(|&d| Rc::new(constant(d)))
+                        .collect(),
                     index_expr: new_index_expr,
                 };
                 return source_tensor.compile(&new_tracker); // Early return to avoid double simplification
@@ -329,7 +355,11 @@ impl Tensor {
                 }
 
                 let new_tracker = ShapeTracker {
-                    dims: source_tensor.shape().iter().map(|&d| Rc::new(constant(d))).collect(),
+                    dims: source_tensor
+                        .shape()
+                        .iter()
+                        .map(|&d| Rc::new(constant(d)))
+                        .collect(),
                     index_expr: new_index_expr,
                 };
                 return source_tensor.compile(&new_tracker);
@@ -337,12 +367,19 @@ impl Tensor {
             "Slice" => {
                 let slice_op = op.as_any().downcast_ref::<Slice>().unwrap();
                 let source_tensor = &src[0];
-                let new_index_expr = shape_tracker.index_expr.iter().zip(slice_op.args.iter()).map(|(idx, (start, _end))| {
-                    Rc::new((**idx).clone() + constant(*start as f64))
-                }).collect();
+                let new_index_expr = shape_tracker
+                    .index_expr
+                    .iter()
+                    .zip(slice_op.args.iter())
+                    .map(|(idx, (start, _end))| Rc::new((**idx).clone() + constant(*start as f64)))
+                    .collect();
 
                 let new_tracker = ShapeTracker {
-                    dims: source_tensor.shape().iter().map(|&d| Rc::new(constant(d))).collect(),
+                    dims: source_tensor
+                        .shape()
+                        .iter()
+                        .map(|&d| Rc::new(constant(d)))
+                        .collect(),
                     index_expr: new_index_expr,
                 };
                 return source_tensor.compile(&new_tracker);
@@ -353,9 +390,9 @@ impl Tensor {
                 let axis = reduce_op.axis;
                 let dim_size = source_tensor.shape()[axis];
 
-                let identity_node = if let Some(_) = reduce_op.op.as_any().downcast_ref::<OpAdd>() {
+                let identity_node = if reduce_op.op.as_any().downcast_ref::<OpAdd>().is_some() {
                     OpAdd::identity_element()
-                } else if let Some(_) = reduce_op.op.as_any().downcast_ref::<OpMul>() {
+                } else if reduce_op.op.as_any().downcast_ref::<OpMul>().is_some() {
                     OpMul::identity_element()
                 } else {
                     panic!("Reduce compilation not implemented for this op");
@@ -368,7 +405,11 @@ impl Tensor {
                     source_index_expr.insert(axis, Rc::new(constant(i)));
 
                     let source_tracker = ShapeTracker {
-                        dims: source_tensor.shape().iter().map(|&d| Rc::new(constant(d))).collect(),
+                        dims: source_tensor
+                            .shape()
+                            .iter()
+                            .map(|&d| Rc::new(constant(d)))
+                            .collect(),
                         index_expr: source_index_expr,
                     };
                     let term = source_tensor.compile(&source_tracker);
@@ -400,7 +441,11 @@ impl Add for Tensor {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
-        assert_eq!(self.shape(), rhs.shape(), "Tensor shapes must match for Add");
+        assert_eq!(
+            self.shape(),
+            rhs.shape(),
+            "Tensor shapes must match for Add"
+        );
         Self {
             data: Arc::new(TensorData {
                 op: Box::new(OpAdd),
@@ -414,7 +459,11 @@ impl Add for Tensor {
 impl Sub for Tensor {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self::Output {
-        assert_eq!(self.shape(), rhs.shape(), "Tensor shapes must match for Sub");
+        assert_eq!(
+            self.shape(),
+            rhs.shape(),
+            "Tensor shapes must match for Sub"
+        );
         Self {
             data: Arc::new(TensorData {
                 op: Box::new(OpSub),
@@ -428,7 +477,11 @@ impl Sub for Tensor {
 impl Mul for Tensor {
     type Output = Self;
     fn mul(self, rhs: Self) -> Self::Output {
-        assert_eq!(self.shape(), rhs.shape(), "Tensor shapes must match for Mul");
+        assert_eq!(
+            self.shape(),
+            rhs.shape(),
+            "Tensor shapes must match for Mul"
+        );
         Self {
             data: Arc::new(TensorData {
                 op: Box::new(OpMul),
@@ -442,7 +495,11 @@ impl Mul for Tensor {
 impl Div for Tensor {
     type Output = Self;
     fn div(self, rhs: Self) -> Self::Output {
-        assert_eq!(self.shape(), rhs.shape(), "Tensor shapes must match for Div");
+        assert_eq!(
+            self.shape(),
+            rhs.shape(),
+            "Tensor shapes must match for Div"
+        );
         Self {
             data: Arc::new(TensorData {
                 op: Box::new(OpDiv),

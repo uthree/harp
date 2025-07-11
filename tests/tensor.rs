@@ -1,5 +1,5 @@
-use harp::node::{self, constant, variable, Node};
-use harp::op::{Expand, Load, OpAdd, OpSub, OpMul, OpDiv, Operator, Permute, Reduce, Reshape, Slice};
+use harp::node::{constant, variable};
+use harp::op::{Expand, Load, Operator, Permute, Reduce, Reshape, Slice};
 use harp::tensor::{ShapeTracker, Tensor};
 use rstest::rstest;
 use std::rc::Rc;
@@ -165,7 +165,7 @@ fn test_rearrange_composition() {
     assert_eq!(*b.shape(), vec![10, 600, 40]);
     assert_eq!(b.data.op.name(), "Reshape");
     assert_eq!(b.data.src.len(), 1);
-    
+
     let permute_node = &b.data.src[0];
     assert_eq!(permute_node.data.op.name(), "Permute");
     assert!(Arc::ptr_eq(&a.data, &permute_node.data.src[0].data));
@@ -284,7 +284,6 @@ fn test_compile_slice() {
     assert_eq!(compiled_node.src()[0], (*i).clone() + constant(2.0));
 }
 
-
 #[test]
 fn test_compile_sum() {
     let a = Tensor::new_load(vec![4]);
@@ -298,9 +297,7 @@ fn test_compile_sum() {
 
     // The result should be: a[0] + a[1] + a[2] + a[3]
     // After simplification, this becomes a nested Add tree.
-    let expected_node =
-        (constant(0.0) + constant(0.0)) +
-        (constant(0.0) + constant(0.0));
+    let expected_node = (constant(0.0) + constant(0.0)) + (constant(0.0) + constant(0.0));
     // This is a simplified check. A real check would be more complex.
     // For now, we just check the top-level op.
     assert_eq!(compiled_node.op().name(), "OpAdd");

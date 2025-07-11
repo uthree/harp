@@ -79,29 +79,45 @@ impl_operator!(
 #[derive(Debug, Clone)]
 pub struct Const(pub Box<dyn DType>);
 impl Operator for Const {
-    fn as_any(&self) -> &dyn Any { self }
-    fn name(&self) -> &'static str { "Const" }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn name(&self) -> &'static str {
+        "Const"
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Capture(pub String);
 impl Operator for Capture {
-    fn as_any(&self) -> &dyn Any { self }
-    fn name(&self) -> &'static str { "Capture" }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn name(&self) -> &'static str {
+        "Capture"
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Variable(pub String);
 impl Operator for Variable {
-    fn as_any(&self) -> &dyn Any { self }
-    fn name(&self) -> &'static str { "Variable" }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn name(&self) -> &'static str {
+        "Variable"
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct Cast(pub Box<dyn DType>);
 impl Operator for Cast {
-    fn as_any(&self) -> &dyn Any { self }
-    fn name(&self) -> &'static str { "Cast" }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn name(&self) -> &'static str {
+        "Cast"
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -110,8 +126,12 @@ pub struct Reduce {
     pub axis: usize,
 }
 impl Operator for Reduce {
-    fn as_any(&self) -> &dyn Any { self }
-    fn name(&self) -> &'static str { "Reduce" }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn name(&self) -> &'static str {
+        "Reduce"
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -119,8 +139,12 @@ pub struct Permute {
     pub order: Vec<usize>,
 }
 impl Operator for Permute {
-    fn as_any(&self) -> &dyn Any { self }
-    fn name(&self) -> &'static str { "Permute" }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn name(&self) -> &'static str {
+        "Permute"
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -128,8 +152,12 @@ pub struct Expand {
     pub shape: Vec<u64>,
 }
 impl Operator for Expand {
-    fn as_any(&self) -> &dyn Any { self }
-    fn name(&self) -> &'static str { "Expand" }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn name(&self) -> &'static str {
+        "Expand"
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -137,10 +165,13 @@ pub struct Slice {
     pub args: Vec<(u64, u64)>,
 }
 impl Operator for Slice {
-    fn as_any(&self) -> &dyn Any { self }
-    fn name(&self) -> &'static str { "Slice" }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn name(&self) -> &'static str {
+        "Slice"
+    }
 }
-
 
 // --- Trait Implementations for Operators ---
 
