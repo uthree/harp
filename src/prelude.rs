@@ -10,7 +10,8 @@
 //! ```
 
 pub use crate::dot::ToDot;
-pub use crate::node::{self, Node, capture, constant, variable};
+pub use crate::dtype::DType;
+pub use crate::node::{self, capture, constant, variable, Node};
 pub use crate::op::*;
 pub use crate::pattern::{RewriteRule, Rewriter};
 pub use crate::simplify::simplify;

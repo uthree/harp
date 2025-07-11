@@ -1,5 +1,6 @@
 use crate::dot::ToDot;
-use crate::node::{self, Node, constant};
+use crate::dtype::DType;
+use crate::node::{self, constant, Node};
 use crate::op::{
     Const, Expand, HasIdentityElement, Load, OpAdd, OpDiv, OpMul, OpRandn, OpSub, OpUniform,
     Operator, Permute, Reduce, Reshape, Slice,
@@ -110,11 +111,11 @@ impl Tensor {
     ///
     /// This operation is achieved by creating a scalar constant tensor and
     /// then expanding it to the desired shape, which is memory-efficient.
-    pub fn full<T: Into<f64>>(shape: Vec<u64>, value: T) -> Self {
+    pub fn full<T: DType + 'static>(shape: Vec<u64>, value: T) -> Self {
         // Create a scalar tensor (0-dimensional)
         let scalar = Self {
             data: Arc::new(TensorData {
-                op: Box::new(Const(Box::new(value.into()))),
+                op: Box::new(Const(Box::new(value))),
                 src: vec![],
                 shape: vec![], // Scalar shape
             }),
