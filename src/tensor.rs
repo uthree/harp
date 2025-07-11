@@ -151,6 +151,26 @@ impl Tensor {
         }
     }
 
+    /// Creates a new tensor of zeros with the given shape.
+    pub fn zeros(shape: Vec<u64>) -> Self {
+        Self::full(shape, 0.0)
+    }
+
+    /// Creates a new tensor of ones with the given shape.
+    pub fn ones(shape: Vec<u64>) -> Self {
+        Self::full(shape, 1.0)
+    }
+
+    /// Creates a new tensor of zeros with the same shape as the given tensor.
+    pub fn zeros_like(other: &Self) -> Self {
+        Self::full(other.shape().clone(), 0.0)
+    }
+
+    /// Creates a new tensor of ones with the same shape as the given tensor.
+    pub fn ones_like(other: &Self) -> Self {
+        Self::full(other.shape().clone(), 1.0)
+    }
+
     /// Creates a new "leaf" tensor that represents loading data from a source.
     pub fn new_load(shape: Vec<u64>) -> Self {
         Self {
