@@ -83,11 +83,11 @@ macro_rules! impl_operator {
 // Define all operator structs
 def_operators!(
     OpAdd, OpSub, OpMul, OpDiv, OpRem, Load, Store, Recip, Wildcard, Sin, Exp2, Log2, Sqrt, Max,
-    Sink, Loop, Reshape
+    Sink, Loop, Reshape, OpUniform, OpRandn
 );
 impl_operator!(
     OpAdd, OpSub, OpMul, OpDiv, OpRem, Load, Store, Recip, Wildcard, Sin, Exp2, Log2, Sqrt, Max,
-    Sink, Loop, Reshape
+    Sink, Loop, Reshape, OpUniform, OpRandn
 );
 
 // --- Specialized Operator Structs ---
@@ -206,6 +206,8 @@ impl PrimitiveOp for Const {}
 impl PrimitiveOp for Cast {}
 impl PrimitiveOp for Max {}
 impl PrimitiveOp for Variable {}
+impl PrimitiveOp for OpUniform {}
+impl PrimitiveOp for OpRandn {}
 
 // FusedOps
 impl FusedOp for OpSub {
@@ -231,6 +233,8 @@ impl TensorOperator for Reshape {}
 impl TensorOperator for Permute {}
 impl TensorOperator for Expand {}
 impl TensorOperator for Slice {}
+impl TensorOperator for OpUniform {}
+impl TensorOperator for OpRandn {}
 // Add other ops that can be used in tensor graphs...
 impl TensorOperator for Sin {}
 impl TensorOperator for Exp2 {}

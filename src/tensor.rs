@@ -1,8 +1,8 @@
 use crate::dot::ToDot;
 use crate::node::{self, Node, constant};
 use crate::op::{
-    Expand, HasIdentityElement, Load, OpAdd, OpDiv, OpMul, OpSub, Operator, Permute, Reduce,
-    Reshape, Slice,
+    Const, Expand, HasIdentityElement, Load, OpAdd, OpDiv, OpMul, OpRandn, OpSub, OpUniform,
+    Operator, Permute, Reduce, Reshape, Slice,
 };
 use crate::simplify::simplify;
 use dyn_clone::clone_box;
@@ -106,6 +106,51 @@ pub struct ShapeTracker {
 }
 
 impl Tensor {
+    /// Creates a new tensor filled with a specific scalar value.
+    ///
+    /// This operation is achieved by creating a scalar constant tensor and
+    /// then expanding it to the desired shape, which is memory-efficient.
+    pub fn full<T: Into<f64>>(shape: Vec<u64>, value: T) -> Self {
+        // Create a scalar tensor (0-dimensional)
+        let scalar = Self {
+            data: Arc::new(TensorData {
+                op: Box::new(Const(Box::new(value.into()))),
+                src: vec![],
+                shape: vec![], // Scalar shape
+            }),
+        };
+        // Expand the scalar to the target shape
+        scalar.expand(shape)
+    }
+
+    /// Creates a new tensor with values to be sampled from a uniform distribution [0, 1).
+    ///
+    /// The random numbers are not generated immediately but are represented by
+    /// the `OpUniform` operator in the computation graph.
+    pub fn uniform(shape: Vec<u64>) -> Self {
+        Self {
+            data: Arc::new(TensorData {
+                op: Box::new(OpUniform),
+                src: vec![],
+                shape,
+            }),
+        }
+    }
+
+    /// Creates a new tensor with values to be sampled from a standard normal distribution.
+    ///
+    /// The random numbers are not generated immediately but are represented by
+    /// the `OpRandn` operator in the computation graph.
+    pub fn randn(shape: Vec<u64>) -> Self {
+        Self {
+            data: Arc::new(TensorData {
+                op: Box::new(OpRandn),
+                src: vec![],
+                shape,
+            }),
+        }
+    }
+
     /// Creates a new "leaf" tensor that represents loading data from a source.
     pub fn new_load(shape: Vec<u64>) -> Self {
         Self {
