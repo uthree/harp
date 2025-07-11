@@ -38,6 +38,22 @@ pub trait HasIdentityElement: Operator {
 /// Marker trait for primitive operators that can be compiled.
 pub trait PrimitiveOp: Operator {}
 
+/// Trait for fused operators that can be decomposed into primitive operators.
+/// This is mainly used to represent fused operators for acceleration,
+/// allowing them to be broken down into a graph of primitive operations.
+pub trait FusedOp: Operator {
+    /// Decomposes the fused operator into a subgraph of primitive operators.
+    ///
+    /// # Arguments
+    ///
+    /// * `operands` - The operands of the fused operator.
+    ///
+    /// # Returns
+    ///
+    /// The root node of the subgraph representing the decomposition.
+    fn fallback(&self, operands: &[Node]) -> Node;
+}
+
 pub trait UnaryOp: Operator {}
 pub trait BinaryOp: Operator {}
 pub trait CommutativeOp: BinaryOp {}

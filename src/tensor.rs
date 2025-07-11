@@ -212,7 +212,7 @@ impl Tensor {
 
             // Permute to make the group contiguous
             let mut permute_order: Vec<usize> = (0..current_dims.len()).collect();
-            let non_group_dims: Vec<usize> = (0..current_dims.len())
+            let _non_group_dims: Vec<usize> = (0..current_dims.len())
                 .filter(|i| !group_indices.contains(i))
                 .collect();
 

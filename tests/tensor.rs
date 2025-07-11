@@ -1,5 +1,5 @@
 use harp::node::{constant, variable};
-use harp::op::{Expand, Load, Operator, Permute, Reduce, Reshape, Slice};
+use harp::op::{Expand, Load, Permute, Reduce, Reshape, Slice};
 use harp::tensor::{ShapeTracker, Tensor};
 use rstest::rstest;
 use std::rc::Rc;
@@ -297,7 +297,7 @@ fn test_compile_sum() {
 
     // The result should be: a[0] + a[1] + a[2] + a[3]
     // After simplification, this becomes a nested Add tree.
-    let expected_node = (constant(0.0) + constant(0.0)) + (constant(0.0) + constant(0.0));
+    let _expected_node = (constant(0.0) + constant(0.0)) + (constant(0.0) + constant(0.0));
     // This is a simplified check. A real check would be more complex.
     // For now, we just check the top-level op.
     assert_eq!(compiled_node.op().name(), "OpAdd");

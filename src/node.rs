@@ -31,6 +31,14 @@ impl Eq for NodeData {}
 pub struct Node(Arc<NodeData>);
 
 impl Node {
+    /// Creates a new node with the given operator and source nodes.
+    pub fn new(op: impl Operator + 'static, src: Vec<Node>) -> Self {
+        Self(Arc::new(NodeData {
+            op: Box::new(op),
+            src,
+        }))
+    }
+
     /// Returns a reference to the node's operator.
     pub fn op(&self) -> &Box<dyn Operator> {
         &self.0.op
