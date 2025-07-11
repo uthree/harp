@@ -1,5 +1,5 @@
-use crate::node::{self, Node};
-use crate::op::{Load, OpAdd, OpDiv, OpMul, OpSub, Operator, Reduce, Reshape};
+use crate::node::{self, constant, Node};
+use crate::op::{HasIdentityElement, Load, OpAdd, OpDiv, OpMul, OpSub, Operator, Reduce, Reshape};
 use dyn_clone::clone_box;
 use std::ops::{Add, Div, Mul, Sub};
 use std::rc::Rc;
@@ -108,9 +108,6 @@ impl Tensor {
 
         match op.name() {
             "Load" => {
-                // For a Load op, we use the ShapeTracker's index expression.
-                // This expression calculates the final memory offset.
-                // We assume the expression is a single node for now.
                 assert_eq!(shape_tracker.index_expr.len(), 1, "Complex index expressions not yet supported");
                 let index_node = &shape_tracker.index_expr[0];
                 Rc::new(node::Node::from(Arc::new(node::NodeData {
@@ -119,27 +116,52 @@ impl Tensor {
                 })))
             }
             "Reshape" => {
-                // A reshape operation modifies the logical view of the data. It doesn't
-                // create a computation node itself but alters the ShapeTracker for its source.
                 let source_tensor = &src[0];
-                let source_shape_dims = source_tensor.shape().iter().map(|&d| Rc::new(node::constant(d))).collect();
-
-                // The key insight: a reshape doesn't change the flat, linear index.
-                // We create a new tracker for the source tensor with the source's shape,
-                // but we keep the index expression from the *current* tracker.
+                let source_shape_dims = source_tensor.shape().iter().map(|&d| Rc::new(constant(d))).collect();
                 let new_tracker = ShapeTracker {
                     dims: source_shape_dims,
                     index_expr: shape_tracker.index_expr.clone(),
                 };
-
-                // Continue compilation from the source tensor with the modified tracker.
                 source_tensor.compile(&new_tracker)
             }
+            "Reduce" => {
+                let reduce_op = op.as_any().downcast_ref::<Reduce>().unwrap();
+                let source_tensor = &src[0];
+                let axis = reduce_op.axis;
+                let dim_size = source_tensor.shape()[axis];
+
+                // Get the identity element for the reduction
+                let identity_node = if let Some(op_with_identity) = reduce_op.op.as_any().downcast_ref::<OpAdd>() {
+                    OpAdd::identity_element()
+                } else if let Some(op_with_identity) = reduce_op.op.as_any().downcast_ref::<OpMul>() {
+                    OpMul::identity_element()
+                } else {
+                    panic!("Reduce compilation not implemented for this op");
+                };
+
+                let mut accumulator = identity_node;
+
+                // Unroll the loop
+                for i in 0..dim_size {
+                    let mut source_index_expr = shape_tracker.index_expr.clone();
+                    source_index_expr.insert(axis, Rc::new(constant(i)));
+
+                    let source_tracker = ShapeTracker {
+                        dims: source_tensor.shape().iter().map(|&d| Rc::new(constant(d))).collect(),
+                        index_expr: source_index_expr,
+                    };
+                    let term = source_tensor.compile(&source_tracker);
+                    accumulator = node::Node::from(Arc::new(node::NodeData {
+                        op: clone_box(&*reduce_op.op),
+                        src: vec![accumulator, (*term).clone()],
+                    }));
+                }
+                Rc::new(accumulator)
+            }
             "OpAdd" | "OpSub" | "OpMul" | "OpDiv" => {
-                // For binary ops, compile the sources recursively and combine them.
                 let left = src[0].compile(shape_tracker);
                 let right = src[1].compile(shape_tracker);
-                let new_op = clone_box(&**op); // Clone the operator
+                let new_op = clone_box(&**op);
                 Rc::new(node::Node::from(Arc::new(node::NodeData {
                     op: new_op,
                     src: vec![(*left).clone(), (*right).clone()],

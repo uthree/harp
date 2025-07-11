@@ -126,7 +126,7 @@ fn test_compile_reshape() {
 
     let idx = Rc::new(node::capture("idx"));
     let initial_tracker = ShapeTracker {
-        dims: vec![Rc::new(constant(2u64)), Rc::new(constant(6u64))],
+        dims: vec![Rc::new(constant(3u64)), Rc::new(constant(4u64))],
         index_expr: vec![idx.clone()],
     };
 
@@ -137,4 +137,34 @@ fn test_compile_reshape() {
     assert_eq!(compiled_node.op().name(), "Load");
     assert_eq!(compiled_node.src().len(), 1);
     assert_eq!(compiled_node.src()[0], *idx);
+}
+
+#[test]
+fn test_compile_sum() {
+    let a = Tensor::new_load(vec![4]);
+    let c = a.sum(0);
+
+    // Compile the sum. The output is a scalar, so the tracker is simple.
+    let tracker = ShapeTracker {
+        dims: vec![],
+        index_expr: vec![], // No index for a scalar output
+    };
+    let compiled_node = c.compile(&tracker);
+
+    // The result should be: (0.0 + a[0]) + a[1] + a[2] + a[3]
+    // Let's check the structure.
+    // Top node is OpAdd
+    assert_eq!(compiled_node.op().name(), "OpAdd");
+    // Right child is Load(3)
+    let load_3 = &compiled_node.src()[1];
+    assert_eq!(load_3.op().name(), "Load");
+    assert_eq!(load_3.src()[0], constant(3.0));
+
+    // Left child is another OpAdd
+    let add_2 = &compiled_node.src()[0];
+    assert_eq!(add_2.op().name(), "OpAdd");
+    // Right child is Load(2)
+    let load_2 = &add_2.src()[1];
+    assert_eq!(load_2.op().name(), "Load");
+    assert_eq!(load_2.src()[0], constant(2.0));
 }
