@@ -29,7 +29,7 @@ impl<'a> CodeGenerator<'a> {
     }
 
     /// Generates the final code for the entire graph starting from the root node.
-    pub fn generate(&mut self, root: &Node) -> String {
+    pub fn generate(&mut self, root: &Node, fn_name: &str, args: &[(&str, &str)]) -> String {
         let sorted_nodes = self.topological_sort(root);
 
         for node in &sorted_nodes {
@@ -37,15 +37,19 @@ impl<'a> CodeGenerator<'a> {
         }
 
         let function_body = self.statements.join("\n    ");
+        let arg_string = args
+            .iter()
+            .map(|(dtype, name)| format!("{dtype} {name}"))
+            .collect::<Vec<_>>()
+            .join(", ");
 
-        // If the root node is a Store, it doesn't produce a return value.
-        if root.op().as_any().is::<crate::op::Store>() {
-            format!("void compute() {{\n    {}\n}}", function_body)
+        // If the root node is a Store or Loop, it doesn't produce a return value.
+        if root.op().as_any().is::<crate::op::Store>() || root.op().as_any().is::<crate::op::Loop>() {
+            format!("void {fn_name}({arg_string}) {{\n    {function_body}\n}}")
         } else {
             let result_var = self.node_to_var.get(&root.ptr()).unwrap();
             format!(
-                "float compute() {{\n    {}\n    return {};\n}}",
-                function_body, result_var
+                "float {fn_name}({arg_string}) {{\n    {function_body}\n    return {result_var};\n}}"
             )
         }
     }
@@ -87,18 +91,16 @@ impl<'a> CodeGenerator<'a> {
         } else if let Some(loop_op) = node.op().as_any().downcast_ref::<crate::op::Loop>() {
             let count_var = self.node_to_var.get(&loop_op.count.ptr()).unwrap();
             
-            // Generate the body of the loop using a separate generator
+            // Generate the body of the loop using a separate generator to isolate scope
             let mut body_codegen = CodeGenerator::new(self.renderer);
-            let _body_result_var = body_codegen.generate_loop_body(&loop_op.body);
+            body_codegen.generate_loop_body(&loop_op.body);
 
             let loop_body_code = body_codegen.statements.join("\n        ");
             let loop_statement = format!(
-                "for (int i = 0; i < {}; ++i) {{\n        {}\n    }}",
-                count_var, loop_body_code
+                "for (int i = 0; i < {count_var}; ++i) {{\n        {loop_body_code}\n    }}"
             );
             self.statements.push(loop_statement);
             // Note: The result of the loop is not captured for now.
-            // This would require a more complex mechanism to handle loop-carried dependencies.
             self.node_to_var.insert(node.ptr(), "loop_result".to_string());
 
         } else if let Some(fused_op) = node.op().as_fused_op() {
@@ -114,12 +116,11 @@ impl<'a> CodeGenerator<'a> {
     }
 
     /// Generates the body of a loop, returning the final variable name.
-    fn generate_loop_body(&mut self, root: &Node) -> String {
+    fn generate_loop_body(&mut self, root: &Node) {
         let sorted_nodes = self.topological_sort(root);
         for node in &sorted_nodes {
             self.render_node(node);
         }
-        self.node_to_var.get(&root.ptr()).unwrap().clone()
     }
     
     fn render_fallback_node(&mut self, node: &Node) -> String {
