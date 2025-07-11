@@ -6,187 +6,198 @@
 //!
 //! ## Rewriters
 //!
-//! - `constant_folding_rewriter`: Simplifies expressions involving only constants
-//!   (e.g., `2.0 + 3.0` becomes `5.0`).
-//! - `algebraic_simplification_rewriter`: Applies algebraic identities to simplify
-//!   expressions (e.g., `x + 0` becomes `x`, `x * 1` becomes `x`).
+//! - `expansion_rewriter`: Expands high-level functions into simpler operations.
+//! - `algebraic_rewriter`: Applies algebraic identities to simplify expressions.
+//! - `constant_folding_rewriter`: Simplifies expressions involving only constants.
 //! - `default_rewriter`: A fused rewriter that combines all available simplifications.
 
-use crate::node::{Node, NodeData, capture, constant, exp2, sin};
+use crate::node::{Node, NodeData, capture, constant, cos, exp2, sin, tan};
 use crate::op::{Const, Exp2, Log2, OpAdd, OpMul, Recip, Sin, Sqrt};
 use crate::pattern::{RewriteRule, Rewriter};
 use crate::rewrite_rule;
 use std::sync::Arc;
 
-/// Returns a `Rewriter` with a default set of simplification rules.
-pub fn default_rewriter() -> Rewriter {
-    let mut rules = Vec::new();
-
-    // --- Function Expansion ---
-    rules.push(rewrite_rule!(let x = capture("x");
-        crate::node::exp(x.clone()) => exp2(x * constant(std::f32::consts::LOG2_E))
-    ));
-    rules.push(rewrite_rule!(let x = capture("x");
-        crate::node::cos(x.clone()) => sin(x + constant(std::f32::consts::FRAC_PI_2))
-    ));
-    rules.push(rewrite_rule!(let x = capture("x");
-        crate::node::tan(x.clone()) => sin(x.clone()) / sin(x + constant(std::f32::consts::FRAC_PI_2))
-    ));
-
-    // --- Constant Folding ---
-    rules.push(RewriteRule::new_fn(
-        Node::from(Arc::new(NodeData {
-            op: Box::new(OpAdd),
-            src: vec![capture("a"), capture("b")],
-        })),
-        |_, captures| {
-            let a = captures
-                .get("a")?
-                .op()
-                .as_any()
-                .downcast_ref::<Const>()?
-                .0
-                .as_any()
-                .downcast_ref::<f32>()?;
-            let b = captures
-                .get("b")?
-                .op()
-                .as_any()
-                .downcast_ref::<Const>()?
-                .0
-                .as_any()
-                .downcast_ref::<f32>()?;
-            Some(constant(a + b))
-        },
-    ));
-    rules.push(RewriteRule::new_fn(
-        Node::from(Arc::new(NodeData {
-            op: Box::new(OpMul),
-            src: vec![capture("a"), capture("b")],
-        })),
-        |_, captures| {
-            let a = captures
-                .get("a")?
-                .op()
-                .as_any()
-                .downcast_ref::<Const>()?
-                .0
-                .as_any()
-                .downcast_ref::<f32>()?;
-            let b = captures
-                .get("b")?
-                .op()
-                .as_any()
-                .downcast_ref::<Const>()?
-                .0
-                .as_any()
-                .downcast_ref::<f32>()?;
-            Some(constant(a * b))
-        },
-    ));
-    rules.push(RewriteRule::new_fn(
-        Node::from(Arc::new(NodeData {
-            op: Box::new(Exp2),
-            src: vec![capture("x")],
-        })),
-        |_, captures| {
-            let x = captures
-                .get("x")?
-                .op()
-                .as_any()
-                .downcast_ref::<Const>()?
-                .0
-                .as_any()
-                .downcast_ref::<f32>()?;
-            Some(constant(x.exp2()))
-        },
-    ));
-    rules.push(RewriteRule::new_fn(
-        Node::from(Arc::new(NodeData {
-            op: Box::new(Log2),
-            src: vec![capture("x")],
-        })),
-        |_, captures| {
-            let x = captures
-                .get("x")?
-                .op()
-                .as_any()
-                .downcast_ref::<Const>()?
-                .0
-                .as_any()
-                .downcast_ref::<f32>()?;
-            Some(constant(x.log2()))
-        },
-    ));
-    rules.push(RewriteRule::new_fn(
-        Node::from(Arc::new(NodeData {
-            op: Box::new(Sqrt),
-            src: vec![capture("x")],
-        })),
-        |_, captures| {
-            let x = captures
-                .get("x")?
-                .op()
-                .as_any()
-                .downcast_ref::<Const>()?
-                .0
-                .as_any()
-                .downcast_ref::<f32>()?;
-            Some(constant(x.sqrt()))
-        },
-    ));
-    rules.push(RewriteRule::new_fn(
-        Node::from(Arc::new(NodeData {
-            op: Box::new(Recip),
-            src: vec![capture("x")],
-        })),
-        |_, captures| {
-            let x = captures
-                .get("x")?
-                .op()
-                .as_any()
-                .downcast_ref::<Const>()?
-                .0
-                .as_any()
-                .downcast_ref::<f32>()?;
-            Some(constant(x.recip()))
-        },
-    ));
-    rules.push(RewriteRule::new_fn(
-        Node::from(Arc::new(NodeData {
-            op: Box::new(Sin),
-            src: vec![capture("x")],
-        })),
-        |_, captures| {
-            let x = captures
-                .get("x")?
-                .op()
-                .as_any()
-                .downcast_ref::<Const>()?
-                .0
-                .as_any()
-                .downcast_ref::<f32>()?;
-            Some(constant(x.sin()))
-        },
-    ));
-
-    // --- Algebraic Simplifications ---
-    rules.push(rewrite_rule!(let x = capture("x"); x.clone() + constant(0.0f32) => x));
-    rules.push(rewrite_rule!(let x = capture("x"); constant(0.0f32) + x.clone() => x));
-    rules.push(rewrite_rule!(let x = capture("x"); x.clone() * constant(1.0f32) => x));
-    rules.push(rewrite_rule!(let x = capture("x"); constant(1.0f32) * x.clone() => x));
-    rules.push(
-        rewrite_rule!(let x = capture("x"); x.clone() * constant(0.0f32) => constant(0.0f32)),
-    );
-    rules.push(
-        rewrite_rule!(let x = capture("x"); constant(0.0f32) * x.clone() => constant(0.0f32)),
-    );
-
-    Rewriter::new("default", rules)
+/// Returns a `Rewriter` for expanding high-level functions into simpler operations.
+pub fn expansion_rewriter() -> Rewriter {
+    let rules = vec![
+        rewrite_rule!(let x = capture("x"); crate::node::exp(x.clone()) => exp2(x * constant(std::f32::consts::LOG2_E))),
+        rewrite_rule!(let x = capture("x"); cos(x.clone()) => sin(x + constant(std::f32::consts::FRAC_PI_2))),
+        rewrite_rule!(let x = capture("x"); tan(x.clone()) => sin(x.clone()) * crate::node::recip(cos(x))),
+    ];
+    Rewriter::new("expansion", rules)
 }
 
-/// Simplifies a `Node` graph using the default `Rewriter`.
+/// Returns a `Rewriter` for algebraic simplifications (e.g., identity, annihilator).
+pub fn algebraic_rewriter() -> Rewriter {
+    let rules = vec![
+        rewrite_rule!(let x = capture("x"); x.clone() + constant(0.0f32) => x),
+        rewrite_rule!(let x = capture("x"); constant(0.0f32) + x.clone() => x),
+        rewrite_rule!(let x = capture("x"); x.clone() * constant(1.0f32) => x),
+        rewrite_rule!(let x = capture("x"); constant(1.0f32) * x.clone() => x),
+        rewrite_rule!(let x = capture("x"); x.clone() * constant(0.0f32) => constant(0.0f32)),
+        rewrite_rule!(let x = capture("x"); constant(0.0f32) * x.clone() => constant(0.0f32)),
+    ];
+    Rewriter::new("algebraic", rules)
+}
+
+/// Returns a `Rewriter` for constant folding.
+pub fn constant_folding_rewriter() -> Rewriter {
+    let rules = vec![
+        RewriteRule::new_fn(
+            Node::from(Arc::new(NodeData {
+                op: Box::new(OpAdd),
+                src: vec![capture("a"), capture("b")],
+            })),
+            |_, captures| {
+                let a = captures
+                    .get("a")?
+                    .op()
+                    .as_any()
+                    .downcast_ref::<Const>()?
+                    .0
+                    .as_any()
+                    .downcast_ref::<f32>()?;
+                let b = captures
+                    .get("b")?
+                    .op()
+                    .as_any()
+                    .downcast_ref::<Const>()?
+                    .0
+                    .as_any()
+                    .downcast_ref::<f32>()?;
+                Some(constant(a + b))
+            },
+        ),
+        RewriteRule::new_fn(
+            Node::from(Arc::new(NodeData {
+                op: Box::new(OpMul),
+                src: vec![capture("a"), capture("b")],
+            })),
+            |_, captures| {
+                let a = captures
+                    .get("a")?
+                    .op()
+                    .as_any()
+                    .downcast_ref::<Const>()?
+                    .0
+                    .as_any()
+                    .downcast_ref::<f32>()?;
+                let b = captures
+                    .get("b")?
+                    .op()
+                    .as_any()
+                    .downcast_ref::<Const>()?
+                    .0
+                    .as_any()
+                    .downcast_ref::<f32>()?;
+                Some(constant(a * b))
+            },
+        ),
+        RewriteRule::new_fn(
+            Node::from(Arc::new(NodeData {
+                op: Box::new(Exp2),
+                src: vec![capture("x")],
+            })),
+            |_, captures| {
+                let x = captures
+                    .get("x")?
+                    .op()
+                    .as_any()
+                    .downcast_ref::<Const>()?
+                    .0
+                    .as_any()
+                    .downcast_ref::<f32>()?;
+                Some(constant(x.exp2()))
+            },
+        ),
+        RewriteRule::new_fn(
+            Node::from(Arc::new(NodeData {
+                op: Box::new(Log2),
+                src: vec![capture("x")],
+            })),
+            |_, captures| {
+                let x = captures
+                    .get("x")?
+                    .op()
+                    .as_any()
+                    .downcast_ref::<Const>()?
+                    .0
+                    .as_any()
+                    .downcast_ref::<f32>()?;
+                Some(constant(x.log2()))
+            },
+        ),
+        RewriteRule::new_fn(
+            Node::from(Arc::new(NodeData {
+                op: Box::new(Sqrt),
+                src: vec![capture("x")],
+            })),
+            |_, captures| {
+                let x = captures
+                    .get("x")?
+                    .op()
+                    .as_any()
+                    .downcast_ref::<Const>()?
+                    .0
+                    .as_any()
+                    .downcast_ref::<f32>()?;
+                Some(constant(x.sqrt()))
+            },
+        ),
+        RewriteRule::new_fn(
+            Node::from(Arc::new(NodeData {
+                op: Box::new(Recip),
+                src: vec![capture("x")],
+            })),
+            |_, captures| {
+                let x = captures
+                    .get("x")?
+                    .op()
+                    .as_any()
+                    .downcast_ref::<Const>()?
+                    .0
+                    .as_any()
+                    .downcast_ref::<f32>()?;
+                Some(constant(x.recip()))
+            },
+        ),
+        RewriteRule::new_fn(
+            Node::from(Arc::new(NodeData {
+                op: Box::new(Sin),
+                src: vec![capture("x")],
+            })),
+            |_, captures| {
+                let x = captures
+                    .get("x")?
+                    .op()
+                    .as_any()
+                    .downcast_ref::<Const>()?
+                    .0
+                    .as_any()
+                    .downcast_ref::<f32>()?;
+                Some(constant(x.sin()))
+            },
+        ),
+    ];
+    Rewriter::new("constant_folding", rules)
+}
+
+/// Returns a `Rewriter` with a default set of simplification rules.
+pub fn default_rewriter() -> Rewriter {
+    return constant_folding_rewriter() + expansion_rewriter() + algebraic_rewriter();
+}
+
+/// Simplifies a `Node` graph by repeatedly applying simplification rewriters
+/// until a fixed point is reached.
 pub fn simplify(node: Node) -> Node {
     let rewriter = default_rewriter();
-    rewriter.rewrite(node)
+    let mut current_node = node;
+    loop {
+        let last_node = current_node.clone();
+        current_node = rewriter.rewrite(current_node);
+        if current_node == last_node {
+            break;
+        }
+    }
+    current_node
 }
