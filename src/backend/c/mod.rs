@@ -1,5 +1,5 @@
 use crate::op::*;
-use crate::renderer::{Render, Renderer};
+use crate::backend::renderer::{Render, Renderer};
 
 /// A renderer for generating C code from a computation graph.
 pub struct CRenderer;

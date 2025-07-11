@@ -28,7 +28,7 @@ Harp uses a unified set of operator structs (e.g., `OpAdd`, `OpMul`) for both gr
 -   **Mathematical Property Traits**:
     -   **`BinaryOp`**: A marker for operators that take two operands.
     -   **`CommutativeOp`**: A marker for binary operators where the order of operands does not matter (e.g., `a + b == b + a`).
-    -   **`AssociativeOp`**: A marker for binary operators where the grouping of operations does not matter (e.g., `(a + b) + c == a + (b + c)`). These properties are vital for graph optimizers, such as reordering operations or rebalancing computation trees.
+    -   **`AssociativeOp`**: A marker for binary operators where the grouping of operations does not matter (e.g., `(a + b) + c == a + (b * c)`). These properties are vital for graph optimizers, such as reordering operations or rebalancing computation trees.
 -   **`TensorOperator`**: A marker trait to designate which operators are permitted in the construction of a `Tensor` graph.
 
 ### 4. Tensor Initialization and Shape Manipulation
@@ -50,3 +50,42 @@ Harp uses a unified set of operator structs (e.g., `OpAdd`, `OpMul`) for both gr
 
 -   **`prelude` Module**: To improve ergonomics, a `prelude` module is provided to conveniently import the most commonly used items (`Tensor`, `Node`, `ToDot`, `DType`, various operators, etc.).
 -   **`ToDot` Trait**: A common trait for graph visualization. It is implemented for both `Node` and `Tensor` to generate a string representation in DOT format, which can be used with tools like Graphviz.
+
+## 7. Backend and Code Generation
+
+The ultimate goal of Harp is to compile the `Node` graph into high-performance code for various backends like C, CUDA, or Metal.
+
+### a. Directory Structure
+
+-   All backend-related modules are organized under the `src/backend/` directory for clarity and future expansion.
+    -   `src/backend/renderer.rs`: Defines the core rendering traits.
+    -   `src/backend/codegen.rs`: Contains the main `CodeGenerator` engine.
+    -   `src/backend/c/`: A directory for the C language backend, containing its `mod.rs` with the `CRenderer` implementation.
+
+### b. Code Generation Engine (`CodeGenerator`)
+
+-   The `CodeGenerator` is the central engine responsible for orchestrating the conversion of a `Node` graph into source code.
+-   **Processing Strategy**: It adopts a **bottom-up** approach inspired by the `Rewriter`.
+    1.  It performs a **topological sort** of the graph to determine the correct execution order of nodes.
+    2.  It iterates through the sorted nodes, processing leaf nodes first.
+-   **Intermediate Variable Management**: To avoid generating overly complex, nested expressions, the `CodeGenerator` manages the creation of intermediate variables. For each non-leaf operation, it generates a statement (e.g., `float v1 = v0 + 2.0;`) and stores the result in a new, unique variable (`v1`).
+-   **Memoization**: The engine uses a `HashMap` to cache the resulting variable name for each rendered `Node`. This ensures that any node with multiple dependents is only processed once, preventing redundant code generation.
+
+### c. Renderer Traits
+
+-   **`Renderer` Trait**: An abstraction for a specific code generation target (e.g., C, Metal). Its primary role is to dispatch an `Operator` to the correct rendering logic.
+-   **`Render<Op>` Trait**: A generic trait that defines how to render a *specific*, primitive operator `Op`. Each `Renderer` implements this trait for all the primitive operators it supports. This provides a high degree of type safety and modularity.
+
+### d. `FusedOp` Fallback
+
+-   The `CodeGenerator` handles the `FusedOp` fallback mechanism.
+-   When a `Renderer` reports that it does not support a given operator (by returning `None`), the `CodeGenerator` checks if the operator implements `FusedOp`.
+-   If it does, the `CodeGenerator` invokes the `fallback()` method to get the equivalent subgraph of primitive operators and recursively renders that subgraph instead.
+-   This powerful abstraction allows renderers to support a wide range of complex operations by implementing only a minimal set of primitives.
+
+### e. Future Components (Design)
+
+-   **`Compiler` Trait**: Will be responsible for taking the generated source code string and invoking an external compiler (e.g., `gcc`, `nvcc`) to produce a runnable artifact. It will also check for the availability of the necessary toolchain.
+-   **`Kernel` Trait**: A handle to a compiled, loadable kernel, likely representing a function pointer from a dynamic library (`.so`, `.dll`).
+-   **`Backend` Trait**: A high-level interface統括 (e.g., `Cuda<0>`) that brings together the `Renderer`, `Compiler`, and device management.
+-   **`DeviceTensor` Trait**: Represents a tensor whose data resides on a specific device (e.g., a GPU). It will manage device memory and provide methods for data transfer between host and device.

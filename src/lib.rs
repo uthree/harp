@@ -1,5 +1,4 @@
-pub mod c_renderer;
-pub mod codegen;
+pub mod backend;
 pub mod dot;
 pub mod dtype;
 pub mod macros;
@@ -7,6 +6,5 @@ pub mod node;
 pub mod op;
 pub mod pattern;
 pub mod prelude;
-pub mod renderer;
 pub mod simplify;
 pub mod tensor;
