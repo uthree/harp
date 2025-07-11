@@ -7,6 +7,9 @@ use std::fmt::Debug;
 pub trait Operator: Debug + DynClone + Any {
     fn as_any(&self) -> &dyn Any;
     fn name(&self) -> &'static str;
+    fn as_fused_op(&self) -> Option<&dyn FusedOp> {
+        None
+    }
 }
 dyn_clone::clone_trait_object!(Operator);
 
@@ -85,8 +88,8 @@ def_operators!(
     Sink, Loop, Reshape, OpUniform, OpRandn
 );
 impl_operator!(
-    OpAdd, OpSub, OpMul, OpDiv, OpRem, Load, Store, Recip, Wildcard, Sin, Exp2, Log2, Sqrt, Max,
-    Sink, Loop, Reshape, OpUniform, OpRandn
+    OpAdd, OpMul, OpRem, Load, Store, Recip, Wildcard, Sin, Exp2, Log2, Sqrt, Max,
+    Sink, Loop, Reshape, OpUniform
 );
 
 // --- Specialized Operator Structs ---
@@ -214,11 +217,25 @@ impl FusedOp for OpSub {
         operands[0].clone() - operands[1].clone()
     }
 }
+impl Operator for OpSub {
+    fn as_any(&self) -> &dyn Any { self }
+    fn name(&self) -> &'static str { "OpSub" }
+    fn as_fused_op(&self) -> Option<&dyn FusedOp> {
+        Some(self)
+    }
+}
 
 impl FusedOp for OpDiv {
     fn fallback(&self, operands: &[Node]) -> Node {
         assert_eq!(operands.len(), 2, "OpDiv expects 2 operands");
         operands[0].clone() / operands[1].clone()
+    }
+}
+impl Operator for OpDiv {
+    fn as_any(&self) -> &dyn Any { self }
+    fn name(&self) -> &'static str { "OpDiv" }
+    fn as_fused_op(&self) -> Option<&dyn FusedOp> {
+        Some(self)
     }
 }
 
@@ -237,6 +254,13 @@ impl FusedOp for OpRandn {
         let term2 = node::cos(const_2_pi * u2);
 
         term1 * term2
+    }
+}
+impl Operator for OpRandn {
+    fn as_any(&self) -> &dyn Any { self }
+    fn name(&self) -> &'static str { "OpRandn" }
+    fn as_fused_op(&self) -> Option<&dyn FusedOp> {
+        Some(self)
     }
 }
 
