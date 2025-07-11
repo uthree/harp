@@ -1,5 +1,6 @@
 use crate::backend::renderer::Renderer;
 use crate::node::{Node, NodeData};
+use log::{debug, trace};
 use std::collections::{HashMap, HashSet};
 
 /// Represents a language-agnostic instruction for code generation.
@@ -49,7 +50,9 @@ impl<'a> CodeGenerator<'a> {
 
     /// Generates a list of abstract `Instruction`s for the given graph.
     pub fn generate(&mut self, root: &Node) -> Vec<Instruction> {
+        debug!("Starting code generation for root node: {:?}", root.op());
         let sorted_nodes = self.topological_sort(root);
+        trace!("Topological sort completed. Node count: {}", sorted_nodes.len());
 
         for node in &sorted_nodes {
             self.render_node(node);
@@ -58,12 +61,14 @@ impl<'a> CodeGenerator<'a> {
         // Add a return statement if the root operation produces a value.
         if !root.op().as_any().is::<crate::op::Store>() && !root.op().as_any().is::<crate::op::Loop>() {
             if let Some(result_var) = self.node_to_var.get(&root.ptr()) {
+                trace!("Adding return statement for variable: {}", result_var);
                 self.instructions.push(Instruction::Return {
                     value: result_var.clone(),
                 });
             }
         }
         
+        debug!("Finished code generation. Total instructions: {}", self.instructions.len());
         std::mem::take(&mut self.instructions)
     }
 
@@ -72,6 +77,7 @@ impl<'a> CodeGenerator<'a> {
         if self.node_to_var.contains_key(&node.ptr()) {
             return;
         }
+        debug!("Rendering node: {:?}", node.op());
 
         let rendered_operands: Vec<String> = node
             .src()
@@ -84,34 +90,44 @@ impl<'a> CodeGenerator<'a> {
                 || node.op().as_any().is::<crate::op::Variable>()
                 || node.op().as_any().is::<crate::op::LoopVariable>()
             {
+                trace!("Node is a literal, assigning expression directly: {}", expr);
                 self.node_to_var.insert(node.ptr(), expr);
             } else {
                 let var_name = self.new_var();
-                self.instructions.push(Instruction::DeclareVariable {
+                let instruction = Instruction::DeclareVariable {
                     name: var_name.clone(),
                     dtype: "float".to_string(), // TODO: Handle types properly
                     value: expr,
-                });
+                };
+                trace!("Generated instruction: {:?}", instruction);
+                self.instructions.push(instruction);
                 self.node_to_var.insert(node.ptr(), var_name);
             }
         } else if let Some(store_op) = node.op().as_any().downcast_ref::<crate::op::Store>() {
             let index_var = self.node_to_var.get(&node.src()[0].ptr()).unwrap();
             let value_var = self.node_to_var.get(&node.src()[1].ptr()).unwrap();
-            self.instructions.push(Instruction::Statement {
+            let instruction = Instruction::Statement {
                 code: format!("{}[{}] = {}", store_op.0, index_var, value_var),
-            });
+            };
+            trace!("Generated instruction: {:?}", instruction);
+            self.instructions.push(instruction);
         } else if let Some(loop_op) = node.op().as_any().downcast_ref::<crate::op::Loop>() {
             let count_var = self.node_to_var.get(&loop_op.count.ptr()).unwrap();
             
+            debug!("Entering loop body generation for node: {:?}", loop_op);
             let mut body_codegen = CodeGenerator::new(self.renderer);
             let body_instructions = body_codegen.generate(&loop_op.body);
+            debug!("Finished loop body generation.");
 
-            self.instructions.push(Instruction::Loop {
+            let instruction = Instruction::Loop {
                 count: count_var.clone(),
                 body: body_instructions,
-            });
+            };
+            trace!("Generated instruction: {:?}", instruction);
+            self.instructions.push(instruction);
             self.node_to_var.insert(node.ptr(), "loop_result".to_string());
         } else if let Some(fused_op) = node.op().as_fused_op() {
+            debug!("Operator '{}' not supported directly, falling back.", fused_op.name());
             let fallback_node = fused_op.fallback(node.src());
             let var_name = self.render_fallback_node(&fallback_node);
             self.node_to_var.insert(node.ptr(), var_name);

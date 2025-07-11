@@ -10,6 +10,7 @@ use std::process::Command;
 use tempfile::tempdir;
 
 fn main() -> std::io::Result<()> {
+    env_logger::init();
     // --- 1. Define the computation graph for vector addition ---
     // for i in 0..10 { c[i] = a[i] + b[i] }
     let i = Node::new(LoopVariable, vec![]);
