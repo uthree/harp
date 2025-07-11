@@ -5,7 +5,7 @@
 //! `RUST_LOG` environment variable, you can trace how the `Rewriter` applies
 //! rules to simplify a computation graph.
 
-use harp::node::{self, Node};
+use harp::node::{self};
 use harp::simplify::default_rewriter;
 
 fn main() {

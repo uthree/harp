@@ -184,7 +184,7 @@ pub fn constant_folding_rewriter() -> Rewriter {
 
 /// Returns a `Rewriter` with a default set of simplification rules.
 pub fn default_rewriter() -> Rewriter {
-    return constant_folding_rewriter() + expansion_rewriter() + algebraic_rewriter();
+    constant_folding_rewriter() + expansion_rewriter() + algebraic_rewriter()
 }
 
 /// Simplifies a `Node` graph by repeatedly applying simplification rewriters
