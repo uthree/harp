@@ -3,7 +3,6 @@ use harp::pattern::Rewriter;
 use harp::{capture, rewriter};
 
 #[test]
-#[ignore]
 fn test_rewriter_macro() {
     let rewriter: Rewriter = rewriter!("test", [
         (
