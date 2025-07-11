@@ -39,8 +39,7 @@ impl<'a> CodeGenerator<'a> {
         let result_var = self.node_to_var.get(&root.ptr()).unwrap();
         let function_body = self.statements.join("\n    ");
         format!(
-            "float compute() {{\n    {}\n    return {};\n}}",
-            function_body, result_var
+            "float compute() {{\n    {function_body}\n    return {result_var};\n}}"
         )
     }
 
@@ -61,7 +60,7 @@ impl<'a> CodeGenerator<'a> {
                 self.node_to_var.insert(node.ptr(), expr);
             } else {
                 let var_name = self.new_var();
-                self.statements.push(format!("float {} = {};", var_name, expr));
+                self.statements.push(format!("float {var_name} = {expr};"));
                 self.node_to_var.insert(node.ptr(), var_name);
             }
         } else if let Some(fused_op) = node.op().as_fused_op() {
@@ -86,7 +85,7 @@ impl<'a> CodeGenerator<'a> {
              expr
         } else {
             let var_name = self.new_var();
-            self.statements.push(format!("float {} = {};", var_name, expr));
+            self.statements.push(format!("float {var_name} = {expr};"));
             self.node_to_var.insert(node.ptr(), var_name.clone());
             var_name
         }
