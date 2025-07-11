@@ -1,94 +1,52 @@
-# Harp Tensor Design
+# Harp Design Document
 
-This document outlines the design for implementing a tensor-like interface in Harp, inspired by libraries like tinygrad.
+This document outlines the core design principles of the Harp library, focusing on its computation graph, operator hierarchy, and tensor interface.
 
 ## Core Concepts
 
-The design revolves around `Tensor`, a unified `Operator` set, and `ShapeTracker`.
+The design revolves around two main graph representations: the low-level `Node` graph for scalar operations and the high-level `Tensor` graph for multi-dimensional array operations.
 
-### 1. `Tensor` and `TensorData`
+### 1. `Node` Graph
 
--   **`Tensor`**: The primary user-facing struct. It's a lightweight wrapper that holds a reference-counted pointer (`Arc`) to its underlying data and computation definition.
--   **`TensorData`**: Contains the actual information about the computation graph at a specific node. It holds the operator and the source tensors (inputs).
+-   The fundamental computation graph, where each node represents a scalar value and a single operation (e.g., `OpAdd`, `Sin`).
+-   This graph is the target for compilation and optimization.
 
-```rust
-// In src/tensor.rs
-pub struct TensorData {
-    // Note: This now holds `Box<dyn Operator>` instead of a separate trait.
-    pub op: Box<dyn Operator>,
-    pub src: Vec<Tensor>,
-}
-```
+### 2. `Tensor` Graph
 
-### 2. Unified Operators and Key Traits
+-   **`Tensor`**: The primary user-facing struct. It's a lightweight, reference-counted handle to its underlying computation definition.
+-   **`TensorData`**: Contains the operator and source tensors (inputs) that define a node in the tensor graph.
+-   **Lazy Evaluation**: Tensor operations do not perform computations immediately. Instead, they build a high-level graph representing the sequence of operations. Actual computation is deferred until a backend compiles and executes the graph.
 
-To avoid redundancy, Harp will use a single set of operator structs (e.g., `OpAdd`, `OpMul`) for both the low-level `Node` graph and the high-level `Tensor` graph.
+### 3. Operator Hierarchy
 
-A set of marker traits and utility traits will be used to define the capabilities of each operator.
+Harp uses a unified set of operator structs (e.g., `OpAdd`, `OpMul`) for both graphs, categorized by a system of traits to define their behavior and properties. This is crucial for abstraction and optimization.
 
+-   **`Operator`**: The base trait for all operations.
+-   **`PrimitiveOp`**: A marker for the most basic operators that a compiler backend must implement (e.g., `OpAdd`, `OpMul`, `Load`, `OpUniform`). These are the fundamental building blocks of all computations.
+-   **`FusedOp`**: A trait for composite operators that can be decomposed into a subgraph of more primitive ones. This allows for high-level abstractions without increasing the complexity of the compiler backend. The decomposition is defined in the `fallback` method.
+    -   *Examples*: `OpSub` is fused into `a + (b * -1)`. `OpDiv` is fused into `a * recip(b)`. `OpRandn` is fused into a graph representing the Box-Muller transform, which uses `OpUniform` as its primitive source of randomness.
+-   **Mathematical Property Traits**:
+    -   **`BinaryOp`**: A marker for operators that take two operands.
+    -   **`CommutativeOp`**: A marker for binary operators where the order of operands does not matter (e.g., `a + b == b + a`).
+    -   **`AssociativeOp`**: A marker for binary operators where the grouping of operations does not matter (e.g., `(a + b) + c == a + (b + c)`). These properties are vital for graph optimizers, such as reordering operations or rebalancing computation trees.
 -   **`TensorOperator`**: A marker trait to designate which operators are permitted in the construction of a `Tensor` graph.
--   **`Elementwise`**: A marker trait to indicate that an operator is applied element-by-element (e.g., `OpAdd`, `Sin`).
--   **`HasIdentityElement`**: A trait for binary operators that have an identity element. This is crucial for operations like `Reduce`.
-    ```rust
-    trait HasIdentityElement {
-        fn identity_element() -> Node;
-    }
-    ```
-    For example, for `OpAdd`, the identity element is `0`. For `OpMul`, it is `1`.
 
-### 3. Specialized Operators
+### 4. Tensor Initialization and Shape Manipulation
 
-Beyond standard arithmetic, the following specialized operators are required.
-
--   **`LOAD`**: Represents reading data from an input source.
--   **`STORE`**: Represents writing data to a memory buffer.
--   **`SINK`**: A special operator to mark a `Node` as a final result of a computation.
--   **`LOOP`**: Represents a looping construct for iterative computations.
--   **`Max`**: A binary, commutative, element-wise operator that returns the greater of its two inputs.
--   **`Reduce`**: A higher-order operator for performing reductions (like sum, product, max) along a specified axis. It collapses one dimension of a tensor. This is analogous to `pytorch.sum(axis, keepdim=False)`.
-    ```rust
-    struct Reduce {
-        // The reduction operation (e.g., OpAdd, OpMul, Max).
-        // The trait bounds ensure the reduction is well-defined.
-        op: Box<dyn BinaryOperator + Commutative + HasIdentityElement + Elementwise>,
-        axis: usize,
-    }
-
-    impl TensorOperator for Reduce {}
-    ```
-
-### 4. `ShapeTracker`
-
-A crucial component for handling multi-dimensional arrays. It tracks the dimensions of a tensor and holds the expression for calculating the memory offset from a multi-dimensional index. This allows Harp to resolve tensor indexing into its core `Node`-based computation graph.
-
-```rust
-// In src/tensor.rs
-use crate::node::Node;
-use std::rc::Rc;
-
-pub struct ShapeTracker {
-    // The size of each dimension (e.g., [4, 3] for a 4x3 matrix).
-    pub dims: Vec<Rc<Node>>,
-    // The mathematical expression to convert a multi-dimensional index
-    // into a linear memory offset.
-    pub index_expr: Vec<Rc<Node>>,
-}
-```
+-   **Shape Representation**: Shapes are represented by `Vec<usize>` for consistency with Rust's standard library indexing and memory management.
+-   **Type-Safe Constants**: Generic methods like `Tensor::full` use the `DType` trait to preserve type information (e.g., `f32`, `i64`) within the graph, avoiding premature casting.
+-   **Memory-Efficient Initialization**:
+    -   `Tensor::full(shape, value)`, `zeros(shape)`, `ones(shape)` are implemented as memory-efficient view operations. They create a single scalar `Const` node and use the `Expand` operator to broadcast it to the target shape without allocating large amounts of memory.
+-   **Declarative Randomness**:
+    -   `Tensor::uniform(shape)` and `Tensor::randn(shape)` do not generate random numbers immediately. They place `OpUniform` or `OpRandn` operators in the graph, representing the *intent* to generate random numbers. The actual generation is deferred to the execution engine.
 
 ### 5. Compilation (`Tensor` to `Node`)
 
-`Tensor` operations build a high-level computation graph. To execute or optimize this graph using Harp's existing engine, it must be "compiled" into the lower-level `Node` graph.
+-   The high-level `Tensor` graph is compiled into a low-level `Node` graph for execution.
+-   The `compile` method, with the help of a `ShapeTracker`, recursively traverses the tensor graph, resolving multi-dimensional indexing and tensor operations into scalar arithmetic on `Node`s.
+-   **`ShapeTracker`**: A crucial component that tracks the dimensions of a tensor and holds the expression for calculating the linear memory offset from a multi-dimensional index.
 
-A `compile` method on `Tensor` will perform this transformation recursively, using the `ShapeTracker` to resolve indexing logic into scalar arithmetic.
+### 6. API and Tooling
 
-```rust
-// In src/tensor.rs
-impl Tensor {
-    /// Compiles the tensor's computation graph into a traditional Node graph.
-    /// This process resolves tensor indexing into scalar operations.
-    pub fn compile(&self, shape_tracker: &ShapeTracker) -> Rc<Node> {
-        // ... implementation details ...
-        todo!()
-    }
-}
-```
+-   **`prelude` Module**: To improve ergonomics, a `prelude` module is provided to conveniently import the most commonly used items (`Tensor`, `Node`, `ToDot`, `DType`, various operators, etc.).
+-   **`ToDot` Trait**: A common trait for graph visualization. It is implemented for both `Node` and `Tensor` to generate a string representation in DOT format, which can be used with tools like Graphviz.
