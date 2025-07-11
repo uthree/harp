@@ -1,5 +1,8 @@
 use crate::node::{self, constant, Node};
-use crate::op::{HasIdentityElement, Load, OpAdd, OpDiv, OpMul, OpSub, Operator, Reduce, Reshape};
+use crate::op::{
+    HasIdentityElement, Load, OpAdd, OpDiv, OpMul, OpSub, Operator, Permute, Reduce, Reshape,
+};
+use crate::simplify;
 use dyn_clone::clone_box;
 use std::ops::{Add, Div, Mul, Sub};
 use std::rc::Rc;
@@ -75,6 +78,23 @@ impl Tensor {
         }
     }
 
+    /// Permutes the dimensions of the tensor.
+    pub fn permute(self, order: Vec<usize>) -> Self {
+        assert_eq!(
+            self.shape().len(),
+            order.len(),
+            "The new order must have the same number of dimensions"
+        );
+        let new_shape = order.iter().map(|&i| self.shape()[i]).collect();
+        Self {
+            data: Arc::new(TensorData {
+                op: Box::new(Permute { order }),
+                src: vec![self],
+                shape: new_shape,
+            }),
+        }
+    }
+
     /// Creates a new `Reduce` tensor.
     pub fn reduce(self, op: impl Operator + 'static, axis: usize) -> Self {
         // Calculate the new shape after reduction
@@ -106,13 +126,22 @@ impl Tensor {
         let op = &self.data.op;
         let src = &self.data.src;
 
-        match op.name() {
+        let compiled_node = match op.name() {
             "Load" => {
-                assert_eq!(shape_tracker.index_expr.len(), 1, "Complex index expressions not yet supported");
-                let index_node = &shape_tracker.index_expr[0];
+                // Calculate the flat, 1D memory offset from the multi-dimensional index.
+                let mut offset = constant(0.0);
+                let mut stride = constant(1.0);
+                for (i, (_dim, idx)) in shape_tracker.dims.iter().zip(shape_tracker.index_expr.iter()).enumerate().rev() {
+                    if i < shape_tracker.dims.len() - 1 {
+                        let prev_dim = &shape_tracker.dims[i + 1];
+                        stride = stride * (**prev_dim).clone();
+                    }
+                    offset += (**idx).clone() * stride.clone();
+                }
+
                 Rc::new(node::Node::from(Arc::new(node::NodeData {
                     op: Box::new(Load),
-                    src: vec![(**index_node).clone()],
+                    src: vec![offset],
                 })))
             }
             "Reshape" => {
@@ -122,7 +151,18 @@ impl Tensor {
                     dims: source_shape_dims,
                     index_expr: shape_tracker.index_expr.clone(),
                 };
-                source_tensor.compile(&new_tracker)
+                return source_tensor.compile(&new_tracker); // Early return to avoid double simplification
+            }
+            "Permute" => {
+                let permute_op = op.as_any().downcast_ref::<Permute>().unwrap();
+                let source_tensor = &src[0];
+                let new_index_expr = permute_op.order.iter().map(|&i| shape_tracker.index_expr[i].clone()).collect();
+
+                let new_tracker = ShapeTracker {
+                    dims: source_tensor.shape().iter().map(|&d| Rc::new(constant(d))).collect(),
+                    index_expr: new_index_expr,
+                };
+                return source_tensor.compile(&new_tracker); // Early return to avoid double simplification
             }
             "Reduce" => {
                 let reduce_op = op.as_any().downcast_ref::<Reduce>().unwrap();
@@ -130,10 +170,9 @@ impl Tensor {
                 let axis = reduce_op.axis;
                 let dim_size = source_tensor.shape()[axis];
 
-                // Get the identity element for the reduction
-                let identity_node = if let Some(op_with_identity) = reduce_op.op.as_any().downcast_ref::<OpAdd>() {
+                let identity_node = if let Some(_) = reduce_op.op.as_any().downcast_ref::<OpAdd>() {
                     OpAdd::identity_element()
-                } else if let Some(op_with_identity) = reduce_op.op.as_any().downcast_ref::<OpMul>() {
+                } else if let Some(_) = reduce_op.op.as_any().downcast_ref::<OpMul>() {
                     OpMul::identity_element()
                 } else {
                     panic!("Reduce compilation not implemented for this op");
@@ -141,7 +180,6 @@ impl Tensor {
 
                 let mut accumulator = identity_node;
 
-                // Unroll the loop
                 for i in 0..dim_size {
                     let mut source_index_expr = shape_tracker.index_expr.clone();
                     source_index_expr.insert(axis, Rc::new(constant(i)));
@@ -168,7 +206,8 @@ impl Tensor {
                 })))
             }
             _ => todo!("Compile not implemented for op: {}", op.name()),
-        }
+        };
+        Rc::new(simplify((*compiled_node).clone()))
     }
 }
 

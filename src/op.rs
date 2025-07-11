@@ -79,34 +79,22 @@ impl_operator!(
 #[derive(Debug, Clone)]
 pub struct Const(pub Box<dyn DType>);
 impl Operator for Const {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn name(&self) -> &'static str {
-        "Const"
-    }
+    fn as_any(&self) -> &dyn Any { self }
+    fn name(&self) -> &'static str { "Const" }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Capture(pub String);
 impl Operator for Capture {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn name(&self) -> &'static str {
-        "Capture"
-    }
+    fn as_any(&self) -> &dyn Any { self }
+    fn name(&self) -> &'static str { "Capture" }
 }
 
 #[derive(Debug, Clone)]
 pub struct Cast(pub Box<dyn DType>);
 impl Operator for Cast {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn name(&self) -> &'static str {
-        "Cast"
-    }
+    fn as_any(&self) -> &dyn Any { self }
+    fn name(&self) -> &'static str { "Cast" }
 }
 
 #[derive(Debug, Clone)]
@@ -115,13 +103,19 @@ pub struct Reduce {
     pub axis: usize,
 }
 impl Operator for Reduce {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn name(&self) -> &'static str {
-        "Reduce"
-    }
+    fn as_any(&self) -> &dyn Any { self }
+    fn name(&self) -> &'static str { "Reduce" }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Permute {
+    pub order: Vec<usize>,
+}
+impl Operator for Permute {
+    fn as_any(&self) -> &dyn Any { self }
+    fn name(&self) -> &'static str { "Permute" }
+}
+
 
 // --- Trait Implementations for Operators ---
 
@@ -148,6 +142,7 @@ impl TensorOperator for OpSub {}
 impl TensorOperator for OpMul {}
 impl TensorOperator for OpDiv {}
 impl TensorOperator for Reshape {}
+impl TensorOperator for Permute {}
 // Add other ops that can be used in tensor graphs...
 impl TensorOperator for Sin {}
 impl TensorOperator for Exp2 {}
@@ -174,6 +169,7 @@ impl UnaryOp for Log2 {}
 impl UnaryOp for Sqrt {}
 impl UnaryOp for Cast {}
 impl UnaryOp for Reshape {}
+impl UnaryOp for Permute {}
 
 // Elementwise
 impl Elementwise for OpAdd {}

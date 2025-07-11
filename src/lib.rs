@@ -8,3 +8,4 @@ pub mod tensor;
 
 pub use node::capture;
 pub use pattern::Rewriter;
+pub use simplify::simplify;
