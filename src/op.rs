@@ -1,9 +1,4 @@
-//! # Operator Module
-//!
-//! Defines the `Operator` trait and the various operator types used in the graph.
-
-use crate::dtype::DType;
-use crate::node::Node;
+use crate::node::{self, Node};
 use dyn_clone::DynClone;
 use std::any::Any;
 use std::fmt::Debug;
@@ -93,7 +88,7 @@ impl_operator!(
 // --- Specialized Operator Structs ---
 
 #[derive(Debug, Clone)]
-pub struct Const(pub Box<dyn DType>);
+pub struct Const(pub Box<dyn crate::dtype::DType>);
 impl Operator for Const {
     fn as_any(&self) -> &dyn Any {
         self
@@ -126,7 +121,7 @@ impl Operator for Variable {
 }
 
 #[derive(Debug, Clone)]
-pub struct Cast(pub Box<dyn DType>);
+pub struct Cast(pub Box<dyn crate::dtype::DType>);
 impl Operator for Cast {
     fn as_any(&self) -> &dyn Any {
         self
@@ -207,7 +202,6 @@ impl PrimitiveOp for Cast {}
 impl PrimitiveOp for Max {}
 impl PrimitiveOp for Variable {}
 impl PrimitiveOp for OpUniform {}
-impl PrimitiveOp for OpRandn {}
 
 // FusedOps
 impl FusedOp for OpSub {
@@ -221,6 +215,24 @@ impl FusedOp for OpDiv {
     fn fallback(&self, operands: &[Node]) -> Node {
         assert_eq!(operands.len(), 2, "OpDiv expects 2 operands");
         operands[0].clone() / operands[1].clone()
+    }
+}
+
+impl FusedOp for OpRandn {
+    fn fallback(&self, operands: &[Node]) -> Node {
+        assert!(operands.is_empty(), "OpRandn expects no operands");
+
+        // Box-Muller transform: Z1 = sqrt(-2 * ln(U1)) * cos(2 * pi * U2)
+        let u1 = Node::new(OpUniform, vec![]);
+        let u2 = Node::new(OpUniform, vec![]);
+
+        let const_neg_2 = node::constant(-2.0f64);
+        let const_2_pi = node::constant(2.0 * std::f64::consts::PI);
+
+        let term1 = node::sqrt(const_neg_2 * node::ln(u1));
+        let term2 = node::cos(const_2_pi * u2);
+
+        term1 * term2
     }
 }
 

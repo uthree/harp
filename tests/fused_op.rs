@@ -1,5 +1,5 @@
 use harp::node::{self, Node};
-use harp::op::{FusedOp, OpDiv, OpSub, Operator};
+use harp::op::{FusedOp, OpDiv, OpRandn, OpSub, Operator};
 use rstest::rstest;
 use std::any::Any;
 
@@ -79,4 +79,45 @@ where
 
     // Check if the decomposed graph is correct
     assert_eq!(decomposed_node, expected_node);
+}
+
+#[test]
+fn test_oprandn_fallback_structure() {
+    let op = OpRandn;
+    let fallback_graph = op.fallback(&[]);
+
+    // Check the structure of the Box-Muller transform graph
+    // Z1 = sqrt(-2 * ln(U1)) * cos(2 * pi * U2)
+    assert_eq!(fallback_graph.op().name(), "OpMul");
+    assert_eq!(fallback_graph.src().len(), 2);
+
+    // Check term1: sqrt(-2 * ln(U1))
+    let term1 = &fallback_graph.src()[0];
+    assert_eq!(term1.op().name(), "Sqrt");
+    assert_eq!(term1.src().len(), 1);
+
+    let sqrt_inner = &term1.src()[0];
+    assert_eq!(sqrt_inner.op().name(), "OpMul");
+    assert_eq!(sqrt_inner.src().len(), 2);
+    assert_eq!(sqrt_inner.src()[0].op().name(), "Const"); // -2.0
+    assert_eq!(sqrt_inner.src()[1].op().name(), "OpMul"); // ln(U1) = log2(U1) * LN_2
+
+    let ln_u1 = &sqrt_inner.src()[1];
+    assert_eq!(ln_u1.src()[0].op().name(), "Log2");
+    assert_eq!(ln_u1.src()[0].src()[0].op().name(), "OpUniform"); // U1
+    assert_eq!(ln_u1.src()[1].op().name(), "Const"); // LN_2
+
+    // Check term2: cos(2 * pi * U2)
+    let term2 = &fallback_graph.src()[1];
+    assert_eq!(term2.op().name(), "Sin"); // cos(x) is implemented as sin(x + PI/2)
+    assert_eq!(term2.src().len(), 1);
+
+    let cos_inner = &term2.src()[0]; // x + PI/2
+    assert_eq!(cos_inner.op().name(), "OpAdd");
+    assert_eq!(cos_inner.src()[1].op().name(), "Const"); // PI/2
+
+    let cos_arg = &cos_inner.src()[0]; // x = 2 * pi * U2
+    assert_eq!(cos_arg.op().name(), "OpMul");
+    assert_eq!(cos_arg.src()[0].op().name(), "Const"); // 2 * pi
+    assert_eq!(cos_arg.src()[1].op().name(), "OpUniform"); // U2
 }

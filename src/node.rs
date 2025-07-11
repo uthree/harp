@@ -280,6 +280,10 @@ pub fn tan(a: Node) -> Node {
     sin(a.clone()) / cos(a)
 }
 
+pub fn ln(a: Node) -> Node {
+    log2(a) * constant(std::f64::consts::LN_2)
+}
+
 pub fn exp(a: Node) -> Node {
     exp2(a * constant(std::f32::consts::LOG2_E))
 }
