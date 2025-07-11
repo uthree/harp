@@ -53,6 +53,10 @@ pub trait UnaryOp: Operator {}
 pub trait BinaryOp: Operator {}
 pub trait CommutativeOp: BinaryOp {}
 
+/// Marker trait for binary operators that are associative.
+/// An operator `*` is associative if `(a * b) * c` is equivalent to `a * (b * c)`.
+pub trait AssociativeOp: BinaryOp {}
+
 // --- Operator Structs ---
 
 macro_rules! def_operators {
@@ -258,12 +262,15 @@ impl TensorOperator for Reduce {}
 // Binary & Commutative
 impl BinaryOp for OpAdd {}
 impl CommutativeOp for OpAdd {}
+impl AssociativeOp for OpAdd {}
 impl BinaryOp for OpSub {}
 impl BinaryOp for OpMul {}
 impl CommutativeOp for OpMul {}
+impl AssociativeOp for OpMul {}
 impl BinaryOp for OpDiv {}
 impl BinaryOp for Max {}
 impl CommutativeOp for Max {}
+impl AssociativeOp for Max {}
 
 // Unary
 impl UnaryOp for Recip {}
