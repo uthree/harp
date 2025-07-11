@@ -21,6 +21,9 @@ impl PartialEq for dyn Operator {
 }
 impl Eq for dyn Operator {}
 
+// --- PrimitiveOp Marker Trait ---
+pub trait PrimitiveOp: Operator {}
+
 // --- Operator Structs ---
 macro_rules! def_operators {
     ($($name:ident),*) => {
@@ -81,6 +84,20 @@ impl Operator for Cast {
         "Cast"
     }
 }
+
+// --- Implement PrimitiveOp Marker Trait ---
+impl PrimitiveOp for OpAdd {}
+impl PrimitiveOp for OpMul {}
+impl PrimitiveOp for OpRem {}
+impl PrimitiveOp for Load {}
+impl PrimitiveOp for Store {}
+impl PrimitiveOp for Recip {}
+impl PrimitiveOp for Sin {}
+impl PrimitiveOp for Exp2 {}
+impl PrimitiveOp for Log2 {}
+impl PrimitiveOp for Sqrt {}
+impl PrimitiveOp for Const {}
+impl PrimitiveOp for Cast {}
 
 // --- Marker Traits for Operators ---
 pub trait UnaryOp: Operator {}
