@@ -4,7 +4,7 @@ use crate::op::{
     Expand, HasIdentityElement, Load, OpAdd, OpDiv, OpMul, OpSub, Operator, Permute, Reduce,
     Reshape, Slice,
 };
-use crate::simplify;
+use crate::simplify::simplify;
 use dyn_clone::clone_box;
 use std::collections::HashMap;
 use std::ops::{Add, Div, Mul, Sub};
