@@ -167,16 +167,18 @@ impl Elementwise for Sqrt {}
 impl Elementwise for Max {}
 
 // HasIdentityElement
-// impl HasIdentityElement for OpAdd {
-//     fn identity_element() -> Node {
-//         Node::new_const(0.0) // Assuming f64 for now
-//     }
-// }
-// impl HasIdentityElement for OpMul {
-//     fn identity_element() -> Node {
-//         Node::new_const(1.0) // Assuming f64 for now
-//     }
-// }
-// Note: `HasIdentityElement` implementations are commented out as `Node::new_const`
-// might need to be updated or isn't available in this context yet.
-// This will be addressed in the next step.
+impl HasIdentityElement for OpAdd {
+    fn identity_element() -> Node {
+        crate::node::constant(0.0f64)
+    }
+}
+impl HasIdentityElement for OpMul {
+    fn identity_element() -> Node {
+        crate::node::constant(1.0f64)
+    }
+}
+impl HasIdentityElement for Max {
+    fn identity_element() -> Node {
+        crate::node::constant(f64::NEG_INFINITY)
+    }
+}
