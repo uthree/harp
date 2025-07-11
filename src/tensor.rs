@@ -5,6 +5,7 @@ use crate::op::{
 };
 use crate::simplify;
 use dyn_clone::clone_box;
+use std::collections::HashMap;
 use std::ops::{Add, Div, Mul, Sub};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -154,6 +155,49 @@ impl Tensor {
     /// Performs a sum reduction along a specified axis.
     pub fn sum(self, axis: usize) -> Self {
         self.reduce(OpAdd, axis)
+    }
+
+    /// Rearranges dimensions of a tensor based on a pattern.
+    ///
+    /// Currently only supports permutation, e.g., "b h w c -> b c h w".
+    pub fn rearrange(self, pattern: &str) -> Self {
+        let parts: Vec<&str> = pattern.split("->").collect();
+        assert_eq!(parts.len(), 2, "Invalid einops pattern: must contain '->'");
+        let left: Vec<&str> = parts[0].split_whitespace().collect();
+        let right: Vec<&str> = parts[1].split_whitespace().collect();
+
+        assert_eq!(
+            left.len(),
+            self.shape().len(),
+            "Number of dimensions on left side of pattern must match tensor shape"
+        );
+
+        // For now, only support permutation
+        assert_eq!(
+            left.len(),
+            right.len(),
+            "Permutation pattern must have same number of dimensions on both sides"
+        );
+
+        let right_map: HashMap<&str, usize> =
+            right.iter().enumerate().map(|(i, &s)| (s, i)).collect();
+
+        let order: Vec<usize> = left
+            .iter()
+            .map(|&s| {
+                *right_map
+                    .get(s)
+                    .unwrap_or_else(|| panic!("Dimension '{s}' not found on right side of pattern"))
+            })
+            .collect();
+
+        // We need to invert the permutation to apply it correctly.
+        let mut inverted_order = vec![0; order.len()];
+        for (i, &val) in order.iter().enumerate() {
+            inverted_order[val] = i;
+        }
+
+        self.permute(inverted_order)
     }
 
     /// Compiles the tensor's computation graph into a traditional Node graph.

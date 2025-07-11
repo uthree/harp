@@ -141,6 +141,23 @@ fn test_tensor_sum() {
 }
 
 #[test]
+fn test_rearrange_permutation() {
+    let a = Tensor::new_load(vec![10, 20, 30, 40]);
+    let b = a.clone().rearrange("b h w c -> b c h w");
+
+    assert_eq!(*b.shape(), vec![10, 40, 20, 30]);
+    assert_eq!(b.data.op.name(), "Permute");
+    assert_eq!(b.data.src.len(), 1);
+    assert!(Arc::ptr_eq(&a.data, &b.data.src[0].data));
+
+    if let Some(permute_op) = b.data.op.as_any().downcast_ref::<Permute>() {
+        assert_eq!(permute_op.order, vec![0, 3, 1, 2]);
+    } else {
+        panic!("Operator was not a Permute operator");
+    }
+}
+
+#[test]
 fn test_compile_add() {
     let shape = vec![10];
     let a = Tensor::new_load(shape.clone());
