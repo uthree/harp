@@ -1,7 +1,7 @@
 use crate::node::{self, constant, Node};
 use crate::op::{
     Expand, HasIdentityElement, Load, OpAdd, OpDiv, OpMul, OpSub, Operator, Permute, Reduce,
-    Reshape,
+    Reshape, Slice,
 };
 use crate::simplify;
 use dyn_clone::clone_box;
@@ -114,6 +114,23 @@ impl Tensor {
         }
     }
 
+    /// Slices the tensor along each dimension.
+    pub fn slice(self, args: Vec<(u64, u64)>) -> Self {
+        assert_eq!(
+            self.shape().len(),
+            args.len(),
+            "Number of slice arguments must match number of dimensions"
+        );
+        let new_shape = args.iter().map(|(start, end)| end - start).collect();
+        Self {
+            data: Arc::new(TensorData {
+                op: Box::new(Slice { args }),
+                src: vec![self],
+                shape: new_shape,
+            }),
+        }
+    }
+
     /// Creates a new `Reduce` tensor.
     pub fn reduce(self, op: impl Operator + 'static, axis: usize) -> Self {
         // Calculate the new shape after reduction
@@ -190,6 +207,19 @@ impl Tensor {
                 for i in 0..diff {
                     new_index_expr.remove(i);
                 }
+
+                let new_tracker = ShapeTracker {
+                    dims: source_tensor.shape().iter().map(|&d| Rc::new(constant(d))).collect(),
+                    index_expr: new_index_expr,
+                };
+                return source_tensor.compile(&new_tracker);
+            }
+            "Slice" => {
+                let slice_op = op.as_any().downcast_ref::<Slice>().unwrap();
+                let source_tensor = &src[0];
+                let new_index_expr = shape_tracker.index_expr.iter().zip(slice_op.args.iter()).map(|(idx, (start, _end))| {
+                    Rc::new((**idx).clone() + constant(*start as f64))
+                }).collect();
 
                 let new_tracker = ShapeTracker {
                     dims: source_tensor.shape().iter().map(|&d| Rc::new(constant(d))).collect(),

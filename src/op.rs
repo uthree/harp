@@ -132,6 +132,15 @@ impl Operator for Expand {
     fn name(&self) -> &'static str { "Expand" }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Slice {
+    pub args: Vec<(u64, u64)>,
+}
+impl Operator for Slice {
+    fn as_any(&self) -> &dyn Any { self }
+    fn name(&self) -> &'static str { "Slice" }
+}
+
 
 // --- Trait Implementations for Operators ---
 
@@ -161,6 +170,7 @@ impl TensorOperator for OpDiv {}
 impl TensorOperator for Reshape {}
 impl TensorOperator for Permute {}
 impl TensorOperator for Expand {}
+impl TensorOperator for Slice {}
 // Add other ops that can be used in tensor graphs...
 impl TensorOperator for Sin {}
 impl TensorOperator for Exp2 {}
@@ -189,6 +199,7 @@ impl UnaryOp for Cast {}
 impl UnaryOp for Reshape {}
 impl UnaryOp for Permute {}
 impl UnaryOp for Expand {}
+impl UnaryOp for Slice {}
 
 // Elementwise
 impl Elementwise for OpAdd {}

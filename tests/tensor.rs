@@ -1,5 +1,5 @@
 use harp::node::{self, constant, variable, Node};
-use harp::op::{Expand, Load, OpAdd, OpSub, OpMul, OpDiv, Operator, Permute, Reduce, Reshape};
+use harp::op::{Expand, Load, OpAdd, OpSub, OpMul, OpDiv, Operator, Permute, Reduce, Reshape, Slice};
 use harp::tensor::{ShapeTracker, Tensor};
 use rstest::rstest;
 use std::rc::Rc;
@@ -101,6 +101,23 @@ fn test_tensor_expand() {
         assert_eq!(expand_op.shape, vec![2, 3]);
     } else {
         panic!("Operator was not an Expand operator");
+    }
+}
+
+#[test]
+fn test_tensor_slice() {
+    let a = Tensor::new_load(vec![10, 20]);
+    let b = a.clone().slice(vec![(2, 5), (3, 8)]);
+
+    assert_eq!(*b.shape(), vec![3, 5]);
+    assert_eq!(b.data.op.name(), "Slice");
+    assert_eq!(b.data.src.len(), 1);
+    assert!(Arc::ptr_eq(&a.data, &b.data.src[0].data));
+
+    if let Some(slice_op) = b.data.op.as_any().downcast_ref::<Slice>() {
+        assert_eq!(slice_op.args, vec![(2, 5), (3, 8)]);
+    } else {
+        panic!("Operator was not a Slice operator");
     }
 }
 
@@ -213,6 +230,27 @@ fn test_compile_expand() {
     assert_eq!(compiled_node.op().name(), "Load");
     assert_eq!(compiled_node.src().len(), 1);
     assert_eq!(compiled_node.src()[0], *j);
+}
+
+#[test]
+#[ignore]
+fn test_compile_slice() {
+    let a = Tensor::new_load(vec![10]);
+    let b = a.slice(vec![(2, 5)]); // Shape becomes [3]
+
+    let i = Rc::new(variable("i"));
+    let tracker = ShapeTracker {
+        dims: vec![Rc::new(constant(3u64))],
+        index_expr: vec![i.clone()],
+    };
+
+    let compiled_node = b.compile(&tracker);
+
+    // The compilation of b[i] should result in compiling a[i + 2].
+    // The final node should be a Load, and its source should be `i + 2`.
+    assert_eq!(compiled_node.op().name(), "Load");
+    assert_eq!(compiled_node.src().len(), 1);
+    assert_eq!(compiled_node.src()[0], (*i).clone() + constant(2.0));
 }
 
 
