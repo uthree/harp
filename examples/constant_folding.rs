@@ -1,60 +1,32 @@
-//! An example of using the `Rewriter` to perform constant folding.
-//!
-//! This example defines a simple rule to fold constant additions (`a + b` -> `c`)
-//! and applies it to a graph. It also demonstrates how to enable logging to see
-//! the rewrite process in action.
-//!
-//! To see the log output, run this example with the `RUST_LOG` environment variable:
-//!
-//! ```sh
-//! RUST_LOG=debug cargo run --example constant_folding
-//! ```
-
-use harp::node::{self};
+use harp::node::{self, constant};
 use harp::op::Const;
-use harp::rewriter;
+use harp::{capture, rewriter};
 
 fn main() {
-    // Initialize the logger.
-    // You can use other loggers like `fern` or `slog` as well.
+    // Initialize the logger
     env_logger::init();
 
-    // 1. Define a rewriter for constant folding.
-    let constant_folder = rewriter!([
+    // Define a rewriter for constant folding.
+    let constant_folder = rewriter!("constant_folder", [
         (
             let x = capture("x"), y = capture("y")
             => x + y
-            => |x, y| {
-                // Check if both captured nodes are f32 constants.
-                if let (Some(const_x), Some(const_y)) = (
-                    x.op().as_any().downcast_ref::<Const>(),
-                    y.op().as_any().downcast_ref::<Const>(),
-                ) {
-                    if let (Some(val_x), Some(val_y)) = (
-                        const_x.0.as_any().downcast_ref::<f32>(),
-                        const_y.0.as_any().downcast_ref::<f32>(),
-                    ) {
-                        // If so, return a new constant node with their sum.
-                        log::info!("Folding constants: {} + {} -> {}", val_x, val_y, val_x + val_y);
-                        return Some(node::constant(val_x + val_y));
-                    }
-                }
-                // Otherwise, do not rewrite.
-                None
+            => |_node, x, y| {
+                let x_const = x.op().as_any().downcast_ref::<Const>()?;
+                let y_const = y.op().as_any().downcast_ref::<Const>()?;
+                let x_val = x_const.0.as_any().downcast_ref::<f32>()?;
+                let y_val = y_const.0.as_any().downcast_ref::<f32>()?;
+                Some(constant(x_val + y_val))
             }
         )
     ]);
 
-    // 2. Build a graph: (2.0 * 3.0) + (4.0 + 5.0)
-    // The rewriter should first fold (4.0 + 5.0) into 9.0.
-    let graph = (node::constant(2.0f32) * 3.0) + (node::constant(4.0f32) + 5.0);
+    // Create a graph: 2.0 + 3.0
+    let graph = constant(2.0f32) + constant(3.0f32);
 
-    println!("--- Original Graph ---");
-    println!("{}", graph.to_dot());
-
-    // 3. Apply the rewriter.
+    // Rewrite the graph
     let rewritten_graph = constant_folder.rewrite(graph);
 
-    println!("\n--- Rewritten Graph ---");
-    println!("{}", rewritten_graph.to_dot());
+    // The result should be a constant node with value 5.0
+    println!("Rewritten graph: {:?}", rewritten_graph);
 }

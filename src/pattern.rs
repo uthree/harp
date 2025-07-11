@@ -15,11 +15,23 @@ pub enum RewriterBody {
     Func(Box<dyn Fn(&Node, &Captures) -> Option<Node>>),
 }
 
+impl PartialEq for RewriterBody {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (RewriterBody::Pattern(p1), RewriterBody::Pattern(p2)) => p1 == p2,
+            // Functions are considered unique and cannot be compared for equality.
+            _ => false,
+        }
+    }
+}
+impl Eq for RewriterBody {}
+
 /// A rule for rewriting a `Node` graph.
 ///
 /// A `RewriteRule` consists of a `searcher` pattern and a `rewriter` body.
 /// When the `searcher` pattern matches a part of the graph, the `rewriter`
 /// is used to generate the replacement node.
+#[derive(PartialEq, Eq)]
 pub struct RewriteRule {
     /// The pattern to search for, represented as a `Node`.
     pub searcher: Node,
@@ -72,35 +84,47 @@ macro_rules! rewrite_rule {
     };
 }
 
-/// Applies a set of rewrite rules to a `Node` graph.
+/// Applies a set of rewrite rules to a `Node` graph in a hierarchical manner.
 ///
-/// A `Rewriter` contains a list of `RewriteRule`s and applies them to a graph
-/// until a fixed point is reached.
+/// A `Rewriter` has a name for debugging, a list of its own `RewriteRule`s,
+/// and a list of sub-rewriters. This creates a hierarchical structure for
+/// organizing rules. When applying rules, the `Rewriter` traverses this
+/// hierarchy and applies all unique rules.
 pub struct Rewriter {
-    rules: Vec<RewriteRule>,
+    pub name: String,
+    pub rules: Vec<RewriteRule>,
+    pub sub_rewriters: Vec<Rewriter>,
 }
 
 impl Rewriter {
-    /// Creates a new rewriter with a given set of rules.
-    pub fn new(rules: Vec<RewriteRule>) -> Self {
-        Self { rules }
+    /// Creates a new rewriter with a given name and a set of rules.
+    pub fn new(name: impl Into<String>, rules: Vec<RewriteRule>) -> Self {
+        Self {
+            name: name.into(),
+            rules,
+            sub_rewriters: Vec::new(),
+        }
     }
 
-    /// Merges another rewriter's rules into this one.
-    fn merge(&mut self, other: Rewriter) {
-        self.rules.extend(other.rules);
-    }
+    /// Recursively collects all unique rewrite rules from the hierarchy.
+    pub fn get_all_rules<'a>(&'a self, all_rules: &mut Vec<&'a RewriteRule>) {
+        // Add rules from the current rewriter, avoiding duplicates.
+        for rule in &self.rules {
+            if !all_rules.iter().any(|&existing_rule| existing_rule == rule) {
+                all_rules.push(rule);
+            }
+        }
 
-    /// Creates a new rewriter by merging two rewriters.
-    pub fn fused(mut self, other: Rewriter) -> Self {
-        self.merge(other);
-        self
+        // Recursively add rules from sub-rewriters.
+        for sub_rewriter in &self.sub_rewriters {
+            sub_rewriter.get_all_rules(all_rules);
+        }
     }
 
     /// Applies the rules to a node and its descendants, returning a rewritten node.
     ///
     /// The rewriting process is bottom-up: children are rewritten first, and then
-    /// the rules are applied to the current node until no more rules can be applied.
+    /// the rules are applied to the current node until a fixed point is reached.
     pub fn rewrite(&self, node: Node) -> Node {
         // 1. Rewrite children first (bottom-up)
         let rewritten_src = node
@@ -118,12 +142,19 @@ impl Rewriter {
             node
         };
 
-        // 2. Apply rules to the current node until a fixed point is reached.
+        // 2. Collect all unique rules from the hierarchy.
+        let mut all_rules = Vec::new();
+        self.get_all_rules(&mut all_rules);
+
+        // 3. Apply rules to the current node until a fixed point is reached.
         loop {
             let mut changed = false;
-            for rule in &self.rules {
+            for rule in &all_rules {
                 if let Some(rewritten) = self.apply_rule(&current_node, rule) {
-                    log::debug!("[Rewrite] {current_node:?} -> {rewritten:?}");
+                    log::debug!(
+                        "[Rewrite by {}] {current_node:?} -> {rewritten:?}",
+                        self.name
+                    );
                     current_node = rewritten;
                     changed = true;
                     // Restart the rule application process from the beginning for the new node
@@ -201,7 +232,16 @@ impl Rewriter {
 impl Add for Rewriter {
     type Output = Self;
 
+    /// Combines two rewriters into a new hierarchical rewriter.
+    ///
+    /// The resulting rewriter will have a new name and will contain the
+    /// two original rewriters as sub-rewriters.
     fn add(self, rhs: Self) -> Self::Output {
-        self.fused(rhs)
+        let name = format!("fused({}, {})", self.name, rhs.name);
+        Rewriter {
+            name,
+            rules: Vec::new(),
+            sub_rewriters: vec![self, rhs],
+        }
     }
 }

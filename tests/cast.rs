@@ -4,7 +4,7 @@ use harp::pattern::Rewriter;
 use harp::{capture, rewriter};
 
 fn cast_rules() -> Rewriter {
-    rewriter!([
+    rewriter!("cast_rules", [
         (
             let x = capture("x")
             => cast::<i32>(x)

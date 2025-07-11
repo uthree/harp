@@ -12,143 +12,116 @@
 //!   expressions (e.g., `x + 0` becomes `x`, `x * 1` becomes `x`).
 //! - `default_rewriter`: A fused rewriter that combines all available simplifications.
 
-use crate::node::{constant, exp2, log2, recip, sin, sqrt};
-use crate::op::Const;
-use crate::pattern::Rewriter;
-use crate::rewriter;
+use crate::node::{capture, constant, exp2, sin, Node, NodeData};
+use crate::op::{Const, Exp2, Log2, OpAdd, OpMul, Recip, Sin, Sqrt};
+use crate::pattern::{RewriteRule, Rewriter};
+use crate::rewrite_rule;
+use std::sync::Arc;
 
-/// Creates a `Rewriter` for constant folding.
-///
-/// This rewriter simplifies expressions where all operands are constants.
-/// For example, `constant(2.0) + constant(3.0)` will be rewritten to `constant(5.0)`.
-pub fn constant_folding_rewriter() -> Rewriter {
-    rewriter!([
-        (
-            let x = capture("x"), y = capture("y")
-            => x + y
-            => |x, y| {
-                let x_op = x.op().as_any().downcast_ref::<Const>()?;
-                let y_op = y.op().as_any().downcast_ref::<Const>()?;
-                if let (Some(x_val), Some(y_val)) = (x_op.0.as_any().downcast_ref::<f32>(), y_op.0.as_any().downcast_ref::<f32>()) {
-                    return Some(constant(x_val + y_val));
-                }
-                if let (Some(x_val), Some(y_val)) = (x_op.0.as_any().downcast_ref::<f64>(), y_op.0.as_any().downcast_ref::<f64>()) {
-                    return Some(constant(x_val + y_val));
-                }
-                None
-            }
-        ),
-        (
-            let x = capture("x"), y = capture("y")
-            => x * y
-            => |x, y| {
-                let x_op = x.op().as_any().downcast_ref::<Const>()?;
-                let y_op = y.op().as_any().downcast_ref::<Const>()?;
-                if let (Some(x_val), Some(y_val)) = (x_op.0.as_any().downcast_ref::<f32>(), y_op.0.as_any().downcast_ref::<f32>()) {
-                    return Some(constant(x_val * y_val));
-                }
-                if let (Some(x_val), Some(y_val)) = (x_op.0.as_any().downcast_ref::<f64>(), y_op.0.as_any().downcast_ref::<f64>()) {
-                    return Some(constant(x_val * y_val));
-                }
-                None
-            }
-        ),
-        (
-            let x = capture("x")
-            => recip(x)
-            => |x| {
-                if let Some(const_op) = x.op().as_any().downcast_ref::<Const>() {
-                    if let Some(val) = const_op.0.as_any().downcast_ref::<f32>() {
-                        return Some(constant(1.0 / val));
-                    }
-                    if let Some(val) = const_op.0.as_any().downcast_ref::<f64>() {
-                        return Some(constant(1.0 / val));
-                    }
-                }
-                None
-            }
-        ),
-        (
-            let x = capture("x")
-            => sin(x)
-            => |x| {
-                if let Some(const_op) = x.op().as_any().downcast_ref::<Const>() {
-                    if let Some(val) = const_op.0.as_any().downcast_ref::<f32>() {
-                        return Some(constant(val.sin()));
-                    }
-                    if let Some(val) = const_op.0.as_any().downcast_ref::<f64>() {
-                        return Some(constant(val.sin()));
-                    }
-                }
-                None
-            }
-        ),
-        (
-            let x = capture("x")
-            => exp2(x)
-            => |x| {
-                if let Some(const_op) = x.op().as_any().downcast_ref::<Const>() {
-                    if let Some(val) = const_op.0.as_any().downcast_ref::<f32>() {
-                        return Some(constant(val.exp2()));
-                    }
-                    if let Some(val) = const_op.0.as_any().downcast_ref::<f64>() {
-                        return Some(constant(val.exp2()));
-                    }
-                }
-                None
-            }
-        ),
-        (
-            let x = capture("x")
-            => log2(x)
-            => |x| {
-                if let Some(const_op) = x.op().as_any().downcast_ref::<Const>() {
-                    if let Some(val) = const_op.0.as_any().downcast_ref::<f32>() {
-                        return Some(constant(val.log2()));
-                    }
-                    if let Some(val) = const_op.0.as_any().downcast_ref::<f64>() {
-                        return Some(constant(val.log2()));
-                    }
-                }
-                None
-            }
-        ),
-        (
-            let x = capture("x")
-            => sqrt(x)
-            => |x| {
-                if let Some(const_op) = x.op().as_any().downcast_ref::<Const>() {
-                    if let Some(val) = const_op.0.as_any().downcast_ref::<f32>() {
-                        return Some(constant(val.sqrt()));
-                    }
-                    if let Some(val) = const_op.0.as_any().downcast_ref::<f64>() {
-                        return Some(constant(val.sqrt()));
-                    }
-                }
-                None
-            }
-        )
-    ])
-}
-
-/// Creates a `Rewriter` for algebraic simplifications.
-///
-/// This rewriter applies rules like:
-/// - `x + 0 -> x`
-/// - `x * 1 -> x`
-/// - `x * 0 -> 0`
-pub fn algebraic_simplification_rewriter() -> Rewriter {
-    rewriter!([
-        (let x = capture("x") => x.clone() + constant(0.0f32) => |x| Some(x)),
-        (let x = capture("x") => constant(0.0f32) + x.clone() => |x| Some(x)),
-        (let x = capture("x") => x.clone() * constant(1.0f32) => |x| Some(x)),
-        (let x = capture("x") => constant(1.0f32) * x.clone() => |x| Some(x)),
-        (let x = capture("x") => x * constant(0.0f32) => |_x| Some(constant(0.0f32))),
-        (let x = capture("x") => constant(0.0f32) * x => |_x| Some(constant(0.0f32)))
-    ])
-}
-
-/// Creates a default `Rewriter` by fusing all available simplification rewriters.
+/// Returns a `Rewriter` with a default set of simplification rules.
 pub fn default_rewriter() -> Rewriter {
-    constant_folding_rewriter().fused(algebraic_simplification_rewriter())
+    let mut rules = Vec::new();
+
+    // --- Function Expansion ---
+    rules.push(rewrite_rule!(let x = capture("x");
+        crate::node::exp(x.clone()) => exp2(x * constant(std::f32::consts::LOG2_E))
+    ));
+    rules.push(rewrite_rule!(let x = capture("x");
+        crate::node::cos(x.clone()) => sin(x + constant(std::f32::consts::FRAC_PI_2))
+    ));
+    rules.push(rewrite_rule!(let x = capture("x");
+        crate::node::tan(x.clone()) => sin(x.clone()) / sin(x + constant(std::f32::consts::FRAC_PI_2))
+    ));
+
+    // --- Constant Folding ---
+    rules.push(RewriteRule::new_fn(
+        Node::from(Arc::new(NodeData {
+            op: Box::new(OpAdd),
+            src: vec![capture("a"), capture("b")],
+        })),
+        |_, captures| {
+            let a = captures.get("a")?.op().as_any().downcast_ref::<Const>()?.0.as_any().downcast_ref::<f32>()?;
+            let b = captures.get("b")?.op().as_any().downcast_ref::<Const>()?.0.as_any().downcast_ref::<f32>()?;
+            Some(constant(a + b))
+        },
+    ));
+    rules.push(RewriteRule::new_fn(
+        Node::from(Arc::new(NodeData {
+            op: Box::new(OpMul),
+            src: vec![capture("a"), capture("b")],
+        })),
+        |_, captures| {
+            let a = captures.get("a")?.op().as_any().downcast_ref::<Const>()?.0.as_any().downcast_ref::<f32>()?;
+            let b = captures.get("b")?.op().as_any().downcast_ref::<Const>()?.0.as_any().downcast_ref::<f32>()?;
+            Some(constant(a * b))
+        },
+    ));
+    rules.push(RewriteRule::new_fn(
+        Node::from(Arc::new(NodeData {
+            op: Box::new(Exp2),
+            src: vec![capture("x")],
+        })),
+        |_, captures| {
+            let x = captures.get("x")?.op().as_any().downcast_ref::<Const>()?.0.as_any().downcast_ref::<f32>()?;
+            Some(constant(x.exp2()))
+        },
+    ));
+    rules.push(RewriteRule::new_fn(
+        Node::from(Arc::new(NodeData {
+            op: Box::new(Log2),
+            src: vec![capture("x")],
+        })),
+        |_, captures| {
+            let x = captures.get("x")?.op().as_any().downcast_ref::<Const>()?.0.as_any().downcast_ref::<f32>()?;
+            Some(constant(x.log2()))
+        },
+    ));
+    rules.push(RewriteRule::new_fn(
+        Node::from(Arc::new(NodeData {
+            op: Box::new(Sqrt),
+            src: vec![capture("x")],
+        })),
+        |_, captures| {
+            let x = captures.get("x")?.op().as_any().downcast_ref::<Const>()?.0.as_any().downcast_ref::<f32>()?;
+            Some(constant(x.sqrt()))
+        },
+    ));
+    rules.push(RewriteRule::new_fn(
+        Node::from(Arc::new(NodeData {
+            op: Box::new(Recip),
+            src: vec![capture("x")],
+        })),
+        |_, captures| {
+            let x = captures.get("x")?.op().as_any().downcast_ref::<Const>()?.0.as_any().downcast_ref::<f32>()?;
+            Some(constant(x.recip()))
+        },
+    ));
+    rules.push(RewriteRule::new_fn(
+        Node::from(Arc::new(NodeData {
+            op: Box::new(Sin),
+            src: vec![capture("x")],
+        })),
+        |_, captures| {
+            let x = captures.get("x")?.op().as_any().downcast_ref::<Const>()?.0.as_any().downcast_ref::<f32>()?;
+            Some(constant(x.sin()))
+        },
+    ));
+
+    // --- Algebraic Simplifications ---
+    rules.push(rewrite_rule!(let x = capture("x"); x.clone() + constant(0.0f32) => x));
+    rules.push(rewrite_rule!(let x = capture("x"); constant(0.0f32) + x.clone() => x));
+    rules.push(rewrite_rule!(let x = capture("x"); x.clone() * constant(1.0f32) => x));
+    rules.push(rewrite_rule!(let x = capture("x"); constant(1.0f32) * x.clone() => x));
+    rules.push(rewrite_rule!(let x = capture("x"); x.clone() * constant(0.0f32) => constant(0.0f32)));
+    rules.push(rewrite_rule!(let x = capture("x"); constant(0.0f32) * x.clone() => constant(0.0f32)));
+
+    Rewriter::new("default", rules)
 }
+
+/// Simplifies a `Node` graph using the default `Rewriter`.
+pub fn simplify(node: Node) -> Node {
+    let rewriter = default_rewriter();
+    rewriter.rewrite(node)
+}
+
+

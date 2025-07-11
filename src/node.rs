@@ -296,7 +296,7 @@ mod tests {
         let rule = crate::rewrite_rule!(let x = capture("x"); recip(recip(x.clone())) => x);
 
         // 3. Apply the rule
-        let rewriter = Rewriter::new(vec![rule]);
+        let rewriter = Rewriter::new("double_recip", vec![rule]);
         let rewritten_graph = rewriter.rewrite(graph);
 
         // 4. Assert that the rewritten graph is `a`

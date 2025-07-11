@@ -29,7 +29,7 @@ fn test_constant_folding_add() {
 
     // 1. Test with two constants: 2.0 + 3.0 => 5.0
     let graph1 = node::constant(2.0f32) + node::constant(3.0f32);
-    let rewriter = Rewriter::new(vec![rule]);
+    let rewriter = Rewriter::new("test_rewriter", vec![rule]);
     let rewritten_graph1 = rewriter.rewrite(graph1);
     assert_eq!(rewritten_graph1, node::constant(5.0f32));
 
@@ -60,7 +60,7 @@ fn test_constant_folding_add() {
             None
         },
     );
-    let rewriter2 = Rewriter::new(vec![rule2]);
+    let rewriter2 = Rewriter::new("test_rewriter2", vec![rule2]);
     let rewritten_graph2 = rewriter2.rewrite(graph2.clone());
     assert_eq!(rewritten_graph2, graph2);
 }

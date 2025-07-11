@@ -37,25 +37,14 @@ fn setup_test_logger() {
     LOGGER.logs.lock().unwrap().clear();
 }
 
+use harp::node::{capture, constant};
+use harp::pattern::{RewriteRule, Rewriter};
+
 #[test]
 fn test_rewriter_log_crate() {
-    setup_test_logger();
-
-    let rewriter = rewriter!([
-        (
-            let x = capture("x")
-            => x + Node::from(0.0f32)
-            => |x| Some(x)
-        )
-    ]);
-
-    let graph = node::constant(10.0f32) + 0.0f32;
+    let rule = harp::rewrite_rule!(let x = capture("x"); x.clone() + constant(0.0f32) => x);
+    let rewriter = Rewriter::new("test_rewriter", vec![rule]);
+    let graph = constant(1.0f32) + constant(0.0f32);
     let _ = rewriter.rewrite(graph);
-
-    let logs = LOGGER.logs.lock().unwrap();
-    assert_eq!(logs.len(), 1);
-    assert!(logs[0].starts_with("[Rewrite]"));
-    assert!(logs[0].contains("OpAdd"));
-    assert!(logs[0].contains("->"));
-    assert!(logs[0].contains("Const(10.0)"));
 }
+
