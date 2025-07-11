@@ -82,14 +82,41 @@ macro_rules! impl_operator {
     };
 }
 
+#[derive(Debug, Clone)]
+pub struct Loop {
+    /// The node representing the loop count (maximum value).
+    pub count: Node,
+    /// The node representing the body of the loop.
+    pub body: Node,
+}
+
+impl PartialEq for Loop {
+    fn eq(&self, other: &Self) -> bool {
+        self.count == other.count && self.body == other.body
+    }
+}
+impl Eq for Loop {}
+
+impl Operator for Loop {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn name(&self) -> &'static str {
+        "Loop"
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoopVariable;
+
 // Define all operator structs
 def_operators!(
     OpAdd, OpSub, OpMul, OpDiv, OpRem, Load, Store, Recip, Wildcard, Sin, Exp2, Log2, Sqrt, Max,
-    Sink, Loop, Reshape, OpUniform, OpRandn
+    Sink, Reshape, OpUniform, OpRandn
 );
 impl_operator!(
-    OpAdd, OpMul, OpRem, Load, Store, Recip, Wildcard, Sin, Exp2, Log2, Sqrt, Max,
-    Sink, Loop, Reshape, OpUniform
+    OpAdd, OpMul, OpRem, Load, Store, Recip, Wildcard, Sin, Exp2, Log2, Sqrt, Max, Sink,
+    Reshape, OpUniform, LoopVariable
 );
 
 // --- Specialized Operator Structs ---
@@ -218,8 +245,12 @@ impl FusedOp for OpSub {
     }
 }
 impl Operator for OpSub {
-    fn as_any(&self) -> &dyn Any { self }
-    fn name(&self) -> &'static str { "OpSub" }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn name(&self) -> &'static str {
+        "OpSub"
+    }
     fn as_fused_op(&self) -> Option<&dyn FusedOp> {
         Some(self)
     }
@@ -232,8 +263,12 @@ impl FusedOp for OpDiv {
     }
 }
 impl Operator for OpDiv {
-    fn as_any(&self) -> &dyn Any { self }
-    fn name(&self) -> &'static str { "OpDiv" }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn name(&self) -> &'static str {
+        "OpDiv"
+    }
     fn as_fused_op(&self) -> Option<&dyn FusedOp> {
         Some(self)
     }
@@ -257,8 +292,12 @@ impl FusedOp for OpRandn {
     }
 }
 impl Operator for OpRandn {
-    fn as_any(&self) -> &dyn Any { self }
-    fn name(&self) -> &'static str { "OpRandn" }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn name(&self) -> &'static str {
+        "OpRandn"
+    }
     fn as_fused_op(&self) -> Option<&dyn FusedOp> {
         Some(self)
     }

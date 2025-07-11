@@ -56,13 +56,34 @@ impl<'a> CodeGenerator<'a> {
             .collect();
 
         if let Some(expr) = self.renderer.render_op(node.op().as_ref(), &rendered_operands) {
-            if node.op().as_any().is::<crate::op::Const>() || node.op().as_any().is::<crate::op::Variable>() {
+            if node.op().as_any().is::<crate::op::Const>()
+                || node.op().as_any().is::<crate::op::Variable>()
+                || node.op().as_any().is::<crate::op::LoopVariable>()
+            {
                 self.node_to_var.insert(node.ptr(), expr);
             } else {
                 let var_name = self.new_var();
-                self.statements.push(format!("float {var_name} = {expr};"));
+                self.statements.push(format!("float {} = {};", var_name, expr));
                 self.node_to_var.insert(node.ptr(), var_name);
             }
+        // Handle Loop operator specifically
+        } else if let Some(loop_op) = node.op().as_any().downcast_ref::<crate::op::Loop>() {
+            let count_var = self.node_to_var.get(&loop_op.count.ptr()).unwrap();
+            
+            // Generate the body of the loop using a separate generator
+            let mut body_codegen = CodeGenerator::new(self.renderer);
+            let body_result_var = body_codegen.generate_loop_body(&loop_op.body);
+
+            let loop_body_code = body_codegen.statements.join("\n        ");
+            let loop_statement = format!(
+                "for (int i = 0; i < {}; ++i) {{\n        {}\n    }}",
+                count_var, loop_body_code
+            );
+            self.statements.push(loop_statement);
+            // Note: The result of the loop is not captured for now.
+            // This would require a more complex mechanism to handle loop-carried dependencies.
+            self.node_to_var.insert(node.ptr(), "loop_result".to_string());
+
         } else if let Some(fused_op) = node.op().as_fused_op() {
             let fallback_node = fused_op.fallback(node.src());
             // Recursively render the fallback graph. This is not the most efficient
@@ -74,18 +95,31 @@ impl<'a> CodeGenerator<'a> {
             panic!("Rendering not implemented for operator: {}", node.op().name());
         }
     }
+
+    /// Generates the body of a loop, returning the final variable name.
+    fn generate_loop_body(&mut self, root: &Node) -> String {
+        let sorted_nodes = self.topological_sort(root);
+        for node in &sorted_nodes {
+            self.render_node(node);
+        }
+        self.node_to_var.get(&root.ptr()).unwrap().clone()
+    }
     
     fn render_fallback_node(&mut self, node: &Node) -> String {
         if let Some(var) = self.node_to_var.get(&node.ptr()) {
             return var.clone();
         }
-        let rendered_operands: Vec<String> = node.src().iter().map(|n| self.render_fallback_node(n)).collect();
+        let rendered_operands: Vec<String> =
+            node.src().iter().map(|n| self.render_fallback_node(n)).collect();
         let expr = self.renderer.render_op(node.op().as_ref(), &rendered_operands).unwrap();
-        if node.op().as_any().is::<crate::op::Const>() || node.op().as_any().is::<crate::op::Variable>() {
-             expr
+        if node.op().as_any().is::<crate::op::Const>()
+            || node.op().as_any().is::<crate::op::Variable>()
+            || node.op().as_any().is::<crate::op::LoopVariable>()
+        {
+            expr
         } else {
             let var_name = self.new_var();
-            self.statements.push(format!("float {var_name} = {expr};"));
+            self.statements.push(format!("float {} = {};", var_name, expr));
             self.node_to_var.insert(node.ptr(), var_name.clone());
             var_name
         }

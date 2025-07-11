@@ -13,8 +13,17 @@ impl Renderer for CRenderer {
             _ if op_any.is::<Sin>() => Some(self.render(op_any.downcast_ref::<Sin>().unwrap(), operands)),
             _ if op_any.is::<Const>() => Some(self.render(op_any.downcast_ref::<Const>().unwrap(), operands)),
             _ if op_any.is::<Variable>() => Some(self.render(op_any.downcast_ref::<Variable>().unwrap(), operands)),
+            _ if op_any.is::<LoopVariable>() => Some(self.render(op_any.downcast_ref::<LoopVariable>().unwrap(), operands)),
+            // Loop operator is handled by the CodeGenerator itself.
+            _ if op_any.is::<Loop>() => None,
             _ => None, // Operator not supported by this renderer
         }
+    }
+}
+
+impl Render<LoopVariable> for CRenderer {
+    fn render(&self, _op: &LoopVariable, _operands: &[String]) -> String {
+        "i".to_string() // A default loop variable name. This could be made more robust.
     }
 }
 

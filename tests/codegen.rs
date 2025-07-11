@@ -1,6 +1,7 @@
 use harp::backend::codegen::CodeGenerator;
 use harp::backend::c::CRenderer;
-use harp::node::{constant, variable};
+use harp::node::{self, constant, variable, Node};
+use harp::op::{Loop, LoopVariable};
 
 #[test]
 fn test_simple_codegen() {
@@ -53,6 +54,32 @@ fn test_complex_graph_codegen() {
     float v0 = (a + 2.0);
     float v1 = (v0 * 3.0);
     return v1;
+}"#;
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn test_loop_codegen() {
+    let loop_var = Node::new(LoopVariable, vec![]);
+    let loop_body = loop_var + constant(1.0f32);
+    let count = constant(10);
+    let graph = Node::new(
+        Loop {
+            count: count.clone(),
+            body: loop_body,
+        },
+        vec![count],
+    );
+
+    let renderer = CRenderer;
+    let mut codegen = CodeGenerator::new(&renderer);
+    let result = codegen.generate(&graph);
+
+    let expected = r#"float compute() {
+    for (int i = 0; i < 10; ++i) {
+        float v0 = (i + 1.0);
+    }
+    return loop_result;
 }"#;
     assert_eq!(result, expected);
 }
