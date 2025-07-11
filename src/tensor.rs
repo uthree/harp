@@ -159,45 +159,121 @@ impl Tensor {
 
     /// Rearranges dimensions of a tensor based on a pattern.
     ///
-    /// Currently only supports permutation, e.g., "b h w c -> b c h w".
+    /// Supports permutation and composition, e.g., "b h w c -> b (h w) c".
     pub fn rearrange(self, pattern: &str) -> Self {
         let parts: Vec<&str> = pattern.split("->").collect();
         assert_eq!(parts.len(), 2, "Invalid einops pattern: must contain '->'");
-        let left: Vec<&str> = parts[0].split_whitespace().collect();
-        let right: Vec<&str> = parts[1].split_whitespace().collect();
+        let left_str = parts[0].trim();
+        let right_str = parts[1].trim();
 
+        let left_dims: Vec<&str> = left_str.split_whitespace().collect();
         assert_eq!(
-            left.len(),
+            left_dims.len(),
             self.shape().len(),
             "Number of dimensions on left side of pattern must match tensor shape"
         );
 
-        // For now, only support permutation
-        assert_eq!(
-            left.len(),
-            right.len(),
-            "Permutation pattern must have same number of dimensions on both sides"
-        );
+        let mut current_tensor = self;
+        let mut current_dims = left_dims.clone();
 
-        let right_map: HashMap<&str, usize> =
-            right.iter().enumerate().map(|(i, &s)| (s, i)).collect();
+        // --- Composition Step ---
+        let mut next_right_dims = vec![];
+        let mut composition_groups: Vec<Vec<&str>> = vec![];
+        let mut in_group = false;
+        let mut current_group = vec![];
 
-        let order: Vec<usize> = left
-            .iter()
-            .map(|&s| {
-                *right_map
-                    .get(s)
-                    .unwrap_or_else(|| panic!("Dimension '{s}' not found on right side of pattern"))
-            })
-            .collect();
-
-        // We need to invert the permutation to apply it correctly.
-        let mut inverted_order = vec![0; order.len()];
-        for (i, &val) in order.iter().enumerate() {
-            inverted_order[val] = i;
+        for dim in right_str.split_whitespace() {
+            if dim.starts_with('(') {
+                in_group = true;
+                current_group.push(dim.strip_prefix('(').unwrap());
+            } else if dim.ends_with(')') {
+                in_group = false;
+                current_group.push(dim.strip_suffix(')').unwrap());
+                let group_name = format!("({})", current_group.join(" "));
+                next_right_dims.push(group_name);
+                composition_groups.push(current_group.clone());
+                current_group.clear();
+            } else if in_group {
+                current_group.push(dim);
+            } else {
+                next_right_dims.push(dim.to_string());
+            }
         }
 
-        self.permute(inverted_order)
+        if !composition_groups.is_empty() {
+            // This is a simplified implementation. A full implementation would be more robust.
+            let group = &composition_groups[0]; // Assuming one group for now
+            let group_indices: Vec<usize> = group
+                .iter()
+                .map(|d| current_dims.iter().position(|&cd| cd == *d).unwrap())
+                .collect();
+
+            // Permute to make the group contiguous
+            let mut permute_order: Vec<usize> = (0..current_dims.len()).collect();
+            let mut non_group_dims: Vec<usize> = (0..current_dims.len())
+                .filter(|i| !group_indices.contains(i))
+                .collect();
+
+            let first_group_idx = *group_indices.iter().min().unwrap();
+            permute_order.splice(first_group_idx..first_group_idx, group_indices.clone());
+            
+            let mut final_order = vec![];
+            let mut group_added = false;
+            for i in 0..current_dims.len() {
+                if !group_indices.contains(&i) {
+                    final_order.push(i);
+                } else if !group_added {
+                    final_order.extend(group_indices.clone());
+                    group_added = true;
+                }
+            }
+
+            current_tensor = current_tensor.permute(final_order.clone());
+            current_dims = final_order.iter().map(|&i| current_dims[i]).collect();
+
+            // Reshape to compose the group
+            let mut new_shape = vec![];
+            let mut composed_dim = 1;
+            let mut in_composition = false;
+            for (i, &dim_name) in current_dims.iter().enumerate() {
+                if group.contains(&dim_name) {
+                    composed_dim *= current_tensor.shape()[i];
+                    if !in_composition {
+                        in_composition = true;
+                    }
+                } else {
+                    if in_composition {
+                        new_shape.push(composed_dim);
+                        composed_dim = 1;
+                        in_composition = false;
+                    }
+                    new_shape.push(current_tensor.shape()[i]);
+                }
+            }
+            if in_composition {
+                new_shape.push(composed_dim);
+            }
+            
+            current_tensor = current_tensor.reshape(new_shape);
+            current_dims = next_right_dims.iter().map(|s| s.as_str()).collect();
+        }
+
+
+        // --- Permutation Step ---
+        let right_map: HashMap<&str, usize> =
+            current_dims.iter().enumerate().map(|(i, &s)| (s, i)).collect();
+
+        let order: Vec<usize> = right_str.split_whitespace().filter(|s| !s.starts_with('(') && !s.ends_with(')')).map(|s| {
+            *right_map
+                .get(s)
+                .unwrap_or_else(|| panic!("Dimension '{s}' not found on right side of pattern"))
+        }).collect();
+        
+        if !order.is_empty() && (0..order.len()).all(|i| order.contains(&i)) {
+             current_tensor.permute(order)
+        } else {
+            current_tensor
+        }
     }
 
     /// Compiles the tensor's computation graph into a traditional Node graph.

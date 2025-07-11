@@ -158,6 +158,20 @@ fn test_rearrange_permutation() {
 }
 
 #[test]
+fn test_rearrange_composition() {
+    let a = Tensor::new_load(vec![10, 20, 30, 40]);
+    let b = a.clone().rearrange("b h w c -> b (h w) c");
+
+    assert_eq!(*b.shape(), vec![10, 600, 40]);
+    assert_eq!(b.data.op.name(), "Reshape");
+    assert_eq!(b.data.src.len(), 1);
+    
+    let permute_node = &b.data.src[0];
+    assert_eq!(permute_node.data.op.name(), "Permute");
+    assert!(Arc::ptr_eq(&a.data, &permute_node.data.src[0].data));
+}
+
+#[test]
 fn test_compile_add() {
     let shape = vec![10];
     let a = Tensor::new_load(shape.clone());
