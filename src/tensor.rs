@@ -1,5 +1,5 @@
 use crate::dot::ToDot;
-use crate::node::{self, constant, Node};
+use crate::node::{self, Node, constant};
 use crate::op::{
     Expand, HasIdentityElement, Load, OpAdd, OpDiv, OpMul, OpSub, Operator, Permute, Reduce,
     Reshape, Slice,
@@ -39,11 +39,11 @@ impl ToDot for Tensor {
         dot.push_str("  rankdir=TB;\n\n");
         dot.push_str("  // Nodes\n");
         for node_def in nodes {
-            dot.push_str(&format!("  {}\n", node_def));
+            dot.push_str(&format!("  {node_def}\n"));
         }
         dot.push_str("\n  // Edges\n");
         for edge_def in edges {
-            dot.push_str(&format!("  {}\n", edge_def));
+            dot.push_str(&format!("  {edge_def}\n"));
         }
         dot.push_str("}\n");
         dot
@@ -70,14 +70,13 @@ impl Tensor {
         let label = format!("{}\nshape: {:?}", tensor.data.op.name(), tensor.shape());
         let shape_style = "box";
         nodes.push(format!(
-            "{} [label=\"{}\", shape=\"{}\"];",
-            node_id, label, shape_style
+            "{node_id} [label=\"{label}\", shape=\"{shape_style}\"];"
         ));
 
         for src_tensor in &tensor.data.src {
             Self::build_dot_recursive(src_tensor, nodes, edges, visited, counter);
             let src_id = visited.get(&Arc::as_ptr(&src_tensor.data)).unwrap();
-            edges.push(format!("{} -> {};", src_id, node_id));
+            edges.push(format!("{src_id} -> {node_id};"));
         }
     }
 }

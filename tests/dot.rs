@@ -34,7 +34,12 @@ fn test_tensor_to_dot() {
     // Check for key elements
     assert!(dot_string.contains("digraph G"));
     // Check for tensor node definitions (op name and shape)
-    assert!(dot_string.matches("[label=\"Load\nshape: [2, 3]\", shape=\"box\"]").count() == 2);
+    assert!(
+        dot_string
+            .matches("[label=\"Load\nshape: [2, 3]\", shape=\"box\"]")
+            .count()
+            == 2
+    );
     assert!(dot_string.contains("[label=\"OpAdd\nshape: [2, 3]\", shape=\"box\"]"));
     // Check that there are two edges pointing to some node.
     assert_eq!(dot_string.matches("-> node").count(), 2);

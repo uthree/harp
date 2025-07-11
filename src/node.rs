@@ -100,11 +100,11 @@ impl ToDot for Node {
         dot.push_str("  rankdir=TB;\n\n");
         dot.push_str("  // Nodes\n");
         for node_def in nodes {
-            dot.push_str(&format!("  {}\n", node_def));
+            dot.push_str(&format!("  {node_def}\n"));
         }
         dot.push_str("\n  // Edges\n");
         for edge_def in edges {
-            dot.push_str(&format!("  {}\n", edge_def));
+            dot.push_str(&format!("  {edge_def}\n"));
         }
         dot.push_str("}\n");
         dot
