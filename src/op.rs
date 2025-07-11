@@ -66,10 +66,12 @@ macro_rules! impl_operator {
 
 // Define all operator structs
 def_operators!(
-    OpAdd, OpSub, OpMul, OpDiv, OpRem, Load, Store, Recip, Wildcard, Sin, Exp2, Log2, Sqrt, Max, SINK, LOOP, Reshape
+    OpAdd, OpSub, OpMul, OpDiv, OpRem, Load, Store, Recip, Wildcard, Sin, Exp2, Log2, Sqrt, Max,
+    Sink, Loop, Reshape
 );
 impl_operator!(
-    OpAdd, OpSub, OpMul, OpDiv, OpRem, Load, Store, Recip, Wildcard, Sin, Exp2, Log2, Sqrt, Max, SINK, LOOP, Reshape
+    OpAdd, OpSub, OpMul, OpDiv, OpRem, Load, Store, Recip, Wildcard, Sin, Exp2, Log2, Sqrt, Max,
+    Sink, Loop, Reshape
 );
 
 // --- Specialized Operator Structs ---
@@ -77,22 +79,34 @@ impl_operator!(
 #[derive(Debug, Clone)]
 pub struct Const(pub Box<dyn DType>);
 impl Operator for Const {
-    fn as_any(&self) -> &dyn Any { self }
-    fn name(&self) -> &'static str { "Const" }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn name(&self) -> &'static str {
+        "Const"
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Capture(pub String);
 impl Operator for Capture {
-    fn as_any(&self) -> &dyn Any { self }
-    fn name(&self) -> &'static str { "Capture" }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn name(&self) -> &'static str {
+        "Capture"
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct Cast(pub Box<dyn DType>);
 impl Operator for Cast {
-    fn as_any(&self) -> &dyn Any { self }
-    fn name(&self) -> &'static str { "Cast" }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn name(&self) -> &'static str {
+        "Cast"
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -101,8 +115,12 @@ pub struct Reduce {
     pub axis: usize,
 }
 impl Operator for Reduce {
-    fn as_any(&self) -> &dyn Any { self }
-    fn name(&self) -> &'static str { "Reduce" }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn name(&self) -> &'static str {
+        "Reduce"
+    }
 }
 
 // --- Trait Implementations for Operators ---
