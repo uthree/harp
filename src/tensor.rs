@@ -23,7 +23,7 @@ pub struct Tensor {
 
 impl Tensor {
     /// Returns the shape of the tensor.
-    pub fn shape(&self) -> &Vec<u64> {
+    pub fn shape(&self) -> &Vec<usize> {
         &self.data.shape
     }
 }
@@ -89,7 +89,7 @@ impl Tensor {
 pub struct TensorData {
     pub op: Box<dyn Operator>,
     pub src: Vec<Tensor>,
-    pub shape: Vec<u64>,
+    pub shape: Vec<usize>,
 }
 
 /// Tracks the shape and indexing of a `Tensor`.
@@ -111,7 +111,7 @@ impl Tensor {
     ///
     /// This operation is achieved by creating a scalar constant tensor and
     /// then expanding it to the desired shape, which is memory-efficient.
-    pub fn full<T: DType + 'static>(shape: Vec<u64>, value: T) -> Self {
+    pub fn full<T: DType + 'static>(shape: Vec<usize>, value: T) -> Self {
         // Create a scalar tensor (0-dimensional)
         let scalar = Self {
             data: Arc::new(TensorData {
@@ -128,7 +128,7 @@ impl Tensor {
     ///
     /// The random numbers are not generated immediately but are represented by
     /// the `OpUniform` operator in the computation graph.
-    pub fn uniform(shape: Vec<u64>) -> Self {
+    pub fn uniform(shape: Vec<usize>) -> Self {
         Self {
             data: Arc::new(TensorData {
                 op: Box::new(OpUniform),
@@ -142,7 +142,7 @@ impl Tensor {
     ///
     /// The random numbers are not generated immediately but are represented by
     /// the `OpRandn` operator in the computation graph.
-    pub fn randn(shape: Vec<u64>) -> Self {
+    pub fn randn(shape: Vec<usize>) -> Self {
         Self {
             data: Arc::new(TensorData {
                 op: Box::new(OpRandn),
@@ -153,12 +153,12 @@ impl Tensor {
     }
 
     /// Creates a new tensor of zeros with the given shape.
-    pub fn zeros(shape: Vec<u64>) -> Self {
+    pub fn zeros(shape: Vec<usize>) -> Self {
         Self::full(shape, 0.0)
     }
 
     /// Creates a new tensor of ones with the given shape.
-    pub fn ones(shape: Vec<u64>) -> Self {
+    pub fn ones(shape: Vec<usize>) -> Self {
         Self::full(shape, 1.0)
     }
 
@@ -173,7 +173,7 @@ impl Tensor {
     }
 
     /// Creates a new "leaf" tensor that represents loading data from a source.
-    pub fn new_load(shape: Vec<u64>) -> Self {
+    pub fn new_load(shape: Vec<usize>) -> Self {
         Self {
             data: Arc::new(TensorData {
                 op: Box::new(Load),
@@ -184,9 +184,9 @@ impl Tensor {
     }
 
     /// Changes the shape of the tensor without changing its data.
-    pub fn reshape(self, new_shape: Vec<u64>) -> Self {
-        let original_size: u64 = self.shape().iter().product();
-        let new_size: u64 = new_shape.iter().product();
+    pub fn reshape(self, new_shape: Vec<usize>) -> Self {
+        let original_size: u64 = self.shape().iter().map(|&d| d as u64).product();
+        let new_size: u64 = new_shape.iter().map(|&d| d as u64).product();
         assert_eq!(
             original_size, new_size,
             "Cannot reshape tensor of size {original_size} to shape {new_shape:?} with size {new_size}"
@@ -219,7 +219,7 @@ impl Tensor {
     }
 
     /// Expands the tensor to a new shape by adding new dimensions or stretching existing ones of size 1.
-    pub fn expand(self, new_shape: Vec<u64>) -> Self {
+    pub fn expand(self, new_shape: Vec<usize>) -> Self {
         assert!(
             self.shape().len() <= new_shape.len(),
             "New shape must have at least as many dimensions as the original shape"
@@ -239,7 +239,7 @@ impl Tensor {
     }
 
     /// Slices the tensor along each dimension.
-    pub fn slice(self, args: Vec<(u64, u64)>) -> Self {
+    pub fn slice(self, args: Vec<(usize, usize)>) -> Self {
         assert_eq!(
             self.shape().len(),
             args.len(),

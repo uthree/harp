@@ -1,6 +1,6 @@
 use harp::prelude::*;
 
-fn check_full_structure<T>(tensor: &Tensor, shape: &[u64], value: T)
+fn check_full_structure<T>(tensor: &Tensor, shape: &[usize], value: T)
 where
     T: DType + PartialEq + std::fmt::Debug,
 {
@@ -9,7 +9,7 @@ where
     assert_eq!(tensor.data.src.len(), 1);
 
     let source_tensor = &tensor.data.src[0];
-    assert_eq!(source_tensor.shape(), &vec![] as &Vec<u64>);
+    assert_eq!(source_tensor.shape(), &vec![] as &Vec<usize>);
     assert_eq!(source_tensor.data.op.name(), "Const");
 
     if let Some(const_op) = source_tensor.data.op.as_any().downcast_ref::<Const>() {

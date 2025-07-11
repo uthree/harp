@@ -180,7 +180,7 @@ fn test_compile_add() {
 
     let idx = Rc::new(variable("idx"));
     let tracker = ShapeTracker {
-        dims: shape.iter().map(|&d| Rc::new(constant(d))).collect(),
+        dims: shape.iter().map(|&d| Rc::new(constant(d as u64))).collect(),
         index_expr: vec![idx.clone()],
     };
 
@@ -207,7 +207,7 @@ fn test_compile_reshape() {
 
     let idx = Rc::new(variable("idx"));
     let initial_tracker = ShapeTracker {
-        dims: vec![Rc::new(constant(3u64)), Rc::new(constant(4u64))],
+        dims: vec![Rc::new(constant(3usize)), Rc::new(constant(4usize))],
         index_expr: vec![idx.clone()],
     };
 
@@ -227,7 +227,7 @@ fn test_compile_permute() {
     let i = Rc::new(variable("i"));
     let j = Rc::new(variable("j"));
     let tracker = ShapeTracker {
-        dims: vec![Rc::new(constant(3u64)), Rc::new(constant(2u64))],
+        dims: vec![Rc::new(constant(3usize)), Rc::new(constant(2usize))],
         index_expr: vec![i.clone(), j.clone()],
     };
 
@@ -249,7 +249,7 @@ fn test_compile_expand() {
     let i = Rc::new(variable("i"));
     let j = Rc::new(variable("j"));
     let tracker = ShapeTracker {
-        dims: vec![Rc::new(constant(2u64)), Rc::new(constant(3u64))],
+        dims: vec![Rc::new(constant(2usize)), Rc::new(constant(3usize))],
         index_expr: vec![i.clone(), j.clone()],
     };
 
@@ -271,7 +271,7 @@ fn test_compile_slice() {
 
     let i = Rc::new(variable("i"));
     let tracker = ShapeTracker {
-        dims: vec![Rc::new(constant(3u64))],
+        dims: vec![Rc::new(constant(3usize))],
         index_expr: vec![i.clone()],
     };
 

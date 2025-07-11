@@ -164,7 +164,7 @@ impl Operator for Permute {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Expand {
-    pub shape: Vec<u64>,
+    pub shape: Vec<usize>,
 }
 impl Operator for Expand {
     fn as_any(&self) -> &dyn Any {
@@ -177,7 +177,7 @@ impl Operator for Expand {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Slice {
-    pub args: Vec<(u64, u64)>,
+    pub args: Vec<(usize, usize)>,
 }
 impl Operator for Slice {
     fn as_any(&self) -> &dyn Any {

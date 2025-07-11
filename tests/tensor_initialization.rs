@@ -13,7 +13,7 @@ fn test_tensor_full() {
 
     // The source of the Expand should be a scalar Const tensor
     let source_tensor = &tensor.data.src[0];
-    assert_eq!(source_tensor.shape(), &vec![] as &Vec<u64>); // Scalar shape
+    assert_eq!(source_tensor.shape(), &vec![] as &Vec<usize>); // Scalar shape
     assert_eq!(source_tensor.data.op.name(), "Const");
 
     if let Some(const_op) = source_tensor.data.op.as_any().downcast_ref::<Const>() {
