@@ -1,6 +1,6 @@
-use harp::node::{self, constant};
+use harp::node::constant;
 use harp::op::Const;
-use harp::{capture, rewriter};
+use harp::rewriter;
 
 fn main() {
     // Initialize the logger

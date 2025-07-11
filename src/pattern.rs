@@ -110,7 +110,7 @@ impl Rewriter {
     pub fn get_all_rules<'a>(&'a self, all_rules: &mut Vec<&'a RewriteRule>) {
         // Add rules from the current rewriter, avoiding duplicates.
         for rule in &self.rules {
-            if !all_rules.iter().any(|&existing_rule| existing_rule == rule) {
+            if !all_rules.contains(&rule) {
                 all_rules.push(rule);
             }
         }

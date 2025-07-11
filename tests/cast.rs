@@ -1,7 +1,7 @@
 use harp::node::{cast, constant};
 use harp::op::Const;
 use harp::pattern::Rewriter;
-use harp::{capture, rewriter};
+use harp::rewriter;
 
 fn cast_rules() -> Rewriter {
     rewriter!("cast_rules", [

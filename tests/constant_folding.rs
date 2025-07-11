@@ -1,4 +1,4 @@
-use harp::node::{self, constant};
+use harp::node::{self};
 use harp::op::Const;
 use harp::pattern::{RewriteRule, Rewriter};
 

@@ -12,7 +12,7 @@
 //!   expressions (e.g., `x + 0` becomes `x`, `x * 1` becomes `x`).
 //! - `default_rewriter`: A fused rewriter that combines all available simplifications.
 
-use crate::node::{capture, constant, exp2, sin, Node, NodeData};
+use crate::node::{Node, NodeData, capture, constant, exp2, sin};
 use crate::op::{Const, Exp2, Log2, OpAdd, OpMul, Recip, Sin, Sqrt};
 use crate::pattern::{RewriteRule, Rewriter};
 use crate::rewrite_rule;
@@ -40,8 +40,22 @@ pub fn default_rewriter() -> Rewriter {
             src: vec![capture("a"), capture("b")],
         })),
         |_, captures| {
-            let a = captures.get("a")?.op().as_any().downcast_ref::<Const>()?.0.as_any().downcast_ref::<f32>()?;
-            let b = captures.get("b")?.op().as_any().downcast_ref::<Const>()?.0.as_any().downcast_ref::<f32>()?;
+            let a = captures
+                .get("a")?
+                .op()
+                .as_any()
+                .downcast_ref::<Const>()?
+                .0
+                .as_any()
+                .downcast_ref::<f32>()?;
+            let b = captures
+                .get("b")?
+                .op()
+                .as_any()
+                .downcast_ref::<Const>()?
+                .0
+                .as_any()
+                .downcast_ref::<f32>()?;
             Some(constant(a + b))
         },
     ));
@@ -51,8 +65,22 @@ pub fn default_rewriter() -> Rewriter {
             src: vec![capture("a"), capture("b")],
         })),
         |_, captures| {
-            let a = captures.get("a")?.op().as_any().downcast_ref::<Const>()?.0.as_any().downcast_ref::<f32>()?;
-            let b = captures.get("b")?.op().as_any().downcast_ref::<Const>()?.0.as_any().downcast_ref::<f32>()?;
+            let a = captures
+                .get("a")?
+                .op()
+                .as_any()
+                .downcast_ref::<Const>()?
+                .0
+                .as_any()
+                .downcast_ref::<f32>()?;
+            let b = captures
+                .get("b")?
+                .op()
+                .as_any()
+                .downcast_ref::<Const>()?
+                .0
+                .as_any()
+                .downcast_ref::<f32>()?;
             Some(constant(a * b))
         },
     ));
@@ -62,7 +90,14 @@ pub fn default_rewriter() -> Rewriter {
             src: vec![capture("x")],
         })),
         |_, captures| {
-            let x = captures.get("x")?.op().as_any().downcast_ref::<Const>()?.0.as_any().downcast_ref::<f32>()?;
+            let x = captures
+                .get("x")?
+                .op()
+                .as_any()
+                .downcast_ref::<Const>()?
+                .0
+                .as_any()
+                .downcast_ref::<f32>()?;
             Some(constant(x.exp2()))
         },
     ));
@@ -72,7 +107,14 @@ pub fn default_rewriter() -> Rewriter {
             src: vec![capture("x")],
         })),
         |_, captures| {
-            let x = captures.get("x")?.op().as_any().downcast_ref::<Const>()?.0.as_any().downcast_ref::<f32>()?;
+            let x = captures
+                .get("x")?
+                .op()
+                .as_any()
+                .downcast_ref::<Const>()?
+                .0
+                .as_any()
+                .downcast_ref::<f32>()?;
             Some(constant(x.log2()))
         },
     ));
@@ -82,7 +124,14 @@ pub fn default_rewriter() -> Rewriter {
             src: vec![capture("x")],
         })),
         |_, captures| {
-            let x = captures.get("x")?.op().as_any().downcast_ref::<Const>()?.0.as_any().downcast_ref::<f32>()?;
+            let x = captures
+                .get("x")?
+                .op()
+                .as_any()
+                .downcast_ref::<Const>()?
+                .0
+                .as_any()
+                .downcast_ref::<f32>()?;
             Some(constant(x.sqrt()))
         },
     ));
@@ -92,7 +141,14 @@ pub fn default_rewriter() -> Rewriter {
             src: vec![capture("x")],
         })),
         |_, captures| {
-            let x = captures.get("x")?.op().as_any().downcast_ref::<Const>()?.0.as_any().downcast_ref::<f32>()?;
+            let x = captures
+                .get("x")?
+                .op()
+                .as_any()
+                .downcast_ref::<Const>()?
+                .0
+                .as_any()
+                .downcast_ref::<f32>()?;
             Some(constant(x.recip()))
         },
     ));
@@ -102,7 +158,14 @@ pub fn default_rewriter() -> Rewriter {
             src: vec![capture("x")],
         })),
         |_, captures| {
-            let x = captures.get("x")?.op().as_any().downcast_ref::<Const>()?.0.as_any().downcast_ref::<f32>()?;
+            let x = captures
+                .get("x")?
+                .op()
+                .as_any()
+                .downcast_ref::<Const>()?
+                .0
+                .as_any()
+                .downcast_ref::<f32>()?;
             Some(constant(x.sin()))
         },
     ));
@@ -112,8 +175,12 @@ pub fn default_rewriter() -> Rewriter {
     rules.push(rewrite_rule!(let x = capture("x"); constant(0.0f32) + x.clone() => x));
     rules.push(rewrite_rule!(let x = capture("x"); x.clone() * constant(1.0f32) => x));
     rules.push(rewrite_rule!(let x = capture("x"); constant(1.0f32) * x.clone() => x));
-    rules.push(rewrite_rule!(let x = capture("x"); x.clone() * constant(0.0f32) => constant(0.0f32)));
-    rules.push(rewrite_rule!(let x = capture("x"); constant(0.0f32) * x.clone() => constant(0.0f32)));
+    rules.push(
+        rewrite_rule!(let x = capture("x"); x.clone() * constant(0.0f32) => constant(0.0f32)),
+    );
+    rules.push(
+        rewrite_rule!(let x = capture("x"); constant(0.0f32) * x.clone() => constant(0.0f32)),
+    );
 
     Rewriter::new("default", rules)
 }
@@ -123,5 +190,3 @@ pub fn simplify(node: Node) -> Node {
     let rewriter = default_rewriter();
     rewriter.rewrite(node)
 }
-
-

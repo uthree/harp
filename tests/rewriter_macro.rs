@@ -1,6 +1,6 @@
-use harp::node::{self, Node};
+use harp::node::Node;
 use harp::pattern::Rewriter;
-use harp::{capture, rewriter};
+use harp::rewriter;
 
 #[test]
 fn test_rewriter_macro() {

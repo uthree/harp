@@ -1,5 +1,3 @@
-use harp::node::{self, Node};
-use harp::rewriter;
 use log::{Level, Metadata, Record};
 use std::sync::{Mutex, Once};
 
@@ -37,8 +35,8 @@ fn setup_test_logger() {
     LOGGER.logs.lock().unwrap().clear();
 }
 
-use harp::node::{capture, constant};
-use harp::pattern::{RewriteRule, Rewriter};
+use harp::node::constant;
+use harp::pattern::Rewriter;
 
 #[test]
 fn test_rewriter_log_crate() {
@@ -47,4 +45,3 @@ fn test_rewriter_log_crate() {
     let graph = constant(1.0f32) + constant(0.0f32);
     let _ = rewriter.rewrite(graph);
 }
-

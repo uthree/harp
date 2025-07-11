@@ -1,5 +1,5 @@
-use harp::node::{capture, constant};
-use harp::pattern::{RewriteRule, Rewriter};
+use harp::node::constant;
+use harp::pattern::Rewriter;
 use harp::rewrite_rule;
 
 #[test]
