@@ -193,9 +193,7 @@ impl Operator for Slice {
 
 // PrimitiveOps
 impl PrimitiveOp for OpAdd {}
-impl PrimitiveOp for OpSub {}
 impl PrimitiveOp for OpMul {}
-impl PrimitiveOp for OpDiv {}
 impl PrimitiveOp for OpRem {}
 impl PrimitiveOp for Load {}
 impl PrimitiveOp for Store {}
@@ -208,6 +206,21 @@ impl PrimitiveOp for Const {}
 impl PrimitiveOp for Cast {}
 impl PrimitiveOp for Max {}
 impl PrimitiveOp for Variable {}
+
+// FusedOps
+impl FusedOp for OpSub {
+    fn fallback(&self, operands: &[Node]) -> Node {
+        assert_eq!(operands.len(), 2, "OpSub expects 2 operands");
+        operands[0].clone() - operands[1].clone()
+    }
+}
+
+impl FusedOp for OpDiv {
+    fn fallback(&self, operands: &[Node]) -> Node {
+        assert_eq!(operands.len(), 2, "OpDiv expects 2 operands");
+        operands[0].clone() / operands[1].clone()
+    }
+}
 
 // TensorOperators
 impl TensorOperator for OpAdd {}

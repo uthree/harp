@@ -1,5 +1,6 @@
 use harp::node::{self, Node};
-use harp::op::{FusedOp, Operator};
+use harp::op::{FusedOp, OpDiv, OpSub, Operator};
+use rstest::rstest;
 use std::any::Any;
 
 // Define a new fused operator for testing
@@ -47,6 +48,34 @@ fn test_fused_op_fallback() {
 
     // Define the expected decomposed graph
     let expected_node = (a * b) + c;
+
+    // Check if the decomposed graph is correct
+    assert_eq!(decomposed_node, expected_node);
+}
+
+#[rstest]
+#[case(OpSub, |a, b| a - b)]
+#[case(OpDiv, |a, b| a / b)]
+fn test_builtin_fused_ops<O, F>(#[case] op: O, #[case] expected_decomposed: F)
+where
+    O: Operator + FusedOp + 'static,
+    F: Fn(Node, Node) -> Node,
+{
+    // Create operands
+    let a = node::variable("a");
+    let b = node::variable("b");
+
+    // Create the fused operator node
+    let fused_node = Node::new(op, vec![a.clone(), b.clone()]);
+
+    // Get the FusedOp trait object
+    let fused_op_trait = fused_node.op().as_any().downcast_ref::<O>().unwrap();
+
+    // Call fallback
+    let decomposed_node = fused_op_trait.fallback(fused_node.src());
+
+    // Define the expected decomposed graph
+    let expected_node = expected_decomposed(a, b);
 
     // Check if the decomposed graph is correct
     assert_eq!(decomposed_node, expected_node);
