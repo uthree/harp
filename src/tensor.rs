@@ -1,5 +1,5 @@
 use crate::node::{self, Node};
-use crate::op::{Load, OpAdd, OpDiv, OpMul, OpSub, Operator, Reduce};
+use crate::op::{Load, OpAdd, OpDiv, OpMul, OpSub, Operator, Reduce, Reshape};
 use dyn_clone::clone_box;
 use std::ops::{Add, Div, Mul, Sub};
 use std::rc::Rc;
@@ -14,6 +14,13 @@ pub struct Tensor {
     pub data: Arc<TensorData>,
 }
 
+impl Tensor {
+    /// Returns the shape of the tensor.
+    pub fn shape(&self) -> &Vec<u64> {
+        &self.data.shape
+    }
+}
+
 /// The internal representation of a `Tensor`'s computation.
 ///
 /// It holds the operator that produces the tensor's value and a list
@@ -21,6 +28,7 @@ pub struct Tensor {
 pub struct TensorData {
     pub op: Box<dyn Operator>,
     pub src: Vec<Tensor>,
+    pub shape: Vec<u64>,
 }
 
 /// Tracks the shape and indexing of a `Tensor`.
@@ -28,6 +36,7 @@ pub struct TensorData {
 /// This is crucial for compiling the high-level tensor graph into a
 /// scalar `Node` graph. It resolves multi-dimensional indexing into
 /// linear memory offsets.
+#[derive(Clone)]
 pub struct ShapeTracker {
     /// The size of each dimension (e.g., `[4, 3]` for a 4x3 matrix).
     pub dims: Vec<Rc<Node>>,
@@ -37,18 +46,43 @@ pub struct ShapeTracker {
 }
 
 impl Tensor {
-    /// Creates a new "leaf" tensor that represents loading data.
-    pub fn new_load() -> Self {
+    /// Creates a new "leaf" tensor that represents loading data from a source.
+    pub fn new_load(shape: Vec<u64>) -> Self {
         Self {
             data: Arc::new(TensorData {
                 op: Box::new(Load),
                 src: vec![],
+                shape,
+            }),
+        }
+    }
+
+    /// Changes the shape of the tensor without changing its data.
+    pub fn reshape(self, new_shape: Vec<u64>) -> Self {
+        let original_size: u64 = self.shape().iter().product();
+        let new_size: u64 = new_shape.iter().product();
+        assert_eq!(
+            original_size, new_size,
+            "Cannot reshape tensor of size {original_size} to shape {new_shape:?} with size {new_size}"
+        );
+
+        Self {
+            data: Arc::new(TensorData {
+                op: Box::new(Reshape),
+                src: vec![self],
+                shape: new_shape,
             }),
         }
     }
 
     /// Creates a new `Reduce` tensor.
     pub fn reduce(self, op: impl Operator + 'static, axis: usize) -> Self {
+        // Calculate the new shape after reduction
+        let mut new_shape = self.shape().clone();
+        if axis < new_shape.len() {
+            new_shape.remove(axis);
+        }
+
         Self {
             data: Arc::new(TensorData {
                 op: Box::new(Reduce {
@@ -56,6 +90,7 @@ impl Tensor {
                     axis,
                 }),
                 src: vec![self],
+                shape: new_shape,
             }),
         }
     }
@@ -83,6 +118,16 @@ impl Tensor {
                     src: vec![(**index_node).clone()],
                 })))
             }
+            "Reshape" => {
+                // Reshape modifies the ShapeTracker for subsequent compilations.
+                // It doesn't create a new computation node itself.
+                // Here, we would update the tracker's `dims` and `index_expr`.
+                // For now, we'll just pass it through as a placeholder.
+                // A real implementation needs to recalculate index_expr based on the new shape.
+                let mut new_tracker = shape_tracker.clone();
+                new_tracker.dims = self.shape().iter().map(|&d| Rc::new(node::constant(d))).collect();
+                src[0].compile(&new_tracker)
+            }
             "OpAdd" | "OpSub" | "OpMul" | "OpDiv" => {
                 // For binary ops, compile the sources recursively and combine them.
                 let left = src[0].compile(shape_tracker);
@@ -104,10 +149,12 @@ impl Add for Tensor {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
+        assert_eq!(self.shape(), rhs.shape(), "Tensor shapes must match for Add");
         Self {
             data: Arc::new(TensorData {
                 op: Box::new(OpAdd),
-                src: vec![self, rhs],
+                src: vec![self.clone(), rhs],
+                shape: self.shape().clone(),
             }),
         }
     }
@@ -116,10 +163,12 @@ impl Add for Tensor {
 impl Sub for Tensor {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self::Output {
+        assert_eq!(self.shape(), rhs.shape(), "Tensor shapes must match for Sub");
         Self {
             data: Arc::new(TensorData {
                 op: Box::new(OpSub),
-                src: vec![self, rhs],
+                src: vec![self.clone(), rhs],
+                shape: self.shape().clone(),
             }),
         }
     }
@@ -128,10 +177,12 @@ impl Sub for Tensor {
 impl Mul for Tensor {
     type Output = Self;
     fn mul(self, rhs: Self) -> Self::Output {
+        assert_eq!(self.shape(), rhs.shape(), "Tensor shapes must match for Mul");
         Self {
             data: Arc::new(TensorData {
                 op: Box::new(OpMul),
-                src: vec![self, rhs],
+                src: vec![self.clone(), rhs],
+                shape: self.shape().clone(),
             }),
         }
     }
@@ -140,10 +191,12 @@ impl Mul for Tensor {
 impl Div for Tensor {
     type Output = Self;
     fn div(self, rhs: Self) -> Self::Output {
+        assert_eq!(self.shape(), rhs.shape(), "Tensor shapes must match for Div");
         Self {
             data: Arc::new(TensorData {
                 op: Box::new(OpDiv),
-                src: vec![self, rhs],
+                src: vec![self.clone(), rhs],
+                shape: self.shape().clone(),
             }),
         }
     }

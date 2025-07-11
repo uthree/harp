@@ -1,19 +1,19 @@
-use harp::node::{self, Node};
-use harp::op::{Load, OpAdd, OpSub, OpMul, OpDiv, Operator, Reduce};
+use harp::node::{self, constant, Node};
+use harp::op::{Load, OpAdd, OpSub, OpMul, OpDiv, Operator, Reduce, Reshape};
 use harp::tensor::{ShapeTracker, Tensor};
 use rstest::rstest;
 use std::rc::Rc;
 use std::sync::Arc;
 
 #[test]
-fn test_tensor_creation() {
-    let tensor = Tensor::new_load();
-    let tensor_data = tensor.data;
+fn test_tensor_creation_with_shape() {
+    let shape = vec![2, 3];
+    let tensor = Tensor::new_load(shape.clone());
 
-    // Check the operator
-    assert_eq!(tensor_data.op.name(), "Load");
-    assert!(tensor_data.op.as_any().is::<Load>());
-    assert!(tensor_data.src.is_empty());
+    assert_eq!(*tensor.shape(), shape);
+    assert_eq!(tensor.data.op.name(), "Load");
+    assert!(tensor.data.op.as_any().is::<Load>());
+    assert!(tensor.data.src.is_empty());
 }
 
 #[rstest]
@@ -26,41 +26,63 @@ fn test_tensor_binary_ops(
     #[case] op_fn: impl Fn(Tensor, Tensor) -> Tensor,
     #[case] expected_op_name: &str,
 ) {
-    let a = Tensor::new_load();
-    let b = Tensor::new_load();
+    let shape = vec![4, 5];
+    let a = Tensor::new_load(shape.clone());
+    let b = Tensor::new_load(shape.clone());
     let c = op_fn(a.clone(), b.clone());
 
-    let c_data = c.data;
-
-    // Check the operator name
+    assert_eq!(*c.shape(), shape);
     assert_eq!(
-        c_data.op.name(),
+        c.data.op.name(),
         expected_op_name,
         "Failed for operation: {}",
         op_name
     );
-
-    // Check the sources
-    assert_eq!(c_data.src.len(), 2);
-    assert!(Arc::ptr_eq(&a.data, &c_data.src[0].data));
-    assert!(Arc::ptr_eq(&b.data, &c_data.src[1].data));
+    assert_eq!(c.data.src.len(), 2);
+    assert!(Arc::ptr_eq(&a.data, &c.data.src[0].data));
+    assert!(Arc::ptr_eq(&b.data, &c.data.src[1].data));
 }
 
 #[test]
+#[should_panic(expected = "Tensor shapes must match for Add")]
+fn test_add_shape_mismatch_panic() {
+    let a = Tensor::new_load(vec![2, 3]);
+    let b = Tensor::new_load(vec![3, 2]);
+    let _ = a + b;
+}
+
+#[test]
+fn test_tensor_reshape() {
+    let a = Tensor::new_load(vec![2, 6]);
+    let b = a.clone().reshape(vec![3, 4]);
+
+    assert_eq!(*b.shape(), vec![3, 4]);
+    assert_eq!(b.data.op.name(), "Reshape");
+    assert!(b.data.op.as_any().is::<Reshape>());
+    assert_eq!(b.data.src.len(), 1);
+    assert!(Arc::ptr_eq(&a.data, &b.data.src[0].data));
+}
+
+#[test]
+#[should_panic(expected = "Cannot reshape tensor of size 12 to shape [3, 5] with size 15")]
+fn test_tensor_reshape_panic() {
+    let a = Tensor::new_load(vec![2, 6]);
+    a.reshape(vec![3, 5]);
+}
+
+
+#[test]
 fn test_tensor_sum() {
-    let a = Tensor::new_load();
+    let a = Tensor::new_load(vec![2, 3, 4]);
     let axis_to_reduce = 1;
     let b = a.clone().sum(axis_to_reduce);
 
-    let b_data = b.data;
+    assert_eq!(*b.shape(), vec![2, 4]);
+    assert_eq!(b.data.op.name(), "Reduce");
+    assert_eq!(b.data.src.len(), 1);
+    assert!(Arc::ptr_eq(&a.data, &b.data.src[0].data));
 
-    // Check that the top-level operator is Reduce
-    assert_eq!(b_data.op.name(), "Reduce");
-    assert_eq!(b_data.src.len(), 1);
-    assert!(Arc::ptr_eq(&a.data, &b_data.src[0].data));
-
-    // Check the inner operator of Reduce
-    if let Some(reduce_op) = b_data.op.as_any().downcast_ref::<Reduce>() {
+    if let Some(reduce_op) = b.data.op.as_any().downcast_ref::<Reduce>() {
         assert_eq!(reduce_op.op.name(), "OpAdd");
         assert_eq!(reduce_op.axis, axis_to_reduce);
     } else {
@@ -70,36 +92,49 @@ fn test_tensor_sum() {
 
 #[test]
 fn test_compile_add() {
-    // 1. Create the Tensor graph for `a + b`
-    let a = Tensor::new_load();
-    let b = Tensor::new_load();
+    let shape = vec![10];
+    let a = Tensor::new_load(shape.clone());
+    let b = Tensor::new_load(shape.clone());
     let c = a + b;
 
-    // 2. Create a dummy ShapeTracker
-    // It needs an index expression for the Load ops.
-    // Let's say the index is represented by a capture node named "idx".
     let idx = Rc::new(node::capture("idx"));
     let tracker = ShapeTracker {
-        dims: vec![], // Not used in this test
+        dims: shape.iter().map(|&d| Rc::new(constant(d))).collect(),
         index_expr: vec![idx.clone()],
     };
 
-    // 3. Compile the graph
     let compiled_node = c.compile(&tracker);
 
-    // 4. Assert the structure of the resulting Node graph
     assert_eq!(compiled_node.op().name(), "OpAdd");
     assert_eq!(compiled_node.src().len(), 2);
 
-    // Check the left-hand side of the addition
     let lhs = &compiled_node.src()[0];
     assert_eq!(lhs.op().name(), "Load");
     assert_eq!(lhs.src().len(), 1);
-    assert_eq!(lhs.src()[0], *idx); // Check it's loading from "idx"
+    assert_eq!(lhs.src()[0], *idx);
 
-    // Check the right-hand side of the addition
     let rhs = &compiled_node.src()[1];
     assert_eq!(rhs.op().name(), "Load");
     assert_eq!(rhs.src().len(), 1);
     assert_eq!(rhs.src()[0], *idx);
+}
+
+#[test]
+fn test_compile_reshape() {
+    let a = Tensor::new_load(vec![2, 6]);
+    let b = a.reshape(vec![3, 4]);
+
+    let idx = Rc::new(node::capture("idx"));
+    let initial_tracker = ShapeTracker {
+        dims: vec![Rc::new(constant(2u64)), Rc::new(constant(6u64))],
+        index_expr: vec![idx.clone()],
+    };
+
+    let compiled_node = b.compile(&initial_tracker);
+
+    // The compiled node should be a Load from the original source,
+    // because the current reshape compile logic just passes through.
+    assert_eq!(compiled_node.op().name(), "Load");
+    assert_eq!(compiled_node.src().len(), 1);
+    assert_eq!(compiled_node.src()[0], *idx);
 }
