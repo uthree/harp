@@ -7,7 +7,6 @@ use rstest::rstest;
 #[case(exp2(constant(2.0f32)), 4.0)]
 #[case(log2(constant(4.0f32)), 2.0)]
 #[case(sqrt(constant(9.0f32)), 3.0)]
-#[ignore]
 fn test_eval_unary_functions(#[case] graph: harp::node::Node, #[case] expected: f32) {
     let rewriter = default_rewriter();
     let rewritten_graph = rewriter.rewrite(graph);
