@@ -52,8 +52,11 @@ pub trait FusedOp: Operator {
     fn fallback(&self, operands: &[Node]) -> Node;
 }
 
+/// A trait for unary operators (taking one operand).
 pub trait UnaryOp: Operator {}
+/// A trait for binary operators (taking two operands).
 pub trait BinaryOp: Operator {}
+/// A trait for commutative binary operators (e.g., `a + b = b + a`).
 pub trait CommutativeOp: BinaryOp {}
 
 /// Marker trait for binary operators that are associative.

@@ -218,6 +218,7 @@ impl_from_primitive_for_node!(f32, f64, u8, u16, u32, u64, usize, i8, i16, i32, 
 
 // --- Helper Functions ---
 
+/// Creates a constant node from a value.
 pub fn constant<T: DType + 'static>(value: T) -> Node {
     Node(Rc::new(NodeData {
         op: Box::new(Const(Box::new(value))),
@@ -225,6 +226,7 @@ pub fn constant<T: DType + 'static>(value: T) -> Node {
     }))
 }
 
+/// Creates a reciprocal node.
 pub fn recip(a: Node) -> Node {
     Node(Rc::new(NodeData {
         op: Box::new(Recip),
@@ -232,6 +234,7 @@ pub fn recip(a: Node) -> Node {
     }))
 }
 
+/// Creates a capture node for pattern matching.
 pub fn capture(name: &str) -> Node {
     Node(Rc::new(NodeData {
         op: Box::new(Capture(name.to_string())),
@@ -239,6 +242,7 @@ pub fn capture(name: &str) -> Node {
     }))
 }
 
+/// Creates a variable node, representing an input to the graph.
 pub fn variable(name: &str) -> Node {
     Node(Rc::new(NodeData {
         op: Box::new(Variable(name.to_string())),
@@ -246,6 +250,7 @@ pub fn variable(name: &str) -> Node {
     }))
 }
 
+/// Creates a sine node.
 pub fn sin(a: Node) -> Node {
     Node(Rc::new(NodeData {
         op: Box::new(Sin),
@@ -253,6 +258,7 @@ pub fn sin(a: Node) -> Node {
     }))
 }
 
+/// Creates a base-2 exponential node.
 pub fn exp2(a: Node) -> Node {
     Node(Rc::new(NodeData {
         op: Box::new(Exp2),
@@ -260,6 +266,7 @@ pub fn exp2(a: Node) -> Node {
     }))
 }
 
+/// Creates a base-2 logarithm node.
 pub fn log2(a: Node) -> Node {
     Node(Rc::new(NodeData {
         op: Box::new(Log2),
@@ -267,6 +274,7 @@ pub fn log2(a: Node) -> Node {
     }))
 }
 
+/// Creates a square root node.
 pub fn sqrt(a: Node) -> Node {
     Node(Rc::new(NodeData {
         op: Box::new(Sqrt),
@@ -274,26 +282,32 @@ pub fn sqrt(a: Node) -> Node {
     }))
 }
 
+/// Creates a cosine node.
 pub fn cos(a: Node) -> Node {
     sin(a + constant(std::f32::consts::PI / 2.0))
 }
 
+/// Creates a tangent node.
 pub fn tan(a: Node) -> Node {
     sin(a.clone()) / cos(a)
 }
 
+/// Creates a natural logarithm node.
 pub fn ln(a: Node) -> Node {
     log2(a) * constant(std::f64::consts::LN_2)
 }
 
+/// Creates a natural exponential node.
 pub fn exp(a: Node) -> Node {
     exp2(a * constant(std::f32::consts::LOG2_E))
 }
 
+/// Creates a power node (base^exp).
 pub fn pow(base: Node, exp: Node) -> Node {
     exp2(exp * log2(base))
 }
 
+/// Creates a cast node to convert the data type.
 pub fn cast<T: DType + Default + 'static>(a: Node) -> Node {
     Node(Rc::new(NodeData {
         op: Box::new(Cast(Box::new(T::default()))),

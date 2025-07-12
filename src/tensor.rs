@@ -225,7 +225,7 @@ impl Tensor {
         self
     }
 
-    /// Compiles the tensor's computation graph into a traditional Node graph.
+    /// Lowers the tensor's computation graph into a traditional Node graph.
     pub fn lower(&self, shape_tracker: &ShapeTracker) -> Node {
         let op = &self.data.op;
         let src = &self.data.src;
@@ -336,12 +336,18 @@ impl Tensor {
     }
 }
 
+/// The internal data representation of a `Tensor`.
+///
+/// This struct contains the operator, source tensors, and shape information
+/// that define a tensor's computation. It is wrapped in an `Rc` for cheap cloning.
 pub struct TensorData {
     pub op: Box<dyn Operator>,
     pub src: Vec<Tensor>,
     pub shape: Vec<usize>,
 }
 
+/// A struct for tracking the shape and index expressions of a `Tensor`
+/// during the lowering process from a `Tensor` graph to a `Node` graph.
 #[derive(Clone)]
 pub struct ShapeTracker {
     /// The size of each dimension (e.g., `[4, 3]` for a 4x3 matrix).
