@@ -231,7 +231,7 @@ impl Tensor {
     }
 
     /// Compiles the tensor's computation graph into a traditional Node graph.
-    pub fn compile(&self, shape_tracker: &ShapeTracker) -> Node {
+    pub fn lower(&self, shape_tracker: &ShapeTracker) -> Node {
         let op = &self.data.op;
         let src = &self.data.src;
 
@@ -241,14 +241,14 @@ impl Tensor {
                 node::variable(&input_op.0)
             }
             "Load" => {
-                let buffer_node = src[0].compile(shape_tracker);
-                let index_node = src[1].compile(shape_tracker);
+                let buffer_node = src[0].lower(shape_tracker);
+                let index_node = src[1].lower(shape_tracker);
                 Node::new(Load, vec![buffer_node, index_node])
             }
             // NOTE: The rest of this method is now likely incorrect due to the
             // refactoring, but it will compile. It needs a full review if this
             // backend path is to be used in the future.
-            "Reshape" => src[0].compile(shape_tracker),
+            "Reshape" => src[0].lower(shape_tracker),
             "Permute" => {
                 let permute_op = op.as_any().downcast_ref::<Permute>().unwrap();
                 let source_tensor = &src[0];
@@ -266,7 +266,7 @@ impl Tensor {
                         .collect(),
                     index_expr: new_index_expr,
                 };
-                return source_tensor.compile(&new_tracker); // Early return to avoid double simplification
+                return source_tensor.lower(&new_tracker); // Early return to avoid double simplification
             }
             "Expand" => {
                 let source_tensor = &src[0];
@@ -284,7 +284,7 @@ impl Tensor {
                         .collect(),
                     index_expr: new_index_expr,
                 };
-                return source_tensor.compile(&new_tracker);
+                return source_tensor.lower(&new_tracker);
             }
             "Slice" => {
                 let slice_op = op.as_any().downcast_ref::<Slice>().unwrap();
@@ -304,7 +304,7 @@ impl Tensor {
                         .collect(),
                     index_expr: new_index_expr,
                 };
-                return source_tensor.compile(&new_tracker);
+                return source_tensor.lower(&new_tracker);
             }
             "Reduce" => {
                 let reduce_op = op.as_any().downcast_ref::<Reduce>().unwrap();
@@ -334,7 +334,7 @@ impl Tensor {
                             .collect(),
                         index_expr: source_index_expr,
                     };
-                    let term = source_tensor.compile(&source_tracker);
+                    let term = source_tensor.lower(&source_tracker);
                     accumulator = Node::from(Arc::new(node::NodeData {
                         op: clone_box(&*reduce_op.op),
                         src: vec![accumulator, term],
@@ -343,8 +343,8 @@ impl Tensor {
                 accumulator
             }
             "OpAdd" | "OpSub" | "OpMul" | "OpDiv" => {
-                let left = src[0].compile(shape_tracker);
-                let right = src[1].compile(shape_tracker);
+                let left = src[0].lower(shape_tracker);
+                let right = src[1].lower(shape_tracker);
                 let new_op = clone_box(&**op);
                 node::Node::from(Arc::new(node::NodeData {
                     op: new_op,
