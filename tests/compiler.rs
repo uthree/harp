@@ -1,21 +1,19 @@
-use harp::backend::c::{CCompiler, CRenderer};
-use harp::backend::codegen::CodeGenerator;
-use harp::backend::renderer::Renderer;
-use harp::backend::{Compiler, Kernel};
+use harp::backend::c::CBackend;
+use harp::backend::{Backend, Kernel};
 use harp::node::constant;
 
 #[test]
-fn test_c_compiler_is_available() {
-    let compiler = CCompiler;
+fn test_c_backend_is_available() {
+    let backend = CBackend::new();
     // This test assumes gcc is in the PATH.
-    assert!(compiler.is_available());
+    assert!(backend.is_available());
 }
 
 #[test]
 fn test_compile_and_execute_simple_graph() {
-    let compiler = CCompiler;
-    if !compiler.is_available() {
-        eprintln!("Skipping test: gcc not found.");
+    let backend = CBackend::new();
+    if !backend.is_available() {
+        eprintln!("Skipping test: C backend (gcc) not found.");
         return;
     }
 
@@ -24,25 +22,19 @@ fn test_compile_and_execute_simple_graph() {
     let b = constant(2.5f32);
     let graph = a + b;
 
-    // 2. Generate C code
-    let renderer = CRenderer;
-    let mut codegen = CodeGenerator::new(&renderer);
-    let instructions = codegen.generate(&graph);
-    let code = renderer.render_function("compute", &[], &instructions, "float");
+    // 2. Compile the graph using the backend
+    let kernel = backend.compile(&graph).expect("Compilation failed");
 
-    // 3. Compile the code
-    let kernel = compiler.compile(&code).expect("Compilation failed");
-
-    // 4. Execute and check the result
+    // 3. Execute and check the result
     let result = kernel.execute();
     assert_eq!(result, 4.0);
 }
 
 #[test]
 fn test_compile_and_execute_fused_op() {
-    let compiler = CCompiler;
-    if !compiler.is_available() {
-        eprintln!("Skipping test: gcc not found.");
+    let backend = CBackend::new();
+    if !backend.is_available() {
+        eprintln!("Skipping test: C backend (gcc) not found.");
         return;
     }
 
@@ -51,16 +43,10 @@ fn test_compile_and_execute_fused_op() {
     let b = constant(3.0f32);
     let graph = a - b; // OpSub is a FusedOp
 
-    // 2. Generate C code
-    let renderer = CRenderer;
-    let mut codegen = CodeGenerator::new(&renderer);
-    let instructions = codegen.generate(&graph);
-    let code = renderer.render_function("compute", &[], &instructions, "float");
+    // 2. Compile the graph using the backend
+    let kernel = backend.compile(&graph).expect("Compilation failed");
 
-    // 3. Compile the code
-    let kernel = compiler.compile(&code).expect("Compilation failed");
-
-    // 4. Execute and check the result
+    // 3. Execute and check the result
     let result = kernel.execute();
     assert_eq!(result, 7.0);
 }

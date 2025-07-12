@@ -1,5 +1,5 @@
 use crate::backend::codegen::Instruction;
-use crate::backend::renderer::{Render, Renderer};
+use crate::backend::node_renderer::{NodeRenderer, OperatorRenderer};
 use crate::backend::{Compiler, Kernel};
 use crate::op::*;
 use libloading::{Library, Symbol};
@@ -13,7 +13,7 @@ use tempfile::TempDir;
 /// A renderer for generating C code from a computation graph.
 pub struct CRenderer;
 
-impl Renderer for CRenderer {
+impl NodeRenderer for CRenderer {
     fn render_op(&self, op: &dyn Operator, operands: &[String]) -> Option<String> {
         let op_any = op.as_any();
         match op_any {
@@ -75,45 +75,45 @@ impl CRenderer {
     }
 }
 
-impl Render<Input> for CRenderer {
+impl OperatorRenderer<Input> for CRenderer {
     fn render(&self, op: &Input, _operands: &[String]) -> String {
         op.0.clone()
     }
 }
 
-impl Render<Load> for CRenderer {
+impl OperatorRenderer<Load> for CRenderer {
     fn render(&self, _op: &Load, operands: &[String]) -> String {
         // operands[0] is the buffer, operands[1] is the index
         format!("{}[{}]", operands[0], operands[1])
     }
 }
 
-impl Render<LoopVariable> for CRenderer {
+impl OperatorRenderer<LoopVariable> for CRenderer {
     fn render(&self, _op: &LoopVariable, _operands: &[String]) -> String {
         "i".to_string()
     }
 }
-impl Render<OpAdd> for CRenderer {
+impl OperatorRenderer<OpAdd> for CRenderer {
     fn render(&self, _op: &OpAdd, operands: &[String]) -> String {
         format!("({} + {})", operands[0], operands[1])
     }
 }
-impl Render<OpMul> for CRenderer {
+impl OperatorRenderer<OpMul> for CRenderer {
     fn render(&self, _op: &OpMul, operands: &[String]) -> String {
         format!("({} * {})", operands[0], operands[1])
     }
 }
-impl Render<Sin> for CRenderer {
+impl OperatorRenderer<Sin> for CRenderer {
     fn render(&self, _op: &Sin, operands: &[String]) -> String {
         format!("sin({})", operands[0])
     }
 }
-impl Render<Const> for CRenderer {
+impl OperatorRenderer<Const> for CRenderer {
     fn render(&self, op: &Const, _operands: &[String]) -> String {
         format!("{:?}", op.0)
     }
 }
-impl Render<Variable> for CRenderer {
+impl OperatorRenderer<Variable> for CRenderer {
     fn render(&self, op: &Variable, _operands: &[String]) -> String {
         op.0.clone()
     }
@@ -185,5 +185,47 @@ impl Compiler for CCompiler {
                 compute,
             })
         }
+    }
+}
+
+/// A backend that uses a C compiler (like GCC) to generate and run code.
+pub struct CBackend {
+    compiler: CCompiler,
+    renderer: CRenderer,
+}
+
+impl CBackend {
+    pub fn new() -> Self {
+        Self {
+            compiler: CCompiler,
+            renderer: CRenderer,
+        }
+    }
+
+    pub fn compile(&self, root: &crate::node::Node) -> Result<CKernel, Box<dyn Error>> {
+        let mut codegen = crate::backend::codegen::CodeGenerator::new(&self.renderer);
+        let instructions = codegen.generate(root);
+        
+        // TODO: This is a placeholder for proper argument handling.
+        let args: Vec<(&str, &str)> = vec![];
+        let code = self.renderer.render_function("compute", &args, &instructions, "float");
+        
+        self.compiler.compile(&code)
+    }
+}
+
+impl Default for CBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl crate::backend::Backend for CBackend {
+    fn name(&self) -> &str {
+        "c"
+    }
+
+    fn is_available(&self) -> bool {
+        self.compiler.is_available()
     }
 }

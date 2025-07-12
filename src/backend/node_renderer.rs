@@ -2,16 +2,16 @@ use crate::backend::codegen::Instruction;
 use crate::op::Operator;
 
 /// A trait for rendering a specific operator `O` into a string representation (an expression).
-pub trait Render<O: Operator> {
+pub trait OperatorRenderer<O: Operator> {
     fn render(&self, op: &O, operands: &[String]) -> String;
 }
 
 /// A trait for a code generation backend.
 ///
-/// A `Renderer` is responsible for two things:
+/// A `NodeRenderer` is responsible for two things:
 /// 1. Rendering individual operators into expression strings (`render_op`).
 /// 2. Rendering a complete list of abstract `Instruction`s into a final function string (`render_function`).
-pub trait Renderer {
+pub trait NodeRenderer {
     /// Renders a dynamic operator trait object into an expression string.
     ///
     /// If the operator is not supported for expression-level rendering (e.g., it's a

@@ -1,4 +1,4 @@
-use crate::backend::renderer::Renderer;
+use crate::backend::node_renderer::NodeRenderer;
 use crate::node::{Node, NodeData};
 use log::{debug, trace};
 use std::collections::{HashMap, HashSet};
@@ -26,14 +26,14 @@ pub enum Instruction {
 /// A code generation engine that traverses a computation graph and produces a
 /// language-agnostic list of `Instruction`s.
 pub struct CodeGenerator<'a> {
-    renderer: &'a dyn Renderer,
+    renderer: &'a dyn NodeRenderer,
     node_to_var: HashMap<*const NodeData, String>,
     instructions: Vec<Instruction>,
     var_counter: usize,
 }
 
 impl<'a> CodeGenerator<'a> {
-    pub fn new(renderer: &'a dyn Renderer) -> Self {
+    pub fn new(renderer: &'a dyn NodeRenderer) -> Self {
         Self {
             renderer,
             node_to_var: HashMap::new(),

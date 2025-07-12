@@ -1,7 +1,7 @@
 use harp::backend::Compiler;
 use harp::backend::c::{CCompiler, CRenderer};
 use harp::backend::codegen::CodeGenerator;
-use harp::backend::renderer::Renderer;
+use harp::backend::node_renderer::NodeRenderer;
 use harp::node::{Node, constant};
 use harp::op::{Input, Load, Loop, LoopVariable, Store};
 use std::fs::File;

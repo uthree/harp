@@ -2,7 +2,16 @@ use std::error::Error;
 
 pub mod c;
 pub mod codegen;
-pub mod renderer;
+pub mod node_renderer;
+
+/// A trait for a backend that can generate and compile code.
+pub trait Backend {
+    /// Returns the name of the backend.
+    fn name(&self) -> &str;
+
+    /// Checks if the backend is available on the system.
+    fn is_available(&self) -> bool;
+}
 
 /// A trait for a compiled kernel that can be executed.
 pub trait Kernel {

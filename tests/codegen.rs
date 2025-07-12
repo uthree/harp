@@ -1,6 +1,7 @@
+use harp::backend::node_renderer::NodeRenderer;
 use harp::backend::c::CRenderer;
 use harp::backend::codegen::CodeGenerator;
-use harp::backend::renderer::Renderer;
+
 use harp::node::{constant, variable, Node};
 use harp::op::{Input, Load, Loop, LoopVariable, Store};
 
