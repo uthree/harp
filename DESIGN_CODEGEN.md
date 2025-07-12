@@ -2,25 +2,33 @@
 harpでは、計算グラフを受け取ってGPU向けのカーネルやC言語での高速な実装などにコンパイルすることが目的です。  
 
 ## レンダラー
-レンダラーは、Nodeを受け取ってソースコードを生成します。
+
+### ノードレンダラー
+ノードレンダラーは、Nodeを受け取ってソースコードを生成します。
 
 ```rust
 
 // あるオペレーターがレンダリングできることを表すトレイト。
-trait Render<Op>
+trait RenderNode<Op>
 where Op: Operator // レンダラーによって利用可能な演算子が異なるため、ジェネリックトレイトを使って型システムでそれ表現する。
 {
-    fn render(&mut self, op: Op, src: Node) -> String;
+    fn render(&mut self, op: Op, src: Node) -> String; // とりあえずノードを再起的に探索することを想定してStringにしてるけど、もしかしたらもっと良い方法があるかも。
 }
 
 // たとえば、Metal(Apple版CUDAのようなもの)への変換はこのように実装する。
 struct MetalRenderer {}
 // オペレータごとに実装を追加していくイメージ。
-impl Render<AddOp> for MetalRenderer {
+impl RenderNode<AddOp> for MetalRenderer {
     ...
 }
 
 // FusedOpに関しては、レンダリング処理が実装されていない場合、フォールバックしてからレンダリングする。
+```
+
+### データ型レンダラー
+あるデータ型がレンダリングできることを要求するトレイト。ノードとやることは同じなので詳細は略す。
+```rust
+trait DTypeRenderer<DType> {...}
 ```
 
 ## コンパイラー
@@ -51,9 +59,11 @@ trait Kernel {
     // GPU向けにコンパイルされたバイナリを呼び出すFFIのラッパー。
     // Fnトレイトなんかを組み込んで、関数と同じように扱えるようにすると便利そう。
 } 
-trait DeviceTensor { // デバイス上にあるデータのポインタ。
-    // 命名は思いつかないけど、ndarrayやVec<T>に変換する機能とか欲しいね。
+trait DeviceTensor { 
+    // デバイス上にあるデータのポインタ。
+    // ndarrayやVec<T>に変換する機能とか欲しいね。
     // デバイス間を移動する機能も必要になるはず。
+    // dropされると解放
 }
 
 // たとえば、CUDAには複数のグラフィックカードを扱う機能があるため、以下のようにする。

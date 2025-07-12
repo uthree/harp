@@ -1,15 +1,14 @@
 use crate::dot::ToDot;
 use crate::dtype::DType;
-use crate::node::{self, Node};
+use crate::node::{self, constant, Node};
 use crate::op::{
-    Const, Expand, Input, Load, OpAdd, OpDiv, OpMul, OpRandn, OpSub, OpUniform,
+    Const, Expand, HasIdentityElement, Input, Load, OpAdd, OpDiv, OpMul, OpRandn, OpSub, OpUniform,
     Operator, Permute, Reduce, Reshape, Slice, Store,
 };
 use crate::simplify::simplify;
 use dyn_clone::clone_box;
 use std::collections::HashMap;
 use std::ops::{Add, Div, Mul, Sub};
-use std::rc::Rc;
 use std::sync::Arc;
 
 /// A multi-dimensional array.
@@ -78,7 +77,6 @@ impl Tensor {
     }
 
     pub fn full<T: DType + 'static>(shape: Vec<usize>, value: T) -> Self {
-
         let scalar = Self {
             data: Arc::new(TensorData {
                 op: Box::new(Const(Box::new(value))),
@@ -189,7 +187,9 @@ impl Tensor {
     pub fn expand(self, new_shape: Vec<usize>) -> Self {
         Self {
             data: Arc::new(TensorData {
-                op: Box::new(Expand { shape: new_shape.clone() }),
+                op: Box::new(Expand {
+                    shape: new_shape.clone(),
+                }),
                 src: vec![self],
                 shape: new_shape,
             }),
@@ -212,7 +212,10 @@ impl Tensor {
         }
         Self {
             data: Arc::new(TensorData {
-                op: Box::new(Reduce { op: Box::new(op), axis }),
+                op: Box::new(Reduce {
+                    op: Box::new(op),
+                    axis,
+                }),
                 src: vec![self],
                 shape: new_shape,
             }),
@@ -227,42 +230,130 @@ impl Tensor {
         self
     }
 
-
     /// Compiles the tensor's computation graph into a traditional Node graph.
-    pub fn compile(&self, shape_tracker: &ShapeTracker) -> Rc<Node> {
+    pub fn compile(&self, shape_tracker: &ShapeTracker) -> Node {
         let op = &self.data.op;
         let src = &self.data.src;
 
         let compiled_node = match op.name() {
             "Input" => {
                 let input_op = op.as_any().downcast_ref::<Input>().unwrap();
-                Rc::new(node::variable(&input_op.0))
+                node::variable(&input_op.0)
             }
             "Load" => {
                 let buffer_node = src[0].compile(shape_tracker);
                 let index_node = src[1].compile(shape_tracker);
-                Rc::new(Node::new(Load, vec![(*buffer_node).clone(), (*index_node).clone()]))
+                Node::new(Load, vec![buffer_node, index_node])
             }
             // NOTE: The rest of this method is now likely incorrect due to the
             // refactoring, but it will compile. It needs a full review if this
             // backend path is to be used in the future.
             "Reshape" => src[0].compile(shape_tracker),
-            "Permute" => src[0].compile(shape_tracker),
-            "Expand" => src[0].compile(shape_tracker),
-            "Slice" => src[0].compile(shape_tracker),
-            "Reduce" => src[0].compile(shape_tracker),
+            "Permute" => {
+                let permute_op = op.as_any().downcast_ref::<Permute>().unwrap();
+                let source_tensor = &src[0];
+                let new_index_expr = permute_op
+                    .order
+                    .iter()
+                    .map(|&i| shape_tracker.index_expr[i].clone())
+                    .collect();
+
+                let new_tracker = ShapeTracker {
+                    dims: source_tensor
+                        .shape()
+                        .iter()
+                        .map(|&d| constant(d))
+                        .collect(),
+                    index_expr: new_index_expr,
+                };
+                return source_tensor.compile(&new_tracker); // Early return to avoid double simplification
+            }
+            "Expand" => {
+                let source_tensor = &src[0];
+                let mut new_index_expr = shape_tracker.index_expr.clone();
+                let diff = self.shape().len() - source_tensor.shape().len();
+                for i in 0..diff {
+                    new_index_expr.remove(i);
+                }
+
+                let new_tracker = ShapeTracker {
+                    dims: source_tensor
+                        .shape()
+                        .iter()
+                        .map(|&d| constant(d))
+                        .collect(),
+                    index_expr: new_index_expr,
+                };
+                return source_tensor.compile(&new_tracker);
+            }
+            "Slice" => {
+                let slice_op = op.as_any().downcast_ref::<Slice>().unwrap();
+                let source_tensor = &src[0];
+                let new_index_expr = shape_tracker
+                    .index_expr
+                    .iter()
+                    .zip(slice_op.args.iter())
+                    .map(|(idx, (start, _end))| idx.clone() + constant(*start as f64))
+                    .collect();
+
+                let new_tracker = ShapeTracker {
+                    dims: source_tensor
+                        .shape()
+                        .iter()
+                        .map(|&d| constant(d))
+                        .collect(),
+                    index_expr: new_index_expr,
+                };
+                return source_tensor.compile(&new_tracker);
+            }
+            "Reduce" => {
+                let reduce_op = op.as_any().downcast_ref::<Reduce>().unwrap();
+                let source_tensor = &src[0];
+                let axis = reduce_op.axis;
+                let dim_size = source_tensor.shape()[axis];
+
+                let identity_node = if reduce_op.op.as_any().downcast_ref::<OpAdd>().is_some() {
+                    OpAdd::identity_element()
+                } else if reduce_op.op.as_any().downcast_ref::<OpMul>().is_some() {
+                    OpMul::identity_element()
+                } else {
+                    panic!("Reduce compilation not implemented for this op");
+                };
+
+                let mut accumulator = identity_node;
+
+                for i in 0..dim_size {
+                    let mut source_index_expr = shape_tracker.index_expr.clone();
+                    source_index_expr.insert(axis, constant(i));
+
+                    let source_tracker = ShapeTracker {
+                        dims: source_tensor
+                            .shape()
+                            .iter()
+                            .map(|&d| constant(d))
+                            .collect(),
+                        index_expr: source_index_expr,
+                    };
+                    let term = source_tensor.compile(&source_tracker);
+                    accumulator = Node::from(Arc::new(node::NodeData {
+                        op: clone_box(&*reduce_op.op),
+                        src: vec![accumulator, term],
+                    }));
+                }
+                accumulator
+            }
             "OpAdd" | "OpSub" | "OpMul" | "OpDiv" => {
                 let left = src[0].compile(shape_tracker);
                 let right = src[1].compile(shape_tracker);
                 let new_op = clone_box(&**op);
-                Rc::new(node::Node::from(Arc::new(node::NodeData {
+                node::Node::from(Arc::new(node::NodeData {
                     op: new_op,
-                    src: vec![(*left).clone(), (*right).clone()],
-                })))
+                    src: vec![left, right],
+                }))
             }
             _ => todo!("Compile not implemented for op: {}", op.name()),
         };
-        Rc::new(simplify((*compiled_node).clone()))
+        simplify(compiled_node)
     }
 }
 
@@ -274,8 +365,11 @@ pub struct TensorData {
 
 #[derive(Clone)]
 pub struct ShapeTracker {
-    pub dims: Vec<Rc<Node>>,
-    pub index_expr: Vec<Rc<Node>>,
+    /// The size of each dimension (e.g., `[4, 3]` for a 4x3 matrix).
+    pub dims: Vec<Node>,
+    /// The mathematical expression to convert a multi-dimensional index
+    /// into a linear memory offset.
+    pub index_expr: Vec<Node>,
 }
 
 impl Add for Tensor {
@@ -296,6 +390,39 @@ impl Add for Tensor {
     }
 }
 // ... (other op impls are correct)
-impl Sub for Tensor { type Output = Self; fn sub(self, rhs: Self) -> Self::Output { Self { data: Arc::new(TensorData { op: Box::new(OpSub), src: vec![self.clone(), rhs], shape: self.shape().clone(), }), } } }
-impl Mul for Tensor { type Output = Self; fn mul(self, rhs: Self) -> Self::Output { Self { data: Arc::new(TensorData { op: Box::new(OpMul), src: vec![self.clone(), rhs], shape: self.shape().clone(), }), } } }
-impl Div for Tensor { type Output = Self; fn div(self, rhs: Self) -> Self::Output { Self { data: Arc::new(TensorData { op: Box::new(OpDiv), src: vec![self.clone(), rhs], shape: self.shape().clone(), }), } } }
+impl Sub for Tensor {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self {
+            data: Arc::new(TensorData {
+                op: Box::new(OpSub),
+                src: vec![self.clone(), rhs],
+                shape: self.shape().clone(),
+            }),
+        }
+    }
+}
+impl Mul for Tensor {
+    type Output = Self;
+    fn mul(self, rhs: Self) -> Self::Output {
+        Self {
+            data: Arc::new(TensorData {
+                op: Box::new(OpMul),
+                src: vec![self.clone(), rhs],
+                shape: self.shape().clone(),
+            }),
+        }
+    }
+}
+impl Div for Tensor {
+    type Output = Self;
+    fn div(self, rhs: Self) -> Self::Output {
+        Self {
+            data: Arc::new(TensorData {
+                op: Box::new(OpDiv),
+                src: vec![self.clone(), rhs],
+                shape: self.shape().clone(),
+            }),
+        }
+    }
+}
