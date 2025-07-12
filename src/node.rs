@@ -307,6 +307,7 @@ mod tests {
     use crate::pattern::Rewriter;
 
     #[test]
+    #[allow(deprecated)]
     fn test_double_recip_rewrite_with_node_pattern() {
         // 1. Define the graph to be rewritten: recip(recip(a))
         let a = constant(1.0f32);

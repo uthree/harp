@@ -14,30 +14,28 @@
 use crate::node::{Node, NodeData, capture, constant, cos, exp2, sin, tan};
 use crate::op::{Const, Exp2, Log2, OpAdd, OpMul, Recip, Sin, Sqrt};
 use crate::pattern::{RewriteRule, Rewriter};
-use crate::rewrite_rule;
+use crate::rewriter;
 use std::rc::Rc;
 
 /// Returns a `Rewriter` for expanding high-level functions into simpler operations.
 pub fn expansion_rewriter() -> Rewriter {
-    let rules = vec![
-        rewrite_rule!(let x = capture("x"); crate::node::exp(x.clone()) => exp2(x * constant(std::f32::consts::LOG2_E))),
-        rewrite_rule!(let x = capture("x"); cos(x.clone()) => sin(x + constant(std::f32::consts::FRAC_PI_2))),
-        rewrite_rule!(let x = capture("x"); tan(x.clone()) => sin(x.clone()) * crate::node::recip(cos(x))),
-    ];
-    Rewriter::new("expansion", rules)
+    rewriter!("expansion", [
+        (let x = capture("x"); crate::node::exp(x.clone()) => exp2(x * constant(std::f32::consts::LOG2_E))),
+        (let x = capture("x"); cos(x.clone()) => sin(x + constant(std::f32::consts::FRAC_PI_2))),
+        (let x = capture("x"); tan(x.clone()) => sin(x.clone()) * crate::node::recip(cos(x))),
+    ])
 }
 
 /// Returns a `Rewriter` for algebraic simplifications (e.g., identity, annihilator).
 pub fn algebraic_rewriter() -> Rewriter {
-    let rules = vec![
-        rewrite_rule!(let x = capture("x"); x.clone() + constant(0.0f32) => x),
-        rewrite_rule!(let x = capture("x"); constant(0.0f32) + x.clone() => x),
-        rewrite_rule!(let x = capture("x"); x.clone() * constant(1.0f32) => x),
-        rewrite_rule!(let x = capture("x"); constant(1.0f32) * x.clone() => x),
-        rewrite_rule!(let x = capture("x"); x.clone() * constant(0.0f32) => constant(0.0f32)),
-        rewrite_rule!(let x = capture("x"); constant(0.0f32) * x.clone() => constant(0.0f32)),
-    ];
-    Rewriter::new("algebraic", rules)
+    rewriter!("algebraic", [
+        (let x = capture("x"); x.clone() + constant(0.0f32) => x),
+        (let x = capture("x"); constant(0.0f32) + x.clone() => x),
+        (let x = capture("x"); x.clone() * constant(1.0f32) => x),
+        (let x = capture("x"); constant(1.0f32) * x.clone() => x),
+        (let _x = capture("x"); _x.clone() * constant(0.0f32) => constant(0.0f32)),
+        (let _x = capture("x"); constant(0.0f32) * _x.clone() => constant(0.0f32)),
+    ])
 }
 
 /// Returns a `Rewriter` for constant folding.

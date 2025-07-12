@@ -17,6 +17,34 @@
 /// ```
 #[macro_export]
 macro_rules! rewriter {
+    // Static pattern rule syntax.
+    // Example: `(let x = capture("x") => x.clone() => x)`
+    ($name:expr, [$(
+        (
+            let $($var:ident = capture($name_str:literal)),*
+            ; $searcher:expr
+            => $rewriter:expr
+        )
+    ),* $(,)?]) => {
+        {
+            let rules = vec![
+                $(
+                    $crate::pattern::RewriteRule::new(
+                        {
+                            $(let $var = $crate::node::capture($name_str);)*
+                            $searcher
+                        },
+                        {
+                            $(let $var = $crate::node::capture($name_str);)*
+                            $rewriter
+                        }
+                    )
+                ),*
+            ];
+            $crate::pattern::Rewriter::new($name, rules)
+        }
+    };
+
     // New rule syntax: allows capturing the matched node itself.
     // Example: `(let x = capture("x") => |node, x| { ... })`
     ($name:expr, [$(

@@ -79,6 +79,10 @@ impl RewriteRule {
 /// let rule = rewrite_rule!(let x = capture("x"); node::recip(node::recip(x.clone())) => x);
 /// ```
 #[macro_export]
+#[deprecated(
+    since = "0.1.0",
+    note = "Please use the `rewriter!` macro instead. It provides a more unified and expressive way to define rules."
+)]
 macro_rules! rewrite_rule {
     ( $(let $var:ident = capture($name:literal));* ; $searcher:expr => $rewriter:expr ) => {
         {
