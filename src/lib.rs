@@ -1,4 +1,3 @@
-pub mod backend;
 pub mod dot;
 pub mod dtype;
 pub mod macros;

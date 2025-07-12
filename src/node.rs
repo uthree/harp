@@ -50,14 +50,6 @@ impl Node {
         &self.0.src
     }
 
-    /// Returns a raw pointer to the underlying `NodeData`.
-    ///
-    /// This is useful for uniquely identifying a node in a graph, for example,
-    /// as a key in a `HashMap` for memoization.
-    pub fn ptr(&self) -> *const NodeData {
-        Arc::as_ptr(&self.0)
-    }
-
     fn build_dot_recursive(
         node: &Node,
         nodes: &mut Vec<String>,

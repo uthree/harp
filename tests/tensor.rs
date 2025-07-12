@@ -1,8 +1,6 @@
-use harp::node::{constant, variable};
-use harp::op::{Expand, Input, Permute, Reduce, Reshape, Slice};
-use harp::tensor::{ShapeTracker, Tensor};
+use harp::op::{Input, Reshape};
+use harp::tensor::Tensor;
 use rstest::rstest;
-use std::rc::Rc;
 use std::sync::Arc;
 
 #[test]
