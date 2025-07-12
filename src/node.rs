@@ -6,7 +6,7 @@ use std::convert::Into;
 use std::ops::{
     Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
-use std::sync::Arc;
+use std::rc::Rc;
 
 // --- Node & NodeData Structs ---
 #[derive(Debug, Clone)]
@@ -29,20 +29,20 @@ impl Eq for NodeData {}
 ///
 /// Nodes can be combined using standard arithmetic operators to build larger graphs.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Node(Arc<NodeData>);
+pub struct Node(Rc<NodeData>);
 
 impl Node {
     /// Creates a new node with the given operator and source nodes.
     pub fn new(op: impl Operator + 'static, src: Vec<Node>) -> Self {
-        Self(Arc::new(NodeData {
+        Self(Rc::new(NodeData {
             op: Box::new(op),
             src,
         }))
     }
 
     /// Returns a reference to the node's operator.
-    pub fn op(&self) -> &Box<dyn Operator> {
-        &self.0.op
+    pub fn op(&self) -> &dyn Operator {
+        &*self.0.op
     }
 
     /// Returns a reference to the node's source (child) nodes.
@@ -57,7 +57,7 @@ impl Node {
         visited: &mut HashMap<*const NodeData, String>,
         counter: &mut usize,
     ) {
-        let node_ptr = Arc::as_ptr(&node.0);
+        let node_ptr = Rc::as_ptr(&node.0);
         if visited.contains_key(&node_ptr) {
             return;
         }
@@ -82,7 +82,7 @@ impl Node {
 
         for src_node in node.src() {
             Self::build_dot_recursive(src_node, nodes, edges, visited, counter);
-            let src_id = visited.get(&Arc::as_ptr(&src_node.0)).unwrap();
+            let src_id = visited.get(&Rc::as_ptr(&src_node.0)).unwrap();
             edges.push(format!("{src_id} -> {node_id};"));
         }
     }
@@ -111,8 +111,8 @@ impl ToDot for Node {
     }
 }
 
-impl From<Arc<NodeData>> for Node {
-    fn from(arc_node: Arc<NodeData>) -> Self {
+impl From<Rc<NodeData>> for Node {
+    fn from(arc_node: Rc<NodeData>) -> Self {
         Node(arc_node)
     }
 }
@@ -121,7 +121,7 @@ impl From<Arc<NodeData>> for Node {
 impl<T: Into<Node>> Add<T> for Node {
     type Output = Node;
     fn add(self, rhs: T) -> Self::Output {
-        Node(Arc::new(NodeData {
+        Node(Rc::new(NodeData {
             op: Box::new(OpAdd),
             src: vec![self, rhs.into()],
         }))
@@ -131,7 +131,7 @@ impl<T: Into<Node>> Add<T> for Node {
 impl<T: Into<Node>> Mul<T> for Node {
     type Output = Node;
     fn mul(self, rhs: T) -> Self::Output {
-        Node(Arc::new(NodeData {
+        Node(Rc::new(NodeData {
             op: Box::new(OpMul),
             src: vec![self, rhs.into()],
         }))
@@ -145,6 +145,7 @@ impl Neg for Node {
     }
 }
 
+#[allow(clippy::suspicious_arithmetic_impl)]
 impl<T: Into<Node>> Sub<T> for Node {
     type Output = Self;
     fn sub(self, rhs: T) -> Self::Output {
@@ -152,6 +153,7 @@ impl<T: Into<Node>> Sub<T> for Node {
     }
 }
 
+#[allow(clippy::suspicious_arithmetic_impl)]
 impl<T: Into<Node>> Div<T> for Node {
     type Output = Self;
     fn div(self, rhs: T) -> Self::Output {
@@ -186,7 +188,7 @@ impl<T: Into<Node>> DivAssign<T> for Node {
 impl<T: Into<Node>> Rem<T> for Node {
     type Output = Node;
     fn rem(self, rhs: T) -> Self::Output {
-        Node(Arc::new(NodeData {
+        Node(Rc::new(NodeData {
             op: Box::new(OpRem),
             src: vec![self, rhs.into()],
         }))
@@ -217,56 +219,56 @@ impl_from_primitive_for_node!(f32, f64, u8, u16, u32, u64, usize, i8, i16, i32, 
 // --- Helper Functions ---
 
 pub fn constant<T: DType + 'static>(value: T) -> Node {
-    Node(Arc::new(NodeData {
+    Node(Rc::new(NodeData {
         op: Box::new(Const(Box::new(value))),
         src: vec![],
     }))
 }
 
 pub fn recip(a: Node) -> Node {
-    Node(Arc::new(NodeData {
+    Node(Rc::new(NodeData {
         op: Box::new(Recip),
         src: vec![a],
     }))
 }
 
 pub fn capture(name: &str) -> Node {
-    Node(Arc::new(NodeData {
+    Node(Rc::new(NodeData {
         op: Box::new(Capture(name.to_string())),
         src: vec![],
     }))
 }
 
 pub fn variable(name: &str) -> Node {
-    Node(Arc::new(NodeData {
+    Node(Rc::new(NodeData {
         op: Box::new(Variable(name.to_string())),
         src: vec![],
     }))
 }
 
 pub fn sin(a: Node) -> Node {
-    Node(Arc::new(NodeData {
+    Node(Rc::new(NodeData {
         op: Box::new(Sin),
         src: vec![a],
     }))
 }
 
 pub fn exp2(a: Node) -> Node {
-    Node(Arc::new(NodeData {
+    Node(Rc::new(NodeData {
         op: Box::new(Exp2),
         src: vec![a],
     }))
 }
 
 pub fn log2(a: Node) -> Node {
-    Node(Arc::new(NodeData {
+    Node(Rc::new(NodeData {
         op: Box::new(Log2),
         src: vec![a],
     }))
 }
 
 pub fn sqrt(a: Node) -> Node {
-    Node(Arc::new(NodeData {
+    Node(Rc::new(NodeData {
         op: Box::new(Sqrt),
         src: vec![a],
     }))
@@ -293,7 +295,7 @@ pub fn pow(base: Node, exp: Node) -> Node {
 }
 
 pub fn cast<T: DType + Default + 'static>(a: Node) -> Node {
-    Node(Arc::new(NodeData {
+    Node(Rc::new(NodeData {
         op: Box::new(Cast(Box::new(T::default()))),
         src: vec![a],
     }))

@@ -1,18 +1,22 @@
 use crate::node::{Node, NodeData};
 use crate::op::{Capture, Wildcard};
+use dyn_clone::clone_box;
 use std::collections::HashMap;
 use std::ops::Add;
-use std::sync::Arc;
+use std::rc::Rc;
 
 /// A map to store captured nodes, mapping capture names to the matched nodes.
 pub type Captures = HashMap<String, Node>;
+
+/// A function that takes captures and returns a new node.
+pub type RewriterFn = Box<dyn Fn(&Node, &Captures) -> Option<Node>>;
 
 /// The body of a rewriter, which can be a static pattern or a dynamic function.
 pub enum RewriterBody {
     /// A static pattern to replace with.
     Pattern(Node),
     /// A function that takes captures and returns a new node.
-    Func(Box<dyn Fn(&Node, &Captures) -> Option<Node>>),
+    Func(RewriterFn),
 }
 
 impl PartialEq for RewriterBody {
@@ -134,8 +138,8 @@ impl Rewriter {
             .collect::<Vec<_>>();
 
         let mut current_node = if !rewritten_src.iter().zip(node.src()).all(|(a, b)| a == b) {
-            Node::from(Arc::new(NodeData {
-                op: node.op().clone(),
+            Node::from(Rc::new(NodeData {
+                op: clone_box(node.op()),
                 src: rewritten_src,
             }))
         } else {
@@ -171,9 +175,9 @@ impl Rewriter {
     /// Tries to apply a single rule to a node.
     fn apply_rule(&self, node: &Node, rule: &RewriteRule) -> Option<Node> {
         let mut captures = Captures::new();
-        if self.match_pattern(&rule.searcher, node, &mut captures) {
+        if Self::match_pattern(&rule.searcher, node, &mut captures) {
             match &rule.rewriter {
-                RewriterBody::Pattern(pattern) => self.build_from_pattern(pattern, &captures),
+                RewriterBody::Pattern(pattern) => Self::build_from_pattern(pattern, &captures),
                 RewriterBody::Func(func) => func(node, &captures),
             }
         } else {
@@ -182,7 +186,7 @@ impl Rewriter {
     }
 
     /// Matches a pattern node against a graph node, populating captures.
-    fn match_pattern(&self, pattern: &Node, node: &Node, captures: &mut Captures) -> bool {
+    fn match_pattern(pattern: &Node, node: &Node, captures: &mut Captures) -> bool {
         // Handle Wildcard
         if pattern.op().as_any().is::<Wildcard>() {
             return true;
@@ -202,14 +206,14 @@ impl Rewriter {
                 .src()
                 .iter()
                 .zip(node.src().iter())
-                .all(|(p, n)| self.match_pattern(p, n, captures))
+                .all(|(p, n)| Self::match_pattern(p, n, captures))
         } else {
             false
         }
     }
 
     /// Builds a new node from a pattern and captured nodes.
-    fn build_from_pattern(&self, pattern: &Node, captures: &Captures) -> Option<Node> {
+    fn build_from_pattern(pattern: &Node, captures: &Captures) -> Option<Node> {
         // If the pattern is a capture, retrieve the captured node.
         if let Some(capture) = pattern.op().as_any().downcast_ref::<Capture>() {
             return captures.get(&capture.0).cloned();
@@ -219,11 +223,11 @@ impl Rewriter {
         let new_src = pattern
             .src()
             .iter()
-            .map(|p| self.build_from_pattern(p, captures))
+            .map(|p| Self::build_from_pattern(p, captures))
             .collect::<Option<Vec<_>>>()?;
 
-        Some(Node::from(Arc::new(NodeData {
-            op: pattern.op().clone(),
+        Some(Node::from(Rc::new(NodeData {
+            op: clone_box(pattern.op()),
             src: new_src,
         })))
     }

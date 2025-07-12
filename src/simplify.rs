@@ -15,7 +15,7 @@ use crate::node::{Node, NodeData, capture, constant, cos, exp2, sin, tan};
 use crate::op::{Const, Exp2, Log2, OpAdd, OpMul, Recip, Sin, Sqrt};
 use crate::pattern::{RewriteRule, Rewriter};
 use crate::rewrite_rule;
-use std::sync::Arc;
+use std::rc::Rc;
 
 /// Returns a `Rewriter` for expanding high-level functions into simpler operations.
 pub fn expansion_rewriter() -> Rewriter {
@@ -44,7 +44,7 @@ pub fn algebraic_rewriter() -> Rewriter {
 pub fn constant_folding_rewriter() -> Rewriter {
     let rules = vec![
         RewriteRule::new_fn(
-            Node::from(Arc::new(NodeData {
+            Node::from(Rc::new(NodeData {
                 op: Box::new(OpAdd),
                 src: vec![capture("a"), capture("b")],
             })),
@@ -69,7 +69,7 @@ pub fn constant_folding_rewriter() -> Rewriter {
             },
         ),
         RewriteRule::new_fn(
-            Node::from(Arc::new(NodeData {
+            Node::from(Rc::new(NodeData {
                 op: Box::new(OpMul),
                 src: vec![capture("a"), capture("b")],
             })),
@@ -94,7 +94,7 @@ pub fn constant_folding_rewriter() -> Rewriter {
             },
         ),
         RewriteRule::new_fn(
-            Node::from(Arc::new(NodeData {
+            Node::from(Rc::new(NodeData {
                 op: Box::new(Exp2),
                 src: vec![capture("x")],
             })),
@@ -111,7 +111,7 @@ pub fn constant_folding_rewriter() -> Rewriter {
             },
         ),
         RewriteRule::new_fn(
-            Node::from(Arc::new(NodeData {
+            Node::from(Rc::new(NodeData {
                 op: Box::new(Log2),
                 src: vec![capture("x")],
             })),
@@ -128,7 +128,7 @@ pub fn constant_folding_rewriter() -> Rewriter {
             },
         ),
         RewriteRule::new_fn(
-            Node::from(Arc::new(NodeData {
+            Node::from(Rc::new(NodeData {
                 op: Box::new(Sqrt),
                 src: vec![capture("x")],
             })),
@@ -145,7 +145,7 @@ pub fn constant_folding_rewriter() -> Rewriter {
             },
         ),
         RewriteRule::new_fn(
-            Node::from(Arc::new(NodeData {
+            Node::from(Rc::new(NodeData {
                 op: Box::new(Recip),
                 src: vec![capture("x")],
             })),
@@ -162,7 +162,7 @@ pub fn constant_folding_rewriter() -> Rewriter {
             },
         ),
         RewriteRule::new_fn(
-            Node::from(Arc::new(NodeData {
+            Node::from(Rc::new(NodeData {
                 op: Box::new(Sin),
                 src: vec![capture("x")],
             })),

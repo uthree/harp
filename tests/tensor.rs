@@ -1,7 +1,7 @@
 use harp::op::{Input, Reshape};
 use harp::tensor::Tensor;
 use rstest::rstest;
-use std::sync::Arc;
+use std::rc::Rc;
 
 #[test]
 fn test_tensor_creation_with_shape() {
@@ -37,8 +37,8 @@ fn test_tensor_binary_ops(
         op_name
     );
     assert_eq!(c.data.src.len(), 2);
-    assert!(Arc::ptr_eq(&a.data, &c.data.src[0].data));
-    assert!(Arc::ptr_eq(&b.data, &c.data.src[1].data));
+    assert!(Rc::ptr_eq(&a.data, &c.data.src[0].data));
+    assert!(Rc::ptr_eq(&b.data, &c.data.src[1].data));
 }
 
 #[test]
@@ -58,7 +58,7 @@ fn test_tensor_reshape() {
     assert_eq!(b.data.op.name(), "Reshape");
     assert!(b.data.op.as_any().is::<Reshape>());
     assert_eq!(b.data.src.len(), 1);
-    assert!(Arc::ptr_eq(&a.data, &b.data.src[0].data));
+    assert!(Rc::ptr_eq(&a.data, &b.data.src[0].data));
 }
 
 #[test]
@@ -94,7 +94,7 @@ fn test_compile_add() {
 
     let lhs = &compiled_node.src()[0];
     assert_eq!(lhs.op().name(), "Variable");
-    
+
     let rhs = &compiled_node.src()[1];
     assert_eq!(rhs.op().name(), "Variable");
 }

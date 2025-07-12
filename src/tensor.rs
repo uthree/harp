@@ -1,6 +1,6 @@
 use crate::dot::ToDot;
 use crate::dtype::DType;
-use crate::node::{self, constant, Node};
+use crate::node::{self, Node, constant};
 use crate::op::{
     Const, Expand, HasIdentityElement, Input, Load, OpAdd, OpDiv, OpMul, OpRandn, OpSub, OpUniform,
     Operator, Permute, Reduce, Reshape, Slice, Store,
@@ -9,12 +9,12 @@ use crate::simplify::simplify;
 use dyn_clone::clone_box;
 use std::collections::HashMap;
 use std::ops::{Add, Div, Mul, Sub};
-use std::sync::Arc;
+use std::rc::Rc;
 
 /// A multi-dimensional array.
 #[derive(Clone)]
 pub struct Tensor {
-    pub data: Arc<TensorData>,
+    pub data: Rc<TensorData>,
 }
 
 impl Tensor {
@@ -54,7 +54,7 @@ impl Tensor {
         visited: &mut HashMap<*const TensorData, String>,
         counter: &mut usize,
     ) {
-        let tensor_ptr = Arc::as_ptr(&tensor.data);
+        let tensor_ptr = Rc::as_ptr(&tensor.data);
         if visited.contains_key(&tensor_ptr) {
             return;
         }
@@ -71,14 +71,14 @@ impl Tensor {
 
         for src_tensor in &tensor.data.src {
             Self::build_dot_recursive(src_tensor, nodes, edges, visited, counter);
-            let src_id = visited.get(&Arc::as_ptr(&src_tensor.data)).unwrap();
+            let src_id = visited.get(&Rc::as_ptr(&src_tensor.data)).unwrap();
             edges.push(format!("{src_id} -> {node_id};"));
         }
     }
 
     pub fn full<T: DType + 'static>(shape: Vec<usize>, value: T) -> Self {
         let scalar = Self {
-            data: Arc::new(TensorData {
+            data: Rc::new(TensorData {
                 op: Box::new(Const(Box::new(value))),
                 src: vec![],
                 shape: vec![],
@@ -89,7 +89,7 @@ impl Tensor {
 
     pub fn uniform(shape: Vec<usize>) -> Self {
         Self {
-            data: Arc::new(TensorData {
+            data: Rc::new(TensorData {
                 op: Box::new(OpUniform),
                 src: vec![],
                 shape,
@@ -99,7 +99,7 @@ impl Tensor {
 
     pub fn randn(shape: Vec<usize>) -> Self {
         Self {
-            data: Arc::new(TensorData {
+            data: Rc::new(TensorData {
                 op: Box::new(OpRandn),
                 src: vec![],
                 shape,
@@ -123,7 +123,7 @@ impl Tensor {
     /// Creates a new "leaf" tensor that represents an input buffer.
     pub fn new_input(shape: Vec<usize>, name: String) -> Self {
         Self {
-            data: Arc::new(TensorData {
+            data: Rc::new(TensorData {
                 op: Box::new(Input(name)),
                 src: vec![],
                 shape,
@@ -131,15 +131,10 @@ impl Tensor {
         }
     }
 
-    #[deprecated(note = "Use `new_input` instead. This will be removed.")]
-    pub fn new_load(shape: Vec<usize>, name: String, _size: usize) -> Self {
-        Self::new_input(shape, name)
-    }
-
     pub fn load(buffer: Tensor, index: Tensor) -> Tensor {
         let new_shape = index.shape().clone();
         Self {
-            data: Arc::new(TensorData {
+            data: Rc::new(TensorData {
                 op: Box::new(Load),
                 src: vec![buffer, index],
                 shape: new_shape,
@@ -149,7 +144,7 @@ impl Tensor {
 
     pub fn store(buffer: Tensor, index: Tensor, value: Tensor) -> Tensor {
         Self {
-            data: Arc::new(TensorData {
+            data: Rc::new(TensorData {
                 op: Box::new(Store),
                 src: vec![buffer, index, value],
                 shape: vec![], // Store has no output shape
@@ -167,7 +162,7 @@ impl Tensor {
         );
 
         Self {
-            data: Arc::new(TensorData {
+            data: Rc::new(TensorData {
                 op: Box::new(Reshape),
                 src: vec![self],
                 shape: new_shape,
@@ -177,7 +172,7 @@ impl Tensor {
     pub fn permute(self, order: Vec<usize>) -> Self {
         let new_shape = order.iter().map(|&i| self.shape()[i]).collect();
         Self {
-            data: Arc::new(TensorData {
+            data: Rc::new(TensorData {
                 op: Box::new(Permute { order }),
                 src: vec![self],
                 shape: new_shape,
@@ -186,7 +181,7 @@ impl Tensor {
     }
     pub fn expand(self, new_shape: Vec<usize>) -> Self {
         Self {
-            data: Arc::new(TensorData {
+            data: Rc::new(TensorData {
                 op: Box::new(Expand {
                     shape: new_shape.clone(),
                 }),
@@ -198,7 +193,7 @@ impl Tensor {
     pub fn slice(self, args: Vec<(usize, usize)>) -> Self {
         let new_shape = args.iter().map(|(start, end)| end - start).collect();
         Self {
-            data: Arc::new(TensorData {
+            data: Rc::new(TensorData {
                 op: Box::new(Slice { args }),
                 src: vec![self],
                 shape: new_shape,
@@ -211,7 +206,7 @@ impl Tensor {
             new_shape.remove(axis);
         }
         Self {
-            data: Arc::new(TensorData {
+            data: Rc::new(TensorData {
                 op: Box::new(Reduce {
                     op: Box::new(op),
                     axis,
@@ -259,11 +254,7 @@ impl Tensor {
                     .collect();
 
                 let new_tracker = ShapeTracker {
-                    dims: source_tensor
-                        .shape()
-                        .iter()
-                        .map(|&d| constant(d))
-                        .collect(),
+                    dims: source_tensor.shape().iter().map(|&d| constant(d)).collect(),
                     index_expr: new_index_expr,
                 };
                 return source_tensor.lower(&new_tracker); // Early return to avoid double simplification
@@ -277,11 +268,7 @@ impl Tensor {
                 }
 
                 let new_tracker = ShapeTracker {
-                    dims: source_tensor
-                        .shape()
-                        .iter()
-                        .map(|&d| constant(d))
-                        .collect(),
+                    dims: source_tensor.shape().iter().map(|&d| constant(d)).collect(),
                     index_expr: new_index_expr,
                 };
                 return source_tensor.lower(&new_tracker);
@@ -297,11 +284,7 @@ impl Tensor {
                     .collect();
 
                 let new_tracker = ShapeTracker {
-                    dims: source_tensor
-                        .shape()
-                        .iter()
-                        .map(|&d| constant(d))
-                        .collect(),
+                    dims: source_tensor.shape().iter().map(|&d| constant(d)).collect(),
                     index_expr: new_index_expr,
                 };
                 return source_tensor.lower(&new_tracker);
@@ -327,15 +310,11 @@ impl Tensor {
                     source_index_expr.insert(axis, constant(i));
 
                     let source_tracker = ShapeTracker {
-                        dims: source_tensor
-                            .shape()
-                            .iter()
-                            .map(|&d| constant(d))
-                            .collect(),
+                        dims: source_tensor.shape().iter().map(|&d| constant(d)).collect(),
                         index_expr: source_index_expr,
                     };
                     let term = source_tensor.lower(&source_tracker);
-                    accumulator = Node::from(Arc::new(node::NodeData {
+                    accumulator = Node::from(Rc::new(node::NodeData {
                         op: clone_box(&*reduce_op.op),
                         src: vec![accumulator, term],
                     }));
@@ -346,7 +325,7 @@ impl Tensor {
                 let left = src[0].lower(shape_tracker);
                 let right = src[1].lower(shape_tracker);
                 let new_op = clone_box(&**op);
-                node::Node::from(Arc::new(node::NodeData {
+                node::Node::from(Rc::new(node::NodeData {
                     op: new_op,
                     src: vec![left, right],
                 }))
@@ -381,7 +360,7 @@ impl Add for Tensor {
             "Tensor shapes must match for Add"
         );
         Self {
-            data: Arc::new(TensorData {
+            data: Rc::new(TensorData {
                 op: Box::new(OpAdd),
                 src: vec![self.clone(), rhs],
                 shape: self.shape().clone(),
@@ -394,7 +373,7 @@ impl Sub for Tensor {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self::Output {
         Self {
-            data: Arc::new(TensorData {
+            data: Rc::new(TensorData {
                 op: Box::new(OpSub),
                 src: vec![self.clone(), rhs],
                 shape: self.shape().clone(),
@@ -406,7 +385,7 @@ impl Mul for Tensor {
     type Output = Self;
     fn mul(self, rhs: Self) -> Self::Output {
         Self {
-            data: Arc::new(TensorData {
+            data: Rc::new(TensorData {
                 op: Box::new(OpMul),
                 src: vec![self.clone(), rhs],
                 shape: self.shape().clone(),
@@ -418,7 +397,7 @@ impl Div for Tensor {
     type Output = Self;
     fn div(self, rhs: Self) -> Self::Output {
         Self {
-            data: Arc::new(TensorData {
+            data: Rc::new(TensorData {
                 op: Box::new(OpDiv),
                 src: vec![self.clone(), rhs],
                 shape: self.shape().clone(),
