@@ -73,15 +73,3 @@ impl_unsigned!(u8, u16, u32, u64, usize);
 impl_dtype!(i8, i16, i32, i64, isize);
 impl_integer!(i8, i16, i32, i64, isize);
 impl_signed!(i8, i16, i32, i64, isize);
-
-#[derive(Debug, Clone, Default)]
-pub struct WildcardDType;
-
-impl DType for WildcardDType {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn type_name(&self) -> &'static str {
-        "WildcardDType"
-    }
-}
