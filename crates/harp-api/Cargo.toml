@@ -1,0 +1,13 @@
+[package]
+name = "harp-api"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+harp-ir = { path = "../harp-ir" }
+log = { workspace = true }
+dyn-clone = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+env_logger = { workspace = true }

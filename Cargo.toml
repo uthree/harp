@@ -1,20 +1,17 @@
-[package]
-name = "harp"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+members = ["crates/harp-api", "crates/harp-codegen", "crates/harp-ir"]
+resolver = "2"
 
-[lib]
-path = "src/lib.rs"
-
-[dependencies]
+[workspace.dependencies]
 log = "0.4"
 dyn-clone = "1.0.19"
 libloading = "0.8.8"
 tempfile = "3.20.0"
 env_logger = "0.11"
-
-[dev-dependencies]
-env_logger = "0.11"
 rstest = "0.25.0"
 
-[workspace]
+# Define the default profile for all workspace members.
+[profile.release]
+lto = true
+codegen-units = 1
+

@@ -1,0 +1,10 @@
+[package]
+name = "harp-codegen"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+harp-ir = { path = "../harp-ir" }
+log = { workspace = true }
+libloading = { workspace = true }
+tempfile = { workspace = true }

@@ -1,0 +1,8 @@
+[package]
+name = "harp-ir"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+log = { workspace = true }
+dyn-clone = { workspace = true }
