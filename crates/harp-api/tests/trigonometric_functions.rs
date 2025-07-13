@@ -1,4 +1,3 @@
-use harp_api::prelude::*;
 use harp_ir::node::{constant, cos, sin, tan};
 use harp_ir::simplify::default_rewriter;
 use rstest::rstest;

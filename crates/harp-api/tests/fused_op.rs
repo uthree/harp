@@ -1,4 +1,3 @@
-use harp_api::prelude::*;
 use harp_ir::node::{self, Node};
 use harp_ir::op::{FusedOp, OpDiv, OpRandn, OpSub, Operator};
 use rstest::rstest;

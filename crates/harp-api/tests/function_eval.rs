@@ -1,4 +1,3 @@
-use harp_api::prelude::*;
 use harp_ir::node::{constant, exp, exp2, log2, pow, sqrt};
 use harp_ir::simplify::default_rewriter;
 use rstest::rstest;

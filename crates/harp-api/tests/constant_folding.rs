@@ -1,4 +1,3 @@
-use harp_api::prelude::*;
 use harp_ir::node::{self};
 use harp_ir::op::Const;
 use harp_ir::pattern::{RewriteRule, Rewriter};

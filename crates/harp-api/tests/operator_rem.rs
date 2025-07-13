@@ -1,4 +1,3 @@
-use harp_api::prelude::*;
 use harp_ir::node::{self};
 
 #[test]

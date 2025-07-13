@@ -22,9 +22,6 @@ impl Eq for dyn Operator {}
 
 // --- Operator Traits ---
 
-/// Marker trait for operators that can be used to build a Tensor graph.
-pub trait TensorOperator: Operator {}
-
 /// Marker trait for operators that are applied element-wise.
 pub trait Elementwise: Operator {}
 
@@ -331,25 +328,6 @@ impl Operator for OpRandn {
         Some(self)
     }
 }
-
-// TensorOperators
-impl TensorOperator for OpAdd {}
-impl TensorOperator for OpSub {}
-impl TensorOperator for OpMul {}
-impl TensorOperator for OpDiv {}
-impl TensorOperator for Reshape {}
-impl TensorOperator for Permute {}
-impl TensorOperator for Expand {}
-impl TensorOperator for Slice {}
-impl TensorOperator for OpUniform {}
-impl TensorOperator for OpRandn {}
-// Add other ops that can be used in tensor graphs...
-impl TensorOperator for Sin {}
-impl TensorOperator for Exp2 {}
-impl TensorOperator for Log2 {}
-impl TensorOperator for Sqrt {}
-impl TensorOperator for Max {}
-impl TensorOperator for Reduce {}
 
 // Binary & Commutative
 impl BinaryOp for OpAdd {}
