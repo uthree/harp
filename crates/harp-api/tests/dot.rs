@@ -1,6 +1,6 @@
+use harp_api::tensor::Tensor;
 use harp_ir::dot::ToDot;
 use harp_ir::node;
-use harp_api::tensor::Tensor;
 
 #[test]
 fn test_node_to_dot() {
