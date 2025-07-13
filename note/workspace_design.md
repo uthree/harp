@@ -1,33 +1,42 @@
 # Workspace Design
 
-To improve maintainability, modularity, and enforce clear API boundaries, the `harp` project will be restructured into a multi-crate workspace. This approach separates concerns, making the library easier to develop, test, and extend.
+To improve maintainability, modularity, and enforce clear API boundaries, the `harp` project is structured as a multi-crate workspace. This approach separates concerns, making the library easier to develop, test, and extend.
+
+The dependency chain is designed to be clear and acyclic:
+`harp-tensor` → `harp-ir` → `harp-graph`
+`harp-codegen` → `harp-ir` → `harp-graph`
 
 ## Crate Structure
 
-The workspace will consist of three primary crates, each with a distinct responsibility:
+### 1. `harp-graph` (Foundational Library)
 
-### 1. `harp-api`
-
--   **Responsibility**: Provides the public, user-facing API. This is the primary entry point for users of the library.
--   **Core Components**: `Tensor` struct and associated operations.
--   **Role**: Handles the construction of the high-level computation graph from user code. It will act as a bridge to the IR crate by lowering the `Tensor` graph into a `Node` graph.
--   **Dependencies**: Depends on `harp-ir`.
+-   **Responsibility**: Provides a generic, reusable graph data structure.
+-   **Core Components**: `Graph<T>`, `Node<T>`, `NodeId`.
+-   **Role**: Acts as a foundational library for creating and manipulating graph structures. It is agnostic to the concepts of "computation," "operators," or "tensors."
+-   **Dependencies**: None within the workspace.
 
 ### 2. `harp-ir` (Intermediate Representation)
 
--   **Responsibility**: Defines the core, shared data structures and logic for the computation graph. This crate acts as the "common language" between the frontend API and the backend code generation.
--   **Core Components**: `Node`, `Operator`, `DType`, pattern matching, and graph simplification logic.
--   **Role**: Provides a stable, decoupled intermediate layer. It has no knowledge of the user-facing API or the final code generation targets.
--   **Dependencies**: None within the workspace.
-
-### 3. `harp-codegen` (Code Generation)
-
--   **Responsibility**: Consumes the graph from `harp-ir` and generates target-specific source code.
+-   **Responsibility**: Defines the compiler's intermediate representations.
 -   **Core Components**:
-    -   Linearizer: Converts the `Node` graph into a procedural Intermediate Representation (IR).
-    -   Procedural IR: Defines `Procedure` and `Instruction` structs.
-    -   Renderers: Translates the procedural IR into target code (e.g., C, CUDA).
--   **Role**: Acts as the compilation backend. It is responsible for the final stages of turning the abstract computation into executable code.
--   **Dependencies**: Depends on `harp-ir`.
+    -   **Computation Graph**: A `harp-graph::Graph` where the node data is a low-level `Operator`.
+    -   **Procedural IR**: `Procedure`, `Instruction`, and `VReg` structs for linearized operations.
+    -   **Shared Types**: `DType` and other common data types.
+-   **Role**: Acts as the "common language" for the compiler. It defines the data structures that the frontend produces and the backend consumes.
+-   **Dependencies**: `harp-graph`.
 
-This structure ensures that the frontend (`harp-api`) and backend (`harp-codegen`) are decoupled, communicating only through the well-defined structures in `harp-ir`.
+### 3. `harp-tensor` (Frontend)
+
+-   **Responsibility**: Provides the public, user-facing `Tensor` API.
+-   **Core Components**: `Tensor` struct and its associated mathematical operations.
+-   **Role**: Constructs a high-level computation graph from user code. It then lowers this graph into the representation defined in `harp-ir`.
+-   **Dependencies**: `harp-ir`.
+
+### 4. `harp-codegen` (Backend)
+
+-   **Responsibility**: Generates target-specific source code from the intermediate representations.
+-   **Core Components**:
+    -   **Linearizer**: Converts the computation graph from `harp-ir` into the procedural IR (also defined in `harp-ir`).
+    -   **Renderers**: Translates the procedural IR into target source code (e.g., C, CUDA, Metal).
+-   **Role**: Acts as the compilation backend, turning the abstract computations into executable code.
+-   **Dependencies**: `harp-ir`.

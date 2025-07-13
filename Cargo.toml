@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/harp-api", "crates/harp-codegen", "crates/harp-ir"]
+members = ["crates/harp-graph", "crates/harp-tensor", "crates/harp-ir", "crates/harp-codegen"]
 resolver = "2"
 
 [workspace.dependencies]
