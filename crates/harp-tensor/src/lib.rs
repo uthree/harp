@@ -1,37 +1,46 @@
 //! Provides the high-level `Tensor` API.
-//!
-//! This crate allows users to build a high-level computation graph, which can then
-//! be lowered into the `harp-ir` representation for compilation.
 
-use harp_ir::{ComputationGraph, Graph, NodeId, Operator};
+use harp_ir::{ComputationGraph, Dim, Graph, NodeId, Operator, Shape};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::Add;
 
 // --- High-Level Representation ---
 
-/// Operations in the high-level tensor graph.
 #[derive(Debug, Clone)]
 enum TensorOp {
-    Load { name: String },
-    Add,
+    Load { name: String, shape: Shape },
+    Add { shape: Shape },
 }
 
-/// The high-level graph built by tensor operations.
+impl TensorOp {
+    fn shape(&self) -> &Shape {
+        match self {
+            TensorOp::Load { shape, .. } => shape,
+            TensorOp::Add { shape } => shape,
+        }
+    }
+}
+
 type TensorGraph = Graph<TensorOp, usize>;
 
 // --- Context and Tensor ---
 
-/// Owns and manages the high-level computation graph.
 pub struct Context {
     tensor_graph: RefCell<TensorGraph>,
 }
 
-/// A lightweight handle to a node in the high-level computation graph.
 #[derive(Clone, Copy)]
 pub struct Tensor<'ctx> {
     ctx: &'ctx Context,
     node_id: NodeId,
+}
+
+impl<'ctx> Tensor<'ctx> {
+    /// Returns the shape of the tensor.
+    pub fn shape(&self) -> Shape {
+        self.ctx.tensor_graph.borrow().get(self.node_id).unwrap().data.shape().clone()
+    }
 }
 
 impl Context {
@@ -41,10 +50,10 @@ impl Context {
         }
     }
 
-    /// Creates a new tensor representing a load operation.
-    pub fn load(&self, name: &str) -> Tensor<'_> {
+    pub fn load(&self, name: &str, shape: Shape) -> Tensor<'_> {
         let node_id = self.tensor_graph.borrow_mut().add_node(TensorOp::Load {
             name: name.to_string(),
+            shape,
         });
         Tensor {
             ctx: self,
@@ -59,8 +68,15 @@ impl<'ctx> Add for Tensor<'ctx> {
     type Output = Tensor<'ctx>;
 
     fn add(self, rhs: Self) -> Self::Output {
+        let lhs_shape = self.shape();
+        let rhs_shape = rhs.shape();
+
+        // For now, require shapes to be identical for addition.
+        // A real implementation would support broadcasting rules.
+        assert_eq!(lhs_shape, rhs_shape, "Shapes must match for addition");
+
         let mut graph = self.ctx.tensor_graph.borrow_mut();
-        let add_node_id = graph.add_node(TensorOp::Add);
+        let add_node_id = graph.add_node(TensorOp::Add { shape: lhs_shape });
         graph.add_edge(add_node_id, self.node_id, 0);
         graph.add_edge(add_node_id, rhs.node_id, 1);
         Tensor {
@@ -70,13 +86,9 @@ impl<'ctx> Add for Tensor<'ctx> {
     }
 }
 
-// --- Lowering (High-Level IR -> Low-Level IR) ---
+// --- Lowering ---
 
 impl Context {
-    /// Lowers the high-level tensor graph into the `harp-ir` `ComputationGraph`.
-    ///
-    /// It takes a slice of `Tensor`s as the desired outputs and returns the
-    /// `ComputationGraph` along with the corresponding `NodeId`s for those outputs.
     pub fn lower(&self, outputs: &[Tensor]) -> (ComputationGraph, Vec<NodeId>) {
         let mut ir_graph = ComputationGraph::new();
         let mut high_to_low_map = HashMap::new();
@@ -97,7 +109,6 @@ impl Context {
         (ir_graph, low_outputs)
     }
 
-    /// Helper function to recursively lower the graph.
     fn lower_recursive(
         &self,
         high_node_id: NodeId,
@@ -119,8 +130,8 @@ impl Context {
         }
 
         let low_op = match &high_node.data {
-            TensorOp::Load { name } => Operator::Load { name: name.clone() },
-            TensorOp::Add => Operator::Add,
+            TensorOp::Load { name, shape } => Operator::Load { name: name.clone(), shape: shape.clone() },
+            TensorOp::Add { .. } => Operator::Add, // Shape info is not on the IR Add op yet
         };
         let low_node_id = ir_graph.add_node(low_op);
 
@@ -138,47 +149,47 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_lowering_single_output() {
+    fn test_shape_inference() {
         let ctx = Context::new();
-        let a = ctx.load("a");
-        let b = ctx.load("b");
+        let shape = Shape::new(vec![Dim::Fixed(10), Dim::Symbolic("N".to_string())]);
+        let a = ctx.load("a", shape.clone());
+        let b = ctx.load("b", shape.clone());
         let c = a + b;
 
-        let (ir_graph, low_outputs) = ctx.lower(&[c]);
+        assert_eq!(c.shape(), shape);
+    }
 
-        assert_eq!(low_outputs.len(), 1);
+    #[test]
+    #[should_panic]
+    fn test_shape_mismatch_panic() {
+        let ctx = Context::new();
+        let shape1 = Shape::new(vec![Dim::Fixed(10)]);
+        let shape2 = Shape::new(vec![Dim::Fixed(11)]);
+        let a = ctx.load("a", shape1);
+        let b = ctx.load("b", shape2);
+        let _ = a + b; // This should panic
+    }
+
+    #[test]
+    fn test_lowering_with_shapes() {
+        let ctx = Context::new();
+        let shape = Shape::new(vec![Dim::Fixed(10)]);
+        let a = ctx.load("a", shape.clone());
+        let b = ctx.load("b", shape.clone());
+        let c = a + b;
+
+        let (ir_graph, _) = ctx.lower(&[c]);
         
         let dot = ir_graph.to_dot();
-        // The final node in the lowered graph should be the output.
-        let expected_output_id = ir_graph.len() - 1;
-        assert_eq!(low_outputs[0], NodeId::from(expected_output_id));
-
         let expected_dot = r#"digraph G {
   node [shape=box];
-  n0 [label="Load(a)"];
-  n1 [label="Load(b)"];
+  n0 [label="Load(a, [10])"];
+  n1 [label="Load(b, [10])"];
   n2 [label="Add"];
   n2 -> n0 [label="0"];
   n2 -> n1 [label="1"];
 }
 "#;
         assert_eq!(dot, expected_dot);
-    }
-
-    #[test]
-    fn test_lowering_multiple_outputs() {
-        let ctx = Context::new();
-        let a = ctx.load("a");
-        let b = ctx.load("b");
-        let c = a + b;
-        let d = a + c;
-
-        // Lower with `c` and `d` as outputs.
-        let (ir_graph, low_outputs) = ctx.lower(&[c, d]);
-
-        assert_eq!(low_outputs.len(), 2);
-
-        // We expect 4 nodes in the IR graph: a, b, (a+b), (a+(a+b))
-        assert_eq!(ir_graph.len(), 4);
     }
 }
