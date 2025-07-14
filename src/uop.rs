@@ -8,7 +8,7 @@ enum Ops {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-struct UOp(Rc<Ops>);
+pub struct UOp(Rc<Ops>);
 
 #[derive(Clone, Debug, PartialEq)]
 enum ConstantNumber {
