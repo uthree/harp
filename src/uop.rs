@@ -1,4 +1,6 @@
-use std::ops::{Add, Div, Mul, Rem, Sub};
+use std::ops::{
+    Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, RemAssign, Sub, SubAssign,
+};
 use std::rc::Rc;
 
 // datatypes
@@ -92,29 +94,25 @@ impl_from_for_uop! {
     f32 => (F32, F32), f64 => (F64, F64)
 }
 
-impl Add for UOp {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self {
-        // TODO: Implement proper dtype promotion
-        let dtype = self.0.dtype.clone();
-        UOp::new(Ops::Add, dtype, vec![self, rhs])
-    }
+macro_rules! impl_binary_op {
+    ($trait:ident, $method:ident, $op:ident) => {
+        impl $trait for UOp {
+            type Output = Self;
+            fn $method(self, rhs: Self) -> Self {
+                // TODO: Implement proper dtype promotion
+                let dtype = self.0.dtype.clone();
+                UOp::new(Ops::$op, dtype, vec![self, rhs])
+            }
+        }
+    };
 }
 
-impl Mul for UOp {
-    type Output = Self;
-
-    fn mul(self, rhs: Self) -> Self {
-        // TODO: Implement proper dtype promotion
-        let dtype = self.0.dtype.clone();
-        UOp::new(Ops::Mul, dtype, vec![self, rhs])
-    }
-}
+impl_binary_op!(Add, add, Add);
+impl_binary_op!(Mul, mul, Mul);
+impl_binary_op!(Rem, rem, Rem);
 
 impl Sub for UOp {
     type Output = Self;
-
     fn sub(self, rhs: Self) -> Self {
         self + (rhs * (-1i32).into())
     }
@@ -122,21 +120,26 @@ impl Sub for UOp {
 
 impl Div for UOp {
     type Output = Self;
-
     fn div(self, rhs: Self) -> Self {
         self * rhs.recip()
     }
 }
 
-impl Rem for UOp {
-    type Output = Self;
-
-    fn rem(self, rhs: Self) -> Self {
-        // TODO: Implement proper dtype promotion
-        let dtype = self.0.dtype.clone();
-        UOp::new(Ops::Rem, dtype, vec![self, rhs])
-    }
+macro_rules! impl_assign_op {
+    ($trait:ident, $method:ident, $op_trait:ident, $op_method:ident) => {
+        impl $trait for UOp {
+            fn $method(&mut self, rhs: Self) {
+                *self = self.clone().$op_method(rhs);
+            }
+        }
+    };
 }
+
+impl_assign_op!(AddAssign, add_assign, Add, add);
+impl_assign_op!(MulAssign, mul_assign, Mul, mul);
+impl_assign_op!(SubAssign, sub_assign, Sub, sub);
+impl_assign_op!(DivAssign, div_assign, Div, div);
+impl_assign_op!(RemAssign, rem_assign, Rem, rem);
 
 #[cfg(test)]
 mod tests {
@@ -185,7 +188,7 @@ mod tests {
     }
 
     #[test]
-    fn test_arithmetic_operations() {
+    fn test_binary_operations() {
         let a: UOp = 5i32.into();
         let b: UOp = 10i32.into();
 
@@ -234,6 +237,36 @@ mod tests {
         assert_eq!(g.0.src.len(), 2);
         assert_eq!(g.0.src[0], a.clone());
         assert_eq!(g.0.src[1], b.clone());
+    }
+
+    #[test]
+    fn test_assign_operations() {
+        let b: UOp = 10i32.into();
+
+        let mut a: UOp = 5i32.into();
+        a += b.clone();
+        let expected: UOp = 5i32.into();
+        assert_eq!(a, expected + b.clone());
+
+        let mut a: UOp = 5i32.into();
+        a -= b.clone();
+        let expected: UOp = 5i32.into();
+        assert_eq!(a, expected - b.clone());
+
+        let mut a: UOp = 5i32.into();
+        a *= b.clone();
+        let expected: UOp = 5i32.into();
+        assert_eq!(a, expected * b.clone());
+
+        let mut a: UOp = 5i32.into();
+        a /= b.clone();
+        let expected: UOp = 5i32.into();
+        assert_eq!(a, expected / b.clone());
+
+        let mut a: UOp = 5i32.into();
+        a %= b.clone();
+        let expected: UOp = 5i32.into();
+        assert_eq!(a, expected % b.clone());
     }
 
     #[test]
