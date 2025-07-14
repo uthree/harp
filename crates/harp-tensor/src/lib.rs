@@ -3,8 +3,7 @@
 //! This crate allows users to build a high-level computation graph, which can then
 //! be lowered into the `harp-ir` representation for compilation.
 
-use harp_ir::{ComputationGraph, Operator};
-use harp_graph::{Graph, NodeId};
+use harp_ir::{ComputationGraph, Graph, NodeId, Operator};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::Add;
@@ -75,19 +74,27 @@ impl<'ctx> Add for Tensor<'ctx> {
 
 impl Context {
     /// Lowers the high-level tensor graph into the `harp-ir` `ComputationGraph`.
-    pub fn lower(&self) -> ComputationGraph {
+    ///
+    /// It takes a slice of `Tensor`s as the desired outputs and returns the
+    /// `ComputationGraph` along with the corresponding `NodeId`s for those outputs.
+    pub fn lower(&self, outputs: &[Tensor]) -> (ComputationGraph, Vec<NodeId>) {
         let mut ir_graph = ComputationGraph::new();
         let mut high_to_low_map = HashMap::new();
         let tensor_graph = self.tensor_graph.borrow();
 
-        // We need to find the output nodes of the graph to start the traversal.
-        // For now, we assume the last node added is the output.
-        // A more robust solution would be to track outputs explicitly.
-        if let Some(output_node_id) = (0..tensor_graph.len()).last().map(NodeId::from) {
-            self.lower_recursive(output_node_id, &tensor_graph, &mut ir_graph, &mut high_to_low_map);
-        }
+        let low_outputs = outputs
+            .iter()
+            .map(|&high_tensor| {
+                self.lower_recursive(
+                    high_tensor.node_id,
+                    &tensor_graph,
+                    &mut ir_graph,
+                    &mut high_to_low_map,
+                )
+            })
+            .collect();
 
-        ir_graph
+        (ir_graph, low_outputs)
     }
 
     /// Helper function to recursively lower the graph.
@@ -98,59 +105,55 @@ impl Context {
         ir_graph: &mut ComputationGraph,
         high_to_low_map: &mut HashMap<NodeId, NodeId>,
     ) -> NodeId {
-        // If we've already processed this node, return its ID in the new graph.
         if let Some(low_node_id) = high_to_low_map.get(&high_node_id) {
             return *low_node_id;
         }
 
         let high_node = tensor_graph.get(high_node_id).unwrap();
 
-        // First, lower the children.
         let mut low_children = Vec::new();
         for (edge, high_child_id) in &high_node.children {
-            let low_child_id = self.lower_recursive(*high_child_id, tensor_graph, ir_graph, high_to_low_map);
+            let low_child_id =
+                self.lower_recursive(*high_child_id, tensor_graph, ir_graph, high_to_low_map);
             low_children.push((*edge, low_child_id));
         }
 
-        // Then, create the corresponding node in the low-level graph.
         let low_op = match &high_node.data {
             HighLevelOp::Load { name } => Operator::Load { name: name.clone() },
             HighLevelOp::Add => Operator::Add,
         };
         let low_node_id = ir_graph.add_node(low_op);
 
-        // Add the edges to the new node.
         for (edge, low_child_id) in low_children {
             ir_graph.add_edge(low_node_id, low_child_id, edge);
         }
 
-        // Memoize the result.
         high_to_low_map.insert(high_node_id, low_node_id);
-
         low_node_id
     }
 }
-
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_lowering() {
+    fn test_lowering_single_output() {
         let ctx = Context::new();
         let a = ctx.load("a");
         let b = ctx.load("b");
-        let _c = a + b; // This creates the high-level graph.
+        let c = a + b;
 
-        // Now, lower it to the IR graph.
-        let ir_graph = ctx.lower();
+        let (ir_graph, low_outputs) = ctx.lower(&[c]);
 
-        // The lowered graph should have the correct structure.
-        // Note: The node order might be different due to the recursive lowering.
-        // `to_dot` provides a canonical representation if the traversal is deterministic.
+        assert_eq!(low_outputs.len(), 1);
+        
         let dot = ir_graph.to_dot();
-        let expected = r#"digraph G {
+        // The final node in the lowered graph should be the output.
+        let expected_output_id = ir_graph.len() - 1;
+        assert_eq!(low_outputs[0], NodeId::from(expected_output_id));
+
+        let expected_dot = r#"digraph G {
   node [shape=box];
   n0 [label="Load(a)"];
   n1 [label="Load(b)"];
@@ -159,9 +162,23 @@ mod tests {
   n2 -> n1 [label="1"];
 }
 "#;
-        // This assertion is brittle because node IDs depend on traversal order.
-        // A better test would parse the DOT file or inspect the graph structure.
-        // For now, we rely on the deterministic nature of our simple recursive lowering.
-        assert_eq!(dot, expected);
+        assert_eq!(dot, expected_dot);
+    }
+
+    #[test]
+    fn test_lowering_multiple_outputs() {
+        let ctx = Context::new();
+        let a = ctx.load("a");
+        let b = ctx.load("b");
+        let c = a + b;
+        let d = a + c;
+
+        // Lower with `c` and `d` as outputs.
+        let (ir_graph, low_outputs) = ctx.lower(&[c, d]);
+
+        assert_eq!(low_outputs.len(), 2);
+
+        // We expect 4 nodes in the IR graph: a, b, (a+b), (a+(a+b))
+        assert_eq!(ir_graph.len(), 4);
     }
 }
