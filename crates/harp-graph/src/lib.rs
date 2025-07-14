@@ -1,4 +1,7 @@
-//! A generic, arena-based graph data structure.
+pub mod pattern;
+pub mod rewrite;
+
+// A generic, arena-based graph data structure.
 
 /// A unique identifier for a node in the graph.
 /// It's a wrapper around usize to provide type safety.
