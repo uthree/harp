@@ -12,13 +12,13 @@ use std::ops::Add;
 
 /// Operations in the high-level tensor graph.
 #[derive(Debug, Clone)]
-enum HighLevelOp {
+enum TensorOp {
     Load { name: String },
     Add,
 }
 
 /// The high-level graph built by tensor operations.
-type TensorGraph = Graph<HighLevelOp, usize>;
+type TensorGraph = Graph<TensorOp, usize>;
 
 // --- Context and Tensor ---
 
@@ -43,7 +43,7 @@ impl Context {
 
     /// Creates a new tensor representing a load operation.
     pub fn load(&self, name: &str) -> Tensor<'_> {
-        let node_id = self.tensor_graph.borrow_mut().add_node(HighLevelOp::Load {
+        let node_id = self.tensor_graph.borrow_mut().add_node(TensorOp::Load {
             name: name.to_string(),
         });
         Tensor {
@@ -60,7 +60,7 @@ impl<'ctx> Add for Tensor<'ctx> {
 
     fn add(self, rhs: Self) -> Self::Output {
         let mut graph = self.ctx.tensor_graph.borrow_mut();
-        let add_node_id = graph.add_node(HighLevelOp::Add);
+        let add_node_id = graph.add_node(TensorOp::Add);
         graph.add_edge(add_node_id, self.node_id, 0);
         graph.add_edge(add_node_id, rhs.node_id, 1);
         Tensor {
@@ -119,8 +119,8 @@ impl Context {
         }
 
         let low_op = match &high_node.data {
-            HighLevelOp::Load { name } => Operator::Load { name: name.clone() },
-            HighLevelOp::Add => Operator::Add,
+            TensorOp::Load { name } => Operator::Load { name: name.clone() },
+            TensorOp::Add => Operator::Add,
         };
         let low_node_id = ir_graph.add_node(low_op);
 
