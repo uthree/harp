@@ -1,6 +1,8 @@
 //! Defines the Intermediate Representation (IR) for the computation graph.
 
-use harp_graph::Graph;
+// Re-export the core graph types from the foundational crate.
+pub use harp_graph::{Graph, NodeId};
+
 use std::fmt;
 
 /// Represents the different operations that can be in the computation graph.
