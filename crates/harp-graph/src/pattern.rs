@@ -14,13 +14,22 @@ pub enum PatternNode<T> {
     Capture { name: String },
 }
 
+/// Represents an edge in a pattern graph.
+#[derive(Debug, Clone)]
+pub enum PatternEdge<E> {
+    /// Matches an edge with specific data.
+    Edge { data: E },
+    /// A wildcard that matches any edge.
+    Wildcard,
+}
+
 /// A graph structure that represents a pattern to be matched.
-pub struct PatternGraph<T> {
-    pub(crate) graph: Graph<PatternNode<T>>,
+pub struct PatternGraph<T, E> {
+    pub(crate) graph: Graph<PatternNode<T>, PatternEdge<E>>,
     pub(crate) root: NodeId,
 }
 
-impl<T> PatternGraph<T> {
+impl<T, E> PatternGraph<T, E> {
     /// Creates a new pattern with a root node.
     pub fn new(root_node: PatternNode<T>) -> Self {
         let mut graph = Graph::new();
@@ -29,9 +38,14 @@ impl<T> PatternGraph<T> {
     }
 
     /// Adds a child to the pattern.
-    pub fn add_child(&mut self, parent: NodeId, child_node: PatternNode<T>) -> NodeId {
+    pub fn add_child(
+        &mut self,
+        parent: NodeId,
+        edge: PatternEdge<E>,
+        child_node: PatternNode<T>,
+    ) -> NodeId {
         let child_id = self.graph.add_node(child_node);
-        self.graph.add_edge(parent, child_id);
+        self.graph.add_edge(parent, child_id, edge);
         child_id
     }
 }

@@ -15,22 +15,23 @@ impl From<usize> for NodeId {
 }
 
 /// Represents a node in the graph.
-/// The `T` is the data payload of the node.
-pub struct Node<T> {
+/// The `T` is the data payload of the node, `E` is the data on the edges.
+pub struct Node<T, E> {
     /// The data held by the node.
     pub data: T,
-    /// Indices of the children nodes in the graph's node list.
-    pub children: Vec<NodeId>,
+    /// A list of tuples, where each tuple contains the edge data
+    /// and the ID of a child node.
+    pub children: Vec<(E, NodeId)>,
 }
 
 /// Represents an entire graph of nodes.
 /// It owns all the nodes in an arena-style vector.
-pub struct Graph<T> {
+pub struct Graph<T, E> {
     /// Arena of nodes.
-    nodes: Vec<Node<T>>,
+    nodes: Vec<Node<T, E>>,
 }
 
-impl<T> Graph<T> {
+impl<T, E> Graph<T, E> {
     /// Creates a new, empty graph.
     pub fn new() -> Self {
         Graph { nodes: Vec::new() }
@@ -46,21 +47,21 @@ impl<T> Graph<T> {
         NodeId(id)
     }
 
-    /// Adds a directed edge from a parent node to a child node.
+    /// Adds a directed edge from a parent node to a child node with associated edge data.
     ///
     /// # Panics
     /// Panics if the parent ID is out of bounds.
-    pub fn add_edge(&mut self, parent: NodeId, child: NodeId) {
-        self.nodes[parent.0].children.push(child);
+    pub fn add_edge(&mut self, parent: NodeId, child: NodeId, edge_data: E) {
+        self.nodes[parent.0].children.push((edge_data, child));
     }
 
     /// Gets a reference to a node by its ID.
-    pub fn get(&self, id: NodeId) -> Option<&Node<T>> {
+    pub fn get(&self, id: NodeId) -> Option<&Node<T, E>> {
         self.nodes.get(id.0)
     }
 
     /// Gets a mutable reference to a node by its ID.
-    pub fn get_mut(&mut self, id: NodeId) -> Option<&mut Node<T>> {
+    pub fn get_mut(&mut self, id: NodeId) -> Option<&mut Node<T, E>> {
         self.nodes.get_mut(id.0)
     }
 
@@ -75,7 +76,7 @@ impl<T> Graph<T> {
     }
 }
 
-impl<T> Default for Graph<T> {
+impl<T, E> Default for Graph<T, E> {
     fn default() -> Self {
         Self::new()
     }
@@ -87,7 +88,7 @@ mod tests {
 
     #[test]
     fn test_add_node() {
-        let mut graph = Graph::new();
+        let mut graph: Graph<&str, &str> = Graph::new();
         let n1 = graph.add_node("A");
         let n2 = graph.add_node("B");
         assert_eq!(n1, NodeId(0));
@@ -97,17 +98,17 @@ mod tests {
 
     #[test]
     fn test_add_edge_and_get_node() {
-        let mut graph = Graph::new();
+        let mut graph: Graph<&str, &str> = Graph::new();
         let n1 = graph.add_node("A");
         let n2 = graph.add_node("B");
         let n3 = graph.add_node("C");
 
-        graph.add_edge(n1, n2);
-        graph.add_edge(n1, n3);
+        graph.add_edge(n1, n2, "left");
+        graph.add_edge(n1, n3, "right");
 
         let node1 = graph.get(n1).unwrap();
         assert_eq!(node1.data, "A");
-        assert_eq!(node1.children, vec![n2, n3]);
+        assert_eq!(node1.children, vec![("left", n2), ("right", n3)]);
 
         let node2 = graph.get(n2).unwrap();
         assert_eq!(node2.data, "B");
