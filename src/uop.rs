@@ -38,6 +38,7 @@ pub enum Ops {
     Mul,
     Recip,
     Rem,
+    Cast(DType),
     Const(Number),
 }
 
@@ -62,6 +63,10 @@ impl UOp {
         // TODO: Implement proper dtype promotion
         let dtype = self.0.dtype.clone();
         UOp::new(Ops::Recip, dtype, vec![self])
+    }
+
+    pub fn cast(self, dtype: DType) -> Self {
+        UOp::new(Ops::Cast(dtype.clone()), dtype, vec![self])
     }
 }
 
@@ -229,5 +234,16 @@ mod tests {
         assert_eq!(g.0.src.len(), 2);
         assert_eq!(g.0.src[0], a.clone());
         assert_eq!(g.0.src[1], b.clone());
+    }
+
+    #[test]
+    fn test_cast_operation() {
+        let a: UOp = 5i32.into();
+        let b = a.clone().cast(DType::F64);
+
+        assert_eq!(b.0.op, Ops::Cast(DType::F64));
+        assert_eq!(b.0.dtype, DType::F64);
+        assert_eq!(b.0.src.len(), 1);
+        assert_eq!(b.0.src[0], a);
     }
 }
