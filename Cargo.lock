@@ -3,26 +3,5 @@
 version = 4
 
 [[package]]
-name = "harp-codegen"
+name = "harp"
 version = "0.1.0"
-dependencies = [
- "harp-ir",
-]
-
-[[package]]
-name = "harp-graph"
-version = "0.1.0"
-
-[[package]]
-name = "harp-ir"
-version = "0.1.0"
-dependencies = [
- "harp-graph",
-]
-
-[[package]]
-name = "harp-tensor"
-version = "0.1.0"
-dependencies = [
- "harp-ir",
-]
