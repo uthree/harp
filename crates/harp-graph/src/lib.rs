@@ -1,3 +1,4 @@
+pub mod builder;
 pub mod pattern;
 pub mod rewrite;
 

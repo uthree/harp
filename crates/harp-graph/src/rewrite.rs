@@ -1,6 +1,6 @@
 //! Implements the graph searching and rewriting logic.
 
-use crate::pattern::{Match, PatternGraph, PatternNode, PatternEdge};
+use crate::pattern::{Match, PatternEdge, PatternGraph, PatternNode};
 use crate::{Graph, NodeId};
 use std::collections::HashMap;
 
@@ -115,8 +115,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::pattern::*;
+    use crate::builder::PatternBuilder;
+    use crate::*;
 
     // A(op: Sub) -> [ (0, B), (1, C) ]  (B - C)
     fn build_test_graph() -> Graph<String, usize> {
@@ -132,18 +132,10 @@ mod tests {
     #[test]
     fn test_find_match_with_edge_data() {
         let graph = build_test_graph();
-        // Pattern: Sub -> [ (0, B), (1, C) ]
-        let mut pattern = PatternGraph::new(PatternNode::Node { data: "Sub".to_string() });
-        let p_b = pattern.add_child(
-            pattern.root,
-            PatternEdge::Edge { data: 0 },
-            PatternNode::Node { data: "B".to_string() },
-        );
-        let p_c = pattern.add_child(
-            pattern.root,
-            PatternEdge::Edge { data: 1 },
-            PatternNode::Node { data: "C".to_string() },
-        );
+        let pattern = PatternBuilder::new("Sub".to_string())
+            .child(0, PatternBuilder::new("B".to_string()))
+            .child(1, PatternBuilder::new("C".to_string()))
+            .build();
 
         let matches = graph.find_matches(&pattern);
         assert_eq!(matches.len(), 1);
@@ -153,46 +145,40 @@ mod tests {
     #[test]
     fn test_find_match_with_wrong_edge_data() {
         let graph = build_test_graph();
-        // Pattern: Sub -> [ (1, B), (0, C) ] -- wrong order
-        let mut pattern = PatternGraph::new(PatternNode::Node { data: "Sub".to_string() });
-        pattern.add_child(
-            pattern.root,
-            PatternEdge::Edge { data: 1 }, // Wrong edge data
-            PatternNode::Node { data: "B".to_string() },
-        );
-        pattern.add_child(
-            pattern.root,
-            PatternEdge::Edge { data: 0 }, // Wrong edge data
-            PatternNode::Node { data: "C".to_string() },
-        );
+        let pattern = PatternBuilder::new("Sub".to_string())
+            .child(1, PatternBuilder::new("B".to_string()))
+            .child(0, PatternBuilder::new("C".to_string()))
+            .build();
 
         let matches = graph.find_matches(&pattern);
         assert_eq!(matches.len(), 0);
     }
 
     #[test]
+    fn test_find_with_capture_and_wildcard() {
+        let graph = build_test_graph();
+        let pattern = PatternBuilder::new("Sub".to_string())
+            .child(0, PatternBuilder::capture("b"))
+            .wildcard_child(PatternBuilder::wildcard())
+            .build();
+
+        let matches = graph.find_matches(&pattern);
+        assert_eq!(matches.len(), 1);
+        let m = &matches[0];
+        assert_eq!(m.root, NodeId(0));
+        assert_eq!(m.captures.get("b").unwrap(), &NodeId(1));
+    }
+
+    #[test]
     fn test_rewrite_with_edge_data() {
         let mut graph = build_test_graph();
-        // Pattern: Sub -> [ (0, B), (1, C) ]
-        let mut pattern = PatternGraph::new(PatternNode::Node { data: "Sub".to_string() });
-        pattern.add_child(
-            pattern.root,
-            PatternEdge::Edge { data: 0 },
-            PatternNode::Node { data: "B".to_string() },
-        );
-        pattern.add_child(
-            pattern.root,
-            PatternEdge::Edge { data: 1 },
-            PatternNode::Node { data: "C".to_string() },
-        );
+        let pattern = PatternBuilder::new("Sub".to_string())
+            .child(0, PatternBuilder::new("B".to_string()))
+            .child(1, PatternBuilder::new("C".to_string()))
+            .build();
 
-        // Rewrite Sub(B, C) with a new node "Rewritten"
-        graph.rewrite(&pattern, |g, _match| {
-            g.add_node("Rewritten".to_string())
-        });
+        graph.rewrite(&pattern, |g, _match| g.add_node("Rewritten".to_string()));
 
-        // The graph should now be disconnected, with the new node existing.
-        // And no node should be pointing to it.
         assert_eq!(graph.len(), 4);
         assert_eq!(graph.get(NodeId(3)).unwrap().data, "Rewritten");
     }
