@@ -1,4 +1,6 @@
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, RemAssign, Sub, SubAssign};
+use std::ops::{
+    Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, RemAssign, Sub, SubAssign,
+};
 use std::rc::Rc;
 
 // datatypes
@@ -56,6 +58,10 @@ pub enum Ops {
     Rem,
     Cast(DType),
     Const(Number),
+    Exp2,
+    Log2,
+    Sin,
+    Sqrt,
 }
 
 // internal data of UOp
@@ -83,6 +89,26 @@ impl UOp {
 
     pub fn cast(self, dtype: DType) -> Self {
         UOp::new(Ops::Cast(dtype.clone()), dtype, vec![self])
+    }
+
+    pub fn exp2(self) -> Self {
+        let dtype = self.0.dtype.clone();
+        UOp::new(Ops::Exp2, dtype, vec![self])
+    }
+
+    pub fn log2(self) -> Self {
+        let dtype = self.0.dtype.clone();
+        UOp::new(Ops::Log2, dtype, vec![self])
+    }
+
+    pub fn sin(self) -> Self {
+        let dtype = self.0.dtype.clone();
+        UOp::new(Ops::Sin, dtype, vec![self])
+    }
+
+    pub fn sqrt(self) -> Self {
+        let dtype = self.0.dtype.clone();
+        UOp::new(Ops::Sqrt, dtype, vec![self])
     }
 }
 
@@ -323,5 +349,38 @@ mod tests {
 
         let num_u8 = Number::U8(255);
         assert_eq!(num_u8.dtype(), DType::U8);
+    }
+
+    #[test]
+    fn test_unary_operations() {
+        let a: UOp = 5i32.into();
+
+        // Test Exp2
+        let b = a.clone().exp2();
+        assert_eq!(b.0.op, Ops::Exp2);
+        assert_eq!(b.0.dtype, DType::I32);
+        assert_eq!(b.0.src.len(), 1);
+        assert_eq!(b.0.src[0], a);
+
+        // Test Log2
+        let c = a.clone().log2();
+        assert_eq!(c.0.op, Ops::Log2);
+        assert_eq!(c.0.dtype, DType::I32);
+        assert_eq!(c.0.src.len(), 1);
+        assert_eq!(c.0.src[0], a);
+
+        // Test Sin
+        let d = a.clone().sin();
+        assert_eq!(d.0.op, Ops::Sin);
+        assert_eq!(d.0.dtype, DType::I32);
+        assert_eq!(d.0.src.len(), 1);
+        assert_eq!(d.0.src[0], a);
+
+        // Test Sqrt
+        let e = a.clone().sqrt();
+        assert_eq!(e.0.op, Ops::Sqrt);
+        assert_eq!(e.0.dtype, DType::I32);
+        assert_eq!(e.0.src.len(), 1);
+        assert_eq!(e.0.src[0], a);
     }
 }
