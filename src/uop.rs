@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::ops::{
     Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, RemAssign, Sub, SubAssign,
 };
@@ -68,15 +67,15 @@ pub enum Ops {
 
 // internal data of UOp
 #[derive(Clone, PartialEq, Debug)]
-struct UOp_ {
-    op: Ops,
-    dtype: DType,
-    src: Vec<UOp>,
+pub struct UOp_ {
+    pub op: Ops,
+    pub dtype: DType,
+    pub src: Vec<UOp>,
 }
 
 // micro operator
 #[derive(Clone, PartialEq, Debug)]
-pub struct UOp(Rc<UOp_>);
+pub struct UOp(pub Rc<UOp_>);
 
 impl UOp {
     pub fn new(op: Ops, dtype: DType, src: Vec<UOp>) -> Self {
@@ -111,81 +110,6 @@ impl UOp {
     pub fn sqrt(self) -> Self {
         let dtype = self.0.dtype.clone();
         UOp::new(Ops::Sqrt, dtype, vec![self])
-    }
-}
-
-// Pattern structure
-pub struct UPat {
-    pattern: UOp,
-    replacer: Box<dyn Fn(&HashMap<usize, UOp>) -> UOp>,
-}
-
-impl UPat {
-    pub fn new<F>(pattern: UOp, replacer: F) -> Self
-    where
-        F: Fn(&HashMap<usize, UOp>) -> UOp + 'static,
-    {
-        UPat {
-            pattern,
-            replacer: Box::new(replacer),
-        }
-    }
-
-    pub fn apply(&self, target: &UOp) -> UOp {
-        // First, try to match and replace the root
-        if let Some(captures) = self.matcher(target) {
-            return (self.replacer)(&captures);
-        }
-
-        // If the root doesn't match, recurse on children
-        let new_src: Vec<UOp> = target
-            .0
-            .src
-            .iter()
-            .map(|s| self.apply(s))
-            .collect();
-
-        // Rebuild the node only if children have changed
-        if target.0.src.iter().zip(&new_src).any(|(a, b)| !a.eq(b)) {
-            UOp::new(target.0.op.clone(), target.0.dtype.clone(), new_src)
-        } else {
-            target.clone()
-        }
-    }
-
-    fn matcher(&self, target: &UOp) -> Option<HashMap<usize, UOp>> {
-        let mut captures = HashMap::new();
-        if self.internal_matcher(target, &self.pattern, &mut captures) {
-            Some(captures)
-        } else {
-            None
-        }
-    }
-
-    fn internal_matcher(
-        &self,
-        target: &UOp,
-        pattern: &UOp,
-        captures: &mut HashMap<usize, UOp>,
-    ) -> bool {
-        if let Ops::Capture(id) = pattern.0.op {
-            if let Some(existing) = captures.get(&id) {
-                return target == existing;
-            }
-            captures.insert(id, target.clone());
-            return true;
-        }
-
-        if target.0.op != pattern.0.op || target.0.src.len() != pattern.0.src.len() {
-            return false;
-        }
-
-        target
-            .0
-            .src
-            .iter()
-            .zip(pattern.0.src.iter())
-            .all(|(s, p)| self.internal_matcher(s, p, captures))
     }
 }
 
@@ -266,41 +190,6 @@ impl_assign_op!(MulAssign, mul_assign, Mul, mul);
 impl_assign_op!(SubAssign, sub_assign, Sub, sub);
 impl_assign_op!(DivAssign, div_assign, Div, div);
 impl_assign_op!(RemAssign, rem_assign, Rem, rem);
-
-#[macro_export]
-macro_rules! pat_match {
-    ($subject:expr, { $($arms:tt)* }) => {
-        {
-            let mut current_expr = $subject;
-            pat_match!(@internal current_expr, $($arms)*);
-            current_expr
-        }
-    };
-    (@internal $subject:expr, ($($cap_var:ident),*) | $pattern:expr => $replacer:expr, $($rest:tt)*) => {
-        let rule = {
-            let pattern_uop = {
-                let mut i = 0;
-                $(
-                    #[allow(unused_variables)]
-                    let $cap_var = UOp::new(Ops::Capture({let old_i = i; i += 1; old_i}), DType::I32, vec![]);
-                )*
-                $pattern
-            };
-            let replacer_fn = |caps: &HashMap<usize, UOp>| {
-                let mut i = 0;
-                $(
-                    #[allow(unused_variables)]
-                    let $cap_var = caps.get(&{let old_i = i; i += 1; old_i}).unwrap().clone();
-                )*
-                $replacer
-            };
-            UPat::new(pattern_uop, replacer_fn)
-        };
-        $subject = rule.apply(&$subject);
-        pat_match!(@internal $subject, $($rest)*);
-    };
-    (@internal $subject:expr,) => {};
-}
 
 #[cfg(test)]
 mod tests {
@@ -494,26 +383,5 @@ mod tests {
         assert_eq!(e.0.dtype, DType::I32);
         assert_eq!(e.0.src.len(), 1);
         assert_eq!(e.0.src[0], a);
-    }
-
-    #[test]
-    fn test_pattern_matching_and_replacement() {
-        // Define variables
-        let a: UOp = 1i32.into();
-        let b: UOp = 2i32.into();
-        let c: UOp = 3i32.into();
-
-        // Define expression: a * b + a * c
-        let expr = a.clone() * b.clone() + a.clone() * c.clone();
-
-        // Perform replacement using the pat_match! macro
-        let replaced_expr = pat_match!(expr, {
-            (p_a, p_b, p_c) | p_a.clone() * p_b.clone() + p_a.clone() * p_c.clone() => p_a.clone() * (p_b.clone() + p_c.clone()),
-        });
-
-        // Define expected expression: a * (b + c)
-        let expected_expr = a * (b + c);
-
-        assert_eq!(replaced_expr, expected_expr);
     }
 }
