@@ -17,6 +17,12 @@ pub enum DType {
     Pointer(Box<DType>),
 }
 
+impl DType {
+    fn ptr(self) -> DType {
+        DType::Pointer(Box::new(self))
+    }
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum Number {
     U8(u8),
