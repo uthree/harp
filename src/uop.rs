@@ -128,7 +128,16 @@ impl_binary_op!(Rem, rem, Rem);
 impl Sub for UOp {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self {
-        self + (rhs * (-1i32).into())
+        let neg_one: UOp = match &self.0.dtype {
+            DType::I8 => (-1i8).into(),
+            DType::I16 => (-1i16).into(),
+            DType::I32 => (-1i32).into(),
+            DType::I64 => (-1i64).into(),
+            DType::F32 => (-1.0f32).into(),
+            DType::F64 => (-1.0f64).into(),
+            dtype => unimplemented!("Subtraction is not implemented for dtype {:?}", dtype),
+        };
+        self + (rhs * neg_one)
     }
 }
 
@@ -251,6 +260,16 @@ mod tests {
         assert_eq!(g.0.src.len(), 2);
         assert_eq!(g.0.src[0], a.clone());
         assert_eq!(g.0.src[1], b.clone());
+
+        // Test Sub with f64
+        let x: UOp = 5.0f64.into();
+        let y: UOp = 10.0f64.into();
+        let z = x.clone() - y.clone();
+        assert_eq!(z.0.op, Ops::Add);
+        let sub_rhs_f64 = z.0.src[1].clone();
+        assert_eq!(sub_rhs_f64.0.op, Ops::Mul);
+        let neg_one_f64 = sub_rhs_f64.0.src[1].clone();
+        assert_eq!(neg_one_f64.0.op, Ops::Const(Number::F64(-1.0)));
     }
 
     #[test]
