@@ -31,6 +31,22 @@ pub enum Number {
     F64(f64),
 }
 
+macro_rules! impl_number_dtype {
+    ($($variant:ident),*) => {
+        impl Number {
+            pub fn dtype(&self) -> DType {
+                match self {
+                    $(
+                        Number::$variant(_) => DType::$variant,
+                    )*
+                }
+            }
+        }
+    };
+}
+
+impl_number_dtype!(U8, U16, U32, U64, I8, I16, I32, I64, F32, F64);
+
 // operator types
 #[derive(Clone, PartialEq, Debug)]
 pub enum Ops {
@@ -276,5 +292,17 @@ mod tests {
         assert_eq!(b.0.dtype, DType::F64);
         assert_eq!(b.0.src.len(), 1);
         assert_eq!(b.0.src[0], a);
+    }
+
+    #[test]
+    fn test_number_dtype() {
+        let num_i32 = Number::I32(42);
+        assert_eq!(num_i32.dtype(), DType::I32);
+
+        let num_f64 = Number::F64(3.14);
+        assert_eq!(num_f64.dtype(), DType::F64);
+
+        let num_u8 = Number::U8(255);
+        assert_eq!(num_u8.dtype(), DType::U8);
     }
 }
