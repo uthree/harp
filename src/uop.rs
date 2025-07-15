@@ -78,6 +78,24 @@ struct UOp_ {
 #[derive(Clone, PartialEq, Debug)]
 pub struct UOp(Rc<UOp_>);
 
+// Pattern structure
+pub struct UPat {
+    pattern: UOp,
+    replacer: Box<dyn Fn(&HashMap<usize, UOp>) -> UOp>,
+}
+
+impl UPat {
+    pub fn new<F>(pattern: UOp, replacer: F) -> Self
+    where
+        F: Fn(&HashMap<usize, UOp>) -> UOp + 'static,
+    {
+        UPat {
+            pattern,
+            replacer: Box::new(replacer),
+        }
+    }
+}
+
 impl UOp {
     pub fn new(op: Ops, dtype: DType, src: Vec<UOp>) -> Self {
         UOp(Rc::new(UOp_ { op, dtype, src }))
@@ -145,7 +163,7 @@ impl UOp {
 
     pub fn replace_with<F>(&self, pattern: &UOp, replacer: &F) -> UOp
     where
-        F: Fn(&HashMap<usize, UOp>) -> UOp,
+        F: Fn(&HashMap<usize, UOp>) -> UOp + ?Sized,
     {
         // First, try to match and replace the root
         if let Some(captures) = self.matcher(pattern) {
@@ -166,6 +184,10 @@ impl UOp {
         } else {
             self.clone()
         }
+    }
+
+    pub fn apply_pat(&self, pat: &UPat) -> UOp {
+        self.replace_with(&pat.pattern, &*pat.replacer)
     }
 }
 
@@ -451,22 +473,23 @@ mod tests {
         // Define expression: a * b + a * c
         let expr = a.clone() * b.clone() + a.clone() * c.clone();
 
-        // Define pattern: cap(0) * cap(1) + cap(0) * cap(2)
+        // Define pattern and replacer using UPat
         let p_a = UOp::new(Ops::Capture(0), DType::I32, vec![]);
         let p_b = UOp::new(Ops::Capture(1), DType::I32, vec![]);
         let p_c = UOp::new(Ops::Capture(2), DType::I32, vec![]);
-        let pattern = p_a.clone() * p_b + p_a.clone() * p_c;
 
-        // Define replacer: cap(0) * (cap(1) + cap(2))
-        let replacer = |caps: &HashMap<usize, UOp>| {
-            let cap_a = caps.get(&0).unwrap().clone();
-            let cap_b = caps.get(&1).unwrap().clone();
-            let cap_c = caps.get(&2).unwrap().clone();
-            cap_a * (cap_b + cap_c)
-        };
+        let dist_pattern = UPat::new(
+            p_a.clone() * p_b + p_a.clone() * p_c,
+            |caps| {
+                let cap_a = caps.get(&0).unwrap().clone();
+                let cap_b = caps.get(&1).unwrap().clone();
+                let cap_c = caps.get(&2).unwrap().clone();
+                cap_a * (cap_b + cap_c)
+            },
+        );
 
         // Perform replacement
-        let replaced_expr = expr.replace_with(&pattern, &replacer);
+        let replaced_expr = expr.apply_pat(&dist_pattern);
 
         // Define expected expression: a * (b + c)
         let expected_expr = a * (b + c);
