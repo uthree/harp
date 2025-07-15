@@ -78,24 +78,6 @@ struct UOp_ {
 #[derive(Clone, PartialEq, Debug)]
 pub struct UOp(Rc<UOp_>);
 
-// Pattern structure
-pub struct UPat {
-    pattern: UOp,
-    replacer: Box<dyn Fn(&HashMap<usize, UOp>) -> UOp>,
-}
-
-impl UPat {
-    pub fn new<F>(pattern: UOp, replacer: F) -> Self
-    where
-        F: Fn(&HashMap<usize, UOp>) -> UOp + 'static,
-    {
-        UPat {
-            pattern,
-            replacer: Box::new(replacer),
-        }
-    }
-}
-
 impl UOp {
     pub fn new(op: Ops, dtype: DType, src: Vec<UOp>) -> Self {
         UOp(Rc::new(UOp_ { op, dtype, src }))
@@ -130,64 +112,80 @@ impl UOp {
         let dtype = self.0.dtype.clone();
         UOp::new(Ops::Sqrt, dtype, vec![self])
     }
+}
 
-    // --- Pattern Matching and Replacement ---
-    pub fn matcher(&self, pattern: &UOp) -> Option<HashMap<usize, UOp>> {
+// Pattern structure
+pub struct UPat {
+    pattern: UOp,
+    replacer: Box<dyn Fn(&HashMap<usize, UOp>) -> UOp>,
+}
+
+impl UPat {
+    pub fn new<F>(pattern: UOp, replacer: F) -> Self
+    where
+        F: Fn(&HashMap<usize, UOp>) -> UOp + 'static,
+    {
+        UPat {
+            pattern,
+            replacer: Box::new(replacer),
+        }
+    }
+
+    pub fn apply(&self, target: &UOp) -> UOp {
+        // First, try to match and replace the root
+        if let Some(captures) = self.matcher(target) {
+            return (self.replacer)(&captures);
+        }
+
+        // If the root doesn't match, recurse on children
+        let new_src: Vec<UOp> = target
+            .0
+            .src
+            .iter()
+            .map(|s| self.apply(s))
+            .collect();
+
+        // Rebuild the node only if children have changed
+        if target.0.src.iter().zip(&new_src).any(|(a, b)| !a.eq(b)) {
+            UOp::new(target.0.op.clone(), target.0.dtype.clone(), new_src)
+        } else {
+            target.clone()
+        }
+    }
+
+    fn matcher(&self, target: &UOp) -> Option<HashMap<usize, UOp>> {
         let mut captures = HashMap::new();
-        if self.internal_matcher(pattern, &mut captures) {
+        if self.internal_matcher(target, &self.pattern, &mut captures) {
             Some(captures)
         } else {
             None
         }
     }
 
-    fn internal_matcher(&self, pattern: &UOp, captures: &mut HashMap<usize, UOp>) -> bool {
+    fn internal_matcher(
+        &self,
+        target: &UOp,
+        pattern: &UOp,
+        captures: &mut HashMap<usize, UOp>,
+    ) -> bool {
         if let Ops::Capture(id) = pattern.0.op {
             if let Some(existing) = captures.get(&id) {
-                return self == existing;
+                return target == existing;
             }
-            captures.insert(id, self.clone());
+            captures.insert(id, target.clone());
             return true;
         }
 
-        if self.0.op != pattern.0.op || self.0.src.len() != pattern.0.src.len() {
+        if target.0.op != pattern.0.op || target.0.src.len() != pattern.0.src.len() {
             return false;
         }
 
-        self.0
-            .src
-            .iter()
-            .zip(pattern.0.src.iter())
-            .all(|(s, p)| s.internal_matcher(p, captures))
-    }
-
-    pub fn replace_with<F>(&self, pattern: &UOp, replacer: &F) -> UOp
-    where
-        F: Fn(&HashMap<usize, UOp>) -> UOp + ?Sized,
-    {
-        // First, try to match and replace the root
-        if let Some(captures) = self.matcher(pattern) {
-            return replacer(&captures);
-        }
-
-        // If the root doesn't match, recurse on children
-        let new_src: Vec<UOp> = self
+        target
             .0
             .src
             .iter()
-            .map(|s| s.replace_with(pattern, replacer))
-            .collect();
-
-        // Rebuild the node only if children have changed
-        if self.0.src.iter().zip(&new_src).any(|(a, b)| !a.eq(b)) {
-            UOp::new(self.0.op.clone(), self.0.dtype.clone(), new_src)
-        } else {
-            self.clone()
-        }
-    }
-
-    pub fn apply_pat(&self, pat: &UPat) -> UOp {
-        self.replace_with(&pat.pattern, &*pat.replacer)
+            .zip(pattern.0.src.iter())
+            .all(|(s, p)| self.internal_matcher(s, p, captures))
     }
 }
 
@@ -268,6 +266,41 @@ impl_assign_op!(MulAssign, mul_assign, Mul, mul);
 impl_assign_op!(SubAssign, sub_assign, Sub, sub);
 impl_assign_op!(DivAssign, div_assign, Div, div);
 impl_assign_op!(RemAssign, rem_assign, Rem, rem);
+
+#[macro_export]
+macro_rules! pat_match {
+    ($subject:expr, { $($arms:tt)* }) => {
+        {
+            let mut current_expr = $subject;
+            pat_match!(@internal current_expr, $($arms)*);
+            current_expr
+        }
+    };
+    (@internal $subject:expr, ($($cap_var:ident),*) | $pattern:expr => $replacer:expr, $($rest:tt)*) => {
+        let rule = {
+            let pattern_uop = {
+                let mut i = 0;
+                $(
+                    #[allow(unused_variables)]
+                    let $cap_var = UOp::new(Ops::Capture({let old_i = i; i += 1; old_i}), DType::I32, vec![]);
+                )*
+                $pattern
+            };
+            let replacer_fn = |caps: &HashMap<usize, UOp>| {
+                let mut i = 0;
+                $(
+                    #[allow(unused_variables)]
+                    let $cap_var = caps.get(&{let old_i = i; i += 1; old_i}).unwrap().clone();
+                )*
+                $replacer
+            };
+            UPat::new(pattern_uop, replacer_fn)
+        };
+        $subject = rule.apply(&$subject);
+        pat_match!(@internal $subject, $($rest)*);
+    };
+    (@internal $subject:expr,) => {};
+}
 
 #[cfg(test)]
 mod tests {
@@ -473,23 +506,10 @@ mod tests {
         // Define expression: a * b + a * c
         let expr = a.clone() * b.clone() + a.clone() * c.clone();
 
-        // Define pattern and replacer using UPat
-        let p_a = UOp::new(Ops::Capture(0), DType::I32, vec![]);
-        let p_b = UOp::new(Ops::Capture(1), DType::I32, vec![]);
-        let p_c = UOp::new(Ops::Capture(2), DType::I32, vec![]);
-
-        let dist_pattern = UPat::new(
-            p_a.clone() * p_b + p_a.clone() * p_c,
-            |caps| {
-                let cap_a = caps.get(&0).unwrap().clone();
-                let cap_b = caps.get(&1).unwrap().clone();
-                let cap_c = caps.get(&2).unwrap().clone();
-                cap_a * (cap_b + cap_c)
-            },
-        );
-
-        // Perform replacement
-        let replaced_expr = expr.apply_pat(&dist_pattern);
+        // Perform replacement using the pat_match! macro
+        let replaced_expr = pat_match!(expr, {
+            (p_a, p_b, p_c) | p_a.clone() * p_b.clone() + p_a.clone() * p_c.clone() => p_a.clone() * (p_b.clone() + p_c.clone()),
+        });
 
         // Define expected expression: a * (b + c)
         let expected_expr = a * (b + c);
