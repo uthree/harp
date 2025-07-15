@@ -1,4 +1,7 @@
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, RemAssign, Sub, SubAssign};
+use std::collections::HashMap;
+use std::ops::{
+    Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, RemAssign, Sub, SubAssign,
+};
 use std::rc::Rc;
 
 // datatypes
@@ -15,12 +18,6 @@ pub enum DType {
     F32,
     F64,
     Pointer(Box<DType>),
-}
-
-impl DType {
-    fn ptr(self) -> DType {
-        DType::Pointer(Box::new(self))
-    }
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -66,6 +63,7 @@ pub enum Ops {
     Log2,
     Sin,
     Sqrt,
+    Capture(usize), // Marker for pattern matching
 }
 
 // internal data of UOp
@@ -85,8 +83,8 @@ impl UOp {
         UOp(Rc::new(UOp_ { op, dtype, src }))
     }
 
+    // --- Unary Operations ---
     pub fn recip(self) -> Self {
-        // TODO: Implement proper dtype promotion
         let dtype = self.0.dtype.clone();
         UOp::new(Ops::Recip, dtype, vec![self])
     }
@@ -113,6 +111,61 @@ impl UOp {
     pub fn sqrt(self) -> Self {
         let dtype = self.0.dtype.clone();
         UOp::new(Ops::Sqrt, dtype, vec![self])
+    }
+
+    // --- Pattern Matching and Replacement ---
+    pub fn matcher(&self, pattern: &UOp) -> Option<HashMap<usize, UOp>> {
+        let mut captures = HashMap::new();
+        if self.internal_matcher(pattern, &mut captures) {
+            Some(captures)
+        } else {
+            None
+        }
+    }
+
+    fn internal_matcher(&self, pattern: &UOp, captures: &mut HashMap<usize, UOp>) -> bool {
+        if let Ops::Capture(id) = pattern.0.op {
+            if let Some(existing) = captures.get(&id) {
+                return self == existing;
+            }
+            captures.insert(id, self.clone());
+            return true;
+        }
+
+        if self.0.op != pattern.0.op || self.0.src.len() != pattern.0.src.len() {
+            return false;
+        }
+
+        self.0
+            .src
+            .iter()
+            .zip(pattern.0.src.iter())
+            .all(|(s, p)| s.internal_matcher(p, captures))
+    }
+
+    pub fn replace_with<F>(&self, pattern: &UOp, replacer: &F) -> UOp
+    where
+        F: Fn(&HashMap<usize, UOp>) -> UOp,
+    {
+        // First, try to match and replace the root
+        if let Some(captures) = self.matcher(pattern) {
+            return replacer(&captures);
+        }
+
+        // If the root doesn't match, recurse on children
+        let new_src: Vec<UOp> = self
+            .0
+            .src
+            .iter()
+            .map(|s| s.replace_with(pattern, replacer))
+            .collect();
+
+        // Rebuild the node only if children have changed
+        if self.0.src.iter().zip(&new_src).any(|(a, b)| !a.eq(b)) {
+            UOp::new(self.0.op.clone(), self.0.dtype.clone(), new_src)
+        } else {
+            self.clone()
+        }
     }
 }
 
@@ -386,5 +439,38 @@ mod tests {
         assert_eq!(e.0.dtype, DType::I32);
         assert_eq!(e.0.src.len(), 1);
         assert_eq!(e.0.src[0], a);
+    }
+
+    #[test]
+    fn test_pattern_matching_and_replacement() {
+        // Define variables
+        let a: UOp = 1i32.into();
+        let b: UOp = 2i32.into();
+        let c: UOp = 3i32.into();
+
+        // Define expression: a * b + a * c
+        let expr = a.clone() * b.clone() + a.clone() * c.clone();
+
+        // Define pattern: cap(0) * cap(1) + cap(0) * cap(2)
+        let p_a = UOp::new(Ops::Capture(0), DType::I32, vec![]);
+        let p_b = UOp::new(Ops::Capture(1), DType::I32, vec![]);
+        let p_c = UOp::new(Ops::Capture(2), DType::I32, vec![]);
+        let pattern = p_a.clone() * p_b + p_a.clone() * p_c;
+
+        // Define replacer: cap(0) * (cap(1) + cap(2))
+        let replacer = |caps: &HashMap<usize, UOp>| {
+            let cap_a = caps.get(&0).unwrap().clone();
+            let cap_b = caps.get(&1).unwrap().clone();
+            let cap_c = caps.get(&2).unwrap().clone();
+            cap_a * (cap_b + cap_c)
+        };
+
+        // Perform replacement
+        let replaced_expr = expr.replace_with(&pattern, &replacer);
+
+        // Define expected expression: a * (b + c)
+        let expected_expr = a * (b + c);
+
+        assert_eq!(replaced_expr, expected_expr);
     }
 }
