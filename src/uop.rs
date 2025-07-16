@@ -1,6 +1,4 @@
-use std::ops::{
-    Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, RemAssign, Sub, SubAssign,
-};
+use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, RemAssign, Sub, SubAssign};
 use std::rc::Rc;
 
 // datatypes
@@ -137,12 +135,39 @@ impl_from_for_uop! {
 
 macro_rules! impl_binary_op {
     ($trait:ident, $method:ident, $op:ident) => {
-        impl $trait for UOp {
-            type Output = Self;
-            fn $method(self, rhs: Self) -> Self {
+        impl $trait<UOp> for UOp {
+            type Output = UOp;
+            fn $method(self, rhs: UOp) -> Self {
                 // TODO: Implement proper dtype promotion
                 let dtype = self.0.dtype.clone();
                 UOp::new(Ops::$op, dtype, vec![self, rhs])
+            }
+        }
+
+        impl $trait<&UOp> for UOp {
+            type Output = UOp;
+            fn $method(self, rhs: &UOp) -> Self {
+                // TODO: Implement proper dtype promotion
+                let dtype = self.0.dtype.clone();
+                UOp::new(Ops::$op, dtype, vec![self, rhs.clone()])
+            }
+        }
+
+        impl $trait<UOp> for &UOp {
+            type Output = UOp;
+            fn $method(self, rhs: UOp) -> UOp {
+                // TODO: Implement proper dtype promotion
+                let dtype = self.0.dtype.clone();
+                UOp::new(Ops::$op, dtype, vec![self.clone(), rhs])
+            }
+        }
+
+        impl $trait<&UOp> for &UOp {
+            type Output = UOp;
+            fn $method(self, rhs: &UOp) -> UOp {
+                // TODO: Implement proper dtype promotion
+                let dtype = self.0.dtype.clone();
+                UOp::new(Ops::$op, dtype, vec![self.clone(), rhs.clone()])
             }
         }
     };
