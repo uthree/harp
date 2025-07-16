@@ -99,18 +99,18 @@ macro_rules! pats {
     (@internal $rules:expr, ($($cap_var:ident),*) | $pattern:expr => $replacer:expr, $($rest:tt)*) => {
         let rule = {
             let pattern_uop = {
-                let mut i = 0;
+                let mut counter = 0..;
                 $(
                     #[allow(unused_variables)]
-                    let $cap_var = UOp::new(Ops::Capture({let old_i = i; i += 1; old_i}), DType::I32, vec![]);
+                    let $cap_var = UOp::new(Ops::Capture(counter.next().unwrap()), crate::uop::DType::U8, vec![]);
                 )*
                 $pattern
             };
             let replacer_fn = |caps: &HashMap<usize, UOp>| {
-                let mut i = 0;
+                let mut counter = 0..;
                 $(
                     #[allow(unused_variables)]
-                    let $cap_var = caps.get(&{let old_i = i; i += 1; old_i}).unwrap().clone();
+                    let $cap_var = caps.get(&counter.next().unwrap()).unwrap().clone();
                 )*
                 $replacer
             };
