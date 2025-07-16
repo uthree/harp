@@ -90,7 +90,7 @@ impl ShapeTracker {
                 .shape()
                 .iter()
                 .enumerate()
-                .map(|(i, _)| UOp::var(&format!("idx{}", i), DType::I32))
+                .map(|(i, _)| UOp::var(&format!("idx{i}"), DType::I32))
                 .collect::<Vec<_>>();
             &binding
         };

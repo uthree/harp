@@ -184,7 +184,6 @@ mod tests {
     fn test_no_match_pattern() {
         let a: UOp = 1i32.into();
         let b: UOp = 2i32.into();
-        let c: UOp = 3i32.into();
         let expr = &a * &b;
         let rules = pats!({
             (p_x, p_y) | &p_x + &p_y => &p_y + &p_x,

@@ -52,7 +52,7 @@ impl Tensor {
         let uop = match &self.0.op {
             TensorOp::Load(_) => {
                 let buffer_uop = UOp::var(
-                    &format!("data_{:p}", ptr),
+                    &format!("data_{ptr:p}"),
                     DType::Pointer(Box::new(self.0.dtype.clone()), self.shape().iter().product()),
                 );
                 let index_uop = self.0.tracker.expr_indices(None);
