@@ -58,6 +58,7 @@ pub enum Ops {
     Rem,
     Cast(DType),
     Const(Number),
+    Var(String),
     Exp2,
     Log2,
     Sin,
@@ -80,6 +81,10 @@ pub struct UOp(pub Rc<UOp_>);
 impl UOp {
     pub fn new(op: Ops, dtype: DType, src: Vec<UOp>) -> Self {
         UOp(Rc::new(UOp_ { op, dtype, src }))
+    }
+
+    pub fn var(name: &str, dtype: DType) -> Self {
+        UOp::new(Ops::Var(name.to_string()), dtype, vec![])
     }
 
     // --- Unary Operations ---
@@ -303,6 +308,14 @@ mod tests {
         let uop_from_u8: UOp = 255u8.into();
         assert_eq!(uop_from_u8.0.op, Ops::Const(Number::U8(255)));
         assert_eq!(uop_from_u8.0.dtype, DType::U8);
+    }
+
+    #[test]
+    fn test_variable_creation() {
+        let var_n = UOp::var("N", DType::U64);
+        assert_eq!(var_n.0.op, Ops::Var("N".to_string()));
+        assert_eq!(var_n.0.dtype, DType::U64);
+        assert!(var_n.0.src.is_empty());
     }
 
     #[test]
