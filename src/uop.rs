@@ -1,53 +1,8 @@
+pub use crate::dtype::{DType, Number};
 use std::ops::{
     Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
 use std::rc::Rc;
-
-// datatypes
-#[derive(Clone, PartialEq, Debug)]
-pub enum DType {
-    U8,
-    U16,
-    U32,
-    U64,
-    I8,
-    I16,
-    I32,
-    I64,
-    F32,
-    F64,
-    Pointer(Box<DType>),
-}
-
-#[derive(Clone, PartialEq, Debug)]
-pub enum Number {
-    U8(u8),
-    U16(u16),
-    U32(u32),
-    U64(u64),
-    I8(i8),
-    I16(i16),
-    I32(i32),
-    I64(i64),
-    F32(f32),
-    F64(f64),
-}
-
-macro_rules! impl_number_dtype {
-    ($($variant:ident),*) => {
-        impl Number {
-            pub fn dtype(&self) -> DType {
-                match self {
-                    $(
-                        Number::$variant(_) => DType::$variant,
-                    )*
-                }
-            }
-        }
-    };
-}
-
-impl_number_dtype!(U8, U16, U32, U64, I8, I16, I32, I64, F32, F64);
 
 // operator types
 #[derive(Clone, PartialEq, Debug)]
@@ -91,7 +46,7 @@ impl UOp {
 
     // --- Unary Operations ---
     pub fn load(self) -> Self {
-        if let DType::Pointer(inner_type) = self.0.dtype.clone() {
+        if let DType::Pointer(inner_type, _) = self.0.dtype.clone() {
             UOp::new(Ops::Load, *inner_type, vec![self])
         } else {
             panic!("Load operation can only be applied to a pointer.");
@@ -100,7 +55,7 @@ impl UOp {
 
     pub fn store(self, value: UOp) -> Self {
         // Check if self is a pointer
-        if let DType::Pointer(_) = self.0.dtype {
+        if let DType::Pointer(_, _) = self.0.dtype {
             // The result of a store operation could be considered the value that was stored.
             let dtype = value.0.dtype.clone();
             UOp::new(Ops::Store, dtype, vec![self, value])
@@ -341,7 +296,7 @@ mod tests {
 
     #[test]
     fn test_store_operation() {
-        let pointer_type = DType::Pointer(Box::new(DType::I32));
+        let pointer_type = DType::Pointer(Box::new(DType::I32), 1);
         let pointer = UOp::var("ptr", pointer_type);
         let value: UOp = 42i32.into();
 
@@ -364,7 +319,7 @@ mod tests {
 
     #[test]
     fn test_load_operation() {
-        let pointer_type = DType::Pointer(Box::new(DType::I32));
+        let pointer_type = DType::Pointer(Box::new(DType::I32), 1);
         let pointer = UOp::var("ptr", pointer_type);
 
         let load_op = pointer.clone().load();
@@ -380,6 +335,17 @@ mod tests {
     fn test_load_on_non_pointer() {
         let not_a_pointer: UOp = 123i32.into();
         not_a_pointer.load();
+    }
+
+    #[test]
+    fn test_array_pointer_creation() {
+        let pointer_type = DType::Pointer(Box::new(DType::F64), 10);
+        let pointer = UOp::var("arr_ptr", pointer_type.clone());
+
+        assert_eq!(
+            pointer.0.dtype,
+            DType::Pointer(Box::new(DType::F64), 10)
+        );
     }
 
     #[test]
