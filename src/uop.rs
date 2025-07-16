@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 // operator types
 #[derive(Clone, PartialEq, Debug)]
-pub enum Ops {
+pub enum Op {
     Add,
     Mul,
     Recip,
@@ -26,7 +26,7 @@ pub enum Ops {
 // internal data of UOp
 #[derive(Clone, PartialEq, Debug)]
 pub struct UOp_ {
-    pub op: Ops,
+    pub op: Op,
     pub dtype: DType,
     pub src: Vec<UOp>,
 }
@@ -36,61 +36,42 @@ pub struct UOp_ {
 pub struct UOp(pub Rc<UOp_>);
 
 impl UOp {
-    pub fn new(op: Ops, dtype: DType, src: Vec<UOp>) -> Self {
+    pub fn new(op: Op, dtype: DType, src: Vec<UOp>) -> Self {
         UOp(Rc::new(UOp_ { op, dtype, src }))
     }
 
     pub fn var(name: &str, dtype: DType) -> Self {
-        UOp::new(Ops::Var(name.to_string()), dtype, vec![])
+        UOp::new(Op::Var(name.to_string()), dtype, vec![])
     }
 
     // --- Unary Operations ---
-    pub fn load(self) -> Self {
-        if let DType::Pointer(inner_type, _) = self.0.dtype.clone() {
-            UOp::new(Ops::Load, *inner_type, vec![self])
-        } else {
-            panic!("Load operation can only be applied to a pointer.");
-        }
-    }
-
-    pub fn store(self, value: UOp) -> Self {
-        // Check if self is a pointer
-        if let DType::Pointer(_, _) = self.0.dtype {
-            // The result of a store operation could be considered the value that was stored.
-            let dtype = value.0.dtype.clone();
-            UOp::new(Ops::Store, dtype, vec![self, value])
-        } else {
-            panic!("Store operation can only be applied to a pointer.");
-        }
-    }
-
     pub fn recip(self) -> Self {
         let dtype = self.0.dtype.clone();
-        UOp::new(Ops::Recip, dtype, vec![self])
+        UOp::new(Op::Recip, dtype, vec![self])
     }
 
     pub fn cast(self, dtype: DType) -> Self {
-        UOp::new(Ops::Cast(dtype.clone()), dtype, vec![self])
+        UOp::new(Op::Cast(dtype.clone()), dtype, vec![self])
     }
 
     pub fn exp2(self) -> Self {
         let dtype = self.0.dtype.clone();
-        UOp::new(Ops::Exp2, dtype, vec![self])
+        UOp::new(Op::Exp2, dtype, vec![self])
     }
 
     pub fn log2(self) -> Self {
         let dtype = self.0.dtype.clone();
-        UOp::new(Ops::Log2, dtype, vec![self])
+        UOp::new(Op::Log2, dtype, vec![self])
     }
 
     pub fn sin(self) -> Self {
         let dtype = self.0.dtype.clone();
-        UOp::new(Ops::Sin, dtype, vec![self])
+        UOp::new(Op::Sin, dtype, vec![self])
     }
 
     pub fn sqrt(self) -> Self {
         let dtype = self.0.dtype.clone();
-        UOp::new(Ops::Sqrt, dtype, vec![self])
+        UOp::new(Op::Sqrt, dtype, vec![self])
     }
 }
 
@@ -100,7 +81,7 @@ macro_rules! impl_from_for_uop {
             impl From<$t> for UOp {
                 fn from(n: $t) -> Self {
                     UOp::new(
-                        Ops::Const(Number::$variant(n)),
+                        Op::Const(Number::$variant(n)),
                         DType::$dtype,
                         vec![],
                     )
@@ -148,7 +129,7 @@ macro_rules! impl_binary_op {
             fn $method(self, rhs: &UOp) -> Self::Output {
                 // TODO: Implement proper dtype promotion
                 let dtype = self.0.dtype.clone();
-                UOp::new(Ops::$op, dtype, vec![self.clone(), rhs.clone()])
+                UOp::new(Op::$op, dtype, vec![self.clone(), rhs.clone()])
             }
         }
     };
@@ -273,68 +254,25 @@ mod tests {
     #[test]
     fn test_uop_from_numeric() {
         let uop_from_i32: UOp = 5i32.into();
-        assert_eq!(uop_from_i32.0.op, Ops::Const(Number::I32(5)));
+        assert_eq!(uop_from_i32.0.op, Op::Const(Number::I32(5)));
         assert_eq!(uop_from_i32.0.dtype, DType::I32);
         assert!(uop_from_i32.0.src.is_empty());
 
         let uop_from_f64: UOp = 3.14f64.into();
-        assert_eq!(uop_from_f64.0.op, Ops::Const(Number::F64(3.14)));
+        assert_eq!(uop_from_f64.0.op, Op::Const(Number::F64(3.14)));
         assert_eq!(uop_from_f64.0.dtype, DType::F64);
 
         let uop_from_u8: UOp = 255u8.into();
-        assert_eq!(uop_from_u8.0.op, Ops::Const(Number::U8(255)));
+        assert_eq!(uop_from_u8.0.op, Op::Const(Number::U8(255)));
         assert_eq!(uop_from_u8.0.dtype, DType::U8);
     }
 
     #[test]
     fn test_variable_creation() {
         let var_n = UOp::var("N", DType::U64);
-        assert_eq!(var_n.0.op, Ops::Var("N".to_string()));
+        assert_eq!(var_n.0.op, Op::Var("N".to_string()));
         assert_eq!(var_n.0.dtype, DType::U64);
         assert!(var_n.0.src.is_empty());
-    }
-
-    #[test]
-    fn test_store_operation() {
-        let pointer_type = DType::Pointer(Box::new(DType::I32), 1);
-        let pointer = UOp::var("ptr", pointer_type);
-        let value: UOp = 42i32.into();
-
-        let store_op = pointer.clone().store(value.clone());
-
-        assert_eq!(store_op.0.op, Ops::Store);
-        assert_eq!(store_op.0.dtype, DType::I32);
-        assert_eq!(store_op.0.src.len(), 2);
-        assert_eq!(store_op.0.src[0], pointer);
-        assert_eq!(store_op.0.src[1], value);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_store_on_non_pointer() {
-        let not_a_pointer: UOp = 123i32.into();
-        let value: UOp = 456i32.into();
-        not_a_pointer.store(value);
-    }
-
-    #[test]
-    fn test_load_operation() {
-        let pointer_type = DType::Pointer(Box::new(DType::I32), 1);
-        let pointer = UOp::var("ptr", pointer_type);
-
-        let load_op = pointer.clone().load();
-
-        assert_eq!(load_op.0.op, Ops::Load);
-        assert_eq!(load_op.0.dtype, DType::I32);
-        assert_eq!(load_op.0.src.len(), 1);
-        assert_eq!(load_op.0.src[0], pointer);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_load_on_non_pointer() {
-        let not_a_pointer: UOp = 123i32.into();
-        not_a_pointer.load();
     }
 
     #[test]
@@ -342,10 +280,7 @@ mod tests {
         let pointer_type = DType::Pointer(Box::new(DType::F64), 10);
         let pointer = UOp::var("arr_ptr", pointer_type.clone());
 
-        assert_eq!(
-            pointer.0.dtype,
-            DType::Pointer(Box::new(DType::F64), 10)
-        );
+        assert_eq!(pointer.0.dtype, DType::Pointer(Box::new(DType::F64), 10));
     }
 
     #[test]
@@ -355,7 +290,7 @@ mod tests {
 
         // Test Add
         let c = &a + &b;
-        assert_eq!(c.0.op, Ops::Add);
+        assert_eq!(c.0.op, Op::Add);
         assert_eq!(c.0.dtype, DType::I32);
         assert_eq!(c.0.src.len(), 2);
         assert_eq!(c.0.src[0], a);
@@ -363,7 +298,7 @@ mod tests {
 
         // Test Mul
         let d = &a * &b;
-        assert_eq!(d.0.op, Ops::Mul);
+        assert_eq!(d.0.op, Op::Mul);
         assert_eq!(d.0.dtype, DType::I32);
         assert_eq!(d.0.src.len(), 2);
         assert_eq!(d.0.src[0], a);
@@ -371,29 +306,29 @@ mod tests {
 
         // Test Sub
         let e = &a - &b;
-        assert_eq!(e.0.op, Ops::Add); // a + (b * -1)
+        assert_eq!(e.0.op, Op::Add); // a + (b * -1)
         assert_eq!(e.0.src.len(), 2);
         assert_eq!(e.0.src[0], a);
         let sub_rhs = e.0.src[1].clone();
-        assert_eq!(sub_rhs.0.op, Ops::Mul); // b * -1
+        assert_eq!(sub_rhs.0.op, Op::Mul); // b * -1
         assert_eq!(sub_rhs.0.src.len(), 2);
         assert_eq!(sub_rhs.0.src[0], b);
         let neg_one = sub_rhs.0.src[1].clone();
-        assert_eq!(neg_one.0.op, Ops::Const(Number::I32(-1)));
+        assert_eq!(neg_one.0.op, Op::Const(Number::I32(-1)));
 
         // Test Div
         let f = &a / &b;
-        assert_eq!(f.0.op, Ops::Mul); // a * b.recip()
+        assert_eq!(f.0.op, Op::Mul); // a * b.recip()
         assert_eq!(f.0.src.len(), 2);
         assert_eq!(f.0.src[0], a);
         let div_rhs = f.0.src[1].clone();
-        assert_eq!(div_rhs.0.op, Ops::Recip);
+        assert_eq!(div_rhs.0.op, Op::Recip);
         assert_eq!(div_rhs.0.src.len(), 1);
         assert_eq!(div_rhs.0.src[0], b);
 
         // Test Rem
         let g = &a % &b;
-        assert_eq!(g.0.op, Ops::Rem);
+        assert_eq!(g.0.op, Op::Rem);
         assert_eq!(g.0.dtype, DType::I32);
         assert_eq!(g.0.src.len(), 2);
         assert_eq!(g.0.src[0], a);
@@ -403,11 +338,11 @@ mod tests {
         let x: UOp = 5.0f64.into();
         let y: UOp = 10.0f64.into();
         let z = &x - &y;
-        assert_eq!(z.0.op, Ops::Add);
+        assert_eq!(z.0.op, Op::Add);
         let sub_rhs_f64 = z.0.src[1].clone();
-        assert_eq!(sub_rhs_f64.0.op, Ops::Mul);
+        assert_eq!(sub_rhs_f64.0.op, Op::Mul);
         let neg_one_f64 = sub_rhs_f64.0.src[1].clone();
-        assert_eq!(neg_one_f64.0.op, Ops::Const(Number::F64(-1.0)));
+        assert_eq!(neg_one_f64.0.op, Op::Const(Number::F64(-1.0)));
     }
 
     #[test]
@@ -445,7 +380,7 @@ mod tests {
         let a: UOp = 5i32.into();
         let b = a.clone().cast(DType::F64);
 
-        assert_eq!(b.0.op, Ops::Cast(DType::F64));
+        assert_eq!(b.0.op, Op::Cast(DType::F64));
         assert_eq!(b.0.dtype, DType::F64);
         assert_eq!(b.0.src.len(), 1);
         assert_eq!(b.0.src[0], a);
@@ -469,36 +404,36 @@ mod tests {
 
         // Test Neg
         let h = -a.clone();
-        assert_eq!(h.0.op, Ops::Mul);
+        assert_eq!(h.0.op, Op::Mul);
         assert_eq!(h.0.src.len(), 2);
         assert_eq!(h.0.src[0], a);
         let neg_one = h.0.src[1].clone();
-        assert_eq!(neg_one.0.op, Ops::Const(Number::I32(-1)));
+        assert_eq!(neg_one.0.op, Op::Const(Number::I32(-1)));
 
         // Test Exp2
         let b = a.clone().exp2();
-        assert_eq!(b.0.op, Ops::Exp2);
+        assert_eq!(b.0.op, Op::Exp2);
         assert_eq!(b.0.dtype, DType::I32);
         assert_eq!(b.0.src.len(), 1);
         assert_eq!(b.0.src[0], a);
 
         // Test Log2
         let c = a.clone().log2();
-        assert_eq!(c.0.op, Ops::Log2);
+        assert_eq!(c.0.op, Op::Log2);
         assert_eq!(c.0.dtype, DType::I32);
         assert_eq!(c.0.src.len(), 1);
         assert_eq!(c.0.src[0], a);
 
         // Test Sin
         let d = a.clone().sin();
-        assert_eq!(d.0.op, Ops::Sin);
+        assert_eq!(d.0.op, Op::Sin);
         assert_eq!(d.0.dtype, DType::I32);
         assert_eq!(d.0.src.len(), 1);
         assert_eq!(d.0.src[0], a);
 
         // Test Sqrt
         let e = a.clone().sqrt();
-        assert_eq!(e.0.op, Ops::Sqrt);
+        assert_eq!(e.0.op, Op::Sqrt);
         assert_eq!(e.0.dtype, DType::I32);
         assert_eq!(e.0.src.len(), 1);
         assert_eq!(e.0.src[0], a);

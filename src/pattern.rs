@@ -1,4 +1,4 @@
-use crate::uop::{Ops, UOp};
+use crate::uop::{Op, UOp};
 use std::collections::HashMap;
 
 // A single pattern rule
@@ -47,7 +47,7 @@ impl UPat {
         pattern: &UOp,
         captures: &mut HashMap<usize, UOp>,
     ) -> bool {
-        if let Ops::Capture(id) = &pattern.0.op {
+        if let Op::Capture(id) = &pattern.0.op {
             if let Some(existing) = captures.get(id) {
                 return target == existing;
             }
@@ -102,7 +102,7 @@ macro_rules! pats {
                 let mut counter = 0..;
                 $(
                     #[allow(unused_variables)]
-                    let $cap_var = UOp::new(Ops::Capture(counter.next().unwrap()), $crate::uop::DType::U8, vec![]);
+                    let $cap_var = UOp::new(Op::Capture(counter.next().unwrap()), $crate::uop::DType::U8, vec![]);
                 )*
                 $pattern
             };
