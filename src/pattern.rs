@@ -102,7 +102,7 @@ macro_rules! pats {
                 let mut counter = 0..;
                 $(
                     #[allow(unused_variables)]
-                    let $cap_var = UOp::new(Ops::Capture(counter.next().unwrap()), crate::uop::DType::U8, vec![]);
+                    let $cap_var = UOp::new(Ops::Capture(counter.next().unwrap()), $crate::uop::DType::U8, vec![]);
                 )*
                 $pattern
             };
@@ -150,6 +150,61 @@ mod tests {
         // Define expected expression: a * (b + c)
         let expected_expr = &a * (&b + &c);
 
+        assert_eq!(replaced_expr, expected_expr);
+    }
+
+    #[rstest]
+    fn test_associative_law_pattern() {
+        let a: UOp = 1i32.into();
+        let b: UOp = 2i32.into();
+        let c: UOp = 3i32.into();
+        let expr = &a + (&b + &c);
+        let rules = pats!({
+            (p_a, p_b, p_c) | &p_a + (&p_b + &p_c) => (&p_a + &p_b) + &p_c,
+        });
+        let matcher = PatternMatcher::new(rules);
+        let replaced_expr = matcher.apply_all(&expr);
+        let expected_expr = (&a + &b) + &c;
+        assert_eq!(replaced_expr, expected_expr);
+    }
+
+    #[rstest]
+    fn test_double_negation_pattern() {
+        let a: UOp = 5i32.into();
+        let expr = -(-a.clone());
+        let rules = pats!({
+            (p_a) | -(-p_a.clone()) => p_a,
+        });
+        let matcher = PatternMatcher::new(rules);
+        let replaced_expr = matcher.apply_all(&expr);
+        assert_eq!(replaced_expr, a);
+    }
+
+    #[rstest]
+    fn test_no_match_pattern() {
+        let a: UOp = 1i32.into();
+        let b: UOp = 2i32.into();
+        let c: UOp = 3i32.into();
+        let expr = &a * &b;
+        let rules = pats!({
+            (p_x, p_y) | &p_x + &p_y => &p_y + &p_x,
+        });
+        let matcher = PatternMatcher::new(rules);
+        let replaced_expr = matcher.apply_all(&expr);
+        assert_eq!(replaced_expr, expr);
+    }
+
+    #[rstest]
+    fn test_constant_folding_pattern() {
+        let a: UOp = 2i32.into();
+        let b: UOp = 3i32.into();
+        let expr = &a * (&b + &a);
+        let rules = pats!({
+            (p_a, p_b) | &p_a * (&p_b + &p_a) => &p_a * &p_b + &p_a * &p_a,
+        });
+        let matcher = PatternMatcher::new(rules);
+        let replaced_expr = matcher.apply_all(&expr);
+        let expected_expr = &a * &b + &a * &a;
         assert_eq!(replaced_expr, expected_expr);
     }
 }
