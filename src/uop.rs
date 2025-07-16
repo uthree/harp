@@ -1,4 +1,4 @@
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, RemAssign, Sub, SubAssign};
+use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign};
 use std::rc::Rc;
 
 // datatypes
@@ -135,36 +135,34 @@ impl_from_for_uop! {
 
 macro_rules! impl_binary_op {
     ($trait:ident, $method:ident, $op:ident) => {
+        // --- UOp op UOp ---
         impl $trait<UOp> for UOp {
             type Output = UOp;
-            fn $method(self, rhs: UOp) -> Self {
-                // TODO: Implement proper dtype promotion
-                let dtype = self.0.dtype.clone();
-                UOp::new(Ops::$op, dtype, vec![self, rhs])
+            fn $method(self, rhs: UOp) -> Self::Output {
+                (&self).$method(&rhs)
             }
         }
 
+        // --- UOp op &UOp ---
         impl $trait<&UOp> for UOp {
             type Output = UOp;
-            fn $method(self, rhs: &UOp) -> Self {
-                // TODO: Implement proper dtype promotion
-                let dtype = self.0.dtype.clone();
-                UOp::new(Ops::$op, dtype, vec![self, rhs.clone()])
+            fn $method(self, rhs: &UOp) -> Self::Output {
+                (&self).$method(rhs)
             }
         }
 
+        // --- &UOp op UOp ---
         impl $trait<UOp> for &UOp {
             type Output = UOp;
-            fn $method(self, rhs: UOp) -> UOp {
-                // TODO: Implement proper dtype promotion
-                let dtype = self.0.dtype.clone();
-                UOp::new(Ops::$op, dtype, vec![self.clone(), rhs])
+            fn $method(self, rhs: UOp) -> Self::Output {
+                self.$method(&rhs)
             }
         }
 
+        // --- &UOp op &UOp ---
         impl $trait<&UOp> for &UOp {
             type Output = UOp;
-            fn $method(self, rhs: &UOp) -> UOp {
+            fn $method(self, rhs: &UOp) -> Self::Output {
                 // TODO: Implement proper dtype promotion
                 let dtype = self.0.dtype.clone();
                 UOp::new(Ops::$op, dtype, vec![self.clone(), rhs.clone()])
@@ -180,6 +178,13 @@ impl_binary_op!(Rem, rem, Rem);
 impl Sub for UOp {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self {
+        &self - &rhs
+    }
+}
+
+impl Sub<&UOp> for &UOp {
+    type Output = UOp;
+    fn sub(self, rhs: &UOp) -> UOp {
         let neg_one: UOp = match &self.0.dtype {
             DType::I8 => (-1i8).into(),
             DType::I16 => (-1i16).into(),
@@ -189,22 +194,58 @@ impl Sub for UOp {
             DType::F64 => (-1.0f64).into(),
             dtype => unimplemented!("Subtraction is not implemented for dtype {:?}", dtype),
         };
-        self + (rhs * neg_one)
+        self + &(rhs * neg_one)
     }
 }
 
 impl Div for UOp {
     type Output = Self;
     fn div(self, rhs: Self) -> Self {
-        self * rhs.recip()
+        &self / &rhs
+    }
+}
+
+impl Div<&UOp> for &UOp {
+    type Output = UOp;
+    fn div(self, rhs: &UOp) -> UOp {
+        self * &rhs.clone().recip()
+    }
+}
+
+impl Neg for UOp {
+    type Output = Self;
+    fn neg(self) -> Self::Output {
+        &self * &(-1i32).into()
+    }
+}
+
+impl Neg for &UOp {
+    type Output = UOp;
+    fn neg(self) -> Self::Output {
+        let neg_one: UOp = match &self.0.dtype {
+            DType::I8 => (-1i8).into(),
+            DType::I16 => (-1i16).into(),
+            DType::I32 => (-1i32).into(),
+            DType::I64 => (-1i64).into(),
+            DType::F32 => (-1.0f32).into(),
+            DType::F64 => (-1.0f64).into(),
+            dtype => unimplemented!("Negation is not implemented for dtype {:?}", dtype),
+        };
+        self * &neg_one
     }
 }
 
 macro_rules! impl_assign_op {
     ($trait:ident, $method:ident, $op_trait:ident, $op_method:ident) => {
-        impl $trait for UOp {
-            fn $method(&mut self, rhs: Self) {
-                *self = self.clone().$op_method(rhs);
+        impl $trait<UOp> for UOp {
+            fn $method(&mut self, rhs: UOp) {
+                *self = (&*self).$op_method(&rhs);
+            }
+        }
+
+        impl $trait<&UOp> for UOp {
+            fn $method(&mut self, rhs: &UOp) {
+                *self = (&*self).$op_method(rhs);
             }
         }
     };
@@ -268,7 +309,7 @@ mod tests {
         let b: UOp = 10i32.into();
 
         // Test Add
-        let c = a.clone() + b.clone();
+        let c = &a + &b;
         assert_eq!(c.0.op, Ops::Add);
         assert_eq!(c.0.dtype, DType::I32);
         assert_eq!(c.0.src.len(), 2);
@@ -276,7 +317,7 @@ mod tests {
         assert_eq!(c.0.src[1], b);
 
         // Test Mul
-        let d = a.clone() * b.clone();
+        let d = &a * &b;
         assert_eq!(d.0.op, Ops::Mul);
         assert_eq!(d.0.dtype, DType::I32);
         assert_eq!(d.0.src.len(), 2);
@@ -284,39 +325,39 @@ mod tests {
         assert_eq!(d.0.src[1], b);
 
         // Test Sub
-        let e = a.clone() - b.clone();
+        let e = &a - &b;
         assert_eq!(e.0.op, Ops::Add); // a + (b * -1)
         assert_eq!(e.0.src.len(), 2);
-        assert_eq!(e.0.src[0], a.clone());
+        assert_eq!(e.0.src[0], a);
         let sub_rhs = e.0.src[1].clone();
         assert_eq!(sub_rhs.0.op, Ops::Mul); // b * -1
         assert_eq!(sub_rhs.0.src.len(), 2);
-        assert_eq!(sub_rhs.0.src[0], b.clone());
+        assert_eq!(sub_rhs.0.src[0], b);
         let neg_one = sub_rhs.0.src[1].clone();
         assert_eq!(neg_one.0.op, Ops::Const(Number::I32(-1)));
 
         // Test Div
-        let f = a.clone() / b.clone();
+        let f = &a / &b;
         assert_eq!(f.0.op, Ops::Mul); // a * b.recip()
         assert_eq!(f.0.src.len(), 2);
-        assert_eq!(f.0.src[0], a.clone());
+        assert_eq!(f.0.src[0], a);
         let div_rhs = f.0.src[1].clone();
         assert_eq!(div_rhs.0.op, Ops::Recip);
         assert_eq!(div_rhs.0.src.len(), 1);
-        assert_eq!(div_rhs.0.src[0], b.clone());
+        assert_eq!(div_rhs.0.src[0], b);
 
         // Test Rem
-        let g = a.clone() % b.clone();
+        let g = &a % &b;
         assert_eq!(g.0.op, Ops::Rem);
         assert_eq!(g.0.dtype, DType::I32);
         assert_eq!(g.0.src.len(), 2);
-        assert_eq!(g.0.src[0], a.clone());
-        assert_eq!(g.0.src[1], b.clone());
+        assert_eq!(g.0.src[0], a);
+        assert_eq!(g.0.src[1], b);
 
         // Test Sub with f64
         let x: UOp = 5.0f64.into();
         let y: UOp = 10.0f64.into();
-        let z = x.clone() - y.clone();
+        let z = &x - &y;
         assert_eq!(z.0.op, Ops::Add);
         let sub_rhs_f64 = z.0.src[1].clone();
         assert_eq!(sub_rhs_f64.0.op, Ops::Mul);
@@ -329,29 +370,29 @@ mod tests {
         let b: UOp = 10i32.into();
 
         let mut a: UOp = 5i32.into();
-        a += b.clone();
+        a += &b;
         let expected: UOp = 5i32.into();
-        assert_eq!(a, expected + b.clone());
+        assert_eq!(a, &expected + &b);
 
         let mut a: UOp = 5i32.into();
-        a -= b.clone();
+        a -= &b;
         let expected: UOp = 5i32.into();
-        assert_eq!(a, expected - b.clone());
+        assert_eq!(a, &expected - &b);
 
         let mut a: UOp = 5i32.into();
-        a *= b.clone();
+        a *= &b;
         let expected: UOp = 5i32.into();
-        assert_eq!(a, expected * b.clone());
+        assert_eq!(a, &expected * &b);
 
         let mut a: UOp = 5i32.into();
-        a /= b.clone();
+        a /= &b;
         let expected: UOp = 5i32.into();
-        assert_eq!(a, expected / b.clone());
+        assert_eq!(a, &expected / &b);
 
         let mut a: UOp = 5i32.into();
-        a %= b.clone();
+        a %= &b;
         let expected: UOp = 5i32.into();
-        assert_eq!(a, expected % b.clone());
+        assert_eq!(a, &expected % &b);
     }
 
     #[test]
@@ -380,6 +421,14 @@ mod tests {
     #[test]
     fn test_unary_operations() {
         let a: UOp = 5i32.into();
+
+        // Test Neg
+        let h = -a.clone();
+        assert_eq!(h.0.op, Ops::Mul);
+        assert_eq!(h.0.src.len(), 2);
+        assert_eq!(h.0.src[0], a);
+        let neg_one = h.0.src[1].clone();
+        assert_eq!(neg_one.0.op, Ops::Const(Number::I32(-1)));
 
         // Test Exp2
         let b = a.clone().exp2();
