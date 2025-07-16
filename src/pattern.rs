@@ -1,4 +1,4 @@
-use crate::uop::{DType, Ops, UOp};
+use crate::uop::{Ops, UOp};
 use std::collections::HashMap;
 
 // A single pattern rule
@@ -23,12 +23,7 @@ impl UPat {
             return (self.replacer)(&captures);
         }
 
-        let new_src: Vec<UOp> = target
-            .0
-            .src
-            .iter()
-            .map(|s| self.apply(s))
-            .collect();
+        let new_src: Vec<UOp> = target.0.src.iter().map(|s| self.apply(s)).collect();
 
         if target.0.src.iter().zip(&new_src).any(|(a, b)| !a.eq(b)) {
             UOp::new(target.0.op.clone(), target.0.dtype.clone(), new_src)
@@ -141,11 +136,11 @@ mod tests {
         let c: UOp = 3i32.into();
 
         // Define expression: a * b + a * c
-        let expr = a.clone() * b.clone() + a.clone() * c.clone();
+        let expr = &a * &b + &a * &c;
 
         // 1. Define a set of rules using the `pats!` macro
         let rules = pats!({
-            (p_a, p_b, p_c) | p_a.clone() * p_b.clone() + p_a.clone() * p_c.clone() => p_a.clone() * (p_b.clone() + p_c.clone()),
+            (p_a, p_b, p_c) | &p_a * &p_b + &p_a * &p_c => &p_a * (&p_b + &p_c),
         });
 
         // 2. Create a matcher and apply the rules
@@ -153,7 +148,7 @@ mod tests {
         let replaced_expr = matcher.apply_all(&expr);
 
         // Define expected expression: a * (b + c)
-        let expected_expr = a * (b + c);
+        let expected_expr = &a * (&b + &c);
 
         assert_eq!(replaced_expr, expected_expr);
     }
