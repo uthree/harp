@@ -56,6 +56,8 @@ pub enum Ops {
     Mul,
     Recip,
     Rem,
+    Load,
+    Store,
     Cast(DType),
     Const(Number),
     Var(String),
@@ -88,6 +90,25 @@ impl UOp {
     }
 
     // --- Unary Operations ---
+    pub fn load(self) -> Self {
+        if let DType::Pointer(inner_type) = self.0.dtype.clone() {
+            UOp::new(Ops::Load, *inner_type, vec![self])
+        } else {
+            panic!("Load operation can only be applied to a pointer.");
+        }
+    }
+
+    pub fn store(self, value: UOp) -> Self {
+        // Check if self is a pointer
+        if let DType::Pointer(_) = self.0.dtype {
+            // The result of a store operation could be considered the value that was stored.
+            let dtype = value.0.dtype.clone();
+            UOp::new(Ops::Store, dtype, vec![self, value])
+        } else {
+            panic!("Store operation can only be applied to a pointer.");
+        }
+    }
+
     pub fn recip(self) -> Self {
         let dtype = self.0.dtype.clone();
         UOp::new(Ops::Recip, dtype, vec![self])
@@ -316,6 +337,49 @@ mod tests {
         assert_eq!(var_n.0.op, Ops::Var("N".to_string()));
         assert_eq!(var_n.0.dtype, DType::U64);
         assert!(var_n.0.src.is_empty());
+    }
+
+    #[test]
+    fn test_store_operation() {
+        let pointer_type = DType::Pointer(Box::new(DType::I32));
+        let pointer = UOp::var("ptr", pointer_type);
+        let value: UOp = 42i32.into();
+
+        let store_op = pointer.clone().store(value.clone());
+
+        assert_eq!(store_op.0.op, Ops::Store);
+        assert_eq!(store_op.0.dtype, DType::I32);
+        assert_eq!(store_op.0.src.len(), 2);
+        assert_eq!(store_op.0.src[0], pointer);
+        assert_eq!(store_op.0.src[1], value);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_store_on_non_pointer() {
+        let not_a_pointer: UOp = 123i32.into();
+        let value: UOp = 456i32.into();
+        not_a_pointer.store(value);
+    }
+
+    #[test]
+    fn test_load_operation() {
+        let pointer_type = DType::Pointer(Box::new(DType::I32));
+        let pointer = UOp::var("ptr", pointer_type);
+
+        let load_op = pointer.clone().load();
+
+        assert_eq!(load_op.0.op, Ops::Load);
+        assert_eq!(load_op.0.dtype, DType::I32);
+        assert_eq!(load_op.0.src.len(), 1);
+        assert_eq!(load_op.0.src[0], pointer);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_load_on_non_pointer() {
+        let not_a_pointer: UOp = 123i32.into();
+        not_a_pointer.load();
     }
 
     #[test]
