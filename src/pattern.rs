@@ -1,6 +1,8 @@
 use crate::uop::{Op, UOp};
 use std::collections::HashMap;
 
+use std::rc::Rc;
+
 // A single pattern rule
 pub struct UPat {
     pattern: UOp,
@@ -69,19 +71,27 @@ impl UPat {
 }
 
 // A collection of patterns to be applied sequentially
+#[derive(Clone)]
 pub struct PatternMatcher {
-    rules: Vec<UPat>,
+    rules: Rc<Vec<UPat>>,
+    children: Rc<Vec<PatternMatcher>>,
 }
 
 impl PatternMatcher {
     pub fn new(rules: Vec<UPat>) -> Self {
-        Self { rules }
+        Self {
+            rules: Rc::new(rules),
+            children: Rc::new(vec![]),
+        }
     }
 
     pub fn apply(&self, uop: &UOp) -> UOp {
         let mut new_uop = uop.clone();
-        for p in &self.rules {
+        for p in self.rules.iter() {
             new_uop = p.apply(&new_uop);
+        }
+        for child in self.children.iter() {
+            new_uop = child.apply(&new_uop);
         }
         new_uop
     }
@@ -96,6 +106,17 @@ impl PatternMatcher {
             current_uop = new_uop;
         }
         current_uop
+    }
+}
+
+impl std::ops::Add for PatternMatcher {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self {
+            rules: Rc::new(vec![]),
+            children: Rc::new(vec![self, rhs]),
+        }
     }
 }
 
@@ -275,5 +296,33 @@ mod tests {
         // Test with limit = 10
         let fully_optimized = matcher.apply_all_with_limit(&input_uop, 10);
         assert_eq!(fully_optimized, a);
+    }
+
+    #[test]
+    fn test_matcher_fusion() {
+        use crate::uop::DType;
+        let a: UOp = UOp::var("a", DType::I32);
+        let one: UOp = 1i32.into();
+        let zero: UOp = 0i32.into();
+
+        // Matcher 1: Simplifies multiplication by one
+        let mul_rules = pats!({ (x) | x.clone() * one.clone() => x, });
+        let mul_matcher = PatternMatcher::new(mul_rules);
+
+        // Matcher 2: Simplifies addition of zero
+        let add_rules = pats!({ (y) | y.clone() + zero.clone() => y, });
+        let add_matcher = PatternMatcher::new(add_rules);
+
+        // Fuse the matchers
+        let fused_matcher = mul_matcher + add_matcher;
+
+        // Input: (a * 1) + 0
+        let input_uop = (a.clone() * one) + zero;
+
+        // Apply the fused matcher
+        let optimized_uop = fused_matcher.apply_all_with_limit(&input_uop, 10);
+
+        // The result should be fully simplified
+        assert_eq!(optimized_uop, a);
     }
 }
