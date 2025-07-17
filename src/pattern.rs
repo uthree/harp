@@ -78,12 +78,24 @@ impl PatternMatcher {
         Self { rules }
     }
 
-    pub fn apply_all(&self, target: &UOp) -> UOp {
-        let mut current_expr = target.clone();
-        for rule in &self.rules {
-            current_expr = rule.apply(&current_expr);
+    pub fn apply(&self, uop: &UOp) -> UOp {
+        let mut new_uop = uop.clone();
+        for p in &self.rules {
+            new_uop = p.apply(&new_uop);
         }
-        current_expr
+        new_uop
+    }
+
+    pub fn apply_all_with_limit(&self, uop: &UOp, limit: usize) -> UOp {
+        let mut current_uop = uop.clone();
+        for _ in 0..limit {
+            let new_uop = self.apply(&current_uop);
+            if new_uop == current_uop {
+                return new_uop;
+            }
+            current_uop = new_uop;
+        }
+        current_uop
     }
 }
 
@@ -106,7 +118,7 @@ macro_rules! pats {
                 )*
                 $pattern
             };
-            let replacer_fn = |caps: &HashMap<usize, UOp>| {
+            let replacer_fn = move |caps: &HashMap<usize, UOp>| {
                 let mut counter = 0..;
                 $(
                     #[allow(unused_variables)]
@@ -145,7 +157,7 @@ mod tests {
 
         // 2. Create a matcher and apply the rules
         let matcher = PatternMatcher::new(rules);
-        let replaced_expr = matcher.apply_all(&expr);
+        let replaced_expr = matcher.apply_all_with_limit(&expr, 10);
 
         // Define expected expression: a * (b + c)
         let expected_expr = &a * (&b + &c);
@@ -163,7 +175,7 @@ mod tests {
             (p_a, p_b, p_c) | &p_a + (&p_b + &p_c) => (&p_a + &p_b) + &p_c,
         });
         let matcher = PatternMatcher::new(rules);
-        let replaced_expr = matcher.apply_all(&expr);
+        let replaced_expr = matcher.apply_all_with_limit(&expr, 10);
         let expected_expr = (&a + &b) + &c;
         assert_eq!(replaced_expr, expected_expr);
     }
@@ -176,7 +188,7 @@ mod tests {
             (p_a) | -(-p_a.clone()) => p_a,
         });
         let matcher = PatternMatcher::new(rules);
-        let replaced_expr = matcher.apply_all(&expr);
+        let replaced_expr = matcher.apply_all_with_limit(&expr, 10);
         assert_eq!(replaced_expr, a);
     }
 
@@ -189,7 +201,7 @@ mod tests {
             (p_x, p_y) | &p_x + &p_y => &p_y + &p_x,
         });
         let matcher = PatternMatcher::new(rules);
-        let replaced_expr = matcher.apply_all(&expr);
+        let replaced_expr = matcher.apply_all_with_limit(&expr, 10);
         assert_eq!(replaced_expr, expr);
     }
 
@@ -202,8 +214,66 @@ mod tests {
             (p_a, p_b) | &p_a * (&p_b + &p_a) => &p_a * &p_b + &p_a * &p_a,
         });
         let matcher = PatternMatcher::new(rules);
-        let replaced_expr = matcher.apply_all(&expr);
+        let replaced_expr = matcher.apply_all_with_limit(&expr, 10);
         let expected_expr = &a * &b + &a * &a;
         assert_eq!(replaced_expr, expected_expr);
+    }
+
+    #[test]
+    fn test_apply_all_with_limit() {
+        use crate::uop::{DType, Number};
+        // Define variables
+        let a: UOp = UOp::var("a", DType::I32);
+        let one: UOp = 1i32.into();
+        let zero: UOp = 0i32.into();
+
+        // Define patterns. The order matters for the test.
+        let rules = pats!({
+            // This rule will be applied first, but won't match the top level of the input
+            (x) | x.clone() * one.clone() => x,
+            // This rule will be applied second, and will match the top level of the intermediate graph
+            (y) | y.clone() + zero.clone() => y,
+        });
+
+        let matcher = PatternMatcher::new(rules);
+
+        // Input: (a * 1) + 0
+        let input_uop = (a.clone() * one.clone()) + zero.clone();
+
+        // After one pass of `matcher.apply`, the graph becomes `a + 0`.
+        // Let's trace:
+        // 1. Rule `x*1=>x` is applied to `(a*1)+0`.
+        //    - Top level (Add) doesn't match.
+        //    - Recurses to `src[0]` which is `a*1`. It matches! Returns `a`.
+        //    - The graph becomes `a + 0`.
+        // 2. Rule `y+0=>y` is applied to the result `a + 0`.
+        //    - It matches! Returns `a`.
+        // So, a single call to `matcher.apply` fully optimizes the graph.
+        // The test logic was flawed. The `apply` method is too powerful.
+
+        // To properly test `apply_all_with_limit`, we need `apply` to be less "deep".
+        // Let's modify `PatternMatcher::apply` to only apply rules at the top level.
+        // No, let's modify the test to be more robust.
+
+        // New test plan:
+        // The key is that one rule's output is the input for another rule in the *next* pass.
+        let rules = pats!({
+            // This rule is checked first.
+            (y) | y.clone() + UOp::from(0i32) => y,
+            // This rule is checked second. It creates input for the first rule.
+            (x) | x.clone() * one.clone() => x.clone() + UOp::from(0i32),
+        });
+        let matcher = PatternMatcher::new(rules);
+        let input_uop = a.clone() * one.clone(); // input is `a * 1`
+
+        // ... (rest of the test)
+
+        // Test with limit = 1
+        let partially_optimized = matcher.apply_all_with_limit(&input_uop, 1);
+        assert_eq!(partially_optimized, a.clone() + UOp::from(0i32));
+
+        // Test with limit = 10
+        let fully_optimized = matcher.apply_all_with_limit(&input_uop, 10);
+        assert_eq!(fully_optimized, a);
     }
 }
