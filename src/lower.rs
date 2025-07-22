@@ -1,6 +1,7 @@
 //! `UOp`グラフを`UOp`ツリー（AST）に変換するLowering処理を実装するモジュール。
 
 use crate::uop::{Op, UOp};
+use log::debug;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -66,9 +67,10 @@ impl Lowerer {
 
 /// UOpグラフ（の終端ノード）を、単一のループを持つASTに変換する。
 pub fn lower(root: &UOp) -> UOp {
+    debug!("Lowering UOp graph: {:?}", root);
     let mut lowerer = Lowerer::new();
 
-    match root.0.op {
+    let ast = match root.0.op {
         Op::Loop => {
             // If the root is already a loop, we assume it's the main kernel loop.
             // We just need to lower the expressions inside its body.
@@ -103,5 +105,7 @@ pub fn lower(root: &UOp) -> UOp {
                 vec![loop_limit, body_block],
             )
         }
-    }
+    };
+    debug!("Lowered AST: {:?}", ast);
+    ast
 }

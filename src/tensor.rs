@@ -3,11 +3,13 @@ use crate::dtype::DType;
 use crate::lower;
 use crate::shapetracker::ShapeTracker;
 use crate::uop::{Op, UOp};
+use log::debug;
 use std::cell::RefCell;
 use std::ops::Add;
 use std::rc::Rc;
 use std::sync::Arc;
 
+#[derive(Debug)]
 pub enum TensorOp {
     Load,
     Binary(Op),
@@ -45,12 +47,15 @@ impl Tensor {
 
     pub fn realize(&self) -> Variable {
         if let Some(ref realized) = *self.0.realized.borrow() {
+            debug!("Cache hit for tensor");
             return realized.clone();
         }
+        debug!("Realizing tensor with op: {:?}", self.0.op);
 
         let result_var = match self.0.op {
             TensorOp::Load => {
                 let size: usize = self.0.tracker.shape().iter().product::<usize>() * self.0.dtype.size();
+                debug!("Allocating new buffer for Load op with size: {}", size);
                 self.0.backend.alloc(size, self.0.backend.clone())
             }
             TensorOp::Binary(_) => {
@@ -61,6 +66,7 @@ impl Tensor {
                 kernel_args.push(output_buffer.clone());
                 
                 let loop_op = self.to_uop();
+                debug!("Generated UOp graph: {:?}", loop_op);
 
                 let ast = lower::lower(&loop_op);
                 let args_ref: Vec<&Variable> = kernel_args.iter().collect();

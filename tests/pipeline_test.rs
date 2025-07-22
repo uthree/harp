@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 #[test]
 fn pipeline_test() {
+    let _ = env_logger::builder().is_test(true).try_init();
     let backend: Arc<dyn Backend> = Arc::new(CpuBackend::new());
 
     // UOpグラフ: a[i] + b[i]

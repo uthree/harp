@@ -1,5 +1,6 @@
 use crate::backends::Renderer;
 use crate::uop::{Op, UOp};
+use log::debug;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
@@ -45,6 +46,8 @@ impl Renderer for CStyleRenderer {
 
         renderer_impl.render_op(&mut code, uop, 4);
         writeln!(&mut code, "}}").unwrap();
+        debug!("Rendered C code:
+{}", code);
         code
     }
 }

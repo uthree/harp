@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 #[test]
 fn test_tensor_addition() {
+    let _ = env_logger::builder().is_test(true).try_init();
     let backend: Arc<dyn Backend> = Arc::new(CpuBackend::new());
     let shape = vec![10];
 

@@ -1,5 +1,6 @@
 use super::{Backend, Compiler, Renderer, Variable, Variable_};
 use crate::uop::UOp;
+use log::debug;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -66,14 +67,14 @@ impl Backend for CpuBackend {
     }
 
     fn compile_and_exec(&self, uop: &UOp, args: &[&Variable]) {
+        debug!("Compiling and executing UOp AST: {:?}", uop);
         let code = self.renderer.render(uop);
-        println!("--- Rendered Code ---\n{code}");
-
+        
         let options = self.compile_options.lock().unwrap();
         let kernel = self.compiler.compile(&code, &options).unwrap();
-        println!("--- Compilation Done ---");
+        debug!("Compilation successful, executing kernel");
 
         kernel.exec(args);
-        println!("--- Execution Done ---");
+        debug!("Execution finished");
     }
 }
