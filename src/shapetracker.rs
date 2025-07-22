@@ -71,7 +71,7 @@ impl View {
         let mut ret = vec![];
         let mut acc: u64 = 1;
         for &sh in self.shape.iter().rev() {
-            ret.push((idx / &UOp::from(acc as u64)) % &UOp::from(sh as u64));
+            ret.push((idx / &UOp::from(acc)) % &UOp::from(sh as u64));
             acc *= sh as u64;
         }
         self.expr_indices(&ret.into_iter().rev().collect::<Vec<_>>())
@@ -112,6 +112,18 @@ impl ShapeTracker {
 
     pub fn expr_node(&self, idx: &UOp) -> UOp {
         self.views.last().unwrap().expr_node(idx)
+    }
+
+    pub fn reshape(&self, new_shape: Vec<usize>) -> Self {
+        let old_shape = self.shape();
+        assert_eq!(
+            old_shape.iter().product::<usize>(),
+            new_shape.iter().product::<usize>(),
+            "Reshape validation failed: element count must be the same"
+        );
+        // TODO: This is a simplification. A real reshape needs to intelligently
+        // modify the view stack. For now, we just create a new contiguous tracker.
+        ShapeTracker::new(new_shape)
     }
 }
 

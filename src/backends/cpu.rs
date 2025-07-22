@@ -67,7 +67,7 @@ impl Backend for CpuBackend {
     }
 
     fn compile_and_exec(&self, uop: &UOp, args: &[&Variable]) {
-        debug!("Compiling and executing UOp AST: {:?}", uop);
+        debug!("Compiling and executing UOp AST: {uop:?}");
         let code = self.renderer.render(uop);
         
         let options = self.compile_options.lock().unwrap();

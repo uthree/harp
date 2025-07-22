@@ -10,7 +10,7 @@ use std::ops::{Add, Mul};
 use std::rc::Rc;
 use std::sync::Arc;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TensorOp {
     Load,
     Binary(Op),
@@ -56,7 +56,7 @@ impl Tensor {
         let result_var = match self.0.op {
             TensorOp::Load => {
                 let size: usize = self.0.tracker.shape().iter().product::<usize>() * self.0.dtype.size();
-                debug!("Allocating new buffer for Load op with size: {}", size);
+                debug!("Allocating new buffer for Load op with size: {size}");
                 self.0.backend.alloc(size, self.0.backend.clone())
             }
             TensorOp::Binary(_) => {
@@ -67,7 +67,7 @@ impl Tensor {
                 kernel_args.push(output_buffer.clone());
                 
                 let loop_op = self.to_uop();
-                debug!("Generated UOp graph: {:?}", loop_op);
+                debug!("Generated UOp graph: {loop_op:?}");
 
                 let ast = lower::lower(&loop_op);
                 let args_ref: Vec<&Variable> = kernel_args.iter().collect();
@@ -107,12 +107,23 @@ impl Tensor {
         let result_expr = build_uop_graph(self, &mut arg_map, &loop_var);
         
         let out_idx = arg_map.len();
-        let output_buffer = UOp::var(&format!("data{}", out_idx), self.0.dtype.clone());
+        let output_buffer = UOp::var(&format!("data{out_idx}"), self.0.dtype.clone());
         let idx = self.0.tracker.expr_node(&loop_var);
         let store = UOp::new(Op::Store, DType::Unit, vec![output_buffer, idx, result_expr]);
         
         let n_elements = self.0.tracker.shape().iter().product::<usize>();
         UOp::new(Op::Loop, DType::Unit, vec![(n_elements as u64).into(), store])
+    }
+
+    pub fn reshape(&self, new_shape: Vec<usize>) -> Self {
+        let new_tracker = self.0.tracker.reshape(new_shape);
+        Self::new(
+            self.0.op.clone(),
+            self.0.src.clone(),
+            new_tracker,
+            self.0.dtype.clone(),
+            self.0.backend.clone(),
+        )
     }
 
     fn lazy_binary_op(op: Op, a: &Self, b: &Self) -> Self {
@@ -181,11 +192,11 @@ fn build_dot_tensor(tensor: &Tensor, dot: &mut String, visited: &mut std::collec
         tensor.0.dtype
     )
     .replace('\n', "\\n");
-    dot.push_str(&format!("  \"{:p}\" [label=\"{}\"];\n", ptr, label));
+    dot.push_str(&format!("  \"{ptr:p}\" [label=\"{label}\"];\n"));
 
     for src in &tensor.0.src {
         let src_ptr = Rc::as_ptr(&src.0);
-        dot.push_str(&format!("  \"{:p}\" -> \"{:p}\";\n", src_ptr, ptr));
+        dot.push_str(&format!("  \"{src_ptr:p}\" -> \"{ptr:p}\";\n"));
         build_dot_tensor(src, dot, visited);
     }
 }

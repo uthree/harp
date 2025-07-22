@@ -86,3 +86,30 @@ fn test_tensor_multiplication() {
     println!("\n--- Tensor DOT --- \n{}", dot_string);
     assert!(dot_string.contains("[label=\"op: Binary(Mul)\\nshape: [10]\\ndtype: F32\"]"));
 }
+
+#[test]
+fn test_tensor_reshape() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let backend: Arc<dyn Backend> = Arc::new(CpuBackend::new());
+    let original_shape = vec![10, 20];
+    let new_shape = vec![200];
+
+    let t1 = Tensor::new(
+        TensorOp::Load,
+        vec![],
+        ShapeTracker::new(original_shape.clone()),
+        DType::F32,
+        backend.clone(),
+    );
+
+    let t2 = t1.reshape(new_shape.clone());
+
+    assert_eq!(t2.0.tracker.shape(), &new_shape);
+    // Check that the underlying operation and sources are unchanged
+    assert!(matches!(t2.0.op, TensorOp::Load));
+    assert!(t2.0.src.is_empty());
+
+    // Realizing the reshaped tensor should work
+    let _result_variable = t2.realize();
+    println!("Reshape test completed successfully!");
+}

@@ -1,8 +1,6 @@
 pub use crate::dtype::{DType, Number};
 use crate::dot::ToDot;
-use std::cell::RefCell;
 use std::collections::HashSet;
-use std::fmt;
 use std::ops::{
     Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
@@ -233,11 +231,11 @@ fn build_dot_uop(uop: &UOp, dot: &mut String, visited: &mut HashSet<*const UOp_>
         op => format!("{:?}\n{:?}", op, uop.0.dtype),
     }
     .replace('\n', "\\n");
-    dot.push_str(&format!("  \"{:p}\" [label=\"{}\"];\n", ptr, label));
+    dot.push_str(&format!("  \"{ptr:p}\" [label=\"{label}\"];\n"));
 
     for src in &uop.0.src {
         let src_ptr = Rc::as_ptr(&src.0);
-        dot.push_str(&format!("  \"{:p}\" -> \"{:p}\";\n", src_ptr, ptr));
+        dot.push_str(&format!("  \"{src_ptr:p}\" -> \"{ptr:p}\";\n"));
         build_dot_uop(src, dot, visited);
     }
 }

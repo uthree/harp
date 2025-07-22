@@ -67,7 +67,7 @@ impl Lowerer {
 
 /// UOpグラフ（の終端ノード）を、単一のループを持つASTに変換する。
 pub fn lower(root: &UOp) -> UOp {
-    debug!("Lowering UOp graph: {:?}", root);
+    debug!("Lowering UOp graph: {root:?}");
     let mut lowerer = Lowerer::new();
 
     let ast = match root.0.op {
@@ -106,6 +106,6 @@ pub fn lower(root: &UOp) -> UOp {
             )
         }
     };
-    debug!("Lowered AST: {:?}", ast);
+    debug!("Lowered AST: {ast:?}");
     ast
 }

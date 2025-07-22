@@ -44,7 +44,7 @@ impl Compiler for GccCompiler {
         if options.debug_info { args.push("-g"); }
         if options.use_fast_math { args.push("-ffast-math"); }
 
-        debug!("Compiling with gcc, args: {:?}", args);
+        debug!("Compiling with gcc, args: {args:?}");
         let output = Command::new("gcc").args(&args).output()?;
         if !output.status.success() {
             return Err(format!(
