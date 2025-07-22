@@ -2,6 +2,7 @@ use crate::backends::{Backend, Variable};
 use crate::dtype::DType;
 use crate::dot::ToDot;
 use crate::lower;
+use crate::optimizer::Optimizer;
 use crate::shapetracker::ShapeTracker;
 use crate::uop::{Op, UOp};
 use log::debug;
@@ -67,9 +68,13 @@ impl Tensor {
                 kernel_args.push(output_buffer.clone());
                 
                 let loop_op = self.to_uop();
-                debug!("Generated UOp graph: {loop_op:?}");
+                debug!("Generated UOp graph: {:?}", loop_op);
 
-                let ast = lower::lower(&loop_op);
+                let optimizer = Optimizer::new();
+                let optimized_loop_op = optimizer.optimize(&loop_op);
+                debug!("Optimized UOp graph: {:?}", optimized_loop_op);
+
+                let ast = lower::lower(&optimized_loop_op);
                 let args_ref: Vec<&Variable> = kernel_args.iter().collect();
                 self.0.backend.compile_and_exec(&ast, &args_ref);
                 output_buffer
