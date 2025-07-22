@@ -1,6 +1,6 @@
 //! `UOp`グラフを`UOp`ツリー（AST）に変換するLowering処理を実装するモジュール。
 
-use crate::uop::{UOp, Op};
+use crate::uop::{Op, UOp};
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -24,8 +24,8 @@ impl Lowerer {
     }
 
     /// 新しい一意な変数名を生成する。
-    fn new_var(&mut self) -> String {
-        let name = format!("v{}", self.var_counter);
+    fn new_var(&mut self, prefix: &str) -> String {
+        let name = format!("{}{}", prefix, self.var_counter);
         self.var_counter += 1;
         name
     }
@@ -43,32 +43,40 @@ impl Lowerer {
 
         // 現在のノードを処理する
         let result_var = match node.0.op {
-            // Constノードはそのまま返す（変数に格納する必要はない）
-            Op::Const(_) => {
-                let new_node = UOp::new(node.0.op.clone(), node.0.dtype.clone(), new_srcs);
-                self.node_map.insert(node_ptr, new_node.clone());
-                return new_node;
+            // ConstとVarノードはそのまま伝播させる
+            Op::Const(_) | Op::Var(_) => {
+                return UOp::new(node.0.op.clone(), node.0.dtype.clone(), new_srcs);
             }
-            // Varノードもそのまま返す
-            Op::Var(_) => {
-                let new_node = UOp::new(node.0.op.clone(), node.0.dtype.clone(), new_srcs);
-                self.node_map.insert(node_ptr, new_node.clone());
-                return new_node;
-            }
-            // その他のノードは、計算を行い、結果を新しい変数に格納する
-            _ => {
-                let var_name = self.new_var();
+            // Loadノードは、結果を新しい変数に格納する
+            Op::Load => {
+                let var_name = self.new_var("tmp");
                 let var_dtype = node.0.dtype.clone();
                 let var_uop = UOp::var(&var_name, var_dtype.clone());
 
-                // `v1 = a + b;` のようなステートメントを生成
-                let statement = UOp::new(node.0.op.clone(), var_dtype, new_srcs);
-                
-                // TODO: 本来はStore命令を使うべきだが、簡単のため、
-                // Renderer側で「v1 = ...」のように解釈する前提で進める。
-                // ここでは、生成した計算ノードをそのままbodyに追加する。
-                self.kernel_body.push(statement);
+                // `tmp0 = buf0[i];` のようなStore文を生成
+                let load_expr = UOp::new(Op::Load, var_dtype, new_srcs);
+                let store_stmt = UOp::new(
+                    Op::Store,
+                    crate::dtype::DType::Unit,
+                    vec![var_uop.clone(), load_expr],
+                );
+                self.kernel_body.push(store_stmt);
+                var_uop
+            }
+            // その他の演算ノードも、結果を新しい変数に格納する
+            _ => {
+                let var_name = self.new_var("res");
+                let var_dtype = node.0.dtype.clone();
+                let var_uop = UOp::var(&var_name, var_dtype.clone());
 
+                // `res0 = tmp0 + tmp1;` のようなStore文を生成
+                let expr = UOp::new(node.0.op.clone(), var_dtype, new_srcs);
+                let store_stmt = UOp::new(
+                    Op::Store,
+                    crate::dtype::DType::Unit,
+                    vec![var_uop.clone(), expr],
+                );
+                self.kernel_body.push(store_stmt);
                 var_uop
             }
         };
@@ -82,20 +90,35 @@ impl Lowerer {
 /// UOpグラフ（の終端ノード）を、単一のループを持つASTに変換する。
 pub fn lower(root: &UOp) -> UOp {
     let mut lowerer = Lowerer::new();
-    
+
     // グラフの終端から遡ってASTを構築する
     let final_result_var = lowerer.process_node(root);
 
-    // TODO: 最終結果をStoreする命令を追加する
-    // let final_store = UOp::new(Op::Store, DType::Unit, vec![...]);
-    // lowerer.kernel_body.push(final_store);
+    // 最終結果を出力バッファにストアする命令を追加する
+    // TODO: 出力バッファのインデックスを正しく設定する
+    let output_buf = UOp::var("out0", crate::dtype::DType::Unit); // DTypeは仮
+    let loop_idx = UOp::var("i", crate::dtype::DType::U64);
+    let final_store = UOp::new(
+        Op::Store,
+        crate::dtype::DType::Unit,
+        vec![output_buf, loop_idx, final_result_var],
+    );
+    lowerer.kernel_body.push(final_store);
 
     // ループでkernel_bodyをラップする
-    let body_block = UOp::new(Op::Block, crate::dtype::DType::Unit, lowerer.kernel_body);
-    
+    let body_block = UOp::new(
+        Op::Block,
+        crate::dtype::DType::Unit,
+        lowerer.kernel_body,
+    );
+
     // TODO: ループの上限を正しく設定する
     let loop_limit = UOp::var("N", crate::dtype::DType::U64);
-    let loop_uop = UOp::new(Op::Loop, crate::dtype::DType::Unit, vec![loop_limit, body_block]);
+    let loop_uop = UOp::new(
+        Op::Loop,
+        crate::dtype::DType::Unit,
+        vec![loop_limit, body_block],
+    );
 
     loop_uop
 }

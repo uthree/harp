@@ -1,3 +1,5 @@
+use std::fmt;
+
 // datatypes
 #[derive(Clone, PartialEq, Debug)]
 pub enum DType {
@@ -12,6 +14,26 @@ pub enum DType {
     F32,
     F64,
     Pointer(Box<DType>, usize),
+    Unit,
+}
+
+impl fmt::Display for DType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            DType::U8 => write!(f, "unsigned char"),
+            DType::U16 => write!(f, "unsigned short"),
+            DType::U32 => write!(f, "unsigned int"),
+            DType::U64 => write!(f, "unsigned long"),
+            DType::I8 => write!(f, "char"),
+            DType::I16 => write!(f, "short"),
+            DType::I32 => write!(f, "int"),
+            DType::I64 => write!(f, "long"),
+            DType::F32 => write!(f, "float"),
+            DType::F64 => write!(f, "double"),
+            DType::Pointer(inner, _) => write!(f, "{}*", inner),
+            DType::Unit => write!(f, "void"),
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -26,6 +48,23 @@ pub enum Number {
     I64(i64),
     F32(f32),
     F64(f64),
+}
+
+impl fmt::Display for Number {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Number::U8(n) => write!(f, "{}", n),
+            Number::U16(n) => write!(f, "{}", n),
+            Number::U32(n) => write!(f, "{}", n),
+            Number::U64(n) => write!(f, "{}", n),
+            Number::I8(n) => write!(f, "{}", n),
+            Number::I16(n) => write!(f, "{}", n),
+            Number::I32(n) => write!(f, "{}", n),
+            Number::I64(n) => write!(f, "{}", n),
+            Number::F32(n) => write!(f, "{}f", n),
+            Number::F64(n) => write!(f, "{}", n),
+        }
+    }
 }
 
 macro_rules! impl_number_dtype {
