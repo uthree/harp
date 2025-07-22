@@ -4,33 +4,71 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
 配列の操作を計算グラフで表現し、評価を遅延させることで、最適化とC言語やGPUカーネルへのコンパイルを可能にします。
 また、計算グラフを扱う性質上、自動微分を実装することが可能で、深層学習や数値最適化などのタスクにも親和性があります。
 
+## コンパイルパイプライン概要
+
+`harp`は、`Tensor`で行われた操作を、以下のステップを経て実行可能な`Kernel`に変換します。
+
+1. **グラフ構築 (`Tensor` -> `UOp`グラフ):** `Tensor`の演算履歴から、有向非巡回グラフ(DAG)構造の`UOp`を構築します。
+2. **最適化 (`UOp`グラフ -> `UOp`グラフ):** `Optimizer`が代数法則の適用などを行い、`UOp`グラフを最適化します。
+3. **Lowering (`UOp`グラフ -> `UOp`ツリー):** 最適化されたグラフを、ループなどの構造を考慮した**抽象構文木(AST)ツリー**に変換します。このステップで、共有ノードは変数への代入などに置き換えられます。
+4. **レンダリング (`UOp`ツリー -> `String`):** `Renderer`が`UOp`ツリーを辿り、C言語などのソースコードを生成します。
+5. **コンパイル (`String` -> `Kernel`):** `Compiler`がソースコードをコンパイルし、実行可能な`Kernel`を生成します。
+
 ## 主要コンポーネント
 
 ### 1. `Tensor` (ユーザー向けAPI)
 
 配列を表す中心的な構造体。ユーザーはこの `Tensor` に対して演算を行います。
-`Tensor`のグラフ構築はシングルスレッドで行われることを想定しているため、内部の参照カウントには`Rc`を、内部可変性には`RefCell`を使用し、オーバーヘッドを最小限に抑えています。
 
-- **責務**:
-  - ユーザーフレンドリーな配列操作API（`+`, `*`, `reshape`, `sum`など）の提供。
-  - 内部に計算グラフを保持し、演算の履歴を記録する（遅延評価）。
-  - 計算結果をキャッシュし、再計算を防ぐ。
+### 2. `UOp` (抽象構文木)
 
-### 2. `UOp` (中間表現)
+`Tensor`の計算グラフから変換される中間表現(IR)。当初はDAGとして構築され、Loweringの過程でツリー構造に変換されます。式と文の両方を表現できる、C言語に近いASTとして機能します。
 
-`Tensor` の計算グラフから変換される、より低レベルな中間表現(IR)。
+- **具体的な構造 (Rust):**
 
-- **責務**: ハードウェアに依存しない、最小限の演算で計算を表現する。
+    ```rust
+    use std::rc::Rc;
+
+    pub enum UOp {
+        // --- 式 (値を返すノード) ---
+        Binary { op: BinaryOp, lhs: Rc<UOp>, rhs: Rc<UOp>, dtype: DType },
+        Unary { op: UnaryOp, src: Rc<UOp>, dtype: DType },
+        Load { buf_idx: usize, idx: Rc<UOp>, dtype: DType }, // buf[idx]
+        Const { val: f32, dtype: DType },
+        Var { name: String, dtype: DType }, // ループ変数などを参照
+
+        // --- 文 (値を返さないノード) ---
+        // for (int var = 0; var < limit; i++) { body }
+        Loop {
+            var: String,
+            limit: Rc<UOp>,
+            body: Rc<UOp>, // 通常はBlockノード
+        },
+        // { stmts[0]; stmts[1]; ... }
+        Block {
+            stmts: Vec<Rc<UOp>>,
+        },
+        // buf[idx] = value;
+        Store {
+            buf_idx: usize,
+            idx: Rc<UOp>,
+            value: Rc<UOp>,
+        },
+        // if (condition) { true_branch }
+        If {
+            condition: Rc<UOp>,
+            true_branch: Rc<UOp>, // 通常はBlockノード
+        },
+    }
+    ```
 
 ### 3. `Variable` (メモリバッファ)
 
 デバイス（CPU/GPU）上のメモリバッファへの参照。
 
-- **責務**: バッファのIDやサイズを保持し、`Drop`時に`Backend`にメモリ解放を通知する。
-
 ### 4. `Backend` (実行エンジン)
 
-`Backend`は、`UOp`グラフのコンパイルから実行までを統括するオーケストレーターです。内部に`Optimizer`, `Renderer`, `Compiler`といったコンポーネントを保持します。
+`UOp`グラフのコンパイルから実行までを統括するオーケストレーターです。
 
 #### `backend::get` ファクトリ
 
@@ -39,15 +77,6 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
 #### `Backend`トレイトと高レベルAPI
 
 `Backend`は、ユーザー向けにコンパイラの種類を意識させない、高レベルな設定APIを提供します。
-
-- **具体的な構造 (Rust):**
-
-    ```rust
-    pub trait Backend {
-        // ...
-        fn set_optimization_level(&self, level: u8);
-    }
-    ```
 
 ### 5. `Compiler` (コンパイラ)
 
@@ -58,16 +87,6 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
   - **自身専用のコンパイルオプション**と共にソースコードを受け取り、`Kernel`を生成する。
   - `Kernel`に、実行に必要なメタデータ（引数情報、ワークサイズ等）を焼き込む。
 
-- **具体的な構造 (Rust):**
-
-    ```rust
-    pub trait Compiler {
-        type Options: Default + Clone;
-        fn is_available(&self) -> bool;
-        fn compile(&self, source_code: &str, options: &Self::Options) -> Result<Arc<dyn Kernel>, Error>;
-    }
-    ```
-
 ### 6. `Kernel` (実行可能カーネル)
 
 コンパイル済みの、特定の計算を実行するための自己完結型オブジェクト。
@@ -75,22 +94,14 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
 - **責務**:
   - 実行に必要な引数のメタデータ（データ型、サイズ等）を内部に保持する。
   - `exec`が呼ばれた際に、受け取った引数がメタデータと一致するかを検証する。
-  - 検証後、コンパイル済みのコード（ネイティブ関数やGPUカーネル）を安全に実行する。
-
+  - 検証後、コンパイル済みのコードを安全に実行する。
 - **メタデータ構造 (Rust):**
 
     ```rust
-    // カーネルが期待する単一の引数の情報
-    pub struct ArgInfo {
-        pub dtype: DType,
-        pub size: usize,
-    }
-
-    // カーネル全体の実行情報
     pub struct KernelMetadata {
-        pub args_info: Vec<ArgInfo>,      // 引数情報のリスト (入力と出力を含む)
-        pub global_work_size: usize,    // ループ回数や、GPUのグローバルワークサイズ
-        pub local_work_size: usize,     // GPUのローカルワークサイズ (CPUでは未使用)
+        pub args_info: Vec<ArgInfo>,
+        pub global_work_size: usize,
+        pub local_work_size: usize,
     }
     ```
 
@@ -101,40 +112,4 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
         fn exec(&self, args: &[&Variable]);
         fn metadata(&self) -> &KernelMetadata;
     }
-
-    // CPUカーネルの実装例
-    use libloading::{Library, Symbol};
-    pub struct CpuKernel {
-        _lib: Library, // ライブラリの所有権を保持し、Drop時にアンロードする
-        // C関数は引数としてループ回数(work_size)とポインタ配列を受け取る
-        func: Symbol<unsafe extern "C" fn(usize, *const *const u8)>,
-        metadata: KernelMetadata,
-    }
-
-    impl Kernel for CpuKernel {
-        fn metadata(&self) -> &KernelMetadata {
-            &self.metadata
-        }
-
-        fn exec(&self, args: &[&Variable]) {
-            // 1. --- 安全性のための検証 (Sanity Check) ---
-            assert_eq!(args.len(), self.metadata.args_info.len(), "Mismatched number of arguments");
-            for (i, var) in args.iter().enumerate() {
-                assert_eq!(var.0.size, self.metadata.args_info[i].size, "Mismatched size for argument {}", i);
-                // dtypeのチェックも可能
-            }
-
-            // 2. --- 実行 ---
-            // Variableからメモリアドレスのリストを準備する
-            let raw_ptrs: Vec<*const u8> = args.iter().map(|v| v.backend().get_buffer_ptr(v.id())).collect();
-
-            // unsafeブロック内でロードした関数シンボル `self.func` を呼び出す
-            unsafe {
-                (self.func)(self.metadata.global_work_size, raw_ptrs.as_ptr());
-            }
-        }
-    }
     ```
-
-- **`Backend`との連携**:
-  - `Backend`は`Variable`の`id`から実際のメモリアドレス（ポインタ）を取得するためのメソッド（例: `get_buffer_ptr`）を提供する必要があります。
