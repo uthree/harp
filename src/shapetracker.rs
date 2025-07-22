@@ -45,21 +45,34 @@ impl View {
     /// Generates the UOp expression for a given index.
     fn expr_indices(&self, indices: &[UOp]) -> UOp {
         assert_eq!(indices.len(), self.shape.len());
-        let mut acc: UOp = UOp::from(self.offset as i32);
+        let mut acc: Option<UOp> = None;
         for (i, st) in self.strides.iter().enumerate() {
             if self.shape[i] != 1 && *st != 0 {
-                acc += indices[i].clone() * UOp::from(*st as i32);
+                let term = if *st == 1 {
+                    indices[i].clone()
+                } else {
+                    &indices[i] * &UOp::from(*st as u64)
+                };
+                if let Some(current_acc) = acc {
+                    acc = Some(current_acc + term);
+                } else {
+                    acc = Some(term);
+                }
             }
         }
-        acc
+        let mut result = acc.unwrap_or_else(|| UOp::from(0u64));
+        if self.offset != 0 {
+            result += UOp::from(self.offset as u64);
+        }
+        result
     }
 
-    fn expr_node(&self, idx: UOp) -> UOp {
+    fn expr_node(&self, idx: &UOp) -> UOp {
         let mut ret = vec![];
-        let mut acc = 1;
+        let mut acc: u64 = 1;
         for &sh in self.shape.iter().rev() {
-            ret.push((idx.clone() / UOp::from(acc)) % UOp::from(sh as i32));
-            acc *= sh as i32;
+            ret.push((idx / &UOp::from(acc as u64)) % &UOp::from(sh as u64));
+            acc *= sh as u64;
         }
         self.expr_indices(&ret.into_iter().rev().collect::<Vec<_>>())
     }
@@ -90,22 +103,15 @@ impl ShapeTracker {
                 .shape()
                 .iter()
                 .enumerate()
-                .map(|(i, _)| UOp::var(&format!("idx{i}"), DType::I32))
+                .map(|(i, _)| UOp::var(&format!("idx{i}"), DType::U64))
                 .collect::<Vec<_>>();
             &binding
         };
+        self.views.last().unwrap().expr_indices(idxs)
+    }
 
-        let mut idx: UOp = UOp::from(0i32);
-        let mut acc: UOp = UOp::from(1i32);
-        for (i, &sh) in self.views.last().unwrap().shape.iter().enumerate() {
-            idx += idxs[i].clone() * acc.clone();
-            acc *= UOp::from(sh as i32);
-        }
-
-        self.views
-            .iter()
-            .rev()
-            .fold(idx, |current_idx, view| view.expr_node(current_idx))
+    pub fn expr_node(&self, idx: &UOp) -> UOp {
+        self.views.last().unwrap().expr_node(idx)
     }
 }
 
@@ -117,16 +123,13 @@ mod tests {
     #[test]
     fn test_simple_tracker_expr() {
         let st = ShapeTracker::new(vec![10, 20]);
-        let expr = st.expr_indices(None);
+        let idxs = vec![UOp::var("idx0", DType::U64), UOp::var("idx1", DType::U64)];
+        let expr = st.expr_indices(Some(&idxs));
 
         // Expected: idx0 * 20 + idx1
-        let idx0 = UOp::var("idx0", DType::I32);
-        let idx1 = UOp::var("idx1", DType::I32);
-        let expected_expr = idx0 * UOp::from(20i32) + idx1;
+        let expected_expr = &idxs[0] * &UOp::from(20u64) + &idxs[1];
         
-        // Note: This is a weak test, as we can't easily compare UOp trees.
-        // We are just checking that it compiles and produces some result.
-        // A proper test would require an interpreter for UOp expressions.
-        assert_eq!(expr.0.op, expected_expr.0.op);
+        // This is a weak test. A proper test would require an interpreter.
+        assert_eq!(format!("{:?}", expr), format!("{:?}", expected_expr));
     }
 }
