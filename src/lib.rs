@@ -1,4 +1,5 @@
 pub mod dtype;
+pub mod lower;
 pub mod pattern;
 pub mod shapetracker;
 pub mod tensor;

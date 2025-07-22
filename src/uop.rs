@@ -21,6 +21,11 @@ pub enum Op {
     Sin,
     Sqrt,
     Capture(usize), // Marker for pattern matching
+
+    // Controll flow
+    Loop,
+    Block,
+    If,
 }
 
 // internal data of UOp
