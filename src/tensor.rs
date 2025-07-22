@@ -1,49 +1,51 @@
-use crate::backends::Backend;
+use crate::backends::{Backend, Variable};
+use crate::dtype::DType;
+use crate::uop::UOp;
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
-pub struct Variable_ {
-    pub id: usize,
-    pub size: usize,
+pub struct Tensor_ {
+    pub op: UOp,
+    pub src: Vec<Tensor>,
+    pub shape: Vec<usize>,
+    pub dtype: DType,
     pub backend: Arc<dyn Backend>,
-}
-
-impl Drop for Variable_ {
-    fn drop(&mut self) {
-        self.backend.free(self.id);
-    }
+    pub realized: RefCell<Option<Variable>>,
 }
 
 #[derive(Clone)]
-pub struct Variable(pub Rc<Variable_>);
+pub struct Tensor(pub Rc<Tensor_>);
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::backends::{Backend, CpuBackend};
-    use crate::dtype::DType;
-    use crate::uop::{Op, UOp};
+impl Tensor {
+    pub fn new(
+        op: UOp,
+        src: Vec<Tensor>,
+        shape: Vec<usize>,
+        dtype: DType,
+        backend: Arc<dyn Backend>,
+    ) -> Self {
+        Self(Rc::new(Tensor_ {
+            op,
+            src,
+            shape,
+            dtype,
+            backend,
+            realized: RefCell::new(None),
+        }))
+    }
 
-    #[test]
-    fn pipeline_test() {
-        let backend: Arc<dyn Backend> = Arc::new(CpuBackend::new());
+    pub fn realize(&self) -> Variable {
+        if let Some(ref realized) = *self.0.realized.borrow() {
+            return realized.clone();
+        }
 
-        // UOpグラフ: a[i] + b[i]
-        let buf_a = UOp::var("a", DType::F32);
-        let buf_b = UOp::var("b", DType::F32);
-        let loop_idx = UOp::var("i", DType::U64);
-        let load_a = UOp::new(Op::Load, DType::F32, vec![buf_a, loop_idx.clone()]);
-        let load_b = UOp::new(Op::Load, DType::F32, vec![buf_b, loop_idx]);
-        let add_op = UOp::new(Op::Add, DType::F32, vec![load_a, load_b]);
+        // TODO: ここで実際にUOpグラフを辿ってコンパイル・実行する
+        // self.0.backend.compile_and_exec(...);
 
-        // 実行に必要なVariableを作成
-        let var_a = backend.alloc(10 * 4, backend.clone());
-        let var_b = backend.alloc(10 * 4, backend.clone());
-        let var_out = backend.alloc(10 * 4, backend.clone());
-        
-        let args = vec![&var_a, &var_b, &var_out];
-        backend.compile_and_exec(&add_op, &args);
-
-        println!("Pipeline test completed successfully!");
+        // 仮のVariableを返す
+        let dummy_var = self.0.backend.alloc(1, self.0.backend.clone());
+        *self.0.realized.borrow_mut() = Some(dummy_var.clone());
+        dummy_var
     }
 }

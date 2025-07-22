@@ -1,5 +1,4 @@
-use crate::backends::{Compiler, Kernel, KernelMetadata};
-use crate::tensor::Variable;
+use crate::backends::{Compiler, Kernel, KernelMetadata, Variable};
 use std::error::Error;
 use std::process::Command;
 use std::sync::Arc;

@@ -1,6 +1,5 @@
-use super::{Backend, Compiler, Renderer};
+use super::{Backend, Compiler, Renderer, Variable, Variable_};
 use crate::lower;
-use crate::tensor::{Variable, Variable_};
 use crate::uop::UOp;
 use std::collections::HashMap;
 use std::rc::Rc;

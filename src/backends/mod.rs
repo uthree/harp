@@ -1,6 +1,6 @@
-use crate::tensor::Variable;
 use crate::uop::UOp;
 use std::fmt::Debug;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::error::Error;
 
@@ -55,3 +55,20 @@ pub struct KernelMetadata {
     pub global_work_size: usize,
     pub local_work_size: usize,
 }
+
+// --- Variable ---
+
+pub struct Variable_ {
+    pub id: usize,
+    pub size: usize,
+    pub backend: Arc<dyn Backend>,
+}
+
+impl Drop for Variable_ {
+    fn drop(&mut self) {
+        self.backend.free(self.id);
+    }
+}
+
+#[derive(Clone)]
+pub struct Variable(pub Rc<Variable_>);
