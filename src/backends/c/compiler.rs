@@ -32,7 +32,7 @@ impl Compiler for GccCompiler {
     ) -> Result<Arc<dyn Kernel>, Box<dyn Error>> {
         let c_file = Builder::new().prefix("kernel").suffix(".c").tempfile()?;
         let so_file = Builder::new().prefix("kernel").suffix(".so").tempfile()?;
-        write!(c_file.as_file(), "{}", source_code)?;
+        write!(c_file.as_file(), "{source_code}")?;
 
         let opt_level = format!("-O{}", options.optimization_level);
         let mut args = vec![

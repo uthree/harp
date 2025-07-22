@@ -35,10 +35,10 @@ impl Renderer for CStyleRenderer {
                 continue;
             }
             if renderer_impl.buffers.contains(name.as_str()) {
-                writeln!(&mut code, "    {}* {} = bufs[{}];", dtype, name, buf_idx).unwrap();
+                writeln!(&mut code, "    {dtype}* {name} = bufs[{buf_idx}];").unwrap();
                 buf_idx += 1;
             } else {
-                writeln!(&mut code, "    int {} = ints[{}];", name, int_idx).unwrap();
+                writeln!(&mut code, "    int {name} = ints[{int_idx}];").unwrap();
                 int_idx += 1;
             }
         }
@@ -72,7 +72,7 @@ impl CStyleRendererImpl {
         }
         match &uop.0.op {
             Op::Load | Op::Store => {
-                if let Some(first_src) = uop.0.src.get(0) {
+                if let Some(first_src) = uop.0.src.first() {
                     if let Op::Var(name) = &first_src.0.op {
                         self.buffers.insert(name.clone());
                     }
@@ -82,7 +82,7 @@ impl CStyleRendererImpl {
         }
         if let Op::Store = &uop.0.op {
             if uop.0.src.len() == 2 {
-                if let Some(dest) = uop.0.src.get(0) {
+                if let Some(dest) = uop.0.src.first() {
                     if let Op::Var(name) = &dest.0.op {
                         self.defined_vars.insert(name.clone());
                     }
@@ -101,12 +101,11 @@ impl CStyleRendererImpl {
                 let limit = self.render_expr(&uop.0.src[0]);
                 writeln!(
                     code,
-                    "{}for (int i = 0; i < {}; ++i) {{",
-                    indent_str, limit
+                    "{indent_str}for (int i = 0; i < {limit}; ++i) {{"
                 )
                 .unwrap();
                 self.render_op(code, &uop.0.src[1], indent + 4);
-                writeln!(code, "{}}}", indent_str).unwrap();
+                writeln!(code, "{indent_str}}}").unwrap();
             }
             Op::Block => {
                 for stmt in &uop.0.src {
@@ -127,14 +126,14 @@ impl CStyleRendererImpl {
                     let dest = self.render_expr(&uop.0.src[0]);
                     let idx = self.render_expr(&uop.0.src[1]);
                     let value = self.render_expr(&uop.0.src[2]);
-                    writeln!(code, "{}{}[{}] = {};", indent_str, dest, idx, value).unwrap();
+                    writeln!(code, "{indent_str}{dest}[{idx}] = {value};").unwrap();
                 }
             }
             Op::If => {
                 let condition = self.render_expr(&uop.0.src[0]);
-                writeln!(code, "{}if ({}) {{", indent_str, condition).unwrap();
+                writeln!(code, "{indent_str}if ({condition}) {{").unwrap();
                 self.render_op(code, &uop.0.src[1], indent + 4);
-                writeln!(code, "{}}}", indent_str).unwrap();
+                writeln!(code, "{indent_str}}}").unwrap();
             }
             _ => panic!("Unexpected expression statement: {:?}", uop.0.op),
         }
@@ -147,7 +146,7 @@ impl CStyleRendererImpl {
             Op::Recip => format!("(1.0f / {})", self.render_expr(&uop.0.src[0])),
             Op::Rem => format!("({} % {})", self.render_expr(&uop.0.src[0]), self.render_expr(&uop.0.src[1])),
             Op::Load => format!("{}[{}]", self.render_expr(&uop.0.src[0]), self.render_expr(&uop.0.src[1])),
-            Op::Const(num) => format!("{}", num),
+            Op::Const(num) => format!("{num}"),
             Op::Var(name) => name.clone(),
             Op::Exp2 => format!("exp2({})", self.render_expr(&uop.0.src[0])),
             Op::Log2 => format!("log2({})", self.render_expr(&uop.0.src[0])),

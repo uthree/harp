@@ -1,5 +1,4 @@
 use super::{Backend, Compiler, Renderer, Variable, Variable_};
-use crate::lower;
 use crate::uop::UOp;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -16,6 +15,12 @@ pub struct CpuBackend {
     compile_options: Mutex<GccCompileOptions>,
     buffer_counter: AtomicUsize,
     buffers: Mutex<HashMap<usize, Vec<u8>>>,
+}
+
+impl Default for CpuBackend {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CpuBackend {
@@ -62,7 +67,7 @@ impl Backend for CpuBackend {
 
     fn compile_and_exec(&self, uop: &UOp, args: &[&Variable]) {
         let code = self.renderer.render(uop);
-        println!("--- Rendered Code ---\n{}", code);
+        println!("--- Rendered Code ---\n{code}");
 
         let options = self.compile_options.lock().unwrap();
         let kernel = self.compiler.compile(&code, &options).unwrap();

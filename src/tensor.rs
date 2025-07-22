@@ -54,7 +54,7 @@ impl Tensor {
             }
             TensorOp::Binary(_) => {
                 // Realize the source tensors
-                let mut args: Vec<_> = self.0.src.iter().map(|t| t.realize()).collect();
+                let args: Vec<_> = self.0.src.iter().map(|t| t.realize()).collect();
 
                 // Allocate the output buffer for this operation
                 let size: usize = self.0.shape.iter().product::<usize>() * self.0.dtype.size();
@@ -88,7 +88,7 @@ impl Tensor {
                     let ptr = Rc::as_ptr(&tensor.0);
                     let next_index = arg_map.len();
                     let arg_index = *arg_map.entry(ptr).or_insert(next_index);
-                    UOp::var(&format!("data{}", arg_index), tensor.0.dtype.clone())
+                    UOp::var(&format!("data{arg_index}"), tensor.0.dtype.clone())
                 }
                 TensorOp::Binary(op) => {
                     let lhs = build_uop_graph(&tensor.0.src[0], arg_map);
@@ -104,7 +104,7 @@ impl Tensor {
         // The final operation in a kernel is always a store.
         // The output buffer is the last argument.
         let out_idx = arg_map.len();
-        let output_buffer = UOp::var(&format!("data{}", out_idx), self.0.dtype.clone());
+        let output_buffer = UOp::var(&format!("data{out_idx}"), self.0.dtype.clone());
         let loop_var = UOp::var("i", DType::U64);
         let store = UOp::new(Op::Store, DType::Unit, vec![output_buffer, loop_var.clone(), result_expr]);
 

@@ -43,7 +43,7 @@ impl fmt::Display for DType {
             DType::I64 => write!(f, "long"),
             DType::F32 => write!(f, "float"),
             DType::F64 => write!(f, "double"),
-            DType::Pointer(inner, _) => write!(f, "{}*", inner),
+            DType::Pointer(inner, _) => write!(f, "{inner}*"),
             DType::Unit => write!(f, "void"),
         }
     }
@@ -66,16 +66,16 @@ pub enum Number {
 impl fmt::Display for Number {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Number::U8(n) => write!(f, "{}", n),
-            Number::U16(n) => write!(f, "{}", n),
-            Number::U32(n) => write!(f, "{}", n),
-            Number::U64(n) => write!(f, "{}", n),
-            Number::I8(n) => write!(f, "{}", n),
-            Number::I16(n) => write!(f, "{}", n),
-            Number::I32(n) => write!(f, "{}", n),
-            Number::I64(n) => write!(f, "{}", n),
-            Number::F32(n) => write!(f, "{}f", n),
-            Number::F64(n) => write!(f, "{}", n),
+            Number::U8(n) => write!(f, "{n}"),
+            Number::U16(n) => write!(f, "{n}"),
+            Number::U32(n) => write!(f, "{n}"),
+            Number::U64(n) => write!(f, "{n}"),
+            Number::I8(n) => write!(f, "{n}"),
+            Number::I16(n) => write!(f, "{n}"),
+            Number::I32(n) => write!(f, "{n}"),
+            Number::I64(n) => write!(f, "{n}"),
+            Number::F32(n) => write!(f, "{n}f"),
+            Number::F64(n) => write!(f, "{n}"),
         }
     }
 }
