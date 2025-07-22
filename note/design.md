@@ -9,32 +9,39 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
 ### 1. `Tensor` (ユーザー向けAPI)
 
 配列を表す中心的な構造体。ユーザーはこの `Tensor` に対して演算を行います。
+`Tensor`のグラフ構築はシングルスレッドで行われることを想定しているため、内部の参照カウントには`Rc`を、内部可変性には`RefCell`を使用し、オーバーヘッドを最小限に抑えています。
 
 - **責務**:
   - ユーザーフレンドリーな配列操作API（`+`, `*`, `reshape`, `sum`など）の提供。
-  - 内部に計算グラフ (`TensorOp`) を保持し、演算の履歴を記録する（遅延評価）。
+  - 内部に計算グラフを保持し、演算の履歴を記録する（遅延評価）。
   - 計算結果をキャッシュし、再計算を防ぐ。
 - **具体的な構造 (Rust):**
 
     ```rust
     use std::cell::RefCell;
     use std::rc::Rc;
+    use std::sync::Arc;
 
-    // 計算の履歴を表現するEnum
-    pub enum TensorOp {
-        // Backend上のバッファを参照する
-        Load(Variable), 
-        // 算術演算など
-        // ...その他の演算
+    // Tensorが表現する演算の種類
+    pub enum Op {
+        // このTensorがBackend上のバッファを直接表現することを示す(srcは空)
+        Load,
+        // 単項演算
+        Neg,
+        // 二項演算
+        Add, Sub, Mul, Div,
+        // ...その他の高レベル演算（reshape, sumなど）
     }
 
     // Tensorの実体
+    // `Tensor`は`Rc<Tensor_>`の型エイリアスとすることで、クローンが軽量になるようにする。
     struct Tensor_ {
-        op: TensorOp,
+        op: Op,
+        src: Vec<Tensor>,
         shape: Vec<usize>,
         dtype: DType,
-        // このTensorを生成したBackendへの参照
-        backend: Rc<dyn Backend>,
+        // このTensorを生成したBackendへの参照(スレッドセーフなArc)
+        backend: Arc<dyn Backend>,
         // 計算済みの場合は、その値(Variable)をキャッシュする
         realized: RefCell<Option<Variable>>,
     }
@@ -47,9 +54,9 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
 - **主なメソッド**:
   - `realize(&self) -> Variable`:
         1. `realized`フィールドにキャッシュされた`Variable`があればそれをクローンして返す。
-        2. なければ、`backend`にコンパイルと実行を依頼する。
-        3. 結果の`Variable`を`realized`にキャッシュして、���ローンを返す。
-- **ポイント**: `Tensor` がどの `Backend` で作られたかを保持することで、計算実行時に適切な `Backend` を呼び出せます。
+        2. なければ、`op`と`src`の`Tensor`を辿って計算グラフを`UOp`に変換する。
+        3. `backend`に`UOp`を渡し、コンパイルと実行を依頼する。
+        4. 結果の`Variable`を`realized`にキャッシュして、クローンを返す。
 
 ### 2. `UOp` (中間表現)
 
@@ -61,19 +68,8 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
 - **具体的な構造 (Rust):**
 
     ```rust
-    // 現在の`uop.rs`の実装がこれに相当。
-    pub enum Op {
-        // メモリ操作
-        Load,  // srcs: [buffer, index]
-        Store, // srcs: [buffer, index, value]
-        // 算術演算
-        Add,
-        Mul,
-        // ...など
-        // 制御フロー
-        If, // srcs: [condition, true_branch, false_branch]
-    }
-
+    // UOpの実体
+    // `UOp`は`Rc<UOp_>`の型エイリアスとすることで、`Tensor`と同様にグラフ構造を表現する。
     pub struct UOp_ {
         op: Op,
         dtype: DType,
@@ -81,65 +77,7 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
     }
     ```
 
-- **ポイント**: `Load`/`Store` がどのバッファを指すのか、`Variable` との対応付けを明確にする必要があります。
-
-### 3. `Backend` (実行エンジン)
-
-#### 3a. `Optimizer`
-
-`UOp` グラフを最適化する。
-
-- **責務**: `PatternMatcher` を使い、代数法則の適用や定数畳み込みなどの変換を、グラフが不動点に達するまで行う。
-- **具体的な構造 (Rust):**
-
-    ```rust
-    pub struct Optimizer {
-        // ルールセットを保持
-        matcher: PatternMatcher,
-    }
-
-    impl Optimizer {
-        pub fn optimize(&self, uop: &UOp) -> UOp {
-            self.matcher.apply_all_with_limit(uop, 100) // 繰り返し上限付きで適用
-        }
-    }
-    ```
-
-- **提案**: 「ブラックボックス最適化」は非常に高度なトピックなので、まずは手動で定義したルールセットを適用する形から始めるのが現実的です。
-
-#### 3b. `Renderer`
-
-`UOp` グラフからターゲット言語のソースコードを生成する。
-
-- **具体的な構造 (Rust):**
-
-    ```rust
-    pub trait Renderer {
-        fn render(&self, uop: &UOp) -> String;
-    }
-
-    pub struct C_Renderer;
-    impl Renderer for C_Renderer {
-        // UOpの木をC言語の式に変換する
-        fn render(&self, uop: &UOp) -> String { ... }
-    }
-    ```
-
-#### 3c. `Kernel`
-
-コンパイル済みの実行可能な計算カーネル。
-
-- **責務**:
-  - 実行に必要な引数（入力/出力バッファ）を受け取り、計算を実行する。
-- **具体的な構造 (Rust):**
-
-    ```rust
-    pub trait Kernel {
-        fn exec(&self, args: Vec<Variable>);
-    }
-    ```
-
-#### 3d. `Variable`
+### 3. `Variable` (メモリバッファ)
 
 デバイス（CPU/GPU）上のメモリバッファへの参照。
 
@@ -149,20 +87,158 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
 - **具体的な構造 (Rust):**
 
     ```rust
+    use std::rc::Rc;
+    use std::sync::Arc;
 
-    // Variable_ が実体を持ち、 VariableがRc<Variable_>を持つことで、参照がなくなったら自動的に解放されるように。
-    pub  Variable_ {
+    // Variableの実体
+    pub struct Variable_ {
         id: usize, // Backendが管理するID
         size: usize,
-        // このVariableを管理するBackendへの参照
-        backend: Rc<dyn Backend>, 
+        // このVariableを管理するBackendへの参照(スレッドセーフなArc)
+        backend: Arc<dyn Backend>,
     }
 
     impl Drop for Variable_ {
         fn drop(&mut self) {
-            
+            self.backend.free(self.id); // BackendにIDを渡して解放を依頼
         }
     }
 
-    pub struct Variable(Rc<Variable_>)
+    // ユーザー（やTensor）が主に扱うのはこのRcラッパー
+    #[derive(Clone)]
+    pub struct Variable(Rc<Variable_>);
+    ```
+
+### 4. `Backend` (実行エンジン)
+
+`Backend`は、`UOp`グラフのコンパイルから実行までを統括するオーケストレーターです。内部に`Optimizer`, `Renderer`, `Compiler`といったコンポーネントを保持し、それらを連携させて`Kernel`を生成・実行します。
+
+#### `backend::get` ファクトリ
+
+ユーザーが簡単に計算デバイスを選択できるようにするため、`torch.device()`に似たファクトリ機能 `backend::get` を提供します。
+
+- **責務**:
+  - `"cpu"`や`"cuda"`のような文字列を受け取り、対応する`Backend`の共有インスタンス(`Arc<dyn Backend>`)を返す。
+  - `Backend`インスタンスを内部のグローバルキャッシュで管理し、デバイスごとにシングルトンであることを保証する。
+- **使い方**:
+
+    ```rust
+    // ユーザーは簡単な文字列でデバイスを指定できる
+    let cpu_backend = backend::get("cpu");
+    let tensor_a = Tensor::from_data(&[1.0, 2.0], cpu_backend);
+    ```
+
+#### Backendの内部コンポーネント
+
+##### a. `Optimizer`
+
+`UOp` グラフを最適化する。
+
+- **責務**: `PatternMatcher` を使い、代数法則の適用や定数畳み込みなどの変換を、グラフが不動点に達するまで行う。
+
+##### b. `Renderer`
+
+最適化された`UOp`グラフから、ターゲット言語（C言語やCUDA C++など）のソースコードを生成する。
+
+- **責務**: `UOp`の木構造を辿り、等価な処理を行うソースコード文字列を構築する。
+- **具体的な構造 (Rust):**
+
+    ```rust
+    pub trait Renderer {
+        fn render(&self, uop: &UOp) -> String;
+    }
+    ```
+
+##### c. `Compiler`
+
+`Renderer`が生成したソースコードをコンパイルし、実行可能な`Kernel`を生成する。
+
+- **責務**:
+  - 自身の利用可能性（例: `gcc`コマンドの存在）を報告する。
+  - ソースコード文字列とコンパイルオプションを受け取り、外部コンパイラを呼び出して動的ライブラリ等を生成し、`Kernel`オブジェクトを作成する。
+
+- **コンパイルオプション**:
+
+    ```rust
+    // コンパイル設定を保持する構造体
+    pub struct CompileOptions {
+        pub optimization_level: u8, // 0, 1, 2, 3
+        pub debug_info: bool,       // -g フラグに相当
+        // ... その他のフラグ (e.g., fast-math)
+    }
+
+    impl Default for CompileOptions {
+        fn default() -> Self {
+            Self { optimization_level: 2, debug_info: false }
+        }
+    }
+    ```
+
+- **具体的な構造 (Rust):**
+
+    ```rust
+    pub trait Compiler {
+        /// このコンパイラがシステムで利用可能かを確認する
+        fn is_available(&self) -> bool;
+
+        /// ソースコードをコンパイルし、Kernelを返す
+        fn compile(&self, source_code: &str, options: &CompileOptions) -> Result<Arc<dyn Kernel>, Error>;
+    }
+
+    // gccを使ったCPU用のCompiler実装例
+    pub struct GccCompiler;
+    impl Compiler for GccCompiler {
+        fn is_available(&self) -> bool {
+            // `which gcc` や `gcc --version` を実行し、成功するかどうかで判断
+            std::process::Command::new("gcc").arg("--version").output().is_ok()
+        }
+
+        fn compile(&self, source_code: &str, options: &CompileOptions) -> Result<Arc<dyn Kernel>, Error> {
+            // 1. `options`を解釈してgccのコマンドライン引数を組み立てる
+            let opt_level = format!("-O{}", options.optimization_level);
+            let mut args = vec!["-shared", "-fPIC", &opt_level];
+            if options.debug_info {
+                args.push("-g");
+            }
+
+            // 2. `source_code`を一時ファイルに書き出し、`gcc`を呼び出す
+            // ... (前述の実装と同様)
+
+            // 3. `libloading`で.soをロードし、CpuKernelを返す
+            // ...
+            unimplemented!()
+        }
+    }
+    ```
+
+- **`Backend`との連携**:
+  - 各`Backend`（例: `CpuBackend`）は、自身の初期化時に、対応する`Compiler`（例: `GccCompiler`）が利用可能かを確認し、デフォルトの`CompileOptions`と共に保持します。
+  - ユーザーは、`Backend`のメソッドを通じてこれらのコンパイルオプションを後から変更することも可能です。
+
+### 5. `Kernel` (実行可能カーネル)
+
+コンパイル済みの、特定の計算を実行するためのオブジェクト。
+
+- **責務**:
+  - 実行に必要な引数（入力/出力バッファのポインタやID）を受け取り、コンパイル済みのコード（ネイティブ関数やGPUカーネル）を実行する。
+- **具体的な構造 (Rust):**
+
+    ```rust
+    pub trait Kernel {
+        fn exec(&self, args: &[&Variable]);
+    }
+
+    // CPUカーネルの実装例
+    use libloading::{Library, Symbol};
+    pub struct CpuKernel {
+        _lib: Library, // ライブラリの所有権を保持し、Drop時にアンロードする
+        func: Symbol<unsafe extern "C" fn(*mut f32, *const f32, ...)>,
+    }
+    impl Kernel for CpuKernel {
+        fn exec(&self, args: &[&Variable]) {
+            // argsのVariableからメモリアドレスを取得し、
+            // unsafeブロック内でロードした関数シンボル `self.func` を呼び出す。
+            // ...
+        }
+    }
     ```
