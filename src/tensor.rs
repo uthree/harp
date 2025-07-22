@@ -6,7 +6,7 @@ use crate::shapetracker::ShapeTracker;
 use crate::uop::{Op, UOp};
 use log::debug;
 use std::cell::RefCell;
-use std::ops::Add;
+use std::ops::{Add, Mul};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -138,6 +138,20 @@ impl Add for Tensor {
     type Output = Tensor;
     fn add(self, rhs: Self) -> Self::Output {
         &self + &rhs
+    }
+}
+
+impl Mul for &Tensor {
+    type Output = Tensor;
+    fn mul(self, rhs: Self) -> Self::Output {
+        Tensor::lazy_binary_op(Op::Mul, self, rhs)
+    }
+}
+
+impl Mul for Tensor {
+    type Output = Tensor;
+    fn mul(self, rhs: Self) -> Self::Output {
+        &self * &rhs
     }
 }
 

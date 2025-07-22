@@ -50,3 +50,39 @@ fn test_tensor_addition() {
     assert!(dot_string.contains("[label=\"op: Load\\nshape: [10]\\ndtype: F32\"]"));
     assert!(dot_string.contains("[label=\"op: Binary(Add)\\nshape: [10]\\ndtype: F32\"]"));
 }
+
+#[test]
+fn test_tensor_multiplication() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let backend: Arc<dyn Backend> = Arc::new(CpuBackend::new());
+    let shape = vec![10];
+
+    let t1 = Tensor::new(
+        TensorOp::Load,
+        vec![],
+        ShapeTracker::new(shape.clone()),
+        DType::F32,
+        backend.clone(),
+    );
+    let t2 = Tensor::new(
+        TensorOp::Load,
+        vec![],
+        ShapeTracker::new(shape.clone()),
+        DType::F32,
+        backend.clone(),
+    );
+
+    let t3 = &t1 * &t2;
+
+    assert!(matches!(t3.0.op, TensorOp::Binary(harp::uop::Op::Mul)));
+    assert_eq!(t3.0.src.len(), 2);
+    assert!(Rc::ptr_eq(&t3.0.src[0].0, &t1.0));
+    assert!(Rc::ptr_eq(&t3.0.src[1].0, &t2.0));
+    assert_eq!(t3.0.tracker.shape(), &shape);
+
+    let _result_variable = t3.realize();
+
+    let dot_string = t3.to_dot();
+    println!("\n--- Tensor DOT --- \n{}", dot_string);
+    assert!(dot_string.contains("[label=\"op: Binary(Mul)\\nshape: [10]\\ndtype: F32\"]"));
+}
