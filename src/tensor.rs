@@ -1,5 +1,6 @@
 use crate::backends::{Backend, Variable};
 use crate::dtype::DType;
+use crate::dot::ToDot;
 use crate::lower;
 use crate::shapetracker::ShapeTracker;
 use crate::uop::{Op, UOp};
@@ -137,5 +138,40 @@ impl Add for Tensor {
     type Output = Tensor;
     fn add(self, rhs: Self) -> Self::Output {
         &self + &rhs
+    }
+}
+
+impl ToDot for Tensor {
+    fn to_dot(&self) -> String {
+        let mut dot = String::new();
+        dot.push_str("digraph G {\n");
+        dot.push_str("  node [shape=box];\n");
+        let mut visited = std::collections::HashSet::new();
+        build_dot_tensor(self, &mut dot, &mut visited);
+        dot.push_str("}\n");
+        dot
+    }
+}
+
+fn build_dot_tensor(tensor: &Tensor, dot: &mut String, visited: &mut std::collections::HashSet<*const Tensor_>) {
+    let ptr = Rc::as_ptr(&tensor.0);
+    if visited.contains(&ptr) {
+        return;
+    }
+    visited.insert(ptr);
+
+    let label = format!(
+        "op: {:?}\nshape: {:?}\ndtype: {:?}",
+        tensor.0.op,
+        tensor.0.tracker.shape(),
+        tensor.0.dtype
+    )
+    .replace('\n', "\\n");
+    dot.push_str(&format!("  \"{:p}\" [label=\"{}\"];\n", ptr, label));
+
+    for src in &tensor.0.src {
+        let src_ptr = Rc::as_ptr(&src.0);
+        dot.push_str(&format!("  \"{:p}\" -> \"{:p}\";\n", src_ptr, ptr));
+        build_dot_tensor(src, dot, visited);
     }
 }

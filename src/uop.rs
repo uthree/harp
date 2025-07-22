@@ -1,4 +1,8 @@
 pub use crate::dtype::{DType, Number};
+use crate::dot::ToDot;
+use std::cell::RefCell;
+use std::collections::HashSet;
+use std::fmt;
 use std::ops::{
     Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
@@ -204,6 +208,40 @@ impl Neg for &UOp {
     }
 }
 
+impl ToDot for UOp {
+    fn to_dot(&self) -> String {
+        let mut dot = String::new();
+        dot.push_str("digraph G {\n");
+        dot.push_str("  node [shape=box];\n");
+        let mut visited = HashSet::new();
+        build_dot_uop(self, &mut dot, &mut visited);
+        dot.push_str("}\n");
+        dot
+    }
+}
+
+fn build_dot_uop(uop: &UOp, dot: &mut String, visited: &mut HashSet<*const UOp_>) {
+    let ptr = Rc::as_ptr(&uop.0);
+    if visited.contains(&ptr) {
+        return;
+    }
+    visited.insert(ptr);
+
+    let label = match &uop.0.op {
+        Op::Const(n) => format!("const {}\n{:?}", n, uop.0.dtype),
+        Op::Var(name) => format!("var {}\n{:?}", name, uop.0.dtype),
+        op => format!("{:?}\n{:?}", op, uop.0.dtype),
+    }
+    .replace('\n', "\\n");
+    dot.push_str(&format!("  \"{:p}\" [label=\"{}\"];\n", ptr, label));
+
+    for src in &uop.0.src {
+        let src_ptr = Rc::as_ptr(&src.0);
+        dot.push_str(&format!("  \"{:p}\" -> \"{:p}\";\n", src_ptr, ptr));
+        build_dot_uop(src, dot, visited);
+    }
+}
+
 macro_rules! impl_assign_op {
     ($trait:ident, $method:ident, $op_trait:ident, $op_method:ident) => {
         impl $trait<UOp> for UOp {
@@ -298,5 +336,19 @@ mod tests {
     fn test_unary_operations(#[case] uop: UOp, #[case] expected_op: Op) {
         assert_eq!(uop.0.op, expected_op);
         assert_eq!(uop.0.src.len(), 1);
+    }
+
+    #[test]
+    fn test_to_dot() {
+        let a = UOp::var("a", DType::F32);
+        let b = UOp::from(1.0f32);
+        let c = &a + &b;
+        let dot_string = c.to_dot();
+        println!("\n--- UOp DOT --- \n{}", dot_string);
+        assert!(dot_string.starts_with("digraph G"));
+        assert!(dot_string.contains("[label=\"var a\\nF32\"]"));
+        assert!(dot_string.contains("[label=\"const 1f\\nF32\"]"));
+        assert!(dot_string.contains("[label=\"Add\\nF32\"]"));
+        assert!(dot_string.contains("->"));
     }
 }

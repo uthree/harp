@@ -1,4 +1,5 @@
 use harp::backends::{Backend, CpuBackend};
+use harp::dot::ToDot;
 use harp::dtype::DType;
 use harp::shapetracker::ShapeTracker;
 use harp::tensor::{Tensor, TensorOp};
@@ -42,4 +43,10 @@ fn test_tensor_addition() {
     let _result_variable = t3.realize();
 
     println!("Tensor addition test completed successfully!");
+
+    let dot_string = t3.to_dot();
+    println!("\n--- Tensor DOT --- \n{}", dot_string);
+    assert!(dot_string.starts_with("digraph G"));
+    assert!(dot_string.contains("[label=\"op: Load\\nshape: [10]\\ndtype: F32\"]"));
+    assert!(dot_string.contains("[label=\"op: Binary(Add)\\nshape: [10]\\ndtype: F32\"]"));
 }

@@ -1,4 +1,5 @@
 pub mod backends;
+pub mod dot;
 pub mod dtype;
 pub mod lower;
 pub mod pattern;
