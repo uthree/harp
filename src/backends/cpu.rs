@@ -61,8 +61,7 @@ impl Backend for CpuBackend {
     }
 
     fn compile_and_exec(&self, uop: &UOp, args: &[&Variable]) {
-        let ast = lower::lower(uop);
-        let code = self.renderer.render(&ast);
+        let code = self.renderer.render(uop);
         println!("--- Rendered Code ---\n{}", code);
 
         let options = self.compile_options.lock().unwrap();

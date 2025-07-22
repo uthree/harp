@@ -17,7 +17,17 @@ impl Renderer for CStyleRenderer {
 
         // バッファと整数引数をローカル変数にキャストしてわかりやすくする
         let mut sorted_args: Vec<_> = renderer_impl.args.iter().collect();
-        sorted_args.sort_by_key(|(name, _)| (*name).clone());
+        sorted_args.sort_by(|(a, _), (b, _)| {
+            let a_is_data = a.starts_with("data");
+            let b_is_data = b.starts_with("data");
+            if a_is_data && b_is_data {
+                let a_num: usize = a[4..].parse().unwrap();
+                let b_num: usize = b[4..].parse().unwrap();
+                a_num.cmp(&b_num)
+            } else {
+                a.cmp(b)
+            }
+        });
         let mut buf_idx = 0;
         let mut int_idx = 0;
         for (name, dtype) in sorted_args {

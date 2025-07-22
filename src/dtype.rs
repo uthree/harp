@@ -17,6 +17,19 @@ pub enum DType {
     Unit,
 }
 
+impl DType {
+    pub fn size(&self) -> usize {
+        match self {
+            DType::U8 | DType::I8 => 1,
+            DType::U16 | DType::I16 => 2,
+            DType::U32 | DType::I32 | DType::F32 => 4,
+            DType::U64 | DType::I64 | DType::F64 => 8,
+            DType::Pointer(_, _) => 8, // Assuming 64-bit pointers
+            DType::Unit => 0,
+        }
+    }
+}
+
 impl fmt::Display for DType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
