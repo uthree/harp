@@ -1,9 +1,7 @@
 use crate::backend::Backend;
-use crate::uop::UOp;
 use std::rc::Rc;
 use std::sync::Arc;
 
-// Variableの定義をここに移動
 pub struct Variable_ {
     pub id: usize,
     pub size: usize,
@@ -12,7 +10,7 @@ pub struct Variable_ {
 
 impl Drop for Variable_ {
     fn drop(&mut self) {
-        // self.backend.free(self.id);
+        self.backend.free(self.id);
     }
 }
 
@@ -22,26 +20,30 @@ pub struct Variable(pub Rc<Variable_>);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::CpuBackend;
+    use crate::backend::{Backend, CpuBackend};
     use crate::dtype::DType;
-    use crate::uop::Op;
+    use crate::uop::{Op, UOp};
 
     #[test]
     fn pipeline_test() {
-        // 1. Backendの準備
-        let backend = CpuBackend::new();
+        let backend: Arc<dyn Backend> = Arc::new(CpuBackend::new());
 
-        // 2. UOpグラフの作成 (a + b)
-        let a = UOp::new(Op::Var("a".to_string()), DType::F32, vec![]);
-        let b = UOp::new(Op::Var("b".to_string()), DType::F32, vec![]);
-        let add_op = UOp::new(Op::Add, DType::F32, vec![a, b]);
+        // UOpグラフ: a[i] + b[i]
+        let buf_a = UOp::var("a", DType::F32);
+        let buf_b = UOp::var("b", DType::F32);
+        let loop_idx = UOp::var("i", DType::U64);
+        let load_a = UOp::new(Op::Load, DType::F32, vec![buf_a, loop_idx.clone()]);
+        let load_b = UOp::new(Op::Load, DType::F32, vec![buf_b, loop_idx]);
+        let add_op = UOp::new(Op::Add, DType::F32, vec![load_a, load_b]);
 
-        // 3. コンパイルと実行
-        // このテストは、現在の実装では引数を必要としないため、空のVecを渡す
-        let dummy_args: Vec<&Variable> = vec![];
-        backend.compile_and_exec(&add_op, &dummy_args);
+        // 実行に必要なVariableを作成
+        let var_a = backend.alloc(10 * 4, backend.clone());
+        let var_b = backend.alloc(10 * 4, backend.clone());
+        let var_out = backend.alloc(10 * 4, backend.clone());
+        
+        let args = vec![&var_a, &var_b, &var_out];
+        backend.compile_and_exec(&add_op, &args);
 
-        // パニックせずにここまで到達すれば、パイプラインの基本は通っている
         println!("Pipeline test completed successfully!");
     }
 }
