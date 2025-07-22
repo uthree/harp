@@ -8,11 +8,11 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
 
 `harp`は、`Tensor`で行われた操作を、以下のステップを経て実行可能な`Kernel`に変換します。
 
-1. **グラフ構築 (`Tensor` -> `UOp`グラフ):** `Tensor`の演算履歴から、有向非巡回グラフ(DAG)構造の`UOp`を構築します。
-2. **最適化 (`UOp`グラフ -> `UOp`グラフ):** `Optimizer`が代数法則の適用などを行い、`UOp`グラフを最適化します。
-3. **Lowering (`UOp`グラフ -> `UOp`ツリー):** 最適化されたグラフを、ループなどの構造を考慮した**抽象構文木(AST)ツリー**に変換します。このステップで、共有ノードは変数への代入などに置き換えられます。
-4. **レンダリング (`UOp`ツリー -> `String`):** `Renderer`が`UOp`ツリーを再帰的に辿り、C言語などのソースコードを生成します。
-5. **コンパイル (`String` -> `Kernel`):** `Compiler`がソースコードをコンパイルし、実行可能な`Kernel`を生成します。
+1.  **グラフ構築 (`Tensor` -> `UOp`グラフ):** `Tensor`の演算履歴から、有向非巡回グラフ(DAG)構造の`UOp`を構築します。
+2.  **最適化 (`UOp`グラフ -> `UOp`グラフ):** `Optimizer`が代数法則の適用などを行い、`UOp`グラフを最適化します。
+3.  **Lowering (`UOp`グラフ -> `UOp`ツリー):** 最適化されたグラフを、ループなどの構造を考慮した**抽象構文木(AST)ツリー**に変換します。このステップで、共有ノードは変数への代入などに置き換えられます。
+4.  **レンダリング (`UOp`ツリー -> `String`):** `Renderer`が`UOp`ツリーを再帰的に辿り、C言語などのソースコードを生成します。
+5.  **コンパイル (`String` -> `Kernel`):** `Compiler`がソースコードをコンパイルし、実行可能な`Kernel`を生成します。
 
 ---
 
@@ -21,10 +21,8 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
 ### 1. `Tensor` (ユーザー向けAPI)
 
 配列を表す中心的な構造体。ユーザーはこの `Tensor` に対して演算を行います。
-`Tensor`のグラフ構築はシングルスレッドで行われることを想定しているため、内部の参照カウントには`Rc`を、内部可変性には`RefCell`を使用し、オーバーヘッドを最小限に抑えています。
 
 - **具体的な構造 (Rust):**
-
     ```rust
     use std::cell::RefCell;
     use std::rc::Rc;
@@ -45,27 +43,38 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
 
 ### 2. `UOp` (抽象構文木)
 
-`Tensor`の計算グラフから変換される中間表現(IR)。当初はDAGとして構築され、Loweringの過程でツリー構造に変換されます。式と文の両方を表現できる、C言語に近いASTとして機能します。
+`Tensor`の計算グラフから変換される中間表現(IR)。ノードの構造(`UOp_`)と操作の種類(`Op`)が分離されており、拡張性が高い。当初はDAGとして構築され、Loweringの過程でツリー構造に変換されます。
 
 - **具体的な構造 (Rust):**
-
     ```rust
     use std::rc::Rc;
 
-    pub enum UOp {
-        // --- 式 (値を返すノード) ---
-        Binary { op: BinaryOp, lhs: Rc<UOp>, rhs: Rc<UOp>, dtype: DType },
-        Unary { op: UnaryOp, src: Rc<UOp>, dtype: DType },
-        Load { buf_idx: usize, idx: Rc<UOp>, dtype: DType }, // buf[idx]
-        Const { val: f32, dtype: DType },
-        Var { name: String, dtype: DType }, // ループ変数などを参照
+    // UOpが表現する操作の種類
+    pub enum Op {
+        // --- 式 (値を返す操作) ---
+        Binary(BinaryOp),   // Add, Mul, ...
+        Unary(UnaryOp),     // Neg, Exp2, ...
+        Load,               // src: [buf_idx, idx]
+        Const(Number),      // src: []
+        Var(String),        // src: []
 
-        // --- 文 (値を返さないノード) ---
-        Loop { var: String, limit: Rc<UOp>, body: Rc<UOp> },
-        Block { stmts: Vec<Rc<UOp>> },
-        Store { buf_idx: usize, idx: Rc<UOp>, value: Rc<UOp> },
-        If { condition: Rc<UOp>, true_branch: Rc<UOp> },
+        // --- 文 (値を返さない操作) ---
+        Loop,               // src: [limit, body]
+        Block,              // src: [stmt1, stmt2, ...]
+        Store,              // src: [buf_idx, idx, value]
+        If,                 // src: [condition, true_branch]
     }
+
+    // UOpノードの実体
+    pub struct UOp_ {
+        pub op: Op,
+        pub dtype: DType, // このUOpが返す値の型 (文の場合はUnit型など)
+        pub src: Vec<UOp>,  // この操作への入力となる子ノード
+    }
+
+    // ユーザーが主に扱うRcラッパー
+    #[derive(Clone)]
+    pub struct UOp(pub Rc<UOp_>);
     ```
 
 ### 3. `Variable` (メモリバッファ)
@@ -73,7 +82,6 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
 デバイス（CPU/GPU）上のメモリバッファへの参照。
 
 - **具体的な構造 (Rust):**
-
     ```rust
     use std::sync::Arc;
     use std::rc::Rc;
@@ -107,7 +115,6 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
 `Backend`は、ユーザー向けにコンパイラの種類を意識させない、高レベルな設定APIを提供します。
 
 - **具体的な構造 (Rust):**
-
     ```rust
     pub trait Backend {
         fn compile_and_exec(&self, uop: &UOp, args: &[&Variable]);
@@ -121,7 +128,6 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
 `CpuBackend`は、高レベルAPIへの入力を、自身が持つ具体的な`Compiler`のオプション型に「翻訳」する責務を持ちます。
 
 - **具体的な構造 (Rust):**
-
     ```rust
     use std::sync::Mutex;
 
@@ -143,7 +149,6 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
   - `Kernel`に、実行に必要なメタデータ（引数情報、ワークサイズ等）を焼き込む。
 
 - **具体的な構造 (Rust):**
-
     ```rust
     pub trait Compiler {
         type Options: Default + Clone;
@@ -170,7 +175,6 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
   - 検証後、コンパイル済みのコードを安全に実行する。
 
 - **メタデータ構造 (Rust):**
-
     ```rust
     pub struct ArgInfo { pub dtype: DType, pub size: usize }
     pub struct KernelMetadata {
@@ -181,7 +185,6 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
     ```
 
 - **具体的な構造 (Rust):**
-
     ```rust
     pub trait Kernel {
         fn exec(&self, args: &[&Variable]);
