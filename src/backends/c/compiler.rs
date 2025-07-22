@@ -1,4 +1,4 @@
-use crate::kernel::{Kernel, KernelMetadata};
+use crate::backends::{Compiler, Kernel, KernelMetadata};
 use crate::tensor::Variable;
 use std::error::Error;
 use std::process::Command;
@@ -9,16 +9,6 @@ use libloading::{Library, Symbol};
 use std::mem;
 
 type RawBuffer = *mut u8;
-
-pub trait Compiler {
-    type Options: Default + Clone;
-    fn is_available(&self) -> bool;
-    fn compile(
-        &self,
-        source_code: &str,
-        options: &Self::Options,
-    ) -> Result<Arc<dyn Kernel>, Box<dyn Error>>;
-}
 
 #[derive(Clone, Default, Debug)]
 pub struct GccCompileOptions {

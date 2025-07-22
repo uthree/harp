@@ -1,4 +1,4 @@
-use crate::backend::Backend;
+use crate::backends::Backend;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -20,7 +20,7 @@ pub struct Variable(pub Rc<Variable_>);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::{Backend, CpuBackend};
+    use crate::backends::{Backend, CpuBackend};
     use crate::dtype::DType;
     use crate::uop::{Op, UOp};
 

@@ -1,0 +1,57 @@
+use crate::tensor::Variable;
+use crate::uop::UOp;
+use std::fmt::Debug;
+use std::sync::Arc;
+use std::error::Error;
+
+// Re-export submodules
+pub mod c;
+
+// --- Top-level Backend Controller ---
+mod cpu;
+pub use cpu::CpuBackend;
+
+
+// --- Common Backend Traits ---
+
+pub trait Backend: Debug {
+    fn compile_and_exec(&self, uop: &UOp, args: &[&Variable]);
+    fn set_optimization_level(&self, level: u8);
+    fn alloc(&self, size: usize, backend: Arc<dyn Backend>) -> Variable;
+    fn free(&self, id: usize);
+    fn get_buffer_ptr(&self, id: usize) -> *mut u8;
+}
+
+pub trait Compiler {
+    type Options: Default + Clone + Debug;
+    fn is_available(&self) -> bool;
+    fn compile(
+        &self,
+        source_code: &str,
+        options: &Self::Options,
+    ) -> Result<Arc<dyn Kernel>, Box<dyn Error>>;
+}
+
+pub trait Renderer {
+    fn render(&self, uop: &UOp) -> String;
+}
+
+pub trait Kernel {
+    fn exec(&self, args: &[&Variable]);
+    fn metadata(&self) -> &KernelMetadata;
+}
+
+// --- Common Kernel Structs ---
+
+#[derive(Debug)]
+pub struct ArgInfo {
+    pub dtype: crate::dtype::DType,
+    pub size: usize,
+}
+
+#[derive(Debug)]
+pub struct KernelMetadata {
+    pub args_info: Vec<ArgInfo>,
+    pub global_work_size: usize,
+    pub local_work_size: usize,
+}

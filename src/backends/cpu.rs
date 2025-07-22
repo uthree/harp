@@ -1,20 +1,14 @@
-use crate::compiler::{Compiler, GccCompiler, GccCompileOptions};
+use super::{Backend, Compiler, Renderer};
 use crate::lower;
-use crate::renderer::{CStyleRenderer, Renderer};
 use crate::tensor::{Variable, Variable_};
 use crate::uop::UOp;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use super::c::compiler::{GccCompiler, GccCompileOptions};
+use super::c::renderer::CStyleRenderer;
 
-pub trait Backend: std::fmt::Debug {
-    fn compile_and_exec(&self, uop: &UOp, args: &[&Variable]);
-    fn set_optimization_level(&self, level: u8);
-    fn alloc(&self, size: usize, backend: Arc<dyn Backend>) -> Variable;
-    fn free(&self, id: usize);
-    fn get_buffer_ptr(&self, id: usize) -> *mut u8;
-}
 
 #[derive(Debug)]
 pub struct CpuBackend {
@@ -22,7 +16,8 @@ pub struct CpuBackend {
     renderer: CStyleRenderer,
     compile_options: Mutex<GccCompileOptions>,
     buffer_counter: AtomicUsize,
-    buffers: Mutex<HashMap<usize, Vec<u8>>>,}
+    buffers: Mutex<HashMap<usize, Vec<u8>>>,
+}
 
 impl CpuBackend {
     pub fn new() -> Self {

@@ -1,10 +1,7 @@
+use crate::backends::Renderer;
 use crate::uop::{Op, UOp};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
-
-pub trait Renderer {
-    fn render(&self, uop: &UOp) -> String;
-}
 
 #[derive(Debug)]
 pub struct CStyleRenderer;

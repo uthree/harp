@@ -1,10 +1,7 @@
-pub mod backend;
-pub mod compiler;
+pub mod backends;
 pub mod dtype;
-pub mod kernel;
 pub mod lower;
 pub mod pattern;
-pub mod renderer;
 pub mod shapetracker;
 pub mod tensor;
 pub mod uop;
