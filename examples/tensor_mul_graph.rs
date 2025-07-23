@@ -1,30 +1,15 @@
 use harp::backends::CpuBackend;
 use harp::dot::ToDot;
-use harp::dtype::DType;
-use harp::shapetracker::ShapeTracker;
-use harp::tensor::{Tensor, TensorOp};
+use harp::tensor::Tensor;
 use std::sync::Arc;
 
 fn main() {
     // 1. バックエンドを作成します
     let backend = Arc::new(CpuBackend::new());
 
-    // 2. 2つの入力テンソルを作成します。
-    let t1 = Tensor::new(
-        TensorOp::Load,
-        vec![],
-        ShapeTracker::new(vec![10, 20]),
-        DType::F32,
-        backend.clone(),
-    );
-
-    let t2 = Tensor::new(
-        TensorOp::Load,
-        vec![],
-        ShapeTracker::new(vec![10, 20]),
-        DType::F32,
-        backend.clone(),
-    );
+    // 2. 2つの入力テンソルをVecから作成します。
+    let t1 = Tensor::from_vec(vec![2.0f32; 200], vec![10, 20], backend.clone());
+    let t2 = Tensor::from_vec(vec![3.0f32; 200], vec![10, 20], backend.clone());
 
     // 3. テンソルを乗算します。
     let t3 = &t1 * &t2;

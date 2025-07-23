@@ -4,7 +4,7 @@ use log::debug;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::fmt::Write;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct CStyleRenderer;
 
 impl Renderer for CStyleRenderer {

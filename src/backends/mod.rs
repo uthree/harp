@@ -1,8 +1,10 @@
+use crate::dtype::Number;
+use crate::dtype::{DType, IsNumber};
 use crate::uop::UOp;
-use std::fmt::Debug;
-use std::rc::Rc;
-use std::sync::Arc;
+use std::any::Any;
 use std::error::Error;
+use std::fmt::Debug;
+use std::sync::Arc;
 
 // Re-export submodules
 pub mod c;
@@ -11,15 +13,13 @@ pub mod c;
 mod cpu;
 pub use cpu::CpuBackend;
 
-
 // --- Common Backend Traits ---
 
-pub trait Backend: Debug {
+pub trait Backend: Debug + Send + Sync {
     fn compile_and_exec(&self, uop: &UOp, args: &[&Variable]);
-    fn set_optimization_level(&self, level: u8);
-    fn alloc(&self, size: usize, backend: Arc<dyn Backend>) -> Variable;
-    fn free(&self, id: usize);
-    fn get_buffer_ptr(&self, id: usize) -> *mut u8;
+    fn copy_to_device(&self, data: &dyn Any, dtype: DType) -> Variable;
+    fn copy_from_device(&self, var: &Variable) -> Box<dyn Any>;
+    fn alloc(&self, size: usize, dtype: DType) -> Variable;
 }
 
 pub trait Compiler {
@@ -37,7 +37,7 @@ pub trait Renderer {
 }
 
 pub trait Kernel {
-    fn exec(&self, args: &[&Variable]);
+    fn exec(&self, bufs: &mut [*mut std::ffi::c_void], ints: &[i32]);
     fn metadata(&self) -> &KernelMetadata;
 }
 
@@ -58,17 +58,16 @@ pub struct KernelMetadata {
 
 // --- Variable ---
 
-pub struct Variable_ {
+#[derive(Debug, Clone)]
+pub struct Variable {
     pub id: usize,
     pub size: usize,
+    pub dtype: DType,
     pub backend: Arc<dyn Backend>,
 }
 
-impl Drop for Variable_ {
-    fn drop(&mut self) {
-        self.backend.free(self.id);
-    }
+impl Drop for Variable {
+    // In a real framework, the backend would manage memory and Drop would trigger a free.
+    // For now, our CPU backend's HashMap handles this when the backend is dropped.
+    fn drop(&mut self) {}
 }
-
-#[derive(Clone)]
-pub struct Variable(pub Rc<Variable_>);
