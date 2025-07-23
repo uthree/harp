@@ -85,7 +85,7 @@ pub struct ClangKernel {
 
 impl Kernel for ClangKernel {
     fn exec(&self, args: &[&Variable]) {
-        let raw_buffers: Vec<RawBuffer> = args.iter().map(|v| v.0.backend.get_buffer_ptr(v.0.id)).collect();
+        let raw_buffers: Vec<RawBuffer> = args.iter().map(|v| v.backend.get_buffer_ptr(v.id)).collect();
         let int_args: Vec<i32> = vec![10]; // 仮のN
 
         unsafe {

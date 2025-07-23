@@ -1,5 +1,6 @@
 use crate::uop::UOp;
 use std::fmt::Debug;
+use std::ops::Deref;
 use std::rc::Rc;
 use std::error::Error;
 
@@ -70,3 +71,11 @@ impl Drop for Variable_ {
 
 #[derive(Clone)]
 pub struct Variable(pub Rc<Variable_>);
+
+impl Deref for Variable {
+    type Target = Variable_;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
