@@ -4,6 +4,7 @@ pub mod dtype;
 pub mod lower;
 pub mod optimizer;
 pub mod pattern;
+pub mod prelude;
 pub mod shapetracker;
 pub mod tensor;
 pub mod uop;

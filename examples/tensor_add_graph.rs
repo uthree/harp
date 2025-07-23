@@ -1,8 +1,4 @@
-use harp::backends::ClangBackend;
-use harp::dot::ToDot;
-use harp::dtype::DType;
-use harp::shapetracker::ShapeTracker;
-use harp::tensor::{Tensor, TensorOp};
+use harp::prelude::*;
 use std::sync::Arc;
 
 fn main() {
