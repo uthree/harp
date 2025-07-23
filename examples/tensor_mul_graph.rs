@@ -1,13 +1,9 @@
-use harp::backends::ClangBackend;
-use harp::dot::ToDot;
-use harp::dtype::DType;
-use harp::shapetracker::ShapeTracker;
-use harp::tensor::{Tensor, TensorOp};
-use std::sync::Arc;
+use harp::prelude::*;
+use std::rc::Rc;
 
 fn main() {
     // 1. バックエンドを作成します
-    let backend = Arc::new(ClangBackend::new());
+    let backend = Rc::new(ClangBackend::new());
 
     // 2. 2つの入力テンソルを作成します。
     let t1 = Tensor::new(

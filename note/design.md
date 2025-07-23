@@ -21,6 +21,7 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
 ### 1. `Tensor` (ユーザー向けAPI)
 
 配列を表す中心的な構造体。ユーザーはこの `Tensor` に対して演算を行います。
+本ライブラリはシングルスレッドでの使用を前提としており、`Rc`と`RefCell`を用いて内部状態を管理します。
 
 - **具体的な構造 (Rust):**
 
@@ -29,14 +30,13 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
     use crate::tensor::TensorOp;
     use std::cell::RefCell;
     use std::rc::Rc;
-    use std::sync::Arc;
 
     struct Tensor_ {
         op: TensorOp,
         src: Vec<Tensor>,
         tracker: ShapeTracker,
         dtype: DType,
-        backend: Arc<dyn Backend>,
+        backend: Rc<dyn Backend>,
         realized: RefCell<Option<Variable>>,
     }
 
@@ -83,13 +83,12 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
 - **具体的な構造 (Rust):**
 
     ```rust
-    use std::sync::Arc;
     use std::rc::Rc;
 
     pub struct Variable_ {
         id: usize,
         size: usize,
-        backend: Arc<dyn Backend>,
+        backend: Rc<dyn Backend>,
     }
 
     impl Drop for Variable_ {
@@ -108,7 +107,7 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
 
 #### `backend::get` ファクトリ
 
-ユーザーが `"cpu"` や `"cuda"` のような文字列で、対応する`Backend`の共有インスタンス(`Arc<dyn Backend>`)を簡単に取得できるようにする機能です。
+ユーザーが `"cpu"` や `"cuda"` のような文字列で、対応する`Backend`のインスタンス(`Rc<dyn Backend>`)を簡単に取得できるようにする機能です。
 
 #### `Backend`トレイトと高レベルAPI
 
@@ -119,7 +118,7 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
     ```rust
     pub trait Backend {
         fn compile_and_exec(&self, uop: &UOp, args: &[&Variable]);
-        fn alloc(&self, size: usize, backend: Arc<dyn Backend>) -> Variable;
+        fn alloc(&self, size: usize, backend: Rc<dyn Backend>) -> Variable;
         // ... etc
     }
     ```
@@ -127,22 +126,24 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
 #### `ClangBackend`実装例
 
 `ClangBackend`のような具体的なバックエンドは、`Backend`トレイトを実装すると同時に、自身に固有の設定メソッドを提供します。これにより、汎用的な操作はトレイト経由で、バックエンド固有の設定は具象型経由で、というように責務を分離します。
+内部可変性には`RefCell`を使用します。
 
 - **具体的な構造 (Rust):**
 
     ```rust
-    use std::sync::Mutex;
+    use std::cell::{Cell, RefCell};
 
     pub struct ClangBackend {
         compiler: ClangCompiler,
-        compile_options: Mutex<ClangCompileOptions>,
+        compile_options: RefCell<ClangCompileOptions>,
+        buffer_counter: Cell<usize>,
         // ...
     }
 
     impl ClangBackend {
         // 固有の設定メソッド
-        pub fn configure_compiler<F>(&self, f: F) where F: FnOnce(&mut ClangCompileOptions) {
-            // ...
+        pub fn compiler_options_mut(&self) -> std::cell::RefMut<ClangCompileOptions> {
+            self.compile_options.borrow_mut()
         }
     }
 
@@ -166,7 +167,7 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
     pub trait Compiler {
         type Options: Default + Clone;
         fn is_available(&self) -> bool;
-        fn compile(&self, source_code: &str, options: &Self::Options) -> Result<Arc<dyn Kernel>, Error>;
+        fn compile(&self, source_code: &str, options: &Self::Options) -> Result<Rc<dyn Kernel>, Error>;
     }
 
     #[derive(Clone, Default)]

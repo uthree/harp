@@ -1,7 +1,6 @@
 use crate::uop::UOp;
 use std::fmt::Debug;
 use std::rc::Rc;
-use std::sync::Arc;
 use std::error::Error;
 
 // Re-export submodules
@@ -16,7 +15,7 @@ pub use clang::ClangBackend;
 
 pub trait Backend: Debug {
     fn compile_and_exec(&self, uop: &UOp, args: &[&Variable]);
-    fn alloc(&self, size: usize, backend: Arc<dyn Backend>) -> Variable;
+    fn alloc(&self, size: usize, backend: Rc<dyn Backend>) -> Variable;
     fn free(&self, id: usize);
     fn get_buffer_ptr(&self, id: usize) -> *mut u8;
 }
@@ -28,7 +27,7 @@ pub trait Compiler {
         &self,
         source_code: &str,
         options: &Self::Options,
-    ) -> Result<Arc<dyn Kernel>, Box<dyn Error>>;
+    ) -> Result<Rc<dyn Kernel>, Box<dyn Error>>;
 }
 
 pub trait Renderer {
@@ -60,7 +59,7 @@ pub struct KernelMetadata {
 pub struct Variable_ {
     pub id: usize,
     pub size: usize,
-    pub backend: Arc<dyn Backend>,
+    pub backend: Rc<dyn Backend>,
 }
 
 impl Drop for Variable_ {

@@ -10,7 +10,6 @@ use rustc_hash::FxHashSet;
 use std::cell::RefCell;
 use std::ops::{Add, Mul};
 use std::rc::Rc;
-use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub enum TensorOp {
@@ -23,7 +22,7 @@ pub struct Tensor_ {
     pub src: Vec<Tensor>,
     pub tracker: ShapeTracker,
     pub dtype: DType,
-    pub backend: Arc<dyn Backend>,
+    pub backend: Rc<dyn Backend>,
     pub realized: RefCell<Option<Variable>>,
 }
 
@@ -36,7 +35,7 @@ impl Tensor {
         src: Vec<Tensor>,
         tracker: ShapeTracker,
         dtype: DType,
-        backend: Arc<dyn Backend>,
+        backend: Rc<dyn Backend>,
     ) -> Self {
         Self(Rc::new(Tensor_ {
             op,
@@ -133,7 +132,7 @@ impl Tensor {
     }
 
     fn lazy_binary_op(op: Op, a: &Self, b: &Self) -> Self {
-        assert!(Arc::ptr_eq(&a.0.backend, &b.0.backend));
+        assert!(Rc::ptr_eq(&a.0.backend, &b.0.backend));
         Self::new(
             TensorOp::Binary(op),
             vec![a.clone(), b.clone()],

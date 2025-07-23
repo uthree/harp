@@ -1,21 +1,19 @@
 use super::{Backend, Compiler, Renderer, Variable, Variable_};
 use crate::uop::UOp;
 use log::debug;
+use std::cell::{Cell, RefCell, RefMut};
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
 use super::c::compiler::{ClangCompiler, ClangCompileOptions};
 use super::c::renderer::CStyleRenderer;
-
 
 #[derive(Debug)]
 pub struct ClangBackend {
     compiler: ClangCompiler,
     renderer: CStyleRenderer,
-    compile_options: Mutex<ClangCompileOptions>,
-    buffer_counter: AtomicUsize,
-    buffers: Mutex<HashMap<usize, Vec<u8>>>,
+    compile_options: RefCell<ClangCompileOptions>,
+    buffer_counter: Cell<usize>,
+    buffers: RefCell<HashMap<usize, Vec<u8>>>,
 }
 
 impl Default for ClangBackend {
@@ -33,26 +31,22 @@ impl ClangBackend {
         Self {
             compiler,
             renderer: CStyleRenderer,
-            compile_options: Mutex::new(ClangCompileOptions::default()),
-            buffer_counter: AtomicUsize::new(0),
-            buffers: Mutex::new(HashMap::new()),
+            compile_options: RefCell::new(ClangCompileOptions::default()),
+            buffer_counter: Cell::new(0),
+            buffers: RefCell::new(HashMap::new()),
         }
     }
 
-    pub fn configure_compiler<F>(&self, f: F)
-    where
-        F: FnOnce(&mut ClangCompileOptions),
-    {
-        let mut options = self.compile_options.lock().unwrap();
-        f(&mut options);
+    pub fn compiler_options_mut(&self) -> RefMut<ClangCompileOptions> {
+        self.compile_options.borrow_mut()
     }
 }
 
 impl Backend for ClangBackend {
-    fn alloc(&self, size: usize, backend: Arc<dyn Backend>) -> Variable {
-        let id = self.buffer_counter.fetch_add(1, Ordering::SeqCst);
-        let mut buffers = self.buffers.lock().unwrap();
-        buffers.insert(id, vec![0; size]);
+    fn alloc(&self, size: usize, backend: Rc<dyn Backend>) -> Variable {
+        let id = self.buffer_counter.get();
+        self.buffer_counter.set(id + 1);
+        self.buffers.borrow_mut().insert(id, vec![0; size]);
         Variable(Rc::new(Variable_ {
             id,
             size,
@@ -61,19 +55,18 @@ impl Backend for ClangBackend {
     }
 
     fn free(&self, id: usize) {
-        self.buffers.lock().unwrap().remove(&id);
+        self.buffers.borrow_mut().remove(&id);
     }
 
     fn get_buffer_ptr(&self, id: usize) -> *mut u8 {
-        let mut buffers = self.buffers.lock().unwrap();
-        buffers.get_mut(&id).unwrap().as_mut_ptr()
+        self.buffers.borrow_mut().get_mut(&id).unwrap().as_mut_ptr()
     }
 
     fn compile_and_exec(&self, uop: &UOp, args: &[&Variable]) {
         debug!("Compiling and executing UOp AST: {uop:?}");
         let code = self.renderer.render(uop);
         
-        let options = self.compile_options.lock().unwrap();
+        let options = self.compile_options.borrow();
         let kernel = self.compiler.compile(&code, &options).unwrap();
         debug!("Compilation successful, executing kernel");
 

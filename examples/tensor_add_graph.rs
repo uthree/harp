@@ -1,9 +1,9 @@
 use harp::prelude::*;
-use std::sync::Arc;
+use std::rc::Rc;
 
 fn main() {
     // 1. バックエンドを作成します
-    let backend = Arc::new(ClangBackend::new());
+    let backend = Rc::new(ClangBackend::new());
 
     // 2. 2つの入力テンソルを作成します。
     //    これらは計算グラフの葉（leaf）ノードになります。

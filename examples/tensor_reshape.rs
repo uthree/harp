@@ -1,12 +1,8 @@
-use harp::backends::ClangBackend;
-use harp::dot::ToDot;
-use harp::dtype::DType;
-use harp::shapetracker::ShapeTracker;
-use harp::tensor::{Tensor, TensorOp};
-use std::sync::Arc;
+use harp::prelude::*;
+use std::rc::Rc;
 
 fn main() {
-    let backend = Arc::new(ClangBackend::new());
+    let backend = Rc::new(ClangBackend::new());
 
     // 元となるテンソルを作成
     let t1 = Tensor::new(

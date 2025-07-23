@@ -2,7 +2,7 @@ use crate::backends::{Compiler, Kernel, KernelMetadata, Variable};
 use log::debug;
 use std::error::Error;
 use std::process::Command;
-use std::sync::Arc;
+use std::rc::Rc;
 use tempfile::Builder;
 use std::io::Write;
 use libloading::{Library, Symbol};
@@ -30,7 +30,7 @@ impl Compiler for ClangCompiler {
         &self,
         source_code: &str,
         options: &Self::Options,
-    ) -> Result<Arc<dyn Kernel>, Box<dyn Error>> {
+    ) -> Result<Rc<dyn Kernel>, Box<dyn Error>> {
         let c_file = Builder::new().prefix("kernel").suffix(".c").tempfile()?;
         let so_file = Builder::new().prefix("kernel").suffix(".so").tempfile()?;
         write!(c_file.as_file(), "{source_code}")?;
@@ -54,7 +54,7 @@ impl Compiler for ClangCompiler {
         }
 
         unsafe {
-            let lib = Arc::new(Library::new(so_file.path())?);
+            let lib = Rc::new(Library::new(so_file.path())?);
             type KernelFunc = unsafe extern "C" fn(*const RawBuffer, *const i32);
             let func: Symbol<KernelFunc> = lib.get(b"kernel_main")?;
 
@@ -66,7 +66,7 @@ impl Compiler for ClangCompiler {
 
             let func = mem::transmute::<Symbol<KernelFunc>, Symbol<'static, KernelFunc>>(func);
 
-            Ok(Arc::new(ClangKernel {
+            Ok(Rc::new(ClangKernel {
                 lib,
                 func,
                 metadata,
@@ -77,7 +77,7 @@ impl Compiler for ClangCompiler {
 }
 
 pub struct ClangKernel {
-    lib: Arc<Library>,
+    lib: Rc<Library>,
     func: Symbol<'static, unsafe extern "C" fn(*const RawBuffer, *const i32)>,
     metadata: KernelMetadata,
     _so_file: tempfile::NamedTempFile,

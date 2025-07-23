@@ -2,19 +2,17 @@ use harp::backends::{Backend, ClangBackend};
 use harp::dtype::DType;
 use harp::lower;
 use harp::uop::{Op, UOp};
-use std::sync::Arc;
+use std::rc::Rc;
 
 #[test]
 fn pipeline_test() {
     let _ = env_logger::builder().is_test(true).try_init();
-    let backend = Arc::new(ClangBackend::new());
+    let backend = Rc::new(ClangBackend::new());
 
     // Configure the compiler to use -O3 optimization
-    backend.configure_compiler(|options| {
-        options.optimization_level = 3;
-    });
+    backend.compiler_options_mut().optimization_level = 3;
 
-    let backend: Arc<dyn Backend> = backend;
+    let backend: Rc<dyn Backend> = backend;
 
     // UOpグラフ: a[i] + b[i]
     let buf_a = UOp::var("a", DType::F32);
