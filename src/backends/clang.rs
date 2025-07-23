@@ -1,11 +1,11 @@
-use super::{Backend, Compiler, Renderer, Variable, Variable_};
+use super::c::compiler::{ClangCompileOptions, ClangCompiler};
+use super::c::renderer::CStyleRenderer;
+use super::{Backend, Buffer, Buffer_, Compiler, Renderer};
 use crate::uop::UOp;
 use log::debug;
 use std::cell::{Cell, RefCell, RefMut};
 use std::collections::HashMap;
 use std::rc::Rc;
-use super::c::compiler::{ClangCompiler, ClangCompileOptions};
-use super::c::renderer::CStyleRenderer;
 
 #[derive(Debug)]
 pub struct ClangBackend {
@@ -43,15 +43,11 @@ impl ClangBackend {
 }
 
 impl Backend for ClangBackend {
-    fn alloc(&self, size: usize, backend: Rc<dyn Backend>) -> Variable {
+    fn alloc(&self, size: usize, backend: Rc<dyn Backend>) -> Buffer {
         let id = self.buffer_counter.get();
         self.buffer_counter.set(id + 1);
         self.buffers.borrow_mut().insert(id, vec![0; size]);
-        Variable(Rc::new(Variable_ {
-            id,
-            size,
-            backend,
-        }))
+        Buffer(Rc::new(Buffer_ { id, size, backend }))
     }
 
     fn free(&self, id: usize) {
@@ -62,10 +58,10 @@ impl Backend for ClangBackend {
         self.buffers.borrow_mut().get_mut(&id).unwrap().as_mut_ptr()
     }
 
-    fn compile_and_exec(&self, uop: &UOp, args: &[&Variable]) {
+    fn compile_and_exec(&self, uop: &UOp, args: &[&Buffer]) {
         debug!("Compiling and executing UOp AST: {uop:?}");
         let code = self.renderer.render(uop);
-        
+
         let options = self.compile_options.borrow();
         let kernel = self.compiler.compile(&code, &options).unwrap();
         debug!("Compilation successful, executing kernel");

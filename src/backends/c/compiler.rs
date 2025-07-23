@@ -1,12 +1,12 @@
-use crate::backends::{Compiler, Kernel, KernelMetadata, Variable};
+use crate::backends::{Buffer, Compiler, Kernel, KernelMetadata};
+use libloading::{Library, Symbol};
 use log::debug;
 use std::error::Error;
+use std::io::Write;
+use std::mem;
 use std::process::Command;
 use std::rc::Rc;
 use tempfile::Builder;
-use std::io::Write;
-use libloading::{Library, Symbol};
-use std::mem;
 
 type RawBuffer = *mut u8;
 
@@ -37,12 +37,19 @@ impl Compiler for ClangCompiler {
 
         let opt_level = format!("-O{}", options.optimization_level);
         let mut args = vec![
-            "-shared", "-fPIC", &opt_level,
+            "-shared",
+            "-fPIC",
+            &opt_level,
             c_file.path().to_str().unwrap(),
-            "-o", so_file.path().to_str().unwrap(),
+            "-o",
+            so_file.path().to_str().unwrap(),
         ];
-        if options.debug_info { args.push("-g"); }
-        if options.use_fast_math { args.push("-ffast-math"); }
+        if options.debug_info {
+            args.push("-g");
+        }
+        if options.use_fast_math {
+            args.push("-ffast-math");
+        }
 
         debug!("Compiling with clang, args: {args:?}");
         let output = Command::new("clang").args(&args).output()?;
@@ -50,7 +57,8 @@ impl Compiler for ClangCompiler {
             return Err(format!(
                 "clang compilation failed: {}",
                 String::from_utf8_lossy(&output.stderr)
-            ).into());
+            )
+            .into());
         }
 
         unsafe {
@@ -84,8 +92,11 @@ pub struct ClangKernel {
 }
 
 impl Kernel for ClangKernel {
-    fn exec(&self, args: &[&Variable]) {
-        let raw_buffers: Vec<RawBuffer> = args.iter().map(|v| v.backend.get_buffer_ptr(v.id)).collect();
+    fn exec(&self, args: &[&Buffer]) {
+        let raw_buffers: Vec<RawBuffer> = args
+            .iter()
+            .map(|v| v.backend.get_buffer_ptr(v.id))
+            .collect();
         let int_args: Vec<i32> = vec![10]; // 仮のN
 
         unsafe {
@@ -96,4 +107,3 @@ impl Kernel for ClangKernel {
         &self.metadata
     }
 }
-

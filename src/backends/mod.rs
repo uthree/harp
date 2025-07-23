@@ -1,8 +1,8 @@
 use crate::uop::UOp;
+use std::error::Error;
 use std::fmt::Debug;
 use std::ops::Deref;
 use std::rc::Rc;
-use std::error::Error;
 
 // Re-export submodules
 pub mod c;
@@ -11,12 +11,11 @@ pub mod c;
 mod clang;
 pub use clang::ClangBackend;
 
-
 // --- Common Backend Traits ---
 
 pub trait Backend: Debug {
-    fn compile_and_exec(&self, uop: &UOp, args: &[&Variable]);
-    fn alloc(&self, size: usize, backend: Rc<dyn Backend>) -> Variable;
+    fn compile_and_exec(&self, uop: &UOp, args: &[&Buffer]);
+    fn alloc(&self, size: usize, backend: Rc<dyn Backend>) -> Buffer;
     fn free(&self, id: usize);
     fn get_buffer_ptr(&self, id: usize) -> *mut u8;
 }
@@ -36,7 +35,7 @@ pub trait Renderer {
 }
 
 pub trait Kernel {
-    fn exec(&self, args: &[&Variable]);
+    fn exec(&self, args: &[&Buffer]);
     fn metadata(&self) -> &KernelMetadata;
 }
 
@@ -57,23 +56,23 @@ pub struct KernelMetadata {
 
 // --- Variable ---
 
-pub struct Variable_ {
+pub struct Buffer_ {
     pub id: usize,
     pub size: usize,
     pub backend: Rc<dyn Backend>,
 }
 
-impl Drop for Variable_ {
+impl Drop for Buffer_ {
     fn drop(&mut self) {
         self.backend.free(self.id);
     }
 }
 
 #[derive(Clone)]
-pub struct Variable(pub Rc<Variable_>);
+pub struct Buffer(pub Rc<Buffer_>);
 
-impl Deref for Variable {
-    type Target = Variable_;
+impl Deref for Buffer {
+    type Target = Buffer_;
 
     fn deref(&self) -> &Self::Target {
         &self.0

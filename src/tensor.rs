@@ -1,4 +1,4 @@
-use crate::backends::{Backend, Variable};
+use crate::backends::{Backend, Buffer};
 use crate::dtype::DType;
 use crate::dot::ToDot;
 use crate::lower;
@@ -23,7 +23,7 @@ pub struct Tensor_ {
     pub tracker: ShapeTracker,
     pub dtype: DType,
     pub backend: Rc<dyn Backend>,
-    pub realized: RefCell<Option<Variable>>,
+    pub realized: RefCell<Option<Buffer>>,
 }
 
 #[derive(Clone)]
@@ -47,7 +47,7 @@ impl Tensor {
         }))
     }
 
-    pub fn realize(&self) -> Variable {
+    pub fn realize(&self) -> Buffer {
         if let Some(ref realized) = *self.0.realized.borrow() {
             debug!("Cache hit for tensor");
             return realized.clone();
@@ -75,7 +75,7 @@ impl Tensor {
                 debug!("Optimized UOp graph: {optimized_loop_op:?}");
 
                 let ast = lower::lower(&optimized_loop_op);
-                let args_ref: Vec<&Variable> = kernel_args.iter().collect();
+                let args_ref: Vec<&Buffer> = kernel_args.iter().collect();
                 self.0.backend.compile_and_exec(&ast, &args_ref);
                 output_buffer
             }
