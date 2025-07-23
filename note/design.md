@@ -25,14 +25,16 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
 - **具体的な構造 (Rust):**
 
     ```rust
+    use crate::shapetracker::ShapeTracker;
+    use crate::tensor::TensorOp;
     use std::cell::RefCell;
     use std::rc::Rc;
     use std::sync::Arc;
 
     struct Tensor_ {
-        op: UOp, // このTensorを生成した操作（UOpグラフのノード）
-        src: Vec<Tensor>, // その操作への入力
-        shape: Vec<usize>,
+        op: TensorOp,
+        src: Vec<Tensor>,
+        tracker: ShapeTracker,
         dtype: DType,
         backend: Arc<dyn Backend>,
         realized: RefCell<Option<Variable>>,
@@ -53,18 +55,13 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
 
     // UOpが表現する操作の種類
     pub enum Op {
-        // --- 式 (値を返す操作) ---
-        Binary(BinaryOp),   // Add, Mul, ...
-        Unary(UnaryOp),     // Neg, Exp2, ...
-        Load,               // src: [buf_idx, idx]
-        Const(Number),      // src: []
-        Var(String),        // src: []
-
-        // --- 文 (値を返さない操作) ---
-        Loop,               // src: [limit, body]
-        Block,              // src: [stmt1, stmt2, ...]
-        Store,              // src: [buf_idx, idx, value]
-        If,                 // src: [condition, true_branch]
+        Add, Mul, Recip, Rem, // Binary
+        Exp2, Log2, Sin, Sqrt, // Unary
+        Load, Store,
+        Const(Number),
+        Var(String),
+        Loop, Block, If,
+        Cast(DType),
     }
 
     // UOpノードの実体
@@ -127,21 +124,21 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
     }
     ```
 
-#### `CpuBackend`実装例
+#### `GccBackend`実装例
 
-`CpuBackend`は、高レベルAPIへの入力を、自身が持つ具体的な`Compiler`のオプション型に「翻訳」する責務を持ちます。
+`GccBackend`は、高レベルAPIへの入力を、自身が持つ具体的な`Compiler`のオプション型に「翻訳」する責務を持ちます。
 
 - **具体的な構造 (Rust):**
 
     ```rust
     use std::sync::Mutex;
 
-    pub struct CpuBackend {
+    pub struct GccBackend {
         compiler: GccCompiler,
         compile_options: Mutex<GccCompileOptions>,
         // ... Optimizer, Rendererなど
     }
-    // ... new() や impl Backend for CpuBackend ...
+    // ... new() や impl Backend for GccBackend ...
     ```
 
 ### 5. `Compiler` (コンパイラ)
@@ -199,11 +196,11 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
         fn metadata(&self) -> &KernelMetadata;
     }
 
-    pub struct CpuKernel {
+    pub struct GccKernel {
         // ...
         metadata: KernelMetadata,
     }
-    impl Kernel for CpuKernel {
+    impl Kernel for GccKernel {
         // ...
     }
     ```
