@@ -10,14 +10,14 @@ pub struct CStyleRenderer;
 impl Renderer for CStyleRenderer {
     fn render(&self, uop: &UOp) -> String {
         let mut code = String::new();
-        let mut renderer_impl = CStyleRendererImpl::new();
-        renderer_impl.collect_vars(uop);
+        let mut context = CStyleRenderContext::new();
+        context.collect_vars(uop);
 
         writeln!(&mut code, "#include <math.h>").unwrap();
         writeln!(&mut code, "void kernel_main(void** bufs, int* ints) {{").unwrap();
 
         // バッファと整数引数をローカル変数にキャストしてわかりやすくする
-        let mut sorted_args: Vec<_> = renderer_impl.args.iter().collect();
+        let mut sorted_args: Vec<_> = context.args.iter().collect();
         sorted_args.sort_by(|(a, _), (b, _)| {
             let a_is_data = a.starts_with("data");
             let b_is_data = b.starts_with("data");
@@ -32,10 +32,10 @@ impl Renderer for CStyleRenderer {
         let mut buf_idx = 0;
         let mut int_idx = 0;
         for (name, dtype) in sorted_args {
-            if renderer_impl.defined_vars.contains(name.as_str()) {
+            if context.defined_vars.contains(name.as_str()) {
                 continue;
             }
-            if renderer_impl.buffers.contains(name.as_str()) {
+            if context.buffers.contains(name.as_str()) {
                 writeln!(&mut code, "    {dtype}* {name} = bufs[{buf_idx}];").unwrap();
                 buf_idx += 1;
             } else {
@@ -44,20 +44,21 @@ impl Renderer for CStyleRenderer {
             }
         }
 
-        renderer_impl.render_op(&mut code, uop, 4);
+        context.render_op(&mut code, uop, 4);
         writeln!(&mut code, "}}").unwrap();
         debug!("Rendered C code:\n{code}");
         code
     }
 }
 
-struct CStyleRendererImpl {
+struct CStyleRenderContext {
+
     args: FxHashMap<String, crate::dtype::DType>,
     buffers: FxHashSet<String>,
     defined_vars: FxHashSet<String>,
 }
 
-impl CStyleRendererImpl {
+impl CStyleRenderContext {
     fn new() -> Self {
         Self {
             args: FxHashMap::default(),
