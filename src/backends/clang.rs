@@ -1,6 +1,6 @@
 use super::c::compiler::{ClangCompileOptions, ClangCompiler};
 use super::c::renderer::CStyleRenderer;
-use super::{Backend, Buffer, Buffer_, Compiler, Renderer};
+use super::{Backend, BackendError, Buffer, Buffer_, Compiler, Renderer};
 use crate::uop::UOp;
 use log::debug;
 use std::cell::{Cell, RefCell, RefMut};
@@ -18,23 +18,23 @@ pub struct ClangBackend {
 
 impl Default for ClangBackend {
     fn default() -> Self {
-        Self::new()
+        Self::new().unwrap()
     }
 }
 
 impl ClangBackend {
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self, BackendError> {
         let compiler = ClangCompiler;
         if !compiler.is_available() {
-            panic!("clang not found");
+            return Err(BackendError::CompilerNotFound("clang".to_string()));
         }
-        Self {
+        Ok(Self {
             compiler,
             renderer: CStyleRenderer,
             compile_options: RefCell::new(ClangCompileOptions::default()),
             buffer_counter: Cell::new(0),
             buffers: RefCell::new(HashMap::new()),
-        }
+        })
     }
 
     pub fn compiler_options_mut(&self) -> RefMut<ClangCompileOptions> {

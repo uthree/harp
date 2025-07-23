@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 fn main() {
     // 1. バックエンドを作成します
-    let backend = Rc::new(ClangBackend::new());
+    let backend = Rc::new(ClangBackend::new().expect("Failed to create ClangBackend"));
 
     // 2. 2つの入力テンソルを作成します。
     let t1 = Tensor::new(

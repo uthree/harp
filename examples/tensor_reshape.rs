@@ -2,7 +2,7 @@ use harp::prelude::*;
 use std::rc::Rc;
 
 fn main() {
-    let backend = Rc::new(ClangBackend::new());
+    let backend = Rc::new(ClangBackend::new().expect("Failed to create ClangBackend"));
 
     // 元となるテンソルを作成
     let t1 = Tensor::new(

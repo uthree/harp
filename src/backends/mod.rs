@@ -11,6 +11,13 @@ pub mod c;
 mod clang;
 pub use clang::ClangBackend;
 
+// --- Backend Error ---
+#[derive(thiserror::Error, Debug)]
+pub enum BackendError {
+    #[error("Compiler '{0}' not found. Please ensure it is installed and in your PATH.")]
+    CompilerNotFound(String),
+}
+
 // --- Common Backend Traits ---
 
 pub trait Backend: Debug {

@@ -8,7 +8,7 @@ use std::rc::Rc;
 #[test]
 fn test_tensor_addition() {
     let _ = env_logger::builder().is_test(true).try_init();
-    let backend: Rc<dyn Backend> = Rc::new(ClangBackend::new());
+    let backend: Rc<dyn Backend> = Rc::new(ClangBackend::new().unwrap());
     let shape = vec![10];
 
     // Create two 'leaf' tensors from loaded data
@@ -53,7 +53,7 @@ fn test_tensor_addition() {
 #[test]
 fn test_tensor_multiplication() {
     let _ = env_logger::builder().is_test(true).try_init();
-    let backend: Rc<dyn Backend> = Rc::new(ClangBackend::new());
+    let backend: Rc<dyn Backend> = Rc::new(ClangBackend::new().unwrap());
     let shape = vec![10];
 
     let t1 = Tensor::new(
@@ -89,7 +89,7 @@ fn test_tensor_multiplication() {
 #[test]
 fn test_tensor_reshape() {
     let _ = env_logger::builder().is_test(true).try_init();
-    let backend: Rc<dyn Backend> = Rc::new(ClangBackend::new());
+    let backend: Rc<dyn Backend> = Rc::new(ClangBackend::new().unwrap());
     let original_shape = vec![10, 20];
     let new_shape = vec![200];
 
