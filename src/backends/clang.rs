@@ -38,14 +38,17 @@ impl ClangBackend {
             buffers: Mutex::new(HashMap::new()),
         }
     }
+
+    pub fn configure_compiler<F>(&self, f: F)
+    where
+        F: FnOnce(&mut ClangCompileOptions),
+    {
+        let mut options = self.compile_options.lock().unwrap();
+        f(&mut options);
+    }
 }
 
 impl Backend for ClangBackend {
-    fn set_optimization_level(&self, level: u8) {
-        let mut options = self.compile_options.lock().unwrap();
-        options.optimization_level = level;
-    }
-
     fn alloc(&self, size: usize, backend: Arc<dyn Backend>) -> Variable {
         let id = self.buffer_counter.fetch_add(1, Ordering::SeqCst);
         let mut buffers = self.buffers.lock().unwrap();

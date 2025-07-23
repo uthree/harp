@@ -16,7 +16,6 @@ pub use clang::ClangBackend;
 
 pub trait Backend: Debug {
     fn compile_and_exec(&self, uop: &UOp, args: &[&Variable]);
-    fn set_optimization_level(&self, level: u8);
     fn alloc(&self, size: usize, backend: Arc<dyn Backend>) -> Variable;
     fn free(&self, id: usize);
     fn get_buffer_ptr(&self, id: usize) -> *mut u8;

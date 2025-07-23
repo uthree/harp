@@ -112,21 +112,21 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
 
 #### `Backend`トレイトと高レベルAPI
 
-`Backend`は、ユーザー向けにコンパイラの種類を意識させない、高レベルな設定APIを提供します。
+`Backend`は、バックエンドの種類（CPU, GPUなど）に依らない共通の操作を定義する、汎用的なインターフェースです。
 
 - **具体的な構造 (Rust):**
 
     ```rust
     pub trait Backend {
         fn compile_and_exec(&self, uop: &UOp, args: &[&Variable]);
-        fn set_optimization_level(&self, level: u8);
+        fn alloc(&self, size: usize, backend: Arc<dyn Backend>) -> Variable;
         // ... etc
     }
     ```
 
 #### `ClangBackend`実装例
 
-`ClangBackend`は、高レベルAPIへの入力を、自身が持つ具体的な`Compiler`のオプション型に「翻訳」する責務を持ちます。
+`ClangBackend`のような具体的なバックエンドは、`Backend`トレイトを実装すると同時に、自身に固有の設定メソッドを提供します。これにより、汎用的な操作はトレイト経由で、バックエンド固有の設定は具象型経由で、というように責務を分離します。
 
 - **具体的な構造 (Rust):**
 
@@ -136,9 +136,19 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
     pub struct ClangBackend {
         compiler: ClangCompiler,
         compile_options: Mutex<ClangCompileOptions>,
-        // ... Optimizer, Rendererなど
+        // ...
     }
-    // ... new() や impl Backend for ClangBackend ...
+
+    impl ClangBackend {
+        // 固有の設定メソッド
+        pub fn configure_compiler<F>(&self, f: F) where F: FnOnce(&mut ClangCompileOptions) {
+            // ...
+        }
+    }
+
+    impl Backend for ClangBackend {
+        // ...
+    }
     ```
 
 ### 5. `Compiler` (コンパイラ)
