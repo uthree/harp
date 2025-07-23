@@ -1,4 +1,4 @@
-use harp::backends::CpuBackend;
+use harp::backends::GccBackend;
 use harp::dot::ToDot;
 use harp::dtype::DType;
 use harp::shapetracker::ShapeTracker;
@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 fn main() {
     // 1. バックエンドを作成します
-    let backend = Arc::new(CpuBackend::new());
+    let backend = Arc::new(GccBackend::new());
 
     // 2. 2つの入力テンソルを作成します。
     //    これらは計算グラフの葉（leaf）ノードになります。

@@ -1,4 +1,4 @@
-use harp::backends::{Backend, CpuBackend};
+use harp::backends::{Backend, GccBackend};
 use harp::dtype::DType;
 use harp::lower;
 use harp::uop::{Op, UOp};
@@ -7,7 +7,7 @@ use std::sync::Arc;
 #[test]
 fn pipeline_test() {
     let _ = env_logger::builder().is_test(true).try_init();
-    let backend: Arc<dyn Backend> = Arc::new(CpuBackend::new());
+    let backend: Arc<dyn Backend> = Arc::new(GccBackend::new());
 
     // UOpグラフ: a[i] + b[i]
     let buf_a = UOp::var("a", DType::F32);

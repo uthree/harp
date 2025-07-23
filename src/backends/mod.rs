@@ -8,8 +8,8 @@ use std::error::Error;
 pub mod c;
 
 // --- Top-level Backend Controller ---
-mod cpu;
-pub use cpu::CpuBackend;
+mod gcc;
+pub use gcc::GccBackend;
 
 
 // --- Common Backend Traits ---

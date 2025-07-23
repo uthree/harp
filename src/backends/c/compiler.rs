@@ -66,7 +66,7 @@ impl Compiler for GccCompiler {
 
             let func = mem::transmute::<Symbol<KernelFunc>, Symbol<'static, KernelFunc>>(func);
 
-            Ok(Arc::new(CpuKernel {
+            Ok(Arc::new(GccKernel {
                 lib,
                 func,
                 metadata,
@@ -76,14 +76,14 @@ impl Compiler for GccCompiler {
     }
 }
 
-pub struct CpuKernel {
+pub struct GccKernel {
     lib: Arc<Library>,
     func: Symbol<'static, unsafe extern "C" fn(*const RawBuffer, *const i32)>,
     metadata: KernelMetadata,
     _so_file: tempfile::NamedTempFile,
 }
 
-impl Kernel for CpuKernel {
+impl Kernel for GccKernel {
     fn exec(&self, args: &[&Variable]) {
         let raw_buffers: Vec<RawBuffer> = args.iter().map(|v| v.0.backend.get_buffer_ptr(v.0.id)).collect();
         let int_args: Vec<i32> = vec![10]; // 仮のN

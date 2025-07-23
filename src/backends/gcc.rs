@@ -10,7 +10,7 @@ use super::c::renderer::CStyleRenderer;
 
 
 #[derive(Debug)]
-pub struct CpuBackend {
+pub struct GccBackend {
     compiler: GccCompiler,
     renderer: CStyleRenderer,
     compile_options: Mutex<GccCompileOptions>,
@@ -18,13 +18,13 @@ pub struct CpuBackend {
     buffers: Mutex<HashMap<usize, Vec<u8>>>,
 }
 
-impl Default for CpuBackend {
+impl Default for GccBackend {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl CpuBackend {
+impl GccBackend {
     pub fn new() -> Self {
         let compiler = GccCompiler;
         if !compiler.is_available() {
@@ -40,7 +40,7 @@ impl CpuBackend {
     }
 }
 
-impl Backend for CpuBackend {
+impl Backend for GccBackend {
     fn set_optimization_level(&self, level: u8) {
         let mut options = self.compile_options.lock().unwrap();
         options.optimization_level = level;

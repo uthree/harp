@@ -1,4 +1,4 @@
-use harp::backends::CpuBackend;
+use harp::backends::GccBackend;
 use harp::dot::ToDot;
 use harp::dtype::DType;
 use harp::shapetracker::ShapeTracker;
@@ -6,7 +6,7 @@ use harp::tensor::{Tensor, TensorOp};
 use std::sync::Arc;
 
 fn main() {
-    let backend = Arc::new(CpuBackend::new());
+    let backend = Arc::new(GccBackend::new());
 
     // 元となるテンソルを作成
     let t1 = Tensor::new(

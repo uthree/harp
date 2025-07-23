@@ -46,7 +46,7 @@ impl Renderer for CStyleRenderer {
 
         renderer_impl.render_op(&mut code, uop, 4);
         writeln!(&mut code, "}}").unwrap();
-        debug!("Rendered C code:\n{}", code);
+        debug!("Rendered C code:\n{code}");
         code
     }
 }
