@@ -5,42 +5,42 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use super::c::compiler::{GccCompiler, GccCompileOptions};
+use super::c::compiler::{ClangCompiler, ClangCompileOptions};
 use super::c::renderer::CStyleRenderer;
 
 
 #[derive(Debug)]
-pub struct GccBackend {
-    compiler: GccCompiler,
+pub struct ClangBackend {
+    compiler: ClangCompiler,
     renderer: CStyleRenderer,
-    compile_options: Mutex<GccCompileOptions>,
+    compile_options: Mutex<ClangCompileOptions>,
     buffer_counter: AtomicUsize,
     buffers: Mutex<HashMap<usize, Vec<u8>>>,
 }
 
-impl Default for GccBackend {
+impl Default for ClangBackend {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl GccBackend {
+impl ClangBackend {
     pub fn new() -> Self {
-        let compiler = GccCompiler;
+        let compiler = ClangCompiler;
         if !compiler.is_available() {
-            panic!("gcc not found");
+            panic!("clang not found");
         }
         Self {
             compiler,
             renderer: CStyleRenderer,
-            compile_options: Mutex::new(GccCompileOptions::default()),
+            compile_options: Mutex::new(ClangCompileOptions::default()),
             buffer_counter: AtomicUsize::new(0),
             buffers: Mutex::new(HashMap::new()),
         }
     }
 }
 
-impl Backend for GccBackend {
+impl Backend for ClangBackend {
     fn set_optimization_level(&self, level: u8) {
         let mut options = self.compile_options.lock().unwrap();
         options.optimization_level = level;

@@ -8,8 +8,8 @@ use std::error::Error;
 pub mod c;
 
 // --- Top-level Backend Controller ---
-mod gcc;
-pub use gcc::GccBackend;
+mod clang;
+pub use clang::ClangBackend;
 
 
 // --- Common Backend Traits ---

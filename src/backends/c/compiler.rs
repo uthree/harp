@@ -11,19 +11,19 @@ use std::mem;
 type RawBuffer = *mut u8;
 
 #[derive(Clone, Default, Debug)]
-pub struct GccCompileOptions {
+pub struct ClangCompileOptions {
     pub optimization_level: u8,
     pub debug_info: bool,
     pub use_fast_math: bool,
 }
 
 #[derive(Debug)]
-pub struct GccCompiler;
-impl Compiler for GccCompiler {
-    type Options = GccCompileOptions;
+pub struct ClangCompiler;
+impl Compiler for ClangCompiler {
+    type Options = ClangCompileOptions;
 
     fn is_available(&self) -> bool {
-        Command::new("gcc").arg("--version").output().is_ok()
+        Command::new("clang").arg("--version").output().is_ok()
     }
 
     fn compile(
@@ -44,11 +44,11 @@ impl Compiler for GccCompiler {
         if options.debug_info { args.push("-g"); }
         if options.use_fast_math { args.push("-ffast-math"); }
 
-        debug!("Compiling with gcc, args: {args:?}");
-        let output = Command::new("gcc").args(&args).output()?;
+        debug!("Compiling with clang, args: {args:?}");
+        let output = Command::new("clang").args(&args).output()?;
         if !output.status.success() {
             return Err(format!(
-                "gcc compilation failed: {}",
+                "clang compilation failed: {}",
                 String::from_utf8_lossy(&output.stderr)
             ).into());
         }
@@ -66,7 +66,7 @@ impl Compiler for GccCompiler {
 
             let func = mem::transmute::<Symbol<KernelFunc>, Symbol<'static, KernelFunc>>(func);
 
-            Ok(Arc::new(GccKernel {
+            Ok(Arc::new(ClangKernel {
                 lib,
                 func,
                 metadata,
@@ -76,14 +76,14 @@ impl Compiler for GccCompiler {
     }
 }
 
-pub struct GccKernel {
+pub struct ClangKernel {
     lib: Arc<Library>,
     func: Symbol<'static, unsafe extern "C" fn(*const RawBuffer, *const i32)>,
     metadata: KernelMetadata,
     _so_file: tempfile::NamedTempFile,
 }
 
-impl Kernel for GccKernel {
+impl Kernel for ClangKernel {
     fn exec(&self, args: &[&Variable]) {
         let raw_buffers: Vec<RawBuffer> = args.iter().map(|v| v.0.backend.get_buffer_ptr(v.0.id)).collect();
         let int_args: Vec<i32> = vec![10]; // 仮のN

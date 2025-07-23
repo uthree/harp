@@ -124,21 +124,21 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
     }
     ```
 
-#### `GccBackend`実装例
+#### `ClangBackend`実装例
 
-`GccBackend`は、高レベルAPIへの入力を、自身が持つ具体的な`Compiler`のオプション型に「翻訳」する責務を持ちます。
+`ClangBackend`は、高レベルAPIへの入力を、自身が持つ具体的な`Compiler`のオプション型に「翻訳」する責務を持ちます。
 
 - **具体的な構造 (Rust):**
 
     ```rust
     use std::sync::Mutex;
 
-    pub struct GccBackend {
-        compiler: GccCompiler,
-        compile_options: Mutex<GccCompileOptions>,
+    pub struct ClangBackend {
+        compiler: ClangCompiler,
+        compile_options: Mutex<ClangCompileOptions>,
         // ... Optimizer, Rendererなど
     }
-    // ... new() や impl Backend for GccBackend ...
+    // ... new() や impl Backend for ClangBackend ...
     ```
 
 ### 5. `Compiler` (コンパイラ)
@@ -160,10 +160,10 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
     }
 
     #[derive(Clone, Default)]
-    pub struct GccCompileOptions { /* ... */ }
-    pub struct GccCompiler;
-    impl Compiler for GccCompiler {
-        type Options = GccCompileOptions;
+    pub struct ClangCompileOptions { /* ... */ }
+    pub struct ClangCompiler;
+    impl Compiler for ClangCompiler {
+        type Options = ClangCompileOptions;
         // ...
     }
     ```
@@ -196,11 +196,11 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
         fn metadata(&self) -> &KernelMetadata;
     }
 
-    pub struct GccKernel {
+    pub struct ClangKernel {
         // ...
         metadata: KernelMetadata,
     }
-    impl Kernel for GccKernel {
+    impl Kernel for ClangKernel {
         // ...
     }
     ```
