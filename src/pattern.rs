@@ -1,18 +1,17 @@
 use crate::uop::{Op, UOp};
-use std::collections::HashMap;
-
+use rustc_hash::FxHashMap;
 use std::rc::Rc;
 
 // A single pattern rule
 pub struct UPat {
     pattern: UOp,
-    replacer: Box<dyn Fn(&HashMap<usize, UOp>) -> UOp>,
+    replacer: Box<dyn Fn(&FxHashMap<usize, UOp>) -> UOp>,
 }
 
 impl UPat {
     pub fn new<F>(pattern: UOp, replacer: F) -> Self
     where
-        F: Fn(&HashMap<usize, UOp>) -> UOp + 'static,
+        F: Fn(&FxHashMap<usize, UOp>) -> UOp + 'static,
     {
         UPat {
             pattern,
@@ -34,8 +33,8 @@ impl UPat {
         }
     }
 
-    fn matcher(&self, target: &UOp) -> Option<HashMap<usize, UOp>> {
-        let mut captures = HashMap::new();
+    fn matcher(&self, target: &UOp) -> Option<FxHashMap<usize, UOp>> {
+        let mut captures = FxHashMap::default();
         if self.internal_matcher(target, &self.pattern, &mut captures) {
             Some(captures)
         } else {
@@ -47,7 +46,7 @@ impl UPat {
         &self,
         target: &UOp,
         pattern: &UOp,
-        captures: &mut HashMap<usize, UOp>,
+        captures: &mut FxHashMap<usize, UOp>,
     ) -> bool {
         if let Op::Capture(id) = &pattern.0.op {
             if let Some(existing) = captures.get(id) {
@@ -139,7 +138,7 @@ macro_rules! pats {
                 )*
                 $pattern
             };
-            let replacer_fn = move |caps: &HashMap<usize, UOp>| {
+            let replacer_fn = move |caps: &FxHashMap<usize, UOp>| {
                 let mut counter = 0..;
                 $(
                     #[allow(unused_variables)]

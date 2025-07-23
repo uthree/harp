@@ -1,11 +1,17 @@
 use crate::pats;
-use crate::uop::{Op, UOp};
 use crate::pattern::{PatternMatcher, UPat};
+use crate::uop::{Op, UOp};
 use log::debug;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 pub struct Optimizer {
     matcher: PatternMatcher,
+}
+
+impl Default for Optimizer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Optimizer {
@@ -29,9 +35,9 @@ impl Optimizer {
 
     /// Applies optimization rules to the UOp graph until a fixed point is reached.
     pub fn optimize(&self, uop: &UOp) -> UOp {
-        debug!("Before optimization: {:?}", uop);
+        debug!("Before optimization: {uop:?}");
         let optimized_uop = self.matcher.apply_all_with_limit(uop, 100);
-        debug!("After optimization: {:?}", optimized_uop);
+        debug!("After optimization: {optimized_uop:?}");
         optimized_uop
     }
 }

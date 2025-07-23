@@ -6,6 +6,7 @@ use crate::optimizer::Optimizer;
 use crate::shapetracker::ShapeTracker;
 use crate::uop::{Op, UOp};
 use log::debug;
+use rustc_hash::FxHashSet;
 use std::cell::RefCell;
 use std::ops::{Add, Mul};
 use std::rc::Rc;
@@ -68,11 +69,11 @@ impl Tensor {
                 kernel_args.push(output_buffer.clone());
                 
                 let loop_op = self.to_uop();
-                debug!("Generated UOp graph: {:?}", loop_op);
+                debug!("Generated UOp graph: {loop_op:?}");
 
                 let optimizer = Optimizer::new();
                 let optimized_loop_op = optimizer.optimize(&loop_op);
-                debug!("Optimized UOp graph: {:?}", optimized_loop_op);
+                debug!("Optimized UOp graph: {optimized_loop_op:?}");
 
                 let ast = lower::lower(&optimized_loop_op);
                 let args_ref: Vec<&Variable> = kernel_args.iter().collect();
@@ -176,14 +177,14 @@ impl ToDot for Tensor {
         let mut dot = String::new();
         dot.push_str("digraph G {\n");
         dot.push_str("  node [shape=box];\n");
-        let mut visited = std::collections::HashSet::new();
+        let mut visited = FxHashSet::default();
         build_dot_tensor(self, &mut dot, &mut visited);
         dot.push_str("}\n");
         dot
     }
 }
 
-fn build_dot_tensor(tensor: &Tensor, dot: &mut String, visited: &mut std::collections::HashSet<*const Tensor_>) {
+fn build_dot_tensor(tensor: &Tensor, dot: &mut String, visited: &mut FxHashSet<*const Tensor_>) {
     let ptr = Rc::as_ptr(&tensor.0);
     if visited.contains(&ptr) {
         return;

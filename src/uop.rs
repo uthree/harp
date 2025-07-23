@@ -1,6 +1,6 @@
 pub use crate::dtype::{DType, Number};
 use crate::dot::ToDot;
-use std::collections::HashSet;
+use rustc_hash::FxHashSet;
 use std::ops::{
     Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
@@ -211,14 +211,14 @@ impl ToDot for UOp {
         let mut dot = String::new();
         dot.push_str("digraph G {\n");
         dot.push_str("  node [shape=box];\n");
-        let mut visited = HashSet::new();
+        let mut visited = FxHashSet::default();
         build_dot_uop(self, &mut dot, &mut visited);
         dot.push_str("}\n");
         dot
     }
 }
 
-fn build_dot_uop(uop: &UOp, dot: &mut String, visited: &mut HashSet<*const UOp_>) {
+fn build_dot_uop(uop: &UOp, dot: &mut String, visited: &mut FxHashSet<*const UOp_>) {
     let ptr = Rc::as_ptr(&uop.0);
     if visited.contains(&ptr) {
         return;

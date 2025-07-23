@@ -1,7 +1,7 @@
 use crate::backends::Renderer;
 use crate::uop::{Op, UOp};
 use log::debug;
-use std::collections::{HashMap, HashSet};
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::fmt::Write;
 
 #[derive(Debug)]
@@ -46,24 +46,23 @@ impl Renderer for CStyleRenderer {
 
         renderer_impl.render_op(&mut code, uop, 4);
         writeln!(&mut code, "}}").unwrap();
-        debug!("Rendered C code:
-{code}");
+        debug!("Rendered C code:\n{}", code);
         code
     }
 }
 
 struct CStyleRendererImpl {
-    args: HashMap<String, crate::dtype::DType>,
-    buffers: HashSet<String>,
-    defined_vars: HashSet<String>,
+    args: FxHashMap<String, crate::dtype::DType>,
+    buffers: FxHashSet<String>,
+    defined_vars: FxHashSet<String>,
 }
 
 impl CStyleRendererImpl {
     fn new() -> Self {
         Self {
-            args: HashMap::new(),
-            buffers: HashSet::new(),
-            defined_vars: HashSet::new(),
+            args: FxHashMap::default(),
+            buffers: FxHashSet::default(),
+            defined_vars: FxHashSet::default(),
         }
     }
 
