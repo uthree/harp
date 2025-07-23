@@ -17,7 +17,7 @@ pub struct GccCompileOptions {
     pub use_fast_math: bool,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub struct GccCompiler;
 impl Compiler for GccCompiler {
     type Options = GccCompileOptions;
@@ -53,38 +53,47 @@ impl Compiler for GccCompiler {
             ).into());
         }
 
-        let lib = Arc::new(unsafe { Library::new(so_file.path())? });
-        let metadata = KernelMetadata {
-            args_info: vec![], // TODO
-            global_work_size: 1,
-            local_work_size: 1,
-        };
+        unsafe {
+            let lib = Arc::new(Library::new(so_file.path())?);
+            type KernelFunc = unsafe extern "C" fn(*const RawBuffer, *const i32);
+            let func: Symbol<KernelFunc> = lib.get(b"kernel_main")?;
 
-        Ok(Arc::new(CpuKernel {
-            lib,
-            metadata,
-        }))
+            let metadata = KernelMetadata {
+                args_info: vec![], // TODO
+                global_work_size: 1,
+                local_work_size: 1,
+            };
+
+            let func = mem::transmute::<Symbol<KernelFunc>, Symbol<'static, KernelFunc>>(func);
+
+            Ok(Arc::new(CpuKernel {
+                lib,
+                func,
+                metadata,
+                _so_file: so_file,
+            }))
+        }
     }
 }
 
 pub struct CpuKernel {
     lib: Arc<Library>,
+    func: Symbol<'static, unsafe extern "C" fn(*const RawBuffer, *const i32)>,
     metadata: KernelMetadata,
+    _so_file: tempfile::NamedTempFile,
 }
 
-
 impl Kernel for CpuKernel {
-    fn exec(&self, bufs: &mut [*mut std::ffi::c_void], ints: &[i32]) {
+    fn exec(&self, args: &[&Variable]) {
+        let raw_buffers: Vec<RawBuffer> = args.iter().map(|v| v.0.backend.get_buffer_ptr(v.0.id)).collect();
+        let int_args: Vec<i32> = vec![10]; // 仮のN
+
         unsafe {
-            let main_fn: libloading::Symbol<unsafe extern "C" fn(*mut *mut std::ffi::c_void, *const i32)> =
-                self.lib.get(b"kernel_main").unwrap();
-            main_fn(bufs.as_mut_ptr(), ints.as_ptr());
+            (self.func)(raw_buffers.as_ptr(), int_args.as_ptr());
         }
     }
-
     fn metadata(&self) -> &KernelMetadata {
         &self.metadata
     }
 }
-
 
