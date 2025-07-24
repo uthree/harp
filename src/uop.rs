@@ -1,5 +1,5 @@
-pub use crate::dtype::{DType, Number};
 use crate::dot::ToDot;
+pub use crate::dtype::{DType, Number};
 use rustc_hash::FxHashSet;
 use std::ops::{
     Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
@@ -279,7 +279,11 @@ mod tests {
     #[case(5i32.into(), Op::Const(Number::I32(5)), DType::I32)]
     #[case(3.14f64.into(), Op::Const(Number::F64(3.14)), DType::F64)]
     #[case(255u8.into(), Op::Const(Number::U8(255)), DType::U8)]
-    fn test_uop_from_numeric(#[case] uop: UOp, #[case] expected_op: Op, #[case] expected_dtype: DType) {
+    fn test_uop_from_numeric(
+        #[case] uop: UOp,
+        #[case] expected_op: Op,
+        #[case] expected_dtype: DType,
+    ) {
         assert_eq!(uop.0.op, expected_op);
         assert_eq!(uop.0.dtype, expected_dtype);
         assert!(uop.0.src.is_empty());

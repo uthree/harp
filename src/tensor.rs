@@ -100,17 +100,19 @@ impl Tensor {
 
         let result_var = match self.0.op {
             TensorOp::Load => {
-                let size: usize = self.0.tracker.shape().iter().product::<usize>() * self.0.dtype.size();
+                let size: usize =
+                    self.0.tracker.shape().iter().product::<usize>() * self.0.dtype.size();
                 debug!("Allocating new buffer for Load op with size: {size}");
                 self.0.backend.alloc(size, self.0.backend.clone())
             }
             TensorOp::Binary(_) => {
                 let args: Vec<_> = self.0.src.iter().map(|t| t.realize()).collect();
-                let size: usize = self.0.tracker.shape().iter().product::<usize>() * self.0.dtype.size();
+                let size: usize =
+                    self.0.tracker.shape().iter().product::<usize>() * self.0.dtype.size();
                 let output_buffer = self.0.backend.alloc(size, self.0.backend.clone());
                 let mut kernel_args = args;
                 kernel_args.push(output_buffer.clone());
-                
+
                 let loop_op = self.to_uop();
                 debug!("Generated UOp graph: {loop_op:?}");
 
@@ -130,14 +132,19 @@ impl Tensor {
     }
 
     fn to_uop(&self) -> UOp {
-        fn build_uop_graph(tensor: &Tensor, arg_map: &mut std::collections::HashMap<*const Tensor_, UOp>, loop_var: &UOp) -> UOp {
+        fn build_uop_graph(
+            tensor: &Tensor,
+            arg_map: &mut std::collections::HashMap<*const Tensor_, UOp>,
+            loop_var: &UOp,
+        ) -> UOp {
             if let Some(uop) = arg_map.get(&Rc::as_ptr(&tensor.0)) {
                 return uop.clone();
             }
 
             let uop = match &tensor.0.op {
                 TensorOp::Load => {
-                    let buffer = UOp::var(&format!("data{}", arg_map.len()), tensor.0.dtype.clone());
+                    let buffer =
+                        UOp::var(&format!("data{}", arg_map.len()), tensor.0.dtype.clone());
                     let idx = tensor.0.tracker.expr_node(loop_var);
                     UOp::new(Op::Load, tensor.0.dtype.clone(), vec![buffer, idx])
                 }
@@ -154,14 +161,22 @@ impl Tensor {
         let mut arg_map = std::collections::HashMap::new();
         let loop_var = UOp::var("i", DType::U64);
         let result_expr = build_uop_graph(self, &mut arg_map, &loop_var);
-        
+
         let out_idx = arg_map.len();
         let output_buffer = UOp::var(&format!("data{out_idx}"), self.0.dtype.clone());
         let idx = self.0.tracker.expr_node(&loop_var);
-        let store = UOp::new(Op::Store, DType::Unit, vec![output_buffer, idx, result_expr]);
-        
+        let store = UOp::new(
+            Op::Store,
+            DType::Unit,
+            vec![output_buffer, idx, result_expr],
+        );
+
         let n_elements = self.0.tracker.shape().iter().product::<usize>();
-        UOp::new(Op::Loop, DType::Unit, vec![(n_elements as u64).into(), store])
+        UOp::new(
+            Op::Loop,
+            DType::Unit,
+            vec![(n_elements as u64).into(), store],
+        )
     }
 
     pub fn reshape(&self, new_shape: Vec<usize>) -> Self {
