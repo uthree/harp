@@ -1,6 +1,15 @@
+//! The core `Tensor` struct and related components.
+//!
+//! This module defines the central data structure of the library, `Tensor`, which
+//! represents a multi-dimensional array. All operations on `Tensor`s are lazy,
+//! meaning they build up a computation graph rather than executing immediately.
+//!
+//! The actual computation is triggered by calling the `.realize()` method, which
+//! hands off the generated computation graph to the appropriate `Backend`.
+
 use crate::backends::{Backend, Buffer};
-use crate::dtype::DType;
 use crate::dot::ToDot;
+use crate::dtype::DType;
 use crate::lower;
 use crate::optimizer::Optimizer;
 use crate::shapetracker::ShapeTracker;
@@ -11,25 +20,51 @@ use std::cell::RefCell;
 use std::ops::{Add, Mul};
 use std::rc::Rc;
 
+/// Represents the operation that created a `Tensor`.
+///
+/// This enum tracks the origin of a `Tensor` within the computation graph.
 #[derive(Debug, Clone)]
 pub enum TensorOp {
+    /// A source tensor, typically representing data loaded from memory.
     Load,
+    /// A tensor created as the result of a binary operation.
     Binary(Op),
 }
 
+/// The internal, reference-counted implementation of a `Tensor`.
+///
+/// This struct holds all the metadata required to define a node in the computation graph,
+/// such as the operation that created it, its sources (parent nodes), its shape,
+/// and the backend responsible for its computation.
 pub struct Tensor_ {
+    /// The operation that produced this tensor.
     pub op: TensorOp,
+    /// The source tensors (inputs) for the operation.
     pub src: Vec<Tensor>,
+    /// A `ShapeTracker` that manages the tensor's shape and memory layout.
     pub tracker: ShapeTracker,
+    /// The data type of the tensor's elements.
     pub dtype: DType,
+    /// The backend responsible for executing computations for this tensor.
     pub backend: Rc<dyn Backend>,
+    /// A cached handle to the realized memory buffer, once computed.
     pub realized: RefCell<Option<Buffer>>,
 }
 
+/// A lazy, multi-dimensional array (tensor).
+///
+/// `Tensor` is the main user-facing struct. It's a lightweight handle (a reference-counted
+/// pointer) to the underlying tensor data (`Tensor_`). Operations on `Tensor`s are
+/// performed lazily, building up a computation graph.
+///
+/// To execute the computation and get the result, call the `.realize()` method.
 #[derive(Clone)]
 pub struct Tensor(pub Rc<Tensor_>);
 
 impl Tensor {
+    /// Creates a new `Tensor`.
+    ///
+    /// This is the primary constructor used to build nodes in the computation graph.
     pub fn new(
         op: TensorOp,
         src: Vec<Tensor>,
@@ -47,6 +82,15 @@ impl Tensor {
         }))
     }
 
+    /// Triggers the computation of the tensor's value.
+    ///
+    /// This method walks the computation graph backwards from this tensor, generates
+    /// an optimized intermediate representation (`UOp`), renders it to C code,
+    /// compiles it, and executes it on the backend.
+    ///
+    /// The result is a `Buffer` handle, which points to the memory on the compute
+    /// device (e.g., CPU) containing the tensor's data. Results are cached, so
+    /// subsequent calls to `.realize()` on the same tensor will be fast.
     pub fn realize(&self) -> Buffer {
         if let Some(ref realized) = *self.0.realized.borrow() {
             debug!("Cache hit for tensor");

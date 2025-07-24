@@ -1,18 +1,21 @@
 //! The `harp` prelude.
 //!
-//! This module contains the most commonly used types, traits, and functions
-//! from the `harp` library, making them easily accessible with a single `use`
-//! statement.
+//! This module re-exports the most commonly used types, traits, and functions
+//! from the `harp` library. It is designed to be glob-imported for convenience.
+//!
+//! By importing everything from this module, you can easily access all the essential
+//! components needed to build and execute computation graphs.
 //!
 //! # Example
 //!
 //! ```
 //! use harp::prelude::*;
 //!
-//! // Now you can use Tensor, ClangBackend, DType, etc. directly.
+//! // Now you can use essential types like `Tensor`, `ClangBackend`, `DType`,
+//! // and traits like `Backend` and `ToDot` directly.
 //! ```
 
-pub use crate::backends::{Backend, ClangBackend};
+pub use crate::backends::{Backend, Buffer, ClangBackend};
 pub use crate::dot::ToDot;
 pub use crate::dtype::DType;
 pub use crate::shapetracker::ShapeTracker;
