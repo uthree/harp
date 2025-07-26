@@ -79,10 +79,7 @@ impl Backend for ClangBackend {
         shape_args: &[usize],
         options: &BackendOptions,
     ) {
-        let clang_options = match options {
-            BackendOptions::Clang(opts) => opts,
-            // _ => panic!("Mismatched backend options: Expected Clang options for ClangBackend"),
-        };
+        let BackendOptions::Clang(clang_options) = options;
 
         debug!("Compiling and executing UOp kernel: {uops:?}");
         let code = self.renderer.render(uops);
