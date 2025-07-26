@@ -4,12 +4,12 @@ use crate::tensor::Tensor;
 use rustc_hash::FxHashSet;
 use std::time::{Duration, Instant};
 
-/// Identifies a specific optimization rule that can be enabled or disabled.
+/// Identifies a specific optimization rule that can be enabled or disabled by the autotuner.
+/// These should be rules that might not be beneficial in all cases.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum OptimizationRule {
-    AddZero,
-    MulOne,
-    MulZero,
+    // Example: (a.recip()).recip() => a.
+    // This might not always be faster depending on the backend (e.g., if RECIP is a single fast instruction).
     RecipRecip,
 }
 
@@ -30,6 +30,7 @@ impl Default for BackendOptions {
 /// A complete set of tunable parameters for a single compilation and execution trial.
 #[derive(Debug, Clone, Default)]
 pub struct Configuration {
+    /// The set of tunable optimization rules to be enabled for this trial.
     pub enabled_rules: FxHashSet<OptimizationRule>,
     pub backend_options: BackendOptions,
 }

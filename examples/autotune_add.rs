@@ -5,12 +5,8 @@ use harp::prelude::*;
 fn main() {
     // 1. Define the search space for the autotuner.
     let search_space = SearchSpace {
-        tunable_rules: vec![
-            OptimizationRule::AddZero,
-            OptimizationRule::MulOne,
-            OptimizationRule::MulZero,
-            OptimizationRule::RecipRecip,
-        ],
+        // Only include rules that are truly optional/tunable.
+        tunable_rules: vec![OptimizationRule::RecipRecip],
         // Define a list of backend options to try.
         tunable_backend_options: {
             let mut options = Vec::new();

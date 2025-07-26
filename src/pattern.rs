@@ -109,6 +109,11 @@ impl PatternMatcher {
         }
     }
 
+    /// Returns `true` if the matcher has no rules.
+    pub fn is_empty(&self) -> bool {
+        self.rules.is_empty() && self.children.is_empty()
+    }
+
     /// Applies all rules in the matcher to a `UOp` graph.
     pub fn apply(&self, uop: &UOp) -> UOp {
         let mut new_uop = uop.clone();

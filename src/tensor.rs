@@ -187,12 +187,19 @@ impl<T: Clone + Default + 'static + IntoDType> Tensor<T> {
                 let uop_graph = lowerizer.lower(self);
                 debug!("Generated UOp graph: {uop_graph:?}");
 
-                let optimizer = Optimizer::new(config);
-                let optimized_uop_graph = optimizer.optimize(&uop_graph);
-                debug!("Optimized UOp graph: {optimized_uop_graph:?}");
+                // --- 2-Stage Optimization ---
+                // 1. Apply baseline optimizations that are always beneficial.
+                let baseline_optimizer = Optimizer::new_baseline();
+                let baseline_optimized_uop = baseline_optimizer.optimize(&uop_graph);
+                debug!("After baseline optimization: {baseline_optimized_uop:?}");
+
+                // 2. Apply tunable optimizations based on the given configuration.
+                let tuning_optimizer = Optimizer::new_for_tuning(config);
+                let final_optimized_uop = tuning_optimizer.optimize(&baseline_optimized_uop);
+                debug!("After tuning optimization: {final_optimized_uop:?}");
 
                 let mut linearizer = Linearizer::new();
-                let kernel = linearizer.linearize(&optimized_uop_graph, self.shape());
+                let kernel = linearizer.linearize(&final_optimized_uop, self.shape());
 
                 self.0.backend.compile_and_exec(
                     &kernel,
