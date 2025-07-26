@@ -6,6 +6,7 @@ use log::debug;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::time::Duration;
 
 /// A `Backend` that uses Clang to compile and execute kernels.
 ///
@@ -78,20 +79,23 @@ impl Backend for ClangBackend {
         args: &[&Buffer],
         shape_args: &[usize],
         options: &BackendOptions,
-    ) {
+    ) -> Duration {
         let BackendOptions::Clang(clang_options) = options;
 
         debug!("Compiling and executing UOp kernel: {uops:?}");
         let code = self.renderer.render(uops);
 
         if self.log_generated_code {
-            debug!("--- Generated C Code ---\n{code}\n------------------------");
+            debug!("--- Generated C Code ---
+{code}
+------------------------");
         }
 
         let kernel = self.compiler.compile(&code, clang_options).unwrap();
         debug!("Compilation successful, executing kernel");
 
-        kernel.exec(args, shape_args);
-        debug!("Execution finished");
+        let exec_time = kernel.exec(args, shape_args);
+        debug!("Execution finished in {exec_time:?}");
+        exec_time
     }
 }

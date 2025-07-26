@@ -47,7 +47,7 @@ fn pipeline_test() {
     let options = BackendOptions::Clang(clang_options);
 
     let args = vec![&var_a, &var_b, &var_out];
-    backend.compile_and_exec(&kernel, &args, &[], &options);
+    let exec_time = backend.compile_and_exec(&kernel, &args, &[], &options);
 
-    println!("Pipeline test completed successfully!");
+    println!("Pipeline test completed successfully in {:?}!", exec_time);
 }

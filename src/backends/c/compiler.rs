@@ -6,6 +6,7 @@ use std::io::Write;
 use std::mem;
 use std::process::Command;
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 use tempfile::{Builder, TempPath};
 
 /// A raw pointer to a buffer, used for FFI.
@@ -124,16 +125,18 @@ pub struct ClangKernel {
 }
 
 impl Kernel for ClangKernel {
-    fn exec(&self, args: &[&Buffer], shape_args: &[usize]) {
+    fn exec(&self, args: &[&Buffer], shape_args: &[usize]) -> Duration {
         let raw_buffers: Vec<RawBuffer> = args
             .iter()
             .map(|v| v.backend.get_buffer_ptr(v.id))
             .collect();
 
-        // Execute the external C function.
+        // Execute the external C function and measure the time.
+        let start = Instant::now();
         unsafe {
             (self.func)(raw_buffers.as_ptr(), shape_args.as_ptr());
         }
+        start.elapsed()
     }
 
     fn metadata(&self) -> &KernelMetadata {

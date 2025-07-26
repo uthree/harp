@@ -13,6 +13,7 @@ use std::error::Error;
 use std::fmt::Debug;
 use std::ops::Deref;
 use std::rc::Rc;
+use std::time::Duration;
 
 // Re-export submodules
 pub mod c;
@@ -37,7 +38,7 @@ pub enum BackendError {
 /// Backends are responsible for memory management (`alloc`, `free`) and for
 /// orchestrating the compilation and execution of computation graphs.
 pub trait Backend: Debug {
-    /// Compiles and executes a `UOp` graph.
+    /// Compiles and executes a `UOp` graph, returning the execution duration.
     ///
     /// # Arguments
     /// * `uop` - The root of the `UOp` abstract syntax tree to execute.
@@ -50,7 +51,7 @@ pub trait Backend: Debug {
         bufs: &[&Buffer],
         shape_args: &[usize],
         options: &BackendOptions,
-    );
+    ) -> Duration;
 
     /// Allocates a memory buffer on the device managed by this backend.
     ///
@@ -100,7 +101,7 @@ pub trait Renderer {
 /// A trait representing a compiled, executable kernel.
 pub trait Kernel {
     /// Executes the kernel with the given buffers and shape arguments.
-    fn exec(&self, bufs: &[&Buffer], shape_args: &[usize]);
+    fn exec(&self, bufs: &[&Buffer], shape_args: &[usize]) -> Duration;
     /// Returns metadata about the kernel, such as argument info.
     fn metadata(&self) -> &KernelMetadata;
 }

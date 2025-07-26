@@ -2,7 +2,7 @@ use crate::backends::c::compiler::ClangCompileOptions;
 use crate::dtype::IntoDType;
 use crate::tensor::Tensor;
 use rustc_hash::FxHashSet;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// Identifies a specific optimization rule that can be enabled or disabled by the autotuner.
 /// These should be rules that might not be beneficial in all cases.
@@ -141,10 +141,8 @@ impl<'a, S: SearchStrategy> Autotuner<'a, S> {
             println!("Trying config #{count}: {config:?}");
             tensor.clear_cache();
 
-            let start = Instant::now();
-            // TODO: Add proper error handling from realize_with_config
-            let _ = tensor.realize_with_config(&config);
-            let execution_time = start.elapsed();
+            // The realization function now returns the execution time directly.
+            let (_, execution_time) = tensor.realize_with_config(&config);
 
             let result = TrialResult {
                 config,

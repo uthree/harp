@@ -19,10 +19,11 @@ use crate::shapetracker::ShapeTracker;
 use crate::uop::Op;
 use log::debug;
 use ndarray::ArrayD;
-use rustc_hash::{FxHashSet, FxHashMap};
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::cell::RefCell;
 use std::ops::{Add, Div, Mul, Neg, Sub};
 use std::rc::Rc;
+use std::time::Duration;
 
 /// Represents the operation that created a `Tensor`.
 ///
@@ -124,48 +125,44 @@ impl<T: Clone + Default + 'static + IntoDType> Tensor<T> {
 
     /// Triggers the computation of the tensor's value using the default configuration.
     ///
-    /// This is a convenience wrapper around `realize_with_config`.
+    /// This is a convenience wrapper around `realize_with_config` that discards the duration.
     pub fn realize(&self) -> Buffer {
-        self.realize_with_config(&Configuration::default())
+        self.realize_with_config(&Configuration::default()).0
     }
 
-    /// Triggers the computation of the tensor's value with a specific configuration.
+    /// Triggers the computation and returns the resulting buffer and execution duration.
     ///
-    /// This method walks the computation graph backwards from this tensor, generates
-    /// an optimized intermediate representation (`UOp`), renders it to C code,
-    /// compiles it, and executes it on the backend, all according to the provided
-    /// `Configuration`.
-    ///
-    /// The result is a `Buffer` handle, which points to the memory on the compute
-    /// device. Results are cached, so subsequent calls to `.realize()` on the same
-    /// tensor will be fast unless the cache is cleared.
-    pub fn realize_with_config(&self, config: &Configuration) -> Buffer {
+    /// This method walks the computation graph, generates and optimizes the kernel,
+    /// compiles it, and executes it. Results are cached.
+    pub fn realize_with_config(&self, config: &Configuration) -> (Buffer, Duration) {
         if let Some(ref realized) = *self.0.realized.borrow() {
             debug!("Cache hit for tensor");
-            return realized.clone();
+            return (realized.clone(), Duration::ZERO);
         }
         debug!("Realizing tensor with op: {:?}", self.0.op);
 
-        let result_var = match self.0.op {
+        let (result_var, exec_time) = match self.0.op {
             TensorOp::Load => {
                 let size: usize =
                     self.0.tracker.shape().iter().product::<usize>() * self.0.dtype.size();
                 debug!("Allocating new buffer for Load op with size: {size}");
-                self.0.backend.alloc(size, self.0.backend.clone())
+                (
+                    self.0.backend.alloc(size, self.0.backend.clone()),
+                    Duration::ZERO,
+                )
             }
             TensorOp::Unary(_) | TensorOp::Binary(_) => {
-                // Realize all source tensors first.
-                self.0
-                    .src
-                    .iter()
-                    .for_each(|t| _ = t.realize_with_config(config));
+                // Realize all source tensors first and accumulate their execution time.
+                let mut total_exec_time = Duration::ZERO;
+                self.0.src.iter().for_each(|t| {
+                    let (_, exec_time) = t.realize_with_config(config);
+                    total_exec_time += exec_time;
+                });
 
                 let size: usize =
                     self.0.tracker.shape().iter().product::<usize>() * self.0.dtype.size();
                 let output_buffer = self.0.backend.alloc(size, self.0.backend.clone());
 
-                // The arguments to the kernel are all the leaf tensors (inputs) in the graph,
-                // plus the output tensor itself.
                 let leaf_tensors = self.get_leaf_tensors();
                 let mut kernel_arg_tensors: Vec<&Tensor<T>> = leaf_tensors.iter().collect();
                 kernel_arg_tensors.push(self);
@@ -176,7 +173,6 @@ impl<T: Clone + Default + 'static + IntoDType> Tensor<T> {
                         if t.0.realized.borrow().is_some() {
                             t.0.realized.borrow().clone().unwrap()
                         } else {
-                            // This must be the output buffer.
                             output_buffer.clone()
                         }
                     })
@@ -187,13 +183,10 @@ impl<T: Clone + Default + 'static + IntoDType> Tensor<T> {
                 let uop_graph = lowerizer.lower(self);
                 debug!("Generated UOp graph: {uop_graph:?}");
 
-                // --- 2-Stage Optimization ---
-                // 1. Apply baseline optimizations that are always beneficial.
                 let baseline_optimizer = Optimizer::new_baseline();
                 let baseline_optimized_uop = baseline_optimizer.optimize(&uop_graph);
                 debug!("After baseline optimization: {baseline_optimized_uop:?}");
 
-                // 2. Apply tunable optimizations based on the given configuration.
                 let tuning_optimizer = Optimizer::new_for_tuning(config);
                 let final_optimized_uop = tuning_optimizer.optimize(&baseline_optimized_uop);
                 debug!("After tuning optimization: {final_optimized_uop:?}");
@@ -201,18 +194,18 @@ impl<T: Clone + Default + 'static + IntoDType> Tensor<T> {
                 let mut linearizer = Linearizer::new();
                 let kernel = linearizer.linearize(&final_optimized_uop, self.shape());
 
-                self.0.backend.compile_and_exec(
+                let own_exec_time = self.0.backend.compile_and_exec(
                     &kernel,
                     &kernel_args_bufs_ref,
                     &[],
                     &config.backend_options,
                 );
-                output_buffer
+                (output_buffer, total_exec_time + own_exec_time)
             }
         };
 
         *self.0.realized.borrow_mut() = Some(result_var.clone());
-        result_var
+        (result_var, exec_time)
     }
 
     /// Clears the cached realized buffer for this tensor and its ancestors.
