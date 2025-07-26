@@ -100,7 +100,7 @@ mod tests {
     #[test]
     fn test_tunable_optimization_rule() {
         let a = UOp::var("a", DType::F32);
-        let expr = a.recip().recip();
+        let expr = a.clone().recip().recip();
 
         // Test with the rule enabled
         let mut enabled_rules = FxHashSet::default();

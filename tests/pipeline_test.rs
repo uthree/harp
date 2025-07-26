@@ -1,3 +1,4 @@
+use harp::autotuner::BackendOptions;
 use harp::backends::c::compiler::ClangCompileOptions;
 use harp::backends::{Backend, ClangBackend};
 use harp::dtype::DType;
@@ -41,11 +42,12 @@ fn pipeline_test() {
     let var_out = backend.alloc(10 * 4, backend.clone());
 
     // Configure the compiler to use -O3 optimization
-    let mut options = ClangCompileOptions::default();
-    options.optimization_level = 3;
+    let mut clang_options = ClangCompileOptions::default();
+    clang_options.optimization_level = 3;
+    let options = BackendOptions::Clang(clang_options);
 
     let args = vec![&var_a, &var_b, &var_out];
-    backend.compile_and_exec(&kernel, &args, &[], &Some(options));
+    backend.compile_and_exec(&kernel, &args, &[], &options);
 
     println!("Pipeline test completed successfully!");
 }
