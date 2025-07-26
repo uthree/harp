@@ -211,8 +211,10 @@ impl CStyleRenderContext {
     fn render_expr(&mut self, uop: &UOp) -> String {
         match &uop.0.op {
             Op::Add => format!("({} + {})", self.render_expr(&uop.0.src[0]), self.render_expr(&uop.0.src[1])),
+            Op::Sub => format!("({} - {})", self.render_expr(&uop.0.src[0]), self.render_expr(&uop.0.src[1])),
             Op::Mul => format!("({} * {})", self.render_expr(&uop.0.src[0]), self.render_expr(&uop.0.src[1])),
             Op::Div => format!("({} / {})", self.render_expr(&uop.0.src[0]), self.render_expr(&uop.0.src[1])),
+            Op::Neg => format!("(-{})", self.render_expr(&uop.0.src[0])),
             Op::Recip => format!("(1.0f / {})", self.render_expr(&uop.0.src[0])),
             Op::Rem => format!("({} % {})", self.render_expr(&uop.0.src[0]), self.render_expr(&uop.0.src[1])),
             Op::Load => format!("{}[{}]", self.render_expr(&uop.0.src[0]), self.render_expr(&uop.0.src[1])),

@@ -10,8 +10,10 @@ use std::rc::Rc;
 #[derive(Clone, PartialEq, Debug)]
 pub enum Op {
     Add,
+    Sub,
     Mul,
     Div,
+    Neg,
     Recip,
     Rem,
     Load,

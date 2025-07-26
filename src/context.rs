@@ -44,7 +44,7 @@ pub fn backend(name: &str) -> Rc<dyn Backend> {
             .entry(name.to_string())
             .or_insert_with(|| match name {
                 "clang" => Rc::new(ClangBackend::new().unwrap()),
-                _ => panic!("Unsupported backend: {}", name),
+                _ => panic!("Unsupported backend: {name}"),
             })
             .clone()
     })

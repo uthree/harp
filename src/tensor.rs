@@ -1,9 +1,9 @@
 //! The core `Tensor` struct and related components.
-//! 
+//!
 //! This module defines the central data structure of the library, `Tensor`, which
 //! represents a multi-dimensional array. All operations on `Tensor`s are lazy,
 //! meaning they build up a computation graph rather than executing immediately.
-//! 
+//!
 //! The actual computation is triggered by calling the `.realize()` method, which
 //! hands off the generated computation graph to the appropriate `Backend`.
 
@@ -20,22 +20,24 @@ use log::debug;
 use ndarray::ArrayD;
 use rustc_hash::FxHashSet;
 use std::cell::RefCell;
-use std::ops::{Add, Mul};
+use std::ops::{Add, Div, Mul, Neg, Sub};
 use std::rc::Rc;
 
 /// Represents the operation that created a `Tensor`.
-/// 
+///
 /// This enum tracks the origin of a `Tensor` within the computation graph.
 #[derive(Debug, Clone)]
 pub enum TensorOp {
     /// A source tensor, typically representing data loaded from memory.
     Load,
+    /// A tensor created as the result of a unary operation.
+    Unary(Op),
     /// A tensor created as the result of a binary operation.
     Binary(Op),
 }
 
 /// The internal, reference-counted implementation of a `Tensor`.
-/// 
+///
 /// This struct holds all the metadata required to define a node in the computation graph,
 /// such as the operation that created it, its sources (parent nodes), its shape,
 /// and the backend responsible for its computation.
@@ -56,18 +58,18 @@ pub struct Tensor_<T> {
 }
 
 /// A lazy, multi-dimensional array (tensor).
-/// 
+///
 /// `Tensor` is the main user-facing struct. It's a lightweight handle (a reference-counted
 /// pointer) to the underlying tensor data (`Tensor_`). Operations on `Tensor`s are
 /// performed lazily, building up a computation graph.
-/// 
+///
 /// To execute the computation and get the result, call the `.realize()` method.
 #[derive(Clone)]
 pub struct Tensor<T>(pub Rc<Tensor_<T>>);
 
 impl<T: Clone + Default + 'static + IntoDType> Tensor<T> {
     /// Creates a new `Tensor`.
-    /// 
+    ///
     /// This is the primary constructor used to build nodes in the computation graph.
     pub fn new(
         op: TensorOp,
@@ -120,11 +122,11 @@ impl<T: Clone + Default + 'static + IntoDType> Tensor<T> {
     }
 
     /// Triggers the computation of the tensor's value.
-    /// 
+    ///
     /// This method walks the computation graph backwards from this tensor, generates
     /// an optimized intermediate representation (`UOp`), renders it to C code,
     /// compiles it, and executes it on the backend.
-    /// 
+    ///
     /// The result is a `Buffer` handle, which points to the memory on the compute
     /// device (e.g., CPU) containing the tensor's data. Results are cached, so
     /// subsequent calls to `.realize()` on the same tensor will be fast.
@@ -143,7 +145,7 @@ impl<T: Clone + Default + 'static + IntoDType> Tensor<T> {
                 debug!("Allocating new buffer for Load op with size: {size}");
                 self.0.backend.alloc(size, self.0.backend.clone())
             }
-            TensorOp::Binary(_) => {
+            TensorOp::Unary(_) | TensorOp::Binary(_) => {
                 let args: Vec<_> = self.0.src.iter().map(|t| t.realize()).collect();
                 let size: usize =
                     self.0.tracker.shape().iter().product::<usize>() * self.0.dtype.size();
@@ -186,8 +188,21 @@ impl<T: Clone + Default + 'static + IntoDType> Tensor<T> {
         )
     }
 
+    fn lazy_unary_op(&self, op: Op) -> Self {
+        Self::new(
+            TensorOp::Unary(op),
+            vec![self.clone()],
+            self.0.tracker.clone(),
+            self.0.dtype.clone(),
+            self.0.backend.clone(),
+        )
+    }
+
     fn lazy_binary_op(op: Op, a: &Self, b: &Self) -> Self {
-        assert!(Rc::ptr_eq(&a.0.backend, &b.0.backend), "Backends must be the same for binary operations");
+        assert!(
+            Rc::ptr_eq(&a.0.backend, &b.0.backend),
+            "Backends must be the same for binary operations"
+        );
         Self::new(
             TensorOp::Binary(op),
             vec![a.clone(), b.clone()],
@@ -195,6 +210,19 @@ impl<T: Clone + Default + 'static + IntoDType> Tensor<T> {
             a.0.dtype.clone(),
             a.0.backend.clone(),
         )
+    }
+
+    pub fn exp2(&self) -> Self {
+        self.lazy_unary_op(Op::Exp2)
+    }
+    pub fn log2(&self) -> Self {
+        self.lazy_unary_op(Op::Log2)
+    }
+    pub fn sqrt(&self) -> Self {
+        self.lazy_unary_op(Op::Sqrt)
+    }
+    pub fn sin(&self) -> Self {
+        self.lazy_unary_op(Op::Sin)
     }
 }
 
@@ -212,6 +240,20 @@ impl<T: Clone + Default + 'static + IntoDType> Add for Tensor<T> {
     }
 }
 
+impl<T: Clone + Default + 'static + IntoDType> Sub for &Tensor<T> {
+    type Output = Tensor<T>;
+    fn sub(self, rhs: Self) -> Self::Output {
+        Tensor::lazy_binary_op(Op::Sub, self, rhs)
+    }
+}
+
+impl<T: Clone + Default + 'static + IntoDType> Sub for Tensor<T> {
+    type Output = Tensor<T>;
+    fn sub(self, rhs: Self) -> Self::Output {
+        &self - &rhs
+    }
+}
+
 impl<T: Clone + Default + 'static + IntoDType> Mul for &Tensor<T> {
     type Output = Tensor<T>;
     fn mul(self, rhs: Self) -> Self::Output {
@@ -226,7 +268,35 @@ impl<T: Clone + Default + 'static + IntoDType> Mul for Tensor<T> {
     }
 }
 
-impl<T> ToDot for Tensor<T> {
+impl<T: Clone + Default + 'static + IntoDType> Div for &Tensor<T> {
+    type Output = Tensor<T>;
+    fn div(self, rhs: Self) -> Self::Output {
+        Tensor::lazy_binary_op(Op::Div, self, rhs)
+    }
+}
+
+impl<T: Clone + Default + 'static + IntoDType> Div for Tensor<T> {
+    type Output = Tensor<T>;
+    fn div(self, rhs: Self) -> Self::Output {
+        &self / &rhs
+    }
+}
+
+impl<T: Clone + Default + 'static + IntoDType> Neg for &Tensor<T> {
+    type Output = Tensor<T>;
+    fn neg(self) -> Self::Output {
+        self.lazy_unary_op(Op::Neg)
+    }
+}
+
+impl<T: Clone + Default + 'static + IntoDType> Neg for Tensor<T> {
+    type Output = Tensor<T>;
+    fn neg(self) -> Self::Output {
+        -&self
+    }
+}
+
+impl<T: Clone + Default + 'static + IntoDType> ToDot for Tensor<T> {
     fn to_dot(&self) -> String {
         let mut dot = String::new();
         dot.push_str("digraph G {\n");
@@ -238,7 +308,7 @@ impl<T> ToDot for Tensor<T> {
     }
 }
 
-fn build_dot_tensor<T>(
+fn build_dot_tensor<T: Clone + Default + 'static + IntoDType>(
     tensor: &Tensor<T>,
     dot: &mut String,
     visited: &mut FxHashSet<*const Tensor_<T>>,
@@ -252,7 +322,7 @@ fn build_dot_tensor<T>(
     let label = format!(
         "op: {:?}\nshape: {:?}\ndtype: {:?}",
         tensor.0.op,
-        tensor.0.tracker.shape(),
+        tensor.shape(),
         tensor.0.dtype
     )
     .replace('\n', "\\n");

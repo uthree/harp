@@ -63,6 +63,10 @@ impl<T> Lowerizer<T> {
                 let idx = tensor.0.tracker.expr_node(loop_var);
                 UOp::new(Op::Load, tensor.0.dtype.clone(), vec![buffer, idx])
             }
+            TensorOp::Unary(op) => {
+                let src = self.build_uop_graph(&tensor.0.src[0], loop_var);
+                UOp::new(op.clone(), tensor.0.dtype.clone(), vec![src])
+            }
             TensorOp::Binary(op) => {
                 let lhs = self.build_uop_graph(&tensor.0.src[0], loop_var);
                 let rhs = self.build_uop_graph(&tensor.0.src[1], loop_var);
