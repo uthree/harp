@@ -241,7 +241,7 @@ mod tests {
 
     #[test]
     fn test_apply_all_with_limit() {
-        use crate::uop::{DType, Number};
+        use crate::uop::DType;
         // Define variables
         let a: UOp = UOp::var("a", DType::I32);
         let one: UOp = 1i32.into();
@@ -255,10 +255,10 @@ mod tests {
             (y) | y.clone() + zero.clone() => y,
         });
 
-        let matcher = PatternMatcher::new(rules);
+        let _matcher = PatternMatcher::new(rules);
 
         // Input: (a * 1) + 0
-        let input_uop = (a.clone() * one.clone()) + zero.clone();
+        let _input_uop = (a.clone() * one.clone()) + zero.clone();
 
         // After one pass of `matcher.apply`, the graph becomes `a + 0`.
         // Let's trace:

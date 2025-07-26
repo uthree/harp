@@ -75,7 +75,7 @@ impl Compiler for ClangCompiler {
             let func = mem::transmute::<Symbol<KernelFunc>, Symbol<'static, KernelFunc>>(func);
 
             Ok(Rc::new(ClangKernel {
-                lib,
+                _lib: lib,
                 func,
                 metadata,
                 _so_file: so_file,
@@ -85,7 +85,7 @@ impl Compiler for ClangCompiler {
 }
 
 pub struct ClangKernel {
-    lib: Rc<Library>,
+    _lib: Rc<Library>,
     func: Symbol<'static, unsafe extern "C" fn(*const RawBuffer, *const usize)>,
     metadata: KernelMetadata,
     _so_file: tempfile::NamedTempFile,

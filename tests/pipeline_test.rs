@@ -7,7 +7,10 @@ use std::rc::Rc;
 #[test]
 fn pipeline_test() {
     let _ = env_logger::builder().is_test(true).try_init();
-    let backend = Rc::new(ClangBackend::new().unwrap());
+    let backend = ClangBackend::new()
+        .unwrap()
+        .with_generated_code_logging(true);
+    let backend = Rc::new(backend);
 
     // Configure the compiler to use -O3 optimization
     backend.compiler_options_mut().optimization_level = 3;

@@ -14,6 +14,7 @@ pub struct ClangBackend {
     compile_options: RefCell<ClangCompileOptions>,
     buffer_counter: Cell<usize>,
     buffers: RefCell<HashMap<usize, Vec<u8>>>,
+    log_generated_code: bool,
 }
 
 impl Default for ClangBackend {
@@ -34,11 +35,17 @@ impl ClangBackend {
             compile_options: RefCell::new(ClangCompileOptions::default()),
             buffer_counter: Cell::new(0),
             buffers: RefCell::new(HashMap::new()),
+            log_generated_code: false,
         })
     }
 
     pub fn compiler_options_mut(&self) -> RefMut<ClangCompileOptions> {
         self.compile_options.borrow_mut()
+    }
+
+    pub fn with_generated_code_logging(mut self, enable: bool) -> Self {
+        self.log_generated_code = enable;
+        self
     }
 }
 
@@ -61,6 +68,10 @@ impl Backend for ClangBackend {
     fn compile_and_exec(&self, uops: &[UOp], args: &[&Buffer], shape_args: &[usize]) {
         debug!("Compiling and executing UOp kernel: {uops:?}");
         let code = self.renderer.render(uops);
+
+        if self.log_generated_code {
+            debug!("--- Generated C Code ---\n{code}\n------------------------");
+        }
 
         let options = self.compile_options.borrow();
         let kernel = self.compiler.compile(&code, &options).unwrap();
