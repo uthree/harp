@@ -77,6 +77,7 @@ impl Optimizer {
 mod tests {
     use super::*;
     use crate::uop::DType;
+    use rustc_hash::FxHashSet;
 
     fn default_optimizer() -> Optimizer {
         Optimizer::new(&Configuration::default())

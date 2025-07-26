@@ -14,9 +14,61 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
 4. **レンダリング (`Vec<UOp>` -> `String`):** `Renderer`が命令リストを順に辿り、C言語などのソースコードを生成します。
 5. **コンパイル (`String` -> `Kernel`):** `Compiler`がソースコードをコンパイルし、実行可能な`Kernel`を生成します。
 
+この一連のフローは、後述する`Autotuner`によってラップされ、最適な設定を見つけるために繰り返し実行されます。
+
 ---
 
-## 主要コンポーネント
+## オートチューニングによる最適化
+
+同じ計算グラフでも、適用する最適化ルールやコンパイラのオプションによって最終的な実行パフォーマンスは大きく変わります。`harp`では、最も良い設定の組み合わせを自動的に探索する「オートチューナー」の仕組みを提供します。
+
+`Autotuner`は、指定された探索空間（Search Space）の中から、探索戦略（Search Strategy）に従って設定を一つずつ試し、計算グラフの`realize`（コンパイルと実行）にかかる時間を計測します。これを指定された回数繰り返し、最も時間が短かった設定を最良の結果として報告します。
+
+### 主要コンポーネント (`autotuner.rs`)
+
+- **`Configuration`**: 1回の試行で使われる全設定を保持する構造体。有効にする最適化ルールのセットや、Clangバックエンドに渡すコンパイルオプション（最適化レベル `-O` など）が含まれます。
+
+- **`SearchSpace`**: `Configuration`が取りうる値の範囲やリストを定義します。どの最適化ルールを有効/無効の対象にするか、どのコンパイラオプションを試すかなどを指定します。
+
+- **`SearchStrategy`**: `SearchSpace`の中から、次に試すべき`Configuration`を決定するロジックです。現在は、すべての組み合わせを試す`GridSearch`が実装されています。
+
+- **`Autotuner`**: チューニングプロセス全体を管理するメインコンポーネントです。`run`メソッドが呼び出されると、内部で以下の処理をループします。
+    1. `SearchStrategy`から次の`Configuration`を取得する。
+    2. `Tensor`のキャッシュをクリアする (`clear_cache`)。
+    3. `Tensor::realize_with_config`を呼び出し、時間を計測する。
+    4. 結果を`TrialResult`として保存する。
+
+### `realize` との連携
+
+オートチューニングを実現するため、`Tensor`の`realize`メソッドは内部的に`realize_with_config`を呼び出すように拡張されています。
+
+```rust
+// tensor.rs
+impl<T> Tensor<T> {
+    // ユーザーが通常呼び出すメソッド
+    pub fn realize(&self) -> Buffer {
+        self.realize_with_config(&Configuration::default())
+    }
+
+    // Autotunerが内部で呼び出すメソッド
+    pub fn realize_with_config(&self, config: &Configuration) -> Buffer {
+        // ...
+        // configに基づいてOptimizerを初期化
+        let optimizer = Optimizer::new(config);
+        let optimized_uop_graph = optimizer.optimize(&uop_graph);
+        // ...
+        // configのコンパイラオプションをBackendに渡す
+        self.0.backend.compile_and_exec(..., &Some(config.clang_options.clone()));
+        // ...
+    }
+}
+```
+
+この設計により、通常の利用者は設定を意識することなく`realize()`を呼び出すだけで最適化されたカーネルを実行でき、一方でパフォーマンスを追求したい場合は`Autotuner`を使って特定の計算グラフに特化した最良の設定を見つけ出すことができます。
+
+---
+
+## 主要コンポーネント詳細
 
 ### 1. `Tensor` (ユーザー向けAPI)
 
@@ -142,7 +194,13 @@ let nd_array_again: ArrayD<f32> = tensor.into();
 
     ```rust
     pub trait Backend {
-        fn compile_and_exec(&self, uops: &[UOp], args: &[&Buffer], shape_args: &[usize]);
+        fn compile_and_exec(
+            &self,
+            uops: &[UOp],
+            bufs: &[&Buffer],
+            shape_args: &[usize],
+            options: &Option<ClangCompileOptions>,
+        );
         fn alloc(&self, size: usize, backend: Rc<dyn Backend>) -> Buffer;
         // ... etc
     }
@@ -153,7 +211,6 @@ let nd_array_again: ArrayD<f32> = tensor.into();
     ```rust
     pub struct ClangBackend {
         compiler: ClangCompiler,
-        compile_options: RefCell<ClangCompileOptions>,
         // ...
     }
     ```

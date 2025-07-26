@@ -30,8 +30,8 @@ fn main() {
 
     println!("Starting autotuning for a simple tensor expression...");
 
-    // 5. Run the autotuner.
-    tuner.run(&expr);
+    // 5. Run the autotuner with a limit of 16 trials.
+    tuner.run(&expr, Some(16));
 
     // 6. Print the best result.
     if let Some(best) = tuner.best_result() {

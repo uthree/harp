@@ -131,9 +131,22 @@ impl<'a, S: SearchStrategy> Autotuner<'a, S> {
         }
     }
 
-    pub fn run<T: Clone + Default + 'static + IntoDType>(&mut self, tensor: &Tensor<T>) {
+    pub fn run<T: Clone + Default + 'static + IntoDType>(
+        &mut self,
+        tensor: &Tensor<T>,
+        limit: Option<usize>,
+    ) {
+        let mut count = 0;
         while let Some(config) = self.strategy.next_config() {
-            println!("Trying config: {config:?}");
+            if let Some(limit) = limit {
+                if count >= limit {
+                    println!("\nAutotuner reached trial limit of {limit}.");
+                    break;
+                }
+            }
+            count += 1;
+
+            println!("Trying config #{count}: {config:?}");
             tensor.clear_cache();
 
             let start = Instant::now();

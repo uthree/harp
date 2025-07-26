@@ -1,3 +1,4 @@
+use harp::backends::c::compiler::ClangCompileOptions;
 use harp::backends::{Backend, ClangBackend};
 use harp::dtype::DType;
 use harp::linearizer::Linearizer;
@@ -11,9 +12,6 @@ fn pipeline_test() {
         .unwrap()
         .with_generated_code_logging(true);
     let backend = Rc::new(backend);
-
-    // Configure the compiler to use -O3 optimization
-    backend.compiler_options_mut().optimization_level = 3;
 
     let backend: Rc<dyn Backend> = backend;
 
@@ -42,8 +40,12 @@ fn pipeline_test() {
     let var_b = backend.alloc(10 * 4, backend.clone());
     let var_out = backend.alloc(10 * 4, backend.clone());
 
+    // Configure the compiler to use -O3 optimization
+    let mut options = ClangCompileOptions::default();
+    options.optimization_level = 3;
+
     let args = vec![&var_a, &var_b, &var_out];
-    backend.compile_and_exec(&kernel, &args, &[]);
+    backend.compile_and_exec(&kernel, &args, &[], &Some(options));
 
     println!("Pipeline test completed successfully!");
 }
