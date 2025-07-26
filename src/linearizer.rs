@@ -77,7 +77,7 @@ impl Linearizer {
                 return UOp::new(node.0.op.clone(), node.0.dtype.clone(), new_srcs);
             }
             _ => {
-                let var_name = self.new_var("v");
+                let var_name = self.new_var("var");
                 let var_dtype = node.0.dtype.clone();
                 let var_uop = UOp::var(&var_name, var_dtype.clone());
                 let expr = UOp::new(node.0.op.clone(), var_dtype, new_srcs);
