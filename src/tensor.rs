@@ -11,9 +11,10 @@ use crate::backends::{Backend, Buffer};
 use crate::dot::ToDot;
 use crate::dtype::DType;
 use crate::linearizer::Linearizer;
+use crate::lowerizer::Lowerizer;
 use crate::optimizer::Optimizer;
 use crate::shapetracker::ShapeTracker;
-use crate::uop::{Op, UOp};
+use crate::uop::Op;
 use log::debug;
 use rustc_hash::FxHashSet;
 use std::cell::RefCell;
@@ -113,7 +114,7 @@ impl Tensor {
                 let mut kernel_args = args;
                 kernel_args.push(output_buffer.clone());
 
-                let uop_graph = self.to_uop();
+                let uop_graph = Lowerizer::new().lower(self);
                 debug!("Generated UOp graph: {uop_graph:?}");
 
                 let optimizer = Optimizer::new();
@@ -130,49 +131,6 @@ impl Tensor {
 
         *self.0.realized.borrow_mut() = Some(result_var.clone());
         result_var
-    }
-
-    fn to_uop(&self) -> UOp {
-        fn build_uop_graph(
-            tensor: &Tensor,
-            arg_map: &mut std::collections::HashMap<*const Tensor_, UOp>,
-            loop_var: &UOp,
-        ) -> UOp {
-            if let Some(uop) = arg_map.get(&Rc::as_ptr(&tensor.0)) {
-                return uop.clone();
-            }
-
-            let uop = match &tensor.0.op {
-                TensorOp::Load => {
-                    let buffer =
-                        UOp::var(&format!("data{}", arg_map.len()), tensor.0.dtype.clone());
-                    let idx = tensor.0.tracker.expr_node(loop_var);
-                    UOp::new(Op::Load, tensor.0.dtype.clone(), vec![buffer, idx])
-                }
-                TensorOp::Binary(op) => {
-                    let lhs = build_uop_graph(&tensor.0.src[0], arg_map, loop_var);
-                    let rhs = build_uop_graph(&tensor.0.src[1], arg_map, loop_var);
-                    UOp::new(op.clone(), tensor.0.dtype.clone(), vec![lhs, rhs])
-                }
-            };
-            arg_map.insert(Rc::as_ptr(&tensor.0), uop.clone());
-            uop
-        }
-
-        let mut arg_map = std::collections::HashMap::new();
-        let loop_var = UOp::var("i", DType::U64);
-        let result_expr = build_uop_graph(self, &mut arg_map, &loop_var);
-
-        let out_idx = arg_map.len();
-        let output_buffer = UOp::var(&format!("data{out_idx}"), self.0.dtype.clone());
-        let idx = self.0.tracker.expr_node(&loop_var);
-        
-
-        UOp::new(
-            Op::Store,
-            DType::Unit,
-            vec![output_buffer, idx, result_expr],
-        )
     }
 
     pub fn reshape(&self, new_shape: Vec<usize>) -> Self {
