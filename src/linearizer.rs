@@ -18,6 +18,7 @@ pub struct Linearizer {
     node_map: FxHashMap<*const crate::uop::UOp_, UOp>,
     kernel_body: Vec<UOp>,
     var_counter: usize,
+    loop_var_counter: usize,
 }
 
 impl Default for Linearizer {
@@ -33,6 +34,7 @@ impl Linearizer {
             node_map: FxHashMap::default(),
             kernel_body: Vec::new(),
             var_counter: 0,
+            loop_var_counter: 0,
         }
     }
 
@@ -41,6 +43,13 @@ impl Linearizer {
         let name = format!("{}{}", prefix, self.var_counter);
         self.var_counter += 1;
         name
+    }
+
+    /// Generates a new unique loop variable name (e.g., "lidx0", "lidx1").
+    fn new_loop_var(&mut self) -> UOp {
+        let name = format!("lidx{}", self.loop_var_counter);
+        self.loop_var_counter += 1;
+        UOp::var(&name, crate::dtype::DType::U64)
     }
 
     /// Processes a `UOp` node from the computation graph and adds its linearized
@@ -96,7 +105,7 @@ impl Linearizer {
         debug!("Linearizing UOp graph: {root:?}");
 
         // 1. Create loop variable and limit.
-        let loop_var = UOp::var("i", crate::dtype::DType::U64);
+        let loop_var = self.new_loop_var();
         let n_elements: usize = shape.iter().product();
         let loop_limit = UOp::from(n_elements as u64);
 
@@ -104,7 +113,7 @@ impl Linearizer {
         let mut linearized_kernel = vec![UOp::new(
             Op::LoopStart,
             crate::dtype::DType::Unit,
-            vec![loop_var, loop_limit],
+            vec![loop_var.clone(), loop_limit],
         )];
 
         // 3. The root of the graph must be a `Store` operation.
@@ -122,12 +131,15 @@ impl Linearizer {
         linearized_kernel.append(&mut self.kernel_body);
 
         // 6. Recreate the final `Store` instruction with the processed value.
+        // The original index expression used "i", we need to replace it with the new loop_var.
         let dest_buffer = root.0.src[0].clone();
-        let index = root.0.src[1].clone();
+        let original_index = root.0.src[1].clone();
+        let new_index = self.replace_loop_var(original_index, &loop_var);
+
         let final_store = UOp::new(
             Op::Store,
             crate::dtype::DType::Unit,
-            vec![dest_buffer, index, processed_value],
+            vec![dest_buffer, new_index, processed_value],
         );
         linearized_kernel.push(final_store);
 
@@ -136,5 +148,21 @@ impl Linearizer {
 
         debug!("Linearized Kernel: {linearized_kernel:?}");
         linearized_kernel
+    }
+
+    /// Replaces instances of the old loop variable "i" with the new one.
+    fn replace_loop_var(&self, uop: UOp, new_loop_var: &UOp) -> UOp {
+        if let Op::Var(name) = &uop.0.op {
+            if name == "i" {
+                return new_loop_var.clone();
+            }
+        }
+        let new_srcs = uop
+            .0
+            .src
+            .iter()
+            .map(|src| self.replace_loop_var(src.clone(), new_loop_var))
+            .collect();
+        UOp::new(uop.0.op.clone(), uop.0.dtype.clone(), new_srcs)
     }
 }

@@ -10,8 +10,8 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
 
 1. **グラフ構築 (`Tensor` -> `UOp`グラフ):** `Tensor`の演算履歴から、有向非巡回グラフ(DAG)構造の`UOp`を構築します。
 2. **最適化 (`UOp`グラフ -> `UOp`グラフ):** `Optimizer`が代数法則の適用などを行い、`UOp`グラフを最適化します。
-3. **Lowering (`UOp`グラフ -> `UOp`ツリー):** 最適化されたグラフを、ループなどの構造を考慮した**抽象構文木(AST)ツリー**に変換します。このステップで、共有ノードは変数への代入などに置き換えられます。
-4. **レンダリング (`UOp`ツリー -> `String`):** `Renderer`が`UOp`ツリーを再帰的に辿り、C言語などのソースコードを生成します。
+3. **Linearization (`UOp`グラフ -> `Vec<UOp>`):** 最適化されたグラフを、**リニア（線形）な命令のリスト**に変換します。このステップで、共有ノードは一時変数への代入に置き換えられ、ループ構造は`LoopStart`/`LoopEnd`命令で表現されます。
+4. **レンダリング (`Vec<UOp>` -> `String`):** `Renderer`が命令リストを順に辿り、C言語などのソースコードを生成します。
 5. **コンパイル (`String` -> `Kernel`):** `Compiler`がソースコードをコンパイルし、実行可能な`Kernel`を生成します。
 
 ---
@@ -55,12 +55,12 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
 
     // UOpが表現する操作の種類
     pub enum Op {
-        Add, Mul, Recip, Rem, // Binary
+        Add, Mul, Div, Recip, Rem, // Binary
         Exp2, Log2, Sin, Sqrt, // Unary
         Load, Store,
         Const(Number),
         Var(String),
-        Loop, Block, If,
+        LoopStart, LoopEnd, Block, If,
         Cast(DType),
     }
 
