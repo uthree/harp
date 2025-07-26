@@ -95,3 +95,26 @@ macro_rules! impl_number_dtype {
 }
 
 impl_number_dtype!(U8, U16, U32, U64, I8, I16, I32, I64, F32, F64);
+
+pub trait IntoDType {
+    fn into_dtype() -> DType;
+}
+
+macro_rules! impl_into_dtype {
+    ($t:ty, $v:ident) => {
+        impl IntoDType for $t {
+            fn into_dtype() -> DType {
+                DType::$v
+            }
+        }
+    };
+}
+
+impl_into_dtype!(f32, F32);
+impl_into_dtype!(f64, F64);
+impl_into_dtype!(i32, I32);
+impl_into_dtype!(i64, I64);
+impl_into_dtype!(u8, U8);
+impl_into_dtype!(u16, U16);
+impl_into_dtype!(u32, U32);
+impl_into_dtype!(u64, U64);

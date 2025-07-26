@@ -23,36 +23,71 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
 配列を表す中心的な構造体。ユーザーはこの `Tensor` に対して演算を行います。
 本ライブラリはシングルスレッドでの使用を前提としており、`Rc`と`RefCell`を用いて内部状態を管理します。
 
+`Tensor`はジェネリック構造体 `Tensor<T>` であり、`f32`, `f64`など様々な数値型を扱うことができます。
+
 - **具体的な構造 (Rust):**
 
     ```rust
-    use crate::shapetracker::ShapeTracker;
-    use crate::tensor::TensorOp;
-    use std::cell::RefCell;
-    use std::rc::Rc;
-
-    struct Tensor_ {
-        op: TensorOp,
-        src: Vec<Tensor>,
-        tracker: ShapeTracker,
-        dtype: DType,
-        backend: Rc<dyn Backend>,
-        realized: RefCell<Option<Variable>>,
+    pub struct Tensor_<T> {
+        pub op: TensorOp,
+        pub src: Vec<Tensor<T>>,
+        pub tracker: ShapeTracker,
+        pub dtype: DType,
+        pub backend: Rc<dyn Backend>,
+        pub realized: RefCell<Option<Buffer>>,
+        phantom: std::marker::PhantomData<T>,
     }
 
     #[derive(Clone)]
-    pub struct Tensor(Rc<Tensor_>);
+    pub struct Tensor<T>(pub Rc<Tensor_<T>>);
     ```
 
-### 2. `UOp` (抽象構文木)
+#### `ndarray`との連携
+
+利便性のため、`Tensor<T>`は`ndarray::ArrayD<T>`との相互変換をサポートしています。`From`トレイトが実装されているため、`.into()`メソッドでシームレスに変換できます。
+
+```rust
+use ndarray::ArrayD;
+use harp::prelude::Tensor;
+
+// ndarray -> Tensor
+let nd_array: ArrayD<f32> = ndarray::arr2(&[[1.0, 2.0], [3.0, 4.0]]).into_dyn();
+let tensor: Tensor<f32> = nd_array.into();
+
+// Tensor -> ndarray
+let nd_array_again: ArrayD<f32> = tensor.into();
+```
+
+### 2. `Context` (実行コンテキスト)
+
+計算を実行するための、スレッドごとの設定や環境を管理するモジュールです。
+主に、バックエンドのインスタンスをスレッドローカルなレジストリで管理する役割を担います。
+
+#### `backend()` ファクトリ関数
+
+`harp::backend("clang")`のように文字列でバックエンドを指定すると、対応するインスタンス(`Rc<dyn Backend>`)を取得できます。
+同じスレッド内でこの関数を複数回呼び出しても、常に同じインスタンスが返されるため、複数のテンソルが意図せず異なるバックエンドを持ってしまう問題を回避できます。
+
+- **具体的な構造 (Rust):**
+
+    ```rust
+    // context.rs
+    thread_local! {
+        static BACKEND_REGISTRY: RefCell<HashMap<String, Rc<dyn Backend>>> = RefCell::new(HashMap::new());
+    }
+
+    pub fn backend(name: &str) -> Rc<dyn Backend> {
+        // ... レジストリから取得または新規作成 ...
+    }
+    ```
+
+### 3. `UOp` (抽象構文木)
 
 `Tensor`の計算グラフから変換される中間表現(IR)。ノードの構造(`UOp_`)と操作の種類(`Op`)が分離されており、拡張性が高い。当初はDAGとして構築され、Loweringの過程でツリー構造に変換されます。
 
 - **具体的な構造 (Rust):**
 
     ```rust
-    use std::rc::Rc;
-
     // UOpが表現する操作の種類
     pub enum Op {
         Add, Mul, Div, Recip, Rem, // Binary
@@ -76,90 +111,56 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
     pub struct UOp(pub Rc<UOp_>);
     ```
 
-### 3. `Variable` (メモリバッファ)
+### 4. `Buffer` (メモリバッファ)
 
-デバイス（CPU/GPU）上のメモリバッファへの参照。
+デバイス（CPU/GPU）上のメモリバッファへの参照。以前の`Variable`から改名されました。
 
 - **具体的な構造 (Rust):**
 
     ```rust
-    use std::rc::Rc;
-
-    pub struct Variable_ {
+    pub struct Buffer_ {
         id: usize,
         size: usize,
         backend: Rc<dyn Backend>,
     }
 
-    impl Drop for Variable_ {
+    impl Drop for Buffer_ {
         fn drop(&mut self) {
             self.backend.free(self.id);
         }
     }
 
     #[derive(Clone)]
-    pub struct Variable(Rc<Variable_>);
+    pub struct Buffer(Rc<Buffer_>);
     ```
 
-### 4. `Backend` (実行エンジン)
+### 5. `Backend` (実行エンジン)
 
-`UOp`グラフのコンパイルから実行までを統括するオーケストレーターです。
+`UOp`グラフのコンパイルから実行までを統括するオーケストレーターです。`Context`を通じて取得されます。
 
-#### `backend::get` ファクトリ
-
-ユーザーが `"cpu"` や `"cuda"` のような文字列で、対応する`Backend`のインスタンス(`Rc<dyn Backend>`)を簡単に取得できるようにする機能です。
-
-#### `Backend`トレイトと高レベルAPI
-
-`Backend`は、バックエンドの種類（CPU, GPUなど）に依らない共通の操作を定義する、汎用的なインターフェースです。
-
-- **具体的な構造 (Rust):**
+- **`Backend`トレイトと高レベルAPI:**
 
     ```rust
     pub trait Backend {
-        fn compile_and_exec(&self, uop: &UOp, args: &[&Variable]);
-        fn alloc(&self, size: usize, backend: Rc<dyn Backend>) -> Variable;
+        fn compile_and_exec(&self, uops: &[UOp], args: &[&Buffer], shape_args: &[usize]);
+        fn alloc(&self, size: usize, backend: Rc<dyn Backend>) -> Buffer;
         // ... etc
     }
     ```
 
-#### `ClangBackend`実装例
-
-`ClangBackend`のような具体的なバックエンドは、`Backend`トレイトを実装すると同時に、自身に固有の設定メソッドを提供します。これにより、汎用的な操作はトレイト経由で、バックエンド固有の設定は具象型経由で、というように責務を分離します。
-内部可変性には`RefCell`を使用します。
-
-- **具体的な構造 (Rust):**
+- **`ClangBackend`実装例:**
 
     ```rust
-    use std::cell::{Cell, RefCell};
-
     pub struct ClangBackend {
         compiler: ClangCompiler,
         compile_options: RefCell<ClangCompileOptions>,
-        buffer_counter: Cell<usize>,
-        // ...
-    }
-
-    impl ClangBackend {
-        // 固有の設定メソッド
-        pub fn compiler_options_mut(&self) -> std::cell::RefMut<ClangCompileOptions> {
-            self.compile_options.borrow_mut()
-        }
-    }
-
-    impl Backend for ClangBackend {
         // ...
     }
     ```
 
-### 5. `Compiler` (コンパイラ)
+### 6. `Compiler` (コンパイラ)
 
 `Renderer`が生成したソースコードをコンパイルし、実行可能な`Kernel`を生成します。
-
-- **責務**:
-  - 自身の利用可能性を報告する。
-  - **自身専用のコンパイルオプション**と共にソースコードを受け取り、`Kernel`を生成する。
-  - `Kernel`に、実行に必要なメタデータ（引数情報、ワークサイズ等）を焼き込む。
 
 - **具体的な構造 (Rust):**
 
@@ -169,49 +170,17 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
         fn is_available(&self) -> bool;
         fn compile(&self, source_code: &str, options: &Self::Options) -> Result<Rc<dyn Kernel>, Error>;
     }
-
-    #[derive(Clone, Default)]
-    pub struct ClangCompileOptions { /* ... */ }
-    pub struct ClangCompiler;
-    impl Compiler for ClangCompiler {
-        type Options = ClangCompileOptions;
-        // ...
-    }
     ```
 
-### 6. `Kernel` (実行可能カーネル)
+### 7. `Kernel` (実行可能カーネル)
 
 コンパイル済みの、特定の計算を実行するための自己完結型オブジェクト。
-
-- **責務**:
-  - 実行に必要な引数のメタデータ（データ型、サイズ等）を内部に保持する。
-  - `exec`が呼ばれた際に、受け取った引数がメタデータと一致するかを検証する。
-  - 検証後、コンパイル済みのコードを安全に実行する。
-
-- **メタデータ構造 (Rust):**
-
-    ```rust
-    pub struct ArgInfo { pub dtype: DType, pub size: usize }
-    pub struct KernelMetadata {
-        pub args_info: Vec<ArgInfo>,
-        pub global_work_size: usize,
-        pub local_work_size: usize,
-    }
-    ```
 
 - **具体的な構造 (Rust):**
 
     ```rust
     pub trait Kernel {
-        fn exec(&self, args: &[&Variable]);
+        fn exec(&self, args: &[&Buffer], shape_args: &[usize]);
         fn metadata(&self) -> &KernelMetadata;
-    }
-
-    pub struct ClangKernel {
-        // ...
-        metadata: KernelMetadata,
-    }
-    impl Kernel for ClangKernel {
-        // ...
     }
     ```

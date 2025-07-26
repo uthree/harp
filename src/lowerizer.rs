@@ -5,24 +5,24 @@
 //! referred to as "lowering," as it moves from a higher-level abstraction (`Tensor`)
 //! to a lower-level, more explicit representation (`UOp`).
 
-use crate::tensor::{Tensor, TensorOp};
+use crate::tensor::{Tensor, Tensor_, TensorOp};
 use crate::uop::{Op, UOp};
 use crate::dtype::DType;
 use std::collections::HashMap;
 use std::rc::Rc;
 
 /// A struct that holds the state for the lowering process.
-pub struct Lowerizer {
-    arg_map: HashMap<*const crate::tensor::Tensor_, UOp>,
+pub struct Lowerizer<T> {
+    arg_map: HashMap<*const Tensor_<T>, UOp>,
 }
 
-impl Default for Lowerizer {
+impl<T> Default for Lowerizer<T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Lowerizer {
+impl<T> Lowerizer<T> {
     /// Creates a new `Lowerizer`.
     pub fn new() -> Self {
         Self {
@@ -34,7 +34,7 @@ impl Lowerizer {
     ///
     /// This function traverses the `Tensor` graph, starting from the given root,
     /// and constructs an equivalent `UOp` graph that represents the computation.
-    pub fn lower(&mut self, tensor: &Tensor) -> UOp {
+    pub fn lower(&mut self, tensor: &Tensor<T>) -> UOp {
         let loop_var = UOp::var("i", DType::U64);
         let result_expr = self.build_uop_graph(tensor, &loop_var);
 
@@ -50,7 +50,7 @@ impl Lowerizer {
     }
 
     /// Recursively builds the `UOp` graph from the `Tensor` graph.
-    fn build_uop_graph(&mut self, tensor: &Tensor, loop_var: &UOp) -> UOp {
+    fn build_uop_graph(&mut self, tensor: &Tensor<T>, loop_var: &UOp) -> UOp {
         let tensor_ptr = Rc::as_ptr(&tensor.0);
         if let Some(uop) = self.arg_map.get(&tensor_ptr) {
             return uop.clone();

@@ -1,4 +1,5 @@
 use harp::prelude::*;
+use harp::dtype::IntoDType;
 use std::rc::Rc;
 
 fn main() {
@@ -6,19 +7,19 @@ fn main() {
     let backend = Rc::new(ClangBackend::new().expect("Failed to create ClangBackend"));
 
     // 2. 2つの入力テンソルを作成します。
-    let t1 = Tensor::new(
+    let t1: Tensor<f32> = Tensor::new(
         TensorOp::Load,
         vec![],
         ShapeTracker::new(vec![10, 20]),
-        DType::F32,
+        f32::into_dtype(),
         backend.clone(),
     );
 
-    let t2 = Tensor::new(
+    let t2: Tensor<f32> = Tensor::new(
         TensorOp::Load,
         vec![],
         ShapeTracker::new(vec![10, 20]),
-        DType::F32,
+        f32::into_dtype(),
         backend.clone(),
     );
 

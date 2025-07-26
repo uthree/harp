@@ -1,15 +1,16 @@
 use harp::prelude::*;
+use harp::dtype::IntoDType;
 use std::rc::Rc;
 
 fn main() {
     let backend = Rc::new(ClangBackend::new().expect("Failed to create ClangBackend"));
 
     // 元となるテンソルを作成
-    let t1 = Tensor::new(
+    let t1: Tensor<f32> = Tensor::new(
         TensorOp::Load,
         vec![],
         ShapeTracker::new(vec![10, 20]),
-        DType::F32,
+        f32::into_dtype(),
         backend.clone(),
     );
 

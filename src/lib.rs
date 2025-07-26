@@ -23,39 +23,28 @@
 //!
 //! ```rust
 //! use harp::prelude::*;
-//! use std::rc::Rc;
 //!
-//! // 1. Initialize a backend. This requires Clang to be installed.
-//! let backend = Rc::new(ClangBackend::new().expect("Clang backend failed to initialize."));
+//! // 1. Get a backend instance for the current thread.
+//! let backend = backend("clang");
 //!
-//! // 2. Create two source tensors. Data is not allocated yet.
-//! let a = Tensor::new(
-//!     TensorOp::Load,
-//!     vec![],
-//!     ShapeTracker::new(vec![10]),
-//!     DType::F32,
-//!     backend.clone(),
-//! );
-//! let b = Tensor::new(
-//!     TensorOp::Load,
-//!     vec![],
-//!     ShapeTracker::new(vec![10]),
-//!     DType::F32,
-//!     backend.clone(),
-//! );
+//! // 2. Create two source tensors from data.
+//! let a = Tensor::from_vec(vec![1.0f32; 10], &[10]);
+//! let b = Tensor::from_vec(vec![2.0f32; 10], &[10]);
 //!
 //! // 3. Perform an operation. This builds the graph but doesn't compute anything.
 //! let c = &a + &b;
 //!
 //! // 4. Realize the result. This triggers the entire pipeline:
 //! //    Graph -> Optimization -> Lowering -> Code Generation -> Compilation -> Execution
-//! let result_buffer = c.realize();
+//! let result_tensor = c.realize();
 //!
-//! // The result_buffer now holds a handle to the memory containing the result of the addition.
-//! // (Note: Accessing the data within the buffer would require an additional API, e.g., `copy_to_host`).
+//! // 5. Copy the result back to the host and verify.
+//! let result_vec = c.to_vec();
+//! assert_eq!(result_vec, vec![3.0f32; 10]);
 //! ```
 
 pub mod backends;
+pub mod context;
 pub mod dot;
 pub mod dtype;
 pub mod linearizer;

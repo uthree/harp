@@ -1,6 +1,6 @@
 use harp::backends::{Backend, ClangBackend};
 use harp::dot::ToDot;
-use harp::dtype::DType;
+use harp::dtype::IntoDType;
 use harp::shapetracker::ShapeTracker;
 use harp::tensor::{Tensor, TensorOp};
 use std::rc::Rc;
@@ -12,18 +12,18 @@ fn test_tensor_addition() {
     let shape = vec![10];
 
     // Create two 'leaf' tensors from loaded data
-    let t1 = Tensor::new(
+    let t1: Tensor<f32> = Tensor::new(
         TensorOp::Load,
         vec![],
         ShapeTracker::new(shape.clone()),
-        DType::F32,
+        f32::into_dtype(),
         backend.clone(),
     );
-    let t2 = Tensor::new(
+    let t2: Tensor<f32> = Tensor::new(
         TensorOp::Load,
         vec![],
         ShapeTracker::new(shape.clone()),
-        DType::F32,
+        f32::into_dtype(),
         backend.clone(),
     );
 
@@ -35,7 +35,7 @@ fn test_tensor_addition() {
     assert_eq!(t3.0.src.len(), 2);
     assert!(Rc::ptr_eq(&t3.0.src[0].0, &t1.0));
     assert!(Rc::ptr_eq(&t3.0.src[1].0, &t2.0));
-    assert_eq!(t3.0.tracker.shape(), &shape);
+    assert_eq!(t3.shape(), &shape);
 
     // Realize the result
     // This will trigger the compilation and execution
@@ -56,18 +56,18 @@ fn test_tensor_multiplication() {
     let backend: Rc<dyn Backend> = Rc::new(ClangBackend::new().unwrap());
     let shape = vec![10];
 
-    let t1 = Tensor::new(
+    let t1: Tensor<f32> = Tensor::new(
         TensorOp::Load,
         vec![],
         ShapeTracker::new(shape.clone()),
-        DType::F32,
+        f32::into_dtype(),
         backend.clone(),
     );
-    let t2 = Tensor::new(
+    let t2: Tensor<f32> = Tensor::new(
         TensorOp::Load,
         vec![],
         ShapeTracker::new(shape.clone()),
-        DType::F32,
+        f32::into_dtype(),
         backend.clone(),
     );
 
@@ -77,7 +77,7 @@ fn test_tensor_multiplication() {
     assert_eq!(t3.0.src.len(), 2);
     assert!(Rc::ptr_eq(&t3.0.src[0].0, &t1.0));
     assert!(Rc::ptr_eq(&t3.0.src[1].0, &t2.0));
-    assert_eq!(t3.0.tracker.shape(), &shape);
+    assert_eq!(t3.shape(), &shape);
 
     let _result_variable = t3.realize();
 
@@ -93,17 +93,17 @@ fn test_tensor_reshape() {
     let original_shape = vec![10, 20];
     let new_shape = vec![200];
 
-    let t1 = Tensor::new(
+    let t1: Tensor<f32> = Tensor::new(
         TensorOp::Load,
         vec![],
         ShapeTracker::new(original_shape.clone()),
-        DType::F32,
+        f32::into_dtype(),
         backend.clone(),
     );
 
     let t2 = t1.reshape(new_shape.clone());
 
-    assert_eq!(t2.0.tracker.shape(), &new_shape);
+    assert_eq!(t2.shape(), &new_shape);
     // Check that the underlying operation and sources are unchanged
     assert!(matches!(t2.0.op, TensorOp::Load));
     assert!(t2.0.src.is_empty());
