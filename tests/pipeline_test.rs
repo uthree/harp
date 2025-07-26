@@ -1,6 +1,6 @@
 use harp::backends::{Backend, ClangBackend};
 use harp::dtype::DType;
-use harp::lower;
+use harp::linearizer::Linearizer;
 use harp::uop::{Op, UOp};
 use std::rc::Rc;
 
@@ -24,21 +24,23 @@ fn pipeline_test() {
 
     // Store the result
     let buf_out = UOp::var("out", DType::F32);
-    let store_op = UOp::new(Op::Store, DType::Unit, vec![buf_out, loop_idx, add_op]);
+    let store_op = UOp::new(
+        Op::Store,
+        DType::Unit,
+        vec![buf_out.clone(), loop_idx, add_op],
+    );
 
-    // Loop over the operation
-    let loop_op = UOp::new(Op::Loop, DType::Unit, vec![10u64.into(), store_op]);
+    // Linearize the UOp graph to a kernel
+    let mut linearizer = Linearizer::new();
+    let kernel = linearizer.linearize(&store_op, &[10]);
 
-    // Lower the UOp graph to an AST
-    let ast = lower::lower(&loop_op);
-
-    // 実行に必要なVariableを作成
+    // Create the necessary variables for execution
     let var_a = backend.alloc(10 * 4, backend.clone());
     let var_b = backend.alloc(10 * 4, backend.clone());
     let var_out = backend.alloc(10 * 4, backend.clone());
 
     let args = vec![&var_a, &var_b, &var_out];
-    backend.compile_and_exec(&ast, &args);
+    backend.compile_and_exec(&kernel, &args);
 
     println!("Pipeline test completed successfully!");
 }

@@ -58,7 +58,7 @@
 pub mod backends;
 pub mod dot;
 pub mod dtype;
-pub mod lower;
+pub mod linearizer;
 pub mod optimizer;
 pub mod pattern;
 pub mod prelude;

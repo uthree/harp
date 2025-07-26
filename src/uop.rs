@@ -11,6 +11,7 @@ use std::rc::Rc;
 pub enum Op {
     Add,
     Mul,
+    Div,
     Recip,
     Rem,
     Load,
@@ -25,7 +26,8 @@ pub enum Op {
     Capture(usize), // Marker for pattern matching
 
     // Controll flow
-    Loop,
+    LoopStart,
+    LoopEnd,
     Block,
     If,
 }
@@ -179,7 +181,9 @@ impl Div for UOp {
 impl Div<&UOp> for &UOp {
     type Output = UOp;
     fn div(self, rhs: &UOp) -> UOp {
-        self * &rhs.clone().recip()
+        // TODO: Implement proper dtype promotion
+        let dtype = self.0.dtype.clone();
+        UOp::new(Op::Div, dtype, vec![self.clone(), rhs.clone()])
     }
 }
 

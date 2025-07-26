@@ -10,7 +10,7 @@
 use crate::backends::{Backend, Buffer};
 use crate::dot::ToDot;
 use crate::dtype::DType;
-use crate::lower;
+use crate::linearizer::Linearizer;
 use crate::optimizer::Optimizer;
 use crate::shapetracker::ShapeTracker;
 use crate::uop::{Op, UOp};
@@ -113,16 +113,17 @@ impl Tensor {
                 let mut kernel_args = args;
                 kernel_args.push(output_buffer.clone());
 
-                let loop_op = self.to_uop();
-                debug!("Generated UOp graph: {loop_op:?}");
+                let uop_graph = self.to_uop();
+                debug!("Generated UOp graph: {uop_graph:?}");
 
                 let optimizer = Optimizer::new();
-                let optimized_loop_op = optimizer.optimize(&loop_op);
-                debug!("Optimized UOp graph: {optimized_loop_op:?}");
+                let optimized_uop_graph = optimizer.optimize(&uop_graph);
+                debug!("Optimized UOp graph: {optimized_uop_graph:?}");
 
-                let ast = lower::lower(&optimized_loop_op);
+                let mut linearizer = Linearizer::new();
+                let kernel = linearizer.linearize(&optimized_uop_graph, self.0.tracker.shape());
                 let args_ref: Vec<&Buffer> = kernel_args.iter().collect();
-                self.0.backend.compile_and_exec(&ast, &args_ref);
+                self.0.backend.compile_and_exec(&kernel, &args_ref);
                 output_buffer
             }
         };
@@ -165,17 +166,12 @@ impl Tensor {
         let out_idx = arg_map.len();
         let output_buffer = UOp::var(&format!("data{out_idx}"), self.0.dtype.clone());
         let idx = self.0.tracker.expr_node(&loop_var);
-        let store = UOp::new(
+        
+
+        UOp::new(
             Op::Store,
             DType::Unit,
             vec![output_buffer, idx, result_expr],
-        );
-
-        let n_elements = self.0.tracker.shape().iter().product::<usize>();
-        UOp::new(
-            Op::Loop,
-            DType::Unit,
-            vec![(n_elements as u64).into(), store],
         )
     }
 

@@ -58,9 +58,9 @@ impl Backend for ClangBackend {
         self.buffers.borrow_mut().get_mut(&id).unwrap().as_mut_ptr()
     }
 
-    fn compile_and_exec(&self, uop: &UOp, args: &[&Buffer]) {
-        debug!("Compiling and executing UOp AST: {uop:?}");
-        let code = self.renderer.render(uop);
+    fn compile_and_exec(&self, uops: &[UOp], args: &[&Buffer]) {
+        debug!("Compiling and executing UOp kernel: {uops:?}");
+        let code = self.renderer.render(uops);
 
         let options = self.compile_options.borrow();
         let kernel = self.compiler.compile(&code, &options).unwrap();

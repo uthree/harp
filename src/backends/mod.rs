@@ -41,7 +41,7 @@ pub trait Backend: Debug {
     /// # Arguments
     /// * `uop` - The root of the `UOp` abstract syntax tree to execute.
     /// * `bufs` - A slice of `Buffer` handles that are passed as arguments to the kernel.
-    fn compile_and_exec(&self, uop: &UOp, bufs: &[&Buffer]);
+    fn compile_and_exec(&self, uops: &[UOp], bufs: &[&Buffer]);
 
     /// Allocates a memory buffer on the device managed by this backend.
     ///
@@ -85,7 +85,7 @@ pub trait Compiler {
 /// A trait for rendering a `UOp` tree into source code.
 pub trait Renderer {
     /// Renders a `UOp` tree into a source code string.
-    fn render(&self, uop: &UOp) -> String;
+    fn render(&self, uops: &[UOp]) -> String;
 }
 
 /// A trait representing a compiled, executable kernel.
