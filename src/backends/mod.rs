@@ -7,6 +7,7 @@
 //! implementations of `Backend` can target different hardware or compilation toolchains.
 //! Currently, a C-based backend using Clang (`ClangBackend`) is provided.
 
+use crate::backends::c::compiler::ClangCompileOptions;
 use crate::uop::UOp;
 use std::error::Error;
 use std::fmt::Debug;
@@ -42,7 +43,14 @@ pub trait Backend: Debug {
     /// * `uop` - The root of the `UOp` abstract syntax tree to execute.
     /// * `bufs` - A slice of `Buffer` handles that are passed as arguments to the kernel.
     /// * `shape_args` - A slice of `usize` values representing shape-related arguments.
-    fn compile_and_exec(&self, uops: &[UOp], bufs: &[&Buffer], shape_args: &[usize]);
+    /// * `options` - Compiler-specific options for this execution.
+    fn compile_and_exec(
+        &self,
+        uops: &[UOp],
+        bufs: &[&Buffer],
+        shape_args: &[usize],
+        options: &Option<ClangCompileOptions>,
+    );
 
     /// Allocates a memory buffer on the device managed by this backend.
     ///

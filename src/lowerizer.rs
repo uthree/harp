@@ -12,21 +12,29 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 /// A struct that holds the state for the lowering process.
-pub struct Lowerizer<T> {
+pub struct Lowerizer<'a, T> {
+    // Maps a Tensor's memory address to its corresponding `UOp::Var` (e.g., "data0").
     arg_map: HashMap<*const Tensor_<T>, UOp>,
+    phantom: std::marker::PhantomData<&'a T>,
 }
 
-impl<T> Default for Lowerizer<T> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<T> Lowerizer<T> {
+impl<'a, T: 'a> Lowerizer<'a, T> {
     /// Creates a new `Lowerizer`.
-    pub fn new() -> Self {
+    ///
+    /// # Arguments
+    ///
+    /// * `kernel_args` - A slice of `Tensor`s that will be the arguments to the
+    ///   generated kernel. The order of tensors in this slice determines the
+    ///   index in the `bufs` array (e.g., `bufs[0]`, `bufs[1]`).
+    pub fn new(kernel_args: &[&'a Tensor<T>]) -> Self {
+        let mut arg_map = HashMap::new();
+        for (i, tensor) in kernel_args.iter().enumerate() {
+            let buffer = UOp::var(&format!("data{i}"), tensor.0.dtype.clone());
+            arg_map.insert(Rc::as_ptr(&tensor.0), buffer);
+        }
         Self {
-            arg_map: HashMap::new(),
+            arg_map,
+            phantom: std::marker::PhantomData,
         }
     }
 
@@ -34,12 +42,14 @@ impl<T> Lowerizer<T> {
     ///
     /// This function traverses the `Tensor` graph, starting from the given root,
     /// and constructs an equivalent `UOp` graph that represents the computation.
-    pub fn lower(&mut self, tensor: &Tensor<T>) -> UOp {
+    /// The final `UOp` will be a `Store` operation into the output buffer corresponding
+    /// to the root `tensor`.
+    pub fn lower(&mut self, tensor: &'a Tensor<T>) -> UOp {
         let loop_var = UOp::var("i", DType::U64);
         let result_expr = self.build_uop_graph(tensor, &loop_var);
 
-        let out_idx = self.arg_map.len();
-        let output_buffer = UOp::var(&format!("data{out_idx}"), tensor.0.dtype.clone());
+        // The output buffer is the one that corresponds to the root tensor itself.
+        let output_buffer = self.arg_map.get(&Rc::as_ptr(&tensor.0)).expect("Output buffer not found in arg_map").clone();
         let idx = tensor.0.tracker.expr_node(&loop_var);
 
         UOp::new(
@@ -50,16 +60,11 @@ impl<T> Lowerizer<T> {
     }
 
     /// Recursively builds the `UOp` graph from the `Tensor` graph.
-    fn build_uop_graph(&mut self, tensor: &Tensor<T>, loop_var: &UOp) -> UOp {
-        let tensor_ptr = Rc::as_ptr(&tensor.0);
-        if let Some(uop) = self.arg_map.get(&tensor_ptr) {
-            return uop.clone();
-        }
-
-        let uop = match &tensor.0.op {
+    fn build_uop_graph(&mut self, tensor: &'a Tensor<T>, loop_var: &UOp) -> UOp {
+        match &tensor.0.op {
             TensorOp::Load => {
-                let buffer_name = format!("data{}", self.arg_map.len());
-                let buffer = UOp::var(&buffer_name, tensor.0.dtype.clone());
+                // If it's a Load op, it must be one of the kernel arguments.
+                let buffer = self.arg_map.get(&Rc::as_ptr(&tensor.0)).expect("Load buffer not found in arg_map").clone();
                 let idx = tensor.0.tracker.expr_node(loop_var);
                 UOp::new(Op::Load, tensor.0.dtype.clone(), vec![buffer, idx])
             }
@@ -72,9 +77,6 @@ impl<T> Lowerizer<T> {
                 let rhs = self.build_uop_graph(&tensor.0.src[1], loop_var);
                 UOp::new(op.clone(), tensor.0.dtype.clone(), vec![lhs, rhs])
             }
-        };
-
-        self.arg_map.insert(tensor_ptr, uop.clone());
-        uop
+        }
     }
 }

@@ -6,7 +6,7 @@ use std::io::Write;
 use std::mem;
 use std::process::Command;
 use std::rc::Rc;
-use tempfile::Builder;
+use tempfile::{Builder, TempPath};
 
 /// A raw pointer to a buffer, used for FFI.
 type RawBuffer = *mut u8;
@@ -80,9 +80,12 @@ impl Compiler for ClangCompiler {
             .into());
         }
 
+        // Persist the temporary shared library file, so it's not deleted on drop.
+        let so_path = so_file.into_temp_path();
+
         // Load the compiled shared library and get a handle to the kernel function.
         unsafe {
-            let lib = Rc::new(Library::new(so_file.path())?);
+            let lib = Rc::new(Library::new(&so_path)?);
             type KernelFunc = unsafe extern "C" fn(*const RawBuffer, *const usize);
             let func: Symbol<KernelFunc> = lib.get(b"kernel_main")?;
 
@@ -102,7 +105,7 @@ impl Compiler for ClangCompiler {
                 _lib: lib,
                 func,
                 metadata,
-                _so_file: so_file,
+                _so_path: so_path,
             }))
         }
     }
@@ -111,13 +114,13 @@ impl Compiler for ClangCompiler {
 /// A `Kernel` implementation for a compiled Clang function.
 ///
 /// This struct holds the loaded library, the function symbol, and metadata.
-/// The `_so_file` is kept to ensure the temporary file is not deleted until
+/// The `_so_path` is kept to ensure the temporary file is not deleted until
 /// the `ClangKernel` is dropped.
 pub struct ClangKernel {
     _lib: Rc<Library>,
     func: Symbol<'static, unsafe extern "C" fn(*const RawBuffer, *const usize)>,
     metadata: KernelMetadata,
-    _so_file: tempfile::NamedTempFile,
+    _so_path: TempPath,
 }
 
 impl Kernel for ClangKernel {

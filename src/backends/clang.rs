@@ -3,7 +3,7 @@ use super::c::renderer::CStyleRenderer;
 use super::{Backend, BackendError, Buffer, Buffer_, Compiler, Renderer};
 use crate::uop::UOp;
 use log::debug;
-use std::cell::{Cell, RefCell, RefMut};
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -17,9 +17,8 @@ use std::rc::Rc;
 pub struct ClangBackend {
     compiler: ClangCompiler,
     renderer: CStyleRenderer,
-    compile_options: RefCell<ClangCompileOptions>,
     buffer_counter: Cell<usize>,
-    buffers: RefCell<HashMap<usize, Vec<u8>>>,
+    buffers: RefCell<HashMap<usize, Vec<u8>>>, 
     log_generated_code: bool,
 }
 
@@ -43,16 +42,10 @@ impl ClangBackend {
         Ok(Self {
             compiler,
             renderer: CStyleRenderer,
-            compile_options: RefCell::new(ClangCompileOptions::default()),
             buffer_counter: Cell::new(0),
             buffers: RefCell::new(HashMap::new()),
             log_generated_code: false,
         })
-    }
-
-    /// Provides mutable access to the `ClangCompileOptions`.
-    pub fn compiler_options_mut(&self) -> RefMut<ClangCompileOptions> {
-        self.compile_options.borrow_mut()
     }
 
     /// Enables or disables logging of the generated C code.
@@ -79,7 +72,13 @@ impl Backend for ClangBackend {
         self.buffers.borrow_mut().get_mut(&id).unwrap().as_mut_ptr()
     }
 
-    fn compile_and_exec(&self, uops: &[UOp], args: &[&Buffer], shape_args: &[usize]) {
+    fn compile_and_exec(
+        &self,
+        uops: &[UOp],
+        args: &[&Buffer],
+        shape_args: &[usize],
+        options: &Option<ClangCompileOptions>,
+    ) {
         debug!("Compiling and executing UOp kernel: {uops:?}");
         let code = self.renderer.render(uops);
 
@@ -87,8 +86,11 @@ impl Backend for ClangBackend {
             debug!("--- Generated C Code ---\n{code}\n------------------------");
         }
 
-        let options = self.compile_options.borrow();
-        let kernel = self.compiler.compile(&code, &options).unwrap();
+        let compile_options = options.as_ref().cloned().unwrap_or_default();
+        let kernel = self
+            .compiler
+            .compile(&code, &compile_options)
+            .unwrap();
         debug!("Compilation successful, executing kernel");
 
         kernel.exec(args, shape_args);

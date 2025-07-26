@@ -7,6 +7,7 @@
 //! The actual computation is triggered by calling the `.realize()` method, which
 //! hands off the generated computation graph to the appropriate `Backend`.
 
+use crate::autotuner::Configuration;
 use crate::backends::{Backend, Buffer};
 use crate::context;
 use crate::dot::ToDot;
@@ -18,7 +19,7 @@ use crate::shapetracker::ShapeTracker;
 use crate::uop::Op;
 use log::debug;
 use ndarray::ArrayD;
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashSet, FxHashMap};
 use std::cell::RefCell;
 use std::ops::{Add, Div, Mul, Neg, Sub};
 use std::rc::Rc;
@@ -121,16 +122,24 @@ impl<T: Clone + Default + 'static + IntoDType> Tensor<T> {
         unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }
     }
 
-    /// Triggers the computation of the tensor's value.
+    /// Triggers the computation of the tensor's value using the default configuration.
+    ///
+    /// This is a convenience wrapper around `realize_with_config`.
+    pub fn realize(&self) -> Buffer {
+        self.realize_with_config(&Configuration::default())
+    }
+
+    /// Triggers the computation of the tensor's value with a specific configuration.
     ///
     /// This method walks the computation graph backwards from this tensor, generates
     /// an optimized intermediate representation (`UOp`), renders it to C code,
-    /// compiles it, and executes it on the backend.
+    /// compiles it, and executes it on the backend, all according to the provided
+    /// `Configuration`.
     ///
     /// The result is a `Buffer` handle, which points to the memory on the compute
-    /// device (e.g., CPU) containing the tensor's data. Results are cached, so
-    /// subsequent calls to `.realize()` on the same tensor will be fast.
-    pub fn realize(&self) -> Buffer {
+    /// device. Results are cached, so subsequent calls to `.realize()` on the same
+    /// tensor will be fast unless the cache is cleared.
+    pub fn realize_with_config(&self, config: &Configuration) -> Buffer {
         if let Some(ref realized) = *self.0.realized.borrow() {
             debug!("Cache hit for tensor");
             return realized.clone();
@@ -139,38 +148,87 @@ impl<T: Clone + Default + 'static + IntoDType> Tensor<T> {
 
         let result_var = match self.0.op {
             TensorOp::Load => {
-                // This case should be handled by from_vec, but as a fallback, allocate.
                 let size: usize =
                     self.0.tracker.shape().iter().product::<usize>() * self.0.dtype.size();
                 debug!("Allocating new buffer for Load op with size: {size}");
                 self.0.backend.alloc(size, self.0.backend.clone())
             }
             TensorOp::Unary(_) | TensorOp::Binary(_) => {
-                let args: Vec<_> = self.0.src.iter().map(|t| t.realize()).collect();
+                // Realize all source tensors first.
+                self.0
+                    .src
+                    .iter()
+                    .for_each(|t| _ = t.realize_with_config(config));
+
                 let size: usize =
                     self.0.tracker.shape().iter().product::<usize>() * self.0.dtype.size();
                 let output_buffer = self.0.backend.alloc(size, self.0.backend.clone());
-                let mut kernel_args = args;
-                kernel_args.push(output_buffer.clone());
 
-                let mut lowerizer: Lowerizer<T> = Lowerizer::new();
+                // The arguments to the kernel are all the leaf tensors (inputs) in the graph,
+                // plus the output tensor itself.
+                let leaf_tensors = self.get_leaf_tensors();
+                let mut kernel_arg_tensors: Vec<&Tensor<T>> = leaf_tensors.iter().collect();
+                kernel_arg_tensors.push(self);
+
+                let kernel_args_bufs: Vec<Buffer> = kernel_arg_tensors
+                    .iter()
+                    .map(|t| {
+                        if t.0.realized.borrow().is_some() {
+                            t.0.realized.borrow().clone().unwrap()
+                        } else {
+                            // This must be the output buffer.
+                            output_buffer.clone()
+                        }
+                    })
+                    .collect();
+                let kernel_args_bufs_ref: Vec<&Buffer> = kernel_args_bufs.iter().collect();
+
+                let mut lowerizer = Lowerizer::new(&kernel_arg_tensors);
                 let uop_graph = lowerizer.lower(self);
                 debug!("Generated UOp graph: {uop_graph:?}");
 
-                let optimizer = Optimizer::new();
+                let optimizer = Optimizer::new(config);
                 let optimized_uop_graph = optimizer.optimize(&uop_graph);
                 debug!("Optimized UOp graph: {optimized_uop_graph:?}");
 
                 let mut linearizer = Linearizer::new();
                 let kernel = linearizer.linearize(&optimized_uop_graph, self.shape());
-                let args_ref: Vec<&Buffer> = kernel_args.iter().collect();
-                self.0.backend.compile_and_exec(&kernel, &args_ref, &[]);
+
+                self.0.backend.compile_and_exec(
+                    &kernel,
+                    &kernel_args_bufs_ref,
+                    &[],
+                    &Some(config.clang_options.clone()),
+                );
                 output_buffer
             }
         };
 
         *self.0.realized.borrow_mut() = Some(result_var.clone());
         result_var
+    }
+
+    /// Clears the cached realized buffer for this tensor and its ancestors.
+    ///
+    /// This is necessary for the autotuner to re-run the computation with
+    /// different configurations.
+    pub fn clear_cache(&self) {
+        let mut visited = FxHashSet::default();
+        self.clear_cache_recursive(&mut visited);
+    }
+
+    fn clear_cache_recursive(&self, visited: &mut FxHashSet<*const Tensor_<T>>) {
+        let ptr = Rc::as_ptr(&self.0);
+        if visited.contains(&ptr) {
+            return;
+        }
+        visited.insert(ptr);
+
+        *self.0.realized.borrow_mut() = None;
+
+        for src in &self.0.src {
+            src.clear_cache_recursive(visited);
+        }
     }
 
     pub fn shape(&self) -> &[usize] {
@@ -223,6 +281,35 @@ impl<T: Clone + Default + 'static + IntoDType> Tensor<T> {
     }
     pub fn sin(&self) -> Self {
         self.lazy_unary_op(Op::Sin)
+    }
+
+    /// Recursively collects all unique leaf tensors (those with `TensorOp::Load`)
+    /// in the computation graph starting from this tensor.
+    pub fn get_leaf_tensors(&self) -> Vec<Tensor<T>> {
+        let mut leafs = FxHashMap::default();
+        let mut visited = FxHashSet::default();
+        self.collect_leaf_tensors_recursive(&mut leafs, &mut visited);
+        leafs.into_values().collect()
+    }
+
+    fn collect_leaf_tensors_recursive(
+        &self,
+        leafs: &mut FxHashMap<*const Tensor_<T>, Tensor<T>>,
+        visited: &mut FxHashSet<*const Tensor_<T>>,
+    ) {
+        let ptr = Rc::as_ptr(&self.0);
+        if visited.contains(&ptr) {
+            return;
+        }
+        visited.insert(ptr);
+
+        if let TensorOp::Load = self.0.op {
+            leafs.insert(ptr, self.clone());
+        }
+
+        for src in &self.0.src {
+            src.collect_leaf_tensors_recursive(leafs, visited);
+        }
     }
 }
 

@@ -44,6 +44,7 @@
 //! ```
 
 pub mod backends;
+pub mod autotuner;
 pub mod context;
 pub mod dot;
 pub mod dtype;
