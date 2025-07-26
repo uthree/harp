@@ -13,25 +13,25 @@ pub enum OptimizationRule {
     RecipRecip,
 }
 
-/// A complete set of tunable parameters for a single compilation and execution trial.
+/// A generic container for backend-specific compilation options.
+/// This allows the autotuner to be backend-agnostic.
 #[derive(Debug, Clone)]
-pub struct Configuration {
-    pub enabled_rules: FxHashSet<OptimizationRule>,
-    pub clang_options: ClangCompileOptions,
+pub enum BackendOptions {
+    Clang(ClangCompileOptions),
+    // Cuda(CudaCompileOptions), // Future extension
 }
 
-impl Default for Configuration {
+impl Default for BackendOptions {
     fn default() -> Self {
-        let mut enabled_rules = FxHashSet::default();
-        enabled_rules.insert(OptimizationRule::AddZero);
-        enabled_rules.insert(OptimizationRule::MulOne);
-        enabled_rules.insert(OptimizationRule::MulZero);
-        enabled_rules.insert(OptimizationRule::RecipRecip);
-        Self {
-            enabled_rules,
-            clang_options: ClangCompileOptions::default(),
-        }
+        Self::Clang(ClangCompileOptions::default())
     }
+}
+
+/// A complete set of tunable parameters for a single compilation and execution trial.
+#[derive(Debug, Clone, Default)]
+pub struct Configuration {
+    pub enabled_rules: FxHashSet<OptimizationRule>,
+    pub backend_options: BackendOptions,
 }
 
 /// Represents the outcome of a single autotuning trial.
@@ -46,8 +46,7 @@ pub struct TrialResult {
 #[derive(Debug)]
 pub struct SearchSpace {
     pub tunable_rules: Vec<OptimizationRule>,
-    pub optimization_levels: Vec<u8>,
-    pub use_fast_math: Vec<bool>,
+    pub tunable_backend_options: Vec<BackendOptions>,
 }
 
 /// A trait for defining different strategies to explore the `SearchSpace`.
@@ -58,8 +57,8 @@ pub trait SearchStrategy {
 /// A simple search strategy that tries all possible combinations (grid search).
 pub struct GridSearch<'a> {
     search_space: &'a SearchSpace,
-    // (rules_idx, opt_level_idx, fast_math_idx)
-    state: (usize, usize, usize),
+    // (rules_idx, backend_opts_idx)
+    state: (usize, usize),
     num_rule_combinations: usize,
 }
 
@@ -67,7 +66,7 @@ impl<'a> GridSearch<'a> {
     pub fn new(search_space: &'a SearchSpace) -> Self {
         Self {
             search_space,
-            state: (0, 0, 0),
+            state: (0, 0),
             num_rule_combinations: 1 << search_space.tunable_rules.len(),
         }
     }
@@ -75,9 +74,9 @@ impl<'a> GridSearch<'a> {
 
 impl<'a> SearchStrategy for GridSearch<'a> {
     fn next_config(&mut self) -> Option<Configuration> {
-        let (rules_idx, opt_level_idx, fast_math_idx) = self.state;
+        let (rules_idx, backend_opts_idx) = self.state;
 
-        if rules_idx >= self.num_rule_combinations {
+        if backend_opts_idx >= self.search_space.tunable_backend_options.len() {
             return None; // Exhausted
         }
 
@@ -91,23 +90,15 @@ impl<'a> SearchStrategy for GridSearch<'a> {
 
         let config = Configuration {
             enabled_rules,
-            clang_options: ClangCompileOptions {
-                optimization_level: self.search_space.optimization_levels[opt_level_idx],
-                use_fast_math: self.search_space.use_fast_math[fast_math_idx],
-                debug_info: false,
-            },
+            backend_options: self.search_space.tunable_backend_options[backend_opts_idx].clone(),
         };
 
         // --- Advance state for next call ---
         let mut next_state = self.state;
-        next_state.2 += 1; // fast_math_idx
-        if next_state.2 >= self.search_space.use_fast_math.len() {
-            next_state.2 = 0;
-            next_state.1 += 1; // opt_level_idx
-            if next_state.1 >= self.search_space.optimization_levels.len() {
-                next_state.1 = 0;
-                next_state.0 += 1; // rules_idx
-            }
+        next_state.0 += 1; // rules_idx
+        if next_state.0 >= self.num_rule_combinations {
+            next_state.0 = 0;
+            next_state.1 += 1; // backend_opts_idx
         }
         self.state = next_state;
 

@@ -1,6 +1,6 @@
-use super::c::compiler::{ClangCompileOptions, ClangCompiler};
+use super::c::compiler::ClangCompiler;
 use super::c::renderer::CStyleRenderer;
-use super::{Backend, BackendError, Buffer, Buffer_, Compiler, Renderer};
+use super::{Backend, BackendError, BackendOptions, Buffer, Buffer_, Compiler, Renderer};
 use crate::uop::UOp;
 use log::debug;
 use std::cell::{Cell, RefCell};
@@ -77,8 +77,13 @@ impl Backend for ClangBackend {
         uops: &[UOp],
         args: &[&Buffer],
         shape_args: &[usize],
-        options: &Option<ClangCompileOptions>,
+        options: &BackendOptions,
     ) {
+        let clang_options = match options {
+            BackendOptions::Clang(opts) => opts,
+            // _ => panic!("Mismatched backend options: Expected Clang options for ClangBackend"),
+        };
+
         debug!("Compiling and executing UOp kernel: {uops:?}");
         let code = self.renderer.render(uops);
 
@@ -86,11 +91,7 @@ impl Backend for ClangBackend {
             debug!("--- Generated C Code ---\n{code}\n------------------------");
         }
 
-        let compile_options = options.as_ref().cloned().unwrap_or_default();
-        let kernel = self
-            .compiler
-            .compile(&code, &compile_options)
-            .unwrap();
+        let kernel = self.compiler.compile(&code, clang_options).unwrap();
         debug!("Compilation successful, executing kernel");
 
         kernel.exec(args, shape_args);

@@ -1,4 +1,5 @@
-use harp::autotuner::{Autotuner, GridSearch, OptimizationRule, SearchSpace};
+use harp::autotuner::{Autotuner, BackendOptions, GridSearch, OptimizationRule, SearchSpace};
+use harp::backends::c::compiler::ClangCompileOptions;
 use harp::prelude::*;
 
 fn main() {
@@ -10,8 +11,20 @@ fn main() {
             OptimizationRule::MulZero,
             OptimizationRule::RecipRecip,
         ],
-        optimization_levels: vec![0, 1, 2, 3],
-        use_fast_math: vec![true, false],
+        // Define a list of backend options to try.
+        tunable_backend_options: {
+            let mut options = Vec::new();
+            for &opt_level in &[0, 1, 2, 3] {
+                for &fast_math in &[true, false] {
+                    options.push(BackendOptions::Clang(ClangCompileOptions {
+                        optimization_level: opt_level,
+                        use_fast_math: fast_math,
+                        debug_info: false,
+                    }));
+                }
+            }
+            options
+        },
     };
 
     // 2. Choose a search strategy.
@@ -39,15 +52,7 @@ fn main() {
         println!("Best configuration found!");
         println!("  Execution time: {:?}", best.execution_time);
         println!("  Enabled rules: {:?}", best.config.enabled_rules);
-        println!(
-            "  Clang options: -O{} {}",
-            best.config.clang_options.optimization_level,
-            if best.config.clang_options.use_fast_math {
-                "-ffast-math"
-            } else {
-                ""
-            }
-        );
+        println!("  Backend options: {:?}", best.config.backend_options);
     } else {
         println!("No successful configuration found.");
     }

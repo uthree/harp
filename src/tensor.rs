@@ -198,7 +198,7 @@ impl<T: Clone + Default + 'static + IntoDType> Tensor<T> {
                     &kernel,
                     &kernel_args_bufs_ref,
                     &[],
-                    &Some(config.clang_options.clone()),
+                    &config.backend_options,
                 );
                 output_buffer
             }
