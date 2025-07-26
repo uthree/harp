@@ -124,7 +124,7 @@ impl Tensor {
                 let mut linearizer = Linearizer::new();
                 let kernel = linearizer.linearize(&optimized_uop_graph, self.0.tracker.shape());
                 let args_ref: Vec<&Buffer> = kernel_args.iter().collect();
-                self.0.backend.compile_and_exec(&kernel, &args_ref);
+                self.0.backend.compile_and_exec(&kernel, &args_ref, &[]);
                 output_buffer
             }
         };

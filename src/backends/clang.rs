@@ -58,7 +58,7 @@ impl Backend for ClangBackend {
         self.buffers.borrow_mut().get_mut(&id).unwrap().as_mut_ptr()
     }
 
-    fn compile_and_exec(&self, uops: &[UOp], args: &[&Buffer]) {
+    fn compile_and_exec(&self, uops: &[UOp], args: &[&Buffer], shape_args: &[usize]) {
         debug!("Compiling and executing UOp kernel: {uops:?}");
         let code = self.renderer.render(uops);
 
@@ -66,7 +66,7 @@ impl Backend for ClangBackend {
         let kernel = self.compiler.compile(&code, &options).unwrap();
         debug!("Compilation successful, executing kernel");
 
-        kernel.exec(args);
+        kernel.exec(args, shape_args);
         debug!("Execution finished");
     }
 }

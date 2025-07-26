@@ -14,7 +14,8 @@ impl Renderer for CStyleRenderer {
         context.collect_vars(uops);
 
         writeln!(&mut code, "#include <math.h>").unwrap();
-        writeln!(&mut code, "void kernel_main(void** bufs, int* ints) {{").unwrap();
+        writeln!(&mut code, "#include <stddef.h>").unwrap();
+        writeln!(&mut code, "void kernel_main(void** bufs, size_t* shape_args) {{").unwrap();
 
         // Buffer and integer arguments are cast to local variables for clarity.
         let mut sorted_args: Vec<_> = context.args.iter().collect();
@@ -39,7 +40,7 @@ impl Renderer for CStyleRenderer {
                 writeln!(&mut code, "    {dtype}* {name} = bufs[{buf_idx}];").unwrap();
                 buf_idx += 1;
             } else {
-                writeln!(&mut code, "    int {name} = ints[{int_idx}];").unwrap();
+                writeln!(&mut code, "    size_t {name} = shape_args[{int_idx}];").unwrap();
                 int_idx += 1;
             }
         }
@@ -68,10 +69,21 @@ impl CStyleRenderContext {
     }
 
     fn collect_vars(&mut self, uops: &[UOp]) {
+        // First, find all loop variables and mark them as "defined" so they aren't treated as args.
+        for uop in uops {
+            if let Op::LoopStart = &uop.0.op {
+                if let Some(loop_var) = uop.0.src.first() {
+                    if let Op::Var(name) = &loop_var.0.op {
+                        self.defined_vars.insert(name.clone());
+                    }
+                }
+            }
+        }
+
         for uop in uops {
             // Collect variables from the operation itself
             if let Op::Var(name) = &uop.0.op {
-                if !self.args.contains_key(name) {
+                if !self.args.contains_key(name) && !self.defined_vars.contains(name) {
                     self.args.insert(name.clone(), uop.0.dtype.clone());
                 }
             }
@@ -91,7 +103,7 @@ impl CStyleRenderContext {
                     if let Some(dest) = uop.0.src.first() {
                         if let Op::Var(name) = &dest.0.op {
                             self.buffers.insert(name.clone());
-                            if !self.args.contains_key(name) {
+                            if !self.args.contains_key(name) && !self.defined_vars.contains(name) {
                                 self.args.insert(name.clone(), dest.0.dtype.clone());
                             }
                             // If it's a variable declaration, mark it as defined
@@ -116,9 +128,9 @@ impl CStyleRenderContext {
     }
 
     fn collect_vars_recursive(&mut self, uop: &UOp) {
-        // If the uop is a variable, add it to the arguments list.
+        // If the uop is a variable, add it to the arguments list, unless it's a defined var.
         if let Op::Var(name) = &uop.0.op {
-            if !self.args.contains_key(name) {
+            if !self.args.contains_key(name) && !self.defined_vars.contains(name) {
                 self.args.insert(name.clone(), uop.0.dtype.clone());
             }
         }
@@ -130,6 +142,11 @@ impl CStyleRenderContext {
                     self.buffers.insert(name.clone());
                 }
             }
+        }
+
+        // Do not treat constants as arguments, but recurse into their sources (if any).
+        if let Op::Const(_) = &uop.0.op {
+            return;
         }
 
         // Recursively traverse the sources of the expression.

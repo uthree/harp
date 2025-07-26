@@ -125,7 +125,8 @@ impl Linearizer {
         // 4. Process the expression part of the root `Store` operation.
         // The last source of the `Store` UOp is the value to be stored.
         let value_to_store = root.0.src.last().unwrap();
-        let processed_value = self.process_node(value_to_store);
+        let value_to_store = self.replace_loop_var(value_to_store.clone(), &loop_var);
+        let processed_value = self.process_node(&value_to_store);
 
         // 5. Append the generated instructions for the loop body.
         linearized_kernel.append(&mut self.kernel_body);

@@ -63,7 +63,7 @@ impl Compiler for ClangCompiler {
 
         unsafe {
             let lib = Rc::new(Library::new(so_file.path())?);
-            type KernelFunc = unsafe extern "C" fn(*const RawBuffer, *const i32);
+            type KernelFunc = unsafe extern "C" fn(*const RawBuffer, *const usize);
             let func: Symbol<KernelFunc> = lib.get(b"kernel_main")?;
 
             let metadata = KernelMetadata {
@@ -86,21 +86,20 @@ impl Compiler for ClangCompiler {
 
 pub struct ClangKernel {
     lib: Rc<Library>,
-    func: Symbol<'static, unsafe extern "C" fn(*const RawBuffer, *const i32)>,
+    func: Symbol<'static, unsafe extern "C" fn(*const RawBuffer, *const usize)>,
     metadata: KernelMetadata,
     _so_file: tempfile::NamedTempFile,
 }
 
 impl Kernel for ClangKernel {
-    fn exec(&self, args: &[&Buffer]) {
+    fn exec(&self, args: &[&Buffer], shape_args: &[usize]) {
         let raw_buffers: Vec<RawBuffer> = args
             .iter()
             .map(|v| v.backend.get_buffer_ptr(v.id))
             .collect();
-        let int_args: Vec<i32> = vec![10]; // 仮のN
 
         unsafe {
-            (self.func)(raw_buffers.as_ptr(), int_args.as_ptr());
+            (self.func)(raw_buffers.as_ptr(), shape_args.as_ptr());
         }
     }
     fn metadata(&self) -> &KernelMetadata {

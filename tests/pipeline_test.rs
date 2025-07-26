@@ -40,7 +40,7 @@ fn pipeline_test() {
     let var_out = backend.alloc(10 * 4, backend.clone());
 
     let args = vec![&var_a, &var_b, &var_out];
-    backend.compile_and_exec(&kernel, &args);
+    backend.compile_and_exec(&kernel, &args, &[]);
 
     println!("Pipeline test completed successfully!");
 }

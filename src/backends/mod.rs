@@ -41,7 +41,8 @@ pub trait Backend: Debug {
     /// # Arguments
     /// * `uop` - The root of the `UOp` abstract syntax tree to execute.
     /// * `bufs` - A slice of `Buffer` handles that are passed as arguments to the kernel.
-    fn compile_and_exec(&self, uops: &[UOp], bufs: &[&Buffer]);
+    /// * `shape_args` - A slice of `usize` values representing shape-related arguments.
+    fn compile_and_exec(&self, uops: &[UOp], bufs: &[&Buffer], shape_args: &[usize]);
 
     /// Allocates a memory buffer on the device managed by this backend.
     ///
@@ -90,8 +91,8 @@ pub trait Renderer {
 
 /// A trait representing a compiled, executable kernel.
 pub trait Kernel {
-    /// Executes the kernel with the given buffers.
-    fn exec(&self, bufs: &[&Buffer]);
+    /// Executes the kernel with the given buffers and shape arguments.
+    fn exec(&self, bufs: &[&Buffer], shape_args: &[usize]);
     /// Returns metadata about the kernel, such as argument info.
     fn metadata(&self) -> &KernelMetadata;
 }
