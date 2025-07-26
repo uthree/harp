@@ -1,23 +1,39 @@
 use std::fmt;
 
-// datatypes
+/// An enum representing the data types supported by the tensor library.
 #[derive(Clone, PartialEq, Debug)]
 pub enum DType {
+    /// 8-bit unsigned integer.
     U8,
+    /// 16-bit unsigned integer.
     U16,
+    /// 32-bit unsigned integer.
     U32,
+    /// 64-bit unsigned integer.
     U64,
+    /// 8-bit signed integer.
     I8,
+    /// 16-bit signed integer.
     I16,
+    /// 32-bit signed integer.
     I32,
+    /// 64-bit signed integer.
     I64,
+    /// 32-bit floating-point.
     F32,
+    /// 64-bit floating-point.
     F64,
+    /// A pointer to another data type. The `usize` is for potential address space information.
     Pointer(Box<DType>, usize),
+    /// A unit type, representing no value (similar to `void`).
     Unit,
 }
 
 impl DType {
+    /// Returns the size of the data type in bytes.
+    ///
+    /// # Panics
+    /// This function assumes a 64-bit architecture for pointer sizes.
     pub fn size(&self) -> usize {
         match self {
             DType::U8 | DType::I8 => 1,
@@ -49,6 +65,9 @@ impl fmt::Display for DType {
     }
 }
 
+/// An enum to hold a numeric value of any supported data type.
+///
+/// This is primarily used for representing constant values within the `UOp` graph.
 #[derive(Clone, PartialEq, Debug)]
 pub enum Number {
     U8(u8),
@@ -83,6 +102,7 @@ impl fmt::Display for Number {
 macro_rules! impl_number_dtype {
     ($($variant:ident),*) => {
         impl Number {
+            /// Returns the `DType` corresponding to the number's variant.
             pub fn dtype(&self) -> DType {
                 match self {
                     $(
@@ -96,7 +116,9 @@ macro_rules! impl_number_dtype {
 
 impl_number_dtype!(U8, U16, U32, U64, I8, I16, I32, I64, F32, F64);
 
+/// A trait for converting a Rust type into its corresponding `DType` enum variant.
 pub trait IntoDType {
+    /// Returns the `DType` for the implementing type.
     fn into_dtype() -> DType;
 }
 

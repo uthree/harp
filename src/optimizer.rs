@@ -2,8 +2,12 @@ use crate::pats;
 use crate::pattern::{PatternMatcher, UPat};
 use crate::uop::{Op, UOp};
 use log::debug;
-use rustc_hash::FxHashMap;
 
+/// Applies a set of pattern-based optimizations to a `UOp` graph.
+///
+/// The `Optimizer` uses a `PatternMatcher` to repeatedly apply a list of
+/// algebraic simplification rules to a `UOp` graph until a fixed point
+/// is reached.
 pub struct Optimizer {
     matcher: PatternMatcher,
 }
@@ -15,6 +19,7 @@ impl Default for Optimizer {
 }
 
 impl Optimizer {
+    /// Creates a new `Optimizer` with a default set of simplification rules.
     pub fn new() -> Self {
         let rules: Vec<UPat> = pats!({
             // --- Algebraic Simplification (f32) ---
@@ -33,9 +38,16 @@ impl Optimizer {
         }
     }
 
-    /// Applies optimization rules to the UOp graph until a fixed point is reached.
+    /// Applies optimization rules to the `UOp` graph until a fixed point is reached.
+    ///
+    /// # Arguments
+    /// * `uop` - The root of the `UOp` graph to optimize.
+    ///
+    /// # Returns
+    /// The optimized `UOp` graph.
     pub fn optimize(&self, uop: &UOp) -> UOp {
         debug!("Before optimization: {uop:?}");
+        // The limit is a safeguard against potential infinite loops in the rules.
         let optimized_uop = self.matcher.apply_all_with_limit(uop, 100);
         debug!("After optimization: {optimized_uop:?}");
         optimized_uop

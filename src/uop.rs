@@ -6,35 +6,68 @@ use std::ops::{
 };
 use std::rc::Rc;
 
-// operator types
+/// Represents the different types of micro-operations (UOps) that can be performed.
+///
+/// This enum defines the building blocks of the computation graph at a low level.
 #[derive(Clone, PartialEq, Debug)]
 pub enum Op {
+    // --- Arithmetic and Mathematical Operations ---
+    /// Addition
     Add,
+    /// Subtraction
     Sub,
+    /// Multiplication
     Mul,
+    /// Division
     Div,
+    /// Negation
     Neg,
+    /// Reciprocal (1/x)
     Recip,
+    /// Remainder
     Rem,
-    Load,
-    Store,
-    Cast(DType),
-    Const(Number),
-    Var(String),
+    /// Base-2 Exponential (2^x)
     Exp2,
+    /// Base-2 Logarithm (log2(x))
     Log2,
+    /// Sine
     Sin,
+    /// Square Root
     Sqrt,
-    Capture(usize), // Marker for pattern matching
 
-    // Controll flow
+    // --- Memory Operations ---
+    /// Load data from a buffer.
+    Load,
+    /// Store data into a buffer.
+    Store,
+
+    // --- Type and Data Operations ---
+    /// Cast the data type of a value.
+    Cast(DType),
+    /// Represents a constant value.
+    Const(Number),
+    /// Represents a variable.
+    Var(String),
+
+    // --- Pattern Matching ---
+    /// A marker used internally for pattern matching during optimization.
+    Capture(usize),
+
+    // --- Control Flow ---
+    /// Marks the beginning of a loop.
     LoopStart,
+    /// Marks the end of a loop.
     LoopEnd,
+    /// Represents a block of operations (currently unused).
     Block,
+    /// Marks the beginning of a conditional block.
     If,
 }
 
-// internal data of UOp
+/// The internal, non-reference-counted data of a `UOp`.
+///
+/// This struct holds the actual operation, its data type, and its source `UOp`s.
+/// It is wrapped by `UOp` for reference counting and ease of use.
 #[derive(Clone, PartialEq, Debug)]
 pub struct UOp_ {
     pub op: Op,
@@ -42,44 +75,66 @@ pub struct UOp_ {
     pub src: Vec<UOp>,
 }
 
-// micro operator
+/// A reference-counted micro-operation (UOp).
+///
+/// `UOp` is the primary node type in the low-level computation graph. It represents
+/// a single operation, its data type, and its inputs (sources). The use of `Rc<UOp_>`
+/// allows for efficient sharing of nodes within the graph.
 #[derive(Clone, PartialEq, Debug)]
 pub struct UOp(pub Rc<UOp_>);
 
 impl UOp {
+    /// Creates a new `UOp`.
+    ///
+    /// # Arguments
+    /// * `op` - The `Op` to be performed.
+    /// * `dtype` - The data type of the result.
+    /// * `src` - A vector of source `UOp`s that are inputs to this operation.
     pub fn new(op: Op, dtype: DType, src: Vec<UOp>) -> Self {
         UOp(Rc::new(UOp_ { op, dtype, src }))
     }
 
+    /// Creates a new variable `UOp`.
+    ///
+    /// # Arguments
+    /// * `name` - The name of the variable.
+    /// * `dtype` - The data type of the variable.
     pub fn var(name: &str, dtype: DType) -> Self {
         UOp::new(Op::Var(name.to_string()), dtype, vec![])
     }
 
     // --- Unary Operations ---
+
+    /// Creates a reciprocal (1/x) operation.
     pub fn recip(self) -> Self {
         let dtype = self.0.dtype.clone();
         UOp::new(Op::Recip, dtype, vec![self])
     }
 
+    /// Creates a type cast operation.
     pub fn cast(self, dtype: DType) -> Self {
         UOp::new(Op::Cast(dtype.clone()), dtype, vec![self])
     }
 
+    /// Creates a base-2 exponential (2^x) operation.
     pub fn exp2(self) -> Self {
         let dtype = self.0.dtype.clone();
         UOp::new(Op::Exp2, dtype, vec![self])
     }
 
+    /// Creates a base-2 logarithm (log2(x)) operation.
     pub fn log2(self) -> Self {
         let dtype = self.0.dtype.clone();
         UOp::new(Op::Log2, dtype, vec![self])
     }
 
+    /// Creates a sine operation.
     pub fn sin(self) -> Self {
         let dtype = self.0.dtype.clone();
         UOp::new(Op::Sin, dtype, vec![self])
     }
 
+    /// Creates a square root operation.
     pub fn sqrt(self) -> Self {
         let dtype = self.0.dtype.clone();
         UOp::new(Op::Sqrt, dtype, vec![self])

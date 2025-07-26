@@ -8,17 +8,34 @@ use std::process::Command;
 use std::rc::Rc;
 use tempfile::Builder;
 
+/// A raw pointer to a buffer, used for FFI.
 type RawBuffer = *mut u8;
 
-#[derive(Clone, Default, Debug)]
+/// Options for compiling with Clang.
+#[derive(Clone, Debug)]
 pub struct ClangCompileOptions {
+    /// The optimization level to use (e.g., 0, 1, 2, 3).
     pub optimization_level: u8,
+    /// Whether to include debug information in the compiled artifact.
     pub debug_info: bool,
+    /// Whether to enable fast math optimizations.
     pub use_fast_math: bool,
 }
 
+impl Default for ClangCompileOptions {
+    fn default() -> Self {
+        Self {
+            optimization_level: 3,
+            debug_info: false,
+            use_fast_math: true,
+        }
+    }
+}
+
+/// A `Compiler` implementation that uses Clang to compile C code.
 #[derive(Debug)]
 pub struct ClangCompiler;
+
 impl Compiler for ClangCompiler {
     type Options = ClangCompileOptions;
 
@@ -31,10 +48,12 @@ impl Compiler for ClangCompiler {
         source_code: &str,
         options: &Self::Options,
     ) -> Result<Rc<dyn Kernel>, Box<dyn Error>> {
+        // Create temporary files for the C source and the shared library output.
         let c_file = Builder::new().prefix("kernel").suffix(".c").tempfile()?;
         let so_file = Builder::new().prefix("kernel").suffix(".so").tempfile()?;
         write!(c_file.as_file(), "{source_code}")?;
 
+        // Build the command-line arguments for Clang.
         let opt_level = format!("-O{}", options.optimization_level);
         let mut args = vec![
             "-shared",
@@ -61,17 +80,22 @@ impl Compiler for ClangCompiler {
             .into());
         }
 
+        // Load the compiled shared library and get a handle to the kernel function.
         unsafe {
             let lib = Rc::new(Library::new(so_file.path())?);
             type KernelFunc = unsafe extern "C" fn(*const RawBuffer, *const usize);
             let func: Symbol<KernelFunc> = lib.get(b"kernel_main")?;
 
+            // TODO: Populate metadata properly.
             let metadata = KernelMetadata {
-                args_info: vec![], // TODO
+                args_info: vec![],
                 global_work_size: 1,
                 local_work_size: 1,
             };
 
+            // Transmute the lifetime of the function symbol to 'static.
+            // This is a common pattern with libloading, but it's unsafe because
+            // we must ensure the Library (`_lib`) lives as long as the symbol.
             let func = mem::transmute::<Symbol<KernelFunc>, Symbol<'static, KernelFunc>>(func);
 
             Ok(Rc::new(ClangKernel {
@@ -84,6 +108,11 @@ impl Compiler for ClangCompiler {
     }
 }
 
+/// A `Kernel` implementation for a compiled Clang function.
+///
+/// This struct holds the loaded library, the function symbol, and metadata.
+/// The `_so_file` is kept to ensure the temporary file is not deleted until
+/// the `ClangKernel` is dropped.
 pub struct ClangKernel {
     _lib: Rc<Library>,
     func: Symbol<'static, unsafe extern "C" fn(*const RawBuffer, *const usize)>,
@@ -98,10 +127,12 @@ impl Kernel for ClangKernel {
             .map(|v| v.backend.get_buffer_ptr(v.id))
             .collect();
 
+        // Execute the external C function.
         unsafe {
             (self.func)(raw_buffers.as_ptr(), shape_args.as_ptr());
         }
     }
+
     fn metadata(&self) -> &KernelMetadata {
         &self.metadata
     }

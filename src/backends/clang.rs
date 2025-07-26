@@ -7,6 +7,12 @@ use std::cell::{Cell, RefCell, RefMut};
 use std::collections::HashMap;
 use std::rc::Rc;
 
+/// A `Backend` that uses Clang to compile and execute kernels.
+///
+/// This backend orchestrates the rendering of a `UOp` graph to C code,
+/// compiling it with Clang into a shared library, and then dynamically
+/// loading and executing the kernel function. It manages memory buffers
+/// on the host (CPU).
 #[derive(Debug)]
 pub struct ClangBackend {
     compiler: ClangCompiler,
@@ -24,6 +30,11 @@ impl Default for ClangBackend {
 }
 
 impl ClangBackend {
+    /// Creates a new `ClangBackend`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `BackendError::CompilerNotFound` if `clang` is not found in the system's PATH.
     pub fn new() -> Result<Self, BackendError> {
         let compiler = ClangCompiler;
         if !compiler.is_available() {
@@ -39,10 +50,12 @@ impl ClangBackend {
         })
     }
 
+    /// Provides mutable access to the `ClangCompileOptions`.
     pub fn compiler_options_mut(&self) -> RefMut<ClangCompileOptions> {
         self.compile_options.borrow_mut()
     }
 
+    /// Enables or disables logging of the generated C code.
     pub fn with_generated_code_logging(mut self, enable: bool) -> Self {
         self.log_generated_code = enable;
         self
@@ -62,6 +75,7 @@ impl Backend for ClangBackend {
     }
 
     fn get_buffer_ptr(&self, id: usize) -> *mut u8 {
+        // This is unsafe, but required for FFI. The pointer is valid as long as the buffer exists.
         self.buffers.borrow_mut().get_mut(&id).unwrap().as_mut_ptr()
     }
 

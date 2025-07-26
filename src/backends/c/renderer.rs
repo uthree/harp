@@ -4,6 +4,11 @@ use log::debug;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::fmt::Write;
 
+/// A `Renderer` that converts a `UOp` graph into a C-style source code string.
+///
+/// This renderer produces a C function `kernel_main` that takes an array of buffer
+/// pointers and an array of integer shape arguments. It handles basic C constructs
+/// like loops and arithmetic operations.
 #[derive(Debug)]
 pub struct CStyleRenderer;
 
@@ -13,28 +18,32 @@ impl Renderer for CStyleRenderer {
         let mut context = CStyleRenderContext::new();
         context.collect_vars(uops);
 
+        // Write C headers and the function signature.
         writeln!(&mut code, "#include <math.h>").unwrap();
         writeln!(&mut code, "#include <stddef.h>").unwrap();
         writeln!(&mut code, "void kernel_main(void** bufs, size_t* shape_args) {{").unwrap();
 
-        // Buffer and integer arguments are cast to local variables for clarity.
+        // --- Argument Declaration ---
+        // Buffer and integer arguments are cast to local variables for clarity and type safety.
         let mut sorted_args: Vec<_> = context.args.iter().collect();
+        // Sort arguments to ensure a consistent order (data buffers first, then others).
         sorted_args.sort_by(|(a, _), (b, _)| {
             let a_is_data = a.starts_with("data");
             let b_is_data = b.starts_with("data");
             if a_is_data && b_is_data {
-                let a_num: usize = a[4..].parse().unwrap();
-                let b_num: usize = b[4..].parse().unwrap();
+                let a_num: usize = a[4..].parse().unwrap_or(0);
+                let b_num: usize = b[4..].parse().unwrap_or(0);
                 a_num.cmp(&b_num)
             } else {
                 a.cmp(b)
             }
         });
+
         let mut buf_idx = 0;
         let mut int_idx = 0;
         for (name, dtype) in sorted_args {
             if context.defined_vars.contains(name.as_str()) {
-                continue;
+                continue; // Skip loop variables, etc.
             }
             if context.buffers.contains(name.as_str()) {
                 writeln!(&mut code, "    {dtype}* {name} = bufs[{buf_idx}];").unwrap();
@@ -45,6 +54,7 @@ impl Renderer for CStyleRenderer {
             }
         }
 
+        // --- Kernel Body ---
         context.render_ops(&mut code, uops, 4);
         writeln!(&mut code, "}}").unwrap();
         debug!("Rendered C code:\n{code}");
@@ -52,14 +62,21 @@ impl Renderer for CStyleRenderer {
     }
 }
 
+/// Holds the context for rendering a C-style kernel.
+///
+/// This includes tracking defined variables, arguments, and buffers to correctly
+/// generate declarations and expressions.
 struct CStyleRenderContext {
-
+    /// A map of all unique variable names (arguments) to their data types.
     args: FxHashMap<String, crate::dtype::DType>,
+    /// A set of variable names that are identified as buffers (pointers).
     buffers: FxHashSet<String>,
+    /// A set of variable names that are defined within the kernel (e.g., loop indices).
     defined_vars: FxHashSet<String>,
 }
 
 impl CStyleRenderContext {
+    /// Creates a new, empty rendering context.
     fn new() -> Self {
         Self {
             args: FxHashMap::default(),
@@ -68,6 +85,9 @@ impl CStyleRenderContext {
         }
     }
 
+    /// Traverses the `UOp` graph to collect all required arguments and buffers.
+    ///
+    /// This populates the `args`, `buffers`, and `defined_vars` fields.
     fn collect_vars(&mut self, uops: &[UOp]) {
         // First, find all loop variables and mark them as "defined" so they aren't treated as args.
         for uop in uops {
@@ -106,7 +126,7 @@ impl CStyleRenderContext {
                             if !self.args.contains_key(name) && !self.defined_vars.contains(name) {
                                 self.args.insert(name.clone(), dest.0.dtype.clone());
                             }
-                            // If it's a variable declaration, mark it as defined
+                            // If it's a variable declaration (Store with 2 sources), mark it as defined.
                             if uop.0.src.len() == 2 {
                                 self.defined_vars.insert(name.clone());
                             }
@@ -127,6 +147,7 @@ impl CStyleRenderContext {
         }
     }
 
+    /// Recursively traverses a `UOp` expression to find all variable dependencies.
     fn collect_vars_recursive(&mut self, uop: &UOp) {
         // If the uop is a variable, add it to the arguments list, unless it's a defined var.
         if let Op::Var(name) = &uop.0.op {
@@ -155,6 +176,7 @@ impl CStyleRenderContext {
         }
     }
 
+    /// Renders the sequence of operations (statements) into the C code.
     fn render_ops(&mut self, code: &mut String, uops: &[UOp], initial_indent: usize) {
         let mut indent = initial_indent;
         for uop in uops {
@@ -175,6 +197,7 @@ impl CStyleRenderContext {
                     writeln!(code, "{}}}", " ".repeat(indent)).unwrap();
                 }
                 Op::Store => {
+                    // A Store with 2 sources is a variable declaration (e.g., `int var = ...;`)
                     if uop.0.src.len() == 2 {
                         let dest = self.render_expr(&uop.0.src[0]);
                         let value = self.render_expr(&uop.0.src[1]);
@@ -182,12 +205,12 @@ impl CStyleRenderContext {
                             code,
                             "{}{} {} = {};",
                             indent_str,
-                            uop.0.src[1].0.dtype,
+                            uop.0.src[1].0.dtype, // Use dtype of the value being stored
                             dest,
                             value
                         )
                         .unwrap();
-                    } else {
+                    } else { // A Store with 3 sources is an array access (e.g., `buf[idx] = ...;`)
                         let dest = self.render_expr(&uop.0.src[0]);
                         let idx = self.render_expr(&uop.0.src[1]);
                         let value = self.render_expr(&uop.0.src[2]);
@@ -197,17 +220,16 @@ impl CStyleRenderContext {
                 Op::If => {
                     let condition = self.render_expr(&uop.0.src[0]);
                     writeln!(code, "{indent_str}if ({condition}) {{").unwrap();
-                    // Note: This assumes the body of the if is the next instruction,
-                    // which might require a more robust block handling mechanism
-                    // (e.g., If/EndIf opcodes).
-                    // self.render_ops(code, &uop.0.src[1..], indent + 4);
-                    // For now, we assume a simple structure.
+                    // Note: This assumes a simple `if { ... }` structure where the
+                    // block content is handled by subsequent UOps. A more robust
+                    // implementation might use explicit `If/EndIf` opcodes.
                 }
                 _ => panic!("Unexpected statement in kernel: {:?}", uop.0.op),
             }
         }
     }
 
+    /// Renders a `UOp` node and its children as a C expression string.
     fn render_expr(&mut self, uop: &UOp) -> String {
         match &uop.0.op {
             Op::Add => format!("({} + {})", self.render_expr(&uop.0.src[0]), self.render_expr(&uop.0.src[1])),

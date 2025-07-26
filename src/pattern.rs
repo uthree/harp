@@ -2,13 +2,21 @@ use crate::uop::{Op, UOp};
 use rustc_hash::FxHashMap;
 use std::rc::Rc;
 
-// A single pattern rule
+/// Represents a single pattern matching rule for `UOp` graphs.
+///
+/// A `UPat` consists of a `pattern` `UOp` to match against and a `replacer`
+/// function that generates a replacement `UOp` based on captured subgraphs.
 pub struct UPat {
     pattern: UOp,
     replacer: Box<dyn Fn(&FxHashMap<usize, UOp>) -> UOp>,
 }
 
 impl UPat {
+    /// Creates a new pattern rule.
+    ///
+    /// # Arguments
+    /// * `pattern` - A `UOp` graph where `Op::Capture(id)` nodes mark parts to be captured.
+    /// * `replacer` - A closure that takes the map of captured `UOp`s and returns the replacement `UOp`.
     pub fn new<F>(pattern: UOp, replacer: F) -> Self
     where
         F: Fn(&FxHashMap<usize, UOp>) -> UOp + 'static,
@@ -19,13 +27,21 @@ impl UPat {
         }
     }
 
+    /// Recursively applies the pattern to a target `UOp` and its children.
+    ///
+    /// If the pattern matches at the current node, it's replaced. Otherwise,
+    /// the function descends into the children and rebuilds the node if any
+    /// of them were changed.
     fn apply(&self, target: &UOp) -> UOp {
+        // Try to match at the current node
         if let Some(captures) = self.matcher(target) {
             return (self.replacer)(&captures);
         }
 
+        // If no match, recurse into source nodes
         let new_src: Vec<UOp> = target.0.src.iter().map(|s| self.apply(s)).collect();
 
+        // Rebuild the node only if any of its children have changed
         if target.0.src.iter().zip(&new_src).any(|(a, b)| !a.eq(b)) {
             UOp::new(target.0.op.clone(), target.0.dtype.clone(), new_src)
         } else {
@@ -33,6 +49,9 @@ impl UPat {
         }
     }
 
+    /// Matches the pattern against a target `UOp`.
+    ///
+    /// Returns a map of captured nodes if the match is successful.
     fn matcher(&self, target: &UOp) -> Option<FxHashMap<usize, UOp>> {
         let mut captures = FxHashMap::default();
         if self.internal_matcher(target, &self.pattern, &mut captures) {
@@ -42,24 +61,29 @@ impl UPat {
         }
     }
 
+    /// The internal recursive matching logic.
     fn internal_matcher(
         &self,
         target: &UOp,
         pattern: &UOp,
         captures: &mut FxHashMap<usize, UOp>,
     ) -> bool {
+        // If the pattern node is a capture, try to capture the target node.
         if let Op::Capture(id) = &pattern.0.op {
             if let Some(existing) = captures.get(id) {
+                // If already captured, ensure it's the same as the current target.
                 return target == existing;
             }
             captures.insert(*id, target.clone());
             return true;
         }
 
+        // Check if the operation and number of children match.
         if target.0.op != pattern.0.op || target.0.src.len() != pattern.0.src.len() {
             return false;
         }
 
+        // Recursively match children.
         target
             .0
             .src
@@ -69,7 +93,7 @@ impl UPat {
     }
 }
 
-// A collection of patterns to be applied sequentially
+/// A collection of `UPat` rules that can be applied to a `UOp` graph.
 #[derive(Clone)]
 pub struct PatternMatcher {
     rules: Rc<Vec<UPat>>,
@@ -77,6 +101,7 @@ pub struct PatternMatcher {
 }
 
 impl PatternMatcher {
+    /// Creates a new `PatternMatcher` with a given set of rules.
     pub fn new(rules: Vec<UPat>) -> Self {
         Self {
             rules: Rc::new(rules),
@@ -84,23 +109,30 @@ impl PatternMatcher {
         }
     }
 
+    /// Applies all rules in the matcher to a `UOp` graph.
     pub fn apply(&self, uop: &UOp) -> UOp {
         let mut new_uop = uop.clone();
         for p in self.rules.iter() {
             new_uop = p.apply(&new_uop);
         }
+        // Apply rules from child matchers (if any)
         for child in self.children.iter() {
             new_uop = child.apply(&new_uop);
         }
         new_uop
     }
 
+    /// Applies all rules repeatedly until the `UOp` graph reaches a fixed point.
+    ///
+    /// # Arguments
+    /// * `uop` - The `UOp` to optimize.
+    /// * `limit` - A safeguard to prevent infinite loops, limiting the number of iterations.
     pub fn apply_all_with_limit(&self, uop: &UOp, limit: usize) -> UOp {
         let mut current_uop = uop.clone();
         for _ in 0..limit {
             let new_uop = self.apply(&current_uop);
             if new_uop == current_uop {
-                return new_uop;
+                return new_uop; // Fixed point reached
             }
             current_uop = new_uop;
         }
@@ -111,6 +143,10 @@ impl PatternMatcher {
 impl std::ops::Add for PatternMatcher {
     type Output = Self;
 
+    /// Combines two `PatternMatcher`s.
+    ///
+    /// This allows for composing sets of rules. The resulting matcher will
+    /// apply the rules from `self` first, then the rules from `rhs`.
     fn add(self, rhs: Self) -> Self::Output {
         Self {
             rules: Rc::new(vec![]),
@@ -119,25 +155,51 @@ impl std::ops::Add for PatternMatcher {
     }
 }
 
+/// A macro for concisely defining `UPat` rules.
+///
+/// # Example
+///
+/// ```
+/// use harp::{pats, uop::{UOp, Op, DType}};
+/// use harp::pattern::PatternMatcher;
+/// use rustc_hash::FxHashMap;
+///
+/// let rules = pats!({
+///     // Rule to replace `x + 0` with `x`
+///     (x) | &x + &UOp::from(0.0f32) => x,
+/// });
+///
+/// let matcher = PatternMatcher::new(rules);
+/// let a = UOp::var("a", DType::F32);
+/// let expr = &a + &UOp::from(0.0f32);
+/// let optimized = matcher.apply(&expr);
+///
+/// assert_eq!(optimized, a);
+/// ```
 #[macro_export]
 macro_rules! pats {
     ({ $($arms:tt)* }) => {
         {
+            use $crate::pattern::UPat;
+            use rustc_hash::FxHashMap;
             let mut rules = Vec::new();
             pats!(@internal rules, $($arms)*);
             rules
         }
     };
+    // This arm handles a single rule definition.
     (@internal $rules:expr, ($($cap_var:ident),*) | $pattern:expr => $replacer:expr, $($rest:tt)*) => {
         let rule = {
+            // Create the pattern UOp, replacing capture variables with `Op::Capture`.
             let pattern_uop = {
                 let mut counter = 0..;
                 $(
                     #[allow(unused_variables)]
-                    let $cap_var = UOp::new(Op::Capture(counter.next().unwrap()), $crate::uop::DType::U8, vec![]);
+                    let $cap_var = UOp::new(Op::Capture(counter.next().unwrap()), $crate::uop::DType::Unit, vec![]);
                 )*
                 $pattern
             };
+            // Create the replacer function.
             let replacer_fn = move |caps: &FxHashMap<usize, UOp>| {
                 let mut counter = 0..;
                 $(
@@ -149,8 +211,10 @@ macro_rules! pats {
             UPat::new(pattern_uop, replacer_fn)
         };
         $rules.push(rule);
+        // Recurse to handle the rest of the rules.
         pats!(@internal $rules, $($rest)*);
     };
+    // Base case for the recursion.
     (@internal $rules:expr,) => {};
 }
 

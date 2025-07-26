@@ -1,5 +1,5 @@
-//! DOT形式でグラフを表現するためのトレイト。
+//! A trait for representing a graph in DOT format.
 pub trait ToDot {
-    /// DOT形式のグラフ表現を文字列として返す。
+    /// Returns the graph representation in DOT format as a string.
     fn to_dot(&self) -> String;
 }

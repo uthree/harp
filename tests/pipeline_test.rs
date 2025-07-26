@@ -17,7 +17,7 @@ fn pipeline_test() {
 
     let backend: Rc<dyn Backend> = backend;
 
-    // UOpグラフ: a[i] + b[i]
+    // UOp graph: a[i] + b[i]
     let buf_a = UOp::var("a", DType::F32);
     let buf_b = UOp::var("b", DType::F32);
     let loop_idx = UOp::var("i", DType::U64);

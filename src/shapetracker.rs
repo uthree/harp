@@ -2,18 +2,29 @@
 //! It is inspired by tinygrad's ShapeTracker.
 //! It allows for efficient operations like reshape, permute, and slice without copying data.
 
-use crate::uop::{UOp, DType};
+use crate::uop::{DType, UOp};
 
+/// Represents a single view into a tensor's data.
+///
+/// A `View` defines a logical interpretation of a contiguous block of memory. It includes
+/// the shape, strides, and an offset, allowing for operations like slicing and
+/// permuting without copying the underlying data.
 #[derive(Clone, Debug, PartialEq)]
 pub struct View {
+    /// The logical shape of the tensor view.
     pub shape: Vec<usize>,
+    /// The number of elements to skip in memory to move one unit along each dimension.
     pub strides: Vec<usize>,
+    /// The offset from the beginning of the underlying buffer.
     pub offset: usize,
+    /// An optional mask to limit the valid range of indices for each dimension.
     pub mask: Option<Vec<(usize, usize)>>,
+    /// A flag indicating if the view is contiguous in memory.
     pub contiguous: bool,
 }
 
 impl View {
+    /// Creates a new `View`.
     pub fn new(
         shape: Vec<usize>,
         strides: Option<Vec<usize>>,
@@ -21,7 +32,8 @@ impl View {
         mask: Option<Vec<(usize, usize)>>,
     ) -> Self {
         let strides = strides.unwrap_or_else(|| Self::default_strides(&shape));
-        let contiguous = offset.is_none() && mask.is_none() && strides == Self::default_strides(&shape);
+        let contiguous =
+            offset.is_none() && mask.is_none() && strides == Self::default_strides(&shape);
         Self {
             shape,
             strides,
@@ -31,6 +43,7 @@ impl View {
         }
     }
 
+    /// Calculates the default strides for a given shape, assuming contiguous memory.
     fn default_strides(shape: &[usize]) -> Vec<usize> {
         if shape.is_empty() {
             return vec![];
@@ -42,7 +55,7 @@ impl View {
         strides
     }
 
-    /// Generates the UOp expression for a given index.
+    /// Generates the `UOp` expression for calculating the memory index from logical indices.
     fn expr_indices(&self, indices: &[UOp]) -> UOp {
         assert_eq!(indices.len(), self.shape.len());
         let mut acc: Option<UOp> = None;
@@ -67,6 +80,7 @@ impl View {
         result
     }
 
+    /// Generates the `UOp` expression for calculating the memory index from a single flat index.
     fn expr_node(&self, idx: &UOp) -> UOp {
         let mut ret = vec![];
         let mut acc: u64 = 1;
@@ -78,27 +92,35 @@ impl View {
     }
 }
 
+/// Tracks the shape and memory layout of a tensor through a stack of `View`s.
+///
+/// This allows for lazy evaluation of shape operations. Only the final view in the
+/// stack represents the current logical shape of the tensor.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ShapeTracker {
     pub views: Vec<View>,
 }
 
 impl ShapeTracker {
+    /// Creates a new `ShapeTracker` for a tensor of a given shape.
     pub fn new(shape: Vec<usize>) -> Self {
         Self {
             views: vec![View::new(shape, None, None, None)],
         }
     }
 
+    /// Returns the current logical shape of the tensor.
     pub fn shape(&self) -> &Vec<usize> {
         &self.views.last().unwrap().shape
     }
 
+    /// Generates the `UOp` expression for a given set of logical indices.
     pub fn expr_indices(&self, indices: Option<&[UOp]>) -> UOp {
         let binding;
         let idxs = if let Some(indices) = indices {
             indices
         } else {
+            // If no indices are provided, create symbolic ones.
             binding = self
                 .shape()
                 .iter()
@@ -110,10 +132,16 @@ impl ShapeTracker {
         self.views.last().unwrap().expr_indices(idxs)
     }
 
+    /// Generates the `UOp` expression for a single flat index.
     pub fn expr_node(&self, idx: &UOp) -> UOp {
         self.views.last().unwrap().expr_node(idx)
     }
 
+    /// Creates a new `ShapeTracker` representing a reshaped tensor.
+    ///
+    /// # Panics
+    /// Panics if the total number of elements in `new_shape` is not equal to the
+    /// total number of elements in the current shape.
     pub fn reshape(&self, new_shape: Vec<usize>) -> Self {
         let old_shape = self.shape();
         assert_eq!(
@@ -122,7 +150,8 @@ impl ShapeTracker {
             "Reshape validation failed: element count must be the same"
         );
         // TODO: This is a simplification. A real reshape needs to intelligently
-        // modify the view stack. For now, we just create a new contiguous tracker.
+        // modify the view stack to handle more complex cases without creating
+        // a new contiguous view every time.
         ShapeTracker::new(new_shape)
     }
 }
@@ -140,8 +169,9 @@ mod tests {
 
         // Expected: idx0 * 20 + idx1
         let expected_expr = &idxs[0] * &UOp::from(20u64) + &idxs[1];
-        
-        // This is a weak test. A proper test would require an interpreter.
+
+        // This is a weak test. A proper test would require an interpreter for UOps.
+        // For now, we compare the debug string representation.
         assert_eq!(format!("{:?}", expr), format!("{:?}", expected_expr));
     }
 }
