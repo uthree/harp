@@ -280,6 +280,7 @@ fn test_tensor_optimization_double_neg() {
             Op::Neg,
             Box::new(TPat::Unary(Op::Neg, Box::new(TPat::Capture(0)))),
         ),
+        |_| true, // No special condition needed
         |captures| {
             let x = captures.get(&0).unwrap();
             Some(x.clone())
@@ -298,4 +299,47 @@ fn test_tensor_optimization_double_neg() {
 
     // The optimized expression should be pointer-equal to the original tensor `a`
     assert!(Rc::ptr_eq(&a.0, &optimized_expr.0));
+}
+
+#[test]
+fn test_tensor_optimization_mul_one() {
+    use harp::dtype::Number;
+    use harp::pattern::{TPat, TPatRule, TensorPatternMatcher};
+
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    // Rule: x * 1.0 => x
+    let rule = TPatRule::new(
+        "mul_one",
+        TPat::Binary(Op::Mul, Box::new(TPat::Capture(0)), Box::new(TPat::Capture(1))),
+        |captures| {
+            // Condition: check if the second captured tensor is a constant 1.0
+            if let Some(c_tensor) = captures.get(&1) {
+                if let TensorOp::Constant(Number::F32(val)) = c_tensor.op {
+                    return val == 1.0;
+                }
+            }
+            false
+        },
+        |captures| {
+            // Replacer: return the first captured tensor
+            captures.get(&0).cloned()
+        },
+    );
+    let matcher = TensorPatternMatcher::new(vec![rule]);
+
+    let a = Tensor::full(vec![2, 2], 5.0f32);
+    let one = Tensor::full(vec![2, 2], 1.0f32);
+    let expr = &a * &one;
+
+    let optimized_expr = expr.optimize(&matcher);
+
+    // The optimized expression should be pointer-equal to `a`
+    assert!(Rc::ptr_eq(&a.0, &optimized_expr.0));
+
+    // Test with a reshaped tensor to ensure it still works
+    let one_reshaped = Tensor::full(vec![4], 1.0f32).reshape(vec![2, 2]);
+    let expr_reshaped = &a * &one_reshaped;
+    let optimized_expr_reshaped = expr_reshaped.optimize(&matcher);
+    assert!(Rc::ptr_eq(&a.0, &optimized_expr_reshaped.0));
 }

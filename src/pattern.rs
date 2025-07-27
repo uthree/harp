@@ -38,17 +38,32 @@ pub struct UPat {
 pub struct TPatRule {
     pub name: String,
     pattern: TPat,
+    condition: Box<dyn Fn(&FxHashMap<usize, Tensor>) -> bool>,
     replacer: Box<dyn Fn(&FxHashMap<usize, Tensor>) -> Option<Tensor>>,
 }
 
 impl TPatRule {
-    pub fn new<F>(name: &str, pattern: TPat, replacer: F) -> Self
+    /// Creates a new pattern matching rule with a condition.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The name of the rule for logging.
+    /// * `pattern` - The `TPat` to match against the `Tensor` graph.
+    /// * `condition` - A closure that takes the captured tensors and returns `true`
+    ///   if the rule should be applied. This allows for checking properties
+    ///   that are not part of the graph structure, like a constant's value or a
+    ///   tensor's shape.
+    /// * `replacer` - A closure that takes the captured tensors and returns a
+    ///   new `Tensor` to replace the matched subgraph.
+    pub fn new<C, R>(name: &str, pattern: TPat, condition: C, replacer: R) -> Self
     where
-        F: Fn(&FxHashMap<usize, Tensor>) -> Option<Tensor> + 'static,
+        C: Fn(&FxHashMap<usize, Tensor>) -> bool + 'static,
+        R: Fn(&FxHashMap<usize, Tensor>) -> Option<Tensor> + 'static,
     {
         TPatRule {
             name: name.to_string(),
             pattern,
+            condition: Box::new(condition),
             replacer: Box::new(replacer),
         }
     }
@@ -92,12 +107,14 @@ impl TensorPatternMatcher {
             let mut optimized = false;
             for rule in &self.rules {
                 if let Some(captures) = self.match_pattern(&current_tensor, &rule.pattern) {
-                    if let Some(replacement) = (rule.replacer)(&captures) {
-                        debug!("Applied Tensor Pattern: {}", rule.name);
-                        current_tensor = replacement;
-                        optimized = true;
-                        // Restart the rule application process from the beginning for the new tensor.
-                        break;
+                    if (rule.condition)(&captures) {
+                        if let Some(replacement) = (rule.replacer)(&captures) {
+                            debug!("Applied Tensor Pattern: {}", rule.name);
+                            current_tensor = replacement;
+                            optimized = true;
+                            // Restart the rule application process from the beginning for the new tensor.
+                            break;
+                        }
                     }
                 }
             }
