@@ -82,6 +82,7 @@ impl Backend for ClangBackend {
         debug!("Compiling and executing UOp kernel: {uops:?}");
         let code = self.renderer.render(uops);
 
+        println!("--- Generated C Code ---\n{code}\n------------------------");
         debug!("--- Generated C Code ---\n{code}\n------------------------");
 
         let kernel = self.compiler.compile(&code, clang_options).unwrap();

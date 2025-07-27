@@ -1,7 +1,7 @@
 use harp::autotuner::{Autotuner, BackendOptions, GridSearch, OptimizationRule, SearchSpace};
 use harp::backends::clang::compiler::ClangCompileOptions;
 use harp::prelude::*;
-use ndarray::ArrayD;
+use harp::uop::Number;
 
 fn main() {
     // 1. Define the search space for the autotuner.
@@ -31,9 +31,15 @@ fn main() {
     let mut tuner = Autotuner::new(&search_space, strategy);
 
     // 4. Create the tensors for the computation we want to tune.
-    let a: Tensor = ArrayD::from_elem(vec![100], 1.0f32).into();
-    let b: Tensor = ArrayD::from_elem(vec![100], 2.0f32).into();
-    let c: Tensor = ArrayD::from_elem(vec![100], 0.0f32).into();
+    let a = Tensor::ones(vec![100], DType::F32);
+    let b = Tensor::new(
+        TensorOp::Constant(Number::F32(2.0)),
+        vec![],
+        ShapeTracker::new(vec![100]),
+        DType::F32,
+        backend("clang"),
+    );
+    let c = Tensor::zeros(vec![100], DType::F32);
 
     // An expression that can be optimized, e.g., (a * 1.0) + 0.0
     let expr = (a * b) + c;

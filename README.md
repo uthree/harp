@@ -25,37 +25,26 @@ Here is a simple example of adding two tensors.
 
 ```rust
 use harp::prelude::*;
-use std::rc::Rc;
+use ndarray::ArrayD;
 
 fn main() {
-    // 1. Initialize a backend. This requires Clang to be installed.
-    let backend = Rc::new(ClangBackend::new().expect("Clang backend failed to initialize."));
+    // 1. Create two source tensors using ndarray or the provided macros.
+    let a: Tensor = ArrayD::from_elem(vec![10], 1.0f32).into();
+    let b = float_tensor![[2.0; 10]]; // Create a tensor with a different value.
 
-    // 2. Create two source tensors. Data is not allocated yet.
-    let a = Tensor::new(
-        TensorOp::Load,
-        vec![],
-        ShapeTracker::new(vec![10]),
-        DType::F32,
-        backend.clone(),
-    );
-    let b = Tensor::new(
-        TensorOp::Load,
-        vec![],
-        ShapeTracker::new(vec![10]),
-        DType::F32,
-        backend.clone(),
-    );
-
-    // 3. Perform an operation. This builds the graph but doesn't compute anything.
+    // 2. Perform an operation. This builds the graph but doesn't compute anything.
     let c = &a + &b;
 
-    // 4. Realize the result. This triggers the entire pipeline:
+    // 3. Realize the result. This triggers the entire pipeline:
     //    Graph -> Optimization -> Lowering -> Code Generation -> Compilation -> Execution
     let result_buffer = c.realize();
 
-    // The result_buffer now holds a handle to the memory containing the result of the addition.
+    // 4. Convert the result back to an ndarray to inspect it.
+    let result_array: ArrayD<f32> = c.into();
+
     println!("Successfully realized tensor c!");
+    println!("Result: {:?}", result_array);
+    // Expected output: array([3., 3., 3., 3., 3., 3., 3., 3., 3., 3.], dim: [10])
 }
 ```
 

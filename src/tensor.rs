@@ -336,7 +336,7 @@ impl Tensor {
         }
         visited.insert(ptr);
 
-        if let TensorOp::Load = self.op {
+        if let TensorOp::Load | TensorOp::Constant(_) = self.op {
             leafs.insert(ptr, self.clone());
         }
 

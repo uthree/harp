@@ -1,32 +1,17 @@
 use harp::prelude::*;
+use ndarray::ArrayD;
 
 fn main() {
-    // 1. バックエンドを作成します
-    let backend = backend("clang");
-
-    // 2. 2つの入力テンソルを作成します。
+    // 1. 2つの入力テンソルを作成します。
     //    これらは計算グラフの葉（leaf）ノードになります。
-    let t1: Tensor = Tensor::new(
-        TensorOp::Load,
-        vec![],
-        ShapeTracker::new(vec![10, 20]),
-        DType::F32,
-        backend.clone(),
-    );
+    let t1: Tensor = ArrayD::from_elem(vec![10, 20], 1.0f32).into();
+    let t2: Tensor = ArrayD::from_elem(vec![10, 20], 2.0f32).into();
 
-    let t2: Tensor = Tensor::new(
-        TensorOp::Load,
-        vec![],
-        ShapeTracker::new(vec![10, 20]),
-        DType::F32,
-        backend.clone(),
-    );
-
-    // 3. テンソルを加算します。
+    // 2. テンソルを加算します。
     //    これにより、t1とt2を子ノードとして持つ新しい計算グラフが構築されます。
     let t3 = &t1 + &t2;
 
-    // 4. 構築されたグラフをDOT形式で出力します。
+    // 3. 構築されたグラフをDOT形式で出力します。
     let dot_graph = t3.to_dot();
     println!("{}", dot_graph);
 

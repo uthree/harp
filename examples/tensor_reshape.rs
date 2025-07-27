@@ -1,16 +1,9 @@
 use harp::prelude::*;
+use ndarray::ArrayD;
 
 fn main() {
-    let backend = backend("clang");
-
     // 元となるテンソルを作成
-    let t1: Tensor = Tensor::new(
-        TensorOp::Load,
-        vec![],
-        ShapeTracker::new(vec![10, 20]),
-        DType::F32,
-        backend.clone(),
-    );
+    let t1: Tensor = ArrayD::from_elem(vec![10, 20], 1.0f32).into();
 
     println!("--- Original Tensor Graph ---");
     println!("{}", t1.to_dot());
