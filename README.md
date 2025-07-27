@@ -1,5 +1,7 @@
 # harp: A Tensor Computation Library with JIT Compilation
 
+WORK IN PROGRESS  
+
 `harp` is a library for performing tensor (multi-dimensional array) computations,
 inspired by projects like tinygrad. It constructs a computation graph from tensor
 operations, allowing for optimizations and Just-In-Time (JIT) compilation to
