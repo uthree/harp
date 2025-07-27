@@ -1,6 +1,6 @@
-use super::c::compiler::ClangCompiler;
-use super::c::renderer::CStyleRenderer;
-use super::{Backend, BackendError, BackendOptions, Buffer, Buffer_, Compiler, Renderer};
+use crate::backends::clang::compiler::ClangCompiler;
+use crate::backends::clang::renderer::CStyleRenderer;
+use crate::backends::{Backend, BackendError, BackendOptions, Buffer, Buffer_, Compiler, Renderer};
 use crate::uop::UOp;
 use log::debug;
 use std::cell::{Cell, RefCell};

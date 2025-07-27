@@ -16,11 +16,10 @@ use std::rc::Rc;
 use std::time::Duration;
 
 // Re-export submodules
-pub mod c;
+pub mod clang;
 
 // --- Top-level Backend Controller ---
-mod clang;
-pub use clang::ClangBackend;
+pub use clang::backend::ClangBackend;
 
 // --- Backend Error ---
 /// Errors that can occur during backend initialization or operation.

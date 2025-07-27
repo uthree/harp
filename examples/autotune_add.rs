@@ -1,5 +1,5 @@
 use harp::autotuner::{Autotuner, BackendOptions, GridSearch, OptimizationRule, SearchSpace};
-use harp::backends::c::compiler::ClangCompileOptions;
+use harp::backends::clang::compiler::ClangCompileOptions;
 use harp::prelude::*;
 
 fn main() {

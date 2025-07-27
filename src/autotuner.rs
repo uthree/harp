@@ -1,4 +1,4 @@
-use crate::backends::c::compiler::ClangCompileOptions;
+use crate::backends::clang::compiler::ClangCompileOptions;
 use crate::dtype::IntoDType;
 use crate::tensor::Tensor;
 use rustc_hash::FxHashSet;

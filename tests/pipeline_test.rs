@@ -1,5 +1,5 @@
 use harp::autotuner::BackendOptions;
-use harp::backends::c::compiler::ClangCompileOptions;
+use harp::backends::clang::compiler::ClangCompileOptions;
 use harp::backends::{Backend, ClangBackend};
 use harp::dtype::DType;
 use harp::linearizer::Linearizer;
