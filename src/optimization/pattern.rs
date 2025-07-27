@@ -411,6 +411,100 @@ macro_rules! pats {
     (@internal $rules:expr,) => {};
 }
 
+/// A macro for concisely defining `TPatRule`s for `Tensor` graph optimization.
+///
+/// # Example
+///
+/// ```
+/// # use harp::prelude::*;
+/// # use harp::optimization::{TPat, TPatRule, TensorPatternMatcher};
+/// # use harp::uop::Op;
+/// # use std::rc::Rc;
+/// let rules = tpat!({
+///     "double_neg": (x) | TPat::Unary(Op::Neg, Box::new(TPat::Unary(Op::Neg, Box::new(x)))) => x,
+/// });
+///
+/// let matcher = TensorPatternMatcher::new(rules);
+/// let a = Tensor::full(vec![2, 2], 5.0f32);
+/// let expr = -(-a.clone());
+/// let optimized_expr = expr.optimize(&matcher);
+///
+/// assert!(Rc::ptr_eq(&a.0, &optimized_expr.0));
+/// ```
+#[macro_export]
+macro_rules! tpat {
+    ({ $($arms:tt)* }) => {
+        {
+            use $crate::optimization::pattern::{TPat, TPatRule};
+            use $crate::tensor::{Tensor, TensorOp};
+            use $crate::uop::Op;
+            use rustc_hash::FxHashMap;
+            let mut rules = Vec::new();
+            tpat!(@internal rules, $($arms)*);
+            rules
+        }
+    };
+    // Rule with a condition
+    (@internal $rules:expr, $name:literal: ($($cap_var:ident),*) | $pattern:expr, if $condition:expr => $replacer:expr, $($rest:tt)*) => {
+        let rule = {
+            let mut counter = 0..;
+            $(
+                #[allow(unused_variables)]
+                let $cap_var = TPat::Capture(counter.next().unwrap());
+            )*
+            let pattern_tpat = $pattern;
+
+            let condition_fn = move |caps: &FxHashMap<usize, Tensor>| {
+                let mut counter = 0..;
+                $(
+                    #[allow(unused_variables)]
+                    let $cap_var = caps.get(&counter.next().unwrap()).unwrap();
+                )*
+                $condition
+            };
+
+            let replacer_fn = move |caps: &FxHashMap<usize, Tensor>| {
+                let mut counter = 0..;
+                $(
+                    #[allow(unused_variables)]
+                    let $cap_var = caps.get(&counter.next().unwrap()).unwrap().clone();
+                )*
+                Some($replacer)
+            };
+
+            TPatRule::new($name, pattern_tpat, condition_fn, replacer_fn)
+        };
+        $rules.push(rule);
+        tpat!(@internal $rules, $($rest)*);
+    };
+    // Rule without a condition (fallback)
+    (@internal $rules:expr, $name:literal: ($($cap_var:ident),*) | $pattern:expr => $replacer:expr, $($rest:tt)*) => {
+        let rule = {
+            let mut counter = 0..;
+            $(
+                #[allow(unused_variables)]
+                let $cap_var = TPat::Capture(counter.next().unwrap());
+            )*
+            let pattern_tpat = $pattern;
+
+            let replacer_fn = move |caps: &FxHashMap<usize, Tensor>| {
+                let mut counter = 0..;
+                $(
+                    #[allow(unused_variables)]
+                    let $cap_var = caps.get(&counter.next().unwrap()).unwrap().clone();
+                )*
+                Some($replacer)
+            };
+
+            TPatRule::new($name, pattern_tpat, |_| true, replacer_fn)
+        };
+        $rules.push(rule);
+        tpat!(@internal $rules, $($rest)*);
+    };
+    // Base case for recursion
+    (@internal $rules:expr,) => {};
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

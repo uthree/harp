@@ -1,5 +1,6 @@
-use harp::optimization::{TPat, TPatRule, TensorPatternMatcher};
+use harp::optimization::TensorPatternMatcher;
 use harp::prelude::*;
+use harp::tpat; // Explicitly import the macro
 use harp::uop::Op;
 use ndarray::{ArrayD, Zip, arr2, array};
 use std::rc::Rc;
@@ -293,19 +294,10 @@ fn test_tensor_optimization_double_neg() {
     let _ = env_logger::builder().is_test(true).try_init();
 
     // Rule: -(-x) => x
-    let rule = TPatRule::new(
-        "double_neg",
-        TPat::Unary(
-            Op::Neg,
-            Box::new(TPat::Unary(Op::Neg, Box::new(TPat::Capture(0)))),
-        ),
-        |_| true, // No special condition needed
-        |captures| {
-            let x = captures.get(&0).unwrap();
-            Some(x.clone())
-        },
-    );
-    let matcher = TensorPatternMatcher::new(vec![rule]);
+    let rules = tpat!({
+        "double_neg": (x) | TPat::Unary(Op::Neg, Box::new(TPat::Unary(Op::Neg, Box::new(x)))) => x,
+    });
+    let matcher = TensorPatternMatcher::new(rules);
 
     let a = Tensor::full(vec![2, 2], 5.0f32);
     let expr = -(-a.clone());
@@ -327,28 +319,12 @@ fn test_tensor_optimization_mul_one() {
     let _ = env_logger::builder().is_test(true).try_init();
 
     // Rule: x * 1.0 => x
-    let rule = TPatRule::new(
-        "mul_one",
-        TPat::Binary(
-            Op::Mul,
-            Box::new(TPat::Capture(0)),
-            Box::new(TPat::Capture(1)),
-        ),
-        |captures| {
-            // Condition: check if the second captured tensor is a constant 1.0
-            if let Some(c_tensor) = captures.get(&1) {
-                if let TensorOp::Constant(Number::F32(val)) = c_tensor.op {
-                    return val == 1.0;
-                }
-            }
-            false
-        },
-        |captures| {
-            // Replacer: return the first captured tensor
-            captures.get(&0).cloned()
-        },
-    );
-    let matcher = TensorPatternMatcher::new(vec![rule]);
+    let rules = tpat!({
+        "mul_one": (x, c) | TPat::Binary(Op::Mul, Box::new(x), Box::new(c)), if {
+            if let TensorOp::Constant(Number::F32(val)) = c.op { val == 1.0 } else { false }
+        } => x,
+    });
+    let matcher = TensorPatternMatcher::new(rules);
 
     let a = Tensor::full(vec![2, 2], 5.0f32);
     let one = Tensor::full(vec![2, 2], 1.0f32);
