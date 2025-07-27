@@ -1,5 +1,6 @@
 use crate::tensor::{Tensor, TensorOp};
 use crate::uop::{Op, UOp};
+use log::debug;
 use rustc_hash::FxHashMap;
 use std::rc::Rc;
 
@@ -35,16 +36,18 @@ pub struct UPat {
 
 /// Represents a single pattern matching rule for `Tensor` graphs.
 pub struct TPatRule {
+    pub name: String,
     pattern: TPat,
     replacer: Box<dyn Fn(&FxHashMap<usize, Tensor>) -> Option<Tensor>>,
 }
 
 impl TPatRule {
-    pub fn new<F>(pattern: TPat, replacer: F) -> Self
+    pub fn new<F>(name: &str, pattern: TPat, replacer: F) -> Self
     where
         F: Fn(&FxHashMap<usize, Tensor>) -> Option<Tensor> + 'static,
     {
         TPatRule {
+            name: name.to_string(),
             pattern,
             replacer: Box::new(replacer),
         }
@@ -90,6 +93,7 @@ impl TensorPatternMatcher {
             for rule in &self.rules {
                 if let Some(captures) = self.match_pattern(&current_tensor, &rule.pattern) {
                     if let Some(replacement) = (rule.replacer)(&captures) {
+                        debug!("Applied Tensor Pattern: {}", rule.name);
                         current_tensor = replacement;
                         optimized = true;
                         // Restart the rule application process from the beginning for the new tensor.

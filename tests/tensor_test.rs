@@ -275,6 +275,7 @@ fn test_tensor_optimization_double_neg() {
 
     // Rule: -(-x) => x
     let rule = TPatRule::new(
+        "double_neg",
         TPat::Unary(
             Op::Neg,
             Box::new(TPat::Unary(Op::Neg, Box::new(TPat::Capture(0)))),
