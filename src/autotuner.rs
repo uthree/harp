@@ -1,6 +1,6 @@
 use crate::backends::clang::compiler::ClangCompileOptions;
-use crate::dtype::IntoDType;
 use crate::tensor::Tensor;
+use log::debug;
 use rustc_hash::FxHashSet;
 use std::time::Duration;
 
@@ -123,34 +123,29 @@ impl<'a, S: SearchStrategy> Autotuner<'a, S> {
         }
     }
 
-    pub fn run<T: Clone + Default + 'static + IntoDType>(
-        &mut self,
-        tensor: &Tensor<T>,
-        limit: Option<usize>,
-    ) {
-        let mut count = 0;
-        while let Some(config) = self.strategy.next_config() {
-            if let Some(limit) = limit {
-                if count >= limit {
-                    println!("\nAutotuner reached trial limit of {limit}.");
-                    break;
-                }
-            }
-            count += 1;
+    pub fn run(&mut self, tensor: &Tensor) -> TrialResult {
+        let mut best_result: Option<TrialResult> = None;
 
-            println!("Trying config #{count}: {config:?}");
+        while let Some(config) = self.strategy.next_config() {
+            debug!("Running trial with config: {config:?}");
+
+            // Clear cache before each run
             tensor.clear_cache();
 
-            // The realization function now returns the execution time directly.
-            let (_, execution_time) = tensor.realize_with_config(&config);
-
+            let (buffer, duration) = tensor.realize_with_config(&config);
             let result = TrialResult {
                 config,
-                execution_time,
+                execution_time: duration,
                 error: None,
             };
-            self.results.push(result);
+
+            if best_result.is_none()
+                || result.execution_time < best_result.as_ref().unwrap().execution_time
+            {
+                best_result = Some(result);
+            }
         }
+        best_result.unwrap()
     }
 
     pub fn best_result(&self) -> Option<&TrialResult> {

@@ -1,26 +1,24 @@
-use harp::dtype::IntoDType;
 use harp::prelude::*;
-use std::rc::Rc;
 
 fn main() {
     // 1. バックエンドを作成します
-    let backend = Rc::new(ClangBackend::new().expect("Failed to create ClangBackend"));
+    let backend = backend("clang");
 
     // 2. 2つの入力テンソルを作成します。
     //    これらは計算グラフの葉（leaf）ノードになります。
-    let t1: Tensor<f32> = Tensor::new(
+    let t1: Tensor = Tensor::new(
         TensorOp::Load,
         vec![],
         ShapeTracker::new(vec![10, 20]),
-        f32::into_dtype(),
+        DType::F32,
         backend.clone(),
     );
 
-    let t2: Tensor<f32> = Tensor::new(
+    let t2: Tensor = Tensor::new(
         TensorOp::Load,
         vec![],
         ShapeTracker::new(vec![10, 20]),
-        f32::into_dtype(),
+        DType::F32,
         backend.clone(),
     );
 

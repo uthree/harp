@@ -12,13 +12,13 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 /// A struct that holds the state for the lowering process.
-pub struct Lowerizer<'a, T> {
+pub struct Lowerizer<'a> {
     // Maps a Tensor's memory address to its corresponding `UOp::Var` (e.g., "data0").
-    arg_map: HashMap<*const Tensor_<T>, UOp>,
-    phantom: std::marker::PhantomData<&'a T>,
+    arg_map: HashMap<*const Tensor_, UOp>,
+    phantom: std::marker::PhantomData<&'a ()>,
 }
 
-impl<'a, T: Clone + Default + 'static + crate::dtype::IntoDType> Lowerizer<'a, T> {
+impl<'a> Lowerizer<'a> {
     /// Creates a new `Lowerizer`.
     ///
     /// # Arguments
@@ -26,7 +26,7 @@ impl<'a, T: Clone + Default + 'static + crate::dtype::IntoDType> Lowerizer<'a, T
     /// * `kernel_args` - A slice of `Tensor`s that will be the arguments to the
     ///   generated kernel. The order of tensors in this slice determines the
     ///   index in the `bufs` array (e.g., `bufs[0]`, `bufs[1]`).
-    pub fn new(kernel_args: &[&'a Tensor<T>]) -> Self {
+    pub fn new(kernel_args: &[&'a Tensor]) -> Self {
         let mut arg_map = HashMap::new();
         for (i, tensor) in kernel_args.iter().enumerate() {
             let buffer = UOp::var(&format!("data{i}"), tensor.0.dtype.clone());
@@ -44,7 +44,7 @@ impl<'a, T: Clone + Default + 'static + crate::dtype::IntoDType> Lowerizer<'a, T
     /// and constructs an equivalent `UOp` graph that represents the computation.
     /// The final `UOp` will be a `Store` operation into the output buffer corresponding
     /// to the root `tensor`.
-    pub fn lower(&mut self, tensor: &'a Tensor<T>) -> UOp {
+    pub fn lower(&mut self, tensor: &'a Tensor) -> UOp {
         if let TensorOp::Reduce(axis, op) = &tensor.0.op {
             let src_tensor = &tensor.0.src[0];
             let acc_var = UOp::var("acc", tensor.0.dtype.clone());
@@ -138,7 +138,7 @@ impl<'a, T: Clone + Default + 'static + crate::dtype::IntoDType> Lowerizer<'a, T
     }
 
     /// Recursively builds the `UOp` graph from the `Tensor` graph.
-    fn build_uop_graph(&mut self, tensor: &'a Tensor<T>, loop_var: &UOp) -> UOp {
+    fn build_uop_graph(&mut self, tensor: &'a Tensor, loop_var: &UOp) -> UOp {
         match &tensor.0.op {
             TensorOp::Load => {
                 let buffer = self
@@ -161,6 +161,7 @@ impl<'a, T: Clone + Default + 'static + crate::dtype::IntoDType> Lowerizer<'a, T
             TensorOp::Reduce(_, _) => {
                 panic!("Reduce should be handled in lower, not build_uop_graph");
             }
+            TensorOp::Constant(n) => UOp::new(Op::Const(n.clone()), tensor.0.dtype.clone(), vec![]),
         }
     }
 }

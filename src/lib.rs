@@ -23,24 +23,27 @@
 //!
 //! ```rust
 //! use harp::prelude::*;
+//! use ndarray::ArrayD;
 //!
 //! // 1. Get a backend instance for the current thread.
 //! let backend = backend("clang");
 //!
-//! // 2. Create two source tensors from data.
-//! let a = Tensor::from_vec(vec![1.0f32; 10], &[10]);
-//! let b = Tensor::from_vec(vec![2.0f32; 10], &[10]);
+//! // 2. Create two source tensors from ndarray arrays.
+//! let arr_a: ArrayD<f32> = ArrayD::from_elem(vec![10], 1.0f32);
+//! let arr_b: ArrayD<f32> = ArrayD::from_elem(vec![10], 2.0f32);
+//! let a: Tensor = arr_a.clone().into();
+//! let b: Tensor = arr_b.clone().into();
 //!
 //! // 3. Perform an operation. This builds the graph but doesn't compute anything.
 //! let c = &a + &b;
 //!
 //! // 4. Realize the result. This triggers the entire pipeline:
 //! //    Graph -> Optimization -> Lowering -> Code Generation -> Compilation -> Execution
-//! let result_tensor = c.realize();
+//! let result_buffer = c.realize();
 //!
-//! // 5. Copy the result back to the host and verify.
-//! let result_vec = c.to_vec();
-//! assert_eq!(result_vec, vec![3.0f32; 10]);
+//! // 5. Copy the result back to an ndarray and verify.
+//! let result_arr: ArrayD<f32> = c.into();
+//! assert_eq!(result_arr, &arr_a + &arr_b);
 //! ```
 
 pub mod autotuner;

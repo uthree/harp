@@ -18,7 +18,7 @@
 pub use crate::backends::{Backend, Buffer, ClangBackend};
 pub use crate::context::backend;
 pub use crate::dot::ToDot;
-pub use crate::dtype::{DType, IntoDType};
+pub use crate::dtype::DType;
 pub use crate::lowerizer::Lowerizer;
 pub use crate::shapetracker::ShapeTracker;
 pub use crate::tensor::{Tensor, TensorOp};

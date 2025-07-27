@@ -1,11 +1,5 @@
 use harp::prelude::*;
-use harp::{
-    context::backend,
-    dtype::IntoDType,
-    shapetracker::ShapeTracker,
-    tensor::{Tensor, TensorOp},
-};
-use ndarray::{arr2, array, ArrayD};
+use ndarray::{ArrayD, arr2, array};
 use std::rc::Rc;
 
 #[test]
@@ -15,18 +9,18 @@ fn test_tensor_addition() {
     let shape = vec![10];
 
     // Create two 'leaf' tensors from loaded data
-    let t1: Tensor<f32> = Tensor::new(
+    let t1: Tensor = Tensor::new(
         TensorOp::Load,
         vec![],
         ShapeTracker::new(shape.clone()),
-        f32::into_dtype(),
+        DType::F32,
         backend.clone(),
     );
-    let t2: Tensor<f32> = Tensor::new(
+    let t2: Tensor = Tensor::new(
         TensorOp::Load,
         vec![],
         ShapeTracker::new(shape.clone()),
-        f32::into_dtype(),
+        DType::F32,
         backend.clone(),
     );
 
@@ -60,15 +54,15 @@ fn test_tensor_binary_ops() {
     let arr_b: ArrayD<f32> = arr2(&[[5.0, 2.0], [3.0, 8.0]]).into_dyn();
 
     // Subtraction
-    let tensor_a: Tensor<f32> = arr_a.clone().into();
-    let tensor_b: Tensor<f32> = arr_b.clone().into();
+    let tensor_a: Tensor = arr_a.clone().into();
+    let tensor_b: Tensor = arr_b.clone().into();
     let result_sub = &tensor_a - &tensor_b;
     let expected_sub = &arr_a - &arr_b;
     assert_eq!(ArrayD::<f32>::from(result_sub), expected_sub);
 
     // Division
-    let tensor_a: Tensor<f32> = arr_a.clone().into();
-    let tensor_b: Tensor<f32> = arr_b.clone().into();
+    let tensor_a: Tensor = arr_a.clone().into();
+    let tensor_b: Tensor = arr_b.clone().into();
     let result_div = &tensor_a / &tensor_b;
     let expected_div = &arr_a / &arr_b;
     assert_eq!(ArrayD::<f32>::from(result_div), expected_div);
@@ -80,27 +74,27 @@ fn test_tensor_unary_ops() {
     let arr: ArrayD<f32> = arr2(&[[1.0, -2.0], [3.0, 4.0]]).into_dyn();
 
     // Negation
-    let tensor_a: Tensor<f32> = arr.clone().into();
+    let tensor_a: Tensor = arr.clone().into();
     let result_neg = -&tensor_a;
     let expected_neg = -arr.clone();
     assert_eq!(ArrayD::<f32>::from(result_neg), expected_neg);
 
     // Sqrt
     let arr_sqrt = arr.mapv(|a| a.abs()); // sqrt requires non-negative values
-    let tensor_sqrt: Tensor<f32> = arr_sqrt.clone().into();
+    let tensor_sqrt: Tensor = arr_sqrt.clone().into();
     let result_sqrt = tensor_sqrt.sqrt();
     let expected_sqrt = arr_sqrt.mapv(f32::sqrt);
     assert_eq!(ArrayD::<f32>::from(result_sqrt), expected_sqrt);
 
     // Exp2
-    let tensor_exp: Tensor<f32> = arr.clone().into();
+    let tensor_exp: Tensor = arr.clone().into();
     let result_exp = tensor_exp.exp2();
     let expected_exp = arr.mapv(f32::exp2);
     assert_eq!(ArrayD::<f32>::from(result_exp), expected_exp);
 
     // Log2
     let arr_log = arr.mapv(|a| a.abs() + 1.0); // log requires positive values
-    let tensor_log: Tensor<f32> = arr_log.clone().into();
+    let tensor_log: Tensor = arr_log.clone().into();
     let result_log = tensor_log.log2();
     let expected_log = arr_log.mapv(f32::log2);
     assert_eq!(ArrayD::<f32>::from(result_log), expected_log);
@@ -113,11 +107,11 @@ fn test_tensor_reshape() {
     let original_shape = vec![10, 20];
     let new_shape = vec![200];
 
-    let t1: Tensor<f32> = Tensor::new(
+    let t1: Tensor = Tensor::new(
         TensorOp::Load,
         vec![],
         ShapeTracker::new(original_shape.clone()),
-        f32::into_dtype(),
+        DType::F32,
         backend.clone(),
     );
 
@@ -137,7 +131,7 @@ fn test_tensor_reshape() {
 fn test_tensor_sum() {
     let _ = env_logger::builder().is_test(true).try_init();
     let arr_a: ArrayD<f32> = arr2(&[[1.0, 2.0], [3.0, 4.0]]).into_dyn();
-    let tensor_a: Tensor<f32> = arr_a.clone().into();
+    let tensor_a: Tensor = arr_a.clone().into();
 
     // Sum along axis 0
     let result_sum = tensor_a.sum(0);
@@ -155,7 +149,7 @@ fn test_tensor_sum() {
 fn test_tensor_sum_axis_1() {
     let _ = env_logger::builder().is_test(true).try_init();
     let arr_a: ArrayD<f32> = arr2(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]).into_dyn();
-    let tensor_a: Tensor<f32> = arr_a.clone().into();
+    let tensor_a: Tensor = arr_a.clone().into();
 
     // Sum along axis 1
     let result_sum = tensor_a.sum(1);
@@ -172,7 +166,7 @@ fn test_tensor_sum_axis_1() {
 fn test_tensor_sum_3d() {
     let _ = env_logger::builder().is_test(true).try_init();
     let arr_a: ArrayD<f32> = array![[[1., 2.], [3., 4.]], [[5., 6.], [7., 8.]]].into_dyn();
-    let tensor_a: Tensor<f32> = arr_a.clone().into();
+    let tensor_a: Tensor = arr_a.clone().into();
 
     // Sum along axis 1
     let result_sum = tensor_a.sum(1);
@@ -189,7 +183,7 @@ fn test_tensor_sum_3d() {
 fn test_tensor_sum_to_scalar() {
     let _ = env_logger::builder().is_test(true).try_init();
     let arr_a: ArrayD<f32> = array![1.0, 2.0, 3.0, 4.0].into_dyn();
-    let tensor_a: Tensor<f32> = arr_a.clone().into();
+    let tensor_a: Tensor = arr_a.clone().into();
 
     // Sum all elements to get a scalar result
     let result_sum = tensor_a.sum(0);
@@ -201,4 +195,24 @@ fn test_tensor_sum_to_scalar() {
     // The result from ndarray is a 0-dimensional array, which is what we want.
     assert_eq!(result_arr, expected_arr);
     assert_eq!(result_arr.first().unwrap(), &10.0f32);
+}
+
+#[test]
+fn test_tensor_zeros() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let shape = vec![2, 3];
+    let tensor = Tensor::zeros(shape.clone(), DType::F32);
+    let result: ArrayD<f32> = tensor.into();
+    let expected = ArrayD::zeros(shape);
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn test_tensor_ones() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let shape = vec![3, 2];
+    let tensor = Tensor::ones(shape.clone(), DType::F32);
+    let result: ArrayD<f32> = tensor.into();
+    let expected = ArrayD::ones(shape);
+    assert_eq!(result, expected);
 }

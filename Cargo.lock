@@ -199,6 +199,7 @@ dependencies = [
  "libloading",
  "log",
  "ndarray",
+ "num-traits",
  "rstest",
  "rustc-hash",
  "tempfile",

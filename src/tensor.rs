@@ -11,7 +11,7 @@ use crate::autotuner::Configuration;
 use crate::backends::{Backend, Buffer};
 use crate::context;
 use crate::dot::ToDot;
-use crate::dtype::{DType, IntoDType};
+use crate::dtype::DType;
 use crate::linearizer::Linearizer;
 use crate::lowerizer::Lowerizer;
 use crate::optimizer::Optimizer;
@@ -38,6 +38,7 @@ pub enum TensorOp {
     Binary(Op),
     /// A tensor created as the result of a reduce operation.
     Reduce(usize, Op),
+    Constant(crate::dtype::Number),
 }
 
 /// The internal, reference-counted implementation of a `Tensor`.
@@ -45,11 +46,11 @@ pub enum TensorOp {
 /// This struct holds all the metadata required to define a node in the computation graph,
 /// such as the operation that created it, its sources (parent nodes), its shape,
 /// and the backend responsible for its computation.
-pub struct Tensor_<T> {
+pub struct Tensor_ {
     /// The operation that produced this tensor.
     pub op: TensorOp,
     /// The source tensors (inputs) for the operation.
-    pub src: Vec<Tensor<T>>,
+    pub src: Vec<Tensor>,
     /// A `ShapeTracker` that manages the tensor's shape and memory layout.
     pub tracker: ShapeTracker,
     /// The data type of the tensor's elements.
@@ -58,7 +59,6 @@ pub struct Tensor_<T> {
     pub backend: Rc<dyn Backend>,
     /// A cached handle to the realized memory buffer, once computed.
     pub realized: RefCell<Option<Buffer>>,
-    phantom: std::marker::PhantomData<T>,
 }
 
 /// A lazy, multi-dimensional array (tensor).
@@ -69,15 +69,15 @@ pub struct Tensor_<T> {
 ///
 /// To execute the computation and get the result, call the `.realize()` method.
 #[derive(Clone)]
-pub struct Tensor<T>(pub Rc<Tensor_<T>>);
+pub struct Tensor(pub Rc<Tensor_>);
 
-impl<T: Clone + Default + 'static + IntoDType> Tensor<T> {
+impl Tensor {
     /// Creates a new `Tensor`.
     ///
     /// This is the primary constructor used to build nodes in the computation graph.
     pub fn new(
         op: TensorOp,
-        src: Vec<Tensor<T>>,
+        src: Vec<Tensor>,
         tracker: ShapeTracker,
         dtype: DType,
         backend: Rc<dyn Backend>,
@@ -89,31 +89,33 @@ impl<T: Clone + Default + 'static + IntoDType> Tensor<T> {
             dtype,
             backend,
             realized: RefCell::new(None),
-            phantom: std::marker::PhantomData,
         }))
     }
 
-    pub fn from_vec(data: Vec<T>, shape: &[usize]) -> Self {
+    pub fn zeros(shape: Vec<usize>, dtype: DType) -> Self {
         let backend = context::backend("clang");
-        let buffer = backend.alloc(data.len() * std::mem::size_of::<T>(), backend.clone());
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                data.as_ptr(),
-                backend.get_buffer_ptr(buffer.id) as *mut T,
-                data.len(),
-            );
-        }
-        let tracker = ShapeTracker::new(shape.to_vec());
-        let tensor = Self::new(TensorOp::Load, vec![], tracker, T::into_dtype(), backend);
-        *tensor.0.realized.borrow_mut() = Some(buffer);
-        tensor
+        let tracker = ShapeTracker::new(shape);
+        let op = match dtype {
+            DType::F32 => TensorOp::Constant(crate::dtype::Number::F32(0.0)),
+            DType::F64 => TensorOp::Constant(crate::dtype::Number::F64(0.0)),
+            DType::I32 => TensorOp::Constant(crate::dtype::Number::I32(0)),
+            DType::I64 => TensorOp::Constant(crate::dtype::Number::I64(0)),
+            _ => unimplemented!(),
+        };
+        Self::new(op, vec![], tracker, dtype, backend)
     }
 
-    pub fn to_vec(&self) -> Vec<T> {
-        let buffer = self.realize();
-        let ptr = self.0.backend.get_buffer_ptr(buffer.id) as *const T;
-        let len = self.0.tracker.shape().iter().product();
-        unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }
+    pub fn ones(shape: Vec<usize>, dtype: DType) -> Self {
+        let backend = context::backend("clang");
+        let tracker = ShapeTracker::new(shape);
+        let op = match dtype {
+            DType::F32 => TensorOp::Constant(crate::dtype::Number::F32(1.0)),
+            DType::F64 => TensorOp::Constant(crate::dtype::Number::F64(1.0)),
+            DType::I32 => TensorOp::Constant(crate::dtype::Number::I32(1)),
+            DType::I64 => TensorOp::Constant(crate::dtype::Number::I64(1)),
+            _ => unimplemented!(),
+        };
+        Self::new(op, vec![], tracker, dtype, backend)
     }
 
     /// Triggers the computation of the tensor's value using the default configuration.
@@ -144,7 +146,10 @@ impl<T: Clone + Default + 'static + IntoDType> Tensor<T> {
                     Duration::ZERO,
                 )
             }
-            TensorOp::Unary(_) | TensorOp::Binary(_) | TensorOp::Reduce(_, _) => {
+            TensorOp::Unary(_)
+            | TensorOp::Binary(_)
+            | TensorOp::Reduce(_, _)
+            | TensorOp::Constant(_) => {
                 // Realize all source tensors first and accumulate their execution time.
                 let mut total_exec_time = Duration::ZERO;
                 self.0.src.iter().for_each(|t| {
@@ -157,7 +162,7 @@ impl<T: Clone + Default + 'static + IntoDType> Tensor<T> {
                 let output_buffer = self.0.backend.alloc(size, self.0.backend.clone());
 
                 let leaf_tensors = self.get_leaf_tensors();
-                let mut kernel_arg_tensors: Vec<&Tensor<T>> = leaf_tensors.iter().collect();
+                let mut kernel_arg_tensors: Vec<&Tensor> = leaf_tensors.iter().collect();
                 kernel_arg_tensors.push(self);
 
                 let kernel_args_bufs: Vec<Buffer> = kernel_arg_tensors
@@ -212,7 +217,7 @@ impl<T: Clone + Default + 'static + IntoDType> Tensor<T> {
         self.clear_cache_recursive(&mut visited);
     }
 
-    fn clear_cache_recursive(&self, visited: &mut FxHashSet<*const Tensor_<T>>) {
+    fn clear_cache_recursive(&self, visited: &mut FxHashSet<*const Tensor_>) {
         let ptr = Rc::as_ptr(&self.0);
         if visited.contains(&ptr) {
             return;
@@ -301,7 +306,7 @@ impl<T: Clone + Default + 'static + IntoDType> Tensor<T> {
 
     /// Recursively collects all unique leaf tensors (those with `TensorOp::Load`)
     /// in the computation graph starting from this tensor.
-    pub fn get_leaf_tensors(&self) -> Vec<Tensor<T>> {
+    pub fn get_leaf_tensors(&self) -> Vec<Tensor> {
         let mut leafs = FxHashMap::default();
         let mut visited = FxHashSet::default();
         self.collect_leaf_tensors_recursive(&mut leafs, &mut visited);
@@ -310,8 +315,8 @@ impl<T: Clone + Default + 'static + IntoDType> Tensor<T> {
 
     fn collect_leaf_tensors_recursive(
         &self,
-        leafs: &mut FxHashMap<*const Tensor_<T>, Tensor<T>>,
-        visited: &mut FxHashSet<*const Tensor_<T>>,
+        leafs: &mut FxHashMap<*const Tensor_, Tensor>,
+        visited: &mut FxHashSet<*const Tensor_>,
     ) {
         let ptr = Rc::as_ptr(&self.0);
         if visited.contains(&ptr) {
@@ -329,77 +334,77 @@ impl<T: Clone + Default + 'static + IntoDType> Tensor<T> {
     }
 }
 
-impl<T: Clone + Default + 'static + IntoDType> Add for &Tensor<T> {
-    type Output = Tensor<T>;
+impl Add for &Tensor {
+    type Output = Tensor;
     fn add(self, rhs: Self) -> Self::Output {
         Tensor::lazy_binary_op(Op::Add, self, rhs)
     }
 }
 
-impl<T: Clone + Default + 'static + IntoDType> Add for Tensor<T> {
-    type Output = Tensor<T>;
+impl Add for Tensor {
+    type Output = Tensor;
     fn add(self, rhs: Self) -> Self::Output {
         &self + &rhs
     }
 }
 
-impl<T: Clone + Default + 'static + IntoDType> Sub for &Tensor<T> {
-    type Output = Tensor<T>;
+impl Sub for &Tensor {
+    type Output = Tensor;
     fn sub(self, rhs: Self) -> Self::Output {
         self + &(-rhs)
     }
 }
 
-impl<T: Clone + Default + 'static + IntoDType> Sub for Tensor<T> {
-    type Output = Tensor<T>;
+impl Sub for Tensor {
+    type Output = Tensor;
     fn sub(self, rhs: Self) -> Self::Output {
         &self - &rhs
     }
 }
 
-impl<T: Clone + Default + 'static + IntoDType> Mul for &Tensor<T> {
-    type Output = Tensor<T>;
+impl Mul for &Tensor {
+    type Output = Tensor;
     fn mul(self, rhs: Self) -> Self::Output {
         Tensor::lazy_binary_op(Op::Mul, self, rhs)
     }
 }
 
-impl<T: Clone + Default + 'static + IntoDType> Mul for Tensor<T> {
-    type Output = Tensor<T>;
+impl Mul for Tensor {
+    type Output = Tensor;
     fn mul(self, rhs: Self) -> Self::Output {
         &self * &rhs
     }
 }
 
-impl<T: Clone + Default + 'static + IntoDType> Div for &Tensor<T> {
-    type Output = Tensor<T>;
+impl Div for &Tensor {
+    type Output = Tensor;
     fn div(self, rhs: Self) -> Self::Output {
         self * &rhs.recip()
     }
 }
 
-impl<T: Clone + Default + 'static + IntoDType> Div for Tensor<T> {
-    type Output = Tensor<T>;
+impl Div for Tensor {
+    type Output = Tensor;
     fn div(self, rhs: Self) -> Self::Output {
         &self / &rhs
     }
 }
 
-impl<T: Clone + Default + 'static + IntoDType> Neg for &Tensor<T> {
-    type Output = Tensor<T>;
+impl Neg for &Tensor {
+    type Output = Tensor;
     fn neg(self) -> Self::Output {
         self.lazy_unary_op(Op::Neg)
     }
 }
 
-impl<T: Clone + Default + 'static + IntoDType> Neg for Tensor<T> {
-    type Output = Tensor<T>;
+impl Neg for Tensor {
+    type Output = Tensor;
     fn neg(self) -> Self::Output {
         -&self
     }
 }
 
-impl<T: Clone + Default + 'static + IntoDType> ToDot for Tensor<T> {
+impl ToDot for Tensor {
     fn to_dot(&self) -> String {
         let mut dot = String::new();
         dot.push_str("digraph G {\n");
@@ -411,11 +416,7 @@ impl<T: Clone + Default + 'static + IntoDType> ToDot for Tensor<T> {
     }
 }
 
-fn build_dot_tensor<T: Clone + Default + 'static + IntoDType>(
-    tensor: &Tensor<T>,
-    dot: &mut String,
-    visited: &mut FxHashSet<*const Tensor_<T>>,
-) {
+fn build_dot_tensor(tensor: &Tensor, dot: &mut String, visited: &mut FxHashSet<*const Tensor_>) {
     let ptr = Rc::as_ptr(&tensor.0);
     if visited.contains(&ptr) {
         return;
@@ -438,18 +439,53 @@ fn build_dot_tensor<T: Clone + Default + 'static + IntoDType>(
     }
 }
 
-impl<T: Clone + Default + 'static + IntoDType> From<ArrayD<T>> for Tensor<T> {
-    fn from(arr: ArrayD<T>) -> Self {
-        let shape = arr.shape().to_vec();
-        let (data, _) = arr.into_raw_vec_and_offset();
-        Tensor::from_vec(data, &shape)
+fn tensor_from_array<T: Clone>(arr: ArrayD<T>, dtype: DType) -> Tensor {
+    let shape = arr.shape().to_vec();
+    let backend = context::backend("clang");
+    let buffer = backend.alloc(arr.len() * std::mem::size_of::<T>(), backend.clone());
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            arr.as_ptr(),
+            backend.get_buffer_ptr(buffer.id) as *mut T,
+            arr.len(),
+        );
+    }
+    let tracker = ShapeTracker::new(shape);
+    let tensor = Tensor::new(TensorOp::Load, vec![], tracker, dtype, backend);
+    *tensor.0.realized.borrow_mut() = Some(buffer);
+    tensor
+}
+
+fn array_from_tensor<T: Clone>(tensor: &Tensor) -> ArrayD<T> {
+    let buffer = tensor.realize();
+    let ptr = tensor.0.backend.get_buffer_ptr(buffer.id) as *const T;
+    let len = tensor.shape().iter().product();
+    let data = unsafe { std::slice::from_raw_parts(ptr, len).to_vec() };
+    ArrayD::from_shape_vec(tensor.shape().to_vec(), data).unwrap()
+}
+
+impl From<ArrayD<f32>> for Tensor {
+    fn from(arr: ArrayD<f32>) -> Self {
+        tensor_from_array(arr, DType::F32)
     }
 }
 
-impl<T: Clone + Default + 'static + IntoDType> From<Tensor<T>> for ArrayD<T> {
-    fn from(tensor: Tensor<T>) -> Self {
-        let shape = tensor.shape().to_vec();
-        let data = tensor.to_vec();
-        ArrayD::from_shape_vec(shape, data).unwrap()
+impl From<Tensor> for ArrayD<f32> {
+    fn from(tensor: Tensor) -> Self {
+        assert_eq!(tensor.0.dtype, DType::F32, "DType mismatch");
+        array_from_tensor(&tensor)
+    }
+}
+
+impl From<ArrayD<i64>> for Tensor {
+    fn from(arr: ArrayD<i64>) -> Self {
+        tensor_from_array(arr, DType::I64)
+    }
+}
+
+impl From<Tensor> for ArrayD<i64> {
+    fn from(tensor: Tensor) -> Self {
+        assert_eq!(tensor.0.dtype, DType::I64, "DType mismatch");
+        array_from_tensor(&tensor)
     }
 }
