@@ -276,6 +276,10 @@ impl<T: Clone + Default + 'static + IntoDType> Tensor<T> {
         self.lazy_unary_op(Op::Sin)
     }
 
+    pub fn recip(&self) -> Self {
+        self.lazy_unary_op(Op::Recip)
+    }
+
     /// Recursively collects all unique leaf tensors (those with `TensorOp::Load`)
     /// in the computation graph starting from this tensor.
     pub fn get_leaf_tensors(&self) -> Vec<Tensor<T>> {
@@ -323,7 +327,7 @@ impl<T: Clone + Default + 'static + IntoDType> Add for Tensor<T> {
 impl<T: Clone + Default + 'static + IntoDType> Sub for &Tensor<T> {
     type Output = Tensor<T>;
     fn sub(self, rhs: Self) -> Self::Output {
-        Tensor::lazy_binary_op(Op::Sub, self, rhs)
+        self + &(-rhs)
     }
 }
 
@@ -351,7 +355,7 @@ impl<T: Clone + Default + 'static + IntoDType> Mul for Tensor<T> {
 impl<T: Clone + Default + 'static + IntoDType> Div for &Tensor<T> {
     type Output = Tensor<T>;
     fn div(self, rhs: Self) -> Self::Output {
-        Tensor::lazy_binary_op(Op::Div, self, rhs)
+        self * &rhs.recip()
     }
 }
 

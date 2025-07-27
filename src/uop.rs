@@ -14,12 +14,8 @@ pub enum Op {
     // --- Arithmetic and Mathematical Operations ---
     /// Addition
     Add,
-    /// Subtraction
-    Sub,
     /// Multiplication
     Mul,
-    /// Division
-    Div,
     /// Negation
     Neg,
     /// Reciprocal (1/x)
@@ -238,19 +234,12 @@ impl Sub for UOp {
     }
 }
 
+// Subtraction is implemented as the addition of a negated operand.
+// This reduces the number of fundamental `Op` variants.
 impl Sub<&UOp> for &UOp {
     type Output = UOp;
     fn sub(self, rhs: &UOp) -> UOp {
-        let neg_one: UOp = match &self.0.dtype {
-            DType::I8 => (-1i8).into(),
-            DType::I16 => (-1i16).into(),
-            DType::I32 => (-1i32).into(),
-            DType::I64 => (-1i64).into(),
-            DType::F32 => (-1.0f32).into(),
-            DType::F64 => (-1.0f64).into(),
-            dtype => unimplemented!("Subtraction is not implemented for dtype {:?}", dtype),
-        };
-        self + &(rhs * neg_one)
+        self + &rhs.clone().neg()
     }
 }
 
@@ -261,35 +250,29 @@ impl Div for UOp {
     }
 }
 
+// Division is implemented as multiplication by the reciprocal.
+// This reduces the number of fundamental `Op` variants.
+// The C renderer recognizes the `a * (1/b)` pattern and converts it back to `/`
+// to ensure correct integer and float division.
 impl Div<&UOp> for &UOp {
     type Output = UOp;
     fn div(self, rhs: &UOp) -> UOp {
-        // TODO: Implement proper dtype promotion
-        let dtype = self.0.dtype.clone();
-        UOp::new(Op::Div, dtype, vec![self.clone(), rhs.clone()])
+        self * &rhs.clone().recip()
     }
 }
 
 impl Neg for UOp {
     type Output = Self;
     fn neg(self) -> Self::Output {
-        &self * &(-1i32).into()
+        let dtype = self.0.dtype.clone();
+        UOp::new(Op::Neg, dtype, vec![self])
     }
 }
 
 impl Neg for &UOp {
     type Output = UOp;
     fn neg(self) -> Self::Output {
-        let neg_one: UOp = match &self.0.dtype {
-            DType::I8 => (-1i8).into(),
-            DType::I16 => (-1i16).into(),
-            DType::I32 => (-1i32).into(),
-            DType::I64 => (-1i64).into(),
-            DType::F32 => (-1.0f32).into(),
-            DType::F64 => (-1.0f64).into(),
-            dtype => unimplemented!("Negation is not implemented for dtype {:?}", dtype),
-        };
-        self * &neg_one
+        self.clone().neg()
     }
 }
 

@@ -242,21 +242,27 @@ impl CStyleRenderContext {
                 self.render_expr(&uop.0.src[0]),
                 self.render_expr(&uop.0.src[1])
             ),
-            Op::Sub => format!(
-                "({} - {})",
-                self.render_expr(&uop.0.src[0]),
-                self.render_expr(&uop.0.src[1])
-            ),
-            Op::Mul => format!(
-                "({} * {})",
-                self.render_expr(&uop.0.src[0]),
-                self.render_expr(&uop.0.src[1])
-            ),
-            Op::Div => format!(
-                "({} / {})",
-                self.render_expr(&uop.0.src[0]),
-                self.render_expr(&uop.0.src[1])
-            ),
+            Op::Mul => {
+                let a = &uop.0.src[0];
+                let b = &uop.0.src[1];
+                if let Op::Recip = b.0.op {
+                    // a * (1/b) -> a / b
+                    format!(
+                        "({} / {})",
+                        self.render_expr(a),
+                        self.render_expr(&b.0.src[0])
+                    )
+                } else if let Op::Recip = a.0.op {
+                    // (1/a) * b -> b / a
+                    format!(
+                        "({} / {})",
+                        self.render_expr(b),
+                        self.render_expr(&a.0.src[0])
+                    )
+                } else {
+                    format!("({} * {})", self.render_expr(a), self.render_expr(b))
+                }
+            }
             Op::Neg => format!("(-{})", self.render_expr(&uop.0.src[0])),
             Op::Recip => format!("(1.0f / {})", self.render_expr(&uop.0.src[0])),
             Op::Rem => format!(
