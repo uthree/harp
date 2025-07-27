@@ -1,57 +1,62 @@
+use crate::autotuner::BackendOptions;
 use crate::backends::clang::compiler::ClangCompiler;
 use crate::backends::clang::renderer::CStyleRenderer;
-use crate::backends::{Backend, BackendError, BackendOptions, Buffer, Buffer_, Compiler, Renderer};
+use crate::backends::{Backend, Buffer, Buffer_, Compiler, Renderer};
 use crate::uop::UOp;
 use log::debug;
-use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
+use which::which;
 
-/// A `Backend` that uses Clang to compile and execute kernels.
-///
-/// This backend orchestrates the rendering of a `UOp` graph to C code,
-/// compiling it with Clang into a shared library, and then dynamically
-/// loading and executing the kernel function. It manages memory buffers
-/// on the host (CPU).
 #[derive(Debug)]
 pub struct ClangBackend {
     compiler: ClangCompiler,
     renderer: CStyleRenderer,
-    buffer_counter: Cell<usize>,
-    buffers: RefCell<HashMap<usize, Vec<u8>>>,
+    id_counter: Rc<std::cell::Cell<usize>>,
+    buffers: Rc<std::cell::RefCell<HashMap<usize, Vec<u8>>>>,
+}
+
+impl Clone for ClangBackend {
+    fn clone(&self) -> Self {
+        Self {
+            compiler: ClangCompiler::new(self.compiler.compiler_cmd.clone()),
+            renderer: CStyleRenderer,
+            id_counter: self.id_counter.clone(),
+            buffers: self.buffers.clone(),
+        }
+    }
 }
 
 impl Default for ClangBackend {
     fn default() -> Self {
-        Self::new().unwrap()
+        Self::new()
     }
 }
 
 impl ClangBackend {
-    /// Creates a new `ClangBackend`.
-    ///
-    /// # Errors
-    ///
-    /// Returns a `BackendError::CompilerNotFound` if `clang` is not found in the system's PATH.
-    pub fn new() -> Result<Self, BackendError> {
-        let compiler = ClangCompiler;
-        if !compiler.is_available() {
-            return Err(BackendError::CompilerNotFound("clang".to_string()));
-        }
-        Ok(Self {
-            compiler,
+    pub fn new() -> Self {
+        let compilers = ["clang", "gcc"];
+        let found_compiler = compilers
+            .iter()
+            .find(|cmd| which(cmd).is_ok())
+            .expect("No suitable C compiler (clang, gcc) found in PATH.");
+
+        debug!("Using C compiler: {found_compiler}");
+
+        Self {
+            compiler: ClangCompiler::new(found_compiler.to_string()),
             renderer: CStyleRenderer,
-            buffer_counter: Cell::new(0),
-            buffers: RefCell::new(HashMap::new()),
-        })
+            id_counter: Rc::new(std::cell::Cell::new(0)),
+            buffers: Rc::new(std::cell::RefCell::new(HashMap::new())),
+        }
     }
 }
 
 impl Backend for ClangBackend {
     fn alloc(&self, size: usize, backend: Rc<dyn Backend>) -> Buffer {
-        let id = self.buffer_counter.get();
-        self.buffer_counter.set(id + 1);
+        let id = self.id_counter.get();
+        self.id_counter.set(id + 1);
         self.buffers.borrow_mut().insert(id, vec![0; size]);
         Buffer(Rc::new(Buffer_ { id, size, backend }))
     }

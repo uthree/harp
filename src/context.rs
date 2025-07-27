@@ -43,7 +43,7 @@ pub fn backend(name: &str) -> Rc<dyn Backend> {
         registry
             .entry(name.to_string())
             .or_insert_with(|| match name {
-                "clang" => Rc::new(ClangBackend::new().unwrap()),
+                "clang" => Rc::new(ClangBackend::new()),
                 _ => panic!("Unsupported backend: {name}"),
             })
             .clone()

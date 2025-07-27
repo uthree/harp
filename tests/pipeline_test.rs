@@ -9,7 +9,7 @@ use std::rc::Rc;
 #[test]
 fn pipeline_test() {
     let _ = env_logger::builder().is_test(true).try_init();
-    let backend = ClangBackend::new().unwrap();
+    let backend = ClangBackend::new();
     let backend = Rc::new(backend);
 
     let backend: Rc<dyn Backend> = backend;

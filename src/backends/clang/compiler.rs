@@ -34,14 +34,25 @@ impl Default for ClangCompileOptions {
 }
 
 /// A `Compiler` implementation that uses Clang to compile C code.
-#[derive(Debug)]
-pub struct ClangCompiler;
+#[derive(Debug, Clone)]
+pub struct ClangCompiler {
+    pub compiler_cmd: String,
+}
+
+impl ClangCompiler {
+    pub fn new(compiler_cmd: String) -> Self {
+        Self { compiler_cmd }
+    }
+}
 
 impl Compiler for ClangCompiler {
     type Options = ClangCompileOptions;
 
     fn is_available(&self) -> bool {
-        Command::new("clang").arg("--version").output().is_ok()
+        Command::new(&self.compiler_cmd)
+            .arg("--version")
+            .output()
+            .is_ok()
     }
 
     fn compile(
@@ -71,11 +82,12 @@ impl Compiler for ClangCompiler {
             args.push("-ffast-math");
         }
 
-        debug!("Compiling with clang, args: {args:?}");
-        let output = Command::new("clang").args(&args).output()?;
+        debug!("Compiling with {}, args: {:?}", self.compiler_cmd, &args);
+        let output = Command::new(&self.compiler_cmd).args(&args).output()?;
         if !output.status.success() {
             return Err(format!(
-                "clang compilation failed: {}",
+                "{} compilation failed: {}",
+                self.compiler_cmd,
                 String::from_utf8_lossy(&output.stderr)
             )
             .into());
