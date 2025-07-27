@@ -126,8 +126,8 @@ impl fmt::Display for Number {
             Number::I16(n) => write!(f, "{n}"),
             Number::I32(n) => write!(f, "{n}"),
             Number::I64(n) => write!(f, "{n}"),
-            Number::F32(n) => write!(f, "{n}f"),
-            Number::F64(n) => write!(f, "{n}"),
+            Number::F32(n) => write!(f, "{n:e}f"),
+            Number::F64(n) => write!(f, "{n:e}"),
         }
     }
 }

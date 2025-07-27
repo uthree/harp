@@ -237,12 +237,34 @@ impl<'a> Lowerizer<'a> {
                 UOp::new(Op::Load, tensor.0.dtype.clone(), vec![buffer, idx])
             }
             TensorOp::Unary(op) => {
-                let src = self.build_uop_graph(&tensor.0.src[0], loop_var);
-                UOp::new(op.clone(), tensor.0.dtype.clone(), vec![src])
+                let src_tensor = &tensor.0.src[0];
+                // Optimization: If the source is a constant, embed it directly.
+                if let TensorOp::Constant(n) = &src_tensor.op {
+                    let const_uop =
+                        UOp::new(Op::Const(n.clone()), src_tensor.dtype.clone(), vec![]);
+                    UOp::new(op.clone(), tensor.0.dtype.clone(), vec![const_uop])
+                } else {
+                    let src = self.build_uop_graph(src_tensor, loop_var);
+                    UOp::new(op.clone(), tensor.0.dtype.clone(), vec![src])
+                }
             }
             TensorOp::Binary(op) => {
-                let lhs = self.build_uop_graph(&tensor.0.src[0], loop_var);
-                let rhs = self.build_uop_graph(&tensor.0.src[1], loop_var);
+                let lhs_tensor = &tensor.0.src[0];
+                let rhs_tensor = &tensor.0.src[1];
+
+                // Optimization: If sources are constants, embed them directly.
+                let lhs = if let TensorOp::Constant(n) = &lhs_tensor.op {
+                    UOp::new(Op::Const(n.clone()), lhs_tensor.dtype.clone(), vec![])
+                } else {
+                    self.build_uop_graph(lhs_tensor, loop_var)
+                };
+
+                let rhs = if let TensorOp::Constant(n) = &rhs_tensor.op {
+                    UOp::new(Op::Const(n.clone()), rhs_tensor.dtype.clone(), vec![])
+                } else {
+                    self.build_uop_graph(rhs_tensor, loop_var)
+                };
+
                 UOp::new(op.clone(), tensor.0.dtype.clone(), vec![lhs, rhs])
             }
             TensorOp::Reduce(_, _) => {

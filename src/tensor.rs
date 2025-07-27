@@ -334,6 +334,28 @@ impl Tensor {
         self.lazy_unary_op(Op::Sin)
     }
 
+    pub fn exp(&self) -> Self {
+        let const_val = match self.dtype {
+            DType::F32 => crate::dtype::Number::F32(std::f32::consts::LOG2_E),
+            DType::F64 => crate::dtype::Number::F64(std::f64::consts::LOG2_E),
+            _ => panic!("exp is only supported for float tensors"),
+        };
+        // e^x = 2^(x * log2(e))
+        let log2_e = Tensor::full(vec![], const_val);
+        (self * &log2_e).exp2()
+    }
+
+    pub fn log(&self) -> Self {
+        let const_val = match self.dtype {
+            DType::F32 => crate::dtype::Number::F32(std::f32::consts::LN_2),
+            DType::F64 => crate::dtype::Number::F64(std::f64::consts::LN_2),
+            _ => panic!("log is only supported for float tensors"),
+        };
+        // ln(x) = log2(x) * ln(2)
+        let ln_2 = Tensor::full(vec![], const_val);
+        self.log2() * ln_2
+    }
+
     pub fn recip(&self) -> Self {
         self.lazy_unary_op(Op::Recip)
     }

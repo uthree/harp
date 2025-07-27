@@ -462,7 +462,7 @@ mod tests {
         println!("\n--- UOp DOT --- \n{}", dot_string);
         assert!(dot_string.starts_with("digraph G"));
         assert!(dot_string.contains("[label=\"var a\\nF32\"]"));
-        assert!(dot_string.contains("[label=\"const 1f\\nF32\"]"));
+        assert!(dot_string.contains("[label=\"const 1e0f\\nF32\"]"));
         assert!(dot_string.contains("[label=\"Add\\nF32\"]"));
         assert!(dot_string.contains("->"));
     }
