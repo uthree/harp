@@ -26,11 +26,12 @@ impl<'a> Lowerizer<'a> {
     /// * `kernel_args` - A slice of `Tensor`s that will be the arguments to the
     ///   generated kernel. The order of tensors in this slice determines the
     ///   index in the `bufs` array (e.g., `bufs[0]`, `bufs[1]`).
-    pub fn new(kernel_args: &[&'a Tensor]) -> Self {
+    pub fn new(kernel_arg_tensors: &'a [&'a Tensor]) -> Self {
         let mut arg_map = HashMap::new();
-        for (i, tensor) in kernel_args.iter().enumerate() {
-            let buffer = UOp::var(&format!("data{i}"), tensor.0.dtype.clone());
-            arg_map.insert(Rc::as_ptr(&tensor.0), buffer);
+        for (i, t) in kernel_arg_tensors.iter().enumerate() {
+            let ptr = Rc::as_ptr(&t.0);
+            let uop_var = UOp::var(&format!("data{i}"), t.dtype.clone());
+            arg_map.insert(ptr, uop_var);
         }
         Self {
             arg_map,

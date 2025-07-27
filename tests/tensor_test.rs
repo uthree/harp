@@ -28,10 +28,10 @@ fn test_tensor_addition() {
     let t3 = &t1 + &t2;
 
     // Check the resulting tensor's properties
-    assert!(matches!(t3.0.op, TensorOp::Binary(harp::uop::Op::Add)));
-    assert_eq!(t3.0.src.len(), 2);
-    assert!(Rc::ptr_eq(&t3.0.src[0].0, &t1.0));
-    assert!(Rc::ptr_eq(&t3.0.src[1].0, &t2.0));
+    assert!(matches!(t3.op, TensorOp::Binary(harp::uop::Op::Add)));
+    assert_eq!(t3.src.len(), 2);
+    assert!(Rc::ptr_eq(&t3.src[0].0, &t1.0));
+    assert!(Rc::ptr_eq(&t3.src[1].0, &t2.0));
     assert_eq!(t3.shape(), &shape);
 
     // Realize the result
@@ -119,8 +119,8 @@ fn test_tensor_reshape() {
 
     assert_eq!(t2.shape(), &new_shape);
     // Check that the underlying operation and sources are unchanged
-    assert!(matches!(t2.0.op, TensorOp::Load));
-    assert!(t2.0.src.is_empty());
+    assert!(matches!(t2.op, TensorOp::Load));
+    assert!(t2.src.is_empty());
 
     // Realizing the reshaped tensor should work
     let _result_variable = t2.realize();

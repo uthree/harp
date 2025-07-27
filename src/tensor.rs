@@ -21,7 +21,7 @@ use log::debug;
 use ndarray::ArrayD;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::cell::RefCell;
-use std::ops::{Add, Div, Mul, Neg, Sub};
+use std::ops::{Add, Deref, Div, Mul, Neg, Sub};
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -70,6 +70,14 @@ pub struct Tensor_ {
 /// To execute the computation and get the result, call the `.realize()` method.
 #[derive(Clone)]
 pub struct Tensor(pub Rc<Tensor_>);
+
+impl Deref for Tensor {
+    type Target = Tensor_;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 impl Tensor {
     /// Creates a new `Tensor`.
@@ -130,19 +138,19 @@ impl Tensor {
     /// This method walks the computation graph, generates and optimizes the kernel,
     /// compiles it, and executes it. Results are cached.
     pub fn realize_with_config(&self, config: &Configuration) -> (Buffer, Duration) {
-        if let Some(ref realized) = *self.0.realized.borrow() {
+        if let Some(ref realized) = *self.realized.borrow() {
             debug!("Cache hit for tensor");
             return (realized.clone(), Duration::ZERO);
         }
-        debug!("Realizing tensor with op: {:?}", self.0.op);
+        debug!("Realizing tensor with op: {:?}", self.op);
 
-        let (result_var, exec_time) = match self.0.op {
+        let (result_var, exec_time) = match self.op {
             TensorOp::Load => {
                 let size: usize =
-                    self.0.tracker.shape().iter().product::<usize>() * self.0.dtype.size();
+                    self.tracker.shape().iter().product::<usize>() * self.dtype.size();
                 debug!("Allocating new buffer for Load op with size: {size}");
                 (
-                    self.0.backend.alloc(size, self.0.backend.clone()),
+                    self.backend.alloc(size, self.backend.clone()),
                     Duration::ZERO,
                 )
             }
@@ -152,14 +160,14 @@ impl Tensor {
             | TensorOp::Constant(_) => {
                 // Realize all source tensors first and accumulate their execution time.
                 let mut total_exec_time = Duration::ZERO;
-                self.0.src.iter().for_each(|t| {
+                self.src.iter().for_each(|t| {
                     let (_, exec_time) = t.realize_with_config(config);
                     total_exec_time += exec_time;
                 });
 
                 let size: usize =
-                    self.0.tracker.shape().iter().product::<usize>() * self.0.dtype.size();
-                let output_buffer = self.0.backend.alloc(size, self.0.backend.clone());
+                    self.tracker.shape().iter().product::<usize>() * self.dtype.size();
+                let output_buffer = self.backend.alloc(size, self.backend.clone());
 
                 let leaf_tensors = self.get_leaf_tensors();
                 let mut kernel_arg_tensors: Vec<&Tensor> = leaf_tensors.iter().collect();
@@ -168,8 +176,8 @@ impl Tensor {
                 let kernel_args_bufs: Vec<Buffer> = kernel_arg_tensors
                     .iter()
                     .map(|t| {
-                        if t.0.realized.borrow().is_some() {
-                            t.0.realized.borrow().clone().unwrap()
+                        if t.realized.borrow().is_some() {
+                            t.realized.borrow().clone().unwrap()
                         } else {
                             output_buffer.clone()
                         }
@@ -194,7 +202,7 @@ impl Tensor {
                 let mut linearizer = Linearizer::new(&use_counts);
                 let kernel = linearizer.linearize(&final_optimized_uop, self.shape());
 
-                let own_exec_time = self.0.backend.compile_and_exec(
+                let own_exec_time = self.backend.compile_and_exec(
                     &kernel,
                     &kernel_args_bufs_ref,
                     &[],
@@ -204,7 +212,7 @@ impl Tensor {
             }
         };
 
-        *self.0.realized.borrow_mut() = Some(result_var.clone());
+        *self.realized.borrow_mut() = Some(result_var.clone());
         (result_var, exec_time)
     }
 
@@ -224,25 +232,25 @@ impl Tensor {
         }
         visited.insert(ptr);
 
-        *self.0.realized.borrow_mut() = None;
+        *self.realized.borrow_mut() = None;
 
-        for src in &self.0.src {
+        for src in &self.src {
             src.clear_cache_recursive(visited);
         }
     }
 
     pub fn shape(&self) -> &[usize] {
-        self.0.tracker.shape()
+        self.tracker.shape()
     }
 
     pub fn reshape(&self, new_shape: Vec<usize>) -> Self {
-        let new_tracker = self.0.tracker.reshape(new_shape);
+        let new_tracker = self.tracker.reshape(new_shape);
         Self::new(
-            self.0.op.clone(),
-            self.0.src.clone(),
+            self.op.clone(),
+            self.src.clone(),
             new_tracker,
-            self.0.dtype.clone(),
-            self.0.backend.clone(),
+            self.dtype.clone(),
+            self.backend.clone(),
         )
     }
 
@@ -250,23 +258,23 @@ impl Tensor {
         Self::new(
             TensorOp::Unary(op),
             vec![self.clone()],
-            self.0.tracker.clone(),
-            self.0.dtype.clone(),
-            self.0.backend.clone(),
+            self.tracker.clone(),
+            self.dtype.clone(),
+            self.backend.clone(),
         )
     }
 
     fn lazy_binary_op(op: Op, a: &Self, b: &Self) -> Self {
         assert!(
-            Rc::ptr_eq(&a.0.backend, &b.0.backend),
+            Rc::ptr_eq(&a.backend, &b.backend),
             "Backends must be the same for binary operations"
         );
         Self::new(
             TensorOp::Binary(op),
             vec![a.clone(), b.clone()],
-            a.0.tracker.clone(),
-            a.0.dtype.clone(),
-            a.0.backend.clone(),
+            a.tracker.clone(),
+            a.dtype.clone(),
+            a.backend.clone(),
         )
     }
 
@@ -295,8 +303,8 @@ impl Tensor {
             TensorOp::Reduce(axis, op),
             vec![self.clone()],
             new_tracker,
-            self.0.dtype.clone(),
-            self.0.backend.clone(),
+            self.dtype.clone(),
+            self.backend.clone(),
         )
     }
 
@@ -328,11 +336,11 @@ impl Tensor {
         }
         visited.insert(ptr);
 
-        if let TensorOp::Load = self.0.op {
+        if let TensorOp::Load = self.op {
             leafs.insert(ptr, self.clone());
         }
 
-        for src in &self.0.src {
+        for src in &self.src {
             src.collect_leaf_tensors_recursive(leafs, visited);
         }
     }
@@ -429,14 +437,14 @@ fn build_dot_tensor(tensor: &Tensor, dot: &mut String, visited: &mut FxHashSet<*
 
     let label = format!(
         "op: {:?}\nshape: {:?}\ndtype: {:?}",
-        tensor.0.op,
+        tensor.op,
         tensor.shape(),
-        tensor.0.dtype
+        tensor.dtype
     )
     .replace('\n', "\\n");
     dot.push_str(&format!("  \"{ptr:p}\" [label=\"{label}\"];\n"));
 
-    for src in &tensor.0.src {
+    for src in &tensor.src {
         let src_ptr = Rc::as_ptr(&src.0);
         dot.push_str(&format!("  \"{src_ptr:p}\" -> \"{ptr:p}\";\n"));
         build_dot_tensor(src, dot, visited);
@@ -462,7 +470,7 @@ fn tensor_from_array<T: Clone>(arr: ArrayD<T>, dtype: DType) -> Tensor {
 
 fn array_from_tensor<T: Clone>(tensor: &Tensor) -> ArrayD<T> {
     let buffer = tensor.realize();
-    let ptr = tensor.0.backend.get_buffer_ptr(buffer.id) as *const T;
+    let ptr = tensor.backend.get_buffer_ptr(buffer.id) as *const T;
     let len = tensor.shape().iter().product();
     let data = unsafe { std::slice::from_raw_parts(ptr, len).to_vec() };
     ArrayD::from_shape_vec(tensor.shape().to_vec(), data).unwrap()
@@ -476,7 +484,7 @@ impl From<ArrayD<f32>> for Tensor {
 
 impl From<Tensor> for ArrayD<f32> {
     fn from(tensor: Tensor) -> Self {
-        assert_eq!(tensor.0.dtype, DType::F32, "DType mismatch");
+        assert_eq!(tensor.dtype, DType::F32, "DType mismatch");
         array_from_tensor(&tensor)
     }
 }
@@ -489,7 +497,7 @@ impl From<ArrayD<i64>> for Tensor {
 
 impl From<Tensor> for ArrayD<i64> {
     fn from(tensor: Tensor) -> Self {
-        assert_eq!(tensor.0.dtype, DType::I64, "DType mismatch");
+        assert_eq!(tensor.dtype, DType::I64, "DType mismatch");
         array_from_tensor(&tensor)
     }
 }
