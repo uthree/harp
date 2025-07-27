@@ -8,10 +8,10 @@ harpは、高度かつ高速な配列演算をサポートするライブラリ�
 
 `harp`は、`Tensor`で行われた操作を、以下のステップを経て実行可能な`Kernel`に変換します。
 
-1. **グラフ構築 (`Tensor` -> `UOp`グラフ):** `Tensor`の演算履歴から、有向非巡回グラフ(DAG)構造の`UOp`を構築します。
+1. **Lowering (`Tensor`グラフ -> `UOp`グラフ):** `Lowerizer`が`Tensor`の計算グラフを辿り、ハードウェアに依存しない中間表現(`UOp`)のグラフに変換します。要素ごとの単純な演算は式ツリーに、`Reduce`のような複雑な操作はアキュムレーターの初期化やループを含む手続き的な`Block`に変換されます。
 2. **最適化 (`UOp`グラフ -> `UOp`グラフ):** `Optimizer`が代数法則の適用などを行い、`UOp`グラフを最適化します。
-3. **Linearization (`UOp`グラフ -> `Vec<UOp>`):** 最適化されたグラフを、**リニア（線形）な命令のリスト**に変換します。このステップで、共有ノードは一時変数への代入に置き換えられ、ループ構造は`LoopStart`/`LoopEnd`命令で表現されます。
-4. **レンダリング (`Vec<UOp>` -> `String`):** `Renderer`が命令リストを順に辿り、C言語などのソースコードを生成します。
+3. **Linearization (`UOp`グラフ -> `Vec<UOp>`):** `Linearizer`が`UOp`グラフを、カーネルの線形な命令リストに変換します。このステップで、出力テンソルの形状に基づいた明示的なループ (`LoopStart`/`LoopEnd`) を生成します。`Reduce`の場合、`Lowerizer`が生成した`Block`をこのループの内側に入れ子にすることで、ネストされたループ構造を構築します。また、複雑な式は一時変数 (`Op::Declare`) に分解されます。
+4. **レンダリング (`Vec<UOp>` -> `String`):** `Renderer`が命令リストを順に辿り、`Op::Declare`を変数宣言、`Op::Store`を再代入として解釈しながら、C言語などのソースコードを生成します。
 5. **コンパイル (`String` -> `Kernel`):** `Compiler`がソースコードをコンパイルし、実行可能な`Kernel`を生成します。
 
 この一連のフローは、後述する`Autotuner`によってラップされ、最適な設定を見つけるために繰り返し実行されます。
@@ -142,12 +142,18 @@ let nd_array_again: ArrayD<f32> = tensor.into();
     ```rust
     // UOpが表現する操作の種類
     pub enum Op {
-        Add, Mul, Div, Recip, Rem, // Binary
-        Exp2, Log2, Sin, Sqrt, // Unary
+        // Binary Ops
+        Add, Mul, Div, Recip, Rem,
+        // Unary Ops
+        Exp2, Log2, Sin, Sqrt,
+        // Memory Ops
         Load, Store,
+        // Control Flow & Variables
+        Declare(String, DType),
         Const(Number),
         Var(String),
         LoopStart, LoopEnd, Block, If,
+        // Other
         Cast(DType),
     }
 
