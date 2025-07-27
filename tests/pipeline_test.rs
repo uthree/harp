@@ -33,7 +33,8 @@ fn pipeline_test() {
     );
 
     // Linearize the UOp graph to a kernel
-    let mut linearizer = Linearizer::new();
+    let use_counts = store_op.get_use_counts();
+    let mut linearizer = Linearizer::new(&use_counts);
     let kernel = linearizer.linearize(&store_op, &[10]);
 
     // Create the necessary variables for execution

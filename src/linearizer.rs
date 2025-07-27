@@ -7,32 +7,30 @@
 //!
 //! The linearizer handles control flow, such as loops, by introducing special
 //! `Op::LoopStart` and `Op::LoopEnd` instructions into the instruction stream.
+//! It also performs kernel fusion by inlining `UOp`s that are only used once,
+//! reducing redundant memory access.
 
-use crate::uop::{Op, UOp};
+use crate::uop::{Op, UOp, UOp_};
 use log::debug;
 use rustc_hash::FxHashMap;
 use std::rc::Rc;
 
 /// A structure that holds the state for the linearization process.
-pub struct Linearizer {
-    node_map: FxHashMap<*const crate::uop::UOp_, UOp>,
+pub struct Linearizer<'a> {
+    node_map: FxHashMap<*const UOp_, UOp>,
     kernel_body: Vec<UOp>,
+    use_counts: &'a FxHashMap<*const UOp_, usize>,
     var_counter: usize,
     loop_var_counter: usize,
 }
 
-impl Default for Linearizer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Linearizer {
+impl<'a> Linearizer<'a> {
     /// Creates a new `Linearizer`.
-    pub fn new() -> Self {
+    pub fn new(use_counts: &'a FxHashMap<*const UOp_, usize>) -> Self {
         Self {
             node_map: FxHashMap::default(),
             kernel_body: Vec::new(),
+            use_counts,
             var_counter: 0,
             loop_var_counter: 0,
         }
@@ -55,10 +53,9 @@ impl Linearizer {
     /// Processes a `UOp` node from the computation graph and adds its linearized
     /// form to the kernel body.
     ///
-    /// This method recursively traverses the graph, converting expression subtrees
-    /// into temporary variables and storing the assignments in the `kernel_body`.
-    /// It uses a map (`node_map`) to cache results and avoid redundant processing
-    /// of shared nodes.
+    /// This method recursively traverses the graph. If a node is used more than
+    /// once, its result is stored in a temporary variable. If it's used only
+    /// once, it's inlined directly into its parent's expression (fusion).
     fn process_node(&mut self, node: &UOp) -> UOp {
         let node_ptr = Rc::as_ptr(&node.0);
         if let Some(mapped) = self.node_map.get(&node_ptr) {
@@ -73,22 +70,33 @@ impl Linearizer {
             .collect();
 
         let result_uop = match &node.0.op {
+            // These ops are never stored in variables, they are returned directly.
             Op::Const(_) | Op::Var(_) => {
                 return UOp::new(node.0.op.clone(), node.0.dtype.clone(), new_srcs);
             }
             _ => {
-                let var_name = self.new_var("var");
-                let var_dtype = node.0.dtype.clone();
-                let var_uop = UOp::var(&var_name, var_dtype.clone());
-                let expr = UOp::new(node.0.op.clone(), var_dtype, new_srcs);
+                // Check the use count of the current node.
+                let use_count = self.use_counts.get(&node_ptr).copied().unwrap_or(0);
 
-                let store_stmt = UOp::new(
-                    Op::Store,
-                    crate::dtype::DType::Unit,
-                    vec![var_uop.clone(), expr],
-                );
-                self.kernel_body.push(store_stmt);
-                var_uop
+                // If used more than once, or if it's a Load (must be a variable),
+                // store the result in a temporary variable.
+                if use_count > 1 || matches!(node.0.op, Op::Load) {
+                    let var_name = self.new_var("var");
+                    let var_dtype = node.0.dtype.clone();
+                    let var_uop = UOp::var(&var_name, var_dtype.clone());
+                    let expr = UOp::new(node.0.op.clone(), var_dtype, new_srcs);
+
+                    let store_stmt = UOp::new(
+                        Op::Store,
+                        crate::dtype::DType::Unit,
+                        vec![var_uop.clone(), expr],
+                    );
+                    self.kernel_body.push(store_stmt);
+                    var_uop
+                } else {
+                    // Fusion: If used once, inline the expression directly.
+                    UOp::new(node.0.op.clone(), node.0.dtype.clone(), new_srcs)
+                }
             }
         };
 
@@ -97,10 +105,6 @@ impl Linearizer {
     }
 
     /// Linearizes the entire computation graph starting from a root `UOp`.
-    ///
-    /// This function takes the final `UOp` of a computation graph (which is
-    /// typically a `Store` operation) and the tensor shape, then transforms the
-    /// entire graph into a single, flat `Vec<UOp>` representing the kernel.
     pub fn linearize(&mut self, root: &UOp, shape: &[usize]) -> Vec<UOp> {
         debug!("Linearizing UOp graph: {root:?}");
 
@@ -123,7 +127,6 @@ impl Linearizer {
         );
 
         // 4. Process the expression part of the root `Store` operation.
-        // The last source of the `Store` UOp is the value to be stored.
         let value_to_store = root.0.src.last().unwrap();
         let value_to_store = self.replace_loop_var(value_to_store.clone(), &loop_var);
         let processed_value = self.process_node(&value_to_store);
@@ -132,7 +135,6 @@ impl Linearizer {
         linearized_kernel.append(&mut self.kernel_body);
 
         // 6. Recreate the final `Store` instruction with the processed value.
-        // The original index expression used "i", we need to replace it with the new loop_var.
         let dest_buffer = root.0.src[0].clone();
         let original_index = root.0.src[1].clone();
         let new_index = self.replace_loop_var(original_index, &loop_var);

@@ -191,7 +191,9 @@ impl<T: Clone + Default + 'static + IntoDType> Tensor<T> {
                 let final_optimized_uop = tuning_optimizer.optimize(&baseline_optimized_uop);
                 debug!("After tuning optimization: {final_optimized_uop:?}");
 
-                let mut linearizer = Linearizer::new();
+                // --- Fusion-aware Linearization ---
+                let use_counts = final_optimized_uop.get_use_counts();
+                let mut linearizer = Linearizer::new(&use_counts);
                 let kernel = linearizer.linearize(&final_optimized_uop, self.shape());
 
                 let own_exec_time = self.0.backend.compile_and_exec(

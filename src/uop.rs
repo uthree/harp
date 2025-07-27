@@ -1,6 +1,6 @@
 use crate::dot::ToDot;
 pub use crate::dtype::{DType, Number};
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::ops::{
     Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
@@ -138,6 +138,32 @@ impl UOp {
     pub fn sqrt(self) -> Self {
         let dtype = self.0.dtype.clone();
         UOp::new(Op::Sqrt, dtype, vec![self])
+    }
+
+    /// Traverses the UOp graph and counts the number of times each node is used as a source.
+    pub fn get_use_counts(&self) -> FxHashMap<*const UOp_, usize> {
+        let mut counts = FxHashMap::default();
+        let mut visited = FxHashSet::default();
+        self.count_refs_recursive(&mut counts, &mut visited);
+        counts
+    }
+
+    fn count_refs_recursive(
+        &self,
+        counts: &mut FxHashMap<*const UOp_, usize>,
+        visited: &mut FxHashSet<*const UOp_>,
+    ) {
+        let ptr = Rc::as_ptr(&self.0);
+        if visited.contains(&ptr) {
+            return;
+        }
+        visited.insert(ptr);
+
+        for src in &self.0.src {
+            let src_ptr = Rc::as_ptr(&src.0);
+            *counts.entry(src_ptr).or_insert(0) += 1;
+            src.count_refs_recursive(counts, visited);
+        }
     }
 }
 
