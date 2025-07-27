@@ -1,5 +1,5 @@
 use harp::prelude::*;
-use ndarray::{ArrayD, arr2, array};
+use ndarray::{ArrayD, Zip, arr2, array};
 use std::rc::Rc;
 
 #[test]
@@ -215,4 +215,23 @@ fn test_tensor_ones() {
     let result: ArrayD<f32> = tensor.into();
     let expected = ArrayD::ones(shape);
     assert_eq!(result, expected);
+}
+
+#[test]
+fn test_tensor_max() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let arr_a: ArrayD<f32> = array![[1.0, 5.0], [6.0, 2.0]].into_dyn();
+    let arr_b: ArrayD<f32> = array![[4.0, 3.0], [6.0, 7.0]].into_dyn();
+    let tensor_a: Tensor = arr_a.clone().into();
+    let tensor_b: Tensor = arr_b.clone().into();
+
+    let result_tensor = tensor_a.max(&tensor_b);
+    let result_arr: ArrayD<f32> = result_tensor.into();
+
+    let mut expected_arr = ArrayD::zeros(arr_a.shape());
+    Zip::from(&mut expected_arr)
+        .and(&arr_a)
+        .and(&arr_b)
+        .for_each(|expected, &a, &b| *expected = f32::max(a, b));
+    assert_eq!(result_arr, expected_arr);
 }

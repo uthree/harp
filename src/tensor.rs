@@ -304,6 +304,10 @@ impl Tensor {
         self.reduce(axis, Op::Add)
     }
 
+    pub fn max(&self, rhs: &Self) -> Self {
+        Self::lazy_binary_op(Op::Max, self, rhs)
+    }
+
     /// Recursively collects all unique leaf tensors (those with `TensorOp::Load`)
     /// in the computation graph starting from this tensor.
     pub fn get_leaf_tensors(&self) -> Vec<Tensor> {

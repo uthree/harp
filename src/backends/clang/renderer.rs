@@ -1,4 +1,5 @@
 use crate::backends::Renderer;
+use crate::dtype::DType;
 use crate::uop::{Op, UOp};
 use log::debug;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -257,6 +258,15 @@ impl CStyleRenderContext {
                     )
                 } else {
                     format!("({} * {})", self.render_expr(a), self.render_expr(b))
+                }
+            }
+            Op::Max => {
+                let a = self.render_expr(&uop.0.src[0]);
+                let b = self.render_expr(&uop.0.src[1]);
+                match uop.0.dtype {
+                    DType::F32 => format!("fmaxf({a}, {b})"),
+                    DType::F64 => format!("fmax({a}, {b})"),
+                    _ => format!("(({a}) > ({b}) ? ({a}) : ({b}))"),
                 }
             }
             Op::Neg => format!("(-{})", self.render_expr(&uop.0.src[0])),

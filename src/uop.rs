@@ -16,6 +16,8 @@ pub enum Op {
     Add,
     /// Multiplication
     Mul,
+    /// Maximum
+    Max,
     /// Negation
     Neg,
     /// Reciprocal (1/x)
@@ -136,6 +138,11 @@ impl UOp {
     pub fn sqrt(self) -> Self {
         let dtype = self.0.dtype.clone();
         UOp::new(Op::Sqrt, dtype, vec![self])
+    }
+
+    pub fn max(&self, rhs: &Self) -> Self {
+        let dtype = self.0.dtype.clone();
+        UOp::new(Op::Max, dtype, vec![self.clone(), rhs.clone()])
     }
 
     /// Traverses the UOp graph and counts the number of times each node is used as a source.
