@@ -1,4 +1,4 @@
-use harp::optimization::pattern::{TPat, TPatRule, TensorPatternMatcher};
+use harp::optimization::{TPat, TPatRule, TensorPatternMatcher};
 use harp::prelude::*;
 use harp::uop::Op;
 use ndarray::{ArrayD, Zip, arr2, array};

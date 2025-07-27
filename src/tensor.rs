@@ -12,7 +12,7 @@ use crate::context;
 use crate::dot::ToDot;
 use crate::dtype::DType;
 use crate::lowerizer::Lowerizer;
-use crate::optimization::{autotuner::Configuration, linearizer::Linearizer, optimizer::Optimizer};
+use crate::optimization::{Configuration, Linearizer, Optimizer};
 use crate::shapetracker::ShapeTracker;
 use crate::uop::Op;
 use log::debug;

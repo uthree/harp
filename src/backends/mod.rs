@@ -7,7 +7,7 @@
 //! implementations of `Backend` can target different hardware or compilation toolchains.
 //! Currently, a C-based backend using Clang (`ClangBackend`) is provided.
 
-use crate::optimization::autotuner::BackendOptions;
+use crate::optimization::BackendOptions;
 use crate::uop::UOp;
 use std::error::Error;
 use std::fmt::Debug;

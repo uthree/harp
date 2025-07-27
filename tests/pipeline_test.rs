@@ -1,8 +1,7 @@
 use harp::backends::clang::compiler::ClangCompileOptions;
 use harp::backends::{Backend, ClangBackend};
 use harp::dtype::DType;
-use harp::optimization::autotuner::BackendOptions;
-use harp::optimization::linearizer::Linearizer;
+use harp::optimization::{BackendOptions, Linearizer};
 use harp::uop::{Op, UOp};
 use std::rc::Rc;
 

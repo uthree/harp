@@ -8,3 +8,10 @@ pub mod autotuner;
 pub mod linearizer;
 pub mod optimizer;
 pub mod pattern;
+
+pub use autotuner::{
+    Autotuner, BackendOptions, Configuration, GridSearch, OptimizationRule, SearchSpace,
+};
+pub use linearizer::Linearizer;
+pub use optimizer::Optimizer;
+pub use pattern::{PatternMatcher, TPat, TPatRule, TensorPatternMatcher, UPat};

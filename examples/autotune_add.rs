@@ -1,7 +1,5 @@
 use harp::backends::clang::compiler::ClangCompileOptions;
-use harp::optimization::autotuner::{
-    Autotuner, BackendOptions, GridSearch, OptimizationRule, SearchSpace,
-};
+use harp::optimization::{Autotuner, BackendOptions, GridSearch, OptimizationRule, SearchSpace};
 use harp::prelude::*;
 use harp::uop::Number;
 
