@@ -89,7 +89,12 @@ impl TensorPatternMatcher {
         let new_src: Vec<Tensor> = tensor.src.iter().map(|s| self.apply_recursive(s)).collect();
 
         // Rebuild the current tensor if any of its sources have changed.
-        let mut current_tensor = if tensor.src.iter().zip(&new_src).any(|(a, b)| !Rc::ptr_eq(&a.0, &b.0)) {
+        let mut current_tensor = if tensor
+            .src
+            .iter()
+            .zip(&new_src)
+            .any(|(a, b)| !Rc::ptr_eq(&a.0, &b.0))
+        {
             Tensor::new(
                 tensor.op.clone(),
                 new_src,
@@ -135,10 +140,10 @@ impl TensorPatternMatcher {
         }
     }
 
-    fn internal_matcher<'p>(
+    fn internal_matcher(
         &self,
         tensor: &Tensor,
-        pattern: &'p TPat,
+        pattern: &TPat,
         captures: &mut FxHashMap<usize, Tensor>,
     ) -> bool {
         match pattern {
@@ -349,7 +354,7 @@ impl std::ops::Add for PatternMatcher {
 ///
 /// ```
 /// use harp::{pats, uop::{UOp, Op, DType}};
-/// use harp::pattern::PatternMatcher;
+/// use harp::optimization::pattern::PatternMatcher;
 /// use rustc_hash::FxHashMap;
 ///
 /// let rules = pats!({

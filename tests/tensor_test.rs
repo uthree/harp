@@ -1,7 +1,7 @@
 use harp::optimization::pattern::{TPat, TPatRule, TensorPatternMatcher};
 use harp::prelude::*;
 use harp::uop::Op;
-use ndarray::{arr2, array, ArrayD, Zip};
+use ndarray::{ArrayD, Zip, arr2, array};
 use std::rc::Rc;
 
 #[test]
@@ -309,7 +309,11 @@ fn test_tensor_optimization_mul_one() {
     // Rule: x * 1.0 => x
     let rule = TPatRule::new(
         "mul_one",
-        TPat::Binary(Op::Mul, Box::new(TPat::Capture(0)), Box::new(TPat::Capture(1))),
+        TPat::Binary(
+            Op::Mul,
+            Box::new(TPat::Capture(0)),
+            Box::new(TPat::Capture(1)),
+        ),
         |captures| {
             // Condition: check if the second captured tensor is a constant 1.0
             if let Some(c_tensor) = captures.get(&1) {
