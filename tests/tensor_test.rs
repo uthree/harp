@@ -1,5 +1,11 @@
 use harp::prelude::*;
-use ndarray::{ArrayD, arr2};
+use harp::{
+    context::backend,
+    dtype::IntoDType,
+    shapetracker::ShapeTracker,
+    tensor::{Tensor, TensorOp},
+};
+use ndarray::{arr2, array, ArrayD};
 use std::rc::Rc;
 
 #[test]
@@ -143,4 +149,56 @@ fn test_tensor_sum() {
     let expected_arr_reshaped = expected_arr.into_shape(vec![2]).unwrap();
 
     assert_eq!(result_arr, expected_arr_reshaped);
+}
+
+#[test]
+fn test_tensor_sum_axis_1() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let arr_a: ArrayD<f32> = arr2(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]).into_dyn();
+    let tensor_a: Tensor<f32> = arr_a.clone().into();
+
+    // Sum along axis 1
+    let result_sum = tensor_a.sum(1);
+    let result_arr: ArrayD<f32> = result_sum.into();
+
+    // Expected result from ndarray
+    let expected_arr = arr_a.sum_axis(ndarray::Axis(1));
+    let expected_arr_reshaped = expected_arr.into_shape(vec![2]).unwrap();
+
+    assert_eq!(result_arr, expected_arr_reshaped);
+}
+
+#[test]
+fn test_tensor_sum_3d() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let arr_a: ArrayD<f32> = array![[[1., 2.], [3., 4.]], [[5., 6.], [7., 8.]]].into_dyn();
+    let tensor_a: Tensor<f32> = arr_a.clone().into();
+
+    // Sum along axis 1
+    let result_sum = tensor_a.sum(1);
+    let result_arr: ArrayD<f32> = result_sum.into();
+
+    // Expected result from ndarray
+    let expected_arr = arr_a.sum_axis(ndarray::Axis(1));
+    let expected_arr_reshaped = expected_arr.into_shape(vec![2, 2]).unwrap();
+
+    assert_eq!(result_arr, expected_arr_reshaped);
+}
+
+#[test]
+fn test_tensor_sum_to_scalar() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let arr_a: ArrayD<f32> = array![1.0, 2.0, 3.0, 4.0].into_dyn();
+    let tensor_a: Tensor<f32> = arr_a.clone().into();
+
+    // Sum all elements to get a scalar result
+    let result_sum = tensor_a.sum(0);
+    assert_eq!(result_sum.shape(), &[] as &[usize]);
+
+    let result_arr: ArrayD<f32> = result_sum.into();
+    let expected_arr = arr_a.sum_axis(ndarray::Axis(0));
+
+    // The result from ndarray is a 0-dimensional array, which is what we want.
+    assert_eq!(result_arr, expected_arr);
+    assert_eq!(result_arr.first().unwrap(), &10.0f32);
 }
