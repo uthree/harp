@@ -154,6 +154,22 @@ impl Tensor {
         Self::new(op, vec![], tracker, dtype, backend)
     }
 
+    /// Applies a `TensorPatternMatcher` to optimize the computation graph.
+    ///
+    /// This method traverses the graph and applies a set of pattern matching
+    /// rules to simplify or rewrite the graph for better performance.
+    ///
+    /// # Arguments
+    ///
+    /// * `matcher` - The `TensorPatternMatcher` containing the optimization rules.
+    ///
+    /// # Returns
+    ///
+    /// A new `Tensor` representing the root of the optimized graph.
+    pub fn optimize(&self, matcher: &crate::pattern::TensorPatternMatcher) -> Self {
+        matcher.apply(self)
+    }
+
     /// Triggers the computation of the tensor's value using the default configuration.
     ///
     /// This is a convenience wrapper around `realize_with_config` that discards the duration.

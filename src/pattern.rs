@@ -1,6 +1,28 @@
+use crate::tensor::{Tensor, TensorOp};
 use crate::uop::{Op, UOp};
 use rustc_hash::FxHashMap;
 use std::rc::Rc;
+
+/// A pattern for matching subgraphs within a `Tensor` computation graph.
+#[derive(Clone, Debug)]
+pub enum TPat {
+    /// Matches any single `Tensor`.
+    Wildcard,
+    /// Captures a matched `Tensor`. The `usize` is the capture ID.
+    Capture(usize),
+    /// Matches a `Tensor` created by a unary operation.
+    Unary(Op, Box<TPat>),
+    /// Matches a `Tensor` created by a binary operation.
+    Binary(Op, Box<TPat>, Box<TPat>),
+    /// Matches a `Tensor` created by a reduce operation.
+    Reduce(usize, Op, Box<TPat>),
+    /// Matches a `Tensor` created by a scan operation.
+    Scan(usize, Op, Box<TPat>),
+    /// Matches a constant `Tensor`.
+    Constant,
+    /// Matches a load `Tensor`.
+    Load,
+}
 
 /// Represents a single pattern matching rule for `UOp` graphs.
 ///
@@ -9,6 +31,146 @@ use std::rc::Rc;
 pub struct UPat {
     pattern: UOp,
     replacer: Box<dyn Fn(&FxHashMap<usize, UOp>) -> UOp>,
+}
+
+/// Represents a single pattern matching rule for `Tensor` graphs.
+pub struct TPatRule {
+    pattern: TPat,
+    replacer: Box<dyn Fn(&FxHashMap<usize, Tensor>) -> Option<Tensor>>,
+}
+
+impl TPatRule {
+    pub fn new<F>(pattern: TPat, replacer: F) -> Self
+    where
+        F: Fn(&FxHashMap<usize, Tensor>) -> Option<Tensor> + 'static,
+    {
+        TPatRule {
+            pattern,
+            replacer: Box::new(replacer),
+        }
+    }
+}
+
+/// A collection of `TPatRule`s that can be applied to a `Tensor` graph.
+pub struct TensorPatternMatcher {
+    rules: Vec<TPatRule>,
+}
+
+impl TensorPatternMatcher {
+    pub fn new(rules: Vec<TPatRule>) -> Self {
+        Self { rules }
+    }
+
+    pub fn apply(&self, tensor: &Tensor) -> Tensor {
+        // Apply optimizations recursively, starting from the leaves of the graph.
+        self.apply_recursive(tensor)
+    }
+
+    fn apply_recursive(&self, tensor: &Tensor) -> Tensor {
+        // First, optimize the source tensors.
+        let new_src: Vec<Tensor> = tensor.src.iter().map(|s| self.apply_recursive(s)).collect();
+
+        // Rebuild the current tensor if any of its sources have changed.
+        let mut current_tensor = if tensor.src.iter().zip(&new_src).any(|(a, b)| !Rc::ptr_eq(&a.0, &b.0)) {
+            Tensor::new(
+                tensor.op.clone(),
+                new_src,
+                tensor.tracker.clone(),
+                tensor.dtype.clone(),
+                tensor.backend.clone(),
+            )
+        } else {
+            tensor.clone()
+        };
+
+        // Now, try to apply rules to the (potentially rebuilt) current tensor.
+        // This loop allows for iterative optimization at the same node.
+        loop {
+            let mut optimized = false;
+            for rule in &self.rules {
+                if let Some(captures) = self.match_pattern(&current_tensor, &rule.pattern) {
+                    if let Some(replacement) = (rule.replacer)(&captures) {
+                        current_tensor = replacement;
+                        optimized = true;
+                        // Restart the rule application process from the beginning for the new tensor.
+                        break;
+                    }
+                }
+            }
+            if !optimized {
+                break; // No more rules could be applied at this node.
+            }
+        }
+
+        current_tensor
+    }
+
+    fn match_pattern(&self, tensor: &Tensor, pattern: &TPat) -> Option<FxHashMap<usize, Tensor>> {
+        let mut captures = FxHashMap::default();
+        if self.internal_matcher(tensor, pattern, &mut captures) {
+            Some(captures)
+        } else {
+            None
+        }
+    }
+
+    fn internal_matcher<'p>(
+        &self,
+        tensor: &Tensor,
+        pattern: &'p TPat,
+        captures: &mut FxHashMap<usize, Tensor>,
+    ) -> bool {
+        match pattern {
+            TPat::Wildcard => true,
+            TPat::Capture(id) => {
+                if let Some(existing) = captures.get(id) {
+                    return Rc::ptr_eq(&tensor.0, &existing.0);
+                }
+                captures.insert(*id, tensor.clone());
+                true
+            }
+            TPat::Constant => matches!(tensor.op, TensorOp::Constant(_)),
+            TPat::Load => matches!(tensor.op, TensorOp::Load),
+            TPat::Unary(op, pat_src) => {
+                if let TensorOp::Unary(tensor_op) = &tensor.op {
+                    op == tensor_op && self.internal_matcher(&tensor.src[0], pat_src, captures)
+                } else {
+                    false
+                }
+            }
+            TPat::Binary(op, pat_lhs, pat_rhs) => {
+                if let TensorOp::Binary(tensor_op) = &tensor.op {
+                    op == tensor_op
+                        && self.internal_matcher(&tensor.src[0], pat_lhs, captures)
+                        && self.internal_matcher(&tensor.src[1], pat_rhs, captures)
+                } else {
+                    false
+                }
+            }
+            TPat::Reduce(axis, op, pat_src) => {
+                if let TensorOp::Reduce(tensor_axis, tensor_op) = &tensor.op {
+                    axis == tensor_axis
+                        && op == tensor_op
+                        && self.internal_matcher(&tensor.src[0], pat_src, captures)
+                } else {
+                    false
+                }
+            }
+            TPat::Scan(axis, op, pat_src) => {
+                if let TensorOp::Scan {
+                    axis: tensor_axis,
+                    op: tensor_op,
+                } = &tensor.op
+                {
+                    axis == tensor_axis
+                        && op == tensor_op
+                        && self.internal_matcher(&tensor.src[0], pat_src, captures)
+                } else {
+                    false
+                }
+            }
+        }
+    }
 }
 
 impl UPat {

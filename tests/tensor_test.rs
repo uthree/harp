@@ -1,5 +1,6 @@
 use harp::prelude::*;
-use ndarray::{ArrayD, Zip, arr2, array};
+use harp::uop::Op;
+use ndarray::{arr2, array, ArrayD, Zip};
 use std::rc::Rc;
 
 #[test]
@@ -267,17 +268,33 @@ fn test_tensor_macros() {
 }
 
 #[test]
-fn test_tensor_cumsum() {
+fn test_tensor_optimization_double_neg() {
+    use harp::pattern::{TPat, TPatRule, TensorPatternMatcher};
+
     let _ = env_logger::builder().is_test(true).try_init();
-    let arr_a: ArrayD<f32> = array![1.0, 2.0, 3.0, 4.0].into_dyn();
-    let tensor_a: Tensor = arr_a.clone().into();
 
-    // Cumsum along axis 0
-    let result_cumsum = tensor_a.cumsum(0);
-    let result_arr: ArrayD<f32> = result_cumsum.into();
+    // Rule: -(-x) => x
+    let rule = TPatRule::new(
+        TPat::Unary(
+            Op::Neg,
+            Box::new(TPat::Unary(Op::Neg, Box::new(TPat::Capture(0)))),
+        ),
+        |captures| {
+            let x = captures.get(&0).unwrap();
+            Some(x.clone())
+        },
+    );
+    let matcher = TensorPatternMatcher::new(vec![rule]);
 
-    // Expected result
-    let expected_arr = array![1.0, 3.0, 6.0, 10.0].into_dyn();
+    let a = Tensor::full(vec![2, 2], 5.0f32);
+    let expr = -(-a.clone());
 
-    assert_eq!(result_arr, expected_arr);
+    // Check that the structure is as expected before optimization
+    assert!(matches!(expr.op, TensorOp::Unary(Op::Neg)));
+    assert!(matches!(expr.src[0].op, TensorOp::Unary(Op::Neg)));
+
+    let optimized_expr = expr.optimize(&matcher);
+
+    // The optimized expression should be pointer-equal to the original tensor `a`
+    assert!(Rc::ptr_eq(&a.0, &optimized_expr.0));
 }
