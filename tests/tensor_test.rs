@@ -266,6 +266,26 @@ fn test_tensor_macros() {
     assert_eq!(lt.dtype, DType::I64);
     let lt_arr: ArrayD<i64> = lt.into();
     assert_eq!(lt_arr, array![[10i64, 20i64], [30i64, 40i64]].into_dyn());
+
+    // Test double_tensor!
+    let dt = double_tensor![[1.0, 2.0], [3.0, 4.0]];
+    assert_eq!(dt.shape(), &[2, 2]);
+    assert_eq!(dt.dtype, DType::F64);
+    let dt_arr: ArrayD<f64> = dt.into();
+    assert_eq!(
+        dt_arr,
+        array![[1.0f64, 2.0f64], [3.0f64, 4.0f64]].into_dyn()
+    );
+
+    // Test int_tensor!
+    let it = int_tensor![[100, 200], [300, 400]];
+    assert_eq!(it.shape(), &[2, 2]);
+    assert_eq!(it.dtype, DType::I32);
+    let it_arr: ArrayD<i32> = it.into();
+    assert_eq!(
+        it_arr,
+        array![[100i32, 200i32], [300i32, 400i32]].into_dyn()
+    );
 }
 
 #[test]

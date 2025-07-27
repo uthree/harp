@@ -575,6 +575,32 @@ impl From<Tensor> for ArrayD<i64> {
     }
 }
 
+impl From<ArrayD<f64>> for Tensor {
+    fn from(arr: ArrayD<f64>) -> Self {
+        tensor_from_array(arr, DType::F64)
+    }
+}
+
+impl From<Tensor> for ArrayD<f64> {
+    fn from(tensor: Tensor) -> Self {
+        assert_eq!(tensor.dtype, DType::F64, "DType mismatch");
+        array_from_tensor(&tensor)
+    }
+}
+
+impl From<ArrayD<i32>> for Tensor {
+    fn from(arr: ArrayD<i32>) -> Self {
+        tensor_from_array(arr, DType::I32)
+    }
+}
+
+impl From<Tensor> for ArrayD<i32> {
+    fn from(tensor: Tensor) -> Self {
+        assert_eq!(tensor.dtype, DType::I32, "DType mismatch");
+        array_from_tensor(&tensor)
+    }
+}
+
 /// Creates a `Tensor` with `DType::F32` from array-like literals.
 ///
 /// # Examples
@@ -611,6 +637,48 @@ macro_rules! long_tensor {
     ($($t:tt)*) => {
         {
             let arr: ndarray::ArrayD<i64> = ndarray::array!($($t)*).mapv(|x| x as i64).into_dyn();
+            let tensor: $crate::tensor::Tensor = arr.into();
+            tensor
+        }
+    };
+}
+
+/// Creates a `Tensor` with `DType::F64` from array-like literals.
+///
+/// # Examples
+///
+/// ```
+/// # use harp::prelude::*;
+/// let t = double_tensor![[1.0, 2.0], [3.0, 4.0]];
+/// assert_eq!(t.shape(), &[2, 2]);
+/// assert_eq!(t.dtype, DType::F64);
+/// ```
+#[macro_export]
+macro_rules! double_tensor {
+    ($($t:tt)*) => {
+        {
+            let arr: ndarray::ArrayD<f64> = ndarray::array!($($t)*).mapv(|x| x as f64).into_dyn();
+            let tensor: $crate::tensor::Tensor = arr.into();
+            tensor
+        }
+    };
+}
+
+/// Creates a `Tensor` with `DType::I32` from array-like literals.
+///
+/// # Examples
+///
+/// ```
+/// # use harp::prelude::*;
+/// let t = int_tensor![[1, 2], [3, 4]];
+/// assert_eq!(t.shape(), &[2, 2]);
+/// assert_eq!(t.dtype, DType::I32);
+/// ```
+#[macro_export]
+macro_rules! int_tensor {
+    ($($t:tt)*) => {
+        {
+            let arr: ndarray::ArrayD<i32> = ndarray::array!($($t)*).mapv(|x| x as i32).into_dyn();
             let tensor: $crate::tensor::Tensor = arr.into();
             tensor
         }
