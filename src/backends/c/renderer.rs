@@ -21,7 +21,11 @@ impl Renderer for CStyleRenderer {
         // Write C headers and the function signature.
         writeln!(&mut code, "#include <math.h>").unwrap();
         writeln!(&mut code, "#include <stddef.h>").unwrap();
-        writeln!(&mut code, "void kernel_main(void** bufs, size_t* shape_args) {{").unwrap();
+        writeln!(
+            &mut code,
+            "void kernel_main(void** bufs, size_t* shape_args) {{"
+        )
+        .unwrap();
 
         // --- Argument Declaration ---
         // Buffer and integer arguments are cast to local variables for clarity and type safety.
@@ -210,7 +214,8 @@ impl CStyleRenderContext {
                             value
                         )
                         .unwrap();
-                    } else { // A Store with 3 sources is an array access (e.g., `buf[idx] = ...;`)
+                    } else {
+                        // A Store with 3 sources is an array access (e.g., `buf[idx] = ...;`)
                         let dest = self.render_expr(&uop.0.src[0]);
                         let idx = self.render_expr(&uop.0.src[1]);
                         let value = self.render_expr(&uop.0.src[2]);
@@ -232,14 +237,38 @@ impl CStyleRenderContext {
     /// Renders a `UOp` node and its children as a C expression string.
     fn render_expr(&mut self, uop: &UOp) -> String {
         match &uop.0.op {
-            Op::Add => format!("({} + {})", self.render_expr(&uop.0.src[0]), self.render_expr(&uop.0.src[1])),
-            Op::Sub => format!("({} - {})", self.render_expr(&uop.0.src[0]), self.render_expr(&uop.0.src[1])),
-            Op::Mul => format!("({} * {})", self.render_expr(&uop.0.src[0]), self.render_expr(&uop.0.src[1])),
-            Op::Div => format!("({} / {})", self.render_expr(&uop.0.src[0]), self.render_expr(&uop.0.src[1])),
+            Op::Add => format!(
+                "({} + {})",
+                self.render_expr(&uop.0.src[0]),
+                self.render_expr(&uop.0.src[1])
+            ),
+            Op::Sub => format!(
+                "({} - {})",
+                self.render_expr(&uop.0.src[0]),
+                self.render_expr(&uop.0.src[1])
+            ),
+            Op::Mul => format!(
+                "({} * {})",
+                self.render_expr(&uop.0.src[0]),
+                self.render_expr(&uop.0.src[1])
+            ),
+            Op::Div => format!(
+                "({} / {})",
+                self.render_expr(&uop.0.src[0]),
+                self.render_expr(&uop.0.src[1])
+            ),
             Op::Neg => format!("(-{})", self.render_expr(&uop.0.src[0])),
             Op::Recip => format!("(1.0f / {})", self.render_expr(&uop.0.src[0])),
-            Op::Rem => format!("({} % {})", self.render_expr(&uop.0.src[0]), self.render_expr(&uop.0.src[1])),
-            Op::Load => format!("{}[{}]", self.render_expr(&uop.0.src[0]), self.render_expr(&uop.0.src[1])),
+            Op::Rem => format!(
+                "({} % {})",
+                self.render_expr(&uop.0.src[0]),
+                self.render_expr(&uop.0.src[1])
+            ),
+            Op::Load => format!(
+                "{}[{}]",
+                self.render_expr(&uop.0.src[0]),
+                self.render_expr(&uop.0.src[1])
+            ),
             Op::Const(num) => format!("{num}"),
             Op::Var(name) => name.clone(),
             Op::Exp2 => format!("exp2({})", self.render_expr(&uop.0.src[0])),

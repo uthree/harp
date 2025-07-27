@@ -1,5 +1,5 @@
-use harp::prelude::*;
 use harp::dtype::IntoDType;
+use harp::prelude::*;
 use std::rc::Rc;
 
 fn main() {

@@ -43,8 +43,8 @@
 //! assert_eq!(result_vec, vec![3.0f32; 10]);
 //! ```
 
-pub mod backends;
 pub mod autotuner;
+pub mod backends;
 pub mod context;
 pub mod dot;
 pub mod dtype;

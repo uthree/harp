@@ -1,5 +1,5 @@
-use harp::prelude::*;
 use harp::dtype::IntoDType;
+use harp::prelude::*;
 use std::rc::Rc;
 
 fn main() {
@@ -33,5 +33,7 @@ fn main() {
     println!("{}", dot_graph);
 
     println!("\n// 上記のDOTグラフをコピーして、Graphvizなどのツールで視覚化できます。");
-    println!("// 例えば、https://dreampuf.github.io/GraphvizOnline/ などのオンラインビューアが便利です。");
+    println!(
+        "// 例えば、https://dreampuf.github.io/GraphvizOnline/ などのオンラインビューアが便利です。"
+    );
 }

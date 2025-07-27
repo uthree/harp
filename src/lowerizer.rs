@@ -5,9 +5,9 @@
 //! referred to as "lowering," as it moves from a higher-level abstraction (`Tensor`)
 //! to a lower-level, more explicit representation (`UOp`).
 
+use crate::dtype::DType;
 use crate::tensor::{Tensor, Tensor_, TensorOp};
 use crate::uop::{Op, UOp};
-use crate::dtype::DType;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -49,7 +49,11 @@ impl<'a, T: 'a> Lowerizer<'a, T> {
         let result_expr = self.build_uop_graph(tensor, &loop_var);
 
         // The output buffer is the one that corresponds to the root tensor itself.
-        let output_buffer = self.arg_map.get(&Rc::as_ptr(&tensor.0)).expect("Output buffer not found in arg_map").clone();
+        let output_buffer = self
+            .arg_map
+            .get(&Rc::as_ptr(&tensor.0))
+            .expect("Output buffer not found in arg_map")
+            .clone();
         let idx = tensor.0.tracker.expr_node(&loop_var);
 
         UOp::new(
@@ -64,7 +68,11 @@ impl<'a, T: 'a> Lowerizer<'a, T> {
         match &tensor.0.op {
             TensorOp::Load => {
                 // If it's a Load op, it must be one of the kernel arguments.
-                let buffer = self.arg_map.get(&Rc::as_ptr(&tensor.0)).expect("Load buffer not found in arg_map").clone();
+                let buffer = self
+                    .arg_map
+                    .get(&Rc::as_ptr(&tensor.0))
+                    .expect("Load buffer not found in arg_map")
+                    .clone();
                 let idx = tensor.0.tracker.expr_node(loop_var);
                 UOp::new(Op::Load, tensor.0.dtype.clone(), vec![buffer, idx])
             }

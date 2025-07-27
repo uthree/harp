@@ -93,10 +93,7 @@ impl<T: Clone + Default + 'static + IntoDType> Tensor<T> {
 
     pub fn from_vec(data: Vec<T>, shape: &[usize]) -> Self {
         let backend = context::backend("clang");
-        let buffer = backend.alloc(
-            data.len() * std::mem::size_of::<T>(),
-            backend.clone(),
-        );
+        let buffer = backend.alloc(data.len() * std::mem::size_of::<T>(), backend.clone());
         unsafe {
             std::ptr::copy_nonoverlapping(
                 data.as_ptr(),
@@ -105,13 +102,7 @@ impl<T: Clone + Default + 'static + IntoDType> Tensor<T> {
             );
         }
         let tracker = ShapeTracker::new(shape.to_vec());
-        let tensor = Self::new(
-            TensorOp::Load,
-            vec![],
-            tracker,
-            T::into_dtype(),
-            backend,
-        );
+        let tensor = Self::new(TensorOp::Load, vec![], tracker, T::into_dtype(), backend);
         *tensor.0.realized.borrow_mut() = Some(buffer);
         tensor
     }

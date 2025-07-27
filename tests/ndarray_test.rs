@@ -1,5 +1,5 @@
 use harp::prelude::*;
-use ndarray::{arr2, ArrayD};
+use ndarray::{ArrayD, arr2};
 
 #[test]
 fn test_ndarray_roundtrip() {
