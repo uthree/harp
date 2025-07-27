@@ -18,7 +18,7 @@ pub struct Lowerizer<'a, T> {
     phantom: std::marker::PhantomData<&'a T>,
 }
 
-impl<'a, T: 'a> Lowerizer<'a, T> {
+impl<'a, T: Clone + Default + 'static + crate::dtype::IntoDType> Lowerizer<'a, T> {
     /// Creates a new `Lowerizer`.
     ///
     /// # Arguments
@@ -45,10 +45,84 @@ impl<'a, T: 'a> Lowerizer<'a, T> {
     /// The final `UOp` will be a `Store` operation into the output buffer corresponding
     /// to the root `tensor`.
     pub fn lower(&mut self, tensor: &'a Tensor<T>) -> UOp {
+        if let TensorOp::Reduce(axis, op) = &tensor.0.op {
+            let src_tensor = &tensor.0.src[0];
+            let acc_var = UOp::var("acc", tensor.0.dtype.clone());
+
+            // 1. Declare and initialize accumulator
+            let identity_element = UOp::from(0.0f32).cast(tensor.0.dtype.clone());
+            let declare_acc = UOp::new(
+                Op::Declare("acc".to_string(), tensor.0.dtype.clone()),
+                DType::Unit,
+                vec![identity_element],
+            );
+
+            // 2. Create the reduction loop
+            let reduce_loop_var = UOp::var("ridx", DType::U64);
+            let reduce_dim = src_tensor.shape()[*axis];
+            let loop_start = UOp::new(
+                Op::LoopStart,
+                DType::Unit,
+                vec![reduce_loop_var.clone(), (reduce_dim as u64).into()],
+            );
+
+            // 3. Build the expression to load the source element
+            let mut src_indices: Vec<UOp> = tensor
+                .shape()
+                .iter()
+                .enumerate()
+                .map(|(i, _)| UOp::var(&format!("idx{i}"), DType::U64))
+                .collect();
+            src_indices.insert(*axis, reduce_loop_var);
+
+            let src_idx_expr = src_tensor.0.tracker.expr_indices(Some(&src_indices));
+            let src_buffer = self
+                .arg_map
+                .get(&Rc::as_ptr(&src_tensor.0))
+                .unwrap()
+                .clone();
+            let load_expr = UOp::new(
+                Op::Load,
+                src_tensor.0.dtype.clone(),
+                vec![src_buffer, src_idx_expr],
+            );
+
+            // 4. Create the accumulation and reassignment
+            let acc_op = UOp::new(
+                op.clone(),
+                tensor.0.dtype.clone(),
+                vec![acc_var.clone(), load_expr],
+            );
+            let update_acc = UOp::new(Op::Store, DType::Unit, vec![acc_var.clone(), acc_op]);
+
+            // 5. End the loop
+            let loop_end = UOp::new(Op::LoopEnd, DType::Unit, vec![]);
+
+            // 6. Store the final result
+            let output_buffer = self.arg_map.get(&Rc::as_ptr(&tensor.0)).unwrap().clone();
+            let output_indices: Vec<UOp> = tensor
+                .shape()
+                .iter()
+                .enumerate()
+                .map(|(i, _)| UOp::var(&format!("idx{i}"), DType::U64))
+                .collect();
+            let output_idx = tensor.0.tracker.expr_indices(Some(&output_indices));
+            let store_result = UOp::new(
+                Op::Store,
+                DType::Unit,
+                vec![output_buffer, output_idx, acc_var],
+            );
+
+            return UOp::new(
+                Op::Block,
+                DType::Unit,
+                vec![declare_acc, loop_start, update_acc, loop_end, store_result],
+            );
+        }
+
         let loop_var = UOp::var("i", DType::U64);
         let result_expr = self.build_uop_graph(tensor, &loop_var);
 
-        // The output buffer is the one that corresponds to the root tensor itself.
         let output_buffer = self
             .arg_map
             .get(&Rc::as_ptr(&tensor.0))
@@ -67,7 +141,6 @@ impl<'a, T: 'a> Lowerizer<'a, T> {
     fn build_uop_graph(&mut self, tensor: &'a Tensor<T>, loop_var: &UOp) -> UOp {
         match &tensor.0.op {
             TensorOp::Load => {
-                // If it's a Load op, it must be one of the kernel arguments.
                 let buffer = self
                     .arg_map
                     .get(&Rc::as_ptr(&tensor.0))
@@ -84,6 +157,9 @@ impl<'a, T: 'a> Lowerizer<'a, T> {
                 let lhs = self.build_uop_graph(&tensor.0.src[0], loop_var);
                 let rhs = self.build_uop_graph(&tensor.0.src[1], loop_var);
                 UOp::new(op.clone(), tensor.0.dtype.clone(), vec![lhs, rhs])
+            }
+            TensorOp::Reduce(_, _) => {
+                panic!("Reduce should be handled in lower, not build_uop_graph");
             }
         }
     }

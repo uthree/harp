@@ -126,3 +126,21 @@ fn test_tensor_reshape() {
     let _result_variable = t2.realize();
     println!("Reshape test completed successfully!");
 }
+
+#[test]
+fn test_tensor_sum() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let arr_a: ArrayD<f32> = arr2(&[[1.0, 2.0], [3.0, 4.0]]).into_dyn();
+    let tensor_a: Tensor<f32> = arr_a.clone().into();
+
+    // Sum along axis 0
+    let result_sum = tensor_a.sum(0);
+    let result_arr: ArrayD<f32> = result_sum.into();
+
+    // Expected result from ndarray
+    let expected_arr = arr_a.sum_axis(ndarray::Axis(0));
+
+    let expected_arr_reshaped = expected_arr.into_shape(vec![2]).unwrap();
+
+    assert_eq!(result_arr, expected_arr_reshaped);
+}

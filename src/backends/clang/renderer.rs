@@ -200,22 +200,18 @@ impl CStyleRenderContext {
                     indent -= 4;
                     writeln!(code, "{}}}", " ".repeat(indent)).unwrap();
                 }
+                Op::Declare(name, dtype) => {
+                    let value = self.render_expr(&uop.0.src[0]);
+                    writeln!(code, "{indent_str}{dtype} {name} = {value};").unwrap();
+                }
                 Op::Store => {
-                    // A Store with 2 sources is a variable declaration (e.g., `int var = ...;`)
                     if uop.0.src.len() == 2 {
+                        // Variable re-assignment
                         let dest = self.render_expr(&uop.0.src[0]);
                         let value = self.render_expr(&uop.0.src[1]);
-                        writeln!(
-                            code,
-                            "{}{} {} = {};",
-                            indent_str,
-                            uop.0.src[1].0.dtype, // Use dtype of the value being stored
-                            dest,
-                            value
-                        )
-                        .unwrap();
+                        writeln!(code, "{indent_str}{dest} = {value};").unwrap();
                     } else {
-                        // A Store with 3 sources is an array access (e.g., `buf[idx] = ...;`)
+                        // Array store
                         let dest = self.render_expr(&uop.0.src[0]);
                         let idx = self.render_expr(&uop.0.src[1]);
                         let value = self.render_expr(&uop.0.src[2]);
@@ -225,9 +221,9 @@ impl CStyleRenderContext {
                 Op::If => {
                     let condition = self.render_expr(&uop.0.src[0]);
                     writeln!(code, "{indent_str}if ({condition}) {{").unwrap();
-                    // Note: This assumes a simple `if { ... }` structure where the
-                    // block content is handled by subsequent UOps. A more robust
-                    // implementation might use explicit `If/EndIf` opcodes.
+                }
+                Op::Block => {
+                    self.render_ops(code, &uop.0.src, indent);
                 }
                 _ => panic!("Unexpected statement in kernel: {:?}", uop.0.op),
             }
@@ -275,7 +271,11 @@ impl CStyleRenderContext {
                 self.render_expr(&uop.0.src[0]),
                 self.render_expr(&uop.0.src[1])
             ),
-            Op::Const(num) => format!("{num}"),
+            Op::Const(num) => match num {
+                crate::uop::Number::F32(f) => format!("{f:.1}f"),
+                crate::uop::Number::F64(d) => format!("{d:.1}"),
+                _ => format!("{num}"),
+            },
             Op::Var(name) => name.clone(),
             Op::Exp2 => format!("exp2({})", self.render_expr(&uop.0.src[0])),
             Op::Log2 => format!("log2({})", self.render_expr(&uop.0.src[0])),

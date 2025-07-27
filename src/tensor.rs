@@ -36,6 +36,8 @@ pub enum TensorOp {
     Unary(Op),
     /// A tensor created as the result of a binary operation.
     Binary(Op),
+    /// A tensor created as the result of a reduce operation.
+    Reduce(usize, Op),
 }
 
 /// The internal, reference-counted implementation of a `Tensor`.
@@ -142,7 +144,7 @@ impl<T: Clone + Default + 'static + IntoDType> Tensor<T> {
                     Duration::ZERO,
                 )
             }
-            TensorOp::Unary(_) | TensorOp::Binary(_) => {
+            TensorOp::Unary(_) | TensorOp::Binary(_) | TensorOp::Reduce(_, _) => {
                 // Realize all source tensors first and accumulate their execution time.
                 let mut total_exec_time = Duration::ZERO;
                 self.0.src.iter().for_each(|t| {
@@ -278,6 +280,23 @@ impl<T: Clone + Default + 'static + IntoDType> Tensor<T> {
 
     pub fn recip(&self) -> Self {
         self.lazy_unary_op(Op::Recip)
+    }
+
+    pub fn reduce(&self, axis: usize, op: Op) -> Self {
+        let mut new_shape = self.shape().to_vec();
+        new_shape.remove(axis);
+        let new_tracker = ShapeTracker::new(new_shape);
+        Self::new(
+            TensorOp::Reduce(axis, op),
+            vec![self.clone()],
+            new_tracker,
+            self.0.dtype.clone(),
+            self.0.backend.clone(),
+        )
+    }
+
+    pub fn sum(&self, axis: usize) -> Self {
+        self.reduce(axis, Op::Add)
     }
 
     /// Recursively collects all unique leaf tensors (those with `TensorOp::Load`)

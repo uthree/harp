@@ -44,6 +44,8 @@ pub enum Op {
     Const(Number),
     /// Represents a variable.
     Var(String),
+    /// Declares a new local variable.
+    Declare(String, DType),
 
     // --- Pattern Matching ---
     /// A marker used internally for pattern matching during optimization.

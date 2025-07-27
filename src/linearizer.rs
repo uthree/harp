@@ -84,14 +84,14 @@ impl<'a> Linearizer<'a> {
                     let var_name = self.new_var("var");
                     let var_dtype = node.0.dtype.clone();
                     let var_uop = UOp::var(&var_name, var_dtype.clone());
-                    let expr = UOp::new(node.0.op.clone(), var_dtype, new_srcs);
+                    let expr = UOp::new(node.0.op.clone(), var_dtype.clone(), new_srcs);
 
-                    let store_stmt = UOp::new(
-                        Op::Store,
+                    let declare_stmt = UOp::new(
+                        Op::Declare(var_name, var_dtype),
                         crate::dtype::DType::Unit,
-                        vec![var_uop.clone(), expr],
+                        vec![expr],
                     );
-                    self.kernel_body.push(store_stmt);
+                    self.kernel_body.push(declare_stmt);
                     var_uop
                 } else {
                     // Fusion: If used once, inline the expression directly.
@@ -104,40 +104,93 @@ impl<'a> Linearizer<'a> {
         result_uop
     }
 
-    /// Linearizes the entire computation graph starting from a root `UOp`.
     pub fn linearize(&mut self, root: &UOp, shape: &[usize]) -> Vec<UOp> {
         debug!("Linearizing UOp graph: {root:?}");
 
-        // 1. Create loop variable and limit.
+        // Create loops for the output shape.
+        let mut loops = vec![];
+        let mut loop_vars = vec![];
+        for &dim in shape {
+            let loop_var = self.new_loop_var();
+            loops.push(UOp::new(
+                Op::LoopStart,
+                crate::dtype::DType::Unit,
+                vec![loop_var.clone(), (dim as u64).into()],
+            ));
+            loop_vars.push(loop_var);
+        }
+
+        let mut linearized_kernel = loops;
+
+        // If the root is a Block (from a Reduce op), unwrap it.
+        if let Op::Block = root.0.op {
+            let mut substitutions = FxHashMap::default();
+            for (i, var) in loop_vars.iter().enumerate() {
+                substitutions.insert(format!("idx{i}"), var.clone());
+            }
+
+            for stmt in &root.0.src {
+                let substituted_stmt = self.substitute(stmt, &substitutions);
+                self.kernel_body.push(substituted_stmt);
+            }
+        } else {
+            // Default path for element-wise operations.
+            return self.linearize_elementwise(root, shape);
+        }
+
+        linearized_kernel.append(&mut self.kernel_body);
+
+        // Add loop ends in reverse order.
+        for _ in 0..shape.len() {
+            linearized_kernel.push(UOp::new(Op::LoopEnd, crate::dtype::DType::Unit, vec![]));
+        }
+
+        debug!("Linearized Kernel: {linearized_kernel:?}");
+        linearized_kernel
+    }
+
+    /// Performs substitution of variables in a UOp tree.
+    fn substitute(&self, uop: &UOp, substitutions: &FxHashMap<String, UOp>) -> UOp {
+        if let Op::Var(name) = &uop.0.op {
+            if let Some(sub) = substitutions.get(name) {
+                return sub.clone();
+            }
+        }
+        let new_srcs = uop
+            .0
+            .src
+            .iter()
+            .map(|src| self.substitute(src, substitutions))
+            .collect();
+        UOp::new(uop.0.op.clone(), uop.0.dtype.clone(), new_srcs)
+    }
+
+    /// The original linearization logic for element-wise operations.
+    fn linearize_elementwise(&mut self, root: &UOp, shape: &[usize]) -> Vec<UOp> {
         let loop_var = self.new_loop_var();
         let n_elements: usize = shape.iter().product();
         let loop_limit = UOp::from(n_elements as u64);
 
-        // 2. Start the kernel with a `LoopStart` instruction.
         let mut linearized_kernel = vec![UOp::new(
             Op::LoopStart,
             crate::dtype::DType::Unit,
             vec![loop_var.clone(), loop_limit],
         )];
 
-        // 3. The root of the graph must be a `Store` operation.
         assert!(
             matches!(root.0.op, Op::Store),
             "The root of a computation graph must be a Store operation."
         );
 
-        // 4. Process the expression part of the root `Store` operation.
         let value_to_store = root.0.src.last().unwrap();
-        let value_to_store = self.replace_loop_var(value_to_store.clone(), &loop_var);
+        let value_to_store = self.replace_i_with_loop_var(value_to_store.clone(), &loop_var);
         let processed_value = self.process_node(&value_to_store);
 
-        // 5. Append the generated instructions for the loop body.
         linearized_kernel.append(&mut self.kernel_body);
 
-        // 6. Recreate the final `Store` instruction with the processed value.
         let dest_buffer = root.0.src[0].clone();
         let original_index = root.0.src[1].clone();
-        let new_index = self.replace_loop_var(original_index, &loop_var);
+        let new_index = self.replace_i_with_loop_var(original_index, &loop_var);
 
         let final_store = UOp::new(
             Op::Store,
@@ -146,15 +199,12 @@ impl<'a> Linearizer<'a> {
         );
         linearized_kernel.push(final_store);
 
-        // 7. End the loop with a `LoopEnd` instruction.
         linearized_kernel.push(UOp::new(Op::LoopEnd, crate::dtype::DType::Unit, vec![]));
-
-        debug!("Linearized Kernel: {linearized_kernel:?}");
         linearized_kernel
     }
 
     /// Replaces instances of the old loop variable "i" with the new one.
-    fn replace_loop_var(&self, uop: UOp, new_loop_var: &UOp) -> UOp {
+    fn replace_i_with_loop_var(&self, uop: UOp, new_loop_var: &UOp) -> UOp {
         if let Op::Var(name) = &uop.0.op {
             if name == "i" {
                 return new_loop_var.clone();
@@ -164,7 +214,7 @@ impl<'a> Linearizer<'a> {
             .0
             .src
             .iter()
-            .map(|src| self.replace_loop_var(src.clone(), new_loop_var))
+            .map(|src| self.replace_i_with_loop_var(src.clone(), new_loop_var))
             .collect();
         UOp::new(uop.0.op.clone(), uop.0.dtype.clone(), new_srcs)
     }
