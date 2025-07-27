@@ -46,96 +46,182 @@ impl<'a> Lowerizer<'a> {
     /// The final `UOp` will be a `Store` operation into the output buffer corresponding
     /// to the root `tensor`.
     pub fn lower(&mut self, tensor: &'a Tensor) -> UOp {
-        if let TensorOp::Reduce(axis, op) = &tensor.0.op {
-            let src_tensor = &tensor.0.src[0];
-            let acc_var = UOp::var("acc", tensor.0.dtype.clone());
+        match &tensor.0.op {
+            TensorOp::Reduce(axis, op) => {
+                let src_tensor = &tensor.0.src[0];
+                let acc_var = UOp::var("acc", tensor.0.dtype.clone());
 
-            // 1. Declare and initialize accumulator
-            let identity_element = UOp::from(0.0f32).cast(tensor.0.dtype.clone());
-            let declare_acc = UOp::new(
-                Op::Declare("acc".to_string(), tensor.0.dtype.clone()),
-                DType::Unit,
-                vec![identity_element],
-            );
+                // 1. Declare and initialize accumulator
+                let identity = op
+                    .identity_element(&tensor.0.dtype)
+                    .expect("Identity element not found for reduce op");
+                let declare_acc = UOp::new(
+                    Op::Declare("acc".to_string(), tensor.0.dtype.clone()),
+                    DType::Unit,
+                    vec![identity.into()],
+                );
 
-            // 2. Create the reduction loop
-            let reduce_loop_var = UOp::var("ridx", DType::U64);
-            let reduce_dim = src_tensor.shape()[*axis];
-            let loop_start = UOp::new(
-                Op::LoopStart,
-                DType::Unit,
-                vec![reduce_loop_var.clone(), (reduce_dim as u64).into()],
-            );
+                // 2. Create the reduction loop
+                let reduce_loop_var = UOp::var("ridx", DType::U64);
+                let reduce_dim = src_tensor.shape()[*axis];
+                let loop_start = UOp::new(
+                    Op::LoopStart,
+                    DType::Unit,
+                    vec![reduce_loop_var.clone(), (reduce_dim as u64).into()],
+                );
 
-            // 3. Build the expression to load the source element
-            let mut src_indices: Vec<UOp> = tensor
-                .shape()
-                .iter()
-                .enumerate()
-                .map(|(i, _)| UOp::var(&format!("idx{i}"), DType::U64))
-                .collect();
-            src_indices.insert(*axis, reduce_loop_var);
+                // 3. Build the expression to load the source element
+                let mut src_indices: Vec<UOp> = tensor
+                    .shape()
+                    .iter()
+                    .enumerate()
+                    .map(|(i, _)| UOp::var(&format!("idx{i}"), DType::U64))
+                    .collect();
+                src_indices.insert(*axis, reduce_loop_var);
 
-            let src_idx_expr = src_tensor.0.tracker.expr_indices(Some(&src_indices));
-            let src_buffer = self
-                .arg_map
-                .get(&Rc::as_ptr(&src_tensor.0))
-                .unwrap()
-                .clone();
-            let load_expr = UOp::new(
-                Op::Load,
-                src_tensor.0.dtype.clone(),
-                vec![src_buffer, src_idx_expr],
-            );
+                let src_idx_expr = src_tensor.0.tracker.expr_indices(Some(&src_indices));
+                let src_buffer = self
+                    .arg_map
+                    .get(&Rc::as_ptr(&src_tensor.0))
+                    .unwrap()
+                    .clone();
+                let load_expr = UOp::new(
+                    Op::Load,
+                    src_tensor.0.dtype.clone(),
+                    vec![src_buffer, src_idx_expr],
+                );
 
-            // 4. Create the accumulation and reassignment
-            let acc_op = UOp::new(
-                op.clone(),
-                tensor.0.dtype.clone(),
-                vec![acc_var.clone(), load_expr],
-            );
-            let update_acc = UOp::new(Op::Store, DType::Unit, vec![acc_var.clone(), acc_op]);
+                // 4. Create the accumulation and reassignment
+                let acc_op = UOp::new(
+                    op.clone(),
+                    tensor.0.dtype.clone(),
+                    vec![acc_var.clone(), load_expr],
+                );
+                let update_acc = UOp::new(Op::Store, DType::Unit, vec![acc_var.clone(), acc_op]);
 
-            // 5. End the loop
-            let loop_end = UOp::new(Op::LoopEnd, DType::Unit, vec![]);
+                // 5. End the loop
+                let loop_end = UOp::new(Op::LoopEnd, DType::Unit, vec![]);
 
-            // 6. Store the final result
-            let output_buffer = self.arg_map.get(&Rc::as_ptr(&tensor.0)).unwrap().clone();
-            let output_indices: Vec<UOp> = tensor
-                .shape()
-                .iter()
-                .enumerate()
-                .map(|(i, _)| UOp::var(&format!("idx{i}"), DType::U64))
-                .collect();
-            let output_idx = tensor.0.tracker.expr_indices(Some(&output_indices));
-            let store_result = UOp::new(
-                Op::Store,
-                DType::Unit,
-                vec![output_buffer, output_idx, acc_var],
-            );
+                // 6. Store the final result
+                let output_buffer = self.arg_map.get(&Rc::as_ptr(&tensor.0)).unwrap().clone();
+                let output_indices: Vec<UOp> = tensor
+                    .shape()
+                    .iter()
+                    .enumerate()
+                    .map(|(i, _)| UOp::var(&format!("idx{i}"), DType::U64))
+                    .collect();
+                let output_idx = tensor.0.tracker.expr_indices(Some(&output_indices));
+                let store_result = UOp::new(
+                    Op::Store,
+                    DType::Unit,
+                    vec![output_buffer, output_idx, acc_var],
+                );
 
-            return UOp::new(
-                Op::Block,
-                DType::Unit,
-                vec![declare_acc, loop_start, update_acc, loop_end, store_result],
-            );
+                UOp::new(
+                    Op::Block,
+                    DType::Unit,
+                    vec![declare_acc, loop_start, update_acc, loop_end, store_result],
+                )
+            }
+            TensorOp::Scan { axis, op } => {
+                let src_tensor = &tensor.0.src[0];
+                let acc_var = UOp::var("acc", tensor.0.dtype.clone());
+
+                // 1. Declare and initialize accumulator
+                let identity = op
+                    .identity_element(&tensor.0.dtype)
+                    .expect("Identity element not found for scan op");
+                let declare_acc = UOp::new(
+                    Op::Declare("acc".to_string(), tensor.0.dtype.clone()),
+                    DType::Unit,
+                    vec![identity.into()],
+                );
+
+                // 2. Create the scan loop
+                let scan_loop_var = UOp::var("sidx", DType::U64);
+                let scan_dim = src_tensor.shape()[*axis];
+                let loop_start = UOp::new(
+                    Op::LoopStart,
+                    DType::Unit,
+                    vec![scan_loop_var.clone(), (scan_dim as u64).into()],
+                );
+
+                // 3. Build expressions for loading source and storing to destination
+                let loop_indices: Vec<UOp> = tensor
+                    .shape()
+                    .iter()
+                    .enumerate()
+                    .map(|(i, _)| {
+                        if i == *axis {
+                            scan_loop_var.clone()
+                        } else {
+                            UOp::var(&format!("idx{i}"), DType::U64)
+                        }
+                    })
+                    .collect();
+
+                let src_idx_expr = src_tensor.0.tracker.expr_indices(Some(&loop_indices));
+                let src_buffer = self
+                    .arg_map
+                    .get(&Rc::as_ptr(&src_tensor.0))
+                    .unwrap()
+                    .clone();
+                let load_expr = UOp::new(
+                    Op::Load,
+                    src_tensor.0.dtype.clone(),
+                    vec![src_buffer, src_idx_expr],
+                );
+
+                // 4. Create the accumulation and reassignment
+                let acc_op = UOp::new(
+                    op.clone(),
+                    tensor.0.dtype.clone(),
+                    vec![acc_var.clone(), load_expr],
+                );
+                let update_acc = UOp::new(Op::Store, DType::Unit, vec![acc_var.clone(), acc_op]);
+
+                // 5. Store the intermediate result in the output buffer
+                let output_buffer = self.arg_map.get(&Rc::as_ptr(&tensor.0)).unwrap().clone();
+                let output_idx = tensor.0.tracker.expr_indices(Some(&loop_indices));
+                let store_intermediate = UOp::new(
+                    Op::Store,
+                    DType::Unit,
+                    vec![output_buffer, output_idx, acc_var.clone()],
+                );
+
+                // 6. End the loop
+                let loop_end = UOp::new(Op::LoopEnd, DType::Unit, vec![]);
+
+                UOp::new(
+                    Op::Block,
+                    DType::Unit,
+                    vec![
+                        declare_acc,
+                        loop_start,
+                        update_acc,
+                        store_intermediate,
+                        loop_end,
+                    ],
+                )
+            }
+            _ => {
+                let loop_var = UOp::var("i", DType::U64);
+                let result_expr = self.build_uop_graph(tensor, &loop_var);
+
+                let output_buffer = self
+                    .arg_map
+                    .get(&Rc::as_ptr(&tensor.0))
+                    .expect("Output buffer not found in arg_map")
+                    .clone();
+                let idx = tensor.0.tracker.expr_node(&loop_var);
+
+                UOp::new(
+                    Op::Store,
+                    DType::Unit,
+                    vec![output_buffer, idx, result_expr],
+                )
+            }
         }
-
-        let loop_var = UOp::var("i", DType::U64);
-        let result_expr = self.build_uop_graph(tensor, &loop_var);
-
-        let output_buffer = self
-            .arg_map
-            .get(&Rc::as_ptr(&tensor.0))
-            .expect("Output buffer not found in arg_map")
-            .clone();
-        let idx = tensor.0.tracker.expr_node(&loop_var);
-
-        UOp::new(
-            Op::Store,
-            DType::Unit,
-            vec![output_buffer, idx, result_expr],
-        )
     }
 
     /// Recursively builds the `UOp` graph from the `Tensor` graph.
@@ -161,6 +247,9 @@ impl<'a> Lowerizer<'a> {
             }
             TensorOp::Reduce(_, _) => {
                 panic!("Reduce should be handled in lower, not build_uop_graph");
+            }
+            TensorOp::Scan { .. } => {
+                panic!("Scan should be handled in lower, not build_uop_graph");
             }
             TensorOp::Constant(n) => UOp::new(Op::Const(n.clone()), tensor.0.dtype.clone(), vec![]),
         }

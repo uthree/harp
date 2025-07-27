@@ -254,3 +254,19 @@ fn test_tensor_macros() {
     let lt_arr: ArrayD<i64> = lt.into();
     assert_eq!(lt_arr, array![[10i64, 20i64], [30i64, 40i64]].into_dyn());
 }
+
+#[test]
+fn test_tensor_cumsum() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let arr_a: ArrayD<f32> = array![1.0, 2.0, 3.0, 4.0].into_dyn();
+    let tensor_a: Tensor = arr_a.clone().into();
+
+    // Cumsum along axis 0
+    let result_cumsum = tensor_a.cumsum(0);
+    let result_arr: ArrayD<f32> = result_cumsum.into();
+
+    // Expected result
+    let expected_arr = array![1.0, 3.0, 6.0, 10.0].into_dyn();
+
+    assert_eq!(result_arr, expected_arr);
+}

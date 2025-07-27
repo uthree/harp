@@ -64,6 +64,33 @@ pub enum Op {
     If,
 }
 
+impl Op {
+    /// Returns the identity element for a binary operation, if one exists.
+    ///
+    /// The identity element `I` for an operation `op` is a value such that
+    /// `x op I = x` for any `x`.
+    ///
+    /// - For `Add`, the identity is 0.
+    /// - For `Mul`, the identity is 1.
+    /// - For `Max`, the identity is the minimum possible value for the data type.
+    ///
+    /// # Arguments
+    ///
+    /// * `dtype` - The data type for which to get the identity element.
+    ///
+    /// # Returns
+    ///
+    /// An `Option<Number>` containing the identity element if it exists, otherwise `None`.
+    pub fn identity_element(&self, dtype: &DType) -> Option<Number> {
+        match self {
+            Op::Add => Some(dtype.zero_value()),
+            Op::Mul => Some(dtype.one_value()),
+            Op::Max => Some(dtype.min_value()),
+            _ => None,
+        }
+    }
+}
+
 /// The internal, non-reference-counted data of a `UOp`.
 ///
 /// This struct holds the actual operation, its data type, and its source `UOp`s.
@@ -169,6 +196,13 @@ impl UOp {
             *counts.entry(src_ptr).or_insert(0) += 1;
             src.count_refs_recursive(counts, visited);
         }
+    }
+}
+
+impl From<Number> for UOp {
+    fn from(n: Number) -> Self {
+        let dtype = n.get_dtype();
+        UOp::new(Op::Const(n), dtype, vec![])
     }
 }
 

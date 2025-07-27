@@ -38,6 +38,11 @@ pub enum TensorOp {
     Binary(Op),
     /// A tensor created as the result of a reduce operation.
     Reduce(usize, Op),
+    /// A tensor created as the result of a scan/accumulation operation.
+    Scan {
+        axis: usize,
+        op: Op,
+    },
     Constant(crate::dtype::Number),
 }
 
@@ -157,6 +162,7 @@ impl Tensor {
             TensorOp::Unary(_)
             | TensorOp::Binary(_)
             | TensorOp::Reduce(_, _)
+            | TensorOp::Scan { .. }
             | TensorOp::Constant(_) => {
                 // Realize all source tensors first and accumulate their execution time.
                 let mut total_exec_time = Duration::ZERO;
@@ -310,6 +316,36 @@ impl Tensor {
 
     pub fn sum(&self, axis: usize) -> Self {
         self.reduce(axis, Op::Add)
+    }
+
+    /// Performs a generic scan (cumulative operation) along a specified axis.
+    ///
+    /// # Arguments
+    ///
+    /// * `axis` - The axis along which to perform the scan.
+    /// * `op` - The binary operation to apply (e.g., `Op::Add`, `Op::Mul`).
+    ///
+    /// # Returns
+    ///
+    /// A new `Tensor` with the same shape as the input, containing the scanned values.
+    pub fn scan(&self, axis: usize, op: Op) -> Self {
+        Self::new(
+            TensorOp::Scan { axis, op },
+            vec![self.clone()],
+            self.tracker.clone(),
+            self.dtype.clone(),
+            self.backend.clone(),
+        )
+    }
+
+    /// Computes the cumulative sum of elements along a given axis.
+    pub fn cumsum(&self, axis: usize) -> Self {
+        self.scan(axis, Op::Add)
+    }
+
+    /// Computes the cumulative product of elements along a given axis.
+    pub fn cumprod(&self, axis: usize) -> Self {
+        self.scan(axis, Op::Mul)
     }
 
     pub fn max(&self, rhs: &Self) -> Self {

@@ -48,4 +48,4 @@ fn main() {
 
 ## License
 
-This project is licensed under the MIT License.
+This project is dual licensed under Apache 2.0 and MIT, so you can use it either way if you need to.

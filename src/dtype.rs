@@ -44,6 +44,39 @@ impl DType {
             DType::Unit => 0,
         }
     }
+
+    /// Returns the zero value for the data type.
+    pub fn zero_value(&self) -> Number {
+        match self {
+            DType::F32 => Number::F32(0.0),
+            DType::F64 => Number::F64(0.0),
+            DType::I32 => Number::I32(0),
+            DType::I64 => Number::I64(0),
+            _ => unimplemented!("zero_value for {self:?} is not implemented"),
+        }
+    }
+
+    /// Returns the one value for the data type.
+    pub fn one_value(&self) -> Number {
+        match self {
+            DType::F32 => Number::F32(1.0),
+            DType::F64 => Number::F64(1.0),
+            DType::I32 => Number::I32(1),
+            DType::I64 => Number::I64(1),
+            _ => unimplemented!("one_value for {self:?} is not implemented"),
+        }
+    }
+
+    /// Returns the minimum value for the data type.
+    pub fn min_value(&self) -> Number {
+        match self {
+            DType::F32 => Number::F32(f32::MIN),
+            DType::F64 => Number::F64(f64::MIN),
+            DType::I32 => Number::I32(i32::MIN),
+            DType::I64 => Number::I64(i64::MIN),
+            _ => unimplemented!("min_value for {self:?} is not implemented"),
+        }
+    }
 }
 
 impl fmt::Display for DType {
@@ -103,7 +136,7 @@ macro_rules! impl_number_dtype {
     ($($variant:ident),*) => {
         impl Number {
             /// Returns the `DType` corresponding to the number's variant.
-            pub fn dtype(&self) -> DType {
+            pub fn get_dtype(&self) -> DType {
                 match self {
                     $(
                         Number::$variant(_) => DType::$variant,
