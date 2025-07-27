@@ -368,7 +368,7 @@ impl std::ops::Add for PatternMatcher {
 macro_rules! pats {
     ({ $($arms:tt)* }) => {
         {
-            use $crate::pattern::UPat;
+            use $crate::optimization::pattern::UPat;
             use rustc_hash::FxHashMap;
             let mut rules = Vec::new();
             pats!(@internal rules, $($arms)*);

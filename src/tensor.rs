@@ -7,14 +7,14 @@
 //! The actual computation is triggered by calling the `.realize()` method, which
 //! hands off the generated computation graph to the appropriate `Backend`.
 
-use crate::autotuner::Configuration;
 use crate::backends::{Backend, Buffer};
 use crate::context;
 use crate::dot::ToDot;
 use crate::dtype::DType;
-use crate::linearizer::Linearizer;
 use crate::lowerizer::Lowerizer;
-use crate::optimizer::Optimizer;
+use crate::optimization::{
+    autotuner::Configuration, linearizer::Linearizer, optimizer::Optimizer,
+};
 use crate::shapetracker::ShapeTracker;
 use crate::uop::Op;
 use log::debug;
@@ -166,7 +166,7 @@ impl Tensor {
     /// # Returns
     ///
     /// A new `Tensor` representing the root of the optimized graph.
-    pub fn optimize(&self, matcher: &crate::pattern::TensorPatternMatcher) -> Self {
+    pub fn optimize(&self, matcher: &crate::optimization::pattern::TensorPatternMatcher) -> Self {
         matcher.apply(self)
     }
 

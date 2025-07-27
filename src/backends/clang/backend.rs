@@ -1,4 +1,4 @@
-use crate::autotuner::BackendOptions;
+use crate::optimization::autotuner::BackendOptions;
 use crate::backends::clang::compiler::ClangCompiler;
 use crate::backends::clang::renderer::CStyleRenderer;
 use crate::backends::{Backend, Buffer, Buffer_, Compiler, Renderer};

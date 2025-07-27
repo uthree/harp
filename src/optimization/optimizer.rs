@@ -1,6 +1,6 @@
-use crate::autotuner::{Configuration, OptimizationRule};
+use super::autotuner::{Configuration, OptimizationRule};
+use super::pattern::{PatternMatcher, UPat};
 use crate::pats;
-use crate::pattern::{PatternMatcher, UPat};
 use crate::uop::{Op, UOp};
 use log::debug;
 

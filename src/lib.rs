@@ -46,15 +46,12 @@
 //! assert_eq!(result_arr, &arr_a + &arr_b);
 //! ```
 
-pub mod autotuner;
 pub mod backends;
 pub mod context;
 pub mod dot;
 pub mod dtype;
-pub mod linearizer;
 pub mod lowerizer;
-pub mod optimizer;
-pub mod pattern;
+pub mod optimization;
 pub mod prelude;
 pub mod shapetracker;
 pub mod tensor;

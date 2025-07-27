@@ -1,3 +1,4 @@
+use harp::optimization::pattern::{TPat, TPatRule, TensorPatternMatcher};
 use harp::prelude::*;
 use harp::uop::Op;
 use ndarray::{arr2, array, ArrayD, Zip};
@@ -269,8 +270,6 @@ fn test_tensor_macros() {
 
 #[test]
 fn test_tensor_optimization_double_neg() {
-    use harp::pattern::{TPat, TPatRule, TensorPatternMatcher};
-
     let _ = env_logger::builder().is_test(true).try_init();
 
     // Rule: -(-x) => x
@@ -304,7 +303,6 @@ fn test_tensor_optimization_double_neg() {
 #[test]
 fn test_tensor_optimization_mul_one() {
     use harp::dtype::Number;
-    use harp::pattern::{TPat, TPatRule, TensorPatternMatcher};
 
     let _ = env_logger::builder().is_test(true).try_init();
 
