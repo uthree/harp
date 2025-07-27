@@ -235,3 +235,22 @@ fn test_tensor_max() {
         .for_each(|expected, &a, &b| *expected = f32::max(a, b));
     assert_eq!(result_arr, expected_arr);
 }
+
+#[test]
+fn test_tensor_macros() {
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    // Test float_tensor!
+    let ft = float_tensor![[1, 2], [3, 4]];
+    assert_eq!(ft.shape(), &[2, 2]);
+    assert_eq!(ft.dtype, DType::F32);
+    let ft_arr: ArrayD<f32> = ft.into();
+    assert_eq!(ft_arr, array![[1.0, 2.0], [3.0, 4.0]].into_dyn());
+
+    // Test long_tensor!
+    let lt = long_tensor![[10, 20], [30, 40]];
+    assert_eq!(lt.shape(), &[2, 2]);
+    assert_eq!(lt.dtype, DType::I64);
+    let lt_arr: ArrayD<i64> = lt.into();
+    assert_eq!(lt_arr, array![[10i64, 20i64], [30i64, 40i64]].into_dyn());
+}

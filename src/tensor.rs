@@ -501,3 +501,45 @@ impl From<Tensor> for ArrayD<i64> {
         array_from_tensor(&tensor)
     }
 }
+
+/// Creates a `Tensor` with `DType::F32` from array-like literals.
+///
+/// # Examples
+///
+/// ```
+/// # use harp::prelude::*;
+/// let t = float_tensor![[1, 2, 3], [4, 5, 6]];
+/// assert_eq!(t.shape(), &[2, 3]);
+/// assert_eq!(t.dtype, DType::F32);
+/// ```
+#[macro_export]
+macro_rules! float_tensor {
+    ($($t:tt)*) => {
+        {
+            let arr: ndarray::ArrayD<f32> = ndarray::array!($($t)*).mapv(|x| x as f32).into_dyn();
+            let tensor: $crate::tensor::Tensor = arr.into();
+            tensor
+        }
+    };
+}
+
+/// Creates a `Tensor` with `DType::I64` from array-like literals.
+///
+/// # Examples
+///
+/// ```
+/// # use harp::prelude::*;
+/// let t = long_tensor![[1, 2], [3, 4], [5, 6]];
+/// assert_eq!(t.shape(), &[3, 2]);
+/// assert_eq!(t.dtype, DType::I64);
+/// ```
+#[macro_export]
+macro_rules! long_tensor {
+    ($($t:tt)*) => {
+        {
+            let arr: ndarray::ArrayD<i64> = ndarray::array!($($t)*).mapv(|x| x as i64).into_dyn();
+            let tensor: $crate::tensor::Tensor = arr.into();
+            tensor
+        }
+    };
+}
