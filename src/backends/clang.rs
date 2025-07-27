@@ -19,8 +19,7 @@ pub struct ClangBackend {
     compiler: ClangCompiler,
     renderer: CStyleRenderer,
     buffer_counter: Cell<usize>,
-    buffers: RefCell<HashMap<usize, Vec<u8>>>, 
-    log_generated_code: bool,
+    buffers: RefCell<HashMap<usize, Vec<u8>>>,
 }
 
 impl Default for ClangBackend {
@@ -45,14 +44,7 @@ impl ClangBackend {
             renderer: CStyleRenderer,
             buffer_counter: Cell::new(0),
             buffers: RefCell::new(HashMap::new()),
-            log_generated_code: false,
         })
-    }
-
-    /// Enables or disables logging of the generated C code.
-    pub fn with_generated_code_logging(mut self, enable: bool) -> Self {
-        self.log_generated_code = enable;
-        self
     }
 }
 
@@ -85,11 +77,7 @@ impl Backend for ClangBackend {
         debug!("Compiling and executing UOp kernel: {uops:?}");
         let code = self.renderer.render(uops);
 
-        if self.log_generated_code {
-            debug!("--- Generated C Code ---
-{code}
-------------------------");
-        }
+        debug!("--- Generated C Code ---\n{code}\n------------------------");
 
         let kernel = self.compiler.compile(&code, clang_options).unwrap();
         debug!("Compilation successful, executing kernel");
