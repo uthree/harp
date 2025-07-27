@@ -148,3 +148,21 @@ macro_rules! impl_number_dtype {
 }
 
 impl_number_dtype!(U8, U16, U32, U64, I8, I16, I32, I64, F32, F64);
+
+macro_rules! impl_from_for_number {
+    ($($t:ty => $variant:ident),*) => {
+        $(
+            impl From<$t> for Number {
+                fn from(n: $t) -> Self {
+                    Number::$variant(n)
+                }
+            }
+        )*
+    };
+}
+
+impl_from_for_number! {
+    u8 => U8, u16 => U16, u32 => U32, u64 => U64,
+    i8 => I8, i16 => I16, i32 => I32, i64 => I64,
+    f32 => F32, f64 => F64
+}

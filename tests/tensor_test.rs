@@ -218,6 +218,17 @@ fn test_tensor_ones() {
 }
 
 #[test]
+fn test_tensor_full() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let shape = vec![2, 3];
+    let fill_value = 7.0f32;
+    let tensor = Tensor::full(shape.clone(), fill_value);
+    let result: ArrayD<f32> = tensor.into();
+    let expected = ArrayD::from_elem(shape, fill_value);
+    assert_eq!(result, expected);
+}
+
+#[test]
 fn test_tensor_max() {
     let _ = env_logger::builder().is_test(true).try_init();
     let arr_a: ArrayD<f32> = array![[1.0, 5.0], [6.0, 2.0]].into_dyn();

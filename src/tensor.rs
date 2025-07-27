@@ -131,6 +131,29 @@ impl Tensor {
         Self::new(op, vec![], tracker, dtype, backend)
     }
 
+    /// Creates a tensor of a given shape filled with a specified value.
+    ///
+    /// This is analogous to `torch.full`. The operation is lazy and does not
+    /// allocate memory until `.realize()` is called.
+    ///
+    /// # Arguments
+    ///
+    /// * `shape` - The shape of the tensor to create.
+    /// * `fill_value` - The value to fill the tensor with. This can be any type
+    ///   that implements `Into<Number>`.
+    ///
+    /// # Returns
+    ///
+    /// A new `Tensor` configured to be filled with the specified value.
+    pub fn full<T: Into<crate::dtype::Number>>(shape: Vec<usize>, fill_value: T) -> Self {
+        let fill_value = fill_value.into();
+        let dtype = fill_value.get_dtype();
+        let backend = context::backend("clang");
+        let tracker = ShapeTracker::new(shape);
+        let op = TensorOp::Constant(fill_value);
+        Self::new(op, vec![], tracker, dtype, backend)
+    }
+
     /// Triggers the computation of the tensor's value using the default configuration.
     ///
     /// This is a convenience wrapper around `realize_with_config` that discards the duration.
