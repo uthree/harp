@@ -281,10 +281,11 @@ impl CStyleRenderContext {
                 self.render_expr(&uop.0.src[0]),
                 self.render_expr(&uop.0.src[1])
             ),
-            Op::Const(n) => {
-                // Use the Display trait of the Number enum
-                format!("{n}")
-            }
+            Op::Const(num) => match num {
+                crate::uop::Number::F32(f) => format!("{f:.1}f"),
+                crate::uop::Number::F64(d) => format!("{d:.1}"),
+                _ => format!("{num}"),
+            },
             Op::Var(name) => name.clone(),
             Op::Exp2 => format!("exp2({})", self.render_expr(&uop.0.src[0])),
             Op::Log2 => format!("log2({})", self.render_expr(&uop.0.src[0])),
