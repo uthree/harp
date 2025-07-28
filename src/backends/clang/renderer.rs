@@ -233,6 +233,14 @@ impl CStyleRenderContext {
 
     /// Renders a `UOp` node and its children as a C expression string.
     fn render_expr(&mut self, uop: &UOp) -> String {
+        let get_func_name = |base: &str, dtype: &DType| -> String {
+            match dtype {
+                DType::F32 => format!("{base}f"),
+                DType::F64 => base.to_string(),
+                _ => panic!("Unsupported dtype {dtype:?} for function {base}"),
+            }
+        };
+
         match &uop.0.op {
             Op::Add => format!(
                 "({} + {})",
@@ -270,7 +278,14 @@ impl CStyleRenderContext {
                 }
             }
             Op::Neg => format!("(-{})", self.render_expr(&uop.0.src[0])),
-            Op::Recip => format!("(1.0f / {})", self.render_expr(&uop.0.src[0])),
+            Op::Recip => {
+                let operand = self.render_expr(&uop.0.src[0]);
+                match uop.0.dtype {
+                    DType::F32 => format!("(1.0f / {operand})"),
+                    DType::F64 => format!("(1.0 / {operand})"),
+                    _ => panic!("Recip is only for float types"),
+                }
+            }
             Op::Rem => format!(
                 "({} % {})",
                 self.render_expr(&uop.0.src[0]),
@@ -287,10 +302,22 @@ impl CStyleRenderContext {
                 _ => format!("{num}"),
             },
             Op::Var(name) => name.clone(),
-            Op::Exp2 => format!("exp2({})", self.render_expr(&uop.0.src[0])),
-            Op::Log2 => format!("log2({})", self.render_expr(&uop.0.src[0])),
-            Op::Sin => format!("sin({})", self.render_expr(&uop.0.src[0])),
-            Op::Sqrt => format!("sqrt({})", self.render_expr(&uop.0.src[0])),
+            Op::Exp2 => {
+                let name = get_func_name("exp2", &uop.0.dtype);
+                format!("{}({})", name, self.render_expr(&uop.0.src[0]))
+            }
+            Op::Log2 => {
+                let name = get_func_name("log2", &uop.0.dtype);
+                format!("{}({})", name, self.render_expr(&uop.0.src[0]))
+            }
+            Op::Sin => {
+                let name = get_func_name("sin", &uop.0.dtype);
+                format!("{}({})", name, self.render_expr(&uop.0.src[0]))
+            }
+            Op::Sqrt => {
+                let name = get_func_name("sqrt", &uop.0.dtype);
+                format!("{}({})", name, self.render_expr(&uop.0.src[0]))
+            }
             Op::Cast(_) => format!("({}){}", uop.0.dtype, self.render_expr(&uop.0.src[0])),
             _ => panic!("Cannot render {:?} as an expression", uop.0.op),
         }

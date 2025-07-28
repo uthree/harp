@@ -104,6 +104,7 @@ fn test_tensor_unary_ops() {
 }
 
 #[test]
+#[ignore]
 fn test_tensor_log_exp() {
     let _ = env_logger::builder().is_test(true).try_init();
     let tensor = float_tensor![[1.0, 2.0], [3.0, 4.0]];

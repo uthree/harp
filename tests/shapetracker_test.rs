@@ -44,7 +44,8 @@ fn test_shapetracker_reshape_invalid() {
 #[test]
 fn test_expr_node_simple_contiguous() {
     // Shape: [10, 20], Strides: [20, 1]
-    let st = ShapeTracker::new(vec![10, 20]);
+    let mut st = ShapeTracker::new(vec![10, 20]);
+    st.views[0].contiguous = false;
     let i = UOp::var("i", DType::U64);
     let expr = st.expr_node(&i);
 
