@@ -81,7 +81,18 @@ impl View {
     }
 
     /// Generates the `UOp` expression for calculating the memory index from a single flat index.
+    ///
+    /// This method includes a fast path for contiguous tensors. If the view is
+    /// contiguous, it directly returns the index `idx`, avoiding complex calculations.
+    /// Otherwise, it decomposes the flat index into multi-dimensional indices and
+    /// calculates the physical address using strides.
     fn expr_node(&self, idx: &UOp) -> UOp {
+        // Fast path for contiguous tensors.
+        if self.contiguous {
+            return idx.clone();
+        }
+
+        // General path for non-contiguous tensors.
         let mut ret = vec![];
         let mut acc: u64 = 1;
         for &sh in self.shape.iter().rev() {
@@ -89,6 +100,92 @@ impl View {
             acc *= sh as u64;
         }
         self.expr_indices(&ret.into_iter().rev().collect::<Vec<_>>())
+    }
+
+    /// Attempts to reshape the view without creating a new contiguous view.
+    /// This is possible if the reshape operation only involves merging and splitting
+    /// dimensions that are contiguous relative to each other.
+    pub fn reshape(&self, new_shape: Vec<usize>) -> Option<View> {
+        if self.shape.iter().product::<usize>() != new_shape.iter().product() {
+            return None;
+        }
+        if self.shape == new_shape {
+            return Some(self.clone());
+        }
+
+        let mut new_strides = vec![0; new_shape.len()];
+        let mut old_idx = 0;
+        let mut new_idx = 0;
+
+        while old_idx < self.shape.len() && new_idx < new_shape.len() {
+            let old_dims_start = old_idx;
+            let new_dims_start = new_idx;
+            let mut prod_old = 1;
+            let mut prod_new = 1;
+
+            // Find a block of dimensions that have the same number of elements
+            loop {
+                if prod_old == prod_new && prod_old > 1 {
+                    break;
+                }
+                if old_idx >= self.shape.len() || new_idx >= new_shape.len() {
+                    break;
+                }
+                if prod_old < prod_new {
+                    prod_old *= self.shape[old_idx];
+                    old_idx += 1;
+                } else {
+                    prod_new *= new_shape[new_idx];
+                    new_idx += 1;
+                }
+            }
+
+            if prod_old != prod_new {
+                return None;
+            }
+
+            let old_slice_shape = &self.shape[old_dims_start..old_idx];
+            let old_slice_strides = &self.strides[old_dims_start..old_idx];
+            let new_slice_shape = &new_shape[new_dims_start..new_idx];
+
+            if old_slice_shape.len() == 1 && new_slice_shape.len() > 1 {
+                // EXPAND: e.g., [6] -> [2, 3]
+                // The new dimensions are treated as a contiguous block, with strides
+                // calculated based on the original dimension's stride.
+                new_strides[new_dims_start + new_slice_shape.len() - 1] = old_slice_strides[0];
+                for i in (0..new_slice_shape.len() - 1).rev() {
+                    new_strides[new_dims_start + i] =
+                        new_strides[new_dims_start + i + 1] * new_slice_shape[i + 1];
+                }
+            } else if old_slice_shape.len() > 1 && new_slice_shape.len() == 1 {
+                // MERGE: e.g., [2, 3] -> [6]
+                // Check for contiguity within the slice being merged.
+                for i in 0..old_slice_shape.len() - 1 {
+                    if old_slice_strides[i] != old_slice_strides[i + 1] * old_slice_shape[i + 1] {
+                        return None; // Not contiguous, cannot merge.
+                    }
+                }
+                new_strides[new_dims_start] = old_slice_strides[old_slice_shape.len() - 1];
+            } else if old_slice_shape.len() == 1 && new_slice_shape.len() == 1 {
+                // ONE-TO-ONE
+                new_strides[new_dims_start] = old_slice_strides[0];
+            } else {
+                // Many-to-many reshape (e.g., [2, 3] -> [3, 2]) is a permute.
+                // This logic doesn't handle it. Fail.
+                return None;
+            }
+        }
+
+        if old_idx != self.shape.len() || new_idx != new_shape.len() {
+            return None;
+        }
+
+        Some(View::new(
+            new_shape,
+            Some(new_strides),
+            Some(self.offset),
+            self.mask.clone(),
+        ))
     }
 }
 
@@ -139,6 +236,10 @@ impl ShapeTracker {
 
     /// Creates a new `ShapeTracker` representing a reshaped tensor.
     ///
+    /// This method attempts to perform a "smart" reshape that avoids creating
+    /// a new contiguous view if possible. If the reshape is complex (e.g.,
+    /// requires a permute), it falls back to creating a new, contiguous view.
+    ///
     /// # Panics
     /// Panics if the total number of elements in `new_shape` is not equal to the
     /// total number of elements in the current shape.
@@ -149,9 +250,25 @@ impl ShapeTracker {
             new_shape.iter().product::<usize>(),
             "Reshape validation failed: element count must be the same"
         );
-        // TODO: This is a simplification. A real reshape needs to intelligently
-        // modify the view stack to handle more complex cases without creating
-        // a new contiguous view every time.
+
+        if old_shape == &new_shape {
+            return self.clone();
+        }
+
+        let view = self.views.last().unwrap();
+
+        // Attempt to perform a "smart" reshape on the current view.
+        if let Some(new_view) = view.reshape(new_shape.clone()) {
+            // If successful, create a new ShapeTracker with just the new view.
+            // A more advanced implementation might stack views.
+            return Self {
+                views: vec![new_view],
+            };
+        }
+
+        // Fallback for complex cases: create a new contiguous view.
+        // This implies that the data would need to be made contiguous before this
+        // new shape is applied, which is what the old implementation did.
         ShapeTracker::new(new_shape)
     }
 }

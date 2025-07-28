@@ -104,6 +104,31 @@ fn test_tensor_unary_ops() {
 }
 
 #[test]
+fn test_tensor_log_exp() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let tensor = float_tensor![[1.0, 2.0], [3.0, 4.0]];
+    let arr: ArrayD<f32> = tensor.clone().into(); // for comparison
+
+    // Log (use positive values)
+    let result_log: ArrayD<f32> = tensor.log().into();
+    let expected_log = arr.mapv(f32::ln);
+    println!("expected: {:?}, result: {:?}", expected_log, result_log);
+
+    Zip::from(&result_log)
+        .and(&expected_log)
+        .for_each(|&a, &b| assert!((a - b).abs() < 1e-5));
+
+    // Exp
+    let result_exp: ArrayD<f32> = tensor.exp().into();
+    let expected_exp = arr.mapv(f32::exp);
+    println!("expected: {:?}, result: {:?}", expected_exp, result_exp);
+
+    Zip::from(&result_exp)
+        .and(&expected_exp)
+        .for_each(|&a, &b| assert!((a - b).abs() < 1e-5));
+}
+
+#[test]
 fn test_tensor_reshape() {
     let _ = env_logger::builder().is_test(true).try_init();
     let backend = backend("clang");
