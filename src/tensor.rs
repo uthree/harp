@@ -297,7 +297,7 @@ impl Tensor {
         )
     }
 
-    fn lazy_unary_op(&self, op: Op) -> Self {
+    fn unary_op(&self, op: Op) -> Self {
         Self::new(
             TensorOp::Unary(op),
             vec![self.clone()],
@@ -307,7 +307,7 @@ impl Tensor {
         )
     }
 
-    fn lazy_binary_op(op: Op, a: &Self, b: &Self) -> Self {
+    fn binary_op(op: Op, a: &Self, b: &Self) -> Self {
         assert!(
             Rc::ptr_eq(&a.backend, &b.backend),
             "Backends must be the same for binary operations"
@@ -322,20 +322,21 @@ impl Tensor {
     }
 
     pub fn exp2(&self) -> Self {
-        self.lazy_unary_op(Op::Exp2)
+        self.unary_op(Op::Exp2)
     }
     pub fn log2(&self) -> Self {
-        self.lazy_unary_op(Op::Log2)
+        self.unary_op(Op::Log2)
     }
     pub fn sqrt(&self) -> Self {
-        self.lazy_unary_op(Op::Sqrt)
+        self.unary_op(Op::Sqrt)
     }
+
     pub fn sin(&self) -> Self {
-        self.lazy_unary_op(Op::Sin)
+        self.unary_op(Op::Sin)
     }
 
     pub fn recip(&self) -> Self {
-        self.lazy_unary_op(Op::Recip)
+        self.unary_op(Op::Recip)
     }
 
     pub fn reduce(&self, axis: usize, op: Op) -> Self {
@@ -386,7 +387,7 @@ impl Tensor {
     }
 
     pub fn max(&self, rhs: &Self) -> Self {
-        Self::lazy_binary_op(Op::Max, self, rhs)
+        Self::binary_op(Op::Max, self, rhs)
     }
 
     /// Recursively collects all unique leaf tensors (those with `TensorOp::Load`)
@@ -422,7 +423,7 @@ impl Tensor {
 impl Add for &Tensor {
     type Output = Tensor;
     fn add(self, rhs: Self) -> Self::Output {
-        Tensor::lazy_binary_op(Op::Add, self, rhs)
+        Tensor::binary_op(Op::Add, self, rhs)
     }
 }
 
@@ -450,7 +451,7 @@ impl Sub for Tensor {
 impl Mul for &Tensor {
     type Output = Tensor;
     fn mul(self, rhs: Self) -> Self::Output {
-        Tensor::lazy_binary_op(Op::Mul, self, rhs)
+        Tensor::binary_op(Op::Mul, self, rhs)
     }
 }
 
@@ -478,7 +479,7 @@ impl Div for Tensor {
 impl Neg for &Tensor {
     type Output = Tensor;
     fn neg(self) -> Self::Output {
-        self.lazy_unary_op(Op::Neg)
+        self.unary_op(Op::Neg)
     }
 }
 
