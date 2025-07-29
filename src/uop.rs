@@ -76,11 +76,14 @@ macro_rules! impl_binary_op {
     ($op: ident, $fname: ident) => {
         impl UOp {
             fn $fname(self: Self, other: impl Into<UOp>) -> Self {
-                UOp::new(
-                    Op::$op,
-                    vec![self.clone(), other.into()],
-                    self.dtype.clone(),
-                )
+                let other = other.into();
+                if self.dtype != other.dtype {
+                    panic!(
+                        "type mismatch: left{:?}, right{:?}",
+                        self.dtype, other.dtype
+                    );
+                }
+                UOp::new(Op::$op, vec![self.clone(), other], self.dtype.clone())
             }
         }
     };
@@ -88,11 +91,14 @@ macro_rules! impl_binary_op {
     (pub, $op: ident, $fname: ident) => {
         impl UOp {
             pub fn $fname(self: Self, other: impl Into<UOp>) -> Self {
-                UOp::new(
-                    Op::$op,
-                    vec![self.clone(), other.into()],
-                    self.dtype.clone(),
-                )
+                let other = other.into();
+                if self.dtype != other.dtype {
+                    panic!(
+                        "type mismatch: left{:?}, right{:?}",
+                        self.dtype, other.dtype
+                    );
+                }
+                UOp::new(Op::$op, vec![self.clone(), other], self.dtype.clone())
             }
         }
     };
