@@ -71,16 +71,24 @@ impl_unary_op!(pub, Sin, sin);
 macro_rules! impl_binary_op {
     ($op: ident, $fname: ident) => {
         impl UOp {
-            fn $fname(self: Self, other: Self) -> Self {
-                UOp::new(Op::$op, vec![self.clone(), other], self.dtype.clone())
+            fn $fname(self: Self, other: impl Into<UOp>) -> Self {
+                UOp::new(
+                    Op::$op,
+                    vec![self.clone(), other.into()],
+                    self.dtype.clone(),
+                )
             }
         }
     };
 
     (pub, $op: ident, $fname: ident) => {
         impl UOp {
-            pub fn $fname(self: Self, other: Self) -> Self {
-                UOp::new(Op::$op, vec![self.clone(), other], self.dtype.clone())
+            pub fn $fname(self: Self, other: impl Into<UOp>) -> Self {
+                UOp::new(
+                    Op::$op,
+                    vec![self.clone(), other.into()],
+                    self.dtype.clone(),
+                )
             }
         }
     };
@@ -165,38 +173,53 @@ impl Const {
     }
 }
 
-impl std::ops::Add for UOp {
+impl<T> std::ops::Add<T> for UOp
+where
+    T: Into<UOp>,
+{
     type Output = Self;
-    fn add(self, rhs: Self) -> Self::Output {
-        self.add_(rhs)
+    fn add(self, rhs: T) -> Self::Output {
+        self.add_(rhs.into())
     }
 }
 
-impl std::ops::Sub for UOp {
+impl<T> std::ops::Sub<T> for UOp
+where
+    T: Into<UOp>,
+{
     type Output = Self;
-    fn sub(self, rhs: Self) -> Self::Output {
-        self.add_(rhs.neg_())
+    fn sub(self, rhs: T) -> Self::Output {
+        self.add_(rhs.into().neg_())
     }
 }
 
-impl std::ops::Mul for UOp {
+impl<T> std::ops::Mul<T> for UOp
+where
+    T: Into<UOp>,
+{
     type Output = Self;
-    fn mul(self, rhs: Self) -> Self::Output {
-        self.mul_(rhs)
+    fn mul(self, rhs: T) -> Self::Output {
+        self.mul_(rhs.into())
     }
 }
 
-impl std::ops::Div for UOp {
+impl<T> std::ops::Div<T> for UOp
+where
+    T: Into<UOp>,
+{
     type Output = Self;
-    fn div(self, rhs: Self) -> Self::Output {
-        self.mul_(rhs.recip())
+    fn div(self, rhs: T) -> Self::Output {
+        self.mul_(rhs.into().recip())
     }
 }
 
-impl std::ops::Rem for UOp {
+impl<T> std::ops::Rem<T> for UOp
+where
+    T: Into<UOp>,
+{
     type Output = Self;
-    fn rem(self, rhs: Self) -> Self::Output {
-        self.rem_(rhs)
+    fn rem(self, rhs: T) -> Self::Output {
+        self.rem_(rhs.into())
     }
 }
 
