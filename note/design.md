@@ -8,19 +8,18 @@
 ### Tensor グラフ
 
 テンソルレベルでの演算を表す計算グラフ(DAG)。
-自動微分(autograd) ASTに変換する(lower)機能を持つ。
+自動微分(autograd)で自身の微分グラフを作ることができる。
 
-### AST: 抽象構文木
+### UOp グラフ
 
-演算やループ処理の構造を表す。DAGではなくツリー構造。  
-概ねC言語の構造に似ている。
+テンソルより低レベルなDAG。
 
-#### `struct Kernel`: カーネル
+### `struct Kernel`: カーネル
 
 単一のカーネルを表す構造体。
 構文木のほかに入出力の型などの情報を持つ。
 
-#### `enum Ast`
+### `struct UOp`
 
 式や文を表現する
 
@@ -91,9 +90,9 @@ struct TPatternMatcherData {
 struct TPatternMatcher(Rc<TPatternMatcherData>);
 ```
 
-### `EPat`, `EPatternMatcher`
+### `UPat`, `UPatternMatcher`
 
-Exprに対するパターンマッチング。
+UOpに対するパターンマッチング。
 テンソルの場合とほぼ同じなので割愛。
 
 ## ShapeTracker

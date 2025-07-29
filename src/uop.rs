@@ -1,5 +1,7 @@
+use std::{ops::Deref, rc::Rc};
+
 #[derive(Debug, Clone, PartialEq)]
-pub enum Ast {
+pub enum Op {
     // placeholder for pattern matching
     Capture(usize),
 
@@ -8,37 +10,54 @@ pub enum Ast {
     Var(String),
 
     // unary ops
-    Neg(Box<Self>),
-    Recip(Box<Self>),
-    Sin(Box<Self>),
-    Sqrt(Box<Self>),
+    Neg,
+    Recip,
+    Sin,
+    Sqrt,
 
     // binary ops
-    Add(Box<Self>, Box<Self>),
-    Mul(Box<Self>, Box<Self>),
-    Max(Box<Self>, Box<Self>),
-    Rem(Box<Self>, Box<Self>),
+    Add,
+    Mul,
+    Max,
+    Rem,
+}
 
-    // Statements
-    Loop {}, // for loop
-    If {},
-    IfElse {},
-    Declare {}, // declare variable
+#[derive(Debug, Clone, PartialEq)]
+pub struct UOp_ {
+    pub op: Op,
+    pub src: Vec<UOp>,
+    pub dtype: DType,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UOp(Rc<UOp_>);
+
+impl UOp {
+    pub fn new(op: Op, src: Vec<UOp>, dtype: DType) -> Self {
+        UOp(Rc::new(UOp_ { op, src, dtype }))
+    }
+}
+
+impl Deref for UOp {
+    type Target = UOp_;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 macro_rules! impl_unary_op {
-    ($variant: ident, $fname: ident) => {
-        impl Ast {
+    ($op: ident, $fname: ident) => {
+        impl UOp {
             fn $fname(self: Self) -> Self {
-                Ast::$variant(Box::new(self))
+                UOp::new(Op::$op, vec![self.clone()], self.dtype.clone())
             }
         }
     };
 
-    (pub, $variant: ident, $fname: ident) => {
-        impl Ast {
+    (pub, $op: ident, $fname: ident) => {
+        impl UOp {
             pub fn $fname(self: Self) -> Self {
-                Ast::$variant(Box::new(self))
+                UOp::new(Op::$op, vec![self.clone()], self.dtype.clone())
             }
         }
     };
@@ -50,18 +69,18 @@ impl_unary_op!(pub, Sqrt, sqrt);
 impl_unary_op!(pub, Sin, sin);
 
 macro_rules! impl_binary_op {
-    ($variant: ident, $fname: ident) => {
-        impl Ast {
+    ($op: ident, $fname: ident) => {
+        impl UOp {
             fn $fname(self: Self, other: Self) -> Self {
-                Ast::$variant(Box::new(self), Box::new(other))
+                UOp::new(Op::$op, vec![self.clone(), other], self.dtype.clone())
             }
         }
     };
 
-    (pub, $variant: ident, $fname: ident) => {
-        impl Ast {
+    (pub, $op: ident, $fname: ident) => {
+        impl UOp {
             pub fn $fname(self: Self, other: Self) -> Self {
-                Ast::$variant(Box::new(self), Box::new(other))
+                UOp::new(Op::$op, vec![self.clone(), other], self.dtype.clone())
             }
         }
     };
@@ -110,9 +129,9 @@ macro_rules! impl_dtype {
             }
         }
 
-        impl From<$num_type> for Ast {
+        impl From<$num_type> for UOp {
             fn from(v: $num_type) -> Self {
-                Ast::Const(Const::from(v))
+                UOp::new(Op::Const(Const::$variant(v)), vec![], DType::$variant)
             }
         }
     };
@@ -146,42 +165,42 @@ impl Const {
     }
 }
 
-impl std::ops::Add for Ast {
+impl std::ops::Add for UOp {
     type Output = Self;
     fn add(self, rhs: Self) -> Self::Output {
         self.add_(rhs)
     }
 }
 
-impl std::ops::Sub for Ast {
+impl std::ops::Sub for UOp {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self::Output {
         self.add_(rhs.neg_())
     }
 }
 
-impl std::ops::Mul for Ast {
+impl std::ops::Mul for UOp {
     type Output = Self;
     fn mul(self, rhs: Self) -> Self::Output {
         self.mul_(rhs)
     }
 }
 
-impl std::ops::Div for Ast {
+impl std::ops::Div for UOp {
     type Output = Self;
     fn div(self, rhs: Self) -> Self::Output {
         self.mul_(rhs.recip())
     }
 }
 
-impl std::ops::Rem for Ast {
+impl std::ops::Rem for UOp {
     type Output = Self;
     fn rem(self, rhs: Self) -> Self::Output {
         self.rem_(rhs)
     }
 }
 
-impl std::ops::Neg for Ast {
+impl std::ops::Neg for UOp {
     type Output = Self;
     fn neg(self) -> Self::Output {
         self.neg_()
