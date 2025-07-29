@@ -21,6 +21,36 @@ pub enum Ast {
     Declare {}, // declare variable
 }
 
+macro_rules! impl_unary_op {
+    ($variant: ident, $fname: ident) => {
+        impl Ast {
+            fn $fname(self: Self) -> Self {
+                Ast::$variant(Box::new(self))
+            }
+        }
+    };
+}
+
+impl_unary_op!(Neg, neg);
+impl_unary_op!(Recip, recip);
+impl_unary_op!(Sqrt, sqrt);
+impl_unary_op!(Sin, sin);
+
+macro_rules! impl_binary_op {
+    ($variant: ident, $fname: ident) => {
+        impl Ast {
+            fn $fname(self: Self, other: Self) -> Self {
+                Ast::$variant(Box::new(self), Box::new(other))
+            }
+        }
+    };
+}
+
+impl_binary_op!(Add, add);
+impl_binary_op!(Mul, mul);
+impl_binary_op!(Max, max);
+impl_binary_op!(Rem, rem);
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum DType {
     F32,
