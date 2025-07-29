@@ -36,6 +36,10 @@ impl UOp {
     pub fn new(op: Op, src: Vec<UOp>, dtype: DType) -> Self {
         UOp(Rc::new(UOp_ { op, src, dtype }))
     }
+
+    pub fn capture(id: usize) -> Self {
+        UOp::new(Op::Capture(id), vec![], DType::None)
+    }
 }
 
 impl Deref for UOp {
@@ -111,7 +115,7 @@ pub enum DType {
     U16,
     U32,
     U64,
-    Unit, // void
+    None, // void
     Ptr(Box<Self>),
 }
 

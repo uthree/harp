@@ -85,3 +85,32 @@ impl UPatternMatcher {
         node
     }
 }
+
+#[macro_export]
+macro_rules! upat {
+    (| $($capture: ident),* | $pattern: expr => $rewriter: expr ) => {
+        let mut counter = 0..;
+        $(
+            let $capture = UOp::capture(counter.next().unwrap());
+        )*
+        let pattern = $pattern;
+        let rewriter = move |captured_uops: Vec<UOp>| {
+            let mut counter = 0..;
+            $(
+                let $capture = captured_ops[counter.next().unwrap()].clone();
+            )*
+            $rewriter
+        }
+        UPat::new(pattern, rewriter)
+    };
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::uop::UOp;
+
+    #[test]
+    fn test_upat_macro() {
+        let pat = upat!(| a, b | a + b => b + a);
+    }
+}
