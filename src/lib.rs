@@ -1,3 +1,3 @@
-mod expr;
+mod ast;
 mod pattern;
 mod tensor;
