@@ -1,6 +1,11 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum Ast {
+    // placeholder for pattern matching
+    Capture(usize),
+
+    // Literal
     Const(Const),
+    Var(String),
 
     // unary ops
     Neg(Box<Self>),
@@ -29,12 +34,20 @@ macro_rules! impl_unary_op {
             }
         }
     };
+
+    (pub, $variant: ident, $fname: ident) => {
+        impl Ast {
+            pub fn $fname(self: Self) -> Self {
+                Ast::$variant(Box::new(self))
+            }
+        }
+    };
 }
 
-impl_unary_op!(Neg, neg);
+impl_unary_op!(Neg, neg_);
 impl_unary_op!(Recip, recip);
-impl_unary_op!(Sqrt, sqrt);
-impl_unary_op!(Sin, sin);
+impl_unary_op!(pub, Sqrt, sqrt);
+impl_unary_op!(pub, Sin, sin);
 
 macro_rules! impl_binary_op {
     ($variant: ident, $fname: ident) => {
@@ -44,12 +57,20 @@ macro_rules! impl_binary_op {
             }
         }
     };
+
+    (pub, $variant: ident, $fname: ident) => {
+        impl Ast {
+            pub fn $fname(self: Self, other: Self) -> Self {
+                Ast::$variant(Box::new(self), Box::new(other))
+            }
+        }
+    };
 }
 
-impl_binary_op!(Add, add);
-impl_binary_op!(Mul, mul);
-impl_binary_op!(Max, max);
-impl_binary_op!(Rem, rem);
+impl_binary_op!(Add, add_);
+impl_binary_op!(Mul, mul_);
+impl_binary_op!(pub, Max, max);
+impl_binary_op!(Rem, rem_);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DType {
@@ -63,8 +84,8 @@ pub enum DType {
     U16,
     U32,
     U64,
+    Unit, // void
     Ptr(Box<Self>),
-    Unit,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -122,5 +143,47 @@ impl Const {
             Const::U32(_) => DType::U32,
             Const::U64(_) => DType::U64,
         }
+    }
+}
+
+impl std::ops::Add for Ast {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self::Output {
+        self.add_(rhs)
+    }
+}
+
+impl std::ops::Sub for Ast {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self::Output {
+        self.add_(rhs.neg_())
+    }
+}
+
+impl std::ops::Mul for Ast {
+    type Output = Self;
+    fn mul(self, rhs: Self) -> Self::Output {
+        self.mul_(rhs)
+    }
+}
+
+impl std::ops::Div for Ast {
+    type Output = Self;
+    fn div(self, rhs: Self) -> Self::Output {
+        self.mul_(rhs.recip())
+    }
+}
+
+impl std::ops::Rem for Ast {
+    type Output = Self;
+    fn rem(self, rhs: Self) -> Self::Output {
+        self.rem_(rhs)
+    }
+}
+
+impl std::ops::Neg for Ast {
+    type Output = Self;
+    fn neg(self) -> Self::Output {
+        self.neg_()
     }
 }

@@ -20,7 +20,7 @@
 単一のカーネルを表す構造体。
 構文木のほかに入出力の型などの情報を持つ。
 
-#### `enum Expr`
+#### `enum Ast`
 
 式や文を表現する
 
@@ -70,14 +70,14 @@ TODO, 最適化処理を担う。最適化手法を探索する。ベイズ推�
 
 アルゴリズムで自動的にされる数式やコードは、ときに冗長になりえます。そんな冗長な構造をより簡素で効率的なものに置き換えることが目的です。
 
-### `TRule`, `TPatternMatcher`
+### `TPat`, `TPatternMatcher`
 
 テンソルに対して置き換え処理を行います。
 
 ```rust
 // 置き換え規則
-struct TRule {
-    pattern: TPattern, // 検出するパターン
+struct TPat {
+    pattern: Tensor, // 検出するパターン
     rewriter: FnOnce(Vec<Tensor>) -> Tensor // 検出した際にそれをどう置き換えるかのクロージャー
 }
 
