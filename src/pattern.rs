@@ -89,19 +89,21 @@ impl UPatternMatcher {
 #[macro_export]
 macro_rules! upat {
     (| $($capture: ident),* | $pattern: expr => $rewriter: expr ) => {
-        let mut counter = 0..;
-        $(
-            let $capture = UOp::capture(counter.next().unwrap());
-        )*
-        let pattern = $pattern;
-        let rewriter = move |captured_uops: Vec<UOp>| {
+        {
             let mut counter = 0..;
             $(
-                let $capture = captured_ops[counter.next().unwrap()].clone();
+                let $capture = UOp::capture(counter.next().unwrap());
             )*
-            $rewriter
+            let pattern = $pattern;
+            let rewriter = move |captured_uops: Vec<UOp>| {
+                let mut counter = 0..;
+                $(
+                    let $capture = captured_uops[counter.next().unwrap()].clone();
+                )*
+                $rewriter
+            };
+            UPat::new(pattern, rewriter)
         }
-        UPat::new(pattern, rewriter)
     };
 }
 #[cfg(test)]
