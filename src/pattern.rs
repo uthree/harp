@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 pub struct UPat {
     pattern: UOp,
-    rewriter: dyn Fn(Vec<UOp>) -> UOp,
+    rewriter: Box<dyn Fn(Vec<UOp>) -> UOp>,
 }
 
 impl UPat {
@@ -52,9 +52,36 @@ impl UPat {
             target.clone()
         }
     }
+
+    pub fn new<F>(pattern: UOp, rewriter: F) -> Rc<UPat>
+    where
+        F: Fn(Vec<UOp>) -> UOp + 'static,
+    {
+        Rc::new(UPat {
+            pattern: pattern,
+            rewriter: Box::new(rewriter),
+        })
+    }
 }
 
 pub struct UPatternMatcher {
     name: String,
     patterns: Vec<Rc<UPat>>,
+}
+
+impl UPatternMatcher {
+    pub fn new(name: &str, patterns: Vec<Rc<UPat>>) -> Self {
+        UPatternMatcher {
+            name: name.to_string(),
+            patterns: patterns,
+        }
+    }
+
+    pub fn apply(&self, target: UOp) -> UOp {
+        let mut node = target.clone();
+        for pat in self.patterns.iter() {
+            node = pat.apply(&node);
+        }
+        node
+    }
 }
