@@ -40,11 +40,12 @@ impl UPat {
             None
         }
     }
+
+    // Apply rewrite rule recursively
     pub fn apply(&self, target: &UOp) -> UOp {
         if let Some(captures) = self.capture(target) {
             return (self.rewriter)(captures);
         }
-
         let new_src: Vec<UOp> = target.src.iter().map(|s| self.apply(s)).collect();
         if target.src.iter().zip(&new_src).any(|(a, b)| !a.eq(b)) {
             UOp::new(target.op.clone(), new_src, target.dtype.clone())
@@ -77,12 +78,24 @@ impl UPatternMatcher {
         }
     }
 
+    // apply all pattern
     pub fn apply(&self, target: UOp) -> UOp {
         let mut node = target.clone();
         for pat in self.patterns.iter() {
             node = pat.apply(&node);
         }
         node
+    }
+
+    pub fn merge(&mut self, other: &Self) {
+        other
+            .patterns
+            .iter()
+            .for_each(|pat| self.patterns.push(pat.clone()));
+    }
+
+    pub fn push(&mut self, pat: Rc<UPat>) {
+        self.patterns.push(pat.clone());
     }
 }
 
