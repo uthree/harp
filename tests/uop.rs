@@ -1,4 +1,3 @@
-
 // tests/uop.rs
 
 use harp::uop::{DType, Op, UOp};

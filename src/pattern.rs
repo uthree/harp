@@ -58,7 +58,7 @@ impl UPat {
         F: Fn(Vec<UOp>) -> UOp + 'static,
     {
         Rc::new(UPat {
-            pattern: pattern,
+            pattern,
             rewriter: Box::new(rewriter),
         })
     }
@@ -73,7 +73,7 @@ impl UPatternMatcher {
     pub fn new(name: &str, patterns: Vec<Rc<UPat>>) -> Self {
         UPatternMatcher {
             name: name.to_string(),
-            patterns: patterns,
+            patterns,
         }
     }
 
