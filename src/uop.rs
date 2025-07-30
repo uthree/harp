@@ -38,7 +38,11 @@ impl UOp {
     }
 
     pub fn capture(id: usize) -> Self {
-        UOp::new(Op::Capture(id), vec![], DType::None)
+        UOp::new(Op::Capture(id), vec![], DType::Capture)
+    }
+
+    pub fn var(name: &str, dtype: DType) -> Self {
+        UOp::new(Op::Var(name.to_string()), vec![], dtype)
     }
 }
 
@@ -77,11 +81,13 @@ macro_rules! impl_binary_op {
         impl UOp {
             fn $fname(self: Self, other: impl Into<UOp>) -> Self {
                 let other = other.into();
-                if self.dtype != other.dtype {
-                    panic!(
-                        "type mismatch: left{:?}, right{:?}",
-                        self.dtype, other.dtype
-                    );
+                if self.dtype != DType::Capture && other.dtype != DType::Capture {
+                    if self.dtype != other.dtype {
+                        panic!(
+                            "type mismatch: left: {:?}, right: {:?}",
+                            self.dtype, other.dtype
+                        );
+                    }
                 }
                 UOp::new(Op::$op, vec![self.clone(), other], self.dtype.clone())
             }
@@ -92,11 +98,13 @@ macro_rules! impl_binary_op {
         impl UOp {
             pub fn $fname(self: Self, other: impl Into<UOp>) -> Self {
                 let other = other.into();
-                if self.dtype != other.dtype {
-                    panic!(
-                        "type mismatch: left{:?}, right{:?}",
-                        self.dtype, other.dtype
-                    );
+                if self.dtype != DType::Capture && other.dtype != DType::Capture {
+                    if self.dtype != other.dtype {
+                        panic!(
+                            "type mismatch: left: {:?}, right: {:?}",
+                            self.dtype, other.dtype
+                        );
+                    }
                 }
                 UOp::new(Op::$op, vec![self.clone(), other], self.dtype.clone())
             }
@@ -122,6 +130,7 @@ pub enum DType {
     U32,
     U64,
     None, // void
+    Capture,
     Ptr(Box<Self>),
 }
 
