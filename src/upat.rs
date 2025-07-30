@@ -65,17 +65,13 @@ impl UPat {
     }
 }
 
+#[derive(Clone)]
 pub struct UPatternMatcher {
-    name: String,
     patterns: Vec<Rc<UPat>>,
 }
-
 impl UPatternMatcher {
-    pub fn new(name: &str, patterns: Vec<Rc<UPat>>) -> Self {
-        UPatternMatcher {
-            name: name.to_string(),
-            patterns,
-        }
+    pub fn new(patterns: Vec<Rc<UPat>>) -> Self {
+        UPatternMatcher { patterns }
     }
 
     // apply all pattern
@@ -244,7 +240,7 @@ mod tests {
             // Rule 2: a * 1 => a (Identity property of multiplication)
             upat!(|a| a.clone() * UOp::from(1.0f32) => a),
         ];
-        let matcher = UPatternMatcher::new("test_matcher", patterns);
+        let matcher = UPatternMatcher::new(patterns);
 
         let x = var("x", DType::F32);
         // target: (1.0 * x) + y
@@ -267,7 +263,7 @@ mod tests {
             // Rule 3: a + b => b + a
             upat!(|a, b| a + b => b + a),
         ];
-        let matcher = UPatternMatcher::new("test_matcher_reordered", patterns);
+        let matcher = UPatternMatcher::new(patterns);
 
         let x = var("x", DType::F32);
         let y = var("y", DType::F32);
