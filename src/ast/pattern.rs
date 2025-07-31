@@ -15,11 +15,11 @@ impl UPat {
         store: &mut FxHashMap<usize, AstNode>,
     ) -> bool {
         // If the pat node is a capture, try capture the target node.
-        if let Op::Capture(id) = pattern.op {
-            if let Some(existing) = store.get(&id) {
+        if let Op::Capture(id) = &pattern.op {
+            if let Some(existing) = store.get(id) {
                 return target == existing;
             }
-            store.insert(id, target.clone());
+            store.insert(*id, target.clone());
             return true;
         }
 
@@ -51,8 +51,8 @@ impl UPat {
         if let Some(captures) = self.capture(target) {
             return (self.rewriter)(captures);
         }
-        let new_src: Vec<AstNode> = target.src.iter().map(|s| self.apply(s)).collect();
-        if target.src.iter().zip(&new_src).any(|(a, b)| !a.eq(b)) {
+        let new_src: Vec<Box<AstNode>> = target.src.iter().map(|s| Box::new(self.apply(s))).collect();
+        if !target.src.iter().zip(&new_src).all(|(a, b)| a.eq(b)) {
             AstNode::new(target.op.clone(), new_src, target.dtype.clone())
         } else {
             target.clone()
@@ -81,7 +81,7 @@ impl UPatternMatcher {
 
     // apply all pattern
     pub fn apply(&self, target: AstNode) -> AstNode {
-        let mut node = target.clone();
+        let mut node = target;
         for pat in self.patterns.iter() {
             node = pat.apply(&node);
         }

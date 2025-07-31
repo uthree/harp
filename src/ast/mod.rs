@@ -1,6 +1,6 @@
 pub mod pattern;
 
-use std::{ops::Deref, rc::Rc};
+use std::boxed::Box;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Op {
@@ -25,37 +25,27 @@ pub enum Op {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct AstNode_ {
+pub struct AstNode {
     pub op: Op,
-    pub src: Vec<AstNode>,
+    pub src: Vec<Box<AstNode>>,
     pub dtype: DType,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct AstNode(Rc<AstNode_>);
-
 impl AstNode {
-    pub fn new(op: Op, src: Vec<AstNode>, dtype: DType) -> Self {
-        AstNode(Rc::new(AstNode_ { op, src, dtype }))
+    pub fn new(op: Op, src: Vec<Box<AstNode>>, dtype: DType) -> Self {
+        Self { op, src, dtype }
     }
 
     pub fn capture(id: usize) -> Self {
-        AstNode::new(Op::Capture(id), vec![], DType::Any)
+        Self::new(Op::Capture(id), vec![], DType::Any)
     }
 
     pub fn var(name: &str, dtype: DType) -> Self {
-        AstNode::new(Op::Var(name.to_string()), vec![], dtype)
+        Self::new(Op::Var(name.to_string()), vec![], dtype)
     }
 
     pub fn with_type(self, dtype: DType) -> Self {
-        AstNode::new(self.op.clone(), self.src.clone(), dtype)
-    }
-}
-
-impl Deref for AstNode {
-    type Target = AstNode_;
-    fn deref(&self) -> &Self::Target {
-        &self.0
+        Self::new(self.op, self.src, dtype)
     }
 }
 
@@ -63,7 +53,8 @@ macro_rules! impl_unary_op {
     ($op: ident, $fname: ident) => {
         impl AstNode {
             fn $fname(self: Self) -> Self {
-                AstNode::new(Op::$op, vec![self.clone()], self.dtype.clone())
+                let dtype = self.dtype.clone();
+                AstNode::new(Op::$op, vec![Box::new(self)], dtype)
             }
         }
     };
@@ -71,7 +62,8 @@ macro_rules! impl_unary_op {
     (pub, $op: ident, $fname: ident) => {
         impl AstNode {
             pub fn $fname(self: Self) -> Self {
-                AstNode::new(Op::$op, vec![self.clone()], self.dtype.clone())
+                let dtype = self.dtype.clone();
+                AstNode::new(Op::$op, vec![Box::new(self)], dtype)
             }
         }
     };
@@ -87,6 +79,7 @@ macro_rules! impl_binary_op {
         impl AstNode {
             fn $fname(self: Self, other: impl Into<AstNode>) -> Self {
                 let other = other.into();
+                let dtype = self.dtype.clone();
                 if self.dtype != DType::Any && other.dtype != DType::Any {
                     if self.dtype != other.dtype {
                         panic!(
@@ -95,7 +88,7 @@ macro_rules! impl_binary_op {
                         );
                     }
                 }
-                AstNode::new(Op::$op, vec![self.clone(), other], self.dtype.clone())
+                AstNode::new(Op::$op, vec![Box::new(self), Box::new(other)], dtype)
             }
         }
     };
@@ -104,6 +97,7 @@ macro_rules! impl_binary_op {
         impl AstNode {
             pub fn $fname(self: Self, other: impl Into<AstNode>) -> Self {
                 let other = other.into();
+                let dtype = self.dtype.clone();
                 if self.dtype != DType::Any && other.dtype != DType::Any {
                     if self.dtype != other.dtype {
                         panic!(
@@ -112,7 +106,7 @@ macro_rules! impl_binary_op {
                         );
                     }
                 }
-                AstNode::new(Op::$op, vec![self.clone(), other], self.dtype.clone())
+                AstNode::new(Op::$op, vec![Box::new(self), Box::new(other)], dtype)
             }
         }
     };

@@ -11,13 +11,6 @@ fn test_uop_creation() {
 }
 
 #[test]
-fn test_deref() {
-    let uop = AstNode::new(Op::Var("a".to_string()), vec![], DType::F32);
-    // Accessing uop.op directly uses Deref
-    assert_eq!(uop.op, Op::Var("a".to_string()));
-}
-
-#[test]
 fn test_from_literal() {
     let uop_f32: AstNode = 1.0f32.into();
     assert_eq!(uop_f32.dtype, DType::F32);
@@ -43,17 +36,19 @@ fn test_unary_ops() {
     let neg_a = -a.clone();
     assert_eq!(neg_a.op, Op::Neg);
     assert_eq!(neg_a.src.len(), 1);
-    assert_eq!(neg_a.src[0], a);
+    assert_eq!(*neg_a.src[0], a);
 
+    let a = AstNode::new(Op::Var("a".to_string()), vec![], DType::F32);
     let sqrt_a = a.clone().sqrt();
     assert_eq!(sqrt_a.op, Op::Sqrt);
     assert_eq!(sqrt_a.src.len(), 1);
-    assert_eq!(sqrt_a.src[0], a);
+    assert_eq!(*sqrt_a.src[0], a);
 
+    let a = AstNode::new(Op::Var("a".to_string()), vec![], DType::F32);
     let sin_a = a.clone().sin();
     assert_eq!(sin_a.op, Op::Sin);
     assert_eq!(sin_a.src.len(), 1);
-    assert_eq!(sin_a.src[0], a);
+    assert_eq!(*sin_a.src[0], a);
 }
 
 #[test]
@@ -64,40 +59,50 @@ fn test_binary_ops() {
     let add_ab = a.clone() + b.clone();
     assert_eq!(add_ab.op, Op::Add);
     assert_eq!(add_ab.src.len(), 2);
-    assert_eq!(add_ab.src[0], a);
-    assert_eq!(add_ab.src[1], b);
+    assert_eq!(*add_ab.src[0], a);
+    assert_eq!(*add_ab.src[1], b);
 
+    let a = AstNode::new(Op::Var("a".to_string()), vec![], DType::F32);
+    let b = AstNode::new(Op::Var("b".to_string()), vec![], DType::F32);
     let sub_ab = a.clone() - b.clone();
     assert_eq!(sub_ab.op, Op::Add); // sub is implemented as a + (-b)
     assert_eq!(sub_ab.src.len(), 2);
-    assert_eq!(sub_ab.src[0], a);
+    assert_eq!(*sub_ab.src[0], a);
     assert_eq!(sub_ab.src[1].op, Op::Neg);
-    assert_eq!(sub_ab.src[1].src[0], b);
+    assert_eq!(*sub_ab.src[1].src[0], b);
 
+    let a = AstNode::new(Op::Var("a".to_string()), vec![], DType::F32);
+    let b = AstNode::new(Op::Var("b".to_string()), vec![], DType::F32);
     let mul_ab = a.clone() * b.clone();
     assert_eq!(mul_ab.op, Op::Mul);
     assert_eq!(mul_ab.src.len(), 2);
-    assert_eq!(mul_ab.src[0], a);
-    assert_eq!(mul_ab.src[1], b);
+    assert_eq!(*mul_ab.src[0], a);
+    assert_eq!(*mul_ab.src[1], b);
 
+    let a = AstNode::new(Op::Var("a".to_string()), vec![], DType::F32);
+    let b = AstNode::new(Op::Var("b".to_string()), vec![], DType::F32);
     let div_ab = a.clone() / b.clone();
     assert_eq!(div_ab.op, Op::Mul); // div is implemented as a * (1/b)
     assert_eq!(div_ab.src.len(), 2);
-    assert_eq!(div_ab.src[0], a);
+    assert_eq!(*div_ab.src[0], a);
     assert_eq!(div_ab.src[1].op, Op::Recip);
-    assert_eq!(div_ab.src[1].src[0], b);
+    assert_eq!(*div_ab.src[1].src[0], b);
 
+    let a = AstNode::new(Op::Var("a".to_string()), vec![], DType::F32);
+    let b = AstNode::new(Op::Var("b".to_string()), vec![], DType::F32);
     let rem_ab = a.clone() % b.clone();
     assert_eq!(rem_ab.op, Op::Rem);
     assert_eq!(rem_ab.src.len(), 2);
-    assert_eq!(rem_ab.src[0], a);
-    assert_eq!(rem_ab.src[1], b);
+    assert_eq!(*rem_ab.src[0], a);
+    assert_eq!(*rem_ab.src[1], b);
 
+    let a = AstNode::new(Op::Var("a".to_string()), vec![], DType::F32);
+    let b = AstNode::new(Op::Var("b".to_string()), vec![], DType::F32);
     let max_ab = a.clone().max(b.clone());
     assert_eq!(max_ab.op, Op::Max);
     assert_eq!(max_ab.src.len(), 2);
-    assert_eq!(max_ab.src[0], a);
-    assert_eq!(max_ab.src[1], b);
+    assert_eq!(*max_ab.src[0], a);
+    assert_eq!(*max_ab.src[1], b);
 }
 
 #[test]
@@ -119,11 +124,11 @@ fn test_complex_expression() {
 
     assert_eq!(expr.op, Op::Mul);
     assert_eq!(expr.src.len(), 2);
-    assert_eq!(expr.src[1], c);
+    assert_eq!(*expr.src[1], c);
 
     let add_expr = &expr.src[0];
     assert_eq!(add_expr.op, Op::Add);
     assert_eq!(add_expr.src.len(), 2);
-    assert_eq!(add_expr.src[0], a);
-    assert_eq!(add_expr.src[1], b);
+    assert_eq!(*add_expr.src[0], a);
+    assert_eq!(*add_expr.src[1], b);
 }

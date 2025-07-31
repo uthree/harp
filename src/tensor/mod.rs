@@ -1,4 +1,4 @@
-use crate::ast::{AstNode, Const, DType, Op as AstOp};
+use crate::ast::{DType, Op as AstOp};
 use std::rc::Rc;
 
 #[derive(Debug, Clone, PartialEq)]
