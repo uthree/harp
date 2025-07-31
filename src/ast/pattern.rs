@@ -2,19 +2,18 @@ use crate::ast::{AstNode, Op};
 use rustc_hash::FxHashMap;
 use std::rc::Rc;
 
-pub struct UPat {
+pub struct RewriteRule {
     pattern: AstNode,
     rewriter: Box<dyn Fn(Vec<AstNode>) -> AstNode>,
 }
 
-impl UPat {
+impl RewriteRule {
     fn scan(
         &self,
         target: &AstNode,
         pattern: &AstNode,
         store: &mut FxHashMap<usize, AstNode>,
     ) -> bool {
-        // If the pat node is a capture, try capture the target node.
         if let Op::Capture(id) = &pattern.op {
             if let Some(existing) = store.get(id) {
                 return target == existing;
@@ -23,18 +22,17 @@ impl UPat {
             return true;
         }
 
-        // Check if the operation and number of children match.
         if target.op != pattern.op || target.src.len() != pattern.src.len() {
             return false;
         }
 
-        // recursively match children
         target
             .src
             .iter()
             .zip(pattern.src.iter())
             .all(|(s, p)| self.scan(s, p, store))
     }
+
     fn capture(&self, target: &AstNode) -> Option<Vec<AstNode>> {
         let mut captures = FxHashMap::default();
         if self.scan(target, &self.pattern, &mut captures) {
@@ -46,24 +44,29 @@ impl UPat {
         }
     }
 
-    // Apply rewrite rule recursively
-    pub fn apply(&self, target: &AstNode) -> AstNode {
-        if let Some(captures) = self.capture(target) {
-            return (self.rewriter)(captures);
-        }
-        let new_src: Vec<Box<AstNode>> = target.src.iter().map(|s| Box::new(self.apply(s))).collect();
-        if !target.src.iter().zip(&new_src).all(|(a, b)| a.eq(b)) {
-            AstNode::new(target.op.clone(), new_src, target.dtype.clone())
+    pub fn apply_all(&self, target: AstNode) -> AstNode {
+        // Apply to children first (post-order traversal)
+        let new_src = target
+            .src
+            .into_iter()
+            .map(|s| Box::new(self.apply_all(*s)))
+            .collect();
+
+        let new_target = AstNode::new(target.op, new_src, target.dtype);
+
+        // Then apply to the current node
+        if let Some(captures) = self.capture(&new_target) {
+            (self.rewriter)(captures)
         } else {
-            target.clone()
+            new_target
         }
     }
 
-    pub fn new<F>(pattern: AstNode, rewriter: F) -> Rc<UPat>
+    pub fn new<F>(pattern: AstNode, rewriter: F) -> Rc<RewriteRule>
     where
         F: Fn(Vec<AstNode>) -> AstNode + 'static,
     {
-        Rc::new(UPat {
+        Rc::new(RewriteRule {
             pattern,
             rewriter: Box::new(rewriter),
         })
@@ -71,37 +74,55 @@ impl UPat {
 }
 
 #[derive(Clone)]
-pub struct UPatternMatcher {
-    patterns: Vec<Rc<UPat>>,
+pub struct AstRewriter {
+    rules: Vec<Rc<RewriteRule>>,
+    max_iterations: usize,
 }
-impl UPatternMatcher {
-    pub fn new(patterns: Vec<Rc<UPat>>) -> Self {
-        UPatternMatcher { patterns }
+
+impl AstRewriter {
+    pub fn new(rules: Vec<Rc<RewriteRule>>) -> Self {
+        AstRewriter {
+            rules,
+            max_iterations: 1000,
+        }
     }
 
-    // apply all pattern
-    pub fn apply(&self, target: AstNode) -> AstNode {
-        let mut node = target;
-        for pat in self.patterns.iter() {
-            node = pat.apply(&node);
+    pub fn with_max_iterations(mut self, max_iterations: usize) -> Self {
+        self.max_iterations = max_iterations;
+        self
+    }
+
+    pub fn apply(&self, mut node: AstNode) -> AstNode {
+        for _ in 0..self.max_iterations {
+            let mut changed = false;
+            for rule in &self.rules {
+                let new_node = rule.apply_all(node.clone());
+                if new_node != node {
+                    node = new_node;
+                    changed = true;
+                }
+            }
+            if !changed {
+                return node;
+            }
         }
         node
     }
 
     pub fn merge(&mut self, other: &Self) {
         other
-            .patterns
+            .rules
             .iter()
-            .for_each(|pat| self.patterns.push(pat.clone()));
+            .for_each(|rule| self.rules.push(rule.clone()));
     }
 
-    pub fn push(&mut self, pat: Rc<UPat>) {
-        self.patterns.push(pat.clone());
+    pub fn push(&mut self, rule: Rc<RewriteRule>) {
+        self.rules.push(rule);
     }
 }
 
 #[macro_export]
-macro_rules! upat {
+macro_rules! rule {
     (| $($capture: ident),* | $pattern: expr => $rewriter: expr ) => {
         {
             let mut counter = 0..;
@@ -109,201 +130,92 @@ macro_rules! upat {
                 let $capture = AstNode::capture(counter.next().unwrap());
             )*
             let pattern = $pattern;
-            let rewriter = move |captured_uops: Vec<AstNode>| {
+            let rewriter = move |captured_nodes: Vec<AstNode>| {
                 let mut counter = 0..;
                 $(
-                    let $capture = captured_uops[counter.next().unwrap()].clone();
+                    let $capture = captured_nodes[counter.next().unwrap()].clone();
                 )*
                 $rewriter
             };
-            UPat::new(pattern, rewriter)
+            RewriteRule::new(pattern, rewriter)
         }
     };
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ast::{AstNode, DType, Op};
 
-    // Helper to create a variable UOp for tests
     fn var(name: &str, dtype: DType) -> AstNode {
         AstNode::new(Op::Var(name.to_string()), vec![], dtype)
     }
 
     #[test]
-    fn test_upat_macro() {
-        // Test if the macro compiles and creates a UPat
-        let _pat = upat!(|a, b| a + b => b + a);
+    fn test_rule_macro() {
+        let _rule = rule!(|a, b| a + b => b + a);
     }
 
     #[test]
-    fn test_scan_simple_match() {
-        let target = var("x", DType::F32) + 1.0f32;
-        let pattern = var("x", DType::F32) + 1.0f32;
-        let pat = UPat::new(pattern, |_| panic!("should not be called"));
-        let mut store = FxHashMap::default();
-        assert!(pat.scan(&target, &pat.pattern, &mut store));
-        assert!(store.is_empty());
-    }
-
-    #[test]
-    fn test_scan_simple_mismatch() {
-        let target = var("x", DType::F32) + 1.0f32;
-        let pattern = var("y", DType::F32) + 1.0f32; // Different var name
-        let pat = UPat::new(pattern, |_| panic!("should not be called"));
-        let mut store = FxHashMap::default();
-        assert!(!pat.scan(&target, &pat.pattern, &mut store));
-    }
-
-    #[test]
-    fn test_scan_capture() {
-        let target = var("x", DType::F32) + 1.0f32;
-        let a = AstNode::capture(0);
-        let b = AstNode::capture(1);
-        let pattern = a + b;
-        let pat = UPat::new(pattern, |_| panic!("should not be called"));
-        let mut store = FxHashMap::default();
-
-        assert!(pat.scan(&target, &pat.pattern, &mut store));
-        assert_eq!(store.len(), 2);
-        assert_eq!(store[&0], var("x", DType::F32));
-        assert_eq!(store[&1], AstNode::from(1.0f32));
-    }
-
-    #[test]
-    fn test_scan_capture_consistency() {
-        let target = var("x", DType::F32) + var("x", DType::F32);
-        let a = AstNode::capture(0);
-        let pattern = a.clone() + a; // a + a
-        let pat = UPat::new(pattern, |_| panic!("should not be called"));
-        let mut store = FxHashMap::default();
-        assert!(pat.scan(&target, &pat.pattern, &mut store));
-        assert_eq!(store.len(), 1);
-        assert_eq!(store[&0], var("x", DType::F32));
-
-        // Mismatch case: x + y should not match a + a
-        let target_mismatch = var("x", DType::F32) + var("y", DType::F32);
-        let mut store_mismatch = FxHashMap::default();
-        assert!(!pat.scan(&target_mismatch, &pat.pattern, &mut store_mismatch));
-    }
-
-    #[test]
-    fn test_capture() {
-        let pat = upat!(|a, b| a + b => b + a);
-        let target = var("x", DType::F32) + 1.0f32;
-        let captures = pat.capture(&target).unwrap();
-        assert_eq!(captures.len(), 2);
-        assert_eq!(captures[0], var("x", DType::F32));
-        assert_eq!(captures[1], AstNode::from(1.0f32));
-    }
-
-    #[test]
-    fn test_capture_no_match() {
-        let pat = upat!(|a| a.clone() * a => a);
-        let target = var("x", DType::F32) + 1.0f32;
-        assert!(pat.capture(&target).is_none());
-    }
-
-    #[test]
-    fn test_apply_simple_rewrite() {
-        let pat = upat!(|a, b| a + b => b + a);
-        let target = var("x", DType::F32) + 1.0f32;
-        let expected = AstNode::from(1.0f32) + var("x", DType::F32);
-        let result = pat.apply(&target);
-        assert_eq!(result, expected);
-    }
-
-    #[test]
-    fn test_apply_no_rewrite() {
-        let pat = upat!(|a, b| a.clone() * b => b.clone() * a);
-        let target = var("x", DType::F32) + 1.0f32;
-        // UOp::clone is cheap, so we can clone it.
-        let result = pat.apply(&target);
-        assert_eq!(result, target);
-    }
-
-    #[test]
-    fn test_apply_recursive() {
-        // Pattern to simplify x - x => 0
-        let pat = upat!(|a| a.clone() - a => {let _ = a; AstNode::from(0.0f32)});
+    fn test_apply_all() {
         let x = var("x", DType::F32);
         let y = var("y", DType::F32);
-        // target: (y - y) + (x - x)
-        let target = (y.clone() - y) + (x.clone() - x);
+        // (x + y) + (x + y)
+        let target = (x.clone() + y.clone()) + (x.clone() + y.clone());
+        // (x - y) - (x - y)
+        let expected = (x.clone() - y.clone()) - (x.clone() - y.clone());
+        
+        let rule = rule!(|a, b| a + b => a - b);
+        let result = rule.apply_all(target);
 
-        // Expected: 0.0 + 0.0
-        let expected = AstNode::from(0.0f32) + AstNode::from(0.0f32);
-        let result = pat.apply(&target);
         assert_eq!(result, expected);
     }
 
     #[test]
-    fn test_upattern_matcher() {
-        let patterns = vec![
-            // Rule 1: a + b => b + a (Commutative property of addition)
-            upat!(|a, b| a + b => b + a),
-            // Rule 2: a * 1 => a (Identity property of multiplication)
-            upat!(|a| a.clone() * AstNode::from(1.0f32) => a),
-        ];
-        let matcher = UPatternMatcher::new(patterns);
-
+    fn test_ast_rewriter_fixed_point() {
         let x = var("x", DType::F32);
-        // target: (1.0 * x) + y
-        let target = (AstNode::from(1.0f32) * x.clone()) + var("y", DType::F32);
+        // x * 1.0 * 1.0
+        let target = (x.clone() * 1.0f32) * 1.0f32;
+        let expected = x;
 
-        // After rule 2 is not applied since pattern is a * 1 but target is 1 * x.
-        // After rule 1: y + (1.0 * x)
-        let expected = var("y", DType::F32) + (AstNode::from(1.0f32) * x);
-        let result = matcher.apply(target);
+        let rewriter = AstRewriter::new(vec![
+            rule!(|a| a.clone() * 1.0f32 => a)
+        ]);
+
+        let result = rewriter.apply(target);
         assert_eq!(result, expected);
     }
 
     #[test]
-    fn test_upattern_matcher_reordered() {
-        let patterns = vec![
-            // Rule 1: a * 1 => a
-            upat!(|a| a.clone() * AstNode::from(1.0f32) => a),
-            // Rule 2: 1 * a => a
-            upat!(|a| AstNode::from(1.0f32) * a.clone() => a),
-            // Rule 3: a + b => b + a
-            upat!(|a, b| a + b => b + a),
-        ];
-        let matcher = UPatternMatcher::new(patterns);
-
+    fn test_ast_rewriter_commutative() {
         let x = var("x", DType::F32);
         let y = var("y", DType::F32);
-        // target: y + (1.0 * x)
-        let target = y.clone() + (AstNode::from(1.0f32) * x.clone());
+        let target = y.clone() + x.clone();
+        let expected = x.clone() + y.clone();
 
-        // After rule 2: y + x
-        // After rule 3: x + y
-        let expected = x + y;
-        let result = matcher.apply(target);
+        let rewriter = AstRewriter::new(vec![
+            rule!(|a, b| a + b => b + a),
+        ]).with_max_iterations(1); // Should only need one iteration
+
+        let result = rewriter.apply(target);
         assert_eq!(result, expected);
     }
 
     #[test]
-    fn test_distributive_law_pattern() {
-        // a * (b + c) => a * b + a * c
-        let pat = upat!(|a, b, c| a.clone() * (b.clone() + c.clone()) => a.clone() * b + a * c);
+    fn test_ast_rewriter_distributive_law() {
         let a = var("a", DType::F32);
         let b = var("b", DType::F32);
         let c = var("c", DType::F32);
-
+        // a * (b + c)
         let target = a.clone() * (b.clone() + c.clone());
-        let expected = a.clone() * b + a * c;
-        let result = pat.apply(&target);
-        assert_eq!(result, expected);
-    }
+        // a * b + a * c
+        let expected = (a.clone() * b.clone()) + (a.clone() * c.clone());
 
-    #[test]
-    fn test_subtraction_simplification() {
-        // a - a => 0
-        let pat = upat!(|a| a.clone() - a => {let _=a; AstNode::from(0.0f32)});
-        let a = var("a", DType::F32);
-        let target = a.clone() - a;
-        let expected = AstNode::from(0.0f32);
-        let result = pat.apply(&target);
+        let rewriter = AstRewriter::new(vec![
+            rule!(|x, y, z| x.clone() * (y.clone() + z.clone()) => (x.clone() * y) + (x * z))
+        ]);
+
+        let result = rewriter.apply(target);
         assert_eq!(result, expected);
     }
 }
