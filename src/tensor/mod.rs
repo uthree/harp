@@ -1,4 +1,4 @@
-use crate::uop::{Const, DType, Op, UOp};
+use crate::ast::{AstNode, Const, DType, Op as AstOp};
 use std::rc::Rc;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -20,8 +20,8 @@ impl PartialEq for Tensor {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TensorOp {
-    Elementwise(Op),
-    Reduce(Op, usize),
-    Cumulative(Op, usize),
+    Elementwise(AstOp),
+    Reduce(AstOp, usize),
+    Cumulative(AstOp, usize),
     Contiguous,
 }

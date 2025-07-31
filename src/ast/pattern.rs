@@ -1,14 +1,19 @@
-use crate::uop::{Op, UOp};
+use crate::ast::{AstNode, Op};
 use rustc_hash::FxHashMap;
 use std::rc::Rc;
 
 pub struct UPat {
-    pattern: UOp,
-    rewriter: Box<dyn Fn(Vec<UOp>) -> UOp>,
+    pattern: AstNode,
+    rewriter: Box<dyn Fn(Vec<AstNode>) -> AstNode>,
 }
 
 impl UPat {
-    fn scan(&self, target: &UOp, pattern: &UOp, store: &mut FxHashMap<usize, UOp>) -> bool {
+    fn scan(
+        &self,
+        target: &AstNode,
+        pattern: &AstNode,
+        store: &mut FxHashMap<usize, AstNode>,
+    ) -> bool {
         // If the pat node is a capture, try capture the target node.
         if let Op::Capture(id) = pattern.op {
             if let Some(existing) = store.get(&id) {
@@ -30,10 +35,10 @@ impl UPat {
             .zip(pattern.src.iter())
             .all(|(s, p)| self.scan(s, p, store))
     }
-    fn capture(&self, target: &UOp) -> Option<Vec<UOp>> {
+    fn capture(&self, target: &AstNode) -> Option<Vec<AstNode>> {
         let mut captures = FxHashMap::default();
         if self.scan(target, &self.pattern, &mut captures) {
-            let mut captures = captures.into_iter().collect::<Vec<(usize, UOp)>>();
+            let mut captures = captures.into_iter().collect::<Vec<(usize, AstNode)>>();
             captures.sort_by_key(|&(i, _)| i);
             Some(captures.into_iter().map(|(_, v)| v).collect())
         } else {
@@ -42,21 +47,21 @@ impl UPat {
     }
 
     // Apply rewrite rule recursively
-    pub fn apply(&self, target: &UOp) -> UOp {
+    pub fn apply(&self, target: &AstNode) -> AstNode {
         if let Some(captures) = self.capture(target) {
             return (self.rewriter)(captures);
         }
-        let new_src: Vec<UOp> = target.src.iter().map(|s| self.apply(s)).collect();
+        let new_src: Vec<AstNode> = target.src.iter().map(|s| self.apply(s)).collect();
         if target.src.iter().zip(&new_src).any(|(a, b)| !a.eq(b)) {
-            UOp::new(target.op.clone(), new_src, target.dtype.clone())
+            AstNode::new(target.op.clone(), new_src, target.dtype.clone())
         } else {
             target.clone()
         }
     }
 
-    pub fn new<F>(pattern: UOp, rewriter: F) -> Rc<UPat>
+    pub fn new<F>(pattern: AstNode, rewriter: F) -> Rc<UPat>
     where
-        F: Fn(Vec<UOp>) -> UOp + 'static,
+        F: Fn(Vec<AstNode>) -> AstNode + 'static,
     {
         Rc::new(UPat {
             pattern,
@@ -75,7 +80,7 @@ impl UPatternMatcher {
     }
 
     // apply all pattern
-    pub fn apply(&self, target: UOp) -> UOp {
+    pub fn apply(&self, target: AstNode) -> AstNode {
         let mut node = target.clone();
         for pat in self.patterns.iter() {
             node = pat.apply(&node);
@@ -101,10 +106,10 @@ macro_rules! upat {
         {
             let mut counter = 0..;
             $(
-                let $capture = UOp::capture(counter.next().unwrap());
+                let $capture = AstNode::capture(counter.next().unwrap());
             )*
             let pattern = $pattern;
-            let rewriter = move |captured_uops: Vec<UOp>| {
+            let rewriter = move |captured_uops: Vec<AstNode>| {
                 let mut counter = 0..;
                 $(
                     let $capture = captured_uops[counter.next().unwrap()].clone();
@@ -118,11 +123,11 @@ macro_rules! upat {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::uop::{DType, Op, UOp};
+    use crate::ast::{AstNode, DType, Op};
 
     // Helper to create a variable UOp for tests
-    fn var(name: &str, dtype: DType) -> UOp {
-        UOp::new(Op::Var(name.to_string()), vec![], dtype)
+    fn var(name: &str, dtype: DType) -> AstNode {
+        AstNode::new(Op::Var(name.to_string()), vec![], dtype)
     }
 
     #[test]
@@ -153,8 +158,8 @@ mod tests {
     #[test]
     fn test_scan_capture() {
         let target = var("x", DType::F32) + 1.0f32;
-        let a = UOp::capture(0);
-        let b = UOp::capture(1);
+        let a = AstNode::capture(0);
+        let b = AstNode::capture(1);
         let pattern = a + b;
         let pat = UPat::new(pattern, |_| panic!("should not be called"));
         let mut store = FxHashMap::default();
@@ -162,13 +167,13 @@ mod tests {
         assert!(pat.scan(&target, &pat.pattern, &mut store));
         assert_eq!(store.len(), 2);
         assert_eq!(store[&0], var("x", DType::F32));
-        assert_eq!(store[&1], UOp::from(1.0f32));
+        assert_eq!(store[&1], AstNode::from(1.0f32));
     }
 
     #[test]
     fn test_scan_capture_consistency() {
         let target = var("x", DType::F32) + var("x", DType::F32);
-        let a = UOp::capture(0);
+        let a = AstNode::capture(0);
         let pattern = a.clone() + a; // a + a
         let pat = UPat::new(pattern, |_| panic!("should not be called"));
         let mut store = FxHashMap::default();
@@ -189,7 +194,7 @@ mod tests {
         let captures = pat.capture(&target).unwrap();
         assert_eq!(captures.len(), 2);
         assert_eq!(captures[0], var("x", DType::F32));
-        assert_eq!(captures[1], UOp::from(1.0f32));
+        assert_eq!(captures[1], AstNode::from(1.0f32));
     }
 
     #[test]
@@ -203,7 +208,7 @@ mod tests {
     fn test_apply_simple_rewrite() {
         let pat = upat!(|a, b| a + b => b + a);
         let target = var("x", DType::F32) + 1.0f32;
-        let expected = UOp::from(1.0f32) + var("x", DType::F32);
+        let expected = AstNode::from(1.0f32) + var("x", DType::F32);
         let result = pat.apply(&target);
         assert_eq!(result, expected);
     }
@@ -220,14 +225,14 @@ mod tests {
     #[test]
     fn test_apply_recursive() {
         // Pattern to simplify x - x => 0
-        let pat = upat!(|a| a.clone() - a => {let _ = a; UOp::from(0.0f32)});
+        let pat = upat!(|a| a.clone() - a => {let _ = a; AstNode::from(0.0f32)});
         let x = var("x", DType::F32);
         let y = var("y", DType::F32);
         // target: (y - y) + (x - x)
         let target = (y.clone() - y) + (x.clone() - x);
 
         // Expected: 0.0 + 0.0
-        let expected = UOp::from(0.0f32) + UOp::from(0.0f32);
+        let expected = AstNode::from(0.0f32) + AstNode::from(0.0f32);
         let result = pat.apply(&target);
         assert_eq!(result, expected);
     }
@@ -238,17 +243,17 @@ mod tests {
             // Rule 1: a + b => b + a (Commutative property of addition)
             upat!(|a, b| a + b => b + a),
             // Rule 2: a * 1 => a (Identity property of multiplication)
-            upat!(|a| a.clone() * UOp::from(1.0f32) => a),
+            upat!(|a| a.clone() * AstNode::from(1.0f32) => a),
         ];
         let matcher = UPatternMatcher::new(patterns);
 
         let x = var("x", DType::F32);
         // target: (1.0 * x) + y
-        let target = (UOp::from(1.0f32) * x.clone()) + var("y", DType::F32);
+        let target = (AstNode::from(1.0f32) * x.clone()) + var("y", DType::F32);
 
         // After rule 2 is not applied since pattern is a * 1 but target is 1 * x.
         // After rule 1: y + (1.0 * x)
-        let expected = var("y", DType::F32) + (UOp::from(1.0f32) * x);
+        let expected = var("y", DType::F32) + (AstNode::from(1.0f32) * x);
         let result = matcher.apply(target);
         assert_eq!(result, expected);
     }
@@ -257,9 +262,9 @@ mod tests {
     fn test_upattern_matcher_reordered() {
         let patterns = vec![
             // Rule 1: a * 1 => a
-            upat!(|a| a.clone() * UOp::from(1.0f32) => a),
+            upat!(|a| a.clone() * AstNode::from(1.0f32) => a),
             // Rule 2: 1 * a => a
-            upat!(|a| UOp::from(1.0f32) * a.clone() => a),
+            upat!(|a| AstNode::from(1.0f32) * a.clone() => a),
             // Rule 3: a + b => b + a
             upat!(|a, b| a + b => b + a),
         ];
@@ -268,7 +273,7 @@ mod tests {
         let x = var("x", DType::F32);
         let y = var("y", DType::F32);
         // target: y + (1.0 * x)
-        let target = y.clone() + (UOp::from(1.0f32) * x.clone());
+        let target = y.clone() + (AstNode::from(1.0f32) * x.clone());
 
         // After rule 2: y + x
         // After rule 3: x + y
@@ -294,10 +299,10 @@ mod tests {
     #[test]
     fn test_subtraction_simplification() {
         // a - a => 0
-        let pat = upat!(|a| a.clone() - a => {let _=a; UOp::from(0.0f32)});
+        let pat = upat!(|a| a.clone() - a => {let _=a; AstNode::from(0.0f32)});
         let a = var("a", DType::F32);
         let target = a.clone() - a;
-        let expected = UOp::from(0.0f32);
+        let expected = AstNode::from(0.0f32);
         let result = pat.apply(&target);
         assert_eq!(result, expected);
     }

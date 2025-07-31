@@ -1,3 +1,5 @@
+pub mod pattern;
+
 use std::{ops::Deref, rc::Rc};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -23,35 +25,35 @@ pub enum Op {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct UOp_ {
+pub struct AstNode_ {
     pub op: Op,
-    pub src: Vec<UOp>,
+    pub src: Vec<AstNode>,
     pub dtype: DType,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct UOp(Rc<UOp_>);
+pub struct AstNode(Rc<AstNode_>);
 
-impl UOp {
-    pub fn new(op: Op, src: Vec<UOp>, dtype: DType) -> Self {
-        UOp(Rc::new(UOp_ { op, src, dtype }))
+impl AstNode {
+    pub fn new(op: Op, src: Vec<AstNode>, dtype: DType) -> Self {
+        AstNode(Rc::new(AstNode_ { op, src, dtype }))
     }
 
     pub fn capture(id: usize) -> Self {
-        UOp::new(Op::Capture(id), vec![], DType::Any)
+        AstNode::new(Op::Capture(id), vec![], DType::Any)
     }
 
     pub fn var(name: &str, dtype: DType) -> Self {
-        UOp::new(Op::Var(name.to_string()), vec![], dtype)
+        AstNode::new(Op::Var(name.to_string()), vec![], dtype)
     }
 
     pub fn with_type(self, dtype: DType) -> Self {
-        UOp::new(self.op.clone(), self.src.clone(), dtype)
+        AstNode::new(self.op.clone(), self.src.clone(), dtype)
     }
 }
 
-impl Deref for UOp {
-    type Target = UOp_;
+impl Deref for AstNode {
+    type Target = AstNode_;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -59,17 +61,17 @@ impl Deref for UOp {
 
 macro_rules! impl_unary_op {
     ($op: ident, $fname: ident) => {
-        impl UOp {
+        impl AstNode {
             fn $fname(self: Self) -> Self {
-                UOp::new(Op::$op, vec![self.clone()], self.dtype.clone())
+                AstNode::new(Op::$op, vec![self.clone()], self.dtype.clone())
             }
         }
     };
 
     (pub, $op: ident, $fname: ident) => {
-        impl UOp {
+        impl AstNode {
             pub fn $fname(self: Self) -> Self {
-                UOp::new(Op::$op, vec![self.clone()], self.dtype.clone())
+                AstNode::new(Op::$op, vec![self.clone()], self.dtype.clone())
             }
         }
     };
@@ -82,8 +84,8 @@ impl_unary_op!(pub, Sin, sin);
 
 macro_rules! impl_binary_op {
     ($op: ident, $fname: ident) => {
-        impl UOp {
-            fn $fname(self: Self, other: impl Into<UOp>) -> Self {
+        impl AstNode {
+            fn $fname(self: Self, other: impl Into<AstNode>) -> Self {
                 let other = other.into();
                 if self.dtype != DType::Any && other.dtype != DType::Any {
                     if self.dtype != other.dtype {
@@ -93,14 +95,14 @@ macro_rules! impl_binary_op {
                         );
                     }
                 }
-                UOp::new(Op::$op, vec![self.clone(), other], self.dtype.clone())
+                AstNode::new(Op::$op, vec![self.clone(), other], self.dtype.clone())
             }
         }
     };
 
     (pub, $op: ident, $fname: ident) => {
-        impl UOp {
-            pub fn $fname(self: Self, other: impl Into<UOp>) -> Self {
+        impl AstNode {
+            pub fn $fname(self: Self, other: impl Into<AstNode>) -> Self {
                 let other = other.into();
                 if self.dtype != DType::Any && other.dtype != DType::Any {
                     if self.dtype != other.dtype {
@@ -110,7 +112,7 @@ macro_rules! impl_binary_op {
                         );
                     }
                 }
-                UOp::new(Op::$op, vec![self.clone(), other], self.dtype.clone())
+                AstNode::new(Op::$op, vec![self.clone(), other], self.dtype.clone())
             }
         }
     };
@@ -160,9 +162,9 @@ macro_rules! impl_dtype {
             }
         }
 
-        impl From<$num_type> for UOp {
+        impl From<$num_type> for AstNode {
             fn from(v: $num_type) -> Self {
-                UOp::new(Op::Const(Const::$variant(v)), vec![], DType::$variant)
+                AstNode::new(Op::Const(Const::$variant(v)), vec![], DType::$variant)
             }
         }
     };
@@ -196,9 +198,9 @@ impl Const {
     }
 }
 
-impl<T> std::ops::Add<T> for UOp
+impl<T> std::ops::Add<T> for AstNode
 where
-    T: Into<UOp>,
+    T: Into<AstNode>,
 {
     type Output = Self;
     fn add(self, rhs: T) -> Self::Output {
@@ -206,9 +208,9 @@ where
     }
 }
 
-impl<T> std::ops::Sub<T> for UOp
+impl<T> std::ops::Sub<T> for AstNode
 where
-    T: Into<UOp>,
+    T: Into<AstNode>,
 {
     type Output = Self;
     fn sub(self, rhs: T) -> Self::Output {
@@ -216,9 +218,9 @@ where
     }
 }
 
-impl<T> std::ops::Mul<T> for UOp
+impl<T> std::ops::Mul<T> for AstNode
 where
-    T: Into<UOp>,
+    T: Into<AstNode>,
 {
     type Output = Self;
     fn mul(self, rhs: T) -> Self::Output {
@@ -226,9 +228,9 @@ where
     }
 }
 
-impl<T> std::ops::Div<T> for UOp
+impl<T> std::ops::Div<T> for AstNode
 where
-    T: Into<UOp>,
+    T: Into<AstNode>,
 {
     type Output = Self;
     fn div(self, rhs: T) -> Self::Output {
@@ -236,9 +238,9 @@ where
     }
 }
 
-impl<T> std::ops::Rem<T> for UOp
+impl<T> std::ops::Rem<T> for AstNode
 where
-    T: Into<UOp>,
+    T: Into<AstNode>,
 {
     type Output = Self;
     fn rem(self, rhs: T) -> Self::Output {
@@ -246,7 +248,7 @@ where
     }
 }
 
-impl std::ops::Neg for UOp {
+impl std::ops::Neg for AstNode {
     type Output = Self;
     fn neg(self) -> Self::Output {
         self.neg_()
