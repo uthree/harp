@@ -1,6 +1,18 @@
 pub mod pattern;
 
-use std::boxed::Box;
+use std::{boxed::Box, cell::Cell};
+
+thread_local! {
+    static NEXT_ID: Cell<usize> = Cell::new(0);
+}
+
+fn next_id() -> usize {
+    NEXT_ID.with(|cell| {
+        let id = cell.get();
+        cell.set(id + 1);
+        id
+    })
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Op {
@@ -16,6 +28,8 @@ pub enum Op {
     Recip,
     Sin,
     Sqrt,
+    Log2,
+    Exp2,
 
     // binary ops
     Add,
@@ -24,16 +38,28 @@ pub enum Op {
     Rem,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct AstNode {
+    pub id: usize,
     pub op: Op,
     pub src: Vec<Box<AstNode>>,
     pub dtype: DType,
 }
 
+impl PartialEq for AstNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.op == other.op && self.src == other.src && self.dtype == other.dtype
+    }
+}
+
 impl AstNode {
     pub fn new(op: Op, src: Vec<Box<AstNode>>, dtype: DType) -> Self {
-        Self { op, src, dtype }
+        Self {
+            id: next_id(),
+            op,
+            src,
+            dtype,
+        }
     }
 
     pub fn capture(id: usize) -> Self {
@@ -73,6 +99,8 @@ impl_unary_op!(Neg, neg_);
 impl_unary_op!(Recip, recip);
 impl_unary_op!(pub, Sqrt, sqrt);
 impl_unary_op!(pub, Sin, sin);
+impl_unary_op!(pub, Log2, log2);
+impl_unary_op!(pub, Exp2, exp2);
 
 macro_rules! impl_binary_op {
     ($op: ident, $fname: ident) => {

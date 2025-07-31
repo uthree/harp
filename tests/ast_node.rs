@@ -132,3 +132,17 @@ fn test_complex_expression() {
     assert_eq!(*add_expr.src[0], a);
     assert_eq!(*add_expr.src[1], b);
 }
+
+#[test]
+fn test_partial_eq_ignores_id() {
+    let node1 = AstNode::new(Op::Var("a".to_string()), vec![], DType::F32);
+    let node2 = AstNode::new(Op::Var("a".to_string()), vec![], DType::F32);
+
+    // IDs should be different
+    assert_ne!(node1.id, node2.id);
+    // But the nodes should be considered equal
+    assert_eq!(node1, node2);
+
+    let node3 = AstNode::new(Op::Var("b".to_string()), vec![], DType::F32);
+    assert_ne!(node1, node3);
+}
