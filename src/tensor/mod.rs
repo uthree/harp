@@ -23,6 +23,7 @@ pub struct TensorData {
     src: Vec<Tensor>,
     dtype: DType,
     id: usize,
+    shape: Vec<AstNode>,
 }
 
 #[derive(Debug, Clone)]
@@ -39,7 +40,7 @@ pub enum TensorOp {
     Elementwise(AstOp), // apply elemetwise operator
     Reduce(AstOp, Vec<usize>),
     Contiguous,
-    Leaf,
+    Leaf, // 仮のバリアント、後で消す
 
     // merged operators
     MergedElementwise(AstNode), // Capture(n)がn番目のsrcが入ることを表すプレースホルダとする。これにより、マージされたElementwise演算子の表現が可能になる。
@@ -53,7 +54,7 @@ impl Deref for Tensor {
 }
 
 impl Tensor {
-    pub fn new(op: TensorOp, src: Vec<Tensor>, dtype: DType) -> Tensor {
+    pub fn new(op: TensorOp, src: Vec<Tensor>, dtype: DType, shape: Vec<AstNode>) -> Tensor {
         // Graph construction-time type checks
         match &op {
             TensorOp::MergedElementwise(ast) => {
@@ -89,6 +90,7 @@ impl Tensor {
             src,
             dtype,
             id: next_id(),
+            shape,
         }))
     }
 }
@@ -107,10 +109,13 @@ macro_rules! impl_tensor_binary_op {
                     AstNode::capture(0, self.dtype.clone()),
                     AstNode::capture(1, rhs.dtype.clone()),
                 );
+                // TODO: shape calculation
+                let shape = self.shape.clone();
                 Tensor::new(
                     TensorOp::Elementwise($ast_op),
                     vec![self.clone(), rhs],
                     ast_node.dtype,
+                    shape,
                 )
             }
         }
@@ -129,10 +134,12 @@ macro_rules! impl_tensor_unary_op {
             fn $fname(self) -> Self::Output {
                 let op_fn = $op;
                 let ast_node = op_fn(AstNode::capture(0, self.dtype.clone()));
+                let shape = self.shape.clone();
                 Tensor::new(
                     TensorOp::Elementwise($ast_op),
                     vec![self.clone()],
                     ast_node.dtype,
+                    shape,
                 )
             }
         }
@@ -169,7 +176,7 @@ mod tests {
     use crate::ast::DType;
 
     fn new_tensor(dtype: DType) -> Tensor {
-        Tensor::new(TensorOp::Leaf, vec![], dtype)
+        Tensor::new(TensorOp::Leaf, vec![], dtype, vec![])
     }
 
     #[test]

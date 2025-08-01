@@ -212,6 +212,7 @@ pub enum DType {
     U16,
     U32,
     U64,
+    USize,
     None,                  // void
     Ptr(Box<Self>),        // Pointer
     Vec(Box<Self>, usize), // Poiter of array
@@ -230,7 +231,7 @@ impl DType {
     pub fn is_natural(&self) -> bool {
         matches!(
             self,
-            DType::U8 | DType::U16 | DType::U32 | DType::U64 | DType::Natural
+            DType::U8 | DType::U16 | DType::U32 | DType::U64 | DType::USize | DType::Natural
         )
     }
 
@@ -282,6 +283,7 @@ pub enum Const {
     U16(u16),
     U32(u32),
     U64(u64),
+    USize(usize),
 }
 
 macro_rules! impl_dtype {
@@ -311,6 +313,7 @@ impl_dtype!(U8, u8);
 impl_dtype!(U16, u16);
 impl_dtype!(U32, u32);
 impl_dtype!(U64, u64);
+impl_dtype!(USize, usize);
 
 impl Const {
     pub fn dtype(&self) -> DType {
@@ -325,6 +328,7 @@ impl Const {
             Const::U16(_) => DType::U16,
             Const::U32(_) => DType::U32,
             Const::U64(_) => DType::U64,
+            Const::USize(_) => DType::USize,
         }
     }
 }
@@ -557,6 +561,23 @@ mod tests {
         assert!(!p_f32.matches(&p_f64));
         assert!(p_any.matches(&p_f32));
         assert!(!p_f32.matches(&p_any)); // A specific type does not match a general one
+
+        // USize
+        assert!(DType::Natural.matches(&DType::USize));
+        assert!(DType::Integer.matches(&DType::USize));
+        assert!(!DType::Real.matches(&DType::USize));
+    }
+
+    #[test]
+    fn test_from_usize() {
+        use super::Const;
+        let u: AstNode = 10usize.into();
+        assert_eq!(u.dtype, DType::USize);
+        if let Op::Const(Const::USize(v)) = u.op {
+            assert_eq!(v, 10);
+        } else {
+            panic!("Expected Const(USize)");
+        }
     }
 
     #[test]

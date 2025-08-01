@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 log = "0.4.27"
+ndarray = "0.16.1"
 rstest = "0.26.1"
 rustc-hash = "2.1.1"
 
