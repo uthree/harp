@@ -38,40 +38,32 @@ pub enum Op {
     Rem,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AstNode {
     pub id: usize,
     pub op: Op,
     pub src: Vec<Box<AstNode>>,
-    pub dtype: DType,
-}
-
-impl PartialEq for AstNode {
-    fn eq(&self, other: &Self) -> bool {
-        self.op == other.op && self.src == other.src && self.dtype == other.dtype
-    }
 }
 
 impl AstNode {
-    pub fn new(op: Op, src: Vec<Box<AstNode>>, dtype: DType) -> Self {
+    pub fn new(op: Op, src: Vec<Box<AstNode>>) -> Self {
         Self {
             id: next_id(),
             op,
             src,
-            dtype,
         }
     }
 
     pub fn capture(id: usize) -> Self {
-        Self::new(Op::Capture(id), vec![], DType::Any)
+        Self::new(Op::Capture(id), vec![])
     }
 
-    pub fn var(name: &str, dtype: DType) -> Self {
-        Self::new(Op::Var(name.to_string()), vec![], dtype)
+    pub fn var(name: &str) -> Self {
+        Self::new(Op::Var(name.to_string()), vec![])
     }
 
-    pub fn with_type(self, dtype: DType) -> Self {
-        Self::new(self.op, self.src, dtype)
+    pub fn with_type(self) -> Self {
+        Self::new(self.op, self.src)
     }
 }
 
@@ -79,8 +71,7 @@ macro_rules! impl_unary_op {
     ($op: ident, $fname: ident) => {
         impl AstNode {
             fn $fname(self: Self) -> Self {
-                let dtype = self.dtype.clone();
-                AstNode::new(Op::$op, vec![Box::new(self)], dtype)
+                AstNode::new(Op::$op, vec![Box::new(self)])
             }
         }
     };
@@ -88,8 +79,7 @@ macro_rules! impl_unary_op {
     (pub, $op: ident, $fname: ident) => {
         impl AstNode {
             pub fn $fname(self: Self) -> Self {
-                let dtype = self.dtype.clone();
-                AstNode::new(Op::$op, vec![Box::new(self)], dtype)
+                AstNode::new(Op::$op, vec![Box::new(self)])
             }
         }
     };
@@ -107,16 +97,7 @@ macro_rules! impl_binary_op {
         impl AstNode {
             fn $fname(self: Self, other: impl Into<AstNode>) -> Self {
                 let other = other.into();
-                let dtype = self.dtype.clone();
-                if self.dtype != DType::Any && other.dtype != DType::Any {
-                    if self.dtype != other.dtype {
-                        panic!(
-                            "type mismatch: left: {:?}, right: {:?}",
-                            self.dtype, other.dtype
-                        );
-                    }
-                }
-                AstNode::new(Op::$op, vec![Box::new(self), Box::new(other)], dtype)
+                AstNode::new(Op::$op, vec![Box::new(self), Box::new(other)])
             }
         }
     };
@@ -125,16 +106,7 @@ macro_rules! impl_binary_op {
         impl AstNode {
             pub fn $fname(self: Self, other: impl Into<AstNode>) -> Self {
                 let other = other.into();
-                let dtype = self.dtype.clone();
-                if self.dtype != DType::Any && other.dtype != DType::Any {
-                    if self.dtype != other.dtype {
-                        panic!(
-                            "type mismatch: left: {:?}, right: {:?}",
-                            self.dtype, other.dtype
-                        );
-                    }
-                }
-                AstNode::new(Op::$op, vec![Box::new(self), Box::new(other)], dtype)
+                AstNode::new(Op::$op, vec![Box::new(self), Box::new(other)])
             }
         }
     };
@@ -186,7 +158,7 @@ macro_rules! impl_dtype {
 
         impl From<$num_type> for AstNode {
             fn from(v: $num_type) -> Self {
-                AstNode::new(Op::Const(Const::$variant(v)), vec![], DType::$variant)
+                AstNode::new(Op::Const(Const::$variant(v)), vec![])
             }
         }
     };
@@ -274,5 +246,120 @@ impl std::ops::Neg for AstNode {
     type Output = Self;
     fn neg(self) -> Self::Output {
         self.neg_()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::{AstNode, Op};
+    #[test]
+    fn test_unary_ops() {
+        let a = AstNode::new(Op::Var("a".to_string()), vec![]);
+
+        let neg_a = -a.clone();
+        assert_eq!(neg_a.op, Op::Neg);
+        assert_eq!(neg_a.src.len(), 1);
+        assert_eq!(*neg_a.src[0], a);
+
+        let a = AstNode::new(Op::Var("a".to_string()), vec![]);
+        let sqrt_a = a.clone().sqrt();
+        assert_eq!(sqrt_a.op, Op::Sqrt);
+        assert_eq!(sqrt_a.src.len(), 1);
+        assert_eq!(*sqrt_a.src[0], a);
+
+        let a = AstNode::new(Op::Var("a".to_string()), vec![]);
+        let sin_a = a.clone().sin();
+        assert_eq!(sin_a.op, Op::Sin);
+        assert_eq!(sin_a.src.len(), 1);
+        assert_eq!(*sin_a.src[0], a);
+    }
+
+    #[test]
+    fn test_binary_ops() {
+        let a = AstNode::new(Op::Var("a".to_string()), vec![]);
+        let b = AstNode::new(Op::Var("b".to_string()), vec![]);
+
+        let add_ab = a.clone() + b.clone();
+        assert_eq!(add_ab.op, Op::Add);
+        assert_eq!(add_ab.src.len(), 2);
+        assert_eq!(*add_ab.src[0], a);
+        assert_eq!(*add_ab.src[1], b);
+
+        let a = AstNode::new(Op::Var("a".to_string()), vec![]);
+        let b = AstNode::new(Op::Var("b".to_string()), vec![]);
+        let sub_ab = a.clone() - b.clone();
+        assert_eq!(sub_ab.op, Op::Add); // sub is implemented as a + (-b)
+        assert_eq!(sub_ab.src.len(), 2);
+        assert_eq!(*sub_ab.src[0], a);
+        assert_eq!(sub_ab.src[1].op, Op::Neg);
+        assert_eq!(*sub_ab.src[1].src[0], b);
+
+        let a = AstNode::new(Op::Var("a".to_string()), vec![]);
+        let b = AstNode::new(Op::Var("b".to_string()), vec![]);
+        let mul_ab = a.clone() * b.clone();
+        assert_eq!(mul_ab.op, Op::Mul);
+        assert_eq!(mul_ab.src.len(), 2);
+        assert_eq!(*mul_ab.src[0], a);
+        assert_eq!(*mul_ab.src[1], b);
+
+        let a = AstNode::new(Op::Var("a".to_string()), vec![]);
+        let b = AstNode::new(Op::Var("b".to_string()), vec![]);
+        let div_ab = a.clone() / b.clone();
+        assert_eq!(div_ab.op, Op::Mul); // div is implemented as a * (1/b)
+        assert_eq!(div_ab.src.len(), 2);
+        assert_eq!(*div_ab.src[0], a);
+        assert_eq!(div_ab.src[1].op, Op::Recip);
+        assert_eq!(*div_ab.src[1].src[0], b);
+
+        let a = AstNode::new(Op::Var("a".to_string()), vec![]);
+        let b = AstNode::new(Op::Var("b".to_string()), vec![]);
+        let rem_ab = a.clone() % b.clone();
+        assert_eq!(rem_ab.op, Op::Rem);
+        assert_eq!(rem_ab.src.len(), 2);
+        assert_eq!(*rem_ab.src[0], a);
+        assert_eq!(*rem_ab.src[1], b);
+
+        let a = AstNode::new(Op::Var("a".to_string()), vec![]);
+        let b = AstNode::new(Op::Var("b".to_string()), vec![]);
+        let max_ab = a.clone().max(b.clone());
+        assert_eq!(max_ab.op, Op::Max);
+        assert_eq!(max_ab.src.len(), 2);
+        assert_eq!(*max_ab.src[0], a);
+        assert_eq!(*max_ab.src[1], b);
+    }
+
+    #[test]
+    fn test_complex_expression() {
+        let a = AstNode::new(Op::Var("a".to_string()), vec![]);
+        let b = AstNode::new(Op::Var("b".to_string()), vec![]);
+        let c: AstNode = 2.0f64.into();
+
+        // (a + b) * c
+        let expr = (a.clone() + b.clone()) * c.clone();
+
+        assert_eq!(expr.op, Op::Mul);
+        assert_eq!(expr.src.len(), 2);
+        assert_eq!(*expr.src[1], c);
+
+        let add_expr = &expr.src[0];
+        assert_eq!(add_expr.op, Op::Add);
+        assert_eq!(add_expr.src.len(), 2);
+        assert_eq!(*add_expr.src[0], a);
+        assert_eq!(*add_expr.src[1], b);
+    }
+
+    #[test]
+    fn test_partial_eq_ignores_id() {
+        let node1 = AstNode::new(Op::Var("a".to_string()), vec![]);
+        let node2 = AstNode::new(Op::Var("a".to_string()), vec![]);
+
+        // IDs should be different
+        assert_ne!(node1.id, node2.id);
+        // But the nodes should be considered equal
+        assert_eq!(node1, node2);
+
+        let node3 = AstNode::new(Op::Var("b".to_string()), vec![]);
+        assert_ne!(node1, node3);
     }
 }

@@ -4,6 +4,7 @@ use std::rc::Rc;
 #[derive(Debug, Clone, PartialEq)]
 pub struct TensorData {
     op: TensorOp,
+    src: Vec<Tensor>,
     dtype: DType,
 }
 

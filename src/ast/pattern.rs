@@ -52,7 +52,7 @@ impl RewriteRule {
             .map(|s| Box::new(self.apply_all(*s)))
             .collect();
 
-        let new_target = AstNode::new(target.op, new_src, target.dtype);
+        let new_target = AstNode::new(target.op, new_src);
 
         // Then apply to the current node
         if let Some(captures) = self.capture(&new_target) {
@@ -147,10 +147,6 @@ mod tests {
     use super::*;
     use crate::ast::{AstNode, DType, Op};
 
-    fn var(name: &str, dtype: DType) -> AstNode {
-        AstNode::new(Op::Var(name.to_string()), vec![], dtype)
-    }
-
     #[test]
     fn test_rule_macro() {
         let _rule = rule!(|a, b| a + b => b + a);
@@ -158,13 +154,13 @@ mod tests {
 
     #[test]
     fn test_apply_all() {
-        let x = var("x", DType::F32);
-        let y = var("y", DType::F32);
+        let x = AstNode::var("x");
+        let y = AstNode::var("y");
         // (x + y) + (x + y)
         let target = (x.clone() + y.clone()) + (x.clone() + y.clone());
         // (x - y) - (x - y)
         let expected = (x.clone() - y.clone()) - (x.clone() - y.clone());
-        
+
         let rule = rule!(|a, b| a + b => a - b);
         let result = rule.apply_all(target);
 
@@ -173,14 +169,12 @@ mod tests {
 
     #[test]
     fn test_ast_rewriter_fixed_point() {
-        let x = var("x", DType::F32);
+        let x = AstNode::var("x");
         // x * 1.0 * 1.0
         let target = (x.clone() * 1.0f32) * 1.0f32;
         let expected = x;
 
-        let rewriter = AstRewriter::new(vec![
-            rule!(|a| a.clone() * 1.0f32 => a)
-        ]);
+        let rewriter = AstRewriter::new(vec![rule!(|a| a.clone() * 1.0f32 => a)]);
 
         let result = rewriter.apply(target);
         assert_eq!(result, expected);
@@ -188,14 +182,12 @@ mod tests {
 
     #[test]
     fn test_ast_rewriter_commutative() {
-        let x = var("x", DType::F32);
-        let y = var("y", DType::F32);
+        let x = AstNode::var("x");
+        let y = AstNode::var("y");
         let target = y.clone() + x.clone();
         let expected = x.clone() + y.clone();
 
-        let rewriter = AstRewriter::new(vec![
-            rule!(|a, b| a + b => b + a),
-        ]).with_max_iterations(1); // Should only need one iteration
+        let rewriter = AstRewriter::new(vec![rule!(|a, b| a + b => b + a)]).with_max_iterations(1); // Should only need one iteration
 
         let result = rewriter.apply(target);
         assert_eq!(result, expected);
@@ -203,16 +195,16 @@ mod tests {
 
     #[test]
     fn test_ast_rewriter_distributive_law() {
-        let a = var("a", DType::F32);
-        let b = var("b", DType::F32);
-        let c = var("c", DType::F32);
+        let a = AstNode::var("a");
+        let b = AstNode::var("b");
+        let c = AstNode::var("c");
         // a * (b + c)
         let target = a.clone() * (b.clone() + c.clone());
         // a * b + a * c
         let expected = (a.clone() * b.clone()) + (a.clone() * c.clone());
 
         let rewriter = AstRewriter::new(vec![
-            rule!(|x, y, z| x.clone() * (y.clone() + z.clone()) => (x.clone() * y) + (x * z))
+            rule!(|x, y, z| x.clone() * (y.clone() + z.clone()) => (x.clone() * y) + (x * z)),
         ]);
 
         let result = rewriter.apply(target);
