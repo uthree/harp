@@ -3,7 +3,7 @@ pub mod pattern;
 use std::{boxed::Box, cell::Cell};
 
 thread_local! {
-    static NEXT_ID: Cell<usize> = Cell::new(0);
+    static NEXT_ID: Cell<usize> = const { Cell::new(0) };
 }
 
 fn next_id() -> usize {
@@ -153,10 +153,7 @@ impl DType {
     }
 
     pub fn is_natural(&self) -> bool {
-        matches!(
-            self,
-            DType::U8 | DType::U16 | DType::U32 | DType::U64
-        )
+        matches!(self, DType::U8 | DType::U16 | DType::U32 | DType::U64)
     }
 
     pub fn is_integer(&self) -> bool {

@@ -1,10 +1,11 @@
+pub mod shapetracker;
 use crate::ast::{AstNode, DType, Op as AstOp};
 use std::cell::Cell;
 use std::ops::Deref;
 use std::rc::Rc;
 
 thread_local! {
-    static NEXT_ID: Cell<usize> = Cell::new(0);
+    static NEXT_ID: Cell<usize> = const { Cell::new(0) };
 }
 
 fn next_id() -> usize {
@@ -49,10 +50,29 @@ impl Deref for Tensor {
 impl Tensor {
     pub fn new(op: TensorOp, src: Vec<Tensor>, dtype: DType) -> Tensor {
         Tensor(Rc::new(TensorData {
-            op: op,
-            src: src,
-            dtype: dtype,
+            op,
+            src,
+            dtype,
             id: next_id(),
         }))
+    }
+}
+
+impl<T> std::ops::Add<T> for Tensor
+where
+    T: Into<Tensor>,
+{
+    type Output = Tensor;
+    fn add(self, rhs: T) -> Self::Output {
+        let rhs = rhs.into();
+        // TODO: assert if type mismatch
+        let out = Tensor::new(
+            TensorOp::Elementwise(
+                AstNode::capture(0, self.dtype.clone()) + AstNode::capture(1, rhs.dtype.clone()),
+            ),
+            vec![self.clone(), rhs],
+            self.dtype.clone(),
+        );
+        return out;
     }
 }
