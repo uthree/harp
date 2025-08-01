@@ -38,11 +38,17 @@ pub enum Op {
     Rem,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct AstNode {
     pub id: usize,
     pub op: Op,
     pub src: Vec<Box<AstNode>>,
+}
+
+impl PartialEq for AstNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.op == other.op && self.src == other.src
+    }
 }
 
 impl AstNode {
@@ -251,7 +257,7 @@ impl std::ops::Neg for AstNode {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
     use crate::ast::{AstNode, Op};
     #[test]
     fn test_unary_ops() {

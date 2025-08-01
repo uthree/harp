@@ -145,7 +145,7 @@ macro_rules! rule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{AstNode, DType, Op};
+    use crate::ast::AstNode;
 
     #[test]
     fn test_rule_macro() {
