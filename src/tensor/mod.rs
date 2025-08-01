@@ -38,6 +38,7 @@ pub enum TensorOp {
     Elementwise(AstNode), // Capture(n)がn番目のsrcが入ることを表すプレースホルダとする。これにより、マージされたElementwise演算子の表現が可能になる。
     Reduce(AstOp, Vec<usize>),
     Contiguous,
+    Leaf,
 }
 
 impl Deref for Tensor {
@@ -49,6 +50,32 @@ impl Deref for Tensor {
 
 impl Tensor {
     pub fn new(op: TensorOp, src: Vec<Tensor>, dtype: DType) -> Tensor {
+        // Graph construction-time type checks
+        match &op {
+            TensorOp::Elementwise(ast) => {
+                debug_assert_eq!(
+                    ast.dtype, dtype,
+                    "Tensor dtype must match AST dtype for Elementwise op"
+                );
+            }
+            TensorOp::Reduce(..) => {
+                debug_assert!(!src.is_empty());
+                debug_assert_eq!(
+                    src[0].dtype, dtype,
+                    "Tensor dtype must match source dtype for Reduce op"
+                );
+            }
+            TensorOp::Contiguous => {
+                debug_assert!(!src.is_empty());
+                debug_assert_eq!(
+                    src[0].dtype, dtype,
+                    "Tensor dtype must match source dtype for Contiguous op"
+                );
+            }
+            TensorOp::Leaf => {
+                debug_assert!(src.is_empty());
+            }
+        }
         Tensor(Rc::new(TensorData {
             op,
             src,
@@ -58,21 +85,154 @@ impl Tensor {
     }
 }
 
-impl<T> std::ops::Add<T> for Tensor
-where
-    T: Into<Tensor>,
-{
-    type Output = Tensor;
-    fn add(self, rhs: T) -> Self::Output {
-        let rhs = rhs.into();
-        // TODO: assert if type mismatch
-        let out = Tensor::new(
-            TensorOp::Elementwise(
-                AstNode::capture(0, self.dtype.clone()) + AstNode::capture(1, rhs.dtype.clone()),
-            ),
-            vec![self.clone(), rhs],
-            self.dtype.clone(),
-        );
-        out
+macro_rules! impl_tensor_binary_op {
+    ($trait:ident, $fname:ident, $op:expr) => {
+        impl<T> std::ops::$trait<T> for Tensor
+        where
+            T: Into<Tensor>,
+        {
+            type Output = Tensor;
+            fn $fname(self, rhs: T) -> Self::Output {
+                let rhs = rhs.into();
+                let op_fn = $op;
+                let ast_node = op_fn(
+                    AstNode::capture(0, self.dtype.clone()),
+                    AstNode::capture(1, rhs.dtype.clone()),
+                );
+                Tensor::new(
+                    TensorOp::Elementwise(ast_node.clone()),
+                    vec![self.clone(), rhs],
+                    ast_node.dtype,
+                )
+            }
+        }
+    };
+}
+
+impl_tensor_binary_op!(Add, add, |a: AstNode, b: AstNode| a + b);
+impl_tensor_binary_op!(Sub, sub, |a: AstNode, b: AstNode| a - b);
+impl_tensor_binary_op!(Mul, mul, |a: AstNode, b: AstNode| a * b);
+impl_tensor_binary_op!(Div, div, |a: AstNode, b: AstNode| a / b);
+
+macro_rules! impl_tensor_unary_op {
+    ($trait:ident, $fname:ident, $op:expr) => {
+        impl std::ops::$trait for Tensor {
+            type Output = Tensor;
+            fn $fname(self) -> Self::Output {
+                let op_fn = $op;
+                let ast_node = op_fn(AstNode::capture(0, self.dtype.clone()));
+                Tensor::new(
+                    TensorOp::Elementwise(ast_node.clone()),
+                    vec![self.clone()],
+                    ast_node.dtype,
+                )
+            }
+        }
+    };
+}
+
+impl_tensor_unary_op!(Neg, neg, |a: AstNode| -a);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::{DType, Op};
+
+    fn new_tensor(dtype: DType) -> Tensor {
+        Tensor::new(TensorOp::Leaf, vec![], dtype)
+    }
+
+    #[test]
+    fn test_tensor_add() {
+        let a = new_tensor(DType::F32);
+        let b = new_tensor(DType::F32);
+        let c = a + b;
+
+        assert_eq!(c.src.len(), 2);
+        assert_eq!(c.dtype, DType::F32);
+        if let TensorOp::Elementwise(ast) = &c.op {
+            assert_eq!(ast.op, Op::Add);
+        } else {
+            panic!("Expected Elementwise op");
+        }
+    }
+
+    #[test]
+    fn test_tensor_sub() {
+        let a = new_tensor(DType::F32);
+        let b = new_tensor(DType::F32);
+        let c = a - b;
+
+        assert_eq!(c.src.len(), 2);
+        assert_eq!(c.dtype, DType::F32);
+        if let TensorOp::Elementwise(ast) = &c.op {
+            // Sub is implemented as Add(a, Neg(b))
+            assert_eq!(ast.op, Op::Add);
+            assert_eq!(ast.src[1].op, Op::Neg);
+        } else {
+            panic!("Expected Elementwise op");
+        }
+    }
+
+    #[test]
+    fn test_tensor_mul() {
+        let a = new_tensor(DType::F32);
+        let b = new_tensor(DType::F32);
+        let c = a * b;
+
+        assert_eq!(c.src.len(), 2);
+        assert_eq!(c.dtype, DType::F32);
+        if let TensorOp::Elementwise(ast) = &c.op {
+            assert_eq!(ast.op, Op::Mul);
+        } else {
+            panic!("Expected Elementwise op");
+        }
+    }
+
+    #[test]
+    fn test_tensor_div() {
+        let a = new_tensor(DType::F32);
+        let b = new_tensor(DType::F32);
+        let c = a / b;
+
+        assert_eq!(c.src.len(), 2);
+        assert_eq!(c.dtype, DType::F32);
+        if let TensorOp::Elementwise(ast) = &c.op {
+            // Div is implemented as Mul(a, Recip(b))
+            assert_eq!(ast.op, Op::Mul);
+            assert_eq!(ast.src[1].op, Op::Recip);
+        } else {
+            panic!("Expected Elementwise op");
+        }
+    }
+
+    #[test]
+    fn test_tensor_neg() {
+        let a = new_tensor(DType::F32);
+        let b = -a;
+
+        assert_eq!(b.src.len(), 1);
+        assert_eq!(b.dtype, DType::F32);
+        if let TensorOp::Elementwise(ast) = &b.op {
+            assert_eq!(ast.op, Op::Neg);
+        } else {
+            panic!("Expected Elementwise op");
+        }
+    }
+
+    #[test]
+    fn test_tensor_implicit_cast() {
+        let a = new_tensor(DType::I32);
+        let b = new_tensor(DType::F32);
+        let c = a + b;
+
+        assert_eq!(c.src.len(), 2);
+        assert_eq!(c.dtype, DType::F32);
+        if let TensorOp::Elementwise(ast) = &c.op {
+            assert_eq!(ast.op, Op::Add);
+            assert_eq!(ast.src[0].op, Op::Cast(DType::F32));
+        } else {
+            panic!("Expected Elementwise op");
+        }
     }
 }
