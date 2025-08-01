@@ -23,6 +23,7 @@ pub enum Op {
     Const(Const),
     Var(String),
 
+    // Tips: 除算 a/b は Mul(a, Recip(b)), 減算 a-b は Add(a, Neg(b)) のように表現する。
     // unary ops
     Neg,
     Recip,
@@ -32,11 +33,12 @@ pub enum Op {
     Exp2,
     Cast(DType),
 
-    // binary ops, Tips: 除算 a/b は Mul(a, Recip(b)), 減算 a-b は Add(a, Neg(b)) のように表現する。
+    // binary ops
     Add,
     Mul,
     Max,
     Rem,
+    LessThan,
 }
 
 #[derive(Debug, Clone)]

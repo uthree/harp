@@ -40,26 +40,30 @@ trait Backend {
 ASTを実際のコード(e.g. C言語, CUDA, Metal...)にレンダリングする責務を持つ。
 
 ```rust
-trait Renderer {
-    type CodeRepresentation = String; // コードの表現形式。通常は文字列だが、バイト列を扱うケースも想定して一応ジェネリックにしておく。
-    fn new() -> Self; // 内部状態を初期化。
-    fn render(&mut self, ast::Kernel) -> CodeRepresentation;
-
-    fn render_stmt(&mut self, ast::Statement) -> CodeRepresentation;
-    fn render_expr(&mut, self, ast::Expression) -> CodeRepresentation;
+trait Renderer<CodeRepr> {
+    fn render(&mut self, ast::Kernel) -> CodeRepr;
 }
 ```
 
 ### コンパイラー
 
-レンダリングされたコードを実行可能なバイナリにへ関する責務を持つ。
+レンダリングされたコードを実行可能な形式（カーネル）にへ関する責務を持つ。
 
 ```rust
-trait Compiler {
+trait Compiler<CodeRepr=String, Kernel> {
     type CompilerOption; // コンパイラオプションを表現する型。
-    fn new() -> Self; // 内部状態を初期化。
-    fn default_option() -> CompilerOption // コンパイラオプションの既定値を取得
-    fn compile(&mut self, ) // コンパイル処理を実行。
+    fn default_option() -> CompilerOption; // コンパイラオプションの既定値を取得
+    fn compile(&mut self, CodeRepr) -> Kernel; // コンパイル処理を実行。
+}
+```
+
+### デバイス
+
+メモリ確保・開放を担当する。
+```rust
+trait Device<Buffer> {
+    fn allocate(&mut self, dtype: DType, size: usize) -> Buffer;
+    fn free(&mut self, buffer: Buffer);
 }
 ```
 
