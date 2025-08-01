@@ -257,7 +257,7 @@ impl std::ops::Neg for AstNode {
 
 #[cfg(test)]
 mod tests {
-    
+
     use crate::ast::{AstNode, Op};
     #[test]
     fn test_unary_ops() {
