@@ -14,12 +14,19 @@ impl RewriteRule {
         pattern: &AstNode,
         store: &mut FxHashMap<usize, AstNode>,
     ) -> bool {
-        if let Op::Capture(id) = &pattern.op {
+        if let Op::Capture(id, dtype) = &pattern.op {
+            if !dtype.matches(&target.dtype) {
+                return false;
+            }
             if let Some(existing) = store.get(id) {
                 return target == existing;
             }
             store.insert(*id, target.clone());
             return true;
+        }
+
+        if !pattern.dtype.matches(&target.dtype) {
+            return false;
         }
 
         if target.op != pattern.op || target.src.len() != pattern.src.len() {
@@ -52,7 +59,7 @@ impl RewriteRule {
             .map(|s| Box::new(self.apply_all(*s)))
             .collect();
 
-        let new_target = AstNode::new(target.op, new_src);
+        let new_target = AstNode::new(target.op, new_src, target.dtype);
 
         // Then apply to the current node
         if let Some(captures) = self.capture(&new_target) {
@@ -125,9 +132,10 @@ impl AstRewriter {
 macro_rules! rule {
     (| $($capture: ident),* | $pattern: expr => $rewriter: expr ) => {
         {
+            use $crate::ast::DType;
             let mut counter = 0..;
             $(
-                let $capture = AstNode::capture(counter.next().unwrap());
+                let $capture = AstNode::capture(counter.next().unwrap(), DType::Any);
             )*
             let pattern = $pattern;
             let rewriter = move |captured_nodes: Vec<AstNode>| {
@@ -209,5 +217,28 @@ mod tests {
 
         let result = rewriter.apply(target);
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_ast_rewriter_type_match() {
+        use crate::ast::DType;
+
+        let a_real = AstNode::var("a").with_type(DType::F32);
+        let a_int = AstNode::var("a").with_type(DType::I32);
+
+        // This rule should only apply to Real types
+        let pattern = AstNode::capture(0, DType::Real);
+        let rewriter_fn = |nodes: Vec<AstNode>| nodes[0].clone().with_type(DType::F64);
+        let rule = RewriteRule::new(pattern, rewriter_fn);
+
+        let rewriter = AstRewriter::new(vec![rule]);
+
+        // The rule should apply to a_real (F32 is a Real)
+        let result_real = rewriter.apply(a_real.clone());
+        assert_eq!(result_real.dtype, DType::F64);
+
+        // The rule should NOT apply to a_int
+        let result_int = rewriter.apply(a_int.clone());
+        assert_eq!(result_int, a_int);
     }
 }
