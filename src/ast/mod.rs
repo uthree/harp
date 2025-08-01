@@ -32,7 +32,7 @@ pub enum Op {
     Exp2,
     Cast(DType),
 
-    // binary ops
+    // binary ops, Tips: 除算 a/b は Mul(a, Recip(b)), 減算 a-b は Add(a, Neg(b)) のように表現する。
     Add,
     Mul,
     Max,
@@ -384,6 +384,25 @@ impl std::ops::Neg for AstNode {
     }
 }
 
+macro_rules! impl_ast_assign_op {
+    ($trait:ident, $fname:ident, $op_trait:ident, $op_fname:ident) => {
+        impl<T> std::ops::$trait<T> for AstNode
+        where
+            T: Into<AstNode>,
+        {
+            fn $fname(&mut self, rhs: T) {
+                *self = std::ops::$op_trait::$op_fname(self.clone(), rhs.into());
+            }
+        }
+    };
+}
+
+impl_ast_assign_op!(AddAssign, add_assign, Add, add);
+impl_ast_assign_op!(SubAssign, sub_assign, Sub, sub);
+impl_ast_assign_op!(MulAssign, mul_assign, Mul, mul);
+impl_ast_assign_op!(DivAssign, div_assign, Div, div);
+impl_ast_assign_op!(RemAssign, rem_assign, Rem, rem);
+
 #[cfg(test)]
 mod tests {
 
@@ -595,5 +614,23 @@ mod tests {
 
         // Check that the float remains unchanged
         assert_eq!(*rhs, f1);
+    }
+
+    #[test]
+    fn test_ast_add_assign() {
+        let mut a = AstNode::var("a").with_type(DType::F32);
+        let b = AstNode::var("b").with_type(DType::F32);
+        let c = a.clone() + b.clone();
+        a += b;
+        assert_eq!(a, c);
+    }
+
+    #[test]
+    fn test_ast_sub_assign() {
+        let mut a = AstNode::var("a").with_type(DType::F32);
+        let b = AstNode::var("b").with_type(DType::F32);
+        let c = a.clone() - b.clone();
+        a -= b;
+        assert_eq!(a, c);
     }
 }

@@ -1,3 +1,4 @@
+pub mod lowerer;
 pub mod shapetracker;
 use crate::ast::{AstNode, DType, Op as AstOp};
 use std::cell::Cell;
@@ -133,6 +134,28 @@ macro_rules! impl_tensor_unary_op {
 
 impl_tensor_unary_op!(Neg, neg, |a: AstNode| -a);
 
+macro_rules! impl_tensor_assign_op {
+    ($trait:ident, $fname:ident, $op_trait:ident, $op_fname:ident) => {
+        impl<T> std::ops::$trait<T> for Tensor
+        where
+            T: Into<Tensor>,
+        {
+            fn $fname(&mut self, rhs: T) {
+                // Since Tensor is immutable due to Rc, we can't modify it in-place.
+                // Instead, we perform the operation (which creates a new Tensor)
+                // and replace `self` with the result.
+                // We must clone `self` because the standard op methods consume it.
+                *self = std::ops::$op_trait::$op_fname(self.clone(), rhs.into());
+            }
+        }
+    };
+}
+
+impl_tensor_assign_op!(AddAssign, add_assign, Add, add);
+impl_tensor_assign_op!(SubAssign, sub_assign, Sub, sub);
+impl_tensor_assign_op!(MulAssign, mul_assign, Mul, mul);
+impl_tensor_assign_op!(DivAssign, div_assign, Div, div);
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -234,5 +257,23 @@ mod tests {
         } else {
             panic!("Expected Elementwise op");
         }
+    }
+
+    #[test]
+    fn test_tensor_add_assign() {
+        let mut a = new_tensor(DType::F32);
+        let b = new_tensor(DType::F32);
+        let c = a.clone() + b.clone();
+        a += b;
+        assert_eq!(a, c);
+    }
+
+    #[test]
+    fn test_tensor_sub_assign() {
+        let mut a = new_tensor(DType::F32);
+        let b = new_tensor(DType::F32);
+        let c = a.clone() - b.clone();
+        a -= b;
+        assert_eq!(a, c);
     }
 }
