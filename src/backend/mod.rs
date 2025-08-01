@@ -1,7 +1,4 @@
-use crate::{
-    ast::{AstNode, DType},
-    tensor::Tensor,
-};
+use crate::ast::{AstNode, DType};
 
 pub trait Device<Buffer> {
     fn allocate(&mut self, dtype: DType, size: usize) -> Buffer;
