@@ -30,6 +30,7 @@ pub enum Op {
     Sqrt,
     Log2,
     Exp2,
+    Cast(DType),
 
     // binary ops
     Add,
@@ -73,57 +74,129 @@ impl AstNode {
     pub fn with_type(self, dtype: DType) -> Self {
         Self::new(self.op, self.src, dtype)
     }
+
+    pub fn cast(self, dtype: DType) -> Self {
+        Self::new(Op::Cast(dtype.clone()), vec![Box::new(self)], dtype)
+    }
 }
 
 macro_rules! impl_unary_op {
-    ($op: ident, $fname: ident, $dtype: expr) => {
+    ($op: ident, $fname: ident) => {
         impl AstNode {
             fn $fname(self: Self) -> Self {
-                AstNode::new(Op::$op, vec![Box::new(self)], $dtype)
+                let dtype = &self.dtype;
+                if !(dtype.is_real() || dtype.is_integer() || *dtype == DType::Any) {
+                    panic!("Cannot apply {} to {:?}", stringify!($op), self.dtype)
+                }
+                AstNode::new(Op::$op, vec![Box::new(self.clone())], self.dtype)
             }
         }
     };
 
-    (pub, $op: ident, $fname: ident, $dtype: expr) => {
+    (pub, $op: ident, $fname: ident) => {
         impl AstNode {
             pub fn $fname(self: Self) -> Self {
-                AstNode::new(Op::$op, vec![Box::new(self)], $dtype)
+                let dtype = &self.dtype;
+                if !(dtype.is_real() || *dtype == DType::Any) {
+                    panic!("Cannot apply {} to {:?}", stringify!($op), self.dtype)
+                }
+                AstNode::new(Op::$op, vec![Box::new(self.clone())], self.dtype)
             }
         }
     };
 }
 
-impl_unary_op!(Neg, neg_, DType::Any);
-impl_unary_op!(Recip, recip, DType::Any);
-impl_unary_op!(pub, Sqrt, sqrt, DType::Any);
-impl_unary_op!(pub, Sin, sin, DType::Any);
-impl_unary_op!(pub, Log2, log2, DType::Any);
-impl_unary_op!(pub, Exp2, exp2, DType::Any);
+impl_unary_op!(Neg, neg_);
+impl_unary_op!(Recip, recip);
+impl_unary_op!(pub, Sqrt, sqrt);
+impl_unary_op!(pub, Sin, sin);
+impl_unary_op!(pub, Log2, log2);
+impl_unary_op!(pub, Exp2, exp2);
 
 macro_rules! impl_binary_op {
-    ($op: ident, $fname: ident, $dtype: expr) => {
+    ($op: ident, $fname: ident) => {
         impl AstNode {
             fn $fname(self: Self, other: impl Into<AstNode>) -> Self {
-                let other = other.into();
-                AstNode::new(Op::$op, vec![Box::new(self), Box::new(other)], $dtype)
+                let mut lhs = self;
+                let mut rhs = other.into();
+
+                if lhs.dtype != rhs.dtype {
+                    // Attempt to promote types
+                    let (l, r) = (&lhs.dtype, &rhs.dtype);
+                    if l == &DType::Any {
+                        lhs = lhs.cast(r.clone());
+                    } else if r == &DType::Any {
+                        rhs = rhs.cast(l.clone());
+                    } else if l.is_real() && r.is_integer() {
+                        rhs = rhs.cast(l.clone());
+                    } else if l.is_integer() && r.is_real() {
+                        lhs = lhs.cast(r.clone());
+                    } else if l == &DType::F32 && r == &DType::F64 {
+                        lhs = lhs.cast(DType::F64);
+                    } else if l == &DType::F64 && r == &DType::F32 {
+                        rhs = rhs.cast(DType::F64);
+                    }
+                }
+
+                if lhs.dtype != rhs.dtype {
+                    panic!(
+                        "Cannot apply {} to {:?} and {:?}",
+                        stringify!($op),
+                        lhs.dtype,
+                        rhs.dtype
+                    );
+                }
+
+                let result_dtype = lhs.dtype.clone();
+                AstNode::new(Op::$op, vec![Box::new(lhs), Box::new(rhs)], result_dtype)
             }
         }
     };
 
-    (pub, $op: ident, $fname: ident, $dtype: expr) => {
+    (pub, $op: ident, $fname: ident) => {
         impl AstNode {
             pub fn $fname(self: Self, other: impl Into<AstNode>) -> Self {
-                let other = other.into();
-                AstNode::new(Op::$op, vec![Box::new(self), Box::new(other)], $dtype)
+                let mut lhs = self;
+                let mut rhs = other.into();
+
+                if lhs.dtype != rhs.dtype {
+                    // Attempt to promote types
+                    let (l, r) = (&lhs.dtype, &rhs.dtype);
+                    if l == &DType::Any {
+                        lhs = lhs.cast(r.clone());
+                    } else if r == &DType::Any {
+                        rhs = rhs.cast(l.clone());
+                    } else if l.is_real() && r.is_integer() {
+                        rhs = rhs.cast(l.clone());
+                    } else if l.is_integer() && r.is_real() {
+                        lhs = lhs.cast(r.clone());
+                    } else if l == &DType::F32 && r == &DType::F64 {
+                        lhs = lhs.cast(DType::F64);
+                    } else if l == &DType::F64 && r == &DType::F32 {
+                        rhs = rhs.cast(DType::F64);
+                    }
+                }
+
+                if lhs.dtype != rhs.dtype {
+                    panic!(
+                        "Cannot apply {} to {:?} and {:?}",
+                        stringify!($op),
+                        lhs.dtype,
+                        rhs.dtype
+                    );
+                }
+
+                let result_dtype = lhs.dtype.clone();
+                AstNode::new(Op::$op, vec![Box::new(lhs), Box::new(rhs)], result_dtype)
             }
         }
     };
 }
 
-impl_binary_op!(Add, add_, DType::Any);
-impl_binary_op!(Mul, mul_, DType::Any);
-impl_binary_op!(pub, Max, max, DType::Any);
-impl_binary_op!(Rem, rem_, DType::Any);
+impl_binary_op!(Add, add_);
+impl_binary_op!(Mul, mul_);
+impl_binary_op!(pub, Max, max);
+impl_binary_op!(Rem, rem_);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DType {
@@ -149,25 +222,22 @@ pub enum DType {
 
 impl DType {
     pub fn is_real(&self) -> bool {
-        matches!(self, DType::F32 | DType::F64)
+        matches!(self, DType::F32 | DType::F64 | DType::Real)
     }
 
     pub fn is_natural(&self) -> bool {
-        matches!(self, DType::U8 | DType::U16 | DType::U32 | DType::U64)
+        matches!(
+            self,
+            DType::U8 | DType::U16 | DType::U32 | DType::U64 | DType::Natural
+        )
     }
 
     pub fn is_integer(&self) -> bool {
-        matches!(
-            self,
-            DType::I8
-                | DType::I16
-                | DType::I32
-                | DType::I64
-                | DType::U8
-                | DType::U16
-                | DType::U32
-                | DType::U64
-        )
+        self.is_natural()
+            || matches!(
+                self,
+                DType::I8 | DType::I16 | DType::I32 | DType::I64 | DType::Integer
+            )
     }
 
     pub fn matches(&self, other: &DType) -> bool {
@@ -396,8 +466,8 @@ mod tests {
 
     #[test]
     fn test_complex_expression() {
-        let a = AstNode::new(Op::Var("a".to_string()), vec![], DType::Any);
-        let b = AstNode::new(Op::Var("b".to_string()), vec![], DType::Any);
+        let a = AstNode::var("a").with_type(DType::F64);
+        let b = AstNode::var("b").with_type(DType::F64);
         let c: AstNode = 2.0f64.into();
 
         // (a + b) * c
@@ -407,7 +477,7 @@ mod tests {
         assert_eq!(expr.src.len(), 2);
         assert_eq!(*expr.src[1], c);
 
-        let add_expr = &expr.src[0];
+        let add_expr = &*expr.src[0];
         assert_eq!(add_expr.op, Op::Add);
         assert_eq!(add_expr.src.len(), 2);
         assert_eq!(*add_expr.src[0], a);
@@ -466,5 +536,64 @@ mod tests {
         assert!(!p_f32.matches(&p_f64));
         assert!(p_any.matches(&p_f32));
         assert!(!p_f32.matches(&p_any)); // A specific type does not match a general one
+    }
+
+    #[test]
+    fn test_op_type_check_ok() {
+        let f1 = AstNode::var("f1").with_type(DType::F32);
+        let f2 = AstNode::var("f2").with_type(DType::F64);
+        let i1 = AstNode::var("i1").with_type(DType::I32);
+
+        // Real + Real -> Real
+        let add_ff = f1.clone() + f2.clone();
+        assert!(add_ff.dtype.is_real());
+
+        // Real + Integer -> Real
+        let add_fi = f1.clone() + i1.clone();
+        assert!(add_fi.dtype.is_real());
+
+        // Neg on Real
+        let neg_f = -f1;
+        assert!(neg_f.dtype.is_real());
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_op_type_check_panic_add() {
+        let p1 = AstNode::var("p1").with_type(DType::Ptr(Box::new(DType::F32)));
+        let i1 = AstNode::var("i1").with_type(DType::I32);
+        // Ptr + Integer should panic
+        let _ = p1 + i1;
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_op_type_check_panic_neg() {
+        let p1 = AstNode::var("p1").with_type(DType::Ptr(Box::new(DType::F32)));
+        // Neg on Ptr should panic
+        let _ = -p1;
+    }
+
+    #[test]
+    fn test_implicit_cast() {
+        let i1 = AstNode::var("i1").with_type(DType::I32);
+        let f1 = AstNode::var("f1").with_type(DType::F32);
+
+        // i1 + f1 should result in Cast(I32 as F32) + F32
+        let result = i1.clone() + f1.clone();
+
+        assert_eq!(result.op, Op::Add);
+        assert_eq!(result.dtype, DType::F32);
+
+        let lhs = &*result.src[0];
+        let rhs = &*result.src[1];
+
+        // Check that the integer was cast to float
+        assert_eq!(lhs.op, Op::Cast(DType::F32));
+        assert_eq!(lhs.dtype, DType::F32);
+        assert_eq!(*lhs.src[0], i1); // Original i1 inside the cast
+
+        // Check that the float remains unchanged
+        assert_eq!(*rhs, f1);
     }
 }

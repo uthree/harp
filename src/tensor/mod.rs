@@ -35,7 +35,7 @@ impl PartialEq for Tensor {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TensorOp {
-    Elementwise(AstNode),
+    Elementwise(AstNode), // Capture(n)がn番目のsrcが入ることを表すプレースホルダとする。これにより、マージされたElementwise演算子の表現が可能になる。
     Reduce(AstOp, Vec<usize>),
     Contiguous,
 }
@@ -73,6 +73,6 @@ where
             vec![self.clone(), rhs],
             self.dtype.clone(),
         );
-        return out;
+        out
     }
 }

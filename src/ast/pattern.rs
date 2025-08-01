@@ -177,12 +177,17 @@ mod tests {
 
     #[test]
     fn test_ast_rewriter_fixed_point() {
-        let x = AstNode::var("x");
+        use super::RewriteRule;
+        use crate::ast::DType;
+        let x = AstNode::var("x").with_type(DType::F32);
         // x * 1.0 * 1.0
         let target = (x.clone() * 1.0f32) * 1.0f32;
         let expected = x;
 
-        let rewriter = AstRewriter::new(vec![rule!(|a| a.clone() * 1.0f32 => a)]);
+        let pattern = AstNode::capture(0, DType::F32) * 1.0f32;
+        let rewriter_fn = |nodes: Vec<AstNode>| nodes[0].clone();
+        let rule = RewriteRule::new(pattern, rewriter_fn);
+        let rewriter = AstRewriter::new(vec![rule]);
 
         let result = rewriter.apply(target);
         assert_eq!(result, expected);
