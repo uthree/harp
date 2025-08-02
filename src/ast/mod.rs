@@ -31,7 +31,8 @@ pub enum Op {
     Sqrt,
     Log2,
     Exp2,
-    Cast(DType),
+    Deref,
+    Cast(DType), // convert dtype
 
     // binary ops
     Add,
@@ -39,6 +40,10 @@ pub enum Op {
     Max,
     Rem,
     LessThan,
+
+    // Others
+    Pack,         // Pack some values to tuple
+    Index(usize), // Take n-th element from tuple
 }
 
 #[derive(Debug, Clone)]
@@ -216,6 +221,7 @@ pub enum DType {
     None,                  // void
     Ptr(Box<Self>),        // Pointer
     Vec(Box<Self>, usize), // Poiter of array
+    Tuple(Vec<Self>),
     // for pattern matching
     Any,     // all types
     Natural, // natural number (includes 0)
