@@ -10,19 +10,19 @@ pub struct Graph {
 
 // A handle to a node in the graph
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct TensorId(pub usize);
+pub struct NodeId(pub usize);
 
 // A temporary view of a tensor in the graph
 #[derive(Debug, Clone, Copy)]
-pub struct TensorView<'a> {
-    pub id: TensorId,
+pub struct NodeView<'a> {
+    pub id: NodeId,
     pub graph: &'a Graph,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TensorData {
     pub op: TensorOp,
-    pub src: Vec<TensorId>,
+    pub src: Vec<NodeId>,
     pub dtype: DType,
     pub shape: Vec<AstNode>,
 }
@@ -46,10 +46,10 @@ impl Graph {
     fn add_node(
         &self,
         op: TensorOp,
-        src: Vec<TensorId>,
+        src: Vec<NodeId>,
         dtype: DType,
         shape: Vec<AstNode>,
-    ) -> TensorId {
+    ) -> NodeId {
         let mut nodes = self.nodes.borrow_mut();
         let id = nodes.len();
         nodes.push(TensorData {
@@ -58,19 +58,19 @@ impl Graph {
             dtype,
             shape,
         });
-        TensorId(id)
+        NodeId(id)
     }
 
-    pub fn new_leaf(&self, dtype: DType, shape: Vec<AstNode>) -> TensorView {
+    pub fn new_leaf(&self, dtype: DType, shape: Vec<AstNode>) -> NodeView {
         let id = self.add_node(TensorOp::Leaf, vec![], dtype, shape);
         self.get_view(id)
     }
 
-    pub fn get_view(&self, id: TensorId) -> TensorView {
-        TensorView { id, graph: self }
+    pub fn get_view(&self, id: NodeId) -> NodeView {
+        NodeView { id, graph: self }
     }
 
-    pub fn add(&self, lhs: TensorId, rhs: TensorId) -> TensorId {
+    pub fn add(&self, lhs: NodeId, rhs: NodeId) -> NodeId {
         let (lhs_dtype, rhs_dtype, shape) = {
             let nodes = self.nodes.borrow();
             let lhs_node = &nodes[lhs.0];
@@ -90,7 +90,7 @@ impl Graph {
         )
     }
 
-    pub fn sub(&self, lhs: TensorId, rhs: TensorId) -> TensorId {
+    pub fn sub(&self, lhs: NodeId, rhs: NodeId) -> NodeId {
         let (lhs_dtype, rhs_dtype, shape) = {
             let nodes = self.nodes.borrow();
             let lhs_node = &nodes[lhs.0];
@@ -110,7 +110,7 @@ impl Graph {
         )
     }
 
-    pub fn mul(&self, lhs: TensorId, rhs: TensorId) -> TensorId {
+    pub fn mul(&self, lhs: NodeId, rhs: NodeId) -> NodeId {
         let (lhs_dtype, rhs_dtype, shape) = {
             let nodes = self.nodes.borrow();
             let lhs_node = &nodes[lhs.0];
@@ -130,7 +130,7 @@ impl Graph {
         )
     }
 
-    pub fn div(&self, lhs: TensorId, rhs: TensorId) -> TensorId {
+    pub fn div(&self, lhs: NodeId, rhs: NodeId) -> NodeId {
         let (lhs_dtype, rhs_dtype, shape) = {
             let nodes = self.nodes.borrow();
             let lhs_node = &nodes[lhs.0];
@@ -150,7 +150,7 @@ impl Graph {
         )
     }
 
-    pub fn neg(&self, src: TensorId) -> TensorId {
+    pub fn neg(&self, src: NodeId) -> NodeId {
         let (dtype, shape) = {
             let nodes = self.nodes.borrow();
             let src_node = &nodes[src.0];
@@ -166,11 +166,11 @@ impl Graph {
     }
 }
 
-impl<'a> TensorView<'a> {
+impl<'a> NodeView<'a> {
     pub fn op(&self) -> TensorOp {
         self.graph.nodes.borrow()[self.id.0].op.clone()
     }
-    pub fn src(&self) -> Vec<TensorId> {
+    pub fn src(&self) -> Vec<NodeId> {
         self.graph.nodes.borrow()[self.id.0].src.clone()
     }
     pub fn dtype(&self) -> DType {
@@ -181,42 +181,42 @@ impl<'a> TensorView<'a> {
     }
 }
 
-// --- Operator Overloads for TensorView ---
+// --- Operator Overloads for NodeView ---
 
-impl<'a> Add for TensorView<'a> {
-    type Output = TensorView<'a>;
+impl<'a> Add for NodeView<'a> {
+    type Output = NodeView<'a>;
     fn add(self, rhs: Self) -> Self::Output {
         let new_id = self.graph.add(self.id, rhs.id);
         self.graph.get_view(new_id)
     }
 }
 
-impl<'a> Sub for TensorView<'a> {
-    type Output = TensorView<'a>;
+impl<'a> Sub for NodeView<'a> {
+    type Output = NodeView<'a>;
     fn sub(self, rhs: Self) -> Self::Output {
         let new_id = self.graph.sub(self.id, rhs.id);
         self.graph.get_view(new_id)
     }
 }
 
-impl<'a> Mul for TensorView<'a> {
-    type Output = TensorView<'a>;
+impl<'a> Mul for NodeView<'a> {
+    type Output = NodeView<'a>;
     fn mul(self, rhs: Self) -> Self::Output {
         let new_id = self.graph.mul(self.id, rhs.id);
         self.graph.get_view(new_id)
     }
 }
 
-impl<'a> Div for TensorView<'a> {
-    type Output = TensorView<'a>;
+impl<'a> Div for NodeView<'a> {
+    type Output = NodeView<'a>;
     fn div(self, rhs: Self) -> Self::Output {
         let new_id = self.graph.div(self.id, rhs.id);
         self.graph.get_view(new_id)
     }
 }
 
-impl<'a> Neg for TensorView<'a> {
-    type Output = TensorView<'a>;
+impl<'a> Neg for NodeView<'a> {
+    type Output = NodeView<'a>;
     fn neg(self) -> Self::Output {
         let new_id = self.graph.neg(self.id);
         self.graph.get_view(new_id)
