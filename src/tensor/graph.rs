@@ -34,6 +34,7 @@ pub enum TensorOp {
     Reduce(AstOp, usize),
     Contiguous,
     Permute(Vec<usize>),
+    Concatenate(usize),
 
     // fused operators
     FusedElementwise(AstNode),
