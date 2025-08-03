@@ -85,6 +85,20 @@ impl From<i64> for Expr {
     }
 }
 
+macro_rules! impl_from_numeric_for_expr {
+    ($($t:ty),*) => {
+        $(
+            impl From<$t> for Expr {
+                fn from(val: $t) -> Self {
+                    Expr::Const(val as i64)
+                }
+            }
+        )*
+    };
+}
+
+impl_from_numeric_for_expr!(i8, i16, i32, isize, u8, u16, u32, u64, usize, i128, u128);
+
 macro_rules! impl_expr_binary_op {
     ($trait:ident, $fname:ident, $variant:expr) => {
         impl<T: Into<Expr>> $trait<T> for Expr {
@@ -101,6 +115,23 @@ impl_expr_binary_op!(Sub, sub, Expr::Sub);
 impl_expr_binary_op!(Mul, mul, Expr::Mul);
 impl_expr_binary_op!(Div, div, Expr::Div);
 impl_expr_binary_op!(Rem, rem, Expr::Rem);
+
+macro_rules! impl_i64_binary_op {
+    ($trait:ident, $fname:ident, $variant:expr) => {
+        impl $trait<Expr> for i64 {
+            type Output = Expr;
+            fn $fname(self, rhs: Expr) -> Self::Output {
+                $variant(Box::new(Expr::from(self)), Box::new(rhs))
+            }
+        }
+    };
+}
+
+impl_i64_binary_op!(Add, add, Expr::Add);
+impl_i64_binary_op!(Sub, sub, Expr::Sub);
+impl_i64_binary_op!(Mul, mul, Expr::Mul);
+impl_i64_binary_op!(Div, div, Expr::Div);
+impl_i64_binary_op!(Rem, rem, Expr::Rem);
 
 macro_rules! impl_expr_assign_op {
     ($trait:ident, $fname:ident, $op_trait:ident, $op_fname:ident) => {
@@ -182,32 +213,32 @@ mod tests {
 
         // Add
         assert_eq!((n.clone() + 0).simplify(), n.clone());
-        assert_eq!((0.into_expr() + n.clone()).simplify(), n.clone());
-        assert_eq!((2 + 3).into_expr().simplify(), 5.into_expr());
+        assert_eq!((0 + n.clone()).simplify(), n.clone());
+        assert_eq!((Expr::from(2) + 3).simplify(), Expr::from(5));
 
         // Sub
         assert_eq!((n.clone() - 0).simplify(), n.clone());
         assert_eq!((n.clone() - n.clone()).simplify(), Expr::Const(0));
-        assert_eq!((5 - 3).into_expr().simplify(), 2.into_expr());
+        assert_eq!((Expr::from(5) - 3).simplify(), Expr::from(2));
 
         // Mul
         assert_eq!((n.clone() * 1).simplify(), n.clone());
-        assert_eq!((1.into_expr() * n.clone()).simplify(), n.clone());
+        assert_eq!((1 * n.clone()).simplify(), n.clone());
         assert_eq!((n.clone() * 0).simplify(), Expr::Const(0));
-        assert_eq!((0.into_expr() * n.clone()).simplify(), Expr::Const(0));
-        assert_eq!((2 * 3).into_expr().simplify(), 6.into_expr());
+        assert_eq!((0 * n.clone()).simplify(), Expr::Const(0));
+        assert_eq!((Expr::from(2) * 3).simplify(), Expr::from(6));
 
         // Div
         assert_eq!((n.clone() / 1).simplify(), n.clone());
         assert_eq!((n.clone() / n.clone()).simplify(), Expr::Const(1));
-        assert_eq!((0.into_expr() / n.clone()).simplify(), Expr::Const(0));
-        assert_eq!((6 / 3).into_expr().simplify(), 2.into_expr());
+        assert_eq!((0 / n.clone()).simplify(), Expr::Const(0));
+        assert_eq!((Expr::from(6) / 3).simplify(), Expr::from(2));
 
         // Rem
         assert_eq!((n.clone() % 1).simplify(), Expr::Const(0));
         assert_eq!((n.clone() % n.clone()).simplify(), Expr::Const(0));
-        assert_eq!((0.into_expr() % n.clone()).simplify(), Expr::Const(0));
-        assert_eq!((7 % 3).into_expr().simplify(), 1.into_expr());
+        assert_eq!((0 % n.clone()).simplify(), Expr::Const(0));
+        assert_eq!((Expr::from(7) % 3).simplify(), Expr::from(1));
 
         // Recursive
         assert_eq!(((n.clone() + 0) * 1).simplify(), n.clone());
@@ -215,13 +246,19 @@ mod tests {
         assert_eq!(((n.clone() + 1) - 1).simplify(), n.clone());
     }
 
-    trait IntoExpr {
-        fn into_expr(self) -> Expr;
-    }
-
-    impl IntoExpr for i64 {
-        fn into_expr(self) -> Expr {
-            self.into()
-        }
+    #[test]
+    fn test_from_numeric_for_expr() {
+        assert_eq!(Expr::from(10i8), Expr::Const(10));
+        assert_eq!(Expr::from(10u8), Expr::Const(10));
+        assert_eq!(Expr::from(10i16), Expr::Const(10));
+        assert_eq!(Expr::from(10u16), Expr::Const(10));
+        assert_eq!(Expr::from(10i32), Expr::Const(10));
+        assert_eq!(Expr::from(10u32), Expr::Const(10));
+        assert_eq!(Expr::from(10i64), Expr::Const(10));
+        assert_eq!(Expr::from(10u64), Expr::Const(10));
+        assert_eq!(Expr::from(10isize), Expr::Const(10));
+        assert_eq!(Expr::from(10usize), Expr::Const(10));
+        assert_eq!(Expr::from(10i128), Expr::Const(10));
+        assert_eq!(Expr::from(10u128), Expr::Const(10));
     }
 }
