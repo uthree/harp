@@ -177,7 +177,10 @@ mod tests {
         let expr = (n.clone() + 1) * 2;
         assert_eq!(
             expr,
-            Expr::Mul(Box::new(Expr::Add(Box::new(n), Box::new(Expr::Const(1)))), Box::new(Expr::Const(2)))
+            Expr::Mul(
+                Box::new(Expr::Add(Box::new(n), Box::new(Expr::Const(1)))),
+                Box::new(Expr::Const(2))
+            )
         );
     }
 

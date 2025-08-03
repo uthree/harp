@@ -289,7 +289,6 @@ pub enum Const {
     U16(u16),
     U32(u32),
     U64(u64),
-    USize(usize),
 }
 
 macro_rules! impl_dtype {
@@ -319,8 +318,6 @@ impl_dtype!(U8, u8);
 impl_dtype!(U16, u16);
 impl_dtype!(U32, u32);
 impl_dtype!(U64, u64);
-impl_dtype!(USize, usize);
-
 impl Const {
     pub fn dtype(&self) -> DType {
         match *self {
@@ -334,7 +331,6 @@ impl Const {
             Const::U16(_) => DType::U16,
             Const::U32(_) => DType::U32,
             Const::U64(_) => DType::U64,
-            Const::USize(_) => DType::USize,
         }
     }
 }
@@ -572,18 +568,6 @@ mod tests {
         assert!(DType::Natural.matches(&DType::USize));
         assert!(DType::Integer.matches(&DType::USize));
         assert!(!DType::Real.matches(&DType::USize));
-    }
-
-    #[test]
-    fn test_from_usize() {
-        use super::Const;
-        let u: AstNode = 10usize.into();
-        assert_eq!(u.dtype, DType::USize);
-        if let Op::Const(Const::USize(v)) = u.op {
-            assert_eq!(v, 10);
-        } else {
-            panic!("Expected Const(USize)");
-        }
     }
 
     #[test]
