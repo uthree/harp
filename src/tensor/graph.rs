@@ -5,7 +5,7 @@ use std::ops::{Add, Div, Mul, Neg, Sub};
 // Graph structure that owns all the nodes using interior mutability
 #[derive(Default, Debug)]
 pub struct Graph {
-    pub nodes: RefCell<Vec<TensorData>>,
+    pub nodes: RefCell<Vec<NodeData>>,
 }
 
 // A handle to a node in the graph
@@ -20,7 +20,7 @@ pub struct NodeView<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct TensorData {
+pub struct NodeData {
     pub op: TensorOp,
     pub src: Vec<NodeId>,
     pub dtype: DType,
@@ -29,11 +29,15 @@ pub struct TensorData {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TensorOp {
+    Input,
     Elementwise(AstOp),
-    Reduce(AstOp, Vec<usize>),
+    Reduce(AstOp, usize),
     Contiguous,
-    Leaf,
-    MergedElementwise(AstNode),
+    Permute(Vec<usize>),
+
+    // fused operators
+    FusedElementwise(AstNode),
+    FusedReduce(AstOp, Vec<usize>),
 }
 
 impl Graph {
@@ -52,7 +56,7 @@ impl Graph {
     ) -> NodeId {
         let mut nodes = self.nodes.borrow_mut();
         let id = nodes.len();
-        nodes.push(TensorData {
+        nodes.push(NodeData {
             op,
             src,
             dtype,
@@ -61,8 +65,8 @@ impl Graph {
         NodeId(id)
     }
 
-    pub fn new_leaf(&self, dtype: DType, shape: Vec<AstNode>) -> NodeView {
-        let id = self.add_node(TensorOp::Leaf, vec![], dtype, shape);
+    pub fn input(&self, dtype: DType, shape: Vec<AstNode>) -> NodeView {
+        let id = self.add_node(TensorOp::Input, vec![], dtype, shape);
         self.get_view(id)
     }
 
@@ -231,8 +235,8 @@ mod tests {
     #[test]
     fn test_graph_creation_and_view() {
         let graph = Graph::new();
-        let a = graph.new_leaf(DType::F32, vec![]);
-        let b = graph.new_leaf(DType::F32, vec![]);
+        let a = graph.input(DType::F32, vec![]);
+        let b = graph.input(DType::F32, vec![]);
         assert_eq!(a.id.0, 0);
         assert_eq!(b.id.0, 1);
         assert_eq!(graph.nodes.borrow().len(), 2);
@@ -242,8 +246,8 @@ mod tests {
     #[test]
     fn test_view_add() {
         let graph = Graph::new();
-        let a = graph.new_leaf(DType::F32, vec![]);
-        let b = graph.new_leaf(DType::F32, vec![]);
+        let a = graph.input(DType::F32, vec![]);
+        let b = graph.input(DType::F32, vec![]);
         let c = a + b;
 
         assert_eq!(c.id.0, 2);
@@ -255,7 +259,7 @@ mod tests {
     #[test]
     fn test_view_neg() {
         let graph = Graph::new();
-        let a = graph.new_leaf(DType::F32, vec![]);
+        let a = graph.input(DType::F32, vec![]);
         let b = -a;
 
         assert_eq!(b.id.0, 1);
@@ -267,8 +271,8 @@ mod tests {
     #[test]
     fn test_view_implicit_cast() {
         let graph = Graph::new();
-        let a = graph.new_leaf(DType::I32, vec![]);
-        let b = graph.new_leaf(DType::F32, vec![]);
+        let a = graph.input(DType::I32, vec![]);
+        let b = graph.input(DType::F32, vec![]);
         let c = a + b;
 
         assert_eq!(c.dtype(), DType::F32);
@@ -277,9 +281,9 @@ mod tests {
     #[test]
     fn test_complex_expression_with_views() {
         let graph = Graph::new();
-        let a = graph.new_leaf(DType::F32, vec![]);
-        let b = graph.new_leaf(DType::F32, vec![]);
-        let c = graph.new_leaf(DType::F32, vec![]);
+        let a = graph.input(DType::F32, vec![]);
+        let b = graph.input(DType::F32, vec![]);
+        let c = graph.input(DType::F32, vec![]);
         // d = a * b + c
         let d = a * b + c;
 
