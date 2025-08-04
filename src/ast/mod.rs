@@ -47,6 +47,19 @@ pub enum Op {
 
     // Statements
     Block(Vec<AstNode>),
+    Assign {
+        dst: Box<AstNode>,
+        src: Box<AstNode>,
+    },
+    Store {
+        dst: Box<AstNode>,
+        src: Box<AstNode>,
+    },
+    Load(Box<AstNode>),
+    BufferIndex {
+        buffer: Box<AstNode>,
+        index: Box<AstNode>,
+    },
     Range {
         loop_var: String,
         max: Box<AstNode>,
@@ -78,6 +91,56 @@ impl AstNode {
         }
     }
 
+    pub fn pretty_print(&self) -> String {
+        let mut s = String::new();
+        self.pretty_print_recursive(&mut s, 0);
+        s
+    }
+
+    fn pretty_print_recursive(&self, s: &mut String, indent: usize) {
+        let prefix = "  ".repeat(indent);
+        match &self.op {
+            Op::Block(nodes) => {
+                s.push_str(&format!("{}Block:\n", prefix));
+                for node in nodes {
+                    node.pretty_print_recursive(s, indent + 1);
+                }
+            }
+            Op::Range {
+                loop_var,
+                max,
+                block,
+            } => {
+                s.push_str(&format!(
+                    "{}for {} in 0..{}:\n",
+                    prefix,
+                    loop_var,
+                    max.pretty_print()
+                ));
+                block.pretty_print_recursive(s, indent + 1);
+            }
+            Op::Assign { dst, src } => {
+                s.push_str(&format!(
+                    "{}{} = {}\n",
+                    prefix,
+                    dst.pretty_print(),
+                    src.pretty_print()
+                ));
+            }
+            Op::Store { dst, src } => {
+                s.push_str(&format!(
+                    "{}Store({}, {})\n",
+                    prefix,
+                    dst.pretty_print(),
+                    src.pretty_print()
+                ));
+            }
+            _ => {
+                s.push_str(&format!("{}{:?}\n", prefix, self));
+            }
+        }
+    }
+
     pub fn capture(id: usize, dtype: DType) -> Self {
         Self::new(Op::Capture(id, dtype.clone()), vec![], dtype)
     }
@@ -94,6 +157,7 @@ impl AstNode {
         Self::new(Op::Cast(dtype.clone()), vec![Box::new(self)], dtype)
     }
 }
+
 
 macro_rules! impl_unary_op {
     ($op: ident, $fname: ident) => {
