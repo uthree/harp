@@ -46,7 +46,7 @@ pub enum Op {
     Index(usize), // Take n-th element from tuple
 
     // Statements
-    Block(Vec<AstNode>),
+    Block,
     Assign {
         dst: Box<AstNode>,
         src: Box<AstNode>,
@@ -100,9 +100,9 @@ impl AstNode {
     fn pretty_print_recursive(&self, s: &mut String, indent: usize) {
         let prefix = "  ".repeat(indent);
         match &self.op {
-            Op::Block(nodes) => {
+            Op::Block => {
                 s.push_str(&format!("{prefix}Block:\n"));
-                for node in nodes {
+                for node in &self.src {
                     node.pretty_print_recursive(s, indent + 1);
                 }
             }

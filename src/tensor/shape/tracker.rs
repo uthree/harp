@@ -14,10 +14,7 @@ impl ShapeTracker {
             strides[i] = strides[i + 1].clone() * shape[i + 1].clone();
         }
         Self {
-            shape: shape
-                .iter()
-                .map(|sh| sh.clone().simplify())
-                .collect(),
+            shape: shape.iter().map(|sh| sh.clone().simplify()).collect(),
             strides: strides.iter().map(|s| s.clone().simplify()).collect(),
         }
     }
