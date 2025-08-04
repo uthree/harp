@@ -10,3 +10,6 @@ rstest = "0.26.1"
 rustc-hash = "2.1.1"
 
 [dev-dependencies]
+
+[workspace]
+members = ["crates/harp-viz"]

@@ -1,4 +1,5 @@
 use crate::ast::{AstNode, DType, Op as AstOp};
+use crate::tensor::shape::expr::Expr;
 use std::cell::RefCell;
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
@@ -24,7 +25,7 @@ pub struct NodeData {
     pub op: TensorOp,
     pub src: Vec<NodeId>,
     pub dtype: DType,
-    pub shape: Vec<AstNode>,
+    pub shape: Vec<Expr>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -48,13 +49,7 @@ impl Graph {
         }
     }
 
-    fn add_node(
-        &self,
-        op: TensorOp,
-        src: Vec<NodeId>,
-        dtype: DType,
-        shape: Vec<AstNode>,
-    ) -> NodeId {
+    fn add_node(&self, op: TensorOp, src: Vec<NodeId>, dtype: DType, shape: Vec<Expr>) -> NodeId {
         let mut nodes = self.nodes.borrow_mut();
         let id = nodes.len();
         nodes.push(NodeData {
@@ -66,7 +61,7 @@ impl Graph {
         NodeId(id)
     }
 
-    pub fn input(&self, dtype: DType, shape: Vec<AstNode>) -> NodeView {
+    pub fn input(&self, dtype: DType, shape: Vec<Expr>) -> NodeView {
         let id = self.add_node(TensorOp::Input, vec![], dtype, shape);
         self.get_view(id)
     }
@@ -76,7 +71,7 @@ impl Graph {
     }
 
     pub fn add(&self, lhs: NodeId, rhs: NodeId) -> NodeId {
-        let (lhs_dtype, rhs_dtype, shape) = {
+        let (lhs_dtype, rhs_dtype, lhs_shape, rhs_shape) = {
             let nodes = self.nodes.borrow();
             let lhs_node = &nodes[lhs.0];
             let rhs_node = &nodes[rhs.0];
@@ -84,14 +79,18 @@ impl Graph {
                 lhs_node.dtype.clone(),
                 rhs_node.dtype.clone(),
                 lhs_node.shape.clone(),
-            ) // TODO: Proper shape calculation
+                rhs_node.shape.clone(),
+            )
         };
+        if lhs_shape != rhs_shape {
+            panic!("Shape mismatch in add: {lhs_shape:?} vs {rhs_shape:?}");
+        }
         let ast_node = AstNode::capture(0, lhs_dtype) + AstNode::capture(1, rhs_dtype);
         self.add_node(
             TensorOp::Elementwise(AstOp::Add),
             vec![lhs, rhs],
             ast_node.dtype,
-            shape,
+            lhs_shape,
         )
     }
 
@@ -181,7 +180,7 @@ impl<'a> NodeView<'a> {
     pub fn dtype(&self) -> DType {
         self.graph.nodes.borrow()[self.id.0].dtype.clone()
     }
-    pub fn shape(&self) -> Vec<AstNode> {
+    pub fn shape(&self) -> Vec<Expr> {
         self.graph.nodes.borrow()[self.id.0].shape.clone()
     }
 }
@@ -293,5 +292,14 @@ mod tests {
         assert_eq!(mul_node.op(), TensorOp::Elementwise(AstOp::Mul));
         assert_eq!(mul_node.src(), vec![a.id, b.id]);
         assert_eq!(d.src()[1], c.id);
+    }
+
+    #[test]
+    #[should_panic(expected = "Shape mismatch in add")]
+    fn test_add_shape_mismatch_panics() {
+        let graph = Graph::new();
+        let a = graph.input(DType::F32, vec![Expr::from(10)]);
+        let b = graph.input(DType::F32, vec![Expr::from(20)]);
+        let _ = a + b;
     }
 }
