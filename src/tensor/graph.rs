@@ -168,6 +168,29 @@ impl Graph {
             shape,
         )
     }
+
+    fn _reduce(&self, op: AstOp, src: NodeId, axis: usize) -> NodeId {
+        let (dtype, mut shape) = {
+            let nodes = self.nodes.borrow();
+            let src_node = &nodes[src.0];
+            (src_node.dtype.clone(), src_node.shape.clone())
+        };
+        assert!(axis < shape.len(), "Reduction axis out of bounds");
+        shape.remove(axis);
+        self.add_node(TensorOp::Reduce(op, axis), vec![src], dtype, shape)
+    }
+
+    pub fn sum(&self, src: NodeId, axis: usize) -> NodeId {
+        self._reduce(AstOp::Add, src, axis)
+    }
+
+    pub fn max(&self, src: NodeId, axis: usize) -> NodeId {
+        self._reduce(AstOp::Max, src, axis)
+    }
+
+    pub fn prod(&self, src: NodeId, axis: usize) -> NodeId {
+        self._reduce(AstOp::Mul, src, axis)
+    }
 }
 
 impl<'a> NodeView<'a> {
@@ -182,6 +205,21 @@ impl<'a> NodeView<'a> {
     }
     pub fn shape(&self) -> Vec<Expr> {
         self.graph.nodes.borrow()[self.id.0].shape.clone()
+    }
+
+    pub fn sum(&self, axis: usize) -> NodeView<'a> {
+        let new_id = self.graph.sum(self.id, axis);
+        self.graph.get_view(new_id)
+    }
+
+    pub fn max(&self, axis: usize) -> NodeView<'a> {
+        let new_id = self.graph.max(self.id, axis);
+        self.graph.get_view(new_id)
+    }
+
+    pub fn prod(&self, axis: usize) -> NodeView<'a> {
+        let new_id = self.graph.prod(self.id, axis);
+        self.graph.get_view(new_id)
     }
 }
 
@@ -301,5 +339,49 @@ mod tests {
         let a = graph.input(DType::F32, vec![Expr::from(10)]);
         let b = graph.input(DType::F32, vec![Expr::from(20)]);
         let _ = a + b;
+    }
+
+    #[test]
+    fn test_reduce_sum() {
+        let graph = Graph::new();
+        let a = graph.input(DType::F32, vec![10.into(), 20.into(), 30.into()]);
+        let b = a.sum(1);
+
+        assert_eq!(b.op(), TensorOp::Reduce(AstOp::Add, 1));
+        assert_eq!(b.src(), vec![a.id]);
+        assert_eq!(b.shape(), vec![10.into(), 30.into()]);
+        assert_eq!(b.dtype(), DType::F32);
+    }
+
+    #[test]
+    fn test_reduce_max() {
+        let graph = Graph::new();
+        let a = graph.input(DType::I32, vec![10.into(), 20.into()]);
+        let b = a.max(0);
+
+        assert_eq!(b.op(), TensorOp::Reduce(AstOp::Max, 0));
+        assert_eq!(b.src(), vec![a.id]);
+        assert_eq!(b.shape(), vec![20.into()]);
+        assert_eq!(b.dtype(), DType::I32);
+    }
+
+    #[test]
+    fn test_reduce_prod() {
+        let graph = Graph::new();
+        let a = graph.input(DType::F32, vec![10.into(), 20.into(), 30.into()]);
+        let b = a.prod(1);
+
+        assert_eq!(b.op(), TensorOp::Reduce(AstOp::Mul, 1));
+        assert_eq!(b.src(), vec![a.id]);
+        assert_eq!(b.shape(), vec![10.into(), 30.into()]);
+        assert_eq!(b.dtype(), DType::F32);
+    }
+
+    #[test]
+    #[should_panic(expected = "Reduction axis out of bounds")]
+    fn test_reduce_axis_out_of_bounds() {
+        let graph = Graph::new();
+        let a = graph.input(DType::F32, vec![10.into()]);
+        a.sum(1);
     }
 }
