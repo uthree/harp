@@ -1,50 +1,94 @@
+//! Defines the core computation graph structure of the tensor library.
+//!
+//! This module provides `Graph`, `NodeId`, and `NodeView`, which are the fundamental
+//! components for building and manipulating deferred computation graphs. Operations
+//! on `NodeView`s construct a graph of `NodeData` nodes, which can then be
+//! compiled and executed.
+
 use crate::ast::{AstNode, DType, Op as AstOp};
 use crate::tensor::shape::expr::Expr;
 use std::cell::RefCell;
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
-// Graph structure that owns all the nodes using interior mutability
+/// Owns all the nodes of a computation graph.
+///
+/// The `Graph` uses interior mutability (`RefCell`) to allow nodes to be added
+/// dynamically while maintaining immutable references to the graph itself.
 #[derive(Default, Debug)]
 pub struct Graph {
+    /// A vector holding the data for all nodes in the graph.
     pub nodes: RefCell<Vec<NodeData>>,
+    /// A list of node IDs that are considered inputs to the graph.
     pub inputs: RefCell<Vec<NodeId>>,
+    /// A list of node IDs that are considered outputs of the graph.
     pub outputs: RefCell<Vec<NodeId>>,
 }
 
-// A handle to a node in the graph
+/// A unique identifier for a node within a `Graph`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NodeId(pub usize);
 
-// A temporary view of a tensor in the graph
+/// A temporary, lightweight handle to a node in the graph.
+///
+/// `NodeView` provides a convenient, chainable API for building the computation graph.
+/// It holds a reference to the graph and the ID of the node it represents.
+/// Most tensor operations are implemented on `NodeView`.
+///
+/// # Examples
+///
+/// ```
+/// use harp::tensor::graph::Graph;
+/// use harp::ast::DType;
+///
+/// let graph = Graph::new();
+/// let a = graph.input(DType::F32, vec![]);
+/// let b = graph.input(DType::F32, vec![]);
+/// let c = a + b; // Creates a new node in the graph
+/// ```
 #[derive(Debug, Clone, Copy)]
 pub struct NodeView<'a> {
     pub id: NodeId,
     pub graph: &'a Graph,
 }
 
+/// The data associated with a single node in the computation graph.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NodeData {
+    /// The operation performed by this node.
     pub op: TensorOp,
+    /// The `NodeId`s of the input nodes to this operation.
     pub src: Vec<NodeId>,
+    /// The data type of the tensor produced by this node.
     pub dtype: DType,
+    /// The symbolic shape of the tensor.
     pub shape: Vec<Expr>,
 }
 
+/// An enumeration of all possible tensor operations.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TensorOp {
+    /// An input tensor to the graph.
     Input,
+    /// An element-wise operation (e.g., add, mul, sin).
     Elementwise(AstOp),
+    /// A reduction operation along a specific axis (e.g., sum, max).
     Reduce(AstOp, usize),
+    /// An operation that makes the memory layout of a tensor contiguous.
     Contiguous,
+    /// An operation that permutes the axes of a tensor.
     Permute(Vec<usize>),
+    /// An operation that concatenates tensors along a specific axis.
     Concatenate(usize),
 
-    // fused operators
+    // Fused operators for optimization
+    /// A fused sequence of element-wise operations.
     FusedElementwise(AstNode),
+    /// A fused reduction operation.
     FusedReduce(AstOp, Vec<usize>),
 }
 
 impl Graph {
+    /// Creates a new, empty computation graph.
     pub fn new() -> Self {
         Graph {
             nodes: RefCell::new(Vec::new()),
@@ -53,6 +97,7 @@ impl Graph {
         }
     }
 
+    /// Adds a new node to the graph. This is an internal method.
     fn add_node(&self, op: TensorOp, src: Vec<NodeId>, dtype: DType, shape: Vec<Expr>) -> NodeId {
         let mut nodes = self.nodes.borrow_mut();
         let id = nodes.len();
@@ -65,15 +110,24 @@ impl Graph {
         NodeId(id)
     }
 
+    /// Adds a new input node to the graph.
+    ///
+    /// # Arguments
+    ///
+    /// * `dtype` - The data type of the input tensor.
+    /// * `shape` - The symbolic shape of the input tensor.
     pub fn input(&self, dtype: DType, shape: Vec<Expr>) -> NodeView {
         let id = self.add_node(TensorOp::Input, vec![], dtype, shape);
         self.inputs.borrow_mut().push(id);
         self.get_view(id)
     }
 
+    /// Gets a `NodeView` for a given `NodeId`.
     pub fn get_view(&self, id: NodeId) -> NodeView {
         NodeView { id, graph: self }
     }
+
+    // --- Internal methods for creating operation nodes ---
 
     pub fn add(&self, lhs: NodeId, rhs: NodeId) -> NodeId {
         let (lhs_dtype, rhs_dtype, lhs_shape, rhs_shape) = {
@@ -219,39 +273,48 @@ impl Graph {
 }
 
 impl<'a> NodeView<'a> {
+    /// Returns the operation of the node.
     pub fn op(&self) -> TensorOp {
         self.graph.nodes.borrow()[self.id.0].op.clone()
     }
+    /// Returns the source node IDs of the node.
     pub fn src(&self) -> Vec<NodeId> {
         self.graph.nodes.borrow()[self.id.0].src.clone()
     }
+    /// Returns the data type of the node.
     pub fn dtype(&self) -> DType {
         self.graph.nodes.borrow()[self.id.0].dtype.clone()
     }
+    /// Returns the symbolic shape of the node.
     pub fn shape(&self) -> Vec<Expr> {
         self.graph.nodes.borrow()[self.id.0].shape.clone()
     }
 
+    /// Performs a sum reduction along a specified axis.
     pub fn sum(&self, axis: usize) -> NodeView<'a> {
         let new_id = self.graph.sum(self.id, axis);
         self.graph.get_view(new_id)
     }
 
+    /// Performs a max reduction along a specified axis.
     pub fn max(&self, axis: usize) -> NodeView<'a> {
         let new_id = self.graph.max(self.id, axis);
         self.graph.get_view(new_id)
     }
 
+    /// Performs a product reduction along a specified axis.
     pub fn prod(&self, axis: usize) -> NodeView<'a> {
         let new_id = self.graph.prod(self.id, axis);
         self.graph.get_view(new_id)
     }
 
+    /// Permutes the axes of the tensor.
     pub fn permute(&self, axes: Vec<usize>) -> NodeView<'a> {
         let new_id = self.graph.permute(self.id, axes);
         self.graph.get_view(new_id)
     }
 
+    /// Marks this node as an output of the graph.
     pub fn as_output(&self) -> Self {
         self.graph.outputs.borrow_mut().push(self.id);
         *self
@@ -301,6 +364,7 @@ impl<'a> Neg for NodeView<'a> {
 }
 
 impl<'a> NodeView<'a> {
+    /// Applies the element-wise sine function.
     pub fn sin(self) -> NodeView<'a> {
         let new_id = self.graph.sin(self.id);
         self.graph.get_view(new_id)

@@ -1,22 +1,62 @@
+//! This module provides a symbolic expression (`Expr`) type for representing
+//! tensor shapes and strides.
+//!
+//! `Expr` allows for the creation of shape computations that can be simplified
+//! and manipulated before being concretized into actual values. This is crucial
+//! for deferred shape calculation and optimization in the computation graph.
+
 use crate::ast::{AstNode, DType};
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, RemAssign, Sub, SubAssign};
 
+/// Represents a symbolic expression for tensor dimensions and strides.
+///
+/// This enum can represent constants, symbolic variables (like 'N' for batch size),
+/// and arithmetic operations between them. It is used to define tensor shapes
+/// that can be manipulated and simplified algebraically.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
+    /// A constant integer value.
     Const(i64),
+    /// A symbolic variable, represented by a string identifier.
     Var(String),
+    /// The sum of two expressions.
     Add(Box<Expr>, Box<Expr>),
+    /// The difference of two expressions.
     Sub(Box<Expr>, Box<Expr>),
+    /// The product of two expressions.
     Mul(Box<Expr>, Box<Expr>),
+    /// The quotient of two expressions.
     Div(Box<Expr>, Box<Expr>),
+    /// The remainder of two expressions.
     Rem(Box<Expr>, Box<Expr>),
 }
 
 impl Expr {
+    /// Creates a new symbolic variable expression.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The identifier for the variable (e.g., "N").
     pub fn var(name: &str) -> Self {
         Self::Var(name.to_string())
     }
 
+    /// Simplifies the expression algebraically.
+    ///
+    /// This method applies a set of rules to reduce the complexity of the expression,
+    /// such as constant folding (e.g., `2 + 3` -> `5`) and eliminating identity
+    /// operations (e.g., `x * 1` -> `x`).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use harp::tensor::shape::expr::Expr;
+    ///
+    /// let n = Expr::var("N");
+    /// // ((N + 0) * 1) simplifies to N
+    /// let expr = (n.clone() + 0).simplify() * 1;
+    /// assert_eq!(expr.simplify(), n);
+    /// ```
     pub fn simplify(self) -> Self {
         match self {
             Expr::Add(lhs, rhs) => {
@@ -85,6 +125,7 @@ impl From<i64> for Expr {
     }
 }
 
+/// Implements `From<T>` for `Expr` for various numeric types.
 macro_rules! impl_from_numeric_for_expr {
     ($($t:ty),*) => {
         $(
@@ -99,6 +140,7 @@ macro_rules! impl_from_numeric_for_expr {
 
 impl_from_numeric_for_expr!(i8, i16, i32, isize, u8, u16, u32, u64, usize, i128, u128);
 
+/// Implements a binary operator for `Expr` where the RHS can be converted into `Expr`.
 macro_rules! impl_expr_binary_op {
     ($trait:ident, $fname:ident, $variant:expr) => {
         impl<T: Into<Expr>> $trait<T> for Expr {
@@ -116,6 +158,7 @@ impl_expr_binary_op!(Mul, mul, Expr::Mul);
 impl_expr_binary_op!(Div, div, Expr::Div);
 impl_expr_binary_op!(Rem, rem, Expr::Rem);
 
+/// Implements a binary operator for `i64` where the RHS is an `Expr`.
 macro_rules! impl_i64_binary_op {
     ($trait:ident, $fname:ident, $variant:expr) => {
         impl $trait<Expr> for i64 {
@@ -133,6 +176,7 @@ impl_i64_binary_op!(Mul, mul, Expr::Mul);
 impl_i64_binary_op!(Div, div, Expr::Div);
 impl_i64_binary_op!(Rem, rem, Expr::Rem);
 
+/// Implements an assignment operator for `Expr`.
 macro_rules! impl_expr_assign_op {
     ($trait:ident, $fname:ident, $op_trait:ident, $op_fname:ident) => {
         impl<T> $trait<T> for Expr

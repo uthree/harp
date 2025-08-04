@@ -1,3 +1,9 @@
+//! This module defines the Abstract Syntax Tree (AST) for the computation.
+//!
+//! The AST is a lower-level, more explicit representation of the computation
+//! graph. It uses `AstNode` as its fundamental building block to represent
+//! operations, variables, and control flow structures like loops and blocks.
+
 pub mod pattern;
 
 use std::{boxed::Box, cell::Cell};
@@ -6,6 +12,7 @@ thread_local! {
     static NEXT_ID: Cell<usize> = const { Cell::new(0) };
 }
 
+/// Generates a unique ID for each `AstNode`.
 fn next_id() -> usize {
     NEXT_ID.with(|cell| {
         let id = cell.get();
@@ -14,59 +21,92 @@ fn next_id() -> usize {
     })
 }
 
+/// Represents an operation in the Abstract Syntax Tree.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Op {
-    // placeholder for pattern matching
+    // --- Placeholders ---
+    /// A placeholder for pattern matching in graph rewriting.
     Capture(usize, DType),
 
-    // Literal
+    // --- Literals and Variables ---
+    /// A constant value.
     Const(Const),
+    /// A variable, identified by its name.
     Var(String),
 
-    // Tips: 除算 a/b は Mul(a, Recip(b)), 減算 a-b は Add(a, Neg(b)) のように表現する。
-    // unary ops
+    // --- Unary Operations ---
     Neg,
     Recip,
     Sin,
     Sqrt,
     Log2,
     Exp2,
+    /// Dereferences a pointer.
     Deref,
-    Cast(DType), // convert dtype
+    /// Casts a value to a different data type.
+    Cast(DType),
 
-    // binary ops
+    // --- Binary Operations ---
     Add,
     Mul,
     Max,
     Rem,
     LessThan,
 
-    // Other operators
-    Pack,         // Pack some values to tuple
-    Index(usize), // Take n-th element from tuple
+    // --- Other Operators ---
+    /// Packs multiple values into a tuple.
+    Pack,
+    /// Takes the n-th element from a tuple.
+    Index(usize),
 
-    // Statements
+    // --- Statements and Control Flow ---
+    /// A block of statements. The statements are stored in the `src` field of the `AstNode`.
     Block,
+    /// Assigns the value of `src` to `dst`.
     Assign {
         dst: Box<AstNode>,
         src: Box<AstNode>,
     },
+    /// Stores the value of `src` at the memory location pointed to by `dst`.
     Store {
         dst: Box<AstNode>,
         src: Box<AstNode>,
     },
+    /// Loads a value from a memory location.
     Load(Box<AstNode>),
+    /// Represents an indexed access into a buffer (e.g., `buffer[index]`).
     BufferIndex {
         buffer: Box<AstNode>,
         index: Box<AstNode>,
     },
+    /// Represents a for-loop.
     Range {
         loop_var: String,
         max: Box<AstNode>,
         block: Box<AstNode>,
-    }, // for (loop_var = 0; loop_var < max; loop_var++) <block>
+    },
 }
 
+/// The fundamental building block of the Abstract Syntax Tree.
+///
+/// An `AstNode` represents a single operation, value, or statement in the
+/// computation. It has a unique ID, an operation type (`Op`), a list of
+/// source nodes (`src`), and a data type (`dtype`).
+///
+/// # Examples
+///
+/// ```
+/// use harp::ast::{AstNode, DType};
+///
+/// // Create an AST for `a + 1.0`
+/// let a = AstNode::var("a").with_type(DType::F32);
+/// let b: AstNode = 1.0f32.into();
+/// let c = a + b;
+///
+/// // The resulting AST node represents the addition.
+/// assert_eq!(c.op, harp::ast::Op::Add);
+/// assert_eq!(c.src.len(), 2);
+/// ```
 #[derive(Debug, Clone)]
 pub struct AstNode {
     pub id: usize,
@@ -82,6 +122,7 @@ impl PartialEq for AstNode {
 }
 
 impl AstNode {
+    /// Creates a new `AstNode`.
     pub fn new(op: Op, src: Vec<Box<AstNode>>, dtype: DType) -> Self {
         Self {
             id: next_id(),
@@ -91,12 +132,14 @@ impl AstNode {
         }
     }
 
+    /// Generates a formatted string representation of the AST for debugging.
     pub fn pretty_print(&self) -> String {
         let mut s = String::new();
         self.pretty_print_recursive(&mut s, 0);
         s
     }
 
+    /// Helper function for recursive pretty printing.
     fn pretty_print_recursive(&self, s: &mut String, indent: usize) {
         let prefix = "  ".repeat(indent);
         match &self.op {
@@ -141,22 +184,28 @@ impl AstNode {
         }
     }
 
+    /// Creates a new `Capture` node for pattern matching.
     pub fn capture(id: usize, dtype: DType) -> Self {
         Self::new(Op::Capture(id, dtype.clone()), vec![], dtype)
     }
 
+    /// Creates a new `Var` node.
     pub fn var(name: &str) -> Self {
         Self::new(Op::Var(name.to_string()), vec![], DType::Any)
     }
 
+    /// Associates a data type with the node.
     pub fn with_type(self, dtype: DType) -> Self {
         Self::new(self.op, self.src, dtype)
     }
 
+    /// Creates a `Cast` node to convert the data type of this node.
     pub fn cast(self, dtype: DType) -> Self {
         Self::new(Op::Cast(dtype.clone()), vec![Box::new(self)], dtype)
     }
 }
+
+// --- Macro implementations for operators ---
 
 macro_rules! impl_unary_op {
     ($op: ident, $fname: ident) => {
@@ -276,6 +325,7 @@ impl_binary_op!(Mul, mul_);
 impl_binary_op!(pub, Max, max);
 impl_binary_op!(Rem, rem_);
 
+/// Represents the data type of a value in the AST.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DType {
     F32,
@@ -289,22 +339,32 @@ pub enum DType {
     U32,
     U64,
     USize,
-    None,                  // void
-    Ptr(Box<Self>),        // Pointer
-    Vec(Box<Self>, usize), // Poiter of array
+    /// Represents a void or empty type.
+    None,
+    /// A pointer to another type.
+    Ptr(Box<Self>),
+    /// A fixed-size vector (array) of a type.
+    Vec(Box<Self>, usize),
+    /// A tuple of types.
     Tuple(Vec<Self>),
-    // for pattern matching
-    Any,     // all types
-    Natural, // natural number (includes 0)
-    Integer, // integer
-    Real,    // real number (actual implementation is float)
+    // --- Types for pattern matching ---
+    /// Matches any type.
+    Any,
+    /// Matches any natural number type (unsigned integers).
+    Natural,
+    /// Matches any integer type (signed or unsigned).
+    Integer,
+    /// Matches any real number type (floats).
+    Real,
 }
 
 impl DType {
+    /// Returns `true` if the type is a real number (float).
     pub fn is_real(&self) -> bool {
         matches!(self, DType::F32 | DType::F64 | DType::Real)
     }
 
+    /// Returns `true` if the type is a natural number (unsigned integer).
     pub fn is_natural(&self) -> bool {
         matches!(
             self,
@@ -312,6 +372,7 @@ impl DType {
         )
     }
 
+    /// Returns `true` if the type is an integer (signed or unsigned).
     pub fn is_integer(&self) -> bool {
         self.is_natural()
             || matches!(
@@ -320,6 +381,7 @@ impl DType {
             )
     }
 
+    /// Checks if this type matches another type, considering pattern matching types.
     pub fn matches(&self, other: &DType) -> bool {
         if self == other {
             return true;
@@ -348,6 +410,7 @@ impl DType {
     }
 }
 
+/// Represents a constant literal value.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Const {
     F32(f32),
@@ -389,7 +452,9 @@ impl_dtype!(U8, u8);
 impl_dtype!(U16, u16);
 impl_dtype!(U32, u32);
 impl_dtype!(U64, u64);
+
 impl Const {
+    /// Returns the `DType` corresponding to the constant value.
     pub fn dtype(&self) -> DType {
         match *self {
             Const::F32(_) => DType::F32,
@@ -405,6 +470,8 @@ impl Const {
         }
     }
 }
+
+// --- Operator trait implementations for AstNode ---
 
 impl<T> std::ops::Add<T> for AstNode
 where

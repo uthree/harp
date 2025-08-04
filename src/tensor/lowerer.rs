@@ -1,20 +1,37 @@
+//! This module provides the `Lowerer`, which is responsible for converting a
+//! high-level computation graph (`Graph`) into a low-level Abstract Syntax Tree (`AstNode`).
+//!
+//! This process, known as "lowering," transforms graph operations into a more
+//! explicit, loop-based representation that is closer to executable code.
+
 use crate::ast::{AstNode, DType, Op as AstOp};
 use crate::tensor::graph::{Graph, NodeId, TensorOp};
 use crate::tensor::shape::expr::Expr;
 use crate::tensor::shape::tracker::ShapeTracker;
 use std::collections::HashMap;
 
+/// Traverses a `Graph` and converts it into an `AstNode`.
+///
+/// The `Lowerer` maintains a cache to avoid re-processing nodes and uses
+/// separate counters to generate unique names for variables, loops, and buffers.
 #[derive(Debug, Clone)]
 pub struct Lowerer<'a> {
+    /// A reference to the computation graph to be lowered.
     graph: &'a Graph,
+    /// A cache to store the lowered AST and `ShapeTracker` for each processed `NodeId`.
     cache: HashMap<NodeId, (AstNode, ShapeTracker)>,
+    /// Counter for generating unique loop variable names (e.g., `ridx0`, `ridx1`).
     loop_counter: usize,
+    /// Counter for generating unique temporary variable names (e.g., `var0`).
     temp_var_counter: usize,
+    /// Counter for generating unique accumulator names (e.g., `acc0`).
     accumulator_counter: usize,
+    /// Counter for generating unique buffer names (e.g., `input0`, `output1`).
     buffer_counter: usize,
 }
 
 impl<'a> Lowerer<'a> {
+    /// Creates a new `Lowerer` for a given `Graph`.
     pub fn new(graph: &'a Graph) -> Self {
         Self {
             graph,
@@ -25,6 +42,8 @@ impl<'a> Lowerer<'a> {
             buffer_counter: 0,
         }
     }
+
+    // --- Private helper methods for variable name generation ---
 
     fn new_loop_counter(&mut self) -> String {
         let name = format!("ridx{}", self.loop_counter);
@@ -50,6 +69,10 @@ impl<'a> Lowerer<'a> {
         name
     }
 
+    /// Lowers the entire graph, starting from its output nodes.
+    ///
+    /// This method iterates through all marked output nodes of the graph,
+    /// lowers each one into an AST, and wraps the results in a single `Block` node.
     pub fn lower(&mut self) -> AstNode {
         let mut body = vec![];
         for &output_id in self.graph.outputs.borrow().iter() {
@@ -63,6 +86,23 @@ impl<'a> Lowerer<'a> {
         )
     }
 
+    /// Recursively lowers a single node from the graph into an AST.
+    ///
+    /// This is the core of the lowering process. It uses memoization (caching)
+    /// to avoid redundant computations. For each `TensorOp`, it generates a
+    /// corresponding `AstNode` that represents the computation.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(AstNode, ShapeTracker)` where:
+    /// - `AstNode`: Represents the buffer containing the result of the operation.
+    ///   For `Input` nodes, this is the input buffer itself. For operations
+    ///   that create new data (like `Elementwise` or `Reduce`), this is a
+    ///   newly allocated output buffer. For view operations like `Permute`,
+    ///   this is the *same buffer* as the source node.
+    /// - `ShapeTracker`: Describes how to access the data within the returned buffer.
+    ///   This tracker is crucial for correctly calculating memory offsets,
+    ///   especially after view operations.
     fn lower_node(&mut self, node_id: NodeId) -> (AstNode, ShapeTracker) {
         if let Some(cached) = self.cache.get(&node_id) {
             return cached.clone();
