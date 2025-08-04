@@ -9,21 +9,12 @@
 
 ユーザーが直接操作する表現。
 テンソルレベルでの演算を表す計算グラフ(DAG)。
-自動微分(autograd)で自身の微分グラフを作ることができる。
+自動微分(autograd)で自身の微分グラフを作ることができる。（TODO）
 
 ### AST
 
 構文木に相当する。
-C言語の構造に簡単に変換できることを想定しており、、演算やループ処理、メモリへの読み書きの機能を持つ。
-
-### `struct Kernel`: カーネル
-
-単一のカーネルを表す構造体。
-構文木のほかに入出力の型などの情報を持つ。
-
-### `struct UOp`
-
-式や文を表現する
+C言語の構造に簡単に変換できることを想定しており、演算やループ処理、メモリへの読み書きの機能を持つ。
 
 ## バックエンド
 
@@ -70,45 +61,15 @@ trait Device<Buffer> {
 ### オプティマイザー
 
 TODO, 最適化処理を担う。最適化手法を探索する。ベイズ推定とかグリッドサーチとか色々使う。
-
-## パターンマッチとグラフ構造の最適化
-
-アルゴリズムで自動的にされる数式やコードは、ときに冗長になりえます。そんな冗長な構造をより簡素で効率的なものに置き換えることが目的です。
-
-### `TPat`, `TPatternMatcher`
-
-テンソルに対して置き換え処理を行います。
-
-```rust
-// 置き換え規則
-struct TPat {
-    pattern: Tensor, // 検出するパターン
-    rewriter: FnOnce(Vec<Tensor>) -> Tensor // 検出した際にそれをどう置き換えるかのクロージャー
-}
-
-// 置き換え規則の集まり。
-struct TPatternMatcherData {
-    name: String, // name for debug
-    patterns: Vec<Rc<TRule>>, // Rules
-}
-
-// 上記の置き換え規則の集まりを扱うためのRcポインタ。
-struct TPatternMatcher(Rc<TPatternMatcherData>);
-```
-
-### `UPat`, `UPatternMatcher`
-
-UOpに対するパターンマッチング。
-テンソルの場合とほぼ同じなので割愛。
+とりあえず今は触らない方針で。
 
 ## ShapeTracker
 
 添え字からメモリオフセットを計算する関数のExprです。  
-TensorグラフをExprツリーに変換する(lower)ときに使用します。
+TensorグラフをAstに変換する(lower)ときに使用します。
 
 ## Lowerer
 
-TensorグラフからUOpグラフに変換する。
+TensorグラフからASTに変換する。
 状態を持つので毎回初期化して使う必要がある。
 
-## Linearizer
