@@ -7,6 +7,8 @@ use std::ops::{Add, Div, Mul, Neg, Sub};
 #[derive(Default, Debug)]
 pub struct Graph {
     pub nodes: RefCell<Vec<NodeData>>,
+    pub inputs: RefCell<Vec<NodeId>>,
+    pub outputs: RefCell<Vec<NodeId>>,
 }
 
 // A handle to a node in the graph
@@ -46,6 +48,8 @@ impl Graph {
     pub fn new() -> Self {
         Graph {
             nodes: RefCell::new(Vec::new()),
+            inputs: RefCell::new(Vec::new()),
+            outputs: RefCell::new(Vec::new()),
         }
     }
 
@@ -63,6 +67,7 @@ impl Graph {
 
     pub fn input(&self, dtype: DType, shape: Vec<Expr>) -> NodeView {
         let id = self.add_node(TensorOp::Input, vec![], dtype, shape);
+        self.inputs.borrow_mut().push(id);
         self.get_view(id)
     }
 
@@ -220,6 +225,11 @@ impl<'a> NodeView<'a> {
     pub fn prod(&self, axis: usize) -> NodeView<'a> {
         let new_id = self.graph.prod(self.id, axis);
         self.graph.get_view(new_id)
+    }
+
+    pub fn as_output(&self) -> Self {
+        self.graph.outputs.borrow_mut().push(self.id);
+        *self
     }
 }
 
@@ -383,5 +393,28 @@ mod tests {
         let graph = Graph::new();
         let a = graph.input(DType::F32, vec![10.into()]);
         a.sum(1);
+    }
+
+    #[test]
+    fn test_input_registration() {
+        let graph = Graph::new();
+        let a = graph.input(DType::F32, vec![]);
+        let b = graph.input(DType::I32, vec![10.into()]);
+
+        let inputs = graph.inputs.borrow();
+        assert_eq!(inputs.len(), 2);
+        assert_eq!(inputs[0], a.id);
+        assert_eq!(inputs[1], b.id);
+    }
+
+    #[test]
+    fn test_as_output() {
+        let graph = Graph::new();
+        let a = graph.input(DType::F32, vec![]);
+        let b = graph.input(DType::F32, vec![]);
+        let c = (a + b).as_output();
+
+        assert_eq!(graph.outputs.borrow().len(), 1);
+        assert_eq!(graph.outputs.borrow()[0], c.id);
     }
 }

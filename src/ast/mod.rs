@@ -1,6 +1,6 @@
 pub mod pattern;
 
-use std::{boxed::Box, cell::Cell};
+use std::{boxed::Box, cell::Cell, string};
 
 thread_local! {
     static NEXT_ID: Cell<usize> = const { Cell::new(0) };
@@ -41,9 +41,17 @@ pub enum Op {
     Rem,
     LessThan,
 
-    // Others
+    // Other operators
     Pack,         // Pack some values to tuple
     Index(usize), // Take n-th element from tuple
+
+    // Statements
+    Block(Vec<AstNode>),
+    Range {
+        loop_var: String,
+        max: Box<AstNode>,
+        block: Box<AstNode>,
+    }, // for (loop_var = 0; loop_var < max; loop_var++) <block>
 }
 
 #[derive(Debug, Clone)]
