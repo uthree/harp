@@ -20,10 +20,22 @@ impl<'a> Lowerer<'a> {
         }
     }
 
-    fn new_var(&mut self, name: &str) -> String {
-        let var_name = format!("{}_{}", name, self.var_counter);
+    fn new_loop_counter(&mut self) -> String {
+        let name = format!("ridx{}", self.var_counter);
         self.var_counter += 1;
-        var_name
+        name
+    }
+
+    fn new_temp_var(&mut self) -> String {
+        let name = format!("var{}", self.var_counter);
+        self.var_counter += 1;
+        name
+    }
+
+    fn new_buffer_name(&mut self, prefix: &str) -> String {
+        let name = format!("{}{}", prefix, self.var_counter);
+        self.var_counter += 1;
+        name
     }
 
     pub fn lower(&mut self) -> AstNode {
@@ -43,7 +55,7 @@ impl<'a> Lowerer<'a> {
         let node_data = self.graph.nodes.borrow()[node_id.0].clone();
         let ast_node = match node_data.op {
             TensorOp::Input => {
-                let name = self.new_var("input");
+                let name = self.new_buffer_name("input");
                 AstNode::var(&name).with_type(node_data.dtype)
             }
             TensorOp::Elementwise(op) => {
@@ -58,7 +70,7 @@ impl<'a> Lowerer<'a> {
                     .simplify();
                 let max_index: AstNode = total_elements.into();
 
-                let loop_var = self.new_var("i");
+                let loop_var = self.new_loop_counter();
                 let loop_var_node = AstNode::var(&loop_var);
 
                 let lhs_access = AstNode::new(
@@ -95,7 +107,7 @@ impl<'a> Lowerer<'a> {
                     node_data.dtype.clone(),
                 );
 
-                let output_buffer = AstNode::var(&self.new_var("output"));
+                let output_buffer = AstNode::var(&self.new_buffer_name("output"));
                 let store_node = AstNode::new(
                     AstOp::Store {
                         dst: Box::new(AstNode::new(
@@ -132,11 +144,10 @@ impl<'a> Lowerer<'a> {
 
                 let mut loops = vec![];
                 let mut outer_loop_vars = vec![];
-                let mut inner_loop_var = String::new();
                 let mut src_index_expr: Expr = 0.into();
 
                 for (i, shape_expr) in dst_tracker.shape().iter().enumerate() {
-                    let loop_var = self.new_var(&format!("d{i}"));
+                    let loop_var = self.new_loop_counter();
                     outer_loop_vars.push(loop_var.clone());
                     loops.push(AstNode::new(
                         AstOp::Range {
@@ -155,11 +166,11 @@ impl<'a> Lowerer<'a> {
                         Expr::from(AstNode::var(&loop_var)) * src_tracker.strides()[i].clone();
                 }
 
-                inner_loop_var = self.new_var(&format!("d{axis}"));
+                let inner_loop_var = self.new_loop_counter();
                 src_index_expr +=
                     Expr::from(AstNode::var(&inner_loop_var)) * src_tracker.strides()[axis].clone();
 
-                let acc_var = self.new_var("acc");
+                let acc_var = self.new_temp_var();
                 let init_val = match op {
                     AstOp::Add => AstNode::from(0.0f32), // Assuming F32 for now
                     AstOp::Mul => AstNode::from(1.0f32),
@@ -219,7 +230,7 @@ impl<'a> Lowerer<'a> {
                         acc + Expr::from(AstNode::var(var)) * stride.clone()
                     });
 
-                let output_buffer = AstNode::var(&self.new_var("output"));
+                let output_buffer = AstNode::var(&self.new_buffer_name("output"));
                 let store_result = AstNode::new(
                     AstOp::Store {
                         dst: Box::new(AstNode::new(
@@ -276,7 +287,7 @@ mod tests {
         if let AstOp::Block(body) = ast.op {
             assert_eq!(body.len(), 1);
             let input_ast = &body[0];
-            assert_eq!(input_ast.op, AstOp::Var("input_0".to_string()));
+            assert_eq!(input_ast.op, AstOp::Var("input0".to_string()));
             assert_eq!(input_ast.dtype, DType::F32);
         } else {
             panic!("Expected a block, found {:?}", ast.op);
@@ -300,7 +311,7 @@ mod tests {
             assert_eq!(body.len(), 1);
             let range_node = &body[0];
             if let AstOp::Range { loop_var, .. } = &range_node.op {
-                assert_eq!(loop_var, "i_2"); // a, b, then loop_var
+                assert_eq!(loop_var, "ridx2"); // input0, input1, then ridx2
             } else {
                 panic!("Expected a range node, found {:?}", range_node.op);
             }
@@ -361,14 +372,14 @@ mod tests {
                 block,
             } = &outer_range.op
             {
-                assert_eq!(loop_var, "d0_1");
+                assert_eq!(loop_var, "ridx1");
                 assert_eq!(max.op, AstOp::Const(crate::ast::Const::I64(10)));
 
                 if let AstOp::Block(inner_block_nodes) = &block.op {
                     assert_eq!(inner_block_nodes.len(), 3); // init, loop, store
                     let inner_range = &inner_block_nodes[1];
                     if let AstOp::Range { loop_var, max, .. } = &inner_range.op {
-                        assert_eq!(loop_var, "d1_2");
+                        assert_eq!(loop_var, "ridx2");
                         assert_eq!(max.op, AstOp::Const(crate::ast::Const::I64(20)));
                     } else {
                         panic!("Expected inner range");
