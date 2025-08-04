@@ -174,6 +174,15 @@ impl Graph {
         )
     }
 
+    pub fn sin(&self, src: NodeId) -> NodeId {
+        let (dtype, shape) = {
+            let nodes = self.nodes.borrow();
+            let src_node = &nodes[src.0];
+            (src_node.dtype.clone(), src_node.shape.clone())
+        };
+        self.add_node(TensorOp::Elementwise(AstOp::Sin), vec![src], dtype, shape)
+    }
+
     fn _reduce(&self, op: AstOp, src: NodeId, axis: usize) -> NodeId {
         let (dtype, mut shape) = {
             let nodes = self.nodes.borrow();
@@ -287,6 +296,13 @@ impl<'a> Neg for NodeView<'a> {
     type Output = NodeView<'a>;
     fn neg(self) -> Self::Output {
         let new_id = self.graph.neg(self.id);
+        self.graph.get_view(new_id)
+    }
+}
+
+impl<'a> NodeView<'a> {
+    pub fn sin(self) -> NodeView<'a> {
+        let new_id = self.graph.sin(self.id);
         self.graph.get_view(new_id)
     }
 }

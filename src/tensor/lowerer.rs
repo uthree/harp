@@ -82,8 +82,11 @@ impl<'a> Lowerer<'a> {
                 (src_buffer, new_tracker)
             }
             TensorOp::Elementwise(op) => {
-                let (lhs_buffer, lhs_tracker) = self.lower_node(node_data.src[0]);
-                let (rhs_buffer, rhs_tracker) = self.lower_node(node_data.src[1]);
+                let src_nodes: Vec<_> = node_data
+                    .src
+                    .iter()
+                    .map(|id| self.lower_node(*id))
+                    .collect();
 
                 let dst_buffer = AstNode::var(&self.new_buffer_name("output"));
                 let dst_tracker = ShapeTracker::new(node_data.shape.clone());
@@ -104,50 +107,38 @@ impl<'a> Lowerer<'a> {
                     ));
                 }
 
-                let calculate_offset = |tracker: &ShapeTracker| -> Expr {
-                    loop_vars
+                let mut loaded_srcs = vec![];
+                for (buffer, tracker) in src_nodes {
+                    let offset = loop_vars
                         .iter()
                         .zip(tracker.strides().iter())
-                        .fold(0.into(), |acc, (var, stride)| {
+                        .fold(Expr::from(0), |acc, (var, stride)| {
                             acc + Expr::from(AstNode::var(var)) * stride.clone()
-                        })
-                };
+                        });
 
-                let lhs_offset = calculate_offset(&lhs_tracker);
-                let rhs_offset = calculate_offset(&rhs_tracker);
-                let dst_offset = calculate_offset(&dst_tracker);
-
-                let lhs_load = AstNode::new(
-                    AstOp::Load(Box::new(AstNode::new(
-                        AstOp::BufferIndex {
-                            buffer: Box::new(lhs_buffer),
-                            index: Box::new(lhs_offset.simplify().into()),
-                        },
+                    let load = AstNode::new(
+                        AstOp::Load(Box::new(AstNode::new(
+                            AstOp::BufferIndex {
+                                buffer: Box::new(buffer),
+                                index: Box::new(offset.simplify().into()),
+                            },
+                            vec![],
+                            DType::None,
+                        ))),
                         vec![],
-                        DType::None,
-                    ))),
-                    vec![],
-                    node_data.dtype.clone(),
-                );
+                        node_data.dtype.clone(),
+                    );
+                    loaded_srcs.push(Box::new(load));
+                }
 
-                let rhs_load = AstNode::new(
-                    AstOp::Load(Box::new(AstNode::new(
-                        AstOp::BufferIndex {
-                            buffer: Box::new(rhs_buffer),
-                            index: Box::new(rhs_offset.simplify().into()),
-                        },
-                        vec![],
-                        DType::None,
-                    ))),
-                    vec![],
-                    node_data.dtype.clone(),
-                );
+                let op_node = AstNode::new(op, loaded_srcs, node_data.dtype.clone());
 
-                let op_node = AstNode::new(
-                    op,
-                    vec![Box::new(lhs_load), Box::new(rhs_load)],
-                    node_data.dtype.clone(),
-                );
+                let dst_offset = loop_vars
+                    .iter()
+                    .zip(dst_tracker.strides().iter())
+                    .fold(Expr::from(0), |acc, (var, stride)| {
+                        acc + Expr::from(AstNode::var(var)) * stride.clone()
+                    });
 
                 let store_node = AstNode::new(
                     AstOp::Store {
@@ -264,7 +255,7 @@ impl<'a> Lowerer<'a> {
                 let dst_index_expr: Expr = outer_loop_vars
                     .iter()
                     .zip(dst_tracker.strides().iter())
-                    .fold(0.into(), |acc, (var, stride)| {
+                    .fold(Expr::from(0), |acc, (var, stride)| {
                         acc + Expr::from(AstNode::var(var)) * stride.clone()
                     });
 
@@ -440,6 +431,30 @@ mod tests {
             }
         } else {
             panic!("Expected outer range");
+        }
+    }
+
+    #[test]
+    fn test_lower_unary_sin() {
+        let graph = Graph::new();
+        let a = graph.input(DType::F32, vec![10.into()]);
+        let b = a.sin().as_output();
+
+        let mut lowerer = Lowerer::new(&graph);
+        lowerer.lower();
+
+        let (ast, _) = &lowerer.cache[&b.id];
+        // println!("{}", ast.pretty_print());
+
+        if let AstOp::Range { block, .. } = &ast.op {
+            if let AstOp::Store { src, .. } = &block.op {
+                assert_eq!(src.op, AstOp::Sin);
+                assert_eq!(src.src.len(), 1);
+            } else {
+                panic!("Expected a store node");
+            }
+        } else {
+            panic!("Expected a range node");
         }
     }
 }
