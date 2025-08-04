@@ -8,7 +8,10 @@ use std::collections::HashMap;
 pub struct Lowerer<'a> {
     graph: &'a Graph,
     cache: HashMap<NodeId, AstNode>,
-    var_counter: usize,
+    loop_counter: usize,
+    temp_var_counter: usize,
+    accumulator_counter: usize,
+    buffer_counter: usize,
 }
 
 impl<'a> Lowerer<'a> {
@@ -16,25 +19,34 @@ impl<'a> Lowerer<'a> {
         Self {
             graph,
             cache: HashMap::new(),
-            var_counter: 0,
+            loop_counter: 0,
+            temp_var_counter: 0,
+            accumulator_counter: 0,
+            buffer_counter: 0,
         }
     }
 
     fn new_loop_counter(&mut self) -> String {
-        let name = format!("ridx{}", self.var_counter);
-        self.var_counter += 1;
+        let name = format!("ridx{}", self.loop_counter);
+        self.loop_counter += 1;
         name
     }
 
     fn new_temp_var(&mut self) -> String {
-        let name = format!("var{}", self.var_counter);
-        self.var_counter += 1;
+        let name = format!("var{}", self.temp_var_counter);
+        self.temp_var_counter += 1;
+        name
+    }
+
+    fn new_accumulator_name(&mut self) -> String {
+        let name = format!("acc{}", self.accumulator_counter);
+        self.accumulator_counter += 1;
         name
     }
 
     fn new_buffer_name(&mut self, prefix: &str) -> String {
-        let name = format!("{}{}", prefix, self.var_counter);
-        self.var_counter += 1;
+        let name = format!("{}{}", prefix, self.buffer_counter);
+        self.buffer_counter += 1;
         name
     }
 
@@ -170,7 +182,7 @@ impl<'a> Lowerer<'a> {
                 src_index_expr +=
                     Expr::from(AstNode::var(&inner_loop_var)) * src_tracker.strides()[axis].clone();
 
-                let acc_var = self.new_temp_var();
+                let acc_var = self.new_accumulator_name();
                 let init_val = match op {
                     AstOp::Add => AstNode::from(0.0f32), // Assuming F32 for now
                     AstOp::Mul => AstNode::from(1.0f32),
@@ -311,7 +323,7 @@ mod tests {
             assert_eq!(body.len(), 1);
             let range_node = &body[0];
             if let AstOp::Range { loop_var, .. } = &range_node.op {
-                assert_eq!(loop_var, "ridx2"); // input0, input1, then ridx2
+                assert_eq!(loop_var, "ridx0"); // First loop counter
             } else {
                 panic!("Expected a range node, found {:?}", range_node.op);
             }
@@ -372,14 +384,14 @@ mod tests {
                 block,
             } = &outer_range.op
             {
-                assert_eq!(loop_var, "ridx1");
+                assert_eq!(loop_var, "ridx0"); // First loop counter
                 assert_eq!(max.op, AstOp::Const(crate::ast::Const::I64(10)));
 
                 if let AstOp::Block(inner_block_nodes) = &block.op {
                     assert_eq!(inner_block_nodes.len(), 3); // init, loop, store
                     let inner_range = &inner_block_nodes[1];
                     if let AstOp::Range { loop_var, max, .. } = &inner_range.op {
-                        assert_eq!(loop_var, "ridx2");
+                        assert_eq!(loop_var, "ridx1"); // Second loop counter
                         assert_eq!(max.op, AstOp::Const(crate::ast::Const::I64(20)));
                     } else {
                         panic!("Expected inner range");
