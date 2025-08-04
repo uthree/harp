@@ -1,6 +1,6 @@
 use crate::ast::{AstNode, DType, Op as AstOp};
 use crate::tensor::graph::{Graph, NodeId, TensorOp};
-use crate::tensor::shape::tracker::ShapeTracker;
+use crate::tensor::shape::expr::Expr;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -51,9 +51,12 @@ impl<'a> Lowerer<'a> {
                 let rhs_node = self.lower_node(node_data.src[1]);
 
                 // TODO: Handle multi-dimensional shapes and strides
-                let tracker = ShapeTracker::new(node_data.shape.clone());
-                let shape_expr = tracker.shape()[0].clone();
-                let max_index: AstNode = shape_expr.into();
+                let total_elements = node_data
+                    .shape
+                    .iter()
+                    .fold(Expr::from(1), |acc, val| acc * val.clone())
+                    .simplify();
+                let max_index: AstNode = total_elements.into();
 
                 let loop_var = self.new_var("i");
                 let loop_var_node = AstNode::var(&loop_var);
@@ -78,8 +81,16 @@ impl<'a> Lowerer<'a> {
                 let op_node = AstNode::new(
                     op,
                     vec![
-                        Box::new(AstNode::new(AstOp::Load(Box::new(lhs_access)), vec![], node_data.dtype.clone())),
-                        Box::new(AstNode::new(AstOp::Load(Box::new(rhs_access)), vec![], node_data.dtype.clone())),
+                        Box::new(AstNode::new(
+                            AstOp::Load(Box::new(lhs_access)),
+                            vec![],
+                            node_data.dtype.clone(),
+                        )),
+                        Box::new(AstNode::new(
+                            AstOp::Load(Box::new(rhs_access)),
+                            vec![],
+                            node_data.dtype.clone(),
+                        )),
                     ],
                     node_data.dtype.clone(),
                 );
@@ -164,6 +175,37 @@ mod tests {
             let range_node = &body[0];
             if let AstOp::Range { loop_var, .. } = &range_node.op {
                 assert_eq!(loop_var, "i_2"); // a, b, then loop_var
+            } else {
+                panic!("Expected a range node, found {:?}", range_node.op);
+            }
+        } else {
+            panic!("Expected a block, found {:?}", ast.op);
+        }
+    }
+
+    #[test]
+    fn test_lower_elementwise_add_2d() {
+        let graph = Graph::new();
+        let a = graph.input(DType::F32, vec![Expr::from(10), Expr::from(20)]);
+        let b = graph.input(DType::F32, vec![Expr::from(10), Expr::from(20)]);
+        (a + b).as_output();
+
+        let mut lowerer = Lowerer::new(&graph);
+        let ast = lowerer.lower();
+
+        if let AstOp::Block(body) = ast.op {
+            assert_eq!(body.len(), 1);
+            let range_node = &body[0];
+            if let AstOp::Range { max, .. } = &range_node.op {
+                if let AstOp::Const(c) = &max.op {
+                    if let crate::ast::Const::I64(v) = c {
+                        assert_eq!(*v, 200);
+                    } else {
+                        panic!("Expected I64 constant");
+                    }
+                } else {
+                    panic!("Expected a constant for loop max, found {:?}", max.op);
+                }
             } else {
                 panic!("Expected a range node, found {:?}", range_node.op);
             }

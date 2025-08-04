@@ -101,7 +101,7 @@ impl AstNode {
         let prefix = "  ".repeat(indent);
         match &self.op {
             Op::Block(nodes) => {
-                s.push_str(&format!("{}Block:\n", prefix));
+                s.push_str(&format!("{prefix}Block:\n"));
                 for node in nodes {
                     node.pretty_print_recursive(s, indent + 1);
                 }
@@ -136,7 +136,7 @@ impl AstNode {
                 ));
             }
             _ => {
-                s.push_str(&format!("{}{:?}\n", prefix, self));
+                s.push_str(&format!("{prefix}{self:?}\n"));
             }
         }
     }
@@ -157,7 +157,6 @@ impl AstNode {
         Self::new(Op::Cast(dtype.clone()), vec![Box::new(self)], dtype)
     }
 }
-
 
 macro_rules! impl_unary_op {
     ($op: ident, $fname: ident) => {
