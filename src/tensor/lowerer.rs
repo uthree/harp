@@ -1,4 +1,3 @@
-use crate::{ast::AstNode, tensor::Graph};
 
 #[derive(Debug, Clone)]
 pub struct Lowerer {

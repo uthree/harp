@@ -1,6 +1,6 @@
 pub mod pattern;
 
-use std::{boxed::Box, cell::Cell, string};
+use std::{boxed::Box, cell::Cell};
 
 thread_local! {
     static NEXT_ID: Cell<usize> = const { Cell::new(0) };
