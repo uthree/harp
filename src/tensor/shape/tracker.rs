@@ -9,17 +9,16 @@ pub struct ShapeTracker {
 impl ShapeTracker {
     // initialize contiguous view from shape
     pub fn new(shape: Vec<Expr>) -> Self {
-        let mut s = vec![];
-        for d in shape.iter().rev() {
-            s.push(d.clone().simplify());
+        let mut strides = vec![Expr::from(1); shape.len()];
+        for i in (0..shape.len() - 1).rev() {
+            strides[i] = strides[i + 1].clone() * shape[i + 1].clone();
         }
-        ShapeTracker {
+        Self {
             shape: shape
-                .clone()
                 .iter()
                 .map(|sh| sh.clone().simplify())
                 .collect(),
-            strides: s,
+            strides: strides.iter().map(|s| s.clone().simplify()).collect(),
         }
     }
 

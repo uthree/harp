@@ -196,6 +196,17 @@ impl Graph {
     pub fn prod(&self, src: NodeId, axis: usize) -> NodeId {
         self._reduce(AstOp::Mul, src, axis)
     }
+
+    pub fn permute(&self, src: NodeId, axes: Vec<usize>) -> NodeId {
+        let (dtype, shape) = {
+            let nodes = self.nodes.borrow();
+            let src_node = &nodes[src.0];
+            (src_node.dtype.clone(), src_node.shape.clone())
+        };
+        let tracker = crate::tensor::shape::tracker::ShapeTracker::new(shape);
+        let new_shape = tracker.permute(axes.clone()).shape().to_vec();
+        self.add_node(TensorOp::Permute(axes), vec![src], dtype, new_shape)
+    }
 }
 
 impl<'a> NodeView<'a> {
@@ -224,6 +235,11 @@ impl<'a> NodeView<'a> {
 
     pub fn prod(&self, axis: usize) -> NodeView<'a> {
         let new_id = self.graph.prod(self.id, axis);
+        self.graph.get_view(new_id)
+    }
+
+    pub fn permute(&self, axes: Vec<usize>) -> NodeView<'a> {
+        let new_id = self.graph.permute(self.id, axes);
         self.graph.get_view(new_id)
     }
 
@@ -416,5 +432,16 @@ mod tests {
 
         assert_eq!(graph.outputs.borrow().len(), 1);
         assert_eq!(graph.outputs.borrow()[0], c.id);
+    }
+
+    #[test]
+    fn test_permute() {
+        let graph = Graph::new();
+        let a = graph.input(DType::F32, vec![10.into(), 20.into()]);
+        let b = a.permute(vec![1, 0]);
+
+        assert_eq!(b.op(), TensorOp::Permute(vec![1, 0]));
+        assert_eq!(b.src(), vec![a.id]);
+        assert_eq!(b.shape(), vec![20.into(), 10.into()]);
     }
 }
