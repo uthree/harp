@@ -166,6 +166,20 @@ impl From<Expr> for AstNode {
     }
 }
 
+impl From<AstNode> for Expr {
+    fn from(node: AstNode) -> Self {
+        match node.op {
+            crate::ast::Op::Var(s) => Expr::Var(s),
+            crate::ast::Op::Const(c) => match c {
+                crate::ast::Const::I64(v) => Expr::Const(v),
+                _ => panic!("Cannot convert this const type to Expr"),
+            },
+            // This is a simplified conversion. More complex AST nodes might not have a direct Expr equivalent.
+            _ => panic!("Cannot convert this AstNode to Expr"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

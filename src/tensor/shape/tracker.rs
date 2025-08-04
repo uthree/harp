@@ -31,6 +31,10 @@ impl ShapeTracker {
         &self.shape
     }
 
+    pub fn strides(&self) -> &[Expr] {
+        &self.strides
+    }
+
     pub fn permute(self, axes: Vec<usize>) -> Self {
         assert!(self.ndim() == axes.len());
         let mut new_shape = vec![];
