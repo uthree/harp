@@ -85,6 +85,14 @@ pub enum Op {
         max: Box<AstNode>,
         block: Box<AstNode>,
     },
+    /// Represents a function definition.
+    FuncDef {
+        name: String,
+        args: Vec<(String, DType)>,
+        body: Box<AstNode>,
+    },
+    /// Represents a function call. Arguments are stored in the `src` field.
+    Call(String),
 }
 
 /// The fundamental building block of the Abstract Syntax Tree.
@@ -178,6 +186,21 @@ impl AstNode {
                     src.pretty_print()
                 ));
             }
+            Op::FuncDef { name, args, body } => {
+                let args_str: Vec<String> =
+                    args.iter().map(|(n, t)| format!("{n}: {t:?}")).collect();
+                s.push_str(&format!(
+                    "{}def {}({}):\n",
+                    prefix,
+                    name,
+                    args_str.join(", ")
+                ));
+                body.pretty_print_recursive(s, indent + 1);
+            }
+            Op::Call(name) => {
+                let args_str: Vec<String> = self.src.iter().map(|n| n.pretty_print()).collect();
+                s.push_str(&format!("{}{}({})", prefix, name, args_str.join(", ")));
+            }
             _ => {
                 s.push_str(&format!("{prefix}{self:?}\n"));
             }
@@ -202,6 +225,28 @@ impl AstNode {
     /// Creates a `Cast` node to convert the data type of this node.
     pub fn cast(self, dtype: DType) -> Self {
         Self::new(Op::Cast(dtype.clone()), vec![Box::new(self)], dtype)
+    }
+
+    /// Creates a new `FuncDef` node.
+    pub fn func_def(name: &str, args: Vec<(String, DType)>, body: AstNode) -> Self {
+        Self::new(
+            Op::FuncDef {
+                name: name.to_string(),
+                args,
+                body: Box::new(body),
+            },
+            vec![],
+            DType::None,
+        )
+    }
+
+    /// Creates a new `Call` node.
+    pub fn call(name: &str, args: Vec<AstNode>) -> Self {
+        Self::new(
+            Op::Call(name.to_string()),
+            args.into_iter().map(Box::new).collect(),
+            DType::Any, // Return type is often context-dependent
+        )
     }
 }
 
@@ -783,5 +828,41 @@ mod tests {
         let c = a.clone() - b.clone();
         a -= b;
         assert_eq!(a, c);
+    }
+
+    #[test]
+    fn test_func_def_and_call() {
+        let a = AstNode::var("a");
+        let b = AstNode::var("b");
+        let body = AstNode::new(
+            Op::Block,
+            vec![Box::new(a.clone() + b.clone())],
+            DType::None,
+        );
+        let args = vec![("a".to_string(), DType::F32), ("b".to_string(), DType::F32)];
+        let func = AstNode::func_def("my_add", args.clone(), body);
+
+        if let Op::FuncDef {
+            name,
+            args: func_args,
+            ..
+        } = &func.op
+        {
+            assert_eq!(name, "my_add");
+            assert_eq!(*func_args, args);
+        } else {
+            panic!("Expected a function definition");
+        }
+
+        let x = AstNode::var("x");
+        let y = 1.0f32.into();
+        let call = AstNode::call("my_add", vec![x, y]);
+
+        if let Op::Call(name) = &call.op {
+            assert_eq!(name, "my_add");
+            assert_eq!(call.src.len(), 2);
+        } else {
+            panic!("Expected a function call");
+        }
     }
 }
