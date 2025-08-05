@@ -121,6 +121,16 @@ impl<'a> Lowerer<'a> {
                 let new_tracker = src_tracker.permute(axes);
                 (src_buffer, new_tracker)
             }
+            TensorOp::Squeeze(axis) => {
+                let (src_buffer, src_tracker) = self.lower_node(node_data.src[0]);
+                let new_tracker = src_tracker.squeeze(axis);
+                (src_buffer, new_tracker)
+            }
+            TensorOp::Unsqueeze(axis) => {
+                let (src_buffer, src_tracker) = self.lower_node(node_data.src[0]);
+                let new_tracker = src_tracker.unsqueeze(axis);
+                (src_buffer, new_tracker)
+            }
             TensorOp::Elementwise(op) => {
                 let src_nodes: Vec<_> = node_data
                     .src
@@ -375,6 +385,30 @@ mod tests {
         let (_, tracker) = &lowerer.cache[&b.id];
         assert_eq!(tracker.shape(), &[20.into(), 10.into()]);
         assert_eq!(tracker.strides(), &[1.into(), 20.into()]);
+    }
+
+    #[test]
+    fn test_lower_squeeze_unsqueeze() {
+        let graph = Graph::new();
+        let a = graph.input(DType::F32, vec![10.into(), 1.into(), 20.into()]);
+        let b = a.squeeze(1);
+        let c = b.unsqueeze(0);
+        c.as_output();
+
+        let mut lowerer = Lowerer::new(&graph);
+        lowerer.lower(); // Populate cache
+
+        let (_, tracker_a) = &lowerer.cache[&a.id];
+        assert_eq!(tracker_a.shape(), &[10.into(), 1.into(), 20.into()]);
+        assert_eq!(tracker_a.strides(), &[20.into(), 20.into(), 1.into()]);
+
+        let (_, tracker_b) = &lowerer.cache[&b.id];
+        assert_eq!(tracker_b.shape(), &[10.into(), 20.into()]);
+        assert_eq!(tracker_b.strides(), &[20.into(), 1.into()]);
+
+        let (_, tracker_c) = &lowerer.cache[&c.id];
+        assert_eq!(tracker_c.shape(), &[1.into(), 10.into(), 20.into()]);
+        assert_eq!(tracker_c.strides(), &[0.into(), 20.into(), 1.into()]);
     }
 
     #[test]

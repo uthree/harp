@@ -77,7 +77,8 @@ pub enum TensorOp {
     Contiguous,
     /// An operation that permutes the axes of a tensor.
     Permute(Vec<usize>),
-    /// An operation that concatenates tensors along a specific axis.
+    Squeeze(usize),
+    Unsqueeze(usize),
     Concatenate(usize),
 
     // Fused operators for optimization
@@ -270,6 +271,28 @@ impl Graph {
         let new_shape = tracker.permute(axes.clone()).shape().to_vec();
         self.add_node(TensorOp::Permute(axes), vec![src], dtype, new_shape)
     }
+
+    pub fn squeeze(&self, src: NodeId, axis: usize) -> NodeId {
+        let (dtype, shape) = {
+            let nodes = self.nodes.borrow();
+            let src_node = &nodes[src.0];
+            (src_node.dtype.clone(), src_node.shape.clone())
+        };
+        let tracker = crate::tensor::shape::tracker::ShapeTracker::new(shape);
+        let new_shape = tracker.squeeze(axis).shape().to_vec();
+        self.add_node(TensorOp::Squeeze(axis), vec![src], dtype, new_shape)
+    }
+
+    pub fn unsqueeze(&self, src: NodeId, axis: usize) -> NodeId {
+        let (dtype, shape) = {
+            let nodes = self.nodes.borrow();
+            let src_node = &nodes[src.0];
+            (src_node.dtype.clone(), src_node.shape.clone())
+        };
+        let tracker = crate::tensor::shape::tracker::ShapeTracker::new(shape);
+        let new_shape = tracker.unsqueeze(axis).shape().to_vec();
+        self.add_node(TensorOp::Unsqueeze(axis), vec![src], dtype, new_shape)
+    }
 }
 
 impl<'a> NodeView<'a> {
@@ -311,6 +334,18 @@ impl<'a> NodeView<'a> {
     /// Permutes the axes of the tensor.
     pub fn permute(&self, axes: Vec<usize>) -> NodeView<'a> {
         let new_id = self.graph.permute(self.id, axes);
+        self.graph.get_view(new_id)
+    }
+
+    /// Removes a dimension of size 1 at a specified axis.
+    pub fn squeeze(&self, axis: usize) -> NodeView<'a> {
+        let new_id = self.graph.squeeze(self.id, axis);
+        self.graph.get_view(new_id)
+    }
+
+    /// Adds a new dimension of size 1 at a specified axis.
+    pub fn unsqueeze(&self, axis: usize) -> NodeView<'a> {
+        let new_id = self.graph.unsqueeze(self.id, axis);
         self.graph.get_view(new_id)
     }
 
@@ -523,5 +558,19 @@ mod tests {
         assert_eq!(b.op(), TensorOp::Permute(vec![1, 0]));
         assert_eq!(b.src(), vec![a.id]);
         assert_eq!(b.shape(), vec![20.into(), 10.into()]);
+    }
+
+    #[test]
+    fn test_squeeze_unsqueeze() {
+        let graph = Graph::new();
+        let a = graph.input(DType::F32, vec![10.into(), 1.into(), 20.into()]);
+        let b = a.squeeze(1);
+        let c = b.unsqueeze(0);
+
+        assert_eq!(b.op(), TensorOp::Squeeze(1));
+        assert_eq!(b.shape(), vec![10.into(), 20.into()]);
+
+        assert_eq!(c.op(), TensorOp::Unsqueeze(0));
+        assert_eq!(c.shape(), vec![1.into(), 10.into(), 20.into()]);
     }
 }

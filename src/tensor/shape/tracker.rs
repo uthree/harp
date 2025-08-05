@@ -97,4 +97,61 @@ impl ShapeTracker {
             strides: new_strides,
         }
     }
+
+    /// Adds a new dimension of size 1 at a specified axis.
+    ///
+    /// # Arguments
+    ///
+    /// * `axis` - The position where the new axis is inserted.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use harp::tensor::shape::tracker::ShapeTracker;
+    ///
+    /// let tracker = ShapeTracker::new(vec![10.into(), 20.into()]);
+    /// // Unsqueeze at axis 1 to get shape [10, 1, 20]
+    /// let unsqueezed = tracker.unsqueeze(1);
+    /// assert_eq!(unsqueezed.shape(), &[10.into(), 1.into(), 20.into()]);
+    /// assert_eq!(unsqueezed.strides(), &[20.into(), 0.into(), 1.into()]);
+    /// ```
+    pub fn unsqueeze(mut self, axis: usize) -> Self {
+        assert!(axis <= self.ndim());
+        self.shape.insert(axis, 1.into());
+        self.strides.insert(axis, 0.into());
+        self
+    }
+
+    /// Removes a dimension of size 1 at a specified axis.
+    ///
+    /// # Arguments
+    ///
+    /// * `axis` - The axis to remove. Must be a dimension of size 1.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the dimension at the specified axis is not equal to 1.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use harp::tensor::shape::tracker::ShapeTracker;
+    ///
+    /// let tracker = ShapeTracker::new(vec![10.into(), 1.into(), 20.into()]);
+    /// // Squeeze axis 1 to get shape [10, 20]
+    /// let squeezed = tracker.squeeze(1);
+    /// assert_eq!(squeezed.shape(), &[10.into(), 20.into()]);
+    /// assert_eq!(squeezed.strides(), &[20.into(), 1.into()]);
+    /// ```
+    pub fn squeeze(mut self, axis: usize) -> Self {
+        assert!(axis < self.ndim());
+        assert_eq!(
+            self.shape[axis],
+            1.into(),
+            "can only squeeze an axis of size 1"
+        );
+        self.shape.remove(axis);
+        self.strides.remove(axis);
+        self
+    }
 }
