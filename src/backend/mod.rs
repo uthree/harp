@@ -35,7 +35,8 @@ pub struct KernelDetails {
 
 /// A trait for a generic buffer that can be passed to a kernel.
 /// This trait is object-safe.
-pub trait Buffer {
+/// should be free when dropped.
+pub trait Buffer: Drop {
     /// Returns a mutable pointer to the buffer's raw data.
     fn as_mut_ptr(&mut self) -> *mut c_void;
 
@@ -122,7 +123,6 @@ pub trait Renderer<CodeRepr = String> {
 /// A trait for a device that can allocate and manage memory.
 pub trait Device<Var: Buffer> {
     fn allocate(&mut self, dtype: DType, size: usize) -> Var;
-    fn free(&mut self, var: Var);
     fn is_available(&self) -> bool;
 }
 
