@@ -104,7 +104,13 @@ impl Graph {
     }
 
     /// Adds a new node to the graph. This is an internal method.
-    fn add_node(&self, op: TensorOp, src: Vec<NodeId>, dtype: DType, shape: Vec<Expr>) -> NodeId {
+    pub fn add_node(
+        &self,
+        op: TensorOp,
+        src: Vec<NodeId>,
+        dtype: DType,
+        shape: Vec<Expr>,
+    ) -> NodeId {
         let mut nodes = self.nodes.borrow_mut();
         let id = nodes.len();
         nodes.push(NodeData {

@@ -4,8 +4,6 @@
 //! graph. It uses `AstNode` as its fundamental building block to represent
 //! operations, variables, and control flow structures like loops and blocks.
 
-pub mod pattern;
-
 use std::{boxed::Box, cell::Cell};
 
 thread_local! {
