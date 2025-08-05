@@ -6,9 +6,39 @@
 //! for deferred shape calculation and optimization in the computation graph.
 
 use crate::ast::{AstNode, DType};
+use std::any::TypeId;
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, RemAssign, Sub, SubAssign};
 
 use log::debug;
+
+/// A trait for converting a Rust type into its corresponding `DType` enum variant.
+pub trait IntoDType {
+    fn into_dtype() -> DType;
+}
+
+impl IntoDType for f32 {
+    fn into_dtype() -> DType {
+        DType::F32
+    }
+}
+impl IntoDType for i64 {
+    fn into_dtype() -> DType {
+        DType::I64
+    }
+}
+// Add other types as needed...
+
+impl DType {
+    /// Returns the `TypeId` of the corresponding Rust type.
+    pub fn to_type_id(&self) -> TypeId {
+        match self {
+            DType::F32 => TypeId::of::<f32>(),
+            DType::I64 => TypeId::of::<i64>(),
+            // Add other types as needed...
+            _ => TypeId::of::<()>(), // Default for complex/pointer types
+        }
+    }
+}
 
 /// Represents a symbolic expression for tensor dimensions and strides.
 ///

@@ -9,6 +9,8 @@
 
 use crate::ast::{AstNode, DType};
 use crate::tensor::shape::expr::Expr;
+use ::ndarray::ArrayD;
+use std::any::TypeId;
 use std::ffi::c_void;
 
 // --- Core Data Structures ---
@@ -32,14 +34,70 @@ pub struct KernelDetails {
 // --- Core Traits ---
 
 /// A trait for a generic buffer that can be passed to a kernel.
+/// This trait is object-safe.
 pub trait Buffer {
     /// Returns a mutable pointer to the buffer's raw data.
     fn as_mut_ptr(&mut self) -> *mut c_void;
+
     /// Returns the data type of the elements in the buffer.
     fn dtype(&self) -> DType;
-    /// Returns the shape of the buffer.
-    fn shape(&self) -> &[Expr];
+
+    /// Returns the shape of the buffer as a `Vec` of symbolic expressions.
+    fn shape(&self) -> Vec<Expr>;
+
+    /// Returns the total number of elements in the buffer.
+    fn size(&self) -> usize {
+        self.shape()
+            .iter()
+            .map(|e| match e {
+                Expr::Const(v) => *v as usize,
+                // In a real scenario, you might need a way to resolve variables.
+                // For now, we panic if the shape is not fully concrete.
+                _ => panic!("Cannot calculate size of buffer with dynamic shapes"),
+            })
+            .product()
+    }
 }
+
+/// An extension trait for `Buffer` providing `ndarray` conversion.
+pub trait TryIntoNdarray: Buffer {
+    /// Creates an `ndarray::ArrayD` (dynamically dimensioned array) from the
+    /// buffer's data by cloning it.
+    ///
+    /// Returns `None` if the requested `ndarray` element type `T` does not match
+    /// the buffer's `DType`.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `T`: The desired element type of the output `ndarray::ArrayD`. Must implement `Clone`
+    ///   and have a `'static` lifetime.
+    fn try_into_ndarray<T: Clone + 'static>(&mut self) -> Option<ArrayD<T>> {
+        if TypeId::of::<T>() != self.dtype().to_type_id() {
+            return None;
+        }
+
+        let shape: Vec<usize> = self
+            .shape()
+            .iter()
+            .map(|e| match e {
+                Expr::Const(v) => *v as usize,
+                _ => panic!("Cannot create ndarray from dynamic shape"),
+            })
+            .collect();
+
+        let size = shape.iter().product();
+        if size == 0 {
+            return ArrayD::from_shape_vec(shape, vec![]).ok();
+        }
+
+        let data_slice = unsafe { std::slice::from_raw_parts(self.as_mut_ptr() as *const T, size) };
+        let data_vec = data_slice.to_vec();
+        ArrayD::from_shape_vec(shape, data_vec).ok()
+    }
+}
+
+/// Blanket implementation of `TryIntoNdarray` for all types that implement `Buffer`.
+impl<T: Buffer> TryIntoNdarray for T {}
 
 /// A trait for a compiled, executable kernel.
 pub trait Kernel<Var: Buffer> {
@@ -70,3 +128,4 @@ pub trait Device<Var: Buffer> {
 
 // --- Submodules ---
 pub mod c;
+pub mod ndarray;

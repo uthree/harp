@@ -20,8 +20,8 @@ impl Buffer for MockBuffer {
     fn dtype(&self) -> DType {
         self.dtype.clone()
     }
-    fn shape(&self) -> &[Expr] {
-        &self.shape
+    fn shape(&self) -> Vec<Expr> {
+        self.shape.clone()
     }
 }
 

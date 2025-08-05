@@ -309,8 +309,8 @@ mod tests {
         fn dtype(&self) -> DType {
             DType::F32 // Mock implementation
         }
-        fn shape(&self) -> &[Expr] {
-            &[] // Mock implementation
+        fn shape(&self) -> Vec<Expr> {
+            vec![] // Mock implementation
         }
     }
 
