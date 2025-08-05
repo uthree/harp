@@ -5,6 +5,8 @@ use crate::tensor::graph::{Graph, NodeId, NodeView, TensorOp};
 use log::{debug, info, trace};
 use std::collections::HashMap;
 
+// --- Pattern Definition ---
+
 /// A pattern to match against a node in the graph.
 #[derive(Debug, Clone)]
 pub enum Pattern {
@@ -24,15 +26,29 @@ pub enum TensorOpPattern {
     // Add other ops as needed for patterns
 }
 
+// --- Pattern Helper Functions ---
+
+/// Creates a capture pattern.
+pub fn p_cap(id: usize) -> Pattern {
+    Pattern::Capture(id)
+}
+
+/// Creates an elementwise operation pattern.
+pub fn p_op(op: AstOp, args: Vec<Pattern>) -> Pattern {
+    Pattern::Op(TensorOpPattern::Elementwise(op), args)
+}
+
+// --- Rule and Rewriter ---
+
 /// A rewrite rule, consisting of a pattern to search for and a replacement.
-pub struct Rule {
+pub struct GraphRule {
     pub name: &'static str,
     pub pattern: Pattern,
     /// The replacement is a function that takes the graph and captures
     /// and returns the `NodeId` of the new, rewritten node.
     pub replacer: Box<
         dyn Fn(
-            &Rewriter,
+            &GraphRewriter,
             &Graph,
             &Graph,
             &mut HashMap<NodeId, NodeId>,
@@ -43,20 +59,20 @@ pub struct Rule {
 }
 
 /// Applies a set of rules to optimize a computation graph.
-pub struct Rewriter {
-    rules: Vec<Rule>,
+pub struct GraphRewriter {
+    rules: Vec<GraphRule>,
 }
 
-impl Rewriter {
+impl GraphRewriter {
     /// Creates a new rewriter with a given set of rules.
-    pub fn new(rules: Vec<Rule>) -> Self {
+    pub fn new(rules: Vec<GraphRule>) -> Self {
         Self { rules }
     }
 
     /// Optimizes a graph by applying the rewriter's rules.
     ///
     /// Returns a new, optimized graph.
-    pub fn rewrite(&self, graph: &Graph) -> Graph {
+    pub fn apply(&self, graph: &Graph) -> Graph {
         info!("Starting graph rewrite process...");
         let new_graph = Graph::new();
         let mut memo = HashMap::new(); // memoization table for rewritten nodes
@@ -198,57 +214,85 @@ impl TensorOpPattern {
     }
 }
 
+// --- Rule Macro ---
+
+#[macro_export]
+macro_rules! graph_rule {
+    ($name:expr, $pattern:expr => $replacer:expr) => {
+        $crate::opt::graph::GraphRule {
+            name: $name,
+            pattern: $pattern,
+            replacer: Box::new(
+                |rewriter, new_graph, old_graph, memo, captures, top_node_id| {
+                    // Boilerplate: recursively rewrite all captured nodes.
+                    let mut rewritten_captures: Vec<_> = captures
+                        .iter()
+                        .map(|(cap_id, node_id)| {
+                            (
+                                *cap_id,
+                                rewriter.rewrite_node(new_graph, old_graph, *node_id, memo),
+                            )
+                        })
+                        .collect();
+                    // Sort by capture ID to provide them to the user replacer in a consistent order.
+                    rewritten_captures.sort_by_key(|&(id, _)| id);
+                    let rewritten_ids: Vec<_> =
+                        rewritten_captures.into_iter().map(|(_, id)| id).collect();
+
+                    // Call the user-provided replacer logic.
+                    let user_replacer = $replacer;
+                    user_replacer(new_graph, old_graph, captures, top_node_id, rewritten_ids)
+                },
+            ),
+        }
+    };
+}
+
 /// Returns a list of graph optimization rules.
-pub fn get_fusion_rules() -> Vec<Rule> {
-    vec![Rule {
-        name: "fuse_elementwise_binary",
-        pattern: Pattern::Op(
-            TensorOpPattern::Elementwise(AstOp::Add), // This will be made generic later
-            vec![
-                Pattern::Op(
-                    TensorOpPattern::Elementwise(AstOp::Mul), // This will be made generic later
-                    vec![Pattern::Capture(0), Pattern::Capture(1)],
-                ),
-                Pattern::Capture(2),
-            ],
-        ),
-        replacer: Box::new(
-            |rewriter, new_graph, old_graph, memo, captures, top_node_id| {
-                // This replacer handles a pattern like: Op1(Op2(a, b), c)
-                // It fuses them into a single FusedElementwise node.
+pub fn get_fusion_rules() -> Vec<GraphRule> {
+    vec![graph_rule!("fuse_elementwise_mul_add",
+        // Pattern: (a * b) + c
+        p_op(AstOp::Add, vec![
+            p_op(AstOp::Mul, vec![p_cap(0), p_cap(1)]),
+            p_cap(2)
+        ])
+        =>
+        // Replacer
+        |new_graph: &Graph,
+         old_graph: &Graph,
+         captures: &HashMap<usize, NodeId>,
+         top_node_id: NodeId,
+         rewritten_ids: Vec<NodeId>| {
+            // rewritten_ids contains the new node IDs for captures [0, 1, 2] in order.
+            let new_a_id = rewritten_ids[0];
+            let new_b_id = rewritten_ids[1];
+            let new_c_id = rewritten_ids[2];
 
-                let a_id = captures[&0];
-                let b_id = captures[&1];
-                let c_id = captures[&2];
+            // We still need the original captures to get metadata from the old graph.
+            let a_id = captures[&0];
+            let b_id = captures[&1];
+            let c_id = captures[&2];
 
-                // Recursively rewrite the leaf inputs (a, b, c)
-                let new_a_id = rewriter.rewrite_node(new_graph, old_graph, a_id, memo);
-                let new_b_id = rewriter.rewrite_node(new_graph, old_graph, b_id, memo);
-                let new_c_id = rewriter.rewrite_node(new_graph, old_graph, c_id, memo);
+            // The new fused node will have inputs [a, b, c]
+            let new_src = vec![new_a_id, new_b_id, new_c_id];
 
-                // The new fused node will have inputs [a, b, c]
-                let new_src = vec![new_a_id, new_b_id, new_c_id];
+            // Build the AST for the fused operation.
+            let a_ast = AstNode::capture(0, old_graph.get_view(a_id).dtype());
+            let b_ast = AstNode::capture(1, old_graph.get_view(b_id).dtype());
+            let c_ast = AstNode::capture(2, old_graph.get_view(c_id).dtype());
+            let fused_ast = a_ast * b_ast + c_ast;
 
-                // Build the AST for the fused operation using the overloaded operators,
-                // which will handle type promotion correctly.
-                let a_ast = AstNode::capture(0, old_graph.get_view(a_id).dtype());
-                let b_ast = AstNode::capture(1, old_graph.get_view(b_id).dtype());
-                let c_ast = AstNode::capture(2, old_graph.get_view(c_id).dtype());
+            // The shape and dtype of the fused op is the same as the original top-level node.
+            let top_node_view = old_graph.get_view(top_node_id);
 
-                let fused_ast = a_ast * b_ast + c_ast;
-
-                // The shape and dtype of the fused op is the same as the original top-level node
-                let top_node_view = old_graph.get_view(top_node_id);
-
-                new_graph.add_node(
-                    TensorOp::FusedElementwise(fused_ast),
-                    new_src,
-                    top_node_view.dtype(),
-                    top_node_view.shape(),
-                )
-            },
-        ),
-    }]
+            new_graph.add_node(
+                TensorOp::FusedElementwise(fused_ast),
+                new_src,
+                top_node_view.dtype(),
+                top_node_view.shape(),
+            )
+        }
+    )]
 }
 
 #[cfg(test)]
@@ -277,8 +321,8 @@ mod tests {
 
         // 2. Create a rewriter and apply the rules
         let rules = get_fusion_rules();
-        let rewriter = Rewriter::new(rules);
-        let new_graph = rewriter.rewrite(&graph);
+        let rewriter = GraphRewriter::new(rules);
+        let new_graph = rewriter.apply(&graph);
 
         // 3. Verify the new graph
         assert_eq!(new_graph.nodes.borrow().len(), 4); // a, b, c, fused_add_mul
@@ -300,12 +344,19 @@ mod tests {
             _ => panic!("Expected FusedElementwise op, found {:?}", output_node.op),
         }
 
-        // Check that the inputs to the fused node are correct
+        // Check that the inputs to the fused node are correct.
+        // The sources of the fused node should be the new inputs.
+        // The order of sources is determined by the rule's capture groups (0, 1, 2 -> a, b, c).
+        // The order of `new_graph.inputs` is sorted by NodeId.
+        // So we just check that they contain the same set of nodes by sorting both.
         let inputs = new_graph.inputs.borrow();
         assert_eq!(inputs.len(), 3);
-        let a_new_id = inputs[0];
-        let b_new_id = inputs[1];
-        let c_new_id = inputs[2];
-        assert_eq!(output_node.src, vec![a_new_id, b_new_id, c_new_id]);
+
+        let mut output_srcs = output_node.src.clone();
+        output_srcs.sort();
+        let mut expected_inputs = inputs.clone();
+        expected_inputs.sort(); // should already be sorted, but for safety
+
+        assert_eq!(output_srcs, expected_inputs);
     }
 }

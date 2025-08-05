@@ -25,7 +25,7 @@ pub struct Graph {
 }
 
 /// A unique identifier for a node within a `Graph`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NodeId(pub usize);
 
 /// A temporary, lightweight handle to a node in the graph.
