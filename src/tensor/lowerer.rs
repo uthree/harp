@@ -9,7 +9,7 @@ use crate::backend::{BufferInfo, KernelDetails};
 use crate::tensor::graph::{Graph, NodeId, TensorOp};
 use crate::tensor::shape::tracker::ShapeTracker;
 use log::{debug, info, trace};
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 /// Traverses a `Graph` and converts it into an `AstNode`.
 ///
@@ -20,9 +20,9 @@ pub struct Lowerer<'a> {
     /// A reference to the computation graph to be lowered.
     graph: &'a Graph,
     /// A cache to store the lowered AST and `ShapeTracker` for each processed `NodeId`.
-    cache: HashMap<NodeId, (AstNode, ShapeTracker)>,
+    cache: FxHashMap<NodeId, (AstNode, ShapeTracker)>,
     /// A map from NodeId to its corresponding index in the `buffers` array.
-    buffer_map: HashMap<NodeId, usize>,
+    buffer_map: FxHashMap<NodeId, usize>,
     /// Counter for generating unique loop variable names (e.g., `ridx0`, `ridx1`).
     loop_counter: usize,
     /// Counter for generating unique accumulator names (e.g., `acc0`).
@@ -34,8 +34,8 @@ impl<'a> Lowerer<'a> {
     pub fn new(graph: &'a Graph) -> Self {
         Self {
             graph,
-            cache: HashMap::new(),
-            buffer_map: HashMap::new(),
+            cache: FxHashMap::default(),
+            buffer_map: FxHashMap::default(),
             loop_counter: 0,
             accumulator_counter: 0,
         }
@@ -86,7 +86,7 @@ impl<'a> Lowerer<'a> {
         info!("Starting lowering process for the entire graph...");
 
         let mut details = KernelDetails::default();
-        let mut buffer_info_map = HashMap::new();
+        let mut buffer_info_map = FxHashMap::default();
 
         // 1. Identify all input and output buffers and assign them an index.
         // By iterating over `graph.inputs`, we get a deterministic order.

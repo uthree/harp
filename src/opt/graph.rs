@@ -3,7 +3,7 @@
 use crate::ast::{AstNode, Op as AstOp};
 use crate::tensor::graph::{Graph, NodeId, NodeView, TensorOp};
 use log::{debug, info, trace};
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 // --- Pattern Definition ---
 
@@ -51,8 +51,8 @@ pub struct GraphRule {
             &GraphRewriter,
             &Graph,
             &Graph,
-            &mut HashMap<NodeId, NodeId>,
-            &HashMap<usize, NodeId>,
+            &mut FxHashMap<NodeId, NodeId>,
+            &FxHashMap<usize, NodeId>,
             NodeId, // The ID of the node that matched the root of the pattern
         ) -> NodeId,
     >,
@@ -75,7 +75,7 @@ impl GraphRewriter {
     pub fn apply(&self, graph: &Graph) -> Graph {
         info!("Starting graph rewrite process...");
         let new_graph = Graph::new();
-        let mut memo = HashMap::new(); // memoization table for rewritten nodes
+        let mut memo = FxHashMap::default(); // memoization table for rewritten nodes
 
         // Rewrite all output nodes
         for &output_id in graph.outputs.borrow().iter() {
@@ -106,7 +106,7 @@ impl GraphRewriter {
         new_graph: &Graph,
         old_graph: &Graph,
         node_id: NodeId,
-        memo: &mut HashMap<NodeId, NodeId>,
+        memo: &mut FxHashMap<NodeId, NodeId>,
     ) -> NodeId {
         // If we've already rewritten this node, return the memoized ID
         if let Some(&new_id) = memo.get(&node_id) {
@@ -119,7 +119,7 @@ impl GraphRewriter {
 
         // First, try to apply a rule to the current node
         for rule in &self.rules {
-            let mut captures = HashMap::new();
+            let mut captures = FxHashMap::default();
             trace!("Attempting to apply rule '{}'", rule.name);
             if rule.pattern.match_node(view, &mut captures) {
                 debug!(
@@ -162,7 +162,7 @@ impl GraphRewriter {
 
 impl Pattern {
     /// Attempts to match this pattern against a given `NodeView`.
-    pub fn match_node(&self, view: NodeView, captures: &mut HashMap<usize, NodeId>) -> bool {
+    pub fn match_node(&self, view: NodeView, captures: &mut FxHashMap<usize, NodeId>) -> bool {
         trace!("Matching pattern {:?} against node {:?}", self, view.id);
         match self {
             Pattern::Wildcard => {
@@ -258,7 +258,7 @@ pub fn get_fusion_rules() -> Vec<GraphRule> {
         // Replacer
         |new_graph: &Graph,
          old_graph: &Graph,
-         captures: &HashMap<usize, NodeId>,
+         captures: &FxHashMap<usize, NodeId>,
          top_node_id: NodeId,
          rewritten_ids: Vec<NodeId>| {
             // rewritten_ids contains the new node IDs for captures [0, 1, 2] in order.
