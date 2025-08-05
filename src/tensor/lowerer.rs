@@ -131,6 +131,84 @@ impl<'a> Lowerer<'a> {
                 let new_tracker = src_tracker.unsqueeze(axis);
                 (src_buffer, new_tracker)
             }
+            TensorOp::Contiguous => {
+                let (src_buffer, src_tracker) = self.lower_node(node_data.src[0]);
+                if src_tracker.is_contiguous() {
+                    return (src_buffer, src_tracker);
+                }
+
+                let dst_buffer = AstNode::var(&self.new_buffer_name("output"));
+                let dst_tracker = ShapeTracker::new(node_data.shape.clone());
+
+                let mut loops = vec![];
+                let mut loop_vars = vec![];
+                for shape_expr in dst_tracker.shape().iter() {
+                    let loop_var = self.new_loop_counter();
+                    loop_vars.push(loop_var.clone());
+                    loops.push(AstNode::new(
+                        AstOp::Range {
+                            loop_var,
+                            max: Box::new(shape_expr.clone().into()),
+                            block: Box::new(AstNode::new(AstOp::Block, vec![], DType::None)), // Placeholder
+                        },
+                        vec![],
+                        DType::None,
+                    ));
+                }
+
+                let src_offset = loop_vars
+                    .iter()
+                    .zip(src_tracker.strides().iter())
+                    .fold(Expr::from(0), |acc, (var, stride)| {
+                        acc + Expr::from(AstNode::var(var)) * stride.clone()
+                    });
+
+                let dst_offset = loop_vars
+                    .iter()
+                    .zip(dst_tracker.strides().iter())
+                    .fold(Expr::from(0), |acc, (var, stride)| {
+                        acc + Expr::from(AstNode::var(var)) * stride.clone()
+                    });
+
+                let load_node = AstNode::new(
+                    AstOp::Load(Box::new(AstNode::new(
+                        AstOp::BufferIndex {
+                            buffer: Box::new(src_buffer),
+                            index: Box::new(src_offset.simplify().into()),
+                        },
+                        vec![],
+                        DType::None,
+                    ))),
+                    vec![],
+                    node_data.dtype.clone(),
+                );
+
+                let store_node = AstNode::new(
+                    AstOp::Store {
+                        dst: Box::new(AstNode::new(
+                            AstOp::BufferIndex {
+                                buffer: Box::new(dst_buffer.clone()),
+                                index: Box::new(dst_offset.simplify().into()),
+                            },
+                            vec![],
+                            DType::None,
+                        )),
+                        src: Box::new(load_node),
+                    },
+                    vec![],
+                    DType::None,
+                );
+
+                let mut final_block = store_node;
+                for mut loop_node in loops.into_iter().rev() {
+                    if let AstOp::Range { ref mut block, .. } = loop_node.op {
+                        *block = Box::new(final_block);
+                    }
+                    final_block = loop_node;
+                }
+
+                (final_block, dst_tracker)
+            }
             TensorOp::Elementwise(op) => {
                 let src_nodes: Vec<_> = node_data
                     .src
@@ -530,5 +608,26 @@ mod tests {
         } else {
             panic!("Expected a range node");
         }
+    }
+
+    #[test]
+    fn test_lower_contiguous() {
+        let graph = Graph::new();
+        let a = graph.input(DType::F32, vec![10.into(), 20.into()]);
+        let b = a.permute(vec![1, 0]);
+        let c = b.contiguous().as_output();
+
+        let mut lowerer = Lowerer::new(&graph);
+        lowerer.lower();
+
+        // The source of contiguous `c` is `b`
+        let (buffer_b, tracker_b) = &lowerer.cache[&b.id];
+        assert!(!tracker_b.is_contiguous());
+
+        // The result of contiguous `c` should be a new buffer and a contiguous tracker
+        let (ast_c, tracker_c) = &lowerer.cache[&c.id];
+        assert_ne!(&ast_c.op, &buffer_b.op); // Should be a new buffer (Range op)
+        assert!(tracker_c.is_contiguous());
+        assert_eq!(tracker_c.shape(), tracker_b.shape());
     }
 }

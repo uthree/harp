@@ -64,6 +64,27 @@ impl ShapeTracker {
         &self.strides
     }
 
+    /// Checks if the tensor view is contiguous in memory.
+    ///
+    /// A view is contiguous if its strides match the standard row-major layout
+    /// for its shape.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use harp::tensor::shape::tracker::ShapeTracker;
+    ///
+    /// let contiguous_tracker = ShapeTracker::new(vec![10.into(), 20.into()]);
+    /// assert!(contiguous_tracker.is_contiguous());
+    ///
+    /// let permuted_tracker = contiguous_tracker.permute(vec![1, 0]);
+    /// assert!(!permuted_tracker.is_contiguous());
+    /// ```
+    pub fn is_contiguous(&self) -> bool {
+        let contiguous_strides = ShapeTracker::new(self.shape.clone()).strides;
+        self.strides == contiguous_strides
+    }
+
     /// Permutes the axes of the tensor view.
     ///
     /// This operation does not change the underlying data but modifies the

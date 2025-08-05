@@ -77,8 +77,11 @@ pub enum TensorOp {
     Contiguous,
     /// An operation that permutes the axes of a tensor.
     Permute(Vec<usize>),
+    /// Removes a dimension of size 1.
     Squeeze(usize),
+    /// Adds a dimension of size 1.
     Unsqueeze(usize),
+    /// An operation that concatenates tensors along a specific axis.
     Concatenate(usize),
 
     // Fused operators for optimization
@@ -272,6 +275,15 @@ impl Graph {
         self.add_node(TensorOp::Permute(axes), vec![src], dtype, new_shape)
     }
 
+    pub fn contiguous(&self, src: NodeId) -> NodeId {
+        let (dtype, shape) = {
+            let nodes = self.nodes.borrow();
+            let src_node = &nodes[src.0];
+            (src_node.dtype.clone(), src_node.shape.clone())
+        };
+        self.add_node(TensorOp::Contiguous, vec![src], dtype, shape)
+    }
+
     pub fn squeeze(&self, src: NodeId, axis: usize) -> NodeId {
         let (dtype, shape) = {
             let nodes = self.nodes.borrow();
@@ -343,9 +355,18 @@ impl<'a> NodeView<'a> {
         self.graph.get_view(new_id)
     }
 
-    /// Adds a new dimension of size 1 at a specified axis.
+    /// Adds a dimension of size 1 at a specified axis.
     pub fn unsqueeze(&self, axis: usize) -> NodeView<'a> {
         let new_id = self.graph.unsqueeze(self.id, axis);
+        self.graph.get_view(new_id)
+    }
+
+    /// Returns a contiguous version of the tensor.
+    ///
+    /// If the tensor is already contiguous, this is a no-op. Otherwise, it
+    /// creates a new node that copies the data into a contiguous layout.
+    pub fn contiguous(&self) -> NodeView<'a> {
+        let new_id = self.graph.contiguous(self.id);
         self.graph.get_view(new_id)
     }
 
@@ -572,5 +593,16 @@ mod tests {
 
         assert_eq!(c.op(), TensorOp::Unsqueeze(0));
         assert_eq!(c.shape(), vec![1.into(), 10.into(), 20.into()]);
+    }
+
+    #[test]
+    fn test_contiguous() {
+        let graph = Graph::new();
+        let a = graph.input(DType::F32, vec![10.into(), 20.into()]);
+        let b = a.contiguous();
+
+        assert_eq!(b.op(), TensorOp::Contiguous);
+        assert_eq!(b.src(), vec![a.id]);
+        assert_eq!(b.shape(), a.shape());
     }
 }
