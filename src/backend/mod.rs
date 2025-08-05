@@ -30,5 +30,6 @@ pub trait Buffer {
 }
 
 pub struct KernelDetails {
-    shape_variables: Vec<String>,
+    // This struct can be expanded later to include more details
+    // like the number of buffers, shape variables, etc.
 }

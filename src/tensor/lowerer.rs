@@ -24,8 +24,6 @@ pub struct Lowerer<'a> {
     buffer_map: HashMap<NodeId, usize>,
     /// Counter for generating unique loop variable names (e.g., `ridx0`, `ridx1`).
     loop_counter: usize,
-    /// Counter for generating unique temporary variable names (e.g., `var0`).
-    temp_var_counter: usize,
     /// Counter for generating unique accumulator names (e.g., `acc0`).
     accumulator_counter: usize,
 }
@@ -38,7 +36,6 @@ impl<'a> Lowerer<'a> {
             cache: HashMap::new(),
             buffer_map: HashMap::new(),
             loop_counter: 0,
-            temp_var_counter: 0,
             accumulator_counter: 0,
         }
     }
@@ -48,12 +45,6 @@ impl<'a> Lowerer<'a> {
     fn new_loop_counter(&mut self) -> String {
         let name = format!("ridx{}", self.loop_counter);
         self.loop_counter += 1;
-        name
-    }
-
-    fn new_temp_var(&mut self) -> String {
-        let name = format!("var{}", self.temp_var_counter);
-        self.temp_var_counter += 1;
         name
     }
 
@@ -248,7 +239,7 @@ impl<'a> Lowerer<'a> {
                 }
 
                 let mut loaded_srcs = vec![];
-                for (i, &src_id) in node_data.src.iter().enumerate() {
+                for &src_id in node_data.src.iter() {
                     let (_, tracker) = self.cache.get(&src_id).unwrap();
                     let buffer = self.get_buffer_ptr(src_id);
                     let offset = tracker.offset_expr(&loop_vars);

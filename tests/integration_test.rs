@@ -21,7 +21,7 @@ fn test_full_flow_add() {
     let graph = Graph::new();
     let a = graph.input(DType::F32, vec![4.into()]);
     let b = graph.input(DType::F32, vec![4.into()]);
-    let c = (a + b).as_output();
+    let _c = (a + b).as_output();
 
     // 2. Lower to AST
     let mut lowerer = Lowerer::new(&graph);
