@@ -83,15 +83,13 @@ impl GraphRewriter {
             new_graph.outputs.borrow_mut().push(new_output_id);
         }
 
-        // Re-register inputs in the new graph
-        let mut new_inputs = Vec::new();
-        for &input_id in graph.inputs.borrow().iter() {
-            if let Some(&new_input_id) = memo.get(&input_id) {
-                new_inputs.push(new_input_id);
-            }
-        }
-        // Sort by id to maintain order
-        new_inputs.sort_by_key(|a| a.0);
+        // Re-register inputs in the new graph, preserving the original order.
+        let new_inputs: Vec<_> = graph
+            .inputs
+            .borrow()
+            .iter()
+            .filter_map(|input_id| memo.get(input_id).copied())
+            .collect();
         *new_graph.inputs.borrow_mut() = new_inputs;
 
         info!(
@@ -345,18 +343,9 @@ mod tests {
         }
 
         // Check that the inputs to the fused node are correct.
-        // The sources of the fused node should be the new inputs.
-        // The order of sources is determined by the rule's capture groups (0, 1, 2 -> a, b, c).
-        // The order of `new_graph.inputs` is sorted by NodeId.
-        // So we just check that they contain the same set of nodes by sorting both.
+        // The sources of the fused node should be the new inputs, in the same order.
         let inputs = new_graph.inputs.borrow();
         assert_eq!(inputs.len(), 3);
-
-        let mut output_srcs = output_node.src.clone();
-        output_srcs.sort();
-        let mut expected_inputs = inputs.clone();
-        expected_inputs.sort(); // should already be sorted, but for safety
-
-        assert_eq!(output_srcs, expected_inputs);
+        assert_eq!(output_node.src, *inputs);
     }
 }

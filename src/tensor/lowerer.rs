@@ -89,22 +89,19 @@ impl<'a> Lowerer<'a> {
         let mut buffer_info_map = HashMap::new();
 
         // 1. Identify all input and output buffers and assign them an index.
+        // By iterating over `graph.inputs`, we get a deterministic order.
         let mut current_buffer_idx = 0;
-        let mut inputs = vec![];
-        for (i, node) in self.graph.nodes.borrow().iter().enumerate() {
-            if node.op == TensorOp::Input {
-                let node_id = NodeId(i);
-                self.buffer_map.insert(node_id, current_buffer_idx);
-                inputs.push(node_id);
-                buffer_info_map.insert(
-                    current_buffer_idx,
-                    BufferInfo {
-                        dtype: node.dtype.clone(),
-                        shape: node.shape.clone(),
-                    },
-                );
-                current_buffer_idx += 1;
-            }
+        for &node_id in self.graph.inputs.borrow().iter() {
+            let node = &self.graph.nodes.borrow()[node_id.0];
+            self.buffer_map.insert(node_id, current_buffer_idx);
+            buffer_info_map.insert(
+                current_buffer_idx,
+                BufferInfo {
+                    dtype: node.dtype.clone(),
+                    shape: node.shape.clone(),
+                },
+            );
+            current_buffer_idx += 1;
         }
 
         let outputs: Vec<_> = self.graph.outputs.borrow().clone();
@@ -288,6 +285,45 @@ impl<'a> Lowerer<'a> {
 
                 (final_block, dst_tracker)
             }
+            TensorOp::FusedElementwise(fused_ast) => {
+                for &src_id in &node_data.src {
+                    self.lower_node(src_id);
+                }
+
+                let dst_buffer = self.get_buffer_ptr(node_id);
+                let dst_tracker = ShapeTracker::new(node_data.shape.clone());
+
+                let mut loops = vec![];
+                let mut loop_vars = vec![];
+                for shape_expr in dst_tracker.shape().iter() {
+                    let loop_var = self.new_loop_counter();
+                    loop_vars.push(loop_var.clone());
+                    loops.push(AstNode::range(
+                        loop_var,
+                        shape_expr.clone().into(),
+                        AstNode::block(vec![]),
+                    ));
+                }
+
+                let mut loaded_srcs = vec![];
+                for &src_id in node_data.src.iter() {
+                    let (_, tracker) = self.cache.get(&src_id).unwrap();
+                    let buffer = self.get_buffer_ptr(src_id);
+                    let offset = tracker.offset_expr(&loop_vars);
+                    let load = AstNode::load(buffer.buffer_index(offset.simplify().into()));
+                    loaded_srcs.push(load);
+                }
+
+                let computation = self.lower_fused_ast(&fused_ast, &loaded_srcs);
+                let dst_offset = dst_tracker.offset_expr(&loop_vars);
+                let store_node = AstNode::store(
+                    dst_buffer.buffer_index(dst_offset.simplify().into()),
+                    computation,
+                );
+
+                let final_block = AstNode::build_loops(loops, store_node);
+                (final_block, dst_tracker)
+            }
             TensorOp::Reduce(op, axis) => {
                 self.lower_node(node_data.src[0]);
 
@@ -355,6 +391,25 @@ impl<'a> Lowerer<'a> {
         trace!("Finished lowering node {node_id:?}. Caching result.");
         self.cache.insert(node_id, result.clone());
         result
+    }
+
+    /// Recursively expands a fused AST, replacing captures with loaded values.
+    fn lower_fused_ast(&self, ast: &AstNode, loaded_srcs: &[AstNode]) -> AstNode {
+        match &ast.op {
+            AstOp::Capture(id, _) => {
+                // Replace the capture node with the corresponding pre-loaded source AST.
+                loaded_srcs[*id].clone()
+            }
+            _ => {
+                // For any other node, recursively lower its children.
+                let new_srcs = ast
+                    .src
+                    .iter()
+                    .map(|child| Box::new(self.lower_fused_ast(child, loaded_srcs)))
+                    .collect();
+                AstNode::new(ast.op.clone(), new_srcs, ast.dtype.clone())
+            }
+        }
     }
 }
 
