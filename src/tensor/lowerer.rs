@@ -8,6 +8,7 @@ use crate::ast::{AstNode, DType, Op as AstOp};
 use crate::tensor::graph::{Graph, NodeId, TensorOp};
 use crate::tensor::shape::expr::Expr;
 use crate::tensor::shape::tracker::ShapeTracker;
+use log::{debug, info, trace};
 use std::collections::HashMap;
 
 /// Traverses a `Graph` and converts it into an `AstNode`.
@@ -74,16 +75,19 @@ impl<'a> Lowerer<'a> {
     /// This method iterates through all marked output nodes of the graph,
     /// lowers each one into an AST, and wraps the results in a single `Block` node.
     pub fn lower(&mut self) -> AstNode {
+        info!("Starting lowering process for the entire graph...");
         let mut body = vec![];
         for &output_id in self.graph.outputs.borrow().iter() {
             let (ast_node, _tracker) = self.lower_node(output_id);
             body.push(ast_node);
         }
-        AstNode::new(
+        let final_ast = AstNode::new(
             AstOp::Block,
             body.into_iter().map(Box::new).collect(),
             DType::None,
-        )
+        );
+        info!("Lowering process completed.");
+        final_ast
     }
 
     /// Recursively lowers a single node from the graph into an AST.
@@ -104,11 +108,18 @@ impl<'a> Lowerer<'a> {
     ///   This tracker is crucial for correctly calculating memory offsets,
     ///   especially after view operations.
     fn lower_node(&mut self, node_id: NodeId) -> (AstNode, ShapeTracker) {
+        trace!("Attempting to lower node {node_id:?}");
         if let Some(cached) = self.cache.get(&node_id) {
+            debug!("Cache hit for node {node_id:?}");
             return cached.clone();
         }
+        trace!(
+            "Cache miss for node {node_id:?}. Proceeding with lowering."
+        );
 
         let node_data = self.graph.nodes.borrow()[node_id.0].clone();
+        debug!("Lowering node {:?} with op {:?}", node_id, node_data.op);
+
         let result = match node_data.op {
             TensorOp::Input => {
                 let name = self.new_buffer_name("input");
@@ -116,26 +127,15 @@ impl<'a> Lowerer<'a> {
                 let tracker = ShapeTracker::new(node_data.shape);
                 (buffer_node, tracker)
             }
-            TensorOp::Permute(axes) => {
-                let (src_buffer, src_tracker) = self.lower_node(node_data.src[0]);
-                let new_tracker = src_tracker.permute(axes);
-                (src_buffer, new_tracker)
-            }
-            TensorOp::Squeeze(axis) => {
-                let (src_buffer, src_tracker) = self.lower_node(node_data.src[0]);
-                let new_tracker = src_tracker.squeeze(axis);
-                (src_buffer, new_tracker)
-            }
-            TensorOp::Unsqueeze(axis) => {
-                let (src_buffer, src_tracker) = self.lower_node(node_data.src[0]);
-                let new_tracker = src_tracker.unsqueeze(axis);
-                (src_buffer, new_tracker)
-            }
             TensorOp::Contiguous => {
                 let (src_buffer, src_tracker) = self.lower_node(node_data.src[0]);
                 if src_tracker.is_contiguous() {
+                    debug!("Node {node_id:?} is already contiguous. No-op.");
                     return (src_buffer, src_tracker);
                 }
+                debug!(
+                    "Node {node_id:?} is not contiguous. Generating copy loop."
+                );
 
                 let dst_buffer = AstNode::var(&self.new_buffer_name("output"));
                 let dst_tracker = ShapeTracker::new(node_data.shape.clone());
@@ -208,6 +208,21 @@ impl<'a> Lowerer<'a> {
                 }
 
                 (final_block, dst_tracker)
+            }
+            TensorOp::Permute(axes) => {
+                let (src_buffer, src_tracker) = self.lower_node(node_data.src[0]);
+                let new_tracker = src_tracker.permute(axes);
+                (src_buffer, new_tracker)
+            }
+            TensorOp::Squeeze(axis) => {
+                let (src_buffer, src_tracker) = self.lower_node(node_data.src[0]);
+                let new_tracker = src_tracker.squeeze(axis);
+                (src_buffer, new_tracker)
+            }
+            TensorOp::Unsqueeze(axis) => {
+                let (src_buffer, src_tracker) = self.lower_node(node_data.src[0]);
+                let new_tracker = src_tracker.unsqueeze(axis);
+                (src_buffer, new_tracker)
             }
             TensorOp::Elementwise(op) => {
                 let src_nodes: Vec<_> = node_data
@@ -425,6 +440,7 @@ impl<'a> Lowerer<'a> {
             _ => unimplemented!("This TensorOp is not yet supported for lowering"),
         };
 
+        trace!("Finished lowering node {node_id:?}. Caching result.");
         self.cache.insert(node_id, result.clone());
         result
     }
@@ -435,8 +451,14 @@ mod tests {
     use super::*;
     use crate::tensor::shape::expr::Expr;
 
+    fn setup_logger() {
+        // Initialize the logger for tests, ignoring errors if it's already set up
+        let _ = env_logger::builder().is_test(true).try_init();
+    }
+
     #[test]
     fn test_lower_input() {
+        setup_logger();
         let graph = Graph::new();
         let input = graph.input(DType::F32, vec![Expr::from(10)]);
         input.as_output();
@@ -452,6 +474,7 @@ mod tests {
 
     #[test]
     fn test_lower_permute() {
+        setup_logger();
         let graph = Graph::new();
         let a = graph.input(DType::F32, vec![10.into(), 20.into()]);
         let b = a.permute(vec![1, 0]);
@@ -467,6 +490,7 @@ mod tests {
 
     #[test]
     fn test_lower_squeeze_unsqueeze() {
+        setup_logger();
         let graph = Graph::new();
         let a = graph.input(DType::F32, vec![10.into(), 1.into(), 20.into()]);
         let b = a.squeeze(1);
@@ -490,7 +514,30 @@ mod tests {
     }
 
     #[test]
+    fn test_lower_contiguous() {
+        setup_logger();
+        let graph = Graph::new();
+        let a = graph.input(DType::F32, vec![10.into(), 20.into()]);
+        let b = a.permute(vec![1, 0]);
+        let c = b.contiguous().as_output();
+
+        let mut lowerer = Lowerer::new(&graph);
+        lowerer.lower();
+
+        // The source of contiguous `c` is `b`
+        let (buffer_b, tracker_b) = &lowerer.cache[&b.id];
+        assert!(!tracker_b.is_contiguous());
+
+        // The result of contiguous `c` should be a new buffer and a contiguous tracker
+        let (ast_c, tracker_c) = &lowerer.cache[&c.id];
+        assert_ne!(&ast_c.op, &buffer_b.op); // Should be a new buffer (Range op)
+        assert!(tracker_c.is_contiguous());
+        assert_eq!(tracker_c.shape(), tracker_b.shape());
+    }
+
+    #[test]
     fn test_lower_elementwise_add() {
+        setup_logger();
         let graph = Graph::new();
         let a = graph.input(DType::F32, vec![Expr::from(10)]);
         let b = graph.input(DType::F32, vec![Expr::from(10)]);
@@ -511,6 +558,7 @@ mod tests {
 
     #[test]
     fn test_lower_permuted_add() {
+        setup_logger();
         let graph = Graph::new();
         let a = graph.input(DType::F32, vec![10.into(), 20.into()]);
         let b = graph.input(DType::F32, vec![20.into(), 10.into()]);
@@ -548,6 +596,7 @@ mod tests {
 
     #[test]
     fn test_lower_reduce_sum_2d() {
+        setup_logger();
         let graph = Graph::new();
         let a = graph.input(DType::F32, vec![Expr::from(10), Expr::from(20)]);
         let b = a.sum(1).as_output(); // Reduce axis 1
@@ -588,6 +637,7 @@ mod tests {
 
     #[test]
     fn test_lower_unary_sin() {
+        setup_logger();
         let graph = Graph::new();
         let a = graph.input(DType::F32, vec![10.into()]);
         let b = a.sin().as_output();
@@ -608,26 +658,5 @@ mod tests {
         } else {
             panic!("Expected a range node");
         }
-    }
-
-    #[test]
-    fn test_lower_contiguous() {
-        let graph = Graph::new();
-        let a = graph.input(DType::F32, vec![10.into(), 20.into()]);
-        let b = a.permute(vec![1, 0]);
-        let c = b.contiguous().as_output();
-
-        let mut lowerer = Lowerer::new(&graph);
-        lowerer.lower();
-
-        // The source of contiguous `c` is `b`
-        let (buffer_b, tracker_b) = &lowerer.cache[&b.id];
-        assert!(!tracker_b.is_contiguous());
-
-        // The result of contiguous `c` should be a new buffer and a contiguous tracker
-        let (ast_c, tracker_c) = &lowerer.cache[&c.id];
-        assert_ne!(&ast_c.op, &buffer_b.op); // Should be a new buffer (Range op)
-        assert!(tracker_c.is_contiguous());
-        assert_eq!(tracker_c.shape(), tracker_b.shape());
     }
 }

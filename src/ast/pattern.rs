@@ -1,8 +1,10 @@
 use crate::ast::{AstNode, Op};
+use log::{debug, info, trace};
 use rustc_hash::FxHashMap;
 use std::rc::Rc;
 
 pub struct RewriteRule {
+    name: String,
     pattern: AstNode,
     rewriter: Box<dyn Fn(Vec<AstNode>) -> AstNode>,
 }
@@ -14,8 +16,16 @@ impl RewriteRule {
         pattern: &AstNode,
         store: &mut FxHashMap<usize, AstNode>,
     ) -> bool {
+        trace!(
+            "Scanning target node {:?} with pattern node {:?}",
+            target.op, pattern.op
+        );
         if let Op::Capture(id, dtype) = &pattern.op {
             if !dtype.matches(&target.dtype) {
+                trace!(
+                    "Capture type mismatch: pattern {:?}, target {:?}",
+                    dtype, target.dtype
+                );
                 return false;
             }
             if let Some(existing) = store.get(id) {
@@ -26,6 +36,10 @@ impl RewriteRule {
         }
 
         if !pattern.dtype.matches(&target.dtype) {
+            trace!(
+                "Node type mismatch: pattern {:?}, target {:?}",
+                pattern.dtype, target.dtype
+            );
             return false;
         }
 
@@ -63,17 +77,27 @@ impl RewriteRule {
 
         // Then apply to the current node
         if let Some(captures) = self.capture(&new_target) {
-            (self.rewriter)(captures)
+            debug!(
+                "Rule '{}' matched node {:?}. Applying rewrite.",
+                self.name, new_target.op
+            );
+            let rewritten_node = (self.rewriter)(captures);
+            trace!(
+                "Node {:?} rewritten to {:?}",
+                new_target.op, rewritten_node.op
+            );
+            rewritten_node
         } else {
             new_target
         }
     }
 
-    pub fn new<F>(pattern: AstNode, rewriter: F) -> Rc<RewriteRule>
+    pub fn new<F>(name: &str, pattern: AstNode, rewriter: F) -> Rc<RewriteRule>
     where
         F: Fn(Vec<AstNode>) -> AstNode + 'static,
     {
         Rc::new(RewriteRule {
+            name: name.to_string(),
             pattern,
             rewriter: Box::new(rewriter),
         })
@@ -100,19 +124,30 @@ impl AstRewriter {
     }
 
     pub fn apply(&self, mut node: AstNode) -> AstNode {
-        for _ in 0..self.max_iterations {
+        info!("Starting AST rewrite process...");
+        for i in 0..self.max_iterations {
             let mut changed = false;
+            let original_node = node.clone();
+
             for rule in &self.rules {
-                let new_node = rule.apply_all(node.clone());
-                if new_node != node {
-                    node = new_node;
-                    changed = true;
-                }
+                trace!("Applying rule '{}'", rule.name);
+                node = rule.apply_all(node);
             }
+
+            if original_node != node {
+                changed = true;
+            }
+
             if !changed {
+                info!("Rewrite reached fixed point after {i} iterations.");
                 return node;
             }
+            debug!("AST changed in iteration {i}. Continuing...");
         }
+        info!(
+            "Rewrite finished after reaching max iterations ({}).",
+            self.max_iterations
+        );
         node
     }
 
@@ -130,7 +165,7 @@ impl AstRewriter {
 
 #[macro_export]
 macro_rules! rule {
-    (| $($capture: ident),* | $pattern: expr => $rewriter: expr ) => {
+    ($name: expr, | $($capture: ident),* | $pattern: expr => $rewriter: expr ) => {
         {
             use $crate::ast::DType;
             let mut counter = 0..;
@@ -145,7 +180,7 @@ macro_rules! rule {
                 )*
                 $rewriter
             };
-            RewriteRule::new(pattern, rewriter)
+            RewriteRule::new($name, pattern, rewriter)
         }
     };
 }
@@ -155,13 +190,20 @@ mod tests {
     use super::*;
     use crate::ast::AstNode;
 
+    fn setup_logger() {
+        // Initialize the logger for tests, ignoring errors if it's already set up
+        let _ = env_logger::builder().is_test(true).try_init();
+    }
+
     #[test]
     fn test_rule_macro() {
-        let _rule = rule!(|a, b| a + b => b + a);
+        setup_logger();
+        let _rule = rule!("test_rule", |a, b| a + b => b + a);
     }
 
     #[test]
     fn test_apply_all() {
+        setup_logger();
         let x = AstNode::var("x");
         let y = AstNode::var("y");
         // (x + y) + (x + y)
@@ -169,7 +211,7 @@ mod tests {
         // (x - y) - (x - y)
         let expected = (x.clone() - y.clone()) - (x.clone() - y.clone());
 
-        let rule = rule!(|a, b| a + b => a - b);
+        let rule = rule!("plus_to_minus", |a, b| a + b => a - b);
         let result = rule.apply_all(target);
 
         assert_eq!(result, expected);
@@ -177,6 +219,7 @@ mod tests {
 
     #[test]
     fn test_ast_rewriter_fixed_point() {
+        setup_logger();
         use super::RewriteRule;
         use crate::ast::DType;
         let x = AstNode::var("x").with_type(DType::F32);
@@ -186,7 +229,7 @@ mod tests {
 
         let pattern = AstNode::capture(0, DType::F32) * 1.0f32;
         let rewriter_fn = |nodes: Vec<AstNode>| nodes[0].clone();
-        let rule = RewriteRule::new(pattern, rewriter_fn);
+        let rule = RewriteRule::new("mul_by_one", pattern, rewriter_fn);
         let rewriter = AstRewriter::new(vec![rule]);
 
         let result = rewriter.apply(target);
@@ -195,12 +238,14 @@ mod tests {
 
     #[test]
     fn test_ast_rewriter_commutative() {
+        setup_logger();
         let x = AstNode::var("x");
         let y = AstNode::var("y");
         let target = y.clone() + x.clone();
         let expected = x.clone() + y.clone();
 
-        let rewriter = AstRewriter::new(vec![rule!(|a, b| a + b => b + a)]).with_max_iterations(1); // Should only need one iteration
+        let rewriter = AstRewriter::new(vec![rule!("commutative_add", |a, b| a + b => b + a)])
+            .with_max_iterations(1); // Should only need one iteration
 
         let result = rewriter.apply(target);
         assert_eq!(result, expected);
@@ -208,6 +253,7 @@ mod tests {
 
     #[test]
     fn test_ast_rewriter_distributive_law() {
+        setup_logger();
         let a = AstNode::var("a");
         let b = AstNode::var("b");
         let c = AstNode::var("c");
@@ -216,9 +262,9 @@ mod tests {
         // a * b + a * c
         let expected = (a.clone() * b.clone()) + (a.clone() * c.clone());
 
-        let rewriter = AstRewriter::new(vec![
-            rule!(|x, y, z| x.clone() * (y.clone() + z.clone()) => (x.clone() * y) + (x * z)),
-        ]);
+        let rewriter = AstRewriter::new(vec![rule!("distributive", |x, y, z| x.clone()
+            * (y.clone() + z.clone()) =>
+            (x.clone() * y) + (x * z))]);
 
         let result = rewriter.apply(target);
         assert_eq!(result, expected);
@@ -226,6 +272,7 @@ mod tests {
 
     #[test]
     fn test_ast_rewriter_type_match() {
+        setup_logger();
         use crate::ast::DType;
 
         let a_real = AstNode::var("a").with_type(DType::F32);
@@ -234,7 +281,7 @@ mod tests {
         // This rule should only apply to Real types
         let pattern = AstNode::capture(0, DType::Real);
         let rewriter_fn = |nodes: Vec<AstNode>| nodes[0].clone().with_type(DType::F64);
-        let rule = RewriteRule::new(pattern, rewriter_fn);
+        let rule = RewriteRule::new("real_to_f64", pattern, rewriter_fn);
 
         let rewriter = AstRewriter::new(vec![rule]);
 
