@@ -113,9 +113,7 @@ impl<'a> Lowerer<'a> {
             debug!("Cache hit for node {node_id:?}");
             return cached.clone();
         }
-        trace!(
-            "Cache miss for node {node_id:?}. Proceeding with lowering."
-        );
+        trace!("Cache miss for node {node_id:?}. Proceeding with lowering.");
 
         let node_data = self.graph.nodes.borrow()[node_id.0].clone();
         debug!("Lowering node {:?} with op {:?}", node_id, node_data.op);
@@ -133,9 +131,7 @@ impl<'a> Lowerer<'a> {
                     debug!("Node {node_id:?} is already contiguous. No-op.");
                     return (src_buffer, src_tracker);
                 }
-                debug!(
-                    "Node {node_id:?} is not contiguous. Generating copy loop."
-                );
+                debug!("Node {node_id:?} is not contiguous. Generating copy loop.");
 
                 let dst_buffer = AstNode::var(&self.new_buffer_name("output"));
                 let dst_tracker = ShapeTracker::new(node_data.shape.clone());
@@ -222,6 +218,11 @@ impl<'a> Lowerer<'a> {
             TensorOp::Unsqueeze(axis) => {
                 let (src_buffer, src_tracker) = self.lower_node(node_data.src[0]);
                 let new_tracker = src_tracker.unsqueeze(axis);
+                (src_buffer, new_tracker)
+            }
+            TensorOp::Expand(new_shape) => {
+                let (src_buffer, src_tracker) = self.lower_node(node_data.src[0]);
+                let new_tracker = src_tracker.expand(new_shape);
                 (src_buffer, new_tracker)
             }
             TensorOp::Elementwise(op) => {
@@ -511,6 +512,21 @@ mod tests {
         let (_, tracker_c) = &lowerer.cache[&c.id];
         assert_eq!(tracker_c.shape(), &[1.into(), 10.into(), 20.into()]);
         assert_eq!(tracker_c.strides(), &[0.into(), 20.into(), 1.into()]);
+    }
+
+    #[test]
+    fn test_lower_expand() {
+        setup_logger();
+        let graph = Graph::new();
+        let a = graph.input(DType::F32, vec![1.into(), 20.into()]);
+        let b = a.expand(vec![10.into(), 20.into()]).as_output();
+
+        let mut lowerer = Lowerer::new(&graph);
+        lowerer.lower();
+
+        let (_, tracker) = &lowerer.cache[&b.id];
+        assert_eq!(tracker.shape(), &[10.into(), 20.into()]);
+        assert_eq!(tracker.strides(), &[0.into(), 1.into()]);
     }
 
     #[test]

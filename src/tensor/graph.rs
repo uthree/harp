@@ -81,6 +81,8 @@ pub enum TensorOp {
     Squeeze(usize),
     /// Adds a dimension of size 1.
     Unsqueeze(usize),
+    /// Expands a tensor to a new shape.
+    Expand(Vec<Expr>),
     /// An operation that concatenates tensors along a specific axis.
     Concatenate(usize),
 
@@ -305,6 +307,23 @@ impl Graph {
         let new_shape = tracker.unsqueeze(axis).shape().to_vec();
         self.add_node(TensorOp::Unsqueeze(axis), vec![src], dtype, new_shape)
     }
+
+    pub fn expand(&self, src: NodeId, new_shape: Vec<Expr>) -> NodeId {
+        let (dtype, shape) = {
+            let nodes = self.nodes.borrow();
+            let src_node = &nodes[src.0];
+            (src_node.dtype.clone(), src_node.shape.clone())
+        };
+        let tracker = crate::tensor::shape::tracker::ShapeTracker::new(shape);
+        // This just validates the expand operation. The final shape is `new_shape`.
+        let _ = tracker.expand(new_shape.clone());
+        self.add_node(
+            TensorOp::Expand(new_shape.clone()),
+            vec![src],
+            dtype,
+            new_shape,
+        )
+    }
 }
 
 impl<'a> NodeView<'a> {
@@ -358,6 +377,12 @@ impl<'a> NodeView<'a> {
     /// Adds a dimension of size 1 at a specified axis.
     pub fn unsqueeze(&self, axis: usize) -> NodeView<'a> {
         let new_id = self.graph.unsqueeze(self.id, axis);
+        self.graph.get_view(new_id)
+    }
+
+    /// Expands the tensor to a new shape.
+    pub fn expand(&self, new_shape: Vec<Expr>) -> NodeView<'a> {
+        let new_id = self.graph.expand(self.id, new_shape);
         self.graph.get_view(new_id)
     }
 
@@ -593,6 +618,28 @@ mod tests {
 
         assert_eq!(c.op(), TensorOp::Unsqueeze(0));
         assert_eq!(c.shape(), vec![1.into(), 10.into(), 20.into()]);
+    }
+
+    #[test]
+    fn test_expand() {
+        let graph = Graph::new();
+        let a = graph.input(DType::F32, vec![1.into(), 20.into()]);
+        let new_shape = vec![10.into(), 20.into()];
+        let b = a.expand(new_shape.clone());
+
+        assert_eq!(b.op(), TensorOp::Expand(new_shape.clone()));
+        assert_eq!(b.src(), vec![a.id]);
+        assert_eq!(b.shape(), new_shape);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_expand_invalid() {
+        let graph = Graph::new();
+        let a = graph.input(DType::F32, vec![2.into(), 20.into()]);
+        let new_shape = vec![10.into(), 20.into()];
+        // This should panic because the original dimension is not 1.
+        a.expand(new_shape);
     }
 
     #[test]

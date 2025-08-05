@@ -175,4 +175,76 @@ impl ShapeTracker {
         self.strides.remove(axis);
         self
     }
+
+    /// Expands the tensor to a new shape without copying data.
+    ///
+    /// This is done by setting the stride of the expanded dimension to 0.
+    /// The expanded dimensions must have been of size 1.
+    ///
+    /// # Arguments
+    ///
+    /// * `new_shape` - The target shape.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the expansion is invalid (e.g., trying to expand a dimension
+    /// that is not of size 1).
+    pub fn expand(self, new_shape: Vec<Expr>) -> Self {
+        assert_eq!(
+            self.ndim(),
+            new_shape.len(),
+            "expand must not change the number of dimensions"
+        );
+
+        let mut new_strides = self.strides.clone();
+        for (i, (old_dim, new_dim)) in self.shape.iter().zip(&new_shape).enumerate() {
+            if old_dim == new_dim {
+                continue;
+            }
+            assert_eq!(*old_dim, 1.into(), "can only expand a dimension of size 1");
+            new_strides[i] = 0.into();
+        }
+
+        ShapeTracker {
+            shape: new_shape,
+            strides: new_strides,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_expand_simple() {
+        let tracker = ShapeTracker::new(vec![1.into(), 10.into()]);
+        let expanded = tracker.expand(vec![5.into(), 10.into()]);
+        assert_eq!(expanded.shape(), &[5.into(), 10.into()]);
+        assert_eq!(expanded.strides(), &[0.into(), 1.into()]);
+    }
+
+    #[test]
+    fn test_expand_multiple_dims() {
+        let tracker = ShapeTracker::new(vec![1.into(), 20.into(), 1.into()]);
+        let expanded = tracker.expand(vec![10.into(), 20.into(), 30.into()]);
+        assert_eq!(expanded.shape(), &[10.into(), 20.into(), 30.into()]);
+        assert_eq!(expanded.strides(), &[0.into(), 1.into(), 0.into()]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_expand_invalid_dim() {
+        let tracker = ShapeTracker::new(vec![2.into(), 10.into()]);
+        // This should panic because the first dimension is not 1.
+        tracker.expand(vec![5.into(), 10.into()]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_expand_wrong_ndim() {
+        let tracker = ShapeTracker::new(vec![1.into(), 10.into()]);
+        // This should panic because the number of dimensions is different.
+        tracker.expand(vec![5.into(), 10.into(), 1.into()]);
+    }
 }
