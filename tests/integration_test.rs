@@ -59,7 +59,7 @@ fn test_full_flow_add() {
     // 4. Compile C code
     let mut compiler = CCompiler::default();
     assert!(compiler.check_availability());
-    let kernel = <CCompiler as Compiler<MockBuffer, _, ()>>::compile(&mut compiler, &code);
+    let kernel = <CCompiler as Compiler<MockBuffer, _, ()>>::compile(&mut compiler, code);
 
     // 5. Prepare data and run kernel
     let buf_a = MockBuffer {
@@ -125,7 +125,7 @@ fn test_full_flow_complex_fusion() {
     // 5. Compile C code
     let mut compiler = CCompiler::default();
     assert!(compiler.check_availability());
-    let kernel = <CCompiler as Compiler<MockBuffer, _, ()>>::compile(&mut compiler, &code);
+    let kernel = <CCompiler as Compiler<MockBuffer, _, ()>>::compile(&mut compiler, code);
 
     // 6. Prepare data and run kernel
     let buf_a = MockBuffer {

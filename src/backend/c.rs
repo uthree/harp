@@ -219,10 +219,7 @@ impl<Var: Buffer> Kernel<Var> for CKernel {
     }
 }
 
-impl<Var: Buffer, CodeRepr, CompilerOption> Compiler<Var, CodeRepr, CompilerOption> for CCompiler
-where
-    CodeRepr: AsRef<str>,
-{
+impl<Var: Buffer, CompilerOption> Compiler<Var, String, CompilerOption> for CCompiler {
     fn new() -> Self {
         CCompiler::default()
     }
@@ -235,13 +232,13 @@ where
         unimplemented!();
     }
 
-    fn compile(&mut self, code: CodeRepr) -> impl Kernel<Var> {
+    fn compile(&mut self, code: String) -> impl Kernel<Var> {
         let mut source_file = tempfile::Builder::new()
             .prefix("kernel")
             .suffix(".c")
             .tempfile_in("/tmp")
             .unwrap();
-        std::io::Write::write_all(&mut source_file, code.as_ref().as_bytes()).unwrap();
+        std::io::Write::write_all(&mut source_file, code.as_bytes()).unwrap();
 
         let out_dir = tempfile::tempdir_in("/tmp").unwrap();
 
