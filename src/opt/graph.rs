@@ -2,6 +2,7 @@
 
 use crate::ast::{AstNode, Op as AstOp};
 use crate::tensor::graph::{Graph, NodeId, NodeView, TensorOp};
+use log::{debug, info, trace};
 use std::collections::HashMap;
 
 /// A pattern to match against a node in the graph.
@@ -56,6 +57,7 @@ impl Rewriter {
     ///
     /// Returns a new, optimized graph.
     pub fn rewrite(&self, graph: &Graph) -> Graph {
+        info!("Starting graph rewrite process...");
         let new_graph = Graph::new();
         let mut memo = HashMap::new(); // memoization table for rewritten nodes
 
@@ -76,6 +78,11 @@ impl Rewriter {
         new_inputs.sort_by_key(|a| a.0);
         *new_graph.inputs.borrow_mut() = new_inputs;
 
+        info!(
+            "Graph rewrite complete. Original size: {} nodes, New size: {} nodes.",
+            graph.nodes.borrow().len(),
+            new_graph.nodes.borrow().len()
+        );
         new_graph
     }
 
@@ -89,25 +96,37 @@ impl Rewriter {
     ) -> NodeId {
         // If we've already rewritten this node, return the memoized ID
         if let Some(&new_id) = memo.get(&node_id) {
+            trace!("Memo hit for node {node_id:?}");
             return new_id;
         }
 
         let view = old_graph.get_view(node_id);
+        trace!("Rewriting node {:?}: {:?}", view.id, view.op());
 
         // First, try to apply a rule to the current node
         for rule in &self.rules {
             let mut captures = HashMap::new();
+            trace!("Attempting to apply rule '{}'", rule.name);
             if rule.pattern.match_node(view, &mut captures) {
+                debug!(
+                    "Rule '{}' matched node {:?}. Applying rewrite.",
+                    rule.name, view.id
+                );
                 // If a rule matches, we use the replacer to generate the new node.
                 // The replacer is responsible for recursively rewriting the captured nodes.
                 let new_id = (rule.replacer)(self, new_graph, old_graph, memo, &captures, node_id);
                 memo.insert(node_id, new_id);
+                trace!(
+                    "Node {:?} rewritten to {:?} by rule '{}'",
+                    node_id, new_id, rule.name
+                );
                 return new_id;
             }
         }
 
         // If no rule matches, rewrite the node's inputs and then create a copy
         // of the current node in the new graph.
+        trace!("No rule matched for node {:?}. Rewriting inputs.", view.id);
         let old_node = &old_graph.nodes.borrow()[node_id.0];
         let new_src = old_node
             .src
@@ -122,6 +141,7 @@ impl Rewriter {
             old_node.shape.clone(),
         );
         memo.insert(node_id, new_id);
+        trace!("Node {node_id:?} copied to new node {new_id:?}");
         new_id
     }
 }
@@ -129,9 +149,14 @@ impl Rewriter {
 impl Pattern {
     /// Attempts to match this pattern against a given `NodeView`.
     pub fn match_node(&self, view: NodeView, captures: &mut HashMap<usize, NodeId>) -> bool {
+        trace!("Matching pattern {:?} against node {:?}", self, view.id);
         match self {
-            Pattern::Wildcard => true,
+            Pattern::Wildcard => {
+                trace!("Wildcard matched node {:?}", view.id);
+                true
+            }
             Pattern::Capture(id) => {
+                trace!("Captured node {:?} as @{}", view.id, id);
                 captures.insert(*id, view.id);
                 true
             }
@@ -141,6 +166,10 @@ impl Pattern {
 
                 // Check if the operation and number of arguments match
                 if !op_pattern.matches(&node_op) || arg_patterns.len() != node_src.len() {
+                    trace!(
+                        "Op pattern mismatch or wrong arg count for node {:?}",
+                        view.id
+                    );
                     return false;
                 }
 
@@ -151,6 +180,7 @@ impl Pattern {
                         return false;
                     }
                 }
+                trace!("Op pattern fully matched node {:?}", view.id);
                 true
             }
         }
@@ -227,8 +257,14 @@ mod tests {
     use crate::ast::{DType, Op as AstOp};
     use crate::tensor::graph::Graph;
 
+    fn setup_logger() {
+        // Initialize the logger for tests, ignoring errors if it's already set up
+        let _ = env_logger::builder().is_test(true).try_init();
+    }
+
     #[test]
     fn test_elementwise_fusion() {
+        setup_logger();
         // 1. Create the original graph for: a * b + c
         let graph = Graph::new();
         let a = graph.input(DType::F32, vec![]);
