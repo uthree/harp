@@ -43,8 +43,8 @@ pub trait Buffer: Drop {
     /// Returns the data type of the elements in the buffer.
     fn dtype(&self) -> DType;
 
-    /// Returns the shape of the buffer as a `Vec` of symbolic expressions.
-    fn shape(&self) -> Vec<Expr>;
+    /// 形状を返す。Bufferとして実態を持っている時点でサイズは確定しているので、Exprではない。
+    fn shape(&self) -> Vec<usize>;
 
     /// Returns the total number of elements in the buffer.
     fn size(&self) -> usize {
