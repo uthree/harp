@@ -230,7 +230,6 @@ impl ShapeTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
 
     #[test]
     fn test_expand_simple() {

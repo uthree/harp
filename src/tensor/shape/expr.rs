@@ -74,7 +74,7 @@ impl Expr {
     /// assert_eq!(expr.simplify(), n);
     /// ```
     pub fn simplify(self) -> Self {
-        debug!("Simplifying expr: {}", self);
+        debug!("Simplifying expr: {self}");
         let simplified = match self {
             Expr::Add(lhs, rhs) => {
                 let lhs = lhs.simplify();
@@ -133,7 +133,7 @@ impl Expr {
             }
             _ => self,
         };
-        debug!("Simplified to: {}", simplified);
+        debug!("Simplified to: {simplified}");
         simplified
     }
 }

@@ -3,13 +3,9 @@
 use crate::ast::{AstNode, Const, DType, Op};
 use crate::backend::{Buffer, Compiler, Kernel, Renderer};
 use libloading::{Library, Symbol};
+use log::debug;
 use std::ffi::c_void;
 use std::fmt::Write;
-use tempfile::NamedTempFile;
-
-use log::debug;
-
-// --- Existing CRenderer implementation ---
 
 /// A renderer that converts an `AstNode` into a C source code string.
 #[derive(Default)]
@@ -39,11 +35,11 @@ impl CRenderer {
                 self.write_indent();
                 write!(self.buffer, "for (int {loop_var} = 0; {loop_var} < ").unwrap();
                 self.render_node(max);
-                self.writeln(") {");
+                writeln!(self.buffer, "; {loop_var}++) {{").unwrap();
                 self.indent_level += 1;
                 self.render_node(block);
                 self.indent_level -= 1;
-                self.writeln("} ");
+                self.writeln("}");
             }
             Op::FuncDef { name, args, body } => {
                 let args_str: Vec<String> = args
@@ -76,19 +72,19 @@ impl CRenderer {
             }
             Op::Store { dst, src } => {
                 self.write_indent();
-                write!(self.buffer, "*(").unwrap();
                 self.render_node(dst);
-                write!(self.buffer, ") = ").unwrap();
+                write!(self.buffer, " = ").unwrap();
                 self.render_node(src);
-                self.writeln("; ");
+                self.writeln(";");
             }
             Op::Load(addr) => {
-                write!(self.buffer, "*(").unwrap();
+                // The address itself is what we want to render, e.g., buffer[index]
                 self.render_node(addr);
-                write!(self.buffer, ")").unwrap();
             }
             Op::BufferIndex { buffer, index } => {
+                write!(self.buffer, "(").unwrap();
                 self.render_node(buffer);
+                write!(self.buffer, ")").unwrap();
                 write!(self.buffer, "[").unwrap();
                 self.render_node(index);
                 write!(self.buffer, "]").unwrap();
@@ -166,25 +162,34 @@ impl Renderer for CRenderer {
     fn render(&mut self, ast: AstNode) -> String {
         self.buffer.clear();
         self.indent_level = 0;
+        // Add standard headers
+        self.buffer.push_str("#include <stddef.h>\n");
+        self.buffer.push_str("#include <math.h>\n\n"); // For fmax, etc.
+
         self.render_node(&ast);
         let code = self.buffer.clone();
-        debug!("Rendered C code:\n{}", code);
+        debug!("Rendered C code:\n{code}");
         code
     }
 }
 
-// --- New CCompiler and CKernel implementation ---
-
-/// A C compiler that uses the `cc` crate to compile C code into a dynamic library.
+/// A C compiler that uses shell commands to compile C code into a dynamic library.
 #[derive(Default)]
 pub struct CCompiler {
     // Options for the C compiler can be added here.
 }
 
 impl CCompiler {
-    /// Checks if a C compiler is available on the system.
+    /// Checks if a C compiler is available on the system by running `cc --version`.
     pub fn check_availability(&self) -> bool {
-        cc::Build::new().try_get_compiler().is_ok()
+        let compiler = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
+        let result = std::process::Command::new(compiler)
+            .arg("--version")
+            .output();
+        match result {
+            Ok(output) => output.status.success(),
+            Err(_) => false,
+        }
     }
 }
 
@@ -196,7 +201,7 @@ pub struct CKernel {
 }
 
 impl<Var: Buffer> Kernel<Var> for CKernel {
-    fn call(&self, buffers: Vec<Var>, shape_variables: Vec<usize>) -> Vec<Var> {
+    fn call(&self, mut buffers: Vec<Var>, shape_variables: Vec<usize>) -> Vec<Var> {
         type CFunc = unsafe extern "C" fn(*mut *mut c_void, *const usize);
 
         unsafe {
@@ -205,10 +210,8 @@ impl<Var: Buffer> Kernel<Var> for CKernel {
                 .get(self.func_name.as_bytes())
                 .expect("Failed to load symbol from library");
 
-            let mut buffer_ptrs: Vec<*mut c_void> = buffers
-                .iter()
-                .map(|b| std::mem::transmute(b)) // UNSAFE: Placeholder
-                .collect();
+            let mut buffer_ptrs: Vec<*mut c_void> =
+                buffers.iter_mut().map(|b| b.as_mut_ptr()).collect();
 
             func(buffer_ptrs.as_mut_ptr(), shape_variables.as_ptr());
         }
@@ -233,25 +236,48 @@ where
     }
 
     fn compile(&mut self, code: CodeRepr) -> impl Kernel<Var> {
-        let mut source_file = NamedTempFile::new().unwrap();
+        let mut source_file = tempfile::Builder::new()
+            .prefix("kernel")
+            .suffix(".c")
+            .tempfile_in("/tmp")
+            .unwrap();
         std::io::Write::write_all(&mut source_file, code.as_ref().as_bytes()).unwrap();
 
-        let out_dir = tempfile::tempdir().unwrap();
-        let lib_name = "kernel";
+        let out_dir = tempfile::tempdir_in("/tmp").unwrap();
 
-        cc::Build::new()
-            .file(source_file.path())
-            .shared_flag(true)
-            .pic(true)
-            .opt_level(3)
-            .out_dir(out_dir.path())
-            .compile(lib_name);
+        let (lib_name, compiler) = if cfg!(target_os = "macos") {
+            ("kernel.dylib", "clang")
+        } else {
+            ("kernel.so", "gcc")
+        };
+        let lib_path = out_dir.path().join(lib_name);
 
-        let lib_path = out_dir.path().join(format!("lib{lib_name}.so"));
-        #[cfg(target_os = "macos")]
-        let lib_path = out_dir.path().join(format!("lib{lib_name}.dylib"));
-        #[cfg(target_os = "windows")]
-        let lib_path = out_dir.path().join(format!("{}.dll", lib_name));
+        let command = format!(
+            "{} -shared -fPIC -O3 -o {} {}",
+            compiler,
+            lib_path.to_str().unwrap(),
+            source_file.path().to_str().unwrap()
+        );
+
+        debug!("Running compile command: {command}");
+
+        let output = std::process::Command::new(compiler)
+            .arg("-shared")
+            .arg("-fPIC")
+            .arg("-O3")
+            .arg("-o")
+            .arg(&lib_path)
+            .arg(source_file.path())
+            .output()
+            .expect("Failed to execute compiler");
+
+        if !output.status.success() {
+            panic!(
+                "Compiler failed with status {:?}:\n{}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
 
         let library = unsafe { Library::new(&lib_path).expect("Failed to load dynamic library") };
 
@@ -271,7 +297,11 @@ mod tests {
 
     #[derive(Debug)]
     struct MockBuffer(Vec<f32>);
-    impl Buffer for MockBuffer {}
+    impl Buffer for MockBuffer {
+        fn as_mut_ptr(&mut self) -> *mut c_void {
+            self.0.as_mut_ptr() as *mut c_void
+        }
+    }
 
     #[test]
     fn test_render_func_def() {
@@ -291,7 +321,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_compile_and_run_c_kernel() {
-        let c_code = r#"
+        let c_code = r#"#
             #include <stddef.h>
             void kernel_main(void** buffers, size_t* shape_vars) {
                 float* buf0 = (float*)buffers[0];
@@ -308,10 +338,9 @@ mod tests {
         let buf1 = MockBuffer(vec![1.0, 2.0]);
         let buf2 = MockBuffer(vec![3.0, 4.0]);
 
-        let buffers = vec![buf1, buf2];
-        let shape_vars = vec![];
+        // The kernel modifies buf1 in place.
+        let result_buffers = kernel.call(vec![buf1, buf2], vec![]);
 
-        let result_buffers = kernel.call(buffers, shape_vars);
         assert_eq!(result_buffers.len(), 2);
     }
 }

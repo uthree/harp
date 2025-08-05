@@ -23,7 +23,11 @@ pub trait Kernel<Var: Buffer> {
     fn call(&self, buffers: Vec<Var>, shape_variables: Vec<usize>) -> Vec<Var>;
 }
 
-pub trait Buffer {}
+use std::ffi::c_void;
+
+pub trait Buffer {
+    fn as_mut_ptr(&mut self) -> *mut c_void;
+}
 
 pub struct KernelDetails {
     shape_variables: Vec<String>,
