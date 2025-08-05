@@ -40,3 +40,18 @@ harpは大きく分けて2つの最適化が可能な機会が存在する。
 # 最適化アルゴリズムとその組み合わせを型で表現する
 最適化アルゴリズムは手法や種類が多数あるため、それらに共通する部分をtraitで表現する必要がある。
 また、それらのアルゴリズム同士を簡単に組み合わせられると便利である。
+
+## 決定論的AST オプティマイザー
+おそらくこれが一番単純。
+ほとんどの場合、パターンマッチングによる単純な置き換えを使うはず。
+```rust
+trait DeterministicAstOptimizer {
+    fn optimize(&AstNode) -> AstNode
+}
+```
+
+## 決定論的グラフ オプティマイザー
+```rust
+trait DeterministicGraphOptimizer {
+    fn optimize(&Graph) -> Graph
+}
