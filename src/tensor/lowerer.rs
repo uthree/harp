@@ -5,6 +5,7 @@
 //! explicit, loop-based representation that is closer to executable code.
 
 use crate::ast::{AstNode, DType, Op as AstOp};
+use crate::backend::{BufferInfo, KernelDetails};
 use crate::tensor::graph::{Graph, NodeId, TensorOp};
 use crate::tensor::shape::tracker::ShapeTracker;
 use log::{debug, info, trace};
@@ -81,34 +82,63 @@ impl<'a> Lowerer<'a> {
     ///
     /// This method creates a unified entry point with a stable signature:
     /// `void kernel_main(void** buffers, size_t* shape_vars)`
-    pub fn lower(&mut self) -> AstNode {
+    pub fn lower(&mut self) -> (AstNode, KernelDetails) {
         info!("Starting lowering process for the entire graph...");
+
+        let mut details = KernelDetails::default();
+        let mut buffer_info_map = HashMap::new();
 
         // 1. Identify all input and output buffers and assign them an index.
         let mut current_buffer_idx = 0;
         let mut inputs = vec![];
-        // Note: Iterating with enumerate to get a stable NodeId
         for (i, node) in self.graph.nodes.borrow().iter().enumerate() {
             if node.op == TensorOp::Input {
                 let node_id = NodeId(i);
                 self.buffer_map.insert(node_id, current_buffer_idx);
                 inputs.push(node_id);
+                buffer_info_map.insert(
+                    current_buffer_idx,
+                    BufferInfo {
+                        dtype: node.dtype.clone(),
+                        shape: node.shape.clone(),
+                    },
+                );
                 current_buffer_idx += 1;
             }
         }
 
         let outputs: Vec<_> = self.graph.outputs.borrow().clone();
         for &output_id in &outputs {
-            // If an output is not already an input, assign it a buffer index.
+            let node_data = &self.graph.nodes.borrow()[output_id.0];
             self.buffer_map.entry(output_id).or_insert_with(|| {
                 let idx = current_buffer_idx;
+                buffer_info_map.insert(
+                    idx,
+                    BufferInfo {
+                        dtype: node_data.dtype.clone(),
+                        shape: node_data.shape.clone(),
+                    },
+                );
                 current_buffer_idx += 1;
                 idx
             });
         }
 
+        // Populate KernelDetails buffers in the correct order
+        for i in 0..current_buffer_idx {
+            details.buffers.push(buffer_info_map.remove(&i).unwrap());
+        }
+
+        // Collect all unique shape variables
+        let mut shape_vars = std::collections::HashSet::new();
+        for info in &details.buffers {
+            for expr in &info.shape {
+                expr.collect_variables(&mut shape_vars);
+            }
+        }
+        details.shape_variables = shape_vars.into_iter().collect();
+
         // 2. Lower all output nodes to generate the computation logic.
-        // The result of lower_node for an output is the AST that computes and stores the result.
         let mut body = vec![];
         for &output_id in &outputs {
             let (ast_node, _tracker) = self.lower_node(output_id);
@@ -135,7 +165,7 @@ impl<'a> Lowerer<'a> {
 
         let final_ast = AstNode::func_def(&func_name, args, func_body);
         info!("Lowering process completed.");
-        final_ast
+        (final_ast, details)
     }
 
     /// Recursively lowers a single node from the graph into an AST.
@@ -345,7 +375,7 @@ mod tests {
         (a + b).as_output();
 
         let mut lowerer = Lowerer::new(&graph);
-        let ast = lowerer.lower();
+        let (ast, details) = lowerer.lower();
 
         if let AstOp::FuncDef { name, args, body } = ast.op {
             assert_eq!(name, "kernel_main");
@@ -356,6 +386,8 @@ mod tests {
         } else {
             panic!("Expected a FuncDef node, found {:?}", ast.op);
         }
+        assert_eq!(details.buffers.len(), 3);
+        assert_eq!(details.shape_variables.len(), 0);
     }
 
     #[test]
@@ -364,10 +396,10 @@ mod tests {
         let graph = Graph::new();
         let a = graph.input(DType::F32, vec![10.into()]); // buffer 0
         let b = graph.input(DType::F32, vec![10.into()]); // buffer 1
-        let c = (a + b).as_output(); // buffer 2
+        (a + b).as_output(); // buffer 2
 
         let mut lowerer = Lowerer::new(&graph);
-        let ast = lowerer.lower();
+        let (ast, _details) = lowerer.lower();
         // println!("{}", ast.pretty_print()); // For debugging
 
         // Check that the body of the function contains a store to buffers[2]
@@ -405,10 +437,10 @@ mod tests {
         setup_logger();
         let graph = Graph::new();
         let a = graph.input(DType::F32, vec![10.into(), 20.into()]); // buffer 0
-        let b = a.sum(1).as_output(); // buffer 1
+        let _b = a.sum(1).as_output(); // buffer 1
 
         let mut lowerer = Lowerer::new(&graph);
-        let ast = lowerer.lower();
+        let (ast, _details) = lowerer.lower();
         // println!("{}", ast.pretty_print()); // For debugging
 
         if let AstOp::FuncDef { body, .. } = ast.op {

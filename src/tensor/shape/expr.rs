@@ -138,6 +138,24 @@ impl Expr {
         }
         simplified
     }
+
+    /// Recursively traverses the expression and collects the names of all `Var` nodes.
+    pub fn collect_variables(&self, vars: &mut std::collections::HashSet<String>) {
+        match self {
+            Expr::Var(name) => {
+                vars.insert(name.clone());
+            }
+            Expr::Add(l, r)
+            | Expr::Sub(l, r)
+            | Expr::Mul(l, r)
+            | Expr::Div(l, r)
+            | Expr::Rem(l, r) => {
+                l.collect_variables(vars);
+                r.collect_variables(vars);
+            }
+            Expr::Const(_) => {}
+        }
+    }
 }
 
 impl From<i64> for Expr {
