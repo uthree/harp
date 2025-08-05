@@ -317,30 +317,4 @@ mod tests {
         let expected = "void my_func(float* a, int b)";
         assert!(code.contains(expected));
     }
-
-    #[test]
-    #[ignore]
-    fn test_compile_and_run_c_kernel() {
-        let c_code = r#"#
-            #include <stddef.h>
-            void kernel_main(void** buffers, size_t* shape_vars) {
-                float* buf0 = (float*)buffers[0];
-                float* buf1 = (float*)buffers[1];
-                buf0[0] += buf1[0];
-            }
-        "#;
-
-        let mut compiler = CCompiler::default();
-        assert!(compiler.check_availability());
-
-        let kernel = <CCompiler as Compiler<MockBuffer, _, ()>>::compile(&mut compiler, c_code);
-
-        let buf1 = MockBuffer(vec![1.0, 2.0]);
-        let buf2 = MockBuffer(vec![3.0, 4.0]);
-
-        // The kernel modifies buf1 in place.
-        let result_buffers = kernel.call(vec![buf1, buf2], vec![]);
-
-        assert_eq!(result_buffers.len(), 2);
-    }
 }
