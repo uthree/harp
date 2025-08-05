@@ -8,6 +8,8 @@
 use crate::ast::{AstNode, DType};
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, RemAssign, Sub, SubAssign};
 
+use log::debug;
+
 /// Represents a symbolic expression for tensor dimensions and strides.
 ///
 /// This enum can represent constants, symbolic variables (like 'N' for batch size),
@@ -29,6 +31,20 @@ pub enum Expr {
     Div(Box<Expr>, Box<Expr>),
     /// The remainder of two expressions.
     Rem(Box<Expr>, Box<Expr>),
+}
+
+impl std::fmt::Display for Expr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Expr::Const(c) => write!(f, "{c}"),
+            Expr::Var(v) => write!(f, "{v}"),
+            Expr::Add(l, r) => write!(f, "({l} + {r})"),
+            Expr::Sub(l, r) => write!(f, "({l} - {r})"),
+            Expr::Mul(l, r) => write!(f, "({l} * {r})"),
+            Expr::Div(l, r) => write!(f, "({l} / {r})"),
+            Expr::Rem(l, r) => write!(f, "({l} % {r})"),
+        }
+    }
 }
 
 impl Expr {
@@ -58,7 +74,8 @@ impl Expr {
     /// assert_eq!(expr.simplify(), n);
     /// ```
     pub fn simplify(self) -> Self {
-        match self {
+        debug!("Simplifying expr: {}", self);
+        let simplified = match self {
             Expr::Add(lhs, rhs) => {
                 let lhs = lhs.simplify();
                 let rhs = rhs.simplify();
@@ -115,7 +132,9 @@ impl Expr {
                 }
             }
             _ => self,
-        }
+        };
+        debug!("Simplified to: {}", simplified);
+        simplified
     }
 }
 

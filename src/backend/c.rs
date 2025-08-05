@@ -7,6 +7,8 @@ use std::ffi::c_void;
 use std::fmt::Write;
 use tempfile::NamedTempFile;
 
+use log::debug;
+
 // --- Existing CRenderer implementation ---
 
 /// A renderer that converts an `AstNode` into a C source code string.
@@ -21,13 +23,13 @@ impl CRenderer {
     fn render_node(&mut self, ast: &AstNode) {
         match &ast.op {
             Op::Block => {
-                self.writeln("{");
+                self.writeln("{ ");
                 self.indent_level += 1;
                 for node in &ast.src {
                     self.render_node(node);
                 }
                 self.indent_level -= 1;
-                self.writeln("}");
+                self.writeln("} ");
             }
             Op::Range {
                 loop_var,
@@ -41,18 +43,18 @@ impl CRenderer {
                 self.indent_level += 1;
                 self.render_node(block);
                 self.indent_level -= 1;
-                self.writeln("}");
+                self.writeln("} ");
             }
             Op::FuncDef { name, args, body } => {
                 let args_str: Vec<String> = args
                     .iter()
                     .map(|(name, dtype)| format!("{} {}", self.dtype_to_c(dtype), name))
                     .collect();
-                self.writeln(&format!("void {}({}) {{", name, args_str.join(", ")));
+                self.writeln(&format!("void {}({}) {{ ", name, args_str.join(", ")));
                 self.indent_level += 1;
                 self.render_node(body);
                 self.indent_level -= 1;
-                self.writeln("}");
+                self.writeln("} ");
             }
             Op::Call(name) => {
                 self.write_indent();
@@ -63,14 +65,14 @@ impl CRenderer {
                     }
                     self.render_node(arg);
                 }
-                self.writeln(");");
+                self.writeln("); ");
             }
             Op::Assign { dst, src } => {
                 self.write_indent();
                 self.render_node(dst);
                 write!(self.buffer, " = ").unwrap();
                 self.render_node(src);
-                self.writeln(";");
+                self.writeln("; ");
             }
             Op::Store { dst, src } => {
                 self.write_indent();
@@ -78,7 +80,7 @@ impl CRenderer {
                 self.render_node(dst);
                 write!(self.buffer, ") = ").unwrap();
                 self.render_node(src);
-                self.writeln(";");
+                self.writeln("; ");
             }
             Op::Load(addr) => {
                 write!(self.buffer, "*(").unwrap();
@@ -143,7 +145,7 @@ impl CRenderer {
             DType::U64 => "size_t".to_string(),
             DType::Void => "void".to_string(),
             DType::Ptr(inner) => format!("{}*", self.dtype_to_c(inner)),
-            _ => panic!("DType {dtype:?} not supported in C renderer"),
+            _ => panic!("DType {{dtype:?}} not supported in C renderer"),
         }
     }
 
@@ -165,7 +167,9 @@ impl Renderer for CRenderer {
         self.buffer.clear();
         self.indent_level = 0;
         self.render_node(&ast);
-        self.buffer.clone()
+        let code = self.buffer.clone();
+        debug!("Rendered C code:\n{}", code);
+        code
     }
 }
 
