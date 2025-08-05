@@ -1,5 +1,7 @@
 use crate::ast::{AstNode, DType};
 
+pub mod c;
+
 pub trait Device<Var: Buffer> {
     fn allocate(&mut self, dtype: DType, size: usize) -> Var;
     fn free(&mut self, var: Var);
