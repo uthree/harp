@@ -37,7 +37,7 @@ mod tests {
     use super::*;
     use crate::backend::TryIntoNdarray;
     use crate::tensor::shape::expr::Expr;
-    use ndarray::{arr2, ArrayD};
+    use ndarray::{ArrayD, arr2};
 
     #[test]
     fn test_ndarray_buffer_trait_f32() {
