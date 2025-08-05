@@ -236,7 +236,7 @@ impl AstNode {
                 body: Box::new(body),
             },
             vec![],
-            DType::None,
+            DType::Void,
         )
     }
 
@@ -247,6 +247,89 @@ impl AstNode {
             args.into_iter().map(Box::new).collect(),
             DType::Any, // Return type is often context-dependent
         )
+    }
+
+    // --- AST Construction Helpers ---
+
+    /// Creates a new `Block` node.
+    pub fn block(body: Vec<AstNode>) -> Self {
+        Self::new(
+            Op::Block,
+            body.into_iter().map(Box::new).collect(),
+            DType::Void,
+        )
+    }
+
+    /// Creates a new `Range` (for-loop) node.
+    pub fn range(loop_var: String, max: AstNode, block: AstNode) -> Self {
+        Self::new(
+            Op::Range {
+                loop_var,
+                max: Box::new(max),
+                block: Box::new(block),
+            },
+            vec![],
+            DType::Void,
+        )
+    }
+
+    /// Creates a new `BufferIndex` node.
+    pub fn buffer_index(self, index: AstNode) -> Self {
+        let ptr_dtype = if let DType::Ptr(inner) = self.dtype.clone() {
+            *inner
+        } else {
+            DType::Any // Or panic, depending on strictness
+        };
+        Self::new(
+            Op::BufferIndex {
+                buffer: Box::new(self),
+                index: Box::new(index),
+            },
+            vec![],
+            ptr_dtype,
+        )
+    }
+
+    /// Creates a new `Load` node.
+    pub fn load(addr: AstNode) -> Self {
+        let dtype = addr.dtype.clone();
+        Self::new(Op::Load(Box::new(addr)), vec![], dtype)
+    }
+
+    /// Creates a new `Store` node.
+    pub fn store(dst: AstNode, src: AstNode) -> Self {
+        Self::new(
+            Op::Store {
+                dst: Box::new(dst),
+                src: Box::new(src),
+            },
+            vec![],
+            DType::Void,
+        )
+    }
+
+    /// Creates a new `Assign` node.
+    pub fn assign(dst: AstNode, src: AstNode) -> Self {
+        Self::new(
+            Op::Assign {
+                dst: Box::new(dst),
+                src: Box::new(src),
+            },
+            vec![],
+            DType::Void,
+        )
+    }
+
+    /// Nests a statement inside a series of loops.
+    pub fn build_loops(loops: Vec<AstNode>, statement: AstNode) -> AstNode {
+        let mut final_block = statement;
+        for mut loop_node in loops.into_iter().rev() {
+            if let Op::Range { ref mut block, .. } = loop_node.op {
+                *block = Box::new(final_block);
+            }
+            final_block = loop_node;
+        }
+        final_block
     }
 }
 
@@ -385,7 +468,7 @@ pub enum DType {
     U64,
     USize,
     /// Represents a void or empty type.
-    None,
+    Void,
     /// A pointer to another type.
     Ptr(Box<Self>),
     /// A fixed-size vector (array) of a type.
@@ -837,7 +920,7 @@ mod tests {
         let body = AstNode::new(
             Op::Block,
             vec![Box::new(a.clone() + b.clone())],
-            DType::None,
+            DType::Void,
         );
         let args = vec![("a".to_string(), DType::F32), ("b".to_string(), DType::F32)];
         let func = AstNode::func_def("my_add", args.clone(), body);

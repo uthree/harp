@@ -5,6 +5,7 @@
 //! tensor operations without copying data. The tracker holds the symbolic shape
 //! and the strides needed to compute the memory offset for any given index.
 
+use crate::ast::AstNode;
 use crate::tensor::shape::expr::Expr;
 
 /// Tracks the shape and strides of a tensor view.
@@ -210,11 +211,26 @@ impl ShapeTracker {
             strides: new_strides,
         }
     }
+
+    /// Calculates the memory offset expression for a given set of loop variables.
+    ///
+    /// This is the core function for translating logical indices into a flat
+    /// memory offset. It computes `sum(loop_vars[i] * strides[i])`.
+    pub fn offset_expr(&self, loop_vars: &[String]) -> Expr {
+        assert_eq!(self.ndim(), loop_vars.len());
+        self.strides
+            .iter()
+            .zip(loop_vars.iter())
+            .fold(Expr::from(0), |acc, (stride, var)| {
+                acc + stride.clone() * Expr::from(AstNode::var(var))
+            })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    
 
     #[test]
     fn test_expand_simple() {
