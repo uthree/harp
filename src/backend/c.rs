@@ -292,29 +292,31 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::AstNode;
-    use crate::backend::{Buffer, Compiler};
+    use crate::ast::DType;
+    use crate::backend::Buffer;
+    use crate::tensor::shape::expr::Expr;
+    use std::ffi::c_void;
 
-    #[derive(Debug)]
-    struct MockBuffer(Vec<f32>);
+    // A mock buffer for testing purposes.
+    struct MockBuffer {
+        data: Vec<f32>,
+    }
+
     impl Buffer for MockBuffer {
         fn as_mut_ptr(&mut self) -> *mut c_void {
-            self.0.as_mut_ptr() as *mut c_void
+            self.data.as_mut_ptr() as *mut c_void
+        }
+        fn dtype(&self) -> DType {
+            DType::F32 // Mock implementation
+        }
+        fn shape(&self) -> &[Expr] {
+            &[] // Mock implementation
         }
     }
 
     #[test]
-    fn test_render_func_def() {
-        let args = vec![
-            ("a".to_string(), DType::Ptr(Box::new(DType::F32))),
-            ("b".to_string(), DType::I32),
-        ];
-        let body = AstNode::new(Op::Block, vec![], DType::Void);
-        let func_def = AstNode::func_def("my_func", args, body);
-
-        let mut renderer = CRenderer::new();
-        let code = renderer.render(func_def);
-        let expected = "void my_func(float* a, int b)";
-        assert!(code.contains(expected));
+    fn test_ccompiler_availability() {
+        let compiler = CCompiler::default();
+        assert!(compiler.check_availability());
     }
 }

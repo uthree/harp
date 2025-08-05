@@ -1,7 +1,7 @@
 use harp::{
-    ast::{DType, Expr},
+    ast::DType,
     backend::{Buffer, Compiler, Kernel, Renderer, c::*},
-    tensor::{graph::Graph, lowerer::Lowerer},
+    tensor::{graph::Graph, lowerer::Lowerer, shape::expr::Expr},
 };
 use std::ffi::c_void;
 
