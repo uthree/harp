@@ -20,7 +20,11 @@ pub trait Renderer<CodeRepr = String> {
     fn render(&mut self, ast: AstNode) -> CodeRepr;
 }
 pub trait Kernel<Var: Buffer> {
-    fn call(&self, buffers: Vec<Var>) -> Vec<Var>;
+    fn call(&self, buffers: Vec<Var>, shape_variables: Vec<usize>) -> Vec<Var>;
 }
 
 pub trait Buffer {}
+
+pub struct KernelDetails {
+    shape_variables: Vec<String>,
+}
