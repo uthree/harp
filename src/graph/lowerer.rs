@@ -503,15 +503,36 @@ mod tests {
         let mut lowerer = Lowerer::new(&graph);
         let (ast, details) = lowerer.lower();
 
-        if let AstOp::Func { name, args, body } = ast.op {
-            assert_eq!(name, "kernel_main");
-            assert_eq!(args.len(), 2);
-            assert_eq!(args[0].0, "buffers");
-            assert_eq!(args[1].0, "shape_vars");
-            assert!(matches!(body.op, AstOp::Block));
+        // The top-level AST node should be a Program.
+        if let AstOp::Program = ast.op {
+            assert_eq!(ast.src.len(), 2, "Program should contain two functions");
+
+            // Find kernel_main in the program
+            let kernel_main = ast
+                .src
+                .iter()
+                .find(|node| {
+                    if let AstOp::Func { name, .. } = &node.op {
+                        name == "kernel_main"
+                    } else {
+                        false
+                    }
+                })
+                .expect("kernel_main function not found in program");
+
+            if let AstOp::Func { name, args, body } = &kernel_main.op {
+                assert_eq!(*name, "kernel_main");
+                assert_eq!(args.len(), 2);
+                assert_eq!(args[0].0, "buffers");
+                assert_eq!(args[1].0, "shape_vars");
+                assert!(matches!(body.op, AstOp::Block));
+            } else {
+                panic!("Expected a FuncDef node for kernel_main");
+            }
         } else {
-            panic!("Expected a FuncDef node, found {:?}", ast.op);
+            panic!("Expected a Program node, found {:?}", ast.op);
         }
+
         assert_eq!(details.buffers.len(), 3);
         assert_eq!(details.shape_variables.len(), 0);
     }
@@ -526,26 +547,38 @@ mod tests {
 
         let mut lowerer = Lowerer::new(&graph);
         let (ast, _details) = lowerer.lower();
-        // println!("{}", ast.pretty_print()); // For debugging
 
-        // Check that the body of the function contains a store to buffers[2]
-        if let AstOp::Func { body, .. } = ast.op {
-            // body -> Block -> [elementwise_ast, reduce_ast, ...]
+        // Find the kernel_impl function
+        let kernel_impl = ast
+            .src
+            .iter()
+            .find(|node| {
+                if let AstOp::Func { name, .. } = &node.op {
+                    name == "kernel_impl"
+                } else {
+                    false
+                }
+            })
+            .expect("kernel_impl function not found");
+
+        // Check that the body of the function contains a store to the correct buffer
+        if let AstOp::Func { body, .. } = &kernel_impl.op {
+            // body -> Block -> [elementwise_ast]
             let elementwise_ast = &body.src[0];
             if let AstOp::Range { block, .. } = &elementwise_ast.op {
                 if let AstOp::Store { dst, src } = &block.op {
-                    // dst should be something like `((float*)buffers[2])[ridx0]`
+                    // dst should be `buf2[ridx0]`
                     if let AstOp::BufferIndex { buffer, .. } = &dst.op {
-                        if let AstOp::Cast(..) = &buffer.op {
-                            // Correct structure
+                        if let AstOp::Var(name) = &buffer.op {
+                            assert_eq!(name, "buf2");
                         } else {
-                            panic!("Destination buffer not a cast");
+                            panic!("Destination buffer is not the correct variable");
                         }
                     } else {
                         panic!("Destination not a buffer index");
                     }
 
-                    // src should be `... + ...`
+                    // src should be `buf0[...] + buf1[...]`
                     assert!(matches!(src.op, AstOp::Add));
                 } else {
                     panic!("Expected store node, found {:?}", block.op);
@@ -554,7 +587,7 @@ mod tests {
                 panic!("Expected range node, found {:?}", elementwise_ast.op);
             }
         } else {
-            panic!("Expected FuncDef");
+            panic!("Expected FuncDef for kernel_impl");
         }
     }
 
@@ -567,20 +600,32 @@ mod tests {
 
         let mut lowerer = Lowerer::new(&graph);
         let (ast, _details) = lowerer.lower();
-        // println!("{}", ast.pretty_print()); // For debugging
 
-        if let AstOp::Func { body, .. } = ast.op {
+        // Find the kernel_impl function
+        let kernel_impl = ast
+            .src
+            .iter()
+            .find(|node| {
+                if let AstOp::Func { name, .. } = &node.op {
+                    name == "kernel_impl"
+                } else {
+                    false
+                }
+            })
+            .expect("kernel_impl function not found");
+
+        if let AstOp::Func { body, .. } = &kernel_impl.op {
             let reduce_ast = &body.src[0];
             if let AstOp::Range { block, .. } = &reduce_ast.op {
                 // block contains [init_acc, inner_loop, store_result]
                 let store_node = &block.src[2];
                 if let AstOp::Store { dst, .. } = &store_node.op {
                     if let AstOp::BufferIndex { buffer, .. } = &dst.op {
-                        // We are checking if the destination is a pointer cast from the buffers array
-                        if let AstOp::Cast(..) = &buffer.op {
-                            // This is the correct structure
+                        // We are checking if the destination is the correct buffer variable
+                        if let AstOp::Var(name) = &buffer.op {
+                            assert_eq!(name, "buf1");
                         } else {
-                            panic!("Expected destination to be a cast from buffers array");
+                            panic!("Expected destination to be a buffer variable");
                         }
                     } else {
                         panic!("Expected destination to be a buffer index");
@@ -592,7 +637,7 @@ mod tests {
                 panic!("Expected outer loop, found {:?}", reduce_ast.op);
             }
         } else {
-            panic!("Expected FuncDef");
+            panic!("Expected FuncDef for kernel_impl");
         }
     }
 }
