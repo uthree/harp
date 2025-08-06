@@ -17,6 +17,8 @@ pub struct CBuffer {
     dtype: DType,
 }
 
+
+
 impl Buffer for CBuffer {
     fn as_mut_bytes(&mut self) -> &mut [u8] {
         unsafe {
@@ -94,7 +96,7 @@ impl CRenderer {
             }
             AstOp::Call(name) => {
                 self.write_indent();
-                write!(self.buffer, "{{name}}(").unwrap();
+                write!(self.buffer, "{}(", name).unwrap();
                 for (i, arg) in ast.src.iter().enumerate() {
                     if i > 0 {
                         write!(self.buffer, ", ").unwrap();
@@ -156,7 +158,7 @@ impl CRenderer {
     }
 
     fn render_binary_op_func(&mut self, func_name: &str, ast: &AstNode) {
-        write!(self.buffer, "{{func_name}}(").unwrap();
+        write!(self.buffer, "{}(", func_name).unwrap();
         self.render_node(&ast.src[0]);
         write!(self.buffer, ", ").unwrap();
         self.render_node(&ast.src[1]);
@@ -165,10 +167,10 @@ impl CRenderer {
 
     fn render_const(&mut self, c: &Const) {
         match c {
-            Const::F32(v) => write!(self.buffer, "{{v}}").unwrap(),
-            Const::F64(v) => write!(self.buffer, "{{v}}").unwrap(),
-            Const::I32(v) => write!(self.buffer, "{{v}}").unwrap(),
-            Const::I64(v) => write!(self.buffer, "{{v}}").unwrap(),
+            Const::F32(v) => write!(self.buffer, "{}", v).unwrap(),
+            Const::F64(v) => write!(self.buffer, "{}", v).unwrap(),
+            Const::I32(v) => write!(self.buffer, "{}", v).unwrap(),
+            Const::I64(v) => write!(self.buffer, "{}", v).unwrap(),
             _ => unimplemented!("Const type not supported in C renderer"),
         }
     }
@@ -181,8 +183,8 @@ impl CRenderer {
             DType::I64 => "long long".to_string(),
             DType::U64 => "size_t".to_string(),
             DType::Void => "void".to_string(),
-            DType::Ptr(inner) => format!("*{{{}}}", self.dtype_to_c(inner)),
-            DType::FixedArray(inner, ..) => format!("*{{{}}}", self.dtype_to_c(inner)),
+            DType::Ptr(inner) => format!("{}*", self.dtype_to_c(inner)),
+            DType::FixedArray(inner, ..) => format!("{}*", self.dtype_to_c(inner)),
             _ => panic!("DType {{dtype:?}} not supported in C renderer"),
         }
     }
@@ -193,7 +195,7 @@ impl CRenderer {
 
     fn writeln(&mut self, s: &str) {
         self.write_indent();
-        writeln!(self.buffer, "{{{s}}}").unwrap();
+        writeln!(self.buffer, "{}", s).unwrap();
     }
 }
 
@@ -210,7 +212,7 @@ impl Renderer for CRenderer {
 
         self.render_node(&ast);
         let code = self.buffer.clone();
-        debug!("Rendered C code:\n{{code}}");
+        debug!("Rendered C code:\n{code}");
         code
     }
 }
@@ -290,14 +292,12 @@ impl Compiler<CBuffer, String, ()> for CCompiler {
         };
         let lib_path = out_dir.path().join(lib_name);
 
-        let command = format!(
-            "{} -shared -fPIC -O3 -o {} {}",
+        debug!(
+            "Running compile command: {} -shared -fPIC -O3 -o {} {}",
             compiler,
             lib_path.to_str().unwrap(),
             source_file.path().to_str().unwrap()
         );
-
-        debug!("Running compile command: {{command}}");
 
         let output = std::process::Command::new(compiler)
             .arg("-shared")
