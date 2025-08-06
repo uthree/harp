@@ -111,4 +111,3 @@ pub trait Device<Var: Buffer> {
 
 // --- Submodules ---
 pub mod c;
-pub mod ndarray;
