@@ -10,11 +10,7 @@ pub struct RewriteRule {
 }
 
 impl RewriteRule {
-    fn scan(
-        target: &AstNode,
-        pattern: &AstNode,
-        store: &mut FxHashMap<usize, AstNode>,
-    ) -> bool {
+    fn scan(target: &AstNode, pattern: &AstNode, store: &mut FxHashMap<usize, AstNode>) -> bool {
         trace!(
             "Scanning target node {:?} with pattern node {:?}",
             target.op, pattern.op

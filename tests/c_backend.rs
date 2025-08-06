@@ -3,8 +3,8 @@
 use harp::ast::{AstNode, DType};
 use harp::backend::c::{CBuffer, CCompiler, CRenderer};
 use harp::backend::{Compiler, Kernel, Renderer, TryIntoNdarray};
-use harp::graph::lowerer::Lowerer;
 use harp::graph::Graph;
+use harp::graph::lowerer::Lowerer;
 use ndarray::ArrayD;
 use std::ffi::c_void;
 
@@ -208,7 +208,11 @@ fn test_c_backend_e2e_add() {
     let c_result_buffer = &mut result_buffers[2];
     let c_result_array = c_result_buffer.try_into_ndarray::<f32>().unwrap();
 
-    let expected_data: Vec<f32> = a_data.iter().zip(b_data.iter()).map(|(x, y)| x + y).collect();
+    let expected_data: Vec<f32> = a_data
+        .iter()
+        .zip(b_data.iter())
+        .map(|(x, y)| x + y)
+        .collect();
     let expected_array = ArrayD::from_shape_vec(shape, expected_data).unwrap();
 
     assert_eq!(c_result_array, expected_array);
