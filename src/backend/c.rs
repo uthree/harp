@@ -11,20 +11,16 @@ use std::fmt::Write;
 pub struct CBuffer {
     /// Raw pointer to the allocated memory.
     pub ptr: *mut c_void,
-    /// The number of elements in the buffer.
-    pub size: usize,
+    /// The shape of the buffer.
+    pub shape: Vec<usize>,
     /// The data type of the elements.
     pub dtype: DType,
 }
 
 impl Buffer for CBuffer {
     fn as_mut_bytes(&mut self) -> &mut [u8] {
-        unsafe {
-            std::slice::from_raw_parts_mut(
-                self.ptr as *mut u8,
-                self.size * self.dtype.size_in_bytes(),
-            )
-        }
+        let byte_size = self.size() * self.dtype.size_in_bytes();
+        unsafe { std::slice::from_raw_parts_mut(self.ptr as *mut u8, byte_size) }
     }
 
     fn dtype(&self) -> DType {
@@ -32,7 +28,7 @@ impl Buffer for CBuffer {
     }
 
     fn shape(&self) -> Vec<usize> {
-        vec![self.size]
+        self.shape.clone()
     }
 }
 

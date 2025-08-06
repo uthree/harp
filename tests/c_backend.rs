@@ -136,8 +136,12 @@ fn test_render_store() {
 }
 
 /// Helper function to create a CBuffer from a slice of data.
-fn buffer_from_slice<T: Clone>(data: &[T], dtype: DType) -> CBuffer {
-    let size = data.len();
+fn buffer_from_slice<T: Clone>(data: &[T], shape: &[usize], dtype: DType) -> CBuffer {
+    assert_eq!(
+        data.len(),
+        shape.iter().product(),
+        "Data length must match the product of shape dimensions"
+    );
     let byte_size = std::mem::size_of_val(data);
     let ptr = unsafe { libc::malloc(byte_size) };
     assert!(!ptr.is_null(), "Failed to allocate memory for buffer");
@@ -146,19 +150,20 @@ fn buffer_from_slice<T: Clone>(data: &[T], dtype: DType) -> CBuffer {
     }
     CBuffer {
         ptr: ptr as *mut c_void,
-        size,
+        shape: shape.to_vec(),
         dtype,
     }
 }
 
 /// Helper function to create an empty CBuffer for output.
-fn empty_buffer(size: usize, dtype: DType) -> CBuffer {
+fn empty_buffer(shape: &[usize], dtype: DType) -> CBuffer {
+    let size: usize = shape.iter().product();
     let byte_size = size * dtype.size_in_bytes();
     let ptr = unsafe { libc::malloc(byte_size) };
     assert!(!ptr.is_null(), "Failed to allocate memory for buffer");
     CBuffer {
         ptr: ptr as *mut c_void,
-        size,
+        shape: shape.to_vec(),
         dtype,
     }
 }
@@ -173,8 +178,9 @@ fn test_c_backend_e2e_add() {
 
     // 1. Build Graph: c = a + b
     let graph = Graph::new();
-    let a = graph.input(DType::F32, vec![10.into()]);
-    let b = graph.input(DType::F32, vec![10.into()]);
+    let shape = vec![10];
+    let a = graph.input(DType::F32, shape.iter().map(|&d| d.into()).collect());
+    let b = graph.input(DType::F32, shape.iter().map(|&d| d.into()).collect());
     (a + b).as_output();
 
     // 2. Lower and Render
@@ -189,11 +195,10 @@ fn test_c_backend_e2e_add() {
     // 4. Prepare data and call kernel
     let a_data: Vec<f32> = (0..10).map(|i| i as f32).collect();
     let b_data: Vec<f32> = (0..10).map(|i| (i * 2) as f32).collect();
-    let c_size = 10;
 
-    let a_buffer = buffer_from_slice(&a_data, DType::F32);
-    let b_buffer = buffer_from_slice(&b_data, DType::F32);
-    let c_buffer = empty_buffer(c_size, DType::F32);
+    let a_buffer = buffer_from_slice(&a_data, &shape, DType::F32);
+    let b_buffer = buffer_from_slice(&b_data, &shape, DType::F32);
+    let c_buffer = empty_buffer(&shape, DType::F32);
 
     let mut result_buffers = kernel.call(vec![a_buffer, b_buffer, c_buffer], vec![]);
 
@@ -203,7 +208,7 @@ fn test_c_backend_e2e_add() {
     let c_result_array = c_result_buffer.try_into_ndarray::<f32>().unwrap();
 
     let expected_data: Vec<f32> = a_data.iter().zip(b_data.iter()).map(|(x, y)| x + y).collect();
-    let expected_array = ArrayD::from_shape_vec(vec![c_size], expected_data).unwrap();
+    let expected_array = ArrayD::from_shape_vec(shape, expected_data).unwrap();
 
     assert_eq!(c_result_array, expected_array);
 }
