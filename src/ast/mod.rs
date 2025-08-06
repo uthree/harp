@@ -497,7 +497,7 @@ impl DType {
             DType::U32 => TypeId::of::<u32>(),
             DType::U64 => TypeId::of::<u64>(),
             DType::USize => TypeId::of::<usize>(),
-            _ => panic!("Cannot convert {:?} to TypeId", self),
+            _ => panic!("Cannot convert {self:?} to TypeId"),
         }
     }
 
@@ -539,7 +539,7 @@ impl DType {
             DType::USize => std::mem::size_of::<usize>(),
             DType::Ptr(_) => std::mem::size_of::<*const ()>(),
             DType::FixedArray(..) => std::mem::size_of::<*const ()>(),
-            _ => panic!("Cannot get size of {:?}", self),
+            _ => panic!("Cannot get size of {self:?}"),
         }
     }
 

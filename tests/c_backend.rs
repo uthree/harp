@@ -1,8 +1,8 @@
 // tests/c_backend.rs
 
 use harp::ast::{AstNode, DType};
-use harp::backend::c::{CRenderer};
-use harp::backend::{Renderer};
+use harp::backend::Renderer;
+use harp::backend::c::CRenderer;
 
 // Helper function to render an AST node and compare it with the expected output.
 fn assert_render(node: AstNode, expected: &str) {
@@ -79,10 +79,7 @@ fn test_render_const() {
 /// Tests that an assignment operation is rendered correctly.
 #[test]
 fn test_render_assign() {
-    let ast = AstNode::assign(
-        AstNode::var("x").with_type(DType::I32),
-        42i32.into(),
-    );
+    let ast = AstNode::assign(AstNode::var("x").with_type(DType::I32), 42i32.into());
     let expected = "x = 42;";
     assert_render(ast, expected);
 }

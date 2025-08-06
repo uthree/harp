@@ -74,9 +74,7 @@ pub trait TryIntoNdarray: Buffer {
         }
 
         let bytes = self.as_mut_bytes();
-        let data_slice = unsafe {
-            std::slice::from_raw_parts(bytes.as_ptr() as *const T, size)
-        };
+        let data_slice = unsafe { std::slice::from_raw_parts(bytes.as_ptr() as *const T, size) };
         let data_vec = data_slice.to_vec();
         ArrayD::from_shape_vec(shape, data_vec).ok()
     }

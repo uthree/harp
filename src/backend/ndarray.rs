@@ -16,7 +16,7 @@ where
         unsafe {
             std::slice::from_raw_parts_mut(
                 slice.as_mut_ptr() as *mut u8,
-                slice.len() * std::mem::size_of::<A>(),
+                std::mem::size_of_val(slice),
             )
         }
     }
@@ -29,5 +29,3 @@ where
         self.shape().to_vec()
     }
 }
-
-

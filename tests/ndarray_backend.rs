@@ -1,8 +1,8 @@
 // tests/ndarray_backend.rs
 
-use harp::backend::{Buffer, TryIntoNdarray};
 use harp::ast::DType;
-use ndarray::{arr2, ArrayD};
+use harp::backend::{Buffer, TryIntoNdarray};
+use ndarray::{ArrayD, arr2};
 
 /// Tests that the `Buffer` trait is implemented correctly for `ndarray::Array` with `f32` elements.
 #[test]
