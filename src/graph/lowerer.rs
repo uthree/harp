@@ -424,8 +424,18 @@ impl<'a> Lowerer<'a> {
                     AstOp::Mul => AstNode::from(1.0f32),
                     AstOp::Max => AstNode::from(f32::NEG_INFINITY),
                     _ => unimplemented!("Unsupported reduce op"),
-                };
-                let init_acc = AstNode::assign(AstNode::var(&acc_var), init_val);
+                }
+                .with_type(node_data.dtype.clone());
+
+                let init_acc = AstNode::new(
+                    AstOp::Declare {
+                        name: acc_var.clone(),
+                        dtype: node_data.dtype.clone(),
+                        value: Box::new(init_val),
+                    },
+                    vec![],
+                    DType::Void,
+                );
 
                 let inner_loop_var = self.new_loop_counter();
                 let mut full_indices = outer_loop_vars.clone();
@@ -435,10 +445,13 @@ impl<'a> Lowerer<'a> {
                     AstNode::deref(src_buffer.buffer_index(src_offset.simplify().into()));
 
                 let update_acc = AstNode::assign(
-                    AstNode::var(&acc_var),
+                    AstNode::var(&acc_var).with_type(node_data.dtype.clone()),
                     AstNode::new(
                         op,
-                        vec![Box::new(AstNode::var(&acc_var)), Box::new(load_val)],
+                        vec![
+                            Box::new(AstNode::var(&acc_var).with_type(node_data.dtype.clone())),
+                            Box::new(load_val),
+                        ],
                         node_data.dtype.clone(),
                     ),
                 );
@@ -446,13 +459,13 @@ impl<'a> Lowerer<'a> {
                 let inner_loop = AstNode::range(
                     inner_loop_var,
                     src_tracker.shape()[axis].clone().into(),
-                    update_acc,
+                    AstNode::block(vec![update_acc]),
                 );
 
                 let dst_offset = dst_tracker.offset_expr(&outer_loop_vars);
                 let store_result = AstNode::store(
                     dst_buffer.buffer_index(dst_offset.simplify().into()),
-                    AstNode::var(&acc_var),
+                    AstNode::var(&acc_var).with_type(node_data.dtype.clone()),
                 );
 
                 let reduction_block = AstNode::block(vec![init_acc, inner_loop, store_result]);

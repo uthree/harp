@@ -208,7 +208,13 @@ impl CRenderer {
 
     fn render_const(&mut self, c: &Const) {
         match c {
+            Const::F32(v) if v.is_infinite() && v.is_sign_negative() => {
+                write!(self.buffer, "-INFINITY").unwrap()
+            }
             Const::F32(v) => write!(self.buffer, "{v}").unwrap(),
+            Const::F64(v) if v.is_infinite() && v.is_sign_negative() => {
+                write!(self.buffer, "-INFINITY").unwrap()
+            }
             Const::F64(v) => write!(self.buffer, "{v}").unwrap(),
             Const::I8(v) => write!(self.buffer, "(int8_t){v}").unwrap(),
             Const::I16(v) => write!(self.buffer, "(int16_t){v}").unwrap(),
