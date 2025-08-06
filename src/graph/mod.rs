@@ -301,6 +301,47 @@ impl Graph {
         self.add_node(TensorOp::Elementwise(AstOp::Sin), vec![src], dtype, shape)
     }
 
+    pub fn sqrt(&self, src: NodeId) -> NodeId {
+        let (dtype, shape) = {
+            let nodes = self.nodes.borrow();
+            let src_node = &nodes[src.0];
+            (src_node.dtype.clone(), src_node.shape.clone())
+        };
+        self.add_node(TensorOp::Elementwise(AstOp::Sqrt), vec![src], dtype, shape)
+    }
+
+    pub fn log2(&self, src: NodeId) -> NodeId {
+        let (dtype, shape) = {
+            let nodes = self.nodes.borrow();
+            let src_node = &nodes[src.0];
+            (src_node.dtype.clone(), src_node.shape.clone())
+        };
+        self.add_node(TensorOp::Elementwise(AstOp::Log2), vec![src], dtype, shape)
+    }
+
+    pub fn exp2(&self, src: NodeId) -> NodeId {
+        let (dtype, shape) = {
+            let nodes = self.nodes.borrow();
+            let src_node = &nodes[src.0];
+            (src_node.dtype.clone(), src_node.shape.clone())
+        };
+        self.add_node(TensorOp::Elementwise(AstOp::Exp2), vec![src], dtype, shape)
+    }
+
+    pub fn recip(&self, src: NodeId) -> NodeId {
+        let (dtype, shape) = {
+            let nodes = self.nodes.borrow();
+            let src_node = &nodes[src.0];
+            (src_node.dtype.clone(), src_node.shape.clone())
+        };
+        self.add_node(
+            TensorOp::Elementwise(AstOp::Recip),
+            vec![src],
+            dtype,
+            shape,
+        )
+    }
+
     fn _reduce(&self, op: AstOp, src: NodeId, axis: usize) -> NodeId {
         let (dtype, mut shape) = {
             let nodes = self.nodes.borrow();
@@ -520,6 +561,30 @@ impl<'a> NodeView<'a> {
     /// Applies the element-wise sine function.
     pub fn sin(self) -> NodeView<'a> {
         let new_id = self.graph.sin(self.id);
+        self.graph.get_view(new_id)
+    }
+
+    /// Applies the element-wise square root function.
+    pub fn sqrt(self) -> NodeView<'a> {
+        let new_id = self.graph.sqrt(self.id);
+        self.graph.get_view(new_id)
+    }
+
+    /// Applies the element-wise base-2 logarithm function.
+    pub fn log2(self) -> NodeView<'a> {
+        let new_id = self.graph.log2(self.id);
+        self.graph.get_view(new_id)
+    }
+
+    /// Applies the element-wise base-2 exponential function.
+    pub fn exp2(self) -> NodeView<'a> {
+        let new_id = self.graph.exp2(self.id);
+        self.graph.get_view(new_id)
+    }
+
+    /// Applies the element-wise reciprocal (1/x) function.
+    pub fn recip(self) -> NodeView<'a> {
+        let new_id = self.graph.recip(self.id);
         self.graph.get_view(new_id)
     }
 }

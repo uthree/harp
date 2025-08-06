@@ -17,7 +17,7 @@ fn assert_render(node: AstNode, expected: &str) {
     // Normalize whitespace and remove initial headers for easier comparison
     let cleaned_code = rendered_code
         .lines()
-        .skip(2) // Skip header lines
+        .skip(3) // Skip header lines
         .map(|line| line.trim())
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>()
@@ -77,17 +77,50 @@ fn test_render_max() {
 /// Tests that a constant is rendered correctly.
 #[test]
 fn test_render_const() {
+    // F32
     let ast: AstNode = f32::consts::PI.into();
-    let expected = "3.1415927"; // The exact value might differ slightly
     let mut renderer = CRenderer::new();
     let rendered_code = renderer.render(ast);
     let cleaned_code = rendered_code
         .lines()
-        .skip(2)
+        .skip(3) // Skip header lines
         .map(|line| line.trim())
         .filter(|line| !line.is_empty())
         .collect::<String>();
-    assert!(cleaned_code.starts_with(&expected[..6]));
+    assert!(cleaned_code.starts_with("3.1415927"));
+
+    // I8
+    let ast: AstNode = (42i8).into();
+    let rendered_code = renderer.render(ast);
+    let cleaned_code = rendered_code
+        .lines()
+        .skip(3)
+        .map(|line| line.trim())
+        .filter(|line| !line.is_empty())
+        .collect::<String>();
+    assert_eq!(cleaned_code, "(int8_t)42");
+
+    // U32
+    let ast: AstNode = (123u32).into();
+    let rendered_code = renderer.render(ast);
+    let cleaned_code = rendered_code
+        .lines()
+        .skip(3)
+        .map(|line| line.trim())
+        .filter(|line| !line.is_empty())
+        .collect::<String>();
+    assert_eq!(cleaned_code, "123u");
+
+    // I64
+    let ast: AstNode = (9999999999i64).into();
+    let rendered_code = renderer.render(ast);
+    let cleaned_code = rendered_code
+        .lines()
+        .skip(3)
+        .map(|line| line.trim())
+        .filter(|line| !line.is_empty())
+        .collect::<String>();
+    assert_eq!(cleaned_code, "9999999999ll");
 }
 
 /// Tests that an assignment operation is rendered correctly.
@@ -397,6 +430,135 @@ fn test_c_backend_e2e_sin() {
     let b_result_array = b_result_buffer.try_into_ndarray::<f32>().unwrap();
 
     let expected_data: Vec<f32> = a_data.iter().map(|&x| x.sin()).collect();
+    let expected_array = ArrayD::from_shape_vec(shape, expected_data).unwrap();
+
+    assert_eq!(b_result_array, expected_array);
+}
+
+#[test]
+fn test_c_backend_e2e_sqrt() {
+    harp::init_logger();
+    let mut compiler = CCompiler::new();
+    if !compiler.is_available() {
+        eprintln!("Skipping C backend E2E test: C compiler not found.");
+        return;
+    }
+
+    let graph = Graph::new();
+    let shape = vec![10];
+    let a = graph.input(DType::F32, shape.iter().map(|&d| d.into()).collect());
+    a.sqrt().as_output();
+
+    let mut lowerer = Lowerer::new(&graph);
+    let (ast, _) = lowerer.lower();
+    let mut renderer = CRenderer::new();
+    let code = renderer.render(ast);
+    let kernel = compiler.compile(code);
+
+    let a_data: Vec<f32> = (0..10).map(|i| (i * i) as f32).collect();
+    let a_buffer = buffer_from_slice(&a_data, &shape, DType::F32);
+    let b_buffer = empty_buffer(&shape, DType::F32);
+
+    let mut result_buffers = kernel.call(vec![a_buffer, b_buffer], vec![]);
+    let b_result_array = result_buffers[1].try_into_ndarray::<f32>().unwrap();
+
+    let expected_data: Vec<f32> = a_data.iter().map(|&x| x.sqrt()).collect();
+    let expected_array = ArrayD::from_shape_vec(shape, expected_data).unwrap();
+
+    assert_eq!(b_result_array, expected_array);
+}
+
+#[test]
+fn test_c_backend_e2e_log2() {
+    harp::init_logger();
+    let mut compiler = CCompiler::new();
+    if !compiler.is_available() {
+        return;
+    }
+
+    let graph = Graph::new();
+    let shape = vec![10];
+    let a = graph.input(DType::F32, shape.iter().map(|&d| d.into()).collect());
+    a.log2().as_output();
+
+    let mut lowerer = Lowerer::new(&graph);
+    let (ast, _) = lowerer.lower();
+    let mut renderer = CRenderer::new();
+    let code = renderer.render(ast);
+    let kernel = compiler.compile(code);
+
+    let a_data: Vec<f32> = (1..11).map(|i| i as f32).collect();
+    let a_buffer = buffer_from_slice(&a_data, &shape, DType::F32);
+    let b_buffer = empty_buffer(&shape, DType::F32);
+
+    let mut result_buffers = kernel.call(vec![a_buffer, b_buffer], vec![]);
+    let b_result_array = result_buffers[1].try_into_ndarray::<f32>().unwrap();
+
+    let expected_data: Vec<f32> = a_data.iter().map(|&x| x.log2()).collect();
+    let expected_array = ArrayD::from_shape_vec(shape, expected_data).unwrap();
+
+    assert_eq!(b_result_array, expected_array);
+}
+
+#[test]
+fn test_c_backend_e2e_exp2() {
+    harp::init_logger();
+    let mut compiler = CCompiler::new();
+    if !compiler.is_available() {
+        return;
+    }
+
+    let graph = Graph::new();
+    let shape = vec![10];
+    let a = graph.input(DType::F32, shape.iter().map(|&d| d.into()).collect());
+    a.exp2().as_output();
+
+    let mut lowerer = Lowerer::new(&graph);
+    let (ast, _) = lowerer.lower();
+    let mut renderer = CRenderer::new();
+    let code = renderer.render(ast);
+    let kernel = compiler.compile(code);
+
+    let a_data: Vec<f32> = (0..10).map(|i| i as f32).collect();
+    let a_buffer = buffer_from_slice(&a_data, &shape, DType::F32);
+    let b_buffer = empty_buffer(&shape, DType::F32);
+
+    let mut result_buffers = kernel.call(vec![a_buffer, b_buffer], vec![]);
+    let b_result_array = result_buffers[1].try_into_ndarray::<f32>().unwrap();
+
+    let expected_data: Vec<f32> = a_data.iter().map(|&x| x.exp2()).collect();
+    let expected_array = ArrayD::from_shape_vec(shape, expected_data).unwrap();
+
+    assert_eq!(b_result_array, expected_array);
+}
+
+#[test]
+fn test_c_backend_e2e_recip() {
+    harp::init_logger();
+    let mut compiler = CCompiler::new();
+    if !compiler.is_available() {
+        return;
+    }
+
+    let graph = Graph::new();
+    let shape = vec![10];
+    let a = graph.input(DType::F32, shape.iter().map(|&d| d.into()).collect());
+    a.recip().as_output();
+
+    let mut lowerer = Lowerer::new(&graph);
+    let (ast, _) = lowerer.lower();
+    let mut renderer = CRenderer::new();
+    let code = renderer.render(ast);
+    let kernel = compiler.compile(code);
+
+    let a_data: Vec<f32> = (1..11).map(|i| i as f32).collect();
+    let a_buffer = buffer_from_slice(&a_data, &shape, DType::F32);
+    let b_buffer = empty_buffer(&shape, DType::F32);
+
+    let mut result_buffers = kernel.call(vec![a_buffer, b_buffer], vec![]);
+    let b_result_array = result_buffers[1].try_into_ndarray::<f32>().unwrap();
+
+    let expected_data: Vec<f32> = a_data.iter().map(|&x| 1.0 / x).collect();
     let expected_array = ArrayD::from_shape_vec(shape, expected_data).unwrap();
 
     assert_eq!(b_result_array, expected_array);

@@ -103,27 +103,27 @@ impl CRenderer {
                     }
                     self.render_node(arg);
                 }
-                self.writeln("); ");
+                writeln!(self.buffer, ");").unwrap();
             }
             AstOp::Assign { dst, src } => {
                 self.write_indent();
                 self.render_node(dst);
                 write!(self.buffer, " = ").unwrap();
                 self.render_node(src);
-                self.writeln("; ");
+                writeln!(self.buffer, ";").unwrap();
             }
             AstOp::Declare { name, dtype, value } => {
                 self.write_indent();
                 write!(self.buffer, "{} {} = ", Self::dtype_to_c(dtype), name).unwrap();
                 self.render_node(value);
-                self.writeln(";");
+                writeln!(self.buffer, ";").unwrap();
             }
             AstOp::Store { dst, src } => {
                 self.write_indent();
                 self.render_node(dst);
                 write!(self.buffer, " = ").unwrap();
                 self.render_node(src);
-                self.writeln(";");
+                writeln!(self.buffer, ";").unwrap();
             }
             AstOp::Deref(addr) => {
                 // The address itself is what we want to render, e.g., buffer[index]
@@ -210,9 +210,14 @@ impl CRenderer {
         match c {
             Const::F32(v) => write!(self.buffer, "{v}").unwrap(),
             Const::F64(v) => write!(self.buffer, "{v}").unwrap(),
+            Const::I8(v) => write!(self.buffer, "(int8_t){v}").unwrap(),
+            Const::I16(v) => write!(self.buffer, "(int16_t){v}").unwrap(),
             Const::I32(v) => write!(self.buffer, "{v}").unwrap(),
-            Const::I64(v) => write!(self.buffer, "{v}").unwrap(),
-            _ => unimplemented!("Const type not supported in C renderer"),
+            Const::I64(v) => write!(self.buffer, "{v}ll").unwrap(),
+            Const::U8(v) => write!(self.buffer, "(uint8_t){v}u").unwrap(),
+            Const::U16(v) => write!(self.buffer, "(uint16_t){v}u").unwrap(),
+            Const::U32(v) => write!(self.buffer, "{v}u").unwrap(),
+            Const::U64(v) => write!(self.buffer, "{v}ull").unwrap(),
         }
     }
 
@@ -220,9 +225,15 @@ impl CRenderer {
         match dtype {
             DType::F32 => "float".to_string(),
             DType::F64 => "double".to_string(),
-            DType::I32 => "int".to_string(),
-            DType::I64 => "long long".to_string(),
-            DType::U64 => "size_t".to_string(),
+            DType::I8 => "int8_t".to_string(),
+            DType::I16 => "int16_t".to_string(),
+            DType::I32 => "int32_t".to_string(),
+            DType::I64 => "int64_t".to_string(),
+            DType::U8 => "uint8_t".to_string(),
+            DType::U16 => "uint16_t".to_string(),
+            DType::U32 => "uint32_t".to_string(),
+            DType::U64 => "uint64_t".to_string(),
+            DType::USize => "size_t".to_string(),
             DType::Void => "void".to_string(),
             DType::Ptr(inner) => format!("{}*", Self::dtype_to_c(inner)),
             DType::FixedArray(inner, ..) => format!("{}*", Self::dtype_to_c(inner)),
@@ -249,6 +260,7 @@ impl Renderer for CRenderer {
         self.indent_level = 0;
         // Add standard headers
         self.buffer.push_str("#include <stddef.h>\n");
+        self.buffer.push_str("#include <stdint.h>\n");
         self.buffer.push_str("#include <math.h>\n\n"); // For fmax, etc.
 
         self.render_node(&ast);
