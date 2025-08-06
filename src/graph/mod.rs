@@ -8,7 +8,7 @@
 use crate::ast::{AstNode, AstOp, DType};
 use crate::graph::shape::expr::Expr;
 use std::cell::RefCell;
-use std::ops::{Add, Div, Mul, Neg, Sub};
+use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 
 pub mod lowerer;
 pub mod shape;
@@ -202,6 +202,55 @@ impl Graph {
         let ast_node = AstNode::capture(0, lhs_dtype) * AstNode::capture(1, rhs_dtype);
         self.add_node(
             TensorOp::Elementwise(AstOp::Mul),
+            vec![lhs, rhs],
+            ast_node.dtype,
+            shape,
+        )
+    }
+
+    pub fn rem(&self, lhs: NodeId, rhs: NodeId) -> NodeId {
+        let (lhs_dtype, rhs_dtype, shape) = {
+            let nodes = self.nodes.borrow();
+            let lhs_node = &nodes[lhs.0];
+            let rhs_node = &nodes[rhs.0];
+            (
+                lhs_node.dtype.clone(),
+                rhs_node.dtype.clone(),
+                lhs_node.shape.clone(),
+            )
+        };
+        let ast_node = AstNode::capture(0, lhs_dtype) % AstNode::capture(1, rhs_dtype);
+        self.add_node(
+            TensorOp::Elementwise(AstOp::Rem),
+            vec![lhs, rhs],
+            ast_node.dtype,
+            shape,
+        )
+    }
+
+    pub fn lt(&self, lhs: NodeId, rhs: NodeId) -> NodeId {
+        let (lhs_dtype, rhs_dtype, shape) = {
+            let nodes = self.nodes.borrow();
+            let lhs_node = &nodes[lhs.0];
+            let rhs_node = &nodes[rhs.0];
+            (
+                lhs_node.dtype.clone(),
+                rhs_node.dtype.clone(),
+                lhs_node.shape.clone(),
+            )
+        };
+        // The result of a comparison is usually a boolean, but we'll represent it
+        // as the same float type (0.0 or 1.0) for simplicity in the backend.
+        let ast_node = AstNode::new(
+            AstOp::LessThan,
+            vec![
+                Box::new(AstNode::capture(0, lhs_dtype)),
+                Box::new(AstNode::capture(1, rhs_dtype)),
+            ],
+            DType::F32, // FIXME: This should probably be a boolean type
+        );
+        self.add_node(
+            TensorOp::Elementwise(AstOp::LessThan),
             vec![lhs, rhs],
             ast_node.dtype,
             shape,
@@ -409,6 +458,12 @@ impl<'a> NodeView<'a> {
         self.graph.outputs.borrow_mut().push(self.id);
         *self
     }
+
+    /// Performs an element-wise less-than comparison.
+    pub fn lt(self, rhs: Self) -> NodeView<'a> {
+        let new_id = self.graph.lt(self.id, rhs.id);
+        self.graph.get_view(new_id)
+    }
 }
 
 // --- Operator Overloads for NodeView ---
@@ -441,6 +496,14 @@ impl<'a> Div for NodeView<'a> {
     type Output = NodeView<'a>;
     fn div(self, rhs: Self) -> Self::Output {
         let new_id = self.graph.div(self.id, rhs.id);
+        self.graph.get_view(new_id)
+    }
+}
+
+impl<'a> Rem for NodeView<'a> {
+    type Output = NodeView<'a>;
+    fn rem(self, rhs: Self) -> Self::Output {
+        let new_id = self.graph.rem(self.id, rhs.id);
         self.graph.get_view(new_id)
     }
 }

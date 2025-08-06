@@ -150,9 +150,44 @@ impl CRenderer {
             }
             AstOp::Add => self.render_binary_op("+", ast),
             AstOp::Mul => self.render_binary_op("*", ast),
+            AstOp::Rem => {
+                if ast.dtype == DType::F32 {
+                    self.render_binary_op_func("fmodf", ast)
+                } else if ast.dtype == DType::F64 {
+                    self.render_binary_op_func("fmod", ast)
+                } else {
+                    self.render_binary_op("%", ast)
+                }
+            }
             AstOp::Max => self.render_binary_op_func("fmax", ast),
+            AstOp::LessThan => self.render_binary_op("<", ast),
+            AstOp::Neg => {
+                write!(self.buffer, "(-").unwrap();
+                self.render_node(&ast.src[0]);
+                write!(self.buffer, ")").unwrap();
+            }
+            AstOp::Recip => {
+                write!(self.buffer, "(1.0f / ").unwrap();
+                self.render_node(&ast.src[0]);
+                write!(self.buffer, ")").unwrap();
+            }
+            AstOp::Sin => self.render_unary_op_func("sin", ast),
+            AstOp::Sqrt => self.render_unary_op_func("sqrt", ast),
+            AstOp::Log2 => self.render_unary_op_func("log2", ast),
+            AstOp::Exp2 => self.render_unary_op_func("exp2", ast),
             _ => unimplemented!("Rendering for `{:?}` is not implemented.", ast.op),
         }
+    }
+
+    fn render_unary_op_func(&mut self, func_name: &str, ast: &AstNode) {
+        let full_func_name = if ast.dtype == DType::F32 {
+            format!("{func_name}f")
+        } else {
+            func_name.to_string()
+        };
+        write!(self.buffer, "{full_func_name}(").unwrap();
+        self.render_node(&ast.src[0]);
+        write!(self.buffer, ")").unwrap();
     }
 
     fn render_binary_op(&mut self, op_str: &str, ast: &AstNode) {

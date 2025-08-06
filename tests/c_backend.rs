@@ -217,3 +217,145 @@ fn test_c_backend_e2e_add() {
 
     assert_eq!(c_result_array, expected_array);
 }
+
+#[test]
+fn test_c_backend_e2e_neg() {
+    harp::init_logger();
+    let mut compiler = CCompiler::new();
+    if !compiler.is_available() {
+        eprintln!("Skipping C backend E2E test: C compiler not found.");
+        return;
+    }
+
+    // 1. Build Graph: b = -a
+    let graph = Graph::new();
+    let shape = vec![10];
+    let a = graph.input(DType::F32, shape.iter().map(|&d| d.into()).collect());
+    (-a).as_output();
+
+    // 2. Lower and Render
+    let mut lowerer = Lowerer::new(&graph);
+    let (ast, _details) = lowerer.lower();
+    let mut renderer = CRenderer::new();
+    let code = renderer.render(ast);
+
+    // 3. Compile
+    let kernel = compiler.compile(code);
+
+    // 4. Prepare data and call kernel
+    let a_data: Vec<f32> = (0..10).map(|i| i as f32).collect();
+    let a_buffer = buffer_from_slice(&a_data, &shape, DType::F32);
+    let b_buffer = empty_buffer(&shape, DType::F32);
+
+    let mut result_buffers = kernel.call(vec![a_buffer, b_buffer], vec![]);
+
+    // 5. Verify results
+    assert_eq!(result_buffers.len(), 2);
+    let b_result_buffer = &mut result_buffers[1];
+    let b_result_array = b_result_buffer.try_into_ndarray::<f32>().unwrap();
+
+    let expected_data: Vec<f32> = a_data.iter().map(|&x| -x).collect();
+    let expected_array = ArrayD::from_shape_vec(shape, expected_data).unwrap();
+
+    assert_eq!(b_result_array, expected_array);
+}
+
+#[test]
+fn test_c_backend_e2e_rem() {
+    harp::init_logger();
+    let mut compiler = CCompiler::new();
+    if !compiler.is_available() {
+        eprintln!("Skipping C backend E2E test: C compiler not found.");
+        return;
+    }
+
+    // 1. Build Graph: c = a % b
+    let graph = Graph::new();
+    let shape = vec![10];
+    let a = graph.input(DType::F32, shape.iter().map(|&d| d.into()).collect());
+    let b = graph.input(DType::F32, shape.iter().map(|&d| d.into()).collect());
+    (a % b).as_output();
+
+    // 2. Lower and Render
+    let mut lowerer = Lowerer::new(&graph);
+    let (ast, _details) = lowerer.lower();
+    let mut renderer = CRenderer::new();
+    let code = renderer.render(ast);
+
+    // 3. Compile
+    let kernel = compiler.compile(code);
+
+    // 4. Prepare data and call kernel
+    let a_data: Vec<f32> = (0..10).map(|i| (i * 2) as f32).collect();
+    let b_data: Vec<f32> = (0..10).map(|i| (i + 1) as f32).collect();
+
+    let a_buffer = buffer_from_slice(&a_data, &shape, DType::F32);
+    let b_buffer = buffer_from_slice(&b_data, &shape, DType::F32);
+    let c_buffer = empty_buffer(&shape, DType::F32);
+
+    let mut result_buffers = kernel.call(vec![a_buffer, b_buffer, c_buffer], vec![]);
+
+    // 5. Verify results
+    assert_eq!(result_buffers.len(), 3);
+    let c_result_buffer = &mut result_buffers[2];
+    let c_result_array = c_result_buffer.try_into_ndarray::<f32>().unwrap();
+
+    let expected_data: Vec<f32> = a_data
+        .iter()
+        .zip(b_data.iter())
+        .map(|(x, y)| x % y)
+        .collect();
+    let expected_array = ArrayD::from_shape_vec(shape, expected_data).unwrap();
+
+    assert_eq!(c_result_array, expected_array);
+}
+
+#[test]
+fn test_c_backend_e2e_lt() {
+    harp::init_logger();
+    let mut compiler = CCompiler::new();
+    if !compiler.is_available() {
+        eprintln!("Skipping C backend E2E test: C compiler not found.");
+        return;
+    }
+
+    // 1. Build Graph: c = a < b
+    let graph = Graph::new();
+    let shape = vec![10];
+    let a = graph.input(DType::F32, shape.iter().map(|&d| d.into()).collect());
+    let b = graph.input(DType::F32, shape.iter().map(|&d| d.into()).collect());
+    a.lt(b).as_output();
+
+    // 2. Lower and Render
+    let mut lowerer = Lowerer::new(&graph);
+    let (ast, _details) = lowerer.lower();
+    let mut renderer = CRenderer::new();
+    let code = renderer.render(ast);
+
+    // 3. Compile
+    let kernel = compiler.compile(code);
+
+    // 4. Prepare data and call kernel
+    let a_data: Vec<f32> = (0..10).map(|i| i as f32).collect();
+    let b_data: Vec<f32> = (0..10).map(|_i| 5.0f32).collect();
+
+    let a_buffer = buffer_from_slice(&a_data, &shape, DType::F32);
+    let b_buffer = buffer_from_slice(&b_data, &shape, DType::F32);
+    let c_buffer = empty_buffer(&shape, DType::F32);
+
+    let mut result_buffers = kernel.call(vec![a_buffer, b_buffer, c_buffer], vec![]);
+
+    // 5. Verify results
+    assert_eq!(result_buffers.len(), 3);
+    let c_result_buffer = &mut result_buffers[2];
+    let c_result_array = c_result_buffer.try_into_ndarray::<f32>().unwrap();
+
+    let expected_data: Vec<f32> = a_data
+        .iter()
+        .zip(b_data.iter())
+        .map(|(x, y)| if x < y { 1.0 } else { 0.0 })
+        .collect();
+    let expected_array = ArrayD::from_shape_vec(shape, expected_data).unwrap();
+
+    assert_eq!(c_result_array, expected_array);
+}
