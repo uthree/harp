@@ -1,8 +1,12 @@
 // tests/c_backend.rs
 
 use harp::ast::{AstNode, DType};
-use harp::backend::Renderer;
-use harp::backend::c::CRenderer;
+use harp::backend::c::{CBuffer, CCompiler, CRenderer};
+use harp::backend::{Buffer, Compiler, Kernel, Renderer, TryIntoNdarray};
+use harp::graph::lowerer::Lowerer;
+use harp::graph::Graph;
+use ndarray::ArrayD;
+use std::ffi::c_void;
 
 // Helper function to render an AST node and compare it with the expected output.
 fn assert_render(node: AstNode, expected: &str) {
@@ -119,4 +123,77 @@ fn test_render_store() {
     );
     let expected = "(output)[i] = value;";
     assert_render(ast, expected);
+}
+
+/// Helper function to create a CBuffer from a slice of data.
+fn buffer_from_slice<T: Clone>(data: &[T], dtype: DType) -> CBuffer {
+    let size = data.len();
+    let byte_size = size * std::mem::size_of::<T>();
+    let ptr = unsafe { libc::malloc(byte_size) };
+    assert!(!ptr.is_null(), "Failed to allocate memory for buffer");
+    unsafe {
+        std::ptr::copy_nonoverlapping(data.as_ptr() as *const u8, ptr as *mut u8, byte_size);
+    }
+    CBuffer {
+        ptr: ptr as *mut c_void,
+        size,
+        dtype,
+    }
+}
+
+/// Helper function to create an empty CBuffer for output.
+fn empty_buffer(size: usize, dtype: DType) -> CBuffer {
+    let byte_size = size * dtype.size_in_bytes();
+    let ptr = unsafe { libc::malloc(byte_size) };
+    assert!(!ptr.is_null(), "Failed to allocate memory for buffer");
+    CBuffer {
+        ptr: ptr as *mut c_void,
+        size,
+        dtype,
+    }
+}
+
+#[test]
+fn test_c_backend_e2e_add() {
+    let mut compiler = CCompiler::new();
+    if !compiler.is_available() {
+        eprintln!("Skipping C backend E2E test: C compiler not found.");
+        return;
+    }
+
+    // 1. Build Graph: c = a + b
+    let graph = Graph::new();
+    let a = graph.input(DType::F32, vec![10.into()]);
+    let b = graph.input(DType::F32, vec![10.into()]);
+    (a + b).as_output();
+
+    // 2. Lower and Render
+    let mut lowerer = Lowerer::new(&graph);
+    let (ast, _details) = lowerer.lower();
+    let mut renderer = CRenderer::new();
+    let code = renderer.render(ast);
+
+    // 3. Compile
+    let kernel = compiler.compile(code);
+
+    // 4. Prepare data and call kernel
+    let a_data: Vec<f32> = (0..10).map(|i| i as f32).collect();
+    let b_data: Vec<f32> = (0..10).map(|i| (i * 2) as f32).collect();
+    let c_size = 10;
+
+    let a_buffer = buffer_from_slice(&a_data, DType::F32);
+    let b_buffer = buffer_from_slice(&b_data, DType::F32);
+    let c_buffer = empty_buffer(c_size, DType::F32);
+
+    let mut result_buffers = kernel.call(vec![a_buffer, b_buffer, c_buffer], vec![]);
+
+    // 5. Verify results
+    assert_eq!(result_buffers.len(), 3);
+    let c_result_buffer = &mut result_buffers[2];
+    let c_result_array = c_result_buffer.try_into_ndarray::<f32>().unwrap();
+
+    let expected_data: Vec<f32> = a_data.iter().zip(b_data.iter()).map(|(x, y)| x + y).collect();
+    let expected_array = ArrayD::from_shape_vec(vec![c_size], expected_data).unwrap();
+
+    assert_eq!(c_result_array, expected_array);
 }
