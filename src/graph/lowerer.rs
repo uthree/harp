@@ -6,9 +6,9 @@
 
 use crate::ast::{AstNode, AstOp, DType};
 use crate::backend::{BufferInfo, KernelDetails};
-use crate::tensor::graph::{Graph, NodeId, TensorOp};
-use crate::tensor::shape::expr::Expr;
-use crate::tensor::shape::tracker::ShapeTracker;
+use crate::graph::shape::expr::Expr;
+use crate::graph::shape::tracker::ShapeTracker;
+use crate::graph::{Graph, NodeId, TensorOp};
 use log::{debug, info, trace};
 use rustc_hash::FxHashMap;
 

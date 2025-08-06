@@ -6,9 +6,12 @@
 //! compiled and executed.
 
 use crate::ast::{AstNode, AstOp, DType};
-use crate::tensor::shape::expr::Expr;
+use crate::graph::shape::expr::Expr;
 use std::cell::RefCell;
 use std::ops::{Add, Div, Mul, Neg, Sub};
+
+pub mod lowerer;
+pub mod shape;
 
 /// Owns all the nodes of a computation graph.
 ///
@@ -37,7 +40,7 @@ pub struct NodeId(pub usize);
 /// # Examples
 ///
 /// ```
-/// use harp::tensor::graph::Graph;
+/// use harp::graph::Graph;
 /// use harp::ast::DType;
 ///
 /// let graph = Graph::new();
@@ -278,7 +281,7 @@ impl Graph {
             let src_node = &nodes[src.0];
             (src_node.dtype.clone(), src_node.shape.clone())
         };
-        let tracker = crate::tensor::shape::tracker::ShapeTracker::new(shape);
+        let tracker = crate::graph::shape::tracker::ShapeTracker::new(shape);
         let new_shape = tracker.permute(axes.clone()).shape().to_vec();
         self.add_node(TensorOp::Permute(axes), vec![src], dtype, new_shape)
     }
@@ -298,7 +301,7 @@ impl Graph {
             let src_node = &nodes[src.0];
             (src_node.dtype.clone(), src_node.shape.clone())
         };
-        let tracker = crate::tensor::shape::tracker::ShapeTracker::new(shape);
+        let tracker = crate::graph::shape::tracker::ShapeTracker::new(shape);
         let new_shape = tracker.squeeze(axis).shape().to_vec();
         self.add_node(TensorOp::Squeeze(axis), vec![src], dtype, new_shape)
     }
@@ -309,7 +312,7 @@ impl Graph {
             let src_node = &nodes[src.0];
             (src_node.dtype.clone(), src_node.shape.clone())
         };
-        let tracker = crate::tensor::shape::tracker::ShapeTracker::new(shape);
+        let tracker = crate::graph::shape::tracker::ShapeTracker::new(shape);
         let new_shape = tracker.unsqueeze(axis).shape().to_vec();
         self.add_node(TensorOp::Unsqueeze(axis), vec![src], dtype, new_shape)
     }
@@ -320,7 +323,7 @@ impl Graph {
             let src_node = &nodes[src.0];
             (src_node.dtype.clone(), src_node.shape.clone())
         };
-        let tracker = crate::tensor::shape::tracker::ShapeTracker::new(shape);
+        let tracker = crate::graph::shape::tracker::ShapeTracker::new(shape);
         // This just validates the expand operation. The final shape is `new_shape`.
         let _ = tracker.expand(new_shape.clone());
         self.add_node(

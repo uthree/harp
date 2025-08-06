@@ -1,5 +1,5 @@
 //! This module provides interoperability with the `ndarray` crate.
-use crate::{ast::DType, backend::Buffer, tensor::shape::expr::IntoDType};
+use crate::{ast::DType, backend::Buffer, graph::shape::expr::IntoDType};
 use ndarray::{Array, Dimension};
 
 /// Implements the `Buffer` trait for `ndarray::Array`.

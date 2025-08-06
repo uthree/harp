@@ -83,7 +83,7 @@ impl Expr {
     /// # Examples
     ///
     /// ```
-    /// use harp::tensor::shape::expr::Expr;
+    /// use harp::graph::shape::expr::Expr;
     ///
     /// let n = Expr::var("N");
     /// // ((N + 0) * 1) simplifies to N

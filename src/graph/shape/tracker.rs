@@ -6,7 +6,7 @@
 //! and the strides needed to compute the memory offset for any given index.
 
 use crate::ast::AstNode;
-use crate::tensor::shape::expr::Expr;
+use crate::graph::shape::expr::Expr;
 
 /// Tracks the shape and strides of a tensor view.
 ///
@@ -31,8 +31,8 @@ impl ShapeTracker {
     /// # Examples
     ///
     /// ```
-    /// use harp::tensor::shape::tracker::ShapeTracker;
-    /// use harp::tensor::shape::expr::Expr;
+    /// use harp::graph::shape::tracker::ShapeTracker;
+    /// use harp::graph::shape::expr::Expr;
     ///
     /// // For a tensor of shape [10, 20]
     /// let tracker = ShapeTracker::new(vec![10.into(), 20.into()]);
@@ -73,7 +73,7 @@ impl ShapeTracker {
     /// # Examples
     ///
     /// ```
-    /// use harp::tensor::shape::tracker::ShapeTracker;
+    /// use harp::graph::shape::tracker::ShapeTracker;
     ///
     /// let contiguous_tracker = ShapeTracker::new(vec![10.into(), 20.into()]);
     /// assert!(contiguous_tracker.is_contiguous());
@@ -98,7 +98,7 @@ impl ShapeTracker {
     /// # Examples
     ///
     /// ```
-    /// use harp::tensor::shape::tracker::ShapeTracker;
+    /// use harp::graph::shape::tracker::ShapeTracker;
     ///
     /// let tracker = ShapeTracker::new(vec![10.into(), 20.into()]);
     /// // Permute axes from (0, 1) to (1, 0)
@@ -129,7 +129,7 @@ impl ShapeTracker {
     /// # Examples
     ///
     /// ```
-    /// use harp::tensor::shape::tracker::ShapeTracker;
+    /// use harp::graph::shape::tracker::ShapeTracker;
     ///
     /// let tracker = ShapeTracker::new(vec![10.into(), 20.into()]);
     /// // Unsqueeze at axis 1 to get shape [10, 1, 20]
@@ -157,7 +157,7 @@ impl ShapeTracker {
     /// # Examples
     ///
     /// ```
-    /// use harp::tensor::shape::tracker::ShapeTracker;
+    /// use harp::graph::shape::tracker::ShapeTracker;
     ///
     /// let tracker = ShapeTracker::new(vec![10.into(), 1.into(), 20.into()]);
     /// // Squeeze axis 1 to get shape [10, 20]

@@ -1,7 +1,7 @@
 //! Pattern-matching-based graph optimizer.
 
 use crate::ast::{AstNode, AstOp};
-use crate::tensor::graph::{Graph, NodeId, NodeView, TensorOp};
+use crate::graph::{Graph, NodeId, NodeView, TensorOp};
 use log::{debug, info, trace};
 use rustc_hash::FxHashMap;
 
@@ -297,7 +297,7 @@ pub fn get_fusion_rules() -> Vec<GraphRule> {
 mod tests {
     use super::*;
     use crate::ast::{AstOp, DType};
-    use crate::tensor::graph::Graph;
+    use crate::graph::Graph;
 
     fn setup_logger() {
         // Initialize the logger for tests, ignoring errors if it's already set up

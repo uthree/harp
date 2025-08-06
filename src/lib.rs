@@ -1,7 +1,7 @@
 pub mod ast;
 pub mod backend;
+pub mod graph;
 pub mod opt;
-pub mod tensor;
 
 /// Initializes the logger for the harp library.
 ///
