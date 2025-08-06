@@ -40,22 +40,23 @@ pub fn p_op(op: AstOp, args: Vec<Pattern>) -> Pattern {
 
 // --- Rule and Rewriter ---
 
+/// A type alias for the replacer function to improve readability.
+type ReplacerFn = dyn Fn(
+    &GraphRewriter,
+    &Graph,
+    &Graph,
+    &mut FxHashMap<NodeId, NodeId>,
+    &FxHashMap<usize, NodeId>,
+    NodeId, // The ID of the node that matched the root of the pattern
+) -> NodeId;
+
 /// A rewrite rule, consisting of a pattern to search for and a replacement.
 pub struct GraphRule {
     pub name: &'static str,
     pub pattern: Pattern,
     /// The replacement is a function that takes the graph and captures
     /// and returns the `NodeId` of the new, rewritten node.
-    pub replacer: Box<
-        dyn Fn(
-            &GraphRewriter,
-            &Graph,
-            &Graph,
-            &mut FxHashMap<NodeId, NodeId>,
-            &FxHashMap<usize, NodeId>,
-            NodeId, // The ID of the node that matched the root of the pattern
-        ) -> NodeId,
-    >,
+    pub replacer: Box<ReplacerFn>,
 }
 
 /// Applies a set of rules to optimize a computation graph.

@@ -335,7 +335,7 @@ impl<'a> Lowerer<'a> {
                     loaded_srcs.push(load);
                 }
 
-                let computation = self.lower_fused_ast(&fused_ast, &loaded_srcs);
+                let computation = Self::lower_fused_ast(&fused_ast, &loaded_srcs);
                 let dst_offset = dst_tracker.offset_expr(&loop_vars);
                 let store_node = AstNode::store(
                     dst_buffer.buffer_index(dst_offset.simplify().into()),
@@ -416,7 +416,7 @@ impl<'a> Lowerer<'a> {
     }
 
     /// Recursively expands a fused AST, replacing captures with loaded values.
-    fn lower_fused_ast(&self, ast: &AstNode, loaded_srcs: &[AstNode]) -> AstNode {
+    fn lower_fused_ast(ast: &AstNode, loaded_srcs: &[AstNode]) -> AstNode {
         match &ast.op {
             AstOp::Capture(id, _) => {
                 // Replace the capture node with the corresponding pre-loaded source AST.
@@ -427,7 +427,7 @@ impl<'a> Lowerer<'a> {
                 let new_srcs = ast
                     .src
                     .iter()
-                    .map(|child| Box::new(self.lower_fused_ast(child, loaded_srcs)))
+                    .map(|child| Box::new(Self::lower_fused_ast(child, loaded_srcs)))
                     .collect();
                 AstNode::new(ast.op.clone(), new_srcs, ast.dtype.clone())
             }

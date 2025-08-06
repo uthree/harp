@@ -324,6 +324,12 @@ mod tests {
     }
 
     #[test]
+    #[allow(
+        clippy::erasing_op,
+        clippy::identity_op,
+        clippy::op_ref,
+        clippy::modulo_one
+    )]
     fn test_expr_simplify() {
         let n = Expr::var("N");
         let m = Expr::var("M");

@@ -11,7 +11,6 @@ pub struct RewriteRule {
 
 impl RewriteRule {
     fn scan(
-        &self,
         target: &AstNode,
         pattern: &AstNode,
         store: &mut FxHashMap<usize, AstNode>,
@@ -51,12 +50,12 @@ impl RewriteRule {
             .src
             .iter()
             .zip(pattern.src.iter())
-            .all(|(s, p)| self.scan(s, p, store))
+            .all(|(s, p)| Self::scan(s, p, store))
     }
 
     fn capture(&self, target: &AstNode) -> Option<Vec<AstNode>> {
         let mut captures = FxHashMap::default();
-        if self.scan(target, &self.pattern, &mut captures) {
+        if Self::scan(target, &self.pattern, &mut captures) {
             let mut captures = captures.into_iter().collect::<Vec<(usize, AstNode)>>();
             captures.sort_by_key(|&(i, _)| i);
             Some(captures.into_iter().map(|(_, v)| v).collect())

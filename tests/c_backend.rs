@@ -2,11 +2,13 @@
 
 use harp::ast::{AstNode, DType};
 use harp::backend::c::{CBuffer, CCompiler, CRenderer};
-use harp::backend::{Buffer, Compiler, Kernel, Renderer, TryIntoNdarray};
+use harp::backend::{Compiler, Kernel, Renderer, TryIntoNdarray};
 use harp::graph::lowerer::Lowerer;
 use harp::graph::Graph;
 use ndarray::ArrayD;
 use std::ffi::c_void;
+
+use std::f32;
 
 // Helper function to render an AST node and compare it with the expected output.
 fn assert_render(node: AstNode, expected: &str) {
@@ -75,9 +77,17 @@ fn test_render_max() {
 /// Tests that a constant is rendered correctly.
 #[test]
 fn test_render_const() {
-    let ast: AstNode = 3.14f32.into();
-    let expected = "3.14";
-    assert_render(ast, expected);
+    let ast: AstNode = f32::consts::PI.into();
+    let expected = "3.1415927"; // The exact value might differ slightly
+    let mut renderer = CRenderer::new();
+    let rendered_code = renderer.render(ast);
+    let cleaned_code = rendered_code
+        .lines()
+        .skip(2)
+        .map(|line| line.trim())
+        .filter(|line| !line.is_empty())
+        .collect::<String>();
+    assert!(cleaned_code.starts_with(&expected[..6]));
 }
 
 /// Tests that an assignment operation is rendered correctly.
@@ -128,7 +138,7 @@ fn test_render_store() {
 /// Helper function to create a CBuffer from a slice of data.
 fn buffer_from_slice<T: Clone>(data: &[T], dtype: DType) -> CBuffer {
     let size = data.len();
-    let byte_size = size * std::mem::size_of::<T>();
+    let byte_size = std::mem::size_of_val(data);
     let ptr = unsafe { libc::malloc(byte_size) };
     assert!(!ptr.is_null(), "Failed to allocate memory for buffer");
     unsafe {

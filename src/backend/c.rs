@@ -83,7 +83,7 @@ impl CRenderer {
             AstOp::Func { name, args, body } => {
                 let args_str: Vec<String> = args
                     .iter()
-                    .map(|(name, dtype)| format!("{} {}", self.dtype_to_c(dtype), name))
+                    .map(|(name, dtype)| format!("{} {}", Self::dtype_to_c(dtype), name))
                     .collect();
                 let args_str = args_str.join(", ");
                 self.writeln(&format!("void {name}({args_str}) {{"));
@@ -136,7 +136,7 @@ impl CRenderer {
                 self.render_const(c);
             }
             AstOp::Cast(dtype) => {
-                let rendered_child = self.dtype_to_c(dtype);
+                let rendered_child = Self::dtype_to_c(dtype);
                 write!(self.buffer, "({rendered_child})").unwrap();
                 self.render_node(&ast.src[0]);
             }
@@ -173,7 +173,7 @@ impl CRenderer {
         }
     }
 
-    fn dtype_to_c(&self, dtype: &DType) -> String {
+    fn dtype_to_c(dtype: &DType) -> String {
         match dtype {
             DType::F32 => "float".to_string(),
             DType::F64 => "double".to_string(),
@@ -181,8 +181,8 @@ impl CRenderer {
             DType::I64 => "long long".to_string(),
             DType::U64 => "size_t".to_string(),
             DType::Void => "void".to_string(),
-            DType::Ptr(inner) => format!("{}*", self.dtype_to_c(inner)),
-            DType::FixedArray(inner, ..) => format!("{}*", self.dtype_to_c(inner)),
+            DType::Ptr(inner) => format!("{}*", Self::dtype_to_c(inner)),
+            DType::FixedArray(inner, ..) => format!("{}*", Self::dtype_to_c(inner)),
             _ => panic!("DType {{dtype:?}} not supported in C renderer"),
         }
     }
