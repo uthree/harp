@@ -41,7 +41,7 @@ impl CRenderer {
                 self.indent_level -= 1;
                 self.writeln("}");
             }
-            Op::FuncDef { name, args, body } => {
+            Op::Func { name, args, body } => {
                 let args_str: Vec<String> = args
                     .iter()
                     .map(|(name, dtype)| format!("{} {}", self.dtype_to_c(dtype), name))

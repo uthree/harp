@@ -84,7 +84,7 @@ pub enum Op {
         block: Box<AstNode>,
     },
     /// Represents a function definition.
-    FuncDef {
+    Func {
         name: String,
         args: Vec<(String, DType)>,
         body: Box<AstNode>,
@@ -184,7 +184,7 @@ impl AstNode {
                     src.pretty_print()
                 ));
             }
-            Op::FuncDef { name, args, body } => {
+            Op::Func { name, args, body } => {
                 let args_str: Vec<String> =
                     args.iter().map(|(n, t)| format!("{n}: {t:?}")).collect();
                 s.push_str(&format!(
@@ -228,7 +228,7 @@ impl AstNode {
     /// Creates a new `FuncDef` node.
     pub fn func_def(name: &str, args: Vec<(String, DType)>, body: AstNode) -> Self {
         Self::new(
-            Op::FuncDef {
+            Op::Func {
                 name: name.to_string(),
                 args,
                 body: Box::new(body),
@@ -923,7 +923,7 @@ mod tests {
         let args = vec![("a".to_string(), DType::F32), ("b".to_string(), DType::F32)];
         let func = AstNode::func_def("my_add", args.clone(), body);
 
-        if let Op::FuncDef {
+        if let Op::Func {
             name,
             args: func_args,
             ..

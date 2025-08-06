@@ -29,7 +29,7 @@ where
 mod tests {
     use super::*;
     use crate::backend::TryIntoNdarray;
-    
+
     use ndarray::{ArrayD, arr2};
 
     #[test]

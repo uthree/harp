@@ -453,7 +453,7 @@ mod tests {
         let mut lowerer = Lowerer::new(&graph);
         let (ast, details) = lowerer.lower();
 
-        if let AstOp::FuncDef { name, args, body } = ast.op {
+        if let AstOp::Func { name, args, body } = ast.op {
             assert_eq!(name, "kernel_main");
             assert_eq!(args.len(), 2);
             assert_eq!(args[0].0, "buffers");
@@ -479,7 +479,7 @@ mod tests {
         // println!("{}", ast.pretty_print()); // For debugging
 
         // Check that the body of the function contains a store to buffers[2]
-        if let AstOp::FuncDef { body, .. } = ast.op {
+        if let AstOp::Func { body, .. } = ast.op {
             // body -> Block -> [elementwise_ast, reduce_ast, ...]
             let elementwise_ast = &body.src[0];
             if let AstOp::Range { block, .. } = &elementwise_ast.op {
@@ -519,7 +519,7 @@ mod tests {
         let (ast, _details) = lowerer.lower();
         // println!("{}", ast.pretty_print()); // For debugging
 
-        if let AstOp::FuncDef { body, .. } = ast.op {
+        if let AstOp::Func { body, .. } = ast.op {
             let reduce_ast = &body.src[0];
             if let AstOp::Range { block, .. } = &reduce_ast.op {
                 // block contains [init_acc, inner_loop, store_result]
