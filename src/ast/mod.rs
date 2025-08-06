@@ -469,8 +469,9 @@ pub enum DType {
     Void,
     /// A pointer to another type.
     Ptr(Box<Self>),
-    /// A fixed-size vector (array) of a type.
-    Vec(Box<Self>, usize),
+    /// A fixed-size (array) of a type.
+    /// In C language, pointer of first element.
+    FixedArray(Box<Self>, usize),
     /// A tuple of types.
     Tuple(Vec<Self>),
     // --- Types for pattern matching ---
@@ -524,8 +525,8 @@ impl DType {
                     false
                 }
             }
-            DType::Vec(a, ..) => {
-                if let DType::Vec(b, ..) = other {
+            DType::FixedArray(a, ..) => {
+                if let DType::FixedArray(b, ..) = other {
                     a.matches(b)
                 } else {
                     false
