@@ -39,8 +39,6 @@ pub enum AstOp {
     Sqrt,
     Log2,
     Exp2,
-    /// Dereferences a pointer.
-    Deref,
     /// Casts a value to a different data type.
     Cast(DType),
 
@@ -70,8 +68,8 @@ pub enum AstOp {
         dst: Box<AstNode>,
         src: Box<AstNode>,
     },
-    /// Loads a value from a memory location.
-    Load(Box<AstNode>),
+    /// Dereferences a pointer.
+    Deref(Box<AstNode>),
     /// Represents an indexed access into a buffer (e.g., `buffer[index]`).
     BufferIndex {
         buffer: Box<AstNode>,
@@ -288,10 +286,10 @@ impl AstNode {
         )
     }
 
-    /// Creates a new `Load` node.
-    pub fn load(addr: AstNode) -> Self {
+    /// Creates a new `Deref` node.
+    pub fn deref(addr: AstNode) -> Self {
         let dtype = addr.dtype.clone();
-        Self::new(AstOp::Load(Box::new(addr)), vec![], dtype)
+        Self::new(AstOp::Deref(Box::new(addr)), vec![], dtype)
     }
 
     /// Creates a new `Store` node.

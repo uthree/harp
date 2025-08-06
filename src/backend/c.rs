@@ -77,7 +77,7 @@ impl CRenderer {
                 self.render_node(src);
                 self.writeln(";");
             }
-            AstOp::Load(addr) => {
+            AstOp::Deref(addr) => {
                 // The address itself is what we want to render, e.g., buffer[index]
                 self.render_node(addr);
             }

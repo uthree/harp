@@ -235,7 +235,7 @@ impl<'a> Lowerer<'a> {
                 let dst_offset = dst_tracker.offset_expr(&loop_vars);
 
                 let load_node =
-                    AstNode::load(src_buffer.buffer_index(src_offset.simplify().into()));
+                    AstNode::deref(src_buffer.buffer_index(src_offset.simplify().into()));
                 let store_node = AstNode::store(
                     dst_buffer.buffer_index(dst_offset.simplify().into()),
                     load_node,
@@ -291,7 +291,7 @@ impl<'a> Lowerer<'a> {
                     let (_, tracker) = self.cache.get(&src_id).unwrap();
                     let buffer = self.get_buffer_ptr(src_id);
                     let offset = tracker.offset_expr(&loop_vars);
-                    let load = AstNode::load(buffer.buffer_index(offset.simplify().into()));
+                    let load = AstNode::deref(buffer.buffer_index(offset.simplify().into()));
                     loaded_srcs.push(Box::new(load));
                 }
 
@@ -331,7 +331,7 @@ impl<'a> Lowerer<'a> {
                     let (_, tracker) = self.cache.get(&src_id).unwrap();
                     let buffer = self.get_buffer_ptr(src_id);
                     let offset = tracker.offset_expr(&loop_vars);
-                    let load = AstNode::load(buffer.buffer_index(offset.simplify().into()));
+                    let load = AstNode::deref(buffer.buffer_index(offset.simplify().into()));
                     loaded_srcs.push(load);
                 }
 
@@ -378,7 +378,8 @@ impl<'a> Lowerer<'a> {
                 let mut full_indices = outer_loop_vars.clone();
                 full_indices.insert(axis, inner_loop_var.clone());
                 let src_offset = src_tracker.offset_expr(&full_indices);
-                let load_val = AstNode::load(src_buffer.buffer_index(src_offset.simplify().into()));
+                let load_val =
+                    AstNode::deref(src_buffer.buffer_index(src_offset.simplify().into()));
 
                 let update_acc = AstNode::assign(
                     AstNode::var(&acc_var),
