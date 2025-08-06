@@ -10,7 +10,6 @@
 use crate::ast::{AstNode, DType};
 use ::ndarray::ArrayD;
 use std::any::TypeId;
-use std::ffi::c_void;
 
 // --- Core Data Structures ---
 
@@ -36,8 +35,8 @@ pub struct KernelDetails {
 /// This trait is object-safe.
 /// should be free when dropped.
 pub trait Buffer {
-    /// Returns a mutable pointer to the buffer's raw data.
-    fn as_mut_ptr(&mut self) -> *mut c_void;
+    /// Returns a mutable slice of the buffer's raw data as bytes.
+    fn as_mut_bytes(&mut self) -> &mut [u8];
 
     /// Returns the data type of the elements in the buffer.
     fn dtype(&self) -> DType;
@@ -74,7 +73,10 @@ pub trait TryIntoNdarray: Buffer {
             return ArrayD::from_shape_vec(shape, vec![]).ok();
         }
 
-        let data_slice = unsafe { std::slice::from_raw_parts(self.as_mut_ptr() as *const T, size) };
+        let bytes = self.as_mut_bytes();
+        let data_slice = unsafe {
+            std::slice::from_raw_parts(bytes.as_ptr() as *const T, size)
+        };
         let data_vec = data_slice.to_vec();
         ArrayD::from_shape_vec(shape, data_vec).ok()
     }

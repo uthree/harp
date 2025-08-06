@@ -298,6 +298,7 @@ name = "harp"
 version = "0.1.0"
 dependencies = [
  "env_logger",
+ "libc",
  "libloading",
  "log",
  "ndarray",

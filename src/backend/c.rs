@@ -7,6 +7,45 @@ use log::debug;
 use std::ffi::c_void;
 use std::fmt::Write;
 
+/// A buffer allocated on the C side.
+pub struct CBuffer {
+    /// Raw pointer to the allocated memory.
+    ptr: *mut c_void,
+    /// The number of elements in the buffer.
+    size: usize,
+    /// The data type of the elements.
+    dtype: DType,
+}
+
+impl Buffer for CBuffer {
+    fn as_mut_bytes(&mut self) -> &mut [u8] {
+        unsafe {
+            std::slice::from_raw_parts_mut(
+                self.ptr as *mut u8,
+                self.size * self.dtype.size_in_bytes(),
+            )
+        }
+    }
+
+    fn dtype(&self) -> DType {
+        self.dtype.clone()
+    }
+
+    fn shape(&self) -> Vec<usize> {
+        vec![self.size]
+    }
+}
+
+impl Drop for CBuffer {
+    fn drop(&mut self) {
+        if !self.ptr.is_null() {
+            unsafe {
+                libc::free(self.ptr);
+            }
+        }
+    }
+}
+
 /// A renderer that converts an `AstNode` into a C source code string.
 #[derive(Default)]
 pub struct CRenderer {
@@ -35,18 +74,19 @@ impl CRenderer {
                 self.write_indent();
                 write!(self.buffer, "for (int {loop_var} = 0; {loop_var} < ").unwrap();
                 self.render_node(max);
-                writeln!(self.buffer, "; {loop_var}++) {{").unwrap();
+                writeln!(self.buffer, "; {loop_var}++) {{ ").unwrap();
                 self.indent_level += 1;
                 self.render_node(block);
                 self.indent_level -= 1;
-                self.writeln("}");
+                self.writeln("} ");
             }
             AstOp::Func { name, args, body } => {
                 let args_str: Vec<String> = args
                     .iter()
                     .map(|(name, dtype)| format!("{} {}", self.dtype_to_c(dtype), name))
                     .collect();
-                self.writeln(&format!("void {}({}) {{ ", name, args_str.join(", ")));
+                let args_str = args_str.join(", ");
+                self.writeln(&format!("void {name}({args_str}) {{"));
                 self.indent_level += 1;
                 self.render_node(body);
                 self.indent_level -= 1;
@@ -54,7 +94,7 @@ impl CRenderer {
             }
             AstOp::Call(name) => {
                 self.write_indent();
-                write!(self.buffer, "{name}(").unwrap();
+                write!(self.buffer, "{{name}}(").unwrap();
                 for (i, arg) in ast.src.iter().enumerate() {
                     if i > 0 {
                         write!(self.buffer, ", ").unwrap();
@@ -96,13 +136,14 @@ impl CRenderer {
                 self.render_const(c);
             }
             AstOp::Cast(dtype) => {
-                write!(self.buffer, "({})", self.dtype_to_c(dtype)).unwrap();
+                let rendered_child = self.dtype_to_c(dtype);
+                write!(self.buffer, "({rendered_child})").unwrap();
                 self.render_node(&ast.src[0]);
             }
             AstOp::Add => self.render_binary_op("+", ast),
             AstOp::Mul => self.render_binary_op("*", ast),
             AstOp::Max => self.render_binary_op_func("fmax", ast),
-            _ => unimplemented!("Rendering for {:?} is not implemented.", ast.op),
+            _ => unimplemented!("Rendering for `{:?}` is not implemented.", ast.op),
         }
     }
 
@@ -115,7 +156,7 @@ impl CRenderer {
     }
 
     fn render_binary_op_func(&mut self, func_name: &str, ast: &AstNode) {
-        write!(self.buffer, "{func_name}(").unwrap();
+        write!(self.buffer, "{{func_name}}(").unwrap();
         self.render_node(&ast.src[0]);
         write!(self.buffer, ", ").unwrap();
         self.render_node(&ast.src[1]);
@@ -124,10 +165,10 @@ impl CRenderer {
 
     fn render_const(&mut self, c: &Const) {
         match c {
-            Const::F32(v) => write!(self.buffer, "{v}").unwrap(),
-            Const::F64(v) => write!(self.buffer, "{v}").unwrap(),
-            Const::I32(v) => write!(self.buffer, "{v}").unwrap(),
-            Const::I64(v) => write!(self.buffer, "{v}").unwrap(),
+            Const::F32(v) => write!(self.buffer, "{{v}}").unwrap(),
+            Const::F64(v) => write!(self.buffer, "{{v}}").unwrap(),
+            Const::I32(v) => write!(self.buffer, "{{v}}").unwrap(),
+            Const::I64(v) => write!(self.buffer, "{{v}}").unwrap(),
             _ => unimplemented!("Const type not supported in C renderer"),
         }
     }
@@ -140,19 +181,19 @@ impl CRenderer {
             DType::I64 => "long long".to_string(),
             DType::U64 => "size_t".to_string(),
             DType::Void => "void".to_string(),
-            DType::Ptr(inner) => format!("{}*", self.dtype_to_c(inner)),
-            DType::FixedArray(inner, ..) => format!("{}*", self.dtype_to_c(inner)),
+            DType::Ptr(inner) => format!("*{{{}}}", self.dtype_to_c(inner)),
+            DType::FixedArray(inner, ..) => format!("*{{{}}}", self.dtype_to_c(inner)),
             _ => panic!("DType {{dtype:?}} not supported in C renderer"),
         }
     }
 
     fn write_indent(&mut self) {
-        write!(self.buffer, "{}", "    ".repeat(self.indent_level)).unwrap();
+        write!(self.buffer, "{}", "\t".repeat(self.indent_level)).unwrap();
     }
 
     fn writeln(&mut self, s: &str) {
         self.write_indent();
-        writeln!(self.buffer, "{s}").unwrap();
+        writeln!(self.buffer, "{{{s}}}").unwrap();
     }
 }
 
@@ -169,7 +210,7 @@ impl Renderer for CRenderer {
 
         self.render_node(&ast);
         let code = self.buffer.clone();
-        debug!("Rendered C code:\n{code}");
+        debug!("Rendered C code:\n{{code}}");
         code
     }
 }
@@ -201,8 +242,8 @@ pub struct CKernel {
     func_name: String,
 }
 
-impl<Var: Buffer> Kernel<Var> for CKernel {
-    fn call(&self, mut buffers: Vec<Var>, shape_variables: Vec<usize>) -> Vec<Var> {
+impl Kernel<CBuffer> for CKernel {
+    fn call(&self, mut buffers: Vec<CBuffer>, shape_variables: Vec<usize>) -> Vec<CBuffer> {
         type CFunc = unsafe extern "C" fn(*mut *mut c_void, *const usize);
 
         unsafe {
@@ -211,8 +252,7 @@ impl<Var: Buffer> Kernel<Var> for CKernel {
                 .get(self.func_name.as_bytes())
                 .expect("Failed to load symbol from library");
 
-            let mut buffer_ptrs: Vec<*mut c_void> =
-                buffers.iter_mut().map(|b| b.as_mut_ptr()).collect();
+            let mut buffer_ptrs: Vec<*mut c_void> = buffers.iter_mut().map(|b| b.ptr).collect();
 
             func(buffer_ptrs.as_mut_ptr(), shape_variables.as_ptr());
         }
@@ -220,7 +260,7 @@ impl<Var: Buffer> Kernel<Var> for CKernel {
     }
 }
 
-impl<Var: Buffer, CompilerOption> Compiler<Var, String, CompilerOption> for CCompiler {
+impl Compiler<CBuffer, String, ()> for CCompiler {
     fn new() -> Self {
         CCompiler::default()
     }
@@ -229,11 +269,11 @@ impl<Var: Buffer, CompilerOption> Compiler<Var, String, CompilerOption> for CCom
         self.check_availability()
     }
 
-    fn with_option(&mut self, _option: CompilerOption) {
+    fn with_option(&mut self, _option: ()) {
         unimplemented!();
     }
 
-    fn compile(&mut self, code: String) -> impl Kernel<Var> {
+    fn compile(&mut self, code: String) -> impl Kernel<CBuffer> {
         let mut source_file = tempfile::Builder::new()
             .prefix("kernel")
             .suffix(".c")
@@ -257,7 +297,7 @@ impl<Var: Buffer, CompilerOption> Compiler<Var, String, CompilerOption> for CCom
             source_file.path().to_str().unwrap()
         );
 
-        debug!("Running compile command: {command}");
+        debug!("Running compile command: {{command}}");
 
         let output = std::process::Command::new(compiler)
             .arg("-shared")

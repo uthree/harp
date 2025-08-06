@@ -4,7 +4,7 @@
 //! graph. It uses `AstNode` as its fundamental building block to represent
 //! operations, variables, and control flow structures like loops and blocks.
 
-use std::{boxed::Box, cell::Cell};
+use std::{any::TypeId, boxed::Box, cell::Cell};
 
 thread_local! {
     static NEXT_ID: Cell<usize> = const { Cell::new(0) };
@@ -484,6 +484,23 @@ pub enum DType {
 }
 
 impl DType {
+    pub fn to_type_id(&self) -> TypeId {
+        match self {
+            DType::F32 => TypeId::of::<f32>(),
+            DType::F64 => TypeId::of::<f64>(),
+            DType::I8 => TypeId::of::<i8>(),
+            DType::I16 => TypeId::of::<i16>(),
+            DType::I32 => TypeId::of::<i32>(),
+            DType::I64 => TypeId::of::<i64>(),
+            DType::U8 => TypeId::of::<u8>(),
+            DType::U16 => TypeId::of::<u16>(),
+            DType::U32 => TypeId::of::<u32>(),
+            DType::U64 => TypeId::of::<u64>(),
+            DType::USize => TypeId::of::<usize>(),
+            _ => panic!("Cannot convert {:?} to TypeId", self),
+        }
+    }
+
     /// Returns `true` if the type is a real number (float).
     pub fn is_real(&self) -> bool {
         matches!(self, DType::F32 | DType::F64 | DType::Real)
@@ -504,6 +521,26 @@ impl DType {
                 self,
                 DType::I8 | DType::I16 | DType::I32 | DType::I64 | DType::Integer
             )
+    }
+
+    /// Returns the size of the data type in bytes.
+    pub fn size_in_bytes(&self) -> usize {
+        match self {
+            DType::F32 => 4,
+            DType::F64 => 8,
+            DType::I8 => 1,
+            DType::I16 => 2,
+            DType::I32 => 4,
+            DType::I64 => 8,
+            DType::U8 => 1,
+            DType::U16 => 2,
+            DType::U32 => 4,
+            DType::U64 => 8,
+            DType::USize => std::mem::size_of::<usize>(),
+            DType::Ptr(_) => std::mem::size_of::<*const ()>(),
+            DType::FixedArray(..) => std::mem::size_of::<*const ()>(),
+            _ => panic!("Cannot get size of {:?}", self),
+        }
     }
 
     /// Checks if this type matches another type, considering pattern matching types.

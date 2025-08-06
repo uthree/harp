@@ -1,7 +1,6 @@
 //! This module provides interoperability with the `ndarray` crate.
 use crate::{ast::DType, backend::Buffer, tensor::shape::expr::IntoDType};
 use ndarray::{Array, Dimension};
-use std::ffi::c_void;
 
 /// Implements the `Buffer` trait for `ndarray::Array`.
 ///
@@ -12,8 +11,14 @@ where
     A: IntoDType + 'static, // 'static is needed for TypeId
     D: Dimension,
 {
-    fn as_mut_ptr(&mut self) -> *mut c_void {
-        self.as_mut_ptr() as *mut c_void
+    fn as_mut_bytes(&mut self) -> &mut [u8] {
+        let slice = self.as_slice_mut().unwrap();
+        unsafe {
+            std::slice::from_raw_parts_mut(
+                slice.as_mut_ptr() as *mut u8,
+                slice.len() * std::mem::size_of::<A>(),
+            )
+        }
     }
 
     fn dtype(&self) -> DType {
