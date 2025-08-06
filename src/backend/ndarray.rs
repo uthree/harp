@@ -1,9 +1,5 @@
 //! This module provides interoperability with the `ndarray` crate.
-use crate::{
-    ast::DType,
-    backend::Buffer,
-    tensor::shape::expr::IntoDType,
-};
+use crate::{ast::DType, backend::Buffer, tensor::shape::expr::IntoDType};
 use ndarray::{Array, Dimension};
 use std::ffi::c_void;
 
@@ -33,7 +29,7 @@ where
 mod tests {
     use super::*;
     use crate::backend::TryIntoNdarray;
-    use crate::tensor::shape::expr::Expr;
+    
     use ndarray::{ArrayD, arr2};
 
     #[test]
