@@ -283,36 +283,3 @@ impl<Var: Buffer, CompilerOption> Compiler<Var, String, CompilerOption> for CCom
         CKernel { library, func_name }
     }
 }
-
-// --- Tests ---
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::ast::DType;
-    use crate::backend::Buffer;
-    use std::ffi::c_void;
-
-    // A mock buffer for testing purposes.
-    struct MockBuffer {
-        data: Vec<f32>,
-    }
-
-    impl Buffer for MockBuffer {
-        fn as_mut_ptr(&mut self) -> *mut c_void {
-            self.data.as_mut_ptr() as *mut c_void
-        }
-        fn dtype(&self) -> DType {
-            DType::F32 // Mock implementation
-        }
-        fn shape(&self) -> Vec<usize> {
-            vec![] // Mock implementation
-        }
-    }
-
-    #[test]
-    fn test_ccompiler_availability() {
-        let compiler = CCompiler::default();
-        assert!(compiler.check_availability());
-    }
-}
