@@ -467,9 +467,9 @@ pub enum DType {
     Void,
     /// A pointer to another type.
     Ptr(Box<Self>),
-    /// A fixed-size (array) of a type.
-    /// In C language, pointer of first element.
-    FixedArray(Box<Self>, usize),
+    /// An array of a type.
+    /// In C programming language, pointer of first element.
+    FixedArray(Box<Self>, Box<AstNode>),
     /// A tuple of types.
     Tuple(Vec<Self>),
     // --- Types for pattern matching ---
