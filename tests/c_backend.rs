@@ -576,10 +576,7 @@ fn test_c_backend_e2e_reduce_sum() {
     let graph = Graph::new();
     let input_shape = vec![2, 3];
     let output_shape = vec![2];
-    let a = graph.input(
-        DType::F32,
-        input_shape.iter().map(|&d| d.into()).collect(),
-    );
+    let a = graph.input(DType::F32, input_shape.iter().map(|&d| d.into()).collect());
     a.sum(1).as_output();
 
     // 2. Lower and Render
@@ -617,10 +614,7 @@ fn test_c_backend_e2e_reduce_max() {
     let graph = Graph::new();
     let input_shape = vec![2, 3];
     let output_shape = vec![2];
-    let a = graph.input(
-        DType::F32,
-        input_shape.iter().map(|&d| d.into()).collect(),
-    );
+    let a = graph.input(DType::F32, input_shape.iter().map(|&d| d.into()).collect());
     a.max(1).as_output();
 
     let mut lowerer = Lowerer::new(&graph);
@@ -653,10 +647,7 @@ fn test_c_backend_e2e_reduce_prod() {
     let graph = Graph::new();
     let input_shape = vec![2, 3];
     let output_shape = vec![2];
-    let a = graph.input(
-        DType::F32,
-        input_shape.iter().map(|&d| d.into()).collect(),
-    );
+    let a = graph.input(DType::F32, input_shape.iter().map(|&d| d.into()).collect());
     a.prod(1).as_output();
 
     let mut lowerer = Lowerer::new(&graph);
