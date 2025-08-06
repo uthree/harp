@@ -359,3 +359,45 @@ fn test_c_backend_e2e_lt() {
 
     assert_eq!(c_result_array, expected_array);
 }
+
+#[test]
+fn test_c_backend_e2e_sin() {
+    harp::init_logger();
+    let mut compiler = CCompiler::new();
+    if !compiler.is_available() {
+        eprintln!("Skipping C backend E2E test: C compiler not found.");
+        return;
+    }
+
+    // 1. Build Graph: b = sin(a)
+    let graph = Graph::new();
+    let shape = vec![10];
+    let a = graph.input(DType::F32, shape.iter().map(|&d| d.into()).collect());
+    a.sin().as_output();
+
+    // 2. Lower and Render
+    let mut lowerer = Lowerer::new(&graph);
+    let (ast, _details) = lowerer.lower();
+    let mut renderer = CRenderer::new();
+    let code = renderer.render(ast);
+
+    // 3. Compile
+    let kernel = compiler.compile(code);
+
+    // 4. Prepare data and call kernel
+    let a_data: Vec<f32> = (0..10).map(|i| i as f32).collect();
+    let a_buffer = buffer_from_slice(&a_data, &shape, DType::F32);
+    let b_buffer = empty_buffer(&shape, DType::F32);
+
+    let mut result_buffers = kernel.call(vec![a_buffer, b_buffer], vec![]);
+
+    // 5. Verify results
+    assert_eq!(result_buffers.len(), 2);
+    let b_result_buffer = &mut result_buffers[1];
+    let b_result_array = b_result_buffer.try_into_ndarray::<f32>().unwrap();
+
+    let expected_data: Vec<f32> = a_data.iter().map(|&x| x.sin()).collect();
+    let expected_array = ArrayD::from_shape_vec(shape, expected_data).unwrap();
+
+    assert_eq!(b_result_array, expected_array);
+}
