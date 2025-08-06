@@ -4,7 +4,7 @@
 //! This process, known as "lowering," transforms graph operations into a more
 //! explicit, loop-based representation that is closer to executable code.
 
-use crate::ast::{AstNode, DType, AstOp as AstOp};
+use crate::ast::{AstNode, AstOp, DType};
 use crate::backend::{BufferInfo, KernelDetails};
 use crate::tensor::graph::{Graph, NodeId, TensorOp};
 use crate::tensor::shape::expr::Expr;

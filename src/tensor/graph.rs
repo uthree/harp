@@ -5,7 +5,7 @@
 //! on `NodeView`s construct a graph of `NodeData` nodes, which can then be
 //! compiled and executed.
 
-use crate::ast::{AstNode, DType, AstOp as AstOp};
+use crate::ast::{AstNode, AstOp, DType};
 use crate::tensor::shape::expr::Expr;
 use std::cell::RefCell;
 use std::ops::{Add, Div, Mul, Neg, Sub};
@@ -461,7 +461,7 @@ impl<'a> NodeView<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{DType, AstOp as AstOp};
+    use crate::ast::{AstOp, DType};
 
     #[test]
     fn test_graph_creation_and_view() {

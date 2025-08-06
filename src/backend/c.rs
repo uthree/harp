@@ -1,6 +1,6 @@
 //! C language backend for rendering the AST.
 
-use crate::ast::{AstNode, Const, DType, AstOp};
+use crate::ast::{AstNode, AstOp, Const, DType};
 use crate::backend::{Buffer, Compiler, Kernel, Renderer};
 use libloading::{Library, Symbol};
 use log::debug;
