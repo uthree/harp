@@ -110,7 +110,7 @@ pub enum AstOp {
 /// let c = a + b;
 ///
 /// // The resulting AST node represents the addition.
-/// assert_eq!(c.op, harp::ast::Op::Add);
+/// assert_eq!(c.op, harp::ast::AstOp::Add);
 /// assert_eq!(c.src.len(), 2);
 /// ```
 #[derive(Debug, Clone)]
