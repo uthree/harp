@@ -1,6 +1,6 @@
 //! Pattern-matching-based graph optimizer.
 
-use crate::ast::{AstNode, Op as AstOp};
+use crate::ast::{AstNode, AstOp};
 use crate::tensor::graph::{Graph, NodeId, NodeView, TensorOp};
 use log::{debug, info, trace};
 use rustc_hash::FxHashMap;
@@ -22,7 +22,7 @@ pub enum Pattern {
 /// This is a simplified version of `TensorOp` for pattern matching.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TensorOpPattern {
-    Elementwise(crate::ast::Op),
+    Elementwise(crate::ast::AstOp),
     // Add other ops as needed for patterns
 }
 
@@ -296,7 +296,7 @@ pub fn get_fusion_rules() -> Vec<GraphRule> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{DType, Op as AstOp};
+    use crate::ast::{AstOp, DType};
     use crate::tensor::graph::Graph;
 
     fn setup_logger() {

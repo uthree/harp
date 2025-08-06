@@ -1,4 +1,4 @@
-use crate::ast::{AstNode, Op};
+use crate::ast::{AstNode, AstOp};
 use log::{debug, info, trace};
 use rustc_hash::FxHashMap;
 use std::rc::Rc;
@@ -20,7 +20,7 @@ impl RewriteRule {
             "Scanning target node {:?} with pattern node {:?}",
             target.op, pattern.op
         );
-        if let Op::Capture(id, dtype) = &pattern.op {
+        if let AstOp::Capture(id, dtype) = &pattern.op {
             if !dtype.matches(&target.dtype) {
                 trace!(
                     "Capture type mismatch: pattern {:?}, target {:?}",

@@ -282,8 +282,8 @@ impl From<Expr> for AstNode {
 impl From<AstNode> for Expr {
     fn from(node: AstNode) -> Self {
         match node.op {
-            crate::ast::Op::Var(s) => Expr::Var(s),
-            crate::ast::Op::Const(c) => match c {
+            crate::ast::AstOp::Var(s) => Expr::Var(s),
+            crate::ast::AstOp::Const(c) => match c {
                 crate::ast::Const::I64(v) => Expr::Const(v),
                 _ => panic!("Cannot convert this const type to Expr"),
             },
@@ -296,7 +296,7 @@ impl From<AstNode> for Expr {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::Op;
+    use crate::ast::AstOp;
 
     #[test]
     fn test_expr_ops() {
@@ -325,15 +325,15 @@ mod tests {
         let expr = (n + 1) * 2;
         let ast: AstNode = expr.into();
 
-        assert_eq!(ast.op, Op::Mul);
+        assert_eq!(ast.op, AstOp::Mul);
         assert_eq!(ast.dtype, DType::I64);
 
         let lhs = &*ast.src[0];
         let rhs = &*ast.src[1];
 
-        assert_eq!(lhs.op, Op::Add);
+        assert_eq!(lhs.op, AstOp::Add);
         assert_eq!(lhs.dtype, DType::I64);
-        assert_eq!(rhs.op, Op::Const(crate::ast::Const::I64(2)));
+        assert_eq!(rhs.op, AstOp::Const(crate::ast::Const::I64(2)));
     }
 
     #[test]

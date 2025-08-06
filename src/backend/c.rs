@@ -1,6 +1,6 @@
 //! C language backend for rendering the AST.
 
-use crate::ast::{AstNode, Const, DType, Op};
+use crate::ast::{AstNode, Const, DType, AstOp};
 use crate::backend::{Buffer, Compiler, Kernel, Renderer};
 use libloading::{Library, Symbol};
 use log::debug;
@@ -18,7 +18,7 @@ impl CRenderer {
     /// Renders a single `AstNode` recursively.
     fn render_node(&mut self, ast: &AstNode) {
         match &ast.op {
-            Op::Block => {
+            AstOp::Block => {
                 self.writeln("{ ");
                 self.indent_level += 1;
                 for node in &ast.src {
@@ -27,7 +27,7 @@ impl CRenderer {
                 self.indent_level -= 1;
                 self.writeln("} ");
             }
-            Op::Range {
+            AstOp::Range {
                 loop_var,
                 max,
                 block,
@@ -41,7 +41,7 @@ impl CRenderer {
                 self.indent_level -= 1;
                 self.writeln("}");
             }
-            Op::Func { name, args, body } => {
+            AstOp::Func { name, args, body } => {
                 let args_str: Vec<String> = args
                     .iter()
                     .map(|(name, dtype)| format!("{} {}", self.dtype_to_c(dtype), name))
@@ -52,7 +52,7 @@ impl CRenderer {
                 self.indent_level -= 1;
                 self.writeln("} ");
             }
-            Op::Call(name) => {
+            AstOp::Call(name) => {
                 self.write_indent();
                 write!(self.buffer, "{name}(").unwrap();
                 for (i, arg) in ast.src.iter().enumerate() {
@@ -63,25 +63,25 @@ impl CRenderer {
                 }
                 self.writeln("); ");
             }
-            Op::Assign { dst, src } => {
+            AstOp::Assign { dst, src } => {
                 self.write_indent();
                 self.render_node(dst);
                 write!(self.buffer, " = ").unwrap();
                 self.render_node(src);
                 self.writeln("; ");
             }
-            Op::Store { dst, src } => {
+            AstOp::Store { dst, src } => {
                 self.write_indent();
                 self.render_node(dst);
                 write!(self.buffer, " = ").unwrap();
                 self.render_node(src);
                 self.writeln(";");
             }
-            Op::Load(addr) => {
+            AstOp::Load(addr) => {
                 // The address itself is what we want to render, e.g., buffer[index]
                 self.render_node(addr);
             }
-            Op::BufferIndex { buffer, index } => {
+            AstOp::BufferIndex { buffer, index } => {
                 write!(self.buffer, "(").unwrap();
                 self.render_node(buffer);
                 write!(self.buffer, ")").unwrap();
@@ -89,19 +89,19 @@ impl CRenderer {
                 self.render_node(index);
                 write!(self.buffer, "]").unwrap();
             }
-            Op::Var(name) => {
+            AstOp::Var(name) => {
                 write!(self.buffer, "{name}").unwrap();
             }
-            Op::Const(c) => {
+            AstOp::Const(c) => {
                 self.render_const(c);
             }
-            Op::Cast(dtype) => {
+            AstOp::Cast(dtype) => {
                 write!(self.buffer, "({})", self.dtype_to_c(dtype)).unwrap();
                 self.render_node(&ast.src[0]);
             }
-            Op::Add => self.render_binary_op("+", ast),
-            Op::Mul => self.render_binary_op("*", ast),
-            Op::Max => self.render_binary_op_func("fmax", ast),
+            AstOp::Add => self.render_binary_op("+", ast),
+            AstOp::Mul => self.render_binary_op("*", ast),
+            AstOp::Max => self.render_binary_op_func("fmax", ast),
             _ => unimplemented!("Rendering for {:?} is not implemented.", ast.op),
         }
     }

@@ -21,7 +21,7 @@ fn next_id() -> usize {
 
 /// Represents an operation in the Abstract Syntax Tree.
 #[derive(Debug, Clone, PartialEq)]
-pub enum Op {
+pub enum AstOp {
     // --- Placeholders ---
     /// A placeholder for pattern matching in graph rewriting.
     Capture(usize, DType),
@@ -116,7 +116,7 @@ pub enum Op {
 #[derive(Debug, Clone)]
 pub struct AstNode {
     pub id: usize,
-    pub op: Op,
+    pub op: AstOp,
     pub src: Vec<Box<AstNode>>,
     pub dtype: DType,
 }
@@ -129,7 +129,7 @@ impl PartialEq for AstNode {
 
 impl AstNode {
     /// Creates a new `AstNode`.
-    pub fn new(op: Op, src: Vec<Box<AstNode>>, dtype: DType) -> Self {
+    pub fn new(op: AstOp, src: Vec<Box<AstNode>>, dtype: DType) -> Self {
         Self {
             id: next_id(),
             op,
@@ -149,13 +149,13 @@ impl AstNode {
     fn pretty_print_recursive(&self, s: &mut String, indent: usize) {
         let prefix = "  ".repeat(indent);
         match &self.op {
-            Op::Block => {
+            AstOp::Block => {
                 s.push_str(&format!("{prefix}Block:\n"));
                 for node in &self.src {
                     node.pretty_print_recursive(s, indent + 1);
                 }
             }
-            Op::Range {
+            AstOp::Range {
                 loop_var,
                 max,
                 block,
@@ -168,7 +168,7 @@ impl AstNode {
                 ));
                 block.pretty_print_recursive(s, indent + 1);
             }
-            Op::Assign { dst, src } => {
+            AstOp::Assign { dst, src } => {
                 s.push_str(&format!(
                     "{}{} = {}\n",
                     prefix,
@@ -176,7 +176,7 @@ impl AstNode {
                     src.pretty_print()
                 ));
             }
-            Op::Store { dst, src } => {
+            AstOp::Store { dst, src } => {
                 s.push_str(&format!(
                     "{}Store({}, {})\n",
                     prefix,
@@ -184,7 +184,7 @@ impl AstNode {
                     src.pretty_print()
                 ));
             }
-            Op::Func { name, args, body } => {
+            AstOp::Func { name, args, body } => {
                 let args_str: Vec<String> =
                     args.iter().map(|(n, t)| format!("{n}: {t:?}")).collect();
                 s.push_str(&format!(
@@ -195,7 +195,7 @@ impl AstNode {
                 ));
                 body.pretty_print_recursive(s, indent + 1);
             }
-            Op::Call(name) => {
+            AstOp::Call(name) => {
                 let args_str: Vec<String> = self.src.iter().map(|n| n.pretty_print()).collect();
                 s.push_str(&format!("{}{}({})", prefix, name, args_str.join(", ")));
             }
@@ -207,12 +207,12 @@ impl AstNode {
 
     /// Creates a new `Capture` node for pattern matching.
     pub fn capture(id: usize, dtype: DType) -> Self {
-        Self::new(Op::Capture(id, dtype.clone()), vec![], dtype)
+        Self::new(AstOp::Capture(id, dtype.clone()), vec![], dtype)
     }
 
     /// Creates a new `Var` node.
     pub fn var(name: &str) -> Self {
-        Self::new(Op::Var(name.to_string()), vec![], DType::Any)
+        Self::new(AstOp::Var(name.to_string()), vec![], DType::Any)
     }
 
     /// Associates a data type with the node.
@@ -222,13 +222,13 @@ impl AstNode {
 
     /// Creates a `Cast` node to convert the data type of this node.
     pub fn cast(self, dtype: DType) -> Self {
-        Self::new(Op::Cast(dtype.clone()), vec![Box::new(self)], dtype)
+        Self::new(AstOp::Cast(dtype.clone()), vec![Box::new(self)], dtype)
     }
 
     /// Creates a new `FuncDef` node.
     pub fn func_def(name: &str, args: Vec<(String, DType)>, body: AstNode) -> Self {
         Self::new(
-            Op::Func {
+            AstOp::Func {
                 name: name.to_string(),
                 args,
                 body: Box::new(body),
@@ -241,7 +241,7 @@ impl AstNode {
     /// Creates a new `Call` node.
     pub fn call(name: &str, args: Vec<AstNode>) -> Self {
         Self::new(
-            Op::Call(name.to_string()),
+            AstOp::Call(name.to_string()),
             args.into_iter().map(Box::new).collect(),
             DType::Any, // Return type is often context-dependent
         )
@@ -252,7 +252,7 @@ impl AstNode {
     /// Creates a new `Block` node.
     pub fn block(body: Vec<AstNode>) -> Self {
         Self::new(
-            Op::Block,
+            AstOp::Block,
             body.into_iter().map(Box::new).collect(),
             DType::Void,
         )
@@ -261,7 +261,7 @@ impl AstNode {
     /// Creates a new `Range` (for-loop) node.
     pub fn range(loop_var: String, max: AstNode, block: AstNode) -> Self {
         Self::new(
-            Op::Range {
+            AstOp::Range {
                 loop_var,
                 max: Box::new(max),
                 block: Box::new(block),
@@ -279,7 +279,7 @@ impl AstNode {
             DType::Any // Or panic, depending on strictness
         };
         Self::new(
-            Op::BufferIndex {
+            AstOp::BufferIndex {
                 buffer: Box::new(self),
                 index: Box::new(index),
             },
@@ -291,13 +291,13 @@ impl AstNode {
     /// Creates a new `Load` node.
     pub fn load(addr: AstNode) -> Self {
         let dtype = addr.dtype.clone();
-        Self::new(Op::Load(Box::new(addr)), vec![], dtype)
+        Self::new(AstOp::Load(Box::new(addr)), vec![], dtype)
     }
 
     /// Creates a new `Store` node.
     pub fn store(dst: AstNode, src: AstNode) -> Self {
         Self::new(
-            Op::Store {
+            AstOp::Store {
                 dst: Box::new(dst),
                 src: Box::new(src),
             },
@@ -309,7 +309,7 @@ impl AstNode {
     /// Creates a new `Assign` node.
     pub fn assign(dst: AstNode, src: AstNode) -> Self {
         Self::new(
-            Op::Assign {
+            AstOp::Assign {
                 dst: Box::new(dst),
                 src: Box::new(src),
             },
@@ -322,7 +322,7 @@ impl AstNode {
     pub fn build_loops(loops: Vec<AstNode>, statement: AstNode) -> AstNode {
         let mut final_block = statement;
         for mut loop_node in loops.into_iter().rev() {
-            if let Op::Range { ref mut block, .. } = loop_node.op {
+            if let AstOp::Range { ref mut block, .. } = loop_node.op {
                 *block = Box::new(final_block);
             }
             final_block = loop_node;
@@ -341,7 +341,7 @@ macro_rules! impl_unary_op {
                 if !(dtype.is_real() || dtype.is_integer() || *dtype == DType::Any) {
                     panic!("Cannot apply {} to {:?}", stringify!($op), self.dtype)
                 }
-                AstNode::new(Op::$op, vec![Box::new(self.clone())], self.dtype)
+                AstNode::new(AstOp::$op, vec![Box::new(self.clone())], self.dtype)
             }
         }
     };
@@ -353,7 +353,7 @@ macro_rules! impl_unary_op {
                 if !(dtype.is_real() || *dtype == DType::Any) {
                     panic!("Cannot apply {} to {:?}", stringify!($op), self.dtype)
                 }
-                AstNode::new(Op::$op, vec![Box::new(self.clone())], self.dtype)
+                AstNode::new(AstOp::$op, vec![Box::new(self.clone())], self.dtype)
             }
         }
     };
@@ -401,7 +401,7 @@ macro_rules! impl_binary_op {
                 }
 
                 let result_dtype = lhs.dtype.clone();
-                AstNode::new(Op::$op, vec![Box::new(lhs), Box::new(rhs)], result_dtype)
+                AstNode::new(AstOp::$op, vec![Box::new(lhs), Box::new(rhs)], result_dtype)
             }
         }
     };
@@ -440,7 +440,7 @@ macro_rules! impl_binary_op {
                 }
 
                 let result_dtype = lhs.dtype.clone();
-                AstNode::new(Op::$op, vec![Box::new(lhs), Box::new(rhs)], result_dtype)
+                AstNode::new(AstOp::$op, vec![Box::new(lhs), Box::new(rhs)], result_dtype)
             }
         }
     };
@@ -562,7 +562,7 @@ macro_rules! impl_dtype {
         impl From<$num_type> for AstNode {
             fn from(v: $num_type) -> Self {
                 let c = Const::$variant(v);
-                AstNode::new(Op::Const(c), vec![], c.dtype())
+                AstNode::new(AstOp::Const(c), vec![], c.dtype())
             }
         }
     };
@@ -678,78 +678,78 @@ impl_ast_assign_op!(RemAssign, rem_assign, Rem, rem);
 #[cfg(test)]
 mod tests {
 
-    use crate::ast::{AstNode, DType, Op};
+    use crate::ast::{AstNode, AstOp, DType};
     #[test]
     fn test_unary_ops() {
-        let a = AstNode::new(Op::Var("a".to_string()), vec![], DType::Any);
+        let a = AstNode::new(AstOp::Var("a".to_string()), vec![], DType::Any);
 
         let neg_a = -a.clone();
-        assert_eq!(neg_a.op, Op::Neg);
+        assert_eq!(neg_a.op, AstOp::Neg);
         assert_eq!(neg_a.src.len(), 1);
         assert_eq!(*neg_a.src[0], a);
 
-        let a = AstNode::new(Op::Var("a".to_string()), vec![], DType::Any);
+        let a = AstNode::new(AstOp::Var("a".to_string()), vec![], DType::Any);
         let sqrt_a = a.clone().sqrt();
-        assert_eq!(sqrt_a.op, Op::Sqrt);
+        assert_eq!(sqrt_a.op, AstOp::Sqrt);
         assert_eq!(sqrt_a.src.len(), 1);
         assert_eq!(*sqrt_a.src[0], a);
 
-        let a = AstNode::new(Op::Var("a".to_string()), vec![], DType::Any);
+        let a = AstNode::new(AstOp::Var("a".to_string()), vec![], DType::Any);
         let sin_a = a.clone().sin();
-        assert_eq!(sin_a.op, Op::Sin);
+        assert_eq!(sin_a.op, AstOp::Sin);
         assert_eq!(sin_a.src.len(), 1);
         assert_eq!(*sin_a.src[0], a);
     }
 
     #[test]
     fn test_binary_ops() {
-        let a = AstNode::new(Op::Var("a".to_string()), vec![], DType::Any);
-        let b = AstNode::new(Op::Var("b".to_string()), vec![], DType::Any);
+        let a = AstNode::new(AstOp::Var("a".to_string()), vec![], DType::Any);
+        let b = AstNode::new(AstOp::Var("b".to_string()), vec![], DType::Any);
 
         let add_ab = a.clone() + b.clone();
-        assert_eq!(add_ab.op, Op::Add);
+        assert_eq!(add_ab.op, AstOp::Add);
         assert_eq!(add_ab.src.len(), 2);
         assert_eq!(*add_ab.src[0], a);
         assert_eq!(*add_ab.src[1], b);
 
-        let a = AstNode::new(Op::Var("a".to_string()), vec![], DType::Any);
-        let b = AstNode::new(Op::Var("b".to_string()), vec![], DType::Any);
+        let a = AstNode::new(AstOp::Var("a".to_string()), vec![], DType::Any);
+        let b = AstNode::new(AstOp::Var("b".to_string()), vec![], DType::Any);
         let sub_ab = a.clone() - b.clone();
-        assert_eq!(sub_ab.op, Op::Add); // sub is implemented as a + (-b)
+        assert_eq!(sub_ab.op, AstOp::Add); // sub is implemented as a + (-b)
         assert_eq!(sub_ab.src.len(), 2);
         assert_eq!(*sub_ab.src[0], a);
-        assert_eq!(sub_ab.src[1].op, Op::Neg);
+        assert_eq!(sub_ab.src[1].op, AstOp::Neg);
         assert_eq!(*sub_ab.src[1].src[0], b);
 
-        let a = AstNode::new(Op::Var("a".to_string()), vec![], DType::Any);
-        let b = AstNode::new(Op::Var("b".to_string()), vec![], DType::Any);
+        let a = AstNode::new(AstOp::Var("a".to_string()), vec![], DType::Any);
+        let b = AstNode::new(AstOp::Var("b".to_string()), vec![], DType::Any);
         let mul_ab = a.clone() * b.clone();
-        assert_eq!(mul_ab.op, Op::Mul);
+        assert_eq!(mul_ab.op, AstOp::Mul);
         assert_eq!(mul_ab.src.len(), 2);
         assert_eq!(*mul_ab.src[0], a);
         assert_eq!(*mul_ab.src[1], b);
 
-        let a = AstNode::new(Op::Var("a".to_string()), vec![], DType::Any);
-        let b = AstNode::new(Op::Var("b".to_string()), vec![], DType::Any);
+        let a = AstNode::new(AstOp::Var("a".to_string()), vec![], DType::Any);
+        let b = AstNode::new(AstOp::Var("b".to_string()), vec![], DType::Any);
         let div_ab = a.clone() / b.clone();
-        assert_eq!(div_ab.op, Op::Mul); // div is implemented as a * (1/b)
+        assert_eq!(div_ab.op, AstOp::Mul); // div is implemented as a * (1/b)
         assert_eq!(div_ab.src.len(), 2);
         assert_eq!(*div_ab.src[0], a);
-        assert_eq!(div_ab.src[1].op, Op::Recip);
+        assert_eq!(div_ab.src[1].op, AstOp::Recip);
         assert_eq!(*div_ab.src[1].src[0], b);
 
-        let a = AstNode::new(Op::Var("a".to_string()), vec![], DType::Any);
-        let b = AstNode::new(Op::Var("b".to_string()), vec![], DType::Any);
+        let a = AstNode::new(AstOp::Var("a".to_string()), vec![], DType::Any);
+        let b = AstNode::new(AstOp::Var("b".to_string()), vec![], DType::Any);
         let rem_ab = a.clone() % b.clone();
-        assert_eq!(rem_ab.op, Op::Rem);
+        assert_eq!(rem_ab.op, AstOp::Rem);
         assert_eq!(rem_ab.src.len(), 2);
         assert_eq!(*rem_ab.src[0], a);
         assert_eq!(*rem_ab.src[1], b);
 
-        let a = AstNode::new(Op::Var("a".to_string()), vec![], DType::Any);
-        let b = AstNode::new(Op::Var("b".to_string()), vec![], DType::Any);
+        let a = AstNode::new(AstOp::Var("a".to_string()), vec![], DType::Any);
+        let b = AstNode::new(AstOp::Var("b".to_string()), vec![], DType::Any);
         let max_ab = a.clone().max(b.clone());
-        assert_eq!(max_ab.op, Op::Max);
+        assert_eq!(max_ab.op, AstOp::Max);
         assert_eq!(max_ab.src.len(), 2);
         assert_eq!(*max_ab.src[0], a);
         assert_eq!(*max_ab.src[1], b);
@@ -764,12 +764,12 @@ mod tests {
         // (a + b) * c
         let expr = (a.clone() + b.clone()) * c.clone();
 
-        assert_eq!(expr.op, Op::Mul);
+        assert_eq!(expr.op, AstOp::Mul);
         assert_eq!(expr.src.len(), 2);
         assert_eq!(*expr.src[1], c);
 
         let add_expr = &*expr.src[0];
-        assert_eq!(add_expr.op, Op::Add);
+        assert_eq!(add_expr.op, AstOp::Add);
         assert_eq!(add_expr.src.len(), 2);
         assert_eq!(*add_expr.src[0], a);
         assert_eq!(*add_expr.src[1], b);
@@ -777,15 +777,15 @@ mod tests {
 
     #[test]
     fn test_partial_eq_ignores_id() {
-        let node1 = AstNode::new(Op::Var("a".to_string()), vec![], DType::Any);
-        let node2 = AstNode::new(Op::Var("a".to_string()), vec![], DType::Any);
+        let node1 = AstNode::new(AstOp::Var("a".to_string()), vec![], DType::Any);
+        let node2 = AstNode::new(AstOp::Var("a".to_string()), vec![], DType::Any);
 
         // IDs should be different
         assert_ne!(node1.id, node2.id);
         // But the nodes should be considered equal
         assert_eq!(node1, node2);
 
-        let node3 = AstNode::new(Op::Var("b".to_string()), vec![], DType::Any);
+        let node3 = AstNode::new(AstOp::Var("b".to_string()), vec![], DType::Any);
         assert_ne!(node1, node3);
     }
 
@@ -878,14 +878,14 @@ mod tests {
         // i1 + f1 should result in Cast(I32 as F32) + F32
         let result = i1.clone() + f1.clone();
 
-        assert_eq!(result.op, Op::Add);
+        assert_eq!(result.op, AstOp::Add);
         assert_eq!(result.dtype, DType::F32);
 
         let lhs = &*result.src[0];
         let rhs = &*result.src[1];
 
         // Check that the integer was cast to float
-        assert_eq!(lhs.op, Op::Cast(DType::F32));
+        assert_eq!(lhs.op, AstOp::Cast(DType::F32));
         assert_eq!(lhs.dtype, DType::F32);
         assert_eq!(*lhs.src[0], i1); // Original i1 inside the cast
 
@@ -916,14 +916,14 @@ mod tests {
         let a = AstNode::var("a");
         let b = AstNode::var("b");
         let body = AstNode::new(
-            Op::Block,
+            AstOp::Block,
             vec![Box::new(a.clone() + b.clone())],
             DType::Void,
         );
         let args = vec![("a".to_string(), DType::F32), ("b".to_string(), DType::F32)];
         let func = AstNode::func_def("my_add", args.clone(), body);
 
-        if let Op::Func {
+        if let AstOp::Func {
             name,
             args: func_args,
             ..
@@ -939,7 +939,7 @@ mod tests {
         let y = 1.0f32.into();
         let call = AstNode::call("my_add", vec![x, y]);
 
-        if let Op::Call(name) = &call.op {
+        if let AstOp::Call(name) = &call.op {
             assert_eq!(name, "my_add");
             assert_eq!(call.src.len(), 2);
         } else {
