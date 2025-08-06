@@ -291,7 +291,6 @@ mod tests {
     use super::*;
     use crate::ast::DType;
     use crate::backend::Buffer;
-    use crate::tensor::shape::expr::Expr;
     use std::ffi::c_void;
 
     // A mock buffer for testing purposes.
@@ -306,7 +305,7 @@ mod tests {
         fn dtype(&self) -> DType {
             DType::F32 // Mock implementation
         }
-        fn shape(&self) -> Vec<Expr> {
+        fn shape(&self) -> Vec<usize> {
             vec![] // Mock implementation
         }
     }

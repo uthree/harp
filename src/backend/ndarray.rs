@@ -2,7 +2,7 @@
 use crate::{
     ast::DType,
     backend::Buffer,
-    tensor::shape::expr::{Expr, IntoDType},
+    tensor::shape::expr::IntoDType,
 };
 use ndarray::{Array, Dimension};
 use std::ffi::c_void;
@@ -24,11 +24,8 @@ where
         A::into_dtype()
     }
 
-    fn shape(&self) -> Vec<Expr> {
-        self.shape()
-            .iter()
-            .map(|&d| Expr::Const(d as i64))
-            .collect()
+    fn shape(&self) -> Vec<usize> {
+        self.shape().to_vec()
     }
 }
 
@@ -45,7 +42,7 @@ mod tests {
         let buffer: &mut dyn Buffer = &mut arr;
 
         assert_eq!(buffer.dtype(), DType::F32);
-        assert_eq!(buffer.shape(), vec![Expr::Const(2), Expr::Const(2)]);
+        assert_eq!(buffer.shape(), vec![2, 2]);
         assert_eq!(buffer.size(), 4);
     }
 
@@ -55,7 +52,7 @@ mod tests {
         let buffer: &mut dyn Buffer = &mut arr;
 
         assert_eq!(buffer.dtype(), DType::I64);
-        assert_eq!(buffer.shape(), vec![Expr::Const(2), Expr::Const(2)]);
+        assert_eq!(buffer.shape(), vec![2, 2]);
     }
 
     #[test]

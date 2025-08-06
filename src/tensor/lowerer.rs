@@ -7,6 +7,7 @@
 use crate::ast::{AstNode, DType, Op as AstOp};
 use crate::backend::{BufferInfo, KernelDetails};
 use crate::tensor::graph::{Graph, NodeId, TensorOp};
+use crate::tensor::shape::expr::Expr;
 use crate::tensor::shape::tracker::ShapeTracker;
 use log::{debug, info, trace};
 use rustc_hash::FxHashMap;
@@ -98,7 +99,14 @@ impl<'a> Lowerer<'a> {
                 current_buffer_idx,
                 BufferInfo {
                     dtype: node.dtype.clone(),
-                    shape: node.shape.clone(),
+                    shape: node
+                        .shape
+                        .iter()
+                        .map(|e| match e {
+                            Expr::Const(v) => *v as usize,
+                            _ => panic!("Cannot lower buffer with dynamic shapes"),
+                        })
+                        .collect(),
                 },
             );
             current_buffer_idx += 1;
@@ -113,7 +121,14 @@ impl<'a> Lowerer<'a> {
                     idx,
                     BufferInfo {
                         dtype: node_data.dtype.clone(),
-                        shape: node_data.shape.clone(),
+                        shape: node_data
+                            .shape
+                            .iter()
+                            .map(|e| match e {
+                                Expr::Const(v) => *v as usize,
+                                _ => panic!("Cannot lower buffer with dynamic shapes"),
+                            })
+                            .collect(),
                     },
                 );
                 current_buffer_idx += 1;
@@ -126,10 +141,16 @@ impl<'a> Lowerer<'a> {
             details.buffers.push(buffer_info_map.remove(&i).unwrap());
         }
 
-        // Collect all unique shape variables
+        // Collect all unique shape variables from inputs and outputs
         let mut shape_vars = std::collections::HashSet::new();
-        for info in &details.buffers {
-            for expr in &info.shape {
+        let nodes = self.graph.nodes.borrow();
+        for &node_id in self.graph.inputs.borrow().iter() {
+            for expr in &nodes[node_id.0].shape {
+                expr.collect_variables(&mut shape_vars);
+            }
+        }
+        for &node_id in &outputs {
+            for expr in &nodes[node_id.0].shape {
                 expr.collect_variables(&mut shape_vars);
             }
         }

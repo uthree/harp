@@ -11,7 +11,7 @@ use std::ffi::c_void;
 struct MockBuffer {
     data: Vec<f32>,
     dtype: DType,
-    shape: Vec<Expr>,
+    shape: Vec<usize>,
 }
 
 impl Buffer for MockBuffer {
@@ -21,7 +21,7 @@ impl Buffer for MockBuffer {
     fn dtype(&self) -> DType {
         self.dtype.clone()
     }
-    fn shape(&self) -> Vec<Expr> {
+    fn shape(&self) -> Vec<usize> {
         self.shape.clone()
     }
 }
@@ -30,9 +30,9 @@ impl Buffer for MockBuffer {
 fn test_full_flow_add() {
     // 1. Build Graph
     let graph = Graph::new();
-    let shape: Vec<Expr> = vec![4.into()];
-    let a = graph.input(DType::F32, shape.clone());
-    let b = graph.input(DType::F32, shape.clone());
+    let shape_expr: Vec<Expr> = vec![4.into()];
+    let a = graph.input(DType::F32, shape_expr.clone());
+    let b = graph.input(DType::F32, shape_expr.clone());
     let _c = (a + b).as_output();
 
     // 2. Lower to AST and get KernelDetails
@@ -40,17 +40,24 @@ fn test_full_flow_add() {
     let (ast, details) = lowerer.lower();
 
     // -- Verify KernelDetails --
+    let shape_usize: Vec<usize> = shape_expr
+        .iter()
+        .map(|e| match e {
+            Expr::Const(v) => *v as usize,
+            _ => panic!("Expected constant shape"),
+        })
+        .collect();
     assert_eq!(details.buffers.len(), 3);
     assert_eq!(details.shape_variables.len(), 0);
     // Input A
     assert_eq!(details.buffers[0].dtype, DType::F32);
-    assert_eq!(details.buffers[0].shape, shape);
+    assert_eq!(details.buffers[0].shape, shape_usize);
     // Input B
     assert_eq!(details.buffers[1].dtype, DType::F32);
-    assert_eq!(details.buffers[1].shape, shape);
+    assert_eq!(details.buffers[1].shape, shape_usize);
     // Output C
     assert_eq!(details.buffers[2].dtype, DType::F32);
-    assert_eq!(details.buffers[2].shape, shape);
+    assert_eq!(details.buffers[2].shape, shape_usize);
 
     // 3. Render to C code
     let mut renderer = CRenderer::new();
@@ -65,18 +72,18 @@ fn test_full_flow_add() {
     let buf_a = MockBuffer {
         data: vec![1.0, 2.0, 3.0, 4.0],
         dtype: DType::F32,
-        shape: shape.clone(),
+        shape: shape_usize.clone(),
     };
     let buf_b = MockBuffer {
         data: vec![5.0, 6.0, 7.0, 8.0],
         dtype: DType::F32,
-        shape: shape.clone(),
+        shape: shape_usize.clone(),
     };
     // Output buffer, initialized to 0.
     let buf_c = MockBuffer {
         data: vec![0.0; 4],
         dtype: DType::F32,
-        shape: shape.clone(),
+        shape: shape_usize.clone(),
     };
 
     // The lowerer assigns buffers in order: a, b, then c.
@@ -87,7 +94,7 @@ fn test_full_flow_add() {
     let expected = MockBuffer {
         data: vec![6.0, 8.0, 10.0, 12.0],
         dtype: DType::F32,
-        shape: shape.clone(),
+        shape: shape_usize.clone(),
     };
     // The output buffer `c` is the third one in the list.
     assert_eq!(result_buffers[2], expected);
@@ -97,10 +104,10 @@ fn test_full_flow_add() {
 fn test_full_flow_complex_fusion() {
     // 1. Build Graph for (a * b) + c
     let graph = Graph::new();
-    let shape: Vec<Expr> = vec![4.into()];
-    let a = graph.input(DType::F32, shape.clone());
-    let b = graph.input(DType::F32, shape.clone());
-    let c = graph.input(DType::F32, shape.clone());
+    let shape_expr: Vec<Expr> = vec![4.into()];
+    let a = graph.input(DType::F32, shape_expr.clone());
+    let b = graph.input(DType::F32, shape_expr.clone());
+    let c = graph.input(DType::F32, shape_expr.clone());
     let _d = ((a * b) + c).as_output();
     assert_eq!(graph.nodes.borrow().len(), 5); // a, b, c, mul, add
 
@@ -115,6 +122,13 @@ fn test_full_flow_complex_fusion() {
     let (ast, details) = lowerer.lower();
 
     // -- Verify KernelDetails --
+    let shape_usize: Vec<usize> = shape_expr
+        .iter()
+        .map(|e| match e {
+            Expr::Const(v) => *v as usize,
+            _ => panic!("Expected constant shape"),
+        })
+        .collect();
     assert_eq!(details.buffers.len(), 4); // a, b, c, d
     assert_eq!(details.shape_variables.len(), 0);
 
@@ -131,23 +145,23 @@ fn test_full_flow_complex_fusion() {
     let buf_a = MockBuffer {
         data: vec![1.0, 2.0, 3.0, 4.0],
         dtype: DType::F32,
-        shape: shape.clone(),
+        shape: shape_usize.clone(),
     };
     let buf_b = MockBuffer {
         data: vec![5.0, 6.0, 7.0, 8.0],
         dtype: DType::F32,
-        shape: shape.clone(),
+        shape: shape_usize.clone(),
     };
     let buf_c = MockBuffer {
         data: vec![9.0, 10.0, 11.0, 12.0],
         dtype: DType::F32,
-        shape: shape.clone(),
+        shape: shape_usize.clone(),
     };
     // Output buffer, initialized to 0.
     let buf_d = MockBuffer {
         data: vec![0.0; 4],
         dtype: DType::F32,
-        shape: shape.clone(),
+        shape: shape_usize.clone(),
     };
 
     // The lowerer assigns buffers in order: a, b, c, then d.
@@ -159,7 +173,7 @@ fn test_full_flow_complex_fusion() {
         // (1*5)+9=14, (2*6)+10=22, (3*7)+11=32, (4*8)+12=44
         data: vec![14.0, 22.0, 32.0, 44.0],
         dtype: DType::F32,
-        shape: shape.clone(),
+        shape: shape_usize.clone(),
     };
     // The output buffer `d` is the fourth one in the list.
     assert_eq!(result_buffers[3], expected);

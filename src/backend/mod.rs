@@ -8,7 +8,6 @@
 //! - `Device`: A component that manages memory allocation.
 
 use crate::ast::{AstNode, DType};
-use crate::tensor::shape::expr::Expr;
 use ::ndarray::ArrayD;
 use std::any::TypeId;
 use std::ffi::c_void;
@@ -19,7 +18,7 @@ use std::ffi::c_void;
 #[derive(Debug, Clone)]
 pub struct BufferInfo {
     pub dtype: DType,
-    pub shape: Vec<Expr>,
+    pub shape: Vec<usize>,
 }
 
 /// Detailed information about a compiled kernel's inputs and outputs.
@@ -36,7 +35,7 @@ pub struct KernelDetails {
 /// A trait for a generic buffer that can be passed to a kernel.
 /// This trait is object-safe.
 /// should be free when dropped.
-pub trait Buffer: Drop {
+pub trait Buffer {
     /// Returns a mutable pointer to the buffer's raw data.
     fn as_mut_ptr(&mut self) -> *mut c_void;
 
@@ -48,15 +47,7 @@ pub trait Buffer: Drop {
 
     /// Returns the total number of elements in the buffer.
     fn size(&self) -> usize {
-        self.shape()
-            .iter()
-            .map(|e| match e {
-                Expr::Const(v) => *v as usize,
-                // In a real scenario, you might need a way to resolve variables.
-                // For now, we panic if the shape is not fully concrete.
-                _ => panic!("Cannot calculate size of buffer with dynamic shapes"),
-            })
-            .product()
+        self.shape().iter().product()
     }
 }
 
@@ -77,15 +68,7 @@ pub trait TryIntoNdarray: Buffer {
             return None;
         }
 
-        let shape: Vec<usize> = self
-            .shape()
-            .iter()
-            .map(|e| match e {
-                Expr::Const(v) => *v as usize,
-                _ => panic!("Cannot create ndarray from dynamic shape"),
-            })
-            .collect();
-
+        let shape = self.shape();
         let size = shape.iter().product();
         if size == 0 {
             return ArrayD::from_shape_vec(shape, vec![]).ok();
