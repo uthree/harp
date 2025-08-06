@@ -206,7 +206,7 @@ impl Renderer for CRenderer {
 
         self.render_node(&ast);
         let code = self.buffer.clone();
-        debug!("Rendered C code:\n{code}");
+        debug!("--- Rendered C code ---\n\n{code}\n\n-----------------------");
         code
     }
 }
@@ -271,15 +271,15 @@ impl Kernel<CBuffer> for CKernel {
 
         unsafe {
             // Load the function symbol from the dynamic library.
-            let func: Symbol<CFunc> = self
-                .library
-                .get(self.func_name.as_bytes())
-                .unwrap_or_else(|e| {
-                    panic!(
-                        "Failed to load symbol '{}' from library: {}",
-                        self.func_name, e
-                    )
-                });
+            let func: Symbol<CFunc> =
+                self.library
+                    .get(self.func_name.as_bytes())
+                    .unwrap_or_else(|e| {
+                        panic!(
+                            "Failed to load symbol '{}' from library: {}",
+                            self.func_name, e
+                        )
+                    });
 
             // Prepare the `void**` argument by collecting pointers from the CBuffers.
             let mut buffer_ptrs: Vec<*mut c_void> = buffers.iter_mut().map(|b| b.ptr).collect();
