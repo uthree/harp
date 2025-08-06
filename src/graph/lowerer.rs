@@ -215,7 +215,11 @@ impl<'a> Lowerer<'a> {
             main_body.push(Box::new(var_decl));
         }
         // Create the call to the implementation function.
-        let call_impl = AstNode::new(AstOp::Call("kernel_impl".to_string()), impl_call_vars, DType::Void);
+        let call_impl = AstNode::new(
+            AstOp::Call("kernel_impl".to_string()),
+            impl_call_vars,
+            DType::Void,
+        );
         main_body.push(Box::new(call_impl));
 
         let kernel_main = AstNode::func_def(

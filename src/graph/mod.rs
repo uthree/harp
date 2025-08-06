@@ -334,12 +334,7 @@ impl Graph {
             let src_node = &nodes[src.0];
             (src_node.dtype.clone(), src_node.shape.clone())
         };
-        self.add_node(
-            TensorOp::Elementwise(AstOp::Recip),
-            vec![src],
-            dtype,
-            shape,
-        )
+        self.add_node(TensorOp::Elementwise(AstOp::Recip), vec![src], dtype, shape)
     }
 
     fn _reduce(&self, op: AstOp, src: NodeId, axis: usize) -> NodeId {
