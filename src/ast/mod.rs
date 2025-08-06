@@ -56,12 +56,20 @@ pub enum AstOp {
     Index(usize),
 
     // --- Statements and Control Flow ---
+    /// A collection of top-level function definitions.
+    Program,
     /// A block of statements. The statements are stored in the `src` field of the `AstNode`.
     Block,
     /// Assigns the value of `src` to `dst`.
     Assign {
         dst: Box<AstNode>,
         src: Box<AstNode>,
+    },
+    /// Declares a variable and assigns a value to it.
+    Declare {
+        name: String,
+        dtype: DType,
+        value: Box<AstNode>,
     },
     /// Stores the value of `src` at the memory location pointed to by `dst`.
     Store {

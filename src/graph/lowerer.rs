@@ -56,6 +56,15 @@ impl<'a> Lowerer<'a> {
         name
     }
 
+    /// Retrieves a properly typed variable representing a buffer.
+    /// e.g., `buf0`
+    fn get_buffer_var(&self, node_id: NodeId) -> AstNode {
+        let buffer_index = self.buffer_map[&node_id];
+        let node_data = &self.graph.nodes.borrow()[node_id.0];
+        AstNode::var(&format!("buf{buffer_index}"))
+            .with_type(DType::Ptr(Box::new(node_data.dtype.clone())))
+    }
+
     /// Retrieves a properly typed pointer to a buffer from the `buffers` array.
     /// e.g., `((float*)buffers[i])`
     fn get_buffer_ptr(&self, node_id: NodeId) -> AstNode {
@@ -88,13 +97,14 @@ impl<'a> Lowerer<'a> {
 
         let mut details = KernelDetails::default();
         let mut buffer_info_map = FxHashMap::default();
+        let mut node_id_to_buffer_index = FxHashMap::default();
 
         // 1. Identify all input and output buffers and assign them an index.
-        // By iterating over `graph.inputs`, we get a deterministic order.
         let mut current_buffer_idx = 0;
         for &node_id in self.graph.inputs.borrow().iter() {
             let node = &self.graph.nodes.borrow()[node_id.0];
             self.buffer_map.insert(node_id, current_buffer_idx);
+            node_id_to_buffer_index.insert(node_id, current_buffer_idx);
             buffer_info_map.insert(
                 current_buffer_idx,
                 BufferInfo {
@@ -117,6 +127,7 @@ impl<'a> Lowerer<'a> {
             let node_data = &self.graph.nodes.borrow()[output_id.0];
             self.buffer_map.entry(output_id).or_insert_with(|| {
                 let idx = current_buffer_idx;
+                node_id_to_buffer_index.insert(output_id, idx);
                 buffer_info_map.insert(
                     idx,
                     BufferInfo {
@@ -141,15 +152,10 @@ impl<'a> Lowerer<'a> {
             details.buffers.push(buffer_info_map.remove(&i).unwrap());
         }
 
-        // Collect all unique shape variables from inputs and outputs
+        // Collect all unique shape variables
         let mut shape_vars = std::collections::HashSet::new();
         let nodes = self.graph.nodes.borrow();
-        for &node_id in self.graph.inputs.borrow().iter() {
-            for expr in &nodes[node_id.0].shape {
-                expr.collect_variables(&mut shape_vars);
-            }
-        }
-        for &node_id in &outputs {
+        for &node_id in self.graph.inputs.borrow().iter().chain(outputs.iter()) {
             for expr in &nodes[node_id.0].shape {
                 expr.collect_variables(&mut shape_vars);
             }
@@ -157,15 +163,31 @@ impl<'a> Lowerer<'a> {
         details.shape_variables = shape_vars.into_iter().collect();
 
         // 2. Lower all output nodes to generate the computation logic.
-        let mut body = vec![];
+        let mut computation_body = vec![];
         for &output_id in &outputs {
             let (ast_node, _tracker) = self.lower_node(output_id);
-            body.push(ast_node);
+            computation_body.push(ast_node);
         }
 
-        // 3. Wrap the logic in the main kernel function definition.
-        let func_name = "kernel_main".to_string();
-        let args = vec![
+        // 3. Create the implementation function `kernel_impl`.
+        let mut impl_args = vec![];
+        let mut impl_call_vars = vec![];
+        for i in 0..details.buffers.len() {
+            let buf_name = format!("buf{i}");
+            let buffer_info = &details.buffers[i];
+            let arg_type = DType::Ptr(Box::new(buffer_info.dtype.clone()));
+            impl_args.push((buf_name.clone(), arg_type.clone()));
+            impl_call_vars.push(Box::new(AstNode::var(&buf_name).with_type(arg_type)));
+        }
+        let impl_body = AstNode::new(
+            AstOp::Block,
+            computation_body.into_iter().map(Box::new).collect(),
+            DType::Void,
+        );
+        let kernel_impl = AstNode::func_def("kernel_impl", impl_args, impl_body);
+
+        // 4. Create the main wrapper function `kernel_main`.
+        let main_args = vec![
             (
                 "buffers".to_string(),
                 DType::Ptr(Box::new(DType::Ptr(Box::new(DType::Void)))), // void**
@@ -175,13 +197,40 @@ impl<'a> Lowerer<'a> {
                 DType::Ptr(Box::new(DType::U64)), // size_t*
             ),
         ];
-        let func_body = AstNode::new(
-            AstOp::Block,
-            body.into_iter().map(Box::new).collect(),
+        let mut main_body = vec![];
+        // Create buffer variables: `float* buf0 = (float*)buffers[0];`
+        for (node_id, &index) in &node_id_to_buffer_index {
+            let var_name = format!("buf{index}");
+            let buffer_ptr = self.get_buffer_ptr(*node_id);
+            let node_data = &self.graph.nodes.borrow()[node_id.0];
+            let var_decl = AstNode::new(
+                AstOp::Declare {
+                    name: var_name,
+                    dtype: DType::Ptr(Box::new(node_data.dtype.clone())),
+                    value: Box::new(buffer_ptr),
+                },
+                vec![],
+                DType::Void,
+            );
+            main_body.push(Box::new(var_decl));
+        }
+        // Create the call to the implementation function.
+        let call_impl = AstNode::new(AstOp::Call("kernel_impl".to_string()), impl_call_vars, DType::Void);
+        main_body.push(Box::new(call_impl));
+
+        let kernel_main = AstNode::func_def(
+            "kernel_main",
+            main_args,
+            AstNode::new(AstOp::Block, main_body, DType::Void),
+        );
+
+        // 5. Combine both functions into a single AST program.
+        let final_ast = AstNode::new(
+            AstOp::Program,
+            vec![Box::new(kernel_impl), Box::new(kernel_main)],
             DType::Void,
         );
 
-        let final_ast = AstNode::func_def(&func_name, args, func_body);
         info!("Lowering process completed.");
         (final_ast, details)
     }
@@ -215,8 +264,8 @@ impl<'a> Lowerer<'a> {
                 }
                 debug!("Node {node_id:?} is not contiguous. Generating copy loop.");
 
-                let src_buffer = self.get_buffer_ptr(node_data.src[0]);
-                let dst_buffer = self.get_buffer_ptr(node_id);
+                let src_buffer = self.get_buffer_var(node_data.src[0]);
+                let dst_buffer = self.get_buffer_var(node_id);
                 let dst_tracker = ShapeTracker::new(node_data.shape.clone());
 
                 let mut loops = vec![];
@@ -271,7 +320,7 @@ impl<'a> Lowerer<'a> {
                     self.lower_node(src_id);
                 }
 
-                let dst_buffer = self.get_buffer_ptr(node_id);
+                let dst_buffer = self.get_buffer_var(node_id);
                 let dst_tracker = ShapeTracker::new(node_data.shape.clone());
 
                 let mut loops = vec![];
@@ -289,7 +338,7 @@ impl<'a> Lowerer<'a> {
                 let mut loaded_srcs = vec![];
                 for &src_id in node_data.src.iter() {
                     let (_, tracker) = self.cache.get(&src_id).unwrap();
-                    let buffer = self.get_buffer_ptr(src_id);
+                    let buffer = self.get_buffer_var(src_id);
                     let offset = tracker.offset_expr(&loop_vars);
                     let load = AstNode::deref(buffer.buffer_index(offset.simplify().into()));
                     loaded_srcs.push(Box::new(load));
@@ -311,7 +360,7 @@ impl<'a> Lowerer<'a> {
                     self.lower_node(src_id);
                 }
 
-                let dst_buffer = self.get_buffer_ptr(node_id);
+                let dst_buffer = self.get_buffer_var(node_id);
                 let dst_tracker = ShapeTracker::new(node_data.shape.clone());
 
                 let mut loops = vec![];
@@ -329,7 +378,7 @@ impl<'a> Lowerer<'a> {
                 let mut loaded_srcs = vec![];
                 for &src_id in node_data.src.iter() {
                     let (_, tracker) = self.cache.get(&src_id).unwrap();
-                    let buffer = self.get_buffer_ptr(src_id);
+                    let buffer = self.get_buffer_var(src_id);
                     let offset = tracker.offset_expr(&loop_vars);
                     let load = AstNode::deref(buffer.buffer_index(offset.simplify().into()));
                     loaded_srcs.push(load);
@@ -348,8 +397,8 @@ impl<'a> Lowerer<'a> {
             TensorOp::Reduce(op, axis) => {
                 self.lower_node(node_data.src[0]);
 
-                let src_buffer = self.get_buffer_ptr(node_data.src[0]);
-                let dst_buffer = self.get_buffer_ptr(node_id);
+                let src_buffer = self.get_buffer_var(node_data.src[0]);
+                let dst_buffer = self.get_buffer_var(node_id);
                 let (_, src_tracker) = self.cache.get(&node_data.src[0]).unwrap().clone();
                 let dst_tracker = ShapeTracker::new(node_data.shape.clone());
 

@@ -53,6 +53,12 @@ impl CRenderer {
     /// Renders a single `AstNode` recursively.
     fn render_node(&mut self, ast: &AstNode) {
         match &ast.op {
+            AstOp::Program => {
+                for node in &ast.src {
+                    self.render_node(node);
+                    self.writeln(""); // Add a newline between functions
+                }
+            }
             AstOp::Block => {
                 self.writeln("{ ");
                 self.indent_level += 1;
@@ -105,6 +111,12 @@ impl CRenderer {
                 write!(self.buffer, " = ").unwrap();
                 self.render_node(src);
                 self.writeln("; ");
+            }
+            AstOp::Declare { name, dtype, value } => {
+                self.write_indent();
+                write!(self.buffer, "{} {} = ", Self::dtype_to_c(dtype), name).unwrap();
+                self.render_node(value);
+                self.writeln(";");
             }
             AstOp::Store { dst, src } => {
                 self.write_indent();
@@ -206,7 +218,7 @@ impl Renderer for CRenderer {
 
         self.render_node(&ast);
         let code = self.buffer.clone();
-        debug!("--- Rendered C code ---\n\n{code}\n\n-----------------------");
+        debug!("\n--- Rendered C code ---\n{code}\n-----------------------");
         code
     }
 }
