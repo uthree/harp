@@ -2,8 +2,10 @@
 
 use crate::ast::{AstNode, AstOp, Const, DType};
 use crate::backend::{Backend, Buffer, Compiler, Kernel, Renderer};
+use crate::graph::Graph;
 use libloading::{Library, Symbol};
 use log::debug;
+use rustc_hash::FxHashMap;
 use std::ffi::c_void;
 use std::fmt::Write;
 
@@ -425,5 +427,29 @@ impl Compiler<CBuffer, String, ()> for CCompiler {
         let func_name = "kernel_main".to_string();
 
         CKernel { library, func_name }
+    }
+}
+
+pub struct CBackend {
+    graph_cache: FxHashMap<Graph, CKernel>,
+}
+
+impl Backend for CBackend {
+    type Var = CBuffer;
+    fn is_available(&self) -> bool {
+        CCompiler::new().is_available()
+    }
+    fn call(
+        &mut self,
+        graph: Graph,
+        buffers: Vec<Self::Var>,
+        shape_variables: Vec<usize>,
+    ) -> Self::Var {
+        // check graph exists in the cache, if exists, execute the kernel, otherwise, lowerrize and compile, execute the kernel.
+        todo!()
+    }
+    fn new() -> Self {
+        // initialize self
+        todo!()
     }
 }

@@ -106,10 +106,16 @@ pub trait Renderer<CodeRepr = String> {
     fn render(&mut self, ast: AstNode) -> CodeRepr;
 }
 
-pub trait Backend<Var: Buffer> {
+pub trait Backend {
+    type Var: Buffer;
     fn new() -> Self;
     fn is_available(&self) -> bool;
-    fn call(&mut self, graph: Graph, buffers: Vec<Var>, shape_variables: Vec<usize>) -> Var;
+    fn call(
+        &mut self,
+        graph: Graph,
+        buffers: Vec<Self::Var>,
+        shape_variables: Vec<usize>,
+    ) -> Self::Var;
 }
 
 // --- Submodules ---
