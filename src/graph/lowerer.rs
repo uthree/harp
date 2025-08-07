@@ -77,8 +77,8 @@ impl<'a> Lowerer<'a> {
             AstOp::Cast(DType::Ptr(Box::new(node_data.dtype.clone()))),
             vec![AstNode::new(
                 AstOp::BufferIndex {
-                    buffer: buffer_var,
-                    index: AstNode::from(buffer_index as i64),
+                    buffer: Box::new(buffer_var),
+                    index: Box::new(AstNode::from(buffer_index as i64)),
                 },
                 vec![],
                 // This represents the type of `buffers[i]`, which is `void*`
@@ -179,8 +179,7 @@ impl<'a> Lowerer<'a> {
             impl_args.push((buf_name.clone(), arg_type.clone()));
             impl_call_vars.push(AstNode::var(&buf_name).with_type(arg_type));
         }
-        let impl_body = AstNode::new(AstOp::Block, computation_body, DType::Void);
-        let kernel_impl = AstNode::func_def("kernel_impl", impl_args, impl_body);
+        let kernel_impl = AstNode::func_def("kernel_impl", impl_args, computation_body);
 
         // 4. Create the main wrapper function `kernel_main`.
         let main_args = vec![
@@ -208,7 +207,7 @@ impl<'a> Lowerer<'a> {
                 vec![],
                 DType::Void,
             );
-            main_body.push(Box::new(var_decl));
+            main_body.push(var_decl);
         }
         // Create the call to the implementation function.
         let call_impl = AstNode::new(
@@ -216,12 +215,12 @@ impl<'a> Lowerer<'a> {
             impl_call_vars,
             DType::Void,
         );
-        main_body.push(Box::new(call_impl));
+        main_body.push(call_impl);
 
         let kernel_main = AstNode::func_def(
             "kernel_main",
             main_args,
-            AstNode::new(AstOp::Block, main_body, DType::Void),
+            main_body,
         );
 
         // 5. Combine both functions into a single AST program.
@@ -272,7 +271,7 @@ impl<'a> Lowerer<'a> {
                     loops.push(AstNode::range(
                         loop_var,
                         shape_expr.clone().into(),
-                        AstNode::block(vec![]),
+                        vec![],
                     ));
                 }
 
@@ -327,7 +326,7 @@ impl<'a> Lowerer<'a> {
                     loops.push(AstNode::range(
                         loop_var,
                         shape_expr.clone().into(),
-                        AstNode::block(vec![]),
+                        vec![],
                     ));
                 }
 
@@ -337,7 +336,7 @@ impl<'a> Lowerer<'a> {
                     let buffer = self.get_buffer_var(src_id);
                     let offset = tracker.offset_expr(&loop_vars);
                     let load = AstNode::deref(buffer.buffer_index(offset.simplify().into()));
-                    loaded_srcs.push(Box::new(load));
+                    loaded_srcs.push(load);
                 }
 
                 let op_node = AstNode::new(op, loaded_srcs, node_data.dtype.clone());
@@ -367,7 +366,7 @@ impl<'a> Lowerer<'a> {
                     loops.push(AstNode::range(
                         loop_var,
                         shape_expr.clone().into(),
-                        AstNode::block(vec![]),
+                        vec![],
                     ));
                 }
 
@@ -406,7 +405,7 @@ impl<'a> Lowerer<'a> {
                     loops.push(AstNode::range(
                         loop_var,
                         shape_expr.clone().into(),
-                        AstNode::block(vec![]),
+                        vec![],
                     ));
                 }
 
@@ -451,7 +450,7 @@ impl<'a> Lowerer<'a> {
                 let inner_loop = AstNode::range(
                     inner_loop_var,
                     src_tracker.shape()[axis].clone().into(),
-                    AstNode::block(vec![update_acc]),
+                    vec![update_acc],
                 );
 
                 let dst_offset = dst_tracker.offset_expr(&outer_loop_vars);
@@ -529,12 +528,14 @@ mod tests {
                 })
                 .expect("kernel_main function not found in program");
 
-            if let AstOp::Func { name, args, body } = &kernel_main.op {
+            if let AstOp::Func { name, args, .. } = &kernel_main.op {
                 assert_eq!(*name, "kernel_main");
                 assert_eq!(args.len(), 2);
                 assert_eq!(args[0].0, "buffers");
                 assert_eq!(args[1].0, "shape_vars");
-                assert!(matches!(body.op, AstOp::Block));
+                // Check the body of kernel_main
+                assert!(kernel_main.src.len() > 0);
+                assert!(matches!(kernel_main.src[0].op, AstOp::Declare { .. }));
             } else {
                 panic!("Expected a FuncDef node for kernel_main");
             }
@@ -571,10 +572,11 @@ mod tests {
             .expect("kernel_impl function not found");
 
         // Check that the body of the function contains a store to the correct buffer
-        if let AstOp::Func { body, .. } = &kernel_impl.op {
+        if let AstOp::Func { .. } = &kernel_impl.op {
             // body -> Block -> [elementwise_ast]
-            let elementwise_ast = &body.src[0];
-            if let AstOp::Range { block, .. } = &elementwise_ast.op {
+            let elementwise_ast = &kernel_impl.src[0];
+            if let AstOp::Range { .. } = &elementwise_ast.op {
+                let block = &elementwise_ast.src[0];
                 if let AstOp::Store { dst, src } = &block.op {
                     // dst should be `buf2[ridx0]`
                     if let AstOp::BufferIndex { buffer, .. } = &dst.op {
@@ -623,9 +625,10 @@ mod tests {
             })
             .expect("kernel_impl function not found");
 
-        if let AstOp::Func { body, .. } = &kernel_impl.op {
-            let reduce_ast = &body.src[0];
-            if let AstOp::Range { block, .. } = &reduce_ast.op {
+        if let AstOp::Func { .. } = &kernel_impl.op {
+            let reduce_ast = &kernel_impl.src[0];
+            if let AstOp::Range { .. } = &reduce_ast.op {
+                let block = &reduce_ast.src[0];
                 // block contains [init_acc, inner_loop, store_result]
                 let store_node = &block.src[2];
                 if let AstOp::Store { dst, .. } = &store_node.op {

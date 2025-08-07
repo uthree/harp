@@ -244,8 +244,8 @@ impl Graph {
         let ast_node = AstNode::new(
             AstOp::LessThan,
             vec![
-                Box::new(AstNode::capture(0, lhs_dtype)),
-                Box::new(AstNode::capture(1, rhs_dtype)),
+                AstNode::capture(0, lhs_dtype),
+                AstNode::capture(1, rhs_dtype),
             ],
             DType::F32, // FIXME: This should probably be a boolean type
         );

@@ -40,10 +40,10 @@ fn test_render_simple_function() {
             ("a".to_string(), DType::Ptr(Box::new(DType::F32))),
             ("b".to_string(), DType::Ptr(Box::new(DType::F32))),
         ],
-        AstNode::block(vec![]),
+        vec![],
     );
     let expected = r#"
-void test_func(float* a, float* b) { { } }
+void test_func(float* a, float* b) { }
 "#;
     assert_render(ast, expected);
 }
@@ -137,10 +137,10 @@ fn test_render_for_loop() {
     let ast = AstNode::range(
         "i".to_string(),
         AstNode::var("N").with_type(DType::I32),
-        AstNode::block(vec![]),
+        vec![],
     );
     let expected = r#"
-for (int i = 0; i < N; i++) { { } }
+for (int i = 0; i < N; i++) { }
 "#;
     assert_render(ast, expected);
 }

@@ -253,8 +253,8 @@ impl AstNode {
     pub fn build_loops(loops: Vec<AstNode>, statement: AstNode) -> AstNode {
         let mut final_block = statement;
         for mut loop_node in loops.into_iter().rev() {
-            if let AstOp::Range { ref mut block, .. } = loop_node.op {
-                *block = Box::new(final_block);
+            if let AstOp::Range { .. } = loop_node.op {
+                loop_node.src = vec![final_block];
             }
             final_block = loop_node;
         }
@@ -850,16 +850,16 @@ mod tests {
         assert_eq!(result.op, AstOp::Add);
         assert_eq!(result.dtype, DType::F32);
 
-        let lhs = &*result.src[0];
-        let rhs = &*result.src[1];
+        let lhs = &result.src[0];
+        let rhs = &result.src[1];
 
         // Check that the integer was cast to float
         assert_eq!(lhs.op, AstOp::Cast(DType::F32));
         assert_eq!(lhs.dtype, DType::F32);
-        assert_eq!(*lhs.src[0], i1); // Original i1 inside the cast
+        assert_eq!(lhs.src[0], i1); // Original i1 inside the cast
 
         // Check that the float remains unchanged
-        assert_eq!(*rhs, f1);
+        assert_eq!(rhs, &f1);
     }
 
     #[test]
@@ -884,11 +884,7 @@ mod tests {
     fn test_func_def_and_call() {
         let a = AstNode::var("a");
         let b = AstNode::var("b");
-        let body = AstNode::new(
-            AstOp::Block,
-            vec![Box::new(a.clone() + b.clone())],
-            DType::Void,
-        );
+        let body = vec![a.clone() + b.clone()];
         let args = vec![("a".to_string(), DType::F32), ("b".to_string(), DType::F32)];
         let func = AstNode::func_def("my_add", args.clone(), body);
 

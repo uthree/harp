@@ -68,21 +68,19 @@ impl CRenderer {
                 self.indent_level -= 1;
                 self.writeln("} ");
             }
-            AstOp::Range {
-                loop_var,
-                max,
-                block,
-            } => {
+            AstOp::Range { loop_var, max } => {
                 self.write_indent();
                 write!(self.buffer, "for (int {loop_var} = 0; {loop_var} < ").unwrap();
                 self.render_node(max);
                 writeln!(self.buffer, "; {loop_var}++) {{ ").unwrap();
                 self.indent_level += 1;
-                self.render_node(block);
+                if let Some(block) = ast.src.get(0) {
+                    self.render_node(block);
+                }
                 self.indent_level -= 1;
                 self.writeln("} ");
             }
-            AstOp::Func { name, args, body } => {
+            AstOp::Func { name, args } => {
                 let args_str: Vec<String> = args
                     .iter()
                     .map(|(name, dtype)| format!("{} {}", Self::dtype_to_c(dtype), name))
@@ -90,7 +88,9 @@ impl CRenderer {
                 let args_str = args_str.join(", ");
                 self.writeln(&format!("void {name}({args_str}) {{"));
                 self.indent_level += 1;
-                self.render_node(body);
+                for node in &ast.src {
+                    self.render_node(node);
+                }
                 self.indent_level -= 1;
                 self.writeln("} ");
             }
