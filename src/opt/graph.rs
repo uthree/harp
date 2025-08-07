@@ -148,7 +148,7 @@ mod tests {
 
     #[test]
     fn test_elementwise_fusion() {
-        let mut graph = Graph::new();
+        let graph = Graph::new();
         let a = graph.input(DType::F32, vec![]);
         let b = -a;
         let c = b.sin();
