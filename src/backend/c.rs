@@ -60,25 +60,32 @@ impl CRenderer {
                 }
             }
             AstOp::Block => {
-                self.writeln("{ ");
+                self.writeln("{");
                 self.indent_level += 1;
                 for node in &ast.src {
                     self.render_node(node);
                 }
                 self.indent_level -= 1;
-                self.writeln("} ");
+                self.writeln("}");
             }
             AstOp::Range { loop_var, max } => {
                 self.write_indent();
                 write!(self.buffer, "for (int {loop_var} = 0; {loop_var} < ").unwrap();
                 self.render_node(max);
-                writeln!(self.buffer, "; {loop_var}++) {{ ").unwrap();
+                writeln!(self.buffer, "; {loop_var}++) {{").unwrap();
                 self.indent_level += 1;
-                if let Some(block) = ast.src.first() {
-                    self.render_node(block);
+                // If the loop body is a single block, unwrap it to avoid double braces.
+                if ast.src.len() == 1 && matches!(ast.src[0].op, AstOp::Block) {
+                    for node in &ast.src[0].src {
+                        self.render_node(node);
+                    }
+                } else {
+                    for node in &ast.src {
+                        self.render_node(node);
+                    }
                 }
                 self.indent_level -= 1;
-                self.writeln("} ");
+                self.writeln("}");
             }
             AstOp::Func { name, args } => {
                 let args_str: Vec<String> = args
@@ -92,7 +99,7 @@ impl CRenderer {
                     self.render_node(node);
                 }
                 self.indent_level -= 1;
-                self.writeln("} ");
+                self.writeln("}");
             }
             AstOp::Call(name) => {
                 self.write_indent();

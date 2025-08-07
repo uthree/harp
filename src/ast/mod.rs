@@ -250,8 +250,14 @@ impl AstNode {
     }
 
     /// Nests a statement inside a series of loops.
-    pub fn build_loops(loops: Vec<AstNode>, statement: AstNode) -> AstNode {
-        let mut final_block = statement;
+    pub fn build_loops(loops: Vec<AstNode>, mut statements: Vec<AstNode>) -> AstNode {
+        let final_node = if statements.len() == 1 {
+            statements.remove(0)
+        } else {
+            AstNode::block(statements)
+        };
+
+        let mut final_block = final_node;
         for mut loop_node in loops.into_iter().rev() {
             if let AstOp::Range { .. } = loop_node.op {
                 loop_node.src = vec![final_block];

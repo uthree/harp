@@ -277,7 +277,7 @@ impl<'a> Lowerer<'a> {
                     load_node,
                 );
 
-                let final_block = AstNode::build_loops(loops, store_node);
+                let final_block = AstNode::build_loops(loops, vec![store_node]);
 
                 // The result is a block containing the copy loop.
                 (final_block, dst_tracker)
@@ -334,7 +334,7 @@ impl<'a> Lowerer<'a> {
                     op_node,
                 );
 
-                let final_block = AstNode::build_loops(loops, store_node);
+                let final_block = AstNode::build_loops(loops, vec![store_node]);
 
                 (final_block, dst_tracker)
             }
@@ -370,7 +370,7 @@ impl<'a> Lowerer<'a> {
                     computation,
                 );
 
-                let final_block = AstNode::build_loops(loops, store_node);
+                let final_block = AstNode::build_loops(loops, vec![store_node]);
                 (final_block, dst_tracker)
             }
             TensorOp::Reduce(op, axis) => {
@@ -439,8 +439,8 @@ impl<'a> Lowerer<'a> {
                     AstNode::var(&acc_var).with_type(node_data.dtype.clone()),
                 );
 
-                let reduction_block = AstNode::block(vec![init_acc, inner_loop, store_result]);
-                let final_block = AstNode::build_loops(loops, reduction_block);
+                let final_block =
+                    AstNode::build_loops(loops, vec![init_acc, inner_loop, store_result]);
 
                 (final_block, dst_tracker)
             }
