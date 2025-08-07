@@ -1,16 +1,20 @@
 //! C language backend for rendering the AST.
 
 use crate::ast::{AstNode, AstOp, Const, DType};
-use crate::backend::{Backend, Buffer, Compiler, Kernel, KernelDetails, Renderer};
+use crate::backend::{AsAny, Backend, Buffer, Compiler, Kernel, KernelDetails, Renderer};
+use crate::graph::lowerer::Lowerer;
 use crate::graph::Graph;
 use libloading::{Library, Symbol};
 use log::debug;
 use rustc_hash::FxHashMap;
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::fmt::Write;
+use std::sync::Arc;
 
 /// A buffer allocated on the C side.
+#[derive(Debug)]
 pub struct CBuffer {
     /// Raw pointer to the allocated memory.
     pub ptr: *mut c_void,
@@ -75,7 +79,7 @@ impl CRenderer {
                 self.write_indent();
                 write!(self.buffer, "for (size_t {loop_var} = 0; {loop_var} < ").unwrap();
                 self.render_node(&ast.src[0]); // max
-                writeln!(self.buffer, "; {loop_var}++) {{").unwrap();
+                writeln!(self.buffer, "; {loop_var}++) {{ ").unwrap();
                 self.indent_level += 1;
 
                 // The rest of src is the loop body.
@@ -255,7 +259,7 @@ impl CRenderer {
             DType::Void => "void".to_string(),
             DType::Ptr(inner) => format!("{}*", Self::dtype_to_c(inner)),
             DType::FixedArray(inner, ..) => format!("{}*", Self::dtype_to_c(inner)),
-            _ => panic!("DType {dtype:?} not supported in C renderer"),
+            _ => panic!("DType {:?} not supported in C renderer", dtype),
         }
     }
 
@@ -283,7 +287,7 @@ impl Renderer for CRenderer {
 
         self.render_node(&ast);
         let code = self.buffer.clone();
-        debug!("\n--- Rendered C code ---\n{code}\n-----------------------");
+        debug!("\n--- Rendered C code ---\n{{code}}\n-----------------------");
         code
     }
 }
@@ -313,25 +317,22 @@ impl CCompiler {
 /// It owns the `libloading::Library` instance to ensure that the dynamic library
 /// remains loaded in memory for the entire lifetime of the kernel. This prevents
 /// dangling pointers to the function.
+#[derive(Clone)]
 pub struct CKernel {
     /// The loaded dynamic library.
-    library: Library,
+    library: Arc<Library>,
     /// The name of the function to be called within the library (e.g., "kernel_main").
     func_name: String,
     /// Detailed information about the kernel's inputs and outputs.
     details: KernelDetails,
 }
 
-impl Kernel for CKernel {
+impl Kernel<CBuffer> for CKernel {
     fn details(&self) -> &KernelDetails {
         &self.details
     }
 
-    fn call(
-        &self,
-        mut buffers: Vec<Box<dyn Buffer>>,
-        shape_variables: &[usize],
-    ) -> Vec<Box<dyn Buffer>> {
+    fn call(&self, mut buffers: Vec<CBuffer>, shape_variables: &[usize]) -> Vec<CBuffer> {
         // 1. Validate the incoming buffers against the kernel's details.
         assert_eq!(
             buffers.len(),
@@ -388,15 +389,7 @@ impl Kernel for CKernel {
         // 2. If validation passes, execute the C function.
         type CFunc = unsafe extern "C" fn(*mut *mut c_void, *const usize);
 
-        let mut buffer_ptrs: Vec<*mut c_void> = buffers
-            .iter_mut()
-            .map(|b| {
-                b.as_any_mut()
-                    .downcast_mut::<CBuffer>()
-                    .expect("Buffer is not a CBuffer")
-                    .ptr
-            })
-            .collect();
+        let mut buffer_ptrs: Vec<*mut c_void> = buffers.iter_mut().map(|b| b.ptr).collect();
 
         unsafe {
             let func: Symbol<CFunc> =
@@ -416,7 +409,7 @@ impl Kernel for CKernel {
     }
 }
 
-impl Compiler<String, ()> for CCompiler {
+impl Compiler<CBuffer> for CCompiler {
     fn new() -> Self {
         CCompiler::default()
     }
@@ -429,7 +422,7 @@ impl Compiler<String, ()> for CCompiler {
         unimplemented!();
     }
 
-    fn compile(&mut self, code: &String, details: KernelDetails) -> Box<dyn Kernel> {
+    fn compile(&mut self, code: &String, details: KernelDetails) -> Box<dyn Kernel<CBuffer>> {
         let mut source_file = tempfile::Builder::new()
             .prefix("kernel")
             .suffix(".c")
@@ -465,14 +458,14 @@ impl Compiler<String, ()> for CCompiler {
 
         if !output.status.success() {
             panic!(
-                "Compiler failed with status {:?}:
-{}",
+                "Compiler failed with status {:?}:\n{}",
                 output.status,
                 String::from_utf8_lossy(&output.stderr)
             );
         }
 
-        let library = unsafe { Library::new(&lib_path).expect("Failed to load dynamic library") };
+        let library =
+            Arc::new(unsafe { Library::new(&lib_path).expect("Failed to load dynamic library") });
 
         let func_name = "kernel_main".to_string();
 
@@ -490,26 +483,104 @@ impl Compiler<String, ()> for CCompiler {
 /// rendering it to C code, compiling it into a dynamic library, and finally
 /// executing it. It caches compiled kernels to avoid redundant compilations.
 pub struct CBackend {
-    graph_cache: FxHashMap<Graph, CKernel>,
+    graph_cache: FxHashMap<String, CKernel>,
 }
 
-impl Backend for CBackend {
-    type Var = CBuffer;
+impl Backend<CBuffer> for CBackend {
+    fn new() -> Self {
+        CBackend {
+            graph_cache: FxHashMap::default(),
+        }
+    }
+
     fn is_available(&self) -> bool {
         CCompiler::new().is_available()
     }
     fn call(
         &mut self,
         graph: Graph,
-        buffers: Vec<Self::Var>,
+        buffers: Vec<CBuffer>,
         shape_variables: Vec<usize>,
-    ) -> Self::Var {
-        // check graph exists in the cache, if exists, execute the kernel, otherwise, lowerrize and compile, execute the kernel.
-        todo!()
-    }
-    fn new() -> Self {
-        CBackend {
-            graph_cache: FxHashMap::default(),
+    ) -> CBuffer {
+        let key = format!("{graph:?}");
+        // 1. Get the kernel from cache or compile it.
+        let kernel = match self.graph_cache.entry(key) {
+            Entry::Occupied(entry) => entry.get().clone(),
+            Entry::Vacant(entry) => {
+                // Lower the graph to AST
+                let mut lowerer = Lowerer::new(&graph);
+                let (ast, details) = lowerer.lower();
+
+                // Render the AST to C code
+                let mut renderer = CRenderer::new();
+                let code = renderer.render(ast);
+
+                // Compile the C code
+                let mut compiler = CCompiler::new();
+                let kernel_dyn = compiler.compile(&code, details);
+                let kernel = kernel_dyn
+                    .into_any()
+                    .downcast::<CKernel>()
+                    .unwrap()
+                    .as_ref()
+                    .clone();
+
+                entry.insert(kernel.clone());
+                kernel
+            }
+        };
+
+        // 2. Prepare buffers for the kernel call.
+        let details = kernel.details();
+        let num_inputs = graph.inputs.borrow().len();
+        let num_outputs = graph.outputs.borrow().len();
+
+        assert_eq!(
+            buffers.len(),
+            num_inputs,
+            "Incorrect number of input buffers provided"
+        );
+
+        let mut all_buffers = buffers;
+
+        // Create output buffers based on KernelDetails.
+        let shape_vars_map: HashMap<String, i64> = details
+            .shape_variables
+            .iter()
+            .cloned()
+            .zip(shape_variables.iter().map(|&v| v as i64))
+            .collect();
+
+        for i in num_inputs..(num_inputs + num_outputs) {
+            let buffer_info = &details.buffers[i];
+            let shape: Vec<usize> = buffer_info
+                .shape
+                .iter()
+                .map(|expr| expr.evaluate(&shape_vars_map) as usize)
+                .collect();
+            let dtype = buffer_info.dtype.clone();
+            let byte_size = shape.iter().product::<usize>() * dtype.size_in_bytes();
+
+            let ptr = unsafe { libc::malloc(byte_size) };
+            if ptr.is_null() {
+                panic!("Failed to allocate memory for output buffer");
+            }
+
+            let output_buffer = CBuffer { ptr, shape, dtype };
+            all_buffers.push(output_buffer);
         }
+
+        // 3. Call the kernel.
+        let mut result_buffers = kernel.call(all_buffers, &shape_variables);
+
+        // 4. Extract and return the output buffer(s).
+        // This backend currently assumes a single output tensor.
+        assert_eq!(
+            num_outputs, 1,
+            "CBackend only supports single output graphs"
+        );
+        assert_eq!(result_buffers.len(), num_inputs + num_outputs);
+
+        result_buffers.pop().unwrap()
     }
 }

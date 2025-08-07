@@ -40,6 +40,8 @@ pub trait AsAny: Any {
     fn as_any(&self) -> &dyn Any;
     /// Converts `&mut self` to `&mut dyn Any`.
     fn as_any_mut(&mut self) -> &mut dyn Any;
+    /// Converts the boxed trait object into a boxed `Any` trait object.
+    fn into_any(self: Box<Self>) -> Box<dyn Any>;
 }
 
 impl<T: Any> AsAny for T {
@@ -49,6 +51,9 @@ impl<T: Any> AsAny for T {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
 }
 
 // --- Core Traits ---
@@ -56,7 +61,7 @@ impl<T: Any> AsAny for T {
 /// A trait for a generic buffer that can be passed to a kernel.
 /// This trait is object-safe.
 /// should be free when dropped.
-pub trait Buffer: AsAny {
+pub trait Buffer: AsAny + Sized {
     /// Returns a mutable slice of the buffer's raw data as bytes.
     fn as_mut_bytes(&mut self) -> &mut [u8];
 
@@ -106,24 +111,20 @@ pub trait TryIntoNdarray: Buffer {
 impl<T: Buffer> TryIntoNdarray for T {}
 
 /// A trait for a compiled, executable kernel.
-pub trait Kernel {
+pub trait Kernel<B: Buffer>: AsAny {
     /// Returns detailed information about the kernel's inputs and outputs.
     fn details(&self) -> &KernelDetails;
 
     /// Executes the kernel with the given buffers and shape variables.
-    fn call(
-        &self,
-        buffers: Vec<Box<dyn Buffer>>,
-        shape_variables: &[usize],
-    ) -> Vec<Box<dyn Buffer>>;
+    fn call(&self, buffers: Vec<B>, shape_variables: &[usize]) -> Vec<B>;
 }
 
 /// A trait for a compiler that turns a code representation into a `Kernel`.
-pub trait Compiler<CodeRepr = String, CompilerOption = ()> {
+pub trait Compiler<B: Buffer, CodeRepr = String, CompilerOption = ()> {
     fn new() -> Self;
     fn is_available(&self) -> bool;
     fn with_option(&mut self, option: CompilerOption);
-    fn compile(&mut self, code: &CodeRepr, details: KernelDetails) -> Box<dyn Kernel>;
+    fn compile(&mut self, code: &CodeRepr, details: KernelDetails) -> Box<dyn Kernel<B>>;
 }
 
 /// A trait for a component that translates an `AstNode` into a code representation.
@@ -132,16 +133,10 @@ pub trait Renderer<CodeRepr = String> {
     fn render(&mut self, ast: AstNode) -> CodeRepr;
 }
 
-pub trait Backend {
-    type Var: Buffer;
+pub trait Backend<B: Buffer> {
     fn new() -> Self;
     fn is_available(&self) -> bool;
-    fn call(
-        &mut self,
-        graph: Graph,
-        buffers: Vec<Self::Var>,
-        shape_variables: Vec<usize>,
-    ) -> Self::Var;
+    fn call(&mut self, graph: Graph, buffers: Vec<B>, shape_variables: Vec<usize>) -> B;
 }
 
 // --- Submodules ---
