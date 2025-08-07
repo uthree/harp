@@ -9,7 +9,7 @@
 
 use crate::{
     ast::{AstNode, DType},
-    graph::Graph,
+    graph::{shape::expr::Expr, Graph},
 };
 use ::ndarray::ArrayD;
 use std::any::TypeId;
@@ -20,7 +20,7 @@ use std::any::TypeId;
 #[derive(Debug, Clone)]
 pub struct BufferInfo {
     pub dtype: DType,
-    pub shape: Vec<usize>,
+    pub shape: Vec<Expr>,
 }
 
 /// Detailed information about a compiled kernel's inputs and outputs.

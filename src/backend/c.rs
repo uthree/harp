@@ -351,7 +351,7 @@ impl Kernel<CBuffer> for CKernel {
 
         unsafe {
             // Load the function symbol from the dynamic library.
-            let func: Symbol<CFunc> = 
+            let func: Symbol<CFunc> =
                 self.library
                     .get(self.func_name.as_bytes())
                     .unwrap_or_else(|e| {
@@ -440,7 +440,6 @@ impl Compiler<CBuffer, String, ()> for CCompiler {
         }
     }
 }
-
 
 pub struct CBackend {
     graph_cache: FxHashMap<Graph, CKernel>,

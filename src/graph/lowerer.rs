@@ -109,14 +109,7 @@ impl<'a> Lowerer<'a> {
                 current_buffer_idx,
                 BufferInfo {
                     dtype: node.dtype.clone(),
-                    shape: node
-                        .shape
-                        .iter()
-                        .map(|e| match e {
-                            Expr::Const(v) => *v as usize,
-                            _ => panic!("Cannot lower buffer with dynamic shapes"),
-                        })
-                        .collect(),
+                    shape: node.shape.clone(),
                 },
             );
             current_buffer_idx += 1;
@@ -132,14 +125,7 @@ impl<'a> Lowerer<'a> {
                     idx,
                     BufferInfo {
                         dtype: node_data.dtype.clone(),
-                        shape: node_data
-                            .shape
-                            .iter()
-                            .map(|e| match e {
-                                Expr::Const(v) => *v as usize,
-                                _ => panic!("Cannot lower buffer with dynamic shapes"),
-                            })
-                            .collect(),
+                        shape: node_data.shape.clone(),
                     },
                 );
                 current_buffer_idx += 1;
