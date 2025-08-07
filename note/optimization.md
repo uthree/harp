@@ -52,6 +52,7 @@ trait DeterministicAstOptimizer {
 
 ## 決定論的グラフ オプティマイザー
 ```rust
+グラフ単位での決定論的な最適化を行う。
 trait DeterministicGraphOptimizer {
     fn optimize(&Graph) -> Graph
 }
