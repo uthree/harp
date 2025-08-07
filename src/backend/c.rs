@@ -1,7 +1,7 @@
 //! C language backend for rendering the AST.
 
 use crate::ast::{AstNode, AstOp, Const, DType};
-use crate::backend::{Backend, Buffer, Compiler, Kernel, Renderer};
+use crate::backend::{Backend, Buffer, Compiler, Kernel, KernelDetails, Renderer};
 use crate::graph::Graph;
 use libloading::{Library, Symbol};
 use log::debug;
@@ -315,9 +315,15 @@ pub struct CKernel {
     library: Library,
     /// The name of the function to be called within the library (e.g., "kernel_main").
     func_name: String,
+    /// Detailed information about the kernel's inputs and outputs.
+    details: KernelDetails,
 }
 
 impl Kernel<CBuffer> for CKernel {
+    fn details(&self) -> &KernelDetails {
+        &self.details
+    }
+
     /// Executes the loaded C kernel function.
     ///
     /// This method prepares the arguments and calls the FFI function loaded from the
@@ -345,7 +351,7 @@ impl Kernel<CBuffer> for CKernel {
 
         unsafe {
             // Load the function symbol from the dynamic library.
-            let func: Symbol<CFunc> =
+            let func: Symbol<CFunc> = 
                 self.library
                     .get(self.func_name.as_bytes())
                     .unwrap_or_else(|e| {
@@ -425,10 +431,16 @@ impl Compiler<CBuffer, String, ()> for CCompiler {
         let library = unsafe { Library::new(&lib_path).expect("Failed to load dynamic library") };
 
         let func_name = "kernel_main".to_string();
+        let details = KernelDetails::default();
 
-        CKernel { library, func_name }
+        CKernel {
+            library,
+            func_name,
+            details,
+        }
     }
 }
+
 
 pub struct CBackend {
     graph_cache: FxHashMap<Graph, CKernel>,
@@ -449,7 +461,8 @@ impl Backend for CBackend {
         todo!()
     }
     fn new() -> Self {
-        // initialize self
-        todo!()
+        CBackend {
+            graph_cache: FxHashMap::default(),
+        }
     }
 }

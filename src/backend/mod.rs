@@ -88,6 +88,9 @@ impl<T: Buffer> TryIntoNdarray for T {}
 
 /// A trait for a compiled, executable kernel.
 pub trait Kernel<Var: Buffer> {
+    /// Returns detailed information about the kernel's inputs and outputs.
+    fn details(&self) -> &KernelDetails;
+
     /// Executes the kernel with the given buffers and shape variables.
     fn call(&self, buffers: Vec<Var>, shape_variables: Vec<usize>) -> Vec<Var>;
 }
