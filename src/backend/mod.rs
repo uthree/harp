@@ -11,8 +11,8 @@ use crate::{
     ast::{AstNode, DType},
     graph::{shape::expr::Expr, Graph},
 };
-use ::ndarray::ArrayD;
-use std::any::TypeId;
+use ndarray::ArrayD;
+use std::any::{Any, TypeId};
 
 // --- Core Data Structures ---
 
@@ -32,18 +32,32 @@ pub struct KernelDetails {
     pub shape_variables: Vec<String>,
 }
 
+pub trait AsAny: Any {
+    fn as_any(&self) -> &dyn Any;
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+}
+
+impl<T: Any> AsAny for T {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
 // --- Core Traits ---
 
 /// A trait for a generic buffer that can be passed to a kernel.
 /// This trait is object-safe.
 /// should be free when dropped.
-pub trait Buffer {
+pub trait Buffer: AsAny {
     /// Returns a mutable slice of the buffer's raw data as bytes.
     fn as_mut_bytes(&mut self) -> &mut [u8];
 
     /// Returns the data type of the elements in the buffer.
     fn dtype(&self) -> DType;
-
+    
     /// 形状を返す。Bufferとして実態を持っている時点でサイズは確定しているので、Exprではない。
     fn shape(&self) -> Vec<usize>;
 
@@ -87,20 +101,20 @@ pub trait TryIntoNdarray: Buffer {
 impl<T: Buffer> TryIntoNdarray for T {}
 
 /// A trait for a compiled, executable kernel.
-pub trait Kernel<Var: Buffer> {
+pub trait Kernel {
     /// Returns detailed information about the kernel's inputs and outputs.
     fn details(&self) -> &KernelDetails;
 
     /// Executes the kernel with the given buffers and shape variables.
-    fn call(&self, buffers: Vec<Var>, shape_variables: Vec<usize>) -> Vec<Var>;
+    fn call(&self, buffers: Vec<Box<dyn Buffer>>, shape_variables: &[usize]) -> Vec<Box<dyn Buffer>>;
 }
 
 /// A trait for a compiler that turns a code representation into a `Kernel`.
-pub trait Compiler<Var: Buffer, CodeRepr = String, CompilerOption = ()> {
+pub trait Compiler<CodeRepr = String, CompilerOption = ()> {
     fn new() -> Self;
     fn is_available(&self) -> bool;
     fn with_option(&mut self, option: CompilerOption);
-    fn compile(&mut self, code: CodeRepr) -> impl Kernel<Var>;
+    fn compile(&mut self, code: &CodeRepr, details: KernelDetails) -> Box<dyn Kernel>;
 }
 
 /// A trait for a component that translates an `AstNode` into a code representation.

@@ -173,6 +173,31 @@ impl Expr {
             Expr::Const(_) => {}
         }
     }
+
+    /// Evaluates the expression to a concrete `i64` value.
+    ///
+    /// All variables in the expression must be present in the `vars` map.
+    ///
+    /// # Arguments
+    ///
+    /// * `vars` - A map from variable names to their concrete `i64` values.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a variable is found in the expression but not in the `vars` map.
+    pub fn evaluate(&self, vars: &std::collections::HashMap<String, i64>) -> i64 {
+        match self {
+            Expr::Const(c) => *c,
+            Expr::Var(v) => *vars
+                .get(v)
+                .unwrap_or_else(|| panic!("Variable '{v}' not found in evaluation context")),
+            Expr::Add(l, r) => l.evaluate(vars) + r.evaluate(vars),
+            Expr::Sub(l, r) => l.evaluate(vars) - r.evaluate(vars),
+            Expr::Mul(l, r) => l.evaluate(vars) * r.evaluate(vars),
+            Expr::Div(l, r) => l.evaluate(vars) / r.evaluate(vars),
+            Expr::Rem(l, r) => l.evaluate(vars) % r.evaluate(vars),
+        }
+    }
 }
 
 impl From<i64> for Expr {

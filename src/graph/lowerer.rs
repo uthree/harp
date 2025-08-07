@@ -6,7 +6,6 @@
 
 use crate::ast::{AstNode, AstOp, DType};
 use crate::backend::{BufferInfo, KernelDetails};
-use crate::graph::shape::expr::Expr;
 use crate::graph::shape::tracker::ShapeTracker;
 use crate::graph::{Graph, NodeId, TensorOp};
 use log::{debug, info, trace};

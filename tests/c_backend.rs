@@ -2,7 +2,7 @@
 
 use harp::ast::{AstNode, DType};
 use harp::backend::c::{CBuffer, CCompiler, CRenderer};
-use harp::backend::{Compiler, Kernel, Renderer, TryIntoNdarray};
+use harp::backend::{Compiler, Kernel, KernelDetails, Renderer, TryIntoNdarray};
 use harp::graph::lowerer::Lowerer;
 use harp::graph::Graph;
 use ndarray::ArrayD;
@@ -219,12 +219,12 @@ fn test_c_backend_e2e_add() {
 
     // 2. Lower and Render
     let mut lowerer = Lowerer::new(&graph);
-    let (ast, _details) = lowerer.lower();
+    let (ast, details) = lowerer.lower();
     let mut renderer = CRenderer::new();
     let code = renderer.render(ast);
 
     // 3. Compile
-    let kernel = compiler.compile(code);
+    let kernel = compiler.compile(&code, details);
 
     // 4. Prepare data and call kernel
     let a_data: Vec<f32> = (0..10).map(|i| i as f32).collect();
@@ -234,12 +234,22 @@ fn test_c_backend_e2e_add() {
     let b_buffer = buffer_from_slice(&b_data, &shape, DType::F32);
     let c_buffer = empty_buffer(&shape, DType::F32);
 
-    let mut result_buffers = kernel.call(vec![a_buffer, b_buffer, c_buffer], vec![]);
+    let mut result_buffers = kernel.call(
+        vec![
+            Box::new(a_buffer),
+            Box::new(b_buffer),
+            Box::new(c_buffer),
+        ],
+        &[],
+    );
 
     // 5. Verify results
-    assert_eq!(result_buffers.len(), 3);
-    let c_result_buffer = &mut result_buffers[2];
-    let c_result_array = c_result_buffer.try_into_ndarray::<f32>().unwrap();
+    let c_result_array = result_buffers[2]
+        .as_any_mut()
+        .downcast_mut::<CBuffer>()
+        .unwrap()
+        .try_into_ndarray::<f32>()
+        .unwrap();
 
     let expected_data: Vec<f32> = a_data
         .iter()
@@ -268,24 +278,27 @@ fn test_c_backend_e2e_neg() {
 
     // 2. Lower and Render
     let mut lowerer = Lowerer::new(&graph);
-    let (ast, _details) = lowerer.lower();
+    let (ast, details) = lowerer.lower();
     let mut renderer = CRenderer::new();
     let code = renderer.render(ast);
 
     // 3. Compile
-    let kernel = compiler.compile(code);
+    let kernel = compiler.compile(&code, details);
 
     // 4. Prepare data and call kernel
     let a_data: Vec<f32> = (0..10).map(|i| i as f32).collect();
     let a_buffer = buffer_from_slice(&a_data, &shape, DType::F32);
     let b_buffer = empty_buffer(&shape, DType::F32);
 
-    let mut result_buffers = kernel.call(vec![a_buffer, b_buffer], vec![]);
+    let mut result_buffers = kernel.call(vec![Box::new(a_buffer), Box::new(b_buffer)], &[]);
 
     // 5. Verify results
-    assert_eq!(result_buffers.len(), 2);
-    let b_result_buffer = &mut result_buffers[1];
-    let b_result_array = b_result_buffer.try_into_ndarray::<f32>().unwrap();
+    let b_result_array = result_buffers[1]
+        .as_any_mut()
+        .downcast_mut::<CBuffer>()
+        .unwrap()
+        .try_into_ndarray::<f32>()
+        .unwrap();
 
     let expected_data: Vec<f32> = a_data.iter().map(|&x| -x).collect();
     let expected_array = ArrayD::from_shape_vec(shape, expected_data).unwrap();
@@ -311,12 +324,12 @@ fn test_c_backend_e2e_rem() {
 
     // 2. Lower and Render
     let mut lowerer = Lowerer::new(&graph);
-    let (ast, _details) = lowerer.lower();
+    let (ast, details) = lowerer.lower();
     let mut renderer = CRenderer::new();
     let code = renderer.render(ast);
 
     // 3. Compile
-    let kernel = compiler.compile(code);
+    let kernel = compiler.compile(&code, details);
 
     // 4. Prepare data and call kernel
     let a_data: Vec<f32> = (0..10).map(|i| (i * 2) as f32).collect();
@@ -326,12 +339,22 @@ fn test_c_backend_e2e_rem() {
     let b_buffer = buffer_from_slice(&b_data, &shape, DType::F32);
     let c_buffer = empty_buffer(&shape, DType::F32);
 
-    let mut result_buffers = kernel.call(vec![a_buffer, b_buffer, c_buffer], vec![]);
+    let mut result_buffers = kernel.call(
+        vec![
+            Box::new(a_buffer),
+            Box::new(b_buffer),
+            Box::new(c_buffer),
+        ],
+        &[],
+    );
 
     // 5. Verify results
-    assert_eq!(result_buffers.len(), 3);
-    let c_result_buffer = &mut result_buffers[2];
-    let c_result_array = c_result_buffer.try_into_ndarray::<f32>().unwrap();
+    let c_result_array = result_buffers[2]
+        .as_any_mut()
+        .downcast_mut::<CBuffer>()
+        .unwrap()
+        .try_into_ndarray::<f32>()
+        .unwrap();
 
     let expected_data: Vec<f32> = a_data
         .iter()
@@ -361,12 +384,12 @@ fn test_c_backend_e2e_lt() {
 
     // 2. Lower and Render
     let mut lowerer = Lowerer::new(&graph);
-    let (ast, _details) = lowerer.lower();
+    let (ast, details) = lowerer.lower();
     let mut renderer = CRenderer::new();
     let code = renderer.render(ast);
 
     // 3. Compile
-    let kernel = compiler.compile(code);
+    let kernel = compiler.compile(&code, details);
 
     // 4. Prepare data and call kernel
     let a_data: Vec<f32> = (0..10).map(|i| i as f32).collect();
@@ -376,12 +399,22 @@ fn test_c_backend_e2e_lt() {
     let b_buffer = buffer_from_slice(&b_data, &shape, DType::F32);
     let c_buffer = empty_buffer(&shape, DType::F32);
 
-    let mut result_buffers = kernel.call(vec![a_buffer, b_buffer, c_buffer], vec![]);
+    let mut result_buffers = kernel.call(
+        vec![
+            Box::new(a_buffer),
+            Box::new(b_buffer),
+            Box::new(c_buffer),
+        ],
+        &[],
+    );
 
     // 5. Verify results
-    assert_eq!(result_buffers.len(), 3);
-    let c_result_buffer = &mut result_buffers[2];
-    let c_result_array = c_result_buffer.try_into_ndarray::<f32>().unwrap();
+    let c_result_array = result_buffers[2]
+        .as_any_mut()
+        .downcast_mut::<CBuffer>()
+        .unwrap()
+        .try_into_ndarray::<f32>()
+        .unwrap();
 
     let expected_data: Vec<f32> = a_data
         .iter()
@@ -410,24 +443,27 @@ fn test_c_backend_e2e_sin() {
 
     // 2. Lower and Render
     let mut lowerer = Lowerer::new(&graph);
-    let (ast, _details) = lowerer.lower();
+    let (ast, details) = lowerer.lower();
     let mut renderer = CRenderer::new();
     let code = renderer.render(ast);
 
     // 3. Compile
-    let kernel = compiler.compile(code);
+    let kernel = compiler.compile(&code, details);
 
     // 4. Prepare data and call kernel
     let a_data: Vec<f32> = (0..10).map(|i| i as f32).collect();
     let a_buffer = buffer_from_slice(&a_data, &shape, DType::F32);
     let b_buffer = empty_buffer(&shape, DType::F32);
 
-    let mut result_buffers = kernel.call(vec![a_buffer, b_buffer], vec![]);
+    let mut result_buffers = kernel.call(vec![Box::new(a_buffer), Box::new(b_buffer)], &[]);
 
     // 5. Verify results
-    assert_eq!(result_buffers.len(), 2);
-    let b_result_buffer = &mut result_buffers[1];
-    let b_result_array = b_result_buffer.try_into_ndarray::<f32>().unwrap();
+    let b_result_array = result_buffers[1]
+        .as_any_mut()
+        .downcast_mut::<CBuffer>()
+        .unwrap()
+        .try_into_ndarray::<f32>()
+        .unwrap();
 
     let expected_data: Vec<f32> = a_data.iter().map(|&x| x.sin()).collect();
     let expected_array = ArrayD::from_shape_vec(shape, expected_data).unwrap();
@@ -450,17 +486,22 @@ fn test_c_backend_e2e_sqrt() {
     a.sqrt().as_output();
 
     let mut lowerer = Lowerer::new(&graph);
-    let (ast, _) = lowerer.lower();
+    let (ast, details) = lowerer.lower();
     let mut renderer = CRenderer::new();
     let code = renderer.render(ast);
-    let kernel = compiler.compile(code);
+    let kernel = compiler.compile(&code, details);
 
     let a_data: Vec<f32> = (0..10).map(|i| (i * i) as f32).collect();
     let a_buffer = buffer_from_slice(&a_data, &shape, DType::F32);
     let b_buffer = empty_buffer(&shape, DType::F32);
 
-    let mut result_buffers = kernel.call(vec![a_buffer, b_buffer], vec![]);
-    let b_result_array = result_buffers[1].try_into_ndarray::<f32>().unwrap();
+    let mut result_buffers = kernel.call(vec![Box::new(a_buffer), Box::new(b_buffer)], &[]);
+    let b_result_array = result_buffers[1]
+        .as_any_mut()
+        .downcast_mut::<CBuffer>()
+        .unwrap()
+        .try_into_ndarray::<f32>()
+        .unwrap();
 
     let expected_data: Vec<f32> = a_data.iter().map(|&x| x.sqrt()).collect();
     let expected_array = ArrayD::from_shape_vec(shape, expected_data).unwrap();
@@ -482,17 +523,22 @@ fn test_c_backend_e2e_log2() {
     a.log2().as_output();
 
     let mut lowerer = Lowerer::new(&graph);
-    let (ast, _) = lowerer.lower();
+    let (ast, details) = lowerer.lower();
     let mut renderer = CRenderer::new();
     let code = renderer.render(ast);
-    let kernel = compiler.compile(code);
+    let kernel = compiler.compile(&code, details);
 
     let a_data: Vec<f32> = (1..11).map(|i| i as f32).collect();
     let a_buffer = buffer_from_slice(&a_data, &shape, DType::F32);
     let b_buffer = empty_buffer(&shape, DType::F32);
 
-    let mut result_buffers = kernel.call(vec![a_buffer, b_buffer], vec![]);
-    let b_result_array = result_buffers[1].try_into_ndarray::<f32>().unwrap();
+    let mut result_buffers = kernel.call(vec![Box::new(a_buffer), Box::new(b_buffer)], &[]);
+    let b_result_array = result_buffers[1]
+        .as_any_mut()
+        .downcast_mut::<CBuffer>()
+        .unwrap()
+        .try_into_ndarray::<f32>()
+        .unwrap();
 
     let expected_data: Vec<f32> = a_data.iter().map(|&x| x.log2()).collect();
     let expected_array = ArrayD::from_shape_vec(shape, expected_data).unwrap();
@@ -514,17 +560,22 @@ fn test_c_backend_e2e_exp2() {
     a.exp2().as_output();
 
     let mut lowerer = Lowerer::new(&graph);
-    let (ast, _) = lowerer.lower();
+    let (ast, details) = lowerer.lower();
     let mut renderer = CRenderer::new();
     let code = renderer.render(ast);
-    let kernel = compiler.compile(code);
+    let kernel = compiler.compile(&code, details);
 
     let a_data: Vec<f32> = (0..10).map(|i| i as f32).collect();
     let a_buffer = buffer_from_slice(&a_data, &shape, DType::F32);
     let b_buffer = empty_buffer(&shape, DType::F32);
 
-    let mut result_buffers = kernel.call(vec![a_buffer, b_buffer], vec![]);
-    let b_result_array = result_buffers[1].try_into_ndarray::<f32>().unwrap();
+    let mut result_buffers = kernel.call(vec![Box::new(a_buffer), Box::new(b_buffer)], &[]);
+    let b_result_array = result_buffers[1]
+        .as_any_mut()
+        .downcast_mut::<CBuffer>()
+        .unwrap()
+        .try_into_ndarray::<f32>()
+        .unwrap();
 
     let expected_data: Vec<f32> = a_data.iter().map(|&x| x.exp2()).collect();
     let expected_array = ArrayD::from_shape_vec(shape, expected_data).unwrap();
@@ -546,17 +597,22 @@ fn test_c_backend_e2e_recip() {
     a.recip().as_output();
 
     let mut lowerer = Lowerer::new(&graph);
-    let (ast, _) = lowerer.lower();
+    let (ast, details) = lowerer.lower();
     let mut renderer = CRenderer::new();
     let code = renderer.render(ast);
-    let kernel = compiler.compile(code);
+    let kernel = compiler.compile(&code, details);
 
     let a_data: Vec<f32> = (1..11).map(|i| i as f32).collect();
     let a_buffer = buffer_from_slice(&a_data, &shape, DType::F32);
     let b_buffer = empty_buffer(&shape, DType::F32);
 
-    let mut result_buffers = kernel.call(vec![a_buffer, b_buffer], vec![]);
-    let b_result_array = result_buffers[1].try_into_ndarray::<f32>().unwrap();
+    let mut result_buffers = kernel.call(vec![Box::new(a_buffer), Box::new(b_buffer)], &[]);
+    let b_result_array = result_buffers[1]
+        .as_any_mut()
+        .downcast_mut::<CBuffer>()
+        .unwrap()
+        .try_into_ndarray::<f32>()
+        .unwrap();
 
     let expected_data: Vec<f32> = a_data.iter().map(|&x| 1.0 / x).collect();
     let expected_array = ArrayD::from_shape_vec(shape, expected_data).unwrap();
@@ -581,22 +637,27 @@ fn test_c_backend_e2e_reduce_sum() {
 
     // 2. Lower and Render
     let mut lowerer = Lowerer::new(&graph);
-    let (ast, _details) = lowerer.lower();
+    let (ast, details) = lowerer.lower();
     let mut renderer = CRenderer::new();
     let code = renderer.render(ast);
 
     // 3. Compile
-    let kernel = compiler.compile(code);
+    let kernel = compiler.compile(&code, details);
 
     // 4. Prepare data and call kernel
     let a_data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
     let a_buffer = buffer_from_slice(&a_data, &input_shape, DType::F32);
     let b_buffer = empty_buffer(&output_shape, DType::F32);
 
-    let mut result_buffers = kernel.call(vec![a_buffer, b_buffer], vec![]);
+    let mut result_buffers = kernel.call(vec![Box::new(a_buffer), Box::new(b_buffer)], &[]);
 
     // 5. Verify results
-    let b_result_array = result_buffers[1].try_into_ndarray::<f32>().unwrap();
+    let b_result_array = result_buffers[1]
+        .as_any_mut()
+        .downcast_mut::<CBuffer>()
+        .unwrap()
+        .try_into_ndarray::<f32>()
+        .unwrap();
     let expected_data: Vec<f32> = vec![6.0, 15.0];
     let expected_array = ArrayD::from_shape_vec(output_shape, expected_data).unwrap();
 
@@ -618,18 +679,23 @@ fn test_c_backend_e2e_reduce_max() {
     a.max(1).as_output();
 
     let mut lowerer = Lowerer::new(&graph);
-    let (ast, _) = lowerer.lower();
+    let (ast, details) = lowerer.lower();
     let mut renderer = CRenderer::new();
     let code = renderer.render(ast);
-    let kernel = compiler.compile(code);
+    let kernel = compiler.compile(&code, details);
 
     let a_data: Vec<f32> = vec![1.0, 5.0, 2.0, 8.0, 3.0, 4.0];
     let a_buffer = buffer_from_slice(&a_data, &input_shape, DType::F32);
     let b_buffer = empty_buffer(&output_shape, DType::F32);
 
-    let mut result_buffers = kernel.call(vec![a_buffer, b_buffer], vec![]);
+    let mut result_buffers = kernel.call(vec![Box::new(a_buffer), Box::new(b_buffer)], &[]);
 
-    let b_result_array = result_buffers[1].try_into_ndarray::<f32>().unwrap();
+    let b_result_array = result_buffers[1]
+        .as_any_mut()
+        .downcast_mut::<CBuffer>()
+        .unwrap()
+        .try_into_ndarray::<f32>()
+        .unwrap();
     let expected_data: Vec<f32> = vec![5.0, 8.0];
     let expected_array = ArrayD::from_shape_vec(output_shape, expected_data).unwrap();
 
@@ -651,18 +717,23 @@ fn test_c_backend_e2e_reduce_prod() {
     a.prod(1).as_output();
 
     let mut lowerer = Lowerer::new(&graph);
-    let (ast, _) = lowerer.lower();
+    let (ast, details) = lowerer.lower();
     let mut renderer = CRenderer::new();
     let code = renderer.render(ast);
-    let kernel = compiler.compile(code);
+    let kernel = compiler.compile(&code, details);
 
     let a_data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
     let a_buffer = buffer_from_slice(&a_data, &input_shape, DType::F32);
     let b_buffer = empty_buffer(&output_shape, DType::F32);
 
-    let mut result_buffers = kernel.call(vec![a_buffer, b_buffer], vec![]);
+    let mut result_buffers = kernel.call(vec![Box::new(a_buffer), Box::new(b_buffer)], &[]);
 
-    let b_result_array = result_buffers[1].try_into_ndarray::<f32>().unwrap();
+    let b_result_array = result_buffers[1]
+        .as_any_mut()
+        .downcast_mut::<CBuffer>()
+        .unwrap()
+        .try_into_ndarray::<f32>()
+        .unwrap();
     let expected_data: Vec<f32> = vec![6.0, 120.0];
     let expected_array = ArrayD::from_shape_vec(output_shape, expected_data).unwrap();
 
