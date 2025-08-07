@@ -287,7 +287,7 @@ impl Renderer for CRenderer {
 
         self.render_node(&ast);
         let code = self.buffer.clone();
-        debug!("\n--- Rendered C code ---\n{{code}}\n-----------------------");
+        debug!("\n--- Rendered C code ---\n{code}\n-----------------------");
         code
     }
 }
