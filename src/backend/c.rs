@@ -482,6 +482,11 @@ impl Compiler<String, ()> for CCompiler {
     }
 }
 
+/// A backend that uses C for compilation and execution.
+///
+/// This backend orchestrates the lowering of a `Graph` to an `AstNode`,
+/// rendering it to C code, compiling it into a dynamic library, and finally
+/// executing it. It caches compiled kernels to avoid redundant compilations.
 pub struct CBackend {
     graph_cache: FxHashMap<Graph, CKernel>,
 }

@@ -32,8 +32,13 @@ pub struct KernelDetails {
     pub shape_variables: Vec<String>,
 }
 
+/// A trait that allows a type to be converted to `&dyn Any` or `&mut dyn Any`.
+///
+/// This is a helper trait to enable downcasting of `Buffer` trait objects.
 pub trait AsAny: Any {
+    /// Converts `&self` to `&dyn Any`.
     fn as_any(&self) -> &dyn Any;
+    /// Converts `&mut self` to `&mut dyn Any`.
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 

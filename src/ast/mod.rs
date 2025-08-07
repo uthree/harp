@@ -423,6 +423,12 @@ pub enum DType {
 }
 
 impl DType {
+    /// Converts the `DType` to a `TypeId`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `DType` cannot be represented as a concrete Rust type,
+    /// such as `Any`, `Void`, or `Ptr`.
     pub fn to_type_id(&self) -> TypeId {
         match self {
             DType::F32 => TypeId::of::<f32>(),

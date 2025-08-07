@@ -344,6 +344,17 @@ impl Graph {
         self.add_node(TensorOp::Elementwise(AstOp::Recip), vec![src], dtype, shape)
     }
 
+    /// Internal helper to create a reduction node.
+    ///
+    /// # Arguments
+    ///
+    /// * `op` - The reduction operation (e.g., `AstOp::Add`, `AstOp::Max`).
+    /// * `src` - The `NodeId` of the input tensor.
+    /// * `axis` - The axis along which to perform the reduction.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `axis` is out of bounds for the input tensor's shape.
     fn _reduce(&self, op: AstOp, src: NodeId, axis: usize) -> NodeId {
         let (dtype, mut shape) = {
             let nodes = self.nodes.borrow();
