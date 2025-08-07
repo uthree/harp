@@ -20,6 +20,10 @@ fn next_id() -> usize {
 }
 
 /// Represents an operation in the Abstract Syntax Tree.
+///
+/// The philosophy here is that `AstOp` should represent the operation itself,
+/// while the operands (source nodes) are consistently stored in the `src`
+/// field of the `AstNode`. This makes the tree structure more uniform.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AstOp {
     // --- Placeholders ---
@@ -39,7 +43,7 @@ pub enum AstOp {
     Sqrt,
     Log2,
     Exp2,
-    /// Casts a value to a different data type.
+    /// Casts a value to a different data type. `src[0]` is the value to cast.
     Cast(DType),
 
     // --- Binary Operations ---
@@ -60,35 +64,19 @@ pub enum AstOp {
     Program,
     /// A block of statements. The statements are stored in the `src` field of the `AstNode`.
     Block,
-    /// Assigns the value of `src` to `dst`.
-    Assign {
-        dst: Box<AstNode>,
-        src: Box<AstNode>,
-    },
-    /// Declares a variable and assigns a value to it.
-    Declare {
-        name: String,
-        dtype: DType,
-        value: Box<AstNode>,
-    },
-    /// Stores the value of `src` at the memory location pointed to by `dst`.
-    Store {
-        dst: Box<AstNode>,
-        src: Box<AstNode>,
-    },
-    /// Dereferences a pointer.
-    Deref(Box<AstNode>),
-    /// Represents an indexed access into a buffer (e.g., `buffer[index]`).
-    BufferIndex {
-        buffer: Box<AstNode>,
-        index: Box<AstNode>,
-    },
-    /// Represents a for-loop.
-    Range {
-        loop_var: String,
-        max: Box<AstNode>,
-    },
-    /// Represents a function definition.
+    /// Assigns a value. `src[0]` is the destination, `src[1]` is the source.
+    Assign,
+    /// Declares a variable and assigns a value to it. `src[0]` is the value.
+    Declare { name: String, dtype: DType },
+    /// Stores a value at a memory location. `src[0]` is the destination address, `src[1]` is the value.
+    Store,
+    /// Dereferences a pointer. `src[0]` is the address to dereference.
+    Deref,
+    /// Represents an indexed access into a buffer. `src[0]` is the buffer, `src[1]` is the index.
+    BufferIndex,
+    /// Represents a for-loop. `src[0]` is the maximum value (exclusive), and the rest of `src` is the loop body.
+    Range { loop_var: String },
+    /// Represents a function definition. The function body is in `src`.
     Func {
         name: String,
         args: Vec<(String, DType)>,
@@ -191,15 +179,10 @@ impl AstNode {
     }
 
     /// Creates a new `Range` (for-loop) node.
-    pub fn range(loop_var: String, max: AstNode, block: Vec<AstNode>) -> Self {
-        Self::new(
-            AstOp::Range {
-                loop_var,
-                max: Box::new(max),
-            },
-            block,
-            DType::Void,
-        )
+    pub fn range(loop_var: String, max: AstNode, mut block: Vec<AstNode>) -> Self {
+        let mut src = vec![max];
+        src.append(&mut block);
+        Self::new(AstOp::Range { loop_var }, src, DType::Void)
     }
 
     /// Creates a new `BufferIndex` node.
@@ -209,44 +192,28 @@ impl AstNode {
         } else {
             DType::Any // Or panic, depending on strictness
         };
-        Self::new(
-            AstOp::BufferIndex {
-                buffer: Box::new(self),
-                index: Box::new(index),
-            },
-            vec![],
-            ptr_dtype,
-        )
+        Self::new(AstOp::BufferIndex, vec![self, index], ptr_dtype)
     }
 
     /// Creates a new `Deref` node.
     pub fn deref(addr: AstNode) -> Self {
         let dtype = addr.dtype.clone();
-        Self::new(AstOp::Deref(Box::new(addr)), vec![], dtype)
+        Self::new(AstOp::Deref, vec![addr], dtype)
     }
 
     /// Creates a new `Store` node.
     pub fn store(dst: AstNode, src: AstNode) -> Self {
-        Self::new(
-            AstOp::Store {
-                dst: Box::new(dst),
-                src: Box::new(src),
-            },
-            vec![],
-            DType::Void,
-        )
+        Self::new(AstOp::Store, vec![dst, src], DType::Void)
     }
 
     /// Creates a new `Assign` node.
     pub fn assign(dst: AstNode, src: AstNode) -> Self {
-        Self::new(
-            AstOp::Assign {
-                dst: Box::new(dst),
-                src: Box::new(src),
-            },
-            vec![],
-            DType::Void,
-        )
+        Self::new(AstOp::Assign, vec![dst, src], DType::Void)
+    }
+
+    /// Creates a new `Declare` node.
+    pub fn declare(name: String, dtype: DType, value: AstNode) -> Self {
+        Self::new(AstOp::Declare { name, dtype }, vec![value], DType::Void)
     }
 
     /// Nests a statement inside a series of loops.
@@ -259,8 +226,12 @@ impl AstNode {
 
         let mut final_block = final_node;
         for mut loop_node in loops.into_iter().rev() {
+            // The loop body is now part of the `src` field, so we need to update it there.
             if let AstOp::Range { .. } = loop_node.op {
-                loop_node.src = vec![final_block];
+                // The first element of src is the range max, the rest is the body.
+                let mut new_src = vec![loop_node.src.remove(0)];
+                new_src.push(final_block);
+                loop_node.src = new_src;
             }
             final_block = loop_node;
         }
@@ -935,7 +906,6 @@ mod tests {
         if let AstOp::Func {
             name,
             args: func_args,
-            ..
         } = &func.op
         {
             assert_eq!(name, "my_add");

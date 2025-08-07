@@ -72,17 +72,17 @@ impl<'a> Lowerer<'a> {
         let buffer_var = AstNode::var("buffers");
 
         // Creates `(dtype*)buffers[buffer_index]`
+        let index_node = AstNode::from(buffer_index as u64).cast(DType::USize);
+        let buffer_access = AstNode::new(
+            AstOp::BufferIndex,
+            vec![buffer_var, index_node],
+            // This represents the type of `buffers[i]`, which is `void*`
+            DType::Ptr(Box::new(DType::Void)),
+        );
+
         AstNode::new(
             AstOp::Cast(DType::Ptr(Box::new(node_data.dtype.clone()))),
-            vec![AstNode::new(
-                AstOp::BufferIndex {
-                    buffer: Box::new(buffer_var),
-                    index: Box::new(AstNode::from(buffer_index as u64).cast(DType::USize)),
-                },
-                vec![],
-                // This represents the type of `buffers[i]`, which is `void*`
-                DType::Ptr(Box::new(DType::Void)),
-            )],
+            vec![buffer_access],
             DType::Ptr(Box::new(node_data.dtype.clone())),
         )
     }
@@ -183,23 +183,15 @@ impl<'a> Lowerer<'a> {
             let var_name = format!("buf{index}");
             let buffer_ptr = self.get_buffer_ptr(*node_id);
             let node_data = &self.graph.nodes.borrow()[node_id.0];
-            let var_decl = AstNode::new(
-                AstOp::Declare {
-                    name: var_name,
-                    dtype: DType::Ptr(Box::new(node_data.dtype.clone())),
-                    value: Box::new(buffer_ptr),
-                },
-                vec![],
-                DType::Void,
+            let var_decl = AstNode::declare(
+                var_name,
+                DType::Ptr(Box::new(node_data.dtype.clone())),
+                buffer_ptr,
             );
             main_body.push(var_decl);
         }
         // Create the call to the implementation function.
-        let call_impl = AstNode::new(
-            AstOp::Call("kernel_impl".to_string()),
-            impl_call_vars,
-            DType::Void,
-        );
+        let call_impl = AstNode::call("kernel_impl", impl_call_vars);
         main_body.push(call_impl);
 
         let kernel_main = AstNode::func_def("kernel_main", main_args, main_body);
@@ -410,14 +402,10 @@ impl<'a> Lowerer<'a> {
                 }
                 .with_type(node_data.dtype.clone());
 
-                let init_acc = AstNode::new(
-                    AstOp::Declare {
-                        name: acc_var.clone(),
-                        dtype: node_data.dtype.clone(),
-                        value: Box::new(init_val),
-                    },
-                    vec![],
-                    DType::Void,
+                let init_acc = AstNode::declare(
+                    acc_var.clone(),
+                    node_data.dtype.clone(),
+                    init_val,
                 );
 
                 let inner_loop_var = self.new_loop_counter();
@@ -546,14 +534,18 @@ mod tests {
 
         // Check that the body of the function contains a store to the correct buffer
         if let AstOp::Func { .. } = &kernel_impl.op {
-            // body -> Block -> [elementwise_ast]
+            // body -> [elementwise_ast]
             let elementwise_ast = &kernel_impl.src[0];
             if let AstOp::Range { .. } = &elementwise_ast.op {
-                let block = &elementwise_ast.src[0];
-                if let AstOp::Store { dst, src } = &block.op {
+                // The body of the range is in its src
+                let block = &elementwise_ast.src[1];
+                if let AstOp::Store = &block.op {
+                    let dst = &block.src[0];
+                    let src = &block.src[1];
                     // dst should be `buf2[ridx0]`
-                    if let AstOp::BufferIndex { buffer, .. } = &dst.op {
-                        if let AstOp::Var(name) = &buffer.op {
+                    if let AstOp::BufferIndex = &dst.op {
+                        let buffer_node = &dst.src[0];
+                        if let AstOp::Var(name) = &buffer_node.op {
                             assert_eq!(name, "buf2");
                         } else {
                             panic!("Destination buffer is not the correct variable");
@@ -601,13 +593,16 @@ mod tests {
         if let AstOp::Func { .. } = &kernel_impl.op {
             let reduce_ast = &kernel_impl.src[0];
             if let AstOp::Range { .. } = &reduce_ast.op {
-                let block = &reduce_ast.src[0];
+                // The body of the range is in its src
+                let block = &reduce_ast.src[1];
                 // block contains [init_acc, inner_loop, store_result]
                 let store_node = &block.src[2];
-                if let AstOp::Store { dst, .. } = &store_node.op {
-                    if let AstOp::BufferIndex { buffer, .. } = &dst.op {
+                if let AstOp::Store = &store_node.op {
+                    let dst = &store_node.src[0];
+                    if let AstOp::BufferIndex = &dst.op {
+                        let buffer_node = &dst.src[0];
                         // We are checking if the destination is the correct buffer variable
-                        if let AstOp::Var(name) = &buffer.op {
+                        if let AstOp::Var(name) = &buffer_node.op {
                             assert_eq!(name, "buf1");
                         } else {
                             panic!("Expected destination to be a buffer variable");

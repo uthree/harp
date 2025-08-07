@@ -71,19 +71,25 @@ impl CRenderer {
                 self.indent_level -= 1;
                 self.writeln("}");
             }
-            AstOp::Range { loop_var, max } => {
+            AstOp::Range { loop_var } => {
                 self.write_indent();
-                write!(self.buffer, "for (size_t {loop_var} = 0; {loop_var} < ").unwrap();
-                self.render_node(max);
+                write!(
+                    self.buffer,
+                    "for (size_t {loop_var} = 0; {loop_var} < "
+                )
+                .unwrap();
+                self.render_node(&ast.src[0]); // max
                 writeln!(self.buffer, "; {loop_var}++) {{").unwrap();
                 self.indent_level += 1;
+
+                // The rest of src is the loop body.
                 // If the loop body is a single block, unwrap it to avoid double braces.
-                if ast.src.len() == 1 && matches!(ast.src[0].op, AstOp::Block) {
-                    for node in &ast.src[0].src {
+                if ast.src.len() == 2 && matches!(ast.src[1].op, AstOp::Block) {
+                    for node in &ast.src[1].src {
                         self.render_node(node);
                     }
                 } else {
-                    for node in &ast.src {
+                    for node in ast.src.iter().skip(1) {
                         self.render_node(node);
                     }
                 }
@@ -115,36 +121,36 @@ impl CRenderer {
                 }
                 writeln!(self.buffer, ");").unwrap();
             }
-            AstOp::Assign { dst, src } => {
+            AstOp::Assign => {
                 self.write_indent();
-                self.render_node(dst);
+                self.render_node(&ast.src[0]); // dst
                 write!(self.buffer, " = ").unwrap();
-                self.render_node(src);
+                self.render_node(&ast.src[1]); // src
                 writeln!(self.buffer, ";").unwrap();
             }
-            AstOp::Declare { name, dtype, value } => {
+            AstOp::Declare { name, dtype } => {
                 self.write_indent();
                 write!(self.buffer, "{} {} = ", Self::dtype_to_c(dtype), name).unwrap();
-                self.render_node(value);
+                self.render_node(&ast.src[0]); // value
                 writeln!(self.buffer, ";").unwrap();
             }
-            AstOp::Store { dst, src } => {
+            AstOp::Store => {
                 self.write_indent();
-                self.render_node(dst);
+                self.render_node(&ast.src[0]); // dst
                 write!(self.buffer, " = ").unwrap();
-                self.render_node(src);
+                self.render_node(&ast.src[1]); // src
                 writeln!(self.buffer, ";").unwrap();
             }
-            AstOp::Deref(addr) => {
+            AstOp::Deref => {
                 // The address itself is what we want to render, e.g., buffer[index]
-                self.render_node(addr);
+                self.render_node(&ast.src[0]); // addr
             }
-            AstOp::BufferIndex { buffer, index } => {
+            AstOp::BufferIndex => {
                 write!(self.buffer, "(").unwrap();
-                self.render_node(buffer);
+                self.render_node(&ast.src[0]); // buffer
                 write!(self.buffer, ")").unwrap();
                 write!(self.buffer, "[").unwrap();
-                self.render_node(index);
+                self.render_node(&ast.src[1]); // index
                 write!(self.buffer, "]").unwrap();
             }
             AstOp::Var(name) => {
