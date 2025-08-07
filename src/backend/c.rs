@@ -1,7 +1,7 @@
 //! C language backend for rendering the AST.
 
 use crate::ast::{AstNode, AstOp, Const, DType};
-use crate::backend::{Buffer, Compiler, Kernel, Renderer};
+use crate::backend::{Backend, Buffer, Compiler, Kernel, Renderer};
 use libloading::{Library, Symbol};
 use log::debug;
 use std::ffi::c_void;

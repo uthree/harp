@@ -106,12 +106,6 @@ pub trait Renderer<CodeRepr = String> {
     fn render(&mut self, ast: AstNode) -> CodeRepr;
 }
 
-/// A trait for a device that can allocate and manage memory.
-pub trait Device<Var: Buffer> {
-    fn allocate(&mut self, dtype: DType, size: usize) -> Var;
-    fn is_available(&self) -> bool;
-}
-
 pub trait Backend<Var: Buffer> {
     fn new() -> Self;
     fn is_available(&self) -> bool;
