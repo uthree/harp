@@ -255,9 +255,18 @@ mod tests {
         let a_real = AstNode::var("a").with_type(DType::F32);
         let a_int = AstNode::var("a").with_type(DType::I32);
 
-        // This rule should only apply to Real types
-        let pattern = AstNode::capture(0, DType::Real);
-        let rewriter_fn = |nodes: Vec<AstNode>| nodes[0].clone().with_type(DType::F64);
+        // This rule should only apply to Real types.
+        // The pattern captures any node.
+        let pattern = AstNode::capture(0, DType::Any);
+        let rewriter_fn = |nodes: Vec<AstNode>| {
+            let node = nodes[0].clone();
+            // The type check is now performed inside the rewriter.
+            if node.dtype.is_real() {
+                node.with_type(DType::F64) // Apply the rewrite
+            } else {
+                node // Return the original node if the type does not match
+            }
+        };
         let rule = RewriteRule::new("real_to_f64", pattern, rewriter_fn);
 
         let rewriter = AstRewriter::new(vec![rule]);
