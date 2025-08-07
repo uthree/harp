@@ -78,7 +78,7 @@ impl<'a> Lowerer<'a> {
             vec![AstNode::new(
                 AstOp::BufferIndex {
                     buffer: Box::new(buffer_var),
-                    index: Box::new(AstNode::from(buffer_index as i64)),
+                    index: Box::new(AstNode::from(buffer_index as u64).cast(DType::USize)),
                 },
                 vec![],
                 // This represents the type of `buffers[i]`, which is `void*`
@@ -189,7 +189,7 @@ impl<'a> Lowerer<'a> {
             ),
             (
                 "shape_vars".to_string(),
-                DType::Ptr(Box::new(DType::U64)), // size_t*
+                DType::Ptr(Box::new(DType::USize)), // size_t*
             ),
         ];
         let mut main_body = vec![];

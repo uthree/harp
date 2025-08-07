@@ -70,7 +70,7 @@ impl CRenderer {
             }
             AstOp::Range { loop_var, max } => {
                 self.write_indent();
-                write!(self.buffer, "for (int {loop_var} = 0; {loop_var} < ").unwrap();
+                write!(self.buffer, "for (size_t {loop_var} = 0; {loop_var} < ").unwrap();
                 self.render_node(max);
                 writeln!(self.buffer, "; {loop_var}++) {{").unwrap();
                 self.indent_level += 1;

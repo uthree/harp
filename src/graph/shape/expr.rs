@@ -255,8 +255,8 @@ impl_expr_assign_op!(RemAssign, rem_assign, Rem, rem);
 impl From<Expr> for AstNode {
     fn from(expr: Expr) -> Self {
         match expr {
-            Expr::Const(c) => (c).into(),
-            Expr::Var(s) => AstNode::var(&s).with_type(DType::I64),
+            Expr::Const(c) => AstNode::from(c as u64).cast(DType::USize),
+            Expr::Var(s) => AstNode::var(&s).with_type(DType::USize),
             Expr::Add(l, r) => AstNode::from(*l) + AstNode::from(*r),
             Expr::Sub(l, r) => AstNode::from(*l) - AstNode::from(*r),
             Expr::Mul(l, r) => AstNode::from(*l) * AstNode::from(*r),
