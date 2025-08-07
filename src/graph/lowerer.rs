@@ -217,11 +217,7 @@ impl<'a> Lowerer<'a> {
         );
         main_body.push(call_impl);
 
-        let kernel_main = AstNode::func_def(
-            "kernel_main",
-            main_args,
-            main_body,
-        );
+        let kernel_main = AstNode::func_def("kernel_main", main_args, main_body);
 
         // 5. Combine both functions into a single AST program.
         let final_ast = AstNode::new(AstOp::Program, vec![kernel_impl, kernel_main], DType::Void);
@@ -268,11 +264,7 @@ impl<'a> Lowerer<'a> {
                 for shape_expr in dst_tracker.shape().iter() {
                     let loop_var = self.new_loop_counter();
                     loop_vars.push(loop_var.clone());
-                    loops.push(AstNode::range(
-                        loop_var,
-                        shape_expr.clone().into(),
-                        vec![],
-                    ));
+                    loops.push(AstNode::range(loop_var, shape_expr.clone().into(), vec![]));
                 }
 
                 let src_offset = src_tracker.offset_expr(&loop_vars);
@@ -323,11 +315,7 @@ impl<'a> Lowerer<'a> {
                 for shape_expr in dst_tracker.shape().iter() {
                     let loop_var = self.new_loop_counter();
                     loop_vars.push(loop_var.clone());
-                    loops.push(AstNode::range(
-                        loop_var,
-                        shape_expr.clone().into(),
-                        vec![],
-                    ));
+                    loops.push(AstNode::range(loop_var, shape_expr.clone().into(), vec![]));
                 }
 
                 let mut loaded_srcs = vec![];
@@ -363,11 +351,7 @@ impl<'a> Lowerer<'a> {
                 for shape_expr in dst_tracker.shape().iter() {
                     let loop_var = self.new_loop_counter();
                     loop_vars.push(loop_var.clone());
-                    loops.push(AstNode::range(
-                        loop_var,
-                        shape_expr.clone().into(),
-                        vec![],
-                    ));
+                    loops.push(AstNode::range(loop_var, shape_expr.clone().into(), vec![]));
                 }
 
                 let mut loaded_srcs = vec![];
@@ -402,11 +386,7 @@ impl<'a> Lowerer<'a> {
                 for shape_expr in dst_tracker.shape().iter() {
                     let loop_var = self.new_loop_counter();
                     outer_loop_vars.push(loop_var.clone());
-                    loops.push(AstNode::range(
-                        loop_var,
-                        shape_expr.clone().into(),
-                        vec![],
-                    ));
+                    loops.push(AstNode::range(loop_var, shape_expr.clone().into(), vec![]));
                 }
 
                 let acc_var = self.new_accumulator_name();

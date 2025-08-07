@@ -74,7 +74,7 @@ impl CRenderer {
                 self.render_node(max);
                 writeln!(self.buffer, "; {loop_var}++) {{ ").unwrap();
                 self.indent_level += 1;
-                if let Some(block) = ast.src.get(0) {
+                if let Some(block) = ast.src.first() {
                     self.render_node(block);
                 }
                 self.indent_level -= 1;
