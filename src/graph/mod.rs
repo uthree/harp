@@ -58,7 +58,7 @@ pub struct NodeView<'a> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct NodeData {
     /// The operation performed by this node.
-    pub op: TensorOp,
+    pub op: GraphOp,
     /// The `NodeId`s of the input nodes to this operation.
     pub src: Vec<NodeId>,
     /// The data type of the tensor produced by this node.
@@ -69,7 +69,7 @@ pub struct NodeData {
 
 /// An enumeration of all possible tensor operations.
 #[derive(Debug, Clone, PartialEq)]
-pub enum TensorOp {
+pub enum GraphOp {
     /// An input tensor to the graph.
     Input,
     /// An element-wise operation (e.g., add, mul, sin).
@@ -96,10 +96,10 @@ pub enum TensorOp {
     FusedInto(NodeId),
 }
 
-impl TensorOp {
+impl GraphOp {
     /// Returns `true` if the operation is an element-wise operation that can be fused.
     pub fn is_elementwise(&self) -> bool {
-        matches!(self, TensorOp::Elementwise(_))
+        matches!(self, GraphOp::Elementwise(_))
     }
 }
 
@@ -116,7 +116,7 @@ impl Graph {
     /// Adds a new node to the graph. This is an internal method.
     pub fn add_node(
         &self,
-        op: TensorOp,
+        op: GraphOp,
         src: Vec<NodeId>,
         dtype: DType,
         shape: Vec<Expr>,
@@ -139,7 +139,7 @@ impl Graph {
     /// * `dtype` - The data type of the input tensor.
     /// * `shape` - The symbolic shape of the input tensor.
     pub fn input(&self, dtype: DType, shape: Vec<Expr>) -> NodeView {
-        let id = self.add_node(TensorOp::Input, vec![], dtype, shape);
+        let id = self.add_node(GraphOp::Input, vec![], dtype, shape);
         self.inputs.borrow_mut().push(id);
         self.get_view(id)
     }
@@ -168,7 +168,7 @@ impl Graph {
         }
         let ast_node = AstNode::capture(0, lhs_dtype) + AstNode::capture(1, rhs_dtype);
         self.add_node(
-            TensorOp::Elementwise(AstOp::Add),
+            GraphOp::Elementwise(AstOp::Add),
             vec![lhs, rhs],
             ast_node.dtype,
             lhs_shape,
@@ -188,7 +188,7 @@ impl Graph {
         };
         let ast_node = AstNode::capture(0, lhs_dtype) - AstNode::capture(1, rhs_dtype);
         self.add_node(
-            TensorOp::Elementwise(AstOp::Add),
+            GraphOp::Elementwise(AstOp::Add),
             vec![lhs, rhs],
             ast_node.dtype,
             shape,
@@ -208,7 +208,7 @@ impl Graph {
         };
         let ast_node = AstNode::capture(0, lhs_dtype) * AstNode::capture(1, rhs_dtype);
         self.add_node(
-            TensorOp::Elementwise(AstOp::Mul),
+            GraphOp::Elementwise(AstOp::Mul),
             vec![lhs, rhs],
             ast_node.dtype,
             shape,
@@ -228,7 +228,7 @@ impl Graph {
         };
         let ast_node = AstNode::capture(0, lhs_dtype) % AstNode::capture(1, rhs_dtype);
         self.add_node(
-            TensorOp::Elementwise(AstOp::Rem),
+            GraphOp::Elementwise(AstOp::Rem),
             vec![lhs, rhs],
             ast_node.dtype,
             shape,
@@ -257,7 +257,7 @@ impl Graph {
             DType::F32, // FIXME: This should probably be a boolean type
         );
         self.add_node(
-            TensorOp::Elementwise(AstOp::LessThan),
+            GraphOp::Elementwise(AstOp::LessThan),
             vec![lhs, rhs],
             ast_node.dtype,
             shape,
@@ -277,7 +277,7 @@ impl Graph {
         };
         let ast_node = AstNode::capture(0, lhs_dtype) / AstNode::capture(1, rhs_dtype);
         self.add_node(
-            TensorOp::Elementwise(AstOp::Mul),
+            GraphOp::Elementwise(AstOp::Mul),
             vec![lhs, rhs],
             ast_node.dtype,
             shape,
@@ -292,7 +292,7 @@ impl Graph {
         };
         let ast_node = -AstNode::capture(0, dtype);
         self.add_node(
-            TensorOp::Elementwise(AstOp::Neg),
+            GraphOp::Elementwise(AstOp::Neg),
             vec![src],
             ast_node.dtype,
             shape,
@@ -305,7 +305,7 @@ impl Graph {
             let src_node = &nodes[src.0];
             (src_node.dtype.clone(), src_node.shape.clone())
         };
-        self.add_node(TensorOp::Elementwise(AstOp::Sin), vec![src], dtype, shape)
+        self.add_node(GraphOp::Elementwise(AstOp::Sin), vec![src], dtype, shape)
     }
 
     pub fn sqrt(&self, src: NodeId) -> NodeId {
@@ -314,7 +314,7 @@ impl Graph {
             let src_node = &nodes[src.0];
             (src_node.dtype.clone(), src_node.shape.clone())
         };
-        self.add_node(TensorOp::Elementwise(AstOp::Sqrt), vec![src], dtype, shape)
+        self.add_node(GraphOp::Elementwise(AstOp::Sqrt), vec![src], dtype, shape)
     }
 
     pub fn log2(&self, src: NodeId) -> NodeId {
@@ -323,7 +323,7 @@ impl Graph {
             let src_node = &nodes[src.0];
             (src_node.dtype.clone(), src_node.shape.clone())
         };
-        self.add_node(TensorOp::Elementwise(AstOp::Log2), vec![src], dtype, shape)
+        self.add_node(GraphOp::Elementwise(AstOp::Log2), vec![src], dtype, shape)
     }
 
     pub fn exp2(&self, src: NodeId) -> NodeId {
@@ -332,7 +332,7 @@ impl Graph {
             let src_node = &nodes[src.0];
             (src_node.dtype.clone(), src_node.shape.clone())
         };
-        self.add_node(TensorOp::Elementwise(AstOp::Exp2), vec![src], dtype, shape)
+        self.add_node(GraphOp::Elementwise(AstOp::Exp2), vec![src], dtype, shape)
     }
 
     pub fn recip(&self, src: NodeId) -> NodeId {
@@ -341,7 +341,7 @@ impl Graph {
             let src_node = &nodes[src.0];
             (src_node.dtype.clone(), src_node.shape.clone())
         };
-        self.add_node(TensorOp::Elementwise(AstOp::Recip), vec![src], dtype, shape)
+        self.add_node(GraphOp::Elementwise(AstOp::Recip), vec![src], dtype, shape)
     }
 
     /// Internal helper to create a reduction node.
@@ -363,7 +363,7 @@ impl Graph {
         };
         assert!(axis < shape.len(), "Reduction axis out of bounds");
         shape.remove(axis);
-        self.add_node(TensorOp::Reduce(op, axis), vec![src], dtype, shape)
+        self.add_node(GraphOp::Reduce(op, axis), vec![src], dtype, shape)
     }
 
     pub fn sum(&self, src: NodeId, axis: usize) -> NodeId {
@@ -386,7 +386,7 @@ impl Graph {
         };
         let tracker = crate::graph::shape::tracker::ShapeTracker::new(shape);
         let new_shape = tracker.permute(axes.clone()).shape().to_vec();
-        self.add_node(TensorOp::Permute(axes), vec![src], dtype, new_shape)
+        self.add_node(GraphOp::Permute(axes), vec![src], dtype, new_shape)
     }
 
     pub fn contiguous(&self, src: NodeId) -> NodeId {
@@ -395,7 +395,7 @@ impl Graph {
             let src_node = &nodes[src.0];
             (src_node.dtype.clone(), src_node.shape.clone())
         };
-        self.add_node(TensorOp::Contiguous, vec![src], dtype, shape)
+        self.add_node(GraphOp::Contiguous, vec![src], dtype, shape)
     }
 
     pub fn squeeze(&self, src: NodeId, axis: usize) -> NodeId {
@@ -406,7 +406,7 @@ impl Graph {
         };
         let tracker = crate::graph::shape::tracker::ShapeTracker::new(shape);
         let new_shape = tracker.squeeze(axis).shape().to_vec();
-        self.add_node(TensorOp::Squeeze(axis), vec![src], dtype, new_shape)
+        self.add_node(GraphOp::Squeeze(axis), vec![src], dtype, new_shape)
     }
 
     pub fn unsqueeze(&self, src: NodeId, axis: usize) -> NodeId {
@@ -417,7 +417,7 @@ impl Graph {
         };
         let tracker = crate::graph::shape::tracker::ShapeTracker::new(shape);
         let new_shape = tracker.unsqueeze(axis).shape().to_vec();
-        self.add_node(TensorOp::Unsqueeze(axis), vec![src], dtype, new_shape)
+        self.add_node(GraphOp::Unsqueeze(axis), vec![src], dtype, new_shape)
     }
 
     pub fn expand(&self, src: NodeId, new_shape: Vec<Expr>) -> NodeId {
@@ -430,7 +430,7 @@ impl Graph {
         // This just validates the expand operation. The final shape is `new_shape`.
         let _ = tracker.expand(new_shape.clone());
         self.add_node(
-            TensorOp::Expand(new_shape.clone()),
+            GraphOp::Expand(new_shape.clone()),
             vec![src],
             dtype,
             new_shape,
@@ -458,7 +458,7 @@ impl Clone for Graph {
 
 impl<'a> NodeView<'a> {
     /// Returns the operation of the node.
-    pub fn op(&self) -> TensorOp {
+    pub fn op(&self) -> GraphOp {
         self.graph.nodes.borrow()[self.id.0].op.clone()
     }
     /// Returns the source node IDs of the node.
@@ -644,7 +644,7 @@ mod tests {
         let c = a + b;
 
         assert_eq!(c.id.0, 2);
-        assert_eq!(c.op(), TensorOp::Elementwise(AstOp::Add));
+        assert_eq!(c.op(), GraphOp::Elementwise(AstOp::Add));
         assert_eq!(c.src(), vec![a.id, b.id]);
         assert_eq!(c.dtype(), DType::F32);
     }
@@ -656,7 +656,7 @@ mod tests {
         let b = -a;
 
         assert_eq!(b.id.0, 1);
-        assert_eq!(b.op(), TensorOp::Elementwise(AstOp::Neg));
+        assert_eq!(b.op(), GraphOp::Elementwise(AstOp::Neg));
         assert_eq!(b.src(), vec![a.id]);
         assert_eq!(b.dtype(), DType::F32);
     }
@@ -680,9 +680,9 @@ mod tests {
         // d = a * b + c
         let d = a * b + c;
 
-        assert_eq!(d.op(), TensorOp::Elementwise(AstOp::Add));
+        assert_eq!(d.op(), GraphOp::Elementwise(AstOp::Add));
         let mul_node = d.graph.get_view(d.src()[0]);
-        assert_eq!(mul_node.op(), TensorOp::Elementwise(AstOp::Mul));
+        assert_eq!(mul_node.op(), GraphOp::Elementwise(AstOp::Mul));
         assert_eq!(mul_node.src(), vec![a.id, b.id]);
         assert_eq!(d.src()[1], c.id);
     }
@@ -702,7 +702,7 @@ mod tests {
         let a = graph.input(DType::F32, vec![10.into(), 20.into(), 30.into()]);
         let b = a.sum(1);
 
-        assert_eq!(b.op(), TensorOp::Reduce(AstOp::Add, 1));
+        assert_eq!(b.op(), GraphOp::Reduce(AstOp::Add, 1));
         assert_eq!(b.src(), vec![a.id]);
         assert_eq!(b.shape(), vec![10.into(), 30.into()]);
         assert_eq!(b.dtype(), DType::F32);
@@ -714,7 +714,7 @@ mod tests {
         let a = graph.input(DType::I32, vec![10.into(), 20.into()]);
         let b = a.max(0);
 
-        assert_eq!(b.op(), TensorOp::Reduce(AstOp::Max, 0));
+        assert_eq!(b.op(), GraphOp::Reduce(AstOp::Max, 0));
         assert_eq!(b.src(), vec![a.id]);
         assert_eq!(b.shape(), vec![20.into()]);
         assert_eq!(b.dtype(), DType::I32);
@@ -726,7 +726,7 @@ mod tests {
         let a = graph.input(DType::F32, vec![10.into(), 20.into(), 30.into()]);
         let b = a.prod(1);
 
-        assert_eq!(b.op(), TensorOp::Reduce(AstOp::Mul, 1));
+        assert_eq!(b.op(), GraphOp::Reduce(AstOp::Mul, 1));
         assert_eq!(b.src(), vec![a.id]);
         assert_eq!(b.shape(), vec![10.into(), 30.into()]);
         assert_eq!(b.dtype(), DType::F32);
@@ -769,7 +769,7 @@ mod tests {
         let a = graph.input(DType::F32, vec![10.into(), 20.into()]);
         let b = a.permute(vec![1, 0]);
 
-        assert_eq!(b.op(), TensorOp::Permute(vec![1, 0]));
+        assert_eq!(b.op(), GraphOp::Permute(vec![1, 0]));
         assert_eq!(b.src(), vec![a.id]);
         assert_eq!(b.shape(), vec![20.into(), 10.into()]);
     }
@@ -781,10 +781,10 @@ mod tests {
         let b = a.squeeze(1);
         let c = b.unsqueeze(0);
 
-        assert_eq!(b.op(), TensorOp::Squeeze(1));
+        assert_eq!(b.op(), GraphOp::Squeeze(1));
         assert_eq!(b.shape(), vec![10.into(), 20.into()]);
 
-        assert_eq!(c.op(), TensorOp::Unsqueeze(0));
+        assert_eq!(c.op(), GraphOp::Unsqueeze(0));
         assert_eq!(c.shape(), vec![1.into(), 10.into(), 20.into()]);
     }
 
@@ -795,7 +795,7 @@ mod tests {
         let new_shape = vec![10.into(), 20.into()];
         let b = a.expand(new_shape.clone());
 
-        assert_eq!(b.op(), TensorOp::Expand(new_shape.clone()));
+        assert_eq!(b.op(), GraphOp::Expand(new_shape.clone()));
         assert_eq!(b.src(), vec![a.id]);
         assert_eq!(b.shape(), new_shape);
     }
@@ -816,7 +816,7 @@ mod tests {
         let a = graph.input(DType::F32, vec![10.into(), 20.into()]);
         let b = a.contiguous();
 
-        assert_eq!(b.op(), TensorOp::Contiguous);
+        assert_eq!(b.op(), GraphOp::Contiguous);
         assert_eq!(b.src(), vec![a.id]);
         assert_eq!(b.shape(), a.shape());
     }

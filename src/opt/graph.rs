@@ -1,6 +1,6 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::graph::{Graph, NodeData, NodeId, TensorOp};
+use crate::graph::{Graph, GraphOp, NodeData, NodeId};
 use crate::opt::DeterministicGraphOptimizer;
 
 pub struct ElementwiseFusion;
@@ -103,7 +103,7 @@ impl DeterministicGraphOptimizer for ElementwiseFusion {
                     let last_node = fused_node_data.last().unwrap();
 
                     new_nodes.push(NodeData {
-                        op: TensorOp::Fused(fused_node_data.clone()),
+                        op: GraphOp::Fused(fused_node_data.clone()),
                         src: first_node.src.clone(),
                         dtype: last_node.dtype.clone(),
                         shape: last_node.shape.clone(),
@@ -159,11 +159,11 @@ mod tests {
         assert_eq!(nodes.len(), 2); // Input + Fused node
 
         let fused_node = &nodes[1];
-        if let TensorOp::Fused(fused_ops) = &fused_node.op {
+        if let GraphOp::Fused(fused_ops) = &fused_node.op {
             assert_eq!(fused_ops.len(), 3); // Neg, Sin, Exp2
-            assert!(matches!(fused_ops[0].op, TensorOp::Elementwise(_))); // Neg
-            assert!(matches!(fused_ops[1].op, TensorOp::Elementwise(_))); // Sin
-            assert!(matches!(fused_ops[2].op, TensorOp::Elementwise(_))); // Exp2
+            assert!(matches!(fused_ops[0].op, GraphOp::Elementwise(_))); // Neg
+            assert!(matches!(fused_ops[1].op, GraphOp::Elementwise(_))); // Sin
+            assert!(matches!(fused_ops[2].op, GraphOp::Elementwise(_))); // Exp2
         } else {
             panic!("Expected a fused node, but found {:?}", fused_node.op);
         }

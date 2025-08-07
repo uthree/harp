@@ -7,7 +7,7 @@
 use crate::ast::{AstNode, AstOp, DType};
 use crate::backend::{BufferInfo, KernelDetails};
 use crate::graph::shape::tracker::ShapeTracker;
-use crate::graph::{Graph, NodeId, TensorOp};
+use crate::graph::{Graph, NodeId, GraphOp};
 use log::{debug, info, trace};
 use rustc_hash::FxHashMap;
 
@@ -216,13 +216,13 @@ impl<'a> Lowerer<'a> {
         debug!("Lowering node {:?} with op {:?}", node_id, node_data.op);
 
         let result = match node_data.op {
-            TensorOp::Input => {
+            GraphOp::Input => {
                 // Input nodes are just pointers passed in the `buffers` array.
                 // We return a ShapeTracker for them. The actual computation is a no-op.
                 let tracker = ShapeTracker::new(node_data.shape);
                 (AstNode::new(AstOp::Block, vec![], DType::Void), tracker) // No-op AST
             }
-            TensorOp::Contiguous => {
+            GraphOp::Contiguous => {
                 let (src_ast, src_tracker) = self.lower_node(node_data.src[0]);
                 if src_tracker.is_contiguous() {
                     debug!("Node {node_id:?} is already contiguous. No-op.");
@@ -259,27 +259,27 @@ impl<'a> Lowerer<'a> {
                 // The result is a block containing the copy loop.
                 (final_block, dst_tracker)
             }
-            TensorOp::Permute(axes) => {
+            GraphOp::Permute(axes) => {
                 let (src_ast, src_tracker) = self.lower_node(node_data.src[0]);
                 let new_tracker = src_tracker.permute(axes);
                 (src_ast, new_tracker)
             }
-            TensorOp::Squeeze(axis) => {
+            GraphOp::Squeeze(axis) => {
                 let (src_ast, src_tracker) = self.lower_node(node_data.src[0]);
                 let new_tracker = src_tracker.squeeze(axis);
                 (src_ast, new_tracker)
             }
-            TensorOp::Unsqueeze(axis) => {
+            GraphOp::Unsqueeze(axis) => {
                 let (src_ast, src_tracker) = self.lower_node(node_data.src[0]);
                 let new_tracker = src_tracker.unsqueeze(axis);
                 (src_ast, new_tracker)
             }
-            TensorOp::Expand(new_shape) => {
+            GraphOp::Expand(new_shape) => {
                 let (src_ast, src_tracker) = self.lower_node(node_data.src[0]);
                 let new_tracker = src_tracker.expand(new_shape);
                 (src_ast, new_tracker)
             }
-            TensorOp::Elementwise(op) => {
+            GraphOp::Elementwise(op) => {
                 for &src_id in &node_data.src {
                     self.lower_node(src_id);
                 }
@@ -315,7 +315,7 @@ impl<'a> Lowerer<'a> {
 
                 (final_block, dst_tracker)
             }
-            TensorOp::Fused(fused_nodes) => {
+            GraphOp::Fused(fused_nodes) => {
                 // Ensure all original source nodes of the fused operation are lowered.
                 let first_node_in_chain = fused_nodes.first().unwrap();
                 for &src_id in &first_node_in_chain.src {
@@ -359,7 +359,7 @@ impl<'a> Lowerer<'a> {
                         }
                     }
 
-                    if let TensorOp::Elementwise(op) = &node.op {
+                    if let GraphOp::Elementwise(op) = &node.op {
                         current_val =
                             Some(AstNode::new(op.clone(), loaded_srcs, node.dtype.clone()));
                     } else {
@@ -377,7 +377,7 @@ impl<'a> Lowerer<'a> {
                 let final_block = AstNode::build_loops(loops, vec![store_node]);
                 (final_block, dst_tracker)
             }
-            TensorOp::Reduce(op, axis) => {
+            GraphOp::Reduce(op, axis) => {
                 self.lower_node(node_data.src[0]);
 
                 let src_buffer = self.get_buffer_var(node_data.src[0]);
