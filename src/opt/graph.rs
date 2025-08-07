@@ -79,8 +79,6 @@ impl DeterministicGraphOptimizer for ElementwiseFusion {
         }
 
         // Step 2: Rebuild the graph with fused nodes.
-        let new_nodes: Vec<NodeData> = Vec::new();
-        let old_to_new_id: FxHashMap<NodeId, NodeId> = FxHashMap::default();
         let original_nodes = graph.nodes.borrow().clone();
 
         {
