@@ -27,3 +27,18 @@ trait Optimizer {
     fn step(&mut self); // 1ステップ分最適化するコールバック関数
 }
 ```
+
+# Dataset, DataLoader, Transform
+PyTorchに寄せたい。  
+データの読み込みや加工のパイプラインを表す。
+
+# Preprocess
+[tts_implリポジトリ](https://github.com/uthree/tts_impl)で[前処理の抽象化を行なっている](https://github.com/uthree/tts_impl/blob/main/src/tts_impl/utils/preprocess/base.py)ので、これを参考に前処理パイプラインを作れるようにしたい。
+
+# TrainerやLightningModuleに相当する何か
+PyTorch Lightningに寄せたい。
+初期化から勾配の計算、パラメータの更新なんかをひとまとめにするtrait。
+
+# 各種メディアへの対応
+テキスト、画像、音声、動画などをはじめとするデータをTensorとして読み書きできるような機能をつけたい。ただし、ffmpegなんかに依存したりしそうなので、featureフラグでオプション機能としてつけるか、サブクレートとして分離する貸した方が良さそう。
+
