@@ -259,7 +259,7 @@ impl CRenderer {
             DType::Void => "void".to_string(),
             DType::Ptr(inner) => format!("{}*", Self::dtype_to_c(inner)),
             DType::FixedArray(inner, ..) => format!("{}*", Self::dtype_to_c(inner)),
-            _ => panic!("DType {:?} not supported in C renderer", dtype),
+            _ => panic!("DType {dtype:?} not supported in C renderer"),
         }
     }
 

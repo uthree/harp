@@ -1,8 +1,8 @@
 // tests/c_backend.rs
 
 use harp::ast::{AstNode, DType};
-use harp::backend::c::{CBuffer, CCompiler, CRenderer};
-use harp::backend::{AsAny, Compiler, Renderer, TryIntoNdarray};
+use harp::backend::c::{CBackend, CBuffer, CCompiler, CRenderer};
+use harp::backend::{Backend, Compiler, Renderer, TryIntoNdarray};
 use harp::graph::lowerer::Lowerer;
 use harp::graph::Graph;
 use ndarray::ArrayD;
@@ -43,8 +43,7 @@ fn test_render_simple_function() {
         vec![],
     );
     let expected = r#"
-void test_func(float* a, float* b) { }
-"#;
+void test_func(float* a, float* b) { }"#;
     assert_render(ast, expected);
 }
 
@@ -140,8 +139,7 @@ fn test_render_for_loop() {
         vec![],
     );
     let expected = r#"
-for (size_t i = 0; i < N; i++) { }
-"#;
+for (size_t i = 0; i < N; i++) { }"#;
     assert_render(ast, expected);
 }
 
@@ -657,4 +655,43 @@ fn test_c_backend_e2e_reduce_prod() {
     let expected_array = ArrayD::from_shape_vec(output_shape, expected_data).unwrap();
 
     assert_eq!(b_result_array, expected_array);
+}
+
+#[test]
+fn test_cbackend_call_simple_add() {
+    harp::init_logger();
+    let mut backend = CBackend::new();
+    if !backend.is_available() {
+        eprintln!("Skipping C backend E2E test: C compiler not found.");
+        return;
+    }
+
+    // 1. Build Graph: c = a + b
+    let graph = Graph::new();
+    let shape = vec![10];
+    let a = graph.input(DType::F32, shape.iter().map(|&d| d.into()).collect());
+    let b = graph.input(DType::F32, shape.iter().map(|&d| d.into()).collect());
+    (a + b).as_output();
+
+    // 2. Prepare input data
+    let a_data: Vec<f32> = (0..10).map(|i| i as f32).collect();
+    let b_data: Vec<f32> = (0..10).map(|i| (i * 2) as f32).collect();
+
+    let a_buffer = buffer_from_slice(&a_data, &shape, DType::F32);
+    let b_buffer = buffer_from_slice(&b_data, &shape, DType::F32);
+
+    // 3. Call the backend
+    let mut result_buffer = backend.call(graph, vec![a_buffer, b_buffer], vec![]);
+
+    // 4. Verify results
+    let result_array = result_buffer.try_into_ndarray::<f32>().unwrap();
+
+    let expected_data: Vec<f32> = a_data
+        .iter()
+        .zip(b_data.iter())
+        .map(|(x, y)| x + y)
+        .collect();
+    let expected_array = ArrayD::from_shape_vec(shape, expected_data).unwrap();
+
+    assert_eq!(result_array, expected_array);
 }
