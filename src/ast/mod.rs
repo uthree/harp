@@ -526,6 +526,38 @@ pub enum Const {
     U64(u64),
 }
 
+impl Const {
+    pub fn is_zero(&self) -> bool {
+        match self {
+            Const::F32(v) => *v == 0.0,
+            Const::F64(v) => *v == 0.0,
+            Const::I8(v) => *v == 0,
+            Const::I16(v) => *v == 0,
+            Const::I32(v) => *v == 0,
+            Const::I64(v) => *v == 0,
+            Const::U8(v) => *v == 0,
+            Const::U16(v) => *v == 0,
+            Const::U32(v) => *v == 0,
+            Const::U64(v) => *v == 0,
+        }
+    }
+
+    pub fn is_one(&self) -> bool {
+        match self {
+            Const::F32(v) => *v == 1.0,
+            Const::F64(v) => *v == 1.0,
+            Const::I8(v) => *v == 1,
+            Const::I16(v) => *v == 1,
+            Const::I32(v) => *v == 1,
+            Const::I64(v) => *v == 1,
+            Const::U8(v) => *v == 1,
+            Const::U16(v) => *v == 1,
+            Const::U32(v) => *v == 1,
+            Const::U64(v) => *v == 1,
+        }
+    }
+}
+
 macro_rules! impl_dtype {
     ($variant: ident, $num_type: ident) => {
         impl From<$num_type> for Const {

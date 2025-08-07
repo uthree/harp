@@ -1,7 +1,7 @@
 [package]
 name = "harp"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
 env_logger = "0.11.8"
@@ -9,10 +9,18 @@ libc = "0.2.174"
 libloading = "0.8.8"
 log = "0.4.27"
 ndarray = "0.16.1"
-rstest = "0.26.1"
 rustc-hash = "2.1.1"
 tempfile = "3.20.0"
 
 [dev-dependencies]
+rstest = "0.26.1"
+
+[[test]]
+name = "c_backend"
+path = "tests/c_backend.rs"
+
+[[test]]
+name = "optimizer"
+path = "tests/optimizer.rs"
 
 [workspace]

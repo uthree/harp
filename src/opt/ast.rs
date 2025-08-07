@@ -13,29 +13,15 @@ impl RewriteRule {
     fn scan(target: &AstNode, pattern: &AstNode, store: &mut FxHashMap<usize, AstNode>) -> bool {
         trace!(
             "Scanning target node {:?} with pattern node {:?}",
-            target.op, pattern.op
+            target.op,
+            pattern.op
         );
-        if let AstOp::Capture(id, dtype) = &pattern.op {
-            if !dtype.matches(&target.dtype) {
-                trace!(
-                    "Capture type mismatch: pattern {:?}, target {:?}",
-                    dtype, target.dtype
-                );
-                return false;
-            }
+        if let AstOp::Capture(id, _) = &pattern.op {
             if let Some(existing) = store.get(id) {
                 return target == existing;
             }
             store.insert(*id, target.clone());
             return true;
-        }
-
-        if !pattern.dtype.matches(&target.dtype) {
-            trace!(
-                "Node type mismatch: pattern {:?}, target {:?}",
-                pattern.dtype, target.dtype
-            );
-            return false;
         }
 
         if target.op != pattern.op || target.src.len() != pattern.src.len() {
