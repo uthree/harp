@@ -7,8 +7,12 @@
 //! - `Renderer`: A component that translates an AST into source code.
 //! - `Device`: A component that manages memory allocation.
 
-use crate::ast::{AstNode, DType};
+use crate::{
+    ast::{AstNode, DType},
+    graph::Graph,
+};
 use ::ndarray::ArrayD;
+use rustc_hash::FxHashMap;
 use std::any::TypeId;
 
 // --- Core Data Structures ---
@@ -107,6 +111,12 @@ pub trait Renderer<CodeRepr = String> {
 pub trait Device<Var: Buffer> {
     fn allocate(&mut self, dtype: DType, size: usize) -> Var;
     fn is_available(&self) -> bool;
+}
+
+pub trait Backend<Var: Buffer> {
+    fn new() -> Self;
+    fn is_available(&self) -> bool;
+    fn call(&mut self, graph: Graph, buffers: Vec<Var>, shape_variables: Vec<usize>) -> Var;
 }
 
 // --- Submodules ---

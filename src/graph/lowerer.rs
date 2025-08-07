@@ -383,11 +383,8 @@ impl<'a> Lowerer<'a> {
                     }
 
                     if let TensorOp::Elementwise(op) = &node.op {
-                        current_val = Some(AstNode::new(
-                            op.clone(),
-                            loaded_srcs,
-                            node.dtype.clone(),
-                        ));
+                        current_val =
+                            Some(AstNode::new(op.clone(), loaded_srcs, node.dtype.clone()));
                     } else {
                         panic!("Non-elementwise op found in fused chain");
                     }

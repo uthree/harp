@@ -4,6 +4,12 @@ use crate::graph::{Graph, NodeData, NodeId, TensorOp};
 
 pub struct ElementwiseFusion;
 
+impl Default for ElementwiseFusion {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ElementwiseFusion {
     pub fn new() -> Self {
         Self
@@ -16,7 +22,10 @@ impl ElementwiseFusion {
             let mut users = FxHashMap::default();
             for (id, node) in nodes.iter().enumerate() {
                 for &src_id in &node.src {
-                    users.entry(src_id).or_insert_with(Vec::new).push(NodeId(id));
+                    users
+                        .entry(src_id)
+                        .or_insert_with(Vec::new)
+                        .push(NodeId(id));
                 }
             }
 
@@ -41,7 +50,8 @@ impl ElementwiseFusion {
                     if user_count > 1 {
                         break;
                     }
-                    if node_data.src.len() != 1 { // Only fuse single-input ops for now.
+                    if node_data.src.len() != 1 {
+                        // Only fuse single-input ops for now.
                         break;
                     }
 
@@ -65,10 +75,10 @@ impl ElementwiseFusion {
         }
 
         // Step 2: Rebuild the graph with fused nodes.
-        let mut new_nodes: Vec<NodeData> = Vec::new();
-        let mut old_to_new_id: FxHashMap<NodeId, NodeId> = FxHashMap::default();
+        let new_nodes: Vec<NodeData> = Vec::new();
+        let old_to_new_id: FxHashMap<NodeId, NodeId> = FxHashMap::default();
         let original_nodes = graph.nodes.borrow().clone();
-        
+
         {
             // Rebuild the graph
             let mut new_nodes: Vec<NodeData> = Vec::new();
@@ -83,8 +93,10 @@ impl ElementwiseFusion {
                 let new_id = NodeId(new_nodes.len());
 
                 if let Some(chain) = fusion_groups.get(&old_id) {
-                    let fused_node_data: Vec<NodeData> =
-                        chain.iter().map(|&id| original_nodes[id.0].clone()).collect();
+                    let fused_node_data: Vec<NodeData> = chain
+                        .iter()
+                        .map(|&id| original_nodes[id.0].clone())
+                        .collect();
                     let first_node = fused_node_data.first().unwrap();
                     let last_node = fused_node_data.last().unwrap();
 
@@ -110,7 +122,7 @@ impl ElementwiseFusion {
                     .map(|old_id| *old_to_new_id.get(old_id).unwrap())
                     .collect();
             }
-            
+
             let mut outputs = graph.outputs.borrow_mut();
             for output_id in outputs.iter_mut() {
                 if let Some(new_id) = old_to_new_id.get(output_id) {

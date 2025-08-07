@@ -61,7 +61,8 @@ impl RewriteRule {
             let rewritten_node = (self.rewriter)(captures);
             trace!(
                 "Node {:?} rewritten to {:?}",
-                new_target.op, rewritten_node.op
+                new_target.op,
+                rewritten_node.op
             );
             rewritten_node
         } else {

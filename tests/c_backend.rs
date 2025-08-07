@@ -3,8 +3,8 @@
 use harp::ast::{AstNode, DType};
 use harp::backend::c::{CBuffer, CCompiler, CRenderer};
 use harp::backend::{Compiler, Kernel, Renderer, TryIntoNdarray};
-use harp::graph::Graph;
 use harp::graph::lowerer::Lowerer;
+use harp::graph::Graph;
 use ndarray::ArrayD;
 use std::ffi::c_void;
 
