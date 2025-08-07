@@ -57,7 +57,7 @@ pub trait Buffer: AsAny {
 
     /// Returns the data type of the elements in the buffer.
     fn dtype(&self) -> DType;
-    
+
     /// 形状を返す。Bufferとして実態を持っている時点でサイズは確定しているので、Exprではない。
     fn shape(&self) -> Vec<usize>;
 
@@ -106,7 +106,11 @@ pub trait Kernel {
     fn details(&self) -> &KernelDetails;
 
     /// Executes the kernel with the given buffers and shape variables.
-    fn call(&self, buffers: Vec<Box<dyn Buffer>>, shape_variables: &[usize]) -> Vec<Box<dyn Buffer>>;
+    fn call(
+        &self,
+        buffers: Vec<Box<dyn Buffer>>,
+        shape_variables: &[usize],
+    ) -> Vec<Box<dyn Buffer>>;
 }
 
 /// A trait for a compiler that turns a code representation into a `Kernel`.

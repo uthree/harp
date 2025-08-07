@@ -2,7 +2,7 @@
 
 use harp::ast::{AstNode, DType};
 use harp::backend::c::{CBuffer, CCompiler, CRenderer};
-use harp::backend::{Compiler, Kernel, KernelDetails, Renderer, TryIntoNdarray};
+use harp::backend::{Compiler, Kernel, Renderer, TryIntoNdarray};
 use harp::graph::lowerer::Lowerer;
 use harp::graph::Graph;
 use ndarray::ArrayD;
@@ -235,11 +235,7 @@ fn test_c_backend_e2e_add() {
     let c_buffer = empty_buffer(&shape, DType::F32);
 
     let mut result_buffers = kernel.call(
-        vec![
-            Box::new(a_buffer),
-            Box::new(b_buffer),
-            Box::new(c_buffer),
-        ],
+        vec![Box::new(a_buffer), Box::new(b_buffer), Box::new(c_buffer)],
         &[],
     );
 
@@ -340,11 +336,7 @@ fn test_c_backend_e2e_rem() {
     let c_buffer = empty_buffer(&shape, DType::F32);
 
     let mut result_buffers = kernel.call(
-        vec![
-            Box::new(a_buffer),
-            Box::new(b_buffer),
-            Box::new(c_buffer),
-        ],
+        vec![Box::new(a_buffer), Box::new(b_buffer), Box::new(c_buffer)],
         &[],
     );
 
@@ -400,11 +392,7 @@ fn test_c_backend_e2e_lt() {
     let c_buffer = empty_buffer(&shape, DType::F32);
 
     let mut result_buffers = kernel.call(
-        vec![
-            Box::new(a_buffer),
-            Box::new(b_buffer),
-            Box::new(c_buffer),
-        ],
+        vec![Box::new(a_buffer), Box::new(b_buffer), Box::new(c_buffer)],
         &[],
     );
 
