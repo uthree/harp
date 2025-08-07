@@ -1,5 +1,6 @@
 pub mod ast;
 pub mod backend;
+pub mod frontend;
 pub mod graph;
 pub mod opt;
 
