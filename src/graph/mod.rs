@@ -427,6 +427,14 @@ impl Graph {
     }
 }
 
+impl PartialEq for Graph {
+    fn eq(&self, other: &Self) -> bool {
+        *self.nodes.borrow() == *other.nodes.borrow()
+            && *self.inputs.borrow() == *other.inputs.borrow()
+            && *self.outputs.borrow() == *other.outputs.borrow()
+    }
+}
+
 impl<'a> NodeView<'a> {
     /// Returns the operation of the node.
     pub fn op(&self) -> TensorOp {
@@ -790,5 +798,48 @@ mod tests {
         assert_eq!(b.op(), TensorOp::Contiguous);
         assert_eq!(b.src(), vec![a.id]);
         assert_eq!(b.shape(), a.shape());
+    }
+
+    #[test]
+    fn test_graph_equality() {
+        // Helper to create a simple graph: a + b
+        let create_graph = || {
+            let graph = Graph::new();
+            let a = graph.input(DType::F32, vec![]);
+            let b = graph.input(DType::F32, vec![]);
+            (a + b).as_output();
+            graph
+        };
+
+        let graph1 = create_graph();
+        let graph2 = create_graph();
+
+        assert_eq!(graph1, graph2);
+    }
+
+    #[test]
+    fn test_graph_inequality() {
+        // Graph 1: a + b
+        let create_graph1 = || {
+            let graph = Graph::new();
+            let a = graph.input(DType::F32, vec![]);
+            let b = graph.input(DType::F32, vec![]);
+            (a + b).as_output();
+            graph
+        };
+
+        // Graph 2: a * b
+        let create_graph2 = || {
+            let graph = Graph::new();
+            let a = graph.input(DType::F32, vec![]);
+            let b = graph.input(DType::F32, vec![]);
+            (a * b).as_output();
+            graph
+        };
+
+        let graph1 = create_graph1();
+        let graph2 = create_graph2();
+
+        assert_ne!(graph1, graph2);
     }
 }
