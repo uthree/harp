@@ -16,4 +16,3 @@ tempfile = "3.20.0"
 [dev-dependencies]
 
 [workspace]
-members = ["crates/harp-viz"]
