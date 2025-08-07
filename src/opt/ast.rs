@@ -3,6 +3,15 @@ use log::{debug, info, trace};
 use rustc_hash::FxHashMap;
 use std::rc::Rc;
 
+/// A trait for applying deterministic optimizations to an `AstNode`.
+///
+/// This typically involves applying a set of rewrite rules to simplify
+/// the AST.
+pub trait DeterministicAstOptimizer {
+    /// Optimizes the given `AstNode` and returns a new, optimized `AstNode`.
+    fn optimize(&self, node: AstNode) -> AstNode;
+}
+
 pub struct RewriteRule {
     name: String,
     pattern: AstNode,
@@ -86,6 +95,12 @@ impl RewriteRule {
 pub struct AstRewriter {
     rules: Vec<Rc<RewriteRule>>,
     max_iterations: usize,
+}
+
+impl DeterministicAstOptimizer for AstRewriter {
+    fn optimize(&self, node: AstNode) -> AstNode {
+        self.apply(node)
+    }
 }
 
 impl AstRewriter {

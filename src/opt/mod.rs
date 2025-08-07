@@ -1,3 +1,4 @@
+use crate::graph::Graph;
 pub mod ast;
 pub mod graph;
 
@@ -8,6 +9,16 @@ use crate::{
 
 use self::ast::{AstRewriter, RewriteRule};
 use std::rc::Rc;
+
+/// A trait for applying deterministic optimizations to a computation graph.
+///
+/// Deterministic optimizations are those that are always beneficial and do not
+/// depend on runtime parameters or heuristics. Examples include constant folding,
+/// strength reduction, and elimination of common subexpressions.
+pub trait DeterministicGraphOptimizer {
+    /// Optimizes the given `Graph` and returns a new, optimized `Graph`.
+    fn optimize(&self, graph: &Graph) -> Graph;
+}
 
 /// Returns an `AstRewriter` configured with a set of algebraic simplification rules.
 /// This version performs checks inside the rewriter function.
