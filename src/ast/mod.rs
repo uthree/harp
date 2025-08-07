@@ -87,13 +87,11 @@ pub enum AstOp {
     Range {
         loop_var: String,
         max: Box<AstNode>,
-        block: Box<AstNode>,
     },
     /// Represents a function definition.
     Func {
         name: String,
         args: Vec<(String, DType)>,
-        body: Box<AstNode>,
     },
     /// Represents a function call. Arguments are stored in the `src` field.
     Call(String),
@@ -123,7 +121,7 @@ pub enum AstOp {
 pub struct AstNode {
     pub id: usize,
     pub op: AstOp,
-    pub src: Vec<Box<AstNode>>,
+    pub src: Vec<AstNode>,
     pub dtype: DType,
 }
 
@@ -135,79 +133,12 @@ impl PartialEq for AstNode {
 
 impl AstNode {
     /// Creates a new `AstNode`.
-    pub fn new(op: AstOp, src: Vec<Box<AstNode>>, dtype: DType) -> Self {
+    pub fn new(op: AstOp, src: Vec<AstNode>, dtype: DType) -> Self {
         Self {
             id: next_id(),
             op,
             src,
             dtype,
-        }
-    }
-
-    /// Generates a formatted string representation of the AST for debugging.
-    pub fn pretty_print(&self) -> String {
-        let mut s = String::new();
-        self.pretty_print_recursive(&mut s, 0);
-        s
-    }
-
-    /// Helper function for recursive pretty printing.
-    fn pretty_print_recursive(&self, s: &mut String, indent: usize) {
-        let prefix = "  ".repeat(indent);
-        match &self.op {
-            AstOp::Block => {
-                s.push_str(&format!("{prefix}Block:\n"));
-                for node in &self.src {
-                    node.pretty_print_recursive(s, indent + 1);
-                }
-            }
-            AstOp::Range {
-                loop_var,
-                max,
-                block,
-            } => {
-                s.push_str(&format!(
-                    "{}for {} in 0..{}:\n",
-                    prefix,
-                    loop_var,
-                    max.pretty_print()
-                ));
-                block.pretty_print_recursive(s, indent + 1);
-            }
-            AstOp::Assign { dst, src } => {
-                s.push_str(&format!(
-                    "{}{} = {}\n",
-                    prefix,
-                    dst.pretty_print(),
-                    src.pretty_print()
-                ));
-            }
-            AstOp::Store { dst, src } => {
-                s.push_str(&format!(
-                    "{}Store({}, {})\n",
-                    prefix,
-                    dst.pretty_print(),
-                    src.pretty_print()
-                ));
-            }
-            AstOp::Func { name, args, body } => {
-                let args_str: Vec<String> =
-                    args.iter().map(|(n, t)| format!("{n}: {t:?}")).collect();
-                s.push_str(&format!(
-                    "{}def {}({}):\n",
-                    prefix,
-                    name,
-                    args_str.join(", ")
-                ));
-                body.pretty_print_recursive(s, indent + 1);
-            }
-            AstOp::Call(name) => {
-                let args_str: Vec<String> = self.src.iter().map(|n| n.pretty_print()).collect();
-                s.push_str(&format!("{}{}({})", prefix, name, args_str.join(", ")));
-            }
-            _ => {
-                s.push_str(&format!("{prefix}{self:?}\n"));
-            }
         }
     }
 
@@ -228,18 +159,17 @@ impl AstNode {
 
     /// Creates a `Cast` node to convert the data type of this node.
     pub fn cast(self, dtype: DType) -> Self {
-        Self::new(AstOp::Cast(dtype.clone()), vec![Box::new(self)], dtype)
+        Self::new(AstOp::Cast(dtype.clone()), vec![self], dtype)
     }
 
     /// Creates a new `FuncDef` node.
-    pub fn func_def(name: &str, args: Vec<(String, DType)>, body: AstNode) -> Self {
+    pub fn func_def(name: &str, args: Vec<(String, DType)>, body: Vec<AstNode>) -> Self {
         Self::new(
             AstOp::Func {
                 name: name.to_string(),
                 args,
-                body: Box::new(body),
             },
-            vec![],
+            body,
             DType::Void,
         )
     }
@@ -248,7 +178,7 @@ impl AstNode {
     pub fn call(name: &str, args: Vec<AstNode>) -> Self {
         Self::new(
             AstOp::Call(name.to_string()),
-            args.into_iter().map(Box::new).collect(),
+            args,
             DType::Any, // Return type is often context-dependent
         )
     }
@@ -257,22 +187,17 @@ impl AstNode {
 
     /// Creates a new `Block` node.
     pub fn block(body: Vec<AstNode>) -> Self {
-        Self::new(
-            AstOp::Block,
-            body.into_iter().map(Box::new).collect(),
-            DType::Void,
-        )
+        Self::new(AstOp::Block, body, DType::Void)
     }
 
     /// Creates a new `Range` (for-loop) node.
-    pub fn range(loop_var: String, max: AstNode, block: AstNode) -> Self {
+    pub fn range(loop_var: String, max: AstNode, block: Vec<AstNode>) -> Self {
         Self::new(
             AstOp::Range {
                 loop_var,
                 max: Box::new(max),
-                block: Box::new(block),
             },
-            vec![],
+            block,
             DType::Void,
         )
     }
