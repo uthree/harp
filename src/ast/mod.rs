@@ -67,7 +67,10 @@ pub enum AstOp {
     /// Assigns a value. `src[0]` is the destination, `src[1]` is the source.
     Assign,
     /// Declares a variable and assigns a value to it. `src[0]` is the value.
-    Declare { name: String, dtype: DType },
+    Declare {
+        name: String,
+        dtype: DType,
+    },
     /// Stores a value at a memory location. `src[0]` is the destination address, `src[1]` is the value.
     Store,
     /// Dereferences a pointer. `src[0]` is the address to dereference.
@@ -75,7 +78,9 @@ pub enum AstOp {
     /// Represents an indexed access into a buffer. `src[0]` is the buffer, `src[1]` is the index.
     BufferIndex,
     /// Represents a for-loop. `src[0]` is the maximum value (exclusive), and the rest of `src` is the loop body.
-    Range { loop_var: String },
+    Range {
+        loop_var: String,
+    },
     /// Represents a function definition. The function body is in `src`.
     Func {
         name: String,

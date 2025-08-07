@@ -402,11 +402,7 @@ impl<'a> Lowerer<'a> {
                 }
                 .with_type(node_data.dtype.clone());
 
-                let init_acc = AstNode::declare(
-                    acc_var.clone(),
-                    node_data.dtype.clone(),
-                    init_val,
-                );
+                let init_acc = AstNode::declare(acc_var.clone(), node_data.dtype.clone(), init_val);
 
                 let inner_loop_var = self.new_loop_counter();
                 let mut full_indices = outer_loop_vars.clone();
