@@ -79,7 +79,7 @@ impl CRenderer {
                 self.write_indent();
                 write!(self.buffer, "for (size_t {loop_var} = 0; {loop_var} < ").unwrap();
                 self.render_node(&ast.src[0]); // max
-                writeln!(self.buffer, "; {loop_var}++) {{ ").unwrap();
+                writeln!(self.buffer, "; {loop_var}++) {{").unwrap();
                 self.indent_level += 1;
 
                 // The rest of src is the loop body.
