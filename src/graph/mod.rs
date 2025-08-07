@@ -90,10 +90,17 @@ pub enum TensorOp {
     Concatenate(usize),
 
     // Fused operators for optimization
-    /// A fused sequence of element-wise operations.
-    FusedElementwise(AstNode),
-    /// A fused reduction operation.
-    FusedReduce(AstOp, Vec<usize>),
+    /// A fused sequence of element-wise operations, holding the IDs of the fused nodes.
+    Fused(Vec<NodeData>),
+    /// A marker for a node that has been fused into another.
+    FusedInto(NodeId),
+}
+
+impl TensorOp {
+    /// Returns `true` if the operation is an element-wise operation that can be fused.
+    pub fn is_elementwise(&self) -> bool {
+        matches!(self, TensorOp::Elementwise(_))
+    }
 }
 
 impl Graph {
