@@ -272,7 +272,7 @@ macro_rules! impl_unary_op {
                 if !(dtype.is_real() || dtype.is_integer() || *dtype == DType::Any) {
                     panic!("Cannot apply {} to {:?}", stringify!($op), self.dtype)
                 }
-                AstNode::new(AstOp::$op, vec![Box::new(self.clone())], self.dtype)
+                AstNode::new(AstOp::$op, vec![self.clone()], self.dtype)
             }
         }
     };
@@ -284,7 +284,7 @@ macro_rules! impl_unary_op {
                 if !(dtype.is_real() || *dtype == DType::Any) {
                     panic!("Cannot apply {} to {:?}", stringify!($op), self.dtype)
                 }
-                AstNode::new(AstOp::$op, vec![Box::new(self.clone())], self.dtype)
+                AstNode::new(AstOp::$op, vec![self.clone()], self.dtype)
             }
         }
     };
@@ -332,7 +332,7 @@ macro_rules! impl_binary_op {
                 }
 
                 let result_dtype = lhs.dtype.clone();
-                AstNode::new(AstOp::$op, vec![Box::new(lhs), Box::new(rhs)], result_dtype)
+                AstNode::new(AstOp::$op, vec![lhs, rhs], result_dtype)
             }
         }
     };
@@ -371,7 +371,7 @@ macro_rules! impl_binary_op {
                 }
 
                 let result_dtype = lhs.dtype.clone();
-                AstNode::new(AstOp::$op, vec![Box::new(lhs), Box::new(rhs)], result_dtype)
+                AstNode::new(AstOp::$op, vec![lhs, rhs], result_dtype)
             }
         }
     };
@@ -655,19 +655,19 @@ mod tests {
         let neg_a = -a.clone();
         assert_eq!(neg_a.op, AstOp::Neg);
         assert_eq!(neg_a.src.len(), 1);
-        assert_eq!(*neg_a.src[0], a);
+        assert_eq!(neg_a.src[0], a);
 
         let a = AstNode::new(AstOp::Var("a".to_string()), vec![], DType::Any);
         let sqrt_a = a.clone().sqrt();
         assert_eq!(sqrt_a.op, AstOp::Sqrt);
         assert_eq!(sqrt_a.src.len(), 1);
-        assert_eq!(*sqrt_a.src[0], a);
+        assert_eq!(sqrt_a.src[0], a);
 
         let a = AstNode::new(AstOp::Var("a".to_string()), vec![], DType::Any);
         let sin_a = a.clone().sin();
         assert_eq!(sin_a.op, AstOp::Sin);
         assert_eq!(sin_a.src.len(), 1);
-        assert_eq!(*sin_a.src[0], a);
+        assert_eq!(sin_a.src[0], a);
     }
 
     #[test]
@@ -678,50 +678,50 @@ mod tests {
         let add_ab = a.clone() + b.clone();
         assert_eq!(add_ab.op, AstOp::Add);
         assert_eq!(add_ab.src.len(), 2);
-        assert_eq!(*add_ab.src[0], a);
-        assert_eq!(*add_ab.src[1], b);
+        assert_eq!(add_ab.src[0], a);
+        assert_eq!(add_ab.src[1], b);
 
         let a = AstNode::new(AstOp::Var("a".to_string()), vec![], DType::Any);
         let b = AstNode::new(AstOp::Var("b".to_string()), vec![], DType::Any);
         let sub_ab = a.clone() - b.clone();
         assert_eq!(sub_ab.op, AstOp::Add); // sub is implemented as a + (-b)
         assert_eq!(sub_ab.src.len(), 2);
-        assert_eq!(*sub_ab.src[0], a);
+        assert_eq!(sub_ab.src[0], a);
         assert_eq!(sub_ab.src[1].op, AstOp::Neg);
-        assert_eq!(*sub_ab.src[1].src[0], b);
+        assert_eq!(sub_ab.src[1].src[0], b);
 
         let a = AstNode::new(AstOp::Var("a".to_string()), vec![], DType::Any);
         let b = AstNode::new(AstOp::Var("b".to_string()), vec![], DType::Any);
         let mul_ab = a.clone() * b.clone();
         assert_eq!(mul_ab.op, AstOp::Mul);
         assert_eq!(mul_ab.src.len(), 2);
-        assert_eq!(*mul_ab.src[0], a);
-        assert_eq!(*mul_ab.src[1], b);
+        assert_eq!(mul_ab.src[0], a);
+        assert_eq!(mul_ab.src[1], b);
 
         let a = AstNode::new(AstOp::Var("a".to_string()), vec![], DType::Any);
         let b = AstNode::new(AstOp::Var("b".to_string()), vec![], DType::Any);
         let div_ab = a.clone() / b.clone();
         assert_eq!(div_ab.op, AstOp::Mul); // div is implemented as a * (1/b)
         assert_eq!(div_ab.src.len(), 2);
-        assert_eq!(*div_ab.src[0], a);
+        assert_eq!(div_ab.src[0], a);
         assert_eq!(div_ab.src[1].op, AstOp::Recip);
-        assert_eq!(*div_ab.src[1].src[0], b);
+        assert_eq!(div_ab.src[1].src[0], b);
 
         let a = AstNode::new(AstOp::Var("a".to_string()), vec![], DType::Any);
         let b = AstNode::new(AstOp::Var("b".to_string()), vec![], DType::Any);
         let rem_ab = a.clone() % b.clone();
         assert_eq!(rem_ab.op, AstOp::Rem);
         assert_eq!(rem_ab.src.len(), 2);
-        assert_eq!(*rem_ab.src[0], a);
-        assert_eq!(*rem_ab.src[1], b);
+        assert_eq!(rem_ab.src[0], a);
+        assert_eq!(rem_ab.src[1], b);
 
         let a = AstNode::new(AstOp::Var("a".to_string()), vec![], DType::Any);
         let b = AstNode::new(AstOp::Var("b".to_string()), vec![], DType::Any);
         let max_ab = a.clone().max(b.clone());
         assert_eq!(max_ab.op, AstOp::Max);
         assert_eq!(max_ab.src.len(), 2);
-        assert_eq!(*max_ab.src[0], a);
-        assert_eq!(*max_ab.src[1], b);
+        assert_eq!(max_ab.src[0], a);
+        assert_eq!(max_ab.src[1], b);
     }
 
     #[test]
@@ -735,13 +735,13 @@ mod tests {
 
         assert_eq!(expr.op, AstOp::Mul);
         assert_eq!(expr.src.len(), 2);
-        assert_eq!(*expr.src[1], c);
+        assert_eq!(expr.src[1], c);
 
-        let add_expr = &*expr.src[0];
+        let add_expr = &expr.src[0];
         assert_eq!(add_expr.op, AstOp::Add);
         assert_eq!(add_expr.src.len(), 2);
-        assert_eq!(*add_expr.src[0], a);
-        assert_eq!(*add_expr.src[1], b);
+        assert_eq!(add_expr.src[0], a);
+        assert_eq!(add_expr.src[1], b);
     }
 
     #[test]

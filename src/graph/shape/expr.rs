@@ -315,8 +315,8 @@ mod tests {
         assert_eq!(ast.op, AstOp::Mul);
         assert_eq!(ast.dtype, DType::I64);
 
-        let lhs = &*ast.src[0];
-        let rhs = &*ast.src[1];
+        let lhs = ast.src[0].clone();
+        let rhs = ast.src[1].clone();
 
         assert_eq!(lhs.op, AstOp::Add);
         assert_eq!(lhs.dtype, DType::I64);

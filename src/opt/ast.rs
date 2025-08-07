@@ -62,11 +62,7 @@ impl RewriteRule {
 
     pub fn apply_all(&self, target: AstNode) -> AstNode {
         // Apply to children first (post-order traversal)
-        let new_src = target
-            .src
-            .into_iter()
-            .map(|s| Box::new(self.apply_all(*s)))
-            .collect();
+        let new_src = target.src.into_iter().map(|s| self.apply_all(s)).collect();
 
         let new_target = AstNode::new(target.op, new_src, target.dtype);
 

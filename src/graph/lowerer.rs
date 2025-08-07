@@ -75,15 +75,15 @@ impl<'a> Lowerer<'a> {
         // Creates `(dtype*)buffers[buffer_index]`
         AstNode::new(
             AstOp::Cast(DType::Ptr(Box::new(node_data.dtype.clone()))),
-            vec![Box::new(AstNode::new(
+            vec![AstNode::new(
                 AstOp::BufferIndex {
-                    buffer: Box::new(buffer_var),
-                    index: Box::new(AstNode::from(buffer_index as i64)),
+                    buffer: buffer_var,
+                    index: AstNode::from(buffer_index as i64),
                 },
                 vec![],
                 // This represents the type of `buffers[i]`, which is `void*`
                 DType::Ptr(Box::new(DType::Void)),
-            ))],
+            )],
             DType::Ptr(Box::new(node_data.dtype.clone())),
         )
     }
@@ -177,13 +177,9 @@ impl<'a> Lowerer<'a> {
             let buffer_info = &details.buffers[i];
             let arg_type = DType::Ptr(Box::new(buffer_info.dtype.clone()));
             impl_args.push((buf_name.clone(), arg_type.clone()));
-            impl_call_vars.push(Box::new(AstNode::var(&buf_name).with_type(arg_type)));
+            impl_call_vars.push(AstNode::var(&buf_name).with_type(arg_type));
         }
-        let impl_body = AstNode::new(
-            AstOp::Block,
-            computation_body.into_iter().map(Box::new).collect(),
-            DType::Void,
-        );
+        let impl_body = AstNode::new(AstOp::Block, computation_body, DType::Void);
         let kernel_impl = AstNode::func_def("kernel_impl", impl_args, impl_body);
 
         // 4. Create the main wrapper function `kernel_main`.
@@ -229,11 +225,7 @@ impl<'a> Lowerer<'a> {
         );
 
         // 5. Combine both functions into a single AST program.
-        let final_ast = AstNode::new(
-            AstOp::Program,
-            vec![Box::new(kernel_impl), Box::new(kernel_main)],
-            DType::Void,
-        );
+        let final_ast = AstNode::new(AstOp::Program, vec![kernel_impl, kernel_main], DType::Void);
 
         info!("Lowering process completed.");
         (final_ast, details)
@@ -449,8 +441,8 @@ impl<'a> Lowerer<'a> {
                     AstNode::new(
                         op,
                         vec![
-                            Box::new(AstNode::var(&acc_var).with_type(node_data.dtype.clone())),
-                            Box::new(load_val),
+                            AstNode::var(&acc_var).with_type(node_data.dtype.clone()),
+                            load_val,
                         ],
                         node_data.dtype.clone(),
                     ),
@@ -493,7 +485,7 @@ impl<'a> Lowerer<'a> {
                 let new_srcs = ast
                     .src
                     .iter()
-                    .map(|child| Box::new(Self::lower_fused_ast(child, loaded_srcs)))
+                    .map(|child| Self::lower_fused_ast(child, loaded_srcs))
                     .collect();
                 AstNode::new(ast.op.clone(), new_srcs, ast.dtype.clone())
             }
