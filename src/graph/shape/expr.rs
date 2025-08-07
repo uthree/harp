@@ -313,14 +313,21 @@ mod tests {
         let ast: AstNode = expr.into();
 
         assert_eq!(ast.op, AstOp::Mul);
-        assert_eq!(ast.dtype, DType::I64);
+        assert_eq!(ast.dtype, DType::USize);
 
         let lhs = ast.src[0].clone();
         let rhs = ast.src[1].clone();
 
         assert_eq!(lhs.op, AstOp::Add);
-        assert_eq!(lhs.dtype, DType::I64);
-        assert_eq!(rhs.op, AstOp::Const(crate::ast::Const::I64(2)));
+        assert_eq!(lhs.dtype, DType::USize);
+
+        // Check that the constant `2` is correctly converted and casted.
+        assert_eq!(rhs.op, AstOp::Cast(DType::USize));
+        if let AstOp::Const(c) = rhs.src[0].op {
+            assert_eq!(c, crate::ast::Const::U64(2));
+        } else {
+            panic!("Expected a const node, found {:?}", rhs.src[0].op);
+        }
     }
 
     #[test]
