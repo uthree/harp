@@ -1,6 +1,7 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::graph::{Graph, NodeData, NodeId, TensorOp};
+use crate::opt::DeterministicGraphOptimizer;
 
 pub struct ElementwiseFusion;
 
@@ -14,8 +15,11 @@ impl ElementwiseFusion {
     pub fn new() -> Self {
         Self
     }
+}
 
-    pub fn run(&self, graph: &mut Graph) {
+impl DeterministicGraphOptimizer for ElementwiseFusion {
+    fn optimize(&self, graph: &Graph) -> Graph {
+        let mut new_graph = Graph::new();
         // Step 1: Identify fusion groups without mutating the graph.
         let (fusion_groups, visited) = {
             let nodes = graph.nodes.borrow();
@@ -71,7 +75,7 @@ impl ElementwiseFusion {
         };
 
         if fusion_groups.is_empty() {
-            return; // No fusion opportunities found.
+            return graph.clone(); // No fusion opportunities found.
         }
 
         // Step 2: Rebuild the graph with fused nodes.
@@ -123,14 +127,17 @@ impl ElementwiseFusion {
                     .collect();
             }
 
-            let mut outputs = graph.outputs.borrow_mut();
+            let mut outputs = graph.outputs.borrow().clone();
             for output_id in outputs.iter_mut() {
                 if let Some(new_id) = old_to_new_id.get(output_id) {
                     *output_id = *new_id;
                 }
             }
-            *graph.nodes.borrow_mut() = new_nodes;
+            new_graph.nodes = std::cell::RefCell::new(new_nodes);
+            new_graph.outputs = std::cell::RefCell::new(outputs);
+            new_graph.inputs = graph.inputs.clone();
         }
+        new_graph
     }
 }
 
@@ -148,9 +155,9 @@ mod tests {
         let _d = c.exp2().as_output();
 
         let optimizer = ElementwiseFusion::new();
-        optimizer.run(&mut graph);
+        let new_graph = optimizer.optimize(&graph);
 
-        let nodes = graph.nodes.borrow();
+        let nodes = new_graph.nodes.borrow();
         assert_eq!(nodes.len(), 2); // Input + Fused node
 
         let fused_node = &nodes[1];

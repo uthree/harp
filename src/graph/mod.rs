@@ -446,6 +446,16 @@ impl PartialEq for Graph {
     }
 }
 
+impl Clone for Graph {
+    fn clone(&self) -> Self {
+        Graph {
+            nodes: RefCell::new(self.nodes.borrow().clone()),
+            inputs: RefCell::new(self.inputs.borrow().clone()),
+            outputs: RefCell::new(self.outputs.borrow().clone()),
+        }
+    }
+}
+
 impl<'a> NodeView<'a> {
     /// Returns the operation of the node.
     pub fn op(&self) -> TensorOp {
