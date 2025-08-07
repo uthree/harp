@@ -21,8 +21,16 @@ C言語の構造に簡単に変換できることを想定しており、演算�
 後述のレンダラーやコンパイラーを統括管理し、コードの最適化・コンパイル・実行などをする。
 
 ```rust
-trait Backend {
-    ... // TODO
+pub trait Backend {
+    type Var: Buffer;
+    fn new() -> Self;
+    fn is_available(&self) -> bool;
+    fn call(
+        &mut self,
+        graph: Graph,
+        buffers: Vec<Self::Var>,
+        shape_variables: Vec<usize>,
+    ) -> Self::Var;
 }
 ```
 
@@ -31,30 +39,46 @@ trait Backend {
 ASTを実際のコード(e.g. C言語, CUDA, Metal...)にレンダリングする責務を持つ。
 
 ```rust
-trait Renderer<CodeRepr> {
-    fn render(&mut self, ast::Kernel) -> CodeRepr;
+trait Renderer<CodeRepr = String> {
+    fn new() -> Self;
+    fn render(&mut self, ast: AstNode) -> CodeRepr;
 }
 ```
 
 ### コンパイラー
 
-レンダリングされたコードを実行可能な形式（カーネル）にへ関する責務を持つ。
+レンダリングされたコードを実行可能な形式（カーネル）に変換する責務を持つ。
 
 ```rust
-trait Compiler<CodeRepr=String, Kernel> {
-    type CompilerOption; // コンパイラオプションを表現する型。
-    fn default_option() -> CompilerOption; // コンパイラオプションの既定値を取得
-    fn compile(&mut self, CodeRepr) -> Kernel; // コンパイル処理を実行。
+trait Compiler<CodeRepr = String, CompilerOption = ()> {
+    fn new() -> Self;
+    fn is_available(&self) -> bool;
+    fn with_option(&mut self, option: CompilerOption);
+    fn compile(&mut self, code: &CodeRepr, details: KernelDetails) -> Box<dyn Kernel>;
 }
 ```
 
-### デバイス
+### カーネル
 
-メモリ確保・開放を担当する。
+コンパイル済みの実行可能な関数を表す。
+
 ```rust
-trait Device<Buffer> {
-    fn allocate(&mut self, dtype: DType, size: usize) -> Buffer;
-    fn free(&mut self, buffer: Buffer);
+pub trait Kernel {
+    fn details(&self) -> &KernelDetails;
+    fn call(&self, buffers: Vec<Box<dyn Buffer>>, shape_variables: &[usize]) -> Vec<Box<dyn Buffer>>;
+}
+```
+
+### バッファ
+
+デバイス上のデータを保持するコンテナ。
+
+```rust
+pub trait Buffer: AsAny {
+    fn as_mut_bytes(&mut self) -> &mut [u8];
+    fn dtype(&self) -> DType;
+    fn shape(&self) -> Vec<usize>;
+    fn size(&self) -> usize;
 }
 ```
 
@@ -65,7 +89,7 @@ TODO, 最適化処理を担う。最適化手法を探索する。ベイズ推�
 
 ## ShapeTracker
 
-添え字からメモリオフセットを計算する関数のExprです。  
+添え字からメモリオフセットを計算する関数のExprです。
 TensorグラフをAstに変換する(lower)ときに使用します。
 
 ## Lowerer
