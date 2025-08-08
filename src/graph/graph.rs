@@ -398,6 +398,20 @@ impl Graph {
         )
     }
 
+    pub fn reshape(&self, src: NodeId, new_shape: Vec<Expr>) -> NodeId {
+        let dtype = self.nodes.borrow()[src.0].dtype.clone();
+        // Reshape requires the memory to be contiguous. We conservatively insert a
+        // contiguous call here. The lowerer for `contiguous` will handle the
+        // case where the tensor is already contiguous as a no-op.
+        let contiguous_src = self.contiguous(src);
+        self.add_node(
+            GraphOp::Reshape(new_shape.clone()),
+            vec![contiguous_src],
+            dtype,
+            new_shape,
+        )
+    }
+
     pub fn conv1d(
         &self,
         input: NodeId,
@@ -406,49 +420,81 @@ impl Graph {
         stride: usize,
         groups: usize,
     ) -> NodeId {
-        assert_eq!(groups, 1, "Grouped convolution not yet supported");
-
-        // 1. Unfold input
-        let x_unfolded = self.unfold(input, 2, kernel_size, stride);
-
-        // 2. Reshape for broadcast
-        // x_unfolded: [N, C_in, L_out, K] -> [N, 1, C_in, L_out, K]
-        let x_reshaped = self.unsqueeze(x_unfolded, 1);
-
-        // weight: [C_out, C_in, K] -> [1, C_out, C_in, 1, K]
-        let w_reshaped_1 = self.unsqueeze(weight, 0);
-        let w_reshaped_2 = self.unsqueeze(w_reshaped_1, 3);
-
-        // 3. Expand
-        // Get shapes for expand
-        let (x_shape, w_shape) = {
+        // Get input and weight shapes
+        let (n, c_in, l, c_out, k) = {
             let nodes = self.nodes.borrow();
-            let x_node = &nodes[x_reshaped.0];
-            let w_node = &nodes[w_reshaped_2.0];
-            (x_node.shape.clone(), w_node.shape.clone())
+            let in_node = &nodes[input.0];
+            let w_node = &nodes[weight.0];
+            // input: [N, C_in, L]
+            // weight: [C_out, C_in/G, K]
+            let n = in_node.shape[0].clone();
+            let c_in = in_node.shape[1].clone();
+            let l = in_node.shape[2].clone();
+            let c_out = w_node.shape[0].clone();
+            let k = w_node.shape[2].clone();
+            (n, c_in, l, c_out, k)
         };
-        // x_shape: [N, 1, C_in, L_out, K]
-        // w_shape: [1, C_out, C_in, 1, K]
-        let n = x_shape[0].clone();
-        let c_out = w_shape[1].clone();
-        let c_in = x_shape[2].clone();
-        let l_out = x_shape[3].clone();
-        let k = x_shape[4].clone();
+        let c_in_per_group = (c_in.clone() / groups).simplify();
+        let c_out_per_group = (c_out.clone() / groups).simplify();
+        let l_out = ((l.clone() - k.clone()) / stride + 1).simplify();
 
-        let broadcast_shape = vec![n, c_out, c_in, l_out, k];
-        let x_expanded = self.expand(x_reshaped, broadcast_shape.clone());
-        let w_expanded = self.expand(w_reshaped_2, broadcast_shape);
+        // 1. Reshape input and weight
+        // input: [N, C_in, L] -> [N, G, C_in/G, L]
+        let x_reshaped = self.reshape(
+            input,
+            vec![
+                n.clone(),
+                groups.into(),
+                c_in_per_group.clone(),
+                l.clone(),
+            ],
+        );
+        // weight: [C_out, C_in/G, K] -> [G, C_out/G, C_in/G, K]
+        let w_reshaped = self.reshape(
+            weight,
+            vec![
+                groups.into(),
+                c_out_per_group.clone(),
+                c_in_per_group.clone(),
+                k.clone(),
+            ],
+        );
 
-        // 4. Multiply
+        // 2. Unfold input
+        // x_reshaped: [N, G, C_in/G, L] -> [N, G, C_in/G, L_out, K]
+        let x_unfolded = self.unfold(x_reshaped, 3, kernel_size, stride);
+
+        // 3. Reshape for broadcast
+        // x_unfolded: [N, G, C_in/G, L_out, K] -> [N, G, 1, C_in/G, L_out, K]
+        let x_broadcastable = self.unsqueeze(x_unfolded, 2);
+        // w_reshaped: [G, C_out/G, C_in/G, K] -> [1, G, C_out/G, C_in/G, 1, K]
+        let w_broadcastable_1 = self.unsqueeze(w_reshaped, 0);
+        let w_broadcastable = self.unsqueeze(w_broadcastable_1, 4);
+
+        // 4. Expand
+        let broadcast_shape = vec![
+            n.clone(),
+            groups.into(),
+            c_out_per_group.clone(),
+            c_in_per_group.clone(),
+            l_out.clone(),
+            k.clone(),
+        ];
+        let x_expanded = self.expand(x_broadcastable, broadcast_shape.clone());
+        let w_expanded = self.expand(w_broadcastable, broadcast_shape);
+
+        // 5. Multiply
         let mul_result = self.mul(x_expanded, w_expanded);
 
-        // 5. Sum reduction
-        // sum over K (axis=4) -> [N, C_out, C_in, L_out]
-        let sum_k = self.sum(mul_result, 4);
-        // sum over C_in (axis=2) -> [N, C_out, L_out]
-        let output = self.sum(sum_k, 2);
+        // 6. Sum reduction
+        // sum over K (axis=5) -> [N, G, C_out/G, C_in/G, L_out]
+        let sum_k = self.sum(mul_result, 5);
+        // sum over C_in/G (axis=3) -> [N, G, C_out/G, L_out]
+        let sum_c_in = self.sum(sum_k, 3);
 
-        output
+        // 7. Reshape output
+        // [N, G, C_out/G, L_out] -> [N, C_out, L_out]
+        self.reshape(sum_c_in, vec![n, c_out, l_out])
     }
 }
 

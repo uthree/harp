@@ -185,6 +185,17 @@ impl<'a> Lowerer<'a> {
         (src_ast, new_tracker, src_buffer_id)
     }
 
+    pub(super) fn lower_reshape(
+        &mut self,
+        _node_id: NodeId,
+        node_data: &NodeData,
+        new_shape: Vec<Expr>,
+    ) -> (AstNode, ShapeTracker, NodeId) {
+        let (src_ast, src_tracker, src_buffer_id) = self.lower_node(node_data.src[0]);
+        let new_tracker = src_tracker.reshape(new_shape);
+        (src_ast, new_tracker, src_buffer_id)
+    }
+
     pub(super) fn lower_elementwise(
         &mut self,
         node_id: NodeId,

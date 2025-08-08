@@ -235,6 +235,7 @@ impl<'a> Lowerer<'a> {
                 kernel_size,
                 stride,
             } => self.lower_unfold(node_id, &node_data, dim, kernel_size, stride),
+            GraphOp::Reshape(new_shape) => self.lower_reshape(node_id, &node_data, new_shape),
             GraphOp::Elementwise(op) => self.lower_elementwise(node_id, &node_data, op),
             GraphOp::FusedElementwise(elementwise_ast) => {
                 self.lower_fused_elementwise(node_id, &node_data, elementwise_ast)

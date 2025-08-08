@@ -264,6 +264,28 @@ impl ShapeTracker {
         self.shape = new_shape.iter().map(|s| s.clone().simplify()).collect();
         self
     }
+
+    pub fn reshape(self, new_shape: Vec<Expr>) -> Self {
+        assert!(
+            self.is_contiguous(),
+            "reshape is only supported on contiguous tensors"
+        );
+
+        let old_numel = self
+            .shape
+            .iter()
+            .fold(Expr::from(1), |acc, x| acc * x.clone());
+        let new_numel = new_shape
+            .iter()
+            .fold(Expr::from(1), |acc, x| acc * x.clone());
+        assert_eq!(
+            old_numel.simplify(),
+            new_numel.simplify(),
+            "reshape shape must have the same number of elements"
+        );
+
+        ShapeTracker::new(new_shape)
+    }
 }
 
 #[cfg(test)]
@@ -326,6 +348,29 @@ mod tests {
         let tracker = ShapeTracker::new(vec![1.into(), 10.into()]);
         // This should panic because the number of dimensions is different.
         tracker.expand(vec![5.into(), 10.into(), 1.into()]);
+    }
+
+    #[test]
+    fn test_reshape() {
+        let tracker = ShapeTracker::new(vec![10.into(), 20.into()]);
+        let reshaped = tracker.reshape(vec![200.into()]);
+        assert_eq!(reshaped.shape(), &[200.into()]);
+        assert_eq!(reshaped.strides(), &[1.into()]);
+        assert!(reshaped.is_contiguous());
+    }
+
+    #[test]
+    #[should_panic(expected = "reshape is only supported on contiguous tensors")]
+    fn test_reshape_non_contiguous() {
+        let tracker = ShapeTracker::new(vec![10.into(), 20.into()]).permute(vec![1, 0]);
+        tracker.reshape(vec![200.into()]);
+    }
+
+    #[test]
+    #[should_panic(expected = "reshape shape must have the same number of elements")]
+    fn test_reshape_wrong_numel() {
+        let tracker = ShapeTracker::new(vec![10.into(), 20.into()]);
+        tracker.reshape(vec![199.into()]);
     }
 
     #[test]

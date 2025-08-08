@@ -38,6 +38,8 @@ pub enum GraphOp {
         kernel_size: usize,
         stride: usize,
     },
+    /// An operation that changes the shape of a tensor without changing its data.
+    Reshape(Vec<Expr>),
 
     // Fused Operators
     FusedElementwise(AstNode), // Capture(n) means n-th src element

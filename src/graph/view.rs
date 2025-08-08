@@ -104,6 +104,12 @@ impl<'a> NodeView<'a> {
         self.graph.get_view(new_id)
     }
 
+    /// Reshapes the tensor to a new shape.
+    pub fn reshape(&self, new_shape: Vec<Expr>) -> NodeView<'a> {
+        let new_id = self.graph.reshape(self.id, new_shape);
+        self.graph.get_view(new_id)
+    }
+
     /// Performs a 1D convolution.
     pub fn conv1d(
         self,
