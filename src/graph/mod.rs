@@ -176,27 +176,12 @@ impl Graph {
     }
 
     pub fn sub(&self, lhs: NodeId, rhs: NodeId) -> NodeId {
-        let (lhs_dtype, rhs_dtype, shape) = {
-            let nodes = self.nodes.borrow();
-            let lhs_node = &nodes[lhs.0];
-            let rhs_node = &nodes[rhs.0];
-            (
-                lhs_node.dtype.clone(),
-                rhs_node.dtype.clone(),
-                lhs_node.shape.clone(),
-            ) // TODO: Proper shape calculation
-        };
-        let ast_node = AstNode::capture(0, lhs_dtype) - AstNode::capture(1, rhs_dtype);
-        self.add_node(
-            GraphOp::Elementwise(AstOp::Add),
-            vec![lhs, rhs],
-            ast_node.dtype,
-            shape,
-        )
+        let neg_rhs = self.neg(rhs);
+        self.add(lhs, neg_rhs)
     }
 
     pub fn mul(&self, lhs: NodeId, rhs: NodeId) -> NodeId {
-        let (lhs_dtype, rhs_dtype, shape) = {
+        let (lhs_dtype, rhs_dtype, lhs_shape, rhs_shape) = {
             let nodes = self.nodes.borrow();
             let lhs_node = &nodes[lhs.0];
             let rhs_node = &nodes[rhs.0];
@@ -204,14 +189,18 @@ impl Graph {
                 lhs_node.dtype.clone(),
                 rhs_node.dtype.clone(),
                 lhs_node.shape.clone(),
-            ) // TODO: Proper shape calculation
+                rhs_node.shape.clone(),
+            )
         };
+        if lhs_shape != rhs_shape {
+            panic!("Shape mismatch in mul: {lhs_shape:?} vs {rhs_shape:?}");
+        }
         let ast_node = AstNode::capture(0, lhs_dtype) * AstNode::capture(1, rhs_dtype);
         self.add_node(
             GraphOp::Elementwise(AstOp::Mul),
             vec![lhs, rhs],
             ast_node.dtype,
-            shape,
+            lhs_shape,
         )
     }
 
@@ -265,23 +254,8 @@ impl Graph {
     }
 
     pub fn div(&self, lhs: NodeId, rhs: NodeId) -> NodeId {
-        let (lhs_dtype, rhs_dtype, shape) = {
-            let nodes = self.nodes.borrow();
-            let lhs_node = &nodes[lhs.0];
-            let rhs_node = &nodes[rhs.0];
-            (
-                lhs_node.dtype.clone(),
-                rhs_node.dtype.clone(),
-                lhs_node.shape.clone(),
-            ) // TODO: Proper shape calculation
-        };
-        let ast_node = AstNode::capture(0, lhs_dtype) / AstNode::capture(1, rhs_dtype);
-        self.add_node(
-            GraphOp::Elementwise(AstOp::Mul),
-            vec![lhs, rhs],
-            ast_node.dtype,
-            shape,
-        )
+        let recip_rhs = self.recip(rhs);
+        self.mul(lhs, recip_rhs)
     }
 
     pub fn neg(&self, src: NodeId) -> NodeId {

@@ -1,6 +1,6 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::graph::{Graph, GraphOp, NodeData, NodeId};
+use crate::graph::{Graph, NodeData, NodeId, GraphOp};
 use crate::opt::DeterministicGraphOptimizer;
 
 pub struct ElementwiseFusion;
@@ -80,61 +80,57 @@ impl DeterministicGraphOptimizer for ElementwiseFusion {
 
         // Step 2: Rebuild the graph with fused nodes.
         let original_nodes = graph.nodes.borrow().clone();
+        let mut new_nodes: Vec<NodeData> = Vec::new();
+        let mut old_to_new_id: FxHashMap<NodeId, NodeId> = FxHashMap::default();
 
-        {
-            // Rebuild the graph
-            let mut new_nodes: Vec<NodeData> = Vec::new();
-            let mut old_to_new_id: FxHashMap<NodeId, NodeId> = FxHashMap::default();
-
-            for (i, node) in original_nodes.iter().enumerate() {
-                let old_id = NodeId(i);
-                if visited.contains(&old_id) && !fusion_groups.contains_key(&old_id) {
-                    continue;
-                }
-
-                let new_id = NodeId(new_nodes.len());
-
-                if let Some(chain) = fusion_groups.get(&old_id) {
-                    let fused_node_data: Vec<NodeData> = chain
-                        .iter()
-                        .map(|&id| original_nodes[id.0].clone())
-                        .collect();
-                    let first_node = fused_node_data.first().unwrap();
-                    let last_node = fused_node_data.last().unwrap();
-
-                    new_nodes.push(NodeData {
-                        op: GraphOp::Fused(fused_node_data.clone()),
-                        src: first_node.src.clone(),
-                        dtype: last_node.dtype.clone(),
-                        shape: last_node.shape.clone(),
-                    });
-                    for &id_in_chain in chain {
-                        old_to_new_id.insert(id_in_chain, new_id);
-                    }
-                } else {
-                    new_nodes.push(node.clone());
-                    old_to_new_id.insert(old_id, new_id);
-                }
+        for (i, node) in original_nodes.iter().enumerate() {
+            let old_id = NodeId(i);
+            if visited.contains(&old_id) && !fusion_groups.contains_key(&old_id) {
+                continue;
             }
 
-            for node in &mut new_nodes {
-                node.src = node
-                    .src
+            let new_id = NodeId(new_nodes.len());
+
+            if let Some(chain) = fusion_groups.get(&old_id) {
+                let fused_node_data: Vec<NodeData> = chain
                     .iter()
-                    .map(|old_id| *old_to_new_id.get(old_id).unwrap())
+                    .map(|&id| original_nodes[id.0].clone())
                     .collect();
-            }
+                let first_node = fused_node_data.first().unwrap();
+                let last_node = fused_node_data.last().unwrap();
 
-            let mut outputs = graph.outputs.borrow().clone();
-            for output_id in outputs.iter_mut() {
-                if let Some(new_id) = old_to_new_id.get(output_id) {
-                    *output_id = *new_id;
+                new_nodes.push(NodeData {
+                    op: GraphOp::Fused(fused_node_data.clone()),
+                    src: first_node.src.clone(),
+                    dtype: last_node.dtype.clone(),
+                    shape: last_node.shape.clone(),
+                });
+                for &id_in_chain in chain {
+                    old_to_new_id.insert(id_in_chain, new_id);
                 }
+            } else {
+                new_nodes.push(node.clone());
+                old_to_new_id.insert(old_id, new_id);
             }
-            new_graph.nodes = std::cell::RefCell::new(new_nodes);
-            new_graph.outputs = std::cell::RefCell::new(outputs);
-            new_graph.inputs = graph.inputs.clone();
         }
+
+        for node in &mut new_nodes {
+            node.src = node
+                .src
+                .iter()
+                .map(|old_id| *old_to_new_id.get(old_id).unwrap())
+                .collect();
+        }
+
+        let mut outputs = graph.outputs.borrow().clone();
+        for output_id in outputs.iter_mut() {
+            if let Some(new_id) = old_to_new_id.get(output_id) {
+                *output_id = *new_id;
+            }
+        }
+        new_graph.nodes = std::cell::RefCell::new(new_nodes);
+        new_graph.outputs = std::cell::RefCell::new(outputs);
+        new_graph.inputs = graph.inputs.clone();
         new_graph
     }
 }
@@ -143,6 +139,7 @@ impl DeterministicGraphOptimizer for ElementwiseFusion {
 mod tests {
     use super::*;
     use crate::ast::DType;
+    use crate::graph::GraphOp;
 
     #[test]
     fn test_elementwise_fusion() {

@@ -2,7 +2,7 @@
 
 use harp::ast::{AstNode, DType};
 use harp::backend::c::{CBackend, CBuffer, CCompiler, CRenderer};
-use harp::backend::{Backend, Compiler, Renderer, TryIntoNdarray};
+use harp::backend::{Backend, Compiler, Kernel, Renderer, TryIntoNdarray};
 use harp::graph::lowerer::Lowerer;
 use harp::graph::Graph;
 use ndarray::ArrayD;

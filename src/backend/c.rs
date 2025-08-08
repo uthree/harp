@@ -26,7 +26,7 @@ pub struct CBuffer {
 
 impl Buffer for CBuffer {
     fn as_mut_bytes(&mut self) -> &mut [u8] {
-        let byte_size = self.size() * self.dtype.size_in_bytes();
+        let byte_size = self.shape.iter().product::<usize>() * self.dtype.size_in_bytes();
         unsafe { std::slice::from_raw_parts_mut(self.ptr as *mut u8, byte_size) }
     }
 
@@ -36,6 +36,15 @@ impl Buffer for CBuffer {
 
     fn shape(&self) -> Vec<usize> {
         self.shape.clone()
+    }
+
+    fn allocate(dtype: DType, shape: Vec<usize>) -> Self {
+        let byte_size = shape.iter().product::<usize>() * dtype.size_in_bytes();
+        let ptr = unsafe { libc::malloc(byte_size) };
+        if ptr.is_null() {
+            panic!("Failed to allocate memory for CBuffer");
+        }
+        CBuffer { ptr, shape, dtype }
     }
 }
 
@@ -410,6 +419,8 @@ impl Kernel<CBuffer> for CKernel {
 }
 
 impl Compiler<CBuffer> for CCompiler {
+    type KernelType = CKernel;
+
     fn new() -> Self {
         CCompiler::default()
     }
@@ -422,7 +433,7 @@ impl Compiler<CBuffer> for CCompiler {
         unimplemented!();
     }
 
-    fn compile(&mut self, code: &String, details: KernelDetails) -> Box<dyn Kernel<CBuffer>> {
+    fn compile(&mut self, code: &String, details: KernelDetails) -> Self::KernelType {
         let mut source_file = tempfile::Builder::new()
             .prefix("kernel")
             .suffix(".c")
@@ -469,13 +480,14 @@ impl Compiler<CBuffer> for CCompiler {
 
         let func_name = "kernel_main".to_string();
 
-        Box::new(CKernel {
+        CKernel {
             library,
             func_name,
             details,
-        })
+        }
     }
 }
+
 
 /// A backend that uses C for compilation and execution.
 ///
@@ -517,13 +529,7 @@ impl Backend<CBuffer> for CBackend {
 
                 // Compile the C code
                 let mut compiler = CCompiler::new();
-                let kernel_dyn = compiler.compile(&code, details);
-                let kernel = kernel_dyn
-                    .into_any()
-                    .downcast::<CKernel>()
-                    .unwrap()
-                    .as_ref()
-                    .clone();
+                let kernel = compiler.compile(&code, details);
 
                 entry.insert(kernel.clone());
                 kernel
@@ -559,14 +565,7 @@ impl Backend<CBuffer> for CBackend {
                 .map(|expr| expr.evaluate(&shape_vars_map) as usize)
                 .collect();
             let dtype = buffer_info.dtype.clone();
-            let byte_size = shape.iter().product::<usize>() * dtype.size_in_bytes();
-
-            let ptr = unsafe { libc::malloc(byte_size) };
-            if ptr.is_null() {
-                panic!("Failed to allocate memory for output buffer");
-            }
-
-            let output_buffer = CBuffer { ptr, shape, dtype };
+            let output_buffer = CBuffer::allocate(dtype, shape);
             all_buffers.push(output_buffer);
         }
 

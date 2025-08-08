@@ -11,7 +11,7 @@ use crate::{
     graph::{shape::expr::Expr, Graph},
 };
 use ndarray::ArrayD;
-use std::any::{Any, TypeId};
+use std::any::TypeId;
 
 // --- Core Data Structures ---
 
@@ -31,36 +31,14 @@ pub struct KernelDetails {
     pub shape_variables: Vec<String>,
 }
 
-/// A trait that allows a type to be converted to `&dyn Any` or `&mut dyn Any`.
-///
-/// This is a helper trait to enable downcasting of `Buffer` trait objects.
-pub trait AsAny: Any {
-    /// Converts `&self` to `&dyn Any`.
-    fn as_any(&self) -> &dyn Any;
-    /// Converts `&mut self` to `&mut dyn Any`.
-    fn as_any_mut(&mut self) -> &mut dyn Any;
-    /// Converts the boxed trait object into a boxed `Any` trait object.
-    fn into_any(self: Box<Self>) -> Box<dyn Any>;
-}
 
-impl<T: Any> AsAny for T {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-    fn into_any(self: Box<Self>) -> Box<dyn Any> {
-        self
-    }
-}
 
 // --- Core Traits ---
 
 /// A trait for a generic buffer that can be passed to a kernel.
 /// This trait is object-safe.
 /// should be free when dropped.
-pub trait Buffer: AsAny + Sized {
+pub trait Buffer: Sized {
     /// Returns a mutable slice of the buffer's raw data as bytes.
     fn as_mut_bytes(&mut self) -> &mut [u8];
 
@@ -70,10 +48,7 @@ pub trait Buffer: AsAny + Sized {
     /// 形状を返す。Bufferとして実態を持っている時点でサイズは確定しているので、Exprではない。
     fn shape(&self) -> Vec<usize>;
 
-    /// Returns the total number of elements in the buffer.
-    fn size(&self) -> usize {
-        self.shape().iter().product()
-    }
+    fn allocate(dtype: DType, shape: Vec<usize>) -> Self;
 }
 
 /// An extension trait for `Buffer` providing `ndarray` conversion.
@@ -110,7 +85,7 @@ pub trait TryIntoNdarray: Buffer {
 impl<T: Buffer> TryIntoNdarray for T {}
 
 /// A trait for a compiled, executable kernel.
-pub trait Kernel<B: Buffer>: AsAny {
+pub trait Kernel<B: Buffer> {
     /// Returns detailed information about the kernel's inputs and outputs.
     fn details(&self) -> &KernelDetails;
 
@@ -120,10 +95,11 @@ pub trait Kernel<B: Buffer>: AsAny {
 
 /// A trait for a compiler that turns a code representation into a `Kernel`.
 pub trait Compiler<B: Buffer, CodeRepr = String, CompilerOption = ()> {
+    type KernelType: Kernel<B>;
     fn new() -> Self;
     fn is_available(&self) -> bool;
     fn with_option(&mut self, option: CompilerOption);
-    fn compile(&mut self, code: &CodeRepr, details: KernelDetails) -> Box<dyn Kernel<B>>;
+    fn compile(&mut self, code: &CodeRepr, details: KernelDetails) -> Self::KernelType;
 }
 
 /// A trait for a component that translates an `AstNode` into a code representation.
