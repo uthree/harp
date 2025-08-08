@@ -8,7 +8,6 @@
 use crate::ast::{AstNode, AstOp, DType};
 use crate::graph::shape::expr::Expr;
 use std::cell::RefCell;
-use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 
 pub mod lowerer;
 pub mod shape;

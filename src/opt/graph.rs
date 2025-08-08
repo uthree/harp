@@ -1,7 +1,6 @@
-use rustc_hash::{FxHashMap, FxHashSet};
-
+use crate::ast::AstNode;
 use crate::graph::{Graph, GraphOp, NodeData, NodeId};
-use crate::opt::DeterministicGraphOptimizer;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 pub struct ElementwiseFusion;
 
@@ -17,8 +16,8 @@ impl ElementwiseFusion {
     }
 }
 
-impl DeterministicGraphOptimizer for ElementwiseFusion {
-    fn optimize(&self, graph: &Graph) -> Graph {
+impl ElementwiseFusion {
+    pub fn optimize(&self, graph: &Graph) -> Graph {
         let mut new_graph = Graph::new();
         // Step 1: Identify fusion groups without mutating the graph.
         let (fusion_groups, visited) = {
@@ -54,20 +53,24 @@ impl DeterministicGraphOptimizer for ElementwiseFusion {
                     if user_count > 1 {
                         break;
                     }
+                    // For now, only fuse single-input elementwise operations.
+                    // This simplifies building the fused AST.
                     if node_data.src.len() != 1 {
-                        // Only fuse single-input ops for now.
                         break;
                     }
 
                     chain.push(current_id);
-                    visited.insert(current_id);
+                    // We don't mark as visited here yet, only after a valid chain is found.
                     current_id = node_data.src[0];
                 }
 
                 if chain.len() > 1 {
-                    let root_of_fusion = *chain.last().unwrap();
                     // The chain is built backwards, so we reverse it to get the correct execution order.
                     chain.reverse();
+                    let root_of_fusion = chain[0];
+                    for &node_id in &chain {
+                        visited.insert(node_id);
+                    }
                     fusion_groups.insert(root_of_fusion, chain);
                 }
             }
@@ -86,48 +89,67 @@ impl DeterministicGraphOptimizer for ElementwiseFusion {
         for (i, node) in original_nodes.iter().enumerate() {
             let old_id = NodeId(i);
             if visited.contains(&old_id) && !fusion_groups.contains_key(&old_id) {
+                // This node is part of a fusion chain, but not the root.
+                // It will be handled when the root is processed.
                 continue;
             }
 
             let new_id = NodeId(new_nodes.len());
 
             if let Some(chain) = fusion_groups.get(&old_id) {
-                let fused_node_data: Vec<NodeData> = chain
+                let fused_node_data: Vec<_> = chain
                     .iter()
                     .map(|&id| original_nodes[id.0].clone())
                     .collect();
-                let first_node = fused_node_data.first().unwrap();
+
+                let first_node = &fused_node_data[0];
                 let last_node = fused_node_data.last().unwrap();
 
-                new_nodes.push(NodeData {
-                    op: GraphOp::Fused(fused_node_data.clone()),
-                    src: first_node.src.clone(),
+                // Build the fused AST. Start with a capture of the input.
+                let mut current_ast = AstNode::capture(0, first_node.dtype.clone());
+                // Apply each operation in the chain to the AST.
+                for node_data in &fused_node_data {
+                    if let GraphOp::Elementwise(op) = &node_data.op {
+                        current_ast =
+                            AstNode::new(op.clone(), vec![current_ast], node_data.dtype.clone());
+                    }
+                }
+
+                let new_node = NodeData {
+                    op: GraphOp::FusedElementwise(current_ast),
+                    src: first_node.src.clone(), // The src of the first node in the chain is the src of the fused node.
                     dtype: last_node.dtype.clone(),
                     shape: last_node.shape.clone(),
-                });
+                };
+                new_nodes.push(new_node);
+
                 for &id_in_chain in chain {
                     old_to_new_id.insert(id_in_chain, new_id);
                 }
             } else {
+                // This node is not part of any fusion.
                 new_nodes.push(node.clone());
                 old_to_new_id.insert(old_id, new_id);
             }
         }
 
+        // Step 3: Remap src IDs in the new nodes.
         for node in &mut new_nodes {
             node.src = node
                 .src
                 .iter()
-                .map(|old_id| *old_to_new_id.get(old_id).unwrap())
+                .map(|old_id| *old_to_new_id.get(old_id).unwrap_or(old_id))
                 .collect();
         }
 
+        // Step 4: Update graph outputs.
         let mut outputs = graph.outputs.borrow().clone();
         for output_id in outputs.iter_mut() {
             if let Some(new_id) = old_to_new_id.get(output_id) {
                 *output_id = *new_id;
             }
         }
+
         new_graph.nodes = std::cell::RefCell::new(new_nodes);
         new_graph.outputs = std::cell::RefCell::new(outputs);
         new_graph.inputs = graph.inputs.clone();
@@ -138,7 +160,7 @@ impl DeterministicGraphOptimizer for ElementwiseFusion {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::DType;
+    use crate::ast::{AstOp, DType};
     use crate::graph::GraphOp;
 
     #[test]
@@ -153,16 +175,30 @@ mod tests {
         let new_graph = optimizer.optimize(&graph);
 
         let nodes = new_graph.nodes.borrow();
-        assert_eq!(nodes.len(), 2); // Input + Fused node
+        assert_eq!(
+            nodes.len(),
+            2,
+            "Graph should have an input node and a fused node"
+        );
 
         let fused_node = &nodes[1];
-        if let GraphOp::Fused(fused_ops) = &fused_node.op {
-            assert_eq!(fused_ops.len(), 3); // Neg, Sin, Exp2
-            assert!(matches!(fused_ops[0].op, GraphOp::Elementwise(_))); // Neg
-            assert!(matches!(fused_ops[1].op, GraphOp::Elementwise(_))); // Sin
-            assert!(matches!(fused_ops[2].op, GraphOp::Elementwise(_))); // Exp2
+        if let GraphOp::FusedElementwise(ast) = &fused_node.op {
+            // Expected AST: exp2(sin(-capture(0)))
+            assert_eq!(ast.op, AstOp::Exp2);
+            let sin_node = &ast.src[0];
+            assert_eq!(sin_node.op, AstOp::Sin);
+            let neg_node = &sin_node.src[0];
+            assert_eq!(neg_node.op, AstOp::Neg);
+            let capture_node = &neg_node.src[0];
+            assert!(matches!(capture_node.op, AstOp::Capture(0, _)));
         } else {
-            panic!("Expected a fused node, but found {:?}", fused_node.op);
+            panic!(
+                "Expected a FusedElementwise node, but found {:?}",
+                fused_node.op
+            );
         }
+
+        // Check that the source of the fused node is the original input
+        assert_eq!(fused_node.src, vec![a.id]);
     }
 }

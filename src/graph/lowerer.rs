@@ -334,7 +334,43 @@ impl<'a> Lowerer<'a> {
                 (final_block, dst_tracker, node_id)
             }
             GraphOp::FusedElementwise(elementwise_ast) => {
-                todo!()
+                let mut src_asts = vec![];
+                for &src_id in &node_data.src {
+                    let (src_ast, _, _) = self.lower_node(src_id);
+                    src_asts.push(src_ast);
+                }
+
+                let dst_buffer = self.get_buffer_var(node_id);
+                let dst_tracker = ShapeTracker::new(node_data.shape.clone());
+
+                let mut loops = vec![];
+                let mut loop_vars = vec![];
+                for shape_expr in dst_tracker.shape().iter() {
+                    let loop_var = self.new_loop_counter();
+                    loop_vars.push(loop_var.clone());
+                    loops.push(AstNode::range(loop_var, shape_expr.clone().into(), vec![]));
+                }
+
+                let op_node = self.lower_fused_ast(&elementwise_ast, &loop_vars, &node_data.src);
+
+                let dst_offset = dst_tracker.offset_expr(&loop_vars);
+                let store_node = AstNode::store(
+                    dst_buffer.buffer_index(dst_offset.simplify().into()),
+                    op_node,
+                );
+
+                let mut final_block_src = vec![];
+                for ast in src_asts {
+                    if let AstOp::Block = ast.op {
+                        final_block_src.extend(ast.src);
+                    } else {
+                        final_block_src.push(ast);
+                    }
+                }
+                final_block_src.push(AstNode::build_loops(loops, vec![store_node]));
+                let final_block = AstNode::new(AstOp::Block, final_block_src, DType::Void);
+
+                (final_block, dst_tracker, node_id)
             }
             GraphOp::Reduce(op, axis) => {
                 let (src_ast, src_tracker, src_buffer_id) = self.lower_node(node_data.src[0]);
@@ -485,6 +521,34 @@ impl<'a> Lowerer<'a> {
         trace!("Finished lowering node {node_id:?}. Caching result.");
         self.cache.insert(node_id, result.clone());
         result
+    }
+
+    fn lower_fused_ast(
+        &self,
+        ast: &AstNode,
+        loop_vars: &[String],
+        src_nodes: &[NodeId],
+    ) -> AstNode {
+        match &ast.op {
+            AstOp::Capture(n, _) => {
+                let src_id = src_nodes[*n];
+                // We need to lower the source node to ensure its tracker is in the cache.
+                // This might seem redundant, but it's necessary if the source node hasn't been
+                // visited yet in the main `lower_node` loop.
+                let (_, tracker, buffer_id) = self.cache.get(&src_id).unwrap().clone();
+                let buffer = self.get_buffer_var(buffer_id);
+                let offset = tracker.offset_expr(loop_vars);
+                AstNode::deref(buffer.buffer_index(offset.simplify().into()))
+            }
+            _ => {
+                let new_srcs = ast
+                    .src
+                    .iter()
+                    .map(|src_node| self.lower_fused_ast(src_node, loop_vars, src_nodes))
+                    .collect();
+                AstNode::new(ast.op.clone(), new_srcs, ast.dtype.clone())
+            }
+        }
     }
 }
 
