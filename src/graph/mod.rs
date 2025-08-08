@@ -311,4 +311,22 @@ mod tests {
         assert_eq!(a.shape(), shape);
         assert_eq!(a.dtype(), DType::F32);
     }
+
+    #[test]
+    fn test_unfold() {
+        let graph = Graph::new();
+        let a = graph.input(DType::F32, vec![1.into(), 3.into(), 10.into()]);
+        let b = a.unfold(2, 3, 1);
+
+        assert_eq!(
+            b.op(),
+            GraphOp::Unfold {
+                dim: 2,
+                kernel_size: 3,
+                stride: 1
+            }
+        );
+        assert_eq!(b.src(), vec![a.id]);
+        assert_eq!(b.shape(), vec![1.into(), 3.into(), 8.into(), 3.into()]);
+    }
 }

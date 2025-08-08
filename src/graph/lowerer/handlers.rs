@@ -172,6 +172,19 @@ impl<'a> Lowerer<'a> {
         (src_ast, new_tracker, src_buffer_id)
     }
 
+    pub(super) fn lower_unfold(
+        &mut self,
+        _node_id: NodeId,
+        node_data: &NodeData,
+        dim: usize,
+        kernel_size: usize,
+        stride: usize,
+    ) -> (AstNode, ShapeTracker, NodeId) {
+        let (src_ast, src_tracker, src_buffer_id) = self.lower_node(node_data.src[0]);
+        let new_tracker = src_tracker.unfold(dim, kernel_size, stride);
+        (src_ast, new_tracker, src_buffer_id)
+    }
+
     pub(super) fn lower_elementwise(
         &mut self,
         node_id: NodeId,

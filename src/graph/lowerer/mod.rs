@@ -230,6 +230,11 @@ impl<'a> Lowerer<'a> {
             GraphOp::Unsqueeze(axis) => self.lower_unsqueeze(node_id, &node_data, axis),
             GraphOp::Expand(new_shape) => self.lower_expand(node_id, &node_data, new_shape),
             GraphOp::Slice(args) => self.lower_slice(node_id, &node_data, args),
+            GraphOp::Unfold {
+                dim,
+                kernel_size,
+                stride,
+            } => self.lower_unfold(node_id, &node_data, dim, kernel_size, stride),
             GraphOp::Elementwise(op) => self.lower_elementwise(node_id, &node_data, op),
             GraphOp::FusedElementwise(elementwise_ast) => {
                 self.lower_fused_elementwise(node_id, &node_data, elementwise_ast)

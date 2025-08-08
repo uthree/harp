@@ -371,6 +371,32 @@ impl Graph {
         let new_shape = tracker.slice(&args).shape().to_vec();
         self.add_node(GraphOp::Slice(args), vec![src], dtype, new_shape)
     }
+
+    pub fn unfold(
+        &self,
+        src: NodeId,
+        dim: usize,
+        kernel_size: usize,
+        stride: usize,
+    ) -> NodeId {
+        let (dtype, shape) = {
+            let nodes = self.nodes.borrow();
+            let src_node = &nodes[src.0];
+            (src_node.dtype.clone(), src_node.shape.clone())
+        };
+        let tracker = ShapeTracker::new(shape);
+        let new_shape = tracker.unfold(dim, kernel_size, stride).shape().to_vec();
+        self.add_node(
+            GraphOp::Unfold {
+                dim,
+                kernel_size,
+                stride,
+            },
+            vec![src],
+            dtype,
+            new_shape,
+        )
+    }
 }
 
 impl PartialEq for Graph {

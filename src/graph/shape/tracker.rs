@@ -147,6 +147,22 @@ impl ShapeTracker {
         self
     }
 
+    pub fn unfold(mut self, dim: usize, kernel_size: usize, stride: usize) -> Self {
+        let old_dim_size = self.shape[dim].clone();
+        let new_dim_size = ((old_dim_size - kernel_size) / stride + 1).simplify();
+
+        // Update the shape
+        self.shape[dim] = new_dim_size.into();
+        self.shape.insert(dim + 1, kernel_size.into());
+
+        // Update the strides
+        let old_stride = self.strides[dim].clone();
+        self.strides.insert(dim + 1, old_stride.clone());
+        self.strides[dim] = (old_stride * stride).simplify();
+
+        self
+    }
+
     /// Removes a dimension of size 1 at a specified axis.
     ///
     /// # Arguments
@@ -310,5 +326,26 @@ mod tests {
         let tracker = ShapeTracker::new(vec![1.into(), 10.into()]);
         // This should panic because the number of dimensions is different.
         tracker.expand(vec![5.into(), 10.into(), 1.into()]);
+    }
+
+    #[test]
+    fn test_unfold() {
+        // Input shape: [N, C_in, L] = [1, 3, 10]
+        // Kernel size K=3, Stride S=1
+        // Expected output shape: [N, C_in, L-K+1, K] = [1, 3, 8, 3]
+        let tracker = ShapeTracker::new(vec![1.into(), 3.into(), 10.into()]);
+        let unfolded = tracker.unfold(2, 3, 1);
+
+        assert_eq!(
+            unfolded.shape(),
+            &[1.into(), 3.into(), 8.into(), 3.into()]
+        );
+
+        // Original strides for [1, 3, 10] are [30, 10, 1]
+        // Expected strides for [1, 3, 8, 3] should be [30, 10, 1, 1]
+        assert_eq!(
+            unfolded.strides(),
+            &[30.into(), 10.into(), 1.into(), 1.into()]
+        );
     }
 }

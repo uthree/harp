@@ -32,6 +32,12 @@ pub enum GraphOp {
     Concatenate(usize),
     /// An operation that slices a tensor.
     Slice(Vec<(Expr, Expr)>),
+    /// An operation that creates a sliding window view of a tensor.
+    Unfold {
+        dim: usize,
+        kernel_size: usize,
+        stride: usize,
+    },
 
     // Fused Operators
     FusedElementwise(AstNode), // Capture(n) means n-th src element

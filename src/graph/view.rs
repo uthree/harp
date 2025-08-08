@@ -98,6 +98,12 @@ impl<'a> NodeView<'a> {
         self.graph.get_view(new_id)
     }
 
+    /// Creates a sliding window view of the tensor.
+    pub fn unfold(&self, dim: usize, kernel_size: usize, stride: usize) -> NodeView<'a> {
+        let new_id = self.graph.unfold(self.id, dim, kernel_size, stride);
+        self.graph.get_view(new_id)
+    }
+
     /// Returns a contiguous version of the tensor.
     ///
     /// If the tensor is already contiguous, this is a no-op. Otherwise, it
