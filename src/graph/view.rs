@@ -1,9 +1,7 @@
 use super::{Graph, GraphOp, NodeId};
 use crate::ast::DType;
 use crate::graph::shape::expr::Expr;
-use std::ops::{
-    Add, Div, Mul, Neg, Rem, Sub,
-};
+use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 
 /// A temporary, lightweight handle to a node in the graph.
 ///
