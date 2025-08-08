@@ -4,7 +4,13 @@ pub mod frontend;
 pub mod graph;
 pub mod opt;
 
+pub mod cbuffer {
+    pub use crate::backend::c::buffer::CBuffer;
+}
+
 /// Initializes the logger for the harp library.
+///
+///
 ///
 /// This function should be called by the application using this library
 /// to enable logging. The log level can be controlled via the `RUST_LOG`

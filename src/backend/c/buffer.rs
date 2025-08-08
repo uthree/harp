@@ -13,7 +13,38 @@ pub struct CBuffer {
     pub dtype: DType,
 }
 
+impl CBuffer {
+    pub fn from_slice<T: Clone + 'static>(data: &[T]) -> Self {
+        let dtype = DType::from_type::<T>();
+        let shape = vec![data.len()];
+        let buffer = Self::allocate(dtype, shape);
+        let slice = unsafe { std::slice::from_raw_parts_mut(buffer.ptr as *mut T, data.len()) };
+        slice.clone_from_slice(data);
+        buffer
+    }
+
+    pub fn as_slice<T>(&self) -> &[T] {
+        let len = self.shape.iter().product();
+        unsafe { std::slice::from_raw_parts(self.ptr as *const T, len) }
+    }
+}
+
+impl Clone for CBuffer {
+    fn clone(&self) -> Self {
+        let mut new_buffer = Self::allocate(self.dtype.clone(), self.shape.clone());
+        new_buffer
+            .as_mut_bytes()
+            .copy_from_slice(self.as_bytes());
+        new_buffer
+    }
+}
+
 impl Buffer for CBuffer {
+    fn as_bytes(&self) -> &[u8] {
+        let byte_size = self.shape.iter().product::<usize>() * self.dtype.size_in_bytes();
+        unsafe { std::slice::from_raw_parts(self.ptr as *const u8, byte_size) }
+    }
+
     fn as_mut_bytes(&mut self) -> &mut [u8] {
         let byte_size = self.shape.iter().product::<usize>() * self.dtype.size_in_bytes();
         unsafe { std::slice::from_raw_parts_mut(self.ptr as *mut u8, byte_size) }

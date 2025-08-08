@@ -33,10 +33,14 @@ pub enum GraphOp {
     /// An operation that slices a tensor.
     Slice(Vec<(Expr, Expr)>),
     /// An operation that creates a sliding window view of a tensor.
-    Unfold {
+    Unfold1d {
         dim: usize,
         kernel_size: usize,
         stride: usize,
+    },
+    Unfold2d {
+        kernel_size: (usize, usize),
+        stride: (usize, usize),
     },
     /// An operation that changes the shape of a tensor without changing its data.
     Reshape(Vec<Expr>),

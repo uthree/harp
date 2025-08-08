@@ -1,0 +1,41 @@
+use harp::{
+    backend::{c::CBackend, Backend, Buffer},
+    cbuffer::CBuffer,
+    graph::Graph,
+    ast::DType,
+};
+
+fn run_c_backend(graph: &Graph, inputs: Vec<CBuffer>) -> Vec<CBuffer> {
+    let mut backend = CBackend::new();
+    backend.call(graph.clone(), inputs, vec![])
+}
+
+#[test]
+fn test_op_reshape() {
+    let graph = Graph::new();
+    let x = graph.input(DType::F32, vec![6.into()]);
+    let _ = x.reshape(vec![2.into(), 3.into()]).as_output();
+
+    let mut x_buf = CBuffer::from_slice::<f32>(&[1., 2., 3., 4., 5., 6.]);
+    x_buf.shape = vec![6];
+    let outputs = run_c_backend(&graph, vec![x_buf]);
+    let y_buf = &outputs[0];
+
+    assert_eq!(y_buf.shape, &[2, 3]);
+    assert_eq!(y_buf.as_slice::<f32>(), &[1., 2., 3., 4., 5., 6.]);
+}
+
+#[test]
+fn test_op_sum() {
+    let graph = Graph::new();
+    let x = graph.input(DType::F32, vec![2.into(), 3.into()]);
+    let _ = x.sum(1).as_output();
+
+    let mut x_buf = CBuffer::from_slice::<f32>(&[1., 2., 3., 4., 5., 6.]);
+    x_buf.shape = vec![2, 3];
+    let outputs = run_c_backend(&graph, vec![x_buf]);
+    let y_buf = &outputs[0];
+
+    assert_eq!(y_buf.shape, &[2]);
+    assert_eq!(y_buf.as_slice::<f32>(), &[6., 15.]);
+}

@@ -32,6 +32,7 @@ pub enum AstOp {
 
     // --- Binary Operations ---
     Add,
+    Sub,
     Mul,
     Max,
     Rem,

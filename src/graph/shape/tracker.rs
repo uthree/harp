@@ -147,7 +147,7 @@ impl ShapeTracker {
         self
     }
 
-    pub fn unfold(mut self, dim: usize, kernel_size: usize, stride: usize) -> Self {
+    pub fn unfold1d(mut self, dim: usize, kernel_size: usize, stride: usize) -> Self {
         let old_dim_size = self.shape[dim].clone();
         let new_dim_size = ((old_dim_size - kernel_size) / stride + 1).simplify();
 
@@ -159,6 +159,23 @@ impl ShapeTracker {
         let old_stride = self.strides[dim].clone();
         self.strides.insert(dim + 1, old_stride.clone());
         self.strides[dim] = (old_stride * stride).simplify();
+
+        self
+    }
+
+    pub fn unfold2d(
+        mut self,
+        dim1: usize,
+        dim2: usize,
+        kernel_size: (usize, usize),
+        stride: (usize, usize),
+    ) -> Self {
+        assert_eq!(dim1 + 1, dim2, "unfold2d currently requires adjacent dims");
+
+        // Unfold the second dimension (e.g., width)
+        self = self.unfold1d(dim2, kernel_size.1, stride.1);
+        // Unfold the first dimension (e.g., height)
+        self = self.unfold1d(dim1, kernel_size.0, stride.0);
 
         self
     }
@@ -374,12 +391,12 @@ mod tests {
     }
 
     #[test]
-    fn test_unfold() {
+    fn test_unfold1d() {
         // Input shape: [N, C_in, L] = [1, 3, 10]
         // Kernel size K=3, Stride S=1
         // Expected output shape: [N, C_in, L-K+1, K] = [1, 3, 8, 3]
         let tracker = ShapeTracker::new(vec![1.into(), 3.into(), 10.into()]);
-        let unfolded = tracker.unfold(2, 3, 1);
+        let unfolded = tracker.unfold1d(2, 3, 1);
 
         assert_eq!(unfolded.shape(), &[1.into(), 3.into(), 8.into(), 3.into()]);
 

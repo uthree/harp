@@ -16,7 +16,7 @@ pub struct CKernel {
     /// The name of the function to be called within the library (e.g., "kernel_main").
     pub(super) func_name: String,
     /// Detailed information about the kernel's inputs and outputs.
-    pub(super) details: KernelDetails,
+    pub details: KernelDetails,
 }
 
 impl Kernel<CBuffer> for CKernel {

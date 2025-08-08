@@ -313,14 +313,14 @@ mod tests {
     }
 
     #[test]
-    fn test_unfold() {
+    fn test_unfold1d() {
         let graph = Graph::new();
         let a = graph.input(DType::F32, vec![1.into(), 3.into(), 10.into()]);
-        let b = a.unfold(2, 3, 1);
+        let b = a.unfold1d(2, 3, 1);
 
         assert_eq!(
             b.op(),
-            GraphOp::Unfold {
+            GraphOp::Unfold1d {
                 dim: 2,
                 kernel_size: 3,
                 stride: 1

@@ -121,6 +121,7 @@ impl CRenderer {
                 self.render_node(&ast.src[0]);
             }
             AstOp::Add => self.render_binary_op("+", ast),
+            AstOp::Sub => self.render_binary_op("-", ast),
             AstOp::Mul => self.render_binary_op("*", ast),
             AstOp::Rem => {
                 if ast.dtype == DType::F32 {

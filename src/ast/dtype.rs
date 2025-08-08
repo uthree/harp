@@ -37,6 +37,35 @@ pub enum DType {
 }
 
 impl DType {
+    pub fn from_type<T: 'static>() -> Self {
+        let type_id = TypeId::of::<T>();
+        if type_id == TypeId::of::<f32>() {
+            DType::F32
+        } else if type_id == TypeId::of::<f64>() {
+            DType::F64
+        } else if type_id == TypeId::of::<i8>() {
+            DType::I8
+        } else if type_id == TypeId::of::<i16>() {
+            DType::I16
+        } else if type_id == TypeId::of::<i32>() {
+            DType::I32
+        } else if type_id == TypeId::of::<i64>() {
+            DType::I64
+        } else if type_id == TypeId::of::<u8>() {
+            DType::U8
+        } else if type_id == TypeId::of::<u16>() {
+            DType::U16
+        } else if type_id == TypeId::of::<u32>() {
+            DType::U32
+        } else if type_id == TypeId::of::<u64>() {
+            DType::U64
+        } else if type_id == TypeId::of::<usize>() {
+            DType::USize
+        } else {
+            panic!("Unsupported type");
+        }
+    }
+
     /// Converts the `DType` to a `TypeId`.
     ///
     /// # Panics

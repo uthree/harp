@@ -37,6 +37,9 @@ pub struct KernelDetails {
 /// This trait is object-safe.
 /// should be free when dropped.
 pub trait Buffer: Sized {
+    /// Returns a slice of the buffer's raw data as bytes.
+    fn as_bytes(&self) -> &[u8];
+
     /// Returns a mutable slice of the buffer's raw data as bytes.
     fn as_mut_bytes(&mut self) -> &mut [u8];
 

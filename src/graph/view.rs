@@ -99,8 +99,18 @@ impl<'a> NodeView<'a> {
     }
 
     /// Creates a sliding window view of the tensor.
-    pub fn unfold(&self, dim: usize, kernel_size: usize, stride: usize) -> NodeView<'a> {
-        let new_id = self.graph.unfold(self.id, dim, kernel_size, stride);
+    pub fn unfold1d(&self, dim: usize, kernel_size: usize, stride: usize) -> NodeView<'a> {
+        let new_id = self.graph.unfold1d(self.id, dim, kernel_size, stride);
+        self.graph.get_view(new_id)
+    }
+
+    /// Creates a 2D sliding window view of the tensor.
+    pub fn unfold2d(
+        &self,
+        kernel_size: (usize, usize),
+        stride: (usize, usize),
+    ) -> NodeView<'a> {
+        let new_id = self.graph.unfold2d(self.id, kernel_size, stride);
         self.graph.get_view(new_id)
     }
 
@@ -121,6 +131,21 @@ impl<'a> NodeView<'a> {
         let new_id = self
             .graph
             .conv1d(self.id, weight.id, kernel_size, stride, groups);
+        self.graph.get_view(new_id)
+    }
+
+    /// Performs a 2D convolution.
+    #[allow(clippy::too_many_arguments)]
+    pub fn conv2d(
+        self,
+        weight: NodeView<'a>,
+        kernel_size: (usize, usize),
+        stride: (usize, usize),
+        groups: usize,
+    ) -> NodeView<'a> {
+        let new_id =
+            self.graph
+                .conv2d(self.id, weight.id, kernel_size, stride, groups);
         self.graph.get_view(new_id)
     }
 

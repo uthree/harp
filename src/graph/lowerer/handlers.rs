@@ -172,7 +172,7 @@ impl<'a> Lowerer<'a> {
         (src_ast, new_tracker, src_buffer_id)
     }
 
-    pub(super) fn lower_unfold(
+    pub(super) fn lower_unfold1d(
         &mut self,
         _node_id: NodeId,
         node_data: &NodeData,
@@ -181,7 +181,21 @@ impl<'a> Lowerer<'a> {
         stride: usize,
     ) -> (AstNode, ShapeTracker, NodeId) {
         let (src_ast, src_tracker, src_buffer_id) = self.lower_node(node_data.src[0]);
-        let new_tracker = src_tracker.unfold(dim, kernel_size, stride);
+        let new_tracker = src_tracker.unfold1d(dim, kernel_size, stride);
+        (src_ast, new_tracker, src_buffer_id)
+    }
+
+    pub(super) fn lower_unfold2d(
+        &mut self,
+        _node_id: NodeId,
+        node_data: &NodeData,
+        kernel_size: (usize, usize),
+        stride: (usize, usize),
+    ) -> (AstNode, ShapeTracker, NodeId) {
+        let (src_ast, src_tracker, src_buffer_id) = self.lower_node(node_data.src[0]);
+        let h_dim = src_tracker.ndim() - 2;
+        let w_dim = src_tracker.ndim() - 1;
+        let new_tracker = src_tracker.unfold2d(h_dim, w_dim, kernel_size, stride);
         (src_ast, new_tracker, src_buffer_id)
     }
 

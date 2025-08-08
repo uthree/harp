@@ -187,8 +187,41 @@ impl<'a> Lowerer<'a> {
         // 2. Lower all output nodes to generate the computation logic.
         let mut computation_body = vec![];
         for &output_id in &outputs {
-            let (ast_node, _, _) = self.lower_node(output_id);
+            let (ast_node, tracker, buffer_id) = self.lower_node(output_id);
             computation_body.push(ast_node);
+
+            // If the output node is a view and its buffer is different from the
+            // source buffer, we need to copy the data.
+            if buffer_id != output_id {
+                let dst_buffer = self.get_buffer_var(output_id);
+                let dst_tracker =
+                    ShapeTracker::new(self.graph.nodes.borrow()[output_id.0].shape.clone());
+
+                let mut loops = vec![];
+                let mut loop_vars = vec![];
+                for shape_expr in dst_tracker.shape().iter() {
+                    let loop_var = self.new_loop_counter();
+                    loop_vars.push(loop_var.clone());
+                    loops.push(AstNode::range(
+                        loop_var,
+                        shape_expr.clone().into(),
+                        vec![],
+                    ));
+                }
+
+                let src_buffer = self.get_buffer_var(buffer_id);
+                let src_offset = tracker.offset_expr(&loop_vars);
+                let dst_offset = dst_tracker.offset_expr(&loop_vars);
+
+                let load_node =
+                    AstNode::deref(src_buffer.buffer_index(src_offset.simplify().into()));
+                let store_node = AstNode::store(
+                    dst_buffer.buffer_index(dst_offset.simplify().into()),
+                    load_node,
+                );
+
+                computation_body.push(AstNode::build_loops(loops, vec![store_node]));
+            }
         }
 
         // 3. Create the implementation function `kernel_impl`.
@@ -262,11 +295,15 @@ impl<'a> Lowerer<'a> {
             GraphOp::Unsqueeze(axis) => self.lower_unsqueeze(node_id, &node_data, axis),
             GraphOp::Expand(new_shape) => self.lower_expand(node_id, &node_data, new_shape),
             GraphOp::Slice(args) => self.lower_slice(node_id, &node_data, args),
-            GraphOp::Unfold {
+            GraphOp::Unfold1d {
                 dim,
                 kernel_size,
                 stride,
-            } => self.lower_unfold(node_id, &node_data, dim, kernel_size, stride),
+            } => self.lower_unfold1d(node_id, &node_data, dim, kernel_size, stride),
+            GraphOp::Unfold2d {
+                kernel_size,
+                stride,
+            } => self.lower_unfold2d(node_id, &node_data, kernel_size, stride),
             GraphOp::Reshape(new_shape) => self.lower_reshape(node_id, &node_data, new_shape),
             GraphOp::Elementwise(op) => self.lower_elementwise(node_id, &node_data, op),
             GraphOp::FusedElementwise(elementwise_ast) => {
