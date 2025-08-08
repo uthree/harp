@@ -20,5 +20,3 @@ name = "harp"
 path = "src/lib.rs"
 
 [workspace]
-
-[]
