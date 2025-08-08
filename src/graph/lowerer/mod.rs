@@ -9,7 +9,7 @@ mod handlers;
 use crate::ast::{AstNode, AstOp, DType};
 use crate::backend::{BufferInfo, KernelDetails};
 use crate::graph::shape::tracker::ShapeTracker;
-use crate::graph::{Graph, GraphOp, NodeId, NodeData};
+use crate::graph::{Graph, GraphOp, NodeData, NodeId};
 use log::{debug, info, trace};
 use rustc_hash::FxHashMap;
 
@@ -231,7 +231,9 @@ impl<'a> Lowerer<'a> {
             GraphOp::Expand(new_shape) => self.lower_expand(node_id, &node_data, new_shape),
             GraphOp::Slice(args) => self.lower_slice(node_id, &node_data, args),
             GraphOp::Elementwise(op) => self.lower_elementwise(node_id, &node_data, op),
-            GraphOp::FusedElementwise(elementwise_ast) => self.lower_fused_elementwise(node_id, &node_data, elementwise_ast),
+            GraphOp::FusedElementwise(elementwise_ast) => {
+                self.lower_fused_elementwise(node_id, &node_data, elementwise_ast)
+            }
             GraphOp::Reduce(op, axis) => self.lower_reduce(node_id, &node_data, op, axis),
             GraphOp::Cumulative(op, axis) => self.lower_cumulative(node_id, &node_data, op, axis),
             _ => unimplemented!("This TensorOp is not yet supported for lowering"),

@@ -1,10 +1,14 @@
 //! This module contains the handler functions for lowering different `GraphOp` variants.
-use super::{AstNode, AstOp, DType, Lowerer, NodeId, ShapeTracker, NodeData};
+use super::{AstNode, AstOp, DType, Lowerer, NodeData, NodeId, ShapeTracker};
 use crate::ast::Const;
 use crate::graph::shape::expr::Expr;
 
 impl<'a> Lowerer<'a> {
-    pub(super) fn lower_input(&mut self, node_id: NodeId, node_data: &NodeData) -> (AstNode, ShapeTracker, NodeId) {
+    pub(super) fn lower_input(
+        &mut self,
+        node_id: NodeId,
+        node_data: &NodeData,
+    ) -> (AstNode, ShapeTracker, NodeId) {
         let tracker = ShapeTracker::new(node_data.shape.clone());
         (
             AstNode::new(AstOp::Block, vec![], DType::Void),
@@ -13,7 +17,12 @@ impl<'a> Lowerer<'a> {
         )
     }
 
-    pub(super) fn lower_full(&mut self, node_id: NodeId, node_data: &NodeData, value: Const) -> (AstNode, ShapeTracker, NodeId) {
+    pub(super) fn lower_full(
+        &mut self,
+        node_id: NodeId,
+        node_data: &NodeData,
+        value: Const,
+    ) -> (AstNode, ShapeTracker, NodeId) {
         let dst_buffer = self.get_buffer_var(node_id);
         let dst_tracker = ShapeTracker::new(node_data.shape.clone());
 
@@ -37,7 +46,11 @@ impl<'a> Lowerer<'a> {
         (final_block, dst_tracker, node_id)
     }
 
-    pub(super) fn lower_rand(&mut self, node_id: NodeId, node_data: &NodeData) -> (AstNode, ShapeTracker, NodeId) {
+    pub(super) fn lower_rand(
+        &mut self,
+        node_id: NodeId,
+        node_data: &NodeData,
+    ) -> (AstNode, ShapeTracker, NodeId) {
         let dst_buffer = self.get_buffer_var(node_id);
         let dst_tracker = ShapeTracker::new(node_data.shape.clone());
 
@@ -68,7 +81,11 @@ impl<'a> Lowerer<'a> {
         (final_block, dst_tracker, node_id)
     }
 
-    pub(super) fn lower_contiguous(&mut self, node_id: NodeId, node_data: &NodeData) -> (AstNode, ShapeTracker, NodeId) {
+    pub(super) fn lower_contiguous(
+        &mut self,
+        node_id: NodeId,
+        node_data: &NodeData,
+    ) -> (AstNode, ShapeTracker, NodeId) {
         let (src_ast, src_tracker, src_buffer_id) = self.lower_node(node_data.src[0]);
         if src_tracker.is_contiguous() {
             return (src_ast, src_tracker, src_buffer_id);
@@ -89,8 +106,7 @@ impl<'a> Lowerer<'a> {
         let src_offset = src_tracker.offset_expr(&loop_vars);
         let dst_offset = dst_tracker.offset_expr(&loop_vars);
 
-        let load_node =
-            AstNode::deref(src_buffer.buffer_index(src_offset.simplify().into()));
+        let load_node = AstNode::deref(src_buffer.buffer_index(src_offset.simplify().into()));
         let store_node = AstNode::store(
             dst_buffer.buffer_index(dst_offset.simplify().into()),
             load_node,
@@ -101,37 +117,67 @@ impl<'a> Lowerer<'a> {
         (final_block, dst_tracker, node_id)
     }
 
-    pub(super) fn lower_permute(&mut self, _node_id: NodeId, node_data: &NodeData, axes: Vec<usize>) -> (AstNode, ShapeTracker, NodeId) {
+    pub(super) fn lower_permute(
+        &mut self,
+        _node_id: NodeId,
+        node_data: &NodeData,
+        axes: Vec<usize>,
+    ) -> (AstNode, ShapeTracker, NodeId) {
         let (src_ast, src_tracker, src_buffer_id) = self.lower_node(node_data.src[0]);
         let new_tracker = src_tracker.permute(axes);
         (src_ast, new_tracker, src_buffer_id)
     }
 
-    pub(super) fn lower_squeeze(&mut self, _node_id: NodeId, node_data: &NodeData, axis: usize) -> (AstNode, ShapeTracker, NodeId) {
+    pub(super) fn lower_squeeze(
+        &mut self,
+        _node_id: NodeId,
+        node_data: &NodeData,
+        axis: usize,
+    ) -> (AstNode, ShapeTracker, NodeId) {
         let (src_ast, src_tracker, src_buffer_id) = self.lower_node(node_data.src[0]);
         let new_tracker = src_tracker.squeeze(axis);
         (src_ast, new_tracker, src_buffer_id)
     }
 
-    pub(super) fn lower_unsqueeze(&mut self, _node_id: NodeId, node_data: &NodeData, axis: usize) -> (AstNode, ShapeTracker, NodeId) {
+    pub(super) fn lower_unsqueeze(
+        &mut self,
+        _node_id: NodeId,
+        node_data: &NodeData,
+        axis: usize,
+    ) -> (AstNode, ShapeTracker, NodeId) {
         let (src_ast, src_tracker, src_buffer_id) = self.lower_node(node_data.src[0]);
         let new_tracker = src_tracker.unsqueeze(axis);
         (src_ast, new_tracker, src_buffer_id)
     }
 
-    pub(super) fn lower_expand(&mut self, _node_id: NodeId, node_data: &NodeData, new_shape: Vec<Expr>) -> (AstNode, ShapeTracker, NodeId) {
+    pub(super) fn lower_expand(
+        &mut self,
+        _node_id: NodeId,
+        node_data: &NodeData,
+        new_shape: Vec<Expr>,
+    ) -> (AstNode, ShapeTracker, NodeId) {
         let (src_ast, src_tracker, src_buffer_id) = self.lower_node(node_data.src[0]);
         let new_tracker = src_tracker.expand(new_shape);
         (src_ast, new_tracker, src_buffer_id)
     }
 
-    pub(super) fn lower_slice(&mut self, _node_id: NodeId, node_data: &NodeData, args: Vec<(Expr, Expr)>) -> (AstNode, ShapeTracker, NodeId) {
+    pub(super) fn lower_slice(
+        &mut self,
+        _node_id: NodeId,
+        node_data: &NodeData,
+        args: Vec<(Expr, Expr)>,
+    ) -> (AstNode, ShapeTracker, NodeId) {
         let (src_ast, src_tracker, src_buffer_id) = self.lower_node(node_data.src[0]);
         let new_tracker = src_tracker.slice(&args);
         (src_ast, new_tracker, src_buffer_id)
     }
 
-    pub(super) fn lower_elementwise(&mut self, node_id: NodeId, node_data: &NodeData, op: AstOp) -> (AstNode, ShapeTracker, NodeId) {
+    pub(super) fn lower_elementwise(
+        &mut self,
+        node_id: NodeId,
+        node_data: &NodeData,
+        op: AstOp,
+    ) -> (AstNode, ShapeTracker, NodeId) {
         let mut src_asts = vec![];
         for &src_id in &node_data.src {
             let (src_ast, _, _) = self.lower_node(src_id);
@@ -179,7 +225,12 @@ impl<'a> Lowerer<'a> {
         (final_block, dst_tracker, node_id)
     }
 
-    pub(super) fn lower_fused_elementwise(&mut self, node_id: NodeId, node_data: &NodeData, elementwise_ast: AstNode) -> (AstNode, ShapeTracker, NodeId) {
+    pub(super) fn lower_fused_elementwise(
+        &mut self,
+        node_id: NodeId,
+        node_data: &NodeData,
+        elementwise_ast: AstNode,
+    ) -> (AstNode, ShapeTracker, NodeId) {
         let mut src_asts = vec![];
         for &src_id in &node_data.src {
             let (src_ast, _, _) = self.lower_node(src_id);
@@ -219,7 +270,13 @@ impl<'a> Lowerer<'a> {
         (final_block, dst_tracker, node_id)
     }
 
-    pub(super) fn lower_reduce(&mut self, node_id: NodeId, node_data: &NodeData, op: AstOp, axis: usize) -> (AstNode, ShapeTracker, NodeId) {
+    pub(super) fn lower_reduce(
+        &mut self,
+        node_id: NodeId,
+        node_data: &NodeData,
+        op: AstOp,
+        axis: usize,
+    ) -> (AstNode, ShapeTracker, NodeId) {
         let (src_ast, src_tracker, src_buffer_id) = self.lower_node(node_data.src[0]);
 
         let src_buffer = self.get_buffer_var(src_buffer_id);
@@ -249,8 +306,7 @@ impl<'a> Lowerer<'a> {
         let mut full_indices = outer_loop_vars.clone();
         full_indices.insert(axis, inner_loop_var.clone());
         let src_offset = src_tracker.offset_expr(&full_indices);
-        let load_val =
-            AstNode::deref(src_buffer.buffer_index(src_offset.simplify().into()));
+        let load_val = AstNode::deref(src_buffer.buffer_index(src_offset.simplify().into()));
 
         let update_acc = AstNode::assign(
             AstNode::var(&acc_var).with_type(node_data.dtype.clone()),
@@ -291,7 +347,13 @@ impl<'a> Lowerer<'a> {
         (final_block, dst_tracker, node_id)
     }
 
-    pub(super) fn lower_cumulative(&mut self, node_id: NodeId, node_data: &NodeData, op: AstOp, axis: usize) -> (AstNode, ShapeTracker, NodeId) {
+    pub(super) fn lower_cumulative(
+        &mut self,
+        node_id: NodeId,
+        node_data: &NodeData,
+        op: AstOp,
+        axis: usize,
+    ) -> (AstNode, ShapeTracker, NodeId) {
         let (src_ast, src_tracker, src_buffer_id) = self.lower_node(node_data.src[0]);
 
         let src_buffer = self.get_buffer_var(src_buffer_id);
@@ -325,8 +387,7 @@ impl<'a> Lowerer<'a> {
         full_indices.insert(axis, inner_loop_var.clone());
 
         let src_offset = src_tracker.offset_expr(&full_indices);
-        let load_val =
-            AstNode::deref(src_buffer.buffer_index(src_offset.simplify().into()));
+        let load_val = AstNode::deref(src_buffer.buffer_index(src_offset.simplify().into()));
 
         let update_acc = AstNode::assign(
             AstNode::var(&acc_var).with_type(node_data.dtype.clone()),
