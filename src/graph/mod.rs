@@ -329,4 +329,40 @@ mod tests {
         assert_eq!(b.src(), vec![a.id]);
         assert_eq!(b.shape(), vec![1.into(), 3.into(), 8.into(), 3.into()]);
     }
+
+    #[test]
+    fn test_conv1d() {
+        let graph = Graph::new();
+        let x = graph.input(DType::F32, vec![1.into(), 3.into(), 10.into()]); // N, C_in, L
+        let w = graph.input(DType::F32, vec![5.into(), 3.into(), 3.into()]); // C_out, C_in, K
+        let y = x.conv1d(w, 3, 1, 1);
+
+        // Expected output shape: [N, C_out, L_out] = [1, 5, 8]
+        assert_eq!(y.shape(), vec![1.into(), 5.into(), 8.into()]);
+
+        // Check the final operation is a Reduce
+        assert!(matches!(y.op(), GraphOp::Reduce(AstOp::Add, 2)));
+
+        // Trace back the graph to check the structure
+        let reduce_k = graph.get_view(y.src()[0]);
+        assert!(matches!(reduce_k.op(), GraphOp::Reduce(AstOp::Add, 4)));
+
+        let mul = graph.get_view(reduce_k.src()[0]);
+        assert!(matches!(mul.op(), GraphOp::Elementwise(AstOp::Mul)));
+
+        let x_expanded = graph.get_view(mul.src()[0]);
+        let w_expanded = graph.get_view(mul.src()[1]);
+
+        assert!(matches!(x_expanded.op(), GraphOp::Expand(_)));
+        assert!(matches!(w_expanded.op(), GraphOp::Expand(_)));
+
+        assert_eq!(
+            x_expanded.shape(),
+            vec![1.into(), 5.into(), 3.into(), 8.into(), 3.into()]
+        );
+        assert_eq!(
+            w_expanded.shape(),
+            vec![1.into(), 5.into(), 3.into(), 8.into(), 3.into()]
+        );
+    }
 }

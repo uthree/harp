@@ -104,6 +104,18 @@ impl<'a> NodeView<'a> {
         self.graph.get_view(new_id)
     }
 
+    /// Performs a 1D convolution.
+    pub fn conv1d(
+        self,
+        weight: NodeView<'a>,
+        kernel_size: usize,
+        stride: usize,
+        groups: usize,
+    ) -> NodeView<'a> {
+        let new_id = self.graph.conv1d(self.id, weight.id, kernel_size, stride, groups);
+        self.graph.get_view(new_id)
+    }
+
     /// Returns a contiguous version of the tensor.
     ///
     /// If the tensor is already contiguous, this is a no-op. Otherwise, it

@@ -397,6 +397,59 @@ impl Graph {
             new_shape,
         )
     }
+
+    pub fn conv1d(
+        &self,
+        input: NodeId,
+        weight: NodeId,
+        kernel_size: usize,
+        stride: usize,
+        groups: usize,
+    ) -> NodeId {
+        assert_eq!(groups, 1, "Grouped convolution not yet supported");
+
+        // 1. Unfold input
+        let x_unfolded = self.unfold(input, 2, kernel_size, stride);
+
+        // 2. Reshape for broadcast
+        // x_unfolded: [N, C_in, L_out, K] -> [N, 1, C_in, L_out, K]
+        let x_reshaped = self.unsqueeze(x_unfolded, 1);
+
+        // weight: [C_out, C_in, K] -> [1, C_out, C_in, 1, K]
+        let w_reshaped_1 = self.unsqueeze(weight, 0);
+        let w_reshaped_2 = self.unsqueeze(w_reshaped_1, 3);
+
+        // 3. Expand
+        // Get shapes for expand
+        let (x_shape, w_shape) = {
+            let nodes = self.nodes.borrow();
+            let x_node = &nodes[x_reshaped.0];
+            let w_node = &nodes[w_reshaped_2.0];
+            (x_node.shape.clone(), w_node.shape.clone())
+        };
+        // x_shape: [N, 1, C_in, L_out, K]
+        // w_shape: [1, C_out, C_in, 1, K]
+        let n = x_shape[0].clone();
+        let c_out = w_shape[1].clone();
+        let c_in = x_shape[2].clone();
+        let l_out = x_shape[3].clone();
+        let k = x_shape[4].clone();
+
+        let broadcast_shape = vec![n, c_out, c_in, l_out, k];
+        let x_expanded = self.expand(x_reshaped, broadcast_shape.clone());
+        let w_expanded = self.expand(w_reshaped_2, broadcast_shape);
+
+        // 4. Multiply
+        let mul_result = self.mul(x_expanded, w_expanded);
+
+        // 5. Sum reduction
+        // sum over K (axis=4) -> [N, C_out, C_in, L_out]
+        let sum_k = self.sum(mul_result, 4);
+        // sum over C_in (axis=2) -> [N, C_out, L_out]
+        let output = self.sum(sum_k, 2);
+
+        output
+    }
 }
 
 impl PartialEq for Graph {
