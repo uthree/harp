@@ -5,7 +5,7 @@
 //! on `NodeView`s construct a graph of `NodeData` nodes, which can then be
 //! compiled and executed.
 
-use crate::ast::{AstNode, AstOp, DType};
+use crate::ast::{AstNode, AstOp, Const, DType};
 use crate::graph::shape::expr::Expr;
 use std::cell::RefCell;
 
@@ -50,6 +50,10 @@ pub struct NodeData {
 pub enum GraphOp {
     /// An input tensor to the graph.
     Input,
+    /// A tensor filled with a single constant value.
+    Full(Const),
+    /// A tensor filled with random values.
+    Rand,
     /// An element-wise operation (e.g., add, mul, sin).
     Elementwise(AstOp),
     /// A reduction operation along a specific axis (e.g., sum, max).
@@ -120,6 +124,20 @@ impl Graph {
     pub fn input(&self, dtype: DType, shape: Vec<Expr>) -> NodeView<'_> {
         let id = self.add_node(GraphOp::Input, vec![], dtype, shape);
         self.inputs.borrow_mut().push(id);
+        self.get_view(id)
+    }
+
+    /// Creates a new tensor filled with a constant value.
+    pub fn full<T: Into<Const>>(&self, value: T, shape: Vec<Expr>) -> NodeView<'_> {
+        let constant: Const = value.into();
+        let dtype = constant.dtype();
+        let id = self.add_node(GraphOp::Full(constant), vec![], dtype, shape);
+        self.get_view(id)
+    }
+
+    /// Creates a new tensor with the given shape, filled with random values.
+    pub fn rand(&self, dtype: DType, shape: Vec<Expr>) -> NodeView<'_> {
+        let id = self.add_node(GraphOp::Rand, vec![], dtype, shape);
         self.get_view(id)
     }
 
@@ -703,5 +721,29 @@ mod tests {
         );
         assert_eq!(b.src(), vec![a.id]);
         assert_eq!(b.shape(), vec![6.into(), 10.into()]);
+    }
+
+    #[test]
+    fn test_full() {
+        let graph = Graph::new();
+        let shape = vec![10.into(), 20.into()];
+        let a = graph.full(42.0f32, shape.clone());
+
+        assert_eq!(a.op(), GraphOp::Full(Const::F32(42.0)));
+        assert_eq!(a.src().len(), 0);
+        assert_eq!(a.shape(), shape);
+        assert_eq!(a.dtype(), DType::F32);
+    }
+
+    #[test]
+    fn test_rand() {
+        let graph = Graph::new();
+        let shape = vec![10.into(), 20.into()];
+        let a = graph.rand(DType::F32, shape.clone());
+
+        assert_eq!(a.op(), GraphOp::Rand);
+        assert_eq!(a.src().len(), 0);
+        assert_eq!(a.shape(), shape);
+        assert_eq!(a.dtype(), DType::F32);
     }
 }

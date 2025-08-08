@@ -107,6 +107,8 @@ impl<'a> Lowerer<'a> {
             // View operations (like Permute, Slice) don't get their own buffers.
             match node.op {
                 GraphOp::Input
+                | GraphOp::Full(_)
+                | GraphOp::Rand
                 | GraphOp::Contiguous
                 | GraphOp::Elementwise(_)
                 | GraphOp::Reduce(_, _)
@@ -226,6 +228,60 @@ impl<'a> Lowerer<'a> {
                     tracker,
                     node_id,
                 ) // No-op AST
+            }
+            GraphOp::Full(value) => {
+                let dst_buffer = self.get_buffer_var(node_id);
+                let dst_tracker = ShapeTracker::new(node_data.shape.clone());
+
+                let mut loops = vec![];
+                let mut loop_vars = vec![];
+                for shape_expr in dst_tracker.shape().iter() {
+                    let loop_var = self.new_loop_counter();
+                    loop_vars.push(loop_var.clone());
+                    loops.push(AstNode::range(loop_var, shape_expr.clone().into(), vec![]));
+                }
+
+                let dst_offset = dst_tracker.offset_expr(&loop_vars);
+                let const_node = AstNode::new(AstOp::Const(value), vec![], value.dtype());
+                let store_node = AstNode::store(
+                    dst_buffer.buffer_index(dst_offset.simplify().into()),
+                    const_node,
+                );
+
+                let final_block = AstNode::build_loops(loops, vec![store_node]);
+
+                (final_block, dst_tracker, node_id)
+            }
+            GraphOp::Rand => {
+                let dst_buffer = self.get_buffer_var(node_id);
+                let dst_tracker = ShapeTracker::new(node_data.shape.clone());
+
+                let mut loops = vec![];
+                let mut loop_vars = vec![];
+                for shape_expr in dst_tracker.shape().iter() {
+                    let loop_var = self.new_loop_counter();
+                    loop_vars.push(loop_var.clone());
+                    loops.push(AstNode::range(loop_var, shape_expr.clone().into(), vec![]));
+                }
+
+                let dst_offset = dst_tracker.offset_expr(&loop_vars);
+                // Generates `(float)rand() / RAND_MAX`
+                let rand_node = AstNode::new(
+                    AstOp::Mul,
+                    vec![
+                        AstNode::call("rand", vec![]).cast(DType::F32),
+                        AstNode::var("RAND_MAX").cast(DType::F32).recip(),
+                    ],
+                    DType::F32,
+                );
+                let store_node = AstNode::store(
+                    dst_buffer.buffer_index(dst_offset.simplify().into()),
+                    rand_node,
+                );
+
+                let final_block = AstNode::build_loops(loops, vec![store_node]);
+
+                (final_block, dst_tracker, node_id)
             }
             GraphOp::Contiguous => {
                 let (src_ast, src_tracker, src_buffer_id) = self.lower_node(node_data.src[0]);
@@ -724,6 +780,110 @@ mod tests {
                 }
             } else {
                 panic!("Expected block node, found {:?}", reduce_ast_block.op);
+            }
+        } else {
+            panic!("Expected FuncDef for kernel_impl");
+        }
+    }
+
+    #[test]
+    fn test_lower_full() {
+        setup_logger();
+        let graph = Graph::new();
+        graph.full(42.0f32, vec![10.into()]).as_output();
+
+        let mut lowerer = Lowerer::new(&graph);
+        let (ast, details) = lowerer.lower();
+
+        assert_eq!(details.buffers.len(), 1);
+
+        let kernel_impl = ast
+            .src
+            .iter()
+            .find(|node| {
+                if let AstOp::Func { name, .. } = &node.op {
+                    name == "kernel_impl"
+                } else {
+                    false
+                }
+            })
+            .expect("kernel_impl function not found");
+
+        if let AstOp::Func { .. } = &kernel_impl.op {
+            let full_ast = &kernel_impl.src[0];
+            if let AstOp::Range { .. } = &full_ast.op {
+                let block = &full_ast.src[1];
+                if let AstOp::Store = &block.op {
+                    let dst = &block.src[0];
+                    let src = &block.src[1];
+                    if let AstOp::BufferIndex = &dst.op {
+                        let buffer_node = &dst.src[0];
+                        if let AstOp::Var(name) = &buffer_node.op {
+                            assert_eq!(name, "buf0");
+                        } else {
+                            panic!("Destination buffer is not the correct variable");
+                        }
+                    } else {
+                        panic!("Destination not a buffer index");
+                    }
+                    assert!(matches!(src.op, AstOp::Const(_)));
+                } else {
+                    panic!("Expected store node, found {:?}", block.op);
+                }
+            } else {
+                panic!("Expected range node, found {:?}", full_ast.op);
+            }
+        } else {
+            panic!("Expected FuncDef for kernel_impl");
+        }
+    }
+
+    #[test]
+    fn test_lower_rand() {
+        setup_logger();
+        let graph = Graph::new();
+        graph.rand(DType::F32, vec![10.into()]).as_output();
+
+        let mut lowerer = Lowerer::new(&graph);
+        let (ast, details) = lowerer.lower();
+
+        assert_eq!(details.buffers.len(), 1);
+
+        let kernel_impl = ast
+            .src
+            .iter()
+            .find(|node| {
+                if let AstOp::Func { name, .. } = &node.op {
+                    name == "kernel_impl"
+                } else {
+                    false
+                }
+            })
+            .expect("kernel_impl function not found");
+
+        if let AstOp::Func { .. } = &kernel_impl.op {
+            let rand_ast = &kernel_impl.src[0];
+            if let AstOp::Range { .. } = &rand_ast.op {
+                let block = &rand_ast.src[1];
+                if let AstOp::Store = &block.op {
+                    let dst = &block.src[0];
+                    let src = &block.src[1];
+                    if let AstOp::BufferIndex = &dst.op {
+                        let buffer_node = &dst.src[0];
+                        if let AstOp::Var(name) = &buffer_node.op {
+                            assert_eq!(name, "buf0");
+                        } else {
+                            panic!("Destination buffer is not the correct variable");
+                        }
+                    } else {
+                        panic!("Destination not a buffer index");
+                    }
+                    assert!(matches!(src.op, AstOp::Mul));
+                } else {
+                    panic!("Expected store node, found {:?}", block.op);
+                }
+            } else {
+                panic!("Expected range node, found {:?}", rand_ast.op);
             }
         } else {
             panic!("Expected FuncDef for kernel_impl");

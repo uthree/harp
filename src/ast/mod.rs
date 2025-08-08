@@ -276,7 +276,7 @@ macro_rules! impl_unary_op {
 }
 
 impl_unary_op!(Neg, neg_);
-impl_unary_op!(Recip, recip);
+impl_unary_op!(pub, Recip, recip);
 impl_unary_op!(pub, Sqrt, sqrt);
 impl_unary_op!(pub, Sin, sin);
 impl_unary_op!(pub, Log2, log2);
