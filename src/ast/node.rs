@@ -1,9 +1,6 @@
 use std::cell::Cell;
 
-use crate::ast::{
-    dtype::DType,
-    op::AstOp,
-};
+use crate::ast::{dtype::DType, op::AstOp};
 
 thread_local! {
     static NEXT_ID: Cell<usize> = const { Cell::new(0) };
