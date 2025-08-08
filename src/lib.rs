@@ -10,14 +10,6 @@ pub mod opt;
 /// to enable logging. The log level can be controlled via the `RUST_LOG`
 /// environment variable.
 ///
-/// # Examples
-///
-/// ```
-/// // In your main.rs
-/// // harp::init_logger();
-/// // RUST_LOG=harp=debug cargo run
-/// ```
-///
 /// This will ignore errors if the logger is already initialized.
 pub fn init_logger() {
     let _ = env_logger::builder().is_test(false).try_init();

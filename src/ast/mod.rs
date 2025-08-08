@@ -384,7 +384,7 @@ pub enum DType {
     Ptr(Box<Self>),
     /// An array of a type.
     /// In C programming language, pointer of first element.
-    FixedArray(Box<Self>, Box<AstNode>),
+    Array(Box<Self>, Box<AstNode>),
     /// A tuple of types.
     Tuple(Vec<Self>),
     // --- Types for pattern matching ---
@@ -459,7 +459,7 @@ impl DType {
             DType::U64 => 8,
             DType::USize => std::mem::size_of::<usize>(),
             DType::Ptr(_) => std::mem::size_of::<*const ()>(),
-            DType::FixedArray(..) => std::mem::size_of::<*const ()>(),
+            DType::Array(..) => std::mem::size_of::<*const ()>(),
             _ => panic!("Cannot get size of {self:?}"),
         }
     }
@@ -481,8 +481,8 @@ impl DType {
                     false
                 }
             }
-            DType::FixedArray(a, ..) => {
-                if let DType::FixedArray(b, ..) = other {
+            DType::Array(a, ..) => {
+                if let DType::Array(b, ..) = other {
                     a.matches(b)
                 } else {
                     false
