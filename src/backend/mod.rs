@@ -5,7 +5,6 @@
 //! - `Kernel`: A compiled, executable function.
 //! - `Compiler`: A component that compiles code into a `Kernel`.
 //! - `Renderer`: A component that translates an AST into source code.
-//! - `Device`: A component that manages memory allocation.
 
 use crate::{
     ast::{AstNode, DType},

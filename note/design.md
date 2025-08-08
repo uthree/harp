@@ -80,13 +80,15 @@ pub trait Kernel {
 ### バッファ
 
 デバイス上のデータを保持するコンテナ。
+dropされたら解放するようにするべき
 
 ```rust
 pub trait Buffer: AsAny {
-    fn as_mut_bytes(&mut self) -> &mut [u8];
+    fn as_mut_bytes(&mut self) -> &mut [u8]; // バイト列に変換
     fn dtype(&self) -> DType;
     fn shape(&self) -> Vec<usize>;
-    fn size(&self) -> usize;
+    fn size(&self) -> usize; // これいる？
+    fn allocate(dtype: DType, shape: Vec<usize>) -> Self // メモリを確保
 }
 ```
 
