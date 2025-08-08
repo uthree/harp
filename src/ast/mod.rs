@@ -24,6 +24,9 @@ fn next_id() -> usize {
 /// The philosophy here is that `AstOp` should represent the operation itself,
 /// while the operands (source nodes) are consistently stored in the `src`
 /// field of the `AstNode`. This makes the tree structure more uniform.
+///
+/// Also, based on the design philosophy that the number of types of operator sets should be as small as possible,
+/// for example, subtraction (a-b) is expressed as (a+neg(b)).
 #[derive(Debug, Clone, PartialEq)]
 pub enum AstOp {
     // --- Placeholders ---
