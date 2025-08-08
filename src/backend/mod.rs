@@ -31,8 +31,6 @@ pub struct KernelDetails {
     pub shape_variables: Vec<String>,
 }
 
-
-
 // --- Core Traits ---
 
 /// A trait for a generic buffer that can be passed to a kernel.

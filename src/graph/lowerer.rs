@@ -7,7 +7,7 @@
 use crate::ast::{AstNode, AstOp, DType};
 use crate::backend::{BufferInfo, KernelDetails};
 use crate::graph::shape::tracker::ShapeTracker;
-use crate::graph::{Graph, NodeId, GraphOp};
+use crate::graph::{Graph, GraphOp, NodeId};
 use log::{debug, info, trace};
 use rustc_hash::FxHashMap;
 

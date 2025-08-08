@@ -1,6 +1,6 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::graph::{Graph, NodeData, NodeId, GraphOp};
+use crate::graph::{Graph, GraphOp, NodeData, NodeId};
 use crate::opt::DeterministicGraphOptimizer;
 
 pub struct ElementwiseFusion;

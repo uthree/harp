@@ -488,7 +488,6 @@ impl Compiler<CBuffer> for CCompiler {
     }
 }
 
-
 /// A backend that uses C for compilation and execution.
 ///
 /// This backend orchestrates the lowering of a `Graph` to an `AstNode`,
