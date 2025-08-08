@@ -1,8 +1,8 @@
 use harp::{
-    backend::{c::CBackend, Backend},
+    ast::DType,
+    backend::{Backend, c::CBackend},
     cbuffer::CBuffer,
     graph::Graph,
-    ast::DType,
 };
 
 fn run_c_backend(graph: &Graph, inputs: Vec<CBuffer>) -> CBuffer {

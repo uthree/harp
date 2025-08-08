@@ -32,9 +32,7 @@ impl CBuffer {
 impl Clone for CBuffer {
     fn clone(&self) -> Self {
         let mut new_buffer = Self::allocate(self.dtype.clone(), self.shape.clone());
-        new_buffer
-            .as_mut_bytes()
-            .copy_from_slice(self.as_bytes());
+        new_buffer.as_mut_bytes().copy_from_slice(self.as_bytes());
         new_buffer
     }
 }

@@ -433,7 +433,11 @@ impl Graph {
         // So we need to swap the KH and W_out axes.
         let mut axes: Vec<_> = (0..unfolded_tracker.ndim()).collect();
         axes.swap(h_dim + 1, h_dim + 2);
-        let permuted_shape = unfolded_tracker.clone().permute(axes.clone()).shape().to_vec();
+        let permuted_shape = unfolded_tracker
+            .clone()
+            .permute(axes.clone())
+            .shape()
+            .to_vec();
 
         let unfolded_node = self.add_node(
             GraphOp::Unfold2d {
