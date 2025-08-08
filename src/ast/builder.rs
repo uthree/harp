@@ -1,0 +1,289 @@
+use crate::ast::{dtype::DType, node::AstNode, op::AstOp};
+
+impl AstNode {
+    // --- AST Construction Helpers ---
+
+    /// Creates a new `FuncDef` node.
+    pub fn func_def(name: &str, args: Vec<(String, DType)>, body: Vec<AstNode>) -> Self {
+        Self::new(
+            AstOp::Func {
+                name: name.to_string(),
+                args,
+            },
+            body,
+            DType::Void,
+        )
+    }
+
+    /// Creates a new `Call` node.
+    pub fn call(name: &str, args: Vec<AstNode>) -> Self {
+        Self::new(
+            AstOp::Call(name.to_string()),
+            args,
+            DType::Any, // Return type is often context-dependent
+        )
+    }
+
+    /// Creates a new `Block` node.
+    pub fn block(body: Vec<AstNode>) -> Self {
+        Self::new(AstOp::Block, body, DType::Void)
+    }
+
+    /// Creates a new `Range` (for-loop) node.
+    pub fn range(loop_var: String, max: AstNode, mut block: Vec<AstNode>) -> Self {
+        let mut src = vec![max];
+        src.append(&mut block);
+        Self::new(AstOp::Range { loop_var }, src, DType::Void)
+    }
+
+    /// Creates a new `BufferIndex` node.
+    pub fn buffer_index(self, index: AstNode) -> Self {
+        let ptr_dtype = if let DType::Ptr(inner) = self.dtype.clone() {
+            *inner
+        } else {
+            DType::Any // Or panic, depending on strictness
+        };
+        Self::new(AstOp::BufferIndex, vec![self, index], ptr_dtype)
+    }
+
+    /// Creates a new `Deref` node.
+    pub fn deref(addr: AstNode) -> Self {
+        let dtype = addr.dtype.clone();
+        Self::new(AstOp::Deref, vec![addr], dtype)
+    }
+
+    /// Creates a new `Store` node.
+    pub fn store(dst: AstNode, src: AstNode) -> Self {
+        Self::new(AstOp::Store, vec![dst, src], DType::Void)
+    }
+
+    /// Creates a new `Assign` node.
+    pub fn assign(dst: AstNode, src: AstNode) -> Self {
+        Self::new(AstOp::Assign, vec![dst, src], DType::Void)
+    }
+
+    /// Creates a new `Declare` node.
+    pub fn declare(name: String, dtype: DType, value: AstNode) -> Self {
+        Self::new(AstOp::Declare { name, dtype }, vec![value], DType::Void)
+    }
+
+    /// Nests a statement inside a series of loops.
+    pub fn build_loops(loops: Vec<AstNode>, mut statements: Vec<AstNode>) -> AstNode {
+        let final_node = if statements.len() == 1 {
+            statements.remove(0)
+        } else {
+            AstNode::block(statements)
+        };
+
+        let mut final_block = final_node;
+        for mut loop_node in loops.into_iter().rev() {
+            // The loop body is now part of the `src` field, so we need to update it there.
+            if let AstOp::Range { .. } = loop_node.op {
+                // The first element of src is the range max, the rest is the body.
+                let mut new_src = vec![loop_node.src.remove(0)];
+                new_src.push(final_block);
+                loop_node.src = new_src;
+            }
+            final_block = loop_node;
+        }
+        final_block
+    }
+}
+
+// --- Macro implementations for operators ---
+
+macro_rules! impl_unary_op {
+    ($op: ident, $fname: ident) => {
+        impl AstNode {
+            fn $fname(self: Self) -> Self {
+                let dtype = &self.dtype;
+                if !(dtype.is_real() || dtype.is_integer() || *dtype == DType::Any) {
+                    panic!("Cannot apply {} to {:?}", stringify!($op), self.dtype)
+                }
+                AstNode::new(AstOp::$op, vec![self.clone()], self.dtype)
+            }
+        }
+    };
+
+    (pub, $op: ident, $fname: ident) => {
+        impl AstNode {
+            pub fn $fname(self: Self) -> Self {
+                let dtype = &self.dtype;
+                if !(dtype.is_real() || *dtype == DType::Any) {
+                    panic!("Cannot apply {} to {:?}", stringify!($op), self.dtype)
+                }
+                AstNode::new(AstOp::$op, vec![self.clone()], self.dtype)
+            }
+        }
+    };
+}
+
+impl_unary_op!(Neg, neg_);
+impl_unary_op!(pub, Recip, recip);
+impl_unary_op!(pub, Sqrt, sqrt);
+impl_unary_op!(pub, Sin, sin);
+impl_unary_op!(pub, Log2, log2);
+impl_unary_op!(pub, Exp2, exp2);
+
+macro_rules! impl_binary_op {
+    ($op: ident, $fname: ident) => {
+        impl AstNode {
+            fn $fname(self: Self, other: impl Into<AstNode>) -> Self {
+                let mut lhs = self;
+                let mut rhs = other.into();
+
+                if lhs.dtype != rhs.dtype {
+                    // Attempt to promote types
+                    let (l, r) = (&lhs.dtype, &rhs.dtype);
+                    if l == &DType::Any {
+                        lhs = lhs.cast(r.clone());
+                    } else if r == &DType::Any {
+                        rhs = rhs.cast(l.clone());
+                    } else if l.is_real() && r.is_integer() {
+                        rhs = rhs.cast(l.clone());
+                    } else if l.is_integer() && r.is_real() {
+                        lhs = lhs.cast(r.clone());
+                    } else if l == &DType::F32 && r == &DType::F64 {
+                        lhs = lhs.cast(DType::F64);
+                    } else if l == &DType::F64 && r == &DType::F32 {
+                        rhs = rhs.cast(DType::F64);
+                    }
+                }
+
+                if lhs.dtype != rhs.dtype {
+                    panic!(
+                        "Cannot apply {} to {:?} and {:?}",
+                        stringify!($op),
+                        lhs.dtype,
+                        rhs.dtype
+                    );
+                }
+
+                let result_dtype = lhs.dtype.clone();
+                AstNode::new(AstOp::$op, vec![lhs, rhs], result_dtype)
+            }
+        }
+    };
+
+    (pub, $op: ident, $fname: ident) => {
+        impl AstNode {
+            pub fn $fname(self: Self, other: impl Into<AstNode>) -> Self {
+                let mut lhs = self;
+                let mut rhs = other.into();
+
+                if lhs.dtype != rhs.dtype {
+                    // Attempt to promote types
+                    let (l, r) = (&lhs.dtype, &rhs.dtype);
+                    if l == &DType::Any {
+                        lhs = lhs.cast(r.clone());
+                    } else if r == &DType::Any {
+                        rhs = rhs.cast(l.clone());
+                    } else if l.is_real() && r.is_integer() {
+                        rhs = rhs.cast(l.clone());
+                    } else if l.is_integer() && r.is_real() {
+                        lhs = lhs.cast(r.clone());
+                    } else if l == &DType::F32 && r == &DType::F64 {
+                        lhs = lhs.cast(DType::F64);
+                    } else if l == &DType::F64 && r == &DType::F32 {
+                        rhs = rhs.cast(DType::F64);
+                    }
+                }
+
+                if lhs.dtype != rhs.dtype {
+                    panic!(
+                        "Cannot apply {} to {:?} and {:?}",
+                        stringify!($op),
+                        lhs.dtype,
+                        rhs.dtype
+                    );
+                }
+
+                let result_dtype = lhs.dtype.clone();
+                AstNode::new(AstOp::$op, vec![lhs, rhs], result_dtype)
+            }
+        }
+    };
+}
+
+impl_binary_op!(Add, add_);
+impl_binary_op!(Mul, mul_);
+impl_binary_op!(pub, Max, max);
+impl_binary_op!(Rem, rem_);
+
+// --- Operator trait implementations for AstNode ---
+
+impl<T> std::ops::Add<T> for AstNode
+where
+    T: Into<AstNode>,
+{
+    type Output = Self;
+    fn add(self, rhs: T) -> Self::Output {
+        self.add_(rhs.into())
+    }
+}
+
+impl<T> std::ops::Sub<T> for AstNode
+where
+    T: Into<AstNode>,
+{
+    type Output = Self;
+    fn sub(self, rhs: T) -> Self::Output {
+        self.add_(rhs.into().neg_())
+    }
+}
+
+impl<T> std::ops::Mul<T> for AstNode
+where
+    T: Into<AstNode>,
+{
+    type Output = Self;
+    fn mul(self, rhs: T) -> Self::Output {
+        self.mul_(rhs.into())
+    }
+}
+
+impl<T> std::ops::Div<T> for AstNode
+where
+    T: Into<AstNode>,
+{
+    type Output = Self;
+    fn div(self, rhs: T) -> Self::Output {
+        self.mul_(rhs.into().recip())
+    }
+}
+
+impl<T> std::ops::Rem<T> for AstNode
+where
+    T: Into<AstNode>,
+{
+    type Output = Self;
+    fn rem(self, rhs: T) -> Self::Output {
+        self.rem_(rhs.into())
+    }
+}
+
+impl std::ops::Neg for AstNode {
+    type Output = Self;
+    fn neg(self) -> Self::Output {
+        self.neg_()
+    }
+}
+
+macro_rules! impl_ast_assign_op {
+    ($trait:ident, $fname:ident, $op_trait:ident, $op_fname:ident) => {
+        impl<T> std::ops::$trait<T> for AstNode
+        where
+            T: Into<AstNode>,
+        {
+            fn $fname(&mut self, rhs: T) {
+                *self = std::ops::$op_trait::$op_fname(self.clone(), rhs.into());
+            }
+        }
+    };
+}
+
+impl_ast_assign_op!(AddAssign, add_assign, Add, add);
+impl_ast_assign_op!(SubAssign, sub_assign, Sub, sub);
+impl_ast_assign_op!(MulAssign, mul_assign, Mul, mul);
+impl_ast_assign_op!(DivAssign, div_assign, Div, div);
+impl_ast_assign_op!(RemAssign, rem_assign, Rem, rem);
