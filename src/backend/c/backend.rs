@@ -2,6 +2,7 @@ use super::{CBuffer, CCompiler, CRenderer};
 use crate::{
     backend::{Backend, Buffer, Compiler, Kernel, Renderer},
     graph::Graph,
+    graph::lowerer::LoweringOrchestrator,
 };
 
 pub struct CBackend {
