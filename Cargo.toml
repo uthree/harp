@@ -19,20 +19,6 @@ rstest = "0.26.1"
 name = "harp"
 path = "src/lib.rs"
 
-[[test]]
-name = "c_backend"
-path = "tests/c_backend.rs"
-
-[[test]]
-name = "optimizer"
-path = "tests/optimizer.rs"
-
-[[test]]
-name = "conv"
-path = "tests/conv.rs"
-
-[[test]]
-name = "ops"
-path = "tests/ops.rs"
-
 [workspace]
+
+[]
