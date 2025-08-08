@@ -168,7 +168,6 @@ impl<'a> Lowerer<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::ops::{ElementwiseOps, ReduceOps};
 
     fn setup_logger() {
         let _ = env_logger::builder().is_test(true).try_init();
