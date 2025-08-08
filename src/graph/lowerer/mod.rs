@@ -11,8 +11,8 @@ use crate::ast::{AstNode, AstOp, DType};
 use crate::graph::shape::tracker::ShapeTracker;
 use crate::graph::{Graph, GraphOp, NodeId};
 use log::{debug, trace};
-use rustc_hash::FxHashMap;
 pub use orchestrator::LoweringOrchestrator;
+use rustc_hash::FxHashMap;
 
 /// Traverses a `Graph` and converts it into an `AstNode`.
 ///

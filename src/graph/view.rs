@@ -1,6 +1,4 @@
-use super::{
-    Graph, GraphOp, NodeId, ConvolutionOps, ElementwiseOps, ReduceOps, ShapeOps,
-};
+use super::{ConvolutionOps, ElementwiseOps, Graph, GraphOp, NodeId, ReduceOps, ShapeOps};
 use crate::ast::DType;
 use crate::graph::shape::expr::Expr;
 use std::ops::{Add, Div, Mul, Neg, Rem, Sub};

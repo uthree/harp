@@ -2,18 +2,13 @@ use crate::graph::{
     context::Graph,
     node::NodeId,
     op::GraphOp,
-    shape::tracker::ShapeTracker,
     ops::{ElementwiseOps, ReduceOps, ShapeOps},
+    shape::tracker::ShapeTracker,
 };
 
 pub trait ConvolutionOps {
     fn unfold1d(&self, src: NodeId, dim: usize, kernel_size: usize, stride: usize) -> NodeId;
-    fn unfold2d(
-        &self,
-        src: NodeId,
-        kernel_size: (usize, usize),
-        stride: (usize, usize),
-    ) -> NodeId;
+    fn unfold2d(&self, src: NodeId, kernel_size: (usize, usize), stride: (usize, usize)) -> NodeId;
     fn conv1d(
         &self,
         input: NodeId,
@@ -54,12 +49,7 @@ impl ConvolutionOps for Graph {
         )
     }
 
-    fn unfold2d(
-        &self,
-        src: NodeId,
-        kernel_size: (usize, usize),
-        stride: (usize, usize),
-    ) -> NodeId {
+    fn unfold2d(&self, src: NodeId, kernel_size: (usize, usize), stride: (usize, usize)) -> NodeId {
         let (dtype, shape) = {
             let nodes = self.nodes.borrow();
             let src_node = &nodes[src.0];

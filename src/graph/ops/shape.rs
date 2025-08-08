@@ -1,10 +1,8 @@
-use crate::{
-    graph::{
-        context::Graph,
-        node::NodeId,
-        op::GraphOp,
-        shape::{expr::Expr, tracker::ShapeTracker},
-    },
+use crate::graph::{
+    context::Graph,
+    node::NodeId,
+    op::GraphOp,
+    shape::{expr::Expr, tracker::ShapeTracker},
 };
 
 pub trait ShapeOps {

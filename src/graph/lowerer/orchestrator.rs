@@ -1,9 +1,9 @@
 use rustc_hash::FxHashMap;
 
 use crate::{
-    backend::{BufferInfo, KernelDetails},
-    graph::{shape::tracker::ShapeTracker, NodeId},
     ast::{AstNode, AstOp, DType},
+    backend::{BufferInfo, KernelDetails},
+    graph::{NodeId, shape::tracker::ShapeTracker},
 };
 
 use super::Lowerer;

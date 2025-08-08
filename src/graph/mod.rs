@@ -9,15 +9,15 @@ pub mod context;
 pub mod lowerer;
 pub mod node;
 pub mod op;
+pub mod ops;
 pub mod shape;
 pub mod view;
-pub mod ops;
 
 pub use context::Graph;
 pub use node::{NodeData, NodeId};
 pub use op::GraphOp;
-pub use view::NodeView;
 pub use ops::{ConvolutionOps, ElementwiseOps, ReduceOps, ShapeOps};
+pub use view::NodeView;
 
 #[cfg(test)]
 mod tests {
@@ -373,4 +373,3 @@ mod tests {
         assert!(matches!(sum_k.op(), GraphOp::Reduce(AstOp::Add, 5)));
     }
 }
-
