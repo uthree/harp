@@ -231,6 +231,19 @@ impl ShapeTracker {
             });
         self.offset.clone() + summed_strides
     }
+
+    pub fn slice(mut self, args: &[(Expr, Expr)]) -> Self {
+        assert_eq!(self.ndim(), args.len(), "Slice arguments must match number of dimensions");
+        let mut new_offset = self.offset;
+        let mut new_shape = self.shape;
+        for (i, (start, end)) in args.iter().enumerate() {
+            new_offset = new_offset + self.strides[i].clone() * start.clone();
+            new_shape[i] = end.clone() - start.clone();
+        }
+        self.offset = new_offset.simplify();
+        self.shape = new_shape.iter().map(|s| s.clone().simplify()).collect();
+        self
+    }
 }
 
 #[cfg(test)]
@@ -252,6 +265,14 @@ mod tests {
         tracker.offset = 100.into();
         let permuted = tracker.permute(vec![1, 0]);
         assert_eq!(permuted.offset, 100.into());
+    }
+
+    #[test]
+    fn test_slice() {
+        let tracker = ShapeTracker::new(vec![10.into(), 20.into()]);
+        let sliced = tracker.slice(&[(2.into(), 8.into()), (5.into(), 15.into())]);
+        assert_eq!(sliced.shape(), &[6.into(), 10.into()]);
+        assert_eq!(sliced.offset, (2 * 20 + 5 * 1).into());
     }
 
     #[test]

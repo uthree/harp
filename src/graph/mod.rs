@@ -90,6 +90,8 @@ pub enum GraphOp {
     Expand(Vec<Expr>),
     /// An operation that concatenates tensors along a specific axis.
     Concatenate(usize),
+    /// An operation that slices a tensor.
+    Slice(Vec<(Expr, Expr)>),
 
     // Fused operators for optimization
     /// A fused sequence of element-wise operations, holding the IDs of the fused nodes.
@@ -427,6 +429,17 @@ impl Graph {
             new_shape,
         )
     }
+
+    pub fn slice(&self, src: NodeId, args: Vec<(Expr, Expr)>) -> NodeId {
+        let (dtype, shape) = {
+            let nodes = self.nodes.borrow();
+            let src_node = &nodes[src.0];
+            (src_node.dtype.clone(), src_node.shape.clone())
+        };
+        let tracker = crate::graph::shape::tracker::ShapeTracker::new(shape);
+        let new_shape = tracker.slice(&args).shape().to_vec();
+        self.add_node(GraphOp::Slice(args), vec![src], dtype, new_shape)
+    }
 }
 
 impl PartialEq for Graph {
@@ -510,6 +523,12 @@ impl<'a> NodeView<'a> {
     /// Expands the tensor to a new shape.
     pub fn expand(&self, new_shape: Vec<Expr>) -> NodeView<'a> {
         let new_id = self.graph.expand(self.id, new_shape);
+        self.graph.get_view(new_id)
+    }
+
+    /// Slices the tensor.
+    pub fn slice(&self, args: Vec<(Expr, Expr)>) -> NodeView<'a> {
+        let new_id = self.graph.slice(self.id, args);
         self.graph.get_view(new_id)
     }
 
@@ -871,5 +890,19 @@ mod tests {
         assert_eq!(b.src(), vec![a.id]);
         assert_eq!(b.shape(), vec![10.into(), 20.into()]);
         assert_eq!(b.dtype(), DType::F32);
+    }
+
+    #[test]
+    fn test_slice() {
+        let graph = Graph::new();
+        let a = graph.input(DType::F32, vec![10.into(), 20.into()]);
+        let b = a.slice(vec![(2.into(), 8.into()), (5.into(), 15.into())]);
+
+        assert_eq!(
+            b.op(),
+            GraphOp::Slice(vec![(2.into(), 8.into()), (5.into(), 15.into())])
+        );
+        assert_eq!(b.src(), vec![a.id]);
+        assert_eq!(b.shape(), vec![6.into(), 10.into()]);
     }
 }

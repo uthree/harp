@@ -20,7 +20,7 @@ pub struct Lowerer<'a> {
     /// A reference to the computation graph to be lowered.
     graph: &'a Graph,
     /// A cache to store the lowered AST and `ShapeTracker` for each processed `NodeId`.
-    cache: FxHashMap<NodeId, (AstNode, ShapeTracker)>,
+    cache: FxHashMap<NodeId, (AstNode, ShapeTracker, NodeId)>,
     /// A map from NodeId to its corresponding index in the `buffers` array.
     buffer_map: FxHashMap<NodeId, usize>,
     /// Counter for generating unique loop variable names (e.g., `ridx0`, `ridx1`).
@@ -98,39 +98,33 @@ impl<'a> Lowerer<'a> {
         let mut buffer_info_map = FxHashMap::default();
         let mut node_id_to_buffer_index = FxHashMap::default();
 
-        // 1. Identify all input and output buffers and assign them an index.
+        // 1. Identify all buffers and assign them an index.
         let mut current_buffer_idx = 0;
-        for &node_id in self.graph.inputs.borrow().iter() {
-            let node = &self.graph.nodes.borrow()[node_id.0];
-            self.buffer_map.insert(node_id, current_buffer_idx);
-            node_id_to_buffer_index.insert(node_id, current_buffer_idx);
-            buffer_info_map.insert(
-                current_buffer_idx,
-                BufferInfo {
-                    dtype: node.dtype.clone(),
-                    shape: node.shape.clone(),
-                },
-            );
-            current_buffer_idx += 1;
+        let nodes = self.graph.nodes.borrow();
+        for (i, node) in nodes.iter().enumerate() {
+            let node_id = NodeId(i);
+            // Only allocate buffers for nodes that represent actual data storage.
+            // View operations (like Permute, Slice) don't get their own buffers.
+            match node.op {
+                GraphOp::Input | GraphOp::Contiguous | GraphOp::Elementwise(_) | GraphOp::Reduce(_, _) | GraphOp::Cumulative(_, _) | GraphOp::Fused(_) => {
+                    if !self.buffer_map.contains_key(&node_id) {
+                        self.buffer_map.insert(node_id, current_buffer_idx);
+                        node_id_to_buffer_index.insert(node_id, current_buffer_idx);
+                        buffer_info_map.insert(
+                            current_buffer_idx,
+                            BufferInfo {
+                                dtype: node.dtype.clone(),
+                                shape: node.shape.clone(),
+                            },
+                        );
+                        current_buffer_idx += 1;
+                    }
+                }
+                _ => {} // View ops don't need a buffer
+            }
         }
 
         let outputs: Vec<_> = self.graph.outputs.borrow().clone();
-        for &output_id in &outputs {
-            let node_data = &self.graph.nodes.borrow()[output_id.0];
-            self.buffer_map.entry(output_id).or_insert_with(|| {
-                let idx = current_buffer_idx;
-                node_id_to_buffer_index.insert(output_id, idx);
-                buffer_info_map.insert(
-                    idx,
-                    BufferInfo {
-                        dtype: node_data.dtype.clone(),
-                        shape: node_data.shape.clone(),
-                    },
-                );
-                current_buffer_idx += 1;
-                idx
-            });
-        }
 
         // Populate KernelDetails buffers in the correct order
         for i in 0..current_buffer_idx {
@@ -150,7 +144,7 @@ impl<'a> Lowerer<'a> {
         // 2. Lower all output nodes to generate the computation logic.
         let mut computation_body = vec![];
         for &output_id in &outputs {
-            let (ast_node, _tracker) = self.lower_node(output_id);
+            let (ast_node, _, _) = self.lower_node(output_id);
             computation_body.push(ast_node);
         }
 
@@ -204,7 +198,7 @@ impl<'a> Lowerer<'a> {
     }
 
     /// Recursively lowers a single node from the graph into an AST.
-    fn lower_node(&mut self, node_id: NodeId) -> (AstNode, ShapeTracker) {
+    fn lower_node(&mut self, node_id: NodeId) -> (AstNode, ShapeTracker, NodeId) {
         trace!("Attempting to lower node {node_id:?}");
         if let Some(cached) = self.cache.get(&node_id) {
             debug!("Cache hit for node {node_id:?}");
@@ -220,19 +214,21 @@ impl<'a> Lowerer<'a> {
                 // Input nodes are just pointers passed in the `buffers` array.
                 // We return a ShapeTracker for them. The actual computation is a no-op.
                 let tracker = ShapeTracker::new(node_data.shape);
-                (AstNode::new(AstOp::Block, vec![], DType::Void), tracker) // No-op AST
+                (
+                    AstNode::new(AstOp::Block, vec![], DType::Void),
+                    tracker,
+                    node_id,
+                ) // No-op AST
             }
             GraphOp::Contiguous => {
-                let (src_ast, src_tracker) = self.lower_node(node_data.src[0]);
+                let (src_ast, src_tracker, src_buffer_id) = self.lower_node(node_data.src[0]);
                 if src_tracker.is_contiguous() {
                     debug!("Node {node_id:?} is already contiguous. No-op.");
-                    // If it's already contiguous, we don't need to do anything.
-                    // The source buffer is already correct.
-                    return (src_ast, src_tracker);
+                    return (src_ast, src_tracker, src_buffer_id);
                 }
                 debug!("Node {node_id:?} is not contiguous. Generating copy loop.");
 
-                let src_buffer = self.get_buffer_var(node_data.src[0]);
+                let src_buffer = self.get_buffer_var(src_buffer_id);
                 let dst_buffer = self.get_buffer_var(node_id);
                 let dst_tracker = ShapeTracker::new(node_data.shape.clone());
 
@@ -256,32 +252,38 @@ impl<'a> Lowerer<'a> {
 
                 let final_block = AstNode::build_loops(loops, vec![store_node]);
 
-                // The result is a block containing the copy loop.
-                (final_block, dst_tracker)
+                (final_block, dst_tracker, node_id)
             }
             GraphOp::Permute(axes) => {
-                let (src_ast, src_tracker) = self.lower_node(node_data.src[0]);
+                let (src_ast, src_tracker, src_buffer_id) = self.lower_node(node_data.src[0]);
                 let new_tracker = src_tracker.permute(axes);
-                (src_ast, new_tracker)
+                (src_ast, new_tracker, src_buffer_id)
             }
             GraphOp::Squeeze(axis) => {
-                let (src_ast, src_tracker) = self.lower_node(node_data.src[0]);
+                let (src_ast, src_tracker, src_buffer_id) = self.lower_node(node_data.src[0]);
                 let new_tracker = src_tracker.squeeze(axis);
-                (src_ast, new_tracker)
+                (src_ast, new_tracker, src_buffer_id)
             }
             GraphOp::Unsqueeze(axis) => {
-                let (src_ast, src_tracker) = self.lower_node(node_data.src[0]);
+                let (src_ast, src_tracker, src_buffer_id) = self.lower_node(node_data.src[0]);
                 let new_tracker = src_tracker.unsqueeze(axis);
-                (src_ast, new_tracker)
+                (src_ast, new_tracker, src_buffer_id)
             }
             GraphOp::Expand(new_shape) => {
-                let (src_ast, src_tracker) = self.lower_node(node_data.src[0]);
+                let (src_ast, src_tracker, src_buffer_id) = self.lower_node(node_data.src[0]);
                 let new_tracker = src_tracker.expand(new_shape);
-                (src_ast, new_tracker)
+                (src_ast, new_tracker, src_buffer_id)
+            }
+            GraphOp::Slice(args) => {
+                let (src_ast, src_tracker, src_buffer_id) = self.lower_node(node_data.src[0]);
+                let new_tracker = src_tracker.slice(&args);
+                (src_ast, new_tracker, src_buffer_id)
             }
             GraphOp::Elementwise(op) => {
+                let mut src_asts = vec![];
                 for &src_id in &node_data.src {
-                    self.lower_node(src_id);
+                    let (src_ast, _, _) = self.lower_node(src_id);
+                    src_asts.push(src_ast);
                 }
 
                 let dst_buffer = self.get_buffer_var(node_id);
@@ -297,8 +299,8 @@ impl<'a> Lowerer<'a> {
 
                 let mut loaded_srcs = vec![];
                 for &src_id in node_data.src.iter() {
-                    let (_, tracker) = self.cache.get(&src_id).unwrap();
-                    let buffer = self.get_buffer_var(src_id);
+                    let (_, tracker, buffer_id) = self.cache.get(&src_id).unwrap().clone();
+                    let buffer = self.get_buffer_var(buffer_id);
                     let offset = tracker.offset_expr(&loop_vars);
                     let load = AstNode::deref(buffer.buffer_index(offset.simplify().into()));
                     loaded_srcs.push(load);
@@ -311,15 +313,26 @@ impl<'a> Lowerer<'a> {
                     op_node,
                 );
 
-                let final_block = AstNode::build_loops(loops, vec![store_node]);
+                let mut final_block_src = vec![];
+                for ast in src_asts {
+                    if let AstOp::Block = ast.op {
+                        final_block_src.extend(ast.src);
+                    } else {
+                        final_block_src.push(ast);
+                    }
+                }
+                final_block_src.push(AstNode::build_loops(loops, vec![store_node]));
+                let final_block = AstNode::new(AstOp::Block, final_block_src, DType::Void);
 
-                (final_block, dst_tracker)
+                (final_block, dst_tracker, node_id)
             }
             GraphOp::Fused(fused_nodes) => {
                 // Ensure all original source nodes of the fused operation are lowered.
                 let first_node_in_chain = fused_nodes.first().unwrap();
+                let mut src_asts = vec![];
                 for &src_id in &first_node_in_chain.src {
-                    self.lower_node(src_id);
+                    let (src_ast, _, _) = self.lower_node(src_id);
+                    src_asts.push(src_ast);
                 }
 
                 let dst_buffer = self.get_buffer_var(node_id);
@@ -340,8 +353,8 @@ impl<'a> Lowerer<'a> {
 
                 // Load initial sources for the first op in the chain
                 for (i, &src_id) in first_node_in_chain.src.iter().enumerate() {
-                    let (_, tracker) = self.cache.get(&src_id).unwrap();
-                    let buffer = self.get_buffer_var(src_id);
+                    let (_, tracker, buffer_id) = self.cache.get(&src_id).unwrap().clone();
+                    let buffer = self.get_buffer_var(buffer_id);
                     let offset = tracker.offset_expr(&loop_vars);
                     let load = AstNode::deref(buffer.buffer_index(offset.simplify().into()));
                     src_map.insert(i, load);
@@ -374,15 +387,16 @@ impl<'a> Lowerer<'a> {
                     final_computation,
                 );
 
-                let final_block = AstNode::build_loops(loops, vec![store_node]);
-                (final_block, dst_tracker)
+                let mut final_block_src = src_asts;
+                final_block_src.push(AstNode::build_loops(loops, vec![store_node]));
+                let final_block = AstNode::new(AstOp::Block, final_block_src, DType::Void);
+                (final_block, dst_tracker, node_id)
             }
             GraphOp::Reduce(op, axis) => {
-                self.lower_node(node_data.src[0]);
+                let (src_ast, src_tracker, src_buffer_id) = self.lower_node(node_data.src[0]);
 
-                let src_buffer = self.get_buffer_var(node_data.src[0]);
+                let src_buffer = self.get_buffer_var(src_buffer_id);
                 let dst_buffer = self.get_buffer_var(node_id);
-                let (_, src_tracker) = self.cache.get(&node_data.src[0]).unwrap().clone();
                 let dst_tracker = ShapeTracker::new(node_data.shape.clone());
 
                 let mut loops = vec![];
@@ -435,17 +449,25 @@ impl<'a> Lowerer<'a> {
                     AstNode::var(&acc_var).with_type(node_data.dtype.clone()),
                 );
 
-                let final_block =
-                    AstNode::build_loops(loops, vec![init_acc, inner_loop, store_result]);
+                let mut final_block_src = vec![];
+                if let AstOp::Block = src_ast.op {
+                    final_block_src.extend(src_ast.src);
+                } else {
+                    final_block_src.push(src_ast);
+                }
+                final_block_src.push(AstNode::build_loops(
+                    loops,
+                    vec![init_acc, inner_loop, store_result],
+                ));
+                let final_block = AstNode::new(AstOp::Block, final_block_src, DType::Void);
 
-                (final_block, dst_tracker)
+                (final_block, dst_tracker, node_id)
             }
             GraphOp::Cumulative(op, axis) => {
-                self.lower_node(node_data.src[0]);
+                let (src_ast, src_tracker, src_buffer_id) = self.lower_node(node_data.src[0]);
 
-                let src_buffer = self.get_buffer_var(node_data.src[0]);
+                let src_buffer = self.get_buffer_var(src_buffer_id);
                 let dst_buffer = self.get_buffer_var(node_id);
-                let (_, src_tracker) = self.cache.get(&node_data.src[0]).unwrap().clone();
                 let dst_tracker = ShapeTracker::new(node_data.shape.clone());
 
                 let mut loops = vec![];
@@ -502,9 +524,16 @@ impl<'a> Lowerer<'a> {
                     vec![update_acc, store_result],
                 );
 
-                let final_block = AstNode::build_loops(loops, vec![init_acc, inner_loop]);
+                let mut final_block_src = vec![];
+                if let AstOp::Block = src_ast.op {
+                    final_block_src.extend(src_ast.src);
+                } else {
+                    final_block_src.push(src_ast);
+                }
+                final_block_src.push(AstNode::build_loops(loops, vec![init_acc, inner_loop]));
+                let final_block = AstNode::new(AstOp::Block, final_block_src, DType::Void);
 
-                (final_block, dst_tracker)
+                (final_block, dst_tracker, node_id)
             }
             _ => unimplemented!("This TensorOp is not yet supported for lowering"),
         };
@@ -596,33 +625,41 @@ mod tests {
 
         // Check that the body of the function contains a store to the correct buffer
         if let AstOp::Func { .. } = &kernel_impl.op {
-            // body -> [elementwise_ast]
-            let elementwise_ast = &kernel_impl.src[0];
-            if let AstOp::Range { .. } = &elementwise_ast.op {
-                // The body of the range is in its src
-                let block = &elementwise_ast.src[1];
-                if let AstOp::Store = &block.op {
-                    let dst = &block.src[0];
-                    let src = &block.src[1];
-                    // dst should be `buf2[ridx0]`
-                    if let AstOp::BufferIndex = &dst.op {
-                        let buffer_node = &dst.src[0];
-                        if let AstOp::Var(name) = &buffer_node.op {
-                            assert_eq!(name, "buf2");
+            // body -> [elementwise_ast_block]
+            let elementwise_ast_block = &kernel_impl.src[0];
+            if let AstOp::Block { .. } = &elementwise_ast_block.op {
+                let elementwise_ast = &elementwise_ast_block.src[0];
+                if let AstOp::Range { .. } = &elementwise_ast.op {
+                    // The body of the range is in its src
+                    let block = &elementwise_ast.src[1];
+                    if let AstOp::Store = &block.op {
+                        let dst = &block.src[0];
+                        let src = &block.src[1];
+                        // dst should be `buf2[ridx0]`
+                        if let AstOp::BufferIndex = &dst.op {
+                            let buffer_node = &dst.src[0];
+                            if let AstOp::Var(name) = &buffer_node.op {
+                                assert_eq!(name, "buf2");
+                            } else {
+                                panic!("Destination buffer is not the correct variable");
+                            }
                         } else {
-                            panic!("Destination buffer is not the correct variable");
+                            panic!("Destination not a buffer index");
                         }
-                    } else {
-                        panic!("Destination not a buffer index");
-                    }
 
-                    // src should be `buf0[...] + buf1[...]`
-                    assert!(matches!(src.op, AstOp::Add));
+                        // src should be `buf0[...] + buf1[...]`
+                        assert!(matches!(src.op, AstOp::Add));
+                    } else {
+                        panic!("Expected store node, found {:?}", block.op);
+                    }
                 } else {
-                    panic!("Expected store node, found {:?}", block.op);
+                    panic!("Expected range node, found {:?}", elementwise_ast.op);
                 }
             } else {
-                panic!("Expected range node, found {:?}", elementwise_ast.op);
+                panic!(
+                    "Expected block node, found {:?}",
+                    elementwise_ast_block.op
+                );
             }
         } else {
             panic!("Expected FuncDef for kernel_impl");
@@ -653,30 +690,35 @@ mod tests {
             .expect("kernel_impl function not found");
 
         if let AstOp::Func { .. } = &kernel_impl.op {
-            let reduce_ast = &kernel_impl.src[0];
-            if let AstOp::Range { .. } = &reduce_ast.op {
-                // The body of the range is in its src
-                let block = &reduce_ast.src[1];
-                // block contains [init_acc, inner_loop, store_result]
-                let store_node = &block.src[2];
-                if let AstOp::Store = &store_node.op {
-                    let dst = &store_node.src[0];
-                    if let AstOp::BufferIndex = &dst.op {
-                        let buffer_node = &dst.src[0];
-                        // We are checking if the destination is the correct buffer variable
-                        if let AstOp::Var(name) = &buffer_node.op {
-                            assert_eq!(name, "buf1");
+            let reduce_ast_block = &kernel_impl.src[0];
+            if let AstOp::Block { .. } = &reduce_ast_block.op {
+                let reduce_ast = &reduce_ast_block.src[0];
+                if let AstOp::Range { .. } = &reduce_ast.op {
+                    // The body of the range is in its src
+                    let block = &reduce_ast.src[1];
+                    // block contains [init_acc, inner_loop, store_result]
+                    let store_node = &block.src[2];
+                    if let AstOp::Store = &store_node.op {
+                        let dst = &store_node.src[0];
+                        if let AstOp::BufferIndex = &dst.op {
+                            let buffer_node = &dst.src[0];
+                            // We are checking if the destination is the correct buffer variable
+                            if let AstOp::Var(name) = &buffer_node.op {
+                                assert_eq!(name, "buf1");
+                            } else {
+                                panic!("Expected destination to be a buffer variable");
+                            }
                         } else {
-                            panic!("Expected destination to be a buffer variable");
+                            panic!("Expected destination to be a buffer index");
                         }
                     } else {
-                        panic!("Expected destination to be a buffer index");
+                        panic!("Expected store node");
                     }
                 } else {
-                    panic!("Expected store node");
+                    panic!("Expected outer loop, found {:?}", reduce_ast.op);
                 }
             } else {
-                panic!("Expected outer loop, found {:?}", reduce_ast.op);
+                panic!("Expected block node, found {:?}", reduce_ast_block.op);
             }
         } else {
             panic!("Expected FuncDef for kernel_impl");

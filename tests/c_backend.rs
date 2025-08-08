@@ -696,6 +696,49 @@ fn test_c_backend_e2e_cumulative_sum() {
 }
 
 #[test]
+fn test_c_backend_e2e_slice() {
+    harp::init_logger();
+    let mut compiler = CCompiler::new();
+    if !compiler.is_available() {
+        return;
+    }
+
+    // 1. Build Graph: b = a[1:3, 2:4].sin()
+    let graph = Graph::new();
+    let input_shape = vec![4, 5];
+    let sliced_shape = vec![2, 2];
+    let a = graph.input(DType::F32, input_shape.iter().map(|&d| d.into()).collect());
+    let b = a.slice(vec![(1.into(), 3.into()), (2.into(), 4.into())]);
+    b.sin().as_output();
+
+    // 2. Lower and Render
+    let mut lowerer = Lowerer::new(&graph);
+    let (ast, details) = lowerer.lower();
+    let mut renderer = CRenderer::new();
+    let code = renderer.render(ast);
+
+    // 3. Compile
+    let kernel = compiler.compile(&code, details);
+
+    // 4. Prepare data and call kernel
+    let a_data: Vec<f32> = (0..20).map(|i| i as f32).collect();
+    let a_buffer = buffer_from_slice(&a_data, &input_shape, DType::F32);
+    let c_buffer = empty_buffer(&sliced_shape, DType::F32);
+
+    let mut result_buffers = kernel.call(vec![a_buffer, c_buffer], &[]);
+
+    // 5. Verify results
+    let c_result_array = result_buffers[1].try_into_ndarray::<f32>().unwrap();
+
+    // Manually slice and apply sin
+    let a_ndarray = ArrayD::from_shape_vec(input_shape, a_data).unwrap();
+    let sliced_view = a_ndarray.slice(ndarray::s![1..3, 2..4]);
+    let expected_array = sliced_view.mapv(f32::sin).into_dyn();
+
+    assert_eq!(c_result_array, expected_array);
+}
+
+#[test]
 fn test_cbackend_call_simple_add() {
     harp::init_logger();
     let mut backend = CBackend::new();
