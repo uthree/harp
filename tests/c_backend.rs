@@ -658,6 +658,44 @@ fn test_c_backend_e2e_reduce_prod() {
 }
 
 #[test]
+fn test_c_backend_e2e_cumulative_sum() {
+    harp::init_logger();
+    let mut compiler = CCompiler::new();
+    if !compiler.is_available() {
+        return;
+    }
+
+    // 1. Build Graph: b = a.cumsum(axis=1)
+    let graph = Graph::new();
+    let shape = vec![2, 3];
+    let a = graph.input(DType::F32, shape.iter().map(|&d| d.into()).collect());
+    a.cumsum(1).as_output();
+
+    // 2. Lower and Render
+    let mut lowerer = Lowerer::new(&graph);
+    let (ast, details) = lowerer.lower();
+    let mut renderer = CRenderer::new();
+    let code = renderer.render(ast);
+
+    // 3. Compile
+    let kernel = compiler.compile(&code, details);
+
+    // 4. Prepare data and call kernel
+    let a_data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+    let a_buffer = buffer_from_slice(&a_data, &shape, DType::F32);
+    let b_buffer = empty_buffer(&shape, DType::F32);
+
+    let mut result_buffers = kernel.call(vec![a_buffer, b_buffer], &[]);
+
+    // 5. Verify results
+    let b_result_array = result_buffers[1].try_into_ndarray::<f32>().unwrap();
+    let expected_data: Vec<f32> = vec![1.0, 3.0, 6.0, 4.0, 9.0, 15.0];
+    let expected_array = ArrayD::from_shape_vec(shape, expected_data).unwrap();
+
+    assert_eq!(b_result_array, expected_array);
+}
+
+#[test]
 fn test_cbackend_call_simple_add() {
     harp::init_logger();
     let mut backend = CBackend::new();

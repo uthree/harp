@@ -440,6 +440,72 @@ impl<'a> Lowerer<'a> {
 
                 (final_block, dst_tracker)
             }
+            GraphOp::Cumulative(op, axis) => {
+                self.lower_node(node_data.src[0]);
+
+                let src_buffer = self.get_buffer_var(node_data.src[0]);
+                let dst_buffer = self.get_buffer_var(node_id);
+                let (_, src_tracker) = self.cache.get(&node_data.src[0]).unwrap().clone();
+                let dst_tracker = ShapeTracker::new(node_data.shape.clone());
+
+                let mut loops = vec![];
+                let mut outer_loop_vars = vec![];
+                for (i, shape_expr) in src_tracker.shape().iter().enumerate() {
+                    if i == axis {
+                        continue;
+                    }
+                    let loop_var = self.new_loop_counter();
+                    outer_loop_vars.push(loop_var.clone());
+                    loops.push(AstNode::range(loop_var, shape_expr.clone().into(), vec![]));
+                }
+
+                let acc_var = self.new_accumulator_name();
+                let init_val = match op {
+                    AstOp::Add => AstNode::from(0.0f32),
+                    AstOp::Mul => AstNode::from(1.0f32),
+                    AstOp::Max => AstNode::from(f32::NEG_INFINITY),
+                    _ => unimplemented!("Unsupported cumulative op"),
+                }
+                .with_type(node_data.dtype.clone());
+
+                let init_acc = AstNode::declare(acc_var.clone(), node_data.dtype.clone(), init_val);
+
+                let inner_loop_var = self.new_loop_counter();
+                let mut full_indices = outer_loop_vars.clone();
+                full_indices.insert(axis, inner_loop_var.clone());
+
+                let src_offset = src_tracker.offset_expr(&full_indices);
+                let load_val =
+                    AstNode::deref(src_buffer.buffer_index(src_offset.simplify().into()));
+
+                let update_acc = AstNode::assign(
+                    AstNode::var(&acc_var).with_type(node_data.dtype.clone()),
+                    AstNode::new(
+                        op,
+                        vec![
+                            AstNode::var(&acc_var).with_type(node_data.dtype.clone()),
+                            load_val,
+                        ],
+                        node_data.dtype.clone(),
+                    ),
+                );
+
+                let dst_offset = dst_tracker.offset_expr(&full_indices);
+                let store_result = AstNode::store(
+                    dst_buffer.buffer_index(dst_offset.simplify().into()),
+                    AstNode::var(&acc_var).with_type(node_data.dtype.clone()),
+                );
+
+                let inner_loop = AstNode::range(
+                    inner_loop_var,
+                    src_tracker.shape()[axis].clone().into(),
+                    vec![update_acc, store_result],
+                );
+
+                let final_block = AstNode::build_loops(loops, vec![init_acc, inner_loop]);
+
+                (final_block, dst_tracker)
+            }
             _ => unimplemented!("This TensorOp is not yet supported for lowering"),
         };
 

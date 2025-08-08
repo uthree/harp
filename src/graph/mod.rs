@@ -76,6 +76,8 @@ pub enum GraphOp {
     Elementwise(AstOp),
     /// A reduction operation along a specific axis (e.g., sum, max).
     Reduce(AstOp, usize),
+    /// A cumulative operation along a specific axis (e.g., cumsum).
+    Cumulative(AstOp, usize),
     /// An operation that makes the memory layout of a tensor contiguous.
     Contiguous,
     /// An operation that permutes the axes of a tensor.
@@ -138,14 +140,14 @@ impl Graph {
     ///
     /// * `dtype` - The data type of the input tensor.
     /// * `shape` - The symbolic shape of the input tensor.
-    pub fn input(&self, dtype: DType, shape: Vec<Expr>) -> NodeView {
+    pub fn input(&self, dtype: DType, shape: Vec<Expr>) -> NodeView<'_> {
         let id = self.add_node(GraphOp::Input, vec![], dtype, shape);
         self.inputs.borrow_mut().push(id);
         self.get_view(id)
     }
 
     /// Gets a `NodeView` for a given `NodeId`.
-    pub fn get_view(&self, id: NodeId) -> NodeView {
+    pub fn get_view(&self, id: NodeId) -> NodeView<'_> {
         NodeView { id, graph: self }
     }
 
@@ -352,6 +354,21 @@ impl Graph {
         self._reduce(AstOp::Mul, src, axis)
     }
 
+    pub fn cumsum(&self, src: NodeId, axis: usize) -> NodeId {
+        let (dtype, shape) = {
+            let nodes = self.nodes.borrow();
+            let src_node = &nodes[src.0];
+            (src_node.dtype.clone(), src_node.shape.clone())
+        };
+        assert!(axis < shape.len(), "Cumulative axis out of bounds");
+        self.add_node(
+            GraphOp::Cumulative(AstOp::Add, axis),
+            vec![src],
+            dtype,
+            shape,
+        )
+    }
+
     pub fn permute(&self, src: NodeId, axes: Vec<usize>) -> NodeId {
         let (dtype, shape) = {
             let nodes = self.nodes.borrow();
@@ -463,6 +480,12 @@ impl<'a> NodeView<'a> {
     /// Performs a product reduction along a specified axis.
     pub fn prod(&self, axis: usize) -> NodeView<'a> {
         let new_id = self.graph.prod(self.id, axis);
+        self.graph.get_view(new_id)
+    }
+
+    /// Performs a cumulative sum along a specified axis.
+    pub fn cumsum(&self, axis: usize) -> NodeView<'a> {
+        let new_id = self.graph.cumsum(self.id, axis);
         self.graph.get_view(new_id)
     }
 
@@ -836,5 +859,17 @@ mod tests {
         let graph2 = create_graph2();
 
         assert_ne!(graph1, graph2);
+    }
+
+    #[test]
+    fn test_cumulative_sum() {
+        let graph = Graph::new();
+        let a = graph.input(DType::F32, vec![10.into(), 20.into()]);
+        let b = a.cumsum(1);
+
+        assert_eq!(b.op(), GraphOp::Cumulative(AstOp::Add, 1));
+        assert_eq!(b.src(), vec![a.id]);
+        assert_eq!(b.shape(), vec![10.into(), 20.into()]);
+        assert_eq!(b.dtype(), DType::F32);
     }
 }
