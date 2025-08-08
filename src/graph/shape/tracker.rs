@@ -16,6 +16,7 @@ use crate::graph::shape::expr::Expr;
 pub struct ShapeTracker {
     shape: Vec<Expr>,   // logical shape for each axis.
     strides: Vec<Expr>, // actual memory offsets for each axis.
+    offset: Expr,       // offset from the beginning of the buffer.
 }
 
 impl ShapeTracker {
@@ -47,6 +48,7 @@ impl ShapeTracker {
         Self {
             shape: shape.iter().map(|sh| sh.clone().simplify()).collect(),
             strides: strides.iter().map(|s| s.clone().simplify()).collect(),
+            offset: 0.into(),
         }
     }
 
@@ -117,6 +119,7 @@ impl ShapeTracker {
         ShapeTracker {
             shape: new_shape,
             strides: new_strides,
+            offset: self.offset,
         }
     }
 
@@ -209,6 +212,7 @@ impl ShapeTracker {
         ShapeTracker {
             shape: new_shape,
             strides: new_strides,
+            offset: self.offset,
         }
     }
 
@@ -218,18 +222,37 @@ impl ShapeTracker {
     /// memory offset. It computes `sum(loop_vars[i] * strides[i])`.
     pub fn offset_expr(&self, loop_vars: &[String]) -> Expr {
         assert_eq!(self.ndim(), loop_vars.len());
-        self.strides
+        let summed_strides = self
+            .strides
             .iter()
             .zip(loop_vars.iter())
             .fold(Expr::from(0), |acc, (stride, var)| {
                 acc + stride.clone() * Expr::from(AstNode::var(var))
-            })
+            });
+        self.offset.clone() + summed_strides
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_offset_expr() {
+        let tracker = ShapeTracker::new(vec![10.into(), 20.into()]);
+        let loop_vars = vec!["i".to_string(), "j".to_string()];
+        let offset = tracker.offset_expr(&loop_vars);
+        let expected = Expr::from(20) * Expr::from(AstNode::var("i")) + Expr::from(1) * Expr::from(AstNode::var("j"));
+        assert_eq!(offset.simplify(), expected.simplify());
+    }
+
+    #[test]
+    fn test_offset_propagation_in_permute() {
+        let mut tracker = ShapeTracker::new(vec![10.into(), 20.into()]);
+        tracker.offset = 100.into();
+        let permuted = tracker.permute(vec![1, 0]);
+        assert_eq!(permuted.offset, 100.into());
+    }
 
     #[test]
     fn test_expand_simple() {
