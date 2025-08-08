@@ -152,7 +152,7 @@ impl ShapeTracker {
         let new_dim_size = ((old_dim_size - kernel_size) / stride + 1).simplify();
 
         // Update the shape
-        self.shape[dim] = new_dim_size.into();
+        self.shape[dim] = new_dim_size;
         self.shape.insert(dim + 1, kernel_size.into());
 
         // Update the strides
@@ -381,10 +381,7 @@ mod tests {
         let tracker = ShapeTracker::new(vec![1.into(), 3.into(), 10.into()]);
         let unfolded = tracker.unfold(2, 3, 1);
 
-        assert_eq!(
-            unfolded.shape(),
-            &[1.into(), 3.into(), 8.into(), 3.into()]
-        );
+        assert_eq!(unfolded.shape(), &[1.into(), 3.into(), 8.into(), 3.into()]);
 
         // Original strides for [1, 3, 10] are [30, 10, 1]
         // Expected strides for [1, 3, 8, 3] should be [30, 10, 1, 1]

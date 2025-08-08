@@ -372,13 +372,7 @@ impl Graph {
         self.add_node(GraphOp::Slice(args), vec![src], dtype, new_shape)
     }
 
-    pub fn unfold(
-        &self,
-        src: NodeId,
-        dim: usize,
-        kernel_size: usize,
-        stride: usize,
-    ) -> NodeId {
+    pub fn unfold(&self, src: NodeId, dim: usize, kernel_size: usize, stride: usize) -> NodeId {
         let (dtype, shape) = {
             let nodes = self.nodes.borrow();
             let src_node = &nodes[src.0];
@@ -442,12 +436,7 @@ impl Graph {
         // input: [N, C_in, L] -> [N, G, C_in/G, L]
         let x_reshaped = self.reshape(
             input,
-            vec![
-                n.clone(),
-                groups.into(),
-                c_in_per_group.clone(),
-                l.clone(),
-            ],
+            vec![n.clone(), groups.into(), c_in_per_group.clone(), l.clone()],
         );
         // weight: [C_out, C_in/G, K] -> [G, C_out/G, C_in/G, K]
         let w_reshaped = self.reshape(

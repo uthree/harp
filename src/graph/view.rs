@@ -118,7 +118,9 @@ impl<'a> NodeView<'a> {
         stride: usize,
         groups: usize,
     ) -> NodeView<'a> {
-        let new_id = self.graph.conv1d(self.id, weight.id, kernel_size, stride, groups);
+        let new_id = self
+            .graph
+            .conv1d(self.id, weight.id, kernel_size, stride, groups);
         self.graph.get_view(new_id)
     }
 
