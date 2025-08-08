@@ -72,11 +72,8 @@ pub enum GraphOp {
     /// An operation that slices a tensor.
     Slice(Vec<(Expr, Expr)>),
 
-    // Fused operators for optimization
-    /// A fused sequence of element-wise operations, holding the IDs of the fused nodes.
-    Fused(Vec<NodeData>),
-    /// A marker for a node that has been fused into another.
-    FusedInto(NodeId),
+    // Fused Operators
+    FusedElementwise(AstNode), // Capture(n) means n-th src element
 }
 
 impl GraphOp {

@@ -111,8 +111,10 @@ impl<'a> Lowerer<'a> {
                 | GraphOp::Elementwise(_)
                 | GraphOp::Reduce(_, _)
                 | GraphOp::Cumulative(_, _)
-                | GraphOp::Fused(_) => {
-                    if let std::collections::hash_map::Entry::Vacant(e) = self.buffer_map.entry(node_id) {
+                | GraphOp::FusedElementwise(_) => {
+                    if let std::collections::hash_map::Entry::Vacant(e) =
+                        self.buffer_map.entry(node_id)
+                    {
                         e.insert(current_buffer_idx);
                         node_id_to_buffer_index.insert(node_id, current_buffer_idx);
                         buffer_info_map.insert(
@@ -331,71 +333,8 @@ impl<'a> Lowerer<'a> {
 
                 (final_block, dst_tracker, node_id)
             }
-            GraphOp::Fused(fused_nodes) => {
-                // Ensure all original source nodes of the fused operation are lowered.
-                let first_node_in_chain = fused_nodes.first().unwrap();
-                let mut src_asts = vec![];
-                for &src_id in &first_node_in_chain.src {
-                    let (src_ast, _, _) = self.lower_node(src_id);
-                    src_asts.push(src_ast);
-                }
-
-                let dst_buffer = self.get_buffer_var(node_id);
-                let dst_tracker = ShapeTracker::new(node_data.shape.clone());
-
-                // --- Create loop structure ---
-                let mut loops = vec![];
-                let mut loop_vars = vec![];
-                for shape_expr in dst_tracker.shape().iter() {
-                    let loop_var = self.new_loop_counter();
-                    loop_vars.push(loop_var.clone());
-                    loops.push(AstNode::range(loop_var, shape_expr.clone().into(), vec![]));
-                }
-
-                // --- Build the computation chain inside the loop ---
-                let mut current_val: Option<AstNode> = None;
-                let mut src_map = FxHashMap::default();
-
-                // Load initial sources for the first op in the chain
-                for (i, &src_id) in first_node_in_chain.src.iter().enumerate() {
-                    let (_, tracker, buffer_id) = self.cache.get(&src_id).unwrap().clone();
-                    let buffer = self.get_buffer_var(buffer_id);
-                    let offset = tracker.offset_expr(&loop_vars);
-                    let load = AstNode::deref(buffer.buffer_index(offset.simplify().into()));
-                    src_map.insert(i, load);
-                }
-
-                for node in &fused_nodes {
-                    let mut loaded_srcs = vec![];
-                    if node.src.len() == 1 && current_val.is_some() {
-                        // This node takes the output of the previous one as input
-                        loaded_srcs.push(current_val.clone().unwrap());
-                    } else {
-                        // This is the first node, or a node with multiple inputs
-                        for (i, _) in node.src.iter().enumerate() {
-                            loaded_srcs.push(src_map.get(&i).unwrap().clone());
-                        }
-                    }
-
-                    if let GraphOp::Elementwise(op) = &node.op {
-                        current_val =
-                            Some(AstNode::new(op.clone(), loaded_srcs, node.dtype.clone()));
-                    } else {
-                        panic!("Non-elementwise op found in fused chain");
-                    }
-                }
-
-                let final_computation = current_val.expect("Fused chain was empty");
-                let dst_offset = dst_tracker.offset_expr(&loop_vars);
-                let store_node = AstNode::store(
-                    dst_buffer.buffer_index(dst_offset.simplify().into()),
-                    final_computation,
-                );
-
-                let mut final_block_src = src_asts;
-                final_block_src.push(AstNode::build_loops(loops, vec![store_node]));
-                let final_block = AstNode::new(AstOp::Block, final_block_src, DType::Void);
-                (final_block, dst_tracker, node_id)
+            GraphOp::FusedElementwise(elementwise_ast) => {
+                todo!()
             }
             GraphOp::Reduce(op, axis) => {
                 let (src_ast, src_tracker, src_buffer_id) = self.lower_node(node_data.src[0]);
