@@ -22,8 +22,7 @@ impl RewriteRule {
     fn scan(target: &AstNode, pattern: &AstNode, store: &mut FxHashMap<usize, AstNode>) -> bool {
         trace!(
             "Scanning target node {:?} with pattern node {:?}",
-            target.op,
-            pattern.op
+            target.op, pattern.op
         );
         if let AstOp::Capture(id, _) = &pattern.op {
             if let Some(existing) = store.get(id) {
@@ -70,8 +69,7 @@ impl RewriteRule {
             let rewritten_node = (self.rewriter)(captures);
             trace!(
                 "Node {:?} rewritten to {:?}",
-                new_target.op,
-                rewritten_node.op
+                new_target.op, rewritten_node.op
             );
             rewritten_node
         } else {

@@ -93,6 +93,8 @@ impl Backend<CBuffer> for CBackend {
 
         // 4. Extract and return the output buffer(s).
         assert_eq!(result_buffers.len(), num_total_buffers);
-        result_buffers.drain(num_inputs..num_inputs + num_outputs).collect()
+        result_buffers
+            .drain(num_inputs..num_inputs + num_outputs)
+            .collect()
     }
 }

@@ -1,4 +1,3 @@
-
 use super::{CBuffer, CKernel};
 use crate::backend::{Compiler, KernelDetails};
 use libloading::Library;
@@ -94,4 +93,3 @@ impl Compiler<CBuffer> for CCompiler {
         }
     }
 }
-

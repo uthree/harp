@@ -8,7 +8,7 @@
 
 use crate::{
     ast::{AstNode, DType},
-    graph::{shape::expr::Expr, Graph},
+    graph::{Graph, shape::expr::Expr},
 };
 use ndarray::ArrayD;
 use std::any::TypeId;

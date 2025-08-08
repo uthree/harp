@@ -3,8 +3,8 @@
 use harp::ast::{AstNode, DType};
 use harp::backend::c::{CBackend, CBuffer, CCompiler, CRenderer};
 use harp::backend::{Backend, Compiler, Kernel, Renderer, TryIntoNdarray};
-use harp::graph::lowerer::Lowerer;
 use harp::graph::Graph;
+use harp::graph::lowerer::Lowerer;
 use ndarray::ArrayD;
 use std::ffi::c_void;
 
@@ -235,7 +235,11 @@ fn test_c_backend_e2e_add() {
     let mut result_buffers = kernel.call(vec![a_buffer, b_buffer, c_buffer], &[]);
 
     // 5. Verify results
-    let mut c_result_array = result_buffers.pop().unwrap().try_into_ndarray::<f32>().unwrap();
+    let mut c_result_array = result_buffers
+        .pop()
+        .unwrap()
+        .try_into_ndarray::<f32>()
+        .unwrap();
 
     let expected_data: Vec<f32> = a_data
         .iter()
@@ -279,7 +283,11 @@ fn test_c_backend_e2e_neg() {
     let mut result_buffers = kernel.call(vec![a_buffer, b_buffer], &[]);
 
     // 5. Verify results
-    let mut b_result_array = result_buffers.pop().unwrap().try_into_ndarray::<f32>().unwrap();
+    let mut b_result_array = result_buffers
+        .pop()
+        .unwrap()
+        .try_into_ndarray::<f32>()
+        .unwrap();
 
     let expected_data: Vec<f32> = a_data.iter().map(|&x| -x).collect();
     let expected_array = ArrayD::from_shape_vec(shape, expected_data).unwrap();
@@ -323,7 +331,11 @@ fn test_c_backend_e2e_rem() {
     let mut result_buffers = kernel.call(vec![a_buffer, b_buffer, c_buffer], &[]);
 
     // 5. Verify results
-    let mut c_result_array = result_buffers.pop().unwrap().try_into_ndarray::<f32>().unwrap();
+    let mut c_result_array = result_buffers
+        .pop()
+        .unwrap()
+        .try_into_ndarray::<f32>()
+        .unwrap();
 
     let expected_data: Vec<f32> = a_data
         .iter()
@@ -371,7 +383,11 @@ fn test_c_backend_e2e_lt() {
     let mut result_buffers = kernel.call(vec![a_buffer, b_buffer, c_buffer], &[]);
 
     // 5. Verify results
-    let mut c_result_array = result_buffers.pop().unwrap().try_into_ndarray::<f32>().unwrap();
+    let mut c_result_array = result_buffers
+        .pop()
+        .unwrap()
+        .try_into_ndarray::<f32>()
+        .unwrap();
 
     let expected_data: Vec<f32> = a_data
         .iter()
@@ -415,7 +431,11 @@ fn test_c_backend_e2e_sin() {
     let mut result_buffers = kernel.call(vec![a_buffer, b_buffer], &[]);
 
     // 5. Verify results
-    let mut b_result_array = result_buffers.pop().unwrap().try_into_ndarray::<f32>().unwrap();
+    let mut b_result_array = result_buffers
+        .pop()
+        .unwrap()
+        .try_into_ndarray::<f32>()
+        .unwrap();
 
     let expected_data: Vec<f32> = a_data.iter().map(|&x| x.sin()).collect();
     let expected_array = ArrayD::from_shape_vec(shape, expected_data).unwrap();
@@ -448,7 +468,11 @@ fn test_c_backend_e2e_sqrt() {
     let b_buffer = empty_buffer(&shape, DType::F32);
 
     let mut result_buffers = kernel.call(vec![a_buffer, b_buffer], &[]);
-    let mut b_result_array = result_buffers.pop().unwrap().try_into_ndarray::<f32>().unwrap();
+    let mut b_result_array = result_buffers
+        .pop()
+        .unwrap()
+        .try_into_ndarray::<f32>()
+        .unwrap();
 
     let expected_data: Vec<f32> = a_data.iter().map(|&x| x.sqrt()).collect();
     let expected_array = ArrayD::from_shape_vec(shape, expected_data).unwrap();
@@ -480,7 +504,11 @@ fn test_c_backend_e2e_log2() {
     let b_buffer = empty_buffer(&shape, DType::F32);
 
     let mut result_buffers = kernel.call(vec![a_buffer, b_buffer], &[]);
-    let mut b_result_array = result_buffers.pop().unwrap().try_into_ndarray::<f32>().unwrap();
+    let mut b_result_array = result_buffers
+        .pop()
+        .unwrap()
+        .try_into_ndarray::<f32>()
+        .unwrap();
 
     let expected_data: Vec<f32> = a_data.iter().map(|&x| x.log2()).collect();
     let expected_array = ArrayD::from_shape_vec(shape, expected_data).unwrap();
@@ -512,7 +540,11 @@ fn test_c_backend_e2e_exp2() {
     let b_buffer = empty_buffer(&shape, DType::F32);
 
     let mut result_buffers = kernel.call(vec![a_buffer, b_buffer], &[]);
-    let mut b_result_array = result_buffers.pop().unwrap().try_into_ndarray::<f32>().unwrap();
+    let mut b_result_array = result_buffers
+        .pop()
+        .unwrap()
+        .try_into_ndarray::<f32>()
+        .unwrap();
 
     let expected_data: Vec<f32> = a_data.iter().map(|&x| x.exp2()).collect();
     let expected_array = ArrayD::from_shape_vec(shape, expected_data).unwrap();
@@ -544,7 +576,11 @@ fn test_c_backend_e2e_recip() {
     let b_buffer = empty_buffer(&shape, DType::F32);
 
     let mut result_buffers = kernel.call(vec![a_buffer, b_buffer], &[]);
-    let mut b_result_array = result_buffers.pop().unwrap().try_into_ndarray::<f32>().unwrap();
+    let mut b_result_array = result_buffers
+        .pop()
+        .unwrap()
+        .try_into_ndarray::<f32>()
+        .unwrap();
 
     let expected_data: Vec<f32> = a_data.iter().map(|&x| 1.0 / x).collect();
     let expected_array = ArrayD::from_shape_vec(shape, expected_data).unwrap();
@@ -584,7 +620,11 @@ fn test_c_backend_e2e_reduce_sum() {
     let mut result_buffers = kernel.call(vec![a_buffer, b_buffer], &[]);
 
     // 5. Verify results
-    let mut b_result_array = result_buffers.pop().unwrap().try_into_ndarray::<f32>().unwrap();
+    let mut b_result_array = result_buffers
+        .pop()
+        .unwrap()
+        .try_into_ndarray::<f32>()
+        .unwrap();
     let expected_data: Vec<f32> = vec![6.0, 15.0];
     let expected_array = ArrayD::from_shape_vec(output_shape, expected_data).unwrap();
 
@@ -617,7 +657,11 @@ fn test_c_backend_e2e_reduce_max() {
 
     let mut result_buffers = kernel.call(vec![a_buffer, b_buffer], &[]);
 
-    let mut b_result_array = result_buffers.pop().unwrap().try_into_ndarray::<f32>().unwrap();
+    let mut b_result_array = result_buffers
+        .pop()
+        .unwrap()
+        .try_into_ndarray::<f32>()
+        .unwrap();
     let expected_data: Vec<f32> = vec![5.0, 8.0];
     let expected_array = ArrayD::from_shape_vec(output_shape, expected_data).unwrap();
 
@@ -650,7 +694,11 @@ fn test_c_backend_e2e_reduce_prod() {
 
     let mut result_buffers = kernel.call(vec![a_buffer, b_buffer], &[]);
 
-    let mut b_result_array = result_buffers.pop().unwrap().try_into_ndarray::<f32>().unwrap();
+    let mut b_result_array = result_buffers
+        .pop()
+        .unwrap()
+        .try_into_ndarray::<f32>()
+        .unwrap();
     let expected_data: Vec<f32> = vec![6.0, 120.0];
     let expected_array = ArrayD::from_shape_vec(output_shape, expected_data).unwrap();
 
@@ -688,7 +736,11 @@ fn test_c_backend_e2e_cumulative_sum() {
     let mut result_buffers = kernel.call(vec![a_buffer, b_buffer], &[]);
 
     // 5. Verify results
-    let mut b_result_array = result_buffers.pop().unwrap().try_into_ndarray::<f32>().unwrap();
+    let mut b_result_array = result_buffers
+        .pop()
+        .unwrap()
+        .try_into_ndarray::<f32>()
+        .unwrap();
     let expected_data: Vec<f32> = vec![1.0, 3.0, 6.0, 4.0, 9.0, 15.0];
     let expected_array = ArrayD::from_shape_vec(shape, expected_data).unwrap();
 
@@ -728,7 +780,11 @@ fn test_c_backend_e2e_slice() {
     let mut result_buffers = kernel.call(vec![a_buffer, c_buffer], &[]);
 
     // 5. Verify results
-    let mut c_result_array = result_buffers.pop().unwrap().try_into_ndarray::<f32>().unwrap();
+    let mut c_result_array = result_buffers
+        .pop()
+        .unwrap()
+        .try_into_ndarray::<f32>()
+        .unwrap();
 
     // Manually slice and apply sin
     let a_ndarray = ArrayD::from_shape_vec(input_shape, a_data).unwrap();
@@ -765,7 +821,11 @@ fn test_cbackend_call_simple_add() {
     let mut result_buffers = backend.call(graph, vec![a_buffer, b_buffer], vec![]);
 
     // 4. Verify results
-    let mut result_array = result_buffers.pop().unwrap().try_into_ndarray::<f32>().unwrap();
+    let mut result_array = result_buffers
+        .pop()
+        .unwrap()
+        .try_into_ndarray::<f32>()
+        .unwrap();
 
     let expected_data: Vec<f32> = a_data
         .iter()
@@ -809,13 +869,21 @@ fn test_c_backend_e2e_multiple_outputs() {
 
     // Verify the first output (c = a + b)
     let mut c_result_array = result_buffers[0].try_into_ndarray::<f32>().unwrap();
-    let c_expected_data: Vec<f32> = a_data.iter().zip(b_data.iter()).map(|(x, y)| x + y).collect();
+    let c_expected_data: Vec<f32> = a_data
+        .iter()
+        .zip(b_data.iter())
+        .map(|(x, y)| x + y)
+        .collect();
     let c_expected_array = ArrayD::from_shape_vec(shape.clone(), c_expected_data).unwrap();
     assert_eq!(c_result_array, c_expected_array);
 
     // Verify the second output (d = a - b)
     let mut d_result_array = result_buffers[1].try_into_ndarray::<f32>().unwrap();
-    let d_expected_data: Vec<f32> = a_data.iter().zip(b_data.iter()).map(|(x, y)| x - y).collect();
+    let d_expected_data: Vec<f32> = a_data
+        .iter()
+        .zip(b_data.iter())
+        .map(|(x, y)| x - y)
+        .collect();
     let d_expected_array = ArrayD::from_shape_vec(shape, d_expected_data).unwrap();
     assert_eq!(d_result_array, d_expected_array);
 }
