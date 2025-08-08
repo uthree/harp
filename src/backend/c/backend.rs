@@ -25,7 +25,8 @@ impl Backend<CBuffer> for CBackend {
         graph: Graph,
         buffers: Vec<CBuffer>,
         shape_variables: Vec<usize>,
-    ) -> CBuffer {
+    ) -> Vec<CBuffer> {
+        log::info!("CBackend::call with graph: {:?}", graph);
         let key = format!("{graph:?}");
         // 1. Get the kernel from cache or compile it.
         let kernel = match self.graph_cache.entry(key) {
@@ -52,6 +53,7 @@ impl Backend<CBuffer> for CBackend {
         let details = kernel.details();
         let num_inputs = graph.inputs.borrow().len();
         let num_outputs = graph.outputs.borrow().len();
+        let num_total_buffers = details.buffers.len();
 
         assert_eq!(
             buffers.len(),
@@ -59,9 +61,11 @@ impl Backend<CBuffer> for CBackend {
             "Incorrect number of input buffers provided"
         );
 
-        let mut all_buffers = buffers;
+        let mut all_buffers: Vec<Option<CBuffer>> = (0..num_total_buffers).map(|_| None).collect();
+        for (i, buffer) in buffers.into_iter().enumerate() {
+            all_buffers[i] = Some(buffer);
+        }
 
-        // Create output buffers based on KernelDetails.
         let shape_vars_map: HashMap<String, i64> = details
             .shape_variables
             .iter()
@@ -69,29 +73,26 @@ impl Backend<CBuffer> for CBackend {
             .zip(shape_variables.iter().map(|&v| v as i64))
             .collect();
 
-        for i in num_inputs..(num_inputs + num_outputs) {
-            let buffer_info = &details.buffers[i];
-            let shape: Vec<usize> = buffer_info
-                .shape
-                .iter()
-                .map(|expr| expr.evaluate(&shape_vars_map) as usize)
-                .collect();
-            let dtype = buffer_info.dtype.clone();
-            let output_buffer = CBuffer::allocate(dtype, shape);
-            all_buffers.push(output_buffer);
+        for i in num_inputs..num_total_buffers {
+            if all_buffers[i].is_none() {
+                let buffer_info = &details.buffers[i];
+                let shape: Vec<usize> = buffer_info
+                    .shape
+                    .iter()
+                    .map(|expr| expr.evaluate(&shape_vars_map) as usize)
+                    .collect();
+                let dtype = buffer_info.dtype.clone();
+                all_buffers[i] = Some(CBuffer::allocate(dtype, shape));
+            }
         }
 
+        let final_buffers = all_buffers.into_iter().map(|b| b.unwrap()).collect();
+
         // 3. Call the kernel.
-        let mut result_buffers = kernel.call(all_buffers, &shape_variables);
+        let mut result_buffers = kernel.call(final_buffers, &shape_variables);
 
         // 4. Extract and return the output buffer(s).
-        // This backend currently assumes a single output tensor.
-        assert_eq!(
-            num_outputs, 1,
-            "CBackend only supports single output graphs"
-        );
-        assert_eq!(result_buffers.len(), num_inputs + num_outputs);
-
-        result_buffers.pop().unwrap()
+        assert_eq!(result_buffers.len(), num_total_buffers);
+        result_buffers.drain(num_inputs..num_inputs + num_outputs).collect()
     }
 }

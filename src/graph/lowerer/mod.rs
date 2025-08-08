@@ -99,53 +99,85 @@ impl<'a> Lowerer<'a> {
         let mut details = KernelDetails::default();
         let mut buffer_info_map = FxHashMap::default();
         let mut node_id_to_buffer_index = FxHashMap::default();
-
-        // 1. Identify all buffers and assign them an index.
         let mut current_buffer_idx = 0;
+
+        // 1. Assign buffer indices to all input nodes first.
+        let inputs = self.graph.inputs.borrow().clone();
+        for node_id in &inputs {
+            if self.buffer_map.contains_key(node_id) {
+                continue;
+            }
+            self.buffer_map.insert(*node_id, current_buffer_idx);
+            node_id_to_buffer_index.insert(*node_id, current_buffer_idx);
+            let node = &self.graph.nodes.borrow()[node_id.0];
+            buffer_info_map.insert(
+                current_buffer_idx,
+                BufferInfo {
+                    dtype: node.dtype.clone(),
+                    shape: node.shape.clone(),
+                },
+            );
+            current_buffer_idx += 1;
+        }
+
+        // 2. Assign buffer indices to all output nodes.
+        let outputs = self.graph.outputs.borrow().clone();
+        for node_id in &outputs {
+            if self.buffer_map.contains_key(node_id) {
+                continue;
+            }
+            self.buffer_map.insert(*node_id, current_buffer_idx);
+            node_id_to_buffer_index.insert(*node_id, current_buffer_idx);
+            let node = &self.graph.nodes.borrow()[node_id.0];
+            buffer_info_map.insert(
+                current_buffer_idx,
+                BufferInfo {
+                    dtype: node.dtype.clone(),
+                    shape: node.shape.clone(),
+                },
+            );
+            current_buffer_idx += 1;
+        }
+
+        // 3. Assign indices to any remaining intermediate nodes that need buffers.
         let nodes = self.graph.nodes.borrow();
         for (i, node) in nodes.iter().enumerate() {
             let node_id = NodeId(i);
-            // Only allocate buffers for nodes that represent actual data storage.
-            // View operations (like Permute, Slice) don't get their own buffers.
+            if self.buffer_map.contains_key(&node_id) {
+                continue; // Already processed (input or output)
+            }
+
             match node.op {
-                GraphOp::Input
-                | GraphOp::Full(_)
+                GraphOp::Full(_)
                 | GraphOp::Rand
                 | GraphOp::Contiguous
                 | GraphOp::Elementwise(_)
                 | GraphOp::Reduce(_, _)
                 | GraphOp::Cumulative(_, _)
                 | GraphOp::FusedElementwise(_) => {
-                    if let std::collections::hash_map::Entry::Vacant(e) =
-                        self.buffer_map.entry(node_id)
-                    {
-                        e.insert(current_buffer_idx);
-                        node_id_to_buffer_index.insert(node_id, current_buffer_idx);
-                        buffer_info_map.insert(
-                            current_buffer_idx,
-                            BufferInfo {
-                                dtype: node.dtype.clone(),
-                                shape: node.shape.clone(),
-                            },
-                        );
-                        current_buffer_idx += 1;
-                    }
+                    self.buffer_map.insert(node_id, current_buffer_idx);
+                    node_id_to_buffer_index.insert(node_id, current_buffer_idx);
+                    buffer_info_map.insert(
+                        current_buffer_idx,
+                        BufferInfo {
+                            dtype: node.dtype.clone(),
+                            shape: node.shape.clone(),
+                        },
+                    );
+                    current_buffer_idx += 1;
                 }
                 _ => {} // View ops don't need a buffer
             }
         }
-
-        let outputs: Vec<_> = self.graph.outputs.borrow().clone();
 
         // Populate KernelDetails buffers in the correct order
         for i in 0..current_buffer_idx {
             details.buffers.push(buffer_info_map.remove(&i).unwrap());
         }
 
-        // Collect all unique shape variables
+        // Collect all unique shape variables from inputs and outputs
         let mut shape_vars = std::collections::HashSet::new();
-        let nodes = self.graph.nodes.borrow();
-        for &node_id in self.graph.inputs.borrow().iter().chain(outputs.iter()) {
+        for &node_id in inputs.iter().chain(outputs.iter()) {
             for expr in &nodes[node_id.0].shape {
                 expr.collect_variables(&mut shape_vars);
             }

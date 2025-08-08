@@ -109,7 +109,7 @@ pub trait Renderer<CodeRepr = String> {
 pub trait Backend<B: Buffer> {
     fn new() -> Self;
     fn is_available(&self) -> bool;
-    fn call(&mut self, graph: Graph, buffers: Vec<B>, shape_variables: Vec<usize>) -> B;
+    fn call(&mut self, graph: Graph, buffers: Vec<B>, shape_variables: Vec<usize>) -> Vec<B>;
 }
 
 // --- Submodules ---
