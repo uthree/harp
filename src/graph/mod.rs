@@ -5,14 +5,14 @@
 //! on `NodeView`s construct a graph of `NodeData` nodes, which can then be
 //! compiled and executed.
 
-pub mod graph;
+pub mod context;
 pub mod lowerer;
 pub mod node;
 pub mod op;
 pub mod shape;
 pub mod view;
 
-pub use graph::Graph;
+pub use context::Graph;
 pub use node::{NodeData, NodeId};
 pub use op::GraphOp;
 pub use view::NodeView;
