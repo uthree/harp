@@ -233,11 +233,15 @@ impl ShapeTracker {
     }
 
     pub fn slice(mut self, args: &[(Expr, Expr)]) -> Self {
-        assert_eq!(self.ndim(), args.len(), "Slice arguments must match number of dimensions");
+        assert_eq!(
+            self.ndim(),
+            args.len(),
+            "Slice arguments must match number of dimensions"
+        );
         let mut new_offset = self.offset;
         let mut new_shape = self.shape;
         for (i, (start, end)) in args.iter().enumerate() {
-            new_offset = new_offset + self.strides[i].clone() * start.clone();
+            new_offset += self.strides[i].clone() * start.clone();
             new_shape[i] = end.clone() - start.clone();
         }
         self.offset = new_offset.simplify();
@@ -255,7 +259,8 @@ mod tests {
         let tracker = ShapeTracker::new(vec![10.into(), 20.into()]);
         let loop_vars = vec!["i".to_string(), "j".to_string()];
         let offset = tracker.offset_expr(&loop_vars);
-        let expected = Expr::from(20) * Expr::from(AstNode::var("i")) + Expr::from(1) * Expr::from(AstNode::var("j"));
+        let expected = Expr::from(20) * Expr::from(AstNode::var("i"))
+            + Expr::from(1) * Expr::from(AstNode::var("j"));
         assert_eq!(offset.simplify(), expected.simplify());
     }
 

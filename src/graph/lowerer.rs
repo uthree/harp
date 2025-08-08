@@ -106,9 +106,14 @@ impl<'a> Lowerer<'a> {
             // Only allocate buffers for nodes that represent actual data storage.
             // View operations (like Permute, Slice) don't get their own buffers.
             match node.op {
-                GraphOp::Input | GraphOp::Contiguous | GraphOp::Elementwise(_) | GraphOp::Reduce(_, _) | GraphOp::Cumulative(_, _) | GraphOp::Fused(_) => {
-                    if !self.buffer_map.contains_key(&node_id) {
-                        self.buffer_map.insert(node_id, current_buffer_idx);
+                GraphOp::Input
+                | GraphOp::Contiguous
+                | GraphOp::Elementwise(_)
+                | GraphOp::Reduce(_, _)
+                | GraphOp::Cumulative(_, _)
+                | GraphOp::Fused(_) => {
+                    if let std::collections::hash_map::Entry::Vacant(e) = self.buffer_map.entry(node_id) {
+                        e.insert(current_buffer_idx);
                         node_id_to_buffer_index.insert(node_id, current_buffer_idx);
                         buffer_info_map.insert(
                             current_buffer_idx,
@@ -656,10 +661,7 @@ mod tests {
                     panic!("Expected range node, found {:?}", elementwise_ast.op);
                 }
             } else {
-                panic!(
-                    "Expected block node, found {:?}",
-                    elementwise_ast_block.op
-                );
+                panic!("Expected block node, found {:?}", elementwise_ast_block.op);
             }
         } else {
             panic!("Expected FuncDef for kernel_impl");
