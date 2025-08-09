@@ -6,6 +6,10 @@
 //! - `Compiler`: A component that compiles code into a `Kernel`.
 //! - `Renderer`: A component that translates an AST into source code.
 
+// --- Submodules ---
+pub mod c;
+
+// --- Imports ---
 use crate::{
     ast::{AstNode, DType},
     graph::{Graph, shape::expr::Expr},
@@ -112,6 +116,3 @@ pub trait Backend<B: Buffer> {
     fn is_available(&self) -> bool;
     fn call(&mut self, graph: Graph, buffers: Vec<B>, shape_variables: Vec<usize>) -> Vec<B>;
 }
-
-// --- Submodules ---
-pub mod c;
