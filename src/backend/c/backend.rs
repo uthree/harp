@@ -1,8 +1,8 @@
 use super::{CBuffer, CCompiler, CRenderer};
 use crate::{
     backend::{Backend, Buffer, Compiler, Kernel, Renderer},
-    graph::lowerer::orchestrator::LoweringOrchestrator,
     graph::Graph,
+    graph::lowerer::orchestrator::LoweringOrchestrator,
 };
 
 pub struct CBackend {

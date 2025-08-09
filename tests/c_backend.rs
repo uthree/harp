@@ -51,8 +51,7 @@ fn test_cbackend_call_simple_add() {
     let b_buffer = buffer_from_slice(&b_data, &shape, DType::F32);
 
     // 3. Call the backend
-    let inputs: Vec<Box<dyn Buffer>> =
-        vec![Box::new(a_buffer) as _, Box::new(b_buffer) as _];
+    let inputs: Vec<Box<dyn Buffer>> = vec![Box::new(a_buffer) as _, Box::new(b_buffer) as _];
     let mut result_buffers = backend.call(graph, inputs, vec![]);
 
     // 4. Verify results
@@ -100,8 +99,7 @@ fn test_c_backend_e2e_multiple_outputs() {
     let b_buffer = buffer_from_slice(&b_data, &shape, DType::F32);
 
     // 3. Call the backend
-    let inputs: Vec<Box<dyn Buffer>> =
-        vec![Box::new(a_buffer) as _, Box::new(b_buffer) as _];
+    let inputs: Vec<Box<dyn Buffer>> = vec![Box::new(a_buffer) as _, Box::new(b_buffer) as _];
     let mut result_buffers = backend.call(graph, inputs, vec![]);
 
     // 4. Verify results

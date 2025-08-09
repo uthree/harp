@@ -1,6 +1,6 @@
 use harp::{
     ast::DType,
-    backend::{c::CBackend, c::CBuffer, Backend, Buffer},
+    backend::{Backend, Buffer, c::CBackend, c::CBuffer},
     graph::Graph,
 };
 

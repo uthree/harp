@@ -1,7 +1,7 @@
 use harp::{
     ast::DType,
-    backend::{Backend, Buffer, c::CBackend},
     backend::c::CBuffer,
+    backend::{Backend, Buffer, c::CBackend},
     graph::Graph,
 };
 
@@ -14,12 +14,7 @@ fn run_c_backend(graph: &Graph, inputs: Vec<CBuffer>) -> Vec<CBuffer> {
     let outputs = backend.call(graph.clone(), inputs, vec![]);
     outputs
         .into_iter()
-        .map(|b| {
-            b.as_any()
-                .downcast_ref::<CBuffer>()
-                .unwrap()
-                .clone()
-        })
+        .map(|b| b.as_any().downcast_ref::<CBuffer>().unwrap().clone())
         .collect()
 }
 
