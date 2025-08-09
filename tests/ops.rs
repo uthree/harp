@@ -1,13 +1,26 @@
 use harp::{
     ast::DType,
-    backend::{Backend, c::CBackend},
-    cbuffer::CBuffer,
+    backend::{Backend, Buffer, c::CBackend},
+    backend::c::CBuffer,
     graph::Graph,
 };
 
 fn run_c_backend(graph: &Graph, inputs: Vec<CBuffer>) -> Vec<CBuffer> {
     let mut backend = CBackend::new();
-    backend.call(graph.clone(), inputs, vec![])
+    let inputs: Vec<Box<dyn Buffer>> = inputs
+        .into_iter()
+        .map(|b| Box::new(b) as Box<dyn Buffer>)
+        .collect();
+    let outputs = backend.call(graph.clone(), inputs, vec![]);
+    outputs
+        .into_iter()
+        .map(|b| {
+            b.as_any()
+                .downcast_ref::<CBuffer>()
+                .unwrap()
+                .clone()
+        })
+        .collect()
 }
 
 #[test]

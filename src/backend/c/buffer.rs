@@ -47,6 +47,14 @@ impl Clone for CBuffer {
 }
 
 impl Buffer for CBuffer {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
     fn as_bytes(&self) -> &[u8] {
         let byte_size = self.shape.iter().product::<usize>() * self.dtype.size_in_bytes();
         unsafe { std::slice::from_raw_parts(self.ptr as *const u8, byte_size) }

@@ -15,7 +15,7 @@ use crate::{
     graph::{Graph, shape::expr::Expr},
 };
 use ndarray::ArrayD;
-use std::any::TypeId;
+use std::any::{Any, TypeId};
 
 // --- Core Data Structures ---
 
@@ -40,7 +40,13 @@ pub struct KernelDetails {
 /// A trait for a generic buffer that can be passed to a kernel.
 /// This trait is object-safe.
 /// should be free when dropped.
-pub trait Buffer {
+pub trait Buffer: 'static {
+    /// Provides a way to downcast the buffer to a concrete type.
+    fn as_any(&self) -> &dyn Any;
+
+    /// Provides a way to downcast the buffer to a concrete type.
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+
     /// Returns a slice of the buffer's raw data as bytes.
     fn as_bytes(&self) -> &[u8];
 
@@ -111,8 +117,15 @@ pub trait Renderer<CodeRepr = String> {
     fn render(&mut self, ast: AstNode) -> CodeRepr;
 }
 
-pub trait Backend<B: Buffer> {
-    fn new() -> Self;
+pub trait Backend {
+    fn new() -> Self
+    where
+        Self: Sized;
     fn is_available(&self) -> bool;
-    fn call(&mut self, graph: Graph, buffers: Vec<B>, shape_variables: Vec<usize>) -> Vec<B>;
+    fn call(
+        &mut self,
+        graph: Graph,
+        buffers: Vec<Box<dyn Buffer>>,
+        shape_variables: Vec<usize>,
+    ) -> Vec<Box<dyn Buffer>>;
 }
