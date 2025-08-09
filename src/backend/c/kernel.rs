@@ -24,7 +24,7 @@ impl Kernel<CBuffer> for CKernel {
         &self.details
     }
 
-    fn call(&self, mut buffers: Vec<CBuffer>, shape_variables: &[usize]) -> Vec<CBuffer> {
+    fn call(&mut self, mut buffers: Vec<CBuffer>, shape_variables: &[usize]) -> Vec<CBuffer> {
         // 1. Validate the incoming buffers against the kernel's details.
         assert_eq!(
             buffers.len(),

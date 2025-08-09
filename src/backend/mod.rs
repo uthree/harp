@@ -36,7 +36,7 @@ pub struct KernelDetails {
 /// A trait for a generic buffer that can be passed to a kernel.
 /// This trait is object-safe.
 /// should be free when dropped.
-pub trait Buffer: Sized {
+pub trait Buffer {
     /// Returns a slice of the buffer's raw data as bytes.
     fn as_bytes(&self) -> &[u8];
 
@@ -48,8 +48,6 @@ pub trait Buffer: Sized {
 
     /// 形状を返す。Bufferとして実態を持っている時点でサイズは確定しているので、Exprではない。
     fn shape(&self) -> Vec<usize>;
-
-    fn allocate(dtype: DType, shape: Vec<usize>) -> Self;
 }
 
 /// An extension trait for `Buffer` providing `ndarray` conversion.
@@ -91,7 +89,7 @@ pub trait Kernel<B: Buffer> {
     fn details(&self) -> &KernelDetails;
 
     /// Executes the kernel with the given buffers and shape variables.
-    fn call(&self, buffers: Vec<B>, shape_variables: &[usize]) -> Vec<B>;
+    fn call(&mut self, buffers: Vec<B>, shape_variables: &[usize]) -> Vec<B>;
 }
 
 /// A trait for a compiler that turns a code representation into a `Kernel`.

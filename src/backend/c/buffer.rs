@@ -14,6 +14,15 @@ pub struct CBuffer {
 }
 
 impl CBuffer {
+    pub fn allocate(dtype: DType, shape: Vec<usize>) -> Self {
+        let byte_size = shape.iter().product::<usize>() * dtype.size_in_bytes();
+        let ptr = unsafe { libc::malloc(byte_size) };
+        if ptr.is_null() {
+            panic!("Failed to allocate memory for CBuffer");
+        }
+        CBuffer { ptr, shape, dtype }
+    }
+
     pub fn from_slice<T: Clone + 'static>(data: &[T]) -> Self {
         let dtype = DType::from_type::<T>();
         let shape = vec![data.len()];
@@ -54,15 +63,6 @@ impl Buffer for CBuffer {
 
     fn shape(&self) -> Vec<usize> {
         self.shape.clone()
-    }
-
-    fn allocate(dtype: DType, shape: Vec<usize>) -> Self {
-        let byte_size = shape.iter().product::<usize>() * dtype.size_in_bytes();
-        let ptr = unsafe { libc::malloc(byte_size) };
-        if ptr.is_null() {
-            panic!("Failed to allocate memory for CBuffer");
-        }
-        CBuffer { ptr, shape, dtype }
     }
 }
 

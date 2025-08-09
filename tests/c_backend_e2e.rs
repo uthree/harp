@@ -64,7 +64,7 @@ fn test_c_backend_e2e_add() {
     let code = renderer.render(ast);
 
     // 3. Compile
-    let kernel = compiler.compile(&code, details);
+    let mut kernel = compiler.compile(&code, details);
 
     // 4. Prepare data and call kernel
     let a_data: Vec<f32> = (0..10).map(|i| i as f32).collect();

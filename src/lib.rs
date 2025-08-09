@@ -1,8 +1,8 @@
 pub mod ast;
 pub mod backend;
-pub mod frontend;
 pub mod graph;
 pub mod opt;
+pub mod tensor;
 
 pub mod cbuffer {
     pub use crate::backend::c::buffer::CBuffer;

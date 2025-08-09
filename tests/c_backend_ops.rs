@@ -63,7 +63,7 @@ fn test_c_backend_e2e_neg() {
     let code = renderer.render(ast);
 
     // 3. Compile
-    let kernel = compiler.compile(&code, details);
+    let mut kernel = compiler.compile(&code, details);
 
     // 4. Prepare data and call kernel
     let a_data: Vec<f32> = (0..10).map(|i| i as f32).collect();
@@ -108,7 +108,7 @@ fn test_c_backend_e2e_rem() {
     let code = renderer.render(ast);
 
     // 3. Compile
-    let kernel = compiler.compile(&code, details);
+    let mut kernel = compiler.compile(&code, details);
 
     // 4. Prepare data and call kernel
     let a_data: Vec<f32> = (0..10).map(|i| (i * 2) as f32).collect();
@@ -160,7 +160,7 @@ fn test_c_backend_e2e_lt() {
     let code = renderer.render(ast);
 
     // 3. Compile
-    let kernel = compiler.compile(&code, details);
+    let mut kernel = compiler.compile(&code, details);
 
     // 4. Prepare data and call kernel
     let a_data: Vec<f32> = (0..10).map(|i| i as f32).collect();
@@ -211,7 +211,7 @@ fn test_c_backend_e2e_sin() {
     let code = renderer.render(ast);
 
     // 3. Compile
-    let kernel = compiler.compile(&code, details);
+    let mut kernel = compiler.compile(&code, details);
 
     // 4. Prepare data and call kernel
     let a_data: Vec<f32> = (0..10).map(|i| i as f32).collect();
@@ -251,7 +251,7 @@ fn test_c_backend_e2e_sqrt() {
     let (ast, details) = lowerer.lower();
     let mut renderer = CRenderer::new();
     let code = renderer.render(ast);
-    let kernel = compiler.compile(&code, details);
+    let mut kernel = compiler.compile(&code, details);
 
     let a_data: Vec<f32> = (0..10).map(|i| (i * i) as f32).collect();
     let a_buffer = buffer_from_slice(&a_data, &shape, DType::F32);
@@ -287,7 +287,7 @@ fn test_c_backend_e2e_log2() {
     let (ast, details) = lowerer.lower();
     let mut renderer = CRenderer::new();
     let code = renderer.render(ast);
-    let kernel = compiler.compile(&code, details);
+    let mut kernel = compiler.compile(&code, details);
 
     let a_data: Vec<f32> = (1..11).map(|i| i as f32).collect();
     let a_buffer = buffer_from_slice(&a_data, &shape, DType::F32);
@@ -323,7 +323,7 @@ fn test_c_backend_e2e_exp2() {
     let (ast, details) = lowerer.lower();
     let mut renderer = CRenderer::new();
     let code = renderer.render(ast);
-    let kernel = compiler.compile(&code, details);
+    let mut kernel = compiler.compile(&code, details);
 
     let a_data: Vec<f32> = (0..10).map(|i| i as f32).collect();
     let a_buffer = buffer_from_slice(&a_data, &shape, DType::F32);
@@ -359,7 +359,7 @@ fn test_c_backend_e2e_recip() {
     let (ast, details) = lowerer.lower();
     let mut renderer = CRenderer::new();
     let code = renderer.render(ast);
-    let kernel = compiler.compile(&code, details);
+    let mut kernel = compiler.compile(&code, details);
 
     let a_data: Vec<f32> = (1..11).map(|i| i as f32).collect();
     let a_buffer = buffer_from_slice(&a_data, &shape, DType::F32);
@@ -400,7 +400,7 @@ fn test_c_backend_e2e_reduce_sum() {
     let code = renderer.render(ast);
 
     // 3. Compile
-    let kernel = compiler.compile(&code, details);
+    let mut kernel = compiler.compile(&code, details);
 
     // 4. Prepare data and call kernel
     let a_data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
@@ -439,7 +439,7 @@ fn test_c_backend_e2e_reduce_max() {
     let (ast, details) = lowerer.lower();
     let mut renderer = CRenderer::new();
     let code = renderer.render(ast);
-    let kernel = compiler.compile(&code, details);
+    let mut kernel = compiler.compile(&code, details);
 
     let a_data: Vec<f32> = vec![1.0, 5.0, 2.0, 8.0, 3.0, 4.0];
     let a_buffer = buffer_from_slice(&a_data, &input_shape, DType::F32);
@@ -476,7 +476,7 @@ fn test_c_backend_e2e_reduce_prod() {
     let (ast, details) = lowerer.lower();
     let mut renderer = CRenderer::new();
     let code = renderer.render(ast);
-    let kernel = compiler.compile(&code, details);
+    let mut kernel = compiler.compile(&code, details);
 
     let a_data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
     let a_buffer = buffer_from_slice(&a_data, &input_shape, DType::F32);
@@ -516,7 +516,7 @@ fn test_c_backend_e2e_cumulative_sum() {
     let code = renderer.render(ast);
 
     // 3. Compile
-    let kernel = compiler.compile(&code, details);
+    let mut kernel = compiler.compile(&code, details);
 
     // 4. Prepare data and call kernel
     let a_data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
@@ -560,7 +560,7 @@ fn test_c_backend_e2e_slice() {
     let code = renderer.render(ast);
 
     // 3. Compile
-    let kernel = compiler.compile(&code, details);
+    let mut kernel = compiler.compile(&code, details);
 
     // 4. Prepare data and call kernel
     let a_data: Vec<f32> = (0..20).map(|i| i as f32).collect();

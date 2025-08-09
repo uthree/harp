@@ -35,7 +35,7 @@ impl Backend<CBuffer> for CBackend {
         let code = self.renderer.render(ast);
 
         // 3. Compile the C code into a kernel.
-        let kernel = self.compiler.compile(&code, details);
+        let mut kernel = self.compiler.compile(&code, details);
 
         // 4. Prepare buffers for the kernel call.
         let num_inputs = inputs.len();
