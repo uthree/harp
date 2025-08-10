@@ -16,13 +16,22 @@ pub enum TensorBackend {
     C(Rc<RefCell<CBackend>>),
 }
 
+impl Clone for TensorBackend {
+    fn clone(&self) -> Self {
+        match self {
+            TensorBackend::C(backend) => TensorBackend::C(backend.clone()),
+        }
+    }
+}
+
 pub enum TensorOp {
     Rand(Shape),
-    Add(Tensor, Tensor),
+    Add,
 }
 
 pub struct TensorData {
     op: TensorOp,
+    src: Vec<Tensor>,
     grad: Option<Tensor>,
     requires_grad: bool,
     backend: TensorBackend,
@@ -30,15 +39,44 @@ pub struct TensorData {
 
 pub type Shape = Vec<usize>;
 
+#[derive(Clone)]
 pub struct Tensor(Rc<RefCell<TensorData>>);
 
 impl Tensor {
     pub fn rand(shape: Shape) -> Self {
         TensorData {
             op: TensorOp::Rand(shape),
+            src: vec![],
             grad: None,
             requires_grad: false,
             backend: backend("c"),
+        }
+        .into()
+    }
+}
+
+impl PartialEq for TensorBackend {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (TensorBackend::C(a), TensorBackend::C(b)) => Rc::ptr_eq(a, b),
+        }
+    }
+}
+
+impl std::ops::Add for Tensor {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self::Output {
+        let self_backend = &self.0.borrow().backend;
+        let rhs_backend = &rhs.0.borrow().backend;
+        if self_backend != rhs_backend {
+            panic!("Backends of tensors do not match");
+        }
+        TensorData {
+            op: TensorOp::Add,
+            src: vec![self.clone(), rhs.clone()],
+            grad: None,
+            requires_grad: false,
+            backend: self.0.borrow().backend.clone(),
         }
         .into()
     }
