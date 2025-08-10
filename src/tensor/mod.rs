@@ -5,8 +5,8 @@
 //! method is called. This allows for graph-level optimizations before execution.
 
 use crate::ast::DType;
-use crate::backend::c::CBackend;
 use crate::backend::Backend;
+use crate::backend::c::CBackend;
 use crate::cbuffer::CBuffer;
 use crate::graph::Graph;
 use std::cell::RefCell;
@@ -125,21 +125,27 @@ impl Tensor {
             .iter()
             .map(|s| {
                 let s_data = s.0.borrow();
-                graph.input(s_data.dtype.clone(), s_data.shape.iter().map(|d| (*d).into()).collect())
+                graph.input(
+                    s_data.dtype.clone(),
+                    s_data.shape.iter().map(|d| (*d).into()).collect(),
+                )
             })
             .collect();
 
         let op = match data.op.clone() {
-            TensorOp::Rand => {
-                graph.rand(data.dtype.clone(), data.shape.iter().map(|d| (*d).into()).collect())
-            }
-            TensorOp::Add => srcs[0].clone() + srcs[1].clone(),
+            TensorOp::Rand => graph.rand(
+                data.dtype.clone(),
+                data.shape.iter().map(|d| (*d).into()).collect(),
+            ),
+            TensorOp::Add => srcs[0] + srcs[1],
         };
 
         op.as_output();
 
         let result_buffer = match data.backend.clone() {
-            TensorBackend::C(b) => TensorBuffer::C(b.borrow_mut().run(&graph).into_iter().last().unwrap()),
+            TensorBackend::C(b) => {
+                TensorBuffer::C(b.borrow_mut().run(&graph).into_iter().last().unwrap())
+            }
         };
 
         drop(data);
