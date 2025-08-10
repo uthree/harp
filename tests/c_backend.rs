@@ -2,7 +2,7 @@
 
 use harp::ast::DType;
 use harp::backend::c::{CBackend, CBuffer};
-use harp::backend::{Backend, Buffer, TryIntoNdarray};
+use harp::backend::{Backend, TryIntoNdarray};
 use harp::graph::Graph;
 use ndarray::ArrayD;
 use std::ffi::c_void;
@@ -51,15 +51,12 @@ fn test_cbackend_call_simple_add() {
     let b_buffer = buffer_from_slice(&b_data, &shape, DType::F32);
 
     // 3. Call the backend
-    let inputs: Vec<Box<dyn Buffer>> = vec![Box::new(a_buffer) as _, Box::new(b_buffer) as _];
+    let inputs = vec![a_buffer, b_buffer];
     let mut result_buffers = backend.call(graph, inputs, vec![]);
 
     // 4. Verify results
     let result_array = result_buffers
         .pop()
-        .unwrap()
-        .as_any_mut()
-        .downcast_mut::<CBuffer>()
         .unwrap()
         .try_into_ndarray::<f32>()
         .unwrap();
@@ -99,19 +96,14 @@ fn test_c_backend_e2e_multiple_outputs() {
     let b_buffer = buffer_from_slice(&b_data, &shape, DType::F32);
 
     // 3. Call the backend
-    let inputs: Vec<Box<dyn Buffer>> = vec![Box::new(a_buffer) as _, Box::new(b_buffer) as _];
+    let inputs = vec![a_buffer, b_buffer];
     let mut result_buffers = backend.call(graph, inputs, vec![]);
 
     // 4. Verify results
     assert_eq!(result_buffers.len(), 2);
 
     // Verify the first output (c = a + b)
-    let c_result_array = result_buffers[0]
-        .as_any_mut()
-        .downcast_mut::<CBuffer>()
-        .unwrap()
-        .try_into_ndarray::<f32>()
-        .unwrap();
+    let c_result_array = result_buffers[0].try_into_ndarray::<f32>().unwrap();
     let c_expected_data: Vec<f32> = a_data
         .iter()
         .zip(b_data.iter())
@@ -121,12 +113,7 @@ fn test_c_backend_e2e_multiple_outputs() {
     assert_eq!(c_result_array, c_expected_array);
 
     // Verify the second output (d = a - b)
-    let d_result_array = result_buffers[1]
-        .as_any_mut()
-        .downcast_mut::<CBuffer>()
-        .unwrap()
-        .try_into_ndarray::<f32>()
-        .unwrap();
+    let d_result_array = result_buffers[1].try_into_ndarray::<f32>().unwrap();
     let d_expected_data: Vec<f32> = a_data
         .iter()
         .zip(b_data.iter())

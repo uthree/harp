@@ -117,15 +117,10 @@ pub trait Renderer<CodeRepr = String> {
     fn render(&mut self, ast: AstNode) -> CodeRepr;
 }
 
-pub trait Backend {
+pub trait Backend<B: Buffer> {
     fn new() -> Self
     where
         Self: Sized;
     fn is_available(&self) -> bool;
-    fn call(
-        &mut self,
-        graph: Graph,
-        buffers: Vec<Box<dyn Buffer>>,
-        shape_variables: Vec<usize>,
-    ) -> Vec<Box<dyn Buffer>>;
+    fn call(&mut self, graph: Graph, buffers: Vec<B>, shape_variables: Vec<usize>) -> Vec<B>;
 }
