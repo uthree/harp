@@ -249,6 +249,25 @@ impl std::ops::Div for Tensor {
     }
 }
 
+macro_rules! impl_binary_op_assign {
+    ($trait:ident, $method:ident, $op_trait:ident, $op_method:ident) => {
+        impl std::ops::$trait for Tensor {
+            fn $method(&mut self, rhs: Self) {
+                // This is equivalent to `*self = *self + rhs;`
+                // It creates a new tensor from the operation and updates self to point to it.
+                let new_tensor = std::ops::$op_trait::$op_method(self.clone(), rhs);
+                self.0 = new_tensor.0;
+            }
+        }
+    };
+}
+
+impl_binary_op_assign!(AddAssign, add_assign, Add, add);
+impl_binary_op_assign!(SubAssign, sub_assign, Sub, sub);
+impl_binary_op_assign!(MulAssign, mul_assign, Mul, mul);
+impl_binary_op_assign!(DivAssign, div_assign, Div, div);
+
+
 
 impl From<TensorData> for Tensor {
     fn from(value: TensorData) -> Self {
@@ -351,5 +370,25 @@ mod tests {
         assert!(b.0.borrow().buffer.is_none());
         b.forward();
         assert!(b.0.borrow().buffer.is_some());
+    }
+
+    #[test]
+    fn test_tensor_add_assign() {
+        let mut a = Tensor::rand(vec![10, 20], DType::F32);
+        let a_original_ptr = Rc::as_ptr(&a.0);
+
+        let b = Tensor::rand(vec![10, 20], DType::F32);
+        a += b; // This should change the tensor `a` points to
+
+        let a_new_ptr = Rc::as_ptr(&a.0);
+        assert_ne!(a_original_ptr, a_new_ptr, "Tensor `a` should point to a new TensorData");
+
+        // Check that the new operation is Add
+        assert_eq!(a.0.borrow().op, TensorOp::Add);
+
+        // Check that forward pass works
+        assert!(a.0.borrow().buffer.is_none());
+        a.forward();
+        assert!(a.0.borrow().buffer.is_some());
     }
 }
