@@ -122,5 +122,6 @@ pub trait Backend<B: Buffer> {
     where
         Self: Sized;
     fn is_available(&self) -> bool;
+    fn run(&self, graph: &Graph) -> B;
     fn call(&mut self, graph: Graph, buffers: Vec<B>, shape_variables: Vec<usize>) -> Vec<B>;
 }
