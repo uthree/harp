@@ -38,12 +38,20 @@ impl PartialEq for TensorBackend {
 }
 
 /// Defines the types of operations that can create a `Tensor`.
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum TensorOp {
     /// Represents an operation that creates a tensor with random values.
     Rand,
     /// Represents an element-wise addition operation.
     Add,
+    /// Represents an element-wise subtraction operation.
+    Sub,
+    /// Represents an element-wise multiplication operation.
+    Mul,
+    /// Represents an element-wise negation operation.
+    Neg,
+    /// Represents an element-wise reciprocal operation.
+    Recip,
 }
 
 /// Contains the internal data and metadata for a `Tensor`.
@@ -137,7 +145,11 @@ impl Tensor {
                 data.dtype.clone(),
                 data.shape.iter().map(|d| (*d).into()).collect(),
             ),
-            TensorOp::Add => srcs[0] + srcs[1],
+            TensorOp::Add => srcs[0].clone() + srcs[1].clone(),
+            TensorOp::Sub => srcs[0].clone() - srcs[1].clone(),
+            TensorOp::Mul => srcs[0].clone() * srcs[1].clone(),
+            TensorOp::Neg => -srcs[0].clone(),
+            TensorOp::Recip => srcs[0].clone().recip(),
         };
 
         op.as_output();
@@ -151,33 +163,12 @@ impl Tensor {
         drop(data);
         self.0.borrow_mut().buffer = Some(result_buffer);
     }
-}
-
-impl std::ops::Add for Tensor {
-    type Output = Self;
-
-    /// Adds two tensors.
-    ///
-    /// This operation is lazy and only builds the computation graph. The actual
-    /// computation is performed when `forward()` is called on the resulting tensor.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the backends or data types of the two tensors do not match.
-    fn add(self, rhs: Self) -> Self::Output {
-        let self_backend = &self.0.borrow().backend;
-        let rhs_backend = &rhs.0.borrow().backend;
-        if self_backend != rhs_backend {
-            panic!("Backends of tensors do not match");
-        }
-        if self.0.borrow().dtype != rhs.0.borrow().dtype {
-            panic!("Dtypes of tensors do not match");
-        }
+    pub fn recip(self) -> Self {
         let shape = self.0.borrow().shape.clone();
         let dtype = self.0.borrow().dtype.clone();
         TensorData {
-            op: TensorOp::Add,
-            src: vec![self.clone(), rhs.clone()],
+            op: TensorOp::Recip,
+            src: vec![self.clone()],
             shape,
             dtype,
             buffer: None,
@@ -188,6 +179,76 @@ impl std::ops::Add for Tensor {
         .into()
     }
 }
+
+macro_rules! impl_binary_op {
+    ($trait:ident, $method:ident, $op:expr) => {
+        impl std::ops::$trait for Tensor {
+            type Output = Self;
+
+            fn $method(self, rhs: Self) -> Self::Output {
+                let self_backend = &self.0.borrow().backend;
+                let rhs_backend = &rhs.0.borrow().backend;
+                if self_backend != rhs_backend {
+                    panic!("Backends of tensors do not match");
+                }
+                if self.0.borrow().dtype != rhs.0.borrow().dtype {
+                    panic!("Dtypes of tensors do not match");
+                }
+                let shape = self.0.borrow().shape.clone();
+                let dtype = self.0.borrow().dtype.clone();
+                TensorData {
+                    op: $op,
+                    src: vec![self.clone(), rhs.clone()],
+                    shape,
+                    dtype,
+                    buffer: None,
+                    grad: None,
+                    requires_grad: false,
+                    backend: self.0.borrow().backend.clone(),
+                }
+                .into()
+            }
+        }
+    };
+}
+
+macro_rules! impl_unary_op {
+    ($trait:ident, $method:ident, $op:expr) => {
+        impl std::ops::$trait for Tensor {
+            type Output = Self;
+
+            fn $method(self) -> Self::Output {
+                let shape = self.0.borrow().shape.clone();
+                let dtype = self.0.borrow().dtype.clone();
+                TensorData {
+                    op: $op,
+                    src: vec![self.clone()],
+                    shape,
+                    dtype,
+                    buffer: None,
+                    grad: None,
+                    requires_grad: false,
+                    backend: self.0.borrow().backend.clone(),
+                }
+                .into()
+            }
+        }
+    };
+}
+
+impl_binary_op!(Add, add, TensorOp::Add);
+impl_binary_op!(Sub, sub, TensorOp::Sub);
+impl_binary_op!(Mul, mul, TensorOp::Mul);
+impl_unary_op!(Neg, neg, TensorOp::Neg);
+
+impl std::ops::Div for Tensor {
+    type Output = Self;
+
+    fn div(self, rhs: Self) -> Self::Output {
+        self * rhs.recip()
+    }
+}
+
 
 impl From<TensorData> for Tensor {
     fn from(value: TensorData) -> Self {
@@ -251,5 +312,44 @@ mod tests {
         assert!(a.0.borrow().buffer.is_some());
         assert!(b.0.borrow().buffer.is_some());
         assert!(c.0.borrow().buffer.is_some());
+    }
+
+    #[test]
+    fn test_tensor_sub_forward() {
+        let a = Tensor::rand(vec![10, 20], DType::F32);
+        let b = Tensor::rand(vec![10, 20], DType::F32);
+        let c = a - b;
+        assert!(c.0.borrow().buffer.is_none());
+        c.forward();
+        assert!(c.0.borrow().buffer.is_some());
+    }
+
+    #[test]
+    fn test_tensor_mul_forward() {
+        let a = Tensor::rand(vec![10, 20], DType::F32);
+        let b = Tensor::rand(vec![10, 20], DType::F32);
+        let c = a * b;
+        assert!(c.0.borrow().buffer.is_none());
+        c.forward();
+        assert!(c.0.borrow().buffer.is_some());
+    }
+
+    #[test]
+    fn test_tensor_div_forward() {
+        let a = Tensor::rand(vec![10, 20], DType::F32);
+        let b = Tensor::rand(vec![10, 20], DType::F32);
+        let c = a / b;
+        assert!(c.0.borrow().buffer.is_none());
+        c.forward();
+        assert!(c.0.borrow().buffer.is_some());
+    }
+
+    #[test]
+    fn test_tensor_neg_forward() {
+        let a = Tensor::rand(vec![10, 20], DType::F32);
+        let b = -a;
+        assert!(b.0.borrow().buffer.is_none());
+        b.forward();
+        assert!(b.0.borrow().buffer.is_some());
     }
 }
