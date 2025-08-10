@@ -224,6 +224,12 @@ impl<'a> NodeView<'a> {
         self.graph.get_view(new_id)
     }
 
+    /// Applies the element-wise cosine function.
+    pub fn cos(self) -> NodeView<'a> {
+        let new_id = self.graph.cos(self.id);
+        self.graph.get_view(new_id)
+    }
+
     /// Applies the element-wise square root function.
     pub fn sqrt(self) -> NodeView<'a> {
         let new_id = self.graph.sqrt(self.id);

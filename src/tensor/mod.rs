@@ -48,6 +48,10 @@ pub enum TensorOp {
     Mul,
     Neg,
     Recip,
+    Sin,
+    Exp2,
+    Log2,
+    Sqrt,
 }
 
 /// Contains the internal data and metadata for a `Tensor`.
@@ -140,9 +144,13 @@ impl Tensor {
             }
             TensorOp::Add => srcs[0] + srcs[1],
             TensorOp::Sub => srcs[0] - srcs[1],
-            TensorOp::Mul => srcs[0] * srcs[1],
-            TensorOp::Neg => -srcs[0],
-            TensorOp::Recip => srcs[0].recip(),
+            TensorOp::Mul => srcs[0].clone() * srcs[1].clone(),
+            TensorOp::Neg => -srcs[0].clone(),
+            TensorOp::Recip => srcs[0].clone().recip(),
+            TensorOp::Sin => srcs[0].clone().sin(),
+            TensorOp::Exp2 => srcs[0].clone().exp2(),
+            TensorOp::Log2 => srcs[0].clone().log2(),
+            TensorOp::Sqrt => srcs[0].clone().sqrt(),
         };
 
         op.as_output();
@@ -232,6 +240,26 @@ impl Tensor {
                 let recip_a = a.recip();
                 vec![-grad * recip_a.clone() * recip_a]
             }
+            TensorOp::Sin => {
+                let a = srcs[0].clone();
+                vec![grad * a.cos()]
+            }
+            TensorOp::Exp2 => {
+                // d/dx(2^x) = 2^x * ln(2)
+                let ln_2 = Tensor::full(grad.0.borrow().shape.clone(), grad.0.borrow().dtype.clone(), (2.0f32).ln().into(), false);
+                vec![grad * self.clone() * ln_2]
+            }
+            TensorOp::Log2 => {
+                // d/dx(log2(x)) = 1 / (x * ln(2))
+                let a = srcs[0].clone();
+                let ln_2 = Tensor::full(grad.0.borrow().shape.clone(), grad.0.borrow().dtype.clone(), (2.0f32).ln().into(), false);
+                vec![grad * (a * ln_2).recip()]
+            }
+            TensorOp::Sqrt => {
+                // d/dx(sqrt(x)) = 1 / (2 * sqrt(x))
+                let two = Tensor::full(grad.0.borrow().shape.clone(), grad.0.borrow().dtype.clone(), 2.0.into(), false);
+                vec![grad * (two * self.clone()).recip()]
+            }
             _ => vec![],
         }
     }
@@ -265,6 +293,84 @@ impl Tensor {
         }
         .into()
     }
+
+    pub fn sin(self) -> Self {
+        let requires_grad = self.0.borrow().requires_grad;
+        let shape = self.0.borrow().shape.clone();
+        let dtype = self.0.borrow().dtype.clone();
+        TensorData {
+            op: TensorOp::Sin,
+            src: vec![self.clone()],
+            shape,
+            dtype,
+            buffer: None,
+            grad: None,
+            requires_grad,
+            backend: self.0.borrow().backend.clone(),
+        }
+        .into()
+    }
+
+    pub fn cos(self) -> Self {
+        let pi_over_2 = Tensor::full(
+            self.0.borrow().shape.clone(),
+            self.0.borrow().dtype.clone(),
+            (std::f32::consts::PI / 2.0).into(),
+            false,
+        );
+        (self + pi_over_2).sin()
+    }
+
+    pub fn exp2(self) -> Self {
+        let requires_grad = self.0.borrow().requires_grad;
+        let shape = self.0.borrow().shape.clone();
+        let dtype = self.0.borrow().dtype.clone();
+        TensorData {
+            op: TensorOp::Exp2,
+            src: vec![self.clone()],
+            shape,
+            dtype,
+            buffer: None,
+            grad: None,
+            requires_grad,
+            backend: self.0.borrow().backend.clone(),
+        }
+        .into()
+    }
+
+    pub fn log2(self) -> Self {
+        let requires_grad = self.0.borrow().requires_grad;
+        let shape = self.0.borrow().shape.clone();
+        let dtype = self.0.borrow().dtype.clone();
+        TensorData {
+            op: TensorOp::Log2,
+            src: vec![self.clone()],
+            shape,
+            dtype,
+            buffer: None,
+            grad: None,
+            requires_grad,
+            backend: self.0.borrow().backend.clone(),
+        }
+        .into()
+    }
+
+    pub fn sqrt(self) -> Self {
+        let requires_grad = self.0.borrow().requires_grad;
+        let shape = self.0.borrow().shape.clone();
+        let dtype = self.0.borrow().dtype.clone();
+        TensorData {
+            op: TensorOp::Sqrt,
+            src: vec![self.clone()],
+            shape,
+            dtype,
+            buffer: None,
+            grad: None,
+            requires_grad,
+            backend: self.0.borrow().backend.clone(),
+        }
+        .into()
+    }
 }
 
 macro_rules! impl_binary_op {
@@ -273,6 +379,14 @@ macro_rules! impl_binary_op {
             type Output = Self;
 
             fn $method(self, rhs: Self) -> Self::Output {
+                if self.0.borrow().shape != rhs.0.borrow().shape {
+                    panic!(
+                        "Shape mismatch for op {:?}: {:?} vs {:?}",
+                        $op,
+                        self.0.borrow().shape,
+                        rhs.0.borrow().shape
+                    );
+                }
                 let self_backend = &self.0.borrow().backend;
                 let rhs_backend = &rhs.0.borrow().backend;
                 if self_backend != rhs_backend {
@@ -494,5 +608,27 @@ mod tests {
         assert!(a.0.borrow().grad.is_some());
         assert!(b.0.borrow().grad.is_some());
         assert!(c.0.borrow().grad.is_some());
+    }
+
+    #[test]
+    fn test_math_functions_forward() {
+        let a = Tensor::ones(vec![10, 20], DType::F32, false);
+        let b = a.sin();
+        b.forward();
+        assert!(b.0.borrow().buffer.is_some());
+
+        // Chaining operations
+        let c = Tensor::ones(vec![10, 20], DType::F32, false);
+        let d = c.cos().sqrt().exp2().log2();
+        d.forward();
+        assert!(d.0.borrow().buffer.is_some());
+    }
+
+    #[test]
+    #[should_panic(expected = "Shape mismatch for op")]
+    fn test_add_shape_mismatch_panics() {
+        let a = Tensor::ones(vec![10, 20], DType::F32, false);
+        let b = Tensor::ones(vec![20, 10], DType::F32, false);
+        let _ = a + b;
     }
 }

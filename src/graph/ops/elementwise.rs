@@ -12,6 +12,7 @@ pub trait ElementwiseOps {
     fn lt(&self, lhs: NodeId, rhs: NodeId) -> NodeId;
     fn neg(&self, src: NodeId) -> NodeId;
     fn sin(&self, src: NodeId) -> NodeId;
+    fn cos(&self, src: NodeId) -> NodeId;
     fn sqrt(&self, src: NodeId) -> NodeId;
     fn log2(&self, src: NodeId) -> NodeId;
     fn exp2(&self, src: NodeId) -> NodeId;
@@ -167,6 +168,15 @@ impl ElementwiseOps for Graph {
             (src_node.dtype.clone(), src_node.shape.clone())
         };
         self.add_node(GraphOp::Elementwise(AstOp::Sin), vec![src], dtype, shape)
+    }
+
+    fn cos(&self, src: NodeId) -> NodeId {
+        let (dtype, shape) = {
+            let nodes = self.nodes.borrow();
+            let src_node = &nodes[src.0];
+            (src_node.dtype.clone(), src_node.shape.clone())
+        };
+        self.add_node(GraphOp::Elementwise(AstOp::Cos), vec![src], dtype, shape)
     }
 
     fn sqrt(&self, src: NodeId) -> NodeId {
