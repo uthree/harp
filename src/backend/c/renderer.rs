@@ -67,6 +67,10 @@ impl CRenderer {
                 self.writeln("}");
             }
             AstOp::Call(name) => {
+                if name == "rand" {
+                    write!(self.buffer, "rand()").unwrap();
+                    return;
+                }
                 self.write_indent();
                 write!(self.buffer, "{name}(").unwrap();
                 for (i, arg) in ast.src.iter().enumerate() {
@@ -184,7 +188,7 @@ impl CRenderer {
             Const::F32(v) if v.is_infinite() && v.is_sign_negative() => {
                 write!(self.buffer, "-INFINITY").unwrap()
             }
-            Const::F32(v) => write!(self.buffer, "{v}").unwrap(),
+            Const::F32(v) => write!(self.buffer, "{v:.7}f").unwrap(),
             Const::F64(v) if v.is_infinite() && v.is_sign_negative() => {
                 write!(self.buffer, "-INFINITY").unwrap()
             }
@@ -238,6 +242,7 @@ impl Renderer for CRenderer {
         self.buffer.clear();
         self.indent_level = 0;
         // Add standard headers
+        self.buffer.push_str("#include <stdlib.h>\n"); // For rand() and RAND_MAX
         self.buffer.push_str("#include <stddef.h>\n");
         self.buffer.push_str("#include <stdint.h>\n");
         self.buffer.push_str("#include <math.h>\n\n"); // For fmax, etc.

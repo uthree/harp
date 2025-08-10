@@ -12,7 +12,7 @@ fn assert_render(node: AstNode, expected: &str) {
     // Normalize whitespace and remove initial headers for easier comparison
     let cleaned_code = rendered_code
         .lines()
-        .skip(3) // Skip header lines
+        .skip(5) // Skip header lines
         .map(|line| line.trim())
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>()
@@ -71,50 +71,10 @@ fn test_render_max() {
 /// Tests that a constant is rendered correctly.
 #[test]
 fn test_render_const() {
-    // F32
-    let ast: AstNode = f32::consts::PI.into();
-    let mut renderer = CRenderer::new();
-    let rendered_code = renderer.render(ast);
-    let cleaned_code = rendered_code
-        .lines()
-        .skip(3) // Skip header lines
-        .map(|line| line.trim())
-        .filter(|line| !line.is_empty())
-        .collect::<String>();
-    assert!(cleaned_code.starts_with("3.1415927"));
-
-    // I8
-    let ast: AstNode = (42i8).into();
-    let rendered_code = renderer.render(ast);
-    let cleaned_code = rendered_code
-        .lines()
-        .skip(3)
-        .map(|line| line.trim())
-        .filter(|line| !line.is_empty())
-        .collect::<String>();
-    assert_eq!(cleaned_code, "(int8_t)42");
-
-    // U32
-    let ast: AstNode = (123u32).into();
-    let rendered_code = renderer.render(ast);
-    let cleaned_code = rendered_code
-        .lines()
-        .skip(3)
-        .map(|line| line.trim())
-        .filter(|line| !line.is_empty())
-        .collect::<String>();
-    assert_eq!(cleaned_code, "123u");
-
-    // I64
-    let ast: AstNode = (9999999999i64).into();
-    let rendered_code = renderer.render(ast);
-    let cleaned_code = rendered_code
-        .lines()
-        .skip(3)
-        .map(|line| line.trim())
-        .filter(|line| !line.is_empty())
-        .collect::<String>();
-    assert_eq!(cleaned_code, "9999999999ll");
+    assert_render(f32::consts::PI.into(), "3.1415927f");
+    assert_render((42i8).into(), "(int8_t)42");
+    assert_render((123u32).into(), "123u");
+    assert_render((9999999999i64).into(), "9999999999ll");
 }
 
 /// Tests that an assignment operation is rendered correctly.
