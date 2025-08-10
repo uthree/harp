@@ -31,10 +31,6 @@ fn buffer_from_slice<T: Clone>(data: &[T], shape: &[usize], dtype: DType) -> CBu
 fn test_cbackend_call_simple_add() {
     harp::init_logger();
     let mut backend = CBackend::new();
-    if !backend.is_available() {
-        eprintln!("Skipping C backend E2E test: C compiler not found.");
-        return;
-    }
 
     // 1. Build Graph: c = a + b
     let graph = Graph::new();
@@ -75,10 +71,6 @@ fn test_cbackend_call_simple_add() {
 fn test_c_backend_e2e_multiple_outputs() {
     harp::init_logger();
     let mut backend = CBackend::new();
-    if !backend.is_available() {
-        eprintln!("Skipping C backend E2E test: C compiler not found.");
-        return;
-    }
 
     // 1. Build Graph: c = a + b, d = a - b
     let graph = Graph::new();

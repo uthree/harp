@@ -45,10 +45,6 @@ fn empty_buffer(shape: &[usize], dtype: DType) -> CBuffer {
 fn test_c_backend_e2e_neg() {
     harp::init_logger();
     let mut compiler = CCompiler::new();
-    if !compiler.is_available() {
-        eprintln!("Skipping C backend E2E test: C compiler not found.");
-        return;
-    }
 
     // 1. Build Graph: b = -a
     let graph = Graph::new();
@@ -89,10 +85,6 @@ fn test_c_backend_e2e_neg() {
 fn test_c_backend_e2e_rem() {
     harp::init_logger();
     let mut compiler = CCompiler::new();
-    if !compiler.is_available() {
-        eprintln!("Skipping C backend E2E test: C compiler not found.");
-        return;
-    }
 
     // 1. Build Graph: c = a % b
     let graph = Graph::new();
@@ -141,10 +133,6 @@ fn test_c_backend_e2e_rem() {
 fn test_c_backend_e2e_lt() {
     harp::init_logger();
     let mut compiler = CCompiler::new();
-    if !compiler.is_available() {
-        eprintln!("Skipping C backend E2E test: C compiler not found.");
-        return;
-    }
 
     // 1. Build Graph: c = a < b
     let graph = Graph::new();
@@ -193,10 +181,6 @@ fn test_c_backend_e2e_lt() {
 fn test_c_backend_e2e_sin() {
     harp::init_logger();
     let mut compiler = CCompiler::new();
-    if !compiler.is_available() {
-        eprintln!("Skipping C backend E2E test: C compiler not found.");
-        return;
-    }
 
     // 1. Build Graph: b = sin(a)
     let graph = Graph::new();
@@ -237,10 +221,6 @@ fn test_c_backend_e2e_sin() {
 fn test_c_backend_e2e_sqrt() {
     harp::init_logger();
     let mut compiler = CCompiler::new();
-    if !compiler.is_available() {
-        eprintln!("Skipping C backend E2E test: C compiler not found.");
-        return;
-    }
 
     let graph = Graph::new();
     let shape = vec![10];
@@ -274,9 +254,6 @@ fn test_c_backend_e2e_sqrt() {
 fn test_c_backend_e2e_log2() {
     harp::init_logger();
     let mut compiler = CCompiler::new();
-    if !compiler.is_available() {
-        return;
-    }
 
     let graph = Graph::new();
     let shape = vec![10];
@@ -310,9 +287,6 @@ fn test_c_backend_e2e_log2() {
 fn test_c_backend_e2e_exp2() {
     harp::init_logger();
     let mut compiler = CCompiler::new();
-    if !compiler.is_available() {
-        return;
-    }
 
     let graph = Graph::new();
     let shape = vec![10];
@@ -346,9 +320,6 @@ fn test_c_backend_e2e_exp2() {
 fn test_c_backend_e2e_recip() {
     harp::init_logger();
     let mut compiler = CCompiler::new();
-    if !compiler.is_available() {
-        return;
-    }
 
     let graph = Graph::new();
     let shape = vec![10];
@@ -382,9 +353,6 @@ fn test_c_backend_e2e_recip() {
 fn test_c_backend_e2e_reduce_sum() {
     harp::init_logger();
     let mut compiler = CCompiler::new();
-    if !compiler.is_available() {
-        return;
-    }
 
     // 1. Build Graph: b = a.sum(axis=1)
     let graph = Graph::new();
@@ -425,9 +393,6 @@ fn test_c_backend_e2e_reduce_sum() {
 fn test_c_backend_e2e_reduce_max() {
     harp::init_logger();
     let mut compiler = CCompiler::new();
-    if !compiler.is_available() {
-        return;
-    }
 
     let graph = Graph::new();
     let input_shape = vec![2, 3];
@@ -462,9 +427,6 @@ fn test_c_backend_e2e_reduce_max() {
 fn test_c_backend_e2e_reduce_prod() {
     harp::init_logger();
     let mut compiler = CCompiler::new();
-    if !compiler.is_available() {
-        return;
-    }
 
     let graph = Graph::new();
     let input_shape = vec![2, 3];
@@ -499,9 +461,6 @@ fn test_c_backend_e2e_reduce_prod() {
 fn test_c_backend_e2e_cumulative_sum() {
     harp::init_logger();
     let mut compiler = CCompiler::new();
-    if !compiler.is_available() {
-        return;
-    }
 
     // 1. Build Graph: b = a.cumsum(axis=1)
     let graph = Graph::new();
@@ -541,9 +500,6 @@ fn test_c_backend_e2e_cumulative_sum() {
 fn test_c_backend_e2e_slice() {
     harp::init_logger();
     let mut compiler = CCompiler::new();
-    if !compiler.is_available() {
-        return;
-    }
 
     // 1. Build Graph: b = a[1:3, 2:4].sin()
     let graph = Graph::new();

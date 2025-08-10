@@ -45,10 +45,6 @@ fn empty_buffer(shape: &[usize], dtype: DType) -> CBuffer {
 fn test_c_backend_e2e_add() {
     harp::init_logger();
     let mut compiler = CCompiler::new();
-    if !compiler.is_available() {
-        eprintln!("Skipping C backend E2E test: C compiler not found.");
-        return;
-    }
 
     // 1. Build Graph: c = a + b
     let graph = Graph::new();
