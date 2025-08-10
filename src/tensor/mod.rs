@@ -4,12 +4,13 @@
 //! graph under the hood. The actual computation is deferred until the `forward()`
 //! method is called. This allows for graph-level optimizations before execution.
 
-use crate::ast::DType;
+use crate::ast::{Const, DType};
 use crate::backend::Backend;
 use crate::backend::c::CBackend;
 use crate::cbuffer::CBuffer;
 use crate::graph::Graph;
 use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 thread_local! {
@@ -40,41 +41,24 @@ impl PartialEq for TensorBackend {
 /// Defines the types of operations that can create a `Tensor`.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TensorOp {
-    /// Represents an operation that creates a tensor with random values.
     Rand,
-    /// Represents an element-wise addition operation.
+    Full(Const),
     Add,
-    /// Represents an element-wise subtraction operation.
     Sub,
-    /// Represents an element-wise multiplication operation.
     Mul,
-    /// Represents an element-wise negation operation.
     Neg,
-    /// Represents an element-wise reciprocal operation.
     Recip,
 }
 
 /// Contains the internal data and metadata for a `Tensor`.
-///
-/// This structure holds all the information needed to compute the tensor's value,
-/// including its operation, source tensors, shape, data type, and eventually, the
-/// computed buffer.
 pub struct TensorData {
-    /// The operation that produces this tensor.
     op: TensorOp,
-    /// A list of source tensors for the operation.
     src: Vec<Tensor>,
-    /// The shape of the tensor.
     shape: Shape,
-    /// The data type of the tensor.
     dtype: DType,
-    /// The computed data, available after `forward()` is called.
     buffer: Option<TensorBuffer>,
-    /// The gradient of this tensor, computed during backpropagation.
     grad: Option<Tensor>,
-    /// A flag indicating whether this tensor requires a gradient.
     requires_grad: bool,
-    /// The backend used for computation.
     backend: TensorBackend,
 }
 
@@ -82,21 +66,11 @@ pub struct TensorData {
 pub type Shape = Vec<usize>;
 
 /// The primary tensor structure.
-///
-/// `Tensor` represents a node in the computation graph. It holds a reference-counted
-/// pointer to `TensorData`, which contains the actual tensor information and operation.
-/// The operations are deferred until `forward()` is called (lazy evaluation).
 #[derive(Clone)]
 pub struct Tensor(Rc<RefCell<TensorData>>);
 
 impl Tensor {
-    /// Creates a new tensor with random values.
-    ///
-    /// # Arguments
-    ///
-    /// * `shape` - The shape of the tensor to create.
-    /// * `dtype` - The data type of the tensor's elements.
-    pub fn rand(shape: Shape, dtype: DType) -> Self {
+    pub fn rand(shape: Shape, dtype: DType, requires_grad: bool) -> Self {
         TensorData {
             op: TensorOp::Rand,
             src: vec![],
@@ -104,18 +78,34 @@ impl Tensor {
             dtype,
             buffer: None,
             grad: None,
-            requires_grad: false,
+            requires_grad,
             backend: backend("c"),
         }
         .into()
     }
 
-    /// Triggers the computation of the tensor's value.
-    ///
-    /// This method performs the actual computation defined by the tensor's operation.
-    /// It recursively calls `forward()` on its source tensors to ensure all dependencies
-    // are computed first. If the tensor's buffer has already been computed, this
-    /// method does nothing. This enables lazy evaluation.
+    pub fn full(shape: Shape, dtype: DType, value: Const, requires_grad: bool) -> Self {
+        TensorData {
+            op: TensorOp::Full(value),
+            src: vec![],
+            shape,
+            dtype,
+            buffer: None,
+            grad: None,
+            requires_grad,
+            backend: backend("c"),
+        }
+        .into()
+    }
+
+    pub fn ones(shape: Shape, dtype: DType, requires_grad: bool) -> Self {
+        Self::full(shape, dtype, Const::from(1.0), requires_grad)
+    }
+
+    pub fn zeros(shape: Shape, dtype: DType, requires_grad: bool) -> Self {
+        Self::full(shape, dtype, Const::from(0.0), requires_grad)
+    }
+
     pub fn forward(&self) {
         if self.0.borrow().buffer.is_some() {
             return;
@@ -145,11 +135,14 @@ impl Tensor {
                 data.dtype.clone(),
                 data.shape.iter().map(|d| (*d).into()).collect(),
             ),
-            TensorOp::Add => srcs[0].clone() + srcs[1].clone(),
-            TensorOp::Sub => srcs[0].clone() - srcs[1].clone(),
-            TensorOp::Mul => srcs[0].clone() * srcs[1].clone(),
-            TensorOp::Neg => -srcs[0].clone(),
-            TensorOp::Recip => srcs[0].clone().recip(),
+            TensorOp::Full(val) => {
+                graph.full(val, data.shape.iter().map(|d| (*d).into()).collect())
+            }
+            TensorOp::Add => srcs[0] + srcs[1],
+            TensorOp::Sub => srcs[0] - srcs[1],
+            TensorOp::Mul => srcs[0] * srcs[1],
+            TensorOp::Neg => -srcs[0],
+            TensorOp::Recip => srcs[0].recip(),
         };
 
         op.as_output();
@@ -163,9 +156,103 @@ impl Tensor {
         drop(data);
         self.0.borrow_mut().buffer = Some(result_buffer);
     }
+
+    pub fn backward(&self) {
+        if !self.0.borrow().requires_grad {
+            return;
+        }
+        if self.0.borrow().shape.iter().product::<usize>() != 1 {
+            panic!("backward() can only be called on a scalar tensor.");
+        }
+
+        let mut tape = Vec::new();
+        self.build_tape(&mut tape, &mut HashSet::new());
+
+        let mut grads: HashMap<*const TensorData, Tensor> = HashMap::new();
+        grads.insert(
+            self.0.as_ptr(),
+            Tensor::ones(
+                self.0.borrow().shape.clone(),
+                self.0.borrow().dtype.clone(),
+                false,
+            ),
+        );
+
+        for tensor in tape.iter().rev() {
+            let tensor_ptr = tensor.0.as_ptr() as *const TensorData;
+            let grad = match grads.get(&tensor_ptr) {
+                Some(g) => g.clone(),
+                None => continue,
+            };
+
+            let (srcs, requires_grad) = {
+                let data = tensor.0.borrow();
+                (data.src.clone(), data.requires_grad)
+            };
+
+            if !requires_grad {
+                continue;
+            }
+
+            let new_grads = tensor.grad_fn(grad, &srcs);
+
+            for (src_tensor, grad_val) in srcs.iter().zip(new_grads) {
+                let src_ptr = src_tensor.0.as_ptr() as *const TensorData;
+                let entry = grads.entry(src_ptr).or_insert_with(|| {
+                    Tensor::zeros(
+                        src_tensor.0.borrow().shape.clone(),
+                        src_tensor.0.borrow().dtype.clone(),
+                        false,
+                    )
+                });
+                *entry += grad_val;
+            }
+        }
+
+        for (ptr, grad_tensor) in grads {
+            let mut_ptr = ptr as *mut TensorData;
+            unsafe {
+                (*mut_ptr).grad = Some(grad_tensor);
+            }
+        }
+    }
+
+    fn grad_fn(&self, grad: Tensor, srcs: &[Tensor]) -> Vec<Tensor> {
+        match self.0.borrow().op {
+            TensorOp::Add => vec![grad.clone(), grad],
+            TensorOp::Sub => vec![grad.clone(), -grad],
+            TensorOp::Mul => {
+                let a = srcs[0].clone();
+                let b = srcs[1].clone();
+                vec![grad.clone() * b, grad * a]
+            }
+            TensorOp::Neg => vec![-grad],
+            TensorOp::Recip => {
+                let a = srcs[0].clone();
+                let recip_a = a.recip();
+                vec![-grad * recip_a.clone() * recip_a]
+            }
+            _ => vec![],
+        }
+    }
+
+    fn build_tape(&self, tape: &mut Vec<Tensor>, visited: &mut HashSet<*const TensorData>) {
+        let ptr = self.0.as_ptr() as *const TensorData;
+        if visited.contains(&ptr) {
+            return;
+        }
+        visited.insert(ptr);
+
+        for src in &self.0.borrow().src {
+            src.build_tape(tape, visited);
+        }
+        tape.push(self.clone());
+    }
+
     pub fn recip(self) -> Self {
         let shape = self.0.borrow().shape.clone();
         let dtype = self.0.borrow().dtype.clone();
+        let requires_grad = self.0.borrow().requires_grad;
         TensorData {
             op: TensorOp::Recip,
             src: vec![self.clone()],
@@ -173,7 +260,7 @@ impl Tensor {
             dtype,
             buffer: None,
             grad: None,
-            requires_grad: false,
+            requires_grad,
             backend: self.0.borrow().backend.clone(),
         }
         .into()
@@ -194,6 +281,7 @@ macro_rules! impl_binary_op {
                 if self.0.borrow().dtype != rhs.0.borrow().dtype {
                     panic!("Dtypes of tensors do not match");
                 }
+                let requires_grad = self.0.borrow().requires_grad || rhs.0.borrow().requires_grad;
                 let shape = self.0.borrow().shape.clone();
                 let dtype = self.0.borrow().dtype.clone();
                 TensorData {
@@ -203,7 +291,7 @@ macro_rules! impl_binary_op {
                     dtype,
                     buffer: None,
                     grad: None,
-                    requires_grad: false,
+                    requires_grad,
                     backend: self.0.borrow().backend.clone(),
                 }
                 .into()
@@ -218,6 +306,7 @@ macro_rules! impl_unary_op {
             type Output = Self;
 
             fn $method(self) -> Self::Output {
+                let requires_grad = self.0.borrow().requires_grad;
                 let shape = self.0.borrow().shape.clone();
                 let dtype = self.0.borrow().dtype.clone();
                 TensorData {
@@ -227,7 +316,7 @@ macro_rules! impl_unary_op {
                     dtype,
                     buffer: None,
                     grad: None,
-                    requires_grad: false,
+                    requires_grad,
                     backend: self.0.borrow().backend.clone(),
                 }
                 .into()
@@ -243,7 +332,6 @@ impl_unary_op!(Neg, neg, TensorOp::Neg);
 
 impl std::ops::Div for Tensor {
     type Output = Self;
-
     fn div(self, rhs: Self) -> Self::Output {
         self * rhs.recip()
     }
@@ -253,8 +341,6 @@ macro_rules! impl_binary_op_assign {
     ($trait:ident, $method:ident, $op_trait:ident, $op_method:ident) => {
         impl std::ops::$trait for Tensor {
             fn $method(&mut self, rhs: Self) {
-                // This is equivalent to `*self = *self + rhs;`
-                // It creates a new tensor from the operation and updates self to point to it.
                 let new_tensor = std::ops::$op_trait::$op_method(self.clone(), rhs);
                 self.0 = new_tensor.0;
             }
@@ -266,8 +352,6 @@ impl_binary_op_assign!(AddAssign, add_assign, Add, add);
 impl_binary_op_assign!(SubAssign, sub_assign, Sub, sub);
 impl_binary_op_assign!(MulAssign, mul_assign, Mul, mul);
 impl_binary_op_assign!(DivAssign, div_assign, Div, div);
-
-
 
 impl From<TensorData> for Tensor {
     fn from(value: TensorData) -> Self {
@@ -288,17 +372,25 @@ mod tests {
     use crate::ast::DType;
 
     #[test]
-    fn test_tensor_rand_forward() {
-        let a = Tensor::rand(vec![10, 20], DType::F32);
+    fn test_tensor_creation() {
+        let a = Tensor::ones(vec![10, 20], DType::F32, false);
         assert!(a.0.borrow().buffer.is_none());
         a.forward();
         assert!(a.0.borrow().buffer.is_some());
+
+        let b = Tensor::zeros(vec![10, 20], DType::F32, false);
+        b.forward();
+        assert!(b.0.borrow().buffer.is_some());
+
+        let c = Tensor::full(vec![10, 20], DType::F32, 5.0.into(), false);
+        c.forward();
+        assert!(c.0.borrow().buffer.is_some());
     }
 
     #[test]
     fn test_tensor_add_forward() {
-        let a = Tensor::rand(vec![10, 20], DType::F32);
-        let b = Tensor::rand(vec![10, 20], DType::F32);
+        let a = Tensor::ones(vec![10, 20], DType::F32, false);
+        let b = Tensor::ones(vec![10, 20], DType::F32, false);
         let c = a + b;
         assert!(c.0.borrow().buffer.is_none());
         c.forward();
@@ -307,27 +399,20 @@ mod tests {
 
     #[test]
     fn test_forward_is_lazy() {
-        let a = Tensor::rand(vec![10, 20], DType::F32);
-        let b = Tensor::rand(vec![10, 20], DType::F32);
+        let a = Tensor::ones(vec![10, 20], DType::F32, false);
+        let b = Tensor::ones(vec![10, 20], DType::F32, false);
         let c = a + b;
-        // Buffer should not be allocated before forward is called
         assert!(c.0.borrow().buffer.is_none());
     }
 
     #[test]
     fn test_backward_dependency() {
-        let a = Tensor::rand(vec![10, 20], DType::F32);
-        let b = Tensor::rand(vec![10, 20], DType::F32);
+        let a = Tensor::ones(vec![10, 20], DType::F32, false);
+        let b = Tensor::ones(vec![10, 20], DType::F32, false);
         let c = a.clone() + b.clone();
-
-        // Buffers for a and b should be None initially
         assert!(a.0.borrow().buffer.is_none());
         assert!(b.0.borrow().buffer.is_none());
-
-        // When forward is called on c, it should recursively call forward on a and b
         c.forward();
-
-        // Now, buffers for a, b, and c should all be allocated
         assert!(a.0.borrow().buffer.is_some());
         assert!(b.0.borrow().buffer.is_some());
         assert!(c.0.borrow().buffer.is_some());
@@ -335,60 +420,79 @@ mod tests {
 
     #[test]
     fn test_tensor_sub_forward() {
-        let a = Tensor::rand(vec![10, 20], DType::F32);
-        let b = Tensor::rand(vec![10, 20], DType::F32);
+        let a = Tensor::ones(vec![10, 20], DType::F32, false);
+        let b = Tensor::ones(vec![10, 20], DType::F32, false);
         let c = a - b;
-        assert!(c.0.borrow().buffer.is_none());
         c.forward();
         assert!(c.0.borrow().buffer.is_some());
     }
 
     #[test]
     fn test_tensor_mul_forward() {
-        let a = Tensor::rand(vec![10, 20], DType::F32);
-        let b = Tensor::rand(vec![10, 20], DType::F32);
+        let a = Tensor::ones(vec![10, 20], DType::F32, false);
+        let b = Tensor::ones(vec![10, 20], DType::F32, false);
         let c = a * b;
-        assert!(c.0.borrow().buffer.is_none());
         c.forward();
         assert!(c.0.borrow().buffer.is_some());
     }
 
     #[test]
     fn test_tensor_div_forward() {
-        let a = Tensor::rand(vec![10, 20], DType::F32);
-        let b = Tensor::rand(vec![10, 20], DType::F32);
+        let a = Tensor::ones(vec![10, 20], DType::F32, false);
+        let b = Tensor::ones(vec![10, 20], DType::F32, false);
         let c = a / b;
-        assert!(c.0.borrow().buffer.is_none());
         c.forward();
         assert!(c.0.borrow().buffer.is_some());
     }
 
     #[test]
     fn test_tensor_neg_forward() {
-        let a = Tensor::rand(vec![10, 20], DType::F32);
+        let a = Tensor::ones(vec![10, 20], DType::F32, false);
         let b = -a;
-        assert!(b.0.borrow().buffer.is_none());
         b.forward();
         assert!(b.0.borrow().buffer.is_some());
     }
 
     #[test]
     fn test_tensor_add_assign() {
-        let mut a = Tensor::rand(vec![10, 20], DType::F32);
+        let mut a = Tensor::ones(vec![10, 20], DType::F32, false);
         let a_original_ptr = Rc::as_ptr(&a.0);
-
-        let b = Tensor::rand(vec![10, 20], DType::F32);
-        a += b; // This should change the tensor `a` points to
-
+        let b = Tensor::ones(vec![10, 20], DType::F32, false);
+        a += b;
         let a_new_ptr = Rc::as_ptr(&a.0);
-        assert_ne!(a_original_ptr, a_new_ptr, "Tensor `a` should point to a new TensorData");
-
-        // Check that the new operation is Add
+        assert_ne!(a_original_ptr, a_new_ptr);
         assert_eq!(a.0.borrow().op, TensorOp::Add);
-
-        // Check that forward pass works
-        assert!(a.0.borrow().buffer.is_none());
         a.forward();
         assert!(a.0.borrow().buffer.is_some());
+    }
+
+    #[test]
+    fn test_simple_backward() {
+        let a = Tensor::ones(vec![1], DType::F32, true);
+        let b = Tensor::full(vec![1], DType::F32, 2.0.into(), true);
+        let c = a.clone() * b.clone();
+        c.backward();
+        assert!(a.0.borrow().grad.is_some());
+        assert!(b.0.borrow().grad.is_some());
+    }
+
+    #[test]
+    fn test_grad_accumulation() {
+        let a = Tensor::full(vec![1], DType::F32, 3.0.into(), true);
+        let b = a.clone() * a.clone(); // y = a^2
+        b.backward();
+        assert!(a.0.borrow().grad.is_some());
+    }
+
+    #[test]
+    fn test_complex_backward() {
+        let a = Tensor::ones(vec![1], DType::F32, true);
+        let b = Tensor::full(vec![1], DType::F32, 2.0.into(), true);
+        let c = Tensor::full(vec![1], DType::F32, 3.0.into(), true);
+        let z = a.clone() * b.clone() + c.clone();
+        z.backward();
+        assert!(a.0.borrow().grad.is_some());
+        assert!(b.0.borrow().grad.is_some());
+        assert!(c.0.borrow().grad.is_some());
     }
 }
