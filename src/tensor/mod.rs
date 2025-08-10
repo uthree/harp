@@ -144,13 +144,13 @@ impl Tensor {
             }
             TensorOp::Add => srcs[0] + srcs[1],
             TensorOp::Sub => srcs[0] - srcs[1],
-            TensorOp::Mul => srcs[0].clone() * srcs[1].clone(),
-            TensorOp::Neg => -srcs[0].clone(),
-            TensorOp::Recip => srcs[0].clone().recip(),
-            TensorOp::Sin => srcs[0].clone().sin(),
-            TensorOp::Exp2 => srcs[0].clone().exp2(),
-            TensorOp::Log2 => srcs[0].clone().log2(),
-            TensorOp::Sqrt => srcs[0].clone().sqrt(),
+            TensorOp::Mul => srcs[0] * srcs[1],
+            TensorOp::Neg => -srcs[0],
+            TensorOp::Recip => srcs[0].recip(),
+            TensorOp::Sin => srcs[0].sin(),
+            TensorOp::Exp2 => srcs[0].exp2(),
+            TensorOp::Log2 => srcs[0].log2(),
+            TensorOp::Sqrt => srcs[0].sqrt(),
         };
 
         op.as_output();
@@ -246,18 +246,33 @@ impl Tensor {
             }
             TensorOp::Exp2 => {
                 // d/dx(2^x) = 2^x * ln(2)
-                let ln_2 = Tensor::full(grad.0.borrow().shape.clone(), grad.0.borrow().dtype.clone(), (2.0f32).ln().into(), false);
+                let ln_2 = Tensor::full(
+                    grad.0.borrow().shape.clone(),
+                    grad.0.borrow().dtype.clone(),
+                    (2.0f32).ln().into(),
+                    false,
+                );
                 vec![grad * self.clone() * ln_2]
             }
             TensorOp::Log2 => {
                 // d/dx(log2(x)) = 1 / (x * ln(2))
                 let a = srcs[0].clone();
-                let ln_2 = Tensor::full(grad.0.borrow().shape.clone(), grad.0.borrow().dtype.clone(), (2.0f32).ln().into(), false);
+                let ln_2 = Tensor::full(
+                    grad.0.borrow().shape.clone(),
+                    grad.0.borrow().dtype.clone(),
+                    (2.0f32).ln().into(),
+                    false,
+                );
                 vec![grad * (a * ln_2).recip()]
             }
             TensorOp::Sqrt => {
                 // d/dx(sqrt(x)) = 1 / (2 * sqrt(x))
-                let two = Tensor::full(grad.0.borrow().shape.clone(), grad.0.borrow().dtype.clone(), 2.0.into(), false);
+                let two = Tensor::full(
+                    grad.0.borrow().shape.clone(),
+                    grad.0.borrow().dtype.clone(),
+                    2.0.into(),
+                    false,
+                );
                 vec![grad * (two * self.clone()).recip()]
             }
             _ => vec![],
