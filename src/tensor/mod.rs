@@ -95,7 +95,7 @@ impl Tensor {
         op.as_output();
 
         let result_buffer = match data.backend.clone() {
-            TensorBackend::C(b) => TensorBuffer::C(b.borrow().run(&graph)),
+            TensorBackend::C(b) => TensorBuffer::C(b.borrow_mut().run(&graph).into_iter().last().unwrap()),
         };
 
         drop(data);

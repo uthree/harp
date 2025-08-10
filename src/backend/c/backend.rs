@@ -24,43 +24,18 @@ impl Backend<CBuffer> for CBackend {
         self.compiler.borrow().is_available()
     }
 
-    fn run(&self, graph: &Graph) -> CBuffer {
-        let mut lowerer = Lowerer::new(graph);
-        let (ast, details) = lowerer.lower();
-
-        let code = self.renderer.borrow_mut().render(ast);
-        let mut kernel = self.compiler.borrow_mut().compile(&code, details);
-
-        let mut buffers = vec![];
-        let shape_vars_map: std::collections::HashMap<String, i64> = kernel
-            .details()
-            .shape_variables
-            .iter()
-            .cloned()
-            .zip(Vec::<usize>::new().iter().map(|&v| v as i64))
-            .collect();
-
-        for buffer_info in kernel.details().buffers.iter() {
-            let shape = buffer_info
-                .shape
-                .iter()
-                .map(|expr| expr.evaluate(&shape_vars_map) as usize)
-                .collect();
-            buffers.push(CBuffer::allocate(buffer_info.dtype.clone(), shape));
-        }
-
-        let result_buffers = kernel.call(buffers, &vec![]);
-        result_buffers.into_iter().last().unwrap()
+    fn run(&mut self, graph: &Graph) -> Vec<CBuffer> {
+        self.execute(graph, vec![], vec![])
     }
 
-    fn call(
+    fn execute(
         &mut self,
-        graph: Graph,
+        graph: &Graph,
         inputs: Vec<CBuffer>,
         shape_variables: Vec<usize>,
     ) -> Vec<CBuffer> {
         // 1. Lower the graph to get the AST and kernel details.
-        let mut lowerer = Lowerer::new(&graph);
+        let mut lowerer = Lowerer::new(graph);
         let (ast, details) = lowerer.lower();
 
         // 2. Render the AST to C code.

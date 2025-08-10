@@ -6,7 +6,7 @@ use harp::{
 
 fn run_c_backend(graph: &Graph, inputs: Vec<CBuffer>) -> CBuffer {
     let mut backend = CBackend::new();
-    let outputs = backend.call(graph.clone(), inputs, vec![]);
+    let outputs = backend.execute(&graph, inputs, vec![]);
     outputs[0].clone()
 }
 

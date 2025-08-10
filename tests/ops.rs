@@ -12,7 +12,7 @@ use rstest::rstest;
 
 fn run_c_backend(graph: &Graph, inputs: Vec<CBuffer>) -> Vec<CBuffer> {
     let mut backend = CBackend::new();
-    backend.call(graph.clone(), inputs, vec![])
+    backend.execute(&graph, inputs, vec![])
 }
 
 #[test]

@@ -48,7 +48,7 @@ fn test_cbackend_call_simple_add() {
 
     // 3. Call the backend
     let inputs = vec![a_buffer, b_buffer];
-    let mut result_buffers = backend.call(graph, inputs, vec![]);
+    let mut result_buffers = backend.execute(&graph, inputs, vec![]);
 
     // 4. Verify results
     let result_array = result_buffers
@@ -89,7 +89,7 @@ fn test_c_backend_e2e_multiple_outputs() {
 
     // 3. Call the backend
     let inputs = vec![a_buffer, b_buffer];
-    let mut result_buffers = backend.call(graph, inputs, vec![]);
+    let mut result_buffers = backend.execute(&graph, inputs, vec![]);
 
     // 4. Verify results
     assert_eq!(result_buffers.len(), 2);
