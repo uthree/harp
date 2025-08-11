@@ -259,9 +259,7 @@ fn test_op_squeeze_unsqueeze() {
 fn test_op_expand() {
     let graph = Graph::new();
     let x = graph.input(DType::F32, vec![1.into(), 3.into(), 1.into()]);
-    let _ = x
-        .expand(vec![2.into(), 3.into(), 4.into()])
-        .as_output();
+    let _ = x.expand(vec![2.into(), 3.into(), 4.into()]).as_output();
 
     let mut x_buf = CBuffer::from_slice::<f32>(&[1., 2., 3.]);
     x_buf.shape = vec![1, 3, 1];
@@ -271,7 +269,10 @@ fn test_op_expand() {
     assert_eq!(y_buf.shape, &[2, 3, 4]);
     assert_eq!(
         y_buf.as_slice::<f32>(),
-        &[1., 1., 1., 1., 2., 2., 2., 2., 3., 3., 3., 3., 1., 1., 1., 1., 2., 2., 2., 2., 3., 3., 3., 3.]
+        &[
+            1., 1., 1., 1., 2., 2., 2., 2., 3., 3., 3., 3., 1., 1., 1., 1., 2., 2., 2., 2., 3., 3.,
+            3., 3.
+        ]
     );
 }
 
@@ -288,7 +289,5 @@ fn test_op_squeeze_invalid() {
 fn test_op_expand_invalid() {
     let graph = Graph::new();
     let x = graph.input(DType::F32, vec![1.into(), 2.into(), 3.into()]);
-    let _ = x
-        .expand(vec![2.into(), 3.into(), 4.into()])
-        .as_output();
+    let _ = x.expand(vec![2.into(), 3.into(), 4.into()]).as_output();
 }
