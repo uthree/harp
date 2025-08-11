@@ -8,6 +8,11 @@ use harp::graph::lowerer::{Lowerer, LoweringOrchestrator};
 use ndarray::ArrayD;
 use std::ffi::c_void;
 
+fn setup_logger() {
+    // Initialize the logger for tests, ignoring errors if it's already set up
+    let _ = env_logger::builder().is_test(true).try_init();
+}
+
 /// Helper function to create a CBuffer from a slice of data.
 fn buffer_from_slice<T: Clone>(data: &[T], shape: &[usize], dtype: DType) -> CBuffer {
     assert_eq!(
@@ -43,7 +48,7 @@ fn empty_buffer(shape: &[usize], dtype: DType) -> CBuffer {
 
 #[test]
 fn test_c_backend_e2e_neg() {
-    harp::init_logger();
+    setup_logger();
     let mut compiler = CCompiler::new();
 
     // 1. Build Graph: b = -a
@@ -83,7 +88,7 @@ fn test_c_backend_e2e_neg() {
 
 #[test]
 fn test_c_backend_e2e_rem() {
-    harp::init_logger();
+    setup_logger();
     let mut compiler = CCompiler::new();
 
     // 1. Build Graph: c = a % b
@@ -131,7 +136,7 @@ fn test_c_backend_e2e_rem() {
 
 #[test]
 fn test_c_backend_e2e_lt() {
-    harp::init_logger();
+    setup_logger();
     let mut compiler = CCompiler::new();
 
     // 1. Build Graph: c = a < b
@@ -179,7 +184,7 @@ fn test_c_backend_e2e_lt() {
 
 #[test]
 fn test_c_backend_e2e_sin() {
-    harp::init_logger();
+    setup_logger();
     let mut compiler = CCompiler::new();
 
     // 1. Build Graph: b = sin(a)
@@ -219,7 +224,7 @@ fn test_c_backend_e2e_sin() {
 
 #[test]
 fn test_c_backend_e2e_sqrt() {
-    harp::init_logger();
+    setup_logger();
     let mut compiler = CCompiler::new();
 
     let graph = Graph::new();
@@ -252,7 +257,7 @@ fn test_c_backend_e2e_sqrt() {
 
 #[test]
 fn test_c_backend_e2e_log2() {
-    harp::init_logger();
+    setup_logger();
     let mut compiler = CCompiler::new();
 
     let graph = Graph::new();
@@ -285,7 +290,7 @@ fn test_c_backend_e2e_log2() {
 
 #[test]
 fn test_c_backend_e2e_exp2() {
-    harp::init_logger();
+    setup_logger();
     let mut compiler = CCompiler::new();
 
     let graph = Graph::new();
@@ -318,7 +323,7 @@ fn test_c_backend_e2e_exp2() {
 
 #[test]
 fn test_c_backend_e2e_recip() {
-    harp::init_logger();
+    setup_logger();
     let mut compiler = CCompiler::new();
 
     let graph = Graph::new();
@@ -351,7 +356,7 @@ fn test_c_backend_e2e_recip() {
 
 #[test]
 fn test_c_backend_e2e_reduce_sum() {
-    harp::init_logger();
+    setup_logger();
     let mut compiler = CCompiler::new();
 
     // 1. Build Graph: b = a.sum(axis=1)
@@ -391,7 +396,7 @@ fn test_c_backend_e2e_reduce_sum() {
 
 #[test]
 fn test_c_backend_e2e_reduce_max() {
-    harp::init_logger();
+    setup_logger();
     let mut compiler = CCompiler::new();
 
     let graph = Graph::new();
@@ -425,7 +430,7 @@ fn test_c_backend_e2e_reduce_max() {
 
 #[test]
 fn test_c_backend_e2e_reduce_prod() {
-    harp::init_logger();
+    setup_logger();
     let mut compiler = CCompiler::new();
 
     let graph = Graph::new();
@@ -459,7 +464,7 @@ fn test_c_backend_e2e_reduce_prod() {
 
 #[test]
 fn test_c_backend_e2e_cumulative_sum() {
-    harp::init_logger();
+    setup_logger();
     let mut compiler = CCompiler::new();
 
     // 1. Build Graph: b = a.cumsum(axis=1)
@@ -498,7 +503,7 @@ fn test_c_backend_e2e_cumulative_sum() {
 
 #[test]
 fn test_c_backend_e2e_slice() {
-    harp::init_logger();
+    setup_logger();
     let mut compiler = CCompiler::new();
 
     // 1. Build Graph: b = a[1:3, 2:4].sin()

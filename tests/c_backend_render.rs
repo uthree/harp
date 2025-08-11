@@ -5,8 +5,14 @@ use harp::backend::Renderer;
 use harp::backend::c::CRenderer;
 use std::f32;
 
+fn setup_logger() {
+    // Initialize the logger for tests, ignoring errors if it's already set up
+    let _ = env_logger::builder().is_test(true).try_init();
+}
+
 // Helper function to render an AST node and compare it with the expected output.
 fn assert_render(node: AstNode, expected: &str) {
+    setup_logger();
     let mut renderer = CRenderer::new();
     let rendered_code = renderer.render(node);
     // Normalize whitespace and remove initial headers for easier comparison

@@ -4,6 +4,11 @@ use harp::{
     graph::Graph,
 };
 
+fn setup_logger() {
+    // Initialize the logger for tests, ignoring errors if it's already set up
+    let _ = env_logger::builder().is_test(true).try_init();
+}
+
 fn run_c_backend(graph: &Graph, inputs: Vec<CBuffer>) -> CBuffer {
     let mut backend = CBackend::new();
     let outputs = backend.execute(&graph, inputs, vec![]);
@@ -12,6 +17,7 @@ fn run_c_backend(graph: &Graph, inputs: Vec<CBuffer>) -> CBuffer {
 
 #[test]
 fn test_conv1d() {
+    setup_logger();
     let graph = Graph::new();
     let x = graph.input(DType::F32, vec![1.into(), 1.into(), 10.into()]);
     let w = graph.input(DType::F32, vec![1.into(), 1.into(), 3.into()]);
@@ -30,6 +36,7 @@ fn test_conv1d() {
 
 #[test]
 fn test_conv2d() {
+    setup_logger();
     let graph = Graph::new();
     let x = graph.input(DType::F32, vec![1.into(), 1.into(), 4.into(), 4.into()]);
     let w = graph.input(DType::F32, vec![1.into(), 1.into(), 3.into(), 3.into()]);

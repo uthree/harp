@@ -8,6 +8,11 @@ use harp::graph::lowerer::{Lowerer, LoweringOrchestrator};
 use ndarray::ArrayD;
 use std::ffi::c_void;
 
+fn setup_logger() {
+    // Initialize the logger for tests, ignoring errors if it's already set up
+    let _ = env_logger::builder().is_test(true).try_init();
+}
+
 /// Helper function to create a CBuffer from a slice of data.
 fn buffer_from_slice<T: Clone>(data: &[T], shape: &[usize], dtype: DType) -> CBuffer {
     assert_eq!(
@@ -43,7 +48,7 @@ fn empty_buffer(shape: &[usize], dtype: DType) -> CBuffer {
 
 #[test]
 fn test_c_backend_e2e_add() {
-    harp::init_logger();
+    setup_logger();
     let mut compiler = CCompiler::new();
 
     // 1. Build Graph: c = a + b

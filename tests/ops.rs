@@ -15,8 +15,14 @@ fn run_c_backend(graph: &Graph, inputs: Vec<CBuffer>) -> Vec<CBuffer> {
     backend.execute(&graph, inputs, vec![])
 }
 
+fn setup_logger() {
+    // Initialize the logger for tests, ignoring errors if it's already set up
+    let _ = env_logger::builder().is_test(true).try_init();
+}
+
 #[test]
 fn test_op_reshape() {
+    setup_logger();
     let graph = Graph::new();
     let x = graph.input(DType::F32, vec![6.into()]);
     let _ = x.reshape(vec![2.into(), 3.into()]).as_output();
@@ -32,6 +38,7 @@ fn test_op_reshape() {
 
 #[test]
 fn test_op_reshape_multiple() {
+    setup_logger();
     let graph = Graph::new();
     let x = graph.input(DType::F32, vec![2.into(), 3.into(), 4.into()]);
     let a = x.reshape(vec![6.into(), 4.into()]);
@@ -58,6 +65,7 @@ fn test_op_reshape_multiple() {
 #[test]
 #[should_panic(expected = "reshape shape must have the same number of elements")]
 fn test_op_reshape_invalid_numel() {
+    setup_logger();
     let graph = Graph::new();
     let x = graph.input(DType::F32, vec![2.into(), 3.into()]);
     // This should panic because 2 * 3 != 5
@@ -66,6 +74,7 @@ fn test_op_reshape_invalid_numel() {
 
 #[test]
 fn test_op_slice() {
+    setup_logger();
     let graph = Graph::new();
     let x = graph.input(DType::F32, vec![2.into(), 4.into(), 5.into()]);
     let _ = x
@@ -88,6 +97,7 @@ fn test_op_slice() {
 #[test]
 #[should_panic(expected = "Slice arguments must match number of dimensions")]
 fn test_op_slice_invalid_args() {
+    setup_logger();
     let graph = Graph::new();
     let x = graph.input(DType::F32, vec![2.into(), 4.into(), 5.into()]);
     // This should panic because the number of slice args is 2, but ndim is 3.
@@ -98,6 +108,7 @@ fn test_op_slice_invalid_args() {
 
 #[test]
 fn test_op_contiguous() {
+    setup_logger();
     let graph = Graph::new();
     let x = graph.input(DType::F32, vec![2.into(), 3.into()]);
     let _ = x.permute(vec![1, 0]).contiguous().as_output();
@@ -117,6 +128,7 @@ fn test_op_contiguous() {
 
 #[test]
 fn test_op_sum() {
+    setup_logger();
     let graph = Graph::new();
     let x = graph.input(DType::F32, vec![2.into(), 3.into()]);
     let _ = x.sum(1).as_output();
@@ -160,6 +172,7 @@ fn test_elementwise_binary_ops(
     ) -> harp::graph::node::NodeId,
     #[case] expected_op: AstOp,
 ) {
+    setup_logger();
     let graph = Graph::new();
     let shape: Vec<Expr> = vec![1.into(), 2.into(), 3.into()];
     let a_id = graph.input(DType::F32, shape.clone()).id;
@@ -192,6 +205,7 @@ fn test_elementwise_binary_ops(
 
 #[test]
 fn test_op_permute() {
+    setup_logger();
     let graph = Graph::new();
     let x = graph.input(DType::F32, vec![2.into(), 3.into(), 4.into()]);
     let _ = x.permute(vec![1, 2, 0]).as_output();
@@ -217,6 +231,7 @@ fn test_op_permute() {
 #[test]
 #[should_panic(expected = "assertion failed: self.ndim() == axes.len()")]
 fn test_op_permute_invalid_axes_len() {
+    setup_logger();
     let graph = Graph::new();
     let x = graph.input(DType::F32, vec![2.into(), 3.into(), 4.into()]);
     let _ = x.permute(vec![1, 0]).as_output();
@@ -225,6 +240,7 @@ fn test_op_permute_invalid_axes_len() {
 #[test]
 #[should_panic(expected = "index out of bounds: the len is 3 but the index is 3")]
 fn test_op_permute_invalid_axis() {
+    setup_logger();
     let graph = Graph::new();
     let x = graph.input(DType::F32, vec![2.into(), 3.into(), 4.into()]);
     let _ = x.permute(vec![0, 1, 3]).as_output();
@@ -233,6 +249,7 @@ fn test_op_permute_invalid_axis() {
 #[test]
 #[should_panic(expected = "duplicate axis in permute")]
 fn test_op_permute_duplicate_axis() {
+    setup_logger();
     let graph = Graph::new();
     let x = graph.input(DType::F32, vec![2.into(), 3.into(), 4.into()]);
     // This should panic because axis 1 is duplicated.
@@ -241,6 +258,7 @@ fn test_op_permute_duplicate_axis() {
 
 #[test]
 fn test_op_squeeze_unsqueeze() {
+    setup_logger();
     let graph = Graph::new();
     let x = graph.input(DType::F32, vec![1.into(), 2.into(), 1.into(), 3.into()]);
     let squeezed = x.squeeze(2);
@@ -257,6 +275,7 @@ fn test_op_squeeze_unsqueeze() {
 
 #[test]
 fn test_op_expand() {
+    setup_logger();
     let graph = Graph::new();
     let x = graph.input(DType::F32, vec![1.into(), 3.into(), 1.into()]);
     let _ = x.expand(vec![2.into(), 3.into(), 4.into()]).as_output();
@@ -279,6 +298,7 @@ fn test_op_expand() {
 #[test]
 #[should_panic(expected = "can only squeeze an axis of size 1")]
 fn test_op_squeeze_invalid() {
+    setup_logger();
     let graph = Graph::new();
     let x = graph.input(DType::F32, vec![1.into(), 2.into(), 3.into()]);
     let _ = x.squeeze(1).as_output();
@@ -287,6 +307,7 @@ fn test_op_squeeze_invalid() {
 #[test]
 #[should_panic(expected = "can only expand a dimension of size 1")]
 fn test_op_expand_invalid() {
+    setup_logger();
     let graph = Graph::new();
     let x = graph.input(DType::F32, vec![1.into(), 2.into(), 3.into()]);
     let _ = x.expand(vec![2.into(), 3.into(), 4.into()]).as_output();
