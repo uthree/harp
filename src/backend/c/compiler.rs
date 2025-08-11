@@ -67,7 +67,6 @@ impl Compiler<CBuffer> for CCompiler {
             .arg("-shared")
             .arg("-fPIC")
             .arg("-O3")
-            .arg("-ffast-math")
             .arg("-o")
             .arg(&lib_path)
             .arg(source_file.path())
