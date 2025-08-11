@@ -56,3 +56,33 @@ trait DeterministicAstOptimizer {
 trait DeterministicGraphOptimizer {
     fn optimize(&Graph) -> Graph
 }
+```
+
+## ヒューリスティック AST オプティマイザー
+```rust
+// ヒューリスティックな最適化を行うことを表すトレイト
+trait HeuristicAstOptimizer {
+    fn optimize(&AstNode) -> AstNode {
+
+    }
+}
+
+// コストベースのAST最適化
+struct CostbaseAstOptimizer {
+    ...
+}
+
+impl HeuristicAstOptimizer for HeuristicAstOptimizer {
+    ...
+}
+
+// ASTの最適化ステップを提案する
+trait OptimizationSuggester {
+    fn suggest_optimization_step(&AstNode) -> Vec<AstNode>
+}
+
+// ASTと入力バッファの形状・型を受け取って実行時間（コスト）を予測する
+trait CostEstimator {
+    fn estimate_cost(&AstNode, Vec<BufferInfo>) -> float
+}
+```
