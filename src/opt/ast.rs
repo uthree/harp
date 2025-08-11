@@ -32,7 +32,7 @@ pub trait CostEstimator {
 pub struct RewriteRule {
     name: String,
     pattern: AstNode,
-    rewriter: Box<dyn Fn(Vec<AstNode>) -> AstNode>,
+    pub rewriter: Box<dyn Fn(Vec<AstNode>) -> AstNode>,
 }
 
 impl RewriteRule {
@@ -60,7 +60,7 @@ impl RewriteRule {
             .all(|(s, p)| Self::scan(s, p, store))
     }
 
-    fn capture(&self, target: &AstNode) -> Option<Vec<AstNode>> {
+    pub fn capture(&self, target: &AstNode) -> Option<Vec<AstNode>> {
         let mut captures = FxHashMap::default();
         if Self::scan(target, &self.pattern, &mut captures) {
             let mut captures = captures.into_iter().collect::<Vec<(usize, AstNode)>>();

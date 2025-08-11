@@ -1,9 +1,10 @@
 use std::any::TypeId;
+use std::hash::{Hash, Hasher};
 
 use crate::ast::node::AstNode;
 
 /// Represents the data type of a value in the AST.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DType {
     F32,
     F64,
@@ -161,7 +162,7 @@ impl DType {
 }
 
 /// Represents a constant literal value.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy)]
 pub enum Const {
     F32(f32),
     F64(f64),
@@ -173,6 +174,44 @@ pub enum Const {
     U16(u16),
     U32(u32),
     U64(u64),
+}
+
+impl PartialEq for Const {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::F32(l), Self::F32(r)) => l.total_cmp(r).is_eq(),
+            (Self::F64(l), Self::F64(r)) => l.total_cmp(r).is_eq(),
+            (Self::I8(l), Self::I8(r)) => l == r,
+            (Self::I16(l), Self::I16(r)) => l == r,
+            (Self::I32(l), Self::I32(r)) => l == r,
+            (Self::I64(l), Self::I64(r)) => l == r,
+            (Self::U8(l), Self::U8(r)) => l == r,
+            (Self::U16(l), Self::U16(r)) => l == r,
+            (Self::U32(l), Self::U32(r)) => l == r,
+            (Self::U64(l), Self::U64(r)) => l == r,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Const {}
+
+impl Hash for Const {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        core::mem::discriminant(self).hash(state);
+        match self {
+            Const::F32(v) => v.to_bits().hash(state),
+            Const::F64(v) => v.to_bits().hash(state),
+            Const::I8(v) => v.hash(state),
+            Const::I16(v) => v.hash(state),
+            Const::I32(v) => v.hash(state),
+            Const::I64(v) => v.hash(state),
+            Const::U8(v) => v.hash(state),
+            Const::U16(v) => v.hash(state),
+            Const::U32(v) => v.hash(state),
+            Const::U64(v) => v.hash(state),
+        }
+    }
 }
 
 impl Const {

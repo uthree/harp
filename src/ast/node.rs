@@ -1,4 +1,5 @@
 use std::cell::Cell;
+use std::hash::{Hash, Hasher};
 
 use crate::ast::{dtype::DType, op::AstOp};
 
@@ -46,6 +47,16 @@ pub struct AstNode {
 impl PartialEq for AstNode {
     fn eq(&self, other: &Self) -> bool {
         self.op == other.op && self.src == other.src && self.dtype == other.dtype
+    }
+}
+
+impl Eq for AstNode {}
+
+impl Hash for AstNode {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.op.hash(state);
+        self.src.hash(state);
+        self.dtype.hash(state);
     }
 }
 

@@ -20,9 +20,8 @@ use once_cell::sync::Lazy;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
-use std::sync::Mutex;
 
-static C_BACKEND: Lazy<CBackend> = Lazy::new(|| CBackend::new());
+static C_BACKEND: Lazy<CBackend> = Lazy::new(CBackend::new);
 
 /// A buffer holding the tensor's actual data on a computation device.
 pub enum TensorBuffer {

@@ -1,4 +1,5 @@
 use crate::ast::dtype::{Const, DType};
+use std::hash::{Hash, Hasher};
 
 /// Represents an operation in the Abstract Syntax Tree.
 ///
@@ -8,7 +9,7 @@ use crate::ast::dtype::{Const, DType};
 ///
 /// Also, based on the design philosophy that the number of types of operator sets should be as small as possible,
 /// for example, subtraction (a-b) is expressed as (a+neg(b)).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum AstOp {
     // --- Placeholders ---
     /// A placeholder for pattern matching in graph rewriting.
@@ -74,4 +75,76 @@ pub enum AstOp {
     },
     /// Represents a function call. Arguments are stored in the `src` field.
     Call(String),
+}
+
+impl PartialEq for AstOp {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Capture(l0, l1), Self::Capture(r0, r1)) => l0 == r0 && l1 == r1,
+            (Self::Const(l0), Self::Const(r0)) => l0 == r0,
+            (Self::Var(l0), Self::Var(r0)) => l0 == r0,
+            (Self::Cast(l0), Self::Cast(r0)) => l0 == r0,
+            (Self::Index(l0), Self::Index(r0)) => l0 == r0,
+            (
+                Self::Declare {
+                    name: l_name,
+                    dtype: l_dtype,
+                },
+                Self::Declare {
+                    name: r_name,
+                    dtype: r_dtype,
+                },
+            ) => l_name == r_name && l_dtype == r_dtype,
+            (
+                Self::Range {
+                    loop_var: l_loop_var,
+                },
+                Self::Range {
+                    loop_var: r_loop_var,
+                },
+            ) => l_loop_var == r_loop_var,
+            (
+                Self::Func {
+                    name: l_name,
+                    args: l_args,
+                },
+                Self::Func {
+                    name: r_name,
+                    args: r_args,
+                },
+            ) => l_name == r_name && l_args == r_args,
+            (Self::Call(l0), Self::Call(r0)) => l0 == r0,
+            _ => core::mem::discriminant(self) == core::mem::discriminant(other),
+        }
+    }
+}
+
+impl Eq for AstOp {}
+
+impl Hash for AstOp {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        core::mem::discriminant(self).hash(state);
+        match self {
+            AstOp::Capture(id, dtype) => {
+                id.hash(state);
+                dtype.hash(state);
+            }
+            AstOp::Const(c) => c.hash(state),
+            AstOp::Var(name) => name.hash(state),
+            AstOp::Cast(dtype) => dtype.hash(state),
+            AstOp::Index(i) => i.hash(state),
+            AstOp::Declare { name, dtype } => {
+                name.hash(state);
+                dtype.hash(state);
+            }
+            AstOp::Range { loop_var } => loop_var.hash(state),
+            AstOp::Func { name, args } => {
+                name.hash(state);
+                args.hash(state);
+            }
+            AstOp::Call(name) => name.hash(state),
+            // Ops with no data
+            _ => {}
+        }
+    }
 }

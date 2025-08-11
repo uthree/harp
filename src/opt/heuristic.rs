@@ -1,6 +1,9 @@
 use crate::ast::AstNode;
 use crate::opt::ast::{CostEstimator, DeterministicAstOptimizer, OptimizationSuggester};
 use log::debug;
+use rustc_hash::FxHashSet;
+use std::cmp::Ordering;
+use std::collections::BinaryHeap;
 
 /// A simple cost estimator that counts the number of nodes in the AST.
 #[derive(Clone, Copy)]
@@ -16,7 +19,7 @@ impl CostEstimator for NodeCountCostEstimator {
     }
 }
 
-/// An optimizer that uses a suggester and a cost estimator to make decisions.
+/// An optimizer that uses a greedy search to find a low-cost AST.
 pub struct HeuristicAstOptimizer<S: OptimizationSuggester, C: CostEstimator> {
     suggester: S,
     cost_estimator: C,
@@ -94,6 +97,137 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
     }
 }
 
+// Helper struct to use AstNode in a min-heap (BinaryHeap)
+#[derive(Clone)]
+struct CostAstNode(f32, AstNode);
+
+impl PartialEq for CostAstNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+impl Eq for CostAstNode {}
+
+// We want a min-heap, so we implement Ord to reverse the comparison
+impl Ord for CostAstNode {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other.0.partial_cmp(&self.0).unwrap_or(Ordering::Equal)
+    }
+}
+
+impl PartialOrd for CostAstNode {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// An optimizer that uses beam search to find a low-cost AST.
+pub struct BeamSearchAstOptimizer<S: OptimizationSuggester, C: CostEstimator> {
+    suggester: S,
+    cost_estimator: C,
+    beam_width: usize,
+    max_steps: usize,
+}
+
+impl<S: OptimizationSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
+    pub fn new(suggester: S, cost_estimator: C, beam_width: usize) -> Self {
+        Self {
+            suggester,
+            cost_estimator,
+            beam_width,
+            max_steps: 10, // Default max steps for the search
+        }
+    }
+
+    pub fn with_max_steps(mut self, max_steps: usize) -> Self {
+        self.max_steps = max_steps;
+        self
+    }
+
+    /// Recursively finds all possible single-mutation variants of a given AST.
+    fn find_all_single_mutations(&self, node: &AstNode) -> Vec<AstNode> {
+        let mut all_mutations = Vec::new();
+
+        // 1. Mutations for the current node (top-level)
+        let top_level_suggestions = self.suggester.suggest_optimizations(node);
+        all_mutations.extend(top_level_suggestions);
+
+        // 2. Mutations from children
+        for (i, child) in node.src.iter().enumerate() {
+            let child_mutations = self.find_all_single_mutations(child);
+            for child_mutation in child_mutations {
+                let mut new_src = node.src.clone();
+                new_src[i] = child_mutation;
+                let new_parent = AstNode::new(node.op.clone(), new_src, node.dtype.clone());
+                all_mutations.push(new_parent);
+            }
+        }
+        all_mutations
+    }
+}
+
+impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
+    for BeamSearchAstOptimizer<S, C>
+{
+    fn optimize(&self, node: AstNode) -> AstNode {
+        let mut beam: Vec<AstNode> = vec![node];
+        let mut visited: FxHashSet<AstNode> = FxHashSet::from_iter(beam.iter().cloned());
+
+        for step in 0..self.max_steps {
+            let mut candidates = BinaryHeap::new();
+
+            for ast_in_beam in &beam {
+                // Add the current ast to candidates to ensure we don't get worse
+                candidates.push(CostAstNode(
+                    self.cost_estimator.estimate_cost(ast_in_beam),
+                    ast_in_beam.clone(),
+                ));
+
+                let all_possible_next_asts = self.find_all_single_mutations(ast_in_beam);
+
+                for next_ast in all_possible_next_asts {
+                    if !visited.contains(&next_ast) {
+                        let cost = self.cost_estimator.estimate_cost(&next_ast);
+                        candidates.push(CostAstNode(cost, next_ast));
+                    }
+                }
+            }
+
+            // Select the top `beam_width` candidates for the new beam
+            let mut new_beam = Vec::with_capacity(self.beam_width);
+            let mut new_beam_set = FxHashSet::default();
+            while let Some(CostAstNode(_, candidate_node)) = candidates.pop() {
+                if new_beam.len() >= self.beam_width {
+                    break;
+                }
+                if new_beam_set.insert(candidate_node.clone()) {
+                    new_beam.push(candidate_node);
+                }
+            }
+
+            let old_beam_set: FxHashSet<_> = beam.iter().cloned().collect();
+            if new_beam.is_empty() || new_beam_set == old_beam_set {
+                debug!("Beam search reached fixed point after {} steps.", step);
+                break;
+            }
+
+            beam = new_beam;
+            visited.extend(beam.iter().cloned());
+            debug!("Beam search step {}: beam size = {}", step, beam.len());
+        }
+
+        // Return the best node found
+        beam.into_iter()
+            .min_by(|a, b| {
+                self.cost_estimator
+                    .estimate_cost(a)
+                    .partial_cmp(&self.cost_estimator.estimate_cost(b))
+                    .unwrap_or(Ordering::Equal)
+            })
+            .unwrap()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -107,69 +241,78 @@ mod tests {
     }
 
     /// A suggester that uses a set of rewrite rules to generate optimization candidates.
+    #[derive(Clone)]
     pub struct RuleBasedSuggester {
-        rewriter: AstRewriter,
+        rules: Vec<Rc<RewriteRule>>,
     }
 
     impl RuleBasedSuggester {
         pub fn new(rules: Vec<Rc<RewriteRule>>) -> Self {
-            Self {
-                rewriter: AstRewriter::new(rules),
-            }
+            Self { rules }
         }
     }
 
     impl OptimizationSuggester for RuleBasedSuggester {
         fn suggest_optimizations(&self, node: &AstNode) -> Vec<AstNode> {
-            let rewritten_node = self.rewriter.apply(node.clone());
-            if &rewritten_node != node {
-                vec![rewritten_node]
-            } else {
-                vec![]
+            let mut suggestions = Vec::new();
+            for rule in &self.rules {
+                if let Some(captures) = rule.capture(node) {
+                    let rewritten_node = (rule.rewriter)(captures);
+                    if &rewritten_node != node {
+                        suggestions.push(rewritten_node);
+                    }
+                }
             }
+            suggestions
         }
     }
 
     #[test]
-    fn test_heuristic_optimizer_greedy_iteration() {
+    fn test_beam_search_finds_better_solution_than_greedy() {
         setup_logger();
-        let a = AstNode::var("a");
-        let b = AstNode::var("b");
-        let c = AstNode::var("c");
-        let d = AstNode::var("d");
-        let e = AstNode::var("e");
-        let f = AstNode::var("f");
+        use crate::ast::AstOp;
+        use crate::opt::ast::RewriteRule;
 
-        // Expression to optimize: (a * b + a * c) + (d * e + d * f)
-        // This is complex and has a high node count.
-        let original_expr =
-            (a.clone() * b.clone() + a.clone() * c.clone()) + (d.clone() * e.clone() + d.clone() * f.clone());
+        // A -> B (cost increases), B -> C (cost decreases, lower than A)
+        let node_a = AstNode::var("A");
+        let node_b = AstNode::var("B");
+        let node_c = AstNode::var("C");
 
-        // Expected result after factorization: a * (b + c) + d * (e + f)
-        // This is simpler and has a lower node count.
-        let expected_expr = (a.clone() * (b.clone() + c.clone())) + (d.clone() * (e.clone() + f.clone()));
+        // Dummy rules that match specific AstNodes
+        let rule_a_to_b = RewriteRule::new("A->B", AstNode::var("A"), |_| AstNode::var("B"));
+        let rule_b_to_c = RewriteRule::new("B->C", AstNode::var("B"), |_| AstNode::var("C"));
 
-        // Rule for factorization (a * b + a * c -> a * (b + c))
-        let factorization_rule = rule!("factorization", |x, y, z| (x.clone() * y.clone()) + (x.clone() * z.clone()) => x * (y + z));
-        let suggester = RuleBasedSuggester::new(vec![factorization_rule]);
-        let cost_estimator = NodeCountCostEstimator;
-        let optimizer = HeuristicAstOptimizer::new(suggester, cost_estimator);
+        let suggester = RuleBasedSuggester::new(vec![rule_a_to_b, rule_b_to_c]);
 
-        let result = optimizer.optimize(original_expr.clone());
+        #[derive(Clone, Copy)]
+        struct CustomEstimator;
+        impl CostEstimator for CustomEstimator {
+            fn estimate_cost(&self, node: &AstNode) -> f32 {
+                if let AstOp::Var(name) = &node.op {
+                    return match name.as_str() {
+                        "A" => 10.0,
+                        "B" => 15.0, // Higher cost intermediate state
+                        "C" => 5.0,  // Lowest cost final state
+                        _ => 99.0,
+                    };
+                }
+                99.0
+            }
+        }
+        let cost_estimator = CustomEstimator;
 
-        // The optimizer should iteratively apply the factorization rule
-        // until it reaches the most simplified form.
-        assert_eq!(result, expected_expr);
+        // --- Test with Greedy Search (Beam Width = 1) ---
+        let greedy_optimizer =
+            BeamSearchAstOptimizer::new(suggester.clone(), cost_estimator, 1).with_max_steps(3);
+        let greedy_result = greedy_optimizer.optimize(node_a.clone());
+        // Greedy gets stuck at A because the only move is to B, which has a higher cost.
+        assert_eq!(greedy_result, node_a);
 
-        // Let's also test the distributive law to ensure it does NOT get applied
-        // because it increases the cost.
-        let distributive_rule = rule!("distributive", |x, y, z| x.clone() * (y.clone() + z.clone()) => (x.clone() * y) + (x * z));
-        let suggester_dist = RuleBasedSuggester::new(vec![distributive_rule]);
-        let optimizer_dist = HeuristicAstOptimizer::new(suggester_dist, cost_estimator);
-
-        let result_dist = optimizer_dist.optimize(expected_expr.clone());
-
-        // The optimizer should not apply the distributive law as it increases the node count.
-        assert_eq!(result_dist, expected_expr);
+        // --- Test with Beam Search (Beam Width = 2) ---
+        let beam_optimizer =
+            BeamSearchAstOptimizer::new(suggester, cost_estimator, 2).with_max_steps(3);
+        let beam_result = beam_optimizer.optimize(node_a.clone());
+        // Beam search can move to B (cost 15) and keep it in the beam, then find C (cost 5).
+        assert_eq!(beam_result, node_c);
     }
 }

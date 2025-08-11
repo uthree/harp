@@ -1,4 +1,4 @@
-use super::{CBuffer, CCompiler, CRenderer, CKernel};
+use super::{CBuffer, CCompiler, CKernel, CRenderer};
 use crate::{
     backend::{Backend, Compiler, Kernel, Renderer},
     graph::Graph,
