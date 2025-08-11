@@ -72,6 +72,15 @@ impl Buffer for CBuffer {
     fn shape(&self) -> Vec<usize> {
         self.shape.clone()
     }
+
+    fn allocate(dtype: DType, shape: Vec<usize>) -> Self {
+        let byte_size = shape.iter().product::<usize>() * dtype.size_in_bytes();
+        let ptr = unsafe { libc::malloc(byte_size) };
+        if ptr.is_null() {
+            panic!("Failed to allocate memory for CBuffer");
+        }
+        CBuffer { ptr, shape, dtype }
+    }
 }
 
 impl Drop for CBuffer {

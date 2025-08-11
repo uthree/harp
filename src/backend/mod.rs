@@ -8,6 +8,7 @@
 
 // --- Submodules ---
 pub mod c;
+pub mod generic;
 
 // --- Imports ---
 use crate::{
@@ -40,7 +41,7 @@ pub struct KernelDetails {
 /// A trait for a generic buffer that can be passed to a kernel.
 /// This trait is object-safe.
 /// should be free when dropped.
-pub trait Buffer: 'static {
+pub trait Buffer: 'static + Sized {
     /// Provides a way to downcast the buffer to a concrete type.
     fn as_any(&self) -> &dyn Any;
 
@@ -58,6 +59,9 @@ pub trait Buffer: 'static {
 
     /// 形状を返す。Bufferとして実態を持っている時点でサイズは確定しているので、Exprではない。
     fn shape(&self) -> Vec<usize>;
+
+    /// Allocates a new buffer with the given dtype and shape.
+    fn allocate(dtype: DType, shape: Vec<usize>) -> Self;
 }
 
 /// An extension trait for `Buffer` providing `ndarray` conversion.

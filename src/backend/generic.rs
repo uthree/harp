@@ -1,6 +1,5 @@
-use super::{CBuffer, CCompiler, CKernel, CRenderer};
 use crate::{
-    backend::{Backend, Compiler, Kernel, Renderer},
+    backend::{Backend, Buffer, Compiler, Kernel, Renderer},
     graph::Graph,
     graph::lowerer::Lowerer,
     graph::lowerer::orchestrator::LoweringOrchestrator,
@@ -8,18 +7,32 @@ use crate::{
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-pub struct CBackend {
-    compiler: Mutex<CCompiler>,
-    renderer: Mutex<CRenderer>,
-    cache: Mutex<HashMap<String, Arc<Mutex<CKernel>>>>,
+pub struct GenericBackend<C, R, B, CodeRepr, CompilerOption>
+where
+    B: Buffer,
+    C: Compiler<B, CodeRepr, CompilerOption>,
+    R: Renderer<CodeRepr>,
+{
+    compiler: Mutex<C>,
+    renderer: Mutex<R>,
+    cache: Mutex<HashMap<String, Arc<Mutex<C::KernelType>>>>,
     pub compile_count: Mutex<usize>, // For testing purposes
 }
 
-impl Backend<CBuffer> for CBackend {
+impl<C, R, B, CodeRepr, CompilerOption> Backend<B>
+    for GenericBackend<C, R, B, CodeRepr, CompilerOption>
+where
+    B: Buffer,
+    C: Compiler<B, CodeRepr, CompilerOption> + Send + Sync,
+    R: Renderer<CodeRepr> + Send + Sync,
+    CodeRepr: Send + Sync,
+    CompilerOption: Send + Sync,
+    C::KernelType: Send + Sync,
+{
     fn new() -> Self {
-        CBackend {
-            compiler: Mutex::new(CCompiler::new()),
-            renderer: Mutex::new(CRenderer::new()),
+        GenericBackend {
+            compiler: Mutex::new(C::new()),
+            renderer: Mutex::new(R::new()),
             cache: Mutex::new(HashMap::new()),
             compile_count: Mutex::new(0),
         }
@@ -29,16 +42,11 @@ impl Backend<CBuffer> for CBackend {
         self.compiler.lock().unwrap().is_available()
     }
 
-    fn run(&self, graph: &Graph) -> Vec<CBuffer> {
+    fn run(&self, graph: &Graph) -> Vec<B> {
         self.execute(graph, vec![], vec![])
     }
 
-    fn execute(
-        &self,
-        graph: &Graph,
-        inputs: Vec<CBuffer>,
-        shape_variables: Vec<usize>,
-    ) -> Vec<CBuffer> {
+    fn execute(&self, graph: &Graph, inputs: Vec<B>, shape_variables: Vec<usize>) -> Vec<B> {
         // 1. Generate a unique key from the graph structure.
         let graph_key = {
             let nodes_repr = format!("{:?}", graph.nodes.borrow());
@@ -50,10 +58,10 @@ impl Backend<CBuffer> for CBackend {
         let kernel = {
             let mut cache = self.cache.lock().unwrap();
             if let Some(kernel) = cache.get(&graph_key) {
-                log::debug!("CBackend cache hit");
+                log::debug!("Backend cache hit");
                 kernel.clone()
             } else {
-                log::debug!("CBackend cache miss, compiling...");
+                log::debug!("Backend cache miss, compiling...");
                 // 3. If miss, lower the graph to get the AST and kernel details.
                 let mut lowerer = Lowerer::new(graph);
                 let (ast, details) = lowerer.lower();
@@ -79,20 +87,20 @@ impl Backend<CBuffer> for CBackend {
         // Allocate output buffers.
         let mut kernel_locked = kernel.lock().unwrap();
         let shape_vars_map: std::collections::HashMap<String, i64> = kernel_locked
-            .details
+            .details()
             .shape_variables
             .iter()
             .cloned()
             .zip(shape_variables.iter().map(|&v| v as i64))
             .collect();
 
-        for buffer_info in kernel_locked.details.buffers.iter().skip(num_inputs) {
+        for buffer_info in kernel_locked.details().buffers.iter().skip(num_inputs) {
             let shape = buffer_info
                 .shape
                 .iter()
                 .map(|expr| expr.evaluate(&shape_vars_map) as usize)
                 .collect();
-            all_buffers.push(CBuffer::allocate(buffer_info.dtype.clone(), shape));
+            all_buffers.push(B::allocate(buffer_info.dtype.clone(), shape));
         }
 
         // 8. Execute the kernel.

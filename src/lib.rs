@@ -4,8 +4,8 @@ pub mod graph;
 pub mod opt;
 pub mod tensor;
 
-pub mod cbuffer {
-    pub use crate::backend::c::buffer::CBuffer;
+pub mod c {
+    pub use crate::backend::c::{CBackend, CBuffer};
 }
 
 /// Initializes the logger for the harp library.
