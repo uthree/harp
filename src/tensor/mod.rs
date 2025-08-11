@@ -4,6 +4,12 @@
 //! graph under the hood. The actual computation is deferred until the `forward()`
 //! method is called. This allows for graph-level optimizations before execution.
 
+mod creation;
+mod grad;
+mod ops_binary;
+mod ops_math;
+mod ops_unary;
+
 use crate::ast::{Const, DType};
 use crate::backend::Backend;
 use crate::backend::c::CBackend;
@@ -74,42 +80,6 @@ pub type Shape = Vec<usize>;
 pub struct Tensor(Rc<RefCell<TensorData>>);
 
 impl Tensor {
-    pub fn rand(shape: Shape, dtype: DType, requires_grad: bool) -> Self {
-        TensorData {
-            op: TensorOp::Rand,
-            src: vec![],
-            shape,
-            dtype,
-            buffer: None,
-            grad: None,
-            requires_grad,
-            backend: backend("c"),
-        }
-        .into()
-    }
-
-    pub fn full(shape: Shape, dtype: DType, value: Const, requires_grad: bool) -> Self {
-        TensorData {
-            op: TensorOp::Full(value),
-            src: vec![],
-            shape,
-            dtype,
-            buffer: None,
-            grad: None,
-            requires_grad,
-            backend: backend("c"),
-        }
-        .into()
-    }
-
-    pub fn ones(shape: Shape, dtype: DType, requires_grad: bool) -> Self {
-        Self::full(shape, dtype, Const::from(1.0), requires_grad)
-    }
-
-    pub fn zeros(shape: Shape, dtype: DType, requires_grad: bool) -> Self {
-        Self::full(shape, dtype, Const::from(0.0), requires_grad)
-    }
-
     pub fn forward(&self) {
         if self.0.borrow().buffer.is_some() {
             return;
@@ -225,60 +195,6 @@ impl Tensor {
         }
     }
 
-    fn grad_fn(&self, grad: Tensor, srcs: &[Tensor]) -> Vec<Tensor> {
-        match self.0.borrow().op {
-            TensorOp::Add => vec![grad.clone(), grad],
-            TensorOp::Sub => vec![grad.clone(), -grad],
-            TensorOp::Mul => {
-                let a = srcs[0].clone();
-                let b = srcs[1].clone();
-                vec![grad.clone() * b, grad * a]
-            }
-            TensorOp::Neg => vec![-grad],
-            TensorOp::Recip => {
-                let a = srcs[0].clone();
-                let recip_a = a.recip();
-                vec![-grad * recip_a.clone() * recip_a]
-            }
-            TensorOp::Sin => {
-                let a = srcs[0].clone();
-                vec![grad * a.cos()]
-            }
-            TensorOp::Exp2 => {
-                // d/dx(2^x) = 2^x * ln(2)
-                let ln_2 = Tensor::full(
-                    grad.0.borrow().shape.clone(),
-                    grad.0.borrow().dtype.clone(),
-                    (2.0f32).ln().into(),
-                    false,
-                );
-                vec![grad * self.clone() * ln_2]
-            }
-            TensorOp::Log2 => {
-                // d/dx(log2(x)) = 1 / (x * ln(2))
-                let a = srcs[0].clone();
-                let ln_2 = Tensor::full(
-                    grad.0.borrow().shape.clone(),
-                    grad.0.borrow().dtype.clone(),
-                    (2.0f32).ln().into(),
-                    false,
-                );
-                vec![grad * (a * ln_2).recip()]
-            }
-            TensorOp::Sqrt => {
-                // d/dx(sqrt(x)) = 1 / (2 * sqrt(x))
-                let two = Tensor::full(
-                    grad.0.borrow().shape.clone(),
-                    grad.0.borrow().dtype.clone(),
-                    2.0.into(),
-                    false,
-                );
-                vec![grad * (two * self.clone()).recip()]
-            }
-            _ => vec![],
-        }
-    }
-
     fn build_tape(&self, tape: &mut Vec<Tensor>, visited: &mut HashSet<*const TensorData>) {
         let ptr = self.0.as_ptr() as *const TensorData;
         if visited.contains(&ptr) {
@@ -291,196 +207,7 @@ impl Tensor {
         }
         tape.push(self.clone());
     }
-
-    pub fn recip(self) -> Self {
-        let shape = self.0.borrow().shape.clone();
-        let dtype = self.0.borrow().dtype.clone();
-        let requires_grad = self.0.borrow().requires_grad;
-        TensorData {
-            op: TensorOp::Recip,
-            src: vec![self.clone()],
-            shape,
-            dtype,
-            buffer: None,
-            grad: None,
-            requires_grad,
-            backend: self.0.borrow().backend.clone(),
-        }
-        .into()
-    }
-
-    pub fn sin(self) -> Self {
-        let requires_grad = self.0.borrow().requires_grad;
-        let shape = self.0.borrow().shape.clone();
-        let dtype = self.0.borrow().dtype.clone();
-        TensorData {
-            op: TensorOp::Sin,
-            src: vec![self.clone()],
-            shape,
-            dtype,
-            buffer: None,
-            grad: None,
-            requires_grad,
-            backend: self.0.borrow().backend.clone(),
-        }
-        .into()
-    }
-
-    pub fn cos(self) -> Self {
-        let pi_over_2 = Tensor::full(
-            self.0.borrow().shape.clone(),
-            self.0.borrow().dtype.clone(),
-            (std::f32::consts::PI / 2.0).into(),
-            false,
-        );
-        (self + pi_over_2).sin()
-    }
-
-    pub fn exp2(self) -> Self {
-        let requires_grad = self.0.borrow().requires_grad;
-        let shape = self.0.borrow().shape.clone();
-        let dtype = self.0.borrow().dtype.clone();
-        TensorData {
-            op: TensorOp::Exp2,
-            src: vec![self.clone()],
-            shape,
-            dtype,
-            buffer: None,
-            grad: None,
-            requires_grad,
-            backend: self.0.borrow().backend.clone(),
-        }
-        .into()
-    }
-
-    pub fn log2(self) -> Self {
-        let requires_grad = self.0.borrow().requires_grad;
-        let shape = self.0.borrow().shape.clone();
-        let dtype = self.0.borrow().dtype.clone();
-        TensorData {
-            op: TensorOp::Log2,
-            src: vec![self.clone()],
-            shape,
-            dtype,
-            buffer: None,
-            grad: None,
-            requires_grad,
-            backend: self.0.borrow().backend.clone(),
-        }
-        .into()
-    }
-
-    pub fn sqrt(self) -> Self {
-        let requires_grad = self.0.borrow().requires_grad;
-        let shape = self.0.borrow().shape.clone();
-        let dtype = self.0.borrow().dtype.clone();
-        TensorData {
-            op: TensorOp::Sqrt,
-            src: vec![self.clone()],
-            shape,
-            dtype,
-            buffer: None,
-            grad: None,
-            requires_grad,
-            backend: self.0.borrow().backend.clone(),
-        }
-        .into()
-    }
 }
-
-macro_rules! impl_binary_op {
-    ($trait:ident, $method:ident, $op:expr) => {
-        impl std::ops::$trait for Tensor {
-            type Output = Self;
-
-            fn $method(self, rhs: Self) -> Self::Output {
-                if self.0.borrow().shape != rhs.0.borrow().shape {
-                    panic!(
-                        "Shape mismatch for op {:?}: {:?} vs {:?}",
-                        $op,
-                        self.0.borrow().shape,
-                        rhs.0.borrow().shape
-                    );
-                }
-                let self_backend = &self.0.borrow().backend;
-                let rhs_backend = &rhs.0.borrow().backend;
-                if self_backend != rhs_backend {
-                    panic!("Backends of tensors do not match");
-                }
-                if self.0.borrow().dtype != rhs.0.borrow().dtype {
-                    panic!("Dtypes of tensors do not match");
-                }
-                let requires_grad = self.0.borrow().requires_grad || rhs.0.borrow().requires_grad;
-                let shape = self.0.borrow().shape.clone();
-                let dtype = self.0.borrow().dtype.clone();
-                TensorData {
-                    op: $op,
-                    src: vec![self.clone(), rhs.clone()],
-                    shape,
-                    dtype,
-                    buffer: None,
-                    grad: None,
-                    requires_grad,
-                    backend: self.0.borrow().backend.clone(),
-                }
-                .into()
-            }
-        }
-    };
-}
-
-macro_rules! impl_unary_op {
-    ($trait:ident, $method:ident, $op:expr) => {
-        impl std::ops::$trait for Tensor {
-            type Output = Self;
-
-            fn $method(self) -> Self::Output {
-                let requires_grad = self.0.borrow().requires_grad;
-                let shape = self.0.borrow().shape.clone();
-                let dtype = self.0.borrow().dtype.clone();
-                TensorData {
-                    op: $op,
-                    src: vec![self.clone()],
-                    shape,
-                    dtype,
-                    buffer: None,
-                    grad: None,
-                    requires_grad,
-                    backend: self.0.borrow().backend.clone(),
-                }
-                .into()
-            }
-        }
-    };
-}
-
-impl_binary_op!(Add, add, TensorOp::Add);
-impl_binary_op!(Sub, sub, TensorOp::Sub);
-impl_binary_op!(Mul, mul, TensorOp::Mul);
-impl_unary_op!(Neg, neg, TensorOp::Neg);
-
-impl std::ops::Div for Tensor {
-    type Output = Self;
-    fn div(self, rhs: Self) -> Self::Output {
-        self * rhs.recip()
-    }
-}
-
-macro_rules! impl_binary_op_assign {
-    ($trait:ident, $method:ident, $op_trait:ident, $op_method:ident) => {
-        impl std::ops::$trait for Tensor {
-            fn $method(&mut self, rhs: Self) {
-                let new_tensor = std::ops::$op_trait::$op_method(self.clone(), rhs);
-                self.0 = new_tensor.0;
-            }
-        }
-    };
-}
-
-impl_binary_op_assign!(AddAssign, add_assign, Add, add);
-impl_binary_op_assign!(SubAssign, sub_assign, Sub, sub);
-impl_binary_op_assign!(MulAssign, mul_assign, Mul, mul);
-impl_binary_op_assign!(DivAssign, div_assign, Div, div);
 
 impl From<TensorData> for Tensor {
     fn from(value: TensorData) -> Self {

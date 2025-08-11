@@ -6,7 +6,6 @@ use harp::backend::{Compiler, Kernel, Renderer, TryIntoNdarray};
 use harp::graph::Graph;
 use harp::graph::lowerer::{Lowerer, LoweringOrchestrator};
 use ndarray::ArrayD;
-use serial_test::serial;
 use std::ffi::c_void;
 
 /// Helper function to create a CBuffer from a slice of data.
@@ -43,7 +42,6 @@ fn empty_buffer(shape: &[usize], dtype: DType) -> CBuffer {
 }
 
 #[test]
-#[serial]
 fn test_c_backend_e2e_neg() {
     harp::init_logger();
     let mut compiler = CCompiler::new();
@@ -84,7 +82,6 @@ fn test_c_backend_e2e_neg() {
 }
 
 #[test]
-#[serial]
 fn test_c_backend_e2e_rem() {
     harp::init_logger();
     let mut compiler = CCompiler::new();
@@ -133,7 +130,6 @@ fn test_c_backend_e2e_rem() {
 }
 
 #[test]
-#[serial]
 fn test_c_backend_e2e_lt() {
     harp::init_logger();
     let mut compiler = CCompiler::new();
@@ -182,7 +178,6 @@ fn test_c_backend_e2e_lt() {
 }
 
 #[test]
-#[serial]
 fn test_c_backend_e2e_sin() {
     harp::init_logger();
     let mut compiler = CCompiler::new();
@@ -223,7 +218,6 @@ fn test_c_backend_e2e_sin() {
 }
 
 #[test]
-#[serial]
 fn test_c_backend_e2e_sqrt() {
     harp::init_logger();
     let mut compiler = CCompiler::new();
@@ -257,7 +251,6 @@ fn test_c_backend_e2e_sqrt() {
 }
 
 #[test]
-#[serial]
 fn test_c_backend_e2e_log2() {
     harp::init_logger();
     let mut compiler = CCompiler::new();
@@ -291,7 +284,6 @@ fn test_c_backend_e2e_log2() {
 }
 
 #[test]
-#[serial]
 fn test_c_backend_e2e_exp2() {
     harp::init_logger();
     let mut compiler = CCompiler::new();
@@ -325,7 +317,6 @@ fn test_c_backend_e2e_exp2() {
 }
 
 #[test]
-#[serial]
 fn test_c_backend_e2e_recip() {
     harp::init_logger();
     let mut compiler = CCompiler::new();
@@ -359,7 +350,6 @@ fn test_c_backend_e2e_recip() {
 }
 
 #[test]
-#[serial]
 fn test_c_backend_e2e_reduce_sum() {
     harp::init_logger();
     let mut compiler = CCompiler::new();
@@ -400,7 +390,6 @@ fn test_c_backend_e2e_reduce_sum() {
 }
 
 #[test]
-#[serial]
 fn test_c_backend_e2e_reduce_max() {
     harp::init_logger();
     let mut compiler = CCompiler::new();
@@ -435,7 +424,6 @@ fn test_c_backend_e2e_reduce_max() {
 }
 
 #[test]
-#[serial]
 fn test_c_backend_e2e_reduce_prod() {
     harp::init_logger();
     let mut compiler = CCompiler::new();
@@ -470,7 +458,6 @@ fn test_c_backend_e2e_reduce_prod() {
 }
 
 #[test]
-#[serial]
 fn test_c_backend_e2e_cumulative_sum() {
     harp::init_logger();
     let mut compiler = CCompiler::new();
@@ -510,7 +497,6 @@ fn test_c_backend_e2e_cumulative_sum() {
 }
 
 #[test]
-#[serial]
 fn test_c_backend_e2e_slice() {
     harp::init_logger();
     let mut compiler = CCompiler::new();

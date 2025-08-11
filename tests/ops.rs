@@ -9,7 +9,6 @@ use harp::{
     graph::shape::expr::Expr,
 };
 use rstest::rstest;
-use serial_test::serial;
 
 fn run_c_backend(graph: &Graph, inputs: Vec<CBuffer>) -> Vec<CBuffer> {
     let mut backend = CBackend::new();
@@ -17,7 +16,6 @@ fn run_c_backend(graph: &Graph, inputs: Vec<CBuffer>) -> Vec<CBuffer> {
 }
 
 #[test]
-#[serial]
 fn test_op_reshape() {
     let graph = Graph::new();
     let x = graph.input(DType::F32, vec![6.into()]);
@@ -33,7 +31,6 @@ fn test_op_reshape() {
 }
 
 #[test]
-#[serial]
 fn test_op_sum() {
     let graph = Graph::new();
     let x = graph.input(DType::F32, vec![2.into(), 3.into()]);
@@ -49,7 +46,6 @@ fn test_op_sum() {
 }
 
 #[rstest]
-#[serial]
 #[case(
     "add",
     |g: &Graph, a, b| g.add(a, b),

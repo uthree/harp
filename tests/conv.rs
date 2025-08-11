@@ -3,7 +3,6 @@ use harp::{
     backend::{Backend, c::CBackend, c::CBuffer},
     graph::Graph,
 };
-use serial_test::serial;
 
 fn run_c_backend(graph: &Graph, inputs: Vec<CBuffer>) -> CBuffer {
     let mut backend = CBackend::new();
@@ -12,7 +11,6 @@ fn run_c_backend(graph: &Graph, inputs: Vec<CBuffer>) -> CBuffer {
 }
 
 #[test]
-#[serial]
 fn test_conv1d() {
     let graph = Graph::new();
     let x = graph.input(DType::F32, vec![1.into(), 1.into(), 10.into()]);
@@ -31,7 +29,6 @@ fn test_conv1d() {
 }
 
 #[test]
-#[serial]
 fn test_conv2d() {
     let graph = Graph::new();
     let x = graph.input(DType::F32, vec![1.into(), 1.into(), 4.into(), 4.into()]);
