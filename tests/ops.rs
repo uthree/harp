@@ -65,6 +65,57 @@ fn test_op_reshape_invalid_numel() {
 }
 
 #[test]
+fn test_op_slice() {
+    let graph = Graph::new();
+    let x = graph.input(DType::F32, vec![2.into(), 4.into(), 5.into()]);
+    let _ = x
+        .slice(vec![
+            (0.into(), 1.into()),
+            (1.into(), 3.into()),
+            (2.into(), 4.into()),
+        ])
+        .as_output();
+
+    let mut x_buf = CBuffer::from_slice::<f32>(&(0..40).map(|x| x as f32).collect::<Vec<_>>());
+    x_buf.shape = vec![2, 4, 5];
+    let outputs = run_c_backend(&graph, vec![x_buf]);
+    let y_buf = &outputs[0];
+
+    assert_eq!(y_buf.shape, &[1, 2, 2]);
+    assert_eq!(y_buf.as_slice::<f32>(), &[7., 8., 12., 13.]);
+}
+
+#[test]
+#[should_panic(expected = "Slice arguments must match number of dimensions")]
+fn test_op_slice_invalid_args() {
+    let graph = Graph::new();
+    let x = graph.input(DType::F32, vec![2.into(), 4.into(), 5.into()]);
+    // This should panic because the number of slice args is 2, but ndim is 3.
+    let _ = x
+        .slice(vec![(0.into(), 1.into()), (1.into(), 3.into())])
+        .as_output();
+}
+
+#[test]
+fn test_op_contiguous() {
+    let graph = Graph::new();
+    let x = graph.input(DType::F32, vec![2.into(), 3.into()]);
+    let _ = x.permute(vec![1, 0]).contiguous().as_output();
+
+    let mut x_buf = CBuffer::from_slice::<f32>(&[1., 2., 3., 4., 5., 6.]);
+    x_buf.shape = vec![2, 3];
+    let outputs = run_c_backend(&graph, vec![x_buf]);
+    let y_buf = &outputs[0];
+
+    assert_eq!(y_buf.shape, &[3, 2]);
+    // The data should now be contiguous in the new shape's layout.
+    // Original x: [[1, 2, 3], [4, 5, 6]]
+    // Permuted x: [[1, 4], [2, 5], [3, 6]]
+    // Contiguous output should be the flattened version of the permuted data.
+    assert_eq!(y_buf.as_slice::<f32>(), &[1., 4., 2., 5., 3., 6.]);
+}
+
+#[test]
 fn test_op_sum() {
     let graph = Graph::new();
     let x = graph.input(DType::F32, vec![2.into(), 3.into()]);
