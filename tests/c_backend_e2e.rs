@@ -6,6 +6,7 @@ use harp::backend::{Compiler, Kernel, Renderer, TryIntoNdarray};
 use harp::graph::Graph;
 use harp::graph::lowerer::{Lowerer, LoweringOrchestrator};
 use ndarray::ArrayD;
+use serial_test::serial;
 use std::ffi::c_void;
 
 /// Helper function to create a CBuffer from a slice of data.
@@ -42,6 +43,7 @@ fn empty_buffer(shape: &[usize], dtype: DType) -> CBuffer {
 }
 
 #[test]
+#[serial]
 fn test_c_backend_e2e_add() {
     harp::init_logger();
     let mut compiler = CCompiler::new();

@@ -5,6 +5,7 @@ use harp::backend::c::{CBackend, CBuffer};
 use harp::backend::{Backend, TryIntoNdarray};
 use harp::graph::Graph;
 use ndarray::ArrayD;
+use serial_test::serial;
 use std::ffi::c_void;
 
 /// Helper function to create a CBuffer from a slice of data.
@@ -28,6 +29,7 @@ fn buffer_from_slice<T: Clone>(data: &[T], shape: &[usize], dtype: DType) -> CBu
 }
 
 #[test]
+#[serial]
 fn test_cbackend_call_simple_add() {
     harp::init_logger();
     let mut backend = CBackend::new();
@@ -68,6 +70,7 @@ fn test_cbackend_call_simple_add() {
 }
 
 #[test]
+#[serial]
 fn test_c_backend_e2e_multiple_outputs() {
     harp::init_logger();
     let mut backend = CBackend::new();
