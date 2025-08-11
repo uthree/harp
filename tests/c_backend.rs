@@ -119,3 +119,45 @@ fn test_c_backend_e2e_multiple_outputs() {
     let d_expected_array = ArrayD::from_shape_vec(shape, d_expected_data).unwrap();
     assert_eq!(d_result_array, d_expected_array);
 }
+
+#[test]
+fn test_cbackend_cache() {
+    setup_logger();
+    let mut backend = CBackend::new();
+
+    // Build Graph 1: c = a + b
+    let graph1 = Graph::new();
+    let shape = vec![10];
+    let a1 = graph1.input(DType::F32, shape.iter().map(|&d| d.into()).collect());
+    let b1 = graph1.input(DType::F32, shape.iter().map(|&d| d.into()).collect());
+    (a1 + b1).as_output();
+
+    // Prepare input data
+    let a_data: Vec<f32> = (0..10).map(|i| i as f32).collect();
+    let b_data: Vec<f32> = (0..10).map(|i| (i * 2) as f32).collect();
+    let a_buffer = buffer_from_slice(&a_data, &shape, DType::F32);
+    let b_buffer = buffer_from_slice(&b_data, &shape, DType::F32);
+
+    // First run: should compile
+    assert_eq!(*backend.compile_count.borrow(), 0);
+    let _ = backend.execute(&graph1, vec![a_buffer.clone(), b_buffer.clone()], vec![]);
+    assert_eq!(*backend.compile_count.borrow(), 1);
+
+    // Second run with same graph: should use cache, no new compilation
+    let _ = backend.execute(&graph1, vec![a_buffer.clone(), b_buffer.clone()], vec![]);
+    assert_eq!(*backend.compile_count.borrow(), 1);
+
+    // Build Graph 2 (different operation): d = a - b
+    let graph2 = Graph::new();
+    let a2 = graph2.input(DType::F32, shape.iter().map(|&d| d.into()).collect());
+    let b2 = graph2.input(DType::F32, shape.iter().map(|&d| d.into()).collect());
+    (a2 - b2).as_output();
+
+    // Third run with different graph: should compile again
+    let _ = backend.execute(&graph2, vec![a_buffer.clone(), b_buffer.clone()], vec![]);
+    assert_eq!(*backend.compile_count.borrow(), 2);
+
+    // Fourth run with graph2 again: should use cache
+    let _ = backend.execute(&graph2, vec![a_buffer, b_buffer], vec![]);
+    assert_eq!(*backend.compile_count.borrow(), 2);
+}
