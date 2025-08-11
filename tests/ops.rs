@@ -11,7 +11,7 @@ use harp::{
 use rstest::rstest;
 
 fn run_c_backend(graph: &Graph, inputs: Vec<CBuffer>) -> Vec<CBuffer> {
-    let mut backend = CBackend::new();
+    let backend = CBackend::new();
     backend.execute(&graph, inputs, vec![])
 }
 

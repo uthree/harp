@@ -10,7 +10,7 @@ fn setup_logger() {
 }
 
 fn run_c_backend(graph: &Graph, inputs: Vec<CBuffer>) -> CBuffer {
-    let mut backend = CBackend::new();
+    let backend = CBackend::new();
     let outputs = backend.execute(&graph, inputs, vec![]);
     outputs[0].clone()
 }

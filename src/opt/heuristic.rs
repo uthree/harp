@@ -30,8 +30,14 @@ impl CostEstimator for HandcodedCostEstimator {
             AstOp::Store => 100.0,
             AstOp::Range { loop_var: _ } => 200.0,
             AstOp::Assign => 100.0,
-            AstOp::Declare { name, dtype } => 100.0,
-            AstOp::Func { name, args } => 1.0,
+            AstOp::Declare {
+                name: _name,
+                dtype: _dtype,
+            } => 100.0,
+            AstOp::Func {
+                name: _name,
+                args: _args,
+            } => 1.0,
             AstOp::Deref => 50.0,
             AstOp::Var(_) => 10.0,
             AstOp::Call(_) => 20.0,
@@ -257,8 +263,7 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
 mod tests {
     use super::*;
     use crate::ast::AstNode;
-    use crate::opt::ast::{AstRewriter, RewriteRule};
-    use crate::rule;
+    use crate::opt::ast::RewriteRule;
     use std::rc::Rc;
 
     fn setup_logger() {
@@ -300,7 +305,7 @@ mod tests {
 
         // A -> B (cost increases), B -> C (cost decreases, lower than A)
         let node_a = AstNode::var("A");
-        let node_b = AstNode::var("B");
+        //let node_b = AstNode::var("B");
         let node_c = AstNode::var("C");
 
         // Dummy rules that match specific AstNodes

@@ -47,6 +47,7 @@ impl_binary_op!(Mul, mul, TensorOp::Mul);
 
 impl std::ops::Div for Tensor {
     type Output = Self;
+    #[allow(clippy::suspicious)]
     fn div(self, rhs: Self) -> Self::Output {
         self * rhs.recip()
     }
