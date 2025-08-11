@@ -7,6 +7,7 @@
 
 use crate::ast::AstNode;
 use crate::graph::shape::expr::Expr;
+use std::collections::HashSet;
 
 /// Tracks the shape and strides of a tensor view.
 ///
@@ -110,6 +111,11 @@ impl ShapeTracker {
     /// ```
     pub fn permute(self, axes: Vec<usize>) -> Self {
         assert!(self.ndim() == axes.len());
+        let axes_set: HashSet<_> = axes.iter().collect();
+        assert!(
+            axes_set.len() == axes.len(),
+            "duplicate axis in permute"
+        );
         let mut new_shape = vec![];
         let mut new_strides = vec![];
         for axis in axes.iter() {

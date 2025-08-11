@@ -104,3 +104,52 @@ fn test_elementwise_binary_ops(
     assert_eq!(c_node.op, GraphOp::Elementwise(expected_op));
     assert_eq!(c_node.shape, shape);
 }
+
+#[test]
+fn test_op_permute() {
+    let graph = Graph::new();
+    let x = graph.input(DType::F32, vec![2.into(), 3.into(), 4.into()]);
+    let _ = x.permute(vec![1, 2, 0]).as_output();
+
+    let mut x_buf = CBuffer::from_slice::<f32>(&[
+        1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11., 12., 13., 14., 15., 16., 17., 18., 19., 20.,
+        21., 22., 23., 24.,
+    ]);
+    x_buf.shape = vec![2, 3, 4];
+    let outputs = run_c_backend(&graph, vec![x_buf]);
+    let y_buf = &outputs[0];
+
+    assert_eq!(y_buf.shape, &[3, 4, 2]);
+    assert_eq!(
+        y_buf.as_slice::<f32>(),
+        &[
+            1., 13., 2., 14., 3., 15., 4., 16., 5., 17., 6., 18., 7., 19., 8., 20., 9., 21., 10.,
+            22., 11., 23., 12., 24.
+        ]
+    );
+}
+
+#[test]
+#[should_panic(expected = "assertion failed: self.ndim() == axes.len()")]
+fn test_op_permute_invalid_axes_len() {
+    let graph = Graph::new();
+    let x = graph.input(DType::F32, vec![2.into(), 3.into(), 4.into()]);
+    let _ = x.permute(vec![1, 0]).as_output();
+}
+
+#[test]
+#[should_panic(expected = "index out of bounds: the len is 3 but the index is 3")]
+fn test_op_permute_invalid_axis() {
+    let graph = Graph::new();
+    let x = graph.input(DType::F32, vec![2.into(), 3.into(), 4.into()]);
+    let _ = x.permute(vec![0, 1, 3]).as_output();
+}
+
+#[test]
+#[should_panic(expected = "duplicate axis in permute")]
+fn test_op_permute_duplicate_axis() {
+    let graph = Graph::new();
+    let x = graph.input(DType::F32, vec![2.into(), 3.into(), 4.into()]);
+    // This should panic because axis 1 is duplicated.
+    let _ = x.permute(vec![0, 1, 1]).as_output();
+}
