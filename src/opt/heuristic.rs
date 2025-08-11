@@ -1,4 +1,4 @@
-use crate::ast::AstNode;
+use crate::ast::{AstNode, AstOp};
 use crate::opt::ast::{CostEstimator, DeterministicAstOptimizer, OptimizationSuggester};
 use log::debug;
 use rustc_hash::FxHashSet;
@@ -12,6 +12,25 @@ pub struct NodeCountCostEstimator;
 impl CostEstimator for NodeCountCostEstimator {
     fn estimate_cost(&self, node: &AstNode) -> f32 {
         let mut count = 1.0;
+        for child in &node.src {
+            count += self.estimate_cost(child);
+        }
+        count
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct HandcodedCostEstimator;
+
+impl CostEstimator for HandcodedCostEstimator {
+    fn estimate_cost(&self, node: &AstNode) -> f32 {
+        let mut count = 0.0;
+        count += match &node.op {
+            AstOp::Recip => 2.0,
+            AstOp::Store => 100.0,
+            AstOp::Range { loop_var: _ } => 200.0,
+            _ => 1.0,
+        };
         for child in &node.src {
             count += self.estimate_cost(child);
         }
