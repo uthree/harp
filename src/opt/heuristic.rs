@@ -26,9 +26,15 @@ impl CostEstimator for HandcodedCostEstimator {
     fn estimate_cost(&self, node: &AstNode) -> f32 {
         let mut count = 0.0;
         count += match &node.op {
-            AstOp::Recip => 2.0,
+            AstOp::Recip => 5.0,
             AstOp::Store => 100.0,
             AstOp::Range { loop_var: _ } => 200.0,
+            AstOp::Assign => 100.0,
+            AstOp::Declare { name, dtype } => 100.0,
+            AstOp::Func { name, args } => 1.0,
+            AstOp::Deref => 50.0,
+            AstOp::Var(_) => 10.0,
+            AstOp::Call(_) => 20.0,
             _ => 1.0,
         };
         for child in &node.src {
@@ -42,7 +48,7 @@ impl CostEstimator for HandcodedCostEstimator {
 pub struct GreedyAstOptimizer<S: OptimizationSuggester, C: CostEstimator> {
     suggester: S,
     cost_estimator: C,
-    max_iterations: usize,
+    pub max_iterations: usize,
 }
 
 impl<S: OptimizationSuggester, C: CostEstimator> GreedyAstOptimizer<S, C> {
@@ -50,7 +56,7 @@ impl<S: OptimizationSuggester, C: CostEstimator> GreedyAstOptimizer<S, C> {
         Self {
             suggester,
             cost_estimator,
-            max_iterations: 100, // Default max iterations
+            max_iterations: 1000, // Default max iterations
         }
     }
 
@@ -144,8 +150,8 @@ impl PartialOrd for CostAstNode {
 pub struct BeamSearchAstOptimizer<S: OptimizationSuggester, C: CostEstimator> {
     suggester: S,
     cost_estimator: C,
-    beam_width: usize,
-    max_steps: usize,
+    pub beam_width: usize,
+    pub max_steps: usize,
 }
 
 impl<S: OptimizationSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
@@ -154,7 +160,7 @@ impl<S: OptimizationSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
             suggester,
             cost_estimator,
             beam_width,
-            max_steps: 10, // Default max steps for the search
+            max_steps: 1000, // Default max steps for the search
         }
     }
 
