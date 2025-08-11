@@ -20,13 +20,13 @@ impl CostEstimator for NodeCountCostEstimator {
 }
 
 /// An optimizer that uses a greedy search to find a low-cost AST.
-pub struct HeuristicAstOptimizer<S: OptimizationSuggester, C: CostEstimator> {
+pub struct GreedyAstOptimizer<S: OptimizationSuggester, C: CostEstimator> {
     suggester: S,
     cost_estimator: C,
     max_iterations: usize,
 }
 
-impl<S: OptimizationSuggester, C: CostEstimator> HeuristicAstOptimizer<S, C> {
+impl<S: OptimizationSuggester, C: CostEstimator> GreedyAstOptimizer<S, C> {
     pub fn new(suggester: S, cost_estimator: C) -> Self {
         Self {
             suggester,
@@ -75,7 +75,7 @@ impl<S: OptimizationSuggester, C: CostEstimator> HeuristicAstOptimizer<S, C> {
 }
 
 impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
-    for HeuristicAstOptimizer<S, C>
+    for GreedyAstOptimizer<S, C>
 {
     fn optimize(&self, mut node: AstNode) -> AstNode {
         for i in 0..self.max_iterations {
