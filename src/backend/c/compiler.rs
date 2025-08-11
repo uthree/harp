@@ -68,10 +68,10 @@ impl Compiler<CBuffer> for CCompiler {
             .arg("-fPIC")
             .arg("-O3")
             .arg("-ffast-math")
-            .arg("-lm")
             .arg("-o")
             .arg(&lib_path)
             .arg(source_file.path())
+            .arg("-lm")
             .output()
             .expect("Failed to execute compiler");
 
