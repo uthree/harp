@@ -11,17 +11,17 @@ mod ops_math;
 mod ops_unary;
 
 use crate::ast::{Const, DType};
-use crate::backend::Backend;
 use crate::backend::c::CBackend;
+use crate::backend::Backend;
 use crate::cbuffer::CBuffer;
 use crate::graph::Graph;
+use once_cell::sync::Lazy;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+use std::sync::Mutex;
 
-thread_local! {
-    static C_BACKEND: Rc<RefCell<CBackend>> = Rc::new(RefCell::new(CBackend::new()));
-}
+static C_BACKEND: Lazy<Mutex<CBackend>> = Lazy::new(|| Mutex::new(CBackend::new()));
 
 /// A buffer holding the tensor's actual data on a computation device.
 pub enum TensorBuffer {
@@ -33,13 +33,13 @@ pub enum TensorBuffer {
 #[derive(Clone)]
 pub enum TensorBackend {
     /// The C backend, which compiles and runs operations as C code.
-    C(Rc<RefCell<CBackend>>),
+    C,
 }
 
 impl PartialEq for TensorBackend {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (TensorBackend::C(a), TensorBackend::C(b)) => Rc::ptr_eq(a, b),
+            (TensorBackend::C, TensorBackend::C) => true,
         }
     }
 }
@@ -126,8 +126,9 @@ impl Tensor {
         op.as_output();
 
         let result_buffer = match data.backend.clone() {
-            TensorBackend::C(b) => {
-                TensorBuffer::C(b.borrow_mut().run(&graph).into_iter().last().unwrap())
+            TensorBackend::C => {
+                let mut backend = C_BACKEND.lock().unwrap();
+                TensorBuffer::C(backend.run(&graph).into_iter().last().unwrap())
             }
         };
 
@@ -217,7 +218,7 @@ impl From<TensorData> for Tensor {
 
 pub fn backend(name: &str) -> TensorBackend {
     match name {
-        "c" => C_BACKEND.with(|backend| TensorBackend::C(backend.clone())),
+        "c" => TensorBackend::C,
         _ => panic!("Unsupported backend: {}", name),
     }
 }

@@ -200,6 +200,7 @@ dependencies = [
  "libloading",
  "log",
  "ndarray",
+ "once_cell",
  "rstest",
  "rustc-hash",
  "tempfile",
