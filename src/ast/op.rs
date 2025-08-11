@@ -25,7 +25,6 @@ pub enum AstOp {
     Neg,
     Recip,
     Sin,
-    Cos,
     Sqrt,
     Log2,
     Exp2,

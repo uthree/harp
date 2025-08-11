@@ -171,12 +171,9 @@ impl ElementwiseOps for Graph {
     }
 
     fn cos(&self, src: NodeId) -> NodeId {
-        let (dtype, shape) = {
-            let nodes = self.nodes.borrow();
-            let src_node = &nodes[src.0];
-            (src_node.dtype.clone(), src_node.shape.clone())
-        };
-        self.add_node(GraphOp::Elementwise(AstOp::Cos), vec![src], dtype, shape)
+        let pi_over_2 = self.full(std::f64::consts::PI / 2.0, vec![]);
+        let x_plus_pi_over_2 = self.add(src, pi_over_2.id);
+        self.sin(x_plus_pi_over_2)
     }
 
     fn sqrt(&self, src: NodeId) -> NodeId {
