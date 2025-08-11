@@ -153,3 +153,57 @@ fn test_op_permute_duplicate_axis() {
     // This should panic because axis 1 is duplicated.
     let _ = x.permute(vec![0, 1, 1]).as_output();
 }
+
+#[test]
+fn test_op_squeeze_unsqueeze() {
+    let graph = Graph::new();
+    let x = graph.input(DType::F32, vec![1.into(), 2.into(), 1.into(), 3.into()]);
+    let squeezed = x.squeeze(2);
+    let _ = squeezed.unsqueeze(0).as_output();
+
+    let mut x_buf = CBuffer::from_slice::<f32>(&[1., 2., 3., 4., 5., 6.]);
+    x_buf.shape = vec![1, 2, 1, 3];
+    let outputs = run_c_backend(&graph, vec![x_buf]);
+    let y_buf = &outputs[0];
+
+    assert_eq!(y_buf.shape, &[1, 1, 2, 3]);
+    assert_eq!(y_buf.as_slice::<f32>(), &[1., 2., 3., 4., 5., 6.]);
+}
+
+#[test]
+fn test_op_expand() {
+    let graph = Graph::new();
+    let x = graph.input(DType::F32, vec![1.into(), 3.into(), 1.into()]);
+    let _ = x
+        .expand(vec![2.into(), 3.into(), 4.into()])
+        .as_output();
+
+    let mut x_buf = CBuffer::from_slice::<f32>(&[1., 2., 3.]);
+    x_buf.shape = vec![1, 3, 1];
+    let outputs = run_c_backend(&graph, vec![x_buf]);
+    let y_buf = &outputs[0];
+
+    assert_eq!(y_buf.shape, &[2, 3, 4]);
+    assert_eq!(
+        y_buf.as_slice::<f32>(),
+        &[1., 1., 1., 1., 2., 2., 2., 2., 3., 3., 3., 3., 1., 1., 1., 1., 2., 2., 2., 2., 3., 3., 3., 3.]
+    );
+}
+
+#[test]
+#[should_panic(expected = "can only squeeze an axis of size 1")]
+fn test_op_squeeze_invalid() {
+    let graph = Graph::new();
+    let x = graph.input(DType::F32, vec![1.into(), 2.into(), 3.into()]);
+    let _ = x.squeeze(1).as_output();
+}
+
+#[test]
+#[should_panic(expected = "can only expand a dimension of size 1")]
+fn test_op_expand_invalid() {
+    let graph = Graph::new();
+    let x = graph.input(DType::F32, vec![1.into(), 2.into(), 3.into()]);
+    let _ = x
+        .expand(vec![2.into(), 3.into(), 4.into()])
+        .as_output();
+}
