@@ -35,7 +35,7 @@ fn buffer_from_slice<T: Clone>(data: &[T], shape: &[usize], dtype: DType) -> CBu
 #[test]
 fn test_cbackend_call_simple_add() {
     setup_logger();
-    let mut backend = CBackend::new();
+    let backend = CBackend::new();
 
     // 1. Build Graph: c = a + b
     let graph = Graph::new();
@@ -75,7 +75,7 @@ fn test_cbackend_call_simple_add() {
 #[test]
 fn test_c_backend_e2e_multiple_outputs() {
     setup_logger();
-    let mut backend = CBackend::new();
+    let backend = CBackend::new();
 
     // 1. Build Graph: c = a + b, d = a - b
     let graph = Graph::new();
@@ -123,7 +123,7 @@ fn test_c_backend_e2e_multiple_outputs() {
 #[test]
 fn test_cbackend_cache() {
     setup_logger();
-    let mut backend = CBackend::new();
+    let backend = CBackend::new();
 
     // Build Graph 1: c = a + b
     let graph1 = Graph::new();
@@ -139,13 +139,13 @@ fn test_cbackend_cache() {
     let b_buffer = buffer_from_slice(&b_data, &shape, DType::F32);
 
     // First run: should compile
-    assert_eq!(*backend.compile_count.borrow(), 0);
+    assert_eq!(*backend.compile_count.lock().unwrap(), 0);
     let _ = backend.execute(&graph1, vec![a_buffer.clone(), b_buffer.clone()], vec![]);
-    assert_eq!(*backend.compile_count.borrow(), 1);
+    assert_eq!(*backend.compile_count.lock().unwrap(), 1);
 
     // Second run with same graph: should use cache, no new compilation
     let _ = backend.execute(&graph1, vec![a_buffer.clone(), b_buffer.clone()], vec![]);
-    assert_eq!(*backend.compile_count.borrow(), 1);
+    assert_eq!(*backend.compile_count.lock().unwrap(), 1);
 
     // Build Graph 2 (different operation): d = a - b
     let graph2 = Graph::new();
@@ -155,9 +155,9 @@ fn test_cbackend_cache() {
 
     // Third run with different graph: should compile again
     let _ = backend.execute(&graph2, vec![a_buffer.clone(), b_buffer.clone()], vec![]);
-    assert_eq!(*backend.compile_count.borrow(), 2);
+    assert_eq!(*backend.compile_count.lock().unwrap(), 2);
 
     // Fourth run with graph2 again: should use cache
     let _ = backend.execute(&graph2, vec![a_buffer, b_buffer], vec![]);
-    assert_eq!(*backend.compile_count.borrow(), 2);
+    assert_eq!(*backend.compile_count.lock().unwrap(), 2);
 }

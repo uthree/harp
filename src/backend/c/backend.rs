@@ -1,47 +1,45 @@
-use super::{CBuffer, CCompiler, CKernel, CRenderer};
+use super::{CBuffer, CCompiler, CRenderer, CKernel};
 use crate::{
     backend::{Backend, Compiler, Kernel, Renderer},
     graph::Graph,
     graph::lowerer::Lowerer,
     graph::lowerer::orchestrator::LoweringOrchestrator,
 };
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 pub struct CBackend {
-    compiler: RefCell<CCompiler>,
-    renderer: RefCell<CRenderer>,
-    cache: RefCell<HashMap<String, Arc<Mutex<CKernel>>>>,
-    pub compile_count: RefCell<usize>, // For testing purposes
+    compiler: Mutex<CCompiler>,
+    renderer: Mutex<CRenderer>,
+    cache: Mutex<HashMap<String, Arc<Mutex<CKernel>>>>,
+    pub compile_count: Mutex<usize>, // For testing purposes
 }
 
 impl Backend<CBuffer> for CBackend {
     fn new() -> Self {
         CBackend {
-            compiler: RefCell::new(CCompiler::new()),
-            renderer: RefCell::new(CRenderer::new()),
-            cache: RefCell::new(HashMap::new()),
-            compile_count: RefCell::new(0),
+            compiler: Mutex::new(CCompiler::new()),
+            renderer: Mutex::new(CRenderer::new()),
+            cache: Mutex::new(HashMap::new()),
+            compile_count: Mutex::new(0),
         }
     }
 
     fn is_available(&self) -> bool {
-        self.compiler.borrow().is_available()
+        self.compiler.lock().unwrap().is_available()
     }
 
-    fn run(&mut self, graph: &Graph) -> Vec<CBuffer> {
+    fn run(&self, graph: &Graph) -> Vec<CBuffer> {
         self.execute(graph, vec![], vec![])
     }
 
     fn execute(
-        &mut self,
+        &self,
         graph: &Graph,
         inputs: Vec<CBuffer>,
         shape_variables: Vec<usize>,
     ) -> Vec<CBuffer> {
         // 1. Generate a unique key from the graph structure.
-        // This key represents the computation itself.
         let graph_key = {
             let nodes_repr = format!("{:?}", graph.nodes.borrow());
             let outputs_repr = format!("{:?}", graph.outputs.borrow());
@@ -49,27 +47,29 @@ impl Backend<CBuffer> for CBackend {
         };
 
         // 2. Check cache using the graph key.
-        let mut cache = self.cache.borrow_mut();
-        let kernel = if let Some(kernel) = cache.get(&graph_key) {
-            log::debug!("CBackend cache hit");
-            kernel.clone()
-        } else {
-            log::debug!("CBackend cache miss, compiling...");
-            // 3. If miss, lower the graph to get the AST and kernel details.
-            let mut lowerer = Lowerer::new(graph);
-            let (ast, details) = lowerer.lower();
+        let kernel = {
+            let mut cache = self.cache.lock().unwrap();
+            if let Some(kernel) = cache.get(&graph_key) {
+                log::debug!("CBackend cache hit");
+                kernel.clone()
+            } else {
+                log::debug!("CBackend cache miss, compiling...");
+                // 3. If miss, lower the graph to get the AST and kernel details.
+                let mut lowerer = Lowerer::new(graph);
+                let (ast, details) = lowerer.lower();
 
-            // 4. Render the AST to C code.
-            let code = self.renderer.get_mut().render(ast);
+                // 4. Render the AST to C code.
+                let code = self.renderer.lock().unwrap().render(ast);
 
-            // 5. Compile the C code into a kernel.
-            let new_kernel = self.compiler.get_mut().compile(&code, details);
-            let arc_kernel = Arc::new(Mutex::new(new_kernel));
-            *self.compile_count.borrow_mut() += 1;
+                // 5. Compile the C code into a kernel.
+                let new_kernel = self.compiler.lock().unwrap().compile(&code, details);
+                let arc_kernel = Arc::new(Mutex::new(new_kernel));
+                *self.compile_count.lock().unwrap() += 1;
 
-            // 6. Store the new kernel in the cache with the graph key.
-            cache.insert(graph_key, arc_kernel.clone());
-            arc_kernel
+                // 6. Store the new kernel in the cache with the graph key.
+                cache.insert(graph_key, arc_kernel.clone());
+                arc_kernel
+            }
         };
 
         // 7. Prepare buffers for the kernel call.

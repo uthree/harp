@@ -22,7 +22,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Mutex;
 
-static C_BACKEND: Lazy<Mutex<CBackend>> = Lazy::new(|| Mutex::new(CBackend::new()));
+static C_BACKEND: Lazy<CBackend> = Lazy::new(|| CBackend::new());
 
 /// A buffer holding the tensor's actual data on a computation device.
 pub enum TensorBuffer {
@@ -144,7 +144,7 @@ impl Tensor {
 
         let result_buffer = match data.backend.clone() {
             TensorBackend::C => {
-                let mut backend = C_BACKEND.lock().unwrap();
+                let backend = &C_BACKEND;
                 TensorBuffer::C(backend.run(&graph).into_iter().last().unwrap())
             }
         };
