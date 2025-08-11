@@ -8,11 +8,12 @@ mod creation;
 mod grad;
 mod ops_binary;
 mod ops_math;
+mod ops_shape;
 mod ops_unary;
 
 use crate::ast::{Const, DType};
-use crate::backend::c::CBackend;
 use crate::backend::Backend;
+use crate::backend::c::CBackend;
 use crate::cbuffer::CBuffer;
 use crate::graph::Graph;
 use once_cell::sync::Lazy;
@@ -58,6 +59,12 @@ pub enum TensorOp {
     Exp2,
     Log2,
     Sqrt,
+    Permute(Vec<usize>),
+    Reshape(Vec<usize>),
+    Expand(Vec<usize>),
+    Squeeze(usize),
+    Unsqueeze(usize),
+    Slice(Vec<(usize, usize)>),
 }
 
 /// Contains the internal data and metadata for a `Tensor`.
@@ -121,6 +128,16 @@ impl Tensor {
             TensorOp::Exp2 => srcs[0].exp2(),
             TensorOp::Log2 => srcs[0].log2(),
             TensorOp::Sqrt => srcs[0].sqrt(),
+            TensorOp::Permute(axes) => srcs[0].permute(axes),
+            TensorOp::Reshape(shape) => srcs[0].reshape(shape.iter().map(|&d| d.into()).collect()),
+            TensorOp::Expand(shape) => srcs[0].expand(shape.iter().map(|&d| d.into()).collect()),
+            TensorOp::Squeeze(dim) => srcs[0].squeeze(dim),
+            TensorOp::Unsqueeze(dim) => srcs[0].unsqueeze(dim),
+            TensorOp::Slice(args) => srcs[0].slice(
+                args.iter()
+                    .map(|(s, e)| ((*s).into(), (*e).into()))
+                    .collect(),
+            ),
         };
 
         op.as_output();
@@ -373,5 +390,38 @@ mod tests {
         let a = Tensor::ones(vec![10, 20], DType::F32, false);
         let b = Tensor::ones(vec![20, 10], DType::F32, false);
         let _ = a + b;
+    }
+
+    #[test]
+    fn test_shape_ops() {
+        let a = Tensor::ones(vec![1, 10, 20], DType::F32, false);
+
+        // Permute
+        let p = a.permute(vec![2, 0, 1]);
+        assert_eq!(p.0.borrow().shape, vec![20, 1, 10]);
+        assert_eq!(p.0.borrow().op, TensorOp::Permute(vec![2, 0, 1]));
+
+        // Reshape
+        let r = a.reshape(vec![200]);
+        assert_eq!(r.0.borrow().shape, vec![200]);
+        assert_eq!(r.0.borrow().op, TensorOp::Reshape(vec![200]));
+
+        // Squeeze
+        let s = a.squeeze(0);
+        assert_eq!(s.0.borrow().shape, vec![10, 20]);
+        assert_eq!(s.0.borrow().op, TensorOp::Squeeze(0));
+
+        // Unsqueeze
+        let u = s.unsqueeze(1);
+        assert_eq!(u.0.borrow().shape, vec![10, 1, 20]);
+        assert_eq!(u.0.borrow().op, TensorOp::Unsqueeze(1));
+
+        // Slice
+        let sl = a.slice(vec![(0, 1), (2, 5), (8, 12)]);
+        assert_eq!(sl.0.borrow().shape, vec![1, 3, 4]);
+        assert_eq!(
+            sl.0.borrow().op,
+            TensorOp::Slice(vec![(0, 1), (2, 5), (8, 12)])
+        );
     }
 }
