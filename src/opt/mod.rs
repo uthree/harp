@@ -1,6 +1,7 @@
 use crate::graph::Graph;
 pub mod ast;
 pub mod graph;
+pub mod heuristic;
 
 use crate::{
     ast::{AstNode, AstOp},

@@ -12,6 +12,23 @@ pub trait DeterministicAstOptimizer {
     fn optimize(&self, node: AstNode) -> AstNode;
 }
 
+/// A trait for suggesting possible optimization steps for a given `AstNode`.
+///
+/// Instead of applying a single rule, a suggester returns a list of potential
+/// new `AstNode`s that could replace the original one.
+pub trait OptimizationSuggester {
+    fn suggest_optimizations(&self, node: &AstNode) -> Vec<AstNode>;
+}
+
+/// A trait for estimating the computational cost of an `AstNode`.
+///
+/// The cost can be a metric like estimated execution time, memory usage,
+/// or simply the number of operations.
+pub trait CostEstimator {
+    /// Estimates the cost of the given `AstNode`. A lower value is better.
+    fn estimate_cost(&self, node: &AstNode) -> f32;
+}
+
 pub struct RewriteRule {
     name: String,
     pattern: AstNode,
