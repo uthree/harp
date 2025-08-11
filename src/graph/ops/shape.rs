@@ -87,7 +87,16 @@ impl ShapeOps for Graph {
     }
 
     fn reshape(&self, src: NodeId, new_shape: Vec<Expr>) -> NodeId {
-        let dtype = self.nodes.borrow()[src.0].dtype.clone();
+        let (dtype, shape) = {
+            let nodes = self.nodes.borrow();
+            let src_node = &nodes[src.0];
+            (src_node.dtype.clone(), src_node.shape.clone())
+        };
+
+        // Create a tracker to validate the reshape operation.
+        let tracker = ShapeTracker::new(shape);
+        let _ = tracker.reshape(new_shape.clone());
+
         // Reshape requires the memory to be contiguous. We conservatively insert a
         // contiguous call here. The lowerer for `contiguous` will handle the
         // case where the tensor is already contiguous as a no-op.

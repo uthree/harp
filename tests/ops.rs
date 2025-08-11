@@ -31,6 +31,40 @@ fn test_op_reshape() {
 }
 
 #[test]
+fn test_op_reshape_multiple() {
+    let graph = Graph::new();
+    let x = graph.input(DType::F32, vec![2.into(), 3.into(), 4.into()]);
+    let a = x.reshape(vec![6.into(), 4.into()]);
+    let _ = a.reshape(vec![2.into(), 12.into()]).as_output();
+
+    let mut x_buf = CBuffer::from_slice::<f32>(&[
+        1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11., 12., 13., 14., 15., 16., 17., 18., 19., 20.,
+        21., 22., 23., 24.,
+    ]);
+    x_buf.shape = vec![2, 3, 4];
+    let outputs = run_c_backend(&graph, vec![x_buf]);
+    let y_buf = &outputs[0];
+
+    assert_eq!(y_buf.shape, &[2, 12]);
+    assert_eq!(
+        y_buf.as_slice::<f32>(),
+        &[
+            1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11., 12., 13., 14., 15., 16., 17., 18., 19.,
+            20., 21., 22., 23., 24.
+        ]
+    );
+}
+
+#[test]
+#[should_panic(expected = "reshape shape must have the same number of elements")]
+fn test_op_reshape_invalid_numel() {
+    let graph = Graph::new();
+    let x = graph.input(DType::F32, vec![2.into(), 3.into()]);
+    // This should panic because 2 * 3 != 5
+    let _ = x.reshape(vec![5.into()]).as_output();
+}
+
+#[test]
 fn test_op_sum() {
     let graph = Graph::new();
     let x = graph.input(DType::F32, vec![2.into(), 3.into()]);
