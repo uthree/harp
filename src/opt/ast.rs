@@ -408,8 +408,12 @@ impl OptimizationSuggester for LoopUnrolling {
                                 unrolled_body.push(replace_var(stmt, loop_var, &substitution));
                             }
                         }
-                        
-                        suggestions.push(AstNode::new(AstOp::Block, unrolled_body, node.dtype.clone()));
+
+                        suggestions.push(AstNode::new(
+                            AstOp::Block,
+                            unrolled_body,
+                            node.dtype.clone(),
+                        ));
                     }
                 }
             }
@@ -425,7 +429,10 @@ fn replace_var(node: &AstNode, var_name: &str, substitution: &AstNode) -> AstNod
             return substitution.clone();
         }
     }
-    let new_src = node.src.iter().map(|n| replace_var(n, var_name, substitution)).collect();
+    let new_src = node
+        .src
+        .iter()
+        .map(|n| replace_var(n, var_name, substitution))
+        .collect();
     AstNode::new(node.op.clone(), new_src, node.dtype.clone())
 }
-

@@ -9,10 +9,11 @@ mod grad;
 pub mod op_conversion;
 mod ops_binary;
 mod ops_math;
+mod ops_reduce;
 mod ops_shape;
 mod ops_unary;
 
-use crate::ast::{Const, DType};
+use crate::ast::{AstOp, Const, DType};
 use crate::backend::Backend;
 use crate::c::{CBackend, CBuffer};
 use crate::graph::Graph;
@@ -59,6 +60,7 @@ pub enum TensorOp {
     Squeeze(usize),
     Unsqueeze(usize),
     Slice(Vec<(usize, usize)>),
+    Reduce(AstOp, usize),
 }
 
 impl TensorData {
@@ -106,6 +108,10 @@ pub type Shape = Vec<usize>;
 pub struct Tensor(pub Rc<RefCell<TensorData>>);
 
 impl Tensor {
+    pub fn shape(&self) -> Vec<usize> {
+        self.0.borrow().shape.clone()
+    }
+
     pub fn id(&self) -> usize {
         self.0.borrow().id
     }

@@ -38,5 +38,11 @@ pub fn op_to_graph_op(
                 .map(|(s, e)| ((*s).into(), (*e).into()))
                 .collect(),
         ),
+        TensorOp::Reduce(op, axis) => match op {
+            crate::ast::AstOp::Add => src_views[0].clone().sum(axis),
+            crate::ast::AstOp::Max => src_views[0].clone().max(axis),
+            crate::ast::AstOp::Mul => src_views[0].clone().prod(axis),
+            _ => panic!("Unsupported reduce operation"),
+        },
     }
 }
