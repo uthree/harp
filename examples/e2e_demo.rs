@@ -32,8 +32,7 @@ fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
 fn main() {
     // Enable logging to see more details from the optimizer
 
-    // UNCOMMENT THIS IF YOU NEED LOGGING
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
+    env_logger::Builder::from_env(env_logger::Env::default()).init();
 
     // Configure the backend to trigger heuristic optimization on the first call.
     let config = GenericBackendConfig {
