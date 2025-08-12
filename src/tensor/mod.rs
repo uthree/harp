@@ -143,7 +143,13 @@ impl Tensor {
         let result_buffer = match data.backend.clone() {
             TensorBackend::C => {
                 let backend = &C_BACKEND;
-                TensorBuffer::C(backend.run(&graph).into_iter().last().unwrap())
+                TensorBuffer::C(
+                    backend
+                        .execute(&graph, vec![], vec![])
+                        .into_iter()
+                        .last()
+                        .unwrap(),
+                )
             }
         };
 

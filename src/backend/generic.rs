@@ -114,10 +114,6 @@ where
         self.compiler.lock().unwrap().is_available()
     }
 
-    fn run(&self, graph: &Graph) -> Vec<B> {
-        self.execute(graph, vec![], vec![])
-    }
-
     fn execute(&self, graph: &Graph, inputs: Vec<B>, shape_variables: Vec<usize>) -> Vec<B> {
         // Always apply deterministic graph optimizations first.
         let optimized_graph = self.graph_optimizer.optimize(graph);
@@ -228,7 +224,7 @@ mod tests {
 
         // The first call should compile the deterministically optimized kernel.
         assert_eq!(*backend.compile_count.lock().unwrap(), 0);
-        let _ = backend.run(&graph);
+        let _ = backend.execute(&graph, vec![], vec![]);
         assert_eq!(
             *backend.compile_count.lock().unwrap(),
             1,
@@ -236,7 +232,7 @@ mod tests {
         );
 
         // Subsequent calls before the threshold should use the cache.
-        let _ = backend.run(&graph);
+        let _ = backend.execute(&graph, vec![], vec![]);
         assert_eq!(
             *backend.compile_count.lock().unwrap(),
             1,
@@ -244,7 +240,7 @@ mod tests {
         );
 
         // The call at the threshold should trigger heuristic optimization and re-compilation.
-        let _ = backend.run(&graph);
+        let _ = backend.execute(&graph, vec![], vec![]);
         assert_eq!(
             *backend.compile_count.lock().unwrap(),
             2,
@@ -252,13 +248,13 @@ mod tests {
         );
 
         // Calls after optimization should use the new heuristically optimized kernel from cache.
-        let _ = backend.run(&graph);
+        let _ = backend.execute(&graph, vec![], vec![]);
         assert_eq!(
             *backend.compile_count.lock().unwrap(),
             2,
             "Fourth call should hit heuristic cache"
         );
-        let _ = backend.run(&graph);
+        let _ = backend.execute(&graph, vec![], vec![]);
         assert_eq!(
             *backend.compile_count.lock().unwrap(),
             2,
