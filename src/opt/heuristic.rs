@@ -192,11 +192,9 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
         let start = Instant::now();
         let pb = ProgressBar::new(self.max_steps as u64);
         pb.set_style(
-            ProgressStyle::with_template(
-                "{prefix:>12.cyan.bold} [{bar:24}] {pos}/{len} {wide_msg}",
-            )
-            .unwrap()
-            .progress_chars("=> "),
+            ProgressStyle::with_template("{prefix:>12.cyan.bold} [{bar:24}] {pos}/{len} {msg}")
+                .unwrap()
+                .progress_chars("=> "),
         );
         pb.set_prefix("Optimizing");
 
@@ -210,16 +208,22 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
                     ast_in_beam.clone(),
                 ));
 
+                pb.set_message(format!("Step #{step}, generating AST edit suggestions..."));
+                pb.tick();
                 let all_possible_next_asts = self.find_all_single_mutations(ast_in_beam);
                 let num_suggestions = all_possible_next_asts.len();
                 pb.set_message(format!("Step #{step}, found {num_suggestions} suggestions"));
+                pb.tick();
 
+                pb.set_message(format!("Step #{step}, estimating execution cost..."));
+                pb.tick();
                 for next_ast in all_possible_next_asts {
                     if !visited.contains(&next_ast) {
                         let cost = self.cost_estimator.estimate_cost(&next_ast, details);
                         candidates.push(CostAstNode(cost, next_ast));
                     }
                 }
+                pb.tick();
             }
 
             // Select the top `beam_width` candidates for the new beam
