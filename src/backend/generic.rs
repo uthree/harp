@@ -1,11 +1,11 @@
+use crate::opt::heuristic;
 use crate::{
     backend::{Backend, Buffer, Compiler, Kernel, Renderer},
     graph::Graph,
     graph::lowerer::Lowerer,
     graph::lowerer::orchestrator::LoweringOrchestrator,
-    opt::ast::{self, AlgebraicSimplification, DeterministicAstOptimizer},
+    opt::ast::{AlgebraicSimplification, DeterministicAstOptimizer},
     opt::graph::ElementwiseFusion,
-    opt::heuristic::{self, BeamSearchAstOptimizer, HandcodedCostEstimator},
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -81,9 +81,8 @@ where
             log::debug!("Applying heuristic AST optimization...");
             let suggester = AlgebraicSimplification::new();
             let cost_estimator = heuristic::HandcodedCostEstimator;
-            let optimizer =
-                heuristic::BeamSearchAstOptimizer::new(suggester, cost_estimator, 2)
-                    .with_max_steps(3);
+            let optimizer = heuristic::BeamSearchAstOptimizer::new(suggester, cost_estimator, 2)
+                .with_max_steps(3);
             ast = optimizer.optimize(ast);
         }
 
@@ -208,7 +207,7 @@ mod tests {
     use super::*;
     use crate::{
         ast::DType,
-        backend::{c::*, Backend},
+        backend::{Backend, c::*},
     };
 
     #[test]
@@ -230,20 +229,40 @@ mod tests {
         // The first call should compile the deterministically optimized kernel.
         assert_eq!(*backend.compile_count.lock().unwrap(), 0);
         let _ = backend.run(&graph);
-        assert_eq!(*backend.compile_count.lock().unwrap(), 1, "First call should compile");
+        assert_eq!(
+            *backend.compile_count.lock().unwrap(),
+            1,
+            "First call should compile"
+        );
 
         // Subsequent calls before the threshold should use the cache.
         let _ = backend.run(&graph);
-        assert_eq!(*backend.compile_count.lock().unwrap(), 1, "Second call should hit cache");
+        assert_eq!(
+            *backend.compile_count.lock().unwrap(),
+            1,
+            "Second call should hit cache"
+        );
 
         // The call at the threshold should trigger heuristic optimization and re-compilation.
         let _ = backend.run(&graph);
-        assert_eq!(*backend.compile_count.lock().unwrap(), 2, "Third call (at threshold) should recompile with heuristics");
+        assert_eq!(
+            *backend.compile_count.lock().unwrap(),
+            2,
+            "Third call (at threshold) should recompile with heuristics"
+        );
 
         // Calls after optimization should use the new heuristically optimized kernel from cache.
         let _ = backend.run(&graph);
-        assert_eq!(*backend.compile_count.lock().unwrap(), 2, "Fourth call should hit heuristic cache");
+        assert_eq!(
+            *backend.compile_count.lock().unwrap(),
+            2,
+            "Fourth call should hit heuristic cache"
+        );
         let _ = backend.run(&graph);
-        assert_eq!(*backend.compile_count.lock().unwrap(), 2, "Fifth call should hit heuristic cache");
+        assert_eq!(
+            *backend.compile_count.lock().unwrap(),
+            2,
+            "Fifth call should hit heuristic cache"
+        );
     }
 }

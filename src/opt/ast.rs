@@ -322,7 +322,7 @@ impl Default for AlgebraicSimplification {
     fn default() -> Self {
         let rules = vec![
             rule!("mul_by_one", |a| a.clone() * AstNode::from(1.0f32) => a),
-            rule!("mul_by_zero", |a| a * AstNode::from(0.0f32) => AstNode::from(0.0f32)),
+            rule!("mul_by_zero", |_a| _a * AstNode::from(0.0f32) => AstNode::from(0.0f32)),
             rule!("add_zero", |a| a.clone() + AstNode::from(0.0f32) => a),
         ];
         Self {
