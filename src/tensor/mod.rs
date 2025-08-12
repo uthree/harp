@@ -14,30 +14,21 @@ mod ops_shape;
 mod ops_unary;
 
 use crate::ast::{AstOp, Const, DType};
-use crate::backend::Backend;
-use crate::c::{CBackend, CBuffer};
+use crate::backend::{Backend, c::CBuffer};
 use crate::graph::Graph;
 use once_cell::sync::Lazy;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{atomic::{AtomicUsize, Ordering}, Arc};
 
 static TENSOR_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
-static C_BACKEND: Lazy<CBackend> = Lazy::new(CBackend::new);
 
 /// A buffer holding the tensor's actual data on a computation device.
 #[derive(Debug, Clone)]
 pub enum TensorBuffer {
     /// A buffer managed by the C backend.
     C(CBuffer),
-}
-
-/// Represents the computation backend where tensor operations are executed.
-#[derive(Clone, Debug, PartialEq)]
-pub enum TensorBackend {
-    /// The C backend, which compiles and runs operations as C code.
-    C,
 }
 
 /// Defines the types of operations that can create a `Tensor`.
@@ -63,6 +54,19 @@ pub enum TensorOp {
     Reduce(AstOp, usize),
 }
 
+/// Contains the internal data and metadata for a `Tensor`.
+pub struct TensorData {
+    pub id: usize,
+    pub op: TensorOp,
+    pub src: Vec<Tensor>,
+    pub shape: Shape,
+    pub dtype: DType,
+    pub buffer: Option<TensorBuffer>,
+    pub grad: Option<Tensor>,
+    pub requires_grad: bool,
+    pub backend: Arc<dyn Backend<CBuffer>>,
+}
+
 impl TensorData {
     pub fn new(
         op: TensorOp,
@@ -70,7 +74,7 @@ impl TensorData {
         shape: Shape,
         dtype: DType,
         requires_grad: bool,
-        backend: TensorBackend,
+        backend: Arc<dyn Backend<CBuffer>>,
     ) -> Self {
         Self {
             id: 0, // Will be set by From<TensorData>
@@ -86,18 +90,22 @@ impl TensorData {
     }
 }
 
-/// Contains the internal data and metadata for a `Tensor`.
-#[derive(Debug)]
-pub struct TensorData {
-    pub id: usize,
-    pub op: TensorOp,
-    pub src: Vec<Tensor>,
-    pub shape: Shape,
-    pub dtype: DType,
-    pub buffer: Option<TensorBuffer>,
-    pub grad: Option<Tensor>,
-    pub requires_grad: bool,
-    pub backend: TensorBackend,
+use std::fmt;
+
+impl fmt::Debug for TensorData {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TensorData")
+            .field("id", &self.id)
+            .field("op", &self.op)
+            .field("src", &self.src)
+            .field("shape", &self.shape)
+            .field("dtype", &self.dtype)
+            .field("buffer", &self.buffer)
+            .field("grad", &self.grad)
+            .field("requires_grad", &self.requires_grad)
+            // .field("backend", &self.backend) // Omitted to avoid Debug constraint on dyn Backend
+            .finish()
+    }
 }
 
 /// A type alias for the shape of a tensor, represented as a vector of dimensions.
@@ -129,7 +137,8 @@ impl Tensor {
         let input_buffers = vec![];
 
         // Execute the entire graph.
-        let result_buffers = C_BACKEND.execute(&graph, input_buffers, vec![]);
+        let backend = self.0.borrow().backend.clone();
+        let result_buffers = backend.execute(&graph, input_buffers, vec![]);
 
         // Assign the resulting buffers back to all tensors in the graph.
         let all_tensors = self.all_tensors();
@@ -178,12 +187,14 @@ impl Tensor {
         self.build_tape(&mut tape, &mut HashSet::new());
 
         let mut grads: HashMap<*const TensorData, Tensor> = HashMap::new();
+        let backend = self.0.borrow().backend.clone();
         grads.insert(
             self.0.as_ptr() as *const TensorData,
             Tensor::ones(
                 self.0.borrow().shape.clone(),
                 self.0.borrow().dtype.clone(),
                 false,
+                backend,
             ),
         );
 
@@ -207,11 +218,13 @@ impl Tensor {
 
             for (src_tensor, grad_val) in srcs.iter().zip(new_grads) {
                 let src_ptr = src_tensor.0.as_ptr() as *const TensorData;
+                let backend = src_tensor.0.borrow().backend.clone();
                 let entry = grads.entry(src_ptr).or_insert_with(|| {
                     Tensor::zeros(
                         src_tensor.0.borrow().shape.clone(),
                         src_tensor.0.borrow().dtype.clone(),
                         false,
+                        backend,
                     )
                 });
                 *entry += grad_val;
@@ -250,9 +263,4 @@ impl From<TensorData> for Tensor {
     }
 }
 
-pub fn backend(name: &str) -> TensorBackend {
-    match name {
-        "c" => TensorBackend::C,
-        _ => panic!("Unsupported backend: {}", name),
-    }
-}
+

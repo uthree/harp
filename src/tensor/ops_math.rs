@@ -17,11 +17,13 @@ impl Tensor {
     }
 
     pub fn cos(self) -> Self {
+        let backend = self.0.borrow().backend.clone();
         let pi_over_2 = Tensor::full(
             self.0.borrow().shape.clone(),
             self.0.borrow().dtype.clone(),
             (std::f32::consts::PI / 2.0).into(),
             false,
+            backend,
         );
         (self + pi_over_2).sin()
     }

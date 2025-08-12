@@ -215,12 +215,14 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
                 pb.set_message(format!("Step #{step}, found {num_suggestions} suggestions"));
                 pb.tick();
 
-                pb.set_message(format!("Step #{step}, estimating execution cost..."));
-                pb.tick();
-                for next_ast in all_possible_next_asts {
+                for (i, next_ast) in all_possible_next_asts.iter().enumerate() {
+                    pb.set_message(format!(
+                        "Step #{step}, evaluating Suggestion # {i}/{num_suggestions} ..."
+                    ));
+                    pb.tick();
                     if !visited.contains(&next_ast) {
                         let cost = self.cost_estimator.estimate_cost(&next_ast, details);
-                        candidates.push(CostAstNode(cost, next_ast));
+                        candidates.push(CostAstNode(cost, next_ast.clone()));
                     }
                 }
                 pb.tick();
@@ -280,8 +282,8 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
     }
 }
 
-use crate::backend::Backend;
 use crate::backend::c::CBackend;
+use crate::backend::generic::GenericBackendConfig;
 use std::sync::Arc;
 
 /// A cost estimator that measures the actual execution time of an AST.
@@ -293,7 +295,7 @@ pub struct ExecutionTimeCostEstimator {
 impl ExecutionTimeCostEstimator {
     pub fn new() -> Self {
         Self {
-            backend: Arc::new(CBackend::new()),
+            backend: Arc::new(CBackend::with_config(GenericBackendConfig::default())),
         }
     }
 }

@@ -14,24 +14,20 @@ macro_rules! impl_binary_op {
                         rhs.0.borrow().shape
                     );
                 }
-                let self_backend = &self.0.borrow().backend;
-                let rhs_backend = &rhs.0.borrow().backend;
-                if self_backend != rhs_backend {
-                    panic!("Backends of tensors do not match");
-                }
                 if self.0.borrow().dtype != rhs.0.borrow().dtype {
                     panic!("Dtypes of tensors do not match");
                 }
                 let requires_grad = self.0.borrow().requires_grad || rhs.0.borrow().requires_grad;
                 let shape = self.0.borrow().shape.clone();
                 let dtype = self.0.borrow().dtype.clone();
+                let backend = self.0.borrow().backend.clone();
                 TensorData::new(
                     $op,
                     vec![self.clone(), rhs.clone()],
                     shape,
                     dtype,
                     requires_grad,
-                    self.0.borrow().backend.clone(),
+                    backend,
                 )
                 .into()
             }

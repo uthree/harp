@@ -125,10 +125,7 @@ pub trait Renderer<CodeRepr = String> {
     fn render(&mut self, ast: AstNode) -> CodeRepr;
 }
 
-pub trait Backend<B: Buffer> {
-    fn new() -> Self
-    where
-        Self: Sized;
+pub trait Backend<B: Buffer>: 'static + Send + Sync {
     fn is_available(&self) -> bool;
     fn execute(
         &self,

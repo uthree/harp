@@ -1,8 +1,8 @@
 use harp::ast::DType;
 use harp::backend::c::CBackend;
-use harp::backend::generic::{GenericBackend, GenericBackendConfig};
-use harp::backend::Backend;
+use harp::backend::generic::GenericBackendConfig;
 use harp::tensor::Tensor;
+use std::sync::Arc;
 
 /// Performs matrix multiplication using a combination of elementary tensor operations.
 /// C = A @ B
@@ -37,12 +37,11 @@ fn main() {
     let config = GenericBackendConfig {
         heuristic_optimization_threshold: 1,
     };
-    let backend = CBackend::with_config(config);
-    let backend_arc = std::sync::Arc::new(backend);
+    let backend = Arc::new(CBackend::with_config(config));
 
     // Define the computation graph outside the loop.
-    let a = Tensor::rand(vec![256, 512], DType::F32, true).with_backend(backend_arc.clone());
-    let b = Tensor::rand(vec![512, 1024], DType::F32, true).with_backend(backend_arc.clone());
+    let a = Tensor::rand(vec![256, 512], DType::F32, true, backend.clone());
+    let b = Tensor::rand(vec![512, 1024], DType::F32, true, backend.clone());
     let c = matmul(&a, &b);
 
     // The backend is configured to trigger heuristic optimization on the 1st call.

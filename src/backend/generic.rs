@@ -133,7 +133,7 @@ where
             let cost_estimator = heuristic::ExecutionTimeCostEstimator::new();
             let optimizer = heuristic::BeamSearchAstOptimizer::new(suggester, cost_estimator)
                 .with_beam_width(4)
-                .with_max_steps(100);
+                .with_max_steps(10);
             ast = optimizer.optimize(ast, &details);
         }
 
@@ -199,16 +199,12 @@ impl<C, R, B, CodeRepr, CompilerOption> Backend<B>
     for GenericBackend<C, R, B, CodeRepr, CompilerOption>
 where
     B: Buffer,
-    C: Compiler<B, CodeRepr, CompilerOption> + Send,
-    R: Renderer<CodeRepr> + Send,
-    CodeRepr: Send,
-    CompilerOption: Send,
+    C: Compiler<B, CodeRepr, CompilerOption> + Send + 'static,
+    R: Renderer<CodeRepr> + Send + 'static,
+    CodeRepr: Send + 'static,
+    CompilerOption: Send + 'static,
     C::KernelType: Send,
 {
-    fn new() -> Self {
-        Self::with_config(GenericBackendConfig::default())
-    }
-
     fn is_available(&self) -> bool {
         self.compiler.lock().unwrap().is_available()
     }
