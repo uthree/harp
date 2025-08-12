@@ -90,4 +90,14 @@ impl AstNode {
     pub fn cast(self, dtype: DType) -> Self {
         Self::new(AstOp::Cast(dtype.clone()), vec![self], dtype)
     }
+
+    /// Returns a new `AstNode` with the same `id`, `op`, and `dtype`, but with new `src` nodes.
+    pub fn with_src(self, src: Vec<AstNode>) -> Self {
+        Self {
+            id: self.id,
+            op: self.op,
+            src,
+            dtype: self.dtype,
+        }
+    }
 }

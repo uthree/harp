@@ -81,11 +81,20 @@ impl RewriteRule {
         }
     }
 
-    pub fn apply_all(&self, target: AstNode) -> AstNode {
+    pub fn apply_all(&self, target: AstNode) -> (AstNode, bool) {
         // Apply to children first (post-order traversal)
-        let new_src = target.src.into_iter().map(|s| self.apply_all(s)).collect();
+        let mut src_changed = false;
+        let new_src = target
+            .src
+            .iter()
+            .map(|s| {
+                let (new_s, changed) = self.apply_all(s.clone());
+                src_changed |= changed;
+                new_s
+            })
+            .collect();
 
-        let new_target = AstNode::new(target.op, new_src, target.dtype);
+        let new_target = target.with_src(new_src);
 
         // Then apply to the current node
         if let Some(captures) = self.capture(&new_target) {
@@ -98,9 +107,9 @@ impl RewriteRule {
                 "Node {:?} rewritten to {:?}",
                 new_target.op, rewritten_node.op
             );
-            rewritten_node
+            (rewritten_node, true)
         } else {
-            new_target
+            (new_target, src_changed)
         }
     }
 
@@ -144,16 +153,16 @@ impl AstRewriter {
     pub fn apply(&self, mut node: AstNode) -> AstNode {
         info!("Starting AST rewrite process...");
         for i in 0..self.max_iterations {
-            let mut changed = false;
+            let mut iteration_changed = false;
             for rule in &self.rules {
-                let new_node = rule.apply_all(node.clone());
-                if new_node != node {
+                let (new_node, changed) = rule.apply_all(node.clone());
+                if changed {
                     node = new_node;
-                    changed = true;
+                    iteration_changed = true;
                 }
             }
 
-            if !changed {
+            if !iteration_changed {
                 info!("Rewrite reached fixed point after {i} iterations.");
                 return node;
             }
@@ -227,8 +236,7 @@ mod tests {
         let expected = (x.clone() - y.clone()) - (x.clone() - y.clone());
 
         let rule = rule!("plus_to_minus", |a, b| a + b => a - b);
-        let result = rule.apply_all(target);
-
+        let (result, _) = rule.apply_all(target);
         assert_eq!(result, expected);
     }
 
