@@ -79,6 +79,12 @@ impl CostEstimator for NodeCountCostEstimator {
 #[derive(Clone, Copy)]
 pub struct HandcodedCostEstimator;
 
+impl HandcodedCostEstimator {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
 impl CostEstimator for HandcodedCostEstimator {
     fn estimate_cost(&self, node: &AstNode, _details: &KernelDetails) -> f32 {
         let mut count = 0.0;
@@ -168,26 +174,35 @@ impl<S: OptimizationSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
         self
     }
 
-    /// Recursively finds all possible single-mutation variants of a given AST.
+    /// Finds all possible single-mutation variants of a given AST using an iterative approach.
     fn find_all_single_mutations(&self, node: &AstNode) -> Vec<AstNode> {
         let mut all_mutations = Vec::new();
 
-        // 1. Mutations for the current node (top-level)
-        let top_level_suggestions = self.suggester.suggest_optimizations(node);
-        all_mutations.extend(top_level_suggestions);
-
-        // 2. Mutations from children
-        for (i, child) in node.src.iter().enumerate() {
-            let child_mutations = self.find_all_single_mutations(child);
-            for child_mutation in child_mutations {
-                let mut new_src = node.src.clone();
-                new_src[i] = child_mutation;
-                let new_parent = AstNode::new(node.op.clone(), new_src, node.dtype.clone());
-                all_mutations.push(new_parent);
+        // 1. Collect all unique sub-nodes in the tree non-recursively.
+        let mut all_sub_nodes = Vec::new();
+        let mut queue = vec![node.clone()];
+        let mut seen = FxHashSet::default();
+        while let Some(current_node) = queue.pop() {
+            if seen.insert(current_node.clone()) {
+                all_sub_nodes.push(current_node.clone());
+                for child in &current_node.src {
+                    queue.push(child.clone());
+                }
             }
         }
 
-        // If there are too many mutations, sample a subset to keep the search tractable.
+        // 2. For each sub-node, generate suggestions and create a new top-level AST.
+        for sub_node_to_mutate in &all_sub_nodes {
+            let suggestions = self.suggester.suggest_optimizations(sub_node_to_mutate);
+            for suggestion in suggestions {
+                if &suggestion != sub_node_to_mutate {
+                    let new_root = node.replace_node(sub_node_to_mutate, &suggestion);
+                    all_mutations.push(new_root);
+                }
+            }
+        }
+
+        // 3. If there are too many mutations, sample a subset.
         if all_mutations.len() > self.max_suggestions {
             let mut rng = rand::thread_rng();
             all_mutations

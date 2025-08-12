@@ -100,4 +100,23 @@ impl AstNode {
             dtype: self.dtype,
         }
     }
+
+    pub fn replace_node(&self, target: &AstNode, replacement: &AstNode) -> AstNode {
+        if self == target {
+            return replacement.clone();
+        }
+
+        let new_src: Vec<AstNode> = self
+            .src
+            .iter()
+            .map(|child| child.replace_node(target, replacement))
+            .collect();
+
+        // If no children were changed, we can return the original node to avoid unnecessary clones.
+        if new_src.iter().zip(self.src.iter()).all(|(a, b)| a == b) {
+            return self.clone();
+        }
+
+        AstNode::new(self.op.clone(), new_src, self.dtype.clone())
+    }
 }
