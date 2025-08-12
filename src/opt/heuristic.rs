@@ -210,7 +210,7 @@ impl<S: OptimizationSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
 
         // 3. If there are too many mutations, sample a subset.
         if all_mutations.len() > self.max_suggestions {
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
             all_mutations
                 .choose_multiple(&mut rng, self.max_suggestions)
                 .cloned()
