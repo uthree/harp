@@ -22,6 +22,38 @@ fn ast_node_key(node: &crate::ast::AstNode) -> String {
     key
 }
 
+/// Recursively builds a key for a node based on its logical structure, ignoring NodeId.
+fn build_logical_key(
+    node_id: crate::graph::NodeId,
+    graph: &Graph,
+    memo: &mut HashMap<crate::graph::NodeId, String>,
+) -> String {
+    if let Some(key) = memo.get(&node_id) {
+        return key.clone();
+    }
+
+    let node = &graph.nodes.borrow()[node_id.0];
+    let op_key = match &node.op {
+        crate::graph::GraphOp::FusedElementwise(ast) => {
+            format!("FusedElementwise({})", ast_node_key(ast))
+        }
+        other => format!("{:?}", other),
+    };
+    let mut key = format!(
+        "op:{},dtype:{:?},shape:{:?},srcs:[",
+        op_key, node.dtype, node.shape
+    );
+
+    for src_id in &node.src {
+        key.push_str(&build_logical_key(*src_id, graph, memo));
+        key.push(',');
+    }
+    key.push(']');
+
+    memo.insert(node_id, key.clone());
+    key
+}
+
 pub struct GenericBackendConfig {
     pub heuristic_optimization_threshold: usize,
 }
@@ -173,20 +205,11 @@ where
         };
 
         let graph_key = {
+            let mut memo = HashMap::new();
             let mut key = String::new();
-            for node in graph_to_use.nodes.borrow().iter() {
-                let op_key = match &node.op {
-                    crate::graph::GraphOp::FusedElementwise(ast) => {
-                        format!("FusedElementwise({})", ast_node_key(ast))
-                    }
-                    other => format!("{:?}", other),
-                };
-                key.push_str(&format!(
-                    "op:{},dtype:{:?},shape:{:?},src:{:?};",
-                    op_key, node.dtype, node.shape, node.src
-                ));
+            for output_id in graph_to_use.outputs.borrow().iter() {
+                key.push_str(&build_logical_key(*output_id, graph_to_use, &mut memo));
             }
-            key.push_str(&format!("outputs:{:?}", graph_to_use.outputs.borrow()));
             key
         };
 
