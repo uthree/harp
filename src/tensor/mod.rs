@@ -30,18 +30,10 @@ pub enum TensorBuffer {
 }
 
 /// Represents the computation backend where tensor operations are executed.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum TensorBackend {
     /// The C backend, which compiles and runs operations as C code.
     C,
-}
-
-impl PartialEq for TensorBackend {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (TensorBackend::C, TensorBackend::C) => true,
-        }
-    }
 }
 
 /// Defines the types of operations that can create a `Tensor`.

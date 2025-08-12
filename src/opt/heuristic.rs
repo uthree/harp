@@ -189,11 +189,11 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
 
                 // compilation is finished
                 let green_bold = Style::new().green().bold();
-                println!(
+                pb.println(format!(
                     "{:>12} optimize AST with greedy search algorithm in {}",
                     green_bold.apply_to("Finished"),
                     HumanDuration(start.elapsed())
-                );
+                ));
                 return new_node;
             }
             debug!("AST changed in iteration {i}. Continuing greedy search...");
@@ -210,11 +210,11 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
 
         // compilation is finished
         let green_bold = Style::new().green().bold();
-        println!(
+        pb.println(format!(
             "{:>12} optimize AST with greedy search algorithm in {}",
             green_bold.apply_to("Finished"),
             HumanDuration(start.elapsed())
-        );
+        ));
         node
     }
 }
@@ -252,11 +252,11 @@ pub struct BeamSearchAstOptimizer<S: OptimizationSuggester, C: CostEstimator> {
 }
 
 impl<S: OptimizationSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
-    pub fn new(suggester: S, cost_estimator: C, beam_width: usize) -> Self {
+    pub fn new(suggester: S, cost_estimator: C) -> Self {
         Self {
             suggester,
             cost_estimator,
-            beam_width,
+            beam_width: 4,
             max_steps: 1000, // Default max steps for the search
         }
     }
@@ -346,11 +346,11 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
 
                 // compilation is finished
                 let green_bold = Style::new().green().bold();
-                println!(
+                pb.println(format!(
                     "{:>12} optimize AST with beam search algorithm in {}",
                     green_bold.apply_to("Finished"),
                     HumanDuration(start.elapsed())
-                );
+                ));
                 break;
             }
 
@@ -373,11 +373,11 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
         }
         pb.finish_and_clear();
         let green_bold = Style::new().green().bold();
-        println!(
+        pb.println(format!(
             "{:>12} optimize AST with beam search algorithm in {}",
             green_bold.apply_to("Finished"),
             HumanDuration(start.elapsed())
-        );
+        ));
         // Return the best node found
         beam.into_iter()
             .min_by(|a, b| {
@@ -390,8 +390,8 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
     }
 }
 
-use crate::backend::c::CBackend;
 use crate::backend::Backend;
+use crate::backend::c::CBackend;
 use std::sync::Arc;
 
 /// A cost estimator that measures the actual execution time of an AST.
@@ -490,15 +490,17 @@ mod tests {
         let details = KernelDetails::default();
 
         // --- Test with Greedy Search (Beam Width = 1) ---
-        let greedy_optimizer =
-            BeamSearchAstOptimizer::new(suggester.clone(), cost_estimator, 1).with_max_steps(3);
+        let mut greedy_optimizer =
+            BeamSearchAstOptimizer::new(suggester.clone(), cost_estimator).with_max_steps(3);
+        greedy_optimizer.beam_width = 1;
         let greedy_result = greedy_optimizer.optimize(node_a.clone(), &details);
         // Greedy gets stuck at A because the only move is to B, which has a higher cost.
         assert_eq!(greedy_result, node_a);
 
         // --- Test with Beam Search (Beam Width = 2) ---
-        let beam_optimizer =
-            BeamSearchAstOptimizer::new(suggester, cost_estimator, 2).with_max_steps(3);
+        let mut beam_optimizer =
+            BeamSearchAstOptimizer::new(suggester, cost_estimator).with_max_steps(3);
+        beam_optimizer.beam_width = 2;
         let beam_result = beam_optimizer.optimize(node_a.clone(), &details);
         // Beam search can move to B (cost 15) and keep it in the beam, then find C (cost 5).
         let expected_node_c = AstNode::var("C");
