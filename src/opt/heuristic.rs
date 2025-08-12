@@ -8,6 +8,7 @@ use indicatif::HumanDuration;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::debug;
 use rustc_hash::FxHashSet;
+use std::boxed;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::rc::Rc;
@@ -79,43 +80,56 @@ impl CostEstimator for NodeCountCostEstimator {
 #[derive(Clone, Copy)]
 pub struct HandcodedCostEstimator;
 
-impl Default for HandcodedCostEstimator {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl HandcodedCostEstimator {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
-
 impl CostEstimator for HandcodedCostEstimator {
     fn estimate_cost(&self, node: &AstNode, _details: &KernelDetails) -> f32 {
-        let mut count = 0.0;
-        count += match &node.op {
-            AstOp::Recip => 10.0,
-            AstOp::Store => 5.0,
-            AstOp::Range { .. } => 2000.0 / (node.src.len() as f32),
-            AstOp::Assign => 1.0,
-            AstOp::Declare {
-                name: _name,
-                dtype: _dtype,
-            } => 3.0,
-            AstOp::Func {
-                name: _name,
-                args: _args,
-            } => 0.0,
-            AstOp::Deref => 2.0,
-            AstOp::Var(_) => 2.0,
-            AstOp::Call(_) => 5.0,
-            _ => 1.0,
-        };
-        for child in &node.src {
-            count += self.estimate_cost(child, _details);
+        match &node.op {
+            AstOp::Range { step, .. } => {
+                if node.src.is_empty() {
+                    return 5.0; // No loop bound or body
+                }
+                let max_node = &node.src[0];
+                let body_nodes = &node.src[1..];
+
+                let max_node_cost = self.estimate_cost(max_node, _details);
+                let body_cost: f32 = body_nodes
+                    .iter()
+                    .map(|n| self.estimate_cost(n, _details))
+                    .sum();
+                let body_cost: f32 = body_cost + 30.0f32; // The cost of loop counters required for iteration, conditional branches, and program counter movements
+
+                let iterations = if let AstOp::Const(c) = &max_node.op {
+                    if let Some(val) = c.to_usize() {
+                        // Assuming start is 0 and step is a positive integer
+                        (val as f32 / *step as f32).ceil().max(0.0)
+                    } else {
+                        50.0 // Non-integer constant for loop bound, use heuristic
+                    }
+                } else {
+                    50.0 // Dynamic loop bound, use a heuristic multiplier
+                };
+
+                max_node_cost + (body_cost * iterations)
+            }
+            _ => {
+                let op_cost = match &node.op {
+                    AstOp::Recip => 3.0,
+                    AstOp::Store => 7.0,
+                    AstOp::Assign => 4.0,
+                    AstOp::Declare { .. } => 4.0,
+                    AstOp::Func { .. } => 0.0,
+                    AstOp::Deref => 4.0,
+                    AstOp::Var(_) => 4.0,
+                    AstOp::Call(_) => 10.0,
+                    _ => 1.0,
+                };
+                let children_cost: f32 = node
+                    .src
+                    .iter()
+                    .map(|child| self.estimate_cost(child, _details))
+                    .sum();
+                op_cost + children_cost
+            }
         }
-        count
     }
 }
 

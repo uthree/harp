@@ -129,13 +129,12 @@ where
                 Box::new(LoopUnrolling::new(2)),
                 Box::new(LoopUnrolling::new(4)),
                 Box::new(LoopUnrolling::new(8)),
-                Box::new(LoopUnrolling::new(16)),
             ]);
-            let cost_estimator = heuristic::HandcodedCostEstimator::new();
+            let cost_estimator = heuristic::HandcodedCostEstimator;
             let optimizer = heuristic::BeamSearchAstOptimizer::new(suggester, cost_estimator)
-                .with_beam_width(32)
-                .with_max_suggestions(1000)
-                .with_max_steps(500);
+                .with_beam_width(8)
+                .with_max_suggestions(100)
+                .with_max_steps(200);
             ast = optimizer.optimize(ast, &details);
         }
 
