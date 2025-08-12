@@ -131,10 +131,7 @@ where
                 Box::new(LoopUnrolling::new(8)),
             ]);
             let cost_estimator = heuristic::HandcodedCostEstimator;
-            let optimizer = heuristic::BeamSearchAstOptimizer::new(suggester, cost_estimator)
-                .with_beam_width(8)
-                .with_max_suggestions(100)
-                .with_max_steps(200);
+            let optimizer = heuristic::BeamSearchAstOptimizer::new(suggester, cost_estimator);
             ast = optimizer.optimize(ast, &details);
         }
 

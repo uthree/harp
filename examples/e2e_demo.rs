@@ -43,13 +43,17 @@ fn main() {
     // Define the computation graph outside the loop.
     let a = Tensor::rand(vec![256, 512], DType::F32, true, backend.clone());
     let b = Tensor::rand(vec![512, 1024], DType::F32, true, backend.clone());
-    let c = matmul(&a, &b);
+    let c = Tensor::rand(vec![1024, 256], DType::F32, true, backend.clone());
+    let d = Tensor::rand(vec![256, 64], DType::F32, true, backend.clone());
+    let x = matmul(&a, &b);
+    let x = matmul(&x, &c);
+    let x = matmul(&x, &d);
 
     // The backend is configured to trigger heuristic optimization on the 1st call.
     // We run the forward pass multiple times to trigger this.
     for _i in 0..20 {
-        c.forward();
+        x.forward();
         // After the forward pass, we need to clear the buffer to re-run the computation.
-        c.clear_buffer();
+        //c.clear_buffer();
     }
 }

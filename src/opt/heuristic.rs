@@ -82,9 +82,9 @@ pub struct HandcodedCostEstimator;
 impl CostEstimator for HandcodedCostEstimator {
     fn estimate_cost(&self, node: &AstNode, _details: &KernelDetails) -> f32 {
         match &node.op {
-            AstOp::Range { step, .. } => {
+            AstOp::Range {  step, .. } => {
                 if node.src.is_empty() {
-                    return 5.0; // No loop bound or body
+                    return 0.0; // No loop bound or body
                 }
                 let max_node = &node.src[0];
                 let body_nodes = &node.src[1..];
@@ -94,33 +94,33 @@ impl CostEstimator for HandcodedCostEstimator {
                     .iter()
                     .map(|n| self.estimate_cost(n, _details))
                     .sum();
-                let body_cost: f32 = body_cost + 30.0f32; // The cost of loop counters required for iteration, conditional branches, and program counter movements
+                let body_cost: f32 = body_cost + 5e-8f32; // The cost of loop counters required for iteration, conditional branches, and program counter movements
 
                 let iterations = if let AstOp::Const(c) = &max_node.op {
                     if let Some(val) = c.to_usize() {
                         // Assuming start is 0 and step is a positive integer
                         (val as f32 / *step as f32).ceil().max(0.0)
                     } else {
-                        50.0 // Non-integer constant for loop bound, use heuristic
+                        100.0 // Non-integer constant for loop bound, use heuristic
                     }
                 } else {
-                    50.0 // Dynamic loop bound, use a heuristic multiplier
+                    100.0 // Dynamic loop bound, use a heuristic multiplier
                 };
 
                 max_node_cost + (body_cost * iterations)
             }
             _ => {
                 let op_cost = match &node.op {
-                    AstOp::Recip => 3.0,
-                    AstOp::Store => 7.0,
-                    AstOp::Assign => 4.0,
-                    AstOp::Declare { .. } => 4.0,
+                    AstOp::Recip => 10.0,
+                    AstOp::Store => 8.0,
+                    AstOp::Assign => 5.0,
+                    AstOp::Declare { .. } => 0.0,
                     AstOp::Func { .. } => 0.0,
                     AstOp::Deref => 4.0,
-                    AstOp::Var(_) => 4.0,
-                    AstOp::Call(_) => 10.0,
+                    AstOp::Var(_) => 2.0,
+                    AstOp::Call(_) => 5.0,
                     _ => 1.0,
-                };
+                } * 1e-9f32;
                 let children_cost: f32 = node
                     .src
                     .iter()
@@ -172,9 +172,9 @@ impl<S: OptimizationSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
         Self {
             suggester,
             cost_estimator,
-            beam_width: 4, // Set default beam width to 4
-            max_steps: 10, // Default max steps for the search
-            max_suggestions: 4,
+            beam_width: 4,    // Set default beam width to 4
+            max_steps: 10000, // Default max steps for the search
+            max_suggestions: 1000,
         }
     }
 
@@ -251,7 +251,8 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
         );
         pb.set_prefix("Optimizing");
 
-        for step in 0..self.max_steps {
+        let mut step = 0;
+        while step < self.max_steps {
             let mut candidates = BinaryHeap::new();
 
             for ast_in_beam in &beam {
@@ -261,23 +262,21 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
                     ast_in_beam.clone(),
                 ));
 
-                pb.set_message(format!("Step #{step}, generating AST edit suggestions..."));
-                pb.tick();
                 let all_possible_next_asts = self.find_all_single_mutations(ast_in_beam);
-                let num_suggestions = all_possible_next_asts.len();
-                pb.set_message(format!("Step #{step}, found {num_suggestions} suggestions"));
-                pb.tick();
-
-                for (i, next_ast) in all_possible_next_asts.iter().enumerate() {
-                    pb.set_message(format!(
-                        "Step #{step}, evaluating Suggestion # {i}/{num_suggestions} ..."
-                    ));
-                    pb.tick();
+                for next_ast in all_possible_next_asts.iter() {
                     if !visited.contains(next_ast) {
+                        step += 1;
+                        pb.inc(1);
+                        if step > self.max_steps {
+                            break;
+                        };
                         let cost = self.cost_estimator.estimate_cost(next_ast, details);
                         candidates.push(CostAstNode(cost, next_ast.clone()));
                     }
                 }
+                if step > self.max_steps {
+                    break;
+                };
                 pb.tick();
             }
 
@@ -312,8 +311,7 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
                 })
                 .unwrap();
             let cost = self.cost_estimator.estimate_cost(best_node, details);
-            let beam_len = beam.len();
-            pb.set_message(format!("Cost: {cost:.2}, Beam: {beam_len}"));
+            pb.set_message(format!("Cost: {cost:.2}"));
             pb.inc(1);
         }
         pb.finish_and_clear();
