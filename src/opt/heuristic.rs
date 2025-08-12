@@ -177,7 +177,6 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
             .progress_chars("=> "),
         );
         pb.set_prefix("Optimizing");
-        pb.println("Starting greedy optimization...");
 
         for i in 0..self.max_iterations {
             let original_node = node.clone();
@@ -199,9 +198,6 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
             debug!("AST changed in iteration {i}. Continuing greedy search...");
             let cost = self.cost_estimator.estimate_cost(&new_node);
             pb.set_message(format!("Cost: {cost:.2}"));
-            let mut renderer = CRenderer::new();
-            let code = renderer.render(new_node.clone());
-            pb.println(format!("Iteration {i}: Cost {cost:.2}\n---\n{code}\n---"));
             pb.inc(1);
             node = new_node;
         }
@@ -309,7 +305,6 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
             .progress_chars("=> "),
         );
         pb.set_prefix("Optimizing");
-        pb.println("Starting beam search...");
 
         for step in 0..self.max_steps {
             let mut candidates = BinaryHeap::new();
@@ -360,11 +355,6 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
 
             beam = new_beam;
             visited.extend(beam.iter().cloned());
-            pb.println(format!(
-                "Beam search step {}: beam size = {}",
-                step,
-                beam.len()
-            ));
 
             let best_node = beam
                 .iter()
@@ -380,9 +370,6 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
             pb.set_message(format!("Cost: {cost:.2}, Beam: {beam_len}"));
             let mut renderer = CRenderer::new();
             let code = renderer.render(best_node.clone());
-            pb.println(format!(
-                "Step {step}: Cost {cost:.2}, Beam Size {beam_len}\n---\n{code}\n---"
-            ));
             pb.inc(1);
         }
         pb.finish_and_clear();
