@@ -100,7 +100,7 @@ fn test_render_for_loop() {
         vec![],
     );
     let expected = r#"
-for (size_t i = 0; i < N; i++) { }"#;
+for (size_t i = 0; i < N; i++) {}"#;
     assert_render(ast, expected);
 }
 

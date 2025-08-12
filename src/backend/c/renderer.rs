@@ -35,7 +35,11 @@ impl CRenderer {
                 self.write_indent();
                 write!(self.buffer, "for (size_t {loop_var} = 0; {loop_var} < ").unwrap();
                 self.render_node(&ast.src[0]); // max
-                write!(self.buffer, "; {loop_var} += {step}) {{ ").unwrap();
+                if *step == 1 {
+                    write!(self.buffer, "; {loop_var}++) {{").unwrap();
+                } else {
+                    write!(self.buffer, "; {loop_var} += {step}) {{").unwrap();
+                }
                 self.indent_level += 1;
 
                 // The rest of src is the loop body.
@@ -58,7 +62,7 @@ impl CRenderer {
                     .map(|(name, dtype)| format!("{} {}", Self::dtype_to_c(dtype), name))
                     .collect();
                 let args_str = args_str.join(", ");
-                self.writeln(&format!("void {name}({args_str}) {{ "));
+                self.writeln(&format!("void {name}({args_str}) {{"));
                 self.indent_level += 1;
                 for node in &ast.src {
                     self.render_node(node);

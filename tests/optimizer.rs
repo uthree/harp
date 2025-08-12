@@ -26,7 +26,7 @@ fn test_algebraic_simplification_complex() {
     let z = AstNode::var("z").with_type(DType::F32);
 
     // (x * 1.0 + 0.0) * (y * 0.0 + z)
-    let target = (x.clone() * 1.0f64 + 0.0f64) * (y * 0.0f64 + z.clone());
+    let target = (x.clone() * 1.0f32 + 0.0f32) * (y * 0.0f32 + z.clone());
     let expected = x * z;
 
     let optimizer = AlgebraicSimplification::new();
