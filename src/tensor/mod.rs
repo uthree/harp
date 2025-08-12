@@ -20,7 +20,10 @@ use crate::graph::Graph;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
-use std::sync::{atomic::{AtomicUsize, Ordering}, Arc};
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
 static TENSOR_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
@@ -262,5 +265,3 @@ impl From<TensorData> for Tensor {
         Tensor(Rc::new(RefCell::new(value)))
     }
 }
-
-

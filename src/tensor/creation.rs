@@ -1,5 +1,8 @@
 use super::{DType, Shape, Tensor, TensorData, TensorOp};
-use crate::{ast::Const, backend::{Backend, c::CBuffer}};
+use crate::{
+    ast::Const,
+    backend::{Backend, c::CBuffer},
+};
 use std::sync::Arc;
 
 impl Tensor {

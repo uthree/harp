@@ -79,6 +79,12 @@ impl CostEstimator for NodeCountCostEstimator {
 #[derive(Clone, Copy)]
 pub struct HandcodedCostEstimator;
 
+impl Default for HandcodedCostEstimator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HandcodedCostEstimator {
     pub fn new() -> Self {
         Self {}
@@ -89,21 +95,21 @@ impl CostEstimator for HandcodedCostEstimator {
     fn estimate_cost(&self, node: &AstNode, _details: &KernelDetails) -> f32 {
         let mut count = 0.0;
         count += match &node.op {
-            AstOp::Recip => 5.0,
-            AstOp::Store => 100.0,
-            AstOp::Range { .. } => 200.0,
-            AstOp::Assign => 100.0,
+            AstOp::Recip => 10.0,
+            AstOp::Store => 5.0,
+            AstOp::Range { .. } => 400.0 / (node.src.len() as f32),
+            AstOp::Assign => 1.0,
             AstOp::Declare {
                 name: _name,
                 dtype: _dtype,
-            } => 100.0,
+            } => 3.0,
             AstOp::Func {
                 name: _name,
                 args: _args,
-            } => 1.0,
-            AstOp::Deref => 50.0,
-            AstOp::Var(_) => 10.0,
-            AstOp::Call(_) => 20.0,
+            } => 0.0,
+            AstOp::Deref => 2.0,
+            AstOp::Var(_) => 2.0,
+            AstOp::Call(_) => 5.0,
             _ => 1.0,
         };
         for child in &node.src {
@@ -254,8 +260,8 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
                         "Step #{step}, evaluating Suggestion # {i}/{num_suggestions} ..."
                     ));
                     pb.tick();
-                    if !visited.contains(&next_ast) {
-                        let cost = self.cost_estimator.estimate_cost(&next_ast, details);
+                    if !visited.contains(next_ast) {
+                        let cost = self.cost_estimator.estimate_cost(next_ast, details);
                         candidates.push(CostAstNode(cost, next_ast.clone()));
                     }
                 }
