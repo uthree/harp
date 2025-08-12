@@ -415,68 +415,64 @@ impl OptimizationSuggester for LoopUnrolling {
 
             if let Some(AstOp::Const(const_val)) = node.src.first().map(|n| &n.op)
                 && let Some(end) = const_val.to_usize()
-                    && end >= self.unroll_factor {
-                        let unroll_factor = self.unroll_factor;
-                        let num_unrolled_iterations = end / unroll_factor;
-                        let remaining_iterations = end % unroll_factor;
-                        let loop_body = &node.src[1..];
+                && end >= self.unroll_factor
+            {
+                let unroll_factor = self.unroll_factor;
+                let num_unrolled_iterations = end / unroll_factor;
+                let remaining_iterations = end % unroll_factor;
+                let loop_body = &node.src[1..];
 
-                        // Create the main unrolled loop
-                        let mut unrolled_body = Vec::new();
-                        for i in 0..unroll_factor {
-                            let substitution = AstNode::var(loop_var) + AstNode::from(i as i32);
-                            for stmt in loop_body {
-                                unrolled_body.push(replace_var(stmt, loop_var, &substitution));
-                            }
-                        }
-
-                        let main_loop_end =
-                            AstNode::from((num_unrolled_iterations * unroll_factor) as i32);
-                        let main_loop = AstNode::new(
-                            AstOp::Range {
-                                loop_var: loop_var.clone(),
-                                step: unroll_factor,
-                            },
-                            vec![main_loop_end]
-                                .into_iter()
-                                .chain(unrolled_body)
-                                .collect(),
-                            node.dtype.clone(),
-                        );
-
-                        let mut block_stmts = vec![main_loop];
-
-                        // Handle remaining iterations with a separate, simple loop
-                        if remaining_iterations > 0 {
-                            let remainder_start = end - remaining_iterations;
-                            let remainder_loop_var = format!("{}_remainder", loop_var);
-                            let mut remainder_body = Vec::new();
-                            let substitution = AstNode::var(&remainder_loop_var)
-                                + AstNode::from(remainder_start as i32);
-                            for stmt in loop_body {
-                                remainder_body.push(replace_var(stmt, loop_var, &substitution));
-                            }
-
-                            let remainder_loop = AstNode::new(
-                                AstOp::Range {
-                                    loop_var: remainder_loop_var,
-                                    step: 1,
-                                },
-                                vec![AstNode::from(remaining_iterations as i32)]
-                                    .into_iter()
-                                    .chain(remainder_body)
-                                    .collect(),
-                                node.dtype.clone(),
-                            );
-                            block_stmts.push(remainder_loop);
-                        }
-
-                        suggestions.push(AstNode::new(
-                            AstOp::Block,
-                            block_stmts,
-                            node.dtype.clone(),
-                        ));
+                // Create the main unrolled loop
+                let mut unrolled_body = Vec::new();
+                for i in 0..unroll_factor {
+                    let substitution = AstNode::var(loop_var) + AstNode::from(i as i32);
+                    for stmt in loop_body {
+                        unrolled_body.push(replace_var(stmt, loop_var, &substitution));
                     }
+                }
+
+                let main_loop_end = AstNode::from((num_unrolled_iterations * unroll_factor) as i32);
+                let main_loop = AstNode::new(
+                    AstOp::Range {
+                        loop_var: loop_var.clone(),
+                        step: unroll_factor,
+                    },
+                    vec![main_loop_end]
+                        .into_iter()
+                        .chain(unrolled_body)
+                        .collect(),
+                    node.dtype.clone(),
+                );
+
+                let mut block_stmts = vec![main_loop];
+
+                // Handle remaining iterations with a separate, simple loop
+                if remaining_iterations > 0 {
+                    let remainder_start = end - remaining_iterations;
+                    let remainder_loop_var = format!("{}_remainder", loop_var);
+                    let mut remainder_body = Vec::new();
+                    let substitution =
+                        AstNode::var(&remainder_loop_var) + AstNode::from(remainder_start as i32);
+                    for stmt in loop_body {
+                        remainder_body.push(replace_var(stmt, loop_var, &substitution));
+                    }
+
+                    let remainder_loop = AstNode::new(
+                        AstOp::Range {
+                            loop_var: remainder_loop_var,
+                            step: 1,
+                        },
+                        vec![AstNode::from(remaining_iterations as i32)]
+                            .into_iter()
+                            .chain(remainder_body)
+                            .collect(),
+                        node.dtype.clone(),
+                    );
+                    block_stmts.push(remainder_loop);
+                }
+
+                suggestions.push(AstNode::new(AstOp::Block, block_stmts, node.dtype.clone()));
+            }
         }
         suggestions
     }
@@ -485,9 +481,10 @@ impl OptimizationSuggester for LoopUnrolling {
 /// Helper function to replace a variable in an AST node.
 fn replace_var(node: &AstNode, var_name: &str, substitution: &AstNode) -> AstNode {
     if let AstOp::Var(name) = &node.op
-        && name == var_name {
-            return substitution.clone();
-        }
+        && name == var_name
+    {
+        return substitution.clone();
+    }
     let new_src = node
         .src
         .iter()

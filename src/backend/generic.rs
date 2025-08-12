@@ -57,14 +57,12 @@ fn build_logical_key(
 
 pub struct GenericBackendConfig {
     pub heuristic_optimization_threshold: usize,
-    pub loop_unroll_factors: Option<Vec<usize>>,
 }
 
 impl Default for GenericBackendConfig {
     fn default() -> Self {
         Self {
-            heuristic_optimization_threshold: 10,     // Default threshold
-            loop_unroll_factors: Some(vec![2, 4, 8]), // Default unroll factors
+            heuristic_optimization_threshold: 3, // Default threshold
         }
     }
 }
@@ -111,7 +109,15 @@ where
         use_heuristic: bool,
     ) -> (C::KernelType, crate::backend::KernelDetails) {
         // Apply deterministic graph optimizations (e.g., element-wise fusion).
-        let mut optimized_graph = self.graph_optimizer.optimize(graph);
+        let optimized_graph = self.graph_optimizer.optimize(graph);
+
+        // lower
+        let mut lowerer = Lowerer::new(&optimized_graph);
+        let (mut ast, details) = lowerer.lower();
+
+        // Apply cast simplification after lowering
+        let cast_simplifier = crate::opt::ast::CastSimplification;
+        ast = cast_simplifier.optimize(ast, &details);
 
         // Apply heuristic optimization to the fused ASTs within the graph.
         if use_heuristic {
@@ -124,31 +130,16 @@ where
                 Box::new(LoopUnrolling::new(8)),
                 Box::new(LoopUnrolling::new(16)),
             ]);
-            let cost_estimator = heuristic::NodeCountCostEstimator;
+            let cost_estimator = heuristic::ExecutionTimeCostEstimator::new();
             let optimizer = heuristic::BeamSearchAstOptimizer::new(suggester, cost_estimator)
                 .with_beam_width(4)
-                .with_max_steps(1000);
+                .with_max_steps(100);
 
             let mut new_nodes = optimized_graph.nodes.borrow().clone();
             // Create dummy details for the optimizer. This is a limitation, as we don't
             // have the full kernel details yet.
             let dummy_details = crate::backend::KernelDetails::default();
-
-            for node_data in new_nodes.iter_mut() {
-                if let crate::graph::GraphOp::FusedElementwise(ast) = &node_data.op {
-                    let optimized_ast = optimizer.optimize(ast.clone(), &dummy_details);
-                    node_data.op = crate::graph::GraphOp::FusedElementwise(optimized_ast);
-                }
-            }
-            optimized_graph.nodes = std::cell::RefCell::new(new_nodes);
         }
-
-        let mut lowerer = Lowerer::new(&optimized_graph);
-        let (mut ast, details) = lowerer.lower();
-
-        // Apply cast simplification after lowering
-        let cast_simplifier = crate::opt::ast::CastSimplification;
-        ast = cast_simplifier.optimize(ast, &details);
 
         let code = self.renderer.lock().unwrap().render(ast);
         let kernel = self
@@ -333,7 +324,6 @@ mod tests {
         // Configure a backend with a low optimization threshold for testing.
         let config = GenericBackendConfig {
             heuristic_optimization_threshold: 3,
-            loop_unroll_factors: Some(vec![2]),
         };
         let backend = CBackend::with_config(config);
 

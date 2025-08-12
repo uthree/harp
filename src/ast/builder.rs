@@ -1,18 +1,17 @@
-use crate::ast::DType;
 use crate::ast::{dtype, node::AstNode, op::AstOp};
 
 impl AstNode {
     // --- AST Construction Helpers ---
 
     /// Creates a new `FuncDef` node.
-    pub fn func_def(name: &str, args: Vec<(String, DType)>, body: Vec<AstNode>) -> Self {
+    pub fn func_def(name: &str, args: Vec<(String, dtype::DType)>, body: Vec<AstNode>) -> Self {
         Self::new(
             AstOp::Func {
                 name: name.to_string(),
                 args,
             },
             body,
-            DType::Void,
+            dtype::DType::Void,
         )
     }
 
@@ -21,28 +20,28 @@ impl AstNode {
         Self::new(
             AstOp::Call(name.to_string()),
             args,
-            DType::Any, // Return type is often context-dependent
+            dtype::DType::Any, // Return type is often context-dependent
         )
     }
 
     /// Creates a new `Block` node.
     pub fn block(body: Vec<AstNode>) -> Self {
-        Self::new(AstOp::Block, body, DType::Void)
+        Self::new(AstOp::Block, body, dtype::DType::Void)
     }
 
     /// Creates a new `Range` (for-loop) node.
     pub fn range(loop_var: String, max: AstNode, mut block: Vec<AstNode>) -> Self {
         let mut src = vec![max];
         src.append(&mut block);
-        Self::new(AstOp::Range { loop_var, step: 1 }, src, DType::Void)
+        Self::new(AstOp::Range { loop_var, step: 1 }, src, dtype::DType::Void)
     }
 
     /// Creates a new `BufferIndex` node.
     pub fn buffer_index(self, index: AstNode) -> Self {
-        let ptr_dtype = if let DType::Ptr(inner) = self.dtype.clone() {
+        let ptr_dtype = if let dtype::DType::Ptr(inner) = self.dtype.clone() {
             *inner
         } else {
-            DType::Any // Or panic, depending on strictness
+            dtype::DType::Any // Or panic, depending on strictness
         };
         Self::new(AstOp::BufferIndex, vec![self, index], ptr_dtype)
     }
@@ -55,17 +54,17 @@ impl AstNode {
 
     /// Creates a new `Store` node.
     pub fn store(dst: AstNode, src: AstNode) -> Self {
-        Self::new(AstOp::Store, vec![dst, src], DType::Void)
+        Self::new(AstOp::Store, vec![dst, src], dtype::DType::Void)
     }
 
     /// Creates a new `Assign` node.
     pub fn assign(dst: AstNode, src: AstNode) -> Self {
-        Self::new(AstOp::Assign, vec![dst, src], DType::Void)
+        Self::new(AstOp::Assign, vec![dst, src], dtype::DType::Void)
     }
 
     /// Creates a new `Declare` node.
-    pub fn declare(name: String, dtype: DType, value: AstNode) -> Self {
-        Self::new(AstOp::Declare { name, dtype }, vec![value], DType::Void)
+    pub fn declare(name: String, dtype: dtype::DType, value: AstNode) -> Self {
+        Self::new(AstOp::Declare { name, dtype }, vec![value], dtype::DType::Void)
     }
 
     /// Nests a statement inside a series of loops.
@@ -98,7 +97,7 @@ macro_rules! impl_unary_op {
         impl AstNode {
             fn $fname(self: Self) -> Self {
                 let dtype = &self.dtype;
-                if !(dtype.is_real() || dtype.is_integer() || *dtype == DType::Any) {
+                if !(dtype.is_real() || dtype.is_integer() || *dtype == dtype::DType::Any) {
                     panic!("Cannot apply {} to {:?}", stringify!($op), self.dtype)
                 }
                 AstNode::new(AstOp::$op, vec![self.clone()], self.dtype)
@@ -110,7 +109,7 @@ macro_rules! impl_unary_op {
         impl AstNode {
             pub fn $fname(self: Self) -> Self {
                 let dtype = &self.dtype;
-                if !(dtype.is_real() || *dtype == DType::Any) {
+                if !(dtype.is_real() || *dtype == dtype::DType::Any) {
                     panic!("Cannot apply {} to {:?}", stringify!($op), self.dtype)
                 }
                 AstNode::new(AstOp::$op, vec![self.clone()], self.dtype)
@@ -140,18 +139,18 @@ macro_rules! impl_binary_op {
                     if lhs.dtype != rhs.dtype {
                         // Attempt to promote types
                         let (l, r) = (&lhs.dtype, &rhs.dtype);
-                        if l == &DType::Any {
+                        if l == &dtype::DType::Any {
                             lhs = lhs.cast(r.clone());
-                        } else if r == &DType::Any {
+                        } else if r == &dtype::DType::Any {
                             rhs = rhs.cast(l.clone());
                         } else if l.is_real() && r.is_integer() {
                             rhs = rhs.cast(l.clone());
                         } else if l.is_integer() && r.is_real() {
                             lhs = lhs.cast(r.clone());
-                        } else if l == &DType::F32 && r == &DType::F64 {
-                            lhs = lhs.cast(DType::F64);
-                        } else if l == &DType::F64 && r == &DType::F32 {
-                            rhs = rhs.cast(DType::F64);
+                        } else if l == &dtype::DType::F32 && r == &dtype::DType::F64 {
+                            lhs = lhs.cast(dtype::DType::F64);
+                        } else if l == &dtype::DType::F64 && r == &dtype::DType::F32 {
+                            rhs = rhs.cast(dtype::DType::F64);
                         }
                     }
 
@@ -170,18 +169,18 @@ macro_rules! impl_binary_op {
                 } else {
                     // Manual common_type logic for patterns
                     let (l, r) = (&lhs.dtype, &rhs.dtype);
-                    if l == &DType::Any {
+                    if l == &dtype::DType::Any {
                         r.clone()
-                    } else if r == &DType::Any {
+                    } else if r == &dtype::DType::Any {
                         l.clone()
                     } else if l.is_real() && r.is_integer() {
                         l.clone()
                     } else if l.is_integer() && r.is_real() {
                         r.clone()
-                    } else if l == &DType::F32 && r == &DType::F64 {
-                        DType::F64
-                    } else if l == &DType::F64 && r == &DType::F32 {
-                        DType::F64
+                    } else if l == &dtype::DType::F32 && r == &dtype::DType::F64 {
+                        dtype::DType::F64
+                    } else if l == &dtype::DType::F64 && r == &dtype::DType::F32 {
+                        dtype::DType::F64
                     } else {
                         // Fallback or panic
                         panic!(
@@ -209,18 +208,18 @@ macro_rules! impl_binary_op {
                     if lhs.dtype != rhs.dtype {
                         // Attempt to promote types
                         let (l, r) = (&lhs.dtype, &rhs.dtype);
-                        if l == &DType::Any {
+                        if l == &dtype::DType::Any {
                             lhs = lhs.cast(r.clone());
-                        } else if r == &DType::Any {
+                        } else if r == &dtype::DType::Any {
                             rhs = rhs.cast(l.clone());
                         } else if l.is_real() && r.is_integer() {
                             rhs = rhs.cast(l.clone());
                         } else if l.is_integer() && r.is_real() {
                             lhs = lhs.cast(r.clone());
-                        } else if l == &DType::F32 && r == &DType::F64 {
-                            lhs = lhs.cast(DType::F64);
-                        } else if l == &DType::F64 && r == &DType::F32 {
-                            rhs = rhs.cast(DType::F64);
+                        } else if l == &dtype::DType::F32 && r == &dtype::DType::F64 {
+                            lhs = lhs.cast(dtype::DType::F64);
+                        } else if l == &dtype::DType::F64 && r == &dtype::DType::F32 {
+                            rhs = rhs.cast(dtype::DType::F64);
                         }
                     }
 
@@ -239,18 +238,18 @@ macro_rules! impl_binary_op {
                 } else {
                     // Manual common_type logic for patterns
                     let (l, r) = (&lhs.dtype, &rhs.dtype);
-                    if l == &DType::Any {
+                    if l == &dtype::DType::Any {
                         r.clone()
-                    } else if r == &DType::Any {
+                    } else if r == &dtype::DType::Any {
                         l.clone()
                     } else if l.is_real() && r.is_integer() {
                         l.clone()
                     } else if l.is_integer() && r.is_real() {
                         r.clone()
-                    } else if l == &DType::F32 && r == &DType::F64 {
-                        DType::F64
-                    } else if l == &DType::F64 && r == &DType::F32 {
-                        DType::F64
+                    } else if l == &dtype::DType::F32 && r == &dtype::DType::F64 {
+                        dtype::DType::F64
+                    } else if l == &dtype::DType::F64 && r == &dtype::DType::F32 {
+                        dtype::DType::F64
                     } else {
                         // Fallback or panic
                         panic!(
