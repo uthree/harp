@@ -31,11 +31,11 @@ impl CRenderer {
                 self.indent_level -= 1;
                 self.writeln("}");
             }
-            AstOp::Range { loop_var } => {
+            AstOp::Range { loop_var, step } => {
                 self.write_indent();
                 write!(self.buffer, "for (size_t {loop_var} = 0; {loop_var} < ").unwrap();
                 self.render_node(&ast.src[0]); // max
-                writeln!(self.buffer, "; {loop_var}++) {{").unwrap();
+                write!(self.buffer, "; {loop_var} += {step}) {{ ").unwrap();
                 self.indent_level += 1;
 
                 // The rest of src is the loop body.
@@ -58,7 +58,7 @@ impl CRenderer {
                     .map(|(name, dtype)| format!("{} {}", Self::dtype_to_c(dtype), name))
                     .collect();
                 let args_str = args_str.join(", ");
-                self.writeln(&format!("void {name}({args_str}) {{"));
+                self.writeln(&format!("void {name}({args_str}) {{ "));
                 self.indent_level += 1;
                 for node in &ast.src {
                     self.render_node(node);
@@ -152,7 +152,7 @@ impl CRenderer {
             AstOp::Sqrt => self.render_unary_op_func("sqrt", ast),
             AstOp::Log2 => self.render_unary_op_func("log2", ast),
             AstOp::Exp2 => self.render_unary_op_func("exp2", ast),
-            _ => unimplemented!("Rendering for `{:?}` is not implemented.", ast.op),
+            _ => unimplemented!("Rendering for `{ast:?}` is not implemented."),
         }
     }
 
@@ -250,7 +250,7 @@ impl Renderer for CRenderer {
 
         self.render_node(&ast);
         let code = self.buffer.clone();
-        debug!("\n--- Rendered C code ---\n{code}\n-----------------------");
+        debug!("\n--- Rendered C code ---\n{{code}}\n-----------------------");
         code
     }
 }

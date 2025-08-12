@@ -33,7 +33,14 @@ impl AstNode {
     pub fn range(loop_var: String, max: AstNode, mut block: Vec<AstNode>) -> Self {
         let mut src = vec![max];
         src.append(&mut block);
-        Self::new(AstOp::Range { loop_var }, src, DType::Void)
+        Self::new(
+            AstOp::Range {
+                loop_var,
+                step: 1,
+            },
+            src,
+            DType::Void,
+        )
     }
 
     /// Creates a new `BufferIndex` node.

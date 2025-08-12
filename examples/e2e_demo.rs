@@ -31,8 +31,8 @@ fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     // Define the computation graph outside the loop.
-    let a = Tensor::rand(vec![4, 8], DType::F32, true);
-    let b = Tensor::rand(vec![8, 12], DType::F32, true);
+    let a = Tensor::rand(vec![256, 512], DType::F32, true);
+    let b = Tensor::rand(vec![512, 1024], DType::F32, true);
     let c = matmul(&a, &b);
 
     // The backend is configured to trigger heuristic optimization on the 10th call by default.

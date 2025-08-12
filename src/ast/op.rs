@@ -66,6 +66,7 @@ pub enum AstOp {
     /// Represents a for-loop. `src[0]` is the maximum value (exclusive), and the rest of `src` is the loop body.
     Range {
         loop_var: String,
+        step: usize,
     },
     /// Represents a function definition. The function body is in `src`.
     Func {
@@ -97,11 +98,13 @@ impl PartialEq for AstOp {
             (
                 Self::Range {
                     loop_var: l_loop_var,
+                    step: l_step,
                 },
                 Self::Range {
                     loop_var: r_loop_var,
+                    step: r_step,
                 },
-            ) => l_loop_var == r_loop_var,
+            ) => l_loop_var == r_loop_var && l_step == r_step,
             (
                 Self::Func {
                     name: l_name,
@@ -136,7 +139,10 @@ impl Hash for AstOp {
                 name.hash(state);
                 dtype.hash(state);
             }
-            AstOp::Range { loop_var } => loop_var.hash(state),
+            AstOp::Range { loop_var, step } => {
+                loop_var.hash(state);
+                step.hash(state);
+            }
             AstOp::Func { name, args } => {
                 name.hash(state);
                 args.hash(state);

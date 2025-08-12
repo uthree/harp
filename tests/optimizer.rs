@@ -1,4 +1,4 @@
-use harp::{ast::*, backend::c::CBackend, backend::KernelDetails, opt::ast::*};
+use harp::{ast::*, backend::KernelDetails, backend::c::CBackend, opt::ast::*};
 
 fn setup_logger() {
     let _ = env_logger::builder().is_test(true).try_init();
@@ -21,9 +21,9 @@ fn test_algebraic_simplification_simple() {
 #[test]
 fn test_algebraic_simplification_complex() {
     setup_logger();
-    let x = AstNode::var("x").with_type(DType::F64);
-    let y = AstNode::var("y").with_type(DType::F64);
-    let z = AstNode::var("z").with_type(DType::F64);
+    let x = AstNode::var("x").with_type(DType::F32);
+    let y = AstNode::var("y").with_type(DType::F32);
+    let z = AstNode::var("z").with_type(DType::F32);
 
     // (x * 1.0 + 0.0) * (y * 0.0 + z)
     let target = (x.clone() * 1.0f64 + 0.0f64) * (y * 0.0f64 + z.clone());

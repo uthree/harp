@@ -40,9 +40,14 @@ impl RewriteRule {
     fn scan(target: &AstNode, pattern: &AstNode, store: &mut FxHashMap<usize, AstNode>) -> bool {
         trace!(
             "Scanning target node {:?} with pattern node {:?}",
-            target.op, pattern.op
+            target.op,
+            pattern.op
         );
-        if let AstOp::Capture(id, _) = &pattern.op {
+
+        if let AstOp::Capture(id, pattern_dtype) = &pattern.op {
+            if !pattern_dtype.matches(&target.dtype) {
+                return false;
+            }
             if let Some(existing) = store.get(id) {
                 return target == existing;
             }
@@ -50,7 +55,11 @@ impl RewriteRule {
             return true;
         }
 
-        if target.op != pattern.op || target.src.len() != pattern.src.len() {
+        if target.op != pattern.op || !pattern.dtype.matches(&target.dtype) {
+            return false;
+        }
+
+        if target.src.len() != pattern.src.len() {
             return false;
         }
 
@@ -136,15 +145,12 @@ impl AstRewriter {
         info!("Starting AST rewrite process...");
         for i in 0..self.max_iterations {
             let mut changed = false;
-            let original_node = node.clone();
-
             for rule in &self.rules {
-                trace!("Applying rule '{}'", rule.name);
-                node = rule.apply_all(node);
-            }
-
-            if original_node != node {
-                changed = true;
+                let new_node = rule.apply_all(node.clone());
+                if new_node != node {
+                    node = new_node;
+                    changed = true;
+                }
             }
 
             if !changed {
@@ -174,7 +180,7 @@ impl AstRewriter {
 
 #[macro_export]
 macro_rules! rule {
-    ($name: expr, | $($capture: ident),* | $pattern: expr => $rewriter: expr ) => {
+    ($name: expr, | $($capture: pat_param),* | $pattern: expr => $rewriter: expr ) => {
         {
             use $crate::ast::DType;
             let mut counter = 0..;
@@ -322,6 +328,14 @@ pub struct AlgebraicSimplification {
 impl Default for AlgebraicSimplification {
     fn default() -> Self {
         let rules = vec![
+            // Commutative rules for addition
+            rule!("add_zero_f32_comm", |a| AstNode::from(0.0f32) + a.clone() => a),
+            rule!("add_zero_f64_comm", |a| AstNode::from(0.0f64) + a.clone() => a),
+            // Commutative rules for multiplication
+            rule!("mul_by_one_f32_comm", |a| AstNode::from(1.0f32) * a.clone() => a),
+            rule!("mul_by_one_f64_comm", |a| AstNode::from(1.0f64) * a.clone() => a),
+            rule!("mul_by_zero_f32_comm", |_a| AstNode::from(0.0f32) * _a.clone() => AstNode::from(0.0f32)),
+            rule!("mul_by_zero_f64_comm", |_a| AstNode::from(0.0f64) * _a.clone() => AstNode::from(0.0f64)),
             // F32 rules
             rule!("mul_by_one_f32", |a| a.clone() * AstNode::from(1.0f32) => a),
             rule!("mul_by_zero_f32", |_a| _a * AstNode::from(0.0f32) => AstNode::from(0.0f32)),
@@ -386,38 +400,73 @@ impl Default for LoopUnrolling {
 impl OptimizationSuggester for LoopUnrolling {
     fn suggest_optimizations(&self, node: &AstNode) -> Vec<AstNode> {
         let mut suggestions = Vec::new();
-        if let AstOp::Range { loop_var } = &node.op {
+        if let AstOp::Range { loop_var, step } = &node.op {
+            // Only unroll loops with a step of 1 to avoid nested unrolling.
+            if *step != 1 {
+                return suggestions;
+            }
+
             if let Some(AstOp::Const(const_val)) = node.src.get(0).map(|n| &n.op) {
                 if let Some(end) = const_val.to_usize() {
                     if end >= self.unroll_factor {
-                        let num_unrolled_iterations = end / self.unroll_factor;
-                        let remaining_iterations = end % self.unroll_factor;
-
-                        let mut unrolled_body = Vec::new();
+                        let unroll_factor = self.unroll_factor;
+                        let num_unrolled_iterations = end / unroll_factor;
+                        let remaining_iterations = end % unroll_factor;
                         let loop_body = &node.src[1..];
 
-                        // Create the unrolled loop
-                        for i in 0..num_unrolled_iterations {
-                            for j in 0..self.unroll_factor {
-                                let current_index = i * self.unroll_factor + j;
-                                let substitution = AstNode::from(current_index as i32);
-                                for stmt in loop_body {
-                                    unrolled_body.push(replace_var(stmt, loop_var, &substitution));
-                                }
-                            }
-                        }
-
-                        // Handle remaining iterations
-                        for i in (end - remaining_iterations)..end {
-                            let substitution = AstNode::from(i as i32);
+                        // Create the main unrolled loop
+                        let mut unrolled_body = Vec::new();
+                        for i in 0..unroll_factor {
+                            let substitution =
+                                AstNode::var(loop_var) + AstNode::from(i as i32);
                             for stmt in loop_body {
                                 unrolled_body.push(replace_var(stmt, loop_var, &substitution));
                             }
                         }
 
+                        let main_loop_end = AstNode::from((num_unrolled_iterations * unroll_factor) as i32);
+                        let main_loop = AstNode::new(
+                            AstOp::Range {
+                                loop_var: loop_var.clone(),
+                                step: unroll_factor,
+                            },
+                            vec![main_loop_end]
+                                .into_iter()
+                                .chain(unrolled_body)
+                                .collect(),
+                            node.dtype.clone(),
+                        );
+
+                        let mut block_stmts = vec![main_loop];
+
+                        // Handle remaining iterations with a separate, simple loop
+                        if remaining_iterations > 0 {
+                            let remainder_start = end - remaining_iterations;
+                            let remainder_loop_var = format!("{}_remainder", loop_var);
+                            let mut remainder_body = Vec::new();
+                            let substitution = AstNode::var(&remainder_loop_var)
+                                + AstNode::from(remainder_start as i32);
+                            for stmt in loop_body {
+                                remainder_body.push(replace_var(stmt, loop_var, &substitution));
+                            }
+
+                            let remainder_loop = AstNode::new(
+                                AstOp::Range {
+                                    loop_var: remainder_loop_var,
+                                    step: 1,
+                                },
+                                vec![AstNode::from(remaining_iterations as i32)]
+                                    .into_iter()
+                                    .chain(remainder_body)
+                                    .collect(),
+                                node.dtype.clone(),
+                            );
+                            block_stmts.push(remainder_loop);
+                        }
+
                         suggestions.push(AstNode::new(
                             AstOp::Block,
-                            unrolled_body,
+                            block_stmts,
                             node.dtype.clone(),
                         ));
                     }
