@@ -85,7 +85,9 @@ impl Graph {
     }
 
     /// Builds a `Graph` from a final `Tensor`.
-    pub fn from_tensor(tensor: &crate::tensor::Tensor) -> (Self, std::collections::HashMap<usize, NodeId>) {
+    pub fn from_tensor(
+        tensor: &crate::tensor::Tensor,
+    ) -> (Self, std::collections::HashMap<usize, NodeId>) {
         let graph = Self::new();
         let mut tensor_to_node = std::collections::HashMap::new();
 
@@ -104,11 +106,7 @@ impl Graph {
                 src_nodes.push(build_recursive(src_tensor, graph, tensor_to_node));
             }
 
-            let shape_exprs: Vec<Expr> = t_data
-                .shape
-                .iter()
-                .map(|&dim| Expr::from(dim))
-                .collect();
+            let shape_exprs: Vec<Expr> = t_data.shape.iter().map(|&dim| Expr::from(dim)).collect();
 
             let op = crate::tensor::op_conversion::op_to_graph_op(
                 t_data.op.clone(),

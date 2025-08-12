@@ -6,11 +6,11 @@
 
 pub mod creation;
 mod grad;
+pub mod op_conversion;
 mod ops_binary;
 mod ops_math;
 mod ops_shape;
 mod ops_unary;
-pub mod op_conversion;
 
 use crate::ast::{Const, DType};
 use crate::backend::Backend;
@@ -128,11 +128,10 @@ impl Tensor {
         // Assign the resulting buffers back to all tensors in the graph.
         let all_tensors = self.all_tensors();
         for tensor in all_tensors {
-            if let Some(node_id) = tensor_to_node.get(&tensor.id()) {
-                if let Some(buffer) = result_buffers.get(node_id) {
+            if let Some(node_id) = tensor_to_node.get(&tensor.id())
+                && let Some(buffer) = result_buffers.get(node_id) {
                     tensor.0.borrow_mut().buffer = Some(TensorBuffer::C(buffer.clone()));
                 }
-            }
         }
     }
 

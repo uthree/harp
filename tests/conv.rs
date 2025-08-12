@@ -1,7 +1,7 @@
 use harp::{
     ast::DType,
-    backend::c::{CBackend, CBuffer},
     backend::Backend,
+    backend::c::{CBackend, CBuffer},
     graph::Graph,
 };
 
