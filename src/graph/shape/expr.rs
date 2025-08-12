@@ -8,8 +8,6 @@
 use crate::ast::{AstNode, DType};
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, RemAssign, Sub, SubAssign};
 
-use log::debug;
-
 /// A trait for converting a Rust type into its corresponding `DType` enum variant.
 pub trait IntoDType {
     fn into_dtype() -> DType;
