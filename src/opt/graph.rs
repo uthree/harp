@@ -149,8 +149,7 @@ impl DeterministicGraphOptimizer for ElementwiseFusion {
                         }
                     }
                     if let GraphOp::Elementwise(op) = &node_data.op {
-                        let new_ast =
-                            AstNode::new(op.clone(), ast_srcs, node_data.dtype.clone());
+                        let new_ast = AstNode::new(op.clone(), ast_srcs, node_data.dtype.clone());
                         node_to_ast.insert(node_id, new_ast);
                     }
                 }

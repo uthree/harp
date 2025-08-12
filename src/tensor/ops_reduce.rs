@@ -1,5 +1,5 @@
-use crate::ast::AstOp;
 use super::{Tensor, TensorData, TensorOp};
+use crate::ast::AstOp;
 
 impl Tensor {
     pub fn sum(&self, axis: usize) -> Tensor {

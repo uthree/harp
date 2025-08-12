@@ -113,8 +113,6 @@ mod tests {
         assert_eq!(add_expr.src[1], b);
     }
 
-
-
     #[test]
     fn test_partial_eq_ignores_id() {
         let node1 = AstNode::new(AstOp::Var("a".to_string()), vec![], DType::Any);

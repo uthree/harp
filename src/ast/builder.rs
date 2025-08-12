@@ -1,4 +1,5 @@
-use crate::ast::{dtype::DType, node::AstNode, op::AstOp};
+use crate::ast::DType;
+use crate::ast::{dtype, node::AstNode, op::AstOp};
 
 impl AstNode {
     // --- AST Construction Helpers ---
@@ -33,14 +34,7 @@ impl AstNode {
     pub fn range(loop_var: String, max: AstNode, mut block: Vec<AstNode>) -> Self {
         let mut src = vec![max];
         src.append(&mut block);
-        Self::new(
-            AstOp::Range {
-                loop_var,
-                step: 1,
-            },
-            src,
-            DType::Void,
-        )
+        Self::new(AstOp::Range { loop_var, step: 1 }, src, DType::Void)
     }
 
     /// Creates a new `BufferIndex` node.
@@ -139,34 +133,64 @@ macro_rules! impl_binary_op {
                 let mut lhs = self;
                 let mut rhs = other.into();
 
-                if lhs.dtype != rhs.dtype {
-                    // Attempt to promote types
-                    let (l, r) = (&lhs.dtype, &rhs.dtype);
-                    if l == &DType::Any {
-                        lhs = lhs.cast(r.clone());
-                    } else if r == &DType::Any {
-                        rhs = rhs.cast(l.clone());
-                    } else if l.is_real() && r.is_integer() {
-                        rhs = rhs.cast(l.clone());
-                    } else if l.is_integer() && r.is_real() {
-                        lhs = lhs.cast(r.clone());
-                    } else if l == &DType::F32 && r == &DType::F64 {
-                        lhs = lhs.cast(DType::F64);
-                    } else if l == &DType::F64 && r == &DType::F32 {
-                        rhs = rhs.cast(DType::F64);
+                let is_pattern = matches!(lhs.op, AstOp::Capture(_, _))
+                    || matches!(rhs.op, AstOp::Capture(_, _));
+
+                if !is_pattern {
+                    if lhs.dtype != rhs.dtype {
+                        // Attempt to promote types
+                        let (l, r) = (&lhs.dtype, &rhs.dtype);
+                        if l == &DType::Any {
+                            lhs = lhs.cast(r.clone());
+                        } else if r == &DType::Any {
+                            rhs = rhs.cast(l.clone());
+                        } else if l.is_real() && r.is_integer() {
+                            rhs = rhs.cast(l.clone());
+                        } else if l.is_integer() && r.is_real() {
+                            lhs = lhs.cast(r.clone());
+                        } else if l == &DType::F32 && r == &DType::F64 {
+                            lhs = lhs.cast(DType::F64);
+                        } else if l == &DType::F64 && r == &DType::F32 {
+                            rhs = rhs.cast(DType::F64);
+                        }
+                    }
+
+                    if lhs.dtype != rhs.dtype {
+                        panic!(
+                            "Cannot apply {} to {:?} and {:?}",
+                            stringify!($op),
+                            lhs.dtype,
+                            rhs.dtype
+                        );
                     }
                 }
 
-                if lhs.dtype != rhs.dtype {
-                    panic!(
-                        "Cannot apply {} to {:?} and {:?}",
-                        stringify!($op),
-                        lhs.dtype,
-                        rhs.dtype
-                    );
-                }
+                let result_dtype = if lhs.dtype == rhs.dtype {
+                    lhs.dtype.clone()
+                } else {
+                    // Manual common_type logic for patterns
+                    let (l, r) = (&lhs.dtype, &rhs.dtype);
+                    if l == &DType::Any {
+                        r.clone()
+                    } else if r == &DType::Any {
+                        l.clone()
+                    } else if l.is_real() && r.is_integer() {
+                        l.clone()
+                    } else if l.is_integer() && r.is_real() {
+                        r.clone()
+                    } else if l == &DType::F32 && r == &DType::F64 {
+                        DType::F64
+                    } else if l == &DType::F64 && r == &DType::F32 {
+                        DType::F64
+                    } else {
+                        // Fallback or panic
+                        panic!(
+                            "Cannot find common type for pattern with {:?} and {:?}",
+                            l, r
+                        );
+                    }
+                };
 
-                let result_dtype = lhs.dtype.clone();
                 AstNode::new(AstOp::$op, vec![lhs, rhs], result_dtype)
             }
         }
@@ -178,34 +202,64 @@ macro_rules! impl_binary_op {
                 let mut lhs = self;
                 let mut rhs = other.into();
 
-                if lhs.dtype != rhs.dtype {
-                    // Attempt to promote types
-                    let (l, r) = (&lhs.dtype, &rhs.dtype);
-                    if l == &DType::Any {
-                        lhs = lhs.cast(r.clone());
-                    } else if r == &DType::Any {
-                        rhs = rhs.cast(l.clone());
-                    } else if l.is_real() && r.is_integer() {
-                        rhs = rhs.cast(l.clone());
-                    } else if l.is_integer() && r.is_real() {
-                        lhs = lhs.cast(r.clone());
-                    } else if l == &DType::F32 && r == &DType::F64 {
-                        lhs = lhs.cast(DType::F64);
-                    } else if l == &DType::F64 && r == &DType::F32 {
-                        rhs = rhs.cast(DType::F64);
+                let is_pattern = matches!(lhs.op, AstOp::Capture(_, _))
+                    || matches!(rhs.op, AstOp::Capture(_, _));
+
+                if !is_pattern {
+                    if lhs.dtype != rhs.dtype {
+                        // Attempt to promote types
+                        let (l, r) = (&lhs.dtype, &rhs.dtype);
+                        if l == &DType::Any {
+                            lhs = lhs.cast(r.clone());
+                        } else if r == &DType::Any {
+                            rhs = rhs.cast(l.clone());
+                        } else if l.is_real() && r.is_integer() {
+                            rhs = rhs.cast(l.clone());
+                        } else if l.is_integer() && r.is_real() {
+                            lhs = lhs.cast(r.clone());
+                        } else if l == &DType::F32 && r == &DType::F64 {
+                            lhs = lhs.cast(DType::F64);
+                        } else if l == &DType::F64 && r == &DType::F32 {
+                            rhs = rhs.cast(DType::F64);
+                        }
+                    }
+
+                    if lhs.dtype != rhs.dtype {
+                        panic!(
+                            "Cannot apply {} to {:?} and {:?}",
+                            stringify!($op),
+                            lhs.dtype,
+                            rhs.dtype
+                        );
                     }
                 }
 
-                if lhs.dtype != rhs.dtype {
-                    panic!(
-                        "Cannot apply {} to {:?} and {:?}",
-                        stringify!($op),
-                        lhs.dtype,
-                        rhs.dtype
-                    );
-                }
+                let result_dtype = if lhs.dtype == rhs.dtype {
+                    lhs.dtype.clone()
+                } else {
+                    // Manual common_type logic for patterns
+                    let (l, r) = (&lhs.dtype, &rhs.dtype);
+                    if l == &DType::Any {
+                        r.clone()
+                    } else if r == &DType::Any {
+                        l.clone()
+                    } else if l.is_real() && r.is_integer() {
+                        l.clone()
+                    } else if l.is_integer() && r.is_real() {
+                        r.clone()
+                    } else if l == &DType::F32 && r == &DType::F64 {
+                        DType::F64
+                    } else if l == &DType::F64 && r == &DType::F32 {
+                        DType::F64
+                    } else {
+                        // Fallback or panic
+                        panic!(
+                            "Cannot find common type for pattern with {:?} and {:?}",
+                            l, r
+                        );
+                    }
+                };
 
-                let result_dtype = lhs.dtype.clone();
                 AstNode::new(AstOp::$op, vec![lhs, rhs], result_dtype)
             }
         }

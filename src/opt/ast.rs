@@ -40,8 +40,7 @@ impl RewriteRule {
     fn scan(target: &AstNode, pattern: &AstNode, store: &mut FxHashMap<usize, AstNode>) -> bool {
         trace!(
             "Scanning target node {:?} with pattern node {:?}",
-            target.op,
-            pattern.op
+            target.op, pattern.op
         );
 
         if let AstOp::Capture(id, pattern_dtype) = &pattern.op {
@@ -414,9 +413,9 @@ impl OptimizationSuggester for LoopUnrolling {
                 return suggestions;
             }
 
-            if let Some(AstOp::Const(const_val)) = node.src.get(0).map(|n| &n.op) {
-                if let Some(end) = const_val.to_usize() {
-                    if end >= self.unroll_factor {
+            if let Some(AstOp::Const(const_val)) = node.src.first().map(|n| &n.op)
+                && let Some(end) = const_val.to_usize()
+                    && end >= self.unroll_factor {
                         let unroll_factor = self.unroll_factor;
                         let num_unrolled_iterations = end / unroll_factor;
                         let remaining_iterations = end % unroll_factor;
@@ -425,14 +424,14 @@ impl OptimizationSuggester for LoopUnrolling {
                         // Create the main unrolled loop
                         let mut unrolled_body = Vec::new();
                         for i in 0..unroll_factor {
-                            let substitution =
-                                AstNode::var(loop_var) + AstNode::from(i as i32);
+                            let substitution = AstNode::var(loop_var) + AstNode::from(i as i32);
                             for stmt in loop_body {
                                 unrolled_body.push(replace_var(stmt, loop_var, &substitution));
                             }
                         }
 
-                        let main_loop_end = AstNode::from((num_unrolled_iterations * unroll_factor) as i32);
+                        let main_loop_end =
+                            AstNode::from((num_unrolled_iterations * unroll_factor) as i32);
                         let main_loop = AstNode::new(
                             AstOp::Range {
                                 loop_var: loop_var.clone(),
@@ -478,8 +477,6 @@ impl OptimizationSuggester for LoopUnrolling {
                             node.dtype.clone(),
                         ));
                     }
-                }
-            }
         }
         suggestions
     }
@@ -487,11 +484,10 @@ impl OptimizationSuggester for LoopUnrolling {
 
 /// Helper function to replace a variable in an AST node.
 fn replace_var(node: &AstNode, var_name: &str, substitution: &AstNode) -> AstNode {
-    if let AstOp::Var(name) = &node.op {
-        if name == var_name {
+    if let AstOp::Var(name) = &node.op
+        && name == var_name {
             return substitution.clone();
         }
-    }
     let new_src = node
         .src
         .iter()
