@@ -8,7 +8,6 @@ use indicatif::HumanDuration;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::debug;
 use rustc_hash::FxHashSet;
-use std::boxed;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::rc::Rc;
@@ -224,7 +223,7 @@ impl<S: OptimizationSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
 
         // 3. If there are too many mutations, sample a subset.
         if all_mutations.len() > self.max_suggestions {
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
             all_mutations
                 .choose_multiple(&mut rng, self.max_suggestions)
                 .cloned()
