@@ -47,7 +47,7 @@ fn main() {
 
     // The backend is configured to trigger heuristic optimization on the 1st call.
     // We run the forward pass multiple times to trigger this.
-    for _i in 0..10 {
+    for _i in 0..20 {
         c.forward();
         // After the forward pass, we need to clear the buffer to re-run the computation.
         c.clear_buffer();
