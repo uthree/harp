@@ -4,9 +4,9 @@ use crate::{
     graph::Graph,
     graph::lowerer::Lowerer,
     graph::lowerer::orchestrator::LoweringOrchestrator,
+    opt::DeterministicGraphOptimizer,
     opt::ast::{AlgebraicSimplification, DeterministicAstOptimizer},
     opt::graph::ElementwiseFusion,
-    opt::DeterministicGraphOptimizer,
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -164,7 +164,7 @@ where
         let duration = start.elapsed();
 
         let time = duration.as_secs_f32();
-        return time;
+        time
     }
 
     pub fn prepare_dummy_buffers(&self, details: &KernelDetails) -> (Vec<B>, Vec<usize>) {

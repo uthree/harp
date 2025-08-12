@@ -129,9 +129,10 @@ impl Tensor {
         let all_tensors = self.all_tensors();
         for tensor in all_tensors {
             if let Some(node_id) = tensor_to_node.get(&tensor.id())
-                && let Some(buffer) = result_buffers.get(node_id) {
-                    tensor.0.borrow_mut().buffer = Some(TensorBuffer::C(buffer.clone()));
-                }
+                && let Some(buffer) = result_buffers.get(node_id)
+            {
+                tensor.0.borrow_mut().buffer = Some(TensorBuffer::C(buffer.clone()));
+            }
         }
     }
 
