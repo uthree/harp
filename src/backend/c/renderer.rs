@@ -192,20 +192,20 @@ impl CRenderer {
             Const::F32(v) if v.is_infinite() && v.is_sign_negative() => {
                 write!(self.buffer, "-INFINITY").unwrap()
             }
-            Const::F32(v) => write!(self.buffer, "{v:.7}f").unwrap(),
+            Const::F32(v) => write!(self.buffer, "{v:.7}").unwrap(),
             Const::F64(v) if v.is_infinite() && v.is_sign_negative() => {
                 write!(self.buffer, "-INFINITY").unwrap()
             }
             Const::F64(v) => write!(self.buffer, "{v}").unwrap(),
-            Const::I8(v) => write!(self.buffer, "(int8_t){v}").unwrap(),
-            Const::I16(v) => write!(self.buffer, "(int16_t){v}").unwrap(),
+            Const::I8(v) => write!(self.buffer, "{v}").unwrap(),
+            Const::I16(v) => write!(self.buffer, "{v}").unwrap(),
             Const::I32(v) => write!(self.buffer, "{v}").unwrap(),
-            Const::I64(v) => write!(self.buffer, "{v}ll").unwrap(),
-            Const::U8(v) => write!(self.buffer, "(uint8_t){v}u").unwrap(),
-            Const::U16(v) => write!(self.buffer, "(uint16_t){v}u").unwrap(),
-            Const::U32(v) => write!(self.buffer, "{v}u").unwrap(),
-            Const::U64(v) => write!(self.buffer, "{v}ull").unwrap(),
-            Const::USize(v) => write!(self.buffer, "(size_t){v}ull").unwrap(),
+            Const::I64(v) => write!(self.buffer, "{v}").unwrap(),
+            Const::U8(v) => write!(self.buffer, "{v}").unwrap(),
+            Const::U16(v) => write!(self.buffer, "{v}").unwrap(),
+            Const::U32(v) => write!(self.buffer, "{v}").unwrap(),
+            Const::U64(v) => write!(self.buffer, "{v}").unwrap(),
+            Const::USize(v) => write!(self.buffer, "{v}").unwrap(),
         }
     }
 

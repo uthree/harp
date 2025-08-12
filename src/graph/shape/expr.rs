@@ -151,7 +151,7 @@ impl Expr {
             _ => self,
         };
         if before != simplified {
-            debug!("Simplified shape expression: {before} -> {simplified}");
+            // debug!("Simplified shape expression: {before} -> {simplified}");
         }
         simplified
     }

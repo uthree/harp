@@ -77,10 +77,10 @@ fn test_render_max() {
 /// Tests that a constant is rendered correctly.
 #[test]
 fn test_render_const() {
-    assert_render(f32::consts::PI.into(), "3.1415927f");
-    assert_render((42i8).into(), "(int8_t)42");
-    assert_render((123u32).into(), "123u");
-    assert_render((9999999999i64).into(), "9999999999ll");
+    assert_render(f32::consts::PI.into(), "3.1415927");
+    assert_render((42i8).into(), "42");
+    assert_render((123u32).into(), "123");
+    assert_render((9999999999i64).into(), "9999999999");
 }
 
 /// Tests that an assignment operation is rendered correctly.
