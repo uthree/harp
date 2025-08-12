@@ -1,9 +1,59 @@
 use crate::ast::{AstNode, AstOp};
-use crate::opt::ast::{CostEstimator, DeterministicAstOptimizer, OptimizationSuggester};
+use crate::opt::ast::{
+    CostEstimator, DeterministicAstOptimizer, OptimizationSuggester, RewriteRule,
+};
 use log::debug;
 use rustc_hash::FxHashSet;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
+use std::rc::Rc;
+
+/// A suggester that uses a set of rewrite rules to generate optimization candidates.
+#[derive(Clone)]
+pub struct RuleBasedSuggester {
+    rules: Vec<Rc<RewriteRule>>,
+}
+
+impl RuleBasedSuggester {
+    pub fn new(rules: Vec<Rc<RewriteRule>>) -> Self {
+        Self { rules }
+    }
+}
+
+impl OptimizationSuggester for RuleBasedSuggester {
+    fn suggest_optimizations(&self, node: &AstNode) -> Vec<AstNode> {
+        let mut suggestions = Vec::new();
+        for rule in &self.rules {
+            if let Some(captures) = rule.capture(node) {
+                let rewritten_node = (rule.rewriter)(captures);
+                if &rewritten_node != node {
+                    suggestions.push(rewritten_node);
+                }
+            }
+        }
+        suggestions
+    }
+}
+
+/// A suggester that combines multiple suggesters into one.
+pub struct CompositeSuggester {
+    suggesters: Vec<Box<dyn OptimizationSuggester>>,
+}
+
+impl CompositeSuggester {
+    pub fn new(suggesters: Vec<Box<dyn OptimizationSuggester>>) -> Self {
+        Self { suggesters }
+    }
+}
+
+impl OptimizationSuggester for CompositeSuggester {
+    fn suggest_optimizations(&self, node: &AstNode) -> Vec<AstNode> {
+        self.suggesters
+            .iter()
+            .flat_map(|s| s.suggest_optimizations(node))
+            .collect()
+    }
+}
 
 /// A simple cost estimator that counts the number of nodes in the AST.
 #[derive(Clone, Copy)]
@@ -264,37 +314,33 @@ mod tests {
     use super::*;
     use crate::ast::AstNode;
     use crate::opt::ast::RewriteRule;
-    use std::rc::Rc;
 
     fn setup_logger() {
         let _ = env_logger::builder().is_test(true).try_init();
     }
 
-    /// A suggester that uses a set of rewrite rules to generate optimization candidates.
-    #[derive(Clone)]
-    pub struct RuleBasedSuggester {
-        rules: Vec<Rc<RewriteRule>>,
-    }
+    #[test]
+    fn test_composite_suggester() {
+        setup_logger();
+        let node_a = AstNode::var("A");
+        let node_b = AstNode::var("B");
+        let node_c = AstNode::var("C");
 
-    impl RuleBasedSuggester {
-        pub fn new(rules: Vec<Rc<RewriteRule>>) -> Self {
-            Self { rules }
-        }
-    }
+        let rule1 = RewriteRule::new("A->B", node_a.clone(), move |_| node_b.clone());
+        let suggester1 = RuleBasedSuggester::new(vec![rule1]);
 
-    impl OptimizationSuggester for RuleBasedSuggester {
-        fn suggest_optimizations(&self, node: &AstNode) -> Vec<AstNode> {
-            let mut suggestions = Vec::new();
-            for rule in &self.rules {
-                if let Some(captures) = rule.capture(node) {
-                    let rewritten_node = (rule.rewriter)(captures);
-                    if &rewritten_node != node {
-                        suggestions.push(rewritten_node);
-                    }
-                }
-            }
-            suggestions
-        }
+        let rule2 = RewriteRule::new("A->C", node_a.clone(), move |_| node_c.clone());
+        let suggester2 = RuleBasedSuggester::new(vec![rule2]);
+
+        let composite_suggester =
+            CompositeSuggester::new(vec![Box::new(suggester1), Box::new(suggester2)]);
+
+        let suggestions = composite_suggester.suggest_optimizations(&node_a);
+        assert_eq!(suggestions.len(), 2);
+        let node_b_from_suggestion = AstNode::var("B");
+        let node_c_from_suggestion = AstNode::var("C");
+        assert!(suggestions.contains(&node_b_from_suggestion));
+        assert!(suggestions.contains(&node_c_from_suggestion));
     }
 
     #[test]
@@ -305,12 +351,12 @@ mod tests {
 
         // A -> B (cost increases), B -> C (cost decreases, lower than A)
         let node_a = AstNode::var("A");
-        //let node_b = AstNode::var("B");
+        let node_b = AstNode::var("B");
         let node_c = AstNode::var("C");
 
         // Dummy rules that match specific AstNodes
-        let rule_a_to_b = RewriteRule::new("A->B", AstNode::var("A"), |_| AstNode::var("B"));
-        let rule_b_to_c = RewriteRule::new("B->C", AstNode::var("B"), |_| AstNode::var("C"));
+        let rule_a_to_b = RewriteRule::new("A->B", AstNode::var("A"), move |_| node_b.clone());
+        let rule_b_to_c = RewriteRule::new("B->C", AstNode::var("B"), move |_| node_c.clone());
 
         let suggester = RuleBasedSuggester::new(vec![rule_a_to_b, rule_b_to_c]);
 
@@ -343,6 +389,7 @@ mod tests {
             BeamSearchAstOptimizer::new(suggester, cost_estimator, 2).with_max_steps(3);
         let beam_result = beam_optimizer.optimize(node_a.clone());
         // Beam search can move to B (cost 15) and keep it in the beam, then find C (cost 5).
-        assert_eq!(beam_result, node_c);
+        let expected_node_c = AstNode::var("C");
+        assert_eq!(beam_result, expected_node_c);
     }
 }
