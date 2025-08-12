@@ -128,7 +128,7 @@ where
             for node in graph_to_use.nodes.borrow().iter() {
                 let op_key = match &node.op {
                     crate::graph::GraphOp::FusedElementwise(ast) => {
-                        format!("FusedElementwise({})", ast_node_key(ast))
+                        format!("FusedElementwise({})", ast_node_key(&ast))
                     }
                     other => format!("{:?}", other),
                 };
