@@ -7,7 +7,7 @@ use crate::{
         AlgebraicSimplification, DeterministicAstOptimizer, LoopUnrolling, OptimizationSuggester,
     },
     opt::graph::ElementwiseFusion,
-    opt::heuristic::{self, CompositeSuggester, RuleBasedSuggester},
+    opt::heuristic::{self, CompositeSuggester},
     opt::DeterministicGraphOptimizer,
 };
 use std::collections::HashMap;

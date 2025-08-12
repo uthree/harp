@@ -288,6 +288,12 @@ impl_dtype!(U16, u16);
 impl_dtype!(U32, u32);
 impl_dtype!(U64, u64);
 
+impl From<Const> for AstNode {
+    fn from(c: Const) -> Self {
+        AstNode::new(super::op::AstOp::Const(c), vec![], c.dtype())
+    }
+}
+
 impl Const {
     /// Returns the `DType` corresponding to the constant value.
     pub fn dtype(&self) -> DType {

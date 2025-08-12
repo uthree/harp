@@ -111,12 +111,16 @@ impl DeterministicGraphOptimizer for ElementwiseFusion {
                 let mut fused_srcs = Vec::new();
                 let mut node_to_ast: FxHashMap<NodeId, AstNode> = FxHashMap::default();
 
-                // Find all unique sources for the entire fused operation
+                // Find all unique non-constant sources for the entire fused operation
                 for &node_id in chain.iter() {
                     let node_data = &original_nodes[node_id.0];
                     for &src_id in &node_data.src {
-                        // If the source is not part of the chain, it's an external input to the fused op.
-                        if !chain.contains(&src_id) && !fused_srcs.contains(&src_id) {
+                        let src_node_data = &original_nodes[src_id.0];
+                        // If the source is not part of the chain and not a constant, it's an external input.
+                        if !chain.contains(&src_id)
+                            && !src_node_data.op.is_full()
+                            && !fused_srcs.contains(&src_id)
+                        {
                             fused_srcs.push(src_id);
                         }
                     }
@@ -130,14 +134,18 @@ impl DeterministicGraphOptimizer for ElementwiseFusion {
                         if let Some(existing_ast) = node_to_ast.get(&src_id) {
                             ast_srcs.push(existing_ast.clone());
                         } else {
-                            // It's an external input, create a capture node.
-                            let capture_idx =
-                                fused_srcs.iter().position(|&id| id == src_id).unwrap();
                             let src_node_data = &original_nodes[src_id.0];
-                            ast_srcs.push(AstNode::capture(
-                                capture_idx,
-                                src_node_data.dtype.clone(),
-                            ));
+                            if let GraphOp::Full(const_val) = src_node_data.op {
+                                ast_srcs.push(const_val.into());
+                            } else {
+                                // It's an external input, create a capture node.
+                                let capture_idx =
+                                    fused_srcs.iter().position(|&id| id == src_id).unwrap();
+                                ast_srcs.push(AstNode::capture(
+                                    capture_idx,
+                                    src_node_data.dtype.clone(),
+                                ));
+                            }
                         }
                     }
                     if let GraphOp::Elementwise(op) = &node_data.op {
@@ -258,30 +266,26 @@ mod tests {
             "Graph should have input, 2 consts, and a fused node"
         );
 
-        let fused_node = nodes.iter().find(|n| matches!(n.op, GraphOp::FusedElementwise(_))).unwrap();
+        let fused_node = nodes
+            .iter()
+            .find(|n| matches!(n.op, GraphOp::FusedElementwise(_)))
+            .unwrap();
 
-        assert_eq!(
-            fused_node.src.len(),
-            3,
-            "Fused node should have three sources"
-        );
+        assert_eq!(fused_node.src.len(), 1, "Fused node should have one source");
         assert!(fused_node.src.contains(&a.id));
-        assert!(fused_node.src.contains(&const_1.id));
-        assert!(fused_node.src.contains(&const_2.id));
 
         if let GraphOp::FusedElementwise(ast) = &fused_node.op {
-            // Expected AST: capture(a) * capture(2.0) + capture(1.0)
-            // The exact structure depends on the capture indices, which depend on fused_srcs ordering.
+            // Expected AST: (capture(a) * 2.0) + 1.0
             assert_eq!(ast.op, AstOp::Add);
             assert_eq!(ast.src.len(), 2);
 
             let (mul_node, const_1_node) = (&ast.src[0], &ast.src[1]);
-            assert!(matches!(const_1_node.op, AstOp::Capture(_, _)));
+            assert!(matches!(const_1_node.op, AstOp::Const(_)));
 
             assert_eq!(mul_node.op, AstOp::Mul);
             assert_eq!(mul_node.src.len(), 2);
             assert!(matches!(mul_node.src[0].op, AstOp::Capture(_, _)));
-            assert!(matches!(mul_node.src[1].op, AstOp::Capture(_, _)));
+            assert!(matches!(mul_node.src[1].op, AstOp::Const(_)));
         } else {
             panic!("Expected FusedElementwise node");
         }

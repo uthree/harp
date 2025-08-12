@@ -15,7 +15,6 @@ mod ops_unary;
 use crate::ast::{Const, DType};
 use crate::backend::Backend;
 use crate::c::{CBackend, CBuffer};
-use crate::backend::generic::GenericBackendConfig;
 use crate::graph::Graph;
 use once_cell::sync::Lazy;
 use std::cell::RefCell;
