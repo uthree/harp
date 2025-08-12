@@ -322,9 +322,14 @@ pub struct AlgebraicSimplification {
 impl Default for AlgebraicSimplification {
     fn default() -> Self {
         let rules = vec![
-            rule!("mul_by_one", |a| a.clone() * AstNode::from(1.0f32) => a),
-            rule!("mul_by_zero", |_a| _a * AstNode::from(0.0f32) => AstNode::from(0.0f32)),
-            rule!("add_zero", |a| a.clone() + AstNode::from(0.0f32) => a),
+            // F32 rules
+            rule!("mul_by_one_f32", |a| a.clone() * AstNode::from(1.0f32) => a),
+            rule!("mul_by_zero_f32", |_a| _a * AstNode::from(0.0f32) => AstNode::from(0.0f32)),
+            rule!("add_zero_f32", |a| a.clone() + AstNode::from(0.0f32) => a),
+            // F64 rules
+            rule!("mul_by_one_f64", |a| a.clone() * AstNode::from(1.0f64) => a),
+            rule!("mul_by_zero_f64", |_a| _a * AstNode::from(0.0f64) => AstNode::from(0.0f64)),
+            rule!("add_zero_f64", |a| a.clone() + AstNode::from(0.0f64) => a),
         ];
         Self {
             rewriter: AstRewriter::new(rules),
