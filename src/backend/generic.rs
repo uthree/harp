@@ -51,11 +51,11 @@ where
 impl<C, R, B, CodeRepr, CompilerOption> GenericBackend<C, R, B, CodeRepr, CompilerOption>
 where
     B: Buffer,
-    C: Compiler<B, CodeRepr, CompilerOption> + Send + Sync,
-    R: Renderer<CodeRepr> + Send + Sync,
-    CodeRepr: Send + Sync,
-    CompilerOption: Send + Sync,
-    C::KernelType: Send + Sync,
+    C: Compiler<B, CodeRepr, CompilerOption> + Send,
+    R: Renderer<CodeRepr> + Send,
+    CodeRepr: Send,
+    CompilerOption: Send,
+    C::KernelType: Send,
 {
     pub fn with_config(config: GenericBackendConfig) -> Self {
         Self {
@@ -100,11 +100,11 @@ impl<C, R, B, CodeRepr, CompilerOption> Backend<B>
     for GenericBackend<C, R, B, CodeRepr, CompilerOption>
 where
     B: Buffer,
-    C: Compiler<B, CodeRepr, CompilerOption> + Send + Sync,
-    R: Renderer<CodeRepr> + Send + Sync,
-    CodeRepr: Send + Sync,
-    CompilerOption: Send + Sync,
-    C::KernelType: Send + Sync,
+    C: Compiler<B, CodeRepr, CompilerOption> + Send,
+    R: Renderer<CodeRepr> + Send,
+    CodeRepr: Send,
+    CompilerOption: Send,
+    C::KernelType: Send,
 {
     fn new() -> Self {
         Self::with_config(GenericBackendConfig::default())
