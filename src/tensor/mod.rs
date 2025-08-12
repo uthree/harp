@@ -119,18 +119,22 @@ impl Tensor {
             TensorOp::Full(val) => {
                 graph.full(val, data.shape.iter().map(|d| (*d).into()).collect())
             }
-            TensorOp::Add => srcs[0].clone() + srcs[1].clone(),
-            TensorOp::Sub => srcs[0].clone() - srcs[1].clone(),
-            TensorOp::Mul => srcs[0].clone() * srcs[1].clone(),
-            TensorOp::Neg => -srcs[0].clone(),
-            TensorOp::Recip => srcs[0].clone().recip(),
-            TensorOp::Sin => srcs[0].clone().sin(),
-            TensorOp::Exp2 => srcs[0].clone().exp2(),
-            TensorOp::Log2 => srcs[0].clone().log2(),
-            TensorOp::Sqrt => srcs[0].clone().sqrt(),
+            TensorOp::Add => srcs[0] + srcs[1],
+            TensorOp::Sub => srcs[0] - srcs[1],
+            TensorOp::Mul => srcs[0] * srcs[1],
+            TensorOp::Neg => -srcs[0],
+            TensorOp::Recip => srcs[0].recip(),
+            TensorOp::Sin => srcs[0].sin(),
+            TensorOp::Exp2 => srcs[0].exp2(),
+            TensorOp::Log2 => srcs[0].log2(),
+            TensorOp::Sqrt => srcs[0].sqrt(),
             TensorOp::Permute(axes) => srcs[0].clone().permute(axes),
-            TensorOp::Reshape(shape) => srcs[0].clone().reshape(shape.iter().map(|&d| d.into()).collect()),
-            TensorOp::Expand(shape) => srcs[0].clone().expand(shape.iter().map(|&d| d.into()).collect()),
+            TensorOp::Reshape(shape) => srcs[0]
+                .clone()
+                .reshape(shape.iter().map(|&d| d.into()).collect()),
+            TensorOp::Expand(shape) => srcs[0]
+                .clone()
+                .expand(shape.iter().map(|&d| d.into()).collect()),
             TensorOp::Squeeze(dim) => srcs[0].clone().squeeze(dim),
             TensorOp::Unsqueeze(dim) => srcs[0].clone().unsqueeze(dim),
             TensorOp::Slice(args) => srcs[0].clone().slice(

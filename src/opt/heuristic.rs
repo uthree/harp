@@ -1,6 +1,4 @@
 use crate::ast::{AstNode, AstOp};
-use crate::backend::Renderer;
-use crate::backend::c::renderer::CRenderer;
 use crate::opt::ast::{
     CostEstimator, DeterministicAstOptimizer, OptimizationSuggester, RewriteRule,
 };
@@ -368,8 +366,6 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
             let cost = self.cost_estimator.estimate_cost(best_node);
             let beam_len = beam.len();
             pb.set_message(format!("Cost: {cost:.2}, Beam: {beam_len}"));
-            let mut renderer = CRenderer::new();
-            let code = renderer.render(best_node.clone());
             pb.inc(1);
         }
         pb.finish_and_clear();
