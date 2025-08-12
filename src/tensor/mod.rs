@@ -10,6 +10,7 @@ mod ops_binary;
 mod ops_math;
 mod ops_shape;
 mod ops_unary;
+pub mod op_conversion;
 
 use crate::ast::{Const, DType};
 use crate::backend::Backend;
@@ -19,11 +20,13 @@ use once_cell::sync::Lazy;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
+static TENSOR_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 static C_BACKEND: Lazy<CBackend> = Lazy::new(CBackend::new);
 
 /// A buffer holding the tensor's actual data on a computation device.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TensorBuffer {
     /// A buffer managed by the C backend.
     C(CBuffer),
@@ -58,17 +61,41 @@ pub enum TensorOp {
     Slice(Vec<(usize, usize)>),
 }
 
+impl TensorData {
+    pub fn new(
+        op: TensorOp,
+        src: Vec<Tensor>,
+        shape: Shape,
+        dtype: DType,
+        requires_grad: bool,
+        backend: TensorBackend,
+    ) -> Self {
+        Self {
+            id: 0, // Will be set by From<TensorData>
+            op,
+            src,
+            shape,
+            dtype,
+            buffer: None,
+            grad: None,
+            requires_grad,
+            backend,
+        }
+    }
+}
+
 /// Contains the internal data and metadata for a `Tensor`.
 #[derive(Debug)]
 pub struct TensorData {
-    op: TensorOp,
-    src: Vec<Tensor>,
-    shape: Shape,
-    dtype: DType,
-    buffer: Option<TensorBuffer>,
-    grad: Option<Tensor>,
-    requires_grad: bool,
-    backend: TensorBackend,
+    pub id: usize,
+    pub op: TensorOp,
+    pub src: Vec<Tensor>,
+    pub shape: Shape,
+    pub dtype: DType,
+    pub buffer: Option<TensorBuffer>,
+    pub grad: Option<Tensor>,
+    pub requires_grad: bool,
+    pub backend: TensorBackend,
 }
 
 /// A type alias for the shape of a tensor, represented as a vector of dimensions.
@@ -79,80 +106,52 @@ pub type Shape = Vec<usize>;
 pub struct Tensor(pub Rc<RefCell<TensorData>>);
 
 impl Tensor {
+    pub fn id(&self) -> usize {
+        self.0.borrow().id
+    }
+
     pub fn forward(&self) {
+        // If buffer is already computed, do nothing.
         if self.0.borrow().buffer.is_some() {
             return;
         }
 
-        for s in &self.0.borrow().src {
-            s.forward();
+        // Build the computation graph from the final tensor.
+        let (graph, tensor_to_node) = Graph::from_tensor(self);
+
+        // This logic is simplified. A robust implementation would handle user-provided inputs.
+        let input_buffers = vec![];
+
+        // Execute the entire graph.
+        let result_buffers = C_BACKEND.execute(&graph, input_buffers, vec![]);
+
+        // Assign the resulting buffers back to all tensors in the graph.
+        let all_tensors = self.all_tensors();
+        for tensor in all_tensors {
+            if let Some(node_id) = tensor_to_node.get(&tensor.id()) {
+                if let Some(buffer) = result_buffers.get(node_id) {
+                    tensor.0.borrow_mut().buffer = Some(TensorBuffer::C(buffer.clone()));
+                }
+            }
         }
+    }
 
-        let graph = Graph::new();
-        let data = self.0.borrow();
+    // Helper function to collect all unique tensors in the computation graph.
+    fn all_tensors(&self) -> Vec<Tensor> {
+        let mut visited = HashSet::new();
+        let mut all = vec![];
+        let mut queue = vec![self.clone()];
+        visited.insert(self.id());
 
-        let srcs: Vec<_> = data
-            .src
-            .iter()
-            .map(|s| {
-                let s_data = s.0.borrow();
-                graph.input(
-                    s_data.dtype.clone(),
-                    s_data.shape.iter().map(|d| (*d).into()).collect(),
-                )
-            })
-            .collect();
-
-        let op = match data.op.clone() {
-            TensorOp::Rand => graph.rand(
-                data.dtype.clone(),
-                data.shape.iter().map(|d| (*d).into()).collect(),
-            ),
-            TensorOp::Full(val) => {
-                graph.full(val, data.shape.iter().map(|d| (*d).into()).collect())
+        while let Some(tensor) = queue.pop() {
+            all.push(tensor.clone());
+            for src in &tensor.0.borrow().src {
+                if visited.insert(src.id()) {
+                    queue.push(src.clone());
+                }
             }
-            TensorOp::Add => srcs[0] + srcs[1],
-            TensorOp::Sub => srcs[0] - srcs[1],
-            TensorOp::Mul => srcs[0] * srcs[1],
-            TensorOp::Neg => -srcs[0],
-            TensorOp::Recip => srcs[0].recip(),
-            TensorOp::Sin => srcs[0].sin(),
-            TensorOp::Exp2 => srcs[0].exp2(),
-            TensorOp::Log2 => srcs[0].log2(),
-            TensorOp::Sqrt => srcs[0].sqrt(),
-            TensorOp::Permute(axes) => srcs[0].clone().permute(axes),
-            TensorOp::Reshape(shape) => srcs[0]
-                .clone()
-                .reshape(shape.iter().map(|&d| d.into()).collect()),
-            TensorOp::Expand(shape) => srcs[0]
-                .clone()
-                .expand(shape.iter().map(|&d| d.into()).collect()),
-            TensorOp::Squeeze(dim) => srcs[0].clone().squeeze(dim),
-            TensorOp::Unsqueeze(dim) => srcs[0].clone().unsqueeze(dim),
-            TensorOp::Slice(args) => srcs[0].clone().slice(
-                args.iter()
-                    .map(|(s, e)| ((*s).into(), (*e).into()))
-                    .collect(),
-            ),
-        };
-
-        op.as_output();
-
-        let result_buffer = match data.backend.clone() {
-            TensorBackend::C => {
-                let backend = &C_BACKEND;
-                TensorBuffer::C(
-                    backend
-                        .execute(&graph, vec![], vec![])
-                        .into_iter()
-                        .last()
-                        .unwrap(),
-                )
-            }
-        };
-
-        drop(data);
-        self.0.borrow_mut().buffer = Some(result_buffer);
+        }
+        all
     }
 
     pub fn backward(&self) {
@@ -230,7 +229,11 @@ impl Tensor {
 }
 
 impl From<TensorData> for Tensor {
-    fn from(value: TensorData) -> Self {
+    fn from(mut value: TensorData) -> Self {
+        // Assign a unique ID to every tensor created.
+        if value.id == 0 {
+            value.id = TENSOR_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
+        }
         Tensor(Rc::new(RefCell::new(value)))
     }
 }

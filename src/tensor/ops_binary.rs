@@ -25,16 +25,14 @@ macro_rules! impl_binary_op {
                 let requires_grad = self.0.borrow().requires_grad || rhs.0.borrow().requires_grad;
                 let shape = self.0.borrow().shape.clone();
                 let dtype = self.0.borrow().dtype.clone();
-                TensorData {
-                    op: $op,
-                    src: vec![self.clone(), rhs.clone()],
+                TensorData::new(
+                    $op,
+                    vec![self.clone(), rhs.clone()],
                     shape,
                     dtype,
-                    buffer: None,
-                    grad: None,
                     requires_grad,
-                    backend: self.0.borrow().backend.clone(),
-                }
+                    self.0.borrow().backend.clone(),
+                )
                 .into()
             }
         }

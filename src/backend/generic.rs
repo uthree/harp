@@ -61,7 +61,7 @@ pub struct GenericBackendConfig {
 impl Default for GenericBackendConfig {
     fn default() -> Self {
         Self {
-            heuristic_optimization_threshold: 2, // Default threshold
+            heuristic_optimization_threshold: 10, // Default threshold
         }
     }
 }
@@ -195,7 +195,12 @@ where
         self.compiler.lock().unwrap().is_available()
     }
 
-    fn execute(&self, graph: &Graph, inputs: Vec<B>, shape_variables: Vec<usize>) -> Vec<B> {
+    fn execute(
+        &self,
+        graph: &Graph,
+        inputs: Vec<B>,
+        shape_variables: Vec<usize>,
+    ) -> HashMap<crate::graph::NodeId, B> {
         // Always apply deterministic graph optimizations first.
         let optimized_graph = self.graph_optimizer.optimize(graph);
         let graph_to_use = if *optimized_graph.nodes.borrow() == *graph.nodes.borrow() {
@@ -218,29 +223,31 @@ where
         *count += 1;
         let trigger_heuristic = *count == self.config.heuristic_optimization_threshold;
 
-        let kernel = {
+        let (kernel, details) = {
             let mut cache = self.cache.lock().unwrap();
             if let Some(kernel) = cache.get(&graph_key) {
                 if !trigger_heuristic {
                     log::debug!("Backend cache hit");
-                    kernel.clone()
+                    // Need to get details from the kernel
+                    let details = kernel.lock().unwrap().details().clone();
+                    (kernel.clone(), details)
                 } else {
                     // Time to apply heuristic optimization and re-cache.
                     log::debug!("Applying heuristic optimization and recompiling...");
-                    let (new_kernel, _) = self.compile_kernel(graph_to_use, true);
+                    let (new_kernel, details) = self.compile_kernel(graph_to_use, true);
                     let arc_kernel = Arc::new(Mutex::new(new_kernel));
                     *self.compile_count.lock().unwrap() += 1;
                     // Overwrite the existing entry with the heuristically optimized kernel.
                     cache.insert(graph_key.clone(), arc_kernel.clone());
-                    arc_kernel
+                    (arc_kernel, details)
                 }
             } else {
                 log::debug!("Backend cache miss, compiling with deterministic opts...");
-                let (new_kernel, _) = self.compile_kernel(graph_to_use, false);
+                let (new_kernel, details) = self.compile_kernel(graph_to_use, false);
                 let arc_kernel = Arc::new(Mutex::new(new_kernel));
                 *self.compile_count.lock().unwrap() += 1;
                 cache.insert(graph_key.clone(), arc_kernel.clone());
-                arc_kernel
+                (arc_kernel, details)
             }
         };
 
@@ -266,7 +273,15 @@ where
         }
 
         let result_buffers = kernel_locked.call(all_buffers, &shape_variables);
-        result_buffers.into_iter().skip(num_inputs).collect()
+
+        // Create the final map from NodeId to Buffer
+        let mut output_map = HashMap::new();
+        for (node_id, buffer_index) in &details.buffer_map {
+            if *buffer_index < result_buffers.len() {
+                output_map.insert(*node_id, result_buffers[*buffer_index].clone());
+            }
+        }
+        output_map
     }
 }
 
@@ -296,7 +311,8 @@ mod tests {
 
         // The first call should compile the deterministically optimized kernel.
         assert_eq!(*backend.compile_count.lock().unwrap(), 0);
-        let _ = backend.execute(&graph, vec![], vec![]);
+        let result1 = backend.execute(&graph, vec![], vec![]);
+        assert!(!result1.is_empty());
         assert_eq!(
             *backend.compile_count.lock().unwrap(),
             1,
@@ -304,7 +320,8 @@ mod tests {
         );
 
         // Subsequent calls before the threshold should use the cache.
-        let _ = backend.execute(&graph, vec![], vec![]);
+        let result2 = backend.execute(&graph, vec![], vec![]);
+        assert!(!result2.is_empty());
         assert_eq!(
             *backend.compile_count.lock().unwrap(),
             1,
@@ -312,7 +329,8 @@ mod tests {
         );
 
         // The call at the threshold should trigger heuristic optimization and re-compilation.
-        let _ = backend.execute(&graph, vec![], vec![]);
+        let result3 = backend.execute(&graph, vec![], vec![]);
+        assert!(!result3.is_empty());
         assert_eq!(
             *backend.compile_count.lock().unwrap(),
             2,
@@ -320,13 +338,15 @@ mod tests {
         );
 
         // Calls after optimization should use the new heuristically optimized kernel from cache.
-        let _ = backend.execute(&graph, vec![], vec![]);
+        let result4 = backend.execute(&graph, vec![], vec![]);
+        assert!(!result4.is_empty());
         assert_eq!(
             *backend.compile_count.lock().unwrap(),
             2,
             "Fourth call should hit heuristic cache"
         );
-        let _ = backend.execute(&graph, vec![], vec![]);
+        let result5 = backend.execute(&graph, vec![], vec![]);
+        assert!(!result5.is_empty());
         assert_eq!(
             *backend.compile_count.lock().unwrap(),
             2,

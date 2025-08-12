@@ -83,6 +83,50 @@ impl Graph {
     pub fn get_view(&self, id: NodeId) -> NodeView<'_> {
         NodeView { id, graph: self }
     }
+
+    /// Builds a `Graph` from a final `Tensor`.
+    pub fn from_tensor(tensor: &crate::tensor::Tensor) -> (Self, std::collections::HashMap<usize, NodeId>) {
+        let graph = Self::new();
+        let mut tensor_to_node = std::collections::HashMap::new();
+
+        fn build_recursive(
+            tensor: &crate::tensor::Tensor,
+            graph: &Graph,
+            tensor_to_node: &mut std::collections::HashMap<usize, NodeId>,
+        ) -> NodeId {
+            if let Some(&node_id) = tensor_to_node.get(&tensor.id()) {
+                return node_id;
+            }
+
+            let t_data = tensor.0.borrow();
+            let mut src_nodes = Vec::new();
+            for src_tensor in &t_data.src {
+                src_nodes.push(build_recursive(src_tensor, graph, tensor_to_node));
+            }
+
+            let shape_exprs: Vec<Expr> = t_data
+                .shape
+                .iter()
+                .map(|&dim| Expr::from(dim))
+                .collect();
+
+            let op = crate::tensor::op_conversion::op_to_graph_op(
+                t_data.op.clone(),
+                graph,
+                src_nodes,
+                shape_exprs,
+                t_data.dtype.clone(),
+            );
+
+            tensor_to_node.insert(tensor.id(), op.id);
+            op.id
+        }
+
+        let final_node_id = build_recursive(tensor, &graph, &mut tensor_to_node);
+        graph.get_view(final_node_id).as_output();
+
+        (graph, tensor_to_node)
+    }
 }
 
 impl PartialEq for Graph {

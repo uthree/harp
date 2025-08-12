@@ -12,7 +12,14 @@ use rstest::rstest;
 
 fn run_c_backend(graph: &Graph, inputs: Vec<CBuffer>) -> Vec<CBuffer> {
     let backend = CBackend::new();
-    backend.execute(&graph, inputs, vec![])
+    let result_map = backend.execute(&graph, inputs, vec![]);
+    // The order of outputs is important for tests, so we extract them in order.
+    graph
+        .outputs
+        .borrow()
+        .iter()
+        .map(|node_id| result_map.get(node_id).unwrap().clone())
+        .collect()
 }
 
 fn setup_logger() {

@@ -10,16 +10,14 @@ impl Tensor {
         let data = self.0.borrow();
         let new_shape: Shape = axes.iter().map(|&i| data.shape[i]).collect();
 
-        TensorData {
-            op: TensorOp::Permute(axes),
-            src: vec![self.clone()],
-            shape: new_shape,
-            dtype: data.dtype.clone(),
-            buffer: None,
-            grad: None,
-            requires_grad: data.requires_grad,
-            backend: data.backend.clone(),
-        }
+        TensorData::new(
+            TensorOp::Permute(axes),
+            vec![self.clone()],
+            new_shape,
+            data.dtype.clone(),
+            data.requires_grad,
+            data.backend.clone(),
+        )
         .into()
     }
 
@@ -34,16 +32,14 @@ impl Tensor {
             "Reshape must not change the total number of elements."
         );
 
-        TensorData {
-            op: TensorOp::Reshape(shape.clone()),
-            src: vec![self.clone()],
+        TensorData::new(
+            TensorOp::Reshape(shape.clone()),
+            vec![self.clone()],
             shape,
-            dtype: data.dtype.clone(),
-            buffer: None,
-            grad: None,
-            requires_grad: data.requires_grad,
-            backend: data.backend.clone(),
-        }
+            data.dtype.clone(),
+            data.requires_grad,
+            data.backend.clone(),
+        )
         .into()
     }
 
@@ -59,16 +55,14 @@ impl Tensor {
             "Expand must have the same number of dimensions."
         );
 
-        TensorData {
-            op: TensorOp::Expand(shape.clone()),
-            src: vec![self.clone()],
+        TensorData::new(
+            TensorOp::Expand(shape.clone()),
+            vec![self.clone()],
             shape,
-            dtype: data.dtype.clone(),
-            buffer: None,
-            grad: None,
-            requires_grad: data.requires_grad,
-            backend: data.backend.clone(),
-        }
+            data.dtype.clone(),
+            data.requires_grad,
+            data.backend.clone(),
+        )
         .into()
     }
 
@@ -82,16 +76,14 @@ impl Tensor {
             // For consistency with frameworks like PyTorch, squeezing a non-1 dimension is a no-op.
         }
 
-        TensorData {
-            op: TensorOp::Squeeze(dim),
-            src: vec![self.clone()],
-            shape: new_shape,
-            dtype: data.dtype.clone(),
-            buffer: None,
-            grad: None,
-            requires_grad: data.requires_grad,
-            backend: data.backend.clone(),
-        }
+        TensorData::new(
+            TensorOp::Squeeze(dim),
+            vec![self.clone()],
+            new_shape,
+            data.dtype.clone(),
+            data.requires_grad,
+            data.backend.clone(),
+        )
         .into()
     }
 
@@ -101,16 +93,14 @@ impl Tensor {
         let mut new_shape = data.shape.clone();
         new_shape.insert(dim, 1);
 
-        TensorData {
-            op: TensorOp::Unsqueeze(dim),
-            src: vec![self.clone()],
-            shape: new_shape,
-            dtype: data.dtype.clone(),
-            buffer: None,
-            grad: None,
-            requires_grad: data.requires_grad,
-            backend: data.backend.clone(),
-        }
+        TensorData::new(
+            TensorOp::Unsqueeze(dim),
+            vec![self.clone()],
+            new_shape,
+            data.dtype.clone(),
+            data.requires_grad,
+            data.backend.clone(),
+        )
         .into()
     }
 
@@ -119,16 +109,14 @@ impl Tensor {
         let data = self.0.borrow();
         let new_shape: Shape = args.iter().map(|(start, end)| end - start).collect();
 
-        TensorData {
-            op: TensorOp::Slice(args),
-            src: vec![self.clone()],
-            shape: new_shape,
-            dtype: data.dtype.clone(),
-            buffer: None,
-            grad: None,
-            requires_grad: data.requires_grad,
-            backend: data.backend.clone(),
-        }
+        TensorData::new(
+            TensorOp::Slice(args),
+            vec![self.clone()],
+            new_shape,
+            data.dtype.clone(),
+            data.requires_grad,
+            data.backend.clone(),
+        )
         .into()
     }
 }

@@ -188,7 +188,7 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
         let pb = ProgressBar::new(self.max_steps as u64);
         pb.set_style(
             ProgressStyle::with_template(
-                "{prefix:>12.cyan.bold} [{bar:57}] {pos}/{len} {wide_msg}",
+                "{prefix:>12.cyan.bold} [{bar:24}] {pos}/{len} {wide_msg}",
             )
             .unwrap()
             .progress_chars("=> "),
@@ -230,15 +230,6 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
             let old_beam_set: FxHashSet<_> = beam.iter().cloned().collect();
             if new_beam.is_empty() || new_beam_set == old_beam_set {
                 debug!("Beam search reached fixed point after {} steps.", step);
-                pb.finish_and_clear();
-
-                // compilation is finished
-                let green_bold = Style::new().green().bold();
-                pb.println(format!(
-                    "{:>12} optimize AST with beam search algorithm in {}",
-                    green_bold.apply_to("Finished"),
-                    HumanDuration(start.elapsed())
-                ));
                 break;
             }
 

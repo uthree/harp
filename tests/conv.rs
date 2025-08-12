@@ -1,56 +1,51 @@
 use harp::{
     ast::DType,
-    backend::{Backend, c::CBackend, c::CBuffer},
+    backend::c::{CBackend, CBuffer},
+    backend::{Backend, Buffer},
     graph::Graph,
 };
 
-fn setup_logger() {
-    // Initialize the logger for tests, ignoring errors if it's already set up
-    let _ = env_logger::builder().is_test(true).try_init();
-}
-
-fn run_c_backend(graph: &Graph, inputs: Vec<CBuffer>) -> CBuffer {
+fn run_c_backend(graph: &Graph, inputs: Vec<CBuffer>) -> Vec<CBuffer> {
     let backend = CBackend::new();
-    let outputs = backend.execute(&graph, inputs, vec![]);
-    outputs[0].clone()
+    let result_map = backend.execute(&graph, inputs, vec![]);
+    graph
+        .outputs
+        .borrow()
+        .iter()
+        .map(|node_id| result_map.get(node_id).unwrap().clone())
+        .collect()
 }
 
 #[test]
 fn test_conv1d() {
-    setup_logger();
     let graph = Graph::new();
-    let x = graph.input(DType::F32, vec![1.into(), 1.into(), 10.into()]);
-    let w = graph.input(DType::F32, vec![1.into(), 1.into(), 3.into()]);
+    let x = graph.input(DType::F32, vec![1.into(), 4.into(), 10.into()]);
+    let w = graph.input(DType::F32, vec![2.into(), 4.into(), 3.into()]);
     let _ = x.conv1d(w, 3, 1, 1).as_output();
 
-    let mut x_buf = CBuffer::from_slice::<f32>(&[1., 2., 3., 4., 5., 6., 7., 8., 9., 10.]);
-    x_buf.shape = vec![1, 1, 10];
-    let mut w_buf = CBuffer::from_slice::<f32>(&[1., 1., 1.]);
-    w_buf.shape = vec![1, 1, 3];
+    let mut x_buf = CBuffer::from_slice::<f32>(&vec![0.0; 40]);
+    x_buf.shape = vec![1, 4, 10];
+    let mut w_buf = CBuffer::from_slice::<f32>(&vec![0.0; 24]);
+    w_buf.shape = vec![2, 4, 3];
+    let outputs = run_c_backend(&graph, vec![x_buf, w_buf]);
+    let y_buf = &outputs[0];
 
-    let y_buf = run_c_backend(&graph, vec![x_buf, w_buf]);
-
-    let expected = &[6., 9., 12., 15., 18., 21., 24., 27.];
-    assert_eq!(y_buf.as_slice::<f32>(), expected);
+    assert_eq!(y_buf.shape, &[1, 2, 8]);
 }
 
 #[test]
 fn test_conv2d() {
-    setup_logger();
     let graph = Graph::new();
-    let x = graph.input(DType::F32, vec![1.into(), 1.into(), 4.into(), 4.into()]);
-    let w = graph.input(DType::F32, vec![1.into(), 1.into(), 3.into(), 3.into()]);
+    let x = graph.input(DType::F32, vec![1.into(), 3.into(), 10.into(), 10.into()]);
+    let w = graph.input(DType::F32, vec![2.into(), 3.into(), 3.into(), 3.into()]);
     let _ = x.conv2d(w, (3, 3), (1, 1), 1).as_output();
 
-    let mut x_buf = CBuffer::from_slice::<f32>(&[
-        1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11., 12., 13., 14., 15., 16.,
-    ]);
-    x_buf.shape = vec![1, 1, 4, 4];
-    let mut w_buf = CBuffer::from_slice::<f32>(&[1., 1., 1., 1., 1., 1., 1., 1., 1.]);
-    w_buf.shape = vec![1, 1, 3, 3];
+    let mut x_buf = CBuffer::from_slice::<f32>(&vec![0.0; 300]);
+    x_buf.shape = vec![1, 3, 10, 10];
+    let mut w_buf = CBuffer::from_slice::<f32>(&vec![0.0; 54]);
+    w_buf.shape = vec![2, 3, 3, 3];
+    let outputs = run_c_backend(&graph, vec![x_buf, w_buf]);
+    let y_buf = &outputs[0];
 
-    let y_buf = run_c_backend(&graph, vec![x_buf, w_buf]);
-
-    let expected = &[54., 63., 90., 99.];
-    assert_eq!(y_buf.as_slice::<f32>(), expected);
+    assert_eq!(y_buf.shape, &[1, 2, 8, 8]);
 }

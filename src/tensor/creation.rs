@@ -3,30 +3,26 @@ use crate::ast::Const;
 
 impl Tensor {
     pub fn rand(shape: Shape, dtype: DType, requires_grad: bool) -> Self {
-        TensorData {
-            op: TensorOp::Rand,
-            src: vec![],
+        TensorData::new(
+            TensorOp::Rand,
+            vec![],
             shape,
             dtype,
-            buffer: None,
-            grad: None,
             requires_grad,
-            backend: backend("c"),
-        }
+            backend("c"),
+        )
         .into()
     }
 
     pub fn full(shape: Shape, dtype: DType, value: Const, requires_grad: bool) -> Self {
-        TensorData {
-            op: TensorOp::Full(value),
-            src: vec![],
+        TensorData::new(
+            TensorOp::Full(value),
+            vec![],
             shape,
             dtype,
-            buffer: None,
-            grad: None,
             requires_grad,
-            backend: backend("c"),
-        }
+            backend("c"),
+        )
         .into()
     }
 

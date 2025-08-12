@@ -13,10 +13,12 @@ pub mod generic;
 // --- Imports ---
 use crate::{
     ast::{AstNode, DType},
-    graph::{Graph, shape::expr::Expr},
+    graph::{Graph, NodeId, shape::expr::Expr},
 };
 use ndarray::ArrayD;
+use rustc_hash::FxHashMap;
 use std::any::{Any, TypeId};
+use std::collections::HashMap;
 
 // --- Core Data Structures ---
 
@@ -34,6 +36,8 @@ pub struct KernelDetails {
     pub buffers: Vec<BufferInfo>,
     /// The names of variables used to define dynamic shapes.
     pub shape_variables: Vec<String>,
+    /// A map from the graph's NodeId to the index in the `buffers` Vec.
+    pub buffer_map: FxHashMap<NodeId, usize>,
 }
 
 // --- Core Traits ---
@@ -41,7 +45,7 @@ pub struct KernelDetails {
 /// A trait for a generic buffer that can be passed to a kernel.
 /// This trait is object-safe.
 /// should be free when dropped.
-pub trait Buffer: 'static + Sized {
+pub trait Buffer: 'static + Sized + Clone {
     /// Provides a way to downcast the buffer to a concrete type.
     fn as_any(&self) -> &dyn Any;
 
@@ -126,5 +130,10 @@ pub trait Backend<B: Buffer> {
     where
         Self: Sized;
     fn is_available(&self) -> bool;
-    fn execute(&self, graph: &Graph, inputs: Vec<B>, shape_variables: Vec<usize>) -> Vec<B>;
+    fn execute(
+        &self,
+        graph: &Graph,
+        inputs: Vec<B>,
+        shape_variables: Vec<usize>,
+    ) -> HashMap<NodeId, B>;
 }

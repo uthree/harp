@@ -107,6 +107,7 @@ impl<'a> LoweringOrchestrator for Lowerer<'a> {
             }
         }
         details.shape_variables = shape_vars.into_iter().collect();
+        details.buffer_map = self.buffer_map.clone();
 
         // 2. Lower all output nodes to generate the computation logic.
         let mut computation_body = vec![];

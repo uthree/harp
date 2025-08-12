@@ -9,16 +9,14 @@ macro_rules! impl_unary_op {
                 let requires_grad = self.0.borrow().requires_grad;
                 let shape = self.0.borrow().shape.clone();
                 let dtype = self.0.borrow().dtype.clone();
-                TensorData {
-                    op: $op,
-                    src: vec![self.clone()],
+                TensorData::new(
+                    $op,
+                    vec![self.clone()],
                     shape,
                     dtype,
-                    buffer: None,
-                    grad: None,
                     requires_grad,
-                    backend: self.0.borrow().backend.clone(),
-                }
+                    self.0.borrow().backend.clone(),
+                )
                 .into()
             }
         }
@@ -32,16 +30,14 @@ impl Tensor {
         let shape = self.0.borrow().shape.clone();
         let dtype = self.0.borrow().dtype.clone();
         let requires_grad = self.0.borrow().requires_grad;
-        TensorData {
-            op: TensorOp::Recip,
-            src: vec![self.clone()],
+        TensorData::new(
+            TensorOp::Recip,
+            vec![self.clone()],
             shape,
             dtype,
-            buffer: None,
-            grad: None,
             requires_grad,
-            backend: self.0.borrow().backend.clone(),
-        }
+            self.0.borrow().backend.clone(),
+        )
         .into()
     }
 }

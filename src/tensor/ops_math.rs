@@ -5,16 +5,14 @@ impl Tensor {
         let requires_grad = self.0.borrow().requires_grad;
         let shape = self.0.borrow().shape.clone();
         let dtype = self.0.borrow().dtype.clone();
-        TensorData {
-            op: TensorOp::Sin,
-            src: vec![self.clone()],
+        TensorData::new(
+            TensorOp::Sin,
+            vec![self.clone()],
             shape,
             dtype,
-            buffer: None,
-            grad: None,
             requires_grad,
-            backend: self.0.borrow().backend.clone(),
-        }
+            self.0.borrow().backend.clone(),
+        )
         .into()
     }
 
@@ -32,16 +30,14 @@ impl Tensor {
         let requires_grad = self.0.borrow().requires_grad;
         let shape = self.0.borrow().shape.clone();
         let dtype = self.0.borrow().dtype.clone();
-        TensorData {
-            op: TensorOp::Exp2,
-            src: vec![self.clone()],
+        TensorData::new(
+            TensorOp::Exp2,
+            vec![self.clone()],
             shape,
             dtype,
-            buffer: None,
-            grad: None,
             requires_grad,
-            backend: self.0.borrow().backend.clone(),
-        }
+            self.0.borrow().backend.clone(),
+        )
         .into()
     }
 
@@ -49,16 +45,14 @@ impl Tensor {
         let requires_grad = self.0.borrow().requires_grad;
         let shape = self.0.borrow().shape.clone();
         let dtype = self.0.borrow().dtype.clone();
-        TensorData {
-            op: TensorOp::Log2,
-            src: vec![self.clone()],
+        TensorData::new(
+            TensorOp::Log2,
+            vec![self.clone()],
             shape,
             dtype,
-            buffer: None,
-            grad: None,
             requires_grad,
-            backend: self.0.borrow().backend.clone(),
-        }
+            self.0.borrow().backend.clone(),
+        )
         .into()
     }
 
@@ -66,16 +60,14 @@ impl Tensor {
         let requires_grad = self.0.borrow().requires_grad;
         let shape = self.0.borrow().shape.clone();
         let dtype = self.0.borrow().dtype.clone();
-        TensorData {
-            op: TensorOp::Sqrt,
-            src: vec![self.clone()],
+        TensorData::new(
+            TensorOp::Sqrt,
+            vec![self.clone()],
             shape,
             dtype,
-            buffer: None,
-            grad: None,
             requires_grad,
-            backend: self.0.borrow().backend.clone(),
-        }
+            self.0.borrow().backend.clone(),
+        )
         .into()
     }
 }
