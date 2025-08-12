@@ -311,3 +311,39 @@ mod tests {
         assert_eq!(result_int, a_int);
     }
 }
+
+/// A collection of algebraic simplification rules.
+#[derive(Clone)]
+pub struct AlgebraicSimplification {
+    rewriter: AstRewriter,
+}
+
+impl Default for AlgebraicSimplification {
+    fn default() -> Self {
+        let rules = vec![
+            rule!("mul_by_one", |a| a.clone() * AstNode::from(1.0f32) => a),
+            rule!("mul_by_zero", |a| a * AstNode::from(0.0f32) => AstNode::from(0.0f32)),
+            rule!("add_zero", |a| a.clone() + AstNode::from(0.0f32) => a),
+        ];
+        Self {
+            rewriter: AstRewriter::new(rules),
+        }
+    }
+}
+
+impl AlgebraicSimplification {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl OptimizationSuggester for AlgebraicSimplification {
+    fn suggest_optimizations(&self, node: &AstNode) -> Vec<AstNode> {
+        let optimized_node = self.rewriter.optimize(node.clone());
+        if &optimized_node != node {
+            vec![optimized_node]
+        } else {
+            vec![]
+        }
+    }
+}

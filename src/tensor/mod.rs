@@ -20,7 +20,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-static C_BACKEND: Lazy<CBackend> = Lazy::new(CBackend::new);
+static C_BACKEND: Lazy<CBackend> = Lazy::new(|| CBackend::new());
 
 /// A buffer holding the tensor's actual data on a computation device.
 pub enum TensorBuffer {
