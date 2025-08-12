@@ -1,7 +1,7 @@
 use harp::{
     ast::DType,
     backend::c::{CBackend, CBuffer},
-    backend::{Backend, Buffer},
+    backend::Backend,
     graph::Graph,
 };
 
@@ -23,10 +23,10 @@ fn test_conv1d() {
     let w = graph.input(DType::F32, vec![2.into(), 4.into(), 3.into()]);
     let _ = x.conv1d(w, 3, 1, 1).as_output();
 
-    let mut x_buf = CBuffer::from_slice::<f32>(&vec![0.0; 40]);
-    x_buf.shape = vec![1, 4, 10];
-    let mut w_buf = CBuffer::from_slice::<f32>(&vec![0.0; 24]);
-    w_buf.shape = vec![2, 4, 3];
+    let x_shape = vec![1, 4, 10];
+    let w_shape = vec![2, 4, 3];
+    let x_buf = CBuffer::allocate(DType::F32, x_shape);
+    let w_buf = CBuffer::allocate(DType::F32, w_shape);
     let outputs = run_c_backend(&graph, vec![x_buf, w_buf]);
     let y_buf = &outputs[0];
 
@@ -40,10 +40,10 @@ fn test_conv2d() {
     let w = graph.input(DType::F32, vec![2.into(), 3.into(), 3.into(), 3.into()]);
     let _ = x.conv2d(w, (3, 3), (1, 1), 1).as_output();
 
-    let mut x_buf = CBuffer::from_slice::<f32>(&vec![0.0; 300]);
-    x_buf.shape = vec![1, 3, 10, 10];
-    let mut w_buf = CBuffer::from_slice::<f32>(&vec![0.0; 54]);
-    w_buf.shape = vec![2, 3, 3, 3];
+    let x_shape = vec![1, 3, 10, 10];
+    let w_shape = vec![2, 3, 3, 3];
+    let x_buf = CBuffer::allocate(DType::F32, x_shape);
+    let w_buf = CBuffer::allocate(DType::F32, w_shape);
     let outputs = run_c_backend(&graph, vec![x_buf, w_buf]);
     let y_buf = &outputs[0];
 
