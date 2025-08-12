@@ -29,7 +29,7 @@ pub struct GenericBackendConfig {
 impl Default for GenericBackendConfig {
     fn default() -> Self {
         Self {
-            heuristic_optimization_threshold: 10, // Default threshold
+            heuristic_optimization_threshold: 2, // Default threshold
         }
     }
 }
@@ -82,8 +82,8 @@ where
             log::debug!("Applying heuristic AST optimization...");
             let suggester = AlgebraicSimplification::new();
             let cost_estimator = heuristic::ExecutionTimeCostEstimator::new();
-            let optimizer =
-                heuristic::BeamSearchAstOptimizer::new(suggester, cost_estimator).with_max_steps(3);
+            let optimizer = heuristic::BeamSearchAstOptimizer::new(suggester, cost_estimator, 2)
+                .with_max_steps(3);
             ast = optimizer.optimize(ast, &details);
         }
 

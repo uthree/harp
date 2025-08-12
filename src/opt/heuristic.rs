@@ -107,118 +107,6 @@ impl CostEstimator for HandcodedCostEstimator {
     }
 }
 
-/// An optimizer that uses a greedy search to find a low-cost AST.
-pub struct GreedyAstOptimizer<S: OptimizationSuggester, C: CostEstimator> {
-    suggester: S,
-    cost_estimator: C,
-    pub max_iterations: usize,
-}
-
-impl<S: OptimizationSuggester, C: CostEstimator> GreedyAstOptimizer<S, C> {
-    pub fn new(suggester: S, cost_estimator: C) -> Self {
-        Self {
-            suggester,
-            cost_estimator,
-            max_iterations: 1000, // Default max iterations
-        }
-    }
-
-    pub fn with_max_iterations(mut self, max_iterations: usize) -> Self {
-        self.max_iterations = max_iterations;
-        self
-    }
-
-    fn apply_one_pass(&self, node: AstNode, details: &KernelDetails) -> AstNode {
-        // First, optimize children (post-order traversal)
-        let new_src: Vec<AstNode> = node
-            .src
-            .iter()
-            .map(|child| self.apply_one_pass(child.clone(), details))
-            .collect();
-        let mut best_node = AstNode::new(node.op.clone(), new_src, node.dtype.clone());
-
-        // Generate suggestions for the current node
-        let suggestions = self.suggester.suggest_optimizations(&best_node);
-
-        if suggestions.is_empty() {
-            return best_node;
-        }
-
-        let mut min_cost = self.cost_estimator.estimate_cost(&best_node, details);
-        debug!("Initial cost for node {:?}: {}", best_node.op, min_cost);
-
-        // Evaluate suggestions and find the one with the minimum cost
-        for suggestion in suggestions {
-            let cost = self.cost_estimator.estimate_cost(&suggestion, details);
-            debug!("Cost for suggested node {:?}: {}", suggestion.op, cost);
-            if cost < min_cost {
-                min_cost = cost;
-                best_node = suggestion;
-                debug!("New best node found: {:?}", best_node.op);
-            }
-        }
-
-        best_node
-    }
-}
-
-impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
-    for GreedyAstOptimizer<S, C>
-{
-    fn optimize(&self, mut node: AstNode, details: &KernelDetails) -> AstNode {
-        let start = Instant::now();
-
-        // Create a progress bar to visualize the optimization process.
-        let pb = ProgressBar::new(self.max_iterations as u64);
-        pb.set_style(
-            ProgressStyle::with_template(
-                "{prefix:>12.cyan.bold} [{bar:57}] {pos}/{len} {wide_msg}",
-            )
-            .unwrap()
-            .progress_chars("=> "),
-        );
-        pb.set_prefix("Optimizing");
-
-        for i in 0..self.max_iterations {
-            let original_node = node.clone();
-            let new_node = self.apply_one_pass(original_node.clone(), details);
-
-            if new_node == original_node {
-                debug!("Greedy search reached fixed point after {i} iterations.");
-                pb.finish_and_clear();
-
-                // compilation is finished
-                let green_bold = Style::new().green().bold();
-                pb.println(format!(
-                    "{:>12} optimize AST with greedy search algorithm in {}",
-                    green_bold.apply_to("Finished"),
-                    HumanDuration(start.elapsed())
-                ));
-                return new_node;
-            }
-            debug!("AST changed in iteration {i}. Continuing greedy search...");
-            let cost = self.cost_estimator.estimate_cost(&new_node, details);
-            pb.set_message(format!("Cost: {cost:.2}"));
-            pb.inc(1);
-            node = new_node;
-        }
-        debug!(
-            "Greedy search finished after reaching max iterations ({})",
-            self.max_iterations
-        );
-        pb.finish_and_clear();
-
-        // compilation is finished
-        let green_bold = Style::new().green().bold();
-        pb.println(format!(
-            "{:>12} optimize AST with greedy search algorithm in {}",
-            green_bold.apply_to("Finished"),
-            HumanDuration(start.elapsed())
-        ));
-        node
-    }
-}
-
 // Helper struct to use AstNode in a min-heap (BinaryHeap)
 #[derive(Clone)]
 struct CostAstNode(f32, AstNode);
@@ -252,11 +140,11 @@ pub struct BeamSearchAstOptimizer<S: OptimizationSuggester, C: CostEstimator> {
 }
 
 impl<S: OptimizationSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
-    pub fn new(suggester: S, cost_estimator: C) -> Self {
+    pub fn new(suggester: S, cost_estimator: C, beam_width: usize) -> Self {
         Self {
             suggester,
             cost_estimator,
-            beam_width: 4,
+            beam_width,
             max_steps: 1000, // Default max steps for the search
         }
     }
@@ -490,17 +378,15 @@ mod tests {
         let details = KernelDetails::default();
 
         // --- Test with Greedy Search (Beam Width = 1) ---
-        let mut greedy_optimizer =
-            BeamSearchAstOptimizer::new(suggester.clone(), cost_estimator).with_max_steps(3);
-        greedy_optimizer.beam_width = 1;
+        let greedy_optimizer =
+            BeamSearchAstOptimizer::new(suggester.clone(), cost_estimator, 1).with_max_steps(3);
         let greedy_result = greedy_optimizer.optimize(node_a.clone(), &details);
         // Greedy gets stuck at A because the only move is to B, which has a higher cost.
         assert_eq!(greedy_result, node_a);
 
         // --- Test with Beam Search (Beam Width = 2) ---
-        let mut beam_optimizer =
-            BeamSearchAstOptimizer::new(suggester, cost_estimator).with_max_steps(3);
-        beam_optimizer.beam_width = 2;
+        let beam_optimizer =
+            BeamSearchAstOptimizer::new(suggester, cost_estimator, 2).with_max_steps(3);
         let beam_result = beam_optimizer.optimize(node_a.clone(), &details);
         // Beam search can move to B (cost 15) and keep it in the beam, then find C (cost 5).
         let expected_node_c = AstNode::var("C");
