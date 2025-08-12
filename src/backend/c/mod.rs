@@ -10,6 +10,6 @@ use crate::backend::generic::GenericBackend;
 pub mod buffer;
 mod compiler;
 mod kernel;
-mod renderer;
+pub mod renderer;
 
 pub type CBackend = GenericBackend<CCompiler, CRenderer, CBuffer, String, ()>;

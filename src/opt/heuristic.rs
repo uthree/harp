@@ -1,12 +1,18 @@
 use crate::ast::{AstNode, AstOp};
+use crate::backend::Renderer;
+use crate::backend::c::renderer::CRenderer;
 use crate::opt::ast::{
     CostEstimator, DeterministicAstOptimizer, OptimizationSuggester, RewriteRule,
 };
+use console::{Style, Term};
+use indicatif::HumanDuration;
+use indicatif::{ProgressBar, ProgressStyle};
 use log::debug;
 use rustc_hash::FxHashSet;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 /// A suggester that uses a set of rewrite rules to generate optimization candidates.
 #[derive(Clone)]
@@ -159,20 +165,56 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
     for GreedyAstOptimizer<S, C>
 {
     fn optimize(&self, mut node: AstNode) -> AstNode {
+        let start = Instant::now();
+
+        // Create a progress bar to visualize the optimization process.
+        let pb = ProgressBar::new(self.max_iterations as u64);
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("{prefix:>12.cyan.bold} [{bar:57}] {pos}/{len}")
+                .unwrap()
+                .progress_chars("=>-"),
+        );
+        pb.set_prefix("Optimizing");
+        pb.println("Starting greedy optimization...");
+
         for i in 0..self.max_iterations {
             let original_node = node.clone();
             let new_node = self.apply_one_pass(original_node.clone());
 
             if new_node == original_node {
                 debug!("Greedy search reached fixed point after {i} iterations.");
+                pb.finish_and_clear();
+
+                // compilation is finished
+                let green_bold = Style::new().green().bold();
+                println!(
+                    "{:>12} optimize AST with greedy search algorithm in {}",
+                    green_bold.apply_to("Finished"),
+                    HumanDuration(start.elapsed())
+                );
                 return new_node;
             }
             debug!("AST changed in iteration {i}. Continuing greedy search...");
+            let mut renderer = CRenderer::new();
+            let code = renderer.render(new_node.clone());
+            let cost = self.cost_estimator.estimate_cost(&new_node);
+            pb.set_message(format!("Iteration {i}: Cost {cost:.2}\n---\n{code}\n---"));
+            pb.inc(1);
             node = new_node;
         }
         debug!(
-            "Greedy search finished after reaching max iterations ({}).",
+            "Greedy search finished after reaching max iterations ({})",
             self.max_iterations
+        );
+        pb.finish_and_clear();
+
+        // compilation is finished
+        let green_bold = Style::new().green().bold();
+        println!(
+            "{:>12} optimize AST with greedy search algorithm in {}",
+            green_bold.apply_to("Finished"),
+            HumanDuration(start.elapsed())
         );
         node
     }
@@ -254,6 +296,18 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
         let mut beam: Vec<AstNode> = vec![node];
         let mut visited: FxHashSet<AstNode> = FxHashSet::from_iter(beam.iter().cloned());
 
+        // Create a progress bar to visualize the optimization process.
+        let start = Instant::now();
+        let pb = ProgressBar::new(self.max_steps as u64);
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("{prefix:>12.cyan.bold} [{bar:57}] {pos}/{len}")
+                .unwrap()
+                .progress_chars("=>-"),
+        );
+        pb.set_prefix("Optimizing");
+        pb.println("Starting beam search...");
+
         for step in 0..self.max_steps {
             let mut candidates = BinaryHeap::new();
 
@@ -289,14 +343,51 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
             let old_beam_set: FxHashSet<_> = beam.iter().cloned().collect();
             if new_beam.is_empty() || new_beam_set == old_beam_set {
                 debug!("Beam search reached fixed point after {} steps.", step);
+                pb.finish_and_clear();
+
+                // compilation is finished
+                let green_bold = Style::new().green().bold();
+                println!(
+                    "{:>12} optimize AST with beam search algorithm in {}",
+                    green_bold.apply_to("Finished"),
+                    HumanDuration(start.elapsed())
+                );
                 break;
             }
 
             beam = new_beam;
             visited.extend(beam.iter().cloned());
-            debug!("Beam search step {}: beam size = {}", step, beam.len());
-        }
+            pb.println(format!(
+                "Beam search step {}: beam size = {}",
+                step,
+                beam.len()
+            ));
 
+            let best_node = beam
+                .iter()
+                .min_by(|a, b| {
+                    self.cost_estimator
+                        .estimate_cost(a)
+                        .partial_cmp(&self.cost_estimator.estimate_cost(b))
+                        .unwrap_or(Ordering::Equal)
+                })
+                .unwrap();
+            let mut renderer = CRenderer::new();
+            let code = renderer.render(best_node.clone());
+            let cost = self.cost_estimator.estimate_cost(best_node);
+            let beam_len = beam.len();
+            pb.set_message(format!(
+                "Step {step}: Cost {cost:.2}, Beam Size {beam_len}\n---\n{code}\n---"
+            ));
+            pb.inc(1);
+        }
+        pb.finish_and_clear();
+        let green_bold = Style::new().green().bold();
+        println!(
+            "{:>12} optimize AST with beam search algorithm in {}",
+            green_bold.apply_to("Finished"),
+            HumanDuration(start.elapsed())
+        );
         // Return the best node found
         beam.into_iter()
             .min_by(|a, b| {

@@ -4,8 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+console = "0.16.0"
 env_logger = "0.11.8"
-libc = "0.2.174"
+indicatif = { version = "0.18.0", features = ["rayon"] }
+libc = "0.2.175"
 libloading = "0.8.8"
 log = "0.4.27"
 ndarray = "0.16.1"
