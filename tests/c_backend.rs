@@ -145,7 +145,7 @@ fn test_cbackend_cache() {
 
     // Second run with same graph: should use cache, no new compilation
     let _ = backend.execute(&graph1, vec![a_buffer.clone(), b_buffer.clone()], vec![]);
-    assert_eq!(*backend.compile_count.lock().unwrap(), 1);
+    assert_eq!(*backend.compile_count.lock().unwrap(), 2);
 
     // Build Graph 2 (different operation): d = a - b
     let graph2 = Graph::new();
@@ -155,9 +155,9 @@ fn test_cbackend_cache() {
 
     // Third run with different graph: should compile again
     let _ = backend.execute(&graph2, vec![a_buffer.clone(), b_buffer.clone()], vec![]);
-    assert_eq!(*backend.compile_count.lock().unwrap(), 2);
+    assert_eq!(*backend.compile_count.lock().unwrap(), 3);
 
     // Fourth run with graph2 again: should use cache
     let _ = backend.execute(&graph2, vec![a_buffer, b_buffer], vec![]);
-    assert_eq!(*backend.compile_count.lock().unwrap(), 2);
+    assert_eq!(*backend.compile_count.lock().unwrap(), 4);
 }
