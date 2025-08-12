@@ -1,4 +1,5 @@
 use crate::ast::{AstNode, AstOp};
+use crate::backend::KernelDetails;
 use log::{debug, info, trace};
 use rustc_hash::FxHashMap;
 use std::rc::Rc;
@@ -9,7 +10,7 @@ use std::rc::Rc;
 /// the AST.
 pub trait DeterministicAstOptimizer {
     /// Optimizes the given `AstNode` and returns a new, optimized `AstNode`.
-    fn optimize(&self, node: AstNode) -> AstNode;
+    fn optimize(&self, node: AstNode, details: &KernelDetails) -> AstNode;
 }
 
 /// A trait for suggesting possible optimization steps for a given `AstNode`.
@@ -26,7 +27,7 @@ pub trait OptimizationSuggester {
 /// or simply the number of operations.
 pub trait CostEstimator {
     /// Estimates the cost of the given `AstNode`. A lower value is better.
-    fn estimate_cost(&self, node: &AstNode) -> f32;
+    fn estimate_cost(&self, node: &AstNode, details: &KernelDetails) -> f32;
 }
 
 pub struct RewriteRule {
@@ -113,7 +114,7 @@ pub struct AstRewriter {
 }
 
 impl DeterministicAstOptimizer for AstRewriter {
-    fn optimize(&self, node: AstNode) -> AstNode {
+    fn optimize(&self, node: AstNode, _details: &KernelDetails) -> AstNode {
         self.apply(node)
     }
 }
@@ -339,7 +340,8 @@ impl AlgebraicSimplification {
 
 impl OptimizationSuggester for AlgebraicSimplification {
     fn suggest_optimizations(&self, node: &AstNode) -> Vec<AstNode> {
-        let optimized_node = self.rewriter.optimize(node.clone());
+        let dummy_details = KernelDetails::default();
+        let optimized_node = self.rewriter.optimize(node.clone(), &dummy_details);
         if &optimized_node != node {
             vec![optimized_node]
         } else {

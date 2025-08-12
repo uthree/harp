@@ -1,6 +1,6 @@
 use crate::opt::heuristic;
 use crate::{
-    backend::{Backend, Buffer, Compiler, Kernel, Renderer},
+    backend::{Backend, Buffer, Compiler, Kernel, KernelDetails, Renderer},
     graph::Graph,
     graph::lowerer::Lowerer,
     graph::lowerer::orchestrator::LoweringOrchestrator,
@@ -9,6 +9,7 @@ use crate::{
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 /// Creates a stable key for an AstNode, ignoring the node's ID.
 fn ast_node_key(node: &crate::ast::AstNode) -> String {
@@ -28,7 +29,7 @@ pub struct GenericBackendConfig {
 impl Default for GenericBackendConfig {
     fn default() -> Self {
         Self {
-            heuristic_optimization_threshold: 10, // Default threshold
+            heuristic_optimization_threshold: 3, // Default threshold
         }
     }
 }
@@ -80,10 +81,10 @@ where
         if use_heuristic {
             log::debug!("Applying heuristic AST optimization...");
             let suggester = AlgebraicSimplification::new();
-            let cost_estimator = heuristic::HandcodedCostEstimator;
+            let cost_estimator = heuristic::ExecutionTimeCostEstimator::new();
             let optimizer = heuristic::BeamSearchAstOptimizer::new(suggester, cost_estimator, 2)
                 .with_max_steps(3);
-            ast = optimizer.optimize(ast);
+            ast = optimizer.optimize(ast, &details);
         }
 
         let code = self.renderer.lock().unwrap().render(ast);
@@ -93,6 +94,50 @@ where
             .unwrap()
             .compile(&code, details.clone());
         (kernel, details)
+    }
+
+    pub fn measure_ast_execution_time(
+        &self,
+        ast: &crate::ast::AstNode,
+        details: &KernelDetails,
+    ) -> f32 {
+        let code = self.renderer.lock().unwrap().render(ast.clone());
+
+        // コンパイル
+        let mut kernel = self.compiler.lock().unwrap().compile(&code, details.clone());
+
+        // ダミーバッファの準備
+        let (dummy_inputs, dummy_shape_vars) = self.prepare_dummy_buffers(details);
+
+        // 時間計測
+        let start = Instant::now();
+        let _ = kernel.call(dummy_inputs, &dummy_shape_vars);
+        let duration = start.elapsed();
+
+        duration.as_secs_f32()
+    }
+
+    pub fn prepare_dummy_buffers(&self, details: &KernelDetails) -> (Vec<B>, Vec<usize>) {
+        let shape_vars_map: std::collections::HashMap<String, i64> = details
+            .shape_variables
+            .iter()
+            .map(|v| (v.clone(), 0i64)) // Use 0 for all shape vars
+            .collect();
+
+        let inputs = details
+            .buffers
+            .iter()
+            .map(|info| {
+                let shape = info
+                    .shape
+                    .iter()
+                    .map(|expr| expr.evaluate(&shape_vars_map) as usize)
+                    .collect();
+                B::allocate(info.dtype.clone(), shape)
+            })
+            .collect();
+        let shape_vars = vec![0; details.shape_variables.len()];
+        (inputs, shape_vars)
     }
 }
 

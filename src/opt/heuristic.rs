@@ -1,4 +1,5 @@
 use crate::ast::{AstNode, AstOp};
+use crate::backend::KernelDetails;
 use crate::opt::ast::{
     CostEstimator, DeterministicAstOptimizer, OptimizationSuggester, RewriteRule,
 };
@@ -64,10 +65,12 @@ impl OptimizationSuggester for CompositeSuggester {
 pub struct NodeCountCostEstimator;
 
 impl CostEstimator for NodeCountCostEstimator {
-    fn estimate_cost(&self, node: &AstNode) -> f32 {
+    fn estimate_cost(&self, node: &AstNode, _details: &KernelDetails) -> f32 {
         let mut count = 1.0;
         for child in &node.src {
-            count += self.estimate_cost(child);
+            // We don't have details for children, so we pass None or a default.
+            // This estimator doesn't use it anyway.
+            count += self.estimate_cost(child, _details);
         }
         count
     }
@@ -77,7 +80,7 @@ impl CostEstimator for NodeCountCostEstimator {
 pub struct HandcodedCostEstimator;
 
 impl CostEstimator for HandcodedCostEstimator {
-    fn estimate_cost(&self, node: &AstNode) -> f32 {
+    fn estimate_cost(&self, node: &AstNode, _details: &KernelDetails) -> f32 {
         let mut count = 0.0;
         count += match &node.op {
             AstOp::Recip => 5.0,
@@ -98,7 +101,7 @@ impl CostEstimator for HandcodedCostEstimator {
             _ => 1.0,
         };
         for child in &node.src {
-            count += self.estimate_cost(child);
+            count += self.estimate_cost(child, _details);
         }
         count
     }
@@ -125,12 +128,12 @@ impl<S: OptimizationSuggester, C: CostEstimator> GreedyAstOptimizer<S, C> {
         self
     }
 
-    fn apply_one_pass(&self, node: AstNode) -> AstNode {
+    fn apply_one_pass(&self, node: AstNode, details: &KernelDetails) -> AstNode {
         // First, optimize children (post-order traversal)
         let new_src: Vec<AstNode> = node
             .src
             .iter()
-            .map(|child| self.apply_one_pass(child.clone()))
+            .map(|child| self.apply_one_pass(child.clone(), details))
             .collect();
         let mut best_node = AstNode::new(node.op.clone(), new_src, node.dtype.clone());
 
@@ -141,12 +144,12 @@ impl<S: OptimizationSuggester, C: CostEstimator> GreedyAstOptimizer<S, C> {
             return best_node;
         }
 
-        let mut min_cost = self.cost_estimator.estimate_cost(&best_node);
+        let mut min_cost = self.cost_estimator.estimate_cost(&best_node, details);
         debug!("Initial cost for node {:?}: {}", best_node.op, min_cost);
 
         // Evaluate suggestions and find the one with the minimum cost
         for suggestion in suggestions {
-            let cost = self.cost_estimator.estimate_cost(&suggestion);
+            let cost = self.cost_estimator.estimate_cost(&suggestion, details);
             debug!("Cost for suggested node {:?}: {}", suggestion.op, cost);
             if cost < min_cost {
                 min_cost = cost;
@@ -162,7 +165,7 @@ impl<S: OptimizationSuggester, C: CostEstimator> GreedyAstOptimizer<S, C> {
 impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
     for GreedyAstOptimizer<S, C>
 {
-    fn optimize(&self, mut node: AstNode) -> AstNode {
+    fn optimize(&self, mut node: AstNode, details: &KernelDetails) -> AstNode {
         let start = Instant::now();
 
         // Create a progress bar to visualize the optimization process.
@@ -178,7 +181,7 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
 
         for i in 0..self.max_iterations {
             let original_node = node.clone();
-            let new_node = self.apply_one_pass(original_node.clone());
+            let new_node = self.apply_one_pass(original_node.clone(), details);
 
             if new_node == original_node {
                 debug!("Greedy search reached fixed point after {i} iterations.");
@@ -194,7 +197,7 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
                 return new_node;
             }
             debug!("AST changed in iteration {i}. Continuing greedy search...");
-            let cost = self.cost_estimator.estimate_cost(&new_node);
+            let cost = self.cost_estimator.estimate_cost(&new_node, details);
             pb.set_message(format!("Cost: {cost:.2}"));
             pb.inc(1);
             node = new_node;
@@ -288,7 +291,7 @@ impl<S: OptimizationSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
 impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
     for BeamSearchAstOptimizer<S, C>
 {
-    fn optimize(&self, node: AstNode) -> AstNode {
+    fn optimize(&self, node: AstNode, details: &KernelDetails) -> AstNode {
         let mut beam: Vec<AstNode> = vec![node];
         let mut visited: FxHashSet<AstNode> = FxHashSet::from_iter(beam.iter().cloned());
 
@@ -310,7 +313,7 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
             for ast_in_beam in &beam {
                 // Add the current ast to candidates to ensure we don't get worse
                 candidates.push(CostAstNode(
-                    self.cost_estimator.estimate_cost(ast_in_beam),
+                    self.cost_estimator.estimate_cost(ast_in_beam, details),
                     ast_in_beam.clone(),
                 ));
 
@@ -318,7 +321,7 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
 
                 for next_ast in all_possible_next_asts {
                     if !visited.contains(&next_ast) {
-                        let cost = self.cost_estimator.estimate_cost(&next_ast);
+                        let cost = self.cost_estimator.estimate_cost(&next_ast, details);
                         candidates.push(CostAstNode(cost, next_ast));
                     }
                 }
@@ -358,12 +361,12 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
                 .iter()
                 .min_by(|a, b| {
                     self.cost_estimator
-                        .estimate_cost(a)
-                        .partial_cmp(&self.cost_estimator.estimate_cost(b))
+                        .estimate_cost(a, details)
+                        .partial_cmp(&self.cost_estimator.estimate_cost(b, details))
                         .unwrap_or(Ordering::Equal)
                 })
                 .unwrap();
-            let cost = self.cost_estimator.estimate_cost(best_node);
+            let cost = self.cost_estimator.estimate_cost(best_node, details);
             let beam_len = beam.len();
             pb.set_message(format!("Cost: {cost:.2}, Beam: {beam_len}"));
             pb.inc(1);
@@ -379,11 +382,41 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
         beam.into_iter()
             .min_by(|a, b| {
                 self.cost_estimator
-                    .estimate_cost(a)
-                    .partial_cmp(&self.cost_estimator.estimate_cost(b))
+                    .estimate_cost(a, details)
+                    .partial_cmp(&self.cost_estimator.estimate_cost(b, details))
                     .unwrap_or(Ordering::Equal)
             })
             .unwrap()
+    }
+}
+
+use crate::backend::c::CBackend;
+use crate::backend::Backend;
+use std::sync::Arc;
+
+/// A cost estimator that measures the actual execution time of an AST.
+#[derive(Clone)]
+pub struct ExecutionTimeCostEstimator {
+    backend: Arc<CBackend>,
+}
+
+impl ExecutionTimeCostEstimator {
+    pub fn new() -> Self {
+        Self {
+            backend: Arc::new(CBackend::new()),
+        }
+    }
+}
+
+impl Default for ExecutionTimeCostEstimator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl CostEstimator for ExecutionTimeCostEstimator {
+    fn estimate_cost(&self, node: &AstNode, details: &KernelDetails) -> f32 {
+        self.backend.measure_ast_execution_time(node, details)
     }
 }
 
@@ -441,7 +474,7 @@ mod tests {
         #[derive(Clone, Copy)]
         struct CustomEstimator;
         impl CostEstimator for CustomEstimator {
-            fn estimate_cost(&self, node: &AstNode) -> f32 {
+            fn estimate_cost(&self, node: &AstNode, _details: &KernelDetails) -> f32 {
                 if let AstOp::Var(name) = &node.op {
                     return match name.as_str() {
                         "A" => 10.0,
@@ -454,18 +487,19 @@ mod tests {
             }
         }
         let cost_estimator = CustomEstimator;
+        let details = KernelDetails::default();
 
         // --- Test with Greedy Search (Beam Width = 1) ---
         let greedy_optimizer =
             BeamSearchAstOptimizer::new(suggester.clone(), cost_estimator, 1).with_max_steps(3);
-        let greedy_result = greedy_optimizer.optimize(node_a.clone());
+        let greedy_result = greedy_optimizer.optimize(node_a.clone(), &details);
         // Greedy gets stuck at A because the only move is to B, which has a higher cost.
         assert_eq!(greedy_result, node_a);
 
         // --- Test with Beam Search (Beam Width = 2) ---
         let beam_optimizer =
             BeamSearchAstOptimizer::new(suggester, cost_estimator, 2).with_max_steps(3);
-        let beam_result = beam_optimizer.optimize(node_a.clone());
+        let beam_result = beam_optimizer.optimize(node_a.clone(), &details);
         // Beam search can move to B (cost 15) and keep it in the beam, then find C (cost 5).
         let expected_node_c = AstNode::var("C");
         assert_eq!(beam_result, expected_node_c);
