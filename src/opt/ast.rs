@@ -337,6 +337,12 @@ impl Default for AlgebraicSimplification {
     }
 }
 
+impl DeterministicAstOptimizer for AlgebraicSimplification {
+    fn optimize(&self, node: AstNode, details: &KernelDetails) -> AstNode {
+        self.rewriter.optimize(node, details)
+    }
+}
+
 impl AlgebraicSimplification {
     pub fn new() -> Self {
         Self::default()
@@ -435,4 +441,42 @@ fn replace_var(node: &AstNode, var_name: &str, substitution: &AstNode) -> AstNod
         .map(|n| replace_var(n, var_name, substitution))
         .collect();
     AstNode::new(node.op.clone(), new_src, node.dtype.clone())
+}
+
+/// An optimizer that removes redundant `Cast` operations from the AST.
+pub struct CastSimplification;
+
+impl CastSimplification {
+    fn simplify_casts_recursive(node: AstNode) -> AstNode {
+        // First, optimize children recursively (post-order traversal)
+        let new_src = node
+            .src
+            .into_iter()
+            .map(Self::simplify_casts_recursive)
+            .collect::<Vec<_>>();
+        let new_node = AstNode::new(node.op, new_src, node.dtype);
+
+        // Then, check if the current node is a redundant cast
+        if let AstOp::Cast(target_dtype) = new_node.op.clone() {
+            let src_node = &new_node.src[0];
+
+            // Case 1: Cast to the same type (e.g., (float)some_float) -> no-op
+            if src_node.dtype == target_dtype {
+                return src_node.clone();
+            }
+
+            // Case 2: Cast of a constant -> pre-compute the cast (constant folding)
+            if let AstOp::Const(c) = &src_node.op {
+                let new_const = c.cast(target_dtype);
+                return AstNode::from(new_const);
+            }
+        }
+        new_node
+    }
+}
+
+impl DeterministicAstOptimizer for CastSimplification {
+    fn optimize(&self, node: AstNode, _details: &KernelDetails) -> AstNode {
+        Self::simplify_casts_recursive(node)
+    }
 }

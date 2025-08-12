@@ -147,6 +147,11 @@ where
 
         let mut lowerer = Lowerer::new(&optimized_graph);
         let (mut ast, details) = lowerer.lower();
+
+        // Apply cast simplification after lowering
+        let cast_simplifier = crate::opt::ast::CastSimplification;
+        ast = cast_simplifier.optimize(ast, &details);
+
         let code = self.renderer.lock().unwrap().render(ast);
         let kernel = self
             .compiler

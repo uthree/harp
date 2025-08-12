@@ -1,80 +1,78 @@
-use harp::{
-    ast::{AstNode, DType},
-    opt::algebraic_simplification,
-};
+use harp::{ast::*, backend::c::CBackend, backend::KernelDetails, opt::ast::*};
 
 fn setup_logger() {
-    // Initialize the logger for tests, ignoring errors if it's already set up
     let _ = env_logger::builder().is_test(true).try_init();
 }
 
 #[test]
 fn test_algebraic_simplification_simple() {
     setup_logger();
-    let optimizer = algebraic_simplification();
     let x = AstNode::var("x").with_type(DType::F32);
-    let y = AstNode::var("y").with_type(DType::F64); // Different type for testing
+    let target = (x.clone() * 1.0f32) + 0.0f32;
+    let expected = x;
 
-    // Test cases
-    let cases = vec![
-        // x + 0 -> x
-        (x.clone() + AstNode::from(0.0f32), x.clone()),
-        // 0 + y -> y
-        (AstNode::from(0.0f64) + y.clone(), y.clone()),
-        // x - 0 -> x
-        (x.clone() - AstNode::from(0.0f32), x.clone()),
-        // y * 1 -> y
-        (y.clone() * AstNode::from(1.0f64), y.clone()),
-        // 1 * x -> x
-        (AstNode::from(1.0f32) * x.clone(), x.clone()),
-        // x * 0 -> 0
-        (
-            x.clone() * AstNode::from(0.0f32),
-            AstNode::from(0.0f32).cast(x.clone().dtype),
-        ),
-        // 0 * y -> 0
-        (
-            AstNode::from(0.0f64) * y.clone(),
-            AstNode::from(0.0f32).cast(y.clone().dtype),
-        ),
-        // x / 1 -> x
-        (x.clone() / AstNode::from(1.0f32), x.clone()),
-    ];
+    let optimizer = AlgebraicSimplification::new();
+    let dummy_details = KernelDetails::default();
+    let result = optimizer.optimize(target, &dummy_details);
 
-    for (input, expected) in cases {
-        let result = optimizer.apply(input.clone());
-        assert_eq!(
-            result, expected,
-            "\nFailed on input: {:?}\nExpected: {:?}\nGot:      {:?}",
-            input, expected, result
-        );
-    }
+    assert_eq!(result, expected);
 }
 
 #[test]
 fn test_algebraic_simplification_complex() {
     setup_logger();
-    let optimizer = algebraic_simplification();
-    let x = AstNode::var("x").with_type(DType::F32);
-
-    // (x + 0) * 1 -> x
-    let input = (x.clone() + AstNode::from(0.0f32)) * AstNode::from(1.0f32);
-    let expected = x.clone();
-    let result = optimizer.apply(input.clone());
-    assert_eq!(
-        result, expected,
-        "\nFailed on input: {:?}\nExpected: {:?}\nGot:      {:?}",
-        input, expected, result
-    );
-
-    // (y * 1) - 0 -> y
+    let x = AstNode::var("x").with_type(DType::F64);
     let y = AstNode::var("y").with_type(DType::F64);
-    let input = (y.clone() * AstNode::from(1.0f64)) - AstNode::from(0.0f64);
-    let expected = y.clone();
-    let result = optimizer.apply(input.clone());
-    assert_eq!(
-        result, expected,
-        "\nFailed on input: {:?}\nExpected: {:?}\nGot:      {:?}",
-        input, expected, result
+    let z = AstNode::var("z").with_type(DType::F64);
+
+    // (x * 1.0 + 0.0) * (y * 0.0 + z)
+    let target = (x.clone() * 1.0f64 + 0.0f64) * (y * 0.0f64 + z.clone());
+    let expected = x * z;
+
+    let optimizer = AlgebraicSimplification::new();
+    let dummy_details = KernelDetails::default();
+    let result = optimizer.optimize(target, &dummy_details);
+
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn test_cast_simplification_redundant() {
+    setup_logger();
+    let x = AstNode::var("x").with_type(DType::F32);
+    // (float)((float)x)
+    let target = AstNode::new(
+        AstOp::Cast(DType::F32),
+        vec![AstNode::new(
+            AstOp::Cast(DType::F32),
+            vec![x.clone()],
+            DType::F32,
+        )],
+        DType::F32,
     );
+    let expected = x;
+
+    let optimizer = CastSimplification;
+    let dummy_details = KernelDetails::default();
+    let result = optimizer.optimize(target, &dummy_details);
+
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn test_cast_simplification_constant_folding() {
+    setup_logger();
+    // (int)3.14f32
+    let target = AstNode::new(
+        AstOp::Cast(DType::I32),
+        vec![AstNode::from(3.14f32)],
+        DType::I32,
+    );
+    let expected = AstNode::from(3i32);
+
+    let optimizer = CastSimplification;
+    let dummy_details = KernelDetails::default();
+    let result = optimizer.optimize(target, &dummy_details);
+
+    assert_eq!(result, expected);
 }

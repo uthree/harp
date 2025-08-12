@@ -201,6 +201,7 @@ impl CRenderer {
             Const::U16(v) => write!(self.buffer, "(uint16_t){v}u").unwrap(),
             Const::U32(v) => write!(self.buffer, "{v}u").unwrap(),
             Const::U64(v) => write!(self.buffer, "{v}ull").unwrap(),
+            Const::USize(v) => write!(self.buffer, "(size_t){v}ull").unwrap(),
         }
     }
 
