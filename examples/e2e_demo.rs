@@ -31,7 +31,9 @@ fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
 
 fn main() {
     // Enable logging to see more details from the optimizer
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
+    // UNCOMMENT THIS IF YOU NEED LOGGING
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
 
     // Configure the backend to trigger heuristic optimization on the first call.
     let config = GenericBackendConfig {
@@ -46,8 +48,7 @@ fn main() {
 
     // The backend is configured to trigger heuristic optimization on the 1st call.
     // We run the forward pass multiple times to trigger this.
-    for i in 0..3 {
-        println!("\n--- Iteration {} ---", i + 1);
+    for i in 0..10 {
         c.forward();
         // After the forward pass, we need to clear the buffer to re-run the computation.
         c.clear_buffer();

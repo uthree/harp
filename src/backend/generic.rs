@@ -126,14 +126,16 @@ where
                 Box::new(heuristic::RuleBasedSuggester::new(
                     AlgebraicSimplification::new().rules(),
                 )),
+                Box::new(LoopUnrolling::new(2)),
                 Box::new(LoopUnrolling::new(4)),
                 Box::new(LoopUnrolling::new(8)),
+                Box::new(LoopUnrolling::new(16)),
             ]);
             let cost_estimator = heuristic::HandcodedCostEstimator::new();
             let optimizer = heuristic::BeamSearchAstOptimizer::new(suggester, cost_estimator)
-                .with_beam_width(16)
-                .with_max_suggestions(100)
-                .with_max_steps(50);
+                .with_beam_width(8)
+                .with_max_suggestions(500)
+                .with_max_steps(512);
             ast = optimizer.optimize(ast, &details);
         }
 

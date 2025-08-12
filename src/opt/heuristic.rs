@@ -97,7 +97,7 @@ impl CostEstimator for HandcodedCostEstimator {
         count += match &node.op {
             AstOp::Recip => 10.0,
             AstOp::Store => 5.0,
-            AstOp::Range { .. } => 400.0 / (node.src.len() as f32),
+            AstOp::Range { .. } => 2000.0 / (node.src.len() as f32),
             AstOp::Assign => 1.0,
             AstOp::Declare {
                 name: _name,
