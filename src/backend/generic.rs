@@ -4,9 +4,7 @@ use crate::{
     graph::lowerer::Lowerer,
     graph::lowerer::orchestrator::LoweringOrchestrator,
     opt::DeterministicGraphOptimizer,
-    opt::ast::{
-        AlgebraicSimplification, DeterministicAstOptimizer, LoopUnrolling, OptimizationSuggester,
-    },
+    opt::ast::{AlgebraicSimplification, DeterministicAstOptimizer, LoopUnrolling},
     opt::graph::ElementwiseFusion,
     opt::heuristic::{self, CompositeSuggester},
 };

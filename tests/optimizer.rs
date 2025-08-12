@@ -1,4 +1,4 @@
-use harp::{ast::*, backend::KernelDetails, backend::c::CBackend, opt::ast::*};
+use harp::{ast::*, backend::KernelDetails, opt::ast::*};
 
 fn setup_logger() {
     let _ = env_logger::builder().is_test(true).try_init();
