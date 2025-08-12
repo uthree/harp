@@ -6,6 +6,7 @@ use crate::{
     graph::lowerer::orchestrator::LoweringOrchestrator,
     opt::ast::{AlgebraicSimplification, DeterministicAstOptimizer},
     opt::graph::ElementwiseFusion,
+    opt::DeterministicGraphOptimizer,
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -107,7 +108,18 @@ where
         graph: &Graph,
         use_heuristic: bool,
     ) -> (C::KernelType, crate::backend::KernelDetails) {
-        let mut lowerer = Lowerer::new(graph);
+        // Apply deterministic graph optimizations (e.g., element-wise fusion).
+        // This ensures that the kernel is always compiled from an optimized graph representation.
+        // Note: This might be redundant if the graph is already optimized before calling,
+        // but it makes this function more self-contained.
+        let optimized_graph = self.graph_optimizer.optimize(graph);
+        let graph_to_use = if *optimized_graph.nodes.borrow() == *graph.nodes.borrow() {
+            graph
+        } else {
+            &optimized_graph
+        };
+
+        let mut lowerer = Lowerer::new(graph_to_use);
         let (mut ast, details) = lowerer.lower();
 
         if use_heuristic {

@@ -1,5 +1,6 @@
 use crate::ast::AstNode;
 use crate::graph::{Graph, GraphOp, NodeData, NodeId};
+use crate::opt::DeterministicGraphOptimizer;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 pub struct ElementwiseFusion;
@@ -16,8 +17,8 @@ impl ElementwiseFusion {
     }
 }
 
-impl ElementwiseFusion {
-    pub fn optimize(&self, graph: &Graph) -> Graph {
+impl DeterministicGraphOptimizer for ElementwiseFusion {
+    fn optimize(&self, graph: &Graph) -> Graph {
         let mut new_graph = Graph::new();
         // Step 1: Identify fusion groups without mutating the graph.
         let (fusion_groups, visited) = {
