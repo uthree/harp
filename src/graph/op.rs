@@ -54,4 +54,9 @@ impl GraphOp {
     pub fn is_elementwise(&self) -> bool {
         matches!(self, GraphOp::Elementwise(_))
     }
+
+    /// Returns `true` if the operation is a `Full` (constant) operation.
+    pub fn is_full(&self) -> bool {
+        matches!(self, GraphOp::Full(_))
+    }
 }

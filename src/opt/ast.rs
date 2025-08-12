@@ -109,7 +109,7 @@ impl RewriteRule {
 
 #[derive(Clone)]
 pub struct AstRewriter {
-    rules: Vec<Rc<RewriteRule>>,
+    pub rules: Vec<Rc<RewriteRule>>,
     max_iterations: usize,
 }
 
@@ -335,6 +335,10 @@ impl Default for AlgebraicSimplification {
 impl AlgebraicSimplification {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn rules(&self) -> Vec<Rc<RewriteRule>> {
+        self.rewriter.rules.clone()
     }
 }
 

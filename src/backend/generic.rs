@@ -1,15 +1,14 @@
-use crate::opt::heuristic;
 use crate::{
     backend::{Backend, Buffer, Compiler, Kernel, KernelDetails, Renderer},
     graph::Graph,
     graph::lowerer::Lowerer,
     graph::lowerer::orchestrator::LoweringOrchestrator,
-    opt::DeterministicGraphOptimizer,
     opt::ast::{
         AlgebraicSimplification, DeterministicAstOptimizer, LoopUnrolling, OptimizationSuggester,
     },
     opt::graph::ElementwiseFusion,
-    opt::heuristic::CompositeSuggester,
+    opt::heuristic::{self, CompositeSuggester, RuleBasedSuggester},
+    opt::DeterministicGraphOptimizer,
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -114,36 +113,57 @@ where
         use_heuristic: bool,
     ) -> (C::KernelType, crate::backend::KernelDetails) {
         // Apply deterministic graph optimizations (e.g., element-wise fusion).
-        // This ensures that the kernel is always compiled from an optimized graph representation.
-        // Note: This might be redundant if the graph is already optimized before calling,
-        // but it makes this function more self-contained.
-        let optimized_graph = self.graph_optimizer.optimize(graph);
-        let graph_to_use = if *optimized_graph.nodes.borrow() == *graph.nodes.borrow() {
-            graph
-        } else {
-            &optimized_graph
-        };
+        let mut optimized_graph = self.graph_optimizer.optimize(graph);
 
-        let mut lowerer = Lowerer::new(graph_to_use);
+        // Apply heuristic optimization to the fused ASTs within the graph.
+        if use_heuristic {
+            log::debug!("Applying heuristic AST optimization to fused nodes...");
+            let suggester = CompositeSuggester::new(vec![Box::new(
+                heuristic::RuleBasedSuggester::new(AlgebraicSimplification::new().rules()),
+            )]);
+            let cost_estimator = heuristic::NodeCountCostEstimator;
+            let optimizer =
+                heuristic::BeamSearchAstOptimizer::new(suggester, cost_estimator)
+                    .with_beam_width(4)
+                    .with_max_steps(1000);
+
+            let mut new_nodes = optimized_graph.nodes.borrow().clone();
+            // Create dummy details for the optimizer. This is a limitation, as we don't
+            // have the full kernel details yet.
+            let dummy_details = crate::backend::KernelDetails::default();
+
+            for node_data in new_nodes.iter_mut() {
+                if let crate::graph::GraphOp::FusedElementwise(ast) = &node_data.op {
+                    let optimized_ast = optimizer.optimize(ast.clone(), &dummy_details);
+                    node_data.op = crate::graph::GraphOp::FusedElementwise(optimized_ast);
+                }
+            }
+            optimized_graph.nodes = std::cell::RefCell::new(new_nodes);
+        }
+
+        let mut lowerer = Lowerer::new(&optimized_graph);
         let (mut ast, details) = lowerer.lower();
 
+        // Apply heuristic optimizations that work on the final loop structure.
         if use_heuristic {
-            log::debug!("Applying heuristic AST optimization...");
-            let mut suggesters: Vec<Box<dyn OptimizationSuggester>> =
-                vec![Box::new(AlgebraicSimplification::new())];
             if let Some(factors) = &self.config.loop_unroll_factors {
+                log::debug!("Applying loop unrolling optimization...");
+                let mut suggesters: Vec<Box<dyn OptimizationSuggester>> = Vec::new();
                 for &factor in factors {
                     if factor > 1 {
                         suggesters.push(Box::new(LoopUnrolling::new(factor)));
                     }
                 }
+                if !suggesters.is_empty() {
+                    let suggester = CompositeSuggester::new(suggesters);
+                    let cost_estimator = heuristic::ExecutionTimeCostEstimator::new();
+                    let optimizer =
+                        heuristic::BeamSearchAstOptimizer::new(suggester, cost_estimator)
+                            .with_beam_width(self.config.loop_unroll_factors.as_ref().map_or(1, |v| v.len()))
+                            .with_max_steps(100); // Fewer steps for loop unrolling
+                    ast = optimizer.optimize(ast, &details);
+                }
             }
-            let suggester = CompositeSuggester::new(suggesters);
-            let cost_estimator = heuristic::ExecutionTimeCostEstimator::new();
-            let optimizer = heuristic::BeamSearchAstOptimizer::new(suggester, cost_estimator)
-                .with_beam_width(4)
-                .with_max_steps(1000);
-            ast = optimizer.optimize(ast, &details);
         }
 
         let code = self.renderer.lock().unwrap().render(ast);

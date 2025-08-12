@@ -24,13 +24,7 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static TENSOR_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
-static C_BACKEND: Lazy<CBackend> = Lazy::new(|| {
-    let config = GenericBackendConfig {
-        heuristic_optimization_threshold: 1,
-        loop_unroll_factors: Some(vec![2, 4, 8]),
-    };
-    CBackend::with_config(config)
-});
+static C_BACKEND: Lazy<CBackend> = Lazy::new(CBackend::new);
 
 /// A buffer holding the tensor's actual data on a computation device.
 #[derive(Debug, Clone)]
