@@ -64,7 +64,11 @@ impl AstNode {
 
     /// Creates a new `Declare` node.
     pub fn declare(name: String, dtype: dtype::DType, value: AstNode) -> Self {
-        Self::new(AstOp::Declare { name, dtype }, vec![value], dtype::DType::Void)
+        Self::new(
+            AstOp::Declare { name, dtype },
+            vec![value],
+            dtype::DType::Void,
+        )
     }
 
     /// Nests a statement inside a series of loops.

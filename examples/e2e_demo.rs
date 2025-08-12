@@ -1,4 +1,7 @@
 use harp::ast::DType;
+use harp::backend::c::CBackend;
+use harp::backend::generic::{GenericBackend, GenericBackendConfig};
+use harp::backend::Backend;
 use harp::tensor::Tensor;
 
 /// Performs matrix multiplication using a combination of elementary tensor operations.
@@ -30,14 +33,21 @@ fn main() {
     // Enable logging to see more details from the optimizer
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
+    // Configure the backend to trigger heuristic optimization on the first call.
+    let config = GenericBackendConfig {
+        heuristic_optimization_threshold: 1,
+    };
+    let backend = CBackend::with_config(config);
+    let backend_arc = std::sync::Arc::new(backend);
+
     // Define the computation graph outside the loop.
-    let a = Tensor::rand(vec![256, 512], DType::F32, true);
-    let b = Tensor::rand(vec![512, 1024], DType::F32, true);
+    let a = Tensor::rand(vec![256, 512], DType::F32, true).with_backend(backend_arc.clone());
+    let b = Tensor::rand(vec![512, 1024], DType::F32, true).with_backend(backend_arc.clone());
     let c = matmul(&a, &b);
 
-    // The backend is configured to trigger heuristic optimization on the 10th call by default.
+    // The backend is configured to trigger heuristic optimization on the 1st call.
     // We run the forward pass multiple times to trigger this.
-    for i in 0..15 {
+    for i in 0..3 {
         println!("\n--- Iteration {} ---", i + 1);
         c.forward();
         // After the forward pass, we need to clear the buffer to re-run the computation.

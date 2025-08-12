@@ -134,11 +134,7 @@ where
             let optimizer = heuristic::BeamSearchAstOptimizer::new(suggester, cost_estimator)
                 .with_beam_width(4)
                 .with_max_steps(100);
-
-            let mut new_nodes = optimized_graph.nodes.borrow().clone();
-            // Create dummy details for the optimizer. This is a limitation, as we don't
-            // have the full kernel details yet.
-            let dummy_details = crate::backend::KernelDetails::default();
+            ast = optimizer.optimize(ast, &details);
         }
 
         let code = self.renderer.lock().unwrap().render(ast);
