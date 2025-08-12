@@ -163,8 +163,7 @@ where
         let _ = kernel.call(dummy_inputs, &dummy_shape_vars);
         let duration = start.elapsed();
 
-        let time = duration.as_secs_f32();
-        time
+        duration.as_secs_f32()
     }
 
     pub fn prepare_dummy_buffers(&self, details: &KernelDetails) -> (Vec<B>, Vec<usize>) {
