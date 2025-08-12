@@ -5,8 +5,11 @@ use crate::{
     graph::lowerer::Lowerer,
     graph::lowerer::orchestrator::LoweringOrchestrator,
     opt::DeterministicGraphOptimizer,
-    opt::ast::{AlgebraicSimplification, DeterministicAstOptimizer},
+    opt::ast::{
+        AlgebraicSimplification, DeterministicAstOptimizer, LoopUnrolling, OptimizationSuggester,
+    },
     opt::graph::ElementwiseFusion,
+    opt::heuristic::CompositeSuggester,
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -57,12 +60,14 @@ fn build_logical_key(
 
 pub struct GenericBackendConfig {
     pub heuristic_optimization_threshold: usize,
+    pub loop_unroll_factors: Option<Vec<usize>>,
 }
 
 impl Default for GenericBackendConfig {
     fn default() -> Self {
         Self {
-            heuristic_optimization_threshold: 10, // Default threshold
+            heuristic_optimization_threshold: 10,     // Default threshold
+            loop_unroll_factors: Some(vec![2, 4, 8]), // Default unroll factors
         }
     }
 }
@@ -124,7 +129,16 @@ where
 
         if use_heuristic {
             log::debug!("Applying heuristic AST optimization...");
-            let suggester = AlgebraicSimplification::new();
+            let mut suggesters: Vec<Box<dyn OptimizationSuggester>> =
+                vec![Box::new(AlgebraicSimplification::new())];
+            if let Some(factors) = &self.config.loop_unroll_factors {
+                for &factor in factors {
+                    if factor > 1 {
+                        suggesters.push(Box::new(LoopUnrolling::new(factor)));
+                    }
+                }
+            }
+            let suggester = CompositeSuggester::new(suggesters);
             let cost_estimator = heuristic::ExecutionTimeCostEstimator::new();
             let optimizer = heuristic::BeamSearchAstOptimizer::new(suggester, cost_estimator)
                 .with_beam_width(4)
@@ -255,8 +269,11 @@ where
                     (arc_kernel, details)
                 }
             } else {
-                log::debug!("Backend cache miss, compiling with deterministic opts...");
-                let (new_kernel, details) = self.compile_kernel(graph_to_use, false);
+                log::debug!("Backend cache miss, compiling...");
+                let use_heuristic_on_miss = *call_counts.get(&graph_key).unwrap_or(&0)
+                    >= self.config.heuristic_optimization_threshold;
+                let (new_kernel, details) =
+                    self.compile_kernel(graph_to_use, use_heuristic_on_miss);
                 let arc_kernel = Arc::new(Mutex::new(new_kernel));
                 *self.compile_count.lock().unwrap() += 1;
                 cache.insert(graph_key.clone(), arc_kernel.clone());
@@ -312,6 +329,7 @@ mod tests {
         // Configure a backend with a low optimization threshold for testing.
         let config = GenericBackendConfig {
             heuristic_optimization_threshold: 3,
+            loop_unroll_factors: Some(vec![2]),
         };
         let backend = CBackend::with_config(config);
 

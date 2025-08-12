@@ -349,3 +349,74 @@ impl OptimizationSuggester for AlgebraicSimplification {
         }
     }
 }
+
+/// A suggester for loop unrolling optimization.
+#[derive(Clone)]
+pub struct LoopUnrolling {
+    unroll_factor: usize,
+}
+
+impl LoopUnrolling {
+    pub fn new(unroll_factor: usize) -> Self {
+        Self { unroll_factor }
+    }
+}
+
+impl Default for LoopUnrolling {
+    fn default() -> Self {
+        Self::new(4) // Default unroll factor
+    }
+}
+
+impl OptimizationSuggester for LoopUnrolling {
+    fn suggest_optimizations(&self, node: &AstNode) -> Vec<AstNode> {
+        let mut suggestions = Vec::new();
+        if let AstOp::Range { loop_var } = &node.op {
+            if let Some(AstOp::Const(const_val)) = node.src.get(0).map(|n| &n.op) {
+                if let Some(end) = const_val.to_usize() {
+                    if end >= self.unroll_factor {
+                        let num_unrolled_iterations = end / self.unroll_factor;
+                        let remaining_iterations = end % self.unroll_factor;
+
+                        let mut unrolled_body = Vec::new();
+                        let loop_body = &node.src[1..];
+
+                        // Create the unrolled loop
+                        for i in 0..num_unrolled_iterations {
+                            for j in 0..self.unroll_factor {
+                                let current_index = i * self.unroll_factor + j;
+                                let substitution = AstNode::from(current_index as i32);
+                                for stmt in loop_body {
+                                    unrolled_body.push(replace_var(stmt, loop_var, &substitution));
+                                }
+                            }
+                        }
+
+                        // Handle remaining iterations
+                        for i in (end - remaining_iterations)..end {
+                            let substitution = AstNode::from(i as i32);
+                            for stmt in loop_body {
+                                unrolled_body.push(replace_var(stmt, loop_var, &substitution));
+                            }
+                        }
+                        
+                        suggestions.push(AstNode::new(AstOp::Block, unrolled_body, node.dtype.clone()));
+                    }
+                }
+            }
+        }
+        suggestions
+    }
+}
+
+/// Helper function to replace a variable in an AST node.
+fn replace_var(node: &AstNode, var_name: &str, substitution: &AstNode) -> AstNode {
+    if let AstOp::Var(name) = &node.op {
+        if name == var_name {
+            return substitution.clone();
+        }
+    }
+    let new_src = node.src.iter().map(|n| replace_var(n, var_name, substitution)).collect();
+    AstNode::new(node.op.clone(), new_src, node.dtype.clone())
+}
+

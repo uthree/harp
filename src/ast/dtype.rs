@@ -215,6 +215,20 @@ impl Hash for Const {
 }
 
 impl Const {
+    pub fn to_usize(&self) -> Option<usize> {
+        match *self {
+            Const::I8(v) => Some(v as usize),
+            Const::I16(v) => Some(v as usize),
+            Const::I32(v) => Some(v as usize),
+            Const::I64(v) => Some(v as usize),
+            Const::U8(v) => Some(v as usize),
+            Const::U16(v) => Some(v as usize),
+            Const::U32(v) => Some(v as usize),
+            Const::U64(v) => Some(v as usize),
+            _ => None, // Floats cannot be safely converted to usize
+        }
+    }
+
     pub fn is_zero(&self) -> bool {
         match self {
             Const::F32(v) => *v == 0.0,

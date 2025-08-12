@@ -15,6 +15,7 @@ mod ops_unary;
 use crate::ast::{Const, DType};
 use crate::backend::Backend;
 use crate::c::{CBackend, CBuffer};
+use crate::backend::generic::GenericBackendConfig;
 use crate::graph::Graph;
 use once_cell::sync::Lazy;
 use std::cell::RefCell;
@@ -23,7 +24,13 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static TENSOR_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
-static C_BACKEND: Lazy<CBackend> = Lazy::new(CBackend::new);
+static C_BACKEND: Lazy<CBackend> = Lazy::new(|| {
+    let config = GenericBackendConfig {
+        heuristic_optimization_threshold: 1,
+        loop_unroll_factors: Some(vec![2, 4, 8]),
+    };
+    CBackend::with_config(config)
+});
 
 /// A buffer holding the tensor's actual data on a computation device.
 #[derive(Debug, Clone)]
@@ -136,8 +143,7 @@ impl Tensor {
         }
     }
 
-    // Helper function to collect all unique tensors in the computation graph.
-    fn all_tensors(&self) -> Vec<Tensor> {
+    pub fn all_tensors(&self) -> Vec<Tensor> {
         let mut visited = HashSet::new();
         let mut all = vec![];
         let mut queue = vec![self.clone()];
@@ -152,6 +158,13 @@ impl Tensor {
             }
         }
         all
+    }
+
+    /// Clears the tensor's buffer and all its source tensors' buffers recursively.
+    pub fn clear_buffer(&self) {
+        for tensor in self.all_tensors() {
+            tensor.0.borrow_mut().buffer = None;
+        }
     }
 
     pub fn backward(&self) {
