@@ -6,7 +6,7 @@ use harp::{
 };
 
 fn run_c_backend(graph: &Graph, inputs: Vec<CBuffer>) -> Vec<CBuffer> {
-    let backend = CBackend::new();
+    let backend = CBackend::with_config(Default::default());
     let result_map = backend.execute(&graph, inputs, vec![]);
     graph
         .outputs

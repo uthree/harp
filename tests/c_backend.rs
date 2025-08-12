@@ -35,7 +35,7 @@ fn buffer_from_slice<T: Clone>(data: &[T], shape: &[usize], dtype: DType) -> CBu
 #[test]
 fn test_cbackend_call_simple_add() {
     setup_logger();
-    let backend = CBackend::new();
+    let backend = CBackend::with_config(Default::default());
 
     // 1. Build Graph: c = a + b
     let graph = Graph::new();
@@ -76,7 +76,7 @@ fn test_cbackend_call_simple_add() {
 #[test]
 fn test_c_backend_e2e_multiple_outputs() {
     setup_logger();
-    let backend = CBackend::new();
+    let backend = CBackend::with_config(Default::default());
 
     // 1. Build Graph: c = a + b, d = a - b
     let graph = Graph::new();
@@ -135,7 +135,7 @@ fn test_c_backend_e2e_multiple_outputs() {
 #[test]
 fn test_cbackend_cache() {
     setup_logger();
-    let backend = CBackend::new();
+    let backend = CBackend::with_config(Default::default());
 
     // Build Graph 1: c = a + b
     let graph1 = Graph::new();

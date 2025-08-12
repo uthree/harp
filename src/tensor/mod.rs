@@ -16,7 +16,7 @@ mod ops_unary;
 use crate::ast::{AstOp, Const, DType};
 use crate::backend::{Backend, c::CBuffer};
 use crate::graph::Graph;
-use once_cell::sync::Lazy;
+
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;

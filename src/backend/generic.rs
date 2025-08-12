@@ -128,7 +128,6 @@ where
                 )),
                 Box::new(LoopUnrolling::new(4)),
                 Box::new(LoopUnrolling::new(8)),
-                Box::new(LoopUnrolling::new(16)),
             ]);
             let cost_estimator = heuristic::ExecutionTimeCostEstimator::new();
             let optimizer = heuristic::BeamSearchAstOptimizer::new(suggester, cost_estimator)

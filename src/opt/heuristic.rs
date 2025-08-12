@@ -131,12 +131,15 @@ impl PartialOrd for CostAstNode {
     }
 }
 
+use rand::prelude::*;
+
 /// An optimizer that uses beam search to find a low-cost AST.
 pub struct BeamSearchAstOptimizer<S: OptimizationSuggester, C: CostEstimator> {
     suggester: S,
     cost_estimator: C,
     pub beam_width: usize,
     pub max_steps: usize,
+    pub max_suggestions: usize,
 }
 
 impl<S: OptimizationSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
@@ -144,8 +147,9 @@ impl<S: OptimizationSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
         Self {
             suggester,
             cost_estimator,
-            beam_width: 4,   // Set default beam width to 4
-            max_steps: 1000, // Default max steps for the search
+            beam_width: 4, // Set default beam width to 4
+            max_steps: 10, // Default max steps for the search
+            max_suggestions: 4,
         }
     }
 
@@ -156,6 +160,11 @@ impl<S: OptimizationSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
 
     pub fn with_max_steps(mut self, max_steps: usize) -> Self {
         self.max_steps = max_steps;
+        self
+    }
+
+    pub fn with_max_suggestions(mut self, max_suggestions: usize) -> Self {
+        self.max_suggestions = max_suggestions;
         self
     }
 
@@ -177,7 +186,17 @@ impl<S: OptimizationSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
                 all_mutations.push(new_parent);
             }
         }
-        all_mutations
+
+        // If there are too many mutations, sample a subset to keep the search tractable.
+        if all_mutations.len() > self.max_suggestions {
+            let mut rng = rand::thread_rng();
+            all_mutations
+                .choose_multiple(&mut rng, self.max_suggestions)
+                .cloned()
+                .collect()
+        } else {
+            all_mutations
+        }
     }
 }
 
