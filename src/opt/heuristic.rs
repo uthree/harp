@@ -140,13 +140,18 @@ pub struct BeamSearchAstOptimizer<S: OptimizationSuggester, C: CostEstimator> {
 }
 
 impl<S: OptimizationSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
-    pub fn new(suggester: S, cost_estimator: C, beam_width: usize) -> Self {
+    pub fn new(suggester: S, cost_estimator: C) -> Self {
         Self {
             suggester,
             cost_estimator,
-            beam_width,
+            beam_width: 4,   // Set default beam width to 4
             max_steps: 1000, // Default max steps for the search
         }
+    }
+
+    pub fn with_beam_width(mut self, beam_width: usize) -> Self {
+        self.beam_width = beam_width;
+        self
     }
 
     pub fn with_max_steps(mut self, max_steps: usize) -> Self {
@@ -206,6 +211,8 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
                 ));
 
                 let all_possible_next_asts = self.find_all_single_mutations(ast_in_beam);
+                let num_suggestions = all_possible_next_asts.len();
+                pb.set_message(format!("Step #{step}, found {num_suggestions} suggestions"));
 
                 for next_ast in all_possible_next_asts {
                     if !visited.contains(&next_ast) {
@@ -369,15 +376,17 @@ mod tests {
         let details = KernelDetails::default();
 
         // --- Test with Greedy Search (Beam Width = 1) ---
-        let greedy_optimizer =
-            BeamSearchAstOptimizer::new(suggester.clone(), cost_estimator, 1).with_max_steps(3);
+        let greedy_optimizer = BeamSearchAstOptimizer::new(suggester.clone(), cost_estimator)
+            .with_beam_width(1)
+            .with_max_steps(3);
         let greedy_result = greedy_optimizer.optimize(node_a.clone(), &details);
         // Greedy gets stuck at A because the only move is to B, which has a higher cost.
         assert_eq!(greedy_result, node_a);
 
         // --- Test with Beam Search (Beam Width = 2) ---
-        let beam_optimizer =
-            BeamSearchAstOptimizer::new(suggester, cost_estimator, 2).with_max_steps(3);
+        let beam_optimizer = BeamSearchAstOptimizer::new(suggester, cost_estimator)
+            .with_beam_width(2)
+            .with_max_steps(3);
         let beam_result = beam_optimizer.optimize(node_a.clone(), &details);
         // Beam search can move to B (cost 15) and keep it in the beam, then find C (cost 5).
         let expected_node_c = AstNode::var("C");

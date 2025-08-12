@@ -114,8 +114,9 @@ where
             log::debug!("Applying heuristic AST optimization...");
             let suggester = AlgebraicSimplification::new();
             let cost_estimator = heuristic::ExecutionTimeCostEstimator::new();
-            let optimizer = heuristic::BeamSearchAstOptimizer::new(suggester, cost_estimator, 2)
-                .with_max_steps(3);
+            let optimizer = heuristic::BeamSearchAstOptimizer::new(suggester, cost_estimator)
+                .with_beam_width(4)
+                .with_max_steps(1000);
             ast = optimizer.optimize(ast, &details);
         }
 
