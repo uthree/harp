@@ -407,7 +407,6 @@ impl<'a> Lowerer<'a> {
         let mut outer_loops = vec![];
         let mut outer_loop_vars = vec![];
         let mut full_indices = vec![];
-        let reduce_axis_pos = 0;
 
         for (i, shape_expr) in src_tracker.shape().iter().enumerate() {
             if axes.contains(&i) {

@@ -260,7 +260,6 @@ where
             }
         };
 
-        let num_inputs = inputs.len();
         let mut buffers_to_pass = inputs;
         let mut kernel_locked = kernel.lock().unwrap();
 
