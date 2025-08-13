@@ -101,6 +101,10 @@ impl AstNode {
 
     /// Creates a `Cast` node to convert the data type of this node.
     pub fn cast(self, dtype: DType) -> Self {
+        if let AstOp::Const(c) = self.op {
+            let new_const = c.cast(dtype.clone());
+            return AstNode::from(new_const);
+        }
         Self::new(AstOp::Cast(dtype.clone()), vec![self], dtype)
     }
 

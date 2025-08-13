@@ -174,6 +174,13 @@ macro_rules! impl_binary_op {
                             lhs = lhs.cast(dtype::DType::F64);
                         } else if l == &dtype::DType::F64 && r == &dtype::DType::F32 {
                             rhs = rhs.cast(dtype::DType::F64);
+                        } else if l.is_integer() && r.is_integer() {
+                            // Promote integer types to the larger one
+                            if l.size_in_bytes() > r.size_in_bytes() {
+                                rhs = rhs.cast(l.clone());
+                            } else if r.size_in_bytes() > l.size_in_bytes() {
+                                lhs = lhs.cast(r.clone());
+                            }
                         }
                     }
 
@@ -243,6 +250,13 @@ macro_rules! impl_binary_op {
                             lhs = lhs.cast(dtype::DType::F64);
                         } else if l == &dtype::DType::F64 && r == &dtype::DType::F32 {
                             rhs = rhs.cast(dtype::DType::F64);
+                        } else if l.is_integer() && r.is_integer() {
+                            // Promote integer types to the larger one
+                            if l.size_in_bytes() > r.size_in_bytes() {
+                                rhs = rhs.cast(l.clone());
+                            } else if r.size_in_bytes() > l.size_in_bytes() {
+                                lhs = lhs.cast(r.clone());
+                            }
                         }
                     }
 

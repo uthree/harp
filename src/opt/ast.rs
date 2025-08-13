@@ -335,22 +335,55 @@ pub struct AlgebraicSimplification {
 impl Default for AlgebraicSimplification {
     fn default() -> Self {
         let rules = vec![
-            // Commutative rules for addition
-            rule!("add_zero_f32_comm", |a| AstNode::from(0.0f32) + a.clone() => a),
-            rule!("add_zero_f64_comm", |a| AstNode::from(0.0f64) + a.clone() => a),
-            // Commutative rules for multiplication
-            rule!("mul_by_one_f32_comm", |a| AstNode::from(1.0f32) * a.clone() => a),
-            rule!("mul_by_one_f64_comm", |a| AstNode::from(1.0f64) * a.clone() => a),
-            rule!("mul_by_zero_f32_comm", |_a| AstNode::from(0.0f32) * _a.clone() => AstNode::from(0.0f32)),
-            rule!("mul_by_zero_f64_comm", |_a| AstNode::from(0.0f64) * _a.clone() => AstNode::from(0.0f64)),
-            // F32 rules
-            rule!("mul_by_one_f32", |a| a.clone() * AstNode::from(1.0f32) => a),
-            rule!("mul_by_zero_f32", |_a| _a * AstNode::from(0.0f32) => AstNode::from(0.0f32)),
-            rule!("add_zero_f32", |a| a.clone() + AstNode::from(0.0f32) => a),
-            // F64 rules
-            rule!("mul_by_one_f64", |a| a.clone() * AstNode::from(1.0f64) => a),
-            rule!("mul_by_zero_f64", |_a| _a * AstNode::from(0.0f64) => AstNode::from(0.0f64)),
-            rule!("add_zero_f64", |a| a.clone() + AstNode::from(0.0f64) => a),
+            rule!("mul_by_one", |a, b| a * b => {
+                if let AstOp::Const(c) = b.op {
+                    if c.is_one() {
+                        return a;
+                    }
+                }
+                a * b
+            }),
+            rule!("add_zero", |a, b| a + b => {
+                if let AstOp::Const(c) = b.op {
+                    if c.is_zero() {
+                        return a;
+                    }
+                }
+                a + b
+            }),
+            rule!("mul_by_zero", |a, b| a * b => {
+                if let AstOp::Const(c) = b.op {
+                    if c.is_zero() {
+                        return b;
+                    }
+                }
+                a * b
+            }),
+            // Commutative
+            rule!("mul_by_one_comm", |a, b| b * a => {
+                if let AstOp::Const(c) = b.op {
+                    if c.is_one() {
+                        return a;
+                    }
+                }
+                b * a
+            }),
+            rule!("add_zero_comm", |a, b| b + a => {
+                if let AstOp::Const(c) = b.op {
+                    if c.is_zero() {
+                        return a;
+                    }
+                }
+                b + a
+            }),
+            rule!("mul_by_zero_comm", |a, b| b * a => {
+                if let AstOp::Const(c) = b.op {
+                    if c.is_zero() {
+                        return b;
+                    }
+                }
+                b * a
+            }),
         ];
         Self {
             rewriter: AstRewriter::new(rules),

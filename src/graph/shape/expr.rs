@@ -345,11 +345,12 @@ mod tests {
         assert_eq!(lhs.dtype, DType::USize);
 
         // Check that the constant `2` is correctly converted and casted.
-        assert_eq!(rhs.op, AstOp::Cast(DType::USize));
-        if let AstOp::Const(c) = rhs.src[0].op {
-            assert_eq!(c, crate::ast::Const::U64(2));
+        let expected_rhs = AstNode::from(2u64).cast(DType::USize);
+        assert_eq!(rhs.op, expected_rhs.op);
+        if let AstOp::Const(c) = rhs.op {
+            assert_eq!(c, crate::ast::Const::USize(2));
         } else {
-            panic!("Expected a const node, found {:?}", rhs.src[0].op);
+            panic!("Expected a const node, found {:?}", rhs.op);
         }
     }
 

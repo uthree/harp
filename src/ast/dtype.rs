@@ -12,6 +12,7 @@ pub enum DType {
     I16,
     I32,
     I64,
+    ISize,
     U8,
     U16,
     U32,
@@ -52,6 +53,8 @@ impl DType {
             DType::I32
         } else if type_id == TypeId::of::<i64>() {
             DType::I64
+        } else if type_id == TypeId::of::<isize>() {
+            DType::ISize
         } else if type_id == TypeId::of::<u8>() {
             DType::U8
         } else if type_id == TypeId::of::<u16>() {
@@ -81,6 +84,7 @@ impl DType {
             DType::I16 => TypeId::of::<i16>(),
             DType::I32 => TypeId::of::<i32>(),
             DType::I64 => TypeId::of::<i64>(),
+            DType::ISize => TypeId::of::<isize>(),
             DType::U8 => TypeId::of::<u8>(),
             DType::U16 => TypeId::of::<u16>(),
             DType::U32 => TypeId::of::<u32>(),
@@ -108,7 +112,7 @@ impl DType {
         self.is_natural()
             || matches!(
                 self,
-                DType::I8 | DType::I16 | DType::I32 | DType::I64 | DType::Integer
+                DType::I8 | DType::I16 | DType::I32 | DType::I64 | DType::ISize | DType::Integer
             )
     }
 
@@ -121,6 +125,7 @@ impl DType {
             DType::I16 => 2,
             DType::I32 => 4,
             DType::I64 => 8,
+            DType::ISize => std::mem::size_of::<isize>(),
             DType::U8 => 1,
             DType::U16 => 2,
             DType::U32 => 4,
@@ -170,6 +175,7 @@ pub enum Const {
     I16(i16),
     I32(i32),
     I64(i64),
+    ISize(isize),
     U8(u8),
     U16(u16),
     U32(u32),
@@ -186,6 +192,7 @@ impl PartialEq for Const {
             (Self::I16(l), Self::I16(r)) => l == r,
             (Self::I32(l), Self::I32(r)) => l == r,
             (Self::I64(l), Self::I64(r)) => l == r,
+            (Self::ISize(l), Self::ISize(r)) => l == r,
             (Self::U8(l), Self::U8(r)) => l == r,
             (Self::U16(l), Self::U16(r)) => l == r,
             (Self::U32(l), Self::U32(r)) => l == r,
@@ -208,6 +215,7 @@ impl Hash for Const {
             Const::I16(v) => v.hash(state),
             Const::I32(v) => v.hash(state),
             Const::I64(v) => v.hash(state),
+            Const::ISize(v) => v.hash(state),
             Const::U8(v) => v.hash(state),
             Const::U16(v) => v.hash(state),
             Const::U32(v) => v.hash(state),
@@ -224,6 +232,7 @@ impl Const {
             Const::I16(v) => Some(v as usize),
             Const::I32(v) => Some(v as usize),
             Const::I64(v) => Some(v as usize),
+            Const::ISize(v) => Some(v as usize),
             Const::U8(v) => Some(v as usize),
             Const::U16(v) => Some(v as usize),
             Const::U32(v) => Some(v as usize),
@@ -241,6 +250,7 @@ impl Const {
             Const::I16(v) => *v == 0,
             Const::I32(v) => *v == 0,
             Const::I64(v) => *v == 0,
+            Const::ISize(v) => *v == 0,
             Const::U8(v) => *v == 0,
             Const::U16(v) => *v == 0,
             Const::U32(v) => *v == 0,
@@ -257,6 +267,7 @@ impl Const {
             Const::I16(v) => *v == 1,
             Const::I32(v) => *v == 1,
             Const::I64(v) => *v == 1,
+            Const::ISize(v) => *v == 1,
             Const::U8(v) => *v == 1,
             Const::U16(v) => *v == 1,
             Const::U32(v) => *v == 1,
@@ -289,6 +300,7 @@ impl_dtype!(I8, i8);
 impl_dtype!(I16, i16);
 impl_dtype!(I32, i32);
 impl_dtype!(I64, i64);
+impl_dtype!(ISize, isize);
 impl_dtype!(U8, u8);
 impl_dtype!(U16, u16);
 impl_dtype!(U32, u32);
@@ -305,6 +317,7 @@ impl Const {
                 DType::I16 => Const::I16(*v as i16),
                 DType::I32 => Const::I32(*v as i32),
                 DType::I64 => Const::I64(*v as i64),
+                DType::ISize => Const::ISize(*v as isize),
                 DType::U8 => Const::U8(*v as u8),
                 DType::U16 => Const::U16(*v as u16),
                 DType::U32 => Const::U32(*v as u32),
@@ -319,6 +332,7 @@ impl Const {
                 DType::I16 => Const::I16(*v as i16),
                 DType::I32 => Const::I32(*v as i32),
                 DType::I64 => Const::I64(*v as i64),
+                DType::ISize => Const::ISize(*v as isize),
                 DType::U8 => Const::U8(*v as u8),
                 DType::U16 => Const::U16(*v as u16),
                 DType::U32 => Const::U32(*v as u32),
@@ -333,6 +347,7 @@ impl Const {
                 DType::I16 => Const::I16(*v as i16),
                 DType::I32 => Const::I32(*v as i32),
                 DType::I64 => Const::I64(*v as i64),
+                DType::ISize => Const::ISize(*v as isize),
                 DType::U8 => Const::U8(*v as u8),
                 DType::U16 => Const::U16(*v as u16),
                 DType::U32 => Const::U32(*v as u32),
@@ -347,6 +362,7 @@ impl Const {
                 DType::I16 => Const::I16(*v),
                 DType::I32 => Const::I32(*v as i32),
                 DType::I64 => Const::I64(*v as i64),
+                DType::ISize => Const::ISize(*v as isize),
                 DType::U8 => Const::U8(*v as u8),
                 DType::U16 => Const::U16(*v as u16),
                 DType::U32 => Const::U32(*v as u32),
@@ -361,6 +377,7 @@ impl Const {
                 DType::I16 => Const::I16(*v as i16),
                 DType::I32 => Const::I32(*v),
                 DType::I64 => Const::I64(*v as i64),
+                DType::ISize => Const::ISize(*v as isize),
                 DType::U8 => Const::U8(*v as u8),
                 DType::U16 => Const::U16(*v as u16),
                 DType::U32 => Const::U32(*v as u32),
@@ -375,12 +392,28 @@ impl Const {
                 DType::I16 => Const::I16(*v as i16),
                 DType::I32 => Const::I32(*v as i32),
                 DType::I64 => Const::I64(*v),
+                DType::ISize => Const::ISize(*v as isize),
                 DType::U8 => Const::U8(*v as u8),
                 DType::U16 => Const::U16(*v as u16),
                 DType::U32 => Const::U32(*v as u32),
                 DType::U64 => Const::U64(*v as u64),
                 DType::USize => Const::USize(*v as usize),
                 _ => panic!("Unsupported cast from I64 to {:?}", target_dtype),
+            },
+            Const::ISize(v) => match target_dtype {
+                DType::F32 => Const::F32(*v as f32),
+                DType::F64 => Const::F64(*v as f64),
+                DType::I8 => Const::I8(*v as i8),
+                DType::I16 => Const::I16(*v as i16),
+                DType::I32 => Const::I32(*v as i32),
+                DType::I64 => Const::I64(*v as i64),
+                DType::ISize => Const::ISize(*v),
+                DType::U8 => Const::U8(*v as u8),
+                DType::U16 => Const::U16(*v as u16),
+                DType::U32 => Const::U32(*v as u32),
+                DType::U64 => Const::U64(*v as u64),
+                DType::USize => Const::USize(*v as usize),
+                _ => panic!("Unsupported cast from ISize to {:?}", target_dtype),
             },
             Const::U8(v) => match target_dtype {
                 DType::F32 => Const::F32(*v as f32),
@@ -389,6 +422,7 @@ impl Const {
                 DType::I16 => Const::I16(*v as i16),
                 DType::I32 => Const::I32(*v as i32),
                 DType::I64 => Const::I64(*v as i64),
+                DType::ISize => Const::ISize(*v as isize),
                 DType::U8 => Const::U8(*v),
                 DType::U16 => Const::U16(*v as u16),
                 DType::U32 => Const::U32(*v as u32),
@@ -403,6 +437,7 @@ impl Const {
                 DType::I16 => Const::I16(*v as i16),
                 DType::I32 => Const::I32(*v as i32),
                 DType::I64 => Const::I64(*v as i64),
+                DType::ISize => Const::ISize(*v as isize),
                 DType::U8 => Const::U8(*v as u8),
                 DType::U16 => Const::U16(*v),
                 DType::U32 => Const::U32(*v as u32),
@@ -417,6 +452,7 @@ impl Const {
                 DType::I16 => Const::I16(*v as i16),
                 DType::I32 => Const::I32(*v as i32),
                 DType::I64 => Const::I64(*v as i64),
+                DType::ISize => Const::ISize(*v as isize),
                 DType::U8 => Const::U8(*v as u8),
                 DType::U16 => Const::U16(*v as u16),
                 DType::U32 => Const::U32(*v),
@@ -431,6 +467,7 @@ impl Const {
                 DType::I16 => Const::I16(*v as i16),
                 DType::I32 => Const::I32(*v as i32),
                 DType::I64 => Const::I64(*v as i64),
+                DType::ISize => Const::ISize(*v as isize),
                 DType::U8 => Const::U8(*v as u8),
                 DType::U16 => Const::U16(*v as u16),
                 DType::U32 => Const::U32(*v as u32),
@@ -445,6 +482,7 @@ impl Const {
                 DType::I16 => Const::I16(*v as i16),
                 DType::I32 => Const::I32(*v as i32),
                 DType::I64 => Const::I64(*v as i64),
+                DType::ISize => Const::ISize(*v as isize),
                 DType::U8 => Const::U8(*v as u8),
                 DType::U16 => Const::U16(*v as u16),
                 DType::U32 => Const::U32(*v as u32),
@@ -472,6 +510,7 @@ impl Const {
             Const::I16(_) => DType::I16,
             Const::I32(_) => DType::I32,
             Const::I64(_) => DType::I64,
+            Const::ISize(_) => DType::ISize,
             Const::U8(_) => DType::U8,
             Const::U16(_) => DType::U16,
             Const::U32(_) => DType::U32,
