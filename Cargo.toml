@@ -24,3 +24,4 @@ name = "harp"
 path = "src/lib.rs"
 
 [workspace]
+members = ["crates/harp-nn", "crates/harp-viz"]
