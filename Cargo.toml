@@ -4,7 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-
+libloading = "0.8.8"
+log = "0.4.27"
+rayon = "1.11.0"
+rustc-hash = "2.1.1"
 
 [dev-dependencies]
 rstest = "0.26.1"
