@@ -82,7 +82,7 @@ pub struct HandcodedCostEstimator;
 impl CostEstimator for HandcodedCostEstimator {
     fn estimate_cost(&self, node: &AstNode, _details: &KernelDetails) -> f32 {
         match &node.op {
-            AstOp::Range {  step, .. } => {
+            AstOp::Range { step, .. } => {
                 if node.src.is_empty() {
                     return 0.0; // No loop bound or body
                 }
@@ -172,7 +172,7 @@ impl<S: OptimizationSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
         Self {
             suggester,
             cost_estimator,
-            beam_width: 4,    // Set default beam width to 4
+            beam_width: 8,    // Set default beam width to 8
             max_steps: 10000, // Default max steps for the search
             max_suggestions: 1000,
         }

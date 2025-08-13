@@ -16,7 +16,7 @@ use std::rc::Rc;
 /// Deterministic optimizations are those that are always beneficial and do not
 /// depend on runtime parameters or heuristics. Examples include constant folding,
 /// strength reduction, and elimination of common subexpressions.
-pub trait DeterministicGraphOptimizer {
+pub trait DeterministicGraphOptimizer: Send + Sync {
     /// Optimizes the given `Graph` and returns a new, optimized `Graph`.
     fn optimize(&self, graph: &Graph) -> Graph;
 }

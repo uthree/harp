@@ -127,14 +127,10 @@ impl<'a> Lowerer<'a> {
                 self.lower_fused_elementwise(node_id, &node_data, elementwise_ast)
             }
             GraphOp::FusedElementwiseReduce(elementwise_ast, op, axes) => self
-                .lower_fused_elementwise_reduce(
-                    node_id,
-                    &node_data,
-                    elementwise_ast,
-                    op,
-                    axes[0],
-                ),
-            GraphOp::FusedReduce(op, axes) => self.lower_fused_reduce(node_id, &node_data, op, axes),
+                .lower_fused_elementwise_reduce(node_id, &node_data, elementwise_ast, op, axes[0]),
+            GraphOp::FusedReduce(op, axes) => {
+                self.lower_fused_reduce(node_id, &node_data, op, axes)
+            }
             GraphOp::Reduce(op, axis) => self.lower_reduce(node_id, &node_data, op, axis),
             GraphOp::Cumulative(op, axis) => self.lower_cumulative(node_id, &node_data, op, axis),
             _ => unimplemented!("This TensorOp is not yet supported for lowering"),
@@ -477,7 +473,7 @@ mod tests {
         let op = GraphOp::FusedElementwiseReduce(fused_ast, AstOp::Add, vec![1]);
         let c_id = graph.add_node(
             op,
-            vec![a.id, b.id],     // Corrected: src
+            vec![a.id, b.id], // Corrected: src
             DType::F32,
             vec![Expr::from(10)], // Corrected: shape
         );
@@ -544,12 +540,7 @@ mod tests {
 
         // a.sum(axes=[1, 2])
         let op = GraphOp::FusedReduce(AstOp::Add, vec![1, 2]);
-        let c_id = graph.add_node(
-            op,
-            vec![a.id],
-            DType::F32,
-            vec![Expr::from(10)],
-        );
+        let c_id = graph.add_node(op, vec![a.id], DType::F32, vec![Expr::from(10)]);
         graph.get_view(c_id).as_output(); // buffer 1
 
         let mut lowerer = Lowerer::new(&graph);
@@ -574,7 +565,8 @@ mod tests {
             let fused_reduce_block = &kernel_impl.src[0];
             if let AstOp::Block { .. } = &fused_reduce_block.op {
                 let fused_reduce_ast = &fused_reduce_block.src[0];
-                if let AstOp::Range { .. } = &fused_reduce_ast.op { // Outer loop
+                if let AstOp::Range { .. } = &fused_reduce_ast.op {
+                    // Outer loop
                     let block = &fused_reduce_ast.src[1];
                     // block contains [init_acc, inner_loop, store_result]
                     assert!(matches!(block.src[0].op, AstOp::Declare { .. })); // init_acc

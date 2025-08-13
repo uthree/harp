@@ -48,7 +48,7 @@ pub enum GraphOp {
     // Fused Operators
     FusedElementwise(AstNode), // Capture(n) means n-th src element
     FusedElementwiseReduce(AstNode, AstOp, Vec<usize>), // Capture(n) means n-th src element, reduce some axis
-    FusedReduce(AstOp, Vec<usize>),              // reduce multiple axis
+    FusedReduce(AstOp, Vec<usize>),                     // reduce multiple axis
 }
 
 impl GraphOp {

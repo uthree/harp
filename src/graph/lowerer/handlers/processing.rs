@@ -319,7 +319,7 @@ impl<'a> Lowerer<'a> {
         // 3. Create outer loops for non-reducing dimensions
         let mut loops = vec![];
         let mut outer_loop_vars = vec![];
-        for (_i, shape_expr) in node_data.shape.iter().enumerate() {
+        for shape_expr in node_data.shape.iter() {
             // The shape of the fused op is the output shape, which is already reduced.
             let loop_var = self.new_loop_counter();
             outer_loop_vars.push(loop_var.clone());
@@ -407,7 +407,7 @@ impl<'a> Lowerer<'a> {
         let mut outer_loops = vec![];
         let mut outer_loop_vars = vec![];
         let mut full_indices = vec![];
-        let mut reduce_axis_pos = 0;
+        let reduce_axis_pos = 0;
 
         for (i, shape_expr) in src_tracker.shape().iter().enumerate() {
             if axes.contains(&i) {
@@ -457,7 +457,7 @@ impl<'a> Lowerer<'a> {
                 node_data.dtype.clone(),
             ),
         );
-        
+
         let nested_inner_loop = AstNode::build_loops(inner_loops, vec![update_acc]);
 
         let dst_offset = dst_tracker.offset_expr(&outer_loop_vars);

@@ -243,8 +243,8 @@ impl DeterministicGraphOptimizer for FuseElementwiseReduce {
 
                     let user_count = users.get(&elementwise_node_id).map_or(0, |u| u.len());
 
-                    if let GraphOp::Elementwise(elementwise_op) = &elementwise_node.op {
-                        if user_count == 1 {
+                    if let GraphOp::Elementwise(elementwise_op) = &elementwise_node.op
+                        && user_count == 1 {
                             // This is a candidate for fusion.
                             let mut ast_srcs = Vec::new();
                             for &src_id in &elementwise_node.src {
@@ -287,7 +287,6 @@ impl DeterministicGraphOptimizer for FuseElementwiseReduce {
                             changed = true;
                             break; // Restart the process with the modified graph
                         }
-                    }
                 }
             }
 
@@ -333,7 +332,7 @@ pub struct CompositeGraphOptimizer {
 impl CompositeGraphOptimizer {
     pub fn new(optimizers: Vec<Box<dyn DeterministicGraphOptimizer>>) -> Self {
         CompositeGraphOptimizer {
-            optimizers: optimizers,
+            optimizers,
         }
     }
 }
@@ -404,8 +403,7 @@ impl DeterministicGraphOptimizer for FuseReductions {
                             }
                         } else if let GraphOp::FusedReduce(inner_op, inner_axes) =
                             &inner_reduce_node.op
-                        {
-                            if inner_op == outer_op {
+                            && inner_op == outer_op {
                                 // Also fuse a Reduce into an existing FusedReduce
                                 let mut new_axes = inner_axes.clone();
                                 new_axes.push(*outer_axis);
@@ -420,7 +418,6 @@ impl DeterministicGraphOptimizer for FuseReductions {
                                 changed = true;
                                 break; // Restart scan
                             }
-                        }
                     }
                 }
             }
