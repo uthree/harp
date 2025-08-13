@@ -7,6 +7,7 @@ use console::Style;
 use indicatif::HumanDuration;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::debug;
+use ndarray::iter;
 use rustc_hash::FxHashSet;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
@@ -82,7 +83,7 @@ pub struct HandcodedCostEstimator;
 impl CostEstimator for HandcodedCostEstimator {
     fn estimate_cost(&self, node: &AstNode, _details: &KernelDetails) -> f32 {
         match &node.op {
-            AstOp::Range { step, .. } => {
+            AstOp::Range { step, parallel, .. } => {
                 if node.src.is_empty() {
                     return 0.0; // No loop bound or body
                 }
@@ -96,7 +97,7 @@ impl CostEstimator for HandcodedCostEstimator {
                     .sum();
                 let body_cost: f32 = body_cost + 5e-8f32; // The cost of loop counters required for iteration, conditional branches, and program counter movements
 
-                let iterations = if let AstOp::Const(c) = &max_node.op {
+                let mut iterations = if let AstOp::Const(c) = &max_node.op {
                     if let Some(val) = c.to_usize() {
                         // Assuming start is 0 and step is a positive integer
                         (val as f32 / *step as f32).ceil().max(0.0)
@@ -106,6 +107,10 @@ impl CostEstimator for HandcodedCostEstimator {
                 } else {
                     100.0 // Dynamic loop bound, use a heuristic multiplier
                 };
+
+                if *parallel {
+                    iterations = iterations / 10.0;
+                }
 
                 max_node_cost + (body_cost * iterations)
             }
@@ -172,9 +177,9 @@ impl<S: OptimizationSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
         Self {
             suggester,
             cost_estimator,
-            beam_width: 8,    // Set default beam width to 8
+            beam_width: 4,    // Set default beam width to 4
             max_steps: 10000, // Default max steps for the search
-            max_suggestions: 1000,
+            max_suggestions: 500,
         }
     }
 
