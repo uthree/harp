@@ -27,7 +27,12 @@ impl<'a> Lowerer<'a> {
         for shape_expr in dst_tracker.shape().iter() {
             let loop_var = self.new_loop_counter();
             loop_vars.push(loop_var.clone());
-            loops.push(AstNode::range(loop_var, shape_expr.clone().into(), vec![]));
+            loops.push(AstNode::range(
+                loop_var,
+                shape_expr.clone().into(),
+                vec![],
+                true,
+            ));
         }
 
         let src_offset = src_tracker.offset_expr(&loop_vars);
@@ -64,7 +69,12 @@ impl<'a> Lowerer<'a> {
         for shape_expr in dst_tracker.shape().iter() {
             let loop_var = self.new_loop_counter();
             loop_vars.push(loop_var.clone());
-            loops.push(AstNode::range(loop_var, shape_expr.clone().into(), vec![]));
+            loops.push(AstNode::range(
+                loop_var,
+                shape_expr.clone().into(),
+                vec![],
+                true,
+            ));
         }
 
         let mut loaded_srcs = vec![];
@@ -117,7 +127,12 @@ impl<'a> Lowerer<'a> {
         for shape_expr in dst_tracker.shape().iter() {
             let loop_var = self.new_loop_counter();
             loop_vars.push(loop_var.clone());
-            loops.push(AstNode::range(loop_var, shape_expr.clone().into(), vec![]));
+            loops.push(AstNode::range(
+                loop_var,
+                shape_expr.clone().into(),
+                vec![],
+                true,
+            ));
         }
 
         let op_node = self.lower_fused_ast(&elementwise_ast, &loop_vars, &node_data.src);
@@ -160,7 +175,12 @@ impl<'a> Lowerer<'a> {
         for shape_expr in dst_tracker.shape().iter() {
             let loop_var = self.new_loop_counter();
             outer_loop_vars.push(loop_var.clone());
-            loops.push(AstNode::range(loop_var, shape_expr.clone().into(), vec![]));
+            loops.push(AstNode::range(
+                loop_var,
+                shape_expr.clone().into(),
+                vec![],
+                false,
+            ));
         }
 
         let acc_var = self.new_accumulator_name();
@@ -196,6 +216,7 @@ impl<'a> Lowerer<'a> {
             inner_loop_var,
             src_tracker.shape()[axis].clone().into(),
             vec![update_acc],
+            false,
         );
 
         let dst_offset = dst_tracker.offset_expr(&outer_loop_vars);
@@ -240,7 +261,12 @@ impl<'a> Lowerer<'a> {
             }
             let loop_var = self.new_loop_counter();
             outer_loop_vars.push(loop_var.clone());
-            loops.push(AstNode::range(loop_var, shape_expr.clone().into(), vec![]));
+            loops.push(AstNode::range(
+                loop_var,
+                shape_expr.clone().into(),
+                vec![],
+                false,
+            ));
         }
 
         let acc_var = self.new_accumulator_name();
@@ -283,6 +309,7 @@ impl<'a> Lowerer<'a> {
             inner_loop_var,
             src_tracker.shape()[axis].clone().into(),
             vec![update_acc, store_result],
+            false,
         );
 
         let mut final_block_src = vec![];
@@ -323,7 +350,12 @@ impl<'a> Lowerer<'a> {
             // The shape of the fused op is the output shape, which is already reduced.
             let loop_var = self.new_loop_counter();
             outer_loop_vars.push(loop_var.clone());
-            loops.push(AstNode::range(loop_var, shape_expr.clone().into(), vec![]));
+            loops.push(AstNode::range(
+                loop_var,
+                shape_expr.clone().into(),
+                vec![],
+                false,
+            ));
         }
 
         // 4. Initialize accumulator
@@ -364,6 +396,7 @@ impl<'a> Lowerer<'a> {
             inner_loop_var,
             src_shape[axis].clone().into(),
             vec![update_acc],
+            false,
         );
 
         // 8. Store the final result
@@ -417,7 +450,12 @@ impl<'a> Lowerer<'a> {
                 let loop_var = self.new_loop_counter();
                 outer_loop_vars.push(loop_var.clone());
                 full_indices.push(loop_var.clone());
-                outer_loops.push(AstNode::range(loop_var, shape_expr.clone().into(), vec![]));
+                outer_loops.push(AstNode::range(
+                    loop_var,
+                    shape_expr.clone().into(),
+                    vec![],
+                    false,
+                ));
             }
         }
 
@@ -438,7 +476,12 @@ impl<'a> Lowerer<'a> {
             if axes.contains(&i) {
                 let loop_var = self.new_loop_counter();
                 full_indices[i] = loop_var.clone();
-                inner_loops.push(AstNode::range(loop_var, shape_expr.clone().into(), vec![]));
+                inner_loops.push(AstNode::range(
+                    loop_var,
+                    shape_expr.clone().into(),
+                    vec![],
+                    false,
+                ));
             }
         }
 

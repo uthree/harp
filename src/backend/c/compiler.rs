@@ -49,24 +49,52 @@ impl Compiler<CBuffer> for CCompiler {
 
         let out_dir = tempfile::tempdir_in("/tmp").unwrap();
 
-        let (lib_name, compiler) = if cfg!(target_os = "macos") {
-            ("kernel.dylib", "clang")
+        let (lib_name, compiler, args) = if cfg!(target_os = "macos") {
+            let mut base_args = vec![
+                "-shared".to_string(),
+                "-fPIC".to_string(),
+                "-O3".to_string(),
+                "-Xpreprocessor".to_string(),
+                "-fopenmp".to_string(),
+            ];
+            let omp_path_str = if cfg!(target_arch = "aarch64") {
+                "/opt/homebrew/opt/libomp"
+            } else {
+                "/usr/local/opt/libomp"
+            };
+            let omp_path = std::path::Path::new(omp_path_str);
+            if omp_path.exists() {
+                base_args.push("-I".to_string());
+                base_args.push(omp_path.join("include").to_str().unwrap().to_string());
+                base_args.push("-L".to_string());
+                base_args.push(omp_path.join("lib").to_str().unwrap().to_string());
+            }
+            base_args.push("-lomp".to_string());
+            ("kernel.dylib", "clang", base_args)
         } else {
-            ("kernel.so", "gcc")
+            (
+                "kernel.so",
+                "gcc",
+                vec![
+                    "-shared".to_string(),
+                    "-fPIC".to_string(),
+                    "-O3".to_string(),
+                    "-fopenmp".to_string(),
+                ],
+            )
         };
         let lib_path = out_dir.path().join(lib_name);
 
         debug!(
-            "Running compile command: {} -shared -fPIC -O3 -o {} {}",
+            "Running compile command: {} {} -o {} {}",
             compiler,
+            args.join(" "),
             lib_path.to_str().unwrap(),
             source_file.path().to_str().unwrap()
         );
 
         let output = std::process::Command::new(compiler)
-            .arg("-shared")
-            .arg("-fPIC")
-            .arg("-O3")
+            .args(&args)
             .arg("-o")
             .arg(&lib_path)
             .arg(source_file.path())

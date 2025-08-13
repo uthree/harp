@@ -35,7 +35,12 @@ impl<'a> Lowerer<'a> {
         for shape_expr in dst_tracker.shape().iter() {
             let loop_var = self.new_loop_counter();
             loop_vars.push(loop_var.clone());
-            loops.push(AstNode::range(loop_var, shape_expr.clone().into(), vec![]));
+            loops.push(AstNode::range(
+                loop_var,
+                shape_expr.clone().into(),
+                vec![],
+                true,
+            ));
         }
 
         let dst_offset = dst_tracker.offset_expr(&loop_vars);
@@ -63,7 +68,12 @@ impl<'a> Lowerer<'a> {
         for shape_expr in dst_tracker.shape().iter() {
             let loop_var = self.new_loop_counter();
             loop_vars.push(loop_var.clone());
-            loops.push(AstNode::range(loop_var, shape_expr.clone().into(), vec![]));
+            loops.push(AstNode::range(
+                loop_var,
+                shape_expr.clone().into(),
+                vec![],
+                true,
+            ));
         }
 
         let dst_offset = dst_tracker.offset_expr(&loop_vars);

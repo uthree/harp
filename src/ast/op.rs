@@ -67,6 +67,7 @@ pub enum AstOp {
     Range {
         loop_var: String,
         step: usize,
+        parallel: bool,
     },
     /// Represents a function definition. The function body is in `src`.
     Func {
@@ -103,12 +104,14 @@ impl PartialEq for AstOp {
                 Self::Range {
                     loop_var: l_loop_var,
                     step: l_step,
+                    parallel: l_parallel,
                 },
                 Self::Range {
                     loop_var: r_loop_var,
                     step: r_step,
+                    parallel: r_parallel,
                 },
-            ) => l_loop_var == r_loop_var && l_step == r_step,
+            ) => l_loop_var == r_loop_var && l_step == r_step && l_parallel == r_parallel,
             (
                 Self::Func {
                     name: l_name,
@@ -143,9 +146,14 @@ impl Hash for AstOp {
                 name.hash(state);
                 dtype.hash(state);
             }
-            AstOp::Range { loop_var, step } => {
+            AstOp::Range {
+                loop_var,
+                step,
+                parallel,
+            } => {
                 loop_var.hash(state);
                 step.hash(state);
+                parallel.hash(state);
             }
             AstOp::Func { name, args } => {
                 name.hash(state);

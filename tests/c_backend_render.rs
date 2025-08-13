@@ -98,9 +98,10 @@ fn test_render_for_loop() {
         "i".to_string(),
         AstNode::var("N").with_type(DType::I32),
         vec![],
+        false,
     );
     let expected = r#"
-for (size_t i = 0; i < N; i++) {}"#;
+for (size_t i = 0; i < N; i++) { }"#;
     assert_render(ast, expected);
 }
 

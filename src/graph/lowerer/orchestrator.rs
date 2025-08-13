@@ -110,7 +110,12 @@ impl<'a> LoweringOrchestrator for Lowerer<'a> {
                 for shape_expr in dst_tracker.shape().iter() {
                     let loop_var = self.new_loop_counter();
                     loop_vars.push(loop_var.clone());
-                    loops.push(AstNode::range(loop_var, shape_expr.clone().into(), vec![]));
+                    loops.push(AstNode::range(
+                        loop_var,
+                        shape_expr.clone().into(),
+                        vec![],
+                        false,
+                    ));
                 }
 
                 let src_buffer = self.get_buffer_var(buffer_id);

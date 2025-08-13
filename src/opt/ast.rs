@@ -407,7 +407,7 @@ impl Default for LoopUnrolling {
 impl OptimizationSuggester for LoopUnrolling {
     fn suggest_optimizations(&self, node: &AstNode) -> Vec<AstNode> {
         let mut suggestions = Vec::new();
-        if let AstOp::Range { loop_var, step } = &node.op {
+        if let AstOp::Range { loop_var, step, .. } = &node.op {
             // Only unroll loops with a step of 1 to avoid nested unrolling.
             if *step != 1 {
                 return suggestions;
@@ -436,6 +436,7 @@ impl OptimizationSuggester for LoopUnrolling {
                     AstOp::Range {
                         loop_var: loop_var.clone(),
                         step: unroll_factor,
+                        parallel: false,
                     },
                     vec![main_loop_end]
                         .into_iter()
@@ -461,6 +462,7 @@ impl OptimizationSuggester for LoopUnrolling {
                         AstOp::Range {
                             loop_var: remainder_loop_var,
                             step: 1,
+                            parallel: false,
                         },
                         vec![AstNode::from(remaining_iterations as i32)]
                             .into_iter()

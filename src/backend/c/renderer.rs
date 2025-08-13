@@ -31,14 +31,21 @@ impl CRenderer {
                 self.indent_level -= 1;
                 self.writeln("}");
             }
-            AstOp::Range { loop_var, step } => {
+            AstOp::Range {
+                loop_var,
+                step,
+                parallel,
+            } => {
+                if *parallel {
+                    self.writeln("#pragma omp parallel for");
+                }
                 self.write_indent();
                 write!(self.buffer, "for (size_t {loop_var} = 0; {loop_var} < ").unwrap();
                 self.render_node(&ast.src[0]); // max
                 if *step == 1 {
-                    write!(self.buffer, "; {loop_var}++) {{").unwrap();
+                    writeln!(self.buffer, "; {loop_var}++) {{").unwrap();
                 } else {
-                    write!(self.buffer, "; {loop_var} += {step}) {{").unwrap();
+                    writeln!(self.buffer, "; {loop_var} += {step}) {{").unwrap();
                 }
                 self.indent_level += 1;
 
@@ -54,7 +61,7 @@ impl CRenderer {
                     }
                 }
                 self.indent_level -= 1;
-                self.writeln("}");
+                self.writeln("} ");
             }
             AstOp::Func { name, args } => {
                 let args_str: Vec<String> = args
@@ -262,7 +269,8 @@ impl Renderer for CRenderer {
         self.buffer.push_str("#include <stdlib.h>\n"); // For rand() and RAND_MAX
         self.buffer.push_str("#include <stddef.h>\n");
         self.buffer.push_str("#include <stdint.h>\n");
-        self.buffer.push_str("#include <math.h>\n\n"); // For fmax, etc.
+        self.buffer.push_str("#include <math.h>\n"); // For fmax, etc.
+        self.buffer.push_str("#include <omp.h>\n\n");
 
         self.render_node(&ast);
         let code = self.buffer.clone();
