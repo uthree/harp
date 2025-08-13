@@ -41,10 +41,10 @@ fn main() {
     let backend = Arc::new(CBackend::with_config(config));
 
     // Define the computation graph outside the loop.
-    let a = Tensor::rand(vec![256, 512], DType::F32, true, backend.clone());
-    let b = Tensor::rand(vec![512, 1024], DType::F32, true, backend.clone());
-    let c = Tensor::rand(vec![1024, 256], DType::F32, true, backend.clone());
-    let d = Tensor::rand(vec![256, 64], DType::F32, true, backend.clone());
+    let a = Tensor::rand(vec![64, 128], DType::F32, true, backend.clone());
+    let b = Tensor::rand(vec![128, 64], DType::F32, true, backend.clone());
+    let c = Tensor::rand(vec![64, 64], DType::F32, true, backend.clone());
+    let d = Tensor::rand(vec![64, 64], DType::F32, true, backend.clone());
     let x = matmul(&a, &b);
     let x = matmul(&x, &c);
     let x = matmul(&x, &d);

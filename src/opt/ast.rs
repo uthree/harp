@@ -372,16 +372,54 @@ impl Default for AlgebraicSimplification {
                 b + a
             }),
             rule!("mul_by_zero_comm", |a, b| b * a => {
-                if let AstOp::Const(c) = b.op
-                    && c.is_zero() {
-                        return b;
-                    }
+                if let AstOp::Const(c) = b.op && c.is_zero() {
+                    return b;
+                }
                 b * a
+            }),
+            rule!("const_fold_add", |a, b| a + b => {
+                if let (AstOp::Const(c1), AstOp::Const(c2)) = (&a.op, &b.op)
+                    && let Some(result) = c1.add(c2) {
+                        return result.into();
+                    }
+                a + b
+            }),
+            rule!("const_fold_mul", |a, b| a * b => {
+                if let (AstOp::Const(c1), AstOp::Const(c2)) = (&a.op, &b.op)
+                    && let Some(result) = c1.mul(c2) {
+                        return result.into();
+                    }
+                a * b
             }),
         ];
         Self {
             rewriter: AstRewriter::new(rules),
         }
+    }
+}
+
+/// A suggester for applying distributive and associative laws.
+#[derive(Clone)]
+pub struct AssociativeAndDistributiveLaws;
+
+impl OptimizationSuggester for AssociativeAndDistributiveLaws {
+    fn suggest_optimizations(&self, node: &AstNode) -> Vec<AstNode> {
+        let mut suggestions = Vec::new();
+        let rules = vec![
+            // a * (b + c) -> a * b + a * c
+            rule!("distributive_expand", |a, b, c| a.clone() * (b.clone() + c.clone()) => (a.clone() * b) + (a * c)),
+            // (a * b) + (a * c) -> a * (b + c)
+            rule!("distributive_factor", |a, b, c| (a.clone() * b.clone()) + (a.clone() * c.clone()) => a * (b + c)),
+            // (a + b) + c -> a + (b + c)
+            rule!("associative_add", |a, b, c| (a.clone() + b.clone()) + c.clone() => a + (b + c)),
+        ];
+
+        for rule in rules {
+            if let Some(captures) = rule.capture(node) {
+                suggestions.push((rule.rewriter)(captures));
+            }
+        }
+        suggestions
     }
 }
 

@@ -6,7 +6,10 @@ use crate::{
     },
     opt::{
         DeterministicGraphOptimizer,
-        ast::{AlgebraicSimplification, DeterministicAstOptimizer, LoopUnrolling},
+        ast::{
+            AlgebraicSimplification, DeterministicAstOptimizer,
+            LoopUnrolling,
+        },
         graph::{
             CompositeGraphOptimizer, ElementwiseFusion, FuseElementwiseReduce, FuseReductions,
         },
@@ -119,10 +122,7 @@ where
                 Box::new(heuristic::RuleBasedSuggester::new(
                     AlgebraicSimplification::new().rules(),
                 )),
-                Box::new(LoopUnrolling::new(2)),
                 Box::new(LoopUnrolling::new(4)),
-                Box::new(LoopUnrolling::new(8)),
-                Box::new(LoopUnrolling::new(16)),
             ]);
             let cost_estimator = heuristic::HandcodedCostEstimator;
             let optimizer = heuristic::BeamSearchAstOptimizer::new(suggester, cost_estimator);

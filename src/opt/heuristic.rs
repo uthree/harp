@@ -178,7 +178,7 @@ impl<S: OptimizationSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
             cost_estimator,
             beam_width: 4,    // Set default beam width to 4
             max_steps: 10000, // Default max steps for the search
-            max_suggestions: 500,
+            max_suggestions: 250,
         }
     }
 
@@ -315,7 +315,7 @@ impl<S: OptimizationSuggester, C: CostEstimator> DeterministicAstOptimizer
                 })
                 .unwrap();
             let cost = self.cost_estimator.estimate_cost(best_node, details);
-            pb.set_message(format!("Cost: {cost:.2}"));
+            pb.set_message(format!("Cost: {cost:.4}"));
             pb.inc(1);
         }
         pb.finish_and_clear();

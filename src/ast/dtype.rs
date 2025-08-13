@@ -275,6 +275,24 @@ impl Const {
             Const::USize(v) => *v == 1,
         }
     }
+
+    pub fn add(&self, other: &Self) -> Option<Self> {
+        match (self, other) {
+            (Const::I32(a), Const::I32(b)) => Some(Const::I32(a + b)),
+            (Const::F32(a), Const::F32(b)) => Some(Const::F32(a + b)),
+            // Add other type combinations as needed
+            _ => None,
+        }
+    }
+
+    pub fn mul(&self, other: &Self) -> Option<Self> {
+        match (self, other) {
+            (Const::I32(a), Const::I32(b)) => Some(Const::I32(a * b)),
+            (Const::F32(a), Const::F32(b)) => Some(Const::F32(a * b)),
+            // Add other type combinations as needed
+            _ => None,
+        }
+    }
 }
 
 macro_rules! impl_dtype {

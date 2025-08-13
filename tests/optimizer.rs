@@ -132,3 +132,45 @@ fn test_cast_simplification_constant_folding() {
 
     assert_eq!(result, expected);
 }
+
+#[test]
+fn test_constant_folding() {
+    setup_logger();
+    let optimizer = AlgebraicSimplification::new();
+    let dummy_details = KernelDetails::default();
+
+    // 2 + 3 = 5
+    let target_add = AstNode::from(2i32) + AstNode::from(3i32);
+    let expected_add = AstNode::from(5i32);
+    let result_add = optimizer.optimize(target_add, &dummy_details);
+    assert_eq!(result_add, expected_add);
+
+    // 2.0 * 3.0 = 6.0
+    let target_mul = AstNode::from(2.0f32) * AstNode::from(3.0f32);
+    let expected_mul = AstNode::from(6.0f32);
+    let result_mul = optimizer.optimize(target_mul, &dummy_details);
+    assert_eq!(result_mul, expected_mul);
+}
+
+#[test]
+fn test_associative_and_distributive_suggester() {
+    setup_logger();
+    let suggester = AssociativeAndDistributiveLaws;
+    let a = AstNode::var("a");
+    let b = AstNode::var("b");
+    let c = AstNode::var("c");
+
+    // Test distributive expand: a * (b + c)
+    let target_dist_expand = a.clone() * (b.clone() + c.clone());
+    let suggestions = suggester.suggest_optimizations(&target_dist_expand);
+    assert_eq!(suggestions.len(), 1);
+    let expected_expand = (a.clone() * b.clone()) + (a.clone() * c.clone());
+    assert_eq!(suggestions[0], expected_expand);
+
+    // Test associative add: (a + b) + c
+    let target_assoc_add = (a.clone() + b.clone()) + c.clone();
+    let suggestions = suggester.suggest_optimizations(&target_assoc_add);
+    assert_eq!(suggestions.len(), 1);
+    let expected_assoc = a.clone() + (b.clone() + c.clone());
+    assert_eq!(suggestions[0], expected_assoc);
+}
