@@ -308,28 +308,12 @@ where
 
         // Create the final map from NodeId to Buffer
         let mut output_map = HashMap::new();
-        let all_maps = details
-            .input_map
-            .iter()
-            .map(|(k, v)| (k, v, BufferKind::Input))
-            .chain(
-                details
-                    .output_map
-                    .iter()
-                    .map(|(k, v)| (k, v, BufferKind::Output)),
-            );
+        let num_inputs = details.inputs.len();
+        let output_buffers_slice = &result_buffers[num_inputs..];
 
-        for (node_id, &buffer_index, kind) in all_maps {
-            let final_index = match kind {
-                BufferKind::Input => buffer_index,
-                BufferKind::Output => details.inputs.len() + buffer_index,
-                BufferKind::Intermediate => {
-                    // Intermediates are not returned from call, so we skip them
-                    continue;
-                }
-            };
-            if final_index < result_buffers.len() {
-                output_map.insert(*node_id, result_buffers[final_index].clone());
+        for (node_id, &output_index) in &details.output_map {
+            if output_index < output_buffers_slice.len() {
+                output_map.insert(*node_id, output_buffers_slice[output_index].clone());
             }
         }
         output_map

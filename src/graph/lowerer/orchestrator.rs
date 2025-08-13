@@ -132,29 +132,46 @@ impl<'a> LoweringOrchestrator for Lowerer<'a> {
 
         // 4. Create the implementation function `kernel_impl`.
         let mut impl_args = vec![];
-        let mut impl_call_vars = vec![];
-        // Add inputs
+        // Add inputs to impl signature
         for (i, info) in self.details.inputs.iter().enumerate() {
             let name = format!("input{i}");
             let arg_type = DType::Ptr(Box::new(info.dtype.clone()));
-            impl_args.push((name.clone(), arg_type.clone()));
-            impl_call_vars.push(AstNode::var(&name).with_type(arg_type));
+            impl_args.push((name, arg_type));
         }
-        // Add outputs
+        // Add outputs to impl signature
         for (i, info) in self.details.outputs.iter().enumerate() {
             let name = format!("output{i}");
             let arg_type = DType::Ptr(Box::new(info.dtype.clone()));
-            impl_args.push((name.clone(), arg_type.clone()));
-            impl_call_vars.push(AstNode::var(&name).with_type(arg_type));
+            impl_args.push((name, arg_type));
         }
-        // Add intermediates
+
+        // Create the body for kernel_impl, wrapping computation with malloc/free
+        let mut kernel_impl_body = vec![];
+        // Allocate and declare intermediate buffers at the start of kernel_impl
         for (i, info) in self.details.intermediates.iter().enumerate() {
-            let name = format!("tmp{i}");
-            let arg_type = DType::Ptr(Box::new(info.dtype.clone()));
-            impl_args.push((name.clone(), arg_type.clone()));
-            impl_call_vars.push(AstNode::var(&name).with_type(arg_type));
+            let var_name = format!("tmp{i}");
+            let size_expr: AstNode = info
+                .shape
+                .iter()
+                .map(|e| e.clone().into())
+                .reduce(|a, b| a * b)
+                .unwrap_or_else(|| 1.into());
+            let malloc_call = AstNode::malloc(size_expr, info.dtype.clone());
+            kernel_impl_body.push(AstNode::declare(
+                var_name,
+                DType::Ptr(Box::new(info.dtype.clone())),
+                malloc_call,
+            ));
         }
-        let kernel_impl = AstNode::func_def("kernel_impl", impl_args, computation_body);
+        // Add the actual computation
+        kernel_impl_body.extend(computation_body);
+        // Free intermediate buffers at the end of kernel_impl
+        for i in 0..self.details.intermediates.len() {
+            let var_name = format!("tmp{i}");
+            kernel_impl_body.push(AstNode::free(AstNode::var(&var_name)));
+        }
+
+        let kernel_impl = AstNode::func_def("kernel_impl", impl_args, kernel_impl_body);
 
         // 5. Create the main wrapper function `kernel_main`.
         let main_args = vec![
@@ -172,53 +189,38 @@ impl<'a> LoweringOrchestrator for Lowerer<'a> {
             ),
         ];
         let mut main_body = vec![];
+        let mut impl_call_vars = vec![];
 
-        // Declare input buffer pointers
+        // Declare input buffer pointers and prepare them for the impl call
         for (i, info) in self.details.inputs.iter().enumerate() {
             let var_name = format!("input{i}");
             let buffer_ptr = self.get_buffer_ptr_from_array("inputs", i, &info.dtype);
             main_body.push(AstNode::declare(
-                var_name,
+                var_name.clone(),
                 DType::Ptr(Box::new(info.dtype.clone())),
                 buffer_ptr,
             ));
+            impl_call_vars.push(
+                AstNode::var(&var_name).with_type(DType::Ptr(Box::new(info.dtype.clone()))),
+            );
         }
-        // Declare output buffer pointers
+        // Declare output buffer pointers and prepare them for the impl call
         for (i, info) in self.details.outputs.iter().enumerate() {
             let var_name = format!("output{i}");
             let buffer_ptr = self.get_buffer_ptr_from_array("outputs", i, &info.dtype);
             main_body.push(AstNode::declare(
-                var_name,
+                var_name.clone(),
                 DType::Ptr(Box::new(info.dtype.clone())),
                 buffer_ptr,
             ));
-        }
-        // Allocate and declare intermediate buffers
-        for (i, info) in self.details.intermediates.iter().enumerate() {
-            let var_name = format!("tmp{i}");
-            let size_expr: AstNode = info
-                .shape
-                .iter()
-                .map(|e| e.clone().into())
-                .reduce(|a, b| a * b)
-                .unwrap_or_else(|| 1.into());
-            let malloc_call = AstNode::malloc(size_expr, info.dtype.clone());
-            main_body.push(AstNode::declare(
-                var_name,
-                DType::Ptr(Box::new(info.dtype.clone())),
-                malloc_call,
-            ));
+            impl_call_vars.push(
+                AstNode::var(&var_name).with_type(DType::Ptr(Box::new(info.dtype.clone()))),
+            );
         }
 
         // Create the call to the implementation function.
         let call_impl = AstNode::call("kernel_impl", impl_call_vars);
         main_body.push(call_impl);
-
-        // Free intermediate buffers
-        for i in 0..self.details.intermediates.len() {
-            let var_name = format!("tmp{i}");
-            main_body.push(AstNode::free(AstNode::var(&var_name)));
-        }
 
         let kernel_main = AstNode::func_def("kernel_main", main_args, main_body);
 
