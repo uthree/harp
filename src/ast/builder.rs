@@ -92,6 +92,17 @@ impl AstNode {
         }
         final_block
     }
+
+    /// Creates a new `Malloc` node.
+    pub fn malloc(size: AstNode, dtype: dtype::DType) -> Self {
+        let ptr_type = dtype::DType::Ptr(Box::new(dtype.clone()));
+        Self::new(AstOp::Malloc(dtype), vec![size], ptr_type)
+    }
+
+    /// Creates a new `Free` node.
+    pub fn free(ptr: AstNode) -> Self {
+        Self::new(AstOp::Free, vec![ptr], dtype::DType::Void)
+    }
 }
 
 // --- Macro implementations for operators ---

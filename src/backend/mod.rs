@@ -22,9 +22,17 @@ use std::collections::HashMap;
 
 // --- Core Data Structures ---
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BufferKind {
+    Input,
+    Output,
+    Intermediate,
+}
+
 /// Information about a single buffer used in a kernel.
 #[derive(Debug, Clone)]
 pub struct BufferInfo {
+    pub kind: BufferKind,
     pub dtype: DType,
     pub shape: Vec<Expr>,
 }
@@ -33,11 +41,16 @@ pub struct BufferInfo {
 #[derive(Debug, Clone, Default)]
 pub struct KernelDetails {
     /// Information about each buffer (input and output).
-    pub buffers: Vec<BufferInfo>,
+    pub inputs: Vec<BufferInfo>,
+    pub outputs: Vec<BufferInfo>,
+    pub intermediates: Vec<BufferInfo>,
     /// The names of variables used to define dynamic shapes.
     pub shape_variables: Vec<String>,
-    /// A map from the graph's NodeId to the index in the `buffers` Vec.
-    pub buffer_map: FxHashMap<NodeId, usize>,
+    /// A map from the graph's NodeId to the index in the corresponding buffer Vec.
+    /// The usize indicates the index within the specific buffer kind's Vec.
+    pub input_map: FxHashMap<NodeId, usize>,
+    pub output_map: FxHashMap<NodeId, usize>,
+    pub intermediate_map: FxHashMap<NodeId, usize>,
 }
 
 // --- Core Traits ---

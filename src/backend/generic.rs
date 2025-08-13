@@ -1,5 +1,5 @@
 use crate::{
-    backend::{Backend, Buffer, Compiler, Kernel, KernelDetails, Renderer},
+    backend::{Backend, Buffer, BufferKind, Compiler, Kernel, KernelDetails, Renderer},
     graph::{
         Graph,
         lowerer::{Lowerer, orchestrator::LoweringOrchestrator},
@@ -186,8 +186,9 @@ where
             .collect();
 
         let inputs = details
-            .buffers
+            .inputs
             .iter()
+            .chain(details.outputs.iter())
             .map(|info| {
                 let shape = info
                     .shape
@@ -276,7 +277,7 @@ where
         };
 
         let num_inputs = inputs.len();
-        let mut all_buffers = inputs;
+        let mut buffers_to_pass = inputs;
         let mut kernel_locked = kernel.lock().unwrap();
 
         let shape_vars_map: std::collections::HashMap<String, i64> = kernel_locked
@@ -287,22 +288,48 @@ where
             .zip(shape_variables.iter().map(|&v| v as i64))
             .collect();
 
-        for buffer_info in kernel_locked.details().buffers.iter().skip(num_inputs) {
+        // Allocate output buffers
+        let mut output_buffers = Vec::new();
+        log::debug!(
+            "Allocating {} output buffers.",
+            kernel_locked.details().outputs.len()
+        );
+        for buffer_info in kernel_locked.details().outputs.iter() {
             let shape = buffer_info
                 .shape
                 .iter()
                 .map(|expr| expr.evaluate(&shape_vars_map) as usize)
                 .collect();
-            all_buffers.push(B::allocate(buffer_info.dtype.clone(), shape));
+            output_buffers.push(B::allocate(buffer_info.dtype.clone(), shape));
         }
+        buffers_to_pass.extend(output_buffers);
 
-        let result_buffers = kernel_locked.call(all_buffers, &shape_variables);
+        let result_buffers = kernel_locked.call(buffers_to_pass, &shape_variables);
 
         // Create the final map from NodeId to Buffer
         let mut output_map = HashMap::new();
-        for (node_id, buffer_index) in &details.buffer_map {
-            if *buffer_index < result_buffers.len() {
-                output_map.insert(*node_id, result_buffers[*buffer_index].clone());
+        let all_maps = details
+            .input_map
+            .iter()
+            .map(|(k, v)| (k, v, BufferKind::Input))
+            .chain(
+                details
+                    .output_map
+                    .iter()
+                    .map(|(k, v)| (k, v, BufferKind::Output)),
+            );
+
+        for (node_id, &buffer_index, kind) in all_maps {
+            let final_index = match kind {
+                BufferKind::Input => buffer_index,
+                BufferKind::Output => details.inputs.len() + buffer_index,
+                BufferKind::Intermediate => {
+                    // Intermediates are not returned from call, so we skip them
+                    continue;
+                }
+            };
+            if final_index < result_buffers.len() {
+                output_map.insert(*node_id, result_buffers[final_index].clone());
             }
         }
         output_map
@@ -333,9 +360,12 @@ mod tests {
         let sin_node = neg_node.sin();
         let _ = sin_node.exp2().as_output();
 
+        // Create a dummy input buffer
+        let dummy_input = CBuffer::allocate(DType::F32, vec![1]);
+
         // The first call should compile the deterministically optimized kernel.
         assert_eq!(*backend.compile_count.lock().unwrap(), 0);
-        let result1 = backend.execute(&graph, vec![], vec![]);
+        let result1 = backend.execute(&graph, vec![dummy_input.clone()], vec![]);
         assert!(!result1.is_empty());
         assert_eq!(
             *backend.compile_count.lock().unwrap(),
@@ -344,7 +374,7 @@ mod tests {
         );
 
         // Subsequent calls before the threshold should use the cache.
-        let result2 = backend.execute(&graph, vec![], vec![]);
+        let result2 = backend.execute(&graph, vec![dummy_input.clone()], vec![]);
         assert!(!result2.is_empty());
         assert_eq!(
             *backend.compile_count.lock().unwrap(),
@@ -353,7 +383,7 @@ mod tests {
         );
 
         // The call at the threshold should trigger heuristic optimization and re-compilation.
-        let result3 = backend.execute(&graph, vec![], vec![]);
+        let result3 = backend.execute(&graph, vec![dummy_input.clone()], vec![]);
         assert!(!result3.is_empty());
         assert_eq!(
             *backend.compile_count.lock().unwrap(),
@@ -362,14 +392,14 @@ mod tests {
         );
 
         // Calls after optimization should use the new heuristically optimized kernel from cache.
-        let result4 = backend.execute(&graph, vec![], vec![]);
+        let result4 = backend.execute(&graph, vec![dummy_input.clone()], vec![]);
         assert!(!result4.is_empty());
         assert_eq!(
             *backend.compile_count.lock().unwrap(),
             2,
             "Fourth call should hit heuristic cache"
         );
-        let result5 = backend.execute(&graph, vec![], vec![]);
+        let result5 = backend.execute(&graph, vec![dummy_input.clone()], vec![]);
         assert!(!result5.is_empty());
         assert_eq!(
             *backend.compile_count.lock().unwrap(),

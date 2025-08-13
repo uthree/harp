@@ -75,6 +75,10 @@ pub enum AstOp {
     },
     /// Represents a function call. Arguments are stored in the `src` field.
     Call(String),
+    /// Allocates memory. `src[0]` is the size in elements, `dtype` is the element type.
+    Malloc(DType),
+    /// Frees memory. `src[0]` is the pointer to free.
+    Free,
 }
 
 impl PartialEq for AstOp {

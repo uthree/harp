@@ -25,12 +25,15 @@ impl Kernel<CBuffer> for CKernel {
     }
 
     fn call(&mut self, mut buffers: Vec<CBuffer>, shape_variables: &[usize]) -> Vec<CBuffer> {
+        let num_inputs = self.details.inputs.len();
+        let num_outputs = self.details.outputs.len();
+
         // 1. Validate the incoming buffers against the kernel's details.
         assert_eq!(
             buffers.len(),
-            self.details.buffers.len(),
+            num_inputs + num_outputs,
             "Mismatched number of buffers: expected {}, got {}",
-            self.details.buffers.len(),
+            num_inputs + num_outputs,
             buffers.len()
         );
 
@@ -51,8 +54,10 @@ impl Kernel<CBuffer> for CKernel {
             .zip(shape_variables.iter().map(|&v| v as i64))
             .collect();
 
-        for (i, (buffer, buffer_info)) in
-            buffers.iter().zip(self.details.buffers.iter()).enumerate()
+        for (i, (buffer, buffer_info)) in buffers
+            .iter()
+            .zip(self.details.inputs.iter().chain(self.details.outputs.iter()))
+            .enumerate()
         {
             // Validate dtype
             assert_eq!(
@@ -79,9 +84,11 @@ impl Kernel<CBuffer> for CKernel {
         }
 
         // 2. If validation passes, execute the C function.
-        type CFunc = unsafe extern "C" fn(*mut *mut c_void, *const usize);
+        type CFunc = unsafe extern "C" fn(*mut *mut c_void, *mut *mut c_void, *const usize);
 
-        let mut buffer_ptrs: Vec<*mut c_void> = buffers.iter_mut().map(|b| b.ptr).collect();
+        let (input_buffers, output_buffers) = buffers.split_at_mut(num_inputs);
+        let mut input_ptrs: Vec<*mut c_void> = input_buffers.iter_mut().map(|b| b.ptr).collect();
+        let mut output_ptrs: Vec<*mut c_void> = output_buffers.iter_mut().map(|b| b.ptr).collect();
 
         unsafe {
             let func: Symbol<CFunc> =
@@ -94,9 +101,17 @@ impl Kernel<CBuffer> for CKernel {
                         )
                     });
 
-            func(buffer_ptrs.as_mut_ptr(), shape_variables.as_ptr());
+            func(
+                input_ptrs.as_mut_ptr(),
+                output_ptrs.as_mut_ptr(),
+                shape_variables.as_ptr(),
+            );
         }
 
-        buffers
+        // Reconstruct the original buffers vec to return it
+        let mut result_buffers = Vec::with_capacity(num_inputs + num_outputs);
+        result_buffers.extend_from_slice(input_buffers);
+        result_buffers.extend_from_slice(output_buffers);
+        result_buffers
     }
 }

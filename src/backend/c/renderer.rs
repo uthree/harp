@@ -156,6 +156,22 @@ impl CRenderer {
             AstOp::Sqrt => self.render_unary_op_func("sqrt", ast),
             AstOp::Log2 => self.render_unary_op_func("log2", ast),
             AstOp::Exp2 => self.render_unary_op_func("exp2", ast),
+            AstOp::Malloc(dtype) => {
+                let c_type = Self::dtype_to_c(dtype);
+                write!(
+                    self.buffer,
+                    "({c_type}*)malloc(sizeof({c_type}) * "
+                )
+                .unwrap();
+                self.render_node(&ast.src[0]); // size
+                write!(self.buffer, ")").unwrap();
+            }
+            AstOp::Free => {
+                self.write_indent();
+                write!(self.buffer, "free(").unwrap();
+                self.render_node(&ast.src[0]); // pointer
+                writeln!(self.buffer, ");").unwrap();
+            }
             _ => unimplemented!("Rendering for `{ast:?}` is not implemented."),
         }
     }

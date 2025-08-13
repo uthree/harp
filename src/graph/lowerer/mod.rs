@@ -7,9 +7,12 @@
 mod handlers;
 pub mod orchestrator;
 
-use crate::ast::{AstNode, AstOp, DType};
-use crate::graph::shape::tracker::ShapeTracker;
-use crate::graph::{Graph, GraphOp, NodeId};
+use crate::{
+    ast::{AstNode, AstOp, DType},
+    backend::KernelDetails,
+    graph::shape::tracker::ShapeTracker,
+    graph::{Graph, GraphOp, NodeId},
+};
 use log::{debug, trace};
 pub use orchestrator::LoweringOrchestrator;
 use rustc_hash::FxHashMap;
@@ -24,8 +27,8 @@ pub struct Lowerer<'a> {
     pub(super) graph: &'a Graph,
     /// A cache to store the lowered AST and `ShapeTracker` for each processed `NodeId`.
     pub(super) cache: FxHashMap<NodeId, (AstNode, ShapeTracker, NodeId)>,
-    /// A map from NodeId to its corresponding index in the `buffers` array.
-    pub(super) buffer_map: FxHashMap<NodeId, usize>,
+    /// Details about the kernel being built, including buffer maps.
+    pub(super) details: KernelDetails,
     /// Counter for generating unique loop variable names (e.g., `ridx0`, `ridx1`).
     pub(super) loop_counter: usize,
     /// Counter for generating unique accumulator names (e.g., `acc0`).
@@ -38,7 +41,7 @@ impl<'a> Lowerer<'a> {
         Self {
             graph,
             cache: FxHashMap::default(),
-            buffer_map: FxHashMap::default(),
+            details: KernelDetails::default(),
             loop_counter: 0,
             accumulator_counter: 0,
         }
@@ -59,34 +62,43 @@ impl<'a> Lowerer<'a> {
     }
 
     /// Retrieves a properly typed variable representing a buffer.
-    /// e.g., `buf0`
     pub(super) fn get_buffer_var(&self, node_id: NodeId) -> AstNode {
-        let buffer_index = self.buffer_map[&node_id];
         let node_data = &self.graph.nodes.borrow()[node_id.0];
-        AstNode::var(&format!("buf{buffer_index}"))
-            .with_type(DType::Ptr(Box::new(node_data.dtype.clone())))
+        let ptr_type = DType::Ptr(Box::new(node_data.dtype.clone()));
+
+        if let Some(index) = self.details.input_map.get(&node_id) {
+            AstNode::var(&format!("input{index}")).with_type(ptr_type)
+        } else if let Some(index) = self.details.output_map.get(&node_id) {
+            AstNode::var(&format!("output{index}")).with_type(ptr_type)
+        } else if let Some(index) = self.details.intermediate_map.get(&node_id) {
+            AstNode::var(&format!("tmp{index}")).with_type(ptr_type)
+        } else {
+            // This can happen for view ops. We need to find the original buffer.
+            // This requires a recursive search or a pre-computed map.
+            // For now, let's assume the caller handles resolving views.
+            panic!("Node {:?} does not have a buffer assigned.", node_id);
+        }
     }
 
-    /// Retrieves a properly typed pointer to a buffer from the `buffers` array.
-    /// e.g., `((float*)buffers[i])`
-    pub(super) fn get_buffer_ptr(&self, node_id: NodeId) -> AstNode {
-        let buffer_index = self.buffer_map[&node_id];
-        let node_data = &self.graph.nodes.borrow()[node_id.0];
-        let buffer_var = AstNode::var("buffers");
-
-        // Creates `(dtype*)buffers[buffer_index]`
-        let index_node = AstNode::from(buffer_index as u64).cast(DType::USize);
+    /// Creates an AST node for `(dtype*)array[index]`
+    pub(super) fn get_buffer_ptr_from_array(
+        &self,
+        array_name: &str,
+        index: usize,
+        dtype: &DType,
+    ) -> AstNode {
+        let buffer_var = AstNode::var(array_name);
+        let index_node = AstNode::from(index as u64).cast(DType::USize);
         let buffer_access = AstNode::new(
             AstOp::BufferIndex,
             vec![buffer_var, index_node],
-            // This represents the type of `buffers[i]`, which is `void*`
-            DType::Ptr(Box::new(DType::Void)),
+            DType::Ptr(Box::new(DType::Void)), // void*
         );
 
         AstNode::new(
-            AstOp::Cast(DType::Ptr(Box::new(node_data.dtype.clone()))),
+            AstOp::Cast(DType::Ptr(Box::new(dtype.clone()))),
             vec![buffer_access],
-            DType::Ptr(Box::new(node_data.dtype.clone())),
+            DType::Ptr(Box::new(dtype.clone())),
         )
     }
 
@@ -208,9 +220,10 @@ mod tests {
 
             if let AstOp::Func { name, args, .. } = &kernel_main.op {
                 assert_eq!(*name, "kernel_main");
-                assert_eq!(args.len(), 2);
-                assert_eq!(args[0].0, "buffers");
-                assert_eq!(args[1].0, "shape_vars");
+                assert_eq!(args.len(), 3);
+                assert_eq!(args[0].0, "inputs");
+                assert_eq!(args[1].0, "outputs");
+                assert_eq!(args[2].0, "shape_vars");
                 // Check the body of kernel_main
                 assert!(kernel_main.src.len() > 0);
                 assert!(matches!(kernel_main.src[0].op, AstOp::Declare { .. }));
@@ -221,7 +234,9 @@ mod tests {
             panic!("Expected a Program node, found {:?}", ast.op);
         }
 
-        assert_eq!(details.buffers.len(), 3);
+        assert_eq!(details.inputs.len(), 2);
+        assert_eq!(details.outputs.len(), 1);
+        assert_eq!(details.intermediates.len(), 0);
         assert_eq!(details.shape_variables.len(), 0);
     }
 
@@ -261,11 +276,11 @@ mod tests {
                     if let AstOp::Store = &block.op {
                         let dst = &block.src[0];
                         let src = &block.src[1];
-                        // dst should be `buf2[ridx0]`
+                        // dst should be `output0[ridx0]`
                         if let AstOp::BufferIndex = &dst.op {
                             let buffer_node = &dst.src[0];
                             if let AstOp::Var(name) = &buffer_node.op {
-                                assert_eq!(name, "buf2");
+                                assert_eq!(name, "output0");
                             } else {
                                 panic!("Destination buffer is not the correct variable");
                             }
@@ -273,7 +288,7 @@ mod tests {
                             panic!("Destination not a buffer index");
                         }
 
-                        // src should be `buf0[...] + buf1[...]`
+                        // src should be `input0[...] + input1[...]`
                         assert!(matches!(src.op, AstOp::Add));
                     } else {
                         panic!("Expected store node, found {:?}", block.op);
@@ -327,7 +342,7 @@ mod tests {
                             let buffer_node = &dst.src[0];
                             // We are checking if the destination is the correct buffer variable
                             if let AstOp::Var(name) = &buffer_node.op {
-                                assert_eq!(name, "buf1");
+                                assert_eq!(name, "output0");
                             } else {
                                 panic!("Expected destination to be a buffer variable");
                             }
@@ -357,7 +372,8 @@ mod tests {
         let mut lowerer = Lowerer::new(&graph);
         let (ast, details) = lowerer.lower();
 
-        assert_eq!(details.buffers.len(), 1);
+        assert_eq!(details.outputs.len(), 1);
+        assert_eq!(details.intermediates.len(), 0);
 
         let kernel_impl = ast
             .src
@@ -381,7 +397,7 @@ mod tests {
                     if let AstOp::BufferIndex = &dst.op {
                         let buffer_node = &dst.src[0];
                         if let AstOp::Var(name) = &buffer_node.op {
-                            assert_eq!(name, "buf0");
+                            assert_eq!(name, "output0");
                         } else {
                             panic!("Destination buffer is not the correct variable");
                         }
@@ -409,7 +425,8 @@ mod tests {
         let mut lowerer = Lowerer::new(&graph);
         let (ast, details) = lowerer.lower();
 
-        assert_eq!(details.buffers.len(), 1);
+        assert_eq!(details.outputs.len(), 1);
+        assert_eq!(details.intermediates.len(), 0);
 
         let kernel_impl = ast
             .src
@@ -433,7 +450,7 @@ mod tests {
                     if let AstOp::BufferIndex = &dst.op {
                         let buffer_node = &dst.src[0];
                         if let AstOp::Var(name) = &buffer_node.op {
-                            assert_eq!(name, "buf0");
+                            assert_eq!(name, "output0");
                         } else {
                             panic!("Destination buffer is not the correct variable");
                         }
@@ -482,7 +499,9 @@ mod tests {
         let mut lowerer = Lowerer::new(&graph);
         let (ast, details) = lowerer.lower();
 
-        assert_eq!(details.buffers.len(), 3);
+        assert_eq!(details.inputs.len(), 2);
+        assert_eq!(details.outputs.len(), 1);
+        assert_eq!(details.intermediates.len(), 0);
 
         let kernel_impl = ast
             .src
@@ -546,7 +565,9 @@ mod tests {
         let mut lowerer = Lowerer::new(&graph);
         let (ast, details) = lowerer.lower();
 
-        assert_eq!(details.buffers.len(), 2);
+        assert_eq!(details.inputs.len(), 1);
+        assert_eq!(details.outputs.len(), 1);
+        assert_eq!(details.intermediates.len(), 0);
 
         let kernel_impl = ast
             .src

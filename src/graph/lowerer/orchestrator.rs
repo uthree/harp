@@ -2,8 +2,8 @@ use rustc_hash::FxHashMap;
 
 use crate::{
     ast::{AstNode, AstOp, DType},
-    backend::{BufferInfo, KernelDetails},
-    graph::{NodeId, shape::tracker::ShapeTracker},
+    backend::{BufferInfo, BufferKind, KernelDetails},
+    graph::{shape::tracker::ShapeTracker, NodeId},
 };
 
 use super::Lowerer;
@@ -16,104 +16,87 @@ impl<'a> LoweringOrchestrator for Lowerer<'a> {
     /// Lowers the entire graph into a single C-callable function `kernel_main`.
     ///
     /// This method creates a unified entry point with a stable signature:
-    /// `void kernel_main(void** buffers, size_t* shape_vars)`
+    /// `void kernel_main(void** inputs, void** outputs, size_t* shape_vars)`
     fn lower(&mut self) -> (AstNode, KernelDetails) {
         log::info!("Starting lowering process for the entire graph...");
 
         let mut details = KernelDetails::default();
-        let mut buffer_info_map = FxHashMap::default();
-        let mut node_id_to_buffer_index = FxHashMap::default();
-        let mut current_buffer_idx = 0;
-
-        // 1. Assign buffer indices to all input nodes first.
-        let inputs = self.graph.inputs.borrow().clone();
-        for node_id in &inputs {
-            if self.buffer_map.contains_key(node_id) {
-                continue;
-            }
-            self.buffer_map.insert(*node_id, current_buffer_idx);
-            node_id_to_buffer_index.insert(*node_id, current_buffer_idx);
-            let node = &self.graph.nodes.borrow()[node_id.0];
-            buffer_info_map.insert(
-                current_buffer_idx,
-                BufferInfo {
-                    dtype: node.dtype.clone(),
-                    shape: node.shape.clone(),
-                },
-            );
-            current_buffer_idx += 1;
-        }
-
-        // 2. Assign buffer indices to all output nodes.
-        let outputs = self.graph.outputs.borrow().clone();
-        for node_id in &outputs {
-            if self.buffer_map.contains_key(node_id) {
-                continue;
-            }
-            self.buffer_map.insert(*node_id, current_buffer_idx);
-            node_id_to_buffer_index.insert(*node_id, current_buffer_idx);
-            let node = &self.graph.nodes.borrow()[node_id.0];
-            buffer_info_map.insert(
-                current_buffer_idx,
-                BufferInfo {
-                    dtype: node.dtype.clone(),
-                    shape: node.shape.clone(),
-                },
-            );
-            current_buffer_idx += 1;
-        }
-
-        // 3. Assign indices to any remaining intermediate nodes that need buffers.
         let nodes = self.graph.nodes.borrow();
+        let graph_inputs = self.graph.inputs.borrow();
+        let graph_outputs = self.graph.outputs.borrow();
+
+        // 1. Classify all buffers
         for (i, node) in nodes.iter().enumerate() {
             let node_id = NodeId(i);
-            if self.buffer_map.contains_key(&node_id) {
-                continue; // Already processed (input or output)
-            }
+            let is_graph_input = graph_inputs.contains(&node_id);
+            let is_graph_output = graph_outputs.contains(&node_id);
 
-            match node.op {
-                crate::graph::GraphOp::Full(_)
-                | crate::graph::GraphOp::Rand
-                | crate::graph::GraphOp::Contiguous
-                | crate::graph::GraphOp::Elementwise(_)
-                | crate::graph::GraphOp::Reduce(_, _)
-                | crate::graph::GraphOp::Cumulative(_, _)
-                | crate::graph::GraphOp::FusedElementwise(_)
-                | crate::graph::GraphOp::FusedElementwiseReduce(_, _, _)
-                | crate::graph::GraphOp::FusedReduce(_, _) => {
-                    self.buffer_map.insert(node_id, current_buffer_idx);
-                    node_id_to_buffer_index.insert(node_id, current_buffer_idx);
-                    buffer_info_map.insert(
-                        current_buffer_idx,
-                        BufferInfo {
-                            dtype: node.dtype.clone(),
-                            shape: node.shape.clone(),
-                        },
-                    );
-                    current_buffer_idx += 1;
+            // Determine if the node needs a buffer and what kind
+            let buffer_kind = if is_graph_input {
+                Some(BufferKind::Input)
+            } else if is_graph_output {
+                Some(BufferKind::Output)
+            } else {
+                let needs_materialization = matches!(
+                    node.op,
+                    crate::graph::GraphOp::Full(_)
+                        | crate::graph::GraphOp::Rand
+                        | crate::graph::GraphOp::Contiguous
+                        | crate::graph::GraphOp::Elementwise(_)
+                        | crate::graph::GraphOp::Reduce(_, _)
+                        | crate::graph::GraphOp::Cumulative(_, _)
+                        | crate::graph::GraphOp::FusedElementwise(_)
+                        | crate::graph::GraphOp::FusedElementwiseReduce(_, _, _)
+                        | crate::graph::GraphOp::FusedReduce(_, _)
+                );
+                if needs_materialization {
+                    Some(BufferKind::Intermediate)
+                } else {
+                    None // View op
                 }
-                _ => {} // View ops don't need a buffer
+            };
+
+            if let Some(kind) = buffer_kind {
+                let info = BufferInfo {
+                    kind: kind.clone(),
+                    dtype: node.dtype.clone(),
+                    shape: node.shape.clone(),
+                };
+                match kind {
+                    BufferKind::Input => {
+                        let index = details.inputs.len();
+                        details.input_map.insert(node_id, index);
+                        details.inputs.push(info);
+                    }
+                    BufferKind::Output => {
+                        let index = details.outputs.len();
+                        details.output_map.insert(node_id, index);
+                        details.outputs.push(info);
+                    }
+                    BufferKind::Intermediate => {
+                        let index = details.intermediates.len();
+                        details.intermediate_map.insert(node_id, index);
+                        details.intermediates.push(info);
+                    }
+                }
             }
         }
 
-        // Populate KernelDetails buffers in the correct order
-        for i in 0..current_buffer_idx {
-            details.buffers.push(buffer_info_map.remove(&i).unwrap());
-        }
+        // Update the lowerer's internal state with the new buffer maps
+        self.details = details.clone();
 
-        // Collect all unique shape variables from inputs and outputs
+        // 2. Collect all unique shape variables from inputs and outputs
         let mut shape_vars = std::collections::HashSet::new();
-        for &node_id in inputs.iter().chain(outputs.iter()) {
+        for &node_id in graph_inputs.iter().chain(graph_outputs.iter()) {
             for expr in &nodes[node_id.0].shape {
                 expr.collect_variables(&mut shape_vars);
             }
         }
-        details.shape_variables = shape_vars.into_iter().collect();
-        details.buffer_map = self.buffer_map.clone();
+        self.details.shape_variables = shape_vars.into_iter().collect();
 
-        // 2. Lower all output nodes to generate the computation logic.
+        // 3. Lower all output nodes to generate the computation logic.
         let mut computation_body = vec![];
-        for &output_id in &outputs {
+        for &output_id in graph_outputs.iter() {
             let (ast_node, tracker, buffer_id) = self.lower_node(output_id);
             computation_body.push(ast_node);
 
@@ -147,22 +130,40 @@ impl<'a> LoweringOrchestrator for Lowerer<'a> {
             }
         }
 
-        // 3. Create the implementation function `kernel_impl`.
+        // 4. Create the implementation function `kernel_impl`.
         let mut impl_args = vec![];
         let mut impl_call_vars = vec![];
-        for i in 0..details.buffers.len() {
-            let buf_name = format!("buf{i}");
-            let buffer_info = &details.buffers[i];
-            let arg_type = DType::Ptr(Box::new(buffer_info.dtype.clone()));
-            impl_args.push((buf_name.clone(), arg_type.clone()));
-            impl_call_vars.push(AstNode::var(&buf_name).with_type(arg_type));
+        // Add inputs
+        for (i, info) in self.details.inputs.iter().enumerate() {
+            let name = format!("input{i}");
+            let arg_type = DType::Ptr(Box::new(info.dtype.clone()));
+            impl_args.push((name.clone(), arg_type.clone()));
+            impl_call_vars.push(AstNode::var(&name).with_type(arg_type));
+        }
+        // Add outputs
+        for (i, info) in self.details.outputs.iter().enumerate() {
+            let name = format!("output{i}");
+            let arg_type = DType::Ptr(Box::new(info.dtype.clone()));
+            impl_args.push((name.clone(), arg_type.clone()));
+            impl_call_vars.push(AstNode::var(&name).with_type(arg_type));
+        }
+        // Add intermediates
+        for (i, info) in self.details.intermediates.iter().enumerate() {
+            let name = format!("tmp{i}");
+            let arg_type = DType::Ptr(Box::new(info.dtype.clone()));
+            impl_args.push((name.clone(), arg_type.clone()));
+            impl_call_vars.push(AstNode::var(&name).with_type(arg_type));
         }
         let kernel_impl = AstNode::func_def("kernel_impl", impl_args, computation_body);
 
-        // 4. Create the main wrapper function `kernel_main`.
+        // 5. Create the main wrapper function `kernel_main`.
         let main_args = vec![
             (
-                "buffers".to_string(),
+                "inputs".to_string(),
+                DType::Ptr(Box::new(DType::Ptr(Box::new(DType::Void)))), // void**
+            ),
+            (
+                "outputs".to_string(),
                 DType::Ptr(Box::new(DType::Ptr(Box::new(DType::Void)))), // void**
             ),
             (
@@ -171,28 +172,60 @@ impl<'a> LoweringOrchestrator for Lowerer<'a> {
             ),
         ];
         let mut main_body = vec![];
-        // Create buffer variables: `float* buf0 = (float*)buffers[0];`
-        for (node_id, &index) in &node_id_to_buffer_index {
-            let var_name = format!("buf{index}");
-            let buffer_ptr = self.get_buffer_ptr(*node_id);
-            let node_data = &self.graph.nodes.borrow()[node_id.0];
-            let var_decl = AstNode::declare(
+
+        // Declare input buffer pointers
+        for (i, info) in self.details.inputs.iter().enumerate() {
+            let var_name = format!("input{i}");
+            let buffer_ptr = self.get_buffer_ptr_from_array("inputs", i, &info.dtype);
+            main_body.push(AstNode::declare(
                 var_name,
-                DType::Ptr(Box::new(node_data.dtype.clone())),
+                DType::Ptr(Box::new(info.dtype.clone())),
                 buffer_ptr,
-            );
-            main_body.push(var_decl);
+            ));
         }
+        // Declare output buffer pointers
+        for (i, info) in self.details.outputs.iter().enumerate() {
+            let var_name = format!("output{i}");
+            let buffer_ptr = self.get_buffer_ptr_from_array("outputs", i, &info.dtype);
+            main_body.push(AstNode::declare(
+                var_name,
+                DType::Ptr(Box::new(info.dtype.clone())),
+                buffer_ptr,
+            ));
+        }
+        // Allocate and declare intermediate buffers
+        for (i, info) in self.details.intermediates.iter().enumerate() {
+            let var_name = format!("tmp{i}");
+            let size_expr: AstNode = info
+                .shape
+                .iter()
+                .map(|e| e.clone().into())
+                .reduce(|a, b| a * b)
+                .unwrap_or_else(|| 1.into());
+            let malloc_call = AstNode::malloc(size_expr, info.dtype.clone());
+            main_body.push(AstNode::declare(
+                var_name,
+                DType::Ptr(Box::new(info.dtype.clone())),
+                malloc_call,
+            ));
+        }
+
         // Create the call to the implementation function.
         let call_impl = AstNode::call("kernel_impl", impl_call_vars);
         main_body.push(call_impl);
 
+        // Free intermediate buffers
+        for i in 0..self.details.intermediates.len() {
+            let var_name = format!("tmp{i}");
+            main_body.push(AstNode::free(AstNode::var(&var_name)));
+        }
+
         let kernel_main = AstNode::func_def("kernel_main", main_args, main_body);
 
-        // 5. Combine both functions into a single AST program.
+        // 6. Combine both functions into a single AST program.
         let final_ast = AstNode::new(AstOp::Program, vec![kernel_impl, kernel_main], DType::Void);
 
         log::info!("Lowering process completed.");
-        (final_ast, details)
+        (final_ast, self.details.clone())
     }
 }
