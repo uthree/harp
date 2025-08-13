@@ -198,6 +198,126 @@ impl DeterministicGraphOptimizer for ElementwiseFusion {
     }
 }
 
+pub struct FuseElementwiseReduce;
+
+impl FuseElementwiseReduce {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for FuseElementwiseReduce {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DeterministicGraphOptimizer for FuseElementwiseReduce {
+    fn optimize(&self, graph: &Graph) -> Graph {
+        let mut new_graph = graph.clone();
+        let mut replacements: FxHashMap<NodeId, NodeId> = FxHashMap::default();
+        let mut changed = true;
+
+        while changed {
+            changed = false;
+            let nodes = new_graph.nodes.borrow().clone();
+            let mut users = FxHashMap::default();
+            for (id, node) in nodes.iter().enumerate() {
+                for &src_id in &node.src {
+                    users
+                        .entry(src_id)
+                        .or_insert_with(Vec::new)
+                        .push(NodeId(id));
+                }
+            }
+
+            for (reduce_node_id_val, reduce_node) in nodes.iter().enumerate().rev() {
+                let reduce_node_id = NodeId(reduce_node_id_val);
+                if replacements.contains_key(&reduce_node_id) {
+                    continue;
+                }
+
+                if let GraphOp::Reduce(reduce_op, axis) = &reduce_node.op {
+                    let elementwise_node_id = reduce_node.src[0];
+                    let elementwise_node = &nodes[elementwise_node_id.0];
+
+                    let user_count = users.get(&elementwise_node_id).map_or(0, |u| u.len());
+
+                    if let GraphOp::Elementwise(elementwise_op) = &elementwise_node.op {
+                        if user_count == 1 {
+                            // This is a candidate for fusion.
+                            let mut ast_srcs = Vec::new();
+                            for &src_id in &elementwise_node.src {
+                                let src_node_data = &nodes[src_id.0];
+                                if let GraphOp::Full(const_val) = src_node_data.op {
+                                    ast_srcs.push(const_val.into());
+                                } else {
+                                    let capture_idx = elementwise_node
+                                        .src
+                                        .iter()
+                                        .position(|&id| id == src_id)
+                                        .unwrap();
+                                    ast_srcs.push(AstNode::capture(
+                                        capture_idx,
+                                        src_node_data.dtype.clone(),
+                                    ));
+                                }
+                            }
+
+                            let fused_ast = AstNode::new(
+                                elementwise_op.clone(),
+                                ast_srcs,
+                                elementwise_node.dtype.clone(),
+                            );
+
+                            let new_op = GraphOp::FusedElementwiseReduce(
+                                fused_ast,
+                                reduce_op.clone(),
+                                vec![*axis],
+                            );
+
+                            let new_node_id = new_graph.add_node(
+                                new_op,
+                                elementwise_node.src.clone(),
+                                reduce_node.dtype.clone(),
+                                reduce_node.shape.clone(),
+                            );
+
+                            replacements.insert(reduce_node_id, new_node_id);
+                            changed = true;
+                            break; // Restart the process with the modified graph
+                        }
+                    }
+                }
+            }
+
+            if changed {
+                let mut final_graph = new_graph.clone();
+                let mut final_nodes = final_graph.nodes.borrow().clone();
+                for node in &mut final_nodes {
+                    for src_id in &mut node.src {
+                        if let Some(new_id) = replacements.get(src_id) {
+                            *src_id = *new_id;
+                        }
+                    }
+                }
+                let mut final_outputs = final_graph.outputs.borrow().clone();
+                for output_id in &mut final_outputs {
+                    if let Some(new_id) = replacements.get(output_id) {
+                        *output_id = *new_id;
+                    }
+                }
+
+                final_graph.nodes = std::cell::RefCell::new(final_nodes);
+                final_graph.outputs = std::cell::RefCell::new(final_outputs);
+                new_graph = final_graph;
+            }
+        }
+
+        new_graph
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -288,5 +408,21 @@ mod tests {
         } else {
             panic!("Expected FusedElementwise node");
         }
+    }
+
+    #[test]
+    fn test_fuse_elementwise_reduce() {
+        let graph = Graph::new();
+        let a = graph.input(DType::F32, vec![10.into()]);
+        let b = graph.input(DType::F32, vec![10.into()]);
+        let c = (a + b).sum(0).as_output();
+
+        let optimizer = FuseElementwiseReduce::new();
+        let new_graph = optimizer.optimize(&graph);
+        
+        let new_nodes = new_graph.nodes.borrow();
+        let final_op = &new_graph.get_view(*new_graph.outputs.borrow().first().unwrap()).op();
+
+        assert!(matches!(final_op, GraphOp::FusedElementwiseReduce(..)));
     }
 }
