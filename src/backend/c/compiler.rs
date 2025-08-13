@@ -161,7 +161,8 @@ impl Compiler<CBuffer> for CCompiler {
             );
         }
 
-        let library = Arc::new(unsafe { Library::new(&lib_path).expect("Failed to load dynamic library") });
+        let library =
+            Arc::new(unsafe { Library::new(&lib_path).expect("Failed to load dynamic library") });
 
         let func_name = "kernel_main".to_string();
 

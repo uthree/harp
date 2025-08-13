@@ -336,52 +336,46 @@ impl Default for AlgebraicSimplification {
     fn default() -> Self {
         let rules = vec![
             rule!("mul_by_one", |a, b| a * b => {
-                if let AstOp::Const(c) = b.op {
-                    if c.is_one() {
+                if let AstOp::Const(c) = b.op
+                    && c.is_one() {
                         return a;
                     }
-                }
                 a * b
             }),
             rule!("add_zero", |a, b| a + b => {
-                if let AstOp::Const(c) = b.op {
-                    if c.is_zero() {
+                if let AstOp::Const(c) = b.op
+                    && c.is_zero() {
                         return a;
                     }
-                }
                 a + b
             }),
             rule!("mul_by_zero", |a, b| a * b => {
-                if let AstOp::Const(c) = b.op {
-                    if c.is_zero() {
+                if let AstOp::Const(c) = b.op
+                    && c.is_zero() {
                         return b;
                     }
-                }
                 a * b
             }),
             // Commutative
             rule!("mul_by_one_comm", |a, b| b * a => {
-                if let AstOp::Const(c) = b.op {
-                    if c.is_one() {
+                if let AstOp::Const(c) = b.op
+                    && c.is_one() {
                         return a;
                     }
-                }
                 b * a
             }),
             rule!("add_zero_comm", |a, b| b + a => {
-                if let AstOp::Const(c) = b.op {
-                    if c.is_zero() {
+                if let AstOp::Const(c) = b.op
+                    && c.is_zero() {
                         return a;
                     }
-                }
                 b + a
             }),
             rule!("mul_by_zero_comm", |a, b| b * a => {
-                if let AstOp::Const(c) = b.op {
-                    if c.is_zero() {
+                if let AstOp::Const(c) = b.op
+                    && c.is_zero() {
                         return b;
                     }
-                }
                 b * a
             }),
         ];

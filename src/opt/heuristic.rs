@@ -7,7 +7,6 @@ use console::Style;
 use indicatif::HumanDuration;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::debug;
-use ndarray::iter;
 use rustc_hash::FxHashSet;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
@@ -109,7 +108,7 @@ impl CostEstimator for HandcodedCostEstimator {
                 };
 
                 if *parallel {
-                    iterations = iterations / 10.0;
+                    iterations /= 10.0;
                 }
 
                 max_node_cost + (body_cost * iterations)
