@@ -56,7 +56,12 @@ impl Kernel<CBuffer> for CKernel {
 
         for (i, (buffer, buffer_info)) in buffers
             .iter()
-            .zip(self.details.inputs.iter().chain(self.details.outputs.iter()))
+            .zip(
+                self.details
+                    .inputs
+                    .iter()
+                    .chain(self.details.outputs.iter()),
+            )
             .enumerate()
         {
             // Validate dtype

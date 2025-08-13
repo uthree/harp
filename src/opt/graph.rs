@@ -244,49 +244,50 @@ impl DeterministicGraphOptimizer for FuseElementwiseReduce {
                     let user_count = users.get(&elementwise_node_id).map_or(0, |u| u.len());
 
                     if let GraphOp::Elementwise(elementwise_op) = &elementwise_node.op
-                        && user_count == 1 {
-                            // This is a candidate for fusion.
-                            let mut ast_srcs = Vec::new();
-                            for &src_id in &elementwise_node.src {
-                                let src_node_data = &nodes[src_id.0];
-                                if let GraphOp::Full(const_val) = src_node_data.op {
-                                    ast_srcs.push(const_val.into());
-                                } else {
-                                    let capture_idx = elementwise_node
-                                        .src
-                                        .iter()
-                                        .position(|&id| id == src_id)
-                                        .unwrap();
-                                    ast_srcs.push(AstNode::capture(
-                                        capture_idx,
-                                        src_node_data.dtype.clone(),
-                                    ));
-                                }
+                        && user_count == 1
+                    {
+                        // This is a candidate for fusion.
+                        let mut ast_srcs = Vec::new();
+                        for &src_id in &elementwise_node.src {
+                            let src_node_data = &nodes[src_id.0];
+                            if let GraphOp::Full(const_val) = src_node_data.op {
+                                ast_srcs.push(const_val.into());
+                            } else {
+                                let capture_idx = elementwise_node
+                                    .src
+                                    .iter()
+                                    .position(|&id| id == src_id)
+                                    .unwrap();
+                                ast_srcs.push(AstNode::capture(
+                                    capture_idx,
+                                    src_node_data.dtype.clone(),
+                                ));
                             }
-
-                            let fused_ast = AstNode::new(
-                                elementwise_op.clone(),
-                                ast_srcs,
-                                elementwise_node.dtype.clone(),
-                            );
-
-                            let new_op = GraphOp::FusedElementwiseReduce(
-                                fused_ast,
-                                reduce_op.clone(),
-                                vec![*axis],
-                            );
-
-                            let new_node_id = new_graph.add_node(
-                                new_op,
-                                elementwise_node.src.clone(),
-                                reduce_node.dtype.clone(),
-                                reduce_node.shape.clone(),
-                            );
-
-                            replacements.insert(reduce_node_id, new_node_id);
-                            changed = true;
-                            break; // Restart the process with the modified graph
                         }
+
+                        let fused_ast = AstNode::new(
+                            elementwise_op.clone(),
+                            ast_srcs,
+                            elementwise_node.dtype.clone(),
+                        );
+
+                        let new_op = GraphOp::FusedElementwiseReduce(
+                            fused_ast,
+                            reduce_op.clone(),
+                            vec![*axis],
+                        );
+
+                        let new_node_id = new_graph.add_node(
+                            new_op,
+                            elementwise_node.src.clone(),
+                            reduce_node.dtype.clone(),
+                            reduce_node.shape.clone(),
+                        );
+
+                        replacements.insert(reduce_node_id, new_node_id);
+                        changed = true;
+                        break; // Restart the process with the modified graph
+                    }
                 }
             }
 
@@ -331,9 +332,7 @@ pub struct CompositeGraphOptimizer {
 
 impl CompositeGraphOptimizer {
     pub fn new(optimizers: Vec<Box<dyn DeterministicGraphOptimizer>>) -> Self {
-        CompositeGraphOptimizer {
-            optimizers,
-        }
+        CompositeGraphOptimizer { optimizers }
     }
 }
 
@@ -403,21 +402,22 @@ impl DeterministicGraphOptimizer for FuseReductions {
                             }
                         } else if let GraphOp::FusedReduce(inner_op, inner_axes) =
                             &inner_reduce_node.op
-                            && inner_op == outer_op {
-                                // Also fuse a Reduce into an existing FusedReduce
-                                let mut new_axes = inner_axes.clone();
-                                new_axes.push(*outer_axis);
-                                let new_op = GraphOp::FusedReduce(outer_op.clone(), new_axes);
-                                let new_node_id = new_graph.add_node(
-                                    new_op,
-                                    inner_reduce_node.src.clone(),
-                                    outer_reduce_node.dtype.clone(),
-                                    outer_reduce_node.shape.clone(),
-                                );
-                                replacements.insert(outer_reduce_id, new_node_id);
-                                changed = true;
-                                break; // Restart scan
-                            }
+                            && inner_op == outer_op
+                        {
+                            // Also fuse a Reduce into an existing FusedReduce
+                            let mut new_axes = inner_axes.clone();
+                            new_axes.push(*outer_axis);
+                            let new_op = GraphOp::FusedReduce(outer_op.clone(), new_axes);
+                            let new_node_id = new_graph.add_node(
+                                new_op,
+                                inner_reduce_node.src.clone(),
+                                outer_reduce_node.dtype.clone(),
+                                outer_reduce_node.shape.clone(),
+                            );
+                            replacements.insert(outer_reduce_id, new_node_id);
+                            changed = true;
+                            break; // Restart scan
+                        }
                     }
                 }
             }

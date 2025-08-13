@@ -1,9 +1,8 @@
-use rustc_hash::FxHashMap;
 
 use crate::{
     ast::{AstNode, AstOp, DType},
     backend::{BufferInfo, BufferKind, KernelDetails},
-    graph::{shape::tracker::ShapeTracker, NodeId},
+    graph::{NodeId, shape::tracker::ShapeTracker},
 };
 
 use super::Lowerer;
@@ -200,9 +199,8 @@ impl<'a> LoweringOrchestrator for Lowerer<'a> {
                 DType::Ptr(Box::new(info.dtype.clone())),
                 buffer_ptr,
             ));
-            impl_call_vars.push(
-                AstNode::var(&var_name).with_type(DType::Ptr(Box::new(info.dtype.clone()))),
-            );
+            impl_call_vars
+                .push(AstNode::var(&var_name).with_type(DType::Ptr(Box::new(info.dtype.clone()))));
         }
         // Declare output buffer pointers and prepare them for the impl call
         for (i, info) in self.details.outputs.iter().enumerate() {
@@ -213,9 +211,8 @@ impl<'a> LoweringOrchestrator for Lowerer<'a> {
                 DType::Ptr(Box::new(info.dtype.clone())),
                 buffer_ptr,
             ));
-            impl_call_vars.push(
-                AstNode::var(&var_name).with_type(DType::Ptr(Box::new(info.dtype.clone()))),
-            );
+            impl_call_vars
+                .push(AstNode::var(&var_name).with_type(DType::Ptr(Box::new(info.dtype.clone()))));
         }
 
         // Create the call to the implementation function.

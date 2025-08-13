@@ -1,4 +1,5 @@
 use std::cell::Cell;
+use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use crate::ast::{dtype::DType, op::AstOp};
@@ -36,12 +37,24 @@ fn next_id() -> usize {
 /// assert_eq!(c.op, harp::ast::AstOp::Add);
 /// assert_eq!(c.src.len(), 2);
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AstNode {
     pub id: usize,
     pub op: AstOp,
     pub src: Vec<AstNode>,
     pub dtype: DType,
+}
+
+impl fmt::Debug for AstNode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // A format that doesn't include the id, to be used for hashing/keys.
+        // For a more detailed debug view, we might need another method.
+        f.debug_struct("AstNode")
+            .field("op", &self.op)
+            .field("src", &self.src)
+            .field("dtype", &self.dtype)
+            .finish()
+    }
 }
 
 impl PartialEq for AstNode {

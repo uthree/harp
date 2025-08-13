@@ -1,5 +1,5 @@
 use crate::{
-    backend::{Backend, Buffer, BufferKind, Compiler, Kernel, KernelDetails, Renderer},
+    backend::{Backend, Buffer, Compiler, Kernel, KernelDetails, Renderer},
     graph::{
         Graph,
         lowerer::{Lowerer, orchestrator::LoweringOrchestrator},
@@ -17,17 +17,6 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-/// Creates a stable key for an AstNode, ignoring the node's ID.
-fn ast_node_key(node: &crate::ast::AstNode) -> String {
-    let mut key = format!("op:{:?},dtype:{:?},srcs:[", node.op, node.dtype);
-    for src in &node.src {
-        key.push_str(&ast_node_key(src));
-        key.push(',');
-    }
-    key.push(']');
-    key
-}
-
 /// Recursively builds a key for a node based on its logical structure, ignoring NodeId.
 fn build_logical_key(
     node_id: crate::graph::NodeId,
@@ -39,12 +28,7 @@ fn build_logical_key(
     }
 
     let node = &graph.nodes.borrow()[node_id.0];
-    let op_key = match &node.op {
-        crate::graph::GraphOp::FusedElementwise(ast) => {
-            format!("FusedElementwise({})", ast_node_key(ast))
-        }
-        other => format!("{:?}", other),
-    };
+    let op_key = format!("{:?}", node.op);
     let mut key = format!(
         "op:{},dtype:{:?},shape:{:?},srcs:[",
         op_key, node.dtype, node.shape
