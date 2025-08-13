@@ -176,7 +176,6 @@ impl_expr_assign_op!(MulAssign, mul_assign, *);
 impl_expr_assign_op!(DivAssign, div_assign, /);
 impl_expr_assign_op!(RemAssign, rem_assign, %);
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -244,7 +243,8 @@ mod tests {
         let expr = (Expr::var("a") + Expr::var("b")) * (Expr::var("a") + Expr::Const(1));
         let mut vars = HashSet::new();
         expr.collect_variables(&mut vars);
-        let expected: HashSet<String> = ["a".to_string(), "b".to_string()].iter().cloned().collect();
+        let expected: HashSet<String> =
+            ["a".to_string(), "b".to_string()].iter().cloned().collect();
         assert_eq!(vars, expected);
     }
 
@@ -321,10 +321,15 @@ mod tests {
     #[test]
     fn test_mixed_type_operations() {
         let expr = Expr::var("x") + 10;
-        assert_eq!(expr, Expr::Add(Box::new(Expr::var("x")), Box::new(Expr::Const(10))));
+        assert_eq!(
+            expr,
+            Expr::Add(Box::new(Expr::var("x")), Box::new(Expr::Const(10)))
+        );
 
         let expr2 = Expr::from(20) * Expr::var("y");
-        assert_eq!(expr2, Expr::Mul(Box::new(Expr::Const(20)), Box::new(Expr::var("y"))));
+        assert_eq!(
+            expr2,
+            Expr::Mul(Box::new(Expr::Const(20)), Box::new(Expr::var("y")))
+        );
     }
 }
-
