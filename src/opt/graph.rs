@@ -318,6 +318,118 @@ impl DeterministicGraphOptimizer for FuseElementwiseReduce {
     }
 }
 
+pub struct FuseReductions;
+
+impl FuseReductions {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for FuseReductions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DeterministicGraphOptimizer for FuseReductions {
+    fn optimize(&self, graph: &Graph) -> Graph {
+        let mut new_graph = graph.clone();
+        let mut replacements: FxHashMap<NodeId, NodeId> = FxHashMap::default();
+        let mut changed = true;
+
+        while changed {
+            changed = false;
+            let nodes = new_graph.nodes.borrow().clone();
+            let mut users = FxHashMap::default();
+            for (id, node) in nodes.iter().enumerate() {
+                for &src_id in &node.src {
+                    users
+                        .entry(src_id)
+                        .or_insert_with(Vec::new)
+                        .push(NodeId(id));
+                }
+            }
+
+            for (outer_reduce_id_val, outer_reduce_node) in nodes.iter().enumerate().rev() {
+                let outer_reduce_id = NodeId(outer_reduce_id_val);
+                if replacements.contains_key(&outer_reduce_id) {
+                    continue;
+                }
+
+                if let GraphOp::Reduce(outer_op, outer_axis) = &outer_reduce_node.op {
+                    let inner_reduce_id = outer_reduce_node.src[0];
+                    let inner_reduce_node = &nodes[inner_reduce_id.0];
+                    let user_count = users.get(&inner_reduce_id).map_or(0, |u| u.len());
+
+                    if user_count == 1 {
+                        if let GraphOp::Reduce(inner_op, inner_axis) = &inner_reduce_node.op {
+                            if inner_op == outer_op {
+                                // Fusion condition met.
+                                let new_op = GraphOp::FusedReduce(
+                                    outer_op.clone(),
+                                    vec![*inner_axis, *outer_axis],
+                                );
+                                let new_node_id = new_graph.add_node(
+                                    new_op,
+                                    inner_reduce_node.src.clone(),
+                                    outer_reduce_node.dtype.clone(),
+                                    outer_reduce_node.shape.clone(),
+                                );
+                                replacements.insert(outer_reduce_id, new_node_id);
+                                changed = true;
+                                break; // Restart scan
+                            }
+                        } else if let GraphOp::FusedReduce(inner_op, inner_axes) =
+                            &inner_reduce_node.op
+                        {
+                            if inner_op == outer_op {
+                                // Also fuse a Reduce into an existing FusedReduce
+                                let mut new_axes = inner_axes.clone();
+                                new_axes.push(*outer_axis);
+                                let new_op =
+                                    GraphOp::FusedReduce(outer_op.clone(), new_axes);
+                                let new_node_id = new_graph.add_node(
+                                    new_op,
+                                    inner_reduce_node.src.clone(),
+                                    outer_reduce_node.dtype.clone(),
+                                    outer_reduce_node.shape.clone(),
+                                );
+                                replacements.insert(outer_reduce_id, new_node_id);
+                                changed = true;
+                                break; // Restart scan
+                            }
+                        }
+                    }
+                }
+            }
+
+            if changed {
+                let mut final_graph = new_graph.clone();
+                let mut final_nodes = final_graph.nodes.borrow().clone();
+                for node in &mut final_nodes {
+                    for src_id in &mut node.src {
+                        if let Some(new_id) = replacements.get(src_id) {
+                            *src_id = *new_id;
+                        }
+                    }
+                }
+                let mut final_outputs = final_graph.outputs.borrow().clone();
+                for output_id in &mut final_outputs {
+                    if let Some(new_id) = replacements.get(output_id) {
+                        *output_id = *new_id;
+                    }
+                }
+
+                final_graph.nodes = std::cell::RefCell::new(final_nodes);
+                final_graph.outputs = std::cell::RefCell::new(final_outputs);
+                new_graph = final_graph;
+            }
+        }
+        new_graph
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -424,5 +536,30 @@ mod tests {
         let final_op = &new_graph.get_view(*new_graph.outputs.borrow().first().unwrap()).op();
 
         assert!(matches!(final_op, GraphOp::FusedElementwiseReduce(..)));
+    }
+
+    #[test]
+    fn test_fuse_reductions() {
+        let graph = Graph::new();
+        let a = graph.input(DType::F32, vec![10.into(), 20.into(), 30.into()]);
+        let b = a.sum(0);
+        let _c = b.sum(1).as_output(); // sum(0) and sum(1) should be fused
+
+        let optimizer = FuseReductions::new();
+        let new_graph = optimizer.optimize(&graph);
+
+        let final_op = &new_graph
+            .get_view(*new_graph.outputs.borrow().first().unwrap())
+            .op();
+
+        if let GraphOp::FusedReduce(op, axes) = final_op {
+            assert_eq!(*op, AstOp::Add);
+            assert_eq!(axes.len(), 2);
+            assert!(axes.contains(&0));
+            // The second reduction axis is on the *new* shape, so it's axis 1, not 2.
+            assert!(axes.contains(&1));
+        } else {
+            panic!("Expected FusedReduce op, but found {:?}", final_op);
+        }
     }
 }
