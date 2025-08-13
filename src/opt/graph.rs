@@ -326,6 +326,28 @@ impl FuseReductions {
     }
 }
 
+pub struct CompositeGraphOptimizer {
+    optimizers: Vec<Box<dyn DeterministicGraphOptimizer>>,
+}
+
+impl CompositeGraphOptimizer {
+    pub fn new(optimizers: Vec<Box<dyn DeterministicGraphOptimizer>>) -> Self {
+        CompositeGraphOptimizer {
+            optimizers: optimizers,
+        }
+    }
+}
+
+impl DeterministicGraphOptimizer for CompositeGraphOptimizer {
+    fn optimize(&self, graph: &Graph) -> Graph {
+        let mut graph = graph.clone();
+        for opt in self.optimizers.iter() {
+            graph = opt.optimize(&graph);
+        }
+        graph
+    }
+}
+
 impl Default for FuseReductions {
     fn default() -> Self {
         Self::new()
@@ -387,8 +409,7 @@ impl DeterministicGraphOptimizer for FuseReductions {
                                 // Also fuse a Reduce into an existing FusedReduce
                                 let mut new_axes = inner_axes.clone();
                                 new_axes.push(*outer_axis);
-                                let new_op =
-                                    GraphOp::FusedReduce(outer_op.clone(), new_axes);
+                                let new_op = GraphOp::FusedReduce(outer_op.clone(), new_axes);
                                 let new_node_id = new_graph.add_node(
                                     new_op,
                                     inner_reduce_node.src.clone(),
@@ -531,9 +552,11 @@ mod tests {
 
         let optimizer = FuseElementwiseReduce::new();
         let new_graph = optimizer.optimize(&graph);
-        
+
         let new_nodes = new_graph.nodes.borrow();
-        let final_op = &new_graph.get_view(*new_graph.outputs.borrow().first().unwrap()).op();
+        let final_op = &new_graph
+            .get_view(*new_graph.outputs.borrow().first().unwrap())
+            .op();
 
         assert!(matches!(final_op, GraphOp::FusedElementwiseReduce(..)));
     }

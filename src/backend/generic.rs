@@ -1,12 +1,17 @@
 use crate::{
     backend::{Backend, Buffer, Compiler, Kernel, KernelDetails, Renderer},
-    graph::Graph,
-    graph::lowerer::Lowerer,
-    graph::lowerer::orchestrator::LoweringOrchestrator,
-    opt::DeterministicGraphOptimizer,
-    opt::ast::{AlgebraicSimplification, DeterministicAstOptimizer, LoopUnrolling},
-    opt::graph::ElementwiseFusion,
-    opt::heuristic::{self, CompositeSuggester},
+    graph::{
+        Graph,
+        lowerer::{Lowerer, orchestrator::LoweringOrchestrator},
+    },
+    opt::{
+        DeterministicGraphOptimizer,
+        ast::{AlgebraicSimplification, DeterministicAstOptimizer, LoopUnrolling},
+        graph::{
+            CompositeGraphOptimizer, ElementwiseFusion, FuseElementwiseReduce, FuseReductions,
+        },
+        heuristic::{self, CompositeSuggester},
+    },
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -78,7 +83,7 @@ where
     cache: Mutex<HashMap<String, Arc<Mutex<C::KernelType>>>>,
     call_counts: Mutex<HashMap<String, usize>>,
     config: GenericBackendConfig,
-    graph_optimizer: ElementwiseFusion,
+    graph_optimizer: CompositeGraphOptimizer,
     pub compile_count: Mutex<usize>, // For testing purposes
 }
 
@@ -98,7 +103,11 @@ where
             cache: Mutex::new(HashMap::new()),
             call_counts: Mutex::new(HashMap::new()),
             config,
-            graph_optimizer: ElementwiseFusion::new(),
+            graph_optimizer: CompositeGraphOptimizer::new(vec![
+                Box::new(ElementwiseFusion::new()),
+                Box::new(FuseElementwiseReduce::new()),
+                Box::new(FuseReductions::new()),
+            ]),
             compile_count: Mutex::new(0),
         }
     }
