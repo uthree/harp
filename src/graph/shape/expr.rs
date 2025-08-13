@@ -129,6 +129,20 @@ impl Expr {
     }
 }
 
+macro_rules! impl_from_integer_for_expr {
+    ($($t:ty),*) => {
+        $(
+            impl From<$t> for Expr {
+                fn from(n: $t) -> Self {
+                    Expr::Const(n as usize)
+                }
+            }
+        )*
+    };
+}
+
+impl_from_integer_for_expr!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
+
 macro_rules! impl_expr_binary_op {
     ($trait:ident, $fname:ident, $variant:expr) => {
         impl<T: Into<Expr>> $trait<T> for Expr {
@@ -288,6 +302,29 @@ mod tests {
         let mut expr = Expr::Const(5);
         expr %= Expr::Const(2);
         assert_eq!(expr, Expr::Const(5) % Expr::Const(2));
+    }
+
+    #[test]
+    fn test_from_integer_conversion() {
+        assert_eq!(Expr::from(10u8), Expr::Const(10));
+        assert_eq!(Expr::from(100u16), Expr::Const(100));
+        assert_eq!(Expr::from(1000u32), Expr::Const(1000));
+        assert_eq!(Expr::from(10000u64), Expr::Const(10000));
+        assert_eq!(Expr::from(1usize), Expr::Const(1));
+        assert_eq!(Expr::from(10i8), Expr::Const(10));
+        assert_eq!(Expr::from(100i16), Expr::Const(100));
+        assert_eq!(Expr::from(1000i32), Expr::Const(1000));
+        assert_eq!(Expr::from(10000i64), Expr::Const(10000));
+        assert_eq!(Expr::from(1isize), Expr::Const(1));
+    }
+
+    #[test]
+    fn test_mixed_type_operations() {
+        let expr = Expr::var("x") + 10;
+        assert_eq!(expr, Expr::Add(Box::new(Expr::var("x")), Box::new(Expr::Const(10))));
+
+        let expr2 = Expr::from(20) * Expr::var("y");
+        assert_eq!(expr2, Expr::Mul(Box::new(Expr::Const(20)), Box::new(Expr::var("y"))));
     }
 }
 
