@@ -126,6 +126,14 @@ impl<'a> Lowerer<'a> {
             GraphOp::FusedElementwise(elementwise_ast) => {
                 self.lower_fused_elementwise(node_id, &node_data, elementwise_ast)
             }
+            GraphOp::FusedElementwiseReduce(elementwise_ast, op, axes) => self
+                .lower_fused_elementwise_reduce(
+                    node_id,
+                    &node_data,
+                    elementwise_ast,
+                    op,
+                    axes[0],
+                ),
             GraphOp::Reduce(op, axis) => self.lower_reduce(node_id, &node_data, op, axis),
             GraphOp::Cumulative(op, axis) => self.lower_cumulative(node_id, &node_data, op, axis),
             _ => unimplemented!("This TensorOp is not yet supported for lowering"),
@@ -441,6 +449,84 @@ mod tests {
                 }
             } else {
                 panic!("Expected range node, found {:?}", rand_ast.op);
+            }
+        } else {
+            panic!("Expected FuncDef for kernel_impl");
+        }
+    }
+
+    #[test]
+    fn test_lower_fused_elementwise_reduce() {
+        setup_logger();
+        use crate::graph::shape::expr::Expr;
+
+        let graph = Graph::new();
+        let a = graph.input(DType::F32, vec![10.into(), 20.into()]); // buffer 0
+        let b = graph.input(DType::F32, vec![10.into(), 20.into()]); // buffer 1
+
+        // (a + b).sum(axis=1)
+        let fused_ast = AstNode::new(
+            AstOp::Add,
+            vec![
+                AstNode::capture(0, DType::F32),
+                AstNode::capture(1, DType::F32),
+            ],
+            DType::F32,
+        );
+        let op = GraphOp::FusedElementwiseReduce(fused_ast, AstOp::Add, vec![1]);
+        let c_id = graph.add_node(
+            op,
+            vec![a.id, b.id],     // Corrected: src
+            DType::F32,
+            vec![Expr::from(10)], // Corrected: shape
+        );
+        graph.get_view(c_id).as_output(); // Corrected: Use graph.get_view
+
+        let mut lowerer = Lowerer::new(&graph);
+        let (ast, details) = lowerer.lower();
+
+        assert_eq!(details.buffers.len(), 3);
+
+        let kernel_impl = ast
+            .src
+            .iter()
+            .find(|node| {
+                if let AstOp::Func { name, .. } = &node.op {
+                    name == "kernel_impl"
+                } else {
+                    false
+                }
+            })
+            .expect("kernel_impl function not found");
+
+        // Check the body of the function
+        if let AstOp::Func { .. } = &kernel_impl.op {
+            let fused_reduce_block = &kernel_impl.src[0];
+            if let AstOp::Block { .. } = &fused_reduce_block.op {
+                let fused_reduce_ast = &fused_reduce_block.src[0];
+                if let AstOp::Range { .. } = &fused_reduce_ast.op {
+                    // The body of the outer range loop
+                    let block = &fused_reduce_ast.src[1];
+                    // block contains [init_acc, inner_loop, store_result]
+                    assert!(matches!(block.src[0].op, AstOp::Declare { .. })); // init_acc
+                    assert!(matches!(block.src[1].op, AstOp::Range { .. })); // inner_loop
+                    assert!(matches!(block.src[2].op, AstOp::Store)); // store_result
+
+                    // Check the inner loop body
+                    let inner_loop = &block.src[1];
+                    let inner_block = &inner_loop.src[1];
+                    assert!(matches!(inner_block.op, AstOp::Assign));
+                    let assign_node = inner_block;
+                    let rhs = &assign_node.src[1];
+                    assert!(matches!(rhs.op, AstOp::Add)); // Accumulator update
+                    let add_node = rhs;
+                    let fused_op_res = &add_node.src[1];
+                    assert!(matches!(fused_op_res.op, AstOp::Add)); // Fused operation
+                } else {
+                    panic!("Expected outer loop, found {:?}", fused_reduce_ast.op);
+                }
+            } else {
+                panic!("Expected block node, found {:?}", fused_reduce_block.op);
             }
         } else {
             panic!("Expected FuncDef for kernel_impl");

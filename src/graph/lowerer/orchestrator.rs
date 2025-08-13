@@ -78,7 +78,8 @@ impl<'a> LoweringOrchestrator for Lowerer<'a> {
                 | crate::graph::GraphOp::Elementwise(_)
                 | crate::graph::GraphOp::Reduce(_, _)
                 | crate::graph::GraphOp::Cumulative(_, _)
-                | crate::graph::GraphOp::FusedElementwise(_) => {
+                | crate::graph::GraphOp::FusedElementwise(_)
+                | crate::graph::GraphOp::FusedElementwiseReduce(_, _, _) => {
                     self.buffer_map.insert(node_id, current_buffer_idx);
                     node_id_to_buffer_index.insert(node_id, current_buffer_idx);
                     buffer_info_map.insert(

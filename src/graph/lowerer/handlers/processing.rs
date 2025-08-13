@@ -296,4 +296,98 @@ impl<'a> Lowerer<'a> {
 
         (final_block, dst_tracker, node_id)
     }
+
+    pub(crate) fn lower_fused_elementwise_reduce(
+        &mut self,
+        node_id: NodeId,
+        node_data: &NodeData,
+        elementwise_ast: AstNode,
+        op: AstOp,
+        axis: usize, // For now, assume single axis
+    ) -> (AstNode, ShapeTracker, NodeId) {
+        // 1. Lower source nodes to populate cache
+        let mut src_asts = vec![];
+        for &src_id in &node_data.src {
+            let (src_ast, _, _) = self.lower_node(src_id);
+            src_asts.push(src_ast);
+        }
+
+        // 2. Setup trackers and buffers
+        let dst_buffer = self.get_buffer_var(node_id);
+        let dst_tracker = ShapeTracker::new(node_data.shape.clone());
+
+        // 3. Create outer loops for non-reducing dimensions
+        let mut loops = vec![];
+        let mut outer_loop_vars = vec![];
+        for (_i, shape_expr) in node_data.shape.iter().enumerate() {
+            // The shape of the fused op is the output shape, which is already reduced.
+            let loop_var = self.new_loop_counter();
+            outer_loop_vars.push(loop_var.clone());
+            loops.push(AstNode::range(loop_var, shape_expr.clone().into(), vec![]));
+        }
+
+        // 4. Initialize accumulator
+        let acc_var = self.new_accumulator_name();
+        let init_val = match op {
+            AstOp::Add => AstNode::from(0.0f32),
+            AstOp::Mul => AstNode::from(1.0f32),
+            AstOp::Max => AstNode::from(f32::NEG_INFINITY),
+            _ => unimplemented!("Unsupported reduce op for fusion"),
+        }
+        .with_type(node_data.dtype.clone());
+        let init_acc = AstNode::declare(acc_var.clone(), node_data.dtype.clone(), init_val);
+
+        // 5. Create inner loop for reduction
+        let inner_loop_var = self.new_loop_counter();
+        let mut full_indices = outer_loop_vars.clone();
+        // We need the original source shape to know the reduction size
+        let src_shape = self.graph.nodes.borrow()[node_data.src[0].0].shape.clone();
+        full_indices.insert(axis, inner_loop_var.clone());
+
+        // 6. Lower the fused AST inside the loop
+        let fused_op_node = self.lower_fused_ast(&elementwise_ast, &full_indices, &node_data.src);
+
+        // 7. Update accumulator with the fused result
+        let update_acc = AstNode::assign(
+            AstNode::var(&acc_var).with_type(node_data.dtype.clone()),
+            AstNode::new(
+                op.clone(),
+                vec![
+                    AstNode::var(&acc_var).with_type(node_data.dtype.clone()),
+                    fused_op_node,
+                ],
+                node_data.dtype.clone(),
+            ),
+        );
+
+        let inner_loop = AstNode::range(
+            inner_loop_var,
+            src_shape[axis].clone().into(),
+            vec![update_acc],
+        );
+
+        // 8. Store the final result
+        let dst_offset = dst_tracker.offset_expr(&outer_loop_vars);
+        let store_result = AstNode::store(
+            dst_buffer.buffer_index(dst_offset.simplify().into()),
+            AstNode::var(&acc_var).with_type(node_data.dtype.clone()),
+        );
+
+        // 9. Assemble the final AST block
+        let mut final_block_src = vec![];
+        for ast in src_asts {
+            if let AstOp::Block = ast.op {
+                final_block_src.extend(ast.src);
+            } else {
+                final_block_src.push(ast);
+            }
+        }
+        final_block_src.push(AstNode::build_loops(
+            loops,
+            vec![init_acc, inner_loop, store_result],
+        ));
+        let final_block = AstNode::new(AstOp::Block, final_block_src, DType::Void);
+
+        (final_block, dst_tracker, node_id)
+    }
 }
