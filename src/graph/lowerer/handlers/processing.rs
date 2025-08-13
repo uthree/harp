@@ -31,7 +31,7 @@ impl<'a> Lowerer<'a> {
                 loop_var,
                 shape_expr.clone().into(),
                 vec![],
-                true,
+                false,
             ));
         }
 
