@@ -390,4 +390,94 @@ impl<'a> Lowerer<'a> {
 
         (final_block, dst_tracker, node_id)
     }
+
+    pub(crate) fn lower_fused_reduce(
+        &mut self,
+        node_id: NodeId,
+        node_data: &NodeData,
+        op: AstOp,
+        axes: Vec<usize>,
+    ) -> (AstNode, ShapeTracker, NodeId) {
+        let (src_ast, src_tracker, src_buffer_id) = self.lower_node(node_data.src[0]);
+
+        let src_buffer = self.get_buffer_var(src_buffer_id);
+        let dst_buffer = self.get_buffer_var(node_id);
+        let dst_tracker = ShapeTracker::new(node_data.shape.clone());
+
+        let mut outer_loops = vec![];
+        let mut outer_loop_vars = vec![];
+        let mut full_indices = vec![];
+        let mut reduce_axis_pos = 0;
+
+        for (i, shape_expr) in src_tracker.shape().iter().enumerate() {
+            if axes.contains(&i) {
+                // This is a reduction axis, will be handled by inner loops
+                full_indices.push("".to_string()); // Placeholder
+            } else {
+                // This is a dimension that we keep
+                let loop_var = self.new_loop_counter();
+                outer_loop_vars.push(loop_var.clone());
+                full_indices.push(loop_var.clone());
+                outer_loops.push(AstNode::range(loop_var, shape_expr.clone().into(), vec![]));
+            }
+        }
+
+        let acc_var = self.new_accumulator_name();
+        let init_val = match op {
+            AstOp::Add => AstNode::from(0.0f32),
+            AstOp::Mul => AstNode::from(1.0f32),
+            AstOp::Max => AstNode::from(f32::NEG_INFINITY),
+            _ => unimplemented!("Unsupported reduce op"),
+        }
+        .with_type(node_data.dtype.clone());
+
+        let init_acc = AstNode::declare(acc_var.clone(), node_data.dtype.clone(), init_val);
+
+        let mut inner_loops = vec![];
+
+        for (i, shape_expr) in src_tracker.shape().iter().enumerate() {
+            if axes.contains(&i) {
+                let loop_var = self.new_loop_counter();
+                full_indices[i] = loop_var.clone();
+                inner_loops.push(AstNode::range(loop_var, shape_expr.clone().into(), vec![]));
+            }
+        }
+
+        let src_offset = src_tracker.offset_expr(&full_indices);
+        let load_val = AstNode::deref(src_buffer.buffer_index(src_offset.simplify().into()));
+
+        let update_acc = AstNode::assign(
+            AstNode::var(&acc_var).with_type(node_data.dtype.clone()),
+            AstNode::new(
+                op,
+                vec![
+                    AstNode::var(&acc_var).with_type(node_data.dtype.clone()),
+                    load_val,
+                ],
+                node_data.dtype.clone(),
+            ),
+        );
+        
+        let nested_inner_loop = AstNode::build_loops(inner_loops, vec![update_acc]);
+
+        let dst_offset = dst_tracker.offset_expr(&outer_loop_vars);
+        let store_result = AstNode::store(
+            dst_buffer.buffer_index(dst_offset.simplify().into()),
+            AstNode::var(&acc_var).with_type(node_data.dtype.clone()),
+        );
+
+        let mut final_block_src = vec![];
+        if let AstOp::Block = src_ast.op {
+            final_block_src.extend(src_ast.src);
+        } else {
+            final_block_src.push(src_ast);
+        }
+        final_block_src.push(AstNode::build_loops(
+            outer_loops,
+            vec![init_acc, nested_inner_loop, store_result],
+        ));
+        let final_block = AstNode::new(AstOp::Block, final_block_src, DType::Void);
+
+        (final_block, dst_tracker, node_id)
+    }
 }
