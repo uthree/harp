@@ -1,4 +1,4 @@
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, RemAssign, Sub, SubAssign};
+use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
@@ -48,9 +48,17 @@ impl Expr {
                 match (lhs, rhs) {
                     (e, Expr::Const(0)) => e,
                     (l, r) if l == r => Expr::Const(0),
-                    (Expr::Const(l), Expr::Const(r)) => Expr::Const(l - r),
+                    (Expr::Const(l), Expr::Const(r)) => {
+                        if l >= r {
+                            Expr::Const(l - r)
+                        } else {
+                            Expr::Sub(Box::new(Expr::Const(l)), Box::new(Expr::Const(r)))
+                        }
+                    }
                     (Expr::Add(a, b), r) if *b == r => *a,
                     (Expr::Add(a, b), r) if *a == r => *b,
+                    // Simplify double negation: 0 - (a - b) -> b - a
+                    (Expr::Const(0), Expr::Sub(a, b)) => (*b - *a).simplify(),
                     (l, r) => l - r,
                 }
             }
@@ -175,6 +183,15 @@ impl_expr_assign_op!(SubAssign, sub_assign, -);
 impl_expr_assign_op!(MulAssign, mul_assign, *);
 impl_expr_assign_op!(DivAssign, div_assign, /);
 impl_expr_assign_op!(RemAssign, rem_assign, %);
+
+impl Neg for Expr {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Expr::from(0) - self
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -331,5 +348,33 @@ mod tests {
             expr2,
             Expr::Mul(Box::new(Expr::Const(20)), Box::new(Expr::var("y")))
         );
+    }
+
+    #[test]
+    fn test_neg() {
+        let x = Expr::var("x");
+        assert_eq!(-x.clone(), Expr::from(0) - x.clone());
+    }
+
+    #[test]
+    fn test_double_neg_simplification() {
+        let x = Expr::var("x");
+        // The simplification for --x is handled inside the Neg trait which calls sub,
+        // so we call simplify() to test the result.
+        assert_eq!((-(-x.clone())).simplify(), x.clone());
+    }
+
+    #[test]
+    fn test_neg_const_simplification() {
+        let five = Expr::from(5);
+        let neg_five = -five;
+        // Cannot simplify 0 - 5 with usize, so it should remain as is.
+        assert_eq!(neg_five.clone().simplify(), neg_five);
+        assert_eq!(neg_five.to_string(), "(0 - 5)");
+
+        let ten = Expr::from(10);
+        let five_again = Expr::from(5);
+        // 10 - 5 can be simplified.
+        assert_eq!((ten - five_again).simplify(), Expr::from(5));
     }
 }

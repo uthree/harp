@@ -1,5 +1,7 @@
 use std::env::Args;
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, RemAssign, Sub, SubAssign};
+use std::ops::{
+    Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DType {
@@ -42,7 +44,7 @@ pub struct AstNode {
 }
 
 impl AstNode {
-    fn _new(op: AstOp, args: Vec<AstNode>, dtype: DType) -> Self {
+    pub fn _new(op: AstOp, args: Vec<AstNode>, dtype: DType) -> Self {
         Self { op, args, dtype }
     }
 }
@@ -94,3 +96,11 @@ impl_expr_assign_op!(SubAssign, sub_assign, -);
 impl_expr_assign_op!(MulAssign, mul_assign, *);
 impl_expr_assign_op!(DivAssign, div_assign, /);
 impl_expr_assign_op!(RemAssign, rem_assign, %);
+
+impl Neg for AstNode {
+    type Output = Self;
+    fn neg(self) -> Self::Output {
+        let dtype = self.dtype.clone();
+        AstNode::_new(AstOp::Neg, vec![self], dtype)
+    }
+}
