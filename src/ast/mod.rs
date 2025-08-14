@@ -1,3 +1,5 @@
+pub mod pattern;
+
 use std::ops::{
     Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
@@ -9,6 +11,8 @@ pub enum DType {
 
     Ptr(Box<Self>),        // pointer
     Vec(Box<Self>, usize), // fixed-size array
+
+    Any, // for pattern matching
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -21,6 +25,7 @@ pub enum Const {
 pub enum AstOp {
     Const(Const),
     Cast(DType),
+    Var(String),
 
     Add,
     Mul,
@@ -33,6 +38,9 @@ pub enum AstOp {
     Log2,
     Sqrt,
     Neg,
+
+    // for pattern matching
+    Capture(usize),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -45,6 +53,14 @@ pub struct AstNode {
 impl AstNode {
     pub fn _new(op: AstOp, args: Vec<AstNode>, dtype: DType) -> Self {
         Self { op, args, dtype }
+    }
+
+    pub fn capture(pos: usize) -> Self {
+        AstNode::_new(AstOp::Capture(pos), vec![], DType::Any)
+    }
+
+    pub fn var(name: &str) -> Self {
+        AstNode::_new(AstOp::Var(name.to_string()), vec![], DType::Any)
     }
 }
 
