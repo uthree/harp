@@ -1,5 +1,6 @@
 pub mod pattern;
 
+use crate::graph::shape::expr::Expr as ShapeExpr;
 use std::ops::{
     Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
@@ -45,9 +46,9 @@ pub enum AstOp {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AstNode {
-    op: AstOp,
-    args: Vec<AstNode>,
-    dtype: DType,
+    pub op: AstOp,
+    pub args: Vec<AstNode>,
+    pub dtype: DType,
 }
 
 impl AstNode {
@@ -107,6 +108,31 @@ impl AstNode {
         }
 
         true
+    }
+}
+
+impl From<ShapeExpr> for AstNode {
+    fn from(expr: ShapeExpr) -> Self {
+        let dtype = DType::Usize;
+        match expr {
+            ShapeExpr::Const(c) => AstNode::_new(AstOp::Const(Const::Usize(c)), vec![], dtype),
+            ShapeExpr::Var(v) => AstNode::_new(AstOp::Var(v), vec![], dtype),
+            ShapeExpr::Add(l, r) => {
+                AstNode::_new(AstOp::Add, vec![(*l).into(), (*r).into()], dtype)
+            }
+            ShapeExpr::Sub(l, r) => {
+                AstNode::_new(AstOp::Sub, vec![(*l).into(), (*r).into()], dtype)
+            }
+            ShapeExpr::Mul(l, r) => {
+                AstNode::_new(AstOp::Mul, vec![(*l).into(), (*r).into()], dtype)
+            }
+            ShapeExpr::Div(l, r) => {
+                AstNode::_new(AstOp::Div, vec![(*l).into(), (*r).into()], dtype)
+            }
+            ShapeExpr::Rem(l, r) => {
+                AstNode::_new(AstOp::Rem, vec![(*l).into(), (*r).into()], dtype)
+            }
+        }
     }
 }
 
@@ -216,5 +242,25 @@ mod tests {
         let expected = AstNode::_new(AstOp::Neg, vec![node], DType::Usize);
 
         assert_eq!(neg_node, expected);
+    }
+
+    #[test]
+    fn test_from_shape_expr() {
+        let shape_expr = ShapeExpr::Add(
+            Box::new(ShapeExpr::Var("a".to_string())),
+            Box::new(ShapeExpr::Const(1)),
+        );
+        let ast_node: AstNode = shape_expr.into();
+
+        let expected_ast = AstNode::_new(
+            AstOp::Add,
+            vec![
+                AstNode::_new(AstOp::Var("a".to_string()), vec![], DType::Usize),
+                AstNode::_new(AstOp::Const(Const::Usize(1)), vec![], DType::Usize),
+            ],
+            DType::Usize,
+        );
+
+        assert_eq!(ast_node, expected_ast);
     }
 }

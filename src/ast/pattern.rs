@@ -17,7 +17,7 @@ impl RewriteRule {
         condition: impl Fn(&[AstNode]) -> bool + 'static,
     ) -> Rc<Self> {
         Rc::new(RewriteRule {
-            pattern: pattern,
+            pattern,
             rewriter: Box::new(rewriter),
             condition: Box::new(condition),
         })
@@ -130,12 +130,12 @@ impl AstRewriter {
 
         // Then, try to rewrite the current node
         for rule in &self.rules {
-            if let Some(captures) = rewritten_node.matches(&rule.pattern) {
-                if (rule.condition)(&captures) {
-                    // If the pattern matches and the condition is met,
-                    // apply the rewriter and return the new node.
-                    return (rule.rewriter)(&captures);
-                }
+            if let Some(captures) = rewritten_node.matches(&rule.pattern)
+                && (rule.condition)(&captures)
+            {
+                // If the pattern matches and the condition is met,
+                // apply the rewriter and return the new node.
+                return (rule.rewriter)(&captures);
             }
         }
 
@@ -148,7 +148,7 @@ impl Add for AstRewriter {
 
     fn add(self, rhs: Self) -> Self::Output {
         let name = format!("{}+{}", self.name, rhs.name);
-        let rules = self.rules.into_iter().chain(rhs.rules.into_iter()).collect();
+        let rules = self.rules.into_iter().chain(rhs.rules).collect();
         AstRewriter::with_rules(&name, rules)
     }
 }
