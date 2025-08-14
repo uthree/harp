@@ -3,10 +3,10 @@ use std::rc::Rc;
 use crate::ast::AstNode;
 
 pub struct RewriteRule {
-    pattern: AstNode,
-    rewriter: Box<dyn Fn(&[AstNode]) -> AstNode>,
+    pub pattern: AstNode,
+    pub rewriter: Box<dyn Fn(&[AstNode]) -> AstNode>,
     /// A closure that takes captured nodes and returns true if the rewrite should be applied.
-    condition: Box<dyn Fn(&[AstNode]) -> bool>,
+    pub condition: Box<dyn Fn(&[AstNode]) -> bool>,
 }
 
 impl RewriteRule {
@@ -85,4 +85,30 @@ macro_rules! astpat {
 pub struct AstRewriter {
     name: String,
     rules: Vec<Rc<RewriteRule>>,
+}
+
+#[test]
+fn test_astpat_macro() {
+    use crate::ast::AstNode;
+
+    // Test case 1: Simple rule without condition
+    let rule1 = astpat!(|a| a => a);
+    let captured_nodes1 = [AstNode::from(1usize)];
+    assert!((rule1.condition)(&captured_nodes1)); // Should always be true
+    assert_eq!((rule1.rewriter)(&captured_nodes1), AstNode::from(1usize));
+
+    // Test case 2: Rule with a condition
+    let rule2 = astpat!(|a, b| a + b, if a == AstNode::from(1usize) => b + a);
+
+    // Condition should be true
+    let captured_nodes2_true = [AstNode::from(1usize), AstNode::from(2usize)];
+    assert!((rule2.condition)(&captured_nodes2_true));
+    assert_eq!(
+        (rule2.rewriter)(&captured_nodes2_true),
+        AstNode::from(2usize) + AstNode::from(1usize)
+    );
+
+    // Condition should be false
+    let captured_nodes2_false = [AstNode::from(0usize), AstNode::from(2usize)];
+    assert!(!(rule2.condition)(&captured_nodes2_false));
 }
