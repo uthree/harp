@@ -1,3 +1,4 @@
+use std::ops::Add;
 use std::rc::Rc;
 
 use crate::ast::AstNode;
@@ -84,6 +85,13 @@ macro_rules! astpat {
     };
 }
 
+#[macro_export]
+macro_rules! ast_rewriter {
+    ($name:expr, $($rule:expr),*) => {
+        AstRewriter::with_rules($name, vec![$($rule),*])
+    };
+}
+
 pub struct AstRewriter {
     #[allow(dead_code)]
     name: String,
@@ -132,6 +140,16 @@ impl AstRewriter {
         }
 
         rewritten_node
+    }
+}
+
+impl Add for AstRewriter {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        let name = format!("{}+{}", self.name, rhs.name);
+        let rules = self.rules.into_iter().chain(rhs.rules.into_iter()).collect();
+        AstRewriter::with_rules(&name, rules)
     }
 }
 
@@ -223,6 +241,44 @@ mod rewriter_tests {
         let rewritten_expr = rewriter.rewrite(&expr);
 
         assert_eq!(expr, rewritten_expr);
+    }
+
+    #[test]
+    fn test_add_rewriter() {
+        // Rule 1: a + 0 => a
+        let add_zero_rule = astpat!(|a, b| a + b, if b == AstNode::from(0usize) => a);
+        let add_zero_rewriter = AstRewriter::with_rules("AddZero", vec![add_zero_rule]);
+
+        // Rule 2: a * 1 => a
+        let mul_one_rule = astpat!(|a, b| a * b, if b == AstNode::from(1usize) => a);
+        let mul_one_rewriter = AstRewriter::with_rules("MulOne", vec![mul_one_rule]);
+
+        let combined_rewriter = add_zero_rewriter + mul_one_rewriter;
+
+        // Test AddZero rule
+        let expr1 = AstNode::from(5usize) + AstNode::from(0usize);
+        let rewritten_expr1 = combined_rewriter.rewrite(&expr1);
+        assert_eq!(rewritten_expr1, AstNode::from(5usize));
+
+        // Test MulOne rule
+        let expr2 = AstNode::from(5usize) * AstNode::from(1usize);
+        let rewritten_expr2 = combined_rewriter.rewrite(&expr2);
+        assert_eq!(rewritten_expr2, AstNode::from(5usize));
+
+        // Test both
+        let expr3 = (AstNode::from(5usize) + AstNode::from(0usize)) * AstNode::from(1usize);
+        let rewritten_expr3 = combined_rewriter.rewrite(&expr3);
+        assert_eq!(rewritten_expr3, AstNode::from(5usize));
+    }
+
+    #[test]
+    fn test_ast_rewriter_macro() {
+        let rule1 = astpat!(|a, b| a + b => b + a);
+        let rule2 = astpat!(|a, b| a * b => b * a);
+        let rewriter = ast_rewriter!("Commutative", rule1, rule2);
+
+        assert_eq!(rewriter.name, "Commutative");
+        assert_eq!(rewriter.rules.len(), 2);
     }
 
     #[test]
