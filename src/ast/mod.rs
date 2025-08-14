@@ -62,6 +62,52 @@ impl AstNode {
     pub fn var(name: &str) -> Self {
         AstNode::_new(AstOp::Var(name.to_string()), vec![], DType::Any)
     }
+
+    /// Matches the node against a pattern.
+    ///
+    /// If the node matches the pattern, it returns a vector of captured nodes.
+    /// Otherwise, it returns `None`.
+    pub fn matches(&self, pattern: &AstNode) -> Option<Vec<AstNode>> {
+        let mut captures = Vec::new();
+        if !self.matches_inner(pattern, &mut captures) {
+            return None;
+        }
+
+        // The `astpat!` macro generates capture indices starting from 0.
+        // We can rely on this to correctly size the results vector.
+        // Find the maximum capture index to determine the size of the vector.
+        let num_captures = captures.iter().map(|(i, _)| i).max().map_or(0, |m| m + 1);
+        let mut result = vec![AstNode::from(0usize); num_captures];
+        for (i, node) in captures {
+            if i < num_captures {
+                result[i] = node;
+            }
+        }
+        Some(result)
+    }
+
+    fn matches_inner(&self, pattern: &AstNode, captures: &mut Vec<(usize, AstNode)>) -> bool {
+        if let AstOp::Capture(pos) = &pattern.op {
+            captures.push((*pos, self.clone()));
+            return true;
+        }
+
+        if pattern.dtype != DType::Any && self.dtype != pattern.dtype {
+            return false;
+        }
+
+        if self.op != pattern.op || self.args.len() != pattern.args.len() {
+            return false;
+        }
+
+        for (arg, pattern_arg) in self.args.iter().zip(&pattern.args) {
+            if !arg.matches_inner(pattern_arg, captures) {
+                return false;
+            }
+        }
+
+        true
+    }
 }
 
 macro_rules! impl_from_num_for_astnode {
