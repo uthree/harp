@@ -19,9 +19,19 @@ pub enum Const {
 #[derive(Debug, Clone, PartialEq)]
 pub enum AstOp {
     Const(Const),
+    Cast(DType),
+
     Add,
     Mul,
+    Sub,
+    Div,
+    Rem,
     Max,
+    Sin,
+    Exp2,
+    Log2,
+    Sqrt,
+    Neg,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -65,3 +75,22 @@ macro_rules! impl_astnode_binary_op {
 
 impl_astnode_binary_op!(Add, add, Add);
 impl_astnode_binary_op!(Mul, mul, Mul);
+impl_astnode_binary_op!(Rem, rem, Rem);
+impl_astnode_binary_op!(Sub, sub, Sub);
+impl_astnode_binary_op!(Div, div, Div);
+
+macro_rules! impl_expr_assign_op {
+    ($trait:ident, $fname:ident, $op:tt) => {
+        impl<T: Into<AstNode>> $trait<T> for AstNode {
+            fn $fname(&mut self, rhs: T) {
+                *self = self.clone() $op rhs.into();
+            }
+        }
+    };
+}
+
+impl_expr_assign_op!(AddAssign, add_assign, +);
+impl_expr_assign_op!(SubAssign, sub_assign, -);
+impl_expr_assign_op!(MulAssign, mul_assign, *);
+impl_expr_assign_op!(DivAssign, div_assign, /);
+impl_expr_assign_op!(RemAssign, rem_assign, %);
