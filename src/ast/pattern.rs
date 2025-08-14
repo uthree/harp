@@ -28,9 +28,10 @@ impl RewriteRule {
 /// # Example
 ///
 /// The following example is ignored because `astpat!` is not exported.
-/// ```ignore
-/// use crate::ast::AstNode;
-/// use crate::ast::pattern::RewriteRule;
+/// ```
+/// use harp::ast::AstNode;
+/// use harp::ast::pattern::RewriteRule;
+/// use harp::astpat;
 ///
 /// // without condition
 /// let rule = astpat!(|a| a + 1 => a);
@@ -38,6 +39,7 @@ impl RewriteRule {
 /// // with condition
 /// let rule = astpat!(|a, b| a + b, if a == b => b + a);
 /// ```
+#[macro_export]
 macro_rules! astpat {
     (| $($capture: pat_param),* | $pattern: expr, if $condition: expr => $rewriter: expr) => {
         {
