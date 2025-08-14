@@ -1,4 +1,6 @@
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign};
+use std::ops::{
+    Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
@@ -191,7 +193,6 @@ impl Neg for Expr {
         Expr::from(0) - self
     }
 }
-
 
 #[cfg(test)]
 mod tests {
