@@ -16,7 +16,8 @@ pub enum View {
 }
 
 impl View {
-    pub fn new_contiguous(shape: Vec<Expr>) -> Self {
+    pub fn new_contiguous<E: Into<Expr> + Clone, I: IntoIterator<Item = E>>(shape: I) -> Self {
+        let shape: Vec<Expr> = shape.into_iter().map(|e| e.into()).collect();
         if shape.is_empty() {
             return View::Linear {
                 shape,
@@ -101,9 +102,9 @@ impl View {
                 shape.remove(axis);
                 strides.remove(axis);
                 View::Linear {
-                    shape: shape,
-                    strides: strides,
-                    offset: offset,
+                    shape,
+                    strides,
+                    offset,
                 }
             }
         }
@@ -122,10 +123,10 @@ mod tests {
     use rstest::rstest;
 
     #[rstest]
-    #[case(vec![Expr::from(2), Expr::from(3), Expr::from(4)], vec![Expr::from(12), Expr::from(4), Expr::from(1)])]
-    #[case(vec![Expr::from(10)], vec![Expr::from(1)])]
+    #[case(vec![2, 3, 4], vec![Expr::from(12), Expr::from(4), Expr::from(1)])]
+    #[case(vec![10], vec![Expr::from(1)])]
     #[case(vec![], vec![])]
-    fn test_new_contiguous(#[case] shape: Vec<Expr>, #[case] expected_strides: Vec<Expr>) {
+    fn test_new_contiguous(#[case] shape: Vec<isize>, #[case] expected_strides: Vec<Expr>) {
         let view = View::new_contiguous(shape.clone());
         let View::Linear {
             shape: s,
@@ -133,14 +134,15 @@ mod tests {
             offset,
         } = view;
 
-        assert_eq!(s, shape);
+        let expected_shape: Vec<Expr> = shape.into_iter().map(|d| d.into()).collect();
+        assert_eq!(s, expected_shape);
         assert_eq!(strides, expected_strides);
         assert_eq!(offset, Expr::from(0));
     }
 
     #[test]
     fn test_permute() {
-        let view = View::new_contiguous(vec![Expr::from(2), Expr::from(3), Expr::from(4)]);
+        let view = View::new_contiguous(vec![2, 3, 4]);
         let permuted_view = view.permute(vec![1, 2, 0]);
         let View::Linear { shape, strides, .. } = permuted_view;
         assert_eq!(shape, vec![Expr::from(3), Expr::from(4), Expr::from(2)]);
@@ -149,7 +151,7 @@ mod tests {
 
     #[test]
     fn test_unsqueeze_squeeze() {
-        let view = View::new_contiguous(vec![Expr::from(3), Expr::from(4)]);
+        let view = View::new_contiguous(vec![3, 4]);
         let unsqueezed = view.unsqueeze(1);
         let View::Linear { shape, strides, .. } = unsqueezed.clone();
         assert_eq!(shape, vec![Expr::from(3), 1.into(), Expr::from(4)]);
@@ -164,13 +166,13 @@ mod tests {
     #[test]
     #[should_panic(expected = "can only squeeze an axis of size 1")]
     fn test_squeeze_invalid_axis() {
-        let view = View::new_contiguous(vec![Expr::from(3), Expr::from(4)]);
+        let view = View::new_contiguous(vec![3, 4]);
         view.squeeze(0);
     }
 
     #[test]
     fn test_is_contiguous() {
-        let view = View::new_contiguous(vec![Expr::from(2), Expr::from(3), Expr::from(4)]);
+        let view = View::new_contiguous(vec![2, 3, 4]);
         assert!(view.is_contiguous());
 
         let permuted_view = view.permute(vec![1, 2, 0]);
