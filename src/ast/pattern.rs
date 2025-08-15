@@ -1,7 +1,6 @@
+use crate::ast::AstNode;
 use std::ops::Add;
 use std::rc::Rc;
-
-use crate::ast::AstNode;
 
 pub struct RewriteRule {
     pub pattern: AstNode,
@@ -121,8 +120,8 @@ impl AstRewriter {
 
     pub fn rewrite(&self, node: &AstNode) -> AstNode {
         // First, rewrite the children (post-order traversal)
-        let new_args: Vec<AstNode> = node.args.iter().map(|arg| self.rewrite(arg)).collect();
-        let rewritten_node = if new_args != node.args {
+        let new_args: Vec<AstNode> = node.src.iter().map(|arg| self.rewrite(arg)).collect();
+        let rewritten_node = if new_args != node.src {
             AstNode::_new(node.op.clone(), new_args, node.dtype.clone())
         } else {
             node.clone()

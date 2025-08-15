@@ -47,13 +47,13 @@ pub enum AstOp {
 #[derive(Debug, Clone, PartialEq)]
 pub struct AstNode {
     pub op: AstOp,
-    pub args: Vec<AstNode>,
+    pub src: Vec<AstNode>,
     pub dtype: DType,
 }
 
 impl AstNode {
-    pub fn _new(op: AstOp, args: Vec<AstNode>, dtype: DType) -> Self {
-        Self { op, args, dtype }
+    pub fn _new(op: AstOp, src: Vec<AstNode>, dtype: DType) -> Self {
+        Self { op, src, dtype }
     }
 
     pub fn capture(pos: usize) -> Self {
@@ -97,11 +97,11 @@ impl AstNode {
             return false;
         }
 
-        if self.op != pattern.op || self.args.len() != pattern.args.len() {
+        if self.op != pattern.op || self.src.len() != pattern.src.len() {
             return false;
         }
 
-        for (arg, pattern_arg) in self.args.iter().zip(&pattern.args) {
+        for (arg, pattern_arg) in self.src.iter().zip(&pattern.src) {
             if !arg.matches_inner(pattern_arg, captures) {
                 return false;
             }
