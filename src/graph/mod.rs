@@ -3,7 +3,7 @@ pub mod shape;
 use crate::ast::{AstOp, DType};
 use crate::graph::shape::expr::Expr;
 use std::ops::Deref;
-use std::rc::{Rc, Weak};
+use std::rc::Rc;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum GraphOp {
