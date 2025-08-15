@@ -11,7 +11,7 @@ pub enum DType {
     Usize, // size_t
 
     Ptr(Box<Self>),        // pointer
-    Vec(Box<Self>, usize), // fixed-size array
+    Vec(Box<Self>, usize), // fixed-size array (for SIMD vectorization)
 
     Any, // for pattern matching
 }
@@ -39,6 +39,8 @@ pub enum AstOp {
     Log2,
     Sqrt,
     Neg,
+
+    Loop { counter: String },
 
     // for pattern matching
     Capture(usize),
