@@ -4,7 +4,7 @@ use std::ops::{
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
-    Const(usize),
+    Const(isize),
     Var(String),
     Add(Box<Self>, Box<Self>),
     Sub(Box<Self>, Box<Self>),
@@ -50,13 +50,7 @@ impl Expr {
                 match (lhs, rhs) {
                     (e, Expr::Const(0)) => e,
                     (l, r) if l == r => Expr::Const(0),
-                    (Expr::Const(l), Expr::Const(r)) => {
-                        if l >= r {
-                            Expr::Const(l - r)
-                        } else {
-                            Expr::Sub(Box::new(Expr::Const(l)), Box::new(Expr::Const(r)))
-                        }
-                    }
+                    (Expr::Const(l), Expr::Const(r)) => Expr::Const(l - r),
                     (Expr::Add(a, b), r) if *b == r => *a,
                     (Expr::Add(a, b), r) if *a == r => *b,
                     // Simplify double negation: 0 - (a - b) -> b - a
@@ -70,6 +64,8 @@ impl Expr {
                 match (lhs, rhs) {
                     (Expr::Const(0), _) | (_, Expr::Const(0)) => Expr::Const(0),
                     (Expr::Const(1), e) | (e, Expr::Const(1)) => e,
+                    (Expr::Const(-1), e) => (-e).simplify(),
+                    (e, Expr::Const(-1)) => (-e).simplify(),
                     (Expr::Const(l), Expr::Const(r)) => Expr::Const(l * r),
                     (l, r) => l * r,
                 }
@@ -124,7 +120,7 @@ impl Expr {
         }
     }
 
-    pub fn evaluate(&self, vars: &std::collections::HashMap<String, usize>) -> usize {
+    pub fn evaluate(&self, vars: &std::collections::HashMap<String, isize>) -> isize {
         match self {
             Expr::Const(c) => *c,
             Expr::Var(v) => *vars
@@ -144,7 +140,7 @@ macro_rules! impl_from_integer_for_expr {
         $(
             impl From<$t> for Expr {
                 fn from(n: $t) -> Self {
-                    Expr::Const(n as usize)
+                    Expr::Const(n as isize)
                 }
             }
         )*
@@ -190,7 +186,7 @@ impl Neg for Expr {
     type Output = Self;
 
     fn neg(self) -> Self::Output {
-        Expr::from(0) - self
+        Expr::from(0isize) - self
     }
 }
 
@@ -233,6 +229,7 @@ mod tests {
     #[case(Expr::Const(1) * Expr::var("x"), Expr::var("x"))]
     #[case(Expr::var("x") * Expr::Const(0), Expr::Const(0))]
     #[case(Expr::Const(0) * Expr::var("x"), Expr::Const(0))]
+    #[case(Expr::var("x") * Expr::Const(-1), -Expr::var("x"))]
     // Div
     #[case(Expr::Const(6) / Expr::Const(2), Expr::Const(3))]
     #[case(Expr::var("x") / Expr::Const(1), Expr::var("x"))]
@@ -271,10 +268,11 @@ mod tests {
     #[case(Expr::var("x"), hashmap!{"x".to_string() => 10}, 10)]
     #[case(Expr::var("x") + Expr::Const(5), hashmap!{"x".to_string() => 10}, 15)]
     #[case((Expr::var("x") * Expr::var("y")) - Expr::Const(1), hashmap!{"x".to_string() => 3, "y".to_string() => 4}, 11)]
+    #[case(Expr::Const(-5), hashmap!{}, -5)]
     fn test_evaluate(
         #[case] expr: Expr,
-        #[case] context: HashMap<String, usize>,
-        #[case] expected: usize,
+        #[case] context: HashMap<String, isize>,
+        #[case] expected: isize,
     ) {
         assert_eq!(expr.evaluate(&context), expected);
     }
@@ -334,6 +332,7 @@ mod tests {
         assert_eq!(Expr::from(1000i32), Expr::Const(1000));
         assert_eq!(Expr::from(10000i64), Expr::Const(10000));
         assert_eq!(Expr::from(1isize), Expr::Const(1));
+        assert_eq!(Expr::from(-1i8), Expr::Const(-1));
     }
 
     #[test]
@@ -354,7 +353,7 @@ mod tests {
     #[test]
     fn test_neg() {
         let x = Expr::var("x");
-        assert_eq!(-x.clone(), Expr::from(0) - x.clone());
+        assert_eq!(-x.clone(), Expr::from(0isize) - x.clone());
     }
 
     #[test]
@@ -369,13 +368,6 @@ mod tests {
     fn test_neg_const_simplification() {
         let five = Expr::from(5);
         let neg_five = -five;
-        // Cannot simplify 0 - 5 with usize, so it should remain as is.
-        assert_eq!(neg_five.clone().simplify(), neg_five);
-        assert_eq!(neg_five.to_string(), "(0 - 5)");
-
-        let ten = Expr::from(10);
-        let five_again = Expr::from(5);
-        // 10 - 5 can be simplified.
-        assert_eq!((ten - five_again).simplify(), Expr::from(5));
+        assert_eq!(neg_five.simplify(), Expr::Const(-5));
     }
 }

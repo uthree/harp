@@ -34,7 +34,7 @@ impl RewriteRule {
 /// use harp::astpat;
 ///
 /// // without condition
-/// let rule = astpat!(|a| a + 1 => a);
+/// let rule = astpat!(|a| a + 1isize => a);
 ///
 /// // with condition
 /// let rule = astpat!(|a, b| a + b, if a == b => b + a);
@@ -158,23 +158,23 @@ fn test_astpat_macro() {
 
     // Test case 1: Simple rule without condition
     let rule1 = astpat!(|a| a => a);
-    let captured_nodes1 = [AstNode::from(1usize)];
+    let captured_nodes1 = [AstNode::from(1isize)];
     assert!((rule1.condition)(&captured_nodes1)); // Should always be true
-    assert_eq!((rule1.rewriter)(&captured_nodes1), AstNode::from(1usize));
+    assert_eq!((rule1.rewriter)(&captured_nodes1), AstNode::from(1isize));
 
     // Test case 2: Rule with a condition
-    let rule2 = astpat!(|a, _b| a + _b, if a == AstNode::from(1usize) => _b + a);
+    let rule2 = astpat!(|a, _b| a + _b, if a == AstNode::from(1isize) => _b + a);
 
     // Condition should be true
-    let captured_nodes2_true = [AstNode::from(1usize), AstNode::from(2usize)];
+    let captured_nodes2_true = [AstNode::from(1isize), AstNode::from(2isize)];
     assert!((rule2.condition)(&captured_nodes2_true));
     assert_eq!(
         (rule2.rewriter)(&captured_nodes2_true),
-        AstNode::from(2usize) + AstNode::from(1usize)
+        AstNode::from(2isize) + AstNode::from(1isize)
     );
 
     // Condition should be false
-    let captured_nodes2_false = [AstNode::from(0usize), AstNode::from(2usize)];
+    let captured_nodes2_false = [AstNode::from(0isize), AstNode::from(2isize)];
     assert!(!(rule2.condition)(&captured_nodes2_false));
 }
 
@@ -190,26 +190,26 @@ mod rewriter_tests {
         let rule = astpat!(|a, b| a + b => b + a);
         let rewriter = AstRewriter::with_rules("CommutativeAddition", vec![rule]);
 
-        let expr = AstNode::from(1usize) + AstNode::from(2usize);
+        let expr = AstNode::from(1isize) + AstNode::from(2isize);
         let rewritten_expr = rewriter.rewrite(&expr);
 
-        let expected = AstNode::from(2usize) + AstNode::from(1usize);
+        let expected = AstNode::from(2isize) + AstNode::from(1isize);
         assert_eq!(rewritten_expr, expected);
     }
 
     #[test]
     fn test_conditional_rewrite() {
         // Rule: a + 0 => a
-        let rule = astpat!(|a, b| a + b, if b == AstNode::from(0usize) => a);
+        let rule = astpat!(|a, b| a + b, if b == AstNode::from(0isize) => a);
         let rewriter = AstRewriter::with_rules("AddZero", vec![rule]);
 
         // This should be rewritten
-        let expr1 = AstNode::from(5usize) + AstNode::from(0usize);
+        let expr1 = AstNode::from(5isize) + AstNode::from(0isize);
         let rewritten_expr1 = rewriter.rewrite(&expr1);
-        assert_eq!(rewritten_expr1, AstNode::from(5usize));
+        assert_eq!(rewritten_expr1, AstNode::from(5isize));
 
         // This should not be rewritten
-        let expr2 = AstNode::from(5usize) + AstNode::from(1usize);
+        let expr2 = AstNode::from(5isize) + AstNode::from(1isize);
         let rewritten_expr2 = rewriter.rewrite(&expr2);
         assert_eq!(rewritten_expr2, expr2);
     }
@@ -217,26 +217,26 @@ mod rewriter_tests {
     #[test]
     fn test_recursive_rewrite() {
         // Rule: a + 0 => a
-        let rule = astpat!(|a, b| a + b, if b == AstNode::from(0usize) => a);
+        let rule = astpat!(|a, b| a + b, if b == AstNode::from(0isize) => a);
         let rewriter = AstRewriter::with_rules("AddZero", vec![rule]);
 
         // (1 + 0) + (2 + 0)
-        let expr = (AstNode::from(1usize) + AstNode::from(0usize))
-            + (AstNode::from(2usize) + AstNode::from(0usize));
+        let expr = (AstNode::from(1isize) + AstNode::from(0isize))
+            + (AstNode::from(2isize) + AstNode::from(0isize));
 
         let rewritten_expr = rewriter.rewrite(&expr);
 
         // expected: 1 + 2
-        let expected = AstNode::from(1usize) + AstNode::from(2usize);
+        let expected = AstNode::from(1isize) + AstNode::from(2isize);
         assert_eq!(rewritten_expr, expected);
     }
 
     #[test]
     fn test_no_rewrite() {
-        let rule = astpat!(|a| a * AstNode::from(2usize) => a.clone() + a);
+        let rule = astpat!(|a| a * AstNode::from(2isize) => a.clone() + a);
         let rewriter = AstRewriter::with_rules("MulToAd", vec![rule]);
 
-        let expr = AstNode::from(1usize) + AstNode::from(2usize);
+        let expr = AstNode::from(1isize) + AstNode::from(2isize);
         let rewritten_expr = rewriter.rewrite(&expr);
 
         assert_eq!(expr, rewritten_expr);
@@ -245,29 +245,29 @@ mod rewriter_tests {
     #[test]
     fn test_add_rewriter() {
         // Rule 1: a + 0 => a
-        let add_zero_rule = astpat!(|a, b| a + b, if b == AstNode::from(0usize) => a);
+        let add_zero_rule = astpat!(|a, b| a + b, if b == AstNode::from(0isize) => a);
         let add_zero_rewriter = AstRewriter::with_rules("AddZero", vec![add_zero_rule]);
 
         // Rule 2: a * 1 => a
-        let mul_one_rule = astpat!(|a, b| a * b, if b == AstNode::from(1usize) => a);
+        let mul_one_rule = astpat!(|a, b| a * b, if b == AstNode::from(1isize) => a);
         let mul_one_rewriter = AstRewriter::with_rules("MulOne", vec![mul_one_rule]);
 
         let combined_rewriter = add_zero_rewriter + mul_one_rewriter;
 
         // Test AddZero rule
-        let expr1 = AstNode::from(5usize) + AstNode::from(0usize);
+        let expr1 = AstNode::from(5isize) + AstNode::from(0isize);
         let rewritten_expr1 = combined_rewriter.rewrite(&expr1);
-        assert_eq!(rewritten_expr1, AstNode::from(5usize));
+        assert_eq!(rewritten_expr1, AstNode::from(5isize));
 
         // Test MulOne rule
-        let expr2 = AstNode::from(5usize) * AstNode::from(1usize);
+        let expr2 = AstNode::from(5isize) * AstNode::from(1isize);
         let rewritten_expr2 = combined_rewriter.rewrite(&expr2);
-        assert_eq!(rewritten_expr2, AstNode::from(5usize));
+        assert_eq!(rewritten_expr2, AstNode::from(5isize));
 
         // Test both
-        let expr3 = (AstNode::from(5usize) + AstNode::from(0usize)) * AstNode::from(1usize);
+        let expr3 = (AstNode::from(5isize) + AstNode::from(0isize)) * AstNode::from(1isize);
         let rewritten_expr3 = combined_rewriter.rewrite(&expr3);
-        assert_eq!(rewritten_expr3, AstNode::from(5usize));
+        assert_eq!(rewritten_expr3, AstNode::from(5isize));
     }
 
     #[test]
@@ -283,11 +283,11 @@ mod rewriter_tests {
     #[test]
     fn test_matches_simple() {
         let a = AstNode::capture(0);
-        let pattern = a + AstNode::from(1usize);
-        let expr = AstNode::from(10usize) + AstNode::from(1usize);
+        let pattern = a + AstNode::from(1isize);
+        let expr = AstNode::from(10isize) + AstNode::from(1isize);
         let captures = expr.matches(&pattern).unwrap();
         assert_eq!(captures.len(), 1);
-        assert_eq!(captures[0], AstNode::from(10usize));
+        assert_eq!(captures[0], AstNode::from(10isize));
     }
 
     #[test]
@@ -295,28 +295,28 @@ mod rewriter_tests {
         let a = AstNode::capture(0);
         let b = AstNode::capture(1);
         let pattern = a + b;
-        let expr = AstNode::from(10usize) + AstNode::from(20usize);
+        let expr = AstNode::from(10isize) + AstNode::from(20isize);
         let captures = expr.matches(&pattern).unwrap();
         assert_eq!(captures.len(), 2);
-        assert_eq!(captures[0], AstNode::from(10usize));
-        assert_eq!(captures[1], AstNode::from(20usize));
+        assert_eq!(captures[0], AstNode::from(10isize));
+        assert_eq!(captures[1], AstNode::from(20isize));
     }
 
     #[test]
     fn test_matches_no_match() {
         let a = AstNode::capture(0);
-        let pattern = a + AstNode::from(1usize);
-        let expr = AstNode::from(10usize) * AstNode::from(1usize);
+        let pattern = a + AstNode::from(1isize);
+        let expr = AstNode::from(10isize) * AstNode::from(1isize);
         assert!(expr.matches(&pattern).is_none());
     }
 
     #[test]
     fn test_matches_nested() {
         let a = AstNode::capture(0);
-        let pattern = (a + AstNode::from(1usize)) * AstNode::from(2usize);
-        let expr = (AstNode::from(10usize) + AstNode::from(1usize)) * AstNode::from(2usize);
+        let pattern = (a + AstNode::from(1isize)) * AstNode::from(2isize);
+        let expr = (AstNode::from(10isize) + AstNode::from(1isize)) * AstNode::from(2isize);
         let captures = expr.matches(&pattern).unwrap();
         assert_eq!(captures.len(), 1);
-        assert_eq!(captures[0], AstNode::from(10usize));
+        assert_eq!(captures[0], AstNode::from(10isize));
     }
 }

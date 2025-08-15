@@ -12,7 +12,7 @@ pub enum View {
         strides: Vec<Expr>, // 各次元の添え字の係数
         offset: Expr,       // オフセット
     },
-    // 非線形な場合は後で実装するs
+    // 非線形な場合は後で実装する
 }
 
 impl View {
@@ -142,30 +142,21 @@ mod tests {
     fn test_permute() {
         let view = View::new_contiguous(vec![Expr::from(2), Expr::from(3), Expr::from(4)]);
         let permuted_view = view.permute(vec![1, 2, 0]);
-        let View::Linear {
-            shape, strides, ..
-        } = permuted_view;
+        let View::Linear { shape, strides, .. } = permuted_view;
         assert_eq!(shape, vec![Expr::from(3), Expr::from(4), Expr::from(2)]);
-        assert_eq!(
-            strides,
-            vec![Expr::from(4), Expr::from(1), Expr::from(12)]
-        );
+        assert_eq!(strides, vec![Expr::from(4), Expr::from(1), Expr::from(12)]);
     }
 
     #[test]
     fn test_unsqueeze_squeeze() {
         let view = View::new_contiguous(vec![Expr::from(3), Expr::from(4)]);
         let unsqueezed = view.unsqueeze(1);
-        let View::Linear {
-            shape, strides, ..
-        } = unsqueezed.clone();
+        let View::Linear { shape, strides, .. } = unsqueezed.clone();
         assert_eq!(shape, vec![Expr::from(3), 1.into(), Expr::from(4)]);
         assert_eq!(strides, vec![Expr::from(4), 0.into(), Expr::from(1)]);
 
         let squeezed = unsqueezed.squeeze(1);
-        let View::Linear {
-            shape, strides, ..
-        } = squeezed;
+        let View::Linear { shape, strides, .. } = squeezed;
         assert_eq!(shape, vec![Expr::from(3), Expr::from(4)]);
         assert_eq!(strides, vec![Expr::from(4), Expr::from(1)]);
     }

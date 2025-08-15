@@ -9,6 +9,7 @@ use std::ops::{
 pub enum DType {
     F32,   // float
     Usize, // size_t
+    Isize, // ssize_t
 
     Ptr(Box<Self>),        // pointer
     Vec(Box<Self>, usize), // fixed-size array (for SIMD vectorization)
@@ -20,6 +21,7 @@ pub enum DType {
 pub enum Const {
     F32(f32),
     Usize(usize),
+    Isize(isize),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -80,7 +82,7 @@ impl AstNode {
         // We can rely on this to correctly size the results vector.
         // Find the maximum capture index to determine the size of the vector.
         let num_captures = captures.iter().map(|(i, _)| i).max().map_or(0, |m| m + 1);
-        let mut result = vec![AstNode::from(0usize); num_captures];
+        let mut result = vec![AstNode::from(0isize); num_captures];
         for (i, node) in captures {
             if i < num_captures {
                 result[i] = node;
@@ -115,9 +117,9 @@ impl AstNode {
 
 impl From<ShapeExpr> for AstNode {
     fn from(expr: ShapeExpr) -> Self {
-        let dtype = DType::Usize;
+        let dtype = DType::Isize;
         match expr {
-            ShapeExpr::Const(c) => AstNode::_new(AstOp::Const(Const::Usize(c)), vec![], dtype),
+            ShapeExpr::Const(c) => AstNode::_new(AstOp::Const(Const::Isize(c)), vec![], dtype),
             ShapeExpr::Var(v) => AstNode::_new(AstOp::Var(v), vec![], dtype),
             ShapeExpr::Add(l, r) => {
                 AstNode::_new(AstOp::Add, vec![(*l).into(), (*r).into()], dtype)
@@ -150,7 +152,7 @@ macro_rules! impl_from_num_for_astnode {
     };
 }
 
-impl_from_num_for_astnode!((usize, Usize));
+impl_from_num_for_astnode!((usize, Usize), (isize, Isize));
 
 macro_rules! impl_astnode_binary_op {
     ($trait:ident, $fname:ident, $variant:ident) => {
@@ -213,11 +215,11 @@ mod tests {
     #[case(AstOp::Div, |a, b| a / b)]
     #[case(AstOp::Rem, |a, b| a % b)]
     fn test_binary_operations(#[case] op: AstOp, #[case] op_fn: fn(AstNode, AstNode) -> AstNode) {
-        let a = AstNode::from(10usize);
-        let b = AstNode::from(5usize);
+        let a = AstNode::from(10isize);
+        let b = AstNode::from(5isize);
         let result = op_fn(a.clone(), b.clone());
 
-        let expected = AstNode::_new(op, vec![a, b], DType::Usize);
+        let expected = AstNode::_new(op, vec![a, b], DType::Isize);
         assert_eq!(result, expected);
     }
 
@@ -228,20 +230,20 @@ mod tests {
     #[case(AstOp::Div, |mut a: AstNode, b: AstNode| { a /= b; a })]
     #[case(AstOp::Rem, |mut a: AstNode, b: AstNode| { a %= b; a })]
     fn test_assign_operations(#[case] op: AstOp, #[case] op_fn: fn(AstNode, AstNode) -> AstNode) {
-        let a = AstNode::from(10usize);
-        let b = AstNode::from(5usize);
+        let a = AstNode::from(10isize);
+        let b = AstNode::from(5isize);
         let result = op_fn(a.clone(), b.clone());
 
-        let expected = AstNode::_new(op, vec![a, b], DType::Usize);
+        let expected = AstNode::_new(op, vec![a, b], DType::Isize);
         assert_eq!(result, expected);
     }
 
     #[test]
     fn test_neg_ast_node() {
-        let node = AstNode::from(10usize);
+        let node = AstNode::from(10isize);
         let neg_node = -node.clone();
 
-        let expected = AstNode::_new(AstOp::Neg, vec![node], DType::Usize);
+        let expected = AstNode::_new(AstOp::Neg, vec![node], DType::Isize);
 
         assert_eq!(neg_node, expected);
     }
@@ -257,10 +259,10 @@ mod tests {
         let expected_ast = AstNode::_new(
             AstOp::Add,
             vec![
-                AstNode::_new(AstOp::Var("a".to_string()), vec![], DType::Usize),
-                AstNode::_new(AstOp::Const(Const::Usize(1)), vec![], DType::Usize),
+                AstNode::_new(AstOp::Var("a".to_string()), vec![], DType::Isize),
+                AstNode::_new(AstOp::Const(Const::Isize(1)), vec![], DType::Isize),
             ],
-            DType::Usize,
+            DType::Isize,
         );
 
         assert_eq!(ast_node, expected_ast);
