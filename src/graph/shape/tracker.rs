@@ -12,11 +12,11 @@ pub enum View {
         strides: Vec<Expr>, // 各次元の添え字の係数
         offset: Expr,       // オフセット
     },
-    // 非線形な場合はとりあえず保留する。
+    // 非線形な場合は後で実装するs
 }
 
 impl View {
-    pub fn new_continuous(shape: Vec<Expr>) -> Self {
+    pub fn new_contiguous(shape: Vec<Expr>) -> Self {
         let mut strides = vec![Expr::from(1); shape.len()];
         for i in (0..shape.len() - 1).rev() {
             strides[i] = (strides[i + 1].clone() * shape[i + 1].clone()).simplify();
@@ -99,6 +99,12 @@ impl View {
                     offset: offset,
                 }
             }
+        }
+    }
+
+    pub fn is_contiguous(&self) -> bool {
+        match self {
+            View::Linear { shape, .. } => *self == View::new_contiguous(shape.clone()),
         }
     }
 }
