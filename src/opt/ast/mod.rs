@@ -1,7 +1,7 @@
 use crate::ast::AstNode;
 
-pub mod algebraic;
 pub mod heuristic;
+pub mod rule;
 
 pub trait AstOptimizer {
     fn optimize(&mut self, ast: &AstNode) -> AstNode;

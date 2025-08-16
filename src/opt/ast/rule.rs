@@ -1,4 +1,5 @@
-use crate::ast::pattern::{AstRewriter, RewriteRule};
+use crate::ast::pattern::AstRewriter;
+use crate::ast::pattern::RewriteRule;
 use crate::ast::{AstNode, AstOp, Const};
 use crate::opt::ast::AstOptimizer;
 use crate::{ast_rewriter, astpat};
@@ -15,50 +16,54 @@ fn get_const_val(node: &AstNode) -> Option<Const> {
     }
 }
 
+pub fn algebraic_simplification() -> AstRewriter {
+    ast_rewriter!(
+        "AlgebraicSimplification",
+        // --- Identity Rules ---
+        astpat!(|a| a + AstNode::from(0isize) => a),
+        astpat!(|a| AstNode::from(0isize) + a => a),
+        astpat!(|a| a - AstNode::from(0isize) => a),
+        astpat!(|a| a * AstNode::from(1isize) => a),
+        astpat!(|a| AstNode::from(1isize) * a => a),
+        astpat!(|a| a / AstNode::from(1isize) => a),
+        // --- Annihilation Rules ---
+        astpat!(|_a| _a * AstNode::from(0isize) => AstNode::from(0isize)),
+        astpat!(|_a| AstNode::from(0isize) * _a => AstNode::from(0isize)),
+        astpat!(|_a| AstNode::from(0isize) / _a => AstNode::from(0isize)),
+        // --- Other Rules ---
+        astpat!(|a| -(-a) => a),
+        // --- Constant Folding Rules ---
+        astpat!(|a, b| a + b, if is_const(&a) && is_const(&b) => {
+            if let (Some(Const::Isize(va)), Some(Const::Isize(vb))) = (get_const_val(&a), get_const_val(&b)) {
+                AstNode::from(va + vb)
+            } else {
+                a + b
+            }
+        }),
+        astpat!(|a, b| a - b, if is_const(&a) && is_const(&b) => {
+            if let (Some(Const::Isize(va)), Some(Const::Isize(vb))) = (get_const_val(&a), get_const_val(&b)) {
+                AstNode::from(va - vb)
+            } else {
+                a - b
+            }
+        }),
+        astpat!(|a, b| a * b, if is_const(&a) && is_const(&b) => {
+            if let (Some(Const::Isize(va)), Some(Const::Isize(vb))) = (get_const_val(&a), get_const_val(&b)) {
+                AstNode::from(va * vb)
+            } else {
+                a * b
+            }
+        })
+    )
+}
+
 pub struct AlgebraicOptimizer {
     rewriter: AstRewriter,
 }
 
 impl AlgebraicOptimizer {
     pub fn new() -> Self {
-        let rewriter = ast_rewriter!(
-            "AlgebraicSimplification",
-            // --- Identity Rules ---
-            astpat!(|a| a + AstNode::from(0isize) => a),
-            astpat!(|a| AstNode::from(0isize) + a => a),
-            astpat!(|a| a - AstNode::from(0isize) => a),
-            astpat!(|a| a * AstNode::from(1isize) => a),
-            astpat!(|a| AstNode::from(1isize) * a => a),
-            astpat!(|a| a / AstNode::from(1isize) => a),
-            // --- Annihilation Rules ---
-            astpat!(|_a| _a * AstNode::from(0isize) => AstNode::from(0isize)),
-            astpat!(|_a| AstNode::from(0isize) * _a => AstNode::from(0isize)),
-            astpat!(|_a| AstNode::from(0isize) / _a => AstNode::from(0isize)),
-            // --- Other Rules ---
-            astpat!(|a| -(-a) => a),
-            // --- Constant Folding Rules ---
-            astpat!(|a, b| a + b, if is_const(&a) && is_const(&b) => {
-                if let (Some(Const::Isize(va)), Some(Const::Isize(vb))) = (get_const_val(&a), get_const_val(&b)) {
-                    AstNode::from(va + vb)
-                } else {
-                    a + b
-                }
-            }),
-            astpat!(|a, b| a - b, if is_const(&a) && is_const(&b) => {
-                if let (Some(Const::Isize(va)), Some(Const::Isize(vb))) = (get_const_val(&a), get_const_val(&b)) {
-                    AstNode::from(va - vb)
-                } else {
-                    a - b
-                }
-            }),
-            astpat!(|a, b| a * b, if is_const(&a) && is_const(&b) => {
-                if let (Some(Const::Isize(va)), Some(Const::Isize(vb))) = (get_const_val(&a), get_const_val(&b)) {
-                    AstNode::from(va * vb)
-                } else {
-                    a * b
-                }
-            })
-        );
+        let rewriter = algebraic_simplification();
         Self { rewriter }
     }
 
