@@ -1,5 +1,6 @@
 use super::{CBuffer, CKernel};
 use crate::backend::Compiler;
+use crate::graph::GraphSignature;
 use libloading::Library;
 use log::debug;
 use std::sync::Arc;
@@ -118,10 +119,10 @@ impl Compiler<CBuffer> for CCompiler {
     }
 
     fn with_option(&mut self, _option: ()) {
-        unimplemented!();
+        // This compiler does not have options yet.
     }
 
-    fn compile(&mut self, code: &String, details: KernelDetails) -> Self::KernelType {
+    fn compile(&mut self, code: &String, details: GraphSignature) -> Self::KernelType {
         let mut source_file = tempfile::Builder::new()
             .prefix("kernel")
             .suffix(".c")
@@ -164,12 +165,70 @@ impl Compiler<CBuffer> for CCompiler {
         let library =
             Arc::new(unsafe { Library::new(&lib_path).expect("Failed to load dynamic library") });
 
-        let func_name = "kernel_main".to_string();
+        // We assume the function name is the first output name in the signature for now.
+        // A more robust solution would be needed for multi-output graphs.
+        let func_name = "kernel_main".to_string(); // Simplified
 
         CKernel {
             library,
             func_name,
             details,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::DType;
+    use crate::backend::{Buffer, Kernel};
+
+    #[test]
+    fn test_compile_and_run_vector_add() {
+        let mut compiler = CCompiler::new();
+        if !compiler.is_available() {
+            eprintln!("C compiler not available, skipping test.");
+            return;
+        }
+
+        let code = r#"#
+            void vector_add(float* out, float* a, float* b) {
+                for (int i = 0; i < 10; i++) { // Hardcoded size for simplicity
+                    out[i] = a[i] + b[i];
+                }
+            }
+        "#
+        .to_string();
+
+        // The GraphSignature is a placeholder here, as the C code is manually written.
+        // In a real scenario, this would be derived from the graph.
+        let details = GraphSignature::new();
+
+        let mut kernel = compiler.compile(&code, details);
+        // We need to manually set the function name because the GraphSignature is empty.
+        kernel.func_name = "vector_add".to_string();
+
+        let n = 10;
+        let shape = vec![n];
+        let dtype = DType::F32;
+
+        let a_data: Vec<f32> = (0..n).map(|i| i as f32).collect();
+        let b_data: Vec<f32> = (0..n).map(|i| (i * 2) as f32).collect();
+
+        let a_buffer = CBuffer::from_slice(&a_data, &shape, dtype.clone());
+        let b_buffer = CBuffer::from_slice(&b_data, &shape, dtype.clone());
+        let out_buffer = CBuffer::allocate(dtype, shape);
+
+        let buffers = vec![out_buffer, a_buffer, b_buffer];
+        let result_buffers = kernel.call(buffers, &[]);
+
+        let result_data = result_buffers[0].to_vec::<f32>();
+        let expected_data: Vec<f32> = a_data
+            .iter()
+            .zip(b_data.iter())
+            .map(|(a, b)| a + b)
+            .collect();
+
+        assert_eq!(result_data, expected_data);
     }
 }
