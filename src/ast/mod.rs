@@ -17,6 +17,26 @@ pub enum DType {
     Any, // for pattern matching
 }
 
+impl DType {
+    pub fn zero(&self) -> AstNode {
+        match self {
+            DType::F32 => AstNode::from(0.0f32),
+            DType::Usize => AstNode::from(0usize),
+            DType::Isize => AstNode::from(0isize),
+            _ => panic!("Cannot create a zero for non-numeric type {:?}", self),
+        }
+    }
+
+    pub fn one(&self) -> AstNode {
+        match self {
+            DType::F32 => AstNode::from(1.0f32),
+            DType::Usize => AstNode::from(1usize),
+            DType::Isize => AstNode::from(1isize),
+            _ => panic!("Cannot create a one for non-numeric type {:?}", self),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Const {
     F32(f32),
@@ -152,7 +172,7 @@ macro_rules! impl_from_num_for_astnode {
     };
 }
 
-impl_from_num_for_astnode!((usize, Usize), (isize, Isize));
+impl_from_num_for_astnode!((f32, F32), (usize, Usize), (isize, Isize));
 
 macro_rules! impl_astnode_binary_op {
     ($trait:ident, $fname:ident, $variant:ident) => {
@@ -266,5 +286,36 @@ mod tests {
         );
 
         assert_eq!(ast_node, expected_ast);
+    }
+
+    #[cfg(test)]
+    mod dtype_tests {
+        use super::*;
+
+        #[test]
+        fn test_dtype_zero() {
+            assert_eq!(DType::F32.zero(), AstNode::from(0.0f32));
+            assert_eq!(DType::Usize.zero(), AstNode::from(0usize));
+            assert_eq!(DType::Isize.zero(), AstNode::from(0isize));
+        }
+
+        #[test]
+        fn test_dtype_one() {
+            assert_eq!(DType::F32.one(), AstNode::from(1.0f32));
+            assert_eq!(DType::Usize.one(), AstNode::from(1usize));
+            assert_eq!(DType::Isize.one(), AstNode::from(1isize));
+        }
+
+        #[test]
+        #[should_panic]
+        fn test_dtype_zero_panic() {
+            DType::Any.zero();
+        }
+
+        #[test]
+        #[should_panic]
+        fn test_dtype_one_panic() {
+            DType::Ptr(Box::new(DType::F32)).one();
+        }
     }
 }
