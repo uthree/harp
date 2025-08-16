@@ -266,11 +266,7 @@ macro_rules! impl_from_num_for_astnode {
 
 impl From<f32> for AstNode {
     fn from(n: f32) -> Self {
-        AstNode::_new(
-            AstOp::Const(Const::F32(n.to_bits())),
-            vec![],
-            DType::F32,
-        )
+        AstNode::_new(AstOp::Const(Const::F32(n.to_bits())), vec![], DType::F32)
     }
 }
 
