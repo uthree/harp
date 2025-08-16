@@ -8,6 +8,7 @@ libloading = "0.8.8"
 log = "0.4.27"
 rayon = "1.11.0"
 rustc-hash = "2.1.1"
+tempfile = "3.20.0"
 
 [dev-dependencies]
 rstest = "0.26.1"
