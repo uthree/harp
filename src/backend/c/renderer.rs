@@ -183,9 +183,14 @@ impl CRenderer {
 }
 
 impl Renderer for CRenderer {
+    type CodeRepr = String;
+    type Option = ();
+
     fn new() -> Self {
         Self::default()
     }
+
+    fn with_option(&mut self, _option: Self::Option) {}
 
     fn render(&mut self, ast: crate::ast::AstNode) -> String {
         self.render_node(&ast);

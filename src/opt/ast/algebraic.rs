@@ -31,7 +31,7 @@ impl AstOptimizer {
             astpat!(|a| a / AstNode::from(1isize) => a),
             // --- Annihilation Rules ---
             astpat!(|_a| _a * AstNode::from(0isize) => AstNode::from(0isize)),
-            astpat!(|a| AstNode::from(0isize) * a => AstNode::from(0isize)),
+            astpat!(|_a| AstNode::from(0isize) * _a => AstNode::from(0isize)),
             astpat!(|_a| AstNode::from(0isize) / _a => AstNode::from(0isize)),
             // --- Other Rules ---
             astpat!(|a| -(-a) => a),

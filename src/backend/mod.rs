@@ -22,17 +22,20 @@ pub trait Kernel<B: Buffer> {
 }
 
 /// A trait for a compiler that turns a code representation into a `Kernel`.
-pub trait Compiler<B: Buffer, CodeRepr = String, CompilerOption = ()> {
+pub trait Compiler<B: Buffer, CodeRepr = String> {
     type KernelType: Kernel<B>;
+    type Option;
     fn new() -> Self;
     fn is_available(&self) -> bool;
-    fn with_option(&mut self, option: CompilerOption) {}
+    fn with_option(&mut self, option: Self::Option);
     fn compile(&mut self, code: &CodeRepr, details: GraphSignature) -> Self::KernelType;
 }
-pub trait Renderer<CodeRepr = String, RendererOption = ()> {
+pub trait Renderer {
+    type CodeRepr;
+    type Option;
     fn new() -> Self;
-    fn with_option(&mut self, option: RendererOption) {}
-    fn render(&mut self, ast: AstNode) -> CodeRepr;
+    fn with_option(&mut self, option: Self::Option);
+    fn render(&mut self, ast: AstNode) -> Self::CodeRepr;
 }
 
 pub trait Backend<B: Buffer, BackendOption = ()> {

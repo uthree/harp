@@ -87,6 +87,7 @@ impl CCompiler {
 
 impl Compiler<CBuffer> for CCompiler {
     type KernelType = CKernel;
+    type Option = ();
 
     fn new() -> Self {
         CCompiler::default()

@@ -114,7 +114,7 @@ pub fn lower_graph(graph: &Graph) -> AstNode {
         .collect();
 
     // Outputs first
-    for (i, output_node) in graph.outputs.iter().enumerate() {
+    for (i, _output_node) in graph.outputs.iter().enumerate() {
         let sig = &graph.signature.outputs[i];
         let dtype = DType::Ptr(Box::new(sig.dtype.clone()));
         kernel_impl_args.push((buffer_names[i].clone(), dtype.clone()));
@@ -131,8 +131,8 @@ pub fn lower_graph(graph: &Graph) -> AstNode {
         );
     }
 
-    for (i, output_node) in graph.outputs.iter().enumerate() {
-        let (result_ast, prelude) = lowerer.lower_node(output_node);
+    for (i, _output_node) in graph.outputs.iter().enumerate() {
+        let (result_ast, prelude) = lowerer.lower_node(&graph.outputs[i]);
         kernel_impl_body.extend(prelude);
 
         let ptr = AstNode::var(&buffer_names[i], kernel_impl_args[i].1.clone());
