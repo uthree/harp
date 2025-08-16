@@ -61,6 +61,12 @@ pub struct AlgebraicOptimizer {
     rewriter: AstRewriter,
 }
 
+impl Default for AlgebraicOptimizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AlgebraicOptimizer {
     pub fn new() -> Self {
         let rewriter = algebraic_simplification();
