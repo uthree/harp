@@ -10,7 +10,7 @@ use std::ops::{
 use std::rc::Rc;
 
 // ... (GraphSignature, ShapeVariableSignature, TensorSignature remain the same) ...
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct GraphSignature {
     pub shape_variables: Vec<ShapeVariableSignature>, // Shapeを決定するための変数。
     pub inputs: Vec<TensorSignature>,                 // 入力の型
@@ -24,7 +24,7 @@ impl GraphSignature {
 }
 
 // Shapeを決定するのに使う変数（整数）のシグチャ。これを導入することにより、異なるサイズのテンソルであっても、同じカーネルや計算グラフを流用できる。
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ShapeVariableSignature {
     pub name: String,         // 変数名
     pub condition: ShapeExpr, // その値が利用可能かどうか判定するための式
@@ -32,14 +32,14 @@ pub struct ShapeVariableSignature {
 }
 
 // 入出力テンソルの型を表現する構造体。
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TensorSignature {
     pub dtype: DType, // データ型
     pub shape: Vec<ShapeExpr>, // 形状
                       // ちなみにViewに関しては、入出力の時点では常にContiguousであるとする。
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum GraphOp {
     Input { dtype: DType },
     Full(Const),
@@ -49,7 +49,7 @@ pub enum GraphOp {
     Permute(Vec<usize>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct GraphNodeData {
     pub op: GraphOp,
     pub src: Vec<GraphNode>,
@@ -79,7 +79,6 @@ impl PartialEq for GraphNode {
         Rc::ptr_eq(&self.0, &other.0)
     }
 }
-
 impl Eq for GraphNode {}
 
 impl GraphNode {
@@ -175,12 +174,33 @@ impl Neg for GraphNode {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Graph {
     pub signature: GraphSignature,
     pub inputs: Vec<GraphNode>,
     pub outputs: Vec<GraphNode>,
 }
+
+impl Hash for Graph {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.signature.hash(state);
+        for node in &self.inputs {
+            node.hash(state);
+        }
+        for node in &self.outputs {
+            node.hash(state);
+        }
+    }
+}
+
+impl PartialEq for Graph {
+    fn eq(&self, other: &Self) -> bool {
+        self.signature == other.signature
+            && self.inputs == other.inputs
+            && self.outputs == other.outputs
+    }
+}
+impl Eq for Graph {}
 
 impl Graph {
     pub fn new() -> Self {

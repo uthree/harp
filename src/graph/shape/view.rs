@@ -5,7 +5,7 @@ use std::collections::HashSet;
 // ShapeTrackerの責務は、テンソルの各次元の添字からメモリオフセットへの変換を数式(ExprやAstNode)として表現することです。
 // 簡略化のためASTではなくshape::Exprで計算されますが、ExprはASTに簡単に変換することができるので実用上の問題は特にありません。
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum View {
     // 線形な処理で表現可能な場合
     Linear {

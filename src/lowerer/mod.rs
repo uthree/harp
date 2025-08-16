@@ -218,7 +218,10 @@ mod tests {
     fn test_lower_full() {
         let mut graph = Graph::new();
         let shape = vec![ShapeExpr::from(10), ShapeExpr::from(20)];
-        let c = GraphNode::full(Const::F32(3.14), shape.clone());
+        let c = GraphNode::full(
+            Const::F32(3.14f32.to_bits()),
+            shape.clone(),
+        );
 
         graph.outputs.push(c);
         graph.signature.outputs.push(TensorSignature {
@@ -244,7 +247,7 @@ mod tests {
         let mut graph = Graph::new();
         let shape = vec![ShapeExpr::from(10)];
         let a = graph.add_input(shape.clone(), &DType::F32);
-        let b = GraphNode::full(Const::F32(1.0), shape.clone());
+        let b = GraphNode::full(Const::F32(1.0f32.to_bits()), shape.clone());
         let c = a + b;
 
         graph.outputs.push(c);

@@ -1,47 +1,40 @@
 use crate::{
     ast::AstNode,
-    backend::{Buffer, Compiler, Renderer},
-    graph::GraphSignature,
+    backend::{Backend, Buffer, Compiler, Kernel, Renderer},
+    graph::{Graph, GraphSignature},
 };
+use std::collections::HashMap;
 use std::marker::PhantomData;
 
 pub struct GenericBackend<C, R, B>
 where
     R: Renderer,
-    C: Compiler<B, R::CodeRepr>,
+    C: Compiler<B, CodeRepr = R::CodeRepr>,
     B: Buffer,
 {
     compiler: C,
     renderer: R,
-    // To store options
-    #[allow(dead_code)]
-    compiler_option: Option<C::Option>,
-    #[allow(dead_code)]
-    renderer_option: Option<R::Option>,
-    _phantom: PhantomData<(B, R::CodeRepr)>,
+    cache: HashMap<Graph, C::KernelType>,
+    _phantom: PhantomData<B>,
 }
 
 impl<C, R, B> GenericBackend<C, R, B>
 where
     R: Renderer,
-    C: Compiler<B, R::CodeRepr>,
+    C: Compiler<B, CodeRepr = R::CodeRepr>,
     B: Buffer,
 {
     pub fn new() -> Self {
         Self {
             compiler: C::new(),
             renderer: R::new(),
-            compiler_option: None,
-            renderer_option: None,
+            cache: HashMap::new(),
             _phantom: PhantomData,
         }
     }
 
-    pub fn with_options(
-        &mut self,
-        compiler_option: C::Option,
-        renderer_option: R::Option,
-    ) -> &mut Self {
+    pub fn with_options(&mut self, options: (R::Option, C::Option)) -> &mut Self {
+        let (renderer_option, compiler_option) = options;
         self.compiler.with_option(compiler_option);
         self.renderer.with_option(renderer_option);
         self
@@ -53,10 +46,60 @@ where
     }
 }
 
+impl<C, R, B> Backend<B> for GenericBackend<C, R, B>
+where
+    R: Renderer,
+    C: Compiler<B, CodeRepr = R::CodeRepr>,
+    B: Buffer,
+{
+    type Option = (R::Option, C::Option);
+
+    fn new() -> Self {
+        Self::new()
+    }
+
+    fn with_option(&mut self, option: Self::Option) {
+        self.with_options(option);
+    }
+
+    fn is_available(&self) -> bool {
+        self.compiler.is_available()
+    }
+
+    fn execute(&mut self, graph: &Graph, inputs: Vec<B>) -> Vec<B> {
+        if !self.cache.contains_key(graph) {
+            let ast = crate::lowerer::lower_graph(graph);
+            let kernel = self.compile(ast, graph.signature.clone());
+            self.cache.insert(graph.clone(), kernel);
+        }
+        let kernel = self.cache.get_mut(graph).unwrap();
+
+        // Prepare output buffers
+        let output_buffers: Vec<B> = graph
+            .signature
+            .outputs
+            .iter()
+            .map(|sig| {
+                let shape_usize = sig
+                    .shape
+                    .iter()
+                    .map(|e| e.evaluate(&HashMap::new()) as usize) // Assumes no shape vars for now
+                    .collect();
+                B::allocate(sig.dtype.clone(), shape_usize)
+            })
+            .collect();
+
+        let mut all_buffers = output_buffers;
+        all_buffers.extend(inputs);
+
+        kernel.call(all_buffers, &[]) // Assumes no shape vars for now
+    }
+}
+
 impl<C, R, B> Default for GenericBackend<C, R, B>
 where
     R: Renderer,
-    C: Compiler<B, R::CodeRepr>,
+    C: Compiler<B, CodeRepr = R::CodeRepr>,
     B: Buffer,
 {
     fn default() -> Self {

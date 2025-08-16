@@ -5,7 +5,7 @@ use std::ops::{
     Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DType {
     F32,   // float
     Usize, // size_t
@@ -37,9 +37,9 @@ impl DType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Const {
-    F32(f32),
+    F32(u32), // Store f32 as u32 to derive Hash and Eq
     Usize(usize),
     Isize(isize),
 }
@@ -54,7 +54,7 @@ impl Const {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AstOp {
     // 定数と変数
     Const(Const),
@@ -264,7 +264,17 @@ macro_rules! impl_from_num_for_astnode {
     };
 }
 
-impl_from_num_for_astnode!((f32, F32), (usize, Usize), (isize, Isize));
+impl From<f32> for AstNode {
+    fn from(n: f32) -> Self {
+        AstNode::_new(
+            AstOp::Const(Const::F32(n.to_bits())),
+            vec![],
+            DType::F32,
+        )
+    }
+}
+
+impl_from_num_for_astnode!((usize, Usize), (isize, Isize));
 
 impl From<Const> for AstNode {
     fn from(c: Const) -> Self {

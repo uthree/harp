@@ -86,6 +86,7 @@ impl CCompiler {
 }
 
 impl Compiler<CBuffer> for CCompiler {
+    type CodeRepr = String;
     type KernelType = CKernel;
     type Option = ();
 
