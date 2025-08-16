@@ -174,10 +174,10 @@ pub fn lower_graph(graph: &Graph) -> AstNode {
 mod tests {
     use super::*;
     use crate::ast::Const;
-    use crate::backend::c::CRenderer;
     use crate::backend::Renderer;
-    use crate::graph::shape::expr::Expr as ShapeExpr;
+    use crate::backend::c::CRenderer;
     use crate::graph::TensorSignature;
+    use crate::graph::shape::expr::Expr as ShapeExpr;
 
     #[test]
     fn test_lower_elementwise_add() {

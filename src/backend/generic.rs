@@ -14,7 +14,9 @@ where
     compiler: C,
     renderer: R,
     // To store options
+    #[allow(dead_code)]
     compiler_option: Option<C::Option>,
+    #[allow(dead_code)]
     renderer_option: Option<R::Option>,
     _phantom: PhantomData<(B, R::CodeRepr)>,
 }

@@ -1,4 +1,4 @@
-use crate::ast::{AstNode, AstOp, DType};
+use crate::ast::{AstNode, DType};
 use std::ops::{
     Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
@@ -63,10 +63,7 @@ impl Expr {
             Expr::Rem(l, r) => l.to_ast() % r.to_ast(),
             // Boolean/comparison ops are not directly convertible to arithmetic AstNodes
             // in the current setup. They are used for shape analysis, not code generation.
-            _ => unimplemented!(
-                "Cannot convert expression {:?} to AstNode yet",
-                self
-            ),
+            _ => unimplemented!("Cannot convert expression {:?} to AstNode yet", self),
         }
     }
     pub fn var(name: &str) -> Self {
