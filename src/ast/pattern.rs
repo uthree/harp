@@ -1,4 +1,5 @@
 use crate::ast::AstNode;
+use log::{debug, trace};
 use std::ops::Add;
 use std::rc::Rc;
 
@@ -119,25 +120,41 @@ impl AstRewriter {
     }
 
     pub fn apply(&self, node: &AstNode) -> AstNode {
+        trace!("Applying rewriter '{}' to node: {:?}", self.name, node.op);
+
         // First, rewrite the children (post-order traversal)
         let new_args: Vec<AstNode> = node.src.iter().map(|arg| self.apply(arg)).collect();
         let rewritten_node = if new_args != node.src {
-            AstNode::_new(node.op.clone(), new_args, node.dtype.clone())
+            let new_node = AstNode::_new(node.op.clone(), new_args, node.dtype.clone());
+            trace!("Node rewritten based on children: {:?}", new_node.op);
+            new_node
         } else {
             node.clone()
         };
 
         // Then, try to rewrite the current node
-        for rule in &self.rules {
-            if let Some(captures) = rewritten_node.matches(&rule.pattern)
-                && (rule.condition)(&captures)
-            {
-                // If the pattern matches and the condition is met,
-                // apply the rewriter and return the new node.
-                return (rule.rewriter)(&captures);
+        for (i, rule) in self.rules.iter().enumerate() {
+            if let Some(captures) = rewritten_node.matches(&rule.pattern) {
+                if (rule.condition)(&captures) {
+                    let new_node = (rule.rewriter)(&captures);
+                    debug!(
+                        "Rule #{} in '{}' matched and rewrote node {:?} to {:?}",
+                        i, self.name, rewritten_node.op, new_node.op
+                    );
+                    return new_node;
+                } else {
+                    trace!(
+                        "Rule #{} in '{}' matched but condition was not met for node {:?}",
+                        i, self.name, rewritten_node.op
+                    );
+                }
             }
         }
 
+        trace!(
+            "No rules in '{}' matched node {:?}",
+            self.name, rewritten_node.op
+        );
         rewritten_node
     }
 }
@@ -199,6 +216,8 @@ mod rewriter_tests {
 
     #[test]
     fn test_conditional_rewrite() {
+        let _ = env_logger::builder().is_test(true).try_init();
+
         // Rule: a + 0 => a
         let rule = astpat!(|a, b| a + b, if b == AstNode::from(0isize) => a);
         let rewriter = AstRewriter::with_rules("AddZero", vec![rule]);
