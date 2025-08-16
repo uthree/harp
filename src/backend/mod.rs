@@ -1,7 +1,4 @@
-use crate::{
-    ast::{AstNode, DType},
-    graph::{GraphSignature, shape::expr::Expr as ShapeExpr},
-};
+use crate::{ast::AstNode, graph::GraphSignature};
 
 pub trait Buffer {
     fn shape(&self) -> Vec<usize>;
