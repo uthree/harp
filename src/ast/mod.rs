@@ -46,10 +46,13 @@ pub enum Const {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AstOp {
+    // 定数と変数
     Const(Const),
-    Cast(DType),
     Var(String),
 
+    Cast(DType), // 型変換
+
+    // 演算子と数学の基本的な関数
     Add,
     Mul,
     Sub,
@@ -62,7 +65,7 @@ pub enum AstOp {
     Sqrt,
     Neg,
 
-    // Logical and comparison
+    // Logical and comparison, 論理演算と比較演算子
     And,
     Or,
     Not,
@@ -71,17 +74,19 @@ pub enum AstOp {
     Gt,
 
     Range {
-        counter: String,
-        step: isize,
-    }, // loop statements
+        // ループ処理(for文)を表す。 srcの格命令を上から順番に繰り返し実行する。
+        counter: String, // ループカウンタ変数の名前
+        step: isize,     // 一回のループでカウンタに加算される数値
+    },
     Func {
+        // 関数の宣言, srcの格命令を上から順番に実行する。
         name: String,
         args: Vec<(String, DType)>,
     },
-    Call(String),
-    Program,
+    Call(String), // 関数を呼び出す。 srcがそれぞれの引数となる。
+    Program,      // プログラム本体
 
-    // for pattern matching
+    // for pattern matching, パターンマッチのための特殊なオペレータ。これがレンダリングされるということは何かがおかしい。
     Capture(usize),
 }
 
@@ -93,7 +98,7 @@ pub struct AstNode {
 }
 
 impl AstNode {
-    pub fn _new(op: AstOp, src: Vec<AstNode>, dtype: DType) -> Self {
+    pub(crate) fn _new(op: AstOp, src: Vec<AstNode>, dtype: DType) -> Self {
         Self { op, src, dtype }
     }
 

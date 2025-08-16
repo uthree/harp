@@ -1,5 +1,5 @@
-use crate::backend::c::CBuffer;
 use crate::backend::Kernel;
+use crate::backend::c::CBuffer;
 use crate::graph::GraphSignature;
 use libloading::{Library, Symbol};
 use std::ffi::c_void;
