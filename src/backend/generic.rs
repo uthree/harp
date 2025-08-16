@@ -66,8 +66,8 @@ where
 mod tests {
     use crate::{
         ast::DType,
-        backend::{c::CBackend, Buffer, Kernel},
-        graph::{shape::expr::Expr as ShapeExpr, Graph, TensorSignature},
+        backend::{Buffer, Kernel, c::CBackend},
+        graph::{Graph, TensorSignature, shape::expr::Expr as ShapeExpr},
     };
 
     #[test]

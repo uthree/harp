@@ -1,5 +1,6 @@
 use crate::ast::pattern::{AstRewriter, RewriteRule};
 use crate::ast::{AstNode, AstOp, Const};
+use crate::opt::ast::AstOptimizer;
 use crate::{ast_rewriter, astpat};
 
 fn is_const(node: &AstNode) -> bool {
@@ -14,11 +15,11 @@ fn get_const_val(node: &AstNode) -> Option<Const> {
     }
 }
 
-pub struct AstOptimizer {
+pub struct AlgebraicOptimizer {
     rewriter: AstRewriter,
 }
 
-impl AstOptimizer {
+impl AlgebraicOptimizer {
     pub fn new() -> Self {
         let rewriter = ast_rewriter!(
             "AlgebraicSimplification",
@@ -66,9 +67,9 @@ impl AstOptimizer {
     }
 }
 
-impl Default for AstOptimizer {
-    fn default() -> Self {
-        Self::new()
+impl AstOptimizer for AlgebraicOptimizer {
+    fn optimize(&mut self, ast: &AstNode) -> AstNode {
+        self.rewriter.apply(ast)
     }
 }
 
@@ -78,7 +79,7 @@ mod tests {
     use crate::ast::{AstNode, DType};
 
     fn assert_optimization(original: AstNode, expected: AstNode) {
-        let optimizer = AstOptimizer::new();
+        let optimizer = AlgebraicOptimizer::new();
         let optimized = optimizer.optimize(&original);
         assert_eq!(optimized, expected);
     }

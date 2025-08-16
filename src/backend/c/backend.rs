@@ -11,7 +11,7 @@ mod tests {
     use crate::{
         ast::DType,
         backend::{Buffer, Kernel},
-        graph::{shape::expr::Expr as ShapeExpr, Graph, TensorSignature},
+        graph::{Graph, TensorSignature, shape::expr::Expr as ShapeExpr},
     };
 
     #[test]
