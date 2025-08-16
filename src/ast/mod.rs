@@ -44,6 +44,16 @@ pub enum Const {
     Isize(isize),
 }
 
+impl Const {
+    pub fn dtype(&self) -> DType {
+        match self {
+            Const::F32(_) => DType::F32,
+            Const::Usize(_) => DType::Usize,
+            Const::Isize(_) => DType::Isize,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum AstOp {
     // 定数と変数
@@ -255,6 +265,13 @@ macro_rules! impl_from_num_for_astnode {
 }
 
 impl_from_num_for_astnode!((f32, F32), (usize, Usize), (isize, Isize));
+
+impl From<Const> for AstNode {
+    fn from(c: Const) -> Self {
+        let dtype = c.dtype();
+        AstNode::_new(AstOp::Const(c), vec![], dtype)
+    }
+}
 
 macro_rules! impl_astnode_binary_op {
     ($trait:ident, $fname:ident, $variant:ident) => {

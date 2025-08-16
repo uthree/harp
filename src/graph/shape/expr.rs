@@ -1,3 +1,4 @@
+use crate::ast::{AstNode, AstOp, DType};
 use std::ops::{
     Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
@@ -43,6 +44,31 @@ impl std::fmt::Display for Expr {
 }
 
 impl Expr {
+    pub fn is_zero(&self) -> bool {
+        matches!(self, Expr::Const(0))
+    }
+
+    pub fn is_one(&self) -> bool {
+        matches!(self, Expr::Const(1))
+    }
+
+    pub fn to_ast(&self) -> AstNode {
+        match self {
+            Expr::Const(c) => AstNode::from(*c),
+            Expr::Var(v) => AstNode::var(v, DType::Usize), // Assuming shape variables are always Usize
+            Expr::Add(l, r) => l.to_ast() + r.to_ast(),
+            Expr::Sub(l, r) => l.to_ast() - r.to_ast(),
+            Expr::Mul(l, r) => l.to_ast() * r.to_ast(),
+            Expr::Div(l, r) => l.to_ast() / r.to_ast(),
+            Expr::Rem(l, r) => l.to_ast() % r.to_ast(),
+            // Boolean/comparison ops are not directly convertible to arithmetic AstNodes
+            // in the current setup. They are used for shape analysis, not code generation.
+            _ => unimplemented!(
+                "Cannot convert expression {:?} to AstNode yet",
+                self
+            ),
+        }
+    }
     pub fn var(name: &str) -> Self {
         Self::Var(name.to_string())
     }

@@ -1,3 +1,4 @@
+use crate::ast::AstNode;
 use crate::graph::shape::expr::Expr;
 use std::collections::HashSet;
 
@@ -16,6 +17,46 @@ pub enum View {
 }
 
 impl View {
+    pub fn to_physical_index_ast(&self, logical_indices: &[AstNode]) -> AstNode {
+        match self {
+            View::Linear {
+                strides, offset, ..
+            } => {
+                assert_eq!(logical_indices.len(), strides.len());
+                let mut physical_index: Option<AstNode> = None;
+
+                // Add offset if it's not zero
+                if !offset.is_zero() {
+                    physical_index = Some(offset.to_ast());
+                }
+
+                for (index, stride) in logical_indices.iter().zip(strides.iter()) {
+                    if stride.is_zero() {
+                        continue;
+                    }
+                    let term = if stride.is_one() {
+                        index.clone()
+                    } else {
+                        index.clone() * stride.to_ast()
+                    };
+
+                    if let Some(p_idx) = physical_index {
+                        physical_index = Some(p_idx + term);
+                    } else {
+                        physical_index = Some(term);
+                    }
+                }
+                physical_index.unwrap_or_else(|| AstNode::from(0isize))
+            }
+        }
+    }
+
+    pub fn shape(&self) -> &[Expr] {
+        match self {
+            View::Linear { shape, .. } => shape,
+        }
+    }
+
     pub fn new_contiguous<E: Into<Expr> + Clone, I: IntoIterator<Item = E>>(shape: I) -> Self {
         let shape: Vec<Expr> = shape.into_iter().map(|e| e.into()).collect();
         if shape.is_empty() {

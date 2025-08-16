@@ -1,7 +1,8 @@
 pub mod shape;
 
-use crate::ast::{AstOp, DType};
+use crate::ast::{AstOp, Const, DType};
 use crate::graph::shape::expr::Expr as ShapeExpr;
+use crate::graph::shape::view::View;
 use std::hash::{Hash, Hasher};
 use std::ops::{
     Add, AddAssign, Deref, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
@@ -40,10 +41,12 @@ pub struct TensorSignature {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum GraphOp {
-    Input { shape: Vec<ShapeExpr>, dtype: DType },
+    Input { dtype: DType },
+    Full(Const),
     Contiguous,
     Elementwise(AstOp),
     Reduce(AstOp, usize),
+    Permute(Vec<usize>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -51,6 +54,7 @@ pub struct GraphNodeData {
     pub op: GraphOp,
     pub src: Vec<GraphNode>,
     pub dtype: DType,
+    pub view: View,
 }
 
 #[derive(Debug, Clone)]
@@ -79,33 +83,30 @@ impl PartialEq for GraphNode {
 impl Eq for GraphNode {}
 
 impl GraphNode {
+    pub fn full(value: Const, shape: Vec<ShapeExpr>) -> Self {
+        let dtype = value.dtype();
+        GraphNode(Rc::new(GraphNodeData {
+            op: GraphOp::Full(value),
+            src: vec![],
+            dtype,
+            view: View::new_contiguous(shape),
+        }))
+    }
+
     /// Returns the logical shape of the node.
-    /// The shape is calculated on each call, ensuring it reflects the current state of the graph.
-    pub fn shape(&self) -> Vec<ShapeExpr> {
-        match &self.op {
-            GraphOp::Input { shape, .. } => shape.clone(),
-            GraphOp::Elementwise(op) => match op {
-                AstOp::Neg => {
-                    assert_eq!(self.src.len(), 1);
-                    self.src[0].shape()
-                }
-                _ => {
-                    assert_eq!(self.src.len(), 2);
-                    assert_eq!(self.src[0].shape(), self.src[1].shape());
-                    self.src[0].shape()
-                }
-            },
-            GraphOp::Contiguous => {
-                assert_eq!(self.src.len(), 1);
-                self.src[0].shape()
-            }
-            GraphOp::Reduce(_, axis) => {
-                assert_eq!(self.src.len(), 1);
-                let mut shape = self.src[0].shape();
-                shape.remove(*axis);
-                shape
-            }
-        }
+    pub fn shape(&self) -> &[ShapeExpr] {
+        self.view.shape()
+    }
+
+    pub fn permute(self, axes: Vec<usize>) -> Self {
+        let new_view = self.view.clone().permute(axes.clone());
+        let dtype = self.dtype.clone();
+        GraphNode(Rc::new(GraphNodeData {
+            op: GraphOp::Permute(axes),
+            src: vec![self],
+            dtype,
+            view: new_view,
+        }))
     }
 }
 
@@ -126,10 +127,12 @@ macro_rules! impl_graphnode_binary_op {
                     "Mismatched shapes in binary operation"
                 );
                 let dtype = self.dtype.clone();
+                let view = self.view.clone();
                 GraphNode(Rc::new(GraphNodeData {
                     op: GraphOp::Elementwise(AstOp::$op),
                     src: vec![self, rhs],
                     dtype,
+                    view,
                 }))
             }
         }
@@ -162,10 +165,12 @@ impl Neg for GraphNode {
     type Output = Self;
     fn neg(self) -> Self::Output {
         let dtype = self.dtype.clone();
+        let view = self.view.clone();
         GraphNode(Rc::new(GraphNodeData {
             op: GraphOp::Elementwise(AstOp::Neg),
             src: vec![self],
             dtype,
+            view,
         }))
     }
 }
@@ -190,11 +195,11 @@ impl Graph {
         self.signature.inputs.push(tensor_signature);
         let input_node = GraphNode(Rc::new(GraphNodeData {
             op: GraphOp::Input {
-                shape,
                 dtype: dtype.clone(),
             },
             src: vec![],
             dtype: dtype.clone(),
+            view: View::new_contiguous(shape),
         }));
         self.inputs.push(input_node.clone());
         input_node
@@ -227,12 +232,8 @@ mod tests {
         assert_eq!(graph.signature.inputs[0].dtype, dtype);
 
         // Check the properties of the returned GraphNode
-        if let GraphOp::Input {
-            shape: node_shape,
-            dtype: node_dtype,
-        } = &input_node.op
-        {
-            assert_eq!(*node_shape, shape);
+        if let GraphOp::Input { dtype: node_dtype } = &input_node.op {
+            assert_eq!(input_node.shape(), shape.as_slice());
             assert_eq!(*node_dtype, dtype);
         } else {
             panic!("Expected GraphOp::Input");
