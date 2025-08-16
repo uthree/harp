@@ -118,9 +118,9 @@ impl AstRewriter {
         self.rules.push(rule);
     }
 
-    pub fn rewrite(&self, node: &AstNode) -> AstNode {
+    pub fn apply(&self, node: &AstNode) -> AstNode {
         // First, rewrite the children (post-order traversal)
-        let new_args: Vec<AstNode> = node.src.iter().map(|arg| self.rewrite(arg)).collect();
+        let new_args: Vec<AstNode> = node.src.iter().map(|arg| self.apply(arg)).collect();
         let rewritten_node = if new_args != node.src {
             AstNode::_new(node.op.clone(), new_args, node.dtype.clone())
         } else {
@@ -191,7 +191,7 @@ mod rewriter_tests {
         let rewriter = AstRewriter::with_rules("CommutativeAddition", vec![rule]);
 
         let expr = AstNode::from(1isize) + AstNode::from(2isize);
-        let rewritten_expr = rewriter.rewrite(&expr);
+        let rewritten_expr = rewriter.apply(&expr);
 
         let expected = AstNode::from(2isize) + AstNode::from(1isize);
         assert_eq!(rewritten_expr, expected);
@@ -205,12 +205,12 @@ mod rewriter_tests {
 
         // This should be rewritten
         let expr1 = AstNode::from(5isize) + AstNode::from(0isize);
-        let rewritten_expr1 = rewriter.rewrite(&expr1);
+        let rewritten_expr1 = rewriter.apply(&expr1);
         assert_eq!(rewritten_expr1, AstNode::from(5isize));
 
         // This should not be rewritten
         let expr2 = AstNode::from(5isize) + AstNode::from(1isize);
-        let rewritten_expr2 = rewriter.rewrite(&expr2);
+        let rewritten_expr2 = rewriter.apply(&expr2);
         assert_eq!(rewritten_expr2, expr2);
     }
 
@@ -224,7 +224,7 @@ mod rewriter_tests {
         let expr = (AstNode::from(1isize) + AstNode::from(0isize))
             + (AstNode::from(2isize) + AstNode::from(0isize));
 
-        let rewritten_expr = rewriter.rewrite(&expr);
+        let rewritten_expr = rewriter.apply(&expr);
 
         // expected: 1 + 2
         let expected = AstNode::from(1isize) + AstNode::from(2isize);
@@ -237,7 +237,7 @@ mod rewriter_tests {
         let rewriter = AstRewriter::with_rules("MulToAd", vec![rule]);
 
         let expr = AstNode::from(1isize) + AstNode::from(2isize);
-        let rewritten_expr = rewriter.rewrite(&expr);
+        let rewritten_expr = rewriter.apply(&expr);
 
         assert_eq!(expr, rewritten_expr);
     }
@@ -256,17 +256,17 @@ mod rewriter_tests {
 
         // Test AddZero rule
         let expr1 = AstNode::from(5isize) + AstNode::from(0isize);
-        let rewritten_expr1 = combined_rewriter.rewrite(&expr1);
+        let rewritten_expr1 = combined_rewriter.apply(&expr1);
         assert_eq!(rewritten_expr1, AstNode::from(5isize));
 
         // Test MulOne rule
         let expr2 = AstNode::from(5isize) * AstNode::from(1isize);
-        let rewritten_expr2 = combined_rewriter.rewrite(&expr2);
+        let rewritten_expr2 = combined_rewriter.apply(&expr2);
         assert_eq!(rewritten_expr2, AstNode::from(5isize));
 
         // Test both
         let expr3 = (AstNode::from(5isize) + AstNode::from(0isize)) * AstNode::from(1isize);
-        let rewritten_expr3 = combined_rewriter.rewrite(&expr3);
+        let rewritten_expr3 = combined_rewriter.apply(&expr3);
         assert_eq!(rewritten_expr3, AstNode::from(5isize));
     }
 

@@ -85,10 +85,7 @@ impl Lowerer {
                         counter: loop_var_name,
                         step: 1,
                     },
-                    vec![
-                        AstNode::from(node.src[0].shape()[*axis].clone()),
-                        loop_body,
-                    ],
+                    vec![AstNode::from(node.src[0].shape()[*axis].clone()), loop_body],
                     DType::Any,
                 ));
                 AstNode::var(&acc_name, node.dtype.clone())
@@ -152,7 +149,10 @@ pub fn lower_graph(graph: &Graph) -> AstNode {
         DType::Any,
     );
 
-    let bufs_arg = ("bufs".to_string(), DType::Ptr(Box::new(DType::Ptr(Box::new(DType::Any)))));
+    let bufs_arg = (
+        "bufs".to_string(),
+        DType::Ptr(Box::new(DType::Ptr(Box::new(DType::Any)))),
+    );
     let shape_vars_arg = ("shape_vars".to_string(), DType::Ptr(Box::new(DType::Usize)));
     let mut main_body = vec![];
     let mut call_args = vec![];
@@ -193,8 +193,8 @@ pub fn lower_graph(graph: &Graph) -> AstNode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::shape::expr::Expr as ShapeExpr;
     use crate::graph::TensorSignature;
+    use crate::graph::shape::expr::Expr as ShapeExpr;
 
     #[test]
     fn test_lower_elementwise_add() {

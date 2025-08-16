@@ -138,7 +138,8 @@ impl Compiler<CBuffer> for CCompiler {
             );
         }
 
-        let library = Arc::new(unsafe { Library::new(&lib_path).expect("Failed to load dynamic library") });
+        let library =
+            Arc::new(unsafe { Library::new(&lib_path).expect("Failed to load dynamic library") });
 
         CKernel {
             library,
@@ -153,7 +154,7 @@ mod tests {
     use super::*;
     use crate::ast::DType;
     use crate::backend::{Buffer, Kernel, Renderer};
-    use crate::graph::{shape::expr::Expr as ShapeExpr, Graph, TensorSignature};
+    use crate::graph::{Graph, TensorSignature, shape::expr::Expr as ShapeExpr};
     use crate::lowerer;
 
     #[test]

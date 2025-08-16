@@ -1,5 +1,6 @@
 use crate::ast::AstNode;
 
+pub mod algebraic;
 pub mod heuristic;
 
 pub trait AstOptimizer {
