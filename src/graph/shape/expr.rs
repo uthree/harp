@@ -5,12 +5,20 @@ use std::ops::{
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Const(isize),
+    Bool(bool),
     Var(String),
     Add(Box<Self>, Box<Self>),
     Sub(Box<Self>, Box<Self>),
     Mul(Box<Self>, Box<Self>),
     Div(Box<Self>, Box<Self>),
     Rem(Box<Self>, Box<Self>),
+
+    And(Box<Self>, Box<Self>),
+    Or(Box<Self>, Box<Self>),
+    Not(Box<Self>),
+    Lt(Box<Self>, Box<Self>),
+    Eq(Box<Self>, Box<Self>),
+    Gt(Box<Self>, Box<Self>),
 }
 
 impl std::fmt::Display for Expr {
@@ -23,6 +31,13 @@ impl std::fmt::Display for Expr {
             Expr::Mul(l, r) => write!(f, "({l} * {r})"),
             Expr::Div(l, r) => write!(f, "({l} / {r})"),
             Expr::Rem(l, r) => write!(f, "({l} % {r})"),
+            Expr::And(l, r) => write!(f, "({l} && {r})"),
+            Expr::Or(l, r) => write!(f, "({l} || {r})"),
+            Expr::Not(e) => write!(f, "!{e}"),
+            Expr::Lt(l, r) => write!(f, "({l} < {r})"),
+            Expr::Eq(l, r) => write!(f, "({l} == {r})"),
+            Expr::Gt(l, r) => write!(f, "({l} > {r})"),
+            Expr::Bool(b) => write!(f, "{b}"),
         }
     }
 }
@@ -30,6 +45,33 @@ impl std::fmt::Display for Expr {
 impl Expr {
     pub fn var(name: &str) -> Self {
         Self::Var(name.to_string())
+    }
+
+    pub const TRUE: Expr = Expr::Bool(true);
+    pub const FALSE: Expr = Expr::Bool(false);
+
+    pub fn lt(self, rhs: impl Into<Expr>) -> Self {
+        Self::Lt(Box::new(self), Box::new(rhs.into()))
+    }
+
+    pub fn eq(self, rhs: impl Into<Expr>) -> Self {
+        Self::Eq(Box::new(self), Box::new(rhs.into()))
+    }
+
+    pub fn gt(self, rhs: impl Into<Expr>) -> Self {
+        Self::Gt(Box::new(self), Box::new(rhs.into()))
+    }
+
+    pub fn and(self, rhs: impl Into<Expr>) -> Self {
+        Self::And(Box::new(self), Box::new(rhs.into()))
+    }
+
+    pub fn or(self, rhs: impl Into<Expr>) -> Self {
+        Self::Or(Box::new(self), Box::new(rhs.into()))
+    }
+
+    pub fn not(self) -> Self {
+        Self::Not(Box::new(self))
     }
 
     pub fn simplify(self) -> Self {
@@ -94,6 +136,54 @@ impl Expr {
                     (l, r) => l % r,
                 }
             }
+            Expr::And(lhs, rhs) => {
+                let lhs = lhs.simplify();
+                let rhs = rhs.simplify();
+                match (lhs, rhs) {
+                    (Expr::Bool(true), e) | (e, Expr::Bool(true)) => e,
+                    (Expr::Bool(false), _) | (_, Expr::Bool(false)) => Expr::Bool(false),
+                    (l, r) => l.and(r),
+                }
+            }
+            Expr::Or(lhs, rhs) => {
+                let lhs = lhs.simplify();
+                let rhs = rhs.simplify();
+                match (lhs, rhs) {
+                    (Expr::Bool(true), _) | (_, Expr::Bool(true)) => Expr::Bool(true),
+                    (Expr::Bool(false), e) | (e, Expr::Bool(false)) => e,
+                    (l, r) => l.or(r),
+                }
+            }
+            Expr::Not(e) => match e.simplify() {
+                Expr::Bool(b) => Expr::Bool(!b),
+                Expr::Not(inner) => *inner,
+                e => e.not(),
+            },
+            Expr::Lt(lhs, rhs) => {
+                let lhs = lhs.simplify();
+                let rhs = rhs.simplify();
+                match (lhs, rhs) {
+                    (Expr::Const(l), Expr::Const(r)) => Expr::Bool(l < r),
+                    (l, r) => l.lt(r),
+                }
+            }
+            Expr::Eq(lhs, rhs) => {
+                let lhs = lhs.simplify();
+                let rhs = rhs.simplify();
+                match (lhs, rhs) {
+                    (Expr::Const(l), Expr::Const(r)) => Expr::Bool(l == r),
+                    (l, r) if l == r => Expr::Bool(true),
+                    (l, r) => l.eq(r),
+                }
+            }
+            Expr::Gt(lhs, rhs) => {
+                let lhs = lhs.simplify();
+                let rhs = rhs.simplify();
+                match (lhs, rhs) {
+                    (Expr::Const(l), Expr::Const(r)) => Expr::Bool(l > r),
+                    (l, r) => l.gt(r),
+                }
+            }
             _ => self,
         };
         if before != simplified {
@@ -112,11 +202,19 @@ impl Expr {
             | Expr::Sub(l, r)
             | Expr::Mul(l, r)
             | Expr::Div(l, r)
-            | Expr::Rem(l, r) => {
+            | Expr::Rem(l, r)
+            | Expr::And(l, r)
+            | Expr::Or(l, r)
+            | Expr::Lt(l, r)
+            | Expr::Eq(l, r)
+            | Expr::Gt(l, r) => {
                 l.collect_variables(vars);
                 r.collect_variables(vars);
             }
-            Expr::Const(_) => {}
+            Expr::Not(e) => {
+                e.collect_variables(vars);
+            }
+            Expr::Const(_) | Expr::Bool(_) => {}
         }
     }
 
@@ -131,6 +229,13 @@ impl Expr {
             Expr::Mul(l, r) => l.evaluate(vars) * r.evaluate(vars),
             Expr::Div(l, r) => l.evaluate(vars) / r.evaluate(vars),
             Expr::Rem(l, r) => l.evaluate(vars) % r.evaluate(vars),
+            Expr::And(l, r) => ((l.evaluate(vars) != 0) && (r.evaluate(vars) != 0)) as isize,
+            Expr::Or(l, r) => ((l.evaluate(vars) != 0) || (r.evaluate(vars) != 0)) as isize,
+            Expr::Not(e) => (e.evaluate(vars) == 0) as isize,
+            Expr::Lt(l, r) => (l.evaluate(vars) < r.evaluate(vars)) as isize,
+            Expr::Eq(l, r) => (l.evaluate(vars) == r.evaluate(vars)) as isize,
+            Expr::Gt(l, r) => (l.evaluate(vars) > r.evaluate(vars)) as isize,
+            Expr::Bool(b) => *b as isize,
         }
     }
 }
@@ -209,6 +314,13 @@ mod tests {
     #[case(Expr::Add(Box::new(Expr::Var("x".to_string())), Box::new(Expr::Const(1))), "(x + 1)")]
     #[case(Expr::Sub(Box::new(Expr::Var("y".to_string())), Box::new(Expr::Const(2))), "(y - 2)")]
     #[case(Expr::Mul(Box::new(Expr::Var("a".to_string())), Box::new(Expr::Var("b".to_string()))), "(a * b)")]
+    #[case(Expr::var("x").lt(1), "(x < 1)")]
+    #[case(Expr::var("x").eq(Expr::var("y")), "(x == y)")]
+    #[case(Expr::var("x").gt(10), "(x > 10)")]
+    #[case(Expr::var("x").and(Expr::var("y")), "(x && y)")]
+    #[case(Expr::var("x").or(Expr::var("y")), "(x || y)")]
+    #[case(Expr::var("x").not(), "!x")]
+    #[case(Expr::TRUE, "true")]
     fn test_display(#[case] expr: Expr, #[case] expected: &str) {
         assert_eq!(expr.to_string(), expected);
     }
@@ -240,6 +352,25 @@ mod tests {
     #[case(Expr::var("x") % Expr::Const(1), Expr::Const(0))]
     #[case(Expr::var("x") % Expr::var("x"), Expr::Const(0))]
     #[case(Expr::Const(0) % Expr::var("x"), Expr::Const(0))]
+    // Logical and Comparison
+    #[case(Expr::TRUE.and(Expr::var("x")), Expr::var("x"))]
+    #[case(Expr::var("x").and(Expr::TRUE), Expr::var("x"))]
+    #[case(Expr::FALSE.and(Expr::var("x")), Expr::FALSE)]
+    #[case(Expr::var("x").and(Expr::FALSE), Expr::FALSE)]
+    #[case(Expr::TRUE.or(Expr::var("x")), Expr::TRUE)]
+    #[case(Expr::var("x").or(Expr::TRUE), Expr::TRUE)]
+    #[case(Expr::FALSE.or(Expr::var("x")), Expr::var("x"))]
+    #[case(Expr::var("x").or(Expr::FALSE), Expr::var("x"))]
+    #[case(Expr::TRUE.not(), Expr::FALSE)]
+    #[case(Expr::FALSE.not(), Expr::TRUE)]
+    #[case(Expr::var("x").not().not(), Expr::var("x"))]
+    #[case(Expr::Const(1).lt(2), Expr::TRUE)]
+    #[case(Expr::Const(2).lt(1), Expr::FALSE)]
+    #[case(Expr::Const(1).eq(1), Expr::TRUE)]
+    #[case(Expr::Const(1).eq(2), Expr::FALSE)]
+    #[case(Expr::var("x").eq(Expr::var("x")), Expr::TRUE)]
+    #[case(Expr::Const(2).gt(1), Expr::TRUE)]
+    #[case(Expr::Const(1).gt(2), Expr::FALSE)]
     // Nested
     #[case((Expr::var("x") + Expr::Const(1)) - Expr::Const(1), Expr::var("x"))]
     #[case(((Expr::var("x") * Expr::Const(2)) + Expr::Const(3)).simplify(), Expr::var("x") * Expr::Const(2) + Expr::Const(3))]
@@ -261,6 +392,13 @@ mod tests {
         let expected: HashSet<String> =
             ["a".to_string(), "b".to_string()].iter().cloned().collect();
         assert_eq!(vars, expected);
+
+        let expr_logic = (Expr::var("x").gt(0)).and(Expr::var("y").lt(10));
+        let mut vars_logic = HashSet::new();
+        expr_logic.collect_variables(&mut vars_logic);
+        let expected_logic: HashSet<String> =
+            ["x".to_string(), "y".to_string()].iter().cloned().collect();
+        assert_eq!(vars_logic, expected_logic);
     }
 
     #[rstest]
@@ -269,6 +407,20 @@ mod tests {
     #[case(Expr::var("x") + Expr::Const(5), hashmap!{"x".to_string() => 10}, 15)]
     #[case((Expr::var("x") * Expr::var("y")) - Expr::Const(1), hashmap!{"x".to_string() => 3, "y".to_string() => 4}, 11)]
     #[case(Expr::Const(-5), hashmap!{}, -5)]
+    #[case(Expr::TRUE, hashmap!{}, 1)]
+    #[case(Expr::FALSE, hashmap!{}, 0)]
+    #[case(Expr::var("x").lt(10), hashmap!{"x".to_string() => 5}, 1)]
+    #[case(Expr::var("x").lt(10), hashmap!{"x".to_string() => 15}, 0)]
+    #[case(Expr::var("x").eq(10), hashmap!{"x".to_string() => 10}, 1)]
+    #[case(Expr::var("x").eq(10), hashmap!{"x".to_string() => 15}, 0)]
+    #[case(Expr::var("x").gt(10), hashmap!{"x".to_string() => 15}, 1)]
+    #[case(Expr::var("x").gt(10), hashmap!{"x".to_string() => 5}, 0)]
+    #[case(Expr::var("x").gt(0).and(Expr::var("y").lt(10)), hashmap!{"x".to_string() => 5, "y".to_string() => 5}, 1)]
+    #[case(Expr::var("x").gt(0).and(Expr::var("y").lt(10)), hashmap!{"x".to_string() => -1, "y".to_string() => 5}, 0)]
+    #[case(Expr::var("x").gt(0).or(Expr::var("y").lt(10)), hashmap!{"x".to_string() => -1, "y".to_string() => 5}, 1)]
+    #[case(Expr::var("x").gt(0).or(Expr::var("y").lt(10)), hashmap!{"x".to_string() => -1, "y".to_string() => 15}, 0)]
+    #[case(Expr::var("x").gt(0).not(), hashmap!{"x".to_string() => 5}, 0)]
+    #[case(Expr::var("x").gt(0).not(), hashmap!{"x".to_string() => -5}, 1)]
     fn test_evaluate(
         #[case] expr: Expr,
         #[case] context: HashMap<String, isize>,

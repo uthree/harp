@@ -62,6 +62,14 @@ pub enum AstOp {
     Sqrt,
     Neg,
 
+    // Logical and comparison
+    And,
+    Or,
+    Not,
+    Lt,
+    Eq,
+    Gt,
+
     Loop { counter: String },
 
     // for pattern matching
@@ -156,6 +164,17 @@ impl From<ShapeExpr> for AstNode {
             ShapeExpr::Rem(l, r) => {
                 AstNode::_new(AstOp::Rem, vec![(*l).into(), (*r).into()], dtype)
             }
+            ShapeExpr::Bool(b) => {
+                AstNode::_new(AstOp::Const(Const::Isize(b as isize)), vec![], dtype)
+            }
+            ShapeExpr::And(l, r) => {
+                AstNode::_new(AstOp::And, vec![(*l).into(), (*r).into()], dtype)
+            }
+            ShapeExpr::Or(l, r) => AstNode::_new(AstOp::Or, vec![(*l).into(), (*r).into()], dtype),
+            ShapeExpr::Not(e) => AstNode::_new(AstOp::Not, vec![(*e).into()], dtype),
+            ShapeExpr::Lt(l, r) => AstNode::_new(AstOp::Lt, vec![(*l).into(), (*r).into()], dtype),
+            ShapeExpr::Eq(l, r) => AstNode::_new(AstOp::Eq, vec![(*l).into(), (*r).into()], dtype),
+            ShapeExpr::Gt(l, r) => AstNode::_new(AstOp::Gt, vec![(*l).into(), (*r).into()], dtype),
         }
     }
 }
@@ -213,6 +232,38 @@ impl Neg for AstNode {
     fn neg(self) -> Self::Output {
         let dtype = self.dtype.clone();
         AstNode::_new(AstOp::Neg, vec![self], dtype)
+    }
+}
+
+impl AstNode {
+    pub fn and(self, rhs: impl Into<AstNode>) -> Self {
+        let dtype = self.dtype.clone();
+        AstNode::_new(AstOp::And, vec![self, rhs.into()], dtype)
+    }
+
+    pub fn or(self, rhs: impl Into<AstNode>) -> Self {
+        let dtype = self.dtype.clone();
+        AstNode::_new(AstOp::Or, vec![self, rhs.into()], dtype)
+    }
+
+    pub fn not(self) -> Self {
+        let dtype = self.dtype.clone();
+        AstNode::_new(AstOp::Not, vec![self], dtype)
+    }
+
+    pub fn lt(self, rhs: impl Into<AstNode>) -> Self {
+        let dtype = self.dtype.clone();
+        AstNode::_new(AstOp::Lt, vec![self, rhs.into()], dtype)
+    }
+
+    pub fn eq(self, rhs: impl Into<AstNode>) -> Self {
+        let dtype = self.dtype.clone();
+        AstNode::_new(AstOp::Eq, vec![self, rhs.into()], dtype)
+    }
+
+    pub fn gt(self, rhs: impl Into<AstNode>) -> Self {
+        let dtype = self.dtype.clone();
+        AstNode::_new(AstOp::Gt, vec![self, rhs.into()], dtype)
     }
 }
 
