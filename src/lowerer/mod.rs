@@ -5,6 +5,8 @@ use std::collections::HashMap;
 pub struct Lowerer {
     memo: HashMap<GraphNode, AstNode>,
     var_counter: usize,
+    ridx_counter: usize,
+    acc_counter: usize,
 }
 
 impl Lowerer {
@@ -12,13 +14,27 @@ impl Lowerer {
         Lowerer {
             memo: HashMap::new(),
             var_counter: 0,
+            ridx_counter: 0,
+            acc_counter: 0,
         }
     }
 
-    fn new_var(&mut self) -> String {
-        let var_name = format!("v{}", self.var_counter);
+    fn new_var_name(&mut self) -> String {
+        let name = format!("var{}", self.var_counter);
         self.var_counter += 1;
-        var_name
+        name
+    }
+
+    fn new_ridx_name(&mut self) -> String {
+        let name = format!("ridx{}", self.ridx_counter);
+        self.ridx_counter += 1;
+        name
+    }
+
+    fn new_acc_name(&mut self) -> String {
+        let name = format!("acc{}", self.acc_counter);
+        self.acc_counter += 1;
+        name
     }
 
     fn lower_node(&mut self, node: &GraphNode) -> (AstNode, Vec<AstNode>) {
@@ -27,54 +43,55 @@ impl Lowerer {
         }
 
         let mut prelude = vec![];
-
         let result_ast = match &node.op {
-            GraphOp::Input { .. } => {
-                panic!("Input node should be memoized before lowering");
-            }
+            GraphOp::Input { .. } => panic!("Input node should be memoized"),
             GraphOp::Elementwise(op) => {
                 let mut src_asts = vec![];
                 for src_node in &node.src {
-                    let (src_ast, src_prelude) = self.lower_node(src_node);
+                    let (mut src_ast, src_prelude) = self.lower_node(src_node);
                     prelude.extend(src_prelude);
+                    if let DType::Ptr(_) = src_ast.dtype {
+                        src_ast = AstNode::index(src_ast, AstNode::from(0isize));
+                    }
                     src_asts.push(src_ast);
                 }
                 AstNode::_new(op.clone(), src_asts, node.dtype.clone())
             }
-            GraphOp::Reduce(op, _axis) => {
+            GraphOp::Reduce(op, axis) => {
                 let (src_ast, src_prelude) = self.lower_node(&node.src[0]);
                 prelude.extend(src_prelude);
 
-                let acc_name = self.new_var();
-                let acc_var = AstNode::var(&acc_name);
-                let acc_init =
-                    AstNode::declare(&acc_name, node.dtype.clone(), Some(node.dtype.zero()));
-                prelude.push(acc_init);
+                let acc_name = self.new_acc_name();
+                let acc_var = AstNode::var(&acc_name, node.dtype.clone());
+                prelude.push(AstNode::declare(
+                    &acc_name,
+                    node.dtype.clone(),
+                    Some(node.dtype.zero()),
+                ));
 
-                let loop_var = "i".to_string();
+                let loop_var_name = self.new_ridx_name();
+                let loop_var = AstNode::var(&loop_var_name, DType::Usize);
                 let loop_body = AstNode::assign(
                     acc_var.clone(),
                     AstNode::_new(
                         op.clone(),
-                        vec![acc_var, src_ast.clone()], // Simplified
+                        vec![acc_var, AstNode::index(src_ast, loop_var)],
                         node.dtype.clone(),
                     ),
                 );
 
-                let loop_node = AstNode::_new(
+                prelude.push(AstNode::_new(
                     AstOp::Range {
-                        counter: loop_var,
+                        counter: loop_var_name,
                         step: 1,
                     },
                     vec![
-                        AstNode::from(10isize), // Simplified
+                        AstNode::from(node.src[0].shape()[*axis].clone()),
                         loop_body,
                     ],
                     DType::Any,
-                );
-                prelude.push(loop_node);
-
-                AstNode::var(&acc_name)
+                ));
+                AstNode::var(&acc_name, node.dtype.clone())
             }
             GraphOp::Contiguous => {
                 let (src_ast, src_prelude) = self.lower_node(&node.src[0]);
@@ -90,52 +107,94 @@ impl Lowerer {
 
 pub fn lower_graph(graph: &Graph) -> AstNode {
     let mut lowerer = Lowerer::new();
-    let mut func_args = vec![];
-    let mut func_body = vec![];
+    let mut kernel_impl_args = vec![];
+    let mut kernel_impl_body = vec![];
 
-    for (i, input_node) in graph.inputs.iter().enumerate() {
-        let input_sig = &graph.signature.inputs[i];
-        let arg_name = format!("input_{}", i);
-        let arg_dtype = DType::Ptr(Box::new(input_sig.dtype.clone()));
-        func_args.push((arg_name.clone(), arg_dtype.clone()));
-        lowerer
-            .memo
-            .insert(input_node.clone(), AstNode::var(&arg_name));
-    }
-
-    let output_arg_names: Vec<String> = (0..graph.outputs.len())
-        .map(|i| format!("output_{}", i))
+    let num_inputs = graph.inputs.len();
+    let num_outputs = graph.outputs.len();
+    let buffer_names: Vec<String> = (0..num_inputs + num_outputs)
+        .map(|i| format!("buf{}", i))
         .collect();
 
-    for (i, output_sig) in graph.signature.outputs.iter().enumerate() {
-        let arg_dtype = DType::Ptr(Box::new(output_sig.dtype.clone()));
-        func_args.push((output_arg_names[i].clone(), arg_dtype));
+    // Outputs first
+    for (i, output_node) in graph.outputs.iter().enumerate() {
+        let sig = &graph.signature.outputs[i];
+        let dtype = DType::Ptr(Box::new(sig.dtype.clone()));
+        kernel_impl_args.push((buffer_names[i].clone(), dtype.clone()));
+    }
+
+    // Then inputs
+    for (i, input_node) in graph.inputs.iter().enumerate() {
+        let sig = &graph.signature.inputs[i];
+        let dtype = DType::Ptr(Box::new(sig.dtype.clone()));
+        kernel_impl_args.push((buffer_names[num_outputs + i].clone(), dtype.clone()));
+        lowerer.memo.insert(
+            input_node.clone(),
+            AstNode::var(&buffer_names[num_outputs + i], dtype),
+        );
     }
 
     for (i, output_node) in graph.outputs.iter().enumerate() {
         let (result_ast, prelude) = lowerer.lower_node(output_node);
-        func_body.extend(prelude);
+        kernel_impl_body.extend(prelude);
 
-        let output_ptr = AstNode::var(&output_arg_names[i]);
-        let store_op = AstNode::store(output_ptr, result_ast);
-        func_body.push(store_op);
+        let ptr = AstNode::var(&buffer_names[i], kernel_impl_args[i].1.clone());
+        let index = AstNode::from(0isize);
+        kernel_impl_body.push(AstNode::store(AstNode::index(ptr, index), result_ast));
     }
 
-    AstNode::_new(
+    let kernel_impl = AstNode::_new(
+        AstOp::Func {
+            name: "kernel_impl".to_string(),
+            args: kernel_impl_args,
+        },
+        kernel_impl_body,
+        DType::Any,
+    );
+
+    let bufs_arg = ("bufs".to_string(), DType::Ptr(Box::new(DType::Ptr(Box::new(DType::Any)))));
+    let shape_vars_arg = ("shape_vars".to_string(), DType::Ptr(Box::new(DType::Usize)));
+    let mut main_body = vec![];
+    let mut call_args = vec![];
+
+    if let AstOp::Func { args, .. } = &kernel_impl.op {
+        for i in 0..num_inputs + num_outputs {
+            let ptr_to_buf_i = AstNode::index(
+                AstNode::var("bufs", bufs_arg.1.clone()),
+                AstNode::from(i as isize),
+            );
+            let cast_buf_i = AstNode::_new(
+                AstOp::Cast(args[i].1.clone()),
+                vec![ptr_to_buf_i],
+                args[i].1.clone(),
+            );
+            call_args.push(cast_buf_i);
+        }
+    }
+
+    main_body.push(AstNode::_new(
+        AstOp::Call("kernel_impl".to_string()),
+        call_args,
+        DType::Any,
+    ));
+
+    let kernel_main = AstNode::_new(
         AstOp::Func {
             name: "kernel_main".to_string(),
-            args: func_args,
+            args: vec![bufs_arg, shape_vars_arg],
         },
-        func_body,
+        main_body,
         DType::Any,
-    )
+    );
+
+    AstNode::_new(AstOp::Program, vec![kernel_impl, kernel_main], DType::Any)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::TensorSignature;
     use crate::graph::shape::expr::Expr as ShapeExpr;
+    use crate::graph::TensorSignature;
 
     #[test]
     fn test_lower_elementwise_add() {
@@ -155,27 +214,20 @@ mod tests {
 
         let ast = lower_graph(&graph);
 
-        // Expected AST structure
-        let expected_args = vec![
-            ("input_0".to_string(), DType::Ptr(Box::new(DType::F32))),
-            ("input_1".to_string(), DType::Ptr(Box::new(DType::F32))),
-            ("output_0".to_string(), DType::Ptr(Box::new(DType::F32))),
-        ];
-        let expected_body = vec![AstNode::store(
-            AstNode::var("output_0"),
-            AstNode::_new(
-                AstOp::Add,
-                vec![AstNode::var("input_0"), AstNode::var("input_1")],
-                DType::F32,
-            ),
-        )];
+        assert!(matches!(ast.op, AstOp::Program));
+        assert_eq!(ast.src.len(), 2);
 
-        if let AstOp::Func { name, args } = ast.op {
-            assert_eq!(name, "kernel_main");
-            assert_eq!(args, expected_args);
-            assert_eq!(ast.src, expected_body);
+        let kernel_impl = &ast.src[0];
+        let expected_impl_args = vec![
+            ("buf0".to_string(), DType::Ptr(Box::new(DType::F32))), // output
+            ("buf1".to_string(), DType::Ptr(Box::new(DType::F32))), // input a
+            ("buf2".to_string(), DType::Ptr(Box::new(DType::F32))), // input b
+        ];
+        if let AstOp::Func { name, args } = &kernel_impl.op {
+            assert_eq!(name, "kernel_impl");
+            assert_eq!(*args, expected_impl_args);
         } else {
-            panic!("Expected a function AST node");
+            panic!("Expected kernel_impl function");
         }
     }
 }

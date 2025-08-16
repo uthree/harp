@@ -51,9 +51,8 @@ impl CRenderer {
             }
             AstOp::Store => {
                 self.write_indent();
-                write!(self.buffer, "*(").unwrap();
                 self.render_node(&ast.src[0]);
-                write!(self.buffer, ") = ").unwrap();
+                write!(self.buffer, " = ").unwrap();
                 self.render_node(&ast.src[1]);
                 writeln!(self.buffer, ";").unwrap();
             }
@@ -61,6 +60,12 @@ impl CRenderer {
                 write!(self.buffer, "*(").unwrap();
                 self.render_node(&ast.src[0]);
                 write!(self.buffer, ")").unwrap();
+            }
+            AstOp::Index => {
+                self.render_node(&ast.src[0]);
+                write!(self.buffer, "[").unwrap();
+                self.render_node(&ast.src[1]);
+                write!(self.buffer, "]").unwrap();
             }
             AstOp::Range { counter, step } => {
                 self.write_indent();
@@ -162,6 +167,7 @@ impl CRenderer {
             DType::Isize => "intptr_t".to_string(),
             DType::Usize => "size_t".to_string(),
             DType::Ptr(inner) => format!("{}*", Self::dtype_to_c(inner)),
+            DType::Any => "void".to_string(),
             _ => panic!("DType {:?} not supported in C renderer", dtype),
         }
     }
@@ -194,7 +200,7 @@ mod tests {
 
     #[test]
     fn test_simple_add() {
-        let ast = AstNode::var("a") + AstNode::var("b");
+        let ast = AstNode::var("a", DType::Any) + AstNode::var("b", DType::Any);
         let mut renderer = CRenderer::new();
         let code = renderer.render(ast);
         assert_eq!(code, "(a + b)");

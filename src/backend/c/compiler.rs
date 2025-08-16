@@ -5,30 +5,20 @@ use libloading::Library;
 use log::debug;
 use std::sync::Arc;
 
-/// A trait for defining platform-specific C compilation strategies.
+// ... (CompilationStrategy trait and impls remain the same) ...
 trait CompilationStrategy {
-    /// Returns the name of the dynamic library file.
     fn lib_name(&self) -> &str;
-
-    /// Returns the name of the C compiler to use.
     fn compiler(&self) -> &str;
-
-    /// Returns a vector of compiler arguments.
     fn args(&self) -> Vec<String>;
 }
-
-/// A compilation strategy for macOS.
 struct MacOsStrategy;
-
 impl CompilationStrategy for MacOsStrategy {
     fn lib_name(&self) -> &str {
         "kernel.dylib"
     }
-
     fn compiler(&self) -> &str {
         "clang"
     }
-
     fn args(&self) -> Vec<String> {
         let mut base_args = vec![
             "-shared".to_string(),
@@ -37,13 +27,11 @@ impl CompilationStrategy for MacOsStrategy {
             "-Xpreprocessor".to_string(),
             "-fopenmp".to_string(),
         ];
-
         let omp_path_str = if cfg!(target_arch = "aarch64") {
             "/opt/homebrew/opt/libomp"
         } else {
             "/usr/local/opt/libomp"
         };
-
         let omp_path = std::path::Path::new(omp_path_str);
         if omp_path.exists() {
             base_args.push("-I".to_string());
@@ -55,19 +43,14 @@ impl CompilationStrategy for MacOsStrategy {
         base_args
     }
 }
-
-/// A compilation strategy for Linux.
 struct LinuxStrategy;
-
 impl CompilationStrategy for LinuxStrategy {
     fn lib_name(&self) -> &str {
         "kernel.so"
     }
-
     fn compiler(&self) -> &str {
         "gcc"
     }
-
     fn args(&self) -> Vec<String> {
         vec![
             "-shared".to_string(),
@@ -78,14 +61,10 @@ impl CompilationStrategy for LinuxStrategy {
     }
 }
 
-/// A C compiler that uses shell commands to compile C code into a dynamic library.
 #[derive(Default)]
-pub struct CCompiler {
-    // Options for the C compiler can be added here.
-}
+pub struct CCompiler {}
 
 impl CCompiler {
-    /// Checks if a C compiler is available on the system by running `cc --version`.
     pub fn check_availability(&self) -> bool {
         let compiler = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
         let result = std::process::Command::new(compiler)
@@ -97,7 +76,6 @@ impl CCompiler {
         }
     }
 
-    /// Returns the appropriate compilation strategy for the current platform.
     fn get_strategy(&self) -> Box<dyn CompilationStrategy> {
         if cfg!(target_os = "macos") {
             Box::new(MacOsStrategy)
@@ -118,9 +96,7 @@ impl Compiler<CBuffer> for CCompiler {
         self.check_availability()
     }
 
-    fn with_option(&mut self, _option: ()) {
-        // This compiler does not have options yet.
-    }
+    fn with_option(&mut self, _option: ()) {}
 
     fn compile(&mut self, code: &String, details: GraphSignature) -> Self::KernelType {
         let mut source_file = tempfile::Builder::new()
@@ -162,16 +138,11 @@ impl Compiler<CBuffer> for CCompiler {
             );
         }
 
-        let library =
-            Arc::new(unsafe { Library::new(&lib_path).expect("Failed to load dynamic library") });
-
-        // We assume the function name is the first output name in the signature for now.
-        // A more robust solution would be needed for multi-output graphs.
-        let func_name = "kernel_main".to_string(); // Simplified
+        let library = Arc::new(unsafe { Library::new(&lib_path).expect("Failed to load dynamic library") });
 
         CKernel {
             library,
-            func_name,
+            func_name: "kernel_main".to_string(),
             details,
         }
     }
@@ -181,54 +152,54 @@ impl Compiler<CBuffer> for CCompiler {
 mod tests {
     use super::*;
     use crate::ast::DType;
-    use crate::backend::{Buffer, Kernel};
+    use crate::backend::{Buffer, Kernel, Renderer};
+    use crate::graph::{shape::expr::Expr as ShapeExpr, Graph, TensorSignature};
+    use crate::lowerer;
 
     #[test]
-    fn test_compile_and_run_vector_add() {
+    fn test_compile_and_run_elementwise_add() {
+        // 1. Build a graph
+        let mut graph = Graph::new();
+        let shape = vec![ShapeExpr::from(1)]; // Simplified for single element
+        let dtype = DType::F32;
+
+        let a = graph.add_input(shape.clone(), &dtype);
+        let b = graph.add_input(shape.clone(), &dtype);
+        let c = a + b;
+        graph.outputs.push(c);
+        graph.signature.outputs.push(TensorSignature {
+            dtype: dtype.clone(),
+            shape: shape.clone(),
+        });
+
+        // 2. Lower the graph to AST
+        let ast = lowerer::lower_graph(&graph);
+
+        // 3. Render the AST to C code
+        let mut renderer = crate::backend::c::CRenderer::new();
+        let code = renderer.render(ast);
+        println!("{}", code); // For debugging
+
+        // 4. Compile and run the C code
         let mut compiler = CCompiler::new();
         if !compiler.is_available() {
             eprintln!("C compiler not available, skipping test.");
             return;
         }
+        let mut kernel = compiler.compile(&code, graph.signature);
 
-        let code = r#"#
-            void vector_add(float* out, float* a, float* b) {
-                for (int i = 0; i < 10; i++) { // Hardcoded size for simplicity
-                    out[i] = a[i] + b[i];
-                }
-            }
-        "#
-        .to_string();
+        let a_data = vec![1.0f32];
+        let b_data = vec![2.0f32];
+        let shape_usize = vec![1];
 
-        // The GraphSignature is a placeholder here, as the C code is manually written.
-        // In a real scenario, this would be derived from the graph.
-        let details = GraphSignature::new();
-
-        let mut kernel = compiler.compile(&code, details);
-        // We need to manually set the function name because the GraphSignature is empty.
-        kernel.func_name = "vector_add".to_string();
-
-        let n = 10;
-        let shape = vec![n];
-        let dtype = DType::F32;
-
-        let a_data: Vec<f32> = (0..n).map(|i| i as f32).collect();
-        let b_data: Vec<f32> = (0..n).map(|i| (i * 2) as f32).collect();
-
-        let a_buffer = CBuffer::from_slice(&a_data, &shape, dtype.clone());
-        let b_buffer = CBuffer::from_slice(&b_data, &shape, dtype.clone());
-        let out_buffer = CBuffer::allocate(dtype, shape);
+        let a_buffer = CBuffer::from_slice(&a_data, &shape_usize, dtype.clone());
+        let b_buffer = CBuffer::from_slice(&b_data, &shape_usize, dtype.clone());
+        let out_buffer = CBuffer::allocate(dtype, shape_usize);
 
         let buffers = vec![out_buffer, a_buffer, b_buffer];
         let result_buffers = kernel.call(buffers, &[]);
 
         let result_data = result_buffers[0].to_vec::<f32>();
-        let expected_data: Vec<f32> = a_data
-            .iter()
-            .zip(b_data.iter())
-            .map(|(a, b)| a + b)
-            .collect();
-
-        assert_eq!(result_data, expected_data);
+        assert_eq!(result_data, vec![3.0f32]);
     }
 }

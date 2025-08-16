@@ -90,6 +90,7 @@ pub enum AstOp {
     Store,  // src[0]のアドレスにsrc[1]の値を書き込む
     Load,   // src[0]のアドレスから値を読み込む
     Assign, // src[0]の値をsrc[1]に代入する
+    Index,  // src[0]のポインタのsrc[1]番目の要素にアクセスする
     Declare {
         // ローカル変数を宣言する
         name: String,
@@ -129,6 +130,15 @@ impl AstNode {
         AstNode::_new(AstOp::Assign, vec![var, value], DType::Any) // Assign does not have a return value
     }
 
+    pub fn index(ptr: AstNode, index: AstNode) -> Self {
+        let dtype = if let DType::Ptr(ref inner) = ptr.dtype {
+            *inner.clone()
+        } else {
+            panic!("Cannot index a non-pointer type");
+        };
+        AstNode::_new(AstOp::Index, vec![ptr, index], dtype)
+    }
+
     pub fn declare(name: &str, dtype: DType, value: Option<AstNode>) -> Self {
         let src = value.map_or(vec![], |v| vec![v]);
         AstNode::_new(
@@ -145,8 +155,8 @@ impl AstNode {
         AstNode::_new(AstOp::Capture(pos), vec![], DType::Any)
     }
 
-    pub fn var(name: &str) -> Self {
-        AstNode::_new(AstOp::Var(name.to_string()), vec![], DType::Any)
+    pub fn var(name: &str, dtype: DType) -> Self {
+        AstNode::_new(AstOp::Var(name.to_string()), vec![], dtype)
     }
 
     /// Matches the node against a pattern.
@@ -201,7 +211,7 @@ impl From<ShapeExpr> for AstNode {
         let dtype = DType::Isize;
         match expr {
             ShapeExpr::Const(c) => AstNode::_new(AstOp::Const(Const::Isize(c)), vec![], dtype),
-            ShapeExpr::Var(v) => AstNode::_new(AstOp::Var(v), vec![], dtype),
+            ShapeExpr::Var(v) => AstNode::_new(AstOp::Var(v), vec![], dtype.clone()),
             ShapeExpr::Add(l, r) => {
                 AstNode::_new(AstOp::Add, vec![(*l).into(), (*r).into()], dtype)
             }
