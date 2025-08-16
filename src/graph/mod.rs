@@ -30,8 +30,8 @@ pub struct TensorSignature {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum GraphOp {
-    Input { shape: Vec<ShapeExpr>, dtype: DType },
-    Contiguous,
+    Input,
+    Contiguous,           // 要素をContiguous現在のViewでな配置に並べ直す。
     Elementwise(AstOp),   // apply element-wise operator
     Reduce(AstOp, usize), // reduce dimension
 }
@@ -55,5 +55,7 @@ impl Deref for GraphNode {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Graph {
-    inputs: Vec<GraphNode>,
+    pub signature: GraphSignature,
+    pub inputs: Vec<GraphNode>,
+    pub outputs: Vec<GraphNode>,
 }
