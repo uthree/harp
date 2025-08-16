@@ -1,3 +1,5 @@
+use log::{debug, info, trace};
+
 use crate::ast::{AstNode, AstOp, Const, DType};
 use crate::backend::Renderer;
 use std::fmt::Write;
@@ -10,6 +12,7 @@ pub struct CRenderer {
 
 impl CRenderer {
     fn render_node(&mut self, ast: &AstNode) {
+        trace!("Rendering node: {:?}", ast.op);
         match &ast.op {
             AstOp::Program => {
                 self.buffer.push_str("#include <math.h>\n");
@@ -193,8 +196,12 @@ impl Renderer for CRenderer {
     fn with_option(&mut self, _option: Self::Option) {}
 
     fn render(&mut self, ast: crate::ast::AstNode) -> String {
+        info!("Start rendering C code.");
         self.render_node(&ast);
-        self.buffer.clone()
+        let code = self.buffer.clone();
+        debug!("\n--- Rendered C code ---\n{code}\n-----------------------");
+        info!("Finished rendering C code.");
+        code
     }
 }
 
@@ -205,6 +212,7 @@ mod tests {
 
     #[test]
     fn test_simple_add() {
+        let _ = env_logger::builder().is_test(true).try_init();
         let ast = AstNode::var("a", DType::Any) + AstNode::var("b", DType::Any);
         let mut renderer = CRenderer::new();
         let code = renderer.render(ast);
