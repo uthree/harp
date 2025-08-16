@@ -2,11 +2,13 @@ pub mod shape;
 
 use crate::ast::{AstOp, DType};
 use crate::graph::shape::expr::Expr as ShapeExpr;
+use std::hash::{Hash, Hasher};
 use std::ops::{
     Add, AddAssign, Deref, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
 use std::rc::Rc;
 
+// ... (GraphSignature, ShapeVariableSignature, TensorSignature remain the same) ...
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct GraphSignature {
     pub shape_variables: Vec<ShapeVariableSignature>, // Shapeを決定するための変数。
@@ -39,19 +41,19 @@ pub struct TensorSignature {
 #[derive(Debug, Clone, PartialEq)]
 pub enum GraphOp {
     Input { shape: Vec<ShapeExpr>, dtype: DType },
-    Contiguous,           // 要素をContiguous現在のViewでな配置に並べ直す。
-    Elementwise(AstOp),   // apply element-wise operator
-    Reduce(AstOp, usize), // reduce dimension
+    Contiguous,
+    Elementwise(AstOp),
+    Reduce(AstOp, usize),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GraphNodeData {
-    op: GraphOp,
-    src: Vec<GraphNode>,
-    dtype: DType,
+    pub op: GraphOp,
+    pub src: Vec<GraphNode>,
+    pub dtype: DType,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct GraphNode(Rc<GraphNodeData>);
 
 impl Deref for GraphNode {
@@ -60,6 +62,21 @@ impl Deref for GraphNode {
         self.0.as_ref()
     }
 }
+
+// Manual implementation of Hash and Eq for GraphNode to use it in HashMap
+impl Hash for GraphNode {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Rc::as_ptr(&self.0).hash(state);
+    }
+}
+
+impl PartialEq for GraphNode {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for GraphNode {}
 
 impl GraphNode {
     /// Returns the logical shape of the node.
@@ -92,6 +109,7 @@ impl GraphNode {
     }
 }
 
+// ... (Operator implementations for GraphNode remain the same) ...
 macro_rules! impl_graphnode_binary_op {
     ($trait:ident, $fname:ident, $op:ident) => {
         impl<T: Into<GraphNode>> $trait<T> for GraphNode {
@@ -164,20 +182,12 @@ impl Graph {
         Self::default()
     }
 
-    /// Adds a new input node to the graph.
-    /// This method creates a new input node and adds it to the graph's input list.
-    /// It also updates the graph's signature to reflect the new input.
     pub fn add_input(&mut self, shape: Vec<ShapeExpr>, dtype: &DType) -> GraphNode {
-        // Create the tensor signature for the new input.
         let tensor_signature = TensorSignature {
             dtype: dtype.clone(),
             shape: shape.clone(),
         };
-
-        // Update the graph's signature.
         self.signature.inputs.push(tensor_signature);
-
-        // Create the new input graph node.
         let input_node = GraphNode(Rc::new(GraphNodeData {
             op: GraphOp::Input {
                 shape,
@@ -186,15 +196,12 @@ impl Graph {
             src: vec![],
             dtype: dtype.clone(),
         }));
-
-        // Add the new node to the graph's input nodes list.
         self.inputs.push(input_node.clone());
-
-        // Return the created node.
         input_node
     }
 }
 
+// ... (Tests for Graph remain the same) ...
 #[cfg(test)]
 mod tests {
     use super::*;

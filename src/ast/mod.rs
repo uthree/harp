@@ -86,6 +86,16 @@ pub enum AstOp {
     Call(String), // 関数を呼び出す。 srcがそれぞれの引数となる。
     Program,      // プログラム本体
 
+    // Memory access, メモリアクセス
+    Store,  // src[0]のアドレスにsrc[1]の値を書き込む
+    Load,   // src[0]のアドレスから値を読み込む
+    Assign, // src[0]の値をsrc[1]に代入する
+    Declare {
+        // ローカル変数を宣言する
+        name: String,
+        dtype: DType,
+    },
+
     // for pattern matching, パターンマッチのための特殊なオペレータ。これがレンダリングされるということは何かがおかしい。
     Capture(usize),
 }
@@ -100,6 +110,35 @@ pub struct AstNode {
 impl AstNode {
     pub(crate) fn _new(op: AstOp, src: Vec<AstNode>, dtype: DType) -> Self {
         Self { op, src, dtype }
+    }
+
+    pub fn store(ptr: AstNode, value: AstNode) -> Self {
+        AstNode::_new(AstOp::Store, vec![ptr, value], DType::Any) // Store operation does not have a return value
+    }
+
+    pub fn load(ptr: AstNode) -> Self {
+        let dtype = if let DType::Ptr(ref inner) = ptr.dtype {
+            *inner.clone()
+        } else {
+            panic!("Cannot load from a non-pointer type");
+        };
+        AstNode::_new(AstOp::Load, vec![ptr], dtype)
+    }
+
+    pub fn assign(var: AstNode, value: AstNode) -> Self {
+        AstNode::_new(AstOp::Assign, vec![var, value], DType::Any) // Assign does not have a return value
+    }
+
+    pub fn declare(name: &str, dtype: DType, value: Option<AstNode>) -> Self {
+        let src = value.map_or(vec![], |v| vec![v]);
+        AstNode::_new(
+            AstOp::Declare {
+                name: name.to_string(),
+                dtype: dtype.clone(),
+            },
+            src,
+            dtype,
+        )
     }
 
     pub fn capture(pos: usize) -> Self {
