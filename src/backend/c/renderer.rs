@@ -28,9 +28,9 @@ impl CRenderer {
                 write!(self.buffer, "for (size_t {counter} = 0; {counter} < ").unwrap();
                 self.render_node(&ast.src[0]); // max
                 if *step == 1 {
-                    writeln!(self.buffer, "; {counter}++) {{").unwrap();
+                    writeln!(self.buffer, "; {counter}++) {{ ").unwrap();
                 } else {
-                    writeln!(self.buffer, "; {counter} += {step}) {{").unwrap();
+                    writeln!(self.buffer, "; {counter} += {step}) {{ ").unwrap();
                 }
                 self.indent_level += 1;
 
@@ -47,7 +47,7 @@ impl CRenderer {
                     .map(|(name, dtype)| format!("{} {}", Self::dtype_to_c(dtype), name))
                     .collect();
                 let args_str = args_str.join(", ");
-                self.writeln(&format!("void {name}({args_str}) {{"));
+                self.writeln(&format!("void {name}({args_str}) {{ "));
                 self.indent_level += 1;
                 for node in &ast.src {
                     self.render_node(node);
@@ -140,7 +140,7 @@ impl CRenderer {
         match dtype {
             DType::F32 => "float".to_string(),
             DType::Ptr(inner) => format!("{}*", Self::dtype_to_c(inner)),
-            _ => panic!("DType {dtype:?} not supported in C renderer"),
+            _ => panic!("DType {{dtype:?}} not supported in C renderer"),
         }
     }
 
@@ -161,7 +161,21 @@ impl Renderer for CRenderer {
 
     fn render(&mut self, ast: crate::ast::AstNode) -> String {
         self.render_node(&ast);
-        let code = self.buffer.clone();
-        code
+
+        self.buffer.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::{AstNode, DType};
+
+    #[test]
+    fn test_simple_add() {
+        let ast = AstNode::var("a") + AstNode::var("b");
+        let mut renderer = CRenderer::new();
+        let code = renderer.render(ast);
+        assert_eq!(code, "(a + b)");
     }
 }
