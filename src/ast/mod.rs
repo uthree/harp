@@ -70,7 +70,16 @@ pub enum AstOp {
     Eq,
     Gt,
 
-    Loop { counter: String },
+    Range {
+        counter: String,
+        step: isize,
+    }, // loop statements
+    Func {
+        name: String,
+        args: Vec<(String, DType)>,
+    },
+    Call(String),
+    Program,
 
     // for pattern matching
     Capture(usize),

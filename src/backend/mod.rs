@@ -1,6 +1,9 @@
 use crate::{ast::AstNode, graph::GraphSignature};
 
+pub mod c;
+
 pub trait Buffer {
+    // get buffer size
     fn shape(&self) -> Vec<usize>;
 }
 
@@ -13,14 +16,15 @@ pub trait Kernel<B: Buffer> {
 }
 
 /// A trait for a compiler that turns a code representation into a `Kernel`.
-pub trait Compiler<B: Buffer, CodeRepr = String, CompilerOption = ()> {
+pub trait Compiler<B: Buffer, CodeRepr = String, CompileOption = ()> {
     type KernelType: Kernel<B>;
     fn new() -> Self;
     fn is_available(&self) -> bool;
-    fn with_option(&mut self, option: CompilerOption);
+    fn with_option(&mut self, option: CompileOption) {}
     fn compile(&mut self, code: &CodeRepr, details: GraphSignature) -> Self::KernelType;
 }
-pub trait Renderer<CodeRepr = String> {
+pub trait Renderer<CodeRepr = String, RenderOption = ()> {
     fn new() -> Self;
+    fn with_option(&mut self, option: RenderOption) {}
     fn render(&mut self, ast: AstNode) -> CodeRepr;
 }
