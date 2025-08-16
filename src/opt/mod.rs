@@ -1,4 +1,2 @@
-pub trait DeterministicAstOptimizer {}
-pub trait DeterministicGraphOptimizer {}
-pub trait HeuristicAstOptimizer {}
-pub trait HeuristicGraphOptimizer {}
+pub mod ast;
+pub mod graph;

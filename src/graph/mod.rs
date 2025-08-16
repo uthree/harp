@@ -3,7 +3,7 @@ pub mod shape;
 use crate::ast::{AstOp, DType};
 use crate::graph::shape::expr::Expr as ShapeExpr;
 use std::ops::Deref;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GraphSignature {
@@ -24,7 +24,8 @@ pub struct ShapeVariableSignature {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TensorSignature {
     dtype: DType, // データ型
-    shape: Vec<ShapeExpr>,
+    shape: Vec<ShapeExpr>, // 形状
+                  // ちなみにViewに関しては、入出力の時点では常にContiguousであるとする。
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -36,18 +37,23 @@ pub enum GraphOp {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct NodeData {
+pub struct GraphNodeData {
     op: GraphOp,
-    src: Vec<Node>,
+    src: Vec<GraphNode>,
     dtype: DType,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Node(Rc<NodeData>);
+pub struct GraphNode(Rc<GraphNodeData>);
 
-impl Deref for Node {
-    type Target = NodeData;
+impl Deref for GraphNode {
+    type Target = GraphNodeData;
     fn deref(&self) -> &Self::Target {
         self.0.as_ref()
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Graph {
+    inputs: Vec<GraphNode>,
 }
