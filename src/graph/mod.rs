@@ -2,7 +2,9 @@ pub mod shape;
 
 use crate::ast::{AstOp, DType};
 use crate::graph::shape::expr::Expr as ShapeExpr;
-use std::ops::Deref;
+use std::ops::{
+    Add, AddAssign, Deref, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
+};
 use std::rc::Rc;
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -65,7 +67,18 @@ impl GraphNode {
     pub fn shape(&self) -> Vec<ShapeExpr> {
         match &self.op {
             GraphOp::Input { shape, .. } => shape.clone(),
-            GraphOp::Elementwise(_) | GraphOp::Contiguous => {
+            GraphOp::Elementwise(op) => match op {
+                AstOp::Neg => {
+                    assert_eq!(self.src.len(), 1);
+                    self.src[0].shape()
+                }
+                _ => {
+                    assert_eq!(self.src.len(), 2);
+                    assert_eq!(self.src[0].shape(), self.src[1].shape());
+                    self.src[0].shape()
+                }
+            },
+            GraphOp::Contiguous => {
                 assert_eq!(self.src.len(), 1);
                 self.src[0].shape()
             }
@@ -76,6 +89,66 @@ impl GraphNode {
                 shape
             }
         }
+    }
+}
+
+macro_rules! impl_graphnode_binary_op {
+    ($trait:ident, $fname:ident, $op:ident) => {
+        impl<T: Into<GraphNode>> $trait<T> for GraphNode {
+            type Output = GraphNode;
+            fn $fname(self, rhs: T) -> Self::Output {
+                let rhs = rhs.into();
+                assert_eq!(
+                    self.dtype, rhs.dtype,
+                    "Mismatched dtypes in binary operation"
+                );
+                assert_eq!(
+                    self.shape(),
+                    rhs.shape(),
+                    "Mismatched shapes in binary operation"
+                );
+                let dtype = self.dtype.clone();
+                GraphNode(Rc::new(GraphNodeData {
+                    op: GraphOp::Elementwise(AstOp::$op),
+                    src: vec![self, rhs],
+                    dtype,
+                }))
+            }
+        }
+    };
+}
+
+impl_graphnode_binary_op!(Add, add, Add);
+impl_graphnode_binary_op!(Sub, sub, Sub);
+impl_graphnode_binary_op!(Mul, mul, Mul);
+impl_graphnode_binary_op!(Div, div, Div);
+impl_graphnode_binary_op!(Rem, rem, Rem);
+
+macro_rules! impl_graphnode_binary_assign_op {
+    ($trait:ident, $fname:ident, $op:tt) => {
+        impl<T: Into<GraphNode>> $trait<T> for GraphNode {
+            fn $fname(&mut self, rhs: T) {
+                *self = self.clone() $op rhs.into();
+            }
+        }
+    };
+}
+
+impl_graphnode_binary_assign_op!(AddAssign, add_assign, +);
+impl_graphnode_binary_assign_op!(SubAssign, sub_assign, -);
+impl_graphnode_binary_assign_op!(MulAssign, mul_assign, *);
+impl_graphnode_binary_assign_op!(DivAssign, div_assign, /);
+impl_graphnode_binary_assign_op!(RemAssign, rem_assign, %);
+
+impl Neg for GraphNode {
+    type Output = Self;
+    fn neg(self) -> Self::Output {
+        let dtype = self.dtype.clone();
+        GraphNode(Rc::new(GraphNodeData {
+            op: GraphOp::Elementwise(AstOp::Neg),
+            src: vec![self],
+            dtype,
+        }))
     }
 }
 
@@ -127,6 +200,7 @@ mod tests {
     use super::*;
     use crate::ast::DType;
     use crate::graph::shape::expr::Expr as ShapeExpr;
+    use rstest::rstest;
 
     #[test]
     fn test_add_input() {
@@ -168,5 +242,97 @@ mod tests {
 
         // The shape of the input node should be the one it was created with.
         assert_eq!(input_node.shape(), shape);
+    }
+
+    #[rstest]
+    #[case(AstOp::Add, |a, b| a + b)]
+    #[case(AstOp::Sub, |a, b| a - b)]
+    #[case(AstOp::Mul, |a, b| a * b)]
+    #[case(AstOp::Div, |a, b| a / b)]
+    #[case(AstOp::Rem, |a, b| a % b)]
+    fn test_graph_node_binary_ops(
+        #[case] op: AstOp,
+        #[case] op_fn: fn(GraphNode, GraphNode) -> GraphNode,
+    ) {
+        let mut graph = Graph::new();
+        let shape = vec![ShapeExpr::from(10)];
+        let dtype = DType::F32;
+
+        let a = graph.add_input(shape.clone(), &dtype);
+        let b = graph.add_input(shape.clone(), &dtype);
+
+        let result_node = op_fn(a.clone(), b.clone());
+
+        // Check the operation type
+        assert_eq!(result_node.op, GraphOp::Elementwise(op));
+
+        // Check the source nodes
+        assert_eq!(result_node.src.len(), 2);
+        assert_eq!(result_node.src[0], a);
+        assert_eq!(result_node.src[1], b);
+
+        // Check the dtype
+        assert_eq!(result_node.dtype, dtype);
+
+        // Check the shape
+        assert_eq!(result_node.shape(), shape);
+    }
+
+    #[rstest]
+    #[case(AstOp::Add, |mut a, b| { a += b; a })]
+    #[case(AstOp::Sub, |mut a, b| { a -= b; a })]
+    #[case(AstOp::Mul, |mut a, b| { a *= b; a })]
+    #[case(AstOp::Div, |mut a, b| { a /= b; a })]
+    #[case(AstOp::Rem, |mut a, b| { a %= b; a })]
+    fn test_graph_node_binary_assign_ops(
+        #[case] op: AstOp,
+        #[case] op_fn: fn(GraphNode, GraphNode) -> GraphNode,
+    ) {
+        let mut graph = Graph::new();
+        let shape = vec![ShapeExpr::from(10)];
+        let dtype = DType::F32;
+
+        let a_orig = graph.add_input(shape.clone(), &dtype);
+        let b = graph.add_input(shape.clone(), &dtype);
+
+        let a = a_orig.clone();
+        let result_node = op_fn(a, b.clone());
+
+        // Check the operation type
+        assert_eq!(result_node.op, GraphOp::Elementwise(op));
+
+        // Check the source nodes
+        assert_eq!(result_node.src.len(), 2);
+        assert_eq!(result_node.src[0], a_orig);
+        assert_eq!(result_node.src[1], b);
+
+        // Check the dtype
+        assert_eq!(result_node.dtype, dtype);
+
+        // Check the shape
+        assert_eq!(result_node.shape(), shape);
+    }
+
+    #[test]
+    fn test_graph_node_neg_op() {
+        let mut graph = Graph::new();
+        let shape = vec![ShapeExpr::from(10)];
+        let dtype = DType::F32;
+
+        let a = graph.add_input(shape.clone(), &dtype);
+        let result_node = -a.clone();
+
+        // Check the operation type
+        assert_eq!(result_node.op, GraphOp::Elementwise(AstOp::Neg));
+
+        // Check the source nodes
+        assert_eq!(result_node.src.len(), 1);
+        assert_eq!(result_node.src[0], a);
+
+        // Check the dtype
+        assert_eq!(result_node.dtype, dtype);
+
+        // Check the shape
+        assert_eq!(result_node.shape(), shape);
     }
 }
