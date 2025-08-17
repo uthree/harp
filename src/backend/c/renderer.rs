@@ -23,6 +23,11 @@ impl CRenderer {
                     self.writeln("");
                 }
             }
+            AstOp::Block => {
+                for node in &ast.src {
+                    self.render_node(node);
+                }
+            }
             AstOp::Func { name, args } => {
                 let args_str: Vec<String> = args
                     .iter()

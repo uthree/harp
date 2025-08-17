@@ -20,7 +20,7 @@ impl Lowerer {
             // We need to calculate the physical index and load from it.
             if let GraphOp::Input { .. } = &node.op {
                 let physical_index = node.view.to_physical_index_ast(indices);
-                return AstNode::load(AstNode::index(cached.clone(), physical_index));
+                return AstNode::index(cached.clone(), physical_index);
             }
         }
 
@@ -152,7 +152,7 @@ pub fn lower_graph(graph: &Graph) -> AstNode {
             loop_node.src.push(store_op);
 
             AstNode::_new(
-                AstOp::Program,
+                AstOp::Block,
                 vec![acc_declare, acc_init, loop_node],
                 DType::Any,
             )
@@ -387,7 +387,7 @@ mod tests {
         // Check for accumulator declaration
         assert!(code.contains("float acc_0;"));
         // Check for accumulator initialization
-        assert!(code.contains("acc_0=0.0000000;"));
+        assert!(code.contains("acc_0 = 0.0000000;"));
         // Check for the loop and accumulation
         let expected_loop_body = r###"acc_0=(acc_0+buf1[idx0]);buf0[idx0]=acc_0;"###;
         assert!(

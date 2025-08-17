@@ -122,6 +122,7 @@ pub enum AstOp {
     },
     Call(String), // 関数を呼び出す。 srcがそれぞれの引数となる。
     Program,      // プログラム本体
+    Block,        // 複数の文をまとめる
 
     // Memory access, メモリアクセス
     Store,  // src[0]のアドレスにsrc[1]の値を書き込む
