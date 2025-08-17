@@ -1,7 +1,6 @@
 use crate::ast::pattern::{AstRewriteRule, AstRewriter};
 use crate::ast::{AstNode, AstOp, Const};
 use crate::astpat;
-use crate::opt::ast::AstOptimizer;
 use std::rc::Rc;
 
 fn is_const(node: &AstNode) -> bool {
@@ -100,10 +99,13 @@ pub fn algebraic_simplification() -> AstRewriter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{AstNode, DType};
+    use crate::{
+        ast::{AstNode, DType},
+        opt::ast::{AstOptimizer, RulebasedAstOptimizer},
+    };
 
     fn assert_optimization(original: AstNode, expected: AstNode) {
-        let optimizer = AlgebraicOptimizer::new();
+        let mut optimizer = RulebasedAstOptimizer::new(algebraic_simplification());
         let optimized = optimizer.optimize(&original);
         assert_eq!(optimized, expected);
     }
@@ -177,25 +179,6 @@ mod tests {
         assert_optimization(
             (AstNode::from(2isize) + AstNode::from(3isize)) * AstNode::var("x", DType::Isize),
             AstNode::from(5isize) * AstNode::var("x", DType::Isize),
-        );
-    }
-
-    #[test]
-    fn test_algebraic_laws() {
-        let a = AstNode::var("a", DType::Isize);
-        let b = AstNode::var("b", DType::Isize);
-        let c = AstNode::var("c", DType::Isize);
-
-        // Associative
-        assert_optimization(
-            (a.clone() + b.clone()) + c.clone(),
-            a.clone() + (b.clone() + c.clone()),
-        );
-
-        // Distributive
-        assert_optimization(
-            a.clone() * (b.clone() + c.clone()),
-            (a.clone() * b) + (a * c),
         );
     }
 }

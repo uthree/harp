@@ -125,15 +125,15 @@ impl AstRewriter {
     }
 
     #[must_use]
-    pub fn apply(&self, node: &AstNode) -> AstNode {
-        trace!("Applying rewriter '{}' to node: {:?}", self.name, node.op);
+    pub fn apply(&self, ast: &AstNode) -> AstNode {
+        trace!("Applying rewriter '{}' to node: {:?}", self.name, ast.op);
 
         // First, rewrite the children (post-order traversal)
-        let new_args: Vec<AstNode> = node.src.iter().map(|arg| self.apply(arg)).collect();
-        let rewritten_node = if new_args == node.src {
-            node.clone()
+        let new_args: Vec<AstNode> = ast.src.iter().map(|arg| self.apply(arg)).collect();
+        let rewritten_node = if new_args == ast.src {
+            ast.clone()
         } else {
-            let new_node = AstNode::_new(node.op.clone(), new_args, node.dtype.clone());
+            let new_node = AstNode::_new(ast.op.clone(), new_args, ast.dtype.clone());
             trace!("Node rewritten based on children: {:?}", new_node.op);
             new_node
         };

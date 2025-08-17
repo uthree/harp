@@ -1,4 +1,4 @@
-use crate::ast::{AstNode, AstOp, pattern::AstRewriter};
+use crate::ast::{AstNode, pattern::AstRewriter};
 
 pub mod heuristic;
 pub mod rule;
@@ -33,7 +33,7 @@ pub struct RulebasedAstOptimizer {
 
 impl RulebasedAstOptimizer {
     pub fn new(rewriter: AstRewriter) -> Self {
-        RulebasedAstOptimizer { rewriter: rewriter }
+        RulebasedAstOptimizer { rewriter }
     }
 }
 

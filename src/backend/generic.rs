@@ -4,13 +4,12 @@ use crate::{
     graph::{Graph, GraphSignature},
     opt::ast::{
         heuristic::{
-            beam_search::BeamSearchAstOptimizer,
-            handcode::{
-                HandcodedCostEstimator, associative_rules, commutative_rules, distributive_rules,
-            },
+            beam_search::BeamSearchAstOptimizer, handcode::HandcodedCostEstimator,
             rule_based_suggester::RuleBasedRewriteSuggester,
         },
-        rule::algebraic_simplification,
+        rule::{
+            algebraic_simplification, associative_rules, commutative_rules, distributive_rules,
+        },
     },
 };
 use std::collections::HashMap;
@@ -61,10 +60,10 @@ where
             cache: HashMap::new(),
             ast_optimizer: BeamSearchAstOptimizer::new(
                 RuleBasedRewriteSuggester::new(
-                    algebraic_simplification()
-                        + commutative_rules()
-                        + distributive_rules()
-                        + associative_rules(),
+                    algebraic_simplification() // 不要なノードの除去と定数項の事前計算
+                        + commutative_rules() // 交換法則
+                        + distributive_rules() // 分配法則
+                        + associative_rules(), // 結合法則
                 ),
                 HandcodedCostEstimator,
             ),

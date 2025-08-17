@@ -1,9 +1,7 @@
-use crate::ast::pattern::{AstRewriteRule, AstRewriter};
+use crate::ast::pattern::AstRewriter;
 use crate::ast::{AstNode, AstOp};
-use crate::astpat;
 use crate::opt::ast::heuristic::{CostEstimator, RewriteSuggester};
 use crate::opt::ast::rule::algebraic_simplification;
-use std::rc::Rc;
 
 #[derive(Clone, Copy)]
 pub struct HandcodedCostEstimator;
@@ -76,6 +74,7 @@ impl RewriteSuggester for AlgebraicSuggester {
 mod tests {
     use super::*;
     use crate::ast::DType;
+    use crate::opt::ast::rule::{associative_rules, commutative_rules, distributive_rules};
 
     fn get_vars() -> (AstNode, AstNode, AstNode) {
         let a = AstNode::var("a", DType::Isize);
