@@ -24,6 +24,8 @@ impl CompilationStrategy for MacOsStrategy {
             "-shared".to_string(),
             "-fPIC".to_string(),
             "-O3".to_string(),
+            "-Xpreprocessor".to_string(),
+            "-fopenmp".to_string(),
         ];
         let omp_path_str = if cfg!(target_arch = "aarch64") {
             "/opt/homebrew/opt/libomp"
@@ -54,6 +56,7 @@ impl CompilationStrategy for LinuxStrategy {
             "-shared".to_string(),
             "-fPIC".to_string(),
             "-O3".to_string(),
+            "-fopenmp".to_string(),
         ]
     }
 }
