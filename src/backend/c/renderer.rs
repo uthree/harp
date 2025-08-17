@@ -81,16 +81,11 @@ impl CRenderer {
                 write!(self.buffer, "for (size_t {} = 0; {} < ", counter, counter).unwrap();
                 self.render_node(&ast.src[0]);
                 if *step == 1 {
-                    writeln!(self.buffer, "; {}++) {{ ", counter).unwrap();
+                    writeln!(self.buffer, "; {}++) ", counter).unwrap();
                 } else {
-                    writeln!(self.buffer, "; {} += {}) {{ ", counter, step).unwrap();
+                    writeln!(self.buffer, "; {} += {}) ", counter, step).unwrap();
                 }
-                self.indent_level += 1;
-                for node in ast.src.iter().skip(1) {
-                    self.render_node(node);
-                }
-                self.indent_level -= 1;
-                self.writeln("}");
+                self.render_node(&ast.src[1]);
             }
             AstOp::Call(name) => {
                 self.write_indent();

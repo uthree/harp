@@ -10,6 +10,7 @@ pub enum DType {
     F32,   // float
     Usize, // size_t
     Isize, // ssize_t
+    Void,
 
     Ptr(Box<Self>),        // pointer
     Vec(Box<Self>, usize), // fixed-size array (for SIMD vectorization)
@@ -111,10 +112,10 @@ pub enum AstOp {
     Gt,
 
     Range {
-        // ループ処理(for文)を表す。 srcの格命令を上から順番に繰り返し実行する。
+        // ループ処理(for文)を表す。
         counter: String, // ループカウンタ変数の名前
         step: isize,     // 一回のループでカウンタに加算される数値
-    },
+    }, // src[0]=ループ回数, src[1] = ループする命令
     Func {
         // 関数の宣言, srcの格命令を上から順番に実行する。
         name: String,
