@@ -177,10 +177,11 @@ impl AstRewriter {
         // Part 1: Find rewrites at the current node level.
         for rule in &self.rules {
             if let Some(captures) = node.matches(&rule.pattern)
-                && (rule.condition)(&captures) {
-                    let rewritten_node = (rule.rewriter)(&captures);
-                    possible_rewrites.push(rewritten_node);
-                }
+                && (rule.condition)(&captures)
+            {
+                let rewritten_node = (rule.rewriter)(&captures);
+                possible_rewrites.push(rewritten_node);
+            }
         }
 
         // Part 2: Find rewrites in children and reconstruct the parent for each.

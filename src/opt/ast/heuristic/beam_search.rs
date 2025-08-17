@@ -35,10 +35,9 @@ impl<S: RewriteSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
     }
 
     pub fn optimize(&self, initial_node: &AstNode) -> AstNode {
-        let mut beam = vec![(
-            initial_node.clone(),
-            self.cost_estimator.estimate_cost(initial_node),
-        )];
+        let initial_cost = self.cost_estimator.estimate_cost(initial_node);
+        let mut beam = vec![(initial_node.clone(), initial_cost)];
+        let mut best_node = (initial_node.clone(), initial_cost);
         let mut visited = HashSet::new();
         visited.insert(initial_node.clone());
 
@@ -70,6 +69,12 @@ impl<S: RewriteSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
             }
 
             candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+
+            if let Some(best_candidate) = candidates.first()
+                && best_candidate.1 < best_node.1 {
+                    best_node = best_candidate.clone();
+                }
+
             beam = candidates.into_iter().take(self.beam_width).collect();
             pb.inc(1);
             pb.tick();
@@ -83,10 +88,7 @@ impl<S: RewriteSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
             HumanDuration(start.elapsed())
         ));
 
-        beam.into_iter()
-            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
-            .unwrap()
-            .0
+        best_node.0
     }
 }
 
