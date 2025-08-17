@@ -52,6 +52,22 @@ impl Const {
             Const::Isize(_) => DType::Isize,
         }
     }
+
+    pub fn as_isize(&self) -> Option<isize> {
+        match self {
+            Const::Isize(v) => Some(*v),
+            Const::Usize(v) => (*v).try_into().ok(),
+            _ => None,
+        }
+    }
+
+    pub fn as_usize(&self) -> Option<usize> {
+        match self {
+            Const::Usize(v) => Some(*v),
+            Const::Isize(v) => (*v).try_into().ok(),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -457,6 +473,27 @@ mod tests {
         #[should_panic]
         fn test_dtype_one_panic() {
             DType::Ptr(Box::new(DType::F32)).one();
+        }
+    }
+
+    #[cfg(test)]
+    mod const_tests {
+        use super::*;
+
+        #[test]
+        fn test_as_isize() {
+            assert_eq!(Const::Isize(42).as_isize(), Some(42));
+            assert_eq!(Const::Isize(-42).as_isize(), Some(-42));
+            assert_eq!(Const::Usize(42).as_isize(), Some(42));
+            assert_eq!(Const::F32(42.0f32.to_bits()).as_isize(), None);
+        }
+
+        #[test]
+        fn test_as_usize() {
+            assert_eq!(Const::Usize(42).as_usize(), Some(42));
+            assert_eq!(Const::Isize(42).as_usize(), Some(42));
+            assert_eq!(Const::Isize(-42).as_usize(), None);
+            assert_eq!(Const::F32(42.0f32.to_bits()).as_usize(), None);
         }
     }
 }
