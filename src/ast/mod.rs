@@ -18,21 +18,29 @@ pub enum DType {
 }
 
 impl DType {
+    /// # Panics
+    ///
+    /// Will panic if `self` is not a numeric type.
+    #[must_use]
     pub fn zero(&self) -> AstNode {
         match self {
             DType::F32 => AstNode::from(0.0f32),
             DType::Usize => AstNode::from(0usize),
             DType::Isize => AstNode::from(0isize),
-            _ => panic!("Cannot create a zero for non-numeric type {:?}", self),
+            _ => panic!("Cannot create a zero for non-numeric type {self:?}"),
         }
     }
 
+    /// # Panics
+    ///
+    /// Will panic if `self` is not a numeric type.
+    #[must_use]
     pub fn one(&self) -> AstNode {
         match self {
             DType::F32 => AstNode::from(1.0f32),
             DType::Usize => AstNode::from(1usize),
             DType::Isize => AstNode::from(1isize),
-            _ => panic!("Cannot create a one for non-numeric type {:?}", self),
+            _ => panic!("Cannot create a one for non-numeric type {self:?}"),
         }
     }
 }
@@ -45,6 +53,7 @@ pub enum Const {
 }
 
 impl Const {
+    #[must_use]
     pub fn dtype(&self) -> DType {
         match self {
             Const::F32(_) => DType::F32,
@@ -53,19 +62,21 @@ impl Const {
         }
     }
 
+    #[must_use]
     pub fn as_isize(&self) -> Option<isize> {
         match self {
             Const::Isize(v) => Some(*v),
             Const::Usize(v) => (*v).try_into().ok(),
-            _ => None,
+            Const::F32(_) => None,
         }
     }
 
+    #[must_use]
     pub fn as_usize(&self) -> Option<usize> {
         match self {
             Const::Usize(v) => Some(*v),
             Const::Isize(v) => (*v).try_into().ok(),
-            _ => None,
+            Const::F32(_) => None,
         }
     }
 }
@@ -139,14 +150,20 @@ pub struct AstNode {
 }
 
 impl AstNode {
+    #[must_use]
     pub(crate) fn _new(op: AstOp, src: Vec<AstNode>, dtype: DType) -> Self {
         Self { op, src, dtype }
     }
 
+    #[must_use]
     pub fn store(ptr: AstNode, value: AstNode) -> Self {
         AstNode::_new(AstOp::Store, vec![ptr, value], DType::Any) // Store operation does not have a return value
     }
 
+    /// # Panics
+    ///
+    /// Will panic if `ptr` is not a pointer type.
+    #[must_use]
     pub fn load(ptr: AstNode) -> Self {
         let dtype = if let DType::Ptr(ref inner) = ptr.dtype {
             *inner.clone()
@@ -156,10 +173,15 @@ impl AstNode {
         AstNode::_new(AstOp::Load, vec![ptr], dtype)
     }
 
+    #[must_use]
     pub fn assign(var: AstNode, value: AstNode) -> Self {
         AstNode::_new(AstOp::Assign, vec![var, value], DType::Any) // Assign does not have a return value
     }
 
+    /// # Panics
+    ///
+    /// Will panic if `ptr` is not a pointer type.
+    #[must_use]
     pub fn index(ptr: AstNode, index: AstNode) -> Self {
         let dtype = if let DType::Ptr(ref inner) = ptr.dtype {
             *inner.clone()
@@ -169,6 +191,7 @@ impl AstNode {
         AstNode::_new(AstOp::Index, vec![ptr, index], dtype)
     }
 
+    #[must_use]
     pub fn declare(name: &str, dtype: DType, value: Option<AstNode>) -> Self {
         let src = value.map_or(vec![], |v| vec![v]);
         AstNode::_new(
@@ -181,10 +204,12 @@ impl AstNode {
         )
     }
 
+    #[must_use]
     pub fn capture(pos: usize) -> Self {
         AstNode::_new(AstOp::Capture(pos), vec![], DType::Any)
     }
 
+    #[must_use]
     pub fn var(name: &str, dtype: DType) -> Self {
         AstNode::_new(AstOp::Var(name.to_string()), vec![], dtype)
     }
@@ -193,6 +218,7 @@ impl AstNode {
     ///
     /// If the node matches the pattern, it returns a vector of captured nodes.
     /// Otherwise, it returns `None`.
+    #[must_use]
     pub fn matches(&self, pattern: &AstNode) -> Option<Vec<AstNode>> {
         let mut captures = Vec::new();
         if !self.matches_inner(pattern, &mut captures) {
@@ -235,26 +261,31 @@ impl AstNode {
         true
     }
 
+    #[must_use]
     pub fn and(self, rhs: impl Into<AstNode>) -> Self {
         let dtype = self.dtype.clone();
         AstNode::_new(AstOp::And, vec![self, rhs.into()], dtype)
     }
 
+    #[must_use]
     pub fn or(self, rhs: impl Into<AstNode>) -> Self {
         let dtype = self.dtype.clone();
         AstNode::_new(AstOp::Or, vec![self, rhs.into()], dtype)
     }
 
+    #[must_use]
     pub fn lt(self, rhs: impl Into<AstNode>) -> Self {
         let dtype = self.dtype.clone();
         AstNode::_new(AstOp::Lt, vec![self, rhs.into()], dtype)
     }
 
+    #[must_use]
     pub fn eq(self, rhs: impl Into<AstNode>) -> Self {
         let dtype = self.dtype.clone();
         AstNode::_new(AstOp::Eq, vec![self, rhs.into()], dtype)
     }
 
+    #[must_use]
     pub fn gt(self, rhs: impl Into<AstNode>) -> Self {
         let dtype = self.dtype.clone();
         AstNode::_new(AstOp::Gt, vec![self, rhs.into()], dtype)
@@ -291,7 +322,7 @@ impl From<ShapeExpr> for AstNode {
                 AstNode::_new(AstOp::Rem, vec![(*l).into(), (*r).into()], dtype)
             }
             ShapeExpr::Bool(b) => {
-                AstNode::_new(AstOp::Const(Const::Isize(b as isize)), vec![], dtype)
+                AstNode::_new(AstOp::Const(Const::Isize(isize::from(b))), vec![], dtype)
             }
             ShapeExpr::And(l, r) => {
                 AstNode::_new(AstOp::And, vec![(*l).into(), (*r).into()], dtype)

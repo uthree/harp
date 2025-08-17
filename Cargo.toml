@@ -24,3 +24,6 @@ name = "harp"
 path = "src/lib.rs"
 
 [workspace]
+
+[lints.clippy]
+pedantic = "allow"

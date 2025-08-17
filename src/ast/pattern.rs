@@ -14,6 +14,7 @@ pub struct RewriteRule {
 }
 
 impl RewriteRule {
+    #[must_use]
     pub fn new(
         pattern: AstNode,
         rewriter: impl Fn(&[AstNode]) -> AstNode + 'static,
@@ -104,6 +105,7 @@ pub struct AstRewriter {
 
 impl AstRewriter {
     #[allow(dead_code)]
+    #[must_use]
     pub fn new(name: &str) -> Self {
         Self {
             name: name.to_string(),
@@ -111,6 +113,7 @@ impl AstRewriter {
         }
     }
 
+    #[must_use]
     pub fn with_rules(name: &str, rules: Vec<Rc<RewriteRule>>) -> Self {
         Self {
             name: name.to_string(),
@@ -123,17 +126,18 @@ impl AstRewriter {
         self.rules.push(rule);
     }
 
+    #[must_use]
     pub fn apply(&self, node: &AstNode) -> AstNode {
         trace!("Applying rewriter '{}' to node: {:?}", self.name, node.op);
 
         // First, rewrite the children (post-order traversal)
         let new_args: Vec<AstNode> = node.src.iter().map(|arg| self.apply(arg)).collect();
-        let rewritten_node = if new_args != node.src {
+        let rewritten_node = if new_args == node.src {
+            node.clone()
+        } else {
             let new_node = AstNode::_new(node.op.clone(), new_args, node.dtype.clone());
             trace!("Node rewritten based on children: {:?}", new_node.op);
             new_node
-        } else {
-            node.clone()
         };
 
         // Then, try to rewrite the current node
@@ -146,12 +150,11 @@ impl AstRewriter {
                         i, self.name, rewritten_node.op, new_node.op
                     );
                     return new_node;
-                } else {
-                    trace!(
-                        "Rule #{} in '{}' matched but condition was not met for node {:?}",
-                        i, self.name, rewritten_node.op
-                    );
                 }
+                trace!(
+                    "Rule #{} in '{}' matched but condition was not met for node {:?}",
+                    i, self.name, rewritten_node.op
+                );
             }
         }
 
@@ -167,17 +170,17 @@ impl AstRewriter {
     /// This function traverses the AST and, for each node (including children),
     /// finds all rules that can be applied independently. Each successful application
     /// results in a new AST representing that single change.
+    #[must_use]
     pub fn get_possible_rewrites(&self, node: &AstNode) -> Vec<AstNode> {
         let mut possible_rewrites = Vec::new();
 
         // Part 1: Find rewrites at the current node level.
         for rule in &self.rules {
             if let Some(captures) = node.matches(&rule.pattern)
-                && (rule.condition)(&captures)
-            {
-                let rewritten_node = (rule.rewriter)(&captures);
-                possible_rewrites.push(rewritten_node);
-            }
+                && (rule.condition)(&captures) {
+                    let rewritten_node = (rule.rewriter)(&captures);
+                    possible_rewrites.push(rewritten_node);
+                }
         }
 
         // Part 2: Find rewrites in children and reconstruct the parent for each.

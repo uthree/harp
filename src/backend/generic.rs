@@ -2,7 +2,16 @@ use crate::{
     ast::AstNode,
     backend::{Backend, Buffer, Compiler, Kernel, Renderer},
     graph::{Graph, GraphSignature},
-    opt::ast::rule::AlgebraicOptimizer,
+    opt::ast::{
+        heuristic::{
+            beam_search::BeamSearchAstOptimizer,
+            handcode::{
+                HandcodedCostEstimator, associative_rules, commutative_rules, distributive_rules,
+            },
+            rule_based::RuleBasedRewriteSuggester,
+        },
+        rule::algebraic_simplification,
+    },
 };
 use std::collections::HashMap;
 pub struct GenericBackend<C, R, B>
@@ -14,7 +23,7 @@ where
     compiler: C,
     renderer: R,
     cache: HashMap<Graph, C::KernelType>,
-    ast_optimizer: AlgebraicOptimizer,
+    ast_optimizer: BeamSearchAstOptimizer<RuleBasedRewriteSuggester, HandcodedCostEstimator>,
 }
 
 impl<C, R, B> GenericBackend<C, R, B>
@@ -50,7 +59,15 @@ where
             compiler: C::new(),
             renderer: R::new(),
             cache: HashMap::new(),
-            ast_optimizer: AlgebraicOptimizer::new(),
+            ast_optimizer: BeamSearchAstOptimizer::new(
+                RuleBasedRewriteSuggester::new(
+                    algebraic_simplification()
+                        + commutative_rules()
+                        + distributive_rules()
+                        + associative_rules(),
+                ),
+                HandcodedCostEstimator,
+            ),
         }
     }
 
