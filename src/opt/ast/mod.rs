@@ -1,4 +1,4 @@
-use crate::ast::AstNode;
+use crate::ast::{AstNode, AstOp, pattern::AstRewriter};
 
 pub mod heuristic;
 pub mod rule;
@@ -24,5 +24,21 @@ impl AstOptimizer for CombinedAstOptimizer {
 impl CombinedAstOptimizer {
     pub fn new(optimizers: Vec<Box<dyn AstOptimizer>>) -> Self {
         CombinedAstOptimizer { optimizers }
+    }
+}
+
+pub struct RulebasedAstOptimizer {
+    rewriter: AstRewriter,
+}
+
+impl RulebasedAstOptimizer {
+    pub fn new(rewriter: AstRewriter) -> Self {
+        RulebasedAstOptimizer { rewriter: rewriter }
+    }
+}
+
+impl AstOptimizer for RulebasedAstOptimizer {
+    fn optimize(&mut self, ast: &AstNode) -> AstNode {
+        self.rewriter.apply(ast)
     }
 }
