@@ -18,6 +18,7 @@ impl CRenderer {
                 self.buffer.push_str("#include <math.h>\n");
                 self.buffer.push_str("#include <stddef.h>\n");
                 self.buffer.push_str("#include <stdint.h>\n");
+                self.buffer.push_str("\n");
                 for node in &ast.src {
                     self.render_node(node);
                     self.writeln("");
