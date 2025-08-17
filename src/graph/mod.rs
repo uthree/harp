@@ -1,4 +1,5 @@
 pub mod shape;
+pub mod pattern;
 
 use crate::ast::{AstOp, Const, DType};
 use crate::graph::shape::expr::Expr as ShapeExpr;
@@ -48,6 +49,7 @@ pub enum GraphOp {
     Reduce(AstOp, usize),
     Permute(Vec<usize>),
     Cumulative(AstOp, usize),
+    Capture(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -118,6 +120,62 @@ impl GraphNode {
             dtype,
             view,
         }))
+    }
+
+    pub fn capture(pos: usize) -> Self {
+        GraphNode(Rc::new(GraphNodeData {
+            op: GraphOp::Capture(pos),
+            src: vec![],
+            dtype: DType::Any,
+            view: View::new_contiguous(Vec::<ShapeExpr>::new()),
+        }))
+    }
+
+    /// Matches the node against a pattern.
+    ///
+    /// If the node matches the pattern, it returns a vector of captured nodes.
+    /// Otherwise, it returns `None`.
+    #[must_use]
+    pub fn matches(&self, pattern: &GraphNode) -> Option<Vec<GraphNode>> {
+        let mut captures = Vec::new();
+        if !self.matches_inner(pattern, &mut captures) {
+            return None;
+        }
+
+        // The `astpat!` macro generates capture indices starting from 0.
+        // We can rely on this to correctly size the results vector.
+        // Find the maximum capture index to determine the size of the vector.
+        let num_captures = captures.iter().map(|(i, _)| i).max().map_or(0, |m| m + 1);
+        let mut result = vec![GraphNode::capture(0); num_captures];
+        for (i, node) in captures {
+            if i < num_captures {
+                result[i] = node;
+            }
+        }
+        Some(result)
+    }
+
+    fn matches_inner(&self, pattern: &GraphNode, captures: &mut Vec<(usize, GraphNode)>) -> bool {
+        if let GraphOp::Capture(pos) = &pattern.op {
+            captures.push((*pos, self.clone()));
+            return true;
+        }
+
+        if pattern.dtype != DType::Any && self.dtype != pattern.dtype {
+            return false;
+        }
+
+        if self.op != pattern.op || self.src.len() != pattern.src.len() {
+            return false;
+        }
+
+        for (arg, pattern_arg) in self.src.iter().zip(&pattern.src) {
+            if !arg.matches_inner(pattern_arg, captures) {
+                return false;
+            }
+        }
+
+        true
     }
 }
 

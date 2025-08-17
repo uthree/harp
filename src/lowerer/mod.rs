@@ -58,6 +58,7 @@ impl Lowerer {
                 // the result in a temporary buffer. For now, we pass through.
                 self.lower_expr(&node.src[0], indices)
             }
+            GraphOp::Capture(_) => panic!("Capture node should not be lowered"),
         }
     }
 }
