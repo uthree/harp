@@ -35,14 +35,10 @@ impl<S: RewriteSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
     }
 
     pub fn optimize(&self, initial_node: &AstNode) -> AstNode {
-        let initial_cost = self.cost_estimator.estimate_cost(initial_node);
-        let mut beam = vec![(initial_node.clone(), initial_cost)];
-        let mut best_node = (initial_node.clone(), initial_cost);
-        let mut visited = HashSet::new();
-        visited.insert(initial_node.clone());
-
-        // Create a progress bar to visualize the optimization process.
+        // start time
         let start = Instant::now();
+
+        // Progress bar setup
         let pb = ProgressBar::new(self.max_steps as u64);
         pb.set_style(
             ProgressStyle::with_template("{prefix:>12.cyan.bold} [{bar:24}] {pos}/{len} {msg}")
@@ -51,8 +47,16 @@ impl<S: RewriteSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
         );
         pb.set_prefix("Optimizing");
 
-        for _ in 0..self.max_steps {
-            let mut candidates = Vec::new();
+        // Initialize beam with the initial node
+        let mut beam = vec![(
+            initial_node.clone(),
+            self.cost_estimator.estimate_cost(initial_node),
+        )];
+        let mut visited = HashSet::new();
+        visited.insert(initial_node.clone());
+
+        for i in 0..self.max_steps {
+            let mut candidates = vec![];
             for (node, _) in &beam {
                 let suggestions = self.suggester.suggest(node);
                 for suggestion in suggestions {
@@ -64,20 +68,19 @@ impl<S: RewriteSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
                 }
             }
 
-            if candidates.is_empty() {
-                break;
-            }
+            // Add current beam to candidates to ensure we don't lose good solutions
+            candidates.extend(beam.clone());
 
+            // Sort candidates by cost and remove duplicates
             candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+            candidates.dedup_by(|a, b| a.0 == b.0);
 
-            if let Some(best_candidate) = candidates.first()
-                && best_candidate.1 < best_node.1 {
-                    best_node = best_candidate.clone();
-                }
-
+            // Select the top `beam_width` candidates for the next beam
             beam = candidates.into_iter().take(self.beam_width).collect();
+
+            pb.set_message(format!("step: {}, candidates: {}", i + 1, beam.len()));
             pb.inc(1);
-            pb.tick();
+            pb.tick()
         }
 
         pb.finish_and_clear();
@@ -87,65 +90,97 @@ impl<S: RewriteSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
             green_bold.apply_to("Finished"),
             HumanDuration(start.elapsed())
         ));
+        pb.tick();
 
-        best_node.0
+        // Return the best node found
+        beam.into_iter()
+            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+            .map(|(node, _)| node)
+            .unwrap_or_else(|| initial_node.clone())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{AstOp, DType};
-    use crate::{ast_rewriter, astpat};
+    use crate::ast::{AstNode, AstOp};
+    use crate::opt::ast::heuristic::{CostEstimator, RewriteSuggester};
     use std::collections::HashMap;
 
-    struct MockCostEstimator {
-        costs: HashMap<AstNode, f32>,
-    }
-
-    impl CostEstimator for MockCostEstimator {
-        fn estimate_cost(&self, ast: &AstNode) -> f32 {
-            self.costs.get(ast).copied().unwrap_or(999.0)
-        }
-    }
-
+    // A mock suggester that provides predefined rewrites.
     struct MockRewriteSuggester {
-        rewriter: crate::ast::pattern::AstRewriter,
+        rules: HashMap<AstNode, Vec<AstNode>>,
     }
 
     impl RewriteSuggester for MockRewriteSuggester {
         fn suggest(&self, node: &AstNode) -> Vec<AstNode> {
-            self.rewriter.get_possible_rewrites(node)
+            self.rules.get(node).cloned().unwrap_or_default()
+        }
+    }
+
+    // A mock cost estimator that uses the integer value of the node as its cost.
+    struct MockCostEstimator;
+
+    impl CostEstimator for MockCostEstimator {
+        fn estimate_cost(&self, ast: &AstNode) -> f32 {
+            if let AstOp::Const(c) = &ast.op {
+                if let Some(val) = c.as_isize() {
+                    return val as f32;
+                }
+            }
+            f32::MAX
         }
     }
 
     #[test]
     fn test_beam_search_optimizer() {
-        let a = AstNode::var("a", DType::Isize);
-        let zero = AstNode::from(0isize);
+        // Define the rewrite rules for the suggester.
+        let mut rules = HashMap::new();
+        rules.insert(
+            AstNode::from(10isize),
+            vec![AstNode::from(8isize), AstNode::from(9isize)],
+        );
+        rules.insert(
+            AstNode::from(8isize),
+            vec![AstNode::from(5isize), AstNode::from(6isize)],
+        );
+        rules.insert(
+            AstNode::from(9isize),
+            vec![AstNode::from(7isize), AstNode::from(1isize)],
+        );
+        rules.insert(AstNode::from(5isize), vec![AstNode::from(2isize)]);
 
-        // Expressions
-        let expr_initial = a.clone() + zero.clone(); // a + 0
-        let expr_optimized = a.clone(); // a
+        let suggester = MockRewriteSuggester { rules };
+        let cost_estimator = MockCostEstimator;
 
-        // Cost Estimator: 'a' is cheaper than 'a + 0'
-        let mut costs = HashMap::new();
-        costs.insert(expr_initial.clone(), 10.0);
-        costs.insert(expr_optimized.clone(), 1.0);
-        let cost_estimator = MockCostEstimator { costs };
-
-        // Suggester: knows how to rewrite 'a + 0' to 'a'
-        let rule = astpat!(|x, y| x + y, if y.op == AstOp::Const(crate::ast::Const::Isize(0)) => x);
-        let rewriter = ast_rewriter!("AddZero", rule);
-        let suggester = MockRewriteSuggester { rewriter };
-
-        // Optimizer
+        // Create the optimizer.
         let optimizer = BeamSearchAstOptimizer::new(suggester, cost_estimator)
-            .with_beam_width(1)
-            .with_max_steps(10);
+            .with_beam_width(2)
+            .with_max_steps(3);
 
-        let optimized_node = optimizer.optimize(&expr_initial);
+        // The initial node to optimize.
+        let initial_node = AstNode::from(10isize);
 
-        assert_eq!(optimized_node, expr_optimized);
+        // Run the optimization.
+        let optimized_node = optimizer.optimize(&initial_node);
+
+        // The expected result should be the node with the lowest cost (1).
+        let expected_node = AstNode::from(1isize);
+
+        assert_eq!(optimized_node, expected_node);
+    }
+
+    #[test]
+    fn test_optimizer_returns_initial_if_no_better_found() {
+        let suggester = MockRewriteSuggester {
+            rules: HashMap::new(),
+        };
+        let cost_estimator = MockCostEstimator;
+        let optimizer = BeamSearchAstOptimizer::new(suggester, cost_estimator)
+            .with_beam_width(2)
+            .with_max_steps(3);
+        let initial_node = AstNode::from(10isize);
+        let optimized_node = optimizer.optimize(&initial_node);
+        assert_eq!(optimized_node, initial_node);
     }
 }
