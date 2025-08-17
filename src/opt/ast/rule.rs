@@ -1,8 +1,8 @@
 use crate::ast::pattern::{AstRewriter, RewriteRule};
 use crate::ast::{AstNode, AstOp, Const};
-use crate::opt::ast::heuristic::handcode::{associative_rules, distributive_rules};
-use crate::opt::ast::AstOptimizer;
 use crate::astpat;
+use crate::opt::ast::AstOptimizer;
+use crate::opt::ast::heuristic::handcode::{associative_rules, distributive_rules};
 use std::rc::Rc;
 
 fn is_const(node: &AstNode) -> bool {

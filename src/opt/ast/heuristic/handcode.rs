@@ -1,8 +1,8 @@
 use crate::ast::pattern::{AstRewriter, RewriteRule};
 use crate::ast::{AstNode, AstOp};
+use crate::astpat;
 use crate::opt::ast::heuristic::{CostEstimator, RewriteSuggester};
 use crate::opt::ast::rule::algebraic_simplification;
-use crate::astpat;
 use std::rc::Rc;
 
 #[derive(Clone, Copy)]

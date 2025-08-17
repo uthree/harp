@@ -64,7 +64,7 @@ impl RewriteSuggester for CombinedRewriteSuggester {
 mod tests {
     use super::*;
     use crate::{
-        ast::{pattern::RewriteRule, AstNode},
+        ast::{AstNode, pattern::RewriteRule},
         ast_rewriter, astpat,
     };
 

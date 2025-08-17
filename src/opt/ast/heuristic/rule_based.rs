@@ -1,5 +1,5 @@
-use crate::ast::pattern::AstRewriter;
 use crate::ast::AstNode;
+use crate::ast::pattern::AstRewriter;
 use crate::opt::ast::heuristic::RewriteSuggester;
 
 /// A simple rewrite suggester that holds a predefined AstRewriter.

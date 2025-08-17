@@ -1,6 +1,10 @@
 use crate::ast::AstNode;
 use crate::opt::ast::heuristic::{CostEstimator, RewriteSuggester};
+use console::Style;
+use indicatif::HumanDuration;
+use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::HashSet;
+use std::time::Instant;
 
 /// An optimizer that uses beam search to find a low-cost AST.
 pub struct BeamSearchAstOptimizer<S: RewriteSuggester, C: CostEstimator> {
@@ -15,8 +19,8 @@ impl<S: RewriteSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
         Self {
             suggester,
             cost_estimator,
-            beam_width: 4,    // Set default beam width to 4
-            max_steps: 10000, // Default max steps for the search
+            beam_width: 4,  // Set default beam width to 4
+            max_steps: 100, // Default max steps for the search
         }
     }
 
@@ -31,9 +35,22 @@ impl<S: RewriteSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
     }
 
     pub fn optimize(&self, initial_node: &AstNode) -> AstNode {
-        let mut beam = vec![(initial_node.clone(), self.cost_estimator.estimate_cost(initial_node))];
+        let mut beam = vec![(
+            initial_node.clone(),
+            self.cost_estimator.estimate_cost(initial_node),
+        )];
         let mut visited = HashSet::new();
         visited.insert(initial_node.clone());
+
+        // Create a progress bar to visualize the optimization process.
+        let start = Instant::now();
+        let pb = ProgressBar::new(self.max_steps as u64);
+        pb.set_style(
+            ProgressStyle::with_template("{prefix:>12.cyan.bold} [{bar:24}] {pos}/{len} {msg}")
+                .unwrap()
+                .progress_chars("=> "),
+        );
+        pb.set_prefix("Optimizing");
 
         for _ in 0..self.max_steps {
             let mut candidates = Vec::new();
@@ -54,9 +71,22 @@ impl<S: RewriteSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
 
             candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
             beam = candidates.into_iter().take(self.beam_width).collect();
+            pb.inc(1);
+            pb.tick();
         }
 
-        beam.into_iter().min_by(|a, b| a.1.partial_cmp(&b.1).unwrap()).unwrap().0
+        pb.finish_and_clear();
+        let green_bold = Style::new().green().bold();
+        pb.println(format!(
+            "{:>12} optimize AST with beam search algorithm in {}",
+            green_bold.apply_to("Finished"),
+            HumanDuration(start.elapsed())
+        ));
+
+        beam.into_iter()
+            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+            .unwrap()
+            .0
     }
 }
 
