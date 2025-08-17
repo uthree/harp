@@ -1,5 +1,5 @@
-pub mod shape;
 pub mod pattern;
+pub mod shape;
 
 use crate::ast::{AstOp, Const, DType};
 use crate::graph::shape::expr::Expr as ShapeExpr;

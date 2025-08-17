@@ -1,19 +1,13 @@
-use crate::graph::pattern::{GraphRewriteRule, GraphRewriter, Suggester};
-use crate::graph::{Graph, GraphNode};
+use crate::graph::Graph;
+use crate::graph::pattern::GraphRewriter;
+use crate::{graph_rewriter, graphpat};
 
-pub fn rules() -> Vec<Box<dyn Suggester>> {
-    vec![Box::new(GraphRewriteRule::new(
-        "double_negation",
-        -(-GraphNode::capture(0)),
-        GraphNode::capture(0),
-    ))]
+pub fn algebraic_simplification() -> GraphRewriter {
+    graph_rewriter!("algebraic_simplification", graphpat!(|a| -(-a) => a))
 }
 
 pub fn optimize(graph: Graph) -> Graph {
-    let mut rewriter = GraphRewriter::new();
-    for rule in rules() {
-        rewriter.add_suggester(rule);
-    }
+    let rewriter = algebraic_simplification();
     rewriter.rewrite(graph)
 }
 

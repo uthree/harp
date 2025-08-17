@@ -1,119 +1,63 @@
 use crate::graph::{Graph, GraphNode};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+use std::rc::Rc;
 
-pub trait Suggester {
-    fn suggest(&self, node: &GraphNode) -> Vec<GraphNode>;
-}
+type RewriterFn = Box<dyn Fn(&[GraphNode]) -> GraphNode>;
+type ConditionFn = Box<dyn Fn(&[GraphNode]) -> bool>;
 
 pub struct GraphRewriteRule {
-    pub name: String,
-    lhs: GraphNode,
-    rhs: GraphNode,
+    pattern: GraphNode,
+    rewriter: RewriterFn,
+    condition: ConditionFn,
 }
 
 impl GraphRewriteRule {
-    pub fn new(name: &str, lhs: GraphNode, rhs: GraphNode) -> Self {
-        Self {
-            name: name.to_string(),
-            lhs,
-            rhs,
-        }
-    }
-
-    pub fn apply(&self, node: &GraphNode) -> Option<GraphNode> {
-        if let Some(captures) = node.matches(&self.lhs) {
-            Some(self.build_rhs(&captures))
-        } else {
-            None
-        }
-    }
-
-    fn build_rhs(&self, captures: &[GraphNode]) -> GraphNode {
-        self.substitute(&self.rhs, captures)
-    }
-
-    fn substitute(&self, pattern: &GraphNode, captures: &[GraphNode]) -> GraphNode {
-        if let crate::graph::GraphOp::Capture(pos) = &pattern.op {
-            return captures[*pos].clone();
-        }
-
-        let new_srcs = pattern
-            .src
-            .iter()
-            .map(|src| self.substitute(src, captures))
-            .collect();
-
-        let mut new_node = pattern.clone();
-        let new_data = GraphNode(std::rc::Rc::new(crate::graph::GraphNodeData {
-            op: pattern.op.clone(),
-            src: new_srcs,
-            dtype: pattern.dtype.clone(),
-            view: pattern.view.clone(),
-        }));
-        new_node.0 = new_data.0;
-        new_node
-    }
-}
-
-impl Suggester for GraphRewriteRule {
-    fn suggest(&self, node: &GraphNode) -> Vec<GraphNode> {
-        self.apply(node).into_iter().collect()
+    pub fn new(
+        pattern: GraphNode,
+        rewriter: impl Fn(&[GraphNode]) -> GraphNode + 'static,
+        condition: impl Fn(&[GraphNode]) -> bool + 'static,
+    ) -> Rc<Self> {
+        Rc::new(Self {
+            pattern,
+            rewriter: Box::new(rewriter),
+            condition: Box::new(condition),
+        })
     }
 }
 
 pub struct GraphRewriter {
-    suggesters: Vec<Box<dyn Suggester>>,
+    pub name: String,
+    rules: Vec<Rc<GraphRewriteRule>>,
 }
 
 impl GraphRewriter {
-    pub fn new() -> Self {
+    pub fn with_rules(name: &str, rules: Vec<Rc<GraphRewriteRule>>) -> Self {
         Self {
-            suggesters: Vec::new(),
+            name: name.to_string(),
+            rules,
         }
-    }
-
-    pub fn with_suggester(mut self, suggester: Box<dyn Suggester>) -> Self {
-        self.add_suggester(suggester);
-        self
-    }
-
-    pub fn add_suggester(&mut self, suggester: Box<dyn Suggester>) {
-        self.suggesters.push(suggester);
     }
 
     pub fn rewrite(&self, graph: Graph) -> Graph {
         let mut new_graph = graph.clone();
         let mut memo = HashMap::new();
-        let mut visited = HashSet::new();
 
-        for output in &mut new_graph.outputs {
-            *output = self.rewrite_node(output, &mut memo, &mut visited);
-        }
+        new_graph.outputs = new_graph
+            .outputs
+            .iter()
+            .map(|node| self.apply(node, &mut memo))
+            .collect();
 
         new_graph
     }
 
-    fn rewrite_node(
-        &self,
-        node: &GraphNode,
-        memo: &mut HashMap<GraphNode, GraphNode>,
-        visited: &mut HashSet<GraphNode>,
-    ) -> GraphNode {
+    fn apply(&self, node: &GraphNode, memo: &mut HashMap<GraphNode, GraphNode>) -> GraphNode {
         if let Some(rewritten) = memo.get(node) {
             return rewritten.clone();
         }
 
-        if !visited.insert(node.clone()) {
-            // Cycle detected, or already processing this node.
-            // This can happen in complex graphs. Return original node.
-            return node.clone();
-        }
-
-        let new_srcs: Vec<GraphNode> = node
-            .src
-            .iter()
-            .map(|src| self.rewrite_node(src, memo, visited))
-            .collect();
+        // Post-order traversal: rewrite children first
+        let new_srcs: Vec<GraphNode> = node.src.iter().map(|src| self.apply(src, memo)).collect();
 
         let mut current_node = if new_srcs.iter().zip(&node.src).any(|(n, o)| n != o) {
             let new_data = crate::graph::GraphNodeData {
@@ -127,56 +71,139 @@ impl GraphRewriter {
             node.clone()
         };
 
-        // Recursively apply rewrites until no more rules match
+        // Then, try to rewrite the current node
         loop {
-            let suggestions = self
-                .suggesters
-                .iter()
-                .flat_map(|s| s.suggest(&current_node))
-                .collect::<Vec<_>>();
-
-            if suggestions.is_empty() {
+            let mut applied_rule = false;
+            for rule in &self.rules {
+                if let Some(captures) = current_node.matches(&rule.pattern)
+                    && (rule.condition)(&captures) {
+                        current_node = (rule.rewriter)(&captures);
+                        applied_rule = true;
+                        break; // Restart with the new node
+                    }
+            }
+            if !applied_rule {
                 break;
             }
-
-            // For simplicity, we take the first suggestion.
-            // More sophisticated strategies could be used here.
-            current_node = suggestions.into_iter().next().unwrap();
         }
 
         memo.insert(node.clone(), current_node.clone());
-        visited.remove(node);
-
         current_node
     }
 }
 
 #[macro_export]
 macro_rules! graphpat {
-    // Base case for variables and captures
-    ($v:ident) => {
-        $crate::graph::GraphNode::capture(stringify!($v).parse::<usize>().unwrap())
+    (| $($capture: pat_param),* | $pattern: expr, if $condition: expr => $rewriter: expr) => {
+        {
+            let mut counter = 0..;
+            $(
+                let $capture = $crate::graph::GraphNode::capture(counter.next().unwrap());
+            )*
+            let pattern = $pattern;
+            let rewriter = move |captured_nodes: &[$crate::graph::GraphNode]| {
+                let mut counter = 0..;
+                $(
+                    let $capture = captured_nodes[counter.next().unwrap()].clone();
+                )*
+                $rewriter
+            };
+            let condition = move |captured_nodes: &[$crate::graph::GraphNode]| {
+                let mut counter = 0..;
+                $(
+                    let $capture = captured_nodes[counter.next().unwrap()].clone();
+                )*
+                $condition
+            };
+            $crate::graph::pattern::GraphRewriteRule::new(pattern, rewriter, condition)
+        }
     };
-    // Binary operators
-    ($lhs:tt $op:tt $rhs:tt) => {{
-        let op = match stringify!($op) {
-            "+" => $crate::ast::AstOp::Add,
-            "-" => $crate::ast::AstOp::Sub,
-            "*" => $crate::ast::AstOp::Mul,
-            "/" => $crate::ast::AstOp::Div,
-            "%" => $crate::ast::AstOp::Rem,
-            _ => panic!("Unsupported binary operator in graphpat"),
-        };
-        let lhs_node = graphpat!($lhs);
-        let rhs_node = graphpat!($rhs);
-        // In a real scenario, we'd need to propagate dtype and view properly.
-        // For pattern matching, we can often use DType::Any and an empty view.
-        let dummy_view = $crate::graph::shape::view::View::new_contiguous(vec![]);
-        GraphNode(std::rc::Rc::new($crate::graph::GraphNodeData {
-            op: $crate::graph::GraphOp::Elementwise(op),
-            src: vec![lhs_node, rhs_node],
-            dtype: $crate::ast::DType::Any,
-            view: dummy_view,
-        }))
-    }};
+    (| $($capture: pat_param),* | $pattern: expr => $rewriter: expr ) => {
+        {
+            let mut counter = 0..;
+            $(
+                let $capture = $crate::graph::GraphNode::capture(counter.next().unwrap());
+            )*
+            let pattern = $pattern;
+            let rewriter = move |captured_nodes: &[$crate::graph::GraphNode]| {
+                let mut counter = 0..;
+                $(
+                    let $capture = captured_nodes[counter.next().unwrap()].clone();
+                )*
+                $rewriter
+            };
+            $crate::graph::pattern::GraphRewriteRule::new(pattern, rewriter, |_| true)
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! graph_rewriter {
+    ($name:expr, $($rule:expr),*) => {
+        $crate::graph::pattern::GraphRewriter::with_rules($name, vec![$($rule),*])
+    };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::DType;
+    use crate::graph::shape::expr::Expr as ShapeExpr;
+    use crate::{graph_rewriter, graphpat};
+
+    #[test]
+    fn test_graphpat_macro_simple() {
+        // Rule: --a => a
+        let rule = graphpat!(|a| -(-a) => a);
+
+        let mut graph = Graph::new();
+        let a_node = graph.add_input(vec![ShapeExpr::from(1)], &DType::F32);
+        let pattern_match = -(-a_node.clone());
+
+        let captures = pattern_match.matches(&rule.pattern).unwrap();
+        assert_eq!(captures.len(), 1);
+        assert_eq!(captures[0], a_node);
+
+        let rewritten = (rule.rewriter)(&captures);
+        assert_eq!(rewritten, a_node);
+    }
+
+    #[test]
+    fn test_graphpat_macro_with_condition() {
+        // Rule: a + b => b + a if a == some_node
+        let mut graph = Graph::new();
+        let a_node = graph.add_input(vec![ShapeExpr::from(1)], &DType::F32);
+        let b_node = graph.add_input(vec![ShapeExpr::from(1)], &DType::F32);
+        let c_node = graph.add_input(vec![ShapeExpr::from(1)], &DType::F32);
+
+        let a_node_clone = a_node.clone();
+        let rule = graphpat!(|a, _b| a + _b, if a == a_node_clone => _b + a);
+
+        // Condition should be true
+        let pattern_match_true = a_node.clone() + b_node.clone();
+        let captures_true = pattern_match_true.matches(&rule.pattern).unwrap();
+        assert!((rule.condition)(&captures_true));
+        let rewritten_true = (rule.rewriter)(&captures_true);
+        assert_eq!(
+            rewritten_true.op,
+            crate::graph::GraphOp::Elementwise(crate::ast::AstOp::Add)
+        );
+        assert_eq!(rewritten_true.src[0], b_node);
+        assert_eq!(rewritten_true.src[1], a_node);
+
+        // Condition should be false
+        let pattern_match_false = c_node.clone() + b_node.clone();
+        let captures_false = pattern_match_false.matches(&rule.pattern).unwrap();
+        assert!(!(rule.condition)(&captures_false));
+    }
+
+    #[test]
+    fn test_graph_rewriter_macro() {
+        let rule1 = graphpat!(|a| -(-a) => a);
+        let rule2 = graphpat!(|a, b| a + b => b + a);
+        let rewriter = graph_rewriter!("TestRewriter", rule1, rule2);
+
+        assert_eq!(rewriter.name, "TestRewriter");
+        assert_eq!(rewriter.rules.len(), 2);
+    }
 }
