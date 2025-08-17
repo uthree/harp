@@ -167,3 +167,5 @@ mod tests {
         assert_eq!(result_data, vec![3.0f32]);
     }
 }
+
+pub use crate::backend::c::CBackend;

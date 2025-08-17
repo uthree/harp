@@ -1,5 +1,5 @@
 use crate::ast::AstNode;
-use crate::graph::shape::expr::Expr;
+use crate::graph::shape::Expr;
 use std::collections::HashSet;
 
 // ShapeTrackerの責務は、テンソルの各次元の添字からメモリオフセットへの変換を数式(ExprやAstNode)として表現することです。

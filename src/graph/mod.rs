@@ -2,8 +2,8 @@ pub mod pattern;
 pub mod shape;
 
 use crate::ast::{AstOp, Const, DType};
-use crate::graph::shape::expr::Expr as ShapeExpr;
-use crate::graph::shape::view::View;
+use crate::graph::shape::Expr as ShapeExpr;
+use crate::graph::shape::View;
 use std::hash::{Hash, Hasher};
 use std::ops::{
     Add, AddAssign, Deref, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,

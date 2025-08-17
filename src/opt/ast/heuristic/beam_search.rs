@@ -70,11 +70,10 @@ impl<S: RewriteSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
                 let suggestions = self.suggester.suggest(node);
                 for suggestion in suggestions {
                     if !visited_set.contains(&suggestion) {
-                        if visited_queue.len() >= self.max_visited_size {
-                            if let Some(oldest) = visited_queue.pop_front() {
+                        if visited_queue.len() >= self.max_visited_size
+                            && let Some(oldest) = visited_queue.pop_front() {
                                 visited_set.remove(&oldest);
                             }
-                        }
                         let cost = self.cost_estimator.estimate_cost(&suggestion);
                         candidates.push((suggestion.clone(), cost));
                         visited_set.insert(suggestion.clone());
