@@ -47,6 +47,7 @@ pub enum GraphOp {
     Elementwise(AstOp),
     Reduce(AstOp, usize),
     Permute(Vec<usize>),
+    Cumulative(AstOp, usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -105,6 +106,17 @@ impl GraphNode {
             src: vec![self],
             dtype,
             view: new_view,
+        }))
+    }
+
+    pub fn cumulative(self, op: AstOp, axis: usize) -> Self {
+        let dtype = self.dtype.clone();
+        let view = self.view.clone();
+        GraphNode(Rc::new(GraphNodeData {
+            op: GraphOp::Cumulative(op, axis),
+            src: vec![self],
+            dtype,
+            view,
         }))
     }
 }
@@ -352,6 +364,31 @@ mod tests {
 
         // Check the operation type
         assert_eq!(result_node.op, GraphOp::Elementwise(AstOp::Neg));
+
+        // Check the source nodes
+        assert_eq!(result_node.src.len(), 1);
+        assert_eq!(result_node.src[0], a);
+
+        // Check the dtype
+        assert_eq!(result_node.dtype, dtype);
+
+        // Check the shape
+        assert_eq!(result_node.shape(), shape);
+    }
+
+    #[test]
+    fn test_cumulative_op() {
+        let mut graph = Graph::new();
+        let shape = vec![ShapeExpr::from(10)];
+        let dtype = DType::F32;
+
+        let a = graph.add_input(shape.clone(), &dtype);
+        let op = AstOp::Add;
+        let axis = 0;
+        let result_node = a.clone().cumulative(op.clone(), axis);
+
+        // Check the operation type
+        assert_eq!(result_node.op, GraphOp::Cumulative(op, axis));
 
         // Check the source nodes
         assert_eq!(result_node.src.len(), 1);

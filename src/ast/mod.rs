@@ -183,9 +183,8 @@ impl AstNode {
     /// Will panic if `ptr` is not a pointer type.
     #[must_use]
     pub fn index(ptr: AstNode, index: AstNode) -> Self {
-        let dtype = if let DType::Ptr(ref inner) = ptr.dtype {
-            *inner.clone()
-        } else {
+        let dtype = ptr.dtype.clone();
+        if !matches!(dtype, DType::Ptr(_)) {
             panic!("Cannot index a non-pointer type");
         };
         AstNode::_new(AstOp::Index, vec![ptr, index], dtype)

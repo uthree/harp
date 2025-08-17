@@ -20,7 +20,7 @@ impl Lowerer {
             // We need to calculate the physical index and load from it.
             if let GraphOp::Input { .. } = &node.op {
                 let physical_index = node.view.to_physical_index_ast(indices);
-                return AstNode::index(cached.clone(), physical_index);
+                return AstNode::load(AstNode::index(cached.clone(), physical_index));
             }
         }
 
@@ -47,6 +47,12 @@ impl Lowerer {
                 // For now, we'll leave it unimplemented to focus on the view-aware lowering.
                 todo!("Lowering for Reduce op is not implemented yet in the new Lowerer");
             }
+            GraphOp::Cumulative(_op, _axis) => {
+                // This should be handled in `lower_graph` when it's an output node.
+                // If it's an intermediate node, it would require materializing the result
+                // into a temporary buffer, which is not supported yet.
+                panic!("Lowering for Cumulative op as an intermediate operation is not supported.");
+            }
             GraphOp::Contiguous => {
                 // In the new model, Contiguous might mean we need to compute and store
                 // the result in a temporary buffer. For now, we pass through.
@@ -64,7 +70,7 @@ pub fn lower_graph(graph: &Graph) -> AstNode {
     let num_inputs = graph.inputs.len();
     let num_outputs = graph.outputs.len();
     let buffer_names: Vec<String> = (0..num_inputs + num_outputs)
-        .map(|i| format!("buf{}", i))
+        .map(|i| format!("buf{i}"))
         .collect();
 
     // Outputs first
@@ -88,35 +94,101 @@ pub fn lower_graph(graph: &Graph) -> AstNode {
     for (i, output_node) in graph.outputs.iter().enumerate() {
         let output_ptr = AstNode::var(&buffer_names[i], kernel_impl_args[i].1.clone());
 
-        let mut loops = vec![];
-        let mut indices = vec![];
-        for (dim, size) in output_node.shape().iter().enumerate() {
-            let loop_var_name = format!("idx{}", dim);
+        let body = if let GraphOp::Cumulative(op, axis) = &output_node.op {
+            // Lowering for 1D cumulative sum
+            let src_node = &output_node.src[0];
+            let shape = output_node.shape();
+            assert_eq!(
+                shape.len(),
+                1,
+                "Lowerer for cumulative op currently only supports 1D tensors"
+            );
+            assert_eq!(
+                *axis, 0,
+                "Lowerer for cumulative op currently only supports axis=0"
+            );
+
+            let loop_var_name = "idx0".to_string();
             let loop_var = AstNode::var(&loop_var_name, DType::Usize);
-            indices.push(loop_var);
-            loops.push(AstNode::_new(
+            let mut loop_node = AstNode::_new(
                 AstOp::Range {
                     counter: loop_var_name,
                     step: 1,
                 },
-                vec![size.to_ast()],
+                vec![shape[0].to_ast()],
                 DType::Any,
-            ));
-        }
+            );
 
-        let final_expr = lowerer.lower_expr(output_node, &indices);
+            let acc_name = format!("acc_{i}"); // Unique accumulator name per output
+            let acc_var = AstNode::var(&acc_name, output_node.dtype.clone());
+            let acc_declare = AstNode::declare(&acc_name, output_node.dtype.clone(), None);
 
-        let physical_index =
-            View::new_contiguous(output_node.shape().to_vec()).to_physical_index_ast(&indices);
-        let store_op = AstNode::store(AstNode::index(output_ptr, physical_index), final_expr);
+            let identity = match op {
+                AstOp::Add => output_node.dtype.zero(),
+                AstOp::Mul => output_node.dtype.one(),
+                _ => panic!("Unsupported cumulative op: {:?}", op),
+            };
+            let acc_init = AstNode::assign(acc_var.clone(), identity);
 
-        // Nest loops
-        let mut nested_loops = store_op;
-        for mut loop_node in loops.into_iter().rev() {
-            loop_node.src.push(nested_loops);
-            nested_loops = loop_node;
-        }
-        kernel_impl_body.push(nested_loops);
+            let indices = vec![loop_var];
+            let src_expr = lowerer.lower_expr(src_node, &indices);
+            let acc_update = AstNode::assign(
+                acc_var.clone(),
+                AstNode::_new(
+                    op.clone(),
+                    vec![acc_var.clone(), src_expr],
+                    output_node.dtype.clone(),
+                ),
+            );
+
+            let physical_index =
+                View::new_contiguous(output_node.shape().to_vec()).to_physical_index_ast(&indices);
+            let store_op = AstNode::store(
+                AstNode::index(output_ptr.clone(), physical_index),
+                acc_var.clone(),
+            );
+
+            loop_node.src.push(acc_update);
+            loop_node.src.push(store_op);
+
+            AstNode::_new(
+                AstOp::Program,
+                vec![acc_declare, acc_init, loop_node],
+                DType::Any,
+            )
+        } else {
+            // Original logic for other ops
+            let mut loops = vec![];
+            let mut indices = vec![];
+            for (dim, size) in output_node.shape().iter().enumerate() {
+                let loop_var_name = format!("idx{dim}");
+                let loop_var = AstNode::var(&loop_var_name, DType::Usize);
+                indices.push(loop_var);
+                loops.push(AstNode::_new(
+                    AstOp::Range {
+                        counter: loop_var_name,
+                        step: 1,
+                    },
+                    vec![size.to_ast()],
+                    DType::Any,
+                ));
+            }
+
+            let final_expr = lowerer.lower_expr(output_node, &indices);
+
+            let physical_index =
+                View::new_contiguous(output_node.shape().to_vec()).to_physical_index_ast(&indices);
+            let store_op = AstNode::store(AstNode::index(output_ptr, physical_index), final_expr);
+
+            // Nest loops
+            let mut nested_loops = store_op;
+            for mut loop_node in loops.into_iter().rev() {
+                loop_node.src.push(nested_loops);
+                nested_loops = loop_node;
+            }
+            nested_loops
+        };
+        kernel_impl_body.push(body);
     }
 
     let kernel_impl = AstNode::_new(
@@ -230,7 +302,7 @@ mod tests {
         let mut renderer = CRenderer::new();
         let code = renderer.render(ast);
 
-        let expected_code = r#"buf0[((idx0*20)+idx1)]=3.1400001;"#;
+        let expected_code = r###"buf0[((idx0*20)+idx1)]=3.1400001;"###;
         assert!(
             code.replace([' ', '\t', '\n'], "")
                 .contains(&expected_code.replace([' ', '\t', '\n'], "")),
@@ -257,7 +329,7 @@ mod tests {
         let mut renderer = CRenderer::new();
         let code = renderer.render(ast);
 
-        let expected_code = r#"buf0[idx0] = (buf1[idx0] + 1.0000000);"#;
+        let expected_code = r###"buf0[idx0]=(buf1[idx0]+1.0000000);"###;
         assert!(
             code.replace([' ', '\t', '\n'], "")
                 .contains(&expected_code.replace([' ', '\t', '\n'], "")),
@@ -283,11 +355,44 @@ mod tests {
         let mut renderer = CRenderer::new();
         let code = renderer.render(ast);
 
-        let expected_store_and_load = r#"buf0[((idx0*10)+idx1)]=buf1[((idx1*20)+idx0)];"#;
+        let expected_store_and_load = r###"buf0[((idx0*10)+idx1)]=buf1[((idx1*20)+idx0)];"###;
 
         assert!(
             code.replace([' ', '\t', '\n'], "")
                 .contains(&expected_store_and_load.replace([' ', '\t', '\n'], "")),
+            "Generated code:\n{}",
+            code
+        );
+    }
+
+    #[test]
+    fn test_lower_cumulative_sum() {
+        let mut graph = Graph::new();
+        let shape = vec![ShapeExpr::from(10)];
+        let dtype = DType::F32;
+
+        let a = graph.add_input(shape.clone(), &dtype);
+        let b = a.cumulative(AstOp::Add, 0);
+
+        graph.outputs.push(b);
+        graph.signature.outputs.push(TensorSignature {
+            dtype: dtype.clone(),
+            shape,
+        });
+
+        let ast = lower_graph(&graph);
+        let mut renderer = CRenderer::new();
+        let code = renderer.render(ast);
+
+        // Check for accumulator declaration
+        assert!(code.contains("float acc_0;"));
+        // Check for accumulator initialization
+        assert!(code.contains("acc_0=0.0000000;"));
+        // Check for the loop and accumulation
+        let expected_loop_body = r###"acc_0=(acc_0+buf1[idx0]);buf0[idx0]=acc_0;"###;
+        assert!(
+            code.replace([' ', '\t', '\n'], "")
+                .contains(&expected_loop_body.replace([' ', '\t', '\n'], "")),
             "Generated code:\n{}",
             code
         );
