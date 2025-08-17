@@ -24,15 +24,6 @@ where
     C: Compiler<B, CodeRepr = R::CodeRepr>,
     B: Buffer,
 {
-    pub fn new() -> Self {
-        Self {
-            compiler: C::new(),
-            renderer: R::new(),
-            cache: HashMap::new(),
-            _phantom: PhantomData,
-        }
-    }
-
     pub fn with_options(&mut self, options: (R::Option, C::Option)) -> &mut Self {
         let (renderer_option, compiler_option) = options;
         self.compiler.with_option(compiler_option);
@@ -55,7 +46,12 @@ where
     type Option = (R::Option, C::Option);
 
     fn new() -> Self {
-        Self::new()
+        Self {
+            compiler: C::new(),
+            renderer: R::new(),
+            cache: HashMap::new(),
+            _phantom: PhantomData,
+        }
     }
 
     fn with_option(&mut self, option: Self::Option) {
@@ -111,7 +107,7 @@ where
 mod tests {
     use crate::{
         ast::DType,
-        backend::{Buffer, Kernel, c::CBackend},
+        backend::{Backend, Buffer, Kernel, c::CBackend},
         graph::{Graph, TensorSignature, shape::expr::Expr as ShapeExpr},
     };
 

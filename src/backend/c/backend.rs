@@ -10,7 +10,7 @@ mod tests {
     use super::*;
     use crate::{
         ast::DType,
-        backend::{Buffer, Kernel},
+        backend::{Backend, Buffer, Kernel},
         graph::{Graph, TensorSignature, shape::expr::Expr as ShapeExpr},
     };
 

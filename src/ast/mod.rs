@@ -107,6 +107,10 @@ pub enum AstOp {
         dtype: DType,
     },
 
+    // 並列処理関係
+    Barrier, // スレッドグループバリア (計算が終わるまで待つ)
+    // TODO: #pragma omp parallel forに相当するものを追加、reduction変数を扱えるようにする。
+
     // for pattern matching, パターンマッチのための特殊なオペレータ。これがレンダリングされるということは何かがおかしい。
     Capture(usize),
 }
