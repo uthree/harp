@@ -138,15 +138,15 @@ pub fn lower_graph(graph: &Graph) -> AstNode {
     let mut call_args = vec![];
 
     if let AstOp::Func { args, .. } = &kernel_impl.op {
-        for i in 0..num_inputs + num_outputs {
+        for (i, arg) in args.iter().enumerate() {
             let ptr_to_buf_i = AstNode::index(
                 AstNode::var("bufs", bufs_arg.1.clone()),
                 AstNode::from(i as isize),
             );
             let cast_buf_i = AstNode::_new(
-                AstOp::Cast(args[i].1.clone()),
+                AstOp::Cast(arg.1.clone()),
                 vec![ptr_to_buf_i],
-                args[i].1.clone(),
+                arg.1.clone(),
             );
             call_args.push(cast_buf_i);
         }

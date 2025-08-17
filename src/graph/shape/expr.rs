@@ -1,6 +1,6 @@
 use crate::ast::{AstNode, DType};
 use std::ops::{
-    Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
+    Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Not, Rem, RemAssign, Sub, SubAssign,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -93,10 +93,6 @@ impl Expr {
         Self::Or(Box::new(self), Box::new(rhs.into()))
     }
 
-    pub fn not(self) -> Self {
-        Self::Not(Box::new(self))
-    }
-
     pub fn simplify(self) -> Self {
         let before = self.clone();
         let simplified = match self {
@@ -180,7 +176,7 @@ impl Expr {
             Expr::Not(e) => match e.simplify() {
                 Expr::Bool(b) => Expr::Bool(!b),
                 Expr::Not(inner) => *inner,
-                e => e.not(),
+                e => !e,
             },
             Expr::Lt(lhs, rhs) => {
                 let lhs = lhs.simplify();
@@ -263,6 +259,14 @@ impl Expr {
     }
 }
 
+impl Not for Expr {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        Self::Not(Box::new(self))
+    }
+}
+
 macro_rules! impl_from_integer_for_expr {
     ($($t:ty),*) => {
         $(
@@ -342,7 +346,7 @@ mod tests {
     #[case(Expr::var("x").gt(10), "(x > 10)")]
     #[case(Expr::var("x").and(Expr::var("y")), "(x && y)")]
     #[case(Expr::var("x").or(Expr::var("y")), "(x || y)")]
-    #[case(Expr::var("x").not(), "!x")]
+    #[case(!Expr::var("x"), "!x")]
     #[case(Expr::TRUE, "true")]
     fn test_display(#[case] expr: Expr, #[case] expected: &str) {
         assert_eq!(expr.to_string(), expected);
@@ -384,9 +388,9 @@ mod tests {
     #[case(Expr::var("x").or(Expr::TRUE), Expr::TRUE)]
     #[case(Expr::FALSE.or(Expr::var("x")), Expr::var("x"))]
     #[case(Expr::var("x").or(Expr::FALSE), Expr::var("x"))]
-    #[case(Expr::TRUE.not(), Expr::FALSE)]
-    #[case(Expr::FALSE.not(), Expr::TRUE)]
-    #[case(Expr::var("x").not().not(), Expr::var("x"))]
+    #[case(!Expr::TRUE, Expr::FALSE)]
+    #[case(!Expr::FALSE, Expr::TRUE)]
+    #[case(!(!Expr::var("x")), Expr::var("x"))]
     #[case(Expr::Const(1).lt(2), Expr::TRUE)]
     #[case(Expr::Const(2).lt(1), Expr::FALSE)]
     #[case(Expr::Const(1).eq(1), Expr::TRUE)]
@@ -442,8 +446,8 @@ mod tests {
     #[case(Expr::var("x").gt(0).and(Expr::var("y").lt(10)), hashmap!{"x".to_string() => -1, "y".to_string() => 5}, 0)]
     #[case(Expr::var("x").gt(0).or(Expr::var("y").lt(10)), hashmap!{"x".to_string() => -1, "y".to_string() => 5}, 1)]
     #[case(Expr::var("x").gt(0).or(Expr::var("y").lt(10)), hashmap!{"x".to_string() => -1, "y".to_string() => 15}, 0)]
-    #[case(Expr::var("x").gt(0).not(), hashmap!{"x".to_string() => 5}, 0)]
-    #[case(Expr::var("x").gt(0).not(), hashmap!{"x".to_string() => -5}, 1)]
+    #[case((!Expr::var("x").gt(0)), hashmap!{"x".to_string() => 5}, 0)]
+    #[case((!Expr::var("x").gt(0)), hashmap!{"x".to_string() => -5}, 1)]
     fn test_evaluate(
         #[case] expr: Expr,
         #[case] context: HashMap<String, isize>,

@@ -1,4 +1,3 @@
-
 use crate::opt::ast::heuristic::{CostEstimator, RewriteSuggester};
 
 /// An optimizer that uses beam search to find a low-cost AST.

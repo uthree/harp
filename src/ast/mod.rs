@@ -2,7 +2,7 @@ pub mod pattern;
 
 use crate::graph::shape::expr::Expr as ShapeExpr;
 use std::ops::{
-    Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
+    Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Not, Rem, RemAssign, Sub, SubAssign,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -234,6 +234,39 @@ impl AstNode {
 
         true
     }
+
+    pub fn and(self, rhs: impl Into<AstNode>) -> Self {
+        let dtype = self.dtype.clone();
+        AstNode::_new(AstOp::And, vec![self, rhs.into()], dtype)
+    }
+
+    pub fn or(self, rhs: impl Into<AstNode>) -> Self {
+        let dtype = self.dtype.clone();
+        AstNode::_new(AstOp::Or, vec![self, rhs.into()], dtype)
+    }
+
+    pub fn lt(self, rhs: impl Into<AstNode>) -> Self {
+        let dtype = self.dtype.clone();
+        AstNode::_new(AstOp::Lt, vec![self, rhs.into()], dtype)
+    }
+
+    pub fn eq(self, rhs: impl Into<AstNode>) -> Self {
+        let dtype = self.dtype.clone();
+        AstNode::_new(AstOp::Eq, vec![self, rhs.into()], dtype)
+    }
+
+    pub fn gt(self, rhs: impl Into<AstNode>) -> Self {
+        let dtype = self.dtype.clone();
+        AstNode::_new(AstOp::Gt, vec![self, rhs.into()], dtype)
+    }
+}
+
+impl Not for AstNode {
+    type Output = Self;
+    fn not(self) -> Self::Output {
+        let dtype = self.dtype.clone();
+        AstNode::_new(AstOp::Not, vec![self], dtype)
+    }
 }
 
 impl From<ShapeExpr> for AstNode {
@@ -338,38 +371,6 @@ impl Neg for AstNode {
     fn neg(self) -> Self::Output {
         let dtype = self.dtype.clone();
         AstNode::_new(AstOp::Neg, vec![self], dtype)
-    }
-}
-
-impl AstNode {
-    pub fn and(self, rhs: impl Into<AstNode>) -> Self {
-        let dtype = self.dtype.clone();
-        AstNode::_new(AstOp::And, vec![self, rhs.into()], dtype)
-    }
-
-    pub fn or(self, rhs: impl Into<AstNode>) -> Self {
-        let dtype = self.dtype.clone();
-        AstNode::_new(AstOp::Or, vec![self, rhs.into()], dtype)
-    }
-
-    pub fn not(self) -> Self {
-        let dtype = self.dtype.clone();
-        AstNode::_new(AstOp::Not, vec![self], dtype)
-    }
-
-    pub fn lt(self, rhs: impl Into<AstNode>) -> Self {
-        let dtype = self.dtype.clone();
-        AstNode::_new(AstOp::Lt, vec![self, rhs.into()], dtype)
-    }
-
-    pub fn eq(self, rhs: impl Into<AstNode>) -> Self {
-        let dtype = self.dtype.clone();
-        AstNode::_new(AstOp::Eq, vec![self, rhs.into()], dtype)
-    }
-
-    pub fn gt(self, rhs: impl Into<AstNode>) -> Self {
-        let dtype = self.dtype.clone();
-        AstNode::_new(AstOp::Gt, vec![self, rhs.into()], dtype)
     }
 }
 

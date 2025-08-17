@@ -3,11 +3,14 @@ use log::{debug, trace};
 use std::ops::Add;
 use std::rc::Rc;
 
+type RewriterFn = Box<dyn Fn(&[AstNode]) -> AstNode>;
+type ConditionFn = Box<dyn Fn(&[AstNode]) -> bool>;
+
 pub struct RewriteRule {
     pub pattern: AstNode,
-    pub rewriter: Box<dyn Fn(&[AstNode]) -> AstNode>,
+    pub rewriter: RewriterFn,
     /// A closure that takes captured nodes and returns true if the rewrite should be applied.
-    pub condition: Box<dyn Fn(&[AstNode]) -> bool>,
+    pub condition: ConditionFn,
 }
 
 impl RewriteRule {
@@ -170,10 +173,11 @@ impl AstRewriter {
         // Part 1: Find rewrites at the current node level.
         for rule in &self.rules {
             if let Some(captures) = node.matches(&rule.pattern)
-                && (rule.condition)(&captures) {
-                    let rewritten_node = (rule.rewriter)(&captures);
-                    possible_rewrites.push(rewritten_node);
-                }
+                && (rule.condition)(&captures)
+            {
+                let rewritten_node = (rule.rewriter)(&captures);
+                possible_rewrites.push(rewritten_node);
+            }
         }
 
         // Part 2: Find rewrites in children and reconstruct the parent for each.
