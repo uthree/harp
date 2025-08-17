@@ -2,7 +2,6 @@ use crate::ast::pattern::{AstRewriteRule, AstRewriter};
 use crate::ast::{AstNode, AstOp, Const};
 use crate::astpat;
 use crate::opt::ast::AstOptimizer;
-use crate::opt::ast::heuristic::handcode::{associative_rules, distributive_rules};
 use std::rc::Rc;
 
 fn is_const(node: &AstNode) -> bool {
@@ -63,8 +62,6 @@ pub fn algebraic_simplification() -> AstRewriter {
     ]
     .concat();
     AstRewriter::with_rules("AlgebraicSimplification", rules)
-        + associative_rules()
-        + distributive_rules()
 }
 
 pub struct AlgebraicOptimizer {

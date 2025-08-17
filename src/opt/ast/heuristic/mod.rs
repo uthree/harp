@@ -1,7 +1,7 @@
 use crate::ast::AstNode;
 pub mod beam_search;
 pub mod handcode;
-pub mod rule_based;
+pub mod rule_based_suggester;
 
 // ASTの実行時のコストを評価する機能
 // TODO: 動的Shape変数を正しく処理できるようにする

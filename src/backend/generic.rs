@@ -8,7 +8,7 @@ use crate::{
             handcode::{
                 HandcodedCostEstimator, associative_rules, commutative_rules, distributive_rules,
             },
-            rule_based::RuleBasedRewriteSuggester,
+            rule_based_suggester::RuleBasedRewriteSuggester,
         },
         rule::algebraic_simplification,
     },

@@ -76,11 +76,12 @@ impl GraphRewriter {
             let mut applied_rule = false;
             for rule in &self.rules {
                 if let Some(captures) = current_node.matches(&rule.pattern)
-                    && (rule.condition)(&captures) {
-                        current_node = (rule.rewriter)(&captures);
-                        applied_rule = true;
-                        break; // Restart with the new node
-                    }
+                    && (rule.condition)(&captures)
+                {
+                    current_node = (rule.rewriter)(&captures);
+                    applied_rule = true;
+                    break; // Restart with the new node
+                }
             }
             if !applied_rule {
                 break;
