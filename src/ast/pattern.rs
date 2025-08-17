@@ -49,41 +49,41 @@ macro_rules! astpat {
         {
             let mut counter = 0..;
             $(
-                let $capture = AstNode::capture(counter.next().unwrap());
+                let $capture = $crate::ast::AstNode::capture(counter.next().unwrap());
             )*
             let pattern = $pattern;
-            let rewriter = |captured_nodes: &[AstNode]| {
+            let rewriter = |captured_nodes: &[$crate::ast::AstNode]| {
                 let mut counter = 0..;
                 $(
                     let $capture = captured_nodes[counter.next().unwrap()].clone();
                 )*
                 $rewriter
             };
-            let condition = |captured_nodes: &[AstNode]| {
+            let condition = |captured_nodes: &[$crate::ast::AstNode]| {
                 let mut counter = 0..;
                 $(
                     let $capture = captured_nodes[counter.next().unwrap()].clone();
                 )*
                 $condition
             };
-            RewriteRule::new(pattern, rewriter, condition)
+            $crate::ast::pattern::RewriteRule::new(pattern, rewriter, condition)
         }
     };
     (| $($capture: pat_param),* | $pattern: expr => $rewriter: expr ) => {
         {
             let mut counter = 0..;
             $(
-                let $capture = AstNode::capture(counter.next().unwrap());
+                let $capture = $crate::ast::AstNode::capture(counter.next().unwrap());
             )*
             let pattern = $pattern;
-            let rewriter = |captured_nodes: &[AstNode]| {
+            let rewriter = |captured_nodes: &[$crate::ast::AstNode]| {
                 let mut counter = 0..;
                 $(
                     let $capture = captured_nodes[counter.next().unwrap()].clone();
                 )*
                 $rewriter
             };
-            RewriteRule::new(pattern, rewriter, |_| true)
+            $crate::ast::pattern::RewriteRule::new(pattern, rewriter, |_| true)
         }
     };
 }
@@ -91,7 +91,7 @@ macro_rules! astpat {
 #[macro_export]
 macro_rules! ast_rewriter {
     ($name:expr, $($rule:expr),*) => {
-        AstRewriter::with_rules($name, vec![$($rule),*])
+        $crate::ast::pattern::AstRewriter::with_rules($name, vec![$($rule),*])
     };
 }
 

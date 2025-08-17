@@ -131,7 +131,7 @@ pub enum AstOp {
     Capture(usize),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AstNode {
     pub op: AstOp,
     pub src: Vec<AstNode>,

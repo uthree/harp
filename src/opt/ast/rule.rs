@@ -1,7 +1,8 @@
 use crate::ast::pattern::{AstRewriter, RewriteRule};
 use crate::ast::{AstNode, AstOp, Const};
+use crate::opt::ast::heuristic::handcode::{associative_rules, distributive_rules};
 use crate::opt::ast::AstOptimizer;
-use crate::{ast_rewriter, astpat};
+use crate::astpat;
 use std::rc::Rc;
 
 fn is_const(node: &AstNode) -> bool {
@@ -14,36 +15,6 @@ fn get_const_val(node: &AstNode) -> Option<Const> {
     } else {
         None
     }
-}
-
-/// a * (b + c) => (a * b) + (a * c)
-/// (a + b) * c => (a * c) + (b * c)
-pub fn distributive_rules() -> Vec<Rc<RewriteRule>> {
-    vec![
-        astpat!(|a, b, c| a * (b + c) => (a.clone() * b) + (a * c)),
-        astpat!(|a, b, c| (a + b) * c => (a * c.clone()) + (b * c)),
-    ]
-}
-
-/// a + b => b + a
-/// a * b => b * a
-/// WARNING: These rules can cause infinite loops with the recursive `apply` method.
-/// They are better suited for heuristic optimizers that can control application,
-/// such as `get_possible_rewrites`.
-pub fn commutative_rules() -> Vec<Rc<RewriteRule>> {
-    vec![
-        astpat!(|a, b| a + b => b + a),
-        astpat!(|a, b| a * b => b * a),
-    ]
-}
-
-/// (a + b) + c => a + (b + c)
-/// (a * b) * c => a * (b * c)
-pub fn associative_rules() -> Vec<Rc<RewriteRule>> {
-    vec![
-        astpat!(|a, b, c| (a + b) + c => a + (b + c)),
-        astpat!(|a, b, c| (a * b) * c => a * (b * c)),
-    ]
 }
 
 pub fn algebraic_simplification() -> AstRewriter {
@@ -89,13 +60,11 @@ pub fn algebraic_simplification() -> AstRewriter {
                 }
             }),
         ],
-        distributive_rules(),
-        associative_rules(),
-        // Commutative rules are disabled by default due to infinite loop risk.
-        // commutative_rules(),
     ]
     .concat();
     AstRewriter::with_rules("AlgebraicSimplification", rules)
+        + associative_rules()
+        + distributive_rules()
 }
 
 pub struct AlgebraicOptimizer {

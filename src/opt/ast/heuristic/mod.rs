@@ -1,4 +1,4 @@
-use crate::ast::{AstNode, pattern::AstRewriter};
+use crate::ast::AstNode;
 pub mod beam_search;
 pub mod handcode;
 pub mod rule_based;
@@ -37,7 +37,7 @@ impl CostEstimator for CombinedCostEstimator {
 
 // ASTの書き換えの候補を提案する機能
 pub trait RewriteSuggester {
-    fn suggest(&self) -> AstRewriter;
+    fn suggest(&self, node: &AstNode) -> Vec<AstNode>;
 }
 
 // 複数の候補提案をまとめる
@@ -52,12 +52,11 @@ impl CombinedRewriteSuggester {
 }
 
 impl RewriteSuggester for CombinedRewriteSuggester {
-    fn suggest(&self) -> AstRewriter {
+    fn suggest(&self, node: &AstNode) -> Vec<AstNode> {
         self.suggesters
             .iter()
-            .map(|s| s.suggest())
-            .reduce(|a, b| a + b)
-            .unwrap_or_else(|| AstRewriter::with_rules("Empty", vec![]))
+            .flat_map(|suggester| suggester.suggest(node))
+            .collect()
     }
 }
 
@@ -65,7 +64,7 @@ impl RewriteSuggester for CombinedRewriteSuggester {
 mod tests {
     use super::*;
     use crate::{
-        ast::{AstNode, pattern::RewriteRule},
+        ast::{pattern::RewriteRule, AstNode},
         ast_rewriter, astpat,
     };
 
@@ -94,37 +93,31 @@ mod tests {
 
     // Mock RewriteSuggester for testing
     struct MockRewriteSuggester {
-        rewriter: AstRewriter,
+        suggestions: Vec<AstNode>,
     }
     impl RewriteSuggester for MockRewriteSuggester {
-        fn suggest(&self) -> AstRewriter {
-            self.rewriter.clone()
+        fn suggest(&self, _node: &AstNode) -> Vec<AstNode> {
+            self.suggestions.clone()
         }
     }
 
     #[test]
     fn test_combined_rewrite_suggester() {
-        let rule1 = astpat!(|a| a + 0isize => a);
-        let rewriter1 = ast_rewriter!("AddZero", rule1);
         let suggester1 = MockRewriteSuggester {
-            rewriter: rewriter1,
+            suggestions: vec![AstNode::from(1isize)],
         };
 
-        let rule2 = astpat!(|a| a * 1isize => a);
-        let rewriter2 = ast_rewriter!("MulOne", rule2);
         let suggester2 = MockRewriteSuggester {
-            rewriter: rewriter2,
+            suggestions: vec![AstNode::from(2isize)],
         };
 
         let combined =
             CombinedRewriteSuggester::new(vec![Box::new(suggester1), Box::new(suggester2)]);
-        let combined_rewriter = combined.suggest();
+        let dummy_ast = AstNode::from(0isize);
+        let combined_suggestions = combined.suggest(&dummy_ast);
 
-        // Check that the combined rewriter can apply both rules
-        let expr1 = AstNode::from(5isize) + AstNode::from(0isize);
-        assert_eq!(combined_rewriter.apply(&expr1), AstNode::from(5isize));
-
-        let expr2 = AstNode::from(5isize) * AstNode::from(1isize);
-        assert_eq!(combined_rewriter.apply(&expr2), AstNode::from(5isize));
+        assert_eq!(combined_suggestions.len(), 2);
+        assert!(combined_suggestions.contains(&AstNode::from(1isize)));
+        assert!(combined_suggestions.contains(&AstNode::from(2isize)));
     }
 }

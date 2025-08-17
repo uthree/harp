@@ -1,4 +1,5 @@
 use crate::ast::pattern::AstRewriter;
+use crate::ast::AstNode;
 use crate::opt::ast::heuristic::RewriteSuggester;
 
 /// A simple rewrite suggester that holds a predefined AstRewriter.
@@ -16,8 +17,8 @@ impl RuleBasedRewriteSuggester {
 
 impl RewriteSuggester for RuleBasedRewriteSuggester {
     /// Returns the underlying AstRewriter.
-    fn suggest(&self) -> AstRewriter {
-        self.rewriter.clone()
+    fn suggest(&self, node: &AstNode) -> Vec<AstNode> {
+        self.rewriter.get_possible_rewrites(node)
     }
 }
 
@@ -25,7 +26,7 @@ impl RewriteSuggester for RuleBasedRewriteSuggester {
 mod tests {
     use super::*;
     use crate::{
-        ast::{AstNode, pattern::RewriteRule},
+        ast::{AstNode, DType},
         ast_rewriter, astpat,
     };
 
@@ -39,17 +40,16 @@ mod tests {
         // 2. Create the suggester
         let suggester = RuleBasedRewriteSuggester::new(rewriter);
 
-        // 3. Get the suggested rewriter
-        let suggested_rewriter = suggester.suggest();
+        // 3. Get the suggested rewrites
+        let a = AstNode::var("a", DType::Isize);
+        let expr = (a.clone() + AstNode::from(0isize)) * AstNode::from(1isize);
+        let suggestions = suggester.suggest(&expr);
 
-        // 4. Verify that the suggested rewriter works
-        let expr1 = AstNode::from(5isize) + AstNode::from(0isize);
-        assert_eq!(suggested_rewriter.apply(&expr1), AstNode::from(5isize));
-
-        let expr2 = AstNode::from(5isize) * AstNode::from(1isize);
-        assert_eq!(suggested_rewriter.apply(&expr2), AstNode::from(5isize));
-
-        let expr3 = AstNode::from(5isize) + AstNode::from(1isize); // Should not change
-        assert_eq!(suggested_rewriter.apply(&expr3), expr3.clone());
+        // 4. Verify the suggestions
+        let expected1 = a.clone() * AstNode::from(1isize); // from a + 0 => a
+        let expected2 = a.clone() + AstNode::from(0isize); // from (a + 0) * 1 => a + 0
+        assert_eq!(suggestions.len(), 2);
+        assert!(suggestions.contains(&expected1));
+        assert!(suggestions.contains(&expected2));
     }
 }
