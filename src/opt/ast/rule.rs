@@ -1,8 +1,8 @@
-use crate::ast::pattern::AstRewriter;
-use crate::ast::pattern::RewriteRule;
+use crate::ast::pattern::{AstRewriter, RewriteRule};
 use crate::ast::{AstNode, AstOp, Const};
 use crate::opt::ast::AstOptimizer;
 use crate::{ast_rewriter, astpat};
+use std::rc::Rc;
 
 fn is_const(node: &AstNode) -> bool {
     matches!(node.op, AstOp::Const(_))
@@ -16,45 +16,86 @@ fn get_const_val(node: &AstNode) -> Option<Const> {
     }
 }
 
+/// a * (b + c) => (a * b) + (a * c)
+/// (a + b) * c => (a * c) + (b * c)
+pub fn distributive_rules() -> Vec<Rc<RewriteRule>> {
+    vec![
+        astpat!(|a, b, c| a * (b + c) => (a.clone() * b) + (a * c)),
+        astpat!(|a, b, c| (a + b) * c => (a * c.clone()) + (b * c)),
+    ]
+}
+
+/// a + b => b + a
+/// a * b => b * a
+/// WARNING: These rules can cause infinite loops with the recursive `apply` method.
+/// They are better suited for heuristic optimizers that can control application,
+/// such as `get_possible_rewrites`.
+pub fn commutative_rules() -> Vec<Rc<RewriteRule>> {
+    vec![
+        astpat!(|a, b| a + b => b + a),
+        astpat!(|a, b| a * b => b * a),
+    ]
+}
+
+/// (a + b) + c => a + (b + c)
+/// (a * b) * c => a * (b * c)
+pub fn associative_rules() -> Vec<Rc<RewriteRule>> {
+    vec![
+        astpat!(|a, b, c| (a + b) + c => a + (b + c)),
+        astpat!(|a, b, c| (a * b) * c => a * (b * c)),
+    ]
+}
+
 pub fn algebraic_simplification() -> AstRewriter {
-    ast_rewriter!(
-        "AlgebraicSimplification",
+    let rules: Vec<Rc<RewriteRule>> = [
         // --- Identity Rules ---
-        astpat!(|a| a + AstNode::from(0isize) => a),
-        astpat!(|a| AstNode::from(0isize) + a => a),
-        astpat!(|a| a - AstNode::from(0isize) => a),
-        astpat!(|a| a * AstNode::from(1isize) => a),
-        astpat!(|a| AstNode::from(1isize) * a => a),
-        astpat!(|a| a / AstNode::from(1isize) => a),
+        vec![
+            astpat!(|a| a + AstNode::from(0isize) => a),
+            astpat!(|a| AstNode::from(0isize) + a => a),
+            astpat!(|a| a - AstNode::from(0isize) => a),
+            astpat!(|a| a * AstNode::from(1isize) => a),
+            astpat!(|a| AstNode::from(1isize) * a => a),
+            astpat!(|a| a / AstNode::from(1isize) => a),
+        ],
         // --- Annihilation Rules ---
-        astpat!(|_a| _a * AstNode::from(0isize) => AstNode::from(0isize)),
-        astpat!(|_a| AstNode::from(0isize) * _a => AstNode::from(0isize)),
-        astpat!(|_a| AstNode::from(0isize) / _a => AstNode::from(0isize)),
+        vec![
+            astpat!(|_a| _a * AstNode::from(0isize) => AstNode::from(0isize)),
+            astpat!(|_a| AstNode::from(0isize) * _a => AstNode::from(0isize)),
+            astpat!(|_a| AstNode::from(0isize) / _a => AstNode::from(0isize)),
+        ],
         // --- Other Rules ---
-        astpat!(|a| -(-a) => a),
+        vec![astpat!(|a| -(-a) => a)],
         // --- Constant Folding Rules ---
-        astpat!(|a, b| a + b, if is_const(&a) && is_const(&b) => {
-            if let (Some(Const::Isize(va)), Some(Const::Isize(vb))) = (get_const_val(&a), get_const_val(&b)) {
-                AstNode::from(va + vb)
-            } else {
-                a + b
-            }
-        }),
-        astpat!(|a, b| a - b, if is_const(&a) && is_const(&b) => {
-            if let (Some(Const::Isize(va)), Some(Const::Isize(vb))) = (get_const_val(&a), get_const_val(&b)) {
-                AstNode::from(va - vb)
-            } else {
-                a - b
-            }
-        }),
-        astpat!(|a, b| a * b, if is_const(&a) && is_const(&b) => {
-            if let (Some(Const::Isize(va)), Some(Const::Isize(vb))) = (get_const_val(&a), get_const_val(&b)) {
-                AstNode::from(va * vb)
-            } else {
-                a * b
-            }
-        })
-    )
+        vec![
+            astpat!(|a, b| a + b, if is_const(&a) && is_const(&b) => {
+                if let (Some(Const::Isize(va)), Some(Const::Isize(vb))) = (get_const_val(&a), get_const_val(&b)) {
+                    AstNode::from(va + vb)
+                } else {
+                    a + b
+                }
+            }),
+            astpat!(|a, b| a - b, if is_const(&a) && is_const(&b) => {
+                if let (Some(Const::Isize(va)), Some(Const::Isize(vb))) = (get_const_val(&a), get_const_val(&b)) {
+                    AstNode::from(va - vb)
+                } else {
+                    a - b
+                }
+            }),
+            astpat!(|a, b| a * b, if is_const(&a) && is_const(&b) => {
+                if let (Some(Const::Isize(va)), Some(Const::Isize(vb))) = (get_const_val(&a), get_const_val(&b)) {
+                    AstNode::from(va * vb)
+                } else {
+                    a * b
+                }
+            }),
+        ],
+        distributive_rules(),
+        associative_rules(),
+        // Commutative rules are disabled by default due to infinite loop risk.
+        // commutative_rules(),
+    ]
+    .concat();
+    AstRewriter::with_rules("AlgebraicSimplification", rules)
 }
 
 pub struct AlgebraicOptimizer {
@@ -164,6 +205,25 @@ mod tests {
         assert_optimization(
             (AstNode::from(2isize) + AstNode::from(3isize)) * AstNode::var("x", DType::Isize),
             AstNode::from(5isize) * AstNode::var("x", DType::Isize),
+        );
+    }
+
+    #[test]
+    fn test_algebraic_laws() {
+        let a = AstNode::var("a", DType::Isize);
+        let b = AstNode::var("b", DType::Isize);
+        let c = AstNode::var("c", DType::Isize);
+
+        // Associative
+        assert_optimization(
+            (a.clone() + b.clone()) + c.clone(),
+            a.clone() + (b.clone() + c.clone()),
+        );
+
+        // Distributive
+        assert_optimization(
+            a.clone() * (b.clone() + c.clone()),
+            (a.clone() * b) + (a * c),
         );
     }
 }
