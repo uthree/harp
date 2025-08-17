@@ -1,4 +1,4 @@
-use crate::ast::pattern::{AstRewriter, RewriteRule};
+use crate::ast::pattern::{AstRewriteRule, AstRewriter};
 use crate::ast::{AstNode, AstOp};
 use crate::astpat;
 use crate::opt::ast::heuristic::{CostEstimator, RewriteSuggester};
@@ -57,7 +57,7 @@ impl CostEstimator for HandcodedCostEstimator {
 /// a * (b + c) => (a * b) + (a * c)
 /// (a + b) * c => (a * c) + (b * c)
 pub fn distributive_rules() -> AstRewriter {
-    let rules: Vec<Rc<RewriteRule>> = vec![
+    let rules: Vec<Rc<AstRewriteRule>> = vec![
         astpat!(|a, b, c| a * (b + c) => (a.clone() * b) + (a * c)),
         astpat!(|a, b, c| (a + b) * c => (a * c.clone()) + (b * c)),
     ];
@@ -70,7 +70,7 @@ pub fn distributive_rules() -> AstRewriter {
 /// They are better suited for heuristic optimizers that can control application,
 /// such as `get_possible_rewrites`.
 pub fn commutative_rules() -> AstRewriter {
-    let rules: Vec<Rc<RewriteRule>> = vec![
+    let rules: Vec<Rc<AstRewriteRule>> = vec![
         astpat!(|a, b| a + b => b + a),
         astpat!(|a, b| a * b => b * a),
     ];
@@ -80,7 +80,7 @@ pub fn commutative_rules() -> AstRewriter {
 /// (a + b) + c => a + (b + c)
 /// (a * b) * c => a * (b * c)
 pub fn associative_rules() -> AstRewriter {
-    let rules: Vec<Rc<RewriteRule>> = vec![
+    let rules: Vec<Rc<AstRewriteRule>> = vec![
         astpat!(|a, b, c| (a + b) + c => a + (b + c)),
         astpat!(|a, b, c| (a * b) * c => a * (b * c)),
     ];

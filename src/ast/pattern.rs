@@ -6,21 +6,21 @@ use std::rc::Rc;
 type RewriterFn = Box<dyn Fn(&[AstNode]) -> AstNode>;
 type ConditionFn = Box<dyn Fn(&[AstNode]) -> bool>;
 
-pub struct RewriteRule {
+pub struct AstRewriteRule {
     pub pattern: AstNode,
     pub rewriter: RewriterFn,
     /// A closure that takes captured nodes and returns true if the rewrite should be applied.
     pub condition: ConditionFn,
 }
 
-impl RewriteRule {
+impl AstRewriteRule {
     #[must_use]
     pub fn new(
         pattern: AstNode,
         rewriter: impl Fn(&[AstNode]) -> AstNode + 'static,
         condition: impl Fn(&[AstNode]) -> bool + 'static,
     ) -> Rc<Self> {
-        Rc::new(RewriteRule {
+        Rc::new(AstRewriteRule {
             pattern,
             rewriter: Box::new(rewriter),
             condition: Box::new(condition),
@@ -34,8 +34,6 @@ impl RewriteRule {
 ///
 /// The following example is ignored because `astpat!` is not exported.
 /// ```
-/// use harp::ast::AstNode;
-/// use harp::ast::pattern::RewriteRule;
 /// use harp::astpat;
 ///
 /// // without condition
@@ -67,7 +65,7 @@ macro_rules! astpat {
                 )*
                 $condition
             };
-            $crate::ast::pattern::RewriteRule::new(pattern, rewriter, condition)
+            $crate::ast::pattern::AstRewriteRule::new(pattern, rewriter, condition)
         }
     };
     (| $($capture: pat_param),* | $pattern: expr => $rewriter: expr ) => {
@@ -84,7 +82,7 @@ macro_rules! astpat {
                 )*
                 $rewriter
             };
-            $crate::ast::pattern::RewriteRule::new(pattern, rewriter, |_| true)
+            $crate::ast::pattern::AstRewriteRule::new(pattern, rewriter, |_| true)
         }
     };
 }
@@ -100,7 +98,7 @@ macro_rules! ast_rewriter {
 pub struct AstRewriter {
     #[allow(dead_code)]
     name: String,
-    rules: Vec<Rc<RewriteRule>>,
+    rules: Vec<Rc<AstRewriteRule>>,
 }
 
 impl AstRewriter {
@@ -114,7 +112,7 @@ impl AstRewriter {
     }
 
     #[must_use]
-    pub fn with_rules(name: &str, rules: Vec<Rc<RewriteRule>>) -> Self {
+    pub fn with_rules(name: &str, rules: Vec<Rc<AstRewriteRule>>) -> Self {
         Self {
             name: name.to_string(),
             rules,
@@ -122,7 +120,7 @@ impl AstRewriter {
     }
 
     #[allow(dead_code)]
-    pub fn add_rule(&mut self, rule: Rc<RewriteRule>) {
+    pub fn add_rule(&mut self, rule: Rc<AstRewriteRule>) {
         self.rules.push(rule);
     }
 

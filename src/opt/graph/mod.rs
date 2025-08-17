@@ -1,18 +1,16 @@
-use crate::graph::pattern::{RewriteRule, Rewriter, Suggester};
+use crate::graph::pattern::{GraphRewriteRule, GraphRewriter, Suggester};
 use crate::graph::{Graph, GraphNode};
 
 pub fn rules() -> Vec<Box<dyn Suggester>> {
-    vec![
-        Box::new(RewriteRule::new(
-            "double_negation",
-            -(-GraphNode::capture(0)),
-            GraphNode::capture(0),
-        )),
-    ]
+    vec![Box::new(GraphRewriteRule::new(
+        "double_negation",
+        -(-GraphNode::capture(0)),
+        GraphNode::capture(0),
+    ))]
 }
 
 pub fn optimize(graph: Graph) -> Graph {
-    let mut rewriter = Rewriter::new();
+    let mut rewriter = GraphRewriter::new();
     for rule in rules() {
         rewriter.add_suggester(rule);
     }
@@ -22,8 +20,8 @@ pub fn optimize(graph: Graph) -> Graph {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::shape::expr::Expr as ShapeExpr;
     use crate::ast::DType;
+    use crate::graph::shape::expr::Expr as ShapeExpr;
 
     #[test]
     fn test_double_negation_optimization() {

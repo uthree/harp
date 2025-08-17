@@ -1,4 +1,4 @@
-use crate::ast::pattern::{AstRewriter, RewriteRule};
+use crate::ast::pattern::{AstRewriteRule, AstRewriter};
 use crate::ast::{AstNode, AstOp, Const};
 use crate::astpat;
 use crate::opt::ast::AstOptimizer;
@@ -18,7 +18,7 @@ fn get_const_val(node: &AstNode) -> Option<Const> {
 }
 
 pub fn algebraic_simplification() -> AstRewriter {
-    let rules: Vec<Rc<RewriteRule>> = [
+    let rules: Vec<Rc<AstRewriteRule>> = [
         // --- Identity Rules ---
         vec![
             astpat!(|a| a + AstNode::from(0isize) => a),

@@ -5,13 +5,13 @@ pub trait Suggester {
     fn suggest(&self, node: &GraphNode) -> Vec<GraphNode>;
 }
 
-pub struct RewriteRule {
+pub struct GraphRewriteRule {
     pub name: String,
     lhs: GraphNode,
     rhs: GraphNode,
 }
 
-impl RewriteRule {
+impl GraphRewriteRule {
     pub fn new(name: &str, lhs: GraphNode, rhs: GraphNode) -> Self {
         Self {
             name: name.to_string(),
@@ -55,17 +55,17 @@ impl RewriteRule {
     }
 }
 
-impl Suggester for RewriteRule {
+impl Suggester for GraphRewriteRule {
     fn suggest(&self, node: &GraphNode) -> Vec<GraphNode> {
         self.apply(node).into_iter().collect()
     }
 }
 
-pub struct Rewriter {
+pub struct GraphRewriter {
     suggesters: Vec<Box<dyn Suggester>>,
 }
 
-impl Rewriter {
+impl GraphRewriter {
     pub fn new() -> Self {
         Self {
             suggesters: Vec::new(),
@@ -158,27 +158,25 @@ macro_rules! graphpat {
         $crate::graph::GraphNode::capture(stringify!($v).parse::<usize>().unwrap())
     };
     // Binary operators
-    ($lhs:tt $op:tt $rhs:tt) => {
-        {
-            let op = match stringify!($op) {
-                "+" => $crate::ast::AstOp::Add,
-                "-" => $crate::ast::AstOp::Sub,
-                "*" => $crate::ast::AstOp::Mul,
-                "/" => $crate::ast::AstOp::Div,
-                "%" => $crate::ast::AstOp::Rem,
-                _ => panic!("Unsupported binary operator in graphpat"),
-            };
-            let lhs_node = graphpat!($lhs);
-            let rhs_node = graphpat!($rhs);
-            // In a real scenario, we'd need to propagate dtype and view properly.
-            // For pattern matching, we can often use DType::Any and an empty view.
-            let dummy_view = $crate::graph::shape::view::View::new_contiguous(vec![]);
-            GraphNode(std::rc::Rc::new($crate::graph::GraphNodeData {
-                op: $crate::graph::GraphOp::Elementwise(op),
-                src: vec![lhs_node, rhs_node],
-                dtype: $crate::ast::DType::Any,
-                view: dummy_view,
-            }))
-        }
-    };
+    ($lhs:tt $op:tt $rhs:tt) => {{
+        let op = match stringify!($op) {
+            "+" => $crate::ast::AstOp::Add,
+            "-" => $crate::ast::AstOp::Sub,
+            "*" => $crate::ast::AstOp::Mul,
+            "/" => $crate::ast::AstOp::Div,
+            "%" => $crate::ast::AstOp::Rem,
+            _ => panic!("Unsupported binary operator in graphpat"),
+        };
+        let lhs_node = graphpat!($lhs);
+        let rhs_node = graphpat!($rhs);
+        // In a real scenario, we'd need to propagate dtype and view properly.
+        // For pattern matching, we can often use DType::Any and an empty view.
+        let dummy_view = $crate::graph::shape::view::View::new_contiguous(vec![]);
+        GraphNode(std::rc::Rc::new($crate::graph::GraphNodeData {
+            op: $crate::graph::GraphOp::Elementwise(op),
+            src: vec![lhs_node, rhs_node],
+            dtype: $crate::ast::DType::Any,
+            view: dummy_view,
+        }))
+    }};
 }
