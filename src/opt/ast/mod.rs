@@ -20,3 +20,9 @@ impl AstOptimizer for CombinedAstOptimizer {
         ast
     }
 }
+
+impl CombinedAstOptimizer {
+    pub fn new(optimizers: Vec<Box<dyn AstOptimizer>>) -> Self {
+        CombinedAstOptimizer { optimizers }
+    }
+}

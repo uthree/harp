@@ -2,10 +2,9 @@ use crate::{
     ast::AstNode,
     backend::{Backend, Buffer, Compiler, Kernel, Renderer},
     graph::{Graph, GraphSignature},
+    opt::ast::rule::AlgebraicOptimizer,
 };
 use std::collections::HashMap;
-use std::marker::PhantomData;
-
 pub struct GenericBackend<C, R, B>
 where
     R: Renderer,
@@ -15,7 +14,7 @@ where
     compiler: C,
     renderer: R,
     cache: HashMap<Graph, C::KernelType>,
-    _phantom: PhantomData<B>,
+    ast_optimizer: AlgebraicOptimizer,
 }
 
 impl<C, R, B> GenericBackend<C, R, B>
@@ -32,6 +31,7 @@ where
     }
 
     pub fn compile(&mut self, ast: AstNode, details: GraphSignature) -> C::KernelType {
+        let ast = self.ast_optimizer.optimize(&ast);
         let code = self.renderer.render(ast);
         self.compiler.compile(&code, details)
     }
@@ -50,7 +50,7 @@ where
             compiler: C::new(),
             renderer: R::new(),
             cache: HashMap::new(),
-            _phantom: PhantomData,
+            ast_optimizer: AlgebraicOptimizer::new(),
         }
     }
 
