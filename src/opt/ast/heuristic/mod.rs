@@ -63,10 +63,7 @@ impl RewriteSuggester for CombinedRewriteSuggester {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        ast::{AstNode, pattern::RewriteRule},
-        ast_rewriter, astpat,
-    };
+    use crate::ast::AstNode;
 
     // Mock CostEstimator for testing
     struct MockCostEstimator {

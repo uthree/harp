@@ -446,8 +446,8 @@ mod tests {
     #[case(Expr::var("x").gt(0).and(Expr::var("y").lt(10)), hashmap!{"x".to_string() => -1, "y".to_string() => 5}, 0)]
     #[case(Expr::var("x").gt(0).or(Expr::var("y").lt(10)), hashmap!{"x".to_string() => -1, "y".to_string() => 5}, 1)]
     #[case(Expr::var("x").gt(0).or(Expr::var("y").lt(10)), hashmap!{"x".to_string() => -1, "y".to_string() => 15}, 0)]
-    #[case((!Expr::var("x").gt(0)), hashmap!{"x".to_string() => 5}, 0)]
-    #[case((!Expr::var("x").gt(0)), hashmap!{"x".to_string() => -5}, 1)]
+    #[case(!Expr::var("x").gt(0), hashmap!{"x".to_string() => 5}, 0)]
+    #[case(!Expr::var("x").gt(0), hashmap!{"x".to_string() => -5}, 1)]
     fn test_evaluate(
         #[case] expr: Expr,
         #[case] context: HashMap<String, isize>,

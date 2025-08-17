@@ -498,13 +498,13 @@ mod tests {
         #[test]
         #[should_panic]
         fn test_dtype_zero_panic() {
-            DType::Any.zero();
+            let _ = DType::Any.zero();
         }
 
         #[test]
         #[should_panic]
         fn test_dtype_one_panic() {
-            DType::Ptr(Box::new(DType::F32)).one();
+            let _ = DType::Ptr(Box::new(DType::F32)).one();
         }
     }
 
