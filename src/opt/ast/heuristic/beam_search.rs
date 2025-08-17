@@ -1,10 +1,5 @@
-use rand::prelude::*;
-use rustc_hash::FxHashSet;
 
-use crate::{
-    ast::AstNode,
-    opt::ast::heuristic::{CostEstimator, RewriteSuggester},
-};
+use crate::opt::ast::heuristic::{CostEstimator, RewriteSuggester};
 
 /// An optimizer that uses beam search to find a low-cost AST.
 pub struct BeamSearchAstOptimizer<S: RewriteSuggester, C: CostEstimator> {

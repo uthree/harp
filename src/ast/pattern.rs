@@ -92,6 +92,7 @@ macro_rules! ast_rewriter {
     };
 }
 
+#[derive(Clone)]
 pub struct AstRewriter {
     #[allow(dead_code)]
     name: String,
@@ -156,6 +157,37 @@ impl AstRewriter {
             self.name, rewritten_node.op
         );
         rewritten_node
+    }
+
+    /// Finds all possible rewrites at any level of the AST and returns them.
+    ///
+    /// This function traverses the AST and, for each node (including children),
+    /// finds all rules that can be applied independently. Each successful application
+    /// results in a new AST representing that single change.
+    pub fn get_possible_rewrites(&self, node: &AstNode) -> Vec<AstNode> {
+        let mut possible_rewrites = Vec::new();
+
+        // Part 1: Find rewrites at the current node level.
+        for rule in &self.rules {
+            if let Some(captures) = node.matches(&rule.pattern)
+                && (rule.condition)(&captures) {
+                    let rewritten_node = (rule.rewriter)(&captures);
+                    possible_rewrites.push(rewritten_node);
+                }
+        }
+
+        // Part 2: Find rewrites in children and reconstruct the parent for each.
+        for (i, child) in node.src.iter().enumerate() {
+            let child_rewrites = self.get_possible_rewrites(child);
+            for rewritten_child in child_rewrites {
+                let mut new_src = node.src.clone();
+                new_src[i] = rewritten_child;
+                let new_node = AstNode::_new(node.op.clone(), new_src, node.dtype.clone());
+                possible_rewrites.push(new_node);
+            }
+        }
+
+        possible_rewrites
     }
 }
 
@@ -337,5 +369,30 @@ mod rewriter_tests {
         let captures = expr.matches(&pattern).unwrap();
         assert_eq!(captures.len(), 1);
         assert_eq!(captures[0], AstNode::from(10isize));
+    }
+
+    #[test]
+    fn test_get_possible_rewrites() {
+        // Rules: x + 0 => x and y * 1 => y
+        let add_zero_rule = astpat!(|a, b| a + b, if b == AstNode::from(0isize) => a);
+        let mul_one_rule = astpat!(|a, b| a * b, if b == AstNode::from(1isize) => a);
+        let rewriter = ast_rewriter!("Optimizer", add_zero_rule, mul_one_rule);
+
+        // Expression: (a + 0) + (b * 1)
+        let a = AstNode::var("a", crate::ast::DType::Isize);
+        let b = AstNode::var("b", crate::ast::DType::Isize);
+        let expr = (a.clone() + AstNode::from(0isize)) + (b.clone() * AstNode::from(1isize));
+
+        let rewrites = rewriter.get_possible_rewrites(&expr);
+
+        // Expected rewrites:
+        // 1. a + (b * 1)  (from rewriting a + 0)
+        // 2. (a + 0) + b  (from rewriting b * 1)
+        let expected1 = a.clone() + (b.clone() * AstNode::from(1isize));
+        let expected2 = (a + AstNode::from(0isize)) + b;
+
+        assert_eq!(rewrites.len(), 2);
+        assert!(rewrites.contains(&expected1));
+        assert!(rewrites.contains(&expected2));
     }
 }
