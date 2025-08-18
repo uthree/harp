@@ -1,4 +1,6 @@
 //! Lowers the graph representation to an AST representation.
+mod ops;
+
 use crate::ast::{AstNode, AstOp, DType};
 use crate::graph::shape::expr::Expr as ShapeExpr;
 use crate::graph::shape::view::View;
@@ -17,8 +19,8 @@ pub struct Lowerer {
     // but could be used if we were lowering node by node.
     // For now, it's unused.
     _cache: HashMap<GraphNode, AstNode>,
-    acc_counter: usize,
-    ridx_counter: usize,
+    pub acc_counter: usize,
+    pub ridx_counter: usize,
 }
 
 impl Lowerer {
@@ -153,151 +155,26 @@ impl Lowerer {
     /// Recursively lowers a `GraphNode` to an `AstNode` for a single element computation.
     ///
     /// `indices` represents the logical indices for the element being computed.
-    fn lower_node_rec(
+    pub fn lower_node_rec(
         &mut self,
         node: &GraphNode,
         indices: &mut [AstNode],
         inputs: &[GraphNode],
     ) -> AstNode {
         match &node.op {
-            GraphOp::Input { .. } => {
-                let input_idx = inputs
-                    .iter()
-                    .position(|n| n == node)
-                    .expect("Input node not found in graph inputs");
-                let input_var = AstNode::var(
-                    &format!("input{}", input_idx),
-                    DType::Ptr(Box::new(node.dtype.clone())),
-                );
-
-                // Use the node's view to calculate the physical memory index from logical indices.
-                let physical_index = node.view.to_physical_index_ast(indices);
-                let ptr = AstNode::index(input_var, physical_index);
-                AstNode::load(ptr)
-            }
-            GraphOp::Full(c) => AstNode::from(c.clone()),
+            GraphOp::Input { .. } => ops::input::lower_input(self, node, indices, inputs),
+            GraphOp::Full(_) => ops::full::lower_full(self, &node.op),
             GraphOp::Elementwise(op) => {
-                let srcs = node
-                    .src
-                    .iter()
-                    .map(|n| self.lower_node_rec(n, indices, inputs))
-                    .collect();
-                AstNode::_new(op.clone(), srcs, node.dtype.clone())
+                ops::elementwise::lower_elementwise(self, node, indices, inputs, op)
             }
             GraphOp::Reduce(op, axis) => {
-                let acc_name = format!("acc{}", self.acc_counter);
-                self.acc_counter += 1;
-                let acc_var = AstNode::var(&acc_name, node.dtype.clone());
-
-                // Initialize accumulator.
-                let init_val = match op {
-                    AstOp::Add => node.dtype.zero(),
-                    AstOp::Mul => node.dtype.one(),
-                    AstOp::Max => node.dtype.min_value(),
-                    _ => unimplemented!("Unsupported reduction operation: {:?}", op),
-                };
-                let declare_acc = AstNode::declare(&acc_name, node.dtype.clone(), Some(init_val));
-
-                // Create reduction loop.
-                let reduce_dim = node.src[0].shape()[*axis].clone();
-                let ridx_name = format!("ridx{}", self.ridx_counter);
-                self.ridx_counter += 1;
-                let ridx_var = AstNode::var(&ridx_name, DType::Isize);
-
-                let mut inner_indices = indices.to_vec();
-                // Insert the reduction loop variable at the reduction axis.
-                inner_indices.insert(*axis, ridx_var);
-
-                let value_to_reduce = self.lower_node_rec(&node.src[0], &mut inner_indices, inputs);
-
-                let update_op = AstNode::_new(
-                    op.clone(),
-                    vec![acc_var.clone(), value_to_reduce],
-                    node.dtype.clone(),
-                );
-                let assign_op = AstNode::assign(acc_var.clone(), update_op);
-
-                let loop_node = AstNode::_new(
-                    AstOp::Range {
-                        counter: ridx_name,
-                        step: 1,
-                    },
-                    vec![reduce_dim.into(), assign_op],
-                    DType::Void,
-                );
-
-                // Return a block that declares, computes, and returns the accumulator.
-                AstNode::_new(
-                    AstOp::Block,
-                    vec![declare_acc, loop_node, acc_var],
-                    node.dtype.clone(),
-                )
+                ops::reduce::lower_reduce(self, node, indices, inputs, op, axis)
             }
-            GraphOp::Permute(axes) => {
-                // Reorder indices according to the permutation axes before recursing.
-                let mut unpermuted_indices = vec![AstNode::from(0isize); indices.len()];
-                for (i, &axis) in axes.iter().enumerate() {
-                    unpermuted_indices[axis] = indices[i].clone();
-                }
-                self.lower_node_rec(&node.src[0], &mut unpermuted_indices, inputs)
-            }
+            GraphOp::Permute(axes) => ops::permute::lower_permute(self, node, indices, inputs, axes),
             GraphOp::Cumulative(op, axis) => {
-                // Create an accumulator variable, initialized to the identity of the op.
-                let acc_name = format!("acc{}", self.acc_counter);
-                self.acc_counter += 1;
-                let acc_var = AstNode::var(&acc_name, node.dtype.clone());
-
-                let init_val = match op {
-                    AstOp::Add => node.dtype.zero(),
-                    AstOp::Mul => node.dtype.one(),
-                    AstOp::Max => node.dtype.min_value(),
-                    _ => unimplemented!("Unsupported cumulative operation: {:?}", op),
-                };
-                let declare_acc = AstNode::declare(&acc_name, node.dtype.clone(), Some(init_val));
-
-                // Create an inner loop to accumulate values from the source.
-                // The loop runs from 0 up to the current index along the cumulative axis.
-                let cum_limit = indices[*axis].clone() + AstNode::from(1isize);
-                let cidx_name = format!("cidx{}", self.ridx_counter);
-                self.ridx_counter += 1;
-                let cidx_var = AstNode::var(&cidx_name, DType::Isize);
-
-                let mut inner_indices = indices.to_vec();
-                inner_indices[*axis] = cidx_var;
-
-                let value_to_accumulate =
-                    self.lower_node_rec(&node.src[0], &mut inner_indices, inputs);
-
-                let update_op = AstNode::_new(
-                    op.clone(),
-                    vec![acc_var.clone(), value_to_accumulate],
-                    node.dtype.clone(),
-                );
-                let assign_op = AstNode::assign(acc_var.clone(), update_op);
-
-                let loop_node = AstNode::_new(
-                    AstOp::Range {
-                        counter: cidx_name,
-                        step: 1,
-                    },
-                    vec![cum_limit, assign_op],
-                    DType::Void,
-                );
-
-                // The final result is a block that declares the accumulator, runs the loop,
-                // and then returns the final accumulator value.
-                AstNode::_new(
-                    AstOp::Block,
-                    vec![declare_acc, loop_node, acc_var],
-                    node.dtype.clone(),
-                )
+                ops::cumulative::lower_cumulative(self, node, indices, inputs, op, axis)
             }
-            GraphOp::Contiguous => {
-                // A contiguous op is a hint for memory layout. In a fused kernel,
-                // we "look through" it and directly compute from its source,
-                // relying on the view of the source node to handle memory access correctly.
-                self.lower_node_rec(&node.src[0], indices, inputs)
-            }
+            GraphOp::Contiguous => ops::contiguous::lower_contiguous(self, node, indices, inputs),
             _ => unimplemented!(
                 "Lowering for this GraphOp is not implemented yet: {:?}",
                 node.op
