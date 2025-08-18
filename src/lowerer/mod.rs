@@ -5,12 +5,16 @@ use std::collections::HashMap;
 
 pub struct Lowerer {
     memo: HashMap<GraphNode, AstNode>,
+    acc_counter: usize,
+    ridx_counter: usize,
 }
 
 impl Lowerer {
     fn new() -> Self {
         Lowerer {
             memo: HashMap::new(),
+            acc_counter: 0,
+            ridx_counter: 0,
         }
     }
 
@@ -110,7 +114,8 @@ pub fn lower_graph(graph: &Graph) -> AstNode {
             }
 
             // --- Accumulator initialization ---
-            let acc_name = format!("acc_{}", i);
+            let acc_name = format!("acc{}", lowerer.acc_counter);
+            lowerer.acc_counter += 1;
             let acc_var = AstNode::var(&acc_name, output_node.dtype.clone());
             let identity = match op {
                 AstOp::Add => output_node.dtype.zero(),
@@ -120,7 +125,8 @@ pub fn lower_graph(graph: &Graph) -> AstNode {
             let acc_init = AstNode::declare(&acc_name, output_node.dtype.clone(), Some(identity));
 
             // --- Inner reduction loop ---
-            let reduction_loop_var_name = format!("k{}", axis);
+            let reduction_loop_var_name = format!("ridx{}", lowerer.ridx_counter);
+            lowerer.ridx_counter += 1;
             let reduction_loop_var = AstNode::var(&reduction_loop_var_name, DType::Usize);
             let mut reduction_loop = AstNode::_new(
                 AstOp::Range {
@@ -191,7 +197,8 @@ pub fn lower_graph(graph: &Graph) -> AstNode {
                 DType::Void,
             );
 
-            let acc_name = format!("acc_{}", i); // Unique accumulator name per output
+            let acc_name = format!("acc{}", lowerer.acc_counter); // Unique accumulator name per output
+            lowerer.acc_counter += 1;
             let acc_var = AstNode::var(&acc_name, output_node.dtype.clone());
 
             let identity = match op {
@@ -457,9 +464,9 @@ mod tests {
         let code = renderer.render(ast);
 
         // Check for accumulator initialization
-        assert!(code.contains("acc_0 = 0.0000000;"));
+        assert!(code.contains("acc0 = 0.0000000;"));
         // Check for the loop and accumulation
-        let expected_loop_body = r###"acc_0=(acc_0+buf1[idx0]);buf0[idx0]=acc_0;"###;
+        let expected_loop_body = r###"acc0=(acc0+buf1[idx0]);buf0[idx0]=acc0;"###;
         assert!(
             code.replace([' ', '\t', '\n'], "")
                 .contains(&expected_loop_body.replace([' ', '\t', '\n'], "")),
@@ -488,12 +495,12 @@ mod tests {
         let code = renderer.render(ast);
 
         // Check for accumulator initialization
-        assert!(code.contains("float acc_0 = 0.0000000;"));
+        assert!(code.contains("float acc0 = 0.0000000;"));
         // Check for the reduction loop
-        assert!(code.contains("for (size_t k1 = 0; k1 < 20; k1++)"));
+        assert!(code.contains("for (size_t ridx0 = 0; ridx0 < 20; ridx0++)"));
         // Check for the accumulation
-        assert!(code.contains("acc_0 = (acc_0 + buf1[((idx0 * 20) + k1)]);"));
+        assert!(code.contains("acc0 = (acc0 + buf1[((idx0 * 20) + ridx0)]);"));
         // Check for the final store
-        assert!(code.contains("buf0[idx0] = acc_0;"));
+        assert!(code.contains("buf0[idx0] = acc0;"));
     }
 }
