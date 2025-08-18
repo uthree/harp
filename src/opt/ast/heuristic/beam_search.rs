@@ -94,11 +94,12 @@ impl<S: RewriteSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
             beam = candidates.into_iter().take(self.beam_width).collect();
 
             pb.set_message(format!("step: {}, candidates: {}", i + 1, beam.len(),));
+            pb.tick();
             pb.inc(1);
-            pb.tick()
         }
 
         pb.finish_and_clear();
+        pb.tick();
         let green_bold = Style::new().green().bold();
         pb.println(format!(
             "{:>12} optimize AST with beam search algorithm in {}",
