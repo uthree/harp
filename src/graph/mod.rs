@@ -122,6 +122,19 @@ impl GraphNode {
         }))
     }
 
+    pub fn reduce(self, op: AstOp, axis: usize) -> Self {
+        let dtype = self.dtype.clone();
+        let mut shape = self.shape().to_vec();
+        shape.remove(axis);
+        let view = View::new_contiguous(shape);
+        GraphNode(Rc::new(GraphNodeData {
+            op: GraphOp::Reduce(op, axis),
+            src: vec![self],
+            dtype,
+            view,
+        }))
+    }
+
     pub fn capture(pos: usize) -> Self {
         GraphNode(Rc::new(GraphNodeData {
             op: GraphOp::Capture(pos),
@@ -469,5 +482,31 @@ mod tests {
 
         // Check the shape
         assert_eq!(result_node.shape(), shape);
+    }
+
+    #[test]
+    fn test_reduce_op() {
+        let mut graph = Graph::new();
+        let shape = vec![ShapeExpr::from(10), ShapeExpr::from(20)];
+        let dtype = DType::F32;
+
+        let a = graph.add_input(shape.clone(), &dtype);
+        let op = AstOp::Add;
+        let axis = 1;
+        let result_node = a.clone().reduce(op.clone(), axis);
+
+        // Check the operation type
+        assert_eq!(result_node.op, GraphOp::Reduce(op, axis));
+
+        // Check the source nodes
+        assert_eq!(result_node.src.len(), 1);
+        assert_eq!(result_node.src[0], a);
+
+        // Check the dtype
+        assert_eq!(result_node.dtype, dtype);
+
+        // Check the shape
+        let expected_shape = vec![ShapeExpr::from(10)];
+        assert_eq!(result_node.shape(), expected_shape);
     }
 }
