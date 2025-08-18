@@ -44,6 +44,19 @@ impl DType {
             _ => panic!("Cannot create a one for non-numeric type {self:?}"),
         }
     }
+
+    /// # Panics
+    ///
+    /// Will panic if `self` is not a numeric type.
+    #[must_use]
+    pub fn min_value(&self) -> AstNode {
+        match self {
+            DType::F32 => AstNode::from(f32::NEG_INFINITY),
+            DType::Usize => AstNode::from(usize::MIN),
+            DType::Isize => AstNode::from(isize::MIN),
+            _ => panic!("Cannot create a min_value for non-numeric type {self:?}"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -97,7 +110,7 @@ pub enum AstOp {
     Div,
     Rem,
     Max,
-    Sin,
+    Sin, // Cosは実装しません。位相をずらして実装してください。
     Exp2,
     Log2,
     Sqrt,

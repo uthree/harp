@@ -87,7 +87,7 @@ impl Lowerer {
             let shape_vars_var = AstNode::var("shape_vars", DType::Ptr(Box::new(DType::Usize)));
             call_args.push(AstNode::load(AstNode::index(
                 shape_vars_var,
-                AstNode::from(i as usize),
+                AstNode::from(i),
             )));
         }
 
@@ -193,7 +193,7 @@ impl Lowerer {
                 let init_val = match op {
                     AstOp::Add => node.dtype.zero(),
                     AstOp::Mul => node.dtype.one(),
-                    // TODO: Handle other reduction types like Max.
+                    AstOp::Max => node.dtype.min_value(),
                     _ => unimplemented!("Unsupported reduction operation: {:?}", op),
                 };
                 let declare_acc = AstNode::declare(&acc_name, node.dtype.clone(), Some(init_val));
@@ -250,6 +250,7 @@ impl Lowerer {
                 let init_val = match op {
                     AstOp::Add => node.dtype.zero(),
                     AstOp::Mul => node.dtype.one(),
+                    AstOp::Max => node.dtype.min_value(),
                     _ => unimplemented!("Unsupported cumulative operation: {:?}", op),
                 };
                 let declare_acc = AstNode::declare(&acc_name, node.dtype.clone(), Some(init_val));
@@ -505,5 +506,41 @@ mod tests {
         } else {
             panic!("Expected a program AST node, got {:?}", ast);
         }
+    }
+
+    #[test]
+    fn test_lower_reduce_max() {
+        let mut graph = Graph::new();
+        let shape = vec![ShapeExpr::from(10)];
+        let dtype = DType::F32;
+
+        let a = graph.add_input(shape.clone(), &dtype);
+        let b = a.reduce(AstOp::Max, 0);
+        graph.outputs.push(b.clone());
+        graph.signature.outputs.push(crate::graph::TensorSignature {
+            dtype,
+            shape: b.shape().to_vec(),
+        });
+
+        let ast = lower_graph(&graph);
+        assert!(matches!(ast.op, AstOp::Program));
+    }
+
+    #[test]
+    fn test_lower_cumulative_max() {
+        let mut graph = Graph::new();
+        let shape = vec![ShapeExpr::from(10)];
+        let dtype = DType::F32;
+
+        let a = graph.add_input(shape.clone(), &dtype);
+        let b = a.cumulative(AstOp::Max, 0);
+        graph.outputs.push(b.clone());
+        graph.signature.outputs.push(crate::graph::TensorSignature {
+            dtype,
+            shape: b.shape().to_vec(),
+        });
+
+        let ast = lower_graph(&graph);
+        assert!(matches!(ast.op, AstOp::Program));
     }
 }
