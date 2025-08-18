@@ -20,7 +20,7 @@ impl Lowerer {
             // We need to calculate the physical index and load from it.
             if let GraphOp::Input { .. } = &node.op {
                 let physical_index = node.view.to_physical_index_ast(indices);
-                return AstNode::index(cached.clone(), physical_index);
+                return AstNode::load(AstNode::index(cached.clone(), physical_index));
             }
         }
 
@@ -35,11 +35,8 @@ impl Lowerer {
                     .collect();
                 AstNode::_new(op.clone(), src_asts, node.dtype.clone())
             }
-            GraphOp::Permute(axes) => {
-                let mut permuted_indices = vec![AstNode::from(0isize); indices.len()];
-                for (i, &axis) in axes.iter().enumerate() {
-                    permuted_indices[axis] = indices[i].clone();
-                }
+            GraphOp::Permute(_) => {
+                let permuted_indices = node.permute_logical_indices(indices);
                 self.lower_expr(&node.src[0], &permuted_indices)
             }
             GraphOp::Reduce(_op, _axis) => {

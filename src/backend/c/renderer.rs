@@ -66,9 +66,14 @@ impl CRenderer {
                 writeln!(self.buffer, ";").unwrap();
             }
             AstOp::Load => {
-                write!(self.buffer, "*(").unwrap();
-                self.render_node(&ast.src[0]);
-                write!(self.buffer, ")").unwrap();
+                if let AstOp::Index = ast.src[0].op {
+                    // C's [] operator includes dereferencing, so we don't need to add an asterisk.
+                    self.render_node(&ast.src[0]);
+                } else {
+                    write!(self.buffer, "*(").unwrap();
+                    self.render_node(&ast.src[0]);
+                    write!(self.buffer, ")").unwrap();
+                }
             }
             AstOp::Index => {
                 self.render_node(&ast.src[0]);

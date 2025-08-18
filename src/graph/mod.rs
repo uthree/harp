@@ -1,7 +1,7 @@
 pub mod pattern;
 pub mod shape;
 
-use crate::ast::{AstOp, Const, DType};
+use crate::ast::{AstNode, AstOp, Const, DType};
 use crate::graph::shape::Expr as ShapeExpr;
 use crate::graph::shape::View;
 use std::hash::{Hash, Hasher};
@@ -153,6 +153,18 @@ impl GraphNode {
             }
         }
         Some(result)
+    }
+
+    pub fn permute_logical_indices(&self, indices: &[AstNode]) -> Vec<AstNode> {
+        if let GraphOp::Permute(axes) = &self.op {
+            let mut permuted_indices = vec![AstNode::from(0isize); indices.len()];
+            for (i, &axis) in axes.iter().enumerate() {
+                permuted_indices[axis] = indices[i].clone();
+            }
+            permuted_indices
+        } else {
+            panic!("permute_logical_indices called on non-permute node");
+        }
     }
 
     fn matches_inner(&self, pattern: &GraphNode, captures: &mut Vec<(usize, GraphNode)>) -> bool {
