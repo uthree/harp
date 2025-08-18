@@ -10,7 +10,6 @@ use std::ops::{
 };
 use std::rc::Rc;
 
-// ... (GraphSignature, ShapeVariableSignature, TensorSignature remain the same) ...
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct GraphSignature {
     pub shape_variables: Vec<ShapeVariableSignature>, // Shapeを決定するための変数。

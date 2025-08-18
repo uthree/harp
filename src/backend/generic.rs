@@ -9,6 +9,7 @@ use crate::{
         },
         rule::{
             algebraic_simplification, associative_rules, commutative_rules, distributive_rules,
+            factorization_rule,
         },
     },
 };
@@ -63,7 +64,8 @@ where
                     algebraic_simplification() // 不要なノードの除去と定数項の事前計算
                         + commutative_rules() // 交換法則
                         + distributive_rules() // 分配法則
-                        + associative_rules(), // 結合法則
+                        + associative_rules() // 結合法則
+                        + factorization_rule(), // 因数分解
                 ),
                 HandcodedCostEstimator,
             ),
