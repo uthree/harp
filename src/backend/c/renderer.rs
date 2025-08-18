@@ -179,6 +179,7 @@ impl CRenderer {
             DType::F32 => "float".to_string(),
             DType::Isize => "intptr_t".to_string(),
             DType::Usize => "size_t".to_string(),
+            DType::Void => "void".to_string(),
             DType::Ptr(inner) => format!("{}*", Self::dtype_to_c(inner)),
             DType::Any => "void".to_string(),
             _ => panic!("DType {:?} not supported in C renderer", dtype),
