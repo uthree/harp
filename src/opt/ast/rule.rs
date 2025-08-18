@@ -21,6 +21,7 @@ pub fn distributive_rules() -> AstRewriter {
     let rules: Vec<Rc<AstRewriteRule>> = vec![
         astpat!(|a, b, c| a * (b + c) => (a * b) + (a * c)),
         astpat!(|a, b, c| (a + b) * c => (a * c) + (b * c)),
+        astpat!(|a, b, c| (a.clone() * b) + (a * c) => a * (b + c)),
     ];
     AstRewriter::with_rules("distributive rules", rules)
 }
