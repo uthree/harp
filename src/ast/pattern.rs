@@ -37,10 +37,10 @@ impl AstRewriteRule {
 /// use harp::astpat;
 ///
 /// // without condition
-/// let rule = astpat!(|a| a + 1isize => a);
+/// let rule = astpat!(|a| a + 1isize => a.clone());
 ///
 /// // with condition
-/// let rule = astpat!(|a, b| a + b, if a == b => b + a);
+/// let rule = astpat!(|a, b| a + b, if *a == *b => b + a);
 /// ```
 #[macro_export]
 macro_rules! astpat {
@@ -54,14 +54,14 @@ macro_rules! astpat {
             let rewriter = |captured_nodes: &[$crate::ast::AstNode]| {
                 let mut counter = 0..;
                 $(
-                    let $capture = captured_nodes[counter.next().unwrap()].clone();
+                    let $capture = &captured_nodes[counter.next().unwrap()];
                 )*
                 $rewriter
             };
             let condition = |captured_nodes: &[$crate::ast::AstNode]| {
                 let mut counter = 0..;
                 $(
-                    let $capture = captured_nodes[counter.next().unwrap()].clone();
+                    let $capture = &captured_nodes[counter.next().unwrap()];
                 )*
                 $condition
             };
@@ -78,7 +78,7 @@ macro_rules! astpat {
             let rewriter = |captured_nodes: &[$crate::ast::AstNode]| {
                 let mut counter = 0..;
                 $(
-                    let $capture = captured_nodes[counter.next().unwrap()].clone();
+                    let $capture = &captured_nodes[counter.next().unwrap()];
                 )*
                 $rewriter
             };
@@ -212,13 +212,13 @@ fn test_astpat_macro() {
     use crate::ast::AstNode;
 
     // Test case 1: Simple rule without condition
-    let rule1 = astpat!(|a| a => a);
+    let rule1 = astpat!(|a| a => a.clone());
     let captured_nodes1 = [AstNode::from(1isize)];
     assert!((rule1.condition)(&captured_nodes1)); // Should always be true
     assert_eq!((rule1.rewriter)(&captured_nodes1), AstNode::from(1isize));
 
     // Test case 2: Rule with a condition
-    let rule2 = astpat!(|a, _b| a + _b, if a == AstNode::from(1isize) => _b + a);
+    let rule2 = astpat!(|a, _b| a + _b, if *a == AstNode::from(1isize) => _b + a);
 
     // Condition should be true
     let captured_nodes2_true = [AstNode::from(1isize), AstNode::from(2isize)];
@@ -257,7 +257,7 @@ mod rewriter_tests {
         let _ = env_logger::builder().is_test(true).try_init();
 
         // Rule: a + 0 => a
-        let rule = astpat!(|a, b| a + b, if b == AstNode::from(0isize) => a);
+        let rule = astpat!(|a, b| a + b, if *b == AstNode::from(0isize) => a.clone());
         let rewriter = AstRewriter::with_rules("AddZero", vec![rule]);
 
         // This should be rewritten
@@ -274,7 +274,7 @@ mod rewriter_tests {
     #[test]
     fn test_recursive_rewrite() {
         // Rule: a + 0 => a
-        let rule = astpat!(|a, b| a + b, if b == AstNode::from(0isize) => a);
+        let rule = astpat!(|a, b| a + b, if *b == AstNode::from(0isize) => a.clone());
         let rewriter = AstRewriter::with_rules("AddZero", vec![rule]);
 
         // (1 + 0) + (2 + 0)
@@ -290,7 +290,7 @@ mod rewriter_tests {
 
     #[test]
     fn test_no_rewrite() {
-        let rule = astpat!(|a| a * AstNode::from(2isize) => a.clone() + a);
+        let rule = astpat!(|a| a * AstNode::from(2isize) => a + a);
         let rewriter = AstRewriter::with_rules("MulToAd", vec![rule]);
 
         let expr = AstNode::from(1isize) + AstNode::from(2isize);
@@ -302,11 +302,11 @@ mod rewriter_tests {
     #[test]
     fn test_add_rewriter() {
         // Rule 1: a + 0 => a
-        let add_zero_rule = astpat!(|a, b| a + b, if b == AstNode::from(0isize) => a);
+        let add_zero_rule = astpat!(|a, b| a + b, if *b == AstNode::from(0isize) => a.clone());
         let add_zero_rewriter = AstRewriter::with_rules("AddZero", vec![add_zero_rule]);
 
         // Rule 2: a * 1 => a
-        let mul_one_rule = astpat!(|a, b| a * b, if b == AstNode::from(1isize) => a);
+        let mul_one_rule = astpat!(|a, b| a * b, if *b == AstNode::from(1isize) => a.clone());
         let mul_one_rewriter = AstRewriter::with_rules("MulOne", vec![mul_one_rule]);
 
         let combined_rewriter = add_zero_rewriter + mul_one_rewriter;
@@ -380,8 +380,8 @@ mod rewriter_tests {
     #[test]
     fn test_get_possible_rewrites() {
         // Rules: x + 0 => x and y * 1 => y
-        let add_zero_rule = astpat!(|a, b| a + b, if b == AstNode::from(0isize) => a);
-        let mul_one_rule = astpat!(|a, b| a * b, if b == AstNode::from(1isize) => a);
+        let add_zero_rule = astpat!(|a, b| a + b, if *b == AstNode::from(0isize) => a.clone());
+        let mul_one_rule = astpat!(|a, b| a * b, if *b == AstNode::from(1isize) => a.clone());
         let rewriter = ast_rewriter!("Optimizer", add_zero_rule, mul_one_rule);
 
         // Expression: (a + 0) + (b * 1)

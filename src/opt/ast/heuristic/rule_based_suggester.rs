@@ -34,8 +34,8 @@ mod tests {
     #[allow(unused_variables)]
     fn test_rule_based_suggester() {
         // 1. Create some rules and an AstRewriter
-        let add_zero_rule = astpat!(|a, b| a + b, if b == AstNode::from(0isize) => a);
-        let mul_one_rule = astpat!(|a, b| a * b, if b == AstNode::from(1isize) => a);
+        let add_zero_rule = astpat!(|a, b| a + b, if *b == AstNode::from(0isize) => a.clone());
+        let mul_one_rule = astpat!(|a, b| a * b, if *b == AstNode::from(1isize) => a.clone());
         let rewriter = ast_rewriter!("Optimizer", add_zero_rule, mul_one_rule);
 
         // 2. Create the suggester

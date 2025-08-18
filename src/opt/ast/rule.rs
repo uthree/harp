@@ -19,8 +19,8 @@ fn get_const_val(node: &AstNode) -> Option<Const> {
 /// (a + b) * c => (a * c) + (b * c)
 pub fn distributive_rules() -> AstRewriter {
     let rules: Vec<Rc<AstRewriteRule>> = vec![
-        astpat!(|a, b, c| a * (b + c) => (a.clone() * b) + (a * c)),
-        astpat!(|a, b, c| (a + b) * c => (a * c.clone()) + (b * c)),
+        astpat!(|a, b, c| a * (b + c) => (a * b) + (a * c)),
+        astpat!(|a, b, c| (a + b) * c => (a * c) + (b * c)),
     ];
     AstRewriter::with_rules("distributive rules", rules)
 }
@@ -52,35 +52,35 @@ pub fn algebraic_simplification() -> AstRewriter {
     ast_rewriter! {
         "algebraic simplification",
         // --- Identity Rules ---
-        astpat!(|a| a + AstNode::from(0isize) => a),
-        astpat!(|a| AstNode::from(0isize) + a => a),
-        astpat!(|a| a - AstNode::from(0isize) => a),
-        astpat!(|a| a * AstNode::from(1isize) => a),
-        astpat!(|a| AstNode::from(1isize) * a => a),
-        astpat!(|a| a / AstNode::from(1isize) => a),
+        astpat!(|a| a + AstNode::from(0isize) => a.clone()),
+        astpat!(|a| AstNode::from(0isize) + a => a.clone()),
+        astpat!(|a| a - AstNode::from(0isize) => a.clone()),
+        astpat!(|a| a * AstNode::from(1isize) => a.clone()),
+        astpat!(|a| AstNode::from(1isize) * a => a.clone()),
+        astpat!(|a| a / AstNode::from(1isize) => a.clone()),
         // --- Annihilation Rules ---
         astpat!(|_a| _a * AstNode::from(0isize) => AstNode::from(0isize)),
         astpat!(|_a| AstNode::from(0isize) * _a => AstNode::from(0isize)),
         astpat!(|_a| AstNode::from(0isize) / _a => AstNode::from(0isize)),
         // --- Other Rules ---
-        astpat!(|a| -(-a) => a),
+        astpat!(|a| -(-a) => a.clone()),
         // --- Constant Folding Rules ---
-        astpat!(|a, b| a + b, if is_const(&a) && is_const(&b) => {
-            if let (Some(Const::Isize(va)), Some(Const::Isize(vb))) = (get_const_val(&a), get_const_val(&b)) {
+        astpat!(|a, b| a + b, if is_const(a) && is_const(b) => {
+            if let (Some(Const::Isize(va)), Some(Const::Isize(vb))) = (get_const_val(a), get_const_val(b)) {
                 AstNode::from(va + vb)
             } else {
                 a + b
             }
         }),
-        astpat!(|a, b| a - b, if is_const(&a) && is_const(&b) => {
-            if let (Some(Const::Isize(va)), Some(Const::Isize(vb))) = (get_const_val(&a), get_const_val(&b)) {
+        astpat!(|a, b| a - b, if is_const(a) && is_const(b) => {
+            if let (Some(Const::Isize(va)), Some(Const::Isize(vb))) = (get_const_val(a), get_const_val(b)) {
                 AstNode::from(va - vb)
             } else {
                 a - b
             }
         }),
-        astpat!(|a, b| a * b, if is_const(&a) && is_const(&b) => {
-            if let (Some(Const::Isize(va)), Some(Const::Isize(vb))) = (get_const_val(&a), get_const_val(&b)) {
+        astpat!(|a, b| a * b, if is_const(a) && is_const(b) => {
+            if let (Some(Const::Isize(va)), Some(Const::Isize(vb))) = (get_const_val(a), get_const_val(b)) {
                 AstNode::from(va * vb)
             } else {
                 a * b
@@ -92,8 +92,8 @@ pub fn algebraic_simplification() -> AstRewriter {
 pub fn factorization_rule() -> AstRewriter {
     ast_rewriter! {
         "factorization",
-        astpat!(|x, y| (x.clone() + y.clone()) * (x.clone() - y.clone()) => x.clone() * x - y.clone() * y),
-        astpat!(|x, y| x.clone() * x.clone() - y.clone() * y.clone() => (x.clone() + y.clone()) * (x.clone() - y.clone()))
+        astpat!(|x, y| (x.clone() + y.clone()) * (x.clone() - y.clone()) => x * x - y * y),
+        astpat!(|x, y| x.clone() * x.clone() - y.clone() * y.clone() => (x + y) * (x - y))
     }
 }
 

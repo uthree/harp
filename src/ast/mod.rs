@@ -306,6 +306,18 @@ impl AstNode {
     }
 }
 
+impl PartialEq<AstNode> for &AstNode {
+    fn eq(&self, other: &AstNode) -> bool {
+        *self == other
+    }
+}
+
+impl<'a> PartialEq<&'a AstNode> for AstNode {
+    fn eq(&self, other: &&'a AstNode) -> bool {
+        self == *other
+    }
+}
+
 impl Not for AstNode {
     type Output = Self;
     fn not(self) -> Self::Output {
@@ -395,6 +407,43 @@ impl_astnode_binary_op!(Rem, rem, Rem);
 impl_astnode_binary_op!(Sub, sub, Sub);
 impl_astnode_binary_op!(Div, div, Div);
 
+macro_rules! impl_astnode_binary_op_for_ref {
+    ($trait:ident, $fname:ident, $variant:ident) => {
+        // &AstNode + &AstNode
+        impl<'a, 'b> $trait<&'b AstNode> for &'a AstNode {
+            type Output = AstNode;
+            fn $fname(self, rhs: &'b AstNode) -> Self::Output {
+                let dtype = self.dtype.clone();
+                AstNode::_new(AstOp::$variant, vec![self.clone(), rhs.clone()], dtype)
+            }
+        }
+
+        // AstNode + &AstNode
+        impl<'a> $trait<&'a AstNode> for AstNode {
+            type Output = AstNode;
+            fn $fname(self, rhs: &'a AstNode) -> Self::Output {
+                let dtype = self.dtype.clone();
+                AstNode::_new(AstOp::$variant, vec![self, rhs.clone()], dtype)
+            }
+        }
+
+        // &AstNode + AstNode
+        impl<'a> $trait<AstNode> for &'a AstNode {
+            type Output = AstNode;
+            fn $fname(self, rhs: AstNode) -> Self::Output {
+                let dtype = self.dtype.clone();
+                AstNode::_new(AstOp::$variant, vec![self.clone(), rhs], dtype)
+            }
+        }
+    };
+}
+
+impl_astnode_binary_op_for_ref!(Add, add, Add);
+impl_astnode_binary_op_for_ref!(Mul, mul, Mul);
+impl_astnode_binary_op_for_ref!(Rem, rem, Rem);
+impl_astnode_binary_op_for_ref!(Sub, sub, Sub);
+impl_astnode_binary_op_for_ref!(Div, div, Div);
+
 macro_rules! impl_expr_assign_op {
     ($trait:ident, $fname:ident, $op:tt) => {
         impl<T: Into<AstNode>> $trait<T> for AstNode {
@@ -410,6 +459,14 @@ impl_expr_assign_op!(SubAssign, sub_assign, -);
 impl_expr_assign_op!(MulAssign, mul_assign, *);
 impl_expr_assign_op!(DivAssign, div_assign, /);
 impl_expr_assign_op!(RemAssign, rem_assign, %);
+
+impl Neg for &AstNode {
+    type Output = AstNode;
+    fn neg(self) -> Self::Output {
+        let dtype = self.dtype.clone();
+        AstNode::_new(AstOp::Neg, vec![self.clone()], dtype)
+    }
+}
 
 impl Neg for AstNode {
     type Output = Self;
