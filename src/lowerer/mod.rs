@@ -87,7 +87,7 @@ impl Lowerer {
             let shape_vars_var = AstNode::var("shape_vars", DType::Ptr(Box::new(DType::Usize)));
             call_args.push(AstNode::load(AstNode::index(
                 shape_vars_var,
-                AstNode::from(i),
+                AstNode::from(i as usize),
             )));
         }
 
@@ -241,13 +241,62 @@ impl Lowerer {
                 }
                 self.lower_node_rec(&node.src[0], &mut unpermuted_indices, inputs)
             }
+            GraphOp::Cumulative(op, axis) => {
+                // Create an accumulator variable, initialized to the identity of the op.
+                let acc_name = format!("acc{}", self.acc_counter);
+                self.acc_counter += 1;
+                let acc_var = AstNode::var(&acc_name, node.dtype.clone());
+
+                let init_val = match op {
+                    AstOp::Add => node.dtype.zero(),
+                    AstOp::Mul => node.dtype.one(),
+                    _ => unimplemented!("Unsupported cumulative operation: {:?}", op),
+                };
+                let declare_acc = AstNode::declare(&acc_name, node.dtype.clone(), Some(init_val));
+
+                // Create an inner loop to accumulate values from the source.
+                // The loop runs from 0 up to the current index along the cumulative axis.
+                let cum_limit = indices[*axis].clone() + AstNode::from(1isize);
+                let cidx_name = format!("cidx{}", self.ridx_counter);
+                self.ridx_counter += 1;
+                let cidx_var = AstNode::var(&cidx_name, DType::Isize);
+
+                let mut inner_indices = indices.to_vec();
+                inner_indices[*axis] = cidx_var;
+
+                let value_to_accumulate =
+                    self.lower_node_rec(&node.src[0], &mut inner_indices, inputs);
+
+                let update_op = AstNode::_new(
+                    op.clone(),
+                    vec![acc_var.clone(), value_to_accumulate],
+                    node.dtype.clone(),
+                );
+                let assign_op = AstNode::assign(acc_var.clone(), update_op);
+
+                let loop_node = AstNode::_new(
+                    AstOp::Range {
+                        counter: cidx_name,
+                        step: 1,
+                    },
+                    vec![cum_limit, assign_op],
+                    DType::Void,
+                );
+
+                // The final result is a block that declares the accumulator, runs the loop,
+                // and then returns the final accumulator value.
+                AstNode::_new(
+                    AstOp::Block,
+                    vec![declare_acc, loop_node, acc_var],
+                    node.dtype.clone(),
+                )
+            }
             GraphOp::Contiguous => {
                 // A contiguous op is a hint for memory layout. In a fused kernel,
                 // we "look through" it and directly compute from its source,
                 // relying on the view of the source node to handle memory access correctly.
                 self.lower_node_rec(&node.src[0], indices, inputs)
             }
-            // TODO: Implement other operations like Cumulative.
             _ => unimplemented!(
                 "Lowering for this GraphOp is not implemented yet: {:?}",
                 node.op
@@ -264,7 +313,7 @@ fn create_loops(
 ) -> AstNode {
     indices.clear();
     for i in 0..shape.len() {
-        let counter_name = format!("lidx{}", i);
+        let counter_name = format!("idx{}", i);
         indices.push(AstNode::var(&counter_name, DType::Isize));
     }
     let body = body_builder(indices);
@@ -272,7 +321,7 @@ fn create_loops(
     let mut current_body = body;
     // Build loops from the inside out.
     for (i, dim) in shape.iter().enumerate().rev() {
-        let counter_name = format!("lidx{}", i);
+        let counter_name = format!("idx{}", i);
         current_body = AstNode::_new(
             AstOp::Range {
                 counter: counter_name,
@@ -383,6 +432,61 @@ mod tests {
             {
                 assert_eq!(name, "kernel_impl");
                 assert_eq!(args.len(), 2); // 1 output, 1 input
+            } else {
+                panic!("Expected kernel_impl function");
+            }
+
+            // Check kernel_main
+            if let Some(AstNode {
+                op: AstOp::Func { name, args, .. },
+                ..
+            }) = src.get(1)
+            {
+                assert_eq!(name, "kernel_main");
+                assert_eq!(args.len(), 2);
+            } else {
+                panic!("Expected kernel_main function");
+            }
+        } else {
+            panic!("Expected a program AST node, got {:?}", ast);
+        }
+    }
+
+    #[test]
+    fn test_lower_cumulative_sum() {
+        let mut graph = Graph::new();
+        let shape = vec![ShapeExpr::from(10)];
+        let dtype = DType::F32;
+
+        let a = graph.add_input(shape.clone(), &dtype);
+        let b = a.cumulative(AstOp::Add, 0);
+        graph.outputs.push(b.clone());
+        graph.signature.outputs.push(crate::graph::TensorSignature {
+            dtype,
+            shape: b.shape().to_vec(),
+        });
+
+        let ast = lower_graph(&graph);
+
+        // Expect a Program node with two functions: kernel_impl and kernel_main
+        if let AstNode {
+            op: AstOp::Program,
+            src,
+            ..
+        } = &ast
+        {
+            assert_eq!(src.len(), 2);
+
+            // Check kernel_impl
+            if let Some(AstNode {
+                op: AstOp::Func { name, args, .. },
+                ..
+            }) = src.get(0)
+            {
+                assert_eq!(name, "kernel_impl");
+                assert_eq!(args.len(), 2); // 1 output, 1 input
+                assert_eq!(args[0].0, "output0");
+                assert_eq!(args[1].0, "input0");
             } else {
                 panic!("Expected kernel_impl function");
             }
