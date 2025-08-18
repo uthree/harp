@@ -35,7 +35,8 @@ pub fn commutative_rules() -> AstRewriter {
     ast_rewriter! {
         "commutative rule",
         astpat!(|a, b| a + b => b + a),
-        astpat!(|a, b| a * b => b * a)
+        astpat!(|a, b| a * b => b * a),
+        astpat!(|a, b| a.clone().max(b.clone()) => b.clone().max(a.clone()))
     }
 }
 
@@ -45,7 +46,8 @@ pub fn associative_rules() -> AstRewriter {
     ast_rewriter! {
         "associative rule",
         astpat!(|a, b, c| (a + b) + c => a + (b + c)),
-        astpat!(|a, b, c| (a * b) * c => a * (b * c))
+        astpat!(|a, b, c| (a * b) * c => a * (b * c)),
+        astpat!(|a, b, c| (a.clone().max(b.clone())).max(c.clone()) => a.clone().max(b.clone().max(c.clone())))
     }
 }
 

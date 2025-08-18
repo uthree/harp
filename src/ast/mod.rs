@@ -171,6 +171,12 @@ impl AstNode {
     }
 
     #[must_use]
+    pub fn max(self, rhs: impl Into<AstNode>) -> Self {
+        let dtype = self.dtype.clone();
+        AstNode::_new(AstOp::Max, vec![self, rhs.into()], dtype)
+    }
+
+    #[must_use]
     pub fn store(ptr: AstNode, value: AstNode) -> Self {
         AstNode::_new(AstOp::Store, vec![ptr, value], DType::Any) // Store operation does not have a return value
     }
