@@ -91,9 +91,16 @@ pub fn algebraic_simplification() -> AstRewriter {
 
 pub fn factorization_rule() -> AstRewriter {
     ast_rewriter! {
-        "factorization",
+        "factorization rule",
+        // (x+y)(x-y) = x^2 - y^2
         astpat!(|x, y| (x.clone() + y.clone()) * (x.clone() - y.clone()) => x * x - y * y),
-        astpat!(|x, y| x.clone() * x.clone() - y.clone() * y.clone() => (x + y) * (x - y))
+        astpat!(|x, y| x.clone() * x.clone() - y.clone() * y.clone() => (x + y) * (x - y)),
+        // (x+y)^2 = x^2 + 2xy + y^2
+        astpat!(|x, y| (x.clone() + y.clone()) * (x.clone() + y.clone()) => x.clone() * x.clone() + (AstNode::from(2isize) * x * y) + y.clone() * y.clone()),
+        astpat!(|x, y| x.clone() * x.clone() + (AstNode::from(2isize) * x.clone() * y.clone()) + y.clone() * y.clone() => (x.clone() + y.clone()) * (x + y)),
+        // (x-y)^2 = x^2 - 2xy + y^2
+        astpat!(|x, y| (x.clone() - y.clone()) * (x.clone() - y.clone()) => x.clone() * x.clone() - (AstNode::from(2isize) * x * y) + y.clone() * y.clone()),
+        astpat!(|x, y| x.clone() * x.clone() - (AstNode::from(2isize) * x.clone() * y.clone()) + y.clone() * y.clone() => (x.clone() - y.clone()) * (x - y))
     }
 }
 
