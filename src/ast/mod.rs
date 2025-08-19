@@ -157,7 +157,7 @@ pub enum AstOp {
     Capture(usize),
 
     //乱数
-    Uniform,
+    Rand,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

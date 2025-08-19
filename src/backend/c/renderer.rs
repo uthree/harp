@@ -130,7 +130,7 @@ impl CRenderer {
             AstOp::Sqrt => self.render_unary_op_func("sqrt", ast),
             AstOp::Log2 => self.render_unary_op_func("log2", ast),
             AstOp::Exp2 => self.render_unary_op_func("exp2", ast),
-            AstOp::Uniform => {
+            AstOp::Rand => {
                 write!(self.buffer, "((float)rand() / (float)RAND_MAX)").unwrap();
             }
             _ => unimplemented!("Rendering for `{:?}` is not implemented.", ast.op),
