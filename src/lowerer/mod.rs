@@ -167,6 +167,9 @@ impl Lowerer {
             GraphOp::Elementwise(op) => {
                 ops::elementwise::lower_elementwise(self, node, indices, inputs, op)
             }
+            GraphOp::FusedElementwise(fused_ast) => {
+                ops::fused::lower_fused_elementwise(self, node, indices, inputs, fused_ast)
+            }
             GraphOp::Reduce(op, axis) => {
                 ops::reduce::lower_reduce(self, node, indices, inputs, op, axis)
             }
@@ -443,6 +446,11 @@ mod tests {
             dtype: dtype.clone(),
             shape: shape.clone(),
         });
+
+        use crate::opt::graph::GraphOptimizer;
+        use crate::opt::graph::fusion::ElementwiseFusion;
+        let optimizer = ElementwiseFusion;
+        graph = optimizer.optimize(&graph);
 
         let ast = lower_graph(&graph);
 

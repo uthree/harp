@@ -2,15 +2,19 @@ use crate::{
     ast::AstNode,
     backend::{Backend, Buffer, Compiler, Kernel, Renderer},
     graph::{Graph, GraphSignature},
-    opt::ast::{
-        heuristic::{
-            beam_search::BeamSearchAstOptimizer, handcode::HandcodedCostEstimator,
-            rule_based_suggester::RuleBasedRewriteSuggester,
+    opt::{
+        CombinedGraphOptimizer,
+        ast::{
+            heuristic::{
+                beam_search::BeamSearchAstOptimizer, handcode::HandcodedCostEstimator,
+                rule_based_suggester::RuleBasedRewriteSuggester,
+            },
+            rule::{
+                algebraic_simplification, associative_rules, commutative_rules, distributive_rules,
+                factorization_rule,
+            },
         },
-        rule::{
-            algebraic_simplification, associative_rules, commutative_rules, distributive_rules,
-            factorization_rule,
-        },
+        graph::fusion::ElementwiseFusion,
     },
 };
 use std::collections::HashMap;
@@ -23,6 +27,7 @@ where
     compiler: C,
     renderer: R,
     cache: HashMap<Graph, C::KernelType>,
+    graph_optimizer: CombinedGraphOptimizer,
     ast_optimizer: BeamSearchAstOptimizer<RuleBasedRewriteSuggester, HandcodedCostEstimator>,
 }
 
@@ -59,6 +64,7 @@ where
             compiler: C::new(),
             renderer: R::new(),
             cache: HashMap::new(),
+            graph_optimizer: CombinedGraphOptimizer::new(vec![Box::new(ElementwiseFusion)]),
             ast_optimizer: BeamSearchAstOptimizer::new(
                 RuleBasedRewriteSuggester::new(
                     algebraic_simplification() // 不要なノードの除去と定数項の事前計算

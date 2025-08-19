@@ -174,7 +174,6 @@ fn topological_sort_rec(
     sorted.push(node.clone());
 }
 
-/// An optimizer that applies elementwise fusion.
 pub struct ElementwiseFusion;
 
 impl GraphOptimizer for ElementwiseFusion {
@@ -191,6 +190,7 @@ mod tests {
     use crate::ast::{Const, DType};
     use crate::graph::Graph;
     use crate::graph::shape::expr::Expr as ShapeExpr;
+    use crate::opt::graph::GraphOptimizer;
 
     #[test]
     fn test_simple_fusion() {
