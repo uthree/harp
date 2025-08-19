@@ -186,7 +186,6 @@ impl CRenderer {
                 format!("{}[{}]", Self::dtype_to_c(inner), size)
             }
             DType::Any => "void".to_string(),
-            _ => panic!("DType {:?} not supported in C renderer", dtype),
         }
     }
 
