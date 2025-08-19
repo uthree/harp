@@ -1,5 +1,6 @@
 use crate::ast::{AstNode, AstOp};
-use crate::graph::{GraphNode, GraphNodeData, GraphOp};
+use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
+use crate::opt::GraphOptimizer;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
@@ -173,6 +174,17 @@ fn topological_sort_rec(
     sorted.push(node.clone());
 }
 
+/// An optimizer that applies elementwise fusion.
+pub struct ElementwiseFusion;
+
+impl GraphOptimizer for ElementwiseFusion {
+    fn optimize(&self, graph: &Graph) -> Graph {
+        let mut new_graph = graph.clone();
+        new_graph.outputs = fuse_elementwise(&graph.outputs);
+        new_graph
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -192,7 +204,8 @@ mod tests {
         let d = -c; // elementwise
         graph.outputs.push(d);
 
-        graph.optimize();
+        let optimizer = ElementwiseFusion;
+        let graph = optimizer.optimize(&graph);
 
         let final_node = &graph.outputs[0];
         assert!(matches!(final_node.op, GraphOp::FusedElementwise(_)));
@@ -213,7 +226,8 @@ mod tests {
         graph.outputs.push(out1);
         graph.outputs.push(out2);
 
-        graph.optimize();
+        let optimizer = ElementwiseFusion;
+        let graph = optimizer.optimize(&graph);
 
         // shared is used twice, so it should not be fused into out1.
         let final_node1 = &graph.outputs[0];
@@ -245,7 +259,8 @@ mod tests {
         let c = a + b;
         graph.outputs.push(c);
 
-        graph.optimize();
+        let optimizer = ElementwiseFusion;
+        let graph = optimizer.optimize(&graph);
 
         let final_node = &graph.outputs[0];
         // No fusion should happen as there's only one elementwise op.
@@ -267,7 +282,8 @@ mod tests {
         let z = -y;
         graph.outputs.push(z);
 
-        graph.optimize();
+        let optimizer = ElementwiseFusion;
+        let graph = optimizer.optimize(&graph);
 
         let final_node = &graph.outputs[0];
         assert!(matches!(final_node.op, GraphOp::FusedElementwise(_)));

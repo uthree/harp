@@ -323,12 +323,6 @@ impl Graph {
         self.inputs.push(input_node.clone());
         input_node
     }
-
-    pub fn optimize(&mut self) {
-        use crate::opt::graph::{ElementwiseFusionOptimizer, GraphOptimizer};
-        let optimizer = ElementwiseFusionOptimizer;
-        *self = optimizer.optimize(self);
-    }
 }
 
 // ... (Tests for Graph remain the same) ...
