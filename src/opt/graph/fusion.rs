@@ -34,7 +34,7 @@ pub fn fuse_elementwise(nodes: &[GraphNode]) -> Vec<GraphNode> {
             node.clone()
         };
 
-        if let GraphOp::Elementwise(op) = &current_node.op {
+        if let GraphOp::Elementwise(_) = &current_node.op {
             let mut should_fuse = false;
             for src in &current_node.src {
                 if (matches!(
@@ -62,6 +62,58 @@ pub fn fuse_elementwise(nodes: &[GraphNode]) -> Vec<GraphNode> {
                     dtype: current_node.dtype.clone(),
                     view: current_node.view.clone(),
                 }));
+            }
+        } else if let GraphOp::Reduce(reduce_op, axis) = &current_node.op {
+            let src = &current_node.src[0];
+            if usage_counts.get(src).copied().unwrap_or(0) <= 1 {
+                match &src.op {
+                    GraphOp::Elementwise(_) | GraphOp::FusedElementwise(_) => {
+                        let mut ast_memo = HashMap::new();
+                        let mut final_inputs = Vec::new();
+                        collect_inputs(src, &mut final_inputs, &usage_counts);
+                        final_inputs.sort_by_key(|n| Rc::as_ptr(&n.0));
+
+                        let fused_ast =
+                            build_fused_ast_rec(src, &mut ast_memo, &final_inputs, &usage_counts);
+
+                        current_node = GraphNode(Rc::new(GraphNodeData {
+                            op: GraphOp::FusedElementwiseReduce(
+                                fused_ast,
+                                reduce_op.clone(),
+                                vec![*axis],
+                            ),
+                            src: final_inputs,
+                            dtype: current_node.dtype.clone(),
+                            view: current_node.view.clone(),
+                        }));
+                    }
+                    GraphOp::Reduce(inner_reduce_op, inner_axis)
+                        if reduce_op == inner_reduce_op =>
+                    {
+                        let mut axes = vec![*inner_axis, *axis];
+                        axes.sort_unstable();
+                        current_node = GraphNode(Rc::new(GraphNodeData {
+                            op: GraphOp::FusedReduce(reduce_op.clone(), axes),
+                            src: src.src.clone(),
+                            dtype: current_node.dtype.clone(),
+                            view: current_node.view.clone(),
+                        }));
+                    }
+                    GraphOp::FusedReduce(inner_reduce_op, inner_axes)
+                        if reduce_op == inner_reduce_op =>
+                    {
+                        let mut axes = inner_axes.clone();
+                        axes.push(*axis);
+                        axes.sort_unstable();
+                        current_node = GraphNode(Rc::new(GraphNodeData {
+                            op: GraphOp::FusedReduce(reduce_op.clone(), axes),
+                            src: src.src.clone(),
+                            dtype: current_node.dtype.clone(),
+                            view: current_node.view.clone(),
+                        }));
+                    }
+                    _ => {}
+                }
             }
         }
         memo.insert(node.clone(), current_node);
@@ -288,5 +340,51 @@ mod tests {
         let final_node = &graph.outputs[0];
         assert!(matches!(final_node.op, GraphOp::FusedElementwise(_)));
         assert_eq!(final_node.src.len(), 3); // a, b, c
+    }
+
+    #[test]
+    fn test_elementwise_reduce_fusion() {
+        let mut graph = Graph::new();
+        let shape = vec![ShapeExpr::from(10), ShapeExpr::from(20)];
+        let dtype = DType::F32;
+
+        let a = graph.add_input(shape.clone(), &dtype);
+        let b = graph.add_input(shape.clone(), &dtype);
+        let c = a + b;
+        let d = c.reduce(AstOp::Add, 1);
+        graph.outputs.push(d);
+
+        let optimizer = ElementwiseFusion;
+        let graph = optimizer.optimize(&graph);
+
+        let final_node = &graph.outputs[0];
+        assert!(matches!(
+            final_node.op,
+            GraphOp::FusedElementwiseReduce(_, _, _)
+        ));
+        assert_eq!(final_node.src.len(), 2); // a, b
+    }
+
+    #[test]
+    fn test_reduce_fusion() {
+        let mut graph = Graph::new();
+        let shape = vec![ShapeExpr::from(10), ShapeExpr::from(20)];
+        let dtype = DType::F32;
+
+        let a = graph.add_input(shape.clone(), &dtype);
+        let b = a.reduce(AstOp::Add, 1);
+        let c = b.reduce(AstOp::Add, 0);
+        graph.outputs.push(c);
+
+        let optimizer = ElementwiseFusion;
+        let graph = optimizer.optimize(&graph);
+
+        let final_node = &graph.outputs[0];
+        if let GraphOp::FusedReduce(_, axes) = &final_node.op {
+            assert_eq!(axes.len(), 2);
+        } else {
+            panic!("Expected FusedReduce op, got {:?}", final_node.op);
+        }
+        assert_eq!(final_node.src.len(), 1); // a
     }
 }

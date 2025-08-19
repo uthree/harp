@@ -170,6 +170,12 @@ impl Lowerer {
             GraphOp::FusedElementwise(fused_ast) => {
                 ops::fused::lower_fused_elementwise(self, node, indices, inputs, fused_ast)
             }
+            GraphOp::FusedElementwiseReduce(fused_ast, op, axes) => ops::fused::lower_fused_elementwise_reduce(
+                self, node, indices, inputs, fused_ast, op, axes,
+            ),
+            GraphOp::FusedReduce(op, axes) => {
+                ops::fused::lower_fused_reduce(self, node, indices, inputs, op, axes)
+            }
             GraphOp::Reduce(op, axis) => {
                 ops::reduce::lower_reduce(self, node, indices, inputs, op, axis)
             }
