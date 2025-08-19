@@ -325,7 +325,9 @@ impl Graph {
     }
 
     pub fn optimize(&mut self) {
-        self.outputs = crate::opt::graph::fusion::fuse_elementwise(&self.outputs);
+        use crate::opt::graph::{ElementwiseFusionOptimizer, GraphOptimizer};
+        let optimizer = ElementwiseFusionOptimizer;
+        *self = optimizer.optimize(self);
     }
 }
 
