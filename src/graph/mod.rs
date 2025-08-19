@@ -43,12 +43,17 @@ pub struct TensorSignature {
 pub enum GraphOp {
     Input { dtype: DType },
     Full(Const),
-    Contiguous,
+    Contiguous, // Viewが連続になるように並べ直す
     Elementwise(AstOp),
     Reduce(AstOp, usize),
     Permute(Vec<usize>),
     Cumulative(AstOp, usize),
     Capture(usize),
+    // Fused ops
+    FusedElementwise(AstNode), // Capture [n] が src[n] に対応するようにする
+    FusedElementwiseReduce(AstNode, AstOp, Vec<usize>), // 上記に加え、複数の軸のReduceの融合
+    FusedReduce(AstOp, Vec<usize>), // 複数の軸のReduceを融合
+    FusedElementwiseCumulative(AstNode, AstOp), // FusedElementwiseに加え、Cumulativeな計算も同時に行う
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
