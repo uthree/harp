@@ -182,6 +182,9 @@ impl CRenderer {
             DType::Usize => "size_t".to_string(),
             DType::Void => "void".to_string(),
             DType::Ptr(inner) => format!("{}*", Self::dtype_to_c(inner)),
+            DType::Vec(inner, size) => {
+                format!("{}[{}]", Self::dtype_to_c(inner), size)
+            }
             DType::Any => "void".to_string(),
             _ => panic!("DType {:?} not supported in C renderer", dtype),
         }
