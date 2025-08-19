@@ -3,7 +3,7 @@ use crate::backend::{
     generic::GenericBackend,
 };
 
-pub type CBackend = GenericBackend<CCompiler, CRenderer, CBuffer>;
+pub type CBackend = GenericBackend<CCompiler, CRenderer>;
 
 #[cfg(test)]
 mod tests {

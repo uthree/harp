@@ -1,7 +1,6 @@
 use crate::{
-    ast::AstNode,
     backend::{Backend, Buffer, Compiler, Kernel, Renderer},
-    graph::{Graph, GraphSignature},
+    graph::Graph,
     opt::{
         graph::GraphOptimizer,
         ast::{
@@ -19,11 +18,10 @@ use crate::{
     },
 };
 use std::collections::HashMap;
-pub struct GenericBackend<C, R, B>
+pub struct GenericBackend<C, R>
 where
     R: Renderer,
-    C: Compiler<B, CodeRepr = R::CodeRepr>,
-    B: Buffer,
+    C: Compiler<CodeRepr = R::CodeRepr>,
 {
     compiler: C,
     renderer: R,
@@ -32,11 +30,10 @@ where
     ast_optimizer: BeamSearchAstOptimizer<RuleBasedRewriteSuggester, HandcodedCostEstimator>,
 }
 
-impl<C, R, B> GenericBackend<C, R, B>
+impl<C, R> GenericBackend<C, R>
 where
     R: Renderer,
-    C: Compiler<B, CodeRepr = R::CodeRepr>,
-    B: Buffer,
+    C: Compiler<CodeRepr = R::CodeRepr>,
 {
     pub fn with_options(&mut self, options: (R::Option, C::Option)) -> &mut Self {
         let (renderer_option, compiler_option) = options;
@@ -54,12 +51,12 @@ where
     }
 }
 
-impl<C, R, B> Backend<B> for GenericBackend<C, R, B>
+impl<C, R> Backend for GenericBackend<C, R>
 where
     R: Renderer,
-    C: Compiler<B, CodeRepr = R::CodeRepr>,
-    B: Buffer,
+    C: Compiler<CodeRepr = R::CodeRepr>,
 {
+    type Buffer = C::Buffer;
     type Option = (R::Option, C::Option);
 
     fn new() -> Self {
@@ -89,7 +86,7 @@ where
         self.compiler.is_available()
     }
 
-    fn execute(&mut self, graph: &Graph, inputs: Vec<B>) -> Vec<B> {
+    fn execute(&mut self, graph: &Graph, inputs: Vec<Self::Buffer>) -> Vec<Self::Buffer> {
         if !self.cache.contains_key(graph) {
             let kernel = self.compile(graph);
             self.cache.insert(graph.clone(), kernel);
@@ -97,7 +94,7 @@ where
         let kernel = self.cache.get_mut(graph).unwrap();
 
         // Prepare output buffers
-        let output_buffers: Vec<B> = graph
+        let output_buffers: Vec<Self::Buffer> = graph
             .signature
             .outputs
             .iter()
@@ -107,7 +104,7 @@ where
                     .iter()
                     .map(|e| e.evaluate(&HashMap::new()) as usize) // Assumes no shape vars for now
                     .collect();
-                B::allocate(sig.dtype.clone(), shape_usize)
+                Self::Buffer::allocate(sig.dtype.clone(), shape_usize)
             })
             .collect();
 
@@ -118,11 +115,10 @@ where
     }
 }
 
-impl<C, R, B> Default for GenericBackend<C, R, B>
+impl<C, R> Default for GenericBackend<C, R>
 where
     R: Renderer,
-    C: Compiler<B, CodeRepr = R::CodeRepr>,
-    B: Buffer,
+    C: Compiler<CodeRepr = R::CodeRepr>,
 {
     fn default() -> Self {
         Self::new()

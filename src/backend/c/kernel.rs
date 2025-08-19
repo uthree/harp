@@ -16,7 +16,9 @@ pub struct CKernel {
 
 type KernelMainFn = unsafe extern "C" fn(*mut *mut c_void, *const usize);
 
-impl Kernel<CBuffer> for CKernel {
+impl Kernel for CKernel {
+    type Buffer = CBuffer;
+
     fn details(&self) -> &GraphSignature {
         &self.details
     }
