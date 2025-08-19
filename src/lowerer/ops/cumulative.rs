@@ -61,3 +61,85 @@ pub fn lower_cumulative(
         node.dtype.clone(),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        ast::{AstNode, AstOp, DType},
+        graph::{Graph, shape::expr::Expr as ShapeExpr},
+        lowerer::lower_graph,
+    };
+
+    #[test]
+    fn test_lower_cumulative_sum() {
+        let mut graph = Graph::new();
+        let shape = vec![ShapeExpr::from(10)];
+        let dtype = DType::F32;
+
+        let a = graph.add_input(shape.clone(), &dtype);
+        let b = a.cumulative(AstOp::Add, 0);
+        graph.outputs.push(b.clone());
+        graph.signature.outputs.push(crate::graph::TensorSignature {
+            dtype,
+            shape: b.shape().to_vec(),
+        });
+
+        let ast = lower_graph(&graph);
+
+        // Expect a Program node with two functions: kernel_impl and kernel_main
+        if let AstNode {
+            op: AstOp::Program,
+            src,
+            ..
+        } = &ast
+        {
+            assert_eq!(src.len(), 2);
+
+            // Check kernel_impl
+            if let Some(AstNode {
+                op: AstOp::Func { name, args, .. },
+                ..
+            }) = src.get(0)
+            {
+                assert_eq!(name, "kernel_impl");
+                assert_eq!(args.len(), 2); // 1 output, 1 input
+                assert_eq!(args[0].0, "output0");
+                assert_eq!(args[1].0, "input0");
+            } else {
+                panic!("Expected kernel_impl function");
+            }
+
+            // Check kernel_main
+            if let Some(AstNode {
+                op: AstOp::Func { name, args, .. },
+                ..
+            }) = src.get(1)
+            {
+                assert_eq!(name, "kernel_main");
+                assert_eq!(args.len(), 2);
+            } else {
+                panic!("Expected kernel_main function");
+            }
+        } else {
+            panic!("Expected a program AST node, got {:?}", ast);
+        }
+    }
+
+    #[test]
+    fn test_lower_cumulative_max() {
+        let mut graph = Graph::new();
+        let shape = vec![ShapeExpr::from(10)];
+        let dtype = DType::F32;
+
+        let a = graph.add_input(shape.clone(), &dtype);
+        let b = a.cumulative(AstOp::Max, 0);
+        graph.outputs.push(b.clone());
+        graph.signature.outputs.push(crate::graph::TensorSignature {
+            dtype,
+            shape: b.shape().to_vec(),
+        });
+
+        let ast = lower_graph(&graph);
+        assert!(matches!(ast.op, AstOp::Program));
+    }
+}

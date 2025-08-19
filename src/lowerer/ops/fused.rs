@@ -34,9 +34,5 @@ fn replace_captures_rec(
         .map(|src| replace_captures_rec(lowerer, graph_node, indices, inputs, src))
         .collect();
 
-    AstNode::_new(
-        fused_ast.op.clone(),
-        new_srcs,
-        fused_ast.dtype.clone(),
-    )
+    AstNode::_new(fused_ast.op.clone(), new_srcs, fused_ast.dtype.clone())
 }
