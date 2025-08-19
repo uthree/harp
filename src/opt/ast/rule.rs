@@ -51,24 +51,38 @@ pub fn associative_rules() -> AstRewriter {
     }
 }
 
-pub fn algebraic_simplification() -> AstRewriter {
+pub fn identity_rules() -> AstRewriter {
     ast_rewriter! {
-        "algebraic simplification",
-        // --- Identity Rules ---
+        "identity rule",
         astpat!(|a| a + AstNode::from(0isize) => a.clone()),
         astpat!(|a| AstNode::from(0isize) + a => a.clone()),
         astpat!(|a| a - AstNode::from(0isize) => a.clone()),
         astpat!(|a| a * AstNode::from(1isize) => a.clone()),
         astpat!(|a| AstNode::from(1isize) * a => a.clone()),
-        astpat!(|a| a / AstNode::from(1isize) => a.clone()),
-        // --- Annihilation Rules ---
+        astpat!(|a| a / AstNode::from(1isize) => a.clone())
+    }
+}
+
+pub fn annihilation_rules() -> AstRewriter {
+    ast_rewriter! {
+        "annihilation rule",
         astpat!(|_a| _a * AstNode::from(0isize) => AstNode::from(0isize)),
         astpat!(|_a| AstNode::from(0isize) * _a => AstNode::from(0isize)),
-        astpat!(|_a| AstNode::from(0isize) / _a => AstNode::from(0isize)),
-        // --- Other Rules ---
-        astpat!(|a| -(-a) => a.clone()),
-        // --- Constant Folding Rules ---
-        astpat!(|a, b| a + b, if is_const(a) && is_const(b) => {
+        astpat!(|_a| AstNode::from(0isize) / _a => AstNode::from(0isize))
+    }
+}
+
+pub fn double_inverse_rule() -> AstRewriter {
+    ast_rewriter! {
+        "double inverse rule",
+        astpat!(|a| -(-a) => a.clone())
+    }
+}
+
+pub fn constant_folding() -> AstRewriter {
+    ast_rewriter! {
+        "constant folding",
+                    astpat!(|a, b| a + b, if is_const(a) && is_const(b) => {
             if let (Some(Const::Isize(va)), Some(Const::Isize(vb))) = (get_const_val(a), get_const_val(b)) {
                 AstNode::from(va + vb)
             } else {
@@ -90,6 +104,11 @@ pub fn algebraic_simplification() -> AstRewriter {
             }
         })
     }
+}
+
+pub fn algebraic_simplification() -> AstRewriter {
+    (constant_folding() + annihilation_rules() + double_inverse_rule() + identity_rules())
+        .with_name("algebraic simplification")
 }
 
 pub fn factorization_rule() -> AstRewriter {

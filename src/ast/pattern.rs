@@ -195,6 +195,11 @@ impl AstRewriter {
 
         possible_rewrites
     }
+
+    pub fn with_name(&mut self, name: &str) -> Self {
+        self.name = name.to_string();
+        self.clone()
+    }
 }
 
 impl Add for AstRewriter {
