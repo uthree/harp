@@ -1,3 +1,4 @@
+pub mod opt;
 pub mod pattern;
 pub mod shape;
 
@@ -322,6 +323,10 @@ impl Graph {
         }));
         self.inputs.push(input_node.clone());
         input_node
+    }
+
+    pub fn optimize(&mut self) {
+        self.outputs = opt::fusion::fuse_elementwise(&self.outputs);
     }
 }
 
