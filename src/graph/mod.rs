@@ -43,6 +43,7 @@ pub struct TensorSignature {
 pub enum GraphOp {
     Input { dtype: DType },
     Full(Const),
+    Uniform,
     Contiguous, // Viewが連続になるように並べ直す
     Elementwise(AstOp),
     Reduce(AstOp, usize),
@@ -93,6 +94,15 @@ impl GraphNode {
         let dtype = value.dtype();
         GraphNode(Rc::new(GraphNodeData {
             op: GraphOp::Full(value),
+            src: vec![],
+            dtype,
+            view: View::new_contiguous(shape),
+        }))
+    }
+
+    pub fn uniform(shape: Vec<ShapeExpr>, dtype: DType) -> Self {
+        GraphNode(Rc::new(GraphNodeData {
+            op: GraphOp::Uniform,
             src: vec![],
             dtype,
             view: View::new_contiguous(shape),

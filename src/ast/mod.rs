@@ -155,6 +155,9 @@ pub enum AstOp {
 
     // for pattern matching, パターンマッチのための特殊なオペレータ。これがレンダリングされるということは何かがおかしい。
     Capture(usize),
+
+    //乱数
+    Uniform,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

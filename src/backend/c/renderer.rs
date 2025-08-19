@@ -18,6 +18,7 @@ impl CRenderer {
                 self.buffer.push_str("#include <math.h>\n");
                 self.buffer.push_str("#include <stddef.h>\n");
                 self.buffer.push_str("#include <stdint.h>\n");
+                self.buffer.push_str("#include <stdlib.h>\n");
                 self.buffer.push('\n');
                 for node in &ast.src {
                     self.render_node(node);
@@ -129,6 +130,9 @@ impl CRenderer {
             AstOp::Sqrt => self.render_unary_op_func("sqrt", ast),
             AstOp::Log2 => self.render_unary_op_func("log2", ast),
             AstOp::Exp2 => self.render_unary_op_func("exp2", ast),
+            AstOp::Uniform => {
+                write!(self.buffer, "((float)rand() / (float)RAND_MAX)").unwrap();
+            }
             _ => unimplemented!("Rendering for `{:?}` is not implemented.", ast.op),
         }
     }

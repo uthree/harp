@@ -164,6 +164,7 @@ impl Lowerer {
         match &node.op {
             GraphOp::Input { .. } => ops::input::lower_input(self, node, indices, inputs),
             GraphOp::Full(_) => ops::full::lower_full(self, &node.op),
+            GraphOp::Uniform => ops::uniform::lower_uniform(self),
             GraphOp::Elementwise(op) => {
                 ops::elementwise::lower_elementwise(self, node, indices, inputs, op)
             }
