@@ -3,7 +3,7 @@ use crate::{
     backend::{Backend, Buffer, Compiler, Kernel, Renderer},
     graph::{Graph, GraphSignature},
     opt::{
-        CombinedGraphOptimizer,
+        graph::GraphOptimizer,
         ast::{
             heuristic::{
                 beam_search::BeamSearchAstOptimizer, handcode::HandcodedCostEstimator,
@@ -15,6 +15,7 @@ use crate::{
             },
         },
         graph::fusion::ElementwiseFusion,
+        CombinedGraphOptimizer,
     },
 };
 use std::collections::HashMap;
@@ -44,10 +45,12 @@ where
         self
     }
 
-    pub fn compile(&mut self, ast: AstNode, details: GraphSignature) -> C::KernelType {
-        let ast = self.ast_optimizer.optimize(&ast);
-        let code = self.renderer.render(ast);
-        self.compiler.compile(&code, details)
+    pub fn compile(&mut self, graph: &Graph) -> C::KernelType {
+        let optimized_graph = self.graph_optimizer.optimize(graph);
+        let ast = crate::lowerer::lower_graph(&optimized_graph);
+        let optimized_ast = self.ast_optimizer.optimize(&ast);
+        let code = self.renderer.render(optimized_ast);
+        self.compiler.compile(&code, graph.signature.clone())
     }
 }
 
@@ -88,8 +91,7 @@ where
 
     fn execute(&mut self, graph: &Graph, inputs: Vec<B>) -> Vec<B> {
         if !self.cache.contains_key(graph) {
-            let ast = crate::lowerer::lower_graph(graph);
-            let kernel = self.compile(ast, graph.signature.clone());
+            let kernel = self.compile(graph);
             self.cache.insert(graph.clone(), kernel);
         }
         let kernel = self.cache.get_mut(graph).unwrap();
@@ -151,14 +153,11 @@ mod tests {
             shape: shape.clone(),
         });
 
-        // 2. Lower the graph to AST
-        let ast = crate::lowerer::lower_graph(&graph);
-
-        // 3. Use GenericBackend (via CBackend) to compile
+        // 2. Use GenericBackend (via CBackend) to compile
         let mut backend = CBackend::new();
-        let mut kernel = backend.compile(ast, graph.signature);
+        let mut kernel = backend.compile(&graph);
 
-        // 4. Prepare buffers and run the kernel
+        // 3. Prepare buffers and run the kernel
         let a_data = vec![1.0f32];
         let b_data = vec![2.0f32];
         let shape_usize = vec![1];
@@ -170,7 +169,7 @@ mod tests {
         let buffers = vec![out_buffer, a_buffer, b_buffer];
         let result_buffers = kernel.call(buffers, &[]);
 
-        // 5. Check the result
+        // 4. Check the result
         let result_data = result_buffers[0].to_vec::<f32>();
         assert_eq!(result_data, vec![3.0f32]);
     }

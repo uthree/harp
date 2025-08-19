@@ -30,12 +30,9 @@ mod tests {
             shape: shape.clone(),
         });
 
-        // 2. Lower the graph to AST
-        let ast = crate::lowerer::lower_graph(&graph);
-
-        // 3. Use CBackend to compile
+        // 2. Use CBackend to compile
         let mut backend = CBackend::new();
-        let mut kernel = backend.compile(ast, graph.signature);
+        let mut kernel = backend.compile(&graph);
 
         // 4. Prepare buffers and run the kernel
         let a_data = vec![5.0f32];
