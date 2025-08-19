@@ -2,7 +2,7 @@ use crate::{
     backend::{Backend, Buffer, Compiler, Kernel, Renderer},
     graph::Graph,
     opt::{
-        graph::GraphOptimizer,
+        CombinedGraphOptimizer,
         ast::{
             heuristic::{
                 beam_search::BeamSearchAstOptimizer, handcode::HandcodedCostEstimator,
@@ -13,8 +13,8 @@ use crate::{
                 factorization_rule,
             },
         },
+        graph::GraphOptimizer,
         graph::fusion::ElementwiseFusion,
-        CombinedGraphOptimizer,
     },
 };
 use std::collections::HashMap;

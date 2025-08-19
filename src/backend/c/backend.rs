@@ -1,5 +1,5 @@
 use crate::backend::{
-    c::{CBuffer, CCompiler, CRenderer},
+    c::{CCompiler, CRenderer},
     generic::GenericBackend,
 };
 
