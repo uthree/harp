@@ -1,4 +1,4 @@
-use log::{debug, info, trace};
+use log::{debug, trace};
 
 use crate::ast::{AstNode, AstOp, Const, DType};
 use crate::backend::Renderer;
@@ -27,9 +27,7 @@ impl CRenderer {
             AstOp::Block => {
                 for node in &ast.src {
                     self.buffer.push_str("{\n");
-                    self.indent_level += 1;
                     self.render_node(node);
-                    self.indent_level -= 1;
                     self.buffer.push_str("}\n");
                 }
             }
@@ -40,7 +38,9 @@ impl CRenderer {
                     .collect();
                 self.buffer
                     .push_str(&format!("void {}({}) ", name, args_str.join(", ")));
+                self.indent_level += 1;
                 self.render_node(&ast.src[0]);
+                self.indent_level -= 1;
             }
             AstOp::Declare { name, dtype } => {
                 self.write_indent();
@@ -90,7 +90,9 @@ impl CRenderer {
                 } else {
                     writeln!(self.buffer, "; {} += {}) ", counter, step).unwrap();
                 }
+                self.indent_level += 1;
                 self.render_node(&ast.src[1]);
+                self.indent_level -= 1;
             }
             AstOp::Call(name) => {
                 self.write_indent();
@@ -207,11 +209,11 @@ impl Renderer for CRenderer {
     fn with_option(&mut self, _option: Self::Option) {}
 
     fn render(&mut self, ast: crate::ast::AstNode) -> String {
-        info!("Start rendering C code.");
+        debug!("Start rendering C code.");
         self.render_node(&ast);
         let code = self.buffer.clone();
         debug!("\n--- Rendered C code ---\n{code}\n-----------------------");
-        info!("Finished rendering C code.");
+        debug!("Finished rendering C code.");
         code
     }
 }

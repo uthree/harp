@@ -182,7 +182,7 @@ impl AstNode {
     }
 
     pub fn block(insts: Vec<AstNode>) -> Self {
-        let dtype = if insts.len() > 0 {
+        let dtype = if !insts.is_empty() {
             insts.last().unwrap().dtype.clone()
         } else {
             DType::Void

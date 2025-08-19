@@ -170,7 +170,9 @@ impl Lowerer {
             GraphOp::Reduce(op, axis) => {
                 ops::reduce::lower_reduce(self, node, indices, inputs, op, axis)
             }
-            GraphOp::Permute(axes) => ops::permute::lower_permute(self, node, indices, inputs, axes),
+            GraphOp::Permute(axes) => {
+                ops::permute::lower_permute(self, node, indices, inputs, axes)
+            }
             GraphOp::Cumulative(op, axis) => {
                 ops::cumulative::lower_cumulative(self, node, indices, inputs, op, axis)
             }
@@ -419,5 +421,52 @@ mod tests {
 
         let ast = lower_graph(&graph);
         assert!(matches!(ast.op, AstOp::Program));
+    }
+
+    #[test]
+    fn test_lower_chained_elementwise() {
+        let mut graph = Graph::new();
+        let shape = vec![ShapeExpr::from(10)];
+        let dtype = DType::F32;
+
+        let a = graph.add_input(shape.clone(), &dtype);
+        let b = graph.add_input(shape.clone(), &dtype);
+        let c = graph.add_input(shape.clone(), &dtype);
+        let d = (a + b) * c;
+        graph.outputs.push(d);
+        graph.signature.outputs.push(crate::graph::TensorSignature {
+            dtype: dtype.clone(),
+            shape: shape.clone(),
+        });
+
+        let ast = lower_graph(&graph);
+
+        // Expect a Program node with two functions: kernel_impl and kernel_main
+        if let AstNode {
+            op: AstOp::Program,
+            src,
+            ..
+        } = &ast
+        {
+            assert_eq!(src.len(), 2);
+
+            // Check kernel_impl
+            if let Some(AstNode {
+                op: AstOp::Func { name, args, .. },
+                ..
+            }) = src.get(0)
+            {
+                assert_eq!(name, "kernel_impl");
+                assert_eq!(args.len(), 4); // 1 output, 3 inputs
+                assert_eq!(args[0].0, "output0");
+                assert_eq!(args[1].0, "input0");
+                assert_eq!(args[2].0, "input1");
+                assert_eq!(args[3].0, "input2");
+            } else {
+                panic!("Expected kernel_impl function");
+            }
+        } else {
+            panic!("Expected a program AST node, got {:?}", ast);
+        }
     }
 }
