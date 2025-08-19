@@ -1,4 +1,3 @@
-pub mod opt;
 pub mod pattern;
 pub mod shape;
 
@@ -66,7 +65,7 @@ pub struct GraphNodeData {
 }
 
 #[derive(Debug, Clone)]
-pub struct GraphNode(Rc<GraphNodeData>);
+pub struct GraphNode(pub Rc<GraphNodeData>);
 
 impl Deref for GraphNode {
     type Target = GraphNodeData;
@@ -326,7 +325,7 @@ impl Graph {
     }
 
     pub fn optimize(&mut self) {
-        self.outputs = opt::fusion::fuse_elementwise(&self.outputs);
+        self.outputs = crate::opt::graph::fusion::fuse_elementwise(&self.outputs);
     }
 }
 

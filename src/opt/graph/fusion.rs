@@ -36,8 +36,10 @@ pub fn fuse_elementwise(nodes: &[GraphNode]) -> Vec<GraphNode> {
         if let GraphOp::Elementwise(op) = &current_node.op {
             let mut should_fuse = false;
             for src in &current_node.src {
-                if (matches!(src.op, GraphOp::Elementwise(_) | GraphOp::FusedElementwise(_)))
-                    && usage_counts.get(src).copied().unwrap_or(0) <= 1
+                if (matches!(
+                    src.op,
+                    GraphOp::Elementwise(_) | GraphOp::FusedElementwise(_)
+                )) && usage_counts.get(src).copied().unwrap_or(0) <= 1
                 {
                     should_fuse = true;
                     break;
@@ -71,7 +73,10 @@ pub fn fuse_elementwise(nodes: &[GraphNode]) -> Vec<GraphNode> {
 }
 
 fn can_be_fused(node: &GraphNode) -> bool {
-    matches!(node.op, GraphOp::Elementwise(_) | GraphOp::FusedElementwise(_))
+    matches!(
+        node.op,
+        GraphOp::Elementwise(_) | GraphOp::FusedElementwise(_)
+    )
 }
 
 fn collect_inputs(
@@ -135,7 +140,11 @@ fn remap_captures(ast: &AstNode, original_node: &GraphNode, new_inputs: &[GraphN
             AstNode::capture(new_idx)
         }
         _ => {
-            let new_srcs = ast.src.iter().map(|s| remap_captures(s, original_node, new_inputs)).collect();
+            let new_srcs = ast
+                .src
+                .iter()
+                .map(|s| remap_captures(s, original_node, new_inputs))
+                .collect();
             AstNode::_new(ast.op.clone(), new_srcs, ast.dtype.clone())
         }
     }
@@ -168,8 +177,8 @@ fn topological_sort_rec(
 mod tests {
     use super::*;
     use crate::ast::{Const, DType};
-    use crate::graph::shape::expr::Expr as ShapeExpr;
     use crate::graph::Graph;
+    use crate::graph::shape::expr::Expr as ShapeExpr;
 
     #[test]
     fn test_simple_fusion() {
@@ -217,10 +226,7 @@ mod tests {
 
         // shared should not be fused into out2 either.
         let final_node2 = &graph.outputs[1];
-        assert!(matches!(
-            final_node2.op,
-            GraphOp::Elementwise(AstOp::Mul)
-        ));
+        assert!(matches!(final_node2.op, GraphOp::Elementwise(AstOp::Mul)));
         assert_eq!(final_node2.src.len(), 2);
         assert!(matches!(
             final_node2.src[0].op,
