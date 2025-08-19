@@ -130,7 +130,7 @@ pub enum AstOp {
         step: isize,     // 一回のループでカウンタに加算される数値
     }, // src[0]=ループ回数, src[1] = ループする命令
     Func {
-        // 関数の宣言, srcの格命令を上から順番に実行する。
+        // 関数の宣言, src[0]が関数の本体
         name: String,
         args: Vec<(String, DType)>,
     },
@@ -179,6 +179,15 @@ impl AstNode {
     #[must_use]
     pub fn store(ptr: AstNode, value: AstNode) -> Self {
         AstNode::_new(AstOp::Store, vec![ptr, value], DType::Any) // Store operation does not have a return value
+    }
+
+    pub fn block(insts: Vec<AstNode>) -> Self {
+        let dtype = if insts.len() > 0 {
+            insts.last().unwrap().dtype.clone()
+        } else {
+            DType::Void
+        };
+        AstNode::_new(AstOp::Block, insts, dtype)
     }
 
     /// # Panics

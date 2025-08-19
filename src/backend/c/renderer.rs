@@ -26,7 +26,11 @@ impl CRenderer {
             }
             AstOp::Block => {
                 for node in &ast.src {
+                    self.buffer.push_str("{\n");
+                    self.indent_level += 1;
                     self.render_node(node);
+                    self.indent_level -= 1;
+                    self.buffer.push_str("}\n");
                 }
             }
             AstOp::Func { name, args } => {
@@ -34,13 +38,9 @@ impl CRenderer {
                     .iter()
                     .map(|(name, dtype)| format!("{} {}", Self::dtype_to_c(dtype), name))
                     .collect();
-                self.writeln(&format!("void {}({}) {{ ", name, args_str.join(", ")));
-                self.indent_level += 1;
-                for node in &ast.src {
-                    self.render_node(node);
-                }
-                self.indent_level -= 1;
-                self.writeln("}");
+                self.buffer
+                    .push_str(&format!("void {}({}) ", name, args_str.join(", ")));
+                self.render_node(&ast.src[0]);
             }
             AstOp::Declare { name, dtype } => {
                 self.write_indent();
