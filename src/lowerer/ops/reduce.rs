@@ -49,7 +49,7 @@ pub fn lower_reduce(
             counter: ridx_name,
             step: 1,
         },
-        vec![reduce_dim.into(), assign_op],
+        vec![reduce_dim.into(), AstNode::block(vec![assign_op])],
         DType::Void,
     );
 

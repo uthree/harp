@@ -202,12 +202,17 @@ fn create_loops(
     // Build loops from the inside out.
     for (i, dim) in shape.iter().enumerate().rev() {
         let counter_name = format!("idx{}", i);
+        let loop_content = if let AstOp::Block = current_body.op {
+            current_body
+        } else {
+            AstNode::block(vec![current_body])
+        };
         current_body = AstNode::_new(
             AstOp::Range {
                 counter: counter_name,
                 step: 1,
             },
-            vec![dim.clone().into(), current_body],
+            vec![dim.clone().into(), loop_content],
             DType::Void,
         );
     }

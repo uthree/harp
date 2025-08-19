@@ -49,7 +49,7 @@ pub fn lower_cumulative(
             counter: cidx_name,
             step: 1,
         },
-        vec![cum_limit, assign_op],
+        vec![cum_limit, AstNode::block(vec![assign_op])],
         DType::Void,
     );
 

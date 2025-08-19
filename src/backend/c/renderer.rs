@@ -27,7 +27,10 @@ impl CRenderer {
             AstOp::Block => {
                 for node in &ast.src {
                     self.buffer.push_str("{\n");
+                    self.indent_level += 1;
                     self.render_node(node);
+                    self.indent_level -= 1;
+                    self.write_indent();
                     self.buffer.push_str("}\n");
                 }
             }
@@ -38,9 +41,7 @@ impl CRenderer {
                     .collect();
                 self.buffer
                     .push_str(&format!("void {}({}) ", name, args_str.join(", ")));
-                self.indent_level += 1;
                 self.render_node(&ast.src[0]);
-                self.indent_level -= 1;
             }
             AstOp::Declare { name, dtype } => {
                 self.write_indent();
@@ -86,13 +87,11 @@ impl CRenderer {
                 write!(self.buffer, "for (size_t {} = 0; {} < ", counter, counter).unwrap();
                 self.render_node(&ast.src[0]);
                 if *step == 1 {
-                    writeln!(self.buffer, "; {}++) ", counter).unwrap();
+                    write!(self.buffer, "; {}++) ", counter).unwrap();
                 } else {
-                    writeln!(self.buffer, "; {} += {}) ", counter, step).unwrap();
+                    write!(self.buffer, "; {} += {}) ", counter, step).unwrap();
                 }
-                self.indent_level += 1;
                 self.render_node(&ast.src[1]);
-                self.indent_level -= 1;
             }
             AstOp::Call(name) => {
                 self.write_indent();
