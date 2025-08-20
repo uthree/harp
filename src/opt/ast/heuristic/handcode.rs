@@ -1,6 +1,6 @@
 use crate::ast::pattern::AstRewriter;
 use crate::ast::{AstNode, AstOp};
-use crate::opt::ast::heuristic::{CostEstimator, RewriteSuggester};
+use crate::opt::ast::heuristic::{CostEstimator, Rewrite, RewriteSuggester};
 use crate::opt::ast::rule::algebraic_simplification;
 
 #[derive(Clone, Copy)]
@@ -35,6 +35,7 @@ impl CostEstimator for HandcodedCostEstimator {
                     AstOp::Assign => 5.0,
                     AstOp::Declare { .. } => 0.0,
                     AstOp::Func { .. } => 0.0,
+                    AstOp::Block => 0.0,
                     AstOp::Var(_) => 2.0,
                     AstOp::Call(_) => 5.0,
                     _ => 1.0,
@@ -60,7 +61,7 @@ impl Default for AlgebraicSuggester {
 }
 
 impl RewriteSuggester for AlgebraicSuggester {
-    fn suggest(&self, node: &AstNode) -> Vec<AstNode> {
+    fn suggest(&self, node: &AstNode) -> Vec<Rewrite> {
         self.rewriter.get_possible_rewrites(node)
     }
 }
@@ -126,6 +127,6 @@ mod tests {
         let expr = AstNode::var("a", DType::Isize) + AstNode::from(0isize);
         let suggestions = suggester.suggest(&expr);
         assert_eq!(suggestions.len(), 1);
-        assert_eq!(suggestions[0], AstNode::var("a", DType::Isize));
+        assert_eq!(suggestions[0].new, AstNode::var("a", DType::Isize));
     }
 }

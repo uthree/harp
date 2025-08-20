@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::ast::{AstNode, AstOp};
-use crate::opt::ast::heuristic::RewriteSuggester;
+use crate::opt::ast::heuristic::{Rewrite, RewriteSuggester};
 
 /// A suggester that proposes loop unrolling transformations.
 pub struct UnrollSuggester {
@@ -21,7 +21,7 @@ impl Default for UnrollSuggester {
 }
 
 impl RewriteSuggester for UnrollSuggester {
-    fn suggest(&self, node: &AstNode) -> Vec<AstNode> {
+    fn suggest(&self, node: &AstNode) -> Vec<Rewrite> {
         let mut suggestions = vec![];
         self.suggest_rec(node, &mut suggestions);
         suggestions
@@ -29,7 +29,7 @@ impl RewriteSuggester for UnrollSuggester {
 }
 
 impl UnrollSuggester {
-    fn suggest_rec(&self, node: &AstNode, suggestions: &mut Vec<AstNode>) {
+    fn suggest_rec(&self, node: &AstNode, suggestions: &mut Vec<Rewrite>) {
         // First, recurse on children to find potential transformations deeper in the tree.
         for child in &node.src {
             self.suggest_rec(child, suggestions);
@@ -47,17 +47,29 @@ impl UnrollSuggester {
             // Main unrolled loop
             let unrolled_limit = loop_limit.clone() / AstNode::from(self.unroll_factor);
             let unrolled_body_stmts: Vec<AstNode> = (0..self.unroll_factor)
-                .map(|i| {
+                .flat_map(|i| {
                     let new_counter = AstNode::var(counter, node.dtype.clone())
                         * AstNode::from(self.unroll_factor)
                         + AstNode::from(i);
-                    replace_var_in_expr(&loop_body, counter, &new_counter, &mut HashSet::new())
+                    let new_body = replace_var_in_expr(
+                        &loop_body,
+                        counter,
+                        &new_counter,
+                        &mut HashSet::new(),
+                    );
+                    // If the original body was a block, extract its statements.
+                    // Otherwise, treat the single expression as a statement.
+                    if let AstOp::Block = new_body.op {
+                        new_body.src
+                    } else {
+                        vec![new_body]
+                    }
                 })
                 .collect();
             let unrolled_body = AstNode::block(unrolled_body_stmts);
             let main_loop = AstNode::range(
                 counter,
-                self.unroll_factor as isize,
+                1, // Corrected step
                 start,
                 unrolled_limit,
                 unrolled_body,
@@ -70,7 +82,10 @@ impl UnrollSuggester {
                 AstNode::range(counter, 1, remainder_start, loop_limit, loop_body.clone());
 
             let unrolled_sequence = AstNode::block(vec![main_loop, remainder_loop]);
-            suggestions.push(unrolled_sequence);
+            suggestions.push(Rewrite {
+                original: node.clone(),
+                new: unrolled_sequence,
+            });
         }
     }
 }

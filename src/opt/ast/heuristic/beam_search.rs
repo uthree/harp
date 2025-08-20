@@ -1,6 +1,6 @@
 use crate::ast::AstNode;
 use crate::opt::AstOptimizer;
-use crate::opt::ast::heuristic::{CostEstimator, RewriteSuggester};
+use crate::opt::ast::heuristic::{CostEstimator, Rewrite, RewriteSuggester};
 use console::Style;
 use indicatif::HumanDuration;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -22,7 +22,7 @@ impl<S: RewriteSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
             suggester,
             cost_estimator,
             beam_width: 4,
-            max_steps: 0,
+            max_steps: 300,
             max_visited_size: 10000, // Default max size for visited cache
         }
     }
@@ -72,8 +72,11 @@ impl<S: RewriteSuggester, C: CostEstimator> AstOptimizer for BeamSearchAstOptimi
             for (node, _) in &beam {
                 let suggestions = self.suggester.suggest(node);
                 for suggestion in suggestions {
-                    if !visited_set.contains(&suggestion) {
-                        next_candidates.insert(suggestion);
+                    // Replace the original node with the suggestion in the full AST
+                    let new_full_node =
+                        replace_node_in_ast(node, &suggestion.original, &suggestion.new);
+                    if !visited_set.contains(&new_full_node) {
+                        next_candidates.insert(new_full_node);
                     }
                 }
             }
@@ -130,6 +133,22 @@ impl<S: RewriteSuggester, C: CostEstimator> AstOptimizer for BeamSearchAstOptimi
             .unwrap_or_else(|| initial_node.clone())
     }
 }
+
+/// Replaces occurrences of `original` with `new` in the `root` AST.
+fn replace_node_in_ast(root: &AstNode, original: &AstNode, new: &AstNode) -> AstNode {
+    if root == original {
+        return new.clone();
+    }
+
+    let new_srcs = root
+        .src
+        .iter()
+        .map(|child| replace_node_in_ast(child, original, new))
+        .collect();
+
+    AstNode::_new(root.op.clone(), new_srcs, root.dtype.clone())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,12 +158,20 @@ mod tests {
 
     // A mock suggester that provides predefined rewrites.
     struct MockRewriteSuggester {
-        rules: HashMap<AstNode, Vec<AstNode>>,
+        rules: HashMap<AstNode, Vec<Rewrite>>,
     }
 
     impl RewriteSuggester for MockRewriteSuggester {
-        fn suggest(&self, node: &AstNode) -> Vec<AstNode> {
-            self.rules.get(node).cloned().unwrap_or_default()
+        fn suggest(&self, node: &AstNode) -> Vec<Rewrite> {
+            if let Some(rewrites) = self.rules.get(node) {
+                return rewrites.clone();
+            }
+            // Also check children
+            let mut suggestions = vec![];
+            for child in &node.src {
+                suggestions.extend(self.suggest(child));
+            }
+            suggestions
         }
     }
 
@@ -166,19 +193,56 @@ mod tests {
     fn test_beam_search_optimizer() {
         // Define the rewrite rules for the suggester.
         let mut rules = HashMap::new();
+        let node_10 = AstNode::from(10isize);
+        let node_8 = AstNode::from(8isize);
+        let node_9 = AstNode::from(9isize);
+        let node_5 = AstNode::from(5isize);
         rules.insert(
-            AstNode::from(10isize),
-            vec![AstNode::from(8isize), AstNode::from(9isize)],
+            node_10.clone(),
+            vec![
+                Rewrite {
+                    original: node_10.clone(),
+                    new: node_8.clone(),
+                },
+                Rewrite {
+                    original: node_10.clone(),
+                    new: node_9.clone(),
+                },
+            ],
         );
         rules.insert(
-            AstNode::from(8isize),
-            vec![AstNode::from(5isize), AstNode::from(6isize)],
+            node_8.clone(),
+            vec![
+                Rewrite {
+                    original: node_8.clone(),
+                    new: node_5.clone(),
+                },
+                Rewrite {
+                    original: node_8.clone(),
+                    new: AstNode::from(6isize),
+                },
+            ],
         );
         rules.insert(
-            AstNode::from(9isize),
-            vec![AstNode::from(7isize), AstNode::from(1isize)],
+            node_9.clone(),
+            vec![
+                Rewrite {
+                    original: node_9.clone(),
+                    new: AstNode::from(7isize),
+                },
+                Rewrite {
+                    original: node_9.clone(),
+                    new: AstNode::from(1isize),
+                },
+            ],
         );
-        rules.insert(AstNode::from(5isize), vec![AstNode::from(2isize)]);
+        rules.insert(
+            node_5.clone(),
+            vec![Rewrite {
+                original: node_5.clone(),
+                new: AstNode::from(2isize),
+            }],
+        );
 
         let suggester = MockRewriteSuggester { rules };
         let cost_estimator = MockCostEstimator;
@@ -189,7 +253,7 @@ mod tests {
             .with_max_steps(3);
 
         // The initial node to optimize.
-        let initial_node = AstNode::from(10isize);
+        let initial_node = node_10;
 
         // Run the optimization.
         let optimized_node = optimizer.optimize(&initial_node);

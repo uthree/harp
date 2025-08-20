@@ -1,10 +1,8 @@
-use crate::opt::RulebasedAstOptimizer;
-use crate::opt::ast::AstOptimizer;
 use crate::{
     backend::{Backend, Buffer, Compiler, Kernel, Renderer},
     graph::Graph,
     opt::{
-        CombinedAstOptimizer, CombinedGraphOptimizer,
+        AstOptimizer, CombinedAstOptimizer, CombinedGraphOptimizer, RulebasedAstOptimizer,
         ast::{
             heuristic::{
                 CombinedRewriteSuggester, beam_search::BeamSearchAstOptimizer,
@@ -70,16 +68,13 @@ where
             ast_optimizer: CombinedAstOptimizer::new(vec![
                 Box::new(RulebasedAstOptimizer::new(algebraic_simplification())),
                 Box::new(BeamSearchAstOptimizer::new(
-                    CombinedRewriteSuggester::new(vec![
-                        Box::new(RuleBasedRewriteSuggester::new(
-                            algebraic_simplification() // 不要なノードの除去と定数項の事前計算
-                                + commutative_rules() // 交換法則
-                                + distributive_rules() // 分配法則
-                                + associative_rules() // 結合法則
-                                + factorization_rule(), // 因数分解
-                        )),
-                        Box::new(UnrollSuggester::new(4)),
-                    ]),
+                    CombinedRewriteSuggester::new(vec![Box::new(RuleBasedRewriteSuggester::new(
+                        algebraic_simplification() // 不要なノードの除去と定数項の事前計算
+                            + commutative_rules() // 交換法則
+                            + distributive_rules() // 分配法則
+                            + associative_rules() // 結合法則
+                            + factorization_rule(), // 因数分解
+                    ))]),
                     HandcodedCostEstimator,
                 )),
             ]),
@@ -139,7 +134,7 @@ where
 mod tests {
     use crate::{
         ast::DType,
-        backend::{Backend, Buffer, c::CBackend},
+        backend::{Backend, c::CBackend},
         graph::{Graph, TensorSignature, shape::expr::Expr as ShapeExpr},
     };
 
