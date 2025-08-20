@@ -1,8 +1,4 @@
-use crate::{
-    ast::AstNode,
-    graph::GraphNode,
-    lowerer::Lowerer,
-};
+use crate::{ast::AstNode, graph::GraphNode, lowerer::Lowerer};
 
 pub fn lower_expand(
     lowerer: &mut Lowerer,

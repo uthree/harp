@@ -35,7 +35,7 @@ impl CRenderer {
                 }
                 self.indent_level -= 1;
                 self.write_indent();
-                self.buffer.push_str("}\n");
+                self.buffer.push('}');
             }
             AstOp::Func { name, args } => {
                 let args_str: Vec<String> = args
@@ -47,7 +47,6 @@ impl CRenderer {
                 self.render_node(&ast.src[0]);
             }
             AstOp::Declare { name, dtype } => {
-                self.write_indent();
                 write!(self.buffer, "{} {}", Self::dtype_to_c(dtype), name).unwrap();
                 if let Some(value) = ast.src.first() {
                     write!(self.buffer, " = ").unwrap();
@@ -55,13 +54,11 @@ impl CRenderer {
                 }
             }
             AstOp::Assign => {
-                self.write_indent();
                 self.render_node(&ast.src[0]);
                 write!(self.buffer, " = ").unwrap();
                 self.render_node(&ast.src[1]);
             }
             AstOp::Store => {
-                self.write_indent();
                 self.render_node(&ast.src[0]);
                 write!(self.buffer, " = ").unwrap();
                 self.render_node(&ast.src[1]);
@@ -83,7 +80,6 @@ impl CRenderer {
                 write!(self.buffer, "]").unwrap();
             }
             AstOp::Range { counter, step } => {
-                self.write_indent();
                 write!(self.buffer, "for (size_t {} = 0; {} < ", counter, counter).unwrap();
                 self.render_node(&ast.src[0]);
                 if *step == 1 {
@@ -94,7 +90,6 @@ impl CRenderer {
                 self.render_node(&ast.src[1]);
             }
             AstOp::Call(name) => {
-                self.write_indent();
                 write!(self.buffer, "{}(", name).unwrap();
                 for (i, arg) in ast.src.iter().enumerate() {
                     if i > 0 {
