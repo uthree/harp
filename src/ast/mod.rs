@@ -322,6 +322,79 @@ impl AstNode {
         let dtype = self.dtype.clone();
         AstNode::_new(AstOp::Gt, vec![self, rhs.into()], dtype)
     }
+
+    #[must_use]
+    pub fn cast(self, dtype: DType) -> Self {
+        AstNode::_new(AstOp::Cast(dtype.clone()), vec![self], dtype)
+    }
+
+    #[must_use]
+    pub fn sin(self) -> Self {
+        let dtype = self.dtype.clone();
+        AstNode::_new(AstOp::Sin, vec![self], dtype)
+    }
+
+    #[must_use]
+    pub fn exp2(self) -> Self {
+        let dtype = self.dtype.clone();
+        AstNode::_new(AstOp::Exp2, vec![self], dtype)
+    }
+
+    #[must_use]
+    pub fn log2(self) -> Self {
+        let dtype = self.dtype.clone();
+        AstNode::_new(AstOp::Log2, vec![self], dtype)
+    }
+
+    #[must_use]
+    pub fn sqrt(self) -> Self {
+        let dtype = self.dtype.clone();
+        AstNode::_new(AstOp::Sqrt, vec![self], dtype)
+    }
+
+    #[must_use]
+    pub fn range(counter: &str, step: isize, limit: AstNode, body: AstNode) -> Self {
+        AstNode::_new(
+            AstOp::Range {
+                counter: counter.to_string(),
+                step,
+            },
+            vec![limit, body],
+            DType::Void,
+        )
+    }
+
+    #[must_use]
+    pub fn func(name: &str, args: Vec<(String, DType)>, body: AstNode) -> Self {
+        AstNode::_new(
+            AstOp::Func {
+                name: name.to_string(),
+                args,
+            },
+            vec![body],
+            DType::Void,
+        )
+    }
+
+    #[must_use]
+    pub fn call(name: &str, args: Vec<AstNode>) -> Self {
+        AstNode::_new(AstOp::Call(name.to_string()), args, DType::Void)
+    }
+
+    #[must_use]
+    pub fn program(nodes: Vec<AstNode>) -> Self {
+        AstNode::_new(AstOp::Program, nodes, DType::Void)
+    }
+
+    #[must_use]
+    pub fn barrier() -> Self {
+        AstNode::_new(AstOp::Barrier, vec![], DType::Void)
+    }
+
+    #[must_use]
+    pub fn rand() -> Self {
+        AstNode::_new(AstOp::Rand, vec![], DType::F32)
+    }
 }
 
 impl PartialEq<AstNode> for &AstNode {

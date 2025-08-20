@@ -52,11 +52,7 @@ impl Lowerer {
                 bufs_var,
                 AstNode::from(buffer_count as usize),
             ));
-            call_args.push(AstNode::_new(
-                AstOp::Cast(dtype),
-                vec![loaded_ptr],
-                DType::Any,
-            ));
+            call_args.push(loaded_ptr.cast(dtype));
             buffer_count += 1;
         }
         for (i, input_sig) in graph.signature.inputs.iter().enumerate() {
@@ -72,11 +68,7 @@ impl Lowerer {
                 bufs_var,
                 AstNode::from(buffer_count as usize),
             ));
-            call_args.push(AstNode::_new(
-                AstOp::Cast(dtype),
-                vec![loaded_ptr],
-                DType::Any,
-            ));
+            call_args.push(loaded_ptr.cast(dtype));
             buffer_count += 1;
         }
 
@@ -115,14 +107,7 @@ impl Lowerer {
             body.push(loops);
         }
 
-        let kernel_impl = AstNode::_new(
-            AstOp::Func {
-                name: "kernel_impl".to_string(),
-                args: impl_args,
-            },
-            vec![AstNode::_new(AstOp::Block, body, DType::Void)],
-            DType::Void,
-        );
+        let kernel_impl = AstNode::func("kernel_impl", impl_args, AstNode::block(body));
 
         // 2. Generate the main entrypoint function (`kernel_main`)
         let main_args = vec![
@@ -133,23 +118,16 @@ impl Lowerer {
             ("shape_vars".to_string(), DType::Ptr(Box::new(DType::Usize))),
         ];
 
-        let call_impl = AstNode::_new(
-            AstOp::Call("kernel_impl".to_string()),
-            call_args,
-            DType::Void,
-        );
+        let call_impl = AstNode::call("kernel_impl", call_args);
 
-        let kernel_main = AstNode::_new(
-            AstOp::Func {
-                name: "kernel_main".to_string(),
-                args: main_args,
-            },
-            vec![AstNode::_new(AstOp::Block, vec![call_impl], DType::Void)],
-            DType::Void,
+        let kernel_main = AstNode::func(
+            "kernel_main",
+            main_args,
+            AstNode::block(vec![call_impl]),
         );
 
         // 3. Return a program containing both functions
-        AstNode::_new(AstOp::Program, vec![kernel_impl, kernel_main], DType::Void)
+        AstNode::program(vec![kernel_impl, kernel_main])
     }
 
     /// Recursively lowers a `GraphNode` to an `AstNode` for a single element computation.
@@ -219,14 +197,7 @@ fn create_loops(
         } else {
             AstNode::block(vec![current_body])
         };
-        current_body = AstNode::_new(
-            AstOp::Range {
-                counter: counter_name,
-                step: 1,
-            },
-            vec![dim.clone().into(), loop_content],
-            DType::Void,
-        );
+        current_body = AstNode::range(&counter_name, 1, dim.clone().into(), loop_content);
     }
     current_body
 }
