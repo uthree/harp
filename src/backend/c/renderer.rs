@@ -29,7 +29,6 @@ impl CRenderer {
                 self.buffer.push_str("{\n");
                 self.indent_level += 1;
                 for node in &ast.src {
-                    self.write_indent();
                     self.render_node(node);
                     writeln!(self.buffer, ";").unwrap();
                 }
@@ -47,6 +46,7 @@ impl CRenderer {
                 self.render_node(&ast.src[0]);
             }
             AstOp::Declare { name, dtype } => {
+                self.write_indent();
                 write!(self.buffer, "{} {}", Self::dtype_to_c(dtype), name).unwrap();
                 if let Some(value) = ast.src.first() {
                     write!(self.buffer, " = ").unwrap();
@@ -54,11 +54,13 @@ impl CRenderer {
                 }
             }
             AstOp::Assign => {
+                self.write_indent();
                 self.render_node(&ast.src[0]);
                 write!(self.buffer, " = ").unwrap();
                 self.render_node(&ast.src[1]);
             }
             AstOp::Store => {
+                self.write_indent();
                 self.render_node(&ast.src[0]);
                 write!(self.buffer, " = ").unwrap();
                 self.render_node(&ast.src[1]);
@@ -93,6 +95,7 @@ impl CRenderer {
                 self.render_node(&ast.src[2]); // body
             }
             AstOp::Call(name) => {
+                self.write_indent();
                 write!(self.buffer, "{}(", name).unwrap();
                 for (i, arg) in ast.src.iter().enumerate() {
                     if i > 0 {
