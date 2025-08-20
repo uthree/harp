@@ -12,5 +12,5 @@ pub fn lower_permute(
     for (i, &axis) in axes.iter().enumerate() {
         unpermuted_indices[axis] = indices[i].clone();
     }
-    lowerer.lower_node_rec(&node.src[0], &mut unpermuted_indices, inputs)
+    lowerer.lower_node_rec(&node.src[0], &mut unpermuted_indices, inputs, None)
 }

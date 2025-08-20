@@ -93,15 +93,29 @@ impl Lowerer {
             );
             let shape = output_node.shape().to_vec();
             let mut indices = Vec::new();
+
             let loops = create_loops(
                 &shape,
                 |indices| {
-                    let mut stmts = self.lower_node_rec(output_node, indices, &graph.inputs);
-                    let value_to_store = stmts.pop().unwrap();
-                    let output_view = View::new_contiguous(shape.clone());
-                    let physical_index = output_view.to_physical_index_ast(indices);
-                    let store_ptr = AstNode::index(output_ptr.clone(), physical_index);
-                    stmts.push(AstNode::store(store_ptr, value_to_store));
+                    let stmts = match output_node.op {
+                        GraphOp::FusedElementwiseReduce(..) | GraphOp::FusedReduce(..) => self
+                            .lower_node_rec(
+                                output_node,
+                                indices,
+                                &graph.inputs,
+                                Some(output_ptr.clone()),
+                            ),
+                        _ => {
+                            let mut stmts =
+                                self.lower_node_rec(output_node, indices, &graph.inputs, None);
+                            let value_to_store = stmts.pop().unwrap();
+                            let output_view = View::new_contiguous(shape.clone());
+                            let physical_index = output_view.to_physical_index_ast(indices);
+                            let store_ptr = AstNode::index(output_ptr.clone(), physical_index);
+                            stmts.push(AstNode::store(store_ptr, value_to_store));
+                            stmts
+                        }
+                    };
                     AstNode::block(stmts)
                 },
                 &mut indices,
@@ -136,6 +150,7 @@ impl Lowerer {
         node: &GraphNode,
         indices: &mut [AstNode],
         inputs: &[GraphNode],
+        output_ptr: Option<AstNode>,
     ) -> Vec<AstNode> {
         match &node.op {
             GraphOp::Input { .. } => ops::input::lower_input(self, node, indices, inputs),
@@ -149,12 +164,25 @@ impl Lowerer {
             }
             GraphOp::FusedElementwiseReduce(fused_ast, op, axes) => {
                 ops::fused::lower_fused_elementwise_reduce(
-                    self, node, indices, inputs, fused_ast, op, axes,
+                    self,
+                    node,
+                    indices,
+                    inputs,
+                    fused_ast,
+                    op,
+                    axes,
+                    output_ptr.unwrap(),
                 )
             }
-            GraphOp::FusedReduce(op, axes) => {
-                ops::fused::lower_fused_reduce(self, node, indices, inputs, op, axes)
-            }
+            GraphOp::FusedReduce(op, axes) => ops::fused::lower_fused_reduce(
+                self,
+                node,
+                indices,
+                inputs,
+                op,
+                axes,
+                output_ptr.unwrap(),
+            ),
             GraphOp::Reduce(op, axis) => {
                 ops::reduce::lower_reduce(self, node, indices, inputs, op, axis)
             }

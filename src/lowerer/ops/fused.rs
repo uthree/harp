@@ -1,6 +1,6 @@
 use crate::{
     ast::{AstNode, AstOp},
-    graph::GraphNode,
+    graph::{GraphNode, shape::view::View},
     lowerer::Lowerer,
 };
 
@@ -22,6 +22,7 @@ pub fn lower_fused_elementwise_reduce(
     fused_ast: &AstNode,
     op: &AstOp,
     axes: &[usize],
+    output_ptr: AstNode,
 ) -> Vec<AstNode> {
     let acc_name = format!("acc{}", lowerer.acc_counter);
     lowerer.acc_counter += 1;
@@ -35,16 +36,20 @@ pub fn lower_fused_elementwise_reduce(
     };
     let declare_acc = AstNode::declare(&acc_name, node.dtype.clone(), Some(init_val));
 
-    let mut body_indices = indices.to_vec();
     let mut reduce_vars = vec![];
-    let mut sorted_axes = axes.iter().copied().collect::<Vec<_>>();
+    let mut sorted_axes = axes.to_vec();
     sorted_axes.sort();
+
+    let mut body_indices = indices.to_vec();
+    for axis in &sorted_axes {
+        body_indices.insert(*axis, AstNode::var("dummy", node.dtype.clone()));
+    }
 
     for (i, axis) in sorted_axes.iter().enumerate() {
         let ridx_name = format!("ridx{}_{}", lowerer.ridx_counter, i);
         let ridx_var = AstNode::var(&ridx_name, node.dtype.clone());
         reduce_vars.push((ridx_name, node.src[0].shape()[*axis].clone()));
-        body_indices.insert(*axis, ridx_var);
+        body_indices[*axis] = ridx_var;
     }
     lowerer.ridx_counter += 1;
 
@@ -57,7 +62,12 @@ pub fn lower_fused_elementwise_reduce(
         node.dtype.clone(),
     );
     let mut body = AstNode::assign(acc_var.clone(), update_op);
-    body = AstNode::block(lowered_fused.into_iter().chain(std::iter::once(body)).collect());
+    body = AstNode::block(
+        lowered_fused
+            .into_iter()
+            .chain(std::iter::once(body))
+            .collect(),
+    );
 
     for (ridx_name, reduce_dim) in reduce_vars.into_iter().rev() {
         body = AstNode::range(&ridx_name, 1, reduce_dim.into(), body);
@@ -65,7 +75,12 @@ pub fn lower_fused_elementwise_reduce(
 
     let mut stmts = vec![declare_acc];
     stmts.push(body);
-    stmts.push(acc_var);
+
+    let output_view = View::new_contiguous(node.shape().to_vec());
+    let physical_index = output_view.to_physical_index_ast(indices);
+    let store_ptr = AstNode::index(output_ptr, physical_index);
+    stmts.push(AstNode::store(store_ptr, acc_var));
+
     stmts
 }
 
@@ -76,6 +91,7 @@ pub fn lower_fused_reduce(
     inputs: &[GraphNode],
     op: &AstOp,
     axes: &[usize],
+    output_ptr: AstNode,
 ) -> Vec<AstNode> {
     let acc_name = format!("acc{}", lowerer.acc_counter);
     lowerer.acc_counter += 1;
@@ -92,7 +108,7 @@ pub fn lower_fused_reduce(
     let mut inner_indices = indices.to_vec();
     let mut loops = vec![];
 
-    let mut lowered_src = lowerer.lower_node_rec(&node.src[0], &mut inner_indices, inputs);
+    let mut lowered_src = lowerer.lower_node_rec(&node.src[0], &mut inner_indices, inputs, None);
     let value_to_reduce = lowered_src.pop().unwrap();
     let update_op = AstNode::_new(
         op.clone(),
@@ -100,7 +116,12 @@ pub fn lower_fused_reduce(
         node.dtype.clone(),
     );
     let mut body = AstNode::assign(acc_var.clone(), update_op);
-    body = AstNode::block(lowered_src.into_iter().chain(std::iter::once(body)).collect());
+    body = AstNode::block(
+        lowered_src
+            .into_iter()
+            .chain(std::iter::once(body))
+            .collect(),
+    );
 
     for (i, axis) in axes.iter().enumerate().rev() {
         let reduce_dim = node.src[0].shape()[*axis].clone();
@@ -115,7 +136,12 @@ pub fn lower_fused_reduce(
 
     let mut stmts = vec![declare_acc];
     stmts.extend(loops);
-    stmts.push(acc_var);
+
+    let output_view = View::new_contiguous(node.shape().to_vec());
+    let physical_index = output_view.to_physical_index_ast(indices);
+    let store_ptr = AstNode::index(output_ptr, physical_index);
+    stmts.push(AstNode::store(store_ptr, acc_var));
+
     stmts
 }
 
@@ -127,7 +153,7 @@ fn replace_captures_rec(
     fused_ast: &AstNode,
 ) -> Vec<AstNode> {
     if let AstOp::Capture(n) = fused_ast.op {
-        return lowerer.lower_node_rec(&graph_node.src[n], indices, inputs);
+        return lowerer.lower_node_rec(&graph_node.src[n], indices, inputs, None);
     }
 
     let mut stmts = vec![];

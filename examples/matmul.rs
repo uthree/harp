@@ -1,8 +1,8 @@
+use harp::ast::DType;
 use harp::backend::c::{CBackend, CBuffer};
 use harp::backend::{Backend, Buffer, Kernel};
 use harp::graph::shape::Expr as ShapeExpr;
 use harp::graph::{Graph, ShapeVariableSignature};
-use harp::ast::DType;
 use ndarray::{Array, Array2, ArrayD};
 
 fn main() {
@@ -52,6 +52,10 @@ fn main() {
     // C(M, N) = sum(A(M, K, N) * B(M, K, N), axis=1)
     let c = (a_expanded * b_expanded).sum(1);
 
+    graph.signature.outputs.push(harp::graph::TensorSignature {
+        dtype: DType::F32,
+        shape: vec![m, n],
+    });
     graph.outputs.push(c);
 
     // 2. バックエンドを選択して計算グラフをコンパイルする
@@ -66,16 +70,8 @@ fn main() {
     let a_data: Array2<f32> = Array::from_shape_fn((m_val, k_val), |(i, j)| (i * k_val + j) as f32);
     let b_data: Array2<f32> = Array::from_shape_fn((k_val, n_val), |(i, j)| (i * n_val + j) as f32);
 
-    let a_buffer = CBuffer::from_slice(
-        a_data.as_slice().unwrap(),
-        &[m_val, k_val],
-        DType::F32,
-    );
-    let b_buffer = CBuffer::from_slice(
-        b_data.as_slice().unwrap(),
-        &[k_val, n_val],
-        DType::F32,
-    );
+    let a_buffer = CBuffer::from_slice(a_data.as_slice().unwrap(), &[m_val, k_val], DType::F32);
+    let b_buffer = CBuffer::from_slice(b_data.as_slice().unwrap(), &[k_val, n_val], DType::F32);
     let c_buffer = CBuffer::allocate(DType::F32, vec![m_val, n_val]);
 
     let mut shape_vars_values = vec![];
@@ -89,7 +85,7 @@ fn main() {
     }
 
     // 4. カーネルを実行する
-        let result_buffers = kernel.call(vec![c_buffer, a_buffer, b_buffer], &shape_vars_values);
+    let result_buffers = kernel.call(vec![c_buffer, a_buffer, b_buffer], &shape_vars_values);
     let c_vec = result_buffers[0].to_vec::<f32>();
     let c_data = ArrayD::from_shape_vec(vec![m_val, n_val], c_vec).unwrap();
 

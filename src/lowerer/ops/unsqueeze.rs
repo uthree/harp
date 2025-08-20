@@ -22,5 +22,5 @@ pub fn lower_unsqueeze(
         src_indices.remove(axis);
     }
 
-    lowerer.lower_node_rec(src_node, &mut src_indices, inputs)
+    lowerer.lower_node_rec(src_node, &mut src_indices, inputs, None)
 }

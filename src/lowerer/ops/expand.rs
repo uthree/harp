@@ -1,6 +1,6 @@
 use crate::{
     ast::AstNode,
-    graph::{GraphNode, GraphOp},
+    graph::GraphNode,
     lowerer::Lowerer,
 };
 
@@ -25,5 +25,5 @@ pub fn lower_expand(
         }
     }
 
-    lowerer.lower_node_rec(src_node, &mut src_indices, inputs)
+    lowerer.lower_node_rec(src_node, &mut src_indices, inputs, None)
 }

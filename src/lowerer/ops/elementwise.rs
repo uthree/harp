@@ -14,16 +14,12 @@ pub fn lower_elementwise(
     let mut stmts = vec![];
     let mut lowered_srcs = vec![];
     for src in &node.src {
-        let mut lowered = lowerer.lower_node_rec(src, indices, inputs);
+        let mut lowered = lowerer.lower_node_rec(src, indices, inputs, None);
         let val = lowered.pop().unwrap();
         stmts.extend(lowered);
         lowered_srcs.push(val);
     }
-    stmts.push(AstNode::_new(
-        op.clone(),
-        lowered_srcs,
-        node.dtype.clone(),
-    ));
+    stmts.push(AstNode::_new(op.clone(), lowered_srcs, node.dtype.clone()));
     stmts
 }
 

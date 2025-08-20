@@ -35,7 +35,7 @@ pub fn lower_reduce(
     // Insert the reduction loop variable at the reduction axis.
     inner_indices.insert(*axis, ridx_var);
 
-    let mut lowered_src = lowerer.lower_node_rec(&node.src[0], &mut inner_indices, inputs);
+    let mut lowered_src = lowerer.lower_node_rec(&node.src[0], &mut inner_indices, inputs, None);
     let value_to_reduce = lowered_src.pop().unwrap();
 
     let update_op = AstNode::_new(
@@ -44,7 +44,12 @@ pub fn lower_reduce(
         node.dtype.clone(),
     );
     let assign_op = AstNode::assign(acc_var.clone(), update_op);
-    let loop_body = AstNode::block(lowered_src.into_iter().chain(std::iter::once(assign_op)).collect());
+    let loop_body = AstNode::block(
+        lowered_src
+            .into_iter()
+            .chain(std::iter::once(assign_op))
+            .collect(),
+    );
 
     let loop_node = AstNode::range(&ridx_name, 1, reduce_dim.into(), loop_body);
 

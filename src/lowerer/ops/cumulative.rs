@@ -35,7 +35,7 @@ pub fn lower_cumulative(
     let mut inner_indices = indices.to_vec();
     inner_indices[*axis] = cidx_var;
 
-    let mut lowered_src = lowerer.lower_node_rec(&node.src[0], &mut inner_indices, inputs);
+    let mut lowered_src = lowerer.lower_node_rec(&node.src[0], &mut inner_indices, inputs, None);
     let value_to_accumulate = lowered_src.pop().unwrap();
 
     let update_op = AstNode::_new(

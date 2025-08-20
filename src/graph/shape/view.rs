@@ -158,18 +158,11 @@ impl View {
                 strides,
                 offset,
             } => {
-                assert_eq!(
-                    shape.len(),
-                    new_shape.len(),
-                    "expand must not change rank"
-                );
+                assert_eq!(shape.len(), new_shape.len(), "expand must not change rank");
                 let mut new_strides = strides.clone();
                 for i in 0..shape.len() {
                     if shape[i] != new_shape[i] {
-                        assert!(
-                            shape[i].is_one(),
-                            "can only expand an axis of size 1"
-                        );
+                        assert!(shape[i].is_one(), "can only expand an axis of size 1");
                         new_strides[i] = 0.into();
                     }
                 }
