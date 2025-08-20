@@ -1,20 +1,12 @@
 pub mod beam_search;
 pub mod handcode;
 pub mod rule_based_suggester;
-pub mod unroll;
-
 use crate::ast::AstNode;
 use std::collections::HashSet;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Rewrite {
-    pub original: AstNode,
-    pub new: AstNode,
-}
-
 /// A trait for suggesting rewrites to an AST.
 pub trait RewriteSuggester {
-    fn suggest(&self, node: &AstNode) -> Vec<Rewrite>;
+    fn suggest(&self, node: &AstNode) -> Vec<AstNode>;
 }
 
 /// A trait for estimating the cost of an AST.
@@ -34,7 +26,7 @@ impl CombinedRewriteSuggester {
 }
 
 impl RewriteSuggester for CombinedRewriteSuggester {
-    fn suggest(&self, node: &AstNode) -> Vec<Rewrite> {
+    fn suggest(&self, node: &AstNode) -> Vec<AstNode> {
         let mut all_suggestions = HashSet::new();
         for suggester in &self.suggesters {
             let suggestions = suggester.suggest(node);
@@ -70,11 +62,11 @@ mod tests {
     use crate::ast::{AstNode, AstOp};
 
     struct MockSuggester {
-        suggestions: Vec<Rewrite>,
+        suggestions: Vec<AstNode>,
     }
 
     impl RewriteSuggester for MockSuggester {
-        fn suggest(&self, _node: &AstNode) -> Vec<Rewrite> {
+        fn suggest(&self, _node: &AstNode) -> Vec<AstNode> {
             self.suggestions.clone()
         }
     }
@@ -97,16 +89,10 @@ mod tests {
             crate::ast::DType::Any,
         );
         let suggester1 = MockSuggester {
-            suggestions: vec![Rewrite {
-                original: original_node.clone(),
-                new: AstNode::_new(AstOp::Add, vec![], crate::ast::DType::Any),
-            }],
+            suggestions: vec![AstNode::_new(AstOp::Add, vec![], crate::ast::DType::Any)],
         };
         let suggester2 = MockSuggester {
-            suggestions: vec![Rewrite {
-                original: original_node.clone(),
-                new: AstNode::_new(AstOp::Sub, vec![], crate::ast::DType::Any),
-            }],
+            suggestions: vec![AstNode::_new(AstOp::Sub, vec![], crate::ast::DType::Any)],
         };
         let combined =
             CombinedRewriteSuggester::new(vec![Box::new(suggester1), Box::new(suggester2)]);

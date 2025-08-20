@@ -1,5 +1,4 @@
 use crate::ast::AstNode;
-use crate::opt::ast::heuristic::Rewrite;
 use log::{debug, trace};
 use std::ops::Add;
 use std::rc::Rc;
@@ -170,7 +169,7 @@ impl AstRewriter {
     /// finds all rules that can be applied independently. Each successful application
     /// results in a new AST representing that single change.
     #[must_use]
-    pub fn get_possible_rewrites(&self, node: &AstNode) -> Vec<Rewrite> {
+    pub fn get_possible_rewrites(&self, node: &AstNode) -> Vec<AstNode> {
         let mut possible_rewrites = Vec::new();
 
         // Part 1: Find rewrites at the current node level.
@@ -179,10 +178,7 @@ impl AstRewriter {
                 && (rule.condition)(&captures)
             {
                 let rewritten_node = (rule.rewriter)(&captures);
-                possible_rewrites.push(Rewrite {
-                    original: node.clone(),
-                    new: rewritten_node,
-                });
+                possible_rewrites.push(rewritten_node);
             }
         }
 
@@ -191,12 +187,9 @@ impl AstRewriter {
             let child_rewrites = self.get_possible_rewrites(child);
             for rewritten_child in child_rewrites {
                 let mut new_src = node.src.clone();
-                new_src[i] = rewritten_child.new;
+                new_src[i] = rewritten_child;
                 let new_node = AstNode::_new(node.op.clone(), new_src, node.dtype.clone());
-                possible_rewrites.push(Rewrite {
-                    original: node.clone(),
-                    new: new_node,
-                });
+                possible_rewrites.push(new_node);
             }
         }
 
@@ -410,7 +403,7 @@ mod rewriter_tests {
         let expected2 = (a + AstNode::from(0isize)) + b;
 
         assert_eq!(rewrites.len(), 2);
-        assert!(rewrites.iter().any(|r| r.new == expected1));
-        assert!(rewrites.iter().any(|r| r.new == expected2));
+        assert!(rewrites.iter().any(|r| *r == expected1));
+        assert!(rewrites.iter().any(|r| *r == expected2));
     }
 }

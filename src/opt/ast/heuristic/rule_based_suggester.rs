@@ -1,6 +1,6 @@
-use crate::ast::pattern::AstRewriter;
 use crate::ast::AstNode;
-use crate::opt::ast::heuristic::{Rewrite, RewriteSuggester};
+use crate::ast::pattern::AstRewriter;
+use crate::opt::ast::heuristic::RewriteSuggester;
 
 /// A simple rewrite suggester that holds a predefined AstRewriter.
 #[derive(Clone)]
@@ -17,7 +17,7 @@ impl RuleBasedRewriteSuggester {
 
 impl RewriteSuggester for RuleBasedRewriteSuggester {
     /// Returns the underlying AstRewriter.
-    fn suggest(&self, node: &AstNode) -> Vec<Rewrite> {
+    fn suggest(&self, node: &AstNode) -> Vec<AstNode> {
         self.rewriter.get_possible_rewrites(node)
     }
 }
@@ -50,7 +50,7 @@ mod tests {
         let expected1 = a.clone() * AstNode::from(1isize); // from a + 0 => a
         let expected2 = a.clone() + AstNode::from(0isize); // from (a + 0) * 1 => a + 0
         assert_eq!(suggestions.len(), 2);
-        assert!(suggestions.iter().any(|r| r.new == expected1));
-        assert!(suggestions.iter().any(|r| r.new == expected2));
+        assert!(suggestions.iter().any(|r| *r == expected1));
+        assert!(suggestions.iter().any(|r| *r == expected2));
     }
 }

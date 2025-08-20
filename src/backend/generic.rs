@@ -7,7 +7,6 @@ use crate::{
             heuristic::{
                 CombinedRewriteSuggester, beam_search::BeamSearchAstOptimizer,
                 handcode::HandcodedCostEstimator, rule_based_suggester::RuleBasedRewriteSuggester,
-                unroll::UnrollSuggester,
             },
             rule::{
                 algebraic_simplification, associative_rules, commutative_rules, distributive_rules,

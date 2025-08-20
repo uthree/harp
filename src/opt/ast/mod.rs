@@ -39,6 +39,13 @@ impl RulebasedAstOptimizer {
 
 impl AstOptimizer for RulebasedAstOptimizer {
     fn optimize(&mut self, ast: &AstNode) -> AstNode {
-        self.rewriter.apply(ast)
+        let mut current_ast = ast.clone();
+        loop {
+            let next_ast = self.rewriter.apply(&current_ast);
+            if next_ast == current_ast {
+                return next_ast;
+            }
+            current_ast = next_ast;
+        }
     }
 }
