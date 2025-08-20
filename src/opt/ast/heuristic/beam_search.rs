@@ -1,4 +1,5 @@
 use crate::ast::AstNode;
+use crate::opt::AstOptimizer;
 use crate::opt::ast::heuristic::{CostEstimator, RewriteSuggester};
 use console::Style;
 use indicatif::HumanDuration;
@@ -21,7 +22,7 @@ impl<S: RewriteSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
             suggester,
             cost_estimator,
             beam_width: 4,
-            max_steps: 1000,
+            max_steps: 10000,
             max_visited_size: 10000, // Default max size for visited cache
         }
     }
@@ -40,8 +41,10 @@ impl<S: RewriteSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
         self.max_visited_size = max_visited_size;
         self
     }
+}
 
-    pub fn optimize(&self, initial_node: &AstNode) -> AstNode {
+impl<S: RewriteSuggester, C: CostEstimator> AstOptimizer for BeamSearchAstOptimizer<S, C> {
+    fn optimize(&mut self, initial_node: &AstNode) -> AstNode {
         // start time
         let start = Instant::now();
 
@@ -106,10 +109,6 @@ impl<S: RewriteSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
             }
             beam = new_beam;
 
-            // cost of this step
-            let cost = self.cost_estimator.estimate_cost(&beam[0].0);
-
-            pb.set_message(format!("step: {}, cost: {}", i + 1, cost));
             pb.tick();
             pb.inc(1);
         }
@@ -131,7 +130,6 @@ impl<S: RewriteSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
             .unwrap_or_else(|| initial_node.clone())
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,7 +184,7 @@ mod tests {
         let cost_estimator = MockCostEstimator;
 
         // Create the optimizer.
-        let optimizer = BeamSearchAstOptimizer::new(suggester, cost_estimator)
+        let mut optimizer = BeamSearchAstOptimizer::new(suggester, cost_estimator)
             .with_beam_width(2)
             .with_max_steps(3);
 
@@ -208,7 +206,7 @@ mod tests {
             rules: HashMap::new(),
         };
         let cost_estimator = MockCostEstimator;
-        let optimizer = BeamSearchAstOptimizer::new(suggester, cost_estimator)
+        let mut optimizer = BeamSearchAstOptimizer::new(suggester, cost_estimator)
             .with_beam_width(2)
             .with_max_steps(3);
         let initial_node = AstNode::from(10isize);

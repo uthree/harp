@@ -37,40 +37,41 @@ impl UnrollSuggester {
 
         // Then, check if the current node itself is a candidate for unrolling.
         if let AstOp::Range { counter, step } = &node.op
-            && *step == 1 {
-                // Only unroll loops with a step of 1 for now.
-                let start = node.src[0].clone();
-                let loop_limit = node.src[1].clone();
-                let loop_body = node.src[2].clone();
+            && *step == 1
+        {
+            // Only unroll loops with a step of 1 for now.
+            let start = node.src[0].clone();
+            let loop_limit = node.src[1].clone();
+            let loop_body = node.src[2].clone();
 
-                // Main unrolled loop
-                let unrolled_limit = loop_limit.clone() / AstNode::from(self.unroll_factor);
-                let unrolled_body_stmts: Vec<AstNode> = (0..self.unroll_factor)
-                    .map(|i| {
-                        let new_counter = AstNode::var(counter, node.dtype.clone())
-                            * AstNode::from(self.unroll_factor)
-                            + AstNode::from(i);
-                        replace_var_in_expr(&loop_body, counter, &new_counter, &mut HashSet::new())
-                    })
-                    .collect();
-                let unrolled_body = AstNode::block(unrolled_body_stmts);
-                let main_loop = AstNode::range(
-                    counter,
-                    self.unroll_factor as isize,
-                    start,
-                    unrolled_limit,
-                    unrolled_body,
-                );
+            // Main unrolled loop
+            let unrolled_limit = loop_limit.clone() / AstNode::from(self.unroll_factor);
+            let unrolled_body_stmts: Vec<AstNode> = (0..self.unroll_factor)
+                .map(|i| {
+                    let new_counter = AstNode::var(counter, node.dtype.clone())
+                        * AstNode::from(self.unroll_factor)
+                        + AstNode::from(i);
+                    replace_var_in_expr(&loop_body, counter, &new_counter, &mut HashSet::new())
+                })
+                .collect();
+            let unrolled_body = AstNode::block(unrolled_body_stmts);
+            let main_loop = AstNode::range(
+                counter,
+                self.unroll_factor as isize,
+                start,
+                unrolled_limit,
+                unrolled_body,
+            );
 
-                // Remainder loop
-                let remainder_start = (loop_limit.clone() / AstNode::from(self.unroll_factor))
-                    * AstNode::from(self.unroll_factor);
-                let remainder_loop =
-                    AstNode::range(counter, 1, remainder_start, loop_limit, loop_body.clone());
+            // Remainder loop
+            let remainder_start = (loop_limit.clone() / AstNode::from(self.unroll_factor))
+                * AstNode::from(self.unroll_factor);
+            let remainder_loop =
+                AstNode::range(counter, 1, remainder_start, loop_limit, loop_body.clone());
 
-                let unrolled_sequence = AstNode::block(vec![main_loop, remainder_loop]);
-                suggestions.push(unrolled_sequence);
-            }
+            let unrolled_sequence = AstNode::block(vec![main_loop, remainder_loop]);
+            suggestions.push(unrolled_sequence);
+        }
     }
 }
 
@@ -82,9 +83,11 @@ fn replace_var_in_expr(
     bound_vars: &mut HashSet<String>,
 ) -> AstNode {
     if let AstOp::Var(name) = &expr.op
-        && name == var_name && !bound_vars.contains(var_name) {
-            return new_expr.clone();
-        }
+        && name == var_name
+        && !bound_vars.contains(var_name)
+    {
+        return new_expr.clone();
+    }
 
     // If we encounter a new scope (e.g., a new loop), add its counter to the bound_vars set.
     if let AstOp::Range { counter, .. } = &expr.op {
