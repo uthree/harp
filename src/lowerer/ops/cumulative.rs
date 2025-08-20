@@ -11,7 +11,7 @@ pub fn lower_cumulative(
     inputs: &[GraphNode],
     op: &AstOp,
     axis: &usize,
-) -> AstNode {
+) -> Vec<AstNode> {
     // Create an accumulator variable, initialized to the identity of the op.
     let acc_name = format!("acc{}", lowerer.acc_counter);
     lowerer.acc_counter += 1;
@@ -35,7 +35,8 @@ pub fn lower_cumulative(
     let mut inner_indices = indices.to_vec();
     inner_indices[*axis] = cidx_var;
 
-    let value_to_accumulate = lowerer.lower_node_rec(&node.src[0], &mut inner_indices, inputs);
+    let mut lowered_src = lowerer.lower_node_rec(&node.src[0], &mut inner_indices, inputs);
+    let value_to_accumulate = lowered_src.pop().unwrap();
 
     let update_op = AstNode::_new(
         op.clone(),
@@ -43,23 +44,19 @@ pub fn lower_cumulative(
         node.dtype.clone(),
     );
     let assign_op = AstNode::assign(acc_var.clone(), update_op);
-
-    let loop_node = AstNode::_new(
-        AstOp::Range {
-            counter: cidx_name,
-            step: 1,
-        },
-        vec![cum_limit, AstNode::block(vec![assign_op])],
-        DType::Void,
+    let loop_body = AstNode::block(
+        lowered_src
+            .into_iter()
+            .chain(std::iter::once(assign_op))
+            .collect(),
     );
 
-    // The final result is a block that declares the accumulator, runs the loop,
-    // and then returns the final accumulator value.
-    AstNode::_new(
-        AstOp::Block,
-        vec![declare_acc, loop_node, acc_var],
-        node.dtype.clone(),
-    )
+    let loop_node = AstNode::range(&cidx_name, 1, cum_limit, loop_body);
+
+    let mut stmts = vec![declare_acc];
+    stmts.push(loop_node);
+    stmts.push(acc_var);
+    stmts
 }
 
 #[cfg(test)]

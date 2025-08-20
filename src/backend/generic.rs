@@ -108,10 +108,12 @@ where
             })
             .collect();
 
+        let num_outputs = output_buffers.len();
         let mut all_buffers = output_buffers;
         all_buffers.extend(inputs);
 
-        kernel.call(all_buffers, &[]) // Assumes no shape vars for now
+        let result_buffers = kernel.call(all_buffers, &[]);
+        result_buffers.into_iter().take(num_outputs).collect()
     }
 }
 
@@ -129,7 +131,7 @@ where
 mod tests {
     use crate::{
         ast::DType,
-        backend::{Backend, Buffer, Kernel, c::CBackend},
+        backend::{Backend, Buffer, c::CBackend},
         graph::{Graph, TensorSignature, shape::expr::Expr as ShapeExpr},
     };
 
@@ -151,19 +153,17 @@ mod tests {
 
         // 2. Use GenericBackend (via CBackend) to compile
         let mut backend = CBackend::new();
-        let mut kernel = backend.compile(&graph);
 
-        // 3. Prepare buffers and run the kernel
+        // 3. Prepare buffers and run the backend
         let a_data = vec![1.0f32];
         let b_data = vec![2.0f32];
         let shape_usize = vec![1];
 
         let a_buffer = crate::backend::c::CBuffer::from_slice(&a_data, &shape_usize, dtype.clone());
         let b_buffer = crate::backend::c::CBuffer::from_slice(&b_data, &shape_usize, dtype.clone());
-        let out_buffer = crate::backend::c::CBuffer::allocate(dtype, shape_usize);
 
-        let buffers = vec![out_buffer, a_buffer, b_buffer];
-        let result_buffers = kernel.call(buffers, &[]);
+        let inputs = vec![a_buffer, b_buffer];
+        let result_buffers = backend.execute(&graph, inputs);
 
         // 4. Check the result
         let result_data = result_buffers[0].to_vec::<f32>();

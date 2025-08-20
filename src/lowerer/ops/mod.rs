@@ -1,9 +1,11 @@
 pub mod contiguous;
 pub mod cumulative;
 pub mod elementwise;
+pub mod expand;
 pub mod full;
 pub mod fused;
 pub mod input;
 pub mod permute;
 pub mod rand;
 pub mod reduce;
+pub mod unsqueeze;

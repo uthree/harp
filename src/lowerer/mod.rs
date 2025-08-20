@@ -96,11 +96,13 @@ impl Lowerer {
             let loops = create_loops(
                 &shape,
                 |indices| {
-                    let value_to_store = self.lower_node_rec(output_node, indices, &graph.inputs);
+                    let mut stmts = self.lower_node_rec(output_node, indices, &graph.inputs);
+                    let value_to_store = stmts.pop().unwrap();
                     let output_view = View::new_contiguous(shape.clone());
                     let physical_index = output_view.to_physical_index_ast(indices);
                     let store_ptr = AstNode::index(output_ptr.clone(), physical_index);
-                    AstNode::store(store_ptr, value_to_store)
+                    stmts.push(AstNode::store(store_ptr, value_to_store));
+                    AstNode::block(stmts)
                 },
                 &mut indices,
             );
@@ -134,7 +136,7 @@ impl Lowerer {
         node: &GraphNode,
         indices: &mut [AstNode],
         inputs: &[GraphNode],
-    ) -> AstNode {
+    ) -> Vec<AstNode> {
         match &node.op {
             GraphOp::Input { .. } => ops::input::lower_input(self, node, indices, inputs),
             GraphOp::Full(_) => ops::full::lower_full(self, &node.op),
@@ -159,6 +161,8 @@ impl Lowerer {
             GraphOp::Permute(axes) => {
                 ops::permute::lower_permute(self, node, indices, inputs, axes)
             }
+            GraphOp::Unsqueeze(_) => ops::unsqueeze::lower_unsqueeze(self, node, indices, inputs),
+            GraphOp::Expand(_) => ops::expand::lower_expand(self, node, indices, inputs),
             GraphOp::Cumulative(op, axis) => {
                 ops::cumulative::lower_cumulative(self, node, indices, inputs, op, axis)
             }

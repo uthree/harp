@@ -16,6 +16,7 @@ mod tests {
 
     #[test]
     fn test_c_backend_e2e() {
+        let _ = env_logger::builder().is_test(true).try_init();
         // 1. Build a graph
         let mut graph = Graph::new();
         let shape = vec![ShapeExpr::from(1)];
@@ -41,7 +42,7 @@ mod tests {
 
         let a_buffer = CBuffer::from_slice(&a_data, &shape_usize, dtype.clone());
         let b_buffer = CBuffer::from_slice(&b_data, &shape_usize, dtype.clone());
-        let out_buffer = CBuffer::allocate(dtype, shape_usize);
+        let out_buffer = CBuffer::allocate(dtype.clone(), shape_usize);
 
         let buffers = vec![out_buffer, a_buffer, b_buffer];
         let result_buffers = kernel.call(buffers, &[]);

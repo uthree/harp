@@ -10,13 +10,21 @@ pub fn lower_elementwise(
     indices: &mut [AstNode],
     inputs: &[GraphNode],
     op: &AstOp,
-) -> AstNode {
-    let lowered_srcs = node
-        .src
-        .iter()
-        .map(|src| lowerer.lower_node_rec(src, indices, inputs))
-        .collect();
-    AstNode::_new(op.clone(), lowered_srcs, node.dtype.clone())
+) -> Vec<AstNode> {
+    let mut stmts = vec![];
+    let mut lowered_srcs = vec![];
+    for src in &node.src {
+        let mut lowered = lowerer.lower_node_rec(src, indices, inputs);
+        let val = lowered.pop().unwrap();
+        stmts.extend(lowered);
+        lowered_srcs.push(val);
+    }
+    stmts.push(AstNode::_new(
+        op.clone(),
+        lowered_srcs,
+        node.dtype.clone(),
+    ));
+    stmts
 }
 
 #[cfg(test)]

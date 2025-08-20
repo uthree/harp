@@ -26,14 +26,16 @@ impl CRenderer {
                 }
             }
             AstOp::Block => {
+                self.buffer.push_str("{\n");
+                self.indent_level += 1;
                 for node in &ast.src {
-                    self.buffer.push_str("{\n");
-                    self.indent_level += 1;
-                    self.render_node(node);
-                    self.indent_level -= 1;
                     self.write_indent();
-                    self.buffer.push_str("}\n");
+                    self.render_node(node);
+                    writeln!(self.buffer, ";").unwrap();
                 }
+                self.indent_level -= 1;
+                self.write_indent();
+                self.buffer.push_str("}\n");
             }
             AstOp::Func { name, args } => {
                 let args_str: Vec<String> = args
@@ -51,21 +53,18 @@ impl CRenderer {
                     write!(self.buffer, " = ").unwrap();
                     self.render_node(value);
                 }
-                writeln!(self.buffer, ";").unwrap();
             }
             AstOp::Assign => {
                 self.write_indent();
                 self.render_node(&ast.src[0]);
                 write!(self.buffer, " = ").unwrap();
                 self.render_node(&ast.src[1]);
-                writeln!(self.buffer, ";").unwrap();
             }
             AstOp::Store => {
                 self.write_indent();
                 self.render_node(&ast.src[0]);
                 write!(self.buffer, " = ").unwrap();
                 self.render_node(&ast.src[1]);
-                writeln!(self.buffer, ";").unwrap();
             }
             AstOp::Load => {
                 if let AstOp::Index = ast.src[0].op {
@@ -103,7 +102,7 @@ impl CRenderer {
                     }
                     self.render_node(arg);
                 }
-                writeln!(self.buffer, ");").unwrap();
+                write!(self.buffer, ")").unwrap();
             }
             AstOp::Var(name) => {
                 write!(self.buffer, "{}", name).unwrap();

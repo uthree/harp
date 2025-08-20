@@ -9,7 +9,7 @@ pub fn lower_input(
     node: &GraphNode,
     indices: &mut [AstNode],
     inputs: &[GraphNode],
-) -> AstNode {
+) -> Vec<AstNode> {
     let input_idx = inputs
         .iter()
         .position(|n| n == node)
@@ -22,5 +22,5 @@ pub fn lower_input(
     // Use the node's view to calculate the physical memory index from logical indices.
     let physical_index = node.view.to_physical_index_ast(indices);
     let ptr = AstNode::index(input_var, physical_index);
-    AstNode::load(ptr)
+    vec![AstNode::load(ptr)]
 }

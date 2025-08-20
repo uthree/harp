@@ -5,7 +5,7 @@ pub fn lower_contiguous(
     node: &GraphNode,
     indices: &mut [AstNode],
     inputs: &[GraphNode],
-) -> AstNode {
+) -> Vec<AstNode> {
     // A contiguous op is a hint for memory layout. In a fused kernel,
     // we "look through" it and directly compute from its source,
     // relying on the view of the source node to handle memory access correctly.

@@ -48,6 +48,8 @@ pub enum GraphOp {
     Elementwise(AstOp),
     Reduce(AstOp, usize),
     Permute(Vec<usize>),
+    Unsqueeze(usize),
+    Expand(Vec<ShapeExpr>),
     Cumulative(AstOp, usize),
     Capture(usize),
     // Fused ops
@@ -222,6 +224,28 @@ impl GraphNode {
         let dtype = self.dtype.clone();
         GraphNode(Rc::new(GraphNodeData {
             op: GraphOp::Permute(axes),
+            src: vec![self],
+            dtype,
+            view: new_view,
+        }))
+    }
+
+    pub fn expand(self, shape: Vec<ShapeExpr>) -> Self {
+        let new_view = self.view.clone().expand(shape.clone());
+        let dtype = self.dtype.clone();
+        GraphNode(Rc::new(GraphNodeData {
+            op: GraphOp::Expand(shape),
+            src: vec![self],
+            dtype,
+            view: new_view,
+        }))
+    }
+
+    pub fn unsqueeze(self, axis: usize) -> Self {
+        let new_view = self.view.clone().unsqueeze(axis);
+        let dtype = self.dtype.clone();
+        GraphNode(Rc::new(GraphNodeData {
+            op: GraphOp::Unsqueeze(axis),
             src: vec![self],
             dtype,
             view: new_view,

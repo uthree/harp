@@ -11,7 +11,7 @@ pub fn lower_reduce(
     inputs: &[GraphNode],
     op: &AstOp,
     axis: &usize,
-) -> AstNode {
+) -> Vec<AstNode> {
     let acc_name = format!("acc{}", lowerer.acc_counter);
     lowerer.acc_counter += 1;
     let acc_var = AstNode::var(&acc_name, node.dtype.clone());
@@ -35,7 +35,8 @@ pub fn lower_reduce(
     // Insert the reduction loop variable at the reduction axis.
     inner_indices.insert(*axis, ridx_var);
 
-    let value_to_reduce = lowerer.lower_node_rec(&node.src[0], &mut inner_indices, inputs);
+    let mut lowered_src = lowerer.lower_node_rec(&node.src[0], &mut inner_indices, inputs);
+    let value_to_reduce = lowered_src.pop().unwrap();
 
     let update_op = AstNode::_new(
         op.clone(),
@@ -43,22 +44,14 @@ pub fn lower_reduce(
         node.dtype.clone(),
     );
     let assign_op = AstNode::assign(acc_var.clone(), update_op);
+    let loop_body = AstNode::block(lowered_src.into_iter().chain(std::iter::once(assign_op)).collect());
 
-    let loop_node = AstNode::_new(
-        AstOp::Range {
-            counter: ridx_name,
-            step: 1,
-        },
-        vec![reduce_dim.into(), AstNode::block(vec![assign_op])],
-        DType::Void,
-    );
+    let loop_node = AstNode::range(&ridx_name, 1, reduce_dim.into(), loop_body);
 
-    // Return a block that declares, computes, and returns the accumulator.
-    AstNode::_new(
-        AstOp::Block,
-        vec![declare_acc, loop_node, acc_var],
-        node.dtype.clone(),
-    )
+    let mut stmts = vec![declare_acc];
+    stmts.push(loop_node);
+    stmts.push(acc_var);
+    stmts
 }
 
 #[cfg(test)]

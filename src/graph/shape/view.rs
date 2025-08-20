@@ -151,6 +151,37 @@ impl View {
         }
     }
 
+    pub fn expand(self, new_shape: Vec<Expr>) -> Self {
+        match self {
+            View::Linear {
+                shape,
+                strides,
+                offset,
+            } => {
+                assert_eq!(
+                    shape.len(),
+                    new_shape.len(),
+                    "expand must not change rank"
+                );
+                let mut new_strides = strides.clone();
+                for i in 0..shape.len() {
+                    if shape[i] != new_shape[i] {
+                        assert!(
+                            shape[i].is_one(),
+                            "can only expand an axis of size 1"
+                        );
+                        new_strides[i] = 0.into();
+                    }
+                }
+                View::Linear {
+                    shape: new_shape,
+                    strides: new_strides,
+                    offset,
+                }
+            }
+        }
+    }
+
     pub fn is_contiguous(&self) -> bool {
         match self {
             View::Linear { shape, .. } => *self == View::new_contiguous(shape.clone()),

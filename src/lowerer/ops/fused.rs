@@ -10,7 +10,7 @@ pub fn lower_fused_elementwise(
     indices: &mut [AstNode],
     inputs: &[GraphNode],
     fused_ast: &AstNode,
-) -> AstNode {
+) -> Vec<AstNode> {
     replace_captures_rec(lowerer, node, indices, inputs, fused_ast)
 }
 
@@ -22,7 +22,7 @@ pub fn lower_fused_elementwise_reduce(
     fused_ast: &AstNode,
     op: &AstOp,
     axes: &[usize],
-) -> AstNode {
+) -> Vec<AstNode> {
     let acc_name = format!("acc{}", lowerer.acc_counter);
     lowerer.acc_counter += 1;
     let acc_var = AstNode::var(&acc_name, node.dtype.clone());
@@ -35,40 +35,38 @@ pub fn lower_fused_elementwise_reduce(
     };
     let declare_acc = AstNode::declare(&acc_name, node.dtype.clone(), Some(init_val));
 
-    let mut inner_indices = indices.to_vec();
-    let mut body = {
-        let value_to_reduce =
-            replace_captures_rec(lowerer, node, &mut inner_indices, inputs, fused_ast);
-        let update_op = AstNode::_new(
-            op.clone(),
-            vec![acc_var.clone(), value_to_reduce],
-            node.dtype.clone(),
-        );
-        AstNode::assign(acc_var.clone(), update_op)
-    };
+    let mut body_indices = indices.to_vec();
+    let mut reduce_vars = vec![];
+    let mut sorted_axes = axes.iter().copied().collect::<Vec<_>>();
+    sorted_axes.sort();
 
-    for (i, axis) in axes.iter().enumerate().rev() {
-        let reduce_dim = node.src[0].shape()[*axis].clone();
+    for (i, axis) in sorted_axes.iter().enumerate() {
         let ridx_name = format!("ridx{}_{}", lowerer.ridx_counter, i);
         let ridx_var = AstNode::var(&ridx_name, node.dtype.clone());
-        inner_indices.insert(*axis, ridx_var);
-
-        body = AstNode::_new(
-            AstOp::Range {
-                counter: ridx_name,
-                step: 1,
-            },
-            vec![reduce_dim.into(), AstNode::block(vec![body])],
-            node.dtype.clone(),
-        );
+        reduce_vars.push((ridx_name, node.src[0].shape()[*axis].clone()));
+        body_indices.insert(*axis, ridx_var);
     }
     lowerer.ridx_counter += 1;
 
-    let mut block_content = vec![declare_acc];
-    block_content.push(body);
-    block_content.push(acc_var);
+    let mut lowered_fused =
+        replace_captures_rec(lowerer, node, &mut body_indices, inputs, fused_ast);
+    let value_to_reduce = lowered_fused.pop().unwrap();
+    let update_op = AstNode::_new(
+        op.clone(),
+        vec![acc_var.clone(), value_to_reduce],
+        node.dtype.clone(),
+    );
+    let mut body = AstNode::assign(acc_var.clone(), update_op);
+    body = AstNode::block(lowered_fused.into_iter().chain(std::iter::once(body)).collect());
 
-    AstNode::_new(AstOp::Block, block_content, node.dtype.clone())
+    for (ridx_name, reduce_dim) in reduce_vars.into_iter().rev() {
+        body = AstNode::range(&ridx_name, 1, reduce_dim.into(), body);
+    }
+
+    let mut stmts = vec![declare_acc];
+    stmts.push(body);
+    stmts.push(acc_var);
+    stmts
 }
 
 pub fn lower_fused_reduce(
@@ -78,7 +76,7 @@ pub fn lower_fused_reduce(
     inputs: &[GraphNode],
     op: &AstOp,
     axes: &[usize],
-) -> AstNode {
+) -> Vec<AstNode> {
     let acc_name = format!("acc{}", lowerer.acc_counter);
     lowerer.acc_counter += 1;
     let acc_var = AstNode::var(&acc_name, node.dtype.clone());
@@ -94,15 +92,15 @@ pub fn lower_fused_reduce(
     let mut inner_indices = indices.to_vec();
     let mut loops = vec![];
 
-    let mut body = {
-        let value_to_reduce = lowerer.lower_node_rec(&node.src[0], &mut inner_indices, inputs);
-        let update_op = AstNode::_new(
-            op.clone(),
-            vec![acc_var.clone(), value_to_reduce],
-            node.dtype.clone(),
-        );
-        AstNode::assign(acc_var.clone(), update_op)
-    };
+    let mut lowered_src = lowerer.lower_node_rec(&node.src[0], &mut inner_indices, inputs);
+    let value_to_reduce = lowered_src.pop().unwrap();
+    let update_op = AstNode::_new(
+        op.clone(),
+        vec![acc_var.clone(), value_to_reduce],
+        node.dtype.clone(),
+    );
+    let mut body = AstNode::assign(acc_var.clone(), update_op);
+    body = AstNode::block(lowered_src.into_iter().chain(std::iter::once(body)).collect());
 
     for (i, axis) in axes.iter().enumerate().rev() {
         let reduce_dim = node.src[0].shape()[*axis].clone();
@@ -110,23 +108,15 @@ pub fn lower_fused_reduce(
         let ridx_var = AstNode::var(&ridx_name, node.dtype.clone());
         inner_indices.insert(*axis, ridx_var);
 
-        body = AstNode::_new(
-            AstOp::Range {
-                counter: ridx_name,
-                step: 1,
-            },
-            vec![reduce_dim.into(), AstNode::block(vec![body])],
-            node.dtype.clone(),
-        );
+        body = AstNode::range(&ridx_name, 1, reduce_dim.into(), body);
     }
     loops.push(body);
     lowerer.ridx_counter += 1;
 
-    let mut block_content = vec![declare_acc];
-    block_content.extend(loops);
-    block_content.push(acc_var);
-
-    AstNode::_new(AstOp::Block, block_content, node.dtype.clone())
+    let mut stmts = vec![declare_acc];
+    stmts.extend(loops);
+    stmts.push(acc_var);
+    stmts
 }
 
 fn replace_captures_rec(
@@ -135,16 +125,24 @@ fn replace_captures_rec(
     indices: &mut [AstNode],
     inputs: &[GraphNode],
     fused_ast: &AstNode,
-) -> AstNode {
+) -> Vec<AstNode> {
     if let AstOp::Capture(n) = fused_ast.op {
         return lowerer.lower_node_rec(&graph_node.src[n], indices, inputs);
     }
 
-    let new_srcs = fused_ast
-        .src
-        .iter()
-        .map(|src| replace_captures_rec(lowerer, graph_node, indices, inputs, src))
-        .collect();
+    let mut stmts = vec![];
+    let mut lowered_srcs = vec![];
+    for src in &fused_ast.src {
+        let mut lowered = replace_captures_rec(lowerer, graph_node, indices, inputs, src);
+        let val = lowered.pop().unwrap();
+        stmts.extend(lowered);
+        lowered_srcs.push(val);
+    }
 
-    AstNode::_new(fused_ast.op.clone(), new_srcs, fused_ast.dtype.clone())
+    stmts.push(AstNode::_new(
+        fused_ast.op.clone(),
+        lowered_srcs,
+        fused_ast.dtype.clone(),
+    ));
+    stmts
 }

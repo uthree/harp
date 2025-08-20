@@ -6,7 +6,7 @@ pub fn lower_permute(
     indices: &mut [AstNode],
     inputs: &[GraphNode],
     axes: &[usize],
-) -> AstNode {
+) -> Vec<AstNode> {
     // Reorder indices according to the permutation axes before recursing.
     let mut unpermuted_indices = vec![AstNode::from(0isize); indices.len()];
     for (i, &axis) in axes.iter().enumerate() {
