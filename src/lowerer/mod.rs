@@ -120,11 +120,7 @@ impl Lowerer {
 
         let call_impl = AstNode::call("kernel_impl", call_args);
 
-        let kernel_main = AstNode::func(
-            "kernel_main",
-            main_args,
-            AstNode::block(vec![call_impl]),
-        );
+        let kernel_main = AstNode::func("kernel_main", main_args, AstNode::block(vec![call_impl]));
 
         // 3. Return a program containing both functions
         AstNode::program(vec![kernel_impl, kernel_main])

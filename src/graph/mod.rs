@@ -109,6 +109,109 @@ impl GraphNode {
         }))
     }
 
+    pub fn contiguous(self) -> Self {
+        let dtype = self.dtype.clone();
+        let view = View::new_contiguous(self.shape().to_vec());
+        GraphNode(Rc::new(GraphNodeData {
+            op: GraphOp::Contiguous,
+            src: vec![self],
+            dtype,
+            view,
+        }))
+    }
+
+    pub fn sin(self) -> Self {
+        let dtype = self.dtype.clone();
+        let view = self.view.clone();
+        GraphNode(Rc::new(GraphNodeData {
+            op: GraphOp::Elementwise(AstOp::Sin),
+            src: vec![self],
+            dtype,
+            view,
+        }))
+    }
+
+    pub fn exp2(self) -> Self {
+        let dtype = self.dtype.clone();
+        let view = self.view.clone();
+        GraphNode(Rc::new(GraphNodeData {
+            op: GraphOp::Elementwise(AstOp::Exp2),
+            src: vec![self],
+            dtype,
+            view,
+        }))
+    }
+
+    pub fn log2(self) -> Self {
+        let dtype = self.dtype.clone();
+        let view = self.view.clone();
+        GraphNode(Rc::new(GraphNodeData {
+            op: GraphOp::Elementwise(AstOp::Log2),
+            src: vec![self],
+            dtype,
+            view,
+        }))
+    }
+
+    pub fn sqrt(self) -> Self {
+        let dtype = self.dtype.clone();
+        let view = self.view.clone();
+        GraphNode(Rc::new(GraphNodeData {
+            op: GraphOp::Elementwise(AstOp::Sqrt),
+            src: vec![self],
+            dtype,
+            view,
+        }))
+    }
+
+    pub fn max(self, rhs: impl Into<GraphNode>) -> Self {
+        let rhs = rhs.into();
+        let dtype = self.dtype.clone();
+        let view = self.view.clone();
+        GraphNode(Rc::new(GraphNodeData {
+            op: GraphOp::Elementwise(AstOp::Max),
+            src: vec![self, rhs],
+            dtype,
+            view,
+        }))
+    }
+
+    pub fn lt(self, rhs: impl Into<GraphNode>) -> Self {
+        let rhs = rhs.into();
+        let dtype = self.dtype.clone();
+        let view = self.view.clone();
+        GraphNode(Rc::new(GraphNodeData {
+            op: GraphOp::Elementwise(AstOp::Lt),
+            src: vec![self, rhs],
+            dtype,
+            view,
+        }))
+    }
+
+    pub fn eq(self, rhs: impl Into<GraphNode>) -> Self {
+        let rhs = rhs.into();
+        let dtype = self.dtype.clone();
+        let view = self.view.clone();
+        GraphNode(Rc::new(GraphNodeData {
+            op: GraphOp::Elementwise(AstOp::Eq),
+            src: vec![self, rhs],
+            dtype,
+            view,
+        }))
+    }
+
+    pub fn gt(self, rhs: impl Into<GraphNode>) -> Self {
+        let rhs = rhs.into();
+        let dtype = self.dtype.clone();
+        let view = self.view.clone();
+        GraphNode(Rc::new(GraphNodeData {
+            op: GraphOp::Elementwise(AstOp::Gt),
+            src: vec![self, rhs],
+            dtype,
+            view,
+        }))
+    }
+
     /// Returns the logical shape of the node.
     pub fn shape(&self) -> &[ShapeExpr] {
         self.view.shape()

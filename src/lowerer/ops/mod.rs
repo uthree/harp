@@ -5,5 +5,5 @@ pub mod full;
 pub mod fused;
 pub mod input;
 pub mod permute;
-pub mod reduce;
 pub mod rand;
+pub mod reduce;
