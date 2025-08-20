@@ -239,6 +239,14 @@ impl GraphNode {
         }))
     }
 
+    pub fn cumsum(self, axis: usize) -> Self {
+        self.cumulative(AstOp::Add, axis)
+    }
+
+    pub fn cumprod(self, axis: usize) -> Self {
+        self.cumulative(AstOp::Mul, axis)
+    }
+
     pub fn reduce(self, op: AstOp, axis: usize) -> Self {
         let dtype = self.dtype.clone();
         let mut shape = self.shape().to_vec();
@@ -250,6 +258,18 @@ impl GraphNode {
             dtype,
             view,
         }))
+    }
+
+    pub fn sum(self, axis: usize) -> Self {
+        self.reduce(AstOp::Add, axis)
+    }
+
+    pub fn prod(self, axis: usize) -> Self {
+        self.reduce(AstOp::Mul, axis)
+    }
+
+    pub fn reduce_max(self, axis: usize) -> Self {
+        self.reduce(AstOp::Max, axis)
     }
 
     pub fn capture(pos: usize) -> Self {
