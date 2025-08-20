@@ -10,14 +10,9 @@ impl CostEstimator for HandcodedCostEstimator {
     fn estimate_cost(&self, node: &AstNode) -> f32 {
         match &node.op {
             AstOp::Range { step, .. } => {
-                if node.src.is_empty() {
-                    return 0.0; // No loop bound or body
-                }
                 let max_node = &node.src[1];
-                let body_nodes = &node.src[2..];
-
                 let max_node_cost = self.estimate_cost(max_node);
-                let body_cost: f32 = body_nodes.iter().map(|n| self.estimate_cost(n)).sum();
+                let body_cost: f32 = self.estimate_cost(&node.src[2]);
                 let body_cost: f32 = body_cost + 5e-8f32; // The cost of loop counters required for iteration, conditional branches, and program counter movements
 
                 let iterations = if let AstOp::Const(c) = &max_node.op {
