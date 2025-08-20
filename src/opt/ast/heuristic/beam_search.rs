@@ -21,7 +21,7 @@ impl<S: RewriteSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
             suggester,
             cost_estimator,
             beam_width: 4,
-            max_steps: 100,
+            max_steps: 10000,
             max_visited_size: 10000, // Default max size for visited cache
         }
     }
@@ -65,22 +65,26 @@ impl<S: RewriteSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
         visited_queue.push_back(initial_node.clone());
 
         for i in 0..self.max_steps {
-            let mut candidates = vec![];
+            let mut next_candidates = HashSet::new();
             for (node, _) in &beam {
                 let suggestions = self.suggester.suggest(node);
                 for suggestion in suggestions {
                     if !visited_set.contains(&suggestion) {
-                        if visited_queue.len() >= self.max_visited_size
-                            && let Some(oldest) = visited_queue.pop_front()
-                        {
-                            visited_set.remove(&oldest);
-                        }
-                        let cost = self.cost_estimator.estimate_cost(&suggestion);
-                        candidates.push((suggestion.clone(), cost));
-                        visited_set.insert(suggestion.clone());
-                        visited_queue.push_back(suggestion);
+                        next_candidates.insert(suggestion);
                     }
                 }
+            }
+
+            let mut candidates = Vec::with_capacity(next_candidates.len() + beam.len());
+            for suggestion in next_candidates {
+                if visited_queue.len() >= self.max_visited_size
+                    && let Some(oldest) = visited_queue.pop_front() {
+                        visited_set.remove(&oldest);
+                    }
+                let cost = self.cost_estimator.estimate_cost(&suggestion);
+                candidates.push((suggestion.clone(), cost));
+                visited_set.insert(suggestion.clone());
+                visited_queue.push_back(suggestion);
             }
 
             // Add current beam to candidates to ensure we don't lose good solutions
@@ -90,10 +94,21 @@ impl<S: RewriteSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
             candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
             candidates.dedup_by(|a, b| a.0 == b.0);
 
-            // Select the top `beam_width` candidates for the next beam
-            beam = candidates.into_iter().take(self.beam_width).collect();
+            let new_beam = candidates
+                .into_iter()
+                .take(self.beam_width)
+                .collect::<Vec<_>>();
 
-            pb.set_message(format!("step: {}, candidates: {}", i + 1, beam.len(),));
+            if new_beam.is_empty() || new_beam == beam {
+                beam = new_beam;
+                break;
+            }
+            beam = new_beam;
+
+            // cost of this step
+            let cost = self.cost_estimator.estimate_cost(&beam[0].0);
+
+            pb.set_message(format!("step: {}, cost: {}", i + 1, cost));
             pb.tick();
             pb.inc(1);
         }
