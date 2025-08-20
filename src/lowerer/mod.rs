@@ -19,19 +19,27 @@ pub struct Lowerer {
     // but could be used if we were lowering node by node.
     // For now, it's unused.
     _cache: HashMap<GraphNode, AstNode>,
-    pub acc_counter: usize,
-    pub ridx_counter: usize,
+    declarations: Vec<AstNode>,
+    acc_counter: usize,
+    ridx_counter: usize,
 }
 
 impl Lowerer {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            _cache: HashMap::new(),
+            declarations: Vec::new(),
+            acc_counter: 0,
+            ridx_counter: 0,
+        }
     }
 
     /// Lowers a `Graph` to an `AstNode` representing a computation kernel.
     ///
     /// The generated AST will be a function that takes input and output tensors as pointers.
     fn lower_internal(&mut self, graph: &Graph) -> AstNode {
+        self.declarations.clear();
+
         // 1. Generate the implementation function (`kernel_impl`)
         let mut impl_args = vec![];
         let mut call_args = vec![];
@@ -123,7 +131,9 @@ impl Lowerer {
             body.push(loops);
         }
 
-        let kernel_impl = AstNode::func("kernel_impl", impl_args, AstNode::block(body));
+        let mut final_body = self.declarations.clone();
+        final_body.extend(body);
+        let kernel_impl = AstNode::func("kernel_impl", impl_args, AstNode::block(final_body));
 
         // 2. Generate the main entrypoint function (`kernel_main`)
         let main_args = vec![

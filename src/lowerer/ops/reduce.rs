@@ -15,6 +15,9 @@ pub fn lower_reduce(
     let acc_name = format!("acc{}", lowerer.acc_counter);
     lowerer.acc_counter += 1;
     let acc_var = AstNode::var(&acc_name, node.dtype.clone());
+    lowerer
+        .declarations
+        .push(AstNode::declare(&acc_name, node.dtype.clone()));
 
     // Initialize accumulator.
     let init_val = match op {
@@ -23,7 +26,7 @@ pub fn lower_reduce(
         AstOp::Max => node.dtype.min_value(),
         _ => unimplemented!("Unsupported reduction operation: {:?}", op),
     };
-    let declare_acc = AstNode::declare(&acc_name, node.dtype.clone(), Some(init_val));
+    let init_acc = AstNode::assign(acc_var.clone(), init_val);
 
     // Create reduction loop.
     let reduce_dim = node.src[0].shape()[*axis].clone();
@@ -59,7 +62,7 @@ pub fn lower_reduce(
         loop_body,
     );
 
-    let mut stmts = vec![declare_acc];
+    let mut stmts = vec![init_acc];
     stmts.push(loop_node);
     stmts.push(acc_var);
     stmts

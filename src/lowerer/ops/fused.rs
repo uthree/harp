@@ -27,6 +27,9 @@ pub fn lower_fused_elementwise_reduce(
     let acc_name = format!("acc{}", lowerer.acc_counter);
     lowerer.acc_counter += 1;
     let acc_var = AstNode::var(&acc_name, node.dtype.clone());
+    lowerer
+        .declarations
+        .push(AstNode::declare(&acc_name, node.dtype.clone()));
 
     let init_val = match op {
         AstOp::Add => node.dtype.zero(),
@@ -34,7 +37,7 @@ pub fn lower_fused_elementwise_reduce(
         AstOp::Max => node.dtype.min_value(),
         _ => unimplemented!("Unsupported reduction operation: {:?}", op),
     };
-    let declare_acc = AstNode::declare(&acc_name, node.dtype.clone(), Some(init_val));
+    let init_acc = AstNode::assign(acc_var.clone(), init_val);
 
     let mut reduce_vars = vec![];
     let mut sorted_axes = axes.to_vec();
@@ -79,7 +82,7 @@ pub fn lower_fused_elementwise_reduce(
         );
     }
 
-    let mut stmts = vec![declare_acc];
+    let mut stmts = vec![init_acc];
     stmts.push(body);
 
     let output_view = View::new_contiguous(node.shape().to_vec());
@@ -102,6 +105,9 @@ pub fn lower_fused_reduce(
     let acc_name = format!("acc{}", lowerer.acc_counter);
     lowerer.acc_counter += 1;
     let acc_var = AstNode::var(&acc_name, node.dtype.clone());
+    lowerer
+        .declarations
+        .push(AstNode::declare(&acc_name, node.dtype.clone()));
 
     let init_val = match op {
         AstOp::Add => node.dtype.zero(),
@@ -109,7 +115,7 @@ pub fn lower_fused_reduce(
         AstOp::Max => node.dtype.min_value(),
         _ => unimplemented!("Unsupported reduction operation: {:?}", op),
     };
-    let declare_acc = AstNode::declare(&acc_name, node.dtype.clone(), Some(init_val));
+    let init_acc = AstNode::assign(acc_var.clone(), init_val);
 
     let mut inner_indices = indices.to_vec();
     let mut loops = vec![];
@@ -146,7 +152,7 @@ pub fn lower_fused_reduce(
     loops.push(body);
     lowerer.ridx_counter += 1;
 
-    let mut stmts = vec![declare_acc];
+    let mut stmts = vec![init_acc];
     stmts.extend(loops);
 
     let output_view = View::new_contiguous(node.shape().to_vec());

@@ -16,6 +16,9 @@ pub fn lower_cumulative(
     let acc_name = format!("acc{}", lowerer.acc_counter);
     lowerer.acc_counter += 1;
     let acc_var = AstNode::var(&acc_name, node.dtype.clone());
+    lowerer
+        .declarations
+        .push(AstNode::declare(&acc_name, node.dtype.clone()));
 
     let init_val = match op {
         AstOp::Add => node.dtype.zero(),
@@ -23,7 +26,7 @@ pub fn lower_cumulative(
         AstOp::Max => node.dtype.min_value(),
         _ => unimplemented!("Unsupported cumulative operation: {:?}", op),
     };
-    let declare_acc = AstNode::declare(&acc_name, node.dtype.clone(), Some(init_val));
+    let init_acc = AstNode::assign(acc_var.clone(), init_val);
 
     // Create an inner loop to accumulate values from the source.
     // The loop runs from 0 up to the current index along the cumulative axis.
@@ -53,7 +56,7 @@ pub fn lower_cumulative(
 
     let loop_node = AstNode::range(&cidx_name, 1, AstNode::from(0isize), cum_limit, loop_body);
 
-    let mut stmts = vec![declare_acc];
+    let mut stmts = vec![init_acc];
     stmts.push(loop_node);
     stmts.push(acc_var);
     stmts

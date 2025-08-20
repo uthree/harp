@@ -224,14 +224,13 @@ impl AstNode {
     }
 
     #[must_use]
-    pub fn declare(name: &str, dtype: DType, value: Option<AstNode>) -> Self {
-        let src = value.map_or(vec![], |v| vec![v]);
+    pub fn declare(name: &str, dtype: DType) -> Self {
         AstNode::_new(
             AstOp::Declare {
                 name: name.to_string(),
                 dtype: dtype.clone(),
             },
-            src,
+            vec![],
             dtype,
         )
     }
