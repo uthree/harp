@@ -80,14 +80,17 @@ impl CRenderer {
                 write!(self.buffer, "]").unwrap();
             }
             AstOp::Range { counter, step } => {
-                write!(self.buffer, "for (size_t {} = 0; {} < ", counter, counter).unwrap();
-                self.render_node(&ast.src[0]);
+                self.write_indent();
+                write!(self.buffer, "for (size_t {} = ", counter).unwrap();
+                self.render_node(&ast.src[0]); // start
+                write!(self.buffer, "; {} < ", counter).unwrap();
+                self.render_node(&ast.src[1]); // limit
                 if *step == 1 {
                     write!(self.buffer, "; {}++) ", counter).unwrap();
                 } else {
                     write!(self.buffer, "; {} += {}) ", counter, step).unwrap();
                 }
-                self.render_node(&ast.src[1]);
+                self.render_node(&ast.src[2]); // body
             }
             AstOp::Call(name) => {
                 write!(self.buffer, "{}(", name).unwrap();

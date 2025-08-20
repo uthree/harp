@@ -51,7 +51,13 @@ pub fn lower_reduce(
             .collect(),
     );
 
-    let loop_node = AstNode::range(&ridx_name, 1, reduce_dim.into(), loop_body);
+    let loop_node = AstNode::range(
+        &ridx_name,
+        1,
+        AstNode::from(0isize),
+        reduce_dim.into(),
+        loop_body,
+    );
 
     let mut stmts = vec![declare_acc];
     stmts.push(loop_node);

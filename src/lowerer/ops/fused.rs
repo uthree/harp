@@ -70,7 +70,13 @@ pub fn lower_fused_elementwise_reduce(
     );
 
     for (ridx_name, reduce_dim) in reduce_vars.into_iter().rev() {
-        body = AstNode::range(&ridx_name, 1, reduce_dim.into(), body);
+        body = AstNode::range(
+            &ridx_name,
+            1,
+            AstNode::from(0isize),
+            reduce_dim.into(),
+            body,
+        );
     }
 
     let mut stmts = vec![declare_acc];
@@ -129,7 +135,13 @@ pub fn lower_fused_reduce(
         let ridx_var = AstNode::var(&ridx_name, node.dtype.clone());
         inner_indices.insert(*axis, ridx_var);
 
-        body = AstNode::range(&ridx_name, 1, reduce_dim.into(), body);
+        body = AstNode::range(
+            &ridx_name,
+            1,
+            AstNode::from(0isize),
+            reduce_dim.into(),
+            body,
+        );
     }
     loops.push(body);
     lowerer.ridx_counter += 1;

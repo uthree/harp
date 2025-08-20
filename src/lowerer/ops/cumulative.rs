@@ -51,7 +51,7 @@ pub fn lower_cumulative(
             .collect(),
     );
 
-    let loop_node = AstNode::range(&cidx_name, 1, cum_limit, loop_body);
+    let loop_node = AstNode::range(&cidx_name, 1, AstNode::from(0isize), cum_limit, loop_body);
 
     let mut stmts = vec![declare_acc];
     stmts.push(loop_node);

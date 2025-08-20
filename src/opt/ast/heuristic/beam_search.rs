@@ -21,7 +21,7 @@ impl<S: RewriteSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
             suggester,
             cost_estimator,
             beam_width: 4,
-            max_steps: 10000,
+            max_steps: 1000,
             max_visited_size: 10000, // Default max size for visited cache
         }
     }
@@ -78,9 +78,10 @@ impl<S: RewriteSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
             let mut candidates = Vec::with_capacity(next_candidates.len() + beam.len());
             for suggestion in next_candidates {
                 if visited_queue.len() >= self.max_visited_size
-                    && let Some(oldest) = visited_queue.pop_front() {
-                        visited_set.remove(&oldest);
-                    }
+                    && let Some(oldest) = visited_queue.pop_front()
+                {
+                    visited_set.remove(&oldest);
+                }
                 let cost = self.cost_estimator.estimate_cost(&suggestion);
                 candidates.push((suggestion.clone(), cost));
                 visited_set.insert(suggestion.clone());

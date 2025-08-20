@@ -225,7 +225,13 @@ fn create_loops(
         } else {
             AstNode::block(vec![current_body])
         };
-        current_body = AstNode::range(&counter_name, 1, dim.clone().into(), loop_content);
+        current_body = AstNode::range(
+            &counter_name,
+            1,
+            AstNode::from(0isize),
+            dim.clone().into(),
+            loop_content,
+        );
     }
     current_body
 }

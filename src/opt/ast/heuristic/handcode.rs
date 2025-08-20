@@ -13,8 +13,8 @@ impl CostEstimator for HandcodedCostEstimator {
                 if node.src.is_empty() {
                     return 0.0; // No loop bound or body
                 }
-                let max_node = &node.src[0];
-                let body_nodes = &node.src[1..];
+                let max_node = &node.src[1];
+                let body_nodes = &node.src[2..];
 
                 let max_node_cost = self.estimate_cost(max_node);
                 let body_cost: f32 = body_nodes.iter().map(|n| self.estimate_cost(n)).sum();

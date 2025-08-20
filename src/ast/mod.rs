@@ -128,7 +128,7 @@ pub enum AstOp {
         // ループ処理(for文)を表す。
         counter: String, // ループカウンタ変数の名前
         step: isize,     // 一回のループでカウンタに加算される数値
-    }, // src[0]=ループ回数, src[1] = ループする命令
+    }, // src[0]=start, src[1]=ループ回数, src[2] = ループする命令
     Func {
         // 関数の宣言, src[0]が関数の本体
         name: String,
@@ -353,15 +353,32 @@ impl AstNode {
     }
 
     #[must_use]
-    pub fn range(counter: &str, step: isize, limit: AstNode, body: AstNode) -> Self {
+    pub fn range(
+        counter: &str,
+        step: isize,
+        start: AstNode,
+        limit: AstNode,
+        body: AstNode,
+    ) -> Self {
         AstNode::_new(
             AstOp::Range {
                 counter: counter.to_string(),
                 step,
             },
-            vec![limit, body],
+            vec![start, limit, body],
             DType::Void,
         )
+    }
+
+    #[must_use]
+    pub fn with_range_start(self, new_start: AstNode) -> Self {
+        if let AstOp::Range { counter, step } = self.op {
+            let limit = self.src[1].clone();
+            let body = self.src[2].clone();
+            AstNode::range(&counter, step, new_start, limit, body)
+        } else {
+            panic!("with_range_start called on a non-range node");
+        }
     }
 
     #[must_use]

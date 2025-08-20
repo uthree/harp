@@ -5,16 +5,16 @@ use crate::{
         CombinedGraphOptimizer,
         ast::{
             heuristic::{
-                beam_search::BeamSearchAstOptimizer, handcode::HandcodedCostEstimator,
-                rule_based_suggester::RuleBasedRewriteSuggester,
+                CombinedRewriteSuggester, beam_search::BeamSearchAstOptimizer,
+                handcode::HandcodedCostEstimator, rule_based_suggester::RuleBasedRewriteSuggester,
+                unroll::UnrollSuggester,
             },
             rule::{
                 algebraic_simplification, associative_rules, commutative_rules, distributive_rules,
                 factorization_rule,
             },
         },
-        graph::GraphOptimizer,
-        graph::fusion::ElementwiseFusion,
+        graph::{GraphOptimizer, fusion::ElementwiseFusion},
     },
 };
 use std::collections::HashMap;
@@ -27,7 +27,7 @@ where
     renderer: R,
     cache: HashMap<Graph, C::KernelType>,
     graph_optimizer: CombinedGraphOptimizer,
-    ast_optimizer: BeamSearchAstOptimizer<RuleBasedRewriteSuggester, HandcodedCostEstimator>,
+    ast_optimizer: BeamSearchAstOptimizer<CombinedRewriteSuggester, HandcodedCostEstimator>,
 }
 
 impl<C, R> GenericBackend<C, R>
@@ -66,13 +66,16 @@ where
             cache: HashMap::new(),
             graph_optimizer: CombinedGraphOptimizer::new(vec![Box::new(ElementwiseFusion)]),
             ast_optimizer: BeamSearchAstOptimizer::new(
-                RuleBasedRewriteSuggester::new(
-                    algebraic_simplification() // 不要なノードの除去と定数項の事前計算
-                        + commutative_rules() // 交換法則
-                        + distributive_rules() // 分配法則
-                        + associative_rules() // 結合法則
-                        + factorization_rule(), // 因数分解
-                ),
+                CombinedRewriteSuggester::new(vec![
+                    Box::new(RuleBasedRewriteSuggester::new(
+                        algebraic_simplification() // 不要なノードの除去と定数項の事前計算
+                            + commutative_rules() // 交換法則
+                            + distributive_rules() // 分配法則
+                            + associative_rules() // 結合法則
+                            + factorization_rule(), // 因数分解
+                    )),
+                    Box::new(UnrollSuggester::new(4)),
+                ]),
                 HandcodedCostEstimator,
             ),
         }
