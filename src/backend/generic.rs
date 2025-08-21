@@ -8,10 +8,7 @@ use crate::{
                 CombinedRewriteSuggester, beam_search::BeamSearchAstOptimizer,
                 handcode::HandcodedCostEstimator, rule_based_suggester::RuleBasedRewriteSuggester,
             },
-            rule::{
-                algebraic_simplification, associative_rules, commutative_rules, distributive_rules,
-                factorization_rule,
-            },
+            rule::algebraic_simplification,
         },
         graph::{GraphOptimizer, fusion::ElementwiseFusion},
     },
@@ -57,6 +54,8 @@ where
 {
     type Buffer = C::Buffer;
     type Option = (R::Option, C::Option);
+    type Compiler = C;
+    type Renderer = R;
 
     fn new() -> Self {
         Self {
@@ -68,11 +67,7 @@ where
                 Box::new(RulebasedAstOptimizer::new(algebraic_simplification())),
                 Box::new(BeamSearchAstOptimizer::new(
                     CombinedRewriteSuggester::new(vec![Box::new(RuleBasedRewriteSuggester::new(
-                        algebraic_simplification() // 不要なノードの除去と定数項の事前計算
-                            + commutative_rules() // 交換法則
-                            + distributive_rules() // 分配法則
-                            + associative_rules() // 結合法則
-                            + factorization_rule(), // 因数分解
+                        algebraic_simplification(), // 不要なノードの除去と定数項の事前計算
                     ))]),
                     HandcodedCostEstimator,
                 )),

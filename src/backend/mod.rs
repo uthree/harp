@@ -44,6 +44,8 @@ pub trait Renderer {
 pub trait Backend {
     type Buffer: Buffer;
     type Option;
+    type Compiler: Compiler;
+    type Renderer: Renderer<CodeRepr = <Self::Compiler as Compiler>::CodeRepr>;
     fn new() -> Self;
     fn with_option(&mut self, option: Self::Option);
     fn is_available(&self) -> bool;
