@@ -22,7 +22,7 @@ impl<S: RewriteSuggester, C: CostEstimator> BeamSearchAstOptimizer<S, C> {
             suggester,
             cost_estimator,
             beam_width: 4,
-            max_steps: 10,
+            max_steps: 100,
             max_visited_size: 10000, // Default max size for visited cache
         }
     }

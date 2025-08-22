@@ -221,7 +221,7 @@ fn create_loops(
 ) -> AstNode {
     indices.clear();
     for i in 0..shape.len() {
-        let counter_name = format!("idx{}", i);
+        let counter_name = format!("lidx{}", i);
         indices.push(AstNode::var(&counter_name, DType::Isize));
     }
     let body = body_builder(indices);
@@ -229,7 +229,7 @@ fn create_loops(
     let mut current_body = body;
     // Build loops from the inside out.
     for (i, dim) in shape.iter().enumerate().rev() {
-        let counter_name = format!("idx{}", i);
+        let counter_name = format!("lidx{}", i);
         let loop_content = if let AstOp::Block = current_body.op {
             current_body
         } else {
