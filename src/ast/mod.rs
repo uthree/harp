@@ -1,7 +1,7 @@
 use crate::graph::shape::Expr as ShapeExpr;
 pub mod pattern;
 use std::ops::{
-    Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Not, Rem, RemAssign, Sub, SubAssign,
+    Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -109,3 +109,56 @@ macro_rules! impl_astnode_binary_op {
 impl_astnode_binary_op!(Add, add, Add);
 impl_astnode_binary_op!(Mul, mul, Mul);
 impl_astnode_binary_op!(Rem, rem, Rem);
+
+impl<T: Into<AstNode>> Sub<T> for AstNode {
+    type Output = AstNode;
+    fn sub(self, rhs: T) -> Self::Output {
+        self + AstNode::Neg(Box::new(rhs.into()))
+    }
+}
+
+impl<T: Into<AstNode>> Div<T> for AstNode {
+    type Output = AstNode;
+    fn div(self, rhs: T) -> Self::Output {
+        self + AstNode::Recip(Box::new(rhs.into()))
+    }
+}
+
+macro_rules! impl_expr_assign_op {
+    ($trait:ident, $fname:ident, $op:tt) => {
+        impl<T: Into<AstNode>> $trait<T> for AstNode {
+            fn $fname(&mut self, rhs: T) {
+                *self = self.clone() $op rhs.into();
+            }
+        }
+    };
+}
+
+impl_expr_assign_op!(AddAssign, add_assign, +);
+impl_expr_assign_op!(SubAssign, sub_assign, -);
+impl_expr_assign_op!(MulAssign, mul_assign, *);
+impl_expr_assign_op!(DivAssign, div_assign, /);
+impl_expr_assign_op!(RemAssign, rem_assign, %);
+
+impl Neg for AstNode {
+    type Output = Self;
+    fn neg(self) -> Self::Output {
+        AstNode::Neg(Box::new(self))
+    }
+}
+
+macro_rules! impl_astnode_unary_op {
+    ($fname:ident, $variant:ident) => {
+        impl AstNode {
+            fn $fname(self) -> Self {
+                AstNode::$variant(Box::new(self))
+            }
+        }
+    };
+}
+
+impl_astnode_unary_op!(recip, Recip);
+impl_astnode_unary_op!(sin, Sin);
+impl_astnode_unary_op!(sqrt, Sqrt);
+impl_astnode_unary_op!(exp2, Exp2);
+impl_astnode_unary_op!(log2, Log2);
