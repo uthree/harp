@@ -1,4 +1,5 @@
 use crate::graph::shape::Expr as ShapeExpr;
+pub mod pattern;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DType {
@@ -62,7 +63,7 @@ pub enum AstNode {
 pub struct Function {
     name: String,
     body: Vec<AstNode>,
-    // TODO: arguments
+    // TODO: arguments, return values
 }
 
 #[derive(Debug, Clone, PartialEq)]

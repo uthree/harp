@@ -1,5 +1,5 @@
-use crate::ast::AstNode;
 use crate::ast::DType;
+use crate::ast::Program;
 use crate::graph::{Graph, GraphSignature};
 
 pub trait Buffer {
@@ -34,7 +34,7 @@ pub trait Renderer {
     type Option;
     fn new() -> Self;
     fn with_option(&mut self, option: Self::Option);
-    fn render(&mut self, ast: AstNode) -> Self::CodeRepr;
+    fn render(&mut self, program: Program) -> Self::CodeRepr;
 }
 
 pub trait Backend {

@@ -24,7 +24,9 @@ pub struct TensorSignature {
     // ちなみにViewに関しては、入出力の時点では常にContiguousであるとする。
 }
 
-pub enum GraphNode {}
+pub enum GraphOp {}
+
+pub struct GraphNode {}
 
 pub struct Graph {
     pub signature: GraphSignature,
