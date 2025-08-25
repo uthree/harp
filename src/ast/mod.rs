@@ -1,5 +1,8 @@
 use crate::graph::shape::Expr as ShapeExpr;
 pub mod pattern;
+use std::ops::{
+    Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Not, Rem, RemAssign, Sub, SubAssign,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DType {
@@ -29,6 +32,7 @@ pub enum AstNode {
     Add(Box<Self>, Box<Self>),
     Mul(Box<Self>, Box<Self>),
     Max(Box<Self>, Box<Self>),
+    Rem(Box<Self>, Box<Self>),
     Neg(Box<Self>),
     Recip(Box<Self>),
     Sin(Box<Self>),
@@ -71,3 +75,37 @@ pub struct Program {
     functions: Vec<Function>,
     entry_point: String,
 }
+
+macro_rules! impl_from_num_for_astnode {
+    ($(($t:ty, $v: ident)),*) => {
+        $(
+            impl From<$t> for AstNode {
+                fn from(n: $t) -> Self {
+                    AstNode::Const(ConstLiteral::$v(n))
+                }
+            }
+        )*
+    };
+}
+impl_from_num_for_astnode!((usize, Usize), (isize, Isize), (f32, F32));
+
+impl From<ConstLiteral> for AstNode {
+    fn from(c: ConstLiteral) -> Self {
+        AstNode::Const(c)
+    }
+}
+
+macro_rules! impl_astnode_binary_op {
+    ($trait:ident, $fname:ident, $variant:ident) => {
+        impl<T: Into<AstNode>> $trait<T> for AstNode {
+            type Output = AstNode;
+            fn $fname(self, rhs: T) -> Self::Output {
+                AstNode::$variant(Box::new(self), Box::new(rhs.into()))
+            }
+        }
+    };
+}
+
+impl_astnode_binary_op!(Add, add, Add);
+impl_astnode_binary_op!(Mul, mul, Mul);
+impl_astnode_binary_op!(Rem, rem, Rem);
