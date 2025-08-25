@@ -1,6 +1,7 @@
 use crate::ast::DType;
 pub mod shape;
 use crate::graph::shape::Expr as ShapeExpr;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct GraphSignature {
     pub shape_variables: Vec<ShapeVariableSignature>, // Shapeを決定するための変数。

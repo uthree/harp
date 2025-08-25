@@ -12,7 +12,7 @@ pub trait Buffer {
 pub trait Kernel {
     type Buffer: Buffer;
     /// Returns detailed information about the kernel's inputs and outputs.
-    fn details(&self) -> &GraphSignature;
+    fn signature(&self) -> &GraphSignature;
 
     /// Executes the kernel with the given buffers and shape variables.
     fn call(&mut self, buffers: Vec<Self::Buffer>, shape_variables: &[usize]) -> Vec<Self::Buffer>;
