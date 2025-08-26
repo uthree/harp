@@ -1,7 +1,7 @@
 use crate::graph::shape::Expr as ShapeExpr;
 pub mod pattern;
 use std::ops::{
-    Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
+    Add, AddAssign, Deref, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -103,6 +103,13 @@ macro_rules! impl_astnode_binary_op {
                 AstNode::$variant(Box::new(self), Box::new(rhs.into()))
             }
         }
+
+        impl $trait<&AstNode> for &AstNode {
+            type Output = AstNode;
+            fn $fname(self, rhs: &AstNode) -> Self::Output {
+                AstNode::$variant(Box::new(self.clone()), Box::new(rhs.clone()))
+            }
+        }
     };
 }
 
@@ -150,7 +157,7 @@ impl Neg for AstNode {
 macro_rules! impl_astnode_unary_op {
     ($fname:ident, $variant:ident) => {
         impl AstNode {
-            fn $fname(self) -> Self {
+            pub fn $fname(self) -> Self {
                 AstNode::$variant(Box::new(self))
             }
         }
@@ -162,3 +169,148 @@ impl_astnode_unary_op!(sin, Sin);
 impl_astnode_unary_op!(sqrt, Sqrt);
 impl_astnode_unary_op!(exp2, Exp2);
 impl_astnode_unary_op!(log2, Log2);
+
+impl AstNode {
+    pub fn capture(n: usize) -> AstNode {
+        AstNode::Capture(n)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case(1.0f32, AstNode::Const(ConstLiteral::F32(1.0)))]
+    #[case(42usize, AstNode::Const(ConstLiteral::Usize(42)))]
+    #[case(-10isize, AstNode::Const(ConstLiteral::Isize(-10)))]
+    fn test_from_numeric_literals(#[case] input: impl Into<AstNode>, #[case] expected: AstNode) {
+        assert_eq!(input.into(), expected);
+    }
+
+    #[test]
+    fn test_addition() {
+        let a = AstNode::Var("a".to_string());
+        let b: AstNode = 2.0f32.into();
+        let expr = a + b;
+        assert_eq!(
+            expr,
+            AstNode::Add(
+                Box::new(AstNode::Var("a".to_string())),
+                Box::new(AstNode::Const(ConstLiteral::F32(2.0)))
+            )
+        );
+    }
+
+    #[test]
+    fn test_subtraction() {
+        let a = AstNode::Var("a".to_string());
+        let b: AstNode = 2.0f32.into();
+        let expr = a - b;
+        assert_eq!(
+            expr,
+            AstNode::Add(
+                Box::new(AstNode::Var("a".to_string())),
+                Box::new(AstNode::Neg(Box::new(AstNode::Const(ConstLiteral::F32(
+                    2.0
+                )))))
+            )
+        );
+    }
+
+    #[test]
+    fn test_multiplication() {
+        let a = AstNode::Var("a".to_string());
+        let b: AstNode = 2.0f32.into();
+        let expr = a * b;
+        assert_eq!(
+            expr,
+            AstNode::Mul(
+                Box::new(AstNode::Var("a".to_string())),
+                Box::new(AstNode::Const(ConstLiteral::F32(2.0)))
+            )
+        );
+    }
+
+    #[test]
+    fn test_division() {
+        let a = AstNode::Var("a".to_string());
+        let b: AstNode = 2.0f32.into();
+        let expr = a / b;
+        assert_eq!(
+            expr,
+            AstNode::Add(
+                Box::new(AstNode::Var("a".to_string())),
+                Box::new(AstNode::Recip(Box::new(AstNode::Const(ConstLiteral::F32(
+                    2.0
+                )))))
+            )
+        );
+    }
+
+    #[test]
+    fn test_remainder() {
+        let a = AstNode::Var("a".to_string());
+        let b: AstNode = 2.0f32.into();
+        let expr = a % b;
+        assert_eq!(
+            expr,
+            AstNode::Rem(
+                Box::new(AstNode::Var("a".to_string())),
+                Box::new(AstNode::Const(ConstLiteral::F32(2.0)))
+            )
+        );
+    }
+
+    #[test]
+    fn test_negation() {
+        let a = AstNode::Var("a".to_string());
+        let expr = -a;
+        assert_eq!(expr, AstNode::Neg(Box::new(AstNode::Var("a".to_string()))));
+    }
+
+    #[test]
+    fn test_unary_ops() {
+        let a = AstNode::Var("a".to_string());
+        assert_eq!(
+            a.clone().recip(),
+            AstNode::Recip(Box::new(AstNode::Var("a".to_string())))
+        );
+        assert_eq!(
+            a.clone().sin(),
+            AstNode::Sin(Box::new(AstNode::Var("a".to_string())))
+        );
+        assert_eq!(
+            a.clone().sqrt(),
+            AstNode::Sqrt(Box::new(AstNode::Var("a".to_string())))
+        );
+        assert_eq!(
+            a.clone().exp2(),
+            AstNode::Exp2(Box::new(AstNode::Var("a".to_string())))
+        );
+        assert_eq!(
+            a.log2(),
+            AstNode::Log2(Box::new(AstNode::Var("a".to_string())))
+        );
+    }
+
+    #[test]
+    fn test_complex_expression() {
+        let a = AstNode::Var("a".to_string());
+        let b = AstNode::Var("b".to_string());
+        let c = 3.0f32;
+        // -(a + b) * c
+        let expr = -(a.clone() + b.clone()) * c;
+        assert_eq!(
+            expr,
+            AstNode::Mul(
+                Box::new(AstNode::Neg(Box::new(AstNode::Add(
+                    Box::new(AstNode::Var("a".to_string())),
+                    Box::new(AstNode::Var("b".to_string()))
+                )))),
+                Box::new(AstNode::Const(ConstLiteral::F32(3.0)))
+            )
+        );
+    }
+}
