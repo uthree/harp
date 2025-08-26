@@ -1,7 +1,7 @@
 use crate::graph::shape::Expr as ShapeExpr;
 pub mod pattern;
 use std::ops::{
-    Add, AddAssign, Deref, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
+    Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -200,6 +200,42 @@ impl AstNode {
             AstNode::Drop(_) => vec![],
             AstNode::Barrier => vec![],
             AstNode::Capture(_) => vec![],
+        }
+    }
+
+    // Helper function to replace children of an AstNode.
+    // This is a bit verbose, but it's the only way to do it without macros.
+    pub fn replace_children(&self, new_children: Vec<AstNode>) -> AstNode {
+        match self {
+            AstNode::Add(_, _) => AstNode::Add(
+                Box::new(new_children[0].clone()),
+                Box::new(new_children[1].clone()),
+            ),
+            AstNode::Mul(_, _) => AstNode::Mul(
+                Box::new(new_children[0].clone()),
+                Box::new(new_children[1].clone()),
+            ),
+            AstNode::Max(_, _) => AstNode::Max(
+                Box::new(new_children[0].clone()),
+                Box::new(new_children[1].clone()),
+            ),
+            AstNode::Rem(_, _) => AstNode::Rem(
+                Box::new(new_children[0].clone()),
+                Box::new(new_children[1].clone()),
+            ),
+            AstNode::Neg(_) => AstNode::Neg(Box::new(new_children[0].clone())),
+            AstNode::Recip(_) => AstNode::Recip(Box::new(new_children[0].clone())),
+            AstNode::Sin(_) => AstNode::Sin(Box::new(new_children[0].clone())),
+            AstNode::Sqrt(_) => AstNode::Sqrt(Box::new(new_children[0].clone())),
+            AstNode::Log2(_) => AstNode::Log2(Box::new(new_children[0].clone())),
+            AstNode::Exp2(_) => AstNode::Exp2(Box::new(new_children[0].clone())),
+            AstNode::CallFunction(_) => AstNode::CallFunction(new_children),
+            AstNode::Range { counter_name, .. } => AstNode::Range {
+                counter_name: counter_name.clone(),
+                max: Box::new(new_children[0].clone()),
+                body: new_children[1..].to_vec(),
+            },
+            _ => self.clone(),
         }
     }
 }
