@@ -177,8 +177,29 @@ impl AstNode {
 
     pub fn children(&self) -> Vec<&AstNode> {
         match self {
-            AstNode::Add(l, r) => vec![&l, &r],
-            _ => todo!(),
+            AstNode::Const(_) => vec![],
+            AstNode::Var(_) => vec![],
+            AstNode::Cast(_) => vec![],
+            AstNode::Add(l, r) => vec![l.as_ref(), r.as_ref()],
+            AstNode::Mul(l, r) => vec![l.as_ref(), r.as_ref()],
+            AstNode::Max(l, r) => vec![l.as_ref(), r.as_ref()],
+            AstNode::Rem(l, r) => vec![l.as_ref(), r.as_ref()],
+            AstNode::Neg(n) => vec![n.as_ref()],
+            AstNode::Recip(n) => vec![n.as_ref()],
+            AstNode::Sin(n) => vec![n.as_ref()],
+            AstNode::Sqrt(n) => vec![n.as_ref()],
+            AstNode::Log2(n) => vec![n.as_ref()],
+            AstNode::Exp2(n) => vec![n.as_ref()],
+            AstNode::CallFunction(nodes) => nodes.iter().collect(),
+            AstNode::Range { max, body, .. } => {
+                let mut children = vec![max.as_ref()];
+                children.extend(body.iter());
+                children
+            }
+            AstNode::Declare { .. } => vec![],
+            AstNode::Drop(_) => vec![],
+            AstNode::Barrier => vec![],
+            AstNode::Capture(_) => vec![],
         }
     }
 }
