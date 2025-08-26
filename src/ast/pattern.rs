@@ -20,13 +20,21 @@ impl AstRewriteRule {
             condition: Box::new(condition),
         })
     }
+
+    pub fn apply_recursive(&self, ast: &AstNode) -> AstNode {
+        todo!()
+    }
+
+    pub fn get_possible_rewrites(&self, ast: &AstNode) -> Vec<AstNode> {
+        todo!()
+    }
 }
 
-/// A macro to create a `RewriteRule`.
+/// A macro to create a `AstRewriteRule`.
 ///
 /// # Example
 ///
-/// The following example is ignored because `astpat!` is not exported.
+/// The following example is ignored because `ast_pattern!` is not exported.
 /// ```
 /// use harp::ast_pattern;
 ///

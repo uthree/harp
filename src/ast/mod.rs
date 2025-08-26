@@ -174,6 +174,13 @@ impl AstNode {
     pub fn capture(n: usize) -> AstNode {
         AstNode::Capture(n)
     }
+
+    pub fn children(&self) -> Vec<&AstNode> {
+        match self {
+            AstNode::Add(l, r) => vec![&l, &r],
+            _ => todo!(),
+        }
+    }
 }
 
 #[cfg(test)]
