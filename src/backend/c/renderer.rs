@@ -30,6 +30,8 @@ impl CRenderer {
     fn render_node(&mut self, node: AstNode) -> String {
         let mut buffer = String::new();
         match node {
+            AstNode::Const(c) => write!(buffer, "{}", self.render_const(c)).unwrap(),
+            AstNode::Var(s) => write!(buffer, "{}", s).unwrap(),
             AstNode::Add(lhs, rhs) => match *rhs {
                 AstNode::Neg(negv) => write!(
                     buffer,
@@ -47,11 +49,11 @@ impl CRenderer {
                 .unwrap(),
             },
             AstNode::Mul(lhs, rhs) => match *rhs {
-                AstNode::Recip(negv) => write!(
+                AstNode::Recip(recipv) => write!(
                     buffer,
                     "( {} / {} )",
                     self.render_node(*lhs),
-                    self.render_node(*negv)
+                    self.render_node(*recipv)
                 )
                 .unwrap(),
                 _ => write!(
@@ -63,9 +65,19 @@ impl CRenderer {
                 .unwrap(),
             },
             AstNode::Neg(v) => write!(buffer, "-{}", self.render_node(*v)).unwrap(),
+            AstNode::Recip(v) => write!(buffer, "(1 / {})", self.render_node(*v)).unwrap(),
             _ => todo!(),
         }
         buffer
+    }
+
+    fn render_const(&self, c: crate::ast::ConstLiteral) -> String {
+        use crate::ast::ConstLiteral::*;
+        match c {
+            F32(v) => format!("{}", v),
+            Isize(v) => format!("{}", v),
+            Usize(v) => format!("{}", v),
+        }
     }
 
     fn render_dtype(&mut self, dtype: DType) -> String {
@@ -74,8 +86,35 @@ impl CRenderer {
             DType::Isize => "ssize_t".to_string(),
             DType::Usize => "size_t".to_string(),
             DType::Void => "void".to_string(),
-            DType::Ptr(t) => format!("{}*", self.render_dtype(*t)).to_string(),
+            DType::Ptr(t) => format!("{}*", self.render_dtype(*t)),
             DType::Vec(t, size) => format!("{}[{}]", self.render_dtype(*t), size),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::AstNode;
+    use rstest::rstest;
+
+    fn var(name: &str) -> AstNode {
+        AstNode::Var(name.to_string())
+    }
+
+    #[rstest]
+    // Add
+    #[case(var("a") + var("b"), "(a + b)")]
+    #[case(var("a") + (-var("b")), "( a - b )")]
+    // Mul
+    #[case(var("a") * var("b"), "(a * b)")]
+    #[case(var("a") * var("b").recip(), "( a / b )")]
+    // Neg
+    #[case(-var("a"), "-a")]
+    // Complex
+    #[case(-(var("a") + var("b")) * var("c"), "(-(a + b) * c)")]
+    fn test_render_node(#[case] input: AstNode, #[case] expected: &str) {
+        let mut renderer = CRenderer::new();
+        assert_eq!(renderer.render_node(input), expected);
     }
 }
