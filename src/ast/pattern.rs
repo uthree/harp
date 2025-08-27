@@ -29,7 +29,7 @@ impl AstRewriteRule {
             .collect();
 
         // Rebuild the current node with the rewritten children.
-        let new_ast = ast.replace_children(children);
+        let new_ast = ast.clone().replace_children(children);
 
         // Then, try to find rewrites for the current node.
         // If there are possible rewrites, apply the first one.
@@ -59,7 +59,7 @@ impl AstRewriteRule {
             for rewritten_child in self.get_possible_rewrites(child) {
                 let mut new_children = ast.children().into_iter().cloned().collect::<Vec<_>>();
                 new_children[i] = rewritten_child;
-                rewrites.push(ast.replace_children(new_children));
+                rewrites.push(ast.clone().replace_children(new_children));
             }
         }
 

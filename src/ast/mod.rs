@@ -238,37 +238,40 @@ impl AstNode {
 
     // Helper function to replace children of an AstNode.
     // This is a bit verbose, but it's the only way to do it without macros.
-    pub fn replace_children(&self, new_children: Vec<AstNode>) -> AstNode {
+    pub fn replace_children(self, new_children: Vec<AstNode>) -> AstNode {
+        let mut children_iter = new_children.into_iter();
         match self {
             AstNode::Add(_, _) => AstNode::Add(
-                Box::new(new_children[0].clone()),
-                Box::new(new_children[1].clone()),
+                Box::new(children_iter.next().unwrap()),
+                Box::new(children_iter.next().unwrap()),
             ),
             AstNode::Mul(_, _) => AstNode::Mul(
-                Box::new(new_children[0].clone()),
-                Box::new(new_children[1].clone()),
+                Box::new(children_iter.next().unwrap()),
+                Box::new(children_iter.next().unwrap()),
             ),
             AstNode::Max(_, _) => AstNode::Max(
-                Box::new(new_children[0].clone()),
-                Box::new(new_children[1].clone()),
+                Box::new(children_iter.next().unwrap()),
+                Box::new(children_iter.next().unwrap()),
             ),
             AstNode::Rem(_, _) => AstNode::Rem(
-                Box::new(new_children[0].clone()),
-                Box::new(new_children[1].clone()),
+                Box::new(children_iter.next().unwrap()),
+                Box::new(children_iter.next().unwrap()),
             ),
-            AstNode::Neg(_) => AstNode::Neg(Box::new(new_children[0].clone())),
-            AstNode::Recip(_) => AstNode::Recip(Box::new(new_children[0].clone())),
-            AstNode::Sin(_) => AstNode::Sin(Box::new(new_children[0].clone())),
-            AstNode::Sqrt(_) => AstNode::Sqrt(Box::new(new_children[0].clone())),
-            AstNode::Log2(_) => AstNode::Log2(Box::new(new_children[0].clone())),
-            AstNode::Exp2(_) => AstNode::Exp2(Box::new(new_children[0].clone())),
-            AstNode::CallFunction(_) => AstNode::CallFunction(new_children),
+            AstNode::Neg(_) => AstNode::Neg(Box::new(children_iter.next().unwrap())),
+            AstNode::Recip(_) => AstNode::Recip(Box::new(children_iter.next().unwrap())),
+            AstNode::Sin(_) => AstNode::Sin(Box::new(children_iter.next().unwrap())),
+            AstNode::Sqrt(_) => AstNode::Sqrt(Box::new(children_iter.next().unwrap())),
+            AstNode::Log2(_) => AstNode::Log2(Box::new(children_iter.next().unwrap())),
+            AstNode::Exp2(_) => AstNode::Exp2(Box::new(children_iter.next().unwrap())),
+            AstNode::CallFunction(_) => AstNode::CallFunction(children_iter.collect()),
             AstNode::Range { counter_name, .. } => AstNode::Range {
-                counter_name: counter_name.clone(),
-                max: Box::new(new_children[0].clone()),
-                body: Box::new(new_children[1].clone()),
+                counter_name, // moved
+                max: Box::new(children_iter.next().unwrap()),
+                body: Box::new(children_iter.next().unwrap()),
             },
-            _ => self.clone(),
+            AstNode::Block(_) => AstNode::Block(children_iter.collect()),
+            // Nodes without children are returned as is (moved).
+            _ => self,
         }
     }
 }
