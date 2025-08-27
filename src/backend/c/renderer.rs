@@ -1,7 +1,8 @@
 use crate::{
-    ast::{AstNode, DType, Function},
+    ast::{AstNode, ConstLiteral, DType, Function, Program},
     backend::Renderer,
 };
+use log::{debug, trace};
 use std::fmt::Write;
 
 #[derive(Debug, Default)]
@@ -19,21 +20,37 @@ impl Renderer for CRenderer {
         CRenderer::default()
     }
 
-    fn render(&mut self, program: crate::ast::Program) -> Self::CodeRepr {
-        todo!()
+    fn render(&mut self, program: Program) -> Self::CodeRepr {
+        let code = self.render_program(&program);
+        debug!("\n--- Rendered C code ---\n{code}\n-----------------------");
+        debug!("Finished rendering C code.");
+        code
     }
 }
 
 impl CRenderer {
-    fn render_function(&mut self, function: Function) -> String {
+    fn render_program(&mut self, program: &Program) -> String {
+        let mut buffer = String::new();
+        buffer.push_str("#include <math.h>\n");
+        buffer.push_str("#include <stddef.h>\n");
+        buffer.push_str("#include <stdint.h>\n");
+        buffer.push_str("#include <stdlib.h>\n");
+        buffer.push_str("\n");
+        for function in program.functions.iter() {
+            write!(buffer, "{}", self.render_function(function)).unwrap();
+        }
+        buffer
+    }
+
+    fn render_function(&mut self, function: &Function) -> String {
         let mut buffer = String::new();
 
         // Render function signature
-        let return_type = self.render_dtype(function.return_type);
+        let return_type = self.render_dtype(&function.return_type);
         let args = function
             .arguments
             .iter()
-            .map(|(name, dtype)| format!("{} {}", self.render_dtype(dtype.clone()), name))
+            .map(|(name, dtype)| format!("{} {}", self.render_dtype(dtype), name))
             .collect::<Vec<_>>()
             .join(", ");
         writeln!(buffer, "{} {}({})", return_type, function.name, args).unwrap();
@@ -41,13 +58,13 @@ impl CRenderer {
         // Render function body
         match function.body {
             AstNode::Block(_) => {
-                writeln!(buffer, "{}", self.render_node(function.body)).unwrap();
+                writeln!(buffer, "{}", self.render_node(&function.body)).unwrap();
             }
             _ => {
                 writeln!(buffer, "{{").unwrap();
                 self.indent_level += 1;
                 self.render_indent(&mut buffer);
-                writeln!(buffer, "{};", self.render_node(function.body)).unwrap();
+                writeln!(buffer, "{};", self.render_node(&function.body)).unwrap();
                 self.indent_level -= 1;
                 writeln!(buffer, "}}").unwrap();
             }
@@ -55,7 +72,7 @@ impl CRenderer {
         buffer
     }
 
-    fn render_node(&mut self, node: AstNode) -> String {
+    fn render_node(&mut self, node: &AstNode) -> String {
         let mut buffer = String::new();
         match node {
             AstNode::Const(c) => write!(buffer, "{}", self.render_const(c)).unwrap(),
@@ -137,7 +154,7 @@ impl CRenderer {
         }
     }
 
-    fn render_const(&self, c: crate::ast::ConstLiteral) -> String {
+    fn render_const(&self, c: &ConstLiteral) -> String {
         use crate::ast::ConstLiteral::*;
         match c {
             F32(v) => format!("{}", v),
@@ -146,14 +163,14 @@ impl CRenderer {
         }
     }
 
-    fn render_dtype(&mut self, dtype: DType) -> String {
+    fn render_dtype(&mut self, dtype: &DType) -> String {
         match dtype {
             DType::F32 => "float".to_string(),
             DType::Isize => "ssize_t".to_string(),
             DType::Usize => "size_t".to_string(),
             DType::Void => "void".to_string(),
-            DType::Ptr(t) => format!("{}*", self.render_dtype(*t)),
-            DType::Vec(t, size) => format!("{}[{}]", self.render_dtype(*t), size),
+            DType::Ptr(t) => format!("{}*", self.render_dtype(t)),
+            DType::Vec(t, size) => format!("{}[{}]", self.render_dtype(t), size),
         }
     }
 }

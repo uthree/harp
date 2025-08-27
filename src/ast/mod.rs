@@ -106,8 +106,8 @@ impl Function {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
-    functions: Vec<Function>,
-    entry_point: String,
+    pub(crate) functions: Vec<Function>,
+    pub(crate) entry_point: String,
 }
 
 macro_rules! impl_from_num_for_astnode {
