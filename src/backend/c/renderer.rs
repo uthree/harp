@@ -101,6 +101,20 @@ impl CRenderer {
             .unwrap(),
             AstNode::Neg(v) => write!(buffer, "-{}", self.render_node(*v)).unwrap(),
             AstNode::Recip(v) => write!(buffer, "(1 / {})", self.render_node(*v)).unwrap(),
+            AstNode::Range {
+                counter_name,
+                max,
+                body,
+            } => {
+                self.render_indent(&mut buffer);
+                let max = self.render_node(*max);
+                write!(
+                    buffer,
+                    "for (size_t {counter_name} = 0; {counter_name} < {max}; {counter_name}++)\n"
+                )
+                .unwrap();
+                write!(buffer, "{}", self.render_node(*body)).unwrap();
+            }
             AstNode::Block(insts) => {
                 writeln!(buffer, "{{").unwrap();
                 self.indent_level += 1;
