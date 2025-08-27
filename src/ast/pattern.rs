@@ -35,7 +35,7 @@ impl AstRewriteRule {
         // If there are possible rewrites, apply the first one.
         // Otherwise, return the node as is.
         self.get_possible_rewrites(&new_ast)
-            .get(0)
+            .first()
             .cloned()
             .unwrap_or(new_ast)
     }

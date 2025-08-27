@@ -1,3 +1,4 @@
+use crate::ast::{AstNode, ConstLiteral};
 use std::ops::{
     Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
@@ -14,6 +15,26 @@ pub enum Expr {
     Mul(Box<Self>, Box<Self>),
     Div(Box<Self>, Box<Self>),
     Rem(Box<Self>, Box<Self>),
+}
+
+impl From<Expr> for AstNode {
+    fn from(expr: Expr) -> Self {
+        match expr {
+            Expr::Const(c) => AstNode::Const(ConstLiteral::Isize(c)),
+            Expr::Var(s) => AstNode::Var(s),
+            Expr::Add(l, r) => AstNode::Add(Box::new((*l).into()), Box::new((*r).into())),
+            Expr::Sub(l, r) => AstNode::Add(
+                Box::new((*l).into()),
+                Box::new(AstNode::Neg(Box::new((*r).into()))),
+            ),
+            Expr::Mul(l, r) => AstNode::Mul(Box::new((*l).into()), Box::new((*r).into())),
+            Expr::Div(l, r) => AstNode::Add(
+                Box::new((*l).into()),
+                Box::new(AstNode::Recip(Box::new((*r).into()))),
+            ),
+            Expr::Rem(l, r) => AstNode::Rem(Box::new((*l).into()), Box::new((*r).into())),
+        }
+    }
 }
 
 impl Expr {

@@ -9,7 +9,7 @@ pub enum View {
         strides: Vec<Expr>, // 各次元の添え字の係数
         offset: Expr,       // オフセット
     },
-    // 非線形な場合は後で実装する
+    // TODO: 非線形な場合の処理を実装する
 }
 
 impl View {
