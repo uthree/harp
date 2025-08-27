@@ -35,7 +35,7 @@ impl CRenderer {
         buffer.push_str("#include <stddef.h>\n");
         buffer.push_str("#include <stdint.h>\n");
         buffer.push_str("#include <stdlib.h>\n");
-        buffer.push_str("\n");
+        buffer.push('\n');
         for function in program.functions.iter() {
             write!(buffer, "{}", self.render_function(function)).unwrap();
         }
@@ -81,14 +81,14 @@ impl CRenderer {
                 AstNode::Neg(negv) => write!(
                     buffer,
                     "( {} - {} )",
-                    self.render_node(&*lhs),
+                    self.render_node(lhs),
                     self.render_node(negv)
                 )
                 .unwrap(),
                 _ => write!(
                     buffer,
                     "({} + {})",
-                    self.render_node(&*lhs),
+                    self.render_node(lhs),
                     self.render_node(rhs)
                 )
                 .unwrap(),
@@ -97,14 +97,14 @@ impl CRenderer {
                 AstNode::Recip(recipv) => write!(
                     buffer,
                     "( {} / {} )",
-                    self.render_node(&*lhs),
+                    self.render_node(lhs),
                     self.render_node(recipv)
                 )
                 .unwrap(),
                 _ => write!(
                     buffer,
                     "({} * {})",
-                    self.render_node(&*lhs),
+                    self.render_node(lhs),
                     self.render_node(rhs)
                 )
                 .unwrap(),
@@ -112,25 +112,25 @@ impl CRenderer {
             AstNode::Rem(lhs, rhs) => write!(
                 buffer,
                 "({} % {})",
-                self.render_node(&*lhs),
-                self.render_node(&*rhs)
+                self.render_node(lhs),
+                self.render_node(rhs)
             )
             .unwrap(),
-            AstNode::Neg(v) => write!(buffer, "-{}", self.render_node(&*v)).unwrap(),
-            AstNode::Recip(v) => write!(buffer, "(1 / {})", self.render_node(&*v)).unwrap(),
+            AstNode::Neg(v) => write!(buffer, "-{}", self.render_node(v)).unwrap(),
+            AstNode::Recip(v) => write!(buffer, "(1 / {})", self.render_node(v)).unwrap(),
             AstNode::Range {
                 counter_name,
                 max,
                 body,
             } => {
                 self.render_indent(&mut buffer);
-                let max = self.render_node(&*max);
-                write!(
+                let max = self.render_node(max);
+                writeln!(
                     buffer,
-                    "for (size_t {counter_name} = 0; {counter_name} < {max}; {counter_name}++)\n"
+                    "for (size_t {counter_name} = 0; {counter_name} < {max}; {counter_name}++)"
                 )
                 .unwrap();
-                write!(buffer, "{}", self.render_node(&*body)).unwrap();
+                write!(buffer, "{}", self.render_node(body)).unwrap();
             }
             AstNode::Block(insts) => {
                 writeln!(buffer, "{{").unwrap();
