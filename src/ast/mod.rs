@@ -66,9 +66,42 @@ pub enum AstNode {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Function {
-    name: String,
-    body: AstNode,
-    // TODO: arguments, return values
+    pub(crate) name: String,
+    pub(crate) body: AstNode,
+    pub(crate) arguments: Vec<(String, DType)>,
+    pub(crate) return_type: DType,
+}
+
+impl Function {
+    pub fn new(
+        name: String,
+        arguments: Vec<(String, DType)>,
+        return_type: DType,
+        body: AstNode,
+    ) -> Self {
+        Self {
+            name,
+            arguments,
+            return_type,
+            body,
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn body(&self) -> &AstNode {
+        &self.body
+    }
+
+    pub fn arguments(&self) -> &[(String, DType)] {
+        &self.arguments
+    }
+
+    pub fn return_type(&self) -> &DType {
+        &self.return_type
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

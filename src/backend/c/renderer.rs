@@ -25,7 +25,35 @@ impl Renderer for CRenderer {
 }
 
 impl CRenderer {
-    fn render_function(&mut self, function: Function) {}
+    fn render_function(&mut self, function: Function) -> String {
+        let mut buffer = String::new();
+
+        // Render function signature
+        let return_type = self.render_dtype(function.return_type);
+        let args = function
+            .arguments
+            .iter()
+            .map(|(name, dtype)| format!("{} {}", self.render_dtype(dtype.clone()), name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        writeln!(buffer, "{} {}({})", return_type, function.name, args).unwrap();
+
+        // Render function body
+        match function.body {
+            AstNode::Block(_) => {
+                writeln!(buffer, "{}", self.render_node(function.body)).unwrap();
+            }
+            _ => {
+                writeln!(buffer, "{{").unwrap();
+                self.indent_level += 1;
+                self.render_indent(&mut buffer);
+                writeln!(buffer, "{};", self.render_node(function.body)).unwrap();
+                self.indent_level -= 1;
+                writeln!(buffer, "}}").unwrap();
+            }
+        }
+        buffer
+    }
 
     fn render_node(&mut self, node: AstNode) -> String {
         let mut buffer = String::new();
@@ -74,18 +102,15 @@ impl CRenderer {
             AstNode::Neg(v) => write!(buffer, "-{}", self.render_node(*v)).unwrap(),
             AstNode::Recip(v) => write!(buffer, "(1 / {})", self.render_node(*v)).unwrap(),
             AstNode::Block(insts) => {
+                writeln!(buffer, "{{").unwrap();
                 self.indent_level += 1;
-                write!(buffer, "{{").unwrap();
                 for inst in insts.iter() {
-                    buffer.push('\n');
                     self.render_indent(&mut buffer);
-                    self.render_node(inst.clone());
-                    buffer.push(';');
+                    writeln!(buffer, "{};", self.render_node(inst.clone())).unwrap();
                 }
-                buffer.push('\n');
+                self.indent_level -= 1;
                 self.render_indent(&mut buffer);
                 write!(buffer, "}}").unwrap();
-                self.indent_level -= 1;
             }
             _ => todo!(),
         }
@@ -143,5 +168,39 @@ mod tests {
     fn test_render_node(#[case] input: AstNode, #[case] expected: &str) {
         let mut renderer = CRenderer::new();
         assert_eq!(renderer.render_node(input), expected);
+    }
+
+    #[test]
+    fn test_render_function() {
+        let function = Function {
+            name: "my_func".to_string(),
+            arguments: vec![("a".to_string(), DType::Isize)],
+            return_type: DType::Void,
+            body: AstNode::Block(vec![AstNode::Var("a".to_string())]),
+        };
+        let expected = r#"void my_func(ssize_t a)
+{
+	a;
+}
+"#;
+        let mut renderer = CRenderer::new();
+        assert_eq!(renderer.render_function(function), expected);
+    }
+
+    #[test]
+    fn test_render_function_single_statement() {
+        let function = Function {
+            name: "my_func".to_string(),
+            arguments: vec![("a".to_string(), DType::Isize)],
+            return_type: DType::Void,
+            body: AstNode::Var("a".to_string()),
+        };
+        let expected = r#"void my_func(ssize_t a)
+{
+	a;
+}
+"#;
+        let mut renderer = CRenderer::new();
+        assert_eq!(renderer.render_function(function), expected);
     }
 }
