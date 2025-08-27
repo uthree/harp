@@ -47,7 +47,7 @@ pub enum AstNode {
         // Forループ
         counter_name: String, // ループカウンタの変数名
         max: Box<Self>,       // ループ回数
-        body: Vec<Self>,
+        body: Box<Self>,
     },
 
     Declare {
@@ -193,9 +193,7 @@ impl AstNode {
             AstNode::Exp2(n) => vec![n.as_ref()],
             AstNode::CallFunction(nodes) => nodes.iter().collect(),
             AstNode::Range { max, body, .. } => {
-                let mut children = vec![max.as_ref()];
-                children.extend(body.iter());
-                children
+                vec![max.as_ref(), body.as_ref()]
             }
             AstNode::Block(nodes) => nodes.iter().collect(),
             AstNode::Declare { .. } => vec![],
@@ -235,7 +233,7 @@ impl AstNode {
             AstNode::Range { counter_name, .. } => AstNode::Range {
                 counter_name: counter_name.clone(),
                 max: Box::new(new_children[0].clone()),
-                body: new_children[1..].to_vec(),
+                body: Box::new(new_children[1].clone()),
             },
             _ => self.clone(),
         }
