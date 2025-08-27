@@ -1,4 +1,3 @@
-use crate::graph::shape::Expr as ShapeExpr;
 pub mod pattern;
 use std::ops::{
     Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
@@ -11,8 +10,8 @@ pub enum DType {
     Isize, // ssize_t
     Void,
 
-    Ptr(Box<Self>, ShapeExpr), // pointer
-    Vec(Box<Self>, usize),     // fixed-size array (for SIMD vectorization)
+    Ptr(Box<Self>),        // pointer
+    Vec(Box<Self>, usize), // fixed-size array (for SIMD vectorization)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -42,6 +41,8 @@ pub enum AstNode {
     CallFunction(Vec<Self>),
 
     // statements
+    Block(Vec<Self>),
+
     Range {
         // Forループ
         counter_name: String, // ループカウンタの変数名
@@ -66,7 +67,7 @@ pub enum AstNode {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Function {
     name: String,
-    body: Vec<AstNode>,
+    body: AstNode,
     // TODO: arguments, return values
 }
 
@@ -196,6 +197,7 @@ impl AstNode {
                 children.extend(body.iter());
                 children
             }
+            AstNode::Block(nodes) => nodes.iter().collect(),
             AstNode::Declare { .. } => vec![],
             AstNode::Drop(_) => vec![],
             AstNode::Barrier => vec![],
