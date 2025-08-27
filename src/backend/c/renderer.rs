@@ -2,7 +2,7 @@ use crate::{
     ast::{AstNode, ConstLiteral, DType, Function, Program},
     backend::Renderer,
 };
-use log::{debug, trace};
+use log::debug;
 use std::fmt::Write;
 
 #[derive(Debug, Default)]
@@ -14,7 +14,7 @@ impl Renderer for CRenderer {
     type CodeRepr = String;
     type Option = ();
 
-    fn with_option(&mut self, option: Self::Option) {}
+    fn with_option(&mut self, _option: Self::Option) {}
 
     fn new() -> Self {
         CRenderer::default()
@@ -77,67 +77,67 @@ impl CRenderer {
         match node {
             AstNode::Const(c) => write!(buffer, "{}", self.render_const(c)).unwrap(),
             AstNode::Var(s) => write!(buffer, "{}", s).unwrap(),
-            AstNode::Add(lhs, rhs) => match *rhs {
+            AstNode::Add(lhs, rhs) => match &**rhs {
                 AstNode::Neg(negv) => write!(
                     buffer,
                     "( {} - {} )",
-                    self.render_node(*lhs),
-                    self.render_node(*negv)
+                    self.render_node(&*lhs),
+                    self.render_node(negv)
                 )
                 .unwrap(),
                 _ => write!(
                     buffer,
                     "({} + {})",
-                    self.render_node(*lhs),
-                    self.render_node(*rhs)
+                    self.render_node(&*lhs),
+                    self.render_node(rhs)
                 )
                 .unwrap(),
             },
-            AstNode::Mul(lhs, rhs) => match *rhs {
+            AstNode::Mul(lhs, rhs) => match &**rhs {
                 AstNode::Recip(recipv) => write!(
                     buffer,
                     "( {} / {} )",
-                    self.render_node(*lhs),
-                    self.render_node(*recipv)
+                    self.render_node(&*lhs),
+                    self.render_node(recipv)
                 )
                 .unwrap(),
                 _ => write!(
                     buffer,
                     "({} * {})",
-                    self.render_node(*lhs),
-                    self.render_node(*rhs)
+                    self.render_node(&*lhs),
+                    self.render_node(rhs)
                 )
                 .unwrap(),
             },
             AstNode::Rem(lhs, rhs) => write!(
                 buffer,
                 "({} % {})",
-                self.render_node(*lhs),
-                self.render_node(*rhs)
+                self.render_node(&*lhs),
+                self.render_node(&*rhs)
             )
             .unwrap(),
-            AstNode::Neg(v) => write!(buffer, "-{}", self.render_node(*v)).unwrap(),
-            AstNode::Recip(v) => write!(buffer, "(1 / {})", self.render_node(*v)).unwrap(),
+            AstNode::Neg(v) => write!(buffer, "-{}", self.render_node(&*v)).unwrap(),
+            AstNode::Recip(v) => write!(buffer, "(1 / {})", self.render_node(&*v)).unwrap(),
             AstNode::Range {
                 counter_name,
                 max,
                 body,
             } => {
                 self.render_indent(&mut buffer);
-                let max = self.render_node(*max);
+                let max = self.render_node(&*max);
                 write!(
                     buffer,
                     "for (size_t {counter_name} = 0; {counter_name} < {max}; {counter_name}++)\n"
                 )
                 .unwrap();
-                write!(buffer, "{}", self.render_node(*body)).unwrap();
+                write!(buffer, "{}", self.render_node(&*body)).unwrap();
             }
             AstNode::Block(insts) => {
                 writeln!(buffer, "{{").unwrap();
                 self.indent_level += 1;
                 for inst in insts.iter() {
                     self.render_indent(&mut buffer);
-                    writeln!(buffer, "{};", self.render_node(inst.clone())).unwrap();
+                    writeln!(buffer, "{};", self.render_node(inst)).unwrap();
                 }
                 self.indent_level -= 1;
                 self.render_indent(&mut buffer);
@@ -198,7 +198,7 @@ mod tests {
     #[case(-(var("a") + var("b")) * var("c"), "(-(a + b) * c)")]
     fn test_render_node(#[case] input: AstNode, #[case] expected: &str) {
         let mut renderer = CRenderer::new();
-        assert_eq!(renderer.render_node(input), expected);
+        assert_eq!(renderer.render_node(&input), expected);
     }
 
     #[test]
@@ -215,7 +215,7 @@ mod tests {
 }
 "#;
         let mut renderer = CRenderer::new();
-        assert_eq!(renderer.render_function(function), expected);
+        assert_eq!(renderer.render_function(&function), expected);
     }
 
     #[test]
@@ -232,6 +232,6 @@ mod tests {
 }
 "#;
         let mut renderer = CRenderer::new();
-        assert_eq!(renderer.render_function(function), expected);
+        assert_eq!(renderer.render_function(&function), expected);
     }
 }
