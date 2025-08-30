@@ -1,4 +1,6 @@
-use crate::ast::DType;
+use std::rc::Rc;
+
+use crate::ast::{AstNode, DType};
 pub mod shape;
 use crate::graph::shape::Expr as ShapeExpr;
 
@@ -24,9 +26,25 @@ pub struct TensorSignature {
     // ちなみにViewに関しては、入出力の時点では常にContiguousであるとする。
 }
 
-pub enum GraphOp {}
+pub enum ElementwiseOp {}
 
-pub struct GraphNode {}
+pub enum ReduceOp {
+    Add,
+    Mul,
+    Max,
+}
+
+pub enum GraphOp {
+    FusedElementwise(AstNode), // capture(n) が src[n]に対応する
+    FusedReduce(Vec<usize>),   // 1つ以上の軸をReduce
+}
+
+pub struct GraphNodeData {
+    op: GraphOp,
+    src: Vec<GraphNode>,
+}
+
+pub struct GraphNode(Rc<GraphNodeData>);
 
 pub struct Graph {
     pub signature: GraphSignature,
