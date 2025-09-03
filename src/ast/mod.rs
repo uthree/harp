@@ -3,9 +3,10 @@ use std::ops::{
     Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum DType {
-    F32,   // float
+    #[default]
+    F32, // float
     Usize, // size_t
     Isize, // ssize_t
     Void,
