@@ -26,18 +26,6 @@ pub struct TensorSignature {
     // ちなみにViewに関しては、入出力の時点では常にContiguousであるとする。
 }
 
-pub enum ElementwiseOp {
-    Add,
-    Mul,
-    Max,
-    Recip,
-    Neg,
-    Sqrt,
-    Log2,
-    Exp2,
-    Sin,
-}
-
 pub enum ReduceOp {
     Add,
     Mul,
