@@ -38,6 +38,7 @@ pub enum AstNode {
     Sqrt(Box<Self>),
     Log2(Box<Self>),
     Exp2(Box<Self>),
+    Rand, // 一様乱数(0.0~1.0まで)を生成
     CallFunction(Vec<Self>),
 
     // statements
@@ -233,6 +234,7 @@ impl AstNode {
             AstNode::Drop(_) => vec![],
             AstNode::Barrier => vec![],
             AstNode::Capture(_) => vec![],
+            AstNode::Rand => vec![],
         }
     }
 
