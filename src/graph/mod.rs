@@ -2,74 +2,25 @@ use crate::ast::{ConstLiteral, DType};
 pub mod ops;
 pub mod shape;
 use crate::graph::shape::Expr as ShapeExpr;
+use std::ops::Deref;
+use std::rc::Rc;
 
-// --- New Arena-based Graph Structures ---
-
-/// A handle to a node in the graph.
-/// It's a lightweight, copyable identifier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct NodeId(pub usize);
-
-/// Represents a single operation or value in the computation graph.
-/// Nodes are stored in the `Graph`'s arena.
 #[derive(Debug, Clone)]
-pub struct Node {
+pub struct GraphNode(Rc<GraphNodeData>);
+
+#[derive(Debug, Clone)]
+pub struct GraphNodeData {
     pub op: GraphOp,
-    pub inputs: Vec<NodeId>,
+    pub src: Vec<GraphNode>,
     pub dtype: DType,
-    // We can add more metadata here later, e.g., shape, name.
 }
 
-/// The main computation graph structure.
-/// It owns all the nodes and manages the graph structure.
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct Graph {
-    pub nodes: Vec<Node>,
-    pub signature: GraphSignature,
-    pub inputs: Vec<NodeId>,
-    pub outputs: Vec<NodeId>,
+    pub inputs: Vec<GraphNode>,
+    pub outputs: Vec<GraphNode>,
+    pub shape_variables: Vec<ShapeVariableSignature>,
 }
-
-impl Graph {
-    /// Creates a new, empty graph.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Adds a new node to the graph and returns its ID.
-    pub fn add_node(&mut self, op: GraphOp, inputs: Vec<NodeId>, dtype: DType) -> NodeId {
-        let id = NodeId(self.nodes.len());
-        self.nodes.push(Node { op, inputs, dtype });
-        id
-    }
-
-    /// Retrieves a reference to a node by its ID.
-    pub fn node(&self, id: NodeId) -> &Node {
-        &self.nodes[id.0]
-    }
-
-    /// Retrieves a mutable reference to a node by its ID.
-    pub fn node_mut(&mut self, id: NodeId) -> &mut Node {
-        &mut self.nodes[id.0]
-    }
-
-    /// Creates a new input node and adds it to the graph's input list.
-    pub fn input(&mut self, shape: Vec<ShapeExpr>, dtype: DType) -> NodeId {
-        // Store the signature for this input tensor.
-        let tensor_signature = TensorSignature {
-            dtype: dtype.clone(),
-            shape,
-        };
-        self.signature.inputs.push(tensor_signature);
-
-        // Create the input node in the graph arena.
-        let input_node_id = self.add_node(GraphOp::Input, vec![], dtype);
-        self.inputs.push(input_node_id);
-        input_node_id
-    }
-}
-
-// --- Graph-related Definitions ---
 
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct GraphSignature {
@@ -115,11 +66,34 @@ pub enum ReduceOp {
 pub enum GraphOp {
     Input,
     Const(ConstLiteral, Vec<ShapeExpr>),
+    Elementwise(ElementwiseOp),
     Cast,
     Rand(Vec<ShapeExpr>),
     Arange(usize),
     Reshape(Vec<ShapeExpr>),
-    Reduce(ReduceOp, Vec<usize>),
+    Reduce(ReduceOp, usize),
     Cumulative(ReduceOp, usize),
     Contiguous,
+}
+
+impl Graph {
+    pub fn new() -> Graph {
+        Graph {
+            inputs: vec![],
+            outputs: vec![],
+            shape_variables: vec![],
+        }
+    }
+
+    // 自身のシグネチャを返す
+    pub fn signature() -> GraphSignature {
+        todo!()
+    }
+}
+
+impl Deref for GraphNode {
+    type Target = GraphNodeData;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
