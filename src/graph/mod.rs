@@ -13,6 +13,7 @@ pub struct GraphNodeData {
     pub op: GraphOp,
     pub src: Vec<GraphNode>,
     pub dtype: DType,
+    pub shape: Vec<ShapeExpr>, // ここではあえてView構造体を持たずに、論理的なshapeだけを考慮する。具体的なメモリアクセスに関してはlowererが担当する。
 }
 
 #[derive(Debug, Clone)]
@@ -86,23 +87,55 @@ impl Graph {
     }
 
     // 自身のシグネチャを返す
-    pub fn signature() -> GraphSignature {
-        todo!()
+    pub fn signature(&self) -> GraphSignature {
+        let inputs = self
+            .inputs
+            .iter()
+            .map(|node| TensorSignature {
+                dtype: node.dtype.clone(),
+                shape: node.shape.clone(),
+            })
+            .collect();
+        let outputs = self
+            .outputs
+            .iter()
+            .map(|node| TensorSignature {
+                dtype: node.dtype.clone(),
+                shape: node.shape.clone(),
+            })
+            .collect();
+        GraphSignature {
+            shape_variables: self.shape_variables.clone(),
+            inputs,
+            outputs,
+        }
     }
 
     // 新たにshape variable (動的shape用の変数を作成する)
-    pub fn shape_var(&mut self, name: &str) -> ShapeExpr {
-        todo!()
+    pub fn shape_var(&mut self, name: &str, default: isize) -> ShapeExpr {
+        let var = ShapeVariableSignature {
+            name: name.to_string(),
+            default: default,
+        };
+        self.shape_variables.push(var);
+        ShapeExpr::Var(name.to_string())
     }
 
     // 新たに入力変数を作る
     pub fn input(&mut self, dtype: DType, shape: Vec<ShapeExpr>) -> GraphNode {
-        todo!()
+        let node = GraphNode(Rc::new(GraphNodeData {
+            op: GraphOp::Input,
+            src: vec![],
+            dtype,
+            shape,
+        }));
+        self.inputs.push(node.clone());
+        node
     }
 
     // 出力としてノードを登録する
     pub fn output(&mut self, node: GraphNode) {
-        todo!()
+        self.outputs.push(node);
     }
 }
 
