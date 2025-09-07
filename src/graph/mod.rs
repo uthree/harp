@@ -64,7 +64,7 @@ pub enum ReduceOp {
 
 #[derive(Debug, Clone)]
 pub enum GraphOp {
-    Input,
+    Input, // 入力
     Const(ConstLiteral, Vec<ShapeExpr>),
     Elementwise(ElementwiseOp),
     Cast,
@@ -87,6 +87,21 @@ impl Graph {
 
     // 自身のシグネチャを返す
     pub fn signature() -> GraphSignature {
+        todo!()
+    }
+
+    // 新たにshape variable (動的shape用の変数を作成する)
+    pub fn shape_var(&mut self, name: &str) -> ShapeExpr {
+        todo!()
+    }
+
+    // 新たに入力変数を作る
+    pub fn input(&mut self, dtype: DType, shape: Vec<ShapeExpr>) -> GraphNode {
+        todo!()
+    }
+
+    // 出力としてノードを登録する
+    pub fn output(&mut self, node: GraphNode) {
         todo!()
     }
 }
