@@ -1,4 +1,4 @@
-use crate::ast::{AstNode, DType, Function};
+use crate::ast::{AstNode, Block, DType, Function, Scope, VariableDecl};
 use crate::graph::{ElementwiseOp, Graph, GraphNode, GraphNodeData, GraphOp};
 use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
@@ -25,30 +25,36 @@ impl Lowerer {
     pub fn lower(&mut self, graph: &Graph) -> Function {
         let sorted_nodes = self.topological_sort(graph);
 
+        let mut declarations = vec![];
         let mut statements = vec![];
         let mut arguments = vec![];
 
         for node in &sorted_nodes {
-            statements.extend(self.compile_node(node, &mut arguments));
+            let (decl, stmt) = self.compile_node(node, &mut arguments);
+            if let Some(d) = decl {
+                declarations.push(d);
+            }
+            if let Some(s) = stmt {
+                statements.push(s);
+            }
         }
 
-        // TODO: Use graph.signature() to get proper name and types
-        Function::new(
-            "harp_kernel".to_string(),
-            arguments,
-            DType::Void,
-            AstNode::Block(statements),
-        )
+        let body = Block {
+            scope: Scope { declarations },
+            statements,
+        };
+
+        Function::new("harp_kernel".to_string(), arguments, DType::Void, body)
     }
 
     fn compile_node(
         &mut self,
         node: &GraphNode,
         arguments: &mut Vec<(String, DType)>,
-    ) -> Vec<AstNode> {
+    ) -> (Option<VariableDecl>, Option<AstNode>) {
         let node_ptr = Rc::as_ptr(&node.0);
         if self.node_to_var.contains_key(&node_ptr) {
-            return vec![];
+            return (None, None);
         }
 
         match &node.op {
@@ -58,7 +64,7 @@ impl Lowerer {
                     arguments.push((name.clone(), node.dtype.clone()));
                     self.node_to_var.insert(node_ptr, arg_var);
                 }
-                vec![]
+                (None, None)
             }
             GraphOp::Elementwise(op) => {
                 let output_var = self.new_temp_var();
@@ -97,16 +103,15 @@ impl Lowerer {
                     .insert(node_ptr, output_var.clone());
 
                 if let AstNode::Var(name) = &output_var {
-                    vec![
-                        AstNode::Declare {
-                            name: name.clone(),
-                            dtype: node.dtype.clone(),
-                            constant: false,
-                        },
-                        AstNode::Assign(Box::new(output_var), Box::new(init_expr)),
-                    ]
+                    let decl = VariableDecl {
+                        name: name.clone(),
+                        dtype: node.dtype.clone(),
+                        constant: false,
+                    };
+                    let assign = AstNode::Assign(Box::new(output_var), Box::new(init_expr));
+                    (Some(decl), Some(assign))
                 } else {
-                    vec![]
+                    (None, None)
                 }
             }
             _ => todo!("Unsupported op: {:?}", node.op),
@@ -201,16 +206,12 @@ mod tests {
         assert_eq!(function.arguments()[0].0, "_t0");
         assert_eq!(function.arguments()[1].0, "_t1");
 
-        if let AstNode::Block(statements) = function.body() {
-            assert_eq!(statements.len(), 2);
-            if let AstNode::Declare { name, .. } = &statements[0] {
-                assert_eq!(name, "_t2");
-            } else {
-                panic!("Expected a Declare statement");
-            }
-            assert!(matches!(statements[1], AstNode::Assign(_, _)));
-        } else {
-            panic!("Expected a Block");
-        }
+        let body = function.body();
+        assert_eq!(body.scope.declarations.len(), 1);
+        assert_eq!(body.scope.declarations[0].name, "_t2");
+
+        let statements = &body.statements;
+        assert_eq!(statements.len(), 1);
+        assert!(matches!(statements[0], AstNode::Assign(_, _)));
     }
 }

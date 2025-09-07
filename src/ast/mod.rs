@@ -23,6 +23,30 @@ pub enum ConstLiteral {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct VariableDecl {
+    pub name: String,
+    pub dtype: DType,
+    pub constant: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Scope {
+    pub declarations: Vec<VariableDecl>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Block {
+    pub scope: Scope,
+    pub statements: Vec<AstNode>,
+}
+
+impl Block {
+    pub fn new(scope: Scope, statements: Vec<AstNode>) -> Self {
+        Self { scope, statements }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum AstNode {
     Const(ConstLiteral), // constant value
     Var(String),         // get value from variable
@@ -43,7 +67,8 @@ pub enum AstNode {
     CallFunction(Vec<Self>),
 
     // statements
-    Block(Vec<Self>),
+    Block(Box<Block>),
+    Assign(Box<Self>, Box<Self>), // assign value to variable
 
     Range {
         // Forループ
@@ -51,13 +76,6 @@ pub enum AstNode {
         max: Box<Self>,       // ループ回数
         body: Box<Self>,
     },
-
-    Declare {
-        name: String,
-        dtype: DType,
-        constant: bool,
-    }, // declare new (local) variable
-    Assign(Box<Self>, Box<Self>), // assign value to variable
 
     Drop(String), // drop (local) variable explicitly
 
@@ -70,7 +88,7 @@ pub enum AstNode {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Function {
     pub(crate) name: String,
-    pub(crate) body: AstNode,
+    pub(crate) body: Block,
     pub(crate) arguments: Vec<(String, DType)>,
     pub(crate) return_type: DType,
 }
@@ -80,7 +98,7 @@ impl Function {
         name: String,
         arguments: Vec<(String, DType)>,
         return_type: DType,
-        body: AstNode,
+        body: Block,
     ) -> Self {
         Self {
             name,
@@ -94,7 +112,7 @@ impl Function {
         &self.name
     }
 
-    pub fn body(&self) -> &AstNode {
+    pub fn body(&self) -> &Block {
         &self.body
     }
 
@@ -221,6 +239,7 @@ impl AstNode {
             AstNode::Mul(l, r) => vec![l.as_ref(), r.as_ref()],
             AstNode::Max(l, r) => vec![l.as_ref(), r.as_ref()],
             AstNode::Rem(l, r) => vec![l.as_ref(), r.as_ref()],
+            AstNode::Assign(l, r) => vec![l.as_ref(), r.as_ref()],
             AstNode::Neg(n) => vec![n.as_ref()],
             AstNode::Recip(n) => vec![n.as_ref()],
             AstNode::Sin(n) => vec![n.as_ref()],
@@ -231,9 +250,7 @@ impl AstNode {
             AstNode::Range { max, body, .. } => {
                 vec![max.as_ref(), body.as_ref()]
             }
-            AstNode::Block(nodes) => nodes.iter().collect(),
-            AstNode::Declare { .. } => vec![],
-            AstNode::Assign(l, r) => vec![l.as_ref(), r.as_ref()],
+            AstNode::Block(block) => block.statements.iter().collect(),
             AstNode::Drop(_) => vec![],
             AstNode::Barrier => vec![],
             AstNode::Capture(_) => vec![],
@@ -262,6 +279,10 @@ impl AstNode {
                 Box::new(children_iter.next().unwrap()),
                 Box::new(children_iter.next().unwrap()),
             ),
+            AstNode::Assign(_, _) => AstNode::Assign(
+                Box::new(children_iter.next().unwrap()),
+                Box::new(children_iter.next().unwrap()),
+            ),
             AstNode::Neg(_) => AstNode::Neg(Box::new(children_iter.next().unwrap())),
             AstNode::Recip(_) => AstNode::Recip(Box::new(children_iter.next().unwrap())),
             AstNode::Sin(_) => AstNode::Sin(Box::new(children_iter.next().unwrap())),
@@ -274,11 +295,10 @@ impl AstNode {
                 max: Box::new(children_iter.next().unwrap()),
                 body: Box::new(children_iter.next().unwrap()),
             },
-            AstNode::Assign(_, _) => AstNode::Assign(
-                Box::new(children_iter.next().unwrap()),
-                Box::new(children_iter.next().unwrap()),
-            ),
-            AstNode::Block(_) => AstNode::Block(children_iter.collect()),
+            AstNode::Block(mut block) => {
+                block.statements = children_iter.collect();
+                AstNode::Block(block)
+            }
             // Nodes without children are returned as is (moved).
             _ => self,
         }

@@ -1,5 +1,5 @@
 use crate::{
-    ast::{AstNode, ConstLiteral, DType, Function, Program},
+    ast::{AstNode, Block, ConstLiteral, DType, Function, Program, Scope, VariableDecl},
     backend::Renderer,
 };
 use log::debug;
@@ -56,19 +56,47 @@ impl CRenderer {
         writeln!(buffer, "{} {}({})", return_type, function.name, args).unwrap();
 
         // Render function body
-        match function.body {
-            AstNode::Block(_) => {
-                writeln!(buffer, "{}", self.render_node(&function.body)).unwrap();
-            }
-            _ => {
-                writeln!(buffer, "{{").unwrap();
-                self.indent_level += 1;
-                self.render_indent(&mut buffer);
-                writeln!(buffer, "{};", self.render_node(&function.body)).unwrap();
-                self.indent_level -= 1;
-                writeln!(buffer, "}}").unwrap();
-            }
+        write!(
+            buffer,
+            "{}",
+            self.render_scope(&function.body.scope, &function.body.statements)
+        )
+        .unwrap();
+        buffer
+    }
+
+    fn render_scope(&mut self, scope: &Scope, statements: &[AstNode]) -> String {
+        let mut buffer = String::new();
+        writeln!(buffer, "{{ ").unwrap();
+        self.indent_level += 1;
+
+        // Render declarations
+        for decl in &scope.declarations {
+            self.render_indent(&mut buffer);
+            writeln!(buffer, "{};", self.render_variable_decl(decl)).unwrap();
         }
+
+        // Render statements
+        if !scope.declarations.is_empty() && !statements.is_empty() {
+            writeln!(buffer).unwrap();
+        }
+        for stmt in statements {
+            self.render_indent(&mut buffer);
+            writeln!(buffer, "{};", self.render_node(stmt)).unwrap();
+        }
+
+        self.indent_level -= 1;
+        self.render_indent(&mut buffer);
+        write!(buffer, "}}").unwrap();
+        buffer
+    }
+
+    fn render_variable_decl(&mut self, decl: &VariableDecl) -> String {
+        let mut buffer = String::new();
+        if decl.constant {
+            write!(buffer, "const ").unwrap();
+        }
+        write!(buffer, "{} {}", self.render_dtype(&decl.dtype), decl.name).unwrap();
         buffer
     }
 
@@ -116,6 +144,15 @@ impl CRenderer {
                 self.render_node(rhs)
             )
             .unwrap(),
+            AstNode::Assign(lhs, rhs) => {
+                write!(
+                    buffer,
+                    "{} = {}",
+                    self.render_node(lhs),
+                    self.render_node(rhs)
+                )
+                .unwrap();
+            }
             AstNode::Neg(v) => write!(buffer, "-{}", self.render_node(v)).unwrap(),
             AstNode::Recip(v) => write!(buffer, "(1 / {})", self.render_node(v)).unwrap(),
             AstNode::Range {
@@ -127,31 +164,16 @@ impl CRenderer {
                 let max = self.render_node(max);
                 writeln!(
                     buffer,
-                    "for (size_t {counter_name} = 0; {counter_name} < {max}; {counter_name}++)"
+                    "for (size_t {counter_name} = 0; {counter_name} < {max}; {counter_name}())"
                 )
                 .unwrap();
                 write!(buffer, "{}", self.render_node(body)).unwrap();
             }
-            AstNode::Block(insts) => {
-                writeln!(buffer, "{{").unwrap();
-                self.indent_level += 1;
-                for inst in insts.iter() {
-                    self.render_indent(&mut buffer);
-                    writeln!(buffer, "{};", self.render_node(inst)).unwrap();
-                }
-                self.indent_level -= 1;
-                self.render_indent(&mut buffer);
-                write!(buffer, "}}").unwrap();
-            }
-            AstNode::Declare { name, dtype, .. } => {
-                write!(buffer, "{} {}", self.render_dtype(dtype), name).unwrap();
-            }
-            AstNode::Assign(lhs, rhs) => {
+            AstNode::Block(block) => {
                 write!(
                     buffer,
-                    "{} = {}",
-                    self.render_node(lhs),
-                    self.render_node(rhs)
+                    "{}",
+                    self.render_scope(&block.scope, &block.statements)
                 )
                 .unwrap();
             }
@@ -190,7 +212,7 @@ impl CRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::AstNode;
+    use crate::ast::{AstNode, Block, Scope, VariableDecl};
     use rstest::rstest;
 
     fn var(name: &str) -> AstNode {
@@ -206,6 +228,8 @@ mod tests {
     #[case(var("a") * var("b").recip(), "( a / b )")]
     // Neg
     #[case(-var("a"), "-a")]
+    // Assign
+    #[case(AstNode::Assign(Box::new(var("a")), Box::new(var("b"))), "a = b")]
     // Complex
     #[case(-(var("a") + var("b")) * var("c"), "(-(a + b) * c)")]
     fn test_render_node(#[case] input: AstNode, #[case] expected: &str) {
@@ -219,30 +243,50 @@ mod tests {
             name: "my_func".to_string(),
             arguments: vec![("a".to_string(), DType::Isize)],
             return_type: DType::Void,
-            body: AstNode::Block(vec![AstNode::Var("a".to_string())]),
+            body: Block {
+                scope: Scope {
+                    declarations: vec![VariableDecl {
+                        name: "b".to_string(),
+                        dtype: DType::F32,
+                        constant: false,
+                    }],
+                },
+                statements: vec![AstNode::Assign(
+                    Box::new(var("b")),
+                    Box::new(AstNode::from(1.0f32)),
+                )],
+            },
         };
-        let expected = r#"void my_func(ssize_t a)
+        let expected = r###"void my_func(ssize_t a)
 {
-	a;
+	float b;
+
+	b = 1;
 }
-"#;
+"###;
         let mut renderer = CRenderer::new();
         assert_eq!(renderer.render_function(&function), expected);
     }
 
     #[test]
     fn test_render_function_single_statement() {
+        // This test is less relevant now, but we can adapt it.
         let function = Function {
             name: "my_func".to_string(),
             arguments: vec![("a".to_string(), DType::Isize)],
             return_type: DType::Void,
-            body: AstNode::Var("a".to_string()),
+            body: Block {
+                scope: Scope {
+                    declarations: vec![],
+                },
+                statements: vec![AstNode::Var("a".to_string())],
+            },
         };
-        let expected = r#"void my_func(ssize_t a)
+        let expected = r###"void my_func(ssize_t a)
 {
 	a;
 }
-"#;
+"###;
         let mut renderer = CRenderer::new();
         assert_eq!(renderer.render_function(&function), expected);
     }
