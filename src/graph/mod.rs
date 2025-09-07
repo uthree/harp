@@ -77,6 +77,12 @@ pub enum GraphOp {
     Contiguous,
 }
 
+impl Default for Graph {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Graph {
     pub fn new() -> Graph {
         Graph {

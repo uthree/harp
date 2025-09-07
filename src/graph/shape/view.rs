@@ -149,14 +149,12 @@ mod tests {
             shape,
             strides,
             offset,
-        } = view else {
+        } = view
+        else {
             panic!("Expected Linear view");
         };
         assert_eq!(shape, vec![Expr::from(2), Expr::from(3), Expr::from(4)]);
-        assert_eq!(
-            strides,
-            vec![Expr::from(12), Expr::from(4), Expr::from(1)]
-        );
+        assert_eq!(strides, vec![Expr::from(12), Expr::from(4), Expr::from(1)]);
         assert_eq!(offset, Expr::from(0));
     }
 
@@ -167,14 +165,12 @@ mod tests {
             shape,
             strides,
             offset,
-        } = view else {
+        } = view
+        else {
             panic!("Expected Linear view");
         };
         assert_eq!(shape, vec![Expr::from(4), Expr::from(2), Expr::from(3)]);
-        assert_eq!(
-            strides,
-            vec![Expr::from(1), Expr::from(12), Expr::from(4)]
-        );
+        assert_eq!(strides, vec![Expr::from(1), Expr::from(12), Expr::from(4)]);
         assert_eq!(offset, Expr::from(0));
     }
 
@@ -185,14 +181,12 @@ mod tests {
             shape,
             strides,
             offset,
-        } = view else {
+        } = view
+        else {
             panic!("Expected Linear view");
         };
         assert_eq!(shape, vec![Expr::from(2), Expr::from(1), Expr::from(3)]);
-        assert_eq!(
-            strides,
-            vec![Expr::from(3), Expr::from(0), Expr::from(1)]
-        );
+        assert_eq!(strides, vec![Expr::from(3), Expr::from(0), Expr::from(1)]);
         assert_eq!(offset, Expr::from(0));
     }
 
@@ -203,7 +197,8 @@ mod tests {
             shape,
             strides,
             offset,
-        } = view else {
+        } = view
+        else {
             panic!("Expected Linear view");
         };
         assert_eq!(shape, vec![Expr::from(2), Expr::from(3)]);
@@ -219,14 +214,12 @@ mod tests {
             shape,
             strides,
             offset,
-        } = view else {
+        } = view
+        else {
             panic!("Expected Linear view");
         };
         assert_eq!(shape, vec![Expr::from(2), n, Expr::from(3)]);
-        assert_eq!(
-            strides,
-            vec![Expr::from(3), Expr::from(0), Expr::from(1)]
-        );
+        assert_eq!(strides, vec![Expr::from(3), Expr::from(0), Expr::from(1)]);
         assert_eq!(offset, Expr::from(0));
     }
 
