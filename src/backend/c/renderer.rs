@@ -192,7 +192,43 @@ impl CRenderer {
             AstNode::Block { scope, statements } => {
                 write!(buffer, "{}", self.render_scope(scope, statements)).unwrap();
             }
-            _ => todo!(),
+            AstNode::Cast { dtype, expr } => {
+                let (base_type, dims) = self.render_dtype_recursive(dtype);
+                // Cでは配列型へのキャストはポインタ型へのキャストとして書く
+                let type_str = if !dims.is_empty() {
+                    format!("{}*", base_type)
+                } else {
+                    base_type
+                };
+                write!(buffer, "({}){}", type_str, self.render_node(expr)).unwrap();
+            }
+            AstNode::CallFunction { name, args } => {
+                let args_str = args
+                    .iter()
+                    .map(|arg| self.render_node(arg))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(buffer, "{}({})", name, args_str).unwrap();
+            }
+            AstNode::CallFunction { name, args } => {
+                let args_str = args
+                    .iter()
+                    .map(|arg| self.render_node(arg))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(buffer, "{}({})", name, args_str).unwrap();
+            }
+            AstNode::Cast { dtype, expr } => {
+                let (base_type, dims) = self.render_dtype_recursive(dtype);
+                // Cでは配列型へのキャストはポインタ型へのキャストとして書く
+                let type_str = if !dims.is_empty() {
+                    format!("{}*", base_type)
+                } else {
+                    base_type
+                };
+                write!(buffer, "({}){}", type_str, self.render_node(expr)).unwrap();
+            }
+            node => todo!("render_node for {:?}", node),
         }
         buffer
     }
@@ -218,6 +254,15 @@ impl CRenderer {
             DType::Isize => "ssize_t".to_string(),
             DType::Usize => "size_t".to_string(),
             DType::Void => "void".to_string(),
+            DType::Ptr(inner) => {
+                if let DType::Void = **inner {
+                    // void* の特殊ケース
+                    "void*".to_string()
+                } else {
+                    // 基本的には再帰しないが、void**のようなケースのため
+                    format!("{}*", self.render_scalar_dtype(inner))
+                }
+            }
             _ => unimplemented!("Unsupported scalar dtype: {:?}", dtype),
         }
     }
@@ -227,7 +272,12 @@ impl CRenderer {
         match dtype {
             DType::Ptr(inner) => {
                 let (base, dims) = self.render_dtype_recursive(inner);
-                (format!("{}*", base), dims)
+                // void** のような多重ポインタを扱う
+                if base.ends_with('*') || dims.is_empty() {
+                    (format!("{}*", base), dims)
+                } else {
+                    (base, format!("(*{}){}", "", dims))
+                }
             }
             DType::Vec(inner, size) => {
                 let (base, dims) = self.render_dtype_recursive(inner);

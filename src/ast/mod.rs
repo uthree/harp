@@ -38,7 +38,10 @@ pub struct Scope {
 pub enum AstNode {
     Const(ConstLiteral), // constant value
     Var(String),         // get value from variable
-    Cast(DType),         // convert another type
+    Cast {
+        dtype: DType,
+        expr: Box<Self>,
+    }, // convert another type
 
     // numeric ops
     Add(Box<Self>, Box<Self>),
@@ -52,7 +55,10 @@ pub enum AstNode {
     Log2(Box<Self>),
     Exp2(Box<Self>),
     Rand, // 一様乱数(0.0~1.0まで)を生成
-    CallFunction(Vec<Self>),
+    CallFunction {
+        name: String,
+        args: Vec<Self>,
+    },
 
     // statements
     Block {
@@ -230,7 +236,7 @@ impl AstNode {
         match self {
             AstNode::Const(_) => vec![],
             AstNode::Var(_) => vec![],
-            AstNode::Cast(_) => vec![],
+            AstNode::Cast { expr, .. } => vec![expr.as_ref()],
             AstNode::Add(l, r) => vec![l.as_ref(), r.as_ref()],
             AstNode::Mul(l, r) => vec![l.as_ref(), r.as_ref()],
             AstNode::Max(l, r) => vec![l.as_ref(), r.as_ref()],
@@ -243,7 +249,7 @@ impl AstNode {
             AstNode::Sqrt(n) => vec![n.as_ref()],
             AstNode::Log2(n) => vec![n.as_ref()],
             AstNode::Exp2(n) => vec![n.as_ref()],
-            AstNode::CallFunction(nodes) => nodes.iter().collect(),
+            AstNode::CallFunction { args, .. } => args.iter().collect(),
             AstNode::Range { max, body, .. } => {
                 vec![max.as_ref(), body.as_ref()]
             }
@@ -284,13 +290,20 @@ impl AstNode {
                 Box::new(children_iter.next().unwrap()),
                 Box::new(children_iter.next().unwrap()),
             ),
+            AstNode::Cast { dtype, .. } => AstNode::Cast {
+                dtype,
+                expr: Box::new(children_iter.next().unwrap()),
+            },
             AstNode::Neg(_) => AstNode::Neg(Box::new(children_iter.next().unwrap())),
             AstNode::Recip(_) => AstNode::Recip(Box::new(children_iter.next().unwrap())),
             AstNode::Sin(_) => AstNode::Sin(Box::new(children_iter.next().unwrap())),
             AstNode::Sqrt(_) => AstNode::Sqrt(Box::new(children_iter.next().unwrap())),
             AstNode::Log2(_) => AstNode::Log2(Box::new(children_iter.next().unwrap())),
             AstNode::Exp2(_) => AstNode::Exp2(Box::new(children_iter.next().unwrap())),
-            AstNode::CallFunction(_) => AstNode::CallFunction(children_iter.collect()),
+            AstNode::CallFunction { name, .. } => AstNode::CallFunction {
+                name,
+                args: children_iter.collect(),
+            },
             AstNode::Range { counter_name, .. } => AstNode::Range {
                 counter_name, // moved
                 max: Box::new(children_iter.next().unwrap()),

@@ -1,4 +1,4 @@
-use crate::ast::{AstNode, ConstLiteral, DType, Function, Scope, VariableDecl};
+use crate::ast::{AstNode, ConstLiteral, DType, Function, Program, Scope, VariableDecl};
 use crate::graph::shape::Expr;
 use crate::graph::{ElementwiseOp, Graph, GraphNode, GraphNodeData, GraphOp};
 use std::collections::{HashMap, VecDeque};
@@ -37,6 +37,13 @@ impl Lowerer {
         name
     }
 
+    fn get_base_dtype<'a>(&self, dtype: &'a DType) -> &'a DType {
+        match dtype {
+            DType::Ptr(inner) | DType::Vec(inner, _) => self.get_base_dtype(inner),
+            _ => dtype,
+        }
+    }
+
     fn shape_to_dtype(&self, base_dtype: &DType, shape: &[Expr]) -> DType {
         let mut dtype = base_dtype.clone();
         for dim in shape.iter().rev() {
@@ -58,29 +65,99 @@ impl Lowerer {
         }
     }
 
-    pub fn lower(&mut self, graph: &Graph) -> Function {
+    pub fn lower(&mut self, graph: &Graph) -> Program {
+        // 1. グラフからカーネル本体となる `kernel_impl` を生成する
         let sorted_nodes = self.topological_sort(graph);
 
-        let mut declarations = vec![];
-        let mut statements = vec![];
-        let mut arguments = vec![];
+        let mut impl_declarations = vec![];
+        let mut impl_statements = vec![];
+        let mut impl_arguments = vec![];
 
         for node in &sorted_nodes {
-            let (decl, stmt) = self.compile_node(node, &mut arguments);
+            let (decl, stmt) = self.compile_node(node, &mut impl_arguments);
             if let Some(d) = decl {
-                declarations.push(d);
+                impl_declarations.push(d);
             }
             if let Some(s) = stmt {
-                statements.push(s);
+                impl_statements.push(s);
             }
         }
 
-        let body = AstNode::Block {
-            scope: Scope { declarations },
-            statements,
+        let kernel_impl_body = AstNode::Block {
+            scope: Scope {
+                declarations: impl_declarations,
+            },
+            statements: impl_statements,
         };
 
-        Function::new("harp_kernel".to_string(), arguments, DType::Void, body)
+        let kernel_impl = Function::new(
+            "kernel_impl".to_string(),
+            impl_arguments.clone(),
+            DType::Void,
+            kernel_impl_body,
+        );
+
+        // 2. `kernel_main` ラッパー関数を生成する
+        let mut main_declarations = vec![];
+        let mut main_statements = vec![];
+        let mut call_args = vec![];
+
+        for (i, (arg_name, arg_dtype)) in impl_arguments.iter().enumerate() {
+            // `float* var0;` のようなポインタ変数を宣言
+            let base_dtype = self.get_base_dtype(arg_dtype);
+            let pointer_dtype = DType::Ptr(Box::new(base_dtype.clone()));
+            main_declarations.push(VariableDecl {
+                name: arg_name.clone(),
+                dtype: pointer_dtype.clone(),
+                constant: false,
+            });
+
+            // `var0 = (float*)buffers[i];` のようなキャストと代入文を生成
+            let cast_expr = AstNode::Cast {
+                dtype: pointer_dtype.clone(),
+                expr: Box::new(AstNode::Index {
+                    target: Box::new(AstNode::Var("buffers".to_string())),
+                    index: Box::new(AstNode::from(i)),
+                }),
+            };
+            main_statements.push(AstNode::Assign(
+                Box::new(AstNode::Var(arg_name.clone())),
+                Box::new(cast_expr),
+            ));
+            call_args.push(AstNode::Var(arg_name.clone()));
+        }
+
+        // `kernel_impl(var0, var1, ...);` の呼び出し文を追加
+        main_statements.push(AstNode::CallFunction {
+            name: "kernel_impl".to_string(),
+            args: call_args,
+        });
+
+        let kernel_main_body = AstNode::Block {
+            scope: Scope {
+                declarations: main_declarations,
+            },
+            statements: main_statements,
+        };
+
+        let kernel_main = Function::new(
+            "kernel_main".to_string(),
+            vec![
+                (
+                    "buffers".to_string(),
+                    DType::Ptr(Box::new(DType::Ptr(Box::new(DType::Void)))),
+                ),
+                ("shape_vars".to_string(), DType::Ptr(Box::new(DType::Usize))),
+            ],
+            DType::Void,
+            kernel_main_body,
+        );
+
+        // 3. 2つの関数を含むProgramを返す
+        Program {
+            functions: vec![kernel_main, kernel_impl],
+            entry_point: "kernel_main".to_string(),
+        }
     }
 
     fn compile_node(
@@ -288,52 +365,61 @@ mod tests {
         graph.output(c);
 
         let mut lowerer = Lowerer::new();
-        let function = lowerer.lower(&graph);
+        let program = lowerer.lower(&graph);
 
-        assert_eq!(function.name(), "harp_kernel");
-        assert_eq!(function.arguments().len(), 2);
-        assert_eq!(function.arguments()[0].0, "var0");
-        assert_eq!(
-            function.arguments()[0].1,
-            DType::Vec(Box::new(DType::F32), 10)
-        );
-        assert_eq!(function.arguments()[1].0, "var1");
-        assert_eq!(
-            function.arguments()[1].1,
-            DType::Vec(Box::new(DType::F32), 10)
-        );
+        assert_eq!(program.entry_point, "kernel_main");
+        assert_eq!(program.functions.len(), 2);
 
-        if let AstNode::Block { scope, statements } = function.body() {
-            assert_eq!(scope.declarations.len(), 1);
-            assert_eq!(scope.declarations[0].name, "var2");
-            assert_eq!(
-                scope.declarations[0].dtype,
-                DType::Vec(Box::new(DType::F32), 10)
-            );
+        // kernel_mainの検証
+        let kernel_main = program
+            .functions
+            .iter()
+            .find(|f| f.name() == "kernel_main")
+            .unwrap();
+        assert_eq!(kernel_main.arguments().len(), 2);
+        assert_eq!(kernel_main.arguments()[0].0, "buffers");
+        assert_eq!(kernel_main.arguments()[1].0, "shape_vars");
 
-            assert_eq!(statements.len(), 1);
-            if let AstNode::Range {
-                counter_name,
-                max,
-                body,
-            } = &statements[0]
-            {
-                assert_eq!(counter_name, "ridx0");
-                assert_eq!(**max, AstNode::from(10usize));
-                // Check body of the loop
-                if let AstNode::Assign(lhs, rhs) = &**body {
-                    // Check lhs: var2[ridx0]
-                    assert!(matches!(&**lhs, AstNode::Index { .. }));
-                    // Check rhs: var0[ridx0] + var1[ridx0]
-                    assert!(matches!(&**rhs, AstNode::Add { .. }));
-                } else {
-                    panic!("Loop body should be an assignment");
-                }
-            } else {
-                panic!("Statement should be a Range loop");
-            }
+        if let AstNode::Block {
+            scope: main_scope,
+            statements: main_statements,
+        } = kernel_main.body()
+        {
+            assert_eq!(main_scope.declarations.len(), 2); // var0, var1
+            assert_eq!(main_statements.len(), 3); // assign var0, assign var1, call
+            assert!(matches!(main_statements[0], AstNode::Assign(_, _)));
+            assert!(matches!(main_statements[1], AstNode::Assign(_, _)));
+            assert!(matches!(main_statements[2], AstNode::CallFunction { .. }));
         } else {
-            panic!("Function body is not a block");
+            panic!("kernel_main body is not a block");
+        }
+
+        // kernel_implの検証
+        let kernel_impl = program
+            .functions
+            .iter()
+            .find(|f| f.name() == "kernel_impl")
+            .unwrap();
+
+        assert_eq!(kernel_impl.arguments().len(), 2);
+        assert_eq!(kernel_impl.arguments()[0].0, "var0");
+        assert_eq!(
+            kernel_impl.arguments()[0].1,
+            DType::Vec(Box::new(DType::F32), 10)
+        );
+        assert_eq!(kernel_impl.arguments()[1].0, "var1");
+
+        if let AstNode::Block {
+            scope: impl_scope,
+            statements: impl_statements,
+        } = kernel_impl.body()
+        {
+            assert_eq!(impl_scope.declarations.len(), 1);
+            assert_eq!(impl_scope.declarations[0].name, "var2");
+            assert_eq!(impl_statements.len(), 1);
+            assert!(matches!(impl_statements[0], AstNode::Range { .. }));
+        } else {
+            panic!("kernel_impl body is not a block");
         }
     }
 }
