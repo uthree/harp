@@ -5,7 +5,8 @@ use std::rc::Rc;
 
 pub struct Lowerer {
     node_to_var: HashMap<*const GraphNodeData, AstNode>,
-    temp_var_count: usize,
+    var_count: usize,
+    ridx_count: usize,
 }
 
 impl Default for Lowerer {
@@ -18,14 +19,21 @@ impl Lowerer {
     pub fn new() -> Self {
         Lowerer {
             node_to_var: HashMap::new(),
-            temp_var_count: 0,
+            var_count: 0,
+            ridx_count: 0,
         }
     }
 
-    fn new_temp_var(&mut self) -> AstNode {
-        let name = format!("_t{}", self.temp_var_count);
-        self.temp_var_count += 1;
+    fn new_var(&mut self) -> AstNode {
+        let name = format!("var{}", self.var_count);
+        self.var_count += 1;
         AstNode::Var(name)
+    }
+
+    fn new_ridx(&mut self) -> String {
+        let name = format!("ridx{}", self.ridx_count);
+        self.ridx_count += 1;
+        name
     }
 
     pub fn lower(&mut self, graph: &Graph) -> Function {
@@ -65,7 +73,7 @@ impl Lowerer {
 
         match &node.op {
             GraphOp::Input(_) => {
-                let arg_var = self.new_temp_var();
+                let arg_var = self.new_var();
                 if let AstNode::Var(name) = &arg_var {
                     arguments.push((name.clone(), node.dtype.clone()));
                     self.node_to_var.insert(node_ptr, arg_var);
@@ -73,7 +81,7 @@ impl Lowerer {
                 (None, None)
             }
             GraphOp::Elementwise(op) => {
-                let output_var = self.new_temp_var();
+                let output_var = self.new_var();
                 let lhs_var = self
                     .node_to_var
                     .get(&Rc::as_ptr(&node.src[0].0))
@@ -208,13 +216,13 @@ mod tests {
 
         assert_eq!(function.name(), "harp_kernel");
         assert_eq!(function.arguments().len(), 2);
-        assert_eq!(function.arguments()[0].0, "_t0");
-        assert_eq!(function.arguments()[1].0, "_t1");
+        assert_eq!(function.arguments()[0].0, "var0");
+        assert_eq!(function.arguments()[1].0, "var1");
 
         let body = function.body();
         if let AstNode::Block { scope, statements } = body {
             assert_eq!(scope.declarations.len(), 1);
-            assert_eq!(scope.declarations[0].name, "_t2");
+            assert_eq!(scope.declarations[0].name, "var2");
 
             let statements = &statements;
             assert_eq!(statements.len(), 1);
