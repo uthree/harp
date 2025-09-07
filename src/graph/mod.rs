@@ -83,6 +83,17 @@ impl Default for Graph {
     }
 }
 
+impl GraphNode {
+    pub fn new(op: GraphOp, src: Vec<GraphNode>, dtype: DType, shape: Vec<ShapeExpr>) -> GraphNode {
+        GraphNode(Rc::new(GraphNodeData {
+            op,
+            src,
+            dtype,
+            shape,
+        }))
+    }
+}
+
 impl Graph {
     pub fn new() -> Graph {
         Graph {

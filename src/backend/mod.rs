@@ -7,7 +7,7 @@ pub trait Buffer {
     // get buffer size
     fn shape(&self) -> Vec<usize>;
     fn allocate(dtype: DType, shape: Vec<usize>) -> Self; // メモリーを確保する
-    // WARNING: dropされたときにメモリが解放されるようにしてください。
+                                                          // WARNING: dropされたときにメモリが解放されるようにしてください。
 }
 
 pub trait Kernel {
