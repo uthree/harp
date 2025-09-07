@@ -1,4 +1,4 @@
-use crate::graph::{ElementwiseOp, GraphNode, GraphNodeData, GraphOp};
+use crate::graph::{ElementwiseOp, GraphNode, GraphNodeData, GraphOp, ReduceOp};
 use std::ops::{Add, Mul, Neg, Rem};
 use std::rc::Rc;
 
@@ -73,6 +73,22 @@ macro_rules! impl_graph_node_unary_op {
     };
 }
 
+macro_rules! impl_graph_node_reduce_op {
+    ($fname:ident, $op:expr) => {
+        pub fn $fname(&self, axis: usize) -> GraphNode {
+            assert!(axis < self.shape.len(), "Reduction axis is out of bounds.");
+            let mut new_shape = self.shape.clone();
+            new_shape.remove(axis);
+            GraphNode(Rc::new(GraphNodeData {
+                op: GraphOp::Reduce($op, axis),
+                src: vec![self.clone()],
+                dtype: self.dtype.clone(),
+                shape: new_shape,
+            }))
+        }
+    };
+}
+
 impl GraphNode {
     impl_graph_node_unary_op!(recip, ElementwiseOp::Recip);
     impl_graph_node_unary_op!(sqrt, ElementwiseOp::Sqrt);
@@ -80,7 +96,11 @@ impl GraphNode {
     impl_graph_node_unary_op!(log2, ElementwiseOp::Log2);
     impl_graph_node_unary_op!(exp2, ElementwiseOp::Exp2);
 
-    pub fn max(&self, rhs: &Self) -> Self {
+    impl_graph_node_reduce_op!(sum, ReduceOp::Add);
+    impl_graph_node_reduce_op!(prod, ReduceOp::Mul);
+    impl_graph_node_reduce_op!(max, ReduceOp::Max);
+
+    pub fn max2(&self, rhs: &Self) -> Self {
         if self.dtype != rhs.dtype {
             panic!(
                 "Mismatched dtypes: expected {:?}, found {:?}",
@@ -125,7 +145,7 @@ mod tests {
         let e = &a % &b;
         assert!(matches!(e.op, GraphOp::Elementwise(ElementwiseOp::Rem)));
 
-        let f = a.max(&b);
+        let f = a.max2(&b);
         assert!(matches!(f.op, GraphOp::Elementwise(ElementwiseOp::Max)));
     }
 
@@ -159,5 +179,36 @@ mod tests {
 
         let c = a.recip();
         assert!(matches!(c.op, GraphOp::Elementwise(ElementwiseOp::Recip)));
+    }
+
+    #[test]
+    fn test_reduce_ops() {
+        let mut graph = Graph::new();
+        let shape = vec![Expr::from(10), Expr::from(20)];
+        let a = graph.input(DType::F32, shape.clone());
+
+        // Test sum
+        let sum_node = a.sum(1);
+        assert!(matches!(sum_node.op, GraphOp::Reduce(ReduceOp::Add, 1)));
+        assert_eq!(sum_node.shape, vec![Expr::from(10)]);
+
+        // Test prod
+        let prod_node = a.prod(0);
+        assert!(matches!(prod_node.op, GraphOp::Reduce(ReduceOp::Mul, 0)));
+        assert_eq!(prod_node.shape, vec![Expr::from(20)]);
+
+        // Test max_reduce
+        let max_node = a.max(1);
+        assert!(matches!(max_node.op, GraphOp::Reduce(ReduceOp::Max, 1)));
+        assert_eq!(max_node.shape, vec![Expr::from(10)]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Reduction axis is out of bounds.")]
+    fn test_reduce_ops_axis_out_of_bounds() {
+        let mut graph = Graph::new();
+        let shape = vec![Expr::from(10), Expr::from(20)];
+        let a = graph.input(DType::F32, shape.clone());
+        a.sum(2); // Axis 2 is out of bounds for a 2D tensor
     }
 }

@@ -72,7 +72,7 @@ pub enum GraphOp {
     Rand(Vec<ShapeExpr>),
     Arange(usize),
     Reshape(Vec<ShapeExpr>),
-    Reduce(ReduceOp, usize),
+    Reduce(ReduceOp, usize), // 縮約する
     Cumulative(ReduceOp, usize),
     Contiguous,
 }
