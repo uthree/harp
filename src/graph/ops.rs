@@ -1,4 +1,4 @@
-use crate::graph::{ElementwiseOp, GraphNode, GraphNodeData, GraphOp, ReduceOp};
+use crate::graph::{shape::view::View, ElementwiseOp, GraphNode, GraphNodeData, GraphOp, ReduceOp};
 use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 use std::rc::Rc;
 
@@ -13,17 +13,18 @@ macro_rules! impl_graph_node_binary_op {
                         self.dtype, rhs.dtype
                     );
                 }
-                if self.shape != rhs.shape {
+                if self.shape() != rhs.shape() {
                     panic!(
                         "Mismatched shapes: expected {:?}, found {:?}",
-                        self.shape, rhs.shape
+                        self.shape(),
+                        rhs.shape()
                     );
                 }
                 GraphNode(Rc::new(GraphNodeData {
                     op: GraphOp::Elementwise($op),
                     src: vec![self.clone(), rhs.clone()],
                     dtype: self.dtype.clone(),
-                    shape: self.shape.clone(),
+                    view: self.view.clone(),
                 }))
             }
         }
@@ -78,7 +79,7 @@ impl Neg for &GraphNode {
             op: GraphOp::Elementwise(ElementwiseOp::Neg),
             src: vec![self.clone()],
             dtype: self.dtype.clone(),
-            shape: self.shape.clone(),
+            view: self.view.clone(),
         }))
     }
 }
@@ -97,7 +98,7 @@ macro_rules! impl_graph_node_unary_op {
                 op: GraphOp::Elementwise($op),
                 src: vec![self.clone()],
                 dtype: self.dtype.clone(),
-                shape: self.shape.clone(),
+                view: self.view.clone(),
             }))
         }
     };
@@ -106,14 +107,17 @@ macro_rules! impl_graph_node_unary_op {
 macro_rules! impl_graph_node_reduce_op {
     ($fname:ident, $op:expr) => {
         pub fn $fname(&self, axis: usize) -> GraphNode {
-            assert!(axis < self.shape.len(), "Reduction axis is out of bounds.");
-            let mut new_shape = self.shape.clone();
+            assert!(
+                axis < self.shape().len(),
+                "Reduction axis is out of bounds."
+            );
+            let mut new_shape = self.shape().to_vec();
             new_shape.remove(axis);
             GraphNode(Rc::new(GraphNodeData {
                 op: GraphOp::Reduce($op, axis),
                 src: vec![self.clone()],
                 dtype: self.dtype.clone(),
-                shape: new_shape,
+                view: View::new_contiguous(new_shape),
             }))
         }
     };
@@ -137,17 +141,18 @@ impl GraphNode {
                 self.dtype, rhs.dtype
             );
         }
-        if self.shape != rhs.shape {
+        if self.shape() != rhs.shape() {
             panic!(
                 "Mismatched shapes: expected {:?}, found {:?}",
-                self.shape, rhs.shape
+                self.shape(),
+                rhs.shape()
             );
         }
         GraphNode(Rc::new(GraphNodeData {
             op: GraphOp::Elementwise(ElementwiseOp::Max),
             src: vec![self.clone(), rhs.clone()],
             dtype: self.dtype.clone(),
-            shape: self.shape.clone(),
+            view: self.view.clone(),
         }))
     }
 }
@@ -242,6 +247,7 @@ mod tests {
         assert!(matches!(sum_node.op, GraphOp::Reduce(ReduceOp::Add, 1)));
         assert_eq!(sum_node.src.len(), 1);
         assert!(Rc::ptr_eq(&sum_node.src[0].0, &a.0));
+        assert_eq!(sum_node.shape(), &[Expr::from(10)]);
     }
 
     #[test]

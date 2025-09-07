@@ -1,7 +1,7 @@
 use crate::ast::{ConstLiteral, DType};
 pub mod ops;
 pub mod shape;
-use crate::graph::shape::Expr as ShapeExpr;
+use crate::graph::shape::{view::View, Expr as ShapeExpr};
 use std::ops::Deref;
 use std::rc::Rc;
 
@@ -13,7 +13,7 @@ pub struct GraphNodeData {
     pub op: GraphOp,
     pub src: Vec<GraphNode>,
     pub dtype: DType,
-    pub shape: Vec<ShapeExpr>,
+    pub view: View,
 }
 
 #[derive(Debug, Clone)]
@@ -99,7 +99,7 @@ impl Graph {
             .iter()
             .map(|node| TensorSignature {
                 dtype: node.dtype.clone(),
-                shape: node.shape.clone(),
+                shape: node.shape().to_vec(),
             })
             .collect();
         let outputs = self
@@ -107,7 +107,7 @@ impl Graph {
             .iter()
             .map(|node| TensorSignature {
                 dtype: node.dtype.clone(),
-                shape: node.shape.clone(),
+                shape: node.shape().to_vec(),
             })
             .collect();
         GraphSignature {
@@ -133,7 +133,7 @@ impl Graph {
             op: GraphOp::Input,
             src: vec![],
             dtype,
-            shape,
+            view: View::new_contiguous(shape),
         }));
         self.inputs.push(node.clone());
         node
@@ -142,6 +142,12 @@ impl Graph {
     // 出力としてノードを登録する
     pub fn output(&mut self, node: GraphNode) {
         self.outputs.push(node);
+    }
+}
+
+impl GraphNode {
+    pub fn shape(&self) -> &[ShapeExpr] {
+        self.view.shape()
     }
 }
 
@@ -175,7 +181,7 @@ mod tests {
         let x = graph.input(DType::F32, vec![n.clone()]);
         assert_eq!(graph.inputs.len(), 1);
         assert_eq!(graph.inputs[0].dtype, DType::F32);
-        assert_eq!(graph.inputs[0].shape, vec![n.clone()]);
+        assert_eq!(graph.inputs[0].shape(), vec![n.clone()]);
 
         // Test output
         graph.output(x.clone());

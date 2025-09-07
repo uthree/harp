@@ -34,8 +34,12 @@ impl View {
     }
 
     pub fn ndim(&self) -> usize {
+        self.shape().len()
+    }
+
+    pub fn shape(&self) -> &[Expr] {
         match self {
-            View::Linear { shape, .. } => shape.len(),
+            View::Linear { shape, .. } => shape,
         }
     }
 
