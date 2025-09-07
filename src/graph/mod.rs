@@ -77,6 +77,12 @@ pub enum GraphOp {
     Contiguous,
 }
 
+impl Default for Graph {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Graph {
     pub fn new() -> Graph {
         Graph {
@@ -112,10 +118,10 @@ impl Graph {
     }
 
     // 新たにshape variable (動的shape用の変数を作成する)
-    pub fn shape_var(&mut self, name: &str) -> ShapeExpr {
+    pub fn shape_var(&mut self, name: &str, default: isize) -> ShapeExpr {
         let var = ShapeVariableSignature {
             name: name.to_string(),
-            default: 0,
+            default,
         };
         self.shape_variables.push(var);
         ShapeExpr::Var(name.to_string())
@@ -155,12 +161,12 @@ mod tests {
         let mut graph = Graph::new();
 
         // Test shape_var
-        let n = graph.shape_var("N");
+        let n = graph.shape_var("N", 128);
         assert_eq!(
             graph.shape_variables,
             vec![ShapeVariableSignature {
                 name: "N".to_string(),
-                default: 0
+                default: 128
             }]
         );
         assert_eq!(n, ShapeExpr::Var("N".to_string()));
@@ -181,7 +187,7 @@ mod tests {
         let expected_signature = GraphSignature {
             shape_variables: vec![ShapeVariableSignature {
                 name: "N".to_string(),
-                default: 0,
+                default: 128,
             }],
             inputs: vec![TensorSignature {
                 dtype: DType::F32,

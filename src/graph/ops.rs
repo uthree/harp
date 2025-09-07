@@ -42,7 +42,7 @@ impl_graph_node_binary_op!(Mul, mul, ElementwiseOp::Mul);
 impl_graph_node_binary_op!(Rem, rem, ElementwiseOp::Rem);
 
 // Subtraction: a - b = a + (-b)
-impl<'a, 'b> Sub<&'b GraphNode> for &'a GraphNode {
+impl<'b> Sub<&'b GraphNode> for &GraphNode {
     type Output = GraphNode;
     fn sub(self, rhs: &'b GraphNode) -> Self::Output {
         self + &(-rhs)
@@ -57,7 +57,7 @@ impl Sub for GraphNode {
 }
 
 // Division: a / b = a * (1/b)
-impl<'a, 'b> Div<&'b GraphNode> for &'a GraphNode {
+impl<'b> Div<&'b GraphNode> for &GraphNode {
     type Output = GraphNode;
     fn div(self, rhs: &'b GraphNode) -> Self::Output {
         self * &rhs.recip()
