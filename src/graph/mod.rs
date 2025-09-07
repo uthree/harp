@@ -112,10 +112,10 @@ impl Graph {
     }
 
     // 新たにshape variable (動的shape用の変数を作成する)
-    pub fn shape_var(&mut self, name: &str, default: isize) -> ShapeExpr {
+    pub fn shape_var(&mut self, name: &str) -> ShapeExpr {
         let var = ShapeVariableSignature {
             name: name.to_string(),
-            default: default,
+            default: 0,
         };
         self.shape_variables.push(var);
         ShapeExpr::Var(name.to_string())
@@ -143,5 +143,55 @@ impl Deref for GraphNode {
     type Target = GraphNodeData;
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_graph_operations() {
+        let mut graph = Graph::new();
+
+        // Test shape_var
+        let n = graph.shape_var("N");
+        assert_eq!(
+            graph.shape_variables,
+            vec![ShapeVariableSignature {
+                name: "N".to_string(),
+                default: 0
+            }]
+        );
+        assert_eq!(n, ShapeExpr::Var("N".to_string()));
+
+        // Test input
+        let x = graph.input(DType::F32, vec![n.clone()]);
+        assert_eq!(graph.inputs.len(), 1);
+        assert_eq!(graph.inputs[0].dtype, DType::F32);
+        assert_eq!(graph.inputs[0].shape, vec![n.clone()]);
+
+        // Test output
+        graph.output(x.clone());
+        assert_eq!(graph.outputs.len(), 1);
+        assert!(Rc::ptr_eq(&graph.outputs[0].0, &x.0));
+
+        // Test signature
+        let signature = graph.signature();
+        let expected_signature = GraphSignature {
+            shape_variables: vec![ShapeVariableSignature {
+                name: "N".to_string(),
+                default: 0,
+            }],
+            inputs: vec![TensorSignature {
+                dtype: DType::F32,
+                shape: vec![n.clone()],
+            }],
+            outputs: vec![TensorSignature {
+                dtype: DType::F32,
+                shape: vec![n],
+            }],
+        };
+        assert_eq!(signature, expected_signature);
     }
 }

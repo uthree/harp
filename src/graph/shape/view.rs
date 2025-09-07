@@ -137,3 +137,105 @@ impl View {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new_contiguous() {
+        let view = View::new_contiguous(vec![2, 3, 4]);
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = view else {
+            panic!("Expected Linear view");
+        };
+        assert_eq!(shape, vec![Expr::from(2), Expr::from(3), Expr::from(4)]);
+        assert_eq!(
+            strides,
+            vec![Expr::from(12), Expr::from(4), Expr::from(1)]
+        );
+        assert_eq!(offset, Expr::from(0));
+    }
+
+    #[test]
+    fn test_permute() {
+        let view = View::new_contiguous(vec![2, 3, 4]).permute(vec![2, 0, 1]);
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = view else {
+            panic!("Expected Linear view");
+        };
+        assert_eq!(shape, vec![Expr::from(4), Expr::from(2), Expr::from(3)]);
+        assert_eq!(
+            strides,
+            vec![Expr::from(1), Expr::from(12), Expr::from(4)]
+        );
+        assert_eq!(offset, Expr::from(0));
+    }
+
+    #[test]
+    fn test_unsqueeze() {
+        let view = View::new_contiguous(vec![2, 3]).unsqueeze(1);
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = view else {
+            panic!("Expected Linear view");
+        };
+        assert_eq!(shape, vec![Expr::from(2), Expr::from(1), Expr::from(3)]);
+        assert_eq!(
+            strides,
+            vec![Expr::from(3), Expr::from(0), Expr::from(1)]
+        );
+        assert_eq!(offset, Expr::from(0));
+    }
+
+    #[test]
+    fn test_squeeze() {
+        let view = View::new_contiguous(vec![2, 1, 3]).squeeze(1);
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = view else {
+            panic!("Expected Linear view");
+        };
+        assert_eq!(shape, vec![Expr::from(2), Expr::from(3)]);
+        assert_eq!(strides, vec![Expr::from(3), Expr::from(1)]);
+        assert_eq!(offset, Expr::from(0));
+    }
+
+    #[test]
+    fn test_expand() {
+        let n = Expr::Var("N".to_string());
+        let view = View::new_contiguous(vec![2, 1, 3]).expand(vec![2.into(), n.clone(), 3.into()]);
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = view else {
+            panic!("Expected Linear view");
+        };
+        assert_eq!(shape, vec![Expr::from(2), n, Expr::from(3)]);
+        assert_eq!(
+            strides,
+            vec![Expr::from(3), Expr::from(0), Expr::from(1)]
+        );
+        assert_eq!(offset, Expr::from(0));
+    }
+
+    #[test]
+    fn test_is_contiguous() {
+        let view1 = View::new_contiguous(vec![2, 3, 4]);
+        assert!(view1.is_contiguous());
+
+        let view2 = view1.permute(vec![0, 2, 1]);
+        assert!(!view2.is_contiguous());
+    }
+}

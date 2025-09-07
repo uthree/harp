@@ -166,3 +166,74 @@ impl Neg for Expr {
         Expr::from(0isize) - self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_simplify_add() {
+        let a = Expr::Var("a".to_string());
+        assert_eq!((a.clone() + 0).simplify(), a.clone());
+        assert_eq!((Expr::from(0) + a.clone()).simplify(), a.clone());
+        assert_eq!((Expr::from(2) + 3).simplify(), Expr::from(5));
+    }
+
+    #[test]
+    fn test_simplify_sub() {
+        let a = Expr::Var("a".to_string());
+        assert_eq!((a.clone() - 0).simplify(), a.clone());
+        assert_eq!((a.clone() - a.clone()).simplify(), Expr::from(0));
+        assert_eq!((Expr::from(5) - 2).simplify(), Expr::from(3));
+        assert_eq!(((a.clone() + 2) - 2).simplify(), a.clone());
+    }
+
+    #[test]
+    fn test_simplify_mul() {
+        let a = Expr::Var("a".to_string());
+        assert_eq!((a.clone() * 1).simplify(), a.clone());
+        assert_eq!((Expr::from(1) * a.clone()).simplify(), a.clone());
+        assert_eq!((a.clone() * 0).simplify(), Expr::from(0));
+        assert_eq!((Expr::from(0) * a.clone()).simplify(), Expr::from(0));
+        assert_eq!((Expr::from(2) * 3).simplify(), Expr::from(6));
+    }
+
+    #[test]
+    fn test_simplify_div() {
+        let a = Expr::Var("a".to_string());
+        assert_eq!((a.clone() / 1).simplify(), a.clone());
+        assert_eq!((a.clone() / a.clone()).simplify(), Expr::from(1));
+        assert_eq!((Expr::from(0) / a).simplify(), Expr::from(0));
+        assert_eq!((Expr::from(6) / 2).simplify(), Expr::from(3));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_simplify_div_by_zero() {
+        (Expr::from(1) / 0).simplify();
+    }
+
+    #[test]
+    fn test_simplify_rem() {
+        let a = Expr::Var("a".to_string());
+        assert_eq!((a.clone() % 1).simplify(), Expr::from(0));
+        assert_eq!((a.clone() % a.clone()).simplify(), Expr::from(0));
+        assert_eq!((Expr::from(0) % a).simplify(), Expr::from(0));
+        assert_eq!((Expr::from(7) % 2).simplify(), Expr::from(1));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_simplify_rem_by_zero() {
+        (Expr::from(1) % 0).simplify();
+    }
+
+    #[test]
+    fn test_simplify_complex() {
+        let a = Expr::Var("a".to_string());
+        let b = Expr::Var("b".to_string());
+        // ((a + 0) * 1 + b) / 1 = a + b
+        let expr = ((a.clone() + 0) * 1 + b.clone()) / 1;
+        assert_eq!(expr.simplify(), a + b);
+    }
+}
