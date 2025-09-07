@@ -1,5 +1,5 @@
 use crate::{
-    ast::{AstNode, Block, ConstLiteral, DType, Function, Program, Scope, VariableDecl},
+    ast::{AstNode, ConstLiteral, DType, Function, Program, Scope, VariableDecl},
     backend::Renderer,
 };
 use log::debug;
@@ -62,12 +62,13 @@ impl CRenderer {
             self.render_scope(&function.body.scope, &function.body.statements)
         )
         .unwrap();
+        writeln!(buffer).unwrap();
         buffer
     }
 
     fn render_scope(&mut self, scope: &Scope, statements: &[AstNode]) -> String {
         let mut buffer = String::new();
-        writeln!(buffer, "{{ ").unwrap();
+        writeln!(buffer, "{{").unwrap();
         self.indent_level += 1;
 
         // Render declarations
