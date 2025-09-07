@@ -65,13 +65,12 @@ pub enum ReduceOp {
 
 #[derive(Debug, Clone)]
 pub enum GraphOp {
-    Input,
+    Input(Vec<ShapeExpr>),
     Const(ConstLiteral, Vec<ShapeExpr>),
     Elementwise(ElementwiseOp),
     Cast,
     Rand(Vec<ShapeExpr>),
     Arange(usize),
-    Reshape(Vec<ShapeExpr>),
     Reduce(ReduceOp, usize),
     Cumulative(ReduceOp, usize),
     Contiguous,
@@ -130,7 +129,7 @@ impl Graph {
     // 新たに入力変数を作る
     pub fn input(&mut self, dtype: DType, shape: Vec<ShapeExpr>) -> GraphNode {
         let node = GraphNode(Rc::new(GraphNodeData {
-            op: GraphOp::Input,
+            op: GraphOp::Input(shape.clone()),
             src: vec![],
             dtype,
             view: View::new_contiguous(shape),

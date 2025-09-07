@@ -155,6 +155,24 @@ impl GraphNode {
             view: self.view.clone(),
         }))
     }
+
+    pub fn unsqueeze(&self, axis: usize) -> GraphNode {
+        GraphNode(Rc::new(GraphNodeData {
+            op: self.op.clone(),
+            src: self.src.clone(),
+            dtype: self.dtype.clone(),
+            view: self.view.clone().unsqueeze(axis),
+        }))
+    }
+
+    pub fn squeeze(&self, axis: usize) -> GraphNode {
+        GraphNode(Rc::new(GraphNodeData {
+            op: self.op.clone(),
+            src: self.src.clone(),
+            dtype: self.dtype.clone(),
+            view: self.view.clone().squeeze(axis),
+        }))
+    }
 }
 
 #[cfg(test)]
@@ -257,5 +275,25 @@ mod tests {
         let shape = vec![Expr::from(10), Expr::from(20)];
         let a = graph.input(DType::F32, shape.clone());
         a.sum(2);
+    }
+
+    #[test]
+    fn test_view_ops() {
+        let mut graph = Graph::new();
+        let a = graph.input(DType::F32, vec![10.into(), 20.into()]);
+
+        // Test unsqueeze
+        let b = a.unsqueeze(1);
+        assert_eq!(b.shape(), &[10.into(), 1.into(), 20.into()]);
+        // Check that no new computational node was created
+        assert!(matches!(b.op, GraphOp::Input(_)));
+        assert!(b.src.is_empty());
+
+        // Test squeeze
+        let c = b.squeeze(1);
+        assert_eq!(c.shape(), &[10.into(), 20.into()]);
+        // Check that no new computational node was created
+        assert!(matches!(c.op, GraphOp::Input(_)));
+        assert!(c.src.is_empty());
     }
 }
