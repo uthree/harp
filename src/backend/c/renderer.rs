@@ -46,11 +46,16 @@ impl CRenderer {
         let mut buffer = String::new();
 
         // Render function signature
-        let return_type = self.render_dtype(&function.return_type);
+        let (return_type, _) = self.render_dtype_recursive(&function.return_type);
         let args = function
             .arguments
             .iter()
-            .map(|(name, dtype)| format!("{} {}", self.render_dtype(dtype), name))
+            .map(|(name, dtype)| {
+                let (base_type, array_dims) = self.render_dtype_recursive(dtype);
+                // Cの引数では配列はポインタとして渡されることが多いが、
+                // ここでは可読性のために配列構文でレンダリングする。
+                format!("{} {}{}", base_type, name, array_dims)
+            })
             .collect::<Vec<_>>()
             .join(", ");
         writeln!(buffer, "{} {}({})", return_type, function.name, args).unwrap();
@@ -101,7 +106,8 @@ impl CRenderer {
         if decl.constant {
             write!(buffer, "const ").unwrap();
         }
-        write!(buffer, "{} {}", self.render_dtype(&decl.dtype), decl.name).unwrap();
+        let (base_type, array_dims) = self.render_dtype_recursive(&decl.dtype);
+        write!(buffer, "{} {}{}", base_type, decl.name, array_dims).unwrap();
         buffer
     }
 
@@ -149,6 +155,15 @@ impl CRenderer {
                 self.render_node(rhs)
             )
             .unwrap(),
+            AstNode::Index { target, index } => {
+                write!(
+                    buffer,
+                    "{}[{}]",
+                    self.render_node(target),
+                    self.render_node(index)
+                )
+                .unwrap();
+            }
             AstNode::Assign(lhs, rhs) => {
                 write!(
                     buffer,
@@ -197,14 +212,28 @@ impl CRenderer {
         }
     }
 
-    fn render_dtype(&mut self, dtype: &DType) -> String {
+    fn render_scalar_dtype(&self, dtype: &DType) -> String {
         match dtype {
             DType::F32 => "float".to_string(),
             DType::Isize => "ssize_t".to_string(),
             DType::Usize => "size_t".to_string(),
             DType::Void => "void".to_string(),
-            DType::Ptr(t) => format!("{}*", self.render_dtype(t)),
-            DType::Vec(t, size) => format!("{}[{}]", self.render_dtype(t), size),
+            _ => unimplemented!("Unsupported scalar dtype: {:?}", dtype),
+        }
+    }
+
+    // Returns (base_type, array_dims)
+    fn render_dtype_recursive(&self, dtype: &DType) -> (String, String) {
+        match dtype {
+            DType::Ptr(inner) => {
+                let (base, dims) = self.render_dtype_recursive(inner);
+                (format!("{}*", base), dims)
+            }
+            DType::Vec(inner, size) => {
+                let (base, dims) = self.render_dtype_recursive(inner);
+                (base, format!("{}{}[{}]", dims, "", size))
+            }
+            _ => (self.render_scalar_dtype(dtype), "".to_string()),
         }
     }
 }
@@ -239,11 +268,11 @@ mod tests {
 
     #[test]
     fn test_render_function() {
-        let function = Function {
-            name: "my_func".to_string(),
-            arguments: vec![("a".to_string(), DType::Isize)],
-            return_type: DType::Void,
-            body: AstNode::Block {
+        let function = Function::new(
+            "my_func".to_string(),
+            vec![("a".to_string(), DType::Vec(Box::new(DType::Isize), 10))],
+            DType::Void,
+            AstNode::Block {
                 scope: Scope {
                     declarations: vec![VariableDecl {
                         name: "b".to_string(),
@@ -256,8 +285,8 @@ mod tests {
                     Box::new(AstNode::from(1.0f32)),
                 )],
             },
-        };
-        let expected = r###"void my_func(ssize_t a)
+        );
+        let expected = r###"void my_func(ssize_t a[10])
 {
 	float b;
 

@@ -59,6 +59,10 @@ pub enum AstNode {
         scope: Scope,
         statements: Vec<AstNode>,
     },
+    Index {
+        target: Box<Self>,
+        index: Box<Self>,
+    },
     Assign(Box<Self>, Box<Self>), // assign value to variable
 
     Range {
@@ -231,6 +235,7 @@ impl AstNode {
             AstNode::Mul(l, r) => vec![l.as_ref(), r.as_ref()],
             AstNode::Max(l, r) => vec![l.as_ref(), r.as_ref()],
             AstNode::Rem(l, r) => vec![l.as_ref(), r.as_ref()],
+            AstNode::Index { target, index } => vec![target.as_ref(), index.as_ref()],
             AstNode::Assign(l, r) => vec![l.as_ref(), r.as_ref()],
             AstNode::Neg(n) => vec![n.as_ref()],
             AstNode::Recip(n) => vec![n.as_ref()],
@@ -271,6 +276,10 @@ impl AstNode {
                 Box::new(children_iter.next().unwrap()),
                 Box::new(children_iter.next().unwrap()),
             ),
+            AstNode::Index { .. } => AstNode::Index {
+                target: Box::new(children_iter.next().unwrap()),
+                index: Box::new(children_iter.next().unwrap()),
+            },
             AstNode::Assign(_, _) => AstNode::Assign(
                 Box::new(children_iter.next().unwrap()),
                 Box::new(children_iter.next().unwrap()),
