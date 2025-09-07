@@ -6,14 +6,14 @@ use std::ops::Deref;
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
-pub struct GraphNode(Rc<GraphNodeData>);
+pub struct GraphNode(pub(crate) Rc<GraphNodeData>);
 
 #[derive(Debug, Clone)]
 pub struct GraphNodeData {
     pub op: GraphOp,
     pub src: Vec<GraphNode>,
     pub dtype: DType,
-    pub shape: Vec<ShapeExpr>, // ここではあえてView構造体を持たずに、論理的なshapeだけを考慮する。具体的なメモリアクセスに関してはlowererが担当する。
+    pub shape: Vec<ShapeExpr>,
 }
 
 #[derive(Debug, Clone)]
@@ -65,33 +65,16 @@ pub enum ReduceOp {
 
 #[derive(Debug, Clone)]
 pub enum GraphOp {
-    Input, // 入力
+    Input,
     Const(ConstLiteral, Vec<ShapeExpr>),
     Elementwise(ElementwiseOp),
     Cast,
     Rand(Vec<ShapeExpr>),
     Arange(usize),
     Reshape(Vec<ShapeExpr>),
-    Reduce(ReduceOp, usize), // 縮約する
+    Reduce(ReduceOp, usize),
     Cumulative(ReduceOp, usize),
     Contiguous,
-}
-
-impl Default for Graph {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl GraphNode {
-    pub fn new(op: GraphOp, src: Vec<GraphNode>, dtype: DType, shape: Vec<ShapeExpr>) -> GraphNode {
-        GraphNode(Rc::new(GraphNodeData {
-            op,
-            src,
-            dtype,
-            shape,
-        }))
-    }
 }
 
 impl Graph {
