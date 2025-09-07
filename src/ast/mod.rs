@@ -57,6 +57,7 @@ pub enum AstNode {
         dtype: DType,
         constant: bool,
     }, // declare new (local) variable
+    Assign(Box<Self>, Box<Self>), // assign value to variable
 
     Drop(String), // drop (local) variable explicitly
 
@@ -232,6 +233,7 @@ impl AstNode {
             }
             AstNode::Block(nodes) => nodes.iter().collect(),
             AstNode::Declare { .. } => vec![],
+            AstNode::Assign(l, r) => vec![l.as_ref(), r.as_ref()],
             AstNode::Drop(_) => vec![],
             AstNode::Barrier => vec![],
             AstNode::Capture(_) => vec![],
@@ -272,6 +274,10 @@ impl AstNode {
                 max: Box::new(children_iter.next().unwrap()),
                 body: Box::new(children_iter.next().unwrap()),
             },
+            AstNode::Assign(_, _) => AstNode::Assign(
+                Box::new(children_iter.next().unwrap()),
+                Box::new(children_iter.next().unwrap()),
+            ),
             AstNode::Block(_) => AstNode::Block(children_iter.collect()),
             // Nodes without children are returned as is (moved).
             _ => self,

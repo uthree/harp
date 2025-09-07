@@ -143,6 +143,18 @@ impl CRenderer {
                 self.render_indent(&mut buffer);
                 write!(buffer, "}}").unwrap();
             }
+            AstNode::Declare { name, dtype, .. } => {
+                write!(buffer, "{} {}", self.render_dtype(dtype), name).unwrap();
+            }
+            AstNode::Assign(lhs, rhs) => {
+                write!(
+                    buffer,
+                    "{} = {}",
+                    self.render_node(lhs),
+                    self.render_node(rhs)
+                )
+                .unwrap();
+            }
             _ => todo!(),
         }
         buffer
