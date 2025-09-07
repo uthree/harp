@@ -59,7 +59,11 @@ impl CRenderer {
         write!(
             buffer,
             "{}",
-            self.render_scope(&function.body.scope, &function.body.statements)
+            if let AstNode::Block { scope, statements } = &function.body {
+                self.render_scope(scope, statements)
+            } else {
+                unreachable!(); // Function body should always be a block
+            }
         )
         .unwrap();
         writeln!(buffer).unwrap();
@@ -170,13 +174,8 @@ impl CRenderer {
                 .unwrap();
                 write!(buffer, "{}", self.render_node(body)).unwrap();
             }
-            AstNode::Block(block) => {
-                write!(
-                    buffer,
-                    "{}",
-                    self.render_scope(&block.scope, &block.statements)
-                )
-                .unwrap();
+            AstNode::Block { scope, statements } => {
+                write!(buffer, "{}", self.render_scope(scope, statements)).unwrap();
             }
             _ => todo!(),
         }
@@ -213,7 +212,7 @@ impl CRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{AstNode, Block, Scope, VariableDecl};
+    use crate::ast::{AstNode, Scope, VariableDecl};
     use rstest::rstest;
 
     fn var(name: &str) -> AstNode {
@@ -244,7 +243,7 @@ mod tests {
             name: "my_func".to_string(),
             arguments: vec![("a".to_string(), DType::Isize)],
             return_type: DType::Void,
-            body: Block {
+            body: AstNode::Block {
                 scope: Scope {
                     declarations: vec![VariableDecl {
                         name: "b".to_string(),
@@ -276,7 +275,7 @@ mod tests {
             name: "my_func".to_string(),
             arguments: vec![("a".to_string(), DType::Isize)],
             return_type: DType::Void,
-            body: Block {
+            body: AstNode::Block {
                 scope: Scope {
                     declarations: vec![],
                 },

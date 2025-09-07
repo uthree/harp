@@ -35,18 +35,6 @@ pub struct Scope {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Block {
-    pub scope: Scope,
-    pub statements: Vec<AstNode>,
-}
-
-impl Block {
-    pub fn new(scope: Scope, statements: Vec<AstNode>) -> Self {
-        Self { scope, statements }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub enum AstNode {
     Const(ConstLiteral), // constant value
     Var(String),         // get value from variable
@@ -67,7 +55,10 @@ pub enum AstNode {
     CallFunction(Vec<Self>),
 
     // statements
-    Block(Box<Block>),
+    Block {
+        scope: Scope,
+        statements: Vec<AstNode>,
+    },
     Assign(Box<Self>, Box<Self>), // assign value to variable
 
     Range {
@@ -88,7 +79,7 @@ pub enum AstNode {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Function {
     pub(crate) name: String,
-    pub(crate) body: Block,
+    pub(crate) body: AstNode,
     pub(crate) arguments: Vec<(String, DType)>,
     pub(crate) return_type: DType,
 }
@@ -98,8 +89,9 @@ impl Function {
         name: String,
         arguments: Vec<(String, DType)>,
         return_type: DType,
-        body: Block,
+        body: AstNode,
     ) -> Self {
+        assert!(matches!(body, AstNode::Block { .. }));
         Self {
             name,
             arguments,
@@ -112,7 +104,7 @@ impl Function {
         &self.name
     }
 
-    pub fn body(&self) -> &Block {
+    pub fn body(&self) -> &AstNode {
         &self.body
     }
 
@@ -250,7 +242,7 @@ impl AstNode {
             AstNode::Range { max, body, .. } => {
                 vec![max.as_ref(), body.as_ref()]
             }
-            AstNode::Block(block) => block.statements.iter().collect(),
+            AstNode::Block { statements, .. } => statements.iter().collect(),
             AstNode::Drop(_) => vec![],
             AstNode::Barrier => vec![],
             AstNode::Capture(_) => vec![],
@@ -295,9 +287,9 @@ impl AstNode {
                 max: Box::new(children_iter.next().unwrap()),
                 body: Box::new(children_iter.next().unwrap()),
             },
-            AstNode::Block(mut block) => {
-                block.statements = children_iter.collect();
-                AstNode::Block(block)
+            AstNode::Block { scope, .. } => {
+                let statements = children_iter.collect();
+                AstNode::Block { scope, statements }
             }
             // Nodes without children are returned as is (moved).
             _ => self,

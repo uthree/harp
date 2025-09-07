@@ -1,4 +1,4 @@
-use crate::ast::{AstNode, Block, DType, Function, Scope, VariableDecl};
+use crate::ast::{AstNode, DType, Function, Scope, VariableDecl};
 use crate::graph::{ElementwiseOp, Graph, GraphNode, GraphNodeData, GraphOp};
 use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
@@ -6,6 +6,12 @@ use std::rc::Rc;
 pub struct Lowerer {
     node_to_var: HashMap<*const GraphNodeData, AstNode>,
     temp_var_count: usize,
+}
+
+impl Default for Lowerer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Lowerer {
@@ -39,7 +45,7 @@ impl Lowerer {
             }
         }
 
-        let body = Block {
+        let body = AstNode::Block {
             scope: Scope { declarations },
             statements,
         };
@@ -99,8 +105,7 @@ impl Lowerer {
                     }
                 };
 
-                self.node_to_var
-                    .insert(node_ptr, output_var.clone());
+                self.node_to_var.insert(node_ptr, output_var.clone());
 
                 if let AstNode::Var(name) = &output_var {
                     let decl = VariableDecl {
@@ -207,11 +212,15 @@ mod tests {
         assert_eq!(function.arguments()[1].0, "_t1");
 
         let body = function.body();
-        assert_eq!(body.scope.declarations.len(), 1);
-        assert_eq!(body.scope.declarations[0].name, "_t2");
+        if let AstNode::Block { scope, statements } = body {
+            assert_eq!(scope.declarations.len(), 1);
+            assert_eq!(scope.declarations[0].name, "_t2");
 
-        let statements = &body.statements;
-        assert_eq!(statements.len(), 1);
-        assert!(matches!(statements[0], AstNode::Assign(_, _)));
+            let statements = &statements;
+            assert_eq!(statements.len(), 1);
+            assert!(matches!(statements[0], AstNode::Assign(_, _)));
+        } else {
+            panic!("Function body is not a block");
+        }
     }
 }
