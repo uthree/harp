@@ -1,5 +1,5 @@
 use crate::graph::{ElementwiseOp, GraphNode, GraphNodeData, GraphOp, ReduceOp};
-use std::ops::{Add, Mul, Neg, Rem};
+use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 use std::rc::Rc;
 
 macro_rules! impl_graph_node_binary_op {
@@ -40,6 +40,36 @@ macro_rules! impl_graph_node_binary_op {
 impl_graph_node_binary_op!(Add, add, ElementwiseOp::Add);
 impl_graph_node_binary_op!(Mul, mul, ElementwiseOp::Mul);
 impl_graph_node_binary_op!(Rem, rem, ElementwiseOp::Rem);
+
+// Subtraction: a - b = a + (-b)
+impl<'a, 'b> Sub<&'b GraphNode> for &'a GraphNode {
+    type Output = GraphNode;
+    fn sub(self, rhs: &'b GraphNode) -> Self::Output {
+        self + &(-rhs)
+    }
+}
+
+impl Sub for GraphNode {
+    type Output = GraphNode;
+    fn sub(self, rhs: Self) -> Self::Output {
+        &self + &(-&rhs)
+    }
+}
+
+// Division: a / b = a * (1/b)
+impl<'a, 'b> Div<&'b GraphNode> for &'a GraphNode {
+    type Output = GraphNode;
+    fn div(self, rhs: &'b GraphNode) -> Self::Output {
+        self * &rhs.recip()
+    }
+}
+
+impl Div for GraphNode {
+    type Output = GraphNode;
+    fn div(self, rhs: Self) -> Self::Output {
+        &self * &rhs.recip()
+    }
+}
 
 impl Neg for &GraphNode {
     type Output = GraphNode;
@@ -98,9 +128,9 @@ impl GraphNode {
 
     impl_graph_node_reduce_op!(sum, ReduceOp::Add);
     impl_graph_node_reduce_op!(prod, ReduceOp::Mul);
-    impl_graph_node_reduce_op!(max, ReduceOp::Max);
+    impl_graph_node_reduce_op!(max_reduce, ReduceOp::Max);
 
-    pub fn max2(&self, rhs: &Self) -> Self {
+    pub fn max(&self, rhs: &Self) -> Self {
         if self.dtype != rhs.dtype {
             panic!(
                 "Mismatched dtypes: expected {:?}, found {:?}",
@@ -145,7 +175,7 @@ mod tests {
         let e = &a % &b;
         assert!(matches!(e.op, GraphOp::Elementwise(ElementwiseOp::Rem)));
 
-        let f = a.max2(&b);
+        let f = a.max(&b);
         assert!(matches!(f.op, GraphOp::Elementwise(ElementwiseOp::Max)));
     }
 
@@ -182,6 +212,37 @@ mod tests {
     }
 
     #[test]
+    fn test_derived_ops() {
+        let mut graph = Graph::new();
+        let shape = vec![Expr::from(10)];
+        let a = graph.input(DType::F32, shape.clone());
+        let b = graph.input(DType::F32, shape.clone());
+
+        // Test Sub: a - b -> Add(a, Neg(b))
+        let c = &a - &b;
+        assert!(matches!(c.op, GraphOp::Elementwise(ElementwiseOp::Add)));
+        assert_eq!(c.src.len(), 2);
+        assert!(Rc::ptr_eq(&c.src[0].0, &a.0));
+        let neg_b = &c.src[1];
+        assert!(matches!(neg_b.op, GraphOp::Elementwise(ElementwiseOp::Neg)));
+        assert_eq!(neg_b.src.len(), 1);
+        assert!(Rc::ptr_eq(&neg_b.src[0].0, &b.0));
+
+        // Test Div: a / b -> Mul(a, Recip(b))
+        let d = &a / &b;
+        assert!(matches!(d.op, GraphOp::Elementwise(ElementwiseOp::Mul)));
+        assert_eq!(d.src.len(), 2);
+        assert!(Rc::ptr_eq(&d.src[0].0, &a.0));
+        let recip_b = &d.src[1];
+        assert!(matches!(
+            recip_b.op,
+            GraphOp::Elementwise(ElementwiseOp::Recip)
+        ));
+        assert_eq!(recip_b.src.len(), 1);
+        assert!(Rc::ptr_eq(&recip_b.src[0].0, &b.0));
+    }
+
+    #[test]
     fn test_reduce_ops() {
         let mut graph = Graph::new();
         let shape = vec![Expr::from(10), Expr::from(20)];
@@ -198,7 +259,7 @@ mod tests {
         assert_eq!(prod_node.shape, vec![Expr::from(20)]);
 
         // Test max_reduce
-        let max_node = a.max(1);
+        let max_node = a.max_reduce(1);
         assert!(matches!(max_node.op, GraphOp::Reduce(ReduceOp::Max, 1)));
         assert_eq!(max_node.shape, vec![Expr::from(10)]);
     }
