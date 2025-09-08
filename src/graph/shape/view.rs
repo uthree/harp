@@ -220,4 +220,22 @@ mod tests {
         let view2 = view1.permute(vec![0, 2, 1]);
         assert!(!view2.is_contiguous());
     }
+
+    #[test]
+    #[should_panic(expected = "duplicate axis in permute")]
+    fn test_permute_duplicate_axes() {
+        View::new_contiguous(vec![2, 3, 4]).permute(vec![0, 1, 1]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_permute_wrong_ndim() {
+        View::new_contiguous(vec![2, 3, 4]).permute(vec![0, 1]);
+    }
+
+    #[test]
+    #[should_panic(expected = "can only squeeze an axis of size 1")]
+    fn test_squeeze_invalid_axis_size() {
+        View::new_contiguous(vec![2, 3]).squeeze(1);
+    }
 }

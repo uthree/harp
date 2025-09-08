@@ -160,6 +160,13 @@ impl CRenderer {
                 self.render_node(rhs)
             )
             .unwrap(),
+            AstNode::Max(lhs, rhs) => write!(
+                buffer,
+                "fmax({}, {})",
+                self.render_node(lhs),
+                self.render_node(rhs)
+            )
+            .unwrap(),
             AstNode::Index { target, index } => {
                 write!(
                     buffer,
@@ -180,6 +187,10 @@ impl CRenderer {
             }
             AstNode::Neg(v) => write!(buffer, "-{}", self.render_node(v)).unwrap(),
             AstNode::Recip(v) => write!(buffer, "(1 / {})", self.render_node(v)).unwrap(),
+            AstNode::Sin(v) => write!(buffer, "sin({})", self.render_node(v)).unwrap(),
+            AstNode::Sqrt(v) => write!(buffer, "sqrt({})", self.render_node(v)).unwrap(),
+            AstNode::Log2(v) => write!(buffer, "log2({})", self.render_node(v)).unwrap(),
+            AstNode::Exp2(v) => write!(buffer, "exp2({})", self.render_node(v)).unwrap(),
             AstNode::Range {
                 counter_name,
                 max,
@@ -191,9 +202,7 @@ impl CRenderer {
                     "for (size_t {counter_name} = 0; {counter_name} < {max}; {counter_name}++)"
                 )
                 .unwrap();
-                self.indent_level += 1;
                 self.render_indent(&mut buffer);
-                self.indent_level -= 1;
                 write!(buffer, "{}", self.render_node(body)).unwrap();
             }
             AstNode::Block { scope, statements } => {
@@ -289,17 +298,23 @@ mod tests {
     }
 
     #[rstest]
-    // Add
+    // Ops
     #[case(var("a") + var("b"), "(a + b)")]
     #[case(var("a") + (-var("b")), "( a - b )")]
-    // Mul
     #[case(var("a") * var("b"), "(a * b)")]
     #[case(var("a") * var("b").recip(), "( a / b )")]
-    // Neg
+    #[case(AstNode::Rem(Box::new(var("a")), Box::new(var("b"))), "(a % b)")]
+    #[case(AstNode::Max(Box::new(var("a")), Box::new(var("b"))), "fmax(a, b)")]
     #[case(-var("a"), "-a")]
-    // Assign
+    #[case(AstNode::Sin(Box::new(var("a"))), "sin(a)")]
+    #[case(AstNode::Sqrt(Box::new(var("a"))), "sqrt(a)")]
+    // Accessors
+    #[case(AstNode::Index { target: Box::new(var("arr")), index: Box::new(var("i")) }, "arr[i]")]
+    #[case(AstNode::CallFunction { name: "my_func".to_string(), args: vec![var("a"), (2 as isize).into()] }, "my_func(a, 2)")]
+    // Others
     #[case(AstNode::Assign(Box::new(var("a")), Box::new(var("b"))), "a = b")]
-    // Complex
+    #[case(AstNode::Cast { dtype: DType::F32, expr: Box::new(var("a")) }, "(float)a")]
+    #[case(AstNode::Cast { dtype: DType::Ptr(Box::new(DType::F32)), expr: Box::new(var("a")) }, "(float*)a")]
     #[case(-(var("a") + var("b")) * var("c"), "(-(a + b) * c)")]
     fn test_render_node(#[case] input: AstNode, #[case] expected: &str) {
         let mut renderer = CRenderer::new();

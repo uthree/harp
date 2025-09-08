@@ -83,6 +83,17 @@ mod tests {
         let result_vec = buffer.to_vec::<f32>();
         assert_eq!(data, result_vec);
     }
+
+    #[test]
+    fn test_dtype_size() {
+        assert_eq!(DType::F32.size(), 4);
+        assert_eq!(DType::Usize.size(), std::mem::size_of::<usize>());
+        assert_eq!(DType::Isize.size(), std::mem::size_of::<isize>());
+        assert_eq!(
+            DType::Ptr(Box::new(DType::Void)).size(),
+            std::mem::size_of::<*const ()>()
+        );
+    }
 }
 
 impl DType {
