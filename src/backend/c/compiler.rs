@@ -109,7 +109,8 @@ impl Compiler for CCompiler {
             );
         }
 
-        let library = Arc::new(unsafe { Library::new(&lib_path).expect("Failed to load dynamic library") });
+        let library =
+            Arc::new(unsafe { Library::new(&lib_path).expect("Failed to load dynamic library") });
 
         CKernel {
             library,
@@ -135,6 +136,7 @@ mod tests {
 
     #[test]
     fn test_compile_and_run_simple_kernel() {
+        let _ = env_logger::try_init();
         let c_code = r#"
 #include <stddef.h>
 #include <stdint.h>

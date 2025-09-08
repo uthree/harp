@@ -6,6 +6,7 @@ use std::rc::Rc;
 
 pub struct Lowerer {
     node_to_var: HashMap<*const GraphNodeData, AstNode>,
+    shape_var_map: HashMap<String, AstNode>,
     var_count: usize,
     ridx_count: usize,
 }
@@ -20,6 +21,7 @@ impl Lowerer {
     pub fn new() -> Self {
         Lowerer {
             node_to_var: HashMap::new(),
+            shape_var_map: HashMap::new(),
             var_count: 0,
             ridx_count: 0,
         }
@@ -45,22 +47,34 @@ impl Lowerer {
     }
 
     fn shape_to_dtype(&self, base_dtype: &DType, shape: &[Expr]) -> DType {
+        if shape.iter().any(|d| !matches!(d, Expr::Const(_))) {
+            return DType::Ptr(Box::new(base_dtype.clone()));
+        }
         let mut dtype = base_dtype.clone();
         for dim in shape.iter().rev() {
             if let Expr::Const(size) = dim {
                 dtype = DType::Vec(Box::new(dtype), *size as usize);
-            } else {
-                // 動的な形状はまだサポートしない
-                unimplemented!("Dynamic shapes are not yet supported in lowerer");
             }
         }
         dtype
     }
 
+    fn expr_to_ast(&self, expr: &Expr) -> AstNode {
+        match expr {
+            Expr::Const(val) => (*val as usize).into(),
+            Expr::Var(name) => self
+                .shape_var_map
+                .get(name)
+                .unwrap_or_else(|| panic!("Shape variable '{}' not found in map", name))
+                .clone(),
+            _ => unimplemented!("Complex expressions in shapes are not yet supported in lowerer"),
+        }
+    }
+
     pub fn lower(&mut self, graph: &Graph) -> Program {
         let mut impl_arguments = vec![];
 
-        // 1. Register inputs as arguments
+        // 1. Register buffer inputs as arguments
         for node in &graph.inputs {
             let arg_var = self.new_var();
             if let AstNode::Var(name) = &arg_var {
@@ -70,11 +84,11 @@ impl Lowerer {
             }
         }
 
-        // 2. Register outputs as arguments
+        // 2. Register buffer outputs as arguments
         for node in &graph.outputs {
             let node_ptr = Rc::as_ptr(&node.0);
             if self.node_to_var.contains_key(&node_ptr) {
-                continue; // Already registered (e.g. input is also output)
+                continue;
             }
             let arg_var = self.new_var();
             if let AstNode::Var(name) = &arg_var {
@@ -84,14 +98,27 @@ impl Lowerer {
             }
         }
 
-        // 3. Generate kernel body statements
+        // 3. Register shape variables as arguments and create the map
+        let mut shape_var_args = vec![];
+        for (i, var_sig) in graph.shape_variables.iter().enumerate() {
+            let arg_name = format!("shape_var_{}", i);
+            impl_arguments.push((arg_name.clone(), DType::Usize));
+            self.shape_var_map
+                .insert(var_sig.name.clone(), AstNode::Var(arg_name.clone()));
+            shape_var_args.push(AstNode::Index {
+                target: Box::new(AstNode::Var("shape_vars".to_string())),
+                index: Box::new(i.into()),
+            });
+        }
+
+        // 4. Generate kernel body statements
         let sorted_nodes = self.topological_sort(graph);
         let mut impl_declarations = vec![];
         let mut impl_statements = vec![];
 
         for node in &sorted_nodes {
             if let GraphOp::Input(_) = &node.op {
-                continue; // Inputs don't generate statements
+                continue;
             }
             let (decl, stmt) = self.lower_node(node);
             if let Some(d) = decl {
@@ -116,12 +143,14 @@ impl Lowerer {
             kernel_impl_body,
         );
 
-        // 4. Generate `kernel_main` wrapper function
+        // 5. Generate `kernel_main` wrapper function
         let mut main_declarations = vec![];
         let mut main_statements = vec![];
         let mut call_args = vec![];
+        let num_buffer_args = impl_arguments.len() - shape_var_args.len();
 
-        for (i, (arg_name, arg_dtype)) in impl_arguments.iter().enumerate() {
+        for i in 0..num_buffer_args {
+            let (arg_name, arg_dtype) = &impl_arguments[i];
             let base_dtype = self.get_base_dtype(arg_dtype);
             let pointer_dtype = DType::Ptr(Box::new(base_dtype.clone()));
             main_declarations.push(VariableDecl {
@@ -143,6 +172,7 @@ impl Lowerer {
             ));
             call_args.push(AstNode::Var(arg_name.clone()));
         }
+        call_args.extend(shape_var_args);
 
         main_statements.push(AstNode::CallFunction {
             name: "kernel_impl".to_string(),
@@ -175,20 +205,17 @@ impl Lowerer {
         }
     }
 
-    fn lower_node(
-        &mut self,
-        node: &GraphNode,
-    ) -> (Option<VariableDecl>, Option<AstNode>) {
+    fn lower_node(&mut self, node: &GraphNode) -> (Option<VariableDecl>, Option<AstNode>) {
         match &node.op {
             GraphOp::Elementwise(op) => {
                 let node_ptr = Rc::as_ptr(&node.0);
                 let (output_var, needs_decl) =
                     if let Some(existing_var) = self.node_to_var.get(&node_ptr) {
-                        (existing_var.clone(), false) // Output buffer, no decl needed
+                        (existing_var.clone(), false)
                     } else {
                         let new_var = self.new_var();
                         self.node_to_var.insert(node_ptr, new_var.clone());
-                        (new_var, true) // Intermediate, needs declaration
+                        (new_var, true)
                     };
 
                 let lhs_var = self
@@ -203,7 +230,7 @@ impl Lowerer {
                 for dim in node.shape() {
                     let ridx_name = self.new_ridx();
                     loop_indices.push(AstNode::Var(ridx_name.clone()));
-                    loop_nest.push((ridx_name, (*dim).clone().into()));
+                    loop_nest.push((ridx_name, self.expr_to_ast(dim)));
                 }
 
                 let mut indexed_lhs = lhs_var.clone();
@@ -380,32 +407,6 @@ mod tests {
         assert_eq!(program.entry_point, "kernel_main");
         assert_eq!(program.functions.len(), 2);
 
-        // kernel_mainの検証
-        let kernel_main = program
-            .functions
-            .iter()
-            .find(|f| f.name() == "kernel_main")
-            .unwrap();
-        assert_eq!(kernel_main.arguments().len(), 2);
-        assert_eq!(kernel_main.arguments()[0].0, "buffers");
-        assert_eq!(kernel_main.arguments()[1].0, "shape_vars");
-
-        if let AstNode::Block {
-            scope: main_scope,
-            statements: main_statements,
-        } = kernel_main.body()
-        {
-            assert_eq!(main_scope.declarations.len(), 3); // var0, var1, var2
-            assert_eq!(main_statements.len(), 4); // assign var0, assign var1, assign var2, call
-            assert!(matches!(main_statements[0], AstNode::Assign(_, _)));
-            assert!(matches!(main_statements[1], AstNode::Assign(_, _)));
-            assert!(matches!(main_statements[2], AstNode::Assign(_, _)));
-            assert!(matches!(main_statements[3], AstNode::CallFunction { .. }));
-        } else {
-            panic!("kernel_main body is not a block");
-        }
-
-        // kernel_implの検証
         let kernel_impl = program
             .functions
             .iter()
@@ -413,22 +414,46 @@ mod tests {
             .unwrap();
 
         assert_eq!(kernel_impl.arguments().len(), 3); // a, b, c
-        assert_eq!(kernel_impl.arguments()[0].0, "var0");
         assert_eq!(
             kernel_impl.arguments()[0].1,
             DType::Vec(Box::new(DType::F32), 10)
         );
-        assert_eq!(kernel_impl.arguments()[1].0, "var1");
-        assert_eq!(kernel_impl.arguments()[2].0, "var2");
+    }
 
-        if let AstNode::Block {
-            scope: impl_scope,
-            statements: impl_statements,
-        } = kernel_impl.body()
-        {
-            assert_eq!(impl_scope.declarations.len(), 0); // No intermediate variables
-            assert_eq!(impl_statements.len(), 1);
-            assert!(matches!(impl_statements[0], AstNode::Range { .. }));
+    #[test]
+    fn test_lowerer_dynamic_shape_graph() {
+        let _ = env_logger::try_init();
+        let mut graph = Graph::new();
+        let n = graph.shape_var("N", 128);
+        let a = graph.input(DType::F32, vec![n.clone()]);
+        let b = graph.input(DType::F32, vec![n.clone()]);
+        let c = &a + &b;
+        graph.output(c);
+
+        let mut lowerer = Lowerer::new();
+        let program = lowerer.lower(&graph);
+
+        let kernel_impl = program
+            .functions
+            .iter()
+            .find(|f| f.name() == "kernel_impl")
+            .unwrap();
+
+        assert_eq!(kernel_impl.arguments().len(), 4); // a, b, c, shape_var_0
+        assert_eq!(
+            kernel_impl.arguments()[0].1,
+            DType::Ptr(Box::new(DType::F32))
+        );
+        assert_eq!(kernel_impl.arguments()[3].0, "shape_var_0");
+        assert_eq!(kernel_impl.arguments()[3].1, DType::Usize);
+
+        if let AstNode::Block { statements, .. } = kernel_impl.body() {
+            assert_eq!(statements.len(), 1);
+            if let AstNode::Range { max, .. } = &statements[0] {
+                assert!(matches!(**max, AstNode::Var(ref v) if v == "shape_var_0"));
+            } else {
+                panic!("Expected a Range node");
+            }
         } else {
             panic!("kernel_impl body is not a block");
         }

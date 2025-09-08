@@ -80,7 +80,6 @@ impl CRenderer {
         buffer
     }
 
-
     fn render_scope(&mut self, scope: &Scope, statements: &[AstNode]) -> String {
         let mut buffer = String::new();
         writeln!(buffer, "{{").unwrap();
