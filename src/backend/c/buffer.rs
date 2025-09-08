@@ -60,6 +60,31 @@ impl Drop for CBuffer {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_buffer_allocation() {
+        let shape = vec![2, 3];
+        let dtype = DType::F32;
+        let buffer = CBuffer::allocate(dtype, shape);
+        assert!(!buffer.ptr.is_null());
+        assert_eq!(buffer.shape, vec![2, 3]);
+        assert_eq!(buffer.dtype, DType::F32);
+    }
+
+    #[test]
+    fn test_buffer_from_slice_and_to_vec() {
+        let data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
+        let shape = vec![2, 2];
+        let dtype = DType::F32;
+        let buffer = CBuffer::from_slice(&data, &shape, dtype);
+        let result_vec = buffer.to_vec::<f32>();
+        assert_eq!(data, result_vec);
+    }
+}
+
 impl DType {
     /// Returns the size of the data type in bytes.
     pub fn size(&self) -> usize {

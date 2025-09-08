@@ -118,3 +118,79 @@ impl Compiler for CCompiler {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::DType;
+    use crate::backend::Kernel;
+    use crate::graph::{GraphSignature, TensorSignature};
+
+    #[test]
+    fn test_compiler_availability() {
+        let compiler = CCompiler::new();
+        // This test assumes a C compiler is available in the environment.
+        assert!(compiler.is_available());
+    }
+
+    #[test]
+    fn test_compile_and_run_simple_kernel() {
+        let c_code = r#"
+#include <stddef.h>
+#include <stdint.h>
+
+void kernel_impl(float* a, float* b, float* c) {
+    for (size_t i = 0; i < 4; ++i) {
+        c[i] = a[i] + b[i];
+    }
+}
+
+void kernel_main(void** buffers, size_t* shape_vars) {
+    float* var0 = (float*)buffers[0];
+    float* var1 = (float*)buffers[1];
+    float* var2 = (float*)buffers[2];
+    kernel_impl(var0, var1, var2);
+}
+"#
+        .to_string();
+
+        let mut compiler = CCompiler::new();
+        let signature = GraphSignature {
+            shape_variables: vec![],
+            inputs: vec![
+                TensorSignature {
+                    dtype: DType::F32,
+                    shape: vec![4.into()],
+                },
+                TensorSignature {
+                    dtype: DType::F32,
+                    shape: vec![4.into()],
+                },
+            ],
+            outputs: vec![TensorSignature {
+                dtype: DType::F32,
+                shape: vec![4.into()],
+            }],
+        };
+
+        let mut kernel = compiler.compile(&c_code, signature);
+
+        let input_a_data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
+        let input_b_data: Vec<f32> = vec![5.0, 6.0, 7.0, 8.0];
+        let output_data: Vec<f32> = vec![0.0; 4];
+
+        let buffer_a = CBuffer::from_slice(&input_a_data, &[4], DType::F32);
+        let buffer_b = CBuffer::from_slice(&input_b_data, &[4], DType::F32);
+        let buffer_c = CBuffer::from_slice(&output_data, &[4], DType::F32);
+
+        let buffers = vec![buffer_a, buffer_b, buffer_c];
+        let shape_vars = vec![];
+
+        let result_buffers = kernel.call(buffers, &shape_vars);
+
+        let result_vec = result_buffers[2].to_vec::<f32>();
+        let expected_vec: Vec<f32> = vec![6.0, 8.0, 10.0, 12.0];
+
+        assert_eq!(result_vec, expected_vec);
+    }
+}
