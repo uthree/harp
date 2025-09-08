@@ -28,7 +28,7 @@ impl Lowerer {
     }
 
     fn new_var(&mut self) -> AstNode {
-        let name = format!("var{}", self.var_count);
+        let name = format!("buf{}", self.var_count);
         self.var_count += 1;
         AstNode::Var(name)
     }
