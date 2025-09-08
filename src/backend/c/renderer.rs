@@ -185,13 +185,15 @@ impl CRenderer {
                 max,
                 body,
             } => {
-                self.render_indent(&mut buffer);
                 let max = self.render_node(max);
                 writeln!(
                     buffer,
                     "for (size_t {counter_name} = 0; {counter_name} < {max}; {counter_name}++)"
                 )
                 .unwrap();
+                self.indent_level += 1;
+                self.render_indent(&mut buffer);
+                self.indent_level -= 1;
                 write!(buffer, "{}", self.render_node(body)).unwrap();
             }
             AstNode::Block { scope, statements } => {
