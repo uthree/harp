@@ -1,6 +1,9 @@
-use crate::graph::{
-    shape::{view::View, Expr as ShapeExpr},
-    ElementwiseOp, GraphNode, GraphNodeData, GraphOp, ReduceOp,
+use crate::{
+    ast::DType,
+    graph::{
+        shape::{view::View, Expr as ShapeExpr},
+        ElementwiseOp, GraphNode, GraphNodeData, GraphOp, ReduceOp,
+    },
 };
 use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 use std::rc::Rc;
@@ -60,20 +63,46 @@ impl Sub for GraphNode {
     }
 }
 
-// Division: a / b = a * (1/b)
-#[allow(clippy::suspicious_arithmetic_impl)]
+// Division: a / b = a * (1/b) for float, or a // b for integer
 impl<'b> Div<&'b GraphNode> for &GraphNode {
     type Output = GraphNode;
     fn div(self, rhs: &'b GraphNode) -> Self::Output {
-        self * &rhs.recip()
+        if self.dtype != rhs.dtype {
+            panic!(
+                "Mismatched dtypes: expected {:?}, found {:?}",
+                self.dtype, rhs.dtype
+            );
+        }
+        if self.shape() != rhs.shape() {
+            panic!(
+                "Mismatched shapes: expected {:?}, found {:?}",
+                self.shape(),
+                rhs.shape()
+            );
+        }
+        match self.dtype {
+            DType::F32 => self * &rhs.recip(), // Use reciprocal for floating point
+            DType::Isize | DType::Usize => {
+                // Use dedicated integer division op
+                GraphNode(Rc::new(GraphNodeData {
+                    op: GraphOp::Elementwise(ElementwiseOp::IntDiv),
+                    src: vec![self.clone(), rhs.clone()],
+                    dtype: self.dtype.clone(),
+                    view: self.view.clone(),
+                }))
+            }
+            _ => panic!(
+                "Division is not supported for dtype {:?}",
+                self.dtype
+            ),
+        }
     }
 }
 
-#[allow(clippy::suspicious_arithmetic_impl)]
 impl Div for GraphNode {
     type Output = GraphNode;
     fn div(self, rhs: Self) -> Self::Output {
-        &self * &rhs.recip()
+        (&self).div(&rhs)
     }
 }
 
@@ -321,5 +350,20 @@ mod tests {
         assert!(matches!(c.op, GraphOp::View));
         assert_eq!(c.src.len(), 1);
         assert!(Rc::ptr_eq(&c.src[0].0, &a.0));
+    }
+
+    #[test]
+    fn test_integer_division() {
+        let mut graph = Graph::new();
+        let shape = vec![Expr::from(10)];
+        let a = graph.input(DType::Isize, shape.clone());
+        let b = graph.input(DType::Isize, shape.clone());
+
+        let c = &a / &b;
+        assert!(matches!(
+            c.op,
+            GraphOp::Elementwise(ElementwiseOp::IntDiv)
+        ));
+        assert_eq!(c.src.len(), 2);
     }
 }

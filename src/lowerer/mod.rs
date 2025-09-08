@@ -262,6 +262,9 @@ impl Lowerer {
                         ElementwiseOp::Mul => {
                             AstNode::Mul(Box::new(indexed_lhs), Box::new(indexed_rhs))
                         }
+                        ElementwiseOp::IntDiv => {
+                            AstNode::Div(Box::new(indexed_lhs), Box::new(indexed_rhs))
+                        }
                         ElementwiseOp::Rem => {
                             AstNode::Rem(Box::new(indexed_lhs), Box::new(indexed_rhs))
                         }

@@ -152,6 +152,13 @@ impl CRenderer {
                 )
                 .unwrap(),
             },
+            AstNode::Div(lhs, rhs) => write!(
+                buffer,
+                "({} / {})",
+                self.render_node(lhs),
+                self.render_node(rhs)
+            )
+            .unwrap(),
             AstNode::Rem(lhs, rhs) => write!(
                 buffer,
                 "({} % {})",

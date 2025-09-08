@@ -54,6 +54,7 @@ pub enum ElementwiseOp {
     Log2,
     Exp2,
     Rem,
+    IntDiv,
 }
 
 #[derive(Debug, Clone)]
