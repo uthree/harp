@@ -36,31 +36,36 @@ impl CRenderer {
         buffer.push_str("#include <stdint.h>\n");
         buffer.push_str("#include <stdlib.h>\n");
         buffer.push('\n');
+
+        // Add function prototypes
+        for function in program.functions.iter() {
+            writeln!(buffer, "{};", self.render_function_signature(function)).unwrap();
+        }
+        buffer.push('\n');
+
         for function in program.functions.iter() {
             write!(buffer, "{}", self.render_function(function)).unwrap();
         }
         buffer
     }
 
-    fn render_function(&mut self, function: &Function) -> String {
-        let mut buffer = String::new();
-
-        // Render function signature
+    fn render_function_signature(&mut self, function: &Function) -> String {
         let (return_type, _) = self.render_dtype_recursive(&function.return_type);
         let args = function
             .arguments
             .iter()
             .map(|(name, dtype)| {
                 let (base_type, array_dims) = self.render_dtype_recursive(dtype);
-                // Cの引数では配列はポインタとして渡されることが多いが、
-                // ここでは可読性のために配列構文でレンダリングする。
                 format!("{} {}{}", base_type, name, array_dims)
             })
             .collect::<Vec<_>>()
             .join(", ");
-        writeln!(buffer, "{} {}({})", return_type, function.name, args).unwrap();
+        format!("{} {}({})", return_type, function.name, args)
+    }
 
-        // Render function body
+    fn render_function(&mut self, function: &Function) -> String {
+        let mut buffer = String::new();
+        writeln!(buffer, "{}", self.render_function_signature(function)).unwrap();
         write!(
             buffer,
             "{}",
@@ -74,6 +79,7 @@ impl CRenderer {
         writeln!(buffer).unwrap();
         buffer
     }
+
 
     fn render_scope(&mut self, scope: &Scope, statements: &[AstNode]) -> String {
         let mut buffer = String::new();
@@ -184,7 +190,7 @@ impl CRenderer {
                 let max = self.render_node(max);
                 writeln!(
                     buffer,
-                    "for (size_t {counter_name} = 0; {counter_name} < {max}; {counter_name}())"
+                    "for (size_t {counter_name} = 0; {counter_name} < {max}; {counter_name}++)"
                 )
                 .unwrap();
                 write!(buffer, "{}", self.render_node(body)).unwrap();
@@ -201,6 +207,14 @@ impl CRenderer {
                     base_type
                 };
                 write!(buffer, "({}){}", type_str, self.render_node(expr)).unwrap();
+            }
+            AstNode::CallFunction { name, args } => {
+                let args_str = args
+                    .iter()
+                    .map(|arg| self.render_node(arg))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(buffer, "{}({})", name, args_str).unwrap();
             }
 
             node => todo!("render_node for {:?}", node),
@@ -320,6 +334,8 @@ mod tests {
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+
+void my_func(ssize_t a[10]);
 
 void my_func(ssize_t a[10])
 {

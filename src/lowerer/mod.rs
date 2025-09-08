@@ -58,15 +58,42 @@ impl Lowerer {
     }
 
     pub fn lower(&mut self, graph: &Graph) -> Program {
-        // 1. グラフからカーネル本体となる `kernel_impl` を生成する
-        let sorted_nodes = self.topological_sort(graph);
-
-        let mut impl_declarations = vec![];
-        let mut impl_statements = vec![];
         let mut impl_arguments = vec![];
 
+        // 1. Register inputs as arguments
+        for node in &graph.inputs {
+            let arg_var = self.new_var();
+            if let AstNode::Var(name) = &arg_var {
+                let arg_dtype = self.shape_to_dtype(&node.dtype, node.shape());
+                impl_arguments.push((name.clone(), arg_dtype));
+                self.node_to_var.insert(Rc::as_ptr(&node.0), arg_var);
+            }
+        }
+
+        // 2. Register outputs as arguments
+        for node in &graph.outputs {
+            let node_ptr = Rc::as_ptr(&node.0);
+            if self.node_to_var.contains_key(&node_ptr) {
+                continue; // Already registered (e.g. input is also output)
+            }
+            let arg_var = self.new_var();
+            if let AstNode::Var(name) = &arg_var {
+                let arg_dtype = self.shape_to_dtype(&node.dtype, node.shape());
+                impl_arguments.push((name.clone(), arg_dtype));
+                self.node_to_var.insert(node_ptr, arg_var);
+            }
+        }
+
+        // 3. Generate kernel body statements
+        let sorted_nodes = self.topological_sort(graph);
+        let mut impl_declarations = vec![];
+        let mut impl_statements = vec![];
+
         for node in &sorted_nodes {
-            let (decl, stmt) = self.lower_node(node, &mut impl_arguments);
+            if let GraphOp::Input(_) = &node.op {
+                continue; // Inputs don't generate statements
+            }
+            let (decl, stmt) = self.lower_node(node);
             if let Some(d) = decl {
                 impl_declarations.push(d);
             }
@@ -89,13 +116,12 @@ impl Lowerer {
             kernel_impl_body,
         );
 
-        // 2. `kernel_main` ラッパー関数を生成する
+        // 4. Generate `kernel_main` wrapper function
         let mut main_declarations = vec![];
         let mut main_statements = vec![];
         let mut call_args = vec![];
 
         for (i, (arg_name, arg_dtype)) in impl_arguments.iter().enumerate() {
-            // `float* var0;` のようなポインタ変数を宣言
             let base_dtype = self.get_base_dtype(arg_dtype);
             let pointer_dtype = DType::Ptr(Box::new(base_dtype.clone()));
             main_declarations.push(VariableDecl {
@@ -104,7 +130,6 @@ impl Lowerer {
                 constant: false,
             });
 
-            // `var0 = (float*)buffers[i];` のようなキャストと代入文を生成
             let cast_expr = AstNode::Cast {
                 dtype: pointer_dtype.clone(),
                 expr: Box::new(AstNode::Index {
@@ -119,7 +144,6 @@ impl Lowerer {
             call_args.push(AstNode::Var(arg_name.clone()));
         }
 
-        // `kernel_impl(var0, var1, ...);` の呼び出し文を追加
         main_statements.push(AstNode::CallFunction {
             name: "kernel_impl".to_string(),
             args: call_args,
@@ -145,7 +169,6 @@ impl Lowerer {
             kernel_main_body,
         );
 
-        // 3. 2つの関数を含むProgramを返す
         Program {
             functions: vec![kernel_main, kernel_impl],
             entry_point: "kernel_main".to_string(),
@@ -155,32 +178,25 @@ impl Lowerer {
     fn lower_node(
         &mut self,
         node: &GraphNode,
-        arguments: &mut Vec<(String, DType)>,
     ) -> (Option<VariableDecl>, Option<AstNode>) {
-        let node_ptr = Rc::as_ptr(&node.0);
-        if self.node_to_var.contains_key(&node_ptr) {
-            return (None, None);
-        }
-
         match &node.op {
-            GraphOp::Input(_) => {
-                let arg_var = self.new_var();
-                if let AstNode::Var(name) = &arg_var {
-                    let arg_dtype = self.shape_to_dtype(&node.dtype, node.shape());
-                    arguments.push((name.clone(), arg_dtype));
-                    self.node_to_var.insert(node_ptr, arg_var);
-                }
-                (None, None)
-            }
             GraphOp::Elementwise(op) => {
-                let output_var = self.new_var();
+                let node_ptr = Rc::as_ptr(&node.0);
+                let (output_var, needs_decl) =
+                    if let Some(existing_var) = self.node_to_var.get(&node_ptr) {
+                        (existing_var.clone(), false) // Output buffer, no decl needed
+                    } else {
+                        let new_var = self.new_var();
+                        self.node_to_var.insert(node_ptr, new_var.clone());
+                        (new_var, true) // Intermediate, needs declaration
+                    };
+
                 let lhs_var = self
                     .node_to_var
                     .get(&Rc::as_ptr(&node.src[0].0))
                     .expect("LHS not found")
                     .clone();
 
-                // --- ループ構造とインデックスアクセスASTの生成 ---
                 let mut loop_indices = vec![];
                 let mut loop_nest = vec![];
 
@@ -257,20 +273,21 @@ impl Lowerer {
                         body: Box::new(loop_body),
                     };
                 }
-                // --- ここまで ---
 
-                self.node_to_var.insert(node_ptr, output_var.clone());
-
-                if let AstNode::Var(name) = &output_var {
-                    let decl = VariableDecl {
-                        name: name.clone(),
-                        dtype: self.shape_to_dtype(&node.dtype, node.shape()),
-                        constant: false,
-                    };
-                    (Some(decl), Some(loop_body))
+                let decl = if needs_decl {
+                    if let AstNode::Var(name) = &output_var {
+                        Some(VariableDecl {
+                            name: name.clone(),
+                            dtype: self.shape_to_dtype(&node.dtype, node.shape()),
+                            constant: false,
+                        })
+                    } else {
+                        None
+                    }
                 } else {
-                    (None, None)
-                }
+                    None
+                };
+                (decl, Some(loop_body))
             }
             _ => todo!("Unsupported op: {:?}", node.op),
         }
@@ -378,11 +395,12 @@ mod tests {
             statements: main_statements,
         } = kernel_main.body()
         {
-            assert_eq!(main_scope.declarations.len(), 2); // var0, var1
-            assert_eq!(main_statements.len(), 3); // assign var0, assign var1, call
+            assert_eq!(main_scope.declarations.len(), 3); // var0, var1, var2
+            assert_eq!(main_statements.len(), 4); // assign var0, assign var1, assign var2, call
             assert!(matches!(main_statements[0], AstNode::Assign(_, _)));
             assert!(matches!(main_statements[1], AstNode::Assign(_, _)));
-            assert!(matches!(main_statements[2], AstNode::CallFunction { .. }));
+            assert!(matches!(main_statements[2], AstNode::Assign(_, _)));
+            assert!(matches!(main_statements[3], AstNode::CallFunction { .. }));
         } else {
             panic!("kernel_main body is not a block");
         }
@@ -394,21 +412,21 @@ mod tests {
             .find(|f| f.name() == "kernel_impl")
             .unwrap();
 
-        assert_eq!(kernel_impl.arguments().len(), 2);
+        assert_eq!(kernel_impl.arguments().len(), 3); // a, b, c
         assert_eq!(kernel_impl.arguments()[0].0, "var0");
         assert_eq!(
             kernel_impl.arguments()[0].1,
             DType::Vec(Box::new(DType::F32), 10)
         );
         assert_eq!(kernel_impl.arguments()[1].0, "var1");
+        assert_eq!(kernel_impl.arguments()[2].0, "var2");
 
         if let AstNode::Block {
             scope: impl_scope,
             statements: impl_statements,
         } = kernel_impl.body()
         {
-            assert_eq!(impl_scope.declarations.len(), 1);
-            assert_eq!(impl_scope.declarations[0].name, "var2");
+            assert_eq!(impl_scope.declarations.len(), 0); // No intermediate variables
             assert_eq!(impl_statements.len(), 1);
             assert!(matches!(impl_statements[0], AstNode::Range { .. }));
         } else {
