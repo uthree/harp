@@ -23,7 +23,6 @@ impl Renderer for CRenderer {
     fn render(&mut self, program: Program) -> Self::CodeRepr {
         let code = self.render_program(&program);
         debug!("\n--- Rendered C code ---\n{code}\n-----------------------");
-        debug!("Finished rendering C code.");
         code
     }
 }
@@ -202,8 +201,10 @@ impl CRenderer {
                     "for (size_t {counter_name} = 0; {counter_name} < {max}; {counter_name}++)"
                 )
                 .unwrap();
+                self.indent_level += 1;
                 self.render_indent(&mut buffer);
                 write!(buffer, "{}", self.render_node(body)).unwrap();
+                self.indent_level -= 1;
             }
             AstNode::Block { scope, statements } => {
                 write!(buffer, "{}", self.render_scope(scope, statements)).unwrap();
