@@ -1,10 +1,13 @@
 use crate::ast::AstNode;
 use std::rc::Rc;
 
+type RewriterFn = Box<dyn Fn(&[AstNode]) -> AstNode>;
+type ConditionFn = Box<dyn Fn(&[AstNode]) -> bool>;
+
 pub struct AstRewriteRule {
     pattern: AstNode,
-    rewriter: Box<dyn Fn(&[AstNode]) -> AstNode>,
-    condition: Box<dyn Fn(&[AstNode]) -> bool>,
+    rewriter: RewriterFn,
+    condition: ConditionFn,
 }
 
 impl AstRewriteRule {
@@ -44,7 +47,7 @@ impl AstRewriteRule {
         let mut rewrites = vec![];
 
         // Try to match the current node.
-        if let Some(captured_options) = self.match_node(ast, &self.pattern) {
+        if let Some(captured_options) = Self::match_node(ast, &self.pattern) {
             // All captures must be Some(...) for a match to be valid.
             if let Some(captured_refs) = captured_options.into_iter().collect::<Option<Vec<_>>>() {
                 let captured_nodes: Vec<AstNode> = captured_refs.into_iter().cloned().collect();
@@ -68,7 +71,7 @@ impl AstRewriteRule {
 
     /// Matches and rewrites only the top-level node, without recursing into children.
     fn match_and_rewrite_top_level(&self, ast: &AstNode) -> Option<AstNode> {
-        if let Some(captured_options) = self.match_node(ast, &self.pattern) {
+        if let Some(captured_options) = Self::match_node(ast, &self.pattern) {
             if let Some(captured_refs) = captured_options.into_iter().collect::<Option<Vec<_>>>() {
                 let captured_nodes: Vec<AstNode> = captured_refs.into_iter().cloned().collect();
                 if (self.condition)(&captured_nodes) {
@@ -79,11 +82,7 @@ impl AstRewriteRule {
         None
     }
 
-    fn match_node<'a>(
-        &self,
-        ast: &'a AstNode,
-        pattern: &AstNode,
-    ) -> Option<Vec<Option<&'a AstNode>>> {
+    fn match_node<'a>(ast: &'a AstNode, pattern: &AstNode) -> Option<Vec<Option<&'a AstNode>>> {
         match pattern {
             AstNode::Capture(n) => {
                 let mut captured = vec![None; *n + 1];
@@ -105,7 +104,7 @@ impl AstRewriteRule {
                     if ast_children.len() == pattern_children.len() {
                         let mut all_captures: Vec<Option<&'a AstNode>> = vec![];
                         for (ac, pc) in ast_children.iter().zip(pattern_children.iter()) {
-                            if let Some(child_captures) = self.match_node(ac, pc) {
+                            if let Some(child_captures) = Self::match_node(ac, pc) {
                                 // Merge captures from children.
                                 for (i, capture) in child_captures.iter().enumerate() {
                                     if i >= all_captures.len() {
@@ -302,6 +301,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(unused_variables)]
     fn test_conditional_rewrite() {
         // Only rewrite a + a to 2 * a
         let rule = ast_pattern!(|a, b| a + b, if a == b => i(2) * a.clone());

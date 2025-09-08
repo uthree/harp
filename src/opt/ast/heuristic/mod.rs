@@ -1,4 +1,3 @@
-
 use crate::ast::AstNode;
 
 /// A trait for suggesting rewrites to an AST.
@@ -12,18 +11,20 @@ pub trait CostEstimator {
 }
 
 /// Combines multiple `RewriteSuggester`s into one.
+#[allow(dead_code)]
 pub struct CombinedRewriteSuggester {
     suggesters: Vec<Box<dyn RewriteSuggester>>,
 }
 
 impl CombinedRewriteSuggester {
+    #[allow(dead_code)]
     pub fn new(suggesters: Vec<Box<dyn RewriteSuggester>>) -> Self {
         Self { suggesters }
     }
 }
 
 impl RewriteSuggester for CombinedRewriteSuggester {
-    fn suggest(&self, node: &AstNode) -> Vec<AstNode> {
+    fn suggest(&self, _node: &AstNode) -> Vec<AstNode> {
         todo!()
     }
 }

@@ -49,12 +49,12 @@ impl CRenderer {
     }
 
     fn render_function_signature(&mut self, function: &Function) -> String {
-        let (return_type, _) = self.render_dtype_recursive(&function.return_type);
+        let (return_type, _) = Self::render_dtype_recursive(&function.return_type);
         let args = function
             .arguments
             .iter()
             .map(|(name, dtype)| {
-                let (base_type, array_dims) = self.render_dtype_recursive(dtype);
+                let (base_type, array_dims) = Self::render_dtype_recursive(dtype);
                 format!("{} {}{}", base_type, name, array_dims)
             })
             .collect::<Vec<_>>()
@@ -71,7 +71,7 @@ impl CRenderer {
                 let empty_scope = Scope {
                     declarations: vec![],
                 };
-                self.render_scope(&empty_scope, &[single_statement.clone()])
+                self.render_scope(&empty_scope, std::slice::from_ref(single_statement))
             }
         };
         write!(buffer, "{}", body_str).unwrap();
@@ -110,7 +110,7 @@ impl CRenderer {
         if decl.constant {
             write!(buffer, "const ").unwrap();
         }
-        let (base_type, array_dims) = self.render_dtype_recursive(&decl.dtype);
+        let (base_type, array_dims) = Self::render_dtype_recursive(&decl.dtype);
         write!(buffer, "{} {}{}", base_type, decl.name, array_dims).unwrap();
         buffer
     }
@@ -210,7 +210,7 @@ impl CRenderer {
                 write!(buffer, "{}", self.render_scope(scope, statements)).unwrap();
             }
             AstNode::Cast { dtype, expr } => {
-                let (base_type, dims) = self.render_dtype_recursive(dtype);
+                let (base_type, dims) = Self::render_dtype_recursive(dtype);
                 // Cでは配列型へのキャストはポインタ型へのキャストとして書く
                 let type_str = if !dims.is_empty() {
                     format!("{}*", base_type)
@@ -248,7 +248,7 @@ impl CRenderer {
         }
     }
 
-    fn render_scalar_dtype(&self, dtype: &DType) -> String {
+    fn render_scalar_dtype(dtype: &DType) -> String {
         match dtype {
             DType::F32 => "float".to_string(),
             DType::Isize => "ssize_t".to_string(),
@@ -260,7 +260,7 @@ impl CRenderer {
                     "void*".to_string()
                 } else {
                     // 基本的には再帰しないが、void**のようなケースのため
-                    format!("{}*", self.render_scalar_dtype(inner))
+                    format!("{}*", Self::render_scalar_dtype(inner))
                 }
             }
             _ => unimplemented!("Unsupported scalar dtype: {:?}", dtype),
@@ -268,10 +268,10 @@ impl CRenderer {
     }
 
     // Returns (base_type, array_dims)
-    fn render_dtype_recursive(&self, dtype: &DType) -> (String, String) {
+    fn render_dtype_recursive(dtype: &DType) -> (String, String) {
         match dtype {
             DType::Ptr(inner) => {
-                let (base, dims) = self.render_dtype_recursive(inner);
+                let (base, dims) = Self::render_dtype_recursive(inner);
                 // void** のような多重ポインタを扱う
                 if base.ends_with('*') || dims.is_empty() {
                     (format!("{}*", base), dims)
@@ -280,10 +280,10 @@ impl CRenderer {
                 }
             }
             DType::Vec(inner, size) => {
-                let (base, dims) = self.render_dtype_recursive(inner);
+                let (base, dims) = Self::render_dtype_recursive(inner);
                 (base, format!("{}{}[{}]", dims, "", size))
             }
-            _ => (self.render_scalar_dtype(dtype), "".to_string()),
+            _ => (Self::render_scalar_dtype(dtype), "".to_string()),
         }
     }
 }

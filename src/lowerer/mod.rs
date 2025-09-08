@@ -39,9 +39,9 @@ impl Lowerer {
         name
     }
 
-    fn get_base_dtype<'a>(&self, dtype: &'a DType) -> &'a DType {
+    fn get_base_dtype(dtype: &DType) -> &DType {
         match dtype {
-            DType::Ptr(inner) | DType::Vec(inner, _) => self.get_base_dtype(inner),
+            DType::Ptr(inner) | DType::Vec(inner, _) => Self::get_base_dtype(inner),
             _ => dtype,
         }
     }
@@ -149,9 +149,8 @@ impl Lowerer {
         let mut call_args = vec![];
         let num_buffer_args = impl_arguments.len() - shape_var_args.len();
 
-        for i in 0..num_buffer_args {
-            let (arg_name, arg_dtype) = &impl_arguments[i];
-            let base_dtype = self.get_base_dtype(arg_dtype);
+        for (i, (arg_name, arg_dtype)) in impl_arguments.iter().take(num_buffer_args).enumerate() {
+            let base_dtype = Self::get_base_dtype(arg_dtype);
             let pointer_dtype = DType::Ptr(Box::new(base_dtype.clone()));
             main_declarations.push(VariableDecl {
                 name: arg_name.clone(),

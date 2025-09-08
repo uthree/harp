@@ -61,6 +61,7 @@ impl Sub for GraphNode {
 }
 
 // Division: a / b = a * (1/b)
+#[allow(clippy::suspicious_arithmetic_impl)]
 impl<'b> Div<&'b GraphNode> for &GraphNode {
     type Output = GraphNode;
     fn div(self, rhs: &'b GraphNode) -> Self::Output {
@@ -68,6 +69,7 @@ impl<'b> Div<&'b GraphNode> for &GraphNode {
     }
 }
 
+#[allow(clippy::suspicious_arithmetic_impl)]
 impl Div for GraphNode {
     type Output = GraphNode;
     fn div(self, rhs: Self) -> Self::Output {

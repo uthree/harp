@@ -174,6 +174,8 @@ impl_astnode_binary_op!(Add, add, Add);
 impl_astnode_binary_op!(Mul, mul, Mul);
 impl_astnode_binary_op!(Rem, rem, Rem);
 
+// Subtraction: a - b = a + (-b)
+#[allow(clippy::suspicious_arithmetic_impl)]
 impl<T: Into<AstNode>> Sub<T> for AstNode {
     type Output = AstNode;
     fn sub(self, rhs: T) -> Self::Output {
@@ -181,10 +183,12 @@ impl<T: Into<AstNode>> Sub<T> for AstNode {
     }
 }
 
+// Division: a / b = a * (1/b)
+#[allow(clippy::suspicious_arithmetic_impl)]
 impl<T: Into<AstNode>> Div<T> for AstNode {
     type Output = AstNode;
     fn div(self, rhs: T) -> Self::Output {
-        self + AstNode::Recip(Box::new(rhs.into()))
+        self * AstNode::Recip(Box::new(rhs.into()))
     }
 }
 
@@ -383,7 +387,7 @@ mod tests {
         let expr = a / b;
         assert_eq!(
             expr,
-            AstNode::Add(
+            AstNode::Mul(
                 Box::new(AstNode::Var("a".to_string())),
                 Box::new(AstNode::Recip(Box::new(AstNode::Const(ConstLiteral::F32(
                     2.0
