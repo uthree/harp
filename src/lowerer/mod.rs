@@ -1,4 +1,4 @@
-use crate::ast::{AstNode, ConstLiteral, DType, Function, Program, Scope, VariableDecl};
+use crate::ast::{AstNode, DType, Function, Program, Scope, VariableDecl};
 use crate::graph::shape::Expr;
 use crate::graph::{ElementwiseOp, Graph, GraphNode, GraphNodeData, GraphOp};
 use std::collections::{HashMap, VecDeque};
@@ -55,14 +55,6 @@ impl Lowerer {
             }
         }
         dtype
-    }
-
-    fn expr_to_ast(&self, expr: &Expr) -> AstNode {
-        if let Expr::Const(val) = expr {
-            AstNode::Const(ConstLiteral::Usize(*val as usize))
-        } else {
-            unimplemented!("Dynamic dimension expressions are not yet supported in lowerer");
-        }
     }
 
     pub fn lower(&mut self, graph: &Graph) -> Program {
@@ -195,7 +187,7 @@ impl Lowerer {
                 for dim in node.shape() {
                     let ridx_name = self.new_ridx();
                     loop_indices.push(AstNode::Var(ridx_name.clone()));
-                    loop_nest.push((ridx_name, self.expr_to_ast(dim)));
+                    loop_nest.push((ridx_name, (*dim).clone().into()));
                 }
 
                 let mut indexed_lhs = lhs_var.clone();
