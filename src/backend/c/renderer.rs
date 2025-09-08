@@ -65,16 +65,16 @@ impl CRenderer {
     fn render_function(&mut self, function: &Function) -> String {
         let mut buffer = String::new();
         writeln!(buffer, "{}", self.render_function_signature(function)).unwrap();
-        write!(
-            buffer,
-            "{}",
-            if let AstNode::Block { scope, statements } = &function.body {
-                self.render_scope(scope, statements)
-            } else {
-                unreachable!(); // Function body should always be a block
+        let body_str = match &function.body {
+            AstNode::Block { scope, statements } => self.render_scope(scope, statements),
+            single_statement => {
+                let empty_scope = Scope {
+                    declarations: vec![],
+                };
+                self.render_scope(&empty_scope, &[single_statement.clone()])
             }
-        )
-        .unwrap();
+        };
+        write!(buffer, "{}", body_str).unwrap();
         writeln!(buffer).unwrap();
         buffer
     }
@@ -367,17 +367,11 @@ void my_func(ssize_t a[10])
 
     #[test]
     fn test_render_function_single_statement() {
-        // This test is less relevant now, but we can adapt it.
         let function = Function {
             name: "my_func".to_string(),
             arguments: vec![("a".to_string(), DType::Isize)],
             return_type: DType::Void,
-            body: AstNode::Block {
-                scope: Scope {
-                    declarations: vec![],
-                },
-                statements: vec![AstNode::Var("a".to_string())],
-            },
+            body: AstNode::Var("a".to_string()), // Directly pass a single node
         };
         let expected = r###"void my_func(ssize_t a)
 {
