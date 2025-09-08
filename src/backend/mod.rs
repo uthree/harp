@@ -2,8 +2,6 @@ use crate::ast::DType;
 use crate::ast::Program;
 use crate::graph::{Graph, GraphSignature};
 pub mod c;
-pub mod generic;
-
 pub trait Buffer {
     // get buffer size
     fn shape(&self) -> Vec<usize>;
@@ -37,16 +35,4 @@ pub trait Renderer {
     fn new() -> Self;
     fn with_option(&mut self, option: Self::Option) {} // default implementation is "do nothing".
     fn render(&mut self, program: Program) -> Self::CodeRepr;
-}
-
-pub trait Backend {
-    type Buffer: Buffer;
-    type Option;
-    fn new() -> Self;
-    fn with_option(&mut self, option: Self::Option) {} // default implementation is "do nothing".
-    fn is_available(&self) -> bool;
-    fn allocate(dtype: DType, shape: Vec<usize>) -> Self::Buffer {
-        self::Buffer::allocate(dtype, shape)
-    }
-    fn execute(&mut self, graph: &Graph, inputs: Vec<Self::Buffer>) -> Vec<Self::Buffer>;
 }

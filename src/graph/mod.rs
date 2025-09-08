@@ -1,4 +1,4 @@
-use crate::ast::{ConstLiteral, DType};
+use crate::ast::{AstNode, ConstLiteral, DType};
 pub mod ops;
 pub mod shape;
 use crate::graph::shape::{view::View, Expr as ShapeExpr};
@@ -76,6 +76,12 @@ pub enum GraphOp {
     Cumulative(ReduceOp, usize),
     Contiguous,
     View,
+
+    // Fuesd operators
+    FusedElementwise(AstNode), // src[n]がCapture[n]に対応する。 同じ添え字であれば一回のループで計算可能。
+    FusedReduce(ReduceOp, Vec<usize>), // 同じ二項演算子でのReduceであれば複数の軸を同時に扱う。
+    FusedElementwiseReduce(AstNode, ReduceOp, Vec<usize>), // 要素ごとの演算と同時にReduceを行う
+    FusedElementwiseCumulative(AstNode, ReduceOp, usize), // 要素ごとの演算と累積演算を一回のループで行う
 }
 
 impl Default for Graph {
