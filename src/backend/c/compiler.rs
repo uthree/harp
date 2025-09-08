@@ -5,62 +5,6 @@ use libloading::Library;
 use log::debug;
 use std::sync::Arc;
 
-// ... (CompilationStrategy trait and impls remain the same) ...
-trait CompilationStrategy {
-    fn lib_name(&self) -> &str;
-    fn compiler(&self) -> &str;
-    fn args(&self) -> Vec<String>;
-}
-struct MacOsStrategy;
-impl CompilationStrategy for MacOsStrategy {
-    fn lib_name(&self) -> &str {
-        "kernel.dylib"
-    }
-    fn compiler(&self) -> &str {
-        "clang"
-    }
-    fn args(&self) -> Vec<String> {
-        let mut base_args = vec![
-            "-shared".to_string(),
-            "-fPIC".to_string(),
-            "-O3".to_string(),
-            "-Xpreprocessor".to_string(),
-            "-fopenmp".to_string(),
-        ];
-        let omp_path_str = if cfg!(target_arch = "aarch64") {
-            "/opt/homebrew/opt/libomp"
-        } else {
-            "/usr/local/opt/libomp"
-        };
-        let omp_path = std::path::Path::new(omp_path_str);
-        if omp_path.exists() {
-            base_args.push("-I".to_string());
-            base_args.push(omp_path.join("include").to_str().unwrap().to_string());
-            base_args.push("-L".to_string());
-            base_args.push(omp_path.join("lib").to_str().unwrap().to_string());
-        }
-        base_args.push("-lomp".to_string());
-        base_args
-    }
-}
-struct LinuxStrategy;
-impl CompilationStrategy for LinuxStrategy {
-    fn lib_name(&self) -> &str {
-        "kernel.so"
-    }
-    fn compiler(&self) -> &str {
-        "gcc"
-    }
-    fn args(&self) -> Vec<String> {
-        vec![
-            "-shared".to_string(),
-            "-fPIC".to_string(),
-            "-O3".to_string(),
-            "-fopenmp".to_string(),
-        ]
-    }
-}
-
 #[derive(Default)]
 pub struct CCompiler {}
 
@@ -73,14 +17,6 @@ impl CCompiler {
         match result {
             Ok(output) => output.status.success(),
             Err(_) => false,
-        }
-    }
-
-    fn get_strategy(&self) -> Box<dyn CompilationStrategy> {
-        if cfg!(target_os = "macos") {
-            Box::new(MacOsStrategy)
-        } else {
-            Box::new(LinuxStrategy)
         }
     }
 }
@@ -110,10 +46,42 @@ impl Compiler for CCompiler {
         std::io::Write::write_all(&mut source_file, code.as_bytes()).unwrap();
 
         let out_dir = tempfile::tempdir_in("/tmp").unwrap();
-        let strategy = self.get_strategy();
-        let lib_name = strategy.lib_name();
-        let compiler = strategy.compiler();
-        let args = strategy.args();
+
+        let (lib_name, compiler, args) = if cfg!(target_os = "macos") {
+            let mut base_args = vec![
+                "-shared".to_string(),
+                "-fPIC".to_string(),
+                "-O3".to_string(),
+                "-Xpreprocessor".to_string(),
+                "-fopenmp".to_string(),
+            ];
+            let omp_path_str = if cfg!(target_arch = "aarch64") {
+                "/opt/homebrew/opt/libomp"
+            } else {
+                "/usr/local/opt/libomp"
+            };
+            let omp_path = std::path::Path::new(omp_path_str);
+            if omp_path.exists() {
+                base_args.push("-I".to_string());
+                base_args.push(omp_path.join("include").to_str().unwrap().to_string());
+                base_args.push("-L".to_string());
+                base_args.push(omp_path.join("lib").to_str().unwrap().to_string());
+            }
+            base_args.push("-lomp".to_string());
+            ("kernel.dylib", "clang", base_args)
+        } else {
+            (
+                "kernel.so",
+                "gcc",
+                vec![
+                    "-shared".to_string(),
+                    "-fPIC".to_string(),
+                    "-O3".to_string(),
+                    "-fopenmp".to_string(),
+                ],
+            )
+        };
+
         let lib_path = out_dir.path().join(lib_name);
 
         debug!(
@@ -141,8 +109,7 @@ impl Compiler for CCompiler {
             );
         }
 
-        let library =
-            Arc::new(unsafe { Library::new(&lib_path).expect("Failed to load dynamic library") });
+        let library = Arc::new(unsafe { Library::new(&lib_path).expect("Failed to load dynamic library") });
 
         CKernel {
             library,
