@@ -74,7 +74,7 @@ impl Lowerer {
         let mut impl_arguments = vec![];
 
         for node in &sorted_nodes {
-            let (decl, stmt) = self.compile_node(node, &mut impl_arguments);
+            let (decl, stmt) = self.lower_node(node, &mut impl_arguments);
             if let Some(d) = decl {
                 impl_declarations.push(d);
             }
@@ -160,7 +160,7 @@ impl Lowerer {
         }
     }
 
-    fn compile_node(
+    fn lower_node(
         &mut self,
         node: &GraphNode,
         arguments: &mut Vec<(String, DType)>,
@@ -358,6 +358,7 @@ mod tests {
 
     #[test]
     fn test_lowerer_simple_graph() {
+        let _ = env_logger::try_init();
         let mut graph = Graph::new();
         let a = graph.input(DType::F32, vec![Expr::from(10)]);
         let b = graph.input(DType::F32, vec![Expr::from(10)]);

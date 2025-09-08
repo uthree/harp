@@ -202,32 +202,7 @@ impl CRenderer {
                 };
                 write!(buffer, "({}){}", type_str, self.render_node(expr)).unwrap();
             }
-            AstNode::CallFunction { name, args } => {
-                let args_str = args
-                    .iter()
-                    .map(|arg| self.render_node(arg))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(buffer, "{}({})", name, args_str).unwrap();
-            }
-            AstNode::CallFunction { name, args } => {
-                let args_str = args
-                    .iter()
-                    .map(|arg| self.render_node(arg))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(buffer, "{}({})", name, args_str).unwrap();
-            }
-            AstNode::Cast { dtype, expr } => {
-                let (base_type, dims) = self.render_dtype_recursive(dtype);
-                // Cでは配列型へのキャストはポインタ型へのキャストとして書く
-                let type_str = if !dims.is_empty() {
-                    format!("{}*", base_type)
-                } else {
-                    base_type
-                };
-                write!(buffer, "({}){}", type_str, self.render_node(expr)).unwrap();
-            }
+
             node => todo!("render_node for {:?}", node),
         }
         buffer
@@ -318,6 +293,7 @@ mod tests {
 
     #[test]
     fn test_render_function() {
+        let _ = env_logger::try_init();
         let function = Function::new(
             "my_func".to_string(),
             vec![("a".to_string(), DType::Vec(Box::new(DType::Isize), 10))],
@@ -336,7 +312,16 @@ mod tests {
                 )],
             },
         );
-        let expected = r###"void my_func(ssize_t a[10])
+        let program = Program {
+            functions: vec![function],
+            entry_point: "my_func".to_string(),
+        };
+        let expected = r###"#include <math.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdlib.h>
+
+void my_func(ssize_t a[10])
 {
 	float b;
 
@@ -344,7 +329,7 @@ mod tests {
 }
 "###;
         let mut renderer = CRenderer::new();
-        assert_eq!(renderer.render_function(&function), expected);
+        assert_eq!(renderer.render(program), expected);
     }
 
     #[test]
