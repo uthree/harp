@@ -1,4 +1,7 @@
-use crate::graph::{shape::view::View, ElementwiseOp, GraphNode, GraphNodeData, GraphOp, ReduceOp};
+use crate::graph::{
+    shape::{view::View, Expr as ShapeExpr},
+    ElementwiseOp, GraphNode, GraphNodeData, GraphOp, ReduceOp,
+};
 use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 use std::rc::Rc;
 
@@ -124,6 +127,43 @@ macro_rules! impl_graph_node_reduce_op {
 }
 
 impl GraphNode {
+    fn apply_view_change(&self, new_view: View) -> Self {
+        // If the current node is a ViewOp, we take its source as the new source.
+        // Otherwise, the current node itself is the source.
+        let source_node = if let GraphOp::View = &self.op {
+            self.src[0].clone()
+        } else {
+            self.clone()
+        };
+
+        GraphNode(Rc::new(GraphNodeData {
+            op: GraphOp::View,
+            src: vec![source_node],
+            dtype: self.dtype.clone(),
+            view: new_view,
+        }))
+    }
+
+    pub fn unsqueeze(&self, axis: usize) -> GraphNode {
+        let new_view = self.view.clone().unsqueeze(axis);
+        self.apply_view_change(new_view)
+    }
+
+    pub fn squeeze(&self, axis: usize) -> GraphNode {
+        let new_view = self.view.clone().squeeze(axis);
+        self.apply_view_change(new_view)
+    }
+
+    pub fn permute(&self, axes: Vec<usize>) -> GraphNode {
+        let new_view = self.view.clone().permute(axes);
+        self.apply_view_change(new_view)
+    }
+
+    pub fn expand(&self, new_shape: Vec<ShapeExpr>) -> GraphNode {
+        let new_view = self.view.clone().expand(new_shape);
+        self.apply_view_change(new_view)
+    }
+
     impl_graph_node_unary_op!(recip, ElementwiseOp::Recip);
     impl_graph_node_unary_op!(sqrt, ElementwiseOp::Sqrt);
     impl_graph_node_unary_op!(sin, ElementwiseOp::Sin);
@@ -153,24 +193,6 @@ impl GraphNode {
             src: vec![self.clone(), rhs.clone()],
             dtype: self.dtype.clone(),
             view: self.view.clone(),
-        }))
-    }
-
-    pub fn unsqueeze(&self, axis: usize) -> GraphNode {
-        GraphNode(Rc::new(GraphNodeData {
-            op: self.op.clone(),
-            src: self.src.clone(),
-            dtype: self.dtype.clone(),
-            view: self.view.clone().unsqueeze(axis),
-        }))
-    }
-
-    pub fn squeeze(&self, axis: usize) -> GraphNode {
-        GraphNode(Rc::new(GraphNodeData {
-            op: self.op.clone(),
-            src: self.src.clone(),
-            dtype: self.dtype.clone(),
-            view: self.view.clone().squeeze(axis),
         }))
     }
 }
@@ -285,15 +307,17 @@ mod tests {
         // Test unsqueeze
         let b = a.unsqueeze(1);
         assert_eq!(b.shape(), &[10.into(), 1.into(), 20.into()]);
-        // Check that no new computational node was created
-        assert!(matches!(b.op, GraphOp::Input(_)));
-        assert!(b.src.is_empty());
+        // Check that a new ViewOp node was created
+        assert!(matches!(b.op, GraphOp::View));
+        assert_eq!(b.src.len(), 1);
+        assert!(Rc::ptr_eq(&b.src[0].0, &a.0));
 
-        // Test squeeze
+        // Test squeeze (fusion)
         let c = b.squeeze(1);
         assert_eq!(c.shape(), &[10.into(), 20.into()]);
-        // Check that no new computational node was created
-        assert!(matches!(c.op, GraphOp::Input(_)));
-        assert!(c.src.is_empty());
+        // Check that the new node's source is the original node `a`, not `b`.
+        assert!(matches!(c.op, GraphOp::View));
+        assert_eq!(c.src.len(), 1);
+        assert!(Rc::ptr_eq(&c.src[0].0, &a.0));
     }
 }

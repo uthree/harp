@@ -316,6 +316,15 @@ impl Lowerer {
                 };
                 (decl, Some(loop_body))
             }
+            GraphOp::View => {
+                let source_var = self
+                    .node_to_var
+                    .get(&Rc::as_ptr(&node.src[0].0))
+                    .unwrap()
+                    .clone();
+                self.node_to_var.insert(Rc::as_ptr(&node.0), source_var);
+                (None, None) // No declaration or statement needed
+            }
             _ => todo!("Unsupported op: {:?}", node.op),
         }
     }

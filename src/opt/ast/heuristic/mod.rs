@@ -1,0 +1,49 @@
+
+use crate::ast::AstNode;
+
+/// A trait for suggesting rewrites to an AST.
+pub trait RewriteSuggester {
+    fn suggest(&self, node: &AstNode) -> Vec<AstNode>;
+}
+
+/// A trait for estimating the cost of an AST.
+pub trait CostEstimator {
+    fn estimate_cost(&self, ast: &AstNode) -> f32;
+}
+
+/// Combines multiple `RewriteSuggester`s into one.
+pub struct CombinedRewriteSuggester {
+    suggesters: Vec<Box<dyn RewriteSuggester>>,
+}
+
+impl CombinedRewriteSuggester {
+    pub fn new(suggesters: Vec<Box<dyn RewriteSuggester>>) -> Self {
+        Self { suggesters }
+    }
+}
+
+impl RewriteSuggester for CombinedRewriteSuggester {
+    fn suggest(&self, node: &AstNode) -> Vec<AstNode> {
+        todo!()
+    }
+}
+
+/// Combines multiple `CostEstimator`s into one.
+pub struct CombinedCostEstimator {
+    estimators: Vec<Box<dyn CostEstimator>>,
+}
+
+impl CombinedCostEstimator {
+    pub fn new(estimators: Vec<Box<dyn CostEstimator>>) -> Self {
+        Self { estimators }
+    }
+}
+
+impl CostEstimator for CombinedCostEstimator {
+    fn estimate_cost(&self, ast: &AstNode) -> f32 {
+        self.estimators
+            .iter()
+            .map(|estimator| estimator.estimate_cost(ast))
+            .sum()
+    }
+}

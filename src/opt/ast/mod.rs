@@ -1,5 +1,5 @@
 use crate::ast::{pattern::AstRewriter, AstNode};
-
+pub mod heuristic;
 pub trait AstOptimizer {
     fn optimize(&mut self, ast: &AstNode) -> AstNode;
 }

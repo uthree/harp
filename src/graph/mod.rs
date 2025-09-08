@@ -74,6 +74,7 @@ pub enum GraphOp {
     Reduce(ReduceOp, usize),
     Cumulative(ReduceOp, usize),
     Contiguous,
+    View,
 }
 
 impl Default for Graph {
