@@ -66,6 +66,19 @@ impl AstRewriteRule {
         rewrites
     }
 
+    /// Matches and rewrites only the top-level node, without recursing into children.
+    fn match_and_rewrite_top_level(&self, ast: &AstNode) -> Option<AstNode> {
+        if let Some(captured_options) = self.match_node(ast, &self.pattern) {
+            if let Some(captured_refs) = captured_options.into_iter().collect::<Option<Vec<_>>>() {
+                let captured_nodes: Vec<AstNode> = captured_refs.into_iter().cloned().collect();
+                if (self.condition)(&captured_nodes) {
+                    return Some((self.rewriter)(&captured_nodes));
+                }
+            }
+        }
+        None
+    }
+
     fn match_node<'a>(
         &self,
         ast: &'a AstNode,
@@ -76,6 +89,14 @@ impl AstRewriteRule {
                 let mut captured = vec![None; *n + 1];
                 captured[*n] = Some(ast);
                 Some(captured)
+            }
+            AstNode::Const(p_val) => {
+                if let AstNode::Const(a_val) = ast {
+                    if a_val == p_val {
+                        return Some(vec![]);
+                    }
+                }
+                None
             }
             _ => {
                 if std::mem::discriminant(ast) == std::mem::discriminant(pattern) {
@@ -181,7 +202,7 @@ pub struct AstRewriter {
 #[macro_export]
 macro_rules! ast_rewriter {
     ($name:expr, $($rule:expr),*) => {
-        $crate::ast::pattern::AstRewriter::new($name, vec![$($rule),*])
+        $crate::ast::pattern::AstRewriter::with_rules($name.to_string(), vec![$($rule),*])
     };
 }
 
@@ -193,7 +214,7 @@ impl AstRewriter {
         }
     }
 
-    pub fn with_rules(name: &str, rules: Vec<Rc<AstRewriteRule>>) -> Self {
+    pub fn with_rules(name: String, rules: Vec<Rc<AstRewriteRule>>) -> Self {
         Self {
             name: name.to_string(),
             rules,
@@ -202,5 +223,99 @@ impl AstRewriter {
 
     pub fn add_rule(&mut self, rule: Rc<AstRewriteRule>) {
         self.rules.push(rule);
+    }
+
+    pub fn apply(&self, ast: &AstNode) -> AstNode {
+        // 1. Apply rewrites to children first (post-order traversal).
+        let children: Vec<AstNode> = ast.children().into_iter().map(|c| self.apply(c)).collect();
+        let mut current_ast = ast.clone().replace_children(children);
+
+        // 2. Repeatedly apply rules to the current node until no more rules match.
+        loop {
+            let mut applied = false;
+            for rule in &self.rules {
+                if let Some(rewritten) = rule.match_and_rewrite_top_level(&current_ast) {
+                    current_ast = rewritten;
+                    applied = true;
+                    break; // Restart with the first rule on the new AST.
+                }
+            }
+            if !applied {
+                break;
+            }
+        }
+        current_ast
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ast::AstNode;
+    use crate::{ast_pattern, ast_rewriter};
+
+    fn i(val: isize) -> AstNode {
+        AstNode::from(val)
+    }
+
+    #[test]
+    fn test_simple_rewrite() {
+        let rule = ast_pattern!(|a| a + i(0) => a.clone());
+        let rewriter = ast_rewriter!("simple_arith", rule);
+
+        let ast = i(1) + i(0);
+        let rewritten_ast = rewriter.apply(&ast);
+        assert_eq!(rewritten_ast, i(1));
+    }
+
+    #[test]
+    fn test_recursive_rewrite() {
+        let rule = ast_pattern!(|a| a + i(0) => a.clone());
+        let rewriter = ast_rewriter!("simple_arith", rule);
+
+        // Should apply to both children first, then the root
+        let ast = (i(1) + i(0)) + (i(2) + i(0));
+        let rewritten_ast = rewriter.apply(&ast);
+        assert_eq!(rewritten_ast, i(1) + i(2));
+    }
+
+    #[test]
+    fn test_repeated_rewrite() {
+        let rule1 = ast_pattern!(|a| a * i(1) => a.clone());
+        let rule2 = ast_pattern!(|a| a + i(0) => a.clone());
+        let rewriter = ast_rewriter!("simplify", rule1, rule2);
+
+        // (2 * 1) + 0  ->  2 + 0  ->  2
+        let ast = (i(2) * i(1)) + i(0);
+        let rewritten_ast = rewriter.apply(&ast);
+        assert_eq!(rewritten_ast, i(2));
+    }
+
+    #[test]
+    fn test_no_rewrite() {
+        let rule = ast_pattern!(|a| a + i(0) => a.clone());
+        let rewriter = ast_rewriter!("simple_arith", rule);
+
+        let ast = i(1) + i(2);
+        let original_ast_clone = ast.clone();
+        let rewritten_ast = rewriter.apply(&ast);
+        assert_eq!(rewritten_ast, original_ast_clone);
+    }
+
+    #[test]
+    fn test_conditional_rewrite() {
+        // Only rewrite a + a to 2 * a
+        let rule = ast_pattern!(|a, b| a + b, if a == b => i(2) * a.clone());
+        let rewriter = ast_rewriter!("simplify_add", rule);
+
+        // This should be rewritten
+        let ast1 = i(3) + i(3);
+        let rewritten_ast1 = rewriter.apply(&ast1);
+        assert_eq!(rewritten_ast1, i(2) * i(3));
+
+        // This should not be rewritten
+        let ast2 = i(3) + i(4);
+        let original_ast2_clone = ast2.clone();
+        let rewritten_ast2 = rewriter.apply(&ast2);
+        assert_eq!(rewritten_ast2, original_ast2_clone);
     }
 }
