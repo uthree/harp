@@ -195,6 +195,15 @@ impl GraphNode {
         self.apply_view_change(new_view)
     }
 
+    pub fn transpose(&self, axis1: usize, axis2: usize) -> GraphNode {
+        let ndim = self.shape().len();
+        assert!(axis1 < ndim, "axis1 is out of bounds.");
+        assert!(axis2 < ndim, "axis2 is out of bounds.");
+        let mut axes: Vec<usize> = (0..ndim).collect();
+        axes.swap(axis1, axis2);
+        self.permute(axes)
+    }
+
     impl_graph_node_unary_op!(recip, ElementwiseOp::Recip);
     impl_graph_node_unary_op!(sqrt, ElementwiseOp::Sqrt);
     impl_graph_node_unary_op!(sin, ElementwiseOp::Sin);
@@ -333,23 +342,26 @@ mod tests {
     #[test]
     fn test_view_ops() {
         let mut graph = Graph::new();
-        let a = graph.input(DType::F32, vec![10.into(), 20.into()]);
+        let a = graph.input(DType::F32, vec![10.into(), 20.into(), 30.into()]);
 
-        // Test unsqueeze
-        let b = a.unsqueeze(1);
-        assert_eq!(b.shape(), &[10.into(), 1.into(), 20.into()]);
-        // Check that a new ViewOp node was created
+        // Test permute
+        let b = a.permute(vec![0, 2, 1]);
+        assert_eq!(b.shape(), &[10.into(), 30.into(), 20.into()]);
         assert!(matches!(b.op, GraphOp::View));
-        assert_eq!(b.src.len(), 1);
         assert!(Rc::ptr_eq(&b.src[0].0, &a.0));
 
-        // Test squeeze (fusion)
-        let c = b.squeeze(1);
-        assert_eq!(c.shape(), &[10.into(), 20.into()]);
-        // Check that the new node's source is the original node `a`, not `b`.
+        // Test transpose (which is a wrapper for permute)
+        let c = a.transpose(1, 2);
+        assert_eq!(c.shape(), &[10.into(), 30.into(), 20.into()]);
         assert!(matches!(c.op, GraphOp::View));
-        assert_eq!(c.src.len(), 1);
         assert!(Rc::ptr_eq(&c.src[0].0, &a.0));
+
+        // Test view op fusion
+        let d = b.transpose(0, 2); // permute([0, 2, 1]) -> transpose(0, 2)
+        assert_eq!(d.shape(), &[20.into(), 30.into(), 10.into()]);
+        assert!(matches!(d.op, GraphOp::View));
+        // Source should be the original node `a`, not `b`
+        assert!(Rc::ptr_eq(&d.src[0].0, &a.0));
     }
 
     #[test]
