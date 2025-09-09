@@ -1,6 +1,6 @@
 use crate::ast::DType;
 use crate::ast::Program;
-use crate::graph::{Graph, GraphSignature};
+use crate::graph::GraphSignature;
 pub mod c;
 pub trait Buffer {
     // get buffer size
