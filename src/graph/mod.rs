@@ -1,8 +1,26 @@
+use std::rc::Rc;
+
 use crate::ast::{AstNode, ConstLiteral, DType};
 pub mod shape;
 use crate::graph::shape::{view::View, Expr as ShapeExpr};
-use std::ops::Deref;
-use std::rc::Rc;
+
+#[derive(Debug)]
+pub struct Graph {}
+
+impl Graph {
+    fn signature(&self) -> GraphSignature {
+        todo!()
+    }
+}
+
+pub struct GraphNodeData {
+    op: GraphOp,
+}
+pub struct GraphNode(Rc<GraphNodeData>);
+
+pub enum GraphOp {
+    Input { dtype: DType, shape: Vec<ShapeExpr> },
+}
 
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct GraphSignature {
