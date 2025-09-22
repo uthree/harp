@@ -59,7 +59,10 @@ impl Graph {
     pub fn node_inputs(&self, id: NodeId) -> Option<Vec<NodeId>> {
         self.get_node(id).map(|node| match &node.op {
             GraphOp::Input => vec![],
-            GraphOp::Elementwise(_, inputs) => inputs.clone(),
+            GraphOp::Elementwise(elementwise_op) => match elementwise_op {
+                ElementwiseOp::Add(lhs, rhs) => vec![*lhs, *rhs],
+                ElementwiseOp::Neg(input) => vec![*input],
+            },
             GraphOp::Cast(_, input) => vec![*input],
         })
     }
@@ -73,12 +76,12 @@ impl Graph {
     }
 
     pub fn add(&mut self, lhs: NodeId, rhs: NodeId) -> NodeId {
-        let op = GraphOp::Elementwise(ElementwiseOp::Add, vec![lhs, rhs]);
+        let op = GraphOp::Elementwise(ElementwiseOp::Add(lhs, rhs));
         self.add_node(op)
     }
 
     pub fn neg(&mut self, input: NodeId) -> NodeId {
-        let op = GraphOp::Elementwise(ElementwiseOp::Neg, vec![input]);
+        let op = GraphOp::Elementwise(ElementwiseOp::Neg(input));
         self.add_node(op)
     }
 
@@ -104,14 +107,14 @@ impl NodeId {
 #[derive(Debug)]
 pub enum GraphOp {
     Input,
-    Elementwise(ElementwiseOp, Vec<NodeId>), // apply element-wise operation
-    Cast(DType, NodeId),                     // convert type
+    Elementwise(ElementwiseOp), // apply element-wise operation
+    Cast(DType, NodeId),        // convert type
 }
 
 #[derive(Debug)]
 pub enum ElementwiseOp {
-    Add,
-    Neg,
+    Add(NodeId, NodeId),
+    Neg(NodeId),
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
