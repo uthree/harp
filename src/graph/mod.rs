@@ -60,8 +60,21 @@ impl Graph {
         self.get_node(id).map(|node| match &node.op {
             GraphOp::Input => vec![],
             GraphOp::Elementwise(elementwise_op) => match elementwise_op {
+                // Binary operations
                 ElementwiseOp::Add(lhs, rhs) => vec![*lhs, *rhs],
+                ElementwiseOp::Sub(lhs, rhs) => vec![*lhs, *rhs],
+                ElementwiseOp::Mul(lhs, rhs) => vec![*lhs, *rhs],
+                ElementwiseOp::Div(lhs, rhs) => vec![*lhs, *rhs],
+                ElementwiseOp::Max(lhs, rhs) => vec![*lhs, *rhs],
+                ElementwiseOp::Rem(lhs, rhs) => vec![*lhs, *rhs],
+
+                // Unary operations
                 ElementwiseOp::Neg(input) => vec![*input],
+                ElementwiseOp::Recip(input) => vec![*input],
+                ElementwiseOp::Sin(input) => vec![*input],
+                ElementwiseOp::Sqrt(input) => vec![*input],
+                ElementwiseOp::Log2(input) => vec![*input],
+                ElementwiseOp::Exp2(input) => vec![*input],
             },
             GraphOp::Cast(_, input) => vec![*input],
         })
@@ -82,6 +95,56 @@ impl Graph {
 
     pub fn neg(&mut self, input: NodeId) -> NodeId {
         let op = GraphOp::Elementwise(ElementwiseOp::Neg(input));
+        self.add_node(op)
+    }
+
+    pub fn sub(&mut self, lhs: NodeId, rhs: NodeId) -> NodeId {
+        let op = GraphOp::Elementwise(ElementwiseOp::Sub(lhs, rhs));
+        self.add_node(op)
+    }
+
+    pub fn mul(&mut self, lhs: NodeId, rhs: NodeId) -> NodeId {
+        let op = GraphOp::Elementwise(ElementwiseOp::Mul(lhs, rhs));
+        self.add_node(op)
+    }
+
+    pub fn div(&mut self, lhs: NodeId, rhs: NodeId) -> NodeId {
+        let op = GraphOp::Elementwise(ElementwiseOp::Div(lhs, rhs));
+        self.add_node(op)
+    }
+
+    pub fn max(&mut self, lhs: NodeId, rhs: NodeId) -> NodeId {
+        let op = GraphOp::Elementwise(ElementwiseOp::Max(lhs, rhs));
+        self.add_node(op)
+    }
+
+    pub fn rem(&mut self, lhs: NodeId, rhs: NodeId) -> NodeId {
+        let op = GraphOp::Elementwise(ElementwiseOp::Rem(lhs, rhs));
+        self.add_node(op)
+    }
+
+    pub fn recip(&mut self, input: NodeId) -> NodeId {
+        let op = GraphOp::Elementwise(ElementwiseOp::Recip(input));
+        self.add_node(op)
+    }
+
+    pub fn sin(&mut self, input: NodeId) -> NodeId {
+        let op = GraphOp::Elementwise(ElementwiseOp::Sin(input));
+        self.add_node(op)
+    }
+
+    pub fn sqrt(&mut self, input: NodeId) -> NodeId {
+        let op = GraphOp::Elementwise(ElementwiseOp::Sqrt(input));
+        self.add_node(op)
+    }
+
+    pub fn log2(&mut self, input: NodeId) -> NodeId {
+        let op = GraphOp::Elementwise(ElementwiseOp::Log2(input));
+        self.add_node(op)
+    }
+
+    pub fn exp2(&mut self, input: NodeId) -> NodeId {
+        let op = GraphOp::Elementwise(ElementwiseOp::Exp2(input));
         self.add_node(op)
     }
 
@@ -113,8 +176,21 @@ pub enum GraphOp {
 
 #[derive(Debug)]
 pub enum ElementwiseOp {
+    // Binary operations
     Add(NodeId, NodeId),
+    Sub(NodeId, NodeId),
+    Mul(NodeId, NodeId),
+    Div(NodeId, NodeId),
+    Max(NodeId, NodeId),
+    Rem(NodeId, NodeId),
+
+    // Unary operations
     Neg(NodeId),
+    Recip(NodeId),
+    Sin(NodeId),
+    Sqrt(NodeId),
+    Log2(NodeId),
+    Exp2(NodeId),
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
@@ -177,5 +253,44 @@ mod tests {
 
         // 削除されたノードは取得できない
         assert!(graph.get_node(add_node).is_none());
+    }
+
+    #[test]
+    fn test_arithmetic_operations() {
+        let mut graph = Graph::new();
+
+        // 入力ノードを作成
+        let input1 = graph.input();
+        let input2 = graph.input();
+
+        // 各種算術演算をテスト
+        let sub_node = graph.sub(input1, input2);
+        let mul_node = graph.mul(input1, input2);
+        let div_node = graph.div(input1, input2);
+        let max_node = graph.max(input1, input2);
+        let rem_node = graph.rem(input1, input2);
+
+        // 単項演算をテスト
+        let recip_node = graph.recip(input1);
+        let sin_node = graph.sin(input1);
+        let sqrt_node = graph.sqrt(input1);
+        let log2_node = graph.log2(input1);
+        let exp2_node = graph.exp2(input1);
+
+        // 入力数の確認
+        assert_eq!(graph.node_inputs(sub_node).unwrap(), vec![input1, input2]);
+        assert_eq!(graph.node_inputs(mul_node).unwrap(), vec![input1, input2]);
+        assert_eq!(graph.node_inputs(div_node).unwrap(), vec![input1, input2]);
+        assert_eq!(graph.node_inputs(max_node).unwrap(), vec![input1, input2]);
+        assert_eq!(graph.node_inputs(rem_node).unwrap(), vec![input1, input2]);
+
+        assert_eq!(graph.node_inputs(recip_node).unwrap(), vec![input1]);
+        assert_eq!(graph.node_inputs(sin_node).unwrap(), vec![input1]);
+        assert_eq!(graph.node_inputs(sqrt_node).unwrap(), vec![input1]);
+        assert_eq!(graph.node_inputs(log2_node).unwrap(), vec![input1]);
+        assert_eq!(graph.node_inputs(exp2_node).unwrap(), vec![input1]);
+
+        // ノード数の確認
+        assert_eq!(graph.nodes.len(), 12); // 2入力 + 10演算
     }
 }
