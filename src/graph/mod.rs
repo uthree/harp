@@ -26,13 +26,13 @@ impl Graph {
         id
     }
 
-    pub fn add_input(&mut self) -> NodeId {
+    pub fn input(&mut self) -> NodeId {
         let id = self.add_node(GraphOp::Input, vec![]);
         self.inputs.push(id);
         id
     }
 
-    pub fn add_output(&mut self, node_id: NodeId) {
+    pub fn output(&mut self, node_id: NodeId) {
         self.outputs.push(node_id);
     }
 
@@ -56,16 +56,16 @@ impl Graph {
         self.get_node(id).map(|node| &node.inputs[..])
     }
 
-    pub fn add_cast(&mut self, input: NodeId, dtype: DType) -> NodeId {
+    pub fn cast(&mut self, input: NodeId, dtype: DType) -> NodeId {
         self.add_node(GraphOp::Cast(dtype), vec![input])
     }
 
-    pub fn add_add(&mut self, lhs: NodeId, rhs: NodeId) -> NodeId {
+    pub fn add(&mut self, lhs: NodeId, rhs: NodeId) -> NodeId {
         let op = GraphOp::Elementwise(ElementwiseOp::Add(lhs, rhs));
         self.add_node(op, vec![lhs, rhs])
     }
 
-    pub fn add_neg(&mut self, input: NodeId) -> NodeId {
+    pub fn neg(&mut self, input: NodeId) -> NodeId {
         let op = GraphOp::Elementwise(ElementwiseOp::Neg(input));
         self.add_node(op, vec![input])
     }
@@ -131,17 +131,17 @@ mod tests {
         let mut graph = Graph::new();
 
         // 入力ノードを2つ作成
-        let input1 = graph.add_input();
-        let input2 = graph.add_input();
+        let input1 = graph.input();
+        let input2 = graph.input();
 
         // 加算ノードを作成
-        let add_node = graph.add_add(input1, input2);
+        let add_node = graph.add(input1, input2);
 
         // 否定ノードを作成
-        let neg_node = graph.add_neg(add_node);
+        let neg_node = graph.neg(add_node);
 
         // 出力として登録
-        graph.add_output(neg_node);
+        graph.output(neg_node);
 
         // 構造の確認
         assert_eq!(graph.inputs().len(), 2);
