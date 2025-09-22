@@ -23,15 +23,15 @@ impl Graph {
         }
     }
 
-    pub fn add_node(&mut self, op: GraphOp, inputs: Vec<NodeId>) -> NodeId {
+    pub fn add_node(&mut self, op: GraphOp) -> NodeId {
         let id = NodeId(self.next_node_id);
-        self.nodes.insert(self.next_node_id, GraphNode { op, inputs });
+        self.nodes.insert(self.next_node_id, GraphNode { op });
         self.next_node_id += 1;
         id
     }
 
     pub fn input(&mut self) -> NodeId {
-        let id = self.add_node(GraphOp::Input, vec![]);
+        let id = self.add_node(GraphOp::Input);
         self.inputs.push(id);
         id
     }
@@ -56,8 +56,12 @@ impl Graph {
         &self.outputs
     }
 
-    pub fn node_inputs(&self, id: NodeId) -> Option<&[NodeId]> {
-        self.get_node(id).map(|node| &node.inputs[..])
+    pub fn node_inputs(&self, id: NodeId) -> Option<Vec<NodeId>> {
+        self.get_node(id).map(|node| match &node.op {
+            GraphOp::Input => vec![],
+            GraphOp::Elementwise(_, inputs) => inputs.clone(),
+            GraphOp::Cast(_, input) => vec![*input],
+        })
     }
 
     pub fn remove_node(&mut self, id: NodeId) -> Option<GraphNode> {
@@ -65,17 +69,17 @@ impl Graph {
     }
 
     pub fn cast(&mut self, input: NodeId, dtype: DType) -> NodeId {
-        self.add_node(GraphOp::Cast(dtype), vec![input])
+        self.add_node(GraphOp::Cast(dtype, input))
     }
 
     pub fn add(&mut self, lhs: NodeId, rhs: NodeId) -> NodeId {
-        let op = GraphOp::Elementwise(ElementwiseOp::Add(lhs, rhs));
-        self.add_node(op, vec![lhs, rhs])
+        let op = GraphOp::Elementwise(ElementwiseOp::Add, vec![lhs, rhs]);
+        self.add_node(op)
     }
 
     pub fn neg(&mut self, input: NodeId) -> NodeId {
-        let op = GraphOp::Elementwise(ElementwiseOp::Neg(input));
-        self.add_node(op, vec![input])
+        let op = GraphOp::Elementwise(ElementwiseOp::Neg, vec![input]);
+        self.add_node(op)
     }
 
     fn signature(&self) -> GraphSignature {
@@ -86,7 +90,6 @@ impl Graph {
 #[derive(Debug)]
 pub struct GraphNode {
     op: GraphOp,
-    inputs: Vec<NodeId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -101,14 +104,14 @@ impl NodeId {
 #[derive(Debug)]
 pub enum GraphOp {
     Input,
-    Elementwise(ElementwiseOp), // apply element-wise operation
-    Cast(DType),                // convert type
+    Elementwise(ElementwiseOp, Vec<NodeId>), // apply element-wise operation
+    Cast(DType, NodeId),                     // convert type
 }
 
 #[derive(Debug)]
 pub enum ElementwiseOp {
-    Add(NodeId, NodeId),
-    Neg(NodeId),
+    Add,
+    Neg,
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
@@ -158,11 +161,11 @@ mod tests {
 
         // add_nodeの入力確認（削除前）
         let add_inputs = graph.node_inputs(add_node).unwrap();
-        assert_eq!(add_inputs, &[input1, input2]);
+        assert_eq!(add_inputs, vec![input1, input2]);
 
         // neg_nodeの入力確認（削除前）
         let neg_inputs = graph.node_inputs(neg_node).unwrap();
-        assert_eq!(neg_inputs, &[add_node]);
+        assert_eq!(neg_inputs, vec![add_node]);
 
         // ノード削除のテスト
         let removed_node = graph.remove_node(add_node);
