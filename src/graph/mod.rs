@@ -6,11 +6,18 @@ pub mod shape;
 use crate::graph::shape::{view::View, Expr as ShapeExpr};
 
 #[derive(Debug)]
+pub struct GraphNodeData {}
+
+#[derive(Debug)]
+pub struct GraphNode(Rc<GraphNodeData>);
+
+#[derive(Debug)]
 pub struct Graph {}
 
 #[derive(Debug)]
 pub enum GraphOp {
     Input,
+    Const(ConstLiteral), // initialize single element tensor, shape=[],
 }
 
 #[derive(Debug)]

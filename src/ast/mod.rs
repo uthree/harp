@@ -259,6 +259,50 @@ impl AstNode {
         }
     }
 
+    // Replace all occurrences of a specific node with a new node
+    pub fn replace_node(self, target: &AstNode, replacement: AstNode) -> AstNode {
+        // First, recursively apply to children
+        let children: Vec<AstNode> = self
+            .children()
+            .into_iter()
+            .map(|child| child.clone().replace_node(target, replacement.clone()))
+            .collect();
+
+        // Rebuild current node with transformed children
+        let new_node = self.replace_children(children);
+
+        // Check if current node should be replaced
+        if &new_node == target {
+            replacement
+        } else {
+            new_node
+        }
+    }
+
+    // Replace nodes matching a predicate with the result of a transform function
+    pub fn replace_if<F, T>(self, predicate: F, transform: T) -> AstNode
+    where
+        F: Fn(&AstNode) -> bool + Clone,
+        T: Fn(AstNode) -> AstNode + Clone,
+    {
+        // First, recursively apply to children
+        let children: Vec<AstNode> = self
+            .children()
+            .into_iter()
+            .map(|child| child.clone().replace_if(predicate.clone(), transform.clone()))
+            .collect();
+
+        // Rebuild current node with transformed children
+        let new_node = self.replace_children(children);
+
+        // Check if current node should be transformed
+        if predicate(&new_node) {
+            transform(new_node)
+        } else {
+            new_node
+        }
+    }
+
     // Helper function to replace children of an AstNode.
     // This is a bit verbose, but it's the only way to do it without macros.
     pub fn replace_children(self, new_children: Vec<AstNode>) -> AstNode {
@@ -455,5 +499,31 @@ mod tests {
                 Box::new(AstNode::Const(ConstLiteral::F32(3.0)))
             )
         );
+    }
+
+    #[test]
+    fn test_replace_node() {
+        let a = AstNode::Var("a".to_string());
+        let target = AstNode::Const(ConstLiteral::F32(1.0));
+        let replacement = AstNode::Const(ConstLiteral::F32(2.0));
+
+        // a + 1.0 -> a + 2.0
+        let expr = a.clone() + target.clone();
+        let result = expr.replace_node(&target, replacement.clone());
+        assert_eq!(result, a + replacement);
+    }
+
+    #[test]
+    fn test_replace_if() {
+        let a = AstNode::Var("a".to_string());
+        let expr = a.clone() + AstNode::Const(ConstLiteral::F32(0.0));
+
+        // Replace any addition with 0 with just the left operand
+        let result = expr.replace_if(
+            |node| matches!(node, AstNode::Add(_, r) if **r == AstNode::Const(ConstLiteral::F32(0.0))),
+            |node| if let AstNode::Add(l, _) = node { *l } else { node }
+        );
+
+        assert_eq!(result, a);
     }
 }

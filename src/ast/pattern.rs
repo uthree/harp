@@ -24,23 +24,10 @@ impl AstRewriteRule {
     }
 
     pub fn apply_recursive(&self, ast: &AstNode) -> AstNode {
-        // First, apply the rewrite to all children of the current node.
-        let children: Vec<AstNode> = ast
-            .children()
-            .into_iter()
-            .map(|child| self.apply_recursive(child))
-            .collect();
-
-        // Rebuild the current node with the rewritten children.
-        let new_ast = ast.clone().replace_children(children);
-
-        // Then, try to find rewrites for the current node.
-        // If there are possible rewrites, apply the first one.
-        // Otherwise, return the node as is.
-        self.get_possible_rewrites(&new_ast)
-            .first()
-            .cloned()
-            .unwrap_or(new_ast)
+        ast.clone().replace_if(
+            |node| self.match_and_rewrite_top_level(node).is_some(),
+            |node| self.match_and_rewrite_top_level(&node).unwrap()
+        )
     }
 
     pub fn get_possible_rewrites(&self, ast: &AstNode) -> Vec<AstNode> {
@@ -225,25 +212,28 @@ impl AstRewriter {
     }
 
     pub fn apply(&self, ast: &AstNode) -> AstNode {
-        // 1. Apply rewrites to children first (post-order traversal).
-        let children: Vec<AstNode> = ast.children().into_iter().map(|c| self.apply(c)).collect();
-        let mut current_ast = ast.clone().replace_children(children);
-
-        // 2. Repeatedly apply rules to the current node until no more rules match.
+        // Use the new replace_if functionality with repeated application
+        let mut result = ast.clone();
         loop {
-            let mut applied = false;
-            for rule in &self.rules {
-                if let Some(rewritten) = rule.match_and_rewrite_top_level(&current_ast) {
-                    current_ast = rewritten;
-                    applied = true;
-                    break; // Restart with the first rule on the new AST.
+            let old_result = result.clone();
+            result = result.replace_if(
+                |node| self.rules.iter().any(|rule| rule.match_and_rewrite_top_level(node).is_some()),
+                |node| {
+                    // Apply the first matching rule
+                    for rule in &self.rules {
+                        if let Some(rewritten) = rule.match_and_rewrite_top_level(&node) {
+                            return rewritten;
+                        }
+                    }
+                    node // This should never be reached due to the predicate
                 }
-            }
-            if !applied {
-                break;
+            );
+
+            if result == old_result {
+                break; // No more changes
             }
         }
-        current_ast
+        result
     }
 }
 
