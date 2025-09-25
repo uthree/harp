@@ -12,18 +12,18 @@ pub struct GraphNodeData {
     view: View,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GraphNode(Rc<GraphNodeData>);
 
 #[derive(Debug)]
 pub struct Graph {
-    inputs: Vec<GraphNode>,
+    inputs: Vec<Weak<GraphNodeData>>,
     outputs: Vec<GraphNode>,
     shape_variables: Vec<ShapeVariableSignature>,
 }
 
 impl Graph {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Graph {
             inputs: vec![],
             outputs: vec![],
@@ -32,13 +32,22 @@ impl Graph {
     }
 
     // initialize input node
-    fn input(&mut self, dtype: DType, shape: Vec<ShapeExpr>) -> GraphNode {
-        todo!()
+    pub fn input(&mut self, dtype: DType, shape: Vec<ShapeExpr>) -> GraphNode {
+        let view = View::new_contiguous(shape);
+        let node_data = GraphNodeData {
+            op: GraphOp::Input,
+            dtype,
+            view,
+        };
+        let rc_node_data = Rc::new(node_data);
+        let node = GraphNode(rc_node_data.clone());
+        self.inputs.push(Rc::downgrade(&rc_node_data));
+        node
     }
 
     // apply output node
-    fn output(&mut self, node: GraphNode) {
-        todo!()
+    pub fn output(&mut self, node: GraphNode) {
+        self.outputs.push(node);
     }
 }
 
@@ -65,4 +74,64 @@ pub struct ShapeVariableSignature {
 pub struct TensorSignature {
     pub dtype: DType,
     pub shape: Vec<ShapeExpr>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_input_output() {
+        let mut graph = Graph::new();
+
+        // Create an input node
+        let input_node = graph.input(DType::F32, vec![2.into(), 3.into()]);
+
+        // Add it as output
+        graph.output(input_node);
+
+        // Check that we have one input and one output
+        assert_eq!(graph.inputs.len(), 1);
+        assert_eq!(graph.outputs.len(), 1);
+
+        // Check that the input weak reference is still valid
+        assert!(graph.inputs[0].upgrade().is_some());
+    }
+
+    #[test]
+    fn test_multiple_inputs_outputs() {
+        let mut graph = Graph::new();
+
+        // Create multiple inputs
+        let input1 = graph.input(DType::F32, vec![2.into(), 3.into()]);
+        let input2 = graph.input(DType::Usize, vec![4.into()]);
+
+        // Add them as outputs
+        graph.output(input1);
+        graph.output(input2);
+
+        assert_eq!(graph.inputs.len(), 2);
+        assert_eq!(graph.outputs.len(), 2);
+
+        // Check that both input weak references are still valid
+        assert!(graph.inputs[0].upgrade().is_some());
+        assert!(graph.inputs[1].upgrade().is_some());
+    }
+
+    #[test]
+    fn test_input_weak_reference() {
+        let mut graph = Graph::new();
+
+        // Create an input node
+        let input_node = graph.input(DType::F32, vec![2.into()]);
+
+        // The weak reference should be valid while the node exists
+        assert!(graph.inputs[0].upgrade().is_some());
+
+        // Drop the node
+        drop(input_node);
+
+        // Now the weak reference should be invalid
+        assert!(graph.inputs[0].upgrade().is_none());
+    }
 }
