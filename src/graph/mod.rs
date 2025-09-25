@@ -1,9 +1,10 @@
-use std::collections::BTreeMap;
-use std::rc::{Rc, Weak};
-
-use crate::ast::{AstNode, ConstLiteral, DType};
+pub mod elementwise;
 pub mod shape;
+
+use crate::ast::{ConstLiteral, DType};
 use crate::graph::shape::{view::View, Expr as ShapeExpr};
+pub use elementwise::ElementwiseOp;
+use std::rc::{Rc, Weak};
 
 #[derive(Debug)]
 pub struct GraphNodeData {
@@ -20,6 +21,12 @@ pub struct Graph {
     inputs: Vec<Weak<GraphNodeData>>,
     outputs: Vec<GraphNode>,
     shape_variables: Vec<ShapeVariableSignature>,
+}
+
+impl Default for Graph {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Graph {
@@ -49,12 +56,21 @@ impl Graph {
     pub fn output(&mut self, node: GraphNode) {
         self.outputs.push(node);
     }
+
+    pub fn shape_var(&mut self, var_name: &str, default: impl Into<isize>) -> ShapeExpr {
+        self.shape_variables.push(ShapeVariableSignature {
+            name: { var_name.to_string() },
+            default: default.into(),
+        });
+        ShapeExpr::Var(var_name.to_string())
+    }
 }
 
 #[derive(Debug)]
 pub enum GraphOp {
     Input,
     Const(ConstLiteral), // initialize single element tensor, shape=[],
+    Elementwise(ElementwiseOp),
 }
 
 #[derive(Debug)]

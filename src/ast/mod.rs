@@ -289,7 +289,11 @@ impl AstNode {
         let children: Vec<AstNode> = self
             .children()
             .into_iter()
-            .map(|child| child.clone().replace_if(predicate.clone(), transform.clone()))
+            .map(|child| {
+                child
+                    .clone()
+                    .replace_if(predicate.clone(), transform.clone())
+            })
             .collect();
 
         // Rebuild current node with transformed children

@@ -26,7 +26,7 @@ impl AstRewriteRule {
     pub fn apply_recursive(&self, ast: &AstNode) -> AstNode {
         ast.clone().replace_if(
             |node| self.match_and_rewrite_top_level(node).is_some(),
-            |node| self.match_and_rewrite_top_level(&node).unwrap()
+            |node| self.match_and_rewrite_top_level(&node).unwrap(),
         )
     }
 
@@ -217,7 +217,11 @@ impl AstRewriter {
         loop {
             let old_result = result.clone();
             result = result.replace_if(
-                |node| self.rules.iter().any(|rule| rule.match_and_rewrite_top_level(node).is_some()),
+                |node| {
+                    self.rules
+                        .iter()
+                        .any(|rule| rule.match_and_rewrite_top_level(node).is_some())
+                },
                 |node| {
                     // Apply the first matching rule
                     for rule in &self.rules {
@@ -226,7 +230,7 @@ impl AstRewriter {
                         }
                     }
                     node // This should never be reached due to the predicate
-                }
+                },
             );
 
             if result == old_result {
