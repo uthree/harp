@@ -13,14 +13,16 @@ pub enum ElementwiseOp {
     Exp2(GraphNode),
 }
 
-
 macro_rules! impl_elementwise_binary_op {
     ($trait:ident, $method:ident, $variant:ident) => {
         impl std::ops::$trait for GraphNode {
             type Output = GraphNode;
             fn $method(self, rhs: Self) -> Self::Output {
                 // dtypeチェック
-                assert_eq!(self.dtype, rhs.dtype, "dtypes must match for element-wise operations");
+                assert_eq!(
+                    self.dtype, rhs.dtype,
+                    "dtypes must match for element-wise operations"
+                );
 
                 // 結果のviewを決定
                 let result_view = self.view.elementwise_result_view(&rhs.view);
@@ -61,9 +63,12 @@ impl_elementwise_binary_op!(Rem, rem, Mod);
 impl_elementwise_unary_op!(Neg, neg, Neg);
 
 impl GraphNode {
-    pub fn max(self, rhs: Self) -> Self {
+    pub fn cmp_max(self, rhs: Self) -> Self {
         // dtypeチェック
-        assert_eq!(self.dtype, rhs.dtype, "dtypes must match for element-wise operations");
+        assert_eq!(
+            self.dtype, rhs.dtype,
+            "dtypes must match for element-wise operations"
+        );
 
         // 結果のviewを決定
         let result_view = self.view.elementwise_result_view(&rhs.view);
