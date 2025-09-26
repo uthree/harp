@@ -1,3 +1,4 @@
+pub mod const_op;
 pub mod elementwise;
 pub mod hlops;
 pub mod reduce;
