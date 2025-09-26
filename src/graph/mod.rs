@@ -7,14 +7,14 @@ use crate::graph::shape::{view::View, Expr as ShapeExpr};
 use std::ops::Deref;
 use std::rc::{Rc, Weak};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct GraphNodeData {
-    op: GraphOp,
-    dtype: DType,
-    view: View,
+    pub op: GraphOp,
+    pub dtype: DType,
+    pub view: View,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct GraphNode(Rc<GraphNodeData>);
 
 impl GraphNode {
@@ -32,9 +32,9 @@ impl Deref for GraphNode {
 
 #[derive(Debug)]
 pub struct Graph {
-    inputs: Vec<Weak<GraphNodeData>>,
-    outputs: Vec<GraphNode>,
-    shape_variables: Vec<ShapeVariableSignature>,
+    pub inputs: Vec<Weak<GraphNodeData>>,
+    pub outputs: Vec<GraphNode>,
+    pub shape_variables: Vec<ShapeVariableSignature>,
 }
 
 impl Default for Graph {
@@ -80,7 +80,7 @@ impl Graph {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub enum GraphOp {
     Input,
     Const(ConstLiteral),        // initialize single element tensor, shape=[],

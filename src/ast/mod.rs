@@ -3,7 +3,7 @@ use std::ops::{
     Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
 
-#[derive(Debug, Clone, PartialEq, Default, Eq)]
+#[derive(Debug, Clone, PartialEq, Default, Eq, Hash)]
 pub enum DType {
     #[default]
     F32, // float
@@ -20,6 +20,28 @@ pub enum ConstLiteral {
     F32(f32),
     Usize(usize),
     Isize(isize),
+}
+
+// f32はEqを実装していないので手動でEqとHashを実装
+impl Eq for ConstLiteral {}
+
+impl std::hash::Hash for ConstLiteral {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            ConstLiteral::F32(f) => {
+                0u8.hash(state);
+                f.to_bits().hash(state);
+            }
+            ConstLiteral::Usize(u) => {
+                1u8.hash(state);
+                u.hash(state);
+            }
+            ConstLiteral::Isize(i) => {
+                2u8.hash(state);
+                i.hash(state);
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

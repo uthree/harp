@@ -1,5 +1,5 @@
 use crate::graph::{GraphNode, GraphOp};
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub enum ElementwiseOp {
     Add(GraphNode, GraphNode),
     Mul(GraphNode, GraphNode),

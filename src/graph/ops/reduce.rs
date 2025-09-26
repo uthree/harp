@@ -1,7 +1,7 @@
 use crate::graph::shape::view::View;
 use crate::graph::{GraphNode, GraphOp};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ReduceOp {
     Add,
     Mul,
