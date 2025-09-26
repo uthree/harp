@@ -120,7 +120,9 @@ impl Lowerer {
                 }
             }
             GraphOp::Reduce(_, _) => {
-                // TODO: Reduce操作の依存関係を実装
+                // Reduce操作は通常、入力テンソルからの依存関係を持つ
+                // ここでは仮実装として空を返す
+                // TODO: 実際の入力ノードの依存関係を追加
                 vec![]
             }
             GraphOp::ViewTransform(n) => vec![n.clone()],
@@ -145,22 +147,11 @@ impl Lowerer {
                     Box::new(AstNode::Const(lit.clone())),
                 ))
             }
-            GraphOp::Elementwise(_) => {
-                // TODO: 要素ごとの演算を実装
-                let var_name = self.get_or_create_var_name(node);
-                declarations.push(VariableDecl {
-                    name: var_name.clone(),
-                    dtype: node.dtype.clone(),
-                    constant: false,
-                });
-                Some(AstNode::Assign(
-                    Box::new(AstNode::Var(var_name)),
-                    Box::new(AstNode::Const(crate::ast::ConstLiteral::F32(0.0))), // プレースホルダー
-                ))
+            GraphOp::Elementwise(op) => {
+                self.lower_elementwise_op(node, op, declarations)
             }
-            GraphOp::Reduce(_, _) => {
-                // TODO: Reduce操作を実装
-                None
+            GraphOp::Reduce(op, axis) => {
+                self.lower_reduce_op(node, op, *axis, declarations)
             }
             GraphOp::ViewTransform(_) => {
                 // View変換は通常、メモリレイアウトの変更なので、
@@ -192,6 +183,199 @@ impl Lowerer {
                 })
             })
             .collect()
+    }
+
+    fn lower_elementwise_op(
+        &mut self,
+        node: &GraphNode,
+        op: &crate::graph::ops::ElementwiseOp,
+        declarations: &mut Vec<VariableDecl>,
+    ) -> Option<AstNode> {
+        use crate::graph::ops::ElementwiseOp;
+
+        let result_var = self.get_or_create_var_name(node);
+        declarations.push(VariableDecl {
+            name: result_var.clone(),
+            dtype: node.dtype.clone(),
+            constant: false,
+        });
+
+        // ループでテンソルの各要素を処理
+        let body = match op {
+            ElementwiseOp::Add(lhs, rhs) => {
+                let lhs_var = self.get_or_create_var_name(lhs);
+                let rhs_var = self.get_or_create_var_name(rhs);
+                self.create_elementwise_loop(&result_var, &lhs_var, &rhs_var, |l, r| {
+                    AstNode::Add(Box::new(l), Box::new(r))
+                })
+            }
+            ElementwiseOp::Mul(lhs, rhs) => {
+                let lhs_var = self.get_or_create_var_name(lhs);
+                let rhs_var = self.get_or_create_var_name(rhs);
+                self.create_elementwise_loop(&result_var, &lhs_var, &rhs_var, |l, r| {
+                    AstNode::Mul(Box::new(l), Box::new(r))
+                })
+            }
+            ElementwiseOp::Max(lhs, rhs) => {
+                let lhs_var = self.get_or_create_var_name(lhs);
+                let rhs_var = self.get_or_create_var_name(rhs);
+                self.create_elementwise_loop(&result_var, &lhs_var, &rhs_var, |l, r| {
+                    AstNode::Max(Box::new(l), Box::new(r))
+                })
+            }
+            ElementwiseOp::Mod(lhs, rhs) => {
+                let lhs_var = self.get_or_create_var_name(lhs);
+                let rhs_var = self.get_or_create_var_name(rhs);
+                self.create_elementwise_loop(&result_var, &lhs_var, &rhs_var, |l, r| {
+                    AstNode::Rem(Box::new(l), Box::new(r))
+                })
+            }
+            ElementwiseOp::Neg(operand) => {
+                let operand_var = self.get_or_create_var_name(operand);
+                self.create_unary_elementwise_loop(&result_var, &operand_var, |x| {
+                    AstNode::Neg(Box::new(x))
+                })
+            }
+            ElementwiseOp::Recip(operand) => {
+                let operand_var = self.get_or_create_var_name(operand);
+                self.create_unary_elementwise_loop(&result_var, &operand_var, |x| {
+                    x.recip()
+                })
+            }
+            ElementwiseOp::Sin(operand) => {
+                let operand_var = self.get_or_create_var_name(operand);
+                self.create_unary_elementwise_loop(&result_var, &operand_var, |x| {
+                    x.sin()
+                })
+            }
+            ElementwiseOp::Sqrt(operand) => {
+                let operand_var = self.get_or_create_var_name(operand);
+                self.create_unary_elementwise_loop(&result_var, &operand_var, |x| {
+                    x.sqrt()
+                })
+            }
+            ElementwiseOp::Log2(operand) => {
+                let operand_var = self.get_or_create_var_name(operand);
+                self.create_unary_elementwise_loop(&result_var, &operand_var, |x| {
+                    x.log2()
+                })
+            }
+            ElementwiseOp::Exp2(operand) => {
+                let operand_var = self.get_or_create_var_name(operand);
+                self.create_unary_elementwise_loop(&result_var, &operand_var, |x| {
+                    x.exp2()
+                })
+            }
+        };
+
+        Some(body)
+    }
+
+    fn create_elementwise_loop<F>(&self, result_var: &str, lhs_var: &str, rhs_var: &str, op: F) -> AstNode
+    where
+        F: Fn(AstNode, AstNode) -> AstNode,
+    {
+        // 簡単な実装: フラットなインデックスでループ
+        let loop_var = "i";
+        let loop_body = AstNode::Assign(
+            Box::new(AstNode::Index {
+                target: Box::new(AstNode::Var(result_var.to_string())),
+                index: Box::new(AstNode::Var(loop_var.to_string())),
+            }),
+            Box::new(op(
+                AstNode::Index {
+                    target: Box::new(AstNode::Var(lhs_var.to_string())),
+                    index: Box::new(AstNode::Var(loop_var.to_string())),
+                },
+                AstNode::Index {
+                    target: Box::new(AstNode::Var(rhs_var.to_string())),
+                    index: Box::new(AstNode::Var(loop_var.to_string())),
+                },
+            )),
+        );
+
+        // TODO: 実際のサイズを計算する必要がある
+        // とりあえず仮のサイズとして100を使用
+        AstNode::Range {
+            counter_name: loop_var.to_string(),
+            max: Box::new(AstNode::Const(crate::ast::ConstLiteral::Usize(100))),
+            body: Box::new(loop_body),
+        }
+    }
+
+    fn create_unary_elementwise_loop<F>(&self, result_var: &str, operand_var: &str, op: F) -> AstNode
+    where
+        F: Fn(AstNode) -> AstNode,
+    {
+        let loop_var = "i";
+        let loop_body = AstNode::Assign(
+            Box::new(AstNode::Index {
+                target: Box::new(AstNode::Var(result_var.to_string())),
+                index: Box::new(AstNode::Var(loop_var.to_string())),
+            }),
+            Box::new(op(AstNode::Index {
+                target: Box::new(AstNode::Var(operand_var.to_string())),
+                index: Box::new(AstNode::Var(loop_var.to_string())),
+            })),
+        );
+
+        AstNode::Range {
+            counter_name: loop_var.to_string(),
+            max: Box::new(AstNode::Const(crate::ast::ConstLiteral::Usize(100))),
+            body: Box::new(loop_body),
+        }
+    }
+
+    fn lower_reduce_op(
+        &mut self,
+        node: &GraphNode,
+        op: &crate::graph::ops::ReduceOp,
+        axis: usize,
+        declarations: &mut Vec<VariableDecl>,
+    ) -> Option<AstNode> {
+        use crate::graph::ops::ReduceOp;
+
+        let result_var = self.get_or_create_var_name(node);
+        declarations.push(VariableDecl {
+            name: result_var.clone(),
+            dtype: node.dtype.clone(),
+            constant: false,
+        });
+
+        // Reduce操作: 指定された軸に沿って削減
+        let reduce_op = match op {
+            ReduceOp::Add => |acc: AstNode, val: AstNode| -> AstNode { acc + val },
+            ReduceOp::Mul => |acc: AstNode, val: AstNode| -> AstNode { acc * val },
+            ReduceOp::Max => |acc: AstNode, val: AstNode| -> AstNode {
+                AstNode::Max(Box::new(acc), Box::new(val))
+            },
+        };
+
+        // 簡単な実装: ネストしたループを作成
+        // TODO: 実際のshapeとaxisを使用してより正確なループを生成
+        let loop_var = format!("reduce_{}", axis);
+        let inner_loop_body = AstNode::Assign(
+            Box::new(AstNode::Index {
+                target: Box::new(AstNode::Var(result_var.clone())),
+                index: Box::new(AstNode::Var("out_idx".to_string())),
+            }),
+            Box::new(reduce_op(
+                AstNode::Index {
+                    target: Box::new(AstNode::Var(result_var.clone())),
+                    index: Box::new(AstNode::Var("out_idx".to_string())),
+                },
+                AstNode::Index {
+                    target: Box::new(AstNode::Var("input_data".to_string())),
+                    index: Box::new(AstNode::Var("in_idx".to_string())),
+                },
+            )),
+        );
+
+        Some(AstNode::Range {
+            counter_name: loop_var,
+            max: Box::new(AstNode::Const(crate::ast::ConstLiteral::Usize(10))), // 仮の値
+            body: Box::new(inner_loop_body),
+        })
     }
 }
 
@@ -242,5 +426,29 @@ mod tests {
         assert_eq!(function.arguments().len(), 1);
         assert_eq!(function.arguments()[0].0, "input0");
         assert_eq!(function.arguments()[0].1, DType::F32);
+    }
+
+    #[test]
+    fn test_elementwise_negation() {
+        let mut graph = Graph::new();
+        let mut lowerer = Lowerer::new();
+
+        // 単項演算: -constant
+        let constant_node = GraphNode::f32(1.0);
+        let negated = -constant_node;
+        graph.output(negated);
+
+        // lower処理
+        let function = lowerer.lower(&graph);
+
+        // 基本的なチェック
+        assert_eq!(function.name(), "lowered_function");
+        assert_eq!(function.return_type(), &DType::Void);
+        // 定数+単項演算で2つの文が生成される想定
+        if let AstNode::Block { statements, .. } = function.body() {
+            assert_eq!(statements.len(), 2); // const assignment + neg loop
+        } else {
+            panic!("Expected Block body");
+        }
     }
 }
