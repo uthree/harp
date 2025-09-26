@@ -2,6 +2,7 @@ use crate::graph::{GraphNode, GraphOp};
 #[derive(Debug)]
 pub enum ElementwiseOp {
     Add(GraphNode, GraphNode),
+    Mul(GraphNode, GraphNode),
     Max(GraphNode, GraphNode),
     Mod(GraphNode, GraphNode),
     Neg(GraphNode),
@@ -55,6 +56,7 @@ macro_rules! impl_elementwise_unary_op {
 }
 
 impl_elementwise_binary_op!(Add, add, Add);
+impl_elementwise_binary_op!(Mul, mul, Mul);
 impl_elementwise_binary_op!(Rem, rem, Mod);
 impl_elementwise_unary_op!(Neg, neg, Neg);
 

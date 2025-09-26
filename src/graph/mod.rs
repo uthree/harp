@@ -1,4 +1,5 @@
 pub mod elementwise;
+pub mod hlops;
 pub mod shape;
 
 use crate::ast::{ConstLiteral, DType};
