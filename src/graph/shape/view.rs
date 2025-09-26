@@ -140,6 +140,24 @@ impl View {
             View::Linear { shape, .. } => *self == View::new_contiguous(shape.clone()),
         }
     }
+
+    pub fn elementwise_result_view(&self, other: &View) -> View {
+        // shapeチェック
+        assert_eq!(self.shape(), other.shape(), "shapes must match for element-wise operations");
+
+        // strideが一致する場合は既存のviewを再利用
+        match (self, other) {
+            (View::Linear { shape: lhs_shape, strides: lhs_strides, offset: lhs_offset },
+             View::Linear { shape: _rhs_shape, strides: rhs_strides, offset: rhs_offset }) => {
+                if lhs_strides == rhs_strides && lhs_offset == rhs_offset {
+                    self.clone()
+                } else {
+                    // stride不一致の場合はcontiguousな新しいviewを作成
+                    View::new_contiguous(lhs_shape.clone())
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

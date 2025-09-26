@@ -4,6 +4,7 @@ pub mod shape;
 use crate::ast::{ConstLiteral, DType};
 use crate::graph::shape::{view::View, Expr as ShapeExpr};
 pub use elementwise::ElementwiseOp;
+use std::ops::Deref;
 use std::rc::{Rc, Weak};
 
 #[derive(Debug)]
@@ -15,6 +16,23 @@ pub struct GraphNodeData {
 
 #[derive(Debug, Clone)]
 pub struct GraphNode(Rc<GraphNodeData>);
+
+impl GraphNode {
+    pub(crate) fn new(op: GraphOp, dtype: DType, view: View) -> GraphNode {
+        GraphNode(Rc::new(GraphNodeData {
+            op: op,
+            dtype: dtype,
+            view: view,
+        }))
+    }
+}
+
+impl Deref for GraphNode {
+    type Target = GraphNodeData;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 #[derive(Debug)]
 pub struct Graph {
