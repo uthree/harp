@@ -26,6 +26,42 @@ impl GraphNode {
             view: view,
         }))
     }
+
+    pub fn unsqueeze(self, axis: usize) -> GraphNode {
+        let new_view = self.view.clone().unsqueeze(axis);
+        GraphNode::new(
+            GraphOp::ViewTransform(self.clone()),
+            self.dtype.clone(),
+            new_view,
+        )
+    }
+
+    pub fn squeeze(self, axis: usize) -> GraphNode {
+        let new_view = self.view.clone().squeeze(axis);
+        GraphNode::new(
+            GraphOp::ViewTransform(self.clone()),
+            self.dtype.clone(),
+            new_view,
+        )
+    }
+
+    pub fn expand(self, new_shape: Vec<ShapeExpr>) -> GraphNode {
+        let new_view = self.view.clone().expand(new_shape);
+        GraphNode::new(
+            GraphOp::ViewTransform(self.clone()),
+            self.dtype.clone(),
+            new_view,
+        )
+    }
+
+    pub fn permute(self, axes: Vec<usize>) -> GraphNode {
+        let new_view = self.view.clone().permute(axes);
+        GraphNode::new(
+            GraphOp::ViewTransform(self.clone()),
+            self.dtype.clone(),
+            new_view,
+        )
+    }
 }
 
 impl Deref for GraphNode {
@@ -90,6 +126,7 @@ pub enum GraphOp {
     Input,
     Const(ConstLiteral), // initialize single element tensor, shape=[],
     Elementwise(ElementwiseOp),
+    ViewTransform(GraphNode), // view変更操作
 }
 
 #[derive(Debug)]
@@ -168,5 +205,29 @@ mod tests {
 
         // Now the weak reference should be invalid
         assert!(graph.inputs[0].upgrade().is_none());
+    }
+
+    #[test]
+    fn test_view_transformations() {
+        let mut graph = Graph::new();
+
+        // Create an input node with shape [2, 3]
+        let input_node = graph.input(DType::F32, vec![2.into(), 3.into()]);
+
+        // Test unsqueeze
+        let unsqueezed = input_node.clone().unsqueeze(1);
+        assert_eq!(unsqueezed.view.shape(), &[2.into(), 1.into(), 3.into()]);
+
+        // Test squeeze
+        let squeezed = unsqueezed.squeeze(1);
+        assert_eq!(squeezed.view.shape(), &[2.into(), 3.into()]);
+
+        // Test permute
+        let permuted = input_node.clone().permute(vec![1, 0]);
+        assert_eq!(permuted.view.shape(), &[3.into(), 2.into()]);
+
+        // Test expand
+        let expanded = input_node.clone().unsqueeze(1).expand(vec![2.into(), 5.into(), 3.into()]);
+        assert_eq!(expanded.view.shape(), &[2.into(), 5.into(), 3.into()]);
     }
 }
