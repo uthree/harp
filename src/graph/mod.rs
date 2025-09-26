@@ -1,8 +1,9 @@
 pub mod elementwise;
 pub mod hlops;
+pub mod reduce;
 pub mod shape;
-
 use crate::ast::{ConstLiteral, DType};
+use crate::graph::reduce::{ReduceOp, ReduceOps};
 use crate::graph::shape::{view::View, Expr as ShapeExpr};
 pub use elementwise::ElementwiseOp;
 use std::ops::Deref;
@@ -124,9 +125,10 @@ impl Graph {
 #[derive(Debug)]
 pub enum GraphOp {
     Input,
-    Const(ConstLiteral), // initialize single element tensor, shape=[],
-    Elementwise(ElementwiseOp),
-    ViewTransform(GraphNode), // view変更操作
+    Const(ConstLiteral),        // initialize single element tensor, shape=[],
+    Elementwise(ElementwiseOp), // 要素ごとの演算
+    Reduce(ReduceOp, usize),    // 軸を縮約する
+    ViewTransform(GraphNode),   // view変更操作
 }
 
 #[derive(Debug)]
@@ -227,7 +229,10 @@ mod tests {
         assert_eq!(permuted.view.shape(), &[3.into(), 2.into()]);
 
         // Test expand
-        let expanded = input_node.clone().unsqueeze(1).expand(vec![2.into(), 5.into(), 3.into()]);
+        let expanded = input_node
+            .clone()
+            .unsqueeze(1)
+            .expand(vec![2.into(), 5.into(), 3.into()]);
         assert_eq!(expanded.view.shape(), &[2.into(), 5.into(), 3.into()]);
     }
 }
