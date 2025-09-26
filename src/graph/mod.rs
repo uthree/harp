@@ -19,11 +19,7 @@ pub struct GraphNode(Rc<GraphNodeData>);
 
 impl GraphNode {
     pub(crate) fn new(op: GraphOp, dtype: DType, view: View) -> GraphNode {
-        GraphNode(Rc::new(GraphNodeData {
-            op,
-            dtype,
-            view,
-        }))
+        GraphNode(Rc::new(GraphNodeData { op, dtype, view }))
     }
 }
 
