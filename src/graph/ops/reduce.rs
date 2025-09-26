@@ -1,5 +1,5 @@
-use crate::graph::{GraphNode, GraphOp};
 use crate::graph::shape::view::View;
+use crate::graph::{GraphNode, GraphOp};
 
 #[derive(Debug, Clone)]
 pub enum ReduceOp {
@@ -53,8 +53,8 @@ impl GraphNode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::Graph;
     use crate::ast::DType;
+    use crate::graph::Graph;
 
     #[test]
     fn test_reduce_operations() {

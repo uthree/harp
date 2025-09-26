@@ -1,11 +1,9 @@
-pub mod elementwise;
-pub mod hlops;
-pub mod reduce;
+pub mod ops;
 pub mod shape;
 use crate::ast::{ConstLiteral, DType};
-use crate::graph::reduce::{ReduceOp, ReduceOps};
+pub use crate::graph::ops::ReduceOps;
+use crate::graph::ops::{ElementwiseOp, ReduceOp};
 use crate::graph::shape::{view::View, Expr as ShapeExpr};
-pub use elementwise::ElementwiseOp;
 use std::ops::Deref;
 use std::rc::{Rc, Weak};
 
@@ -22,46 +20,10 @@ pub struct GraphNode(Rc<GraphNodeData>);
 impl GraphNode {
     pub(crate) fn new(op: GraphOp, dtype: DType, view: View) -> GraphNode {
         GraphNode(Rc::new(GraphNodeData {
-            op: op,
-            dtype: dtype,
-            view: view,
+            op,
+            dtype,
+            view,
         }))
-    }
-
-    pub fn unsqueeze(self, axis: usize) -> GraphNode {
-        let new_view = self.view.clone().unsqueeze(axis);
-        GraphNode::new(
-            GraphOp::ViewTransform(self.clone()),
-            self.dtype.clone(),
-            new_view,
-        )
-    }
-
-    pub fn squeeze(self, axis: usize) -> GraphNode {
-        let new_view = self.view.clone().squeeze(axis);
-        GraphNode::new(
-            GraphOp::ViewTransform(self.clone()),
-            self.dtype.clone(),
-            new_view,
-        )
-    }
-
-    pub fn expand(self, new_shape: Vec<ShapeExpr>) -> GraphNode {
-        let new_view = self.view.clone().expand(new_shape);
-        GraphNode::new(
-            GraphOp::ViewTransform(self.clone()),
-            self.dtype.clone(),
-            new_view,
-        )
-    }
-
-    pub fn permute(self, axes: Vec<usize>) -> GraphNode {
-        let new_view = self.view.clone().permute(axes);
-        GraphNode::new(
-            GraphOp::ViewTransform(self.clone()),
-            self.dtype.clone(),
-            new_view,
-        )
     }
 }
 
