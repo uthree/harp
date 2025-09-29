@@ -249,7 +249,9 @@ impl Lowerer {
                 ))
             }
             GraphOp::Elementwise(op) => self.lower_elementwise_op(node, op, declarations),
-            GraphOp::Reduce(op, axis, input) => self.lower_reduce_op(node, op, *axis, input, declarations),
+            GraphOp::Reduce(op, axis, input) => {
+                self.lower_reduce_op(node, op, *axis, input, declarations)
+            }
             GraphOp::ViewTransform(_) => {
                 // View変換は通常、メモリレイアウトの変更なので、
                 // 新しい変数は作らずに既存の変数への参照として扱う
@@ -337,30 +339,54 @@ impl Lowerer {
             ElementwiseOp::Add(lhs, rhs) => {
                 let lhs_var = self.get_or_create_var_name(lhs);
                 let rhs_var = self.get_or_create_var_name(rhs);
-                self.create_elementwise_loop(node, lhs, rhs, &result_var, &lhs_var, &rhs_var, |l, r| {
-                    AstNode::Add(Box::new(l), Box::new(r))
-                })
+                self.create_elementwise_loop(
+                    node,
+                    lhs,
+                    rhs,
+                    &result_var,
+                    &lhs_var,
+                    &rhs_var,
+                    |l, r| AstNode::Add(Box::new(l), Box::new(r)),
+                )
             }
             ElementwiseOp::Mul(lhs, rhs) => {
                 let lhs_var = self.get_or_create_var_name(lhs);
                 let rhs_var = self.get_or_create_var_name(rhs);
-                self.create_elementwise_loop(node, lhs, rhs, &result_var, &lhs_var, &rhs_var, |l, r| {
-                    AstNode::Mul(Box::new(l), Box::new(r))
-                })
+                self.create_elementwise_loop(
+                    node,
+                    lhs,
+                    rhs,
+                    &result_var,
+                    &lhs_var,
+                    &rhs_var,
+                    |l, r| AstNode::Mul(Box::new(l), Box::new(r)),
+                )
             }
             ElementwiseOp::Max(lhs, rhs) => {
                 let lhs_var = self.get_or_create_var_name(lhs);
                 let rhs_var = self.get_or_create_var_name(rhs);
-                self.create_elementwise_loop(node, lhs, rhs, &result_var, &lhs_var, &rhs_var, |l, r| {
-                    AstNode::Max(Box::new(l), Box::new(r))
-                })
+                self.create_elementwise_loop(
+                    node,
+                    lhs,
+                    rhs,
+                    &result_var,
+                    &lhs_var,
+                    &rhs_var,
+                    |l, r| AstNode::Max(Box::new(l), Box::new(r)),
+                )
             }
             ElementwiseOp::Mod(lhs, rhs) => {
                 let lhs_var = self.get_or_create_var_name(lhs);
                 let rhs_var = self.get_or_create_var_name(rhs);
-                self.create_elementwise_loop(node, lhs, rhs, &result_var, &lhs_var, &rhs_var, |l, r| {
-                    AstNode::Rem(Box::new(l), Box::new(r))
-                })
+                self.create_elementwise_loop(
+                    node,
+                    lhs,
+                    rhs,
+                    &result_var,
+                    &lhs_var,
+                    &rhs_var,
+                    |l, r| AstNode::Rem(Box::new(l), Box::new(r)),
+                )
             }
             ElementwiseOp::Neg(operand) => {
                 let operand_var = self.get_or_create_var_name(operand);
@@ -370,23 +396,33 @@ impl Lowerer {
             }
             ElementwiseOp::Recip(operand) => {
                 let operand_var = self.get_or_create_var_name(operand);
-                self.create_unary_elementwise_loop(node, operand, &result_var, &operand_var, |x| x.recip())
+                self.create_unary_elementwise_loop(node, operand, &result_var, &operand_var, |x| {
+                    x.recip()
+                })
             }
             ElementwiseOp::Sin(operand) => {
                 let operand_var = self.get_or_create_var_name(operand);
-                self.create_unary_elementwise_loop(node, operand, &result_var, &operand_var, |x| x.sin())
+                self.create_unary_elementwise_loop(node, operand, &result_var, &operand_var, |x| {
+                    x.sin()
+                })
             }
             ElementwiseOp::Sqrt(operand) => {
                 let operand_var = self.get_or_create_var_name(operand);
-                self.create_unary_elementwise_loop(node, operand, &result_var, &operand_var, |x| x.sqrt())
+                self.create_unary_elementwise_loop(node, operand, &result_var, &operand_var, |x| {
+                    x.sqrt()
+                })
             }
             ElementwiseOp::Log2(operand) => {
                 let operand_var = self.get_or_create_var_name(operand);
-                self.create_unary_elementwise_loop(node, operand, &result_var, &operand_var, |x| x.log2())
+                self.create_unary_elementwise_loop(node, operand, &result_var, &operand_var, |x| {
+                    x.log2()
+                })
             }
             ElementwiseOp::Exp2(operand) => {
                 let operand_var = self.get_or_create_var_name(operand);
-                self.create_unary_elementwise_loop(node, operand, &result_var, &operand_var, |x| x.exp2())
+                self.create_unary_elementwise_loop(node, operand, &result_var, &operand_var, |x| {
+                    x.exp2()
+                })
             }
         };
 
@@ -415,17 +451,17 @@ impl Lowerer {
             crate::graph::shape::view::View::Linear {
                 shape: result_shape,
                 strides: result_strides,
-                offset: result_offset
+                offset: result_offset,
             },
             crate::graph::shape::view::View::Linear {
                 shape: _,
                 strides: lhs_strides,
-                offset: lhs_offset
+                offset: lhs_offset,
             },
             crate::graph::shape::view::View::Linear {
                 shape: _,
                 strides: rhs_strides,
-                offset: rhs_offset
+                offset: rhs_offset,
             },
         ) = (result_view, lhs_view, rhs_view);
 
@@ -617,12 +653,12 @@ impl Lowerer {
             crate::graph::shape::view::View::Linear {
                 shape: result_shape,
                 strides: result_strides,
-                offset: result_offset
+                offset: result_offset,
             },
             crate::graph::shape::view::View::Linear {
                 shape: _,
                 strides: operand_strides,
-                offset: operand_offset
+                offset: operand_offset,
             },
         ) = (result_view, operand_view);
 
@@ -751,12 +787,12 @@ impl Lowerer {
             crate::graph::shape::view::View::Linear {
                 shape: input_shape,
                 strides: input_strides,
-                offset: input_offset
+                offset: input_offset,
             },
             crate::graph::shape::view::View::Linear {
                 shape: result_shape,
                 strides: result_strides,
-                offset: result_offset
+                offset: result_offset,
             },
         ) = (input_view, result_view);
 
@@ -798,8 +834,7 @@ impl Lowerer {
         reduce_op: &crate::graph::ops::ReduceOp,
         initial_value: AstNode,
         dim: usize,
-    ) -> AstNode
-    {
+    ) -> AstNode {
         if dim >= input_shape.len() {
             // 最内レベル: 実際の計算を実行
             return AstNode::Const(crate::ast::ConstLiteral::Usize(0)); // placeholder
@@ -827,7 +862,8 @@ impl Lowerer {
             let shape_size = self.shape_expr_to_ast_node(&input_shape[dim]);
 
             // 結果の初期化 (縮約軸をスキップしたインデックスで計算)
-            let result_index = self.compute_reduce_result_index(result_strides, result_offset, dim, reduce_axis);
+            let result_index =
+                self.compute_reduce_result_index(result_strides, result_offset, dim, reduce_axis);
             let init_stmt = AstNode::Assign(
                 Box::new(AstNode::Index {
                     target: Box::new(AstNode::Var(result_var.to_string())),
@@ -883,7 +919,9 @@ impl Lowerer {
 
             // 先に初期化、その後縮約ループ
             AstNode::Block {
-                scope: crate::ast::Scope { declarations: vec![] },
+                scope: crate::ast::Scope {
+                    declarations: vec![],
+                },
                 statements: vec![
                     init_stmt,
                     AstNode::Range {
