@@ -89,20 +89,20 @@ pub enum GraphOp {
     ViewTransform(GraphNode),   // view変更操作
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GraphSignature {
     pub shape_variables: Vec<ShapeVariableSignature>,
     pub inputs: Vec<TensorSignature>,
     pub outputs: Vec<TensorSignature>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ShapeVariableSignature {
     pub name: String,
     pub default: isize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TensorSignature {
     pub dtype: DType,
     pub shape: Vec<ShapeExpr>,
