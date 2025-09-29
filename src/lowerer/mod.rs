@@ -1,4 +1,4 @@
-use crate::ast::{AstNode, DType, Function, Scope, VariableDecl};
+use crate::ast::{AstNode, ConstLiteral, DType, Function, Program, Scope, VariableDecl};
 use crate::graph::{Graph, GraphNode, GraphOp};
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -15,7 +15,17 @@ impl Lowerer {
         }
     }
 
-    pub fn lower(&mut self, graph: &Graph) -> Function {
+    pub fn lower(&mut self, graph: &Graph) -> Program {
+        let kernel_function = self.create_kernel_function(graph);
+        let entry_function = self.create_entry_function(graph, &kernel_function);
+
+        Program {
+            functions: vec![kernel_function, entry_function],
+            entry_point: "kernel_main".to_string(),
+        }
+    }
+
+    fn create_kernel_function(&mut self, graph: &Graph) -> Function {
         // 1. トポロジカルソート
         let sorted_nodes = self.topological_sort(graph);
 
@@ -30,16 +40,111 @@ impl Lowerer {
             }
         }
 
-        // 3. 入力パラメータを作成
-        let arguments = self.create_input_arguments(graph);
+        // 3. 入力パラメータを作成（入力+出力）
+        let arguments = self.create_kernel_arguments(graph);
 
-        // 4. Function構造体を構築
+        // 4. カーネル関数を構築
         Function::new(
-            "lowered_function".to_string(),
+            "kernel_impl".to_string(),
             arguments,
             DType::Void,
             AstNode::Block {
                 scope: Scope { declarations },
+                statements,
+            },
+        )
+    }
+
+    fn create_entry_function(&self, graph: &Graph, _kernel_function: &Function) -> Function {
+        let mut statements = Vec::new();
+        let mut local_vars = Vec::new();
+
+        // バッファポインタから具体的な型付きポインタを取得
+        let mut arg_index = 0;
+
+        // 入力バッファの型キャスト
+        for (i, weak_ref) in graph.inputs.iter().enumerate() {
+            if let Some(node_data) = weak_ref.upgrade() {
+                let var_name = format!("input_{}", i);
+                let _cast_type = self.get_c_type(&node_data.dtype);
+
+                local_vars.push(VariableDecl {
+                    name: var_name.clone(),
+                    dtype: DType::Ptr(Box::new(node_data.dtype.clone())),
+                    constant: false,
+                });
+
+                // cast: float* input_0 = (float*)bufs[0];
+                statements.push(AstNode::Assign(
+                    Box::new(AstNode::Var(var_name)),
+                    Box::new(AstNode::Cast {
+                        dtype: DType::Ptr(Box::new(node_data.dtype.clone())),
+                        expr: Box::new(AstNode::Index {
+                            target: Box::new(AstNode::Var("bufs".to_string())),
+                            index: Box::new(AstNode::Const(ConstLiteral::Usize(arg_index))),
+                        }),
+                    }),
+                ));
+                arg_index += 1;
+            }
+        }
+
+        // 出力バッファの型キャスト
+        for (i, output_node) in graph.outputs.iter().enumerate() {
+            let var_name = format!("output_{}", i);
+            let _cast_type = self.get_c_type(&output_node.dtype);
+
+            local_vars.push(VariableDecl {
+                name: var_name.clone(),
+                dtype: DType::Ptr(Box::new(output_node.dtype.clone())),
+                constant: false,
+            });
+
+            statements.push(AstNode::Assign(
+                Box::new(AstNode::Var(var_name)),
+                Box::new(AstNode::Cast {
+                    dtype: DType::Ptr(Box::new(output_node.dtype.clone())),
+                    expr: Box::new(AstNode::Index {
+                        target: Box::new(AstNode::Var("bufs".to_string())),
+                        index: Box::new(AstNode::Const(ConstLiteral::Usize(arg_index))),
+                    }),
+                }),
+            ));
+            arg_index += 1;
+        }
+
+        // カーネル関数呼び出し
+        let mut call_args = Vec::new();
+
+        // 入力引数
+        for (i, _) in graph.inputs.iter().enumerate() {
+            call_args.push(AstNode::Var(format!("input_{}", i)));
+        }
+
+        // 出力引数
+        for (i, _) in graph.outputs.iter().enumerate() {
+            call_args.push(AstNode::Var(format!("output_{}", i)));
+        }
+
+        statements.push(AstNode::CallFunction {
+            name: "kernel_impl".to_string(),
+            args: call_args,
+        });
+
+        Function::new(
+            "kernel_main".to_string(),
+            vec![
+                (
+                    "bufs".to_string(),
+                    DType::Ptr(Box::new(DType::Ptr(Box::new(DType::Void)))),
+                ),
+                ("shape_vars".to_string(), DType::Ptr(Box::new(DType::Usize))),
+            ],
+            DType::Void,
+            AstNode::Block {
+                scope: Scope {
+                    declarations: local_vars,
+                },
                 statements,
             },
         )
@@ -66,10 +171,7 @@ impl Lowerer {
             in_degree.insert(node.clone(), deps.len());
 
             for dep in deps {
-                adjacency
-                    .entry(dep.clone())
-                    .or_insert_with(Vec::new)
-                    .push(node.clone());
+                adjacency.entry(dep.clone()).or_default().push(node.clone());
                 queue.push_back(dep);
             }
         }
@@ -129,7 +231,11 @@ impl Lowerer {
         }
     }
 
-    fn lower_node(&mut self, node: &GraphNode, declarations: &mut Vec<VariableDecl>) -> Option<AstNode> {
+    fn lower_node(
+        &mut self,
+        node: &GraphNode,
+        declarations: &mut Vec<VariableDecl>,
+    ) -> Option<AstNode> {
         match &node.op {
             GraphOp::Input => {
                 // 入力ノードは引数として処理されるので、ここでは何もしない
@@ -147,12 +253,8 @@ impl Lowerer {
                     Box::new(AstNode::Const(lit.clone())),
                 ))
             }
-            GraphOp::Elementwise(op) => {
-                self.lower_elementwise_op(node, op, declarations)
-            }
-            GraphOp::Reduce(op, axis) => {
-                self.lower_reduce_op(node, op, *axis, declarations)
-            }
+            GraphOp::Elementwise(op) => self.lower_elementwise_op(node, op, declarations),
+            GraphOp::Reduce(op, axis) => self.lower_reduce_op(node, op, *axis, declarations),
             GraphOp::ViewTransform(_) => {
                 // View変換は通常、メモリレイアウトの変更なので、
                 // 新しい変数は作らずに既存の変数への参照として扱う
@@ -178,11 +280,46 @@ impl Lowerer {
             .iter()
             .enumerate()
             .filter_map(|(i, weak_ref)| {
-                weak_ref.upgrade().map(|node_data| {
-                    (format!("input{}", i), node_data.dtype.clone())
-                })
+                weak_ref
+                    .upgrade()
+                    .map(|node_data| (format!("input{}", i), node_data.dtype.clone()))
             })
             .collect()
+    }
+
+    fn create_kernel_arguments(&self, graph: &Graph) -> Vec<(String, DType)> {
+        let mut arguments = Vec::new();
+
+        // 入力引数
+        for (i, weak_ref) in graph.inputs.iter().enumerate() {
+            if let Some(node_data) = weak_ref.upgrade() {
+                arguments.push((
+                    format!("input_{}", i),
+                    DType::Ptr(Box::new(node_data.dtype.clone())),
+                ));
+            }
+        }
+
+        // 出力引数
+        for (i, output_node) in graph.outputs.iter().enumerate() {
+            arguments.push((
+                format!("output_{}", i),
+                DType::Ptr(Box::new(output_node.dtype.clone())),
+            ));
+        }
+
+        arguments
+    }
+
+    fn get_c_type(&self, dtype: &DType) -> &'static str {
+        match dtype {
+            DType::F32 => "float",
+            DType::Usize => "size_t",
+            DType::Isize => "ssize_t",
+            DType::Void => "void",
+            DType::Ptr(_) => "void*",
+            DType::Vec(_, _) => "void*", // ベクトル型も一旦void*として扱う
+        }
     }
 
     fn lower_elementwise_op(
@@ -205,77 +342,242 @@ impl Lowerer {
             ElementwiseOp::Add(lhs, rhs) => {
                 let lhs_var = self.get_or_create_var_name(lhs);
                 let rhs_var = self.get_or_create_var_name(rhs);
-                self.create_elementwise_loop(&result_var, &lhs_var, &rhs_var, |l, r| {
+                self.create_elementwise_loop(node, lhs, rhs, &result_var, &lhs_var, &rhs_var, |l, r| {
                     AstNode::Add(Box::new(l), Box::new(r))
                 })
             }
             ElementwiseOp::Mul(lhs, rhs) => {
                 let lhs_var = self.get_or_create_var_name(lhs);
                 let rhs_var = self.get_or_create_var_name(rhs);
-                self.create_elementwise_loop(&result_var, &lhs_var, &rhs_var, |l, r| {
+                self.create_elementwise_loop(node, lhs, rhs, &result_var, &lhs_var, &rhs_var, |l, r| {
                     AstNode::Mul(Box::new(l), Box::new(r))
                 })
             }
             ElementwiseOp::Max(lhs, rhs) => {
                 let lhs_var = self.get_or_create_var_name(lhs);
                 let rhs_var = self.get_or_create_var_name(rhs);
-                self.create_elementwise_loop(&result_var, &lhs_var, &rhs_var, |l, r| {
+                self.create_elementwise_loop(node, lhs, rhs, &result_var, &lhs_var, &rhs_var, |l, r| {
                     AstNode::Max(Box::new(l), Box::new(r))
                 })
             }
             ElementwiseOp::Mod(lhs, rhs) => {
                 let lhs_var = self.get_or_create_var_name(lhs);
                 let rhs_var = self.get_or_create_var_name(rhs);
-                self.create_elementwise_loop(&result_var, &lhs_var, &rhs_var, |l, r| {
+                self.create_elementwise_loop(node, lhs, rhs, &result_var, &lhs_var, &rhs_var, |l, r| {
                     AstNode::Rem(Box::new(l), Box::new(r))
                 })
             }
             ElementwiseOp::Neg(operand) => {
                 let operand_var = self.get_or_create_var_name(operand);
-                self.create_unary_elementwise_loop(&result_var, &operand_var, |x| {
+                self.create_unary_elementwise_loop(node, operand, &result_var, &operand_var, |x| {
                     AstNode::Neg(Box::new(x))
                 })
             }
             ElementwiseOp::Recip(operand) => {
                 let operand_var = self.get_or_create_var_name(operand);
-                self.create_unary_elementwise_loop(&result_var, &operand_var, |x| {
-                    x.recip()
-                })
+                self.create_unary_elementwise_loop(node, operand, &result_var, &operand_var, |x| x.recip())
             }
             ElementwiseOp::Sin(operand) => {
                 let operand_var = self.get_or_create_var_name(operand);
-                self.create_unary_elementwise_loop(&result_var, &operand_var, |x| {
-                    x.sin()
-                })
+                self.create_unary_elementwise_loop(node, operand, &result_var, &operand_var, |x| x.sin())
             }
             ElementwiseOp::Sqrt(operand) => {
                 let operand_var = self.get_or_create_var_name(operand);
-                self.create_unary_elementwise_loop(&result_var, &operand_var, |x| {
-                    x.sqrt()
-                })
+                self.create_unary_elementwise_loop(node, operand, &result_var, &operand_var, |x| x.sqrt())
             }
             ElementwiseOp::Log2(operand) => {
                 let operand_var = self.get_or_create_var_name(operand);
-                self.create_unary_elementwise_loop(&result_var, &operand_var, |x| {
-                    x.log2()
-                })
+                self.create_unary_elementwise_loop(node, operand, &result_var, &operand_var, |x| x.log2())
             }
             ElementwiseOp::Exp2(operand) => {
                 let operand_var = self.get_or_create_var_name(operand);
-                self.create_unary_elementwise_loop(&result_var, &operand_var, |x| {
-                    x.exp2()
-                })
+                self.create_unary_elementwise_loop(node, operand, &result_var, &operand_var, |x| x.exp2())
             }
         };
 
         Some(body)
     }
 
-    fn create_elementwise_loop<F>(&self, result_var: &str, lhs_var: &str, rhs_var: &str, op: F) -> AstNode
+    fn create_elementwise_loop<F>(
+        &self,
+        result_node: &GraphNode,
+        lhs_node: &GraphNode,
+        rhs_node: &GraphNode,
+        result_var: &str,
+        lhs_var: &str,
+        rhs_var: &str,
+        op: F,
+    ) -> AstNode
+    where
+        F: Fn(AstNode, AstNode) -> AstNode + Clone,
+    {
+        // viewから形状情報を取得
+        let result_view = &result_node.view;
+        let lhs_view = &lhs_node.view;
+        let rhs_view = &rhs_node.view;
+
+        let (
+            crate::graph::shape::view::View::Linear {
+                shape: result_shape,
+                strides: result_strides,
+                offset: result_offset
+            },
+            crate::graph::shape::view::View::Linear {
+                shape: _,
+                strides: lhs_strides,
+                offset: lhs_offset
+            },
+            crate::graph::shape::view::View::Linear {
+                shape: _,
+                strides: rhs_strides,
+                offset: rhs_offset
+            },
+        ) = (result_view, lhs_view, rhs_view);
+
+        // 多重ループを生成
+        self.create_nested_loops(
+            result_shape,
+            result_strides,
+            result_offset,
+            lhs_strides,
+            lhs_offset,
+            rhs_strides,
+            rhs_offset,
+            result_var,
+            lhs_var,
+            rhs_var,
+            0,
+            op,
+        )
+    }
+
+    fn create_nested_loops<F>(
+        &self,
+        shape: &[crate::graph::shape::Expr],
+        result_strides: &[crate::graph::shape::Expr],
+        result_offset: &crate::graph::shape::Expr,
+        lhs_strides: &[crate::graph::shape::Expr],
+        lhs_offset: &crate::graph::shape::Expr,
+        rhs_strides: &[crate::graph::shape::Expr],
+        rhs_offset: &crate::graph::shape::Expr,
+        result_var: &str,
+        lhs_var: &str,
+        rhs_var: &str,
+        dim: usize,
+        op: F,
+    ) -> AstNode
+    where
+        F: Fn(AstNode, AstNode) -> AstNode + Clone,
+    {
+        if dim >= shape.len() {
+            // 最内ループ: 実際の計算を実行
+            let result_index = self.compute_memory_index(result_strides, result_offset, dim);
+            let lhs_index = self.compute_memory_index(lhs_strides, lhs_offset, dim);
+            let rhs_index = self.compute_memory_index(rhs_strides, rhs_offset, dim);
+
+            AstNode::Assign(
+                Box::new(AstNode::Index {
+                    target: Box::new(AstNode::Var(result_var.to_string())),
+                    index: Box::new(result_index),
+                }),
+                Box::new(op(
+                    AstNode::Index {
+                        target: Box::new(AstNode::Var(lhs_var.to_string())),
+                        index: Box::new(lhs_index),
+                    },
+                    AstNode::Index {
+                        target: Box::new(AstNode::Var(rhs_var.to_string())),
+                        index: Box::new(rhs_index),
+                    },
+                )),
+            )
+        } else {
+            // 再帰的にネストしたループを作成
+            let loop_var = format!("i{}", dim);
+            let inner_body = self.create_nested_loops(
+                shape,
+                result_strides,
+                result_offset,
+                lhs_strides,
+                lhs_offset,
+                rhs_strides,
+                rhs_offset,
+                result_var,
+                lhs_var,
+                rhs_var,
+                dim + 1,
+                op,
+            );
+
+            // shape[dim]をAstNodeに変換
+            let max_iter = self.shape_expr_to_ast_node(&shape[dim]);
+
+            AstNode::Range {
+                counter_name: loop_var,
+                max: Box::new(max_iter),
+                body: Box::new(inner_body),
+            }
+        }
+    }
+
+    fn compute_memory_index(
+        &self,
+        strides: &[crate::graph::shape::Expr],
+        offset: &crate::graph::shape::Expr,
+        num_dims: usize,
+    ) -> AstNode {
+        let mut index = self.shape_expr_to_ast_node(offset);
+
+        for i in 0..num_dims.min(strides.len()) {
+            let stride = self.shape_expr_to_ast_node(&strides[i]);
+            let loop_var = AstNode::Var(format!("i{}", i));
+
+            let term = AstNode::Mul(Box::new(loop_var), Box::new(stride));
+            index = AstNode::Add(Box::new(index), Box::new(term));
+        }
+
+        index
+    }
+
+    fn shape_expr_to_ast_node(&self, expr: &crate::graph::shape::Expr) -> AstNode {
+        use crate::graph::shape::Expr;
+        match expr {
+            Expr::Const(n) => AstNode::Const(crate::ast::ConstLiteral::Usize(*n as usize)),
+            Expr::Var(name) => AstNode::Var(name.clone()),
+            Expr::Add(left, right) => AstNode::Add(
+                Box::new(self.shape_expr_to_ast_node(left)),
+                Box::new(self.shape_expr_to_ast_node(right)),
+            ),
+            Expr::Mul(left, right) => AstNode::Mul(
+                Box::new(self.shape_expr_to_ast_node(left)),
+                Box::new(self.shape_expr_to_ast_node(right)),
+            ),
+            Expr::Div(left, right) => AstNode::Div(
+                Box::new(self.shape_expr_to_ast_node(left)),
+                Box::new(self.shape_expr_to_ast_node(right)),
+            ),
+            Expr::Sub(left, right) => AstNode::Add(
+                Box::new(self.shape_expr_to_ast_node(left)),
+                Box::new(AstNode::Neg(Box::new(self.shape_expr_to_ast_node(right)))),
+            ),
+            Expr::Rem(left, right) => AstNode::Rem(
+                Box::new(self.shape_expr_to_ast_node(left)),
+                Box::new(self.shape_expr_to_ast_node(right)),
+            ),
+        }
+    }
+
+    fn create_flat_elementwise_loop<F>(
+        &self,
+        result_var: &str,
+        lhs_var: &str,
+        rhs_var: &str,
+        op: F,
+    ) -> AstNode
     where
         F: Fn(AstNode, AstNode) -> AstNode,
     {
-        // 簡単な実装: フラットなインデックスでループ
+        // fallback: フラットなインデックスでループ
         let loop_var = "i";
         let loop_body = AstNode::Assign(
             Box::new(AstNode::Index {
@@ -294,8 +596,6 @@ impl Lowerer {
             )),
         );
 
-        // TODO: 実際のサイズを計算する必要がある
-        // とりあえず仮のサイズとして100を使用
         AstNode::Range {
             counter_name: loop_var.to_string(),
             max: Box::new(AstNode::Const(crate::ast::ConstLiteral::Usize(100))),
@@ -303,7 +603,110 @@ impl Lowerer {
         }
     }
 
-    fn create_unary_elementwise_loop<F>(&self, result_var: &str, operand_var: &str, op: F) -> AstNode
+    fn create_unary_elementwise_loop<F>(
+        &self,
+        result_node: &GraphNode,
+        operand_node: &GraphNode,
+        result_var: &str,
+        operand_var: &str,
+        op: F,
+    ) -> AstNode
+    where
+        F: Fn(AstNode) -> AstNode + Clone,
+    {
+        // viewから形状情報を取得
+        let result_view = &result_node.view;
+        let operand_view = &operand_node.view;
+
+        let (
+            crate::graph::shape::view::View::Linear {
+                shape: result_shape,
+                strides: result_strides,
+                offset: result_offset
+            },
+            crate::graph::shape::view::View::Linear {
+                shape: _,
+                strides: operand_strides,
+                offset: operand_offset
+            },
+        ) = (result_view, operand_view);
+
+        // 多重ループを生成
+        self.create_unary_nested_loops(
+            result_shape,
+            result_strides,
+            result_offset,
+            operand_strides,
+            operand_offset,
+            result_var,
+            operand_var,
+            0,
+            op,
+        )
+    }
+
+    fn create_unary_nested_loops<F>(
+        &self,
+        shape: &[crate::graph::shape::Expr],
+        result_strides: &[crate::graph::shape::Expr],
+        result_offset: &crate::graph::shape::Expr,
+        operand_strides: &[crate::graph::shape::Expr],
+        operand_offset: &crate::graph::shape::Expr,
+        result_var: &str,
+        operand_var: &str,
+        dim: usize,
+        op: F,
+    ) -> AstNode
+    where
+        F: Fn(AstNode) -> AstNode + Clone,
+    {
+        if dim >= shape.len() {
+            // 最内ループ: 実際の計算を実行
+            let result_index = self.compute_memory_index(result_strides, result_offset, dim);
+            let operand_index = self.compute_memory_index(operand_strides, operand_offset, dim);
+
+            AstNode::Assign(
+                Box::new(AstNode::Index {
+                    target: Box::new(AstNode::Var(result_var.to_string())),
+                    index: Box::new(result_index),
+                }),
+                Box::new(op(AstNode::Index {
+                    target: Box::new(AstNode::Var(operand_var.to_string())),
+                    index: Box::new(operand_index),
+                })),
+            )
+        } else {
+            // 再帰的にネストしたループを作成
+            let loop_var = format!("i{}", dim);
+            let inner_body = self.create_unary_nested_loops(
+                shape,
+                result_strides,
+                result_offset,
+                operand_strides,
+                operand_offset,
+                result_var,
+                operand_var,
+                dim + 1,
+                op,
+            );
+
+            // shape[dim]をAstNodeに変換
+            let max_iter = self.shape_expr_to_ast_node(&shape[dim]);
+
+            AstNode::Range {
+                counter_name: loop_var,
+                max: Box::new(max_iter),
+                body: Box::new(inner_body),
+            }
+        }
+    }
+
+    fn create_flat_unary_elementwise_loop<F>(
+        &self,
+        result_var: &str,
+        operand_var: &str,
+        op: F,
+    ) -> AstNode
     where
         F: Fn(AstNode) -> AstNode,
     {
@@ -400,12 +803,17 @@ mod tests {
         graph.output(constant_node);
 
         // lower処理
-        let function = lowerer.lower(&graph);
+        let program = lowerer.lower(&graph);
 
         // 基本的なチェック
-        assert_eq!(function.name(), "lowered_function");
-        assert_eq!(function.return_type(), &DType::Void);
-        assert_eq!(function.arguments().len(), 0); // 定数のみなので引数なし
+        assert_eq!(program.entry_point, "kernel_main");
+        assert_eq!(program.functions.len(), 2); // kernel_impl + kernel_main
+
+        // エントリーポイント関数のチェック
+        let entry_func = &program.functions[1];
+        assert_eq!(entry_func.name(), "kernel_main");
+        assert_eq!(entry_func.return_type(), &DType::Void);
+        assert_eq!(entry_func.arguments().len(), 2); // bufs, shape_vars
     }
 
     #[test]
@@ -418,14 +826,16 @@ mod tests {
         graph.output(input_node);
 
         // lower処理
-        let function = lowerer.lower(&graph);
+        let program = lowerer.lower(&graph);
 
         // 基本的なチェック
-        assert_eq!(function.name(), "lowered_function");
-        assert_eq!(function.return_type(), &DType::Void);
-        assert_eq!(function.arguments().len(), 1);
-        assert_eq!(function.arguments()[0].0, "input0");
-        assert_eq!(function.arguments()[0].1, DType::F32);
+        assert_eq!(program.entry_point, "kernel_main");
+        assert_eq!(program.functions.len(), 2);
+
+        // カーネル実装関数のチェック
+        let kernel_func = &program.functions[0];
+        assert_eq!(kernel_func.name(), "kernel_impl");
+        assert_eq!(kernel_func.arguments().len(), 2); // input_0 + output_0
     }
 
     #[test]
@@ -439,16 +849,61 @@ mod tests {
         graph.output(negated);
 
         // lower処理
-        let function = lowerer.lower(&graph);
+        let program = lowerer.lower(&graph);
 
         // 基本的なチェック
-        assert_eq!(function.name(), "lowered_function");
-        assert_eq!(function.return_type(), &DType::Void);
-        // 定数+単項演算で2つの文が生成される想定
-        if let AstNode::Block { statements, .. } = function.body() {
+        assert_eq!(program.entry_point, "kernel_main");
+        assert_eq!(program.functions.len(), 2);
+
+        // カーネル実装関数のチェック
+        let kernel_func = &program.functions[0];
+        if let AstNode::Block { statements, .. } = kernel_func.body() {
             assert_eq!(statements.len(), 2); // const assignment + neg loop
         } else {
             panic!("Expected Block body");
+        }
+    }
+
+    #[test]
+    fn test_entry_point_structure() {
+        let mut graph = Graph::new();
+        let mut lowerer = Lowerer::new();
+
+        // 入力と出力があるグラフ
+        let input_node = graph.input(DType::F32, vec![4.into()]);
+        let constant = GraphNode::f32(2.0);
+        let result = -input_node; // 単項演算
+        graph.output(result);
+
+        let program = lowerer.lower(&graph);
+
+        // エントリーポイント関数の詳細チェック
+        let entry_func = &program.functions[1];
+        assert_eq!(entry_func.name(), "kernel_main");
+
+        // 引数チェック: (void** bufs, size_t* shape_vars)
+        let args = entry_func.arguments();
+        assert_eq!(args.len(), 2);
+        assert_eq!(args[0].0, "bufs");
+        assert_eq!(args[1].0, "shape_vars");
+
+        // エントリー関数の本体をチェック
+        if let AstNode::Block { statements, scope } = entry_func.body() {
+            // 入力と出力バッファの型キャストがある
+            assert!(statements.len() >= 3); // 最低でも input cast + output cast + kernel call
+
+            // 変数宣言をチェック
+            assert!(scope.declarations.len() >= 2); // input_0, output_0
+
+            // 最後の文はkernel_impl呼び出し
+            if let AstNode::CallFunction { name, args } = statements.last().unwrap() {
+                assert_eq!(name, "kernel_impl");
+                assert_eq!(args.len(), 2); // input_0, output_0
+            } else {
+                panic!("Expected kernel call as last statement");
+            }
+        } else {
+            panic!("Expected Block body in entry function");
         }
     }
 }
