@@ -241,7 +241,7 @@ impl Lowerer {
                 declarations.push(VariableDecl {
                     name: var_name.clone(),
                     dtype: node.dtype.clone(),
-                    constant: true,
+                    constant: false, // 現在は初期化と代入を分けているため、constにできない
                 });
                 Some(AstNode::Assign(
                     Box::new(AstNode::Var(var_name)),
