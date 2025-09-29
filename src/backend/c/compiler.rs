@@ -70,16 +70,24 @@ impl Compiler for CCompiler {
             base_args.push("-lomp".to_string());
             ("kernel.dylib", "clang", base_args)
         } else {
-            (
-                "kernel.so",
-                "gcc",
-                vec![
+            ("kernel.so", "gcc", {
+                let mut args = vec![
                     "-shared".to_string(),
                     "-fPIC".to_string(),
                     "-O3".to_string(),
-                    "-fopenmp".to_string(),
-                ],
-            )
+                    "-std=c99".to_string(),
+                ];
+
+                // OpenMPはオプションとして、利用可能な場合のみ追加
+                if std::env::var("DISABLE_OPENMP").is_err() {
+                    // Ubuntu環境でのOpenMP問題を回避するため、一時的に無効化
+                    if cfg!(not(target_os = "linux")) {
+                        args.push("-fopenmp".to_string());
+                    }
+                }
+
+                args
+            })
         };
 
         let lib_path = out_dir.path().join(lib_name);
@@ -102,10 +110,15 @@ impl Compiler for CCompiler {
             .expect("Failed to execute compiler");
 
         if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
             panic!(
-                "Compiler failed with status {:?}:\n{}",
+                "Compiler failed with status {:?}:\nSTDERR:\n{}\nSTDOUT:\n{}\nCommand: {} {}",
                 output.status,
-                String::from_utf8_lossy(&output.stderr)
+                stderr,
+                stdout,
+                compiler,
+                args.join(" ")
             );
         }
 
