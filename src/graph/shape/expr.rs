@@ -126,6 +126,18 @@ macro_rules! impl_from_integer_for_expr {
 
 impl_from_integer_for_expr!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
 
+impl From<&str> for Expr {
+    fn from(s: &str) -> Self {
+        Expr::Var(s.to_string())
+    }
+}
+
+impl From<String> for Expr {
+    fn from(s: String) -> Self {
+        Expr::Var(s)
+    }
+}
+
 macro_rules! impl_expr_binary_op {
     ($trait:ident, $fname:ident, $variant:expr) => {
         impl<T: Into<Expr>> $trait<T> for Expr {
@@ -236,4 +248,117 @@ mod tests {
         let expr = ((a.clone() + 0) * 1 + b.clone()) / 1;
         assert_eq!(expr.simplify(), a + b);
     }
+
+    #[test]
+    fn test_s_macro() {
+        use crate::s;
+
+        // Test the s! macro with various combinations
+        let shape1 = s![1, 2, 3];
+        assert_eq!(shape1, vec![Expr::from(1), Expr::from(2), Expr::from(3)]);
+
+        let shape2 = s!["a", "b"];
+        assert_eq!(
+            shape2,
+            vec![Expr::Var("a".to_string()), Expr::Var("b".to_string())]
+        );
+
+        let shape3 = s![1, "N", 2, "batch_size"];
+        assert_eq!(
+            shape3,
+            vec![
+                Expr::from(1),
+                Expr::Var("N".to_string()),
+                Expr::from(2),
+                Expr::Var("batch_size".to_string())
+            ]
+        );
+
+        let shape4 = s![];
+        let empty: Vec<Expr> = vec![];
+        assert_eq!(shape4, empty);
+    }
+
+    #[test]
+    fn test_s_macro_with_graph() {
+        use crate::{ast::DType, graph::Graph, s};
+
+        let mut graph = Graph::new();
+
+        // Use the s! macro to create shapes for graph input
+        let input_node = graph.input(DType::F32, s![1, "batch_size", 3, "height", "width"]);
+
+        // Verify the shape
+        let expected_shape = vec![
+            Expr::from(1),
+            Expr::Var("batch_size".to_string()),
+            Expr::from(3),
+            Expr::Var("height".to_string()),
+            Expr::Var("width".to_string()),
+        ];
+        assert_eq!(input_node.view.shape(), expected_shape);
+
+        // Also test with pure constants and pure variables
+        let const_input = graph.input(DType::F32, s![2, 3, 4]);
+        assert_eq!(
+            const_input.view.shape(),
+            &[Expr::from(2), Expr::from(3), Expr::from(4)]
+        );
+
+        let var_input = graph.input(DType::F32, s!["N", "C", "H", "W"]);
+        assert_eq!(
+            var_input.view.shape(),
+            &[
+                Expr::Var("N".to_string()),
+                Expr::Var("C".to_string()),
+                Expr::Var("H".to_string()),
+                Expr::Var("W".to_string())
+            ]
+        );
+    }
+}
+
+/// Create a vector of `Expr` with a mix of constants and variables.
+///
+/// This macro allows you to easily create shape vectors by mixing integer literals
+/// and string literals (which become variables).
+///
+/// # Examples
+///
+/// ```
+/// use harp::{s, graph::shape::Expr};
+///
+/// // Pure constants
+/// let shape1 = s![1, 2, 3];
+/// assert_eq!(shape1, vec![Expr::from(1), Expr::from(2), Expr::from(3)]);
+///
+/// // Pure variables
+/// let shape2 = s!["a", "b"];
+/// assert_eq!(shape2, vec![Expr::Var("a".to_string()), Expr::Var("b".to_string())]);
+///
+/// // Mixed constants and variables
+/// let shape3 = s![1, "N", 2, "batch_size"];
+/// assert_eq!(shape3, vec![
+///     Expr::from(1),
+///     Expr::Var("N".to_string()),
+///     Expr::from(2),
+///     Expr::Var("batch_size".to_string())
+/// ]);
+///
+/// // Empty shape
+/// let shape4 = s![];
+/// let empty: Vec<Expr> = vec![];
+/// assert_eq!(shape4, empty);
+/// ```
+#[macro_export]
+macro_rules! s {
+    // Base case: empty
+    () => {
+        Vec::<$crate::graph::shape::Expr>::new()
+    };
+
+    // One or more elements
+    ($($item:expr),+ $(,)?) => {
+        vec![$($crate::graph::shape::Expr::from($item)),+]
+    };
 }
