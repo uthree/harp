@@ -48,20 +48,10 @@ impl Compiler for CCompiler {
         let out_dir = tempfile::tempdir_in("/tmp").unwrap();
 
         let (lib_name, compiler, args) = if cfg!(target_os = "macos") {
-            let base_args = vec![
-                "-shared".to_string(),
-                "-fPIC".to_string(),
-                "-O3".to_string(),
-                "-std=c99".to_string(),
-            ];
-            ("kernel.dylib", "clang", base_args)
+            let args = vec!["-shared".to_string(), "-fPIC".to_string()];
+            ("kernel.dylib", "clang", args)
         } else {
-            let args = vec![
-                "-shared".to_string(),
-                "-fPIC".to_string(),
-                "-O3".to_string(),
-                "-std=c99".to_string(),
-            ];
+            let args = vec!["-shared".to_string(), "-fPIC".to_string()];
             ("kernel.so", "gcc", args)
         };
 
