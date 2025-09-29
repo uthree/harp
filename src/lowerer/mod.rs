@@ -221,12 +221,7 @@ impl Lowerer {
                     | ElementwiseOp::Exp2(n) => vec![n.clone()],
                 }
             }
-            GraphOp::Reduce(_, _) => {
-                // Reduce操作は通常、入力テンソルからの依存関係を持つ
-                // ここでは仮実装として空を返す
-                // TODO: 実際の入力ノードの依存関係を追加
-                vec![]
-            }
+            GraphOp::Reduce(_, _, input) => vec![input.clone()],
             GraphOp::ViewTransform(n) => vec![n.clone()],
         }
     }
@@ -254,7 +249,7 @@ impl Lowerer {
                 ))
             }
             GraphOp::Elementwise(op) => self.lower_elementwise_op(node, op, declarations),
-            GraphOp::Reduce(op, axis) => self.lower_reduce_op(node, op, *axis, declarations),
+            GraphOp::Reduce(op, axis, input) => self.lower_reduce_op(node, op, *axis, input, declarations),
             GraphOp::ViewTransform(_) => {
                 // View変換は通常、メモリレイアウトの変更なので、
                 // 新しい変数は作らずに既存の変数への参照として扱う
@@ -734,51 +729,220 @@ impl Lowerer {
         node: &GraphNode,
         op: &crate::graph::ops::ReduceOp,
         axis: usize,
+        input: &GraphNode,
         declarations: &mut Vec<VariableDecl>,
     ) -> Option<AstNode> {
         use crate::graph::ops::ReduceOp;
 
         let result_var = self.get_or_create_var_name(node);
+        let input_var = self.get_or_create_var_name(input);
+
         declarations.push(VariableDecl {
             name: result_var.clone(),
             dtype: node.dtype.clone(),
             constant: false,
         });
 
-        // Reduce操作: 指定された軸に沿って削減
-        let reduce_op = match op {
-            ReduceOp::Add => |acc: AstNode, val: AstNode| -> AstNode { acc + val },
-            ReduceOp::Mul => |acc: AstNode, val: AstNode| -> AstNode { acc * val },
-            ReduceOp::Max => |acc: AstNode, val: AstNode| -> AstNode {
-                AstNode::Max(Box::new(acc), Box::new(val))
+        // view情報を取得
+        let input_view = &input.view;
+        let result_view = &node.view;
+
+        let (
+            crate::graph::shape::view::View::Linear {
+                shape: input_shape,
+                strides: input_strides,
+                offset: input_offset
             },
+            crate::graph::shape::view::View::Linear {
+                shape: result_shape,
+                strides: result_strides,
+                offset: result_offset
+            },
+        ) = (input_view, result_view);
+
+        // 縮約操作の初期値を定義
+        let initial_value = match op {
+            ReduceOp::Add => AstNode::Const(crate::ast::ConstLiteral::F32(0.0)),
+            ReduceOp::Mul => AstNode::Const(crate::ast::ConstLiteral::F32(1.0)),
+            ReduceOp::Max => AstNode::Const(crate::ast::ConstLiteral::F32(f32::NEG_INFINITY)),
         };
 
-        // 簡単な実装: ネストしたループを作成
-        // TODO: 実際のshapeとaxisを使用してより正確なループを生成
-        let loop_var = format!("reduce_{}", axis);
-        let inner_loop_body = AstNode::Assign(
-            Box::new(AstNode::Index {
-                target: Box::new(AstNode::Var(result_var.clone())),
-                index: Box::new(AstNode::Var("out_idx".to_string())),
-            }),
-            Box::new(reduce_op(
-                AstNode::Index {
-                    target: Box::new(AstNode::Var(result_var.clone())),
-                    index: Box::new(AstNode::Var("out_idx".to_string())),
-                },
-                AstNode::Index {
-                    target: Box::new(AstNode::Var("input_data".to_string())),
-                    index: Box::new(AstNode::Var("in_idx".to_string())),
-                },
-            )),
-        );
+        // 多重ループでreduce操作を実行
+        Some(self.create_reduce_loops(
+            input_shape,
+            input_strides,
+            input_offset,
+            result_shape,
+            result_strides,
+            result_offset,
+            axis,
+            &input_var,
+            &result_var,
+            op,
+            initial_value,
+            0,
+        ))
+    }
 
-        Some(AstNode::Range {
-            counter_name: loop_var,
-            max: Box::new(AstNode::Const(crate::ast::ConstLiteral::Usize(10))), // 仮の値
-            body: Box::new(inner_loop_body),
-        })
+    fn create_reduce_loops(
+        &self,
+        input_shape: &[crate::graph::shape::Expr],
+        input_strides: &[crate::graph::shape::Expr],
+        input_offset: &crate::graph::shape::Expr,
+        result_shape: &[crate::graph::shape::Expr],
+        result_strides: &[crate::graph::shape::Expr],
+        result_offset: &crate::graph::shape::Expr,
+        reduce_axis: usize,
+        input_var: &str,
+        result_var: &str,
+        reduce_op: &crate::graph::ops::ReduceOp,
+        initial_value: AstNode,
+        dim: usize,
+    ) -> AstNode
+    {
+        if dim >= input_shape.len() {
+            // 最内レベル: 実際の計算を実行
+            return AstNode::Const(crate::ast::ConstLiteral::Usize(0)); // placeholder
+        }
+
+        if dim == reduce_axis {
+            // 縮約する次元: 初期化 + ループで累積
+            let next_dim_body = self.create_reduce_loops(
+                input_shape,
+                input_strides,
+                input_offset,
+                result_shape,
+                result_strides,
+                result_offset,
+                reduce_axis,
+                input_var,
+                result_var,
+                reduce_op,
+                initial_value.clone(),
+                dim + 1,
+            );
+
+            // この次元では初期化と累積ループを作成
+            let loop_var = format!("i{}", dim);
+            let shape_size = self.shape_expr_to_ast_node(&input_shape[dim]);
+
+            // 結果の初期化 (縮約軸をスキップしたインデックスで計算)
+            let result_index = self.compute_reduce_result_index(result_strides, result_offset, dim, reduce_axis);
+            let init_stmt = AstNode::Assign(
+                Box::new(AstNode::Index {
+                    target: Box::new(AstNode::Var(result_var.to_string())),
+                    index: Box::new(result_index.clone()),
+                }),
+                Box::new(initial_value),
+            );
+
+            // 縮約ループ本体
+            let input_index = self.compute_memory_index(input_strides, input_offset, dim + 1);
+
+            // 縮約操作を適用
+            let operation_result = match reduce_op {
+                crate::graph::ops::ReduceOp::Add => AstNode::Add(
+                    Box::new(AstNode::Index {
+                        target: Box::new(AstNode::Var(result_var.to_string())),
+                        index: Box::new(result_index.clone()),
+                    }),
+                    Box::new(AstNode::Index {
+                        target: Box::new(AstNode::Var(input_var.to_string())),
+                        index: Box::new(input_index),
+                    }),
+                ),
+                crate::graph::ops::ReduceOp::Mul => AstNode::Mul(
+                    Box::new(AstNode::Index {
+                        target: Box::new(AstNode::Var(result_var.to_string())),
+                        index: Box::new(result_index.clone()),
+                    }),
+                    Box::new(AstNode::Index {
+                        target: Box::new(AstNode::Var(input_var.to_string())),
+                        index: Box::new(input_index),
+                    }),
+                ),
+                crate::graph::ops::ReduceOp::Max => AstNode::Max(
+                    Box::new(AstNode::Index {
+                        target: Box::new(AstNode::Var(result_var.to_string())),
+                        index: Box::new(result_index.clone()),
+                    }),
+                    Box::new(AstNode::Index {
+                        target: Box::new(AstNode::Var(input_var.to_string())),
+                        index: Box::new(input_index),
+                    }),
+                ),
+            };
+
+            let accumulate_stmt = AstNode::Assign(
+                Box::new(AstNode::Index {
+                    target: Box::new(AstNode::Var(result_var.to_string())),
+                    index: Box::new(result_index),
+                }),
+                Box::new(operation_result),
+            );
+
+            // 先に初期化、その後縮約ループ
+            AstNode::Block {
+                scope: crate::ast::Scope { declarations: vec![] },
+                statements: vec![
+                    init_stmt,
+                    AstNode::Range {
+                        counter_name: loop_var,
+                        max: Box::new(shape_size),
+                        body: Box::new(accumulate_stmt),
+                    },
+                    next_dim_body,
+                ],
+            }
+        } else {
+            // 縮約しない次元: 通常のループ
+            let loop_var = format!("i{}", dim);
+            let inner_body = self.create_reduce_loops(
+                input_shape,
+                input_strides,
+                input_offset,
+                result_shape,
+                result_strides,
+                result_offset,
+                reduce_axis,
+                input_var,
+                result_var,
+                reduce_op,
+                initial_value,
+                dim + 1,
+            );
+
+            let shape_size = self.shape_expr_to_ast_node(&input_shape[dim]);
+
+            AstNode::Range {
+                counter_name: loop_var,
+                max: Box::new(shape_size),
+                body: Box::new(inner_body),
+            }
+        }
+    }
+
+    fn compute_reduce_result_index(
+        &self,
+        result_strides: &[crate::graph::shape::Expr],
+        result_offset: &crate::graph::shape::Expr,
+        current_dim: usize,
+        reduce_axis: usize,
+    ) -> AstNode {
+        let mut index = self.shape_expr_to_ast_node(result_offset);
+
+        let mut result_dim = 0;
+        for input_dim in 0..current_dim {
+            if input_dim != reduce_axis {
+                let stride = self.shape_expr_to_ast_node(&result_strides[result_dim]);
+                let loop_var = AstNode::Var(format!("i{}", input_dim));
+                let term = AstNode::Mul(Box::new(loop_var), Box::new(stride));
+                index = AstNode::Add(Box::new(index), Box::new(term));
+                result_dim += 1;
+            }
+        }
+
+        index
     }
 }
 

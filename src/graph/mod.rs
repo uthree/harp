@@ -85,7 +85,7 @@ pub enum GraphOp {
     Input,
     Const(ConstLiteral),        // initialize single element tensor, shape=[],
     Elementwise(ElementwiseOp), // 要素ごとの演算
-    Reduce(ReduceOp, usize),    // 軸を縮約する
+    Reduce(ReduceOp, usize, GraphNode), // 軸を縮約する: (op, axis, input)
     ViewTransform(GraphNode),   // view変更操作
 }
 

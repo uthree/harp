@@ -36,7 +36,7 @@ impl GraphNode {
         let result_view = self.create_reduced_view(axis);
 
         GraphNode::new(
-            GraphOp::Reduce(op.clone(), axis),
+            GraphOp::Reduce(op.clone(), axis, self.clone()),
             self.dtype.clone(),
             result_view,
         )
