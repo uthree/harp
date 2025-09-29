@@ -271,19 +271,6 @@ impl Lowerer {
         }
     }
 
-    fn create_input_arguments(&self, graph: &Graph) -> Vec<(String, DType)> {
-        graph
-            .inputs
-            .iter()
-            .enumerate()
-            .filter_map(|(i, weak_ref)| {
-                weak_ref
-                    .upgrade()
-                    .map(|node_data| (format!("input{}", i), node_data.dtype.clone()))
-            })
-            .collect()
-    }
-
     fn create_kernel_arguments(&self, graph: &Graph) -> Vec<(String, DType)> {
         let mut arguments = Vec::new();
 
@@ -429,6 +416,7 @@ impl Lowerer {
         Some(body)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn create_elementwise_loop<F>(
         &self,
         result_node: &GraphNode,
@@ -449,7 +437,7 @@ impl Lowerer {
 
         let (
             crate::graph::shape::view::View::Linear {
-                shape: result_shape,
+                shape: _result_shape,
                 strides: result_strides,
                 offset: result_offset,
             },
@@ -467,7 +455,7 @@ impl Lowerer {
 
         // 多重ループを生成
         self.create_nested_loops(
-            result_shape,
+            _result_shape,
             result_strides,
             result_offset,
             lhs_strides,
@@ -482,6 +470,7 @@ impl Lowerer {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn create_nested_loops<F>(
         &self,
         shape: &[crate::graph::shape::Expr],
@@ -541,7 +530,7 @@ impl Lowerer {
             );
 
             // shape[dim]をAstNodeに変換
-            let max_iter = self.shape_expr_to_ast_node(&shape[dim]);
+            let max_iter = Self::shape_expr_to_ast_node(&shape[dim]);
 
             AstNode::Range {
                 counter_name: loop_var,
@@ -557,10 +546,10 @@ impl Lowerer {
         offset: &crate::graph::shape::Expr,
         num_dims: usize,
     ) -> AstNode {
-        let mut index = self.shape_expr_to_ast_node(offset);
+        let mut index = Self::shape_expr_to_ast_node(offset);
 
-        for i in 0..num_dims.min(strides.len()) {
-            let stride = self.shape_expr_to_ast_node(&strides[i]);
+        for (i, stride) in strides.iter().enumerate().take(num_dims) {
+            let stride = Self::shape_expr_to_ast_node(stride);
             let loop_var = AstNode::Var(format!("i{}", i));
 
             let term = AstNode::Mul(Box::new(loop_var), Box::new(stride));
@@ -570,67 +559,31 @@ impl Lowerer {
         index
     }
 
-    fn shape_expr_to_ast_node(&self, expr: &crate::graph::shape::Expr) -> AstNode {
+    fn shape_expr_to_ast_node(expr: &crate::graph::shape::Expr) -> AstNode {
         use crate::graph::shape::Expr;
         match expr {
             Expr::Const(n) => AstNode::Const(crate::ast::ConstLiteral::Usize(*n as usize)),
             Expr::Var(name) => AstNode::Var(name.clone()),
             Expr::Add(left, right) => AstNode::Add(
-                Box::new(self.shape_expr_to_ast_node(left)),
-                Box::new(self.shape_expr_to_ast_node(right)),
+                Box::new(Self::shape_expr_to_ast_node(left)),
+                Box::new(Self::shape_expr_to_ast_node(right)),
             ),
             Expr::Mul(left, right) => AstNode::Mul(
-                Box::new(self.shape_expr_to_ast_node(left)),
-                Box::new(self.shape_expr_to_ast_node(right)),
+                Box::new(Self::shape_expr_to_ast_node(left)),
+                Box::new(Self::shape_expr_to_ast_node(right)),
             ),
             Expr::Div(left, right) => AstNode::Div(
-                Box::new(self.shape_expr_to_ast_node(left)),
-                Box::new(self.shape_expr_to_ast_node(right)),
+                Box::new(Self::shape_expr_to_ast_node(left)),
+                Box::new(Self::shape_expr_to_ast_node(right)),
             ),
             Expr::Sub(left, right) => AstNode::Add(
-                Box::new(self.shape_expr_to_ast_node(left)),
-                Box::new(AstNode::Neg(Box::new(self.shape_expr_to_ast_node(right)))),
+                Box::new(Self::shape_expr_to_ast_node(left)),
+                Box::new(AstNode::Neg(Box::new(Self::shape_expr_to_ast_node(right)))),
             ),
             Expr::Rem(left, right) => AstNode::Rem(
-                Box::new(self.shape_expr_to_ast_node(left)),
-                Box::new(self.shape_expr_to_ast_node(right)),
+                Box::new(Self::shape_expr_to_ast_node(left)),
+                Box::new(Self::shape_expr_to_ast_node(right)),
             ),
-        }
-    }
-
-    fn create_flat_elementwise_loop<F>(
-        &self,
-        result_var: &str,
-        lhs_var: &str,
-        rhs_var: &str,
-        op: F,
-    ) -> AstNode
-    where
-        F: Fn(AstNode, AstNode) -> AstNode,
-    {
-        // fallback: フラットなインデックスでループ
-        let loop_var = "i";
-        let loop_body = AstNode::Assign(
-            Box::new(AstNode::Index {
-                target: Box::new(AstNode::Var(result_var.to_string())),
-                index: Box::new(AstNode::Var(loop_var.to_string())),
-            }),
-            Box::new(op(
-                AstNode::Index {
-                    target: Box::new(AstNode::Var(lhs_var.to_string())),
-                    index: Box::new(AstNode::Var(loop_var.to_string())),
-                },
-                AstNode::Index {
-                    target: Box::new(AstNode::Var(rhs_var.to_string())),
-                    index: Box::new(AstNode::Var(loop_var.to_string())),
-                },
-            )),
-        );
-
-        AstNode::Range {
-            counter_name: loop_var.to_string(),
-            max: Box::new(AstNode::Const(crate::ast::ConstLiteral::Usize(100))),
-            body: Box::new(loop_body),
         }
     }
 
@@ -651,7 +604,7 @@ impl Lowerer {
 
         let (
             crate::graph::shape::view::View::Linear {
-                shape: result_shape,
+                shape: _result_shape,
                 strides: result_strides,
                 offset: result_offset,
             },
@@ -664,7 +617,7 @@ impl Lowerer {
 
         // 多重ループを生成
         self.create_unary_nested_loops(
-            result_shape,
+            _result_shape,
             result_strides,
             result_offset,
             operand_strides,
@@ -676,6 +629,7 @@ impl Lowerer {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn create_unary_nested_loops<F>(
         &self,
         shape: &[crate::graph::shape::Expr],
@@ -722,41 +676,13 @@ impl Lowerer {
             );
 
             // shape[dim]をAstNodeに変換
-            let max_iter = self.shape_expr_to_ast_node(&shape[dim]);
+            let max_iter = Self::shape_expr_to_ast_node(&shape[dim]);
 
             AstNode::Range {
                 counter_name: loop_var,
                 max: Box::new(max_iter),
                 body: Box::new(inner_body),
             }
-        }
-    }
-
-    fn create_flat_unary_elementwise_loop<F>(
-        &self,
-        result_var: &str,
-        operand_var: &str,
-        op: F,
-    ) -> AstNode
-    where
-        F: Fn(AstNode) -> AstNode,
-    {
-        let loop_var = "i";
-        let loop_body = AstNode::Assign(
-            Box::new(AstNode::Index {
-                target: Box::new(AstNode::Var(result_var.to_string())),
-                index: Box::new(AstNode::Var(loop_var.to_string())),
-            }),
-            Box::new(op(AstNode::Index {
-                target: Box::new(AstNode::Var(operand_var.to_string())),
-                index: Box::new(AstNode::Var(loop_var.to_string())),
-            })),
-        );
-
-        AstNode::Range {
-            counter_name: loop_var.to_string(),
-            max: Box::new(AstNode::Const(crate::ast::ConstLiteral::Usize(100))),
-            body: Box::new(loop_body),
         }
     }
 
@@ -790,7 +716,7 @@ impl Lowerer {
                 offset: input_offset,
             },
             crate::graph::shape::view::View::Linear {
-                shape: result_shape,
+                shape: _result_shape,
                 strides: result_strides,
                 offset: result_offset,
             },
@@ -808,7 +734,7 @@ impl Lowerer {
             input_shape,
             input_strides,
             input_offset,
-            result_shape,
+            _result_shape,
             result_strides,
             result_offset,
             axis,
@@ -820,12 +746,13 @@ impl Lowerer {
         ))
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn create_reduce_loops(
         &self,
         input_shape: &[crate::graph::shape::Expr],
         input_strides: &[crate::graph::shape::Expr],
         input_offset: &crate::graph::shape::Expr,
-        result_shape: &[crate::graph::shape::Expr],
+        _result_shape: &[crate::graph::shape::Expr],
         result_strides: &[crate::graph::shape::Expr],
         result_offset: &crate::graph::shape::Expr,
         reduce_axis: usize,
@@ -846,7 +773,7 @@ impl Lowerer {
                 input_shape,
                 input_strides,
                 input_offset,
-                result_shape,
+                _result_shape,
                 result_strides,
                 result_offset,
                 reduce_axis,
@@ -859,7 +786,7 @@ impl Lowerer {
 
             // この次元では初期化と累積ループを作成
             let loop_var = format!("i{}", dim);
-            let shape_size = self.shape_expr_to_ast_node(&input_shape[dim]);
+            let shape_size = Self::shape_expr_to_ast_node(&input_shape[dim]);
 
             // 結果の初期化 (縮約軸をスキップしたインデックスで計算)
             let result_index =
@@ -939,7 +866,7 @@ impl Lowerer {
                 input_shape,
                 input_strides,
                 input_offset,
-                result_shape,
+                _result_shape,
                 result_strides,
                 result_offset,
                 reduce_axis,
@@ -950,7 +877,7 @@ impl Lowerer {
                 dim + 1,
             );
 
-            let shape_size = self.shape_expr_to_ast_node(&input_shape[dim]);
+            let shape_size = Self::shape_expr_to_ast_node(&input_shape[dim]);
 
             AstNode::Range {
                 counter_name: loop_var,
@@ -967,12 +894,12 @@ impl Lowerer {
         current_dim: usize,
         reduce_axis: usize,
     ) -> AstNode {
-        let mut index = self.shape_expr_to_ast_node(result_offset);
+        let mut index = Self::shape_expr_to_ast_node(result_offset);
 
         let mut result_dim = 0;
         for input_dim in 0..current_dim {
             if input_dim != reduce_axis {
-                let stride = self.shape_expr_to_ast_node(&result_strides[result_dim]);
+                let stride = Self::shape_expr_to_ast_node(&result_strides[result_dim]);
                 let loop_var = AstNode::Var(format!("i{}", input_dim));
                 let term = AstNode::Mul(Box::new(loop_var), Box::new(stride));
                 index = AstNode::Add(Box::new(index), Box::new(term));

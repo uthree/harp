@@ -28,14 +28,14 @@ pub trait Compiler {
     type Option;
     fn new() -> Self;
     fn is_available(&self) -> bool;
-    fn with_option(&mut self, option: Self::Option) {} // default implementation is "do nothing".
+    fn with_option(&mut self, _option: Self::Option) {} // default implementation is "do nothing".
     fn compile(&mut self, code: &Self::CodeRepr, details: GraphSignature) -> Self::KernelType;
 }
 pub trait Renderer {
     type CodeRepr;
     type Option;
     fn new() -> Self;
-    fn with_option(&mut self, option: Self::Option) {} // default implementation is "do nothing".
+    fn with_option(&mut self, _option: Self::Option) {} // default implementation is "do nothing".
     fn render(&mut self, program: Program) -> Self::CodeRepr;
 }
 

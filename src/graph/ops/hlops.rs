@@ -9,6 +9,7 @@ impl std::ops::Sub for GraphNode {
 
 impl std::ops::Div for GraphNode {
     type Output = GraphNode;
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn div(self, rhs: Self) -> Self::Output {
         self * rhs.recip()
     }
