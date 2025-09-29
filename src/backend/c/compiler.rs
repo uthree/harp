@@ -48,46 +48,21 @@ impl Compiler for CCompiler {
         let out_dir = tempfile::tempdir_in("/tmp").unwrap();
 
         let (lib_name, compiler, args) = if cfg!(target_os = "macos") {
-            let mut base_args = vec![
+            let base_args = vec![
                 "-shared".to_string(),
                 "-fPIC".to_string(),
                 "-O3".to_string(),
-                "-Xpreprocessor".to_string(),
-                "-fopenmp".to_string(),
+                "-std=c99".to_string(),
             ];
-            let omp_path_str = if cfg!(target_arch = "aarch64") {
-                "/opt/homebrew/opt/libomp"
-            } else {
-                "/usr/local/opt/libomp"
-            };
-            let omp_path = std::path::Path::new(omp_path_str);
-            if omp_path.exists() {
-                base_args.push("-I".to_string());
-                base_args.push(omp_path.join("include").to_str().unwrap().to_string());
-                base_args.push("-L".to_string());
-                base_args.push(omp_path.join("lib").to_str().unwrap().to_string());
-            }
-            base_args.push("-lomp".to_string());
             ("kernel.dylib", "clang", base_args)
         } else {
-            ("kernel.so", "gcc", {
-                let mut args = vec![
-                    "-shared".to_string(),
-                    "-fPIC".to_string(),
-                    "-O3".to_string(),
-                    "-std=c99".to_string(),
-                ];
-
-                // OpenMPはオプションとして、利用可能な場合のみ追加
-                if std::env::var("DISABLE_OPENMP").is_err() {
-                    // Ubuntu環境でのOpenMP問題を回避するため、一時的に無効化
-                    if cfg!(not(target_os = "linux")) {
-                        args.push("-fopenmp".to_string());
-                    }
-                }
-
-                args
-            })
+            let args = vec![
+                "-shared".to_string(),
+                "-fPIC".to_string(),
+                "-O3".to_string(),
+                "-std=c99".to_string(),
+            ];
+            ("kernel.so", "gcc", args)
         };
 
         let lib_path = out_dir.path().join(lib_name);
