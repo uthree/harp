@@ -71,22 +71,24 @@ impl Lowerer {
             let output_var = format!("output_{}", output_idx);
             let source_var = self.get_or_create_var_name(output_node);
 
-            eprintln!("Output {}: output_var={}, source_var={}", output_idx, output_var, source_var);
+            eprintln!(
+                "Output {}: output_var={}, source_var={}",
+                output_idx, output_var, source_var
+            );
 
             // 出力変数とソース変数が異なる場合、コピーが必要
             if output_var != source_var {
                 // メモリコピーを生成
                 let output_shape = &output_node.view;
-                if let crate::graph::shape::view::View::Linear { shape, strides, offset } = output_shape {
+                if let crate::graph::shape::view::View::Linear {
+                    shape,
+                    strides,
+                    offset,
+                } = output_shape
+                {
                     // シンプルなコピーループを生成
-                    let copy_stmt = self.create_copy_loop(
-                        shape,
-                        strides,
-                        offset,
-                        &source_var,
-                        &output_var,
-                        0,
-                    );
+                    let copy_stmt =
+                        self.create_copy_loop(shape, strides, offset, &source_var, &output_var, 0);
                     statements.push(copy_stmt);
                 }
             }
@@ -1020,14 +1022,8 @@ impl Lowerer {
 
         // ループを生成
         let loop_var = format!("i{}", dim);
-        let inner_body = self.create_copy_loop(
-            shape,
-            strides,
-            offset,
-            source_var,
-            dest_var,
-            dim + 1,
-        );
+        let inner_body =
+            self.create_copy_loop(shape, strides, offset, source_var, dest_var, dim + 1);
 
         let max_iter = Self::shape_expr_to_ast_node(&shape[dim]);
 
