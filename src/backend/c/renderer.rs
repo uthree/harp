@@ -189,15 +189,6 @@ impl CRenderer {
                 self.render_node(rhs)
             )
             .unwrap(),
-            AstNode::Index { target, index } => {
-                write!(
-                    buffer,
-                    "{}[{}]",
-                    self.render_node(target),
-                    self.render_node(index)
-                )
-                .unwrap();
-            }
             AstNode::Assign(var_name, rhs) => {
                 write!(buffer, "{} = {}", var_name, self.render_node(rhs)).unwrap();
             }
@@ -208,12 +199,15 @@ impl CRenderer {
             } => {
                 write!(
                     buffer,
-                    "{}[{}] = {}",
+                    "*(({}) + ({})) = {}",
                     self.render_node(target),
                     self.render_node(index),
                     self.render_node(value)
                 )
                 .unwrap();
+            }
+            AstNode::Deref(expr) => {
+                write!(buffer, "*({})", self.render_node(expr)).unwrap();
             }
             AstNode::Neg(v) => write!(buffer, "-{}", self.render_node(v)).unwrap(),
             AstNode::Recip(v) => write!(buffer, "(1 / {})", self.render_node(v)).unwrap(),
@@ -341,11 +335,11 @@ mod tests {
     #[case(AstNode::Sin(Box::new(var("a"))), "sin(a)")]
     #[case(AstNode::Sqrt(Box::new(var("a"))), "sqrt(a)")]
     // Accessors
-    #[case(AstNode::Index { target: Box::new(var("arr")), index: Box::new(var("i")) }, "arr[i]")]
+    #[case(AstNode::Deref(Box::new(var("a") + var("i"))), "*((a + i))")]
     #[case(AstNode::CallFunction { name: "my_func".to_string(), args: vec![var("a"), (2 as isize).into()] }, "my_func(a, 2)")]
     // Others
     #[case(AstNode::Assign("a".to_string(), Box::new(var("b"))), "a = b")]
-    #[case(AstNode::Store { target: Box::new(var("arr")), index: Box::new(var("i")), value: Box::new(var("x")) }, "arr[i] = x")]
+    #[case(AstNode::Store { target: Box::new(var("arr")), index: Box::new(var("i")), value: Box::new(var("x")) }, "*((arr) + (i)) = x")]
     #[case(AstNode::Cast { dtype: DType::F32, expr: Box::new(var("a")) }, "(float)a")]
     #[case(AstNode::Cast { dtype: DType::Ptr(Box::new(DType::F32)), expr: Box::new(var("a")) }, "(float*)a")]
     #[case(-(var("a") + var("b")) * var("c"), "(-(a + b) * c)")]
@@ -454,7 +448,7 @@ void dynamic_alloc(size_t n)
 	float* arr;
 	arr = (float*)malloc(sizeof(float) * (n));
 
-	arr[0] = 1;
+	*((arr) + (0)) = 1;
 }
 "###;
         let mut renderer = CRenderer::new();

@@ -134,10 +134,10 @@ impl Lowerer {
                     var_name,
                     Box::new(AstNode::Cast {
                         dtype: DType::Ptr(Box::new(node_data.dtype.clone())),
-                        expr: Box::new(AstNode::Index {
-                            target: Box::new(AstNode::Var("bufs".to_string())),
-                            index: Box::new(AstNode::Const(ConstLiteral::Usize(arg_index))),
-                        }),
+                        expr: Box::new(AstNode::Deref(Box::new(
+                            AstNode::Var("bufs".to_string())
+                                + AstNode::Const(ConstLiteral::Usize(arg_index)),
+                        ))),
                     }),
                 ));
                 arg_index += 1;
@@ -160,10 +160,10 @@ impl Lowerer {
                 var_name,
                 Box::new(AstNode::Cast {
                     dtype: DType::Ptr(Box::new(output_node.dtype.clone())),
-                    expr: Box::new(AstNode::Index {
-                        target: Box::new(AstNode::Var("bufs".to_string())),
-                        index: Box::new(AstNode::Const(ConstLiteral::Usize(arg_index))),
-                    }),
+                    expr: Box::new(AstNode::Deref(Box::new(
+                        AstNode::Var("bufs".to_string())
+                            + AstNode::Const(ConstLiteral::Usize(arg_index)),
+                    ))),
                 }),
             ));
             arg_index += 1;
@@ -592,14 +592,12 @@ impl Lowerer {
                 target: Box::new(AstNode::Var(result_var.to_string())),
                 index: Box::new(result_index),
                 value: Box::new(op(
-                    AstNode::Index {
-                        target: Box::new(AstNode::Var(lhs_var.to_string())),
-                        index: Box::new(lhs_index),
-                    },
-                    AstNode::Index {
-                        target: Box::new(AstNode::Var(rhs_var.to_string())),
-                        index: Box::new(rhs_index),
-                    },
+                    AstNode::Deref(Box::new(
+                        AstNode::Var(lhs_var.to_string()) + lhs_index,
+                    )),
+                    AstNode::Deref(Box::new(
+                        AstNode::Var(rhs_var.to_string()) + rhs_index,
+                    )),
                 )),
             }
         } else {
@@ -747,10 +745,9 @@ impl Lowerer {
             AstNode::Store {
                 target: Box::new(AstNode::Var(result_var.to_string())),
                 index: Box::new(result_index),
-                value: Box::new(op(AstNode::Index {
-                    target: Box::new(AstNode::Var(operand_var.to_string())),
-                    index: Box::new(operand_index),
-                })),
+                value: Box::new(op(AstNode::Deref(Box::new(
+                    AstNode::Var(operand_var.to_string()) + operand_index,
+                )))),
             }
         } else {
             // 再帰的にネストしたループを作成
@@ -883,34 +880,28 @@ impl Lowerer {
             // 縮約操作: result[...] = result[...] op input[...]
             let operation_result = match reduce_op {
                 crate::graph::ops::ReduceOp::Add => AstNode::Add(
-                    Box::new(AstNode::Index {
-                        target: Box::new(AstNode::Var(result_var.to_string())),
-                        index: Box::new(result_index.clone()),
-                    }),
-                    Box::new(AstNode::Index {
-                        target: Box::new(AstNode::Var(input_var.to_string())),
-                        index: Box::new(input_index),
-                    }),
+                    Box::new(AstNode::Deref(Box::new(
+                        AstNode::Var(result_var.to_string()) + result_index.clone(),
+                    ))),
+                    Box::new(AstNode::Deref(Box::new(
+                        AstNode::Var(input_var.to_string()) + input_index,
+                    ))),
                 ),
                 crate::graph::ops::ReduceOp::Mul => AstNode::Mul(
-                    Box::new(AstNode::Index {
-                        target: Box::new(AstNode::Var(result_var.to_string())),
-                        index: Box::new(result_index.clone()),
-                    }),
-                    Box::new(AstNode::Index {
-                        target: Box::new(AstNode::Var(input_var.to_string())),
-                        index: Box::new(input_index),
-                    }),
+                    Box::new(AstNode::Deref(Box::new(
+                        AstNode::Var(result_var.to_string()) + result_index.clone(),
+                    ))),
+                    Box::new(AstNode::Deref(Box::new(
+                        AstNode::Var(input_var.to_string()) + input_index,
+                    ))),
                 ),
                 crate::graph::ops::ReduceOp::Max => AstNode::Max(
-                    Box::new(AstNode::Index {
-                        target: Box::new(AstNode::Var(result_var.to_string())),
-                        index: Box::new(result_index.clone()),
-                    }),
-                    Box::new(AstNode::Index {
-                        target: Box::new(AstNode::Var(input_var.to_string())),
-                        index: Box::new(input_index),
-                    }),
+                    Box::new(AstNode::Deref(Box::new(
+                        AstNode::Var(result_var.to_string()) + result_index.clone(),
+                    ))),
+                    Box::new(AstNode::Deref(Box::new(
+                        AstNode::Var(input_var.to_string()) + input_index,
+                    ))),
                 ),
             };
 
@@ -1008,10 +999,9 @@ impl Lowerer {
             return AstNode::Store {
                 target: Box::new(AstNode::Var(dest_var.to_string())),
                 index: Box::new(index.clone()),
-                value: Box::new(AstNode::Index {
-                    target: Box::new(AstNode::Var(source_var.to_string())),
-                    index: Box::new(index),
-                }),
+                value: Box::new(AstNode::Deref(Box::new(
+                    AstNode::Var(source_var.to_string()) + index,
+                ))),
             };
         }
 
