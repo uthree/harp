@@ -131,7 +131,7 @@ impl Lowerer {
 
                 // cast: float* input_0 = (float*)bufs[0];
                 statements.push(AstNode::Assign(
-                    Box::new(AstNode::Var(var_name)),
+                    var_name,
                     Box::new(AstNode::Cast {
                         dtype: DType::Ptr(Box::new(node_data.dtype.clone())),
                         expr: Box::new(AstNode::Index {
@@ -157,7 +157,7 @@ impl Lowerer {
             });
 
             statements.push(AstNode::Assign(
-                Box::new(AstNode::Var(var_name)),
+                var_name,
                 Box::new(AstNode::Cast {
                     dtype: DType::Ptr(Box::new(output_node.dtype.clone())),
                     expr: Box::new(AstNode::Index {
@@ -303,7 +303,7 @@ impl Lowerer {
                     size_expr: None,
                 });
                 Some(AstNode::Assign(
-                    Box::new(AstNode::Var(var_name)),
+                    var_name,
                     Box::new(AstNode::Const(lit.clone())),
                 ))
             }
@@ -588,12 +588,10 @@ impl Lowerer {
             let lhs_index = self.compute_memory_index(lhs_strides, lhs_offset, dim);
             let rhs_index = self.compute_memory_index(rhs_strides, rhs_offset, dim);
 
-            AstNode::Assign(
-                Box::new(AstNode::Index {
-                    target: Box::new(AstNode::Var(result_var.to_string())),
-                    index: Box::new(result_index),
-                }),
-                Box::new(op(
+            AstNode::Store {
+                target: Box::new(AstNode::Var(result_var.to_string())),
+                index: Box::new(result_index),
+                value: Box::new(op(
                     AstNode::Index {
                         target: Box::new(AstNode::Var(lhs_var.to_string())),
                         index: Box::new(lhs_index),
@@ -603,7 +601,7 @@ impl Lowerer {
                         index: Box::new(rhs_index),
                     },
                 )),
-            )
+            }
         } else {
             // 再帰的にネストしたループを作成
             let loop_var = format!("i{}", dim);
@@ -746,16 +744,14 @@ impl Lowerer {
             let result_index = self.compute_memory_index(result_strides, result_offset, dim);
             let operand_index = self.compute_memory_index(operand_strides, operand_offset, dim);
 
-            AstNode::Assign(
-                Box::new(AstNode::Index {
-                    target: Box::new(AstNode::Var(result_var.to_string())),
-                    index: Box::new(result_index),
-                }),
-                Box::new(op(AstNode::Index {
+            AstNode::Store {
+                target: Box::new(AstNode::Var(result_var.to_string())),
+                index: Box::new(result_index),
+                value: Box::new(op(AstNode::Index {
                     target: Box::new(AstNode::Var(operand_var.to_string())),
                     index: Box::new(operand_index),
                 })),
-            )
+            }
         } else {
             // 再帰的にネストしたループを作成
             let loop_var = format!("i{}", dim);
@@ -918,13 +914,11 @@ impl Lowerer {
                 ),
             };
 
-            return AstNode::Assign(
-                Box::new(AstNode::Index {
-                    target: Box::new(AstNode::Var(result_var.to_string())),
-                    index: Box::new(result_index),
-                }),
-                Box::new(operation_result),
-            );
+            return AstNode::Store {
+                target: Box::new(AstNode::Var(result_var.to_string())),
+                index: Box::new(result_index),
+                value: Box::new(operation_result),
+            };
         }
 
         if dim == reduce_axis {
@@ -951,13 +945,11 @@ impl Lowerer {
             // 結果の初期化（縮約軸をスキップしたインデックスで計算）
             let result_index =
                 self.compute_reduce_result_index(result_strides, result_offset, dim, reduce_axis);
-            let init_stmt = AstNode::Assign(
-                Box::new(AstNode::Index {
-                    target: Box::new(AstNode::Var(result_var.to_string())),
-                    index: Box::new(result_index),
-                }),
-                Box::new(initial_value),
-            );
+            let init_stmt = AstNode::Store {
+                target: Box::new(AstNode::Var(result_var.to_string())),
+                index: Box::new(result_index),
+                value: Box::new(initial_value),
+            };
 
             // 縮約ループ: for (i_reduce) { inner_body }
             let reduce_loop = AstNode::Range {
@@ -1013,16 +1005,14 @@ impl Lowerer {
         if dim >= shape.len() {
             // 最内レベル: コピーを実行
             let index = self.compute_memory_index(strides, offset, shape.len());
-            return AstNode::Assign(
-                Box::new(AstNode::Index {
-                    target: Box::new(AstNode::Var(dest_var.to_string())),
-                    index: Box::new(index.clone()),
-                }),
-                Box::new(AstNode::Index {
+            return AstNode::Store {
+                target: Box::new(AstNode::Var(dest_var.to_string())),
+                index: Box::new(index.clone()),
+                value: Box::new(AstNode::Index {
                     target: Box::new(AstNode::Var(source_var.to_string())),
                     index: Box::new(index),
                 }),
-            );
+            };
         }
 
         // ループを生成

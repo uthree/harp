@@ -198,12 +198,20 @@ impl CRenderer {
                 )
                 .unwrap();
             }
-            AstNode::Assign(lhs, rhs) => {
+            AstNode::Assign(var_name, rhs) => {
+                write!(buffer, "{} = {}", var_name, self.render_node(rhs)).unwrap();
+            }
+            AstNode::Store {
+                target,
+                index,
+                value,
+            } => {
                 write!(
                     buffer,
-                    "{} = {}",
-                    self.render_node(lhs),
-                    self.render_node(rhs)
+                    "{}[{}] = {}",
+                    self.render_node(target),
+                    self.render_node(index),
+                    self.render_node(value)
                 )
                 .unwrap();
             }
@@ -336,7 +344,8 @@ mod tests {
     #[case(AstNode::Index { target: Box::new(var("arr")), index: Box::new(var("i")) }, "arr[i]")]
     #[case(AstNode::CallFunction { name: "my_func".to_string(), args: vec![var("a"), (2 as isize).into()] }, "my_func(a, 2)")]
     // Others
-    #[case(AstNode::Assign(Box::new(var("a")), Box::new(var("b"))), "a = b")]
+    #[case(AstNode::Assign("a".to_string(), Box::new(var("b"))), "a = b")]
+    #[case(AstNode::Store { target: Box::new(var("arr")), index: Box::new(var("i")), value: Box::new(var("x")) }, "arr[i] = x")]
     #[case(AstNode::Cast { dtype: DType::F32, expr: Box::new(var("a")) }, "(float)a")]
     #[case(AstNode::Cast { dtype: DType::Ptr(Box::new(DType::F32)), expr: Box::new(var("a")) }, "(float*)a")]
     #[case(-(var("a") + var("b")) * var("c"), "(-(a + b) * c)")]
@@ -362,7 +371,7 @@ mod tests {
                     }],
                 },
                 statements: vec![AstNode::Assign(
-                    Box::new(var("b")),
+                    "b".to_string(),
                     Box::new(AstNode::from(1.0f32)),
                 )],
             },
@@ -422,13 +431,11 @@ void my_func(ssize_t a[10])
                         size_expr: Some(Box::new(AstNode::Var("n".to_string()))),
                     }],
                 },
-                statements: vec![AstNode::Assign(
-                    Box::new(AstNode::Index {
-                        target: Box::new(var("arr")),
-                        index: Box::new(AstNode::from(0usize)),
-                    }),
-                    Box::new(AstNode::from(1.0f32)),
-                )],
+                statements: vec![AstNode::Store {
+                    target: Box::new(var("arr")),
+                    index: Box::new(AstNode::from(0usize)),
+                    value: Box::new(AstNode::from(1.0f32)),
+                }],
             },
         );
         let program = Program {

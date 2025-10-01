@@ -93,7 +93,12 @@ pub enum AstNode {
         target: Box<Self>,
         index: Box<Self>,
     },
-    Assign(Box<Self>, Box<Self>), // assign value to variable
+    Assign(String, Box<Self>), // assign value to variable (lhs is variable name)
+    Store {
+        target: Box<Self>,
+        index: Box<Self>,
+        value: Box<Self>,
+    }, // store value to array element
 
     Range {
         // Forループ
@@ -263,7 +268,12 @@ impl AstNode {
             AstNode::Max(l, r) => vec![l.as_ref(), r.as_ref()],
             AstNode::Rem(l, r) => vec![l.as_ref(), r.as_ref()],
             AstNode::Index { target, index } => vec![target.as_ref(), index.as_ref()],
-            AstNode::Assign(l, r) => vec![l.as_ref(), r.as_ref()],
+            AstNode::Assign(_, r) => vec![r.as_ref()],
+            AstNode::Store {
+                target,
+                index,
+                value,
+            } => vec![target.as_ref(), index.as_ref(), value.as_ref()],
             AstNode::Neg(n) => vec![n.as_ref()],
             AstNode::Recip(n) => vec![n.as_ref()],
             AstNode::Sin(n) => vec![n.as_ref()],
@@ -359,10 +369,14 @@ impl AstNode {
                 target: Box::new(children_iter.next().unwrap()),
                 index: Box::new(children_iter.next().unwrap()),
             },
-            AstNode::Assign(_, _) => AstNode::Assign(
-                Box::new(children_iter.next().unwrap()),
-                Box::new(children_iter.next().unwrap()),
-            ),
+            AstNode::Assign(var_name, _) => {
+                AstNode::Assign(var_name, Box::new(children_iter.next().unwrap()))
+            }
+            AstNode::Store { .. } => AstNode::Store {
+                target: Box::new(children_iter.next().unwrap()),
+                index: Box::new(children_iter.next().unwrap()),
+                value: Box::new(children_iter.next().unwrap()),
+            },
             AstNode::Cast { dtype, .. } => AstNode::Cast {
                 dtype,
                 expr: Box::new(children_iter.next().unwrap()),
