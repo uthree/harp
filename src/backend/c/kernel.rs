@@ -25,7 +25,15 @@ impl Kernel for CKernel {
 
     fn call(&mut self, buffers: Vec<CBuffer>, shape_variables: &[usize]) -> Vec<CBuffer> {
         unsafe {
-            let func: Symbol<KernelMainFn> = self.library.get(self.func_name.as_bytes()).unwrap();
+            let func: Symbol<KernelMainFn> = self
+                .library
+                .get(self.func_name.as_bytes())
+                .unwrap_or_else(|e| {
+                    panic!(
+                        "Failed to load function '{}' from library: {}",
+                        self.func_name, e
+                    )
+                });
 
             let mut buf_ptrs: Vec<*mut c_void> = buffers.iter().map(|b| b.ptr).collect();
 

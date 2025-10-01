@@ -842,46 +842,17 @@ impl Lowerer {
         dim: usize,
     ) -> AstNode {
         if dim >= input_shape.len() {
-            // 最内レベル: 実際の計算を実行
-            return AstNode::Const(crate::ast::ConstLiteral::Usize(0)); // placeholder
-        }
-
-        if dim == reduce_axis {
-            // 縮約する次元: 初期化 + ループで累積
-            let next_dim_body = self.create_reduce_loops(
-                input_shape,
-                input_strides,
-                input_offset,
-                _result_shape,
+            // 全ての次元を処理した：縮約軸のループ本体を生成
+            // この時点でdim == input_shape.len()なので、全てのループ変数が定義されている
+            let input_index = self.compute_memory_index(input_strides, input_offset, input_shape.len());
+            let result_index = self.compute_reduce_result_index(
                 result_strides,
                 result_offset,
+                input_shape.len(),
                 reduce_axis,
-                input_var,
-                result_var,
-                reduce_op,
-                initial_value.clone(),
-                dim + 1,
             );
 
-            // この次元では初期化と累積ループを作成
-            let loop_var = format!("i{}", dim);
-            let shape_size = Self::shape_expr_to_ast_node(&input_shape[dim]);
-
-            // 結果の初期化 (縮約軸をスキップしたインデックスで計算)
-            let result_index =
-                self.compute_reduce_result_index(result_strides, result_offset, dim, reduce_axis);
-            let init_stmt = AstNode::Assign(
-                Box::new(AstNode::Index {
-                    target: Box::new(AstNode::Var(result_var.to_string())),
-                    index: Box::new(result_index.clone()),
-                }),
-                Box::new(initial_value),
-            );
-
-            // 縮約ループ本体
-            let input_index = self.compute_memory_index(input_strides, input_offset, dim + 1);
-
-            // 縮約操作を適用
+            // 縮約操作: result[...] = result[...] op input[...]
             let operation_result = match reduce_op {
                 crate::graph::ops::ReduceOp::Add => AstNode::Add(
                     Box::new(AstNode::Index {
@@ -915,28 +886,60 @@ impl Lowerer {
                 ),
             };
 
-            let accumulate_stmt = AstNode::Assign(
+            return AstNode::Assign(
                 Box::new(AstNode::Index {
                     target: Box::new(AstNode::Var(result_var.to_string())),
                     index: Box::new(result_index),
                 }),
                 Box::new(operation_result),
             );
+        }
 
-            // 先に初期化、その後縮約ループ
+        if dim == reduce_axis {
+            // 縮約する次元: 初期化 + ループで累積
+            // 縮約軸以降の次元のループを再帰的に生成
+            let inner_body = self.create_reduce_loops(
+                input_shape,
+                input_strides,
+                input_offset,
+                _result_shape,
+                result_strides,
+                result_offset,
+                reduce_axis,
+                input_var,
+                result_var,
+                reduce_op,
+                initial_value.clone(),
+                dim + 1,
+            );
+
+            let loop_var = format!("i{}", dim);
+            let shape_size = Self::shape_expr_to_ast_node(&input_shape[dim]);
+
+            // 結果の初期化（縮約軸をスキップしたインデックスで計算）
+            let result_index =
+                self.compute_reduce_result_index(result_strides, result_offset, dim, reduce_axis);
+            let init_stmt = AstNode::Assign(
+                Box::new(AstNode::Index {
+                    target: Box::new(AstNode::Var(result_var.to_string())),
+                    index: Box::new(result_index),
+                }),
+                Box::new(initial_value),
+            );
+
+            // 縮約ループ: for (i_reduce) { inner_body }
+            let reduce_loop = AstNode::Range {
+                counter_name: loop_var,
+                max: Box::new(shape_size),
+                body: Box::new(inner_body),
+            };
+
+            // 初期化 + 縮約ループをブロックにまとめる
             AstNode::Block {
                 scope: crate::ast::Scope {
                     declarations: vec![],
                 },
-                statements: vec![
-                    init_stmt,
-                    AstNode::Range {
-                        counter_name: loop_var,
-                        max: Box::new(shape_size),
-                        body: Box::new(accumulate_stmt),
-                    },
-                    next_dim_body,
-                ],
+                statements: vec![init_stmt, reduce_loop],
             }
         } else {
             // 縮約しない次元: 通常のループ

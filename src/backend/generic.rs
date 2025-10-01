@@ -180,14 +180,37 @@ where
         // 4. Compile the code to a kernel
         let mut kernel = self.compiler.compile(&code, signature);
 
-        // 5. Execute the kernel with input buffers
+        // 5. Create output buffers
+        let mut all_buffers = inputs;
+        for output_node in &graph.outputs {
+            let shape: Vec<usize> = output_node
+                .view
+                .shape()
+                .iter()
+                .map(|expr| {
+                    if let crate::graph::shape::Expr::Const(n) = expr {
+                        *n as usize
+                    } else {
+                        panic!("Dynamic shapes not yet supported in output allocation")
+                    }
+                })
+                .collect();
+            let output_buffer = C::Buffer::allocate(output_node.dtype.clone(), shape);
+            all_buffers.push(output_buffer);
+        }
+
+        // 6. Execute the kernel with input and output buffers
         let shape_vars: Vec<usize> = graph
             .shape_variables
             .iter()
             .map(|var| var.default as usize)
             .collect();
 
-        kernel.call(inputs, &shape_vars)
+        let result_buffers = kernel.call(all_buffers, &shape_vars);
+
+        // 7. Return only the output buffers
+        let num_inputs = graph.inputs.len();
+        result_buffers.into_iter().skip(num_inputs).collect()
     }
 }
 
