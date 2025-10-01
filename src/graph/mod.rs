@@ -21,6 +21,10 @@ impl GraphNode {
     pub(crate) fn new(op: GraphOp, dtype: DType, view: View) -> GraphNode {
         GraphNode(Rc::new(GraphNodeData { op, dtype, view }))
     }
+
+    pub(crate) fn from_rc(rc: Rc<GraphNodeData>) -> GraphNode {
+        GraphNode(rc)
+    }
 }
 
 impl Deref for GraphNode {

@@ -19,6 +19,8 @@ pub enum Expr {
 
 impl From<Expr> for AstNode {
     fn from(expr: Expr) -> Self {
+        // 変換前にsimplifyして可読性を向上
+        let expr = expr.simplify();
         match expr {
             Expr::Const(c) => AstNode::Const(ConstLiteral::Isize(c)),
             Expr::Var(s) => AstNode::Var(s),

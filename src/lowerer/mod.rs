@@ -1,6 +1,8 @@
 use crate::ast::{AstNode, ConstLiteral, DType, Function, Program, Scope, VariableDecl};
-use crate::graph::{Graph, GraphNode, GraphOp};
+use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::ops::Deref;
+use std::rc::Rc;
 
 pub struct Lowerer {
     next_temp_id: usize,
@@ -26,8 +28,34 @@ impl Lowerer {
     }
 
     fn create_kernel_function(&mut self, graph: &Graph) -> Function {
+        // 0.5. graphのinputsの順序通りに入力ノードをマッピング
+        for (i, weak_input) in graph.inputs.iter().enumerate() {
+            if let Some(input_rc) = weak_input.upgrade() {
+                // GraphNodeを作成するには、トポロジカルソートで得られたノードと照合する必要がある
+                // しかし、ここではまだトポロジカルソートしていないので、一旦保留
+            }
+        }
+
         // 1. トポロジカルソート
         let sorted_nodes = self.topological_sort(graph);
+
+        // 1.5. 入力ノードと出力ノードに対して変数名を事前マッピング
+        // graphのinputsと照合して正しい順序を維持
+        for (i, weak_input) in graph.inputs.iter().enumerate() {
+            if let Some(input_rc) = weak_input.upgrade() {
+                // sorted_nodesから同じノードを探す
+                // GraphNodeはRc<GraphNodeData>をラップしており、Eq/Hashが実装されている
+                let input_node = GraphNode::from_rc(input_rc);
+                let var_name = format!("input_{}", i);
+                self.node_to_var.insert(input_node, var_name);
+            }
+        }
+
+        // 出力ノードもマッピング
+        for (i, output_node) in graph.outputs.iter().enumerate() {
+            let var_name = format!("output_{}", i);
+            self.node_to_var.insert(output_node.clone(), var_name);
+        }
 
         // 2. 各ノードを処理してAST文を生成
         let mut statements = Vec::new();
@@ -233,7 +261,9 @@ impl Lowerer {
     ) -> Option<AstNode> {
         match &node.op {
             GraphOp::Input => {
-                // 入力ノードは引数として処理されるので、ここでは何もしない
+                // 入力ノードは引数として処理される
+                // get_or_create_var_nameで適切な名前が生成されるようにする
+                self.get_or_create_var_name(node);
                 None
             }
             GraphOp::Const(lit) => {
@@ -252,9 +282,12 @@ impl Lowerer {
             GraphOp::Reduce(op, axis, input) => {
                 self.lower_reduce_op(node, op, *axis, input, declarations)
             }
-            GraphOp::ViewTransform(_) => {
+            GraphOp::ViewTransform(source_node) => {
                 // View変換は通常、メモリレイアウトの変更なので、
                 // 新しい変数は作らずに既存の変数への参照として扱う
+                // ソースノードの変数名をこのノードにもマッピングする
+                let source_var = self.get_or_create_var_name(source_node);
+                self.node_to_var.insert(node.clone(), source_var);
                 None
             }
         }
@@ -306,6 +339,22 @@ impl Lowerer {
         }
     }
 
+    fn compute_total_size(&self, view: &crate::graph::shape::view::View) -> Option<usize> {
+        if let crate::graph::shape::view::View::Linear { shape, .. } = view {
+            let mut total = 1;
+            for dim in shape {
+                if let crate::graph::shape::Expr::Const(n) = dim {
+                    total *= *n as usize;
+                } else {
+                    return None; // 動的サイズの場合
+                }
+            }
+            Some(total)
+        } else {
+            None
+        }
+    }
+
     fn lower_elementwise_op(
         &mut self,
         node: &GraphNode,
@@ -315,11 +364,25 @@ impl Lowerer {
         use crate::graph::ops::ElementwiseOp;
 
         let result_var = self.get_or_create_var_name(node);
-        declarations.push(VariableDecl {
-            name: result_var.clone(),
-            dtype: node.dtype.clone(),
-            constant: false,
-        });
+
+        // 出力ノードの場合は配列を宣言しない（引数として渡される）
+        if !result_var.starts_with("output_") {
+            // テンソルの場合は配列として宣言する必要がある
+            let total_size = self.compute_total_size(&node.view);
+            let result_dtype = if let Some(size) = total_size {
+                // サイズが静的に決定できる場合は固定サイズ配列型
+                DType::Vec(Box::new(node.dtype.clone()), size)
+            } else {
+                // 動的サイズの場合はポインタ型（将来的にmallocで対応）
+                todo!("Dynamic size arrays not yet supported")
+            };
+
+            declarations.push(VariableDecl {
+                name: result_var.clone(),
+                dtype: result_dtype,
+                constant: false,
+            });
+        }
 
         // ループでテンソルの各要素を処理
         let body = match op {
@@ -546,17 +609,20 @@ impl Lowerer {
         offset: &crate::graph::shape::Expr,
         num_dims: usize,
     ) -> AstNode {
-        let mut index = Self::shape_expr_to_ast_node(offset);
+        use crate::graph::shape::Expr;
+
+        // Exprレベルで計算してからAstNodeに変換することで、simplifyが適用される
+        let mut index_expr = offset.clone();
 
         for (i, stride) in strides.iter().enumerate().take(num_dims) {
-            let stride = Self::shape_expr_to_ast_node(stride);
-            let loop_var = AstNode::Var(format!("i{}", i));
-
-            let term = AstNode::Mul(Box::new(loop_var), Box::new(stride));
-            index = AstNode::Add(Box::new(index), Box::new(term));
+            let loop_var = Expr::Var(format!("i{}", i));
+            let term = loop_var * stride.clone();
+            index_expr = index_expr + term;
         }
 
-        index
+        // 最終的にsimplifyしてからAstNodeに変換
+        let simplified = index_expr.simplify();
+        Self::shape_expr_to_ast_node(&simplified)
     }
 
     fn shape_expr_to_ast_node(expr: &crate::graph::shape::Expr) -> AstNode {
@@ -699,11 +765,24 @@ impl Lowerer {
         let result_var = self.get_or_create_var_name(node);
         let input_var = self.get_or_create_var_name(input);
 
-        declarations.push(VariableDecl {
-            name: result_var.clone(),
-            dtype: node.dtype.clone(),
-            constant: false,
-        });
+        // 出力ノードの場合は配列を宣言しない（引数として渡される）
+        if !result_var.starts_with("output_") {
+            // テンソルの場合は配列として宣言する必要がある
+            let total_size = self.compute_total_size(&node.view);
+            let result_dtype = if let Some(size) = total_size {
+                // サイズが静的に決定できる場合は固定サイズ配列型
+                DType::Vec(Box::new(node.dtype.clone()), size)
+            } else {
+                // 動的サイズの場合はポインタ型（将来的にmallocで対応）
+                todo!("Dynamic size arrays not yet supported")
+            };
+
+            declarations.push(VariableDecl {
+                name: result_var.clone(),
+                dtype: result_dtype,
+                constant: false,
+            });
+        }
 
         // view情報を取得
         let input_view = &input.view;
@@ -894,20 +973,24 @@ impl Lowerer {
         current_dim: usize,
         reduce_axis: usize,
     ) -> AstNode {
-        let mut index = Self::shape_expr_to_ast_node(result_offset);
+        use crate::graph::shape::Expr;
+
+        // Exprレベルで計算してからAstNodeに変換することで、simplifyが適用される
+        let mut index_expr = result_offset.clone();
 
         let mut result_dim = 0;
         for input_dim in 0..current_dim {
             if input_dim != reduce_axis {
-                let stride = Self::shape_expr_to_ast_node(&result_strides[result_dim]);
-                let loop_var = AstNode::Var(format!("i{}", input_dim));
-                let term = AstNode::Mul(Box::new(loop_var), Box::new(stride));
-                index = AstNode::Add(Box::new(index), Box::new(term));
+                let loop_var = Expr::Var(format!("i{}", input_dim));
+                let term = loop_var * result_strides[result_dim].clone();
+                index_expr = index_expr + term;
                 result_dim += 1;
             }
         }
 
-        index
+        // 最終的にsimplifyしてからAstNodeに変換
+        let simplified = index_expr.simplify();
+        Self::shape_expr_to_ast_node(&simplified)
     }
 }
 
