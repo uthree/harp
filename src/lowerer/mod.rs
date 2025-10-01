@@ -1,8 +1,6 @@
 use crate::ast::{AstNode, ConstLiteral, DType, Function, Program, Scope, VariableDecl};
-use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
+use crate::graph::{Graph, GraphNode, GraphOp};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::ops::Deref;
-use std::rc::Rc;
 
 pub struct Lowerer {
     next_temp_id: usize,
@@ -65,6 +63,32 @@ impl Lowerer {
             let ast_stmt = self.lower_node(&node, &mut declarations);
             if let Some(stmt) = ast_stmt {
                 statements.push(stmt);
+            }
+        }
+
+        // 3. 出力ノードに対して、必要に応じてコピーコードを生成
+        for (output_idx, output_node) in graph.outputs.iter().enumerate() {
+            let output_var = format!("output_{}", output_idx);
+            let source_var = self.get_or_create_var_name(output_node);
+
+            eprintln!("Output {}: output_var={}, source_var={}", output_idx, output_var, source_var);
+
+            // 出力変数とソース変数が異なる場合、コピーが必要
+            if output_var != source_var {
+                // メモリコピーを生成
+                let output_shape = &output_node.view;
+                if let crate::graph::shape::view::View::Linear { shape, strides, offset } = output_shape {
+                    // シンプルなコピーループを生成
+                    let copy_stmt = self.create_copy_loop(
+                        shape,
+                        strides,
+                        offset,
+                        &source_var,
+                        &output_var,
+                        0,
+                    );
+                    statements.push(copy_stmt);
+                }
             }
         }
 
@@ -617,7 +641,7 @@ impl Lowerer {
         for (i, stride) in strides.iter().enumerate().take(num_dims) {
             let loop_var = Expr::Var(format!("i{}", i));
             let term = loop_var * stride.clone();
-            index_expr = index_expr + term;
+            index_expr += term;
         }
 
         // 最終的にsimplifyしてからAstNodeに変換
@@ -844,7 +868,8 @@ impl Lowerer {
         if dim >= input_shape.len() {
             // 全ての次元を処理した：縮約軸のループ本体を生成
             // この時点でdim == input_shape.len()なので、全てのループ変数が定義されている
-            let input_index = self.compute_memory_index(input_strides, input_offset, input_shape.len());
+            let input_index =
+                self.compute_memory_index(input_strides, input_offset, input_shape.len());
             let result_index = self.compute_reduce_result_index(
                 result_strides,
                 result_offset,
@@ -969,6 +994,50 @@ impl Lowerer {
         }
     }
 
+    fn create_copy_loop(
+        &self,
+        shape: &[crate::graph::shape::Expr],
+        strides: &[crate::graph::shape::Expr],
+        offset: &crate::graph::shape::Expr,
+        source_var: &str,
+        dest_var: &str,
+        dim: usize,
+    ) -> AstNode {
+        if dim >= shape.len() {
+            // 最内レベル: コピーを実行
+            let index = self.compute_memory_index(strides, offset, shape.len());
+            return AstNode::Assign(
+                Box::new(AstNode::Index {
+                    target: Box::new(AstNode::Var(dest_var.to_string())),
+                    index: Box::new(index.clone()),
+                }),
+                Box::new(AstNode::Index {
+                    target: Box::new(AstNode::Var(source_var.to_string())),
+                    index: Box::new(index),
+                }),
+            );
+        }
+
+        // ループを生成
+        let loop_var = format!("i{}", dim);
+        let inner_body = self.create_copy_loop(
+            shape,
+            strides,
+            offset,
+            source_var,
+            dest_var,
+            dim + 1,
+        );
+
+        let max_iter = Self::shape_expr_to_ast_node(&shape[dim]);
+
+        AstNode::Range {
+            counter_name: loop_var,
+            max: Box::new(max_iter),
+            body: Box::new(inner_body),
+        }
+    }
+
     fn compute_reduce_result_index(
         &self,
         result_strides: &[crate::graph::shape::Expr],
@@ -986,7 +1055,7 @@ impl Lowerer {
             if input_dim != reduce_axis {
                 let loop_var = Expr::Var(format!("i{}", input_dim));
                 let term = loop_var * result_strides[result_dim].clone();
-                index_expr = index_expr + term;
+                index_expr += term;
                 result_dim += 1;
             }
         }

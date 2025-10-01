@@ -182,16 +182,32 @@ where
 
         // 5. Create output buffers
         let mut all_buffers = inputs;
+
+        // Shape variable values for dynamic shape resolution
+        let shape_var_values: std::collections::HashMap<String, isize> = graph
+            .shape_variables
+            .iter()
+            .map(|var| (var.name.clone(), var.default))
+            .collect();
+
         for output_node in &graph.outputs {
             let shape: Vec<usize> = output_node
                 .view
                 .shape()
                 .iter()
                 .map(|expr| {
-                    if let crate::graph::shape::Expr::Const(n) = expr {
-                        *n as usize
-                    } else {
-                        panic!("Dynamic shapes not yet supported in output allocation")
+                    match expr {
+                        crate::graph::shape::Expr::Const(n) => *n as usize,
+                        crate::graph::shape::Expr::Var(var_name) => {
+                            *shape_var_values.get(var_name).unwrap_or_else(|| {
+                                panic!("Shape variable '{}' not found", var_name)
+                            }) as usize
+                        }
+                        _ => {
+                            // For complex expressions, evaluate them
+                            // For now, we'll use a simple evaluation
+                            panic!("Complex shape expressions not yet supported in output allocation: {:?}", expr)
+                        }
                     }
                 })
                 .collect();

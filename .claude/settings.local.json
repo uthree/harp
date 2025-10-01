@@ -12,7 +12,12 @@
       "Bash(env RUST_LOG=trace timeout 10 cargo run --example matmul)",
       "Bash(timeout 10 cargo run --release --example matmul)",
       "Bash(timeout 3 cargo run --example matmul)",
-      "Bash(cargo build:*)"
+      "Bash(cargo build:*)",
+      "Bash(env RUST_LOG=debug cargo run --example test_passthrough)",
+      "Bash(RUST_LOG=trace cargo build --example test_passthrough)",
+      "Bash(RUST_LOG=debug cargo run --example test_passthrough 2)",
+      "Bash(1)",
+      "Bash(RUST_LOG=debug cargo run --example test_passthrough)"
     ],
     "deny": [],
     "ask": []
