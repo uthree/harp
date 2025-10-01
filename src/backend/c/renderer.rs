@@ -87,7 +87,23 @@ impl CRenderer {
         // Render declarations
         for decl in &scope.declarations {
             self.render_indent(&mut buffer);
-            writeln!(buffer, "{};", self.render_variable_decl(decl)).unwrap();
+            let decl_str = self.render_variable_decl(decl);
+            writeln!(buffer, "{};", decl_str).unwrap();
+
+            // For dynamic arrays (pointers with size_expr), emit malloc call
+            if let Some(size_expr) = &decl.size_expr {
+                if let DType::Ptr(inner) = &decl.dtype {
+                    self.render_indent(&mut buffer);
+                    let base_type = Self::render_scalar_dtype(inner);
+                    let size_code = self.render_node(size_expr);
+                    writeln!(
+                        buffer,
+                        "{} = ({}*)malloc(sizeof({}) * ({}));",
+                        decl.name, base_type, base_type, size_code
+                    )
+                    .unwrap();
+                }
+            }
         }
 
         // Render statements
@@ -342,6 +358,7 @@ mod tests {
                         name: "b".to_string(),
                         dtype: DType::F32,
                         constant: false,
+                        size_expr: None,
                     }],
                 },
                 statements: vec![AstNode::Assign(
@@ -387,5 +404,53 @@ void my_func(ssize_t a[10])
 "###;
         let mut renderer = CRenderer::new();
         assert_eq!(renderer.render_function(&function), expected);
+    }
+
+    #[test]
+    fn test_render_dynamic_array() {
+        let _ = env_logger::try_init();
+        let function = Function::new(
+            "dynamic_alloc".to_string(),
+            vec![("n".to_string(), DType::Usize)],
+            DType::Void,
+            AstNode::Block {
+                scope: Scope {
+                    declarations: vec![VariableDecl {
+                        name: "arr".to_string(),
+                        dtype: DType::Ptr(Box::new(DType::F32)),
+                        constant: false,
+                        size_expr: Some(Box::new(AstNode::Var("n".to_string()))),
+                    }],
+                },
+                statements: vec![AstNode::Assign(
+                    Box::new(AstNode::Index {
+                        target: Box::new(var("arr")),
+                        index: Box::new(AstNode::from(0usize)),
+                    }),
+                    Box::new(AstNode::from(1.0f32)),
+                )],
+            },
+        );
+        let program = Program {
+            functions: vec![function],
+            entry_point: "dynamic_alloc".to_string(),
+        };
+        let expected = r###"#include <math.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdlib.h>
+
+void dynamic_alloc(size_t n);
+
+void dynamic_alloc(size_t n)
+{
+	float* arr;
+	arr = (float*)malloc(sizeof(float) * (n));
+
+	arr[0] = 1;
+}
+"###;
+        let mut renderer = CRenderer::new();
+        assert_eq!(renderer.render(program), expected);
     }
 }

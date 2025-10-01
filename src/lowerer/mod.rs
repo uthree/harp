@@ -126,6 +126,7 @@ impl Lowerer {
                     name: var_name.clone(),
                     dtype: DType::Ptr(Box::new(node_data.dtype.clone())),
                     constant: false,
+                    size_expr: None,
                 });
 
                 // cast: float* input_0 = (float*)bufs[0];
@@ -152,6 +153,7 @@ impl Lowerer {
                 name: var_name.clone(),
                 dtype: DType::Ptr(Box::new(output_node.dtype.clone())),
                 constant: false,
+                size_expr: None,
             });
 
             statements.push(AstNode::Assign(
@@ -298,6 +300,7 @@ impl Lowerer {
                     name: var_name.clone(),
                     dtype: node.dtype.clone(),
                     constant: false, // 現在は初期化と代入を分けているため、constにできない
+                    size_expr: None,
                 });
                 Some(AstNode::Assign(
                     Box::new(AstNode::Var(var_name)),
@@ -407,6 +410,7 @@ impl Lowerer {
                 name: result_var.clone(),
                 dtype: result_dtype,
                 constant: false,
+                size_expr: None,
             });
         }
 
@@ -807,6 +811,7 @@ impl Lowerer {
                 name: result_var.clone(),
                 dtype: result_dtype,
                 constant: false,
+                size_expr: None,
             });
         }
 
