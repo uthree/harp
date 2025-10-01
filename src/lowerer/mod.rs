@@ -592,12 +592,8 @@ impl Lowerer {
                 target: Box::new(AstNode::Var(result_var.to_string())),
                 index: Box::new(result_index),
                 value: Box::new(op(
-                    AstNode::Deref(Box::new(
-                        AstNode::Var(lhs_var.to_string()) + lhs_index,
-                    )),
-                    AstNode::Deref(Box::new(
-                        AstNode::Var(rhs_var.to_string()) + rhs_index,
-                    )),
+                    AstNode::Deref(Box::new(AstNode::Var(lhs_var.to_string()) + lhs_index)),
+                    AstNode::Deref(Box::new(AstNode::Var(rhs_var.to_string()) + rhs_index)),
                 )),
             }
         } else {

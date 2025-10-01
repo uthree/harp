@@ -95,7 +95,7 @@ pub enum AstNode {
         index: Box<Self>,
         value: Box<Self>,
     }, // store value to memory location (target[index] = value)
-    Deref(Box<Self>), // dereference pointer (read value from *expr)
+    Deref(Box<Self>),          // dereference pointer (read value from *expr)
 
     Range {
         // Forループ

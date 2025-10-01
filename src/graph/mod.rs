@@ -14,7 +14,7 @@ pub struct GraphNodeData {
     pub view: View,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone)]
 pub struct GraphNode(Rc<GraphNodeData>);
 
 impl GraphNode {
@@ -24,6 +24,21 @@ impl GraphNode {
 
     pub(crate) fn from_rc(rc: Rc<GraphNodeData>) -> GraphNode {
         GraphNode(rc)
+    }
+}
+
+// PartialEq, Eq, Hash are based on pointer address, not content
+impl PartialEq for GraphNode {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for GraphNode {}
+
+impl std::hash::Hash for GraphNode {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::ptr::hash(Rc::as_ptr(&self.0), state)
     }
 }
 

@@ -17,7 +17,9 @@
       "Bash(RUST_LOG=trace cargo build --example test_passthrough)",
       "Bash(RUST_LOG=debug cargo run --example test_passthrough 2)",
       "Bash(1)",
-      "Bash(RUST_LOG=debug cargo run --example test_passthrough)"
+      "Bash(RUST_LOG=debug cargo run --example test_passthrough)",
+      "Bash(RUST_LOG=debug cargo run --example simple_add)",
+      "Bash(env RUST_LOG=debug cargo run --example simple_add)"
     ],
     "deny": [],
     "ask": []
