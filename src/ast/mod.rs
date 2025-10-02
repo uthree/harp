@@ -98,8 +98,15 @@ pub enum AstNode {
     Deref(Box<Self>),          // dereference pointer (read value from *expr)
 
     Range {
-        // Forループ
+        // Forループ (0 から max-1 まで)
         counter_name: String, // ループカウンタの変数名
+        max: Box<Self>,       // ループ回数
+        body: Box<Self>,
+    },
+    RangeFrom {
+        // Forループ (start から max-1 まで)
+        counter_name: String, // ループカウンタの変数名
+        start: Box<Self>,     // 開始値
         max: Box<Self>,       // ループ回数
         body: Box<Self>,
     },
@@ -281,6 +288,11 @@ impl AstNode {
             AstNode::Range { max, body, .. } => {
                 vec![max.as_ref(), body.as_ref()]
             }
+            AstNode::RangeFrom {
+                start, max, body, ..
+            } => {
+                vec![start.as_ref(), max.as_ref(), body.as_ref()]
+            }
             AstNode::Block { statements, .. } => statements.iter().collect(),
             AstNode::Drop(_) => vec![],
             AstNode::Barrier => vec![],
@@ -387,6 +399,12 @@ impl AstNode {
             },
             AstNode::Range { counter_name, .. } => AstNode::Range {
                 counter_name, // moved
+                max: Box::new(children_iter.next().unwrap()),
+                body: Box::new(children_iter.next().unwrap()),
+            },
+            AstNode::RangeFrom { counter_name, .. } => AstNode::RangeFrom {
+                counter_name, // moved
+                start: Box::new(children_iter.next().unwrap()),
                 max: Box::new(children_iter.next().unwrap()),
                 body: Box::new(children_iter.next().unwrap()),
             },
