@@ -136,6 +136,9 @@ impl CRenderer {
         writeln!(buffer, "{{").unwrap();
         self.indent_level += 1;
 
+        // Track variables that need to be freed
+        let mut malloc_vars = Vec::new();
+
         // Render declarations
         for decl in &scope.declarations {
             self.render_indent(&mut buffer);
@@ -154,6 +157,8 @@ impl CRenderer {
                         decl.name, base_type, base_type, size_code
                     )
                     .unwrap();
+                    // Track this variable for cleanup
+                    malloc_vars.push(decl.name.clone());
                 }
             }
         }
@@ -165,6 +170,15 @@ impl CRenderer {
         for stmt in statements {
             self.render_indent(&mut buffer);
             writeln!(buffer, "{};", self.render_node(stmt)).unwrap();
+        }
+
+        // Free dynamically allocated memory before closing scope
+        if !malloc_vars.is_empty() {
+            writeln!(buffer).unwrap();
+            for var_name in malloc_vars {
+                self.render_indent(&mut buffer);
+                writeln!(buffer, "free({});", var_name).unwrap();
+            }
         }
 
         self.indent_level -= 1;
@@ -522,6 +536,8 @@ void dynamic_alloc(size_t n)
 	arr = (float*)malloc(sizeof(float) * (n));
 
 	*((arr) + (0)) = 1;
+
+	free(arr);
 }
 "###;
         let mut renderer = CRenderer::new();
