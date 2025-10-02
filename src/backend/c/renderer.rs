@@ -28,6 +28,58 @@ impl Renderer for CRenderer {
 }
 
 impl CRenderer {
+    /// Get the precedence level of an operator.
+    /// Higher number = higher precedence (binds tighter).
+    fn precedence(node: &AstNode) -> u8 {
+        match node {
+            // Highest precedence: atoms and function calls
+            AstNode::Const(_) | AstNode::Var(_) | AstNode::CallFunction { .. } => 100,
+
+            // Unary operators
+            AstNode::Neg(_)
+            | AstNode::Recip(_)
+            | AstNode::Sin(_)
+            | AstNode::Sqrt(_)
+            | AstNode::Log2(_)
+            | AstNode::Exp2(_)
+            | AstNode::Deref(_)
+            | AstNode::Cast { .. } => 90,
+
+            // Multiplicative operators
+            AstNode::Mul(_, _) | AstNode::Div(_, _) | AstNode::Rem(_, _) => 80,
+
+            // Additive operators
+            AstNode::Add(_, _) => 70,
+
+            // Everything else (statements, etc.)
+            _ => 0,
+        }
+    }
+
+    /// Render a node with parentheses if needed based on precedence.
+    fn render_with_parens(
+        &mut self,
+        node: &AstNode,
+        parent_precedence: u8,
+        is_rhs: bool,
+    ) -> String {
+        let node_precedence = Self::precedence(node);
+        let needs_parens = if is_rhs {
+            // Right side needs parens if precedence is lower or equal (for left-associative ops)
+            node_precedence <= parent_precedence && parent_precedence > 0
+        } else {
+            // Left side needs parens only if precedence is strictly lower
+            node_precedence < parent_precedence && parent_precedence > 0
+        };
+
+        let rendered = self.render_node(node);
+        if needs_parens && !matches!(node, AstNode::Const(_) | AstNode::Var(_)) {
+            format!("({})", rendered)
+        } else {
+            rendered
+        }
+    }
+
     fn render_program(&mut self, program: &Program) -> String {
         let mut buffer = String::new();
         buffer.push_str("#include <math.h>\n");
@@ -136,52 +188,70 @@ impl CRenderer {
         match node {
             AstNode::Const(c) => write!(buffer, "{}", self.render_const(c)).unwrap(),
             AstNode::Var(s) => write!(buffer, "{}", s).unwrap(),
-            AstNode::Add(lhs, rhs) => match &**rhs {
-                AstNode::Neg(negv) => write!(
+            AstNode::Add(lhs, rhs) => {
+                let prec = Self::precedence(node);
+                match &**rhs {
+                    AstNode::Neg(negv) => {
+                        // a + (-b) => a - b
+                        write!(
+                            buffer,
+                            "{} - {}",
+                            self.render_with_parens(lhs, prec, false),
+                            self.render_with_parens(negv, prec, true)
+                        )
+                        .unwrap()
+                    }
+                    _ => write!(
+                        buffer,
+                        "{} + {}",
+                        self.render_with_parens(lhs, prec, false),
+                        self.render_with_parens(rhs, prec, true)
+                    )
+                    .unwrap(),
+                }
+            }
+            AstNode::Mul(lhs, rhs) => {
+                let prec = Self::precedence(node);
+                match &**rhs {
+                    AstNode::Recip(recipv) => {
+                        // a * recip(b) => a / b
+                        write!(
+                            buffer,
+                            "{} / {}",
+                            self.render_with_parens(lhs, prec, false),
+                            self.render_with_parens(recipv, prec, true)
+                        )
+                        .unwrap()
+                    }
+                    _ => write!(
+                        buffer,
+                        "{} * {}",
+                        self.render_with_parens(lhs, prec, false),
+                        self.render_with_parens(rhs, prec, true)
+                    )
+                    .unwrap(),
+                }
+            }
+            AstNode::Div(lhs, rhs) => {
+                let prec = Self::precedence(node);
+                write!(
                     buffer,
-                    "( {} - {} )",
-                    self.render_node(lhs),
-                    self.render_node(negv)
+                    "{} / {}",
+                    self.render_with_parens(lhs, prec, false),
+                    self.render_with_parens(rhs, prec, true)
                 )
-                .unwrap(),
-                _ => write!(
+                .unwrap()
+            }
+            AstNode::Rem(lhs, rhs) => {
+                let prec = Self::precedence(node);
+                write!(
                     buffer,
-                    "({} + {})",
-                    self.render_node(lhs),
-                    self.render_node(rhs)
+                    "{} % {}",
+                    self.render_with_parens(lhs, prec, false),
+                    self.render_with_parens(rhs, prec, true)
                 )
-                .unwrap(),
-            },
-            AstNode::Mul(lhs, rhs) => match &**rhs {
-                AstNode::Recip(recipv) => write!(
-                    buffer,
-                    "( {} / {} )",
-                    self.render_node(lhs),
-                    self.render_node(recipv)
-                )
-                .unwrap(),
-                _ => write!(
-                    buffer,
-                    "({} * {})",
-                    self.render_node(lhs),
-                    self.render_node(rhs)
-                )
-                .unwrap(),
-            },
-            AstNode::Div(lhs, rhs) => write!(
-                buffer,
-                "({} / {})",
-                self.render_node(lhs),
-                self.render_node(rhs)
-            )
-            .unwrap(),
-            AstNode::Rem(lhs, rhs) => write!(
-                buffer,
-                "({} % {})",
-                self.render_node(lhs),
-                self.render_node(rhs)
-            )
-            .unwrap(),
+                .unwrap()
+            }
             AstNode::Max(lhs, rhs) => write!(
                 buffer,
                 "fmax({}, {})",
@@ -209,7 +279,10 @@ impl CRenderer {
             AstNode::Deref(expr) => {
                 write!(buffer, "*({})", self.render_node(expr)).unwrap();
             }
-            AstNode::Neg(v) => write!(buffer, "-{}", self.render_node(v)).unwrap(),
+            AstNode::Neg(v) => {
+                let prec = Self::precedence(node);
+                write!(buffer, "-{}", self.render_with_parens(v, prec, false)).unwrap()
+            }
             AstNode::Recip(v) => write!(buffer, "(1 / {})", self.render_node(v)).unwrap(),
             AstNode::Sin(v) => write!(buffer, "sin({})", self.render_node(v)).unwrap(),
             AstNode::Sqrt(v) => write!(buffer, "sqrt({})", self.render_node(v)).unwrap(),
@@ -325,24 +398,24 @@ mod tests {
 
     #[rstest]
     // Ops
-    #[case(var("a") + var("b"), "(a + b)")]
-    #[case(var("a") + (-var("b")), "( a - b )")]
-    #[case(var("a") * var("b"), "(a * b)")]
-    #[case(var("a") * var("b").recip(), "( a / b )")]
-    #[case(AstNode::Rem(Box::new(var("a")), Box::new(var("b"))), "(a % b)")]
+    #[case(var("a") + var("b"), "a + b")]
+    #[case(var("a") + (-var("b")), "a - b")]
+    #[case(var("a") * var("b"), "a * b")]
+    #[case(var("a") * var("b").recip(), "a / b")]
+    #[case(AstNode::Rem(Box::new(var("a")), Box::new(var("b"))), "a % b")]
     #[case(AstNode::Max(Box::new(var("a")), Box::new(var("b"))), "fmax(a, b)")]
     #[case(-var("a"), "-a")]
     #[case(AstNode::Sin(Box::new(var("a"))), "sin(a)")]
     #[case(AstNode::Sqrt(Box::new(var("a"))), "sqrt(a)")]
     // Accessors
-    #[case(AstNode::Deref(Box::new(var("a") + var("i"))), "*((a + i))")]
+    #[case(AstNode::Deref(Box::new(var("a") + var("i"))), "*(a + i)")]
     #[case(AstNode::CallFunction { name: "my_func".to_string(), args: vec![var("a"), (2 as isize).into()] }, "my_func(a, 2)")]
     // Others
     #[case(AstNode::Assign("a".to_string(), Box::new(var("b"))), "a = b")]
     #[case(AstNode::Store { target: Box::new(var("arr")), index: Box::new(var("i")), value: Box::new(var("x")) }, "*((arr) + (i)) = x")]
     #[case(AstNode::Cast { dtype: DType::F32, expr: Box::new(var("a")) }, "(float)a")]
     #[case(AstNode::Cast { dtype: DType::Ptr(Box::new(DType::F32)), expr: Box::new(var("a")) }, "(float*)a")]
-    #[case(-(var("a") + var("b")) * var("c"), "(-(a + b) * c)")]
+    #[case(-(var("a") + var("b")) * var("c"), "-(a + b) * c")]
     fn test_render_node(#[case] input: AstNode, #[case] expected: &str) {
         let mut renderer = CRenderer::new();
         assert_eq!(renderer.render_node(&input), expected);
