@@ -12,6 +12,7 @@ pub struct CostBasedOptimizer<S: RewriteSuggester, E: CostEstimator> {
     suggester: S,
     estimator: E,
     max_iterations: usize,
+    show_progress: bool,
 }
 
 impl<S: RewriteSuggester, E: CostEstimator> CostBasedOptimizer<S, E> {
@@ -20,16 +21,45 @@ impl<S: RewriteSuggester, E: CostEstimator> CostBasedOptimizer<S, E> {
             suggester,
             estimator,
             max_iterations,
+            show_progress: false,
         }
     }
 
+    pub fn with_progress(mut self, show_progress: bool) -> Self {
+        self.show_progress = show_progress;
+        self
+    }
+
     pub fn optimize(&self, ast: &AstNode) -> AstNode {
+        use indicatif::{ProgressBar, ProgressStyle};
+
         let mut current = ast.clone();
         let mut current_cost = self.estimator.estimate_cost(&current);
 
-        for _ in 0..self.max_iterations {
+        let pb = if self.show_progress {
+            let pb = ProgressBar::new(self.max_iterations as u64);
+            pb.set_style(
+                ProgressStyle::default_bar()
+                    .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} {msg}")
+                    .unwrap()
+                    .progress_chars("=>-"),
+            );
+            pb.set_message(format!("Cost: {:.2}", current_cost));
+            Some(pb)
+        } else {
+            None
+        };
+
+        for i in 0..self.max_iterations {
             let suggestions = self.suggester.suggest(&current);
             if suggestions.is_empty() {
+                if let Some(ref pb) = pb {
+                    pb.set_position(self.max_iterations as u64);
+                    pb.finish_with_message(format!(
+                        "Completed (no more suggestions) - Final cost: {:.2}",
+                        current_cost
+                    ));
+                }
                 break;
             }
 
@@ -47,11 +77,30 @@ impl<S: RewriteSuggester, E: CostEstimator> CostBasedOptimizer<S, E> {
 
             // If no improvement, stop
             if best_cost >= current_cost {
+                if let Some(ref pb) = pb {
+                    pb.set_position(self.max_iterations as u64);
+                    pb.finish_with_message(format!(
+                        "Completed (no improvement) - Final cost: {:.2}",
+                        current_cost
+                    ));
+                }
                 break;
             }
 
             current = best;
             current_cost = best_cost;
+
+            if let Some(ref pb) = pb {
+                pb.set_position((i + 1) as u64);
+                pb.set_message(format!("Cost: {:.2}", current_cost));
+            }
+        }
+
+        if let Some(ref pb) = pb {
+            if pb.position() < self.max_iterations as u64 {
+                pb.set_position(self.max_iterations as u64);
+                pb.finish_with_message(format!("Final cost: {:.2}", current_cost));
+            }
         }
 
         current
@@ -67,6 +116,7 @@ pub struct BeamSearchOptimizer<S: RewriteSuggester, E: CostEstimator> {
     estimator: E,
     beam_width: usize,
     max_iterations: usize,
+    show_progress: bool,
 }
 
 impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
@@ -76,10 +126,17 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
             estimator,
             beam_width,
             max_iterations,
+            show_progress: false,
         }
     }
 
+    pub fn with_progress(mut self, show_progress: bool) -> Self {
+        self.show_progress = show_progress;
+        self
+    }
+
     pub fn optimize(&self, ast: &AstNode) -> AstNode {
+        use indicatif::{ProgressBar, ProgressStyle};
         use std::cmp::Ordering;
         use std::collections::BinaryHeap;
 
@@ -118,7 +175,25 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
             cost: initial_cost,
         }];
 
-        for _ in 0..self.max_iterations {
+        let pb = if self.show_progress {
+            let pb = ProgressBar::new(self.max_iterations as u64);
+            pb.set_style(
+                ProgressStyle::default_bar()
+                    .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} {msg}")
+                    .unwrap()
+                    .progress_chars("=>-"),
+            );
+            pb.set_message(format!(
+                "Beam size: {}, Best cost: {:.2}",
+                beam.len(),
+                initial_cost
+            ));
+            Some(pb)
+        } else {
+            None
+        };
+
+        for i in 0..self.max_iterations {
             let mut candidates = BinaryHeap::new();
 
             // Generate all possible rewrites from current beam
@@ -136,6 +211,18 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
 
             // If no new candidates, we're done
             if candidates.is_empty() {
+                if let Some(ref pb) = pb {
+                    pb.set_position(self.max_iterations as u64);
+                    let best_cost = beam
+                        .iter()
+                        .map(|c| c.cost)
+                        .min_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal))
+                        .unwrap_or(initial_cost);
+                    pb.finish_with_message(format!(
+                        "Completed (no more candidates) - Final cost: {:.2}",
+                        best_cost
+                    ));
+                }
                 break;
             }
 
@@ -151,15 +238,46 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
 
             // If beam is empty, we're stuck
             if beam.is_empty() {
+                if let Some(ref pb) = pb {
+                    pb.set_position(self.max_iterations as u64);
+                    pb.finish_with_message(format!(
+                        "Completed (beam empty) - Final cost: {:.2}",
+                        initial_cost
+                    ));
+                }
                 break;
+            }
+
+            if let Some(ref pb) = pb {
+                pb.set_position((i + 1) as u64);
+                let best_cost = beam
+                    .iter()
+                    .map(|c| c.cost)
+                    .min_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal))
+                    .unwrap_or(initial_cost);
+                pb.set_message(format!(
+                    "Beam size: {}, Best cost: {:.2}",
+                    beam.len(),
+                    best_cost
+                ));
             }
         }
 
-        // Return the best candidate from the final beam
-        beam.into_iter()
+        let best = beam
+            .into_iter()
             .min_by(|a, b| a.cost.partial_cmp(&b.cost).unwrap_or(Ordering::Equal))
             .map(|c| c.ast)
-            .unwrap_or_else(|| ast.clone())
+            .unwrap_or_else(|| ast.clone());
+
+        if let Some(ref pb) = pb {
+            let final_cost = self.estimator.estimate_cost(&best);
+            if pb.position() < self.max_iterations as u64 {
+                pb.set_position(self.max_iterations as u64);
+                pb.finish_with_message(format!("Final cost: {:.2}", final_cost));
+            }
+        }
+
+        best
     }
 }
 

@@ -1,6 +1,8 @@
+use crate::ast::Function;
 use crate::backend::{Backend, Buffer, Compiler, Kernel, Renderer};
 use crate::graph::{Graph, GraphSignature};
 use crate::lowerer::Lowerer;
+use crate::opt::ast::{constant_folding::constant_folding_rewriter, simplify::simplify_rewriter};
 use std::marker::PhantomData;
 
 /// A generic backend that can work with any combination of Renderer, Compiler, and Buffer types.
@@ -48,6 +50,7 @@ where
 {
     renderer: R,
     compiler: C,
+    enable_optimization: bool,
     _phantom: PhantomData<B>,
 }
 
@@ -58,12 +61,46 @@ where
     B: Buffer,
 {
     /// Creates a new generic backend with the specified components.
+    /// Optimization is enabled by default.
     pub fn new() -> Self {
         Self {
             renderer: R::new(),
             compiler: C::new(),
+            enable_optimization: true,
             _phantom: PhantomData,
         }
+    }
+
+    /// Enable or disable AST optimization.
+    pub fn with_optimization(&mut self, enable: bool) -> &mut Self {
+        self.enable_optimization = enable;
+        self
+    }
+
+    /// Applies optimization to a function's AST.
+    fn optimize_function(&self, function: Function) -> Function {
+        if !self.enable_optimization {
+            return function;
+        }
+
+        log::debug!("Optimizing function: {}", function.name());
+
+        // Apply simplification (remove meaningless operations)
+        let simplify = simplify_rewriter();
+        let mut body = simplify.apply(function.body());
+
+        // Apply constant folding
+        let constant_folding = constant_folding_rewriter();
+        body = constant_folding.apply(&body);
+
+        log::debug!("Optimization complete for function: {}", function.name());
+
+        Function::new(
+            function.name().to_string(),
+            function.arguments().to_vec(),
+            function.return_type().clone(),
+            body,
+        )
     }
 
     /// Sets an option for the renderer.
@@ -137,6 +174,9 @@ where
                 self.renderer.with_option(renderer);
                 self.compiler.with_option(compiler);
             }
+            GenericBackendOption::EnableOptimization(enable) => {
+                self.enable_optimization = enable;
+            }
         }
     }
 
@@ -147,12 +187,25 @@ where
     fn execute(&mut self, graph: &Graph, inputs: Vec<Self::Buffer>) -> Vec<Self::Buffer> {
         // 1. Lower the graph to an AST program
         let mut lowerer = Lowerer::new();
-        let program = lowerer.lower(graph);
+        let mut program = lowerer.lower(graph);
 
-        // 2. Render the program to code representation
+        // 2. Optimize the AST program
+        if self.enable_optimization {
+            log::info!(
+                "Applying AST optimizations to {} function(s)",
+                program.functions.len()
+            );
+            program.functions = program
+                .functions
+                .into_iter()
+                .map(|f| self.optimize_function(f))
+                .collect();
+        }
+
+        // 3. Render the program to code representation
         let code = self.renderer.render(program);
 
-        // 3. Create graph signature for compilation
+        // 4. Create graph signature for compilation
         let signature = GraphSignature {
             shape_variables: graph.shape_variables.clone(),
             inputs: graph
@@ -177,10 +230,10 @@ where
                 .collect(),
         };
 
-        // 4. Compile the code to a kernel
+        // 5. Compile the code to a kernel
         let mut kernel = self.compiler.compile(&code, signature);
 
-        // 5. Create output buffers
+        // 6. Create output buffers
         let mut all_buffers = inputs;
 
         // Shape variable values for dynamic shape resolution
@@ -215,7 +268,7 @@ where
             all_buffers.push(output_buffer);
         }
 
-        // 6. Execute the kernel with input and output buffers
+        // 7. Execute the kernel with input and output buffers
         let shape_vars: Vec<usize> = graph
             .shape_variables
             .iter()
@@ -224,7 +277,7 @@ where
 
         let result_buffers = kernel.call(all_buffers, &shape_vars);
 
-        // 7. Return only the output buffers
+        // 8. Return only the output buffers
         let num_inputs = graph.inputs.len();
         result_buffers.into_iter().skip(num_inputs).collect()
     }
@@ -242,6 +295,8 @@ pub enum GenericBackendOption<RendererOption, CompilerOption> {
         renderer: RendererOption,
         compiler: CompilerOption,
     },
+    /// Enable or disable AST optimization.
+    EnableOptimization(bool),
 }
 
 // Convenient type aliases for common backend combinations
@@ -310,5 +365,31 @@ mod tests {
         // Instead, test that the backend can be created successfully
         let backend = TestBackend::new();
         assert!(backend.is_available() || !backend.is_available()); // Either available or not
+    }
+
+    #[test]
+    fn test_optimization_enabled_by_default() {
+        let backend = TestBackend::new();
+        assert!(backend.enable_optimization);
+    }
+
+    #[test]
+    fn test_optimization_can_be_disabled() {
+        let mut backend = TestBackend::new();
+        backend.with_optimization(false);
+        assert!(!backend.enable_optimization);
+    }
+
+    #[test]
+    fn test_optimization_option() {
+        let mut backend = TestBackend::new();
+
+        // Test disabling optimization via option
+        backend.with_option(GenericBackendOption::EnableOptimization(false));
+        assert!(!backend.enable_optimization);
+
+        // Test enabling optimization via option
+        backend.with_option(GenericBackendOption::EnableOptimization(true));
+        assert!(backend.enable_optimization);
     }
 }
