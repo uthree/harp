@@ -1,5 +1,13 @@
 use crate::ast::AstNode;
 
+pub mod cost_estimator;
+pub mod suggester;
+
+pub use cost_estimator::{NodeCountCostEstimator, OperationCostEstimator};
+pub use suggester::{
+    CommutativeSuggester, LoopTransformSuggester, RedundancyRemovalSuggester, RuleBasedSuggester,
+};
+
 /// A trait for suggesting rewrites to an AST.
 pub trait RewriteSuggester {
     fn suggest(&self, node: &AstNode) -> Vec<AstNode>;
@@ -24,8 +32,12 @@ impl CombinedRewriteSuggester {
 }
 
 impl RewriteSuggester for CombinedRewriteSuggester {
-    fn suggest(&self, _node: &AstNode) -> Vec<AstNode> {
-        todo!()
+    fn suggest(&self, node: &AstNode) -> Vec<AstNode> {
+        let mut all_suggestions = Vec::new();
+        for suggester in &self.suggesters {
+            all_suggestions.extend(suggester.suggest(node));
+        }
+        all_suggestions
     }
 }
 
