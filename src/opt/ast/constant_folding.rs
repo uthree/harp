@@ -144,82 +144,82 @@ mod tests {
     #[test]
     fn test_add_constants() {
         let rewriter = constant_folding_rewriter();
-        let ast = i(2) + i(3);
-        let result = rewriter.apply(&ast);
-        assert_eq!(result, i(5));
+        let mut ast = i(2) + i(3);
+        rewriter.apply(&mut ast);
+        assert_eq!(ast, i(5));
     }
 
     #[test]
     fn test_mul_constants() {
         let rewriter = constant_folding_rewriter();
-        let ast = i(4) * i(5);
-        let result = rewriter.apply(&ast);
-        assert_eq!(result, i(20));
+        let mut ast = i(4) * i(5);
+        rewriter.apply(&mut ast);
+        assert_eq!(ast, i(20));
     }
 
     #[test]
     fn test_div_constants() {
         let rewriter = constant_folding_rewriter();
-        let ast = i(20) / i(4);
-        let result = rewriter.apply(&ast);
-        assert_eq!(result, i(5));
+        let mut ast = i(20) / i(4);
+        rewriter.apply(&mut ast);
+        assert_eq!(ast, i(5));
     }
 
     #[test]
     fn test_rem_constants() {
         let rewriter = constant_folding_rewriter();
-        let ast = i(10) % i(3);
-        let result = rewriter.apply(&ast);
-        assert_eq!(result, i(1));
+        let mut ast = i(10) % i(3);
+        rewriter.apply(&mut ast);
+        assert_eq!(ast, i(1));
     }
 
     #[test]
     fn test_neg_constant() {
         let rewriter = constant_folding_rewriter();
-        let ast = -i(5);
-        let result = rewriter.apply(&ast);
-        assert_eq!(result, i(-5));
+        let mut ast = -i(5);
+        rewriter.apply(&mut ast);
+        assert_eq!(ast, i(-5));
     }
 
     #[test]
     fn test_recip_constant() {
         let rewriter = constant_folding_rewriter();
-        let ast = f(2.0).recip();
-        let result = rewriter.apply(&ast);
-        assert_eq!(result, f(0.5));
+        let mut ast = f(2.0).recip();
+        rewriter.apply(&mut ast);
+        assert_eq!(ast, f(0.5));
     }
 
     #[test]
     fn test_sin_constant() {
         let rewriter = constant_folding_rewriter();
-        let ast = f(0.0).sin();
-        let result = rewriter.apply(&ast);
-        assert_eq!(result, f(0.0));
+        let mut ast = f(0.0).sin();
+        rewriter.apply(&mut ast);
+        assert_eq!(ast, f(0.0));
     }
 
     #[test]
     fn test_sqrt_constant() {
         let rewriter = constant_folding_rewriter();
-        let ast = f(4.0).sqrt();
-        let result = rewriter.apply(&ast);
-        assert_eq!(result, f(2.0));
+        let mut ast = f(4.0).sqrt();
+        rewriter.apply(&mut ast);
+        assert_eq!(ast, f(2.0));
     }
 
     #[test]
     fn test_nested_folding() {
         let rewriter = constant_folding_rewriter();
         // (2 + 3) * 4
-        let ast = (i(2) + i(3)) * i(4);
-        let result = rewriter.apply(&ast);
-        assert_eq!(result, i(20));
+        let mut ast = (i(2) + i(3)) * i(4);
+        rewriter.apply(&mut ast);
+        assert_eq!(ast, i(20));
     }
 
     #[test]
     fn test_mixed_types() {
         let rewriter = constant_folding_rewriter();
         // 2.5 + 3.0
-        let ast = f(2.5) + f(3.0);
-        let result = rewriter.apply(&ast);
-        assert_eq!(result, f(5.5));
+        let mut ast = f(2.5) + f(3.0);
+        rewriter.apply(&mut ast);
+        assert_eq!(ast, f(5.5));
     }
 }

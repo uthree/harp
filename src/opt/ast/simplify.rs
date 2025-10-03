@@ -104,65 +104,65 @@ mod tests {
     #[test]
     fn test_add_zero() {
         let rewriter = simplify_rewriter();
-        let ast = i(5) + i(0);
-        let result = rewriter.apply(&ast);
-        assert_eq!(result, i(5));
+        let mut ast = i(5) + i(0);
+        rewriter.apply(&mut ast);
+        assert_eq!(ast, i(5));
     }
 
     #[test]
     fn test_mul_one() {
         let rewriter = simplify_rewriter();
-        let ast = f(3.5) * f(1.0);
-        let result = rewriter.apply(&ast);
-        assert_eq!(result, f(3.5));
+        let mut ast = f(3.5) * f(1.0);
+        rewriter.apply(&mut ast);
+        assert_eq!(ast, f(3.5));
     }
 
     #[test]
     fn test_mul_zero() {
         let rewriter = simplify_rewriter();
-        let ast = i(42) * i(0);
-        let result = rewriter.apply(&ast);
-        assert_eq!(result, i(0));
+        let mut ast = i(42) * i(0);
+        rewriter.apply(&mut ast);
+        assert_eq!(ast, i(0));
     }
 
     #[test]
     fn test_div_one() {
         let rewriter = simplify_rewriter();
-        let ast = i(10) / i(1);
-        let result = rewriter.apply(&ast);
-        assert_eq!(result, i(10));
+        let mut ast = i(10) / i(1);
+        rewriter.apply(&mut ast);
+        assert_eq!(ast, i(10));
     }
 
     #[test]
     fn test_double_negation() {
         let rewriter = simplify_rewriter();
-        let ast = -(-i(5));
-        let result = rewriter.apply(&ast);
-        assert_eq!(result, i(5));
+        let mut ast = -(-i(5));
+        rewriter.apply(&mut ast);
+        assert_eq!(ast, i(5));
     }
 
     #[test]
     fn test_double_reciprocal() {
         let rewriter = simplify_rewriter();
-        let ast = i(5).recip().recip();
-        let result = rewriter.apply(&ast);
-        assert_eq!(result, i(5));
+        let mut ast = i(5).recip().recip();
+        rewriter.apply(&mut ast);
+        assert_eq!(ast, i(5));
     }
 
     #[test]
     fn test_remainder_one() {
         let rewriter = simplify_rewriter();
-        let ast = i(42) % i(1);
-        let result = rewriter.apply(&ast);
-        assert_eq!(result, i(0));
+        let mut ast = i(42) % i(1);
+        rewriter.apply(&mut ast);
+        assert_eq!(ast, i(0));
     }
 
     #[test]
     fn test_nested_simplification() {
         let rewriter = simplify_rewriter();
         // (5 + 0) * 1
-        let ast = (i(5) + i(0)) * i(1);
-        let result = rewriter.apply(&ast);
-        assert_eq!(result, i(5));
+        let mut ast = (i(5) + i(0)) * i(1);
+        rewriter.apply(&mut ast);
+        assert_eq!(ast, i(5));
     }
 }

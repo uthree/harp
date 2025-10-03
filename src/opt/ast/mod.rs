@@ -5,7 +5,7 @@ pub mod simplify;
 pub mod suggester;
 
 pub trait AstOptimizer {
-    fn optimize(&mut self, ast: &AstNode) -> AstNode;
+    fn optimize(&mut self, ast: &mut AstNode);
 }
 
 pub struct CombinedAstOptimizer {
@@ -13,12 +13,10 @@ pub struct CombinedAstOptimizer {
 }
 
 impl AstOptimizer for CombinedAstOptimizer {
-    fn optimize(&mut self, ast: &AstNode) -> AstNode {
-        let mut ast = ast.clone();
+    fn optimize(&mut self, ast: &mut AstNode) {
         for opt in self.optimizers.iter_mut() {
-            ast = opt.optimize(&ast);
+            opt.optimize(ast);
         }
-        ast
     }
 }
 
@@ -40,14 +38,13 @@ impl RulebasedAstOptimizer {
 }
 
 impl AstOptimizer for RulebasedAstOptimizer {
-    fn optimize(&mut self, ast: &AstNode) -> AstNode {
-        let mut current_ast = ast.clone();
+    fn optimize(&mut self, ast: &mut AstNode) {
         loop {
-            let next_ast = self.rewriter.apply(&current_ast);
-            if next_ast == current_ast {
-                return next_ast;
+            let before = ast.clone();
+            self.rewriter.apply(ast);
+            if *ast == before {
+                break;
             }
-            current_ast = next_ast;
         }
     }
 }

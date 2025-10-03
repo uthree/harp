@@ -211,33 +211,98 @@ impl AstRewriter {
         self.rules.push(rule);
     }
 
-    pub fn apply(&self, ast: &AstNode) -> AstNode {
-        // Use the new replace_if functionality with repeated application
-        let mut result = ast.clone();
+    pub fn apply(&self, ast: &mut AstNode) {
+        // Apply rewrite rules recursively until no more changes
         loop {
-            let old_result = result.clone();
-            result = result.replace_if(
-                |node| {
-                    self.rules
-                        .iter()
-                        .any(|rule| rule.match_and_rewrite_top_level(node).is_some())
-                },
-                |node| {
-                    // Apply the first matching rule
-                    for rule in &self.rules {
-                        if let Some(rewritten) = rule.match_and_rewrite_top_level(&node) {
-                            return rewritten;
-                        }
-                    }
-                    node // This should never be reached due to the predicate
-                },
-            );
-
-            if result == old_result {
+            let old_ast = ast.clone();
+            self.apply_once(ast);
+            if *ast == old_ast {
                 break; // No more changes
             }
         }
-        result
+    }
+
+    fn apply_once(&self, ast: &mut AstNode) {
+        // Try to apply rules to the current node
+        for rule in &self.rules {
+            if let Some(rewritten) = rule.match_and_rewrite_top_level(ast) {
+                *ast = rewritten;
+                return;
+            }
+        }
+
+        // If no rule matched, recursively apply to children
+        match ast {
+            AstNode::Add(ref mut l, ref mut r)
+            | AstNode::Mul(ref mut l, ref mut r)
+            | AstNode::Div(ref mut l, ref mut r)
+            | AstNode::Max(ref mut l, ref mut r)
+            | AstNode::Rem(ref mut l, ref mut r) => {
+                self.apply_once(l);
+                self.apply_once(r);
+            }
+            AstNode::Neg(ref mut n)
+            | AstNode::Recip(ref mut n)
+            | AstNode::Sin(ref mut n)
+            | AstNode::Sqrt(ref mut n)
+            | AstNode::Log2(ref mut n)
+            | AstNode::Exp2(ref mut n)
+            | AstNode::Deref(ref mut n) => {
+                self.apply_once(n);
+            }
+            AstNode::Cast { ref mut expr, .. } => {
+                self.apply_once(expr);
+            }
+            AstNode::Assign(_, ref mut expr) => {
+                self.apply_once(expr);
+            }
+            AstNode::Store {
+                ref mut target,
+                ref mut index,
+                ref mut value,
+            } => {
+                self.apply_once(target);
+                self.apply_once(index);
+                self.apply_once(value);
+            }
+            AstNode::Range {
+                ref mut max,
+                ref mut body,
+                ..
+            } => {
+                self.apply_once(max);
+                self.apply_once(body);
+            }
+            AstNode::RangeFrom {
+                ref mut start,
+                ref mut max,
+                ref mut body,
+                ..
+            } => {
+                self.apply_once(start);
+                self.apply_once(max);
+                self.apply_once(body);
+            }
+            AstNode::Block {
+                ref mut statements, ..
+            } => {
+                for stmt in statements.iter_mut() {
+                    self.apply_once(stmt);
+                }
+            }
+            AstNode::CallFunction { ref mut args, .. } => {
+                for arg in args.iter_mut() {
+                    self.apply_once(arg);
+                }
+            }
+            // Leaf nodes - nothing to do
+            AstNode::Const(_)
+            | AstNode::Var(_)
+            | AstNode::Drop(_)
+            | AstNode::Barrier
+            | AstNode::Capture(_)
+            | AstNode::Rand => {}
+        }
     }
 }
 
@@ -255,9 +320,9 @@ mod tests {
         let rule = ast_pattern!(|a| a + i(0) => a.clone());
         let rewriter = ast_rewriter!("simple_arith", rule);
 
-        let ast = i(1) + i(0);
-        let rewritten_ast = rewriter.apply(&ast);
-        assert_eq!(rewritten_ast, i(1));
+        let mut ast = i(1) + i(0);
+        rewriter.apply(&mut ast);
+        assert_eq!(ast, i(1));
     }
 
     #[test]
@@ -266,9 +331,9 @@ mod tests {
         let rewriter = ast_rewriter!("simple_arith", rule);
 
         // Should apply to both children first, then the root
-        let ast = (i(1) + i(0)) + (i(2) + i(0));
-        let rewritten_ast = rewriter.apply(&ast);
-        assert_eq!(rewritten_ast, i(1) + i(2));
+        let mut ast = (i(1) + i(0)) + (i(2) + i(0));
+        rewriter.apply(&mut ast);
+        assert_eq!(ast, i(1) + i(2));
     }
 
     #[test]
@@ -278,9 +343,9 @@ mod tests {
         let rewriter = ast_rewriter!("simplify", rule1, rule2);
 
         // (2 * 1) + 0  ->  2 + 0  ->  2
-        let ast = (i(2) * i(1)) + i(0);
-        let rewritten_ast = rewriter.apply(&ast);
-        assert_eq!(rewritten_ast, i(2));
+        let mut ast = (i(2) * i(1)) + i(0);
+        rewriter.apply(&mut ast);
+        assert_eq!(ast, i(2));
     }
 
     #[test]
@@ -288,10 +353,10 @@ mod tests {
         let rule = ast_pattern!(|a| a + i(0) => a.clone());
         let rewriter = ast_rewriter!("simple_arith", rule);
 
-        let ast = i(1) + i(2);
+        let mut ast = i(1) + i(2);
         let original_ast_clone = ast.clone();
-        let rewritten_ast = rewriter.apply(&ast);
-        assert_eq!(rewritten_ast, original_ast_clone);
+        rewriter.apply(&mut ast);
+        assert_eq!(ast, original_ast_clone);
     }
 
     #[test]
@@ -302,14 +367,14 @@ mod tests {
         let rewriter = ast_rewriter!("simplify_add", rule);
 
         // This should be rewritten
-        let ast1 = i(3) + i(3);
-        let rewritten_ast1 = rewriter.apply(&ast1);
-        assert_eq!(rewritten_ast1, i(2) * i(3));
+        let mut ast1 = i(3) + i(3);
+        rewriter.apply(&mut ast1);
+        assert_eq!(ast1, i(2) * i(3));
 
         // This should not be rewritten
-        let ast2 = i(3) + i(4);
+        let mut ast2 = i(3) + i(4);
         let original_ast2_clone = ast2.clone();
-        let rewritten_ast2 = rewriter.apply(&ast2);
-        assert_eq!(rewritten_ast2, original_ast2_clone);
+        rewriter.apply(&mut ast2);
+        assert_eq!(ast2, original_ast2_clone);
     }
 }

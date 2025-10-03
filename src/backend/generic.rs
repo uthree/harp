@@ -87,11 +87,12 @@ where
 
         // Apply simplification (remove meaningless operations)
         let simplify = simplify_rewriter();
-        let mut body = simplify.apply(function.body());
+        let mut body = function.body().clone();
+        simplify.apply(&mut body);
 
         // Apply constant folding
         let constant_folding = constant_folding_rewriter();
-        body = constant_folding.apply(&body);
+        constant_folding.apply(&mut body);
 
         log::debug!("Optimization complete for function: {}", function.name());
 
