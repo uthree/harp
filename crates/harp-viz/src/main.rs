@@ -211,7 +211,7 @@ impl GraphVisualizerApp {
         let view_str = format!("{}", graph_node.view);
 
         // Get input count for this node
-        let num_inputs = Self::get_input_nodes(graph_node).len();
+        let num_inputs = graph_node.input_nodes().len();
 
         // Create node data
         let node_data = GraphNodeData {
@@ -226,7 +226,7 @@ impl GraphVisualizerApp {
         node_map.insert(graph_node.clone(), node_id);
 
         // Process input nodes recursively
-        let input_nodes = Self::get_input_nodes(graph_node);
+        let input_nodes = graph_node.input_nodes();
         for (input_idx, input_node) in input_nodes.iter().enumerate() {
             let input_pos = egui::pos2(pos.x - 250.0, pos.y + input_idx as f32 * 100.0);
             let input_node_id = Self::add_node_recursive(
@@ -253,39 +253,6 @@ impl GraphVisualizerApp {
         }
 
         node_id
-    }
-
-    fn get_input_nodes(node: &GraphNode) -> Vec<GraphNode> {
-        match &node.op {
-            GraphOp::Input(_) | GraphOp::Const(_) => vec![],
-            GraphOp::View(input) | GraphOp::Contiguous(input) | GraphOp::Cast(input, _) => {
-                vec![input.clone()]
-            }
-            GraphOp::Reduce(_, _, input) | GraphOp::Cumulative(_, _, input) => {
-                vec![input.clone()]
-            }
-            GraphOp::Elementwise(op) => Self::get_elementwise_inputs(op),
-            GraphOp::FusedElementwise(_, inputs) => inputs.clone(),
-            GraphOp::FusedReduce(_, _, input) => vec![input.clone()],
-            GraphOp::FusedElementwiseReduce(_, inputs, _, _) => inputs.clone(),
-            GraphOp::FusedElementwiseCumulative(_, inputs, _) => inputs.clone(),
-        }
-    }
-
-    fn get_elementwise_inputs(op: &harp::graph::ops::ElementwiseOp) -> Vec<GraphNode> {
-        use harp::graph::ops::ElementwiseOp;
-        match op {
-            ElementwiseOp::Add(a, b)
-            | ElementwiseOp::Mul(a, b)
-            | ElementwiseOp::Max(a, b)
-            | ElementwiseOp::Mod(a, b) => vec![a.clone(), b.clone()],
-            ElementwiseOp::Neg(a)
-            | ElementwiseOp::Recip(a)
-            | ElementwiseOp::Sin(a)
-            | ElementwiseOp::Sqrt(a)
-            | ElementwiseOp::Log2(a)
-            | ElementwiseOp::Exp2(a) => vec![a.clone()],
-        }
     }
 }
 

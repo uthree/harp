@@ -44,6 +44,38 @@ impl GraphNode {
             result_view,
         )
     }
+
+    /// Get the input nodes for this node
+    pub fn input_nodes(&self) -> Vec<GraphNode> {
+        match &self.op {
+            GraphOp::Input(_) | GraphOp::Const(_) => vec![],
+            GraphOp::View(input) | GraphOp::Contiguous(input) | GraphOp::Cast(input, _) => {
+                vec![input.clone()]
+            }
+            GraphOp::Reduce(_, _, input) | GraphOp::Cumulative(_, _, input) => {
+                vec![input.clone()]
+            }
+            GraphOp::Elementwise(op) => {
+                use crate::graph::ops::ElementwiseOp;
+                match op {
+                    ElementwiseOp::Add(a, b)
+                    | ElementwiseOp::Mul(a, b)
+                    | ElementwiseOp::Max(a, b)
+                    | ElementwiseOp::Mod(a, b) => vec![a.clone(), b.clone()],
+                    ElementwiseOp::Neg(a)
+                    | ElementwiseOp::Recip(a)
+                    | ElementwiseOp::Sin(a)
+                    | ElementwiseOp::Sqrt(a)
+                    | ElementwiseOp::Log2(a)
+                    | ElementwiseOp::Exp2(a) => vec![a.clone()],
+                }
+            }
+            GraphOp::FusedElementwise(_, inputs) => inputs.clone(),
+            GraphOp::FusedReduce(_, _, input) => vec![input.clone()],
+            GraphOp::FusedElementwiseReduce(_, inputs, _, _) => inputs.clone(),
+            GraphOp::FusedElementwiseCumulative(_, inputs, _) => inputs.clone(),
+        }
+    }
 }
 
 // PartialEq, Eq, Hash are based on pointer address, not content
