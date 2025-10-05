@@ -26,7 +26,10 @@ impl RewriteSuggester for LoopTilingSuggester {
         } = node
         {
             // Skip if already tiled (avoid infinite tiling)
-            if counter_name.contains("_tile") || counter_name.contains("_inner") || counter_name.contains("_idx") {
+            if counter_name.contains("_tile")
+                || counter_name.contains("_inner")
+                || counter_name.contains("_idx")
+            {
                 return suggestions;
             }
 

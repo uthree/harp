@@ -316,13 +316,12 @@ impl eframe::App for GraphVisualizerApp {
                 });
             }
 
-            if !self.sample_graph_loaded
-                && ui.button("Load Sample Graph").clicked() {
-                    let mut temp_snarl = Snarl::new();
-                    std::mem::swap(&mut temp_snarl, &mut self.snarl);
-                    self.load_sample_graph(&mut temp_snarl);
-                    self.snarl = temp_snarl;
-                }
+            if !self.sample_graph_loaded && ui.button("Load Sample Graph").clicked() {
+                let mut temp_snarl = Snarl::new();
+                std::mem::swap(&mut temp_snarl, &mut self.snarl);
+                self.load_sample_graph(&mut temp_snarl);
+                self.snarl = temp_snarl;
+            }
 
             ui.separator();
 

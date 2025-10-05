@@ -305,7 +305,13 @@ impl AstNode {
             AstNode::Log2(n) => vec![n.as_ref()],
             AstNode::Exp2(n) => vec![n.as_ref()],
             AstNode::CallFunction { args, .. } => args.iter().collect(),
-            AstNode::Range { start, max, step, body, .. } => {
+            AstNode::Range {
+                start,
+                max,
+                step,
+                body,
+                ..
+            } => {
                 vec![start.as_ref(), max.as_ref(), step.as_ref(), body.as_ref()]
             }
             AstNode::Block { statements, .. } => statements.iter().collect(),
