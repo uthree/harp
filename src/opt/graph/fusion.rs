@@ -385,9 +385,17 @@ impl GraphFusionOptimizer {
 
         // 融合できない場合は、依存ノードを再構築してから新しいノードを作成
         let rebuilt = match &node.op {
-            GraphOp::Input | GraphOp::Const(_) | GraphOp::Contiguous => {
+            GraphOp::Input | GraphOp::Const(_) => {
                 // これらのノードは依存がないのでそのまま返す
                 node.clone()
+            }
+            GraphOp::Contiguous(input) => {
+                let rebuilt_input = self.rebuild_node(input);
+                GraphNode::new(
+                    GraphOp::Contiguous(rebuilt_input),
+                    node.dtype.clone(),
+                    node.view.clone(),
+                )
             }
             GraphOp::Elementwise(op) => {
                 // 入力を再構築

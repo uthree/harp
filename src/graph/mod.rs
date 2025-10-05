@@ -113,7 +113,7 @@ pub enum GraphOp {
     Reduce(ReduceOp, usize, GraphNode), // 軸を縮約する: (op, axis, input)
     Cumulative(ops::CumulativeOp, usize, GraphNode), // 累積演算: (op, axis, input)
     View(GraphNode),            // view変更操作
-    Contiguous,                 // ContiguousなViewに並べ直す
+    Contiguous(GraphNode),      // ContiguousなViewに並べ直す（入力のメモリレイアウトを連続に変換）
     // 融合済みの演算子
     FusedElementwise(AstNode, Vec<GraphNode>), // Capture(n)がn番目のGraphNodeに対応する
     FusedReduce(ReduceOp, Vec<usize>, GraphNode), // 複数の軸でReduceする

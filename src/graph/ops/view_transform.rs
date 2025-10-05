@@ -26,4 +26,17 @@ impl GraphNode {
         let new_view = self.view.clone().flip(axis);
         GraphNode::new(GraphOp::View(self.clone()), self.dtype.clone(), new_view)
     }
+
+    /// Convert to contiguous memory layout
+    /// If the view is already contiguous, this creates a copy operation anyway
+    /// (optimizer may eliminate it if not needed)
+    pub fn contiguous(self) -> GraphNode {
+        let shape = self.view.shape().to_vec();
+        let new_view = crate::graph::shape::view::View::new_contiguous(shape);
+        GraphNode::new(
+            GraphOp::Contiguous(self.clone()),
+            self.dtype.clone(),
+            new_view,
+        )
+    }
 }

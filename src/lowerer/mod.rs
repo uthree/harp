@@ -296,7 +296,7 @@ impl Lowerer {
             GraphOp::Reduce(_, _, input) => vec![input.clone()],
             GraphOp::Cumulative(_, _, input) => vec![input.clone()],
             GraphOp::View(n) => vec![n.clone()],
-            GraphOp::Contiguous => vec![],
+            GraphOp::Contiguous(input) => vec![input.clone()],
             GraphOp::FusedElementwise(_, nodes) => nodes.clone(),
             GraphOp::FusedReduce(_, _, input) => vec![input.clone()],
             GraphOp::FusedElementwiseReduce(_, nodes, _, _) => nodes.clone(),
@@ -362,9 +362,56 @@ impl Lowerer {
                 // コピーループは生成しない
                 None
             }
-            GraphOp::Contiguous => {
-                // TODO: Implement contiguous memory layout conversion
-                todo!("Contiguous operation not yet implemented in lowerer")
+            GraphOp::Contiguous(input) => {
+                // Contiguous操作: 非連続なメモリレイアウトを連続に変換
+                let result_var = self.get_or_create_var_name(node);
+                let input_var = self.get_or_create_var_name(input);
+
+                // 出力ノードの場合は配列を宣言しない
+                if !result_var.starts_with("output_") {
+                    let total_size = LowererUtils::compute_total_size(&node.view);
+                    let result_dtype = if let Some(size) = total_size {
+                        DType::Vec(Box::new(node.dtype.clone()), size)
+                    } else {
+                        todo!("Dynamic size arrays not yet supported")
+                    };
+
+                    declarations.push(VariableDecl {
+                        name: result_var.clone(),
+                        dtype: result_dtype,
+                        constant: false,
+                        size_expr: None,
+                    });
+                }
+
+                // 入力のview（非連続の可能性あり）と出力のview（連続）を取得
+                let input_view = &input.view;
+                let result_view = &node.view;
+
+                let (
+                    crate::graph::shape::view::View::Linear {
+                        shape,
+                        strides: input_strides,
+                        offset: input_offset,
+                    },
+                    crate::graph::shape::view::View::Linear {
+                        strides: result_strides,
+                        offset: result_offset,
+                        ..
+                    },
+                ) = (input_view, result_view);
+
+                // 入力から連続な出力へコピーするループを生成
+                Some(Self::create_contiguous_copy_loop(
+                    shape,
+                    input_strides,
+                    input_offset,
+                    result_strides,
+                    result_offset,
+                    &input_var,
+                    &result_var,
+                    0,
+                ))
             }
             GraphOp::FusedElementwise(ast, inputs) => {
                 FusedLowerer::lower_fused_elementwise(node, ast, inputs, declarations, |n| {
@@ -408,6 +455,55 @@ impl Lowerer {
             self.next_temp_id += 1;
             self.node_to_var.insert(node.clone(), name.clone());
             name
+        }
+    }
+
+    /// Contiguous変換のためのコピーループを作成
+    #[allow(clippy::too_many_arguments)]
+    fn create_contiguous_copy_loop(
+        shape: &[crate::graph::shape::Expr],
+        input_strides: &[crate::graph::shape::Expr],
+        input_offset: &crate::graph::shape::Expr,
+        result_strides: &[crate::graph::shape::Expr],
+        result_offset: &crate::graph::shape::Expr,
+        input_var: &str,
+        result_var: &str,
+        dim: usize,
+    ) -> AstNode {
+        if dim >= shape.len() {
+            // 最内レベル: コピーを実行
+            let input_index = LowererUtils::compute_memory_index(input_strides, input_offset, dim);
+            let result_index =
+                LowererUtils::compute_memory_index(result_strides, result_offset, dim);
+
+            AstNode::Store {
+                target: Box::new(AstNode::Var(result_var.to_string())),
+                index: Box::new(result_index),
+                value: Box::new(AstNode::Deref(Box::new(
+                    AstNode::Var(input_var.to_string()) + input_index,
+                ))),
+            }
+        } else {
+            // ループを生成
+            let loop_var = format!("i{}", dim);
+            let inner_body = Self::create_contiguous_copy_loop(
+                shape,
+                input_strides,
+                input_offset,
+                result_strides,
+                result_offset,
+                input_var,
+                result_var,
+                dim + 1,
+            );
+
+            let shape_size = LowererUtils::shape_expr_to_ast_node(&shape[dim]);
+
+            AstNode::Range {
+                counter_name: loop_var,
+                max: Box::new(shape_size),
+                body: Box::new(inner_body),
+            }
         }
     }
 
