@@ -1,9 +1,11 @@
 use crate::ast::AstNode;
 
 pub mod cost_estimator;
+pub mod optimizer;
 pub mod suggester;
 
 pub use cost_estimator::{NodeCountCostEstimator, OperationCostEstimator};
+pub use optimizer::{BeamSearchOptimizer, CostBasedOptimizer};
 pub use suggester::{
     AlgebraicLawSuggester, CommutativeSuggester, FactorizationSuggester, InverseOperationSuggester,
     LoopTransformSuggester, RedundancyRemovalSuggester, RuleBasedSuggester,
