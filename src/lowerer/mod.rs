@@ -380,13 +380,11 @@ impl Lowerer {
                 // TODO: Implement fused reduce operations
                 todo!("FusedReduce operation not yet implemented in lowerer")
             }
-            GraphOp::FusedElementwiseReduce(_, _, _, _) => {
-                // TODO: Implement fused elementwise-reduce operations
-                todo!("FusedElementwiseReduce operation not yet implemented in lowerer")
+            GraphOp::FusedElementwiseReduce(ast, inputs, op, axes) => {
+                self.lower_fused_elementwise_reduce(node, ast, inputs, op, axes, declarations)
             }
-            GraphOp::FusedElementwiseCumulative(_, _, _) => {
-                // TODO: Implement fused elementwise-cumulative operations
-                todo!("FusedElementwiseCumulative operation not yet implemented in lowerer")
+            GraphOp::FusedElementwiseCumulative(ast, inputs, op) => {
+                self.lower_fused_elementwise_cumulative(node, ast, inputs, op, declarations)
             }
         }
     }
@@ -1268,18 +1266,241 @@ impl Lowerer {
                     .iter()
                     .map(|child| {
                         self.replace_captures_with_input_refs(
-                            child,
-                            input_vars,
-                            inputs,
-                            strides,
-                            offset,
-                            ndim,
+                            child, input_vars, inputs, strides, offset, ndim,
                         )
                     })
                     .collect();
                 new_ast.replace_children(children)
             }
         }
+    }
+
+    fn lower_fused_elementwise_reduce(
+        &mut self,
+        node: &GraphNode,
+        ast: &AstNode,
+        inputs: &[GraphNode],
+        op: &crate::graph::ops::ReduceOp,
+        axes: &[usize],
+        declarations: &mut Vec<VariableDecl>,
+    ) -> Option<AstNode> {
+        use crate::graph::ops::ReduceOp;
+
+        assert_eq!(
+            axes.len(),
+            1,
+            "FusedElementwiseReduce currently only supports single axis"
+        );
+        let axis = axes[0];
+
+        let result_var = self.get_or_create_var_name(node);
+
+        // 出力ノードの場合は配列を宣言しない
+        if !result_var.starts_with("output_") {
+            let total_size = self.compute_total_size(&node.view);
+            let result_dtype = if let Some(size) = total_size {
+                DType::Vec(Box::new(node.dtype.clone()), size)
+            } else {
+                todo!("Dynamic size arrays not yet supported")
+            };
+
+            declarations.push(VariableDecl {
+                name: result_var.clone(),
+                dtype: result_dtype,
+                constant: false,
+                size_expr: None,
+            });
+        }
+
+        // 入力の変数名を取得
+        let input_vars: Vec<String> = inputs
+            .iter()
+            .map(|input| self.get_or_create_var_name(input))
+            .collect();
+
+        // 初期値を定義
+        let initial_value = match op {
+            ReduceOp::Add => AstNode::Const(crate::ast::ConstLiteral::F32(0.0)),
+            ReduceOp::Mul => AstNode::Const(crate::ast::ConstLiteral::F32(1.0)),
+            ReduceOp::Max => AstNode::Const(crate::ast::ConstLiteral::F32(f32::NEG_INFINITY)),
+        };
+
+        // 入力の最初のノードからshapeを取得（全て同じshapeのはず）
+        let input_view = &inputs[0].view;
+        let result_view = &node.view;
+
+        let (
+            crate::graph::shape::view::View::Linear {
+                shape: input_shape,
+                strides: _input_strides,
+                offset: _input_offset,
+            },
+            crate::graph::shape::view::View::Linear {
+                shape: _result_shape,
+                strides: _result_strides,
+                offset: _result_offset,
+            },
+        ) = (input_view, result_view);
+
+        // ループを生成
+        Some(self.create_fused_elementwise_reduce_loops(
+            input_shape,
+            result_view,
+            ast,
+            &input_vars,
+            inputs,
+            axis,
+            &result_var,
+            op,
+            initial_value,
+            0,
+        ))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn create_fused_elementwise_reduce_loops(
+        &self,
+        input_shape: &[crate::graph::shape::Expr],
+        result_view: &crate::graph::shape::view::View,
+        ast: &AstNode,
+        input_vars: &[String],
+        inputs: &[GraphNode],
+        reduce_axis: usize,
+        result_var: &str,
+        reduce_op: &crate::graph::ops::ReduceOp,
+        initial_value: AstNode,
+        dim: usize,
+    ) -> AstNode {
+        let crate::graph::shape::view::View::Linear {
+            shape: _result_shape,
+            strides: result_strides,
+            offset: result_offset,
+        } = result_view;
+
+        if dim >= input_shape.len() {
+            // 全ての次元を処理した：reduce操作を実行
+            // 融合されたElementwise式を評価
+            let fused_value = self.replace_captures_with_input_refs(
+                ast,
+                input_vars,
+                inputs,
+                &vec![crate::graph::shape::Expr::from(0); input_shape.len()],
+                &crate::graph::shape::Expr::from(0),
+                input_shape.len(),
+            );
+
+            let result_index = self.compute_reduce_result_index(
+                result_strides,
+                result_offset,
+                input_shape.len(),
+                reduce_axis,
+            );
+
+            // 縮約操作
+            let operation_result = match reduce_op {
+                crate::graph::ops::ReduceOp::Add => AstNode::Add(
+                    Box::new(AstNode::Deref(Box::new(
+                        AstNode::Var(result_var.to_string()) + result_index.clone(),
+                    ))),
+                    Box::new(fused_value),
+                ),
+                crate::graph::ops::ReduceOp::Mul => AstNode::Mul(
+                    Box::new(AstNode::Deref(Box::new(
+                        AstNode::Var(result_var.to_string()) + result_index.clone(),
+                    ))),
+                    Box::new(fused_value),
+                ),
+                crate::graph::ops::ReduceOp::Max => AstNode::Max(
+                    Box::new(AstNode::Deref(Box::new(
+                        AstNode::Var(result_var.to_string()) + result_index.clone(),
+                    ))),
+                    Box::new(fused_value),
+                ),
+            };
+
+            return AstNode::Store {
+                target: Box::new(AstNode::Var(result_var.to_string())),
+                index: Box::new(result_index),
+                value: Box::new(operation_result),
+            };
+        }
+
+        if dim == reduce_axis {
+            // 縮約する次元: 初期化 + ループで累積
+            let inner_body = self.create_fused_elementwise_reduce_loops(
+                input_shape,
+                result_view,
+                ast,
+                input_vars,
+                inputs,
+                reduce_axis,
+                result_var,
+                reduce_op,
+                initial_value.clone(),
+                dim + 1,
+            );
+
+            let loop_var = format!("i{}", dim);
+            let shape_size = Self::shape_expr_to_ast_node(&input_shape[dim]);
+
+            // 初期化（reduce軸をスキップしたインデックスで計算）
+            let result_index =
+                self.compute_reduce_result_index(result_strides, result_offset, dim, reduce_axis);
+
+            let init_stmt = AstNode::Store {
+                target: Box::new(AstNode::Var(result_var.to_string())),
+                index: Box::new(result_index),
+                value: Box::new(initial_value),
+            };
+
+            let reduce_loop = AstNode::Range {
+                counter_name: loop_var,
+                max: Box::new(shape_size),
+                body: Box::new(inner_body),
+            };
+
+            return AstNode::Block {
+                scope: crate::ast::Scope {
+                    declarations: vec![],
+                },
+                statements: vec![init_stmt, reduce_loop],
+            };
+        }
+
+        // 通常の次元: 単にループを生成
+        let inner_body = self.create_fused_elementwise_reduce_loops(
+            input_shape,
+            result_view,
+            ast,
+            input_vars,
+            inputs,
+            reduce_axis,
+            result_var,
+            reduce_op,
+            initial_value,
+            dim + 1,
+        );
+
+        let loop_var = format!("i{}", dim);
+        let shape_size = Self::shape_expr_to_ast_node(&input_shape[dim]);
+
+        AstNode::Range {
+            counter_name: loop_var,
+            max: Box::new(shape_size),
+            body: Box::new(inner_body),
+        }
+    }
+
+    fn lower_fused_elementwise_cumulative(
+        &mut self,
+        _node: &GraphNode,
+        _ast: &AstNode,
+        _inputs: &[GraphNode],
+        _op: &crate::graph::ops::CumulativeOp,
+        _declarations: &mut Vec<VariableDecl>,
+    ) -> Option<AstNode> {
+        // TODO: 実装
+        todo!("FusedElementwiseCumulative not yet implemented in lowerer")
     }
 
     fn lower_cumulative_op(

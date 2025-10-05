@@ -1,5 +1,5 @@
 use crate::ast::AstNode;
-use crate::graph::ops::ElementwiseOp;
+use crate::graph::ops::{CumulativeOp, ElementwiseOp, ReduceOp};
 use crate::graph::{Graph, GraphNode, GraphOp};
 use crate::opt::graph::GraphOptimizer;
 use std::collections::HashMap;
@@ -37,7 +37,8 @@ impl GraphFusionOptimizer {
         let mut inputs = Vec::new();
 
         // ノードをASTに変換（再帰的に入力も変換）
-        let ast = self.elementwise_to_ast_with_branching_check(node, &mut input_mapping, &mut inputs)?;
+        let ast =
+            self.elementwise_to_ast_with_branching_check(node, &mut input_mapping, &mut inputs)?;
 
         // 融合可能なノードが1つ以上ある場合のみ融合
         // (単一ノードの場合は融合する意味がない)
@@ -107,47 +108,61 @@ impl GraphFusionOptimizer {
     ) -> Option<AstNode> {
         match op {
             ElementwiseOp::Add(lhs, rhs) => {
-                let lhs_ast = self.elementwise_to_ast_with_branching_check(lhs, input_mapping, inputs)?;
-                let rhs_ast = self.elementwise_to_ast_with_branching_check(rhs, input_mapping, inputs)?;
+                let lhs_ast =
+                    self.elementwise_to_ast_with_branching_check(lhs, input_mapping, inputs)?;
+                let rhs_ast =
+                    self.elementwise_to_ast_with_branching_check(rhs, input_mapping, inputs)?;
                 Some(lhs_ast + rhs_ast)
             }
             ElementwiseOp::Mul(lhs, rhs) => {
-                let lhs_ast = self.elementwise_to_ast_with_branching_check(lhs, input_mapping, inputs)?;
-                let rhs_ast = self.elementwise_to_ast_with_branching_check(rhs, input_mapping, inputs)?;
+                let lhs_ast =
+                    self.elementwise_to_ast_with_branching_check(lhs, input_mapping, inputs)?;
+                let rhs_ast =
+                    self.elementwise_to_ast_with_branching_check(rhs, input_mapping, inputs)?;
                 Some(lhs_ast * rhs_ast)
             }
             ElementwiseOp::Max(lhs, rhs) => {
-                let lhs_ast = self.elementwise_to_ast_with_branching_check(lhs, input_mapping, inputs)?;
-                let rhs_ast = self.elementwise_to_ast_with_branching_check(rhs, input_mapping, inputs)?;
+                let lhs_ast =
+                    self.elementwise_to_ast_with_branching_check(lhs, input_mapping, inputs)?;
+                let rhs_ast =
+                    self.elementwise_to_ast_with_branching_check(rhs, input_mapping, inputs)?;
                 Some(AstNode::Max(Box::new(lhs_ast), Box::new(rhs_ast)))
             }
             ElementwiseOp::Mod(lhs, rhs) => {
-                let lhs_ast = self.elementwise_to_ast_with_branching_check(lhs, input_mapping, inputs)?;
-                let rhs_ast = self.elementwise_to_ast_with_branching_check(rhs, input_mapping, inputs)?;
+                let lhs_ast =
+                    self.elementwise_to_ast_with_branching_check(lhs, input_mapping, inputs)?;
+                let rhs_ast =
+                    self.elementwise_to_ast_with_branching_check(rhs, input_mapping, inputs)?;
                 Some(lhs_ast % rhs_ast)
             }
             ElementwiseOp::Neg(input) => {
-                let input_ast = self.elementwise_to_ast_with_branching_check(input, input_mapping, inputs)?;
+                let input_ast =
+                    self.elementwise_to_ast_with_branching_check(input, input_mapping, inputs)?;
                 Some(-input_ast)
             }
             ElementwiseOp::Recip(input) => {
-                let input_ast = self.elementwise_to_ast_with_branching_check(input, input_mapping, inputs)?;
+                let input_ast =
+                    self.elementwise_to_ast_with_branching_check(input, input_mapping, inputs)?;
                 Some(AstNode::Recip(Box::new(input_ast)))
             }
             ElementwiseOp::Sin(input) => {
-                let input_ast = self.elementwise_to_ast_with_branching_check(input, input_mapping, inputs)?;
+                let input_ast =
+                    self.elementwise_to_ast_with_branching_check(input, input_mapping, inputs)?;
                 Some(AstNode::Sin(Box::new(input_ast)))
             }
             ElementwiseOp::Sqrt(input) => {
-                let input_ast = self.elementwise_to_ast_with_branching_check(input, input_mapping, inputs)?;
+                let input_ast =
+                    self.elementwise_to_ast_with_branching_check(input, input_mapping, inputs)?;
                 Some(AstNode::Sqrt(Box::new(input_ast)))
             }
             ElementwiseOp::Log2(input) => {
-                let input_ast = self.elementwise_to_ast_with_branching_check(input, input_mapping, inputs)?;
+                let input_ast =
+                    self.elementwise_to_ast_with_branching_check(input, input_mapping, inputs)?;
                 Some(AstNode::Log2(Box::new(input_ast)))
             }
             ElementwiseOp::Exp2(input) => {
-                let input_ast = self.elementwise_to_ast_with_branching_check(input, input_mapping, inputs)?;
+                let input_ast =
+                    self.elementwise_to_ast_with_branching_check(input, input_mapping, inputs)?;
                 Some(AstNode::Exp2(Box::new(input_ast)))
             }
         }
@@ -172,6 +187,73 @@ impl GraphFusionOptimizer {
             }
             _ => vec![],
         }
+    }
+
+    /// Elementwise -> Reduceの融合を試みる
+    fn try_fuse_elementwise_reduce(
+        &mut self,
+        _op: &ReduceOp,
+        axis: usize,
+        input: &GraphNode,
+    ) -> Option<(AstNode, Vec<GraphNode>, Vec<usize>)> {
+        // inputがElementwiseでない場合は融合しない
+        let GraphOp::Elementwise(_) = input.op else {
+            return None;
+        };
+
+        // inputが分岐している場合は融合しない
+        if self.is_branching(input) {
+            return None;
+        }
+
+        // 入力ノードのマッピングとリストを作成
+        let mut input_mapping = HashMap::new();
+        let mut inputs = Vec::new();
+
+        // ノードをASTに変換（再帰的に入力も変換）
+        let ast =
+            self.elementwise_to_ast_with_branching_check(input, &mut input_mapping, &mut inputs)?;
+
+        // 融合可能なノードが1つ以上ある場合のみ融合
+        if inputs.is_empty() {
+            return None;
+        }
+
+        // 単一軸のリストとして返す
+        Some((ast, inputs, vec![axis]))
+    }
+
+    /// Elementwise -> Cumulativeの融合を試みる
+    fn try_fuse_elementwise_cumulative(
+        &mut self,
+        _op: &CumulativeOp,
+        _axis: usize,
+        input: &GraphNode,
+    ) -> Option<(AstNode, Vec<GraphNode>)> {
+        // inputがElementwiseでない場合は融合しない
+        let GraphOp::Elementwise(_) = input.op else {
+            return None;
+        };
+
+        // inputが分岐している場合は融合しない
+        if self.is_branching(input) {
+            return None;
+        }
+
+        // 入力ノードのマッピングとリストを作成
+        let mut input_mapping = HashMap::new();
+        let mut inputs = Vec::new();
+
+        // ノードをASTに変換（再帰的に入力も変換）
+        let ast =
+            self.elementwise_to_ast_with_branching_check(input, &mut input_mapping, &mut inputs)?;
+
+        // 融合可能なノードが1つ以上ある場合のみ融合
+        if inputs.is_empty() {
+            return None;
+        }
+
+        Some((ast, inputs))
     }
 }
 
@@ -224,6 +306,17 @@ impl GraphFusionOptimizer {
                 )
             }
             GraphOp::Reduce(op, axis, input) => {
+                // Elementwise -> Reduceの融合を試みる
+                if let Some((ast, inputs, axes)) =
+                    self.try_fuse_elementwise_reduce(op, *axis, input)
+                {
+                    return GraphNode::new(
+                        GraphOp::FusedElementwiseReduce(ast, inputs, op.clone(), axes),
+                        node.dtype.clone(),
+                        node.view.clone(),
+                    );
+                }
+
                 let rebuilt_input = self.rebuild_node(input);
                 GraphNode::new(
                     GraphOp::Reduce(op.clone(), *axis, rebuilt_input),
@@ -232,6 +325,16 @@ impl GraphFusionOptimizer {
                 )
             }
             GraphOp::Cumulative(op, axis, input) => {
+                // Elementwise -> Cumulativeの融合を試みる
+                if let Some((ast, inputs)) = self.try_fuse_elementwise_cumulative(op, *axis, input)
+                {
+                    return GraphNode::new(
+                        GraphOp::FusedElementwiseCumulative(ast, inputs, op.clone()),
+                        node.dtype.clone(),
+                        node.view.clone(),
+                    );
+                }
+
                 let rebuilt_input = self.rebuild_node(input);
                 GraphNode::new(
                     GraphOp::Cumulative(op.clone(), *axis, rebuilt_input),
