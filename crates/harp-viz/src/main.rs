@@ -27,7 +27,6 @@ impl Default for GraphVisualizerApp {
         let mut snarl = Snarl::new();
 
         // Create and load sample graph
-        println!("Loading sample graph...");
         let mut graph = Graph::new();
         let a = graph.input(harp::ast::DType::F32, vec![10.into()]);
         let b = graph.input(harp::ast::DType::F32, vec![10.into()]);
@@ -38,12 +37,8 @@ impl Default for GraphVisualizerApp {
 
         graph.output(mul);
 
-        println!("Graph created with {} inputs and {} outputs", graph.inputs.len(), graph.outputs.len());
-
         // Convert graph to snarl
         GraphVisualizerApp::convert_graph_to_snarl_static(&graph, &mut snarl);
-
-        println!("Snarl nodes: {}", snarl.node_ids().count());
 
         Self {
             snarl,
@@ -135,7 +130,6 @@ impl GraphVisualizerApp {
             return;
         }
 
-        println!("Loading sample graph...");
 
         // Create a simple sample graph: (a + b) * c
         let mut graph = Graph::new();
@@ -148,12 +142,10 @@ impl GraphVisualizerApp {
 
         graph.output(mul);
 
-        println!("Graph created with {} inputs and {} outputs", graph.inputs.len(), graph.outputs.len());
 
         // Convert graph to snarl
         self.convert_graph_to_snarl(&graph, snarl);
 
-        println!("Snarl nodes: {}", snarl.node_ids().count());
 
         self.sample_graph_loaded = true;
     }
@@ -261,17 +253,19 @@ impl GraphVisualizerApp {
                 };
                 ("Cast".to_string(), format!("Cast({})", dtype_str))
             }
-            GraphOp::FusedElementwise(_, _) => (
-                "FusedElementwise".to_string(),
-                "Fused".to_string(),
-            ),
+            GraphOp::FusedElementwise(_, _) => {
+                ("FusedElementwise".to_string(), "Fused".to_string())
+            }
             GraphOp::FusedReduce(op, axes, _) => {
                 let op_name = match op {
                     harp::graph::ops::ReduceOp::Add => "Sum",
                     harp::graph::ops::ReduceOp::Mul => "Product",
                     harp::graph::ops::ReduceOp::Max => "Max",
                 };
-                ("FusedReduce".to_string(), format!("Fused{}[{:?}]", op_name, axes))
+                (
+                    "FusedReduce".to_string(),
+                    format!("Fused{}[{:?}]", op_name, axes),
+                )
             }
             GraphOp::FusedElementwiseReduce(_, _, op, axes) => {
                 let op_name = match op {
@@ -279,7 +273,10 @@ impl GraphVisualizerApp {
                     harp::graph::ops::ReduceOp::Mul => "Product",
                     harp::graph::ops::ReduceOp::Max => "Max",
                 };
-                ("FusedElementwiseReduce".to_string(), format!("FusedER-{}[{:?}]", op_name, axes))
+                (
+                    "FusedElementwiseReduce".to_string(),
+                    format!("FusedER-{}[{:?}]", op_name, axes),
+                )
             }
             GraphOp::FusedElementwiseCumulative(_, _, op) => {
                 let op_name = match op {
@@ -287,7 +284,10 @@ impl GraphVisualizerApp {
                     harp::graph::ops::CumulativeOp::Mul => "CumProd",
                     harp::graph::ops::CumulativeOp::Max => "CumMax",
                 };
-                ("FusedElementwiseCumulative".to_string(), format!("FusedEC-{}", op_name))
+                (
+                    "FusedElementwiseCumulative".to_string(),
+                    format!("FusedEC-{}", op_name),
+                )
             }
         };
 
@@ -339,14 +339,19 @@ impl GraphVisualizerApp {
 
         // Process input nodes recursively
         let input_nodes = Self::get_input_nodes(graph_node);
-        println!("Node {:?} has {} input nodes", node_id, input_nodes.len());
         for (input_idx, input_node) in input_nodes.iter().enumerate() {
             let input_pos = egui::pos2(pos.x - 250.0, pos.y + input_idx as f32 * 100.0);
-            let input_node_id =
-                Self::add_node_recursive(input_node, snarl, node_map, visited, input_indices, input_counter, input_pos);
+            let input_node_id = Self::add_node_recursive(
+                input_node,
+                snarl,
+                node_map,
+                visited,
+                input_indices,
+                input_counter,
+                input_pos,
+            );
 
             // Connect input to this node
-            println!("Connecting node {:?} output 0 to node {:?} input {}", input_node_id, node_id, input_idx);
             snarl.connect(
                 OutPinId {
                     node: input_node_id,
