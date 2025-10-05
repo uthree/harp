@@ -75,6 +75,56 @@ impl GraphFusionOptimizer {
         Some(fused_node)
     }
 
+    /// Cast -> Castチェーンの統合を試みる
+    /// 連続したCastノードがあり、分岐がない場合に統合
+    fn try_fuse_cast_chain(&mut self, node: &GraphNode) -> Option<GraphNode> {
+        // このノードがCastでない場合は統合しない
+        let GraphOp::Cast(input, target_dtype) = &node.op else {
+            return None;
+        };
+
+        // inputがCastでない、または分岐している場合は統合しない
+        if !matches!(input.op, GraphOp::Cast(_, _)) || self.is_branching(input) {
+            return None;
+        }
+
+        // Castチェーンの最初のsourceを見つける
+        let mut current = input;
+        let mut source = input;
+
+        loop {
+            match &current.op {
+                GraphOp::Cast(input_node, _) => {
+                    source = input_node;
+                    // 分岐している場合はここで停止
+                    if self.is_branching(input_node) {
+                        break;
+                    }
+                    // inputがCastなら続ける
+                    if matches!(input_node.op, GraphOp::Cast(_, _)) {
+                        current = input_node;
+                    } else {
+                        // Castでなければ終了
+                        break;
+                    }
+                }
+                _ => break,
+            }
+        }
+
+        // sourceをrebuild
+        let rebuilt_source = self.rebuild_node(source);
+
+        // 最終的なdtypeは現在のnodeのdtype
+        let fused_node = GraphNode::new(
+            GraphOp::Cast(rebuilt_source, target_dtype.clone()),
+            node.dtype.clone(),
+            node.view.clone(),
+        );
+
+        Some(fused_node)
+    }
+
     /// Elementwise -> Elementwiseの融合を試みる
     fn try_fuse_elementwise_chain(&mut self, node: &GraphNode) -> Option<GraphNode> {
         // このノードがElementwiseでない場合は融合しない
@@ -467,6 +517,11 @@ impl GraphFusionOptimizer {
                 )
             }
             GraphOp::Cast(input, target_dtype) => {
+                // Cast -> Castチェーンの統合を試みる
+                if let Some(fused) = self.try_fuse_cast_chain(node) {
+                    return fused;
+                }
+
                 let rebuilt_input = self.rebuild_node(input);
                 GraphNode::new(
                     GraphOp::Cast(rebuilt_input, target_dtype.clone()),
@@ -629,5 +684,87 @@ mod tests {
 
         // 出力が更新されていることを確認
         assert_eq!(graph.outputs.len(), 1);
+    }
+
+    #[test]
+    fn test_cast_chain_fusion() {
+        let mut graph = Graph::new();
+        let input = graph.input(DType::F32, vec![Expr::from(10)]);
+
+        // F32 -> Isize -> Usize のCastチェーン
+        let cast1 = input.cast(DType::Isize);
+        let cast2 = cast1.cast(DType::Usize);
+
+        graph.output(cast2.clone());
+
+        let mut optimizer = GraphFusionOptimizer::new();
+
+        // 融合を試みる
+        if let Some(fused) = optimizer.try_fuse_cast_chain(&cast2) {
+            // 融合されたノードがCastであることを確認
+            assert!(matches!(fused.op, GraphOp::Cast(_, _)));
+
+            if let GraphOp::Cast(ref source, ref dtype) = fused.op {
+                // sourceは直接inputであるべき（中間のCastノードが統合された）
+                assert!(matches!(source.op, GraphOp::Input));
+                // dtypeはUsizeであるべき
+                assert_eq!(dtype, &DType::Usize);
+            }
+        } else {
+            panic!("Fusion should succeed");
+        }
+    }
+
+    #[test]
+    fn test_no_cast_fusion_with_branching() {
+        let mut graph = Graph::new();
+        let input = graph.input(DType::F32, vec![Expr::from(10)]);
+
+        // F32 -> IsizeのCastを作成し、2箇所で使用（分岐）
+        let cast1 = input.cast(DType::Isize);
+        let cast2 = cast1.clone().cast(DType::Usize);
+        let cast3 = cast1.clone().cast(DType::F32);
+
+        graph.output(cast2.clone());
+        graph.output(cast3.clone());
+
+        let mut optimizer = GraphFusionOptimizer::new();
+        optimizer.optimize(&mut graph);
+
+        // 最適化後も、両方の出力でcast1が残っているべき（分岐のため融合されない）
+        // cast2の入力はCastノードであるべき
+        let output1 = &graph.outputs[0];
+        if let GraphOp::Cast(source, _) = &output1.op {
+            // sourceはCast(input, Isize)であるべき
+            assert!(matches!(source.op, GraphOp::Cast(_, _)));
+        } else {
+            panic!("Output should be a Cast node");
+        }
+    }
+
+    #[test]
+    fn test_cast_chain_optimization() {
+        let mut graph = Graph::new();
+        let input = graph.input(DType::F32, vec![Expr::from(10)]);
+
+        // F32 -> Isize -> Usize -> F32 のCastチェーン
+        let cast1 = input.cast(DType::Isize);
+        let cast2 = cast1.cast(DType::Usize);
+        let cast3 = cast2.cast(DType::F32);
+
+        graph.output(cast3);
+
+        let mut optimizer = GraphFusionOptimizer::new();
+        optimizer.optimize(&mut graph);
+
+        // 最適化後、outputはCastノードであるべき
+        let output = &graph.outputs[0];
+        assert!(matches!(output.op, GraphOp::Cast(_, _)));
+
+        // Castのsourceは直接inputであるべき（中間のCastノードが統合された）
+        if let GraphOp::Cast(source, dtype) = &output.op {
+            assert!(matches!(source.op, GraphOp::Input));
+            assert_eq!(dtype, &DType::F32);
+        }
     }
 }
