@@ -25,7 +25,8 @@
       "Bash(RUST_LOG=debug cargo run --example fusion_test)",
       "Bash(env RUST_LOG=debug cargo run --example fusion_test)",
       "Bash(env RUST_LOG=debug cargo run --example reduce_fusion_test)",
-      "Bash(env RUST_LOG=debug cargo run --example multi_reduce_fusion_test)"
+      "Bash(env RUST_LOG=debug cargo run --example multi_reduce_fusion_test)",
+      "Bash(env RUST_LOG=debug cargo run --example view_fusion_test)"
     ],
     "deny": [],
     "ask": []

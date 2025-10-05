@@ -4,6 +4,7 @@ use crate::graph::Graph;
 use crate::graph::GraphSignature;
 pub mod c;
 pub mod generic;
+pub use c::CBackend;
 pub trait Buffer {
     // get buffer size
     fn shape(&self) -> Vec<usize>;

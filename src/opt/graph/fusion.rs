@@ -25,6 +25,56 @@ impl GraphFusionOptimizer {
         node.strong_count() > 2
     }
 
+    /// View -> Viewチェーンの統合を試みる
+    /// 連続したViewノードがあり、分岐がない場合に統合
+    fn try_fuse_view_chain(&mut self, node: &GraphNode) -> Option<GraphNode> {
+        // このノードがViewでない場合は統合しない
+        let GraphOp::View(input) = &node.op else {
+            return None;
+        };
+
+        // inputがViewでない、または分岐している場合は統合しない
+        if !matches!(input.op, GraphOp::View(_)) || self.is_branching(input) {
+            return None;
+        }
+
+        // Viewチェーンの最初のsourceを見つける
+        let mut current = input;
+        let mut source = input;
+
+        loop {
+            match &current.op {
+                GraphOp::View(input_node) => {
+                    source = input_node;
+                    // 分岐している場合はここで停止
+                    if self.is_branching(input_node) {
+                        break;
+                    }
+                    // inputがViewなら続ける
+                    if matches!(input_node.op, GraphOp::View(_)) {
+                        current = input_node;
+                    } else {
+                        // Viewでなければ終了
+                        break;
+                    }
+                }
+                _ => break,
+            }
+        }
+
+        // sourceをrebuild
+        let rebuilt_source = self.rebuild_node(source);
+
+        // 最終的なviewは現在のnodeのview
+        let fused_node = GraphNode::new(
+            GraphOp::View(rebuilt_source),
+            node.dtype.clone(),
+            node.view.clone(),
+        );
+
+        Some(fused_node)
+    }
+
     /// Elementwise -> Elementwiseの融合を試みる
     fn try_fuse_elementwise_chain(&mut self, node: &GraphNode) -> Option<GraphNode> {
         // このノードがElementwiseでない場合は融合しない
@@ -396,6 +446,11 @@ impl GraphFusionOptimizer {
                 )
             }
             GraphOp::View(input) => {
+                // View -> Viewチェーンの統合を試みる
+                if let Some(fused) = self.try_fuse_view_chain(node) {
+                    return fused;
+                }
+
                 let rebuilt_input = self.rebuild_node(input);
                 GraphNode::new(
                     GraphOp::View(rebuilt_input),
@@ -460,6 +515,31 @@ mod tests {
         // 複数参照がある場合は分岐している
         let _add1 = input.clone() + input.clone();
         assert!(optimizer.is_branching(&input));
+    }
+
+    #[test]
+    fn test_view_chain_fusion() {
+        let mut graph = Graph::new();
+        let input = graph.input(DType::F32, vec![Expr::from(2), Expr::from(3)]);
+
+        // View変換のチェーン: unsqueeze -> expand -> permute
+        let unsqueezed = input.unsqueeze(2); // [2, 3] -> [2, 3, 1]
+        let expanded = unsqueezed.expand(vec![2.into(), 3.into(), 4.into()]); // -> [2, 3, 4]
+        let permuted = expanded.permute(vec![2, 0, 1]); // -> [4, 2, 3]
+
+        graph.output(permuted.clone());
+
+        let mut optimizer = GraphFusionOptimizer::new();
+        optimizer.optimize(&mut graph);
+
+        // 最適化後、outputはViewノードであるべき
+        let output = &graph.outputs[0];
+        assert!(matches!(output.op, GraphOp::View(_)));
+
+        // Viewのsourceは直接inputであるべき（中間のViewノードが統合された）
+        if let GraphOp::View(source) = &output.op {
+            assert!(matches!(source.op, GraphOp::Input));
+        }
     }
 
     #[test]
