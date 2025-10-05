@@ -35,7 +35,9 @@ fn test_complex_elementwise_reduce_fusion() {
     graph.output(result);
 
     // Create test data
-    let a_data = vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0];
+    let a_data = vec![
+        1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
+    ];
     let b_data = vec![1.0f32; 12];
     let c_data = vec![2.0f32; 12];
     let d_data = vec![1.0f32; 12];
@@ -226,8 +228,10 @@ fn test_matmul_fusion() {
     //      [7, 8]]
     let b_data = vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
 
-    let a_buffer = harp::backend::c::CBuffer::from_slice(&a_data, &[m as usize, k as usize], DType::F32);
-    let b_buffer = harp::backend::c::CBuffer::from_slice(&b_data, &[k as usize, n as usize], DType::F32);
+    let a_buffer =
+        harp::backend::c::CBuffer::from_slice(&a_data, &[m as usize, k as usize], DType::F32);
+    let b_buffer =
+        harp::backend::c::CBuffer::from_slice(&b_data, &[k as usize, n as usize], DType::F32);
 
     let outputs = backend.execute(&graph, vec![a_buffer, b_buffer]);
 
@@ -331,8 +335,12 @@ fn test_reduce_max_fusion() {
 
     graph.output(result);
 
-    let a_data = vec![1.0f32, 5.0, 2.0, 8.0, 3.0, 1.0, 7.0, 2.0, 4.0, 9.0, 1.0, 3.0];
-    let b_data = vec![2.0f32, 1.0, 3.0, 1.0, 1.0, 4.0, 2.0, 5.0, 1.0, 1.0, 6.0, 7.0];
+    let a_data = vec![
+        1.0f32, 5.0, 2.0, 8.0, 3.0, 1.0, 7.0, 2.0, 4.0, 9.0, 1.0, 3.0,
+    ];
+    let b_data = vec![
+        2.0f32, 1.0, 3.0, 1.0, 1.0, 4.0, 2.0, 5.0, 1.0, 1.0, 6.0, 7.0,
+    ];
 
     let a_buffer = harp::backend::c::CBuffer::from_slice(&a_data, &[3, 4], DType::F32);
     let b_buffer = harp::backend::c::CBuffer::from_slice(&b_data, &[3, 4], DType::F32);

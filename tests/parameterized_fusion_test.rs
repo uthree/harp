@@ -78,7 +78,9 @@ fn test_reduce_operations(#[case] op: &str) {
 
     graph.output(result);
 
-    let a_data = vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0];
+    let a_data = vec![
+        1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
+    ];
     let b_data = vec![1.0f32; 12];
 
     let a_buffer = harp::backend::c::CBuffer::from_slice(&a_data, &[3, 4], DType::F32);
@@ -271,11 +273,7 @@ fn test_view_transformations(
 #[case(4, 5, 3)]
 #[case(1, 10, 1)]
 #[case(10, 1, 10)]
-fn test_matmul_various_sizes(
-    #[case] m: usize,
-    #[case] k: usize,
-    #[case] n: usize,
-) {
+fn test_matmul_various_sizes(#[case] m: usize, #[case] k: usize, #[case] n: usize) {
     common::setup();
 
     let mut backend = CBackend::new();
@@ -290,12 +288,8 @@ fn test_matmul_various_sizes(
     let b = graph.input(DType::F32, vec![k.into(), n.into()]);
 
     // Matrix multiplication using broadcast
-    let a_expanded = a
-        .unsqueeze(2)
-        .expand(vec![m.into(), k.into(), n.into()]);
-    let b_expanded = b
-        .unsqueeze(0)
-        .expand(vec![m.into(), k.into(), n.into()]);
+    let a_expanded = a.unsqueeze(2).expand(vec![m.into(), k.into(), n.into()]);
+    let b_expanded = b.unsqueeze(0).expand(vec![m.into(), k.into(), n.into()]);
 
     let multiplied = a_expanded * b_expanded;
     let result = multiplied.sum(1);

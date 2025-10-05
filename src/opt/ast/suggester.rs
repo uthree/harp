@@ -21,7 +21,8 @@ impl<S: RewriteSuggester, E: CostEstimator> CostBasedOptimizer<S, E> {
             suggester,
             estimator,
             max_iterations,
-            show_progress: false,
+            // DEBUGビルドの時は自動的にプログレスバーを有効化
+            show_progress: cfg!(debug_assertions),
         }
     }
 
@@ -126,7 +127,8 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
             estimator,
             beam_width,
             max_iterations,
-            show_progress: false,
+            // DEBUGビルドの時は自動的にプログレスバーを有効化
+            show_progress: cfg!(debug_assertions),
         }
     }
 
