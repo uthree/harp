@@ -143,8 +143,8 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
             estimator,
             beam_width,
             max_iterations,
-            // デフォルトでは最大10000件の履歴を保持（メモリ消費を制限）
-            max_history: 10000,
+            // デフォルトでは最大100件の履歴を保持（メモリ消費を制限）
+            max_history: 100,
             // DEBUGビルドの時は自動的にプログレスバーを有効化
             show_progress: cfg!(debug_assertions),
         }
@@ -214,6 +214,7 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
             );
             pb.set_prefix("Optimizing");
             pb.set_message(format!("beam {}, cost {:.2}", beam.len(), initial_cost));
+            pb.tick();
             Some(pb)
         } else {
             None
@@ -251,6 +252,7 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
                         .min_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal))
                         .unwrap_or(initial_cost);
                     pb.finish_with_message(format!("cost {:.2} (converged)", best_cost));
+                    pb.tick()
                 }
                 break;
             }
@@ -275,6 +277,7 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
                 if let Some(ref pb) = pb {
                     pb.set_position(self.max_iterations as u64);
                     pb.finish_with_message(format!("cost {:.2} (beam empty)", initial_cost));
+                    pb.tick()
                 }
                 break;
             }
@@ -287,6 +290,7 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
                     .unwrap_or(initial_cost);
                 pb.set_message(format!("beam {}, cost {:.2}", beam.len(), best_cost));
                 pb.inc(1);
+                pb.tick();
             }
         }
 
@@ -299,6 +303,7 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
         if let Some(ref pb) = pb {
             let final_cost = self.estimator.estimate_cost(&best);
             pb.finish_with_message(format!("cost {:.2}", final_cost));
+            pb.tick()
         }
 
         best
