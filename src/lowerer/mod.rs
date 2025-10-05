@@ -276,7 +276,7 @@ impl Lowerer {
 
     fn get_dependencies(&self, node: &GraphNode) -> Vec<GraphNode> {
         match &node.op {
-            GraphOp::Input => vec![],
+            GraphOp::Input(_) => vec![],
             GraphOp::Const(_) => vec![],
             GraphOp::Elementwise(op) => {
                 use crate::graph::ops::ElementwiseOp;
@@ -311,7 +311,7 @@ impl Lowerer {
         declarations: &mut Vec<VariableDecl>,
     ) -> Option<AstNode> {
         match &node.op {
-            GraphOp::Input => {
+            GraphOp::Input(_) => {
                 // 入力ノードは引数として処理される
                 // get_or_create_var_nameで適切な名前が生成されるようにする
                 self.get_or_create_var_name(node);

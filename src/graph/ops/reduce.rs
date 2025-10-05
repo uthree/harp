@@ -1,11 +1,22 @@
 use crate::graph::shape::view::View;
 use crate::graph::{GraphNode, GraphOp};
+use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ReduceOp {
     Add,
     Mul,
     Max,
+}
+
+impl fmt::Display for ReduceOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ReduceOp::Add => write!(f, "Sum"),
+            ReduceOp::Mul => write!(f, "Product"),
+            ReduceOp::Max => write!(f, "Max"),
+        }
+    }
 }
 
 pub trait ReduceOps {

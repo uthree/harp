@@ -50,7 +50,6 @@ impl Default for GraphVisualizerApp {
 #[derive(Clone)]
 struct GraphNodeData {
     label: String,
-    op_type: String,
     dtype: String,
     view_info: String,
     num_inputs: usize,
@@ -195,109 +194,9 @@ impl GraphVisualizerApp {
         // Mark as visited
         visited.insert(graph_node.clone(), ());
 
-        // Get operation type and label
-        let (op_type, label) = match &graph_node.op {
-            GraphOp::Input => {
-                // Assign an index to this input if it doesn't have one yet
-                let idx = *input_indices.entry(graph_node.clone()).or_insert_with(|| {
-                    let current = *input_counter;
-                    *input_counter += 1;
-                    current
-                });
-                ("Input".to_string(), format!("Input[{}]", idx))
-            }
-            GraphOp::Const(_) => ("Const".to_string(), "Const".to_string()),
-            GraphOp::Elementwise(op) => {
-                let op_name = match op {
-                    harp::graph::ops::ElementwiseOp::Add(_, _) => "Add",
-                    harp::graph::ops::ElementwiseOp::Mul(_, _) => "Mul",
-                    harp::graph::ops::ElementwiseOp::Max(_, _) => "Max",
-                    harp::graph::ops::ElementwiseOp::Mod(_, _) => "Mod",
-                    harp::graph::ops::ElementwiseOp::Neg(_) => "Neg",
-                    harp::graph::ops::ElementwiseOp::Recip(_) => "Recip",
-                    harp::graph::ops::ElementwiseOp::Sin(_) => "Sin",
-                    harp::graph::ops::ElementwiseOp::Sqrt(_) => "Sqrt",
-                    harp::graph::ops::ElementwiseOp::Log2(_) => "Log2",
-                    harp::graph::ops::ElementwiseOp::Exp2(_) => "Exp2",
-                };
-                ("Elementwise".to_string(), op_name.to_string())
-            }
-            GraphOp::Reduce(op, axis, _) => {
-                let op_name = match op {
-                    harp::graph::ops::ReduceOp::Add => "Sum",
-                    harp::graph::ops::ReduceOp::Mul => "Product",
-                    harp::graph::ops::ReduceOp::Max => "Max",
-                };
-                ("Reduce".to_string(), format!("{}[{}]", op_name, axis))
-            }
-            GraphOp::Cumulative(op, axis, _) => {
-                let op_name = match op {
-                    harp::graph::ops::CumulativeOp::Add => "CumSum",
-                    harp::graph::ops::CumulativeOp::Mul => "CumProd",
-                    harp::graph::ops::CumulativeOp::Max => "CumMax",
-                };
-                ("Cumulative".to_string(), format!("{}[{}]", op_name, axis))
-            }
-            GraphOp::View(_) => ("View".to_string(), "View".to_string()),
-            GraphOp::Contiguous(_) => ("Contiguous".to_string(), "Contiguous".to_string()),
-            GraphOp::Cast(_, dtype) => {
-                let dtype_str = match dtype {
-                    harp::ast::DType::F32 => "F32",
-                    harp::ast::DType::Usize => "Usize",
-                    harp::ast::DType::Isize => "Isize",
-                    harp::ast::DType::Void => "Void",
-                    harp::ast::DType::Ptr(_) => "Ptr",
-                    harp::ast::DType::Vec(_, _) => "Vec",
-                };
-                ("Cast".to_string(), format!("Cast({})", dtype_str))
-            }
-            GraphOp::FusedElementwise(_, _) => {
-                ("FusedElementwise".to_string(), "Fused".to_string())
-            }
-            GraphOp::FusedReduce(op, axes, _) => {
-                let op_name = match op {
-                    harp::graph::ops::ReduceOp::Add => "Sum",
-                    harp::graph::ops::ReduceOp::Mul => "Product",
-                    harp::graph::ops::ReduceOp::Max => "Max",
-                };
-                (
-                    "FusedReduce".to_string(),
-                    format!("Fused{}[{:?}]", op_name, axes),
-                )
-            }
-            GraphOp::FusedElementwiseReduce(_, _, op, axes) => {
-                let op_name = match op {
-                    harp::graph::ops::ReduceOp::Add => "Sum",
-                    harp::graph::ops::ReduceOp::Mul => "Product",
-                    harp::graph::ops::ReduceOp::Max => "Max",
-                };
-                (
-                    "FusedElementwiseReduce".to_string(),
-                    format!("FusedER-{}[{:?}]", op_name, axes),
-                )
-            }
-            GraphOp::FusedElementwiseCumulative(_, _, op) => {
-                let op_name = match op {
-                    harp::graph::ops::CumulativeOp::Add => "CumSum",
-                    harp::graph::ops::CumulativeOp::Mul => "CumProd",
-                    harp::graph::ops::CumulativeOp::Max => "CumMax",
-                };
-                (
-                    "FusedElementwiseCumulative".to_string(),
-                    format!("FusedEC-{}", op_name),
-                )
-            }
-        };
-
-        // Format dtype
-        let dtype_str = match &graph_node.dtype {
-            harp::ast::DType::F32 => "F32",
-            harp::ast::DType::Usize => "Usize",
-            harp::ast::DType::Isize => "Isize",
-            harp::ast::DType::Void => "Void",
-            harp::ast::DType::Ptr(_) => "Ptr",
-            harp::ast::DType::Vec(_, _) => "Vec",
-        };
+        // Use Display trait from harp core for GraphOp and DType
+        let label = format!("{}", graph_node.op);
+        let dtype_str = format!("{}", graph_node.dtype);
 
         // Format view using Display trait
         let view_str = format!("{}", graph_node.view);
@@ -308,8 +207,7 @@ impl GraphVisualizerApp {
         // Create node data
         let node_data = GraphNodeData {
             label,
-            op_type: op_type.clone(),
-            dtype: dtype_str.to_string(),
+            dtype: dtype_str,
             view_info: view_str,
             num_inputs,
         };
@@ -350,7 +248,7 @@ impl GraphVisualizerApp {
 
     fn get_input_nodes(node: &GraphNode) -> Vec<GraphNode> {
         match &node.op {
-            GraphOp::Input | GraphOp::Const(_) => vec![],
+            GraphOp::Input(_) | GraphOp::Const(_) => vec![],
             GraphOp::View(input) | GraphOp::Contiguous(input) | GraphOp::Cast(input, _) => {
                 vec![input.clone()]
             }

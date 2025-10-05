@@ -4,6 +4,7 @@ use crate::ast::{AstNode, ConstLiteral, DType};
 pub use crate::graph::ops::ReduceOps;
 use crate::graph::ops::{CumulativeOp, ElementwiseOp, ReduceOp};
 use crate::graph::shape::{view::View, Expr as ShapeExpr};
+use std::fmt;
 use std::ops::Deref;
 use std::rc::{Rc, Weak};
 
@@ -91,9 +92,10 @@ impl Graph {
 
     // initialize input node
     pub fn input(&mut self, dtype: DType, shape: Vec<ShapeExpr>) -> GraphNode {
+        let input_index = self.inputs.len();
         let view = View::new_contiguous(shape);
         let node_data = GraphNodeData {
-            op: GraphOp::Input,
+            op: GraphOp::Input(input_index),
             dtype,
             view,
         };
@@ -119,7 +121,7 @@ impl Graph {
 
 #[derive(Debug)]
 pub enum GraphOp {
-    Input,
+    Input(usize),               // Input with index
     Const(ConstLiteral),        // initialize single element tensor, shape=[],
     Elementwise(ElementwiseOp), // 要素ごとの演算
     Reduce(ReduceOp, usize, GraphNode), // 軸を縮約する: (op, axis, input)
@@ -132,6 +134,27 @@ pub enum GraphOp {
     FusedReduce(ReduceOp, Vec<usize>, GraphNode), // 複数の軸でReduceする
     FusedElementwiseReduce(AstNode, Vec<GraphNode>, ReduceOp, Vec<usize>), // FusedElementwiseの直後にFusedReduceする
     FusedElementwiseCumulative(AstNode, Vec<GraphNode>, CumulativeOp), // FusedElementwiseの直後にCumlativeする
+}
+
+impl fmt::Display for GraphOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            GraphOp::Input(idx) => write!(f, "Input[{}]", idx),
+            GraphOp::Const(_) => write!(f, "Const"),
+            GraphOp::Elementwise(op) => write!(f, "{}", op),
+            GraphOp::Reduce(op, axis, _) => write!(f, "{}[{}]", op, axis),
+            GraphOp::Cumulative(op, axis, _) => write!(f, "{}[{}]", op, axis),
+            GraphOp::View(_) => write!(f, "View"),
+            GraphOp::Contiguous(_) => write!(f, "Contiguous"),
+            GraphOp::Cast(_, dtype) => write!(f, "Cast({})", dtype),
+            GraphOp::FusedElementwise(_, _) => write!(f, "Fused"),
+            GraphOp::FusedReduce(op, axes, _) => write!(f, "Fused{}[{:?}]", op, axes),
+            GraphOp::FusedElementwiseReduce(_, _, op, axes) => {
+                write!(f, "FusedER-{}[{:?}]", op, axes)
+            }
+            GraphOp::FusedElementwiseCumulative(_, _, op) => write!(f, "FusedEC-{}", op),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

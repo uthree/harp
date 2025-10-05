@@ -435,7 +435,7 @@ impl GraphFusionOptimizer {
 
         // 融合できない場合は、依存ノードを再構築してから新しいノードを作成
         let rebuilt = match &node.op {
-            GraphOp::Input | GraphOp::Const(_) => {
+            GraphOp::Input(_) | GraphOp::Const(_) => {
                 // これらのノードは依存がないのでそのまま返す
                 node.clone()
             }
@@ -609,7 +609,7 @@ mod tests {
 
         // Viewのsourceは直接inputであるべき（中間のViewノードが統合された）
         if let GraphOp::View(source) = &output.op {
-            assert!(matches!(source.op, GraphOp::Input));
+            assert!(matches!(source.op, GraphOp::Input(_)));
         }
     }
 
@@ -706,7 +706,7 @@ mod tests {
 
             if let GraphOp::Cast(ref source, ref dtype) = fused.op {
                 // sourceは直接inputであるべき（中間のCastノードが統合された）
-                assert!(matches!(source.op, GraphOp::Input));
+                assert!(matches!(source.op, GraphOp::Input(_)));
                 // dtypeはUsizeであるべき
                 assert_eq!(dtype, &DType::Usize);
             }
@@ -763,7 +763,7 @@ mod tests {
 
         // Castのsourceは直接inputであるべき（中間のCastノードが統合された）
         if let GraphOp::Cast(source, dtype) = &output.op {
-            assert!(matches!(source.op, GraphOp::Input));
+            assert!(matches!(source.op, GraphOp::Input(_)));
             assert_eq!(dtype, &DType::F32);
         }
     }

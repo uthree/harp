@@ -1,4 +1,6 @@
 use crate::graph::{GraphNode, GraphOp};
+use std::fmt;
+
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum ElementwiseOp {
     Add(GraphNode, GraphNode),
@@ -11,6 +13,23 @@ pub enum ElementwiseOp {
     Sqrt(GraphNode),
     Log2(GraphNode),
     Exp2(GraphNode),
+}
+
+impl fmt::Display for ElementwiseOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ElementwiseOp::Add(_, _) => write!(f, "Add"),
+            ElementwiseOp::Mul(_, _) => write!(f, "Mul"),
+            ElementwiseOp::Max(_, _) => write!(f, "Max"),
+            ElementwiseOp::Mod(_, _) => write!(f, "Mod"),
+            ElementwiseOp::Neg(_) => write!(f, "Neg"),
+            ElementwiseOp::Recip(_) => write!(f, "Recip"),
+            ElementwiseOp::Sin(_) => write!(f, "Sin"),
+            ElementwiseOp::Sqrt(_) => write!(f, "Sqrt"),
+            ElementwiseOp::Log2(_) => write!(f, "Log2"),
+            ElementwiseOp::Exp2(_) => write!(f, "Exp2"),
+        }
+    }
 }
 
 macro_rules! impl_elementwise_binary_op {

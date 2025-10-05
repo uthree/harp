@@ -1,4 +1,5 @@
 pub mod pattern;
+use std::fmt;
 use std::ops::{
     Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
@@ -13,6 +14,19 @@ pub enum DType {
 
     Ptr(Box<Self>),        // pointer
     Vec(Box<Self>, usize), // fixed-size array (for SIMD vectorization)
+}
+
+impl fmt::Display for DType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DType::F32 => write!(f, "F32"),
+            DType::Usize => write!(f, "Usize"),
+            DType::Isize => write!(f, "Isize"),
+            DType::Void => write!(f, "Void"),
+            DType::Ptr(inner) => write!(f, "Ptr<{}>", inner),
+            DType::Vec(inner, size) => write!(f, "Vec<{}, {}>", inner, size),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

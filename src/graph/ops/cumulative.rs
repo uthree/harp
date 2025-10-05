@@ -1,10 +1,21 @@
 use crate::graph::{GraphNode, GraphOp};
+use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum CumulativeOp {
     Add,
     Mul,
     Max,
+}
+
+impl fmt::Display for CumulativeOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CumulativeOp::Add => write!(f, "CumSum"),
+            CumulativeOp::Mul => write!(f, "CumProd"),
+            CumulativeOp::Max => write!(f, "CumMax"),
+        }
+    }
 }
 
 pub trait CumulativeOps {
