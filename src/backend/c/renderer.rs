@@ -86,6 +86,7 @@ impl CRenderer {
         buffer.push_str("#include <stddef.h>\n");
         buffer.push_str("#include <stdint.h>\n");
         buffer.push_str("#include <stdlib.h>\n");
+        buffer.push_str("#include <sys/types.h>\n"); // for ssize_t
         buffer.push('\n');
 
         // Add function prototypes
@@ -495,6 +496,7 @@ mod tests {
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <sys/types.h>
 
 void my_func(ssize_t a[10]);
 
@@ -557,6 +559,7 @@ void my_func(ssize_t a[10])
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <sys/types.h>
 
 void dynamic_alloc(size_t n);
 

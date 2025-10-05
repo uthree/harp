@@ -31,6 +31,18 @@ impl GraphNode {
     pub fn strong_count(&self) -> usize {
         Rc::strong_count(&self.0)
     }
+
+    /// Cast this tensor to a different data type
+    pub fn cast(self, target_dtype: DType) -> Self {
+        // viewはそのまま継承
+        let result_view = self.view.clone();
+
+        GraphNode::new(
+            GraphOp::Cast(self.clone(), target_dtype.clone()),
+            target_dtype,
+            result_view,
+        )
+    }
 }
 
 // PartialEq, Eq, Hash are based on pointer address, not content
@@ -114,6 +126,7 @@ pub enum GraphOp {
     Cumulative(ops::CumulativeOp, usize, GraphNode), // 累積演算: (op, axis, input)
     View(GraphNode),            // view変更操作
     Contiguous(GraphNode),      // ContiguousなViewに並べ直す（入力のメモリレイアウトを連続に変換）
+    Cast(GraphNode, DType),     // 型変換: (input, target_dtype)
     // 融合済みの演算子
     FusedElementwise(AstNode, Vec<GraphNode>), // Capture(n)がn番目のGraphNodeに対応する
     FusedReduce(ReduceOp, Vec<usize>, GraphNode), // 複数の軸でReduceする
