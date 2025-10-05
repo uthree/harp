@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+harp = { path = "../.." }
 eframe = "0.32.3"
 egui = "0.32.3"
 egui-snarl = "0.8.0"

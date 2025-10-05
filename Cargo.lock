@@ -1460,6 +1460,7 @@ dependencies = [
  "egui",
  "egui-snarl",
  "egui_plot",
+ "harp",
 ]
 
 [[package]]

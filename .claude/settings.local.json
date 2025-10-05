@@ -5,7 +5,11 @@
       "Bash(cargo check:*)",
       "Bash(cargo clippy:*)",
       "Bash(cargo build:*)",
-      "Bash(cargo run:*)"
+      "Bash(cargo run:*)",
+      "Read(//Users/uthree/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/egui-snarl-0.8.0/examples/**)",
+      "Bash(cat:*)",
+      "Bash(cargo doc:*)",
+      "Read(//Users/uthree/.cargo/registry/src/**)"
     ],
     "deny": [],
     "ask": [
