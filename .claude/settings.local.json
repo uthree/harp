@@ -11,7 +11,8 @@
       "Bash(cargo doc:*)",
       "Read(//Users/uthree/.cargo/registry/src/**)",
       "Bash(rustc:*)",
-      "Bash(./test_display)"
+      "Bash(./test_display)",
+      "Bash(VIZ=1 cargo run --manifest-path /Users/uthree/Develop/harp/crates/harp-viz/Cargo.toml --example visualize_matmul)"
     ],
     "deny": [],
     "ask": [

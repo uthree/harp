@@ -12,6 +12,26 @@ pub struct GraphVisualizerApp {
     current_snapshot_index: usize,
 }
 
+impl GraphVisualizerApp {
+    /// グローバルログから起動
+    pub fn from_global_snapshots(snapshots: Vec<harp::opt::graph::OptimizationSnapshot>) -> Self {
+        let mut snarl = Snarl::new();
+        let current_index = if snapshots.is_empty() { 0 } else { 0 };
+
+        // Convert initial graph to snarl
+        if !snapshots.is_empty() {
+            GraphVisualizerApp::convert_graph_to_snarl_static(&snapshots[0].graph, &mut snarl);
+        }
+
+        Self {
+            snarl,
+            sample_graph_loaded: !snapshots.is_empty(),
+            snapshots,
+            current_snapshot_index: current_index,
+        }
+    }
+}
+
 impl Default for GraphVisualizerApp {
     fn default() -> Self {
         let mut snarl = Snarl::new();
@@ -296,14 +316,13 @@ impl eframe::App for GraphVisualizerApp {
                 });
             }
 
-            if !self.sample_graph_loaded {
-                if ui.button("Load Sample Graph").clicked() {
+            if !self.sample_graph_loaded
+                && ui.button("Load Sample Graph").clicked() {
                     let mut temp_snarl = Snarl::new();
                     std::mem::swap(&mut temp_snarl, &mut self.snarl);
                     self.load_sample_graph(&mut temp_snarl);
                     self.snarl = temp_snarl;
                 }
-            }
 
             ui.separator();
 
@@ -315,4 +334,24 @@ impl eframe::App for GraphVisualizerApp {
             self.snarl = snarl;
         });
     }
+}
+
+/// グローバルログからビジュアライザーを起動
+pub fn launch_with_global_snapshots(
+    snapshots: Vec<harp::opt::graph::OptimizationSnapshot>,
+) -> eframe::Result {
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default().with_inner_size([1200.0, 800.0]),
+        ..Default::default()
+    };
+
+    eframe::run_native(
+        "Harp Optimization Visualizer",
+        options,
+        Box::new(move |_cc| {
+            Ok(Box::new(GraphVisualizerApp::from_global_snapshots(
+                snapshots,
+            )))
+        }),
+    )
 }

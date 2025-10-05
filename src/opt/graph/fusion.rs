@@ -11,6 +11,8 @@ pub struct GraphFusionOptimizer {
     pub snapshots: Vec<OptimizationSnapshot>,
     // ログ記録を有効にするかどうか
     pub enable_logging: bool,
+    // 最適化完了後のコールバック（VIZ=1の時にビジュアライザーを起動）
+    pub on_complete: Option<Box<dyn FnOnce(Vec<OptimizationSnapshot>)>>,
 }
 
 #[derive(Debug, Clone)]
@@ -21,10 +23,14 @@ pub struct OptimizationSnapshot {
 
 impl GraphFusionOptimizer {
     pub fn new() -> Self {
+        // VIZ環境変数が"1"なら自動的にログを有効化
+        let enable_logging = std::env::var("VIZ").map(|v| v == "1").unwrap_or(false);
+
         Self {
             node_mapping: HashMap::new(),
             snapshots: Vec::new(),
-            enable_logging: false,
+            enable_logging,
+            on_complete: None,
         }
     }
 
@@ -33,12 +39,34 @@ impl GraphFusionOptimizer {
         self
     }
 
+    pub fn with_visualizer<F>(mut self, callback: F) -> Self
+    where
+        F: FnOnce(Vec<OptimizationSnapshot>) + 'static,
+    {
+        self.on_complete = Some(Box::new(callback));
+        self
+    }
+
+    /// VIZ=1が設定されている場合、最適化完了時にコールバックを設定
+    /// この関数は環境変数をチェックして、VIZ=1の場合のみコールバックを追加
+    pub fn auto_visualize<F>(self, callback: F) -> Self
+    where
+        F: FnOnce(Vec<OptimizationSnapshot>) + 'static,
+    {
+        if crate::opt::graph::is_viz_enabled() {
+            self.with_visualizer(callback)
+        } else {
+            self
+        }
+    }
+
     fn log_snapshot(&mut self, description: String, graph: &Graph) {
         if self.enable_logging {
-            self.snapshots.push(OptimizationSnapshot {
+            let snapshot = OptimizationSnapshot {
                 description,
                 graph: graph.clone(),
-            });
+            };
+            self.snapshots.push(snapshot);
         }
     }
 
@@ -448,6 +476,11 @@ impl GraphOptimizer for GraphFusionOptimizer {
 
         // 最適化後のスナップショット
         self.log_snapshot("After fusion optimization".to_string(), graph);
+
+        // コールバックがあれば実行（ビジュアライザー起動）
+        if let Some(callback) = self.on_complete.take() {
+            callback(self.snapshots.clone());
+        }
     }
 }
 
