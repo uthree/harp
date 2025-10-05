@@ -1,7 +1,7 @@
 use eframe::egui;
 use egui_snarl::ui::{PinInfo, SnarlStyle, SnarlViewer};
 use egui_snarl::{InPin, InPinId, NodeId, OutPin, OutPinId, Snarl};
-use harp::graph::{Graph, GraphNode, GraphOp};
+use harp::graph::{Graph, GraphNode};
 use std::collections::HashMap;
 
 fn main() -> eframe::Result {
