@@ -166,10 +166,22 @@ impl View {
     }
 
     pub fn elementwise_result_view(&self, other: &View) -> View {
-        // shapeチェック
+        // スカラーとのbroadcastを処理
+        let self_shape = self.shape();
+        let other_shape = other.shape();
+
+        // 片方がスカラー(空の形状)の場合は、もう片方の形状を使用
+        if self_shape.is_empty() && !other_shape.is_empty() {
+            return other.clone();
+        }
+        if other_shape.is_empty() && !self_shape.is_empty() {
+            return self.clone();
+        }
+
+        // 両方スカラーまたは同じ形状
         assert_eq!(
-            self.shape(),
-            other.shape(),
+            self_shape,
+            other_shape,
             "shapes must match for element-wise operations"
         );
 

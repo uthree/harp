@@ -175,8 +175,10 @@ impl ElementwiseLowerer {
             _result_shape,
             result_strides,
             result_offset,
+            lhs_view,
             lhs_strides,
             lhs_offset,
+            rhs_view,
             rhs_strides,
             rhs_offset,
             result_var,
@@ -192,8 +194,10 @@ impl ElementwiseLowerer {
         shape: &[crate::graph::shape::Expr],
         result_strides: &[crate::graph::shape::Expr],
         result_offset: &crate::graph::shape::Expr,
+        lhs_view: &crate::graph::shape::view::View,
         lhs_strides: &[crate::graph::shape::Expr],
         lhs_offset: &crate::graph::shape::Expr,
+        rhs_view: &crate::graph::shape::view::View,
         rhs_strides: &[crate::graph::shape::Expr],
         rhs_offset: &crate::graph::shape::Expr,
         result_var: &str,
@@ -209,16 +213,26 @@ impl ElementwiseLowerer {
             // 最内ループ: 実際の計算を実行
             let result_index =
                 LowererUtils::compute_memory_index(result_strides, result_offset, dim);
-            let lhs_index = LowererUtils::compute_memory_index(lhs_strides, lhs_offset, dim);
-            let rhs_index = LowererUtils::compute_memory_index(rhs_strides, rhs_offset, dim);
+
+            // lhs/rhsがスカラー（shape.is_empty()）の場合は直接変数を使用、そうでなければデリファレンス
+            let lhs_value = if lhs_view.shape().is_empty() {
+                AstNode::Var(lhs_var.to_string())
+            } else {
+                let lhs_index = LowererUtils::compute_memory_index(lhs_strides, lhs_offset, dim);
+                AstNode::Deref(Box::new(AstNode::Var(lhs_var.to_string()) + lhs_index))
+            };
+
+            let rhs_value = if rhs_view.shape().is_empty() {
+                AstNode::Var(rhs_var.to_string())
+            } else {
+                let rhs_index = LowererUtils::compute_memory_index(rhs_strides, rhs_offset, dim);
+                AstNode::Deref(Box::new(AstNode::Var(rhs_var.to_string()) + rhs_index))
+            };
 
             AstNode::Store {
                 target: Box::new(AstNode::Var(result_var.to_string())),
                 index: Box::new(result_index),
-                value: Box::new(op(
-                    AstNode::Deref(Box::new(AstNode::Var(lhs_var.to_string()) + lhs_index)),
-                    AstNode::Deref(Box::new(AstNode::Var(rhs_var.to_string()) + rhs_index)),
-                )),
+                value: Box::new(op(lhs_value, rhs_value)),
             }
         } else {
             // 再帰的にネストしたループを作成
@@ -227,8 +241,10 @@ impl ElementwiseLowerer {
                 shape,
                 result_strides,
                 result_offset,
+                lhs_view,
                 lhs_strides,
                 lhs_offset,
+                rhs_view,
                 rhs_strides,
                 rhs_offset,
                 result_var,
@@ -309,15 +325,22 @@ impl ElementwiseLowerer {
             // 最内ループ: 実際の計算を実行
             let result_index =
                 LowererUtils::compute_memory_index(result_strides, result_offset, dim);
-            let operand_index =
-                LowererUtils::compute_memory_index(operand_strides, operand_offset, dim);
+
+            // operandがスカラーの場合は直接変数を使用、そうでなければデリファレンス
+            let operand_value = if operand_view.shape().is_empty() {
+                AstNode::Var(operand_var.to_string())
+            } else {
+                let operand_index =
+                    LowererUtils::compute_memory_index(operand_strides, operand_offset, dim);
+                AstNode::Deref(Box::new(
+                    AstNode::Var(operand_var.to_string()) + operand_index,
+                ))
+            };
 
             AstNode::Store {
                 target: Box::new(AstNode::Var(result_var.to_string())),
                 index: Box::new(result_index),
-                value: Box::new(op(AstNode::Deref(Box::new(
-                    AstNode::Var(operand_var.to_string()) + operand_index,
-                )))),
+                value: Box::new(op(operand_value)),
             }
         } else {
             // 再帰的にネストしたループを作成
