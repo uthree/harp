@@ -119,6 +119,11 @@ impl FusedLowerer {
                 let input_var = &input_vars[*idx];
                 let input_view = &inputs[*idx].view;
 
+                // スカラー（空の形状）の場合は直接変数を使用
+                if input_view.shape().is_empty() {
+                    return AstNode::Var(input_var.clone());
+                }
+
                 // 入力のstrideとoffsetを取得
                 let crate::graph::shape::view::View::Linear {
                     strides: input_strides,

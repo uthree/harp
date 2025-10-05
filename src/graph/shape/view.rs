@@ -180,8 +180,7 @@ impl View {
 
         // 両方スカラーまたは同じ形状
         assert_eq!(
-            self_shape,
-            other_shape,
+            self_shape, other_shape,
             "shapes must match for element-wise operations"
         );
 
