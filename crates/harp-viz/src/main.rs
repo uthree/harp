@@ -71,21 +71,19 @@ impl SnarlViewer<GraphNodeData> for GraphVisualizerApp {
 
     fn show_input(
         &mut self,
-        pin: &InPin,
-        ui: &mut egui::Ui,
+        _pin: &InPin,
+        _ui: &mut egui::Ui,
         _snarl: &mut Snarl<GraphNodeData>,
     ) -> PinInfo {
-        ui.label(format!("in_{}", pin.id.input));
         PinInfo::square().with_fill(egui::Color32::from_rgb(100, 150, 200))
     }
 
     fn show_output(
         &mut self,
         _pin: &OutPin,
-        ui: &mut egui::Ui,
+        _ui: &mut egui::Ui,
         _snarl: &mut Snarl<GraphNodeData>,
     ) -> PinInfo {
-        ui.label("out");
         PinInfo::square().with_fill(egui::Color32::from_rgb(100, 200, 150))
     }
 
@@ -119,8 +117,8 @@ impl SnarlViewer<GraphNodeData> for GraphVisualizerApp {
         snarl: &mut Snarl<GraphNodeData>,
     ) {
         let node_data = &snarl[node];
-        ui.label(format!("{}", node_data.dtype));
-        ui.label(format!("{}", node_data.view_info));
+        ui.label(format!("Type: {}", node_data.dtype));
+        ui.label(format!("Shape: {}", node_data.view_info));
     }
 }
 
