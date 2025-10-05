@@ -121,14 +121,14 @@ impl Graph {
 
 #[derive(Debug)]
 pub enum GraphOp {
-    Input(usize),               // Input with index
-    Const(ConstLiteral),        // initialize single element tensor, shape=[],
-    Elementwise(ElementwiseOp), // 要素ごとの演算
-    Reduce(ReduceOp, usize, GraphNode), // 軸を縮約する: (op, axis, input)
+    Input(usize),                                    // Input with index
+    Const(ConstLiteral),                             // initialize single element tensor, shape=[],
+    Elementwise(ElementwiseOp),                      // 要素ごとの演算
+    Reduce(ReduceOp, usize, GraphNode),              // 軸を縮約する: (op, axis, input)
     Cumulative(ops::CumulativeOp, usize, GraphNode), // 累積演算: (op, axis, input)
-    View(GraphNode),            // view変更操作
-    Contiguous(GraphNode),      // ContiguousなViewに並べ直す（入力のメモリレイアウトを連続に変換）
-    Cast(GraphNode, DType),     // 型変換: (input, target_dtype)
+    View(GraphNode),                                 // view変更操作
+    Contiguous(GraphNode), // ContiguousなViewに並べ直す（入力のメモリレイアウトを連続に変換）
+    Cast(GraphNode, DType), // 型変換: (input, target_dtype)
     // 融合済みの演算子
     FusedElementwise(AstNode, Vec<GraphNode>), // Capture(n)がn番目のGraphNodeに対応する
     FusedReduce(ReduceOp, Vec<usize>, GraphNode), // 複数の軸でReduceする

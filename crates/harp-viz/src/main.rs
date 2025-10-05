@@ -127,7 +127,6 @@ impl GraphVisualizerApp {
             return;
         }
 
-
         // Create a simple sample graph: (a + b) * c
         let mut graph = Graph::new();
         let a = graph.input(harp::ast::DType::F32, vec![10.into()]);
@@ -139,10 +138,8 @@ impl GraphVisualizerApp {
 
         graph.output(mul);
 
-
         // Convert graph to snarl
         self.convert_graph_to_snarl(&graph, snarl);
-
 
         self.sample_graph_loaded = true;
     }
