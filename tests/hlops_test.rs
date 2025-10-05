@@ -159,3 +159,44 @@ fn test_log_exp_inverse() {
         );
     }
 }
+
+#[test]
+fn test_tangent() {
+    common::setup();
+
+    let mut backend = CBackend::new();
+    if !backend.is_available() {
+        eprintln!("C compiler not available, skipping test");
+        return;
+    }
+
+    let mut graph = Graph::new();
+
+    // Test tan(x)
+    let input = graph.input(DType::F32, vec![4.into()]);
+    let result = input.tan();
+    graph.output(result);
+
+    // Input: [0.0, π/4, -π/4, π/6]
+    let pi = std::f32::consts::PI;
+    let input_data = vec![0.0f32, pi / 4.0, -pi / 4.0, pi / 6.0];
+    let input_buffer = harp::backend::c::CBuffer::from_slice(&input_data, &[4], DType::F32);
+
+    let outputs = backend.execute(&graph, vec![input_buffer]);
+    let output_data = outputs[0].to_vec::<f32>();
+
+    // Expected: [0.0, 1.0, -1.0, 1/√3]
+    let sqrt_3 = 3.0f32.sqrt();
+    let expected = vec![0.0f32, 1.0, -1.0, 1.0 / sqrt_3];
+
+    assert_eq!(outputs[0].shape(), &[4]);
+    for (i, (actual, expected)) in output_data.iter().zip(expected.iter()).enumerate() {
+        assert!(
+            (actual - expected).abs() < 1e-5,
+            "Mismatch at index {}: got {}, expected {}",
+            i,
+            actual,
+            expected
+        );
+    }
+}

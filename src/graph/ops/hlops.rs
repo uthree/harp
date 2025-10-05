@@ -38,4 +38,10 @@ impl GraphNode {
         let pi_over_2 = std::f32::consts::FRAC_PI_2;
         (self + GraphNode::f32(pi_over_2)).sin()
     }
+
+    /// Tangent: tan(x) = sin(x) / cos(x)
+    pub fn tan(self) -> Self {
+        // tan(x) = sin(x) / cos(x)
+        self.clone().sin() / self.cos()
+    }
 }
