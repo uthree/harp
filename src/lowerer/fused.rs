@@ -21,19 +21,23 @@ impl FusedLowerer {
         if !result_var.starts_with("output_") {
             // テンソルの場合は配列として宣言する必要がある
             let total_size = LowererUtils::compute_total_size(&node.view);
-            let result_dtype = if let Some(size) = total_size {
+            let (result_dtype, size_expr) = if let Some(size) = total_size {
                 // サイズが静的に決定できる場合は固定サイズ配列型
-                DType::Vec(Box::new(node.dtype.clone()), size)
+                (DType::Vec(Box::new(node.dtype.clone()), size), None)
             } else {
-                // 動的サイズの場合はポインタ型（将来的にmallocで対応）
-                todo!("Dynamic size arrays not yet supported")
+                // 動的サイズの場合はポインタ型（mallocで確保）
+                let size_expr = LowererUtils::compute_total_size_expr(&node.view);
+                (
+                    DType::Ptr(Box::new(node.dtype.clone())),
+                    Some(Box::new(size_expr)),
+                )
             };
 
             declarations.push(VariableDecl {
                 name: result_var.clone(),
                 dtype: result_dtype,
                 constant: false,
-                size_expr: None,
+                size_expr,
             });
         }
 
@@ -169,17 +173,21 @@ impl FusedLowerer {
         // 出力ノードの場合は配列を宣言しない
         if !result_var.starts_with("output_") {
             let total_size = LowererUtils::compute_total_size(&node.view);
-            let result_dtype = if let Some(size) = total_size {
-                DType::Vec(Box::new(node.dtype.clone()), size)
+            let (result_dtype, size_expr) = if let Some(size) = total_size {
+                (DType::Vec(Box::new(node.dtype.clone()), size), None)
             } else {
-                todo!("Dynamic size arrays not yet supported")
+                let size_expr = LowererUtils::compute_total_size_expr(&node.view);
+                (
+                    DType::Ptr(Box::new(node.dtype.clone())),
+                    Some(Box::new(size_expr)),
+                )
             };
 
             declarations.push(VariableDecl {
                 name: result_var.clone(),
                 dtype: result_dtype,
                 constant: false,
-                size_expr: None,
+                size_expr,
             });
         }
 
@@ -376,17 +384,21 @@ impl FusedLowerer {
         // 出力ノードの場合は配列を宣言しない
         if !result_var.starts_with("output_") {
             let total_size = LowererUtils::compute_total_size(&node.view);
-            let result_dtype = if let Some(size) = total_size {
-                DType::Vec(Box::new(node.dtype.clone()), size)
+            let (result_dtype, size_expr) = if let Some(size) = total_size {
+                (DType::Vec(Box::new(node.dtype.clone()), size), None)
             } else {
-                todo!("Dynamic size arrays not yet supported")
+                let size_expr = LowererUtils::compute_total_size_expr(&node.view);
+                (
+                    DType::Ptr(Box::new(node.dtype.clone())),
+                    Some(Box::new(size_expr)),
+                )
             };
 
             declarations.push(VariableDecl {
                 name: result_var.clone(),
                 dtype: result_dtype,
                 constant: false,
-                size_expr: None,
+                size_expr,
             });
         }
 

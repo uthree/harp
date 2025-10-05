@@ -370,17 +370,21 @@ impl Lowerer {
                 // 出力ノードの場合は配列を宣言しない
                 if !result_var.starts_with("output_") {
                     let total_size = LowererUtils::compute_total_size(&node.view);
-                    let result_dtype = if let Some(size) = total_size {
-                        DType::Vec(Box::new(node.dtype.clone()), size)
+                    let (result_dtype, size_expr) = if let Some(size) = total_size {
+                        (DType::Vec(Box::new(node.dtype.clone()), size), None)
                     } else {
-                        todo!("Dynamic size arrays not yet supported")
+                        let size_expr = LowererUtils::compute_total_size_expr(&node.view);
+                        (
+                            DType::Ptr(Box::new(node.dtype.clone())),
+                            Some(Box::new(size_expr)),
+                        )
                     };
 
                     declarations.push(VariableDecl {
                         name: result_var.clone(),
                         dtype: result_dtype,
                         constant: false,
-                        size_expr: None,
+                        size_expr,
                     });
                 }
 

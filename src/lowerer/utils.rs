@@ -32,6 +32,21 @@ impl LowererUtils {
         Some(total)
     }
 
+    /// Viewから総要素数を計算するAstNode式を生成（動的サイズ対応）
+    pub fn compute_total_size_expr(view: &View) -> AstNode {
+        let View::Linear { shape, .. } = view;
+        if shape.is_empty() {
+            return AstNode::Const(ConstLiteral::Usize(1));
+        }
+
+        let mut size_expr = Self::shape_expr_to_ast_node(&shape[0]);
+        for dim in &shape[1..] {
+            let dim_ast = Self::shape_expr_to_ast_node(dim);
+            size_expr = AstNode::Mul(Box::new(size_expr), Box::new(dim_ast));
+        }
+        size_expr
+    }
+
     /// メモリインデックスを計算（ループ変数i0, i1, ...を使用）
     pub fn compute_memory_index(
         strides: &[crate::graph::shape::Expr],
