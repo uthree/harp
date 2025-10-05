@@ -6,6 +6,7 @@ pub struct CostBasedOptimizer<S: RewriteSuggester, E: CostEstimator> {
     suggester: S,
     estimator: E,
     max_iterations: usize,
+    max_history: usize,
     show_progress: bool,
 }
 
@@ -15,6 +16,8 @@ impl<S: RewriteSuggester, E: CostEstimator> CostBasedOptimizer<S, E> {
             suggester,
             estimator,
             max_iterations,
+            // デフォルトでは最大10000件の履歴を保持（メモリ消費を制限）
+            max_history: 10000,
             // DEBUGビルドの時は自動的にプログレスバーを有効化
             show_progress: cfg!(debug_assertions),
         }
@@ -25,11 +28,21 @@ impl<S: RewriteSuggester, E: CostEstimator> CostBasedOptimizer<S, E> {
         self
     }
 
+    pub fn with_max_history(mut self, max_history: usize) -> Self {
+        self.max_history = max_history;
+        self
+    }
+
     pub fn optimize(&self, ast: &AstNode) -> AstNode {
         use indicatif::{ProgressBar, ProgressStyle};
+        use std::collections::VecDeque;
 
         let mut current = ast.clone();
         let mut current_cost = self.estimator.estimate_cost(&current);
+
+        // 千日手検出のため、訪問済みのASTノードを記録（VecDequeで履歴件数を制限）
+        let mut visited = VecDeque::new();
+        visited.push_back(format!("{:?}", current));
 
         let pb = if self.show_progress {
             let pb = ProgressBar::new(self.max_iterations as u64);
@@ -77,6 +90,22 @@ impl<S: RewriteSuggester, E: CostEstimator> CostBasedOptimizer<S, E> {
                 break;
             }
 
+            // 千日手検出: 同じ状態が出現したら停止
+            let best_repr = format!("{:?}", best);
+            if visited.contains(&best_repr) {
+                if let Some(ref pb) = pb {
+                    pb.set_position(self.max_iterations as u64);
+                    pb.finish_with_message(format!("cost {:.2} (cycle detected)", current_cost));
+                }
+                break;
+            }
+
+            // 履歴に追加（上限に達したら古いものを削除）
+            if visited.len() >= self.max_history {
+                visited.pop_front();
+            }
+            visited.push_back(best_repr);
+
             current = best;
             current_cost = best_cost;
 
@@ -103,6 +132,7 @@ pub struct BeamSearchOptimizer<S: RewriteSuggester, E: CostEstimator> {
     estimator: E,
     beam_width: usize,
     max_iterations: usize,
+    max_history: usize,
     show_progress: bool,
 }
 
@@ -113,6 +143,8 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
             estimator,
             beam_width,
             max_iterations,
+            // デフォルトでは最大10000件の履歴を保持（メモリ消費を制限）
+            max_history: 10000,
             // DEBUGビルドの時は自動的にプログレスバーを有効化
             show_progress: cfg!(debug_assertions),
         }
@@ -123,10 +155,15 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
         self
     }
 
+    pub fn with_max_history(mut self, max_history: usize) -> Self {
+        self.max_history = max_history;
+        self
+    }
+
     pub fn optimize(&self, ast: &AstNode) -> AstNode {
         use indicatif::{ProgressBar, ProgressStyle};
         use std::cmp::Ordering;
-        use std::collections::BinaryHeap;
+        use std::collections::{BinaryHeap, VecDeque};
 
         // Wrapper to make AstNode sortable by cost
         #[derive(Clone)]
@@ -163,6 +200,10 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
             cost: initial_cost,
         }];
 
+        // 千日手検出のため、訪問済みのASTノードを記録（VecDequeで履歴件数を制限）
+        let mut visited = VecDeque::new();
+        visited.push_back(format!("{:?}", ast));
+
         let pb = if self.show_progress {
             let pb = ProgressBar::new(self.max_iterations as u64);
             pb.set_style(
@@ -186,6 +227,12 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
                 let suggestions = self.suggester.suggest(&current.ast);
 
                 for suggestion in suggestions {
+                    // 千日手検出: すでに訪問済みのノードは候補に追加しない
+                    let suggestion_repr = format!("{:?}", suggestion);
+                    if visited.contains(&suggestion_repr) {
+                        continue;
+                    }
+
                     let cost = self.estimator.estimate_cost(&suggestion);
                     candidates.push(Candidate {
                         ast: suggestion,
@@ -203,10 +250,7 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
                         .map(|c| c.cost)
                         .min_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal))
                         .unwrap_or(initial_cost);
-                    pb.finish_with_message(format!(
-                        "Completed (no more candidates) - Final cost: {:.2}",
-                        best_cost
-                    ));
+                    pb.finish_with_message(format!("cost {:.2} (converged)", best_cost));
                 }
                 break;
             }
@@ -215,6 +259,11 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
             beam.clear();
             for _ in 0..self.beam_width {
                 if let Some(candidate) = candidates.pop() {
+                    // 履歴に追加（上限に達したら古いものを削除）
+                    if visited.len() >= self.max_history {
+                        visited.pop_front();
+                    }
+                    visited.push_back(format!("{:?}", candidate.ast));
                     beam.push(candidate);
                 } else {
                     break;
