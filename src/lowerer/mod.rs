@@ -27,8 +27,8 @@ impl Lowerer {
 
     fn create_kernel_function(&mut self, graph: &Graph) -> Function {
         // 0.5. graphのinputsの順序通りに入力ノードをマッピング
-        for (i, weak_input) in graph.inputs.iter().enumerate() {
-            if let Some(input_rc) = weak_input.upgrade() {
+        for weak_input in graph.inputs.iter() {
+            if let Some(_input_rc) = weak_input.upgrade() {
                 // GraphNodeを作成するには、トポロジカルソートで得られたノードと照合する必要がある
                 // しかし、ここではまだトポロジカルソートしていないので、一旦保留
             }
@@ -80,17 +80,15 @@ impl Lowerer {
             if output_var != source_var {
                 // メモリコピーを生成
                 let output_shape = &output_node.view;
-                if let crate::graph::shape::view::View::Linear {
+                let crate::graph::shape::view::View::Linear {
                     shape,
                     strides,
                     offset,
-                } = output_shape
-                {
-                    // シンプルなコピーループを生成
-                    let copy_stmt =
-                        self.create_copy_loop(shape, strides, offset, &source_var, &output_var, 0);
-                    statements.push(copy_stmt);
-                }
+                } = output_shape;
+                // シンプルなコピーループを生成
+                let copy_stmt =
+                    self.create_copy_loop(shape, strides, offset, &source_var, &output_var, 0);
+                statements.push(copy_stmt);
             }
         }
 
@@ -321,12 +319,55 @@ impl Lowerer {
                 self.lower_cumulative_op(node, op, *axis, input, declarations)
             }
             GraphOp::View(source_node) => {
-                // View変換は通常、メモリレイアウトの変更なので、
-                // 新しい変数は作らずに既存の変数への参照として扱う
-                // ソースノードの変数名をこのノードにもマッピングする
+                // View変換：stride/offsetに基づいてデータをコピー
+                let result_var = self.get_or_create_var_name(node);
                 let source_var = self.get_or_create_var_name(source_node);
-                self.node_to_var.insert(node.clone(), source_var);
-                None
+
+                // 出力ノードの場合は配列を宣言しない（引数として渡される）
+                if !result_var.starts_with("output_") {
+                    let total_size = self.compute_total_size(&node.view);
+                    let result_dtype = if let Some(size) = total_size {
+                        DType::Vec(Box::new(node.dtype.clone()), size)
+                    } else {
+                        todo!("Dynamic size arrays not yet supported")
+                    };
+
+                    declarations.push(VariableDecl {
+                        name: result_var.clone(),
+                        dtype: result_dtype,
+                        constant: false,
+                        size_expr: None,
+                    });
+                }
+
+                // view情報を取得
+                let result_view = &node.view;
+                let source_view = &source_node.view;
+
+                let (
+                    crate::graph::shape::view::View::Linear {
+                        shape: result_shape,
+                        strides: result_strides,
+                        offset: result_offset,
+                    },
+                    crate::graph::shape::view::View::Linear {
+                        shape: _source_shape,
+                        strides: source_strides,
+                        offset: source_offset,
+                    },
+                ) = (result_view, source_view);
+
+                // View変換のコピーループを生成
+                Some(self.create_view_copy_loop(
+                    result_shape,
+                    result_strides,
+                    result_offset,
+                    source_strides,
+                    source_offset,
+                    &result_var,
+                    &source_var,
+                    0,
+                ))
             }
             GraphOp::Contiguous => {
                 // TODO: Implement contiguous memory layout conversion
@@ -398,19 +439,16 @@ impl Lowerer {
     }
 
     fn compute_total_size(&self, view: &crate::graph::shape::view::View) -> Option<usize> {
-        if let crate::graph::shape::view::View::Linear { shape, .. } = view {
-            let mut total = 1;
-            for dim in shape {
-                if let crate::graph::shape::Expr::Const(n) = dim {
-                    total *= *n as usize;
-                } else {
-                    return None; // 動的サイズの場合
-                }
+        let crate::graph::shape::view::View::Linear { shape, .. } = view;
+        let mut total = 1;
+        for dim in shape {
+            if let crate::graph::shape::Expr::Const(n) = dim {
+                total *= *n as usize;
+            } else {
+                return None; // 動的サイズの場合
             }
-            Some(total)
-        } else {
-            None
         }
+        Some(total)
     }
 
     fn lower_elementwise_op(
@@ -1036,6 +1074,60 @@ impl Lowerer {
             self.create_copy_loop(shape, strides, offset, source_var, dest_var, dim + 1);
 
         let max_iter = Self::shape_expr_to_ast_node(&shape[dim]);
+
+        AstNode::Range {
+            counter_name: loop_var,
+            max: Box::new(max_iter),
+            body: Box::new(inner_body),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn create_view_copy_loop(
+        &self,
+        result_shape: &[crate::graph::shape::Expr],
+        result_strides: &[crate::graph::shape::Expr],
+        result_offset: &crate::graph::shape::Expr,
+        source_strides: &[crate::graph::shape::Expr],
+        source_offset: &crate::graph::shape::Expr,
+        result_var: &str,
+        source_var: &str,
+        dim: usize,
+    ) -> AstNode {
+        if dim >= result_shape.len() {
+            // 最内レベル: view変換を適用してコピーを実行
+
+            // 結果配列のindex: result_stridesとresult_offsetを使用
+            let result_index =
+                self.compute_memory_index(result_strides, result_offset, result_shape.len());
+
+            // ソース配列のindex: source_stridesとsource_offsetを使用
+            let source_index =
+                self.compute_memory_index(source_strides, source_offset, result_shape.len());
+
+            return AstNode::Store {
+                target: Box::new(AstNode::Var(result_var.to_string())),
+                index: Box::new(result_index),
+                value: Box::new(AstNode::Deref(Box::new(
+                    AstNode::Var(source_var.to_string()) + source_index,
+                ))),
+            };
+        }
+
+        // ループを生成
+        let loop_var = format!("i{}", dim);
+        let inner_body = self.create_view_copy_loop(
+            result_shape,
+            result_strides,
+            result_offset,
+            source_strides,
+            source_offset,
+            result_var,
+            source_var,
+            dim + 1,
+        );
+
+        let max_iter = Self::shape_expr_to_ast_node(&result_shape[dim]);
 
         AstNode::Range {
             counter_name: loop_var,

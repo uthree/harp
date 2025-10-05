@@ -21,4 +21,9 @@ impl GraphNode {
         let new_view = self.view.clone().permute(axes);
         GraphNode::new(GraphOp::View(self.clone()), self.dtype.clone(), new_view)
     }
+
+    pub fn flip(self, axis: usize) -> GraphNode {
+        let new_view = self.view.clone().flip(axis);
+        GraphNode::new(GraphOp::View(self.clone()), self.dtype.clone(), new_view)
+    }
 }

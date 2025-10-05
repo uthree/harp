@@ -111,6 +111,30 @@ impl View {
         }
     }
 
+    pub fn flip(self, axis: usize) -> Self {
+        assert!(axis < self.ndim(), "axis out of bounds");
+        match self {
+            View::Linear {
+                shape,
+                mut strides,
+                offset,
+            } => {
+                // Flip axis by reversing the stride direction
+                // New offset = old_offset + (shape[axis] - 1) * strides[axis]
+                // New strides[axis] = -strides[axis]
+                let new_offset = (offset
+                    + (shape[axis].clone() - Expr::from(1)) * strides[axis].clone())
+                .simplify();
+                strides[axis] = (-strides[axis].clone()).simplify();
+                View::Linear {
+                    shape,
+                    strides,
+                    offset: new_offset,
+                }
+            }
+        }
+    }
+
     pub fn expand(self, new_shape: Vec<Expr>) -> Self {
         match self {
             View::Linear {
@@ -269,5 +293,55 @@ mod tests {
     #[should_panic(expected = "can only squeeze an axis of size 1")]
     fn test_squeeze_invalid_axis_size() {
         View::new_contiguous(vec![2, 3]).squeeze(1);
+    }
+
+    #[test]
+    fn test_flip_axis_0() {
+        let view = View::new_contiguous(vec![2, 3]).flip(0);
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = view;
+        assert_eq!(shape, vec![Expr::from(2), Expr::from(3)]);
+        assert_eq!(strides, vec![Expr::from(-3), Expr::from(1)]);
+        assert_eq!(offset, Expr::from(3)); // (2-1) * 3 = 3
+    }
+
+    #[test]
+    fn test_flip_axis_1() {
+        let view = View::new_contiguous(vec![2, 3]).flip(1);
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = view;
+        assert_eq!(shape, vec![Expr::from(2), Expr::from(3)]);
+        assert_eq!(strides, vec![Expr::from(3), Expr::from(-1)]);
+        assert_eq!(offset, Expr::from(2)); // (3-1) * 1 = 2
+    }
+
+    #[test]
+    fn test_flip_multiple_axes() {
+        // Flip axis 0, then axis 1
+        let view = View::new_contiguous(vec![2, 3, 4]).flip(0).flip(1);
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = view;
+        assert_eq!(shape, vec![Expr::from(2), Expr::from(3), Expr::from(4)]);
+        assert_eq!(
+            strides,
+            vec![Expr::from(-12), Expr::from(-4), Expr::from(1)]
+        );
+        // offset = 0 + (2-1)*12 + (3-1)*4 = 12 + 8 = 20
+        assert_eq!(offset, Expr::from(20));
+    }
+
+    #[test]
+    #[should_panic(expected = "axis out of bounds")]
+    fn test_flip_invalid_axis() {
+        View::new_contiguous(vec![2, 3]).flip(2);
     }
 }
