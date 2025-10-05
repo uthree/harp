@@ -301,25 +301,8 @@ impl GraphVisualizerApp {
             harp::ast::DType::Vec(_, _) => "Vec",
         };
 
-        // Format shape - convert Vec<Expr> to a simple string like [10, 20]
-        let shape_exprs = graph_node.view.shape();
-        let shape_str = if shape_exprs.is_empty() {
-            "[]".to_string()
-        } else {
-            let shape_parts: Vec<String> = shape_exprs
-                .iter()
-                .map(|expr| {
-                    // Try to extract simple integer values
-                    use harp::graph::shape::Expr;
-                    match expr {
-                        Expr::Const(n) => n.to_string(),
-                        Expr::Var(name) => name.clone(),
-                        _ => "?".to_string(),
-                    }
-                })
-                .collect();
-            format!("[{}]", shape_parts.join(", "))
-        };
+        // Format view using Display trait
+        let view_str = format!("{}", graph_node.view);
 
         // Get input count for this node
         let num_inputs = Self::get_input_nodes(graph_node).len();
@@ -329,7 +312,7 @@ impl GraphVisualizerApp {
             label,
             op_type: op_type.clone(),
             dtype: dtype_str.to_string(),
-            view_info: shape_str,
+            view_info: view_str,
             num_inputs,
         };
 

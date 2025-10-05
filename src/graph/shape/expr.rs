@@ -1,4 +1,5 @@
 use crate::ast::{AstNode, ConstLiteral};
+use std::fmt;
 use std::ops::{
     Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
@@ -178,6 +179,91 @@ impl Neg for Expr {
 
     fn neg(self) -> Self::Output {
         Expr::from(0isize) - self
+    }
+}
+
+impl fmt::Display for Expr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Expr::Const(n) => write!(f, "{}", n),
+            Expr::Var(s) => write!(f, "{}", s),
+            Expr::Add(lhs, rhs) => {
+                // Add parentheses only when necessary
+                let needs_parens_lhs = matches!(**lhs, Expr::Sub(_, _));
+                let needs_parens_rhs = matches!(**rhs, Expr::Sub(_, _));
+
+                if needs_parens_lhs {
+                    write!(f, "({})", lhs)?;
+                } else {
+                    write!(f, "{}", lhs)?;
+                }
+                write!(f, " + ")?;
+                if needs_parens_rhs {
+                    write!(f, "({})", rhs)
+                } else {
+                    write!(f, "{}", rhs)
+                }
+            }
+            Expr::Sub(lhs, rhs) => {
+                let needs_parens_rhs = !matches!(**rhs, Expr::Const(_) | Expr::Var(_));
+
+                write!(f, "{}", lhs)?;
+                write!(f, " - ")?;
+                if needs_parens_rhs {
+                    write!(f, "({})", rhs)
+                } else {
+                    write!(f, "{}", rhs)
+                }
+            }
+            Expr::Mul(lhs, rhs) => {
+                let needs_parens_lhs = matches!(**lhs, Expr::Add(_, _) | Expr::Sub(_, _));
+                let needs_parens_rhs = matches!(**rhs, Expr::Add(_, _) | Expr::Sub(_, _));
+
+                if needs_parens_lhs {
+                    write!(f, "({})", lhs)?;
+                } else {
+                    write!(f, "{}", lhs)?;
+                }
+                write!(f, " * ")?;
+                if needs_parens_rhs {
+                    write!(f, "({})", rhs)
+                } else {
+                    write!(f, "{}", rhs)
+                }
+            }
+            Expr::Div(lhs, rhs) => {
+                let needs_parens_lhs = matches!(**lhs, Expr::Add(_, _) | Expr::Sub(_, _));
+                let needs_parens_rhs = !matches!(**rhs, Expr::Const(_) | Expr::Var(_));
+
+                if needs_parens_lhs {
+                    write!(f, "({})", lhs)?;
+                } else {
+                    write!(f, "{}", lhs)?;
+                }
+                write!(f, " / ")?;
+                if needs_parens_rhs {
+                    write!(f, "({})", rhs)
+                } else {
+                    write!(f, "{}", rhs)
+                }
+            }
+            Expr::Rem(lhs, rhs) => {
+                let needs_parens_lhs = matches!(**lhs, Expr::Add(_, _) | Expr::Sub(_, _));
+                let needs_parens_rhs = !matches!(**rhs, Expr::Const(_) | Expr::Var(_));
+
+                if needs_parens_lhs {
+                    write!(f, "({})", lhs)?;
+                } else {
+                    write!(f, "{}", lhs)?;
+                }
+                write!(f, " % ")?;
+                if needs_parens_rhs {
+                    write!(f, "({})", rhs)
+                } else {
+                    write!(f, "{}", rhs)
+                }
+            }
+        }
     }
 }
 

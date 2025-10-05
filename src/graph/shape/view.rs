@@ -1,5 +1,6 @@
 use crate::graph::shape::Expr;
 use std::collections::HashSet;
+use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum View {
@@ -203,6 +204,52 @@ impl View {
                 } else {
                     // stride不一致の場合はcontiguousな新しいviewを作成
                     View::new_contiguous(lhs_shape.clone())
+                }
+            }
+        }
+    }
+}
+
+impl fmt::Display for View {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            View::Linear {
+                shape,
+                strides,
+                offset,
+            } => {
+                // Format shape
+                let shape_str = if shape.is_empty() {
+                    "[]".to_string()
+                } else {
+                    let parts: Vec<String> = shape.iter().map(|e| format!("{}", e)).collect();
+                    format!("[{}]", parts.join(", "))
+                };
+
+                // Check if this is a contiguous view
+                let is_contiguous = *self == View::new_contiguous(shape.clone());
+
+                if is_contiguous && offset.is_zero() {
+                    // Simple contiguous case
+                    write!(f, "{}", shape_str)
+                } else {
+                    // Show strides and offset for non-contiguous views
+                    let strides_str = if strides.is_empty() {
+                        "[]".to_string()
+                    } else {
+                        let parts: Vec<String> = strides.iter().map(|e| format!("{}", e)).collect();
+                        format!("[{}]", parts.join(", "))
+                    };
+
+                    if offset.is_zero() {
+                        write!(f, "{} (strides: {})", shape_str, strides_str)
+                    } else {
+                        write!(
+                            f,
+                            "{} (strides: {}, offset: {})",
+                            shape_str, strides_str, offset
+                        )
+                    }
                 }
             }
         }
