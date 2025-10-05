@@ -5,6 +5,7 @@ use harp::graph::{Graph, ReduceOps};
 use std::time::Instant;
 
 fn main() {
+    let _ = env_logger::try_init();
     println!("=== Matrix Multiplication Demo ===\n");
 
     let mut backend = CBackend::new();
@@ -55,16 +56,8 @@ fn main() {
     let outputs = backend.execute(
         &graph,
         vec![
-            harp::backend::c::CBuffer::from_slice(
-                &a_data,
-                &[m as usize, k as usize],
-                DType::F32,
-            ),
-            harp::backend::c::CBuffer::from_slice(
-                &b_data,
-                &[k as usize, n as usize],
-                DType::F32,
-            ),
+            harp::backend::c::CBuffer::from_slice(&a_data, &[m as usize, k as usize], DType::F32),
+            harp::backend::c::CBuffer::from_slice(&b_data, &[k as usize, n as usize], DType::F32),
         ],
     );
     let duration = start.elapsed();
