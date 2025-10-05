@@ -30,7 +30,8 @@
       "Bash(RUST_LOG=debug cargo test test_matmul_various_sizes::case_5 -- --nocapture)",
       "Bash(env RUST_LOG=debug cargo test test_matmul_various_sizes::case_5 -- --nocapture)",
       "Bash(env RUST_LOG=debug cargo run --example test_case5_debug)",
-      "Bash(tee:*)"
+      "Bash(tee:*)",
+      "Bash(env RUST_LOG=trace cargo run --example test_case5)"
     ],
     "deny": [],
     "ask": [

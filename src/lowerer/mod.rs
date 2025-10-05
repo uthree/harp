@@ -1349,15 +1349,17 @@ impl Lowerer {
             let loop_var = format!("i{}", dim);
             let shape_size = Self::shape_expr_to_ast_node(&input_shape[dim]);
 
-            // 初期化（reduce軸をスキップしたインデックスで計算）
-            let result_index =
-                self.compute_reduce_result_index(result_strides, result_offset, dim, reduce_axis);
-
-            let init_stmt = AstNode::Store {
-                target: Box::new(AstNode::Var(result_var.to_string())),
-                index: Box::new(result_index),
-                value: Box::new(initial_value),
-            };
+            // 初期化：reduce軸より後の次元についてもループを生成
+            // reduce_axis+1から始めることで、reduce軸より後の全ての次元をループ
+            let init_stmt = self.create_init_loops_after_reduce(
+                input_shape,
+                result_strides,
+                result_offset,
+                reduce_axis,
+                result_var,
+                initial_value,
+                reduce_axis + 1, // reduce軸の次の次元から開始
+            );
 
             let reduce_loop = AstNode::Range {
                 counter_name: loop_var,
@@ -1995,6 +1997,77 @@ impl Lowerer {
         // 最終的にsimplifyしてからAstNodeに変換
         let simplified = index_expr.simplify();
         Self::shape_expr_to_ast_node(&simplified)
+    }
+
+    /// reduce軸より後の次元について初期化ループを生成
+    /// reduce_axis+1からinput_shape.len()までの次元についてループを作成し、
+    /// 各要素を初期値で初期化する
+    fn create_init_loops_after_reduce(
+        &self,
+        input_shape: &[crate::graph::shape::Expr],
+        result_strides: &[crate::graph::shape::Expr],
+        result_offset: &crate::graph::shape::Expr,
+        reduce_axis: usize,
+        result_var: &str,
+        initial_value: AstNode,
+        dim: usize,
+    ) -> AstNode {
+        if dim >= input_shape.len() {
+            // 全ての次元を処理した：初期化を実行
+            let mut index_expr = result_offset.clone();
+            let mut result_dim = 0;
+
+            for input_dim in 0..input_shape.len() {
+                if input_dim != reduce_axis {
+                    let loop_var = crate::graph::shape::Expr::Var(format!("i{}", input_dim));
+                    let term = loop_var * result_strides[result_dim].clone();
+                    index_expr += term;
+                    result_dim += 1;
+                }
+            }
+
+            let simplified = index_expr.simplify();
+            let result_index = Self::shape_expr_to_ast_node(&simplified);
+
+            return AstNode::Store {
+                target: Box::new(AstNode::Var(result_var.to_string())),
+                index: Box::new(result_index),
+                value: Box::new(initial_value),
+            };
+        }
+
+        if dim == reduce_axis {
+            // reduce軸はスキップ
+            return self.create_init_loops_after_reduce(
+                input_shape,
+                result_strides,
+                result_offset,
+                reduce_axis,
+                result_var,
+                initial_value,
+                dim + 1,
+            );
+        }
+
+        // 通常のループ（reduce軸でない）
+        let loop_var = format!("i{}", dim);
+        let inner_body = self.create_init_loops_after_reduce(
+            input_shape,
+            result_strides,
+            result_offset,
+            reduce_axis,
+            result_var,
+            initial_value,
+            dim + 1,
+        );
+
+        let shape_size = Self::shape_expr_to_ast_node(&input_shape[dim]);
+
+        AstNode::Range {
+            counter_name: loop_var,
+            max: Box::new(shape_size),
+            body: Box::new(inner_body),
+        }
     }
 }
 
