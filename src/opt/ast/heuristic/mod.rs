@@ -8,7 +8,7 @@ pub use cost_estimator::{NodeCountCostEstimator, OperationCostEstimator};
 pub use optimizer::{BeamSearchOptimizer, CostBasedOptimizer};
 pub use suggester::{
     AlgebraicLawSuggester, CommutativeSuggester, FactorizationSuggester, InverseOperationSuggester,
-    LoopTransformSuggester, RedundancyRemovalSuggester, RuleBasedSuggester,
+    LoopTilingSuggester, LoopTransformSuggester, RedundancyRemovalSuggester, RuleBasedSuggester,
 };
 
 /// A trait for suggesting rewrites to an AST.
