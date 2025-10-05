@@ -305,13 +305,19 @@ impl CRenderer {
             AstNode::Exp2(v) => write!(buffer, "exp2({})", self.render_node(v)).unwrap(),
             AstNode::Range {
                 counter_name,
+                start,
                 max,
+                step,
                 body,
             } => {
-                let max = self.render_node(max);
+                let start_str = self.render_node(start);
+                let max_str = self.render_node(max);
+                let step_str = self.render_node(step);
+
+                // Generate: for (size_t i = start; i < max; i += step)
                 writeln!(
                     buffer,
-                    "for (size_t {counter_name} = 0; {counter_name} < {max}; {counter_name}++)"
+                    "for (size_t {counter_name} = {start_str}; {counter_name} < {max_str}; {counter_name} += {step_str})"
                 )
                 .unwrap();
                 self.indent_level += 1;

@@ -182,7 +182,9 @@ impl ReduceLowerer {
             // 縮約ループ: for (i_reduce) { inner_body }
             let reduce_loop = AstNode::Range {
                 counter_name: loop_var,
+                start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
                 max: Box::new(shape_size),
+                step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
                 body: Box::new(inner_body),
             };
 
@@ -215,7 +217,9 @@ impl ReduceLowerer {
 
             AstNode::Range {
                 counter_name: loop_var,
+                start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
                 max: Box::new(shape_size),
+                step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
                 body: Box::new(inner_body),
             }
         }
@@ -252,7 +256,9 @@ impl ReduceLowerer {
 
             AstNode::Range {
                 counter_name: loop_var,
+                start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
                 max: Box::new(shape_size),
+                step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
                 body: Box::new(inner_body),
             }
         }

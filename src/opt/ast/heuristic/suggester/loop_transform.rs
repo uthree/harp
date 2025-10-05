@@ -14,6 +14,7 @@ impl RewriteSuggester for LoopTransformSuggester {
             counter_name,
             max,
             body,
+            ..
         } = node
         {
             // If max is a small constant, suggest unrolling
@@ -56,11 +57,13 @@ impl RewriteSuggester for LoopTransformSuggester {
                         counter_name: counter1,
                         max: max1,
                         body: body1,
+                        ..
                     },
                     AstNode::Range {
                         counter_name: counter2,
                         max: max2,
                         body: body2,
+                        ..
                     },
                 ) = (&statements[i], &statements[i + 1])
                 {
@@ -75,7 +78,9 @@ impl RewriteSuggester for LoopTransformSuggester {
 
                         let fused_loop = AstNode::Range {
                             counter_name: counter1.clone(),
+                            start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
                             max: max1.clone(),
+                            step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
                             body: Box::new(fused_body),
                         };
 

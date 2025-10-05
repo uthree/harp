@@ -208,10 +208,12 @@ impl CumulativeLowerer {
             };
             let cumulative_loop = AstNode::Range {
                 counter_name: loop_var_inner,
+                start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
                 max: Box::new(AstNode::Add(
                     Box::new(shape_size),
                     Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(-1))),
                 )),
+                step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
                 body: Box::new(loop_body_with_offset),
             };
 
@@ -244,7 +246,9 @@ impl CumulativeLowerer {
 
             AstNode::Range {
                 counter_name: loop_var,
+                start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
                 max: Box::new(shape_size),
+                step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
                 body: Box::new(inner_body),
             }
         }

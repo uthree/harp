@@ -266,11 +266,15 @@ impl AstRewriter {
                 self.apply_once(value);
             }
             AstNode::Range {
+                ref mut start,
                 ref mut max,
+                ref mut step,
                 ref mut body,
                 ..
             } => {
+                self.apply_once(start);
                 self.apply_once(max);
+                self.apply_once(step);
                 self.apply_once(body);
             }
             AstNode::Block {

@@ -112,9 +112,11 @@ pub enum AstNode {
     Deref(Box<Self>),          // dereference pointer (read value from *expr)
 
     Range {
-        // Forループ (0 から max-1 まで)
+        // Forループ (start から max-1 まで、stepずつインクリメント)
         counter_name: String, // ループカウンタの変数名
-        max: Box<Self>,       // ループ回数
+        start: Box<Self>,     // 開始値（デフォルトは0）
+        max: Box<Self>,       // 終了値
+        step: Box<Self>,      // インクリメント量（デフォルトは1）
         body: Box<Self>,
     },
 
@@ -268,6 +270,17 @@ impl AstNode {
         AstNode::Capture(n)
     }
 
+    /// Helper to create a Range with default start=0 and step=1
+    pub fn range(counter_name: String, max: Box<AstNode>, body: Box<AstNode>) -> Self {
+        AstNode::Range {
+            counter_name,
+            start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
+            max,
+            step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
+            body,
+        }
+    }
+
     pub fn children(&self) -> Vec<&AstNode> {
         match self {
             AstNode::Const(_) => vec![],
@@ -292,8 +305,8 @@ impl AstNode {
             AstNode::Log2(n) => vec![n.as_ref()],
             AstNode::Exp2(n) => vec![n.as_ref()],
             AstNode::CallFunction { args, .. } => args.iter().collect(),
-            AstNode::Range { max, body, .. } => {
-                vec![max.as_ref(), body.as_ref()]
+            AstNode::Range { start, max, step, body, .. } => {
+                vec![start.as_ref(), max.as_ref(), step.as_ref(), body.as_ref()]
             }
             AstNode::Block { statements, .. } => statements.iter().collect(),
             AstNode::Drop(_) => vec![],
@@ -401,7 +414,9 @@ impl AstNode {
             },
             AstNode::Range { counter_name, .. } => AstNode::Range {
                 counter_name, // moved
+                start: Box::new(children_iter.next().unwrap()),
                 max: Box::new(children_iter.next().unwrap()),
+                step: Box::new(children_iter.next().unwrap()),
                 body: Box::new(children_iter.next().unwrap()),
             },
             AstNode::Block { scope, .. } => {

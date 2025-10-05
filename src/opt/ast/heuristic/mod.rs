@@ -71,8 +71,8 @@ pub fn all_suggesters() -> CombinedRewriteSuggester {
         Box::new(CommutativeSuggester),
         Box::new(FactorizationSuggester),
         Box::new(InverseOperationSuggester),
-        // LoopTilingSuggester generates const variables with assignments, which causes compilation errors
-        // Box::new(LoopTilingSuggester::new(16)),
+        // LoopTilingSuggester: now uses separate remainder loop, no min() needed
+        Box::new(LoopTilingSuggester::new(16)),
         Box::new(LoopTransformSuggester),
         // RedundancyRemovalSuggester is too aggressive and can incorrectly remove
         // important operations like Cast, so it's excluded from the default set

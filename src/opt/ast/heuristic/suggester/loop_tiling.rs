@@ -22,99 +22,94 @@ impl RewriteSuggester for LoopTilingSuggester {
             counter_name,
             max,
             body,
+            ..
         } = node
         {
-            // Create tiled loop structure:
-            // for(outer = 0; outer < max; outer += tile_size) {
-            //     for(inner = 0; inner < tile_size; inner++) {
-            //         i = outer + inner;
-            //         if(i < max) { body[i] }
+            // Skip if already tiled (avoid infinite tiling)
+            if counter_name.contains("_tile") || counter_name.contains("_inner") || counter_name.contains("_idx") {
+                return suggestions;
+            }
+
+            // Skip tiling for loops that are too small (less than 2x tile size)
+            // Tiling small loops adds overhead without benefit
+            if let AstNode::Const(crate::ast::ConstLiteral::Isize(max_val)) = **max {
+                if max_val < (2 * self.tile_size as isize) {
+                    return suggestions;
+                }
+            }
+            // Create tiled loop structure with separate remainder loop:
+            // main_max = max - max % tile_size
+            // for(tile_start = 0; tile_start < main_max; tile_start += tile_size) {
+            //     for(i = tile_start; i < tile_start + tile_size; i++) {
+            //         body[i]
             //     }
+            // }
+            // // Remainder loop for last partial tile
+            // for(i = main_max; i < max; i++) {
+            //     body[i]
             // }
 
             let tile_size_node = AstNode::Const(ConstLiteral::Isize(self.tile_size as isize));
-            let outer_name = format!("{}_tile", counter_name);
-            let inner_name = format!("{}_inner", counter_name);
+            let tile_start_name = format!("{}_tile_start", counter_name);
+            let main_max_name = format!("{}_main_max", counter_name);
 
-            // Replace all uses of counter_name with (outer + inner) in body
-            let modified_body =
-                self.replace_counter_with_offset(body, counter_name, &outer_name, &inner_name);
-
-            // Add bounds check: if(i < max) { body }
-            let i_value = AstNode::Add(
-                Box::new(AstNode::Var(outer_name.clone())),
-                Box::new(AstNode::Var(inner_name.clone())),
-            );
-            let bounds_check = AstNode::Block {
-                scope: crate::ast::Scope {
-                    declarations: vec![crate::ast::VariableDecl {
-                        name: counter_name.clone(),
-                        dtype: crate::ast::DType::Isize,
-                        constant: true,
-                        size_expr: None,
-                    }],
-                },
-                statements: vec![
-                    AstNode::Assign(counter_name.clone(), Box::new(i_value.clone())),
-                    // if(i < max) { modified_body }
-                    // AST doesn't have If node, so we'll just include the body
-                    // In real implementation, we'd need conditional execution
-                    modified_body,
-                ],
-            };
-
-            // Inner loop: for(inner = 0; inner < tile_size; inner++)
-            let inner_loop = AstNode::Range {
-                counter_name: inner_name.clone(),
-                max: Box::new(tile_size_node.clone()),
-                body: Box::new(bounds_check),
-            };
-
-            // Outer loop: for(outer = 0; outer < max; outer += tile_size)
-            // Note: Range increments by 1, so we need to modify the loop structure
-            // For now, we'll create a simplified version that steps by 1
-            // A more sophisticated approach would require step parameter in Range
-
-            // Calculate number of tiles: (max + tile_size - 1) / tile_size
-            let num_tiles = AstNode::Div(
-                Box::new(AstNode::Add(
+            // Calculate main_max = max - max % tile_size
+            let main_max_value = AstNode::Add(
+                max.clone(),
+                Box::new(AstNode::Neg(Box::new(AstNode::Rem(
                     max.clone(),
-                    Box::new(AstNode::Const(ConstLiteral::Isize(
-                        self.tile_size as isize - 1,
-                    ))),
-                )),
-                Box::new(tile_size_node.clone()),
+                    Box::new(tile_size_node.clone()),
+                )))),
             );
 
-            // Outer loop body: tile_start = outer * tile_size; inner_loop
-            let outer_body = AstNode::Block {
+            // Inner tiled loop: for(i = tile_start; i < tile_start + tile_size; i++)
+            let inner_tiled_loop = AstNode::Range {
+                counter_name: counter_name.clone(),
+                start: Box::new(AstNode::Var(tile_start_name.clone())),
+                max: Box::new(AstNode::Add(
+                    Box::new(AstNode::Var(tile_start_name.clone())),
+                    Box::new(tile_size_node.clone()),
+                )),
+                step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
+                body: body.clone(),
+            };
+
+            // Main tiled loop: for(tile_start = 0; tile_start < main_max; tile_start += tile_size)
+            let main_tiled_loop = AstNode::Range {
+                counter_name: tile_start_name.clone(),
+                start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
+                max: Box::new(AstNode::Var(main_max_name.clone())),
+                step: Box::new(tile_size_node),
+                body: Box::new(inner_tiled_loop),
+            };
+
+            // Remainder loop: for(i = main_max; i < max; i++)
+            let remainder_loop = AstNode::Range {
+                counter_name: counter_name.clone(),
+                start: Box::new(AstNode::Var(main_max_name.clone())),
+                max: max.clone(),
+                step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
+                body: body.clone(),
+            };
+
+            // Combine main and remainder loops in a block
+            let combined = AstNode::Block {
                 scope: crate::ast::Scope {
                     declarations: vec![crate::ast::VariableDecl {
-                        name: outer_name.clone(),
+                        name: main_max_name.clone(),
                         dtype: crate::ast::DType::Isize,
-                        constant: true,
+                        constant: false,
                         size_expr: None,
                     }],
                 },
                 statements: vec![
-                    AstNode::Assign(
-                        outer_name.clone(),
-                        Box::new(AstNode::Mul(
-                            Box::new(AstNode::Var(format!("{}_idx", outer_name))),
-                            Box::new(tile_size_node),
-                        )),
-                    ),
-                    inner_loop,
+                    AstNode::Assign(main_max_name, Box::new(main_max_value)),
+                    main_tiled_loop,
+                    remainder_loop,
                 ],
             };
 
-            let tiled_loop = AstNode::Range {
-                counter_name: format!("{}_idx", outer_name),
-                max: Box::new(num_tiles),
-                body: Box::new(outer_body),
-            };
-
-            suggestions.push(tiled_loop);
+            suggestions.push(combined);
         }
 
         // Recursively suggest tiling in children
@@ -230,7 +225,9 @@ mod tests {
         );
         let ast = AstNode::Range {
             counter_name: "i".to_string(),
+            start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
             max: Box::new(AstNode::Const(ConstLiteral::Isize(100))),
+            step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
             body: Box::new(body),
         };
 

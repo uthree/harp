@@ -99,7 +99,9 @@ impl FusedLowerer {
 
         AstNode::Range {
             counter_name: loop_var,
+            start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
             max: Box::new(max_iter),
+            step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
             body: Box::new(inner_body),
         }
     }
@@ -332,12 +334,14 @@ impl FusedLowerer {
                 reduce_axis,
                 result_var,
                 initial_value,
-                reduce_axis + 1, // reduce軸の次の次元から開始
+                reduce_axis + 1, // reduce軸の次元から開始
             );
 
             let reduce_loop = AstNode::Range {
                 counter_name: loop_var,
+                start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
                 max: Box::new(shape_size),
+                step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
                 body: Box::new(inner_body),
             };
 
@@ -368,7 +372,9 @@ impl FusedLowerer {
 
         AstNode::Range {
             counter_name: loop_var,
+            start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
             max: Box::new(shape_size),
+            step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
             body: Box::new(inner_body),
         }
     }
@@ -543,7 +549,9 @@ impl FusedLowerer {
 
             let reduce_loop = AstNode::Range {
                 counter_name: loop_var,
+                start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
                 max: Box::new(shape_size),
+                step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
                 body: Box::new(inner_body),
             };
 
@@ -575,7 +583,9 @@ impl FusedLowerer {
 
         AstNode::Range {
             counter_name: loop_var,
+            start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
             max: Box::new(shape_size),
+            step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
             body: Box::new(inner_body),
         }
     }
@@ -654,7 +664,9 @@ impl FusedLowerer {
 
         AstNode::Range {
             counter_name: loop_var,
+            start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
             max: Box::new(shape_size),
+            step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
             body: Box::new(inner_body),
         }
     }
@@ -724,7 +736,9 @@ impl FusedLowerer {
 
         AstNode::Range {
             counter_name: loop_var,
+            start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
             max: Box::new(shape_size),
+            step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
             body: Box::new(inner_body),
         }
     }

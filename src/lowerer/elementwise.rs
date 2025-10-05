@@ -259,7 +259,9 @@ impl ElementwiseLowerer {
 
             AstNode::Range {
                 counter_name: loop_var,
+                start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
                 max: Box::new(max_iter),
+                step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
                 body: Box::new(inner_body),
             }
         }
@@ -365,7 +367,9 @@ impl ElementwiseLowerer {
 
             AstNode::Range {
                 counter_name: loop_var,
+                start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
                 max: Box::new(max_iter),
+                step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
                 body: Box::new(inner_body),
             }
         }
