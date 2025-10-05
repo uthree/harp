@@ -94,6 +94,14 @@ impl SnarlViewer<GraphNodeData> for GraphVisualizerApp {
         false // Disable node menu to prevent editing
     }
 
+    fn connect(&mut self, _from: &OutPin, _to: &InPin, _snarl: &mut Snarl<GraphNodeData>) {
+        // Do nothing - disable connecting edges
+    }
+
+    fn disconnect(&mut self, _from: &OutPin, _to: &InPin, _snarl: &mut Snarl<GraphNodeData>) {
+        // Do nothing - disable disconnecting edges
+    }
+
     fn show_graph_menu(
         &mut self,
         _pos: egui::Pos2,
