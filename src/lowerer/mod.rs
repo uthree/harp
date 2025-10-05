@@ -319,55 +319,15 @@ impl Lowerer {
                 self.lower_cumulative_op(node, op, *axis, input, declarations)
             }
             GraphOp::View(source_node) => {
-                // View変換：stride/offsetに基づいてデータをコピー
-                let result_var = self.get_or_create_var_name(node);
+                // Viewノードは単にview情報を変更するだけで、メモリコピーは不要
+                // 変数名はsourceと同じものを使い、view情報（stride/offset）だけが変わる
                 let source_var = self.get_or_create_var_name(source_node);
 
-                // 出力ノードの場合は配列を宣言しない（引数として渡される）
-                if !result_var.starts_with("output_") {
-                    let total_size = self.compute_total_size(&node.view);
-                    let result_dtype = if let Some(size) = total_size {
-                        DType::Vec(Box::new(node.dtype.clone()), size)
-                    } else {
-                        todo!("Dynamic size arrays not yet supported")
-                    };
+                // Viewノードの変数名をsourceと同じにする（コピー不要）
+                self.node_to_var.insert(node.clone(), source_var);
 
-                    declarations.push(VariableDecl {
-                        name: result_var.clone(),
-                        dtype: result_dtype,
-                        constant: false,
-                        size_expr: None,
-                    });
-                }
-
-                // view情報を取得
-                let result_view = &node.view;
-                let source_view = &source_node.view;
-
-                let (
-                    crate::graph::shape::view::View::Linear {
-                        shape: result_shape,
-                        strides: result_strides,
-                        offset: result_offset,
-                    },
-                    crate::graph::shape::view::View::Linear {
-                        shape: _source_shape,
-                        strides: source_strides,
-                        offset: source_offset,
-                    },
-                ) = (result_view, source_view);
-
-                // View変換のコピーループを生成
-                Some(self.create_view_copy_loop(
-                    result_shape,
-                    result_strides,
-                    result_offset,
-                    source_strides,
-                    source_offset,
-                    &result_var,
-                    &source_var,
-                    0,
-                ))
+                // コピーループは生成しない
+                None
             }
             GraphOp::Contiguous => {
                 // TODO: Implement contiguous memory layout conversion
@@ -1079,59 +1039,6 @@ impl Lowerer {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn create_view_copy_loop(
-        &self,
-        result_shape: &[crate::graph::shape::Expr],
-        result_strides: &[crate::graph::shape::Expr],
-        result_offset: &crate::graph::shape::Expr,
-        source_strides: &[crate::graph::shape::Expr],
-        source_offset: &crate::graph::shape::Expr,
-        result_var: &str,
-        source_var: &str,
-        dim: usize,
-    ) -> AstNode {
-        if dim >= result_shape.len() {
-            // 最内レベル: view変換を適用してコピーを実行
-
-            // 結果配列のindex: result_stridesとresult_offsetを使用
-            let result_index =
-                self.compute_memory_index(result_strides, result_offset, result_shape.len());
-
-            // ソース配列のindex: source_stridesとsource_offsetを使用
-            let source_index =
-                self.compute_memory_index(source_strides, source_offset, result_shape.len());
-
-            return AstNode::Store {
-                target: Box::new(AstNode::Var(result_var.to_string())),
-                index: Box::new(result_index),
-                value: Box::new(AstNode::Deref(Box::new(
-                    AstNode::Var(source_var.to_string()) + source_index,
-                ))),
-            };
-        }
-
-        // ループを生成
-        let loop_var = format!("i{}", dim);
-        let inner_body = self.create_view_copy_loop(
-            result_shape,
-            result_strides,
-            result_offset,
-            source_strides,
-            source_offset,
-            result_var,
-            source_var,
-            dim + 1,
-        );
-
-        let max_iter = Self::shape_expr_to_ast_node(&result_shape[dim]);
-
-        AstNode::Range {
-            counter_name: loop_var,
-            max: Box::new(max_iter),
-            body: Box::new(inner_body),
-        }
-    }
-
     fn lower_fused_elementwise(
         &mut self,
         node: &GraphNode,

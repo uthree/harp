@@ -2,7 +2,7 @@
 use harp::ast::DType;
 use harp::backend::c::CBuffer;
 use harp::backend::generic::CBackend;
-use harp::backend::{Backend, Buffer};
+use harp::backend::Backend;
 use harp::graph::Graph;
 use harp::s;
 
