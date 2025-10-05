@@ -3,6 +3,14 @@ name = "harp-viz"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "harp_viz"
+path = "src/lib.rs"
+
+[[bin]]
+name = "harp-viz"
+path = "src/bin/main.rs"
+
 [dependencies]
 harp = { path = "../.." }
 eframe = "0.32.3"

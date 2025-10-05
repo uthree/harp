@@ -179,12 +179,14 @@ impl fmt::Display for GraphOp {
             GraphOp::View(_) => write!(f, "View"),
             GraphOp::Contiguous(_) => write!(f, "Contiguous"),
             GraphOp::Cast(_, dtype) => write!(f, "Cast({})", dtype),
-            GraphOp::FusedElementwise(_, _) => write!(f, "Fused"),
+            GraphOp::FusedElementwise(_, _) => write!(f, "FusedElementwise"),
             GraphOp::FusedReduce(op, axes, _) => write!(f, "Fused{}[{:?}]", op, axes),
             GraphOp::FusedElementwiseReduce(_, _, op, axes) => {
                 write!(f, "FusedER-{}[{:?}]", op, axes)
             }
-            GraphOp::FusedElementwiseCumulative(_, _, op) => write!(f, "FusedEC-{}", op),
+            GraphOp::FusedElementwiseCumulative(_, _, op) => {
+                write!(f, "FusedEC-{}", op)
+            }
         }
     }
 }
