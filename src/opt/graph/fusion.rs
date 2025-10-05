@@ -255,6 +255,49 @@ impl GraphFusionOptimizer {
 
         Some((ast, inputs))
     }
+
+    /// Reduce -> Reduceの融合を試みる
+    fn try_fuse_reduce_chain(
+        &mut self,
+        op: &ReduceOp,
+        axis: usize,
+        input: &GraphNode,
+    ) -> Option<(Vec<usize>, GraphNode)> {
+        // inputがReduceでない、または異なる演算子の場合は融合しない
+        let GraphOp::Reduce(input_op, input_axis, inner_input) = &input.op else {
+            return None;
+        };
+
+        if input_op != op {
+            return None;
+        }
+
+        // inputが分岐している場合は融合しない
+        if self.is_branching(input) {
+            return None;
+        }
+
+        // 軸のリストを計算
+        // 最初のreduceのaxisと、2番目のaxisを元のテンソルの軸に変換
+        let first_axis = *input_axis;
+        let second_axis = if axis >= first_axis {
+            axis + 1 // first_axisで縮約されたので、それ以降の軸は+1
+        } else {
+            axis
+        };
+
+        // 再帰的にさらに融合可能かチェック
+        if let Some((mut axes, final_input)) =
+            self.try_fuse_reduce_chain(input_op, first_axis, inner_input)
+        {
+            // さらに融合できる場合
+            axes.push(second_axis);
+            Some((axes, final_input))
+        } else {
+            // これ以上融合できない場合
+            Some((vec![first_axis, second_axis], inner_input.clone()))
+        }
+    }
 }
 
 impl Default for GraphFusionOptimizer {
@@ -306,6 +349,16 @@ impl GraphFusionOptimizer {
                 )
             }
             GraphOp::Reduce(op, axis, input) => {
+                // Reduce -> Reduceの融合を試みる
+                if let Some((axes, final_input)) = self.try_fuse_reduce_chain(op, *axis, input) {
+                    let rebuilt_input = self.rebuild_node(&final_input);
+                    return GraphNode::new(
+                        GraphOp::FusedReduce(op.clone(), axes, rebuilt_input),
+                        node.dtype.clone(),
+                        node.view.clone(),
+                    );
+                }
+
                 // Elementwise -> Reduceの融合を試みる
                 if let Some((ast, inputs, axes)) =
                     self.try_fuse_elementwise_reduce(op, *axis, input)

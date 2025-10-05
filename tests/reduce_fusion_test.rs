@@ -1,16 +1,19 @@
+mod common;
+
 use harp::ast::DType;
 use harp::backend::generic::CBackend;
 use harp::backend::Backend;
 use harp::graph::ops::ReduceOps;
 use harp::graph::Graph;
 
-fn main() {
-    env_logger::init();
+#[test]
+fn test_elementwise_reduce_fusion() {
+    common::setup();
 
     // Create backend
     let mut backend = CBackend::new();
     if !backend.is_available() {
-        println!("C compiler not available");
+        eprintln!("C compiler not available, skipping test");
         return;
     }
 
@@ -50,48 +53,26 @@ fn main() {
     let c_buffer = harp::backend::c::CBuffer::from_slice(&c_data, &[3, 4], DType::F32);
 
     // Execute
-    println!("Computing sum((a + b) * c) along axis 0...");
-    println!("Input a:");
-    println!("  [1, 2, 3, 4]");
-    println!("  [5, 6, 7, 8]");
-    println!("  [9, 10, 11, 12]");
-    println!("\nInput b:");
-    println!("  [1, 1, 1, 1]");
-    println!("  [1, 1, 1, 1]");
-    println!("  [1, 1, 1, 1]");
-    println!("\nInput c:");
-    println!("  [2, 2, 2, 2]");
-    println!("  [2, 2, 2, 2]");
-    println!("  [2, 2, 2, 2]");
-
     let outputs = backend.execute(&graph, vec![a_buffer, b_buffer, c_buffer]);
 
     // Read result
     let output_data = outputs[0].to_vec::<f32>();
-    println!("\nResult (sum along axis 0):");
-    println!("{:?}", output_data);
 
     // Expected:
     // (1+1)*2 + (5+1)*2 + (9+1)*2 = 4 + 12 + 20 = 36
     // (2+1)*2 + (6+1)*2 + (10+1)*2 = 6 + 14 + 22 = 42
     // (3+1)*2 + (7+1)*2 + (11+1)*2 = 8 + 16 + 24 = 48
     // (4+1)*2 + (8+1)*2 + (12+1)*2 = 10 + 18 + 26 = 54
-    println!("\nExpected:");
-    println!("[36.0, 42.0, 48.0, 54.0]");
+    let expected = vec![36.0f32, 42.0, 48.0, 54.0];
 
     // Verify
-    let expected = vec![36.0f32, 42.0, 48.0, 54.0];
-    let mut all_correct = true;
     for (i, (out, exp)) in output_data.iter().zip(expected.iter()).enumerate() {
-        if (out - exp).abs() > 1e-5 {
-            println!("Mismatch at index {}: got {}, expected {}", i, out, exp);
-            all_correct = false;
-        }
-    }
-
-    if all_correct {
-        println!("\n✓ All values match!");
-    } else {
-        println!("\n✗ Some values don't match");
+        assert!(
+            (out - exp).abs() < 1e-5,
+            "Mismatch at index {}: got {}, expected {}",
+            i,
+            out,
+            exp
+        );
     }
 }

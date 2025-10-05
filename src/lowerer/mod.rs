@@ -376,9 +376,8 @@ impl Lowerer {
             GraphOp::FusedElementwise(ast, inputs) => {
                 self.lower_fused_elementwise(node, ast, inputs, declarations)
             }
-            GraphOp::FusedReduce(_, _, _) => {
-                // TODO: Implement fused reduce operations
-                todo!("FusedReduce operation not yet implemented in lowerer")
+            GraphOp::FusedReduce(op, axes, input) => {
+                self.lower_fused_reduce(node, op, axes, input, declarations)
             }
             GraphOp::FusedElementwiseReduce(ast, inputs, op, axes) => {
                 self.lower_fused_elementwise_reduce(node, ast, inputs, op, axes, declarations)
@@ -1491,6 +1490,293 @@ impl Lowerer {
         }
     }
 
+    fn lower_fused_reduce(
+        &mut self,
+        node: &GraphNode,
+        op: &crate::graph::ops::ReduceOp,
+        axes: &[usize],
+        input: &GraphNode,
+        declarations: &mut Vec<VariableDecl>,
+    ) -> Option<AstNode> {
+        use crate::graph::ops::ReduceOp;
+
+        let result_var = self.get_or_create_var_name(node);
+        let input_var = self.get_or_create_var_name(input);
+
+        // 出力ノードの場合は配列を宣言しない
+        if !result_var.starts_with("output_") {
+            let total_size = self.compute_total_size(&node.view);
+            let result_dtype = if let Some(size) = total_size {
+                DType::Vec(Box::new(node.dtype.clone()), size)
+            } else {
+                todo!("Dynamic size arrays not yet supported")
+            };
+
+            declarations.push(VariableDecl {
+                name: result_var.clone(),
+                dtype: result_dtype,
+                constant: false,
+                size_expr: None,
+            });
+        }
+
+        // view情報を取得
+        let input_view = &input.view;
+        let result_view = &node.view;
+
+        let (
+            crate::graph::shape::view::View::Linear {
+                shape: input_shape,
+                strides: input_strides,
+                offset: input_offset,
+            },
+            crate::graph::shape::view::View::Linear {
+                shape: _result_shape,
+                strides: result_strides,
+                offset: result_offset,
+            },
+        ) = (input_view, result_view);
+
+        // 縮約操作の初期値を定義
+        let initial_value = match op {
+            ReduceOp::Add => AstNode::Const(crate::ast::ConstLiteral::F32(0.0)),
+            ReduceOp::Mul => AstNode::Const(crate::ast::ConstLiteral::F32(1.0)),
+            ReduceOp::Max => AstNode::Const(crate::ast::ConstLiteral::F32(f32::NEG_INFINITY)),
+        };
+
+        // 多重ループでreduce操作を実行
+        Some(self.create_fused_reduce_loops(
+            input_shape,
+            input_strides,
+            input_offset,
+            result_strides,
+            result_offset,
+            axes,
+            &input_var,
+            &result_var,
+            op,
+            initial_value,
+            0,
+        ))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn create_fused_reduce_loops(
+        &self,
+        input_shape: &[crate::graph::shape::Expr],
+        input_strides: &[crate::graph::shape::Expr],
+        input_offset: &crate::graph::shape::Expr,
+        result_strides: &[crate::graph::shape::Expr],
+        result_offset: &crate::graph::shape::Expr,
+        reduce_axes: &[usize],
+        input_var: &str,
+        result_var: &str,
+        reduce_op: &crate::graph::ops::ReduceOp,
+        initial_value: AstNode,
+        dim: usize,
+    ) -> AstNode {
+        let is_reduce_axis = reduce_axes.contains(&dim);
+
+        if dim >= input_shape.len() {
+            // 全ての次元を処理した：縮約操作を実行
+            let input_index =
+                self.compute_memory_index(input_strides, input_offset, input_shape.len());
+            let result_index = self.compute_multi_reduce_result_index(
+                result_strides,
+                result_offset,
+                input_shape.len(),
+                reduce_axes,
+            );
+
+            // 縮約操作: result[...] = result[...] op input[...]
+            let operation_result = match reduce_op {
+                crate::graph::ops::ReduceOp::Add => AstNode::Add(
+                    Box::new(AstNode::Deref(Box::new(
+                        AstNode::Var(result_var.to_string()) + result_index.clone(),
+                    ))),
+                    Box::new(AstNode::Deref(Box::new(
+                        AstNode::Var(input_var.to_string()) + input_index,
+                    ))),
+                ),
+                crate::graph::ops::ReduceOp::Mul => AstNode::Mul(
+                    Box::new(AstNode::Deref(Box::new(
+                        AstNode::Var(result_var.to_string()) + result_index.clone(),
+                    ))),
+                    Box::new(AstNode::Deref(Box::new(
+                        AstNode::Var(input_var.to_string()) + input_index,
+                    ))),
+                ),
+                crate::graph::ops::ReduceOp::Max => AstNode::Max(
+                    Box::new(AstNode::Deref(Box::new(
+                        AstNode::Var(result_var.to_string()) + result_index.clone(),
+                    ))),
+                    Box::new(AstNode::Deref(Box::new(
+                        AstNode::Var(input_var.to_string()) + input_index,
+                    ))),
+                ),
+            };
+
+            return AstNode::Store {
+                target: Box::new(AstNode::Var(result_var.to_string())),
+                index: Box::new(result_index),
+                value: Box::new(operation_result),
+            };
+        }
+
+        if is_reduce_axis && dim == *reduce_axes.iter().min().unwrap() {
+            // 最初の縮約軸: 初期化ループ + 縮約ループ
+            // 初期化ループ: reduce軸でない次元だけでループし、結果を初期化
+            let init_loop = self.create_init_loops_for_fused_reduce(
+                input_shape,
+                result_strides,
+                result_offset,
+                reduce_axes,
+                result_var,
+                initial_value.clone(),
+                0,
+            );
+
+            // 縮約ループ（現在の次元から開始）
+            let loop_var = format!("i{}", dim);
+            let shape_size = Self::shape_expr_to_ast_node(&input_shape[dim]);
+
+            let inner_body = self.create_fused_reduce_loops(
+                input_shape,
+                input_strides,
+                input_offset,
+                result_strides,
+                result_offset,
+                reduce_axes,
+                input_var,
+                result_var,
+                reduce_op,
+                initial_value.clone(),
+                dim + 1,
+            );
+
+            let reduce_loop = AstNode::Range {
+                counter_name: loop_var,
+                max: Box::new(shape_size),
+                body: Box::new(inner_body),
+            };
+
+            return AstNode::Block {
+                scope: crate::ast::Scope {
+                    declarations: vec![],
+                },
+                statements: vec![init_loop, reduce_loop],
+            };
+        }
+
+        // 通常のループ（reduce軸でないか、最初のreduce軸でない）
+        let loop_var = format!("i{}", dim);
+        let inner_body = self.create_fused_reduce_loops(
+            input_shape,
+            input_strides,
+            input_offset,
+            result_strides,
+            result_offset,
+            reduce_axes,
+            input_var,
+            result_var,
+            reduce_op,
+            initial_value,
+            dim + 1,
+        );
+
+        let shape_size = Self::shape_expr_to_ast_node(&input_shape[dim]);
+
+        AstNode::Range {
+            counter_name: loop_var,
+            max: Box::new(shape_size),
+            body: Box::new(inner_body),
+        }
+    }
+
+    /// FusedReduceの初期化ループを作成（reduce軸でない次元のみ）
+    fn create_init_loops_for_fused_reduce(
+        &self,
+        input_shape: &[crate::graph::shape::Expr],
+        result_strides: &[crate::graph::shape::Expr],
+        result_offset: &crate::graph::shape::Expr,
+        reduce_axes: &[usize],
+        result_var: &str,
+        initial_value: AstNode,
+        dim: usize,
+    ) -> AstNode {
+        if dim >= input_shape.len() {
+            // 全ての次元を処理した：初期化を実行
+            let result_index = self.compute_multi_reduce_result_index(
+                result_strides,
+                result_offset,
+                input_shape.len(),
+                reduce_axes,
+            );
+
+            return AstNode::Store {
+                target: Box::new(AstNode::Var(result_var.to_string())),
+                index: Box::new(result_index),
+                value: Box::new(initial_value),
+            };
+        }
+
+        if reduce_axes.contains(&dim) {
+            // reduce軸はスキップ
+            return self.create_init_loops_for_fused_reduce(
+                input_shape,
+                result_strides,
+                result_offset,
+                reduce_axes,
+                result_var,
+                initial_value,
+                dim + 1,
+            );
+        }
+
+        // 通常のループ（reduce軸でない）
+        let loop_var = format!("i{}", dim);
+        let inner_body = self.create_init_loops_for_fused_reduce(
+            input_shape,
+            result_strides,
+            result_offset,
+            reduce_axes,
+            result_var,
+            initial_value,
+            dim + 1,
+        );
+
+        let shape_size = Self::shape_expr_to_ast_node(&input_shape[dim]);
+
+        AstNode::Range {
+            counter_name: loop_var,
+            max: Box::new(shape_size),
+            body: Box::new(inner_body),
+        }
+    }
+
+    /// 複数のreduce軸をスキップしてresult indexを計算
+    fn compute_multi_reduce_result_index(
+        &self,
+        result_strides: &[crate::graph::shape::Expr],
+        result_offset: &crate::graph::shape::Expr,
+        ndim: usize,
+        reduce_axes: &[usize],
+    ) -> AstNode {
+        let mut index = Self::shape_expr_to_ast_node(result_offset);
+        let mut result_dim = 0; // 出力テンソルの次元インデックス
+
+        for dim in 0..ndim {
+            if !reduce_axes.contains(&dim) {
+                let loop_var = AstNode::Var(format!("i{}", dim));
+                let stride = Self::shape_expr_to_ast_node(&result_strides[result_dim]);
+                index += loop_var * stride;
+                result_dim += 1; // 出力次元をインクリメント
+            }
+        }
+
+        index
+    }
+
     fn lower_fused_elementwise_cumulative(
         &mut self,
         _node: &GraphNode,
@@ -1874,7 +2160,7 @@ mod tests {
 
         // 入力と出力があるグラフ
         let input_node = graph.input(DType::F32, vec![4.into()]);
-        let constant = GraphNode::f32(2.0);
+        let _constant = GraphNode::f32(2.0);
         let result = -input_node; // 単項演算
         graph.output(result);
 
