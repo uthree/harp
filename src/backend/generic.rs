@@ -102,7 +102,8 @@ where
         };
         let suggester = all_suggesters();
         let estimator = OperationCostEstimator;
-        let beam_optimizer = BeamSearchOptimizer::new(suggester, estimator, 4, 100);
+        let beam_optimizer =
+            BeamSearchOptimizer::new(suggester, estimator, 4, 100).with_progress(false);
         body = beam_optimizer.optimize(&body);
 
         log::debug!("Optimization complete for function: {}", function.name());
