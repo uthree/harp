@@ -16,7 +16,6 @@
       "Bash(env RUST_LOG=debug cargo run --example test_passthrough)",
       "Bash(RUST_LOG=trace cargo build --example test_passthrough)",
       "Bash(RUST_LOG=debug cargo run --example test_passthrough 2)",
-      "Bash(1)",
       "Bash(RUST_LOG=debug cargo run --example test_passthrough)",
       "Bash(RUST_LOG=debug cargo run --example simple_add)",
       "Bash(env RUST_LOG=debug cargo run --example simple_add)",
@@ -26,9 +25,16 @@
       "Bash(env RUST_LOG=debug cargo run --example fusion_test)",
       "Bash(env RUST_LOG=debug cargo run --example reduce_fusion_test)",
       "Bash(env RUST_LOG=debug cargo run --example multi_reduce_fusion_test)",
-      "Bash(env RUST_LOG=debug cargo run --example view_fusion_test)"
+      "Bash(env RUST_LOG=debug cargo run --example view_fusion_test)",
+      "Bash(env RUST_LOG=debug cargo run --example test_case5)",
+      "Bash(RUST_LOG=debug cargo test test_matmul_various_sizes::case_5 -- --nocapture)",
+      "Bash(env RUST_LOG=debug cargo test test_matmul_various_sizes::case_5 -- --nocapture)",
+      "Bash(env RUST_LOG=debug cargo run --example test_case5_debug)",
+      "Bash(tee:*)"
     ],
     "deny": [],
-    "ask": []
+    "ask": [
+      "Bash(git:*)"
+    ]
   }
 }

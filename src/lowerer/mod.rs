@@ -1532,7 +1532,7 @@ impl Lowerer {
 
         if is_reduce_axis && dim == *reduce_axes.iter().min().unwrap() {
             // 最初の縮約軸: 初期化ループ + 縮約ループ
-            // 初期化ループ: reduce軸でない次元だけでループし、結果を初期化
+            // 初期化ループ: 最初のreduce軸以降の次元（reduce軸を除く）でループし、結果を初期化
             let init_loop = self.create_init_loops_for_fused_reduce(
                 input_shape,
                 result_strides,
@@ -1540,7 +1540,8 @@ impl Lowerer {
                 reduce_axes,
                 result_var,
                 initial_value.clone(),
-                0,
+                dim, // start_dim: 最初のreduce軸から開始（それより前の次元はすでにループの中）
+                0,   // dim: 0から開始して、start_dim未満はスキップ
             );
 
             // 縮約ループ（現在の次元から開始）
@@ -1601,6 +1602,8 @@ impl Lowerer {
     }
 
     /// FusedReduceの初期化ループを作成（reduce軸でない次元のみ）
+    /// start_dim: 初期化ループを開始する次元（最初のreduce軸）
+    /// dim: 現在処理中の次元
     fn create_init_loops_for_fused_reduce(
         &self,
         input_shape: &[crate::graph::shape::Expr],
@@ -1609,6 +1612,7 @@ impl Lowerer {
         reduce_axes: &[usize],
         result_var: &str,
         initial_value: AstNode,
+        start_dim: usize,
         dim: usize,
     ) -> AstNode {
         if dim >= input_shape.len() {
@@ -1627,6 +1631,20 @@ impl Lowerer {
             };
         }
 
+        if dim < start_dim {
+            // start_dimより前の次元はスキップ（すでに外側のループで処理されている）
+            return self.create_init_loops_for_fused_reduce(
+                input_shape,
+                result_strides,
+                result_offset,
+                reduce_axes,
+                result_var,
+                initial_value,
+                start_dim,
+                dim + 1,
+            );
+        }
+
         if reduce_axes.contains(&dim) {
             // reduce軸はスキップ
             return self.create_init_loops_for_fused_reduce(
@@ -1636,6 +1654,7 @@ impl Lowerer {
                 reduce_axes,
                 result_var,
                 initial_value,
+                start_dim,
                 dim + 1,
             );
         }
@@ -1649,6 +1668,7 @@ impl Lowerer {
             reduce_axes,
             result_var,
             initial_value,
+            start_dim,
             dim + 1,
         );
 
