@@ -103,13 +103,6 @@ pub enum AstNode {
         max: Box<Self>,       // ループ回数
         body: Box<Self>,
     },
-    RangeFrom {
-        // Forループ (start から max-1 まで)
-        counter_name: String, // ループカウンタの変数名
-        start: Box<Self>,     // 開始値
-        max: Box<Self>,       // ループ回数
-        body: Box<Self>,
-    },
 
     Drop(String), // drop (local) variable explicitly
 

@@ -186,12 +186,33 @@ impl CumulativeLowerer {
             };
 
             // i=1から開始するループを作成
-            // for (size_t i = 1; i < shape_size; i++)
-            let cumulative_loop = AstNode::RangeFrom {
-                counter_name: loop_var,
-                start: Box::new(AstNode::from(1usize)),
-                max: Box::new(shape_size),
-                body: Box::new(cumulative_stmt),
+            // for (size_t i_inner = 0; i_inner < shape_size-1; i_inner++) { i = i_inner + 1; ... }
+            let loop_var_inner = format!("{}_inner", loop_var);
+            let i_assign = AstNode::Assign(
+                loop_var.clone(),
+                Box::new(AstNode::Add(
+                    Box::new(AstNode::Var(loop_var_inner.clone())),
+                    Box::new(AstNode::from(1usize)),
+                )),
+            );
+            let loop_body_with_offset = AstNode::Block {
+                scope: crate::ast::Scope {
+                    declarations: vec![crate::ast::VariableDecl {
+                        name: loop_var.clone(),
+                        dtype: crate::ast::DType::Usize,
+                        constant: true,
+                        size_expr: None,
+                    }],
+                },
+                statements: vec![i_assign, cumulative_stmt],
+            };
+            let cumulative_loop = AstNode::Range {
+                counter_name: loop_var_inner,
+                max: Box::new(AstNode::Add(
+                    Box::new(shape_size),
+                    Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(-1))),
+                )),
+                body: Box::new(loop_body_with_offset),
             };
 
             // 初期化 + 累積ループをブロックにまとめる
