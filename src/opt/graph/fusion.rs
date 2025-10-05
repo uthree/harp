@@ -24,7 +24,10 @@ pub struct OptimizationSnapshot {
 impl GraphFusionOptimizer {
     pub fn new() -> Self {
         // VIZ環境変数が"1"なら自動的にログを有効化
+        #[cfg(feature = "visualizer")]
         let enable_logging = std::env::var("VIZ").map(|v| v == "1").unwrap_or(false);
+        #[cfg(not(feature = "visualizer"))]
+        let enable_logging = false;
 
         Self {
             node_mapping: HashMap::new(),
