@@ -372,7 +372,19 @@ impl CRenderer {
     fn render_const(&self, c: &ConstLiteral) -> String {
         use crate::ast::ConstLiteral::*;
         match c {
-            F32(v) => format!("{}", v),
+            F32(v) => {
+                if v.is_infinite() {
+                    if v.is_sign_negative() {
+                        "(-INFINITY)".to_string()
+                    } else {
+                        "INFINITY".to_string()
+                    }
+                } else if v.is_nan() {
+                    "NAN".to_string()
+                } else {
+                    format!("{}", v)
+                }
+            }
             Isize(v) => format!("{}", v),
             Usize(v) => format!("{}", v),
         }
