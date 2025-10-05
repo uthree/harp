@@ -10,10 +10,11 @@ libc = "0.2.175"
 libloading = "0.8.8"
 log = "0.4"
 tempfile = "3.21.0"
-indicatif = "0.17"
-
-
+indicatif = "0.18.0"
 
 [dev-dependencies]
 env_logger = "0.11.8"
-rstest = "0.18.0"
+rstest = "0.26.0"
+
+[workspace]
+members = ["crates/harp-nn", "crates/harp-viz"]
