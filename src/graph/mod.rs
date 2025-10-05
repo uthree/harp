@@ -1,13 +1,13 @@
 pub mod ops;
 pub mod shape;
-use crate::ast::{ConstLiteral, DType};
+use crate::ast::{AstNode, ConstLiteral, DType};
 pub use crate::graph::ops::ReduceOps;
-use crate::graph::ops::{ElementwiseOp, ReduceOp};
+use crate::graph::ops::{CumulativeOp, ElementwiseOp, ReduceOp};
 use crate::graph::shape::{view::View, Expr as ShapeExpr};
 use std::ops::Deref;
 use std::rc::{Rc, Weak};
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug)]
 pub struct GraphNodeData {
     pub op: GraphOp,
     pub dtype: DType,
@@ -99,14 +99,20 @@ impl Graph {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug)]
 pub enum GraphOp {
     Input,
     Const(ConstLiteral),        // initialize single element tensor, shape=[],
     Elementwise(ElementwiseOp), // 要素ごとの演算
     Reduce(ReduceOp, usize, GraphNode), // 軸を縮約する: (op, axis, input)
     Cumulative(ops::CumulativeOp, usize, GraphNode), // 累積演算: (op, axis, input)
-    ViewTransform(GraphNode),   // view変更操作
+    View(GraphNode),            // view変更操作
+    Contiguous,                 // ContiguousなViewに並べ直す
+    // 融合済みの演算子
+    FusedElementwise(AstNode, Vec<GraphNode>), // Capture(n)がn番目のGraphNodeに対応する
+    FusedReduce(ReduceOp, Vec<usize>, GraphNode), // 複数の軸でReduceする
+    FusedElementwiseReduce(AstNode, Vec<GraphNode>, ReduceOp, Vec<usize>), // FusedElementwiseの直後にFusedReduceする
+    FusedElementwiseCumulative(AstNode, Vec<GraphNode>, CumulativeOp), // FusedElementwiseの直後にCumlativeする
 }
 
 #[derive(Debug, Clone)]

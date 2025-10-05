@@ -279,7 +279,12 @@ impl Lowerer {
             }
             GraphOp::Reduce(_, _, input) => vec![input.clone()],
             GraphOp::Cumulative(_, _, input) => vec![input.clone()],
-            GraphOp::ViewTransform(n) => vec![n.clone()],
+            GraphOp::View(n) => vec![n.clone()],
+            GraphOp::Contiguous => vec![],
+            GraphOp::FusedElementwise(_, nodes) => nodes.clone(),
+            GraphOp::FusedReduce(_, _, input) => vec![input.clone()],
+            GraphOp::FusedElementwiseReduce(_, nodes, _, _) => nodes.clone(),
+            GraphOp::FusedElementwiseCumulative(_, nodes, _) => nodes.clone(),
         }
     }
 
@@ -315,13 +320,33 @@ impl Lowerer {
             GraphOp::Cumulative(op, axis, input) => {
                 self.lower_cumulative_op(node, op, *axis, input, declarations)
             }
-            GraphOp::ViewTransform(source_node) => {
+            GraphOp::View(source_node) => {
                 // View変換は通常、メモリレイアウトの変更なので、
                 // 新しい変数は作らずに既存の変数への参照として扱う
                 // ソースノードの変数名をこのノードにもマッピングする
                 let source_var = self.get_or_create_var_name(source_node);
                 self.node_to_var.insert(node.clone(), source_var);
                 None
+            }
+            GraphOp::Contiguous => {
+                // TODO: Implement contiguous memory layout conversion
+                todo!("Contiguous operation not yet implemented in lowerer")
+            }
+            GraphOp::FusedElementwise(_, _) => {
+                // TODO: Implement fused elementwise operations
+                todo!("FusedElementwise operation not yet implemented in lowerer")
+            }
+            GraphOp::FusedReduce(_, _, _) => {
+                // TODO: Implement fused reduce operations
+                todo!("FusedReduce operation not yet implemented in lowerer")
+            }
+            GraphOp::FusedElementwiseReduce(_, _, _, _) => {
+                // TODO: Implement fused elementwise-reduce operations
+                todo!("FusedElementwiseReduce operation not yet implemented in lowerer")
+            }
+            GraphOp::FusedElementwiseCumulative(_, _, _) => {
+                // TODO: Implement fused elementwise-cumulative operations
+                todo!("FusedElementwiseCumulative operation not yet implemented in lowerer")
             }
         }
     }
