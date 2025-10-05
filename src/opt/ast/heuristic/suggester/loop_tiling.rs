@@ -33,10 +33,10 @@ impl RewriteSuggester for LoopTilingSuggester {
                 return suggestions;
             }
 
-            // Skip tiling for loops that are too small (less than 2x tile size)
-            // Tiling small loops adds overhead without benefit
+            // Skip tiling for very small loops (less than tile size)
+            // Allow tiling for loops >= tile_size for better cache behavior
             if let AstNode::Const(crate::ast::ConstLiteral::Isize(max_val)) = **max {
-                if max_val < (2 * self.tile_size as isize) {
+                if max_val < self.tile_size as isize {
                     return suggestions;
                 }
             }
@@ -132,7 +132,6 @@ impl RewriteSuggester for LoopTilingSuggester {
         suggestions
     }
 }
-
 
 #[cfg(test)]
 mod tests {

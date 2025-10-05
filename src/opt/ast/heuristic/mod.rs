@@ -72,7 +72,8 @@ pub fn all_suggesters() -> CombinedRewriteSuggester {
         Box::new(FactorizationSuggester),
         Box::new(InverseOperationSuggester),
         // LoopTilingSuggester: now uses separate remainder loop, no min() needed
-        Box::new(LoopTilingSuggester::new(16)),
+        // Use small tile size (4) to enable tiling even for small loops
+        Box::new(LoopTilingSuggester::new(4)),
         Box::new(LoopTransformSuggester),
         // RedundancyRemovalSuggester is too aggressive and can incorrectly remove
         // important operations like Cast, so it's excluded from the default set

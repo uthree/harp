@@ -84,8 +84,6 @@ where
             return function;
         }
 
-        log::debug!("Optimizing function: {}", function.name());
-
         let mut body = function.body().clone();
 
         // Apply simplification (remove meaningless operations)
@@ -102,11 +100,11 @@ where
         };
         let suggester = all_suggesters();
         let estimator = OperationCostEstimator;
-        let beam_optimizer =
-            BeamSearchOptimizer::new(suggester, estimator, 4, 100).with_progress(false);
-        body = beam_optimizer.optimize(&body);
+        // Use moderate beam width and iterations for good optimization
+        let beam_optimizer = BeamSearchOptimizer::new(suggester, estimator, 5, 100)
+            .with_progress(cfg!(debug_assertions));
 
-        log::debug!("Optimization complete for function: {}", function.name());
+        body = beam_optimizer.optimize(&body);
 
         Function::new(
             function.name().to_string(),

@@ -15,7 +15,12 @@
       "Bash(VIZ=1 cargo run --manifest-path /Users/uthree/Develop/harp/crates/harp-viz/Cargo.toml --example visualize_matmul)",
       "Bash(RUST_BACKTRACE=1 cargo test --test cast_test)",
       "Bash(RUST_LOG=DEBUG cargo test --test cast_test test_cast_isize_to_f32)",
-      "Bash(RUST_LOG=DEBUG cargo run --manifest-path crates/harp-viz/Cargo.toml --example visualize_matmul)"
+      "Bash(RUST_LOG=DEBUG cargo run --manifest-path crates/harp-viz/Cargo.toml --example visualize_matmul)",
+      "Bash(VIZ=1 cargo run --manifest-path crates/harp-viz/Cargo.toml --example visualize_matmul)",
+      "Bash(env VIZ=1 cargo run --manifest-path crates/harp-viz/Cargo.toml --example visualize_matmul)",
+      "Bash(RUST_LOG=debug cargo test test_matmul_fusion)",
+      "Bash(RUST_LOG=debug cargo test test_matmul_fusion -- --nocapture)",
+      "Bash(env RUST_LOG=debug cargo test test_matmul_fusion -- --nocapture)"
     ],
     "deny": [],
     "ask": [
