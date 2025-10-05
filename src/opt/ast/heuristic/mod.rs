@@ -5,7 +5,8 @@ pub mod suggester;
 
 pub use cost_estimator::{NodeCountCostEstimator, OperationCostEstimator};
 pub use suggester::{
-    CommutativeSuggester, LoopTransformSuggester, RedundancyRemovalSuggester, RuleBasedSuggester,
+    AlgebraicLawSuggester, CommutativeSuggester, FactorizationSuggester, InverseOperationSuggester,
+    LoopTransformSuggester, RedundancyRemovalSuggester, RuleBasedSuggester,
 };
 
 /// A trait for suggesting rewrites to an AST.

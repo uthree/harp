@@ -52,7 +52,7 @@ impl<S: RewriteSuggester, E: CostEstimator> CostBasedOptimizer<S, E> {
             None
         };
 
-        for i in 0..self.max_iterations {
+        for _i in 0..self.max_iterations {
             let suggestions = self.suggester.suggest(&current);
             if suggestions.is_empty() {
                 if let Some(ref pb) = pb {
@@ -173,9 +173,9 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
             let pb = ProgressBar::new(self.max_iterations as u64);
             pb.set_style(
                 ProgressStyle::default_bar()
-                    .template("    {prefix:>12} [{bar:25}] {pos}/{len}: {msg}")
+                    .template("{prefix:>12.cyan.bold} [{bar:24}] {pos}/{len} {wide_msg}")
                     .unwrap()
-                    .progress_chars("█▉▊▋▌▍▎▏  "),
+                    .progress_chars("=> "),
             );
             pb.set_prefix("Optimizing");
             pb.set_message(format!("beam {}, cost {:.2}", beam.len(), initial_cost));
@@ -184,7 +184,7 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
             None
         };
 
-        for i in 0..self.max_iterations {
+        for _i in 0..self.max_iterations {
             let mut candidates = BinaryHeap::new();
 
             // Generate all possible rewrites from current beam
