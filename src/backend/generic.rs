@@ -86,14 +86,25 @@ where
 
         log::debug!("Optimizing function: {}", function.name());
 
+        let mut body = function.body().clone();
+
         // Apply simplification (remove meaningless operations)
         let simplify = simplify_rewriter();
-        let mut body = function.body().clone();
         simplify.apply(&mut body);
 
         // Apply constant folding
         let constant_folding = constant_folding_rewriter();
         constant_folding.apply(&mut body);
+
+        // Apply beam search optimization with all suggesters
+        use crate::opt::ast::heuristic::{
+            all_suggesters, BeamSearchOptimizer, OperationCostEstimator,
+        };
+        let suggester = all_suggesters();
+        let estimator = OperationCostEstimator;
+        let beam_optimizer = BeamSearchOptimizer::new(suggester, estimator, 5, 100)
+            .with_progress(false);
+        body = beam_optimizer.optimize(&body);
 
         log::debug!("Optimization complete for function: {}", function.name());
 
