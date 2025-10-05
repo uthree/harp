@@ -3,6 +3,7 @@ use crate::backend::{Backend, Buffer, Compiler, Kernel, Renderer};
 use crate::graph::{Graph, GraphSignature};
 use crate::lowerer::Lowerer;
 use crate::opt::ast::{constant_folding::constant_folding_rewriter, simplify::simplify_rewriter};
+use crate::opt::graph::GraphOptimizer;
 use std::marker::PhantomData;
 
 /// A generic backend that can work with any combination of Renderer, Compiler, and Buffer types.
@@ -186,9 +187,17 @@ where
     }
 
     fn execute(&mut self, graph: &Graph, inputs: Vec<Self::Buffer>) -> Vec<Self::Buffer> {
-        // 1. Lower the graph to an AST program
+        // 1. Optimize the graph
+        let mut optimized_graph = graph.clone();
+        if self.enable_optimization {
+            log::info!("Applying graph optimizations");
+            let mut graph_optimizer = crate::opt::graph::GraphFusionOptimizer::new();
+            graph_optimizer.optimize(&mut optimized_graph);
+        }
+
+        // 2. Lower the graph to an AST program
         let mut lowerer = Lowerer::new();
-        let mut program = lowerer.lower(graph);
+        let mut program = lowerer.lower(&optimized_graph);
 
         // 2. Optimize the AST program
         if self.enable_optimization {

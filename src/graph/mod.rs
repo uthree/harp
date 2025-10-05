@@ -25,6 +25,12 @@ impl GraphNode {
     pub(crate) fn from_rc(rc: Rc<GraphNodeData>) -> GraphNode {
         GraphNode(rc)
     }
+
+    /// Get the strong reference count for this node
+    /// Used to detect branching in graph optimization
+    pub fn strong_count(&self) -> usize {
+        Rc::strong_count(&self.0)
+    }
 }
 
 // PartialEq, Eq, Hash are based on pointer address, not content
@@ -49,7 +55,7 @@ impl Deref for GraphNode {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Graph {
     pub inputs: Vec<Weak<GraphNodeData>>,
     pub outputs: Vec<GraphNode>,
