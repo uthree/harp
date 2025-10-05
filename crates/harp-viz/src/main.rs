@@ -17,10 +17,39 @@ fn main() -> eframe::Result {
     )
 }
 
-#[derive(Default)]
 struct GraphVisualizerApp {
     snarl: Snarl<GraphNodeData>,
     sample_graph_loaded: bool,
+}
+
+impl Default for GraphVisualizerApp {
+    fn default() -> Self {
+        let mut snarl = Snarl::new();
+
+        // Create and load sample graph
+        println!("Loading sample graph...");
+        let mut graph = Graph::new();
+        let a = graph.input(harp::ast::DType::F32, vec![10.into()]);
+        let b = graph.input(harp::ast::DType::F32, vec![10.into()]);
+        let c = graph.input(harp::ast::DType::F32, vec![10.into()]);
+
+        let add = a.clone() + b.clone();
+        let mul = add * c.clone();
+
+        graph.output(mul);
+
+        println!("Graph created with {} inputs and {} outputs", graph.inputs.len(), graph.outputs.len());
+
+        // Convert graph to snarl
+        GraphVisualizerApp::convert_graph_to_snarl_static(&graph, &mut snarl);
+
+        println!("Snarl nodes: {}", snarl.node_ids().count());
+
+        Self {
+            snarl,
+            sample_graph_loaded: true,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -29,6 +58,7 @@ struct GraphNodeData {
     op_type: String,
     dtype: String,
     view_info: String,
+    num_inputs: usize,
 }
 
 impl SnarlViewer<GraphNodeData> for GraphVisualizerApp {
@@ -41,14 +71,7 @@ impl SnarlViewer<GraphNodeData> for GraphVisualizerApp {
     }
 
     fn inputs(&mut self, node: &GraphNodeData) -> usize {
-        // Count inputs based on operation type
-        match node.op_type.as_str() {
-            "Input" | "Const" => 0,
-            "Elementwise" | "View" | "Contiguous" | "Cast" => 1,
-            "Reduce" | "Cumulative" => 1,
-            "FusedElementwise" => 2, // Simplified - could be more
-            _ => 1,
-        }
+        node.num_inputs
     }
 
     fn show_input(
@@ -112,6 +135,8 @@ impl GraphVisualizerApp {
             return;
         }
 
+        println!("Loading sample graph...");
+
         // Create a simple sample graph: (a + b) * c
         let mut graph = Graph::new();
         let a = graph.input(harp::ast::DType::F32, vec![10.into()]);
@@ -123,35 +148,53 @@ impl GraphVisualizerApp {
 
         graph.output(mul);
 
+        println!("Graph created with {} inputs and {} outputs", graph.inputs.len(), graph.outputs.len());
+
         // Convert graph to snarl
         self.convert_graph_to_snarl(&graph, snarl);
+
+        println!("Snarl nodes: {}", snarl.node_ids().count());
+
         self.sample_graph_loaded = true;
     }
 
+    fn convert_graph_to_snarl_static(graph: &Graph, snarl: &mut Snarl<GraphNodeData>) {
+        Self::convert_graph_to_snarl_impl(graph, snarl);
+    }
+
     fn convert_graph_to_snarl(&self, graph: &Graph, snarl: &mut Snarl<GraphNodeData>) {
+        Self::convert_graph_to_snarl_impl(graph, snarl);
+    }
+
+    fn convert_graph_to_snarl_impl(graph: &Graph, snarl: &mut Snarl<GraphNodeData>) {
         // Replace snarl with a new empty one
         *snarl = Snarl::new();
         let mut node_map: HashMap<GraphNode, NodeId> = HashMap::new();
         let mut visited: HashMap<GraphNode, ()> = HashMap::new();
+        let mut input_indices: HashMap<GraphNode, usize> = HashMap::new();
+        let mut input_counter: usize = 0;
 
         // Process all output nodes
         for (output_idx, output_node) in graph.outputs.iter().enumerate() {
-            self.add_node_recursive(
+            Self::add_node_recursive(
                 output_node,
                 snarl,
                 &mut node_map,
                 &mut visited,
+                &mut input_indices,
+                &mut input_counter,
                 egui::pos2(500.0, 100.0 + output_idx as f32 * 150.0),
             );
         }
     }
 
     fn add_node_recursive(
-        &self,
         graph_node: &GraphNode,
         snarl: &mut Snarl<GraphNodeData>,
         node_map: &mut HashMap<GraphNode, NodeId>,
         visited: &mut HashMap<GraphNode, ()>,
+        input_indices: &mut HashMap<GraphNode, usize>,
+        input_counter: &mut usize,
         pos: egui::Pos2,
     ) -> NodeId {
         // If already processed, return existing node
@@ -164,7 +207,15 @@ impl GraphVisualizerApp {
 
         // Get operation type and label
         let (op_type, label) = match &graph_node.op {
-            GraphOp::Input => ("Input".to_string(), "Input".to_string()),
+            GraphOp::Input => {
+                // Assign an index to this input if it doesn't have one yet
+                let idx = *input_indices.entry(graph_node.clone()).or_insert_with(|| {
+                    let current = *input_counter;
+                    *input_counter += 1;
+                    current
+                });
+                ("Input".to_string(), format!("Input[{}]", idx))
+            }
             GraphOp::Const(_) => ("Const".to_string(), "Const".to_string()),
             GraphOp::Elementwise(op) => {
                 let op_name = match op {
@@ -270,12 +321,16 @@ impl GraphVisualizerApp {
             format!("[{}]", shape_parts.join(", "))
         };
 
+        // Get input count for this node
+        let num_inputs = Self::get_input_nodes(graph_node).len();
+
         // Create node data
         let node_data = GraphNodeData {
             label,
             op_type: op_type.clone(),
             dtype: dtype_str.to_string(),
             view_info: shape_str,
+            num_inputs,
         };
 
         // Add this node to snarl
@@ -283,13 +338,15 @@ impl GraphVisualizerApp {
         node_map.insert(graph_node.clone(), node_id);
 
         // Process input nodes recursively
-        let input_nodes = self.get_input_nodes(graph_node);
+        let input_nodes = Self::get_input_nodes(graph_node);
+        println!("Node {:?} has {} input nodes", node_id, input_nodes.len());
         for (input_idx, input_node) in input_nodes.iter().enumerate() {
             let input_pos = egui::pos2(pos.x - 250.0, pos.y + input_idx as f32 * 100.0);
             let input_node_id =
-                self.add_node_recursive(input_node, snarl, node_map, visited, input_pos);
+                Self::add_node_recursive(input_node, snarl, node_map, visited, input_indices, input_counter, input_pos);
 
             // Connect input to this node
+            println!("Connecting node {:?} output 0 to node {:?} input {}", input_node_id, node_id, input_idx);
             snarl.connect(
                 OutPinId {
                     node: input_node_id,
@@ -305,7 +362,7 @@ impl GraphVisualizerApp {
         node_id
     }
 
-    fn get_input_nodes(&self, node: &GraphNode) -> Vec<GraphNode> {
+    fn get_input_nodes(node: &GraphNode) -> Vec<GraphNode> {
         match &node.op {
             GraphOp::Input | GraphOp::Const(_) => vec![],
             GraphOp::View(input) | GraphOp::Contiguous(input) | GraphOp::Cast(input, _) => {
@@ -314,7 +371,7 @@ impl GraphVisualizerApp {
             GraphOp::Reduce(_, _, input) | GraphOp::Cumulative(_, _, input) => {
                 vec![input.clone()]
             }
-            GraphOp::Elementwise(op) => self.get_elementwise_inputs(op),
+            GraphOp::Elementwise(op) => Self::get_elementwise_inputs(op),
             GraphOp::FusedElementwise(_, inputs) => inputs.clone(),
             GraphOp::FusedReduce(_, _, input) => vec![input.clone()],
             GraphOp::FusedElementwiseReduce(_, inputs, _, _) => inputs.clone(),
@@ -322,7 +379,7 @@ impl GraphVisualizerApp {
         }
     }
 
-    fn get_elementwise_inputs(&self, op: &harp::graph::ops::ElementwiseOp) -> Vec<GraphNode> {
+    fn get_elementwise_inputs(op: &harp::graph::ops::ElementwiseOp) -> Vec<GraphNode> {
         use harp::graph::ops::ElementwiseOp;
         match op {
             ElementwiseOp::Add(a, b)
