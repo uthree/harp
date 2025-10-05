@@ -281,11 +281,6 @@ impl AstNode {
             AstNode::Range { max, body, .. } => {
                 vec![max.as_ref(), body.as_ref()]
             }
-            AstNode::RangeFrom {
-                start, max, body, ..
-            } => {
-                vec![start.as_ref(), max.as_ref(), body.as_ref()]
-            }
             AstNode::Block { statements, .. } => statements.iter().collect(),
             AstNode::Drop(_) => vec![],
             AstNode::Barrier => vec![],
@@ -392,12 +387,6 @@ impl AstNode {
             },
             AstNode::Range { counter_name, .. } => AstNode::Range {
                 counter_name, // moved
-                max: Box::new(children_iter.next().unwrap()),
-                body: Box::new(children_iter.next().unwrap()),
-            },
-            AstNode::RangeFrom { counter_name, .. } => AstNode::RangeFrom {
-                counter_name, // moved
-                start: Box::new(children_iter.next().unwrap()),
                 max: Box::new(children_iter.next().unwrap()),
                 body: Box::new(children_iter.next().unwrap()),
             },

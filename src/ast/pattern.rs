@@ -273,16 +273,6 @@ impl AstRewriter {
                 self.apply_once(max);
                 self.apply_once(body);
             }
-            AstNode::RangeFrom {
-                ref mut start,
-                ref mut max,
-                ref mut body,
-                ..
-            } => {
-                self.apply_once(start);
-                self.apply_once(max);
-                self.apply_once(body);
-            }
             AstNode::Block {
                 ref mut statements, ..
             } => {

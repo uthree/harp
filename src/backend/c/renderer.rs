@@ -319,24 +319,6 @@ impl CRenderer {
                 write!(buffer, "{}", self.render_node(body)).unwrap();
                 self.indent_level -= 1;
             }
-            AstNode::RangeFrom {
-                counter_name,
-                start,
-                max,
-                body,
-            } => {
-                let start_val = self.render_node(start);
-                let max_val = self.render_node(max);
-                writeln!(
-                    buffer,
-                    "for (size_t {counter_name} = {start_val}; {counter_name} < {max_val}; {counter_name}++)"
-                )
-                .unwrap();
-                self.indent_level += 1;
-                self.render_indent(&mut buffer);
-                write!(buffer, "{}", self.render_node(body)).unwrap();
-                self.indent_level -= 1;
-            }
             AstNode::Block { scope, statements } => {
                 write!(buffer, "{}", self.render_scope(scope, statements)).unwrap();
             }
