@@ -87,7 +87,11 @@ impl SnarlViewer<GraphNodeData> for GraphVisualizerApp {
     }
 
     fn has_graph_menu(&mut self, _pos: egui::Pos2, _snarl: &mut Snarl<GraphNodeData>) -> bool {
-        true
+        false // Disable graph menu to prevent editing
+    }
+
+    fn has_node_menu(&mut self, _node: &GraphNodeData) -> bool {
+        false // Disable node menu to prevent editing
     }
 
     fn show_graph_menu(
