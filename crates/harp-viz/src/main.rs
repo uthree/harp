@@ -20,13 +20,16 @@ fn main() -> eframe::Result {
 struct GraphVisualizerApp {
     snarl: Snarl<GraphNodeData>,
     sample_graph_loaded: bool,
+    // Optimization snapshots
+    snapshots: Vec<harp::opt::graph::OptimizationSnapshot>,
+    current_snapshot_index: usize,
 }
 
 impl Default for GraphVisualizerApp {
     fn default() -> Self {
         let mut snarl = Snarl::new();
 
-        // Create and load sample graph
+        // Create and load sample graph with optimization
         let mut graph = Graph::new();
         let a = graph.input(harp::ast::DType::F32, vec![10.into()]);
         let b = graph.input(harp::ast::DType::F32, vec![10.into()]);
@@ -37,12 +40,27 @@ impl Default for GraphVisualizerApp {
 
         graph.output(mul);
 
-        // Convert graph to snarl
-        GraphVisualizerApp::convert_graph_to_snarl_static(&graph, &mut snarl);
+        // Run optimization with logging
+        use harp::opt::graph::GraphOptimizer;
+        let mut optimizer = harp::opt::graph::GraphFusionOptimizer::new().with_logging();
+        optimizer.optimize(&mut graph);
+
+        // Get snapshots
+        let snapshots = optimizer.snapshots.clone();
+        let current_index = if snapshots.is_empty() { 0 } else { 0 };
+
+        // Convert initial graph to snarl
+        if !snapshots.is_empty() {
+            GraphVisualizerApp::convert_graph_to_snarl_static(&snapshots[0].graph, &mut snarl);
+        } else {
+            GraphVisualizerApp::convert_graph_to_snarl_static(&graph, &mut snarl);
+        }
 
         Self {
             snarl,
             sample_graph_loaded: true,
+            snapshots,
+            current_snapshot_index: current_index,
         }
     }
 }
@@ -260,6 +278,36 @@ impl eframe::App for GraphVisualizerApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Harp Computational Graph Visualizer");
+
+            // Snapshot navigation controls
+            if !self.snapshots.is_empty() {
+                ui.horizontal(|ui| {
+                    if ui.button("◀ Previous").clicked() && self.current_snapshot_index > 0 {
+                        self.current_snapshot_index -= 1;
+                        Self::convert_graph_to_snarl_static(
+                            &self.snapshots[self.current_snapshot_index].graph,
+                            &mut self.snarl,
+                        );
+                    }
+
+                    ui.label(format!(
+                        "Step {}/{}: {}",
+                        self.current_snapshot_index + 1,
+                        self.snapshots.len(),
+                        self.snapshots[self.current_snapshot_index].description
+                    ));
+
+                    if ui.button("Next ▶").clicked()
+                        && self.current_snapshot_index < self.snapshots.len() - 1
+                    {
+                        self.current_snapshot_index += 1;
+                        Self::convert_graph_to_snarl_static(
+                            &self.snapshots[self.current_snapshot_index].graph,
+                            &mut self.snarl,
+                        );
+                    }
+                });
+            }
 
             if !self.sample_graph_loaded {
                 if ui.button("Load Sample Graph").clicked() {

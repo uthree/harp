@@ -7,12 +7,38 @@ use std::collections::HashMap;
 pub struct GraphFusionOptimizer {
     // 融合したノードのマッピング: 古いノード -> 新しいノード
     node_mapping: HashMap<GraphNode, GraphNode>,
+    // 最適化の各ステップでのグラフのスナップショット
+    pub snapshots: Vec<OptimizationSnapshot>,
+    // ログ記録を有効にするかどうか
+    pub enable_logging: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct OptimizationSnapshot {
+    pub description: String,
+    pub graph: Graph,
 }
 
 impl GraphFusionOptimizer {
     pub fn new() -> Self {
         Self {
             node_mapping: HashMap::new(),
+            snapshots: Vec::new(),
+            enable_logging: false,
+        }
+    }
+
+    pub fn with_logging(mut self) -> Self {
+        self.enable_logging = true;
+        self
+    }
+
+    fn log_snapshot(&mut self, description: String, graph: &Graph) {
+        if self.enable_logging {
+            self.snapshots.push(OptimizationSnapshot {
+                description,
+                graph: graph.clone(),
+            });
         }
     }
 
@@ -408,6 +434,9 @@ impl Default for GraphFusionOptimizer {
 
 impl GraphOptimizer for GraphFusionOptimizer {
     fn optimize(&mut self, graph: &mut Graph) {
+        // 最適化前のスナップショット
+        self.log_snapshot("Initial graph".to_string(), graph);
+
         // 出力ノードから再帰的にグラフを再構築
         let new_outputs: Vec<GraphNode> = graph
             .outputs
@@ -416,6 +445,9 @@ impl GraphOptimizer for GraphFusionOptimizer {
             .collect();
 
         graph.outputs = new_outputs;
+
+        // 最適化後のスナップショット
+        self.log_snapshot("After fusion optimization".to_string(), graph);
     }
 }
 
