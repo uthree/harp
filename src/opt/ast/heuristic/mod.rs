@@ -85,8 +85,10 @@ pub fn all_suggesters() -> CombinedRewriteSuggester {
         Box::new(LoopTilingSuggester::new(128)),
         Box::new(LoopTilingSuggester::new(256)),
         Box::new(LoopTransformSuggester),
-        // UnrollHintSuggester: suggests adding #pragma unroll hints with factor 4
+        // UnrollHintSuggester: suggests adding #pragma unroll hints with factor 2, 4, 8
+        Box::new(UnrollHintSuggester::new(2)),
         Box::new(UnrollHintSuggester::new(4)),
+        Box::new(UnrollHintSuggester::new(8)),
         // RedundancyRemovalSuggester is too aggressive and can incorrectly remove
         // important operations like Cast, so it's excluded from the default set
         // Box::new(RedundancyRemovalSuggester),
