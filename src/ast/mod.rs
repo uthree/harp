@@ -576,7 +576,11 @@ impl AstNode {
                 name,
                 args: children_iter.collect(),
             },
-            AstNode::Range { counter_name, unroll, .. } => AstNode::Range {
+            AstNode::Range {
+                counter_name,
+                unroll,
+                ..
+            } => AstNode::Range {
                 counter_name, // moved
                 start: Box::new(children_iter.next().unwrap()),
                 max: Box::new(children_iter.next().unwrap()),

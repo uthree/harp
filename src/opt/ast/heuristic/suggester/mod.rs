@@ -6,6 +6,7 @@ mod loop_tiling;
 mod loop_transform;
 mod redundancy;
 mod rule_based;
+mod unroll_hint;
 
 pub use algebraic::AlgebraicLawSuggester;
 pub use commutative::CommutativeSuggester;
@@ -15,3 +16,4 @@ pub use loop_tiling::LoopTilingSuggester;
 pub use loop_transform::LoopTransformSuggester;
 pub use redundancy::RedundancyRemovalSuggester;
 pub use rule_based::RuleBasedSuggester;
+pub use unroll_hint::UnrollHintSuggester;

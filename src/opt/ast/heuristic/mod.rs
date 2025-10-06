@@ -9,6 +9,7 @@ pub use optimizer::{BeamSearchOptimizer, CostBasedOptimizer};
 pub use suggester::{
     AlgebraicLawSuggester, CommutativeSuggester, FactorizationSuggester, InverseOperationSuggester,
     LoopTilingSuggester, LoopTransformSuggester, RedundancyRemovalSuggester, RuleBasedSuggester,
+    UnrollHintSuggester,
 };
 
 /// A trait for suggesting rewrites to an AST.
@@ -75,6 +76,8 @@ pub fn all_suggesters() -> CombinedRewriteSuggester {
         // Use small tile size (4) to enable tiling even for small loops
         Box::new(LoopTilingSuggester::new(4)),
         Box::new(LoopTransformSuggester),
+        // UnrollHintSuggester: suggests adding #pragma unroll hints
+        Box::new(UnrollHintSuggester::new()),
         // RedundancyRemovalSuggester is too aggressive and can incorrectly remove
         // important operations like Cast, so it's excluded from the default set
         // Box::new(RedundancyRemovalSuggester),
