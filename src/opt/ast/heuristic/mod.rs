@@ -8,8 +8,8 @@ pub use cost_estimator::{NodeCountCostEstimator, OperationCostEstimator};
 pub use optimizer::{BeamSearchOptimizer, CostBasedOptimizer};
 pub use suggester::{
     AlgebraicLawSuggester, CommutativeSuggester, FactorizationSuggester, InverseOperationSuggester,
-    LoopInterchangeSuggester, LoopTilingSuggester, LoopTransformSuggester,
-    RedundancyRemovalSuggester, RuleBasedSuggester, UnrollHintSuggester,
+    LoopInterchangeSuggester, LoopTilingSuggester, LoopTransformSuggester, RuleBasedSuggester,
+    UnrollHintSuggester,
 };
 
 /// A trait for suggesting rewrites to an AST.
@@ -89,8 +89,5 @@ pub fn all_suggesters() -> CombinedRewriteSuggester {
         Box::new(UnrollHintSuggester::new(2)),
         Box::new(UnrollHintSuggester::new(4)),
         Box::new(UnrollHintSuggester::new(8)),
-        // RedundancyRemovalSuggester is too aggressive and can incorrectly remove
-        // important operations like Cast, so it's excluded from the default set
-        // Box::new(RedundancyRemovalSuggester),
     ])
 }
