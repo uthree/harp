@@ -235,7 +235,6 @@ impl AstRewriter {
         match ast {
             AstNode::Add(ref mut l, ref mut r)
             | AstNode::Mul(ref mut l, ref mut r)
-            | AstNode::Div(ref mut l, ref mut r)
             | AstNode::Max(ref mut l, ref mut r)
             | AstNode::Rem(ref mut l, ref mut r) => {
                 self.apply_once(l);

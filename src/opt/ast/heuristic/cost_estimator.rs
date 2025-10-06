@@ -73,7 +73,6 @@ impl CostEstimator for OperationCostEstimator {
             AstNode::Var(_) => 1e-8,
             AstNode::Add(_, _) => 1e-9 + self.estimate_cost_children(ast),
             AstNode::Mul(_, _) => 1e-9 + self.estimate_cost_children(ast),
-            AstNode::Div(_, _) => 1e-8 + self.estimate_cost_children(ast),
             AstNode::Rem(_, _) => 1e-8 + self.estimate_cost_children(ast),
             AstNode::Neg(_) => 1e-9 + self.estimate_cost_children(ast),
             AstNode::Recip(_) => 1e-8 + self.estimate_cost_children(ast),

@@ -83,7 +83,6 @@ pub enum AstNode {
     // numeric ops
     Add(Box<Self>, Box<Self>),
     Mul(Box<Self>, Box<Self>),
-    Div(Box<Self>, Box<Self>),
     Max(Box<Self>, Box<Self>),
     Rem(Box<Self>, Box<Self>),
     Neg(Box<Self>),
@@ -214,7 +213,6 @@ macro_rules! impl_astnode_binary_op {
 
 impl_astnode_binary_op!(Add, add, Add);
 impl_astnode_binary_op!(Mul, mul, Mul);
-impl_astnode_binary_op!(Div, div, Div);
 impl_astnode_binary_op!(Rem, rem, Rem);
 
 // Subtraction: a - b = a + (-b)
@@ -223,6 +221,15 @@ impl<T: Into<AstNode>> Sub<T> for AstNode {
     type Output = AstNode;
     fn sub(self, rhs: T) -> Self::Output {
         self + AstNode::Neg(Box::new(rhs.into()))
+    }
+}
+
+// Division: a / b = a * (1/b)
+#[allow(clippy::suspicious_arithmetic_impl)]
+impl<T: Into<AstNode>> Div<T> for AstNode {
+    type Output = AstNode;
+    fn div(self, rhs: T) -> Self::Output {
+        self * AstNode::Recip(Box::new(rhs.into()))
     }
 }
 
@@ -288,7 +295,6 @@ impl AstNode {
             AstNode::Cast { expr, .. } => vec![expr.as_ref()],
             AstNode::Add(l, r) => vec![l.as_ref(), r.as_ref()],
             AstNode::Mul(l, r) => vec![l.as_ref(), r.as_ref()],
-            AstNode::Div(l, r) => vec![l.as_ref(), r.as_ref()],
             AstNode::Max(l, r) => vec![l.as_ref(), r.as_ref()],
             AstNode::Rem(l, r) => vec![l.as_ref(), r.as_ref()],
             AstNode::Assign(_, r) => vec![r.as_ref()],
@@ -380,10 +386,6 @@ impl AstNode {
                 Box::new(children_iter.next().unwrap()),
             ),
             AstNode::Mul(_, _) => AstNode::Mul(
-                Box::new(children_iter.next().unwrap()),
-                Box::new(children_iter.next().unwrap()),
-            ),
-            AstNode::Div(_, _) => AstNode::Div(
                 Box::new(children_iter.next().unwrap()),
                 Box::new(children_iter.next().unwrap()),
             ),
@@ -499,9 +501,9 @@ mod tests {
         let expr = a / b;
         assert_eq!(
             expr,
-            AstNode::Div(
+            AstNode::Mul(
                 Box::new(AstNode::Var("a".to_string())),
-                Box::new(AstNode::Const(ConstLiteral::F32(2.0)))
+                Box::new(AstNode::Recip(Box::new(AstNode::Const(ConstLiteral::F32(2.0)))))
             )
         );
     }

@@ -46,7 +46,7 @@ impl CRenderer {
             | AstNode::Cast { .. } => 90,
 
             // Multiplicative operators
-            AstNode::Mul(_, _) | AstNode::Div(_, _) | AstNode::Rem(_, _) => 80,
+            AstNode::Mul(_, _) | AstNode::Rem(_, _) => 80,
 
             // Additive operators
             AstNode::Add(_, _) => 70,
@@ -246,16 +246,6 @@ impl CRenderer {
                     )
                     .unwrap(),
                 }
-            }
-            AstNode::Div(lhs, rhs) => {
-                let prec = Self::precedence(node);
-                write!(
-                    buffer,
-                    "{} / {}",
-                    self.render_with_parens(lhs, prec, false),
-                    self.render_with_parens(rhs, prec, true)
-                )
-                .unwrap()
             }
             AstNode::Rem(lhs, rhs) => {
                 let prec = Self::precedence(node);
