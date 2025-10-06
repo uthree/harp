@@ -120,6 +120,7 @@ mod tests {
             max: Box::new(AstNode::Const(ConstLiteral::Isize(64))),
             step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
             body: Box::new(simple_body.clone()),
+            unroll: None,
         };
 
         // Tiled loop structure (tile_size=16):
@@ -136,6 +137,7 @@ mod tests {
             )),
             step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
             body: Box::new(simple_body.clone()),
+            unroll: None,
         };
 
         let main_tiled_loop = AstNode::Range {
@@ -144,6 +146,7 @@ mod tests {
             max: Box::new(AstNode::Var("i_main_max".to_string())),
             step: Box::new(AstNode::Const(ConstLiteral::Isize(16))),
             body: Box::new(inner_tiled_loop),
+            unroll: None,
         };
 
         let tiled_block = AstNode::Block {

@@ -117,6 +117,7 @@ pub enum AstNode {
         max: Box<Self>,       // 終了値
         step: Box<Self>,      // インクリメント量（デフォルトは1）
         body: Box<Self>,
+        unroll: Option<usize>, // #pragma unroll相当のヒント (None=no unroll, Some(0)=full unroll, Some(n)=unroll n times)
     },
 
     Drop(String), // drop (local) variable explicitly
@@ -279,10 +280,11 @@ pub struct RangeBuilder {
     max: Box<AstNode>,
     step: Box<AstNode>,
     body: Box<AstNode>,
+    unroll: Option<usize>,
 }
 
 impl RangeBuilder {
-    /// Create a new RangeBuilder with required fields and default start=0, step=1
+    /// Create a new RangeBuilder with required fields and default start=0, step=1, unroll=None
     pub fn new(
         counter_name: impl Into<String>,
         max: impl Into<AstNode>,
@@ -294,6 +296,7 @@ impl RangeBuilder {
             max: Box::new(max.into()),
             step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
             body: Box::new(body.into()),
+            unroll: None,
         }
     }
 
@@ -307,6 +310,18 @@ impl RangeBuilder {
         self
     }
 
+    /// Enable full unrolling (#pragma unroll)
+    pub fn unroll(mut self) -> Self {
+        self.unroll = Some(0);
+        self
+    }
+
+    /// Enable unrolling with a specific factor (#pragma unroll N)
+    pub fn unroll_by(mut self, factor: usize) -> Self {
+        self.unroll = Some(factor);
+        self
+    }
+
     pub fn build(self) -> AstNode {
         AstNode::Range {
             counter_name: self.counter_name,
@@ -314,6 +329,7 @@ impl RangeBuilder {
             max: self.max,
             step: self.step,
             body: self.body,
+            unroll: self.unroll,
         }
     }
 }
@@ -560,12 +576,13 @@ impl AstNode {
                 name,
                 args: children_iter.collect(),
             },
-            AstNode::Range { counter_name, .. } => AstNode::Range {
+            AstNode::Range { counter_name, unroll, .. } => AstNode::Range {
                 counter_name, // moved
                 start: Box::new(children_iter.next().unwrap()),
                 max: Box::new(children_iter.next().unwrap()),
                 step: Box::new(children_iter.next().unwrap()),
                 body: Box::new(children_iter.next().unwrap()),
+                unroll,
             },
             AstNode::Block { scope, .. } => {
                 let statements = children_iter.collect();
@@ -794,6 +811,7 @@ mod tests {
                 max: Box::new(AstNode::Const(ConstLiteral::Isize(10))),
                 step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
                 body: Box::new(AstNode::Var("x".to_string())),
+                unroll: None,
             }
         );
 
@@ -810,6 +828,39 @@ mod tests {
                 max: Box::new(AstNode::Const(ConstLiteral::Isize(100))),
                 step: Box::new(AstNode::Const(ConstLiteral::Isize(2))),
                 body: Box::new(AstNode::Var("x".to_string())),
+                unroll: None,
+            }
+        );
+
+        // Test range builder with full unroll
+        let r3 = AstNode::range_builder("i", 10isize, AstNode::var("x"))
+            .unroll()
+            .build();
+        assert_eq!(
+            r3,
+            AstNode::Range {
+                counter_name: "i".to_string(),
+                start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
+                max: Box::new(AstNode::Const(ConstLiteral::Isize(10))),
+                step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
+                body: Box::new(AstNode::Var("x".to_string())),
+                unroll: Some(0),
+            }
+        );
+
+        // Test range builder with specific unroll factor
+        let r4 = AstNode::range_builder("i", 100isize, AstNode::var("x"))
+            .unroll_by(4)
+            .build();
+        assert_eq!(
+            r4,
+            AstNode::Range {
+                counter_name: "i".to_string(),
+                start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
+                max: Box::new(AstNode::Const(ConstLiteral::Isize(100))),
+                step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
+                body: Box::new(AstNode::Var("x".to_string())),
+                unroll: Some(4),
             }
         );
     }

@@ -82,6 +82,7 @@ impl RewriteSuggester for LoopTransformSuggester {
                             max: max1.clone(),
                             step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
                             body: Box::new(fused_body),
+                            unroll: None,
                         };
 
                         let mut new_statements = statements.clone();

@@ -186,6 +186,7 @@ impl ReduceLowerer {
                 max: Box::new(shape_size),
                 step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
                 body: Box::new(inner_body),
+                unroll: None,
             };
 
             // 初期化 + 縮約ループをブロックにまとめる
@@ -221,6 +222,7 @@ impl ReduceLowerer {
                 max: Box::new(shape_size),
                 step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
                 body: Box::new(inner_body),
+                unroll: None,
             }
         }
     }
@@ -260,6 +262,7 @@ impl ReduceLowerer {
                 max: Box::new(shape_size),
                 step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
                 body: Box::new(inner_body),
+                unroll: None,
             }
         }
     }

@@ -215,6 +215,7 @@ impl CumulativeLowerer {
                 )),
                 step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
                 body: Box::new(loop_body_with_offset),
+                unroll: None,
             };
 
             // 初期化 + 累積ループをブロックにまとめる
@@ -250,6 +251,7 @@ impl CumulativeLowerer {
                 max: Box::new(shape_size),
                 step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
                 body: Box::new(inner_body),
+                unroll: None,
             }
         }
     }

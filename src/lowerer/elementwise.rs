@@ -263,6 +263,7 @@ impl ElementwiseLowerer {
                 max: Box::new(max_iter),
                 step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
                 body: Box::new(inner_body),
+                unroll: None,
             }
         }
     }
@@ -371,6 +372,7 @@ impl ElementwiseLowerer {
                 max: Box::new(max_iter),
                 step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
                 body: Box::new(inner_body),
+                unroll: None,
             }
         }
     }

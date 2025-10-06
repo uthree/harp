@@ -568,6 +568,7 @@ impl Lowerer {
                 max: Box::new(shape_size),
                 step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
                 body: Box::new(inner_body),
+                unroll: None,
             }
         }
     }
@@ -625,6 +626,7 @@ impl Lowerer {
                 max: Box::new(shape_size),
                 step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
                 body: Box::new(inner_body),
+                unroll: None,
             }
         }
     }

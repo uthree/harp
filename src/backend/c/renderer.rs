@@ -299,10 +299,23 @@ impl CRenderer {
                 max,
                 step,
                 body,
+                unroll,
             } => {
                 let start_str = self.render_node(start);
                 let max_str = self.render_node(max);
                 let step_str = self.render_node(step);
+
+                // Generate #pragma unroll if requested
+                if let Some(factor) = unroll {
+                    self.render_indent(&mut buffer);
+                    if *factor == 0 {
+                        // Full unroll
+                        writeln!(buffer, "#pragma unroll").unwrap();
+                    } else {
+                        // Partial unroll with factor
+                        writeln!(buffer, "#pragma unroll {}", factor).unwrap();
+                    }
+                }
 
                 // Generate: for (size_t i = start; i < max; i += step)
                 writeln!(

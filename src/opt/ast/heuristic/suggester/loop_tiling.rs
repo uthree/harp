@@ -75,6 +75,7 @@ impl RewriteSuggester for LoopTilingSuggester {
                 )),
                 step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
                 body: body.clone(),
+                unroll: None,
             };
 
             // Main tiled loop: for(tile_start = 0; tile_start < main_max; tile_start += tile_size)
@@ -84,6 +85,7 @@ impl RewriteSuggester for LoopTilingSuggester {
                 max: Box::new(AstNode::Var(main_max_name.clone())),
                 step: Box::new(tile_size_node),
                 body: Box::new(inner_tiled_loop),
+                unroll: None,
             };
 
             // Remainder loop: for(i = main_max; i < max; i++)
@@ -93,6 +95,7 @@ impl RewriteSuggester for LoopTilingSuggester {
                 max: max.clone(),
                 step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
                 body: body.clone(),
+                unroll: None,
             };
 
             // Combine main and remainder loops in a block
@@ -152,6 +155,7 @@ mod tests {
             max: Box::new(AstNode::Const(ConstLiteral::Isize(100))),
             step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
             body: Box::new(body),
+            unroll: None,
         };
 
         let suggestions = suggester.suggest(&ast);
