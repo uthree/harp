@@ -134,8 +134,9 @@ impl CRenderer {
 
     fn render_scope(&mut self, scope: &Scope, statements: &[AstNode]) -> String {
         let mut buffer = String::new();
-        writeln!(buffer, "{{").unwrap();
+        self.render_indent(&mut buffer);
         self.indent_level += 1;
+        writeln!(buffer, "{{").unwrap();
 
         // Track variables that need to be freed
         let mut malloc_vars = Vec::new();
@@ -307,7 +308,6 @@ impl CRenderer {
 
                 // Generate #pragma unroll if requested
                 if let Some(factor) = unroll {
-                    self.render_indent(&mut buffer);
                     if *factor == 0 {
                         // Full unroll
                         writeln!(buffer, "#pragma unroll").unwrap();
@@ -315,6 +315,7 @@ impl CRenderer {
                         // Partial unroll with factor
                         writeln!(buffer, "#pragma unroll {}", factor).unwrap();
                     }
+                    self.render_indent(&mut buffer);
                 }
 
                 // Generate: for (size_t i = start; i < max; i += step)
@@ -323,10 +324,18 @@ impl CRenderer {
                     "for (size_t {counter_name} = {start_str}; {counter_name} < {max_str}; {counter_name} += {step_str})"
                 )
                 .unwrap();
-                self.indent_level += 1;
-                self.render_indent(&mut buffer);
-                write!(buffer, "{}", self.render_node(body)).unwrap();
-                self.indent_level -= 1;
+
+                match *body.as_ref() {
+                    AstNode::Block { .. } => {
+                        write!(buffer, "{}", self.render_node(body.as_ref())).unwrap();
+                    }
+                    _ => {
+                        self.indent_level += 1;
+                        self.render_indent(&mut buffer);
+                        write!(buffer, "{}", self.render_node(body)).unwrap();
+                        self.indent_level -= 1;
+                    }
+                }
             }
             AstNode::Block { scope, statements } => {
                 write!(buffer, "{}", self.render_scope(scope, statements)).unwrap();
