@@ -98,11 +98,13 @@ impl GraphFusionOptimizer {
         // Viewチェーンの最初のsourceを見つける
         let mut current = input;
         let mut source = input;
+        let mut chain_length = 1; // 最初の1つをカウント
 
         loop {
             match &current.op {
                 GraphOp::View(input_node) => {
                     source = input_node;
+                    chain_length += 1;
                     // 分岐している場合はここで停止
                     if self.is_branching(input_node) {
                         break;
@@ -128,6 +130,8 @@ impl GraphFusionOptimizer {
             node.dtype.clone(),
             node.view.clone(),
         );
+
+        log::debug!("Fused View chain of length {} into single View", chain_length);
 
         Some(fused_node)
     }
@@ -204,8 +208,13 @@ impl GraphFusionOptimizer {
         }
 
         // 融合したノードを作成
+        // inputsを再構築してView統合などを適用
+        let rebuilt_inputs: Vec<GraphNode> = inputs
+            .iter()
+            .map(|input| self.rebuild_node(input))
+            .collect();
         let fused_node = GraphNode::new(
-            GraphOp::FusedElementwise(ast, inputs),
+            GraphOp::FusedElementwise(ast, rebuilt_inputs),
             node.dtype.clone(),
             node.view.clone(),
         );
@@ -539,8 +548,13 @@ impl GraphFusionOptimizer {
                 if let Some((ast, inputs, axes)) =
                     self.try_fuse_elementwise_reduce(op, *axis, input)
                 {
+                    // 融合されたinputsを再構築してView統合などを適用
+                    let rebuilt_inputs: Vec<GraphNode> = inputs
+                        .iter()
+                        .map(|input| self.rebuild_node(input))
+                        .collect();
                     return GraphNode::new(
-                        GraphOp::FusedElementwiseReduce(ast, inputs, op.clone(), axes),
+                        GraphOp::FusedElementwiseReduce(ast, rebuilt_inputs, op.clone(), axes),
                         node.dtype.clone(),
                         node.view.clone(),
                     );
@@ -557,8 +571,13 @@ impl GraphFusionOptimizer {
                 // Elementwise -> Cumulativeの融合を試みる
                 if let Some((ast, inputs)) = self.try_fuse_elementwise_cumulative(op, *axis, input)
                 {
+                    // 融合されたinputsを再構築してView統合などを適用
+                    let rebuilt_inputs: Vec<GraphNode> = inputs
+                        .iter()
+                        .map(|input| self.rebuild_node(input))
+                        .collect();
                     return GraphNode::new(
-                        GraphOp::FusedElementwiseCumulative(ast, inputs, op.clone()),
+                        GraphOp::FusedElementwiseCumulative(ast, rebuilt_inputs, op.clone()),
                         node.dtype.clone(),
                         node.view.clone(),
                     );

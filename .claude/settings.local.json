@@ -20,7 +20,8 @@
       "Bash(env VIZ=1 cargo run --manifest-path crates/harp-viz/Cargo.toml --example visualize_matmul)",
       "Bash(RUST_LOG=debug cargo test test_matmul_fusion)",
       "Bash(RUST_LOG=debug cargo test test_matmul_fusion -- --nocapture)",
-      "Bash(env RUST_LOG=debug cargo test test_matmul_fusion -- --nocapture)"
+      "Bash(env RUST_LOG=debug cargo test test_matmul_fusion -- --nocapture)",
+      "Bash(env VIZ=1 cargo run --quiet --manifest-path crates/harp-viz/Cargo.toml --example visualize_matmul)"
     ],
     "deny": [],
     "ask": [
