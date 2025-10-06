@@ -39,10 +39,11 @@ impl CostEstimator for OperationCostEstimator {
                 max,
                 step,
                 body,
+                unroll,
                 ..
             } => {
-                let block_cost = self.estimate_cost_children(start)
-                    + self.estimate_cost_children(body)
+                let block_cost = self.estimate_cost_children(start);
+                let mut overhead_cost = self.estimate_cost_children(body)
                     + self.estimate_cost_children(step)
                     + self.estimate_cost_children(max)
                     + 1e-8; // loop overhead
@@ -58,7 +59,14 @@ impl CostEstimator for OperationCostEstimator {
                     AstNode::Const(cl) => Self::const_literal_to_f32(cl),
                     _ => 0f32,
                 };
-                block_cost * (est_max - est_start) / f32::max(est_step, 1.0) + 1e-8
+
+                if let Some(factor) = unroll {
+                    if *factor != 0 && *factor != 1 {
+                        overhead_cost /= *factor as f32;
+                    }
+                }
+                (block_cost + overhead_cost) * (est_max - est_start) / f32::max(est_step, 1.0)
+                    + 1e-8
             }
             AstNode::Block { statements, .. } => {
                 // Sum costs but cap individual statement costs to prevent explosion
