@@ -36,7 +36,12 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
     }
 
     /// Create a new beam search optimizer with specified beam width.
-    pub fn new_beam_search(suggester: S, estimator: E, beam_width: usize, max_iterations: usize) -> Self {
+    pub fn new_beam_search(
+        suggester: S,
+        estimator: E,
+        beam_width: usize,
+        max_iterations: usize,
+    ) -> Self {
         Self {
             suggester,
             estimator,
@@ -144,21 +149,22 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
 
             // If no new candidates, we're done
             if candidates.is_empty() {
+                let best = beam
+                    .into_iter()
+                    .min_by(|a, b| a.cost.partial_cmp(&b.cost).unwrap_or(Ordering::Equal))
+                    .map(|c| c.ast)
+                    .unwrap_or_else(|| ast.clone());
+
                 if let Some(ref pb) = pb {
                     pb.set_position(self.max_iterations as u64);
-                    let best_cost = beam
-                        .iter()
-                        .map(|c| c.cost)
-                        .min_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal))
-                        .unwrap_or(initial_cost);
+                    let best_cost = self.estimator.estimate_cost(&best);
                     pb.finish_with_message(format!("cost {:.6} (converged)", best_cost));
-                    pb.tick();
                     pb.println(format!(
                         "{:>12} converged optimization.",
                         green_bold.apply_to("Finished")
                     ))
                 }
-                break;
+                return best;
             }
 
             // Select top k candidates for the new beam
@@ -181,13 +187,12 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
                 if let Some(ref pb) = pb {
                     pb.set_position(self.max_iterations as u64);
                     pb.finish_with_message(format!("cost {:.6} (beam empty)", initial_cost));
-                    pb.tick();
                     pb.println(format!(
                         "{:>12} beam empty.",
                         green_bold.apply_to("Finished")
                     ))
                 }
-                break;
+                return ast.clone();
             }
 
             if let Some(ref pb) = pb {
@@ -198,7 +203,6 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
                     .unwrap_or(initial_cost);
                 pb.set_message(format!("beam {}, cost {:.6}", beam.len(), best_cost));
                 pb.inc(1);
-                pb.tick();
             }
         }
 
@@ -211,7 +215,6 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
         if let Some(ref pb) = pb {
             let final_cost = self.estimator.estimate_cost(&best);
             pb.finish_with_message(format!("cost {:.6}", final_cost));
-            pb.tick();
             pb.println(format!("{:>12} ", green_bold.apply_to("Finished")))
         }
 
@@ -282,7 +285,8 @@ mod tests {
         let suggester = RuleBasedSuggester::new(vec![rule1, rule2]);
         let estimator = NodeCountCostEstimator;
 
-        let beam_optimizer = BeamSearchOptimizer::new_beam_search(suggester.clone(), estimator, 10, 5);
+        let beam_optimizer =
+            BeamSearchOptimizer::new_beam_search(suggester.clone(), estimator, 10, 5);
         let greedy_optimizer = CostBasedOptimizer::new(suggester, estimator, 5);
 
         let ast = (i(1) * AstNode::Var("x".to_string())) + AstNode::Var("y".to_string());

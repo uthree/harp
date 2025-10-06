@@ -503,7 +503,9 @@ mod tests {
             expr,
             AstNode::Mul(
                 Box::new(AstNode::Var("a".to_string())),
-                Box::new(AstNode::Recip(Box::new(AstNode::Const(ConstLiteral::F32(2.0)))))
+                Box::new(AstNode::Recip(Box::new(AstNode::Const(ConstLiteral::F32(
+                    2.0
+                )))))
             )
         );
     }

@@ -163,7 +163,9 @@ impl LowererUtils {
             ),
             Expr::Div(left, right) => AstNode::Mul(
                 Box::new(Self::shape_expr_to_ast_node(left)),
-                Box::new(AstNode::Recip(Box::new(Self::shape_expr_to_ast_node(right)))),
+                Box::new(AstNode::Recip(Box::new(Self::shape_expr_to_ast_node(
+                    right,
+                )))),
             ),
             Expr::Sub(left, right) => AstNode::Add(
                 Box::new(Self::shape_expr_to_ast_node(left)),
