@@ -159,6 +159,7 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
                     pb.set_position(self.max_iterations as u64);
                     let best_cost = self.estimator.estimate_cost(&best);
                     pb.finish_with_message(format!("cost {:.6} (converged)", best_cost));
+                    pb.finish_and_clear();
                     pb.println(format!(
                         "{:>12} converged optimization.",
                         green_bold.apply_to("Finished")
@@ -187,6 +188,7 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
                 if let Some(ref pb) = pb {
                     pb.set_position(self.max_iterations as u64);
                     pb.finish_with_message(format!("cost {:.6} (beam empty)", initial_cost));
+                    pb.finish_and_clear();
                     pb.println(format!(
                         "{:>12} beam empty.",
                         green_bold.apply_to("Finished")
@@ -215,7 +217,7 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
         if let Some(ref pb) = pb {
             let final_cost = self.estimator.estimate_cost(&best);
             pb.finish_with_message(format!("cost {:.6}", final_cost));
-            pb.println(format!("{:>12} ", green_bold.apply_to("Finished")))
+            pb.finish_and_clear();
         }
 
         best
