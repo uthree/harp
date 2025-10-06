@@ -11,6 +11,7 @@ libloading = "0.8.8"
 log = "0.4"
 tempfile = "3.21.0"
 indicatif = "0.18.0"
+console = "0.16.1"
 
 [dev-dependencies]
 env_logger = "0.11.8"

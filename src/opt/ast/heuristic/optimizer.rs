@@ -1,127 +1,10 @@
 use crate::ast::AstNode;
 use crate::opt::ast::heuristic::{CostEstimator, RewriteSuggester};
+use console::Style;
 
 /// An optimizer that uses a cost estimator to select the best rewrite.
-pub struct CostBasedOptimizer<S: RewriteSuggester, E: CostEstimator> {
-    suggester: S,
-    estimator: E,
-    max_iterations: usize,
-    max_history: usize,
-    show_progress: bool,
-}
-
-impl<S: RewriteSuggester, E: CostEstimator> CostBasedOptimizer<S, E> {
-    pub fn new(suggester: S, estimator: E, max_iterations: usize) -> Self {
-        Self {
-            suggester,
-            estimator,
-            max_iterations,
-            // デフォルトでは最大10000件の履歴を保持（メモリ消費を制限）
-            max_history: 10000,
-            // DEBUGビルドの時は自動的にプログレスバーを有効化
-            show_progress: cfg!(debug_assertions),
-        }
-    }
-
-    pub fn with_progress(mut self, show_progress: bool) -> Self {
-        self.show_progress = show_progress;
-        self
-    }
-
-    pub fn with_max_history(mut self, max_history: usize) -> Self {
-        self.max_history = max_history;
-        self
-    }
-
-    pub fn optimize(&self, ast: &AstNode) -> AstNode {
-        use indicatif::{ProgressBar, ProgressStyle};
-        use std::collections::VecDeque;
-
-        let mut current = ast.clone();
-        let mut current_cost = self.estimator.estimate_cost(&current);
-
-        // 千日手検出のため、訪問済みのASTノードを記録（VecDequeで履歴件数を制限）
-        let mut visited = VecDeque::new();
-        visited.push_back(format!("{:?}", current));
-
-        let pb = if self.show_progress {
-            let pb = ProgressBar::new(self.max_iterations as u64);
-            pb.set_style(
-                ProgressStyle::default_bar()
-                    .template("{prefix:>12.cyan.bold} [{bar:24}] {pos}/{len} {wide_msg}")
-                    .unwrap()
-                    .progress_chars("=> "),
-            );
-            pb.set_prefix("Optimizing");
-            pb.set_message(format!("cost {:.2}", current_cost));
-            Some(pb)
-        } else {
-            None
-        };
-
-        for _i in 0..self.max_iterations {
-            let suggestions = self.suggester.suggest(&current);
-            if suggestions.is_empty() {
-                if let Some(ref pb) = pb {
-                    pb.set_position(self.max_iterations as u64);
-                    pb.finish_with_message(format!("cost {:.2} (converged)", current_cost));
-                }
-                break;
-            }
-
-            // Find the best suggestion
-            let mut best = current.clone();
-            let mut best_cost = current_cost;
-
-            for suggestion in suggestions {
-                let cost = self.estimator.estimate_cost(&suggestion);
-                if cost < best_cost {
-                    best = suggestion;
-                    best_cost = cost;
-                }
-            }
-
-            // If no improvement, stop
-            if best_cost >= current_cost {
-                if let Some(ref pb) = pb {
-                    pb.set_position(self.max_iterations as u64);
-                    pb.finish_with_message(format!("cost {:.2} (converged)", current_cost));
-                }
-                break;
-            }
-
-            // 千日手検出: 同じ状態が出現したら停止
-            let best_repr = format!("{:?}", best);
-            if visited.contains(&best_repr) {
-                if let Some(ref pb) = pb {
-                    pb.set_position(self.max_iterations as u64);
-                    pb.finish_with_message(format!("cost {:.2} (cycle detected)", current_cost));
-                }
-                break;
-            }
-
-            // 履歴に追加（上限に達したら古いものを削除）
-            if visited.len() >= self.max_history {
-                visited.pop_front();
-            }
-            visited.push_back(best_repr);
-
-            current = best;
-            current_cost = best_cost;
-
-            if let Some(ref pb) = pb {
-                pb.set_message(format!("cost {:.2}", current_cost));
-                pb.inc(1);
-            }
-        }
-
-        if let Some(ref pb) = pb {
-            pb.finish_with_message(format!("cost {:.2}", current_cost));
-        }
-
-        current
-    }
-}
+/// This is a wrapper around BeamSearchOptimizer with beam_width=1 (greedy search).
+pub type CostBasedOptimizer<S, E> = BeamSearchOptimizer<S, E>;
 
 /// An optimizer that uses beam search to explore multiple optimization paths.
 ///
@@ -137,7 +20,23 @@ pub struct BeamSearchOptimizer<S: RewriteSuggester, E: CostEstimator> {
 }
 
 impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
-    pub fn new(suggester: S, estimator: E, beam_width: usize, max_iterations: usize) -> Self {
+    /// Create a new greedy optimizer (beam_width=1).
+    /// This is the constructor for CostBasedOptimizer.
+    pub fn new(suggester: S, estimator: E, max_iterations: usize) -> Self {
+        Self {
+            suggester,
+            estimator,
+            beam_width: 1,
+            max_iterations,
+            // デフォルトでは最大10000件の履歴を保持（メモリ消費を制限）
+            max_history: 10000,
+            // DEBUGビルドの時は自動的にプログレスバーを有効化
+            show_progress: cfg!(debug_assertions),
+        }
+    }
+
+    /// Create a new beam search optimizer with specified beam width.
+    pub fn new_beam_search(suggester: S, estimator: E, beam_width: usize, max_iterations: usize) -> Self {
         Self {
             suggester,
             estimator,
@@ -164,6 +63,7 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
         use indicatif::{ProgressBar, ProgressStyle};
         use std::cmp::Ordering;
         use std::collections::{BinaryHeap, VecDeque};
+        let green_bold = Style::new().green().bold();
 
         // Wrapper to make AstNode sortable by cost
         #[derive(Clone)]
@@ -213,7 +113,7 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
                     .progress_chars("=> "),
             );
             pb.set_prefix("Optimizing");
-            pb.set_message(format!("beam {}, cost {:.2}", beam.len(), initial_cost));
+            pb.set_message(format!("beam {}, cost {:.6}", beam.len(), initial_cost));
             pb.tick();
             Some(pb)
         } else {
@@ -251,8 +151,12 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
                         .map(|c| c.cost)
                         .min_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal))
                         .unwrap_or(initial_cost);
-                    pb.finish_with_message(format!("cost {:.2} (converged)", best_cost));
-                    pb.tick()
+                    pb.finish_with_message(format!("cost {:.6} (converged)", best_cost));
+                    pb.tick();
+                    pb.println(format!(
+                        "{:>12} converged optimization.",
+                        green_bold.apply_to("Finished")
+                    ))
                 }
                 break;
             }
@@ -276,8 +180,12 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
             if beam.is_empty() {
                 if let Some(ref pb) = pb {
                     pb.set_position(self.max_iterations as u64);
-                    pb.finish_with_message(format!("cost {:.2} (beam empty)", initial_cost));
-                    pb.tick()
+                    pb.finish_with_message(format!("cost {:.6} (beam empty)", initial_cost));
+                    pb.tick();
+                    pb.println(format!(
+                        "{:>12} beam empty.",
+                        green_bold.apply_to("Finished")
+                    ))
                 }
                 break;
             }
@@ -288,7 +196,7 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
                     .map(|c| c.cost)
                     .min_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal))
                     .unwrap_or(initial_cost);
-                pb.set_message(format!("beam {}, cost {:.2}", beam.len(), best_cost));
+                pb.set_message(format!("beam {}, cost {:.6}", beam.len(), best_cost));
                 pb.inc(1);
                 pb.tick();
             }
@@ -302,8 +210,9 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
 
         if let Some(ref pb) = pb {
             let final_cost = self.estimator.estimate_cost(&best);
-            pb.finish_with_message(format!("cost {:.2}", final_cost));
-            pb.tick()
+            pb.finish_with_message(format!("cost {:.6}", final_cost));
+            pb.tick();
+            pb.println(format!("{:>12} ", green_bold.apply_to("Finished")))
         }
 
         best
@@ -324,30 +233,26 @@ mod tests {
 
     #[test]
     fn test_cost_based_optimizer() {
-        // Create a simple rule: a * 2 -> a + a
-        let rule = ast_pattern!(|a| a * i(2) => a.clone() + a.clone());
+        // Create a simple rule: a + 0 -> a
+        let rule = ast_pattern!(|a| a + i(0) => a.clone());
         let suggester = RuleBasedSuggester::new(vec![rule]);
         let estimator = OperationCostEstimator;
         let optimizer = CostBasedOptimizer::new(suggester, estimator, 10);
 
-        // a * 2 should be optimized to a + a (cheaper)
-        let ast = AstNode::Var("a".to_string()) * i(2);
+        // a + 0 should be optimized to a (cheaper)
+        let ast = AstNode::Var("a".to_string()) + i(0);
         let optimized = optimizer.optimize(&ast);
 
         // Check if optimization was applied
-        // Note: The optimizer only applies if the cost is lower
-        // Addition has cost 1, Multiplication has cost 2
-        let expected = AstNode::Var("a".to_string()) + AstNode::Var("a".to_string());
+        let expected = AstNode::Var("a".to_string());
         let original_cost = estimator.estimate_cost(&ast);
-        let expected_cost = estimator.estimate_cost(&expected);
+        let optimized_cost = estimator.estimate_cost(&optimized);
 
-        // If expected cost is lower, the optimization should be applied
-        if expected_cost < original_cost {
-            assert_eq!(optimized, expected);
-        } else {
-            // Otherwise, the original AST should be returned
-            assert_eq!(optimized, ast);
-        }
+        // The optimized cost should be lower than the original cost
+        assert!(optimized_cost < original_cost);
+
+        // The optimized result should match the expected result
+        assert_eq!(optimized, expected);
     }
 
     #[test]
@@ -357,7 +262,7 @@ mod tests {
         let rule2 = ast_pattern!(|a| a + i(0) => a.clone());
         let suggester = RuleBasedSuggester::new(vec![rule1, rule2]);
         let estimator = NodeCountCostEstimator;
-        let optimizer = BeamSearchOptimizer::new(suggester, estimator, 5, 10);
+        let optimizer = BeamSearchOptimizer::new_beam_search(suggester, estimator, 5, 10);
 
         // (a * 2) + 0 should be optimized
         let ast = (AstNode::Var("a".to_string()) * i(2)) + i(0);
@@ -377,7 +282,7 @@ mod tests {
         let suggester = RuleBasedSuggester::new(vec![rule1, rule2]);
         let estimator = NodeCountCostEstimator;
 
-        let beam_optimizer = BeamSearchOptimizer::new(suggester.clone(), estimator, 10, 5);
+        let beam_optimizer = BeamSearchOptimizer::new_beam_search(suggester.clone(), estimator, 10, 5);
         let greedy_optimizer = CostBasedOptimizer::new(suggester, estimator, 5);
 
         let ast = (i(1) * AstNode::Var("x".to_string())) + AstNode::Var("y".to_string());

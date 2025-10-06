@@ -101,7 +101,7 @@ where
         let suggester = all_suggesters();
         let estimator = OperationCostEstimator;
         // Use moderate beam width and iterations for good optimization
-        let beam_optimizer = BeamSearchOptimizer::new(suggester, estimator, 5, 100)
+        let beam_optimizer = BeamSearchOptimizer::new_beam_search(suggester, estimator, 5, 100)
             .with_progress(cfg!(debug_assertions));
 
         body = beam_optimizer.optimize(&body);
