@@ -2,6 +2,50 @@ use crate::ast::{pattern::AstRewriteRule, pattern::AstRewriter, AstNode, ConstLi
 use crate::{ast_pattern, ast_rewriter};
 use std::rc::Rc;
 
+/// Removes consecutive Barrier nodes in a Block, leaving only one.
+/// This is useful for optimizing generated code that may have redundant synchronization points.
+pub fn coalesce_barriers(ast: &mut AstNode) {
+    match ast {
+        AstNode::Block { ref mut statements, .. } => {
+            let mut new_statements = Vec::new();
+            let mut last_was_barrier = false;
+
+            for stmt in statements.iter() {
+                match stmt {
+                    AstNode::Barrier => {
+                        if !last_was_barrier {
+                            new_statements.push(stmt.clone());
+                            last_was_barrier = true;
+                        }
+                        // Skip consecutive barriers
+                    }
+                    _ => {
+                        new_statements.push(stmt.clone());
+                        last_was_barrier = false;
+                    }
+                }
+            }
+
+            *statements = new_statements;
+
+            // Recursively apply to nested blocks
+            for stmt in statements.iter_mut() {
+                coalesce_barriers(stmt);
+            }
+        }
+        _ => {
+            // Recursively apply to children
+            let children: Vec<AstNode> = ast.children().into_iter().cloned().collect();
+            for (i, mut child) in children.into_iter().enumerate() {
+                coalesce_barriers(&mut child);
+                let mut new_children: Vec<AstNode> = ast.children().into_iter().cloned().collect();
+                new_children[i] = child;
+                *ast = ast.clone().replace_children(new_children);
+            }
+        }
+    }
+}
+
 /// Creates an AstRewriter that removes meaningless operations.
 ///
 /// Examples of simplifications:
@@ -164,5 +208,82 @@ mod tests {
         let mut ast = (i(5) + i(0)) * i(1);
         rewriter.apply(&mut ast);
         assert_eq!(ast, i(5));
+    }
+
+    #[test]
+    fn test_coalesce_barriers() {
+        use crate::ast::Scope;
+
+        // Create a block with consecutive barriers
+        let mut ast = AstNode::Block {
+            scope: Scope { declarations: vec![] },
+            statements: vec![
+                AstNode::Assign("x".to_string(), Box::new(i(1))),
+                AstNode::Barrier,
+                AstNode::Barrier,
+                AstNode::Barrier,
+                AstNode::Assign("y".to_string(), Box::new(i(2))),
+                AstNode::Barrier,
+                AstNode::Assign("z".to_string(), Box::new(i(3))),
+            ],
+        };
+
+        coalesce_barriers(&mut ast);
+
+        if let AstNode::Block { statements, .. } = ast {
+            assert_eq!(statements.len(), 5);
+            assert!(matches!(statements[0], AstNode::Assign(_, _)));
+            assert!(matches!(statements[1], AstNode::Barrier));
+            assert!(matches!(statements[2], AstNode::Assign(_, _)));
+            assert!(matches!(statements[3], AstNode::Barrier));
+            assert!(matches!(statements[4], AstNode::Assign(_, _)));
+        } else {
+            panic!("Expected Block");
+        }
+    }
+
+    #[test]
+    fn test_coalesce_barriers_nested() {
+        use crate::ast::Scope;
+
+        // Create nested blocks with barriers
+        let inner_block = AstNode::Block {
+            scope: Scope { declarations: vec![] },
+            statements: vec![
+                AstNode::Barrier,
+                AstNode::Barrier,
+                AstNode::Assign("a".to_string(), Box::new(i(1))),
+            ],
+        };
+
+        let mut ast = AstNode::Block {
+            scope: Scope { declarations: vec![] },
+            statements: vec![
+                AstNode::Barrier,
+                AstNode::Barrier,
+                inner_block,
+                AstNode::Barrier,
+            ],
+        };
+
+        coalesce_barriers(&mut ast);
+
+        if let AstNode::Block { statements, .. } = ast {
+            assert_eq!(statements.len(), 3);
+            assert!(matches!(statements[0], AstNode::Barrier));
+            assert!(matches!(statements[1], AstNode::Block { .. }));
+            assert!(matches!(statements[2], AstNode::Barrier));
+
+            // Check inner block
+            if let AstNode::Block { statements: inner_stmts, .. } = &statements[1] {
+                assert_eq!(inner_stmts.len(), 2);
+                assert!(matches!(inner_stmts[0], AstNode::Barrier));
+                assert!(matches!(inner_stmts[1], AstNode::Assign(_, _)));
+            } else {
+                panic!("Expected inner Block");
+            }
+        } else {
+            panic!("Expected Block");
+        }
     }
 }

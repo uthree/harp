@@ -231,14 +231,6 @@ impl Lowerer {
         )
     }
 
-    fn topological_sort(&self, graph: &Graph) -> Vec<GraphNode> {
-        // 世代別にソートされたノードを取得
-        let generations = self.topological_sort_by_generation(graph);
-
-        // 世代を平坦化して1つのVecにする
-        generations.into_iter().flatten().collect()
-    }
-
     /// トポロジカルソートを実行し、世代（レベル）ごとにノードをグループ化
     /// 各世代は並列実行可能なノードのグループを表す
     fn topological_sort_by_generation(&self, graph: &Graph) -> Vec<Vec<GraphNode>> {

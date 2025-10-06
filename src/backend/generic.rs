@@ -114,6 +114,12 @@ where
 
         body = beam_optimizer.optimize(&body);
 
+        // Coalesce consecutive barriers
+        // This removes redundant synchronization points that may be generated
+        // during lowering or optimization
+        use crate::opt::ast::simplify::coalesce_barriers;
+        coalesce_barriers(&mut body);
+
         Function::new(
             function.name().to_string(),
             function.arguments().to_vec(),
