@@ -6,7 +6,9 @@ use std::rc::Rc;
 /// This is useful for optimizing generated code that may have redundant synchronization points.
 pub fn coalesce_barriers(ast: &mut AstNode) {
     match ast {
-        AstNode::Block { ref mut statements, .. } => {
+        AstNode::Block {
+            ref mut statements, ..
+        } => {
             let mut new_statements = Vec::new();
             let mut last_was_barrier = false;
 
@@ -216,7 +218,9 @@ mod tests {
 
         // Create a block with consecutive barriers
         let mut ast = AstNode::Block {
-            scope: Scope { declarations: vec![] },
+            scope: Scope {
+                declarations: vec![],
+            },
             statements: vec![
                 AstNode::Assign("x".to_string(), Box::new(i(1))),
                 AstNode::Barrier,
@@ -248,7 +252,9 @@ mod tests {
 
         // Create nested blocks with barriers
         let inner_block = AstNode::Block {
-            scope: Scope { declarations: vec![] },
+            scope: Scope {
+                declarations: vec![],
+            },
             statements: vec![
                 AstNode::Barrier,
                 AstNode::Barrier,
@@ -257,7 +263,9 @@ mod tests {
         };
 
         let mut ast = AstNode::Block {
-            scope: Scope { declarations: vec![] },
+            scope: Scope {
+                declarations: vec![],
+            },
             statements: vec![
                 AstNode::Barrier,
                 AstNode::Barrier,
@@ -275,7 +283,11 @@ mod tests {
             assert!(matches!(statements[2], AstNode::Barrier));
 
             // Check inner block
-            if let AstNode::Block { statements: inner_stmts, .. } = &statements[1] {
+            if let AstNode::Block {
+                statements: inner_stmts,
+                ..
+            } = &statements[1]
+            {
                 assert_eq!(inner_stmts.len(), 2);
                 assert!(matches!(inner_stmts[0], AstNode::Barrier));
                 assert!(matches!(inner_stmts[1], AstNode::Assign(_, _)));

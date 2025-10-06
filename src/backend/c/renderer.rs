@@ -362,7 +362,11 @@ impl CRenderer {
             AstNode::Barrier => {
                 // Synchronization barrier for parallel execution
                 // Currently rendered as a comment for future parallel backend support
-                writeln!(buffer, "// BARRIER: Synchronization point between computation generations").unwrap();
+                writeln!(
+                    buffer,
+                    "// BARRIER: Synchronization point between computation generations"
+                )
+                .unwrap();
             }
 
             node => todo!("render_node for {:?}", node),

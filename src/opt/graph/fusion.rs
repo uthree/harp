@@ -131,7 +131,10 @@ impl GraphFusionOptimizer {
             node.view.clone(),
         );
 
-        log::debug!("Fused View chain of length {} into single View", chain_length);
+        log::debug!(
+            "Fused View chain of length {} into single View",
+            chain_length
+        );
 
         Some(fused_node)
     }
