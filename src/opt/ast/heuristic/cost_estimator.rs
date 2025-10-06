@@ -58,7 +58,7 @@ impl CostEstimator for OperationCostEstimator {
                     AstNode::Const(cl) => Self::const_literal_to_f32(cl),
                     _ => 0f32,
                 };
-                block_cost * (est_max - est_start) / f32::max(est_step, 1.0)
+                block_cost * (est_max - est_start) / f32::max(est_step, 1.0) + 1e-8
             }
             AstNode::Block { statements, .. } => {
                 // Sum costs but cap individual statement costs to prevent explosion
