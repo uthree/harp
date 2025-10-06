@@ -272,20 +272,160 @@ impl_astnode_unary_op!(sqrt, Sqrt);
 impl_astnode_unary_op!(exp2, Exp2);
 impl_astnode_unary_op!(log2, Log2);
 
+/// Builder for Range nodes with default values
+pub struct RangeBuilder {
+    counter_name: String,
+    start: Box<AstNode>,
+    max: Box<AstNode>,
+    step: Box<AstNode>,
+    body: Box<AstNode>,
+}
+
+impl RangeBuilder {
+    /// Create a new RangeBuilder with required fields and default start=0, step=1
+    pub fn new(
+        counter_name: impl Into<String>,
+        max: impl Into<AstNode>,
+        body: impl Into<AstNode>,
+    ) -> Self {
+        Self {
+            counter_name: counter_name.into(),
+            start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
+            max: Box::new(max.into()),
+            step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
+            body: Box::new(body.into()),
+        }
+    }
+
+    pub fn start(mut self, start: impl Into<AstNode>) -> Self {
+        self.start = Box::new(start.into());
+        self
+    }
+
+    pub fn step(mut self, step: impl Into<AstNode>) -> Self {
+        self.step = Box::new(step.into());
+        self
+    }
+
+    pub fn build(self) -> AstNode {
+        AstNode::Range {
+            counter_name: self.counter_name,
+            start: self.start,
+            max: self.max,
+            step: self.step,
+            body: self.body,
+        }
+    }
+}
+
 impl AstNode {
-    pub fn capture(n: usize) -> AstNode {
+    // Convenience constructors for common variants
+
+    /// Create a variable reference
+    pub fn var(name: impl Into<String>) -> Self {
+        AstNode::Var(name.into())
+    }
+
+    /// Create a constant from a literal
+    pub fn const_val(val: impl Into<ConstLiteral>) -> Self {
+        AstNode::Const(val.into())
+    }
+
+    /// Create a capture node for pattern matching
+    pub fn capture(n: usize) -> Self {
         AstNode::Capture(n)
     }
 
-    /// Helper to create a Range with default start=0 and step=1
-    pub fn range(counter_name: String, max: Box<AstNode>, body: Box<AstNode>) -> Self {
-        AstNode::Range {
-            counter_name,
-            start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
-            max,
-            step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
-            body,
+    /// Create a random value node
+    pub fn rand() -> Self {
+        AstNode::Rand
+    }
+
+    /// Create a barrier node
+    pub fn barrier() -> Self {
+        AstNode::Barrier
+    }
+
+    /// Create a cast node
+    pub fn cast(dtype: DType, expr: impl Into<AstNode>) -> Self {
+        AstNode::Cast {
+            dtype,
+            expr: Box::new(expr.into()),
         }
+    }
+
+    /// Create a max node
+    pub fn max(lhs: impl Into<AstNode>, rhs: impl Into<AstNode>) -> Self {
+        AstNode::Max(Box::new(lhs.into()), Box::new(rhs.into()))
+    }
+
+    /// Create an assign node
+    pub fn assign(var_name: impl Into<String>, value: impl Into<AstNode>) -> Self {
+        AstNode::Assign(var_name.into(), Box::new(value.into()))
+    }
+
+    /// Create a store node
+    pub fn store(
+        target: impl Into<AstNode>,
+        index: impl Into<AstNode>,
+        value: impl Into<AstNode>,
+    ) -> Self {
+        AstNode::Store {
+            target: Box::new(target.into()),
+            index: Box::new(index.into()),
+            value: Box::new(value.into()),
+        }
+    }
+
+    /// Create a deref node
+    pub fn deref(expr: impl Into<AstNode>) -> Self {
+        AstNode::Deref(Box::new(expr.into()))
+    }
+
+    /// Create a drop node
+    pub fn drop(var_name: impl Into<String>) -> Self {
+        AstNode::Drop(var_name.into())
+    }
+
+    /// Create a function call node
+    pub fn call(name: impl Into<String>, args: Vec<AstNode>) -> Self {
+        AstNode::CallFunction {
+            name: name.into(),
+            args,
+        }
+    }
+
+    /// Create a block node
+    pub fn block(scope: Scope, statements: Vec<AstNode>) -> Self {
+        AstNode::Block { scope, statements }
+    }
+
+    /// Create a block node with empty scope
+    pub fn block_with_statements(statements: Vec<AstNode>) -> Self {
+        AstNode::Block {
+            scope: Scope {
+                declarations: vec![],
+            },
+            statements,
+        }
+    }
+
+    /// Helper to create a Range with default start=0 and step=1
+    pub fn range(
+        counter_name: impl Into<String>,
+        max: impl Into<AstNode>,
+        body: impl Into<AstNode>,
+    ) -> Self {
+        RangeBuilder::new(counter_name, max, body).build()
+    }
+
+    /// Create a RangeBuilder for more control
+    pub fn range_builder(
+        counter_name: impl Into<String>,
+        max: impl Into<AstNode>,
+        body: impl Into<AstNode>,
+    ) -> RangeBuilder {
+        RangeBuilder::new(counter_name, max, body)
     }
 
     pub fn children(&self) -> Vec<&AstNode> {
@@ -599,5 +739,122 @@ mod tests {
         );
 
         assert_eq!(result, a);
+    }
+
+    #[test]
+    fn test_helper_functions() {
+        // Test var
+        let v = AstNode::var("x");
+        assert_eq!(v, AstNode::Var("x".to_string()));
+
+        // Test const_val
+        let c = AstNode::const_val(ConstLiteral::F32(1.0));
+        assert_eq!(c, AstNode::Const(ConstLiteral::F32(1.0)));
+
+        // Test assign
+        let assign = AstNode::assign("x", 1.0f32);
+        assert_eq!(
+            assign,
+            AstNode::Assign(
+                "x".to_string(),
+                Box::new(AstNode::Const(ConstLiteral::F32(1.0)))
+            )
+        );
+
+        // Test max
+        let max = AstNode::max(1.0f32, 2.0f32);
+        assert_eq!(
+            max,
+            AstNode::Max(
+                Box::new(AstNode::Const(ConstLiteral::F32(1.0))),
+                Box::new(AstNode::Const(ConstLiteral::F32(2.0)))
+            )
+        );
+
+        // Test cast
+        let cast = AstNode::cast(DType::F32, 1isize);
+        assert_eq!(
+            cast,
+            AstNode::Cast {
+                dtype: DType::F32,
+                expr: Box::new(AstNode::Const(ConstLiteral::Isize(1)))
+            }
+        );
+    }
+
+    #[test]
+    fn test_range_builder() {
+        // Test simple range with defaults
+        let r1 = AstNode::range("i", 10isize, AstNode::var("x"));
+        assert_eq!(
+            r1,
+            AstNode::Range {
+                counter_name: "i".to_string(),
+                start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
+                max: Box::new(AstNode::Const(ConstLiteral::Isize(10))),
+                step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
+                body: Box::new(AstNode::Var("x".to_string())),
+            }
+        );
+
+        // Test range builder with custom start and step
+        let r2 = AstNode::range_builder("i", 100isize, AstNode::var("x"))
+            .start(5isize)
+            .step(2isize)
+            .build();
+        assert_eq!(
+            r2,
+            AstNode::Range {
+                counter_name: "i".to_string(),
+                start: Box::new(AstNode::Const(ConstLiteral::Isize(5))),
+                max: Box::new(AstNode::Const(ConstLiteral::Isize(100))),
+                step: Box::new(AstNode::Const(ConstLiteral::Isize(2))),
+                body: Box::new(AstNode::Var("x".to_string())),
+            }
+        );
+    }
+
+    #[test]
+    fn test_block_helpers() {
+        // Test block_with_statements
+        let block = AstNode::block_with_statements(vec![
+            AstNode::assign("x", 1.0f32),
+            AstNode::assign("y", 2.0f32),
+        ]);
+
+        assert!(matches!(block, AstNode::Block { .. }));
+        if let AstNode::Block { scope, statements } = block {
+            assert_eq!(scope.declarations.len(), 0);
+            assert_eq!(statements.len(), 2);
+        }
+    }
+
+    #[test]
+    fn test_other_helpers() {
+        // Test store
+        let store = AstNode::store(AstNode::var("arr"), 0isize, 1.0f32);
+        assert!(matches!(store, AstNode::Store { .. }));
+
+        // Test deref
+        let deref = AstNode::deref(AstNode::var("ptr"));
+        assert_eq!(
+            deref,
+            AstNode::Deref(Box::new(AstNode::Var("ptr".to_string())))
+        );
+
+        // Test call
+        let call = AstNode::call(
+            "foo",
+            vec![
+                AstNode::var("x"),
+                AstNode::const_val(ConstLiteral::F32(1.0)),
+            ],
+        );
+        assert!(matches!(call, AstNode::CallFunction { .. }));
+
+        // Test rand, barrier, drop
+        assert!(matches!(AstNode::rand(), AstNode::Rand));
+        assert!(matches!(AstNode::barrier(), AstNode::Barrier));
+        assert_eq!(AstNode::drop("x"), AstNode::Drop("x".to_string()));
     }
 }
