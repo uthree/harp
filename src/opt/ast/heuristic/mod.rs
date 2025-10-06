@@ -68,19 +68,25 @@ impl CostEstimator for CombinedCostEstimator {
 /// Creates a combined suggester with all available suggesters
 pub fn all_suggesters() -> CombinedRewriteSuggester {
     CombinedRewriteSuggester::new(vec![
-        Box::new(AlgebraicLawSuggester),
-        Box::new(CommutativeSuggester),
+        Box::new(AlgebraicLawSuggester::new()),
+        Box::new(CommutativeSuggester::new()),
         Box::new(FactorizationSuggester),
         Box::new(InverseOperationSuggester),
         // LoopInterchangeSuggester: swaps nested loop order for better cache locality
         // Only applies to simple nested loops loop(loop(body)), not loop(body, loop(body))
         Box::new(LoopInterchangeSuggester),
-        // LoopTilingSuggester: now uses separate remainder loop, no min() needed
-        // Use small tile size (4) to enable tiling even for small loops
+        // LoopTilingSuggester: try multiple tile sizes (powers of 2 from 2^1 to 2^8)
+        Box::new(LoopTilingSuggester::new(2)),
         Box::new(LoopTilingSuggester::new(4)),
+        Box::new(LoopTilingSuggester::new(8)),
+        Box::new(LoopTilingSuggester::new(16)),
+        Box::new(LoopTilingSuggester::new(32)),
+        Box::new(LoopTilingSuggester::new(64)),
+        Box::new(LoopTilingSuggester::new(128)),
+        Box::new(LoopTilingSuggester::new(256)),
         Box::new(LoopTransformSuggester),
-        // UnrollHintSuggester: suggests adding #pragma unroll hints
-        Box::new(UnrollHintSuggester::new()),
+        // UnrollHintSuggester: suggests adding #pragma unroll hints with factor 4
+        Box::new(UnrollHintSuggester::new(4)),
         // RedundancyRemovalSuggester is too aggressive and can incorrectly remove
         // important operations like Cast, so it's excluded from the default set
         // Box::new(RedundancyRemovalSuggester),

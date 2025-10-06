@@ -4,49 +4,14 @@ use crate::opt::ast::heuristic::RewriteSuggester;
 /// A suggester that proposes adding unroll hints to loops.
 /// This adds #pragma unroll directives without actually unrolling the loop.
 pub struct UnrollHintSuggester {
-    /// Whether to suggest full unrolling (Some(0)) or partial unrolling with factors
-    suggest_full: bool,
-    /// Unroll factors to try (e.g., [2, 4, 8])
-    unroll_factors: Vec<usize>,
+    /// Unroll factor to use for suggestions
+    unroll_factor: usize,
 }
 
 impl UnrollHintSuggester {
-    /// Create a new UnrollHintSuggester with default settings
-    pub fn new() -> Self {
-        Self {
-            suggest_full: true,
-            unroll_factors: vec![2, 4, 8],
-        }
-    }
-
-    /// Create a suggester that only suggests full unrolling
-    pub fn full_only() -> Self {
-        Self {
-            suggest_full: true,
-            unroll_factors: vec![],
-        }
-    }
-
-    /// Create a suggester with custom unroll factors
-    pub fn with_factors(factors: Vec<usize>) -> Self {
-        Self {
-            suggest_full: false,
-            unroll_factors: factors,
-        }
-    }
-
-    /// Create a suggester with both full and partial unrolling
-    pub fn with_full_and_factors(factors: Vec<usize>) -> Self {
-        Self {
-            suggest_full: true,
-            unroll_factors: factors,
-        }
-    }
-}
-
-impl Default for UnrollHintSuggester {
-    fn default() -> Self {
-        Self::new()
+    /// Create a new UnrollHintSuggester with the specified unroll factor
+    pub fn new(unroll_factor: usize) -> Self {
+        Self { unroll_factor }
     }
 }
 
@@ -66,29 +31,14 @@ impl RewriteSuggester for UnrollHintSuggester {
         {
             // Only suggest if no unroll hint is set
             if unroll.is_none() {
-                // Suggest full unrolling if enabled
-                if self.suggest_full {
-                    suggestions.push(AstNode::Range {
-                        counter_name: counter_name.clone(),
-                        start: start.clone(),
-                        max: max.clone(),
-                        step: step.clone(),
-                        body: body.clone(),
-                        unroll: Some(0),
-                    });
-                }
-
-                // Suggest partial unrolling with different factors
-                for &factor in &self.unroll_factors {
-                    suggestions.push(AstNode::Range {
-                        counter_name: counter_name.clone(),
-                        start: start.clone(),
-                        max: max.clone(),
-                        step: step.clone(),
-                        body: body.clone(),
-                        unroll: Some(factor),
-                    });
-                }
+                suggestions.push(AstNode::Range {
+                    counter_name: counter_name.clone(),
+                    start: start.clone(),
+                    max: max.clone(),
+                    step: step.clone(),
+                    body: body.clone(),
+                    unroll: Some(self.unroll_factor),
+                });
             }
         }
 
@@ -113,7 +63,7 @@ mod tests {
 
     #[test]
     fn test_unroll_hint_suggester() {
-        let suggester = UnrollHintSuggester::new();
+        let suggester = UnrollHintSuggester::new(4);
 
         let loop_node = AstNode::Range {
             counter_name: "i".to_string(),
@@ -126,88 +76,16 @@ mod tests {
 
         let suggestions = suggester.suggest(&loop_node);
 
-        // Should suggest full unroll (Some(0)) + 3 partial unrolls (2, 4, 8)
-        assert_eq!(suggestions.len(), 4);
-
-        // Check that we have full unroll suggestion
-        assert!(suggestions.iter().any(|s| {
-            if let AstNode::Range { unroll, .. } = s {
-                *unroll == Some(0)
-            } else {
-                false
-            }
-        }));
-
-        // Check that we have factor 2, 4, 8 suggestions
-        for factor in [2, 4, 8] {
-            assert!(suggestions.iter().any(|s| {
-                if let AstNode::Range { unroll, .. } = s {
-                    *unroll == Some(factor)
-                } else {
-                    false
-                }
-            }));
-        }
-    }
-
-    #[test]
-    fn test_unroll_hint_suggester_full_only() {
-        let suggester = UnrollHintSuggester::full_only();
-
-        let loop_node = AstNode::Range {
-            counter_name: "i".to_string(),
-            start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
-            max: Box::new(AstNode::Const(ConstLiteral::Isize(10))),
-            step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
-            body: Box::new(AstNode::var("x")),
-            unroll: None,
-        };
-
-        let suggestions = suggester.suggest(&loop_node);
-
-        // Should only suggest full unroll
+        // Should suggest one unroll with factor 4
         assert_eq!(suggestions.len(), 1);
         if let AstNode::Range { unroll, .. } = &suggestions[0] {
-            assert_eq!(*unroll, Some(0));
+            assert_eq!(*unroll, Some(4));
         }
-    }
-
-    #[test]
-    fn test_unroll_hint_suggester_with_factors() {
-        let suggester = UnrollHintSuggester::with_factors(vec![3, 5]);
-
-        let loop_node = AstNode::Range {
-            counter_name: "i".to_string(),
-            start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
-            max: Box::new(AstNode::Const(ConstLiteral::Isize(10))),
-            step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
-            body: Box::new(AstNode::var("x")),
-            unroll: None,
-        };
-
-        let suggestions = suggester.suggest(&loop_node);
-
-        // Should suggest factors 3 and 5 only (no full unroll)
-        assert_eq!(suggestions.len(), 2);
-        assert!(suggestions.iter().any(|s| {
-            if let AstNode::Range { unroll, .. } = s {
-                *unroll == Some(3)
-            } else {
-                false
-            }
-        }));
-        assert!(suggestions.iter().any(|s| {
-            if let AstNode::Range { unroll, .. } = s {
-                *unroll == Some(5)
-            } else {
-                false
-            }
-        }));
     }
 
     #[test]
     fn test_no_suggestion_if_already_unrolled() {
-        let suggester = UnrollHintSuggester::new();
+        let suggester = UnrollHintSuggester::new(4);
 
         let loop_node = AstNode::Range {
             counter_name: "i".to_string(),

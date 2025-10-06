@@ -1,38 +1,41 @@
 use crate::ast::AstNode;
+use crate::ast_pattern;
 use crate::opt::ast::heuristic::RewriteSuggester;
+use std::rc::Rc;
 
 /// A suggester for commutative operations (Add, Mul, Max).
 /// Suggests swapping the operands of commutative operations.
-pub struct CommutativeSuggester;
+pub struct CommutativeSuggester {
+    rules: Vec<Rc<crate::ast::pattern::AstRewriteRule>>,
+}
+
+impl CommutativeSuggester {
+    pub fn new() -> Self {
+        let rules = vec![
+            // a + b -> b + a
+            ast_pattern!(|a, b| a.clone() + b.clone() => b.clone() + a.clone()),
+            // a * b -> b * a
+            ast_pattern!(|a, b| a.clone() * b.clone() => b.clone() * a.clone()),
+            // Max(a, b) -> Max(b, a)
+            ast_pattern!(|a, b| AstNode::Max(Box::new(a.clone()), Box::new(b.clone())) => AstNode::Max(Box::new(b.clone()), Box::new(a.clone()))),
+        ];
+
+        Self { rules }
+    }
+}
+
+impl Default for CommutativeSuggester {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl RewriteSuggester for CommutativeSuggester {
     fn suggest(&self, node: &AstNode) -> Vec<AstNode> {
         let mut suggestions = Vec::new();
-
-        // Try swapping commutative operations at the current node
-        match node {
-            AstNode::Add(a, b) => {
-                suggestions.push(AstNode::Add(b.clone(), a.clone()));
-            }
-            AstNode::Mul(a, b) => {
-                suggestions.push(AstNode::Mul(b.clone(), a.clone()));
-            }
-            AstNode::Max(a, b) => {
-                suggestions.push(AstNode::Max(b.clone(), a.clone()));
-            }
-            _ => {}
+        for rule in &self.rules {
+            suggestions.extend(rule.get_possible_rewrites(node));
         }
-
-        // Recursively suggest swaps in children
-        for (i, child) in node.children().iter().enumerate() {
-            for suggested_child in self.suggest(child) {
-                let mut new_children: Vec<AstNode> =
-                    node.children().iter().map(|c| (*c).clone()).collect();
-                new_children[i] = suggested_child;
-                suggestions.push(node.clone().replace_children(new_children));
-            }
-        }
-
         suggestions
     }
 }
