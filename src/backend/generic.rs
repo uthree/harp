@@ -95,6 +95,14 @@ where
         constant_folding.apply(&mut body);
 
         // Apply beam search optimization with all suggesters
+        // This includes:
+        // - AlgebraicLawSuggester: algebraic simplifications
+        // - CommutativeSuggester: commutativity transformations
+        // - FactorizationSuggester: factorization optimizations
+        // - InverseOperationSuggester: inverse operation simplifications
+        // - LoopTilingSuggester: loop tiling transformations
+        // - LoopTransformSuggester: loop unrolling and fusion
+        // - UnrollHintSuggester: #pragma unroll hint suggestions
         use crate::opt::ast::heuristic::{
             all_suggesters, BeamSearchOptimizer, OperationCostEstimator,
         };
