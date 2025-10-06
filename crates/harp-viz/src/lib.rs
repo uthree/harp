@@ -153,8 +153,10 @@ impl SnarlViewer<GraphNodeData> for GraphVisualizerApp {
         snarl: &mut Snarl<GraphNodeData>,
     ) {
         let node_data = &snarl[node];
-        ui.label(format!("Type: {}", node_data.dtype));
-        ui.label(format!("Shape: {}", node_data.view_info));
+        ui.vertical(|ui| {
+            ui.label(format!("Type: {}", node_data.dtype));
+            ui.label(format!("Shape: {}", node_data.view_info));
+        });
     }
 }
 
