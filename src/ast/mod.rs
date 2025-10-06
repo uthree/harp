@@ -122,7 +122,7 @@ pub enum AstNode {
 
     Drop(String), // drop (local) variable explicitly
 
-    Barrier,
+    Barrier, // Synchronization barrier for parallel execution (separates computation generations)
 
     // for pattern matching
     Capture(usize),

@@ -46,14 +46,14 @@ impl Lowerer {
             }
         }
 
-        // 1. トポロジカルソート
-        let sorted_nodes = self.topological_sort(graph);
+        // 1. トポロジカルソート（世代別）
+        let generations = self.topological_sort_by_generation(graph);
 
         // 1.5. 入力ノードと出力ノードに対して変数名を事前マッピング
         // graphのinputsと照合して正しい順序を維持
         for (i, weak_input) in graph.inputs.iter().enumerate() {
             if let Some(input_rc) = weak_input.upgrade() {
-                // sorted_nodesから同じノードを探す
+                // generationsから同じノードを探す
                 // GraphNodeはRc<GraphNodeData>をラップしており、Eq/Hashが実装されている
                 let input_node = GraphNode::from_rc(input_rc);
                 let var_name = format!("input_{}", i);
@@ -67,14 +67,23 @@ impl Lowerer {
             self.node_to_var.insert(output_node.clone(), var_name);
         }
 
-        // 2. 各ノードを処理してAST文を生成
+        // 2. 各世代のノードを処理してAST文を生成
+        // 世代間にBarrierを挿入
         let mut statements = Vec::new();
         let mut declarations = Vec::new();
 
-        for node in sorted_nodes {
-            let ast_stmt = self.lower_node(&node, &mut declarations);
-            if let Some(stmt) = ast_stmt {
-                statements.push(stmt);
+        for (gen_idx, generation) in generations.iter().enumerate() {
+            // 世代内の各ノードを処理
+            for node in generation {
+                let ast_stmt = self.lower_node(node, &mut declarations);
+                if let Some(stmt) = ast_stmt {
+                    statements.push(stmt);
+                }
+            }
+
+            // 最後の世代でなければ、Barrierを挿入
+            if gen_idx < generations.len() - 1 {
+                statements.push(AstNode::Barrier);
             }
         }
 
@@ -223,9 +232,20 @@ impl Lowerer {
     }
 
     fn topological_sort(&self, graph: &Graph) -> Vec<GraphNode> {
+        // 世代別にソートされたノードを取得
+        let generations = self.topological_sort_by_generation(graph);
+
+        // 世代を平坦化して1つのVecにする
+        generations.into_iter().flatten().collect()
+    }
+
+    /// トポロジカルソートを実行し、世代（レベル）ごとにノードをグループ化
+    /// 各世代は並列実行可能なノードのグループを表す
+    fn topological_sort_by_generation(&self, graph: &Graph) -> Vec<Vec<GraphNode>> {
         let mut in_degree: HashMap<GraphNode, usize> = HashMap::new();
         let mut adjacency: HashMap<GraphNode, Vec<GraphNode>> = HashMap::new();
         let mut all_nodes = HashSet::new();
+        let mut node_level: HashMap<GraphNode, usize> = HashMap::new();
 
         // グラフを走査して依存関係を構築
         let mut queue = VecDeque::new();
@@ -248,30 +268,51 @@ impl Lowerer {
             }
         }
 
-        // トポロジカルソート実行
-        let mut result = Vec::new();
+        // レベル（世代）を計算しながらトポロジカルソート実行
+        let mut generations: Vec<Vec<GraphNode>> = Vec::new();
         let mut zero_in_degree: VecDeque<_> = in_degree
             .iter()
             .filter(|(_, &degree)| degree == 0)
             .map(|(node, _)| node.clone())
             .collect();
 
-        while let Some(node) = zero_in_degree.pop_front() {
-            result.push(node.clone());
+        // 初期ノード（入力ノード等）のレベルを0に設定
+        for node in &zero_in_degree {
+            node_level.insert(node.clone(), 0);
+        }
 
-            if let Some(neighbors) = adjacency.get(&node) {
-                for neighbor in neighbors {
-                    if let Some(degree) = in_degree.get_mut(neighbor) {
-                        *degree -= 1;
-                        if *degree == 0 {
-                            zero_in_degree.push_back(neighbor.clone());
+        while !zero_in_degree.is_empty() {
+            // 現在の世代のノードを収集
+            let current_generation: Vec<GraphNode> = zero_in_degree.drain(..).collect();
+
+            // 次の世代の候補を収集
+            let mut next_generation = Vec::new();
+
+            for node in &current_generation {
+                if let Some(neighbors) = adjacency.get(node) {
+                    let current_level = *node_level.get(node).unwrap_or(&0);
+
+                    for neighbor in neighbors {
+                        if let Some(degree) = in_degree.get_mut(neighbor) {
+                            *degree -= 1;
+
+                            // ノードのレベルを更新（全ての依存元の最大レベル+1）
+                            let neighbor_level = node_level.entry(neighbor.clone()).or_insert(0);
+                            *neighbor_level = (*neighbor_level).max(current_level + 1);
+
+                            if *degree == 0 {
+                                next_generation.push(neighbor.clone());
+                            }
                         }
                     }
                 }
             }
+
+            generations.push(current_generation);
+            zero_in_degree = next_generation.into_iter().collect();
         }
 
-        result
+        generations
     }
 
     fn get_dependencies(&self, node: &GraphNode) -> Vec<GraphNode> {
@@ -732,7 +773,10 @@ mod tests {
         // カーネル実装関数のチェック
         let kernel_func = &program.functions[0];
         if let AstNode::Block { statements, .. } = kernel_func.body() {
-            assert_eq!(statements.len(), 2); // const assignment + neg loop
+            // const assignment + barrier + neg loop
+            assert_eq!(statements.len(), 3);
+            // 2番目のステートメントがBarrierであることを確認
+            assert!(matches!(statements[1], AstNode::Barrier));
         } else {
             panic!("Expected Block body");
         }
