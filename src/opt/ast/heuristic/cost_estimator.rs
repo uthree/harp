@@ -1,4 +1,4 @@
-use crate::ast::AstNode;
+use crate::ast::{AstNode, ConstLiteral};
 use crate::opt::ast::heuristic::CostEstimator;
 
 /// A simple cost estimator that counts the number of nodes in the AST.
@@ -22,31 +22,12 @@ impl CostEstimator for NodeCountCostEstimator {
 pub struct OperationCostEstimator;
 
 impl OperationCostEstimator {
-    /// Check if a Range node is a tiled loop (outer loop of a tiling pattern)
-    fn is_tiled_loop(node: &AstNode) -> bool {
-        if let AstNode::Range {
-            counter_name,
-            step,
-            body,
-            ..
-        } = node
-        {
-            // Check if this is a tile_start loop with step > 1
-            if counter_name.contains("_tile_start") {
-                if let AstNode::Const(crate::ast::ConstLiteral::Isize(step_val)) = **step {
-                    if step_val > 1 {
-                        // Check if body contains a nested loop
-                        if let AstNode::Block { statements, .. } = &**body {
-                            return statements
-                                .iter()
-                                .any(|stmt| matches!(stmt, AstNode::Range { .. }));
-                        }
-                        return matches!(**body, AstNode::Range { .. });
-                    }
-                }
-            }
+    fn const_literal_to_f32(c: &ConstLiteral) -> f32 {
+        match *c {
+            ConstLiteral::F32(v) => v,
+            ConstLiteral::Isize(i) => i as f32,
+            ConstLiteral::Usize(u) => u as f32,
         }
-        false
     }
 }
 
@@ -60,100 +41,60 @@ impl CostEstimator for OperationCostEstimator {
                 body,
                 ..
             } => {
-                // Calculate loop iterations: (max - start) / step
-                let iterations = self.estimate_iterations(start, max, step);
-                let body_cost = self.estimate_cost(body);
-                let overhead: f32 = 2.0; // Loop overhead (init, check, increment)
-
-                // Use logarithmic scale: log(iterations) + body_cost instead of iterations * body_cost
-                // This prevents cost explosion in nested loops
-                let log_iterations = (iterations.max(1.0)).log2();
-                let mut total_cost = overhead.max(log_iterations + body_cost);
-
-                // Apply cost reduction for tiled loops (better cache locality)
-                if Self::is_tiled_loop(ast) {
-                    // Reduce cost by 30% to favor tiled loops
-                    // This accounts for improved cache locality
-                    total_cost -= 3.0; // Subtract instead of multiply in log scale
-                }
-
-                total_cost
+                let block_cost = self.estimate_cost_children(&start)
+                    + self.estimate_cost_children(&body)
+                    + self.estimate_cost_children(&step)
+                    + self.estimate_cost_children(&max)
+                    + 1e-8; // loop overhead
+                let est_step = match step.as_ref() {
+                    AstNode::Const(cl) => Self::const_literal_to_f32(cl),
+                    _ => 1.0f32,
+                };
+                let est_max = match max.as_ref() {
+                    AstNode::Const(cl) => Self::const_literal_to_f32(cl),
+                    _ => 100f32,
+                };
+                let est_start = match start.as_ref() {
+                    AstNode::Const(cl) => Self::const_literal_to_f32(cl),
+                    _ => 0f32,
+                };
+                block_cost * (est_max - est_start) / f32::max(est_step, 1.0)
             }
             AstNode::Block { statements, .. } => {
                 // Sum costs but cap individual statement costs to prevent explosion
                 let mut total: f32 = 0.0;
                 for stmt in statements {
-                    let stmt_cost = self.estimate_cost(stmt);
-                    // In log scale, adding costs means sequential execution
-                    total += stmt_cost.min(20.0); // Cap to prevent explosion
+                    let stmt_cost = self.estimate_cost(&stmt);
+                    total += stmt_cost
                 }
-
-                // Apply discount for complete tiling pattern
-                let has_tiled = statements.iter().any(Self::is_tiled_loop);
-                let has_remainder = statements
-                    .iter()
-                    .filter(|s| matches!(s, AstNode::Range { .. }))
-                    .count()
-                    > 1;
-                if has_tiled && has_remainder {
-                    // Additional discount for complete tiling pattern
-                    total -= 2.0; // Subtract in log scale
-                } else if has_tiled {
-                    // Even if there's no remainder, give a discount for tiling
-                    total -= 5.0; // Large discount to favor tiling
-                }
-
                 total
             }
-            AstNode::Const(_) => 0.0,
-            AstNode::Var(_) => 1.0,
-            AstNode::Add(_, _) => 1.0 + self.estimate_cost_children_max(ast),
-            AstNode::Mul(_, _) => 2.0 + self.estimate_cost_children_max(ast),
-            AstNode::Div(_, _) => 4.0 + self.estimate_cost_children_max(ast),
-            AstNode::Rem(_, _) => 4.0 + self.estimate_cost_children_max(ast),
-            AstNode::Neg(_) => 1.0 + self.estimate_cost_children_max(ast),
-            AstNode::Recip(_) => 4.0 + self.estimate_cost_children_max(ast),
-            AstNode::Sin(_) => 10.0 + self.estimate_cost_children_max(ast),
-            AstNode::Sqrt(_) => 5.0 + self.estimate_cost_children_max(ast),
-            AstNode::Log2(_) => 8.0 + self.estimate_cost_children_max(ast),
-            AstNode::Exp2(_) => 8.0 + self.estimate_cost_children_max(ast),
-            AstNode::Max(_, _) => 1.0 + self.estimate_cost_children_max(ast),
-            AstNode::Store { .. } => 3.0 + self.estimate_cost_children_max(ast),
-            AstNode::Deref(_) => 2.0 + self.estimate_cost_children_max(ast),
-            _ => 1.0 + self.estimate_cost_children_max(ast),
+            AstNode::Const(_) => 1e-9,
+            AstNode::Var(_) => 1e-8,
+            AstNode::Add(_, _) => 1e-9 + self.estimate_cost_children(ast),
+            AstNode::Mul(_, _) => 1e-9 + self.estimate_cost_children(ast),
+            AstNode::Div(_, _) => 1e-8 + self.estimate_cost_children(ast),
+            AstNode::Rem(_, _) => 1e-8 + self.estimate_cost_children(ast),
+            AstNode::Neg(_) => 1e-9 + self.estimate_cost_children(ast),
+            AstNode::Recip(_) => 1e-8 + self.estimate_cost_children(ast),
+            AstNode::Sin(_) => 2e-8 + self.estimate_cost_children(ast),
+            AstNode::Sqrt(_) => 2e-8 + self.estimate_cost_children(ast),
+            AstNode::Log2(_) => 2e-8 + self.estimate_cost_children(ast),
+            AstNode::Exp2(_) => 2e-8 + self.estimate_cost_children(ast),
+            AstNode::Max(_, _) => 1e-9 + self.estimate_cost_children(ast),
+            AstNode::Store { .. } => 2e-9 + self.estimate_cost_children(ast),
+            AstNode::Deref(_) => 5e-9 + self.estimate_cost_children(ast),
+            _ => 1e-9 + self.estimate_cost_children(ast),
         }
     }
 }
 
 impl OperationCostEstimator {
-    fn estimate_cost_children_max(&self, ast: &AstNode) -> f32 {
+    fn estimate_cost_children(&self, ast: &AstNode) -> f32 {
         ast.children()
             .iter()
             .map(|child| self.estimate_cost(child))
-            .fold(0.0, f32::max)
-    }
-
-    fn estimate_iterations(&self, start: &AstNode, max: &AstNode, step: &AstNode) -> f32 {
-        // Try to extract constant values
-        let start_val = if let AstNode::Const(crate::ast::ConstLiteral::Isize(v)) = start {
-            *v as f32
-        } else {
-            0.0 // Unknown, assume 0
-        };
-
-        let max_val = if let AstNode::Const(crate::ast::ConstLiteral::Isize(v)) = max {
-            *v as f32
-        } else {
-            100.0 // Unknown, use conservative estimate
-        };
-
-        let step_val = if let AstNode::Const(crate::ast::ConstLiteral::Isize(v)) = step {
-            (*v as f32).max(1.0) // Avoid division by zero
-        } else {
-            1.0 // Unknown, assume 1
-        };
-
-        ((max_val - start_val) / step_val).max(0.0)
+            .sum()
     }
 }
 

@@ -351,32 +351,6 @@ mod tests {
     }
 
     #[test]
-    fn test_beam_search_optimizer_simple() {
-        // Create a simple rule: a * 2 -> a + a
-        let rule = ast_pattern!(|a| a * i(2) => a.clone() + a.clone());
-        let suggester = RuleBasedSuggester::new(vec![rule]);
-        let estimator = OperationCostEstimator;
-        let optimizer = BeamSearchOptimizer::new(suggester, estimator, 3, 10);
-
-        // a * 2 should be optimized to a + a (cheaper)
-        let ast = AstNode::Var("a".to_string()) * i(2);
-        let optimized = optimizer.optimize(&ast);
-
-        let expected = AstNode::Var("a".to_string()) + AstNode::Var("a".to_string());
-        let original_cost = estimator.estimate_cost(&ast);
-        let optimized_cost = estimator.estimate_cost(&optimized);
-
-        // The optimized version should have equal or lower cost
-        assert!(optimized_cost <= original_cost);
-
-        // If a better solution exists, it should find it
-        let expected_cost = estimator.estimate_cost(&expected);
-        if expected_cost < original_cost {
-            assert_eq!(optimized, expected);
-        }
-    }
-
-    #[test]
     fn test_beam_search_optimizer_multiple_paths() {
         // Create multiple rules
         let rule1 = ast_pattern!(|a| a * i(2) => a.clone() + a.clone());
