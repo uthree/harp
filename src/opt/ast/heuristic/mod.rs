@@ -68,8 +68,8 @@ impl CostEstimator for CombinedCostEstimator {
 /// Creates a combined suggester with all available suggesters
 pub fn all_suggesters() -> CombinedRewriteSuggester {
     CombinedRewriteSuggester::new(vec![
-        Box::new(AlgebraicLawSuggester::new()),
-        Box::new(CommutativeSuggester::new()),
+        Box::new(AlgebraicLawSuggester),
+        Box::new(CommutativeSuggester),
         Box::new(FactorizationSuggester),
         Box::new(InverseOperationSuggester),
         // LoopInterchangeSuggester: swaps nested loop order for better cache locality
