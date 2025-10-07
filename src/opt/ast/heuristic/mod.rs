@@ -8,8 +8,8 @@ pub use cost_estimator::{NodeCountCostEstimator, OperationCostEstimator};
 pub use optimizer::{BeamSearchOptimizer, CostBasedOptimizer};
 pub use suggester::{
     AlgebraicLawSuggester, CommutativeSuggester, FactorizationSuggester, InverseOperationSuggester,
-    LoopInterchangeSuggester, LoopTilingSuggester, LoopTransformSuggester, RuleBasedSuggester,
-    UnrollHintSuggester,
+    LoopInterchangeSuggester, LoopTilingSuggester, LoopTransformSuggester, LoopUnrollSuggester,
+    RuleBasedSuggester, UnrollHintSuggester,
 };
 
 /// A trait for suggesting rewrites to an AST.
@@ -85,9 +85,7 @@ pub fn all_suggesters() -> CombinedRewriteSuggester {
         Box::new(LoopTilingSuggester::new(128)),
         Box::new(LoopTilingSuggester::new(256)),
         Box::new(LoopTransformSuggester),
-        // UnrollHintSuggester: suggests adding #pragma unroll hints with factor 2, 4, 8
-        Box::new(UnrollHintSuggester::new(2)),
-        Box::new(UnrollHintSuggester::new(4)),
-        Box::new(UnrollHintSuggester::new(8)),
+        // LoopUnrollSuggester: fully unrolls loops with constant iteration counts
+        Box::new(LoopUnrollSuggester::new()),
     ])
 }
