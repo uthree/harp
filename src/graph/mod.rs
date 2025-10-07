@@ -194,8 +194,8 @@ impl fmt::Display for GraphOp {
 #[derive(Debug, Clone)]
 pub struct GraphSignature {
     pub shape_variables: Vec<ShapeVariableSignature>,
-    pub inputs: Vec<TensorSignature>,
-    pub outputs: Vec<TensorSignature>,
+    pub inputs: Vec<ArraySignature>,
+    pub outputs: Vec<ArraySignature>,
 }
 
 #[derive(Debug, Clone)]
@@ -205,7 +205,7 @@ pub struct ShapeVariableSignature {
 }
 
 #[derive(Debug, Clone)]
-pub struct TensorSignature {
+pub struct ArraySignature {
     pub dtype: DType,
     pub shape: Vec<ShapeExpr>,
 }

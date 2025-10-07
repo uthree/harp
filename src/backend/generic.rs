@@ -247,7 +247,7 @@ where
                 .filter_map(|weak_ref| {
                     weak_ref
                         .upgrade()
-                        .map(|node_data| crate::graph::TensorSignature {
+                        .map(|node_data| crate::graph::ArraySignature {
                             dtype: node_data.dtype.clone(),
                             shape: node_data.view.shape().to_vec(),
                         })
@@ -256,7 +256,7 @@ where
             outputs: graph
                 .outputs
                 .iter()
-                .map(|output_node| crate::graph::TensorSignature {
+                .map(|output_node| crate::graph::ArraySignature {
                     dtype: output_node.dtype.clone(),
                     shape: output_node.view.shape().to_vec(),
                 })

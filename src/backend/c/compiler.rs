@@ -103,7 +103,7 @@ mod tests {
     use super::*;
     use crate::ast::DType;
     use crate::backend::Kernel;
-    use crate::graph::{GraphSignature, TensorSignature};
+    use crate::graph::{ArraySignature, GraphSignature};
 
     #[test]
     fn test_compiler_availability() {
@@ -138,16 +138,16 @@ void kernel_main(void** buffers, size_t* shape_vars) {
         let signature = GraphSignature {
             shape_variables: vec![],
             inputs: vec![
-                TensorSignature {
+                ArraySignature {
                     dtype: DType::F32,
                     shape: vec![4.into()],
                 },
-                TensorSignature {
+                ArraySignature {
                     dtype: DType::F32,
                     shape: vec![4.into()],
                 },
             ],
-            outputs: vec![TensorSignature {
+            outputs: vec![ArraySignature {
                 dtype: DType::F32,
                 shape: vec![4.into()],
             }],
