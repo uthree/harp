@@ -25,10 +25,7 @@ impl RewriteSuggester for ReciprocalLawSuggester {
         // Recip(a) * Recip(b) -> Recip(a*b)
         if let AstNode::Mul(left, right) = node {
             if let (AstNode::Recip(a), AstNode::Recip(b)) = (&**left, &**right) {
-                suggestions.push(AstNode::Recip(Box::new(AstNode::Mul(
-                    a.clone(),
-                    b.clone(),
-                ))));
+                suggestions.push(AstNode::Recip(Box::new(AstNode::Mul(a.clone(), b.clone()))));
             }
         }
 

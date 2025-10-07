@@ -27,10 +27,7 @@ impl RewriteSuggester for SqrtLawSuggester {
         // sqrt(a) * sqrt(b) -> sqrt(a*b)
         if let AstNode::Mul(left, right) = node {
             if let (AstNode::Sqrt(a), AstNode::Sqrt(b)) = (&**left, &**right) {
-                suggestions.push(AstNode::Sqrt(Box::new(AstNode::Mul(
-                    a.clone(),
-                    b.clone(),
-                ))));
+                suggestions.push(AstNode::Sqrt(Box::new(AstNode::Mul(a.clone(), b.clone()))));
             }
         }
 

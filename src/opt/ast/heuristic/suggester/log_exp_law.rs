@@ -27,10 +27,7 @@ impl RewriteSuggester for LogExpLawSuggester {
         // log2(a) + log2(b) -> log2(a * b)
         if let AstNode::Add(left, right) = node {
             if let (AstNode::Log2(a), AstNode::Log2(b)) = (&**left, &**right) {
-                suggestions.push(AstNode::Log2(Box::new(AstNode::Mul(
-                    a.clone(),
-                    b.clone(),
-                ))));
+                suggestions.push(AstNode::Log2(Box::new(AstNode::Mul(a.clone(), b.clone()))));
             }
         }
 
@@ -47,10 +44,7 @@ impl RewriteSuggester for LogExpLawSuggester {
         // exp2(a) * exp2(b) -> exp2(a + b)
         if let AstNode::Mul(left, right) = node {
             if let (AstNode::Exp2(a), AstNode::Exp2(b)) = (&**left, &**right) {
-                suggestions.push(AstNode::Exp2(Box::new(AstNode::Add(
-                    a.clone(),
-                    b.clone(),
-                ))));
+                suggestions.push(AstNode::Exp2(Box::new(AstNode::Add(a.clone(), b.clone()))));
             }
         }
 
