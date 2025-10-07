@@ -1,7 +1,8 @@
 pub mod pattern;
 use std::fmt;
 use std::ops::{
-    Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
+    Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Div, DivAssign,
+    Mul, MulAssign, Neg, Not, Rem, RemAssign, Shl, ShlAssign, Shr, ShrAssign, Sub, SubAssign,
 };
 
 #[derive(Debug, Clone, PartialEq, Default, Eq, Hash)]
@@ -96,6 +97,14 @@ pub enum AstNode {
         name: String,
         args: Vec<Self>,
     },
+
+    // bitwise ops
+    BitAnd(Box<Self>, Box<Self>), // ビット論理積 (&)
+    BitOr(Box<Self>, Box<Self>),  // ビット論理和 (|)
+    BitXor(Box<Self>, Box<Self>), // ビット排他的論理和 (^)
+    Shl(Box<Self>, Box<Self>),    // 左シフト (<<)
+    Shr(Box<Self>, Box<Self>),    // 右シフト (>>)
+    BitNot(Box<Self>),            // ビット否定 (~)
 
     // statements
     Block {
@@ -215,6 +224,11 @@ macro_rules! impl_astnode_binary_op {
 impl_astnode_binary_op!(Add, add, Add);
 impl_astnode_binary_op!(Mul, mul, Mul);
 impl_astnode_binary_op!(Rem, rem, Rem);
+impl_astnode_binary_op!(BitAnd, bitand, BitAnd);
+impl_astnode_binary_op!(BitOr, bitor, BitOr);
+impl_astnode_binary_op!(BitXor, bitxor, BitXor);
+impl_astnode_binary_op!(Shl, shl, Shl);
+impl_astnode_binary_op!(Shr, shr, Shr);
 
 // Subtraction: a - b = a + (-b)
 #[allow(clippy::suspicious_arithmetic_impl)]
@@ -249,11 +263,23 @@ impl_expr_assign_op!(SubAssign, sub_assign, -);
 impl_expr_assign_op!(MulAssign, mul_assign, *);
 impl_expr_assign_op!(DivAssign, div_assign, /);
 impl_expr_assign_op!(RemAssign, rem_assign, %);
+impl_expr_assign_op!(BitAndAssign, bitand_assign, &);
+impl_expr_assign_op!(BitOrAssign, bitor_assign, |);
+impl_expr_assign_op!(BitXorAssign, bitxor_assign, ^);
+impl_expr_assign_op!(ShlAssign, shl_assign, <<);
+impl_expr_assign_op!(ShrAssign, shr_assign, >>);
 
 impl Neg for AstNode {
     type Output = Self;
     fn neg(self) -> Self::Output {
         AstNode::Neg(Box::new(self))
+    }
+}
+
+impl Not for AstNode {
+    type Output = Self;
+    fn not(self) -> Self::Output {
+        AstNode::BitNot(Box::new(self))
     }
 }
 
@@ -453,6 +479,11 @@ impl AstNode {
             AstNode::Mul(l, r) => vec![l.as_ref(), r.as_ref()],
             AstNode::Max(l, r) => vec![l.as_ref(), r.as_ref()],
             AstNode::Rem(l, r) => vec![l.as_ref(), r.as_ref()],
+            AstNode::BitAnd(l, r) => vec![l.as_ref(), r.as_ref()],
+            AstNode::BitOr(l, r) => vec![l.as_ref(), r.as_ref()],
+            AstNode::BitXor(l, r) => vec![l.as_ref(), r.as_ref()],
+            AstNode::Shl(l, r) => vec![l.as_ref(), r.as_ref()],
+            AstNode::Shr(l, r) => vec![l.as_ref(), r.as_ref()],
             AstNode::Assign(_, r) => vec![r.as_ref()],
             AstNode::Store {
                 target,
@@ -466,6 +497,7 @@ impl AstNode {
             AstNode::Sqrt(n) => vec![n.as_ref()],
             AstNode::Log2(n) => vec![n.as_ref()],
             AstNode::Exp2(n) => vec![n.as_ref()],
+            AstNode::BitNot(n) => vec![n.as_ref()],
             AstNode::CallFunction { args, .. } => args.iter().collect(),
             AstNode::Range {
                 start,
@@ -553,6 +585,26 @@ impl AstNode {
                 Box::new(children_iter.next().unwrap()),
                 Box::new(children_iter.next().unwrap()),
             ),
+            AstNode::BitAnd(_, _) => AstNode::BitAnd(
+                Box::new(children_iter.next().unwrap()),
+                Box::new(children_iter.next().unwrap()),
+            ),
+            AstNode::BitOr(_, _) => AstNode::BitOr(
+                Box::new(children_iter.next().unwrap()),
+                Box::new(children_iter.next().unwrap()),
+            ),
+            AstNode::BitXor(_, _) => AstNode::BitXor(
+                Box::new(children_iter.next().unwrap()),
+                Box::new(children_iter.next().unwrap()),
+            ),
+            AstNode::Shl(_, _) => AstNode::Shl(
+                Box::new(children_iter.next().unwrap()),
+                Box::new(children_iter.next().unwrap()),
+            ),
+            AstNode::Shr(_, _) => AstNode::Shr(
+                Box::new(children_iter.next().unwrap()),
+                Box::new(children_iter.next().unwrap()),
+            ),
             AstNode::Assign(var_name, _) => {
                 AstNode::Assign(var_name, Box::new(children_iter.next().unwrap()))
             }
@@ -572,6 +624,7 @@ impl AstNode {
             AstNode::Sqrt(_) => AstNode::Sqrt(Box::new(children_iter.next().unwrap())),
             AstNode::Log2(_) => AstNode::Log2(Box::new(children_iter.next().unwrap())),
             AstNode::Exp2(_) => AstNode::Exp2(Box::new(children_iter.next().unwrap())),
+            AstNode::BitNot(_) => AstNode::BitNot(Box::new(children_iter.next().unwrap())),
             AstNode::CallFunction { name, .. } => AstNode::CallFunction {
                 name,
                 args: children_iter.collect(),
@@ -690,6 +743,69 @@ mod tests {
         let a = AstNode::Var("a".to_string());
         let expr = -a;
         assert_eq!(expr, AstNode::Neg(Box::new(AstNode::Var("a".to_string()))));
+    }
+
+    #[test]
+    fn test_bitwise_ops() {
+        let a = AstNode::Var("a".to_string());
+        let b: AstNode = 2isize.into();
+
+        // BitAnd
+        let expr = a.clone() & b.clone();
+        assert_eq!(
+            expr,
+            AstNode::BitAnd(
+                Box::new(AstNode::Var("a".to_string())),
+                Box::new(AstNode::Const(ConstLiteral::Isize(2)))
+            )
+        );
+
+        // BitOr
+        let expr = a.clone() | b.clone();
+        assert_eq!(
+            expr,
+            AstNode::BitOr(
+                Box::new(AstNode::Var("a".to_string())),
+                Box::new(AstNode::Const(ConstLiteral::Isize(2)))
+            )
+        );
+
+        // BitXor
+        let expr = a.clone() ^ b.clone();
+        assert_eq!(
+            expr,
+            AstNode::BitXor(
+                Box::new(AstNode::Var("a".to_string())),
+                Box::new(AstNode::Const(ConstLiteral::Isize(2)))
+            )
+        );
+
+        // Shl
+        let expr = a.clone() << b.clone();
+        assert_eq!(
+            expr,
+            AstNode::Shl(
+                Box::new(AstNode::Var("a".to_string())),
+                Box::new(AstNode::Const(ConstLiteral::Isize(2)))
+            )
+        );
+
+        // Shr
+        let expr = a.clone() >> b.clone();
+        assert_eq!(
+            expr,
+            AstNode::Shr(
+                Box::new(AstNode::Var("a".to_string())),
+                Box::new(AstNode::Const(ConstLiteral::Isize(2)))
+            )
+        );
+
+        // BitNot
+        let expr = !a.clone();
+        assert_eq!(
+            expr,
+            AstNode::BitNot(Box::new(AstNode::Var("a".to_string())))
+        );
     }
 
     #[test]

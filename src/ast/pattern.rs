@@ -236,7 +236,12 @@ impl AstRewriter {
             AstNode::Add(ref mut l, ref mut r)
             | AstNode::Mul(ref mut l, ref mut r)
             | AstNode::Max(ref mut l, ref mut r)
-            | AstNode::Rem(ref mut l, ref mut r) => {
+            | AstNode::Rem(ref mut l, ref mut r)
+            | AstNode::BitAnd(ref mut l, ref mut r)
+            | AstNode::BitOr(ref mut l, ref mut r)
+            | AstNode::BitXor(ref mut l, ref mut r)
+            | AstNode::Shl(ref mut l, ref mut r)
+            | AstNode::Shr(ref mut l, ref mut r) => {
                 self.apply_once(l);
                 self.apply_once(r);
             }
@@ -246,6 +251,7 @@ impl AstRewriter {
             | AstNode::Sqrt(ref mut n)
             | AstNode::Log2(ref mut n)
             | AstNode::Exp2(ref mut n)
+            | AstNode::BitNot(ref mut n)
             | AstNode::Deref(ref mut n) => {
                 self.apply_once(n);
             }

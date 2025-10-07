@@ -51,6 +51,18 @@ impl CRenderer {
             // Additive operators
             AstNode::Add(_, _) => 70,
 
+            // Shift operators
+            AstNode::Shl(_, _) | AstNode::Shr(_, _) => 60,
+
+            // Bitwise AND
+            AstNode::BitAnd(_, _) => 50,
+
+            // Bitwise XOR
+            AstNode::BitXor(_, _) => 40,
+
+            // Bitwise OR
+            AstNode::BitOr(_, _) => 30,
+
             // Everything else (statements, etc.)
             _ => 0,
         }
@@ -258,6 +270,56 @@ impl CRenderer {
                 )
                 .unwrap()
             }
+            AstNode::BitAnd(lhs, rhs) => {
+                let prec = Self::precedence(node);
+                write!(
+                    buffer,
+                    "{} & {}",
+                    self.render_with_parens(lhs, prec, false),
+                    self.render_with_parens(rhs, prec, true)
+                )
+                .unwrap()
+            }
+            AstNode::BitOr(lhs, rhs) => {
+                let prec = Self::precedence(node);
+                write!(
+                    buffer,
+                    "{} | {}",
+                    self.render_with_parens(lhs, prec, false),
+                    self.render_with_parens(rhs, prec, true)
+                )
+                .unwrap()
+            }
+            AstNode::BitXor(lhs, rhs) => {
+                let prec = Self::precedence(node);
+                write!(
+                    buffer,
+                    "{} ^ {}",
+                    self.render_with_parens(lhs, prec, false),
+                    self.render_with_parens(rhs, prec, true)
+                )
+                .unwrap()
+            }
+            AstNode::Shl(lhs, rhs) => {
+                let prec = Self::precedence(node);
+                write!(
+                    buffer,
+                    "{} << {}",
+                    self.render_with_parens(lhs, prec, false),
+                    self.render_with_parens(rhs, prec, true)
+                )
+                .unwrap()
+            }
+            AstNode::Shr(lhs, rhs) => {
+                let prec = Self::precedence(node);
+                write!(
+                    buffer,
+                    "{} >> {}",
+                    self.render_with_parens(lhs, prec, false),
+                    self.render_with_parens(rhs, prec, true)
+                )
+                .unwrap()
+            }
             AstNode::Max(lhs, rhs) => write!(
                 buffer,
                 "fmax({}, {})",
@@ -288,6 +350,10 @@ impl CRenderer {
             AstNode::Neg(v) => {
                 let prec = Self::precedence(node);
                 write!(buffer, "-{}", self.render_with_parens(v, prec, false)).unwrap()
+            }
+            AstNode::BitNot(v) => {
+                let prec = Self::precedence(node);
+                write!(buffer, "~{}", self.render_with_parens(v, prec, false)).unwrap()
             }
             AstNode::Recip(v) => write!(buffer, "(1 / {})", self.render_node(v)).unwrap(),
             AstNode::Sin(v) => write!(buffer, "sin({})", self.render_node(v)).unwrap(),
@@ -458,6 +524,12 @@ mod tests {
     #[case(var("a") * var("b"), "a * b")]
     #[case(var("a") * var("b").recip(), "a / b")]
     #[case(AstNode::Rem(Box::new(var("a")), Box::new(var("b"))), "a % b")]
+    #[case(AstNode::BitAnd(Box::new(var("a")), Box::new(var("b"))), "a & b")]
+    #[case(AstNode::BitOr(Box::new(var("a")), Box::new(var("b"))), "a | b")]
+    #[case(AstNode::BitXor(Box::new(var("a")), Box::new(var("b"))), "a ^ b")]
+    #[case(AstNode::Shl(Box::new(var("a")), Box::new(var("b"))), "a << b")]
+    #[case(AstNode::Shr(Box::new(var("a")), Box::new(var("b"))), "a >> b")]
+    #[case(AstNode::BitNot(Box::new(var("a"))), "~a")]
     #[case(AstNode::Max(Box::new(var("a")), Box::new(var("b"))), "fmax(a, b)")]
     #[case(-var("a"), "-a")]
     #[case(AstNode::Sin(Box::new(var("a"))), "sin(a)")]
