@@ -1,6 +1,8 @@
 use crate::ast::AstNode;
 use crate::opt::ast::heuristic::{CostEstimator, RewriteSuggester};
 use console::Style;
+use indicatif::MultiProgress;
+use std::sync::Arc;
 
 /// An optimizer that uses a cost estimator to select the best rewrite.
 /// This is a wrapper around BeamSearchOptimizer with beam_width=1 (greedy search).
@@ -17,6 +19,7 @@ pub struct BeamSearchOptimizer<S: RewriteSuggester, E: CostEstimator> {
     max_iterations: usize,
     max_history: usize,
     show_progress: bool,
+    multi_progress: Option<Arc<MultiProgress>>,
 }
 
 impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
@@ -32,6 +35,7 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
             max_history: 10000,
             // DEBUGビルドの時は自動的にプログレスバーを有効化
             show_progress: cfg!(debug_assertions),
+            multi_progress: None,
         }
     }
 
@@ -51,6 +55,7 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
             max_history: 100,
             // DEBUGビルドの時は自動的にプログレスバーを有効化
             show_progress: cfg!(debug_assertions),
+            multi_progress: None,
         }
     }
 
@@ -61,6 +66,38 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
 
     pub fn with_max_history(mut self, max_history: usize) -> Self {
         self.max_history = max_history;
+        self
+    }
+
+    /// Set a MultiProgress instance for managing multiple progress bars.
+    /// Use this when running multiple optimizers in parallel to avoid output conflicts.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use indicatif::MultiProgress;
+    /// use std::sync::Arc;
+    /// use std::thread;
+    ///
+    /// let mp = Arc::new(MultiProgress::new());
+    ///
+    /// let optimizer1 = BeamSearchOptimizer::new(suggester1, estimator1, 100)
+    ///     .with_progress(true)
+    ///     .with_multi_progress(Arc::clone(&mp));
+    ///
+    /// let optimizer2 = BeamSearchOptimizer::new(suggester2, estimator2, 100)
+    ///     .with_progress(true)
+    ///     .with_multi_progress(Arc::clone(&mp));
+    ///
+    /// // Run optimizations in parallel
+    /// let handle1 = thread::spawn(move || optimizer1.optimize(&ast1));
+    /// let handle2 = thread::spawn(move || optimizer2.optimize(&ast2));
+    ///
+    /// let result1 = handle1.join().unwrap();
+    /// let result2 = handle2.join().unwrap();
+    /// ```
+    pub fn with_multi_progress(mut self, multi_progress: Arc<MultiProgress>) -> Self {
+        self.multi_progress = Some(multi_progress);
         self
     }
 
@@ -120,7 +157,13 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
             pb.set_prefix("Optimizing");
             pb.set_message(format!("beam {}, cost {:.6}", beam.len(), initial_cost));
             pb.tick();
-            Some(pb)
+
+            // If MultiProgress is provided, add the progress bar to it
+            if let Some(ref mp) = self.multi_progress {
+                Some(mp.add(pb))
+            } else {
+                Some(pb)
+            }
         } else {
             None
         };
@@ -306,5 +349,38 @@ mod tests {
 
         // Beam search should be at least as good as greedy
         assert!(beam_cost <= greedy_cost);
+    }
+
+    #[test]
+    fn test_multi_progress() {
+        use indicatif::MultiProgress;
+        use std::sync::Arc;
+
+        // Create a MultiProgress instance for managing multiple progress bars
+        let mp = Arc::new(MultiProgress::new());
+
+        // Create two optimizers that share the same MultiProgress
+        let rule = ast_pattern!(|a| a + i(0) => a.clone());
+        let suggester = RuleBasedSuggester::new(vec![rule]);
+        let estimator = OperationCostEstimator;
+
+        let optimizer1 = CostBasedOptimizer::new(suggester.clone(), estimator, 5)
+            .with_progress(true)
+            .with_multi_progress(Arc::clone(&mp));
+
+        let optimizer2 = CostBasedOptimizer::new(suggester, estimator, 5)
+            .with_progress(true)
+            .with_multi_progress(Arc::clone(&mp));
+
+        // Optimize two different ASTs
+        let ast1 = AstNode::Var("a".to_string()) + i(0);
+        let ast2 = AstNode::Var("b".to_string()) + i(0);
+
+        // In a real scenario, you'd run these in parallel threads
+        // For the test, we just verify they don't crash
+        let _result1 = optimizer1.optimize(&ast1);
+        let _result2 = optimizer2.optimize(&ast2);
+
+        // Both should complete without panicking
     }
 }
