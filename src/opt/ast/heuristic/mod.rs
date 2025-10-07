@@ -8,8 +8,9 @@ pub use cost_estimator::{NodeCountCostEstimator, OperationCostEstimator};
 pub use optimizer::{BeamSearchOptimizer, CostBasedOptimizer};
 pub use suggester::{
     AlgebraicLawSuggester, CommutativeSuggester, FactorizationSuggester, InverseOperationSuggester,
-    LoopInterchangeSuggester, LoopTilingSuggester, LoopTransformSuggester, LoopUnrollSuggester,
-    RuleBasedSuggester, UnrollHintSuggester,
+    LogExpLawSuggester, LoopInterchangeSuggester, LoopTilingSuggester, LoopTransformSuggester,
+    LoopUnrollSuggester, MaxLawSuggester, ReciprocalLawSuggester, RuleBasedSuggester,
+    SqrtLawSuggester, UnrollHintSuggester,
 };
 
 /// A trait for suggesting rewrites to an AST.
@@ -72,6 +73,10 @@ pub fn all_suggesters() -> CombinedRewriteSuggester {
         Box::new(CommutativeSuggester),
         Box::new(FactorizationSuggester),
         Box::new(InverseOperationSuggester),
+        Box::new(LogExpLawSuggester),
+        Box::new(MaxLawSuggester),
+        Box::new(ReciprocalLawSuggester),
+        Box::new(SqrtLawSuggester),
         // LoopInterchangeSuggester: swaps nested loop order for better cache locality
         // Only applies to simple nested loops loop(loop(body)), not loop(body, loop(body))
         Box::new(LoopInterchangeSuggester),
