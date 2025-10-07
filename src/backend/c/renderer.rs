@@ -146,7 +146,7 @@ impl CRenderer {
 
     fn render_scope(&mut self, scope: &Scope, statements: &[AstNode]) -> String {
         let mut buffer = String::new();
-        self.render_indent(&mut buffer);
+        //self.render_indent(&mut buffer);
         self.indent_level += 1;
         writeln!(buffer, "{{").unwrap();
 
@@ -393,6 +393,7 @@ impl CRenderer {
 
                 match *body.as_ref() {
                     AstNode::Block { .. } => {
+                        self.render_indent(&mut buffer);
                         write!(buffer, "{}", self.render_node(body.as_ref())).unwrap();
                     }
                     _ => {
@@ -428,11 +429,7 @@ impl CRenderer {
             AstNode::Barrier => {
                 // Synchronization barrier for parallel execution
                 // Currently rendered as a comment for future parallel backend support
-                writeln!(
-                    buffer,
-                    "// BARRIER: Synchronization point between computation generations"
-                )
-                .unwrap();
+                write!(buffer, "/* BARRIER */").unwrap();
             }
 
             node => todo!("render_node for {:?}", node),
