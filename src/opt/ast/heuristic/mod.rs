@@ -7,10 +7,10 @@ pub mod suggester;
 pub use cost_estimator::{NodeCountCostEstimator, OperationCostEstimator};
 pub use optimizer::{BeamSearchOptimizer, CostBasedOptimizer};
 pub use suggester::{
-    AlgebraicLawSuggester, CommutativeSuggester, FactorizationSuggester, InverseOperationSuggester,
-    LogExpLawSuggester, LoopInterchangeSuggester, LoopTilingSuggester, LoopTransformSuggester,
-    LoopUnrollSuggester, MaxLawSuggester, ReciprocalLawSuggester, RuleBasedSuggester,
-    SqrtLawSuggester, UnrollHintSuggester,
+    AlgebraicLawSuggester, BitwiseLawSuggester, CommutativeSuggester, FactorizationSuggester,
+    InverseOperationSuggester, LogExpLawSuggester, LoopInterchangeSuggester, LoopTilingSuggester,
+    LoopTransformSuggester, LoopUnrollSuggester, MaxLawSuggester, ReciprocalLawSuggester,
+    RuleBasedSuggester, SqrtLawSuggester, UnrollHintSuggester,
 };
 
 /// A trait for suggesting rewrites to an AST.
@@ -70,6 +70,7 @@ impl CostEstimator for CombinedCostEstimator {
 pub fn all_suggesters() -> CombinedRewriteSuggester {
     CombinedRewriteSuggester::new(vec![
         Box::new(AlgebraicLawSuggester),
+        Box::new(BitwiseLawSuggester::new()),
         Box::new(CommutativeSuggester),
         Box::new(FactorizationSuggester),
         Box::new(InverseOperationSuggester),

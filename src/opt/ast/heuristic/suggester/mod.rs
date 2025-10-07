@@ -1,4 +1,5 @@
 mod algebraic;
+mod bitwise;
 mod commutative;
 mod factorization;
 mod inverse;
@@ -14,6 +15,7 @@ mod sqrt_law;
 mod unroll_hint;
 
 pub use algebraic::AlgebraicLawSuggester;
+pub use bitwise::BitwiseLawSuggester;
 pub use commutative::CommutativeSuggester;
 pub use factorization::FactorizationSuggester;
 pub use inverse::InverseOperationSuggester;
