@@ -2,6 +2,36 @@ use crate::ast::{pattern::AstRewriteRule, pattern::AstRewriter, AstNode, ConstLi
 use crate::{ast_pattern, ast_rewriter};
 use std::rc::Rc;
 
+/// Unwraps single-statement blocks without declarations into their parent scope.
+/// Converts `Block { statements: [stmt] }` to `stmt` if the block has no declarations.
+pub fn unwrap_single_statement_blocks(ast: &mut AstNode) {
+    // First, recursively apply to children
+    match ast {
+        AstNode::Block { statements, .. } => {
+            for stmt in statements.iter_mut() {
+                unwrap_single_statement_blocks(stmt);
+            }
+        }
+        _ => {
+            let children: Vec<AstNode> = ast.children().into_iter().cloned().collect();
+            for (i, mut child) in children.into_iter().enumerate() {
+                unwrap_single_statement_blocks(&mut child);
+                let mut new_children: Vec<AstNode> = ast.children().into_iter().cloned().collect();
+                new_children[i] = child;
+                *ast = ast.clone().replace_children(new_children);
+            }
+        }
+    }
+
+    // Then, unwrap this node if it's a single-statement block
+    if let AstNode::Block { scope, statements } = ast {
+        // Only unwrap if there's exactly one statement and no declarations
+        if statements.len() == 1 && scope.declarations.is_empty() {
+            *ast = statements[0].clone();
+        }
+    }
+}
+
 /// Removes consecutive Barrier nodes in a Block, leaving only one.
 /// This is useful for optimizing generated code that may have redundant synchronization points.
 pub fn coalesce_barriers(ast: &mut AstNode) {
@@ -297,5 +327,90 @@ mod tests {
         } else {
             panic!("Expected Block");
         }
+    }
+
+    #[test]
+    fn test_unwrap_single_statement_block() {
+        use crate::ast::Scope;
+
+        // Block with single statement and no declarations -> unwrap
+        let mut ast = AstNode::Block {
+            scope: Scope {
+                declarations: vec![],
+            },
+            statements: vec![AstNode::Assign("x".to_string(), Box::new(i(5)))],
+        };
+
+        unwrap_single_statement_blocks(&mut ast);
+
+        assert!(matches!(ast, AstNode::Assign(_, _)));
+    }
+
+    #[test]
+    fn test_unwrap_nested_single_statement_blocks() {
+        use crate::ast::Scope;
+
+        // Nested single-statement blocks should all unwrap
+        let inner = AstNode::Block {
+            scope: Scope {
+                declarations: vec![],
+            },
+            statements: vec![AstNode::Assign("x".to_string(), Box::new(i(5)))],
+        };
+
+        let mut ast = AstNode::Block {
+            scope: Scope {
+                declarations: vec![],
+            },
+            statements: vec![inner],
+        };
+
+        unwrap_single_statement_blocks(&mut ast);
+
+        assert!(matches!(ast, AstNode::Assign(_, _)));
+    }
+
+    #[test]
+    fn test_dont_unwrap_block_with_declarations() {
+        use crate::ast::{DType, Scope, VariableDecl};
+
+        // Block with declarations should NOT unwrap
+        let mut ast = AstNode::Block {
+            scope: Scope {
+                declarations: vec![VariableDecl {
+                    name: "x".to_string(),
+                    dtype: DType::Isize,
+                    constant: false,
+                    size_expr: None,
+                }],
+            },
+            statements: vec![AstNode::Assign("x".to_string(), Box::new(i(5)))],
+        };
+
+        unwrap_single_statement_blocks(&mut ast);
+
+        // Should still be a block
+        assert!(matches!(ast, AstNode::Block { .. }));
+    }
+
+    #[test]
+    fn test_dont_unwrap_multi_statement_block() {
+        use crate::ast::Scope;
+
+        // Block with multiple statements should NOT unwrap
+        let mut ast = AstNode::Block {
+            scope: Scope {
+                declarations: vec![],
+            },
+            statements: vec![
+                AstNode::Assign("x".to_string(), Box::new(i(5))),
+                AstNode::Assign("y".to_string(), Box::new(i(10))),
+            ],
+        };
+
+        unwrap_single_statement_blocks(&mut ast);
+
+        // Should still be a block
+        assert!(matches!(ast, AstNode::Block { .. }));
     }
 }
