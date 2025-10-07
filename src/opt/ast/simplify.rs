@@ -32,6 +32,75 @@ pub fn unwrap_single_statement_blocks(ast: &mut AstNode) {
     }
 }
 
+/// Flattens nested blocks by merging child blocks without declarations into their parent.
+/// This removes unnecessary nesting even when blocks have multiple statements.
+///
+/// Example:
+/// ```ignore
+/// Block {
+///     statements: [
+///         Block { declarations: [], statements: [stmt1, stmt2] },
+///         stmt3
+///     ]
+/// }
+/// ```
+/// becomes:
+/// ```ignore
+/// Block {
+///     statements: [stmt1, stmt2, stmt3]
+/// }
+/// ```
+pub fn flatten_blocks(ast: &mut AstNode) {
+    // First, recursively apply to all children
+    match ast {
+        AstNode::Block { statements, .. } => {
+            for stmt in statements.iter_mut() {
+                flatten_blocks(stmt);
+            }
+        }
+        _ => {
+            let children: Vec<AstNode> = ast.children().into_iter().cloned().collect();
+            for (i, mut child) in children.into_iter().enumerate() {
+                flatten_blocks(&mut child);
+                let mut new_children: Vec<AstNode> = ast.children().into_iter().cloned().collect();
+                new_children[i] = child;
+                *ast = ast.clone().replace_children(new_children);
+            }
+        }
+    }
+
+    // Then, flatten this block if possible
+    if let AstNode::Block {
+        scope: _,
+        ref mut statements,
+    } = ast
+    {
+        let mut new_statements = Vec::new();
+
+        for stmt in statements.iter() {
+            // If the statement is a block without declarations, merge its statements
+            if let AstNode::Block {
+                scope: inner_scope,
+                statements: inner_statements,
+            } = stmt
+            {
+                if inner_scope.declarations.is_empty() {
+                    // Flatten: add all inner statements directly
+                    new_statements.extend(inner_statements.clone());
+                } else {
+                    // Keep the block as-is (it has declarations)
+                    new_statements.push(stmt.clone());
+                }
+            } else {
+                // Not a block, keep as-is
+                new_statements.push(stmt.clone());
+            }
+        }
+
+        *statements = new_statements;
+    }
+}
+
 /// Removes consecutive Barrier nodes in a Block, leaving only one.
 /// This is useful for optimizing generated code that may have redundant synchronization points.
 pub fn coalesce_barriers(ast: &mut AstNode) {
@@ -394,23 +463,148 @@ mod tests {
     }
 
     #[test]
-    fn test_dont_unwrap_multi_statement_block() {
+    fn test_flatten_blocks() {
         use crate::ast::Scope;
 
-        // Block with multiple statements should NOT unwrap
+        // Create nested blocks without declarations
+        let inner_block = AstNode::Block {
+            scope: Scope {
+                declarations: vec![],
+            },
+            statements: vec![
+                AstNode::Assign("x".to_string(), Box::new(i(1))),
+                AstNode::Assign("y".to_string(), Box::new(i(2))),
+            ],
+        };
+
         let mut ast = AstNode::Block {
             scope: Scope {
                 declarations: vec![],
             },
             statements: vec![
-                AstNode::Assign("x".to_string(), Box::new(i(5))),
-                AstNode::Assign("y".to_string(), Box::new(i(10))),
+                inner_block,
+                AstNode::Assign("z".to_string(), Box::new(i(3))),
             ],
         };
 
-        unwrap_single_statement_blocks(&mut ast);
+        flatten_blocks(&mut ast);
 
-        // Should still be a block
-        assert!(matches!(ast, AstNode::Block { .. }));
+        // Should be flattened to a single block with 3 statements
+        if let AstNode::Block { statements, .. } = ast {
+            assert_eq!(statements.len(), 3);
+            assert!(matches!(
+                statements[0],
+                AstNode::Assign(ref name, _) if name == "x"
+            ));
+            assert!(matches!(
+                statements[1],
+                AstNode::Assign(ref name, _) if name == "y"
+            ));
+            assert!(matches!(
+                statements[2],
+                AstNode::Assign(ref name, _) if name == "z"
+            ));
+        } else {
+            panic!("Expected Block");
+        }
+    }
+
+    #[test]
+    fn test_flatten_blocks_preserves_declarations() {
+        use crate::ast::{DType, Scope, VariableDecl};
+
+        // Inner block with declarations should NOT be flattened
+        let inner_block = AstNode::Block {
+            scope: Scope {
+                declarations: vec![VariableDecl {
+                    name: "temp".to_string(),
+                    dtype: DType::Isize,
+                    constant: false,
+                    size_expr: None,
+                }],
+            },
+            statements: vec![
+                AstNode::Assign("x".to_string(), Box::new(i(1))),
+                AstNode::Assign("y".to_string(), Box::new(i(2))),
+            ],
+        };
+
+        let mut ast = AstNode::Block {
+            scope: Scope {
+                declarations: vec![],
+            },
+            statements: vec![
+                inner_block,
+                AstNode::Assign("z".to_string(), Box::new(i(3))),
+            ],
+        };
+
+        flatten_blocks(&mut ast);
+
+        // Should NOT be flattened (inner block has declarations)
+        if let AstNode::Block { statements, .. } = ast {
+            assert_eq!(statements.len(), 2);
+            assert!(matches!(statements[0], AstNode::Block { .. }));
+            assert!(matches!(
+                statements[1],
+                AstNode::Assign(ref name, _) if name == "z"
+            ));
+        } else {
+            panic!("Expected Block");
+        }
+    }
+
+    #[test]
+    fn test_flatten_blocks_nested() {
+        use crate::ast::Scope;
+
+        // Deeply nested blocks without declarations
+        let inner_inner = AstNode::Block {
+            scope: Scope {
+                declarations: vec![],
+            },
+            statements: vec![AstNode::Assign("a".to_string(), Box::new(i(1)))],
+        };
+
+        let inner_block = AstNode::Block {
+            scope: Scope {
+                declarations: vec![],
+            },
+            statements: vec![
+                inner_inner,
+                AstNode::Assign("b".to_string(), Box::new(i(2))),
+            ],
+        };
+
+        let mut ast = AstNode::Block {
+            scope: Scope {
+                declarations: vec![],
+            },
+            statements: vec![
+                inner_block,
+                AstNode::Assign("c".to_string(), Box::new(i(3))),
+            ],
+        };
+
+        flatten_blocks(&mut ast);
+
+        // Should be completely flattened
+        if let AstNode::Block { statements, .. } = ast {
+            assert_eq!(statements.len(), 3);
+            assert!(matches!(
+                statements[0],
+                AstNode::Assign(ref name, _) if name == "a"
+            ));
+            assert!(matches!(
+                statements[1],
+                AstNode::Assign(ref name, _) if name == "b"
+            ));
+            assert!(matches!(
+                statements[2],
+                AstNode::Assign(ref name, _) if name == "c"
+            ));
+        } else {
+            panic!("Expected Block");
+        }
     }
 }
