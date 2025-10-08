@@ -1445,6 +1445,7 @@ dependencies = [
  "libc",
  "libloading",
  "log",
+ "once_cell",
  "rstest",
  "tempfile",
 ]

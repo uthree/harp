@@ -1,1 +1,452 @@
+pub mod backend;
+pub mod ops;
 
+pub use backend::validate_backend;
+
+use crate::ast::DType;
+use crate::graph::{Graph, GraphNode};
+use std::marker::PhantomData;
+
+/// Type-level representation of Rust types for tensors.
+///
+/// This trait maps Rust types to DType at compile time.
+pub trait TensorType: 'static {
+    /// The corresponding DType
+    const DTYPE: DType;
+}
+
+impl TensorType for f32 {
+    const DTYPE: DType = DType::F32;
+}
+
+impl TensorType for isize {
+    const DTYPE: DType = DType::Isize;
+}
+
+impl TensorType for usize {
+    const DTYPE: DType = DType::Usize;
+}
+
+/// Type-level representation of tensor dimensions.
+///
+/// This allows compile-time checking of tensor dimensions similar to ndarray.
+pub trait Dimension {
+    /// Number of dimensions (rank)
+    const NDIM: Option<usize>;
+
+    /// Check if a shape is valid for this dimension type
+    fn check_shape(shape: &[usize]) -> bool;
+}
+
+/// Dynamic dimension - shape determined at runtime
+pub struct Dyn;
+
+impl Dimension for Dyn {
+    const NDIM: Option<usize> = None;
+
+    fn check_shape(_shape: &[usize]) -> bool {
+        true // Any shape is valid for dynamic dimensions
+    }
+}
+
+/// 0-dimensional tensor (scalar)
+pub struct D0;
+
+impl Dimension for D0 {
+    const NDIM: Option<usize> = Some(0);
+
+    fn check_shape(shape: &[usize]) -> bool {
+        shape.is_empty() || (shape.len() == 1 && shape[0] == 1)
+    }
+}
+
+/// 1-dimensional tensor (vector)
+pub struct D1;
+
+impl Dimension for D1 {
+    const NDIM: Option<usize> = Some(1);
+
+    fn check_shape(shape: &[usize]) -> bool {
+        shape.len() == 1
+    }
+}
+
+/// 2-dimensional tensor (matrix)
+pub struct D2;
+
+impl Dimension for D2 {
+    const NDIM: Option<usize> = Some(2);
+
+    fn check_shape(shape: &[usize]) -> bool {
+        shape.len() == 2
+    }
+}
+
+/// 3-dimensional tensor
+pub struct D3;
+
+impl Dimension for D3 {
+    const NDIM: Option<usize> = Some(3);
+
+    fn check_shape(shape: &[usize]) -> bool {
+        shape.len() == 3
+    }
+}
+
+/// 4-dimensional tensor
+pub struct D4;
+
+impl Dimension for D4 {
+    const NDIM: Option<usize> = Some(4);
+
+    fn check_shape(shape: &[usize]) -> bool {
+        shape.len() == 4
+    }
+}
+
+/// Raw data storage for tensors
+enum TensorData {
+    F32(Vec<f32>),
+    Isize(Vec<isize>),
+    Usize(Vec<usize>),
+}
+
+/// Base tensor without dimension type checking.
+/// This handles all core functionality.
+pub struct TensorBase {
+    /// Actual data (Some if evaluated, None if lazy)
+    data: Option<TensorData>,
+    /// Computation graph node (Some if part of computation graph)
+    graph_node: Option<GraphNode>,
+    /// Graph that this tensor is part of
+    graph: Option<Graph>,
+    /// Backend name for execution
+    backend_name: String,
+    /// Data type
+    dtype: DType,
+    /// Shape
+    shape: Vec<usize>,
+    /// Whether gradient computation is required
+    requires_grad: bool,
+}
+
+/// A tensor with optional compile-time type and dimension checking.
+///
+/// # Type Parameters
+/// - `T`: Element type (f32, isize, usize)
+/// - `D`: Dimension type (Dyn, D1, D2, etc.)
+///
+/// # Examples
+///
+/// ```
+/// use harp::tensor::{Tensor, D1, D2, Dyn};
+///
+/// // 1D f32 tensor (compile-time checked)
+/// let vec: Tensor<f32, D1> = Tensor::from_vec(vec![1.0, 2.0, 3.0], &[3], "c");
+///
+/// // 2D f32 tensor (compile-time checked)
+/// let mat: Tensor<f32, D2> = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0], &[2, 2], "c");
+///
+/// // Dynamic dimension (runtime checked)
+/// let dyn_tensor: Tensor<f32, Dyn> = Tensor::from_vec(vec![1.0], &[1], "c");
+/// ```
+pub struct Tensor<T: TensorType, D: Dimension = Dyn> {
+    inner: TensorBase,
+    _phantom: PhantomData<(T, D)>,
+}
+
+impl TensorBase {
+    /// Create a tensor from a Vec of data.
+    pub fn from_vec<T: 'static>(data: Vec<T>, shape: &[usize], backend_name: String) -> Self {
+        let numel: usize = shape.iter().product();
+        if data.len() != numel {
+            panic!(
+                "Data length {} doesn't match shape {:?} (expected {} elements)",
+                data.len(),
+                shape,
+                numel
+            );
+        }
+
+        let dtype = Self::infer_dtype::<T>();
+        let tensor_data = Self::vec_to_tensor_data(data, &dtype);
+
+        TensorBase {
+            data: Some(tensor_data),
+            graph_node: None,
+            graph: None,
+            backend_name,
+            dtype,
+            shape: shape.to_vec(),
+            requires_grad: false,
+        }
+    }
+
+    /// Create a tensor from a graph node.
+    pub(crate) fn from_graph_node(
+        graph_node: GraphNode,
+        graph: Graph,
+        backend_name: String,
+    ) -> Self {
+        let shape: Vec<usize> = graph_node
+            .view
+            .shape()
+            .iter()
+            .map(|expr| match expr {
+                crate::graph::shape::Expr::Const(n) => *n as usize,
+                _ => panic!("Dynamic shapes not yet supported in Tensor API"),
+            })
+            .collect();
+
+        TensorBase {
+            data: None,
+            graph_node: Some(graph_node.clone()),
+            graph: Some(graph),
+            backend_name,
+            dtype: graph_node.dtype.clone(),
+            shape,
+            requires_grad: false,
+        }
+    }
+
+    fn vec_to_tensor_data<T: 'static>(data: Vec<T>, dtype: &DType) -> TensorData {
+        use std::any::TypeId;
+
+        match dtype {
+            DType::F32 if TypeId::of::<T>() == TypeId::of::<f32>() => {
+                let ptr = data.as_ptr() as *const f32;
+                let len = data.len();
+                std::mem::forget(data);
+                TensorData::F32(unsafe { Vec::from_raw_parts(ptr as *mut f32, len, len) })
+            }
+            DType::Isize if TypeId::of::<T>() == TypeId::of::<isize>() => {
+                let ptr = data.as_ptr() as *const isize;
+                let len = data.len();
+                std::mem::forget(data);
+                TensorData::Isize(unsafe { Vec::from_raw_parts(ptr as *mut isize, len, len) })
+            }
+            DType::Usize if TypeId::of::<T>() == TypeId::of::<usize>() => {
+                let ptr = data.as_ptr() as *const usize;
+                let len = data.len();
+                std::mem::forget(data);
+                TensorData::Usize(unsafe { Vec::from_raw_parts(ptr as *mut usize, len, len) })
+            }
+            _ => panic!("Type mismatch"),
+        }
+    }
+
+    /// Get the shape of the tensor.
+    pub fn shape(&self) -> &[usize] {
+        &self.shape
+    }
+
+    /// Get the data type of the tensor.
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    /// Get the number of dimensions.
+    pub fn ndim(&self) -> usize {
+        self.shape.len()
+    }
+
+    /// Get the total number of elements.
+    pub fn numel(&self) -> usize {
+        self.shape.iter().product()
+    }
+
+    /// Enable gradient computation for this tensor.
+    pub fn requires_grad_(mut self, requires_grad: bool) -> Self {
+        self.requires_grad = requires_grad;
+        self
+    }
+
+    /// Check if gradient computation is enabled.
+    pub fn requires_grad(&self) -> bool {
+        self.requires_grad
+    }
+
+    fn infer_dtype<T: 'static>() -> DType {
+        use std::any::TypeId;
+
+        if TypeId::of::<T>() == TypeId::of::<f32>() {
+            DType::F32
+        } else if TypeId::of::<T>() == TypeId::of::<isize>() {
+            DType::Isize
+        } else if TypeId::of::<T>() == TypeId::of::<usize>() {
+            DType::Usize
+        } else {
+            panic!("Unsupported data type");
+        }
+    }
+}
+
+impl<T: TensorType, D: Dimension> Tensor<T, D> {
+    /// Create a tensor from a Vec of data.
+    ///
+    /// # Panics
+    /// Panics if the shape doesn't match the dimension type D or if the data type doesn't match T.
+    pub fn from_vec(data: Vec<T>, shape: &[usize], backend_name: &str) -> Self {
+        if !D::check_shape(shape) {
+            panic!(
+                "Shape {:?} is not compatible with dimension type (expected ndim: {:?})",
+                shape,
+                D::NDIM
+            );
+        }
+
+        validate_backend(backend_name);
+
+        Tensor {
+            inner: TensorBase::from_vec(data, shape, backend_name.to_string()),
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Create a tensor from a graph node.
+    pub(crate) fn from_graph_node(
+        graph_node: GraphNode,
+        graph: Graph,
+        backend_name: String,
+    ) -> Self {
+        let shape: Vec<usize> = graph_node
+            .view
+            .shape()
+            .iter()
+            .map(|expr| match expr {
+                crate::graph::shape::Expr::Const(n) => *n as usize,
+                _ => panic!("Dynamic shapes not yet supported in Tensor API"),
+            })
+            .collect();
+
+        if !D::check_shape(&shape) {
+            panic!(
+                "Graph node shape {:?} is not compatible with dimension type (expected ndim: {:?})",
+                shape,
+                D::NDIM
+            );
+        }
+
+        // Check that the graph node's dtype matches T
+        if graph_node.dtype != T::DTYPE {
+            panic!(
+                "Graph node dtype {:?} doesn't match tensor type (expected {:?})",
+                graph_node.dtype,
+                T::DTYPE
+            );
+        }
+
+        Tensor {
+            inner: TensorBase::from_graph_node(graph_node, graph, backend_name),
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Get the shape of the tensor.
+    pub fn shape(&self) -> &[usize] {
+        self.inner.shape()
+    }
+
+    /// Get the data type of the tensor.
+    pub fn dtype(&self) -> &DType {
+        self.inner.dtype()
+    }
+
+    /// Get the number of dimensions.
+    pub fn ndim(&self) -> usize {
+        self.inner.ndim()
+    }
+
+    /// Get the total number of elements.
+    pub fn numel(&self) -> usize {
+        self.inner.numel()
+    }
+
+    /// Enable gradient computation for this tensor.
+    pub fn requires_grad_(mut self, requires_grad: bool) -> Self {
+        self.inner = self.inner.requires_grad_(requires_grad);
+        self
+    }
+
+    /// Check if gradient computation is enabled.
+    pub fn requires_grad(&self) -> bool {
+        self.inner.requires_grad()
+    }
+}
+
+/// Type aliases for common f32 tensor types
+pub type Tensor0<T = f32> = Tensor<T, D0>; // Scalar
+pub type Tensor1<T = f32> = Tensor<T, D1>; // Vector
+pub type Tensor2<T = f32> = Tensor<T, D2>; // Matrix
+pub type Tensor3<T = f32> = Tensor<T, D3>; // 3D tensor
+pub type Tensor4<T = f32> = Tensor<T, D4>; // 4D tensor
+pub type TensorDyn<T = f32> = Tensor<T, Dyn>; // Dynamic dimension
+
+#[cfg(all(test, feature = "backend-c"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tensor_creation() {
+        let data = vec![1.0f32, 2.0, 3.0, 4.0];
+        let tensor: Tensor1<f32> = Tensor::from_vec(data, &[4], "c");
+
+        assert_eq!(tensor.shape(), &[4]);
+        assert_eq!(tensor.ndim(), 1);
+        assert_eq!(tensor.numel(), 4);
+        assert_eq!(tensor.dtype(), &DType::F32);
+    }
+
+    #[test]
+    fn test_tensor_2d_creation() {
+        let data = vec![1.0f32, 2.0, 3.0, 4.0];
+        let tensor: Tensor2<f32> = Tensor::from_vec(data, &[2, 2], "c");
+
+        assert_eq!(tensor.shape(), &[2, 2]);
+        assert_eq!(tensor.ndim(), 2);
+        assert_eq!(tensor.numel(), 4);
+    }
+
+    #[test]
+    #[should_panic(expected = "Shape")]
+    fn test_tensor_dimension_mismatch() {
+        let data = vec![1.0f32, 2.0, 3.0, 4.0];
+
+        // Try to create 1D tensor with 2D shape - should panic
+        let _tensor: Tensor1<f32> = Tensor::from_vec(data, &[2, 2], "c");
+    }
+
+    #[test]
+    fn test_tensor_dynamic_dimension() {
+        let data = vec![1.0f32, 2.0, 3.0, 4.0];
+
+        // Dynamic dimension accepts any shape
+        let tensor1: TensorDyn<f32> = Tensor::from_vec(data.clone(), &[4], "c");
+        let tensor2: TensorDyn<f32> = Tensor::from_vec(data.clone(), &[2, 2], "c");
+        let tensor3: TensorDyn<f32> = Tensor::from_vec(data, &[2, 1, 2], "c");
+
+        assert_eq!(tensor1.ndim(), 1);
+        assert_eq!(tensor2.ndim(), 2);
+        assert_eq!(tensor3.ndim(), 3);
+    }
+
+    #[test]
+    fn test_requires_grad() {
+        let data = vec![1.0f32, 2.0, 3.0];
+        let tensor = Tensor::<f32, D1>::from_vec(data, &[3], "c").requires_grad_(true);
+
+        assert!(tensor.requires_grad());
+    }
+
+    #[test]
+    fn test_tensor_type_inference() {
+        // Test with different types
+        let f32_tensor: Tensor1<f32> = Tensor::from_vec(vec![1.0f32, 2.0], &[2], "c");
+        let isize_tensor: Tensor1<isize> = Tensor::from_vec(vec![1isize, 2], &[2], "c");
+        let usize_tensor: Tensor1<usize> = Tensor::from_vec(vec![1usize, 2], &[2], "c");
+
+        assert_eq!(f32_tensor.dtype(), &DType::F32);
+        assert_eq!(isize_tensor.dtype(), &DType::Isize);
+        assert_eq!(usize_tensor.dtype(), &DType::Usize);
+    }
+}
