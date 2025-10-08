@@ -1,6 +1,6 @@
 use harp::ast::DType;
 use harp::backend::Backend;
-use harp::backend::generic::CBackend;
+use harp::backend::CBackend;
 use harp::graph::Graph;
 use harp::graph::ReduceOps;
 

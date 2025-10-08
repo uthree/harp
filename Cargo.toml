@@ -22,5 +22,9 @@ default = ["backend-c"]
 visualizer = []
 backend-c = []
 
+[[example]]
+name = "matmul_demo"
+required-features = ["backend-c"]
+
 [workspace]
 members = ["crates/harp-nn", "crates/harp-viz"]

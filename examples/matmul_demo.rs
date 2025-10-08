@@ -1,5 +1,5 @@
 use harp::ast::DType;
-use harp::backend::generic::CBackend;
+use harp::backend::CBackend;
 use harp::backend::{Backend, Buffer};
 use harp::graph::{Graph, ReduceOps};
 use std::time::Instant;

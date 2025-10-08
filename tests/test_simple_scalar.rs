@@ -1,7 +1,9 @@
+#![cfg(feature = "backend-c")]
+
 mod common;
 use harp::ast::DType;
-use harp::backend::generic::CBackend;
 use harp::backend::Backend;
+use harp::backend::CBackend;
 use harp::graph::Graph;
 
 #[test]
