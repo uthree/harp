@@ -211,4 +211,123 @@ mod tests {
 
         assert_eq!(result.shape(), &[3]);
     }
+
+    #[test]
+    fn test_tensor_sum() {
+        use harp::tensor::{Tensor2, TensorDyn};
+
+        let a: Tensor2<f32> = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], "c");
+
+        // Sum along axis 0 (result shape: [3])
+        let sum_axis0: TensorDyn<f32> = a.clone().sum(0);
+        assert_eq!(sum_axis0.shape(), &[3]);
+        assert_eq!(sum_axis0.ndim(), 1);
+
+        // Sum along axis 1 (result shape: [2])
+        let sum_axis1: TensorDyn<f32> = a.sum(1);
+        assert_eq!(sum_axis1.shape(), &[2]);
+        assert_eq!(sum_axis1.ndim(), 1);
+    }
+
+    #[test]
+    fn test_tensor_product() {
+        use harp::tensor::{Tensor2, TensorDyn};
+
+        let a: Tensor2<f32> = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], "c");
+
+        // Product along axis 0
+        let prod_axis0: TensorDyn<f32> = a.clone().product(0);
+        assert_eq!(prod_axis0.shape(), &[3]);
+
+        // Product along axis 1
+        let prod_axis1: TensorDyn<f32> = a.product(1);
+        assert_eq!(prod_axis1.shape(), &[2]);
+    }
+
+    #[test]
+    fn test_tensor_reduce_max() {
+        use harp::tensor::{Tensor2, TensorDyn};
+
+        let a: Tensor2<f32> = Tensor::from_vec(vec![1.0, 5.0, 3.0, 2.0, 8.0, 4.0], &[2, 3], "c");
+
+        // Max along axis 0
+        let max_axis0: TensorDyn<f32> = a.clone().reduce_max(0);
+        assert_eq!(max_axis0.shape(), &[3]);
+
+        // Max along axis 1
+        let max_axis1: TensorDyn<f32> = a.reduce_max(1);
+        assert_eq!(max_axis1.shape(), &[2]);
+    }
+
+    #[test]
+    fn test_tensor_cumsum() {
+        use harp::tensor::Tensor2;
+
+        let a: Tensor2<f32> = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], "c");
+
+        // Cumsum along axis 0 (shape preserved: [2, 3])
+        let cumsum_axis0 = a.clone().cumsum(0);
+        assert_eq!(cumsum_axis0.shape(), &[2, 3]);
+        assert_eq!(cumsum_axis0.ndim(), 2);
+
+        // Cumsum along axis 1 (shape preserved: [2, 3])
+        let cumsum_axis1 = a.cumsum(1);
+        assert_eq!(cumsum_axis1.shape(), &[2, 3]);
+        assert_eq!(cumsum_axis1.ndim(), 2);
+    }
+
+    #[test]
+    fn test_tensor_cumprod() {
+        use harp::tensor::Tensor2;
+
+        let a: Tensor2<f32> = Tensor::from_vec(vec![1.0, 2.0, 3.0, 2.0, 2.0, 2.0], &[2, 3], "c");
+
+        // Cumprod along axis 0 (shape preserved)
+        let cumprod_axis0 = a.clone().cumprod(0);
+        assert_eq!(cumprod_axis0.shape(), &[2, 3]);
+
+        // Cumprod along axis 1 (shape preserved)
+        let cumprod_axis1 = a.cumprod(1);
+        assert_eq!(cumprod_axis1.shape(), &[2, 3]);
+    }
+
+    #[test]
+    fn test_tensor_cummax() {
+        use harp::tensor::Tensor2;
+
+        let a: Tensor2<f32> = Tensor::from_vec(vec![1.0, 5.0, 3.0, 2.0, 1.0, 4.0], &[2, 3], "c");
+
+        // Cummax along axis 0 (shape preserved)
+        let cummax_axis0 = a.clone().cummax(0);
+        assert_eq!(cummax_axis0.shape(), &[2, 3]);
+
+        // Cummax along axis 1 (shape preserved)
+        let cummax_axis1 = a.cummax(1);
+        assert_eq!(cummax_axis1.shape(), &[2, 3]);
+    }
+
+    #[test]
+    #[should_panic(expected = "axis out of bounds")]
+    fn test_sum_axis_out_of_bounds() {
+        let a: Tensor1<f32> = Tensor::from_vec(vec![1.0, 2.0, 3.0], &[3], "c");
+        let _ = a.sum(1); // Should panic, 1D tensor only has axis 0
+    }
+
+    #[test]
+    #[should_panic(expected = "axis out of bounds")]
+    fn test_cumsum_axis_out_of_bounds() {
+        let a: Tensor1<f32> = Tensor::from_vec(vec![1.0, 2.0, 3.0], &[3], "c");
+        let _ = a.cumsum(1); // Should panic, 1D tensor only has axis 0
+    }
+
+    #[test]
+    fn test_chained_reduce_operations() {
+        use harp::tensor::{Tensor2, TensorDyn};
+
+        let a: Tensor2<f32> = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], "c");
+
+        // Sum along axis 1, then use the result
+        let sum_result: TensorDyn<f32> = a.sum(1);
+        assert_eq!(sum_result.shape(), &[2]);
+    }
 }

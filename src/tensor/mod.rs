@@ -31,7 +31,7 @@ impl TensorType for usize {
 /// Type-level representation of tensor dimensions.
 ///
 /// This allows compile-time checking of tensor dimensions similar to ndarray.
-pub trait Dimension {
+pub trait Dimension: Clone {
     /// Number of dimensions (rank)
     const NDIM: Option<usize>;
 
@@ -40,6 +40,7 @@ pub trait Dimension {
 }
 
 /// Dynamic dimension - shape determined at runtime
+#[derive(Clone)]
 pub struct Dyn;
 
 impl Dimension for Dyn {
@@ -51,6 +52,7 @@ impl Dimension for Dyn {
 }
 
 /// 0-dimensional tensor (scalar)
+#[derive(Clone)]
 pub struct D0;
 
 impl Dimension for D0 {
@@ -62,6 +64,7 @@ impl Dimension for D0 {
 }
 
 /// 1-dimensional tensor (vector)
+#[derive(Clone)]
 pub struct D1;
 
 impl Dimension for D1 {
@@ -73,6 +76,7 @@ impl Dimension for D1 {
 }
 
 /// 2-dimensional tensor (matrix)
+#[derive(Clone)]
 pub struct D2;
 
 impl Dimension for D2 {
@@ -84,6 +88,7 @@ impl Dimension for D2 {
 }
 
 /// 3-dimensional tensor
+#[derive(Clone)]
 pub struct D3;
 
 impl Dimension for D3 {
@@ -95,6 +100,7 @@ impl Dimension for D3 {
 }
 
 /// 4-dimensional tensor
+#[derive(Clone)]
 pub struct D4;
 
 impl Dimension for D4 {
@@ -159,6 +165,7 @@ pub struct TensorBase {
 /// // Dynamic dimension (runtime checked)
 /// let dyn_tensor: Tensor<f32, Dyn> = Tensor::from_vec(vec![1.0], &[1], "c");
 /// ```
+#[derive(Clone)]
 pub struct Tensor<T: TensorType, D: Dimension = Dyn> {
     inner: TensorBase,
     _phantom: PhantomData<(T, D)>,

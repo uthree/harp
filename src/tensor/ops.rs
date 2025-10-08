@@ -1,5 +1,6 @@
-use super::{Dimension, Tensor, TensorBase, TensorType};
-use crate::graph::{Graph, GraphNode};
+use super::{Dimension, Dyn, Tensor, TensorBase, TensorType};
+use crate::graph::ops::{CumulativeOp, ReduceOp};
+use crate::graph::{Graph, GraphNode, ReduceOps};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::ops::{Add, Div, Mul, Neg, Sub};
@@ -344,6 +345,82 @@ impl<T: TensorType, D: Dimension> Tensor<T, D> {
         let result_inner = TensorBase::from_binary_op(self.inner, exponent.inner, |base, exp| {
             (exp * base.log2()).exp2()
         });
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Sum all elements along the specified axis.
+    /// Returns a tensor with dynamic dimensions since the shape changes.
+    pub fn sum(self, axis: usize) -> Tensor<T, Dyn> {
+        assert!(axis < self.inner.ndim(), "axis out of bounds");
+
+        let result_inner = TensorBase::from_unary_op(self.inner, move |a| a.sum(axis));
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Product of all elements along the specified axis.
+    /// Returns a tensor with dynamic dimensions since the shape changes.
+    pub fn product(self, axis: usize) -> Tensor<T, Dyn> {
+        assert!(axis < self.inner.ndim(), "axis out of bounds");
+
+        let result_inner = TensorBase::from_unary_op(self.inner, move |a| a.product(axis));
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Maximum element along the specified axis.
+    /// Returns a tensor with dynamic dimensions since the shape changes.
+    pub fn reduce_max(self, axis: usize) -> Tensor<T, Dyn> {
+        assert!(axis < self.inner.ndim(), "axis out of bounds");
+
+        let result_inner =
+            TensorBase::from_unary_op(self.inner, move |a| a.reduce(ReduceOp::Max, axis));
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Cumulative sum along the specified axis.
+    /// Shape is preserved.
+    pub fn cumsum(self, axis: usize) -> Self {
+        assert!(axis < self.inner.ndim(), "axis out of bounds");
+
+        let result_inner =
+            TensorBase::from_unary_op(self.inner, move |a| a.cumulative(CumulativeOp::Add, axis));
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Cumulative product along the specified axis.
+    /// Shape is preserved.
+    pub fn cumprod(self, axis: usize) -> Self {
+        assert!(axis < self.inner.ndim(), "axis out of bounds");
+
+        let result_inner =
+            TensorBase::from_unary_op(self.inner, move |a| a.cumulative(CumulativeOp::Mul, axis));
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Cumulative maximum along the specified axis.
+    /// Shape is preserved.
+    pub fn cummax(self, axis: usize) -> Self {
+        assert!(axis < self.inner.ndim(), "axis out of bounds");
+
+        let result_inner =
+            TensorBase::from_unary_op(self.inner, move |a| a.cumulative(CumulativeOp::Max, axis));
         Tensor {
             inner: result_inner,
             _phantom: PhantomData,
