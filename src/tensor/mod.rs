@@ -6,6 +6,7 @@ pub use backend::validate_backend;
 use crate::ast::DType;
 use crate::graph::{Graph, GraphNode};
 use std::marker::PhantomData;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Type-level representation of Rust types for tensors.
 ///
@@ -105,15 +106,21 @@ impl Dimension for D4 {
 }
 
 /// Raw data storage for tensors
+#[derive(Clone)]
 enum TensorData {
     F32(Vec<f32>),
     Isize(Vec<isize>),
     Usize(Vec<usize>),
 }
 
+static TENSOR_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
 /// Base tensor without dimension type checking.
 /// This handles all core functionality.
+#[derive(Clone)]
 pub struct TensorBase {
+    /// Unique ID for this tensor
+    id: usize,
     /// Actual data (Some if evaluated, None if lazy)
     data: Option<TensorData>,
     /// Computation graph node (Some if part of computation graph)
@@ -128,6 +135,8 @@ pub struct TensorBase {
     shape: Vec<usize>,
     /// Whether gradient computation is required
     requires_grad: bool,
+    /// Gradient tensor (computed during backward pass)
+    grad: Option<Box<TensorBase>>,
 }
 
 /// A tensor with optional compile-time type and dimension checking.
@@ -172,6 +181,7 @@ impl TensorBase {
         let tensor_data = Self::vec_to_tensor_data(data, &dtype);
 
         TensorBase {
+            id: TENSOR_ID_COUNTER.fetch_add(1, Ordering::Relaxed),
             data: Some(tensor_data),
             graph_node: None,
             graph: None,
@@ -179,6 +189,7 @@ impl TensorBase {
             dtype,
             shape: shape.to_vec(),
             requires_grad: false,
+            grad: None,
         }
     }
 
@@ -199,6 +210,7 @@ impl TensorBase {
             .collect();
 
         TensorBase {
+            id: TENSOR_ID_COUNTER.fetch_add(1, Ordering::Relaxed),
             data: None,
             graph_node: Some(graph_node.clone()),
             graph: Some(graph),
@@ -206,6 +218,7 @@ impl TensorBase {
             dtype: graph_node.dtype.clone(),
             shape,
             requires_grad: false,
+            grad: None,
         }
     }
 
@@ -233,6 +246,11 @@ impl TensorBase {
             }
             _ => panic!("Type mismatch"),
         }
+    }
+
+    /// Get the unique ID of this tensor.
+    pub fn id(&self) -> usize {
+        self.id
     }
 
     /// Get the shape of the tensor.
@@ -264,6 +282,34 @@ impl TensorBase {
     /// Check if gradient computation is enabled.
     pub fn requires_grad(&self) -> bool {
         self.requires_grad
+    }
+
+    /// Get the gradient of this tensor.
+    pub fn grad(&self) -> Option<&TensorBase> {
+        self.grad.as_ref().map(|g| g.as_ref())
+    }
+
+    /// Set the gradient of this tensor.
+    pub fn set_grad(&mut self, grad: TensorBase) {
+        self.grad = Some(Box::new(grad));
+    }
+
+    /// Zero the gradient of this tensor.
+    pub fn zero_grad(&mut self) {
+        self.grad = None;
+    }
+
+    /// Perform backward pass to compute gradients.
+    /// This should be called on the final output tensor (typically a scalar loss).
+    pub fn backward(&mut self) {
+        // Initialize gradient to ones for the output tensor
+        let ones = vec![1.0f32; self.numel()];
+        let grad = TensorBase::from_vec(ones, &self.shape, self.backend_name.clone());
+
+        self.grad = Some(Box::new(grad));
+
+        // TODO: Implement full backward pass through computation graph
+        // For now, this is a placeholder that only sets the gradient of the output
     }
 
     fn infer_dtype<T: 'static>() -> DType {
@@ -371,6 +417,29 @@ impl<T: TensorType, D: Dimension> Tensor<T, D> {
     /// Check if gradient computation is enabled.
     pub fn requires_grad(&self) -> bool {
         self.inner.requires_grad()
+    }
+
+    /// Get the gradient of this tensor.
+    pub fn grad(&self) -> Option<Tensor<T, D>> {
+        self.inner.grad().map(|g| Tensor {
+            inner: g.clone(),
+            _phantom: PhantomData,
+        })
+    }
+
+    /// Set the gradient of this tensor.
+    pub fn set_grad(&mut self, grad: Tensor<T, D>) {
+        self.inner.set_grad(grad.inner);
+    }
+
+    /// Zero the gradient of this tensor.
+    pub fn zero_grad(&mut self) {
+        self.inner.zero_grad();
+    }
+
+    /// Perform backward pass to compute gradients.
+    pub fn backward(&mut self) {
+        self.inner.backward();
     }
 }
 

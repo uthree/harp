@@ -1,0 +1,214 @@
+#[cfg(feature = "backend-c")]
+mod tests {
+    use harp::tensor::{Tensor, Tensor1};
+
+    #[test]
+    fn test_tensor_add() {
+        let a: Tensor1<f32> = Tensor::from_vec(vec![1.0, 2.0, 3.0], &[3], "c");
+        let b: Tensor1<f32> = Tensor::from_vec(vec![4.0, 5.0, 6.0], &[3], "c");
+
+        let c = a + b;
+
+        // Shape should be preserved
+        assert_eq!(c.shape(), &[3]);
+        assert_eq!(c.ndim(), 1);
+    }
+
+    #[test]
+    fn test_tensor_sub() {
+        let a: Tensor1<f32> = Tensor::from_vec(vec![5.0, 7.0, 9.0], &[3], "c");
+        let b: Tensor1<f32> = Tensor::from_vec(vec![1.0, 2.0, 3.0], &[3], "c");
+
+        let c = a - b;
+
+        // Shape should be preserved
+        assert_eq!(c.shape(), &[3]);
+        assert_eq!(c.ndim(), 1);
+    }
+
+    #[test]
+    fn test_tensor_mul() {
+        let a: Tensor1<f32> = Tensor::from_vec(vec![2.0, 3.0, 4.0], &[3], "c");
+        let b: Tensor1<f32> = Tensor::from_vec(vec![5.0, 6.0, 7.0], &[3], "c");
+
+        let c = a * b;
+
+        // Shape should be preserved
+        assert_eq!(c.shape(), &[3]);
+        assert_eq!(c.ndim(), 1);
+    }
+
+    #[test]
+    fn test_tensor_div() {
+        let a: Tensor1<f32> = Tensor::from_vec(vec![10.0, 20.0, 30.0], &[3], "c");
+        let b: Tensor1<f32> = Tensor::from_vec(vec![2.0, 4.0, 5.0], &[3], "c");
+
+        let c = a / b;
+
+        // Shape should be preserved
+        assert_eq!(c.shape(), &[3]);
+        assert_eq!(c.ndim(), 1);
+    }
+
+    #[test]
+    fn test_tensor_neg() {
+        let a: Tensor1<f32> = Tensor::from_vec(vec![1.0, -2.0, 3.0], &[3], "c");
+
+        let c = -a;
+
+        // Shape should be preserved
+        assert_eq!(c.shape(), &[3]);
+        assert_eq!(c.ndim(), 1);
+    }
+
+    #[test]
+    fn test_tensor_recip() {
+        let a: Tensor1<f32> = Tensor::from_vec(vec![2.0, 4.0, 5.0], &[3], "c");
+
+        let c = a.recip();
+
+        // Shape should be preserved
+        assert_eq!(c.shape(), &[3]);
+        assert_eq!(c.ndim(), 1);
+    }
+
+    #[test]
+    fn test_tensor_sin() {
+        let a: Tensor1<f32> = Tensor::from_vec(vec![0.0, 1.0, 2.0], &[3], "c");
+
+        let c = a.sin();
+
+        // Shape should be preserved
+        assert_eq!(c.shape(), &[3]);
+        assert_eq!(c.ndim(), 1);
+    }
+
+    #[test]
+    fn test_tensor_sqrt() {
+        let a: Tensor1<f32> = Tensor::from_vec(vec![4.0, 9.0, 16.0], &[3], "c");
+
+        let c = a.sqrt();
+
+        // Shape should be preserved
+        assert_eq!(c.shape(), &[3]);
+        assert_eq!(c.ndim(), 1);
+    }
+
+    #[test]
+    fn test_tensor_log2() {
+        let a: Tensor1<f32> = Tensor::from_vec(vec![2.0, 4.0, 8.0], &[3], "c");
+
+        let c = a.log2();
+
+        // Shape should be preserved
+        assert_eq!(c.shape(), &[3]);
+        assert_eq!(c.ndim(), 1);
+    }
+
+    #[test]
+    fn test_tensor_exp2() {
+        let a: Tensor1<f32> = Tensor::from_vec(vec![1.0, 2.0, 3.0], &[3], "c");
+
+        let c = a.exp2();
+
+        // Shape should be preserved
+        assert_eq!(c.shape(), &[3]);
+        assert_eq!(c.ndim(), 1);
+    }
+
+    #[test]
+    fn test_tensor_ln() {
+        let a: Tensor1<f32> = Tensor::from_vec(vec![1.0, 2.718, 7.389], &[3], "c");
+
+        let c = a.ln();
+
+        // Shape should be preserved
+        assert_eq!(c.shape(), &[3]);
+        assert_eq!(c.ndim(), 1);
+    }
+
+    #[test]
+    fn test_tensor_exp() {
+        let a: Tensor1<f32> = Tensor::from_vec(vec![0.0, 1.0, 2.0], &[3], "c");
+
+        let c = a.exp();
+
+        // Shape should be preserved
+        assert_eq!(c.shape(), &[3]);
+        assert_eq!(c.ndim(), 1);
+    }
+
+    #[test]
+    fn test_tensor_max() {
+        let a: Tensor1<f32> = Tensor::from_vec(vec![1.0, 5.0, 3.0], &[3], "c");
+        let b: Tensor1<f32> = Tensor::from_vec(vec![2.0, 4.0, 6.0], &[3], "c");
+
+        let c = a.max(b);
+
+        // Shape should be preserved
+        assert_eq!(c.shape(), &[3]);
+        assert_eq!(c.ndim(), 1);
+    }
+
+    #[test]
+    fn test_tensor_pow() {
+        let a: Tensor1<f32> = Tensor::from_vec(vec![2.0, 3.0, 4.0], &[3], "c");
+        let b: Tensor1<f32> = Tensor::from_vec(vec![2.0, 2.0, 2.0], &[3], "c");
+
+        let c = a.pow(b);
+
+        // Shape should be preserved
+        assert_eq!(c.shape(), &[3]);
+        assert_eq!(c.ndim(), 1);
+    }
+
+    #[test]
+    fn test_chained_operations() {
+        let a: Tensor1<f32> = Tensor::from_vec(vec![1.0, 2.0, 3.0], &[3], "c");
+        let b: Tensor1<f32> = Tensor::from_vec(vec![2.0, 3.0, 4.0], &[3], "c");
+        let b2: Tensor1<f32> = Tensor::from_vec(vec![2.0, 3.0, 4.0], &[3], "c");
+
+        // (a + b) * b2
+        let c = (a + b) * b2;
+
+        // Shape should be preserved
+        assert_eq!(c.shape(), &[3]);
+        assert_eq!(c.ndim(), 1);
+    }
+
+    #[test]
+    fn test_requires_grad() {
+        let a: Tensor1<f32> = Tensor::from_vec(vec![1.0, 2.0, 3.0], &[3], "c").requires_grad_(true);
+
+        assert!(a.requires_grad());
+    }
+
+    #[test]
+    fn test_grad_methods() {
+        let mut a: Tensor1<f32> =
+            Tensor::from_vec(vec![1.0, 2.0, 3.0], &[3], "c").requires_grad_(true);
+
+        // Initially no gradient
+        assert!(a.grad().is_none());
+
+        // After backward pass, gradient should be set
+        a.backward();
+        assert!(a.grad().is_some());
+
+        // Test zero_grad
+        a.zero_grad();
+        assert!(a.grad().is_none());
+    }
+
+    #[test]
+    fn test_complex_expression() {
+        let a: Tensor1<f32> = Tensor::from_vec(vec![1.0, 2.0, 3.0], &[3], "c");
+        let b: Tensor1<f32> = Tensor::from_vec(vec![2.0, 3.0, 4.0], &[3], "c");
+        let c: Tensor1<f32> = Tensor::from_vec(vec![1.0, 1.0, 1.0], &[3], "c");
+
+        // (a * b + c).sqrt()
+        let result = (a * b + c).sqrt();
+
+        assert_eq!(result.shape(), &[3]);
+    }
+}

@@ -1,69 +1,233 @@
-use super::{Dimension, Tensor, TensorType};
+use super::{Dimension, Tensor, TensorBase, TensorType};
+use crate::graph::{Graph, GraphNode};
+use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::ops::{Add, Div, Mul, Neg, Sub};
+
+/// Backward function for automatic differentiation
+type BackwardFn = Box<dyn FnOnce(&mut GradientContext)>;
+
+/// Context for managing gradients during backward pass
+pub struct GradientContext {
+    /// Map from tensor ID to accumulated gradient
+    gradients: HashMap<usize, TensorBase>,
+    /// Backward functions to execute
+    backward_fns: Vec<BackwardFn>,
+}
+
+impl GradientContext {
+    pub fn new() -> Self {
+        GradientContext {
+            gradients: HashMap::new(),
+            backward_fns: Vec::new(),
+        }
+    }
+
+    /// Accumulate gradient for a tensor
+    pub fn accumulate_grad(&mut self, tensor_id: usize, grad: TensorBase) {
+        if let Some(existing_grad) = self.gradients.get_mut(&tensor_id) {
+            // Add to existing gradient
+            let new_grad = TensorBase::from_binary_op(existing_grad.clone(), grad, |a, b| a + b);
+            *existing_grad = new_grad;
+        } else {
+            self.gradients.insert(tensor_id, grad);
+        }
+    }
+
+    /// Get gradient for a tensor
+    pub fn get_grad(&self, tensor_id: usize) -> Option<&TensorBase> {
+        self.gradients.get(&tensor_id)
+    }
+
+    /// Register a backward function
+    pub fn register_backward(&mut self, backward_fn: BackwardFn) {
+        self.backward_fns.push(backward_fn);
+    }
+
+    /// Execute all backward functions in reverse order
+    pub fn backward(&mut self) {
+        while let Some(backward_fn) = self.backward_fns.pop() {
+            backward_fn(self);
+        }
+    }
+}
+
+impl Default for GradientContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TensorBase {
+    /// Get or create a graph for this tensor.
+    fn ensure_graph(&mut self) -> &mut Graph {
+        if self.graph.is_none() {
+            self.graph = Some(Graph::new());
+        }
+        self.graph.as_mut().unwrap()
+    }
+
+    /// Get the graph node for this tensor, creating one if necessary.
+    fn ensure_graph_node(&mut self) -> GraphNode {
+        if let Some(ref node) = self.graph_node {
+            return node.clone();
+        }
+
+        // Create input node from this tensor's data
+        let shape_exprs: Vec<_> = self.shape.iter().map(|&s| (s as isize).into()).collect();
+        let dtype = self.dtype.clone();
+
+        // Create a graph if needed
+        let graph = self.ensure_graph();
+        let node = graph.input(dtype, shape_exprs);
+
+        self.graph_node = Some(node.clone());
+        node
+    }
+
+    /// Create a tensor from a binary operation.
+    fn from_binary_op<F>(mut lhs: Self, mut rhs: Self, op: F) -> Self
+    where
+        F: FnOnce(GraphNode, GraphNode) -> GraphNode,
+    {
+        assert_eq!(
+            lhs.dtype, rhs.dtype,
+            "Data types must match for binary operations"
+        );
+        assert_eq!(
+            lhs.backend_name, rhs.backend_name,
+            "Backend must match for binary operations"
+        );
+
+        let lhs_node = lhs.ensure_graph_node();
+        let rhs_node = rhs.ensure_graph_node();
+
+        let result_node = op(lhs_node, rhs_node);
+        let graph = lhs.graph.take().unwrap();
+        let backend_name = lhs.backend_name.clone();
+
+        TensorBase::from_graph_node(result_node, graph, backend_name)
+    }
+
+    /// Create a tensor from a unary operation.
+    fn from_unary_op<F>(mut self, op: F) -> Self
+    where
+        F: FnOnce(GraphNode) -> GraphNode,
+    {
+        let input_node = self.ensure_graph_node();
+        let result_node = op(input_node);
+        let graph = self.graph.take().unwrap();
+        let backend_name = self.backend_name.clone();
+
+        TensorBase::from_graph_node(result_node, graph, backend_name)
+    }
+}
 
 // Arithmetic operators for Tensor<T, D>
 
 impl<T: TensorType, D: Dimension> Add for Tensor<T, D> {
     type Output = Self;
 
-    fn add(self, _rhs: Self) -> Self::Output {
-        todo!("Tensor addition will be implemented when graph building is ready")
+    fn add(self, rhs: Self) -> Self::Output {
+        let result_inner = TensorBase::from_binary_op(self.inner, rhs.inner, |a, b| a + b);
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
     }
 }
 
 impl<T: TensorType, D: Dimension> Add for &Tensor<T, D> {
     type Output = Tensor<T, D>;
 
-    fn add(self, _rhs: Self) -> Self::Output {
-        todo!("Tensor addition will be implemented when graph building is ready")
+    fn add(self, rhs: Self) -> Self::Output {
+        let lhs_clone = self.inner.clone();
+        let rhs_clone = rhs.inner.clone();
+        let result_inner = TensorBase::from_binary_op(lhs_clone, rhs_clone, |a, b| a + b);
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
     }
 }
 
 impl<T: TensorType, D: Dimension> Sub for Tensor<T, D> {
     type Output = Self;
 
-    fn sub(self, _rhs: Self) -> Self::Output {
-        todo!("Tensor subtraction will be implemented when graph building is ready")
+    fn sub(self, rhs: Self) -> Self::Output {
+        // Implement as add(a, neg(b))
+        let result_inner = TensorBase::from_binary_op(self.inner, rhs.inner, |a, b| a + (-b));
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
     }
 }
 
 impl<T: TensorType, D: Dimension> Sub for &Tensor<T, D> {
     type Output = Tensor<T, D>;
 
-    fn sub(self, _rhs: Self) -> Self::Output {
-        todo!("Tensor subtraction will be implemented when graph building is ready")
+    fn sub(self, rhs: Self) -> Self::Output {
+        let lhs_clone = self.inner.clone();
+        let rhs_clone = rhs.inner.clone();
+        let result_inner = TensorBase::from_binary_op(lhs_clone, rhs_clone, |a, b| a + (-b));
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
     }
 }
 
 impl<T: TensorType, D: Dimension> Mul for Tensor<T, D> {
     type Output = Self;
 
-    fn mul(self, _rhs: Self) -> Self::Output {
-        todo!("Tensor multiplication will be implemented when graph building is ready")
+    fn mul(self, rhs: Self) -> Self::Output {
+        let result_inner = TensorBase::from_binary_op(self.inner, rhs.inner, |a, b| a * b);
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
     }
 }
 
 impl<T: TensorType, D: Dimension> Mul for &Tensor<T, D> {
     type Output = Tensor<T, D>;
 
-    fn mul(self, _rhs: Self) -> Self::Output {
-        todo!("Tensor multiplication will be implemented when graph building is ready")
+    fn mul(self, rhs: Self) -> Self::Output {
+        let lhs_clone = self.inner.clone();
+        let rhs_clone = rhs.inner.clone();
+        let result_inner = TensorBase::from_binary_op(lhs_clone, rhs_clone, |a, b| a * b);
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
     }
 }
 
 impl<T: TensorType, D: Dimension> Div for Tensor<T, D> {
     type Output = Self;
 
-    fn div(self, _rhs: Self) -> Self::Output {
-        todo!("Tensor division will be implemented when graph building is ready")
+    fn div(self, rhs: Self) -> Self::Output {
+        // Implement as mul(a, recip(b))
+        let result_inner = TensorBase::from_binary_op(self.inner, rhs.inner, |a, b| a * b.recip());
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
     }
 }
 
 impl<T: TensorType, D: Dimension> Div for &Tensor<T, D> {
     type Output = Tensor<T, D>;
 
-    fn div(self, _rhs: Self) -> Self::Output {
-        todo!("Tensor division will be implemented when graph building is ready")
+    fn div(self, rhs: Self) -> Self::Output {
+        let lhs_clone = self.inner.clone();
+        let rhs_clone = rhs.inner.clone();
+        let result_inner = TensorBase::from_binary_op(lhs_clone, rhs_clone, |a, b| a * b.recip());
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
     }
 }
 
@@ -71,7 +235,11 @@ impl<T: TensorType, D: Dimension> Neg for Tensor<T, D> {
     type Output = Self;
 
     fn neg(self) -> Self::Output {
-        todo!("Tensor negation will be implemented when graph building is ready")
+        let result_inner = TensorBase::from_unary_op(self.inner, |a| -a);
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
     }
 }
 
@@ -79,6 +247,106 @@ impl<T: TensorType, D: Dimension> Neg for &Tensor<T, D> {
     type Output = Tensor<T, D>;
 
     fn neg(self) -> Self::Output {
-        todo!("Tensor negation will be implemented when graph building is ready")
+        let clone = self.inner.clone();
+        let result_inner = TensorBase::from_unary_op(clone, |a| -a);
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+// Additional mathematical operations
+impl<T: TensorType, D: Dimension> Tensor<T, D> {
+    /// Compute the reciprocal (1/x) of each element.
+    pub fn recip(self) -> Self {
+        let result_inner = TensorBase::from_unary_op(self.inner, |a| a.recip());
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Compute the sine of each element.
+    pub fn sin(self) -> Self {
+        let result_inner = TensorBase::from_unary_op(self.inner, |a| a.sin());
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Compute the square root of each element.
+    pub fn sqrt(self) -> Self {
+        let result_inner = TensorBase::from_unary_op(self.inner, |a| a.sqrt());
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Compute the base-2 logarithm of each element.
+    pub fn log2(self) -> Self {
+        let result_inner = TensorBase::from_unary_op(self.inner, |a| a.log2());
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Compute 2 raised to the power of each element.
+    pub fn exp2(self) -> Self {
+        let result_inner = TensorBase::from_unary_op(self.inner, |a| a.exp2());
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Compute the natural logarithm of each element.
+    /// Implemented as log2(x) / log2(e).
+    pub fn ln(self) -> Self {
+        // log2(e) ≈ 1.4426950408889634
+        let log2_e_recip = 1.0f32 / 1.442_695_f32;
+        let result_inner =
+            TensorBase::from_unary_op(self.inner, move |a| a.log2() * GraphNode::f32(log2_e_recip));
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Compute e raised to the power of each element.
+    /// Implemented as exp2(x * log2(e)).
+    pub fn exp(self) -> Self {
+        // log2(e) ≈ 1.4426950408889634
+        let log2_e = 1.442_695_f32;
+        let result_inner =
+            TensorBase::from_unary_op(self.inner, move |a| (a * GraphNode::f32(log2_e)).exp2());
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Compute the maximum of two tensors element-wise.
+    pub fn max(self, rhs: Self) -> Self {
+        let result_inner = TensorBase::from_binary_op(self.inner, rhs.inner, |a, b| a.cmp_max(b));
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Compute x raised to the power of y for each element.
+    /// Implemented as exp2(y * log2(x)).
+    pub fn pow(self, exponent: Self) -> Self {
+        let result_inner = TensorBase::from_binary_op(self.inner, exponent.inner, |base, exp| {
+            (exp * base.log2()).exp2()
+        });
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
     }
 }
