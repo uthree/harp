@@ -73,6 +73,10 @@ where
     kernel_cache: HashMap<usize, CachedKernel<C::KernelType>>,
     /// Threshold for when to trigger full optimization (call count)
     recompilation_threshold: usize,
+    /// Beam width for beam search optimization (default: 5)
+    beam_width: usize,
+    /// Number of iterations for beam search optimization (default: 10000)
+    beam_iterations: usize,
     _phantom: PhantomData<B>,
 }
 
@@ -85,6 +89,7 @@ where
     /// Creates a new generic backend with the specified components.
     /// Optimization is enabled by default.
     /// Recompilation threshold defaults to 2 (recompile with full optimization on 2nd call).
+    /// Beam search defaults to width=5 and iterations=10000.
     pub fn new() -> Self {
         Self {
             renderer: R::new(),
@@ -92,6 +97,8 @@ where
             enable_optimization: true,
             kernel_cache: HashMap::new(),
             recompilation_threshold: 2,
+            beam_width: 5,
+            beam_iterations: 10000,
             _phantom: PhantomData,
         }
     }
@@ -107,6 +114,19 @@ where
     /// Default is 2.
     pub fn with_recompilation_threshold(&mut self, threshold: usize) -> &mut Self {
         self.recompilation_threshold = threshold;
+        self
+    }
+
+    /// Set beam search parameters for full optimization.
+    ///
+    /// # Arguments
+    /// * `width` - Beam width (number of candidates to keep at each step). Default: 5
+    /// * `iterations` - Maximum number of optimization iterations. Default: 10000
+    ///
+    /// Higher values may produce better optimized code but take longer to compile.
+    pub fn with_beam_search_params(&mut self, width: usize, iterations: usize) -> &mut Self {
+        self.beam_width = width;
+        self.beam_iterations = iterations;
         self
     }
 
@@ -318,10 +338,14 @@ where
             };
             let suggester = all_suggesters();
             let estimator = OperationCostEstimator;
-            // Use moderate beam width and iterations for good optimization
-            let beam_optimizer =
-                BeamSearchOptimizer::new_beam_search(suggester, estimator, 4, 10000)
-                    .with_progress(cfg!(debug_assertions));
+            // Use configured beam width and iterations for optimization
+            let beam_optimizer = BeamSearchOptimizer::new_beam_search(
+                suggester,
+                estimator,
+                self.beam_width,
+                self.beam_iterations,
+            )
+            .with_progress(cfg!(debug_assertions));
 
             body = beam_optimizer.optimize(&body);
         }
@@ -788,5 +812,35 @@ mod tests {
         // Verify it upgraded to Full
         let cached = backend.kernel_cache.get(&graph_key).unwrap();
         assert_eq!(cached.optimization_level, OptimizationLevel::Full);
+    }
+
+    #[test]
+    fn test_beam_search_params() {
+        let mut backend = TestBackend::new();
+
+        // Default values
+        assert_eq!(backend.beam_width, 5);
+        assert_eq!(backend.beam_iterations, 10000);
+
+        // Custom values
+        backend.with_beam_search_params(10, 5000);
+        assert_eq!(backend.beam_width, 10);
+        assert_eq!(backend.beam_iterations, 5000);
+    }
+
+    #[test]
+    fn test_beam_search_params_chaining() {
+        let mut backend = TestBackend::new();
+
+        // Test method chaining
+        backend
+            .with_beam_search_params(8, 8000)
+            .with_recompilation_threshold(3)
+            .with_optimization(true);
+
+        assert_eq!(backend.beam_width, 8);
+        assert_eq!(backend.beam_iterations, 8000);
+        assert_eq!(backend.recompilation_threshold, 3);
+        assert!(backend.enable_optimization);
     }
 }
