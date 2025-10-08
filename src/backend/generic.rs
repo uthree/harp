@@ -145,11 +145,7 @@ where
     ///
     /// The compiled kernel is cached and can be reused by subsequent calls to
     /// `execute` or `execute_optimized`.
-    pub fn execute_optimized(
-        &mut self,
-        graph: &Graph,
-        inputs: Vec<B>,
-    ) -> Vec<B>
+    pub fn execute_optimized(&mut self, graph: &Graph, inputs: Vec<B>) -> Vec<B>
     where
         Self: Backend,
     {
@@ -211,10 +207,12 @@ where
                 .inputs
                 .iter()
                 .filter_map(|weak_ref| {
-                    weak_ref.upgrade().map(|node_data| crate::graph::ArraySignature {
-                        dtype: node_data.dtype.clone(),
-                        shape: node_data.view.shape().to_vec(),
-                    })
+                    weak_ref
+                        .upgrade()
+                        .map(|node_data| crate::graph::ArraySignature {
+                            dtype: node_data.dtype.clone(),
+                            shape: node_data.view.shape().to_vec(),
+                        })
                 })
                 .collect(),
             outputs: graph
@@ -617,7 +615,6 @@ mod tests {
         }
 
         use crate::ast::DType;
-        use crate::backend::Buffer;
 
         let mut backend = TestBackend::new();
         let mut graph = crate::graph::Graph::new();
@@ -682,7 +679,6 @@ mod tests {
         }
 
         use crate::ast::DType;
-        use crate::backend::Buffer;
 
         let mut backend = TestBackend::new();
         backend.with_recompilation_threshold(3); // Recompile on 3rd call
@@ -730,7 +726,6 @@ mod tests {
         }
 
         use crate::ast::DType;
-        use crate::backend::Buffer;
 
         let mut backend = TestBackend::new();
         let mut graph = crate::graph::Graph::new();
@@ -778,7 +773,6 @@ mod tests {
         }
 
         use crate::ast::DType;
-        use crate::backend::Buffer;
 
         let mut backend = TestBackend::new();
         let mut graph = crate::graph::Graph::new();

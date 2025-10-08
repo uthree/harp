@@ -25,6 +25,7 @@ impl Default for BitwiseLawSuggester {
 
 impl BitwiseLawSuggester {
     pub fn new() -> Self {
+        #[allow(unused_variables)]
         let rules = vec![
             // Commutative laws
             ast_pattern!(|a, b| a & b => b.clone() & a.clone()),
