@@ -332,14 +332,7 @@ pub enum GenericBackendOption<RendererOption, CompilerOption> {
     EnableOptimization(bool),
 }
 
-// Convenient type aliases for common backend combinations
-pub type CBackend = GenericBackend<
-    crate::backend::c::CRenderer,
-    crate::backend::c::CCompiler,
-    crate::backend::c::CBuffer,
->;
-
-#[cfg(test)]
+#[cfg(all(test, feature = "backend-c"))]
 mod tests {
     use super::*;
     use crate::backend::c::{CBuffer, CCompiler, CRenderer};

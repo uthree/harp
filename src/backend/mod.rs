@@ -2,9 +2,13 @@ use crate::ast::DType;
 use crate::ast::Program;
 use crate::graph::Graph;
 use crate::graph::GraphSignature;
+
+#[cfg(feature = "backend-c")]
 pub mod c;
-pub mod generic;
+#[cfg(feature = "backend-c")]
 pub use c::CBackend;
+
+pub mod generic;
 pub trait Buffer {
     // get buffer size
     fn shape(&self) -> Vec<usize>;

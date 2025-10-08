@@ -18,8 +18,9 @@ env_logger = "0.11.8"
 rstest = "0.26.0"
 
 [features]
-default = []
+default = ["backend-c"]
 visualizer = []
+backend-c = []
 
 [workspace]
 members = ["crates/harp-nn", "crates/harp-viz"]
