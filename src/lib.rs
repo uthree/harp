@@ -3,6 +3,7 @@ pub mod backend;
 pub mod graph;
 pub mod lowerer;
 pub mod opt;
+pub mod tensor;
 
 /// VIZ=1のときにメッセージを表示するマクロ
 /// main関数の最後に配置して使用する
