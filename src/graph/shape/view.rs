@@ -166,6 +166,102 @@ impl View {
         }
     }
 
+    /// Create a view with custom strides (similar to PyTorch's as_strided).
+    ///
+    /// This is a low-level operation that allows direct control over shape and strides.
+    /// Use with caution as it can create views that access out-of-bounds memory.
+    ///
+    /// # Arguments
+    /// * `new_shape` - The desired shape for the view
+    /// * `new_strides` - The strides for each dimension
+    ///
+    /// # Safety
+    /// The caller must ensure that all accessed indices are within the original buffer bounds.
+    pub fn as_strided(self, new_shape: Vec<Expr>, new_strides: Vec<Expr>) -> Self {
+        assert_eq!(
+            new_shape.len(),
+            new_strides.len(),
+            "shape and strides must have the same length"
+        );
+
+        match self {
+            View::Linear { offset, .. } => View::Linear {
+                shape: new_shape,
+                strides: new_strides,
+                offset,
+            },
+        }
+    }
+
+    /// Create a sliding window view for convolution operations.
+    ///
+    /// This operation transforms a view by adding a new dimension for sliding windows.
+    /// For example, [B, C, L] with window_size=K, stride=S becomes [B, C, L', K]
+    /// where L' = (L - K) / S + 1.
+    ///
+    /// This is useful for implementing convolution via matrix multiplication:
+    /// 1. Apply sliding_window to input: [B, C, L] → [B, C, L', K]
+    /// 2. Reshape kernel: [Co, Ci, K] → [Co, Ci, 1, K]
+    /// 3. Multiply: [B, C, L', K] * [Co, Ci, 1, K] → [B, Co, Ci, L', K]
+    /// 4. Sum over [Ci, K]: → [B, Co, L']
+    ///
+    /// # Arguments
+    /// * `dim` - The dimension along which to create sliding windows
+    /// * `window_size` - The size of each window
+    /// * `stride` - The stride between windows
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Input: [2, 3, 10] (batch=2, channels=3, length=10)
+    /// // window_size=3, stride=1
+    /// // Output: [2, 3, 8, 3] (batch=2, channels=3, output_length=8, window_size=3)
+    /// let view = View::new_contiguous(vec![2, 3, 10]);
+    /// let windowed = view.sliding_window(2, 3, 1);
+    /// ```
+    pub fn sliding_window<E: Into<Expr> + Clone>(
+        self,
+        dim: usize,
+        window_size: E,
+        stride: E,
+    ) -> Self {
+        match self {
+            View::Linear {
+                shape,
+                strides,
+                offset,
+            } => {
+                assert!(dim < shape.len(), "dimension out of bounds");
+
+                let window_size_expr: Expr = window_size.into();
+                let stride_expr: Expr = stride.into();
+
+                // Calculate output length: (L - K) / S + 1
+                let output_length = ((shape[dim].clone() - window_size_expr.clone())
+                    / stride_expr.clone()
+                    + Expr::from(1))
+                .simplify();
+
+                // Build new shape: [..., L', K]
+                let mut new_shape = shape.clone();
+                new_shape[dim] = output_length;
+                new_shape.push(window_size_expr.clone());
+
+                // Build new strides
+                let mut new_strides = strides.clone();
+                // The original stride at dim is multiplied by the window stride
+                new_strides[dim] = (strides[dim].clone() * stride_expr).simplify();
+                // The new window dimension has stride equal to the original stride at dim
+                new_strides.push(strides[dim].clone());
+
+                View::Linear {
+                    shape: new_shape,
+                    strides: new_strides,
+                    offset,
+                }
+            }
+        }
+    }
+
     pub fn elementwise_result_view(&self, other: &View) -> View {
         // スカラーとのbroadcastを処理
         let self_shape = self.shape();
@@ -401,5 +497,114 @@ mod tests {
     #[should_panic(expected = "axis out of bounds")]
     fn test_flip_invalid_axis() {
         View::new_contiguous(vec![2, 3]).flip(2);
+    }
+
+    #[test]
+    fn test_as_strided() {
+        let view = View::new_contiguous(vec![2, 3, 4]);
+        let custom = view.as_strided(
+            vec![Expr::from(2), Expr::from(2), Expr::from(2)],
+            vec![Expr::from(6), Expr::from(3), Expr::from(1)],
+        );
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = custom;
+        assert_eq!(shape, vec![Expr::from(2), Expr::from(2), Expr::from(2)]);
+        assert_eq!(strides, vec![Expr::from(6), Expr::from(3), Expr::from(1)]);
+        assert_eq!(offset, Expr::from(0));
+    }
+
+    #[test]
+    fn test_sliding_window_basic() {
+        // Input: [2, 3, 10] (B=2, C=3, L=10)
+        // window_size=3, stride=1
+        // Output: [2, 3, 8, 3] (B=2, C=3, L'=8, K=3)
+        // where L' = (10 - 3) / 1 + 1 = 8
+        let view = View::new_contiguous(vec![2, 3, 10]);
+        let windowed = view.sliding_window(2, 3, 1);
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = windowed;
+
+        // Expected shape: [2, 3, 8, 3]
+        assert_eq!(
+            shape,
+            vec![
+                Expr::from(2),
+                Expr::from(3),
+                Expr::from(8), // (10 - 3) / 1 + 1
+                Expr::from(3)
+            ]
+        );
+
+        // Expected strides:
+        // - B axis: 30 (original)
+        // - C axis: 10 (original)
+        // - L' axis: 1 (stride * original stride at dim 2)
+        // - K axis: 1 (original stride at dim 2)
+        assert_eq!(
+            strides,
+            vec![
+                Expr::from(30),
+                Expr::from(10),
+                Expr::from(1), // stride=1 * original_stride=1
+                Expr::from(1)  // original_stride at dim 2
+            ]
+        );
+
+        assert_eq!(offset, Expr::from(0));
+    }
+
+    #[test]
+    fn test_sliding_window_with_stride() {
+        // Input: [1, 1, 10] (B=1, C=1, L=10)
+        // window_size=3, stride=2
+        // Output: [1, 1, 4, 3] (B=1, C=1, L'=4, K=3)
+        // where L' = (10 - 3) / 2 + 1 = 4
+        let view = View::new_contiguous(vec![1, 1, 10]);
+        let windowed = view.sliding_window(2, 3, 2);
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = windowed;
+
+        // Expected shape: [1, 1, 4, 3]
+        assert_eq!(
+            shape,
+            vec![
+                Expr::from(1),
+                Expr::from(1),
+                Expr::from(4), // (10 - 3) / 2 + 1
+                Expr::from(3)
+            ]
+        );
+
+        // Expected strides:
+        // - B axis: 10 (original)
+        // - C axis: 10 (original)
+        // - L' axis: 2 (stride=2 * original_stride=1)
+        // - K axis: 1 (original stride at dim 2)
+        assert_eq!(
+            strides,
+            vec![
+                Expr::from(10),
+                Expr::from(10),
+                Expr::from(2), // stride=2 * original_stride=1
+                Expr::from(1)  // original_stride at dim 2
+            ]
+        );
+
+        assert_eq!(offset, Expr::from(0));
+    }
+
+    #[test]
+    #[should_panic(expected = "dimension out of bounds")]
+    fn test_sliding_window_invalid_dim() {
+        View::new_contiguous(vec![2, 3]).sliding_window(3, 2, 1);
     }
 }
