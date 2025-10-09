@@ -281,13 +281,19 @@ impl TensorBase {
     }
 
     /// Enable gradient computation for this tensor.
-    pub fn requires_grad_(mut self, requires_grad: bool) -> Self {
-        self.requires_grad = requires_grad;
+    pub fn enable_grad(mut self) -> Self {
+        self.requires_grad = true;
+        self
+    }
+
+    /// Disable gradient computation for this tensor.
+    pub fn disable_grad(mut self) -> Self {
+        self.requires_grad = false;
         self
     }
 
     /// Check if gradient computation is enabled.
-    pub fn requires_grad(&self) -> bool {
+    pub fn is_requires_grad(&self) -> bool {
         self.requires_grad
     }
 
@@ -416,14 +422,20 @@ impl<T: TensorType, D: Dimension> Tensor<T, D> {
     }
 
     /// Enable gradient computation for this tensor.
-    pub fn requires_grad_(mut self, requires_grad: bool) -> Self {
-        self.inner = self.inner.requires_grad_(requires_grad);
+    pub fn enable_grad(mut self) -> Self {
+        self.inner = self.inner.enable_grad();
+        self
+    }
+
+    /// Disable gradient computation for this tensor.
+    pub fn disable_grad(mut self) -> Self {
+        self.inner = self.inner.disable_grad();
         self
     }
 
     /// Check if gradient computation is enabled.
-    pub fn requires_grad(&self) -> bool {
-        self.inner.requires_grad()
+    pub fn is_requires_grad(&self) -> bool {
+        self.inner.is_requires_grad()
     }
 
     /// Get the gradient of this tensor.
@@ -509,9 +521,9 @@ mod tests {
     #[test]
     fn test_requires_grad() {
         let data = vec![1.0f32, 2.0, 3.0];
-        let tensor = Tensor::<f32, D1>::from_vec(data, &[3], "c").requires_grad_(true);
+        let tensor = Tensor::<f32, D1>::from_vec(data, &[3], "c").enable_grad();
 
-        assert!(tensor.requires_grad());
+        assert!(tensor.is_requires_grad());
     }
 
     #[test]

@@ -178,15 +178,14 @@ mod tests {
 
     #[test]
     fn test_requires_grad() {
-        let a: Tensor1<f32> = Tensor::from_vec(vec![1.0, 2.0, 3.0], &[3], "c").requires_grad_(true);
+        let a: Tensor1<f32> = Tensor::from_vec(vec![1.0, 2.0, 3.0], &[3], "c").enable_grad();
 
-        assert!(a.requires_grad());
+        assert!(a.is_requires_grad());
     }
 
     #[test]
     fn test_grad_methods() {
-        let mut a: Tensor1<f32> =
-            Tensor::from_vec(vec![1.0, 2.0, 3.0], &[3], "c").requires_grad_(true);
+        let mut a: Tensor1<f32> = Tensor::from_vec(vec![1.0, 2.0, 3.0], &[3], "c").enable_grad();
 
         // Initially no gradient
         assert!(a.grad().is_none());
