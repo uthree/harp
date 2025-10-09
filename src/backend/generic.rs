@@ -89,7 +89,7 @@ where
     /// Creates a new generic backend with the specified components.
     /// Optimization is enabled by default.
     /// Recompilation threshold defaults to 2 (recompile with full optimization on 2nd call).
-    /// Beam search defaults to width=5 and iterations=10000.
+    /// Beam search defaults to width=4 and iterations=10000.
     pub fn new() -> Self {
         Self {
             renderer: R::new(),
@@ -97,7 +97,7 @@ where
             enable_optimization: true,
             kernel_cache: HashMap::new(),
             recompilation_threshold: 2,
-            beam_width: 5,
+            beam_width: 4,
             beam_iterations: 10000,
             _phantom: PhantomData,
         }
@@ -135,6 +135,202 @@ where
         self.kernel_cache.clear();
     }
 
+    /// Compile a graph and cache the resulting kernel.
+    ///
+    /// This method compiles the graph with the appropriate optimization level based on
+    /// the current cache state and recompilation threshold. The compiled kernel is cached
+    /// for future use.
+    ///
+    /// # Arguments
+    /// * `graph` - The computation graph to compile
+    ///
+    /// # Returns
+    /// A reference to the compiled and cached kernel
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use harp::backend::generic::GenericBackend;
+    /// use harp::backend::c::{CRenderer, CCompiler, CBuffer};
+    /// use harp::graph::Graph;
+    /// use harp::ast::DType;
+    ///
+    /// let mut backend = GenericBackend::<CRenderer, CCompiler, CBuffer>::new();
+    /// let mut graph = Graph::new();
+    /// let a = graph.input(DType::F32, vec![2.into()]);
+    /// graph.output(a);
+    ///
+    /// // Compile the graph
+    /// let kernel = backend.compile(&graph);
+    /// ```
+    pub fn compile(&mut self, graph: &Graph) -> &C::KernelType {
+        let graph_key = graph as *const Graph as usize;
+
+        // Check if we need to recompile with full optimization
+        // Note: call_count + 1 because run() will increment it after this compile() call
+        let should_recompile = if let Some(cached) = self.kernel_cache.get(&graph_key) {
+            let needs_upgrade = cached.call_count + 1 >= self.recompilation_threshold
+                && cached.optimization_level == OptimizationLevel::Quick;
+
+            if needs_upgrade {
+                log::info!(
+                    "Graph reached {} calls, recompiling with full optimization",
+                    cached.call_count + 1
+                );
+            }
+
+            needs_upgrade
+        } else {
+            false
+        };
+
+        // Compile or recompile if needed
+        if !self.kernel_cache.contains_key(&graph_key) || should_recompile {
+            let opt_level = if should_recompile {
+                OptimizationLevel::Full
+            } else {
+                OptimizationLevel::Quick
+            };
+
+            log::info!("Compiling graph with {:?} optimization", opt_level);
+            self.compile_and_cache(graph, graph_key, opt_level);
+        }
+
+        // Return reference to the cached kernel
+        &self.kernel_cache.get(&graph_key).unwrap().kernel
+    }
+
+    /// Compile a graph with full optimization and cache the result.
+    ///
+    /// This is similar to `compile()`, but always uses full optimization regardless
+    /// of the cache state or call count.
+    ///
+    /// # Arguments
+    /// * `graph` - The computation graph to compile
+    ///
+    /// # Returns
+    /// A reference to the compiled and cached kernel
+    pub fn compile_optimized(&mut self, graph: &Graph) -> &C::KernelType {
+        let graph_key = graph as *const Graph as usize;
+
+        // Check if we already have a fully optimized version cached
+        let needs_compile = if let Some(cached) = self.kernel_cache.get(&graph_key) {
+            cached.optimization_level != OptimizationLevel::Full
+        } else {
+            true
+        };
+
+        if needs_compile {
+            log::info!("Compiling graph with Full optimization (forced)");
+            self.compile_and_cache(graph, graph_key, OptimizationLevel::Full);
+        }
+
+        // Return reference to the cached kernel
+        &self.kernel_cache.get(&graph_key).unwrap().kernel
+    }
+
+    /// Run a previously compiled kernel with the given inputs.
+    ///
+    /// This method executes a cached kernel for the given graph. The graph must have been
+    /// previously compiled using `compile()`, `compile_optimized()`, or `execute()`.
+    ///
+    /// # Arguments
+    /// * `graph` - The computation graph (must be already compiled and cached)
+    /// * `inputs` - Input buffers to pass to the kernel
+    ///
+    /// # Returns
+    /// Output buffers produced by the kernel execution
+    ///
+    /// # Panics
+    /// Panics if the graph has not been compiled yet. Call `compile()` first.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use harp::backend::generic::GenericBackend;
+    /// use harp::backend::c::{CRenderer, CCompiler, CBuffer};
+    /// use harp::backend::Buffer;
+    /// use harp::graph::Graph;
+    /// use harp::ast::DType;
+    ///
+    /// let mut backend = GenericBackend::<CRenderer, CCompiler, CBuffer>::new();
+    /// let mut graph = Graph::new();
+    /// let a = graph.input(DType::F32, vec![2.into()]);
+    /// let b = graph.input(DType::F32, vec![2.into()]);
+    /// let c = a + b;
+    /// graph.output(c);
+    ///
+    /// // First compile the graph
+    /// backend.compile(&graph);
+    ///
+    /// // Then run it multiple times with different inputs
+    /// let input1 = vec![CBuffer::allocate(DType::F32, vec![2]), CBuffer::allocate(DType::F32, vec![2])];
+    /// let output1 = backend.run(&graph, input1);
+    ///
+    /// let input2 = vec![CBuffer::allocate(DType::F32, vec![2]), CBuffer::allocate(DType::F32, vec![2])];
+    /// let output2 = backend.run(&graph, input2);
+    /// ```
+    pub fn run(&mut self, graph: &Graph, inputs: Vec<B>) -> Vec<B> {
+        let graph_key = graph as *const Graph as usize;
+
+        // Ensure the graph has been compiled
+        if !self.kernel_cache.contains_key(&graph_key) {
+            panic!("Graph has not been compiled yet. Call compile() first.");
+        }
+
+        // Get kernel from cache and increment call count
+        let cached = self.kernel_cache.get_mut(&graph_key).unwrap();
+        cached.call_count += 1;
+        let kernel = &mut cached.kernel;
+
+        // Create output buffers
+        let mut all_buffers = inputs;
+
+        // Shape variable values for dynamic shape resolution
+        let shape_var_values: std::collections::HashMap<String, isize> = graph
+            .shape_variables
+            .iter()
+            .map(|var| (var.name.clone(), var.default))
+            .collect();
+
+        for output_node in &graph.outputs {
+            let shape: Vec<usize> = output_node
+                .view
+                .shape()
+                .iter()
+                .map(|expr| {
+                    match expr {
+                        crate::graph::shape::Expr::Const(n) => *n as usize,
+                        crate::graph::shape::Expr::Var(var_name) => {
+                            *shape_var_values.get(var_name).unwrap_or_else(|| {
+                                panic!("Shape variable '{}' not found", var_name)
+                            }) as usize
+                        }
+                        _ => {
+                            panic!(
+                                "Complex shape expressions not yet supported in output allocation: {:?}",
+                                expr
+                            )
+                        }
+                    }
+                })
+                .collect();
+            let output_buffer = C::Buffer::allocate(output_node.dtype.clone(), shape);
+            all_buffers.push(output_buffer);
+        }
+
+        // Execute the kernel with input and output buffers
+        let shape_vars: Vec<usize> = graph
+            .shape_variables
+            .iter()
+            .map(|var| var.default as usize)
+            .collect();
+
+        let result_buffers = kernel.call(all_buffers, &shape_vars);
+
+        // Return only the output buffers
+        let num_inputs = graph.inputs.len();
+        result_buffers.into_iter().skip(num_inputs).collect()
+    }
+
     /// Execute a graph with forced full optimization.
     ///
     /// This method always compiles the graph with full optimization (including beam search),
@@ -149,24 +345,11 @@ where
     where
         Self: Backend,
     {
-        let graph_key = graph as *const Graph as usize;
+        // Compile with full optimization
+        self.compile_optimized(graph);
 
-        // Check if we already have a fully optimized version cached
-        let needs_compile = if let Some(cached) = self.kernel_cache.get(&graph_key) {
-            cached.optimization_level != OptimizationLevel::Full
-        } else {
-            true
-        };
-
-        if needs_compile {
-            log::info!("Compiling graph with Full optimization (forced)");
-
-            // Compile with full optimization
-            self.compile_and_cache(graph, graph_key, OptimizationLevel::Full);
-        }
-
-        // Execute the cached kernel
-        self.execute_cached_kernel(graph, graph_key, inputs)
+        // Run the compiled kernel
+        self.run(graph, inputs)
     }
 
     /// Compile a graph with the specified optimization level and cache the result.
@@ -244,63 +427,6 @@ where
                 optimization_level: opt_level,
             },
         );
-    }
-
-    /// Execute a cached kernel with the given inputs.
-    fn execute_cached_kernel(&mut self, graph: &Graph, graph_key: usize, inputs: Vec<B>) -> Vec<B> {
-        // Get kernel from cache and increment call count
-        let cached = self.kernel_cache.get_mut(&graph_key).unwrap();
-        cached.call_count += 1;
-        let kernel = &mut cached.kernel;
-
-        // Create output buffers
-        let mut all_buffers = inputs;
-
-        // Shape variable values for dynamic shape resolution
-        let shape_var_values: std::collections::HashMap<String, isize> = graph
-            .shape_variables
-            .iter()
-            .map(|var| (var.name.clone(), var.default))
-            .collect();
-
-        for output_node in &graph.outputs {
-            let shape: Vec<usize> = output_node
-                .view
-                .shape()
-                .iter()
-                .map(|expr| {
-                    match expr {
-                        crate::graph::shape::Expr::Const(n) => *n as usize,
-                        crate::graph::shape::Expr::Var(var_name) => {
-                            *shape_var_values.get(var_name).unwrap_or_else(|| {
-                                panic!("Shape variable '{}' not found", var_name)
-                            }) as usize
-                        }
-                        _ => {
-                            panic!(
-                                "Complex shape expressions not yet supported in output allocation: {:?}",
-                                expr
-                            )
-                        }
-                    }
-                })
-                .collect();
-            let output_buffer = C::Buffer::allocate(output_node.dtype.clone(), shape);
-            all_buffers.push(output_buffer);
-        }
-
-        // Execute the kernel with input and output buffers
-        let shape_vars: Vec<usize> = graph
-            .shape_variables
-            .iter()
-            .map(|var| var.default as usize)
-            .collect();
-
-        let result_buffers = kernel.call(all_buffers, &shape_vars);
-
-        // Return only the output buffers
-        let num_inputs = graph.inputs.len();
-        result_buffers.into_iter().skip(num_inputs).collect()
     }
 
     /// Applies optimization to a function's AST.
@@ -444,40 +570,11 @@ where
     }
 
     fn execute(&mut self, graph: &Graph, inputs: Vec<Self::Buffer>) -> Vec<Self::Buffer> {
-        // Generate cache key from graph pointer address
-        let graph_key = graph as *const Graph as usize;
+        // Compile the graph if needed (handles caching and optimization levels)
+        self.compile(graph);
 
-        // Check if we need to recompile with full optimization
-        let should_recompile = if let Some(cached) = self.kernel_cache.get(&graph_key) {
-            let needs_upgrade = cached.call_count + 1 >= self.recompilation_threshold
-                && cached.optimization_level == OptimizationLevel::Quick;
-
-            if needs_upgrade {
-                log::info!(
-                    "Graph reached {} calls, recompiling with full optimization",
-                    cached.call_count + 1
-                );
-            }
-
-            needs_upgrade
-        } else {
-            false
-        };
-
-        // Compile or recompile if needed
-        if !self.kernel_cache.contains_key(&graph_key) || should_recompile {
-            let opt_level = if should_recompile {
-                OptimizationLevel::Full
-            } else {
-                OptimizationLevel::Quick
-            };
-
-            log::info!("Compiling graph with {:?} optimization", opt_level);
-            self.compile_and_cache(graph, graph_key, opt_level);
-        }
-
-        // Execute the cached kernel
-        self.execute_cached_kernel(graph, graph_key, inputs)
+        // Run the compiled kernel
+        self.run(graph, inputs)
     }
 }
 
@@ -813,7 +910,7 @@ mod tests {
         let mut backend = TestBackend::new();
 
         // Default values
-        assert_eq!(backend.beam_width, 5);
+        assert_eq!(backend.beam_width, 4);
         assert_eq!(backend.beam_iterations, 10000);
 
         // Custom values
