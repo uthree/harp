@@ -110,6 +110,10 @@ impl LowererUtils {
         let mut result_dim = 0;
         for input_dim in 0..current_dim {
             if input_dim != reduce_axis {
+                // result_stridesの範囲チェック
+                if result_dim >= result_strides.len() {
+                    break;
+                }
                 let loop_var = Expr::Var(format!("i{}", input_dim));
                 let term = loop_var * result_strides[result_dim].clone();
                 index_expr += term;
@@ -136,6 +140,10 @@ impl LowererUtils {
 
         for dim in 0..ndim {
             if !reduce_axes.contains(&dim) {
+                // result_stridesの範囲チェック
+                if result_dim >= result_strides.len() {
+                    break;
+                }
                 let loop_var = Expr::Var(format!("i{}", dim));
                 let term = loop_var * result_strides[result_dim].clone();
                 index_expr += term;
