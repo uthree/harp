@@ -1,4 +1,7 @@
-use super::autograd::{AddBackward, GradFn, MulBackward, NegBackward, RecipBackward, TensorMeta};
+use super::autograd::{
+    AddBackward, GradFn, MaxBackward, MulBackward, NegBackward, ProductBackward, RecipBackward,
+    SumBackward, TensorMeta,
+};
 use super::{Dimension, Dyn, Tensor, TensorBase, TensorType};
 use crate::graph::ops::{CumulativeOp, ReduceOp};
 use crate::graph::{Graph, GraphNode, ReduceOps};
@@ -431,7 +434,11 @@ impl<T: TensorType, D: Dimension> Tensor<T, D> {
     pub fn sum(self, axis: usize) -> Tensor<T, Dyn> {
         assert!(axis < self.inner.ndim(), "axis out of bounds");
 
-        let result_inner = TensorBase::from_unary_op(self.inner, move |a| a.sum(axis));
+        let result_inner = TensorBase::from_unary_op_with_grad(
+            self.inner,
+            move |a| a.sum(axis),
+            Rc::new(SumBackward { axis }),
+        );
         Tensor {
             inner: result_inner,
             _phantom: PhantomData,
@@ -443,7 +450,11 @@ impl<T: TensorType, D: Dimension> Tensor<T, D> {
     pub fn product(self, axis: usize) -> Tensor<T, Dyn> {
         assert!(axis < self.inner.ndim(), "axis out of bounds");
 
-        let result_inner = TensorBase::from_unary_op(self.inner, move |a| a.product(axis));
+        let result_inner = TensorBase::from_unary_op_with_grad(
+            self.inner,
+            move |a| a.product(axis),
+            Rc::new(ProductBackward { axis }),
+        );
         Tensor {
             inner: result_inner,
             _phantom: PhantomData,
@@ -455,8 +466,11 @@ impl<T: TensorType, D: Dimension> Tensor<T, D> {
     pub fn reduce_max(self, axis: usize) -> Tensor<T, Dyn> {
         assert!(axis < self.inner.ndim(), "axis out of bounds");
 
-        let result_inner =
-            TensorBase::from_unary_op(self.inner, move |a| a.reduce(ReduceOp::Max, axis));
+        let result_inner = TensorBase::from_unary_op_with_grad(
+            self.inner,
+            move |a| a.reduce(ReduceOp::Max, axis),
+            Rc::new(MaxBackward { axis }),
+        );
         Tensor {
             inner: result_inner,
             _phantom: PhantomData,

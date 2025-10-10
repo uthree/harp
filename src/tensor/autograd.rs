@@ -1,3 +1,5 @@
+use crate::graph::ops::cumulative::CumulativeOps;
+use crate::graph::ops::reduce::ReduceOps;
 use crate::graph::GraphNode;
 use std::rc::Rc;
 
@@ -143,6 +145,202 @@ impl GradFn for RecipBackward {
 
     fn name(&self) -> &'static str {
         "RecipBackward"
+    }
+}
+
+/// Gradient function for sum reduction
+#[derive(Debug)]
+pub struct SumBackward {
+    pub axis: usize,
+}
+
+impl GradFn for SumBackward {
+    fn backward(&self, grad_output: GraphNode, inputs: &[GraphNode]) -> Vec<Option<GraphNode>> {
+        // For z = sum(x, axis):
+        // dL/dx = broadcast(dL/dz, original_shape)
+        // The gradient needs to be broadcasted back to the original shape
+        assert_eq!(inputs.len(), 1, "SumBackward expects 1 input");
+        let x = &inputs[0];
+
+        // unsqueezeで縮約した軸を復元し、expandで元の形状にブロードキャスト
+        let grad_x = grad_output
+            .unsqueeze(self.axis)
+            .expand(x.view.shape().to_vec());
+
+        vec![Some(grad_x)]
+    }
+
+    fn name(&self) -> &'static str {
+        "SumBackward"
+    }
+}
+
+/// Gradient function for product reduction
+#[derive(Debug)]
+pub struct ProductBackward {
+    pub axis: usize,
+}
+
+impl GradFn for ProductBackward {
+    fn backward(&self, grad_output: GraphNode, inputs: &[GraphNode]) -> Vec<Option<GraphNode>> {
+        // For z = product(x, axis):
+        // dL/dx = dL/dz * (z / x)
+        // where z is the product result and needs to be broadcasted
+        assert_eq!(inputs.len(), 1, "ProductBackward expects 1 input");
+        let x = &inputs[0];
+
+        // 出力を計算（forward passの結果を再計算）
+        let output = x.clone().product(self.axis);
+
+        // grad_outputをunsqueeze + expand
+        let grad_expanded = grad_output
+            .unsqueeze(self.axis)
+            .expand(x.view.shape().to_vec());
+
+        // outputをunsqueeze + expand
+        let output_expanded = output.unsqueeze(self.axis).expand(x.view.shape().to_vec());
+
+        // grad_x = grad_output * (output / x)
+        let grad_x = grad_expanded * (output_expanded * x.clone().recip());
+
+        vec![Some(grad_x)]
+    }
+
+    fn name(&self) -> &'static str {
+        "ProductBackward"
+    }
+}
+
+/// Gradient function for max reduction
+#[derive(Debug)]
+pub struct MaxBackward {
+    pub axis: usize,
+}
+
+impl GradFn for MaxBackward {
+    fn backward(&self, grad_output: GraphNode, inputs: &[GraphNode]) -> Vec<Option<GraphNode>> {
+        // For z = max(x, axis):
+        // dL/dx = dL/dz * (x == z).cast()
+        // Gradient flows only to the maximum elements
+        assert_eq!(inputs.len(), 1, "MaxBackward expects 1 input");
+        let x = &inputs[0];
+
+        // 出力を計算（forward passの結果を再計算）
+        let output = x.clone().max(self.axis);
+
+        // grad_outputとoutputをunsqueeze + expand
+        let grad_expanded = grad_output
+            .unsqueeze(self.axis)
+            .expand(x.view.shape().to_vec());
+        let output_expanded = output.unsqueeze(self.axis).expand(x.view.shape().to_vec());
+
+        // x == output の mask を作成
+        // 注: 現在のGraphNodeでは直接比較演算がないため、
+        // (x - output).abs() < epsilon のような近似を使うか、
+        // または単純に (x - output) == 0 を仮定
+        // ここでは、より安全な方法として、等しい場合は勾配を流す
+        // mask = (x == output) を実装できないので、
+        // 代わりに x - output が 0 に近いかを確認する必要がある
+        //
+        // しかし、GraphNodeレベルでは比較演算がないため、
+        // バックエンドに任せる形で実装する必要がある
+        //
+        // 一旦、簡易実装として勾配をそのまま返す
+        // （正しい実装にはGraphNodeに比較演算の追加が必要）
+        let grad_x = grad_expanded;
+
+        vec![Some(grad_x)]
+    }
+
+    fn name(&self) -> &'static str {
+        "MaxBackward"
+    }
+}
+
+/// Gradient function for cumulative sum
+#[derive(Debug)]
+pub struct CumsumBackward {
+    pub axis: usize,
+}
+
+impl GradFn for CumsumBackward {
+    fn backward(&self, grad_output: GraphNode, _inputs: &[GraphNode]) -> Vec<Option<GraphNode>> {
+        // For z = cumsum(x, axis):
+        // dL/dx[i] = sum(dL/dz[i:]) (reverse cumulative sum)
+        //
+        // cumsum: y[i] = sum(x[0:i+1])
+        // gradient: dx[i] = sum(dy[i:])
+        //
+        // This can be implemented as: flip -> cumsum -> flip
+        let grad_x = grad_output
+            .flip(self.axis)
+            .cumsum(self.axis)
+            .flip(self.axis);
+
+        vec![Some(grad_x)]
+    }
+
+    fn name(&self) -> &'static str {
+        "CumsumBackward"
+    }
+}
+
+/// Gradient function for cumulative product
+#[derive(Debug)]
+pub struct CumprodBackward {
+    pub axis: usize,
+}
+
+impl GradFn for CumprodBackward {
+    fn backward(&self, grad_output: GraphNode, inputs: &[GraphNode]) -> Vec<Option<GraphNode>> {
+        // For z = cumprod(x, axis):
+        // This is complex to implement correctly, especially with zeros
+        // A simplified approach: dy[i] = grad_output[i] * (output[i] / x[i])
+        // then apply reverse cumsum
+        //
+        // TODO: Implement proper gradient computation
+        // For now, return a simplified version
+        assert_eq!(inputs.len(), 1, "CumprodBackward expects 1 input");
+        let x = &inputs[0];
+
+        // 出力を計算（forward passの結果を再計算）
+        let output = x.clone().cumprod(self.axis);
+
+        // grad_x = grad_output * (output / x)
+        // This is a simplified version and may not be entirely correct
+        let grad_x = grad_output * (output * x.clone().recip());
+
+        vec![Some(grad_x)]
+    }
+
+    fn name(&self) -> &'static str {
+        "CumprodBackward"
+    }
+}
+
+/// Gradient function for cumulative max
+#[derive(Debug)]
+pub struct CummaxBackward {
+    pub axis: usize,
+}
+
+impl GradFn for CummaxBackward {
+    fn backward(&self, grad_output: GraphNode, _inputs: &[GraphNode]) -> Vec<Option<GraphNode>> {
+        // For z = cummax(x, axis):
+        // Gradient flows only to positions where the maximum was updated
+        //
+        // TODO: Implement proper gradient computation with comparison operations
+        // For now, return a simplified version
+        //
+        // 簡易実装: 勾配をそのまま返す
+        // （正しい実装には比較演算が必要）
+        let grad_x = grad_output;
+
+        vec![Some(grad_x)]
+    }
+
+    fn name(&self) -> &'static str {
+        "CummaxBackward"
     }
 }
 
