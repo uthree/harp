@@ -647,6 +647,14 @@ impl GraphFusionOptimizer {
                     node.view.clone(),
                 )
             }
+            GraphOp::Fold(dim, window_size, stride, input) => {
+                let rebuilt_input = self.rebuild_node(input);
+                GraphNode::new(
+                    GraphOp::Fold(*dim, *window_size, *stride, rebuilt_input),
+                    node.dtype.clone(),
+                    node.view.clone(),
+                )
+            }
             GraphOp::FusedElementwise(_, _)
             | GraphOp::FusedReduce(_, _, _)
             | GraphOp::FusedElementwiseReduce(_, _, _, _)

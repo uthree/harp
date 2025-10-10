@@ -48,11 +48,13 @@ impl GraphNode {
         GraphNode::new(GraphOp::View(self.clone()), self.dtype.clone(), new_view)
     }
 
-    /// Create a sliding window view for convolution operations.
+    /// Unfold operation: extract sliding local blocks from a tensor.
     ///
     /// This operation adds a new dimension for sliding windows.
     /// For example, [B, C, L] with window_size=K, stride=S becomes [B, C, L', K]
     /// where L' = (L - K) / S + 1.
+    ///
+    /// This is the inverse of the `fold` operation.
     ///
     /// # Arguments
     /// * `dim` - The dimension along which to create sliding windows
@@ -62,18 +64,76 @@ impl GraphNode {
     /// # Example
     /// ```ignore
     /// // For Conv1d: input [B, C_in, L], kernel [C_out, C_in, K]
-    /// let windowed = input.sliding_window(2, kernel_size, stride); // → [B, C_in, L', K]
+    /// let unfolded = input.unfold(2, kernel_size, stride); // → [B, C_in, L', K]
     /// let kernel_reshaped = kernel.unsqueeze(2); // → [C_out, C_in, 1, K]
-    /// let product = windowed * kernel_reshaped; // → [B, C_out, C_in, L', K]
+    /// let product = unfolded * kernel_reshaped; // → [B, C_out, C_in, L', K]
     /// let output = product.sum(vec![2, 4]); // → [B, C_out, L']
     /// ```
-    pub fn sliding_window<E: Into<ShapeExpr> + Clone>(
+    pub fn unfold<E: Into<ShapeExpr> + Clone>(
         self,
         dim: usize,
         window_size: E,
         stride: E,
     ) -> GraphNode {
-        let new_view = self.view.clone().sliding_window(dim, window_size, stride);
+        let new_view = self.view.clone().unfold(dim, window_size, stride);
         GraphNode::new(GraphOp::View(self.clone()), self.dtype.clone(), new_view)
+    }
+
+    /// Fold operation: combines overlapping blocks into a single tensor (similar to col2im).
+    ///
+    /// This is the inverse operation of `unfold`. It takes a tensor with an extra dimension
+    /// representing sliding windows and combines them back into the original shape.
+    /// When windows overlap, the values are summed.
+    ///
+    /// For example, input [B, C, L', K] with window_size=K, stride=S becomes [B, C, L]
+    /// where L = (L' - 1) * S + K.
+    ///
+    /// # Arguments
+    /// * `dim` - The dimension along which the windows were extracted
+    /// * `window_size` - The size of each window
+    /// * `stride` - The stride between windows
+    /// * `output_size` - The size of the output dimension (L in the example above)
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Inverse of unfold operation
+    /// let unfolded = input.unfold(2, 3, 1); // [B, C, L] → [B, C, L', 3]
+    /// let folded = unfolded.fold(2, 3, 1, original_L); // [B, C, L', 3] → [B, C, L]
+    /// ```
+    pub fn fold(
+        self,
+        dim: usize,
+        window_size: usize,
+        stride: usize,
+        output_size: usize,
+    ) -> GraphNode {
+        // Input shape: [..., L', K] where the last dimension is the window dimension
+        // Output shape: [..., L] where L = output_size
+
+        let input_shape = self.view.shape();
+        let ndim = input_shape.len();
+
+        assert!(
+            dim < ndim - 1,
+            "dim must be less than ndim - 1 (last dimension is window dimension)"
+        );
+        assert_eq!(
+            input_shape[ndim - 1],
+            ShapeExpr::from(window_size as isize),
+            "last dimension must match window_size"
+        );
+
+        // Calculate output shape: replace dim with output_size and remove last dimension
+        let mut output_shape = input_shape.to_vec();
+        output_shape[dim] = ShapeExpr::from(output_size as isize);
+        output_shape.pop(); // Remove window dimension
+
+        let result_view = crate::graph::shape::view::View::new_contiguous(output_shape);
+
+        GraphNode::new(
+            GraphOp::Fold(dim, window_size, stride, self.clone()),
+            self.dtype.clone(),
+            result_view,
+        )
     }
 }

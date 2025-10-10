@@ -7,8 +7,8 @@ mod tests {
     use harp::graph::Graph;
 
     #[test]
-    fn test_conv1d_via_sliding_window() {
-        // Simple 1D convolution using sliding_window
+    fn test_conv1d_via_unfold() {
+        // Simple 1D convolution using unfold
         // Input: [1, 1, 5] (batch=1, channels=1, length=5)
         // Kernel: [1, 1, 3] (out_channels=1, in_channels=1, kernel_size=3)
         // Output: [1, 1, 3] (batch=1, out_channels=1, output_length=3)
@@ -21,9 +21,9 @@ mod tests {
         // Kernel: [1, 1, 3]
         let kernel = graph.input(DType::F32, vec![1.into(), 1.into(), 3.into()]);
 
-        // Step 1: Apply sliding window to input
+        // Step 1: Apply unfold to input
         // [1, 1, 5] -> [1, 1, 3, 3] where output_length = (5-3)/1+1 = 3
-        let windowed = input.sliding_window(2, 3, 1);
+        let windowed = input.unfold(2, 3, 1);
 
         // Step 2: Reshape for broadcasting
         // windowed: [1, 1, 3, 3] -> [1, 1, 1, 3, 3] (add out_channel dim)
@@ -89,9 +89,9 @@ mod tests {
         // Kernel: [3, 2, 3]
         let kernel = graph.input(DType::F32, vec![3.into(), 2.into(), 3.into()]);
 
-        // Step 1: Apply sliding window to input
+        // Step 1: Apply unfold to input
         // [1, 2, 5] -> [1, 2, 3, 3]
-        let windowed = input.sliding_window(2, 3, 1);
+        let windowed = input.unfold(2, 3, 1);
 
         // Step 2: Reshape for broadcasting
         // windowed: [1, 2, 3, 3] -> [1, 1, 2, 3, 3] (add out_channel dim)
@@ -174,9 +174,9 @@ mod tests {
         // Kernel: [1, 1, 3]
         let kernel = graph.input(DType::F32, vec![1.into(), 1.into(), 3.into()]);
 
-        // Step 1: Apply sliding window with stride=2
+        // Step 1: Apply unfold with stride=2
         // [1, 1, 7] -> [1, 1, 3, 3]
-        let windowed = input.sliding_window(2, 3, 2);
+        let windowed = input.unfold(2, 3, 2);
 
         // Step 2: Reshape for broadcasting
         let windowed_expanded = windowed.unsqueeze(1);
@@ -222,8 +222,8 @@ mod tests {
     }
 
     #[test]
-    fn test_conv2d_via_sliding_window() {
-        // Simple 2D convolution using sliding_window
+    fn test_conv2d_via_unfold() {
+        // Simple 2D convolution using unfold
         // Input: [1, 1, 5, 5] (batch=1, channels=1, height=5, width=5)
         // Kernel: [1, 1, 3, 3] (out_channels=1, in_channels=1, kernel_h=3, kernel_w=3)
         // Output: [1, 1, 3, 3] (batch=1, out_channels=1, out_h=3, out_w=3)
@@ -236,13 +236,13 @@ mod tests {
         // Kernel: [1, 1, 3, 3]
         let kernel = graph.input(DType::F32, vec![1.into(), 1.into(), 3.into(), 3.into()]);
 
-        // Step 1: Apply sliding window along height (dim=2)
+        // Step 1: Apply unfold along height (dim=2)
         // [1, 1, 5, 5] -> [1, 1, 3, 5, 3] where out_h = (5-3)/1+1 = 3
-        let windowed_h = input.sliding_window(2, 3, 1);
+        let windowed_h = input.unfold(2, 3, 1);
 
-        // Step 2: Apply sliding window along width (dim=3, shifted because Kh was added)
+        // Step 2: Apply unfold along width (dim=3, shifted because Kh was added)
         // [1, 1, 3, 5, 3] -> [1, 1, 3, 3, 3, 3] where out_w = (5-3)/1+1 = 3
-        let windowed_hw = windowed_h.sliding_window(3, 3, 1);
+        let windowed_hw = windowed_h.unfold(3, 3, 1);
 
         // Step 3: Reshape for broadcasting
         // windowed: [1, 1, 3, 3, 3, 3] -> [1, 1, 1, 3, 3, 3, 3] (add out_channel dim)
@@ -313,9 +313,9 @@ mod tests {
         let input = graph.input(DType::F32, vec![1.into(), 1.into(), 7.into(), 7.into()]);
         let kernel = graph.input(DType::F32, vec![1.into(), 1.into(), 3.into(), 3.into()]);
 
-        // Apply sliding window with stride=2 in both dimensions
-        let windowed_h = input.sliding_window(2, 3, 2);
-        let windowed_hw = windowed_h.sliding_window(3, 3, 2);
+        // Apply unfold with stride=2 in both dimensions
+        let windowed_h = input.unfold(2, 3, 2);
+        let windowed_hw = windowed_h.unfold(3, 3, 2);
 
         let windowed_expanded = windowed_hw.unsqueeze(1);
         let kernel_expanded = kernel.unsqueeze(0).unsqueeze(2).unsqueeze(3);
@@ -359,8 +359,8 @@ mod tests {
     }
 
     #[test]
-    fn test_conv3d_via_sliding_window() {
-        // Simple 3D convolution using sliding_window
+    fn test_conv3d_via_unfold() {
+        // Simple 3D convolution using unfold
         // Input: [1, 1, 4, 4, 4] (batch=1, channels=1, depth=4, height=4, width=4)
         // Kernel: [1, 1, 2, 2, 2] (out_channels=1, in_channels=1, kd=2, kh=2, kw=2)
         // Output: [1, 1, 3, 3, 3] (batch=1, out_channels=1, out_d=3, out_h=3, out_w=3)
@@ -379,17 +379,17 @@ mod tests {
             vec![1.into(), 1.into(), 2.into(), 2.into(), 2.into()],
         );
 
-        // Step 1: Apply sliding window along depth (dim=2)
+        // Step 1: Apply unfold along depth (dim=2)
         // [1, 1, 4, 4, 4] -> [1, 1, 3, 4, 4, 2] where out_d = (4-2)/1+1 = 3
-        let windowed_d = input.sliding_window(2, 2, 1);
+        let windowed_d = input.unfold(2, 2, 1);
 
-        // Step 2: Apply sliding window along height (dim=3, shifted because Kd was added)
+        // Step 2: Apply unfold along height (dim=3, shifted because Kd was added)
         // [1, 1, 3, 4, 4, 2] -> [1, 1, 3, 3, 4, 2, 2] where out_h = (4-2)/1+1 = 3
-        let windowed_dh = windowed_d.sliding_window(3, 2, 1);
+        let windowed_dh = windowed_d.unfold(3, 2, 1);
 
-        // Step 3: Apply sliding window along width (dim=4, shifted because Kd and Kh were added)
+        // Step 3: Apply unfold along width (dim=4, shifted because Kd and Kh were added)
         // [1, 1, 3, 3, 4, 2, 2] -> [1, 1, 3, 3, 3, 2, 2, 2] where out_w = (4-2)/1+1 = 3
-        let windowed_dhw = windowed_dh.sliding_window(4, 2, 1);
+        let windowed_dhw = windowed_dh.unfold(4, 2, 1);
 
         // Step 4: Reshape for broadcasting
         // windowed: [1, 1, 3, 3, 3, 2, 2, 2] -> [1, 1, 1, 3, 3, 3, 2, 2, 2] (add out_channel dim)
@@ -466,10 +466,10 @@ mod tests {
             vec![1.into(), 1.into(), 2.into(), 2.into(), 2.into()],
         );
 
-        // Apply sliding window with stride=2 in all three dimensions
-        let windowed_d = input.sliding_window(2, 2, 2);
-        let windowed_dh = windowed_d.sliding_window(3, 2, 2);
-        let windowed_dhw = windowed_dh.sliding_window(4, 2, 2);
+        // Apply unfold with stride=2 in all three dimensions
+        let windowed_d = input.unfold(2, 2, 2);
+        let windowed_dh = windowed_d.unfold(3, 2, 2);
+        let windowed_dhw = windowed_dh.unfold(4, 2, 2);
 
         let windowed_expanded = windowed_dhw.unsqueeze(1);
         let kernel_expanded = kernel.unsqueeze(0).unsqueeze(2).unsqueeze(3).unsqueeze(4);
