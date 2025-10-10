@@ -335,11 +335,8 @@ impl<T: TensorType, D: Dimension> Neg for &Tensor<T, D> {
 impl<T: TensorType, D: Dimension> Tensor<T, D> {
     /// Compute the reciprocal (1/x) of each element.
     pub fn recip(self) -> Self {
-        let result_inner = TensorBase::from_unary_op_with_grad(
-            self.inner,
-            |a| a.recip(),
-            Rc::new(RecipBackward),
-        );
+        let result_inner =
+            TensorBase::from_unary_op_with_grad(self.inner, |a| a.recip(), Rc::new(RecipBackward));
         Tensor {
             inner: result_inner,
             _phantom: PhantomData,

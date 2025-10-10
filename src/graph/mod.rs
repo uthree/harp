@@ -182,7 +182,7 @@ impl fmt::Display for GraphOp {
             GraphOp::FusedElementwise(_, _) => write!(f, "FusedElementwise"),
             GraphOp::FusedReduce(op, axes, _) => write!(f, "Fused{}[{:?}]", op, axes),
             GraphOp::FusedElementwiseReduce(_, _, op, axes) => {
-                write!(f, "FusedER-{}[{:?}]", op, axes)
+                write!(f, "FusedER-{}{:?}", op, axes)
             }
             GraphOp::FusedElementwiseCumulative(_, _, op) => {
                 write!(f, "FusedEC-{}", op)

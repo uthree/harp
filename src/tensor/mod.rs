@@ -331,12 +331,18 @@ impl TensorBase {
     pub fn backward(&mut self) {
         use std::collections::{HashMap, HashSet, VecDeque};
 
-        // Create initial gradient (ones for the output)
-        let grad_graph = self
-            .graph
-            .as_ref()
-            .expect("No graph for backward pass")
-            .clone();
+        // If this is a leaf tensor (no graph), just set gradient to ones
+        let Some(grad_graph) = self.graph.as_ref() else {
+            if self.requires_grad {
+                // For leaf tensors, create a simple gradient tensor with ones
+                let ones = vec![1.0f32; self.numel()];
+                let grad = TensorBase::from_vec(ones, &self.shape, self.backend_name.clone());
+                self.grad = Some(Box::new(grad));
+            }
+            return;
+        };
+
+        let grad_graph = grad_graph.clone();
 
         // Create gradient node with same shape as output
         let mut grad_graph_mut = grad_graph.clone();
