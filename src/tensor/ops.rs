@@ -1,6 +1,6 @@
 use super::autograd::{
-    AddBackward, GradFn, MaxBackward, MulBackward, NegBackward, ProductBackward, RecipBackward,
-    SumBackward, TensorMeta,
+    AddBackward, CummaxBackward, CumprodBackward, CumsumBackward, GradFn, MaxBackward, MulBackward,
+    NegBackward, ProductBackward, RecipBackward, SumBackward, TensorMeta,
 };
 use super::{Dimension, Dyn, Tensor, TensorBase, TensorType};
 use crate::graph::ops::{CumulativeOp, ReduceOp};
@@ -482,8 +482,11 @@ impl<T: TensorType, D: Dimension> Tensor<T, D> {
     pub fn cumsum(self, axis: usize) -> Self {
         assert!(axis < self.inner.ndim(), "axis out of bounds");
 
-        let result_inner =
-            TensorBase::from_unary_op(self.inner, move |a| a.cumulative(CumulativeOp::Add, axis));
+        let result_inner = TensorBase::from_unary_op_with_grad(
+            self.inner,
+            move |a| a.cumulative(CumulativeOp::Add, axis),
+            Rc::new(CumsumBackward { axis }),
+        );
         Tensor {
             inner: result_inner,
             _phantom: PhantomData,
@@ -495,8 +498,11 @@ impl<T: TensorType, D: Dimension> Tensor<T, D> {
     pub fn cumprod(self, axis: usize) -> Self {
         assert!(axis < self.inner.ndim(), "axis out of bounds");
 
-        let result_inner =
-            TensorBase::from_unary_op(self.inner, move |a| a.cumulative(CumulativeOp::Mul, axis));
+        let result_inner = TensorBase::from_unary_op_with_grad(
+            self.inner,
+            move |a| a.cumulative(CumulativeOp::Mul, axis),
+            Rc::new(CumprodBackward { axis }),
+        );
         Tensor {
             inner: result_inner,
             _phantom: PhantomData,
@@ -508,8 +514,11 @@ impl<T: TensorType, D: Dimension> Tensor<T, D> {
     pub fn cummax(self, axis: usize) -> Self {
         assert!(axis < self.inner.ndim(), "axis out of bounds");
 
-        let result_inner =
-            TensorBase::from_unary_op(self.inner, move |a| a.cumulative(CumulativeOp::Max, axis));
+        let result_inner = TensorBase::from_unary_op_with_grad(
+            self.inner,
+            move |a| a.cumulative(CumulativeOp::Max, axis),
+            Rc::new(CummaxBackward { axis }),
+        );
         Tensor {
             inner: result_inner,
             _phantom: PhantomData,
