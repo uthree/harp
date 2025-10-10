@@ -65,49 +65,176 @@ impl GraphNode {
     /// let output = input.conv1d(kernel, 1); // [1, 16, 28]
     /// ```
     pub fn conv1d<E: Into<ShapeExpr> + Clone>(self, kernel: GraphNode, stride: E) -> GraphNode {
-        use super::ReduceOps;
+        self.conv1d_grouped(kernel, stride, 1)
+    }
 
-        // Get shapes first (clone to avoid borrowing issues)
+    /// 1D Grouped Convolution operation
+    ///
+    /// # Arguments
+    /// * `kernel` - Kernel weights with shape [out_channels, in_channels/groups, kernel_size]
+    /// * `stride` - Stride for the convolution
+    /// * `groups` - Number of groups to split input and output channels
+    ///
+    /// # Input shape
+    /// [batch, in_channels, length]
+    ///
+    /// # Output shape
+    /// [batch, out_channels, output_length] where output_length = (length - kernel_size) / stride + 1
+    ///
+    /// # Groups
+    /// - groups=1: Standard convolution
+    /// - groups=in_channels: Depthwise convolution (each input channel is convolved separately)
+    /// - Other values: Input and output channels are divided into groups
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Depthwise convolution: groups=in_channels
+    /// let input = graph.input(DType::F32, vec![1.into(), 32.into(), 64.into()]);
+    /// let kernel = graph.input(DType::F32, vec![32.into(), 1.into(), 3.into()]);
+    /// let output = input.conv1d_grouped(kernel, 1, 32); // [1, 32, 62]
+    ///
+    /// // Grouped convolution: groups=4
+    /// let input = graph.input(DType::F32, vec![1.into(), 8.into(), 64.into()]);
+    /// let kernel = graph.input(DType::F32, vec![16.into(), 2.into(), 3.into()]); // 16/4=4 out per group, 8/4=2 in per group
+    /// let output = input.conv1d_grouped(kernel, 1, 4); // [1, 16, 62]
+    /// ```
+    pub fn conv1d_grouped<E: Into<ShapeExpr> + Clone>(
+        self,
+        kernel: GraphNode,
+        stride: E,
+        groups: usize,
+    ) -> GraphNode {
+        use super::ReduceOps;
+        use crate::graph::shape::Expr;
+
+        if groups == 1 {
+            // Standard convolution - use optimized path
+            let input_shape = self.view.shape().to_vec();
+            let kernel_shape = kernel.view.shape().to_vec();
+
+            let batch = input_shape[0].clone();
+            let in_channels = input_shape[1].clone();
+            let out_channels = kernel_shape[0].clone();
+            let kernel_size = kernel_shape[2].clone();
+
+            let windowed = self.sliding_window(2, kernel_size.clone(), stride.into());
+            let windowed_shape = windowed.view.shape().to_vec();
+            let output_len = windowed_shape[2].clone();
+
+            let windowed_expanded = windowed.unsqueeze(1);
+            let kernel_expanded = kernel.unsqueeze(0).unsqueeze(3);
+
+            let windowed_broadcast = windowed_expanded.expand(vec![
+                batch.clone(),
+                out_channels.clone(),
+                in_channels.clone(),
+                output_len.clone(),
+                kernel_size.clone(),
+            ]);
+            let kernel_broadcast = kernel_expanded.expand(vec![
+                batch,
+                out_channels,
+                in_channels,
+                output_len,
+                kernel_size,
+            ]);
+
+            let product = windowed_broadcast * kernel_broadcast;
+            return product.sum(2).sum(3);
+        }
+
+        // Grouped convolution implementation
         let input_shape = self.view.shape().to_vec();
         let kernel_shape = kernel.view.shape().to_vec();
 
         let batch = input_shape[0].clone();
-        let in_channels = input_shape[1].clone();
-        let out_channels = kernel_shape[0].clone();
         let kernel_size = kernel_shape[2].clone();
 
-        // Apply sliding window: [B, C_in, L] -> [B, C_in, L', K]
-        let windowed = self.sliding_window(2, kernel_size.clone(), stride.into());
+        // For groups > 1:
+        // Input: [B, G*C_in_per_group, L]
+        // Kernel: [G*C_out_per_group, C_in_per_group, K]
+        // We need to reshape to separate the groups dimension
+
+        // Calculate channels per group (assuming static shapes for now)
+        let in_channels_per_group = input_shape[1].clone() / Expr::Const(groups as isize);
+        let out_channels_per_group = kernel_shape[0].clone() / Expr::Const(groups as isize);
+
+        let input_reshaped = self.as_strided(
+            vec![
+                batch.clone(),
+                Expr::Const(groups as isize),
+                in_channels_per_group.clone(),
+                input_shape[2].clone(),
+            ],
+            vec![
+                input_shape[2].clone() * input_shape[1].clone(),
+                input_shape[2].clone() * in_channels_per_group.clone(),
+                input_shape[2].clone(),
+                Expr::Const(1),
+            ],
+        );
+
+        // Reshape kernel: [G*C_out_per_group, C_in_per_group, K] -> [G, C_out_per_group, C_in_per_group, K]
+        let kernel_reshaped = kernel.as_strided(
+            vec![
+                Expr::Const(groups as isize),
+                out_channels_per_group.clone(),
+                in_channels_per_group.clone(),
+                kernel_size.clone(),
+            ],
+            vec![
+                out_channels_per_group.clone()
+                    * in_channels_per_group.clone()
+                    * kernel_size.clone(),
+                in_channels_per_group.clone() * kernel_size.clone(),
+                kernel_size.clone(),
+                Expr::Const(1),
+            ],
+        );
+
+        // Apply sliding window: [B, G, C_in_per_group, L] -> [B, G, C_in_per_group, L', K]
+        let windowed = input_reshaped.sliding_window(3, kernel_size.clone(), stride.into());
         let windowed_shape = windowed.view.shape().to_vec();
-        let output_len = windowed_shape[2].clone();
+        let output_len = windowed_shape[3].clone();
 
         // Reshape for broadcasting
-        // windowed: [B, C_in, L', K] -> [B, 1, C_in, L', K]
-        let windowed_expanded = windowed.unsqueeze(1);
+        // windowed: [B, G, C_in_per_group, L', K] -> [B, G, 1, C_in_per_group, L', K]
+        let windowed_expanded = windowed.unsqueeze(2);
 
-        // kernel: [C_out, C_in, K] -> [1, C_out, C_in, 1, K]
-        let kernel_expanded = kernel.unsqueeze(0).unsqueeze(3);
+        // kernel: [G, C_out_per_group, C_in_per_group, K] -> [1, G, C_out_per_group, C_in_per_group, 1, K]
+        let kernel_expanded = kernel_reshaped.unsqueeze(0).unsqueeze(4);
 
         // Expand to match shapes
         let windowed_broadcast = windowed_expanded.expand(vec![
             batch.clone(),
-            out_channels.clone(),
-            in_channels.clone(),
+            Expr::Const(groups as isize),
+            out_channels_per_group.clone(),
+            in_channels_per_group.clone(),
             output_len.clone(),
             kernel_size.clone(),
         ]);
         let kernel_broadcast = kernel_expanded.expand(vec![
-            batch,
-            out_channels,
-            in_channels,
-            output_len,
-            kernel_size,
+            batch.clone(),
+            Expr::Const(groups as isize),
+            out_channels_per_group.clone(),
+            in_channels_per_group.clone(),
+            output_len.clone(),
+            kernel_size.clone(),
         ]);
 
-        // Element-wise multiplication and sum reduction
+        // Element-wise multiplication and sum reduction over [C_in_per_group, K]
         let product = windowed_broadcast * kernel_broadcast;
-        // Sum over [in_channels, kernel_size] at axes [2, 4]
-        product.sum(2).sum(3)
+        let summed = product.sum(3).sum(4); // [B, G, C_out_per_group, L']
+
+        // Reshape output: [B, G, C_out_per_group, L'] -> [B, G*C_out_per_group, L']
+        let total_out_channels =
+            (Expr::Const(groups as isize) * out_channels_per_group.clone()).simplify();
+        let out_stride0 = (total_out_channels.clone() * windowed_shape[3].clone()).simplify();
+
+        summed.as_strided(
+            vec![batch.clone(), total_out_channels, output_len],
+            vec![out_stride0, windowed_shape[3].clone(), Expr::Const(1)],
+        )
     }
 
     /// 2D Convolution operation
