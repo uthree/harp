@@ -1,6 +1,7 @@
 use super::autograd::{
     AddBackward, CummaxBackward, CumprodBackward, CumsumBackward, GradFn, MaxBackward, MulBackward,
-    NegBackward, ProductBackward, RecipBackward, SumBackward, TensorMeta,
+    NegBackward, ProductBackward, RecipBackward, ReLUBackward, SigmoidBackward, SumBackward,
+    TanhBackward, TensorMeta,
 };
 use super::{Dimension, Dyn, Tensor, TensorBase, TensorType};
 use crate::graph::ops::{CumulativeOp, ReduceOp};
@@ -518,6 +519,58 @@ impl<T: TensorType, D: Dimension> Tensor<T, D> {
             self.inner,
             move |a| a.cumulative(CumulativeOp::Max, axis),
             Rc::new(CummaxBackward { axis }),
+        );
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// ReLU activation function: max(x, 0)
+    /// Returns max(x, 0) for each element.
+    pub fn relu(self) -> Self {
+        let result_inner = TensorBase::from_unary_op_with_grad(
+            self.inner,
+            |a| {
+                let zero = GraphNode::f32(0.0);
+                a.cmp_max(zero)
+            },
+            Rc::new(ReLUBackward),
+        );
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Sigmoid activation function: 1 / (1 + exp(-x))
+    /// Returns sigmoid(x) for each element.
+    pub fn sigmoid(self) -> Self {
+        let result_inner = TensorBase::from_unary_op_with_grad(
+            self.inner,
+            |a| {
+                let one = GraphNode::f32(1.0);
+                (one + (-a).exp()).recip()
+            },
+            Rc::new(SigmoidBackward),
+        );
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Tanh activation function: (exp(x) - exp(-x)) / (exp(x) + exp(-x))
+    /// Returns tanh(x) for each element.
+    pub fn tanh(self) -> Self {
+        let result_inner = TensorBase::from_unary_op_with_grad(
+            self.inner,
+            |a| {
+                let exp_x = a.clone().exp();
+                let exp_neg_x = (-a).exp();
+                (exp_x.clone() - exp_neg_x.clone()) / (exp_x + exp_neg_x)
+            },
+            Rc::new(TanhBackward),
         );
         Tensor {
             inner: result_inner,

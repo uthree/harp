@@ -329,4 +329,15 @@ mod tests {
         let sum_result: TensorDyn<f32> = a.sum(1);
         assert_eq!(sum_result.shape(), &[2]);
     }
+
+    #[test]
+    fn test_tensor_relu() {
+        let a: Tensor1<f32> = Tensor::from_vec(vec![-2.0, -1.0, 0.0, 1.0, 2.0], &[5], "c");
+
+        let c = a.relu();
+
+        // Shape should be preserved
+        assert_eq!(c.shape(), &[5]);
+        assert_eq!(c.ndim(), 1);
+    }
 }
