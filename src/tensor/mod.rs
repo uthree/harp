@@ -326,6 +326,27 @@ impl TensorBase {
         self.grad = None;
     }
 
+    /// Detach this tensor from the computation graph.
+    ///
+    /// Returns a new tensor that shares data with this tensor but is detached
+    /// from the autograd graph. The returned tensor will never require gradients.
+    ///
+    /// This is useful when you want to use a tensor's value without tracking
+    /// gradients through it.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let x = tensor.enable_grad();
+    /// let y = (x.clone() * 2.0).detach();  // y won't track gradients
+    /// ```
+    pub fn detach(&self) -> Self {
+        let mut detached = self.clone();
+        detached.requires_grad = false;
+        detached.autograd_meta = None;
+        detached.grad = None;
+        detached
+    }
+
     /// Perform backward pass to compute gradients.
     /// This should be called on the final output tensor (typically a scalar loss).
     pub fn backward(&mut self) {
@@ -571,6 +592,27 @@ impl<T: TensorType, D: Dimension> Tensor<T, D> {
     pub fn backward(&mut self) {
         self.inner.backward();
     }
+
+    /// Detach this tensor from the computation graph.
+    ///
+    /// Returns a new tensor that shares data with this tensor but is detached
+    /// from the autograd graph. The returned tensor will never require gradients.
+    ///
+    /// This is useful when you want to use a tensor's value without tracking
+    /// gradients through it.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let x = Tensor::from_vec(vec![1.0, 2.0, 3.0], &[3], "c").enable_grad();
+    /// let y = &x + &x;
+    /// let z = y.detach();  // z won't track gradients
+    /// ```
+    pub fn detach(&self) -> Self {
+        Tensor {
+            inner: self.inner.detach(),
+            _phantom: PhantomData,
+        }
+    }
 }
 
 /// Type aliases for common f32 tensor types
@@ -647,5 +689,33 @@ mod tests {
         assert_eq!(f32_tensor.dtype(), &DType::F32);
         assert_eq!(isize_tensor.dtype(), &DType::Isize);
         assert_eq!(usize_tensor.dtype(), &DType::Usize);
+    }
+
+    #[test]
+    fn test_detach() {
+        let x = Tensor::<f32, D1>::from_vec(vec![1.0, 2.0, 3.0], &[3], "c").enable_grad();
+        assert!(x.is_requires_grad());
+
+        // Detach should create a new tensor without gradient tracking
+        let y = x.detach();
+        assert!(!y.is_requires_grad());
+        assert_eq!(y.shape(), x.shape());
+    }
+
+    #[test]
+    fn test_detach_after_operation() {
+        use crate::tensor::ops::*;
+
+        let x = Tensor::<f32, D1>::from_vec(vec![1.0, 2.0, 3.0], &[3], "c").enable_grad();
+        let y = Tensor::<f32, D1>::from_vec(vec![2.0, 3.0, 4.0], &[3], "c");
+
+        // Perform an operation
+        let z = &x + &y;
+        assert!(z.is_requires_grad()); // z should track gradients
+
+        // Detach z
+        let w = z.detach();
+        assert!(!w.is_requires_grad()); // w should not track gradients
+        assert_eq!(w.shape(), z.shape());
     }
 }
