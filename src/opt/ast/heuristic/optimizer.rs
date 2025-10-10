@@ -169,6 +169,9 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
             None
         };
 
+        // 前回のイテレーションでのベストコストを記録
+        let mut prev_best_cost = initial_cost;
+
         for _i in 0..self.max_iterations {
             let mut candidates = BinaryHeap::new();
 
@@ -213,6 +216,7 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
             }
 
             // Select top k candidates for the new beam
+            let old_beam = beam.clone();
             beam.clear();
             for _ in 0..self.beam_width {
                 if let Some(candidate) = candidates.pop() {
@@ -226,6 +230,36 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
                     break;
                 }
             }
+
+            // 現在のbeamのベストコストを計算
+            let current_best_cost = beam
+                .iter()
+                .map(|c| c.cost)
+                .min_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal))
+                .unwrap_or(initial_cost);
+
+            // コストが改善しなくなったら早期終了
+            if current_best_cost >= prev_best_cost {
+                // コストが改善していないので、前回のbeamから最良のものを返す
+                let best = old_beam
+                    .into_iter()
+                    .min_by(|a, b| a.cost.partial_cmp(&b.cost).unwrap_or(Ordering::Equal))
+                    .map(|c| c.ast)
+                    .unwrap_or_else(|| ast.clone());
+
+                if let Some(ref pb) = pb {
+                    pb.set_position(self.max_iterations as u64);
+                    pb.finish_with_message(format!("cost {:.6} (no improvement)", prev_best_cost));
+                    pb.finish_and_clear();
+                    pb.println(format!(
+                        "{:>12} no further improvement.",
+                        green_bold.apply_to("Finished")
+                    ))
+                }
+                return best;
+            }
+
+            prev_best_cost = current_best_cost;
 
             // If beam is empty, we're stuck
             if beam.is_empty() {
@@ -242,12 +276,11 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
             }
 
             if let Some(ref pb) = pb {
-                let best_cost = beam
-                    .iter()
-                    .map(|c| c.cost)
-                    .min_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal))
-                    .unwrap_or(initial_cost);
-                pb.set_message(format!("beam {}, cost {:.6}", beam.len(), best_cost));
+                pb.set_message(format!(
+                    "beam {}, cost {:.6}",
+                    beam.len(),
+                    current_best_cost
+                ));
                 pb.inc(1);
             }
         }
@@ -383,5 +416,46 @@ mod tests {
         let _result2 = optimizer2.optimize(&ast2);
 
         // Both should complete without panicking
+    }
+
+    #[test]
+    fn test_early_termination_on_no_improvement() {
+        // Create a simple rule that only works once: a + 0 -> a
+        let rule = ast_pattern!(|a| a + i(0) => a.clone());
+        let suggester = RuleBasedSuggester::new(vec![rule]);
+        let estimator = OperationCostEstimator;
+
+        // Use a large max_iterations value to ensure early termination is working
+        let optimizer = CostBasedOptimizer::new(suggester, estimator, 1000);
+
+        // a + 0 should be optimized to a, then no further improvements
+        let ast = AstNode::Var("a".to_string()) + i(0);
+        let optimized = optimizer.optimize(&ast);
+
+        // Check that optimization was applied
+        let expected = AstNode::Var("a".to_string());
+        assert_eq!(optimized, expected);
+
+        // The optimizer should terminate early when no improvement is possible
+        // (we can't directly test the number of iterations, but the test should complete quickly)
+    }
+
+    #[test]
+    fn test_early_termination_on_convergence() {
+        // Create a rule that creates no improvement
+        let rule = ast_pattern!(|a, b| a + b => b.clone() + a.clone());
+        let suggester = RuleBasedSuggester::new(vec![rule]);
+        let estimator = NodeCountCostEstimator;
+
+        let optimizer = CostBasedOptimizer::new(suggester, estimator, 1000);
+
+        // Commutative operations should have same cost, so should terminate early
+        let ast = AstNode::Var("a".to_string()) + AstNode::Var("b".to_string());
+        let optimized = optimizer.optimize(&ast);
+
+        // Cost should be the same
+        let original_cost = estimator.estimate_cost(&ast);
+        let optimized_cost = estimator.estimate_cost(&optimized);
+        assert_eq!(original_cost, optimized_cost);
     }
 }

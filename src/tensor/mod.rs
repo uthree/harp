@@ -708,8 +708,6 @@ mod tests {
 
     #[test]
     fn test_detach_after_operation() {
-        use crate::tensor::ops::*;
-
         let x = Tensor::<f32, D1>::from_vec(vec![1.0, 2.0, 3.0], &[3], "c").enable_grad();
         let y = Tensor::<f32, D1>::from_vec(vec![2.0, 3.0, 4.0], &[3], "c");
 
