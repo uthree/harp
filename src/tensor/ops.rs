@@ -1,7 +1,7 @@
 use super::autograd::{
-    AddBackward, CummaxBackward, CumprodBackward, CumsumBackward, GradFn, MaxBackward, MulBackward,
-    NegBackward, ProductBackward, RecipBackward, ReLUBackward, SigmoidBackward, SumBackward,
-    TanhBackward, TensorMeta,
+    AddBackward, Conv1dBackward, Conv2dBackward, Conv3dBackward, CummaxBackward, CumprodBackward,
+    CumsumBackward, GradFn, MaxBackward, MulBackward, NegBackward, ProductBackward, ReLUBackward,
+    RecipBackward, SigmoidBackward, SumBackward, TanhBackward, TensorMeta,
 };
 use super::{Dimension, Dyn, Tensor, TensorBase, TensorType};
 use crate::graph::ops::{CumulativeOp, ReduceOp};
@@ -571,6 +571,87 @@ impl<T: TensorType, D: Dimension> Tensor<T, D> {
                 (exp_x.clone() - exp_neg_x.clone()) / (exp_x + exp_neg_x)
             },
             Rc::new(TanhBackward),
+        );
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// 1D Convolution operation
+    ///
+    /// # Arguments
+    /// * `kernel` - Kernel weights with shape [out_channels, in_channels, kernel_size]
+    /// * `stride` - Stride for the convolution
+    ///
+    /// # Input shape
+    /// [batch, in_channels, length]
+    ///
+    /// # Output shape
+    /// [batch, out_channels, output_length]
+    ///
+    /// # Returns
+    /// A tensor with dynamic dimensions since the shape changes.
+    pub fn conv1d(self, kernel: Self, stride: usize) -> Tensor<T, Dyn> {
+        let result_inner = TensorBase::from_binary_op_with_grad(
+            self.inner,
+            kernel.inner,
+            move |input, k| input.conv1d(k, stride),
+            Rc::new(Conv1dBackward { stride }),
+        );
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// 2D Convolution operation
+    ///
+    /// # Arguments
+    /// * `kernel` - Kernel weights with shape [out_channels, in_channels, kernel_h, kernel_w]
+    /// * `stride` - Stride for the convolution
+    ///
+    /// # Input shape
+    /// [batch, in_channels, height, width]
+    ///
+    /// # Output shape
+    /// [batch, out_channels, out_h, out_w]
+    ///
+    /// # Returns
+    /// A tensor with dynamic dimensions since the shape changes.
+    pub fn conv2d(self, kernel: Self, stride: usize) -> Tensor<T, Dyn> {
+        let result_inner = TensorBase::from_binary_op_with_grad(
+            self.inner,
+            kernel.inner,
+            move |input, k| input.conv2d(k, stride),
+            Rc::new(Conv2dBackward { stride }),
+        );
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// 3D Convolution operation
+    ///
+    /// # Arguments
+    /// * `kernel` - Kernel weights with shape [out_channels, in_channels, kernel_d, kernel_h, kernel_w]
+    /// * `stride` - Stride for the convolution
+    ///
+    /// # Input shape
+    /// [batch, in_channels, depth, height, width]
+    ///
+    /// # Output shape
+    /// [batch, out_channels, out_d, out_h, out_w]
+    ///
+    /// # Returns
+    /// A tensor with dynamic dimensions since the shape changes.
+    pub fn conv3d(self, kernel: Self, stride: usize) -> Tensor<T, Dyn> {
+        let result_inner = TensorBase::from_binary_op_with_grad(
+            self.inner,
+            kernel.inner,
+            move |input, k| input.conv3d(k, stride),
+            Rc::new(Conv3dBackward { stride }),
         );
         Tensor {
             inner: result_inner,
