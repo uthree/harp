@@ -11,6 +11,7 @@ pub enum DType {
     F32, // float
     Usize, // size_t
     Isize, // ssize_t
+    Bool,  // boolean
     Void,
 
     Ptr(Box<Self>),        // pointer
@@ -23,6 +24,7 @@ impl fmt::Display for DType {
             DType::F32 => write!(f, "F32"),
             DType::Usize => write!(f, "Usize"),
             DType::Isize => write!(f, "Isize"),
+            DType::Bool => write!(f, "Bool"),
             DType::Void => write!(f, "Void"),
             DType::Ptr(inner) => write!(f, "Ptr<{}>", inner),
             DType::Vec(inner, size) => write!(f, "Vec<{}, {}>", inner, size),
@@ -35,6 +37,7 @@ pub enum ConstLiteral {
     F32(f32),
     Usize(usize),
     Isize(isize),
+    Bool(bool),
 }
 
 // f32はEqを実装していないので手動でEqとHashを実装
@@ -54,6 +57,10 @@ impl std::hash::Hash for ConstLiteral {
             ConstLiteral::Isize(i) => {
                 2u8.hash(state);
                 i.hash(state);
+            }
+            ConstLiteral::Bool(b) => {
+                3u8.hash(state);
+                b.hash(state);
             }
         }
     }
@@ -96,6 +103,17 @@ pub enum AstNode {
     CallFunction {
         name: String,
         args: Vec<Self>,
+    },
+
+    // comparison ops (return Bool)
+    LessThan(Box<Self>, Box<Self>), // x < y
+    Eq(Box<Self>, Box<Self>),       // x == y
+
+    // conditional selection
+    Select {
+        cond: Box<Self>,      // Bool型の条件
+        true_val: Box<Self>,  // 条件が真の場合の値
+        false_val: Box<Self>, // 条件が偽の場合の値
     },
 
     // bitwise ops
@@ -195,7 +213,7 @@ macro_rules! impl_from_num_for_astnode {
         )*
     };
 }
-impl_from_num_for_astnode!((usize, Usize), (isize, Isize), (f32, F32));
+impl_from_num_for_astnode!((usize, Usize), (isize, Isize), (f32, F32), (bool, Bool));
 
 impl From<ConstLiteral> for AstNode {
     fn from(c: ConstLiteral) -> Self {
@@ -401,6 +419,29 @@ impl AstNode {
         AstNode::Max(Box::new(lhs.into()), Box::new(rhs.into()))
     }
 
+    /// Create a less-than comparison node (returns Bool)
+    pub fn less_than(lhs: impl Into<AstNode>, rhs: impl Into<AstNode>) -> Self {
+        AstNode::LessThan(Box::new(lhs.into()), Box::new(rhs.into()))
+    }
+
+    /// Create an equality comparison node (returns Bool)
+    pub fn eq(lhs: impl Into<AstNode>, rhs: impl Into<AstNode>) -> Self {
+        AstNode::Eq(Box::new(lhs.into()), Box::new(rhs.into()))
+    }
+
+    /// Create a select (conditional) node
+    pub fn select(
+        cond: impl Into<AstNode>,
+        true_val: impl Into<AstNode>,
+        false_val: impl Into<AstNode>,
+    ) -> Self {
+        AstNode::Select {
+            cond: Box::new(cond.into()),
+            true_val: Box::new(true_val.into()),
+            false_val: Box::new(false_val.into()),
+        }
+    }
+
     /// Create an assign node
     pub fn assign(var_name: impl Into<String>, value: impl Into<AstNode>) -> Self {
         AstNode::Assign(var_name.into(), Box::new(value.into()))
@@ -484,6 +525,8 @@ impl AstNode {
             AstNode::BitXor(l, r) => vec![l.as_ref(), r.as_ref()],
             AstNode::Shl(l, r) => vec![l.as_ref(), r.as_ref()],
             AstNode::Shr(l, r) => vec![l.as_ref(), r.as_ref()],
+            AstNode::LessThan(l, r) => vec![l.as_ref(), r.as_ref()],
+            AstNode::Eq(l, r) => vec![l.as_ref(), r.as_ref()],
             AstNode::Assign(_, r) => vec![r.as_ref()],
             AstNode::Store {
                 target,
@@ -498,6 +541,11 @@ impl AstNode {
             AstNode::Log2(n) => vec![n.as_ref()],
             AstNode::Exp2(n) => vec![n.as_ref()],
             AstNode::BitNot(n) => vec![n.as_ref()],
+            AstNode::Select {
+                cond,
+                true_val,
+                false_val,
+            } => vec![cond.as_ref(), true_val.as_ref(), false_val.as_ref()],
             AstNode::CallFunction { args, .. } => args.iter().collect(),
             AstNode::Range {
                 start,
@@ -605,6 +653,14 @@ impl AstNode {
                 Box::new(children_iter.next().unwrap()),
                 Box::new(children_iter.next().unwrap()),
             ),
+            AstNode::LessThan(_, _) => AstNode::LessThan(
+                Box::new(children_iter.next().unwrap()),
+                Box::new(children_iter.next().unwrap()),
+            ),
+            AstNode::Eq(_, _) => AstNode::Eq(
+                Box::new(children_iter.next().unwrap()),
+                Box::new(children_iter.next().unwrap()),
+            ),
             AstNode::Assign(var_name, _) => {
                 AstNode::Assign(var_name, Box::new(children_iter.next().unwrap()))
             }
@@ -612,6 +668,11 @@ impl AstNode {
                 target: Box::new(children_iter.next().unwrap()),
                 index: Box::new(children_iter.next().unwrap()),
                 value: Box::new(children_iter.next().unwrap()),
+            },
+            AstNode::Select { .. } => AstNode::Select {
+                cond: Box::new(children_iter.next().unwrap()),
+                true_val: Box::new(children_iter.next().unwrap()),
+                false_val: Box::new(children_iter.next().unwrap()),
             },
             AstNode::Deref(_) => AstNode::Deref(Box::new(children_iter.next().unwrap())),
             AstNode::Cast { dtype, .. } => AstNode::Cast {

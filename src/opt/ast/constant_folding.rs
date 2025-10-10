@@ -63,6 +63,13 @@ fn const_to_f32(lit: &ConstLiteral) -> f32 {
         ConstLiteral::F32(f) => *f,
         ConstLiteral::Isize(i) => *i as f32,
         ConstLiteral::Usize(u) => *u as f32,
+        ConstLiteral::Bool(b) => {
+            if *b {
+                1.0
+            } else {
+                0.0
+            }
+        }
     }
 }
 
@@ -92,6 +99,7 @@ where
                 }
             }
             ConstLiteral::F32(_) => AstNode::from(result),
+            ConstLiteral::Bool(_) => AstNode::from(result != 0.0),
         }
     } else {
         unreachable!("fold_binary_op called with non-const nodes")
@@ -123,6 +131,7 @@ where
                 }
             }
             ConstLiteral::F32(_) => AstNode::from(result),
+            ConstLiteral::Bool(_) => AstNode::from(result != 0.0),
         }
     } else {
         unreachable!("fold_unary_op called with non-const node")

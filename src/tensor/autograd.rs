@@ -232,7 +232,7 @@ impl GradFn for MaxBackward {
         let grad_expanded = grad_output
             .unsqueeze(self.axis)
             .expand(x.view.shape().to_vec());
-        let output_expanded = output.unsqueeze(self.axis).expand(x.view.shape().to_vec());
+        let _output_expanded = output.unsqueeze(self.axis).expand(x.view.shape().to_vec());
 
         // x == output の mask を作成
         // 注: 現在のGraphNodeでは直接比較演算がないため、

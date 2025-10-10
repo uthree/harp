@@ -241,7 +241,9 @@ impl AstRewriter {
             | AstNode::BitOr(ref mut l, ref mut r)
             | AstNode::BitXor(ref mut l, ref mut r)
             | AstNode::Shl(ref mut l, ref mut r)
-            | AstNode::Shr(ref mut l, ref mut r) => {
+            | AstNode::Shr(ref mut l, ref mut r)
+            | AstNode::LessThan(ref mut l, ref mut r)
+            | AstNode::Eq(ref mut l, ref mut r) => {
                 self.apply_once(l);
                 self.apply_once(r);
             }
@@ -269,6 +271,15 @@ impl AstRewriter {
                 self.apply_once(target);
                 self.apply_once(index);
                 self.apply_once(value);
+            }
+            AstNode::Select {
+                ref mut cond,
+                ref mut true_val,
+                ref mut false_val,
+            } => {
+                self.apply_once(cond);
+                self.apply_once(true_val);
+                self.apply_once(false_val);
             }
             AstNode::Range {
                 ref mut start,

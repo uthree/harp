@@ -54,6 +54,9 @@ impl CRenderer {
             // Shift operators
             AstNode::Shl(_, _) | AstNode::Shr(_, _) => 60,
 
+            // Comparison operators
+            AstNode::LessThan(_, _) | AstNode::Eq(_, _) => 55,
+
             // Bitwise AND
             AstNode::BitAnd(_, _) => 50,
 
@@ -62,6 +65,9 @@ impl CRenderer {
 
             // Bitwise OR
             AstNode::BitOr(_, _) => 30,
+
+            // Ternary/Select operator
+            AstNode::Select { .. } => 20,
 
             // Everything else (statements, etc.)
             _ => 0,
@@ -417,6 +423,41 @@ impl CRenderer {
                 };
                 write!(buffer, "({}){}", type_str, self.render_node(expr)).unwrap();
             }
+            AstNode::LessThan(lhs, rhs) => {
+                let prec = Self::precedence(node);
+                write!(
+                    buffer,
+                    "{} < {}",
+                    self.render_with_parens(lhs, prec, false),
+                    self.render_with_parens(rhs, prec, true)
+                )
+                .unwrap();
+            }
+            AstNode::Eq(lhs, rhs) => {
+                let prec = Self::precedence(node);
+                write!(
+                    buffer,
+                    "{} == {}",
+                    self.render_with_parens(lhs, prec, false),
+                    self.render_with_parens(rhs, prec, true)
+                )
+                .unwrap();
+            }
+            AstNode::Select {
+                cond,
+                true_val,
+                false_val,
+            } => {
+                // Render as C ternary operator: cond ? true_val : false_val
+                write!(
+                    buffer,
+                    "{} ? {} : {}",
+                    self.render_node(cond),
+                    self.render_node(true_val),
+                    self.render_node(false_val)
+                )
+                .unwrap();
+            }
             AstNode::CallFunction { name, args } => {
                 let args_str = args
                     .iter()
@@ -461,6 +502,7 @@ impl CRenderer {
             }
             Isize(v) => format!("{}", v),
             Usize(v) => format!("{}", v),
+            Bool(v) => format!("{}", if *v { 1 } else { 0 }),
         }
     }
 
@@ -469,6 +511,7 @@ impl CRenderer {
             DType::F32 => "float".to_string(),
             DType::Isize => "ssize_t".to_string(),
             DType::Usize => "size_t".to_string(),
+            DType::Bool => "int".to_string(),
             DType::Void => "void".to_string(),
             DType::Ptr(inner) => {
                 if let DType::Void = **inner {

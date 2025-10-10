@@ -12,6 +12,7 @@ impl LowererUtils {
             DType::F32 => "float",
             DType::Usize => "size_t",
             DType::Isize => "ssize_t",
+            DType::Bool => "int",
             DType::Void => "void",
             DType::Ptr(_) => "void*",
             DType::Vec(_, _) => "void*", // ベクトル型も一旦void*として扱う

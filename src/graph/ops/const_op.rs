@@ -8,6 +8,7 @@ impl GraphNode {
             ConstLiteral::F32(_) => DType::F32,
             ConstLiteral::Usize(_) => DType::Usize,
             ConstLiteral::Isize(_) => DType::Isize,
+            ConstLiteral::Bool(_) => DType::Bool,
         };
 
         // shape=[] (スカラー) のviewを作成
@@ -27,6 +28,10 @@ impl GraphNode {
     pub fn isize(value: isize) -> Self {
         Self::constant(ConstLiteral::Isize(value))
     }
+
+    pub fn bool(value: bool) -> Self {
+        Self::constant(ConstLiteral::Bool(value))
+    }
 }
 
 impl From<f32> for GraphNode {
@@ -44,6 +49,12 @@ impl From<usize> for GraphNode {
 impl From<isize> for GraphNode {
     fn from(value: isize) -> Self {
         GraphNode::isize(value)
+    }
+}
+
+impl From<bool> for GraphNode {
+    fn from(value: bool) -> Self {
+        GraphNode::bool(value)
     }
 }
 

@@ -27,6 +27,13 @@ impl OperationCostEstimator {
             ConstLiteral::F32(v) => v,
             ConstLiteral::Isize(i) => i as f32,
             ConstLiteral::Usize(u) => u as f32,
+            ConstLiteral::Bool(b) => {
+                if b {
+                    1.0
+                } else {
+                    0.0
+                }
+            }
         }
     }
 }

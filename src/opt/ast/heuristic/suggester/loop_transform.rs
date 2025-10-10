@@ -23,6 +23,13 @@ impl RewriteSuggester for LoopTransformSuggester {
                     crate::ast::ConstLiteral::Usize(u) => *u,
                     crate::ast::ConstLiteral::Isize(i) => *i as usize,
                     crate::ast::ConstLiteral::F32(f) => *f as usize,
+                    crate::ast::ConstLiteral::Bool(b) => {
+                        if *b {
+                            1
+                        } else {
+                            0
+                        }
+                    }
                 };
 
                 // Only unroll loops with iteration count <= 8
