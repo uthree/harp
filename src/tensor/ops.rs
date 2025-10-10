@@ -1,6 +1,6 @@
 use super::autograd::{
     AddBackward, CummaxBackward, CumprodBackward, CumsumBackward, GradFn, MaxBackward, MulBackward,
-    NegBackward, ProductBackward, RecipBackward, SumBackward, TensorMeta,
+    NegBackward, ProductBackward, RecipBackward, SlidingWindowBackward, SumBackward, TensorMeta,
 };
 use super::{Dimension, Dyn, Tensor, TensorBase, TensorType};
 use crate::graph::ops::{CumulativeOp, ReduceOp};
@@ -518,6 +518,43 @@ impl<T: TensorType, D: Dimension> Tensor<T, D> {
             self.inner,
             move |a| a.cumulative(CumulativeOp::Max, axis),
             Rc::new(CummaxBackward { axis }),
+        );
+        Tensor {
+            inner: result_inner,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Create a sliding window view for convolution operations.
+    ///
+    /// This operation adds a new dimension for sliding windows, transforming the shape.
+    /// For example, [B, C, L] with window_size=K, stride=S becomes [B, C, L', K]
+    /// where L' = (L - K) / S + 1.
+    ///
+    /// Returns a tensor with dynamic dimensions since the shape changes.
+    ///
+    /// # Arguments
+    /// * `dim` - The dimension along which to create sliding windows
+    /// * `window_size` - The size of each window
+    /// * `stride` - The stride between windows
+    ///
+    /// # Example
+    /// ```ignore
+    /// // For Conv1d: input [B, C_in, L], kernel [C_out, C_in, K]
+    /// let windowed = input.sliding_window(2, kernel_size, stride); // → [B, C_in, L', K]
+    /// // Then combine with kernel for convolution
+    /// ```
+    pub fn sliding_window(self, dim: usize, window_size: usize, stride: usize) -> Tensor<T, Dyn> {
+        assert!(dim < self.inner.ndim(), "dimension out of bounds");
+
+        let result_inner = TensorBase::from_unary_op_with_grad(
+            self.inner,
+            move |a| a.sliding_window(dim, window_size, stride),
+            Rc::new(SlidingWindowBackward {
+                dim,
+                window_size,
+                stride,
+            }),
         );
         Tensor {
             inner: result_inner,
