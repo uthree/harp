@@ -117,7 +117,7 @@ impl GraphNode {
             let out_channels = kernel_shape[0].clone();
             let kernel_size = kernel_shape[2].clone();
 
-            let windowed = self.sliding_window(2, kernel_size.clone(), stride.into());
+            let windowed = self.unfold(2, kernel_size.clone(), stride.into());
             let windowed_shape = windowed.view.shape().to_vec();
             let output_len = windowed_shape[2].clone();
 
@@ -192,8 +192,8 @@ impl GraphNode {
             ],
         );
 
-        // Apply sliding window: [B, G, C_in_per_group, L] -> [B, G, C_in_per_group, L', K]
-        let windowed = input_reshaped.sliding_window(3, kernel_size.clone(), stride.into());
+        // Apply unfold: [B, G, C_in_per_group, L] -> [B, G, C_in_per_group, L', K]
+        let windowed = input_reshaped.unfold(3, kernel_size.clone(), stride.into());
         let windowed_shape = windowed.view.shape().to_vec();
         let output_len = windowed_shape[3].clone();
 
@@ -270,12 +270,12 @@ impl GraphNode {
         let kernel_h = kernel_shape[2].clone();
         let kernel_w = kernel_shape[3].clone();
 
-        // Apply sliding window on height and width
+        // Apply unfold on height and width
         // [B, C_in, H, W] -> [B, C_in, H', W, Kh]
         let stride_expr = stride.into();
-        let windowed_h = self.sliding_window(2, kernel_h.clone(), stride_expr.clone());
+        let windowed_h = self.unfold(2, kernel_h.clone(), stride_expr.clone());
         // [B, C_in, H', W, Kh] -> [B, C_in, H', W', Kh, Kw]
-        let windowed_hw = windowed_h.sliding_window(3, kernel_w.clone(), stride_expr);
+        let windowed_hw = windowed_h.unfold(3, kernel_w.clone(), stride_expr);
         let windowed_shape = windowed_hw.view.shape().to_vec();
         let out_h = windowed_shape[2].clone();
         let out_w = windowed_shape[3].clone();
@@ -348,14 +348,14 @@ impl GraphNode {
         let kernel_h = kernel_shape[3].clone();
         let kernel_w = kernel_shape[4].clone();
 
-        // Apply sliding window on depth, height, and width
+        // Apply unfold on depth, height, and width
         // [B, C_in, D, H, W] -> [B, C_in, D', H, W, Kd]
         let stride_expr = stride.into();
-        let windowed_d = self.sliding_window(2, kernel_d.clone(), stride_expr.clone());
+        let windowed_d = self.unfold(2, kernel_d.clone(), stride_expr.clone());
         // [B, C_in, D', H, W, Kd] -> [B, C_in, D', H', W, Kd, Kh]
-        let windowed_dh = windowed_d.sliding_window(3, kernel_h.clone(), stride_expr.clone());
+        let windowed_dh = windowed_d.unfold(3, kernel_h.clone(), stride_expr.clone());
         // [B, C_in, D', H', W, Kd, Kh] -> [B, C_in, D', H', W', Kd, Kh, Kw]
-        let windowed_dhw = windowed_dh.sliding_window(4, kernel_w.clone(), stride_expr);
+        let windowed_dhw = windowed_dh.unfold(4, kernel_w.clone(), stride_expr);
         let windowed_shape = windowed_dhw.view.shape().to_vec();
         let out_d = windowed_shape[2].clone();
         let out_h = windowed_shape[3].clone();

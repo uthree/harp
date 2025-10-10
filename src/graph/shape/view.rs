@@ -193,14 +193,16 @@ impl View {
         }
     }
 
-    /// Create a sliding window view for convolution operations.
+    /// Unfold operation: extract sliding local blocks from a tensor (similar to im2col).
     ///
     /// This operation transforms a view by adding a new dimension for sliding windows.
     /// For example, [B, C, L] with window_size=K, stride=S becomes [B, C, L', K]
     /// where L' = (L - K) / S + 1.
     ///
+    /// This is the inverse operation of `fold`, which combines overlapping blocks.
+    ///
     /// This is useful for implementing convolution via matrix multiplication:
-    /// 1. Apply sliding_window to input: [B, C, L] → [B, C, L', K]
+    /// 1. Apply unfold to input: [B, C, L] → [B, C, L', K]
     /// 2. Reshape kernel: [Co, Ci, K] → [Co, Ci, 1, K]
     /// 3. Multiply: [B, C, L', K] * [Co, Ci, 1, K] → [B, Co, Ci, L', K]
     /// 4. Sum over [Ci, K]: → [B, Co, L']
@@ -216,14 +218,9 @@ impl View {
     /// // window_size=3, stride=1
     /// // Output: [2, 3, 8, 3] (batch=2, channels=3, output_length=8, window_size=3)
     /// let view = View::new_contiguous(vec![2, 3, 10]);
-    /// let windowed = view.sliding_window(2, 3, 1);
+    /// let unfolded = view.unfold(2, 3, 1);
     /// ```
-    pub fn sliding_window<E: Into<Expr> + Clone>(
-        self,
-        dim: usize,
-        window_size: E,
-        stride: E,
-    ) -> Self {
+    pub fn unfold<E: Into<Expr> + Clone>(self, dim: usize, window_size: E, stride: E) -> Self {
         match self {
             View::Linear {
                 shape,
@@ -517,13 +514,13 @@ mod tests {
     }
 
     #[test]
-    fn test_sliding_window_basic() {
+    fn test_unfold_basic() {
         // Input: [2, 3, 10] (B=2, C=3, L=10)
         // window_size=3, stride=1
         // Output: [2, 3, 8, 3] (B=2, C=3, L'=8, K=3)
         // where L' = (10 - 3) / 1 + 1 = 8
         let view = View::new_contiguous(vec![2, 3, 10]);
-        let windowed = view.sliding_window(2, 3, 1);
+        let windowed = view.unfold(2, 3, 1);
         let View::Linear {
             shape,
             strides,
@@ -560,13 +557,13 @@ mod tests {
     }
 
     #[test]
-    fn test_sliding_window_with_stride() {
+    fn test_unfold_with_stride() {
         // Input: [1, 1, 10] (B=1, C=1, L=10)
         // window_size=3, stride=2
         // Output: [1, 1, 4, 3] (B=1, C=1, L'=4, K=3)
         // where L' = (10 - 3) / 2 + 1 = 4
         let view = View::new_contiguous(vec![1, 1, 10]);
-        let windowed = view.sliding_window(2, 3, 2);
+        let windowed = view.unfold(2, 3, 2);
         let View::Linear {
             shape,
             strides,
@@ -604,7 +601,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "dimension out of bounds")]
-    fn test_sliding_window_invalid_dim() {
-        View::new_contiguous(vec![2, 3]).sliding_window(3, 2, 1);
+    fn test_unfold_invalid_dim() {
+        View::new_contiguous(vec![2, 3]).unfold(3, 2, 1);
     }
 }

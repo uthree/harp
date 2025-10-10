@@ -344,6 +344,78 @@ impl GradFn for CummaxBackward {
     }
 }
 
+/// Gradient function for unfold
+#[derive(Debug)]
+pub struct UnfoldBackward {
+    pub dim: usize,
+    pub window_size: usize,
+    pub stride: usize,
+}
+
+/// Gradient function for fold
+#[derive(Debug)]
+pub struct FoldBackward {
+    pub dim: usize,
+    pub window_size: usize,
+    pub stride: usize,
+}
+
+impl GradFn for UnfoldBackward {
+    fn backward(&self, grad_output: GraphNode, inputs: &[GraphNode]) -> Vec<Option<GraphNode>> {
+        // For z = unfold(x, dim, window_size, stride):
+        // unfoldは値を複製したViewを作成する操作なので、
+        // 逆伝搬では複製された値の勾配を元の位置に加算で縮約する必要がある
+        //
+        // 入力: [B, C, L]
+        // 出力: [B, C, L', K] where L' = (L - K) / S + 1
+        // 勾配: [B, C, L', K] -> [B, C, L]
+        //
+        // これはfold操作で実現できる:
+        // grad_output[..., i, k] は入力の位置 i*stride + k に対応し、
+        // foldがこれらを適切に加算してくれる
+
+        assert_eq!(inputs.len(), 1, "UnfoldBackward expects 1 input");
+        let x = &inputs[0];
+        let input_shape = x.view.shape();
+        let output_size = match &input_shape[self.dim] {
+            crate::graph::shape::Expr::Const(c) => *c as usize,
+            _ => panic!("output size must be constant"),
+        };
+
+        // foldを使って元の形状に戻す
+        let grad_x = grad_output.fold(self.dim, self.window_size, self.stride, output_size);
+
+        vec![Some(grad_x)]
+    }
+
+    fn name(&self) -> &'static str {
+        "UnfoldBackward"
+    }
+}
+
+impl GradFn for FoldBackward {
+    fn backward(&self, grad_output: GraphNode, _inputs: &[GraphNode]) -> Vec<Option<GraphNode>> {
+        // For z = fold(x, dim, window_size, stride, output_size):
+        // foldは重複する位置の値を加算する操作なので、
+        // 逆伝搬ではunfoldを使って勾配を各ウィンドウ位置に複製する
+        //
+        // 入力: [B, C, L', K]
+        // 出力: [B, C, L]
+        // 勾配: [B, C, L] -> [B, C, L', K]
+        //
+        // これはunfold操作で実現できる:
+        // grad_output[..., i*stride + k] は grad_input[..., i, k] に対応
+
+        let grad_x = grad_output.unfold(self.dim, self.window_size, self.stride);
+
+        vec![Some(grad_x)]
+    }
+
+    fn name(&self) -> &'static str {
+        "FoldBackward"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

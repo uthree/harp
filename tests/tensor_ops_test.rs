@@ -329,4 +329,101 @@ mod tests {
         let sum_result: TensorDyn<f32> = a.sum(1);
         assert_eq!(sum_result.shape(), &[2]);
     }
+
+    #[test]
+    fn test_unfold_basic() {
+        use harp::tensor::{Tensor3, TensorDyn};
+
+        // Create a 3D tensor [B, C, L] = [2, 3, 10]
+        let mut data = vec![];
+        for i in 0..60 {
+            data.push(i as f32);
+        }
+        let a: Tensor3<f32> = Tensor::from_vec(data, &[2, 3, 10], "c");
+
+        // Apply unfold with window_size=3, stride=1
+        // Expected output shape: [2, 3, 8, 3]
+        // where 8 = (10 - 3) / 1 + 1
+        let unfolded: TensorDyn<f32> = a.unfold(2, 3, 1);
+
+        assert_eq!(unfolded.shape(), &[2, 3, 8, 3]);
+        assert_eq!(unfolded.ndim(), 4);
+    }
+
+    #[test]
+    fn test_unfold_with_stride() {
+        use harp::tensor::{Tensor3, TensorDyn};
+
+        // Create a 3D tensor [B, C, L] = [1, 1, 10]
+        let data: Vec<f32> = (0..10).map(|i| i as f32).collect();
+        let a: Tensor3<f32> = Tensor::from_vec(data, &[1, 1, 10], "c");
+
+        // Apply unfold with window_size=3, stride=2
+        // Expected output shape: [1, 1, 4, 3]
+        // where 4 = (10 - 3) / 2 + 1
+        let unfolded: TensorDyn<f32> = a.unfold(2, 3, 2);
+
+        assert_eq!(unfolded.shape(), &[1, 1, 4, 3]);
+        assert_eq!(unfolded.ndim(), 4);
+    }
+
+    #[test]
+    #[should_panic(expected = "dimension out of bounds")]
+    fn test_unfold_invalid_dim() {
+        let a: Tensor1<f32> = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0], &[5], "c");
+        let _ = a.unfold(1, 2, 1); // Should panic, 1D tensor only has axis 0
+    }
+
+    #[test]
+    fn test_unfold_with_grad() {
+        use harp::tensor::{Tensor3, TensorDyn};
+
+        // Create a 3D tensor with gradient tracking
+        let data: Vec<f32> = (0..30).map(|i| i as f32).collect();
+        let a: Tensor3<f32> = Tensor::from_vec(data, &[1, 1, 30], "c").enable_grad();
+
+        // Apply unfold
+        let unfolded: TensorDyn<f32> = a.unfold(2, 5, 1);
+
+        // Check shape
+        // Expected: [1, 1, 26, 5] where 26 = (30 - 5) / 1 + 1
+        assert_eq!(unfolded.shape(), &[1, 1, 26, 5]);
+
+        // Check that gradient tracking is enabled
+        assert!(unfolded.is_requires_grad());
+    }
+
+    #[test]
+    fn test_fold_basic() {
+        use harp::tensor::{Tensor2, TensorDyn};
+
+        // Create a tensor [L', K] = [4, 3]
+        let data: Vec<f32> = (0..12).map(|i| i as f32).collect();
+        let a: Tensor2<f32> = Tensor::from_vec(data, &[4, 3], "c");
+
+        // Apply fold with window_size=3, stride=2, output_size=10
+        // For stride=2: output[i*2 + k] += input[i, k]
+        // Expected output shape: [10]
+        let folded: TensorDyn<f32> = a.fold(0, 3, 2, 10);
+
+        assert_eq!(folded.shape(), &[10]);
+        assert_eq!(folded.ndim(), 1);
+    }
+
+    #[test]
+    fn test_unfold_fold_roundtrip() {
+        use harp::tensor::{Tensor1, TensorDyn};
+
+        // Create a 1D tensor [10]
+        let data: Vec<f32> = (0..10).map(|i| i as f32).collect();
+        let original: Tensor1<f32> = Tensor::from_vec(data.clone(), &[10], "c");
+
+        // Unfold: [10] -> [4, 3] with window_size=3, stride=2
+        let unfolded: TensorDyn<f32> = original.unfold(0, 3, 2);
+        assert_eq!(unfolded.shape(), &[4, 3]);
+
+        // Fold back: [4, 3] -> [10]
+        let folded: TensorDyn<f32> = unfolded.fold(0, 3, 2, 10);
+        assert_eq!(folded.shape(), &[10]);
+    }
 }

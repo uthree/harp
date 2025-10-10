@@ -52,7 +52,9 @@ impl GraphNode {
             GraphOp::View(input) | GraphOp::Contiguous(input) | GraphOp::Cast(input, _) => {
                 vec![input.clone()]
             }
-            GraphOp::Reduce(_, _, input) | GraphOp::Cumulative(_, _, input) => {
+            GraphOp::Reduce(_, _, input)
+            | GraphOp::Cumulative(_, _, input)
+            | GraphOp::Fold(_, _, _, input) => {
                 vec![input.clone()]
             }
             GraphOp::Elementwise(op) => {
@@ -166,6 +168,7 @@ pub enum GraphOp {
     View(GraphNode),                                 // view変更操作
     Contiguous(GraphNode), // ContiguousなViewに並べ直す（入力のメモリレイアウトを連続に変換）
     Cast(GraphNode, DType), // 型変換: (input, target_dtype)
+    Fold(usize, usize, usize, GraphNode), // Fold operation (col2im): (dim, window_size, stride, input)
     // 融合済みの演算子
     FusedElementwise(AstNode, Vec<GraphNode>), // Capture(n)がn番目のGraphNodeに対応する
     FusedReduce(ReduceOp, Vec<usize>, GraphNode), // 複数の軸でReduceする
@@ -184,6 +187,13 @@ impl fmt::Display for GraphOp {
             GraphOp::View(_) => write!(f, "View"),
             GraphOp::Contiguous(_) => write!(f, "Contiguous"),
             GraphOp::Cast(_, dtype) => write!(f, "Cast({})", dtype),
+            GraphOp::Fold(dim, window_size, stride, _) => {
+                write!(
+                    f,
+                    "Fold[dim={}, win={}, stride={}]",
+                    dim, window_size, stride
+                )
+            }
             GraphOp::FusedElementwise(_, _) => write!(f, "FusedElementwise"),
             GraphOp::FusedReduce(op, axes, _) => write!(f, "Fused{}[{:?}]", op, axes),
             GraphOp::FusedElementwiseReduce(_, _, op, axes) => {
