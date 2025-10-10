@@ -169,10 +169,18 @@ pub struct TensorBase {
 /// // Dynamic dimension (runtime checked)
 /// let dyn_tensor: Tensor<f32, Dyn> = Tensor::from_vec(vec![1.0], &[1], "c");
 /// ```
-#[derive(Clone)]
 pub struct Tensor<T: TensorType, D: Dimension = Dyn> {
     inner: TensorBase,
     _phantom: PhantomData<(T, D)>,
+}
+
+impl<T: TensorType, D: Dimension> Clone for Tensor<T, D> {
+    fn clone(&self) -> Self {
+        Tensor {
+            inner: self.inner.clone(),
+            _phantom: PhantomData,
+        }
+    }
 }
 
 impl TensorBase {

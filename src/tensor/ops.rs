@@ -1,6 +1,4 @@
-use super::autograd::{
-    AddBackward, DivBackward, GradFn, MulBackward, NegBackward, SubBackward, TensorMeta,
-};
+use super::autograd::{AddBackward, GradFn, MulBackward, NegBackward, RecipBackward, TensorMeta};
 use super::{Dimension, Dyn, Tensor, TensorBase, TensorType};
 use crate::graph::ops::{CumulativeOp, ReduceOp};
 use crate::graph::{Graph, GraphNode, ReduceOps};
@@ -236,16 +234,8 @@ impl<T: TensorType, D: Dimension> Sub for Tensor<T, D> {
 
     fn sub(self, rhs: Self) -> Self::Output {
         // Implement as add(a, neg(b))
-        let result_inner = TensorBase::from_binary_op_with_grad(
-            self.inner,
-            rhs.inner,
-            |a, b| a + (-b),
-            Rc::new(SubBackward),
-        );
-        Tensor {
-            inner: result_inner,
-            _phantom: PhantomData,
-        }
+        // This automatically creates the correct gradient graph: AddBackward + NegBackward
+        self + (-rhs)
     }
 }
 
@@ -253,18 +243,9 @@ impl<T: TensorType, D: Dimension> Sub for &Tensor<T, D> {
     type Output = Tensor<T, D>;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        let lhs_clone = self.inner.clone();
-        let rhs_clone = rhs.inner.clone();
-        let result_inner = TensorBase::from_binary_op_with_grad(
-            lhs_clone,
-            rhs_clone,
-            |a, b| a + (-b),
-            Rc::new(SubBackward),
-        );
-        Tensor {
-            inner: result_inner,
-            _phantom: PhantomData,
-        }
+        // Implement as add(a, neg(b))
+        // This automatically creates the correct gradient graph: AddBackward + NegBackward
+        self.clone() - rhs.clone()
     }
 }
 
@@ -309,16 +290,8 @@ impl<T: TensorType, D: Dimension> Div for Tensor<T, D> {
 
     fn div(self, rhs: Self) -> Self::Output {
         // Implement as mul(a, recip(b))
-        let result_inner = TensorBase::from_binary_op_with_grad(
-            self.inner,
-            rhs.inner,
-            |a, b| a * b.recip(),
-            Rc::new(DivBackward),
-        );
-        Tensor {
-            inner: result_inner,
-            _phantom: PhantomData,
-        }
+        // This automatically creates the correct gradient graph: MulBackward + RecipBackward
+        self * rhs.recip()
     }
 }
 
@@ -326,18 +299,9 @@ impl<T: TensorType, D: Dimension> Div for &Tensor<T, D> {
     type Output = Tensor<T, D>;
 
     fn div(self, rhs: Self) -> Self::Output {
-        let lhs_clone = self.inner.clone();
-        let rhs_clone = rhs.inner.clone();
-        let result_inner = TensorBase::from_binary_op_with_grad(
-            lhs_clone,
-            rhs_clone,
-            |a, b| a * b.recip(),
-            Rc::new(DivBackward),
-        );
-        Tensor {
-            inner: result_inner,
-            _phantom: PhantomData,
-        }
+        // Implement as mul(a, recip(b))
+        // This automatically creates the correct gradient graph: MulBackward + RecipBackward
+        self.clone() / rhs.clone()
     }
 }
 
@@ -371,7 +335,11 @@ impl<T: TensorType, D: Dimension> Neg for &Tensor<T, D> {
 impl<T: TensorType, D: Dimension> Tensor<T, D> {
     /// Compute the reciprocal (1/x) of each element.
     pub fn recip(self) -> Self {
-        let result_inner = TensorBase::from_unary_op(self.inner, |a| a.recip());
+        let result_inner = TensorBase::from_unary_op_with_grad(
+            self.inner,
+            |a| a.recip(),
+            Rc::new(RecipBackward),
+        );
         Tensor {
             inner: result_inner,
             _phantom: PhantomData,

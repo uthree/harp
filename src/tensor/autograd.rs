@@ -85,23 +85,6 @@ impl GradFn for AddBackward {
     }
 }
 
-/// Gradient function for subtraction
-#[derive(Debug)]
-pub struct SubBackward;
-
-impl GradFn for SubBackward {
-    fn backward(&self, grad_output: GraphNode, _inputs: &[GraphNode]) -> Vec<Option<GraphNode>> {
-        // For z = x - y:
-        // dL/dx = dL/dz * dz/dx = dL/dz * 1 = dL/dz
-        // dL/dy = dL/dz * dz/dy = dL/dz * (-1) = -dL/dz
-        vec![Some(grad_output.clone()), Some(-grad_output)]
-    }
-
-    fn name(&self) -> &'static str {
-        "SubBackward"
-    }
-}
-
 /// Gradient function for multiplication
 #[derive(Debug)]
 pub struct MulBackward;
@@ -123,30 +106,6 @@ impl GradFn for MulBackward {
 
     fn name(&self) -> &'static str {
         "MulBackward"
-    }
-}
-
-/// Gradient function for division
-#[derive(Debug)]
-pub struct DivBackward;
-
-impl GradFn for DivBackward {
-    fn backward(&self, grad_output: GraphNode, inputs: &[GraphNode]) -> Vec<Option<GraphNode>> {
-        // For z = x / y:
-        // dL/dx = dL/dz * dz/dx = dL/dz * (1/y)
-        // dL/dy = dL/dz * dz/dy = dL/dz * (-x/y^2)
-        assert_eq!(inputs.len(), 2, "DivBackward expects 2 inputs");
-        let x = &inputs[0];
-        let y = &inputs[1];
-
-        let grad_x = grad_output.clone() * y.clone().recip();
-        let grad_y = (-grad_output) * x.clone() * (y.clone() * y.clone()).recip();
-
-        vec![Some(grad_x), Some(grad_y)]
-    }
-
-    fn name(&self) -> &'static str {
-        "DivBackward"
     }
 }
 
