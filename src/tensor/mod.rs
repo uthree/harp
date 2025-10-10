@@ -1,6 +1,8 @@
+pub mod autograd;
 pub mod backend;
 pub mod ops;
 
+pub use autograd::{GradFn, TensorId, TensorMeta};
 pub use backend::validate_backend;
 
 use crate::ast::DType;
@@ -126,7 +128,7 @@ static TENSOR_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 #[derive(Clone)]
 pub struct TensorBase {
     /// Unique ID for this tensor
-    id: usize,
+    id: TensorId,
     /// Actual data (Some if evaluated, None if lazy)
     data: Option<TensorData>,
     /// Computation graph node (Some if part of computation graph)
@@ -143,6 +145,8 @@ pub struct TensorBase {
     requires_grad: bool,
     /// Gradient tensor (computed during backward pass)
     grad: Option<Box<TensorBase>>,
+    /// Autograd metadata (for backward pass)
+    autograd_meta: Option<TensorMeta>,
 }
 
 /// A tensor with optional compile-time type and dimension checking.
@@ -197,6 +201,7 @@ impl TensorBase {
             shape: shape.to_vec(),
             requires_grad: false,
             grad: None,
+            autograd_meta: None,
         }
     }
 
@@ -226,6 +231,7 @@ impl TensorBase {
             shape,
             requires_grad: false,
             grad: None,
+            autograd_meta: None,
         }
     }
 
@@ -315,14 +321,105 @@ impl TensorBase {
     /// Perform backward pass to compute gradients.
     /// This should be called on the final output tensor (typically a scalar loss).
     pub fn backward(&mut self) {
-        // Initialize gradient to ones for the output tensor
-        let ones = vec![1.0f32; self.numel()];
-        let grad = TensorBase::from_vec(ones, &self.shape, self.backend_name.clone());
+        use std::collections::{HashMap, HashSet, VecDeque};
 
-        self.grad = Some(Box::new(grad));
+        // Create initial gradient (ones for the output)
+        let grad_graph = self
+            .graph
+            .as_ref()
+            .expect("No graph for backward pass")
+            .clone();
 
-        // TODO: Implement full backward pass through computation graph
-        // For now, this is a placeholder that only sets the gradient of the output
+        // Create gradient node with same shape as output
+        let mut grad_graph_mut = grad_graph.clone();
+        let shape_exprs: Vec<_> = self.shape.iter().map(|&s| (s as isize).into()).collect();
+        let grad_output_node = grad_graph_mut.input(self.dtype.clone(), shape_exprs);
+
+        // Map from tensor ID to gradient GraphNode
+        let mut gradients: HashMap<TensorId, GraphNode> = HashMap::new();
+        gradients.insert(self.id, grad_output_node.clone());
+
+        // Collect all tensors in the computation graph via topological sort
+        let mut visited = HashSet::new();
+        let mut topo_order = Vec::new();
+        let mut queue = VecDeque::new();
+        queue.push_back((self.id, self.autograd_meta.clone()));
+
+        // Build topological order (simple BFS-based approach)
+        while let Some((tensor_id, meta_opt)) = queue.pop_front() {
+            if visited.contains(&tensor_id) {
+                continue;
+            }
+            visited.insert(tensor_id);
+
+            if let Some(meta) = meta_opt {
+                topo_order.push((tensor_id, meta.clone()));
+
+                // Add inputs to queue
+                for (input_id, _) in &meta.inputs {
+                    if !visited.contains(input_id) {
+                        // We don't have direct access to input tensors' metadata here
+                        // This is a limitation we'll address in a future iteration
+                        queue.push_back((*input_id, None));
+                    }
+                }
+            }
+        }
+
+        // Reverse to get correct backprop order (outputs first, then inputs)
+        topo_order.reverse();
+
+        // Compute gradients in reverse topological order
+        for (_tensor_id, meta) in topo_order {
+            if let Some(grad_fn) = &meta.grad_fn {
+                // Get gradient for this tensor's output
+                let tensor_node = &meta.graph_node;
+
+                // For simplicity in this initial implementation, we'll create a temporary gradient
+                // In a full implementation, this would look up the actual accumulated gradient
+                let mut temp_grad_graph = grad_graph_mut.clone();
+                let out_shape_exprs: Vec<_> = tensor_node.view.shape().to_vec();
+                let grad_out = temp_grad_graph.input(tensor_node.dtype.clone(), out_shape_exprs);
+
+                // Compute gradients for inputs
+                let input_nodes: Vec<GraphNode> =
+                    meta.inputs.iter().map(|(_, node)| node.clone()).collect();
+                let input_grads = grad_fn.backward(grad_out, &input_nodes);
+
+                // Accumulate gradients for each input
+                for (i, grad_opt) in input_grads.iter().enumerate() {
+                    if let Some(grad) = grad_opt {
+                        let input_id = meta.inputs[i].0;
+
+                        if let Some(existing_grad) = gradients.get(&input_id) {
+                            // Add to existing gradient
+                            let new_grad = existing_grad.clone() + grad.clone();
+                            gradients.insert(input_id, new_grad);
+                        } else {
+                            gradients.insert(input_id, grad.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        // For this tensor (the output), store the gradient
+        // In a full implementation, we would store gradients for all tensors
+        if let Some(grad_node) = gradients.get(&self.id) {
+            // Create a tensor from the gradient graph node
+            let grad_tensor = TensorBase::from_graph_node(
+                grad_node.clone(),
+                grad_graph_mut,
+                self.backend_name.clone(),
+            );
+            self.grad = Some(Box::new(grad_tensor));
+        }
+
+        // NOTE: This is a simplified implementation. A complete implementation would:
+        // 1. Track all tensors in a global computation graph
+        // 2. Properly accumulate gradients across multiple paths
+        // 3. Handle retain_graph and create_graph flags
+        // 4. Support higher-order derivatives
     }
 
     fn infer_dtype<T: 'static>() -> DType {

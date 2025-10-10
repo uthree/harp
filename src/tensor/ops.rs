@@ -1,9 +1,13 @@
+use super::autograd::{
+    AddBackward, DivBackward, GradFn, MulBackward, NegBackward, SubBackward, TensorMeta,
+};
 use super::{Dimension, Dyn, Tensor, TensorBase, TensorType};
 use crate::graph::ops::{CumulativeOp, ReduceOp};
 use crate::graph::{Graph, GraphNode, ReduceOps};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::ops::{Add, Div, Mul, Neg, Sub};
+use std::rc::Rc;
 
 /// Backward function for automatic differentiation
 type BackwardFn = Box<dyn FnOnce(&mut GradientContext)>;
@@ -103,11 +107,51 @@ impl TensorBase {
         let lhs_node = lhs.ensure_graph_node();
         let rhs_node = rhs.ensure_graph_node();
 
-        let result_node = op(lhs_node, rhs_node);
+        let result_node = op(lhs_node.clone(), rhs_node.clone());
         let graph = lhs.graph.take().unwrap();
         let backend_name = lhs.backend_name.clone();
 
         TensorBase::from_graph_node(result_node, graph, backend_name)
+    }
+
+    /// Create a tensor from a binary operation with gradient tracking.
+    fn from_binary_op_with_grad<F>(
+        mut lhs: Self,
+        mut rhs: Self,
+        op: F,
+        grad_fn: Rc<dyn GradFn>,
+    ) -> Self
+    where
+        F: FnOnce(GraphNode, GraphNode) -> GraphNode,
+    {
+        assert_eq!(
+            lhs.dtype, rhs.dtype,
+            "Data types must match for binary operations"
+        );
+        assert_eq!(
+            lhs.backend_name, rhs.backend_name,
+            "Backend must match for binary operations"
+        );
+
+        let lhs_node = lhs.ensure_graph_node();
+        let rhs_node = rhs.ensure_graph_node();
+        let lhs_id = lhs.id;
+        let rhs_id = rhs.id;
+
+        let result_node = op(lhs_node.clone(), rhs_node.clone());
+        let graph = lhs.graph.take().unwrap();
+        let backend_name = lhs.backend_name.clone();
+
+        let mut result = TensorBase::from_graph_node(result_node.clone(), graph, backend_name);
+
+        // Create autograd metadata if either input requires grad
+        if lhs.requires_grad || rhs.requires_grad {
+            let inputs = vec![(lhs_id, lhs_node), (rhs_id, rhs_node)];
+            result.autograd_meta = Some(TensorMeta::non_leaf(result_node, grad_fn, inputs));
+            result.requires_grad = true;
+        }
+
+        result
     }
 
     /// Create a tensor from a unary operation.
@@ -122,6 +166,31 @@ impl TensorBase {
 
         TensorBase::from_graph_node(result_node, graph, backend_name)
     }
+
+    /// Create a tensor from a unary operation with gradient tracking.
+    fn from_unary_op_with_grad<F>(mut self, op: F, grad_fn: Rc<dyn GradFn>) -> Self
+    where
+        F: FnOnce(GraphNode) -> GraphNode,
+    {
+        let input_node = self.ensure_graph_node();
+        let input_id = self.id;
+        let requires_grad = self.requires_grad;
+
+        let result_node = op(input_node.clone());
+        let graph = self.graph.take().unwrap();
+        let backend_name = self.backend_name.clone();
+
+        let mut result = TensorBase::from_graph_node(result_node.clone(), graph, backend_name);
+
+        // Create autograd metadata if input requires grad
+        if requires_grad {
+            let inputs = vec![(input_id, input_node)];
+            result.autograd_meta = Some(TensorMeta::non_leaf(result_node, grad_fn, inputs));
+            result.requires_grad = true;
+        }
+
+        result
+    }
 }
 
 // Arithmetic operators for Tensor<T, D>
@@ -130,7 +199,12 @@ impl<T: TensorType, D: Dimension> Add for Tensor<T, D> {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
-        let result_inner = TensorBase::from_binary_op(self.inner, rhs.inner, |a, b| a + b);
+        let result_inner = TensorBase::from_binary_op_with_grad(
+            self.inner,
+            rhs.inner,
+            |a, b| a + b,
+            Rc::new(AddBackward),
+        );
         Tensor {
             inner: result_inner,
             _phantom: PhantomData,
@@ -144,7 +218,12 @@ impl<T: TensorType, D: Dimension> Add for &Tensor<T, D> {
     fn add(self, rhs: Self) -> Self::Output {
         let lhs_clone = self.inner.clone();
         let rhs_clone = rhs.inner.clone();
-        let result_inner = TensorBase::from_binary_op(lhs_clone, rhs_clone, |a, b| a + b);
+        let result_inner = TensorBase::from_binary_op_with_grad(
+            lhs_clone,
+            rhs_clone,
+            |a, b| a + b,
+            Rc::new(AddBackward),
+        );
         Tensor {
             inner: result_inner,
             _phantom: PhantomData,
@@ -157,7 +236,12 @@ impl<T: TensorType, D: Dimension> Sub for Tensor<T, D> {
 
     fn sub(self, rhs: Self) -> Self::Output {
         // Implement as add(a, neg(b))
-        let result_inner = TensorBase::from_binary_op(self.inner, rhs.inner, |a, b| a + (-b));
+        let result_inner = TensorBase::from_binary_op_with_grad(
+            self.inner,
+            rhs.inner,
+            |a, b| a + (-b),
+            Rc::new(SubBackward),
+        );
         Tensor {
             inner: result_inner,
             _phantom: PhantomData,
@@ -171,7 +255,12 @@ impl<T: TensorType, D: Dimension> Sub for &Tensor<T, D> {
     fn sub(self, rhs: Self) -> Self::Output {
         let lhs_clone = self.inner.clone();
         let rhs_clone = rhs.inner.clone();
-        let result_inner = TensorBase::from_binary_op(lhs_clone, rhs_clone, |a, b| a + (-b));
+        let result_inner = TensorBase::from_binary_op_with_grad(
+            lhs_clone,
+            rhs_clone,
+            |a, b| a + (-b),
+            Rc::new(SubBackward),
+        );
         Tensor {
             inner: result_inner,
             _phantom: PhantomData,
@@ -183,7 +272,12 @@ impl<T: TensorType, D: Dimension> Mul for Tensor<T, D> {
     type Output = Self;
 
     fn mul(self, rhs: Self) -> Self::Output {
-        let result_inner = TensorBase::from_binary_op(self.inner, rhs.inner, |a, b| a * b);
+        let result_inner = TensorBase::from_binary_op_with_grad(
+            self.inner,
+            rhs.inner,
+            |a, b| a * b,
+            Rc::new(MulBackward),
+        );
         Tensor {
             inner: result_inner,
             _phantom: PhantomData,
@@ -197,7 +291,12 @@ impl<T: TensorType, D: Dimension> Mul for &Tensor<T, D> {
     fn mul(self, rhs: Self) -> Self::Output {
         let lhs_clone = self.inner.clone();
         let rhs_clone = rhs.inner.clone();
-        let result_inner = TensorBase::from_binary_op(lhs_clone, rhs_clone, |a, b| a * b);
+        let result_inner = TensorBase::from_binary_op_with_grad(
+            lhs_clone,
+            rhs_clone,
+            |a, b| a * b,
+            Rc::new(MulBackward),
+        );
         Tensor {
             inner: result_inner,
             _phantom: PhantomData,
@@ -210,7 +309,12 @@ impl<T: TensorType, D: Dimension> Div for Tensor<T, D> {
 
     fn div(self, rhs: Self) -> Self::Output {
         // Implement as mul(a, recip(b))
-        let result_inner = TensorBase::from_binary_op(self.inner, rhs.inner, |a, b| a * b.recip());
+        let result_inner = TensorBase::from_binary_op_with_grad(
+            self.inner,
+            rhs.inner,
+            |a, b| a * b.recip(),
+            Rc::new(DivBackward),
+        );
         Tensor {
             inner: result_inner,
             _phantom: PhantomData,
@@ -224,7 +328,12 @@ impl<T: TensorType, D: Dimension> Div for &Tensor<T, D> {
     fn div(self, rhs: Self) -> Self::Output {
         let lhs_clone = self.inner.clone();
         let rhs_clone = rhs.inner.clone();
-        let result_inner = TensorBase::from_binary_op(lhs_clone, rhs_clone, |a, b| a * b.recip());
+        let result_inner = TensorBase::from_binary_op_with_grad(
+            lhs_clone,
+            rhs_clone,
+            |a, b| a * b.recip(),
+            Rc::new(DivBackward),
+        );
         Tensor {
             inner: result_inner,
             _phantom: PhantomData,
@@ -236,7 +345,8 @@ impl<T: TensorType, D: Dimension> Neg for Tensor<T, D> {
     type Output = Self;
 
     fn neg(self) -> Self::Output {
-        let result_inner = TensorBase::from_unary_op(self.inner, |a| -a);
+        let result_inner =
+            TensorBase::from_unary_op_with_grad(self.inner, |a| -a, Rc::new(NegBackward));
         Tensor {
             inner: result_inner,
             _phantom: PhantomData,
@@ -249,7 +359,7 @@ impl<T: TensorType, D: Dimension> Neg for &Tensor<T, D> {
 
     fn neg(self) -> Self::Output {
         let clone = self.inner.clone();
-        let result_inner = TensorBase::from_unary_op(clone, |a| -a);
+        let result_inner = TensorBase::from_unary_op_with_grad(clone, |a| -a, Rc::new(NegBackward));
         Tensor {
             inner: result_inner,
             _phantom: PhantomData,
