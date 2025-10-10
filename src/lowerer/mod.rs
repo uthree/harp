@@ -317,13 +317,18 @@ impl Lowerer {
                     ElementwiseOp::Add(lhs, rhs)
                     | ElementwiseOp::Mul(lhs, rhs)
                     | ElementwiseOp::Max(lhs, rhs)
-                    | ElementwiseOp::Mod(lhs, rhs) => vec![lhs.clone(), rhs.clone()],
+                    | ElementwiseOp::Mod(lhs, rhs)
+                    | ElementwiseOp::LessThan(lhs, rhs)
+                    | ElementwiseOp::Eq(lhs, rhs) => vec![lhs.clone(), rhs.clone()],
                     ElementwiseOp::Neg(n)
                     | ElementwiseOp::Recip(n)
                     | ElementwiseOp::Sin(n)
                     | ElementwiseOp::Sqrt(n)
                     | ElementwiseOp::Log2(n)
                     | ElementwiseOp::Exp2(n) => vec![n.clone()],
+                    ElementwiseOp::Select(cond, true_val, false_val) => {
+                        vec![cond.clone(), true_val.clone(), false_val.clone()]
+                    }
                 }
             }
             GraphOp::Reduce(_, _, input) => vec![input.clone()],

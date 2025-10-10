@@ -129,6 +129,47 @@ impl ElementwiseLowerer {
                     x.exp2()
                 })
             }
+            ElementwiseOp::LessThan(lhs, rhs) => {
+                let lhs_var = get_var(lhs);
+                let rhs_var = get_var(rhs);
+                Self::create_elementwise_loop(
+                    node,
+                    lhs,
+                    rhs,
+                    &result_var,
+                    &lhs_var,
+                    &rhs_var,
+                    AstNode::less_than,
+                )
+            }
+            ElementwiseOp::Eq(lhs, rhs) => {
+                let lhs_var = get_var(lhs);
+                let rhs_var = get_var(rhs);
+                Self::create_elementwise_loop(
+                    node,
+                    lhs,
+                    rhs,
+                    &result_var,
+                    &lhs_var,
+                    &rhs_var,
+                    AstNode::eq,
+                )
+            }
+            ElementwiseOp::Select(cond, true_val, false_val) => {
+                let cond_var = get_var(cond);
+                let true_var = get_var(true_val);
+                let false_var = get_var(false_val);
+                Self::create_ternary_elementwise_loop(
+                    node,
+                    cond,
+                    true_val,
+                    false_val,
+                    &result_var,
+                    &cond_var,
+                    &true_var,
+                    &false_var,
+                )
+            }
         };
 
         Some(body)
@@ -361,6 +402,159 @@ impl ElementwiseLowerer {
                 operand_var,
                 dim + 1,
                 op,
+            );
+
+            // shape[dim]をAstNodeに変換
+            let max_iter = LowererUtils::shape_expr_to_ast_node(&shape[dim]);
+
+            AstNode::Range {
+                counter_name: loop_var,
+                start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
+                max: Box::new(max_iter),
+                step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
+                body: Box::new(inner_body),
+                unroll: None,
+            }
+        }
+    }
+
+    /// Selectのための3引数版のelementwiseループ生成
+    #[allow(clippy::too_many_arguments)]
+    fn create_ternary_elementwise_loop(
+        result_node: &GraphNode,
+        cond_node: &GraphNode,
+        true_node: &GraphNode,
+        false_node: &GraphNode,
+        result_var: &str,
+        cond_var: &str,
+        true_var: &str,
+        false_var: &str,
+    ) -> AstNode {
+        // viewから形状情報を取得
+        let result_view = &result_node.view;
+        let cond_view = &cond_node.view;
+        let true_view = &true_node.view;
+        let false_view = &false_node.view;
+
+        let (
+            crate::graph::shape::view::View::Linear {
+                shape: result_shape,
+                strides: result_strides,
+                offset: result_offset,
+            },
+            crate::graph::shape::view::View::Linear {
+                shape: _,
+                strides: cond_strides,
+                offset: cond_offset,
+            },
+            crate::graph::shape::view::View::Linear {
+                shape: _,
+                strides: true_strides,
+                offset: true_offset,
+            },
+            crate::graph::shape::view::View::Linear {
+                shape: _,
+                strides: false_strides,
+                offset: false_offset,
+            },
+        ) = (result_view, cond_view, true_view, false_view);
+
+        // 多重ループを生成
+        Self::create_ternary_nested_loops(
+            result_shape,
+            result_strides,
+            result_offset,
+            cond_view,
+            cond_strides,
+            cond_offset,
+            true_view,
+            true_strides,
+            true_offset,
+            false_view,
+            false_strides,
+            false_offset,
+            result_var,
+            cond_var,
+            true_var,
+            false_var,
+            0,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn create_ternary_nested_loops(
+        shape: &[crate::graph::shape::Expr],
+        result_strides: &[crate::graph::shape::Expr],
+        result_offset: &crate::graph::shape::Expr,
+        cond_view: &crate::graph::shape::view::View,
+        cond_strides: &[crate::graph::shape::Expr],
+        cond_offset: &crate::graph::shape::Expr,
+        true_view: &crate::graph::shape::view::View,
+        true_strides: &[crate::graph::shape::Expr],
+        true_offset: &crate::graph::shape::Expr,
+        false_view: &crate::graph::shape::view::View,
+        false_strides: &[crate::graph::shape::Expr],
+        false_offset: &crate::graph::shape::Expr,
+        result_var: &str,
+        cond_var: &str,
+        true_var: &str,
+        false_var: &str,
+        dim: usize,
+    ) -> AstNode {
+        if dim >= shape.len() {
+            // 最内ループ: 実際の計算を実行
+            let result_index =
+                LowererUtils::compute_memory_index(result_strides, result_offset, dim);
+
+            // 各オペランドの値を取得
+            let cond_value = if cond_view.shape().is_empty() {
+                AstNode::Var(cond_var.to_string())
+            } else {
+                let cond_index = LowererUtils::compute_memory_index(cond_strides, cond_offset, dim);
+                AstNode::Deref(Box::new(AstNode::Var(cond_var.to_string()) + cond_index))
+            };
+
+            let true_value = if true_view.shape().is_empty() {
+                AstNode::Var(true_var.to_string())
+            } else {
+                let true_index = LowererUtils::compute_memory_index(true_strides, true_offset, dim);
+                AstNode::Deref(Box::new(AstNode::Var(true_var.to_string()) + true_index))
+            };
+
+            let false_value = if false_view.shape().is_empty() {
+                AstNode::Var(false_var.to_string())
+            } else {
+                let false_index =
+                    LowererUtils::compute_memory_index(false_strides, false_offset, dim);
+                AstNode::Deref(Box::new(AstNode::Var(false_var.to_string()) + false_index))
+            };
+
+            AstNode::Store {
+                target: Box::new(AstNode::Var(result_var.to_string())),
+                index: Box::new(result_index),
+                value: Box::new(AstNode::select(cond_value, true_value, false_value)),
+            }
+        } else {
+            // 再帰的にネストしたループを作成
+            let loop_var = format!("i{}", dim);
+            let inner_body = Self::create_ternary_nested_loops(
+                shape,
+                result_strides,
+                result_offset,
+                cond_view,
+                cond_strides,
+                cond_offset,
+                true_view,
+                true_strides,
+                true_offset,
+                false_view,
+                false_strides,
+                false_offset,
+                result_var,
+                cond_var,
+                true_var,
+                false_var,
+                dim + 1,
             );
 
             // shape[dim]をAstNodeに変換

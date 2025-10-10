@@ -61,13 +61,18 @@ impl GraphNode {
                     ElementwiseOp::Add(a, b)
                     | ElementwiseOp::Mul(a, b)
                     | ElementwiseOp::Max(a, b)
-                    | ElementwiseOp::Mod(a, b) => vec![a.clone(), b.clone()],
+                    | ElementwiseOp::Mod(a, b)
+                    | ElementwiseOp::LessThan(a, b)
+                    | ElementwiseOp::Eq(a, b) => vec![a.clone(), b.clone()],
                     ElementwiseOp::Neg(a)
                     | ElementwiseOp::Recip(a)
                     | ElementwiseOp::Sin(a)
                     | ElementwiseOp::Sqrt(a)
                     | ElementwiseOp::Log2(a)
                     | ElementwiseOp::Exp2(a) => vec![a.clone()],
+                    ElementwiseOp::Select(cond, true_val, false_val) => {
+                        vec![cond.clone(), true_val.clone(), false_val.clone()]
+                    }
                 }
             }
             GraphOp::FusedElementwise(_, inputs) => inputs.clone(),

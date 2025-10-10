@@ -334,6 +334,29 @@ impl GraphFusionOptimizer {
                     self.elementwise_to_ast_with_branching_check(input, input_mapping, inputs)?;
                 Some(AstNode::Exp2(Box::new(input_ast)))
             }
+            ElementwiseOp::LessThan(lhs, rhs) => {
+                let lhs_ast =
+                    self.elementwise_to_ast_with_branching_check(lhs, input_mapping, inputs)?;
+                let rhs_ast =
+                    self.elementwise_to_ast_with_branching_check(rhs, input_mapping, inputs)?;
+                Some(AstNode::less_than(lhs_ast, rhs_ast))
+            }
+            ElementwiseOp::Eq(lhs, rhs) => {
+                let lhs_ast =
+                    self.elementwise_to_ast_with_branching_check(lhs, input_mapping, inputs)?;
+                let rhs_ast =
+                    self.elementwise_to_ast_with_branching_check(rhs, input_mapping, inputs)?;
+                Some(AstNode::eq(lhs_ast, rhs_ast))
+            }
+            ElementwiseOp::Select(cond, true_val, false_val) => {
+                let cond_ast =
+                    self.elementwise_to_ast_with_branching_check(cond, input_mapping, inputs)?;
+                let true_ast =
+                    self.elementwise_to_ast_with_branching_check(true_val, input_mapping, inputs)?;
+                let false_ast =
+                    self.elementwise_to_ast_with_branching_check(false_val, input_mapping, inputs)?;
+                Some(AstNode::select(cond_ast, true_ast, false_ast))
+            }
         }
     }
 
@@ -343,7 +366,9 @@ impl GraphFusionOptimizer {
             GraphOp::Elementwise(ElementwiseOp::Add(lhs, rhs))
             | GraphOp::Elementwise(ElementwiseOp::Mul(lhs, rhs))
             | GraphOp::Elementwise(ElementwiseOp::Max(lhs, rhs))
-            | GraphOp::Elementwise(ElementwiseOp::Mod(lhs, rhs)) => {
+            | GraphOp::Elementwise(ElementwiseOp::Mod(lhs, rhs))
+            | GraphOp::Elementwise(ElementwiseOp::LessThan(lhs, rhs))
+            | GraphOp::Elementwise(ElementwiseOp::Eq(lhs, rhs)) => {
                 vec![lhs.clone(), rhs.clone()]
             }
             GraphOp::Elementwise(ElementwiseOp::Neg(input))
@@ -353,6 +378,9 @@ impl GraphFusionOptimizer {
             | GraphOp::Elementwise(ElementwiseOp::Log2(input))
             | GraphOp::Elementwise(ElementwiseOp::Exp2(input)) => {
                 vec![input.clone()]
+            }
+            GraphOp::Elementwise(ElementwiseOp::Select(cond, true_val, false_val)) => {
+                vec![cond.clone(), true_val.clone(), false_val.clone()]
             }
             _ => vec![],
         }
@@ -653,6 +681,17 @@ impl GraphFusionOptimizer {
             ElementwiseOp::Sqrt(input) => ElementwiseOp::Sqrt(self.rebuild_node(input)),
             ElementwiseOp::Log2(input) => ElementwiseOp::Log2(self.rebuild_node(input)),
             ElementwiseOp::Exp2(input) => ElementwiseOp::Exp2(self.rebuild_node(input)),
+            ElementwiseOp::LessThan(lhs, rhs) => {
+                ElementwiseOp::LessThan(self.rebuild_node(lhs), self.rebuild_node(rhs))
+            }
+            ElementwiseOp::Eq(lhs, rhs) => {
+                ElementwiseOp::Eq(self.rebuild_node(lhs), self.rebuild_node(rhs))
+            }
+            ElementwiseOp::Select(cond, true_val, false_val) => ElementwiseOp::Select(
+                self.rebuild_node(cond),
+                self.rebuild_node(true_val),
+                self.rebuild_node(false_val),
+            ),
         }
     }
 }
