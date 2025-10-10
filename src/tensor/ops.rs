@@ -157,6 +157,7 @@ impl TensorBase {
     }
 
     /// Create a tensor from a unary operation.
+    #[allow(clippy::wrong_self_convention)]
     fn from_unary_op<F>(mut self, op: F) -> Self
     where
         F: FnOnce(GraphNode) -> GraphNode,
@@ -170,6 +171,7 @@ impl TensorBase {
     }
 
     /// Create a tensor from a unary operation with gradient tracking.
+    #[allow(clippy::wrong_self_convention)]
     fn from_unary_op_with_grad<F>(mut self, op: F, grad_fn: Rc<dyn GradFn>) -> Self
     where
         F: FnOnce(GraphNode) -> GraphNode,
@@ -292,6 +294,7 @@ impl<T: TensorType, D: Dimension> Mul for &Tensor<T, D> {
 impl<T: TensorType, D: Dimension> Div for Tensor<T, D> {
     type Output = Self;
 
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn div(self, rhs: Self) -> Self::Output {
         // Implement as mul(a, recip(b))
         // This automatically creates the correct gradient graph: MulBackward + RecipBackward
@@ -386,8 +389,7 @@ impl<T: TensorType, D: Dimension> Tensor<T, D> {
     /// Compute the natural logarithm of each element.
     /// Implemented as log2(x) / log2(e).
     pub fn ln(self) -> Self {
-        // log2(e) ≈ 1.4426950408889634
-        let log2_e_recip = 1.0f32 / 1.442_695_f32;
+        let log2_e_recip = 1.0f32 / std::f32::consts::LOG2_E;
         let result_inner =
             TensorBase::from_unary_op(self.inner, move |a| a.log2() * GraphNode::f32(log2_e_recip));
         Tensor {
@@ -399,8 +401,7 @@ impl<T: TensorType, D: Dimension> Tensor<T, D> {
     /// Compute e raised to the power of each element.
     /// Implemented as exp2(x * log2(e)).
     pub fn exp(self) -> Self {
-        // log2(e) ≈ 1.4426950408889634
-        let log2_e = 1.442_695_f32;
+        let log2_e = std::f32::consts::LOG2_E;
         let result_inner =
             TensorBase::from_unary_op(self.inner, move |a| (a * GraphNode::f32(log2_e)).exp2());
         Tensor {

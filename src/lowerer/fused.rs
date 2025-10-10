@@ -112,8 +112,8 @@ impl FusedLowerer {
         ast: &AstNode,
         input_vars: &[String],
         inputs: &[GraphNode],
-        strides: &[crate::graph::shape::Expr],
-        offset: &crate::graph::shape::Expr,
+        _strides: &[crate::graph::shape::Expr],
+        _offset: &crate::graph::shape::Expr,
         ndim: usize,
     ) -> AstNode {
         match ast {
@@ -149,7 +149,7 @@ impl FusedLowerer {
                     .iter()
                     .map(|child| {
                         Self::replace_captures_with_input_refs(
-                            child, input_vars, inputs, strides, offset, ndim,
+                            child, input_vars, inputs, _strides, _offset, ndim,
                         )
                     })
                     .collect();
@@ -598,6 +598,7 @@ impl FusedLowerer {
     /// FusedReduceの初期化ループを作成（reduce軸でない次元のみ）
     /// start_dim: 初期化ループを開始する次元（最初のreduce軸）
     /// dim: 現在処理中の次元
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn create_init_loops_for_fused_reduce(
         input_shape: &[crate::graph::shape::Expr],
         result_strides: &[crate::graph::shape::Expr],

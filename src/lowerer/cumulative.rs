@@ -95,7 +95,7 @@ impl CumulativeLowerer {
         input_var: &str,
         result_var: &str,
         cumulative_op: &CumulativeOp,
-        initial_value: AstNode,
+        _initial_value: AstNode,
         dim: usize,
     ) -> AstNode {
         if dim >= input_shape.len() {
@@ -239,7 +239,7 @@ impl CumulativeLowerer {
                 input_var,
                 result_var,
                 cumulative_op,
-                initial_value,
+                _initial_value,
                 dim + 1,
             );
 

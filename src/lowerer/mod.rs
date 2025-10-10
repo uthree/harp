@@ -763,11 +763,11 @@ impl Lowerer {
         input_shape: &[crate::graph::shape::Expr],
         input_strides: &[crate::graph::shape::Expr],
         input_offset: &crate::graph::shape::Expr,
-        result_shape: &[crate::graph::shape::Expr],
+        _result_shape: &[crate::graph::shape::Expr],
         result_strides: &[crate::graph::shape::Expr],
         result_offset: &crate::graph::shape::Expr,
         fold_dim: usize,
-        window_size: usize,
+        _window_size: usize,
         stride: usize,
         dilation: usize,
         input_var: &str,
@@ -816,11 +816,11 @@ impl Lowerer {
                 input_shape,
                 input_strides,
                 input_offset,
-                result_shape,
+                _result_shape,
                 result_strides,
                 result_offset,
                 fold_dim,
-                window_size,
+                _window_size,
                 stride,
                 dilation,
                 input_var,
@@ -874,13 +874,11 @@ impl Lowerer {
                         Box::new(AstNode::Const(ConstLiteral::Isize(dilation as isize))),
                     )),
                 );
-                index = index
-                    + LowererUtils::shape_expr_to_ast_node(&result_strides[result_dim].clone())
-                        * fold_index;
+                index += LowererUtils::shape_expr_to_ast_node(&result_strides[result_dim].clone())
+                    * fold_index;
             } else {
-                index = index
-                    + LowererUtils::shape_expr_to_ast_node(&result_strides[result_dim].clone())
-                        * AstNode::Var(loop_var);
+                index += LowererUtils::shape_expr_to_ast_node(&result_strides[result_dim].clone())
+                    * AstNode::Var(loop_var);
             }
         }
 

@@ -122,6 +122,7 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
 
         impl Eq for Candidate {}
 
+        #[allow(clippy::non_canonical_partial_ord_impl)]
         impl PartialOrd for Candidate {
             fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
                 // Reverse ordering for min-heap

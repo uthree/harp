@@ -115,6 +115,7 @@ impl Dimension for D4 {
 
 /// Raw data storage for tensors
 #[derive(Clone)]
+#[allow(dead_code)]
 enum TensorData {
     F32(Vec<f32>),
     Isize(Vec<isize>),
@@ -130,6 +131,7 @@ pub struct TensorBase {
     /// Unique ID for this tensor
     id: TensorId,
     /// Actual data (Some if evaluated, None if lazy)
+    #[allow(dead_code)]
     data: Option<TensorData>,
     /// Computation graph node (Some if part of computation graph)
     graph_node: Option<GraphNode>,
@@ -214,6 +216,7 @@ impl TensorBase {
     }
 
     /// Create a tensor from a graph node.
+    #[allow(dead_code)]
     pub(crate) fn from_graph_node(
         graph_node: GraphNode,
         graph: Graph,
@@ -495,6 +498,7 @@ impl<T: TensorType, D: Dimension> Tensor<T, D> {
     }
 
     /// Create a tensor from a graph node.
+    #[allow(dead_code)]
     pub(crate) fn from_graph_node(
         graph_node: GraphNode,
         graph: Graph,

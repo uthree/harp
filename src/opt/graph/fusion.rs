@@ -100,24 +100,19 @@ impl GraphFusionOptimizer {
         let mut source = input;
         let mut chain_length = 1; // 最初の1つをカウント
 
-        loop {
-            match &current.op {
-                GraphOp::View(input_node) => {
-                    source = input_node;
-                    chain_length += 1;
-                    // 分岐している場合はここで停止
-                    if self.is_branching(input_node) {
-                        break;
-                    }
-                    // inputがViewなら続ける
-                    if matches!(input_node.op, GraphOp::View(_)) {
-                        current = input_node;
-                    } else {
-                        // Viewでなければ終了
-                        break;
-                    }
-                }
-                _ => break,
+        while let GraphOp::View(input_node) = &current.op {
+            source = input_node;
+            chain_length += 1;
+            // 分岐している場合はここで停止
+            if self.is_branching(input_node) {
+                break;
+            }
+            // inputがViewなら続ける
+            if matches!(input_node.op, GraphOp::View(_)) {
+                current = input_node;
+            } else {
+                // Viewでなければ終了
+                break;
             }
         }
 
@@ -156,23 +151,18 @@ impl GraphFusionOptimizer {
         let mut current = input;
         let mut source = input;
 
-        loop {
-            match &current.op {
-                GraphOp::Cast(input_node, _) => {
-                    source = input_node;
-                    // 分岐している場合はここで停止
-                    if self.is_branching(input_node) {
-                        break;
-                    }
-                    // inputがCastなら続ける
-                    if matches!(input_node.op, GraphOp::Cast(_, _)) {
-                        current = input_node;
-                    } else {
-                        // Castでなければ終了
-                        break;
-                    }
-                }
-                _ => break,
+        while let GraphOp::Cast(input_node, _) = &current.op {
+            source = input_node;
+            // 分岐している場合はここで停止
+            if self.is_branching(input_node) {
+                break;
+            }
+            // inputがCastなら続ける
+            if matches!(input_node.op, GraphOp::Cast(_, _)) {
+                current = input_node;
+            } else {
+                // Castでなければ終了
+                break;
             }
         }
 

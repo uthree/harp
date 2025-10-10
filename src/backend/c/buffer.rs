@@ -90,7 +90,7 @@ impl Buffer for CBuffer {
 
         let ptr = if size == 0 {
             // ゼロサイズの場合は非nullポインタを返す（標準的な動作）
-            std::ptr::NonNull::dangling().as_ptr() as *mut libc::c_void
+            std::ptr::NonNull::dangling().as_ptr()
         } else {
             let ptr = unsafe { libc::malloc(size) };
             if ptr.is_null() {
