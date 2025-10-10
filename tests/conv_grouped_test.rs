@@ -18,7 +18,7 @@ mod tests {
         let kernel = graph.input(DType::F32, vec![4.into(), 2.into(), 3.into()]);
 
         // Apply grouped Conv1D with groups=2
-        let output = input.conv1d_grouped(kernel, 1, 2);
+        let output = input.conv1d_grouped(kernel, 1, 1, 2);
 
         graph.output(output);
 
@@ -82,7 +82,7 @@ mod tests {
         let kernel = graph.input(DType::F32, vec![3.into(), 1.into(), 3.into()]);
 
         // Apply depthwise Conv1D with groups=3
-        let output = input.conv1d_grouped(kernel, 1, 3);
+        let output = input.conv1d_grouped(kernel, 1, 1, 3);
 
         graph.output(output);
 
@@ -142,12 +142,12 @@ mod tests {
 
         let input1 = graph1.input(DType::F32, vec![1.into(), 2.into(), 5.into()]);
         let kernel1 = graph1.input(DType::F32, vec![3.into(), 2.into(), 3.into()]);
-        let output1 = input1.clone().conv1d(kernel1.clone(), 1);
+        let output1 = input1.clone().conv1d(kernel1.clone(), 1, 1);
         graph1.output(output1);
 
         let input2 = graph2.input(DType::F32, vec![1.into(), 2.into(), 5.into()]);
         let kernel2 = graph2.input(DType::F32, vec![3.into(), 2.into(), 3.into()]);
-        let output2 = input2.conv1d_grouped(kernel2, 1, 1);
+        let output2 = input2.conv1d_grouped(kernel2, 1, 1, 1);
         graph2.output(output2);
 
         let mut backend = harp::backend::CBackend::new();

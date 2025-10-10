@@ -16,8 +16,8 @@ mod tests {
         // Kernel: [3, 2, 3] (out_channels=3, in_channels=2, kernel_size=3)
         let kernel = graph.input(DType::F32, vec![3.into(), 2.into(), 3.into()]);
 
-        // Apply Conv1D with stride=1
-        let output = input.conv1d(kernel, 1);
+        // Apply Conv1D with stride=1, dilation=1
+        let output = input.conv1d(kernel, 1, 1);
 
         graph.output(output);
 
@@ -70,8 +70,8 @@ mod tests {
         // Kernel: [1, 1, 3, 3]
         let kernel = graph.input(DType::F32, vec![1.into(), 1.into(), 3.into(), 3.into()]);
 
-        // Apply Conv2D with stride=1
-        let output = input.conv2d(kernel, 1);
+        // Apply Conv2D with stride=1, dilation=1
+        let output = input.conv2d(kernel, 1, 1, 1);
 
         graph.output(output);
 
@@ -112,8 +112,8 @@ mod tests {
         let input = graph.input(DType::F32, vec![1.into(), 1.into(), 7.into(), 7.into()]);
         let kernel = graph.input(DType::F32, vec![1.into(), 1.into(), 3.into(), 3.into()]);
 
-        // Apply Conv2D with stride=2
-        let output = input.conv2d(kernel, 2);
+        // Apply Conv2D with stride=2, dilation=1
+        let output = input.conv2d(kernel, 2, 1, 1);
 
         graph.output(output);
 
@@ -158,7 +158,7 @@ mod tests {
         );
 
         // Apply Conv3D with stride=1
-        let output = input.conv3d(kernel, 1);
+        let output = input.conv3d(kernel, 1, 1, 1, 1);
 
         graph.output(output);
 
@@ -202,7 +202,7 @@ mod tests {
         );
 
         // Apply Conv3D with stride=2
-        let output = input.conv3d(kernel, 2);
+        let output = input.conv3d(kernel, 2, 1, 1, 1);
 
         graph.output(output);
 

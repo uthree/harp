@@ -51,8 +51,8 @@ impl GraphNode {
     /// Unfold operation: extract sliding local blocks from a tensor.
     ///
     /// This operation adds a new dimension for sliding windows.
-    /// For example, [B, C, L] with window_size=K, stride=S becomes [B, C, L', K]
-    /// where L' = (L - K) / S + 1.
+    /// For example, [B, C, L] with window_size=K, stride=S, dilation=D becomes [B, C, L', K]
+    /// where L' = (L - D*(K-1) - 1) / S + 1.
     ///
     /// This is the inverse of the `fold` operation.
     ///
@@ -60,11 +60,12 @@ impl GraphNode {
     /// * `dim` - The dimension along which to create sliding windows
     /// * `window_size` - The size of each window
     /// * `stride` - The stride between windows
+    /// * `dilation` - The dilation (spacing between kernel elements)
     ///
     /// # Example
     /// ```ignore
     /// // For Conv1d: input [B, C_in, L], kernel [C_out, C_in, K]
-    /// let unfolded = input.unfold(2, kernel_size, stride); // → [B, C_in, L', K]
+    /// let unfolded = input.unfold(2, kernel_size, stride, dilation); // → [B, C_in, L', K]
     /// let kernel_reshaped = kernel.unsqueeze(2); // → [C_out, C_in, 1, K]
     /// let product = unfolded * kernel_reshaped; // → [B, C_out, C_in, L', K]
     /// let output = product.sum(vec![2, 4]); // → [B, C_out, L']
@@ -74,8 +75,9 @@ impl GraphNode {
         dim: usize,
         window_size: E,
         stride: E,
+        dilation: E,
     ) -> GraphNode {
-        let new_view = self.view.clone().unfold(dim, window_size, stride);
+        let new_view = self.view.clone().unfold(dim, window_size, stride, dilation);
         GraphNode::new(GraphOp::View(self.clone()), self.dtype.clone(), new_view)
     }
 
@@ -105,6 +107,7 @@ impl GraphNode {
         dim: usize,
         window_size: usize,
         stride: usize,
+        dilation: usize,
         output_size: usize,
     ) -> GraphNode {
         // Input shape: [..., L', K] where the last dimension is the window dimension
@@ -131,7 +134,7 @@ impl GraphNode {
         let result_view = crate::graph::shape::view::View::new_contiguous(output_shape);
 
         GraphNode::new(
-            GraphOp::Fold(dim, window_size, stride, self.clone()),
+            GraphOp::Fold(dim, window_size, stride, dilation, self.clone()),
             self.dtype.clone(),
             result_view,
         )

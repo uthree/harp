@@ -51,21 +51,27 @@ impl GraphNode {
     /// # Arguments
     /// * `kernel` - Kernel weights with shape [out_channels, in_channels, kernel_size]
     /// * `stride` - Stride for the convolution (default: 1)
+    /// * `dilation` - Dilation for the convolution (default: 1)
     ///
     /// # Input shape
     /// [batch, in_channels, length]
     ///
     /// # Output shape
-    /// [batch, out_channels, output_length] where output_length = (length - kernel_size) / stride + 1
+    /// [batch, out_channels, output_length] where output_length = (length - (kernel_size-1)*dilation - 1) / stride + 1
     ///
     /// # Example
     /// ```ignore
     /// let input = graph.input(DType::F32, vec![1.into(), 3.into(), 32.into()]);
     /// let kernel = graph.input(DType::F32, vec![16.into(), 3.into(), 5.into()]);
-    /// let output = input.conv1d(kernel, 1); // [1, 16, 28]
+    /// let output = input.conv1d(kernel, 1, 1); // [1, 16, 28]
     /// ```
-    pub fn conv1d<E: Into<ShapeExpr> + Clone>(self, kernel: GraphNode, stride: E) -> GraphNode {
-        self.conv1d_grouped(kernel, stride, 1)
+    pub fn conv1d<E: Into<ShapeExpr> + Clone>(
+        self,
+        kernel: GraphNode,
+        stride: E,
+        dilation: E,
+    ) -> GraphNode {
+        self.conv1d_grouped(kernel, stride, dilation, 1)
     }
 
     /// 1D Grouped Convolution operation
@@ -73,13 +79,14 @@ impl GraphNode {
     /// # Arguments
     /// * `kernel` - Kernel weights with shape [out_channels, in_channels/groups, kernel_size]
     /// * `stride` - Stride for the convolution
+    /// * `dilation` - Dilation for the convolution
     /// * `groups` - Number of groups to split input and output channels
     ///
     /// # Input shape
     /// [batch, in_channels, length]
     ///
     /// # Output shape
-    /// [batch, out_channels, output_length] where output_length = (length - kernel_size) / stride + 1
+    /// [batch, out_channels, output_length] where output_length = (length - (kernel_size-1)*dilation - 1) / stride + 1
     ///
     /// # Groups
     /// - groups=1: Standard convolution
@@ -91,17 +98,18 @@ impl GraphNode {
     /// // Depthwise convolution: groups=in_channels
     /// let input = graph.input(DType::F32, vec![1.into(), 32.into(), 64.into()]);
     /// let kernel = graph.input(DType::F32, vec![32.into(), 1.into(), 3.into()]);
-    /// let output = input.conv1d_grouped(kernel, 1, 32); // [1, 32, 62]
+    /// let output = input.conv1d_grouped(kernel, 1, 1, 32); // [1, 32, 62]
     ///
     /// // Grouped convolution: groups=4
     /// let input = graph.input(DType::F32, vec![1.into(), 8.into(), 64.into()]);
     /// let kernel = graph.input(DType::F32, vec![16.into(), 2.into(), 3.into()]); // 16/4=4 out per group, 8/4=2 in per group
-    /// let output = input.conv1d_grouped(kernel, 1, 4); // [1, 16, 62]
+    /// let output = input.conv1d_grouped(kernel, 1, 1, 4); // [1, 16, 62]
     /// ```
     pub fn conv1d_grouped<E: Into<ShapeExpr> + Clone>(
         self,
         kernel: GraphNode,
         stride: E,
+        dilation: E,
         groups: usize,
     ) -> GraphNode {
         use super::ReduceOps;
@@ -117,7 +125,12 @@ impl GraphNode {
             let out_channels = kernel_shape[0].clone();
             let kernel_size = kernel_shape[2].clone();
 
-            let windowed = self.unfold(2, kernel_size.clone(), stride.into());
+            let windowed = self.unfold(
+                2,
+                kernel_size.clone(),
+                stride.clone().into(),
+                dilation.into(),
+            );
             let windowed_shape = windowed.view.shape().to_vec();
             let output_len = windowed_shape[2].clone();
 
@@ -193,7 +206,8 @@ impl GraphNode {
         );
 
         // Apply unfold: [B, G, C_in_per_group, L] -> [B, G, C_in_per_group, L', K]
-        let windowed = input_reshaped.unfold(3, kernel_size.clone(), stride.into());
+        let windowed =
+            input_reshaped.unfold(3, kernel_size.clone(), stride.into(), dilation.into());
         let windowed_shape = windowed.view.shape().to_vec();
         let output_len = windowed_shape[3].clone();
 
@@ -242,22 +256,30 @@ impl GraphNode {
     /// # Arguments
     /// * `kernel` - Kernel weights with shape [out_channels, in_channels, kernel_h, kernel_w]
     /// * `stride` - Stride for the convolution (default: 1)
+    /// * `dilation_h` - Dilation for height dimension (default: 1)
+    /// * `dilation_w` - Dilation for width dimension (default: 1)
     ///
     /// # Input shape
     /// [batch, in_channels, height, width]
     ///
     /// # Output shape
     /// [batch, out_channels, out_h, out_w] where:
-    /// - out_h = (height - kernel_h) / stride + 1
-    /// - out_w = (width - kernel_w) / stride + 1
+    /// - out_h = (height - (kernel_h-1)*dilation_h - 1) / stride + 1
+    /// - out_w = (width - (kernel_w-1)*dilation_w - 1) / stride + 1
     ///
     /// # Example
     /// ```ignore
     /// let input = graph.input(DType::F32, vec![1.into(), 3.into(), 224.into(), 224.into()]);
     /// let kernel = graph.input(DType::F32, vec![64.into(), 3.into(), 7.into(), 7.into()]);
-    /// let output = input.conv2d(kernel, 2); // [1, 64, 109, 109]
+    /// let output = input.conv2d(kernel, 2, 1, 1); // [1, 64, 109, 109]
     /// ```
-    pub fn conv2d<E: Into<ShapeExpr> + Clone>(self, kernel: GraphNode, stride: E) -> GraphNode {
+    pub fn conv2d<E: Into<ShapeExpr> + Clone>(
+        self,
+        kernel: GraphNode,
+        stride: E,
+        dilation_h: E,
+        dilation_w: E,
+    ) -> GraphNode {
         use super::ReduceOps;
 
         // Get shapes first (clone to avoid borrowing issues)
@@ -273,9 +295,9 @@ impl GraphNode {
         // Apply unfold on height and width
         // [B, C_in, H, W] -> [B, C_in, H', W, Kh]
         let stride_expr = stride.into();
-        let windowed_h = self.unfold(2, kernel_h.clone(), stride_expr.clone());
+        let windowed_h = self.unfold(2, kernel_h.clone(), stride_expr.clone(), dilation_h.into());
         // [B, C_in, H', W, Kh] -> [B, C_in, H', W', Kh, Kw]
-        let windowed_hw = windowed_h.unfold(3, kernel_w.clone(), stride_expr);
+        let windowed_hw = windowed_h.unfold(3, kernel_w.clone(), stride_expr, dilation_w.into());
         let windowed_shape = windowed_hw.view.shape().to_vec();
         let out_h = windowed_shape[2].clone();
         let out_w = windowed_shape[3].clone();
@@ -318,23 +340,33 @@ impl GraphNode {
     /// # Arguments
     /// * `kernel` - Kernel weights with shape [out_channels, in_channels, kernel_d, kernel_h, kernel_w]
     /// * `stride` - Stride for the convolution (default: 1)
+    /// * `dilation_d` - Dilation for depth dimension (default: 1)
+    /// * `dilation_h` - Dilation for height dimension (default: 1)
+    /// * `dilation_w` - Dilation for width dimension (default: 1)
     ///
     /// # Input shape
     /// [batch, in_channels, depth, height, width]
     ///
     /// # Output shape
     /// [batch, out_channels, out_d, out_h, out_w] where:
-    /// - out_d = (depth - kernel_d) / stride + 1
-    /// - out_h = (height - kernel_h) / stride + 1
-    /// - out_w = (width - kernel_w) / stride + 1
+    /// - out_d = (depth - (kernel_d-1)*dilation_d - 1) / stride + 1
+    /// - out_h = (height - (kernel_h-1)*dilation_h - 1) / stride + 1
+    /// - out_w = (width - (kernel_w-1)*dilation_w - 1) / stride + 1
     ///
     /// # Example
     /// ```ignore
     /// let input = graph.input(DType::F32, vec![1.into(), 3.into(), 16.into(), 112.into(), 112.into()]);
     /// let kernel = graph.input(DType::F32, vec![64.into(), 3.into(), 3.into(), 7.into(), 7.into()]);
-    /// let output = input.conv3d(kernel, 2); // [1, 64, 7, 53, 53]
+    /// let output = input.conv3d(kernel, 2, 1, 1, 1); // [1, 64, 7, 53, 53]
     /// ```
-    pub fn conv3d<E: Into<ShapeExpr> + Clone>(self, kernel: GraphNode, stride: E) -> GraphNode {
+    pub fn conv3d<E: Into<ShapeExpr> + Clone>(
+        self,
+        kernel: GraphNode,
+        stride: E,
+        dilation_d: E,
+        dilation_h: E,
+        dilation_w: E,
+    ) -> GraphNode {
         use super::ReduceOps;
 
         // Get shapes first (clone to avoid borrowing issues)
@@ -351,11 +383,12 @@ impl GraphNode {
         // Apply unfold on depth, height, and width
         // [B, C_in, D, H, W] -> [B, C_in, D', H, W, Kd]
         let stride_expr = stride.into();
-        let windowed_d = self.unfold(2, kernel_d.clone(), stride_expr.clone());
+        let windowed_d = self.unfold(2, kernel_d.clone(), stride_expr.clone(), dilation_d.into());
         // [B, C_in, D', H, W, Kd] -> [B, C_in, D', H', W, Kd, Kh]
-        let windowed_dh = windowed_d.unfold(3, kernel_h.clone(), stride_expr.clone());
+        let windowed_dh =
+            windowed_d.unfold(3, kernel_h.clone(), stride_expr.clone(), dilation_h.into());
         // [B, C_in, D', H', W, Kd, Kh] -> [B, C_in, D', H', W', Kd, Kh, Kw]
-        let windowed_dhw = windowed_dh.unfold(4, kernel_w.clone(), stride_expr);
+        let windowed_dhw = windowed_dh.unfold(4, kernel_w.clone(), stride_expr, dilation_w.into());
         let windowed_shape = windowed_dhw.view.shape().to_vec();
         let out_d = windowed_shape[2].clone();
         let out_h = windowed_shape[3].clone();

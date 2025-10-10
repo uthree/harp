@@ -196,8 +196,8 @@ impl View {
     /// Unfold operation: extract sliding local blocks from a tensor (similar to im2col).
     ///
     /// This operation transforms a view by adding a new dimension for sliding windows.
-    /// For example, [B, C, L] with window_size=K, stride=S becomes [B, C, L', K]
-    /// where L' = (L - K) / S + 1.
+    /// For example, [B, C, L] with window_size=K, stride=S, dilation=D becomes [B, C, L', K]
+    /// where L' = (L - D*(K-1) - 1) / S + 1.
     ///
     /// This is the inverse operation of `fold`, which combines overlapping blocks.
     ///
@@ -211,16 +211,23 @@ impl View {
     /// * `dim` - The dimension along which to create sliding windows
     /// * `window_size` - The size of each window
     /// * `stride` - The stride between windows
+    /// * `dilation` - The dilation (spacing between kernel elements)
     ///
     /// # Example
     /// ```ignore
     /// // Input: [2, 3, 10] (batch=2, channels=3, length=10)
-    /// // window_size=3, stride=1
+    /// // window_size=3, stride=1, dilation=1
     /// // Output: [2, 3, 8, 3] (batch=2, channels=3, output_length=8, window_size=3)
     /// let view = View::new_contiguous(vec![2, 3, 10]);
-    /// let unfolded = view.unfold(2, 3, 1);
+    /// let unfolded = view.unfold(2, 3, 1, 1);
     /// ```
-    pub fn unfold<E: Into<Expr> + Clone>(self, dim: usize, window_size: E, stride: E) -> Self {
+    pub fn unfold<E: Into<Expr> + Clone>(
+        self,
+        dim: usize,
+        window_size: E,
+        stride: E,
+        dilation: E,
+    ) -> Self {
         match self {
             View::Linear {
                 shape,
@@ -231,9 +238,16 @@ impl View {
 
                 let window_size_expr: Expr = window_size.into();
                 let stride_expr: Expr = stride.into();
+                let dilation_expr: Expr = dilation.into();
 
-                // Calculate output length: (L - K) / S + 1
-                let output_length = ((shape[dim].clone() - window_size_expr.clone())
+                // Calculate effective kernel size: effective_K = (K - 1) * D + 1
+                let effective_kernel_size = ((window_size_expr.clone() - Expr::from(1))
+                    * dilation_expr.clone()
+                    + Expr::from(1))
+                .simplify();
+
+                // Calculate output length: (L - effective_K) / S + 1
+                let output_length = ((shape[dim].clone() - effective_kernel_size)
                     / stride_expr.clone()
                     + Expr::from(1))
                 .simplify();
@@ -247,8 +261,8 @@ impl View {
                 let mut new_strides = strides.clone();
                 // The original stride at dim is multiplied by the window stride
                 new_strides[dim] = (strides[dim].clone() * stride_expr).simplify();
-                // The new window dimension has stride equal to the original stride at dim
-                new_strides.push(strides[dim].clone());
+                // The new window dimension has stride = original_stride * dilation
+                new_strides.push((strides[dim].clone() * dilation_expr).simplify());
 
                 View::Linear {
                     shape: new_shape,
@@ -516,11 +530,11 @@ mod tests {
     #[test]
     fn test_unfold_basic() {
         // Input: [2, 3, 10] (B=2, C=3, L=10)
-        // window_size=3, stride=1
+        // window_size=3, stride=1, dilation=1
         // Output: [2, 3, 8, 3] (B=2, C=3, L'=8, K=3)
-        // where L' = (10 - 3) / 1 + 1 = 8
+        // where L' = (10 - 1*(3-1) - 1) / 1 + 1 = (10 - 3) / 1 + 1 = 8
         let view = View::new_contiguous(vec![2, 3, 10]);
-        let windowed = view.unfold(2, 3, 1);
+        let windowed = view.unfold(2, 3, 1, 1);
         let View::Linear {
             shape,
             strides,
@@ -542,14 +556,14 @@ mod tests {
         // - B axis: 30 (original)
         // - C axis: 10 (original)
         // - L' axis: 1 (stride * original stride at dim 2)
-        // - K axis: 1 (original stride at dim 2)
+        // - K axis: 1 (original stride at dim 2 * dilation)
         assert_eq!(
             strides,
             vec![
                 Expr::from(30),
                 Expr::from(10),
                 Expr::from(1), // stride=1 * original_stride=1
-                Expr::from(1)  // original_stride at dim 2
+                Expr::from(1)  // original_stride=1 * dilation=1
             ]
         );
 
@@ -559,11 +573,11 @@ mod tests {
     #[test]
     fn test_unfold_with_stride() {
         // Input: [1, 1, 10] (B=1, C=1, L=10)
-        // window_size=3, stride=2
+        // window_size=3, stride=2, dilation=1
         // Output: [1, 1, 4, 3] (B=1, C=1, L'=4, K=3)
         // where L' = (10 - 3) / 2 + 1 = 4
         let view = View::new_contiguous(vec![1, 1, 10]);
-        let windowed = view.unfold(2, 3, 2);
+        let windowed = view.unfold(2, 3, 2, 1);
         let View::Linear {
             shape,
             strides,
@@ -585,14 +599,58 @@ mod tests {
         // - B axis: 10 (original)
         // - C axis: 10 (original)
         // - L' axis: 2 (stride=2 * original_stride=1)
-        // - K axis: 1 (original stride at dim 2)
+        // - K axis: 1 (original stride=1 * dilation=1)
         assert_eq!(
             strides,
             vec![
                 Expr::from(10),
                 Expr::from(10),
                 Expr::from(2), // stride=2 * original_stride=1
-                Expr::from(1)  // original_stride at dim 2
+                Expr::from(1)  // original_stride=1 * dilation=1
+            ]
+        );
+
+        assert_eq!(offset, Expr::from(0));
+    }
+
+    #[test]
+    fn test_unfold_with_dilation() {
+        // Input: [1, 1, 10] (B=1, C=1, L=10)
+        // window_size=3, stride=1, dilation=2
+        // effective_kernel_size = (3-1)*2 + 1 = 5
+        // Output: [1, 1, 6, 3] (B=1, C=1, L'=6, K=3)
+        // where L' = (10 - 5) / 1 + 1 = 6
+        let view = View::new_contiguous(vec![1, 1, 10]);
+        let windowed = view.unfold(2, 3, 1, 2);
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = windowed;
+
+        // Expected shape: [1, 1, 6, 3]
+        assert_eq!(
+            shape,
+            vec![
+                Expr::from(1),
+                Expr::from(1),
+                Expr::from(6), // (10 - 5) / 1 + 1
+                Expr::from(3)
+            ]
+        );
+
+        // Expected strides:
+        // - B axis: 10 (original)
+        // - C axis: 10 (original)
+        // - L' axis: 1 (stride=1 * original_stride=1)
+        // - K axis: 2 (original stride=1 * dilation=2)
+        assert_eq!(
+            strides,
+            vec![
+                Expr::from(10),
+                Expr::from(10),
+                Expr::from(1), // stride=1 * original_stride=1
+                Expr::from(2)  // original_stride=1 * dilation=2
             ]
         );
 
@@ -602,6 +660,6 @@ mod tests {
     #[test]
     #[should_panic(expected = "dimension out of bounds")]
     fn test_unfold_invalid_dim() {
-        View::new_contiguous(vec![2, 3]).unfold(3, 2, 1);
+        View::new_contiguous(vec![2, 3]).unfold(3, 2, 1, 1);
     }
 }

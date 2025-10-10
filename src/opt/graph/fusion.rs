@@ -647,10 +647,10 @@ impl GraphFusionOptimizer {
                     node.view.clone(),
                 )
             }
-            GraphOp::Fold(dim, window_size, stride, input) => {
+            GraphOp::Fold(dim, window_size, stride, dilation, input) => {
                 let rebuilt_input = self.rebuild_node(input);
                 GraphNode::new(
-                    GraphOp::Fold(*dim, *window_size, *stride, rebuilt_input),
+                    GraphOp::Fold(*dim, *window_size, *stride, *dilation, rebuilt_input),
                     node.dtype.clone(),
                     node.view.clone(),
                 )

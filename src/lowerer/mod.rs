@@ -336,7 +336,7 @@ impl Lowerer {
             GraphOp::View(n) => vec![n.clone()],
             GraphOp::Contiguous(input) => vec![input.clone()],
             GraphOp::Cast(input, _) => vec![input.clone()],
-            GraphOp::Fold(_, _, _, input) => vec![input.clone()],
+            GraphOp::Fold(_, _, _, _, input) => vec![input.clone()],
             GraphOp::FusedElementwise(_, nodes) => nodes.clone(),
             GraphOp::FusedReduce(_, _, input) => vec![input.clone()],
             GraphOp::FusedElementwiseReduce(_, nodes, _, _) => nodes.clone(),
@@ -546,10 +546,10 @@ impl Lowerer {
                     |n| self.get_or_create_var_name(n),
                 )
             }
-            GraphOp::Fold(dim, window_size, stride, input) => {
+            GraphOp::Fold(dim, window_size, stride, dilation, input) => {
                 // Fold operation (col2im): combines overlapping windows
                 // Input:  [..., L', K] where last dim is window dimension
-                // Output: [..., L] where L = (L'-1)*stride + K
+                // Output: [..., L] where L = (L'-1)*stride + (K-1)*dilation + 1
                 let result_var = self.get_or_create_var_name(node);
                 let input_var = self.get_or_create_var_name(input);
 
@@ -601,6 +601,7 @@ impl Lowerer {
                     *dim,
                     *window_size,
                     *stride,
+                    *dilation,
                     &input_var,
                     &result_var,
                 ))
@@ -683,6 +684,7 @@ impl Lowerer {
         dim: usize,
         window_size: usize,
         stride: usize,
+        dilation: usize,
         input_var: &str,
         result_var: &str,
     ) -> AstNode {
@@ -701,6 +703,7 @@ impl Lowerer {
             dim,
             window_size,
             stride,
+            dilation,
             input_var,
             result_var,
             0,
@@ -766,6 +769,7 @@ impl Lowerer {
         fold_dim: usize,
         window_size: usize,
         stride: usize,
+        dilation: usize,
         input_var: &str,
         result_var: &str,
         current_dim: usize,
@@ -775,19 +779,20 @@ impl Lowerer {
         if current_dim >= input_shape.len() {
             // All dimensions processed: perform accumulation
             // input[..., i_fold_dim, i_window_dim] accumulates to
-            // output[..., i_fold_dim * stride + i_window_dim]
+            // output[..., i_fold_dim * stride + i_window_dim * dilation]
 
             let input_index =
                 LowererUtils::compute_memory_index(input_strides, input_offset, input_shape.len());
 
-            // Compute result index with stride adjustment
-            // For fold_dim: use i_fold_dim * stride + i_window_dim instead of i_fold_dim
+            // Compute result index with stride and dilation adjustment
+            // For fold_dim: use i_fold_dim * stride + i_window_dim * dilation instead of i_fold_dim
             let result_index = Self::compute_fold_result_index(
                 result_strides,
                 result_offset,
                 fold_dim,
                 window_dim,
                 stride,
+                dilation,
                 input_shape.len(),
             );
 
@@ -817,6 +822,7 @@ impl Lowerer {
                 fold_dim,
                 window_size,
                 stride,
+                dilation,
                 input_var,
                 result_var,
                 current_dim + 1,
@@ -835,13 +841,14 @@ impl Lowerer {
     }
 
     /// Compute result index for fold operation
-    /// Maps input[..., i_fold_dim, ..., i_window_dim] to output[..., i_fold_dim * stride + i_window_dim, ...]
+    /// Maps input[..., i_fold_dim, ..., i_window_dim] to output[..., i_fold_dim * stride + i_window_dim * dilation, ...]
     fn compute_fold_result_index(
         result_strides: &[crate::graph::shape::Expr],
         result_offset: &crate::graph::shape::Expr,
         fold_dim: usize,
         window_dim: usize,
         stride: usize,
+        dilation: usize,
         num_input_dims: usize,
     ) -> AstNode {
         let mut index = LowererUtils::shape_expr_to_ast_node(result_offset);
@@ -856,13 +863,16 @@ impl Lowerer {
             let result_dim = if dim > fold_dim { dim - 1 } else { dim };
 
             if dim == fold_dim {
-                // For fold_dim: result_index = i_fold_dim * stride + i_window_dim
+                // For fold_dim: result_index = i_fold_dim * stride + i_window_dim * dilation
                 let fold_index = AstNode::Add(
                     Box::new(AstNode::Mul(
                         Box::new(AstNode::Var(loop_var)),
                         Box::new(AstNode::Const(ConstLiteral::Isize(stride as isize))),
                     )),
-                    Box::new(AstNode::Var(format!("i{}", window_dim))),
+                    Box::new(AstNode::Mul(
+                        Box::new(AstNode::Var(format!("i{}", window_dim))),
+                        Box::new(AstNode::Const(ConstLiteral::Isize(dilation as isize))),
+                    )),
                 );
                 index = index
                     + LowererUtils::shape_expr_to_ast_node(&result_strides[result_dim].clone())
