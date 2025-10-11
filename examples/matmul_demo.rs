@@ -9,10 +9,20 @@ fn main() {
     println!("=== Matrix Multiplication Demo ===\n");
 
     let mut backend = CBackend::new();
+    backend
+        .with_optimization(true) // 最適化を明示的に有効化
+        .with_beam_search_params(16, 200) // ビーム幅16、最大200イテレーション（より徹底的な探索）
+        .with_recompilation_threshold(1); // 再コンパイルのしきい値を下げる（より積極的に最適化）
+
     if !backend.is_available() {
         eprintln!("Error: C compiler not available");
         return;
     }
+
+    println!("Backend configuration:");
+    println!("  Optimization: enabled");
+    println!("  Beam search: width=16, iterations=200");
+    println!("  Recompilation threshold: 1\n");
 
     // デモサイズ: 512x512 × 512x512
     let m = 512isize;
@@ -50,10 +60,10 @@ fn main() {
 
     println!("Input data prepared.\n");
 
-    // 実行（最適化あり）
-    println!("Executing with optimization enabled...");
+    // 実行（フル最適化を強制）
+    println!("Executing with full optimization (beam search)...");
     let start = Instant::now();
-    let outputs = backend.execute(
+    let outputs = backend.execute_optimized(
         &graph,
         vec![
             harp::backend::c::CBuffer::from_slice(&a_data, &[m as usize, k as usize], DType::F32),
@@ -61,7 +71,10 @@ fn main() {
         ],
     );
     let duration = start.elapsed();
-    println!("Execution completed in {:.3}s", duration.as_secs_f64());
+    println!(
+        "Full optimization and execution completed in {:.3}s",
+        duration.as_secs_f64()
+    );
 
     // 結果の検証
     let c_data = outputs[0].to_vec::<f32>();

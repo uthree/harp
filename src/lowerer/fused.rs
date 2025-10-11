@@ -309,50 +309,84 @@ impl FusedLowerer {
         }
 
         if dim == reduce_axis {
-            // 縮約する次元: 初期化 + ループで累積
-            let inner_body = Self::create_fused_elementwise_reduce_loops(
-                input_shape,
-                result_view,
-                ast,
-                input_vars,
-                inputs,
-                reduce_axis,
-                result_var,
-                reduce_op,
-                initial_value.clone(),
-                dim + 1,
-            );
+            // 縮約する次元の処理
+            // 後続の次元がある場合は、それらのループの内側でアキュムレータを使用
+            if reduce_axis + 1 < input_shape.len() {
+                // 後続の非縮約次元のループを生成
+                return Self::create_post_reduce_loops_with_accumulator(
+                    input_shape,
+                    result_strides,
+                    result_offset,
+                    result_view,
+                    ast,
+                    input_vars,
+                    inputs,
+                    reduce_axis,
+                    result_var,
+                    reduce_op,
+                    initial_value,
+                    reduce_axis + 1, // 縮約軸の次の次元から開始
+                );
+            } else {
+                // 最後の軸を縮約する場合：アキュムレータ変数を使った縮約
+                let acc_var = format!("acc{}", dim);
 
-            let loop_var = format!("ridx{}", dim);
-            let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[dim]);
+                // アキュムレータへの累積を行う内部ループ
+                let inner_body = Self::create_fused_elementwise_reduce_with_accumulator(
+                    input_shape,
+                    ast,
+                    input_vars,
+                    inputs,
+                    reduce_axis,
+                    &acc_var,
+                    reduce_op,
+                    dim + 1,
+                );
 
-            // 初期化：reduce軸より後の次元についてもループを生成
-            // reduce_axis+1から始めることで、reduce軸より後の全ての次元をループ
-            let init_stmt = Self::create_init_loops_after_reduce(
-                input_shape,
-                result_strides,
-                result_offset,
-                reduce_axis,
-                result_var,
-                initial_value,
-                reduce_axis + 1, // reduce軸の次元から開始
-            );
+                let loop_var = format!("ridx{}", dim);
+                let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[dim]);
 
-            let reduce_loop = AstNode::Range {
-                counter_name: loop_var,
-                start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
-                max: Box::new(shape_size),
-                step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
-                body: Box::new(inner_body),
-                unroll: None,
-            };
+                // アキュムレータの初期化
+                let init_stmt = AstNode::Assign(acc_var.clone(), Box::new(initial_value.clone()));
 
-            return AstNode::Block {
-                scope: crate::ast::Scope {
-                    declarations: vec![],
-                },
-                statements: vec![init_stmt, reduce_loop],
-            };
+                // 縮約ループ
+                let reduce_loop = AstNode::Range {
+                    counter_name: loop_var,
+                    start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
+                    max: Box::new(shape_size),
+                    step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
+                    body: Box::new(inner_body),
+                    unroll: None,
+                };
+
+                // アキュムレータから結果配列への書き込み
+                let result_index = LowererUtils::compute_reduce_result_index(
+                    result_strides,
+                    result_offset,
+                    dim,
+                    reduce_axis,
+                );
+                let write_back_stmt = AstNode::Store {
+                    target: Box::new(AstNode::Var(result_var.to_string())),
+                    index: Box::new(result_index),
+                    value: Box::new(AstNode::Var(acc_var.clone())),
+                };
+
+                // 結果の型を取得
+                let result_dtype = DType::F32;
+
+                return AstNode::Block {
+                    scope: crate::ast::Scope {
+                        declarations: vec![VariableDecl {
+                            name: acc_var,
+                            dtype: result_dtype,
+                            constant: false,
+                            size_expr: None,
+                        }],
+                    },
+                    statements: vec![init_stmt, reduce_loop, write_back_stmt],
+                };
+            }
         }
 
         // 通常の次元: 単にループを生成
@@ -370,6 +404,207 @@ impl FusedLowerer {
         );
 
         let loop_var = format!("ridx{}", dim);
+        let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[dim]);
+
+        AstNode::Range {
+            counter_name: loop_var,
+            start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
+            max: Box::new(shape_size),
+            step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
+            body: Box::new(inner_body),
+            unroll: None,
+        }
+    }
+
+    /// 縮約軸より後の次元のループを生成し、その内側でアキュムレータを使用
+    #[allow(clippy::too_many_arguments)]
+    fn create_post_reduce_loops_with_accumulator(
+        input_shape: &[crate::graph::shape::Expr],
+        result_strides: &[crate::graph::shape::Expr],
+        result_offset: &crate::graph::shape::Expr,
+        _result_view: &crate::graph::shape::view::View,
+        ast: &AstNode,
+        input_vars: &[String],
+        inputs: &[GraphNode],
+        reduce_axis: usize,
+        result_var: &str,
+        reduce_op: &ReduceOp,
+        initial_value: AstNode,
+        dim: usize,
+    ) -> AstNode {
+        if dim >= input_shape.len() {
+            // 全ての後続次元のループを生成した：アキュムレータを使った縮約を実行
+            let acc_var = format!("acc{}", reduce_axis);
+
+            // アキュムレータへの累積を行う縮約ループ
+            let inner_body = Self::create_fused_elementwise_reduce_with_accumulator(
+                input_shape,
+                ast,
+                input_vars,
+                inputs,
+                reduce_axis,
+                &acc_var,
+                reduce_op,
+                reduce_axis + 1,
+            );
+
+            let loop_var = format!("ridx{}", reduce_axis);
+            let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[reduce_axis]);
+
+            // アキュムレータの初期化
+            let init_stmt = AstNode::Assign(acc_var.clone(), Box::new(initial_value.clone()));
+
+            // 縮約ループ
+            let reduce_loop = AstNode::Range {
+                counter_name: loop_var,
+                start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
+                max: Box::new(shape_size),
+                step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
+                body: Box::new(inner_body),
+                unroll: None,
+            };
+
+            // アキュムレータから結果配列への書き込み
+            let result_index = LowererUtils::compute_reduce_result_index(
+                result_strides,
+                result_offset,
+                input_shape.len(),
+                reduce_axis,
+            );
+            let write_back_stmt = AstNode::Store {
+                target: Box::new(AstNode::Var(result_var.to_string())),
+                index: Box::new(result_index),
+                value: Box::new(AstNode::Var(acc_var.clone())),
+            };
+
+            // 結果の型を取得
+            let result_dtype = DType::F32;
+
+            return AstNode::Block {
+                scope: crate::ast::Scope {
+                    declarations: vec![VariableDecl {
+                        name: acc_var,
+                        dtype: result_dtype,
+                        constant: false,
+                        size_expr: None,
+                    }],
+                },
+                statements: vec![init_stmt, reduce_loop, write_back_stmt],
+            };
+        }
+
+        // 後続次元のループを生成
+        let loop_var = format!("ridx{}", dim);
+        let inner_body = Self::create_post_reduce_loops_with_accumulator(
+            input_shape,
+            result_strides,
+            result_offset,
+            _result_view,
+            ast,
+            input_vars,
+            inputs,
+            reduce_axis,
+            result_var,
+            reduce_op,
+            initial_value,
+            dim + 1,
+        );
+
+        let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[dim]);
+
+        AstNode::Range {
+            counter_name: loop_var,
+            start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
+            max: Box::new(shape_size),
+            step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
+            body: Box::new(inner_body),
+            unroll: None,
+        }
+    }
+
+    /// アキュムレータ変数を使ったFusedElementwiseReduce縮約ループの本体を生成
+    #[allow(clippy::too_many_arguments)]
+    fn create_fused_elementwise_reduce_with_accumulator(
+        input_shape: &[crate::graph::shape::Expr],
+        ast: &AstNode,
+        input_vars: &[String],
+        inputs: &[GraphNode],
+        reduce_axis: usize,
+        acc_var: &str,
+        reduce_op: &ReduceOp,
+        dim: usize,
+    ) -> AstNode {
+        if dim >= input_shape.len() {
+            // 全ての次元を処理した：アキュムレータに累積
+            let fused_value = Self::replace_captures_with_input_refs(
+                ast,
+                input_vars,
+                inputs,
+                &vec![crate::graph::shape::Expr::from(0); input_shape.len()],
+                &crate::graph::shape::Expr::from(0),
+                input_shape.len(),
+            );
+
+            // 縮約操作: acc = acc op fused_value
+            let operation_result = match reduce_op {
+                ReduceOp::Add => AstNode::Add(
+                    Box::new(AstNode::Var(acc_var.to_string())),
+                    Box::new(fused_value),
+                ),
+                ReduceOp::Mul => AstNode::Mul(
+                    Box::new(AstNode::Var(acc_var.to_string())),
+                    Box::new(fused_value),
+                ),
+                ReduceOp::Max => AstNode::Max(
+                    Box::new(AstNode::Var(acc_var.to_string())),
+                    Box::new(fused_value),
+                ),
+            };
+
+            return AstNode::Assign(acc_var.to_string(), Box::new(operation_result));
+        }
+
+        if dim == reduce_axis {
+            // 縮約軸は既に外側で処理されているので、ここでは単に次の次元へ
+            return Self::create_fused_elementwise_reduce_with_accumulator(
+                input_shape,
+                ast,
+                input_vars,
+                inputs,
+                reduce_axis,
+                acc_var,
+                reduce_op,
+                dim + 1,
+            );
+        }
+
+        if dim > reduce_axis {
+            // 縮約軸より後の次元は外側のループで既に処理されているので、単に次へ進む
+            return Self::create_fused_elementwise_reduce_with_accumulator(
+                input_shape,
+                ast,
+                input_vars,
+                inputs,
+                reduce_axis,
+                acc_var,
+                reduce_op,
+                dim + 1,
+            );
+        }
+
+        // 縮約軸より前の通常の次元: ループを生成
+        let loop_var = format!("ridx{}", dim);
+        let inner_body = Self::create_fused_elementwise_reduce_with_accumulator(
+            input_shape,
+            ast,
+            input_vars,
+            inputs,
+            reduce_axis,
+            acc_var,
+            reduce_op,
+            dim + 1,
+        );
+
         let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[dim]);
 
         AstNode::Range {
@@ -519,52 +754,115 @@ impl FusedLowerer {
         }
 
         if is_reduce_axis && dim == *reduce_axes.iter().min().unwrap() {
-            // 最初の縮約軸: 初期化ループ + 縮約ループ
-            // 初期化ループ: 最初のreduce軸以降の次元（reduce軸を除く）でループし、結果を初期化
-            let init_loop = Self::create_init_loops_for_fused_reduce(
-                input_shape,
-                result_strides,
-                result_offset,
-                reduce_axes,
-                result_var,
-                initial_value.clone(),
-                dim, // start_dim: 最初のreduce軸から開始（それより前の次元はすでにループの中）
-                0,   // dim: 0から開始して、start_dim未満はスキップ
-            );
+            // 最初の縮約軸の処理
+            // アキュムレータ変数は、最初の縮約軸以降に非縮約軸が存在しない場合のみ使用可能
+            let first_reduce_axis = *reduce_axes.iter().min().unwrap();
+            let has_non_reduce_after =
+                (first_reduce_axis + 1..input_shape.len()).any(|d| !reduce_axes.contains(&d));
+            let use_accumulator = !has_non_reduce_after;
 
-            // 縮約ループ（現在の次元から開始）
-            let loop_var = format!("ridx{}", dim);
-            let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[dim]);
+            if use_accumulator {
+                // アキュムレータ変数を使った縮約
+                let acc_var = format!("acc{}", dim);
 
-            let inner_body = Self::create_fused_reduce_loops(
-                input_shape,
-                input_strides,
-                input_offset,
-                result_strides,
-                result_offset,
-                reduce_axes,
-                input_var,
-                result_var,
-                reduce_op,
-                initial_value.clone(),
-                dim + 1,
-            );
+                // アキュムレータへの累積を行う内部ループ
+                let inner_body = Self::create_fused_reduce_with_accumulator(
+                    input_shape,
+                    input_strides,
+                    input_offset,
+                    reduce_axes,
+                    input_var,
+                    &acc_var,
+                    reduce_op,
+                    dim + 1,
+                );
 
-            let reduce_loop = AstNode::Range {
-                counter_name: loop_var,
-                start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
-                max: Box::new(shape_size),
-                step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
-                body: Box::new(inner_body),
-                unroll: None,
-            };
+                let loop_var = format!("ridx{}", dim);
+                let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[dim]);
 
-            return AstNode::Block {
-                scope: crate::ast::Scope {
-                    declarations: vec![],
-                },
-                statements: vec![init_loop, reduce_loop],
-            };
+                // アキュムレータの初期化
+                let init_stmt = AstNode::Assign(acc_var.clone(), Box::new(initial_value.clone()));
+
+                // 縮約ループ（現在の次元から開始）
+                let reduce_loop = AstNode::Range {
+                    counter_name: loop_var,
+                    start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
+                    max: Box::new(shape_size),
+                    step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
+                    body: Box::new(inner_body),
+                    unroll: None,
+                };
+
+                // アキュムレータから結果配列への書き込み
+                let result_index = LowererUtils::compute_multi_reduce_result_index(
+                    result_strides,
+                    result_offset,
+                    dim,
+                    reduce_axes,
+                );
+                let write_back_stmt = AstNode::Store {
+                    target: Box::new(AstNode::Var(result_var.to_string())),
+                    index: Box::new(result_index),
+                    value: Box::new(AstNode::Var(acc_var.clone())),
+                };
+
+                return AstNode::Block {
+                    scope: crate::ast::Scope {
+                        declarations: vec![VariableDecl {
+                            name: acc_var,
+                            dtype: DType::F32, // 型を仮定
+                            constant: false,
+                            size_expr: None,
+                        }],
+                    },
+                    statements: vec![init_stmt, reduce_loop, write_back_stmt],
+                };
+            } else {
+                // 配列ベースの縮約（元の実装）
+                let init_loop = Self::create_init_loops_for_fused_reduce(
+                    input_shape,
+                    result_strides,
+                    result_offset,
+                    reduce_axes,
+                    result_var,
+                    initial_value.clone(),
+                    dim,
+                    0,
+                );
+
+                let loop_var = format!("ridx{}", dim);
+                let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[dim]);
+
+                let inner_body = Self::create_fused_reduce_loops(
+                    input_shape,
+                    input_strides,
+                    input_offset,
+                    result_strides,
+                    result_offset,
+                    reduce_axes,
+                    input_var,
+                    result_var,
+                    reduce_op,
+                    initial_value.clone(),
+                    dim + 1,
+                );
+
+                let reduce_loop = AstNode::Range {
+                    counter_name: loop_var,
+                    start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
+                    max: Box::new(shape_size),
+                    step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
+                    body: Box::new(inner_body),
+                    unroll: None,
+                };
+
+                return AstNode::Block {
+                    scope: crate::ast::Scope {
+                        declarations: vec![],
+                    },
+                    statements: vec![init_loop, reduce_loop],
+                };
+            }
         }
 
         // 通常のループ（reduce軸でないか、最初のreduce軸でない）
@@ -580,6 +878,115 @@ impl FusedLowerer {
             result_var,
             reduce_op,
             initial_value,
+            dim + 1,
+        );
+
+        let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[dim]);
+
+        AstNode::Range {
+            counter_name: loop_var,
+            start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
+            max: Box::new(shape_size),
+            step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
+            body: Box::new(inner_body),
+            unroll: None,
+        }
+    }
+
+    /// アキュムレータ変数を使ったFusedReduce縮約ループの本体を生成
+    #[allow(clippy::too_many_arguments)]
+    fn create_fused_reduce_with_accumulator(
+        input_shape: &[crate::graph::shape::Expr],
+        input_strides: &[crate::graph::shape::Expr],
+        input_offset: &crate::graph::shape::Expr,
+        reduce_axes: &[usize],
+        input_var: &str,
+        acc_var: &str,
+        reduce_op: &ReduceOp,
+        dim: usize,
+    ) -> AstNode {
+        if dim >= input_shape.len() {
+            // 全ての次元を処理した：アキュムレータに累積
+            let input_index =
+                LowererUtils::compute_memory_index(input_strides, input_offset, input_shape.len());
+
+            // 縮約操作: acc = acc op input[...]
+            let operation_result = match reduce_op {
+                ReduceOp::Add => AstNode::Add(
+                    Box::new(AstNode::Var(acc_var.to_string())),
+                    Box::new(AstNode::Deref(Box::new(
+                        AstNode::Var(input_var.to_string()) + input_index,
+                    ))),
+                ),
+                ReduceOp::Mul => AstNode::Mul(
+                    Box::new(AstNode::Var(acc_var.to_string())),
+                    Box::new(AstNode::Deref(Box::new(
+                        AstNode::Var(input_var.to_string()) + input_index,
+                    ))),
+                ),
+                ReduceOp::Max => AstNode::Max(
+                    Box::new(AstNode::Var(acc_var.to_string())),
+                    Box::new(AstNode::Deref(Box::new(
+                        AstNode::Var(input_var.to_string()) + input_index,
+                    ))),
+                ),
+            };
+
+            return AstNode::Assign(acc_var.to_string(), Box::new(operation_result));
+        }
+
+        if reduce_axes.contains(&dim) {
+            // 縮約軸の場合
+            // 最初の縮約軸は外側で処理されているので、それ以外の縮約軸についてループを生成
+            if dim == *reduce_axes.iter().min().unwrap() {
+                // 最初の縮約軸は既に外側で処理されているので、次の次元へ
+                return Self::create_fused_reduce_with_accumulator(
+                    input_shape,
+                    input_strides,
+                    input_offset,
+                    reduce_axes,
+                    input_var,
+                    acc_var,
+                    reduce_op,
+                    dim + 1,
+                );
+            } else {
+                // 2番目以降の縮約軸: ループを生成
+                let loop_var = format!("ridx{}", dim);
+                let inner_body = Self::create_fused_reduce_with_accumulator(
+                    input_shape,
+                    input_strides,
+                    input_offset,
+                    reduce_axes,
+                    input_var,
+                    acc_var,
+                    reduce_op,
+                    dim + 1,
+                );
+
+                let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[dim]);
+
+                return AstNode::Range {
+                    counter_name: loop_var,
+                    start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
+                    max: Box::new(shape_size),
+                    step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
+                    body: Box::new(inner_body),
+                    unroll: None,
+                };
+            }
+        }
+
+        // 通常の次元: ループを生成
+        let loop_var = format!("ridx{}", dim);
+        let inner_body = Self::create_fused_reduce_with_accumulator(
+            input_shape,
+            input_strides,
+            input_offset,
+            reduce_axes,
+            input_var,
+            acc_var,
+            reduce_op,
             dim + 1,
         );
 
@@ -663,79 +1070,6 @@ impl FusedLowerer {
             result_var,
             initial_value,
             start_dim,
-            dim + 1,
-        );
-
-        let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[dim]);
-
-        AstNode::Range {
-            counter_name: loop_var,
-            start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
-            max: Box::new(shape_size),
-            step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
-            body: Box::new(inner_body),
-            unroll: None,
-        }
-    }
-
-    /// reduce軸より後の次元について初期化ループを生成
-    /// reduce_axis+1からinput_shape.len()までの次元についてループを作成し、
-    /// 各要素を初期値で初期化する
-    pub(super) fn create_init_loops_after_reduce(
-        input_shape: &[crate::graph::shape::Expr],
-        result_strides: &[crate::graph::shape::Expr],
-        result_offset: &crate::graph::shape::Expr,
-        reduce_axis: usize,
-        result_var: &str,
-        initial_value: AstNode,
-        dim: usize,
-    ) -> AstNode {
-        if dim >= input_shape.len() {
-            // 全ての次元を処理した：初期化を実行
-            let mut index_expr = result_offset.clone();
-            let mut result_dim = 0;
-
-            for input_dim in 0..input_shape.len() {
-                if input_dim != reduce_axis {
-                    let loop_var = crate::graph::shape::Expr::Var(format!("ridx{}", input_dim));
-                    let term = loop_var * result_strides[result_dim].clone();
-                    index_expr += term;
-                    result_dim += 1;
-                }
-            }
-
-            let simplified = index_expr.simplify();
-            let result_index = LowererUtils::shape_expr_to_ast_node(&simplified);
-
-            return AstNode::Store {
-                target: Box::new(AstNode::Var(result_var.to_string())),
-                index: Box::new(result_index),
-                value: Box::new(initial_value),
-            };
-        }
-
-        if dim == reduce_axis {
-            // reduce軸はスキップ
-            return Self::create_init_loops_after_reduce(
-                input_shape,
-                result_strides,
-                result_offset,
-                reduce_axis,
-                result_var,
-                initial_value,
-                dim + 1,
-            );
-        }
-
-        // 通常のループ（reduce軸でない）
-        let loop_var = format!("ridx{}", dim);
-        let inner_body = Self::create_init_loops_after_reduce(
-            input_shape,
-            result_strides,
-            result_offset,
-            reduce_axis,
-            result_var,
-            initial_value,
             dim + 1,
         );
 
