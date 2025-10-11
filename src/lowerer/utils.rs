@@ -60,7 +60,7 @@ impl LowererUtils {
         let mut index_expr = offset.clone();
 
         for (i, stride) in strides.iter().enumerate().take(num_dims) {
-            let loop_var = Expr::Var(format!("i{}", i));
+            let loop_var = Expr::Var(format!("ridx{}", i));
             let term = loop_var * stride.clone();
             index_expr += term;
         }
@@ -86,7 +86,7 @@ impl LowererUtils {
             let loop_var = if i == override_dim {
                 override_expr.clone()
             } else {
-                Expr::Var(format!("i{}", i))
+                Expr::Var(format!("ridx{}", i))
             };
             let term = loop_var * stride.clone();
             index_expr += term;
@@ -115,7 +115,7 @@ impl LowererUtils {
                 if result_dim >= result_strides.len() {
                     break;
                 }
-                let loop_var = Expr::Var(format!("i{}", input_dim));
+                let loop_var = Expr::Var(format!("ridx{}", input_dim));
                 let term = loop_var * result_strides[result_dim].clone();
                 index_expr += term;
                 result_dim += 1;
@@ -145,7 +145,7 @@ impl LowererUtils {
                 if result_dim >= result_strides.len() {
                     break;
                 }
-                let loop_var = Expr::Var(format!("i{}", dim));
+                let loop_var = Expr::Var(format!("ridx{}", dim));
                 let term = loop_var * result_strides[result_dim].clone();
                 index_expr += term;
                 result_dim += 1; // 出力次元をインクリメント

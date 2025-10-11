@@ -163,7 +163,7 @@ impl ReduceLowerer {
                 dim + 1,
             );
 
-            let loop_var = format!("i{}", dim);
+            let loop_var = format!("ridx{}", dim);
             let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[dim]);
 
             // 結果の初期化（縮約軸をスキップしたインデックスで計算）
@@ -198,7 +198,7 @@ impl ReduceLowerer {
             }
         } else {
             // 縮約しない次元: 通常のループ
-            let loop_var = format!("i{}", dim);
+            let loop_var = format!("ridx{}", dim);
             let inner_body = Self::create_reduce_loops(
                 input_shape,
                 input_strides,
@@ -250,7 +250,7 @@ impl ReduceLowerer {
             }
         } else {
             // ループを生成
-            let loop_var = format!("i{}", dim);
+            let loop_var = format!("ridx{}", dim);
             let inner_body =
                 Self::create_copy_loop(shape, strides, offset, source_var, dest_var, dim + 1);
 

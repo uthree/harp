@@ -103,7 +103,7 @@ impl CumulativeLowerer {
             unreachable!()
         } else if dim == cumulative_axis {
             // 累積軸: 特別な処理
-            let loop_var = format!("i{}", dim);
+            let loop_var = format!("ridx{}", dim);
             let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[dim]);
 
             // 累積軸の最初の要素を初期化
@@ -158,10 +158,12 @@ impl CumulativeLowerer {
                         .enumerate()
                         .map(|(d, stride)| {
                             if d == cumulative_axis {
-                                stride.clone() * crate::graph::shape::Expr::Var(format!("i{}", d))
+                                stride.clone()
+                                    * crate::graph::shape::Expr::Var(format!("ridx{}", d))
                                     - stride.clone()
                             } else {
-                                stride.clone() * crate::graph::shape::Expr::Var(format!("i{}", d))
+                                stride.clone()
+                                    * crate::graph::shape::Expr::Var(format!("ridx{}", d))
                             }
                         })
                         .fold(crate::graph::shape::Expr::Const(0), |acc, x| acc + x);
@@ -227,7 +229,7 @@ impl CumulativeLowerer {
             }
         } else {
             // 累積軸以外の次元: 通常のループ
-            let loop_var = format!("i{}", dim);
+            let loop_var = format!("ridx{}", dim);
             let inner_body = Self::create_cumulative_loops(
                 input_shape,
                 input_strides,

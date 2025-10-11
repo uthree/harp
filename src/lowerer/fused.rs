@@ -91,7 +91,7 @@ impl FusedLowerer {
         }
 
         // ループを生成
-        let loop_var = format!("i{}", dim);
+        let loop_var = format!("ridx{}", dim);
         let inner_body =
             Self::create_fused_elementwise_loop(view, ast, input_vars, inputs, result_var, dim + 1);
 
@@ -323,7 +323,7 @@ impl FusedLowerer {
                 dim + 1,
             );
 
-            let loop_var = format!("i{}", dim);
+            let loop_var = format!("ridx{}", dim);
             let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[dim]);
 
             // 初期化：reduce軸より後の次元についてもループを生成
@@ -369,7 +369,7 @@ impl FusedLowerer {
             dim + 1,
         );
 
-        let loop_var = format!("i{}", dim);
+        let loop_var = format!("ridx{}", dim);
         let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[dim]);
 
         AstNode::Range {
@@ -533,7 +533,7 @@ impl FusedLowerer {
             );
 
             // 縮約ループ（現在の次元から開始）
-            let loop_var = format!("i{}", dim);
+            let loop_var = format!("ridx{}", dim);
             let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[dim]);
 
             let inner_body = Self::create_fused_reduce_loops(
@@ -568,7 +568,7 @@ impl FusedLowerer {
         }
 
         // 通常のループ（reduce軸でないか、最初のreduce軸でない）
-        let loop_var = format!("i{}", dim);
+        let loop_var = format!("ridx{}", dim);
         let inner_body = Self::create_fused_reduce_loops(
             input_shape,
             input_strides,
@@ -654,7 +654,7 @@ impl FusedLowerer {
         }
 
         // 通常のループ（reduce軸でない）
-        let loop_var = format!("i{}", dim);
+        let loop_var = format!("ridx{}", dim);
         let inner_body = Self::create_init_loops_for_fused_reduce(
             input_shape,
             result_strides,
@@ -697,7 +697,7 @@ impl FusedLowerer {
 
             for input_dim in 0..input_shape.len() {
                 if input_dim != reduce_axis {
-                    let loop_var = crate::graph::shape::Expr::Var(format!("i{}", input_dim));
+                    let loop_var = crate::graph::shape::Expr::Var(format!("ridx{}", input_dim));
                     let term = loop_var * result_strides[result_dim].clone();
                     index_expr += term;
                     result_dim += 1;
@@ -728,7 +728,7 @@ impl FusedLowerer {
         }
 
         // 通常のループ（reduce軸でない）
-        let loop_var = format!("i{}", dim);
+        let loop_var = format!("ridx{}", dim);
         let inner_body = Self::create_init_loops_after_reduce(
             input_shape,
             result_strides,

@@ -647,7 +647,7 @@ impl Lowerer {
             }
         } else {
             // ループを生成
-            let loop_var = format!("i{}", dim);
+            let loop_var = format!("ridx{}", dim);
             let inner_body = Self::create_contiguous_copy_loop(
                 shape,
                 input_strides,
@@ -736,7 +736,7 @@ impl Lowerer {
                 value: Box::new(AstNode::Const(ConstLiteral::F32(0.0))),
             }
         } else {
-            let loop_var = format!("i{}", dim);
+            let loop_var = format!("ridx{}", dim);
             let inner_body = Self::create_fold_init_loop(
                 result_shape,
                 result_strides,
@@ -811,7 +811,7 @@ impl Lowerer {
             }
         } else {
             // Generate loop for current dimension
-            let loop_var = format!("i{}", current_dim);
+            let loop_var = format!("ridx{}", current_dim);
             let inner_body = Self::create_fold_accumulate_loop(
                 input_shape,
                 input_strides,
@@ -859,7 +859,7 @@ impl Lowerer {
                 continue;
             }
 
-            let loop_var = format!("i{}", dim);
+            let loop_var = format!("ridx{}", dim);
             let result_dim = if dim > fold_dim { dim - 1 } else { dim };
 
             if dim == fold_dim {
@@ -870,7 +870,7 @@ impl Lowerer {
                         Box::new(AstNode::Const(ConstLiteral::Isize(stride as isize))),
                     )),
                     Box::new(AstNode::Mul(
-                        Box::new(AstNode::Var(format!("i{}", window_dim))),
+                        Box::new(AstNode::Var(format!("ridx{}", window_dim))),
                         Box::new(AstNode::Const(ConstLiteral::Isize(dilation as isize))),
                     )),
                 );
@@ -917,7 +917,7 @@ impl Lowerer {
             }
         } else {
             // ループを生成
-            let loop_var = format!("i{}", dim);
+            let loop_var = format!("ridx{}", dim);
             let inner_body = Self::create_cast_loop(
                 shape,
                 input_strides,

@@ -277,7 +277,7 @@ impl ElementwiseLowerer {
             }
         } else {
             // 再帰的にネストしたループを作成
-            let loop_var = format!("i{}", dim);
+            let loop_var = format!("ridx{}", dim);
             let inner_body = Self::create_nested_loops(
                 shape,
                 result_strides,
@@ -390,7 +390,7 @@ impl ElementwiseLowerer {
             }
         } else {
             // 再帰的にネストしたループを作成
-            let loop_var = format!("i{}", dim);
+            let loop_var = format!("ridx{}", dim);
             let inner_body = Self::create_unary_nested_loops(
                 shape,
                 result_strides,
@@ -536,7 +536,7 @@ impl ElementwiseLowerer {
             }
         } else {
             // 再帰的にネストしたループを作成
-            let loop_var = format!("i{}", dim);
+            let loop_var = format!("ridx{}", dim);
             let inner_body = Self::create_ternary_nested_loops(
                 shape,
                 result_strides,
