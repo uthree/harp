@@ -127,10 +127,8 @@ impl Lowerer {
             "kernel_impl".to_string(),
             arguments,
             DType::Void,
-            AstNode::Block {
-                scope: Scope { declarations },
-                statements,
-            },
+            Scope { declarations },
+            statements,
         )
     }
 
@@ -222,12 +220,10 @@ impl Lowerer {
                 ("shape_vars".to_string(), DType::Ptr(Box::new(DType::Usize))),
             ],
             DType::Void,
-            AstNode::Block {
-                scope: Scope {
-                    declarations: local_vars,
-                },
-                statements,
+            Scope {
+                declarations: local_vars,
             },
+            statements,
         )
     }
 
@@ -1043,14 +1039,11 @@ mod tests {
 
         // カーネル実装関数のチェック
         let kernel_func = &program.functions[0];
-        if let AstNode::Block { statements, .. } = kernel_func.body() {
-            // const assignment + barrier + neg loop
-            assert_eq!(statements.len(), 3);
-            // 2番目のステートメントがBarrierであることを確認
-            assert!(matches!(statements[1], AstNode::Barrier));
-        } else {
-            panic!("Expected Block body");
-        }
+        let statements = kernel_func.statements();
+        // const assignment + barrier + neg loop
+        assert_eq!(statements.len(), 3);
+        // 2番目のステートメントがBarrierであることを確認
+        assert!(matches!(statements[1], AstNode::Barrier));
     }
 
     #[test]
@@ -1077,22 +1070,21 @@ mod tests {
         assert_eq!(args[1].0, "shape_vars");
 
         // エントリー関数の本体をチェック
-        if let AstNode::Block { statements, scope } = entry_func.body() {
-            // 入力と出力バッファの型キャストがある
-            assert!(statements.len() >= 3); // 最低でも input cast + output cast + kernel call
+        let statements = entry_func.statements();
+        let scope = entry_func.scope();
 
-            // 変数宣言をチェック
-            assert!(scope.declarations.len() >= 2); // input_0, output_0
+        // 入力と出力バッファの型キャストがある
+        assert!(statements.len() >= 3); // 最低でも input cast + output cast + kernel call
 
-            // 最後の文はkernel_impl呼び出し
-            if let AstNode::CallFunction { name, args } = statements.last().unwrap() {
-                assert_eq!(name, "kernel_impl");
-                assert_eq!(args.len(), 2); // input_0, output_0
-            } else {
-                panic!("Expected kernel call as last statement");
-            }
+        // 変数宣言をチェック
+        assert!(scope.declarations.len() >= 2); // input_0, output_0
+
+        // 最後の文はkernel_impl呼び出し
+        if let AstNode::CallFunction { name, args } = statements.last().unwrap() {
+            assert_eq!(name, "kernel_impl");
+            assert_eq!(args.len(), 2); // input_0, output_0
         } else {
-            panic!("Expected Block body in entry function");
+            panic!("Expected kernel call as last statement");
         }
     }
 }

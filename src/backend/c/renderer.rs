@@ -136,15 +136,7 @@ impl CRenderer {
     fn render_function(&mut self, function: &Function) -> String {
         let mut buffer = String::new();
         writeln!(buffer, "{}", self.render_function_signature(function)).unwrap();
-        let body_str = match &function.body {
-            AstNode::Block { scope, statements } => self.render_scope(scope, statements),
-            single_statement => {
-                let empty_scope = Scope {
-                    declarations: vec![],
-                };
-                self.render_scope(&empty_scope, std::slice::from_ref(single_statement))
-            }
-        };
+        let body_str = self.render_scope(&function.scope, &function.statements);
         write!(buffer, "{}", body_str).unwrap();
         writeln!(buffer).unwrap();
         buffer
@@ -595,20 +587,18 @@ mod tests {
             "my_func".to_string(),
             vec![("a".to_string(), DType::Vec(Box::new(DType::Isize), 10))],
             DType::Void,
-            AstNode::Block {
-                scope: Scope {
-                    declarations: vec![VariableDecl {
-                        name: "b".to_string(),
-                        dtype: DType::F32,
-                        constant: false,
-                        size_expr: None,
-                    }],
-                },
-                statements: vec![AstNode::Assign(
-                    "b".to_string(),
-                    Box::new(AstNode::from(1.0f32)),
-                )],
+            Scope {
+                declarations: vec![VariableDecl {
+                    name: "b".to_string(),
+                    dtype: DType::F32,
+                    constant: false,
+                    size_expr: None,
+                }],
             },
+            vec![AstNode::Assign(
+                "b".to_string(),
+                Box::new(AstNode::from(1.0f32)),
+            )],
         );
         let program = Program {
             functions: vec![function],
@@ -635,12 +625,15 @@ void my_func(ssize_t a[10])
 
     #[test]
     fn test_render_function_single_statement() {
-        let function = Function {
-            name: "my_func".to_string(),
-            arguments: vec![("a".to_string(), DType::Isize)],
-            return_type: DType::Void,
-            body: AstNode::Var("a".to_string()), // Directly pass a single node
-        };
+        let function = Function::new(
+            "my_func".to_string(),
+            vec![("a".to_string(), DType::Isize)],
+            DType::Void,
+            Scope {
+                declarations: vec![],
+            },
+            vec![AstNode::Var("a".to_string())], // Single statement
+        );
         let expected = r###"void my_func(ssize_t a)
 {
 	a;
@@ -657,21 +650,19 @@ void my_func(ssize_t a[10])
             "dynamic_alloc".to_string(),
             vec![("n".to_string(), DType::Usize)],
             DType::Void,
-            AstNode::Block {
-                scope: Scope {
-                    declarations: vec![VariableDecl {
-                        name: "arr".to_string(),
-                        dtype: DType::Ptr(Box::new(DType::F32)),
-                        constant: false,
-                        size_expr: Some(Box::new(AstNode::Var("n".to_string()))),
-                    }],
-                },
-                statements: vec![AstNode::Store {
-                    target: Box::new(var("arr")),
-                    index: Box::new(AstNode::from(0usize)),
-                    value: Box::new(AstNode::from(1.0f32)),
+            Scope {
+                declarations: vec![VariableDecl {
+                    name: "arr".to_string(),
+                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    constant: false,
+                    size_expr: Some(Box::new(AstNode::Var("n".to_string()))),
                 }],
             },
+            vec![AstNode::Store {
+                target: Box::new(var("arr")),
+                index: Box::new(AstNode::from(0usize)),
+                value: Box::new(AstNode::from(1.0f32)),
+            }],
         );
         let program = Program {
             functions: vec![function],

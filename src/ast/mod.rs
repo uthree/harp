@@ -158,7 +158,8 @@ pub enum AstNode {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Function {
     pub(crate) name: String,
-    pub(crate) body: AstNode,
+    pub(crate) scope: Scope,
+    pub(crate) statements: Vec<AstNode>,
     pub(crate) arguments: Vec<(String, DType)>,
     pub(crate) return_type: DType,
 }
@@ -168,14 +169,15 @@ impl Function {
         name: String,
         arguments: Vec<(String, DType)>,
         return_type: DType,
-        body: AstNode,
+        scope: Scope,
+        statements: Vec<AstNode>,
     ) -> Self {
-        assert!(matches!(body, AstNode::Block { .. }));
         Self {
             name,
             arguments,
             return_type,
-            body,
+            scope,
+            statements,
         }
     }
 
@@ -183,8 +185,12 @@ impl Function {
         &self.name
     }
 
-    pub fn body(&self) -> &AstNode {
-        &self.body
+    pub fn scope(&self) -> &Scope {
+        &self.scope
+    }
+
+    pub fn statements(&self) -> &[AstNode] {
+        &self.statements
     }
 
     pub fn arguments(&self) -> &[(String, DType)] {

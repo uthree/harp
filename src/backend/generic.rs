@@ -1,4 +1,4 @@
-use crate::ast::Function;
+use crate::ast::{AstNode, Function};
 use crate::backend::{Backend, Buffer, Compiler, Kernel, Renderer};
 use crate::graph::{Graph, GraphSignature};
 use crate::lowerer::Lowerer;
@@ -435,7 +435,11 @@ where
             return function;
         }
 
-        let mut body = function.body().clone();
+        // Wrap the function's statements in a Block for optimization
+        let mut body = AstNode::Block {
+            scope: function.scope().clone(),
+            statements: function.statements().to_vec(),
+        };
 
         // Apply simplification (remove meaningless operations)
         let simplify = simplify_rewriter();
@@ -480,11 +484,18 @@ where
         use crate::opt::ast::simplify::coalesce_barriers;
         coalesce_barriers(&mut body);
 
+        // Extract the optimized scope and statements from the Block
+        let (scope, statements) = match body {
+            AstNode::Block { scope, statements } => (scope, statements),
+            _ => unreachable!("Body should always be a Block"),
+        };
+
         Function::new(
             function.name().to_string(),
             function.arguments().to_vec(),
             function.return_type().clone(),
-            body,
+            scope,
+            statements,
         )
     }
 
