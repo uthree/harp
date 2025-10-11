@@ -79,6 +79,7 @@ impl ReduceLowerer {
             &result_var,
             op,
             initial_value,
+            &node.dtype, // 型情報を渡す
             0,
         ))
     }
@@ -96,6 +97,7 @@ impl ReduceLowerer {
         result_var: &str,
         reduce_op: &ReduceOp,
         initial_value: AstNode,
+        result_dtype: &DType, // 型情報を追加
         dim: usize,
     ) -> AstNode {
         if dim >= input_shape.len() {
@@ -146,38 +148,27 @@ impl ReduceLowerer {
         }
 
         if dim == reduce_axis {
-            // 縮約する次元: 初期化 + ループで累積
-            // 縮約軸以降の次元のループを再帰的に生成
-            let inner_body = Self::create_reduce_loops(
+            // 縮約する次元: アキュムレータ変数を使った縮約
+            // アキュムレータ変数名を生成
+            let acc_var = format!("acc{}", dim);
+
+            // 最内ループ部分を生成（アキュムレータに累積）
+            let inner_body = Self::create_reduce_loops_with_accumulator(
                 input_shape,
                 input_strides,
                 input_offset,
-                _result_shape,
-                result_strides,
-                result_offset,
                 reduce_axis,
                 input_var,
-                result_var,
+                &acc_var, // アキュムレータ変数を渡す
                 reduce_op,
-                initial_value.clone(),
                 dim + 1,
             );
 
             let loop_var = format!("ridx{}", dim);
             let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[dim]);
 
-            // 結果の初期化（縮約軸をスキップしたインデックスで計算）
-            let result_index = LowererUtils::compute_reduce_result_index(
-                result_strides,
-                result_offset,
-                dim,
-                reduce_axis,
-            );
-            let init_stmt = AstNode::Store {
-                target: Box::new(AstNode::Var(result_var.to_string())),
-                index: Box::new(result_index),
-                value: Box::new(initial_value),
-            };
+            // アキュムレータの初期化
+            let init_stmt = AstNode::Assign(acc_var.clone(), Box::new(initial_value.clone()));
 
             // 縮約ループ: for (i_reduce) { inner_body }
             let reduce_loop = AstNode::Range {
@@ -189,12 +180,30 @@ impl ReduceLowerer {
                 unroll: None,
             };
 
-            // 初期化 + 縮約ループをブロックにまとめる
+            // アキュムレータから結果配列への書き込み
+            let result_index = LowererUtils::compute_reduce_result_index(
+                result_strides,
+                result_offset,
+                dim,
+                reduce_axis,
+            );
+            let write_back_stmt = AstNode::Store {
+                target: Box::new(AstNode::Var(result_var.to_string())),
+                index: Box::new(result_index),
+                value: Box::new(AstNode::Var(acc_var.clone())),
+            };
+
+            // アキュムレータ変数の宣言 + 初期化 + 縮約ループ + 書き戻しをブロックにまとめる
             AstNode::Block {
                 scope: crate::ast::Scope {
-                    declarations: vec![],
+                    declarations: vec![VariableDecl {
+                        name: acc_var,
+                        dtype: result_dtype.clone(),
+                        constant: false,
+                        size_expr: None,
+                    }],
                 },
-                statements: vec![init_stmt, reduce_loop],
+                statements: vec![init_stmt, reduce_loop, write_back_stmt],
             }
         } else {
             // 縮約しない次元: 通常のループ
@@ -211,6 +220,7 @@ impl ReduceLowerer {
                 result_var,
                 reduce_op,
                 initial_value,
+                result_dtype,
                 dim + 1,
             );
 
@@ -224,6 +234,87 @@ impl ReduceLowerer {
                 body: Box::new(inner_body),
                 unroll: None,
             }
+        }
+    }
+
+    /// アキュムレータ変数を使った縮約ループの本体を生成
+    #[allow(clippy::too_many_arguments)]
+    fn create_reduce_loops_with_accumulator(
+        input_shape: &[crate::graph::shape::Expr],
+        input_strides: &[crate::graph::shape::Expr],
+        input_offset: &crate::graph::shape::Expr,
+        reduce_axis: usize,
+        input_var: &str,
+        acc_var: &str, // アキュムレータ変数名
+        reduce_op: &ReduceOp,
+        dim: usize,
+    ) -> AstNode {
+        if dim >= input_shape.len() {
+            // 全ての次元を処理した：アキュムレータに累積
+            let input_index =
+                LowererUtils::compute_memory_index(input_strides, input_offset, input_shape.len());
+
+            // 縮約操作: acc = acc op input[...]
+            let operation_result = match reduce_op {
+                ReduceOp::Add => AstNode::Add(
+                    Box::new(AstNode::Var(acc_var.to_string())),
+                    Box::new(AstNode::Deref(Box::new(
+                        AstNode::Var(input_var.to_string()) + input_index,
+                    ))),
+                ),
+                ReduceOp::Mul => AstNode::Mul(
+                    Box::new(AstNode::Var(acc_var.to_string())),
+                    Box::new(AstNode::Deref(Box::new(
+                        AstNode::Var(input_var.to_string()) + input_index,
+                    ))),
+                ),
+                ReduceOp::Max => AstNode::Max(
+                    Box::new(AstNode::Var(acc_var.to_string())),
+                    Box::new(AstNode::Deref(Box::new(
+                        AstNode::Var(input_var.to_string()) + input_index,
+                    ))),
+                ),
+            };
+
+            return AstNode::Assign(acc_var.to_string(), Box::new(operation_result));
+        }
+
+        if dim == reduce_axis {
+            // 縮約軸は既に外側で処理されているので、ここでは単に次の次元へ
+            return Self::create_reduce_loops_with_accumulator(
+                input_shape,
+                input_strides,
+                input_offset,
+                reduce_axis,
+                input_var,
+                acc_var,
+                reduce_op,
+                dim + 1,
+            );
+        }
+
+        // 通常の次元: ループを生成
+        let loop_var = format!("ridx{}", dim);
+        let inner_body = Self::create_reduce_loops_with_accumulator(
+            input_shape,
+            input_strides,
+            input_offset,
+            reduce_axis,
+            input_var,
+            acc_var,
+            reduce_op,
+            dim + 1,
+        );
+
+        let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[dim]);
+
+        AstNode::Range {
+            counter_name: loop_var,
+            start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
+            max: Box::new(shape_size),
+            step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
+            body: Box::new(inner_body),
+            unroll: None,
         }
     }
 
