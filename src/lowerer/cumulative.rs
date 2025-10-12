@@ -46,19 +46,6 @@ impl CumulativeLowerer {
         let input_view = &input.view;
         let result_view = &node.view;
 
-        let (
-            crate::graph::shape::view::View::Linear {
-                shape: input_shape,
-                strides: input_strides,
-                offset: input_offset,
-            },
-            crate::graph::shape::view::View::Linear {
-                shape: result_shape,
-                strides: result_strides,
-                offset: result_offset,
-            },
-        ) = (input_view, result_view);
-
         // 累積演算のための初期値を定義
         let initial_value = match op {
             CumulativeOp::Add => AstNode::Const(ConstLiteral::F32(0.0)),
