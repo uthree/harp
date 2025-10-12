@@ -88,18 +88,16 @@ impl FusedReduceLowerer {
         initial_value: AstNode,
         dim: usize,
     ) -> AstNode {
-        let (
-            View::Linear {
-                shape: input_shape,
-                strides: input_strides,
-                offset: input_offset,
-            },
-            View::Linear {
-                strides: result_strides,
-                offset: result_offset,
-                ..
-            },
-        ) = (input_view, result_view);
+        let View::Linear {
+            shape: input_shape,
+            strides: input_strides,
+            offset: input_offset,
+        } = input_view;
+        let View::Linear {
+            strides: result_strides,
+            offset: result_offset,
+            ..
+        } = result_view;
         let is_reduce_axis = reduce_axes.contains(&dim);
 
         if dim >= input_shape.len() {
@@ -398,16 +396,14 @@ impl FusedReduceLowerer {
         start_dim: usize,
         dim: usize,
     ) -> AstNode {
-        let (
-            View::Linear {
-                shape: input_shape, ..
-            },
-            View::Linear {
-                strides: result_strides,
-                offset: result_offset,
-                ..
-            },
-        ) = (input_view, result_view);
+        let View::Linear {
+            shape: input_shape, ..
+        } = input_view;
+        let View::Linear {
+            strides: result_strides,
+            offset: result_offset,
+            ..
+        } = result_view;
 
         if dim >= input_shape.len() {
             // 全ての次元を処理した：初期化を実行

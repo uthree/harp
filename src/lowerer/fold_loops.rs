@@ -84,18 +84,16 @@ impl Lowerer {
         result_var: &str,
         current_dim: usize,
     ) -> AstNode {
-        let (
-            View::Linear {
-                shape: input_shape,
-                strides: input_strides,
-                offset: input_offset,
-            },
-            View::Linear {
-                strides: result_strides,
-                offset: result_offset,
-                ..
-            },
-        ) = (input_view, result_view);
+        let View::Linear {
+            shape: input_shape,
+            strides: input_strides,
+            offset: input_offset,
+        } = input_view;
+        let View::Linear {
+            strides: result_strides,
+            offset: result_offset,
+            ..
+        } = result_view;
 
         let window_dim = input_shape.len() - 1; // Last dimension is window dimension
 

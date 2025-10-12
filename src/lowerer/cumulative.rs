@@ -90,19 +90,17 @@ impl CumulativeLowerer {
         _initial_value: AstNode,
         dim: usize,
     ) -> AstNode {
-        let (
-            View::Linear {
-                shape: input_shape,
-                strides: input_strides,
-                offset: input_offset,
-            },
-            View::Linear {
-                shape: result_shape,
-                strides: result_strides,
-                offset: result_offset,
-                ..
-            },
-        ) = (input_view, result_view);
+        let View::Linear {
+            shape: input_shape,
+            strides: input_strides,
+            offset: input_offset,
+        } = input_view;
+        let View::Linear {
+            shape: result_shape,
+            strides: result_strides,
+            offset: result_offset,
+            ..
+        } = result_view;
 
         if dim >= input_shape.len() {
             // 全ての次元を処理した：ここには到達しない（累積軸のループ内で処理される）
