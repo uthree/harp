@@ -193,20 +193,13 @@ impl FusedElementwiseReduceLowerer {
                 );
 
                 let loop_var = format!("ridx{}", dim);
-                let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[dim]);
 
                 // アキュムレータの初期化
                 let init_stmt = AstNode::Assign(acc_var.clone(), Box::new(initial_value.clone()));
 
                 // 縮約ループ
-                let reduce_loop = AstNode::Range {
-                    counter_name: loop_var,
-                    start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
-                    max: Box::new(shape_size),
-                    step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
-                    body: Box::new(inner_body),
-                    unroll: None,
-                };
+                let reduce_loop =
+                    LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body);
 
                 // アキュムレータから結果配列への書き込み
                 let result_index = LowererUtils::compute_reduce_result_index(
@@ -253,16 +246,8 @@ impl FusedElementwiseReduceLowerer {
         );
 
         let loop_var = format!("ridx{}", dim);
-        let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[dim]);
 
-        AstNode::Range {
-            counter_name: loop_var,
-            start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
-            max: Box::new(shape_size),
-            step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
-            body: Box::new(inner_body),
-            unroll: None,
-        }
+        LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body)
     }
 
     /// 縮約軸より後の次元のループを生成し、その内側でアキュムレータを使用
@@ -298,20 +283,16 @@ impl FusedElementwiseReduceLowerer {
             );
 
             let loop_var = format!("ridx{}", reduce_axis);
-            let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[reduce_axis]);
 
             // アキュムレータの初期化
             let init_stmt = AstNode::Assign(acc_var.clone(), Box::new(initial_value.clone()));
 
             // 縮約ループ
-            let reduce_loop = AstNode::Range {
-                counter_name: loop_var,
-                start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
-                max: Box::new(shape_size),
-                step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
-                body: Box::new(inner_body),
-                unroll: None,
-            };
+            let reduce_loop = LowererUtils::create_dimension_loop(
+                loop_var,
+                &input_shape[reduce_axis],
+                inner_body,
+            );
 
             // アキュムレータから結果配列への書き込み
             let result_index = LowererUtils::compute_reduce_result_index(
@@ -359,16 +340,7 @@ impl FusedElementwiseReduceLowerer {
             dim + 1,
         );
 
-        let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[dim]);
-
-        AstNode::Range {
-            counter_name: loop_var,
-            start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
-            max: Box::new(shape_size),
-            step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
-            body: Box::new(inner_body),
-            unroll: None,
-        }
+        LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body)
     }
 
     /// アキュムレータ変数を使ったFusedElementwiseReduce縮約ループの本体を生成
@@ -454,15 +426,6 @@ impl FusedElementwiseReduceLowerer {
             dim + 1,
         );
 
-        let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[dim]);
-
-        AstNode::Range {
-            counter_name: loop_var,
-            start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
-            max: Box::new(shape_size),
-            step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
-            body: Box::new(inner_body),
-            unroll: None,
-        }
+        LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body)
     }
 }

@@ -1,5 +1,5 @@
 use super::Lowerer;
-use crate::ast::{AstNode, ConstLiteral, DType};
+use crate::ast::{AstNode, DType};
 use crate::graph::shape::view::View;
 use crate::lowerer::utils::LowererUtils;
 
@@ -49,16 +49,7 @@ impl Lowerer {
                 dim + 1,
             );
 
-            let shape_size = LowererUtils::shape_expr_to_ast_node(&shape[dim]);
-
-            AstNode::Range {
-                counter_name: loop_var,
-                start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
-                max: Box::new(shape_size),
-                step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
-                body: Box::new(inner_body),
-                unroll: None,
-            }
+            LowererUtils::create_dimension_loop(loop_var, &shape[dim], inner_body)
         }
     }
 
@@ -113,16 +104,7 @@ impl Lowerer {
                 dim + 1,
             );
 
-            let shape_size = LowererUtils::shape_expr_to_ast_node(&shape[dim]);
-
-            AstNode::Range {
-                counter_name: loop_var,
-                start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
-                max: Box::new(shape_size),
-                step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
-                body: Box::new(inner_body),
-                unroll: None,
-            }
+            LowererUtils::create_dimension_loop(loop_var, &shape[dim], inner_body)
         }
     }
 }

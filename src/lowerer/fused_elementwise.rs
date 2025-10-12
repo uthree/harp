@@ -94,16 +94,7 @@ impl FusedElementwiseLowerer {
         let loop_var = format!("ridx{}", dim);
         let inner_body = Self::create_loop(view, ast, input_vars, inputs, result_var, dim + 1);
 
-        let max_iter = LowererUtils::shape_expr_to_ast_node(&shape[dim]);
-
-        AstNode::Range {
-            counter_name: loop_var,
-            start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
-            max: Box::new(max_iter),
-            step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
-            body: Box::new(inner_body),
-            unroll: None,
-        }
+        LowererUtils::create_dimension_loop(loop_var, &shape[dim], inner_body)
     }
 
     /// AstNode内のCaptureを実際の入力変数への参照に置き換え

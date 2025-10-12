@@ -170,10 +170,16 @@ impl Lowerer {
                     |n| self.get_or_create_var_name(n),
                 )
             }
-            GraphOp::FusedElementwiseCumulative(ast, inputs, op) => {
-                FusedElementwiseCumulativeLowerer::lower(node, ast, inputs, op, declarations, |n| {
-                    self.get_or_create_var_name(n)
-                })
+            GraphOp::FusedElementwiseCumulative(ast, inputs, op, axis) => {
+                FusedElementwiseCumulativeLowerer::lower(
+                    node,
+                    ast,
+                    inputs,
+                    op,
+                    *axis,
+                    declarations,
+                    |n| self.get_or_create_var_name(n),
+                )
             }
             GraphOp::Fold(dim, _window_size, stride, dilation, input) => {
                 // Fold operation (col2im): combines overlapping windows

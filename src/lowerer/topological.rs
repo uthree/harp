@@ -112,7 +112,7 @@ impl Lowerer {
             GraphOp::FusedElementwise(_, nodes) => nodes.clone(),
             GraphOp::FusedReduce(_, _, input) => vec![input.clone()],
             GraphOp::FusedElementwiseReduce(_, nodes, _, _) => nodes.clone(),
-            GraphOp::FusedElementwiseCumulative(_, nodes, _) => nodes.clone(),
+            GraphOp::FusedElementwiseCumulative(_, nodes, _, _) => nodes.clone(),
         }
     }
 }

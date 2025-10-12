@@ -43,9 +43,9 @@ impl GraphFusionOptimizer {
     pub(crate) fn try_fuse_elementwise_cumulative(
         &mut self,
         _op: &CumulativeOp,
-        _axis: usize,
+        axis: usize,
         input: &GraphNode,
-    ) -> Option<(AstNode, Vec<GraphNode>)> {
+    ) -> Option<(AstNode, Vec<GraphNode>, usize)> {
         // inputがElementwiseでない場合は融合しない
         let GraphOp::Elementwise(_) = input.op else {
             return None;
@@ -69,7 +69,8 @@ impl GraphFusionOptimizer {
             return None;
         }
 
-        Some((ast, inputs))
+        // axisも含めて返す
+        Some((ast, inputs, axis))
     }
 
     /// Reduce -> Reduceの融合を試みる

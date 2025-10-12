@@ -296,17 +296,7 @@ impl ElementwiseLowerer {
                 op,
             );
 
-            // shape[dim]をAstNodeに変換
-            let max_iter = LowererUtils::shape_expr_to_ast_node(&shape[dim]);
-
-            AstNode::Range {
-                counter_name: loop_var,
-                start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
-                max: Box::new(max_iter),
-                step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
-                body: Box::new(inner_body),
-                unroll: None,
-            }
+            LowererUtils::create_dimension_loop(loop_var, &shape[dim], inner_body)
         }
     }
 
@@ -405,17 +395,7 @@ impl ElementwiseLowerer {
                 op,
             );
 
-            // shape[dim]をAstNodeに変換
-            let max_iter = LowererUtils::shape_expr_to_ast_node(&shape[dim]);
-
-            AstNode::Range {
-                counter_name: loop_var,
-                start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
-                max: Box::new(max_iter),
-                step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
-                body: Box::new(inner_body),
-                unroll: None,
-            }
+            LowererUtils::create_dimension_loop(loop_var, &shape[dim], inner_body)
         }
     }
 
@@ -558,17 +538,7 @@ impl ElementwiseLowerer {
                 dim + 1,
             );
 
-            // shape[dim]をAstNodeに変換
-            let max_iter = LowererUtils::shape_expr_to_ast_node(&shape[dim]);
-
-            AstNode::Range {
-                counter_name: loop_var,
-                start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
-                max: Box::new(max_iter),
-                step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
-                body: Box::new(inner_body),
-                unroll: None,
-            }
+            LowererUtils::create_dimension_loop(loop_var, &shape[dim], inner_body)
         }
     }
 }

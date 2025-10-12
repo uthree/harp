@@ -59,16 +59,8 @@ impl Lowerer {
         } else {
             let loop_var = format!("ridx{}", dim);
             let inner_body = Self::create_fold_init_loop(result_view, result_var, dim + 1);
-            let shape_size = LowererUtils::shape_expr_to_ast_node(&result_shape[dim]);
 
-            AstNode::Range {
-                counter_name: loop_var,
-                start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
-                max: Box::new(shape_size),
-                step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
-                body: Box::new(inner_body),
-                unroll: None,
-            }
+            LowererUtils::create_dimension_loop(loop_var, &result_shape[dim], inner_body)
         }
     }
 
@@ -142,16 +134,8 @@ impl Lowerer {
                 result_var,
                 current_dim + 1,
             );
-            let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[current_dim]);
 
-            AstNode::Range {
-                counter_name: loop_var,
-                start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
-                max: Box::new(shape_size),
-                step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
-                body: Box::new(inner_body),
-                unroll: None,
-            }
+            LowererUtils::create_dimension_loop(loop_var, &input_shape[current_dim], inner_body)
         }
     }
 

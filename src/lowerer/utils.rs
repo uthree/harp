@@ -1,5 +1,5 @@
 use crate::ast::{AstNode, ConstLiteral};
-use crate::graph::shape::view::View;
+use crate::graph::shape::{view::View, Expr};
 
 /// ユーティリティ関数群
 pub(super) struct LowererUtils;
@@ -131,8 +131,7 @@ impl LowererUtils {
     }
 
     /// Shape ExprをAstNodeに変換
-    pub fn shape_expr_to_ast_node(expr: &crate::graph::shape::Expr) -> AstNode {
-        use crate::graph::shape::Expr;
+    pub fn shape_expr_to_ast_node(expr: &Expr) -> AstNode {
         match expr {
             Expr::Const(n) => AstNode::Const(ConstLiteral::Usize(*n as usize)),
             Expr::Var(name) => AstNode::Var(name.clone()),
@@ -159,5 +158,42 @@ impl LowererUtils {
                 Box::new(Self::shape_expr_to_ast_node(right)),
             ),
         }
+    }
+
+    /// 基本的なループを生成（0からmaxまでstep 1で）
+    ///
+    /// 生成されるループ:
+    /// ```c
+    /// for (counter_name = 0; counter_name < max; counter_name += 1) {
+    ///     body
+    /// }
+    /// ```
+    pub fn create_simple_range_loop(
+        counter_name: String,
+        max: AstNode,
+        body: AstNode,
+        unroll: Option<usize>,
+    ) -> AstNode {
+        AstNode::Range {
+            counter_name,
+            start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
+            max: Box::new(max),
+            step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
+            body: Box::new(body),
+            unroll,
+        }
+    }
+
+    /// 次元のサイズからループを生成
+    ///
+    /// loop_var: "ridx0", "ridx1" などのループカウンター名
+    /// dim_size: その次元のサイズ（Expr）
+    pub fn create_dimension_loop(
+        loop_var: String,
+        dim_size: &Expr,
+        body: AstNode,
+    ) -> AstNode {
+        let max = Self::shape_expr_to_ast_node(dim_size);
+        Self::create_simple_range_loop(loop_var, max, body, None)
     }
 }

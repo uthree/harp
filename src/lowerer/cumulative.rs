@@ -96,7 +96,6 @@ impl CumulativeLowerer {
             // 累積軸: アキュムレータ変数を使用
             let acc_var = format!("acc{}", dim);
             let loop_var = format!("ridx{}", dim);
-            let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[dim]);
 
             // アキュムレータの初期化
             let init_stmt = AstNode::Assign(acc_var.clone(), Box::new(_initial_value.clone()));
@@ -148,14 +147,8 @@ impl CumulativeLowerer {
             };
 
             // 累積ループ
-            let cumulative_loop = AstNode::Range {
-                counter_name: loop_var,
-                start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
-                max: Box::new(shape_size),
-                step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
-                body: Box::new(loop_body),
-                unroll: None,
-            };
+            let cumulative_loop =
+                LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], loop_body);
 
             // アキュムレータ変数の宣言 + 初期化 + 累積ループをブロックにまとめる
             AstNode::Block {
@@ -183,16 +176,7 @@ impl CumulativeLowerer {
                 dim + 1,
             );
 
-            let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[dim]);
-
-            AstNode::Range {
-                counter_name: loop_var,
-                start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
-                max: Box::new(shape_size),
-                step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
-                body: Box::new(inner_body),
-                unroll: None,
-            }
+            LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body)
         }
     }
 }

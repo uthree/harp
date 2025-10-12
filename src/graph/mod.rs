@@ -80,7 +80,7 @@ impl GraphNode {
             GraphOp::FusedElementwise(_, inputs) => inputs.clone(),
             GraphOp::FusedReduce(_, _, input) => vec![input.clone()],
             GraphOp::FusedElementwiseReduce(_, inputs, _, _) => inputs.clone(),
-            GraphOp::FusedElementwiseCumulative(_, inputs, _) => inputs.clone(),
+            GraphOp::FusedElementwiseCumulative(_, inputs, _, _) => inputs.clone(),
         }
     }
 }
@@ -173,7 +173,7 @@ pub enum GraphOp {
     FusedElementwise(AstNode, Vec<GraphNode>), // Capture(n)がn番目のGraphNodeに対応する
     FusedReduce(ReduceOp, Vec<usize>, GraphNode), // 複数の軸でReduceする
     FusedElementwiseReduce(AstNode, Vec<GraphNode>, ReduceOp, Vec<usize>), // FusedElementwiseの直後にFusedReduceする
-    FusedElementwiseCumulative(AstNode, Vec<GraphNode>, CumulativeOp), // FusedElementwiseの直後にCumlativeする
+    FusedElementwiseCumulative(AstNode, Vec<GraphNode>, CumulativeOp, usize), // FusedElementwiseの直後にCumlativeする (最後の引数は軸)
 }
 
 impl fmt::Display for GraphOp {
@@ -199,8 +199,8 @@ impl fmt::Display for GraphOp {
             GraphOp::FusedElementwiseReduce(_, _, op, axes) => {
                 write!(f, "FusedER-{}{:?}", op, axes)
             }
-            GraphOp::FusedElementwiseCumulative(_, _, op) => {
-                write!(f, "FusedEC-{}", op)
+            GraphOp::FusedElementwiseCumulative(_, _, op, axis) => {
+                write!(f, "FusedEC-{}[{}]", op, axis)
             }
         }
     }
