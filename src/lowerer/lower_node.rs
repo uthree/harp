@@ -207,7 +207,7 @@ impl Lowerer {
                     self.get_or_create_var_name(n)
                 })
             }
-            GraphOp::Fold(dim, window_size, stride, dilation, input) => {
+            GraphOp::Fold(dim, _window_size, stride, dilation, input) => {
                 // Fold operation (col2im): combines overlapping windows
                 // Input:  [..., L', K] where last dim is window dimension
                 // Output: [..., L] where L = (L'-1)*stride + (K-1)*dilation + 1
@@ -260,7 +260,6 @@ impl Lowerer {
                     result_strides,
                     result_offset,
                     *dim,
-                    *window_size,
                     *stride,
                     *dilation,
                     &input_var,
