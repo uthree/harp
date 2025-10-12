@@ -1,5 +1,5 @@
 use crate::{
-    ast::{AstNode, ConstLiteral, DType, Function, Program, Scope, VariableDecl},
+    ast::{AstNode, ConstLiteral, DType, Program, Scope, VariableDecl},
     backend::Renderer,
 };
 use log::debug;
@@ -108,37 +108,32 @@ impl CRenderer {
         buffer.push('\n');
 
         // Add function prototypes
-        for function in program.functions.iter() {
-            writeln!(buffer, "{};", self.render_function_signature(function)).unwrap();
+        for function_node in program.functions.iter() {
+            if let AstNode::Function {
+                name,
+                arguments,
+                return_type,
+                ..
+            } = function_node
+            {
+                let (ret_type, _) = Self::render_dtype_recursive(return_type);
+                let args = arguments
+                    .iter()
+                    .map(|(arg_name, dtype)| {
+                        let (base_type, array_dims) = Self::render_dtype_recursive(dtype);
+                        format!("{} {}{}", base_type, arg_name, array_dims)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                writeln!(buffer, "{} {}({});", ret_type, name, args).unwrap();
+            }
         }
         buffer.push('\n');
 
-        for function in program.functions.iter() {
-            write!(buffer, "{}", self.render_function(function)).unwrap();
+        for function_node in program.functions.iter() {
+            write!(buffer, "{}", self.render_node(function_node)).unwrap();
+            buffer.push('\n');
         }
-        buffer
-    }
-
-    fn render_function_signature(&mut self, function: &Function) -> String {
-        let (return_type, _) = Self::render_dtype_recursive(&function.return_type);
-        let args = function
-            .arguments
-            .iter()
-            .map(|(name, dtype)| {
-                let (base_type, array_dims) = Self::render_dtype_recursive(dtype);
-                format!("{} {}{}", base_type, name, array_dims)
-            })
-            .collect::<Vec<_>>()
-            .join(", ");
-        format!("{} {}({})", return_type, function.name, args)
-    }
-
-    fn render_function(&mut self, function: &Function) -> String {
-        let mut buffer = String::new();
-        writeln!(buffer, "{}", self.render_function_signature(function)).unwrap();
-        let body_str = self.render_scope(&function.scope, &function.statements);
-        write!(buffer, "{}", body_str).unwrap();
-        writeln!(buffer).unwrap();
         buffer
     }
 
@@ -461,6 +456,29 @@ impl CRenderer {
                 write!(buffer, "/* BARRIER */").unwrap();
             }
 
+            AstNode::Function {
+                name,
+                scope,
+                statements,
+                arguments,
+                return_type,
+            } => {
+                // Render function signature
+                let (ret_type, _) = Self::render_dtype_recursive(return_type);
+                let args_str = arguments
+                    .iter()
+                    .map(|(arg_name, dtype)| {
+                        let (base_type, array_dims) = Self::render_dtype_recursive(dtype);
+                        format!("{} {}{}", base_type, arg_name, array_dims)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                writeln!(buffer, "{} {}({})", ret_type, name, args_str).unwrap();
+
+                // Render function body
+                write!(buffer, "{}", self.render_scope(scope, statements)).unwrap();
+            }
+
             node => todo!("render_node for {:?}", node),
         }
         buffer
@@ -579,7 +597,7 @@ mod tests {
     #[test]
     fn test_render_function() {
         let _ = env_logger::try_init();
-        let function = Function::new(
+        let function = AstNode::function(
             "my_func".to_string(),
             vec![("a".to_string(), DType::Vec(Box::new(DType::Isize), 10))],
             DType::Void,
@@ -620,7 +638,7 @@ void my_func(ssize_t a[10])
 
     #[test]
     fn test_render_function_single_statement() {
-        let function = Function::new(
+        let function = AstNode::function(
             "my_func".to_string(),
             vec![("a".to_string(), DType::Isize)],
             DType::Void,
@@ -632,16 +650,16 @@ void my_func(ssize_t a[10])
         let expected = r###"void my_func(ssize_t a)
 {
 	a;
-}
-"###;
+}"###;
         let mut renderer = CRenderer::new();
-        assert_eq!(renderer.render_function(&function), expected);
+        let buf = renderer.render_node(&function);
+        assert_eq!(buf, expected);
     }
 
     #[test]
     fn test_render_dynamic_array() {
         let _ = env_logger::try_init();
-        let function = Function::new(
+        let function = AstNode::function(
             "dynamic_alloc".to_string(),
             vec![("n".to_string(), DType::Usize)],
             DType::Void,

@@ -1,4 +1,4 @@
-use crate::ast::{AstNode, ConstLiteral, DType, Function, Program, Scope, VariableDecl};
+use crate::ast::{AstNode, ConstLiteral, DType, Program, Scope, VariableDecl};
 use crate::graph::{Graph, GraphNode, GraphOp};
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -37,7 +37,7 @@ impl Lowerer {
         }
     }
 
-    fn create_kernel_function(&mut self, graph: &Graph) -> Function {
+    fn create_kernel_function(&mut self, graph: &Graph) -> AstNode {
         // 0.5. graphのinputsの順序通りに入力ノードをマッピング
         for weak_input in graph.inputs.iter() {
             if let Some(_input_rc) = weak_input.upgrade() {
@@ -123,7 +123,7 @@ impl Lowerer {
         let arguments = self.create_kernel_arguments(graph);
 
         // 4. カーネル関数を構築
-        Function::new(
+        AstNode::function(
             "kernel_impl".to_string(),
             arguments,
             DType::Void,
@@ -132,7 +132,7 @@ impl Lowerer {
         )
     }
 
-    fn create_entry_function(&self, graph: &Graph, _kernel_function: &Function) -> Function {
+    fn create_entry_function(&self, graph: &Graph, _kernel_function: &AstNode) -> AstNode {
         let mut statements = Vec::new();
         let mut local_vars = Vec::new();
 
@@ -210,7 +210,7 @@ impl Lowerer {
             args: call_args,
         });
 
-        Function::new(
+        AstNode::function(
             "kernel_main".to_string(),
             vec![
                 (
@@ -992,10 +992,19 @@ mod tests {
         assert_eq!(program.functions.len(), 2); // kernel_impl + kernel_main
 
         // エントリーポイント関数のチェック
-        let entry_func = &program.functions[1];
-        assert_eq!(entry_func.name(), "kernel_main");
-        assert_eq!(entry_func.return_type(), &DType::Void);
-        assert_eq!(entry_func.arguments().len(), 2); // bufs, shape_vars
+        if let AstNode::Function {
+            name,
+            return_type,
+            arguments,
+            ..
+        } = &program.functions[1]
+        {
+            assert_eq!(name, "kernel_main");
+            assert_eq!(return_type, &DType::Void);
+            assert_eq!(arguments.len(), 2); // bufs, shape_vars
+        } else {
+            panic!("Expected Function node");
+        }
     }
 
     #[test]
@@ -1015,9 +1024,15 @@ mod tests {
         assert_eq!(program.functions.len(), 2);
 
         // カーネル実装関数のチェック
-        let kernel_func = &program.functions[0];
-        assert_eq!(kernel_func.name(), "kernel_impl");
-        assert_eq!(kernel_func.arguments().len(), 2); // input_0 + output_0
+        if let AstNode::Function {
+            name, arguments, ..
+        } = &program.functions[0]
+        {
+            assert_eq!(name, "kernel_impl");
+            assert_eq!(arguments.len(), 2); // input_0 + output_0
+        } else {
+            panic!("Expected Function node");
+        }
     }
 
     #[test]
@@ -1038,12 +1053,14 @@ mod tests {
         assert_eq!(program.functions.len(), 2);
 
         // カーネル実装関数のチェック
-        let kernel_func = &program.functions[0];
-        let statements = kernel_func.statements();
-        // const assignment + barrier + neg loop
-        assert_eq!(statements.len(), 3);
-        // 2番目のステートメントがBarrierであることを確認
-        assert!(matches!(statements[1], AstNode::Barrier));
+        if let AstNode::Function { statements, .. } = &program.functions[0] {
+            // const assignment + barrier + neg loop
+            assert_eq!(statements.len(), 3);
+            // 2番目のステートメントがBarrierであることを確認
+            assert!(matches!(statements[1], AstNode::Barrier));
+        } else {
+            panic!("Expected Function node");
+        }
     }
 
     #[test]
@@ -1060,31 +1077,37 @@ mod tests {
         let program = lowerer.lower(&graph);
 
         // エントリーポイント関数の詳細チェック
-        let entry_func = &program.functions[1];
-        assert_eq!(entry_func.name(), "kernel_main");
+        if let AstNode::Function {
+            name,
+            arguments,
+            scope,
+            statements,
+            ..
+        } = &program.functions[1]
+        {
+            assert_eq!(name, "kernel_main");
 
-        // 引数チェック: (void** bufs, size_t* shape_vars)
-        let args = entry_func.arguments();
-        assert_eq!(args.len(), 2);
-        assert_eq!(args[0].0, "bufs");
-        assert_eq!(args[1].0, "shape_vars");
+            // 引数チェック: (void** bufs, size_t* shape_vars)
+            assert_eq!(arguments.len(), 2);
+            assert_eq!(arguments[0].0, "bufs");
+            assert_eq!(arguments[1].0, "shape_vars");
 
-        // エントリー関数の本体をチェック
-        let statements = entry_func.statements();
-        let scope = entry_func.scope();
+            // エントリー関数の本体をチェック
+            // 入力と出力バッファの型キャストがある
+            assert!(statements.len() >= 3); // 最低でも input cast + output cast + kernel call
 
-        // 入力と出力バッファの型キャストがある
-        assert!(statements.len() >= 3); // 最低でも input cast + output cast + kernel call
+            // 変数宣言をチェック
+            assert!(scope.declarations.len() >= 2); // input_0, output_0
 
-        // 変数宣言をチェック
-        assert!(scope.declarations.len() >= 2); // input_0, output_0
-
-        // 最後の文はkernel_impl呼び出し
-        if let AstNode::CallFunction { name, args } = statements.last().unwrap() {
-            assert_eq!(name, "kernel_impl");
-            assert_eq!(args.len(), 2); // input_0, output_0
+            // 最後の文はkernel_impl呼び出し
+            if let AstNode::CallFunction { name, args } = statements.last().unwrap() {
+                assert_eq!(name, "kernel_impl");
+                assert_eq!(args.len(), 2); // input_0, output_0
+            } else {
+                panic!("Expected kernel call as last statement");
+            }
         } else {
-            panic!("Expected kernel call as last statement");
+            panic!("Expected Function node");
         }
     }
 }

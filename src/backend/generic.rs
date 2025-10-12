@@ -1,4 +1,4 @@
-use crate::ast::{AstNode, Function};
+use crate::ast::AstNode;
 use crate::backend::{Backend, Buffer, Compiler, Kernel, Renderer};
 use crate::graph::{Graph, GraphSignature};
 use crate::lowerer::Lowerer;
@@ -430,15 +430,33 @@ where
     }
 
     /// Applies optimization to a function's AST.
-    fn optimize_function(&self, function: Function, level: OptimizationLevel) -> Function {
+    fn optimize_function(&self, function_node: AstNode, level: OptimizationLevel) -> AstNode {
         if !self.enable_optimization {
-            return function;
+            return function_node;
         }
+
+        // Extract function fields
+        let (name, scope, statements, arguments, return_type) = match &function_node {
+            AstNode::Function {
+                name,
+                scope,
+                statements,
+                arguments,
+                return_type,
+            } => (
+                name.clone(),
+                scope.clone(),
+                statements.clone(),
+                arguments.clone(),
+                return_type.clone(),
+            ),
+            _ => return function_node, // Not a function, return as-is
+        };
 
         // Wrap the function's statements in a Block for optimization
         let mut body = AstNode::Block {
-            scope: function.scope().clone(),
-            statements: function.statements().to_vec(),
+            scope: scope.clone(),
+            statements,
         };
 
         // Apply simplification (remove meaningless operations)
@@ -485,17 +503,17 @@ where
         coalesce_barriers(&mut body);
 
         // Extract the optimized scope and statements from the Block
-        let (scope, statements) = match body {
+        let (optimized_scope, optimized_statements) = match body {
             AstNode::Block { scope, statements } => (scope, statements),
             _ => unreachable!("Body should always be a Block"),
         };
 
-        Function::new(
-            function.name().to_string(),
-            function.arguments().to_vec(),
-            function.return_type().clone(),
-            scope,
-            statements,
+        AstNode::function(
+            name,
+            arguments,
+            return_type,
+            optimized_scope,
+            optimized_statements,
         )
     }
 

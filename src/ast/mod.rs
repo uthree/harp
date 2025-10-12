@@ -151,6 +151,15 @@ pub enum AstNode {
 
     Barrier, // Synchronization barrier for parallel execution (separates computation generations)
 
+    // Function definition
+    Function {
+        name: String,
+        scope: Scope,
+        statements: Vec<AstNode>,
+        arguments: Vec<(String, DType)>,
+        return_type: DType,
+    },
+
     // for pattern matching
     Capture(usize),
 }
@@ -204,7 +213,7 @@ impl Function {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
-    pub(crate) functions: Vec<Function>,
+    pub(crate) functions: Vec<AstNode>,
     pub(crate) entry_point: String,
 }
 
@@ -517,6 +526,23 @@ impl AstNode {
         RangeBuilder::new(counter_name, max, body)
     }
 
+    /// Create a Function node
+    pub fn function(
+        name: impl Into<String>,
+        arguments: Vec<(String, DType)>,
+        return_type: DType,
+        scope: Scope,
+        statements: Vec<AstNode>,
+    ) -> Self {
+        AstNode::Function {
+            name: name.into(),
+            scope,
+            statements,
+            arguments,
+            return_type,
+        }
+    }
+
     pub fn children(&self) -> Vec<&AstNode> {
         match self {
             AstNode::Const(_) => vec![],
@@ -565,6 +591,7 @@ impl AstNode {
             AstNode::Block { statements, .. } => statements.iter().collect(),
             AstNode::Drop(_) => vec![],
             AstNode::Barrier => vec![],
+            AstNode::Function { statements, .. } => statements.iter().collect(),
             AstNode::Capture(_) => vec![],
             AstNode::Rand => vec![],
         }
@@ -711,6 +738,22 @@ impl AstNode {
             AstNode::Block { scope, .. } => {
                 let statements = children_iter.collect();
                 AstNode::Block { scope, statements }
+            }
+            AstNode::Function {
+                name,
+                scope,
+                arguments,
+                return_type,
+                ..
+            } => {
+                let statements = children_iter.collect();
+                AstNode::Function {
+                    name,
+                    scope,
+                    arguments,
+                    return_type,
+                    statements,
+                }
             }
             // Nodes without children are returned as is (moved).
             _ => self,
