@@ -28,35 +28,13 @@ impl FusedElementwiseReduceLowerer {
         let result_var = get_var(node);
 
         // 出力ノードの場合は配列を宣言しない
-        if !result_var.starts_with("output_") {
-            let total_size = LowererUtils::compute_total_size(&node.view);
-            let (result_dtype, size_expr) = if let Some(size) = total_size {
-                (DType::Vec(Box::new(node.dtype.clone()), size), None)
-            } else {
-                let size_expr = LowererUtils::compute_total_size_expr(&node.view);
-                (
-                    DType::Ptr(Box::new(node.dtype.clone())),
-                    Some(Box::new(size_expr)),
-                )
-            };
-
-            declarations.push(VariableDecl {
-                name: result_var.clone(),
-                dtype: result_dtype,
-                constant: false,
-                size_expr,
-            });
-        }
+        LowererUtils::declare_result_variable(&result_var, &node.view, &node.dtype, declarations);
 
         // 入力の変数名を取得
         let input_vars: Vec<String> = inputs.iter().map(get_var).collect();
 
         // 初期値を定義
-        let initial_value = match op {
-            ReduceOp::Add => AstNode::Const(crate::ast::ConstLiteral::F32(0.0)),
-            ReduceOp::Mul => AstNode::Const(crate::ast::ConstLiteral::F32(1.0)),
-            ReduceOp::Max => AstNode::Const(crate::ast::ConstLiteral::F32(f32::NEG_INFINITY)),
-        };
+        let initial_value = LowererUtils::get_reduce_initial_value(op);
 
         // 入力の最初のノードからshapeを取得（全て同じshapeのはず）
         let input_view = &inputs[0].view;
@@ -86,6 +64,7 @@ impl FusedElementwiseReduceLowerer {
             &result_var,
             op,
             initial_value,
+            &node.dtype,
             0,
         ))
     }
@@ -101,6 +80,7 @@ impl FusedElementwiseReduceLowerer {
         result_var: &str,
         reduce_op: &ReduceOp,
         initial_value: AstNode,
+        result_dtype: &DType,
         dim: usize,
     ) -> AstNode {
         let crate::graph::shape::view::View::Linear {
@@ -174,6 +154,7 @@ impl FusedElementwiseReduceLowerer {
                     result_var,
                     reduce_op,
                     initial_value,
+                    result_dtype,
                     reduce_axis + 1, // 縮約軸の次の次元から開始
                 );
             } else {
@@ -214,14 +195,11 @@ impl FusedElementwiseReduceLowerer {
                     value: Box::new(AstNode::Var(acc_var.clone())),
                 };
 
-                // 結果の型を取得
-                let result_dtype = DType::F32;
-
                 return AstNode::Block {
                     scope: crate::ast::Scope {
                         declarations: vec![VariableDecl {
                             name: acc_var,
-                            dtype: result_dtype,
+                            dtype: result_dtype.clone(),
                             constant: false,
                             size_expr: None,
                         }],
@@ -242,6 +220,7 @@ impl FusedElementwiseReduceLowerer {
             result_var,
             reduce_op,
             initial_value,
+            result_dtype,
             dim + 1,
         );
 
@@ -264,6 +243,7 @@ impl FusedElementwiseReduceLowerer {
         result_var: &str,
         reduce_op: &ReduceOp,
         initial_value: AstNode,
+        result_dtype: &DType,
         dim: usize,
     ) -> AstNode {
         if dim >= input_shape.len() {
@@ -307,14 +287,11 @@ impl FusedElementwiseReduceLowerer {
                 value: Box::new(AstNode::Var(acc_var.clone())),
             };
 
-            // 結果の型を取得
-            let result_dtype = DType::F32;
-
             return AstNode::Block {
                 scope: crate::ast::Scope {
                     declarations: vec![VariableDecl {
                         name: acc_var,
-                        dtype: result_dtype,
+                        dtype: result_dtype.clone(),
                         constant: false,
                         size_expr: None,
                     }],
@@ -337,6 +314,7 @@ impl FusedElementwiseReduceLowerer {
             result_var,
             reduce_op,
             initial_value,
+            result_dtype,
             dim + 1,
         );
 

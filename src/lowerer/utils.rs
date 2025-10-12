@@ -1,4 +1,5 @@
-use crate::ast::{AstNode, ConstLiteral};
+use crate::ast::{AstNode, ConstLiteral, DType, VariableDecl};
+use crate::graph::ops::{CumulativeOp, ReduceOp};
 use crate::graph::shape::{view::View, Expr};
 
 /// ユーティリティ関数群
@@ -195,5 +196,56 @@ impl LowererUtils {
     ) -> AstNode {
         let max = Self::shape_expr_to_ast_node(dim_size);
         Self::create_simple_range_loop(loop_var, max, body, None)
+    }
+
+    /// 結果変数の宣言を追加する（出力ノードでない場合のみ）
+    ///
+    /// result_var: 結果変数名
+    /// view: 結果のView情報
+    /// dtype: 結果の要素型
+    /// declarations: 変数宣言のリスト（ここに追加される）
+    pub fn declare_result_variable(
+        result_var: &str,
+        view: &View,
+        dtype: &DType,
+        declarations: &mut Vec<VariableDecl>,
+    ) {
+        if !result_var.starts_with("output_") {
+            let total_size = Self::compute_total_size(view);
+            let (result_dtype, size_expr) = if let Some(size) = total_size {
+                (DType::Vec(Box::new(dtype.clone()), size), None)
+            } else {
+                let size_expr = Self::compute_total_size_expr(view);
+                (
+                    DType::Ptr(Box::new(dtype.clone())),
+                    Some(Box::new(size_expr)),
+                )
+            };
+
+            declarations.push(VariableDecl {
+                name: result_var.to_string(),
+                dtype: result_dtype,
+                constant: false,
+                size_expr,
+            });
+        }
+    }
+
+    /// Reduce演算の初期値を生成
+    pub fn get_reduce_initial_value(op: &ReduceOp) -> AstNode {
+        match op {
+            ReduceOp::Add => AstNode::Const(ConstLiteral::F32(0.0)),
+            ReduceOp::Mul => AstNode::Const(ConstLiteral::F32(1.0)),
+            ReduceOp::Max => AstNode::Const(ConstLiteral::F32(f32::NEG_INFINITY)),
+        }
+    }
+
+    /// Cumulative演算の初期値を生成
+    pub fn get_cumulative_initial_value(op: &CumulativeOp) -> AstNode {
+        match op {
+            CumulativeOp::Add => AstNode::Const(ConstLiteral::F32(0.0)),
+            CumulativeOp::Mul => AstNode::Const(ConstLiteral::F32(1.0)),
+            CumulativeOp::Max => AstNode::Const(ConstLiteral::F32(f32::NEG_INFINITY)),
+        }
     }
 }

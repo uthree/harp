@@ -1,5 +1,5 @@
 use super::utils::LowererUtils;
-use crate::ast::{AstNode, ConstLiteral, DType, VariableDecl};
+use crate::ast::{AstNode, DType, VariableDecl};
 use crate::graph::{ops::CumulativeOp, shape::view::View, GraphNode};
 
 /// Cumulative演算のloweringを担当
@@ -19,39 +19,14 @@ impl CumulativeLowerer {
         let input_var = get_var(input);
 
         // 出力ノードの場合は配列を宣言しない（引数として渡される）
-        if !result_var.starts_with("output_") {
-            // テンソルの場合は配列として宣言する必要がある
-            let total_size = LowererUtils::compute_total_size(&node.view);
-            let (result_dtype, size_expr) = if let Some(size) = total_size {
-                // サイズが静的に決定できる場合は固定サイズ配列型
-                (DType::Vec(Box::new(node.dtype.clone()), size), None)
-            } else {
-                // 動的サイズの場合はポインタ型（mallocで確保）
-                let size_expr = LowererUtils::compute_total_size_expr(&node.view);
-                (
-                    DType::Ptr(Box::new(node.dtype.clone())),
-                    Some(Box::new(size_expr)),
-                )
-            };
-
-            declarations.push(VariableDecl {
-                name: result_var.clone(),
-                dtype: result_dtype,
-                constant: false,
-                size_expr,
-            });
-        }
+        LowererUtils::declare_result_variable(&result_var, &node.view, &node.dtype, declarations);
 
         // view情報を取得
         let input_view = &input.view;
         let result_view = &node.view;
 
         // 累積演算のための初期値を定義
-        let initial_value = match op {
-            CumulativeOp::Add => AstNode::Const(ConstLiteral::F32(0.0)),
-            CumulativeOp::Mul => AstNode::Const(ConstLiteral::F32(1.0)),
-            CumulativeOp::Max => AstNode::Const(ConstLiteral::F32(f32::NEG_INFINITY)),
-        };
+        let initial_value = LowererUtils::get_cumulative_initial_value(op);
 
         // 多重ループでcumulative操作を実行
         Some(Self::create_cumulative_loops(
@@ -62,6 +37,7 @@ impl CumulativeLowerer {
             &result_var,
             op,
             initial_value,
+            &node.dtype,
             0,
         ))
     }
@@ -75,6 +51,7 @@ impl CumulativeLowerer {
         result_var: &str,
         cumulative_op: &CumulativeOp,
         _initial_value: AstNode,
+        result_dtype: &DType,
         dim: usize,
     ) -> AstNode {
         let View::Linear {
@@ -155,7 +132,7 @@ impl CumulativeLowerer {
                 scope: crate::ast::Scope {
                     declarations: vec![VariableDecl {
                         name: acc_var,
-                        dtype: DType::F32, // 型を仮定
+                        dtype: result_dtype.clone(),
                         constant: false,
                         size_expr: None,
                     }],
@@ -173,6 +150,7 @@ impl CumulativeLowerer {
                 result_var,
                 cumulative_op,
                 _initial_value,
+                result_dtype,
                 dim + 1,
             );
 

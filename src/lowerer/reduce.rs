@@ -1,5 +1,5 @@
 use super::utils::LowererUtils;
-use crate::ast::{AstNode, ConstLiteral, DType, VariableDecl};
+use crate::ast::{AstNode, DType, VariableDecl};
 use crate::graph::{ops::ReduceOp, shape::view::View, GraphNode};
 
 /// Reduce演算のloweringを担当
@@ -19,39 +19,14 @@ impl ReduceLowerer {
         let input_var = get_var(input);
 
         // 出力ノードの場合は配列を宣言しない（引数として渡される）
-        if !result_var.starts_with("output_") {
-            // テンソルの場合は配列として宣言する必要がある
-            let total_size = LowererUtils::compute_total_size(&node.view);
-            let (result_dtype, size_expr) = if let Some(size) = total_size {
-                // サイズが静的に決定できる場合は固定サイズ配列型
-                (DType::Vec(Box::new(node.dtype.clone()), size), None)
-            } else {
-                // 動的サイズの場合はポインタ型（mallocで確保）
-                let size_expr = LowererUtils::compute_total_size_expr(&node.view);
-                (
-                    DType::Ptr(Box::new(node.dtype.clone())),
-                    Some(Box::new(size_expr)),
-                )
-            };
-
-            declarations.push(VariableDecl {
-                name: result_var.clone(),
-                dtype: result_dtype,
-                constant: false,
-                size_expr,
-            });
-        }
+        LowererUtils::declare_result_variable(&result_var, &node.view, &node.dtype, declarations);
 
         // view情報を取得
         let input_view = &input.view;
         let result_view = &node.view;
 
         // 縮約操作の初期値を定義
-        let initial_value = match op {
-            ReduceOp::Add => AstNode::Const(ConstLiteral::F32(0.0)),
-            ReduceOp::Mul => AstNode::Const(ConstLiteral::F32(1.0)),
-            ReduceOp::Max => AstNode::Const(ConstLiteral::F32(f32::NEG_INFINITY)),
-        };
+        let initial_value = LowererUtils::get_reduce_initial_value(op);
 
         // 多重ループでreduce操作を実行
         Some(Self::create_reduce_loops(

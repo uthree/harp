@@ -1,5 +1,5 @@
 use super::Lowerer;
-use crate::ast::{AstNode, DType, VariableDecl};
+use crate::ast::{AstNode, VariableDecl};
 use crate::graph::{GraphNode, GraphOp};
 use crate::lowerer::{
     cumulative::CumulativeLowerer, elementwise::ElementwiseLowerer,
@@ -74,25 +74,7 @@ impl Lowerer {
                 let input_var = self.get_or_create_var_name(input);
 
                 // 出力ノードの場合は配列を宣言しない
-                if !result_var.starts_with("output_") {
-                    let total_size = LowererUtils::compute_total_size(&node.view);
-                    let (result_dtype, size_expr) = if let Some(size) = total_size {
-                        (DType::Vec(Box::new(node.dtype.clone()), size), None)
-                    } else {
-                        let size_expr = LowererUtils::compute_total_size_expr(&node.view);
-                        (
-                            DType::Ptr(Box::new(node.dtype.clone())),
-                            Some(Box::new(size_expr)),
-                        )
-                    };
-
-                    declarations.push(VariableDecl {
-                        name: result_var.clone(),
-                        dtype: result_dtype,
-                        constant: false,
-                        size_expr,
-                    });
-                }
+                LowererUtils::declare_result_variable(&result_var, &node.view, &node.dtype, declarations);
 
                 // 入力のview（非連続の可能性あり）と出力のview（連続）を取得
                 let input_view = &input.view;
@@ -116,25 +98,7 @@ impl Lowerer {
                 let input_var = self.get_or_create_var_name(input);
 
                 // 出力ノードの場合は配列を宣言しない
-                if !result_var.starts_with("output_") {
-                    let total_size = LowererUtils::compute_total_size(&node.view);
-                    let (result_dtype, size_expr) = if let Some(size) = total_size {
-                        (DType::Vec(Box::new(target_dtype.clone()), size), None)
-                    } else {
-                        let size_expr = LowererUtils::compute_total_size_expr(&node.view);
-                        (
-                            DType::Ptr(Box::new(target_dtype.clone())),
-                            Some(Box::new(size_expr)),
-                        )
-                    };
-
-                    declarations.push(VariableDecl {
-                        name: result_var.clone(),
-                        dtype: result_dtype,
-                        constant: false,
-                        size_expr,
-                    });
-                }
+                LowererUtils::declare_result_variable(&result_var, &node.view, target_dtype, declarations);
 
                 // キャストループを生成
                 let input_view = &input.view;
@@ -189,25 +153,7 @@ impl Lowerer {
                 let input_var = self.get_or_create_var_name(input);
 
                 // Declare output array if needed
-                if !result_var.starts_with("output_") {
-                    let total_size = LowererUtils::compute_total_size(&node.view);
-                    let (result_dtype, size_expr) = if let Some(size) = total_size {
-                        (DType::Vec(Box::new(node.dtype.clone()), size), None)
-                    } else {
-                        let size_expr = LowererUtils::compute_total_size_expr(&node.view);
-                        (
-                            DType::Ptr(Box::new(node.dtype.clone())),
-                            Some(Box::new(size_expr)),
-                        )
-                    };
-
-                    declarations.push(VariableDecl {
-                        name: result_var.clone(),
-                        dtype: result_dtype,
-                        constant: false,
-                        size_expr,
-                    });
-                }
+                LowererUtils::declare_result_variable(&result_var, &node.view, &node.dtype, declarations);
 
                 let input_view = &input.view;
                 let result_view = &node.view;

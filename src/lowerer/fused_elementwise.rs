@@ -1,5 +1,5 @@
 use super::utils::LowererUtils;
-use crate::ast::{AstNode, DType, VariableDecl};
+use crate::ast::{AstNode, VariableDecl};
 use crate::graph::GraphNode;
 
 /// FusedElementwise演算のコード生成を行う構造体
@@ -18,28 +18,7 @@ impl FusedElementwiseLowerer {
         let result_var = get_var(node);
 
         // 出力ノードの場合は配列を宣言しない（引数として渡される）
-        if !result_var.starts_with("output_") {
-            // テンソルの場合は配列として宣言する必要がある
-            let total_size = LowererUtils::compute_total_size(&node.view);
-            let (result_dtype, size_expr) = if let Some(size) = total_size {
-                // サイズが静的に決定できる場合は固定サイズ配列型
-                (DType::Vec(Box::new(node.dtype.clone()), size), None)
-            } else {
-                // 動的サイズの場合はポインタ型（mallocで確保）
-                let size_expr = LowererUtils::compute_total_size_expr(&node.view);
-                (
-                    DType::Ptr(Box::new(node.dtype.clone())),
-                    Some(Box::new(size_expr)),
-                )
-            };
-
-            declarations.push(VariableDecl {
-                name: result_var.clone(),
-                dtype: result_dtype,
-                constant: false,
-                size_expr,
-            });
-        }
+        LowererUtils::declare_result_variable(&result_var, &node.view, &node.dtype, declarations);
 
         // 入力の変数名を取得
         let input_vars: Vec<String> = inputs.iter().map(get_var).collect();

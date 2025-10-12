@@ -21,35 +21,13 @@ impl FusedElementwiseCumulativeLowerer {
         let result_var = get_var(node);
 
         // 出力ノードの場合は配列を宣言しない
-        if !result_var.starts_with("output_") {
-            let total_size = LowererUtils::compute_total_size(&node.view);
-            let (result_dtype, size_expr) = if let Some(size) = total_size {
-                (DType::Vec(Box::new(node.dtype.clone()), size), None)
-            } else {
-                let size_expr = LowererUtils::compute_total_size_expr(&node.view);
-                (
-                    DType::Ptr(Box::new(node.dtype.clone())),
-                    Some(Box::new(size_expr)),
-                )
-            };
-
-            declarations.push(VariableDecl {
-                name: result_var.clone(),
-                dtype: result_dtype,
-                constant: false,
-                size_expr,
-            });
-        }
+        LowererUtils::declare_result_variable(&result_var, &node.view, &node.dtype, declarations);
 
         // 入力の変数名を取得
         let input_vars: Vec<String> = inputs.iter().map(get_var).collect();
 
         // 初期値を定義
-        let initial_value = match op {
-            CumulativeOp::Add => AstNode::Const(crate::ast::ConstLiteral::F32(0.0)),
-            CumulativeOp::Mul => AstNode::Const(crate::ast::ConstLiteral::F32(1.0)),
-            CumulativeOp::Max => AstNode::Const(crate::ast::ConstLiteral::F32(f32::NEG_INFINITY)),
-        };
+        let initial_value = LowererUtils::get_cumulative_initial_value(op);
 
         // 入力の最初のノードからshapeを取得（全て同じshapeのはず）
         let input_view = &inputs[0].view;
@@ -78,6 +56,7 @@ impl FusedElementwiseCumulativeLowerer {
             &result_var,
             op,
             initial_value,
+            &node.dtype,
             0,
         ))
     }
@@ -94,6 +73,7 @@ impl FusedElementwiseCumulativeLowerer {
         result_var: &str,
         cumulative_op: &CumulativeOp,
         initial_value: AstNode,
+        result_dtype: &DType,
         dim: usize,
     ) -> AstNode {
         if dim >= input_shape.len() {
@@ -165,7 +145,7 @@ impl FusedElementwiseCumulativeLowerer {
                 scope: crate::ast::Scope {
                     declarations: vec![VariableDecl {
                         name: acc_var,
-                        dtype: DType::F32, // 型を仮定
+                        dtype: result_dtype.clone(),
                         constant: false,
                         size_expr: None,
                     }],
@@ -186,6 +166,7 @@ impl FusedElementwiseCumulativeLowerer {
                 result_var,
                 cumulative_op,
                 initial_value,
+                result_dtype,
                 dim + 1,
             );
 
