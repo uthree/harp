@@ -176,9 +176,6 @@ impl CRenderer {
         }
 
         // Render statements
-        if !scope.declarations.is_empty() && !statements.is_empty() {
-            writeln!(buffer).unwrap();
-        }
         for stmt in statements {
             self.render_indent(&mut buffer);
             writeln!(buffer, "{};", self.render_node(stmt)).unwrap();
@@ -186,7 +183,6 @@ impl CRenderer {
 
         // Free dynamically allocated memory before closing scope
         if !malloc_vars.is_empty() {
-            writeln!(buffer).unwrap();
             for var_name in malloc_vars {
                 self.render_indent(&mut buffer);
                 writeln!(buffer, "free({});", var_name).unwrap();
@@ -615,7 +611,6 @@ void my_func(ssize_t a[10]);
 void my_func(ssize_t a[10])
 {
 	float b;
-
 	b = 1;
 }
 "###;
@@ -680,9 +675,7 @@ void dynamic_alloc(size_t n)
 {
 	float* arr;
 	arr = (float*)malloc(sizeof(float) * (n));
-
 	*((arr) + (0)) = 1;
-
 	free(arr);
 }
 "###;
