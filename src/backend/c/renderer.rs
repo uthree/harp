@@ -582,7 +582,7 @@ mod tests {
     #[case(AstNode::Sqrt(Box::new(var("a"))), "sqrt(a)")]
     // Accessors
     #[case(AstNode::Deref(Box::new(var("a") + var("i"))), "*(a + i)")]
-    #[case(AstNode::CallFunction { name: "my_func".to_string(), args: vec![var("a"), (2 as isize).into()] }, "my_func(a, 2)")]
+    #[case(AstNode::CallFunction { name: "my_func".to_string(), args: vec![var("a"), 2_isize.into()] }, "my_func(a, 2)")]
     // Others
     #[case(AstNode::Assign("a".to_string(), Box::new(var("b"))), "a = b")]
     #[case(AstNode::Store { target: Box::new(var("arr")), index: Box::new(var("i")), value: Box::new(var("x")) }, "*((arr) + (i)) = x")]

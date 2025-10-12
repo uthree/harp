@@ -1,0 +1,218 @@
+use super::Lowerer;
+use crate::ast::{AstNode, ConstLiteral, Scope};
+use crate::lowerer::utils::LowererUtils;
+
+impl Lowerer {
+    /// Foldのためのループを作成 (col2im operation)
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn create_fold_loops(
+        input_shape: &[crate::graph::shape::Expr],
+        input_strides: &[crate::graph::shape::Expr],
+        input_offset: &crate::graph::shape::Expr,
+        result_shape: &[crate::graph::shape::Expr],
+        result_strides: &[crate::graph::shape::Expr],
+        result_offset: &crate::graph::shape::Expr,
+        dim: usize,
+        window_size: usize,
+        stride: usize,
+        dilation: usize,
+        input_var: &str,
+        result_var: &str,
+    ) -> AstNode {
+        // Phase 1: Initialize output to zero
+        let init_loop =
+            Self::create_fold_init_loop(result_shape, result_strides, result_offset, result_var, 0);
+
+        // Phase 2: Accumulate values from input windows
+        let accum_loop = Self::create_fold_accumulate_loop(
+            input_shape,
+            input_strides,
+            input_offset,
+            result_shape,
+            result_strides,
+            result_offset,
+            dim,
+            window_size,
+            stride,
+            dilation,
+            input_var,
+            result_var,
+            0,
+        );
+
+        // Combine init and accumulate in a block
+        AstNode::Block {
+            scope: Scope {
+                declarations: vec![],
+            },
+            statements: vec![init_loop, accum_loop],
+        }
+    }
+
+    /// Initialize output buffer to zero for fold operation
+    fn create_fold_init_loop(
+        result_shape: &[crate::graph::shape::Expr],
+        result_strides: &[crate::graph::shape::Expr],
+        result_offset: &crate::graph::shape::Expr,
+        result_var: &str,
+        dim: usize,
+    ) -> AstNode {
+        if dim >= result_shape.len() {
+            // Initialize to zero
+            let result_index =
+                LowererUtils::compute_memory_index(result_strides, result_offset, dim);
+            AstNode::Store {
+                target: Box::new(AstNode::Var(result_var.to_string())),
+                index: Box::new(result_index),
+                value: Box::new(AstNode::Const(ConstLiteral::F32(0.0))),
+            }
+        } else {
+            let loop_var = format!("ridx{}", dim);
+            let inner_body = Self::create_fold_init_loop(
+                result_shape,
+                result_strides,
+                result_offset,
+                result_var,
+                dim + 1,
+            );
+            let shape_size = LowererUtils::shape_expr_to_ast_node(&result_shape[dim]);
+
+            AstNode::Range {
+                counter_name: loop_var,
+                start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
+                max: Box::new(shape_size),
+                step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
+                body: Box::new(inner_body),
+                unroll: None,
+            }
+        }
+    }
+
+    /// Accumulate values from input windows into output for fold operation
+    #[allow(clippy::too_many_arguments)]
+    fn create_fold_accumulate_loop(
+        input_shape: &[crate::graph::shape::Expr],
+        input_strides: &[crate::graph::shape::Expr],
+        input_offset: &crate::graph::shape::Expr,
+        _result_shape: &[crate::graph::shape::Expr],
+        result_strides: &[crate::graph::shape::Expr],
+        result_offset: &crate::graph::shape::Expr,
+        fold_dim: usize,
+        _window_size: usize,
+        stride: usize,
+        dilation: usize,
+        input_var: &str,
+        result_var: &str,
+        current_dim: usize,
+    ) -> AstNode {
+        let window_dim = input_shape.len() - 1; // Last dimension is window dimension
+
+        if current_dim >= input_shape.len() {
+            // All dimensions processed: perform accumulation
+            // input[..., i_fold_dim, i_window_dim] accumulates to
+            // output[..., i_fold_dim * stride + i_window_dim * dilation]
+
+            let input_index =
+                LowererUtils::compute_memory_index(input_strides, input_offset, input_shape.len());
+
+            // Compute result index with stride and dilation adjustment
+            // For fold_dim: use i_fold_dim * stride + i_window_dim * dilation instead of i_fold_dim
+            let result_index = Self::compute_fold_result_index(
+                result_strides,
+                result_offset,
+                fold_dim,
+                window_dim,
+                stride,
+                dilation,
+                input_shape.len(),
+            );
+
+            // result[idx] += input[idx]
+            AstNode::Store {
+                target: Box::new(AstNode::Var(result_var.to_string())),
+                index: Box::new(result_index.clone()),
+                value: Box::new(AstNode::Add(
+                    Box::new(AstNode::Deref(Box::new(
+                        AstNode::Var(result_var.to_string()) + result_index,
+                    ))),
+                    Box::new(AstNode::Deref(Box::new(
+                        AstNode::Var(input_var.to_string()) + input_index,
+                    ))),
+                )),
+            }
+        } else {
+            // Generate loop for current dimension
+            let loop_var = format!("ridx{}", current_dim);
+            let inner_body = Self::create_fold_accumulate_loop(
+                input_shape,
+                input_strides,
+                input_offset,
+                _result_shape,
+                result_strides,
+                result_offset,
+                fold_dim,
+                _window_size,
+                stride,
+                dilation,
+                input_var,
+                result_var,
+                current_dim + 1,
+            );
+            let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[current_dim]);
+
+            AstNode::Range {
+                counter_name: loop_var,
+                start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
+                max: Box::new(shape_size),
+                step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
+                body: Box::new(inner_body),
+                unroll: None,
+            }
+        }
+    }
+
+    /// Compute result index for fold operation
+    /// Maps input[..., i_fold_dim, ..., i_window_dim] to output[..., i_fold_dim * stride + i_window_dim * dilation, ...]
+    fn compute_fold_result_index(
+        result_strides: &[crate::graph::shape::Expr],
+        result_offset: &crate::graph::shape::Expr,
+        fold_dim: usize,
+        window_dim: usize,
+        stride: usize,
+        dilation: usize,
+        num_input_dims: usize,
+    ) -> AstNode {
+        let mut index = LowererUtils::shape_expr_to_ast_node(result_offset);
+
+        for dim in 0..num_input_dims {
+            if dim == window_dim {
+                // Skip window dimension (it's been folded into fold_dim)
+                continue;
+            }
+
+            let loop_var = format!("ridx{}", dim);
+            let result_dim = if dim > fold_dim { dim - 1 } else { dim };
+
+            if dim == fold_dim {
+                // For fold_dim: result_index = i_fold_dim * stride + i_window_dim * dilation
+                let fold_index = AstNode::Add(
+                    Box::new(AstNode::Mul(
+                        Box::new(AstNode::Var(loop_var)),
+                        Box::new(AstNode::Const(ConstLiteral::Isize(stride as isize))),
+                    )),
+                    Box::new(AstNode::Mul(
+                        Box::new(AstNode::Var(format!("ridx{}", window_dim))),
+                        Box::new(AstNode::Const(ConstLiteral::Isize(dilation as isize))),
+                    )),
+                );
+                index += LowererUtils::shape_expr_to_ast_node(&result_strides[result_dim].clone())
+                    * fold_index;
+            } else {
+                index += LowererUtils::shape_expr_to_ast_node(&result_strides[result_dim].clone())
+                    * AstNode::Var(loop_var);
+            }
+        }
+
+        index
+    }
+}

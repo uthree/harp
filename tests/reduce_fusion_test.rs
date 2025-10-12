@@ -65,7 +65,7 @@ fn test_elementwise_reduce_fusion() {
     // (2+1)*2 + (6+1)*2 + (10+1)*2 = 6 + 14 + 22 = 42
     // (3+1)*2 + (7+1)*2 + (11+1)*2 = 8 + 16 + 24 = 48
     // (4+1)*2 + (8+1)*2 + (12+1)*2 = 10 + 18 + 26 = 54
-    let expected = vec![36.0f32, 42.0, 48.0, 54.0];
+    let expected = [36.0f32, 42.0, 48.0, 54.0];
 
     // Verify
     for (i, (out, exp)) in output_data.iter().zip(expected.iter()).enumerate() {

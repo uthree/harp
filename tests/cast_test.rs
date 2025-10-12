@@ -63,7 +63,7 @@ fn test_cast_isize_to_f32() {
 
     // Expected: [1.0, -2.0, 3.0, -4.0, 5.0]
     let output_data = outputs[0].to_vec::<f32>();
-    let expected = vec![1.0f32, -2.0, 3.0, -4.0, 5.0];
+    let expected = [1.0f32, -2.0, 3.0, -4.0, 5.0];
 
     assert_eq!(outputs[0].shape(), &[5]);
     for (i, (actual, expected)) in output_data.iter().zip(expected.iter()).enumerate() {

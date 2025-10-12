@@ -33,7 +33,7 @@ fn test_natural_log() {
     let output_data = outputs[0].to_vec::<f32>();
 
     // Expected: [0.0, 1.0, 2.0]
-    let expected = vec![0.0f32, 1.0, 2.0];
+    let expected = [0.0f32, 1.0, 2.0];
 
     assert_eq!(outputs[0].shape(), &[3]);
     for (i, (actual, expected)) in output_data.iter().zip(expected.iter()).enumerate() {
@@ -73,7 +73,7 @@ fn test_natural_exp() {
 
     // Expected: [1.0, e, e^2]
     let e = std::f32::consts::E;
-    let expected = vec![1.0f32, e, e * e];
+    let expected = [1.0f32, e, e * e];
 
     assert_eq!(outputs[0].shape(), &[3]);
     for (i, (actual, expected)) in output_data.iter().zip(expected.iter()).enumerate() {
@@ -113,7 +113,7 @@ fn test_cosine() {
     let output_data = outputs[0].to_vec::<f32>();
 
     // Expected: [1.0, 0.0, -1.0, 1.0]
-    let expected = vec![1.0f32, 0.0, -1.0, 1.0];
+    let expected = [1.0f32, 0.0, -1.0, 1.0];
 
     assert_eq!(outputs[0].shape(), &[4]);
     for (i, (actual, expected)) in output_data.iter().zip(expected.iter()).enumerate() {
@@ -189,7 +189,7 @@ fn test_tangent() {
 
     // Expected: [0.0, 1.0, -1.0, 1/√3]
     let sqrt_3 = 3.0f32.sqrt();
-    let expected = vec![0.0f32, 1.0, -1.0, 1.0 / sqrt_3];
+    let expected = [0.0f32, 1.0, -1.0, 1.0 / sqrt_3];
 
     assert_eq!(outputs[0].shape(), &[4]);
     for (i, (actual, expected)) in output_data.iter().zip(expected.iter()).enumerate() {

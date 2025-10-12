@@ -47,7 +47,7 @@ fn test_multi_axis_reduce_fusion() {
     // Position 1: sum of indices [1,5,9,13,17,21] = 2+6+10+14+18+22 = 72
     // Position 2: sum of indices [2,6,10,14,18,22] = 3+7+11+15+19+23 = 78
     // Position 3: sum of indices [3,7,11,15,19,23] = 4+8+12+16+20+24 = 84
-    let expected = vec![66.0f32, 72.0, 78.0, 84.0];
+    let expected = [66.0f32, 72.0, 78.0, 84.0];
 
     // Verify
     for (i, (out, exp)) in output_data.iter().zip(expected.iter()).enumerate() {

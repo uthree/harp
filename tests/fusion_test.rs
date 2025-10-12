@@ -45,7 +45,7 @@ fn test_elementwise_fusion() {
     let output_data = outputs[0].to_vec::<f32>();
 
     // Expected: (1+1)*1=2, (2+1)*2=6, (3+1)*3=12, ...
-    let expected = vec![2.0f32, 6.0, 12.0, 20.0, 30.0, 42.0, 56.0, 72.0, 90.0, 110.0];
+    let expected = [2.0f32, 6.0, 12.0, 20.0, 30.0, 42.0, 56.0, 72.0, 90.0, 110.0];
 
     // Verify
     for (i, (out, exp)) in output_data.iter().zip(expected.iter()).enumerate() {

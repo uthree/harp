@@ -39,7 +39,7 @@ fn test_contiguous_after_permute() {
     // After permute: [[1, 4], [2, 5], [3, 6]]
     // Expected output (contiguous): [1, 4, 2, 5, 3, 6]
     let output_data = outputs[0].to_vec::<f32>();
-    let expected = vec![1.0f32, 4.0, 2.0, 5.0, 3.0, 6.0];
+    let expected = [1.0f32, 4.0, 2.0, 5.0, 3.0, 6.0];
 
     assert_eq!(outputs[0].shape(), &[3, 2]);
     for (i, (actual, expected)) in output_data.iter().zip(expected.iter()).enumerate() {
@@ -88,7 +88,7 @@ fn test_contiguous_after_unsqueeze_expand() {
     // After expand: [[[1, 1, 1]], [[2, 2, 2]]]
     // Expected output (contiguous): [1, 1, 1, 2, 2, 2]
     let output_data = outputs[0].to_vec::<f32>();
-    let expected = vec![1.0f32, 1.0, 1.0, 2.0, 2.0, 2.0];
+    let expected = [1.0f32, 1.0, 1.0, 2.0, 2.0, 2.0];
 
     assert_eq!(outputs[0].shape(), &[2, 1, 3]);
     for (i, (actual, expected)) in output_data.iter().zip(expected.iter()).enumerate() {

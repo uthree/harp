@@ -267,6 +267,51 @@ impl fmt::Display for Expr {
     }
 }
 
+/// Create a vector of `Expr` with a mix of constants and variables.
+///
+/// This macro allows you to easily create shape vectors by mixing integer literals
+/// and string literals (which become variables).
+///
+/// # Examples
+///
+/// ```
+/// use harp::{s, graph::shape::Expr};
+///
+/// // Pure constants
+/// let shape1 = s![1, 2, 3];
+/// assert_eq!(shape1, vec![Expr::from(1), Expr::from(2), Expr::from(3)]);
+///
+/// // Pure variables
+/// let shape2 = s!["a", "b"];
+/// assert_eq!(shape2, vec![Expr::Var("a".to_string()), Expr::Var("b".to_string())]);
+///
+/// // Mixed constants and variables
+/// let shape3 = s![1, "N", 2, "batch_size"];
+/// assert_eq!(shape3, vec![
+///     Expr::from(1),
+///     Expr::Var("N".to_string()),
+///     Expr::from(2),
+///     Expr::Var("batch_size".to_string())
+/// ]);
+///
+/// // Empty shape
+/// let shape4 = s![];
+/// let empty: Vec<Expr> = vec![];
+/// assert_eq!(shape4, empty);
+/// ```
+#[macro_export]
+macro_rules! s {
+    // Base case: empty
+    () => {
+        Vec::<$crate::graph::shape::Expr>::new()
+    };
+
+    // One or more elements
+    ($($item:expr),+ $(,)?) => {
+        vec![$($crate::graph::shape::Expr::from($item)),+]
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -289,6 +334,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::erasing_op)]
     fn test_simplify_mul() {
         let a = Expr::Var("a".to_string());
         assert_eq!((a.clone() * 1).simplify(), a.clone());
@@ -314,6 +360,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::modulo_one)]
     fn test_simplify_rem() {
         let a = Expr::Var("a".to_string());
         assert_eq!((a.clone() % 1).simplify(), Expr::from(0));
@@ -404,49 +451,4 @@ mod tests {
             ]
         );
     }
-}
-
-/// Create a vector of `Expr` with a mix of constants and variables.
-///
-/// This macro allows you to easily create shape vectors by mixing integer literals
-/// and string literals (which become variables).
-///
-/// # Examples
-///
-/// ```
-/// use harp::{s, graph::shape::Expr};
-///
-/// // Pure constants
-/// let shape1 = s![1, 2, 3];
-/// assert_eq!(shape1, vec![Expr::from(1), Expr::from(2), Expr::from(3)]);
-///
-/// // Pure variables
-/// let shape2 = s!["a", "b"];
-/// assert_eq!(shape2, vec![Expr::Var("a".to_string()), Expr::Var("b".to_string())]);
-///
-/// // Mixed constants and variables
-/// let shape3 = s![1, "N", 2, "batch_size"];
-/// assert_eq!(shape3, vec![
-///     Expr::from(1),
-///     Expr::Var("N".to_string()),
-///     Expr::from(2),
-///     Expr::Var("batch_size".to_string())
-/// ]);
-///
-/// // Empty shape
-/// let shape4 = s![];
-/// let empty: Vec<Expr> = vec![];
-/// assert_eq!(shape4, empty);
-/// ```
-#[macro_export]
-macro_rules! s {
-    // Base case: empty
-    () => {
-        Vec::<$crate::graph::shape::Expr>::new()
-    };
-
-    // One or more elements
-    ($($item:expr),+ $(,)?) => {
-        vec![$($crate::graph::shape::Expr::from($item)),+]
-    };
 }

@@ -116,6 +116,20 @@ impl Drop for CBuffer {
     }
 }
 
+impl DType {
+    /// Returns the size of the data type in bytes.
+    pub fn size(&self) -> usize {
+        match self {
+            DType::F32 => std::mem::size_of::<f32>(),
+            DType::Isize => std::mem::size_of::<isize>(),
+            DType::Usize => std::mem::size_of::<usize>(),
+            // Pointers are assumed to be 64-bit for now.
+            DType::Ptr(_) => std::mem::size_of::<*const c_void>(),
+            _ => unimplemented!("Size for dtype {:?} is not implemented", self),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,19 +163,5 @@ mod tests {
             DType::Ptr(Box::new(DType::Void)).size(),
             std::mem::size_of::<*const ()>()
         );
-    }
-}
-
-impl DType {
-    /// Returns the size of the data type in bytes.
-    pub fn size(&self) -> usize {
-        match self {
-            DType::F32 => std::mem::size_of::<f32>(),
-            DType::Isize => std::mem::size_of::<isize>(),
-            DType::Usize => std::mem::size_of::<usize>(),
-            // Pointers are assumed to be 64-bit for now.
-            DType::Ptr(_) => std::mem::size_of::<*const c_void>(),
-            _ => unimplemented!("Size for dtype {:?} is not implemented", self),
-        }
     }
 }

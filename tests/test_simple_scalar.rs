@@ -26,7 +26,7 @@ fn test_scalar_add() {
     let outputs = backend.execute(&graph, vec![input_buffer]);
     let output_data = outputs[0].to_vec::<f32>();
 
-    let expected = vec![3.0f32, 4.0, 5.0];
+    let expected = [3.0f32, 4.0, 5.0];
     for (i, (actual, expected)) in output_data.iter().zip(expected.iter()).enumerate() {
         assert!((actual - expected).abs() < 1e-5, "Mismatch at index {}", i);
     }

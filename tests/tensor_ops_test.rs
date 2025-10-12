@@ -117,6 +117,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn test_tensor_ln() {
         let a: Tensor1<f32> = Tensor::from_vec(vec![1.0, 2.718, 7.389], &[3], "c");
 

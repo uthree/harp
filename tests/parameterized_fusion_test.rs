@@ -101,7 +101,7 @@ fn test_reduce_operations(#[case] op: &str) {
             // Column 1: (2+1) + (6+1) + (10+1) = 3 + 7 + 11 = 21
             // Column 2: (3+1) + (7+1) + (11+1) = 4 + 8 + 12 = 24
             // Column 3: (4+1) + (8+1) + (12+1) = 5 + 9 + 13 = 27
-            let expected = vec![18.0f32, 21.0, 24.0, 27.0];
+            let expected = [18.0f32, 21.0, 24.0, 27.0];
             for (i, (out, exp)) in output_data.iter().zip(expected.iter()).enumerate() {
                 assert!(
                     (out - exp).abs() < 1e-5,
@@ -118,7 +118,7 @@ fn test_reduce_operations(#[case] op: &str) {
             // Column 1: max(2+1, 6+1, 10+1) = max(3, 7, 11) = 11
             // Column 2: max(3+1, 7+1, 11+1) = max(4, 8, 12) = 12
             // Column 3: max(4+1, 8+1, 12+1) = max(5, 9, 13) = 13
-            let expected = vec![10.0f32, 11.0, 12.0, 13.0];
+            let expected = [10.0f32, 11.0, 12.0, 13.0];
             for (i, (out, exp)) in output_data.iter().zip(expected.iter()).enumerate() {
                 assert!(
                     (out - exp).abs() < 1e-5,
@@ -200,8 +200,8 @@ fn test_elementwise_chain_length(#[case] chain_length: usize) {
 
     // Chain them: (...((a + b) + c) + d)...
     let mut result = inputs[0].clone();
-    for i in 1..chain_length {
-        result = result + inputs[i].clone();
+    for input in inputs.iter().skip(1) {
+        result = result + input.clone();
     }
 
     graph.output(result);
@@ -215,7 +215,7 @@ fn test_elementwise_chain_length(#[case] chain_length: usize) {
     let outputs = backend.execute(&graph, buffers);
 
     // Expected: chain_length * 1.0 for each element
-    let expected = vec![chain_length as f32; 10];
+    let expected = [chain_length as f32; 10];
     let output_data = outputs[0].to_vec::<f32>();
 
     for (i, (out, exp)) in output_data.iter().zip(expected.iter()).enumerate() {

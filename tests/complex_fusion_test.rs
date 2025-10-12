@@ -59,7 +59,7 @@ fn test_complex_elementwise_reduce_fusion() {
     // Column 1: ((2+1)*2-1) + ((6+1)*2-1) + ((10+1)*2-1) = 5 + 13 + 21 = 39
     // Column 2: ((3+1)*2-1) + ((7+1)*2-1) + ((11+1)*2-1) = 7 + 15 + 23 = 45
     // Column 3: ((4+1)*2-1) + ((8+1)*2-1) + ((12+1)*2-1) = 9 + 17 + 25 = 51
-    let expected = vec![33.0f32, 39.0, 45.0, 51.0];
+    let expected = [33.0f32, 39.0, 45.0, 51.0];
     let output_data = outputs[0].to_vec::<f32>();
 
     for (i, (out, exp)) in output_data.iter().zip(expected.iter()).enumerate() {
@@ -246,7 +246,7 @@ fn test_matmul_fusion() {
     // C[1,1] = 5*2 + 6*4 + 7*6 + 8*8 = 10 + 24 + 42 + 64 = 140
     // C[2,0] = 9*1 + 10*3 + 11*5 + 12*7 = 9 + 30 + 55 + 84 = 178
     // C[2,1] = 9*2 + 10*4 + 11*6 + 12*8 = 18 + 40 + 66 + 96 = 220
-    let expected = vec![50.0f32, 60.0, 114.0, 140.0, 178.0, 220.0];
+    let expected = [50.0f32, 60.0, 114.0, 140.0, 178.0, 220.0];
     let output_data = outputs[0].to_vec::<f32>();
 
     for (i, (out, exp)) in output_data.iter().zip(expected.iter()).enumerate() {
@@ -356,7 +356,7 @@ fn test_reduce_max_fusion() {
     // Column 1: max(5+1, 1+4, 9+1) = max(6, 5, 10) = 10
     // Column 2: max(2+3, 7+2, 1+6) = max(5, 9, 7) = 9
     // Column 3: max(8+1, 2+5, 3+7) = max(9, 7, 10) = 10
-    let expected = vec![5.0f32, 10.0, 9.0, 10.0];
+    let expected = [5.0f32, 10.0, 9.0, 10.0];
     let output_data = outputs[0].to_vec::<f32>();
 
     for (i, (out, exp)) in output_data.iter().zip(expected.iter()).enumerate() {

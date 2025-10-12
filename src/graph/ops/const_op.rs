@@ -69,6 +69,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn test_const_operations() {
         // Test f32 constant
         let f32_const = GraphNode::f32(3.14);
@@ -107,6 +108,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn test_from_traits() {
         // Test From trait implementations
         let node1: GraphNode = 3.14f32.into();
