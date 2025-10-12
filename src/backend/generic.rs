@@ -1,3 +1,4 @@
+use crate::ast::helper::function;
 use crate::ast::AstNode;
 use crate::backend::{Backend, Buffer, Compiler, Kernel, Renderer};
 use crate::graph::{Graph, GraphSignature};
@@ -508,7 +509,7 @@ where
             _ => unreachable!("Body should always be a Block"),
         };
 
-        AstNode::function(
+        function(
             name,
             arguments,
             return_type,

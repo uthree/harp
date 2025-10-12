@@ -59,6 +59,7 @@ impl RewriteSuggester for UnrollHintSuggester {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ast::helper::var;
     use crate::ast::ConstLiteral;
 
     #[test]
@@ -70,7 +71,7 @@ mod tests {
             start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
             max: Box::new(AstNode::Const(ConstLiteral::Isize(10))),
             step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
-            body: Box::new(AstNode::var("x")),
+            body: Box::new(var("x")),
             unroll: None,
         };
 
@@ -92,7 +93,7 @@ mod tests {
             start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
             max: Box::new(AstNode::Const(ConstLiteral::Isize(10))),
             step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
-            body: Box::new(AstNode::var("x")),
+            body: Box::new(var("x")),
             unroll: Some(4), // Already has unroll hint
         };
 

@@ -139,7 +139,7 @@ macro_rules! ast_pattern {
         {
             let mut counter = 0..;
             $(
-                let $capture = $crate::ast::AstNode::capture(counter.next().unwrap());
+                let $capture = $crate::ast::helper::capture(counter.next().unwrap());
             )*
             let pattern = $pattern;
             let rewriter = |captured_nodes: &[$crate::ast::AstNode]| {
@@ -163,7 +163,7 @@ macro_rules! ast_pattern {
         {
             let mut counter = 0..;
             $(
-                let $capture = $crate::ast::AstNode::capture(counter.next().unwrap());
+                let $capture = $crate::ast::helper::capture(counter.next().unwrap());
             )*
             let pattern = $pattern;
             let rewriter = |captured_nodes: &[$crate::ast::AstNode]| {

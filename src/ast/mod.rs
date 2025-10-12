@@ -1,7 +1,7 @@
+pub mod helper;
 pub mod pattern;
 
 mod function;
-mod helpers;
 mod node;
 mod ops;
 mod range_builder;
@@ -18,6 +18,7 @@ pub use variable::{Scope, VariableDecl};
 
 #[cfg(test)]
 mod tests {
+    use super::helper::*;
     use super::*;
     use rstest::rstest;
 
@@ -246,17 +247,17 @@ mod tests {
     #[test]
     fn test_helper_functions() {
         // Test var
-        let v = AstNode::var("x");
+        let v = var("x");
         assert_eq!(v, AstNode::Var("x".to_string()));
 
         // Test const_val
-        let c = AstNode::const_val(ConstLiteral::F32(1.0));
+        let c = const_val(ConstLiteral::F32(1.0));
         assert_eq!(c, AstNode::Const(ConstLiteral::F32(1.0)));
 
         // Test assign
-        let assign = AstNode::assign("x", 1.0f32);
+        let assign_node = assign("x", 1.0f32);
         assert_eq!(
-            assign,
+            assign_node,
             AstNode::Assign(
                 "x".to_string(),
                 Box::new(AstNode::Const(ConstLiteral::F32(1.0)))
@@ -264,9 +265,9 @@ mod tests {
         );
 
         // Test max
-        let max = AstNode::max(1.0f32, 2.0f32);
+        let max_node = max(1.0f32, 2.0f32);
         assert_eq!(
-            max,
+            max_node,
             AstNode::Max(
                 Box::new(AstNode::Const(ConstLiteral::F32(1.0))),
                 Box::new(AstNode::Const(ConstLiteral::F32(2.0)))
@@ -274,9 +275,9 @@ mod tests {
         );
 
         // Test cast
-        let cast = AstNode::cast(DType::F32, 1isize);
+        let cast_node = cast(DType::F32, 1isize);
         assert_eq!(
-            cast,
+            cast_node,
             AstNode::Cast {
                 dtype: DType::F32,
                 expr: Box::new(AstNode::Const(ConstLiteral::Isize(1)))
@@ -287,7 +288,7 @@ mod tests {
     #[test]
     fn test_range_builder() {
         // Test simple range with defaults
-        let r1 = AstNode::range("i", 10isize, AstNode::var("x"));
+        let r1 = range("i", 10isize, var("x"));
         assert_eq!(
             r1,
             AstNode::Range {
@@ -301,7 +302,7 @@ mod tests {
         );
 
         // Test range builder with custom start and step
-        let r2 = AstNode::range_builder("i", 100isize, AstNode::var("x"))
+        let r2 = range_builder("i", 100isize, var("x"))
             .start(5isize)
             .step(2isize)
             .build();
@@ -318,7 +319,7 @@ mod tests {
         );
 
         // Test range builder with full unroll
-        let r3 = AstNode::range_builder("i", 10isize, AstNode::var("x"))
+        let r3 = range_builder("i", 10isize, var("x"))
             .unroll()
             .build();
         assert_eq!(
@@ -334,7 +335,7 @@ mod tests {
         );
 
         // Test range builder with specific unroll factor
-        let r4 = AstNode::range_builder("i", 100isize, AstNode::var("x"))
+        let r4 = range_builder("i", 100isize, var("x"))
             .unroll_by(4)
             .build();
         assert_eq!(
@@ -353,13 +354,10 @@ mod tests {
     #[test]
     fn test_block_helpers() {
         // Test block_with_statements
-        let block = AstNode::block_with_statements(vec![
-            AstNode::assign("x", 1.0f32),
-            AstNode::assign("y", 2.0f32),
-        ]);
+        let block_node = block_with_statements(vec![assign("x", 1.0f32), assign("y", 2.0f32)]);
 
-        assert!(matches!(block, AstNode::Block { .. }));
-        if let AstNode::Block { scope, statements } = block {
+        assert!(matches!(block_node, AstNode::Block { .. }));
+        if let AstNode::Block { scope, statements } = block_node {
             assert_eq!(scope.declarations.len(), 0);
             assert_eq!(statements.len(), 2);
         }
@@ -368,29 +366,23 @@ mod tests {
     #[test]
     fn test_other_helpers() {
         // Test store
-        let store = AstNode::store(AstNode::var("arr"), 0isize, 1.0f32);
-        assert!(matches!(store, AstNode::Store { .. }));
+        let store_node = store(var("arr"), 0isize, 1.0f32);
+        assert!(matches!(store_node, AstNode::Store { .. }));
 
         // Test deref
-        let deref = AstNode::deref(AstNode::var("ptr"));
+        let deref_node = deref(var("ptr"));
         assert_eq!(
-            deref,
+            deref_node,
             AstNode::Deref(Box::new(AstNode::Var("ptr".to_string())))
         );
 
         // Test call
-        let call = AstNode::call(
-            "foo",
-            vec![
-                AstNode::var("x"),
-                AstNode::const_val(ConstLiteral::F32(1.0)),
-            ],
-        );
-        assert!(matches!(call, AstNode::CallFunction { .. }));
+        let call_node = call("foo", vec![var("x"), const_val(ConstLiteral::F32(1.0))]);
+        assert!(matches!(call_node, AstNode::CallFunction { .. }));
 
         // Test rand, barrier, drop
-        assert!(matches!(AstNode::rand(), AstNode::Rand));
-        assert!(matches!(AstNode::barrier(), AstNode::Barrier));
-        assert_eq!(AstNode::drop("x"), AstNode::Drop("x".to_string()));
+        assert!(matches!(rand(), AstNode::Rand));
+        assert!(matches!(barrier(), AstNode::Barrier));
+        assert_eq!(drop("x"), AstNode::Drop("x".to_string()));
     }
 }

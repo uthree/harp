@@ -1,4 +1,5 @@
 use super::Lowerer;
+use crate::ast::helper::function;
 use crate::ast::{AstNode, ConstLiteral, DType, Scope, VariableDecl};
 use crate::graph::{Graph, GraphNode};
 use crate::lowerer::reduce::ReduceLowerer;
@@ -91,7 +92,7 @@ impl Lowerer {
         let arguments = self.create_kernel_arguments(graph);
 
         // 4. カーネル関数を構築
-        AstNode::function(
+        function(
             "kernel_impl".to_string(),
             arguments,
             DType::Void,
@@ -182,7 +183,7 @@ impl Lowerer {
             args: call_args,
         });
 
-        AstNode::function(
+        function(
             "kernel_main".to_string(),
             vec![
                 (

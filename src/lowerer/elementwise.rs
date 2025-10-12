@@ -1,4 +1,5 @@
 use super::utils::LowererUtils;
+use crate::ast::helper::{eq, less_than, select};
 use crate::ast::{AstNode, DType, VariableDecl};
 use crate::graph::{ops::ElementwiseOp, GraphNode};
 
@@ -139,7 +140,7 @@ impl ElementwiseLowerer {
                     &result_var,
                     &lhs_var,
                     &rhs_var,
-                    AstNode::less_than,
+                    less_than,
                 )
             }
             ElementwiseOp::Eq(lhs, rhs) => {
@@ -152,7 +153,7 @@ impl ElementwiseLowerer {
                     &result_var,
                     &lhs_var,
                     &rhs_var,
-                    AstNode::eq,
+                    eq,
                 )
             }
             ElementwiseOp::Select(cond, true_val, false_val) => {
@@ -532,7 +533,7 @@ impl ElementwiseLowerer {
             AstNode::Store {
                 target: Box::new(AstNode::Var(result_var.to_string())),
                 index: Box::new(result_index),
-                value: Box::new(AstNode::select(cond_value, true_value, false_value)),
+                value: Box::new(select(cond_value, true_value, false_value)),
             }
         } else {
             // 再帰的にネストしたループを作成

@@ -1,4 +1,5 @@
 use super::GraphFusionOptimizer;
+use crate::ast::helper::{eq, less_than, select};
 use crate::ast::AstNode;
 use crate::graph::ops::ElementwiseOp;
 use crate::graph::{GraphNode, GraphOp};
@@ -155,14 +156,14 @@ impl GraphFusionOptimizer {
                     self.elementwise_to_ast_with_branching_check(lhs, input_mapping, inputs)?;
                 let rhs_ast =
                     self.elementwise_to_ast_with_branching_check(rhs, input_mapping, inputs)?;
-                Some(AstNode::less_than(lhs_ast, rhs_ast))
+                Some(less_than(lhs_ast, rhs_ast))
             }
             ElementwiseOp::Eq(lhs, rhs) => {
                 let lhs_ast =
                     self.elementwise_to_ast_with_branching_check(lhs, input_mapping, inputs)?;
                 let rhs_ast =
                     self.elementwise_to_ast_with_branching_check(rhs, input_mapping, inputs)?;
-                Some(AstNode::eq(lhs_ast, rhs_ast))
+                Some(eq(lhs_ast, rhs_ast))
             }
             ElementwiseOp::Select(cond, true_val, false_val) => {
                 let cond_ast =
@@ -171,7 +172,7 @@ impl GraphFusionOptimizer {
                     self.elementwise_to_ast_with_branching_check(true_val, input_mapping, inputs)?;
                 let false_ast =
                     self.elementwise_to_ast_with_branching_check(false_val, input_mapping, inputs)?;
-                Some(AstNode::select(cond_ast, true_ast, false_ast))
+                Some(select(cond_ast, true_ast, false_ast))
             }
         }
     }

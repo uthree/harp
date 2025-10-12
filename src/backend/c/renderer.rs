@@ -556,6 +556,7 @@ impl CRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ast::helper::function;
     use crate::ast::{AstNode, Scope, VariableDecl};
     use rstest::rstest;
 
@@ -597,7 +598,7 @@ mod tests {
     #[test]
     fn test_render_function() {
         let _ = env_logger::try_init();
-        let function = AstNode::function(
+        let func = function(
             "my_func".to_string(),
             vec![("a".to_string(), DType::Vec(Box::new(DType::Isize), 10))],
             DType::Void,
@@ -615,7 +616,7 @@ mod tests {
             )],
         );
         let program = Program {
-            functions: vec![function],
+            functions: vec![func],
             entry_point: "my_func".to_string(),
         };
         let expected = r###"#include <math.h>
@@ -638,7 +639,7 @@ void my_func(ssize_t a[10])
 
     #[test]
     fn test_render_function_single_statement() {
-        let function = AstNode::function(
+        let func = function(
             "my_func".to_string(),
             vec![("a".to_string(), DType::Isize)],
             DType::Void,
@@ -652,14 +653,14 @@ void my_func(ssize_t a[10])
 	a;
 }"###;
         let mut renderer = CRenderer::new();
-        let buf = renderer.render_node(&function);
+        let buf = renderer.render_node(&func);
         assert_eq!(buf, expected);
     }
 
     #[test]
     fn test_render_dynamic_array() {
         let _ = env_logger::try_init();
-        let function = AstNode::function(
+        let func = function(
             "dynamic_alloc".to_string(),
             vec![("n".to_string(), DType::Usize)],
             DType::Void,
@@ -678,7 +679,7 @@ void my_func(ssize_t a[10])
             }],
         );
         let program = Program {
-            functions: vec![function],
+            functions: vec![func],
             entry_point: "dynamic_alloc".to_string(),
         };
         let expected = r###"#include <math.h>
