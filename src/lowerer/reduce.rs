@@ -1,6 +1,6 @@
 use super::utils::LowererUtils;
 use crate::ast::{AstNode, ConstLiteral, DType, VariableDecl};
-use crate::graph::{ops::ReduceOp, GraphNode};
+use crate::graph::{ops::ReduceOp, shape::view::View, GraphNode};
 
 /// Reduce演算のloweringを担当
 pub(super) struct ReduceLowerer;
@@ -68,12 +68,8 @@ impl ReduceLowerer {
 
         // 多重ループでreduce操作を実行
         Some(Self::create_reduce_loops(
-            input_shape,
-            input_strides,
-            input_offset,
-            _result_shape,
-            result_strides,
-            result_offset,
+            input_view,
+            result_view,
             axis,
             &input_var,
             &result_var,
@@ -86,12 +82,8 @@ impl ReduceLowerer {
 
     #[allow(clippy::too_many_arguments)]
     fn create_reduce_loops(
-        input_shape: &[crate::graph::shape::Expr],
-        input_strides: &[crate::graph::shape::Expr],
-        input_offset: &crate::graph::shape::Expr,
-        _result_shape: &[crate::graph::shape::Expr],
-        result_strides: &[crate::graph::shape::Expr],
-        result_offset: &crate::graph::shape::Expr,
+        input_view: &View,
+        result_view: &View,
         reduce_axis: usize,
         input_var: &str,
         result_var: &str,
@@ -100,6 +92,19 @@ impl ReduceLowerer {
         result_dtype: &DType, // 型情報を追加
         dim: usize,
     ) -> AstNode {
+        let (
+            View::Linear {
+                shape: input_shape,
+                strides: input_strides,
+                offset: input_offset,
+            },
+            View::Linear {
+                strides: result_strides,
+                offset: result_offset,
+                ..
+            },
+        ) = (input_view, result_view);
+
         if dim >= input_shape.len() {
             // 全ての次元を処理した：縮約軸のループ本体を生成
             // この時点でdim == input_shape.len()なので、全てのループ変数が定義されている
@@ -154,9 +159,7 @@ impl ReduceLowerer {
 
             // 最内ループ部分を生成（アキュムレータに累積）
             let inner_body = Self::create_reduce_loops_with_accumulator(
-                input_shape,
-                input_strides,
-                input_offset,
+                input_view,
                 reduce_axis,
                 input_var,
                 &acc_var, // アキュムレータ変数を渡す
@@ -209,12 +212,8 @@ impl ReduceLowerer {
             // 縮約しない次元: 通常のループ
             let loop_var = format!("ridx{}", dim);
             let inner_body = Self::create_reduce_loops(
-                input_shape,
-                input_strides,
-                input_offset,
-                _result_shape,
-                result_strides,
-                result_offset,
+                input_view,
+                result_view,
                 reduce_axis,
                 input_var,
                 result_var,
@@ -238,17 +237,20 @@ impl ReduceLowerer {
     }
 
     /// アキュムレータ変数を使った縮約ループの本体を生成
-    #[allow(clippy::too_many_arguments)]
     fn create_reduce_loops_with_accumulator(
-        input_shape: &[crate::graph::shape::Expr],
-        input_strides: &[crate::graph::shape::Expr],
-        input_offset: &crate::graph::shape::Expr,
+        input_view: &View,
         reduce_axis: usize,
         input_var: &str,
         acc_var: &str, // アキュムレータ変数名
         reduce_op: &ReduceOp,
         dim: usize,
     ) -> AstNode {
+        let View::Linear {
+            shape: input_shape,
+            strides: input_strides,
+            offset: input_offset,
+        } = input_view;
+
         if dim >= input_shape.len() {
             // 全ての次元を処理した：アキュムレータに累積
             let input_index =
@@ -282,9 +284,7 @@ impl ReduceLowerer {
         if dim == reduce_axis {
             // 縮約軸は既に外側で処理されているので、ここでは単に次の次元へ
             return Self::create_reduce_loops_with_accumulator(
-                input_shape,
-                input_strides,
-                input_offset,
+                input_view,
                 reduce_axis,
                 input_var,
                 acc_var,
@@ -296,9 +296,7 @@ impl ReduceLowerer {
         // 通常の次元: ループを生成
         let loop_var = format!("ridx{}", dim);
         let inner_body = Self::create_reduce_loops_with_accumulator(
-            input_shape,
-            input_strides,
-            input_offset,
+            input_view,
             reduce_axis,
             input_var,
             acc_var,
@@ -320,13 +318,17 @@ impl ReduceLowerer {
 
     /// コピーループを作成（View操作用）
     pub fn create_copy_loop(
-        shape: &[crate::graph::shape::Expr],
-        strides: &[crate::graph::shape::Expr],
-        offset: &crate::graph::shape::Expr,
+        view: &View,
         source_var: &str,
         dest_var: &str,
         dim: usize,
     ) -> AstNode {
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = view;
+
         if dim >= shape.len() {
             // 最内レベル: コピーを実行
             let source_index = LowererUtils::compute_memory_index(strides, offset, dim);
@@ -342,8 +344,7 @@ impl ReduceLowerer {
         } else {
             // ループを生成
             let loop_var = format!("ridx{}", dim);
-            let inner_body =
-                Self::create_copy_loop(shape, strides, offset, source_var, dest_var, dim + 1);
+            let inner_body = Self::create_copy_loop(view, source_var, dest_var, dim + 1);
 
             let shape_size = LowererUtils::shape_expr_to_ast_node(&shape[dim]);
 

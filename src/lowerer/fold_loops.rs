@@ -1,17 +1,14 @@
 use super::Lowerer;
 use crate::ast::{AstNode, ConstLiteral, Scope};
+use crate::graph::shape::view::View;
 use crate::lowerer::utils::LowererUtils;
 
 impl Lowerer {
     /// Foldのためのループを作成 (col2im operation)
     #[allow(clippy::too_many_arguments)]
     pub(super) fn create_fold_loops(
-        input_shape: &[crate::graph::shape::Expr],
-        input_strides: &[crate::graph::shape::Expr],
-        input_offset: &crate::graph::shape::Expr,
-        result_shape: &[crate::graph::shape::Expr],
-        result_strides: &[crate::graph::shape::Expr],
-        result_offset: &crate::graph::shape::Expr,
+        input_view: &View,
+        result_view: &View,
         dim: usize,
         stride: usize,
         dilation: usize,
@@ -19,16 +16,12 @@ impl Lowerer {
         result_var: &str,
     ) -> AstNode {
         // Phase 1: Initialize output to zero
-        let init_loop =
-            Self::create_fold_init_loop(result_shape, result_strides, result_offset, result_var, 0);
+        let init_loop = Self::create_fold_init_loop(result_view, result_var, 0);
 
         // Phase 2: Accumulate values from input windows
         let accum_loop = Self::create_fold_accumulate_loop(
-            input_shape,
-            input_strides,
-            input_offset,
-            result_strides,
-            result_offset,
+            input_view,
+            result_view,
             dim,
             stride,
             dilation,
@@ -47,13 +40,13 @@ impl Lowerer {
     }
 
     /// Initialize output buffer to zero for fold operation
-    fn create_fold_init_loop(
-        result_shape: &[crate::graph::shape::Expr],
-        result_strides: &[crate::graph::shape::Expr],
-        result_offset: &crate::graph::shape::Expr,
-        result_var: &str,
-        dim: usize,
-    ) -> AstNode {
+    fn create_fold_init_loop(result_view: &View, result_var: &str, dim: usize) -> AstNode {
+        let View::Linear {
+            shape: result_shape,
+            strides: result_strides,
+            offset: result_offset,
+        } = result_view;
+
         if dim >= result_shape.len() {
             // Initialize to zero
             let result_index =
@@ -65,13 +58,7 @@ impl Lowerer {
             }
         } else {
             let loop_var = format!("ridx{}", dim);
-            let inner_body = Self::create_fold_init_loop(
-                result_shape,
-                result_strides,
-                result_offset,
-                result_var,
-                dim + 1,
-            );
+            let inner_body = Self::create_fold_init_loop(result_view, result_var, dim + 1);
             let shape_size = LowererUtils::shape_expr_to_ast_node(&result_shape[dim]);
 
             AstNode::Range {
@@ -88,11 +75,8 @@ impl Lowerer {
     /// Accumulate values from input windows into output for fold operation
     #[allow(clippy::too_many_arguments)]
     fn create_fold_accumulate_loop(
-        input_shape: &[crate::graph::shape::Expr],
-        input_strides: &[crate::graph::shape::Expr],
-        input_offset: &crate::graph::shape::Expr,
-        result_strides: &[crate::graph::shape::Expr],
-        result_offset: &crate::graph::shape::Expr,
+        input_view: &View,
+        result_view: &View,
         fold_dim: usize,
         stride: usize,
         dilation: usize,
@@ -100,6 +84,19 @@ impl Lowerer {
         result_var: &str,
         current_dim: usize,
     ) -> AstNode {
+        let (
+            View::Linear {
+                shape: input_shape,
+                strides: input_strides,
+                offset: input_offset,
+            },
+            View::Linear {
+                strides: result_strides,
+                offset: result_offset,
+                ..
+            },
+        ) = (input_view, result_view);
+
         let window_dim = input_shape.len() - 1; // Last dimension is window dimension
 
         if current_dim >= input_shape.len() {
@@ -113,8 +110,7 @@ impl Lowerer {
             // Compute result index with stride and dilation adjustment
             // For fold_dim: use i_fold_dim * stride + i_window_dim * dilation instead of i_fold_dim
             let result_index = Self::compute_fold_result_index(
-                result_strides,
-                result_offset,
+                result_view,
                 fold_dim,
                 window_dim,
                 stride,
@@ -139,11 +135,8 @@ impl Lowerer {
             // Generate loop for current dimension
             let loop_var = format!("ridx{}", current_dim);
             let inner_body = Self::create_fold_accumulate_loop(
-                input_shape,
-                input_strides,
-                input_offset,
-                result_strides,
-                result_offset,
+                input_view,
+                result_view,
                 fold_dim,
                 stride,
                 dilation,
@@ -167,14 +160,18 @@ impl Lowerer {
     /// Compute result index for fold operation
     /// Maps input[..., i_fold_dim, ..., i_window_dim] to output[..., i_fold_dim * stride + i_window_dim * dilation, ...]
     fn compute_fold_result_index(
-        result_strides: &[crate::graph::shape::Expr],
-        result_offset: &crate::graph::shape::Expr,
+        result_view: &View,
         fold_dim: usize,
         window_dim: usize,
         stride: usize,
         dilation: usize,
         num_input_dims: usize,
     ) -> AstNode {
+        let View::Linear {
+            strides: result_strides,
+            offset: result_offset,
+            ..
+        } = result_view;
         let mut index = LowererUtils::shape_expr_to_ast_node(result_offset);
 
         for dim in 0..num_input_dims {

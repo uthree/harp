@@ -1,6 +1,6 @@
 use super::utils::LowererUtils;
 use crate::ast::{AstNode, DType, VariableDecl};
-use crate::graph::{ops::ReduceOp, GraphNode};
+use crate::graph::{ops::ReduceOp, shape::view::View, GraphNode};
 
 /// FusedReduce演算のコード生成を行う構造体
 pub(super) struct FusedReduceLowerer;
@@ -66,11 +66,8 @@ impl FusedReduceLowerer {
 
         // 多重ループでreduce操作を実行
         Some(Self::create_loops(
-            input_shape,
-            input_strides,
-            input_offset,
-            result_strides,
-            result_offset,
+            input_view,
+            result_view,
             axes,
             &input_var,
             &result_var,
@@ -82,11 +79,8 @@ impl FusedReduceLowerer {
 
     #[allow(clippy::too_many_arguments)]
     fn create_loops(
-        input_shape: &[crate::graph::shape::Expr],
-        input_strides: &[crate::graph::shape::Expr],
-        input_offset: &crate::graph::shape::Expr,
-        result_strides: &[crate::graph::shape::Expr],
-        result_offset: &crate::graph::shape::Expr,
+        input_view: &View,
+        result_view: &View,
         reduce_axes: &[usize],
         input_var: &str,
         result_var: &str,
@@ -94,6 +88,18 @@ impl FusedReduceLowerer {
         initial_value: AstNode,
         dim: usize,
     ) -> AstNode {
+        let (
+            View::Linear {
+                shape: input_shape,
+                strides: input_strides,
+                offset: input_offset,
+            },
+            View::Linear {
+                strides: result_strides,
+                offset: result_offset,
+                ..
+            },
+        ) = (input_view, result_view);
         let is_reduce_axis = reduce_axes.contains(&dim);
 
         if dim >= input_shape.len() {
@@ -156,9 +162,7 @@ impl FusedReduceLowerer {
 
                 // アキュムレータへの累積を行う内部ループ
                 let inner_body = Self::create_with_accumulator(
-                    input_shape,
-                    input_strides,
-                    input_offset,
+                    input_view,
                     reduce_axes,
                     input_var,
                     &acc_var,
@@ -209,9 +213,8 @@ impl FusedReduceLowerer {
             } else {
                 // 配列ベースの縮約（元の実装）
                 let init_loop = Self::create_init_loops(
-                    input_shape,
-                    result_strides,
-                    result_offset,
+                    input_view,
+                    result_view,
                     reduce_axes,
                     result_var,
                     initial_value.clone(),
@@ -223,11 +226,8 @@ impl FusedReduceLowerer {
                 let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[dim]);
 
                 let inner_body = Self::create_loops(
-                    input_shape,
-                    input_strides,
-                    input_offset,
-                    result_strides,
-                    result_offset,
+                    input_view,
+                    result_view,
                     reduce_axes,
                     input_var,
                     result_var,
@@ -257,11 +257,8 @@ impl FusedReduceLowerer {
         // 通常のループ（reduce軸でないか、最初のreduce軸でない）
         let loop_var = format!("ridx{}", dim);
         let inner_body = Self::create_loops(
-            input_shape,
-            input_strides,
-            input_offset,
-            result_strides,
-            result_offset,
+            input_view,
+            result_view,
             reduce_axes,
             input_var,
             result_var,
@@ -283,17 +280,20 @@ impl FusedReduceLowerer {
     }
 
     /// アキュムレータ変数を使ったFusedReduce縮約ループの本体を生成
-    #[allow(clippy::too_many_arguments)]
     fn create_with_accumulator(
-        input_shape: &[crate::graph::shape::Expr],
-        input_strides: &[crate::graph::shape::Expr],
-        input_offset: &crate::graph::shape::Expr,
+        input_view: &View,
         reduce_axes: &[usize],
         input_var: &str,
         acc_var: &str,
         reduce_op: &ReduceOp,
         dim: usize,
     ) -> AstNode {
+        let View::Linear {
+            shape: input_shape,
+            strides: input_strides,
+            offset: input_offset,
+        } = input_view;
+
         if dim >= input_shape.len() {
             // 全ての次元を処理した：アキュムレータに累積
             let input_index =
@@ -330,9 +330,7 @@ impl FusedReduceLowerer {
             if dim == *reduce_axes.iter().min().unwrap() {
                 // 最初の縮約軸は既に外側で処理されているので、次の次元へ
                 return Self::create_with_accumulator(
-                    input_shape,
-                    input_strides,
-                    input_offset,
+                    input_view,
                     reduce_axes,
                     input_var,
                     acc_var,
@@ -343,9 +341,7 @@ impl FusedReduceLowerer {
                 // 2番目以降の縮約軸: ループを生成
                 let loop_var = format!("ridx{}", dim);
                 let inner_body = Self::create_with_accumulator(
-                    input_shape,
-                    input_strides,
-                    input_offset,
+                    input_view,
                     reduce_axes,
                     input_var,
                     acc_var,
@@ -369,9 +365,7 @@ impl FusedReduceLowerer {
         // 通常の次元: ループを生成
         let loop_var = format!("ridx{}", dim);
         let inner_body = Self::create_with_accumulator(
-            input_shape,
-            input_strides,
-            input_offset,
+            input_view,
             reduce_axes,
             input_var,
             acc_var,
@@ -396,15 +390,25 @@ impl FusedReduceLowerer {
     /// dim: 現在処理中の次元
     #[allow(clippy::too_many_arguments)]
     pub(super) fn create_init_loops(
-        input_shape: &[crate::graph::shape::Expr],
-        result_strides: &[crate::graph::shape::Expr],
-        result_offset: &crate::graph::shape::Expr,
+        input_view: &View,
+        result_view: &View,
         reduce_axes: &[usize],
         result_var: &str,
         initial_value: AstNode,
         start_dim: usize,
         dim: usize,
     ) -> AstNode {
+        let (
+            View::Linear {
+                shape: input_shape, ..
+            },
+            View::Linear {
+                strides: result_strides,
+                offset: result_offset,
+                ..
+            },
+        ) = (input_view, result_view);
+
         if dim >= input_shape.len() {
             // 全ての次元を処理した：初期化を実行
             let result_index = LowererUtils::compute_multi_reduce_result_index(
@@ -424,9 +428,8 @@ impl FusedReduceLowerer {
         if dim < start_dim {
             // start_dimより前の次元はスキップ（すでに外側のループで処理されている）
             return Self::create_init_loops(
-                input_shape,
-                result_strides,
-                result_offset,
+                input_view,
+                result_view,
                 reduce_axes,
                 result_var,
                 initial_value,
@@ -438,9 +441,8 @@ impl FusedReduceLowerer {
         if reduce_axes.contains(&dim) {
             // reduce軸はスキップ
             return Self::create_init_loops(
-                input_shape,
-                result_strides,
-                result_offset,
+                input_view,
+                result_view,
                 reduce_axes,
                 result_var,
                 initial_value,
@@ -452,9 +454,8 @@ impl FusedReduceLowerer {
         // 通常のループ（reduce軸でない）
         let loop_var = format!("ridx{}", dim);
         let inner_body = Self::create_init_loops(
-            input_shape,
-            result_strides,
-            result_offset,
+            input_view,
+            result_view,
             reduce_axes,
             result_var,
             initial_value,

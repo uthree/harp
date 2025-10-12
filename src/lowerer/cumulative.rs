@@ -1,6 +1,6 @@
 use super::utils::LowererUtils;
 use crate::ast::{AstNode, ConstLiteral, DType, VariableDecl};
-use crate::graph::{ops::CumulativeOp, GraphNode};
+use crate::graph::{ops::CumulativeOp, shape::view::View, GraphNode};
 
 /// Cumulative演算のloweringを担当
 pub(super) struct CumulativeLowerer;
@@ -68,12 +68,8 @@ impl CumulativeLowerer {
 
         // 多重ループでcumulative操作を実行
         Some(Self::create_cumulative_loops(
-            input_shape,
-            input_strides,
-            input_offset,
-            result_shape,
-            result_strides,
-            result_offset,
+            input_view,
+            result_view,
             axis,
             &input_var,
             &result_var,
@@ -85,12 +81,8 @@ impl CumulativeLowerer {
 
     #[allow(clippy::too_many_arguments)]
     fn create_cumulative_loops(
-        input_shape: &[crate::graph::shape::Expr],
-        input_strides: &[crate::graph::shape::Expr],
-        input_offset: &crate::graph::shape::Expr,
-        result_shape: &[crate::graph::shape::Expr],
-        result_strides: &[crate::graph::shape::Expr],
-        result_offset: &crate::graph::shape::Expr,
+        input_view: &View,
+        result_view: &View,
         cumulative_axis: usize,
         input_var: &str,
         result_var: &str,
@@ -98,6 +90,20 @@ impl CumulativeLowerer {
         _initial_value: AstNode,
         dim: usize,
     ) -> AstNode {
+        let (
+            View::Linear {
+                shape: input_shape,
+                strides: input_strides,
+                offset: input_offset,
+            },
+            View::Linear {
+                shape: result_shape,
+                strides: result_strides,
+                offset: result_offset,
+                ..
+            },
+        ) = (input_view, result_view);
+
         if dim >= input_shape.len() {
             // 全ての次元を処理した：ここには到達しない（累積軸のループ内で処理される）
             unreachable!()
@@ -182,12 +188,8 @@ impl CumulativeLowerer {
             // 累積軸以外の次元: 通常のループ
             let loop_var = format!("ridx{}", dim);
             let inner_body = Self::create_cumulative_loops(
-                input_shape,
-                input_strides,
-                input_offset,
-                result_shape,
-                result_strides,
-                result_offset,
+                input_view,
+                result_view,
                 cumulative_axis,
                 input_var,
                 result_var,

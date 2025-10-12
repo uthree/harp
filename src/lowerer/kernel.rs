@@ -69,17 +69,10 @@ impl Lowerer {
             // 出力変数とソース変数が異なる場合、コピーが必要
             if output_var != source_var {
                 // メモリコピーを生成
-                let output_shape = &output_node.view;
-                let crate::graph::shape::view::View::Linear {
-                    shape,
-                    strides,
-                    offset,
-                } = output_shape;
+                let output_view = &output_node.view;
                 // シンプルなコピーループを生成
                 let copy_stmt = ReduceLowerer::create_copy_loop(
-                    shape,
-                    strides,
-                    offset,
+                    output_view,
                     &source_var,
                     &output_var,
                     0,

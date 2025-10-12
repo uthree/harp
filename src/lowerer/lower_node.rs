@@ -98,26 +98,10 @@ impl Lowerer {
                 let input_view = &input.view;
                 let result_view = &node.view;
 
-                let (
-                    crate::graph::shape::view::View::Linear {
-                        shape,
-                        strides: input_strides,
-                        offset: input_offset,
-                    },
-                    crate::graph::shape::view::View::Linear {
-                        strides: result_strides,
-                        offset: result_offset,
-                        ..
-                    },
-                ) = (input_view, result_view);
-
                 // 入力から連続な出力へコピーするループを生成
                 Some(Self::create_contiguous_copy_loop(
-                    shape,
-                    input_strides,
-                    input_offset,
-                    result_strides,
-                    result_offset,
+                    input_view,
+                    result_view,
                     &input_var,
                     &result_var,
                     0,
@@ -156,25 +140,9 @@ impl Lowerer {
                 let input_view = &input.view;
                 let result_view = &node.view;
 
-                let (
-                    crate::graph::shape::view::View::Linear {
-                        shape,
-                        strides: input_strides,
-                        offset: input_offset,
-                    },
-                    crate::graph::shape::view::View::Linear {
-                        strides: result_strides,
-                        offset: result_offset,
-                        ..
-                    },
-                ) = (input_view, result_view);
-
                 Some(Self::create_cast_loop(
-                    shape,
-                    input_strides,
-                    input_offset,
-                    result_strides,
-                    result_offset,
+                    input_view,
+                    result_view,
                     &input_var,
                     &result_var,
                     target_dtype,
@@ -238,27 +206,10 @@ impl Lowerer {
                 let input_view = &input.view;
                 let result_view = &node.view;
 
-                let (
-                    crate::graph::shape::view::View::Linear {
-                        shape: input_shape,
-                        strides: input_strides,
-                        offset: input_offset,
-                    },
-                    crate::graph::shape::view::View::Linear {
-                        shape: result_shape,
-                        strides: result_strides,
-                        offset: result_offset,
-                    },
-                ) = (input_view, result_view);
-
                 // Generate fold loops: initialize to zero, then accumulate
                 Some(Self::create_fold_loops(
-                    input_shape,
-                    input_strides,
-                    input_offset,
-                    result_shape,
-                    result_strides,
-                    result_offset,
+                    input_view,
+                    result_view,
                     *dim,
                     *stride,
                     *dilation,
