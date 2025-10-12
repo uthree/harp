@@ -102,46 +102,15 @@ impl CumulativeLowerer {
             // 全ての次元を処理した：ここには到達しない（累積軸のループ内で処理される）
             unreachable!()
         } else if dim == cumulative_axis {
-            // 累積軸: 特別な処理
+            // 累積軸: アキュムレータ変数を使用
+            let acc_var = format!("acc{}", dim);
             let loop_var = format!("ridx{}", dim);
             let shape_size = LowererUtils::shape_expr_to_ast_node(&input_shape[dim]);
 
-            // 累積軸の最初の要素を初期化
-            // result[..., 0, ...] = input[..., 0, ...]
-            let first_input_index = {
-                // i{axis} = 0 の状態でインデックスを計算
-                let zero_expr = crate::graph::shape::Expr::Const(0);
+            // アキュムレータの初期化
+            let init_stmt = AstNode::Assign(acc_var.clone(), Box::new(_initial_value.clone()));
 
-                LowererUtils::compute_memory_index_with_override(
-                    input_strides,
-                    input_offset,
-                    input_shape.len(),
-                    cumulative_axis,
-                    &zero_expr,
-                )
-            };
-
-            let first_result_index = {
-                let zero_expr = crate::graph::shape::Expr::Const(0);
-                LowererUtils::compute_memory_index_with_override(
-                    result_strides,
-                    result_offset,
-                    result_shape.len(),
-                    cumulative_axis,
-                    &zero_expr,
-                )
-            };
-
-            let first_init = AstNode::Store {
-                target: Box::new(AstNode::Var(result_var.to_string())),
-                index: Box::new(first_result_index),
-                value: Box::new(AstNode::Deref(Box::new(
-                    AstNode::Var(input_var.to_string()) + first_input_index,
-                ))),
-            };
-
-            // 累積ループ: i = 1 から開始
-            // result[..., i, ...] = result[..., i-1, ...] op input[..., i, ...]
+            // 累積ループの本体
             let input_index =
                 LowererUtils::compute_memory_index(input_strides, input_offset, input_shape.len());
             let result_index = LowererUtils::compute_memory_index(
@@ -150,82 +119,64 @@ impl CumulativeLowerer {
                 result_shape.len(),
             );
 
-            // 前の要素のインデックス（i-1）
-            let prev_index = {
-                let prev_offset = result_offset.clone()
-                    + result_strides
-                        .iter()
-                        .enumerate()
-                        .map(|(d, stride)| {
-                            if d == cumulative_axis {
-                                stride.clone()
-                                    * crate::graph::shape::Expr::Var(format!("ridx{}", d))
-                                    - stride.clone()
-                            } else {
-                                stride.clone()
-                                    * crate::graph::shape::Expr::Var(format!("ridx{}", d))
-                            }
-                        })
-                        .fold(crate::graph::shape::Expr::Const(0), |acc, x| acc + x);
-                LowererUtils::shape_expr_to_ast_node(&prev_offset.simplify())
-            };
-
-            let prev_value =
-                AstNode::Deref(Box::new(AstNode::Var(result_var.to_string()) + prev_index));
             let input_value =
                 AstNode::Deref(Box::new(AstNode::Var(input_var.to_string()) + input_index));
 
-            let cumulative_value = match cumulative_op {
-                CumulativeOp::Add => prev_value + input_value,
-                CumulativeOp::Mul => prev_value * input_value,
-                CumulativeOp::Max => AstNode::Max(Box::new(prev_value), Box::new(input_value)),
+            // acc = acc op input[...]
+            let accumulate_stmt = {
+                let cumulative_value = match cumulative_op {
+                    CumulativeOp::Add => AstNode::Add(
+                        Box::new(AstNode::Var(acc_var.clone())),
+                        Box::new(input_value),
+                    ),
+                    CumulativeOp::Mul => AstNode::Mul(
+                        Box::new(AstNode::Var(acc_var.clone())),
+                        Box::new(input_value),
+                    ),
+                    CumulativeOp::Max => AstNode::Max(
+                        Box::new(AstNode::Var(acc_var.clone())),
+                        Box::new(input_value),
+                    ),
+                };
+                AstNode::Assign(acc_var.clone(), Box::new(cumulative_value))
             };
 
-            let cumulative_stmt = AstNode::Store {
+            // result[...] = acc
+            let write_stmt = AstNode::Store {
                 target: Box::new(AstNode::Var(result_var.to_string())),
                 index: Box::new(result_index),
-                value: Box::new(cumulative_value),
+                value: Box::new(AstNode::Var(acc_var.clone())),
             };
 
-            // i=1から開始するループを作成
-            // for (size_t i_inner = 0; i_inner < shape_size-1; i_inner++) { i = i_inner + 1; ... }
-            let loop_var_inner = format!("{}_inner", loop_var);
-            let i_assign = AstNode::Assign(
-                loop_var.clone(),
-                Box::new(AstNode::Add(
-                    Box::new(AstNode::Var(loop_var_inner.clone())),
-                    Box::new(AstNode::from(1usize)),
-                )),
-            );
-            let loop_body_with_offset = AstNode::Block {
-                scope: crate::ast::Scope {
-                    declarations: vec![crate::ast::VariableDecl {
-                        name: loop_var.clone(),
-                        dtype: crate::ast::DType::Usize,
-                        constant: true,
-                        size_expr: None,
-                    }],
-                },
-                statements: vec![i_assign, cumulative_stmt],
-            };
-            let cumulative_loop = AstNode::Range {
-                counter_name: loop_var_inner,
-                start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
-                max: Box::new(AstNode::Add(
-                    Box::new(shape_size),
-                    Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(-1))),
-                )),
-                step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
-                body: Box::new(loop_body_with_offset),
-                unroll: None,
-            };
-
-            // 初期化 + 累積ループをブロックにまとめる
-            AstNode::Block {
+            // ループ本体: accumulate + write
+            let loop_body = AstNode::Block {
                 scope: crate::ast::Scope {
                     declarations: vec![],
                 },
-                statements: vec![first_init, cumulative_loop],
+                statements: vec![accumulate_stmt, write_stmt],
+            };
+
+            // 累積ループ
+            let cumulative_loop = AstNode::Range {
+                counter_name: loop_var,
+                start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
+                max: Box::new(shape_size),
+                step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
+                body: Box::new(loop_body),
+                unroll: None,
+            };
+
+            // アキュムレータ変数の宣言 + 初期化 + 累積ループをブロックにまとめる
+            AstNode::Block {
+                scope: crate::ast::Scope {
+                    declarations: vec![VariableDecl {
+                        name: acc_var,
+                        dtype: DType::F32, // 型を仮定
+                        constant: false,
+                        size_expr: None,
+                    }],
+                },
+                statements: vec![init_stmt, cumulative_loop],
             }
         } else {
             // 累積軸以外の次元: 通常のループ

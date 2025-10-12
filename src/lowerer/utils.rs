@@ -70,32 +70,6 @@ impl LowererUtils {
         Self::shape_expr_to_ast_node(&simplified)
     }
 
-    /// メモリインデックスを計算（指定された次元のループ変数のみ上書き）
-    pub fn compute_memory_index_with_override(
-        strides: &[crate::graph::shape::Expr],
-        offset: &crate::graph::shape::Expr,
-        num_dims: usize,
-        override_dim: usize,
-        override_expr: &crate::graph::shape::Expr,
-    ) -> AstNode {
-        use crate::graph::shape::Expr;
-
-        let mut index_expr = offset.clone();
-
-        for (i, stride) in strides.iter().enumerate().take(num_dims) {
-            let loop_var = if i == override_dim {
-                override_expr.clone()
-            } else {
-                Expr::Var(format!("ridx{}", i))
-            };
-            let term = loop_var * stride.clone();
-            index_expr += term;
-        }
-
-        let simplified = index_expr.simplify();
-        Self::shape_expr_to_ast_node(&simplified)
-    }
-
     /// Reduce演算の結果インデックスを計算（reduce軸をスキップ）
     pub fn compute_reduce_result_index(
         result_strides: &[crate::graph::shape::Expr],
