@@ -4,13 +4,19 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 mod cumulative;
 mod elementwise;
-mod fused;
+mod fused_elementwise;
+mod fused_elementwise_cumulative;
+mod fused_elementwise_reduce;
+mod fused_reduce;
 mod reduce;
 mod utils;
 
 use cumulative::CumulativeLowerer;
 use elementwise::ElementwiseLowerer;
-use fused::FusedLowerer;
+use fused_elementwise::FusedElementwiseLowerer;
+use fused_elementwise_cumulative::FusedElementwiseCumulativeLowerer;
+use fused_elementwise_reduce::FusedElementwiseReduceLowerer;
+use fused_reduce::FusedReduceLowerer;
 use reduce::ReduceLowerer;
 use utils::LowererUtils;
 
@@ -512,17 +518,17 @@ impl Lowerer {
                 ))
             }
             GraphOp::FusedElementwise(ast, inputs) => {
-                FusedLowerer::lower_fused_elementwise(node, ast, inputs, declarations, |n| {
+                FusedElementwiseLowerer::lower(node, ast, inputs, declarations, |n| {
                     self.get_or_create_var_name(n)
                 })
             }
             GraphOp::FusedReduce(op, axes, input) => {
-                FusedLowerer::lower_fused_reduce(node, op, axes, input, declarations, |n| {
+                FusedReduceLowerer::lower(node, op, axes, input, declarations, |n| {
                     self.get_or_create_var_name(n)
                 })
             }
             GraphOp::FusedElementwiseReduce(ast, inputs, op, axes) => {
-                FusedLowerer::lower_fused_elementwise_reduce(
+                FusedElementwiseReduceLowerer::lower(
                     node,
                     ast,
                     inputs,
@@ -533,14 +539,9 @@ impl Lowerer {
                 )
             }
             GraphOp::FusedElementwiseCumulative(ast, inputs, op) => {
-                FusedLowerer::lower_fused_elementwise_cumulative(
-                    node,
-                    ast,
-                    inputs,
-                    op,
-                    declarations,
-                    |n| self.get_or_create_var_name(n),
-                )
+                FusedElementwiseCumulativeLowerer::lower(node, ast, inputs, op, declarations, |n| {
+                    self.get_or_create_var_name(n)
+                })
             }
             GraphOp::Fold(dim, window_size, stride, dilation, input) => {
                 // Fold operation (col2im): combines overlapping windows
