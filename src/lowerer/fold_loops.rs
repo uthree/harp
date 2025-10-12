@@ -90,8 +90,8 @@ impl Lowerer {
             offset: input_offset,
         } = input_view;
         let View::Linear {
-            strides: result_strides,
-            offset: result_offset,
+            strides: _result_strides,
+            offset: _result_offset,
             ..
         } = result_view;
 
