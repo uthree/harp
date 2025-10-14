@@ -1,10 +1,10 @@
-use super::Lowerer;
+use super::core::LowerContext;
 use crate::ast::helper::{block_with_statements, store};
 use crate::ast::{AstNode, ConstLiteral};
 use crate::graph::shape::view::View;
 use crate::lowerer::utils::LowererUtils;
 
-impl Lowerer {
+impl LowerContext {
     /// Foldのためのループを作成 (col2im operation)
     #[allow(clippy::too_many_arguments)]
     pub(super) fn create_fold_loops(

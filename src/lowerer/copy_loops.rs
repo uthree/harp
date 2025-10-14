@@ -1,9 +1,9 @@
-use super::Lowerer;
+use super::core::LowerContext;
 use crate::ast::{AstNode, DType};
 use crate::graph::shape::view::View;
 use crate::lowerer::utils::LowererUtils;
 
-impl Lowerer {
+impl LowerContext {
     /// Contiguous変換のためのコピーループを作成
     pub(super) fn create_contiguous_copy_loop(
         input_view: &View,

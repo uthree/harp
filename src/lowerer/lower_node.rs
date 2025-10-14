@@ -1,4 +1,4 @@
-use super::Lowerer;
+use super::core::LowerContext;
 use crate::ast::{AstNode, VariableDecl};
 use crate::graph::{GraphNode, GraphOp};
 use crate::lowerer::{
@@ -9,7 +9,7 @@ use crate::lowerer::{
     reduce::ReduceLowerer, utils::LowererUtils,
 };
 
-impl Lowerer {
+impl LowerContext {
     pub(super) fn lower_node(
         &mut self,
         node: &GraphNode,

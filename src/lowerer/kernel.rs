@@ -1,11 +1,11 @@
-use super::Lowerer;
+use super::core::LowerContext;
 use crate::ast::helper::function;
 use crate::ast::{AstNode, ConstLiteral, DType, Scope, VariableDecl};
 use crate::graph::{Graph, GraphNode};
 use crate::lowerer::reduce::ReduceLowerer;
 use crate::lowerer::utils::LowererUtils;
 
-impl Lowerer {
+impl LowerContext {
     pub(super) fn create_kernel_function(&mut self, graph: &Graph) -> AstNode {
         // 0.5. graphのinputsの順序通りに入力ノードをマッピング
         for weak_input in graph.inputs.iter() {

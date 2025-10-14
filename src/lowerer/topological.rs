@@ -1,8 +1,8 @@
-use super::Lowerer;
+use super::core::LowerContext;
 use crate::graph::{Graph, GraphNode, GraphOp};
 use std::collections::{HashMap, HashSet, VecDeque};
 
-impl Lowerer {
+impl LowerContext {
     /// トポロジカルソートを実行し、世代（レベル）ごとにノードをグループ化
     /// 各世代は並列実行可能なノードのグループを表す
     pub(super) fn topological_sort_by_generation(&self, graph: &Graph) -> Vec<Vec<GraphNode>> {

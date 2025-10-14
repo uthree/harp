@@ -13,7 +13,7 @@ mod reduce;
 mod topological;
 mod utils;
 
-pub use core::Lowerer;
+pub use core::{lower, Lowerer};
 
 #[cfg(test)]
 mod tests {
