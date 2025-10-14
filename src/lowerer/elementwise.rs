@@ -232,14 +232,22 @@ impl ElementwiseLowerer {
                 AstNode::Var(lhs_var.to_string())
             } else {
                 let lhs_index = LowererUtils::compute_memory_index(lhs_strides, lhs_offset, dim);
-                AstNode::Deref(Box::new(AstNode::Var(lhs_var.to_string()) + lhs_index))
+                AstNode::Load {
+                    target: Box::new(AstNode::Var(lhs_var.to_string())),
+                    index: Box::new(lhs_index),
+                    vector_width: 1,
+                }
             };
 
             let rhs_value = if rhs_view.shape().is_empty() {
                 AstNode::Var(rhs_var.to_string())
             } else {
                 let rhs_index = LowererUtils::compute_memory_index(rhs_strides, rhs_offset, dim);
-                AstNode::Deref(Box::new(AstNode::Var(rhs_var.to_string()) + rhs_index))
+                AstNode::Load {
+                    target: Box::new(AstNode::Var(rhs_var.to_string())),
+                    index: Box::new(rhs_index),
+                    vector_width: 1,
+                }
             };
 
             store(
@@ -340,9 +348,11 @@ impl ElementwiseLowerer {
             } else {
                 let operand_index =
                     LowererUtils::compute_memory_index(operand_strides, operand_offset, dim);
-                AstNode::Deref(Box::new(
-                    AstNode::Var(operand_var.to_string()) + operand_index,
-                ))
+                AstNode::Load {
+                    target: Box::new(AstNode::Var(operand_var.to_string())),
+                    index: Box::new(operand_index),
+                    vector_width: 1,
+                }
             };
 
             store(
@@ -463,14 +473,22 @@ impl ElementwiseLowerer {
                 AstNode::Var(cond_var.to_string())
             } else {
                 let cond_index = LowererUtils::compute_memory_index(cond_strides, cond_offset, dim);
-                AstNode::Deref(Box::new(AstNode::Var(cond_var.to_string()) + cond_index))
+                AstNode::Load {
+                    target: Box::new(AstNode::Var(cond_var.to_string())),
+                    index: Box::new(cond_index),
+                    vector_width: 1,
+                }
             };
 
             let true_value = if true_view.shape().is_empty() {
                 AstNode::Var(true_var.to_string())
             } else {
                 let true_index = LowererUtils::compute_memory_index(true_strides, true_offset, dim);
-                AstNode::Deref(Box::new(AstNode::Var(true_var.to_string()) + true_index))
+                AstNode::Load {
+                    target: Box::new(AstNode::Var(true_var.to_string())),
+                    index: Box::new(true_index),
+                    vector_width: 1,
+                }
             };
 
             let false_value = if false_view.shape().is_empty() {
@@ -478,7 +496,11 @@ impl ElementwiseLowerer {
             } else {
                 let false_index =
                     LowererUtils::compute_memory_index(false_strides, false_offset, dim);
-                AstNode::Deref(Box::new(AstNode::Var(false_var.to_string()) + false_index))
+                AstNode::Load {
+                    target: Box::new(AstNode::Var(false_var.to_string())),
+                    index: Box::new(false_index),
+                    vector_width: 1,
+                }
             };
 
             store(

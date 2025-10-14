@@ -112,21 +112,27 @@ impl FusedElementwiseReduceLowerer {
             // 縮約操作
             let operation_result = match reduce_op {
                 ReduceOp::Add => AstNode::Add(
-                    Box::new(AstNode::Deref(Box::new(
-                        AstNode::Var(result_var.to_string()) + result_index.clone(),
-                    ))),
+                    Box::new(AstNode::Load {
+                        target: Box::new(AstNode::Var(result_var.to_string())),
+                        index: Box::new(result_index.clone()),
+                        vector_width: 1,
+                    }),
                     Box::new(fused_value),
                 ),
                 ReduceOp::Mul => AstNode::Mul(
-                    Box::new(AstNode::Deref(Box::new(
-                        AstNode::Var(result_var.to_string()) + result_index.clone(),
-                    ))),
+                    Box::new(AstNode::Load {
+                        target: Box::new(AstNode::Var(result_var.to_string())),
+                        index: Box::new(result_index.clone()),
+                        vector_width: 1,
+                    }),
                     Box::new(fused_value),
                 ),
                 ReduceOp::Max => AstNode::Max(
-                    Box::new(AstNode::Deref(Box::new(
-                        AstNode::Var(result_var.to_string()) + result_index.clone(),
-                    ))),
+                    Box::new(AstNode::Load {
+                        target: Box::new(AstNode::Var(result_var.to_string())),
+                        index: Box::new(result_index.clone()),
+                        vector_width: 1,
+                    }),
                     Box::new(fused_value),
                 ),
             };

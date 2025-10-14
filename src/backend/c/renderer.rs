@@ -46,7 +46,7 @@ impl CRenderer {
             | AstNode::Sqrt(_)
             | AstNode::Log2(_)
             | AstNode::Exp2(_)
-            | AstNode::Deref(_)
+            | AstNode::Load { .. }
             | AstNode::Cast { .. } => 90,
 
             // Multiplicative operators
@@ -330,22 +330,56 @@ impl CRenderer {
             AstNode::Assign(var_name, rhs) => {
                 write!(buffer, "{} = {}", var_name, self.render_node(rhs)).unwrap();
             }
+            AstNode::Load {
+                target,
+                index,
+                vector_width,
+            } => {
+                let target_str = self.render_node(target);
+                let index_str = self.render_node(index);
+                match vector_width {
+                    1 => {
+                        // Scalar load: *(ptr + index)
+                        write!(buffer, "*({} + {})", target_str, index_str).unwrap();
+                    }
+                    2 | 4 | 8 | 16 => {
+                        // Vector load: *((float4*)(ptr + index))
+                        write!(
+                            buffer,
+                            "*((float{}*)({} + {}))",
+                            vector_width, target_str, index_str
+                        )
+                        .unwrap();
+                    }
+                    _ => panic!("Unsupported vector width: {}", vector_width),
+                }
+            }
             AstNode::Store {
                 target,
                 index,
                 value,
+                vector_width,
             } => {
-                write!(
-                    buffer,
-                    "*(({}) + ({})) = {}",
-                    self.render_node(target),
-                    self.render_node(index),
-                    self.render_node(value)
-                )
-                .unwrap();
-            }
-            AstNode::Deref(expr) => {
-                write!(buffer, "*({})", self.render_node(expr)).unwrap();
+                let target_str = self.render_node(target);
+                let index_str = self.render_node(index);
+                let value_str = self.render_node(value);
+                match vector_width {
+                    1 => {
+                        // Scalar store: *(ptr + index) = value
+                        write!(buffer, "*({} + {}) = {}", target_str, index_str, value_str)
+                            .unwrap();
+                    }
+                    2 | 4 | 8 | 16 => {
+                        // Vector store: *((float4*)(ptr + index)) = value
+                        write!(
+                            buffer,
+                            "*((float{}*)({} + {})) = {}",
+                            vector_width, target_str, index_str, value_str
+                        )
+                        .unwrap();
+                    }
+                    _ => panic!("Unsupported vector width: {}", vector_width),
+                }
             }
             AstNode::Neg(v) => {
                 let prec = Self::precedence(node);
@@ -593,11 +627,11 @@ mod tests {
     #[case(AstNode::Sin(Box::new(var("a"))), "sin(a)")]
     #[case(AstNode::Sqrt(Box::new(var("a"))), "sqrt(a)")]
     // Accessors
-    #[case(AstNode::Deref(Box::new(var("a") + var("i"))), "*(a + i)")]
+    #[case(AstNode::Load { target: Box::new(var("a")), index: Box::new(var("i")), vector_width: 1 }, "*(a + i)")]
     #[case(AstNode::CallFunction { name: "my_func".to_string(), args: vec![var("a"), 2_isize.into()] }, "my_func(a, 2)")]
     // Others
     #[case(AstNode::Assign("a".to_string(), Box::new(var("b"))), "a = b")]
-    #[case(AstNode::Store { target: Box::new(var("arr")), index: Box::new(var("i")), value: Box::new(var("x")) }, "*((arr) + (i)) = x")]
+    #[case(AstNode::Store { target: Box::new(var("arr")), index: Box::new(var("i")), value: Box::new(var("x")), vector_width: 1 }, "*(arr + i) = x")]
     #[case(AstNode::Cast { dtype: DType::F32, expr: Box::new(var("a")) }, "(float)a")]
     #[case(AstNode::Cast { dtype: DType::Ptr(Box::new(DType::F32)), expr: Box::new(var("a")) }, "(float*)a")]
     #[case(-(var("a") + var("b")) * var("c"), "-(a + b) * c")]
@@ -684,6 +718,7 @@ void my_func(ssize_t a[10])
                 target: Box::new(var("arr")),
                 index: Box::new(AstNode::from(0usize)),
                 value: Box::new(AstNode::from(1.0f32)),
+                vector_width: 1,
             }],
         );
         let program = AstNode::program(vec![func], "dynamic_alloc");
@@ -699,7 +734,7 @@ void dynamic_alloc(size_t n)
 {
 	float* arr;
 	arr = (float*)malloc(sizeof(float) * (n));
-	*((arr) + (0)) = 1;
+	*(arr + 0) = 1;
 	free(arr);
 }
 "###;

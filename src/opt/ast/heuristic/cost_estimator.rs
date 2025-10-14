@@ -97,7 +97,7 @@ impl CostEstimator for OperationCostEstimator {
             AstNode::Exp2(_) => 2e-8 + self.estimate_cost_children(ast),
             AstNode::Max(_, _) => 1e-9 + self.estimate_cost_children(ast),
             AstNode::Store { .. } => 2e-9 + self.estimate_cost_children(ast),
-            AstNode::Deref(_) => 5e-9 + self.estimate_cost_children(ast),
+            AstNode::Load { .. } => 5e-9 + self.estimate_cost_children(ast),
             _ => 1e-9 + self.estimate_cost_children(ast),
         }
     }

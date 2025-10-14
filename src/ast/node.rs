@@ -51,12 +51,17 @@ pub enum AstNode {
         statements: Vec<AstNode>,
     },
     Assign(String, Box<Self>), // assign value to variable (lhs is variable name)
+    Load {
+        target: Box<Self>,
+        index: Box<Self>,
+        vector_width: usize, // number of elements to load (1=scalar, 2,4,8,...=vector)
+    }, // load value(s) from memory location (target[index..index+vector_width])
     Store {
         target: Box<Self>,
         index: Box<Self>,
         value: Box<Self>,
-    }, // store value to memory location (target[index] = value)
-    Deref(Box<Self>),          // dereference pointer (read value from *expr)
+        vector_width: usize, // number of elements to store (1=scalar, 2,4,8,...=vector)
+    }, // store value(s) to memory location (target[index..index+vector_width] = value)
 
     Range {
         // Forループ (start から max-1 まで、stepずつインクリメント)

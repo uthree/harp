@@ -143,7 +143,29 @@ pub fn assign(var_name: impl Into<String>, value: impl Into<AstNode>) -> AstNode
     AstNode::Assign(var_name.into(), Box::new(value.into()))
 }
 
-/// Create a store node
+/// Create a load node (scalar, vector_width=1)
+pub fn load(target: impl Into<AstNode>, index: impl Into<AstNode>) -> AstNode {
+    AstNode::Load {
+        target: Box::new(target.into()),
+        index: Box::new(index.into()),
+        vector_width: 1,
+    }
+}
+
+/// Create a vector load node with specified width
+pub fn load_vec(
+    target: impl Into<AstNode>,
+    index: impl Into<AstNode>,
+    vector_width: usize,
+) -> AstNode {
+    AstNode::Load {
+        target: Box::new(target.into()),
+        index: Box::new(index.into()),
+        vector_width,
+    }
+}
+
+/// Create a store node (scalar, vector_width=1)
 pub fn store(
     target: impl Into<AstNode>,
     index: impl Into<AstNode>,
@@ -153,12 +175,23 @@ pub fn store(
         target: Box::new(target.into()),
         index: Box::new(index.into()),
         value: Box::new(value.into()),
+        vector_width: 1,
     }
 }
 
-/// Create a deref node
-pub fn deref(expr: impl Into<AstNode>) -> AstNode {
-    AstNode::Deref(Box::new(expr.into()))
+/// Create a vector store node with specified width
+pub fn store_vec(
+    target: impl Into<AstNode>,
+    index: impl Into<AstNode>,
+    value: impl Into<AstNode>,
+    vector_width: usize,
+) -> AstNode {
+    AstNode::Store {
+        target: Box::new(target.into()),
+        index: Box::new(index.into()),
+        value: Box::new(value.into()),
+        vector_width,
+    }
 }
 
 /// Create a drop node

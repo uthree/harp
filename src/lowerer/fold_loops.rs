@@ -109,12 +109,16 @@ impl Lowerer {
                 AstNode::Var(result_var.to_string()),
                 result_index.clone(),
                 AstNode::Add(
-                    Box::new(AstNode::Deref(Box::new(
-                        AstNode::Var(result_var.to_string()) + result_index,
-                    ))),
-                    Box::new(AstNode::Deref(Box::new(
-                        AstNode::Var(input_var.to_string()) + input_index,
-                    ))),
+                    Box::new(AstNode::Load {
+                        target: Box::new(AstNode::Var(result_var.to_string())),
+                        index: Box::new(result_index),
+                        vector_width: 1,
+                    }),
+                    Box::new(AstNode::Load {
+                        target: Box::new(AstNode::Var(input_var.to_string())),
+                        index: Box::new(input_index),
+                        vector_width: 1,
+                    }),
                 ),
             )
         } else {

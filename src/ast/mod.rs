@@ -361,12 +361,13 @@ mod tests {
         let store_node = store(var("arr"), 0isize, 1.0f32);
         assert!(matches!(store_node, AstNode::Store { .. }));
 
-        // Test deref
-        let deref_node = deref(var("ptr"));
-        assert_eq!(
-            deref_node,
-            AstNode::Deref(Box::new(AstNode::Var("ptr".to_string())))
-        );
+        // Test load (replacing deref)
+        let load_node = AstNode::Load {
+            target: Box::new(var("ptr")),
+            index: Box::new(0isize.into()),
+            vector_width: 1,
+        };
+        assert!(matches!(load_node, AstNode::Load { .. }));
 
         // Test call
         let call_node = call("foo", vec![var("x"), const_val(ConstLiteral::F32(1.0))]);

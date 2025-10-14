@@ -119,10 +119,11 @@ impl Lowerer {
                     var_name,
                     Box::new(AstNode::Cast {
                         dtype: DType::Ptr(Box::new(node_data.dtype.clone())),
-                        expr: Box::new(AstNode::Deref(Box::new(
-                            AstNode::Var("bufs".to_string())
-                                + AstNode::Const(ConstLiteral::Usize(arg_index)),
-                        ))),
+                        expr: Box::new(AstNode::Load {
+                            target: Box::new(AstNode::Var("bufs".to_string())),
+                            index: Box::new(AstNode::Const(ConstLiteral::Usize(arg_index))),
+                            vector_width: 1,
+                        }),
                     }),
                 ));
                 arg_index += 1;
@@ -145,10 +146,11 @@ impl Lowerer {
                 var_name,
                 Box::new(AstNode::Cast {
                     dtype: DType::Ptr(Box::new(output_node.dtype.clone())),
-                    expr: Box::new(AstNode::Deref(Box::new(
-                        AstNode::Var("bufs".to_string())
-                            + AstNode::Const(ConstLiteral::Usize(arg_index)),
-                    ))),
+                    expr: Box::new(AstNode::Load {
+                        target: Box::new(AstNode::Var("bufs".to_string())),
+                        index: Box::new(AstNode::Const(ConstLiteral::Usize(arg_index))),
+                        vector_width: 1,
+                    }),
                 }),
             ));
             arg_index += 1;

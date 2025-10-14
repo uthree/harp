@@ -253,9 +253,16 @@ impl AstRewriter {
             | AstNode::Sqrt(ref mut n)
             | AstNode::Log2(ref mut n)
             | AstNode::Exp2(ref mut n)
-            | AstNode::BitNot(ref mut n)
-            | AstNode::Deref(ref mut n) => {
+            | AstNode::BitNot(ref mut n) => {
                 self.apply_once(n);
+            }
+            AstNode::Load {
+                ref mut target,
+                ref mut index,
+                ..
+            } => {
+                self.apply_once(target);
+                self.apply_once(index);
             }
             AstNode::Cast { ref mut expr, .. } => {
                 self.apply_once(expr);
@@ -267,6 +274,7 @@ impl AstRewriter {
                 ref mut target,
                 ref mut index,
                 ref mut value,
+                ..
             } => {
                 self.apply_once(target);
                 self.apply_once(index);

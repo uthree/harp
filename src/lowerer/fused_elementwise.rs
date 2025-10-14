@@ -66,6 +66,7 @@ impl FusedElementwiseLowerer {
                 target: Box::new(AstNode::Var(result_var.to_string())),
                 index: Box::new(result_index),
                 value: Box::new(value_ast),
+                vector_width: 1,
             };
         }
 
@@ -108,7 +109,11 @@ impl FusedElementwiseLowerer {
                     LowererUtils::compute_memory_index(input_strides, input_offset, ndim);
 
                 // 参照を返す
-                AstNode::Deref(Box::new(AstNode::Var(input_var.clone()) + input_index))
+                AstNode::Load {
+                    target: Box::new(AstNode::Var(input_var.clone())),
+                    index: Box::new(input_index),
+                    vector_width: 1,
+                }
             }
             _ => {
                 // 再帰的に子ノードを置き換え

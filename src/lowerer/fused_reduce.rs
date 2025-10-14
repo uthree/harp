@@ -82,28 +82,40 @@ impl FusedReduceLowerer {
             // 縮約操作: result[...] = result[...] op input[...]
             let operation_result = match reduce_op {
                 ReduceOp::Add => AstNode::Add(
-                    Box::new(AstNode::Deref(Box::new(
-                        AstNode::Var(result_var.to_string()) + result_index.clone(),
-                    ))),
-                    Box::new(AstNode::Deref(Box::new(
-                        AstNode::Var(input_var.to_string()) + input_index,
-                    ))),
+                    Box::new(AstNode::Load {
+                        target: Box::new(AstNode::Var(result_var.to_string())),
+                        index: Box::new(result_index.clone()),
+                        vector_width: 1,
+                    }),
+                    Box::new(AstNode::Load {
+                        target: Box::new(AstNode::Var(input_var.to_string())),
+                        index: Box::new(input_index),
+                        vector_width: 1,
+                    }),
                 ),
                 ReduceOp::Mul => AstNode::Mul(
-                    Box::new(AstNode::Deref(Box::new(
-                        AstNode::Var(result_var.to_string()) + result_index.clone(),
-                    ))),
-                    Box::new(AstNode::Deref(Box::new(
-                        AstNode::Var(input_var.to_string()) + input_index,
-                    ))),
+                    Box::new(AstNode::Load {
+                        target: Box::new(AstNode::Var(result_var.to_string())),
+                        index: Box::new(result_index.clone()),
+                        vector_width: 1,
+                    }),
+                    Box::new(AstNode::Load {
+                        target: Box::new(AstNode::Var(input_var.to_string())),
+                        index: Box::new(input_index),
+                        vector_width: 1,
+                    }),
                 ),
                 ReduceOp::Max => AstNode::Max(
-                    Box::new(AstNode::Deref(Box::new(
-                        AstNode::Var(result_var.to_string()) + result_index.clone(),
-                    ))),
-                    Box::new(AstNode::Deref(Box::new(
-                        AstNode::Var(input_var.to_string()) + input_index,
-                    ))),
+                    Box::new(AstNode::Load {
+                        target: Box::new(AstNode::Var(result_var.to_string())),
+                        index: Box::new(result_index.clone()),
+                        vector_width: 1,
+                    }),
+                    Box::new(AstNode::Load {
+                        target: Box::new(AstNode::Var(input_var.to_string())),
+                        index: Box::new(input_index),
+                        vector_width: 1,
+                    }),
                 ),
             };
 
@@ -243,21 +255,27 @@ impl FusedReduceLowerer {
             let operation_result = match reduce_op {
                 ReduceOp::Add => AstNode::Add(
                     Box::new(AstNode::Var(acc_var.to_string())),
-                    Box::new(AstNode::Deref(Box::new(
-                        AstNode::Var(input_var.to_string()) + input_index,
-                    ))),
+                    Box::new(AstNode::Load {
+                        target: Box::new(AstNode::Var(input_var.to_string())),
+                        index: Box::new(input_index),
+                        vector_width: 1,
+                    }),
                 ),
                 ReduceOp::Mul => AstNode::Mul(
                     Box::new(AstNode::Var(acc_var.to_string())),
-                    Box::new(AstNode::Deref(Box::new(
-                        AstNode::Var(input_var.to_string()) + input_index,
-                    ))),
+                    Box::new(AstNode::Load {
+                        target: Box::new(AstNode::Var(input_var.to_string())),
+                        index: Box::new(input_index),
+                        vector_width: 1,
+                    }),
                 ),
                 ReduceOp::Max => AstNode::Max(
                     Box::new(AstNode::Var(acc_var.to_string())),
-                    Box::new(AstNode::Deref(Box::new(
-                        AstNode::Var(input_var.to_string()) + input_index,
-                    ))),
+                    Box::new(AstNode::Load {
+                        target: Box::new(AstNode::Var(input_var.to_string())),
+                        index: Box::new(input_index),
+                        vector_width: 1,
+                    }),
                 ),
             };
 

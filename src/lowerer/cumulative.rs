@@ -87,8 +87,11 @@ impl CumulativeLowerer {
                 result_shape.len(),
             );
 
-            let input_value =
-                AstNode::Deref(Box::new(AstNode::Var(input_var.to_string()) + input_index));
+            let input_value = AstNode::Load {
+                target: Box::new(AstNode::Var(input_var.to_string())),
+                index: Box::new(input_index),
+                vector_width: 1,
+            };
 
             // acc = acc op input[...]
             let accumulate_stmt = {

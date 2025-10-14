@@ -18,12 +18,13 @@ impl AstNode {
             AstNode::LessThan(l, r) => vec![l.as_ref(), r.as_ref()],
             AstNode::Eq(l, r) => vec![l.as_ref(), r.as_ref()],
             AstNode::Assign(_, r) => vec![r.as_ref()],
+            AstNode::Load { target, index, .. } => vec![target.as_ref(), index.as_ref()],
             AstNode::Store {
                 target,
                 index,
                 value,
+                ..
             } => vec![target.as_ref(), index.as_ref(), value.as_ref()],
-            AstNode::Deref(n) => vec![n.as_ref()],
             AstNode::Neg(n) => vec![n.as_ref()],
             AstNode::Recip(n) => vec![n.as_ref()],
             AstNode::Sin(n) => vec![n.as_ref()],
@@ -152,7 +153,6 @@ impl AstNode {
             AstNode::Eq(_, _) => binary_op!(Eq),
 
             // Unary operations
-            AstNode::Deref(_) => unary_op!(Deref),
             AstNode::Neg(_) => unary_op!(Neg),
             AstNode::Recip(_) => unary_op!(Recip),
             AstNode::Sin(_) => unary_op!(Sin),
@@ -161,14 +161,18 @@ impl AstNode {
             AstNode::Exp2(_) => unary_op!(Exp2),
             AstNode::BitNot(_) => unary_op!(BitNot),
 
-            // Ternary operations with named fields
-            AstNode::Store { .. } => {
-                ternary_op_named!(Store {
-                    target,
-                    index,
-                    value
-                })
-            }
+            // Binary/Ternary operations with named fields
+            AstNode::Load { vector_width, .. } => AstNode::Load {
+                target: Box::new(children_iter.next().unwrap()),
+                index: Box::new(children_iter.next().unwrap()),
+                vector_width,
+            },
+            AstNode::Store { vector_width, .. } => AstNode::Store {
+                target: Box::new(children_iter.next().unwrap()),
+                index: Box::new(children_iter.next().unwrap()),
+                value: Box::new(children_iter.next().unwrap()),
+                vector_width,
+            },
             AstNode::Select { .. } => {
                 ternary_op_named!(Select {
                     cond,

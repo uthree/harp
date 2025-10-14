@@ -34,9 +34,12 @@ impl Lowerer {
             AstNode::Store {
                 target: Box::new(AstNode::Var(result_var.to_string())),
                 index: Box::new(result_index),
-                value: Box::new(AstNode::Deref(Box::new(
-                    AstNode::Var(input_var.to_string()) + input_index,
-                ))),
+                value: Box::new(AstNode::Load {
+                    target: Box::new(AstNode::Var(input_var.to_string())),
+                    index: Box::new(input_index),
+                    vector_width: 1,
+                }),
+                vector_width: 1,
             }
         } else {
             // ループを生成
@@ -87,10 +90,13 @@ impl Lowerer {
                 index: Box::new(result_index),
                 value: Box::new(AstNode::Cast {
                     dtype: target_dtype.clone(),
-                    expr: Box::new(AstNode::Deref(Box::new(
-                        AstNode::Var(input_var.to_string()) + input_index,
-                    ))),
+                    expr: Box::new(AstNode::Load {
+                        target: Box::new(AstNode::Var(input_var.to_string())),
+                        index: Box::new(input_index),
+                        vector_width: 1,
+                    }),
                 }),
+                vector_width: 1,
             }
         } else {
             // ループを生成
