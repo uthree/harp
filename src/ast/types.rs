@@ -100,6 +100,12 @@ pub struct KernelScope {
     pub thread_ids: Vec<ThreadIdDecl>,
 }
 
+impl Default for KernelScope {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl KernelScope {
     /// Create a new empty kernel scope
     pub fn new() -> Self {

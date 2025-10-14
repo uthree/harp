@@ -34,6 +34,12 @@ pub struct Lowerer {
     ctx: LowerContext,
 }
 
+impl Default for Lowerer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Lowerer {
     pub fn new() -> Self {
         Self {
