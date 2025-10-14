@@ -187,7 +187,7 @@ pub struct VariableDecl {
 
 ### Function
 
-Functionは`AstNode`のバリアントとして定義されています。
+Functionは`AstNode`のバリアントとして定義されています。ヘルパーメソッドを使って構築できます。
 
 ```rust
 AstNode::Function {
@@ -197,17 +197,23 @@ AstNode::Function {
     arguments: Vec<(String, DType)>,
     return_type: DType,
 }
+
+// ヘルパーメソッド
+AstNode::function(name, arguments, return_type, scope, statements)
 ```
 
 ### Program
 
-Programも`AstNode`のバリアントとして定義されています。型エイリアス`Program = AstNode`として利用できます。
+Programも`AstNode`のバリアントとして定義されています。ヘルパーメソッドを使って構築できます。
 
 ```rust
 AstNode::Program {
     functions: Vec<AstNode>,  // 各要素はAstNode::Function
     entry_point: String,
 }
+
+// ヘルパーメソッド
+AstNode::program(functions, entry_point)
 ```
 
 ## RangeBuilder
@@ -256,8 +262,10 @@ AstNode::range_builder("i", 10isize, body)
 - `AstNode::range_builder(...)`: ビルダーパターン
 
 ### 関数とプログラム
-- `function(name, arguments, return_type, scope, statements)`: 関数定義
-- `program(functions, entry_point)`: プログラム定義
+- `AstNode::function(name, arguments, return_type, scope, statements)`: 関数定義
+- `AstNode::program(functions, entry_point)`: プログラム定義
+- `function(name, arguments, return_type, scope, statements)`: 関数定義（ヘルパー関数）
+- `program(functions, entry_point)`: プログラム定義（ヘルパー関数）
 
 ### その他
 - `AstNode::call(name, args)`: 関数呼び出し

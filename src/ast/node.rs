@@ -90,3 +90,30 @@ pub enum AstNode {
     // for pattern matching
     Capture(usize),
 }
+
+impl AstNode {
+    /// Create a Program node
+    pub fn program(functions: Vec<AstNode>, entry_point: impl Into<String>) -> Self {
+        AstNode::Program {
+            functions,
+            entry_point: entry_point.into(),
+        }
+    }
+
+    /// Create a Function node
+    pub fn function(
+        name: impl Into<String>,
+        arguments: Vec<(String, DType)>,
+        return_type: DType,
+        scope: Scope,
+        statements: Vec<AstNode>,
+    ) -> Self {
+        AstNode::Function {
+            name: name.into(),
+            scope,
+            statements,
+            arguments,
+            return_type,
+        }
+    }
+}

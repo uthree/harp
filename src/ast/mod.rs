@@ -10,7 +10,6 @@ mod types;
 mod variable;
 
 // Re-export all public types and structs
-pub use function::Program;
 pub use node::AstNode;
 pub use range_builder::RangeBuilder;
 pub use types::{ConstLiteral, DType};

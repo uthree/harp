@@ -215,19 +215,10 @@ pub fn function(
     scope: Scope,
     statements: Vec<AstNode>,
 ) -> AstNode {
-    AstNode::Function {
-        name: name.into(),
-        scope,
-        statements,
-        arguments,
-        return_type,
-    }
+    AstNode::function(name, arguments, return_type, scope, statements)
 }
 
 /// Create a Program node
 pub fn program(functions: Vec<AstNode>, entry_point: impl Into<String>) -> AstNode {
-    AstNode::Program {
-        functions,
-        entry_point: entry_point.into(),
-    }
+    AstNode::program(functions, entry_point)
 }

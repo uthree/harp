@@ -1,5 +1,5 @@
 use crate::{
-    ast::{AstNode, ConstLiteral, DType, Program, Scope, VariableDecl},
+    ast::{AstNode, ConstLiteral, DType, Scope, VariableDecl},
     backend::Renderer,
 };
 use log::debug;
@@ -20,7 +20,7 @@ impl Renderer for CRenderer {
         CRenderer::default()
     }
 
-    fn render(&mut self, program: Program) -> Self::CodeRepr {
+    fn render(&mut self, program: AstNode) -> Self::CodeRepr {
         let code = if let AstNode::Program { .. } = &program {
             self.render_program(&program)
         } else {
@@ -626,10 +626,7 @@ mod tests {
                 Box::new(AstNode::from(1.0f32)),
             )],
         );
-        let program = AstNode::Program {
-            functions: vec![func],
-            entry_point: "my_func".to_string(),
-        };
+        let program = AstNode::program(vec![func], "my_func");
         let expected = r###"#include <math.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -689,10 +686,7 @@ void my_func(ssize_t a[10])
                 value: Box::new(AstNode::from(1.0f32)),
             }],
         );
-        let program = AstNode::Program {
-            functions: vec![func],
-            entry_point: "dynamic_alloc".to_string(),
-        };
+        let program = AstNode::program(vec![func], "dynamic_alloc");
         let expected = r###"#include <math.h>
 #include <stddef.h>
 #include <stdint.h>

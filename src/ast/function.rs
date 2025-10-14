@@ -1,5 +1,2 @@
-use super::AstNode;
-
-// Program is now just an alias for AstNode
-// The actual Program variant is defined in AstNode enum
-pub type Program = AstNode;
+// This file is kept for backward compatibility
+// Program is now part of AstNode enum

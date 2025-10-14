@@ -1,4 +1,4 @@
-use crate::ast::{AstNode, Program};
+use crate::ast::AstNode;
 use crate::graph::{Graph, GraphNode};
 use std::collections::HashMap;
 
@@ -15,14 +15,11 @@ impl Lowerer {
         }
     }
 
-    pub fn lower(&mut self, graph: &Graph) -> Program {
+    pub fn lower(&mut self, graph: &Graph) -> AstNode {
         let kernel_function = self.create_kernel_function(graph);
         let entry_function = self.create_entry_function(graph, &kernel_function);
 
-        AstNode::Program {
-            functions: vec![kernel_function, entry_function],
-            entry_point: "kernel_main".to_string(),
-        }
+        AstNode::program(vec![kernel_function, entry_function], "kernel_main")
     }
 
     pub(super) fn get_or_create_var_name(&mut self, node: &GraphNode) -> String {

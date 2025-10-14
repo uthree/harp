@@ -1,5 +1,4 @@
-use crate::ast::DType;
-use crate::ast::Program;
+use crate::ast::{AstNode, DType};
 use crate::graph::Graph;
 use crate::graph::GraphSignature;
 
@@ -41,7 +40,7 @@ pub trait Renderer {
     type Option;
     fn new() -> Self;
     fn with_option(&mut self, _option: Self::Option) {} // default implementation is "do nothing".
-    fn render(&mut self, program: Program) -> Self::CodeRepr;
+    fn render(&mut self, program: AstNode) -> Self::CodeRepr;
 }
 
 pub trait Backend {
