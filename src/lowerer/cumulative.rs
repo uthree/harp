@@ -1,4 +1,5 @@
 use super::utils::LowererUtils;
+use crate::ast::helper::{block, block_with_statements, store};
 use crate::ast::{AstNode, DType, VariableDecl};
 use crate::graph::{ops::CumulativeOp, shape::view::View, GraphNode};
 
@@ -109,27 +110,22 @@ impl CumulativeLowerer {
             };
 
             // result[...] = acc
-            let write_stmt = AstNode::Store {
-                target: Box::new(AstNode::Var(result_var.to_string())),
-                index: Box::new(result_index),
-                value: Box::new(AstNode::Var(acc_var.clone())),
-            };
+            let write_stmt = store(
+                AstNode::Var(result_var.to_string()),
+                result_index,
+                AstNode::Var(acc_var.clone()),
+            );
 
             // ループ本体: accumulate + write
-            let loop_body = AstNode::Block {
-                scope: crate::ast::Scope {
-                    declarations: vec![],
-                },
-                statements: vec![accumulate_stmt, write_stmt],
-            };
+            let loop_body = block_with_statements(vec![accumulate_stmt, write_stmt]);
 
             // 累積ループ
             let cumulative_loop =
                 LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], loop_body);
 
             // アキュムレータ変数の宣言 + 初期化 + 累積ループをブロックにまとめる
-            AstNode::Block {
-                scope: crate::ast::Scope {
+            block(
+                crate::ast::Scope {
                     declarations: vec![VariableDecl {
                         name: acc_var,
                         dtype: result_dtype.clone(),
@@ -137,8 +133,8 @@ impl CumulativeLowerer {
                         size_expr: None,
                     }],
                 },
-                statements: vec![init_stmt, cumulative_loop],
-            }
+                vec![init_stmt, cumulative_loop],
+            )
         } else {
             // 累積軸以外の次元: 通常のループ
             let loop_var = format!("ridx{}", dim);

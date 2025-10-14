@@ -1,4 +1,4 @@
-use crate::ast::{AstNode, ConstLiteral};
+use crate::ast::{AstNode, ConstLiteral, RangeBuilder};
 use crate::opt::ast::heuristic::RewriteSuggester;
 
 /// A suggester for loop tiling (blocking) optimization.
@@ -66,37 +66,31 @@ impl RewriteSuggester for LoopTilingSuggester {
             );
 
             // Inner tiled loop: for(i = tile_start; i < tile_start + tile_size; i++)
-            let inner_tiled_loop = AstNode::Range {
-                counter_name: counter_name.clone(),
-                start: Box::new(AstNode::Var(tile_start_name.clone())),
-                max: Box::new(AstNode::Add(
+            let inner_tiled_loop = RangeBuilder::new(
+                counter_name.clone(),
+                AstNode::Add(
                     Box::new(AstNode::Var(tile_start_name.clone())),
                     Box::new(tile_size_node.clone()),
-                )),
-                step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
-                body: body.clone(),
-                unroll: None,
-            };
+                ),
+                *body.clone(),
+            )
+            .start(AstNode::Var(tile_start_name.clone()))
+            .build();
 
             // Main tiled loop: for(tile_start = 0; tile_start < main_max; tile_start += tile_size)
-            let main_tiled_loop = AstNode::Range {
-                counter_name: tile_start_name.clone(),
-                start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
-                max: Box::new(AstNode::Var(main_max_name.clone())),
-                step: Box::new(tile_size_node),
-                body: Box::new(inner_tiled_loop),
-                unroll: None,
-            };
+            let main_tiled_loop = RangeBuilder::new(
+                tile_start_name.clone(),
+                AstNode::Var(main_max_name.clone()),
+                inner_tiled_loop,
+            )
+            .step(tile_size_node)
+            .build();
 
             // Remainder loop: for(i = main_max; i < max; i++)
-            let remainder_loop = AstNode::Range {
-                counter_name: counter_name.clone(),
-                start: Box::new(AstNode::Var(main_max_name.clone())),
-                max: max.clone(),
-                step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
-                body: body.clone(),
-                unroll: None,
-            };
+            let remainder_loop =
+                RangeBuilder::new(counter_name.clone(), *max.clone(), *body.clone())
+                    .start(AstNode::Var(main_max_name.clone()))
+                    .build();
 
             // Combine main and remainder loops in a block
             let combined = AstNode::Block {
@@ -149,14 +143,12 @@ mod tests {
             "result".to_string(),
             Box::new(AstNode::Var("i".to_string())),
         );
-        let ast = AstNode::Range {
-            counter_name: "i".to_string(),
-            start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
-            max: Box::new(AstNode::Const(ConstLiteral::Isize(100))),
-            step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
-            body: Box::new(body),
-            unroll: None,
-        };
+        let ast = RangeBuilder::new(
+            "i".to_string(),
+            AstNode::Const(ConstLiteral::Isize(100)),
+            body,
+        )
+        .build();
 
         let suggestions = suggester.suggest(&ast);
         assert!(!suggestions.is_empty());

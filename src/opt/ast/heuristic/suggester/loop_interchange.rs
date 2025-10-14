@@ -1,4 +1,4 @@
-use crate::ast::AstNode;
+use crate::ast::{AstNode, RangeBuilder};
 use crate::opt::ast::heuristic::RewriteSuggester;
 
 /// A suggester that proposes loop interchange transformations.
@@ -49,23 +49,30 @@ impl RewriteSuggester for LoopInterchangeSuggester {
             } = outer_body.as_ref()
             {
                 // Create the interchanged version: swap outer and inner loops
-                let new_inner_loop = AstNode::Range {
-                    counter_name: outer_counter.clone(),
-                    start: outer_start.clone(),
-                    max: outer_max.clone(),
-                    step: outer_step.clone(),
-                    body: inner_body.clone(),
-                    unroll: *outer_unroll,
-                };
+                let mut new_inner_builder = RangeBuilder::new(
+                    outer_counter.clone(),
+                    *outer_max.clone(),
+                    *inner_body.clone(),
+                )
+                .start(*outer_start.clone())
+                .step(*outer_step.clone());
 
-                let new_outer_loop = AstNode::Range {
-                    counter_name: inner_counter.clone(),
-                    start: inner_start.clone(),
-                    max: inner_max.clone(),
-                    step: inner_step.clone(),
-                    body: Box::new(new_inner_loop),
-                    unroll: *inner_unroll,
-                };
+                if let Some(n) = outer_unroll {
+                    new_inner_builder = new_inner_builder.unroll_by(*n);
+                }
+
+                let new_inner_loop = new_inner_builder.build();
+
+                let mut new_outer_builder =
+                    RangeBuilder::new(inner_counter.clone(), *inner_max.clone(), new_inner_loop)
+                        .start(*inner_start.clone())
+                        .step(*inner_step.clone());
+
+                if let Some(n) = inner_unroll {
+                    new_outer_builder = new_outer_builder.unroll_by(*n);
+                }
+
+                let new_outer_loop = new_outer_builder.build();
 
                 suggestions.push(new_outer_loop);
             }
@@ -103,23 +110,17 @@ mod tests {
             )),
         );
 
-        let inner_loop = AstNode::Range {
-            counter_name: "j".to_string(),
-            start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
-            max: Box::new(AstNode::Var("M".to_string())),
-            step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
-            body: Box::new(body.clone()),
-            unroll: None,
-        };
+        let inner_loop =
+            RangeBuilder::new("j".to_string(), AstNode::Var("M".to_string()), body.clone())
+                .start(AstNode::Const(ConstLiteral::Isize(0)))
+                .step(AstNode::Const(ConstLiteral::Isize(1)))
+                .build();
 
-        let outer_loop = AstNode::Range {
-            counter_name: "i".to_string(),
-            start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
-            max: Box::new(AstNode::Var("N".to_string())),
-            step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
-            body: Box::new(inner_loop),
-            unroll: None,
-        };
+        let outer_loop =
+            RangeBuilder::new("i".to_string(), AstNode::Var("N".to_string()), inner_loop)
+                .start(AstNode::Const(ConstLiteral::Isize(0)))
+                .step(AstNode::Const(ConstLiteral::Isize(1)))
+                .build();
 
         let suggestions = suggester.suggest(&outer_loop);
 
@@ -157,17 +158,14 @@ mod tests {
 
         // Create a loop with a Block containing statements and a nested loop
         // This should NOT be interchanged
-        let inner_loop = AstNode::Range {
-            counter_name: "j".to_string(),
-            start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
-            max: Box::new(AstNode::Const(ConstLiteral::Isize(10))),
-            step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
-            body: Box::new(AstNode::Assign(
-                "y".to_string(),
-                Box::new(AstNode::Var("j".to_string())),
-            )),
-            unroll: None,
-        };
+        let inner_loop = RangeBuilder::new(
+            "j".to_string(),
+            AstNode::Const(ConstLiteral::Isize(10)),
+            AstNode::Assign("y".to_string(), Box::new(AstNode::Var("j".to_string()))),
+        )
+        .start(AstNode::Const(ConstLiteral::Isize(0)))
+        .step(AstNode::Const(ConstLiteral::Isize(1)))
+        .build();
 
         let block_with_loop = AstNode::Block {
             scope: ast::Scope {
@@ -179,14 +177,14 @@ mod tests {
             ],
         };
 
-        let outer_loop = AstNode::Range {
-            counter_name: "i".to_string(),
-            start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
-            max: Box::new(AstNode::Const(ConstLiteral::Isize(10))),
-            step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
-            body: Box::new(block_with_loop),
-            unroll: None,
-        };
+        let outer_loop = RangeBuilder::new(
+            "i".to_string(),
+            AstNode::Const(ConstLiteral::Isize(10)),
+            block_with_loop,
+        )
+        .start(AstNode::Const(ConstLiteral::Isize(0)))
+        .step(AstNode::Const(ConstLiteral::Isize(1)))
+        .build();
 
         let suggestions = suggester.suggest(&outer_loop);
 
@@ -211,23 +209,25 @@ mod tests {
             Box::new(AstNode::Const(ConstLiteral::Isize(1))),
         );
 
-        let inner_loop = AstNode::Range {
-            counter_name: "j".to_string(),
-            start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
-            max: Box::new(AstNode::Const(ConstLiteral::Isize(4))),
-            step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
-            body: Box::new(body),
-            unroll: Some(2),
-        };
+        let inner_loop = RangeBuilder::new(
+            "j".to_string(),
+            AstNode::Const(ConstLiteral::Isize(4)),
+            body,
+        )
+        .start(AstNode::Const(ConstLiteral::Isize(0)))
+        .step(AstNode::Const(ConstLiteral::Isize(1)))
+        .unroll_by(2)
+        .build();
 
-        let outer_loop = AstNode::Range {
-            counter_name: "i".to_string(),
-            start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
-            max: Box::new(AstNode::Const(ConstLiteral::Isize(8))),
-            step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
-            body: Box::new(inner_loop),
-            unroll: Some(4),
-        };
+        let outer_loop = RangeBuilder::new(
+            "i".to_string(),
+            AstNode::Const(ConstLiteral::Isize(8)),
+            inner_loop,
+        )
+        .start(AstNode::Const(ConstLiteral::Isize(0)))
+        .step(AstNode::Const(ConstLiteral::Isize(1)))
+        .unroll_by(4)
+        .build();
 
         let suggestions = suggester.suggest(&outer_loop);
         assert_eq!(suggestions.len(), 1);

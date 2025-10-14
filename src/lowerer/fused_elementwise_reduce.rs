@@ -1,5 +1,6 @@
 use super::fused_elementwise::FusedElementwiseLowerer;
 use super::utils::LowererUtils;
+use crate::ast::helper::{block, store};
 use crate::ast::{AstNode, DType, VariableDecl};
 use crate::graph::{ops::ReduceOp, GraphNode};
 
@@ -130,11 +131,11 @@ impl FusedElementwiseReduceLowerer {
                 ),
             };
 
-            return AstNode::Store {
-                target: Box::new(AstNode::Var(result_var.to_string())),
-                index: Box::new(result_index),
-                value: Box::new(operation_result),
-            };
+            return store(
+                AstNode::Var(result_var.to_string()),
+                result_index,
+                operation_result,
+            );
         }
 
         if dim == reduce_axis {
@@ -189,14 +190,14 @@ impl FusedElementwiseReduceLowerer {
                     dim,
                     reduce_axis,
                 );
-                let write_back_stmt = AstNode::Store {
-                    target: Box::new(AstNode::Var(result_var.to_string())),
-                    index: Box::new(result_index),
-                    value: Box::new(AstNode::Var(acc_var.clone())),
-                };
+                let write_back_stmt = store(
+                    AstNode::Var(result_var.to_string()),
+                    result_index,
+                    AstNode::Var(acc_var.clone()),
+                );
 
-                return AstNode::Block {
-                    scope: crate::ast::Scope {
+                return block(
+                    crate::ast::Scope {
                         declarations: vec![VariableDecl {
                             name: acc_var,
                             dtype: result_dtype.clone(),
@@ -204,8 +205,8 @@ impl FusedElementwiseReduceLowerer {
                             size_expr: None,
                         }],
                     },
-                    statements: vec![init_stmt, reduce_loop, write_back_stmt],
-                };
+                    vec![init_stmt, reduce_loop, write_back_stmt],
+                );
             }
         }
 
@@ -281,14 +282,14 @@ impl FusedElementwiseReduceLowerer {
                 input_shape.len(),
                 reduce_axis,
             );
-            let write_back_stmt = AstNode::Store {
-                target: Box::new(AstNode::Var(result_var.to_string())),
-                index: Box::new(result_index),
-                value: Box::new(AstNode::Var(acc_var.clone())),
-            };
+            let write_back_stmt = store(
+                AstNode::Var(result_var.to_string()),
+                result_index,
+                AstNode::Var(acc_var.clone()),
+            );
 
-            return AstNode::Block {
-                scope: crate::ast::Scope {
+            return block(
+                crate::ast::Scope {
                     declarations: vec![VariableDecl {
                         name: acc_var,
                         dtype: result_dtype.clone(),
@@ -296,8 +297,8 @@ impl FusedElementwiseReduceLowerer {
                         size_expr: None,
                     }],
                 },
-                statements: vec![init_stmt, reduce_loop, write_back_stmt],
-            };
+                vec![init_stmt, reduce_loop, write_back_stmt],
+            );
         }
 
         // 後続次元のループを生成

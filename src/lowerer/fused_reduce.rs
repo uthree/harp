@@ -1,4 +1,5 @@
 use super::utils::LowererUtils;
+use crate::ast::helper::{block, block_with_statements, store};
 use crate::ast::{AstNode, DType, VariableDecl};
 use crate::graph::{ops::ReduceOp, shape::view::View, GraphNode};
 
@@ -106,11 +107,11 @@ impl FusedReduceLowerer {
                 ),
             };
 
-            return AstNode::Store {
-                target: Box::new(AstNode::Var(result_var.to_string())),
-                index: Box::new(result_index),
-                value: Box::new(operation_result),
-            };
+            return store(
+                AstNode::Var(result_var.to_string()),
+                result_index,
+                operation_result,
+            );
         }
 
         if is_reduce_axis && dim == *reduce_axes.iter().min().unwrap() {
@@ -151,14 +152,14 @@ impl FusedReduceLowerer {
                     dim,
                     reduce_axes,
                 );
-                let write_back_stmt = AstNode::Store {
-                    target: Box::new(AstNode::Var(result_var.to_string())),
-                    index: Box::new(result_index),
-                    value: Box::new(AstNode::Var(acc_var.clone())),
-                };
+                let write_back_stmt = store(
+                    AstNode::Var(result_var.to_string()),
+                    result_index,
+                    AstNode::Var(acc_var.clone()),
+                );
 
-                return AstNode::Block {
-                    scope: crate::ast::Scope {
+                return block(
+                    crate::ast::Scope {
                         declarations: vec![VariableDecl {
                             name: acc_var,
                             dtype: result_dtype.clone(),
@@ -166,8 +167,8 @@ impl FusedReduceLowerer {
                             size_expr: None,
                         }],
                     },
-                    statements: vec![init_stmt, reduce_loop, write_back_stmt],
-                };
+                    vec![init_stmt, reduce_loop, write_back_stmt],
+                );
             } else {
                 // 配列ベースの縮約（元の実装）
                 let init_loop = Self::create_init_loops(
@@ -197,12 +198,7 @@ impl FusedReduceLowerer {
                 let reduce_loop =
                     LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body);
 
-                return AstNode::Block {
-                    scope: crate::ast::Scope {
-                        declarations: vec![],
-                    },
-                    statements: vec![init_loop, reduce_loop],
-                };
+                return block_with_statements(vec![init_loop, reduce_loop]);
             }
         }
 
@@ -346,11 +342,11 @@ impl FusedReduceLowerer {
                 reduce_axes,
             );
 
-            return AstNode::Store {
-                target: Box::new(AstNode::Var(result_var.to_string())),
-                index: Box::new(result_index),
-                value: Box::new(initial_value),
-            };
+            return store(
+                AstNode::Var(result_var.to_string()),
+                result_index,
+                initial_value,
+            );
         }
 
         if dim < start_dim {

@@ -126,24 +126,19 @@ impl RewriteSuggester for LoopUnrollSuggester {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::ConstLiteral;
+    use crate::ast::{ConstLiteral, RangeBuilder};
 
     #[test]
     fn test_simple_loop_unroll() {
         let suggester = LoopUnrollSuggester::new();
 
         // for(i=0; i<4; i++) { x = i }
-        let loop_node = AstNode::Range {
-            counter_name: "i".to_string(),
-            start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
-            max: Box::new(AstNode::Const(ConstLiteral::Isize(4))),
-            step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
-            body: Box::new(AstNode::Assign(
-                "x".to_string(),
-                Box::new(AstNode::Var("i".to_string())),
-            )),
-            unroll: None,
-        };
+        let loop_node = RangeBuilder::new(
+            "i".to_string(),
+            AstNode::Const(ConstLiteral::Isize(4)),
+            AstNode::Assign("x".to_string(), Box::new(AstNode::Var("i".to_string()))),
+        )
+        .build();
 
         let suggestions = suggester.suggest(&loop_node);
         assert_eq!(suggestions.len(), 1);
@@ -168,17 +163,13 @@ mod tests {
         let suggester = LoopUnrollSuggester::new();
 
         // for(i=0; i<10; i+=2) { x = i }
-        let loop_node = AstNode::Range {
-            counter_name: "i".to_string(),
-            start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
-            max: Box::new(AstNode::Const(ConstLiteral::Isize(10))),
-            step: Box::new(AstNode::Const(ConstLiteral::Isize(2))),
-            body: Box::new(AstNode::Assign(
-                "x".to_string(),
-                Box::new(AstNode::Var("i".to_string())),
-            )),
-            unroll: None,
-        };
+        let loop_node = RangeBuilder::new(
+            "i".to_string(),
+            AstNode::Const(ConstLiteral::Isize(10)),
+            AstNode::Assign("x".to_string(), Box::new(AstNode::Var("i".to_string()))),
+        )
+        .step(AstNode::Const(ConstLiteral::Isize(2)))
+        .build();
 
         let suggestions = suggester.suggest(&loop_node);
         assert_eq!(suggestions.len(), 1);
@@ -205,17 +196,12 @@ mod tests {
         let suggester = LoopUnrollSuggester::new();
 
         // for(i=0; i<100; i++) { ... } - too large to unroll
-        let loop_node = AstNode::Range {
-            counter_name: "i".to_string(),
-            start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
-            max: Box::new(AstNode::Const(ConstLiteral::Isize(100))),
-            step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
-            body: Box::new(AstNode::Assign(
-                "x".to_string(),
-                Box::new(AstNode::Var("i".to_string())),
-            )),
-            unroll: None,
-        };
+        let loop_node = RangeBuilder::new(
+            "i".to_string(),
+            AstNode::Const(ConstLiteral::Isize(100)),
+            AstNode::Assign("x".to_string(), Box::new(AstNode::Var("i".to_string()))),
+        )
+        .build();
 
         let suggestions = suggester.suggest(&loop_node);
         // Should not suggest unrolling for large loops
@@ -227,17 +213,12 @@ mod tests {
         let suggester = LoopUnrollSuggester::new();
 
         // for(i=0; i<n; i++) { ... } - variable bound
-        let loop_node = AstNode::Range {
-            counter_name: "i".to_string(),
-            start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
-            max: Box::new(AstNode::Var("n".to_string())),
-            step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
-            body: Box::new(AstNode::Assign(
-                "x".to_string(),
-                Box::new(AstNode::Var("i".to_string())),
-            )),
-            unroll: None,
-        };
+        let loop_node = RangeBuilder::new(
+            "i".to_string(),
+            AstNode::Var("n".to_string()),
+            AstNode::Assign("x".to_string(), Box::new(AstNode::Var("i".to_string()))),
+        )
+        .build();
 
         let suggestions = suggester.suggest(&loop_node);
         // Should not suggest unrolling for non-constant bounds
@@ -249,17 +230,13 @@ mod tests {
         let suggester = LoopUnrollSuggester::new();
 
         // Loop already has unroll hint
-        let loop_node = AstNode::Range {
-            counter_name: "i".to_string(),
-            start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
-            max: Box::new(AstNode::Const(ConstLiteral::Isize(4))),
-            step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
-            body: Box::new(AstNode::Assign(
-                "x".to_string(),
-                Box::new(AstNode::Var("i".to_string())),
-            )),
-            unroll: Some(4),
-        };
+        let loop_node = RangeBuilder::new(
+            "i".to_string(),
+            AstNode::Const(ConstLiteral::Isize(4)),
+            AstNode::Assign("x".to_string(), Box::new(AstNode::Var("i".to_string()))),
+        )
+        .unroll_by(4)
+        .build();
 
         let suggestions = suggester.suggest(&loop_node);
         // Should not suggest unrolling if already has hint
@@ -271,20 +248,18 @@ mod tests {
         let suggester = LoopUnrollSuggester::new();
 
         // for(i=0; i<3; i++) { y = x + i * 2 }
-        let loop_node = AstNode::Range {
-            counter_name: "i".to_string(),
-            start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
-            max: Box::new(AstNode::Const(ConstLiteral::Isize(3))),
-            step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
-            body: Box::new(AstNode::Assign(
+        let loop_node = RangeBuilder::new(
+            "i".to_string(),
+            AstNode::Const(ConstLiteral::Isize(3)),
+            AstNode::Assign(
                 "y".to_string(),
                 Box::new(
                     AstNode::Var("x".to_string())
                         + AstNode::Var("i".to_string()) * AstNode::Const(ConstLiteral::Isize(2)),
                 ),
-            )),
-            unroll: None,
-        };
+            ),
+        )
+        .build();
 
         let suggestions = suggester.suggest(&loop_node);
         assert_eq!(suggestions.len(), 1);

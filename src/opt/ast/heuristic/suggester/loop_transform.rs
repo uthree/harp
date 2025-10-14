@@ -1,4 +1,5 @@
 use crate::ast::AstNode;
+use crate::ast::RangeBuilder;
 use crate::opt::ast::heuristic::RewriteSuggester;
 
 /// A suggester that proposes equivalent loop transformations.
@@ -83,14 +84,8 @@ impl RewriteSuggester for LoopTransformSuggester {
                             statements: vec![body1.as_ref().clone(), body2.as_ref().clone()],
                         };
 
-                        let fused_loop = AstNode::Range {
-                            counter_name: counter1.clone(),
-                            start: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(0))),
-                            max: max1.clone(),
-                            step: Box::new(AstNode::Const(crate::ast::ConstLiteral::Isize(1))),
-                            body: Box::new(fused_body),
-                            unroll: None,
-                        };
+                        let fused_loop =
+                            RangeBuilder::new(counter1.clone(), *max1.clone(), fused_body).build();
 
                         let mut new_statements = statements.clone();
                         new_statements[i] = fused_loop;

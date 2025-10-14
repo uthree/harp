@@ -1,3 +1,4 @@
+use crate::ast::helper::range;
 use crate::ast::{AstNode, ConstLiteral, DType, VariableDecl};
 use crate::graph::ops::{CumulativeOp, ReduceOp};
 use crate::graph::shape::{view::View, Expr};
@@ -175,13 +176,17 @@ impl LowererUtils {
         body: AstNode,
         unroll: Option<usize>,
     ) -> AstNode {
-        AstNode::Range {
-            counter_name,
-            start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
-            max: Box::new(max),
-            step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
-            body: Box::new(body),
-            unroll,
+        if let Some(unroll_count) = unroll {
+            use crate::ast::RangeBuilder;
+            if unroll_count == 0 {
+                RangeBuilder::new(counter_name, max, body).unroll().build()
+            } else {
+                RangeBuilder::new(counter_name, max, body)
+                    .unroll_by(unroll_count)
+                    .build()
+            }
+        } else {
+            range(counter_name, max, body)
         }
     }
 

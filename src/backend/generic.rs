@@ -383,10 +383,7 @@ where
                     .iter()
                     .map(|f| self.optimize_function(f.clone(), opt_level))
                     .collect();
-                program = AstNode::Program {
-                    functions: optimized_functions,
-                    entry_point: entry_point.clone(),
-                };
+                program = AstNode::program(optimized_functions, entry_point.clone());
             }
         }
 

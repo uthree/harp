@@ -1,4 +1,5 @@
 use crate::ast::AstNode;
+use crate::ast::RangeBuilder;
 use crate::opt::ast::heuristic::RewriteSuggester;
 
 /// A suggester that proposes adding unroll hints to loops.
@@ -31,14 +32,13 @@ impl RewriteSuggester for UnrollHintSuggester {
         {
             // Only suggest if no unroll hint is set
             if unroll.is_none() {
-                suggestions.push(AstNode::Range {
-                    counter_name: counter_name.clone(),
-                    start: start.clone(),
-                    max: max.clone(),
-                    step: step.clone(),
-                    body: body.clone(),
-                    unroll: Some(self.unroll_factor),
-                });
+                suggestions.push(
+                    RangeBuilder::new(counter_name.clone(), *max.clone(), *body.clone())
+                        .start(*start.clone())
+                        .step(*step.clone())
+                        .unroll_by(self.unroll_factor)
+                        .build(),
+                );
             }
         }
 
@@ -66,14 +66,12 @@ mod tests {
     fn test_unroll_hint_suggester() {
         let suggester = UnrollHintSuggester::new(4);
 
-        let loop_node = AstNode::Range {
-            counter_name: "i".to_string(),
-            start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
-            max: Box::new(AstNode::Const(ConstLiteral::Isize(10))),
-            step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
-            body: Box::new(var("x")),
-            unroll: None,
-        };
+        let loop_node = RangeBuilder::new(
+            "i".to_string(),
+            AstNode::Const(ConstLiteral::Isize(10)),
+            var("x"),
+        )
+        .build();
 
         let suggestions = suggester.suggest(&loop_node);
 
@@ -88,14 +86,13 @@ mod tests {
     fn test_no_suggestion_if_already_unrolled() {
         let suggester = UnrollHintSuggester::new(4);
 
-        let loop_node = AstNode::Range {
-            counter_name: "i".to_string(),
-            start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
-            max: Box::new(AstNode::Const(ConstLiteral::Isize(10))),
-            step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
-            body: Box::new(var("x")),
-            unroll: Some(4), // Already has unroll hint
-        };
+        let loop_node = RangeBuilder::new(
+            "i".to_string(),
+            AstNode::Const(ConstLiteral::Isize(10)),
+            var("x"),
+        )
+        .unroll_by(4)
+        .build();
 
         let suggestions = suggester.suggest(&loop_node);
 

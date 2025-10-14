@@ -1,5 +1,6 @@
 use super::Lowerer;
-use crate::ast::{AstNode, ConstLiteral, Scope};
+use crate::ast::helper::{block_with_statements, store};
+use crate::ast::{AstNode, ConstLiteral};
 use crate::graph::shape::view::View;
 use crate::lowerer::utils::LowererUtils;
 
@@ -31,12 +32,7 @@ impl Lowerer {
         );
 
         // Combine init and accumulate in a block
-        AstNode::Block {
-            scope: Scope {
-                declarations: vec![],
-            },
-            statements: vec![init_loop, accum_loop],
-        }
+        block_with_statements(vec![init_loop, accum_loop])
     }
 
     /// Initialize output buffer to zero for fold operation
@@ -51,11 +47,11 @@ impl Lowerer {
             // Initialize to zero
             let result_index =
                 LowererUtils::compute_memory_index(result_strides, result_offset, dim);
-            AstNode::Store {
-                target: Box::new(AstNode::Var(result_var.to_string())),
-                index: Box::new(result_index),
-                value: Box::new(AstNode::Const(ConstLiteral::F32(0.0))),
-            }
+            store(
+                AstNode::Var(result_var.to_string()),
+                result_index,
+                AstNode::Const(ConstLiteral::F32(0.0)),
+            )
         } else {
             let loop_var = format!("ridx{}", dim);
             let inner_body = Self::create_fold_init_loop(result_view, result_var, dim + 1);
@@ -109,18 +105,18 @@ impl Lowerer {
             );
 
             // result[idx] += input[idx]
-            AstNode::Store {
-                target: Box::new(AstNode::Var(result_var.to_string())),
-                index: Box::new(result_index.clone()),
-                value: Box::new(AstNode::Add(
+            store(
+                AstNode::Var(result_var.to_string()),
+                result_index.clone(),
+                AstNode::Add(
                     Box::new(AstNode::Deref(Box::new(
                         AstNode::Var(result_var.to_string()) + result_index,
                     ))),
                     Box::new(AstNode::Deref(Box::new(
                         AstNode::Var(input_var.to_string()) + input_index,
                     ))),
-                )),
-            }
+                ),
+            )
         } else {
             // Generate loop for current dimension
             let loop_var = format!("ridx{}", current_dim);

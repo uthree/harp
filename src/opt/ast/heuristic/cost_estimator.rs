@@ -115,7 +115,7 @@ impl OperationCostEstimator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{ConstLiteral, Scope, VariableDecl};
+    use crate::ast::{ConstLiteral, RangeBuilder, Scope, VariableDecl};
 
     #[test]
     fn test_tiled_loop_cost_is_lower() {
@@ -129,40 +129,36 @@ mod tests {
                 Box::new(AstNode::Var("i".to_string())),
             )),
         );
-        let simple_loop = AstNode::Range {
-            counter_name: "i".to_string(),
-            start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
-            max: Box::new(AstNode::Const(ConstLiteral::Isize(64))),
-            step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
-            body: Box::new(simple_body.clone()),
-            unroll: None,
-        };
+        let simple_loop = RangeBuilder::new(
+            "i".to_string(),
+            AstNode::Const(ConstLiteral::Isize(64)),
+            simple_body.clone(),
+        )
+        .build();
 
         // Tiled loop structure (tile_size=16):
         // main_max = 64 - 64 % 16 = 64
         // for(i_tile_start=0; i_tile_start<64; i_tile_start+=16) {
         //     for(i=i_tile_start; i<i_tile_start+16; i++) { body }
         // }
-        let inner_tiled_loop = AstNode::Range {
-            counter_name: "i".to_string(),
-            start: Box::new(AstNode::Var("i_tile_start".to_string())),
-            max: Box::new(AstNode::Add(
+        let inner_tiled_loop = RangeBuilder::new(
+            "i".to_string(),
+            AstNode::Add(
                 Box::new(AstNode::Var("i_tile_start".to_string())),
                 Box::new(AstNode::Const(ConstLiteral::Isize(16))),
-            )),
-            step: Box::new(AstNode::Const(ConstLiteral::Isize(1))),
-            body: Box::new(simple_body.clone()),
-            unroll: None,
-        };
+            ),
+            simple_body.clone(),
+        )
+        .start(AstNode::Var("i_tile_start".to_string()))
+        .build();
 
-        let main_tiled_loop = AstNode::Range {
-            counter_name: "i_tile_start".to_string(),
-            start: Box::new(AstNode::Const(ConstLiteral::Isize(0))),
-            max: Box::new(AstNode::Var("i_main_max".to_string())),
-            step: Box::new(AstNode::Const(ConstLiteral::Isize(16))),
-            body: Box::new(inner_tiled_loop),
-            unroll: None,
-        };
+        let main_tiled_loop = RangeBuilder::new(
+            "i_tile_start".to_string(),
+            AstNode::Var("i_main_max".to_string()),
+            inner_tiled_loop,
+        )
+        .step(AstNode::Const(ConstLiteral::Isize(16)))
+        .build();
 
         let tiled_block = AstNode::Block {
             scope: Scope {

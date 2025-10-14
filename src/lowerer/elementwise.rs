@@ -1,5 +1,5 @@
 use super::utils::LowererUtils;
-use crate::ast::helper::{eq, less_than, select};
+use crate::ast::helper::{eq, less_than, select, store};
 use crate::ast::{AstNode, VariableDecl};
 use crate::graph::{ops::ElementwiseOp, GraphNode};
 
@@ -242,11 +242,11 @@ impl ElementwiseLowerer {
                 AstNode::Deref(Box::new(AstNode::Var(rhs_var.to_string()) + rhs_index))
             };
 
-            AstNode::Store {
-                target: Box::new(AstNode::Var(result_var.to_string())),
-                index: Box::new(result_index),
-                value: Box::new(op(lhs_value, rhs_value)),
-            }
+            store(
+                AstNode::Var(result_var.to_string()),
+                result_index,
+                op(lhs_value, rhs_value),
+            )
         } else {
             // 再帰的にネストしたループを作成
             let loop_var = format!("ridx{}", dim);
@@ -345,11 +345,11 @@ impl ElementwiseLowerer {
                 ))
             };
 
-            AstNode::Store {
-                target: Box::new(AstNode::Var(result_var.to_string())),
-                index: Box::new(result_index),
-                value: Box::new(op(operand_value)),
-            }
+            store(
+                AstNode::Var(result_var.to_string()),
+                result_index,
+                op(operand_value),
+            )
         } else {
             // 再帰的にネストしたループを作成
             let loop_var = format!("ridx{}", dim);
@@ -481,11 +481,11 @@ impl ElementwiseLowerer {
                 AstNode::Deref(Box::new(AstNode::Var(false_var.to_string()) + false_index))
             };
 
-            AstNode::Store {
-                target: Box::new(AstNode::Var(result_var.to_string())),
-                index: Box::new(result_index),
-                value: Box::new(select(cond_value, true_value, false_value)),
-            }
+            store(
+                AstNode::Var(result_var.to_string()),
+                result_index,
+                select(cond_value, true_value, false_value),
+            )
         } else {
             // 再帰的にネストしたループを作成
             let loop_var = format!("ridx{}", dim);

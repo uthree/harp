@@ -1,4 +1,5 @@
 use super::utils::LowererUtils;
+use crate::ast::helper::{block, store};
 use crate::ast::{AstNode, DType, VariableDecl};
 use crate::graph::{ops::ReduceOp, shape::view::View, GraphNode};
 
@@ -105,11 +106,11 @@ impl ReduceLowerer {
                 ),
             };
 
-            return AstNode::Store {
-                target: Box::new(AstNode::Var(result_var.to_string())),
-                index: Box::new(result_index),
-                value: Box::new(operation_result),
-            };
+            return store(
+                AstNode::Var(result_var.to_string()),
+                result_index,
+                operation_result,
+            );
         }
 
         if dim == reduce_axis {
@@ -143,15 +144,15 @@ impl ReduceLowerer {
                 dim,
                 reduce_axis,
             );
-            let write_back_stmt = AstNode::Store {
-                target: Box::new(AstNode::Var(result_var.to_string())),
-                index: Box::new(result_index),
-                value: Box::new(AstNode::Var(acc_var.clone())),
-            };
+            let write_back_stmt = store(
+                AstNode::Var(result_var.to_string()),
+                result_index,
+                AstNode::Var(acc_var.clone()),
+            );
 
             // アキュムレータ変数の宣言 + 初期化 + 縮約ループ + 書き戻しをブロックにまとめる
-            AstNode::Block {
-                scope: crate::ast::Scope {
+            block(
+                crate::ast::Scope {
                     declarations: vec![VariableDecl {
                         name: acc_var,
                         dtype: result_dtype.clone(),
@@ -159,8 +160,8 @@ impl ReduceLowerer {
                         size_expr: None,
                     }],
                 },
-                statements: vec![init_stmt, reduce_loop, write_back_stmt],
-            }
+                vec![init_stmt, reduce_loop, write_back_stmt],
+            )
         } else {
             // 縮約しない次元: 通常のループ
             let loop_var = format!("ridx{}", dim);
@@ -264,13 +265,13 @@ impl ReduceLowerer {
             let source_index = LowererUtils::compute_memory_index(strides, offset, dim);
             let dest_index = LowererUtils::compute_memory_index(strides, offset, dim);
 
-            AstNode::Store {
-                target: Box::new(AstNode::Var(dest_var.to_string())),
-                index: Box::new(dest_index),
-                value: Box::new(AstNode::Deref(Box::new(
+            store(
+                AstNode::Var(dest_var.to_string()),
+                dest_index,
+                AstNode::Deref(Box::new(
                     AstNode::Var(source_var.to_string()) + source_index,
-                ))),
-            }
+                )),
+            )
         } else {
             // ループを生成
             let loop_var = format!("ridx{}", dim);
