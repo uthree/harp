@@ -223,3 +223,11 @@ pub fn function(
         return_type,
     }
 }
+
+/// Create a Program node
+pub fn program(functions: Vec<AstNode>, entry_point: impl Into<String>) -> AstNode {
+    AstNode::Program {
+        functions,
+        entry_point: entry_point.into(),
+    }
+}

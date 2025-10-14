@@ -10,7 +10,7 @@ mod types;
 mod variable;
 
 // Re-export all public types and structs
-pub use function::{Function, Program};
+pub use function::Program;
 pub use node::AstNode;
 pub use range_builder::RangeBuilder;
 pub use types::{ConstLiteral, DType};
@@ -319,9 +319,7 @@ mod tests {
         );
 
         // Test range builder with full unroll
-        let r3 = range_builder("i", 10isize, var("x"))
-            .unroll()
-            .build();
+        let r3 = range_builder("i", 10isize, var("x")).unroll().build();
         assert_eq!(
             r3,
             AstNode::Range {
@@ -335,9 +333,7 @@ mod tests {
         );
 
         // Test range builder with specific unroll factor
-        let r4 = range_builder("i", 100isize, var("x"))
-            .unroll_by(4)
-            .build();
+        let r4 = range_builder("i", 100isize, var("x")).unroll_by(4).build();
         assert_eq!(
             r4,
             AstNode::Range {

@@ -21,7 +21,11 @@ impl Renderer for CRenderer {
     }
 
     fn render(&mut self, program: Program) -> Self::CodeRepr {
-        let code = self.render_program(&program);
+        let code = if let AstNode::Program { .. } = &program {
+            self.render_program(&program)
+        } else {
+            panic!("Expected Program node, got {:?}", program);
+        };
         debug!("\n--- Rendered C code ---\n{code}\n-----------------------");
         code
     }
@@ -98,8 +102,15 @@ impl CRenderer {
         }
     }
 
-    fn render_program(&mut self, program: &Program) -> String {
+    fn render_program(&mut self, program: &AstNode) -> String {
         let mut buffer = String::new();
+
+        let functions = if let AstNode::Program { functions, .. } = program {
+            functions
+        } else {
+            panic!("Expected Program node, got {:?}", program);
+        };
+
         buffer.push_str("#include <math.h>\n");
         buffer.push_str("#include <stddef.h>\n");
         buffer.push_str("#include <stdint.h>\n");
@@ -108,7 +119,7 @@ impl CRenderer {
         buffer.push('\n');
 
         // Add function prototypes
-        for function_node in program.functions.iter() {
+        for function_node in functions.iter() {
             if let AstNode::Function {
                 name,
                 arguments,
@@ -130,7 +141,7 @@ impl CRenderer {
         }
         buffer.push('\n');
 
-        for function_node in program.functions.iter() {
+        for function_node in functions.iter() {
             write!(buffer, "{}", self.render_node(function_node)).unwrap();
             buffer.push('\n');
         }
@@ -615,7 +626,7 @@ mod tests {
                 Box::new(AstNode::from(1.0f32)),
             )],
         );
-        let program = Program {
+        let program = AstNode::Program {
             functions: vec![func],
             entry_point: "my_func".to_string(),
         };
@@ -678,7 +689,7 @@ void my_func(ssize_t a[10])
                 value: Box::new(AstNode::from(1.0f32)),
             }],
         );
-        let program = Program {
+        let program = AstNode::Program {
             functions: vec![func],
             entry_point: "dynamic_alloc".to_string(),
         };

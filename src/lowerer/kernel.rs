@@ -71,12 +71,8 @@ impl Lowerer {
                 // メモリコピーを生成
                 let output_view = &output_node.view;
                 // シンプルなコピーループを生成
-                let copy_stmt = ReduceLowerer::create_copy_loop(
-                    output_view,
-                    &source_var,
-                    &output_var,
-                    0,
-                );
+                let copy_stmt =
+                    ReduceLowerer::create_copy_loop(output_view, &source_var, &output_var, 0);
                 statements.push(copy_stmt);
             }
         }

@@ -125,15 +125,7 @@ impl ElementwiseLowerer {
             ElementwiseOp::Eq(lhs, rhs) => {
                 let lhs_var = get_var(lhs);
                 let rhs_var = get_var(rhs);
-                Self::create_elementwise_loop(
-                    node,
-                    lhs,
-                    rhs,
-                    &result_var,
-                    &lhs_var,
-                    &rhs_var,
-                    eq,
-                )
+                Self::create_elementwise_loop(node, lhs, rhs, &result_var, &lhs_var, &rhs_var, eq)
             }
             ElementwiseOp::Select(cond, true_val, false_val) => {
                 let cond_var = get_var(cond);

@@ -50,6 +50,7 @@ impl AstNode {
             AstNode::Drop(_) => vec![],
             AstNode::Barrier => vec![],
             AstNode::Function { statements, .. } => statements.iter().collect(),
+            AstNode::Program { functions, .. } => functions.iter().collect(),
             AstNode::Capture(_) => vec![],
             AstNode::Rand => vec![],
         }
@@ -218,6 +219,13 @@ impl AstNode {
                     arguments,
                     return_type,
                     statements,
+                }
+            }
+            AstNode::Program { entry_point, .. } => {
+                let functions = children_iter.collect();
+                AstNode::Program {
+                    functions,
+                    entry_point,
                 }
             }
             // Nodes without children are returned as is (moved).

@@ -312,6 +312,13 @@ impl AstRewriter {
                     self.apply_once(stmt);
                 }
             }
+            AstNode::Program {
+                ref mut functions, ..
+            } => {
+                for func in functions.iter_mut() {
+                    self.apply_once(func);
+                }
+            }
             // Leaf nodes - nothing to do
             AstNode::Const(_)
             | AstNode::Var(_)

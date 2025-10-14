@@ -369,16 +369,25 @@ where
 
         // 3. Optimize the AST program
         if self.enable_optimization {
-            log::debug!(
-                "Applying AST optimizations ({:?}) to {} function(s)",
-                opt_level,
-                program.functions.len()
-            );
-            program.functions = program
-                .functions
-                .into_iter()
-                .map(|f| self.optimize_function(f, opt_level))
-                .collect();
+            if let AstNode::Program {
+                ref functions,
+                ref entry_point,
+            } = program
+            {
+                log::debug!(
+                    "Applying AST optimizations ({:?}) to {} function(s)",
+                    opt_level,
+                    functions.len()
+                );
+                let optimized_functions: Vec<AstNode> = functions
+                    .iter()
+                    .map(|f| self.optimize_function(f.clone(), opt_level))
+                    .collect();
+                program = AstNode::Program {
+                    functions: optimized_functions,
+                    entry_point: entry_point.clone(),
+                };
+            }
         }
 
         // 4. Render the program to code representation

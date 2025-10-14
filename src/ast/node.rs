@@ -81,6 +81,12 @@ pub enum AstNode {
         return_type: DType,
     },
 
+    // Program definition
+    Program {
+        functions: Vec<AstNode>,
+        entry_point: String,
+    },
+
     // for pattern matching
     Capture(usize),
 }

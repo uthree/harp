@@ -96,6 +96,19 @@ pub enum AstNode {
     Barrier,       // 同期バリア（並列実行の世代区切り）
     CallFunction { name: String, args: Vec<Self> },
 
+    // 関数とプログラム定義
+    Function {
+        name: String,
+        scope: Scope,
+        statements: Vec<AstNode>,
+        arguments: Vec<(String, DType)>,
+        return_type: DType,
+    },
+    Program {
+        functions: Vec<AstNode>,  // 各要素はAstNode::Function
+        entry_point: String,
+    },
+
     // パターンマッチング用
     Capture(usize),
 }
@@ -174,10 +187,13 @@ pub struct VariableDecl {
 
 ### Function
 
+Functionは`AstNode`のバリアントとして定義されています。
+
 ```rust
-pub struct Function {
+AstNode::Function {
     name: String,
-    body: AstNode,  // Block型である必要がある
+    scope: Scope,
+    statements: Vec<AstNode>,
     arguments: Vec<(String, DType)>,
     return_type: DType,
 }
@@ -185,9 +201,11 @@ pub struct Function {
 
 ### Program
 
+Programも`AstNode`のバリアントとして定義されています。型エイリアス`Program = AstNode`として利用できます。
+
 ```rust
-pub struct Program {
-    functions: Vec<Function>,
+AstNode::Program {
+    functions: Vec<AstNode>,  // 各要素はAstNode::Function
     entry_point: String,
 }
 ```
@@ -236,6 +254,10 @@ AstNode::range_builder("i", 10isize, body)
 ### ループ
 - `AstNode::range(counter_name, max, body)`: 基本ループ
 - `AstNode::range_builder(...)`: ビルダーパターン
+
+### 関数とプログラム
+- `function(name, arguments, return_type, scope, statements)`: 関数定義
+- `program(functions, entry_point)`: プログラム定義
 
 ### その他
 - `AstNode::call(name, args)`: 関数呼び出し

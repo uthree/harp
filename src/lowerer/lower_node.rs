@@ -74,7 +74,12 @@ impl Lowerer {
                 let input_var = self.get_or_create_var_name(input);
 
                 // 出力ノードの場合は配列を宣言しない
-                LowererUtils::declare_result_variable(&result_var, &node.view, &node.dtype, declarations);
+                LowererUtils::declare_result_variable(
+                    &result_var,
+                    &node.view,
+                    &node.dtype,
+                    declarations,
+                );
 
                 // 入力のview（非連続の可能性あり）と出力のview（連続）を取得
                 let input_view = &input.view;
@@ -98,7 +103,12 @@ impl Lowerer {
                 let input_var = self.get_or_create_var_name(input);
 
                 // 出力ノードの場合は配列を宣言しない
-                LowererUtils::declare_result_variable(&result_var, &node.view, target_dtype, declarations);
+                LowererUtils::declare_result_variable(
+                    &result_var,
+                    &node.view,
+                    target_dtype,
+                    declarations,
+                );
 
                 // キャストループを生成
                 let input_view = &input.view;
@@ -153,7 +163,12 @@ impl Lowerer {
                 let input_var = self.get_or_create_var_name(input);
 
                 // Declare output array if needed
-                LowererUtils::declare_result_variable(&result_var, &node.view, &node.dtype, declarations);
+                LowererUtils::declare_result_variable(
+                    &result_var,
+                    &node.view,
+                    &node.dtype,
+                    declarations,
+                );
 
                 let input_view = &input.view;
                 let result_view = &node.view;

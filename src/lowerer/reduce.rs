@@ -252,12 +252,7 @@ impl ReduceLowerer {
     }
 
     /// コピーループを作成（View操作用）
-    pub fn create_copy_loop(
-        view: &View,
-        source_var: &str,
-        dest_var: &str,
-        dim: usize,
-    ) -> AstNode {
+    pub fn create_copy_loop(view: &View, source_var: &str, dest_var: &str, dim: usize) -> AstNode {
         let View::Linear {
             shape,
             strides,

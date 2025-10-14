@@ -1,4 +1,4 @@
-use crate::ast::Program;
+use crate::ast::{AstNode, Program};
 use crate::graph::{Graph, GraphNode};
 use std::collections::HashMap;
 
@@ -19,7 +19,7 @@ impl Lowerer {
         let kernel_function = self.create_kernel_function(graph);
         let entry_function = self.create_entry_function(graph, &kernel_function);
 
-        Program {
+        AstNode::Program {
             functions: vec![kernel_function, entry_function],
             entry_point: "kernel_main".to_string(),
         }

@@ -189,11 +189,7 @@ impl LowererUtils {
     ///
     /// loop_var: "ridx0", "ridx1" などのループカウンター名
     /// dim_size: その次元のサイズ（Expr）
-    pub fn create_dimension_loop(
-        loop_var: String,
-        dim_size: &Expr,
-        body: AstNode,
-    ) -> AstNode {
+    pub fn create_dimension_loop(loop_var: String, dim_size: &Expr, body: AstNode) -> AstNode {
         let max = Self::shape_expr_to_ast_node(dim_size);
         Self::create_simple_range_loop(loop_var, max, body, None)
     }

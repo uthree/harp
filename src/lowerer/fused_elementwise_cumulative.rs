@@ -118,8 +118,11 @@ impl FusedElementwiseCumulativeLowerer {
             };
 
             // 結果インデックスの計算
-            let result_index =
-                LowererUtils::compute_memory_index(result_strides, result_offset, input_shape.len());
+            let result_index = LowererUtils::compute_memory_index(
+                result_strides,
+                result_offset,
+                input_shape.len(),
+            );
 
             // result[...] = acc
             let write_stmt = AstNode::Store {

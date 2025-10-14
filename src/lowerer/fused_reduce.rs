@@ -293,7 +293,11 @@ impl FusedReduceLowerer {
                     dim + 1,
                 );
 
-                return LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body);
+                return LowererUtils::create_dimension_loop(
+                    loop_var,
+                    &input_shape[dim],
+                    inner_body,
+                );
             }
         }
 
