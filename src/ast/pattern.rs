@@ -320,6 +320,32 @@ impl AstRewriter {
                     self.apply_once(stmt);
                 }
             }
+            AstNode::Kernel {
+                ref mut statements,
+                ref mut global_size,
+                ref mut local_size,
+                ..
+            } => {
+                for stmt in statements.iter_mut() {
+                    self.apply_once(stmt);
+                }
+                for size_expr in global_size.iter_mut().chain(local_size.iter_mut()) {
+                    self.apply_once(size_expr);
+                }
+            }
+            AstNode::CallKernel {
+                ref mut args,
+                ref mut global_size,
+                ref mut local_size,
+                ..
+            } => {
+                for arg in args.iter_mut() {
+                    self.apply_once(arg);
+                }
+                for size_expr in global_size.iter_mut().chain(local_size.iter_mut()) {
+                    self.apply_once(size_expr);
+                }
+            }
             AstNode::Program {
                 ref mut functions, ..
             } => {

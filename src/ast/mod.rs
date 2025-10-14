@@ -10,7 +10,9 @@ mod types;
 // Re-export all public types and structs
 pub use node::AstNode;
 pub use range_builder::RangeBuilder;
-pub use types::{ConstLiteral, DType, Scope, VariableDecl};
+pub use types::{
+    ConstLiteral, DType, KernelScope, Scope, ThreadIdDecl, ThreadIdType, VariableDecl,
+};
 
 #[cfg(test)]
 mod tests {

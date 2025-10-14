@@ -51,6 +51,32 @@ impl AstNode {
             AstNode::Drop(_) => vec![],
             AstNode::Barrier => vec![],
             AstNode::Function { statements, .. } => statements.iter().collect(),
+            AstNode::Kernel {
+                statements,
+                global_size,
+                local_size,
+                ..
+            } => {
+                let mut children: Vec<&AstNode> = statements.iter().collect();
+                // Add grid size expressions as children
+                for size_expr in global_size.iter().chain(local_size.iter()) {
+                    children.push(size_expr.as_ref());
+                }
+                children
+            }
+            AstNode::CallKernel {
+                args,
+                global_size,
+                local_size,
+                ..
+            } => {
+                let mut children: Vec<&AstNode> = args.iter().collect();
+                // Add grid size expressions as children
+                for size_expr in global_size.iter().chain(local_size.iter()) {
+                    children.push(size_expr.as_ref());
+                }
+                children
+            }
             AstNode::Program { functions, .. } => functions.iter().collect(),
             AstNode::Capture(_) => vec![],
             AstNode::Rand => vec![],
@@ -223,6 +249,67 @@ impl AstNode {
                     arguments,
                     return_type,
                     statements,
+                }
+            }
+            AstNode::Kernel {
+                name,
+                scope,
+                arguments,
+                return_type,
+                ..
+            } => {
+                // First N children are statements (where N = original statements count)
+                // Next 6 children are grid size expressions (global_size[3] + local_size[3])
+                let mut all_children: Vec<AstNode> = children_iter.collect();
+                let grid_children = all_children.split_off(all_children.len() - 6);
+                let statements = all_children;
+
+                let mut grid_iter = grid_children.into_iter();
+                let global_size = [
+                    Box::new(grid_iter.next().unwrap()),
+                    Box::new(grid_iter.next().unwrap()),
+                    Box::new(grid_iter.next().unwrap()),
+                ];
+                let local_size = [
+                    Box::new(grid_iter.next().unwrap()),
+                    Box::new(grid_iter.next().unwrap()),
+                    Box::new(grid_iter.next().unwrap()),
+                ];
+
+                AstNode::Kernel {
+                    name,
+                    scope,
+                    arguments,
+                    return_type,
+                    statements,
+                    global_size,
+                    local_size,
+                }
+            }
+            AstNode::CallKernel { name, .. } => {
+                // First N children are args (where N = original args count)
+                // Next 6 children are grid size expressions (global_size[3] + local_size[3])
+                let mut all_children: Vec<AstNode> = children_iter.collect();
+                let grid_children = all_children.split_off(all_children.len() - 6);
+                let args = all_children;
+
+                let mut grid_iter = grid_children.into_iter();
+                let global_size = [
+                    Box::new(grid_iter.next().unwrap()),
+                    Box::new(grid_iter.next().unwrap()),
+                    Box::new(grid_iter.next().unwrap()),
+                ];
+                let local_size = [
+                    Box::new(grid_iter.next().unwrap()),
+                    Box::new(grid_iter.next().unwrap()),
+                    Box::new(grid_iter.next().unwrap()),
+                ];
+
+                AstNode::CallKernel {
+                    name,
+                    args,
+                    global_size,
+                    local_size,
                 }
             }
             AstNode::Program { entry_point, .. } => {

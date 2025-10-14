@@ -1,4 +1,6 @@
-use super::{AstNode, ConstLiteral, DType, RangeBuilder, Scope};
+use super::{
+    AstNode, ConstLiteral, DType, KernelScope, RangeBuilder, Scope, ThreadIdDecl, ThreadIdType,
+};
 
 // Convenience constructors for common variants
 
@@ -254,4 +256,54 @@ pub fn function(
 /// Create a Program node
 pub fn program(functions: Vec<AstNode>, entry_point: impl Into<String>) -> AstNode {
     AstNode::program(functions, entry_point)
+}
+
+/// Create a Kernel node
+pub fn kernel(
+    name: impl Into<String>,
+    arguments: Vec<(String, DType)>,
+    return_type: DType,
+    scope: KernelScope,
+    statements: Vec<AstNode>,
+    global_size: [Box<AstNode>; 3],
+    local_size: [Box<AstNode>; 3],
+) -> AstNode {
+    AstNode::kernel(
+        name,
+        arguments,
+        return_type,
+        scope,
+        statements,
+        global_size,
+        local_size,
+    )
+}
+
+/// Create a CallKernel node
+pub fn call_kernel(
+    name: impl Into<String>,
+    args: Vec<AstNode>,
+    global_size: [Box<AstNode>; 3],
+    local_size: [Box<AstNode>; 3],
+) -> AstNode {
+    AstNode::call_kernel(name, args, global_size, local_size)
+}
+
+/// Create a ThreadIdDecl (3-dimensional vector variable)
+pub fn thread_id_decl(name: impl Into<String>, id_type: ThreadIdType) -> ThreadIdDecl {
+    ThreadIdDecl {
+        name: name.into(),
+        id_type,
+    }
+}
+
+/// Create a KernelScope with thread IDs and regular variables
+pub fn kernel_scope(
+    thread_ids: Vec<ThreadIdDecl>,
+    declarations: Vec<super::VariableDecl>,
+) -> KernelScope {
+    KernelScope {
+        thread_ids,
+        declarations,
+    }
 }

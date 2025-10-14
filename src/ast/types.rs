@@ -76,3 +76,63 @@ pub struct VariableDecl {
 pub struct Scope {
     pub declarations: Vec<VariableDecl>,
 }
+
+/// Type of thread ID variable for GPU parallelization
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ThreadIdType {
+    GlobalId, // Global thread ID (across all work groups)
+    LocalId,  // Local thread ID (within a work group)
+    GroupId,  // Work group ID
+}
+
+/// Thread ID variable declaration for GPU kernels
+/// Thread IDs are 3-dimensional vectors (accessed as array[0..2] for x,y,z)
+#[derive(Debug, Clone, PartialEq)]
+pub struct ThreadIdDecl {
+    pub name: String,
+    pub id_type: ThreadIdType,
+}
+
+/// Kernel scope containing both regular variables and thread ID declarations
+#[derive(Debug, Clone, PartialEq)]
+pub struct KernelScope {
+    pub declarations: Vec<VariableDecl>,
+    pub thread_ids: Vec<ThreadIdDecl>,
+}
+
+impl KernelScope {
+    /// Create a new empty kernel scope
+    pub fn new() -> Self {
+        Self {
+            declarations: Vec::new(),
+            thread_ids: Vec::new(),
+        }
+    }
+
+    /// Get thread ID variable name by type
+    pub fn get_thread_id_name(&self, id_type: &ThreadIdType) -> Option<&str> {
+        self.thread_ids
+            .iter()
+            .find(|decl| decl.id_type == *id_type)
+            .map(|decl| decl.name.as_str())
+    }
+
+    /// Check if a name conflicts with any thread ID or regular variable
+    pub fn has_name_conflict(&self, name: &str) -> bool {
+        self.thread_ids.iter().any(|decl| decl.name == name)
+            || self.declarations.iter().any(|decl| decl.name == name)
+    }
+
+    /// Get all thread ID variable names
+    pub fn all_thread_id_names(&self) -> Vec<&str> {
+        self.thread_ids
+            .iter()
+            .map(|decl| decl.name.as_str())
+            .collect()
+    }
+
+    /// Get the data type for a thread ID (always Vec<Usize, 3>)
+    pub fn get_thread_id_dtype() -> DType {
+        DType::Vec(Box::new(DType::Usize), 3)
+    }
+}
