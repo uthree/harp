@@ -1,14 +1,13 @@
 use crate::ast::{AstNode, ConstLiteral};
 use crate::opt::ast::heuristic::RewriteSuggester;
 
-/// A suggester that converts multiplication by power-of-two constants to bit shifts.
-/// This optimization is beneficial because bit shifts are generally faster than multiplication.
+/// A suggester that converts multiplication and division by power-of-two constants to bit shifts.
+/// This optimization is beneficial because bit shifts are generally faster than multiplication/division.
 ///
 /// Examples:
-/// - `x * 2` -> `x << 1`
-/// - `x * 4` -> `x << 2`
-/// - `x * 8` -> `x << 3`
-/// - `2 * x` -> `x << 1` (commutative)
+/// - Multiplication: `x * 2` -> `x << 1`, `x * 4` -> `x << 2`
+/// - Division: `x / 2` -> `x >> 1`, `x / 4` -> `x >> 2`
+/// - Division is represented as `Mul(x, Recip(constant))` in the AST
 pub struct PowerOfTwoSuggester;
 
 impl PowerOfTwoSuggester {
@@ -74,6 +73,59 @@ impl RewriteSuggester for PowerOfTwoSuggester {
                         right.clone(),
                         Box::new(AstNode::Const(ConstLiteral::Usize(shift_amount))),
                     ));
+                }
+            }
+
+            // Case 5: Division by power of 2 - x * Recip(constant) where constant is power of 2
+            // This represents x / constant, which becomes x >> log2(constant)
+            if let AstNode::Recip(recip_inner) = &**right {
+                // Check if the reciprocal is of a power-of-2 constant (Isize)
+                if let AstNode::Const(ConstLiteral::Isize(val)) = **recip_inner {
+                    if let Some(shift_amount) = Self::log2_if_power_of_two(val) {
+                        // x * Recip(2^n) -> x >> n (i.e., x / 2^n -> x >> n)
+                        suggestions.push(AstNode::Shr(
+                            left.clone(),
+                            Box::new(AstNode::Const(ConstLiteral::Isize(shift_amount))),
+                        ));
+                    }
+                }
+
+                // Check if the reciprocal is of a power-of-2 constant (Usize)
+                if let AstNode::Const(ConstLiteral::Usize(val)) = **recip_inner {
+                    if val > 0 && val.count_ones() == 1 {
+                        let shift_amount = val.trailing_zeros() as usize;
+                        // x * Recip(2^n) -> x >> n (i.e., x / 2^n -> x >> n)
+                        suggestions.push(AstNode::Shr(
+                            left.clone(),
+                            Box::new(AstNode::Const(ConstLiteral::Usize(shift_amount))),
+                        ));
+                    }
+                }
+            }
+
+            // Case 6: Division by power of 2 - Recip(constant) * x (commutative)
+            if let AstNode::Recip(recip_inner) = &**left {
+                // Check if the reciprocal is of a power-of-2 constant (Isize)
+                if let AstNode::Const(ConstLiteral::Isize(val)) = **recip_inner {
+                    if let Some(shift_amount) = Self::log2_if_power_of_two(val) {
+                        // Recip(2^n) * x -> x >> n (i.e., x / 2^n -> x >> n)
+                        suggestions.push(AstNode::Shr(
+                            right.clone(),
+                            Box::new(AstNode::Const(ConstLiteral::Isize(shift_amount))),
+                        ));
+                    }
+                }
+
+                // Check if the reciprocal is of a power-of-2 constant (Usize)
+                if let AstNode::Const(ConstLiteral::Usize(val)) = **recip_inner {
+                    if val > 0 && val.count_ones() == 1 {
+                        let shift_amount = val.trailing_zeros() as usize;
+                        // Recip(2^n) * x -> x >> n (i.e., x / 2^n -> x >> n)
+                        suggestions.push(AstNode::Shr(
+                            right.clone(),
+                            Box::new(AstNode::Const(ConstLiteral::Usize(shift_amount))),
+                        ));
+                    }
                 }
             }
         }
@@ -240,6 +292,135 @@ mod tests {
         assert!(suggestions.contains(&AstNode::Shl(
             Box::new(sum),
             Box::new(AstNode::Const(ConstLiteral::Isize(2)))
+        )));
+    }
+
+    #[test]
+    fn test_power_of_two_division_isize() {
+        let suggester = PowerOfTwoSuggester;
+
+        // x / 2 (represented as x * Recip(2)) -> x >> 1
+        let x = AstNode::Var("x".to_string());
+        let ast = AstNode::Mul(
+            Box::new(x.clone()),
+            Box::new(AstNode::Recip(Box::new(AstNode::Const(
+                ConstLiteral::Isize(2),
+            )))),
+        );
+        let suggestions = suggester.suggest(&ast);
+        assert!(suggestions.contains(&AstNode::Shr(
+            Box::new(x.clone()),
+            Box::new(AstNode::Const(ConstLiteral::Isize(1)))
+        )));
+
+        // x / 4 -> x >> 2
+        let ast = AstNode::Mul(
+            Box::new(x.clone()),
+            Box::new(AstNode::Recip(Box::new(AstNode::Const(
+                ConstLiteral::Isize(4),
+            )))),
+        );
+        let suggestions = suggester.suggest(&ast);
+        assert!(suggestions.contains(&AstNode::Shr(
+            Box::new(x.clone()),
+            Box::new(AstNode::Const(ConstLiteral::Isize(2)))
+        )));
+
+        // x / 8 -> x >> 3
+        let ast = AstNode::Mul(
+            Box::new(x.clone()),
+            Box::new(AstNode::Recip(Box::new(AstNode::Const(
+                ConstLiteral::Isize(8),
+            )))),
+        );
+        let suggestions = suggester.suggest(&ast);
+        assert!(suggestions.contains(&AstNode::Shr(
+            Box::new(x.clone()),
+            Box::new(AstNode::Const(ConstLiteral::Isize(3)))
+        )));
+    }
+
+    #[test]
+    fn test_commutative_power_of_two_division() {
+        let suggester = PowerOfTwoSuggester;
+
+        // Recip(2) * x -> x >> 1 (commutative case)
+        let x = AstNode::Var("x".to_string());
+        let ast = AstNode::Mul(
+            Box::new(AstNode::Recip(Box::new(AstNode::Const(
+                ConstLiteral::Isize(2),
+            )))),
+            Box::new(x.clone()),
+        );
+        let suggestions = suggester.suggest(&ast);
+        assert!(suggestions.contains(&AstNode::Shr(
+            Box::new(x.clone()),
+            Box::new(AstNode::Const(ConstLiteral::Isize(1)))
+        )));
+    }
+
+    #[test]
+    fn test_usize_power_of_two_division() {
+        let suggester = PowerOfTwoSuggester;
+
+        // x / 16usize -> x >> 4
+        let x = AstNode::Var("x".to_string());
+        let ast = AstNode::Mul(
+            Box::new(x.clone()),
+            Box::new(AstNode::Recip(Box::new(AstNode::Const(
+                ConstLiteral::Usize(16),
+            )))),
+        );
+        let suggestions = suggester.suggest(&ast);
+        assert!(suggestions.contains(&AstNode::Shr(
+            Box::new(x.clone()),
+            Box::new(AstNode::Const(ConstLiteral::Usize(4)))
+        )));
+    }
+
+    #[test]
+    fn test_non_power_of_two_division_no_suggestion() {
+        let suggester = PowerOfTwoSuggester;
+
+        // x / 3 (not a power of 2, should not suggest shift)
+        let x = AstNode::Var("x".to_string());
+        let ast = AstNode::Mul(
+            Box::new(x.clone()),
+            Box::new(AstNode::Recip(Box::new(AstNode::Const(
+                ConstLiteral::Isize(3),
+            )))),
+        );
+        let suggestions = suggester.suggest(&ast);
+        // Should have no suggestions for the top-level node
+        assert!(suggestions.is_empty());
+
+        // x / 5
+        let ast = AstNode::Mul(
+            Box::new(x.clone()),
+            Box::new(AstNode::Recip(Box::new(AstNode::Const(
+                ConstLiteral::Isize(5),
+            )))),
+        );
+        let suggestions = suggester.suggest(&ast);
+        assert!(suggestions.is_empty());
+    }
+
+    #[test]
+    fn test_large_power_of_two_division() {
+        let suggester = PowerOfTwoSuggester;
+
+        // x / 1024 -> x >> 10
+        let x = AstNode::Var("x".to_string());
+        let ast = AstNode::Mul(
+            Box::new(x.clone()),
+            Box::new(AstNode::Recip(Box::new(AstNode::Const(
+                ConstLiteral::Isize(1024),
+            )))),
+        );
+        let suggestions = suggester.suggest(&ast);
+        assert!(suggestions.contains(&AstNode::Shr(
+            Box::new(x.clone()),
+            Box::new(AstNode::Const(ConstLiteral::Isize(10)))
         )));
     }
 }
