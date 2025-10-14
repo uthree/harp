@@ -1,19 +1,16 @@
 pub mod helper;
 pub mod pattern;
 
-mod function;
 mod node;
 mod ops;
 mod range_builder;
 mod transform;
 mod types;
-mod variable;
 
 // Re-export all public types and structs
 pub use node::AstNode;
 pub use range_builder::RangeBuilder;
-pub use types::{ConstLiteral, DType};
-pub use variable::{Scope, VariableDecl};
+pub use types::{ConstLiteral, DType, Scope, VariableDecl};
 
 #[cfg(test)]
 mod tests {

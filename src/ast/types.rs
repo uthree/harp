@@ -1,3 +1,4 @@
+use super::AstNode;
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Default, Eq, Hash)]
@@ -59,4 +60,19 @@ impl std::hash::Hash for ConstLiteral {
             }
         }
     }
+}
+
+/// Variable declaration in a scope
+#[derive(Debug, Clone, PartialEq)]
+pub struct VariableDecl {
+    pub name: String,
+    pub dtype: DType,
+    pub constant: bool,
+    pub size_expr: Option<Box<AstNode>>, // For dynamic arrays, the size expression
+}
+
+/// Scope containing variable declarations
+#[derive(Debug, Clone, PartialEq)]
+pub struct Scope {
+    pub declarations: Vec<VariableDecl>,
 }
