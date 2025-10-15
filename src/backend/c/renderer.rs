@@ -1,13 +1,23 @@
 use crate::{
-    ast::{AstNode, ConstLiteral, DType, Scope, VariableDecl},
-    backend::Renderer,
+    ast::{AstNode, ConstLiteral, DType},
+    backend::{c_like::CLikeRenderer, c_like::MemoryConfig, Renderer},
 };
 use log::debug;
 use std::fmt::Write;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct CRenderer {
     indent_level: usize,
+    memory_config: MemoryConfig,
+}
+
+impl Default for CRenderer {
+    fn default() -> Self {
+        Self {
+            indent_level: 0,
+            memory_config: MemoryConfig::default(),
+        }
+    }
 }
 
 impl Renderer for CRenderer {
@@ -31,565 +41,45 @@ impl Renderer for CRenderer {
     }
 }
 
-impl CRenderer {
-    /// Get the precedence level of an operator.
-    /// Higher number = higher precedence (binds tighter).
-    fn precedence(node: &AstNode) -> u8 {
-        match node {
-            // Highest precedence: atoms and function calls
-            AstNode::Const(_) | AstNode::Var(_) | AstNode::CallFunction { .. } => 100,
-
-            // Unary operators
-            AstNode::Neg(_)
-            | AstNode::Recip(_)
-            | AstNode::Sin(_)
-            | AstNode::Sqrt(_)
-            | AstNode::Log2(_)
-            | AstNode::Exp2(_)
-            | AstNode::Load { .. }
-            | AstNode::Cast { .. } => 90,
-
-            // Multiplicative operators
-            AstNode::Mul(_, _) | AstNode::Rem(_, _) => 80,
-
-            // Additive operators
-            AstNode::Add(_, _) => 70,
-
-            // Shift operators
-            AstNode::Shl(_, _) | AstNode::Shr(_, _) => 60,
-
-            // Comparison operators
-            AstNode::LessThan(_, _) | AstNode::Eq(_, _) => 55,
-
-            // Bitwise AND
-            AstNode::BitAnd(_, _) => 50,
-
-            // Bitwise XOR
-            AstNode::BitXor(_, _) => 40,
-
-            // Bitwise OR
-            AstNode::BitOr(_, _) => 30,
-
-            // Ternary/Select operator
-            AstNode::Select { .. } => 20,
-
-            // Everything else (statements, etc.)
-            _ => 0,
-        }
+impl CLikeRenderer for CRenderer {
+    fn indent_level(&self) -> usize {
+        self.indent_level
     }
 
-    /// Render a node with parentheses if needed based on precedence.
-    fn render_with_parens(
-        &mut self,
-        node: &AstNode,
-        parent_precedence: u8,
-        is_rhs: bool,
-    ) -> String {
-        let node_precedence = Self::precedence(node);
-        let needs_parens = if is_rhs {
-            // Right side needs parens if precedence is lower or equal (for left-associative ops)
-            node_precedence <= parent_precedence && parent_precedence > 0
-        } else {
-            // Left side needs parens only if precedence is strictly lower
-            node_precedence < parent_precedence && parent_precedence > 0
-        };
-
-        let rendered = self.render_node(node);
-        if needs_parens && !matches!(node, AstNode::Const(_) | AstNode::Var(_)) {
-            format!("({})", rendered)
-        } else {
-            rendered
-        }
+    fn set_indent_level(&mut self, level: usize) {
+        self.indent_level = level;
     }
 
-    fn render_program(&mut self, program: &AstNode) -> String {
+    fn memory_config(&self) -> &MemoryConfig {
+        &self.memory_config
+    }
+
+    fn render_includes(&self) -> String {
         let mut buffer = String::new();
-
-        let functions = if let AstNode::Program { functions, .. } = program {
-            functions
-        } else {
-            panic!("Expected Program node, got {:?}", program);
-        };
-
         buffer.push_str("#include <math.h>\n");
         buffer.push_str("#include <stddef.h>\n");
         buffer.push_str("#include <stdint.h>\n");
         buffer.push_str("#include <stdlib.h>\n");
         buffer.push_str("#include <sys/types.h>\n"); // for ssize_t
         buffer.push('\n');
-
-        // Add function prototypes
-        for function_node in functions.iter() {
-            if let AstNode::Function {
-                name,
-                arguments,
-                return_type,
-                ..
-            } = function_node
-            {
-                let (ret_type, _) = Self::render_dtype_recursive(return_type);
-                let args = arguments
-                    .iter()
-                    .map(|(arg_name, dtype)| {
-                        let (base_type, array_dims) = Self::render_dtype_recursive(dtype);
-                        format!("{} {}{}", base_type, arg_name, array_dims)
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                writeln!(buffer, "{} {}({});", ret_type, name, args).unwrap();
-            }
-        }
-        buffer.push('\n');
-
-        for function_node in functions.iter() {
-            write!(buffer, "{}", self.render_node(function_node)).unwrap();
-            buffer.push('\n');
-        }
         buffer
     }
 
-    fn render_scope(&mut self, scope: &Scope, statements: &[AstNode]) -> String {
-        let mut buffer = String::new();
-        //self.render_indent(&mut buffer);
-        self.indent_level += 1;
-        writeln!(buffer, "{{").unwrap();
-
-        // Track variables that need to be freed
-        let mut malloc_vars = Vec::new();
-
-        // Render declarations
-        for decl in &scope.declarations {
-            self.render_indent(&mut buffer);
-            let decl_str = self.render_variable_decl(decl);
-            writeln!(buffer, "{};", decl_str).unwrap();
-
-            // For dynamic arrays (pointers with size_expr), emit malloc call
-            if let Some(size_expr) = &decl.size_expr {
-                if let DType::Ptr(inner) = &decl.dtype {
-                    self.render_indent(&mut buffer);
-                    let base_type = Self::render_scalar_dtype(inner);
-                    let size_code = self.render_node(size_expr);
-                    writeln!(
-                        buffer,
-                        "{} = ({}*)malloc(sizeof({}) * ({}));",
-                        decl.name, base_type, base_type, size_code
-                    )
-                    .unwrap();
-                    // Track this variable for cleanup
-                    malloc_vars.push(decl.name.clone());
-                }
-            }
-        }
-
-        // Render statements
-        for stmt in statements {
-            self.render_indent(&mut buffer);
-            writeln!(buffer, "{};", self.render_node(stmt)).unwrap();
-        }
-
-        // Free dynamically allocated memory before closing scope
-        if !malloc_vars.is_empty() {
-            for var_name in malloc_vars {
-                self.render_indent(&mut buffer);
-                writeln!(buffer, "free({});", var_name).unwrap();
-            }
-        }
-
-        self.indent_level -= 1;
-        self.render_indent(&mut buffer);
-        write!(buffer, "}}").unwrap();
-        buffer
-    }
-
-    fn render_variable_decl(&mut self, decl: &VariableDecl) -> String {
-        let mut buffer = String::new();
-        if decl.constant {
-            write!(buffer, "const ").unwrap();
-        }
-        let (base_type, array_dims) = Self::render_dtype_recursive(&decl.dtype);
-        write!(buffer, "{} {}{}", base_type, decl.name, array_dims).unwrap();
-        buffer
-    }
-
-    fn render_node(&mut self, node: &AstNode) -> String {
-        let mut buffer = String::new();
-        match node {
-            AstNode::Const(c) => write!(buffer, "{}", self.render_const(c)).unwrap(),
-            AstNode::Var(s) => write!(buffer, "{}", s).unwrap(),
-            AstNode::Add(lhs, rhs) => {
-                let prec = Self::precedence(node);
-                match &**rhs {
-                    AstNode::Neg(negv) => {
-                        // a + (-b) => a - b
-                        write!(
-                            buffer,
-                            "{} - {}",
-                            self.render_with_parens(lhs, prec, false),
-                            self.render_with_parens(negv, prec, true)
-                        )
-                        .unwrap()
-                    }
-                    _ => write!(
-                        buffer,
-                        "{} + {}",
-                        self.render_with_parens(lhs, prec, false),
-                        self.render_with_parens(rhs, prec, true)
-                    )
-                    .unwrap(),
-                }
-            }
-            AstNode::Mul(lhs, rhs) => {
-                let prec = Self::precedence(node);
-                match &**rhs {
-                    AstNode::Recip(recipv) => {
-                        // a * recip(b) => a / b
-                        write!(
-                            buffer,
-                            "{} / {}",
-                            self.render_with_parens(lhs, prec, false),
-                            self.render_with_parens(recipv, prec, true)
-                        )
-                        .unwrap()
-                    }
-                    _ => write!(
-                        buffer,
-                        "{} * {}",
-                        self.render_with_parens(lhs, prec, false),
-                        self.render_with_parens(rhs, prec, true)
-                    )
-                    .unwrap(),
-                }
-            }
-            AstNode::Rem(lhs, rhs) => {
-                let prec = Self::precedence(node);
-                write!(
-                    buffer,
-                    "{} % {}",
-                    self.render_with_parens(lhs, prec, false),
-                    self.render_with_parens(rhs, prec, true)
-                )
-                .unwrap()
-            }
-            AstNode::BitAnd(lhs, rhs) => {
-                let prec = Self::precedence(node);
-                write!(
-                    buffer,
-                    "{} & {}",
-                    self.render_with_parens(lhs, prec, false),
-                    self.render_with_parens(rhs, prec, true)
-                )
-                .unwrap()
-            }
-            AstNode::BitOr(lhs, rhs) => {
-                let prec = Self::precedence(node);
-                write!(
-                    buffer,
-                    "{} | {}",
-                    self.render_with_parens(lhs, prec, false),
-                    self.render_with_parens(rhs, prec, true)
-                )
-                .unwrap()
-            }
-            AstNode::BitXor(lhs, rhs) => {
-                let prec = Self::precedence(node);
-                write!(
-                    buffer,
-                    "{} ^ {}",
-                    self.render_with_parens(lhs, prec, false),
-                    self.render_with_parens(rhs, prec, true)
-                )
-                .unwrap()
-            }
-            AstNode::Shl(lhs, rhs) => {
-                let prec = Self::precedence(node);
-                write!(
-                    buffer,
-                    "{} << {}",
-                    self.render_with_parens(lhs, prec, false),
-                    self.render_with_parens(rhs, prec, true)
-                )
-                .unwrap()
-            }
-            AstNode::Shr(lhs, rhs) => {
-                let prec = Self::precedence(node);
-                write!(
-                    buffer,
-                    "{} >> {}",
-                    self.render_with_parens(lhs, prec, false),
-                    self.render_with_parens(rhs, prec, true)
-                )
-                .unwrap()
-            }
-            AstNode::Max(lhs, rhs) => write!(
-                buffer,
-                "fmax({}, {})",
-                self.render_node(lhs),
-                self.render_node(rhs)
-            )
-            .unwrap(),
-            AstNode::Assign(var_name, rhs) => {
-                write!(buffer, "{} = {}", var_name, self.render_node(rhs)).unwrap();
-            }
-            AstNode::Load {
-                target,
-                index,
-                vector_width,
-            } => {
-                let target_str = self.render_node(target);
-                let index_str = self.render_node(index);
-                match vector_width {
-                    1 => {
-                        // Scalar load: *(ptr + index)
-                        write!(buffer, "*({} + {})", target_str, index_str).unwrap();
-                    }
-                    2 | 4 | 8 | 16 => {
-                        // Vector load: *((float4*)(ptr + index))
-                        write!(
-                            buffer,
-                            "*((float{}*)({} + {}))",
-                            vector_width, target_str, index_str
-                        )
-                        .unwrap();
-                    }
-                    _ => panic!("Unsupported vector width: {}", vector_width),
-                }
-            }
-            AstNode::Store {
-                target,
-                index,
-                value,
-                vector_width,
-            } => {
-                let target_str = self.render_node(target);
-                let index_str = self.render_node(index);
-                let value_str = self.render_node(value);
-                match vector_width {
-                    1 => {
-                        // Scalar store: *(ptr + index) = value
-                        write!(buffer, "*({} + {}) = {}", target_str, index_str, value_str)
-                            .unwrap();
-                    }
-                    2 | 4 | 8 | 16 => {
-                        // Vector store: *((float4*)(ptr + index)) = value
-                        write!(
-                            buffer,
-                            "*((float{}*)({} + {})) = {}",
-                            vector_width, target_str, index_str, value_str
-                        )
-                        .unwrap();
-                    }
-                    _ => panic!("Unsupported vector width: {}", vector_width),
-                }
-            }
-            AstNode::Neg(v) => {
-                let prec = Self::precedence(node);
-                write!(buffer, "-{}", self.render_with_parens(v, prec, false)).unwrap()
-            }
-            AstNode::BitNot(v) => {
-                let prec = Self::precedence(node);
-                write!(buffer, "~{}", self.render_with_parens(v, prec, false)).unwrap()
-            }
-            AstNode::Recip(v) => write!(buffer, "(1 / {})", self.render_node(v)).unwrap(),
-            AstNode::Sin(v) => write!(buffer, "sin({})", self.render_node(v)).unwrap(),
-            AstNode::Sqrt(v) => write!(buffer, "sqrt({})", self.render_node(v)).unwrap(),
-            AstNode::Log2(v) => write!(buffer, "log2({})", self.render_node(v)).unwrap(),
-            AstNode::Exp2(v) => write!(buffer, "exp2({})", self.render_node(v)).unwrap(),
-            AstNode::Range {
-                counter_name,
-                start,
-                max,
-                step,
-                body,
-                unroll,
-            } => {
-                let start_str = self.render_node(start);
-                let max_str = self.render_node(max);
-                let step_str = self.render_node(step);
-
-                // Generate #pragma unroll if requested
-                if let Some(factor) = unroll {
-                    if *factor == 0 {
-                        // Full unroll
-                        writeln!(buffer, "#pragma unroll").unwrap();
-                    } else {
-                        // Partial unroll with factor
-                        writeln!(buffer, "#pragma unroll {}", factor).unwrap();
-                    }
-                    self.render_indent(&mut buffer);
-                }
-
-                // Generate: for (size_t i = start; i < max; i += step)
-                writeln!(
-                    buffer,
-                    "for (size_t {counter_name} = {start_str}; {counter_name} < {max_str}; {counter_name} += {step_str})"
-                )
-                .unwrap();
-
-                match *body.as_ref() {
-                    AstNode::Block { .. } => {
-                        self.render_indent(&mut buffer);
-                        write!(buffer, "{}", self.render_node(body.as_ref())).unwrap();
-                    }
-                    _ => {
-                        self.indent_level += 1;
-                        self.render_indent(&mut buffer);
-                        write!(buffer, "{}", self.render_node(body)).unwrap();
-                        self.indent_level -= 1;
-                    }
-                }
-            }
-            AstNode::Block { scope, statements } => {
-                write!(buffer, "{}", self.render_scope(scope, statements)).unwrap();
-            }
-            AstNode::Cast { dtype, expr } => {
-                let (base_type, dims) = Self::render_dtype_recursive(dtype);
-                // Cでは配列型へのキャストはポインタ型へのキャストとして書く
-                let type_str = if !dims.is_empty() {
-                    format!("{}*", base_type)
+    fn render_scalar_dtype(&self, dtype: &DType) -> String {
+        match dtype {
+            DType::F32 => "float".to_string(),
+            DType::Isize => "ssize_t".to_string(),
+            DType::Usize => "size_t".to_string(),
+            DType::Bool => "int".to_string(),
+            DType::Void => "void".to_string(),
+            DType::Ptr(inner) => {
+                if let DType::Void = **inner {
+                    "void*".to_string()
                 } else {
-                    base_type
-                };
-                write!(buffer, "({}){}", type_str, self.render_node(expr)).unwrap();
-            }
-            AstNode::LessThan(lhs, rhs) => {
-                let prec = Self::precedence(node);
-                write!(
-                    buffer,
-                    "{} < {}",
-                    self.render_with_parens(lhs, prec, false),
-                    self.render_with_parens(rhs, prec, true)
-                )
-                .unwrap();
-            }
-            AstNode::Eq(lhs, rhs) => {
-                let prec = Self::precedence(node);
-                write!(
-                    buffer,
-                    "{} == {}",
-                    self.render_with_parens(lhs, prec, false),
-                    self.render_with_parens(rhs, prec, true)
-                )
-                .unwrap();
-            }
-            AstNode::Select {
-                cond,
-                true_val,
-                false_val,
-            } => {
-                // Render as C ternary operator: cond ? true_val : false_val
-                write!(
-                    buffer,
-                    "{} ? {} : {}",
-                    self.render_node(cond),
-                    self.render_node(true_val),
-                    self.render_node(false_val)
-                )
-                .unwrap();
-            }
-            AstNode::CallFunction { name, args } => {
-                let args_str = args
-                    .iter()
-                    .map(|arg| self.render_node(arg))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(buffer, "{}({})", name, args_str).unwrap();
-            }
-
-            AstNode::Barrier => {
-                // Synchronization barrier for parallel execution
-                // Currently rendered as a comment for future parallel backend support
-                write!(buffer, "/* BARRIER */").unwrap();
-            }
-
-            AstNode::If {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                // Render if statement
-                let cond_str = self.render_node(condition);
-                write!(buffer, "if ({})", cond_str).unwrap();
-
-                // Render then branch
-                match then_branch.as_ref() {
-                    AstNode::Block { .. } => {
-                        write!(buffer, " ").unwrap();
-                        write!(buffer, "{}", self.render_node(then_branch)).unwrap();
-                    }
-                    _ => {
-                        writeln!(buffer).unwrap();
-                        self.indent_level += 1;
-                        self.render_indent(&mut buffer);
-                        write!(buffer, "{};", self.render_node(then_branch)).unwrap();
-                        self.indent_level -= 1;
-                    }
-                }
-
-                // Render else branch if present
-                if let Some(else_br) = else_branch {
-                    match then_branch.as_ref() {
-                        AstNode::Block { .. } => {
-                            write!(buffer, " else").unwrap();
-                        }
-                        _ => {
-                            writeln!(buffer).unwrap();
-                            self.render_indent(&mut buffer);
-                            write!(buffer, "else").unwrap();
-                        }
-                    }
-
-                    match else_br.as_ref() {
-                        AstNode::Block { .. } => {
-                            write!(buffer, " ").unwrap();
-                            write!(buffer, "{}", self.render_node(else_br)).unwrap();
-                        }
-                        AstNode::If { .. } => {
-                            // else if case
-                            write!(buffer, " ").unwrap();
-                            write!(buffer, "{}", self.render_node(else_br)).unwrap();
-                        }
-                        _ => {
-                            writeln!(buffer).unwrap();
-                            self.indent_level += 1;
-                            self.render_indent(&mut buffer);
-                            write!(buffer, "{};", self.render_node(else_br)).unwrap();
-                            self.indent_level -= 1;
-                        }
-                    }
+                    format!("{}*", self.render_scalar_dtype(inner))
                 }
             }
-
-            AstNode::Function {
-                name,
-                scope,
-                statements,
-                arguments,
-                return_type,
-            } => {
-                // Render function signature
-                let (ret_type, _) = Self::render_dtype_recursive(return_type);
-                let args_str = arguments
-                    .iter()
-                    .map(|(arg_name, dtype)| {
-                        let (base_type, array_dims) = Self::render_dtype_recursive(dtype);
-                        format!("{} {}{}", base_type, arg_name, array_dims)
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                writeln!(buffer, "{} {}({})", ret_type, name, args_str).unwrap();
-
-                // Render function body
-                write!(buffer, "{}", self.render_scope(scope, statements)).unwrap();
-            }
-
-            node => todo!("render_node for {:?}", node),
-        }
-        buffer
-    }
-
-    fn render_indent(&self, buffer: &mut String) {
-        for _ in 0..self.indent_level {
-            buffer.push('\t');
+            _ => unimplemented!("Unsupported scalar dtype: {:?}", dtype),
         }
     }
 
@@ -614,45 +104,50 @@ impl CRenderer {
             Bool(v) => format!("{}", if *v { 1 } else { 0 }),
         }
     }
+}
 
-    fn render_scalar_dtype(dtype: &DType) -> String {
-        match dtype {
-            DType::F32 => "float".to_string(),
-            DType::Isize => "ssize_t".to_string(),
-            DType::Usize => "size_t".to_string(),
-            DType::Bool => "int".to_string(),
-            DType::Void => "void".to_string(),
-            DType::Ptr(inner) => {
-                if let DType::Void = **inner {
-                    // void* の特殊ケース
-                    "void*".to_string()
-                } else {
-                    // 基本的には再帰しないが、void**のようなケースのため
-                    format!("{}*", Self::render_scalar_dtype(inner))
-                }
-            }
-            _ => unimplemented!("Unsupported scalar dtype: {:?}", dtype),
-        }
-    }
+impl CRenderer {
+    fn render_program(&mut self, program: &AstNode) -> String {
+        let mut buffer = String::new();
 
-    // Returns (base_type, array_dims)
-    fn render_dtype_recursive(dtype: &DType) -> (String, String) {
-        match dtype {
-            DType::Ptr(inner) => {
-                let (base, dims) = Self::render_dtype_recursive(inner);
-                // void** のような多重ポインタを扱う
-                if base.ends_with('*') || dims.is_empty() {
-                    (format!("{}*", base), dims)
-                } else {
-                    (base, format!("(*{}){}", "", dims))
-                }
+        let functions = if let AstNode::Program { functions, .. } = program {
+            functions
+        } else {
+            panic!("Expected Program node, got {:?}", program);
+        };
+
+        // Render includes
+        buffer.push_str(&self.render_includes());
+
+        // Add function prototypes
+        for function_node in functions.iter() {
+            if let AstNode::Function {
+                name,
+                arguments,
+                return_type,
+                ..
+            } = function_node
+            {
+                let (ret_type, _) = self.render_dtype_recursive(return_type);
+                let args = arguments
+                    .iter()
+                    .map(|(arg_name, dtype)| {
+                        let (base_type, array_dims) = self.render_dtype_recursive(dtype);
+                        format!("{} {}{}", base_type, arg_name, array_dims)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                writeln!(buffer, "{} {}({});", ret_type, name, args).unwrap();
             }
-            DType::Vec(inner, size) => {
-                let (base, dims) = Self::render_dtype_recursive(inner);
-                (base, format!("{}{}[{}]", dims, "", size))
-            }
-            _ => (Self::render_scalar_dtype(dtype), "".to_string()),
         }
+        buffer.push('\n');
+
+        // Render function definitions
+        for function_node in functions.iter() {
+            write!(buffer, "{}", self.render_node(function_node)).unwrap();
+            buffer.push('\n');
+        }
+        buffer
     }
 }
 

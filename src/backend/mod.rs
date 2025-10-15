@@ -2,6 +2,8 @@ use crate::ast::{AstNode, DType};
 use crate::graph::Graph;
 use crate::graph::GraphSignature;
 
+pub mod c_like;
+
 #[cfg(feature = "backend-c")]
 pub mod c;
 #[cfg(feature = "backend-c")]
