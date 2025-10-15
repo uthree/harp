@@ -74,12 +74,17 @@ pub enum AstNode {
         statements: Vec<AstNode>,
     },
     Assign(String, Box<Self>),  // 変数への代入
+    Load {
+        target: Box<Self>,
+        index: Box<Self>,
+        vector_width: usize,  // ベクトル幅（1 = スカラー）
+    },  // メモリからの読み込み (target[index])
     Store {
         target: Box<Self>,
         index: Box<Self>,
         value: Box<Self>,
+        vector_width: usize,  // ベクトル幅（1 = スカラー）
     },  // メモリへの書き込み (target[index] = value)
-    Deref(Box<Self>),  // ポインタの参照外し (*expr)
 
     // ループ
     Range {
@@ -89,6 +94,13 @@ pub enum AstNode {
         step: Box<Self>,
         body: Box<Self>,
         unroll: Option<usize>,  // アンロールヒント
+    },
+
+    // 条件分岐
+    If {
+        condition: Box<Self>,      // Bool型の条件式
+        then_branch: Box<Self>,    // 条件が真の場合に実行
+        else_branch: Option<Box<Self>>,  // 条件が偽の場合に実行（オプション）
     },
 
     // その他
@@ -104,8 +116,23 @@ pub enum AstNode {
         arguments: Vec<(String, DType)>,
         return_type: DType,
     },
+    Kernel {
+        name: String,
+        scope: KernelScope,        // カーネル専用スコープ（スレッドID変数を含む）
+        statements: Vec<AstNode>,
+        arguments: Vec<(String, DType)>,
+        return_type: DType,
+        global_size: [Box<AstNode>; 3],  // グローバルワークサイズ（3次元）
+        local_size: [Box<AstNode>; 3],   // ローカルワークサイズ（3次元）
+    },
+    CallKernel {
+        name: String,
+        args: Vec<Self>,
+        global_size: [Box<AstNode>; 3],
+        local_size: [Box<AstNode>; 3],
+    },
     Program {
-        functions: Vec<AstNode>,  // 各要素はAstNode::Function
+        functions: Vec<AstNode>,  // 各要素はAstNode::FunctionまたはAstNode::Kernel
         entry_point: String,
     },
 
@@ -166,9 +193,50 @@ pub enum ConstLiteral {
 
 ### Scope
 
+関数のスコープを表します。
+
 ```rust
 pub struct Scope {
     pub declarations: Vec<VariableDecl>,
+}
+```
+
+### KernelScope
+
+カーネル（GPU関数）のスコープを表します。通常の変数宣言に加えて、スレッドID変数を含みます。
+
+```rust
+pub struct KernelScope {
+    pub declarations: Vec<VariableDecl>,
+    pub thread_ids: Vec<ThreadIdDecl>,
+}
+```
+
+### ThreadIdDecl
+
+GPUスレッドIDを表す3次元ベクトル変数の宣言。
+
+```rust
+pub struct ThreadIdDecl {
+    pub name: String,
+    pub id_type: ThreadIdType,
+}
+
+pub enum ThreadIdType {
+    GlobalId,   // グローバルスレッドID
+    LocalId,    // ローカル（ワークグループ内）スレッドID
+    GroupId,    // ワークグループID
+}
+```
+
+**使用例:**
+```rust
+// グローバルスレッドIDの取得
+// size_t global_id[3] = get_global_id();
+// size_t i = global_id[0];
+ThreadIdDecl {
+    name: "global_id".to_string(),
+    id_type: ThreadIdType::GlobalId,
 }
 ```
 
@@ -249,11 +317,15 @@ AstNode::range_builder("i", 10isize, body)
 
 ### 文
 - `AstNode::assign(var_name, value)`: 代入
-- `AstNode::store(target, index, value)`: メモリ書き込み
-- `AstNode::deref(expr)`: 参照外し
+- `AstNode::load(target, index)`: メモリ読み込み（スカラー）
+- `AstNode::load_vec(target, index, vector_width)`: ベクトルメモリ読み込み
+- `AstNode::store(target, index, value)`: メモリ書き込み（スカラー）
+- `AstNode::store_vec(target, index, value, vector_width)`: ベクトルメモリ書き込み
 - `AstNode::drop(var_name)`: 変数削除
 
-### ブロック
+### 制御構造
+- `AstNode::if_then(condition, then_branch)`: if文
+- `AstNode::if_then_else(condition, then_branch, else_branch)`: if-else文
 - `AstNode::block(scope, statements)`: スコープ付きブロック
 - `AstNode::block_with_statements(statements)`: 空スコープのブロック
 
@@ -263,9 +335,15 @@ AstNode::range_builder("i", 10isize, body)
 
 ### 関数とプログラム
 - `AstNode::function(name, arguments, return_type, scope, statements)`: 関数定義
+- `AstNode::kernel(name, arguments, return_type, scope, statements, global_size, local_size)`: カーネル定義
+- `AstNode::call_kernel(name, args, global_size, local_size)`: カーネル呼び出し
 - `AstNode::program(functions, entry_point)`: プログラム定義
 - `function(name, arguments, return_type, scope, statements)`: 関数定義（ヘルパー関数）
+- `kernel(name, arguments, return_type, scope, statements, global_size, local_size)`: カーネル定義（ヘルパー関数）
+- `call_kernel(name, args, global_size, local_size)`: カーネル呼び出し（ヘルパー関数）
 - `program(functions, entry_point)`: プログラム定義（ヘルパー関数）
+- `thread_id_decl(name, id_type)`: スレッドID変数宣言
+- `kernel_scope(thread_ids, declarations)`: カーネルスコープ作成
 
 ### その他
 - `AstNode::call(name, args)`: 関数呼び出し

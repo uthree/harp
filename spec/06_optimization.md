@@ -269,8 +269,133 @@ pub fn estimate_cost(ast: &AstNode) -> usize {
 **unroll_hint.rs - アンロールヒント**
 - `#pragma unroll`の挿入を提案
 
+**loop_extraction.rs - ループ抽出**
+- ループを別の関数に抽出
+- GPU並列化の前処理として使用
+
+**kernelize.rs - カーネル化**
+- 関数をGPUカーネルに変換
+- スレッドID変数を含むKernelScopeを生成
+
+**parallelize.rs - GPU並列化**
+- ループをGPUスレッドで並列実行
+- 境界チェック（`if (i < n)`）の自動挿入
+
 **rule_based.rs - ルールベース最適化**
 - 定義済みのルールセットを適用
+
+### GPU並列化パイプライン
+
+GPU並列化は3段階のパイプラインで実行されます:
+
+**1. ループ抽出 (Loop Extraction)**
+```rust
+// 変換前
+fn main() {
+    for i in 0..n {
+        output[i] = input[i] * 2.0;
+    }
+}
+
+// 変換後
+fn extracted_loop(output, input, n) {
+    for i in 0..n {
+        output[i] = input[i] * 2.0;
+    }
+}
+
+fn main() {
+    extracted_loop(output, input, n);
+}
+```
+
+**2. カーネル化 (Kernelization)**
+```rust
+// 変換前: Function
+fn extracted_loop(output, input, n) { ... }
+
+// 変換後: Kernel
+kernel extracted_loop_kernel(output, input, n) { ... }
+```
+
+**3. 並列化 (Parallelization)**
+```rust
+// 変換前
+kernel my_kernel(output, input, n) {
+    for i in 0..n {
+        output[i] = input[i] * 2.0;
+    }
+}
+
+// 変換後
+kernel my_kernel(output, input, n) {
+    size_t global_id[3] = get_global_id();
+    size_t i = global_id[0];
+    if (i < n) {
+        output[i] = input[i] * 2.0;
+    }
+}
+```
+
+### analysis/ - 並列化可能性分析
+
+GPU並列化の安全性を保証するための分析ツール。
+
+**index_analysis.rs - インデックスパターン解析**
+```rust
+pub enum IndexPattern {
+    Identity,              // a[i]
+    Offset(isize),        // a[i + 5]
+    Scaled(isize),        // a[i * 2]
+    ScaledOffset(isize, isize), // a[i * 2 + 3]
+    Constant(isize),      // a[42]
+    Complex,              // その他
+}
+```
+
+インデックスパターンの分離性判定:
+- `Identity` vs `Identity`: 競合あり（同じインデックス）
+- `Identity` vs `Offset(k)`: 分離（k ≠ 0）
+- `Scaled(2)` vs `Scaled(2) + Offset(1)`: 分離（奇数と偶数）
+
+**memory_access.rs - メモリアクセス分析**
+
+ループ内のメモリアクセスパターンを収集:
+```rust
+pub struct MemoryAccess {
+    pub variable: String,
+    pub index: Box<AstNode>,
+    pub is_write: bool,
+}
+```
+
+**parallelizable.rs - 並列化可能性判定**
+```rust
+pub enum ParallelizabilityResult {
+    Safe,                    // 並列化安全
+    UnsafeReadWrite(String), // Read-Write競合
+    UnsafeWriteWrite(String),// Write-Write競合
+}
+
+pub fn is_loop_parallelizable(
+    body: &AstNode,
+    counter_name: &str,
+) -> ParallelizabilityResult
+```
+
+**並列化安全条件:**
+1. 異なるイテレーション間でRead-Write競合がない
+2. 異なるイテレーション間でWrite-Write競合がない
+3. インデックスパターンが分離可能
+
+**variable_usage.rs - 変数使用分析**
+
+ASTサブツリー内で使用される変数を収集:
+```rust
+pub fn collect_used_variables(node: &AstNode) -> HashSet<String>
+```
+
+ループ抽出時に必要な引数を決定するために使用。
 
 ## 最適化の適用順序
 

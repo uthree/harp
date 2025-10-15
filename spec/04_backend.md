@@ -88,6 +88,60 @@ pub trait Backend {
 }
 ```
 
+## C言語系レンダラーの共通化
+
+### CLikeRenderer trait
+
+C、CUDA、Metal、OpenCLなど、C言語に近い構文を持つ言語のレンダラーで共通化できるロジックを抽象化したtrait。
+
+**定義場所:** `src/backend/c_like.rs`
+
+**提供機能:**
+- 演算子の優先順位処理
+- 二項演算子・単項演算子のレンダリング
+- 制御構文（if, for, block）のレンダリング
+- 関数定義のレンダリング
+- インデント管理
+- 型の再帰的レンダリング
+- スコープとメモリ管理
+
+**カスタマイズポイント（言語固有の実装）:**
+```rust
+pub trait CLikeRenderer {
+    // インデント管理
+    fn indent_level(&self) -> usize;
+    fn set_indent_level(&mut self, level: usize);
+    fn memory_config(&self) -> &MemoryConfig;
+
+    // 言語固有のカスタマイズ
+    fn render_includes(&self) -> String;
+    fn render_scalar_dtype(&self, dtype: &DType) -> String;
+    fn render_const(&self, c: &ConstLiteral) -> String;
+    fn render_math_function(&mut self, name: &str, args: Vec<String>) -> String;
+    fn render_barrier(&self) -> String;
+
+    // 共通実装（デフォルト実装を提供）
+    fn precedence(&self, node: &AstNode) -> u8 { ... }
+    fn render_with_parens(&mut self, node: &AstNode, ...) -> String { ... }
+    fn render_node(&mut self, node: &AstNode) -> String { ... }
+    // ... その他多数
+}
+```
+
+**メモリ管理設定:**
+```rust
+pub struct MemoryConfig {
+    pub alloc_fn: String,      // 例: "malloc", "cudaMalloc"
+    pub dealloc_fn: String,    // 例: "free", "cudaFree"
+    pub needs_cast: bool,      // 割り当て結果をキャストするか
+}
+```
+
+**利点:**
+1. 新しいレンダラー（CUDA、Metal等）の実装が容易
+2. コードの重複を削減（約700行の共通ロジック）
+3. バグ修正や機能追加が全レンダラーに反映される
+
 ## Cバックエンド実装
 
 ### CBackend
@@ -95,7 +149,7 @@ pub trait Backend {
 C言語をターゲットとするバックエンド。
 
 **構成要素:**
-- CRenderer: ASTからC言語コードを生成
+- CRenderer: ASTからC言語コードを生成（CLikeRendererを実装）
 - CCompiler: C言語コードをコンパイルして動的ライブラリを生成
 - CBuffer: libc経由のメモリ管理
 
@@ -120,12 +174,35 @@ pub struct CBuffer {
 
 ### CRenderer
 
-ASTをC言語コードに変換。
+ASTをC言語コードに変換。`CLikeRenderer` traitを実装。
+
+**実装内容:**
+- `CLikeRenderer`の共通ロジックを利用
+- C言語固有の部分のみを実装（約380行）
+
+**C言語固有の実装:**
+```rust
+impl CLikeRenderer for CRenderer {
+    fn render_includes(&self) -> String {
+        // #include <math.h>, <stddef.h>, etc.
+    }
+
+    fn render_scalar_dtype(&self, dtype: &DType) -> String {
+        // float, size_t, ssize_t, int, void
+    }
+
+    fn render_const(&self, c: &ConstLiteral) -> String {
+        // INFINITY, NAN, 整数リテラル
+    }
+}
+```
 
 **生成されるコード:**
 - 関数定義
+- カーネル定義（将来的にOpenCLカーネルにも対応予定）
 - 変数宣言
-- ループ構造
+- ループ構造（for）
+- 条件分岐（if-else）
 - 算術演算
 - メモリアクセス
 
