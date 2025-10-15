@@ -1,4 +1,5 @@
 use crate::ast::{pattern::AstRewriter, AstNode};
+pub mod analysis;
 pub mod constant_folding;
 pub mod heuristic;
 pub mod simplify;
