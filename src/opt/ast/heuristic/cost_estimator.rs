@@ -98,7 +98,75 @@ impl CostEstimator for OperationCostEstimator {
             AstNode::Max(_, _) => 1e-9 + self.estimate_cost_children(ast),
             AstNode::Store { .. } => 2e-9 + self.estimate_cost_children(ast),
             AstNode::Load { .. } => 5e-9 + self.estimate_cost_children(ast),
-            _ => 1e-9 + self.estimate_cost_children(ast),
+
+            // Comparison and conditional operations
+            AstNode::LessThan(_, _) => 1e-9 + self.estimate_cost_children(ast),
+            AstNode::Eq(_, _) => 1e-9 + self.estimate_cost_children(ast),
+            AstNode::Select { .. } => 1e-9 + self.estimate_cost_children(ast),
+            AstNode::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                // If statement cost = condition cost + average of branches
+                // We use average because we don't know which branch will be taken at compile time
+                let cond_cost = self.estimate_cost(condition);
+                let then_cost = self.estimate_cost(then_branch);
+                let else_cost = else_branch
+                    .as_ref()
+                    .map(|e| self.estimate_cost(e))
+                    .unwrap_or(0.0);
+                1e-9 + cond_cost + (then_cost + else_cost) * 0.5
+            }
+
+            // Bitwise operations
+            AstNode::BitAnd(_, _) => 1e-9 + self.estimate_cost_children(ast),
+            AstNode::BitOr(_, _) => 1e-9 + self.estimate_cost_children(ast),
+            AstNode::BitXor(_, _) => 1e-9 + self.estimate_cost_children(ast),
+            AstNode::Shl(_, _) => 1e-9 + self.estimate_cost_children(ast),
+            AstNode::Shr(_, _) => 1e-9 + self.estimate_cost_children(ast),
+            AstNode::BitNot(_) => 1e-9 + self.estimate_cost_children(ast),
+
+            // Type conversion
+            AstNode::Cast { .. } => 1e-9 + self.estimate_cost_children(ast),
+
+            // Random number generation (expensive)
+            AstNode::Rand => 2e-8,
+
+            // Barrier (synchronization overhead)
+            AstNode::Barrier => 1e-7,
+
+            // Function and kernel operations
+            AstNode::CallFunction { args, .. } => {
+                // Function call overhead + argument evaluation costs
+                let args_cost: f32 = args.iter().map(|arg| self.estimate_cost(arg)).sum();
+                1e-7 + args_cost
+            }
+            AstNode::Function { statements, .. } => {
+                // Function definition itself has no runtime cost, only the statements inside
+                statements.iter().map(|stmt| self.estimate_cost(stmt)).sum()
+            }
+            AstNode::Kernel { statements, .. } => {
+                // Kernel definition has higher overhead due to launch costs
+                let body_cost: f32 = statements.iter().map(|stmt| self.estimate_cost(stmt)).sum();
+                1e-6 + body_cost // Kernel launch overhead
+            }
+            AstNode::CallKernel { args, .. } => {
+                // Kernel call has significant overhead
+                let args_cost: f32 = args.iter().map(|arg| self.estimate_cost(arg)).sum();
+                1e-6 + args_cost // Kernel launch overhead
+            }
+            AstNode::Program { functions, .. } => {
+                // Program cost is sum of all functions
+                functions.iter().map(|func| self.estimate_cost(func)).sum()
+            }
+
+            // Memory management
+            AstNode::Assign(_, _) => 1e-9 + self.estimate_cost_children(ast),
+            AstNode::Drop(_) => 1e-9, // Negligible cost
+
+            // Pattern matching (should not appear in runtime code)
+            AstNode::Capture(_) => 0.0,
         }
     }
 }
@@ -187,6 +255,158 @@ mod tests {
             "Tiled loop cost ({}) should be lower than simple loop cost ({})",
             tiled_cost,
             simple_cost
+        );
+    }
+
+    #[test]
+    fn test_if_statement_cost() {
+        use crate::ast::helper::*;
+        let estimator = OperationCostEstimator;
+
+        // Simple if without else: if (i < n) x = 1;
+        let if_stmt = if_then(
+            AstNode::LessThan(
+                Box::new(AstNode::Var("i".to_string())),
+                Box::new(AstNode::Var("n".to_string())),
+            ),
+            AstNode::Assign("x".to_string(), Box::new(AstNode::from(1_isize))),
+        );
+
+        let cost = estimator.estimate_cost(&if_stmt);
+        assert!(cost > 0.0, "If statement should have non-zero cost");
+
+        // If with else should have higher cost than simple if
+        let if_else_stmt = if_then_else(
+            AstNode::LessThan(
+                Box::new(AstNode::Var("i".to_string())),
+                Box::new(AstNode::Var("n".to_string())),
+            ),
+            AstNode::Assign("x".to_string(), Box::new(AstNode::from(1_isize))),
+            AstNode::Assign("x".to_string(), Box::new(AstNode::from(0_isize))),
+        );
+
+        let cost_with_else = estimator.estimate_cost(&if_else_stmt);
+        assert!(
+            cost_with_else > cost,
+            "If-else should have higher cost than simple if"
+        );
+    }
+
+    #[test]
+    fn test_kernel_operations_cost() {
+        use crate::ast::helper::*;
+        let estimator = OperationCostEstimator;
+
+        // Kernel call should have higher cost than function call
+        let func_call = AstNode::CallFunction {
+            name: "my_func".to_string(),
+            args: vec![AstNode::Var("a".to_string())],
+        };
+
+        let kernel_call = call_kernel(
+            "my_kernel".to_string(),
+            vec![AstNode::Var("a".to_string())],
+            [
+                Box::new(AstNode::from(100_usize)),
+                Box::new(AstNode::from(1_usize)),
+                Box::new(AstNode::from(1_usize)),
+            ],
+            [
+                Box::new(AstNode::from(1_usize)),
+                Box::new(AstNode::from(1_usize)),
+                Box::new(AstNode::from(1_usize)),
+            ],
+        );
+
+        let func_cost = estimator.estimate_cost(&func_call);
+        let kernel_cost = estimator.estimate_cost(&kernel_call);
+
+        assert!(
+            kernel_cost > func_cost,
+            "Kernel call ({}) should have higher cost than function call ({}) due to launch overhead",
+            kernel_cost,
+            func_cost
+        );
+    }
+
+    #[test]
+    fn test_bitwise_operations_cost() {
+        let estimator = OperationCostEstimator;
+
+        let bitwise_ops = vec![
+            AstNode::BitAnd(
+                Box::new(AstNode::Var("a".to_string())),
+                Box::new(AstNode::Var("b".to_string())),
+            ),
+            AstNode::BitOr(
+                Box::new(AstNode::Var("a".to_string())),
+                Box::new(AstNode::Var("b".to_string())),
+            ),
+            AstNode::BitXor(
+                Box::new(AstNode::Var("a".to_string())),
+                Box::new(AstNode::Var("b".to_string())),
+            ),
+            AstNode::Shl(
+                Box::new(AstNode::Var("a".to_string())),
+                Box::new(AstNode::from(2_usize)),
+            ),
+            AstNode::Shr(
+                Box::new(AstNode::Var("a".to_string())),
+                Box::new(AstNode::from(2_usize)),
+            ),
+            AstNode::BitNot(Box::new(AstNode::Var("a".to_string()))),
+        ];
+
+        for op in bitwise_ops {
+            let cost = estimator.estimate_cost(&op);
+            assert!(
+                cost > 0.0,
+                "Bitwise operation {:?} should have non-zero cost",
+                op
+            );
+        }
+    }
+
+    #[test]
+    fn test_comparison_operations_cost() {
+        let estimator = OperationCostEstimator;
+
+        let less_than = AstNode::LessThan(
+            Box::new(AstNode::Var("a".to_string())),
+            Box::new(AstNode::Var("b".to_string())),
+        );
+
+        let eq = AstNode::Eq(
+            Box::new(AstNode::Var("a".to_string())),
+            Box::new(AstNode::Var("b".to_string())),
+        );
+
+        assert!(
+            estimator.estimate_cost(&less_than) > 0.0,
+            "LessThan should have non-zero cost"
+        );
+        assert!(
+            estimator.estimate_cost(&eq) > 0.0,
+            "Eq should have non-zero cost"
+        );
+    }
+
+    #[test]
+    fn test_barrier_cost() {
+        let estimator = OperationCostEstimator;
+        let barrier = AstNode::Barrier;
+
+        let barrier_cost = estimator.estimate_cost(&barrier);
+        let simple_op_cost = estimator.estimate_cost(&AstNode::Add(
+            Box::new(AstNode::Var("a".to_string())),
+            Box::new(AstNode::Var("b".to_string())),
+        ));
+
+        assert!(
+            barrier_cost > simple_op_cost,
+            "Barrier ({}) should have higher cost than simple operation ({}) due to synchronization overhead",
+            barrier_cost,
+            simple_op_cost
         );
     }
 }

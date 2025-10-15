@@ -406,8 +406,12 @@ pub trait CLikeRenderer {
             AstNode::Max(lhs, rhs) => {
                 let arg1 = self.render_node(lhs);
                 let arg2 = self.render_node(rhs);
-                write!(buffer, "{}", self.render_math_function("fmax", vec![arg1, arg2]))
-                    .unwrap()
+                write!(
+                    buffer,
+                    "{}",
+                    self.render_math_function("fmax", vec![arg1, arg2])
+                )
+                .unwrap()
             }
 
             // Assignment

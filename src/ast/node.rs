@@ -74,8 +74,8 @@ pub enum AstNode {
     },
 
     If {
-        condition: Box<Self>,       // Bool型の条件式
-        then_branch: Box<Self>,     // 条件が真の場合に実行
+        condition: Box<Self>,           // Bool型の条件式
+        then_branch: Box<Self>,         // 条件が真の場合に実行
         else_branch: Option<Box<Self>>, // 条件が偽の場合に実行（オプション）
     },
 
