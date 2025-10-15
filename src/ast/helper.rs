@@ -224,6 +224,28 @@ pub fn block_with_statements(statements: Vec<AstNode>) -> AstNode {
     }
 }
 
+/// Create an if node
+pub fn if_then(condition: impl Into<AstNode>, then_branch: impl Into<AstNode>) -> AstNode {
+    AstNode::If {
+        condition: Box::new(condition.into()),
+        then_branch: Box::new(then_branch.into()),
+        else_branch: None,
+    }
+}
+
+/// Create an if-else node
+pub fn if_then_else(
+    condition: impl Into<AstNode>,
+    then_branch: impl Into<AstNode>,
+    else_branch: impl Into<AstNode>,
+) -> AstNode {
+    AstNode::If {
+        condition: Box::new(condition.into()),
+        then_branch: Box::new(then_branch.into()),
+        else_branch: Some(Box::new(else_branch.into())),
+    }
+}
+
 /// Helper to create a Range with default start=0 and step=1
 pub fn range(
     counter_name: impl Into<String>,

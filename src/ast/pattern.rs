@@ -301,6 +301,17 @@ impl AstRewriter {
                 self.apply_once(step);
                 self.apply_once(body);
             }
+            AstNode::If {
+                ref mut condition,
+                ref mut then_branch,
+                ref mut else_branch,
+            } => {
+                self.apply_once(condition);
+                self.apply_once(then_branch);
+                if let Some(ref mut else_br) = else_branch {
+                    self.apply_once(else_br);
+                }
+            }
             AstNode::Block {
                 ref mut statements, ..
             } => {

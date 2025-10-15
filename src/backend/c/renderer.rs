@@ -501,6 +501,64 @@ impl CRenderer {
                 write!(buffer, "/* BARRIER */").unwrap();
             }
 
+            AstNode::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                // Render if statement
+                let cond_str = self.render_node(condition);
+                write!(buffer, "if ({})", cond_str).unwrap();
+
+                // Render then branch
+                match then_branch.as_ref() {
+                    AstNode::Block { .. } => {
+                        write!(buffer, " ").unwrap();
+                        write!(buffer, "{}", self.render_node(then_branch)).unwrap();
+                    }
+                    _ => {
+                        writeln!(buffer).unwrap();
+                        self.indent_level += 1;
+                        self.render_indent(&mut buffer);
+                        write!(buffer, "{};", self.render_node(then_branch)).unwrap();
+                        self.indent_level -= 1;
+                    }
+                }
+
+                // Render else branch if present
+                if let Some(else_br) = else_branch {
+                    match then_branch.as_ref() {
+                        AstNode::Block { .. } => {
+                            write!(buffer, " else").unwrap();
+                        }
+                        _ => {
+                            writeln!(buffer).unwrap();
+                            self.render_indent(&mut buffer);
+                            write!(buffer, "else").unwrap();
+                        }
+                    }
+
+                    match else_br.as_ref() {
+                        AstNode::Block { .. } => {
+                            write!(buffer, " ").unwrap();
+                            write!(buffer, "{}", self.render_node(else_br)).unwrap();
+                        }
+                        AstNode::If { .. } => {
+                            // else if case
+                            write!(buffer, " ").unwrap();
+                            write!(buffer, "{}", self.render_node(else_br)).unwrap();
+                        }
+                        _ => {
+                            writeln!(buffer).unwrap();
+                            self.indent_level += 1;
+                            self.render_indent(&mut buffer);
+                            write!(buffer, "{};", self.render_node(else_br)).unwrap();
+                            self.indent_level -= 1;
+                        }
+                    }
+                }
+            }
+
             AstNode::Function {
                 name,
                 scope,
@@ -629,6 +687,9 @@ mod tests {
     // Accessors
     #[case(AstNode::Load { target: Box::new(var("a")), index: Box::new(var("i")), vector_width: 1 }, "*(a + i)")]
     #[case(AstNode::CallFunction { name: "my_func".to_string(), args: vec![var("a"), 2_isize.into()] }, "my_func(a, 2)")]
+    // Comparisons
+    #[case(AstNode::LessThan(Box::new(var("a")), Box::new(var("b"))), "a < b")]
+    #[case(AstNode::Eq(Box::new(var("a")), Box::new(var("b"))), "a == b")]
     // Others
     #[case(AstNode::Assign("a".to_string(), Box::new(var("b"))), "a = b")]
     #[case(AstNode::Store { target: Box::new(var("arr")), index: Box::new(var("i")), value: Box::new(var("x")), vector_width: 1 }, "*(arr + i) = x")]
@@ -740,5 +801,82 @@ void dynamic_alloc(size_t n)
 "###;
         let mut renderer = CRenderer::new();
         assert_eq!(renderer.render(program), expected);
+    }
+
+    #[test]
+    fn test_render_if_statement() {
+        use crate::ast::helper::*;
+
+        // Test simple if without else
+        let if_stmt = if_then(
+            AstNode::LessThan(Box::new(var("i")), Box::new(var("n"))),
+            AstNode::Assign("x".to_string(), Box::new(AstNode::from(1_isize))),
+        );
+        let expected = r###"if (i < n)
+	x = 1;"###;
+        let mut renderer = CRenderer::new();
+        assert_eq!(renderer.render_node(&if_stmt), expected);
+    }
+
+    #[test]
+    fn test_render_if_else_statement() {
+        use crate::ast::helper::*;
+
+        // Test if-else
+        let if_stmt = if_then_else(
+            AstNode::LessThan(Box::new(var("i")), Box::new(var("n"))),
+            AstNode::Assign("x".to_string(), Box::new(AstNode::from(1_isize))),
+            AstNode::Assign("x".to_string(), Box::new(AstNode::from(0_isize))),
+        );
+        let expected = r###"if (i < n)
+	x = 1;
+else
+	x = 0;"###;
+        let mut renderer = CRenderer::new();
+        assert_eq!(renderer.render_node(&if_stmt), expected);
+    }
+
+    #[test]
+    fn test_render_if_with_block() {
+        use crate::ast::helper::*;
+
+        // Test if with block
+        let if_stmt = if_then(
+            AstNode::LessThan(Box::new(var("i")), Box::new(var("n"))),
+            block_with_statements(vec![
+                AstNode::Assign("x".to_string(), Box::new(AstNode::from(1_isize))),
+                AstNode::Assign("y".to_string(), Box::new(AstNode::from(2_isize))),
+            ]),
+        );
+        let expected = r###"if (i < n) {
+	x = 1;
+	y = 2;
+}"###;
+        let mut renderer = CRenderer::new();
+        assert_eq!(renderer.render_node(&if_stmt), expected);
+    }
+
+    #[test]
+    fn test_render_if_else_if_chain() {
+        use crate::ast::helper::*;
+
+        // Test if-else if-else chain
+        let if_stmt = if_then_else(
+            AstNode::Eq(Box::new(var("x")), Box::new(AstNode::from(1_isize))),
+            AstNode::Assign("result".to_string(), Box::new(AstNode::from(10_isize))),
+            if_then_else(
+                AstNode::Eq(Box::new(var("x")), Box::new(AstNode::from(2_isize))),
+                AstNode::Assign("result".to_string(), Box::new(AstNode::from(20_isize))),
+                AstNode::Assign("result".to_string(), Box::new(AstNode::from(0_isize))),
+            ),
+        );
+        let expected = r###"if (x == 1)
+	result = 10;
+else if (x == 2)
+	result = 20;
+else
+	result = 0;"###;
+        let mut renderer = CRenderer::new();
+        assert_eq!(renderer.render_node(&if_stmt), expected);
     }
 }

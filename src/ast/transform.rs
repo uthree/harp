@@ -47,6 +47,17 @@ impl AstNode {
             } => {
                 vec![start.as_ref(), max.as_ref(), step.as_ref(), body.as_ref()]
             }
+            AstNode::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                let mut children = vec![condition.as_ref(), then_branch.as_ref()];
+                if let Some(else_br) = else_branch {
+                    children.push(else_br.as_ref());
+                }
+                children
+            }
             AstNode::Block { statements, .. } => statements.iter().collect(),
             AstNode::Drop(_) => vec![],
             AstNode::Barrier => vec![],
@@ -231,6 +242,20 @@ impl AstNode {
                 body: Box::new(children_iter.next().unwrap()),
                 unroll,
             },
+            AstNode::If { else_branch, .. } => {
+                let condition = Box::new(children_iter.next().unwrap());
+                let then_branch = Box::new(children_iter.next().unwrap());
+                let new_else_branch = if else_branch.is_some() {
+                    Some(Box::new(children_iter.next().unwrap()))
+                } else {
+                    None
+                };
+                AstNode::If {
+                    condition,
+                    then_branch,
+                    else_branch: new_else_branch,
+                }
+            }
             AstNode::Block { scope, .. } => {
                 let statements = children_iter.collect();
                 AstNode::Block { scope, statements }

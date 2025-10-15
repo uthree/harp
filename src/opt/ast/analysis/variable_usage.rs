@@ -71,6 +71,19 @@ fn collect_used_variables_recursive(node: &AstNode, vars: &mut HashSet<String>) 
             vars.remove(counter_name);
         }
 
+        // If - collect from condition and both branches
+        AstNode::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            collect_used_variables_recursive(condition, vars);
+            collect_used_variables_recursive(then_branch, vars);
+            if let Some(else_br) = else_branch {
+                collect_used_variables_recursive(else_br, vars);
+            }
+        }
+
         // Block - collect from statements, but exclude variables declared in the scope
         AstNode::Block { scope, statements } => {
             for stmt in statements {

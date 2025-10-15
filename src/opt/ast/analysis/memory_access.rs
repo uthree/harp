@@ -104,7 +104,7 @@ pub fn group_accesses_by_variable(accesses: &[MemoryAccess]) -> HashMap<String, 
     for access in accesses {
         grouped
             .entry(access.variable.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(access.clone());
     }
 
@@ -256,8 +256,8 @@ mod tests {
             vector_width: 1,
         };
 
-        assert!(has_write_access(&[write.clone()]));
-        assert!(!has_write_access(&[read.clone()]));
+        assert!(has_write_access(std::slice::from_ref(&write)));
+        assert!(!has_write_access(std::slice::from_ref(&read)));
         assert!(has_write_access(&[read, write]));
     }
 
@@ -276,8 +276,8 @@ mod tests {
             vector_width: 1,
         };
 
-        assert!(has_read_access(&[read.clone()]));
-        assert!(!has_read_access(&[write.clone()]));
+        assert!(has_read_access(std::slice::from_ref(&read)));
+        assert!(!has_read_access(std::slice::from_ref(&write)));
         assert!(has_read_access(&[read, write]));
     }
 

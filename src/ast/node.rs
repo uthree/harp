@@ -73,6 +73,12 @@ pub enum AstNode {
         unroll: Option<usize>, // #pragma unroll相当のヒント (None=no unroll, Some(0)=full unroll, Some(n)=unroll n times)
     },
 
+    If {
+        condition: Box<Self>,       // Bool型の条件式
+        then_branch: Box<Self>,     // 条件が真の場合に実行
+        else_branch: Option<Box<Self>>, // 条件が偽の場合に実行（オプション）
+    },
+
     Drop(String), // drop (local) variable explicitly
 
     Barrier, // Synchronization barrier for parallel execution (separates computation generations)
