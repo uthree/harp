@@ -152,9 +152,11 @@ impl ParallelizeSuggester {
 
                 let dimension = if tid_exists {
                     // Find how many dimensions are already used for this thread ID
-                    new_scope.declarations.iter().filter(|d| {
-                        d.name.starts_with("gid") || d.name.starts_with("lid")
-                    }).count()
+                    new_scope
+                        .declarations
+                        .iter()
+                        .filter(|d| d.name.starts_with("gid") || d.name.starts_with("lid"))
+                        .count()
                 } else {
                     // First dimension
                     new_scope.thread_ids.push(ThreadIdDecl {

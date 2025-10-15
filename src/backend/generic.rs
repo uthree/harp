@@ -644,18 +644,20 @@ mod tests {
 
     #[test]
     fn test_generic_backend_with_options() {
+        use crate::backend::c::{CCompilerOption, CRendererOption};
+
         let mut backend = TestBackend::new();
 
         // Test renderer option
-        backend.with_renderer_option(());
+        backend.with_renderer_option(CRendererOption::default());
 
         // Test compiler option
-        backend.with_compiler_option(());
+        backend.with_compiler_option(CCompilerOption::default());
 
         // Test combined option through Backend trait
         backend.with_option(GenericBackendOption::Both {
-            renderer: (),
-            compiler: (),
+            renderer: CRendererOption::default(),
+            compiler: CCompilerOption::default(),
         });
     }
 

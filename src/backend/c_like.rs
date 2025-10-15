@@ -65,6 +65,11 @@ pub trait CLikeRenderer {
         "/* BARRIER */".to_string()
     }
 
+    /// Whether to use OpenMP for kernel calls (default: false for most languages)
+    fn use_openmp(&self) -> bool {
+        false
+    }
+
     // ========================================================================
     // Common rendering logic (with default implementations)
     // ========================================================================
@@ -760,7 +765,8 @@ pub trait CLikeRenderer {
                 global_size,
                 ..
             } => {
-                // Render kernel call as OpenMP parallel for loop
+                // Render kernel call as a for loop
+                // If OpenMP is enabled, add #pragma omp parallel for
                 // global_size[0] is the primary dimension to parallelize
                 let total_threads_str = self.render_node(&global_size[0]);
 
@@ -770,8 +776,12 @@ pub trait CLikeRenderer {
                     name.replace(|c: char| !c.is_alphanumeric(), "_")
                 );
 
-                writeln!(buffer, "#pragma omp parallel for").unwrap();
-                self.render_indent(&mut buffer);
+                // Add OpenMP pragma if enabled
+                if self.use_openmp() {
+                    writeln!(buffer, "#pragma omp parallel for").unwrap();
+                    self.render_indent(&mut buffer);
+                }
+
                 writeln!(
                     buffer,
                     "for (size_t {} = 0; {} < {}; {}++)",

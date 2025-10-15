@@ -5,10 +5,23 @@ use crate::{
 use log::debug;
 use std::fmt::Write;
 
+#[derive(Debug, Clone, Copy)]
+pub struct CRendererOption {
+    /// Enable OpenMP parallelization for kernel calls
+    pub use_openmp: bool,
+}
+
+impl Default for CRendererOption {
+    fn default() -> Self {
+        Self { use_openmp: true }
+    }
+}
+
 #[derive(Debug)]
 pub struct CRenderer {
     indent_level: usize,
     memory_config: MemoryConfig,
+    use_openmp: bool,
 }
 
 impl Default for CRenderer {
@@ -16,15 +29,18 @@ impl Default for CRenderer {
         Self {
             indent_level: 0,
             memory_config: MemoryConfig::default(),
+            use_openmp: true,
         }
     }
 }
 
 impl Renderer for CRenderer {
     type CodeRepr = String;
-    type Option = ();
+    type Option = CRendererOption;
 
-    fn with_option(&mut self, _option: Self::Option) {}
+    fn with_option(&mut self, option: Self::Option) {
+        self.use_openmp = option.use_openmp;
+    }
 
     fn new() -> Self {
         CRenderer::default()
@@ -54,6 +70,10 @@ impl CLikeRenderer for CRenderer {
         &self.memory_config
     }
 
+    fn use_openmp(&self) -> bool {
+        self.use_openmp
+    }
+
     fn render_includes(&self) -> String {
         let mut buffer = String::new();
         buffer.push_str("#include <math.h>\n");
@@ -61,9 +81,11 @@ impl CLikeRenderer for CRenderer {
         buffer.push_str("#include <stdint.h>\n");
         buffer.push_str("#include <stdlib.h>\n");
         buffer.push_str("#include <sys/types.h>\n"); // for ssize_t
-        buffer.push_str("#ifdef _OPENMP\n");
-        buffer.push_str("#include <omp.h>\n");
-        buffer.push_str("#endif\n");
+        if self.use_openmp {
+            buffer.push_str("#ifdef _OPENMP\n");
+            buffer.push_str("#include <omp.h>\n");
+            buffer.push_str("#endif\n");
+        }
         buffer.push('\n');
         buffer
     }
@@ -482,6 +504,34 @@ for (size_t __kernel_idx_my_kernel = 0; __kernel_idx_my_kernel < n; __kernel_idx
 	my_kernel(output, input, n);
 }"###;
         let mut renderer = CRenderer::new();
+        assert_eq!(renderer.render_node(&call), expected);
+    }
+
+    #[test]
+    fn test_render_call_kernel_without_openmp() {
+        use crate::ast::helper::*;
+
+        let call = call_kernel(
+            "my_kernel".to_string(),
+            vec![var("output"), var("input"), var("n")],
+            [
+                Box::new(var("n")),
+                Box::new(AstNode::from(1_usize)),
+                Box::new(AstNode::from(1_usize)),
+            ],
+            [
+                Box::new(AstNode::from(1_usize)),
+                Box::new(AstNode::from(1_usize)),
+                Box::new(AstNode::from(1_usize)),
+            ],
+        );
+
+        let expected = r###"for (size_t __kernel_idx_my_kernel = 0; __kernel_idx_my_kernel < n; __kernel_idx_my_kernel++)
+{
+	my_kernel(output, input, n);
+}"###;
+        let mut renderer = CRenderer::new();
+        renderer.with_option(CRendererOption { use_openmp: false });
         assert_eq!(renderer.render_node(&call), expected);
     }
 }

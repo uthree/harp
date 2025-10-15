@@ -5,8 +5,22 @@ use libloading::Library;
 use log::debug;
 use std::sync::Arc;
 
+#[derive(Debug, Clone, Copy)]
+pub struct CCompilerOption {
+    /// Enable OpenMP parallelization
+    pub use_openmp: bool,
+}
+
+impl Default for CCompilerOption {
+    fn default() -> Self {
+        Self { use_openmp: true }
+    }
+}
+
 #[derive(Default)]
-pub struct CCompiler {}
+pub struct CCompiler {
+    use_openmp: bool,
+}
 
 impl CCompiler {
     pub fn check_availability(&self) -> bool {
@@ -25,7 +39,7 @@ impl Compiler for CCompiler {
     type CodeRepr = String;
     type Buffer = CBuffer;
     type KernelType = CKernel;
-    type Option = ();
+    type Option = CCompilerOption;
 
     fn new() -> Self {
         CCompiler::default()
@@ -35,7 +49,9 @@ impl Compiler for CCompiler {
         self.check_availability()
     }
 
-    fn with_option(&mut self, _option: ()) {}
+    fn with_option(&mut self, option: CCompilerOption) {
+        self.use_openmp = option.use_openmp;
+    }
 
     fn compile(&mut self, code: &String, signature: GraphSignature) -> Self::KernelType {
         let mut source_file = tempfile::Builder::new()
@@ -47,13 +63,18 @@ impl Compiler for CCompiler {
 
         let out_dir = tempfile::tempdir_in("/tmp").unwrap();
 
-        let (lib_name, compiler, args) = if cfg!(target_os = "macos") {
+        let (lib_name, compiler, mut args) = if cfg!(target_os = "macos") {
             let args = vec!["-shared".to_string(), "-fPIC".to_string()];
             ("kernel.dylib", "clang", args)
         } else {
             let args = vec!["-shared".to_string(), "-fPIC".to_string()];
             ("kernel.so", "gcc", args)
         };
+
+        // Add OpenMP flags if enabled
+        if self.use_openmp {
+            args.push("-fopenmp".to_string());
+        }
 
         let lib_path = out_dir.path().join(lib_name);
 
@@ -65,14 +86,26 @@ impl Compiler for CCompiler {
             source_file.path().to_str().unwrap()
         );
 
-        let output = std::process::Command::new(compiler)
+        let mut command = std::process::Command::new(compiler);
+        command
             .args(&args)
             .arg("-o")
             .arg(&lib_path)
             .arg(source_file.path())
-            .arg("-lm")
-            .output()
-            .expect("Failed to execute compiler");
+            .arg("-lm");
+
+        // Add OpenMP library linking if enabled
+        if self.use_openmp {
+            if cfg!(target_os = "macos") {
+                // macOS with clang may need explicit OpenMP library path
+                command.arg("-lomp");
+            } else {
+                // GCC on Linux
+                command.arg("-lgomp");
+            }
+        }
+
+        let output = command.output().expect("Failed to execute compiler");
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
