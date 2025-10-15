@@ -176,6 +176,18 @@ pub trait CLikeRenderer {
         buffer
     }
 
+    /// Check if a node needs a semicolon when rendered as a statement
+    fn needs_semicolon(node: &AstNode) -> bool {
+        !matches!(
+            node,
+            AstNode::If { .. }
+                | AstNode::Range { .. }
+                | AstNode::Block { .. }
+                | AstNode::Function { .. }
+                | AstNode::Kernel { .. }
+        )
+    }
+
     /// Render a scope with declarations and statements
     fn render_scope(&mut self, scope: &Scope, statements: &[AstNode]) -> String {
         let mut buffer = String::new();
@@ -224,7 +236,12 @@ pub trait CLikeRenderer {
         // Render statements
         for stmt in statements {
             self.render_indent(&mut buffer);
-            writeln!(buffer, "{};", self.render_node(stmt)).unwrap();
+            let stmt_str = self.render_node(stmt);
+            if Self::needs_semicolon(stmt) {
+                writeln!(buffer, "{};", stmt_str).unwrap();
+            } else {
+                writeln!(buffer, "{}", stmt_str).unwrap();
+            }
         }
 
         // Free dynamically allocated memory before closing scope
@@ -547,7 +564,12 @@ pub trait CLikeRenderer {
                         let current_indent = self.indent_level();
                         self.set_indent_level(current_indent + 1);
                         self.render_indent(&mut buffer);
-                        write!(buffer, "{}", self.render_node(body)).unwrap();
+                        let body_str = self.render_node(body);
+                        if Self::needs_semicolon(body) {
+                            write!(buffer, "{};", body_str).unwrap();
+                        } else {
+                            write!(buffer, "{}", body_str).unwrap();
+                        }
                         self.set_indent_level(current_indent);
                     }
                 }
@@ -640,7 +662,146 @@ pub trait CLikeRenderer {
                 write!(buffer, "{}", self.render_scope(scope, statements)).unwrap();
             }
 
-            node => todo!("render_node for {:?}", node),
+            AstNode::Kernel {
+                name,
+                scope,
+                statements,
+                arguments,
+                return_type,
+                ..
+            } => {
+                // Render kernel as a regular function
+                // GPU execution model (thread IDs, barriers) is emulated in CPU
+                let (ret_type, _) = self.render_dtype_recursive(return_type);
+                let args_str = arguments
+                    .iter()
+                    .map(|(arg_name, dtype)| {
+                        let (base_type, array_dims) = self.render_dtype_recursive(dtype);
+                        format!("{} {}{}", base_type, arg_name, array_dims)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                writeln!(buffer, "{} {}({})", ret_type, name, args_str).unwrap();
+
+                // Render kernel scope and statements
+                let current_indent = self.indent_level();
+                self.set_indent_level(current_indent + 1);
+                writeln!(buffer, "{{").unwrap();
+
+                // Render thread ID declarations (from KernelScope)
+                for thread_id_decl in &scope.thread_ids {
+                    self.render_indent(&mut buffer);
+                    writeln!(buffer, "size_t {}[3];", thread_id_decl.name).unwrap();
+                }
+
+                // Render regular variable declarations
+                for decl in &scope.declarations {
+                    self.render_indent(&mut buffer);
+                    let decl_str = self.render_variable_decl(decl);
+                    writeln!(buffer, "{};", decl_str).unwrap();
+
+                    // Handle dynamic allocations
+                    if let Some(size_expr) = &decl.size_expr {
+                        if let DType::Ptr(inner) = &decl.dtype {
+                            self.render_indent(&mut buffer);
+                            let base_type = self.render_scalar_dtype(inner);
+                            let size_code = self.render_node(size_expr);
+                            let config = self.memory_config();
+
+                            if config.needs_cast {
+                                writeln!(
+                                    buffer,
+                                    "{} = ({}*){}(sizeof({}) * ({}));",
+                                    decl.name, base_type, config.alloc_fn, base_type, size_code
+                                )
+                                .unwrap();
+                            } else {
+                                writeln!(
+                                    buffer,
+                                    "{} = {}(sizeof({}) * ({}));",
+                                    decl.name, config.alloc_fn, base_type, size_code
+                                )
+                                .unwrap();
+                            }
+                        }
+                    }
+                }
+
+                // Render statements
+                for stmt in statements {
+                    self.render_indent(&mut buffer);
+                    let stmt_str = self.render_node(stmt);
+                    if Self::needs_semicolon(stmt) {
+                        writeln!(buffer, "{};", stmt_str).unwrap();
+                    } else {
+                        writeln!(buffer, "{}", stmt_str).unwrap();
+                    }
+                }
+
+                // Free dynamic allocations
+                for decl in &scope.declarations {
+                    if decl.size_expr.is_some() {
+                        if let DType::Ptr(_) = &decl.dtype {
+                            self.render_indent(&mut buffer);
+                            let config = self.memory_config();
+                            writeln!(buffer, "{}({});", config.dealloc_fn, decl.name).unwrap();
+                        }
+                    }
+                }
+
+                self.set_indent_level(current_indent);
+                self.render_indent(&mut buffer);
+                write!(buffer, "}}").unwrap();
+            }
+
+            AstNode::CallKernel {
+                name,
+                args,
+                global_size,
+                ..
+            } => {
+                // Render kernel call as OpenMP parallel for loop
+                // global_size[0] is the primary dimension to parallelize
+                let total_threads_str = self.render_node(&global_size[0]);
+
+                // Generate unique loop counter name to avoid conflicts
+                let loop_counter = format!(
+                    "__kernel_idx_{}",
+                    name.replace(|c: char| !c.is_alphanumeric(), "_")
+                );
+
+                writeln!(buffer, "#pragma omp parallel for").unwrap();
+                self.render_indent(&mut buffer);
+                writeln!(
+                    buffer,
+                    "for (size_t {} = 0; {} < {}; {}++)",
+                    loop_counter, loop_counter, total_threads_str, loop_counter
+                )
+                .unwrap();
+                self.render_indent(&mut buffer);
+                writeln!(buffer, "{{").unwrap();
+
+                let current_indent = self.indent_level();
+                self.set_indent_level(current_indent + 1);
+
+                // Render kernel function call with thread index
+                self.render_indent(&mut buffer);
+                let args_str = args
+                    .iter()
+                    .map(|arg| self.render_node(arg))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                writeln!(buffer, "{}({});", name, args_str).unwrap();
+
+                self.set_indent_level(current_indent);
+                self.render_indent(&mut buffer);
+                write!(buffer, "}}").unwrap();
+            }
+
+            AstNode::Program { .. } | AstNode::Drop(_) | AstNode::Rand | AstNode::Capture(_) => {
+                // These nodes should be handled at a higher level or have no rendering
+                panic!("Unexpected node type in render_node: {:?}", node)
+            }
         }
         buffer
     }

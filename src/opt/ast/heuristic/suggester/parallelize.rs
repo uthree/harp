@@ -143,32 +143,56 @@ impl ParallelizeSuggester {
             if let (Some(counter), Some(_max), Some(body)) = (loop_counter, loop_max, loop_body) {
                 // Add thread ID declaration to scope
                 let mut new_scope = scope.clone();
-                if !new_scope
+
+                // Check if we already have a global_id thread ID
+                let tid_exists = new_scope
                     .thread_ids
                     .iter()
-                    .any(|tid| tid.name == self.global_id_name)
-                {
+                    .any(|tid| tid.name == self.global_id_name);
+
+                let dimension = if tid_exists {
+                    // Find how many dimensions are already used for this thread ID
+                    new_scope.declarations.iter().filter(|d| {
+                        d.name.starts_with("gid") || d.name.starts_with("lid")
+                    }).count()
+                } else {
+                    // First dimension
                     new_scope.thread_ids.push(ThreadIdDecl {
                         name: self.global_id_name.clone(),
                         id_type: ThreadIdType::GlobalId,
                     });
-                }
+                    0
+                };
+
+                // Generate index variable name: gid0, gid1, gid2, ...
+                let index_var_name = format!("gid{}", dimension);
+
+                // Add variable declaration for the index
+                new_scope.declarations.push(crate::ast::VariableDecl {
+                    name: index_var_name.clone(),
+                    dtype: crate::ast::DType::Usize,
+                    constant: false,
+                    size_expr: None,
+                });
 
                 // Create statements:
-                // 1. size_t i = global_id[0];
+                // 1. size_t gid0 = global_id[0];
                 let index_assign = assign(
-                    &counter,
+                    &index_var_name,
                     AstNode::Load {
                         target: Box::new(var(&self.global_id_name)),
-                        index: Box::new(const_val(ConstLiteral::Usize(0))),
+                        index: Box::new(const_val(ConstLiteral::Usize(dimension))),
                         vector_width: 1,
                     },
                 );
 
-                // 2. if (i < max) { body }
+                // 2. Replace loop counter with the new index variable in the body
+                let updated_body = body.replace_node(&var(&counter), var(&index_var_name));
+
+                // 3. if (gid0 < max) { body }
                 let bounds_check = if_then(
-                    AstNode::LessThan(Box::new(var(&counter)), _max.clone()),
-                    *body,
+                    AstNode::LessThan(Box::new(var(&index_var_name)), _max.clone()),
+                    updated_body,
                 );
 
                 // Prepend index assignment and bounds check, then remaining statements
@@ -321,12 +345,18 @@ mod tests {
                 // Should have 2 statements: assignment and if
                 assert_eq!(statements.len(), 2);
 
-                // First statement should be: i = global_id[0]
+                // First statement should be: gid0 = global_id[0]
                 if let AstNode::Assign(name, _) = &statements[0] {
-                    assert_eq!(name, "i");
+                    assert_eq!(name, "gid0");
                 } else {
                     panic!("Expected Assign node, got {:?}", statements[0]);
                 }
+
+                // Should have gid0 variable declaration in scope
+                assert!(scope
+                    .declarations
+                    .iter()
+                    .any(|d| d.name == "gid0" && d.dtype == crate::ast::DType::Usize));
 
                 // Second statement should be: if (i < n) { body }
                 if let AstNode::If {

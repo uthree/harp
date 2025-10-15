@@ -61,6 +61,9 @@ impl CLikeRenderer for CRenderer {
         buffer.push_str("#include <stdint.h>\n");
         buffer.push_str("#include <stdlib.h>\n");
         buffer.push_str("#include <sys/types.h>\n"); // for ssize_t
+        buffer.push_str("#ifdef _OPENMP\n");
+        buffer.push_str("#include <omp.h>\n");
+        buffer.push_str("#endif\n");
         buffer.push('\n');
         buffer
     }
@@ -222,6 +225,9 @@ mod tests {
 #include <stdint.h>
 #include <stdlib.h>
 #include <sys/types.h>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 void my_func(ssize_t a[10]);
 
@@ -283,6 +289,9 @@ void my_func(ssize_t a[10])
 #include <stdint.h>
 #include <stdlib.h>
 #include <sys/types.h>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 void dynamic_alloc(size_t n);
 
@@ -373,5 +382,106 @@ else
 	result = 0;"###;
         let mut renderer = CRenderer::new();
         assert_eq!(renderer.render_node(&if_stmt), expected);
+    }
+
+    #[test]
+    fn test_render_kernel() {
+        use crate::ast::helper::*;
+        use crate::ast::{ThreadIdType, VariableDecl};
+
+        // Create a simple kernel: void my_kernel(float* output, float* input, size_t n)
+        let kernel = kernel(
+            "my_kernel".to_string(),
+            vec![
+                ("output".to_string(), DType::Ptr(Box::new(DType::F32))),
+                ("input".to_string(), DType::Ptr(Box::new(DType::F32))),
+                ("n".to_string(), DType::Usize),
+            ],
+            DType::Void,
+            kernel_scope(
+                vec![thread_id_decl(
+                    "global_id".to_string(),
+                    ThreadIdType::GlobalId,
+                )],
+                vec![VariableDecl {
+                    name: "gid0".to_string(),
+                    dtype: DType::Usize,
+                    constant: false,
+                    size_expr: None,
+                }],
+            ),
+            vec![
+                AstNode::Assign(
+                    "gid0".to_string(),
+                    Box::new(AstNode::Load {
+                        target: Box::new(var("global_id")),
+                        index: Box::new(AstNode::from(0_usize)),
+                        vector_width: 1,
+                    }),
+                ),
+                if_then(
+                    AstNode::LessThan(Box::new(var("gid0")), Box::new(var("n"))),
+                    AstNode::Store {
+                        target: Box::new(var("output")),
+                        index: Box::new(var("gid0")),
+                        value: Box::new(AstNode::Load {
+                            target: Box::new(var("input")),
+                            index: Box::new(var("gid0")),
+                            vector_width: 1,
+                        }),
+                        vector_width: 1,
+                    },
+                ),
+            ],
+            [
+                Box::new(var("n")),
+                Box::new(AstNode::from(1_usize)),
+                Box::new(AstNode::from(1_usize)),
+            ],
+            [
+                Box::new(AstNode::from(1_usize)),
+                Box::new(AstNode::from(1_usize)),
+                Box::new(AstNode::from(1_usize)),
+            ],
+        );
+
+        let expected = r###"void my_kernel(float* output, float* input, size_t n)
+{
+	size_t global_id[3];
+	size_t gid0;
+	gid0 = *(global_id + 0);
+	if (gid0 < n)
+		*(output + gid0) = *(input + gid0);
+}"###;
+        let mut renderer = CRenderer::new();
+        assert_eq!(renderer.render_node(&kernel), expected);
+    }
+
+    #[test]
+    fn test_render_call_kernel() {
+        use crate::ast::helper::*;
+
+        let call = call_kernel(
+            "my_kernel".to_string(),
+            vec![var("output"), var("input"), var("n")],
+            [
+                Box::new(var("n")),
+                Box::new(AstNode::from(1_usize)),
+                Box::new(AstNode::from(1_usize)),
+            ],
+            [
+                Box::new(AstNode::from(1_usize)),
+                Box::new(AstNode::from(1_usize)),
+                Box::new(AstNode::from(1_usize)),
+            ],
+        );
+
+        let expected = r###"#pragma omp parallel for
+for (size_t __kernel_idx_my_kernel = 0; __kernel_idx_my_kernel < n; __kernel_idx_my_kernel++)
+{
+	my_kernel(output, input, n);
+}"###;
+        let mut renderer = CRenderer::new();
+        assert_eq!(renderer.render_node(&call), expected);
     }
 }
