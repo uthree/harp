@@ -15,8 +15,17 @@ pub enum AstOp {
     Add(Box<AstNode>, Box<AstNode>),
     Mul(Box<AstNode>, Box<AstNode>),
     Max(Box<AstNode>, Box<AstNode>),
+    Idiv(Box<AstNode>, Box<AstNode>), // integer division
+    Rem(Box<AstNode>, Box<AstNode>),  // remainder
     Neg(Box<AstNode>),
     Recip(Box<AstNode>),
+    Sqrt(Box<AstNode>),
+    Sin(Box<AstNode>),
+    Log2(Box<AstNode>),
+    Exp2(Box<AstNode>),
+
+    Load,
+    Store,
 }
 
 #[derive(Debug, Clone, PartialEq)]
