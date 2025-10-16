@@ -11,27 +11,11 @@ pub struct AstNode {
 #[derive(Debug, Clone)]
 pub enum AstOp {
     Const(ConstValue),
-
-    // arithmetic / math operators
     Add(Box<AstNode>, Box<AstNode>),
     Mul(Box<AstNode>, Box<AstNode>),
-    Max(Box<AstNode>, Box<AstNode>),  // take greater one
-    Rem(Box<AstNode>, Box<AstNode>),  // remainder
-    IDiv(Box<AstNode>, Box<AstNode>), // integer division
+    Max(Box<AstNode>, Box<AstNode>),
     Neg(Box<AstNode>),
     Recip(Box<AstNode>),
-    Sqrt(Box<AstNode>),
-    Sin(Box<AstNode>),
-    Log2(Box<AstNode>),
-    Exp2(Box<AstNode>),
-    LessThan(Box<AstNode>),
-
-    CallFunction, // TODO: add fields
-
-    // statements (TODO: add fields)
-    Range, // loop
-    Func,  // define the function
-    If,
 }
 
 #[derive(Debug, Clone, PartialEq)]
