@@ -208,4 +208,93 @@ mod tests {
         let node = AstNode::from(true);
         assert_eq!(node.dtype, DType::Bool);
     }
+
+    #[test]
+    fn test_operator_overload_add() {
+        // Test addition with operator overloading
+        let a = const_f32(1.0);
+        let b = const_f32(2.0);
+        let result = a + b;
+        assert_eq!(result.dtype, DType::F32);
+    }
+
+    #[test]
+    fn test_operator_overload_mul() {
+        // Test multiplication with operator overloading
+        let a = const_f32(3.0);
+        let b = const_f32(4.0);
+        let result = a * b;
+        assert_eq!(result.dtype, DType::F32);
+    }
+
+    #[test]
+    fn test_operator_overload_div() {
+        // Test division with operator overloading
+        let a = const_f32(10.0);
+        let b = const_f32(2.0);
+        let result = a / b;
+        assert_eq!(result.dtype, DType::F32);
+    }
+
+    #[test]
+    fn test_operator_overload_neg() {
+        // Test negation with operator overloading
+        let a = const_f32(5.0);
+        let result = -a;
+        assert_eq!(result.dtype, DType::F32);
+    }
+
+    #[test]
+    fn test_operator_overload_sub() {
+        // Test subtraction with operator overloading (implemented as add + neg)
+        let a = const_f32(10.0);
+        let b = const_f32(3.0);
+        let result = a - b;
+        assert_eq!(result.dtype, DType::F32);
+    }
+
+    #[test]
+    fn test_operator_overload_with_primitives() {
+        // Test that operators work with primitives through Into<AstNode>
+        let a = const_f32(5.0);
+        let result = a + 3.0f32;
+        assert_eq!(result.dtype, DType::F32);
+
+        let b = const_isize(10);
+        let result = b * 2isize;
+        assert_eq!(result.dtype, DType::Isize);
+    }
+
+    #[test]
+    fn test_operator_overload_complex_expression() {
+        // Test: (a + b) * c - d / e
+        let a = const_f32(1.0);
+        let b = const_f32(2.0);
+        let c = const_f32(3.0);
+        let d = const_f32(8.0);
+        let e = const_f32(2.0);
+
+        let result = (a + b) * c - d / e;
+        assert_eq!(result.dtype, DType::F32);
+    }
+
+    #[test]
+    fn test_operator_overload_chained_operations() {
+        // Test: a + b + c + d
+        let a = const_f32(1.0);
+        let b = const_f32(2.0);
+        let c = const_f32(3.0);
+        let d = const_f32(4.0);
+
+        let result = a + b + c + d;
+        assert_eq!(result.dtype, DType::F32);
+    }
+
+    #[test]
+    fn test_operator_overload_negation_chaining() {
+        // Test: -(-a)
+        let a = const_f32(5.0);
+        let result = -(-a);
+        assert_eq!(result.dtype, DType::F32);
+    }
 }
