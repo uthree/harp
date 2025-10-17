@@ -389,3 +389,20 @@ mod tests {
         assert_eq!(result.dtype, DType::F32);
     }
 }
+
+impl DType {
+    pub fn ptr(self) -> Self {
+        DType::Ptr(Box::new(self))
+    }
+
+    pub fn vec(self, size: impl Into<usize>) -> Self {
+        DType::Vec(Box::new(self), size.into())
+    }
+
+    pub fn deptr(self) -> Self {
+        todo!()
+    }
+    pub fn devec(self) -> Self {
+        todo!()
+    }
+}
