@@ -54,10 +54,16 @@ macro_rules! impl_const_fn {
 impl_binary_op!(add, Add);
 impl_binary_op!(mul, Mul);
 impl_binary_op!(max, Max);
+impl_binary_op!(idiv, Idiv);
+impl_binary_op!(rem, Rem);
 
 // Unary operators
 impl_unary_op!(neg, Neg);
 impl_unary_op!(recip, Recip);
+impl_unary_op!(sqrt, Sqrt);
+impl_unary_op!(sin, Sin);
+impl_unary_op!(log2, Log2);
+impl_unary_op!(exp2, Exp2);
 
 // Constant constructors
 impl_const_fn!(const_isize, Isize, isize, DType::Isize);
@@ -112,8 +118,14 @@ mod tests {
         let mul_node = mul(lhs.clone(), rhs.clone());
         assert_eq!(mul_node.dtype, DType::F32);
 
-        let max_node = max(lhs, rhs);
+        let max_node = max(lhs.clone(), rhs.clone());
         assert_eq!(max_node.dtype, DType::F32);
+
+        let idiv_node = idiv(lhs.clone(), rhs.clone());
+        assert_eq!(idiv_node.dtype, DType::F32);
+
+        let rem_node = rem(lhs, rhs);
+        assert_eq!(rem_node.dtype, DType::F32);
     }
 
     #[test]
@@ -123,8 +135,20 @@ mod tests {
         let neg_node = neg(operand.clone());
         assert_eq!(neg_node.dtype, DType::F32);
 
-        let recip_node = recip(operand);
+        let recip_node = recip(operand.clone());
         assert_eq!(recip_node.dtype, DType::F32);
+
+        let sqrt_node = sqrt(operand.clone());
+        assert_eq!(sqrt_node.dtype, DType::F32);
+
+        let sin_node = sin(operand.clone());
+        assert_eq!(sin_node.dtype, DType::F32);
+
+        let log2_node = log2(operand.clone());
+        assert_eq!(log2_node.dtype, DType::F32);
+
+        let exp2_node = exp2(operand);
+        assert_eq!(exp2_node.dtype, DType::F32);
     }
 
     #[test]
@@ -295,6 +319,73 @@ mod tests {
         // Test: -(-a)
         let a = const_f32(5.0);
         let result = -(-a);
+        assert_eq!(result.dtype, DType::F32);
+    }
+
+    #[test]
+    fn test_idiv_operator() {
+        // Test integer division
+        let a = const_isize(10);
+        let b = const_isize(3);
+        let result = idiv(a, b);
+        assert_eq!(result.dtype, DType::Isize);
+    }
+
+    #[test]
+    fn test_rem_operator() {
+        // Test remainder
+        let a = const_isize(10);
+        let b = const_isize(3);
+        let result = rem(a, b);
+        assert_eq!(result.dtype, DType::Isize);
+    }
+
+    #[test]
+    fn test_sqrt_operator() {
+        // Test square root
+        let a = const_f32(16.0);
+        let result = sqrt(a);
+        assert_eq!(result.dtype, DType::F32);
+    }
+
+    #[test]
+    fn test_sin_operator() {
+        // Test sine
+        let a = const_f32(0.0);
+        let result = sin(a);
+        assert_eq!(result.dtype, DType::F32);
+    }
+
+    #[test]
+    fn test_log2_operator() {
+        // Test log2
+        let a = const_f32(8.0);
+        let result = log2(a);
+        assert_eq!(result.dtype, DType::F32);
+    }
+
+    #[test]
+    fn test_exp2_operator() {
+        // Test exp2
+        let a = const_f32(3.0);
+        let result = exp2(a);
+        assert_eq!(result.dtype, DType::F32);
+    }
+
+    #[test]
+    fn test_complex_math_expression() {
+        // Test: sqrt(a) + sin(b) * exp2(log2(c))
+        let a = const_f32(16.0);
+        let b = const_f32(0.5);
+        let c = const_f32(4.0);
+
+        let sqrt_a = sqrt(a);
+        let sin_b = sin(b);
+        let log2_c = log2(c);
+        let exp2_log2_c = exp2(log2_c);
+        let product = mul(sin_b, exp2_log2_c);
+        let result = add(sqrt_a, product);
+
         assert_eq!(result.dtype, DType::F32);
     }
 }

@@ -24,6 +24,7 @@ pub enum AstOp {
     Log2(Box<AstNode>),
     Exp2(Box<AstNode>),
 
+    // TODO: add fields
     Load,
     Store,
 }
@@ -38,7 +39,7 @@ pub enum DType {
     Bool,    // bool,
 
     Ptr(Box<DType>),        // pointer of some type
-    Vec(Box<DType>, usize), // fixed-size vector
+    Vec(Box<DType>, usize), // fixed-size vector for simd operation
 }
 
 #[derive(Debug, Clone, PartialEq)]
