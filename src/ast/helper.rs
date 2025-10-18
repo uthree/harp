@@ -88,6 +88,23 @@ impl_from_primitive!(usize, Usize, DType::Usize);
 impl_from_primitive!(f32, F32, DType::F32);
 impl_from_primitive!(bool, Bool, DType::Bool);
 
+impl DType {
+    pub fn ptr(self) -> Self {
+        DType::Ptr(Box::new(self))
+    }
+
+    pub fn vec(self, size: impl Into<usize>) -> Self {
+        DType::Vec(Box::new(self), size.into())
+    }
+
+    pub fn deptr(self) -> Self {
+        todo!()
+    }
+    pub fn devec(self) -> Self {
+        todo!()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -100,7 +117,7 @@ mod tests {
         let usize_node = const_usize(100);
         assert_eq!(usize_node.dtype, DType::Usize);
 
-        let f32_node = const_f32(3.14);
+        let f32_node = const_f32(3.5);
         assert_eq!(f32_node.dtype, DType::F32);
 
         let bool_node = const_bool(true);
@@ -201,7 +218,7 @@ mod tests {
 
     #[test]
     fn test_from_f32() {
-        let node: AstNode = 3.14f32.into();
+        let node: AstNode = 3.5f32.into();
         assert_eq!(node.dtype, DType::F32);
     }
 
@@ -226,7 +243,7 @@ mod tests {
         let node = AstNode::from(42isize);
         assert_eq!(node.dtype, DType::Isize);
 
-        let node = AstNode::from(3.14f32);
+        let node = AstNode::from(3.5f32);
         assert_eq!(node.dtype, DType::F32);
 
         let node = AstNode::from(true);
@@ -387,22 +404,5 @@ mod tests {
         let result = add(sqrt_a, product);
 
         assert_eq!(result.dtype, DType::F32);
-    }
-}
-
-impl DType {
-    pub fn ptr(self) -> Self {
-        DType::Ptr(Box::new(self))
-    }
-
-    pub fn vec(self, size: impl Into<usize>) -> Self {
-        DType::Vec(Box::new(self), size.into())
-    }
-
-    pub fn deptr(self) -> Self {
-        todo!()
-    }
-    pub fn devec(self) -> Self {
-        todo!()
     }
 }

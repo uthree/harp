@@ -1,8 +1,12 @@
-mod helper;
-mod op;
+pub mod helper;
+pub mod op;
 pub mod pat;
 pub use helper::*;
+pub mod rules;
 pub use pat::{capture, AstRewriteRule, AstRewriter};
+
+// マクロを再エクスポート
+pub use crate::{ast_rewriter, ast_rule};
 
 #[derive(Debug, Clone)]
 pub struct AstNode {

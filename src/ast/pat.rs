@@ -4,6 +4,96 @@ use std::rc::Rc;
 type RewriterFn = Box<dyn Fn(&[AstNode]) -> AstNode>;
 type ConditionFn = Box<dyn Fn(&[AstNode]) -> bool>;
 
+/// 単一のリライトルールを作成するマクロ
+///
+/// # 使用例
+/// ```
+/// # use harp::ast::*;
+/// // 条件なしのルール: a * b => b * a (乗算の可換性)
+/// let rule = ast_rule!(|a, b| mul(capture(0), capture(1)) => mul(b.clone(), a.clone()));
+///
+/// // 条件付きのルール: a + b => b + a if 両方が定数
+/// let rule = ast_rule!(
+///     |a, b| add(capture(0), capture(1)) => add(b.clone(), a.clone()),
+///     if |caps: &[AstNode]| {
+///         matches!(caps[0].op, AstOp::Const(_)) && matches!(caps[1].op, AstOp::Const(_))
+///     }
+/// );
+/// ```
+#[macro_export]
+macro_rules! ast_rule {
+    // 条件付きのルール: |a, b, ...| pattern => replacement, if condition
+    (|$($cap:ident),*| $pattern:expr => $replacement:expr, if $condition:expr) => {{
+        let pattern = $pattern;
+        $crate::ast::AstRewriteRule::new(
+            pattern,
+            Box::new(|caps: &[$crate::ast::AstNode]| {
+                // キャプチャ変数を展開
+                let mut _idx = 0;
+                $(
+                    let $cap = &caps[_idx];
+                    _idx += 1;
+                )*
+                let _ = _idx; // 未使用警告を回避
+                $replacement
+            }),
+            Box::new($condition),
+        )
+    }};
+
+    // 条件なしのルール: |a, b, ...| pattern => replacement
+    (|$($cap:ident),*| $pattern:expr => $replacement:expr) => {{
+        let pattern = $pattern;
+        $crate::ast::AstRewriteRule::new(
+            pattern,
+            Box::new(|caps: &[$crate::ast::AstNode]| {
+                // キャプチャ変数を展開
+                let mut _idx = 0;
+                $(
+                    let $cap = &caps[_idx];
+                    _idx += 1;
+                )*
+                let _ = _idx; // 未使用警告を回避
+                $replacement
+            }),
+            Box::new(|_| true), // 常に真の条件
+        )
+    }};
+}
+
+/// 複数のリライトルールを持つリライターを作成するマクロ
+///
+/// # 使用例
+/// ```
+/// # use harp::ast::*;
+/// let rewriter = ast_rewriter! {
+///     // 二重否定を除去
+///     ast_rule!(|x| neg(neg(capture(0))) => x.clone()),
+///     // 定数の加算を畳み込む
+///     ast_rule!(
+///         |a, b| add(capture(0), capture(1)) => {
+///             if let (AstOp::Const(ConstValue::F32(av)), AstOp::Const(ConstValue::F32(bv))) =
+///                 (&a.op, &b.op)
+///             {
+///                 const_f32(av + bv)
+///             } else {
+///                 add(a.clone(), b.clone())
+///             }
+///         },
+///         if |caps: &[AstNode]| {
+///             matches!(caps[0].op, AstOp::Const(_)) && matches!(caps[1].op, AstOp::Const(_))
+///         }
+///     )
+/// };
+/// ```
+#[macro_export]
+macro_rules! ast_rewriter {
+    ($($rule:expr),* $(,)?) => {{
+        let rules = vec![$($rule),*];
+        $crate::ast::AstRewriter::from_rules(rules)
+    }};
+}
+
 /// キャプチャノードを作成するヘルパー関数
 pub fn capture(id: isize) -> AstNode {
     AstNode::new(AstOp::Capture(id))
@@ -701,6 +791,169 @@ mod tests {
             assert_eq!(val, 20.0);
         } else {
             panic!("Expected constant 20.0");
+        }
+    }
+
+    #[test]
+    fn test_ast_rule_macro_simple() {
+        // マクロを使った単純なルール: a * b => b * a
+        let rule = ast_rule!(|a, b| mul(capture(0), capture(1)) => mul(b.clone(), a.clone()));
+
+        let target = mul(const_f32(2.0), const_f32(3.0));
+        let result = rule.rewrite(&target);
+
+        // 結果は 3.0 * 2.0 になるべき（順序が逆転）
+        if let AstOp::Mul(lhs, rhs) = &result.op {
+            if let (AstOp::Const(ConstValue::F32(l)), AstOp::Const(ConstValue::F32(r))) =
+                (&lhs.op, &rhs.op)
+            {
+                assert_eq!(*l, 3.0);
+                assert_eq!(*r, 2.0);
+            } else {
+                panic!("Expected constants");
+            }
+        } else {
+            panic!("Expected Mul operation");
+        }
+    }
+
+    #[test]
+    fn test_ast_rule_macro_with_condition() {
+        // マクロを使った条件付きルール: a + b => const(a+b) if 両方が定数
+        let rule = ast_rule!(
+            |a, b| add(capture(0), capture(1)) => {
+                if let (AstOp::Const(ConstValue::F32(av)), AstOp::Const(ConstValue::F32(bv))) =
+                    (&a.op, &b.op)
+                {
+                    const_f32(av + bv)
+                } else {
+                    add(a.clone(), b.clone())
+                }
+            }, if |caps: &[AstNode]| {
+                matches!(caps[0].op, AstOp::Const(_)) && matches!(caps[1].op, AstOp::Const(_))
+            }
+        );
+
+        // テスト1: 両方が定数 - マッチするべき
+        let target1 = add(const_f32(2.0), const_f32(3.0));
+        let result1 = rule.rewrite(&target1);
+        if let AstOp::Const(ConstValue::F32(val)) = result1.op {
+            assert_eq!(val, 5.0);
+        } else {
+            panic!("Expected constant 5.0");
+        }
+
+        // テスト2: 片方が変数 - マッチしないべき
+        let target2 = add(
+            AstNode::new(AstOp::Var("x".to_string())).with_dtype(DType::F32),
+            const_f32(3.0),
+        );
+        let result2 = rule.rewrite(&target2);
+        // 結果は元のまま（変数 + 定数）
+        if let AstOp::Add(_, _) = result2.op {
+            // 成功 - 書き換えられていない
+        } else {
+            panic!("Should not have been rewritten");
+        }
+    }
+
+    #[test]
+    fn test_ast_rewriter_macro() {
+        // マクロを使った複数ルールのリライター
+        let rewriter = ast_rewriter! {
+            // ルール1: 二重否定の除去
+            ast_rule!(|a| neg(neg(capture(0))) => a.clone()),
+
+            // ルール2: 定数の加算を畳み込む
+            ast_rule!(
+                |a, b| add(capture(0), capture(1)) => {
+                    if let (AstOp::Const(ConstValue::F32(av)), AstOp::Const(ConstValue::F32(bv))) =
+                        (&a.op, &b.op)
+                    {
+                        const_f32(av + bv)
+                    } else {
+                        add(a.clone(), b.clone())
+                    }
+                }, if |caps: &[AstNode]| {
+                    matches!(caps[0].op, AstOp::Const(_)) && matches!(caps[1].op, AstOp::Const(_))
+                }
+            ),
+
+            // ルール3: 定数の乗算を畳み込む
+            ast_rule!(
+                |a, b| mul(capture(0), capture(1)) => {
+                    if let (AstOp::Const(ConstValue::F32(av)), AstOp::Const(ConstValue::F32(bv))) =
+                        (&a.op, &b.op)
+                    {
+                        const_f32(av * bv)
+                    } else {
+                        mul(a.clone(), b.clone())
+                    }
+                }, if |caps: &[AstNode]| {
+                    matches!(caps[0].op, AstOp::Const(_)) && matches!(caps[1].op, AstOp::Const(_))
+                }
+            ),
+        };
+
+        // ターゲット: (-(-2.0) + 3.0) * 4.0
+        let target = mul(
+            add(neg(neg(const_f32(2.0))), const_f32(3.0)),
+            const_f32(4.0),
+        );
+
+        let result = rewriter.apply_until_fixed(&target);
+
+        // 結果は (2.0 + 3.0) * 4.0 = 5.0 * 4.0 = 20.0
+        if let AstOp::Const(ConstValue::F32(val)) = result.op {
+            assert_eq!(val, 20.0);
+        } else {
+            panic!("Expected constant 20.0");
+        }
+    }
+
+    #[test]
+    fn test_ast_rule_macro_single_capture() {
+        // 単一のキャプチャ変数を使ったルール
+        let rule = ast_rule!(|x| neg(neg(capture(0))) => x.clone());
+
+        let target = neg(neg(const_f32(5.0)));
+        let result = rule.rewrite(&target);
+
+        if let AstOp::Const(ConstValue::F32(val)) = result.op {
+            assert_eq!(val, 5.0);
+        } else {
+            panic!("Expected constant 5.0");
+        }
+    }
+
+    #[test]
+    fn test_ast_rule_macro_three_captures() {
+        // 3つのキャプチャ変数を使ったルール（将来の拡張用）
+        // パターン: (a + b) + c => a + (b + c) （結合則の変換）
+        let rule = ast_rule!(
+            |a, b, c| add(add(capture(0), capture(1)), capture(2))
+                => add(a.clone(), add(b.clone(), c.clone()))
+        );
+
+        let target = add(add(const_f32(1.0), const_f32(2.0)), const_f32(3.0));
+        let result = rule.rewrite(&target);
+
+        // 結果は 1.0 + (2.0 + 3.0) の構造になるべき
+        if let AstOp::Add(lhs, rhs) = &result.op {
+            // 左辺は 1.0
+            if let AstOp::Const(ConstValue::F32(l)) = lhs.op {
+                assert_eq!(l, 1.0);
+            } else {
+                panic!("Expected constant 1.0 on left");
+            }
+            // 右辺は (2.0 + 3.0)
+            if let AstOp::Add(_, _) = &rhs.op {
+                // 成功 - 右辺は加算
+            } else {
+                panic!("Expected Add on right");
+            }
+        } else {
+            panic!("Expected Add operation");
         }
     }
 }
