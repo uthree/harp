@@ -181,8 +181,12 @@ pub enum DType {
     F32,     // 32-bit float
     Bool,    // bool,
 
-    Ptr(Box<DType>),        // pointer of some type
-    Vec(Box<DType>, usize), // fixed-size vector for simd operation
+    Ptr {
+        // pointer of memory buffer
+        pointee: Box<DType>,
+        mutable: bool, // false = read-only (safe for parallel reads), true = mutable
+    },
+    Vec(Box<DType>, usize), // fixed-size vector for simd operation, Unlike Ptr, values ​​are copied when passed.
 }
 
 #[derive(Debug, Clone, PartialEq)]

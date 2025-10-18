@@ -9,6 +9,6 @@ pub trait Compiler {
     type CodeRepr;
 }
 
-pub trait Kernel {}
+pub trait Executable {}
 
 pub trait Buffer {}

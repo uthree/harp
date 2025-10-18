@@ -89,8 +89,22 @@ impl_from_primitive!(f32, F32, DType::F32);
 impl_from_primitive!(bool, Bool, DType::Bool);
 
 impl DType {
+    /// 読み取り専用ポインタ型を作成（デフォルト）
+    /// GPU並列処理で安全に同時読み込みができる
     pub fn ptr(self) -> Self {
-        DType::Ptr(Box::new(self))
+        DType::Ptr {
+            pointee: Box::new(self),
+            mutable: false,
+        }
+    }
+
+    /// 書き込み可能なポインタ型を作成
+    /// 排他制御が必要
+    pub fn ptr_mut(self) -> Self {
+        DType::Ptr {
+            pointee: Box::new(self),
+            mutable: true,
+        }
     }
 
     pub fn vec(self, size: impl Into<usize>) -> Self {
