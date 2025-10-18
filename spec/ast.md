@@ -336,7 +336,8 @@ pub trait AstOptimizer {
 これにより、メソッドチェーン形式で複数の最適化器を組み合わせることができます：
 
 ```rust
-use harp::opt::{RewriterOptimizer, AstOptimizer};
+use harp::opt::AstOptimizer;
+use harp::opt::ast::{RewriterOptimizer, ComposedOptimizer};
 
 let opt1 = RewriterOptimizer::new(/* ... */);
 let opt2 = RewriterOptimizer::new(/* ... */);
@@ -372,7 +373,7 @@ pub struct RewriterOptimizer {
 #### 使用例
 
 ```rust
-use harp::opt::RewriterOptimizer;
+use harp::opt::ast::RewriterOptimizer;
 use harp::ast::*;
 
 // 定数畳み込みリライター
@@ -425,7 +426,7 @@ pub struct ComposedOptimizer {
 #### 使用例
 
 ```rust
-use harp::opt::{RewriterOptimizer, ComposedOptimizer};
+use harp::opt::ast::{RewriterOptimizer, ComposedOptimizer};
 
 // 二重否定除去
 let opt1 = RewriterOptimizer::new(ast_rewriter! {
