@@ -8,7 +8,7 @@ pub use pat::{capture, AstRewriteRule, AstRewriter};
 // マクロを再エクスポート
 pub use crate::{ast_rewriter, ast_rule};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AstNode {
     pub op: AstOp,
     pub dtype: DType,
@@ -164,7 +164,7 @@ impl AstNode {
 /// - **べき乗 (Pow)**: `pow(a, b)` → `exp2(mul(b, log2(a)))`
 ///
 /// この設計により、パターンマッチングと最適化が簡潔になります。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AstOp {
     // 定数・変数
     Const(ConstValue),

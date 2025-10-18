@@ -360,15 +360,28 @@ AstRewriterを使った最適化器の実装。
 ```rust
 pub struct RewriterOptimizer {
     rewriter: AstRewriter,
-    apply_until_fixed: bool,
+    max_iterations: usize,
 }
 ```
 
 #### メソッド
 
 - `new(rewriter: AstRewriter) -> Self`: 新しい最適化器を作成（1回だけ適用）
-- `with_fixed_point(self) -> Self`: 不動点に達するまで繰り返し適用するモードを有効化
+- `with_fixed_point(self) -> Self`: 不動点に達するまで繰り返し適用するモードを有効化（デフォルト最大100回）
+- `with_max_iterations(self, max_iterations: usize) -> Self`: 最大ループ回数を明示的に設定。変化がなくなるか指定した回数に達するまで繰り返し適用
 - `from_rewriters(rewriters: Vec<AstRewriter>) -> Self`: 複数のリライターを統合して最適化器を作成
+
+#### 繰り返し適用の制御
+
+RewriterOptimizerは、無限ループを防ぐために最大ループ回数を設定できます。
+
+- **デフォルト（`new()`）**: 1回のみ適用
+- **`with_fixed_point()`**: 最大100回まで繰り返し適用（変化がなくなれば早期終了）
+- **`with_max_iterations(n)`**: 最大n回まで繰り返し適用（変化がなくなれば早期終了）
+
+繰り返し適用は、以下の条件のいずれかを満たすまで継続します：
+1. ASTに変化がなくなった（不動点に到達）
+2. 最大ループ回数に達した
 
 #### 使用例
 
@@ -394,8 +407,11 @@ let rewriter = ast_rewriter! {
     ),
 };
 
-// 最適化器を作成し、不動点まで適用
+// 方法1: with_fixed_pointで最大100回まで適用
 let optimizer = RewriterOptimizer::new(rewriter).with_fixed_point();
+
+// 方法2: 最大ループ回数を明示的に指定
+let optimizer = RewriterOptimizer::new(rewriter).with_max_iterations(10);
 
 // (1.0 + 2.0) + (3.0 + 4.0)
 let ast = add(
@@ -405,6 +421,8 @@ let ast = add(
 
 let result = optimizer.apply(&ast);  // const_f32(10.0) になる
 ```
+
+**注意**: 無限ループを防ぐため、`with_fixed_point()`や`with_max_iterations()`を使用する際は、最大ループ回数を適切に設定してください。デフォルトの100回で十分な場合がほとんどですが、特に複雑な最適化では調整が必要になる場合があります。
 
 ### ComposedOptimizer
 
