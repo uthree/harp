@@ -7,8 +7,11 @@ pub trait Renderer {
 
 pub trait Compiler {
     type CodeRepr;
+    type Kernel;
 }
 
-pub trait Executable {}
+pub trait Kernel {
+    type Buffer;
+}
 
 pub trait Buffer {}

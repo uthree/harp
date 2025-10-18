@@ -139,23 +139,56 @@ impl AstNode {
     }
 }
 
+/// ASTノードが表す演算の種類
+///
+/// # 設計思想: 演算子の最小化（Minimal Operator Set）
+///
+/// このenumは必要最小限の演算子のみを含みます。
+/// 複雑な演算は、基本的な演算の組み合わせで表現されます。
+///
+/// ## 実装されている演算子（基本演算子）
+///
+/// - **二項演算**: Add, Mul, Max, Idiv, Rem
+/// - **単項演算**: Neg, Recip, Sqrt, Sin, Log2, Exp2
+/// - **型変換**: Cast
+/// - **メモリ操作**: Load, Store
+///
+/// ## 実装されていない演算子（正規化により表現）
+///
+/// これらの演算は演算子オーバーロードにより、基本演算子の組み合わせに変換されます：
+///
+/// - **減算 (Sub)**: `a - b` → `add(a, neg(b))`
+/// - **除算 (Div)**: `a / b` → `mul(a, recip(b))`
+/// - **余弦 (Cos)**: `cos(x)` → `sin(add(x, const(π/2)))`
+/// - **正接 (Tan)**: `tan(x)` → `mul(sin(x), recip(cos(x)))`
+/// - **べき乗 (Pow)**: `pow(a, b)` → `exp2(mul(b, log2(a)))`
+///
+/// この設計により、パターンマッチングと最適化が簡潔になります。
 #[derive(Debug, Clone)]
 pub enum AstOp {
+    // 定数・変数
     Const(ConstValue),
     Var(String),
+
+    // 二項演算（基本演算子）
     Add(Box<AstNode>, Box<AstNode>),
     Mul(Box<AstNode>, Box<AstNode>),
     Max(Box<AstNode>, Box<AstNode>),
     Idiv(Box<AstNode>, Box<AstNode>), // integer division
     Rem(Box<AstNode>, Box<AstNode>),  // remainder
-    Neg(Box<AstNode>),
-    Recip(Box<AstNode>),
-    Sqrt(Box<AstNode>),
-    Sin(Box<AstNode>),
-    Log2(Box<AstNode>),
-    Exp2(Box<AstNode>),
+
+    // 単項演算（基本演算子）
+    Neg(Box<AstNode>),   // negation: -x
+    Recip(Box<AstNode>), // reciprocal: 1/x
+    Sqrt(Box<AstNode>),  // square root
+    Sin(Box<AstNode>),   // sine (cos は sin(x + π/2) として表現)
+    Log2(Box<AstNode>),  // logarithm base 2
+    Exp2(Box<AstNode>),  // exponential base 2
+
+    // 型変換
     Cast(Box<AstNode>, DType),
 
+    // メモリ操作
     Load {
         // load values to stack from buffer
         target: Box<AstNode>,
@@ -169,6 +202,7 @@ pub enum AstOp {
         value: Box<AstNode>,
     },
 
+    // パターンマッチング用
     Capture(isize), // for pattern matching
 }
 

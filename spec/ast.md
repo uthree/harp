@@ -304,6 +304,204 @@ let rewriter2 = ast_rewriter! { /* ... */ };
 let combined = &rewriter1 + &rewriter2;
 ```
 
+## 最適化器 (Optimizer)
+
+### AstOptimizer トレイト
+
+AST最適化を抽象化するトレイト。
+
+```rust
+pub trait AstOptimizer {
+    fn apply(&self, ast: &AstNode) -> AstNode;
+
+    fn compose(self, other: impl AstOptimizer + 'static) -> ComposedOptimizer
+    where
+        Self: Sized + 'static;
+}
+```
+
+#### メソッド
+
+- `apply(&self, ast: &AstNode) -> AstNode`: ASTに最適化を適用
+- `compose(self, other: impl AstOptimizer + 'static) -> ComposedOptimizer`: 他のOptimizerと合成して新しいOptimizerを作成
+
+#### composeメソッド
+
+`compose`メソッドは、複数の最適化器を合成するための便利なメソッドです。
+
+**デフォルト実装**: selfとotherを含む新しいComposedOptimizerを作成します。
+
+**ComposedOptimizerでのオーバーライド**: 既存のoptimizer群に新しいoptimizerを追加します（新しいComposedOptimizerを作成するのではなく）。
+
+これにより、メソッドチェーン形式で複数の最適化器を組み合わせることができます：
+
+```rust
+use harp::opt::{RewriterOptimizer, AstOptimizer};
+
+let opt1 = RewriterOptimizer::new(/* ... */);
+let opt2 = RewriterOptimizer::new(/* ... */);
+let opt3 = RewriterOptimizer::new(/* ... */);
+
+// メソッドチェーンで合成
+let composed = opt1.compose(opt2).compose(opt3);
+
+// 従来の方法
+let composed = ComposedOptimizer::new()
+    .add_optimizer(opt1)
+    .add_optimizer(opt2)
+    .add_optimizer(opt3);
+```
+
+### RewriterOptimizer
+
+AstRewriterを使った最適化器の実装。
+
+```rust
+pub struct RewriterOptimizer {
+    rewriter: AstRewriter,
+    apply_until_fixed: bool,
+}
+```
+
+#### メソッド
+
+- `new(rewriter: AstRewriter) -> Self`: 新しい最適化器を作成（1回だけ適用）
+- `with_fixed_point(self) -> Self`: 不動点に達するまで繰り返し適用するモードを有効化
+- `from_rewriters(rewriters: Vec<AstRewriter>) -> Self`: 複数のリライターを統合して最適化器を作成
+
+#### 使用例
+
+```rust
+use harp::opt::RewriterOptimizer;
+use harp::ast::*;
+
+// 定数畳み込みリライター
+let rewriter = ast_rewriter! {
+    ast_rule!(
+        |a, b| add(capture(0), capture(1)) => {
+            if let (AstOp::Const(ConstValue::F32(av)), AstOp::Const(ConstValue::F32(bv))) =
+                (&a.op, &b.op)
+            {
+                const_f32(av + bv)
+            } else {
+                add(a.clone(), b.clone())
+            }
+        },
+        if |caps: &[AstNode]| {
+            matches!(caps[0].op, AstOp::Const(_)) && matches!(caps[1].op, AstOp::Const(_))
+        }
+    ),
+};
+
+// 最適化器を作成し、不動点まで適用
+let optimizer = RewriterOptimizer::new(rewriter).with_fixed_point();
+
+// (1.0 + 2.0) + (3.0 + 4.0)
+let ast = add(
+    add(const_f32(1.0), const_f32(2.0)),
+    add(const_f32(3.0), const_f32(4.0)),
+);
+
+let result = optimizer.apply(&ast);  // const_f32(10.0) になる
+```
+
+### ComposedOptimizer
+
+複数の最適化器を順番に適用する合成最適化器。
+
+```rust
+pub struct ComposedOptimizer {
+    optimizers: Vec<Box<dyn AstOptimizer>>,
+}
+```
+
+#### メソッド
+
+- `new() -> Self`: 新しい合成最適化器を作成
+- `add_optimizer<O: AstOptimizer + 'static>(self, optimizer: O) -> Self`: 最適化器を追加
+- `from_optimizers(optimizers: Vec<Box<dyn AstOptimizer>>) -> Self`: 最適化器のリストから作成
+- `compose(self, other: impl AstOptimizer + 'static) -> ComposedOptimizer`: 既存のoptimizer群に新しいoptimizerを追加（オーバーライド）
+
+#### 使用例
+
+```rust
+use harp::opt::{RewriterOptimizer, ComposedOptimizer};
+
+// 二重否定除去
+let opt1 = RewriterOptimizer::new(ast_rewriter! {
+    ast_rule!(|x| neg(neg(capture(0))) => x.clone()),
+});
+
+// 定数畳み込み（不動点まで）
+let opt2 = RewriterOptimizer::new(ast_rewriter! {
+    ast_rule!(
+        |a, b| add(capture(0), capture(1)) => {
+            if let (AstOp::Const(ConstValue::F32(av)), AstOp::Const(ConstValue::F32(bv))) =
+                (&a.op, &b.op)
+            {
+                const_f32(av + bv)
+            } else {
+                add(a.clone(), b.clone())
+            }
+        },
+        if |caps: &[AstNode]| {
+            matches!(caps[0].op, AstOp::Const(_)) && matches!(caps[1].op, AstOp::Const(_))
+        }
+    ),
+}).with_fixed_point();
+
+// 方法1: add_optimizerを使う
+let optimizer = ComposedOptimizer::new()
+    .add_optimizer(opt1)
+    .add_optimizer(opt2);
+
+// 方法2: composeメソッドを使う（より簡潔）
+let optimizer = opt1.compose(opt2);
+
+// -(-1.0) + -(-2.0)
+let ast = add(neg(neg(const_f32(1.0))), neg(neg(const_f32(2.0))));
+let result = optimizer.apply(&ast);  // const_f32(3.0) になる
+```
+
+**composeメソッドの利点**:
+
+```rust
+// チェーン形式で読みやすい
+let optimizer = opt1.compose(opt2).compose(opt3).compose(opt4);
+
+// add_optimizerの場合
+let optimizer = ComposedOptimizer::new()
+    .add_optimizer(opt1)
+    .add_optimizer(opt2)
+    .add_optimizer(opt3)
+    .add_optimizer(opt4);
+```
+
+### 最適化の順序
+
+**重要**: ComposedOptimizerは各最適化器を順番に1回だけ適用します。最適化の順序によって結果が変わる場合があります。
+
+```rust
+// 例: 最適化の順序が重要なケース
+
+// パターン1: 定数畳み込み → 二重否定除去
+let opt1 = ComposedOptimizer::new()
+    .add_optimizer(constant_folding_optimizer)
+    .add_optimizer(double_negation_optimizer);
+
+// パターン2: 二重否定除去 → 定数畳み込み
+let opt2 = ComposedOptimizer::new()
+    .add_optimizer(double_negation_optimizer)
+    .add_optimizer(constant_folding_optimizer);
+
+// -(-2.0) * 3.0 の場合:
+// パターン1: 定数畳み込みできず → 二重否定除去 → Mul(2.0, 3.0) のまま
+// パターン2: 二重否定除去 → 定数畳み込みできず → Mul(2.0, 3.0) のまま
+
+// 両方の最適化を完全に適用するには、with_fixed_pointを使うか、
+// より強力な最適化パイプラインを構築する必要があります
+```
+
 ## 使用例
 
 ### 基本的な式の構築
@@ -358,6 +556,87 @@ let output_buffer = DType::F32.ptr_mut();
 ```
 
 ## 設計方針
+
+### 演算子の最小化（Minimal Operator Set）
+
+**harpのASTは、演算子の種類を必要最小限に抑える設計思想を採用しています。**
+
+この設計により、以下のメリットが得られます：
+
+1. **パターンマッチングの簡素化**: 最適化ルールが少ない演算子のパターンだけを考慮すれば良い
+2. **最適化の網羅性向上**: すべての演算が正規化された形で表現されるため、最適化の適用漏れが減る
+3. **コード生成の簡素化**: バックエンドが対応すべき演算子の種類が少なくて済む
+4. **保守性の向上**: 新機能の追加時に考慮すべきケースが減る
+
+#### 演算子の正規化ルール
+
+複雑な演算は、より基本的な演算の組み合わせで表現されます：
+
+| 演算 | 通常の表現 | harpでの正規化表現 | 理由 |
+|------|-----------|------------------|------|
+| 減算 | `sub(a, b)` | `add(a, neg(b))` | 加算と否定だけで表現可能 |
+| 除算 | `div(a, b)` | `mul(a, recip(b))` | 乗算と逆数だけで表現可能 |
+| 余弦 | `cos(x)` | `sin(add(x, const(π/2)))` | 正弦関数と定数オフセットで表現可能 |
+| 正接 | `tan(x)` | `mul(sin(x), recip(cos(x)))` | 正弦と余弦の比で表現可能 |
+| べき乗 | `pow(a, b)` | `exp2(mul(b, log2(a)))` | 対数と指数で表現可能 |
+
+#### 実装例
+
+演算子オーバーロードによって、ユーザーコードでは通常の演算子を使用できますが、内部的には正規化された形に変換されます：
+
+```rust
+// ユーザーが書くコード
+let result = a - b;
+
+// 内部的には以下のように展開される
+impl<T: Into<AstNode>> Sub<T> for AstNode {
+    type Output = AstNode;
+
+    fn sub(self, rhs: T) -> Self::Output {
+        let rhs_node = rhs.into();
+        // 減算は add(a, neg(b)) として実装
+        add(self, neg(rhs_node))
+    }
+}
+
+// 除算も同様
+impl<T: Into<AstNode>> Div<T> for AstNode {
+    type Output = AstNode;
+
+    fn div(self, rhs: T) -> Self::Output {
+        let rhs_node = rhs.into();
+        // 除算は mul(a, recip(b)) として実装
+        mul(self, recip(rhs_node))
+    }
+}
+```
+
+#### 最適化への影響
+
+演算子の正規化により、最適化ルールの記述が簡潔になります：
+
+```rust
+// 悪い例: 減算と加算の両方に対応する必要がある
+ast_rule!(|a| sub(a, a) => const_f32(0.0));  // a - a = 0
+ast_rule!(|a| add(a, neg(a)) => const_f32(0.0));  // a + (-a) = 0
+
+// 良い例: 加算のパターンだけで十分（減算は内部的に add(a, neg(b)) に正規化されているため）
+ast_rule!(|a| add(a, neg(a)) => const_f32(0.0));  // a + (-a) = 0
+```
+
+#### トレードオフ
+
+この設計にはトレードオフも存在します：
+
+**メリット:**
+- 最適化ルールの数が減少
+- パターンマッチングが簡単
+- AST構造の一貫性が向上
+
+**デメリット:**
+- AST構造がやや複雑になる（`a - b` が `add(a, neg(b))` という3ノード構造になる）
+- 特定のハードウェア命令（例: FMA = Fused Multiply-Add）への直接マッピングが難しくなる場合がある
+  - ただし、これは後段の最適化パスで検出可能（`add(mul(a, b), c)` → FMA命令）
 
 ### 不変性
 
