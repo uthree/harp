@@ -794,9 +794,465 @@ void kernel_impl(float* input_0, float* input_1, float* output_0) {
 }
 ```
 
+## デバイス情報からのSIMD自動検出
+
+### 概要
+
+実行環境のCPU機能を自動検出し、利用可能な最適なSIMD拡張を選択する仕組み。これにより、ユーザーが手動で設定することなく、実行環境に最適化されたコードを生成できる。
+
+### 検出方式
+
+#### 1. コンパイル時検出（Compile-time Detection）
+
+コンパイラが定義するマクロを利用して、ターゲット環境のSIMD機能を検出：
+
+```rust
+/// コンパイル時に利用可能なSIMD拡張を検出
+pub fn detect_compile_time_simd() -> SimdExtension {
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+    return SimdExtension::IntelIntrinsics(IntelSimdLevel::AVX512);
+
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    return SimdExtension::IntelIntrinsics(IntelSimdLevel::AVX);
+
+    #[cfg(all(target_arch = "x86_64", target_feature = "sse4.2"))]
+    return SimdExtension::IntelIntrinsics(IntelSimdLevel::SSE);
+
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    return SimdExtension::ArmNeon;
+
+    SimdExtension::AutoVectorize
+}
+```
+
+**Cコード生成時:**
+```c
+// コンパイラマクロを利用した条件分岐
+#ifdef __AVX512F__
+    #define SIMD_LEVEL 3
+    typedef __m512 simd_float;
+#elif defined(__AVX2__)
+    #define SIMD_LEVEL 2
+    typedef __m256 simd_float;
+#elif defined(__SSE4_2__)
+    #define SIMD_LEVEL 1
+    typedef __m128 simd_float;
+#else
+    #define SIMD_LEVEL 0
+    typedef float simd_float;
+#endif
+```
+
+**利点:**
+- オーバーヘッドなし
+- コンパイル時に最適化される
+- 実装がシンプル
+
+**欠点:**
+- 実行環境が変わると最適化が合わない可能性
+- ビルド時のターゲット設定が必要
+
+#### 2. 実行時検出（Runtime Detection）
+
+実行時にCPUID命令などを使用して、実際のCPU機能を検出：
+
+**x86/x64 の場合:**
+
+```rust
+/// CPU機能を実行時に検出
+pub struct CpuFeatures {
+    pub has_sse: bool,
+    pub has_sse2: bool,
+    pub has_sse3: bool,
+    pub has_ssse3: bool,
+    pub has_sse4_1: bool,
+    pub has_sse4_2: bool,
+    pub has_avx: bool,
+    pub has_avx2: bool,
+    pub has_avx512f: bool,
+    pub has_avx512dq: bool,
+    pub has_fma: bool,
+}
+
+impl CpuFeatures {
+    /// CPUID命令を使用してCPU機能を検出
+    #[cfg(target_arch = "x86_64")]
+    pub fn detect() -> Self {
+        // is_x86_feature_detected!マクロを使用（std提供）
+        Self {
+            has_sse: is_x86_feature_detected!("sse"),
+            has_sse2: is_x86_feature_detected!("sse2"),
+            has_sse3: is_x86_feature_detected!("sse3"),
+            has_ssse3: is_x86_feature_detected!("ssse3"),
+            has_sse4_1: is_x86_feature_detected!("sse4.1"),
+            has_sse4_2: is_x86_feature_detected!("sse4.2"),
+            has_avx: is_x86_feature_detected!("avx"),
+            has_avx2: is_x86_feature_detected!("avx2"),
+            has_avx512f: is_x86_feature_detected!("avx512f"),
+            has_avx512dq: is_x86_feature_detected!("avx512dq"),
+            has_fma: is_x86_feature_detected!("fma"),
+        }
+    }
+
+    /// 最も高度なサポートされているSIMDレベルを取得
+    pub fn best_simd_level(&self) -> SimdExtension {
+        if self.has_avx512f {
+            SimdExtension::IntelIntrinsics(IntelSimdLevel::AVX512)
+        } else if self.has_avx2 {
+            SimdExtension::IntelIntrinsics(IntelSimdLevel::AVX)
+        } else if self.has_sse4_2 {
+            SimdExtension::IntelIntrinsics(IntelSimdLevel::SSE)
+        } else {
+            SimdExtension::AutoVectorize
+        }
+    }
+
+    /// 推奨されるベクトル幅を取得
+    pub fn recommended_vector_width(&self, dtype: DType) -> usize {
+        match dtype {
+            DType::F32 => {
+                if self.has_avx512f { 16 }
+                else if self.has_avx { 8 }
+                else if self.has_sse { 4 }
+                else { 1 }
+            }
+            DType::F64 => {
+                if self.has_avx512f { 8 }
+                else if self.has_avx { 4 }
+                else if self.has_sse2 { 2 }
+                else { 1 }
+            }
+            _ => 1,
+        }
+    }
+}
+```
+
+**ARM (AArch64) の場合:**
+
+```rust
+#[cfg(target_arch = "aarch64")]
+impl CpuFeatures {
+    pub fn detect() -> Self {
+        // Linux: /proc/cpuinfo を読む、または getauxval() を使用
+        // macOS: sysctlbyname() を使用
+        Self {
+            has_neon: Self::detect_neon(),
+            has_sve: Self::detect_sve(),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn detect_neon() -> bool {
+        use std::fs::read_to_string;
+        if let Ok(cpuinfo) = read_to_string("/proc/cpuinfo") {
+            cpuinfo.contains("neon")
+        } else {
+            false
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn detect_neon() -> bool {
+        // AArch64 macOS では NEON は常にサポートされている
+        true
+    }
+}
+```
+
+**生成されるCコード（実行時検出版）:**
+
+```c
+#include <cpuid.h>  // x86/x64
+#include <stdbool.h>
+
+typedef struct {
+    bool has_sse;
+    bool has_avx;
+    bool has_avx2;
+    bool has_avx512f;
+} cpu_features_t;
+
+// CPUID命令を使用してCPU機能を検出
+cpu_features_t detect_cpu_features() {
+    cpu_features_t features = {0};
+    unsigned int eax, ebx, ecx, edx;
+
+    // CPUID function 1: 基本機能
+    __cpuid(1, eax, ebx, ecx, edx);
+    features.has_sse = (edx & (1 << 25)) != 0;
+
+    // CPUID function 7: 拡張機能
+    __cpuid_count(7, 0, eax, ebx, ecx, edx);
+    features.has_avx2 = (ebx & (1 << 5)) != 0;
+    features.has_avx512f = (ebx & (1 << 16)) != 0;
+
+    return features;
+}
+
+// 複数バージョンのカーネル実装
+void kernel_impl_avx512(float* in0, float* in1, float* out);
+void kernel_impl_avx(float* in0, float* in1, float* out);
+void kernel_impl_sse(float* in0, float* in1, float* out);
+void kernel_impl_scalar(float* in0, float* in1, float* out);
+
+// 実行時ディスパッチ
+void kernel_impl(float* in0, float* in1, float* out) {
+    static cpu_features_t features;
+    static bool detected = false;
+
+    if (!detected) {
+        features = detect_cpu_features();
+        detected = true;
+    }
+
+    if (features.has_avx512f) {
+        kernel_impl_avx512(in0, in1, out);
+    } else if (features.has_avx2) {
+        kernel_impl_avx(in0, in1, out);
+    } else if (features.has_sse) {
+        kernel_impl_sse(in0, in1, out);
+    } else {
+        kernel_impl_scalar(in0, in1, out);
+    }
+}
+```
+
+**利点:**
+- 実行環境に最適な実装を自動選択
+- 同じバイナリで複数の環境に対応
+- ユーザー設定不要
+
+**欠点:**
+- コードサイズが増加（複数バージョンを生成）
+- 若干のディスパッチオーバーヘッド
+- 実装が複雑
+
+### 自動設定API
+
+```rust
+impl SimdConfig {
+    /// 実行環境を検出して自動設定
+    pub fn auto_detect() -> Self {
+        let features = CpuFeatures::detect();
+        let extension = features.best_simd_level();
+
+        let mut type_configs = HashMap::new();
+
+        // F32の設定
+        type_configs.insert(DType::F32, TypeSimdConfig {
+            allowed_widths: vec![2, 4, 8, 16]
+                .into_iter()
+                .filter(|&w| w <= features.recommended_vector_width(DType::F32))
+                .collect(),
+            default_width: Some(features.recommended_vector_width(DType::F32)),
+        });
+
+        // F64の設定
+        type_configs.insert(DType::F64, TypeSimdConfig {
+            allowed_widths: vec![2, 4, 8]
+                .into_iter()
+                .filter(|&w| w <= features.recommended_vector_width(DType::F64))
+                .collect(),
+            default_width: Some(features.recommended_vector_width(DType::F64)),
+        });
+
+        Self {
+            extension,
+            max_vector_width: features.recommended_vector_width(DType::F32),
+            type_configs,
+            disabled_operations: HashSet::new(),
+        }
+    }
+
+    /// 特定の機能が利用可能か確認
+    pub fn is_feature_available(&self, feature: &str) -> bool {
+        let features = CpuFeatures::detect();
+        match feature {
+            "sse" => features.has_sse,
+            "sse2" => features.has_sse2,
+            "avx" => features.has_avx,
+            "avx2" => features.has_avx2,
+            "avx512" => features.has_avx512f,
+            "fma" => features.has_fma,
+            _ => false,
+        }
+    }
+}
+
+impl CRendererOption {
+    /// 自動検出した設定で初期化
+    pub fn auto_detect() -> Self {
+        Self {
+            use_openmp: true,
+            simd: SimdConfig::auto_detect(),
+        }
+    }
+}
+```
+
+### 実行時ディスパッチ生成
+
+実行時ディスパッチを有効にした場合、複数バージョンのカーネルを生成：
+
+```rust
+#[derive(Debug, Clone)]
+pub struct RuntimeDispatchConfig {
+    /// 生成するバージョン
+    pub variants: Vec<SimdExtension>,
+
+    /// ディスパッチ関数名
+    pub dispatch_function_name: String,
+
+    /// 検出を一度だけ実行（static変数に保存）
+    pub cache_detection: bool,
+}
+
+impl CRendererOption {
+    /// 実行時ディスパッチを有効化
+    pub fn with_runtime_dispatch(variants: Vec<SimdExtension>) -> Self {
+        Self {
+            use_openmp: true,
+            simd: SimdConfig {
+                extension: SimdExtension::RuntimeDispatch(RuntimeDispatchConfig {
+                    variants,
+                    dispatch_function_name: "detect_and_dispatch".to_string(),
+                    cache_detection: true,
+                }),
+                ..Default::default()
+            },
+        }
+    }
+}
+```
+
+**生成コード例:**
+
+```c
+// それぞれのSIMDレベルに対応した実装
+void kernel_impl_avx512(float* in0, float* in1, float* out, size_t n) {
+    for (size_t i = 0; i < n; i += 16) {
+        _mm512_storeu_ps(out + i,
+            _mm512_add_ps(
+                _mm512_loadu_ps(in0 + i),
+                _mm512_loadu_ps(in1 + i)
+            )
+        );
+    }
+}
+
+void kernel_impl_avx(float* in0, float* in1, float* out, size_t n) {
+    for (size_t i = 0; i < n; i += 8) {
+        _mm256_storeu_ps(out + i,
+            _mm256_add_ps(
+                _mm256_loadu_ps(in0 + i),
+                _mm256_loadu_ps(in1 + i)
+            )
+        );
+    }
+}
+
+void kernel_impl_scalar(float* in0, float* in1, float* out, size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        out[i] = in0[i] + in1[i];
+    }
+}
+
+// ディスパッチャー
+void kernel_impl(float* in0, float* in1, float* out, size_t n) {
+    static int simd_level = -1;
+
+    // 初回のみ検出
+    if (simd_level == -1) {
+        cpu_features_t features = detect_cpu_features();
+        if (features.has_avx512f) {
+            simd_level = 2;
+        } else if (features.has_avx) {
+            simd_level = 1;
+        } else {
+            simd_level = 0;
+        }
+    }
+
+    // 適切な実装にディスパッチ
+    switch (simd_level) {
+        case 2: kernel_impl_avx512(in0, in1, out, n); break;
+        case 1: kernel_impl_avx(in0, in1, out, n); break;
+        default: kernel_impl_scalar(in0, in1, out, n); break;
+    }
+}
+```
+
+### 使用例
+
+```rust
+// 方法1: 完全自動検出
+let mut renderer = CRenderer::new();
+let option = CRendererOption::auto_detect();
+renderer.with_option(option);
+
+// 方法2: 実行時ディスパッチ（複数バージョン生成）
+let option = CRendererOption::with_runtime_dispatch(vec![
+    SimdExtension::IntelIntrinsics(IntelSimdLevel::AVX512),
+    SimdExtension::IntelIntrinsics(IntelSimdLevel::AVX),
+    SimdExtension::IntelIntrinsics(IntelSimdLevel::SSE),
+]);
+
+// 方法3: 検出結果を確認してカスタマイズ
+let mut config = SimdConfig::auto_detect();
+println!("Detected SIMD: {:?}", config.extension);
+
+// 特定の演算を無効化（例：精度の問題）
+if !config.is_feature_available("fma") {
+    config.disabled_operations.insert(SimdOperation::Mul);
+}
+```
+
+### プラットフォーム別の検出方法
+
+| プラットフォーム | 検出方法 | 利用可能な情報 |
+|---|---|---|
+| **Linux x86_64** | `is_x86_feature_detected!` macro, `/proc/cpuinfo` | SSE, AVX, AVX2, AVX-512, FMA |
+| **Windows x86_64** | `IsProcessorFeaturePresent`, `__cpuid` | 同上 |
+| **macOS x86_64** | `sysctlbyname("hw.optional.*")` | 同上 |
+| **macOS ARM64** | `sysctlbyname` | NEON（常時有効） |
+| **Linux ARM64** | `/proc/cpuinfo`, `getauxval(AT_HWCAP)` | NEON, SVE |
+| **Android ARM** | `android_getCpuFeatures()` | NEON, FP16 |
+
+### Phase 6: デバイス自動検出機能（将来実装）
+
+実装計画に追加：
+
+1. **CPU機能検出ライブラリの実装**
+   - [ ] `CpuFeatures` 構造体の実装
+   - [ ] プラットフォーム別の検出コード
+   - [ ] テスト（様々なCPUでの検証）
+
+2. **自動設定API**
+   - [ ] `SimdConfig::auto_detect()` の実装
+   - [ ] `CRendererOption::auto_detect()` の実装
+
+3. **実行時ディスパッチ生成**
+   - [ ] 複数バージョンのカーネル生成
+   - [ ] ディスパッチャー関数の生成
+   - [ ] CPU検出コードの生成
+
+4. **ドキュメントとサンプル**
+   - [ ] 自動検出機能の使用方法
+   - [ ] パフォーマンスベンチマーク
+
+### 注意事項
+
+1. **セキュリティ**: CPUID命令は一部の仮想化環境でエミュレートされる場合がある
+2. **精度**: 一部のSIMD演算（特に超越関数）は精度が異なる場合がある
+3. **互換性**: 古いCPUでは一部の命令が使用できない可能性
+4. **キャッシュ**: 検出結果はキャッシュすることでオーバーヘッドを最小化
+
 ## 参考資料
 
 - [GCC Vector Extensions](https://gcc.gnu.org/onlinedocs/gcc/Vector-Extensions.html)
 - [Intel Intrinsics Guide](https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html)
 - [ARM NEON Intrinsics](https://developer.arm.com/architectures/instruction-sets/intrinsics/)
 - [OpenCL Vector Types](https://www.khronos.org/registry/OpenCL/specs/3.0-unified/html/OpenCL_C.html#vector-data-types)
+- [Rust std::arch module](https://doc.rust-lang.org/std/arch/index.html) - CPU機能検出
+- [CPUID Wikipedia](https://en.wikipedia.org/wiki/CPUID) - CPUID命令の詳細
