@@ -170,16 +170,19 @@ impl ElementwiseLowerer {
                 shape: _result_shape,
                 strides: result_strides,
                 offset: result_offset,
+                ..
             },
             crate::graph::shape::view::View::Linear {
                 shape: _,
                 strides: lhs_strides,
                 offset: lhs_offset,
+                ..
             },
             crate::graph::shape::view::View::Linear {
                 shape: _,
                 strides: rhs_strides,
                 offset: rhs_offset,
+                ..
             },
         ) = (result_view, lhs_view, rhs_view);
 
@@ -298,11 +301,13 @@ impl ElementwiseLowerer {
                 shape: _result_shape,
                 strides: result_strides,
                 offset: result_offset,
+                ..
             },
             crate::graph::shape::view::View::Linear {
                 shape: _,
                 strides: operand_strides,
                 offset: operand_offset,
+                ..
             },
         ) = (result_view, operand_view);
 
@@ -403,21 +408,25 @@ impl ElementwiseLowerer {
                 shape: result_shape,
                 strides: result_strides,
                 offset: result_offset,
+                ..
             },
             crate::graph::shape::view::View::Linear {
                 shape: _,
                 strides: cond_strides,
                 offset: cond_offset,
+                ..
             },
             crate::graph::shape::view::View::Linear {
                 shape: _,
                 strides: true_strides,
                 offset: true_offset,
+                ..
             },
             crate::graph::shape::view::View::Linear {
                 shape: _,
                 strides: false_strides,
                 offset: false_offset,
+                ..
             },
         ) = (result_view, cond_view, true_view, false_view);
 

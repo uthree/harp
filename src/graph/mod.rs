@@ -202,9 +202,9 @@ pub enum GraphOp {
     Contiguous(GraphNode), // ContiguousなViewに並べ直す（入力のメモリレイアウトを連続に変換）
     Cast(GraphNode, DType), // 型変換: (input, target_dtype)
     Fold(usize, usize, usize, usize, GraphNode), // Fold operation (col2im): (dim, window_size, stride, dilation, input)
-    Pad(GraphNode, usize, ShapeExpr), // Padding operation: (input, axis, padding_amount)
-                                      // Example: Pad(node, 0, Ceil(N / tile_size) * tile_size - N)
-                                      // Pads with zeros on the specified axis
+    Pad(GraphNode, usize, ShapeExpr),            // Padding operation: (input, axis, padding_amount)
+    // Example: Pad(node, 0, Ceil(N / tile_size) * tile_size - N)
+    // Pads with zeros on the specified axis
     // 融合済みの演算子
     FusedElementwise(AstNode, Vec<GraphNode>), // Capture(n)がn番目のGraphNodeに対応する
     FusedReduce(ReduceOp, Vec<usize>, GraphNode), // 複数の軸でReduceする

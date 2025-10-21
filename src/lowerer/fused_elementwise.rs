@@ -46,6 +46,7 @@ impl FusedElementwiseLowerer {
             shape,
             strides,
             offset,
+            ..
         } = view;
 
         if dim >= shape.len() {

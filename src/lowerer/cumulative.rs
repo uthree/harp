@@ -59,6 +59,7 @@ impl CumulativeLowerer {
             shape: input_shape,
             strides: input_strides,
             offset: input_offset,
+            ..
         } = input_view;
         let View::Linear {
             shape: result_shape,

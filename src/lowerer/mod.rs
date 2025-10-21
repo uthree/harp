@@ -9,6 +9,7 @@ mod fused_elementwise_reduce;
 mod fused_reduce;
 mod kernel;
 mod lower_node;
+mod pad;
 mod reduce;
 mod topological;
 mod utils;

@@ -9,6 +9,8 @@ pub enum View {
         shape: Vec<Expr>,   // 論理的なテンソルのサイズ
         strides: Vec<Expr>, // 各次元の添え字の係数
         offset: Expr,       // オフセット
+        pad: Vec<(Expr, Expr)>, // 各次元の(前パディング, 後パディング)
+                            // 空の場合はパディングなし
     },
     // TODO: 非線形な場合の処理を実装する
 }
@@ -21,6 +23,7 @@ impl View {
                 shape,
                 strides: vec![],
                 offset: Expr::from(0),
+                pad: vec![],
             };
         }
         let mut strides = vec![Expr::from(1); shape.len()];
@@ -31,6 +34,7 @@ impl View {
             shape,
             strides,
             offset: Expr::from(0),
+            pad: vec![],
         }
     }
 
@@ -53,17 +57,23 @@ impl View {
                 shape,
                 strides,
                 offset,
+                pad,
             } => {
                 let mut new_shape = vec![];
                 let mut new_strides = vec![];
+                let mut new_pad = vec![];
                 for axis in axes.iter() {
                     new_shape.push(shape[*axis].clone().simplify());
                     new_strides.push(strides[*axis].clone().simplify());
+                    if *axis < pad.len() {
+                        new_pad.push(pad[*axis].clone());
+                    }
                 }
                 View::Linear {
                     shape: new_shape,
                     strides: new_strides,
                     offset,
+                    pad: new_pad,
                 }
             }
         }
@@ -76,15 +86,20 @@ impl View {
                 shape,
                 strides,
                 offset,
+                mut pad,
             } => {
                 let mut shape = shape.clone();
                 let mut strides = strides.clone();
                 shape.insert(axis, 1.into());
                 strides.insert(axis, 0.into());
+                if !pad.is_empty() {
+                    pad.insert(axis, (Expr::from(0), Expr::from(0)));
+                }
                 View::Linear {
                     shape,
                     strides,
                     offset,
+                    pad,
                 }
             }
         }
@@ -97,16 +112,21 @@ impl View {
                 shape,
                 strides,
                 offset,
+                mut pad,
             } => {
                 let mut shape = shape.clone();
                 let mut strides = strides.clone();
                 assert_eq!(shape[axis], 1.into(), "can only squeeze an axis of size 1");
                 shape.remove(axis);
                 strides.remove(axis);
+                if axis < pad.len() {
+                    pad.remove(axis);
+                }
                 View::Linear {
                     shape,
                     strides,
                     offset,
+                    pad,
                 }
             }
         }
@@ -119,6 +139,7 @@ impl View {
                 shape,
                 mut strides,
                 offset,
+                pad,
             } => {
                 // Flip axis by reversing the stride direction
                 // New offset = old_offset + (shape[axis] - 1) * strides[axis]
@@ -131,6 +152,7 @@ impl View {
                     shape,
                     strides,
                     offset: new_offset,
+                    pad,
                 }
             }
         }
@@ -142,6 +164,7 @@ impl View {
                 shape,
                 strides,
                 offset,
+                pad,
             } => {
                 assert_eq!(shape.len(), new_shape.len(), "expand must not change rank");
                 let mut new_strides = strides.clone();
@@ -155,6 +178,7 @@ impl View {
                     shape: new_shape,
                     strides: new_strides,
                     offset,
+                    pad,
                 }
             }
         }
@@ -189,6 +213,7 @@ impl View {
                 shape: new_shape,
                 strides: new_strides,
                 offset,
+                pad: vec![], // Reset padding for custom strided views
             },
         }
     }
@@ -233,6 +258,7 @@ impl View {
                 shape,
                 strides,
                 offset,
+                pad,
             } => {
                 assert!(dim < shape.len(), "dimension out of bounds");
 
@@ -268,6 +294,7 @@ impl View {
                     shape: new_shape,
                     strides: new_strides,
                     offset,
+                    pad, // Preserve padding information
                 }
             }
         }
@@ -299,11 +326,13 @@ impl View {
                     shape: lhs_shape,
                     strides: lhs_strides,
                     offset: lhs_offset,
+                    ..
                 },
                 View::Linear {
                     shape: _rhs_shape,
                     strides: rhs_strides,
                     offset: rhs_offset,
+                    ..
                 },
             ) => {
                 if lhs_strides == rhs_strides && lhs_offset == rhs_offset {
@@ -315,6 +344,58 @@ impl View {
             }
         }
     }
+
+    /// パディング情報を取得
+    pub fn get_padding(&self) -> &[(Expr, Expr)] {
+        match self {
+            View::Linear { pad, .. } => pad.as_slice(),
+        }
+    }
+
+    /// 指定した軸にパディングを設定（前後両方）
+    pub fn set_pad_at_axis(
+        mut self,
+        axis: usize,
+        front_pad: impl Into<Expr>,
+        back_pad: impl Into<Expr>,
+    ) -> Self {
+        assert!(axis < self.ndim(), "axis out of bounds");
+        match &mut self {
+            View::Linear { pad, shape, .. } => {
+                // パディング配列を必要なサイズに拡張
+                if pad.len() < shape.len() {
+                    pad.resize(shape.len(), (Expr::from(0), Expr::from(0)));
+                }
+                pad[axis] = (front_pad.into(), back_pad.into());
+            }
+        }
+        self
+    }
+
+    /// 全てのパディング情報を設定
+    pub fn with_padding(mut self, padding: Vec<(Expr, Expr)>) -> Self {
+        match &mut self {
+            View::Linear { pad, shape, .. } => {
+                assert_eq!(
+                    padding.len(),
+                    shape.len(),
+                    "padding vector length must match number of dimensions"
+                );
+                *pad = padding;
+            }
+        }
+        self
+    }
+
+    /// パディングをクリア
+    pub fn clear_padding(mut self) -> Self {
+        match &mut self {
+            View::Linear { pad, .. } => {
+                pad.clear();
+            }
+        }
+        self
+    }
 }
 
 impl fmt::Display for View {
@@ -324,6 +405,7 @@ impl fmt::Display for View {
                 shape,
                 strides,
                 offset,
+                ..
             } => {
                 // Format shape
                 let shape_str = if shape.is_empty() {
@@ -374,6 +456,7 @@ mod tests {
             shape,
             strides,
             offset,
+            ..
         } = view;
         assert_eq!(shape, vec![Expr::from(2), Expr::from(3), Expr::from(4)]);
         assert_eq!(strides, vec![Expr::from(12), Expr::from(4), Expr::from(1)]);
@@ -387,6 +470,7 @@ mod tests {
             shape,
             strides,
             offset,
+            ..
         } = view;
         assert_eq!(shape, vec![Expr::from(4), Expr::from(2), Expr::from(3)]);
         assert_eq!(strides, vec![Expr::from(1), Expr::from(12), Expr::from(4)]);
@@ -400,6 +484,7 @@ mod tests {
             shape,
             strides,
             offset,
+            ..
         } = view;
         assert_eq!(shape, vec![Expr::from(2), Expr::from(1), Expr::from(3)]);
         assert_eq!(strides, vec![Expr::from(3), Expr::from(0), Expr::from(1)]);
@@ -413,6 +498,7 @@ mod tests {
             shape,
             strides,
             offset,
+            ..
         } = view;
         assert_eq!(shape, vec![Expr::from(2), Expr::from(3)]);
         assert_eq!(strides, vec![Expr::from(3), Expr::from(1)]);
@@ -427,6 +513,7 @@ mod tests {
             shape,
             strides,
             offset,
+            ..
         } = view;
         assert_eq!(shape, vec![Expr::from(2), n, Expr::from(3)]);
         assert_eq!(strides, vec![Expr::from(3), Expr::from(0), Expr::from(1)]);
@@ -467,6 +554,7 @@ mod tests {
             shape,
             strides,
             offset,
+            ..
         } = view;
         assert_eq!(shape, vec![Expr::from(2), Expr::from(3)]);
         assert_eq!(strides, vec![Expr::from(-3), Expr::from(1)]);
@@ -480,6 +568,7 @@ mod tests {
             shape,
             strides,
             offset,
+            ..
         } = view;
         assert_eq!(shape, vec![Expr::from(2), Expr::from(3)]);
         assert_eq!(strides, vec![Expr::from(3), Expr::from(-1)]);
@@ -494,6 +583,7 @@ mod tests {
             shape,
             strides,
             offset,
+            ..
         } = view;
         assert_eq!(shape, vec![Expr::from(2), Expr::from(3), Expr::from(4)]);
         assert_eq!(
@@ -521,6 +611,7 @@ mod tests {
             shape,
             strides,
             offset,
+            ..
         } = custom;
         assert_eq!(shape, vec![Expr::from(2), Expr::from(2), Expr::from(2)]);
         assert_eq!(strides, vec![Expr::from(6), Expr::from(3), Expr::from(1)]);
@@ -539,6 +630,7 @@ mod tests {
             shape,
             strides,
             offset,
+            ..
         } = windowed;
 
         // Expected shape: [2, 3, 8, 3]
@@ -582,6 +674,7 @@ mod tests {
             shape,
             strides,
             offset,
+            ..
         } = windowed;
 
         // Expected shape: [1, 1, 4, 3]
@@ -626,6 +719,7 @@ mod tests {
             shape,
             strides,
             offset,
+            ..
         } = windowed;
 
         // Expected shape: [1, 1, 6, 3]
@@ -661,5 +755,57 @@ mod tests {
     #[should_panic(expected = "dimension out of bounds")]
     fn test_unfold_invalid_dim() {
         View::new_contiguous(vec![2, 3]).unfold(3, 2, 1, 1);
+    }
+
+    #[test]
+    fn test_get_padding_empty() {
+        let view = View::new_contiguous(vec![2, 3]);
+        assert_eq!(view.get_padding(), &[]);
+    }
+
+    #[test]
+    fn test_set_pad_at_axis() {
+        let view = View::new_contiguous(vec![2, 3, 4]);
+        let padded = view.set_pad_at_axis(1, 1, 2);
+        let padding = padded.get_padding();
+        assert_eq!(padding.len(), 3);
+        assert_eq!(padding[1], (Expr::from(1), Expr::from(2)));
+        assert_eq!(padding[0], (Expr::from(0), Expr::from(0)));
+        assert_eq!(padding[2], (Expr::from(0), Expr::from(0)));
+    }
+
+    #[test]
+    fn test_with_padding() {
+        let view = View::new_contiguous(vec![2, 3]);
+        let padding = vec![
+            (Expr::from(1), Expr::from(2)),
+            (Expr::from(3), Expr::from(4)),
+        ];
+        let padded = view.with_padding(padding.clone());
+        assert_eq!(padded.get_padding(), padding.as_slice());
+    }
+
+    #[test]
+    fn test_clear_padding() {
+        let view = View::new_contiguous(vec![2, 3]);
+        let padded = view.set_pad_at_axis(0, 1, 1);
+        assert!(!padded.get_padding().is_empty());
+        let cleared = padded.clear_padding();
+        assert_eq!(cleared.get_padding(), &[]);
+    }
+
+    #[test]
+    #[should_panic(expected = "axis out of bounds")]
+    fn test_set_pad_at_axis_invalid() {
+        let view = View::new_contiguous(vec![2, 3]);
+        view.set_pad_at_axis(3, 1, 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "padding vector length must match number of dimensions")]
+    fn test_with_padding_wrong_length() {
+        let view = View::new_contiguous(vec![2, 3]);
+        let padding = vec![(Expr::from(1), Expr::from(2))]; // Only 1 element, but need 2
+        view.with_padding(padding);
     }
 }

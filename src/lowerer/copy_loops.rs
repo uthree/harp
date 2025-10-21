@@ -17,6 +17,7 @@ impl LowerContext {
                 shape,
                 strides: input_strides,
                 offset: input_offset,
+                ..
             },
             View::Linear {
                 strides: result_strides,
@@ -70,6 +71,7 @@ impl LowerContext {
                 shape,
                 strides: input_strides,
                 offset: input_offset,
+                ..
             },
             View::Linear {
                 strides: result_strides,

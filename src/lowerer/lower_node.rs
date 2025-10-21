@@ -6,7 +6,7 @@ use crate::lowerer::{
     fused_elementwise::FusedElementwiseLowerer,
     fused_elementwise_cumulative::FusedElementwiseCumulativeLowerer,
     fused_elementwise_reduce::FusedElementwiseReduceLowerer, fused_reduce::FusedReduceLowerer,
-    reduce::ReduceLowerer, utils::LowererUtils,
+    pad::PadLowerer, reduce::ReduceLowerer, utils::LowererUtils,
 };
 
 impl LowerContext {
@@ -184,10 +184,36 @@ impl LowerContext {
                     &result_var,
                 ))
             }
-            GraphOp::Pad(_input, _axis, _amount) => {
-                // TODO: Implement padding operation lowering
-                // This will be implemented in M2 when graph-level optimizations are added
-                todo!("Pad operation lowering not yet implemented")
+            GraphOp::Pad(input, axis, amount) => {
+                // パディング処理のlowering
+                // 1. 出力配列を宣言
+                // 2. 出力を0で初期化
+                // 3. 入力データを適切な位置にコピー
+                let result_var = self.get_or_create_var_name(node);
+                let input_var = self.get_or_create_var_name(input);
+
+                // 出力ノードの場合は配列を宣言しない（引数として渡される）
+                LowererUtils::declare_result_variable(
+                    &result_var,
+                    &node.view,
+                    &node.dtype,
+                    declarations,
+                );
+
+                // view情報を取得
+                let input_view = &input.view;
+                let output_view = &node.view;
+
+                // パディング処理のコード生成
+                Some(PadLowerer::lower(
+                    input_view,
+                    output_view,
+                    *axis,
+                    amount,
+                    &input_var,
+                    &result_var,
+                    &node.dtype,
+                ))
             }
         }
     }

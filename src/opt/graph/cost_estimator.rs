@@ -36,7 +36,7 @@ fn estimate_memory_cost(node: &GraphNode) -> usize {
         crate::ast::DType::F32 | crate::ast::DType::Isize | crate::ast::DType::Usize => 4,
         crate::ast::DType::Bool => 1,
         crate::ast::DType::Void => 0,
-        crate::ast::DType::Ptr(_) => 8, // Pointer size
+        crate::ast::DType::Ptr(_) => 8,    // Pointer size
         crate::ast::DType::Vec(_, _) => 4, // Use base type size for simplicity
     };
 
@@ -63,8 +63,8 @@ fn estimate_compute_cost(node: &GraphNode) -> usize {
             use crate::graph::ops::ElementwiseOp;
             let op_cost = match op {
                 ElementwiseOp::Add(_, _) | ElementwiseOp::Mul(_, _) => 1,
-                ElementwiseOp::Recip(_) => 5,                  // Division is expensive
-                ElementwiseOp::Sin(_) => 20,                   // Trig functions are very expensive
+                ElementwiseOp::Recip(_) => 5, // Division is expensive
+                ElementwiseOp::Sin(_) => 20,  // Trig functions are very expensive
                 ElementwiseOp::Sqrt(_) => 10,
                 ElementwiseOp::Log2(_) | ElementwiseOp::Exp2(_) => 15,
                 ElementwiseOp::Neg(_) => 1,

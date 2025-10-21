@@ -46,11 +46,13 @@ impl FusedElementwiseReduceLowerer {
                 shape: input_shape,
                 strides: _input_strides,
                 offset: _input_offset,
+                ..
             },
             crate::graph::shape::view::View::Linear {
                 shape: _result_shape,
                 strides: _result_strides,
                 offset: _result_offset,
+                ..
             },
         ) = (input_view, result_view);
 
@@ -88,6 +90,7 @@ impl FusedElementwiseReduceLowerer {
             shape: _result_shape,
             strides: result_strides,
             offset: result_offset,
+            ..
         } = result_view;
 
         if dim >= input_shape.len() {

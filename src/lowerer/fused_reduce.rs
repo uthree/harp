@@ -60,6 +60,7 @@ impl FusedReduceLowerer {
             shape: input_shape,
             strides: input_strides,
             offset: input_offset,
+            ..
         } = input_view;
         let View::Linear {
             strides: result_strides,
@@ -244,6 +245,7 @@ impl FusedReduceLowerer {
             shape: input_shape,
             strides: input_strides,
             offset: input_offset,
+            ..
         } = input_view;
 
         if dim >= input_shape.len() {

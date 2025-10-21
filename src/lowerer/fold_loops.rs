@@ -41,6 +41,7 @@ impl LowerContext {
             shape: result_shape,
             strides: result_strides,
             offset: result_offset,
+            ..
         } = result_view;
 
         if dim >= result_shape.len() {
@@ -76,6 +77,7 @@ impl LowerContext {
             shape: input_shape,
             strides: input_strides,
             offset: input_offset,
+            ..
         } = input_view;
         let View::Linear {
             strides: _result_strides,

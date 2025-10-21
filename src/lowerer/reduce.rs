@@ -59,6 +59,7 @@ impl ReduceLowerer {
             shape: input_shape,
             strides: input_strides,
             offset: input_offset,
+            ..
         } = input_view;
         let View::Linear {
             strides: result_strides,
@@ -206,6 +207,7 @@ impl ReduceLowerer {
             shape: input_shape,
             strides: input_strides,
             offset: input_offset,
+            ..
         } = input_view;
 
         if dim >= input_shape.len() {
@@ -276,6 +278,7 @@ impl ReduceLowerer {
             shape,
             strides,
             offset,
+            ..
         } = view;
 
         if dim >= shape.len() {
