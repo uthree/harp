@@ -1,7 +1,7 @@
 use crate::graph::{GraphNode, GraphOp};
 use std::fmt;
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ElementwiseOp {
     Add(GraphNode, GraphNode),
     Mul(GraphNode, GraphNode),

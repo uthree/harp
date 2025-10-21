@@ -58,6 +58,22 @@ impl GraphNode {
         GraphNode(rc)
     }
 
+    /// Create a new node with the specified loop strategy
+    /// Returns a new node with the same op, dtype, and view but different strategy
+    pub fn with_strategy(self, strategy: LoopStrategy) -> GraphNode {
+        GraphNode(Rc::new(GraphNodeData {
+            op: self.op.clone(),
+            dtype: self.dtype.clone(),
+            view: self.view.clone(),
+            strategy: Some(strategy),
+        }))
+    }
+
+    /// Check if this node points to the same underlying data as another node
+    pub fn is_same_node(&self, other: &GraphNode) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+
     /// Get the strong reference count for this node
     /// Used to detect branching in graph optimization
     pub fn strong_count(&self) -> usize {
@@ -191,7 +207,7 @@ impl Graph {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum GraphOp {
     Input(usize),                                    // Input with index
     Const(ConstLiteral),                             // initialize single element tensor, shape=[],

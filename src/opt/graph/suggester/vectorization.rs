@@ -99,13 +99,29 @@ impl VectorizationSuggester {
     /// ベクトル化をGraphに適用
     fn apply_vectorization(
         graph: &Graph,
-        _node: &GraphNode,
-        _config: &VectorizationConfig,
+        node: &GraphNode,
+        config: &VectorizationConfig,
     ) -> Option<Graph> {
-        let new_graph = graph.clone();
+        let mut new_graph = graph.clone();
 
-        // TODO: 実際のLoopStrategy設定を実装
-        // ノードのstrategyフィールドにvectorizeを設定
+        // LoopStrategyを作成
+        let strategy = crate::graph::LoopStrategy {
+            vectorize: Some((config.axis, config.vector_width)),
+            unroll: None,
+            parallelize: vec![],
+            tile: vec![],
+            use_shared_memory: false,
+        };
+
+        // ノードにstrategyを設定した新しいノードを作成
+        let new_node = node.clone().with_strategy(strategy);
+
+        // outputsの中で該当ノードを置き換え
+        for output in &mut new_graph.outputs {
+            if output.is_same_node(node) {
+                *output = new_node.clone();
+            }
+        }
 
         Some(new_graph)
     }

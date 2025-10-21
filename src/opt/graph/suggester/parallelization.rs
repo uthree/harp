@@ -109,18 +109,27 @@ impl ParallelizationSuggester {
         node: &GraphNode,
         config: &ParallelizationConfig,
     ) -> Option<Graph> {
-        let new_graph = graph.clone();
+        let mut new_graph = graph.clone();
 
-        // TODO: 実際のLoopStrategy設定を実装
-        // ノードのstrategyフィールドにparallelizeを設定
-        let _strategy = LoopStrategy {
+        // LoopStrategyを作成
+        let strategy = LoopStrategy {
+            vectorize: None,
+            unroll: None,
             parallelize: config.axes.clone(),
-            ..Default::default()
+            tile: vec![],
+            use_shared_memory: false,
         };
 
-        // 現時点では、Graphの変更は実装されていないため、
-        // 単に同じグラフを返す（プレースホルダー）
-        let _ = node;
+        // ノードにstrategyを設定した新しいノードを作成
+        let new_node = node.clone().with_strategy(strategy);
+
+        // outputsの中で該当ノードを置き換え
+        for output in &mut new_graph.outputs {
+            if output.is_same_node(node) {
+                *output = new_node.clone();
+            }
+        }
+
         Some(new_graph)
     }
 

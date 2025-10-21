@@ -1,5 +1,5 @@
 use super::utils::LowererUtils;
-use crate::ast::helper::{eq, less_than, select, store};
+use crate::ast::helper::{eq, less_than, select, store, store_vec};
 use crate::ast::{AstNode, VariableDecl};
 use crate::graph::{ops::ElementwiseOp, GraphNode};
 
@@ -13,7 +13,7 @@ impl ElementwiseLowerer {
         op: &ElementwiseOp,
         mut get_var: impl FnMut(&GraphNode) -> String,
         declarations: &mut Vec<VariableDecl>,
-        _strategy: &Option<crate::graph::LoopStrategy>,
+        strategy: &Option<crate::graph::LoopStrategy>,
     ) -> Option<AstNode> {
         let result_var = get_var(node);
 
@@ -33,6 +33,7 @@ impl ElementwiseLowerer {
                     &lhs_var,
                     &rhs_var,
                     |l, r| AstNode::Add(Box::new(l), Box::new(r)),
+                    strategy,
                 )
             }
             ElementwiseOp::Mul(lhs, rhs) => {
@@ -46,6 +47,7 @@ impl ElementwiseLowerer {
                     &lhs_var,
                     &rhs_var,
                     |l, r| AstNode::Mul(Box::new(l), Box::new(r)),
+                    strategy,
                 )
             }
             ElementwiseOp::Max(lhs, rhs) => {
@@ -59,6 +61,7 @@ impl ElementwiseLowerer {
                     &lhs_var,
                     &rhs_var,
                     |l, r| AstNode::Max(Box::new(l), Box::new(r)),
+                    strategy,
                 )
             }
             ElementwiseOp::Mod(lhs, rhs) => {
@@ -72,43 +75,44 @@ impl ElementwiseLowerer {
                     &lhs_var,
                     &rhs_var,
                     |l, r| AstNode::Rem(Box::new(l), Box::new(r)),
+                    strategy,
                 )
             }
             ElementwiseOp::Neg(operand) => {
                 let operand_var = get_var(operand);
                 Self::create_unary_elementwise_loop(node, operand, &result_var, &operand_var, |x| {
                     AstNode::Neg(Box::new(x))
-                })
+                }, strategy)
             }
             ElementwiseOp::Recip(operand) => {
                 let operand_var = get_var(operand);
                 Self::create_unary_elementwise_loop(node, operand, &result_var, &operand_var, |x| {
                     x.recip()
-                })
+                }, strategy)
             }
             ElementwiseOp::Sin(operand) => {
                 let operand_var = get_var(operand);
                 Self::create_unary_elementwise_loop(node, operand, &result_var, &operand_var, |x| {
                     x.sin()
-                })
+                }, strategy)
             }
             ElementwiseOp::Sqrt(operand) => {
                 let operand_var = get_var(operand);
                 Self::create_unary_elementwise_loop(node, operand, &result_var, &operand_var, |x| {
                     x.sqrt()
-                })
+                }, strategy)
             }
             ElementwiseOp::Log2(operand) => {
                 let operand_var = get_var(operand);
                 Self::create_unary_elementwise_loop(node, operand, &result_var, &operand_var, |x| {
                     x.log2()
-                })
+                }, strategy)
             }
             ElementwiseOp::Exp2(operand) => {
                 let operand_var = get_var(operand);
                 Self::create_unary_elementwise_loop(node, operand, &result_var, &operand_var, |x| {
                     x.exp2()
-                })
+                }, strategy)
             }
             ElementwiseOp::LessThan(lhs, rhs) => {
                 let lhs_var = get_var(lhs);
@@ -121,12 +125,13 @@ impl ElementwiseLowerer {
                     &lhs_var,
                     &rhs_var,
                     less_than,
+                    strategy,
                 )
             }
             ElementwiseOp::Eq(lhs, rhs) => {
                 let lhs_var = get_var(lhs);
                 let rhs_var = get_var(rhs);
-                Self::create_elementwise_loop(node, lhs, rhs, &result_var, &lhs_var, &rhs_var, eq)
+                Self::create_elementwise_loop(node, lhs, rhs, &result_var, &lhs_var, &rhs_var, eq, strategy)
             }
             ElementwiseOp::Select(cond, true_val, false_val) => {
                 let cond_var = get_var(cond);
@@ -141,6 +146,7 @@ impl ElementwiseLowerer {
                     &cond_var,
                     &true_var,
                     &false_var,
+                    strategy,
                 )
             }
         };
@@ -157,6 +163,7 @@ impl ElementwiseLowerer {
         lhs_var: &str,
         rhs_var: &str,
         op: F,
+        strategy: &Option<crate::graph::LoopStrategy>,
     ) -> AstNode
     where
         F: Fn(AstNode, AstNode) -> AstNode + Clone,
@@ -203,6 +210,7 @@ impl ElementwiseLowerer {
             rhs_var,
             0,
             op,
+            strategy,
         )
     }
 
@@ -222,6 +230,7 @@ impl ElementwiseLowerer {
         rhs_var: &str,
         dim: usize,
         op: F,
+        strategy: &Option<crate::graph::LoopStrategy>,
     ) -> AstNode
     where
         F: Fn(AstNode, AstNode) -> AstNode + Clone,
@@ -231,6 +240,13 @@ impl ElementwiseLowerer {
             let result_index =
                 LowererUtils::compute_memory_index(result_strides, result_offset, dim);
 
+            // ベクトル化の幅を決定
+            let vector_width = strategy
+                .as_ref()
+                .and_then(|s| s.vectorize)
+                .map(|(_, width)| width)
+                .unwrap_or(1);
+
             // lhs/rhsがスカラー（shape.is_empty()）の場合は直接変数を使用、そうでなければデリファレンス
             let lhs_value = if lhs_view.shape().is_empty() {
                 AstNode::Var(lhs_var.to_string())
@@ -239,7 +255,7 @@ impl ElementwiseLowerer {
                 AstNode::Load {
                     target: Box::new(AstNode::Var(lhs_var.to_string())),
                     index: Box::new(lhs_index),
-                    vector_width: 1,
+                    vector_width,
                 }
             };
 
@@ -250,15 +266,25 @@ impl ElementwiseLowerer {
                 AstNode::Load {
                     target: Box::new(AstNode::Var(rhs_var.to_string())),
                     index: Box::new(rhs_index),
-                    vector_width: 1,
+                    vector_width,
                 }
             };
 
-            store(
-                AstNode::Var(result_var.to_string()),
-                result_index,
-                op(lhs_value, rhs_value),
-            )
+            let result_value = op(lhs_value, rhs_value);
+            if vector_width > 1 {
+                store_vec(
+                    AstNode::Var(result_var.to_string()),
+                    result_index,
+                    result_value,
+                    vector_width,
+                )
+            } else {
+                store(
+                    AstNode::Var(result_var.to_string()),
+                    result_index,
+                    result_value,
+                )
+            }
         } else {
             // 再帰的にネストしたループを作成
             let loop_var = format!("ridx{}", dim);
@@ -277,6 +303,7 @@ impl ElementwiseLowerer {
                 rhs_var,
                 dim + 1,
                 op,
+                strategy,
             );
 
             LowererUtils::create_dimension_loop(loop_var, &shape[dim], inner_body, None)
@@ -289,6 +316,7 @@ impl ElementwiseLowerer {
         result_var: &str,
         operand_var: &str,
         op: F,
+        strategy: &Option<crate::graph::LoopStrategy>,
     ) -> AstNode
     where
         F: Fn(AstNode) -> AstNode + Clone,
@@ -324,6 +352,7 @@ impl ElementwiseLowerer {
             operand_var,
             0,
             op,
+            strategy,
         )
     }
 
@@ -339,6 +368,7 @@ impl ElementwiseLowerer {
         operand_var: &str,
         dim: usize,
         op: F,
+        strategy: &Option<crate::graph::LoopStrategy>,
     ) -> AstNode
     where
         F: Fn(AstNode) -> AstNode + Clone,
@@ -347,6 +377,13 @@ impl ElementwiseLowerer {
             // 最内ループ: 実際の計算を実行
             let result_index =
                 LowererUtils::compute_memory_index(result_strides, result_offset, dim);
+
+            // ベクトル化の幅を決定
+            let vector_width = strategy
+                .as_ref()
+                .and_then(|s| s.vectorize)
+                .map(|(_, width)| width)
+                .unwrap_or(1);
 
             // operandがスカラーの場合は直接変数を使用、そうでなければデリファレンス
             let operand_value = if operand_view.shape().is_empty() {
@@ -357,15 +394,25 @@ impl ElementwiseLowerer {
                 AstNode::Load {
                     target: Box::new(AstNode::Var(operand_var.to_string())),
                     index: Box::new(operand_index),
-                    vector_width: 1,
+                    vector_width,
                 }
             };
 
-            store(
-                AstNode::Var(result_var.to_string()),
-                result_index,
-                op(operand_value),
-            )
+            let result_value = op(operand_value);
+            if vector_width > 1 {
+                store_vec(
+                    AstNode::Var(result_var.to_string()),
+                    result_index,
+                    result_value,
+                    vector_width,
+                )
+            } else {
+                store(
+                    AstNode::Var(result_var.to_string()),
+                    result_index,
+                    result_value,
+                )
+            }
         } else {
             // 再帰的にネストしたループを作成
             let loop_var = format!("ridx{}", dim);
@@ -380,6 +427,7 @@ impl ElementwiseLowerer {
                 operand_var,
                 dim + 1,
                 op,
+                strategy,
             );
 
             LowererUtils::create_dimension_loop(loop_var, &shape[dim], inner_body, None)
@@ -397,6 +445,7 @@ impl ElementwiseLowerer {
         cond_var: &str,
         true_var: &str,
         false_var: &str,
+        strategy: &Option<crate::graph::LoopStrategy>,
     ) -> AstNode {
         // viewから形状情報を取得
         let result_view = &result_node.view;
@@ -450,6 +499,7 @@ impl ElementwiseLowerer {
             true_var,
             false_var,
             0,
+            strategy,
         )
     }
 
@@ -472,11 +522,19 @@ impl ElementwiseLowerer {
         true_var: &str,
         false_var: &str,
         dim: usize,
+        strategy: &Option<crate::graph::LoopStrategy>,
     ) -> AstNode {
         if dim >= shape.len() {
             // 最内ループ: 実際の計算を実行
             let result_index =
                 LowererUtils::compute_memory_index(result_strides, result_offset, dim);
+
+            // ベクトル化の幅を決定
+            let vector_width = strategy
+                .as_ref()
+                .and_then(|s| s.vectorize)
+                .map(|(_, width)| width)
+                .unwrap_or(1);
 
             // 各オペランドの値を取得
             let cond_value = if cond_view.shape().is_empty() {
@@ -486,7 +544,7 @@ impl ElementwiseLowerer {
                 AstNode::Load {
                     target: Box::new(AstNode::Var(cond_var.to_string())),
                     index: Box::new(cond_index),
-                    vector_width: 1,
+                    vector_width,
                 }
             };
 
@@ -497,7 +555,7 @@ impl ElementwiseLowerer {
                 AstNode::Load {
                     target: Box::new(AstNode::Var(true_var.to_string())),
                     index: Box::new(true_index),
-                    vector_width: 1,
+                    vector_width,
                 }
             };
 
@@ -509,15 +567,25 @@ impl ElementwiseLowerer {
                 AstNode::Load {
                     target: Box::new(AstNode::Var(false_var.to_string())),
                     index: Box::new(false_index),
-                    vector_width: 1,
+                    vector_width,
                 }
             };
 
-            store(
-                AstNode::Var(result_var.to_string()),
-                result_index,
-                select(cond_value, true_value, false_value),
-            )
+            let result_value = select(cond_value, true_value, false_value);
+            if vector_width > 1 {
+                store_vec(
+                    AstNode::Var(result_var.to_string()),
+                    result_index,
+                    result_value,
+                    vector_width,
+                )
+            } else {
+                store(
+                    AstNode::Var(result_var.to_string()),
+                    result_index,
+                    result_value,
+                )
+            }
         } else {
             // 再帰的にネストしたループを作成
             let loop_var = format!("ridx{}", dim);
@@ -539,6 +607,7 @@ impl ElementwiseLowerer {
                 true_var,
                 false_var,
                 dim + 1,
+                strategy,
             );
 
             LowererUtils::create_dimension_loop(loop_var, &shape[dim], inner_body, None)
