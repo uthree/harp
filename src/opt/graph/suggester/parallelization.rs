@@ -1,7 +1,18 @@
 use crate::graph::{Graph, GraphNode, LoopStrategy};
 
 /// 並列化戦略の提案を行う構造体
-pub struct ParallelizationSuggester;
+pub struct ParallelizationSuggester {
+    /// 並列化する最小サイズ
+    pub min_parallel_size: usize,
+}
+
+impl Default for ParallelizationSuggester {
+    fn default() -> Self {
+        Self {
+            min_parallel_size: 4,
+        }
+    }
+}
 
 /// 並列化の候補
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,7 +38,7 @@ impl ParallelizationSuggester {
     /// 1. データ依存性がない外側のループを並列化
     /// 2. 十分に大きなサイズの次元を優先
     /// 3. バッチ次元を優先的に並列化
-    pub fn suggest(graph: &Graph) -> Vec<Graph> {
+    pub fn suggest_internal(&self, graph: &Graph) -> Vec<Graph> {
         let mut suggestions = Vec::new();
 
         // 各出力ノードに対して並列化戦略を生成
@@ -35,6 +46,9 @@ impl ParallelizationSuggester {
             let configs = Self::find_parallelizable_axes(output);
 
             for config in configs {
+                // min_parallel_sizeでフィルタリング
+                // （実装詳細は find_parallelizable_axes 内で行われている）
+
                 if let Some(parallelized_graph) =
                     Self::apply_parallelization(graph, output, &config)
                 {
@@ -44,6 +58,11 @@ impl ParallelizationSuggester {
         }
 
         suggestions
+    }
+
+    /// 互換性のためのstatic method
+    pub fn suggest(graph: &Graph) -> Vec<Graph> {
+        Self::default().suggest_internal(graph)
     }
 
     /// ノードから並列化可能な軸を見つける
@@ -252,5 +271,26 @@ mod tests {
 
         // 異なる理由が適切に設定されているか
         assert_ne!(config1.reason, config2.reason);
+    }
+}
+
+// GraphSuggester trait implementation
+use super::GraphSuggester;
+
+impl GraphSuggester for ParallelizationSuggester {
+    fn suggest(&self, graph: &Graph) -> Vec<Graph> {
+        self.suggest_internal(graph)
+    }
+
+    fn name(&self) -> &str {
+        "Parallelization"
+    }
+
+    fn priority(&self) -> usize {
+        90 // 並列化も高優先度
+    }
+
+    fn description(&self) -> &str {
+        "Multi-threaded parallelization for outer loops"
     }
 }

@@ -160,3 +160,24 @@ mod tests {
         assert_eq!(suggestions.len(), 0);
     }
 }
+
+// GraphSuggester trait implementation
+use super::GraphSuggester;
+
+impl GraphSuggester for LoopPermutationSuggester {
+    fn suggest(&self, graph: &Graph) -> Vec<Graph> {
+        Self::suggest(graph)
+    }
+
+    fn name(&self) -> &str {
+        "LoopPermutation"
+    }
+
+    fn priority(&self) -> usize {
+        80 // メモリアクセスパターンの改善は高優先
+    }
+
+    fn description(&self) -> &str {
+        "Reorder loops for better memory access patterns"
+    }
+}

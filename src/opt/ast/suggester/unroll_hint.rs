@@ -1,6 +1,6 @@
 use crate::ast::AstNode;
 use crate::ast::RangeBuilder;
-use crate::opt::ast::heuristic::RewriteSuggester;
+use crate::opt::ast::RewriteSuggester;
 
 /// A suggester that proposes adding unroll hints to loops.
 /// This adds #pragma unroll directives without actually unrolling the loop.

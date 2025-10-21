@@ -1,5 +1,5 @@
 use crate::ast::AstNode;
-use crate::opt::ast::heuristic::{CostEstimator, RewriteSuggester};
+use crate::opt::ast::{CostEstimator, RewriteSuggester};
 use console::Style;
 use indicatif::MultiProgress;
 use std::sync::Arc;
@@ -305,9 +305,7 @@ impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
 mod tests {
     use super::*;
     use crate::ast_pattern;
-    use crate::opt::ast::heuristic::{
-        NodeCountCostEstimator, OperationCostEstimator, RuleBasedSuggester,
-    };
+    use crate::opt::ast::{NodeCountCostEstimator, OperationCostEstimator, RuleBasedSuggester};
 
     fn i(val: isize) -> AstNode {
         AstNode::from(val)

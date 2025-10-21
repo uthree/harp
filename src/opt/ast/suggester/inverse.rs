@@ -1,5 +1,5 @@
 use crate::ast::AstNode;
-use crate::opt::ast::heuristic::RewriteSuggester;
+use crate::opt::ast::RewriteSuggester;
 
 /// A suggester that removes inverse operations like log2(exp2(x)) -> x
 pub struct InverseOperationSuggester;

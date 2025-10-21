@@ -1,6 +1,6 @@
 use crate::ast::AstNode;
 use crate::ast_pattern;
-use crate::opt::ast::heuristic::{RewriteSuggester, RuleBasedSuggester};
+use crate::opt::ast::{RewriteSuggester, RuleBasedSuggester};
 
 /// A suggester for bitwise operation laws
 ///

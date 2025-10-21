@@ -1,5 +1,5 @@
 use crate::ast::{AstNode, ConstLiteral};
-use crate::opt::ast::heuristic::RewriteSuggester;
+use crate::opt::ast::RewriteSuggester;
 
 /// A suggester that converts multiplication and division by power-of-two constants to bit shifts.
 /// This optimization is beneficial because bit shifts are generally faster than multiplication/division.

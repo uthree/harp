@@ -485,9 +485,7 @@ where
             // - LoopTilingSuggester: loop tiling transformations
             // - LoopTransformSuggester: loop unrolling and fusion
             // - UnrollHintSuggester: #pragma unroll hint suggestions
-            use crate::opt::ast::heuristic::{
-                all_suggesters, BeamSearchOptimizer, OperationCostEstimator,
-            };
+            use crate::opt::ast::{all_suggesters, BeamSearchOptimizer, OperationCostEstimator};
             let suggester = all_suggesters();
             let estimator = OperationCostEstimator;
             // Use configured beam width and iterations for optimization

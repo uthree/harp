@@ -1,5 +1,5 @@
 use crate::ast::{AstNode, ConstLiteral};
-use crate::opt::ast::heuristic::CostEstimator;
+use crate::opt::ast::CostEstimator;
 
 /// A simple cost estimator that counts the number of nodes in the AST.
 #[derive(Clone, Copy)]

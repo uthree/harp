@@ -1,7 +1,18 @@
 use crate::graph::{Graph, GraphNode};
 
 /// ベクトル化戦略の提案を行う構造体
-pub struct VectorizationSuggester;
+pub struct VectorizationSuggester {
+    /// 最大ベクトル幅の制限（None = 無制限）
+    pub max_vector_width: Option<usize>,
+}
+
+impl Default for VectorizationSuggester {
+    fn default() -> Self {
+        Self {
+            max_vector_width: Some(16), // AVX-512相当
+        }
+    }
+}
 
 /// ベクトル化の候補
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,7 +34,7 @@ impl VectorizationSuggester {
     /// 1. 最内ループをベクトル化
     /// 2. ベクトル幅で割り切れる、または余りを処理可能
     /// 3. メモリアクセスが連続している
-    pub fn suggest(graph: &Graph) -> Vec<Graph> {
+    pub fn suggest_internal(&self, graph: &Graph) -> Vec<Graph> {
         let mut suggestions = Vec::new();
 
         // 各出力ノードに対してベクトル化を試みる
@@ -31,6 +42,13 @@ impl VectorizationSuggester {
             let configs = Self::find_vectorizable_loops(output);
 
             for config in configs {
+                // max_vector_widthでフィルタリング
+                if let Some(max_width) = self.max_vector_width {
+                    if config.vector_width > max_width {
+                        continue;
+                    }
+                }
+
                 if let Some(vectorized_graph) = Self::apply_vectorization(graph, output, &config) {
                     suggestions.push(vectorized_graph);
                 }
@@ -38,6 +56,11 @@ impl VectorizationSuggester {
         }
 
         suggestions
+    }
+
+    /// 互換性のためのstatic method
+    pub fn suggest(graph: &Graph) -> Vec<Graph> {
+        Self::default().suggest_internal(graph)
     }
 
     /// ベクトル化可能なループを見つける
@@ -166,7 +189,6 @@ impl VectorizationSuggester {
 mod tests {
     use super::*;
     use crate::ast::DType;
-    use crate::graph::shape::view::View;
 
     #[test]
     fn test_find_vectorizable_loops_contiguous() {
@@ -276,5 +298,26 @@ mod tests {
         assert!(VectorizationSuggester::COMMON_VECTOR_WIDTHS.contains(&4)); // SSE
         assert!(VectorizationSuggester::COMMON_VECTOR_WIDTHS.contains(&8)); // AVX
         assert!(VectorizationSuggester::COMMON_VECTOR_WIDTHS.contains(&16)); // AVX-512
+    }
+}
+
+// GraphSuggester trait implementation
+use super::GraphSuggester;
+
+impl GraphSuggester for VectorizationSuggester {
+    fn suggest(&self, graph: &Graph) -> Vec<Graph> {
+        self.suggest_internal(graph)
+    }
+
+    fn name(&self) -> &str {
+        "Vectorization"
+    }
+
+    fn priority(&self) -> usize {
+        100 // ベクトル化は高優先度
+    }
+
+    fn description(&self) -> &str {
+        "SIMD vectorization for innermost loops"
     }
 }

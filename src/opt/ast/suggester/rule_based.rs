@@ -1,5 +1,5 @@
 use crate::ast::{pattern::AstRewriteRule, AstNode};
-use crate::opt::ast::heuristic::RewriteSuggester;
+use crate::opt::ast::RewriteSuggester;
 use std::rc::Rc;
 
 /// A suggester that uses rewrite rules to propose alternative ASTs.

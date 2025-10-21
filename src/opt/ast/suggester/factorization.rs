@@ -1,5 +1,5 @@
 use crate::ast::AstNode;
-use crate::opt::ast::heuristic::RewriteSuggester;
+use crate::opt::ast::RewriteSuggester;
 
 /// A suggester for factorization and expansion
 /// (a + b) * (a - b) <-> a*a - b*b

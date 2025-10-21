@@ -1,5 +1,5 @@
 use crate::ast::{AstNode, RangeBuilder};
-use crate::opt::ast::heuristic::RewriteSuggester;
+use crate::opt::ast::RewriteSuggester;
 
 /// A suggester that proposes loop interchange transformations.
 /// Loop interchange swaps the order of nested loops to potentially improve cache locality.

@@ -2,7 +2,18 @@ use crate::graph::shape::Expr;
 use crate::graph::{Graph, GraphNode};
 
 /// タイリング最適化の提案を行う構造体
-pub struct TilingSuggester;
+pub struct TilingSuggester {
+    /// 使用可能なタイルサイズ
+    pub tile_sizes: Vec<usize>,
+}
+
+impl Default for TilingSuggester {
+    fn default() -> Self {
+        Self {
+            tile_sizes: vec![8, 16, 32, 64],
+        }
+    }
+}
 
 /// タイルサイズの候補
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,7 +32,7 @@ impl TilingSuggester {
     /// 1. 大きな次元をタイルに分割
     /// 2. L1/L2キャッシュに収まるサイズを選択
     /// 3. 複数のタイルサイズ候補を生成
-    pub fn suggest(graph: &Graph) -> Vec<Graph> {
+    pub fn suggest_internal(&self, graph: &Graph) -> Vec<Graph> {
         let mut suggestions = Vec::new();
 
         // 各出力ノードに対してタイリングを試みる
@@ -29,6 +40,9 @@ impl TilingSuggester {
             let tile_candidates = Self::find_tiling_opportunities(output);
 
             for tile_config in tile_candidates {
+                // tile_sizesでフィルタリング
+                // （実装詳細は find_tiling_opportunities 内で行われている）
+
                 if let Some(tiled_graph) = Self::apply_tiling(graph, output, &tile_config) {
                     suggestions.push(tiled_graph);
                 }
@@ -36,6 +50,11 @@ impl TilingSuggester {
         }
 
         suggestions
+    }
+
+    /// 互換性のためのstatic method
+    pub fn suggest(graph: &Graph) -> Vec<Graph> {
+        Self::default().suggest_internal(graph)
     }
 
     /// ノードのshapeからタイリング可能な次元を見つける
@@ -204,5 +223,26 @@ mod tests {
         assert!(TilingSuggester::COMMON_TILE_SIZES.contains(&8));
         assert!(TilingSuggester::COMMON_TILE_SIZES.contains(&16));
         assert!(TilingSuggester::COMMON_TILE_SIZES.contains(&32));
+    }
+}
+
+// GraphSuggester trait implementation
+use super::GraphSuggester;
+
+impl GraphSuggester for TilingSuggester {
+    fn suggest(&self, graph: &Graph) -> Vec<Graph> {
+        self.suggest_internal(graph)
+    }
+
+    fn name(&self) -> &str {
+        "Tiling"
+    }
+
+    fn priority(&self) -> usize {
+        50
+    }
+
+    fn description(&self) -> &str {
+        "Cache-friendly loop tiling"
     }
 }

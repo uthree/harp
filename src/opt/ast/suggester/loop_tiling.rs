@@ -1,5 +1,5 @@
 use crate::ast::{AstNode, ConstLiteral, RangeBuilder};
-use crate::opt::ast::heuristic::RewriteSuggester;
+use crate::opt::ast::RewriteSuggester;
 
 /// A suggester for loop tiling (blocking) optimization.
 /// Converts a single loop into nested loops with smaller tiles to improve cache locality.

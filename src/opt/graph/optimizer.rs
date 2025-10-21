@@ -6,6 +6,7 @@ use crate::opt::graph::suggester::CombinedSuggester;
 pub struct BeamSearchOptimizer {
     beam_width: usize,
     max_depth: usize,
+    suggester: CombinedSuggester,
 }
 
 /// 最適化の候補（Graphとそのコスト）
@@ -22,6 +23,7 @@ impl BeamSearchOptimizer {
         Self {
             beam_width: 3, // デフォルトビーム幅
             max_depth: 5,  // デフォルト探索深さ
+            suggester: CombinedSuggester::new(),
         }
     }
 
@@ -30,6 +32,7 @@ impl BeamSearchOptimizer {
         Self {
             beam_width,
             max_depth: 5,
+            suggester: CombinedSuggester::new(),
         }
     }
 
@@ -38,7 +41,14 @@ impl BeamSearchOptimizer {
         Self {
             beam_width,
             max_depth,
+            suggester: CombinedSuggester::new(),
         }
+    }
+
+    /// カスタムSuggesterを使用
+    pub fn with_suggester(mut self, suggester: CombinedSuggester) -> Self {
+        self.suggester = suggester;
+        self
     }
 
     /// ビームサーチでGraphを最適化
@@ -71,7 +81,7 @@ impl BeamSearchOptimizer {
                 }
 
                 // 全てのSuggesterから候補を生成
-                let suggestions = CombinedSuggester::suggest_all(&candidate.graph);
+                let suggestions = self.suggester.suggest_all(&candidate.graph);
 
                 for suggestion in suggestions {
                     let cost = cost_estimator::estimate_graph_cost(&suggestion.outputs);

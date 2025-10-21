@@ -1,5 +1,5 @@
 use crate::ast::AstNode;
-use crate::opt::ast::heuristic::RewriteSuggester;
+use crate::opt::ast::RewriteSuggester;
 
 /// A suggester for commutative operations (Add, Mul, Max).
 /// Suggests swapping the operands of commutative operations.
