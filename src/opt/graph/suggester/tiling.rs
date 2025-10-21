@@ -23,9 +23,6 @@ pub struct TileSize {
 }
 
 impl TilingSuggester {
-    /// 一般的なタイルサイズ候補
-    const COMMON_TILE_SIZES: &'static [usize] = &[4, 8, 16, 32, 64];
-
     /// キャッシュ効率を向上させるタイリング提案を生成
     ///
     /// 戦略：
@@ -37,12 +34,9 @@ impl TilingSuggester {
 
         // 各出力ノードに対してタイリングを試みる
         for output in &graph.outputs {
-            let tile_candidates = Self::find_tiling_opportunities(output);
+            let tile_candidates = self.find_tiling_opportunities(output);
 
             for tile_config in tile_candidates {
-                // tile_sizesでフィルタリング
-                // （実装詳細は find_tiling_opportunities 内で行われている）
-
                 if let Some(tiled_graph) = Self::apply_tiling(graph, output, &tile_config) {
                     suggestions.push(tiled_graph);
                 }
@@ -58,7 +52,7 @@ impl TilingSuggester {
     }
 
     /// ノードのshapeからタイリング可能な次元を見つける
-    fn find_tiling_opportunities(node: &GraphNode) -> Vec<Vec<TileSize>> {
+    fn find_tiling_opportunities(&self, node: &GraphNode) -> Vec<Vec<TileSize>> {
         let shape = node.view.shape();
         let mut opportunities = Vec::new();
 
@@ -67,7 +61,7 @@ impl TilingSuggester {
             if let Some(size) = Self::extract_constant_size(size_expr) {
                 // サイズが十分大きい場合のみタイリングを検討
                 if size >= 32 {
-                    for &tile_size in Self::COMMON_TILE_SIZES {
+                    for &tile_size in &self.tile_sizes {
                         if size > tile_size * 2 {
                             // 単一次元のタイリング提案
                             opportunities.push(vec![TileSize {
@@ -89,7 +83,7 @@ impl TilingSuggester {
             ) {
                 // 両方の次元が十分大きい場合、2D タイリングを提案
                 if dim0_size >= 32 && dim1_size >= 32 {
-                    for &tile_size in Self::COMMON_TILE_SIZES {
+                    for &tile_size in &self.tile_sizes {
                         if dim0_size > tile_size * 2 && dim1_size > tile_size * 2 {
                             opportunities.push(vec![
                                 TileSize {
@@ -172,7 +166,8 @@ mod tests {
         // 128x128 の大きな行列
         let node = graph.input(DType::F32, vec![128.into(), 128.into()]);
 
-        let opportunities = TilingSuggester::find_tiling_opportunities(&node);
+        let suggester = TilingSuggester::default();
+        let opportunities = suggester.find_tiling_opportunities(&node);
 
         // 複数のタイリング候補が生成されるはず
         assert!(!opportunities.is_empty());
@@ -188,7 +183,8 @@ mod tests {
         // 8x8 の小さな行列
         let node = graph.input(DType::F32, vec![8.into(), 8.into()]);
 
-        let opportunities = TilingSuggester::find_tiling_opportunities(&node);
+        let suggester = TilingSuggester::default();
+        let opportunities = suggester.find_tiling_opportunities(&node);
 
         // 小さすぎるのでタイリング候補なし
         assert_eq!(opportunities.len(), 0);
@@ -218,11 +214,40 @@ mod tests {
     }
 
     #[test]
-    fn test_common_tile_sizes() {
-        // よく使われるタイルサイズが定義されているか
-        assert!(TilingSuggester::COMMON_TILE_SIZES.contains(&8));
-        assert!(TilingSuggester::COMMON_TILE_SIZES.contains(&16));
-        assert!(TilingSuggester::COMMON_TILE_SIZES.contains(&32));
+    fn test_default_tile_sizes() {
+        // デフォルトのタイルサイズが適切に設定されているか
+        let suggester = TilingSuggester::default();
+        assert!(suggester.tile_sizes.contains(&8));
+        assert!(suggester.tile_sizes.contains(&16));
+        assert!(suggester.tile_sizes.contains(&32));
+        assert!(suggester.tile_sizes.contains(&64));
+    }
+
+    #[test]
+    fn test_custom_tile_sizes() {
+        let mut graph = Graph::new();
+        // 128の次元
+        let node = graph.input(DType::F32, vec![128.into()]);
+
+        // カスタムタイルサイズで検証
+        let custom_suggester = TilingSuggester {
+            tile_sizes: vec![16, 32], // 8と64を除外
+        };
+        let opportunities = custom_suggester.find_tiling_opportunities(&node);
+
+        // タイル候補が生成されることを確認
+        assert!(!opportunities.is_empty());
+
+        // 全ての候補が指定したサイズのみを使用していることを確認
+        for config in &opportunities {
+            for tile in config {
+                assert!(
+                    tile.size == 16 || tile.size == 32,
+                    "Unexpected tile size: {}",
+                    tile.size
+                );
+            }
+        }
     }
 }
 

@@ -43,12 +43,9 @@ impl ParallelizationSuggester {
 
         // 各出力ノードに対して並列化戦略を生成
         for output in &graph.outputs {
-            let configs = Self::find_parallelizable_axes(output);
+            let configs = self.find_parallelizable_axes(output);
 
             for config in configs {
-                // min_parallel_sizeでフィルタリング
-                // （実装詳細は find_parallelizable_axes 内で行われている）
-
                 if let Some(parallelized_graph) =
                     Self::apply_parallelization(graph, output, &config)
                 {
@@ -66,7 +63,7 @@ impl ParallelizationSuggester {
     }
 
     /// ノードから並列化可能な軸を見つける
-    fn find_parallelizable_axes(node: &GraphNode) -> Vec<ParallelizationConfig> {
+    fn find_parallelizable_axes(&self, node: &GraphNode) -> Vec<ParallelizationConfig> {
         let shape = node.view.shape();
         let mut configs = Vec::new();
 
@@ -78,7 +75,7 @@ impl ParallelizationSuggester {
         for (axis, size_expr) in shape.iter().enumerate() {
             if let Some(size) = Self::extract_constant_size(size_expr) {
                 // 十分に大きい次元のみ並列化を検討
-                if size >= 4 {
+                if size >= self.min_parallel_size {
                     let reason = if axis == 0 {
                         ParallelizationReason::OuterLoop
                     } else {
@@ -101,7 +98,8 @@ impl ParallelizationSuggester {
                 Self::extract_constant_size(&shape[0]),
                 Self::extract_constant_size(&shape[1]),
             ) {
-                if size0 >= 2 && size1 >= 2 {
+                // 各次元がmin_parallel_sizeを満たすか確認
+                if size0 >= self.min_parallel_size && size1 >= self.min_parallel_size {
                     configs.push(ParallelizationConfig {
                         axes: vec![0, 1],
                         reason: ParallelizationReason::BatchDimension,
@@ -187,7 +185,8 @@ mod tests {
         // バッチサイズ32, 特徴量64の入力
         let node = graph.input(DType::F32, vec![32.into(), 64.into()]);
 
-        let configs = ParallelizationSuggester::find_parallelizable_axes(&node);
+        let suggester = ParallelizationSuggester::default();
+        let configs = suggester.find_parallelizable_axes(&node);
 
         // 少なくとも外側の次元（バッチ）を並列化可能
         assert!(!configs.is_empty());
@@ -203,7 +202,8 @@ mod tests {
         // 128x128の行列
         let node = graph.input(DType::F32, vec![128.into(), 128.into()]);
 
-        let configs = ParallelizationSuggester::find_parallelizable_axes(&node);
+        let suggester = ParallelizationSuggester::default();
+        let configs = suggester.find_parallelizable_axes(&node);
 
         // 2D並列化の候補が含まれているはず
         let has_2d_parallel = configs.iter().any(|c| c.axes.len() == 2);
@@ -216,10 +216,17 @@ mod tests {
         // 小さすぎる次元
         let node = graph.input(DType::F32, vec![2.into(), 3.into()]);
 
-        let configs = ParallelizationSuggester::find_parallelizable_axes(&node);
+        // デフォルト（min_parallel_size=4）では並列化候補なし
+        let suggester = ParallelizationSuggester::default();
+        let configs = suggester.find_parallelizable_axes(&node);
+        assert_eq!(configs.len(), 0);
 
-        // 小さい次元でも一応並列化候補は生成される（サイズ>=2）
-        assert!(!configs.is_empty());
+        // min_parallel_size=2 なら並列化候補が生成される
+        let suggester_small = ParallelizationSuggester {
+            min_parallel_size: 2,
+        };
+        let configs_small = suggester_small.find_parallelizable_axes(&node);
+        assert!(!configs_small.is_empty());
     }
 
     #[test]

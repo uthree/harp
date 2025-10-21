@@ -299,6 +299,34 @@ mod tests {
         assert!(VectorizationSuggester::COMMON_VECTOR_WIDTHS.contains(&8)); // AVX
         assert!(VectorizationSuggester::COMMON_VECTOR_WIDTHS.contains(&16)); // AVX-512
     }
+
+    #[test]
+    fn test_max_vector_width_filtering() {
+        let mut graph = Graph::new();
+        // 1024要素の配列
+        let a = graph.input(DType::F32, vec![1024.into()]);
+        let b = graph.input(DType::F32, vec![1024.into()]);
+        let c = a + b;
+        graph.output(c);
+
+        // max_vector_width = 4 に制限
+        let suggester_limited = VectorizationSuggester {
+            max_vector_width: Some(4),
+        };
+        let suggestions_limited = suggester_limited.suggest_internal(&graph);
+
+        // デフォルト（max_vector_width = 16）
+        let suggester_default = VectorizationSuggester::default();
+        let suggestions_default = suggester_default.suggest_internal(&graph);
+
+        // 制限版の方が候補数が少ないはず（幅8, 16が除外される）
+        assert!(
+            suggestions_limited.len() < suggestions_default.len(),
+            "Limited suggester should produce fewer suggestions. Limited: {}, Default: {}",
+            suggestions_limited.len(),
+            suggestions_default.len()
+        );
+    }
 }
 
 // GraphSuggester trait implementation
