@@ -80,39 +80,69 @@ impl ElementwiseLowerer {
             }
             ElementwiseOp::Neg(operand) => {
                 let operand_var = get_var(operand);
-                Self::create_unary_elementwise_loop(node, operand, &result_var, &operand_var, |x| {
-                    AstNode::Neg(Box::new(x))
-                }, strategy)
+                Self::create_unary_elementwise_loop(
+                    node,
+                    operand,
+                    &result_var,
+                    &operand_var,
+                    |x| AstNode::Neg(Box::new(x)),
+                    strategy,
+                )
             }
             ElementwiseOp::Recip(operand) => {
                 let operand_var = get_var(operand);
-                Self::create_unary_elementwise_loop(node, operand, &result_var, &operand_var, |x| {
-                    x.recip()
-                }, strategy)
+                Self::create_unary_elementwise_loop(
+                    node,
+                    operand,
+                    &result_var,
+                    &operand_var,
+                    |x| x.recip(),
+                    strategy,
+                )
             }
             ElementwiseOp::Sin(operand) => {
                 let operand_var = get_var(operand);
-                Self::create_unary_elementwise_loop(node, operand, &result_var, &operand_var, |x| {
-                    x.sin()
-                }, strategy)
+                Self::create_unary_elementwise_loop(
+                    node,
+                    operand,
+                    &result_var,
+                    &operand_var,
+                    |x| x.sin(),
+                    strategy,
+                )
             }
             ElementwiseOp::Sqrt(operand) => {
                 let operand_var = get_var(operand);
-                Self::create_unary_elementwise_loop(node, operand, &result_var, &operand_var, |x| {
-                    x.sqrt()
-                }, strategy)
+                Self::create_unary_elementwise_loop(
+                    node,
+                    operand,
+                    &result_var,
+                    &operand_var,
+                    |x| x.sqrt(),
+                    strategy,
+                )
             }
             ElementwiseOp::Log2(operand) => {
                 let operand_var = get_var(operand);
-                Self::create_unary_elementwise_loop(node, operand, &result_var, &operand_var, |x| {
-                    x.log2()
-                }, strategy)
+                Self::create_unary_elementwise_loop(
+                    node,
+                    operand,
+                    &result_var,
+                    &operand_var,
+                    |x| x.log2(),
+                    strategy,
+                )
             }
             ElementwiseOp::Exp2(operand) => {
                 let operand_var = get_var(operand);
-                Self::create_unary_elementwise_loop(node, operand, &result_var, &operand_var, |x| {
-                    x.exp2()
-                }, strategy)
+                Self::create_unary_elementwise_loop(
+                    node,
+                    operand,
+                    &result_var,
+                    &operand_var,
+                    |x| x.exp2(),
+                    strategy,
+                )
             }
             ElementwiseOp::LessThan(lhs, rhs) => {
                 let lhs_var = get_var(lhs);
@@ -131,7 +161,16 @@ impl ElementwiseLowerer {
             ElementwiseOp::Eq(lhs, rhs) => {
                 let lhs_var = get_var(lhs);
                 let rhs_var = get_var(rhs);
-                Self::create_elementwise_loop(node, lhs, rhs, &result_var, &lhs_var, &rhs_var, eq, strategy)
+                Self::create_elementwise_loop(
+                    node,
+                    lhs,
+                    rhs,
+                    &result_var,
+                    &lhs_var,
+                    &rhs_var,
+                    eq,
+                    strategy,
+                )
             }
             ElementwiseOp::Select(cond, true_val, false_val) => {
                 let cond_var = get_var(cond);

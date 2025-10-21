@@ -1,6 +1,5 @@
 /// Graph optimization demo
 /// このプログラムは、Graph レベルの最適化（特にベクトル化）が正しく動作することを確認します。
-
 use harp::ast::DType;
 use harp::graph::Graph;
 use harp::lowerer::Lowerer;
@@ -32,7 +31,10 @@ fn main() {
     // 2. ベクトル化の提案を取得
     println!("Generating vectorization suggestions...");
     let suggestions = VectorizationSuggester::suggest(&graph);
-    println!("  Generated {} vectorization suggestions\n", suggestions.len());
+    println!(
+        "  Generated {} vectorization suggestions\n",
+        suggestions.len()
+    );
 
     for (i, suggested_graph) in suggestions.iter().enumerate() {
         println!("Suggestion {}:", i + 1);
@@ -70,8 +72,14 @@ fn main() {
     let original_ast = lowerer.lower(&graph);
     let optimized_ast = lowerer.lower(&optimized_graph);
 
-    println!("Original AST children count: {}", original_ast.children().len());
-    println!("Optimized AST children count: {}", optimized_ast.children().len());
+    println!(
+        "Original AST children count: {}",
+        original_ast.children().len()
+    );
+    println!(
+        "Optimized AST children count: {}",
+        optimized_ast.children().len()
+    );
     println!();
 
     println!("=== Demo completed successfully ===");

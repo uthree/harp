@@ -1,11 +1,10 @@
 /// Vectorization test
 /// ベクトル化戦略が実際にコード生成に適用されることを確認します。
-
 use harp::ast::DType;
-use harp::graph::{Graph, LoopStrategy};
-use harp::lowerer::Lowerer;
 use harp::backend::c::renderer::CRenderer;
 use harp::backend::Renderer;
+use harp::graph::{Graph, LoopStrategy};
+use harp::lowerer::Lowerer;
 
 fn main() {
     println!("=== Vectorization Test ===\n");
@@ -32,7 +31,10 @@ fn main() {
     let c_code_without_vec = renderer.render(ast_without_vec);
 
     println!("  Generated C code (first 500 chars):");
-    println!("  {}", &c_code_without_vec.chars().take(500).collect::<String>());
+    println!(
+        "  {}",
+        &c_code_without_vec.chars().take(500).collect::<String>()
+    );
     println!();
 
     // 2. ベクトル化戦略を手動で適用
@@ -63,17 +65,23 @@ fn main() {
     let c_code_with_vec = renderer2.render(ast_with_vec);
 
     println!("  Generated C code (first 500 chars):");
-    println!("  {}", &c_code_with_vec.chars().take(500).collect::<String>());
+    println!(
+        "  {}",
+        &c_code_with_vec.chars().take(500).collect::<String>()
+    );
     println!();
 
     // 3. 違いを確認
     println!("Test 3: Checking differences");
-    let has_vector_load = c_code_with_vec.contains("vector_width") ||
-                           c_code_with_vec != c_code_without_vec;
+    let has_vector_load =
+        c_code_with_vec.contains("vector_width") || c_code_with_vec != c_code_without_vec;
 
     if has_vector_load {
         println!("  ✅ Vectorization strategy was applied!");
-        println!("  Code length without vec: {} chars", c_code_without_vec.len());
+        println!(
+            "  Code length without vec: {} chars",
+            c_code_without_vec.len()
+        );
         println!("  Code length with vec:    {} chars", c_code_with_vec.len());
     } else {
         println!("  ⚠️  Vectorization strategy was NOT reflected in generated code");
