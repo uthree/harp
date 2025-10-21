@@ -184,6 +184,11 @@ impl LowerContext {
                     &result_var,
                 ))
             }
+            GraphOp::Pad(_input, _axis, _amount) => {
+                // TODO: Implement padding operation lowering
+                // This will be implemented in M2 when graph-level optimizations are added
+                todo!("Pad operation lowering not yet implemented")
+            }
         }
     }
 }

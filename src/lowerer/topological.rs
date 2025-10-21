@@ -109,6 +109,7 @@ impl LowerContext {
             GraphOp::Contiguous(input) => vec![input.clone()],
             GraphOp::Cast(input, _) => vec![input.clone()],
             GraphOp::Fold(_, _, _, _, input) => vec![input.clone()],
+            GraphOp::Pad(input, _, _) => vec![input.clone()],
             GraphOp::FusedElementwise(_, nodes) => nodes.clone(),
             GraphOp::FusedReduce(_, _, input) => vec![input.clone()],
             GraphOp::FusedElementwiseReduce(_, nodes, _, _) => nodes.clone(),

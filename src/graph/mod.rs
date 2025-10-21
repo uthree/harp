@@ -8,11 +8,37 @@ use std::fmt;
 use std::ops::Deref;
 use std::rc::{Rc, Weak};
 
+/// Loop optimization strategy information attached to graph nodes
+/// This guides the lowerer on how to generate optimized code
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct LoopStrategy {
+    /// SIMD vectorization: (axis, vector_width)
+    /// Example: Some((2, 4)) means vectorize axis 2 with width 4
+    pub vectorize: Option<(usize, usize)>,
+
+    /// Loop unrolling: (axis, unroll_factor)
+    /// Example: Some((1, 8)) means unroll axis 1 by factor 8
+    pub unroll: Option<(usize, usize)>,
+
+    /// GPU parallelization: list of axes to parallelize
+    /// Example: vec![0, 1] means parallelize axes 0 and 1 across GPU threads
+    pub parallelize: Vec<usize>,
+
+    /// Loop tiling: list of (axis, tile_size) pairs
+    /// Example: vec![(0, 32), (1, 32)] means tile axes 0 and 1 with size 32
+    pub tile: Vec<(usize, usize)>,
+
+    /// Hint to use shared memory (GPU-specific)
+    /// The actual strategy is determined by the backend
+    pub use_shared_memory: bool,
+}
+
 #[derive(Debug)]
 pub struct GraphNodeData {
     pub op: GraphOp,
     pub dtype: DType,
     pub view: View,
+    pub strategy: Option<LoopStrategy>,
 }
 
 #[derive(Debug, Clone)]
@@ -20,7 +46,12 @@ pub struct GraphNode(Rc<GraphNodeData>);
 
 impl GraphNode {
     pub(crate) fn new(op: GraphOp, dtype: DType, view: View) -> GraphNode {
-        GraphNode(Rc::new(GraphNodeData { op, dtype, view }))
+        GraphNode(Rc::new(GraphNodeData {
+            op,
+            dtype,
+            view,
+            strategy: None,
+        }))
     }
 
     pub(crate) fn from_rc(rc: Rc<GraphNodeData>) -> GraphNode {
@@ -49,9 +80,10 @@ impl GraphNode {
     pub fn input_nodes(&self) -> Vec<GraphNode> {
         match &self.op {
             GraphOp::Input(_) | GraphOp::Const(_) => vec![],
-            GraphOp::View(input) | GraphOp::Contiguous(input) | GraphOp::Cast(input, _) => {
-                vec![input.clone()]
-            }
+            GraphOp::View(input)
+            | GraphOp::Contiguous(input)
+            | GraphOp::Cast(input, _)
+            | GraphOp::Pad(input, _, _) => vec![input.clone()],
             GraphOp::Reduce(_, _, input)
             | GraphOp::Cumulative(_, _, input)
             | GraphOp::Fold(_, _, _, _, input) => {
@@ -137,6 +169,7 @@ impl Graph {
             op: GraphOp::Input(input_index),
             dtype,
             view,
+            strategy: None,
         };
         let rc_node_data = Rc::new(node_data);
         let node = GraphNode(rc_node_data.clone());
@@ -169,6 +202,9 @@ pub enum GraphOp {
     Contiguous(GraphNode), // ContiguousなViewに並べ直す（入力のメモリレイアウトを連続に変換）
     Cast(GraphNode, DType), // 型変換: (input, target_dtype)
     Fold(usize, usize, usize, usize, GraphNode), // Fold operation (col2im): (dim, window_size, stride, dilation, input)
+    Pad(GraphNode, usize, ShapeExpr), // Padding operation: (input, axis, padding_amount)
+                                      // Example: Pad(node, 0, Ceil(N / tile_size) * tile_size - N)
+                                      // Pads with zeros on the specified axis
     // 融合済みの演算子
     FusedElementwise(AstNode, Vec<GraphNode>), // Capture(n)がn番目のGraphNodeに対応する
     FusedReduce(ReduceOp, Vec<usize>, GraphNode), // 複数の軸でReduceする
@@ -194,6 +230,7 @@ impl fmt::Display for GraphOp {
                     dim, window_size, stride, dilation
                 )
             }
+            GraphOp::Pad(_, axis, amount) => write!(f, "Pad[axis={}, amount={:?}]", axis, amount),
             GraphOp::FusedElementwise(_, _) => write!(f, "FusedElementwise"),
             GraphOp::FusedReduce(op, axes, _) => write!(f, "Fused{}[{:?}]", op, axes),
             GraphOp::FusedElementwiseReduce(_, _, op, axes) => {
