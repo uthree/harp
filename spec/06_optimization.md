@@ -95,6 +95,272 @@ if is_viz_enabled() {
 }
 ```
 
+### cost_estimator.rs - グラフコスト推定
+
+グラフ実行時のコストをヒューリスティックに推定します。
+
+**コスト計算:**
+```rust
+pub fn estimate_graph_cost(outputs: &[GraphNode]) -> usize {
+    let mut visited = HashSet::new();
+    let mut total_cost = 0;
+
+    for output in outputs {
+        total_cost += estimate_node_cost(output, &mut visited);
+    }
+
+    total_cost
+}
+
+fn estimate_node_cost(node: &GraphNode, visited: &mut HashSet<usize>) -> usize {
+    match &node.op {
+        GraphOp::Add(_, _) | GraphOp::Mul(_, _) => 1,
+        GraphOp::Sin(_) | GraphOp::Cos(_) => 20,  // 三角関数は高コスト
+        GraphOp::Sqrt(_) | GraphOp::Rsqrt(_) => 10,
+        GraphOp::Recip(_) | GraphOp::Div(_, _) => 5,
+        // ループコスト = ループサイズ * 基礎コスト
+        _ => estimate_memory_operations(node),
+    }
+}
+```
+
+### suggester/ - 最適化戦略提案
+
+各Suggesterがグラフに適用可能な最適化候補を生成します。
+
+#### loop_permutation.rs - ループ順序最適化
+
+メモリアクセスパターンを改善するためにループの順序を変更します。
+
+**戦略:**
+- ストライドが小さい次元を最内ループに配置
+- 連続メモリアクセスを促進してキャッシュヒット率を向上
+
+**実装:**
+```rust
+pub struct LoopPermutationSuggester;
+
+impl LoopPermutationSuggester {
+    pub fn suggest(graph: &Graph) -> Vec<Graph> {
+        // 各出力ノードのviewを分析
+        // ストライドに基づいて最適なループ順序を計算
+        // permutation候補を生成
+    }
+
+    fn compute_optimal_order(view: &View) -> Option<Vec<usize>> {
+        // ストライドを評価してソート（小さい順）
+        // 最適なループ順序を返す
+    }
+}
+```
+
+**最適化例:**
+```rust
+// 元のstrides: [12, 4, 1] (shape [2, 3, 4])
+// 最適順序: [2, 1, 0] (逆順でループ)
+// → 最内ループがstride=1でキャッシュフレンドリー
+```
+
+#### tiling.rs - タイリング最適化
+
+大きな次元をキャッシュに収まるタイルに分割します。
+
+**戦略:**
+- L1/L2キャッシュサイズを考慮したタイルサイズを選択
+- 2D行列演算には2次元タイリングを適用
+
+**実装:**
+```rust
+pub struct TilingSuggester;
+
+#[derive(Debug, Clone, Copy)]
+pub struct TileSize {
+    pub dim: usize,
+    pub size: usize,
+}
+
+impl TilingSuggester {
+    const COMMON_TILE_SIZES: &[usize] = &[4, 8, 16, 32, 64];
+
+    pub fn estimate_cache_usage(tile_sizes: &[TileSize], element_size: usize) -> usize;
+    pub fn fits_in_l1_cache(cache_usage: usize) -> bool;  // 32KB
+    pub fn fits_in_l2_cache(cache_usage: usize) -> bool;  // 256KB
+}
+```
+
+**タイリング例:**
+```rust
+// 128x128行列を8x8タイルに分割
+// メモリ使用量: 8 * 8 * 4 bytes = 256 bytes (L1に収まる)
+```
+
+#### parallelization.rs - 並列化戦略
+
+並列実行可能な軸を特定します。
+
+**戦略:**
+- データ依存性のない外側のループを並列化
+- バッチ次元を優先的に並列化
+- 十分に大きなサイズの次元のみ選択
+
+**実装:**
+```rust
+pub struct ParallelizationSuggester;
+
+#[derive(Debug, Clone)]
+pub struct ParallelizationConfig {
+    pub axes: Vec<usize>,
+    pub reason: ParallelizationReason,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ParallelizationReason {
+    LargeIndependentDimension,
+    OuterLoop,
+    BatchDimension,
+}
+
+impl ParallelizationSuggester {
+    pub fn estimate_speedup(config: &ParallelizationConfig, shape: &[usize]) -> f64 {
+        let parallelism = config.axes.iter()
+            .map(|&axis| shape[axis] as f64)
+            .product();
+        parallelism * 0.85  // 効率85%と仮定（Amdahlの法則）
+    }
+}
+```
+
+#### vectorization.rs - ベクトル化戦略
+
+SIMD命令を活用できるループを特定します。
+
+**戦略:**
+- 最内ループ（stride=1）をベクトル化
+- SSE/AVX/AVX-512に対応したベクトル幅を選択
+
+**実装:**
+```rust
+pub struct VectorizationSuggester;
+
+#[derive(Debug, Clone)]
+pub struct VectorizationConfig {
+    pub axis: usize,
+    pub vector_width: usize,
+}
+
+impl VectorizationSuggester {
+    const COMMON_VECTOR_WIDTHS: &[usize] = &[2, 4, 8, 16];
+
+    pub fn estimate_performance_gain(config: &VectorizationConfig, loop_size: usize) -> f64 {
+        let efficiency = if loop_size.is_multiple_of(config.vector_width) {
+            0.95  // 割り切れる場合は高効率
+        } else {
+            0.75  // 余りがある場合は効率低下
+        };
+        config.vector_width as f64 * efficiency
+    }
+}
+```
+
+**SIMD命令セット:**
+- SSE: 128bit = 4×f32 or 2×f64
+- AVX: 256bit = 8×f32 or 4×f64
+- AVX-512: 512bit = 16×f32 or 8×f64
+
+#### mod.rs - 統合Suggester
+
+全てのSuggesterを統合し、候補をランク付けします。
+
+```rust
+pub struct CombinedSuggester;
+
+impl CombinedSuggester {
+    pub fn suggest_all(graph: &Graph) -> Vec<Graph> {
+        let mut suggestions = Vec::new();
+        suggestions.extend(LoopPermutationSuggester::suggest(graph));
+        suggestions.extend(TilingSuggester::suggest(graph));
+        suggestions.extend(ParallelizationSuggester::suggest(graph));
+        suggestions.extend(VectorizationSuggester::suggest(graph));
+        suggestions
+    }
+
+    pub fn rank_by_cost(suggestions: Vec<Graph>) -> Vec<(Graph, usize)> {
+        let mut ranked: Vec<_> = suggestions
+            .into_iter()
+            .map(|g| {
+                let cost = cost_estimator::estimate_graph_cost(&g.outputs);
+                (g, cost)
+            })
+            .collect();
+        ranked.sort_by_key(|(_, cost)| *cost);
+        ranked
+    }
+}
+```
+
+### optimizer.rs - ビームサーチオプティマイザ
+
+複数の最適化パスを探索し、最もコストの低いグラフを選択します。
+
+**アルゴリズム:**
+```rust
+pub struct BeamSearchOptimizer {
+    beam_width: usize,   // 各世代で保持する候補数
+    max_depth: usize,    // 最大探索深度
+}
+
+struct Candidate {
+    graph: Graph,
+    cost: usize,
+    depth: usize,
+}
+
+impl BeamSearchOptimizer {
+    pub fn optimize(&self, initial_graph: &Graph) -> Graph {
+        let mut beam = vec![Candidate {
+            graph: initial_graph.clone(),
+            cost: estimate_graph_cost(&initial_graph.outputs),
+            depth: 0
+        }];
+
+        for iteration in 0..self.max_depth {
+            let mut new_candidates = Vec::new();
+
+            // 各候補に対して全ての変換を適用
+            for candidate in &beam {
+                let suggestions = CombinedSuggester::suggest_all(&candidate.graph);
+                for suggestion in suggestions {
+                    let cost = estimate_graph_cost(&suggestion.outputs);
+                    new_candidates.push(Candidate {
+                        graph: suggestion,
+                        cost,
+                        depth: candidate.depth + 1,
+                    });
+                }
+            }
+
+            // コストでソートして上位beam_width個を残す
+            new_candidates.sort_by_key(|c| c.cost);
+            new_candidates.truncate(self.beam_width);
+
+            // 早期終了: コストが改善しなければ終了
+            if no_improvement(&beam, &new_candidates) {
+                break;
+            }
+
+            beam = new_candidates;
+        }
+
+        beam.into_iter().min_by_key(|c| c.cost).unwrap().graph
+    }
+}
+```
+
+**デフォルトパラメータ:**
+- `beam_width`: 3（各世代で保持する候補数）
+- `max_depth`: 5（最大探索深度）
+- 早期終了: 2回連続で改善がなければ終了
+
 ## ASTレベル最適化 (opt/ast)
 
 ### constant_folding.rs - 定数畳み込み
