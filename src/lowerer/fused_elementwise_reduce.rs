@@ -189,8 +189,12 @@ impl FusedElementwiseReduceLowerer {
                 let init_stmt = AstNode::Assign(acc_var.clone(), Box::new(initial_value.clone()));
 
                 // 縮約ループ
-                let reduce_loop =
-                    LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body);
+                let reduce_loop = LowererUtils::create_dimension_loop(
+                    loop_var,
+                    &input_shape[dim],
+                    inner_body,
+                    None,
+                );
 
                 // アキュムレータから結果配列への書き込み
                 let result_index = LowererUtils::compute_reduce_result_index(
@@ -236,7 +240,7 @@ impl FusedElementwiseReduceLowerer {
 
         let loop_var = format!("ridx{}", dim);
 
-        LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body)
+        LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body, None)
     }
 
     /// 縮約軸より後の次元のループを生成し、その内側でアキュムレータを使用
@@ -282,6 +286,7 @@ impl FusedElementwiseReduceLowerer {
                 loop_var,
                 &input_shape[reduce_axis],
                 inner_body,
+                None,
             );
 
             // アキュムレータから結果配列への書き込み
@@ -328,7 +333,7 @@ impl FusedElementwiseReduceLowerer {
             dim + 1,
         );
 
-        LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body)
+        LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body, None)
     }
 
     /// アキュムレータ変数を使ったFusedElementwiseReduce縮約ループの本体を生成
@@ -414,6 +419,6 @@ impl FusedElementwiseReduceLowerer {
             dim + 1,
         );
 
-        LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body)
+        LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body, None)
     }
 }

@@ -40,6 +40,7 @@ impl LowerContext {
                 op,
                 |n| self.get_or_create_var_name(n),
                 declarations,
+                &node.strategy,
             ),
             GraphOp::Reduce(op, axis, input) => ReduceLowerer::lower(
                 node,

@@ -13,6 +13,7 @@ impl ElementwiseLowerer {
         op: &ElementwiseOp,
         mut get_var: impl FnMut(&GraphNode) -> String,
         declarations: &mut Vec<VariableDecl>,
+        _strategy: &Option<crate::graph::LoopStrategy>,
     ) -> Option<AstNode> {
         let result_var = get_var(node);
 
@@ -278,7 +279,7 @@ impl ElementwiseLowerer {
                 op,
             );
 
-            LowererUtils::create_dimension_loop(loop_var, &shape[dim], inner_body)
+            LowererUtils::create_dimension_loop(loop_var, &shape[dim], inner_body, None)
         }
     }
 
@@ -381,7 +382,7 @@ impl ElementwiseLowerer {
                 op,
             );
 
-            LowererUtils::create_dimension_loop(loop_var, &shape[dim], inner_body)
+            LowererUtils::create_dimension_loop(loop_var, &shape[dim], inner_body, None)
         }
     }
 
@@ -540,7 +541,7 @@ impl ElementwiseLowerer {
                 dim + 1,
             );
 
-            LowererUtils::create_dimension_loop(loop_var, &shape[dim], inner_body)
+            LowererUtils::create_dimension_loop(loop_var, &shape[dim], inner_body, None)
         }
     }
 }

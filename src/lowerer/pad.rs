@@ -56,7 +56,7 @@ impl PadLowerer {
         let loop_var = format!("pidx{}", dim);
         let inner_body = Self::create_init_loop(output_view, output_var, _dtype, dim + 1);
 
-        LowererUtils::create_dimension_loop(loop_var, &shape[dim], inner_body)
+        LowererUtils::create_dimension_loop(loop_var, &shape[dim], inner_body, None)
     }
 
     /// 入力データを出力配列の適切な位置にコピーするループを生成
@@ -107,7 +107,7 @@ impl PadLowerer {
         let inner_body =
             Self::create_copy_loop(input_view, output_view, input_var, output_var, dim + 1);
 
-        LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body)
+        LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body, None)
     }
 
     /// パディングを考慮した出力インデックスを計算

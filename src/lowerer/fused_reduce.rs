@@ -155,8 +155,12 @@ impl FusedReduceLowerer {
                 let init_stmt = AstNode::Assign(acc_var.clone(), Box::new(initial_value.clone()));
 
                 // 縮約ループ（現在の次元から開始）
-                let reduce_loop =
-                    LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body);
+                let reduce_loop = LowererUtils::create_dimension_loop(
+                    loop_var,
+                    &input_shape[dim],
+                    inner_body,
+                    None,
+                );
 
                 // アキュムレータから結果配列への書き込み
                 let result_index = LowererUtils::compute_multi_reduce_result_index(
@@ -208,8 +212,12 @@ impl FusedReduceLowerer {
                     dim + 1,
                 );
 
-                let reduce_loop =
-                    LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body);
+                let reduce_loop = LowererUtils::create_dimension_loop(
+                    loop_var,
+                    &input_shape[dim],
+                    inner_body,
+                    None,
+                );
 
                 return block_with_statements(vec![init_loop, reduce_loop]);
             }
@@ -229,7 +237,7 @@ impl FusedReduceLowerer {
             dim + 1,
         );
 
-        LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body)
+        LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body, None)
     }
 
     /// アキュムレータ変数を使ったFusedReduce縮約ループの本体を生成
@@ -313,6 +321,7 @@ impl FusedReduceLowerer {
                     loop_var,
                     &input_shape[dim],
                     inner_body,
+                    None,
                 );
             }
         }
@@ -328,7 +337,7 @@ impl FusedReduceLowerer {
             dim + 1,
         );
 
-        LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body)
+        LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body, None)
     }
 
     /// FusedReduceの初期化ループを作成（reduce軸でない次元のみ）
@@ -407,6 +416,6 @@ impl FusedReduceLowerer {
             dim + 1,
         );
 
-        LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body)
+        LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body, None)
     }
 }

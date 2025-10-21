@@ -38,8 +38,29 @@ pub struct Lowerer {
 1. トポロジカルソート（世代別）を実行
 2. 入力・出力ノードに変数名を事前割り当て
 3. 各世代のノードを処理してAST文を生成
-4. 世代間にBarrierを挿入
+4. **世代間にBarrierを挿入**（並列実行時の同期ポイント）
 5. 出力ノードへのコピーコードを生成
+
+**世代間バリアの挿入:**
+```rust
+for (gen_idx, generation) in generations.iter().enumerate() {
+    for node in generation {
+        let ast_stmt = self.lower_node(node, &mut declarations);
+        if let Some(stmt) = ast_stmt {
+            statements.push(stmt);
+        }
+    }
+
+    // 最後の世代でなければ、Barrierを挿入
+    if gen_idx < generations.len() - 1 {
+        statements.push(AstNode::Barrier);
+    }
+}
+```
+
+バリアは以下の役割を果たします：
+- **CPU**: OpenMPバリアとして機能（スレッド同期）
+- **GPU**: カーネル境界として機能（暗黙的な同期）
 
 **引数:**
 - `input_0`, `input_1`, ... : 入力バッファへのポインタ
@@ -90,6 +111,7 @@ pub struct Lowerer {
 #### Elementwise
 - ElementwiseLowererに委譲
 - ビュー情報に基づくループ生成
+- **LoopStrategyを考慮したコード生成**（M3で追加）
 
 #### Reduce
 - ReduceLowererに委譲
@@ -231,3 +253,85 @@ for ridx0 in 0..input_shape[0]:
 - 共通ユーティリティ関数
 - シェイプ計算
 - メモリインデックス計算
+- ループ生成ユーティリティ
+
+**主要な関数:**
+
+#### create_dimension_loop
+```rust
+pub fn create_dimension_loop(
+    loop_var: String,
+    dim_size: &Expr,
+    body: AstNode,
+    unroll: Option<usize>,
+) -> AstNode
+```
+
+次元のサイズからループを生成します。
+
+**パラメータ:**
+- `loop_var`: ループカウンター名（例: "ridx0", "ridx1"）
+- `dim_size`: その次元のサイズ（Expr）
+- `body`: ループ本体
+- `unroll`: アンロールヒント
+  - `None`: アンロールなし
+  - `Some(0)`: 完全アンロール（#pragma unroll）
+  - `Some(n)`: n回アンロール（#pragma unroll n）
+
+## LoopStrategy対応（M3で追加）
+
+### 概要
+
+M3で、GraphNodeに付与されたLoopStrategyをコード生成に反映する基盤を実装しました。
+
+### LoopStrategy構造体
+
+```rust
+pub struct LoopStrategy {
+    /// SIMD vectorization: (axis, vector_width)
+    pub vectorize: Option<(usize, usize)>,
+
+    /// Loop unrolling: (axis, unroll_factor)
+    pub unroll: Option<(usize, usize)>,
+
+    /// GPU parallelization: list of axes to parallelize
+    pub parallelize: Vec<usize>,
+
+    /// Loop tiling: list of (axis, tile_size) pairs
+    pub tile: Vec<(usize, usize)>,
+
+    /// Shared Memory usage hint (GPU)
+    pub use_shared_memory: bool,
+}
+```
+
+### 実装状況
+
+**M3で完了:**
+1. ✓ `create_dimension_loop`にunrollパラメータを追加
+2. ✓ すべてのループ生成箇所を更新
+3. ✓ ElementwiseLowererがstrategyを受け取れるように拡張
+4. ✓ 世代間バリアの挿入を実装
+
+**今後の実装予定:**
+- strategyに基づく実際のループ変換
+  - `unroll`: Range.unrollフィールドの設定
+  - `vectorize`: Load/Store.vector_widthの設定
+  - `parallelize`: 並列化ディレクティブ/Kernelノードの生成
+  - `tile`: ネストループへの分割
+
+### 使用方法
+
+Lowererは各GraphNodeの`strategy`フィールドを参照してコード生成を行います：
+
+```rust
+GraphOp::Elementwise(op) => ElementwiseLowerer::lower(
+    node,
+    op,
+    |n| self.get_or_create_var_name(n),
+    declarations,
+    &node.strategy,  // ← LoopStrategyを渡す
+),
+```
+
+現在の実装では、strategyパラメータを受け取るインフラは整備されていますが、実際の最適化適用は今後の拡張として残されています。

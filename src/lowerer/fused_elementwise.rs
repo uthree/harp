@@ -75,7 +75,7 @@ impl FusedElementwiseLowerer {
         let loop_var = format!("ridx{}", dim);
         let inner_body = Self::create_loop(view, ast, input_vars, inputs, result_var, dim + 1);
 
-        LowererUtils::create_dimension_loop(loop_var, &shape[dim], inner_body)
+        LowererUtils::create_dimension_loop(loop_var, &shape[dim], inner_body, None)
     }
 
     /// AstNode内のCaptureを実際の入力変数への参照に置き換え

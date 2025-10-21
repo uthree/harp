@@ -53,7 +53,7 @@ impl LowerContext {
                 dim + 1,
             );
 
-            LowererUtils::create_dimension_loop(loop_var, &shape[dim], inner_body)
+            LowererUtils::create_dimension_loop(loop_var, &shape[dim], inner_body, None)
         }
     }
 
@@ -112,7 +112,7 @@ impl LowerContext {
                 dim + 1,
             );
 
-            LowererUtils::create_dimension_loop(loop_var, &shape[dim], inner_body)
+            LowererUtils::create_dimension_loop(loop_var, &shape[dim], inner_body, None)
         }
     }
 }

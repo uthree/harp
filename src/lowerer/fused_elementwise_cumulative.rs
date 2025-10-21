@@ -137,7 +137,7 @@ impl FusedElementwiseCumulativeLowerer {
 
             // 累積ループ
             let cumulative_loop =
-                LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], loop_body);
+                LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], loop_body, None);
 
             // アキュムレータ変数の宣言 + 初期化 + 累積ループをブロックにまとめる
             block(
@@ -169,7 +169,7 @@ impl FusedElementwiseCumulativeLowerer {
                 dim + 1,
             );
 
-            LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body)
+            LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body, None)
         }
     }
 }

@@ -148,7 +148,7 @@ impl ReduceLowerer {
 
             // 縮約ループ: for (i_reduce) { inner_body }
             let reduce_loop =
-                LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body);
+                LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body, None);
 
             // アキュムレータから結果配列への書き込み
             let result_index = LowererUtils::compute_reduce_result_index(
@@ -190,7 +190,7 @@ impl ReduceLowerer {
                 dim + 1,
             );
 
-            LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body)
+            LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body, None)
         }
     }
 
@@ -269,7 +269,7 @@ impl ReduceLowerer {
             dim + 1,
         );
 
-        LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body)
+        LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body, None)
     }
 
     /// コピーループを作成（View操作用）
@@ -300,7 +300,7 @@ impl ReduceLowerer {
             let loop_var = format!("ridx{}", dim);
             let inner_body = Self::create_copy_loop(view, source_var, dest_var, dim + 1);
 
-            LowererUtils::create_dimension_loop(loop_var, &shape[dim], inner_body)
+            LowererUtils::create_dimension_loop(loop_var, &shape[dim], inner_body, None)
         }
     }
 }

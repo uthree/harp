@@ -57,7 +57,7 @@ impl LowerContext {
             let loop_var = format!("ridx{}", dim);
             let inner_body = Self::create_fold_init_loop(result_view, result_var, dim + 1);
 
-            LowererUtils::create_dimension_loop(loop_var, &result_shape[dim], inner_body)
+            LowererUtils::create_dimension_loop(loop_var, &result_shape[dim], inner_body, None)
         }
     }
 
@@ -137,7 +137,12 @@ impl LowerContext {
                 current_dim + 1,
             );
 
-            LowererUtils::create_dimension_loop(loop_var, &input_shape[current_dim], inner_body)
+            LowererUtils::create_dimension_loop(
+                loop_var,
+                &input_shape[current_dim],
+                inner_body,
+                None,
+            )
         }
     }
 
