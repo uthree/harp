@@ -14,7 +14,13 @@ mod reduce;
 mod topological;
 mod utils;
 
+// 新しいLowerer設計
+pub mod config;
+mod recursive;
+
+pub use config::{LoweringConfig, LoweringConfigBuilder};
 pub use core::{lower, Lowerer};
+pub use recursive::RecursiveLowerer;
 
 #[cfg(test)]
 mod tests {
