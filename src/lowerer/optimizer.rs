@@ -8,6 +8,7 @@ use crate::graph::shape::Expr;
 use crate::graph::{Graph, GraphNode, GraphOp, LoopStrategy};
 use crate::lowerer::config::LoweringConfig;
 use crate::lowerer::recursive::RecursiveLowerer;
+use crate::lowerer::utils::LowererUtils;
 use crate::opt::ast::{CostEstimator, OperationCostEstimator};
 
 /// Lowering戦略を探索して最適なASTを選択
@@ -67,9 +68,9 @@ impl LoweringOptimizer {
             }
         }
 
-        // 出力ノードの変数名を事前マッピング
+        // 出力ノードの変数名を事前マッピング（一時的な名前）
         for (i, output_node) in graph.outputs.iter().enumerate() {
-            lowerer.set_var_name(output_node, format!("output_{}", i));
+            lowerer.set_var_name(output_node, format!("_output_result_{}", i));
         }
 
         // 各出力ノードをlower
@@ -77,6 +78,9 @@ impl LoweringOptimizer {
         for output_node in &graph.outputs {
             lowerer.lower_node(output_node);
         }
+
+        // 出力ノードの実際の変数名から output_N へのコピーループを生成
+        self.add_output_copy_loops(graph, &mut lowerer);
 
         // プログラムを構築
         self.build_program(graph, lowerer)
@@ -94,9 +98,9 @@ impl LoweringOptimizer {
             }
         }
 
-        // 出力ノードの変数名を事前マッピング
+        // 出力ノードの変数名を事前マッピング（一時的な名前）
         for (i, output_node) in graph.outputs.iter().enumerate() {
-            lowerer.set_var_name(output_node, format!("output_{}", i));
+            lowerer.set_var_name(output_node, format!("_output_result_{}", i));
         }
 
         // 各出力ノードをlower
@@ -104,8 +108,63 @@ impl LoweringOptimizer {
             lowerer.lower_node(output_node);
         }
 
+        // 出力ノードの実際の変数名から output_N へのコピーループを生成
+        self.add_output_copy_loops(graph, &mut lowerer);
+
         // プログラムを構築
         self.build_program(graph, lowerer)
+    }
+
+    /// 出力ノードの計算結果を output_N バッファにコピーするループを生成
+    fn add_output_copy_loops(&self, graph: &Graph, lowerer: &mut RecursiveLowerer) {
+        use crate::ast::helper::{range, store};
+        use crate::graph::shape::view::View;
+
+        for (i, output_node) in graph.outputs.iter().enumerate() {
+            // 出力ノードの実際の変数名を取得
+            let result_var = match lowerer.get_var_name(output_node) {
+                Some(var) => var,
+                None => continue, // 変数名が設定されていない場合はスキップ
+            };
+            let output_var = format!("output_{}", i);
+
+            // result_varとoutput_varが同じ場合はコピー不要
+            if result_var == output_var {
+                continue;
+            }
+
+            // viewから総要素数を計算
+            let View::Linear {
+                shape, ..
+            } = &output_node.view;
+
+            // 総要素数を計算する式を生成
+            let size_expr = if shape.is_empty() {
+                // スカラー値の場合
+                AstNode::Const(ConstLiteral::Usize(1))
+            } else {
+                let mut size_expr = LowererUtils::shape_expr_to_ast_node(&shape[0]);
+                for dim in &shape[1..] {
+                    let dim_ast = LowererUtils::shape_expr_to_ast_node(dim);
+                    size_expr = AstNode::Mul(Box::new(size_expr), Box::new(dim_ast));
+                }
+                size_expr
+            };
+
+            // コピーループを生成: for (i = 0; i < total_size; i++) output[i] = result[i]
+            let copy_stmt = store(
+                AstNode::Var(output_var.clone()),
+                AstNode::Var("copy_idx".to_string()),
+                AstNode::Load {
+                    target: Box::new(AstNode::Var(result_var)),
+                    index: Box::new(AstNode::Var("copy_idx".to_string())),
+                    vector_width: 1,
+                },
+            );
+
+            let copy_loop = range("copy_idx".to_string(), size_expr, copy_stmt);
+            lowerer.statements.push(copy_loop);
+        }
     }
 
     /// kernel_implとkernel_mainを含む完全なプログラムを構築
