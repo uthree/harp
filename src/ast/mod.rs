@@ -116,12 +116,16 @@ impl AstNode {
     }
 }
 
+// Operator overloading for AstNode
+pub mod ops;
+
 // Helper functions for constructing AST nodes
 pub mod helper;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ast::helper::*;
 
     #[test]
     fn test_literal_from_f32() {
@@ -182,62 +186,52 @@ mod tests {
 
     #[test]
     fn test_children_const() {
-        use crate::ast::helper::*;
-
-        let node = const_f32(3.14);
+        let node = AstNode::Const(3.14f32.into());
         let children = node.children();
         assert_eq!(children.len(), 0);
     }
 
     #[test]
     fn test_children_binary_ops() {
-        use crate::ast::helper::*;
-
-        let a = const_f32(1.0);
-        let b = const_f32(2.0);
+        let a = AstNode::Const(1.0f32.into());
+        let b = AstNode::Const(2.0f32.into());
         let node = a + b;
         let children = node.children();
         assert_eq!(children.len(), 2);
 
-        let node = const_isize(3) * const_isize(4);
+        let node = AstNode::Const(3isize.into()) * AstNode::Const(4isize.into());
         let children = node.children();
         assert_eq!(children.len(), 2);
     }
 
     #[test]
     fn test_children_unary_ops() {
-        use crate::ast::helper::*;
-
-        let node = sqrt(const_f32(4.0));
+        let node = sqrt(AstNode::Const(4.0f32.into()));
         let children = node.children();
         assert_eq!(children.len(), 1);
 
-        let node = sin(const_f32(1.0));
+        let node = sin(AstNode::Const(1.0f32.into()));
         let children = node.children();
         assert_eq!(children.len(), 1);
 
-        let node = recip(const_f32(2.0));
+        let node = recip(AstNode::Const(2.0f32.into()));
         let children = node.children();
         assert_eq!(children.len(), 1);
     }
 
     #[test]
     fn test_children_cast() {
-        use crate::ast::helper::*;
-
-        let node = cast(const_f32(3.14), DType::Isize);
+        let node = cast(AstNode::Const(3.14f32.into()), DType::Isize);
         let children = node.children();
         assert_eq!(children.len(), 1);
     }
 
     #[test]
     fn test_children_composite() {
-        use crate::ast::helper::*;
-
         // (a + b) * c
-        let a = const_f32(1.0);
-        let b = const_f32(2.0);
-        let c = const_f32(3.0);
+        let a = AstNode::Const(1.0f32.into());
+        let b = AstNode::Const(2.0f32.into());
+        let c = AstNode::Const(3.0f32.into());
         let product = (a + b) * c;
 
         let children = product.children();
@@ -250,87 +244,77 @@ mod tests {
 
     #[test]
     fn test_infer_type_const() {
-        use crate::ast::helper::*;
-
-        let node = const_f32(3.14);
+        let node = AstNode::Const(3.14f32.into());
         assert_eq!(node.infer_type(), DType::F32);
 
-        let node = const_isize(42);
+        let node = AstNode::Const(42isize.into());
         assert_eq!(node.infer_type(), DType::Isize);
 
-        let node = const_usize(100);
+        let node = AstNode::Const(100usize.into());
         assert_eq!(node.infer_type(), DType::Usize);
     }
 
     #[test]
     fn test_infer_type_binary_ops() {
-        use crate::ast::helper::*;
-
         // Same types should return that type
-        let node = const_f32(1.0) + const_f32(2.0);
+        let node = AstNode::Const(1.0f32.into()) + AstNode::Const(2.0f32.into());
         assert_eq!(node.infer_type(), DType::F32);
 
-        let node = const_isize(3) * const_isize(4);
+        let node = AstNode::Const(3isize.into()) * AstNode::Const(4isize.into());
         assert_eq!(node.infer_type(), DType::Isize);
 
         // Mixed types should return Unknown
-        let node = const_f32(1.0) + const_isize(2);
+        let node = AstNode::Const(1.0f32.into()) + AstNode::Const(2isize.into());
         assert_eq!(node.infer_type(), DType::Unknown);
     }
 
     #[test]
     fn test_infer_type_unary_ops() {
-        use crate::ast::helper::*;
-
         // Recip preserves type
-        let node = recip(const_f32(2.0));
+        let node = recip(AstNode::Const(2.0f32.into()));
         assert_eq!(node.infer_type(), DType::F32);
 
         // Math operations return F32
-        let node = sqrt(const_f32(4.0));
+        let node = sqrt(AstNode::Const(4.0f32.into()));
         assert_eq!(node.infer_type(), DType::F32);
 
-        let node = sin(const_f32(1.0));
+        let node = sin(AstNode::Const(1.0f32.into()));
         assert_eq!(node.infer_type(), DType::F32);
 
-        let node = log2(const_f32(8.0));
+        let node = log2(AstNode::Const(8.0f32.into()));
         assert_eq!(node.infer_type(), DType::F32);
 
-        let node = exp2(const_f32(3.0));
+        let node = exp2(AstNode::Const(3.0f32.into()));
         assert_eq!(node.infer_type(), DType::F32);
     }
 
     #[test]
     fn test_infer_type_cast() {
-        use crate::ast::helper::*;
-
-        let node = cast(const_f32(3.14), DType::Isize);
+        let node = cast(AstNode::Const(3.14f32.into()), DType::Isize);
         assert_eq!(node.infer_type(), DType::Isize);
 
-        let node = cast(const_isize(42), DType::F32);
+        let node = cast(AstNode::Const(42isize.into()), DType::F32);
         assert_eq!(node.infer_type(), DType::F32);
     }
 
     #[test]
     fn test_infer_type_composite() {
-        use crate::ast::helper::*;
-
         // (a + b) * c where all are F32
-        let a = const_f32(1.0);
-        let b = const_f32(2.0);
-        let c = const_f32(3.0);
+        let a = AstNode::Const(1.0f32.into());
+        let b = AstNode::Const(2.0f32.into());
+        let c = AstNode::Const(3.0f32.into());
         let expr = (a + b) * c;
         assert_eq!(expr.infer_type(), DType::F32);
 
         // sqrt(a + b) where a, b are F32
-        let a = const_f32(4.0);
-        let b = const_f32(5.0);
+        let a = AstNode::Const(4.0f32.into());
+        let b = AstNode::Const(5.0f32.into());
         let expr = sqrt(a + b);
         assert_eq!(expr.infer_type(), DType::F32);
 
         // Complex expression with cast
-        let a = const_isize(10);
-        let b = const_isize(20);
+        let a = AstNode::Const(10isize.into());
+        let b = AstNode::Const(20isize.into());
         let casted = cast(a + b, DType::F32);
         let result = sqrt(casted);
         assert_eq!(result.infer_type(), DType::F32);
