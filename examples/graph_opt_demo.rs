@@ -2,7 +2,7 @@
 /// このプログラムは、Graph レベルの最適化（特にベクトル化）が正しく動作することを確認します。
 use harp::ast::DType;
 use harp::graph::Graph;
-use harp::lowerer::Lowerer;
+use harp::lowerer::LoweringOptimizer;
 use harp::opt::graph::optimizer::BeamSearchOptimizer;
 use harp::opt::graph::suggester::VectorizationSuggester;
 
@@ -68,9 +68,9 @@ fn main() {
 
     // 4. Lowering してコード生成
     println!("Lowering to AST...");
-    let mut lowerer = Lowerer::new();
-    let original_ast = lowerer.lower(&graph);
-    let optimized_ast = lowerer.lower(&optimized_graph);
+    let optimizer = LoweringOptimizer::with_default_config();
+    let original_ast = optimizer.optimize_and_lower(&graph);
+    let optimized_ast = optimizer.optimize_and_lower(&optimized_graph);
 
     println!(
         "Original AST children count: {}",

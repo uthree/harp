@@ -4,7 +4,7 @@ use harp::ast::DType;
 use harp::backend::c::renderer::CRenderer;
 use harp::backend::Renderer;
 use harp::graph::{Graph, LoopStrategy};
-use harp::lowerer::Lowerer;
+use harp::lowerer::LoweringOptimizer;
 
 fn main() {
     println!("=== Vectorization Test ===\n");
@@ -23,8 +23,8 @@ fn main() {
     println!("  Creating graph without strategy...");
     graph.output(c.clone());
 
-    let mut lowerer = Lowerer::new();
-    let ast_without_vec = lowerer.lower(&graph);
+    let optimizer = LoweringOptimizer::with_default_config();
+    let ast_without_vec = optimizer.optimize_and_lower(&graph);
 
     // C コードにレンダリング
     let mut renderer = CRenderer::new();
@@ -58,8 +58,8 @@ fn main() {
     let c2_with_strategy = c2.with_strategy(strategy);
     graph_with_vec.output(c2_with_strategy);
 
-    let mut lowerer2 = Lowerer::new();
-    let ast_with_vec = lowerer2.lower(&graph_with_vec);
+    let optimizer2 = LoweringOptimizer::with_default_config();
+    let ast_with_vec = optimizer2.optimize_and_lower(&graph_with_vec);
 
     let mut renderer2 = CRenderer::new();
     let c_code_with_vec = renderer2.render(ast_with_vec);
