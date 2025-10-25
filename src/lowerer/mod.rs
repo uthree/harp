@@ -16,10 +16,12 @@ mod utils;
 
 // 新しいLowerer設計
 pub mod config;
+mod optimizer;
 mod recursive;
 
 pub use config::{LoweringConfig, LoweringConfigBuilder};
 pub use core::{lower, Lowerer};
+pub use optimizer::LoweringOptimizer;
 pub use recursive::RecursiveLowerer;
 
 #[cfg(test)]
