@@ -1,5 +1,7 @@
 use crate::ast::AstNode;
 
+// レンダラー。
+// ASTを受け取って文字列としてレンダリングする
 pub trait Renderer {
     type CodeRepr;
     fn render(&self, ast: AstNode) -> Self::CodeRepr;
