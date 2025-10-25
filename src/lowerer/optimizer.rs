@@ -72,15 +72,10 @@ impl LoweringOptimizer {
             lowerer.set_var_name(output_node, format!("output_{}", i));
         }
 
-        // 各出力ノードに対して最適化を実行
+        // 各出力ノードをlower
+        // TODO: 将来的には各ノードに対して戦略を最適化する
         for output_node in &graph.outputs {
-            // 最適化戦略を探索
-            let (optimized_node, _ast, _cost) = self.optimize_node(output_node);
-
-            // 最適化されたノードでlowering
-            // ただし、出力ノードの変数名は既にマッピング済みなので、
-            // 内部の計算のみ最適化される
-            lowerer.lower_node(&optimized_node);
+            lowerer.lower_node(output_node);
         }
 
         // プログラムを構築

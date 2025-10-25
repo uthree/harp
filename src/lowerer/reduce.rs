@@ -271,36 +271,4 @@ impl ReduceLowerer {
 
         LowererUtils::create_dimension_loop(loop_var, &input_shape[dim], inner_body, None)
     }
-
-    /// コピーループを作成（View操作用）
-    pub fn create_copy_loop(view: &View, source_var: &str, dest_var: &str, dim: usize) -> AstNode {
-        let View::Linear {
-            shape,
-            strides,
-            offset,
-            ..
-        } = view;
-
-        if dim >= shape.len() {
-            // 最内レベル: コピーを実行
-            let source_index = LowererUtils::compute_memory_index(strides, offset, dim);
-            let dest_index = LowererUtils::compute_memory_index(strides, offset, dim);
-
-            store(
-                AstNode::Var(dest_var.to_string()),
-                dest_index,
-                AstNode::Load {
-                    target: Box::new(AstNode::Var(source_var.to_string())),
-                    index: Box::new(source_index),
-                    vector_width: 1,
-                },
-            )
-        } else {
-            // ループを生成
-            let loop_var = format!("ridx{}", dim);
-            let inner_body = Self::create_copy_loop(view, source_var, dest_var, dim + 1);
-
-            LowererUtils::create_dimension_loop(loop_var, &shape[dim], inner_body, None)
-        }
-    }
 }

@@ -2,7 +2,7 @@ use crate::ast::helper::function;
 use crate::ast::AstNode;
 use crate::backend::{Backend, Buffer, Compiler, Kernel, Renderer};
 use crate::graph::{Graph, GraphSignature};
-use crate::lowerer::lower;
+use crate::lowerer::LoweringOptimizer;
 use crate::opt::ast::{constant_folding::constant_folding_rewriter, simplify::simplify_rewriter};
 use crate::opt::graph::GraphOptimizer;
 use std::collections::HashMap;
@@ -364,7 +364,8 @@ where
         }
 
         // 2. Lower the graph to an AST program
-        let mut program = lower(&optimized_graph);
+        let optimizer = LoweringOptimizer::with_default_config();
+        let mut program = optimizer.optimize_and_lower(&optimized_graph);
 
         // 3. Optimize the AST program
         if self.enable_optimization {

@@ -1,245 +1,262 @@
-# Lowererリファクタリング設計
+# Lowererリファクタリング設計 v2（シンプル版）
 
-## 目標
+## 要約
 
-部分的なGraphノードのLoweringとASTコスト探索を可能にするLowererの再設計。
+**目的**: 部分的なGraphノードのLoweringとASTコスト探索を可能にする
 
-## 要件
+**アプローチ**:
+- GraphNodeから直接ASTに変換（中間表現なし）
+- 出力ノードから再帰的にlower（メモ化でキャッシュ）
+- 複数のLoopStrategy候補を試してASTコストを評価
+- 最小コストの戦略を選択
+- すべてのパラメータはLoweringConfigで一元管理
 
-### 1. 部分的なLowering
-- 特定のGraphノードやサブグラフのみをASTに変換できる
-- ノード単位、サブグラフ単位で独立してloweringできる
+**主要コンポーネント**:
+1. `LoweringConfig` - 設定パラメータ（ベクトル幅、タイルサイズ、ビーム幅など）
+2. `RecursiveLowerer` - 再帰的なlowering + メモ化
+3. `LoweringOptimizer` - 戦略探索とコスト評価
+4. `Lowerer` - メインAPI
 
-### 2. 複数戦略の探索
-- 同じGraphノードに対して複数のLowering戦略を試せる
-- 各戦略で生成されたASTのコストを評価
-- 最適なASTを選択
+## 設計原則
 
-### 3. 既存機能の維持
-- 現在のGraph最適化（fusion等）は維持
-- 既存のテストが通る互換性
+1. **既存の抽象化を活用**: GraphNodeに戦略を持たせる（`strategy: Option<LoopStrategy>`）
+2. **再帰的探索**: 出力ノードから再帰的にlower、メモ化でキャッシュ
+3. **新しい中間表現は追加しない**: GraphNode → AstNode の直接変換
+4. **コスト評価のオーバーヘッドは気にしない**: 既存のcost_estimatorで十分
+5. **設定の柔軟性**: すべてのパラメータを外部から調整可能
+6. **後方互換性は不要**: クリーンな再設計を優先
 
-## 現状分析
-
-### 現在のLowererのフロー
-
-```
-Graph::outputs (Vec<GraphNode>)
-    ↓
-Lowerer::lower(graph: &Graph)
-    ↓
-topological_sort_by_generation() → Vec<Vec<GraphNode>>
-    ↓
-for each generation:
-    for each node:
-        lower_node(node) → Option<AstNode>
-    insert Barrier
-    ↓
-create_kernel_function() → AstNode (Function)
-    ↓
-create_entry_function() → AstNode (Function)
-    ↓
-AstNode::Program
-```
-
-**課題**：
-- グラフ全体が処理単位
-- ノード単位のloweringはできるが、コンテキストが必要
-- 変数名のマッピング（node_to_var）がLowererの状態として保持される
-
-### GraphNodeの構造
-
-```rust
-pub struct GraphNode(Rc<GraphNodeData>);
-
-pub struct GraphNodeData {
-    pub op: GraphOp,           // 演算の種類
-    pub dtype: DType,          // データ型
-    pub view: View,            // メモリレイアウト
-    pub strategy: Option<LoopStrategy>,  // 最適化戦略
-}
-
-pub struct LoopStrategy {
-    pub vectorize: Option<(usize, usize)>,
-    pub unroll: Option<(usize, usize)>,
-    pub parallelize: Vec<usize>,
-    pub tile: Vec<(usize, usize)>,
-    pub use_shared_memory: bool,
-}
-```
-
-## 設計案
-
-### 案A: Partial Lowerer（推奨）
-
-部分的なloweringを可能にする新しいLowerer設計。
-
-#### 概念
+## 設計の全体像
 
 ```
-Graph
+Graph with outputs
     ↓
-SubGraph (部分グラフの抽象化)
-    ↓ PartialLowerer
-PartialAST (部分的なAST + メタデータ)
+for each output node:
+    ↓ 候補戦略生成
+    [node_with_strategy1, node_with_strategy2, ...]
+    ↓ 再帰的Lower（メモ化）
+    [ast1, ast2, ...]
     ↓ ASTコスト評価
-コスト値
-    ↓ 探索・選択
-最適なPartialAST
-    ↓ 結合
-完全なAST
+    [cost1, cost2, ...]
+    ↓ 最小コスト選択
+    best_ast
+    ↓
+完全なASTプログラム
 ```
 
-#### データ構造
+## 主要コンポーネント
+
+### 0. LoweringConfig - 設定パラメータ
 
 ```rust
-/// 部分的なAST表現
-/// 単一のGraphノードまたはサブグラフに対応
-pub struct PartialAST {
-    /// 生成されたASTステートメント
-    pub statements: Vec<AstNode>,
+/// Lowering処理の設定パラメータ
+/// 戦略候補生成に使用される値を一箇所で管理
+#[derive(Debug, Clone)]
+pub struct LoweringConfig {
+    /// ベクトル化幅の候補
+    /// 例: vec![4, 8, 16] → SIMD幅として試す候補
+    pub vectorize_widths: Vec<usize>,
 
-    /// 必要な変数宣言
-    pub declarations: Vec<VariableDecl>,
+    /// タイリングサイズの候補
+    /// 例: vec![16, 32, 64] → ループタイリングのサイズ候補
+    pub tile_sizes: Vec<usize>,
 
-    /// 入力変数名（このPartialASTが依存する変数）
-    pub input_vars: Vec<String>,
+    /// アンロール係数の候補
+    /// 例: vec![2, 4, 8] → ループアンロールの展開数
+    pub unroll_factors: Vec<usize>,
 
-    /// 出力変数名（このPartialASTが生成する変数）
-    pub output_var: String,
+    /// ビームサーチの幅
+    /// 同時に保持する候補数の上限
+    pub beam_width: usize,
 
-    /// 対応するGraphノード
-    pub source_node: GraphNode,
+    /// 最適化を有効にするか
+    /// false の場合、戦略探索をスキップして従来の動作
+    pub enable_optimization: bool,
 
-    /// 使用されたLowering戦略
-    pub strategy: Option<LoopStrategy>,
+    /// 並列化を有効にするか
+    pub enable_parallelization: bool,
 
-    /// 推定コスト
-    pub estimated_cost: Option<usize>,
+    /// ベクトル化を有効にするか
+    pub enable_vectorization: bool,
+
+    /// タイリングを有効にするか
+    pub enable_tiling: bool,
 }
 
-/// サブグラフの表現
-/// 複数のGraphノードのまとまり
-pub struct SubGraph {
-    /// サブグラフに含まれるノード（トポロジカル順）
-    pub nodes: Vec<GraphNode>,
+impl Default for LoweringConfig {
+    fn default() -> Self {
+        Self {
+            // デフォルトのベクトル幅候補（SSE, AVX, AVX-512相当）
+            vectorize_widths: vec![4, 8, 16],
 
-    /// サブグラフへの入力（外部からの依存）
-    pub inputs: Vec<GraphNode>,
+            // デフォルトのタイルサイズ候補（キャッシュフレンドリーなサイズ）
+            tile_sizes: vec![16, 32, 64],
 
-    /// サブグラフからの出力
-    pub outputs: Vec<GraphNode>,
+            // デフォルトのアンロール係数
+            unroll_factors: vec![2, 4, 8],
+
+            // デフォルトのビームサーチ幅
+            beam_width: 3,
+
+            // デフォルトで最適化を有効化
+            enable_optimization: true,
+            enable_parallelization: true,
+            enable_vectorization: true,
+            enable_tiling: false, // タイリングはデフォルトOFF（実装が複雑なため）
+        }
+    }
 }
 
-impl SubGraph {
-    /// 単一ノードからサブグラフを作成
-    pub fn from_node(node: &GraphNode) -> Self {
-        let inputs = node.input_nodes();
-        SubGraph {
-            nodes: vec![node.clone()],
-            inputs,
-            outputs: vec![node.clone()],
+impl LoweringConfig {
+    /// カスタム設定でビルダーパターン
+    pub fn builder() -> LoweringConfigBuilder {
+        LoweringConfigBuilder::new()
+    }
+}
+
+/// ビルダーパターンで設定を構築
+pub struct LoweringConfigBuilder {
+    config: LoweringConfig,
+}
+
+impl LoweringConfigBuilder {
+    pub fn new() -> Self {
+        Self {
+            config: LoweringConfig::default(),
         }
     }
 
-    /// 複数ノードをマージしてサブグラフを作成
-    pub fn merge(subgraphs: Vec<SubGraph>) -> Self {
-        // トポロジカルソートしてノードを統合
-        // 入力・出力を再計算
-        todo!()
+    pub fn vectorize_widths(mut self, widths: Vec<usize>) -> Self {
+        self.config.vectorize_widths = widths;
+        self
+    }
+
+    pub fn tile_sizes(mut self, sizes: Vec<usize>) -> Self {
+        self.config.tile_sizes = sizes;
+        self
+    }
+
+    pub fn unroll_factors(mut self, factors: Vec<usize>) -> Self {
+        self.config.unroll_factors = factors;
+        self
+    }
+
+    pub fn beam_width(mut self, width: usize) -> Self {
+        self.config.beam_width = width;
+        self
+    }
+
+    pub fn enable_parallelization(mut self, enable: bool) -> Self {
+        self.config.enable_parallelization = enable;
+        self
+    }
+
+    pub fn enable_vectorization(mut self, enable: bool) -> Self {
+        self.config.enable_vectorization = enable;
+        self
+    }
+
+    pub fn enable_tiling(mut self, enable: bool) -> Self {
+        self.config.enable_tiling = enable;
+        self
+    }
+
+    pub fn build(self) -> LoweringConfig {
+        self.config
     }
 }
 ```
 
-#### PartialLowerer
+### 1. RecursiveLowerer - 再帰的なLowering
 
 ```rust
-/// 部分的なLoweringを実行
-pub struct PartialLowerer {
-    /// 変数名のマッピング（既知のノード）
+/// 再帰的にGraphノードをASTに変換するLowerer
+pub struct RecursiveLowerer {
+    /// ノード → AST のキャッシュ
+    cache: HashMap<GraphNode, AstNode>,
+
+    /// ノード → 変数名 のマッピング
     node_to_var: HashMap<GraphNode, String>,
 
     /// 次の一時変数ID
     next_temp_id: usize,
+
+    /// 変数宣言の収集
+    declarations: Vec<VariableDecl>,
 }
 
-impl PartialLowerer {
+impl RecursiveLowerer {
     pub fn new() -> Self {
         Self {
+            cache: HashMap::new(),
             node_to_var: HashMap::new(),
             next_temp_id: 0,
+            declarations: Vec::new(),
         }
     }
 
-    /// 既知のノードに変数名を設定
-    pub fn set_var_name(&mut self, node: &GraphNode, var_name: String) {
-        self.node_to_var.insert(node.clone(), var_name);
-    }
-
-    /// サブグラフを部分的にlower
-    pub fn lower_subgraph(&mut self, subgraph: &SubGraph) -> PartialAST {
-        let mut statements = Vec::new();
-        let mut declarations = Vec::new();
-        let mut input_vars = Vec::new();
-
-        // 入力ノードの変数名を収集
-        for input in &subgraph.inputs {
-            let var_name = self.get_or_create_var_name(input);
-            input_vars.push(var_name);
+    /// ノードを再帰的にlower
+    /// 入力ノードが未処理なら再帰的に処理
+    pub fn lower_node(&mut self, node: &GraphNode) -> AstNode {
+        // キャッシュチェック
+        if let Some(cached_ast) = self.cache.get(node) {
+            return cached_ast.clone();
         }
 
-        // サブグラフ内の各ノードをlower
-        for node in &subgraph.nodes {
-            if let Some(stmt) = self.lower_node_internal(node, &mut declarations) {
-                statements.push(stmt);
+        // 入力ノードを先に処理（再帰）
+        for input_node in node.input_nodes() {
+            self.lower_node(&input_node);
+        }
+
+        // このノード自体をlower
+        let ast = self.lower_node_impl(node);
+
+        // キャッシュに保存
+        if let Some(ast) = &ast {
+            self.cache.insert(node.clone(), ast.clone());
+        }
+
+        ast.unwrap_or(AstNode::Nop)
+    }
+
+    /// ノードの実際のlowering処理
+    fn lower_node_impl(&mut self, node: &GraphNode) -> Option<AstNode> {
+        match &node.op {
+            GraphOp::Input(_) => {
+                // 入力ノードは変数名をマッピングするだけ
+                self.get_or_create_var_name(node);
+                None
+            }
+            GraphOp::Const(lit) => {
+                let var_name = self.get_or_create_var_name(node);
+                self.declarations.push(VariableDecl {
+                    name: var_name.clone(),
+                    dtype: node.dtype.clone(),
+                    constant: false,
+                    size_expr: None,
+                });
+                Some(AstNode::Assign(
+                    var_name,
+                    Box::new(AstNode::Const(lit.clone())),
+                ))
+            }
+            GraphOp::Elementwise(op) => {
+                // 既存のElementwiseLowererを使用
+                // strategy情報を渡す
+                ElementwiseLowerer::lower(
+                    node,
+                    op,
+                    |n| self.get_or_create_var_name(n),
+                    &mut self.declarations,
+                    &node.strategy.clone().unwrap_or_default(),
+                )
+            }
+            // ... 他の演算も同様
+            _ => {
+                // 既存のlower_nodeロジックを流用
+                todo!()
             }
         }
-
-        // 出力変数名を取得（単一出力を想定）
-        let output_var = self.get_or_create_var_name(&subgraph.outputs[0]);
-
-        PartialAST {
-            statements,
-            declarations,
-            input_vars,
-            output_var,
-            source_node: subgraph.outputs[0].clone(),
-            strategy: subgraph.outputs[0].strategy.clone(),
-            estimated_cost: None,
-        }
-    }
-
-    /// 複数の戦略でloweringを試す
-    pub fn lower_with_strategies(
-        &mut self,
-        node: &GraphNode,
-        strategies: Vec<LoopStrategy>,
-    ) -> Vec<PartialAST> {
-        let mut results = Vec::new();
-
-        for strategy in strategies {
-            // 戦略を適用した新しいノードを作成
-            let node_with_strategy = node.clone().with_strategy(strategy);
-
-            // サブグラフを作成
-            let subgraph = SubGraph::from_node(&node_with_strategy);
-
-            // Lowering実行
-            let partial_ast = self.lower_subgraph(&subgraph);
-
-            results.push(partial_ast);
-        }
-
-        results
-    }
-
-    fn lower_node_internal(
-        &mut self,
-        node: &GraphNode,
-        declarations: &mut Vec<VariableDecl>,
-    ) -> Option<AstNode> {
-        // 既存のlower_nodeロジックを流用
-        todo!()
     }
 
     fn get_or_create_var_name(&mut self, node: &GraphNode) -> String {
@@ -255,311 +272,417 @@ impl PartialLowerer {
 }
 ```
 
-#### ASTコスト評価
+### 2. LoweringOptimizer - 戦略探索
 
 ```rust
-/// PartialASTのコストを推定
-pub fn estimate_partial_ast_cost(partial_ast: &PartialAST) -> usize {
-    use crate::opt::ast::cost_estimator;
-
-    // 既存のAST cost_estimatorを使用
-    let mut total_cost = 0;
-
-    for stmt in &partial_ast.statements {
-        total_cost += cost_estimator::estimate_cost(stmt);
-    }
-
-    total_cost
-}
-```
-
-#### 最適化探索エンジン
-
-```rust
-/// Lowering戦略の探索と最適化
+/// Lowering戦略を探索して最適なASTを選択
 pub struct LoweringOptimizer {
-    partial_lowerer: PartialLowerer,
+    /// 設定パラメータ
+    config: LoweringConfig,
 }
 
 impl LoweringOptimizer {
-    pub fn new() -> Self {
-        Self {
-            partial_lowerer: PartialLowerer::new(),
-        }
+    pub fn new(config: LoweringConfig) -> Self {
+        Self { config }
     }
 
-    /// ノードに対する最適なLowering戦略を探索
-    pub fn optimize_node_lowering(&mut self, node: &GraphNode) -> PartialAST {
-        // 候補となる戦略を生成
-        let strategies = self.generate_candidate_strategies(node);
+    pub fn with_default_config() -> Self {
+        Self::new(LoweringConfig::default())
+    }
 
-        // 各戦略でlowering
-        let mut candidates = self.partial_lowerer.lower_with_strategies(node, strategies);
+    /// GraphノードをLoweringし、最適な戦略を探索
+    pub fn optimize_and_lower(&self, graph: &Graph) -> AstNode {
+        // 出力ノードごとに最適化
+        let mut best_programs = Vec::new();
 
-        // コストを評価
-        for candidate in &mut candidates {
-            candidate.estimated_cost = Some(estimate_partial_ast_cost(candidate));
+        for output_node in &graph.outputs {
+            let best_ast = self.optimize_node(output_node);
+            best_programs.push(best_ast);
         }
 
-        // 最小コストの戦略を選択
-        candidates.sort_by_key(|c| c.estimated_cost.unwrap_or(usize::MAX));
+        // 全体のプログラムを構築
+        self.build_program(graph, best_programs)
+    }
 
+    /// 単一ノードの最適化
+    fn optimize_node(&self, node: &GraphNode) -> (GraphNode, AstNode, usize) {
+        // 1. 候補戦略を生成
+        let strategies = self.generate_strategies(node);
+
+        // 2. 各戦略でノードのバリエーションを作成
+        let node_variants: Vec<GraphNode> = strategies
+            .into_iter()
+            .map(|strategy| node.clone().with_strategy(strategy))
+            .collect();
+
+        // 3. 各バリエーションをlower
+        let mut candidates = Vec::new();
+        for variant in node_variants {
+            let mut lowerer = RecursiveLowerer::new();
+
+            // 出力ノードから再帰的にlower
+            let ast = lowerer.lower_node(&variant);
+
+            // コストを評価
+            let cost = self.estimate_cost(&ast);
+
+            candidates.push((variant, ast, cost));
+        }
+
+        // 4. 最小コストを選択
+        candidates.sort_by_key(|(_, _, cost)| *cost);
         candidates.into_iter().next().unwrap()
     }
 
-    /// 候補戦略を生成
-    fn generate_candidate_strategies(&self, node: &GraphNode) -> Vec<LoopStrategy> {
+    /// ノードに適用可能な戦略候補を生成
+    /// configの設定に基づいて候補を生成
+    fn generate_strategies(&self, node: &GraphNode) -> Vec<LoopStrategy> {
         let mut strategies = Vec::new();
 
-        // 基本戦略（戦略なし）
+        // 戦略なし（ベースライン）
         strategies.push(LoopStrategy::default());
 
-        // ベクトル化の候補
-        if self.can_vectorize(node) {
-            for width in [4, 8, 16] {
-                let innermost_axis = node.view.shape.len() - 1;
-                strategies.push(LoopStrategy {
-                    vectorize: Some((innermost_axis, width)),
-                    ..Default::default()
-                });
+        // 最適化が無効なら基本戦略のみ返す
+        if !self.config.enable_optimization {
+            return strategies;
+        }
+
+        match &node.op {
+            GraphOp::Elementwise(_) | GraphOp::FusedElementwise(_, _) => {
+                let innermost_axis = node.view.shape.len().saturating_sub(1);
+
+                // ベクトル化の候補（configから取得）
+                if self.config.enable_vectorization {
+                    for &width in &self.config.vectorize_widths {
+                        if self.can_vectorize(node, innermost_axis, width) {
+                            strategies.push(LoopStrategy {
+                                vectorize: Some((innermost_axis, width)),
+                                ..Default::default()
+                            });
+                        }
+                    }
+                }
+
+                // 並列化の候補
+                if self.config.enable_parallelization && node.view.shape.len() > 1 {
+                    strategies.push(LoopStrategy {
+                        parallelize: vec![0], // 最外ループ
+                        ..Default::default()
+                    });
+
+                    // ベクトル化 + 並列化
+                    if self.config.enable_vectorization {
+                        for &width in &self.config.vectorize_widths {
+                            if self.can_vectorize(node, innermost_axis, width) {
+                                strategies.push(LoopStrategy {
+                                    vectorize: Some((innermost_axis, width)),
+                                    parallelize: vec![0],
+                                    ..Default::default()
+                                });
+                            }
+                        }
+                    }
+                }
+
+                // タイリングの候補（configから取得）
+                if self.config.enable_tiling && node.view.shape.len() >= 2 {
+                    for &tile_size in &self.config.tile_sizes {
+                        strategies.push(LoopStrategy {
+                            tile: vec![(0, tile_size), (1, tile_size)],
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
+
+            GraphOp::Reduce(_, _, _) | GraphOp::FusedReduce(_, _, _) => {
+                // 縮約演算の候補
+                // 並列化（最外ループのみ）
+                if self.config.enable_parallelization && node.view.shape.len() > 1 {
+                    strategies.push(LoopStrategy {
+                        parallelize: vec![0],
+                        ..Default::default()
+                    });
+                }
+            }
+
+            _ => {
+                // その他の演算は戦略なし
             }
         }
 
-        // 並列化の候補
-        if self.can_parallelize(node) {
-            strategies.push(LoopStrategy {
-                parallelize: vec![0], // 最外ループ
-                ..Default::default()
-            });
-
-            // ベクトル化 + 並列化
-            for width in [4, 8, 16] {
-                let innermost_axis = node.view.shape.len() - 1;
-                strategies.push(LoopStrategy {
-                    vectorize: Some((innermost_axis, width)),
-                    parallelize: vec![0],
-                    ..Default::default()
-                });
-            }
+        // ビーム幅で候補数を制限
+        if strategies.len() > self.config.beam_width {
+            strategies.truncate(self.config.beam_width);
         }
-
-        // タイリングの候補
-        // ...
 
         strategies
     }
 
-    fn can_vectorize(&self, node: &GraphNode) -> bool {
-        // ベクトル化可能かチェック
-        matches!(
-            node.op,
-            GraphOp::Elementwise(_) | GraphOp::FusedElementwise(_, _)
-        )
-    }
+    fn can_vectorize(&self, node: &GraphNode, axis: usize, width: usize) -> bool {
+        use crate::graph::shape::Expr;
 
-    fn can_parallelize(&self, node: &GraphNode) -> bool {
-        // 並列化可能かチェック
-        true // 多くの演算が並列化可能
-    }
-}
-```
+        if axis >= node.view.shape.len() {
+            return false;
+        }
 
-#### グラフ全体のLowering（後方互換）
-
-```rust
-/// 従来のLowererインターフェースを維持
-pub struct Lowerer {
-    optimizer: LoweringOptimizer,
-}
-
-impl Lowerer {
-    pub fn new() -> Self {
-        Self {
-            optimizer: LoweringOptimizer::new(),
+        // shape[axis]がwidthで割り切れるかチェック
+        match &node.view.shape[axis] {
+            Expr::Const(n) => n % width == 0,
+            _ => true, // 動的サイズの場合は試してみる
         }
     }
 
-    /// グラフ全体をlower（既存のAPIと互換）
-    pub fn lower(&mut self, graph: &Graph) -> AstNode {
-        // トポロジカルソート
-        let sorted_nodes = topological_sort(&graph.outputs);
-
-        // 各ノードを最適化しながらlower
-        let mut partial_asts = Vec::new();
-
-        for node in sorted_nodes {
-            // 各ノードで最適なLowering戦略を探索
-            let partial_ast = self.optimizer.optimize_node_lowering(&node);
-            partial_asts.push(partial_ast);
-        }
-
-        // PartialASTを統合して完全なプログラムを生成
-        self.combine_partial_asts(graph, partial_asts)
+    fn estimate_cost(&self, ast: &AstNode) -> usize {
+        use crate::opt::ast::cost_estimator;
+        cost_estimator::estimate_cost(ast)
     }
 
-    fn combine_partial_asts(&self, graph: &Graph, partials: Vec<PartialAST>) -> AstNode {
-        // すべてのPartialASTを統合
-        let mut all_statements = Vec::new();
-        let mut all_declarations = Vec::new();
-
-        for partial in partials {
-            all_declarations.extend(partial.declarations);
-            all_statements.extend(partial.statements);
-        }
-
-        // kernel_functionとentry_functionを生成
-        // （既存のロジックを流用）
+    fn build_program(&self, graph: &Graph, _best_programs: Vec<(GraphNode, AstNode, usize)>) -> AstNode {
+        // 既存のcreate_kernel_function, create_entry_functionのロジックを使用
+        // ただし、最適化されたノードとASTを使う
         todo!()
     }
 }
 ```
 
-### 案B: AST候補生成レイヤー
+### 3. Lowerer - メインAPI
 
-Graph最適化の後、Loweringの前に「AST候補生成」レイヤーを追加。
+後方互換性は不要なので、シンプルに再設計。
 
+```rust
+/// GraphをASTに変換するLowerer
+/// 設定に基づいて最適な戦略を探索
+pub struct Lowerer {
+    config: LoweringConfig,
+}
+
+impl Lowerer {
+    /// デフォルト設定で作成
+    pub fn new() -> Self {
+        Self {
+            config: LoweringConfig::default(),
+        }
+    }
+
+    /// カスタム設定で作成
+    pub fn with_config(config: LoweringConfig) -> Self {
+        Self { config }
+    }
+
+    /// GraphをASTプログラムに変換
+    pub fn lower(&self, graph: &Graph) -> AstNode {
+        if self.config.enable_optimization {
+            // 最適化あり：戦略を探索
+            let optimizer = LoweringOptimizer::new(self.config.clone());
+            optimizer.optimize_and_lower(graph)
+        } else {
+            // 最適化なし：単純にlower
+            self.lower_without_optimization(graph)
+        }
+    }
+
+    /// 最適化なしでlower（高速だがコストは最適でない可能性）
+    fn lower_without_optimization(&self, graph: &Graph) -> AstNode {
+        let mut lowerer = RecursiveLowerer::new();
+
+        // 出力ノードから再帰的にlower
+        for output in &graph.outputs {
+            lowerer.lower_node(output);
+        }
+
+        // プログラムを構築
+        self.build_program(graph, &mut lowerer)
+    }
+
+    fn build_program(&self, graph: &Graph, lowerer: &mut RecursiveLowerer) -> AstNode {
+        // kernel_implとkernel_mainを生成
+        // 詳細は実装時に
+        todo!()
+    }
+}
+
+impl Default for Lowerer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 ```
-Graph
-    ↓ Graph Optimization
-Optimized Graph
-    ↓ AST Candidate Generation
-Vec<(Graph with LoopStrategy, estimated AST cost)>
-    ↓ Select best
-Best Graph
-    ↓ Lower
-AST
-```
-
-**利点**：
-- Graphレベルでの探索なので、既存のGraph最適化と統合しやすい
-- LoopStrategyの組み合わせを評価
-
-**欠点**：
-- ASTを実際に生成せずにコスト推定が必要（精度が低い）
-- 部分的なloweringができない
-
-### 案C: 遅延Lowering
-
-GraphノードをASTに変換せず、最後まで遅延させる。
-
-```
-Graph
-    ↓
-LazyAST (GraphノードへのポインタとLowering戦略)
-    ↓ 必要に応じて実体化
-AST
-```
-
-**利点**：
-- メモリ効率が良い
-- 必要な部分だけlower
-
-**欠点**：
-- 複雑な実装
-- コスト評価のためには結局lowering必要
-
-## 推奨: 案A（Partial Lowerer）
-
-理由：
-1. **部分的なloweringが明示的にサポート**される
-2. **ASTコスト評価が正確**（実際にASTを生成）
-3. **既存のLowererロジックを再利用**しやすい
-4. **段階的な実装が可能**
 
 ## 実装計画
 
-### Phase 1: 基礎データ構造
-- [ ] `PartialAST`構造体の定義
-- [ ] `SubGraph`構造体の定義
-- [ ] `PartialLowerer`の基本実装
+### Phase 1: RecursiveLowererの実装
+- [ ] `RecursiveLowerer`構造体の定義
+- [ ] `lower_node()`再帰的lowering
+- [ ] キャッシュ機構
+- [ ] 既存のlower_nodeロジックの統合
+- [ ] テスト: 単純なグラフでloweringが動作すること
 
-### Phase 2: 部分的Lowering
-- [ ] `lower_subgraph()`の実装
-- [ ] 既存の`lower_node`ロジックの統合
-- [ ] 単一ノードのloweringテスト
+### Phase 2: 戦略候補生成
+- [ ] `generate_strategies()`の実装
+- [ ] ベクトル化候補の生成
+- [ ] 並列化候補の生成
+- [ ] タイリング候補の生成
+- [ ] テスト: 各演算タイプで適切な候補が生成されること
 
-### Phase 3: 戦略探索
-- [ ] `LoweringOptimizer`の実装
-- [ ] 候補戦略の生成ロジック
-- [ ] ASTコスト推定の統合
+### Phase 3: 最適化探索
+- [ ] `LoweringOptimizer::optimize_node()`の実装
+- [ ] ASTコスト評価の統合
+- [ ] 最小コスト選択
+- [ ] テスト: 複数候補から最適なものが選ばれること
 
-### Phase 4: 統合と最適化
+### Phase 4: 統合とテスト
 - [ ] `Lowerer::lower()`の新実装
-- [ ] PartialASTの結合ロジック
 - [ ] 既存テストの適合
+- [ ] 性能測定
+- [ ] ドキュメント更新
 
 ### Phase 5: 並列化対応
-- [ ] `AstNode::Range`に`parallel`フラグ追加
+- [ ] `AstNode::Range`に`parallel: bool`追加
 - [ ] 並列化戦略の候補生成
-- [ ] OpenMPコード生成
+- [ ] Rendererで`#pragma omp parallel for`生成
+- [ ] テスト
 
-## 後方互換性
+## 使用例
 
-既存のAPIは維持：
+### 基本的な使用
 
 ```rust
-// 既存のAPI（変わらず使える）
-pub fn lower(graph: &Graph) -> AstNode {
-    let mut lowerer = Lowerer::new();
-    lowerer.lower(graph)
-}
-
-// 新しいAPI（オプション）
-pub fn lower_with_optimization(graph: &Graph) -> AstNode {
-    let mut optimizer = LoweringOptimizer::new();
-    // ... 探索ロジック
-}
+// デフォルト設定（最適化あり）
+let lowerer = Lowerer::new();
+let ast = lowerer.lower(&graph);
 ```
 
-## 期待される効果
+### カスタム設定
 
-1. **より細かい最適化粒度**
-   - ノード単位で最適なLowering戦略を選択
+```rust
+// 設定をカスタマイズ
+let config = LoweringConfig::builder()
+    .vectorize_widths(vec![8, 16])  // AVX, AVX-512のみ
+    .beam_width(5)                   // ビーム幅を5に
+    .enable_tiling(true)             // タイリングを有効化
+    .tile_sizes(vec![32, 64])        // タイルサイズを指定
+    .build();
 
-2. **コスト駆動の最適化**
-   - ASTコストを実際に評価して選択
+let lowerer = Lowerer::with_config(config);
+let ast = lowerer.lower(&graph);
+```
 
-3. **拡張性の向上**
-   - 新しいLowering戦略を簡単に追加
-   - ユーザー定義の戦略もサポート可能
+### 最適化を無効化（高速だがコストは最適でない）
 
-4. **デバッグの改善**
-   - 各ノードのLowering結果を個別に確認可能
-   - PartialASTをビジュアライズ可能
+```rust
+let config = LoweringConfig::builder()
+    .enable_optimization(false)
+    .build();
 
-## 懸念事項と対策
+let lowerer = Lowerer::with_config(config);
+let ast = lowerer.lower(&graph);
+```
 
-### 懸念1: 性能オーバーヘッド
-- 複数の戦略を試すため、lowering時間が増加
+### 特定の最適化のみ有効化
 
-**対策**:
-- 候補戦略の数を制限（top-k方式）
-- 並列でloweringを実行
-- キャッシュ機構（同じノード+戦略は再利用）
+```rust
+// ベクトル化のみ有効（並列化とタイリングは無効）
+let config = LoweringConfig::builder()
+    .enable_vectorization(true)
+    .enable_parallelization(false)
+    .enable_tiling(false)
+    .vectorize_widths(vec![4, 8])  // SSE, AVXのみ
+    .build();
 
-### 懸念2: メモリ使用量
-- 複数のPartialASTを保持するため、メモリ増加
+let lowerer = Lowerer::with_config(config);
+let ast = lowerer.lower(&graph);
+```
 
-**対策**:
-- ビームサーチで同時に保持する候補数を制限
-- 不要なPartialASTは即座に破棄
+### ターゲットアーキテクチャに応じた設定
 
-### 懸念3: 実装の複雑さ
-- 新しい抽象化レイヤーの追加
+```rust
+// SSE環境向け（128bit SIMD）
+let sse_config = LoweringConfig::builder()
+    .vectorize_widths(vec![4])  // float32 x 4
+    .enable_parallelization(true)
+    .build();
 
-**対策**:
-- 段階的な実装（Phase分け）
-- 既存ロジックの最大限の再利用
-- 十分なテストカバレッジ
+// AVX-512環境向け（512bit SIMD）
+let avx512_config = LoweringConfig::builder()
+    .vectorize_widths(vec![16])  // float32 x 16
+    .enable_parallelization(true)
+    .build();
+
+// 組み込み環境向け（最適化なし）
+let embedded_config = LoweringConfig::builder()
+    .enable_optimization(false)
+    .build();
+```
+
+## 利点
+
+1. **シンプル**: 新しい中間表現を追加しない（GraphNode → AstNode）
+2. **再帰的**: 出力から自然に探索、部分的lowering可能
+3. **メモ化**: 重複計算を避ける、効率的
+4. **既存の活用**: GraphNode::strategy, cost_estimatorを活用
+5. **設定可能**: すべてのパラメータをLoweringConfigで一元管理
+6. **柔軟性**: ターゲット環境に応じた最適化を選択可能
+7. **コスト駆動**: 実際のASTコストを評価して最適戦略を選択
+
+## 懸念事項への対応
+
+### Q: 複数戦略を試すオーバーヘッドは？
+A: コスト評価は高速（ビームサーチで既に使用）なので問題なし
+
+### Q: メモ化のメモリ使用量は？
+A: 各ノードは1回だけlowerされるので、グラフサイズに比例（許容範囲）
+
+### Q: 戦略候補の数は？
+A: ビーム幅で制限（デフォルト3）、必要に応じて調整可能
 
 ## 次のステップ
 
-1. この設計案をレビュー
-2. Phase 1の実装開始
-3. プロトタイプで検証
+### 1. 設計の最終確認 ✅
+- [x] 設計原則の確認
+- [x] パラメータの柔軟性を確保
+- [x] 後方互換性は不要と確認
 
-## 参考資料
+### 2. Phase 1実装: 基礎構造
+- [ ] `LoweringConfig`構造体の実装
+- [ ] `LoweringConfigBuilder`の実装
+- [ ] `RecursiveLowerer`の基本構造
+- [ ] テスト: 設定のビルドが正しく動作すること
 
-- 既存のLowerer実装: `src/lowerer/`
-- AST cost estimator: `src/opt/ast/cost_estimator.rs`
-- Graph最適化: `src/opt/graph/optimizer.rs`
+### 3. Phase 2実装: 再帰的Lowering
+- [ ] `RecursiveLowerer::lower_node()`の実装
+- [ ] メモ化機構の実装
+- [ ] 既存のlower_nodeロジックの統合
+- [ ] テスト: 単純なグラフで正しくlowerできること
+
+### 4. Phase 3実装: 戦略探索
+- [ ] `LoweringOptimizer`の実装
+- [ ] `generate_strategies()`の実装
+- [ ] ASTコスト評価の統合
+- [ ] テスト: 複数戦略から最小コストが選ばれること
+
+### 5. Phase 4実装: 統合
+- [ ] `Lowerer`メインAPIの実装
+- [ ] プログラム構築ロジック
+- [ ] 既存テストの更新
+- [ ] 統合テスト
+
+### 6. Phase 5実装: 並列化対応
+- [ ] `AstNode::Range`に`parallel: bool`追加
+- [ ] 並列化戦略の候補生成
+- [ ] Rendererでの対応
+- [ ] テスト
+
+## 実装優先順位
+
+**最初に**: Phase 1-2（基礎とRecursiveLowerer）
+- これで既存の機能と同等の動作を再現
+- 最適化なしでも動作する基盤
+
+**次に**: Phase 3（戦略探索）
+- コスト駆動の最適化を実現
+- ベクトル化、並列化候補の探索
+
+**最後に**: Phase 4-5（統合と並列化）
+- 完全な機能セット
+- 並列化の実装

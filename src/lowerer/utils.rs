@@ -7,20 +7,6 @@ use crate::graph::shape::{view::View, Expr};
 pub(super) struct LowererUtils;
 
 impl LowererUtils {
-    /// DTypeからCの型名を取得
-    pub fn get_c_type(dtype: &crate::ast::DType) -> &'static str {
-        use crate::ast::DType;
-        match dtype {
-            DType::F32 => "float",
-            DType::Usize => "size_t",
-            DType::Isize => "ssize_t",
-            DType::Bool => "int",
-            DType::Void => "void",
-            DType::Ptr(_) => "void*",
-            DType::Vec(_, _) => "void*", // ベクトル型も一旦void*として扱う
-        }
-    }
-
     /// Viewから総要素数を計算（静的サイズのみ）
     pub fn compute_total_size(view: &View) -> Option<usize> {
         let View::Linear { shape, .. } = view;

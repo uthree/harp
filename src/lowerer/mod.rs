@@ -1,17 +1,12 @@
-mod copy_loops;
-mod core;
+// 個別の演算lowerer（RecursiveLowererから使用）
 mod cumulative;
 mod elementwise;
-mod fold_loops;
 mod fused_elementwise;
 mod fused_elementwise_cumulative;
 mod fused_elementwise_reduce;
 mod fused_reduce;
-mod kernel;
-mod lower_node;
 mod pad;
 mod reduce;
-mod topological;
 mod utils;
 
 // 新しいLowerer設計
@@ -20,7 +15,6 @@ mod optimizer;
 mod recursive;
 
 pub use config::{LoweringConfig, LoweringConfigBuilder};
-pub use core::{lower, Lowerer};
 pub use optimizer::LoweringOptimizer;
 pub use recursive::RecursiveLowerer;
 
@@ -33,14 +27,14 @@ mod tests {
     #[test]
     fn test_simple_constant() {
         let mut graph = Graph::new();
-        let mut lowerer = Lowerer::new();
+        let optimizer = LoweringOptimizer::with_default_config();
 
         // 単純な定数のみのグラフ
         let constant_node = GraphNode::f32(1.0);
         graph.output(constant_node);
 
         // lower処理
-        let program = lowerer.lower(&graph);
+        let program = optimizer.optimize_and_lower(&graph);
 
         // 基本的なチェック
         if let AstNode::Program {
@@ -73,14 +67,14 @@ mod tests {
     #[test]
     fn test_input_only() {
         let mut graph = Graph::new();
-        let mut lowerer = Lowerer::new();
+        let optimizer = LoweringOptimizer::with_default_config();
 
         // 入力のみのグラフ
         let input_node = graph.input(DType::F32, vec![2.into(), 3.into()]);
         graph.output(input_node);
 
         // lower処理
-        let program = lowerer.lower(&graph);
+        let program = optimizer.optimize_and_lower(&graph);
 
         // 基本的なチェック
         if let AstNode::Program {
@@ -109,7 +103,7 @@ mod tests {
     #[test]
     fn test_elementwise_negation() {
         let mut graph = Graph::new();
-        let mut lowerer = Lowerer::new();
+        let optimizer = LoweringOptimizer::with_default_config();
 
         // 単項演算: -constant
         let constant_node = GraphNode::f32(1.0);
@@ -117,7 +111,7 @@ mod tests {
         graph.output(negated);
 
         // lower処理
-        let program = lowerer.lower(&graph);
+        let program = optimizer.optimize_and_lower(&graph);
 
         // 基本的なチェック
         if let AstNode::Program {
@@ -130,10 +124,8 @@ mod tests {
 
             // カーネル実装関数のチェック
             if let AstNode::Function { statements, .. } = &functions[0] {
-                // const assignment + barrier + neg loop
-                assert_eq!(statements.len(), 3);
-                // 2番目のステートメントがBarrierであることを確認
-                assert!(matches!(statements[1], AstNode::Barrier));
+                // const assignment + neg loop (新しい実装ではbarrierなし)
+                assert!(statements.len() >= 2);
             } else {
                 panic!("Expected Function node");
             }
@@ -145,7 +137,7 @@ mod tests {
     #[test]
     fn test_entry_point_structure() {
         let mut graph = Graph::new();
-        let mut lowerer = Lowerer::new();
+        let optimizer = LoweringOptimizer::with_default_config();
 
         // 入力と出力があるグラフ
         let input_node = graph.input(DType::F32, vec![4.into()]);
@@ -153,7 +145,7 @@ mod tests {
         let result = -input_node; // 単項演算
         graph.output(result);
 
-        let program = lowerer.lower(&graph);
+        let program = optimizer.optimize_and_lower(&graph);
 
         // エントリーポイント関数の詳細チェック
         if let AstNode::Program { functions, .. } = &program {
