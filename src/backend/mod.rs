@@ -1,12 +1,38 @@
-use crate::ast::AstNode;
+use std::collections::HashMap;
+
+use crate::ast::{AstNode, DType};
 
 // レンダラー。
 // ASTを受け取って文字列としてレンダリングする
 pub trait Renderer {
     type CodeRepr;
+    type Option;
     fn render(&self, ast: AstNode) -> Self::CodeRepr;
+    fn is_available(&self) -> bool;
+    fn with_option(&mut self, _option: Self::Option) {} // default implementation is "do nothing".
 }
-pub trait Compiler {}
-pub trait Buffer {}
-pub trait Kernel {}
-pub struct Query {}
+pub trait Compiler {
+    type CodeRepr;
+    type Buffer: Buffer;
+    type Kernel: Kernel<Buffer = Self::Buffer>;
+    type Option;
+    fn new() -> Self;
+    fn is_available(&self) -> bool;
+    fn with_option(&mut self, _option: Self::Option) {} // default implementation is "do nothing".
+    fn compile(&mut self, code: &Self::CodeRepr) -> Self::Kernel;
+}
+pub trait Buffer {
+    // get buffer size
+    fn shape(&self) -> Vec<usize>;
+    // TODO: 初期化とndarrayへの相互変換
+}
+
+pub trait Kernel {
+    type Buffer: Buffer;
+    fn call(&self, query: Query<Self::Buffer>);
+}
+pub struct Query<'a, B: Buffer> {
+    inputs: HashMap<String, &'a B>, // inputsは読み取り専用なので借用
+    outputs: HashMap<String, B>,    // outputsは書き込み対象
+    shape_vars: HashMap<String, usize>,
+}
