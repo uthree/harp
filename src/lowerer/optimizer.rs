@@ -68,18 +68,26 @@ impl LoweringOptimizer {
             }
         }
 
-        // 出力ノードの変数名を事前マッピング（一時的な名前）
+        // 出力ノードの変数名を事前マッピング
+        // Viewノードの場合は一時変数を使用し、後でコピーが必要
+        // それ以外の場合は直接output_Nを使用してコピーを回避
         for (i, output_node) in graph.outputs.iter().enumerate() {
-            lowerer.set_var_name(output_node, format!("_output_result_{}", i));
+            let var_name = if self.needs_output_copy(output_node) {
+                format!("_output_result_{}", i)
+            } else {
+                format!("output_{}", i)
+            };
+            lowerer.set_var_name(output_node, var_name);
         }
 
         // 各出力ノードをlower
-        // TODO: 将来的には各ノードに対して戦略を最適化する
+        // Per-node optimizationは現在無効化（変数名マッピングの問題があるため）
+        // 将来的には、戦略の最適化とloweringを分離して実装する予定
         for output_node in &graph.outputs {
             lowerer.lower_node(output_node);
         }
 
-        // 出力ノードの実際の変数名から output_N へのコピーループを生成
+        // 必要な場合のみ、出力ノードの実際の変数名から output_N へのコピーループを生成
         self.add_output_copy_loops(graph, &mut lowerer);
 
         // プログラムを構築
@@ -98,9 +106,16 @@ impl LoweringOptimizer {
             }
         }
 
-        // 出力ノードの変数名を事前マッピング（一時的な名前）
+        // 出力ノードの変数名を事前マッピング
+        // Viewノードの場合は一時変数を使用し、後でコピーが必要
+        // それ以外の場合は直接output_Nを使用してコピーを回避
         for (i, output_node) in graph.outputs.iter().enumerate() {
-            lowerer.set_var_name(output_node, format!("_output_result_{}", i));
+            let var_name = if self.needs_output_copy(output_node) {
+                format!("_output_result_{}", i)
+            } else {
+                format!("output_{}", i)
+            };
+            lowerer.set_var_name(output_node, var_name);
         }
 
         // 各出力ノードをlower
@@ -108,11 +123,19 @@ impl LoweringOptimizer {
             lowerer.lower_node(output_node);
         }
 
-        // 出力ノードの実際の変数名から output_N へのコピーループを生成
+        // 必要な場合のみ、出力ノードの実際の変数名から output_N へのコピーループを生成
         self.add_output_copy_loops(graph, &mut lowerer);
 
         // プログラムを構築
         self.build_program(graph, lowerer)
+    }
+
+    /// 出力ノードがコピーループを必要とするかを判定
+    ///
+    /// Viewノードの場合、変数名は共有されるだけなので、コピーが必要。
+    /// それ以外のノード（計算を行うノード）は直接output_Nに書き込める。
+    fn needs_output_copy(&self, node: &GraphNode) -> bool {
+        matches!(node.op, GraphOp::View(_))
     }
 
     /// 出力ノードの計算結果を output_N バッファにコピーするループを生成

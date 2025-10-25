@@ -7,6 +7,30 @@ use crate::graph::shape::{view::View, Expr};
 pub(super) struct LowererUtils;
 
 impl LowererUtils {
+    /// ループ変数名を生成
+    ///
+    /// # Arguments
+    /// * `dim` - 次元インデックス
+    ///
+    /// # Returns
+    /// ループ変数名（例: "ridx0", "ridx1"）
+    #[inline]
+    pub fn loop_var_name(dim: usize) -> String {
+        format!("ridx{}", dim)
+    }
+
+    /// アキュムレータ変数名を生成
+    ///
+    /// # Arguments
+    /// * `dim` - 次元インデックス
+    ///
+    /// # Returns
+    /// アキュムレータ変数名（例: "acc0", "acc1"）
+    #[inline]
+    pub fn accumulator_var_name(dim: usize) -> String {
+        format!("acc{}", dim)
+    }
+
     /// Viewから総要素数を計算（静的サイズのみ）
     pub fn compute_total_size(view: &View) -> Option<usize> {
         let View::Linear { shape, .. } = view;
@@ -48,7 +72,7 @@ impl LowererUtils {
         let mut index_expr = offset.clone();
 
         for (i, stride) in strides.iter().enumerate().take(num_dims) {
-            let loop_var = Expr::Var(format!("ridx{}", i));
+            let loop_var = Expr::Var(Self::loop_var_name(i));
             let term = loop_var * stride.clone();
             index_expr += term;
         }
@@ -77,7 +101,7 @@ impl LowererUtils {
                 if result_dim >= result_strides.len() {
                     break;
                 }
-                let loop_var = Expr::Var(format!("ridx{}", input_dim));
+                let loop_var = Expr::Var(Self::loop_var_name(input_dim));
                 let term = loop_var * result_strides[result_dim].clone();
                 index_expr += term;
                 result_dim += 1;
@@ -107,7 +131,7 @@ impl LowererUtils {
                 if result_dim >= result_strides.len() {
                     break;
                 }
-                let loop_var = Expr::Var(format!("ridx{}", dim));
+                let loop_var = Expr::Var(Self::loop_var_name(dim));
                 let term = loop_var * result_strides[result_dim].clone();
                 index_expr += term;
                 result_dim += 1; // 出力次元をインクリメント

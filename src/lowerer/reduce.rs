@@ -129,7 +129,7 @@ impl ReduceLowerer {
         if dim == reduce_axis {
             // 縮約する次元: アキュムレータ変数を使った縮約
             // アキュムレータ変数名を生成
-            let acc_var = format!("acc{}", dim);
+            let acc_var = LowererUtils::accumulator_var_name(dim);
 
             // 最内ループ部分を生成（アキュムレータに累積）
             let inner_body = Self::create_reduce_loops_with_accumulator(
