@@ -156,6 +156,42 @@ impl AstNode {
         }
     }
 
+    /// Apply a function to all child nodes and construct a new node with the results
+    /// This is useful for recursive transformations of the AST
+    pub fn map_children<F>(&self, f: &F) -> Self
+    where
+        F: Fn(&AstNode) -> AstNode,
+    {
+        match self {
+            AstNode::Wildcard(_) | AstNode::Const(_) | AstNode::Load | AstNode::Store => {
+                self.clone()
+            }
+            AstNode::Add(left, right) => {
+                AstNode::Add(Box::new(f(left)), Box::new(f(right)))
+            }
+            AstNode::Mul(left, right) => {
+                AstNode::Mul(Box::new(f(left)), Box::new(f(right)))
+            }
+            AstNode::Max(left, right) => {
+                AstNode::Max(Box::new(f(left)), Box::new(f(right)))
+            }
+            AstNode::Rem(left, right) => {
+                AstNode::Rem(Box::new(f(left)), Box::new(f(right)))
+            }
+            AstNode::Idiv(left, right) => {
+                AstNode::Idiv(Box::new(f(left)), Box::new(f(right)))
+            }
+            AstNode::Recip(operand) => AstNode::Recip(Box::new(f(operand))),
+            AstNode::Sqrt(operand) => AstNode::Sqrt(Box::new(f(operand))),
+            AstNode::Log2(operand) => AstNode::Log2(Box::new(f(operand))),
+            AstNode::Exp2(operand) => AstNode::Exp2(Box::new(f(operand))),
+            AstNode::Sin(operand) => AstNode::Sin(Box::new(f(operand))),
+            AstNode::Cast(operand, dtype) => {
+                AstNode::Cast(Box::new(f(operand)), dtype.clone())
+            }
+        }
+    }
+
     /// Recursively infer the type of this AST node by traversing child nodes
     pub fn infer_type(&self) -> DType {
         match self {

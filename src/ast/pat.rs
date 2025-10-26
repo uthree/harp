@@ -157,34 +157,7 @@ impl AstRewriteRule {
         }
 
         // マッチしなければ、子ノードに対して再帰的に適用
-        match ast {
-            AstNode::Wildcard(_) | AstNode::Const(_) | AstNode::Load | AstNode::Store => {
-                ast.clone()
-            }
-            AstNode::Add(left, right) => {
-                AstNode::Add(Box::new(self.apply(left)), Box::new(self.apply(right)))
-            }
-            AstNode::Mul(left, right) => {
-                AstNode::Mul(Box::new(self.apply(left)), Box::new(self.apply(right)))
-            }
-            AstNode::Max(left, right) => {
-                AstNode::Max(Box::new(self.apply(left)), Box::new(self.apply(right)))
-            }
-            AstNode::Rem(left, right) => {
-                AstNode::Rem(Box::new(self.apply(left)), Box::new(self.apply(right)))
-            }
-            AstNode::Idiv(left, right) => {
-                AstNode::Idiv(Box::new(self.apply(left)), Box::new(self.apply(right)))
-            }
-            AstNode::Recip(operand) => AstNode::Recip(Box::new(self.apply(operand))),
-            AstNode::Sqrt(operand) => AstNode::Sqrt(Box::new(self.apply(operand))),
-            AstNode::Log2(operand) => AstNode::Log2(Box::new(self.apply(operand))),
-            AstNode::Exp2(operand) => AstNode::Exp2(Box::new(self.apply(operand))),
-            AstNode::Sin(operand) => AstNode::Sin(Box::new(self.apply(operand))),
-            AstNode::Cast(operand, dtype) => {
-                AstNode::Cast(Box::new(self.apply(operand)), dtype.clone())
-            }
-        }
+        ast.map_children(&|child| self.apply(child))
     }
 }
 
