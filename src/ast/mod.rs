@@ -4,8 +4,11 @@ pub mod ops;
 pub mod helper;
 pub mod pat;
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum AstNode {
+    // Pattern matching wildcard - パターンマッチング用ワイルドカード
+    Wildcard(String),
+
     // arithmetics - 算術演算
     Const(Literal),
     Add(Box<AstNode>, Box<AstNode>),
@@ -40,7 +43,7 @@ pub enum DType {
     // TODO: 将来的にf16とか対応させたい
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
     Isize(isize),
     Usize(usize),
@@ -137,7 +140,7 @@ impl AstNode {
     /// Get child nodes of this AST node
     pub fn children(&self) -> Vec<&AstNode> {
         match self {
-            AstNode::Const(_) => vec![],
+            AstNode::Wildcard(_) | AstNode::Const(_) => vec![],
             AstNode::Add(left, right)
             | AstNode::Mul(left, right)
             | AstNode::Max(left, right)
@@ -156,6 +159,7 @@ impl AstNode {
     /// Recursively infer the type of this AST node by traversing child nodes
     pub fn infer_type(&self) -> DType {
         match self {
+            AstNode::Wildcard(_) => DType::Unknown,
             AstNode::Const(lit) => lit.dtype(),
             AstNode::Cast(_, dtype) => dtype.clone(),
 
