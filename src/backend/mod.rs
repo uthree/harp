@@ -30,6 +30,7 @@ pub trait Buffer {
 pub trait Kernel {
     type Buffer: Buffer;
     // QueryBuilderを経由してメソッドチェーンで引数を指定して最後にcall()みたいな仕組みにしたい
+    // 出力用バッファーを自動初期化みたいな機能も欲しい
 }
 
 pub struct Query<'a, B: Buffer> {
