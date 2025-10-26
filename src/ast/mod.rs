@@ -35,8 +35,8 @@ pub enum DType {
     Isize,                  // signed integer
     Usize,                  // unsigned integer (for array indexing)
     F32,                    // float
-    Ptr(Box<DType>),        // pointer for memory buffer
-    Vec(Box<DType>, usize), // fixed size vector for SIMD
+    Ptr(Box<DType>),        // pointer for memory buffer, 値を渡す時は参照を渡す。
+    Vec(Box<DType>, usize), // fixed size vector for SIMD, 値は渡す時にコピーされる
     Tuple(Vec<DType>),
     Unknown,
     // TODO: boolなどの追加
@@ -166,29 +166,17 @@ impl AstNode {
             AstNode::Wildcard(_) | AstNode::Const(_) | AstNode::Load | AstNode::Store => {
                 self.clone()
             }
-            AstNode::Add(left, right) => {
-                AstNode::Add(Box::new(f(left)), Box::new(f(right)))
-            }
-            AstNode::Mul(left, right) => {
-                AstNode::Mul(Box::new(f(left)), Box::new(f(right)))
-            }
-            AstNode::Max(left, right) => {
-                AstNode::Max(Box::new(f(left)), Box::new(f(right)))
-            }
-            AstNode::Rem(left, right) => {
-                AstNode::Rem(Box::new(f(left)), Box::new(f(right)))
-            }
-            AstNode::Idiv(left, right) => {
-                AstNode::Idiv(Box::new(f(left)), Box::new(f(right)))
-            }
+            AstNode::Add(left, right) => AstNode::Add(Box::new(f(left)), Box::new(f(right))),
+            AstNode::Mul(left, right) => AstNode::Mul(Box::new(f(left)), Box::new(f(right))),
+            AstNode::Max(left, right) => AstNode::Max(Box::new(f(left)), Box::new(f(right))),
+            AstNode::Rem(left, right) => AstNode::Rem(Box::new(f(left)), Box::new(f(right))),
+            AstNode::Idiv(left, right) => AstNode::Idiv(Box::new(f(left)), Box::new(f(right))),
             AstNode::Recip(operand) => AstNode::Recip(Box::new(f(operand))),
             AstNode::Sqrt(operand) => AstNode::Sqrt(Box::new(f(operand))),
             AstNode::Log2(operand) => AstNode::Log2(Box::new(f(operand))),
             AstNode::Exp2(operand) => AstNode::Exp2(Box::new(f(operand))),
             AstNode::Sin(operand) => AstNode::Sin(Box::new(f(operand))),
-            AstNode::Cast(operand, dtype) => {
-                AstNode::Cast(Box::new(f(operand)), dtype.clone())
-            }
+            AstNode::Cast(operand, dtype) => AstNode::Cast(Box::new(f(operand)), dtype.clone()),
         }
     }
 
