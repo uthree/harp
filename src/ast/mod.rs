@@ -1,3 +1,9 @@
+// Operator overloading for AstNode
+pub mod ops;
+// Helper functions for constructing AST nodes
+pub mod helper;
+pub mod pat;
+
 #[derive(Clone)]
 pub enum AstNode {
     // arithmetics - 算術演算
@@ -182,12 +188,6 @@ impl AstNode {
         }
     }
 }
-
-// Operator overloading for AstNode
-pub mod ops;
-
-// Helper functions for constructing AST nodes
-pub mod helper;
 
 #[cfg(test)]
 mod tests {

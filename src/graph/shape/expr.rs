@@ -1,5 +1,7 @@
 use std::fmt;
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign};
+use std::ops::{
+    Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Expr {
@@ -15,28 +17,37 @@ pub enum Expr {
     Rem(Box<Self>, Box<Self>),
 }
 
-// TODO: AstNodeへの変換機能を実装
-// impl From<Expr> for AstNode {
-//     fn from(expr: Expr) -> Self {
-//         // 変換前にsimplifyして可読性を向上
-//         let expr = expr.simplify();
-//         match expr {
-//             Expr::Const(c) => AstNode::Const(ConstLiteral::Isize(c)),
-//             Expr::Var(s) => AstNode::Var(s),
-//             Expr::Add(l, r) => AstNode::Add(Box::new((*l).into()), Box::new((*r).into())),
-//             Expr::Sub(l, r) => AstNode::Add(
-//                 Box::new((*l).into()),
-//                 Box::new(AstNode::Neg(Box::new((*r).into()))),
-//             ),
-//             Expr::Mul(l, r) => AstNode::Mul(Box::new((*l).into()), Box::new((*r).into())),
-//             Expr::Div(l, r) => AstNode::Add(
-//                 Box::new((*l).into()),
-//                 Box::new(AstNode::Recip(Box::new((*r).into()))),
-//             ),
-//             Expr::Rem(l, r) => AstNode::Rem(Box::new((*l).into()), Box::new((*r).into())),
-//         }
-//     }
-// }
+impl From<Expr> for crate::ast::AstNode {
+    fn from(expr: Expr) -> Self {
+        use crate::ast::{AstNode, Literal};
+
+        // 変換前にsimplifyして可読性を向上
+        let expr = expr.simplify();
+        match expr {
+            Expr::Const(c) => AstNode::Const(Literal::Isize(c)),
+            Expr::Var(_s) => {
+                // 変数はASTでは未サポートなので、パニックする
+                // TODO: 将来的に変数をサポートする場合は実装を追加
+                panic!("Variables are not yet supported in AstNode conversion")
+            }
+            Expr::Add(l, r) => AstNode::Add(Box::new((*l).into()), Box::new((*r).into())),
+            Expr::Sub(l, r) => {
+                // a - b = a + (-b)
+                let left: AstNode = (*l).into();
+                let right: AstNode = (*r).into();
+                left + (-right)
+            }
+            Expr::Mul(l, r) => AstNode::Mul(Box::new((*l).into()), Box::new((*r).into())),
+            Expr::Div(l, r) => {
+                // a / b = a * recip(b)
+                let left: AstNode = (*l).into();
+                let right: AstNode = (*r).into();
+                left * crate::ast::helper::recip(right)
+            }
+            Expr::Rem(l, r) => AstNode::Rem(Box::new((*l).into()), Box::new((*r).into())),
+        }
+    }
+}
 
 impl Expr {
     pub fn is_zero(&self) -> bool {
@@ -318,7 +329,10 @@ mod tests {
         let a = Expr::Const(2);
         let b = Expr::Const(3);
         let sum = a + b;
-        assert_eq!(sum, Expr::Add(Box::new(Expr::Const(2)), Box::new(Expr::Const(3))));
+        assert_eq!(
+            sum,
+            Expr::Add(Box::new(Expr::Const(2)), Box::new(Expr::Const(3)))
+        );
     }
 
     #[test]
@@ -326,7 +340,10 @@ mod tests {
         let a = Expr::Const(5);
         let b = Expr::Const(3);
         let diff = a - b;
-        assert_eq!(diff, Expr::Sub(Box::new(Expr::Const(5)), Box::new(Expr::Const(3))));
+        assert_eq!(
+            diff,
+            Expr::Sub(Box::new(Expr::Const(5)), Box::new(Expr::Const(3)))
+        );
     }
 
     #[test]
@@ -334,7 +351,10 @@ mod tests {
         let a = Expr::Const(4);
         let b = Expr::Const(5);
         let prod = a * b;
-        assert_eq!(prod, Expr::Mul(Box::new(Expr::Const(4)), Box::new(Expr::Const(5))));
+        assert_eq!(
+            prod,
+            Expr::Mul(Box::new(Expr::Const(4)), Box::new(Expr::Const(5)))
+        );
     }
 
     #[test]
@@ -342,7 +362,10 @@ mod tests {
         let a = Expr::Const(10);
         let b = Expr::Const(2);
         let quot = a / b;
-        assert_eq!(quot, Expr::Div(Box::new(Expr::Const(10)), Box::new(Expr::Const(2))));
+        assert_eq!(
+            quot,
+            Expr::Div(Box::new(Expr::Const(10)), Box::new(Expr::Const(2)))
+        );
     }
 
     #[test]
@@ -350,14 +373,20 @@ mod tests {
         let a = Expr::Const(10);
         let b = Expr::Const(3);
         let rem = a % b;
-        assert_eq!(rem, Expr::Rem(Box::new(Expr::Const(10)), Box::new(Expr::Const(3))));
+        assert_eq!(
+            rem,
+            Expr::Rem(Box::new(Expr::Const(10)), Box::new(Expr::Const(3)))
+        );
     }
 
     #[test]
     fn test_neg_operator() {
         let a = Expr::Const(5);
         let neg_a = -a;
-        assert_eq!(neg_a, Expr::Sub(Box::new(Expr::Const(0)), Box::new(Expr::Const(5))));
+        assert_eq!(
+            neg_a,
+            Expr::Sub(Box::new(Expr::Const(0)), Box::new(Expr::Const(5)))
+        );
     }
 
     #[test]
@@ -556,22 +585,169 @@ mod tests {
     fn test_assign_operators() {
         let mut expr = Expr::Const(5);
         expr += 3;
-        assert_eq!(expr, Expr::Add(Box::new(Expr::Const(5)), Box::new(Expr::Const(3))));
+        assert_eq!(
+            expr,
+            Expr::Add(Box::new(Expr::Const(5)), Box::new(Expr::Const(3)))
+        );
 
         let mut expr = Expr::Const(10);
         expr -= 3;
-        assert_eq!(expr, Expr::Sub(Box::new(Expr::Const(10)), Box::new(Expr::Const(3))));
+        assert_eq!(
+            expr,
+            Expr::Sub(Box::new(Expr::Const(10)), Box::new(Expr::Const(3)))
+        );
 
         let mut expr = Expr::Const(4);
         expr *= 5;
-        assert_eq!(expr, Expr::Mul(Box::new(Expr::Const(4)), Box::new(Expr::Const(5))));
+        assert_eq!(
+            expr,
+            Expr::Mul(Box::new(Expr::Const(4)), Box::new(Expr::Const(5)))
+        );
 
         let mut expr = Expr::Const(20);
         expr /= 4;
-        assert_eq!(expr, Expr::Div(Box::new(Expr::Const(20)), Box::new(Expr::Const(4))));
+        assert_eq!(
+            expr,
+            Expr::Div(Box::new(Expr::Const(20)), Box::new(Expr::Const(4)))
+        );
 
         let mut expr = Expr::Const(10);
         expr %= 3;
-        assert_eq!(expr, Expr::Rem(Box::new(Expr::Const(10)), Box::new(Expr::Const(3))));
+        assert_eq!(
+            expr,
+            Expr::Rem(Box::new(Expr::Const(10)), Box::new(Expr::Const(3)))
+        );
+    }
+
+    #[test]
+    fn test_to_astnode_const() {
+        use crate::ast::{AstNode, Literal};
+
+        let expr = Expr::Const(42);
+        let ast: AstNode = expr.into();
+
+        match ast {
+            AstNode::Const(Literal::Isize(v)) => assert_eq!(v, 42),
+            _ => panic!("Expected Const node with Isize(42)"),
+        }
+    }
+
+    #[test]
+    fn test_to_astnode_add() {
+        use crate::ast::{AstNode, Literal};
+
+        // Use variables to avoid constant folding
+        let a = Expr::Var("a".to_string());
+        let b = Expr::Var("b".to_string());
+        let expr = Expr::Add(Box::new(a), Box::new(b));
+
+        // Should panic because variables are not supported
+        let result = std::panic::catch_unwind(|| {
+            let _ast: AstNode = expr.into();
+        });
+        assert!(result.is_err());
+
+        // Test with a simpler approach: just check constants
+        let expr = Expr::Const(2) + Expr::Const(3);
+        let ast: AstNode = expr.into();
+
+        // After simplify, this becomes Const(5)
+        match ast {
+            AstNode::Const(Literal::Isize(v)) => assert_eq!(v, 5),
+            _ => panic!("Expected Const(5) after simplification"),
+        }
+    }
+
+    #[test]
+    fn test_to_astnode_sub() {
+        use crate::ast::{AstNode, Literal};
+
+        // After simplify: 5 - 3 = 2
+        let expr = Expr::Const(5) - Expr::Const(3);
+        let ast: AstNode = expr.into();
+
+        match ast {
+            AstNode::Const(Literal::Isize(v)) => assert_eq!(v, 2),
+            _ => panic!("Expected Const(2) after simplification"),
+        }
+    }
+
+    #[test]
+    fn test_to_astnode_mul() {
+        use crate::ast::{AstNode, Literal};
+
+        // After simplify: 4 * 5 = 20
+        let expr = Expr::Const(4) * Expr::Const(5);
+        let ast: AstNode = expr.into();
+
+        match ast {
+            AstNode::Const(Literal::Isize(v)) => assert_eq!(v, 20),
+            _ => panic!("Expected Const(20) after simplification"),
+        }
+    }
+
+    #[test]
+    fn test_to_astnode_div() {
+        use crate::ast::{AstNode, Literal};
+
+        // After simplify: 10 / 2 = 5
+        let expr = Expr::Const(10) / Expr::Const(2);
+        let ast: AstNode = expr.into();
+
+        match ast {
+            AstNode::Const(Literal::Isize(v)) => assert_eq!(v, 5),
+            _ => panic!("Expected Const(5) after simplification"),
+        }
+    }
+
+    #[test]
+    fn test_to_astnode_rem() {
+        use crate::ast::{AstNode, Literal};
+
+        // After simplify: 10 % 3 = 1
+        let expr = Expr::Const(10) % Expr::Const(3);
+        let ast: AstNode = expr.into();
+
+        match ast {
+            AstNode::Const(Literal::Isize(v)) => assert_eq!(v, 1),
+            _ => panic!("Expected Const(1) after simplification"),
+        }
+    }
+
+    #[test]
+    fn test_to_astnode_complex() {
+        use crate::ast::{AstNode, Literal};
+
+        // After simplify: (2 + 3) * 4 = 5 * 4 = 20
+        let expr = (Expr::Const(2) + Expr::Const(3)) * Expr::Const(4);
+        let ast: AstNode = expr.into();
+
+        match ast {
+            AstNode::Const(Literal::Isize(v)) => assert_eq!(v, 20),
+            _ => panic!("Expected Const(20) after simplification"),
+        }
+    }
+
+    #[test]
+    fn test_to_astnode_with_simplify() {
+        use crate::ast::{AstNode, Literal};
+
+        // 0 + 5 should simplify to 5 before conversion
+        let expr = Expr::Const(0) + Expr::Const(5);
+        let ast: AstNode = expr.into();
+
+        match ast {
+            AstNode::Const(Literal::Isize(v)) => assert_eq!(v, 5),
+            _ => panic!("Expected simplified Const(5)"),
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Variables are not yet supported")]
+    fn test_to_astnode_var_panics() {
+        use crate::ast::AstNode;
+
+        let expr = Expr::Var("x".to_string());
+        let _ast: AstNode = expr.into();
     }
 }

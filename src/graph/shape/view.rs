@@ -210,10 +210,7 @@ mod tests {
                 strides,
                 offset,
             } => {
-                assert_eq!(
-                    shape,
-                    vec![Expr::from(2), Expr::from(3), Expr::from(4)]
-                );
+                assert_eq!(shape, vec![Expr::from(2), Expr::from(3), Expr::from(4)]);
                 assert_eq!(strides, vec![Expr::from(12), Expr::from(4), Expr::from(1)]);
                 assert_eq!(offset, Expr::from(0));
             }
@@ -251,10 +248,7 @@ mod tests {
     #[test]
     fn test_shape() {
         let view = View::contiguous(vec![2, 3, 4]);
-        assert_eq!(
-            view.shape(),
-            &[Expr::from(2), Expr::from(3), Expr::from(4)]
-        );
+        assert_eq!(view.shape(), &[Expr::from(2), Expr::from(3), Expr::from(4)]);
     }
 
     #[test]
@@ -268,10 +262,7 @@ mod tests {
                 strides,
                 offset,
             } => {
-                assert_eq!(
-                    shape,
-                    vec![Expr::from(4), Expr::from(2), Expr::from(3)]
-                );
+                assert_eq!(shape, vec![Expr::from(4), Expr::from(2), Expr::from(3)]);
                 assert_eq!(strides, vec![Expr::from(1), Expr::from(12), Expr::from(4)]);
                 assert_eq!(offset, Expr::from(0));
             }
@@ -303,10 +294,7 @@ mod tests {
                 strides,
                 offset,
             } => {
-                assert_eq!(
-                    shape,
-                    vec![Expr::from(3), Expr::from(1), Expr::from(4)]
-                );
+                assert_eq!(shape, vec![Expr::from(3), Expr::from(1), Expr::from(4)]);
                 assert_eq!(strides, vec![Expr::from(4), Expr::from(0), Expr::from(1)]);
                 assert_eq!(offset, Expr::from(0));
             }
@@ -320,10 +308,7 @@ mod tests {
 
         match unsqueezed {
             View::Linear { shape, .. } => {
-                assert_eq!(
-                    shape,
-                    vec![Expr::from(1), Expr::from(3), Expr::from(4)]
-                );
+                assert_eq!(shape, vec![Expr::from(1), Expr::from(3), Expr::from(4)]);
             }
         }
     }
@@ -335,10 +320,7 @@ mod tests {
 
         match unsqueezed {
             View::Linear { shape, .. } => {
-                assert_eq!(
-                    shape,
-                    vec![Expr::from(3), Expr::from(4), Expr::from(1)]
-                );
+                assert_eq!(shape, vec![Expr::from(3), Expr::from(4), Expr::from(1)]);
             }
         }
     }

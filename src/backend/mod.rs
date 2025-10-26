@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::ast::{AstNode, DType};
+use crate::ast::AstNode;
 
 // レンダラー。
 // ASTを受け取って文字列としてレンダリングする
