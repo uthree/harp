@@ -63,6 +63,62 @@ impl Literal {
     }
 }
 
+impl DType {
+    /// Convert this type to a vector type with the given size
+    pub fn to_vec(&self, size: usize) -> DType {
+        DType::Vec(Box::new(self.clone()), size)
+    }
+
+    /// Convert this type to a pointer type
+    pub fn to_ptr(&self) -> DType {
+        DType::Ptr(Box::new(self.clone()))
+    }
+
+    /// If this is a Vec type, return the element type and size
+    /// Returns None if this is not a Vec type
+    pub fn from_vec(&self) -> Option<(&DType, usize)> {
+        match self {
+            DType::Vec(elem_type, size) => Some((elem_type.as_ref(), *size)),
+            _ => None,
+        }
+    }
+
+    /// If this is a Ptr type, return the pointee type
+    /// Returns None if this is not a Ptr type
+    pub fn from_ptr(&self) -> Option<&DType> {
+        match self {
+            DType::Ptr(pointee) => Some(pointee.as_ref()),
+            _ => None,
+        }
+    }
+
+    /// Get the element type if this is a Vec, otherwise return self
+    pub fn element_type(&self) -> &DType {
+        match self {
+            DType::Vec(elem_type, _) => elem_type.as_ref(),
+            _ => self,
+        }
+    }
+
+    /// Get the pointee type if this is a Ptr, otherwise return self
+    pub fn deref_type(&self) -> &DType {
+        match self {
+            DType::Ptr(pointee) => pointee.as_ref(),
+            _ => self,
+        }
+    }
+
+    /// Check if this is a Vec type
+    pub fn is_vec(&self) -> bool {
+        matches!(self, DType::Vec(_, _))
+    }
+
+    /// Check if this is a Ptr type
+    pub fn is_ptr(&self) -> bool {
+        matches!(self, DType::Ptr(_))
+    }
+}
+
 impl AstNode {
     /// Get child nodes of this AST node
     pub fn children(&self) -> Vec<&AstNode> {
@@ -318,5 +374,121 @@ mod tests {
         let casted = cast(a + b, DType::F32);
         let result = sqrt(casted);
         assert_eq!(result.infer_type(), DType::F32);
+    }
+
+    #[test]
+    fn test_dtype_to_vec() {
+        let base_type = DType::F32;
+        let vec_type = base_type.to_vec(4);
+
+        match vec_type {
+            DType::Vec(elem_type, size) => {
+                assert_eq!(*elem_type, DType::F32);
+                assert_eq!(size, 4);
+            }
+            _ => panic!("Expected Vec type"),
+        }
+    }
+
+    #[test]
+    fn test_dtype_from_vec() {
+        let vec_type = DType::F32.to_vec(8);
+
+        let result = vec_type.from_vec();
+        assert!(result.is_some());
+
+        let (elem_type, size) = result.unwrap();
+        assert_eq!(elem_type, &DType::F32);
+        assert_eq!(size, 8);
+
+        // Non-vec type should return None
+        let scalar = DType::F32;
+        assert!(scalar.from_vec().is_none());
+    }
+
+    #[test]
+    fn test_dtype_to_ptr() {
+        let base_type = DType::F32;
+        let ptr_type = base_type.to_ptr();
+
+        match ptr_type {
+            DType::Ptr(pointee) => {
+                assert_eq!(*pointee, DType::F32);
+            }
+            _ => panic!("Expected Ptr type"),
+        }
+    }
+
+    #[test]
+    fn test_dtype_from_ptr() {
+        let ptr_type = DType::F32.to_ptr();
+
+        let result = ptr_type.from_ptr();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), &DType::F32);
+
+        // Non-ptr type should return None
+        let scalar = DType::F32;
+        assert!(scalar.from_ptr().is_none());
+    }
+
+    #[test]
+    fn test_dtype_element_type() {
+        // Vec should return element type
+        let vec_type = DType::F32.to_vec(4);
+        assert_eq!(vec_type.element_type(), &DType::F32);
+
+        // Non-vec should return self
+        let scalar = DType::Isize;
+        assert_eq!(scalar.element_type(), &DType::Isize);
+    }
+
+    #[test]
+    fn test_dtype_deref_type() {
+        // Ptr should return pointee type
+        let ptr_type = DType::F32.to_ptr();
+        assert_eq!(ptr_type.deref_type(), &DType::F32);
+
+        // Non-ptr should return self
+        let scalar = DType::Isize;
+        assert_eq!(scalar.deref_type(), &DType::Isize);
+    }
+
+    #[test]
+    fn test_dtype_is_vec() {
+        let vec_type = DType::F32.to_vec(4);
+        assert!(vec_type.is_vec());
+
+        let scalar = DType::F32;
+        assert!(!scalar.is_vec());
+    }
+
+    #[test]
+    fn test_dtype_is_ptr() {
+        let ptr_type = DType::F32.to_ptr();
+        assert!(ptr_type.is_ptr());
+
+        let scalar = DType::F32;
+        assert!(!scalar.is_ptr());
+    }
+
+    #[test]
+    fn test_dtype_nested_types() {
+        // Vec of Ptr
+        let ptr_type = DType::F32.to_ptr();
+        let vec_of_ptr = ptr_type.to_vec(4);
+
+        assert!(vec_of_ptr.is_vec());
+        let (elem, size) = vec_of_ptr.from_vec().unwrap();
+        assert_eq!(size, 4);
+        assert!(elem.is_ptr());
+
+        // Ptr to Vec
+        let vec_type = DType::F32.to_vec(8);
+        let ptr_to_vec = vec_type.to_ptr();
+
+        assert!(ptr_to_vec.is_ptr());
+        let pointee = ptr_to_vec.from_ptr().unwrap();
+        assert!(pointee.is_vec());
     }
 }
