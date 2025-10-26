@@ -29,10 +29,12 @@ pub trait Buffer {
 
 pub trait Kernel {
     type Buffer: Buffer;
-    fn call(&self, query: Query<Self::Buffer>);
+    // QueryBuilderを経由してメソッドチェーンで引数を指定して最後にcall()みたいな仕組みにしたい
 }
+
 pub struct Query<'a, B: Buffer> {
     inputs: HashMap<String, &'a B>, // inputsは読み取り専用なので借用
     outputs: HashMap<String, B>,    // outputsは書き込み対象
     shape_vars: HashMap<String, usize>,
 }
+// TODO: QueryBuilderを追加
