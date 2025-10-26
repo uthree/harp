@@ -143,6 +143,7 @@ impl AstNode {
             | AstNode::Exp2(operand)
             | AstNode::Sin(operand)
             | AstNode::Cast(operand, _) => vec![operand.as_ref()],
+            AstNode::Load | AstNode::Store => todo!("Load/Store not yet implemented"),
         }
     }
 
@@ -176,6 +177,8 @@ impl AstNode {
 
             // Mathematical operations that typically return F32
             AstNode::Sqrt(_) | AstNode::Log2(_) | AstNode::Exp2(_) | AstNode::Sin(_) => DType::F32,
+
+            AstNode::Load | AstNode::Store => todo!("Load/Store not yet implemented"),
         }
     }
 }

@@ -2,40 +2,36 @@ use super::{AstNode, DType};
 
 // Convenience free functions for AST construction
 
-/// Create a max node: max(a, b)
-pub fn max(a: AstNode, b: AstNode) -> AstNode {
-    AstNode::Max(Box::new(a), Box::new(b))
+/// Macro to generate binary operation helper functions
+macro_rules! impl_binary_helper {
+    ($fn_name:ident, $variant:ident, $doc:expr) => {
+        #[doc = $doc]
+        pub fn $fn_name(a: AstNode, b: AstNode) -> AstNode {
+            AstNode::$variant(Box::new(a), Box::new(b))
+        }
+    };
 }
 
-/// Create an integer division node: a / b
-pub fn idiv(a: AstNode, b: AstNode) -> AstNode {
-    AstNode::Idiv(Box::new(a), Box::new(b))
+/// Macro to generate unary operation helper functions
+macro_rules! impl_unary_helper {
+    ($fn_name:ident, $variant:ident, $doc:expr) => {
+        #[doc = $doc]
+        pub fn $fn_name(a: AstNode) -> AstNode {
+            AstNode::$variant(Box::new(a))
+        }
+    };
 }
 
-/// Create a reciprocal node: 1 / a
-pub fn recip(a: AstNode) -> AstNode {
-    AstNode::Recip(Box::new(a))
-}
+// Binary operation helpers
+impl_binary_helper!(max, Max, "Create a max node: max(a, b)");
+impl_binary_helper!(idiv, Idiv, "Create an integer division node: a / b");
 
-/// Create a square root node: sqrt(a)
-pub fn sqrt(a: AstNode) -> AstNode {
-    AstNode::Sqrt(Box::new(a))
-}
-
-/// Create a log2 node: log2(a)
-pub fn log2(a: AstNode) -> AstNode {
-    AstNode::Log2(Box::new(a))
-}
-
-/// Create an exp2 node: 2^a
-pub fn exp2(a: AstNode) -> AstNode {
-    AstNode::Exp2(Box::new(a))
-}
-
-/// Create a sine node: sin(a)
-pub fn sin(a: AstNode) -> AstNode {
-    AstNode::Sin(Box::new(a))
-}
+// Unary operation helpers
+impl_unary_helper!(recip, Recip, "Create a reciprocal node: 1 / a");
+impl_unary_helper!(sqrt, Sqrt, "Create a square root node: sqrt(a)");
+impl_unary_helper!(log2, Log2, "Create a log2 node: log2(a)");
+impl_unary_helper!(exp2, Exp2, "Create an exp2 node: 2^a");
+impl_unary_helper!(sin, Sin, "Create a sine node: sin(a)");
 
 /// Create a cast node: cast a to dtype
 pub fn cast(a: AstNode, dtype: DType) -> AstNode {
