@@ -1,6 +1,6 @@
 #[derive(Clone)]
 pub enum AstNode {
-    // arithmetics
+    // arithmetics - 算術演算
     Const(Literal),
     Add(Box<AstNode>, Box<AstNode>),
     Mul(Box<AstNode>, Box<AstNode>),
@@ -13,6 +13,12 @@ pub enum AstNode {
     Exp2(Box<AstNode>),
     Sin(Box<AstNode>),
     Cast(Box<AstNode>, DType),
+
+    // TODO: メモリ操作
+    Load,
+    Store,
+    // TODO: 制御構文
+    // TODO: 関数と呼び出し
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -24,6 +30,8 @@ pub enum DType {
     Vec(Box<DType>, usize), // fixed size vector for SIMD
     Tuple(Vec<DType>),
     Unknown,
+    // TODO: boolなどの追加
+    // TODO: 将来的にf16とか対応させたい
 }
 
 #[derive(Debug, Clone)]

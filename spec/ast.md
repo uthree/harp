@@ -209,11 +209,65 @@ let expr = sqrt((a + b) * c) % d;
 3. **拡張性**: 新しい演算や関数を追加する場合は、`AstNode` enumに追加し、対応する`infer_type()`のケースを実装
 4. **定数生成**: `AstNode::Const(value.into())`の形式で、数値型から直接定数ノードを生成可能
 
+## DType型変換メソッド
+
+### Vec型への変換
+
+`DType`はSIMD対応のため、スカラー型とベクトル型の相互変換メソッドを提供します：
+
+```rust
+// 型をVec型に変換
+let vec_type = DType::F32.to_vec(4);  // Vec(F32, 4)
+
+// Vec型から要素型とサイズを取得
+if let Some((elem_type, size)) = vec_type.from_vec() {
+    // elem_type: &DType::F32, size: 4
+}
+
+// Vec型の要素型を取得（Vec型でなければ自身を返す）
+let elem = vec_type.element_type();  // &DType::F32
+
+// Vec型かどうか判定
+assert!(vec_type.is_vec());
+```
+
+### Ptr型への変換
+
+メモリバッファ操作のため、ポインタ型の変換メソッドも提供します：
+
+```rust
+// 型をPtr型に変換
+let ptr_type = DType::F32.to_ptr();  // Ptr(F32)
+
+// Ptr型から参照先の型を取得
+if let Some(pointee) = ptr_type.from_ptr() {
+    // pointee: &DType::F32
+}
+
+// Ptr型の参照先型を取得（Ptr型でなければ自身を返す）
+let pointee = ptr_type.deref_type();  // &DType::F32
+
+// Ptr型かどうか判定
+assert!(ptr_type.is_ptr());
+```
+
+### ネストした型
+
+Vec型とPtr型は自由にネストできます：
+
+```rust
+// Vec<Ptr<F32>>
+let vec_of_ptr = DType::F32.to_ptr().to_vec(4);
+
+// Ptr<Vec<F32>>
+let ptr_to_vec = DType::F32.to_vec(8).to_ptr();
+```
+
 ## テスト
 
 各モジュールには包括的なテストが含まれています：
 
-- `mod.rs`: 型推論、子ノード取得、リテラル変換のテスト
+- `mod.rs`: 型推論、子ノード取得、リテラル変換、DType型変換のテスト
 - `ops.rs`: 演算子オーバーロードのテスト
 - `helper.rs`: ヘルパー関数のテスト
 
@@ -222,3 +276,46 @@ let expr = sqrt((a + b) * c) % d;
 ```bash
 cargo test --lib ast
 ```
+
+## TODO
+
+### AstNode
+
+- [ ] **メモリ操作**: `Load`と`Store`の実装
+  - メモリアドレスからの読み込み
+  - メモリアドレスへの書き込み
+- [ ] **制御構文**: 条件分岐やループ構造の追加
+  - `If`/`Else`
+  - `Loop`/`While`
+  - `Break`/`Continue`
+- [ ] **関数と呼び出し**: 関数定義と呼び出しのサポート
+  - 関数定義ノード
+  - 関数呼び出しノード
+  - 引数の受け渡し
+
+### DType
+
+- [ ] **Bool型の追加**: 条件分岐のための真偽値型
+- [ ] **F16型の追加**: 半精度浮動小数点数のサポート
+  - 省メモリ化
+  - GPU互換性
+- [ ] **その他の数値型**:
+  - `I32`, `U32`: 32ビット整数
+  - `I64`, `U64`: 64ビット整数
+  - `F64`: 倍精度浮動小数点数
+
+### Literal
+
+- [ ] **Bool型リテラル**: `Literal::Bool(bool)`の追加
+- [ ] **F16型リテラル**: 半精度浮動小数点数リテラルの追加
+
+### その他
+
+- [ ] **型推論の改善**: より高度な型推論アルゴリズム
+  - 型の自動昇格（type promotion）
+  - より詳細なエラーメッセージ
+- [ ] **最適化パス**: ASTの最適化機能
+  - 定数畳み込み
+  - 代数的簡約化
+- [ ] **シリアライゼーション**: ASTの保存と読み込み
+  - JSON/バイナリフォーマット対応
