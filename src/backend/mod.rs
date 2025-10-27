@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::ast::AstNode;
+pub mod c_like;
 
 // レンダラー。
 // ASTを受け取って文字列としてレンダリングする
