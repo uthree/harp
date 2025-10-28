@@ -62,14 +62,30 @@ pub enum AstNode {
         value: Box<AstNode>,              // 代入する値
     },
 
+    // 文のブロック
+    Block {
+        statements: Vec<AstNode>,         // 文のリスト
+        scope: Box<Scope>,                // ブロックのスコープ
+    },
+
     // 制御構文
     Range {
         var: String,          // ループ変数名
         start: Box<AstNode>,  // 開始値
         step: Box<AstNode>,   // ステップ
         stop: Box<AstNode>,   // 終了値
-        body: Vec<AstNode>,   // ループ本体
-        scope: Box<Scope>,    // ループ内のスコープ
+        body: Box<AstNode>,   // ループ本体（通常はBlockノード）
+    },
+
+    // 関数呼び出し
+    Call {
+        name: String,        // 関数名
+        args: Vec<AstNode>,  // 引数リスト
+    },
+
+    // 返り値
+    Return {
+        value: Box<AstNode>, // 返す値
     },
 }
 ```
@@ -152,7 +168,9 @@ assert_eq!(expr.infer_type(), DType::F32);
 - `Load`: ポインタが指す型を返す。`count=1`ならスカラー、`count>1`なら`Vec<T, count>`型を返す
 - `Store`: `Tuple(vec![])`を返す（unit型、値を返さない）
 - `Assign`: 代入される値の型を返す
-- `Range`: 本体の最後の式の型を返す（空なら`Tuple(vec![])`）
+- `Range`: `Tuple(vec![])`を返す（unit型、値を返さない）
+- `Call`: `Unknown`を返す（関数定義を参照して型を決定する必要があるため、Programコンテキストで解決）
+- `Return`: 返す値の型を返す
 
 ## 演算子オーバーロード
 
@@ -587,6 +605,48 @@ let child_scope = Scope::with_parent(parent_scope);
 assert!(child_scope.check_read("global_var").is_ok());
 ```
 
+## Block - 文のブロック
+
+`Block`ノードは複数の文（statement）をグループ化し、それらに対して独立したスコープを提供します。
+
+### データ構造
+
+```rust
+Block {
+    statements: Vec<AstNode>,  // 文のリスト
+    scope: Box<Scope>,         // ブロック内のスコープ
+}
+```
+
+### 特徴
+
+- **スコープ管理**: Blockは独自のスコープを持ち、ブロック内で宣言された変数はブロック外からアクセスできません
+- **型推論**: Blockの型は最後の文の型として推論されます。空のBlockは`Tuple(vec![])`型になります
+- **使用場面**: RangeのbodyやFunctionのbodyとして使用されます
+
+### 使用例
+
+```rust
+let mut scope = Scope::new();
+scope.declare(
+    "x".to_string(),
+    DType::Isize,
+    Mutability::Immutable,
+    AccessRegion::ThreadLocal,
+)?;
+
+let block = AstNode::Block {
+    statements: vec![
+        AstNode::Var("x".to_string()),
+        AstNode::Const(42isize.into()),
+    ],
+    scope: Box::new(scope),
+};
+
+// ブロックの型は最後の文の型（Isize）
+assert_eq!(block.infer_type(), DType::Isize);
+```
+
 ## Range - ループ構造
 
 `Range`ノードはforループのような範囲に基づくイテレーションを表現します。
@@ -599,8 +659,7 @@ Range {
     start: Box<AstNode>,  // 開始値（Usize型）
     step: Box<AstNode>,   // ステップ（Usize型）
     stop: Box<AstNode>,   // 終了値（Usize型）
-    body: Vec<AstNode>,   // ループ本体（文のリスト）
-    scope: Box<Scope>,    // ループ内のスコープ
+    body: Box<AstNode>,   // ループ本体（通常はBlockノード）
 }
 ```
 
@@ -609,13 +668,12 @@ Range {
 - ループ変数`var`は`start`から`stop-1`まで`step`ずつ増加します
 - `start`, `step`, `stop`はループ開始前の外側のスコープで評価されます
 - ループ本体`body`は各イテレーションで順次実行されます
-- `scope`が提供されている場合、ループ変数と本体内の変数はそのスコープで管理されます
+- `body`は通常`Block`ノードであり、そのスコープにループ変数が宣言されている必要があります
 
 ### スコープの扱い
 
-- `scope`は必須パラメータです
-- ループ変数`var`はスコープに宣言されている必要があります
-- ループ本体`body`内の文はこのスコープでチェックされます
+- `body`は通常`Block`ノードです
+- ループ変数`var`は`Block`のスコープに宣言されている必要があります
 - 通常、ループスコープは外側のスコープを親として持ち、外側の変数にもアクセスできます
 
 ### 使用例
@@ -641,10 +699,12 @@ let loop_node = AstNode::Range {
     start: Box::new(AstNode::Const(0usize.into())),
     step: Box::new(AstNode::Const(1usize.into())),
     stop: Box::new(AstNode::Const(10usize.into())),
-    body: vec![
-        // ループ本体の処理
-    ],
-    scope: Box::new(loop_scope),
+    body: Box::new(AstNode::Block {
+        statements: vec![
+            // ループ本体の処理
+        ],
+        scope: Box::new(loop_scope),
+    }),
 };
 ```
 
@@ -681,14 +741,16 @@ let loop_node = AstNode::Range {
     start: Box::new(AstNode::Const(0usize.into())),
     step: Box::new(AstNode::Const(1usize.into())),
     stop: Box::new(var("n")),
-    body: vec![
-        store(
-            var("output"),
-            var("i"),
-            load(var("input"), var("i")) * AstNode::Const(2.0f32.into())
-        ),
-    ],
-    scope: Box::new(loop_scope),
+    body: Box::new(AstNode::Block {
+        statements: vec![
+            store(
+                var("output"),
+                var("i"),
+                load(var("input"), var("i")) * AstNode::Const(2.0f32.into())
+            ),
+        ],
+        scope: Box::new(loop_scope),
+    }),
 };
 ```
 
@@ -719,19 +781,23 @@ let nested_loop = AstNode::Range {
     start: Box::new(AstNode::Const(0usize.into())),
     step: Box::new(AstNode::Const(1usize.into())),
     stop: Box::new(AstNode::Const(10usize.into())),
-    body: vec![
-        AstNode::Range {
-            var: "j".to_string(),
-            start: Box::new(AstNode::Const(0usize.into())),
-            step: Box::new(AstNode::Const(1usize.into())),
-            stop: Box::new(AstNode::Const(10usize.into())),
-            body: vec![
-                // 内側のループ本体
-            ],
-            scope: Box::new(inner_loop_scope),
-        },
-    ],
-    scope: Box::new(outer_loop_scope),
+    body: Box::new(AstNode::Block {
+        statements: vec![
+            AstNode::Range {
+                var: "j".to_string(),
+                start: Box::new(AstNode::Const(0usize.into())),
+                step: Box::new(AstNode::Const(1usize.into())),
+                stop: Box::new(AstNode::Const(10usize.into())),
+                body: Box::new(AstNode::Block {
+                    statements: vec![
+                        // 内側のループ本体
+                    ],
+                    scope: Box::new(inner_loop_scope),
+                }),
+            },
+        ],
+        scope: Box::new(outer_loop_scope),
+    }),
 };
 ```
 
@@ -740,20 +806,239 @@ let nested_loop = AstNode::Range {
 `check_scope()`の動作:
 
 1. `start`, `step`, `stop`を外側のスコープでチェック
-2. ループ変数`var`がループスコープに宣言されているかチェック
-3. 本体内の各文をループスコープでチェック
+2. `body`をチェック（通常はBlockのcheck_scopeが呼ばれる）
+3. `body`がBlockの場合、ループ変数`var`がそのスコープに宣言されているかチェック
 
 ```rust
 // スコープチェックの実行
 loop_node.check_scope(&outer_scope)?;
 ```
 
-スコープが必須になったことで、以下のメリットがあります：
+Blockを使用することで、以下のメリットがあります：
 
 - **型安全性の向上**: ループは常にスコープを持つことが保証される
-- **コードの単純化**: check_scope()の実装から条件分岐が削除され、より読みやすくなった
+- **コードの統一性**: 文のグループとスコープが常にセットで扱われる
 - **明示的な設計**: ループ変数の管理が明確になり、バグを防ぎやすくなった
 
+## Function - 関数定義
+
+`Function`構造体は関数の定義を表現します。
+
+### データ構造
+
+```rust
+pub struct Function {
+    pub params: Vec<(String, DType)>, // 引数リスト: (変数名, 型)
+    pub return_type: DType,            // 返り値の型
+    pub body: Box<AstNode>,            // 関数本体（通常はBlockノード、引数を含むスコープを持つ）
+}
+```
+
+### 主要メソッド
+
+#### 関数の作成
+
+```rust
+let params = vec![
+    ("a".to_string(), DType::F32),
+    ("b".to_string(), DType::F32),
+];
+let return_type = DType::F32;
+let body = vec![
+    AstNode::Return {
+        value: Box::new(var("a") + var("b")),
+    }
+];
+
+let func = Function::new(params, return_type, body)?;
+```
+
+`Function::new()`は自動的にスコープを作成し、全てのパラメータを`Immutable`、`ThreadLocal`として宣言します。
+
+#### 関数本体の検証
+
+```rust
+// 関数本体がスコープ内で有効かチェック
+func.check_body()?;
+```
+
+#### 返り値の型推論
+
+```rust
+// Return文から返り値の型を推論
+let inferred_type = func.infer_return_type();
+```
+
+## Program - プログラム全体
+
+`Program`構造体はプログラム全体の構造を管理します。
+
+### データ構造
+
+```rust
+pub struct Program {
+    pub functions: HashMap<String, Function>, // 関数定義の集合
+    pub entry_point: String,                   // エントリーポイントの関数名
+}
+```
+
+### 主要メソッド
+
+#### プログラムの作成
+
+```rust
+let mut program = Program::new("main".to_string());
+```
+
+#### 関数の追加
+
+```rust
+let func = Function::new(params, return_type, body)?;
+program.add_function("main".to_string(), func)?;
+```
+
+#### 関数の取得
+
+```rust
+if let Some(func) = program.get_function("main") {
+    // 関数を使用
+}
+
+// エントリーポイントの取得
+if let Some(entry) = program.get_entry() {
+    // エントリーポイントを使用
+}
+```
+
+#### プログラムの検証
+
+```rust
+// エントリーポイントの存在と全関数本体を検証
+program.validate()?;
+```
+
+`validate()`は以下をチェックします：
+- エントリーポイント関数が存在するか
+- 全ての関数本体がスコープ内で有効か
+
+### 使用例
+
+```rust
+use harp::ast::*;
+use harp::ast::helper::*;
+
+let mut program = Program::new("main".to_string());
+
+// helper関数: double(x) = x * 2
+let double_func = Function::new(
+    vec![("x".to_string(), DType::Isize)],
+    DType::Isize,
+    vec![AstNode::Return {
+        value: Box::new(var("x") * AstNode::Const(2isize.into())),
+    }],
+)?;
+program.add_function("double".to_string(), double_func)?;
+
+// main関数: Call double(5)
+let main_func = Function::new(
+    vec![],
+    DType::Isize,
+    vec![
+        AstNode::Call {
+            name: "double".to_string(),
+            args: vec![AstNode::Const(5isize.into())],
+        }
+    ],
+)?;
+program.add_function("main".to_string(), main_func)?;
+
+// プログラム全体の検証
+program.validate()?;
+```
+
+## Call - 関数呼び出し
+
+`Call`ノードは関数呼び出しを表現します。
+
+### データ構造
+
+```rust
+Call {
+    name: String,        // 関数名
+    args: Vec<AstNode>,  // 引数リスト
+}
+```
+
+### 使用例
+
+```rust
+// add(x, y)を呼び出し
+let call = AstNode::Call {
+    name: "add".to_string(),
+    args: vec![var("x"), var("y")],
+};
+```
+
+### スコープチェック
+
+`check_scope()`は引数のスコープチェックのみを行います。関数名の存在確認は`Program::validate()`で行います。
+
+## Return - 返り値
+
+`Return`ノードは関数からの返り値を表現します。
+
+### データ構造
+
+```rust
+Return {
+    value: Box<AstNode>, // 返す値
+}
+```
+
+### 使用例
+
+```rust
+// 計算結果を返す
+let ret = AstNode::Return {
+    value: Box::new(var("result")),
+};
+```
+
+### 型推論
+
+`Return`の型は、返す値の型と同じです：
+
+```rust
+let ret = AstNode::Return {
+    value: Box::new(AstNode::Const(42isize.into())),
+};
+assert_eq!(ret.infer_type(), DType::Isize);
+```
+
+## 設計思想
+
+### インライン展開を前提とした設計
+
+関数呼び出しは最終的にインライン展開されることを前提としています。これにより：
+
+- **GPU互換性**: GPUカーネルでは関数呼び出しコストを避けるため、インライン展開が一般的
+- **最適化の余地**: 最適化パスでインライン展開を行うことで、より高度な最適化が可能
+- **シンプルな実装**: スタック操作やコールフレームの管理が不要
+
+### 静的型チェック
+
+- 関数のパラメータと返り値は明示的に型を持つ
+- `Program::validate()`で全体の整合性をチェック
+- スコープシステムと統合され、変数の型安全性も保証
+
+### 今後の拡張性
+
+現在は基本的な関数機能のみを実装していますが、以下の拡張が可能です：
+
+- 関数呼び出しの存在チェック（`validate()`で実装予定）
+- 関数間の型チェック
+- 再帰関数のサポート（必要に応じて）
+- 高階関数やクロージャ（必要に応じて）
 
 ## テスト
 
@@ -780,10 +1065,12 @@ cargo test --lib ast
   - `Assign`による変数への代入
 - [x] **制御構文**: ループ構造の追加
   - `Range` - 範囲ベースのループ（スコープサポート付き）
-- [ ] **関数と呼び出し**: 関数定義と呼び出しのサポート
-  - 関数定義ノード
-  - 関数呼び出しノード
-  - 引数の受け渡し
+- [x] **関数と呼び出し**: 関数定義と呼び出しのサポート
+  - `Function`構造体 - 関数定義（パラメータ、返り値、本体、スコープ）
+  - `Program`構造体 - プログラム全体の管理（関数の集合、エントリーポイント）
+  - `Call`ノード - 関数呼び出し
+  - `Return`ノード - 返り値
+  - インライン展開を前提とした設計
 - [x] スコープの概念
   - 変数の読み取り専用/書き込み可能（`Mutability`）
   - 並列アクセスの安全性チェック（`AccessRegion`）

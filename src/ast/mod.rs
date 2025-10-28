@@ -4,6 +4,8 @@ pub mod ops;
 pub mod helper;
 pub mod pat;
 
+use std::collections::HashMap;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum AstNode {
     // Pattern matching wildcard - パターンマッチング用ワイルドカード
@@ -22,7 +24,6 @@ pub enum AstNode {
     Exp2(Box<AstNode>),
     Sin(Box<AstNode>),
     Cast(Box<AstNode>, DType),
-    CallFunction,
 
     // Variables - 変数
     Var(String),
@@ -45,25 +46,165 @@ pub enum AstNode {
         value: Box<AstNode>, // 代入する値
     },
 
-    // Control flow - 制御構文
-    Range {
-        var: String,          // ループ変数名
-        start: Box<AstNode>,  // 開始値
-        step: Box<AstNode>,   // ステップ
-        stop: Box<AstNode>,   // 終了値
-        body: Vec<AstNode>,   // ループ本体
-        scope: Box<Scope>,    // ループ内のスコープ
+    // Block - 文のブロックとスコープ
+    Block {
+        statements: Vec<AstNode>, // 文のリスト
+        scope: Box<Scope>,        // ブロックのスコープ
     },
 
-    // TODO: 関数と呼び出し
-    Program {},
+    // Control flow - 制御構文
+    Range {
+        var: String,         // ループ変数名
+        start: Box<AstNode>, // 開始値
+        step: Box<AstNode>,  // ステップ
+        stop: Box<AstNode>,  // 終了値
+        body: Box<AstNode>,  // ループ本体（Blockノード）
+    },
 
-    Function {},
+    // Function call - 関数呼び出し
+    Call {
+        name: String,       // 関数名
+        args: Vec<AstNode>, // 引数リスト
+    },
+
+    // Return statement - 返り値
+    Return {
+        value: Box<AstNode>, // 返す値
+    },
+}
+
+/// 関数定義
+#[derive(Clone, Debug, PartialEq)]
+pub struct Function {
+    pub params: Vec<(String, DType)>, // 引数リスト: (変数名, 型)
+    pub return_type: DType,           // 返り値の型
+    pub body: Box<AstNode>,           // 関数本体（Blockノード）
+}
+
+/// プログラム全体の構造
+#[derive(Clone, Debug, PartialEq)]
+pub struct Program {
+    pub functions: HashMap<String, Function>, // 関数定義の集合
+    pub entry_point: String,                  // エントリーポイントの関数名
+}
+
+impl Function {
+    /// Create a new function with parameters and return type
+    pub fn new(
+        params: Vec<(String, DType)>,
+        return_type: DType,
+        body_statements: Vec<AstNode>,
+    ) -> Result<Self, String> {
+        // Create scope with parameters declared
+        let mut scope = Scope::new();
+        for (param_name, param_type) in &params {
+            scope.declare(
+                param_name.clone(),
+                param_type.clone(),
+                Mutability::Immutable, // パラメータは基本的にimmutable
+                AccessRegion::ThreadLocal,
+            )?;
+        }
+
+        // Create Block node with the body statements
+        let body = Box::new(AstNode::Block {
+            statements: body_statements,
+            scope: Box::new(scope.clone()),
+        });
+
+        Ok(Function {
+            params,
+            return_type,
+            body,
+        })
+    }
+
+    /// Check if the function body is valid within its scope
+    pub fn check_body(&self) -> Result<(), String> {
+        // bodyはBlockノードであるべき
+        if let AstNode::Block { scope, .. } = self.body.as_ref() {
+            self.body.check_scope(scope)?;
+        } else {
+            return Err("Function body must be a Block node".to_string());
+        }
+        Ok(())
+    }
+
+    /// Infer the return type from the function body
+    /// Looks for Return statements and checks consistency
+    pub fn infer_return_type(&self) -> DType {
+        if let AstNode::Block { statements, .. } = self.body.as_ref() {
+            for node in statements {
+                if let AstNode::Return { value } = node {
+                    return value.infer_type();
+                }
+            }
+        }
+        // If no explicit return, return unit type
+        DType::Tuple(vec![])
+    }
+}
+
+impl Program {
+    /// Create a new empty program
+    pub fn new(entry_point: String) -> Self {
+        Program {
+            functions: HashMap::new(),
+            entry_point,
+        }
+    }
+
+    /// Add a function to the program
+    pub fn add_function(&mut self, name: String, function: Function) -> Result<(), String> {
+        if self.functions.contains_key(&name) {
+            return Err(format!("Function '{}' is already defined", name));
+        }
+        self.functions.insert(name, function);
+        Ok(())
+    }
+
+    /// Get a function by name
+    pub fn get_function(&self, name: &str) -> Option<&Function> {
+        self.functions.get(name)
+    }
+
+    /// Check if a function exists
+    pub fn has_function(&self, name: &str) -> bool {
+        self.functions.contains_key(name)
+    }
+
+    /// Get the entry point function
+    pub fn get_entry(&self) -> Option<&Function> {
+        self.get_function(&self.entry_point)
+    }
+
+    /// Validate the entire program
+    /// - Check that entry point exists
+    /// - Check all function bodies
+    /// - Check that all called functions exist
+    pub fn validate(&self) -> Result<(), String> {
+        // Check entry point exists
+        if !self.has_function(&self.entry_point) {
+            return Err(format!(
+                "Entry point function '{}' not found",
+                self.entry_point
+            ));
+        }
+
+        // Check all function bodies
+        for (name, function) in &self.functions {
+            function
+                .check_body()
+                .map_err(|e| format!("Error in function '{}': {}", name, e))?;
+        }
+
+        // TODO: Check that all called functions exist (requires traversing AST)
+
+        Ok(())
+    }
 }
 
 // Scope management for variable access control
-use std::collections::HashMap;
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct Scope {
     // 変数名 -> 宣言情報
@@ -337,21 +478,18 @@ impl AstNode {
                 vec![ptr.as_ref(), offset.as_ref(), value.as_ref()]
             }
             AstNode::Assign { value, .. } => vec![value.as_ref()],
+            AstNode::Block { statements, .. } => {
+                statements.iter().map(|node| node as &AstNode).collect()
+            }
             AstNode::Range {
                 start,
                 step,
                 stop,
                 body,
                 ..
-            } => {
-                let mut children = vec![start.as_ref(), step.as_ref(), stop.as_ref()];
-                children.extend(body.iter().map(|node| node as &AstNode));
-                children
-            }
-            // 未実装のノード
-            AstNode::CallFunction | AstNode::Program {} | AstNode::Function {} => {
-                todo!("Not yet implemented")
-            }
+            } => vec![start.as_ref(), step.as_ref(), stop.as_ref(), body.as_ref()],
+            AstNode::Call { args, .. } => args.iter().map(|node| node as &AstNode).collect(),
+            AstNode::Return { value } => vec![value.as_ref()],
         }
     }
 
@@ -388,25 +526,30 @@ impl AstNode {
                 var: var.clone(),
                 value: Box::new(f(value)),
             },
+            AstNode::Block { statements, scope } => AstNode::Block {
+                statements: statements.iter().map(f).collect(),
+                scope: scope.clone(),
+            },
             AstNode::Range {
                 var,
                 start,
                 step,
                 stop,
                 body,
-                scope,
             } => AstNode::Range {
                 var: var.clone(),
                 start: Box::new(f(start)),
                 step: Box::new(f(step)),
                 stop: Box::new(f(stop)),
-                body: body.iter().map(|node| f(node)).collect(),
-                scope: scope.clone(),
+                body: Box::new(f(body)),
             },
-            // 未実装のノード
-            AstNode::CallFunction | AstNode::Program {} | AstNode::Function {} => {
-                todo!("Not yet implemented")
-            }
+            AstNode::Call { name, args } => AstNode::Call {
+                name: name.clone(),
+                args: args.iter().map(f).collect(),
+            },
+            AstNode::Return { value } => AstNode::Return {
+                value: Box::new(f(value)),
+            },
         }
     }
 
@@ -458,13 +601,22 @@ impl AstNode {
             // Assignment
             AstNode::Assign { value, .. } => value.infer_type(), // 代入された値の型を返す
 
+            // Block - 最後の文の型を返す（空ならunit型）
+            AstNode::Block { statements, .. } => statements
+                .last()
+                .map(|node| node.infer_type())
+                .unwrap_or(DType::Tuple(vec![])),
+
             // Range - ループは値を返さない（unit型）
             AstNode::Range { .. } => DType::Tuple(vec![]),
 
-            // 未実装のノード
-            AstNode::CallFunction | AstNode::Program {} | AstNode::Function {} => {
-                todo!("Not yet implemented")
-            }
+            // Call - 関数呼び出しの型は関数定義から推論する必要がある
+            // ここでは関数定義を参照できないので、Unknownを返す
+            // Programコンテキストで適切に型チェックする
+            AstNode::Call { .. } => DType::Unknown,
+
+            // Return - 返す値の型を返す
+            AstNode::Return { value } => value.infer_type(),
         }
     }
 
@@ -520,6 +672,16 @@ impl AstNode {
             }
             // 定数とワイルドカードはスコープに依存しない
             AstNode::Const(_) | AstNode::Wildcard(_) => Ok(()),
+            // Block - ブロック内の文をチェック
+            AstNode::Block {
+                statements,
+                scope: block_scope,
+            } => {
+                for node in statements {
+                    node.check_scope(block_scope)?;
+                }
+                Ok(())
+            }
             // Range - ループ
             AstNode::Range {
                 var,
@@ -527,25 +689,36 @@ impl AstNode {
                 step,
                 stop,
                 body,
-                scope: inner_scope,
             } => {
                 // start, step, stopを外側のスコープでチェック
                 start.check_scope(scope)?;
                 step.check_scope(scope)?;
                 stop.check_scope(scope)?;
 
-                // ループ変数が宣言されているかチェック
-                inner_scope.check_read(var)?;
+                // bodyはBlockノードであるべきで、その中でループ変数がチェックされる
+                body.check_scope(scope)?;
 
-                // body内の各文をループスコープでチェック
-                for node in body {
-                    node.check_scope(inner_scope)?;
+                // bodyがBlockの場合、ループ変数がそのスコープに宣言されているかチェック
+                if let AstNode::Block {
+                    scope: inner_scope, ..
+                } = body.as_ref()
+                {
+                    inner_scope.check_read(var)?;
+                }
+
+                Ok(())
+            }
+            // Call - 引数のスコープチェック（関数名の存在確認はProgramレベルで行う）
+            AstNode::Call { args, .. } => {
+                for arg in args {
+                    arg.check_scope(scope)?;
                 }
                 Ok(())
             }
-            // 未実装のノード
-            AstNode::CallFunction | AstNode::Program {} | AstNode::Function {} => {
-                todo!("Scope check not yet implemented for this node type")
+            // Return - 返す値のスコープチェック
+            AstNode::Return { value } => {
+                value.check_scope(scope)?;
+                Ok(())
             }
         }
     }
@@ -1352,8 +1525,10 @@ mod tests {
             start: Box::new(AstNode::Const(0usize.into())),
             step: Box::new(AstNode::Const(1usize.into())),
             stop: Box::new(AstNode::Const(10usize.into())),
-            body: vec![],
-            scope: Box::new(scope),
+            body: Box::new(AstNode::Block {
+                statements: vec![],
+                scope: Box::new(scope),
+            }),
         };
 
         // Rangeはunit型を返す
@@ -1377,13 +1552,15 @@ mod tests {
             start: Box::new(AstNode::Const(0usize.into())),
             step: Box::new(AstNode::Const(1usize.into())),
             stop: Box::new(AstNode::Const(10usize.into())),
-            body: vec![AstNode::Const(1.0f32.into()), AstNode::Const(2.0f32.into())],
-            scope: Box::new(scope),
+            body: Box::new(AstNode::Block {
+                statements: vec![AstNode::Const(1.0f32.into()), AstNode::Const(2.0f32.into())],
+                scope: Box::new(scope),
+            }),
         };
 
         let children = range.children();
-        // start, step, stop + body の2つ = 5個
-        assert_eq!(children.len(), 5);
+        // start, step, stop, body = 4個
+        assert_eq!(children.len(), 4);
     }
 
     #[test]
@@ -1433,19 +1610,21 @@ mod tests {
             start: Box::new(AstNode::Const(0usize.into())),
             step: Box::new(AstNode::Const(1usize.into())),
             stop: Box::new(AstNode::Var("N".to_string())),
-            body: vec![AstNode::Store {
-                ptr: Box::new(AstNode::Var("output".to_string())),
-                offset: Box::new(AstNode::Var("i".to_string())),
-                value: Box::new(AstNode::Mul(
-                    Box::new(AstNode::Load {
-                        ptr: Box::new(AstNode::Var("input".to_string())),
-                        offset: Box::new(AstNode::Var("i".to_string())),
-                        count: 1,
-                    }),
-                    Box::new(AstNode::Const(2.0f32.into())),
-                )),
-            }],
-            scope: Box::new(loop_scope),
+            body: Box::new(AstNode::Block {
+                statements: vec![AstNode::Store {
+                    ptr: Box::new(AstNode::Var("output".to_string())),
+                    offset: Box::new(AstNode::Var("i".to_string())),
+                    value: Box::new(AstNode::Mul(
+                        Box::new(AstNode::Load {
+                            ptr: Box::new(AstNode::Var("input".to_string())),
+                            offset: Box::new(AstNode::Var("i".to_string())),
+                            count: 1,
+                        }),
+                        Box::new(AstNode::Const(2.0f32.into())),
+                    )),
+                }],
+                scope: Box::new(loop_scope),
+            }),
         };
 
         // スコープチェック
@@ -1472,8 +1651,10 @@ mod tests {
             start: Box::new(AstNode::Const(0usize.into())),
             step: Box::new(AstNode::Const(1usize.into())),
             stop: Box::new(AstNode::Var("N".to_string())),
-            body: vec![AstNode::Var("i".to_string())],
-            scope: Box::new(loop_scope),
+            body: Box::new(AstNode::Block {
+                statements: vec![AstNode::Var("i".to_string())],
+                scope: Box::new(loop_scope),
+            }),
         };
 
         // ループ変数が宣言されていないのでエラー
@@ -1521,8 +1702,10 @@ mod tests {
             start: Box::new(AstNode::Const(0usize.into())),
             step: Box::new(AstNode::Const(1usize.into())),
             stop: Box::new(AstNode::Var("N".to_string())),
-            body: vec![AstNode::Var("i".to_string()), AstNode::Var("j".to_string())],
-            scope: Box::new(inner_loop_scope),
+            body: Box::new(AstNode::Block {
+                statements: vec![AstNode::Var("i".to_string()), AstNode::Var("j".to_string())],
+                scope: Box::new(inner_loop_scope),
+            }),
         };
 
         // for i in 0..N: ...
@@ -1531,11 +1714,298 @@ mod tests {
             start: Box::new(AstNode::Const(0usize.into())),
             step: Box::new(AstNode::Const(1usize.into())),
             stop: Box::new(AstNode::Var("N".to_string())),
-            body: vec![inner_range],
-            scope: Box::new(outer_loop_scope),
+            body: Box::new(AstNode::Block {
+                statements: vec![inner_range],
+                scope: Box::new(outer_loop_scope),
+            }),
         };
 
         // ネストしたループのスコープチェック
         assert!(outer_range.check_scope(&outer_scope).is_ok());
+    }
+
+    // Block tests
+    #[test]
+    fn test_block_basic() {
+        let mut scope = Scope::new();
+        scope
+            .declare(
+                "x".to_string(),
+                DType::Isize,
+                Mutability::Immutable,
+                AccessRegion::ThreadLocal,
+            )
+            .unwrap();
+
+        let block = AstNode::Block {
+            statements: vec![
+                AstNode::Var("x".to_string()),
+                AstNode::Const(42isize.into()),
+            ],
+            scope: Box::new(scope),
+        };
+
+        // Blockは最後の文の型を返す
+        assert_eq!(block.infer_type(), DType::Isize);
+    }
+
+    #[test]
+    fn test_block_children() {
+        let block = AstNode::Block {
+            statements: vec![AstNode::Const(1isize.into()), AstNode::Const(2isize.into())],
+            scope: Box::new(Scope::new()),
+        };
+
+        let children = block.children();
+        assert_eq!(children.len(), 2);
+    }
+
+    #[test]
+    fn test_block_check_scope() {
+        let mut scope = Scope::new();
+        scope
+            .declare(
+                "a".to_string(),
+                DType::F32,
+                Mutability::Immutable,
+                AccessRegion::ThreadLocal,
+            )
+            .unwrap();
+
+        let block = AstNode::Block {
+            statements: vec![var("a"), AstNode::Const(1.0f32.into())],
+            scope: Box::new(scope),
+        };
+
+        // スコープチェックが成功するはず
+        let outer_scope = Scope::new();
+        assert!(block.check_scope(&outer_scope).is_ok());
+    }
+
+    // Call tests
+    #[test]
+    fn test_call_children() {
+        let call = AstNode::Call {
+            name: "add".to_string(),
+            args: vec![AstNode::Const(1isize.into()), AstNode::Const(2isize.into())],
+        };
+
+        let children = call.children();
+        assert_eq!(children.len(), 2);
+    }
+
+    #[test]
+    fn test_call_map_children() {
+        let call = AstNode::Call {
+            name: "mul".to_string(),
+            args: vec![AstNode::Const(3isize.into()), AstNode::Const(4isize.into())],
+        };
+
+        let mapped = call.map_children(&|node| match node {
+            AstNode::Const(Literal::Isize(n)) => AstNode::Const(Literal::Isize(n * 2)),
+            _ => node.clone(),
+        });
+
+        if let AstNode::Call { name, args } = mapped {
+            assert_eq!(name, "mul");
+            assert_eq!(args.len(), 2);
+            assert_eq!(args[0], AstNode::Const(Literal::Isize(6)));
+            assert_eq!(args[1], AstNode::Const(Literal::Isize(8)));
+        } else {
+            panic!("Expected Call node");
+        }
+    }
+
+    #[test]
+    fn test_call_check_scope() {
+        let mut scope = Scope::new();
+        scope
+            .declare(
+                "x".to_string(),
+                DType::F32,
+                Mutability::Immutable,
+                AccessRegion::ThreadLocal,
+            )
+            .unwrap();
+        scope
+            .declare(
+                "y".to_string(),
+                DType::F32,
+                Mutability::Immutable,
+                AccessRegion::ThreadLocal,
+            )
+            .unwrap();
+
+        let call = AstNode::Call {
+            name: "add".to_string(),
+            args: vec![var("x"), var("y")],
+        };
+
+        assert!(call.check_scope(&scope).is_ok());
+    }
+
+    // Return tests
+    #[test]
+    fn test_return_children() {
+        let ret = AstNode::Return {
+            value: Box::new(AstNode::Const(42isize.into())),
+        };
+
+        let children = ret.children();
+        assert_eq!(children.len(), 1);
+    }
+
+    #[test]
+    fn test_return_infer_type() {
+        let ret = AstNode::Return {
+            value: Box::new(AstNode::Const(3.14f32.into())),
+        };
+
+        assert_eq!(ret.infer_type(), DType::F32);
+    }
+
+    #[test]
+    fn test_return_check_scope() {
+        let mut scope = Scope::new();
+        scope
+            .declare(
+                "result".to_string(),
+                DType::Isize,
+                Mutability::Immutable,
+                AccessRegion::ThreadLocal,
+            )
+            .unwrap();
+
+        let ret = AstNode::Return {
+            value: Box::new(var("result")),
+        };
+
+        assert!(ret.check_scope(&scope).is_ok());
+    }
+
+    // Function tests
+    #[test]
+    fn test_function_new() {
+        let params = vec![("a".to_string(), DType::F32), ("b".to_string(), DType::F32)];
+        let return_type = DType::F32;
+        let body = vec![AstNode::Return {
+            value: Box::new(var("a") + var("b")),
+        }];
+
+        let func = Function::new(params, return_type, body);
+        assert!(func.is_ok());
+
+        let func = func.unwrap();
+        assert_eq!(func.params.len(), 2);
+        assert_eq!(func.return_type, DType::F32);
+
+        // bodyはBlock nodeになっている
+        match &*func.body {
+            AstNode::Block { statements, .. } => {
+                assert_eq!(statements.len(), 1);
+            }
+            _ => panic!("Expected Block node for function body"),
+        }
+    }
+
+    #[test]
+    fn test_function_check_body() {
+        let params = vec![("x".to_string(), DType::Isize)];
+        let return_type = DType::Isize;
+        let body = vec![AstNode::Return {
+            value: Box::new(var("x") * AstNode::Const(2isize.into())),
+        }];
+
+        let func = Function::new(params, return_type, body).unwrap();
+        assert!(func.check_body().is_ok());
+    }
+
+    #[test]
+    fn test_function_infer_return_type() {
+        let params = vec![];
+        let return_type = DType::F32;
+        let body = vec![AstNode::Return {
+            value: Box::new(AstNode::Const(1.0f32.into())),
+        }];
+
+        let func = Function::new(params, return_type, body).unwrap();
+        assert_eq!(func.infer_return_type(), DType::F32);
+    }
+
+    // Program tests
+    #[test]
+    fn test_program_new() {
+        let program = Program::new("main".to_string());
+        assert_eq!(program.entry_point, "main");
+        assert_eq!(program.functions.len(), 0);
+    }
+
+    #[test]
+    fn test_program_add_function() {
+        let mut program = Program::new("main".to_string());
+
+        let func = Function::new(vec![], DType::Tuple(vec![]), vec![]).unwrap();
+        assert!(program.add_function("main".to_string(), func).is_ok());
+        assert_eq!(program.functions.len(), 1);
+    }
+
+    #[test]
+    fn test_program_get_function() {
+        let mut program = Program::new("main".to_string());
+        let func = Function::new(vec![], DType::Tuple(vec![]), vec![]).unwrap();
+        program.add_function("main".to_string(), func).unwrap();
+
+        assert!(program.get_function("main").is_some());
+        assert!(program.get_function("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_program_validate() {
+        let mut program = Program::new("main".to_string());
+
+        // エントリーポイントがない場合はエラー
+        assert!(program.validate().is_err());
+
+        // エントリーポイントを追加
+        let func = Function::new(vec![], DType::Tuple(vec![]), vec![]).unwrap();
+        program.add_function("main".to_string(), func).unwrap();
+
+        // 成功するはず
+        assert!(program.validate().is_ok());
+    }
+
+    #[test]
+    fn test_program_with_function_call() {
+        let mut program = Program::new("main".to_string());
+
+        // helper関数: double(x) = x * 2
+        let double_func = Function::new(
+            vec![("x".to_string(), DType::Isize)],
+            DType::Isize,
+            vec![AstNode::Return {
+                value: Box::new(var("x") * AstNode::Const(2isize.into())),
+            }],
+        )
+        .unwrap();
+        program
+            .add_function("double".to_string(), double_func)
+            .unwrap();
+
+        // main関数: Call double(5)
+        let main_func = Function::new(
+            vec![],
+            DType::Isize,
+            vec![AstNode::Call {
+                name: "double".to_string(),
+                args: vec![AstNode::Const(5isize.into())],
+            }],
+        )
+        .unwrap();
+        program.add_function("main".to_string(), main_func).unwrap();
+
+        // プログラムの検証
+        assert!(program.validate().is_ok());
+        assert!(program.has_function("double"));
+        assert!(program.has_function("main"));
     }
 }
