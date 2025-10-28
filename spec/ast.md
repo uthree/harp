@@ -61,6 +61,16 @@ pub enum AstNode {
         var: String,                      // 変数名
         value: Box<AstNode>,              // 代入する値
     },
+
+    // 制御構文
+    Range {
+        var: String,          // ループ変数名
+        start: Box<AstNode>,  // 開始値
+        step: Box<AstNode>,   // ステップ
+        stop: Box<AstNode>,   // 終了値
+        body: Vec<AstNode>,   // ループ本体
+        scope: Box<Scope>,    // ループ内のスコープ
+    },
 }
 ```
 
@@ -142,6 +152,7 @@ assert_eq!(expr.infer_type(), DType::F32);
 - `Load`: ポインタが指す型を返す。`count=1`ならスカラー、`count>1`なら`Vec<T, count>`型を返す
 - `Store`: `Tuple(vec![])`を返す（unit型、値を返さない）
 - `Assign`: 代入される値の型を返す
+- `Range`: 本体の最後の式の型を返す（空なら`Tuple(vec![])`）
 
 ## 演算子オーバーロード
 
@@ -430,6 +441,320 @@ let vec_of_ptr = DType::F32.to_ptr().to_vec(4);
 let ptr_to_vec = DType::F32.to_vec(8).to_ptr();
 ```
 
+## Scope - スコープと変数管理
+
+`Scope`は変数の宣言と型管理、並列アクセスの安全性チェックを行います。
+
+### データ構造
+
+```rust
+pub struct Scope {
+    variables: HashMap<String, VarDecl>,
+    parent: Option<Box<Scope>>,
+}
+
+pub struct VarDecl {
+    pub dtype: DType,
+    pub mutability: Mutability,
+    pub region: AccessRegion,
+}
+
+pub enum Mutability {
+    Immutable,  // 読み取り専用（複数スレッドから安全にアクセス可）
+    Mutable,    // 書き込み可能（単一スレッドのみ）
+}
+
+pub enum AccessRegion {
+    ThreadLocal,           // スレッドローカル（競合なし）
+    Shared,                // 共有メモリ（読み取り専用なら安全）
+    ShardedBy(Vec<usize>), // 特定の軸でシャーディング（軸番号のリスト）
+}
+```
+
+### 主要機能
+
+#### 変数の宣言
+
+```rust
+let mut scope = Scope::new();
+
+scope.declare(
+    "input".to_string(),
+    DType::F32.to_ptr(),
+    Mutability::Immutable,
+    AccessRegion::Shared,
+).unwrap();
+```
+
+#### 読み取り・書き込みチェック
+
+```rust
+// 読み取り可能かチェック
+scope.check_read("input")?;
+
+// 書き込み可能かチェック（mutabilityと型をチェック）
+scope.check_write("output", &DType::F32)?;
+```
+
+#### 並列アクセスの安全性チェック
+
+```rust
+// 2つの変数が並列にアクセス可能かチェック
+if scope.can_access_parallel("input", "output") {
+    // 並列実行可能
+}
+```
+
+**並列アクセス可能な条件：**
+- 両方が`Immutable`
+- 両方が`ThreadLocal`
+- 異なる軸で`ShardedBy`されている
+
+#### ASTのスコープチェック
+
+```rust
+let ast = store(
+    var("output"),
+    var("i"),
+    load(var("input"), var("i")) * AstNode::Const(2.0f32.into())
+);
+
+// ASTがスコープ内で有効かチェック
+ast.check_scope(&scope)?;
+```
+
+### 使用例
+
+```rust
+use harp::ast::*;
+use harp::ast::helper::*;
+
+// スコープを作成
+let mut scope = Scope::new();
+
+// 入力バッファ（読み取り専用、共有）
+scope.declare(
+    "input".to_string(),
+    DType::F32.to_ptr(),
+    Mutability::Immutable,
+    AccessRegion::Shared,
+).unwrap();
+
+// 出力バッファ（書き込み可能、軸0でシャーディング）
+scope.declare(
+    "output".to_string(),
+    DType::F32.to_ptr(),
+    Mutability::Mutable,
+    AccessRegion::ShardedBy(vec![0]),
+).unwrap();
+
+// インデックス（読み取り専用、スレッドローカル）
+scope.declare(
+    "i".to_string(),
+    DType::Usize,
+    Mutability::Immutable,
+    AccessRegion::ThreadLocal,
+).unwrap();
+
+// AST構築: output[i] = input[i] * 2.0
+let ast = store(
+    var("output"),
+    var("i"),
+    load(var("input"), var("i")) * AstNode::Const(2.0f32.into())
+);
+
+// スコープチェック
+ast.check_scope(&scope).unwrap();
+
+// 並列性チェック
+assert!(scope.can_access_parallel("input", "output"));  // OK
+```
+
+### ネストしたスコープ
+
+```rust
+let mut parent_scope = Scope::new();
+parent_scope.declare(
+    "global_var".to_string(),
+    DType::F32,
+    Mutability::Immutable,
+    AccessRegion::Shared,
+).unwrap();
+
+let child_scope = Scope::with_parent(parent_scope);
+
+// 子スコープから親スコープの変数にアクセス可能
+assert!(child_scope.check_read("global_var").is_ok());
+```
+
+## Range - ループ構造
+
+`Range`ノードはforループのような範囲に基づくイテレーションを表現します。
+
+### データ構造
+
+```rust
+Range {
+    var: String,          // ループ変数名
+    start: Box<AstNode>,  // 開始値（Usize型）
+    step: Box<AstNode>,   // ステップ（Usize型）
+    stop: Box<AstNode>,   // 終了値（Usize型）
+    body: Vec<AstNode>,   // ループ本体（文のリスト）
+    scope: Box<Scope>,    // ループ内のスコープ
+}
+```
+
+### 意味論
+
+- ループ変数`var`は`start`から`stop-1`まで`step`ずつ増加します
+- `start`, `step`, `stop`はループ開始前の外側のスコープで評価されます
+- ループ本体`body`は各イテレーションで順次実行されます
+- `scope`が提供されている場合、ループ変数と本体内の変数はそのスコープで管理されます
+
+### スコープの扱い
+
+- `scope`は必須パラメータです
+- ループ変数`var`はスコープに宣言されている必要があります
+- ループ本体`body`内の文はこのスコープでチェックされます
+- 通常、ループスコープは外側のスコープを親として持ち、外側の変数にもアクセスできます
+
+### 使用例
+
+#### 基本的なループ
+
+```rust
+use harp::ast::*;
+use harp::ast::helper::*;
+
+// ループ変数のスコープを作成
+let mut loop_scope = Scope::new();
+loop_scope.declare(
+    "i".to_string(),
+    DType::Usize,
+    Mutability::Immutable,
+    AccessRegion::ThreadLocal,
+).unwrap();
+
+// for i in 0..10 step 1 { ... }
+let loop_node = AstNode::Range {
+    var: "i".to_string(),
+    start: Box::new(AstNode::Const(0usize.into())),
+    step: Box::new(AstNode::Const(1usize.into())),
+    stop: Box::new(AstNode::Const(10usize.into())),
+    body: vec![
+        // ループ本体の処理
+    ],
+    scope: Box::new(loop_scope),
+};
+```
+
+#### メモリ操作を含むループ
+
+```rust
+// 外側のスコープ（入出力バッファ）
+let mut outer_scope = Scope::new();
+outer_scope.declare(
+    "input".to_string(),
+    DType::F32.to_ptr(),
+    Mutability::Immutable,
+    AccessRegion::Shared,
+).unwrap();
+outer_scope.declare(
+    "output".to_string(),
+    DType::F32.to_ptr(),
+    Mutability::Mutable,
+    AccessRegion::ShardedBy(vec![0]),
+).unwrap();
+
+// ループ変数のスコープ
+let mut loop_scope = Scope::with_parent(outer_scope.clone());
+loop_scope.declare(
+    "i".to_string(),
+    DType::Usize,
+    Mutability::Immutable,
+    AccessRegion::ThreadLocal,
+).unwrap();
+
+// for i in 0..n { output[i] = input[i] * 2.0 }
+let loop_node = AstNode::Range {
+    var: "i".to_string(),
+    start: Box::new(AstNode::Const(0usize.into())),
+    step: Box::new(AstNode::Const(1usize.into())),
+    stop: Box::new(var("n")),
+    body: vec![
+        store(
+            var("output"),
+            var("i"),
+            load(var("input"), var("i")) * AstNode::Const(2.0f32.into())
+        ),
+    ],
+    scope: Box::new(loop_scope),
+};
+```
+
+#### ネストしたループ
+
+```rust
+// 外側のループのスコープ
+let mut outer_loop_scope = Scope::new();
+outer_loop_scope.declare(
+    "i".to_string(),
+    DType::Usize,
+    Mutability::Immutable,
+    AccessRegion::ThreadLocal,
+).unwrap();
+
+// 内側のループのスコープ
+let mut inner_loop_scope = Scope::with_parent(outer_loop_scope.clone());
+inner_loop_scope.declare(
+    "j".to_string(),
+    DType::Usize,
+    Mutability::Immutable,
+    AccessRegion::ThreadLocal,
+).unwrap();
+
+// for i in 0..10 { for j in 0..10 { ... } }
+let nested_loop = AstNode::Range {
+    var: "i".to_string(),
+    start: Box::new(AstNode::Const(0usize.into())),
+    step: Box::new(AstNode::Const(1usize.into())),
+    stop: Box::new(AstNode::Const(10usize.into())),
+    body: vec![
+        AstNode::Range {
+            var: "j".to_string(),
+            start: Box::new(AstNode::Const(0usize.into())),
+            step: Box::new(AstNode::Const(1usize.into())),
+            stop: Box::new(AstNode::Const(10usize.into())),
+            body: vec![
+                // 内側のループ本体
+            ],
+            scope: Box::new(inner_loop_scope),
+        },
+    ],
+    scope: Box::new(outer_loop_scope),
+};
+```
+
+### スコープチェック
+
+`check_scope()`の動作:
+
+1. `start`, `step`, `stop`を外側のスコープでチェック
+2. ループ変数`var`がループスコープに宣言されているかチェック
+3. 本体内の各文をループスコープでチェック
+
+```rust
+// スコープチェックの実行
+loop_node.check_scope(&outer_scope)?;
+```
+
+スコープが必須になったことで、以下のメリットがあります：
+
+- **型安全性の向上**: ループは常にスコープを持つことが保証される
+- **コードの単純化**: check_scope()の実装から条件分岐が削除され、より読みやすくなった
+- **明示的な設計**: ループ変数の管理が明確になり、バグを防ぎやすくなった
+
+
 ## テスト
 
 各モジュールには包括的なテストが含まれています：
@@ -453,15 +778,17 @@ cargo test --lib ast
   - メモリアドレスへの書き込み
   - `Var`による変数参照
   - `Assign`による変数への代入
-- [ ] **制御構文**: ループ構造の追加
-  - `Range`
+- [x] **制御構文**: ループ構造の追加
+  - `Range` - 範囲ベースのループ（スコープサポート付き）
 - [ ] **関数と呼び出し**: 関数定義と呼び出しのサポート
   - 関数定義ノード
   - 関数呼び出しノード
   - 引数の受け渡し
-- [ ] スコープの概念
-  - 変数の読み取り専用/書き込み可能
+- [x] スコープの概念
+  - 変数の読み取り専用/書き込み可能（`Mutability`）
+  - 並列アクセスの安全性チェック（`AccessRegion`）
   - 型環境による変数の型管理
+  - ネストしたスコープのサポート
 - [ ] ASTのパターンマッチングによる置き換え
   - AstRewriteRule
     - 初期化: Rcで自身を初期化して返す。

@@ -44,12 +44,15 @@ pub enum AstNode {
         var: String,         // 変数名
         value: Box<AstNode>, // 代入する値
     },
-    // TODO: 制御構文
+
+    // Control flow - 制御構文
     Range {
-        start: Box<AstNode>,
-        step: Box<AstNode>,
-        stop: Box<AstNode>,
-        body: Vec<AstNode>,
+        var: String,          // ループ変数名
+        start: Box<AstNode>,  // 開始値
+        step: Box<AstNode>,   // ステップ
+        stop: Box<AstNode>,   // 終了値
+        body: Vec<AstNode>,   // ループ本体
+        scope: Box<Scope>,    // ループ内のスコープ
     },
 
     // TODO: 関数と呼び出し
@@ -58,7 +61,154 @@ pub enum AstNode {
     Function {},
 }
 
-pub struct Scope {}
+// Scope management for variable access control
+use std::collections::HashMap;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Scope {
+    // 変数名 -> 宣言情報
+    variables: HashMap<String, VarDecl>,
+    parent: Option<Box<Scope>>,
+}
+
+impl Scope {
+    /// Create a new empty scope
+    pub fn new() -> Self {
+        Scope {
+            variables: HashMap::new(),
+            parent: None,
+        }
+    }
+
+    /// Create a new scope with a parent
+    pub fn with_parent(parent: Scope) -> Self {
+        Scope {
+            variables: HashMap::new(),
+            parent: Some(Box::new(parent)),
+        }
+    }
+
+    /// Declare a variable in this scope
+    pub fn declare(
+        &mut self,
+        name: String,
+        dtype: DType,
+        mutability: Mutability,
+        region: AccessRegion,
+    ) -> Result<(), String> {
+        if self.variables.contains_key(&name) {
+            return Err(format!(
+                "Variable '{}' already declared in this scope",
+                name
+            ));
+        }
+        self.variables.insert(
+            name,
+            VarDecl {
+                dtype,
+                mutability,
+                region,
+            },
+        );
+        Ok(())
+    }
+
+    /// Look up a variable in this scope or parent scopes
+    fn lookup(&self, name: &str) -> Option<&VarDecl> {
+        self.variables
+            .get(name)
+            .or_else(|| self.parent.as_ref().and_then(|p| p.lookup(name)))
+    }
+
+    /// Check if a variable can be read
+    pub fn check_read(&self, name: &str) -> Result<DType, String> {
+        self.lookup(name)
+            .map(|decl| decl.dtype.clone())
+            .ok_or_else(|| format!("Undeclared variable: '{}'", name))
+    }
+
+    /// Check if a variable can be written to
+    pub fn check_write(&self, name: &str, value_type: &DType) -> Result<(), String> {
+        let decl = self
+            .lookup(name)
+            .ok_or_else(|| format!("Undeclared variable: '{}'", name))?;
+
+        // Mutability check
+        if decl.mutability == Mutability::Immutable {
+            return Err(format!("Cannot write to immutable variable: '{}'", name));
+        }
+
+        // Type check
+        if &decl.dtype != value_type {
+            return Err(format!(
+                "Type mismatch for '{}': expected {:?}, found {:?}",
+                name, decl.dtype, value_type
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Check if two variables can be accessed in parallel
+    pub fn can_access_parallel(&self, var1: &str, var2: &str) -> bool {
+        let Some(decl1) = self.lookup(var1) else {
+            return false;
+        };
+        let Some(decl2) = self.lookup(var2) else {
+            return false;
+        };
+
+        // 両方がImmutableなら常に並列OK
+        if decl1.mutability == Mutability::Immutable && decl2.mutability == Mutability::Immutable {
+            return true;
+        }
+
+        // 両方がThreadLocalなら並列OK
+        if decl1.region == AccessRegion::ThreadLocal && decl2.region == AccessRegion::ThreadLocal {
+            return true;
+        }
+
+        // ShardedByで分割されている場合
+        match (&decl1.region, &decl2.region) {
+            (AccessRegion::ShardedBy(axes1), AccessRegion::ShardedBy(axes2)) => {
+                // 異なる軸でシャーディングされていればOK
+                axes1.iter().any(|a1| axes2.iter().any(|a2| a1 != a2))
+            }
+            _ => false,
+        }
+    }
+
+    /// Get a reference to a variable declaration
+    pub fn get(&self, name: &str) -> Option<&VarDecl> {
+        self.lookup(name)
+    }
+}
+
+impl Default for Scope {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct VarDecl {
+    pub dtype: DType,
+    pub mutability: Mutability,
+    pub region: AccessRegion,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Mutability {
+    Immutable, // 読み取り専用（複数スレッドから安全にアクセス可）
+    Mutable,   // 書き込み可能（単一スレッドのみ）
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum AccessRegion {
+    ThreadLocal,           // スレッドローカル（競合なし）
+    Shared,                // 共有メモリ（読み取り専用なら安全）
+    ShardedBy(Vec<usize>), // 特定の軸でシャーディング（軸番号のリスト）
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DType {
@@ -187,11 +337,19 @@ impl AstNode {
                 vec![ptr.as_ref(), offset.as_ref(), value.as_ref()]
             }
             AstNode::Assign { value, .. } => vec![value.as_ref()],
+            AstNode::Range {
+                start,
+                step,
+                stop,
+                body,
+                ..
+            } => {
+                let mut children = vec![start.as_ref(), step.as_ref(), stop.as_ref()];
+                children.extend(body.iter().map(|node| node as &AstNode));
+                children
+            }
             // 未実装のノード
-            AstNode::CallFunction
-            | AstNode::Range { .. }
-            | AstNode::Program {}
-            | AstNode::Function {} => {
+            AstNode::CallFunction | AstNode::Program {} | AstNode::Function {} => {
                 todo!("Not yet implemented")
             }
         }
@@ -230,11 +388,23 @@ impl AstNode {
                 var: var.clone(),
                 value: Box::new(f(value)),
             },
+            AstNode::Range {
+                var,
+                start,
+                step,
+                stop,
+                body,
+                scope,
+            } => AstNode::Range {
+                var: var.clone(),
+                start: Box::new(f(start)),
+                step: Box::new(f(step)),
+                stop: Box::new(f(stop)),
+                body: body.iter().map(|node| f(node)).collect(),
+                scope: scope.clone(),
+            },
             // 未実装のノード
-            AstNode::CallFunction
-            | AstNode::Range { .. }
-            | AstNode::Program {}
-            | AstNode::Function {} => {
+            AstNode::CallFunction | AstNode::Program {} | AstNode::Function {} => {
                 todo!("Not yet implemented")
             }
         }
@@ -288,12 +458,94 @@ impl AstNode {
             // Assignment
             AstNode::Assign { value, .. } => value.infer_type(), // 代入された値の型を返す
 
+            // Range - ループは値を返さない（unit型）
+            AstNode::Range { .. } => DType::Tuple(vec![]),
+
             // 未実装のノード
-            AstNode::CallFunction
-            | AstNode::Range { .. }
-            | AstNode::Program {}
-            | AstNode::Function {} => {
+            AstNode::CallFunction | AstNode::Program {} | AstNode::Function {} => {
                 todo!("Not yet implemented")
+            }
+        }
+    }
+
+    /// Check if this AST node is valid within the given scope
+    /// This performs local checks without traversing the entire tree
+    pub fn check_scope(&self, scope: &Scope) -> Result<(), String> {
+        match self {
+            AstNode::Var(name) => {
+                // 変数が読み取り可能かチェック
+                scope.check_read(name)?;
+                Ok(())
+            }
+            AstNode::Assign { var, value } => {
+                // 値の型を推論
+                let value_type = value.infer_type();
+                // 書き込み可能かチェック
+                scope.check_write(var, &value_type)?;
+                // 値の部分も再帰的にチェック
+                value.check_scope(scope)?;
+                Ok(())
+            }
+            AstNode::Load { ptr, offset, .. } => {
+                // ポインタとオフセットをチェック
+                ptr.check_scope(scope)?;
+                offset.check_scope(scope)?;
+                Ok(())
+            }
+            AstNode::Store { ptr, offset, value } => {
+                // 全ての子ノードをチェック
+                ptr.check_scope(scope)?;
+                offset.check_scope(scope)?;
+                value.check_scope(scope)?;
+                Ok(())
+            }
+            // 二項演算・単項演算は子ノードをチェック
+            AstNode::Add(left, right)
+            | AstNode::Mul(left, right)
+            | AstNode::Max(left, right)
+            | AstNode::Rem(left, right)
+            | AstNode::Idiv(left, right) => {
+                left.check_scope(scope)?;
+                right.check_scope(scope)?;
+                Ok(())
+            }
+            AstNode::Recip(operand)
+            | AstNode::Sqrt(operand)
+            | AstNode::Log2(operand)
+            | AstNode::Exp2(operand)
+            | AstNode::Sin(operand)
+            | AstNode::Cast(operand, _) => {
+                operand.check_scope(scope)?;
+                Ok(())
+            }
+            // 定数とワイルドカードはスコープに依存しない
+            AstNode::Const(_) | AstNode::Wildcard(_) => Ok(()),
+            // Range - ループ
+            AstNode::Range {
+                var,
+                start,
+                step,
+                stop,
+                body,
+                scope: inner_scope,
+            } => {
+                // start, step, stopを外側のスコープでチェック
+                start.check_scope(scope)?;
+                step.check_scope(scope)?;
+                stop.check_scope(scope)?;
+
+                // ループ変数が宣言されているかチェック
+                inner_scope.check_read(var)?;
+
+                // body内の各文をループスコープでチェック
+                for node in body {
+                    node.check_scope(inner_scope)?;
+                }
+                Ok(())
+            }
+            // 未実装のノード
+            AstNode::CallFunction | AstNode::Program {} | AstNode::Function {} => {
+                todo!("Scope check not yet implemented for this node type")
             }
         }
     }
@@ -736,5 +988,554 @@ mod tests {
         } else {
             panic!("Expected Assign node");
         }
+    }
+
+    // Scope tests
+    #[test]
+    fn test_scope_declare() {
+        let mut scope = Scope::new();
+
+        scope
+            .declare(
+                "x".to_string(),
+                DType::F32,
+                Mutability::Immutable,
+                AccessRegion::ThreadLocal,
+            )
+            .unwrap();
+
+        assert!(scope.get("x").is_some());
+        assert_eq!(scope.get("x").unwrap().dtype, DType::F32);
+    }
+
+    #[test]
+    fn test_scope_duplicate_declare() {
+        let mut scope = Scope::new();
+
+        scope
+            .declare(
+                "x".to_string(),
+                DType::F32,
+                Mutability::Immutable,
+                AccessRegion::ThreadLocal,
+            )
+            .unwrap();
+
+        let result = scope.declare(
+            "x".to_string(),
+            DType::Isize,
+            Mutability::Mutable,
+            AccessRegion::ThreadLocal,
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_scope_check_read() {
+        let mut scope = Scope::new();
+
+        scope
+            .declare(
+                "input".to_string(),
+                DType::F32.to_ptr(),
+                Mutability::Immutable,
+                AccessRegion::Shared,
+            )
+            .unwrap();
+
+        assert!(scope.check_read("input").is_ok());
+        assert!(scope.check_read("undefined").is_err());
+    }
+
+    #[test]
+    fn test_scope_check_write_immutable() {
+        let mut scope = Scope::new();
+
+        scope
+            .declare(
+                "x".to_string(),
+                DType::F32,
+                Mutability::Immutable,
+                AccessRegion::ThreadLocal,
+            )
+            .unwrap();
+
+        let result = scope.check_write("x", &DType::F32);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("immutable"));
+    }
+
+    #[test]
+    fn test_scope_check_write_mutable() {
+        let mut scope = Scope::new();
+
+        scope
+            .declare(
+                "output".to_string(),
+                DType::F32,
+                Mutability::Mutable,
+                AccessRegion::ThreadLocal,
+            )
+            .unwrap();
+
+        assert!(scope.check_write("output", &DType::F32).is_ok());
+    }
+
+    #[test]
+    fn test_scope_check_write_type_mismatch() {
+        let mut scope = Scope::new();
+
+        scope
+            .declare(
+                "x".to_string(),
+                DType::F32,
+                Mutability::Mutable,
+                AccessRegion::ThreadLocal,
+            )
+            .unwrap();
+
+        let result = scope.check_write("x", &DType::Isize);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Type mismatch"));
+    }
+
+    #[test]
+    fn test_scope_parent_lookup() {
+        let mut parent = Scope::new();
+        parent
+            .declare(
+                "x".to_string(),
+                DType::F32,
+                Mutability::Immutable,
+                AccessRegion::Shared,
+            )
+            .unwrap();
+
+        let child = Scope::with_parent(parent);
+
+        // 親スコープの変数にアクセスできる
+        assert!(child.check_read("x").is_ok());
+    }
+
+    #[test]
+    fn test_scope_can_access_parallel_immutable() {
+        let mut scope = Scope::new();
+
+        scope
+            .declare(
+                "input1".to_string(),
+                DType::F32.to_ptr(),
+                Mutability::Immutable,
+                AccessRegion::Shared,
+            )
+            .unwrap();
+
+        scope
+            .declare(
+                "input2".to_string(),
+                DType::F32.to_ptr(),
+                Mutability::Immutable,
+                AccessRegion::Shared,
+            )
+            .unwrap();
+
+        // 両方immutableなので並列OK
+        assert!(scope.can_access_parallel("input1", "input2"));
+    }
+
+    #[test]
+    fn test_scope_can_access_parallel_thread_local() {
+        let mut scope = Scope::new();
+
+        scope
+            .declare(
+                "temp1".to_string(),
+                DType::F32,
+                Mutability::Mutable,
+                AccessRegion::ThreadLocal,
+            )
+            .unwrap();
+
+        scope
+            .declare(
+                "temp2".to_string(),
+                DType::F32,
+                Mutability::Mutable,
+                AccessRegion::ThreadLocal,
+            )
+            .unwrap();
+
+        // 両方ThreadLocalなので並列OK
+        assert!(scope.can_access_parallel("temp1", "temp2"));
+    }
+
+    #[test]
+    fn test_scope_can_access_parallel_sharded() {
+        let mut scope = Scope::new();
+
+        scope
+            .declare(
+                "output1".to_string(),
+                DType::F32.to_ptr(),
+                Mutability::Mutable,
+                AccessRegion::ShardedBy(vec![0]),
+            )
+            .unwrap();
+
+        scope
+            .declare(
+                "output2".to_string(),
+                DType::F32.to_ptr(),
+                Mutability::Mutable,
+                AccessRegion::ShardedBy(vec![1]),
+            )
+            .unwrap();
+
+        // 異なる軸でシャーディングされているので並列OK
+        assert!(scope.can_access_parallel("output1", "output2"));
+    }
+
+    #[test]
+    fn test_scope_cannot_access_parallel_mutable_shared() {
+        let mut scope = Scope::new();
+
+        scope
+            .declare(
+                "output".to_string(),
+                DType::F32.to_ptr(),
+                Mutability::Mutable,
+                AccessRegion::Shared,
+            )
+            .unwrap();
+
+        scope
+            .declare(
+                "input".to_string(),
+                DType::F32.to_ptr(),
+                Mutability::Immutable,
+                AccessRegion::Shared,
+            )
+            .unwrap();
+
+        // 片方がMutableでSharedなので並列NG
+        assert!(!scope.can_access_parallel("output", "input"));
+    }
+
+    #[test]
+    fn test_check_scope_var() {
+        let mut scope = Scope::new();
+
+        scope
+            .declare(
+                "x".to_string(),
+                DType::F32,
+                Mutability::Immutable,
+                AccessRegion::ThreadLocal,
+            )
+            .unwrap();
+
+        let var_node = AstNode::Var("x".to_string());
+        assert!(var_node.check_scope(&scope).is_ok());
+
+        let undefined_var = AstNode::Var("undefined".to_string());
+        assert!(undefined_var.check_scope(&scope).is_err());
+    }
+
+    #[test]
+    fn test_check_scope_assign() {
+        let mut scope = Scope::new();
+
+        scope
+            .declare(
+                "x".to_string(),
+                DType::F32,
+                Mutability::Mutable,
+                AccessRegion::ThreadLocal,
+            )
+            .unwrap();
+
+        let assign_node = AstNode::Assign {
+            var: "x".to_string(),
+            value: Box::new(AstNode::Const(3.14f32.into())),
+        };
+
+        assert!(assign_node.check_scope(&scope).is_ok());
+    }
+
+    #[test]
+    fn test_check_scope_assign_immutable() {
+        let mut scope = Scope::new();
+
+        scope
+            .declare(
+                "x".to_string(),
+                DType::F32,
+                Mutability::Immutable,
+                AccessRegion::ThreadLocal,
+            )
+            .unwrap();
+
+        let assign_node = AstNode::Assign {
+            var: "x".to_string(),
+            value: Box::new(AstNode::Const(3.14f32.into())),
+        };
+
+        let result = assign_node.check_scope(&scope);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("immutable"));
+    }
+
+    #[test]
+    fn test_check_scope_complex_expression() {
+        let mut scope = Scope::new();
+
+        scope
+            .declare(
+                "input".to_string(),
+                DType::F32.to_ptr(),
+                Mutability::Immutable,
+                AccessRegion::Shared,
+            )
+            .unwrap();
+
+        scope
+            .declare(
+                "output".to_string(),
+                DType::F32.to_ptr(),
+                Mutability::Mutable,
+                AccessRegion::ShardedBy(vec![0]),
+            )
+            .unwrap();
+
+        scope
+            .declare(
+                "i".to_string(),
+                DType::Usize,
+                Mutability::Immutable,
+                AccessRegion::ThreadLocal,
+            )
+            .unwrap();
+
+        // output[i] = input[i] * 2.0
+        let expr = AstNode::Store {
+            ptr: Box::new(AstNode::Var("output".to_string())),
+            offset: Box::new(AstNode::Var("i".to_string())),
+            value: Box::new(AstNode::Mul(
+                Box::new(AstNode::Load {
+                    ptr: Box::new(AstNode::Var("input".to_string())),
+                    offset: Box::new(AstNode::Var("i".to_string())),
+                    count: 1,
+                }),
+                Box::new(AstNode::Const(2.0f32.into())),
+            )),
+        };
+
+        assert!(expr.check_scope(&scope).is_ok());
+    }
+
+    // Range tests
+    #[test]
+    fn test_range_basic() {
+        let mut scope = Scope::new();
+        scope
+            .declare(
+                "i".to_string(),
+                DType::Usize,
+                Mutability::Immutable,
+                AccessRegion::ThreadLocal,
+            )
+            .unwrap();
+
+        let range = AstNode::Range {
+            var: "i".to_string(),
+            start: Box::new(AstNode::Const(0usize.into())),
+            step: Box::new(AstNode::Const(1usize.into())),
+            stop: Box::new(AstNode::Const(10usize.into())),
+            body: vec![],
+            scope: Box::new(scope),
+        };
+
+        // Rangeはunit型を返す
+        assert_eq!(range.infer_type(), DType::Tuple(vec![]));
+    }
+
+    #[test]
+    fn test_range_children() {
+        let mut scope = Scope::new();
+        scope
+            .declare(
+                "i".to_string(),
+                DType::Usize,
+                Mutability::Immutable,
+                AccessRegion::ThreadLocal,
+            )
+            .unwrap();
+
+        let range = AstNode::Range {
+            var: "i".to_string(),
+            start: Box::new(AstNode::Const(0usize.into())),
+            step: Box::new(AstNode::Const(1usize.into())),
+            stop: Box::new(AstNode::Const(10usize.into())),
+            body: vec![AstNode::Const(1.0f32.into()), AstNode::Const(2.0f32.into())],
+            scope: Box::new(scope),
+        };
+
+        let children = range.children();
+        // start, step, stop + body の2つ = 5個
+        assert_eq!(children.len(), 5);
+    }
+
+    #[test]
+    fn test_range_with_scope() {
+        let mut outer_scope = Scope::new();
+        outer_scope
+            .declare(
+                "N".to_string(),
+                DType::Usize,
+                Mutability::Immutable,
+                AccessRegion::Shared,
+            )
+            .unwrap();
+
+        outer_scope
+            .declare(
+                "input".to_string(),
+                DType::F32.to_ptr(),
+                Mutability::Immutable,
+                AccessRegion::Shared,
+            )
+            .unwrap();
+
+        outer_scope
+            .declare(
+                "output".to_string(),
+                DType::F32.to_ptr(),
+                Mutability::Mutable,
+                AccessRegion::ShardedBy(vec![0]),
+            )
+            .unwrap();
+
+        // ループ内のスコープ
+        let mut loop_scope = Scope::with_parent(outer_scope.clone());
+        loop_scope
+            .declare(
+                "i".to_string(),
+                DType::Usize,
+                Mutability::Immutable,
+                AccessRegion::ThreadLocal,
+            )
+            .unwrap();
+
+        // for i in 0..N: output[i] = input[i] * 2
+        let range = AstNode::Range {
+            var: "i".to_string(),
+            start: Box::new(AstNode::Const(0usize.into())),
+            step: Box::new(AstNode::Const(1usize.into())),
+            stop: Box::new(AstNode::Var("N".to_string())),
+            body: vec![AstNode::Store {
+                ptr: Box::new(AstNode::Var("output".to_string())),
+                offset: Box::new(AstNode::Var("i".to_string())),
+                value: Box::new(AstNode::Mul(
+                    Box::new(AstNode::Load {
+                        ptr: Box::new(AstNode::Var("input".to_string())),
+                        offset: Box::new(AstNode::Var("i".to_string())),
+                        count: 1,
+                    }),
+                    Box::new(AstNode::Const(2.0f32.into())),
+                )),
+            }],
+            scope: Box::new(loop_scope),
+        };
+
+        // スコープチェック
+        assert!(range.check_scope(&outer_scope).is_ok());
+    }
+
+    #[test]
+    fn test_range_scope_check_undefined_loop_var() {
+        let mut outer_scope = Scope::new();
+        outer_scope
+            .declare(
+                "N".to_string(),
+                DType::Usize,
+                Mutability::Immutable,
+                AccessRegion::Shared,
+            )
+            .unwrap();
+
+        // ループスコープにループ変数を宣言しない
+        let loop_scope = Scope::with_parent(outer_scope.clone());
+
+        let range = AstNode::Range {
+            var: "i".to_string(),
+            start: Box::new(AstNode::Const(0usize.into())),
+            step: Box::new(AstNode::Const(1usize.into())),
+            stop: Box::new(AstNode::Var("N".to_string())),
+            body: vec![AstNode::Var("i".to_string())],
+            scope: Box::new(loop_scope),
+        };
+
+        // ループ変数が宣言されていないのでエラー
+        let result = range.check_scope(&outer_scope);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_range_nested() {
+        let mut outer_scope = Scope::new();
+        outer_scope
+            .declare(
+                "N".to_string(),
+                DType::Usize,
+                Mutability::Immutable,
+                AccessRegion::Shared,
+            )
+            .unwrap();
+
+        // 外側のループスコープ
+        let mut outer_loop_scope = Scope::with_parent(outer_scope.clone());
+        outer_loop_scope
+            .declare(
+                "i".to_string(),
+                DType::Usize,
+                Mutability::Immutable,
+                AccessRegion::ThreadLocal,
+            )
+            .unwrap();
+
+        // 内側のループスコープ
+        let mut inner_loop_scope = Scope::with_parent(outer_loop_scope.clone());
+        inner_loop_scope
+            .declare(
+                "j".to_string(),
+                DType::Usize,
+                Mutability::Immutable,
+                AccessRegion::ThreadLocal,
+            )
+            .unwrap();
+
+        // for j in 0..N: use i and j
+        let inner_range = AstNode::Range {
+            var: "j".to_string(),
+            start: Box::new(AstNode::Const(0usize.into())),
+            step: Box::new(AstNode::Const(1usize.into())),
+            stop: Box::new(AstNode::Var("N".to_string())),
+            body: vec![AstNode::Var("i".to_string()), AstNode::Var("j".to_string())],
+            scope: Box::new(inner_loop_scope),
+        };
+
+        // for i in 0..N: ...
+        let outer_range = AstNode::Range {
+            var: "i".to_string(),
+            start: Box::new(AstNode::Const(0usize.into())),
+            step: Box::new(AstNode::Const(1usize.into())),
+            stop: Box::new(AstNode::Var("N".to_string())),
+            body: vec![inner_range],
+            scope: Box::new(outer_loop_scope),
+        };
+
+        // ネストしたループのスコープチェック
+        assert!(outer_range.check_scope(&outer_scope).is_ok());
     }
 }
