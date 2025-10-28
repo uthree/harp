@@ -76,9 +76,9 @@ pub enum AstNode {
 /// 関数定義
 #[derive(Clone, Debug, PartialEq)]
 pub struct Function {
-    pub params: Vec<(String, DType)>, // 引数リスト: (変数名, 型)
-    pub return_type: DType,           // 返り値の型
-    pub body: Box<AstNode>,           // 関数本体（Blockノード）
+    pub params: Vec<VarDecl>, // 引数リスト
+    pub return_type: DType,   // 返り値の型
+    pub body: Box<AstNode>,   // 関数本体（Blockノード）
 }
 
 /// プログラム全体の構造
@@ -91,18 +91,18 @@ pub struct Program {
 impl Function {
     /// Create a new function with parameters and return type
     pub fn new(
-        params: Vec<(String, DType)>,
+        params: Vec<VarDecl>,
         return_type: DType,
         body_statements: Vec<AstNode>,
     ) -> Result<Self, String> {
         // Create scope with parameters declared
         let mut scope = Scope::new();
-        for (param_name, param_type) in &params {
+        for param in &params {
             scope.declare(
-                param_name.clone(),
-                param_type.clone(),
-                Mutability::Immutable, // パラメータは基本的にimmutable
-                AccessRegion::ThreadLocal,
+                param.name.clone(),
+                param.dtype.clone(),
+                param.mutability.clone(),
+                param.region.clone(),
             )?;
         }
 
@@ -244,8 +244,9 @@ impl Scope {
             ));
         }
         self.variables.insert(
-            name,
+            name.clone(),
             VarDecl {
+                name,
                 dtype,
                 mutability,
                 region,
@@ -333,6 +334,7 @@ impl Default for Scope {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct VarDecl {
+    pub name: String,
     pub dtype: DType,
     pub mutability: Mutability,
     pub region: AccessRegion,
@@ -1886,7 +1888,20 @@ mod tests {
     // Function tests
     #[test]
     fn test_function_new() {
-        let params = vec![("a".to_string(), DType::F32), ("b".to_string(), DType::F32)];
+        let params = vec![
+            VarDecl {
+                name: "a".to_string(),
+                dtype: DType::F32,
+                mutability: Mutability::Immutable,
+                region: AccessRegion::ThreadLocal,
+            },
+            VarDecl {
+                name: "b".to_string(),
+                dtype: DType::F32,
+                mutability: Mutability::Immutable,
+                region: AccessRegion::ThreadLocal,
+            },
+        ];
         let return_type = DType::F32;
         let body = vec![AstNode::Return {
             value: Box::new(var("a") + var("b")),
@@ -1910,7 +1925,12 @@ mod tests {
 
     #[test]
     fn test_function_check_body() {
-        let params = vec![("x".to_string(), DType::Isize)];
+        let params = vec![VarDecl {
+            name: "x".to_string(),
+            dtype: DType::Isize,
+            mutability: Mutability::Immutable,
+            region: AccessRegion::ThreadLocal,
+        }];
         let return_type = DType::Isize;
         let body = vec![AstNode::Return {
             value: Box::new(var("x") * AstNode::Const(2isize.into())),
@@ -1980,7 +2000,12 @@ mod tests {
 
         // helper関数: double(x) = x * 2
         let double_func = Function::new(
-            vec![("x".to_string(), DType::Isize)],
+            vec![VarDecl {
+                name: "x".to_string(),
+                dtype: DType::Isize,
+                mutability: Mutability::Immutable,
+                region: AccessRegion::ThreadLocal,
+            }],
             DType::Isize,
             vec![AstNode::Return {
                 value: Box::new(var("x") * AstNode::Const(2isize.into())),

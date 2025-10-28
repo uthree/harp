@@ -472,9 +472,34 @@ pub struct Scope {
 }
 
 pub struct VarDecl {
-    pub dtype: DType,
-    pub mutability: Mutability,
-    pub region: AccessRegion,
+    pub name: String,            // 変数名
+    pub dtype: DType,            // 変数の型
+    pub mutability: Mutability,  // 可変性
+    pub region: AccessRegion,    // アクセス領域
+}
+```
+
+### VarDecl - 変数宣言
+
+`VarDecl`は変数の宣言情報を表します。変数名、型、可変性、アクセス領域を持ちます。
+
+- **name**: 変数名
+- **dtype**: 変数の型
+- **mutability**: 変数が書き換え可能かどうか
+- **region**: 変数がどのメモリ領域に配置されるか、並列実行時にどのようにアクセスされるか
+
+`VarDecl`は以下の用途で使用されます：
+
+1. **Scopeでの変数管理**: `HashMap<String, VarDecl>`として保存
+2. **関数パラメータ**: `Function`の`params: Vec<VarDecl>`として使用
+
+```rust
+// 変数宣言の例
+let var_decl = VarDecl {
+    name: "x".to_string(),
+    dtype: DType::F32,
+    mutability: Mutability::Mutable,
+    region: AccessRegion::ThreadLocal,
 }
 
 pub enum Mutability {
@@ -828,9 +853,9 @@ Blockを使用することで、以下のメリットがあります：
 
 ```rust
 pub struct Function {
-    pub params: Vec<(String, DType)>, // 引数リスト: (変数名, 型)
-    pub return_type: DType,            // 返り値の型
-    pub body: Box<AstNode>,            // 関数本体（通常はBlockノード、引数を含むスコープを持つ）
+    pub params: Vec<VarDecl>,   // 引数リスト
+    pub return_type: DType,     // 返り値の型
+    pub body: Box<AstNode>,     // 関数本体（通常はBlockノード、引数を含むスコープを持つ）
 }
 ```
 
@@ -840,8 +865,18 @@ pub struct Function {
 
 ```rust
 let params = vec![
-    ("a".to_string(), DType::F32),
-    ("b".to_string(), DType::F32),
+    VarDecl {
+        name: "a".to_string(),
+        dtype: DType::F32,
+        mutability: Mutability::Immutable,
+        region: AccessRegion::ThreadLocal,
+    },
+    VarDecl {
+        name: "b".to_string(),
+        dtype: DType::F32,
+        mutability: Mutability::Immutable,
+        region: AccessRegion::ThreadLocal,
+    },
 ];
 let return_type = DType::F32;
 let body = vec![
@@ -853,7 +888,7 @@ let body = vec![
 let func = Function::new(params, return_type, body)?;
 ```
 
-`Function::new()`は自動的にスコープを作成し、全てのパラメータを`Immutable`、`ThreadLocal`として宣言します。
+`Function::new()`は自動的にスコープを作成し、各パラメータをそれぞれの`mutability`と`region`で宣言します。
 
 #### 関数本体の検証
 
