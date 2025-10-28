@@ -38,6 +38,46 @@ pub fn cast(a: AstNode, dtype: DType) -> AstNode {
     AstNode::Cast(Box::new(a), dtype)
 }
 
+/// Create a variable reference node
+pub fn var(name: impl Into<String>) -> AstNode {
+    AstNode::Var(name.into())
+}
+
+/// Create a load node for scalar memory access
+pub fn load(ptr: AstNode, offset: AstNode) -> AstNode {
+    AstNode::Load {
+        ptr: Box::new(ptr),
+        offset: Box::new(offset),
+        count: 1,
+    }
+}
+
+/// Create a load node for vector memory access (SIMD)
+pub fn load_vec(ptr: AstNode, offset: AstNode, count: usize) -> AstNode {
+    AstNode::Load {
+        ptr: Box::new(ptr),
+        offset: Box::new(offset),
+        count,
+    }
+}
+
+/// Create a store node
+pub fn store(ptr: AstNode, offset: AstNode, value: AstNode) -> AstNode {
+    AstNode::Store {
+        ptr: Box::new(ptr),
+        offset: Box::new(offset),
+        value: Box::new(value),
+    }
+}
+
+/// Create an assignment node
+pub fn assign(var: impl Into<String>, value: AstNode) -> AstNode {
+    AstNode::Assign {
+        var: var.into(),
+        value: Box::new(value),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -174,6 +214,129 @@ mod tests {
                 _ => panic!("Expected Add node and F32 constant"),
             },
             _ => panic!("Expected Mul node"),
+        }
+    }
+
+    #[test]
+    fn test_var_helper() {
+        let var_node = var("x");
+        match var_node {
+            AstNode::Var(name) => assert_eq!(name, "x"),
+            _ => panic!("Expected Var node"),
+        }
+
+        // Test with String
+        let var_node2 = var("buffer".to_string());
+        match var_node2 {
+            AstNode::Var(name) => assert_eq!(name, "buffer"),
+            _ => panic!("Expected Var node"),
+        }
+    }
+
+    #[test]
+    fn test_load_helper() {
+        let ptr = var("input0");
+        let offset = AstNode::Const(0usize.into());
+        let load_node = load(ptr, offset);
+
+        match load_node {
+            AstNode::Load { ptr, offset, count } => {
+                assert_eq!(count, 1);
+                match *ptr {
+                    AstNode::Var(name) => assert_eq!(name, "input0"),
+                    _ => panic!("Expected Var node for ptr"),
+                }
+                match *offset {
+                    AstNode::Const(Literal::Usize(v)) => assert_eq!(v, 0),
+                    _ => panic!("Expected Usize constant for offset"),
+                }
+            }
+            _ => panic!("Expected Load node"),
+        }
+    }
+
+    #[test]
+    fn test_load_vec_helper() {
+        let ptr = cast(var("buffer"), DType::F32.to_ptr());
+        let offset = var("i");
+        let load_node = load_vec(ptr, offset, 4);
+
+        match load_node {
+            AstNode::Load { count, .. } => {
+                assert_eq!(count, 4);
+            }
+            _ => panic!("Expected Load node"),
+        }
+
+        // Test type inference
+        let inferred = load_node.infer_type();
+        assert_eq!(inferred, DType::F32.to_vec(4));
+    }
+
+    #[test]
+    fn test_store_helper() {
+        let ptr = var("output0");
+        let offset = AstNode::Const(0usize.into());
+        let value = AstNode::Const(3.14f32.into());
+        let store_node = store(ptr, offset, value);
+
+        match store_node {
+            AstNode::Store { ptr, offset, value } => {
+                match *ptr {
+                    AstNode::Var(name) => assert_eq!(name, "output0"),
+                    _ => panic!("Expected Var node for ptr"),
+                }
+                match *offset {
+                    AstNode::Const(Literal::Usize(v)) => assert_eq!(v, 0),
+                    _ => panic!("Expected Usize constant for offset"),
+                }
+                match *value {
+                    AstNode::Const(Literal::F32(v)) => assert_eq!(v, 3.14),
+                    _ => panic!("Expected F32 constant for value"),
+                }
+            }
+            _ => panic!("Expected Store node"),
+        }
+    }
+
+    #[test]
+    fn test_assign_helper() {
+        let value = AstNode::Const(42isize.into());
+        let assign_node = assign("alu0", value);
+
+        match assign_node {
+            AstNode::Assign { var, value } => {
+                assert_eq!(var, "alu0");
+                match *value {
+                    AstNode::Const(Literal::Isize(v)) => assert_eq!(v, 42),
+                    _ => panic!("Expected Isize constant for value"),
+                }
+            }
+            _ => panic!("Expected Assign node"),
+        }
+
+        // Test with String
+        let assign_node2 = assign("temp".to_string(), AstNode::Const(10isize.into()));
+        match assign_node2 {
+            AstNode::Assign { var, .. } => assert_eq!(var, "temp"),
+            _ => panic!("Expected Assign node"),
+        }
+    }
+
+    #[test]
+    fn test_memory_operation_combination() {
+        // Test realistic memory operation: output[i] = input[i] * 2
+        let input_ptr = var("input");
+        let output_ptr = var("output");
+        let i = var("i");
+
+        let loaded = load(input_ptr, i.clone());
+        let doubled = loaded * AstNode::Const(2.0f32.into());
+        let stored = store(output_ptr, i, doubled);
+
+        match stored {
+            AstNode::Store { .. } => {}
+            _ => panic!("Expected Store node"),
         }
     }
 }

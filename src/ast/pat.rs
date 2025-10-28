@@ -140,10 +140,65 @@ impl AstRewriteRule {
                     false
                 }
             }
-            AstNode::Load | AstNode::Store => {
-                // Load/Storeは具体的なノードとしてのみマッチ
-                pattern == ast
+            AstNode::Var(pv) => {
+                if let AstNode::Var(av) = ast {
+                    pv == av
+                } else {
+                    false
+                }
             }
+            AstNode::Load {
+                ptr: p_ptr,
+                offset: p_offset,
+                count: p_count,
+            } => {
+                if let AstNode::Load {
+                    ptr: a_ptr,
+                    offset: a_offset,
+                    count: a_count,
+                } = ast
+                {
+                    p_count == a_count
+                        && self.pattern_match(p_ptr, a_ptr, bindings)
+                        && self.pattern_match(p_offset, a_offset, bindings)
+                } else {
+                    false
+                }
+            }
+            AstNode::Store {
+                ptr: p_ptr,
+                offset: p_offset,
+                value: p_value,
+            } => {
+                if let AstNode::Store {
+                    ptr: a_ptr,
+                    offset: a_offset,
+                    value: a_value,
+                } = ast
+                {
+                    self.pattern_match(p_ptr, a_ptr, bindings)
+                        && self.pattern_match(p_offset, a_offset, bindings)
+                        && self.pattern_match(p_value, a_value, bindings)
+                } else {
+                    false
+                }
+            }
+            AstNode::Assign {
+                var: p_var,
+                value: p_value,
+            } => {
+                if let AstNode::Assign {
+                    var: a_var,
+                    value: a_value,
+                } = ast
+                {
+                    p_var == a_var && self.pattern_match(p_value, a_value, bindings)
+                } else {
+                    false
+                }
+            }
+            // その他の未実装ノードは一致しない
+            _ => false,
         }
     }
 

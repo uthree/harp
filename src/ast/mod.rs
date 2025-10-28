@@ -22,13 +22,43 @@ pub enum AstNode {
     Exp2(Box<AstNode>),
     Sin(Box<AstNode>),
     Cast(Box<AstNode>, DType),
+    CallFunction,
 
-    // TODO: メモリ操作
-    Load,
-    Store,
+    // Variables - 変数
+    Var(String),
+
+    // Memory operations - メモリ操作（バッファー用）
+    Load {
+        ptr: Box<AstNode>,    // ポインタ（Ptr<T>型の式）
+        offset: Box<AstNode>, // オフセット（Usize型の式）
+        count: usize,         // 読み込む要素数（コンパイル時定数、1ならスカラー）
+    },
+    Store {
+        ptr: Box<AstNode>,    // ポインタ（Ptr<T>型の式）
+        offset: Box<AstNode>, // オフセット（Usize型の式）
+        value: Box<AstNode>,  // 書き込む値（スカラーまたはVec型）
+    },
+
+    // Assignment - 変数への代入（スタック/レジスタ用）
+    Assign {
+        var: String,         // 変数名
+        value: Box<AstNode>, // 代入する値
+    },
     // TODO: 制御構文
+    Range {
+        start: Box<AstNode>,
+        step: Box<AstNode>,
+        stop: Box<AstNode>,
+        body: Vec<AstNode>,
+    },
+
     // TODO: 関数と呼び出し
+    Program {},
+
+    Function {},
 }
+
+pub struct Scope {}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DType {
@@ -140,7 +170,7 @@ impl AstNode {
     /// Get child nodes of this AST node
     pub fn children(&self) -> Vec<&AstNode> {
         match self {
-            AstNode::Wildcard(_) | AstNode::Const(_) => vec![],
+            AstNode::Wildcard(_) | AstNode::Const(_) | AstNode::Var(_) => vec![],
             AstNode::Add(left, right)
             | AstNode::Mul(left, right)
             | AstNode::Max(left, right)
@@ -152,7 +182,18 @@ impl AstNode {
             | AstNode::Exp2(operand)
             | AstNode::Sin(operand)
             | AstNode::Cast(operand, _) => vec![operand.as_ref()],
-            AstNode::Load | AstNode::Store => todo!("Load/Store not yet implemented"),
+            AstNode::Load { ptr, offset, .. } => vec![ptr.as_ref(), offset.as_ref()],
+            AstNode::Store { ptr, offset, value } => {
+                vec![ptr.as_ref(), offset.as_ref(), value.as_ref()]
+            }
+            AstNode::Assign { value, .. } => vec![value.as_ref()],
+            // 未実装のノード
+            AstNode::CallFunction
+            | AstNode::Range { .. }
+            | AstNode::Program {}
+            | AstNode::Function {} => {
+                todo!("Not yet implemented")
+            }
         }
     }
 
@@ -163,9 +204,7 @@ impl AstNode {
         F: Fn(&AstNode) -> AstNode,
     {
         match self {
-            AstNode::Wildcard(_) | AstNode::Const(_) | AstNode::Load | AstNode::Store => {
-                self.clone()
-            }
+            AstNode::Wildcard(_) | AstNode::Const(_) | AstNode::Var(_) => self.clone(),
             AstNode::Add(left, right) => AstNode::Add(Box::new(f(left)), Box::new(f(right))),
             AstNode::Mul(left, right) => AstNode::Mul(Box::new(f(left)), Box::new(f(right))),
             AstNode::Max(left, right) => AstNode::Max(Box::new(f(left)), Box::new(f(right))),
@@ -177,6 +216,27 @@ impl AstNode {
             AstNode::Exp2(operand) => AstNode::Exp2(Box::new(f(operand))),
             AstNode::Sin(operand) => AstNode::Sin(Box::new(f(operand))),
             AstNode::Cast(operand, dtype) => AstNode::Cast(Box::new(f(operand)), dtype.clone()),
+            AstNode::Load { ptr, offset, count } => AstNode::Load {
+                ptr: Box::new(f(ptr)),
+                offset: Box::new(f(offset)),
+                count: *count,
+            },
+            AstNode::Store { ptr, offset, value } => AstNode::Store {
+                ptr: Box::new(f(ptr)),
+                offset: Box::new(f(offset)),
+                value: Box::new(f(value)),
+            },
+            AstNode::Assign { var, value } => AstNode::Assign {
+                var: var.clone(),
+                value: Box::new(f(value)),
+            },
+            // 未実装のノード
+            AstNode::CallFunction
+            | AstNode::Range { .. }
+            | AstNode::Program {}
+            | AstNode::Function {} => {
+                todo!("Not yet implemented")
+            }
         }
     }
 
@@ -186,6 +246,7 @@ impl AstNode {
             AstNode::Wildcard(_) => DType::Unknown,
             AstNode::Const(lit) => lit.dtype(),
             AstNode::Cast(_, dtype) => dtype.clone(),
+            AstNode::Var(_) => DType::Unknown, // 変数の型はコンテキストに依存
 
             // Binary operations - infer from operands
             AstNode::Add(left, right)
@@ -212,7 +273,28 @@ impl AstNode {
             // Mathematical operations that typically return F32
             AstNode::Sqrt(_) | AstNode::Log2(_) | AstNode::Exp2(_) | AstNode::Sin(_) => DType::F32,
 
-            AstNode::Load | AstNode::Store => todo!("Load/Store not yet implemented"),
+            // Memory operations
+            AstNode::Load { ptr, count, .. } => {
+                let ptr_type = ptr.infer_type();
+                let pointee_type = ptr_type.deref_type().clone();
+                if *count == 1 {
+                    pointee_type // スカラー
+                } else {
+                    pointee_type.to_vec(*count) // Vec型
+                }
+            }
+            AstNode::Store { .. } => DType::Tuple(vec![]), // Storeは値を返さない（unit型）
+
+            // Assignment
+            AstNode::Assign { value, .. } => value.infer_type(), // 代入された値の型を返す
+
+            // 未実装のノード
+            AstNode::CallFunction
+            | AstNode::Range { .. }
+            | AstNode::Program {}
+            | AstNode::Function {} => {
+                todo!("Not yet implemented")
+            }
         }
     }
 }
@@ -529,5 +611,130 @@ mod tests {
         assert!(ptr_to_vec.is_ptr());
         let pointee = ptr_to_vec.from_ptr().unwrap();
         assert!(pointee.is_vec());
+    }
+
+    #[test]
+    fn test_var_node() {
+        let var = AstNode::Var("x".to_string());
+        assert_eq!(var.children().len(), 0);
+        assert_eq!(var.infer_type(), DType::Unknown);
+    }
+
+    #[test]
+    fn test_load_scalar() {
+        let load = AstNode::Load {
+            ptr: Box::new(AstNode::Var("input0".to_string())),
+            offset: Box::new(AstNode::Const(0usize.into())),
+            count: 1,
+        };
+
+        // children should include ptr and offset
+        let children = load.children();
+        assert_eq!(children.len(), 2);
+
+        // Type inference: Var returns Unknown, so deref_type returns Unknown
+        // This test demonstrates the structure, actual type depends on context
+        let inferred = load.infer_type();
+        assert_eq!(inferred, DType::Unknown);
+    }
+
+    #[test]
+    fn test_load_vector() {
+        // Create a proper pointer type for testing
+        let ptr_node = AstNode::Cast(
+            Box::new(AstNode::Var("buffer".to_string())),
+            DType::F32.to_ptr(),
+        );
+
+        let load = AstNode::Load {
+            ptr: Box::new(ptr_node),
+            offset: Box::new(AstNode::Const(0usize.into())),
+            count: 4,
+        };
+
+        // Type should be Vec<F32, 4>
+        let inferred = load.infer_type();
+        assert_eq!(inferred, DType::F32.to_vec(4));
+
+        // children should include ptr and offset
+        let children = load.children();
+        assert_eq!(children.len(), 2);
+    }
+
+    #[test]
+    fn test_store() {
+        let store = AstNode::Store {
+            ptr: Box::new(AstNode::Var("output0".to_string())),
+            offset: Box::new(AstNode::Const(0usize.into())),
+            value: Box::new(AstNode::Const(3.14f32.into())),
+        };
+
+        // children should include ptr, offset, and value
+        let children = store.children();
+        assert_eq!(children.len(), 3);
+
+        // Store returns unit type (empty tuple)
+        let inferred = store.infer_type();
+        assert_eq!(inferred, DType::Tuple(vec![]));
+    }
+
+    #[test]
+    fn test_assign() {
+        let assign = AstNode::Assign {
+            var: "alu0".to_string(),
+            value: Box::new(AstNode::Const(42isize.into())),
+        };
+
+        // children should include only value
+        let children = assign.children();
+        assert_eq!(children.len(), 1);
+
+        // Assign returns the type of the value
+        let inferred = assign.infer_type();
+        assert_eq!(inferred, DType::Isize);
+    }
+
+    #[test]
+    fn test_load_store_map_children() {
+        let load = AstNode::Load {
+            ptr: Box::new(AstNode::Const(1isize.into())),
+            offset: Box::new(AstNode::Const(2isize.into())),
+            count: 4,
+        };
+
+        // Map children: multiply each constant by 2
+        let mapped = load.map_children(&|node| match node {
+            AstNode::Const(Literal::Isize(n)) => AstNode::Const(Literal::Isize(n * 2)),
+            _ => node.clone(),
+        });
+
+        if let AstNode::Load { ptr, offset, count } = mapped {
+            assert_eq!(*ptr, AstNode::Const(Literal::Isize(2)));
+            assert_eq!(*offset, AstNode::Const(Literal::Isize(4)));
+            assert_eq!(count, 4);
+        } else {
+            panic!("Expected Load node");
+        }
+    }
+
+    #[test]
+    fn test_assign_map_children() {
+        let assign = AstNode::Assign {
+            var: "x".to_string(),
+            value: Box::new(AstNode::Const(10isize.into())),
+        };
+
+        // Map children: increment constant
+        let mapped = assign.map_children(&|node| match node {
+            AstNode::Const(Literal::Isize(n)) => AstNode::Const(Literal::Isize(n + 1)),
+            _ => node.clone(),
+        });
+
+        if let AstNode::Assign { var, value } = mapped {
+            assert_eq!(var, "x");
+            assert_eq!(*value, AstNode::Const(Literal::Isize(11)));
+        } else {
+            panic!("Expected Assign node");
+        }
     }
 }

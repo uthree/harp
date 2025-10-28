@@ -18,6 +18,9 @@ ASTのノードを表すenum型。計算式を木構造で表現します。
 
 ```rust
 pub enum AstNode {
+    // パターンマッチング用ワイルドカード
+    Wildcard(String),
+
     // 定数
     Const(Literal),
 
@@ -37,6 +40,27 @@ pub enum AstNode {
 
     // 型変換
     Cast(Box<AstNode>, DType),            // 型キャスト
+
+    // 変数
+    Var(String),                          // 変数参照
+
+    // メモリ操作（バッファー用）
+    Load {
+        ptr: Box<AstNode>,                // ポインタ（Ptr<T>型の式）
+        offset: Box<AstNode>,             // オフセット（Usize型の式）
+        count: usize,                     // 読み込む要素数（コンパイル時定数、1ならスカラー）
+    },
+    Store {
+        ptr: Box<AstNode>,                // ポインタ（Ptr<T>型の式）
+        offset: Box<AstNode>,             // オフセット（Usize型の式）
+        value: Box<AstNode>,              // 書き込む値（スカラーまたはVec型）
+    },
+
+    // 変数への代入（スタック/レジスタ用）
+    Assign {
+        var: String,                      // 変数名
+        value: Box<AstNode>,              // 代入する値
+    },
 }
 ```
 
@@ -108,11 +132,16 @@ assert_eq!(expr.infer_type(), DType::F32);
 ```
 
 **推論ルール：**
+- `Wildcard`: `Unknown`を返す（パターンマッチング用）
 - `Const`: リテラルの型を返す
 - `Cast`: 指定された型を返す
+- `Var`: `Unknown`を返す（変数の型はコンテキストに依存）
 - 二項演算 (`Add`, `Mul`, `Max`, `Rem`, `Idiv`): 両辺の型が一致すればその型、異なれば`Unknown`
 - `Recip`: オペランドの型を保持
 - 数学関数 (`Sqrt`, `Log2`, `Exp2`, `Sin`): 常に`F32`を返す
+- `Load`: ポインタが指す型を返す。`count=1`ならスカラー、`count>1`なら`Vec<T, count>`型を返す
+- `Store`: `Tuple(vec![])`を返す（unit型、値を返さない）
+- `Assign`: 代入される値の型を返す
 
 ## 演算子オーバーロード
 
@@ -150,13 +179,42 @@ pub fn sin(a: AstNode) -> AstNode
 pub fn cast(a: AstNode, dtype: DType) -> AstNode
 ```
 
+### 変数とメモリ操作
+
+```rust
+pub fn var(name: impl Into<String>) -> AstNode
+pub fn load(ptr: AstNode, offset: AstNode) -> AstNode
+pub fn load_vec(ptr: AstNode, offset: AstNode, count: usize) -> AstNode
+pub fn store(ptr: AstNode, offset: AstNode, value: AstNode) -> AstNode
+pub fn assign(var: impl Into<String>, value: AstNode) -> AstNode
+```
+
 使用例：
 
 ```rust
 use harp::ast::helper::*;
 
+// 数学関数
 let a = AstNode::Const(4.0f32.into());
 let result = sqrt(a);  // AstNode::Sqrt(...)
+
+// 変数参照
+let x = var("x");
+let buffer = var("input0");
+
+// スカラーロード: input0[i]
+let i = var("i");
+let loaded = load(buffer, i.clone());
+
+// ベクトルロード: 4要素まとめて読み込み
+let ptr = cast(var("buffer"), DType::F32.to_ptr());
+let vec_loaded = load_vec(ptr, var("offset"), 4);
+
+// ストア: output[i] = value
+let stored = store(var("output"), i, loaded);
+
+// 代入: alu0 = a + b
+let assigned = assign("alu0", var("a") + var("b"));
 ```
 
 ## 使用例
@@ -200,6 +258,55 @@ let c = AstNode::Const(3.0f32.into());
 let d = AstNode::Const(5.0f32.into());
 
 let expr = sqrt((a + b) * c) % d;
+```
+
+### 変数の使用
+
+```rust
+// 変数参照
+let var_x = AstNode::Var("x".to_string());
+let var_y = AstNode::Var("y".to_string());
+
+// 変数を使った計算: x + y
+let sum = var_x + var_y;
+```
+
+### メモリ操作
+
+```rust
+use harp::ast::{AstNode, DType};
+
+// スカラーロード: input0[i]
+let load_scalar = AstNode::Load {
+    ptr: Box::new(AstNode::Var("input0".to_string())),
+    offset: Box::new(AstNode::Var("i".to_string())),
+    count: 1,  // スカラー読み込み
+};
+
+// ベクトルロード: 4要素まとめて読み込み
+let load_vector = AstNode::Load {
+    ptr: Box::new(AstNode::Cast(
+        Box::new(AstNode::Var("buffer".to_string())),
+        DType::F32.to_ptr(),
+    )),
+    offset: Box::new(AstNode::Const(0usize.into())),
+    count: 4,  // Vec<F32, 4>を返す
+};
+
+// ストア: output0[i] = value
+let store = AstNode::Store {
+    ptr: Box::new(AstNode::Var("output0".to_string())),
+    offset: Box::new(AstNode::Var("i".to_string())),
+    value: Box::new(AstNode::Const(3.14f32.into())),
+};
+
+// 変数への代入: alu0 = a + b
+let assign = AstNode::Assign {
+    var: "alu0".to_string(),
+    value: Box::new(
+        AstNode::Var("a".to_string()) + AstNode::Var("b".to_string())
+    ),
+};
 ```
 
 ## 設計思想と方針
@@ -341,9 +448,11 @@ cargo test --lib ast
 
 ### AstNode
 
-- [ ] **メモリ操作**: `Load`と`Store`の実装
-  - メモリアドレスからの読み込み
+- [x] **メモリ操作**: `Load`と`Store`の実装
+  - メモリアドレスからの読み込み（SIMD対応）
   - メモリアドレスへの書き込み
+  - `Var`による変数参照
+  - `Assign`による変数への代入
 - [ ] **制御構文**: ループ構造の追加
   - `Range`
 - [ ] **関数と呼び出し**: 関数定義と呼び出しのサポート
@@ -352,6 +461,7 @@ cargo test --lib ast
   - 引数の受け渡し
 - [ ] スコープの概念
   - 変数の読み取り専用/書き込み可能
+  - 型環境による変数の型管理
 - [ ] ASTのパターンマッチングによる置き換え
   - AstRewriteRule
     - 初期化: Rcで自身を初期化して返す。
