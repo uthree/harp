@@ -78,6 +78,11 @@ pub fn assign(var: impl Into<String>, value: AstNode) -> AstNode {
     }
 }
 
+/// Create a barrier node for synchronization in parallel execution
+pub fn barrier() -> AstNode {
+    AstNode::Barrier
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -337,6 +342,15 @@ mod tests {
         match stored {
             AstNode::Store { .. } => {}
             _ => panic!("Expected Store node"),
+        }
+    }
+
+    #[test]
+    fn test_barrier_helper() {
+        let barrier_node = barrier();
+        match barrier_node {
+            AstNode::Barrier => {}
+            _ => panic!("Expected Barrier node"),
         }
     }
 }

@@ -71,6 +71,19 @@ pub enum AstNode {
     Return {
         value: Box<AstNode>, // 返す値
     },
+
+    // Barrier - 同期バリア（並列実行の同期点）
+    Barrier,
+}
+
+/// 関数の種類
+#[derive(Clone, Debug, PartialEq)]
+pub enum FunctionKind {
+    /// 通常の関数（CPU上で逐次実行）
+    Normal,
+    /// GPUカーネル（並列実行される）
+    /// 内部の数値は並列実行の次元数（1D, 2D, 3Dなど）
+    Kernel(usize),
 }
 
 /// 関数定義
@@ -79,6 +92,7 @@ pub struct Function {
     pub params: Vec<VarDecl>, // 引数リスト
     pub return_type: DType,   // 返り値の型
     pub body: Box<AstNode>,   // 関数本体（Blockノード）
+    pub kind: FunctionKind,   // 関数の種類（通常 or カーネル）
 }
 
 /// プログラム全体の構造
@@ -91,6 +105,7 @@ pub struct Program {
 impl Function {
     /// Create a new function with parameters and return type
     pub fn new(
+        kind: FunctionKind,
         params: Vec<VarDecl>,
         return_type: DType,
         body_statements: Vec<AstNode>,
@@ -98,12 +113,16 @@ impl Function {
         // Create scope with parameters declared
         let mut scope = Scope::new();
         for param in &params {
-            scope.declare(
-                param.name.clone(),
-                param.dtype.clone(),
-                param.mutability.clone(),
-                param.region.clone(),
-            )?;
+            // VarKindがNormalの場合のみスコープに宣言
+            // ThreadId/GroupIdなどは組み込み値なのでスコープには登録しない
+            if param.kind == VarKind::Normal {
+                scope.declare(
+                    param.name.clone(),
+                    param.dtype.clone(),
+                    param.mutability.clone(),
+                    param.region.clone(),
+                )?;
+            }
         }
 
         // Create Block node with the body statements
@@ -116,6 +135,7 @@ impl Function {
             params,
             return_type,
             body,
+            kind,
         })
     }
 
@@ -250,6 +270,7 @@ impl Scope {
                 dtype,
                 mutability,
                 region,
+                kind: VarKind::Normal, // 通常の変数宣言
             },
         );
         Ok(())
@@ -338,6 +359,7 @@ pub struct VarDecl {
     pub dtype: DType,
     pub mutability: Mutability,
     pub region: AccessRegion,
+    pub kind: VarKind, // 変数の種類
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -351,6 +373,16 @@ pub enum AccessRegion {
     ThreadLocal,           // スレッドローカル（競合なし）
     Shared,                // 共有メモリ（読み取り専用なら安全）
     ShardedBy(Vec<usize>), // 特定の軸でシャーディング（軸番号のリスト）
+}
+
+/// 変数の種類
+#[derive(Clone, Debug, PartialEq)]
+pub enum VarKind {
+    Normal,           // 通常の変数/引数
+    ThreadId(usize),  // スレッドID（軸番号）
+    GroupId(usize),   // グループID（軸番号）
+    GroupSize(usize), // グループサイズ（軸番号）
+    GridSize(usize),  // グリッドサイズ（軸番号）
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -492,6 +524,7 @@ impl AstNode {
             } => vec![start.as_ref(), step.as_ref(), stop.as_ref(), body.as_ref()],
             AstNode::Call { args, .. } => args.iter().map(|node| node as &AstNode).collect(),
             AstNode::Return { value } => vec![value.as_ref()],
+            AstNode::Barrier => vec![],
         }
     }
 
@@ -552,6 +585,7 @@ impl AstNode {
             AstNode::Return { value } => AstNode::Return {
                 value: Box::new(f(value)),
             },
+            AstNode::Barrier => AstNode::Barrier,
         }
     }
 
@@ -619,6 +653,9 @@ impl AstNode {
 
             // Return - 返す値の型を返す
             AstNode::Return { value } => value.infer_type(),
+
+            // Barrier - 同期バリアは値を返さない（unit型）
+            AstNode::Barrier => DType::Tuple(vec![]),
         }
     }
 
@@ -722,6 +759,8 @@ impl AstNode {
                 value.check_scope(scope)?;
                 Ok(())
             }
+            // Barrier - 同期バリアはスコープに依存しない
+            AstNode::Barrier => Ok(()),
         }
     }
 }
@@ -1894,12 +1933,14 @@ mod tests {
                 dtype: DType::F32,
                 mutability: Mutability::Immutable,
                 region: AccessRegion::ThreadLocal,
+                kind: VarKind::Normal,
             },
             VarDecl {
                 name: "b".to_string(),
                 dtype: DType::F32,
                 mutability: Mutability::Immutable,
                 region: AccessRegion::ThreadLocal,
+                kind: VarKind::Normal,
             },
         ];
         let return_type = DType::F32;
@@ -1907,12 +1948,13 @@ mod tests {
             value: Box::new(var("a") + var("b")),
         }];
 
-        let func = Function::new(params, return_type, body);
+        let func = Function::new(FunctionKind::Normal, params, return_type, body);
         assert!(func.is_ok());
 
         let func = func.unwrap();
         assert_eq!(func.params.len(), 2);
         assert_eq!(func.return_type, DType::F32);
+        assert_eq!(func.kind, FunctionKind::Normal);
 
         // bodyはBlock nodeになっている
         match &*func.body {
@@ -1930,13 +1972,14 @@ mod tests {
             dtype: DType::Isize,
             mutability: Mutability::Immutable,
             region: AccessRegion::ThreadLocal,
+            kind: VarKind::Normal,
         }];
         let return_type = DType::Isize;
         let body = vec![AstNode::Return {
             value: Box::new(var("x") * AstNode::Const(2isize.into())),
         }];
 
-        let func = Function::new(params, return_type, body).unwrap();
+        let func = Function::new(FunctionKind::Normal, params, return_type, body).unwrap();
         assert!(func.check_body().is_ok());
     }
 
@@ -1948,7 +1991,7 @@ mod tests {
             value: Box::new(AstNode::Const(1.0f32.into())),
         }];
 
-        let func = Function::new(params, return_type, body).unwrap();
+        let func = Function::new(FunctionKind::Normal, params, return_type, body).unwrap();
         assert_eq!(func.infer_return_type(), DType::F32);
     }
 
@@ -1964,7 +2007,8 @@ mod tests {
     fn test_program_add_function() {
         let mut program = Program::new("main".to_string());
 
-        let func = Function::new(vec![], DType::Tuple(vec![]), vec![]).unwrap();
+        let func =
+            Function::new(FunctionKind::Normal, vec![], DType::Tuple(vec![]), vec![]).unwrap();
         assert!(program.add_function("main".to_string(), func).is_ok());
         assert_eq!(program.functions.len(), 1);
     }
@@ -1972,7 +2016,8 @@ mod tests {
     #[test]
     fn test_program_get_function() {
         let mut program = Program::new("main".to_string());
-        let func = Function::new(vec![], DType::Tuple(vec![]), vec![]).unwrap();
+        let func =
+            Function::new(FunctionKind::Normal, vec![], DType::Tuple(vec![]), vec![]).unwrap();
         program.add_function("main".to_string(), func).unwrap();
 
         assert!(program.get_function("main").is_some());
@@ -1987,7 +2032,8 @@ mod tests {
         assert!(program.validate().is_err());
 
         // エントリーポイントを追加
-        let func = Function::new(vec![], DType::Tuple(vec![]), vec![]).unwrap();
+        let func =
+            Function::new(FunctionKind::Normal, vec![], DType::Tuple(vec![]), vec![]).unwrap();
         program.add_function("main".to_string(), func).unwrap();
 
         // 成功するはず
@@ -2000,11 +2046,13 @@ mod tests {
 
         // helper関数: double(x) = x * 2
         let double_func = Function::new(
+            FunctionKind::Normal,
             vec![VarDecl {
                 name: "x".to_string(),
                 dtype: DType::Isize,
                 mutability: Mutability::Immutable,
                 region: AccessRegion::ThreadLocal,
+                kind: VarKind::Normal,
             }],
             DType::Isize,
             vec![AstNode::Return {
@@ -2018,6 +2066,7 @@ mod tests {
 
         // main関数: Call double(5)
         let main_func = Function::new(
+            FunctionKind::Normal,
             vec![],
             DType::Isize,
             vec![AstNode::Call {
