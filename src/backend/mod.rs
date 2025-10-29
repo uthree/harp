@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::ast::AstNode;
 pub mod c_like;
+pub mod metal;
 
 // レンダラー。
 // ASTを受け取って文字列としてレンダリングする
