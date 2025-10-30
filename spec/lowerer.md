@@ -3,7 +3,9 @@
 計算グラフをASTに変換する。
 
 ## 手順
-TODO: loweringの手順を決める
+1. ノードをKahnのアルゴリズムを用いてトポロジカルソートと世代別のグループ分けを行う。同じ世代のノードは同時に計算することができる。
+2. 各ノードが持つlowering戦略に従ってASTを生成、1ノードに対して一つのカーネル関数を生成する。
+3. グラフ全体の処理を表す`kernel_main`関数に対して、それぞれのカーネルを順番に呼び出す。世代の区切りにのみバリア（同期）を挿入する。
 
 ### エントリーポイントの必要性
 libloadingライブラリは、堅安全のため動的ライブラリのシグネチャが固定であるため、以下のようなエントリーポイントとなる関数を作る必要がある。
@@ -22,7 +24,7 @@ void entry_point(void** inputs, void** outputs, size_t *shape_vars) {
     size_t M = shape_vars[1];
 
     // 処理の本体を呼び出し
-    kernel(input0, input1, output0, output1, N, M);
+    kernel_main(input0, input1, output0, output1, N, M);
 }
 ```
 
@@ -33,7 +35,7 @@ tinygradを参考に命名する。`{n}`の部分は重複を回避するため�
 `gidx{n}`: グループ番号を示す変数
 `ridx{n}`: Rangeノード（for文）で使用するループカウンター
 `alu{n}`: 一時的な（スカラーまたはSIMDベクタ）値を格納するための変数。スタック上にあるものを表す。
-`acc{n}`: アキュムレーター。累積(cumulative)や縮約(reduce)演算をに使う。
+`acc{n}`: アキュムレーター。累積(cumulative)や縮約(reduce)演算に使う。
 TODO: 動的shapeのための変数の命名をどうするか決める
 
 ### バッファー(メモリ上のサイズの大きな値)
