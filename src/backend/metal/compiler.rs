@@ -7,6 +7,12 @@ use metal::{
 };
 use std::sync::Arc;
 
+/// デフォルトのスレッドグループサイズの最大値
+const DEFAULT_MAX_THREAD_GROUP_SIZE: u64 = 256;
+
+/// デフォルトのグリッドサイズ（1次元）
+const DEFAULT_GRID_SIZE: u64 = 1024;
+
 /// Metal デバイスバッファのラッパー
 pub struct MetalBuffer {
     buffer: MTLBuffer,
@@ -110,7 +116,7 @@ impl MetalKernel {
     ) -> Self {
         // スレッドグループサイズを自動決定（最大スレッド数を使用）
         let max_threads = pipeline_state.max_total_threads_per_threadgroup();
-        let thread_group_size = MTLSize::new(max_threads.min(256), 1, 1);
+        let thread_group_size = MTLSize::new(max_threads.min(DEFAULT_MAX_THREAD_GROUP_SIZE), 1, 1);
 
         Self {
             pipeline_state,
@@ -253,35 +259,52 @@ impl Compiler for MetalCompiler {
         trace!("Metal source code:\n{}", code);
 
         // ソースコードからライブラリをコンパイル
-        let library = self
-            .compile_library(code.as_str())
-            .expect("Failed to compile Metal source");
+        let library = self.compile_library(code.as_str()).unwrap_or_else(|err| {
+            panic!(
+                "Failed to compile Metal source code: {}\n\nSource code:\n{}",
+                err,
+                code.as_str()
+            )
+        });
 
         // カーネル関数名を取得（最初の関数を使用）
         // TODO: より適切な関数名の指定方法を実装
         let function_names = library.function_names();
         debug!("Available kernel functions: {:?}", function_names);
 
-        let kernel_name = function_names
-            .first()
-            .expect("No kernel function found in library");
+        let kernel_name = function_names.first().unwrap_or_else(|| {
+            panic!(
+                "No kernel function found in compiled library. Available functions: {:?}",
+                function_names
+            )
+        });
 
         info!("Using kernel function: {}", kernel_name);
 
         // 関数を取得
         let function = library
             .get_function(kernel_name.as_str(), None)
-            .expect("Failed to get kernel function");
+            .unwrap_or_else(|_| {
+                panic!(
+                    "Failed to get kernel function '{}' from library",
+                    kernel_name
+                )
+            });
 
         // パイプラインステートを作成
         debug!("Creating compute pipeline state");
         let pipeline_state = self
             .device
             .new_compute_pipeline_state_with_function(&function)
-            .expect("Failed to create compute pipeline state");
+            .unwrap_or_else(|err| {
+                panic!(
+                    "Failed to create compute pipeline state for function '{}': {}",
+                    kernel_name, err
+                )
+            });
 
-        // デフォルトのグリッドサイズ（1次元、1024スレッド）
-        let grid_size = MTLSize::new(1024, 1, 1);
+        // デフォルトのグリッドサイズ（1次元）
+        let grid_size = MTLSize::new(DEFAULT_GRID_SIZE, 1, 1);
 
         info!("Metal kernel compiled successfully");
         MetalKernel::new(pipeline_state, self.command_queue.clone(), grid_size)

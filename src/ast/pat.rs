@@ -51,6 +51,47 @@ impl AstRewriteRule {
         ast: &AstNode,
         bindings: &mut HashMap<String, AstNode>,
     ) -> bool {
+        // 二項演算子のマッチングを処理するマクロ
+        macro_rules! match_binary_op {
+            ($variant:ident) => {
+                if let AstNode::$variant(pl, pr) = pattern {
+                    if let AstNode::$variant(al, ar) = ast {
+                        return self.pattern_match(pl, al, bindings)
+                            && self.pattern_match(pr, ar, bindings);
+                    } else {
+                        return false;
+                    }
+                }
+            };
+        }
+
+        // 単項演算子のマッチングを処理するマクロ
+        macro_rules! match_unary_op {
+            ($variant:ident) => {
+                if let AstNode::$variant(p) = pattern {
+                    if let AstNode::$variant(a) = ast {
+                        return self.pattern_match(p, a, bindings);
+                    } else {
+                        return false;
+                    }
+                }
+            };
+        }
+
+        // 二項演算子のマッチング
+        match_binary_op!(Add);
+        match_binary_op!(Mul);
+        match_binary_op!(Max);
+        match_binary_op!(Rem);
+        match_binary_op!(Idiv);
+
+        // 単項演算子のマッチング
+        match_unary_op!(Recip);
+        match_unary_op!(Sqrt);
+        match_unary_op!(Log2);
+        match_unary_op!(Exp2);
+        match_unary_op!(Sin);
+
         match pattern {
             AstNode::Wildcard(name) => {
                 // すでにバインドされている場合は、同じノードか確認
@@ -64,76 +105,6 @@ impl AstRewriteRule {
             AstNode::Const(p) => {
                 if let AstNode::Const(a) = ast {
                     p == a
-                } else {
-                    false
-                }
-            }
-            AstNode::Add(pl, pr) => {
-                if let AstNode::Add(al, ar) = ast {
-                    self.pattern_match(pl, al, bindings) && self.pattern_match(pr, ar, bindings)
-                } else {
-                    false
-                }
-            }
-            AstNode::Mul(pl, pr) => {
-                if let AstNode::Mul(al, ar) = ast {
-                    self.pattern_match(pl, al, bindings) && self.pattern_match(pr, ar, bindings)
-                } else {
-                    false
-                }
-            }
-            AstNode::Max(pl, pr) => {
-                if let AstNode::Max(al, ar) = ast {
-                    self.pattern_match(pl, al, bindings) && self.pattern_match(pr, ar, bindings)
-                } else {
-                    false
-                }
-            }
-            AstNode::Rem(pl, pr) => {
-                if let AstNode::Rem(al, ar) = ast {
-                    self.pattern_match(pl, al, bindings) && self.pattern_match(pr, ar, bindings)
-                } else {
-                    false
-                }
-            }
-            AstNode::Idiv(pl, pr) => {
-                if let AstNode::Idiv(al, ar) = ast {
-                    self.pattern_match(pl, al, bindings) && self.pattern_match(pr, ar, bindings)
-                } else {
-                    false
-                }
-            }
-            AstNode::Recip(p) => {
-                if let AstNode::Recip(a) = ast {
-                    self.pattern_match(p, a, bindings)
-                } else {
-                    false
-                }
-            }
-            AstNode::Sqrt(p) => {
-                if let AstNode::Sqrt(a) = ast {
-                    self.pattern_match(p, a, bindings)
-                } else {
-                    false
-                }
-            }
-            AstNode::Log2(p) => {
-                if let AstNode::Log2(a) = ast {
-                    self.pattern_match(p, a, bindings)
-                } else {
-                    false
-                }
-            }
-            AstNode::Exp2(p) => {
-                if let AstNode::Exp2(a) = ast {
-                    self.pattern_match(p, a, bindings)
-                } else {
-                    false
-                }
-            }
-            AstNode::Sin(p) => {
-                if let AstNode::Sin(a) = ast {
-                    self.pattern_match(p, a, bindings)
                 } else {
                     false
                 }
