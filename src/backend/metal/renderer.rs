@@ -2,6 +2,7 @@ use crate::ast::{
     AstNode, DType, Function, FunctionKind, Literal, Mutability, Program, VarDecl, VarKind,
 };
 use crate::backend::Renderer;
+use log::{debug, info, trace};
 
 /// Metal Shading Language用のレンダラー
 pub struct MetalRenderer {
@@ -256,9 +257,16 @@ impl MetalRenderer {
 
     /// 関数を描画
     pub fn render_function(&mut self, name: &str, func: &Function) -> String {
+        let is_kernel = matches!(func.kind, FunctionKind::Kernel(_));
+        debug!(
+            "Rendering Metal {} function: {}",
+            if is_kernel { "kernel" } else { "device" },
+            name
+        );
+        trace!("Function params: {} parameters", func.params.len());
+
         let mut result = String::new();
 
-        let is_kernel = matches!(func.kind, FunctionKind::Kernel(_));
         let func_qualifier = if is_kernel { "kernel" } else { "" };
         let return_type = self.render_dtype(&func.return_type);
 
@@ -280,11 +288,18 @@ impl MetalRenderer {
         self.dec_indent();
         result.push_str("}\n");
 
+        trace!("Function rendering completed");
         result
     }
 
     /// プログラム全体を描画
     pub fn render_program(&mut self, program: &Program) -> String {
+        info!(
+            "Rendering Metal program: {} with {} functions",
+            program.entry_point,
+            program.functions.len()
+        );
+
         let mut result = String::new();
 
         // ヘッダー
@@ -296,6 +311,9 @@ impl MetalRenderer {
             result.push_str(&self.render_function(name, func));
             result.push('\n');
         }
+
+        info!("Metal program rendering completed ({} bytes)", result.len());
+        trace!("Generated Metal code:\n{}", result);
 
         result
     }

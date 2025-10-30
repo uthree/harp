@@ -1,4 +1,5 @@
 use crate::ast::AstNode;
+use log::{debug, trace};
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -31,10 +32,14 @@ impl AstRewriteRule {
 
     /// パターンマッチングを試みる
     pub fn try_match(&self, ast: &AstNode) -> MatchResult {
+        trace!("Trying to match pattern: {:?}", self.pattern);
+        trace!("Against AST: {:?}", ast);
         let mut bindings = HashMap::new();
         if self.pattern_match(&self.pattern, ast, &mut bindings) {
+            debug!("Pattern matched! Bindings: {:?}", bindings);
             Some(bindings)
         } else {
+            trace!("Pattern did not match");
             None
         }
     }
@@ -207,7 +212,13 @@ impl AstRewriteRule {
         // まず現在のノードにマッチを試みる
         if let Some(bindings) = self.try_match(ast) {
             if (self.condition)(&bindings) {
-                return (self.rewriter)(&bindings);
+                let result = (self.rewriter)(&bindings);
+                debug!("Applied rewrite rule:");
+                debug!("  Before: {:?}", ast);
+                debug!("  After:  {:?}", result);
+                return result;
+            } else {
+                trace!("Pattern matched but condition failed");
             }
         }
 
@@ -239,19 +250,28 @@ impl AstRewriter {
 
     /// すべてのルールを適用（変化がなくなるまで繰り返す）
     pub fn apply(&self, mut ast: AstNode) -> AstNode {
-        for _ in 0..self.max_iterations {
+        debug!("Starting AST rewriter with {} rules", self.rules.len());
+        trace!("Initial AST: {:?}", ast);
+
+        for iteration in 0..self.max_iterations {
             let prev = format!("{:?}", ast);
 
             // すべてのルールを順番に適用
-            for rule in &self.rules {
+            for (rule_idx, rule) in self.rules.iter().enumerate() {
+                trace!("Applying rule {} in iteration {}", rule_idx, iteration);
                 ast = rule.apply(&ast);
             }
 
             // 変化がなければ終了
             if format!("{:?}", ast) == prev {
+                debug!("AST rewriter converged after {} iterations", iteration);
                 break;
+            } else {
+                trace!("Iteration {} completed, AST changed", iteration);
             }
         }
+
+        debug!("Final AST after rewriting: {:?}", ast);
         ast
     }
 }

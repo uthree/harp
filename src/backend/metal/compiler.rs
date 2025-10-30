@@ -1,4 +1,5 @@
 use crate::backend::{Buffer, Compiler, Kernel, KernelSignature};
+use log::{debug, info, trace};
 use metal::{
     Buffer as MTLBuffer, CommandQueue, CompileOptions, ComputePipelineState, Device, Library,
     MTLResourceOptions, MTLSize,
@@ -17,6 +18,11 @@ impl MetalBuffer {
     pub fn new(device: &Device, shape: Vec<usize>, element_size: usize) -> Self {
         let total_elements: usize = shape.iter().product();
         let byte_size = total_elements * element_size;
+
+        debug!(
+            "Creating Metal buffer: shape={:?}, element_size={}, total_bytes={}",
+            shape, element_size, byte_size
+        );
 
         let buffer = device.new_buffer(byte_size as u64, MTLResourceOptions::StorageModeShared);
 
@@ -53,18 +59,30 @@ impl MetalBuffer {
 
     /// データを CPU から GPU へコピー
     pub fn write_data<T: Copy>(&mut self, data: &[T]) {
+        trace!(
+            "Writing {} elements to Metal buffer (shape={:?})",
+            data.len(),
+            self.shape
+        );
         let ptr = self.buffer.contents() as *mut T;
         unsafe {
             std::ptr::copy_nonoverlapping(data.as_ptr(), ptr, data.len());
         }
+        trace!("Write completed");
     }
 
     /// データを GPU から CPU へコピー
     pub fn read_data<T: Copy>(&self, data: &mut [T]) {
+        trace!(
+            "Reading {} elements from Metal buffer (shape={:?})",
+            data.len(),
+            self.shape
+        );
         let ptr = self.buffer.contents() as *const T;
         unsafe {
             std::ptr::copy_nonoverlapping(ptr, data.as_mut_ptr(), data.len());
         }
+        trace!("Read completed");
     }
 }
 
@@ -103,6 +121,17 @@ impl MetalKernel {
 
     /// カーネルを実行
     pub fn dispatch(&self, buffers: &[&MetalBuffer]) -> Result<(), String> {
+        info!(
+            "Dispatching Metal kernel with {} buffers, grid_size=({},{},{}), thread_group_size=({},{},{})",
+            buffers.len(),
+            self.grid_size.width,
+            self.grid_size.height,
+            self.grid_size.depth,
+            self.thread_group_size.width,
+            self.thread_group_size.height,
+            self.thread_group_size.depth
+        );
+
         let command_buffer = self.command_queue.new_command_buffer();
         let encoder = command_buffer.new_compute_command_encoder();
 
@@ -110,6 +139,12 @@ impl MetalKernel {
 
         // バッファをバインド
         for (index, buffer) in buffers.iter().enumerate() {
+            trace!(
+                "Binding buffer {} (shape={:?}, size={})",
+                index,
+                buffer.shape(),
+                buffer.byte_size()
+            );
             encoder.set_buffer(index as u64, Some(buffer.inner()), 0);
         }
 
@@ -117,8 +152,10 @@ impl MetalKernel {
         encoder.dispatch_thread_groups(self.grid_size, self.thread_group_size);
         encoder.end_encoding();
 
+        debug!("Committing Metal command buffer");
         command_buffer.commit();
         command_buffer.wait_until_completed();
+        debug!("Metal kernel execution completed");
 
         Ok(())
     }
@@ -153,6 +190,7 @@ impl MetalCompiler {
     /// デフォルトのデバイスを使用してコンパイラを作成
     pub fn with_default_device() -> Option<Self> {
         Device::system_default().map(|device| {
+            info!("Metal compiler initialized with device: {}", device.name());
             let command_queue = device.new_command_queue();
             let compile_options = CompileOptions::new();
 
@@ -210,6 +248,9 @@ impl Compiler for MetalCompiler {
     }
 
     fn compile(&mut self, code: &Self::CodeRepr) -> Self::Kernel {
+        info!("Compiling Metal shader source ({} bytes)", code.len());
+        trace!("Metal source code:\n{}", code);
+
         // ソースコードからライブラリをコンパイル
         let library = self
             .compile_library(code)
@@ -218,9 +259,13 @@ impl Compiler for MetalCompiler {
         // カーネル関数名を取得（最初の関数を使用）
         // TODO: より適切な関数名の指定方法を実装
         let function_names = library.function_names();
+        debug!("Available kernel functions: {:?}", function_names);
+
         let kernel_name = function_names
             .first()
             .expect("No kernel function found in library");
+
+        info!("Using kernel function: {}", kernel_name);
 
         // 関数を取得
         let function = library
@@ -228,6 +273,7 @@ impl Compiler for MetalCompiler {
             .expect("Failed to get kernel function");
 
         // パイプラインステートを作成
+        debug!("Creating compute pipeline state");
         let pipeline_state = self
             .device
             .new_compute_pipeline_state_with_function(&function)
@@ -236,6 +282,7 @@ impl Compiler for MetalCompiler {
         // デフォルトのグリッドサイズ（1次元、1024スレッド）
         let grid_size = MTLSize::new(1024, 1, 1);
 
+        info!("Metal kernel compiled successfully");
         MetalKernel::new(pipeline_state, self.command_queue.clone(), grid_size)
     }
 }

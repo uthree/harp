@@ -240,6 +240,7 @@ version = "0.1.0"
 dependencies = [
  "indicatif",
  "libloading",
+ "log",
  "metal",
  "ndarray",
  "objc",
