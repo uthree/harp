@@ -1,3 +1,4 @@
+use crate::backend::metal::MetalCode;
 use crate::backend::{Buffer, Compiler, Kernel, KernelSignature};
 use log::{debug, info, trace};
 use metal::{
@@ -233,7 +234,7 @@ impl MetalCompiler {
 }
 
 impl Compiler for MetalCompiler {
-    type CodeRepr = String;
+    type CodeRepr = MetalCode;
     type Buffer = MetalBuffer;
     type Kernel = MetalKernel;
     type Option = ();
@@ -253,7 +254,7 @@ impl Compiler for MetalCompiler {
 
         // ソースコードからライブラリをコンパイル
         let library = self
-            .compile_library(code)
+            .compile_library(code.as_str())
             .expect("Failed to compile Metal source");
 
         // カーネル関数名を取得（最初の関数を使用）
@@ -343,7 +344,8 @@ mod tests {
                 }
             "#;
 
-            let _kernel = compiler.compile(&source.to_string());
+            let code = MetalCode::new(source.to_string());
+            let _kernel = compiler.compile(&code);
             // コンパイルが成功すれば OK
         }
     }
@@ -365,7 +367,8 @@ mod tests {
                 }
             "#;
 
-            let mut kernel = compiler.compile(&source.to_string());
+            let code = MetalCode::new(source.to_string());
+            let mut kernel = compiler.compile(&code);
 
             // バッファを作成
             let mut input_buffer = compiler.create_buffer(vec![10], 4);

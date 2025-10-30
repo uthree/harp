@@ -2,6 +2,7 @@ use crate::ast::{
     AstNode, DType, Function, FunctionKind, Literal, Mutability, Program, VarDecl, VarKind,
 };
 use crate::backend::Renderer;
+use crate::backend::metal::MetalCode;
 use log::{debug, info, trace};
 
 /// Metal Shading Language用のレンダラー
@@ -293,7 +294,7 @@ impl MetalRenderer {
     }
 
     /// プログラム全体を描画
-    pub fn render_program(&mut self, program: &Program) -> String {
+    pub fn render_program(&mut self, program: &Program) -> MetalCode {
         info!(
             "Rendering Metal program: {} with {} functions",
             program.entry_point,
@@ -315,7 +316,7 @@ impl MetalRenderer {
         info!("Metal program rendering completed ({} bytes)", result.len());
         trace!("Generated Metal code:\n{}", result);
 
-        result
+        MetalCode::new(result)
     }
 }
 
@@ -326,12 +327,12 @@ impl Default for MetalRenderer {
 }
 
 impl Renderer for MetalRenderer {
-    type CodeRepr = String;
+    type CodeRepr = MetalCode;
     type Option = ();
 
     fn render(&self, ast: AstNode) -> Self::CodeRepr {
         let mut renderer = Self::new();
-        renderer.render_statement(&ast)
+        MetalCode::new(renderer.render_statement(&ast))
     }
 
     fn is_available(&self) -> bool {
