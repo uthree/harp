@@ -37,6 +37,7 @@ pub trait Kernel {
 }
 
 // カーネルへの指示をまとめる構造体
+#[allow(dead_code)]
 pub struct Query<'a, B: Buffer> {
     inputs: HashMap<String, &'a B>, // inputsは読み取り専用なので借用
     outputs: HashMap<String, B>,    // outputsは書き込み対象
