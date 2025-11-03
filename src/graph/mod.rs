@@ -16,18 +16,19 @@ pub struct Graph {
     outputs: HashMap<String, GraphNode>,
 }
 
-#[derive(Debug)]
-pub struct GraphNode(Rc<GraphNodeData>);
-
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GraphNodeData {
     dtype: DType,
     op: GraphOp,
     src: Vec<GraphNode>, // 入力ノード
+    view: View,
 }
 
+#[derive(Debug, Clone)]
+pub struct GraphNode(Rc<GraphNodeData>);
+
 // AstNoderのDTypeとは異なり、VecやPtrは扱わない。
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum DType {
     Unknown, // 未定または未知, プレースホルダー
     F32,
@@ -39,8 +40,8 @@ impl Graph {
         todo!()
     }
 
-    // 入力ノードを新規作成
-    fn input(&mut self, name: &str) -> GraphNode {
+    // 入力ノードを新規作成, builderパターンを使う
+    fn input(&mut self, name: &str) -> InputNodeBuilder {
         todo!()
     }
 
@@ -50,15 +51,24 @@ impl Graph {
     }
 }
 
+// TODO: ビルダーパターンの実装
+pub struct InputNodeBuilder {}
+
+impl InputNodeBuilder {
+    pub fn with_dtype(&mut self, dtype: DType) -> Self {
+        todo!()
+    }
+
+    // TIPS: 入力ノードの形状(View)は必ずContinguousである必要がある。
+    pub fn with_shape(&mut self, dtype: DType) -> Self {
+        todo!()
+    }
+}
+
+// .0 のように書かなくても内部のデータを読み取れるようにする
 impl Deref for GraphNode {
     type Target = GraphNodeData;
     fn deref(&self) -> &Self::Target {
         &self.0
-    }
-}
-impl GraphNode {
-    // 入力ノードに型を指定
-    fn with_dtype(&mut self, dtype: DType) {
-        todo!()
     }
 }

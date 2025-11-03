@@ -1,6 +1,6 @@
 use crate::{ast::Literal, graph::shape::View};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum GraphOp {
     Input,                      // 入力ノード
     Contiguous,                 // Viewに従って要素を並べ直す。
@@ -11,7 +11,7 @@ pub enum GraphOp {
     Cumulative,                 // 累積
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ElementwiseOp {
     Add,
     Mul,
