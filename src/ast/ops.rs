@@ -40,7 +40,9 @@ impl<T: Into<AstNode>> Sub<T> for AstNode {
 impl<T: Into<AstNode>> Div<T> for AstNode {
     type Output = AstNode;
 
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn div(self, rhs: T) -> AstNode {
+        // Division is implemented as multiplication by reciprocal: a / b = a * recip(b)
         self * AstNode::Recip(Box::new(rhs.into()))
     }
 }

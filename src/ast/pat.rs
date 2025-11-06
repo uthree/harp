@@ -6,14 +6,20 @@ use std::rc::Rc;
 /// パターンマッチングの結果
 pub type MatchResult = Option<HashMap<String, AstNode>>;
 
+/// 書き換え関数の型
+pub type RewriteFn = Rc<dyn Fn(&HashMap<String, AstNode>) -> AstNode>;
+
+/// 条件関数の型
+pub type ConditionFn = Rc<dyn Fn(&HashMap<String, AstNode>) -> bool>;
+
 /// ASTの書き換えルール
 pub struct AstRewriteRule {
     /// パターン（Wildcard含むAstNode）
     pattern: AstNode,
     /// 書き換え関数（マッチした変数を受け取り、新しいASTを返す）
-    rewriter: Rc<dyn Fn(&HashMap<String, AstNode>) -> AstNode>,
+    rewriter: RewriteFn,
     /// 条件関数（マッチした変数を受け取り、このルールを適用するか判定）
-    condition: Rc<dyn Fn(&HashMap<String, AstNode>) -> bool>,
+    condition: ConditionFn,
 }
 
 impl AstRewriteRule {
@@ -45,6 +51,7 @@ impl AstRewriteRule {
     }
 
     /// パターンマッチングの内部実装
+    #[allow(clippy::only_used_in_recursion)]
     fn pattern_match(
         &self,
         pattern: &AstNode,

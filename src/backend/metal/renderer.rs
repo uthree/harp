@@ -34,6 +34,7 @@ impl MetalRenderer {
     }
 
     /// DTypeをMetal型文字列に変換
+    #[allow(clippy::only_used_in_recursion)]
     fn render_dtype(&self, dtype: &DType) -> String {
         match dtype {
             DType::F32 => "float".to_string(),
@@ -295,29 +296,7 @@ impl MetalRenderer {
 
     /// プログラム全体を描画
     pub fn render_program(&mut self, program: &Program) -> MetalCode {
-        info!(
-            "Rendering Metal program: {} with {} functions",
-            program.entry_point,
-            program.functions.len()
-        );
-
-        let mut result = String::new();
-
-        // ヘッダー
-        result.push_str("#include <metal_stdlib>\n");
-        result.push_str("using namespace metal;\n\n");
-
-        // 全関数を描画
-        for (name, func) in &program.functions {
-            result.push_str(&self.render_function(name, func));
-            result.push('\n');
-        }
-
-        info!("Metal program rendering completed ({} bytes)", result.len());
-        trace!("Generated Metal code:\n{}", result);
-
-        // TODO: シグネチャは外部から渡されるべき
-        MetalCode::new(result)
+        self.render_program_with_signature(program, crate::backend::KernelSignature::empty())
     }
 
     /// シグネチャ付きでプログラムをレンダリング
@@ -327,7 +306,7 @@ impl MetalRenderer {
         signature: crate::backend::KernelSignature,
     ) -> MetalCode {
         info!(
-            "Rendering Metal program with signature: {} with {} functions",
+            "Rendering Metal program: {} with {} functions",
             program.entry_point,
             program.functions.len()
         );

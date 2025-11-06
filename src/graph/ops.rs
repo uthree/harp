@@ -129,7 +129,9 @@ impl Sub for GraphNode {
 // Div: a / b = a * recip(b)
 impl Div for GraphNode {
     type Output = Self;
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn div(self, rhs: Self) -> Self::Output {
+        // Division is implemented as multiplication by reciprocal: a / b = a * recip(b)
         self * recip(rhs)
     }
 }

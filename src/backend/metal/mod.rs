@@ -1,10 +1,22 @@
 pub mod renderer;
 
 #[cfg(target_os = "macos")]
+pub mod buffer;
+
+#[cfg(target_os = "macos")]
+pub mod kernel;
+
+#[cfg(target_os = "macos")]
 pub mod compiler;
 
 #[cfg(target_os = "macos")]
-pub use compiler::{MetalBuffer, MetalCompiler, MetalKernel};
+pub use buffer::MetalBuffer;
+
+#[cfg(target_os = "macos")]
+pub use kernel::MetalKernel;
+
+#[cfg(target_os = "macos")]
+pub use compiler::MetalCompiler;
 
 pub use renderer::MetalRenderer;
 
