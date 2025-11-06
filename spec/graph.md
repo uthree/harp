@@ -27,10 +27,11 @@ pub struct Graph {
 pub struct GraphNode(Rc<GraphNodeData>);
 
 pub struct GraphNodeData {
-    pub dtype: DType,           // データ型
-    pub op: GraphOp,            // 演算の種類
-    pub src: Vec<GraphNode>,    // 入力ノード
-    pub view: View,             // テンソルのView
+    pub dtype: DType,                           // データ型
+    pub op: GraphOp,                            // 演算の種類
+    pub src: Vec<GraphNode>,                    // 入力ノード
+    pub view: View,                             // テンソルのView
+    pub axis_strategies: Option<Vec<AxisStrategy>>, // 各軸の並列化戦略
 }
 ```
 
@@ -39,6 +40,31 @@ pub struct GraphNodeData {
 
 - **Unknown**: 型が未定または推論中
 - **F32**: 32bit浮動小数点数
+
+### AxisStrategy
+各軸の並列化戦略を表すenum。lowering時の実装方法を制御します。
+
+```rust
+pub enum AxisStrategy {
+    Auto,                                  // 最適化パスで自動決定
+    Sequential { simd_width: Option<usize> }, // 逐次実行
+    Thread { simd_width: Option<usize> },     // スレッドで並列化
+    ThreadGroup { simd_width: Option<usize> }, // スレッドグループ/ブロック
+}
+```
+
+- **Auto**: デフォルト。最適化パスで自動的に決定される
+- **Sequential { simd_width }**: 逐次実行
+  - `simd_width: None` - SIMDベクトル化なし
+  - `simd_width: Some(n)` - SIMD幅nでベクトル化
+- **Thread { simd_width }**: スレッドレベルで並列化
+  - `simd_width: None` - 各スレッド内でSIMDなし
+  - `simd_width: Some(n)` - 各スレッド内でSIMD幅nでベクトル化
+- **ThreadGroup { simd_width }**: スレッドグループ/ブロックレベルで並列化（GPU向け）
+  - `simd_width: None` - 各スレッドグループ内でSIMDなし
+  - `simd_width: Some(n)` - 各スレッドグループ内でSIMD幅nでベクトル化
+
+この設計により、並列化とSIMDベクトル化を独立して制御可能です。
 
 ## GraphOpについて
 GraphOpは最適化の段階で最終的に融合されるので、最適化よりも演算子の種類を減らすことを重視する。そのため、Add, Negを組み合わせて減算を表現するようなことがある。
@@ -171,9 +197,37 @@ let result = sum * ops::recip(product);
 graph.output("result", result);
 ```
 
-## GraphNode
-### lowering時の戦略をノードに持たせたい。
-- SIMDでのベクトル化単位
-- 各軸をグループとスレッドどちらで展開するか？(多くの場合はスレッドを使う？)
-- View操作を組み合わせることで、新たな軸を追加してアンローリング的なことができるので、その責務はグラフ最適化処理(opt/graph)に押し付けたい。
-- WMMA(Tensor Core)をどうやって使うか？（これは高度な機能なので優先順位は低い）
+## Lowering戦略
+
+### axis_strategies
+各GraphNodeは`axis_strategies: Option<Vec<AxisStrategy>>`フィールドを持ち、各軸の並列化戦略を指定できます。
+
+- **None**: 全ての軸が`Auto`（最適化パスで自動決定）
+- **Some(vec)**: ベクトルの長さは`view.ndim()`と一致する必要がある
+
+### ノードの作成
+
+```rust
+// デフォルト（全軸Auto）
+let node = GraphNode::new(dtype, op, src, view);
+
+// 戦略を明示的に指定
+let node = GraphNode::with_axis_strategies(
+    dtype,
+    op,
+    src,
+    view,
+    vec![
+        AxisStrategy::ThreadGroup { simd_width: Some(4) }, // 軸0: スレッドグループ、SIMD幅4
+        AxisStrategy::Thread { simd_width: None },         // 軸1: スレッド並列化のみ
+        AxisStrategy::Sequential { simd_width: Some(8) },  // 軸2: 逐次実行、SIMD幅8
+    ],
+);
+```
+
+### 設計方針
+- **並列化とSIMDの独立制御**: 各戦略バリアントが`simd_width`フィールドを持つため、並列化方式（Sequential/Thread/ThreadGroup）とSIMDベクトル化を独立して制御可能
+- **柔軟な組み合わせ**: 例えば「スレッドで並列化しつつ、各スレッド内でSIMD幅4でベクトル化」のような表現が可能
+- **View操作との連携**: View操作を組み合わせることで、新たな軸を追加してアンローリング的なことが可能
+  - その責務はグラフ最適化処理(`opt/graph`)に分離
+- **将来の拡張性**: WMMA(Tensor Core)対応などの高度な機能は将来的に追加予定

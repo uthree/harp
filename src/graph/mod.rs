@@ -7,6 +7,22 @@ use std::{
 pub mod ops;
 pub mod shape;
 
+/// 各軸の並列化戦略
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum AxisStrategy {
+    #[default]
+    Auto, // 最適化パスで自動決定
+    Sequential {
+        simd_width: Option<usize>,
+    }, // 逐次実行（オプションでSIMD幅を指定）
+    Thread {
+        simd_width: Option<usize>,
+    }, // スレッドで並列化（オプションでSIMD幅を指定）
+    ThreadGroup {
+        simd_width: Option<usize>,
+    }, // スレッドグループ/ブロック（オプションでSIMD幅を指定）
+}
+
 #[derive(Debug)]
 pub struct Graph {
     inputs: HashMap<String, Weak<GraphNodeData>>, // Rcの参照カウントに影響を与えないために、Weak参照で保持する。
@@ -19,6 +35,9 @@ pub struct GraphNodeData {
     pub op: GraphOp,
     pub src: Vec<GraphNode>, // 入力ノード
     pub view: View,
+    // Noneの場合は全軸がAuto。
+    // Some(vec)の場合、長さはview.ndim()と一致する必要がある
+    pub axis_strategies: Option<Vec<AxisStrategy>>,
 }
 
 #[derive(Debug, Clone)]
@@ -105,6 +124,29 @@ impl GraphNode {
             op,
             src,
             view,
+            axis_strategies: None, // デフォルトはNone（全軸Auto）
+        }))
+    }
+
+    /// 軸戦略を指定してノードを作成
+    pub fn with_axis_strategies(
+        dtype: DType,
+        op: GraphOp,
+        src: Vec<GraphNode>,
+        view: View,
+        axis_strategies: Vec<AxisStrategy>,
+    ) -> Self {
+        assert_eq!(
+            view.ndim(),
+            axis_strategies.len(),
+            "axis_strategies length must match view.ndim()"
+        );
+        Self(Rc::new(GraphNodeData {
+            dtype,
+            op,
+            src,
+            view,
+            axis_strategies: Some(axis_strategies),
         }))
     }
 }
@@ -513,5 +555,76 @@ mod tests {
             DType::F32 => {}
             _ => panic!("Expected DType::F32 after inference"),
         }
+    }
+
+    #[test]
+    fn test_axis_strategies_default() {
+        let mut graph = Graph::new();
+        let input = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
+
+        // デフォルトではaxis_strategiesはNone
+        assert!(input.axis_strategies.is_none());
+    }
+
+    #[test]
+    fn test_axis_strategies_custom() {
+        let view = View::contiguous(vec![10, 20, 30]);
+        let strategies = vec![
+            AxisStrategy::ThreadGroup {
+                simd_width: Some(4),
+            }, // スレッドグループで並列化、SIMD幅4
+            AxisStrategy::Thread { simd_width: None }, // スレッドで並列化、SIMDなし
+            AxisStrategy::Sequential {
+                simd_width: Some(8),
+            }, // 逐次実行、SIMD幅8
+        ];
+
+        let node = GraphNode::with_axis_strategies(
+            DType::F32,
+            GraphOp::Input,
+            vec![],
+            view,
+            strategies.clone(),
+        );
+
+        assert!(node.axis_strategies.is_some());
+        let node_strategies = node.axis_strategies.as_ref().unwrap();
+        assert_eq!(node_strategies.len(), 3);
+        assert_eq!(
+            node_strategies[0],
+            AxisStrategy::ThreadGroup {
+                simd_width: Some(4)
+            }
+        );
+        assert_eq!(
+            node_strategies[1],
+            AxisStrategy::Thread { simd_width: None }
+        );
+        assert_eq!(
+            node_strategies[2],
+            AxisStrategy::Sequential {
+                simd_width: Some(8)
+            }
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "axis_strategies length must match view.ndim()")]
+    fn test_axis_strategies_length_mismatch() {
+        let view = View::contiguous(vec![10, 20]);
+        let strategies = vec![
+            AxisStrategy::Thread { simd_width: None },
+            AxisStrategy::ThreadGroup {
+                simd_width: Some(4),
+            },
+            AxisStrategy::Sequential { simd_width: None }, // 1つ多い
+        ];
+
+        let _node =
+            GraphNode::with_axis_strategies(DType::F32, GraphOp::Input, vec![], view, strategies);
     }
 }

@@ -66,6 +66,7 @@ impl Add for GraphNode {
             op: GraphOp::Elementwise(ElementwiseOp::Add),
             src: vec![self, rhs],
             view,
+            axis_strategies: None,
         }))
     }
 }
@@ -81,6 +82,7 @@ impl Mul for GraphNode {
             op: GraphOp::Elementwise(ElementwiseOp::Mul),
             src: vec![self, rhs],
             view,
+            axis_strategies: None,
         }))
     }
 }
@@ -96,6 +98,7 @@ impl Neg for GraphNode {
             op: GraphOp::Elementwise(ElementwiseOp::Neg),
             src: vec![self],
             view,
+            axis_strategies: None,
         }))
     }
 }
@@ -127,6 +130,7 @@ impl Rem for GraphNode {
             op: GraphOp::Elementwise(ElementwiseOp::Rem),
             src: vec![self, rhs],
             view,
+            axis_strategies: None,
         }))
     }
 }
@@ -140,6 +144,7 @@ pub fn recip(node: GraphNode) -> GraphNode {
         op: GraphOp::Elementwise(ElementwiseOp::Recip),
         src: vec![node],
         view,
+        axis_strategies: None,
     }))
 }
 
@@ -152,5 +157,6 @@ pub fn max(lhs: GraphNode, rhs: GraphNode) -> GraphNode {
         op: GraphOp::Elementwise(ElementwiseOp::Max),
         src: vec![lhs, rhs],
         view,
+        axis_strategies: None,
     }))
 }
