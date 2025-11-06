@@ -320,6 +320,10 @@ impl Compiler for MetalCompiler {
             signature,
         )
     }
+
+    fn create_buffer(&self, shape: Vec<usize>, element_size: usize) -> Self::Buffer {
+        MetalBuffer::new(&self.device, shape, element_size)
+    }
 }
 
 #[cfg(test)]
