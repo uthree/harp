@@ -1,122 +1,45 @@
 use crate::ast::AstNode;
-use std::collections::HashMap;
 
 /// ASTの実行コストを推定するトレイト
 pub trait CostEstimator {
     /// ASTノードのコストを推定
-    fn estimate(&self, ast: &AstNode) -> f64;
-}
-
-/// ASTノードのタイプ（コスト設定用）
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum NodeType {
-    Const,
-    Var,
-    Add,
-    Mul,
-    Max,
-    Rem,
-    Idiv,
-    Recip,
-    Sqrt,
-    Log2,
-    Exp2,
-    Sin,
-    Cast,
-    Load,
-    Store,
-    Assign,
-    Barrier,
-    Block,
-    Range,
-    Call,
-    Return,
-}
-
-impl NodeType {
-    /// ASTノードからノードタイプを取得
-    fn from_ast(ast: &AstNode) -> Self {
-        match ast {
-            AstNode::Const(_) => NodeType::Const,
-            AstNode::Var(_) => NodeType::Var,
-            AstNode::Add(_, _) => NodeType::Add,
-            AstNode::Mul(_, _) => NodeType::Mul,
-            AstNode::Max(_, _) => NodeType::Max,
-            AstNode::Rem(_, _) => NodeType::Rem,
-            AstNode::Idiv(_, _) => NodeType::Idiv,
-            AstNode::Recip(_) => NodeType::Recip,
-            AstNode::Sqrt(_) => NodeType::Sqrt,
-            AstNode::Log2(_) => NodeType::Log2,
-            AstNode::Exp2(_) => NodeType::Exp2,
-            AstNode::Sin(_) => NodeType::Sin,
-            AstNode::Cast(_, _) => NodeType::Cast,
-            AstNode::Load { .. } => NodeType::Load,
-            AstNode::Store { .. } => NodeType::Store,
-            AstNode::Assign { .. } => NodeType::Assign,
-            AstNode::Barrier => NodeType::Barrier,
-            AstNode::Block { .. } => NodeType::Block,
-            AstNode::Range { .. } => NodeType::Range,
-            AstNode::Call { .. } => NodeType::Call,
-            AstNode::Return { .. } => NodeType::Return,
-            AstNode::Wildcard(_) => NodeType::Const, // ワイルドカードはコスト0として扱う
-        }
-    }
-
-    /// デフォルトのコストを取得
-    fn default_cost(&self) -> f64 {
-        match self {
-            NodeType::Const => 0.0,
-            NodeType::Var => 0.0,
-            NodeType::Add => 1.0,
-            NodeType::Mul => 1.0,
-            NodeType::Max => 1.0,
-            NodeType::Rem => 2.0,
-            NodeType::Idiv => 2.0,
-            NodeType::Recip => 3.0,
-            NodeType::Sqrt => 3.0,
-            NodeType::Log2 => 4.0,
-            NodeType::Exp2 => 4.0,
-            NodeType::Sin => 5.0,
-            NodeType::Cast => 1.0,
-            NodeType::Load => 5.0,
-            NodeType::Store => 5.0,
-            NodeType::Assign => 0.5,
-            NodeType::Barrier => 10.0,
-            NodeType::Block => 0.0,
-            NodeType::Range => 0.0,
-            NodeType::Call => 5.0,
-            NodeType::Return => 1.0,
-        }
-    }
+    fn estimate(&self, ast: &AstNode) -> f32;
 }
 
 /// 簡単なコスト推定器（ノード数ベース）
-pub struct SimpleCostEstimator {
-    /// ノードタイプごとのカスタムコスト重み
-    custom_costs: HashMap<NodeType, f64>,
-}
+pub struct SimpleCostEstimator;
 
 impl SimpleCostEstimator {
     /// 新しいコスト推定器を作成
     pub fn new() -> Self {
-        Self {
-            custom_costs: HashMap::new(),
+        Self
+    }
+
+    /// ノードのベースコストを取得
+    fn base_cost(&self, ast: &AstNode) -> f32 {
+        match ast {
+            AstNode::Const(_) | AstNode::Wildcard(_) => 0.0,
+            AstNode::Var(_) => 0.0,
+            AstNode::Add(_, _) => 1.0,
+            AstNode::Mul(_, _) => 1.0,
+            AstNode::Max(_, _) => 1.0,
+            AstNode::Rem(_, _) => 2.0,
+            AstNode::Idiv(_, _) => 2.0,
+            AstNode::Recip(_) => 3.0,
+            AstNode::Sqrt(_) => 3.0,
+            AstNode::Log2(_) => 4.0,
+            AstNode::Exp2(_) => 4.0,
+            AstNode::Sin(_) => 5.0,
+            AstNode::Cast(_, _) => 1.0,
+            AstNode::Load { .. } => 5.0,
+            AstNode::Store { .. } => 5.0,
+            AstNode::Assign { .. } => 0.5,
+            AstNode::Barrier => 10.0,
+            AstNode::Block { .. } => 0.0,
+            AstNode::Range { .. } => 0.0,
+            AstNode::Call { .. } => 5.0,
+            AstNode::Return { .. } => 1.0,
         }
-    }
-
-    /// カスタムのノードコストを設定
-    pub fn with_cost(mut self, node_type: NodeType, cost: f64) -> Self {
-        self.custom_costs.insert(node_type, cost);
-        self
-    }
-
-    /// ノードのベースコストを取得（カスタムコストがあればそれを、なければデフォルトを使用）
-    fn base_cost(&self, ast: &AstNode) -> f64 {
-        let node_type = NodeType::from_ast(ast);
-        self.custom_costs
-            .get(&node_type)
-            .copied()
-            .unwrap_or_else(|| node_type.default_cost())
     }
 }
 
@@ -127,11 +50,11 @@ impl Default for SimpleCostEstimator {
 }
 
 impl CostEstimator for SimpleCostEstimator {
-    fn estimate(&self, ast: &AstNode) -> f64 {
+    fn estimate(&self, ast: &AstNode) -> f32 {
         let base_cost = self.base_cost(ast);
 
         // 子ノードのコストを再帰的に計算
-        let children_cost: f64 = match ast {
+        let children_cost: f32 = match ast {
             AstNode::Add(l, r)
             | AstNode::Mul(l, r)
             | AstNode::Max(l, r)
@@ -164,7 +87,7 @@ impl CostEstimator for SimpleCostEstimator {
             AstNode::Block { statements, .. } => statements.iter().map(|s| self.estimate(s)).sum(),
             AstNode::Call { args, .. } => {
                 // 関数呼び出しは引数の評価コスト + 呼び出しコスト
-                args.iter().map(|a| self.estimate(a)).sum::<f64>() + 5.0
+                args.iter().map(|a| self.estimate(a)).sum::<f32>() + 5.0
             }
             AstNode::Return { value } => self.estimate(value) + 1.0,
             _ => 0.0,

@@ -10,6 +10,6 @@ pub use optimizer::Optimizer;
 pub use suggester::Suggester;
 
 // 公開API: 実装
-pub use estimator::{NodeType, SimpleCostEstimator};
+pub use estimator::SimpleCostEstimator;
 pub use optimizer::RuleBaseOptimizer;
 pub use suggester::RuleBaseSuggester;

@@ -3,7 +3,7 @@
 ## ファイル構成
 - `src/opt/mod.rs` - 最適化モジュールの定義
 - `src/opt/ast/mod.rs` - AST最適化の公開API（15行）
-- `src/opt/ast/estimator.rs` - CostEstimator実装（235行）
+- `src/opt/ast/estimator.rs` - CostEstimator実装（158行）
 - `src/opt/ast/optimizer.rs` - Optimizer実装（66行）
 - `src/opt/ast/suggester.rs` - Suggester実装（314行）
 - `src/opt/ast/rules.rs` - 代数的書き換えルール集（899行、定数畳み込み含む）
@@ -59,7 +59,6 @@ pub trait Suggester {
 **特徴:**
 - 各ノードタイプに固定のコストを割り当て
 - 子ノードのコストを再帰的に計算
-- カスタムコストの設定が可能
 
 **デフォルトコスト:**
 - 基本演算（Add, Mul, Max）: 1.0
@@ -71,12 +70,9 @@ pub trait Suggester {
 
 **使用例:**
 ```rust
-use harp::opt::ast::{CostEstimator, SimpleCostEstimator, NodeType};
+use harp::opt::ast::{CostEstimator, SimpleCostEstimator};
 
-let estimator = SimpleCostEstimator::new()
-    .with_cost(NodeType::Add, 1.5)  // カスタムコストを設定
-    .with_cost(NodeType::Mul, 2.0);
-
+let estimator = SimpleCostEstimator::new();
 let cost = estimator.estimate(&ast_node);
 ```
 
