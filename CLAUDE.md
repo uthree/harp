@@ -10,4 +10,4 @@
 
 ## MCP
 ### Kiri
-作業高速化のために[Kiri](<https://github.com/CAPHTECH/kiri>)を使用してください。これは大規模なコードベースのファイルを自動的にインデックス化して検索を補助するなどの機能を持ちます。
+作業高速化のために、ファイル検索を行う際は[Kiri](<https://github.com/CAPHTECH/kiri>)を使用してください。
