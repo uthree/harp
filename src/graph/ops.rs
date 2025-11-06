@@ -1,18 +1,27 @@
 use crate::ast::Literal;
 use crate::graph::shape::View;
-use crate::graph::{DType, GraphNode, GraphNodeData};
+use crate::graph::{AxisStrategy, DType, GraphNode, GraphNodeData};
 use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub enum GraphOp {
-    Input,                      // 入力ノード
-    Contiguous,                 // Viewに従って要素を並べ直す。
-    Const(Literal),             // 定数ノード, shape=[], ndim=0のスカラーを初期化する。
-    View(View),                 // Viewを変更する
-    Elementwise(ElementwiseOp), // 要素ごとに演算を行う
-    Reduce,                     // 縮約
-    Cumulative,                 // 累積
+    Input,          // 入力ノード
+    Const(Literal), // 定数ノード, shape=[], ndim=0のスカラーを初期化する。
+    View(View),     // Viewを変更する
+    Contiguous {
+        axis_strategies: Option<Vec<AxisStrategy>>,
+    }, // Viewに従って要素を並べ直す。
+    Elementwise {
+        op: ElementwiseOp,
+        axis_strategies: Option<Vec<AxisStrategy>>,
+    }, // 要素ごとに演算を行う
+    Reduce {
+        axis_strategies: Option<Vec<AxisStrategy>>,
+    }, // 縮約
+    Cumulative {
+        axis_strategies: Option<Vec<AxisStrategy>>,
+    }, // 累積
 }
 
 #[derive(Debug, Clone)]
@@ -63,10 +72,12 @@ impl Add for GraphNode {
         let view = infer_view(&self.view, &rhs.view);
         GraphNode(Rc::new(GraphNodeData {
             dtype,
-            op: GraphOp::Elementwise(ElementwiseOp::Add),
+            op: GraphOp::Elementwise {
+                op: ElementwiseOp::Add,
+                axis_strategies: None,
+            },
             src: vec![self, rhs],
             view,
-            axis_strategies: None,
         }))
     }
 }
@@ -79,10 +90,12 @@ impl Mul for GraphNode {
         let view = infer_view(&self.view, &rhs.view);
         GraphNode(Rc::new(GraphNodeData {
             dtype,
-            op: GraphOp::Elementwise(ElementwiseOp::Mul),
+            op: GraphOp::Elementwise {
+                op: ElementwiseOp::Mul,
+                axis_strategies: None,
+            },
             src: vec![self, rhs],
             view,
-            axis_strategies: None,
         }))
     }
 }
@@ -95,10 +108,12 @@ impl Neg for GraphNode {
         let view = self.view.clone();
         GraphNode(Rc::new(GraphNodeData {
             dtype,
-            op: GraphOp::Elementwise(ElementwiseOp::Neg),
+            op: GraphOp::Elementwise {
+                op: ElementwiseOp::Neg,
+                axis_strategies: None,
+            },
             src: vec![self],
             view,
-            axis_strategies: None,
         }))
     }
 }
@@ -127,10 +142,12 @@ impl Rem for GraphNode {
         let view = infer_view(&self.view, &rhs.view);
         GraphNode(Rc::new(GraphNodeData {
             dtype,
-            op: GraphOp::Elementwise(ElementwiseOp::Rem),
+            op: GraphOp::Elementwise {
+                op: ElementwiseOp::Rem,
+                axis_strategies: None,
+            },
             src: vec![self, rhs],
             view,
-            axis_strategies: None,
         }))
     }
 }
@@ -141,10 +158,12 @@ pub fn recip(node: GraphNode) -> GraphNode {
     let dtype = node.dtype.clone();
     GraphNode(Rc::new(GraphNodeData {
         dtype,
-        op: GraphOp::Elementwise(ElementwiseOp::Recip),
+        op: GraphOp::Elementwise {
+            op: ElementwiseOp::Recip,
+            axis_strategies: None,
+        },
         src: vec![node],
         view,
-        axis_strategies: None,
     }))
 }
 
@@ -154,9 +173,11 @@ pub fn max(lhs: GraphNode, rhs: GraphNode) -> GraphNode {
     let view = infer_view(&lhs.view, &rhs.view);
     GraphNode(Rc::new(GraphNodeData {
         dtype,
-        op: GraphOp::Elementwise(ElementwiseOp::Max),
+        op: GraphOp::Elementwise {
+            op: ElementwiseOp::Max,
+            axis_strategies: None,
+        },
         src: vec![lhs, rhs],
         view,
-        axis_strategies: None,
     }))
 }

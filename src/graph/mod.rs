@@ -35,9 +35,6 @@ pub struct GraphNodeData {
     pub op: GraphOp,
     pub src: Vec<GraphNode>, // 入力ノード
     pub view: View,
-    // Noneの場合は全軸がAuto。
-    // Some(vec)の場合、長さはview.ndim()と一致する必要がある
-    pub axis_strategies: Option<Vec<AxisStrategy>>,
 }
 
 #[derive(Debug, Clone)]
@@ -134,29 +131,6 @@ impl GraphNode {
             op,
             src,
             view,
-            axis_strategies: None, // デフォルトはNone（全軸Auto）
-        }))
-    }
-
-    /// 軸戦略を指定してノードを作成
-    pub fn with_axis_strategies(
-        dtype: DType,
-        op: GraphOp,
-        src: Vec<GraphNode>,
-        view: View,
-        axis_strategies: Vec<AxisStrategy>,
-    ) -> Self {
-        assert_eq!(
-            view.ndim(),
-            axis_strategies.len(),
-            "axis_strategies length must match view.ndim()"
-        );
-        Self(Rc::new(GraphNodeData {
-            dtype,
-            op,
-            src,
-            view,
-            axis_strategies: Some(axis_strategies),
         }))
     }
 
@@ -315,7 +289,10 @@ mod tests {
         }
 
         match &result.op {
-            GraphOp::Elementwise(ops::ElementwiseOp::Add) => {}
+            GraphOp::Elementwise {
+                op: ops::ElementwiseOp::Add,
+                ..
+            } => {}
             _ => panic!("Expected Add operation"),
         }
 
@@ -346,7 +323,10 @@ mod tests {
         }
 
         match &result.op {
-            GraphOp::Elementwise(ops::ElementwiseOp::Mul) => {}
+            GraphOp::Elementwise {
+                op: ops::ElementwiseOp::Mul,
+                ..
+            } => {}
             _ => panic!("Expected Mul operation"),
         }
 
@@ -371,7 +351,10 @@ mod tests {
         }
 
         match &result.op {
-            GraphOp::Elementwise(ops::ElementwiseOp::Neg) => {}
+            GraphOp::Elementwise {
+                op: ops::ElementwiseOp::Neg,
+                ..
+            } => {}
             _ => panic!("Expected Neg operation"),
         }
 
@@ -402,7 +385,10 @@ mod tests {
 
         // a - b = a + (-b) なので、トップレベルはAdd
         match &result.op {
-            GraphOp::Elementwise(ops::ElementwiseOp::Add) => {}
+            GraphOp::Elementwise {
+                op: ops::ElementwiseOp::Add,
+                ..
+            } => {}
             _ => panic!("Expected Add operation at top level"),
         }
 
@@ -410,7 +396,10 @@ mod tests {
 
         // 右側のオペランドはNeg演算であることを確認
         match &result.src[1].op {
-            GraphOp::Elementwise(ops::ElementwiseOp::Neg) => {}
+            GraphOp::Elementwise {
+                op: ops::ElementwiseOp::Neg,
+                ..
+            } => {}
             _ => panic!("Expected Neg operation for right operand"),
         }
     }
@@ -437,7 +426,10 @@ mod tests {
         }
 
         match &result.op {
-            GraphOp::Elementwise(ops::ElementwiseOp::Rem) => {}
+            GraphOp::Elementwise {
+                op: ops::ElementwiseOp::Rem,
+                ..
+            } => {}
             _ => panic!("Expected Rem operation"),
         }
 
@@ -461,7 +453,10 @@ mod tests {
         }
 
         match &result.op {
-            GraphOp::Elementwise(ops::ElementwiseOp::Recip) => {}
+            GraphOp::Elementwise {
+                op: ops::ElementwiseOp::Recip,
+                ..
+            } => {}
             _ => panic!("Expected Recip operation"),
         }
 
@@ -490,7 +485,10 @@ mod tests {
         }
 
         match &result.op {
-            GraphOp::Elementwise(ops::ElementwiseOp::Max) => {}
+            GraphOp::Elementwise {
+                op: ops::ElementwiseOp::Max,
+                ..
+            } => {}
             _ => panic!("Expected Max operation"),
         }
 
@@ -540,7 +538,10 @@ mod tests {
         let result = (a + b) * c;
 
         match &result.op {
-            GraphOp::Elementwise(ops::ElementwiseOp::Mul) => {}
+            GraphOp::Elementwise {
+                op: ops::ElementwiseOp::Mul,
+                ..
+            } => {}
             _ => panic!("Expected Mul operation at top level"),
         }
 
@@ -548,7 +549,10 @@ mod tests {
 
         // 左側のノードがAdd演算であることを確認
         match &result.src[0].op {
-            GraphOp::Elementwise(ops::ElementwiseOp::Add) => {}
+            GraphOp::Elementwise {
+                op: ops::ElementwiseOp::Add,
+                ..
+            } => {}
             _ => panic!("Expected Add operation in left operand"),
         }
     }
@@ -570,76 +574,5 @@ mod tests {
             DType::F32 => {}
             _ => panic!("Expected DType::F32 after inference"),
         }
-    }
-
-    #[test]
-    fn test_axis_strategies_default() {
-        let mut graph = Graph::new();
-        let input = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
-
-        // デフォルトではaxis_strategiesはNone
-        assert!(input.axis_strategies.is_none());
-    }
-
-    #[test]
-    fn test_axis_strategies_custom() {
-        let view = View::contiguous(vec![10, 20, 30]);
-        let strategies = vec![
-            AxisStrategy::ThreadGroup {
-                simd_width: Some(4),
-            }, // スレッドグループで並列化、SIMD幅4
-            AxisStrategy::Thread { simd_width: None }, // スレッドで並列化、SIMDなし
-            AxisStrategy::Sequential {
-                simd_width: Some(8),
-            }, // 逐次実行、SIMD幅8
-        ];
-
-        let node = GraphNode::with_axis_strategies(
-            DType::F32,
-            GraphOp::Input,
-            vec![],
-            view,
-            strategies.clone(),
-        );
-
-        assert!(node.axis_strategies.is_some());
-        let node_strategies = node.axis_strategies.as_ref().unwrap();
-        assert_eq!(node_strategies.len(), 3);
-        assert_eq!(
-            node_strategies[0],
-            AxisStrategy::ThreadGroup {
-                simd_width: Some(4)
-            }
-        );
-        assert_eq!(
-            node_strategies[1],
-            AxisStrategy::Thread { simd_width: None }
-        );
-        assert_eq!(
-            node_strategies[2],
-            AxisStrategy::Sequential {
-                simd_width: Some(8)
-            }
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "axis_strategies length must match view.ndim()")]
-    fn test_axis_strategies_length_mismatch() {
-        let view = View::contiguous(vec![10, 20]);
-        let strategies = vec![
-            AxisStrategy::Thread { simd_width: None },
-            AxisStrategy::ThreadGroup {
-                simd_width: Some(4),
-            },
-            AxisStrategy::Sequential { simd_width: None }, // 1つ多い
-        ];
-
-        let _node =
-            GraphNode::with_axis_strategies(DType::F32, GraphOp::Input, vec![], view, strategies);
     }
 }

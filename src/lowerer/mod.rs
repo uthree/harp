@@ -18,6 +18,12 @@ fn node_ptr(node: &GraphNode) -> *const () {
     node.as_ptr() as *const ()
 }
 
+impl Default for Lowerer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Lowerer {
     pub fn new() -> Self {
         Self { alu_counter: 0 }
@@ -39,7 +45,7 @@ impl Lowerer {
     ) -> Result<Function, String> {
         // 現時点では、Elementwise演算のみをサポート
         match &node.op {
-            GraphOp::Elementwise(op) => self.lower_elementwise_kernel(node, node_id, op),
+            GraphOp::Elementwise { op, .. } => self.lower_elementwise_kernel(node, node_id, op),
             _ => Err(format!("Unsupported operation: {:?}", node.op)),
         }
     }
@@ -355,7 +361,7 @@ impl Lowerer {
         let mut visited: HashSet<*const ()> = HashSet::new();
         let mut nodes: Vec<GraphNode> = Vec::new();
 
-        for (_, output_node) in graph.outputs() {
+        for output_node in graph.outputs().values() {
             Self::collect_nodes_recursive(output_node, &mut visited, &mut nodes);
         }
 
@@ -589,8 +595,8 @@ kernel void test_add(
         eprintln!("\n=== Metal Kernel ===\n{}\n", source);
 
         // Metal compilerで実行
-        use crate::backend::metal::{MetalCode, MetalCompiler};
         use crate::backend::Compiler;
+        use crate::backend::metal::{MetalCode, MetalCompiler};
         if let Some(mut compiler) = MetalCompiler::with_default_device() {
             let code = MetalCode::new(source.to_string());
             let mut kernel = compiler.compile(&code);
