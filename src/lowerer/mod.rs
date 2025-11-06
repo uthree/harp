@@ -2,6 +2,7 @@ use crate::ast::{
     AccessRegion, AstNode, DType as AstDType, Function, FunctionKind, Literal, Mutability, Scope,
     VarDecl, VarKind, helper::*,
 };
+use crate::backend::KernelSignature;
 use crate::graph::{DType as GraphDType, Graph, GraphNode, ops::ElementwiseOp, ops::GraphOp};
 use log::debug;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -27,6 +28,68 @@ impl Default for Lowerer {
 impl Lowerer {
     pub fn new() -> Self {
         Self { alu_counter: 0 }
+    }
+
+    /// GraphからKernelSignatureを生成
+    pub fn create_signature(graph: &Graph) -> KernelSignature {
+        use crate::backend::{BufferSignature, KernelSignature};
+        use std::collections::HashSet;
+
+        let mut inputs = Vec::new();
+        let mut outputs = Vec::new();
+        let mut shape_vars = HashSet::new();
+
+        // 入力バッファのシグネチャを生成
+        for (name, weak_node) in graph.inputs() {
+            if let Some(node_rc) = weak_node.upgrade() {
+                let shape: Vec<_> = node_rc.view.shape().to_vec();
+
+                // shape内の変数名を収集
+                for expr in &shape {
+                    Self::collect_shape_vars(expr, &mut shape_vars);
+                }
+
+                inputs.push(BufferSignature::new(name.clone(), shape));
+            }
+        }
+
+        // 出力バッファのシグネチャを生成
+        for (name, node) in graph.outputs() {
+            let shape: Vec<_> = node.view.shape().to_vec();
+
+            // shape内の変数名を収集
+            for expr in &shape {
+                Self::collect_shape_vars(expr, &mut shape_vars);
+            }
+
+            outputs.push(BufferSignature::new(name.clone(), shape));
+        }
+
+        // shape_varsをソートしてVecに変換
+        let mut shape_vars_vec: Vec<_> = shape_vars.into_iter().collect();
+        shape_vars_vec.sort();
+
+        KernelSignature::new(inputs, outputs, shape_vars_vec)
+    }
+
+    /// Exprから変数名を再帰的に収集
+    fn collect_shape_vars(expr: &crate::graph::shape::Expr, vars: &mut HashSet<String>) {
+        use crate::graph::shape::Expr;
+
+        match expr {
+            Expr::Var(name) => {
+                vars.insert(name.clone());
+            }
+            Expr::Add(a, b)
+            | Expr::Sub(a, b)
+            | Expr::Mul(a, b)
+            | Expr::Div(a, b)
+            | Expr::Rem(a, b) => {
+                Self::collect_shape_vars(a, vars);
+                Self::collect_shape_vars(b, vars);
+            }
+            Expr::Const(_) => {}
+        }
     }
 
     /// 新しい一時変数名を生成
@@ -641,6 +704,109 @@ kernel void test_add(
             eprintln!("\n✅ End-to-end execution successful!\n");
         } else {
             eprintln!("⚠️ Metal not available, skipping test");
+        }
+    }
+
+    #[test]
+    fn test_create_signature_simple() {
+        use crate::graph::shape::Expr;
+
+        // 単純なグラフ: a (shape=[10, 20]) → output
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(GraphDType::F32)
+            .with_shape(vec![10, 20])
+            .build();
+        graph.output("result", a);
+
+        let signature = Lowerer::create_signature(&graph);
+
+        // 入力が1つ
+        assert_eq!(signature.inputs.len(), 1);
+        assert_eq!(signature.inputs[0].name, "a");
+        assert_eq!(signature.inputs[0].shape.len(), 2);
+        assert_eq!(signature.inputs[0].shape[0], Expr::from(10));
+        assert_eq!(signature.inputs[0].shape[1], Expr::from(20));
+
+        // 出力が1つ
+        assert_eq!(signature.outputs.len(), 1);
+        assert_eq!(signature.outputs[0].name, "result");
+        assert_eq!(signature.outputs[0].shape.len(), 2);
+
+        // 動的なshape変数はなし
+        assert_eq!(signature.shape_vars.len(), 0);
+    }
+
+    #[test]
+    fn test_create_signature_with_dynamic_shape() {
+        use crate::graph::shape::Expr;
+
+        // 動的なshapeを持つグラフ: a (shape=[N, M])
+        let mut graph = Graph::new();
+        let n = Expr::Var("N".to_string());
+        let m = Expr::Var("M".to_string());
+        let a = graph
+            .input("a")
+            .with_dtype(GraphDType::F32)
+            .with_shape(vec![n.clone(), m.clone()])
+            .build();
+        graph.output("result", a);
+
+        let signature = Lowerer::create_signature(&graph);
+
+        // 入力が1つ
+        assert_eq!(signature.inputs.len(), 1);
+        assert_eq!(signature.inputs[0].name, "a");
+        assert_eq!(signature.inputs[0].shape.len(), 2);
+        assert_eq!(signature.inputs[0].shape[0], n);
+        assert_eq!(signature.inputs[0].shape[1], m);
+
+        // 動的なshape変数が2つ（ソートされている）
+        assert_eq!(signature.shape_vars.len(), 2);
+        assert!(signature.shape_vars.contains(&"M".to_string()));
+        assert!(signature.shape_vars.contains(&"N".to_string()));
+    }
+
+    #[test]
+    fn test_create_signature_multiple_inputs_outputs() {
+        use crate::graph::shape::Expr;
+
+        // 複数入出力のグラフ
+        let mut graph = Graph::new();
+        let a = graph
+            .input("input_a")
+            .with_dtype(GraphDType::F32)
+            .with_shape(vec![10])
+            .build();
+        let b = graph
+            .input("input_b")
+            .with_dtype(GraphDType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        let sum = a.clone() + b.clone();
+        let prod = a * b;
+
+        graph.output("sum", sum);
+        graph.output("product", prod);
+
+        let signature = Lowerer::create_signature(&graph);
+
+        // 入力が2つ
+        assert_eq!(signature.inputs.len(), 2);
+        assert!(signature.inputs.iter().any(|i| i.name == "input_a"));
+        assert!(signature.inputs.iter().any(|i| i.name == "input_b"));
+
+        // 出力が2つ
+        assert_eq!(signature.outputs.len(), 2);
+        assert!(signature.outputs.iter().any(|o| o.name == "sum"));
+        assert!(signature.outputs.iter().any(|o| o.name == "product"));
+
+        // 全て同じshape [10]
+        for input in &signature.inputs {
+            assert_eq!(input.shape.len(), 1);
+            assert_eq!(input.shape[0], Expr::from(10));
         }
     }
 

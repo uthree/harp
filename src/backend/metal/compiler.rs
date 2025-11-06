@@ -105,6 +105,7 @@ pub struct MetalKernel {
     command_queue: CommandQueue,
     thread_group_size: MTLSize,
     grid_size: MTLSize,
+    signature: KernelSignature,
 }
 
 impl MetalKernel {
@@ -113,6 +114,7 @@ impl MetalKernel {
         pipeline_state: ComputePipelineState,
         command_queue: CommandQueue,
         grid_size: MTLSize,
+        signature: KernelSignature,
     ) -> Self {
         // スレッドグループサイズを自動決定（最大スレッド数を使用）
         let max_threads = pipeline_state.max_total_threads_per_threadgroup();
@@ -123,6 +125,7 @@ impl MetalKernel {
             command_queue,
             thread_group_size,
             grid_size,
+            signature,
         }
     }
 
@@ -182,7 +185,7 @@ impl Kernel for MetalKernel {
     type Buffer = MetalBuffer;
 
     fn signature(&self) -> KernelSignature {
-        KernelSignature {}
+        self.signature.clone()
     }
 }
 
@@ -306,8 +309,16 @@ impl Compiler for MetalCompiler {
         // デフォルトのグリッドサイズ（1次元）
         let grid_size = MTLSize::new(DEFAULT_GRID_SIZE, 1, 1);
 
+        // MetalCodeからシグネチャ情報を取得
+        let signature = code.signature().clone();
+
         info!("Metal kernel compiled successfully");
-        MetalKernel::new(pipeline_state, self.command_queue.clone(), grid_size)
+        MetalKernel::new(
+            pipeline_state,
+            self.command_queue.clone(),
+            grid_size,
+            signature,
+        )
     }
 }
 

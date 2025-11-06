@@ -13,37 +13,53 @@ pub use renderer::MetalRenderer;
 /// new type pattern を使用して、型システムで Metal 専用のコードとして扱う。
 /// これにより、誤って他のバックエンドにコードを渡すことを防ぐ。
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MetalCode(String);
+pub struct MetalCode {
+    code: String,
+    signature: crate::backend::KernelSignature,
+}
 
 impl MetalCode {
-    /// 新しい MetalCode を作成
+    /// 新しい MetalCode を作成（シグネチャなし）
     pub fn new(code: String) -> Self {
-        Self(code)
+        Self {
+            code,
+            signature: crate::backend::KernelSignature::empty(),
+        }
+    }
+
+    /// シグネチャ付きで新しい MetalCode を作成
+    pub fn with_signature(code: String, signature: crate::backend::KernelSignature) -> Self {
+        Self { code, signature }
     }
 
     /// 内部の String への参照を取得
     pub fn as_str(&self) -> &str {
-        &self.0
+        &self.code
     }
 
     /// 内部の String を取得（所有権を移動）
     pub fn into_inner(self) -> String {
-        self.0
+        self.code
+    }
+
+    /// シグネチャへの参照を取得
+    pub fn signature(&self) -> &crate::backend::KernelSignature {
+        &self.signature
     }
 
     /// コードのバイト数を取得
     pub fn len(&self) -> usize {
-        self.0.len()
+        self.code.len()
     }
 
     /// コードが空かどうか
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.code.is_empty()
     }
 
     /// 指定した文字列が含まれているかチェック
     pub fn contains(&self, pat: &str) -> bool {
-        self.0.contains(pat)
+        self.code.contains(pat)
     }
 }
 
@@ -67,6 +83,6 @@ impl AsRef<str> for MetalCode {
 
 impl std::fmt::Display for MetalCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", self.code)
     }
 }

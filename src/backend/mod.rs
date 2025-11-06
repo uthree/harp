@@ -45,4 +45,48 @@ pub struct Query<'a, B: Buffer> {
 }
 // TODO: QueryBuilderを追加
 
-pub struct KernelSignature {}
+/// カーネルのシグネチャ（入出力バッファの形状情報）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KernelSignature {
+    pub inputs: Vec<BufferSignature>,
+    pub outputs: Vec<BufferSignature>,
+    pub shape_vars: Vec<String>, // 動的なshape変数の名前リスト
+}
+
+impl KernelSignature {
+    /// 新しいKernelSignatureを作成
+    pub fn new(
+        inputs: Vec<BufferSignature>,
+        outputs: Vec<BufferSignature>,
+        shape_vars: Vec<String>,
+    ) -> Self {
+        Self {
+            inputs,
+            outputs,
+            shape_vars,
+        }
+    }
+
+    /// 空のKernelSignatureを作成
+    pub fn empty() -> Self {
+        Self {
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            shape_vars: Vec::new(),
+        }
+    }
+}
+
+/// バッファのシグネチャ（名前と形状）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BufferSignature {
+    pub name: String,
+    pub shape: Vec<crate::graph::shape::Expr>, // Exprで動的な形状を表現
+}
+
+impl BufferSignature {
+    /// 新しいBufferSignatureを作成
+    pub fn new(name: String, shape: Vec<crate::graph::shape::Expr>) -> Self {
+        Self { name, shape }
+    }
+}
