@@ -267,8 +267,278 @@ pub fn factor_right() -> Rc<AstRewriteRule> {
 }
 
 // ============================================================================
+// 定数畳み込み (Constant Folding)
+// ============================================================================
+
+/// 定数加算の畳み込み: Const(a) + Const(b) = Const(a + b)
+pub fn const_fold_add() -> Rc<AstRewriteRule> {
+    AstRewriteRule::new(
+        AstNode::Add(
+            Box::new(AstNode::Wildcard("a".to_string())),
+            Box::new(AstNode::Wildcard("b".to_string())),
+        ),
+        |bindings| {
+            let a = bindings.get("a").unwrap();
+            let b = bindings.get("b").unwrap();
+
+            match (a, b) {
+                (AstNode::Const(Literal::Isize(av)), AstNode::Const(Literal::Isize(bv))) => {
+                    AstNode::Const(Literal::Isize(av + bv))
+                }
+                (AstNode::Const(Literal::F32(av)), AstNode::Const(Literal::F32(bv))) => {
+                    AstNode::Const(Literal::F32(av + bv))
+                }
+                _ => AstNode::Add(Box::new(a.clone()), Box::new(b.clone())),
+            }
+        },
+        |bindings| {
+            // 両方が定数の場合のみ適用
+            matches!(
+                (bindings.get("a"), bindings.get("b")),
+                (Some(AstNode::Const(_)), Some(AstNode::Const(_)))
+            )
+        },
+    )
+}
+
+/// 定数乗算の畳み込み: Const(a) * Const(b) = Const(a * b)
+pub fn const_fold_mul() -> Rc<AstRewriteRule> {
+    AstRewriteRule::new(
+        AstNode::Mul(
+            Box::new(AstNode::Wildcard("a".to_string())),
+            Box::new(AstNode::Wildcard("b".to_string())),
+        ),
+        |bindings| {
+            let a = bindings.get("a").unwrap();
+            let b = bindings.get("b").unwrap();
+
+            match (a, b) {
+                (AstNode::Const(Literal::Isize(av)), AstNode::Const(Literal::Isize(bv))) => {
+                    AstNode::Const(Literal::Isize(av * bv))
+                }
+                (AstNode::Const(Literal::F32(av)), AstNode::Const(Literal::F32(bv))) => {
+                    AstNode::Const(Literal::F32(av * bv))
+                }
+                _ => AstNode::Mul(Box::new(a.clone()), Box::new(b.clone())),
+            }
+        },
+        |bindings| {
+            matches!(
+                (bindings.get("a"), bindings.get("b")),
+                (Some(AstNode::Const(_)), Some(AstNode::Const(_)))
+            )
+        },
+    )
+}
+
+/// 定数maxの畳み込み: max(Const(a), Const(b)) = Const(max(a, b))
+pub fn const_fold_max() -> Rc<AstRewriteRule> {
+    AstRewriteRule::new(
+        AstNode::Max(
+            Box::new(AstNode::Wildcard("a".to_string())),
+            Box::new(AstNode::Wildcard("b".to_string())),
+        ),
+        |bindings| {
+            let a = bindings.get("a").unwrap();
+            let b = bindings.get("b").unwrap();
+
+            match (a, b) {
+                (AstNode::Const(Literal::Isize(av)), AstNode::Const(Literal::Isize(bv))) => {
+                    AstNode::Const(Literal::Isize(*av.max(bv)))
+                }
+                (AstNode::Const(Literal::F32(av)), AstNode::Const(Literal::F32(bv))) => {
+                    AstNode::Const(Literal::F32(av.max(*bv)))
+                }
+                _ => AstNode::Max(Box::new(a.clone()), Box::new(b.clone())),
+            }
+        },
+        |bindings| {
+            matches!(
+                (bindings.get("a"), bindings.get("b")),
+                (Some(AstNode::Const(_)), Some(AstNode::Const(_)))
+            )
+        },
+    )
+}
+
+/// 定数剰余の畳み込み: Const(a) % Const(b) = Const(a % b)
+pub fn const_fold_rem() -> Rc<AstRewriteRule> {
+    AstRewriteRule::new(
+        AstNode::Rem(
+            Box::new(AstNode::Wildcard("a".to_string())),
+            Box::new(AstNode::Wildcard("b".to_string())),
+        ),
+        |bindings| {
+            let a = bindings.get("a").unwrap();
+            let b = bindings.get("b").unwrap();
+
+            match (a, b) {
+                (AstNode::Const(Literal::Isize(av)), AstNode::Const(Literal::Isize(bv)))
+                    if *bv != 0 =>
+                {
+                    AstNode::Const(Literal::Isize(av % bv))
+                }
+                _ => AstNode::Rem(Box::new(a.clone()), Box::new(b.clone())),
+            }
+        },
+        |bindings| {
+            matches!(
+                (bindings.get("a"), bindings.get("b")),
+                (Some(AstNode::Const(Literal::Isize(_))), Some(AstNode::Const(Literal::Isize(b)))) if *b != 0
+            )
+        },
+    )
+}
+
+/// 定数除算の畳み込み: Const(a) / Const(b) = Const(a / b)
+pub fn const_fold_idiv() -> Rc<AstRewriteRule> {
+    AstRewriteRule::new(
+        AstNode::Idiv(
+            Box::new(AstNode::Wildcard("a".to_string())),
+            Box::new(AstNode::Wildcard("b".to_string())),
+        ),
+        |bindings| {
+            let a = bindings.get("a").unwrap();
+            let b = bindings.get("b").unwrap();
+
+            match (a, b) {
+                (AstNode::Const(Literal::Isize(av)), AstNode::Const(Literal::Isize(bv)))
+                    if *bv != 0 =>
+                {
+                    AstNode::Const(Literal::Isize(av / bv))
+                }
+                _ => AstNode::Idiv(Box::new(a.clone()), Box::new(b.clone())),
+            }
+        },
+        |bindings| {
+            matches!(
+                (bindings.get("a"), bindings.get("b")),
+                (Some(AstNode::Const(Literal::Isize(_))), Some(AstNode::Const(Literal::Isize(b)))) if *b != 0
+            )
+        },
+    )
+}
+
+/// 定数逆数の畳み込み: recip(Const(a)) = Const(1 / a)
+pub fn const_fold_recip() -> Rc<AstRewriteRule> {
+    AstRewriteRule::new(
+        AstNode::Recip(Box::new(AstNode::Wildcard("a".to_string()))),
+        |bindings| {
+            let a = bindings.get("a").unwrap();
+
+            match a {
+                AstNode::Const(Literal::F32(av)) if *av != 0.0 => {
+                    AstNode::Const(Literal::F32(1.0 / av))
+                }
+                _ => AstNode::Recip(Box::new(a.clone())),
+            }
+        },
+        |bindings| {
+            matches!(
+                bindings.get("a"),
+                Some(AstNode::Const(Literal::F32(v))) if *v != 0.0
+            )
+        },
+    )
+}
+
+/// 定数平方根の畳み込み: sqrt(Const(a)) = Const(sqrt(a))
+pub fn const_fold_sqrt() -> Rc<AstRewriteRule> {
+    AstRewriteRule::new(
+        AstNode::Sqrt(Box::new(AstNode::Wildcard("a".to_string()))),
+        |bindings| {
+            let a = bindings.get("a").unwrap();
+
+            match a {
+                AstNode::Const(Literal::F32(av)) if *av >= 0.0 => {
+                    AstNode::Const(Literal::F32(av.sqrt()))
+                }
+                _ => AstNode::Sqrt(Box::new(a.clone())),
+            }
+        },
+        |bindings| {
+            matches!(
+                bindings.get("a"),
+                Some(AstNode::Const(Literal::F32(v))) if *v >= 0.0
+            )
+        },
+    )
+}
+
+/// 定数log2の畳み込み: log2(Const(a)) = Const(log2(a))
+pub fn const_fold_log2() -> Rc<AstRewriteRule> {
+    AstRewriteRule::new(
+        AstNode::Log2(Box::new(AstNode::Wildcard("a".to_string()))),
+        |bindings| {
+            let a = bindings.get("a").unwrap();
+
+            match a {
+                AstNode::Const(Literal::F32(av)) if *av > 0.0 => {
+                    AstNode::Const(Literal::F32(av.log2()))
+                }
+                _ => AstNode::Log2(Box::new(a.clone())),
+            }
+        },
+        |bindings| {
+            matches!(
+                bindings.get("a"),
+                Some(AstNode::Const(Literal::F32(v))) if *v > 0.0
+            )
+        },
+    )
+}
+
+/// 定数exp2の畳み込み: exp2(Const(a)) = Const(2^a)
+pub fn const_fold_exp2() -> Rc<AstRewriteRule> {
+    AstRewriteRule::new(
+        AstNode::Exp2(Box::new(AstNode::Wildcard("a".to_string()))),
+        |bindings| {
+            let a = bindings.get("a").unwrap();
+
+            match a {
+                AstNode::Const(Literal::F32(av)) => AstNode::Const(Literal::F32(av.exp2())),
+                _ => AstNode::Exp2(Box::new(a.clone())),
+            }
+        },
+        |bindings| matches!(bindings.get("a"), Some(AstNode::Const(Literal::F32(_)))),
+    )
+}
+
+/// 定数sinの畳み込み: sin(Const(a)) = Const(sin(a))
+pub fn const_fold_sin() -> Rc<AstRewriteRule> {
+    AstRewriteRule::new(
+        AstNode::Sin(Box::new(AstNode::Wildcard("a".to_string()))),
+        |bindings| {
+            let a = bindings.get("a").unwrap();
+
+            match a {
+                AstNode::Const(Literal::F32(av)) => AstNode::Const(Literal::F32(av.sin())),
+                _ => AstNode::Sin(Box::new(a.clone())),
+            }
+        },
+        |bindings| matches!(bindings.get("a"), Some(AstNode::Const(Literal::F32(_)))),
+    )
+}
+
+// ============================================================================
 // ルール集の生成
 // ============================================================================
+
+/// 定数畳み込みルール集
+pub fn constant_folding_rules() -> Vec<Rc<AstRewriteRule>> {
+    vec![
+        const_fold_add(),
+        const_fold_mul(),
+        const_fold_max(),
+        const_fold_rem(),
+        const_fold_idiv(),
+        const_fold_recip(),
+        const_fold_sqrt(),
+        const_fold_log2(),
+        const_fold_exp2(),
+        const_fold_sin(),
+    ]
+}
 
 /// 簡約ルール集（式を簡単にする）
 pub fn simplification_rules() -> Vec<Rc<AstRewriteRule>> {
@@ -298,9 +568,10 @@ pub fn normalization_rules() -> Vec<Rc<AstRewriteRule>> {
     ]
 }
 
-/// すべての代数的ルール集
+/// すべての代数的ルール集（定数畳み込み含む）
 pub fn all_algebraic_rules() -> Vec<Rc<AstRewriteRule>> {
     let mut rules = Vec::new();
+    rules.extend(constant_folding_rules());
     rules.extend(simplification_rules());
     rules.extend(normalization_rules());
     // 交換則は探索用なのでデフォルトには含めない（無限ループの可能性）
@@ -467,5 +738,162 @@ mod tests {
             )),
         );
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_const_fold_add() {
+        let rule = const_fold_add();
+
+        // Isize: 2 + 3 = 5
+        let input = AstNode::Add(
+            Box::new(AstNode::Const(Literal::Isize(2))),
+            Box::new(AstNode::Const(Literal::Isize(3))),
+        );
+        let result = rule.apply(&input);
+        assert_eq!(result, AstNode::Const(Literal::Isize(5)));
+
+        // F32: 1.5 + 2.5 = 4.0
+        let input = AstNode::Add(
+            Box::new(AstNode::Const(Literal::F32(1.5))),
+            Box::new(AstNode::Const(Literal::F32(2.5))),
+        );
+        let result = rule.apply(&input);
+        assert_eq!(result, AstNode::Const(Literal::F32(4.0)));
+    }
+
+    #[test]
+    fn test_const_fold_mul() {
+        let rule = const_fold_mul();
+
+        // Isize: 6 * 7 = 42
+        let input = AstNode::Mul(
+            Box::new(AstNode::Const(Literal::Isize(6))),
+            Box::new(AstNode::Const(Literal::Isize(7))),
+        );
+        let result = rule.apply(&input);
+        assert_eq!(result, AstNode::Const(Literal::Isize(42)));
+
+        // F32: 2.5 * 4.0 = 10.0
+        let input = AstNode::Mul(
+            Box::new(AstNode::Const(Literal::F32(2.5))),
+            Box::new(AstNode::Const(Literal::F32(4.0))),
+        );
+        let result = rule.apply(&input);
+        assert_eq!(result, AstNode::Const(Literal::F32(10.0)));
+    }
+
+    #[test]
+    fn test_const_fold_sqrt() {
+        let rule = const_fold_sqrt();
+
+        // sqrt(4.0) = 2.0
+        let input = AstNode::Sqrt(Box::new(AstNode::Const(Literal::F32(4.0))));
+        let result = rule.apply(&input);
+        assert_eq!(result, AstNode::Const(Literal::F32(2.0)));
+
+        // sqrt(9.0) = 3.0
+        let input = AstNode::Sqrt(Box::new(AstNode::Const(Literal::F32(9.0))));
+        let result = rule.apply(&input);
+        assert_eq!(result, AstNode::Const(Literal::F32(3.0)));
+    }
+
+    #[test]
+    fn test_const_fold_recip() {
+        let rule = const_fold_recip();
+
+        // recip(2.0) = 0.5
+        let input = AstNode::Recip(Box::new(AstNode::Const(Literal::F32(2.0))));
+        let result = rule.apply(&input);
+        assert_eq!(result, AstNode::Const(Literal::F32(0.5)));
+
+        // recip(4.0) = 0.25
+        let input = AstNode::Recip(Box::new(AstNode::Const(Literal::F32(4.0))));
+        let result = rule.apply(&input);
+        assert_eq!(result, AstNode::Const(Literal::F32(0.25)));
+    }
+
+    #[test]
+    fn test_const_fold_max() {
+        let rule = const_fold_max();
+
+        // max(3, 5) = 5
+        let input = AstNode::Max(
+            Box::new(AstNode::Const(Literal::Isize(3))),
+            Box::new(AstNode::Const(Literal::Isize(5))),
+        );
+        let result = rule.apply(&input);
+        assert_eq!(result, AstNode::Const(Literal::Isize(5)));
+
+        // max(2.5, 1.5) = 2.5
+        let input = AstNode::Max(
+            Box::new(AstNode::Const(Literal::F32(2.5))),
+            Box::new(AstNode::Const(Literal::F32(1.5))),
+        );
+        let result = rule.apply(&input);
+        assert_eq!(result, AstNode::Const(Literal::F32(2.5)));
+    }
+
+    #[test]
+    fn test_const_fold_rem() {
+        let rule = const_fold_rem();
+
+        // 10 % 3 = 1
+        let input = AstNode::Rem(
+            Box::new(AstNode::Const(Literal::Isize(10))),
+            Box::new(AstNode::Const(Literal::Isize(3))),
+        );
+        let result = rule.apply(&input);
+        assert_eq!(result, AstNode::Const(Literal::Isize(1)));
+    }
+
+    #[test]
+    fn test_const_fold_idiv() {
+        let rule = const_fold_idiv();
+
+        // 10 / 3 = 3
+        let input = AstNode::Idiv(
+            Box::new(AstNode::Const(Literal::Isize(10))),
+            Box::new(AstNode::Const(Literal::Isize(3))),
+        );
+        let result = rule.apply(&input);
+        assert_eq!(result, AstNode::Const(Literal::Isize(3)));
+    }
+
+    #[test]
+    fn test_constant_folding_with_optimizer() {
+        let optimizer = RuleBaseOptimizer::new(constant_folding_rules());
+
+        // (2 + 3) * 4 = 5 * 4 = 20
+        let input = AstNode::Mul(
+            Box::new(AstNode::Add(
+                Box::new(AstNode::Const(Literal::Isize(2))),
+                Box::new(AstNode::Const(Literal::Isize(3))),
+            )),
+            Box::new(AstNode::Const(Literal::Isize(4))),
+        );
+
+        let result = optimizer.optimize(input);
+        assert_eq!(result, AstNode::Const(Literal::Isize(20)));
+    }
+
+    #[test]
+    fn test_combined_optimization() {
+        // 定数畳み込みと簡約を組み合わせ
+        let optimizer = RuleBaseOptimizer::new(all_algebraic_rules());
+
+        // ((2 + 3) * 1) + 0 = 5 * 1 + 0 = 5 + 0 = 5
+        let input = AstNode::Add(
+            Box::new(AstNode::Mul(
+                Box::new(AstNode::Add(
+                    Box::new(AstNode::Const(Literal::Isize(2))),
+                    Box::new(AstNode::Const(Literal::Isize(3))),
+                )),
+                Box::new(AstNode::Const(Literal::Isize(1))),
+            )),
+            Box::new(AstNode::Const(Literal::Isize(0))),
+        );
+
+        let result = optimizer.optimize(input);
+        assert_eq!(result, AstNode::Const(Literal::Isize(5)));
     }
 }

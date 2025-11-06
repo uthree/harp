@@ -6,7 +6,7 @@
 - `src/opt/ast/estimator.rs` - CostEstimator実装（235行）
 - `src/opt/ast/optimizer.rs` - Optimizer実装（66行）
 - `src/opt/ast/suggester.rs` - Suggester実装（314行）
-- `src/opt/ast/rules.rs` - 代数的書き換えルール集（471行）
+- `src/opt/ast/rules.rs` - 代数的書き換えルール集（899行、定数畳み込み含む）
 - `src/opt/graph/mod.rs` - グラフ最適化（未実装）
 
 ## 実装状況
@@ -238,7 +238,42 @@ fn beam_search(
 - `factor_left()`: a * b + a * c = a * (b + c)（因数分解）
 - `factor_right()`: a * c + b * c = (a + b) * c（因数分解）
 
+#### 定数畳み込み (Constant Folding)
+- `const_fold_add()`: Const(a) + Const(b) = Const(a + b)
+- `const_fold_mul()`: Const(a) * Const(b) = Const(a * b)
+- `const_fold_max()`: max(Const(a), Const(b)) = Const(max(a, b))
+- `const_fold_rem()`: Const(a) % Const(b) = Const(a % b)
+- `const_fold_idiv()`: Const(a) / Const(b) = Const(a / b)
+- `const_fold_recip()`: recip(Const(a)) = Const(1 / a)
+- `const_fold_sqrt()`: sqrt(Const(a)) = Const(sqrt(a))
+- `const_fold_log2()`: log2(Const(a)) = Const(log2(a))
+- `const_fold_exp2()`: exp2(Const(a)) = Const(2^a)
+- `const_fold_sin()`: sin(Const(a)) = Const(sin(a))
+
 ### ルール集の生成関数
+
+#### constant_folding_rules()
+定数畳み込みルール集。コンパイル時に計算可能な定数式を評価する。
+
+**使用例:**
+```rust
+use harp::opt::ast::{RuleBaseOptimizer, Optimizer};
+use harp::opt::ast::rules::constant_folding_rules;
+
+let optimizer = RuleBaseOptimizer::new(constant_folding_rules());
+
+// (2 + 3) * 4 を最適化
+let input = AstNode::Mul(
+    Box::new(AstNode::Add(
+        Box::new(AstNode::Const(Literal::Isize(2))),
+        Box::new(AstNode::Const(Literal::Isize(3))),
+    )),
+    Box::new(AstNode::Const(Literal::Isize(4))),
+);
+
+let result = optimizer.optimize(input);
+// 結果: 20 (5 * 4 = 20)
+```
 
 #### simplification_rules()
 式を簡単にするルール集。単位元、零元、冪等則、逆演算のルールを含む。
@@ -267,7 +302,30 @@ let result = optimizer.optimize(input);
 式を標準形に変換するルール集。結合則を使って右結合に統一する。
 
 #### all_algebraic_rules()
-簡約ルールと正規化ルールを含む全ての代数的ルール。
+定数畳み込み、簡約、正規化ルールを含む全ての代数的ルール。
+
+**使用例:**
+```rust
+use harp::opt::ast::{RuleBaseOptimizer, Optimizer};
+use harp::opt::ast::rules::all_algebraic_rules;
+
+let optimizer = RuleBaseOptimizer::new(all_algebraic_rules());
+
+// ((2 + 3) * 1) + 0 を最適化
+let input = AstNode::Add(
+    Box::new(AstNode::Mul(
+        Box::new(AstNode::Add(
+            Box::new(AstNode::Const(Literal::Isize(2))),
+            Box::new(AstNode::Const(Literal::Isize(3))),
+        )),
+        Box::new(AstNode::Const(Literal::Isize(1))),
+    )),
+    Box::new(AstNode::Const(Literal::Isize(0))),
+);
+
+let result = optimizer.optimize(input);
+// 結果: 5 (定数畳み込みと簡約の組み合わせ)
+```
 
 **注意:** 交換則はビームサーチなどの探索で使用することを想定しているため、`all_algebraic_rules()`には含まれていません（無限ループの可能性があるため）。
 
@@ -283,6 +341,13 @@ let my_rules = vec![
     add_zero_right(),
     mul_one_right(),
     mul_zero_right(),
+];
+
+// 定数畳み込みのみ
+let const_fold_only = vec![
+    const_fold_add(),
+    const_fold_mul(),
+    const_fold_sqrt(),
 ];
 
 // 分配則を使った展開
