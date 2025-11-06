@@ -25,10 +25,9 @@ impl From<Expr> for crate::ast::AstNode {
         let expr = expr.simplify();
         match expr {
             Expr::Const(c) => AstNode::Const(Literal::Isize(c)),
-            Expr::Var(_s) => {
-                // 変数はASTでは未サポートなので、パニックする
-                // TODO: 将来的に変数をサポートする場合は実装を追加
-                panic!("Variables are not yet supported in AstNode conversion")
+            Expr::Var(s) => {
+                // 変数を直接ASTのVarに変換
+                AstNode::Var(s)
             }
             Expr::Add(l, r) => AstNode::Add(Box::new((*l).into()), Box::new((*r).into())),
             Expr::Sub(l, r) => {
@@ -636,18 +635,7 @@ mod tests {
     fn test_to_astnode_add() {
         use crate::ast::{AstNode, Literal};
 
-        // Use variables to avoid constant folding
-        let a = Expr::Var("a".to_string());
-        let b = Expr::Var("b".to_string());
-        let expr = Expr::Add(Box::new(a), Box::new(b));
-
-        // Should panic because variables are not supported
-        let result = std::panic::catch_unwind(|| {
-            let _ast: AstNode = expr.into();
-        });
-        assert!(result.is_err());
-
-        // Test with a simpler approach: just check constants
+        // 定数の加算をテスト
         let expr = Expr::Const(2) + Expr::Const(3);
         let ast: AstNode = expr.into();
 
@@ -655,6 +643,24 @@ mod tests {
         match ast {
             AstNode::Const(Literal::Isize(v)) => assert_eq!(v, 5),
             _ => panic!("Expected Const(5) after simplification"),
+        }
+
+        // 変数の加算もサポートされるようになった
+        let a = Expr::Var("a".to_string());
+        let b = Expr::Var("b".to_string());
+        let expr = Expr::Add(Box::new(a), Box::new(b));
+        let ast: AstNode = expr.into();
+
+        // 変数を含む加算はAdd nodeとして変換される
+        match ast {
+            AstNode::Add(left, right) => match (*left, *right) {
+                (AstNode::Var(name_a), AstNode::Var(name_b)) => {
+                    assert_eq!(name_a, "a");
+                    assert_eq!(name_b, "b");
+                }
+                _ => panic!("Expected Var nodes"),
+            },
+            _ => panic!("Expected Add node"),
         }
     }
 
@@ -743,11 +749,16 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Variables are not yet supported")]
-    fn test_to_astnode_var_panics() {
+    fn test_to_astnode_var() {
         use crate::ast::AstNode;
 
         let expr = Expr::Var("x".to_string());
-        let _ast: AstNode = expr.into();
+        let ast: AstNode = expr.into();
+
+        // Varは正常に変換されるはず
+        match ast {
+            AstNode::Var(name) => assert_eq!(name, "x"),
+            _ => panic!("Expected Var node"),
+        }
     }
 }

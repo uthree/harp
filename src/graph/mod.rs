@@ -79,6 +79,16 @@ impl Graph {
     pub fn output(&mut self, name: &str, output_node: GraphNode) {
         self.outputs.insert(name.to_string(), output_node);
     }
+
+    // 出力ノードのマップへのアクセス
+    pub fn outputs(&self) -> &HashMap<String, GraphNode> {
+        &self.outputs
+    }
+
+    // 入力ノードのマップへのアクセス
+    pub fn inputs(&self) -> &HashMap<String, Weak<GraphNodeData>> {
+        &self.inputs
+    }
 }
 
 pub struct InputNodeBuilder<'a> {
@@ -148,6 +158,11 @@ impl GraphNode {
             view,
             axis_strategies: Some(axis_strategies),
         }))
+    }
+
+    /// ノードのポインタを取得（トポロジカルソートなどで識別に使用）
+    pub fn as_ptr(&self) -> *const GraphNodeData {
+        Rc::as_ptr(&self.0)
     }
 }
 
