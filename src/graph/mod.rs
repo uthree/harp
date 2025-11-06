@@ -233,4 +233,278 @@ mod tests {
         assert_eq!(node.src.len(), 0);
         assert_eq!(node.view.ndim(), 2);
     }
+
+    // 演算のテスト
+
+    #[test]
+    fn test_add_operation() {
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+        let b = graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        let result = a + b;
+
+        match result.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
+
+        match &result.op {
+            GraphOp::Elementwise(ops::ElementwiseOp::Add) => {}
+            _ => panic!("Expected Add operation"),
+        }
+
+        assert_eq!(result.src.len(), 2);
+        assert_eq!(result.view.ndim(), 1);
+        assert_eq!(result.view.shape()[0], shape::Expr::from(10));
+    }
+
+    #[test]
+    fn test_mul_operation() {
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![5, 5])
+            .build();
+        let b = graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![5, 5])
+            .build();
+
+        let result = a * b;
+
+        match result.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
+
+        match &result.op {
+            GraphOp::Elementwise(ops::ElementwiseOp::Mul) => {}
+            _ => panic!("Expected Mul operation"),
+        }
+
+        assert_eq!(result.src.len(), 2);
+        assert_eq!(result.view.ndim(), 2);
+    }
+
+    #[test]
+    fn test_neg_operation() {
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        let result = -a;
+
+        match result.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
+
+        match &result.op {
+            GraphOp::Elementwise(ops::ElementwiseOp::Neg) => {}
+            _ => panic!("Expected Neg operation"),
+        }
+
+        assert_eq!(result.src.len(), 1);
+        assert_eq!(result.view.ndim(), 1);
+    }
+
+    #[test]
+    fn test_rem_operation() {
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+        let b = graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        let result = a % b;
+
+        match result.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
+
+        match &result.op {
+            GraphOp::Elementwise(ops::ElementwiseOp::Rem) => {}
+            _ => panic!("Expected Rem operation"),
+        }
+
+        assert_eq!(result.src.len(), 2);
+    }
+
+    #[test]
+    fn test_div_operation() {
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+        let b = graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        let result = a / b;
+
+        match result.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
+
+        match &result.op {
+            GraphOp::Elementwise(ops::ElementwiseOp::Idiv) => {}
+            _ => panic!("Expected Idiv operation"),
+        }
+
+        assert_eq!(result.src.len(), 2);
+    }
+
+    #[test]
+    fn test_recip_operation() {
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        let result = ops::recip(a);
+
+        match result.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
+
+        match &result.op {
+            GraphOp::Elementwise(ops::ElementwiseOp::Recip) => {}
+            _ => panic!("Expected Recip operation"),
+        }
+
+        assert_eq!(result.src.len(), 1);
+    }
+
+    #[test]
+    fn test_max_operation() {
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+        let b = graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        let result = ops::max(a, b);
+
+        match result.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
+
+        match &result.op {
+            GraphOp::Elementwise(ops::ElementwiseOp::Max) => {}
+            _ => panic!("Expected Max operation"),
+        }
+
+        assert_eq!(result.src.len(), 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "Shape mismatch")]
+    fn test_shape_mismatch() {
+        // 異なるshapeのノード同士の演算はpanicする
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+        let b = graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![20])
+            .build();
+
+        // これはpanicするべき
+        let _result = a + b;
+    }
+
+    #[test]
+    fn test_complex_expression() {
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+        let b = graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+        let c = graph
+            .input("c")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        // (a + b) * c
+        let result = (a + b) * c;
+
+        match &result.op {
+            GraphOp::Elementwise(ops::ElementwiseOp::Mul) => {}
+            _ => panic!("Expected Mul operation at top level"),
+        }
+
+        assert_eq!(result.src.len(), 2);
+
+        // 左側のノードがAdd演算であることを確認
+        match &result.src[0].op {
+            GraphOp::Elementwise(ops::ElementwiseOp::Add) => {}
+            _ => panic!("Expected Add operation in left operand"),
+        }
+    }
+
+    #[test]
+    fn test_dtype_inference() {
+        let mut graph = Graph::new();
+        let unknown = graph.input("unknown").with_shape(vec![10]).build();
+        let f32_node = graph
+            .input("f32")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        let result = unknown + f32_node;
+
+        // UnknownとF32を組み合わせた場合、F32になるべき
+        match result.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32 after inference"),
+        }
+    }
 }

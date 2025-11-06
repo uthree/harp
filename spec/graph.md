@@ -1,12 +1,175 @@
 # 計算グラフ
 テンソル（多次元配列）単位での演算をDAGで表現する。
 
+## 概要
+
+計算グラフはテンソル演算をDAG（有向非巡回グラフ）として表現します。各ノードは演算または入力データを表し、エッジはデータの流れを表します。
+
+## データ構造
+
+### Graph
+計算グラフ全体を表す構造体。
+
+- **inputs**: 入力ノードの名前とWeak参照のマップ（循環参照を防ぐため）
+- **outputs**: 出力ノードの名前とノードのマップ
+
+```rust
+pub struct Graph {
+    inputs: HashMap<String, Weak<GraphNodeData>>,
+    outputs: HashMap<String, GraphNode>,
+}
+```
+
+### GraphNode
+計算グラフのノード。内部的には`Rc<GraphNodeData>`でラップされている。
+
+```rust
+pub struct GraphNode(Rc<GraphNodeData>);
+
+pub struct GraphNodeData {
+    pub dtype: DType,           // データ型
+    pub op: GraphOp,            // 演算の種類
+    pub src: Vec<GraphNode>,    // 入力ノード
+    pub view: View,             // テンソルのView
+}
+```
+
+### DType
+グラフレベルでのデータ型。ASTのDTypeとは異なり、VecやPtrは扱わない。
+
+- **Unknown**: 型が未定または推論中
+- **F32**: 32bit浮動小数点数
+
 ## GraphOpについて
 GraphOpは最適化の段階で最終的に融合されるので、最適化よりも演算子の種類を減らすことを重視する。そのため、Add, Negを組み合わせて減算を表現するようなことがある。
+
+### 演算の種類
+
+- **Input**: 入力ノード
+- **Contiguous**: Viewに従って要素を並べ直す
+- **Const(Literal)**: 定数ノード（スカラー）
+- **View(View)**: Viewを変更する
+- **Elementwise(ElementwiseOp)**: 要素ごとに演算を行う
+  - Add, Mul, Max, Rem, Idiv, Neg, Recip
+- **Reduce**: 縮約（未実装）
+- **Cumulative**: 累積（未実装）
 
 ## View
 Viewは、各軸の添え字からメモリオフセットに変換する写像を表現します。
 この仕組みにより、ほぼゼロコストのView操作によって転置などが実現可能です。
+
+### 現在の実装
+- **Linear**: 線形変換で表現可能なView
+  - shape: 論理的なテンソルのサイズ
+  - strides: 各次元の添え字の係数
+  - offset: オフセット
+
+### View操作
+- `contiguous()`: 連続したメモリレイアウトのViewを作成
+- `permute()`: 軸の順序を変更
+- `unsqueeze()`: 新しい次元を追加（サイズ1）
+- `squeeze()`: サイズ1の次元を削除
+- `flip()`: 指定した軸を反転
+- `expand()`: サイズ1の次元を拡張（strideを0にする）
+- `is_contiguous()`: 連続したメモリレイアウトかどうかを判定
+
+## ノードの作成
+
+### 入力ノードの作成
+InputNodeBuilderパターンを使用して入力ノードを作成します。
+
+```rust
+let mut graph = Graph::new();
+let input = graph.input("x")
+    .with_dtype(DType::F32)
+    .with_shape(vec![10, 20])
+    .build();
+```
+
+- `with_dtype()`: データ型を指定（省略可、デフォルトはUnknown）
+- `with_shape()`: 形状を指定（省略可、デフォルトは空=スカラー）
+- `build()`: GraphNodeを作成してGraphに登録
+
+### 出力ノードの登録
+```rust
+graph.output("y", result_node);
+```
+
+## 演算
+
+### 演算子のオーバーロード
+GraphNodeに対して、標準的な演算子が実装されています（`src/graph/ops.rs`）。
+
+- `+` (Add): 要素ごとの加算
+- `*` (Mul): 要素ごとの乗算
+- `-` (Neg): 符号反転
+- `%` (Rem): 剰余
+- `/` (Div): 整数除算
+
+```rust
+let result = a + b * c;
+let neg_result = -result;
+```
+
+### ヘルパー関数
+- `ops::recip(node)`: 逆数
+- `ops::max(a, b)`: 要素ごとの最大値
+
+### DType推論
+演算時に自動的にDTypeが推論されます。
+
+- 両方が同じDType → そのDType
+- 片方がUnknown → もう片方のDType
+- 異なるDType → Unknown
+
+### View推論（重要な設計方針）
+
+**明示的なshape変換のみを許可します。**
+
+演算を行う2つのノードは、**完全に同じshape**である必要があります。異なるshapeの場合、実行時にpanicします。
+
+```rust
+// OK: 同じshape
+let a = graph.input("a").with_shape(vec![10, 20]).build();
+let b = graph.input("b").with_shape(vec![10, 20]).build();
+let result = a + b; // OK
+
+// NG: 異なるshape
+let scalar = graph.input("scalar").build(); // shape = []
+let tensor = graph.input("tensor").with_shape(vec![10, 20]).build();
+let result = scalar + tensor; // panic!
+```
+
+この設計により：
+- **明示性**: shape変換は全て明示的に行う必要がある
+- **安全性**: 意図しないshape変換によるバグを防止
+- **将来の拡張性**: `expand()`, `broadcast_to()`などの明示的な関数を追加しやすい
+
+## 使用例
+
+```rust
+// グラフの作成
+let mut graph = Graph::new();
+
+// 入力ノードの作成
+let a = graph.input("a")
+    .with_dtype(DType::F32)
+    .with_shape(vec![10, 20])
+    .build();
+
+let b = graph.input("b")
+    .with_dtype(DType::F32)
+    .with_shape(vec![10, 20])
+    .build();
+
+// 演算
+let sum = a.clone() + b.clone();
+let product = a * b;
+let result = sum * ops::recip(product);
+
+// 出力ノードの登録
+graph.output("result", result);
+```
 
 ## GraphNode
 ### lowering時の戦略をノードに持たせたい。
