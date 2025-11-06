@@ -6,9 +6,11 @@ harpプロジェクトのAST（Abstract Syntax Tree）モジュールは、数�
 
 ## ファイル構成
 
-- `src/ast/mod.rs` - 型定義、型推論、子ノード取得などの主要機能
+- `src/ast/mod.rs` - 型定義、型推論、子ノード取得などの主要機能 (769行)
+- `src/ast/tests.rs` - テストコード (1314行)
 - `src/ast/ops.rs` - 演算子オーバーロード (`+`, `*`, `%`)
 - `src/ast/helper.rs` - ヘルパー関数（数学関数など）
+- `src/ast/pat.rs` - ASTパターンマッチングと書き換えルール
 
 ## データ型
 
@@ -425,20 +427,15 @@ cargo test --lib ast
   - 並列アクセスの安全性チェック（`AccessRegion`）
   - 型環境による変数の型管理
   - ネストしたスコープのサポート
-- [ ] ASTのパターンマッチングによる置き換え
-  - AstRewriteRule
+- [x] ASTのパターンマッチングによる置き換え
+  - AstRewriteRule (`src/ast/pat.rs`)
     - 初期化: Rcで自身を初期化して返す。
-    - ASTを再起的に探索し、項の書き換えを行う。
-  - AstRewriter
+    - ASTを再帰的に探索し、項の書き換えを行う。
+    - パターンマッチング: Wildcardノードを使用してパターンを表現
+    - 条件関数: マッチしたパターンに追加の条件を適用可能
+  - AstRewriter (`src/ast/pat.rs`)
     - 複数のAstRewriteRuleを持つ。applyで順番に全部適用。変化がなくなるか所定の回数に達するまで繰り返す。
-  - マクロでの初期化
-    大体こんな感じの構文で使えるように
-    ```rs
-    ast_rewriter!{
-      astpat!(|a, b| a + b => b + a),
-      astpat!(|a| a / a => 1 if a != 0)
-    }
-    ```
+  - 注: マクロによる初期化機能は未実装
 
 ### DType
 

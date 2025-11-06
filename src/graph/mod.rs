@@ -8,19 +8,52 @@ pub mod ops;
 pub mod shape;
 
 /// 各軸の並列化戦略
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AxisStrategy {
-    #[default]
-    Auto, // 最適化パスで自動決定
-    Sequential {
-        simd_width: Option<usize>,
-    }, // 逐次実行（オプションでSIMD幅を指定）
-    Thread {
-        simd_width: Option<usize>,
-    }, // スレッドで並列化（オプションでSIMD幅を指定）
-    ThreadGroup {
-        simd_width: Option<usize>,
-    }, // スレッドグループ/ブロック（オプションでSIMD幅を指定）
+    /// 逐次実行（SIMD幅: 1=SIMD化なし、2以上=SIMD化）
+    Sequential { simd_width: usize },
+    /// スレッドで並列化（SIMD幅: 1=SIMD化なし、2以上=SIMD化）
+    Thread { simd_width: usize },
+    /// スレッドグループ/ブロック（SIMD幅: 1=SIMD化なし、2以上=SIMD化）
+    ThreadGroup { simd_width: usize },
+}
+
+impl Default for AxisStrategy {
+    fn default() -> Self {
+        Self::Sequential { simd_width: 1 }
+    }
+}
+
+impl AxisStrategy {
+    /// SIMD化なしのSequentialを作成
+    pub fn sequential() -> Self {
+        Self::Sequential { simd_width: 1 }
+    }
+
+    /// SIMD化ありのSequentialを作成
+    pub fn sequential_simd(simd_width: usize) -> Self {
+        Self::Sequential { simd_width }
+    }
+
+    /// SIMD化なしのThreadを作成
+    pub fn thread() -> Self {
+        Self::Thread { simd_width: 1 }
+    }
+
+    /// SIMD化ありのThreadを作成
+    pub fn thread_simd(simd_width: usize) -> Self {
+        Self::Thread { simd_width }
+    }
+
+    /// SIMD化なしのThreadGroupを作成
+    pub fn thread_group() -> Self {
+        Self::ThreadGroup { simd_width: 1 }
+    }
+
+    /// SIMD化ありのThreadGroupを作成
+    pub fn thread_group_simd(simd_width: usize) -> Self {
+        Self::ThreadGroup { simd_width }
+    }
 }
 
 #[derive(Debug)]
@@ -574,5 +607,38 @@ mod tests {
             DType::F32 => {}
             _ => panic!("Expected DType::F32 after inference"),
         }
+    }
+
+    #[test]
+    fn test_axis_strategy_default() {
+        let default_strategy = AxisStrategy::default();
+        assert_eq!(default_strategy, AxisStrategy::Sequential { simd_width: 1 });
+    }
+
+    #[test]
+    fn test_axis_strategy_sequential() {
+        let strategy = AxisStrategy::sequential();
+        assert_eq!(strategy, AxisStrategy::Sequential { simd_width: 1 });
+
+        let strategy_simd = AxisStrategy::sequential_simd(4);
+        assert_eq!(strategy_simd, AxisStrategy::Sequential { simd_width: 4 });
+    }
+
+    #[test]
+    fn test_axis_strategy_thread() {
+        let strategy = AxisStrategy::thread();
+        assert_eq!(strategy, AxisStrategy::Thread { simd_width: 1 });
+
+        let strategy_simd = AxisStrategy::thread_simd(8);
+        assert_eq!(strategy_simd, AxisStrategy::Thread { simd_width: 8 });
+    }
+
+    #[test]
+    fn test_axis_strategy_thread_group() {
+        let strategy = AxisStrategy::thread_group();
+        assert_eq!(strategy, AxisStrategy::ThreadGroup { simd_width: 1 });
+
+        let strategy_simd = AxisStrategy::thread_group_simd(16);
+        assert_eq!(strategy_simd, AxisStrategy::ThreadGroup { simd_width: 16 });
     }
 }

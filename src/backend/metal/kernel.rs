@@ -98,8 +98,8 @@ impl Kernel for MetalKernel {
 
 #[cfg(test)]
 mod tests {
-    use crate::backend::metal::{MetalCode, MetalCompiler};
     use crate::backend::Compiler;
+    use crate::backend::metal::{MetalCode, MetalCompiler};
 
     #[test]
     fn test_simple_kernel_compile() {

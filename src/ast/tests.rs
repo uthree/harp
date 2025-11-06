@@ -1238,8 +1238,7 @@ fn test_program_new() {
 fn test_program_add_function() {
     let mut program = Program::new("main".to_string());
 
-    let func =
-        Function::new(FunctionKind::Normal, vec![], DType::Tuple(vec![]), vec![]).unwrap();
+    let func = Function::new(FunctionKind::Normal, vec![], DType::Tuple(vec![]), vec![]).unwrap();
     assert!(program.add_function("main".to_string(), func).is_ok());
     assert_eq!(program.functions.len(), 1);
 }
@@ -1247,8 +1246,7 @@ fn test_program_add_function() {
 #[test]
 fn test_program_get_function() {
     let mut program = Program::new("main".to_string());
-    let func =
-        Function::new(FunctionKind::Normal, vec![], DType::Tuple(vec![]), vec![]).unwrap();
+    let func = Function::new(FunctionKind::Normal, vec![], DType::Tuple(vec![]), vec![]).unwrap();
     program.add_function("main".to_string(), func).unwrap();
 
     assert!(program.get_function("main").is_some());
@@ -1263,8 +1261,7 @@ fn test_program_validate() {
     assert!(program.validate().is_err());
 
     // エントリーポイントを追加
-    let func =
-        Function::new(FunctionKind::Normal, vec![], DType::Tuple(vec![]), vec![]).unwrap();
+    let func = Function::new(FunctionKind::Normal, vec![], DType::Tuple(vec![]), vec![]).unwrap();
     program.add_function("main".to_string(), func).unwrap();
 
     // 成功するはず

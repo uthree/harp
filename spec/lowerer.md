@@ -1,4 +1,9 @@
 # lowerer
+
+## ファイル構成
+- `src/lowerer/mod.rs` - lowerer本体の実装 (458行)
+- `src/lowerer/tests.rs` - テストコード
+
 ## 役割
 計算グラフをASTに変換する。
 

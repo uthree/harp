@@ -1,5 +1,5 @@
-use crate::backend::metal::{MetalBuffer, MetalCode, MetalKernel};
 use crate::backend::Compiler;
+use crate::backend::metal::{MetalBuffer, MetalCode, MetalKernel};
 use log::{debug, info, trace};
 use metal::{CompileOptions, Device, Library, MTLSize};
 use std::sync::Arc;
