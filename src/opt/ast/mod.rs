@@ -1,6 +1,7 @@
 // AST最適化のサブモジュール
 mod estimator;
 mod optimizer;
+pub mod rules;
 mod suggester;
 
 // 公開API: トレイト

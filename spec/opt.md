@@ -2,10 +2,11 @@
 
 ## ファイル構成
 - `src/opt/mod.rs` - 最適化モジュールの定義
-- `src/opt/ast/mod.rs` - AST最適化の公開API（14行）
+- `src/opt/ast/mod.rs` - AST最適化の公開API（15行）
 - `src/opt/ast/estimator.rs` - CostEstimator実装（235行）
 - `src/opt/ast/optimizer.rs` - Optimizer実装（66行）
 - `src/opt/ast/suggester.rs` - Suggester実装（314行）
+- `src/opt/ast/rules.rs` - 代数的書き換えルール集（471行）
 - `src/opt/graph/mod.rs` - グラフ最適化（未実装）
 
 ## 実装状況
@@ -195,6 +196,106 @@ fn beam_search(
         })
         .unwrap()
 }
+```
+
+## 代数的書き換えルール集
+
+`src/opt/ast/rules.rs`には、ASTノードに対する標準的な代数的変形ルールが実装されています。
+
+### 提供されるルール
+
+#### 単位元ルール (Identity Rules)
+- `add_zero_right()`: a + 0 = a
+- `add_zero_left()`: 0 + a = a
+- `mul_one_right()`: a * 1 = a
+- `mul_one_left()`: 1 * a = a
+
+#### 零元ルール (Zero Rules)
+- `mul_zero_right()`: a * 0 = 0
+- `mul_zero_left()`: 0 * a = 0
+
+#### 冪等則 (Idempotent Rules)
+- `max_idempotent()`: max(a, a) = a
+
+#### 逆演算ルール (Inverse Operation Rules)
+- `recip_recip()`: recip(recip(a)) = a
+- `sqrt_squared()`: sqrt(a) * sqrt(a) = a
+
+#### 交換則 (Commutative Rules)
+- `add_commutative()`: a + b = b + a
+- `mul_commutative()`: a * b = b * a
+- `max_commutative()`: max(a, b) = max(b, a)
+
+#### 結合則 (Associative Rules)
+- `add_associate_left_to_right()`: (a + b) + c = a + (b + c)
+- `add_associate_right_to_left()`: a + (b + c) = (a + b) + c
+- `mul_associate_left_to_right()`: (a * b) * c = a * (b * c)
+- `mul_associate_right_to_left()`: a * (b * c) = (a * b) * c
+
+#### 分配則 (Distributive Rules)
+- `distributive_left()`: a * (b + c) = a * b + a * c
+- `distributive_right()`: (a + b) * c = a * c + b * c
+- `factor_left()`: a * b + a * c = a * (b + c)（因数分解）
+- `factor_right()`: a * c + b * c = (a + b) * c（因数分解）
+
+### ルール集の生成関数
+
+#### simplification_rules()
+式を簡単にするルール集。単位元、零元、冪等則、逆演算のルールを含む。
+
+**使用例:**
+```rust
+use harp::opt::ast::{RuleBaseOptimizer, Optimizer};
+use harp::opt::ast::rules::simplification_rules;
+
+let optimizer = RuleBaseOptimizer::new(simplification_rules());
+
+// (42 + 0) * 1 を最適化
+let input = AstNode::Mul(
+    Box::new(AstNode::Add(
+        Box::new(AstNode::Const(Literal::Isize(42))),
+        Box::new(AstNode::Const(Literal::Isize(0))),
+    )),
+    Box::new(AstNode::Const(Literal::Isize(1))),
+);
+
+let result = optimizer.optimize(input);
+// 結果: 42
+```
+
+#### normalization_rules()
+式を標準形に変換するルール集。結合則を使って右結合に統一する。
+
+#### all_algebraic_rules()
+簡約ルールと正規化ルールを含む全ての代数的ルール。
+
+**注意:** 交換則はビームサーチなどの探索で使用することを想定しているため、`all_algebraic_rules()`には含まれていません（無限ループの可能性があるため）。
+
+### カスタムルール集の作成
+
+個別のルール関数を組み合わせて、カスタムなルール集を作成できます：
+
+```rust
+use harp::opt::ast::rules::*;
+
+// 簡約のみのルール集
+let my_rules = vec![
+    add_zero_right(),
+    mul_one_right(),
+    mul_zero_right(),
+];
+
+// 分配則を使った展開
+let expand_rules = vec![
+    distributive_left(),
+    distributive_right(),
+];
+
+// 因数分解
+let factor_rules = vec![
+    factor_left(),
+    factor_right(),
+];
 ```
 
 ### 注記
