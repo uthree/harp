@@ -566,6 +566,79 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
+    fn test_end_to_end_execution() {
+        let _ = env_logger::builder().is_test(true).try_init();
+
+        // 手動でMetalカーネルを作成（lowererの出力を参考に）
+        // 後でlowererと統合する予定
+        let source = r#"
+#include <metal_stdlib>
+using namespace metal;
+
+kernel void test_add(
+    device const float* input0 [[buffer(0)]],
+    device const float* input1 [[buffer(1)]],
+    device float* output [[buffer(2)]],
+    uint tid [[thread_position_in_grid]]
+) {
+    output[tid] = input0[tid] + input1[tid];
+}
+"#;
+
+        eprintln!("\n=== Metal Kernel ===\n{}\n", source);
+
+        // Metal compilerで実行
+        use crate::backend::metal::{MetalCode, MetalCompiler};
+        use crate::backend::Compiler;
+        if let Some(mut compiler) = MetalCompiler::with_default_device() {
+            let code = MetalCode::new(source.to_string());
+            let mut kernel = compiler.compile(&code);
+
+            // バッファを作成
+            let mut input0_buffer = compiler.create_buffer(vec![10], 4);
+            let mut input1_buffer = compiler.create_buffer(vec![10], 4);
+            let output_buffer = compiler.create_buffer(vec![10], 4);
+
+            // 入力データを設定
+            let input0_data: Vec<f32> = (0..10).map(|i| i as f32).collect();
+            let input1_data: Vec<f32> = (0..10).map(|i| (i * 2) as f32).collect();
+
+            input0_buffer.write_data(&input0_data);
+            input1_buffer.write_data(&input1_data);
+
+            // グリッドサイズを設定
+            kernel.set_grid_size(10, 1, 1);
+
+            // カーネルを実行
+            kernel
+                .dispatch(&[&input0_buffer, &input1_buffer, &output_buffer])
+                .unwrap();
+
+            // 結果を読み出し
+            let mut output_data = vec![0.0f32; 10];
+            output_buffer.read_data(&mut output_data);
+
+            // 確認
+            let expected: Vec<f32> = input0_data
+                .iter()
+                .zip(input1_data.iter())
+                .map(|(&x, &y)| x + y)
+                .collect();
+
+            eprintln!("Input 0: {:?}", input0_data);
+            eprintln!("Input 1: {:?}", input1_data);
+            eprintln!("Output:  {:?}", output_data);
+            eprintln!("Expected: {:?}", expected);
+
+            assert_eq!(output_data, expected);
+            eprintln!("\n✅ End-to-end execution successful!\n");
+        } else {
+            eprintln!("⚠️ Metal not available, skipping test");
+        }
+    }
+
+    #[test]
     fn test_topological_sort_simple() {
         // a + b のグラフ
         let mut graph = Graph::new();
