@@ -323,6 +323,42 @@ mod tests {
     }
 
     #[test]
+    fn test_sub_operation() {
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+        let b = graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        let result = a - b;
+
+        match result.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
+
+        // a - b = a + (-b) なので、トップレベルはAdd
+        match &result.op {
+            GraphOp::Elementwise(ops::ElementwiseOp::Add) => {}
+            _ => panic!("Expected Add operation at top level"),
+        }
+
+        assert_eq!(result.src.len(), 2);
+
+        // 右側のオペランドはNeg演算であることを確認
+        match &result.src[1].op {
+            GraphOp::Elementwise(ops::ElementwiseOp::Neg) => {}
+            _ => panic!("Expected Neg operation for right operand"),
+        }
+    }
+
+    #[test]
     fn test_rem_operation() {
         let mut graph = Graph::new();
         let a = graph
@@ -346,35 +382,6 @@ mod tests {
         match &result.op {
             GraphOp::Elementwise(ops::ElementwiseOp::Rem) => {}
             _ => panic!("Expected Rem operation"),
-        }
-
-        assert_eq!(result.src.len(), 2);
-    }
-
-    #[test]
-    fn test_div_operation() {
-        let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
-
-        let result = a / b;
-
-        match result.dtype {
-            DType::F32 => {}
-            _ => panic!("Expected DType::F32"),
-        }
-
-        match &result.op {
-            GraphOp::Elementwise(ops::ElementwiseOp::Idiv) => {}
-            _ => panic!("Expected Idiv operation"),
         }
 
         assert_eq!(result.src.len(), 2);

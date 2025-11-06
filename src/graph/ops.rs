@@ -1,7 +1,7 @@
 use crate::ast::Literal;
 use crate::graph::shape::View;
 use crate::graph::{DType, GraphNode, GraphNodeData};
-use std::ops::{Add, Div, Mul, Neg, Rem};
+use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
@@ -100,6 +100,22 @@ impl Neg for GraphNode {
     }
 }
 
+// Sub: a - b = a + (-b)
+impl Sub for GraphNode {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self::Output {
+        self + (-rhs)
+    }
+}
+
+// Div: a / b = a * recip(b)
+impl Div for GraphNode {
+    type Output = Self;
+    fn div(self, rhs: Self) -> Self::Output {
+        self * recip(rhs)
+    }
+}
+
 // Rem: a % b
 impl Rem for GraphNode {
     type Output = Self;
@@ -109,21 +125,6 @@ impl Rem for GraphNode {
         GraphNode(Rc::new(GraphNodeData {
             dtype,
             op: GraphOp::Elementwise(ElementwiseOp::Rem),
-            src: vec![self, rhs],
-            view,
-        }))
-    }
-}
-
-// Div: a / b (整数除算として実装)
-impl Div for GraphNode {
-    type Output = Self;
-    fn div(self, rhs: Self) -> Self::Output {
-        let dtype = infer_dtype(&self.dtype, &rhs.dtype);
-        let view = infer_view(&self.view, &rhs.view);
-        GraphNode(Rc::new(GraphNodeData {
-            dtype,
-            op: GraphOp::Elementwise(ElementwiseOp::Idiv),
             src: vec![self, rhs],
             view,
         }))
