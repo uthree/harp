@@ -17,6 +17,8 @@ pub enum GraphOp {
         axis_strategies: Option<Vec<AxisStrategy>>,
     }, // 要素ごとに演算を行う
     Reduce {
+        op: ReduceOp,
+        axis: usize,
         axis_strategies: Option<Vec<AxisStrategy>>,
     }, // 縮約
     Cumulative {
@@ -33,6 +35,13 @@ pub enum ElementwiseOp {
     Idiv,
     Neg,
     Recip,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReduceOp {
+    Add, // 合計
+    Mul, // 積
+    Max, // 最大値
 }
 
 // DTypeの推論：両方が同じならそれを使う、片方がUnknownなら他方を使う
@@ -182,4 +191,47 @@ pub fn max(lhs: GraphNode, rhs: GraphNode) -> GraphNode {
         src: vec![lhs, rhs],
         view,
     }))
+}
+
+// ヘルパー関数: Reduce（汎用）
+pub fn reduce(node: GraphNode, op: ReduceOp, axis: usize) -> GraphNode {
+    let dtype = node.dtype.clone();
+    let view = node.view.clone();
+
+    // 指定された軸を縮約した新しいViewを作成
+    let mut new_shape = view.shape().to_vec();
+    if axis >= new_shape.len() {
+        panic!(
+            "Reduce: axis {} is out of bounds for shape {:?}",
+            axis, new_shape
+        );
+    }
+    new_shape.remove(axis);
+    let reduced_view = View::contiguous(new_shape);
+
+    GraphNode(Rc::new(GraphNodeData {
+        dtype,
+        op: GraphOp::Reduce {
+            op,
+            axis,
+            axis_strategies: None,
+        },
+        src: vec![node],
+        view: reduced_view,
+    }))
+}
+
+// ヘルパー関数: Reduce Sum（指定軸の合計）
+pub fn reduce_sum(node: GraphNode, axis: usize) -> GraphNode {
+    reduce(node, ReduceOp::Add, axis)
+}
+
+// ヘルパー関数: Reduce Mul（指定軸の積）
+pub fn reduce_mul(node: GraphNode, axis: usize) -> GraphNode {
+    reduce(node, ReduceOp::Mul, axis)
+}
+
+// ヘルパー関数: Reduce Max（指定軸の最大値）
+pub fn reduce_max(node: GraphNode, axis: usize) -> GraphNode {
+    reduce(node, ReduceOp::Max, axis)
 }

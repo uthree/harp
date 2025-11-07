@@ -1,4 +1,4 @@
-use crate::graph::{ops::GraphOp, shape::View};
+use crate::graph::shape::View;
 use std::{
     collections::HashMap,
     ops::Deref,
@@ -6,6 +6,9 @@ use std::{
 };
 pub mod ops;
 pub mod shape;
+
+// Re-export commonly used types
+pub use ops::{GraphOp, ReduceOp};
 
 /// 各軸の並列化戦略
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -170,6 +173,26 @@ impl GraphNode {
     /// ノードのポインタを取得（トポロジカルソートなどで識別に使用）
     pub fn as_ptr(&self) -> *const GraphNodeData {
         Rc::as_ptr(&self.0)
+    }
+
+    /// 指定軸を縮約（汎用）
+    pub fn reduce(&self, op: ops::ReduceOp, axis: usize) -> Self {
+        ops::reduce(self.clone(), op, axis)
+    }
+
+    /// 指定軸の合計
+    pub fn reduce_sum(&self, axis: usize) -> Self {
+        ops::reduce_sum(self.clone(), axis)
+    }
+
+    /// 指定軸の積
+    pub fn reduce_mul(&self, axis: usize) -> Self {
+        ops::reduce_mul(self.clone(), axis)
+    }
+
+    /// 指定軸の最大値
+    pub fn reduce_max(&self, axis: usize) -> Self {
+        ops::reduce_max(self.clone(), axis)
     }
 }
 
@@ -640,5 +663,140 @@ mod tests {
 
         let strategy_simd = AxisStrategy::thread_group_simd(16);
         assert_eq!(strategy_simd, AxisStrategy::ThreadGroup { simd_width: 16 });
+    }
+
+    #[test]
+    fn test_reduce_sum() {
+        let mut graph = Graph::new();
+        let input = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20, 30])
+            .build();
+
+        // 軸1を縮約（10, 20, 30 -> 10, 30）
+        let result = input.reduce_sum(1);
+
+        // 型が保持されていることを確認
+        match result.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
+
+        // Viewのshapeが正しく縮約されていることを確認
+        assert_eq!(result.view.ndim(), 2);
+        assert_eq!(result.view.shape().len(), 2);
+
+        // Reduceオペレーションが正しく設定されていることを確認
+        match &result.op {
+            GraphOp::Reduce { op, axis, .. } => {
+                assert_eq!(*op, ReduceOp::Add);
+                assert_eq!(*axis, 1);
+            }
+            _ => panic!("Expected GraphOp::Reduce"),
+        }
+    }
+
+    #[test]
+    fn test_reduce_mul() {
+        let mut graph = Graph::new();
+        let input = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![5, 10])
+            .build();
+
+        // 軸0を縮約（5, 10 -> 10）
+        let result = input.reduce_mul(0);
+
+        // Viewのshapeが正しく縮約されていることを確認
+        assert_eq!(result.view.ndim(), 1);
+        assert_eq!(result.view.shape().len(), 1);
+
+        // Reduceオペレーションが正しく設定されていることを確認
+        match &result.op {
+            GraphOp::Reduce { op, axis, .. } => {
+                assert_eq!(*op, ReduceOp::Mul);
+                assert_eq!(*axis, 0);
+            }
+            _ => panic!("Expected GraphOp::Reduce"),
+        }
+    }
+
+    #[test]
+    fn test_reduce_max() {
+        let mut graph = Graph::new();
+        let input = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![3, 4, 5])
+            .build();
+
+        // 軸2を縮約（3, 4, 5 -> 3, 4）
+        let result = input.reduce_max(2);
+
+        // Viewのshapeが正しく縮約されていることを確認
+        assert_eq!(result.view.ndim(), 2);
+
+        // Reduceオペレーションが正しく設定されていることを確認
+        match &result.op {
+            GraphOp::Reduce { op, axis, .. } => {
+                assert_eq!(*op, ReduceOp::Max);
+                assert_eq!(*axis, 2);
+            }
+            _ => panic!("Expected GraphOp::Reduce"),
+        }
+    }
+
+    #[test]
+    fn test_reduce_to_scalar() {
+        let mut graph = Graph::new();
+        let input = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        // 唯一の軸を縮約してスカラーに（10 -> []）
+        let result = input.reduce_sum(0);
+
+        // スカラー（ndim=0）になることを確認
+        assert_eq!(result.view.ndim(), 0);
+        assert_eq!(result.view.shape().len(), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "axis 3 is out of bounds")]
+    fn test_reduce_out_of_bounds() {
+        let mut graph = Graph::new();
+        let input = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
+
+        // 存在しない軸3を指定してパニック
+        let _result = input.reduce_sum(3);
+    }
+
+    #[test]
+    fn test_reduce_generic() {
+        let mut graph = Graph::new();
+        let input = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![5, 10, 15])
+            .build();
+
+        // ReduceOpを直接指定
+        let result = input.reduce(ReduceOp::Add, 1);
+
+        match &result.op {
+            GraphOp::Reduce { op, axis, .. } => {
+                assert_eq!(*op, ReduceOp::Add);
+                assert_eq!(*axis, 1);
+            }
+            _ => panic!("Expected GraphOp::Reduce"),
+        }
     }
 }

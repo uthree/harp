@@ -105,11 +105,19 @@ pub enum GraphOp {
         axis_strategies: Option<Vec<AxisStrategy>>,
     },
     Reduce {
+        op: ReduceOp,
+        axis: usize,
         axis_strategies: Option<Vec<AxisStrategy>>,
     },
     Cumulative {
         axis_strategies: Option<Vec<AxisStrategy>>,
     },
+}
+
+pub enum ReduceOp {
+    Add, // 合計
+    Mul, // 積
+    Max, // 最大値
 }
 ```
 
@@ -121,7 +129,9 @@ pub enum GraphOp {
 - **Contiguous**: Viewに従って要素を並べ直す（並列化戦略あり）
 - **Elementwise**: 要素ごとに演算を行う（並列化戦略あり）
   - Add, Mul, Max, Rem, Idiv, Neg, Recip
-- **Reduce**: 縮約（未実装、並列化戦略あり）
+- **Reduce**: 縮約（並列化戦略あり）
+  - op: ReduceOp（Add, Mul, Max）
+  - axis: 縮約する軸のインデックス
 - **Cumulative**: 累積（未実装、並列化戦略あり）
 
 ## View
@@ -182,8 +192,22 @@ let neg_result = -result;
 ```
 
 ### ヘルパー関数
+
+**要素ごとの演算:**
 - `ops::recip(node)`: 逆数
 - `ops::max(a, b)`: 要素ごとの最大値
+
+**縮約演算:**
+- `ops::reduce(node, op, axis)`: 指定軸を指定演算で縮約（汎用）
+- `ops::reduce_sum(node, axis)`: 指定軸の合計
+- `ops::reduce_mul(node, axis)`: 指定軸の積
+- `ops::reduce_max(node, axis)`: 指定軸の最大値
+
+**GraphNodeのメソッド:**
+- `node.reduce(op, axis)`: 指定軸を指定演算で縮約
+- `node.reduce_sum(axis)`: 指定軸の合計
+- `node.reduce_mul(axis)`: 指定軸の積
+- `node.reduce_max(axis)`: 指定軸の最大値
 
 ### DType推論
 演算時に自動的にDTypeが推論されます。
@@ -217,6 +241,8 @@ let result = scalar + tensor; // panic!
 
 ## 使用例
 
+### 基本的な演算
+
 ```rust
 // グラフの作成
 let mut graph = Graph::new();
@@ -239,6 +265,36 @@ let result = sum * ops::recip(product);
 
 // 出力ノードの登録
 graph.output("result", result);
+```
+
+### Reduce演算の例
+
+```rust
+use harp::graph::{Graph, DType, ReduceOp, ops};
+
+let mut graph = Graph::new();
+
+// 3次元テンソル（バッチ x 高さ x 幅）
+let input = graph.input("image")
+    .with_dtype(DType::F32)
+    .with_shape(vec![32, 224, 224])  // 32枚の224x224画像
+    .build();
+
+// 軸2（幅）方向の合計: (32, 224, 224) -> (32, 224)
+let sum_width = input.reduce_sum(2);
+
+// 軸1（高さ）方向の最大値: (32, 224, 224) -> (32, 224)
+let max_height = input.reduce_max(1);
+
+// 全ピクセルの積（複数の軸を順次縮約）
+let prod_all = input.reduce_mul(2).reduce_mul(1).reduce_mul(0);  // -> スカラー
+
+// 汎用reduceを使う例
+let custom_reduce = input.reduce(ReduceOp::Add, 0);  // バッチ方向の合計
+
+graph.output("sum_width", sum_width);
+graph.output("max_height", max_height);
+graph.output("prod_all", prod_all);
 ```
 
 ## Lowering戦略
