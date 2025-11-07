@@ -4,7 +4,7 @@
 - `src/opt/mod.rs` - 最適化モジュールの定義
 - `src/opt/ast/mod.rs` - AST最適化の公開API（15行）
 - `src/opt/ast/estimator.rs` - CostEstimator実装（158行）
-- `src/opt/ast/optimizer.rs` - Optimizer実装（66行）
+- `src/opt/ast/optimizer.rs` - Optimizer実装（257行、RuleBaseOptimizer、BeamSearchOptimizer）
 - `src/opt/ast/suggester.rs` - Suggester実装（314行）
 - `src/opt/ast/rules.rs` - 代数的書き換えルール集（899行、定数畳み込み含む）
 - `src/opt/graph/mod.rs` - グラフ最適化（未実装）
@@ -110,6 +110,45 @@ let optimizer = RuleBaseOptimizer::new(vec![rule1, rule2])
 let optimized = optimizer.optimize(ast);
 ```
 
+#### BeamSearchOptimizer
+ビームサーチアルゴリズムを使用した最適化器。`Suggester`と`CostEstimator`を組み合わせて、複数の候補から最良の書き換えを探索。
+
+**特徴:**
+- ビームサーチによる探索的最適化
+- Cargoスタイルのプログレスバー表示（indicatif使用）
+- ビーム幅と探索深さを設定可能
+- デフォルト: ビーム幅10、最大深さ10
+
+**プログレスバー表示例:**
+```
+  Optimizing [=========================================>                  ] 12/20 depth 12
+```
+
+**使用例:**
+```rust
+use harp::opt::ast::{
+    Optimizer, BeamSearchOptimizer,
+    RuleBaseSuggester, SimpleCostEstimator,
+};
+use harp::opt::ast::rules::all_algebraic_rules;
+
+// SuggesterとEstimatorを作成
+let suggester = RuleBaseSuggester::new(all_algebraic_rules());
+let estimator = SimpleCostEstimator::new();
+
+// ビームサーチ最適化器を作成
+let optimizer = BeamSearchOptimizer::new(suggester, estimator)
+    .with_beam_width(20)      // ビーム幅を設定
+    .with_max_depth(15)        // 探索深さを設定
+    .with_progress(true);      // プログレスバー表示を有効化
+
+// 最適化を実行
+let optimized = optimizer.optimize(ast);
+```
+
+**注意:**
+- プログレスバーはデフォルトで有効です。テスト環境などで無効化したい場合は`.with_progress(false)`を使用してください。
+
 #### RuleBaseSuggester
 ルールベースの候補提案器。各ルールを全ての位置に適用して候補を生成。
 
@@ -148,13 +187,39 @@ let best = candidates.iter()
 
 ### 組み合わせ例：ビームサーチ
 
-```rust
-use harp::opt::ast::{Suggester, CostEstimator, RuleBaseSuggester, SimpleCostEstimator};
+ビームサーチは`BeamSearchOptimizer`として実装されています（上記参照）。以下は基本的な使用例です：
 
-fn beam_search(
+```rust
+use harp::opt::ast::{
+    Optimizer, BeamSearchOptimizer,
+    RuleBaseSuggester, SimpleCostEstimator,
+};
+use harp::opt::ast::rules::all_algebraic_rules;
+
+// ルール、Suggester、Estimatorを準備
+let rules = all_algebraic_rules();
+let suggester = RuleBaseSuggester::new(rules);
+let estimator = SimpleCostEstimator::new();
+
+// ビームサーチで最適化
+let optimizer = BeamSearchOptimizer::new(suggester, estimator)
+    .with_beam_width(10)
+    .with_max_depth(10);
+
+let optimized_ast = optimizer.optimize(input_ast);
+```
+
+**カスタム実装の例:**
+
+独自のビームサーチを実装する場合の例：
+
+```rust
+use harp::opt::ast::{Suggester, CostEstimator};
+
+fn custom_beam_search<S: Suggester, E: CostEstimator>(
     initial_ast: AstNode,
-    suggester: &RuleBaseSuggester,
-    estimator: &SimpleCostEstimator,
+    suggester: &S,
+    estimator: &E,
     beam_width: usize,
     max_depth: usize,
 ) -> AstNode {
@@ -177,7 +242,7 @@ fn beam_search(
         candidates.sort_by(|a, b| {
             estimator.estimate(a)
                 .partial_cmp(&estimator.estimate(b))
-                .unwrap()
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         beam = candidates.into_iter().take(beam_width).collect();
@@ -188,7 +253,7 @@ fn beam_search(
         .min_by(|a, b| {
             estimator.estimate(a)
                 .partial_cmp(&estimator.estimate(b))
-                .unwrap()
+                .unwrap_or(std::cmp::Ordering::Equal)
         })
         .unwrap()
 }

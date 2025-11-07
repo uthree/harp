@@ -8,7 +8,7 @@
 It automatically generates optimal C kernels for CPUs or GPUs from a computational graph of a multidimensional array.
 
 ## Architecture
-![architecture](assets/images/harp_architecture_overview.png)  
+![architecture](assets/images/harp_architecture_overview.png)
 - Tensor / Autograd Frontend: A frontend that makes it easy to handle tensor calculations, automatic differentiation, etc.
 - Lowerer: Responsible for converting the computational graph into a C-like abstract syntax tree (AST).
 - Renderer: Renders the AST as source code in the target language.
