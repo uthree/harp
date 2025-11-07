@@ -265,4 +265,155 @@ mod tests {
         // 最終的に5に簡約されるはず
         assert_eq!(result, AstNode::Const(Literal::Isize(5)));
     }
+
+    #[test]
+    fn test_beam_search_no_applicable_rules() {
+        // マッチしないルールのみ
+        let rule = astpat!(|a| {
+            AstNode::Mul(Box::new(a), Box::new(AstNode::Const(Literal::Isize(99))))
+        } => {
+            a
+        });
+
+        let suggester = RuleBaseSuggester::new(vec![rule]);
+        let estimator = SimpleCostEstimator::new();
+
+        let optimizer = BeamSearchOptimizer::new(suggester, estimator)
+            .with_beam_width(5)
+            .with_max_depth(5)
+            .with_progress(false);
+
+        // ルールが適用されない入力
+        let input = AstNode::Const(Literal::Isize(42));
+        let result = optimizer.optimize(input.clone());
+
+        // 変更されないはず
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn test_beam_search_already_optimal() {
+        use crate::opt::ast::rules::all_algebraic_rules;
+
+        let suggester = RuleBaseSuggester::new(all_algebraic_rules());
+        let estimator = SimpleCostEstimator::new();
+
+        let optimizer = BeamSearchOptimizer::new(suggester, estimator)
+            .with_beam_width(10)
+            .with_max_depth(10)
+            .with_progress(false);
+
+        // すでに最適化済みの入力
+        let input = AstNode::Const(Literal::Isize(42));
+        let result = optimizer.optimize(input.clone());
+
+        // 変更されないはず
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn test_beam_search_with_beam_width_one() {
+        use crate::opt::ast::rules::{add_commutative, all_algebraic_rules};
+
+        let mut rules = all_algebraic_rules();
+        rules.push(add_commutative());
+
+        let suggester = RuleBaseSuggester::new(rules);
+        let estimator = SimpleCostEstimator::new();
+
+        // ビーム幅1（貪欲法）
+        let optimizer = BeamSearchOptimizer::new(suggester, estimator)
+            .with_beam_width(1)
+            .with_max_depth(10)
+            .with_progress(false);
+
+        let input = AstNode::Add(
+            Box::new(AstNode::Const(Literal::Isize(5))),
+            Box::new(AstNode::Const(Literal::Isize(0))),
+        );
+
+        let result = optimizer.optimize(input);
+        // ビーム幅1でも最適化できるはず
+        assert_eq!(result, AstNode::Const(Literal::Isize(5)));
+    }
+
+    #[test]
+    fn test_beam_search_with_max_depth_zero() {
+        use crate::opt::ast::rules::all_algebraic_rules;
+
+        let suggester = RuleBaseSuggester::new(all_algebraic_rules());
+        let estimator = SimpleCostEstimator::new();
+
+        // 最大深さ0（最適化しない）
+        let optimizer = BeamSearchOptimizer::new(suggester, estimator)
+            .with_beam_width(10)
+            .with_max_depth(0)
+            .with_progress(false);
+
+        let input = AstNode::Add(
+            Box::new(AstNode::Const(Literal::Isize(5))),
+            Box::new(AstNode::Const(Literal::Isize(0))),
+        );
+
+        let result = optimizer.optimize(input.clone());
+        // 変更されないはず
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn test_beam_search_early_termination() {
+        // 1回で最適化が完了し、それ以降候補がなくなるケース
+        let rule = astpat!(|a| {
+            AstNode::Add(Box::new(a), Box::new(AstNode::Const(Literal::Isize(0))))
+        } => {
+            a
+        });
+
+        let suggester = RuleBaseSuggester::new(vec![rule]);
+        let estimator = SimpleCostEstimator::new();
+
+        let optimizer = BeamSearchOptimizer::new(suggester, estimator)
+            .with_beam_width(5)
+            .with_max_depth(10) // 深さは10だが早期終了するはず
+            .with_progress(false);
+
+        let input = AstNode::Add(
+            Box::new(AstNode::Const(Literal::Isize(42))),
+            Box::new(AstNode::Const(Literal::Isize(0))),
+        );
+
+        let result = optimizer.optimize(input);
+        assert_eq!(result, AstNode::Const(Literal::Isize(42)));
+    }
+
+    #[test]
+    fn test_beam_search_large_beam_width() {
+        use crate::opt::ast::rules::{add_commutative, all_algebraic_rules};
+
+        let mut rules = all_algebraic_rules();
+        rules.push(add_commutative());
+
+        let suggester = RuleBaseSuggester::new(rules);
+        let estimator = SimpleCostEstimator::new();
+
+        // 非常に大きなビーム幅
+        let optimizer = BeamSearchOptimizer::new(suggester, estimator)
+            .with_beam_width(1000)
+            .with_max_depth(5)
+            .with_progress(false);
+
+        let input = AstNode::Add(
+            Box::new(AstNode::Mul(
+                Box::new(AstNode::Add(
+                    Box::new(AstNode::Const(Literal::Isize(2))),
+                    Box::new(AstNode::Const(Literal::Isize(3))),
+                )),
+                Box::new(AstNode::Const(Literal::Isize(1))),
+            )),
+            Box::new(AstNode::Const(Literal::Isize(0))),
+        );
+
+        let result = optimizer.optimize(input);
+        assert_eq!(result, AstNode::Const(Literal::Isize(5)));
+    }
 }
