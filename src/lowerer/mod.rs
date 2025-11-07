@@ -106,10 +106,415 @@ impl Lowerer {
         node: &GraphNode,
         node_id: usize,
     ) -> Result<Function, String> {
-        // 現時点では、Elementwise演算のみをサポート
         match &node.op {
             GraphOp::Elementwise { op, .. } => self.lower_elementwise_kernel(node, node_id, op),
+            GraphOp::Reduce { op, axis, .. } => self.lower_reduce_kernel(node, node_id, op, *axis),
             _ => Err(format!("Unsupported operation: {:?}", node.op)),
+        }
+    }
+
+    /// Reduce演算をカーネル関数に変換
+    fn lower_reduce_kernel(
+        &mut self,
+        node: &GraphNode,
+        _node_id: usize,
+        op: &crate::graph::ops::ReduceOp,
+        axis: usize,
+    ) -> Result<Function, String> {
+        debug!("Lowering reduce operation: {:?} on axis {}", op, axis);
+
+        if node.src.is_empty() {
+            return Err("Reduce operation requires at least one input".to_string());
+        }
+
+        let input = &node.src[0];
+        let input_shape = input.view.shape();
+        let input_ndim = input_shape.len();
+
+        if axis >= input_ndim {
+            return Err(format!(
+                "Reduce axis {} is out of bounds for shape with {} dimensions",
+                axis, input_ndim
+            ));
+        }
+
+        // パラメータを生成: 入力バッファー、出力バッファー、shape変数
+        let mut params = Vec::new();
+
+        // 入力バッファー
+        let input_dtype = self.graph_dtype_to_ast_ptr(&input.dtype)?;
+        params.push(VarDecl {
+            name: "input0".to_string(),
+            dtype: input_dtype,
+            mutability: Mutability::Immutable,
+            region: AccessRegion::Shared,
+            kind: VarKind::Normal,
+        });
+
+        // 出力バッファー
+        let output_dtype = self.graph_dtype_to_ast_ptr(&node.dtype)?;
+        params.push(VarDecl {
+            name: "output".to_string(),
+            dtype: output_dtype,
+            mutability: Mutability::Mutable,
+            region: AccessRegion::Shared,
+            kind: VarKind::Normal,
+        });
+
+        // Shape変数（入力のshape）
+        for i in 0..input_ndim {
+            params.push(VarDecl {
+                name: format!("shape{}", i),
+                dtype: AstDType::Usize,
+                mutability: Mutability::Immutable,
+                region: AccessRegion::Shared,
+                kind: VarKind::Normal,
+            });
+        }
+
+        // ループ本体の生成
+        let body_statements = self.generate_reduce_loops(node, op, axis)?;
+
+        // カーネル関数を作成
+        let function = Function::new(
+            FunctionKind::Normal,
+            params,
+            AstDType::Tuple(vec![]),
+            body_statements,
+        )?;
+
+        // 生成されたコードをログ出力
+        debug!(
+            "Generated reduce function with {} parameters",
+            function.params.len()
+        );
+        if log::log_enabled!(log::Level::Debug) {
+            use crate::backend::metal::MetalRenderer;
+            let mut renderer = MetalRenderer::new();
+            let code = renderer.render_function("reduce_kernel_fn", &function);
+            debug!("Generated code:\n{}", code);
+        }
+
+        Ok(function)
+    }
+
+    /// Reduce演算のループを生成
+    fn generate_reduce_loops(
+        &mut self,
+        node: &GraphNode,
+        op: &crate::graph::ops::ReduceOp,
+        axis: usize,
+    ) -> Result<Vec<AstNode>, String> {
+        let output_ndim = node.view.shape().len();
+
+        // 出力がスカラーの場合とテンソルの場合で処理を分ける
+        if output_ndim == 0 {
+            // 全縮約（スカラー出力）
+            return self.generate_reduce_to_scalar(node, op, axis);
+        }
+
+        // テンソル出力の場合
+        // アキュムレータ初期化、縮約ループ、書き込みを含む本体を生成
+        let mut body_statements = self.generate_reduce_body_with_axis(node, op, axis)?;
+
+        // 出力の各軸についてループを生成（逆順に、内側から外側へ）
+        for out_idx in (0..output_ndim).rev() {
+            // 出力軸out_idxは入力軸in_idxに対応
+            // 縮約軸より前ならそのまま、縮約軸以降なら+1
+            let in_idx = if out_idx < axis { out_idx } else { out_idx + 1 };
+
+            let loop_var = format!("oidx{}", out_idx);
+            let shape_var = var(format!("shape{}", in_idx));
+
+            let loop_body = AstNode::Block {
+                statements: body_statements,
+                scope: Box::new(Scope::new()),
+            };
+
+            body_statements = vec![AstNode::Range {
+                var: loop_var,
+                start: Box::new(AstNode::Const(Literal::Usize(0))),
+                step: Box::new(AstNode::Const(Literal::Usize(1))),
+                stop: Box::new(shape_var),
+                body: Box::new(loop_body),
+            }];
+        }
+
+        Ok(body_statements)
+    }
+
+    /// スカラー出力への全縮約を生成
+    fn generate_reduce_to_scalar(
+        &mut self,
+        node: &GraphNode,
+        op: &crate::graph::ops::ReduceOp,
+        _axis: usize,
+    ) -> Result<Vec<AstNode>, String> {
+        let input = &node.src[0];
+        let input_ndim = input.view.shape().len();
+
+        let mut statements = Vec::new();
+
+        // アキュムレータを初期化
+        let acc_var = self.fresh_alu();
+        let init_value = self.get_reduce_init_value(op, &node.dtype)?;
+        statements.push(assign(&acc_var, init_value));
+
+        // 全ての軸についてループしてアキュムレート
+        let mut accumulate_statements = vec![self.generate_accumulate_statement(
+            &acc_var,
+            op,
+            &(0..input_ndim).collect::<Vec<_>>(),
+            input,
+        )?];
+
+        // ループを逆順に作成（内側から外側へ）
+        for i in (0..input_ndim).rev() {
+            let loop_var = format!("ridx{}", i);
+            let shape_var = var(format!("shape{}", i));
+
+            let loop_body = AstNode::Block {
+                statements: accumulate_statements,
+                scope: Box::new(Scope::new()),
+            };
+
+            accumulate_statements = vec![AstNode::Range {
+                var: loop_var,
+                start: Box::new(AstNode::Const(Literal::Usize(0))),
+                step: Box::new(AstNode::Const(Literal::Usize(1))),
+                stop: Box::new(shape_var),
+                body: Box::new(loop_body),
+            }];
+        }
+
+        statements.extend(accumulate_statements);
+
+        // 結果をoutput[0]に書き込み
+        let output_ptr = var("output");
+        let output_offset = AstNode::Const(Literal::Usize(0));
+        statements.push(store(output_ptr, output_offset, var(&acc_var)));
+
+        Ok(statements)
+    }
+
+    /// 指定軸での縮約を含む本体を生成（出力がテンソルの場合）
+    fn generate_reduce_body_with_axis(
+        &mut self,
+        node: &GraphNode,
+        op: &crate::graph::ops::ReduceOp,
+        axis: usize,
+    ) -> Result<Vec<AstNode>, String> {
+        let input = &node.src[0];
+        let mut statements = Vec::new();
+
+        // アキュムレータを初期化
+        let acc_var = self.fresh_alu();
+        let init_value = self.get_reduce_init_value(op, &node.dtype)?;
+        statements.push(assign(&acc_var, init_value));
+
+        // 縮約軸についてループしてアキュムレート
+        let loop_var = format!("ridx{}", axis);
+        let shape_var = var(format!("shape{}", axis));
+
+        // ループ内でアキュムレートする
+        // 入力のインデックスを構築: 出力インデックス + 縮約軸インデックス
+        let output_ndim = node.view.shape().len();
+        let mut input_axes = Vec::new();
+        for out_idx in 0..output_ndim {
+            let in_idx = if out_idx < axis { out_idx } else { out_idx + 1 };
+            input_axes.push(in_idx);
+        }
+
+        let accumulate_stmt = self.generate_accumulate_statement_with_reduce_axis(
+            &acc_var,
+            op,
+            &input_axes,
+            axis,
+            input,
+        )?;
+
+        let reduce_loop = AstNode::Range {
+            var: loop_var,
+            start: Box::new(AstNode::Const(Literal::Usize(0))),
+            step: Box::new(AstNode::Const(Literal::Usize(1))),
+            stop: Box::new(shape_var),
+            body: Box::new(AstNode::Block {
+                statements: vec![accumulate_stmt],
+                scope: Box::new(Scope::new()),
+            }),
+        };
+
+        statements.push(reduce_loop);
+
+        // 結果を出力に書き込み
+        let output_ptr = var("output");
+        let output_axes: Vec<usize> = (0..output_ndim).collect();
+        let output_offset = self.compute_offset_for_output(&output_axes, node);
+        statements.push(store(output_ptr, output_offset, var(&acc_var)));
+
+        Ok(statements)
+    }
+
+    /// ReduceOpに応じた初期値を取得
+    fn get_reduce_init_value(
+        &self,
+        op: &crate::graph::ops::ReduceOp,
+        dtype: &GraphDType,
+    ) -> Result<AstNode, String> {
+        use crate::graph::ops::ReduceOp;
+
+        match op {
+            ReduceOp::Add => match dtype {
+                GraphDType::F32 => Ok(AstNode::Const(Literal::F32(0.0))),
+                GraphDType::Unknown => {
+                    Err("Cannot determine init value for Unknown dtype".to_string())
+                }
+            },
+            ReduceOp::Mul => match dtype {
+                GraphDType::F32 => Ok(AstNode::Const(Literal::F32(1.0))),
+                GraphDType::Unknown => {
+                    Err("Cannot determine init value for Unknown dtype".to_string())
+                }
+            },
+            ReduceOp::Max => match dtype {
+                GraphDType::F32 => Ok(AstNode::Const(Literal::F32(f32::NEG_INFINITY))),
+                GraphDType::Unknown => {
+                    Err("Cannot determine init value for Unknown dtype".to_string())
+                }
+            },
+        }
+    }
+
+    /// アキュムレート文を生成
+    fn generate_accumulate_statement(
+        &mut self,
+        acc_var: &str,
+        op: &crate::graph::ops::ReduceOp,
+        axes: &[usize],
+        input: &GraphNode,
+    ) -> Result<AstNode, String> {
+        // 入力から値をロード
+        let input_ptr = var("input0");
+        let offset = self.compute_offset_for_input(axes, input);
+        let loaded_value = load(input_ptr, offset);
+
+        // アキュムレート演算を適用
+        let acc = var(acc_var);
+        let result = self.apply_reduce_op(op, acc, loaded_value)?;
+
+        Ok(assign(acc_var, result))
+    }
+
+    /// 縮約軸を含むアキュムレート文を生成
+    fn generate_accumulate_statement_with_reduce_axis(
+        &mut self,
+        acc_var: &str,
+        op: &crate::graph::ops::ReduceOp,
+        output_axes: &[usize],
+        reduce_axis: usize,
+        input: &GraphNode,
+    ) -> Result<AstNode, String> {
+        // 入力のインデックスを構築
+        // output_axes[i]の位置にoidx{i}を、reduce_axisの位置にridx{reduce_axis}を配置
+        let input_ptr = var("input0");
+        let offset =
+            self.compute_offset_for_input_with_reduce_axis(output_axes, reduce_axis, input);
+        let loaded_value = load(input_ptr, offset);
+
+        // アキュムレート演算を適用
+        let acc = var(acc_var);
+        let result = self.apply_reduce_op(op, acc, loaded_value)?;
+
+        Ok(assign(acc_var, result))
+    }
+
+    /// Reduce演算をASTノードに変換
+    fn apply_reduce_op(
+        &self,
+        op: &crate::graph::ops::ReduceOp,
+        acc: AstNode,
+        value: AstNode,
+    ) -> Result<AstNode, String> {
+        use crate::graph::ops::ReduceOp;
+
+        match op {
+            ReduceOp::Add => Ok(acc + value),
+            ReduceOp::Mul => Ok(acc * value),
+            ReduceOp::Max => Ok(max(acc, value)),
+        }
+    }
+
+    /// 入力のオフセット計算（ridx変数を使用）
+    fn compute_offset_for_input(&self, axes: &[usize], input: &GraphNode) -> AstNode {
+        use crate::graph::shape::View;
+
+        match &input.view {
+            View::Linear {
+                strides, offset, ..
+            } => {
+                let mut result: AstNode = offset.clone().into();
+
+                for &axis in axes {
+                    let ridx = var(format!("ridx{}", axis));
+                    let stride: AstNode = strides[axis].clone().into();
+                    result = result + ridx * stride;
+                }
+
+                result
+            }
+        }
+    }
+
+    /// 出力のオフセット計算（oidx変数を使用）
+    fn compute_offset_for_output(&self, axes: &[usize], output: &GraphNode) -> AstNode {
+        use crate::graph::shape::View;
+
+        match &output.view {
+            View::Linear {
+                strides, offset, ..
+            } => {
+                let mut result: AstNode = offset.clone().into();
+
+                for &axis in axes {
+                    let oidx = var(format!("oidx{}", axis));
+                    let stride: AstNode = strides[axis].clone().into();
+                    result = result + oidx * stride;
+                }
+
+                result
+            }
+        }
+    }
+
+    /// 入力のオフセット計算（縮約軸を含む、oidxとridxを組み合わせ）
+    fn compute_offset_for_input_with_reduce_axis(
+        &self,
+        output_axes: &[usize],
+        reduce_axis: usize,
+        input: &GraphNode,
+    ) -> AstNode {
+        use crate::graph::shape::View;
+
+        match &input.view {
+            View::Linear {
+                strides, offset, ..
+            } => {
+                let mut result: AstNode = offset.clone().into();
+
+                // 出力軸に対応する入力軸
+                for (out_idx, &in_axis) in output_axes.iter().enumerate() {
+                    let oidx = var(format!("oidx{}", out_idx));
+                    let stride: AstNode = strides[in_axis].clone().into();
+                    result = result + oidx * stride;
+                }
+
+                // 縮約軸
+                let ridx = var(format!("ridx{}", reduce_axis));
+                let stride: AstNode = strides[reduce_axis].clone().into();
+                result = result + ridx * stride;
+
+                result
+            }
         }
     }
 
