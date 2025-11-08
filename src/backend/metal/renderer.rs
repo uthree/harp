@@ -340,9 +340,9 @@ impl Renderer for MetalRenderer {
     type CodeRepr = MetalCode;
     type Option = ();
 
-    fn render(&self, ast: AstNode) -> Self::CodeRepr {
+    fn render(&self, program: &Program) -> Self::CodeRepr {
         let mut renderer = Self::new();
-        MetalCode::new(renderer.render_statement(&ast))
+        renderer.render_program(program)
     }
 
     fn is_available(&self) -> bool {

@@ -1,21 +1,22 @@
 use std::collections::HashMap;
 
-use crate::ast::AstNode;
 pub mod c_like;
+pub mod generic;
 pub mod metal;
 
 // Re-export commonly used types
+pub use generic::GenericPipeline;
 pub use metal::{MetalCode, MetalRenderer};
 
 #[cfg(target_os = "macos")]
-pub use metal::{MetalBuffer, MetalCompiler, MetalKernel};
+pub use metal::{MetalBuffer, MetalCompiler, MetalKernel, MetalPipeline};
 
 // レンダラー。
-// ASTを受け取って文字列としてレンダリングする
+// Programを受け取って文字列としてレンダリングする
 pub trait Renderer {
     type CodeRepr;
     type Option;
-    fn render(&self, ast: AstNode) -> Self::CodeRepr;
+    fn render(&self, program: &crate::ast::Program) -> Self::CodeRepr;
     fn is_available(&self) -> bool;
     fn with_option(&mut self, _option: Self::Option) {} // default implementation is "do nothing".
 }
@@ -53,7 +54,41 @@ pub trait Kernel {
 pub trait Pipeline {
     type Compiler: Compiler;
     type Renderer: Renderer<CodeRepr = <Self::Compiler as Compiler>::CodeRepr>;
-    
+    type Error;
+
+    // 各コンポーネントへのアクセス
+    fn renderer(&self) -> &Self::Renderer;
+    fn compiler(&mut self) -> &mut Self::Compiler;
+
+    // Graph最適化
+    fn optimize_graph(&self, graph: crate::graph::Graph) -> crate::graph::Graph {
+        // デフォルトは最適化なし
+        graph
+    }
+
+    // Lowering (Graph → Program)
+    fn lower_to_program(&self, graph: crate::graph::Graph) -> crate::ast::Program {
+        crate::lowerer::lower(graph)
+    }
+
+    // Program最適化
+    fn optimize_program(&self, program: crate::ast::Program) -> crate::ast::Program {
+        // デフォルトは最適化なし
+        program
+    }
+
+    // Graph → Kernel の一連の流れ
+    fn compile_graph(
+        &mut self,
+        graph: crate::graph::Graph,
+    ) -> Result<<Self::Compiler as Compiler>::Kernel, Self::Error> {
+        // デフォルト実装: 各ステージを順番に実行
+        let optimized_graph = self.optimize_graph(graph);
+        let program = self.lower_to_program(optimized_graph);
+        let optimized_program = self.optimize_program(program);
+        let code = self.renderer().render(&optimized_program);
+        Ok(self.compiler().compile(&code))
+    }
 }
 
 // カーネルへの指示をまとめる構造体

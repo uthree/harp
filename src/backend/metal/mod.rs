@@ -20,6 +20,10 @@ pub use compiler::MetalCompiler;
 
 pub use renderer::MetalRenderer;
 
+/// MetalRenderer と MetalCompiler を組み合わせた Pipeline
+#[cfg(target_os = "macos")]
+pub type MetalPipeline = crate::backend::GenericPipeline<MetalRenderer, MetalCompiler>;
+
 /// Metal Shading Language のソースコードを表す型
 ///
 /// new type pattern を使用して、型システムで Metal 専用のコードとして扱う。

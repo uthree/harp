@@ -25,6 +25,50 @@ impl Default for Lowerer {
     }
 }
 
+/// GraphをProgramに変換する公開関数
+///
+/// Graphの全ノードをカーネル関数に変換し、Programとして返します。
+/// 現時点では各ノードを個別のカーネル関数として生成し、
+/// kernel_main関数による統合は未実装です。
+pub(crate) fn lower(graph: Graph) -> crate::ast::Program {
+    let mut lowerer = Lowerer::new();
+
+    // トポロジカルソートでノードを取得
+    let generations = Lowerer::topological_sort(&graph);
+
+    // Programを作成（entry_pointはとりあえず"main"）
+    let mut program = crate::ast::Program::new("main".to_string());
+
+    // 各世代の各ノードをカーネル関数に変換
+    let mut kernel_id = 0;
+    let mut first_kernel_name = String::new();
+    for generation in generations {
+        for node in generation {
+            // Input ノードはスキップ
+            if matches!(node.op, GraphOp::Input) {
+                continue;
+            }
+
+            // カーネル関数を生成
+            if let Ok(function) = lowerer.lower_node_to_kernel(&node, kernel_id) {
+                let kernel_name = format!("kernel_{}", kernel_id);
+                if kernel_id == 0 {
+                    first_kernel_name = kernel_name.clone();
+                }
+                let _ = program.add_function(kernel_name, function);
+                kernel_id += 1;
+            }
+        }
+    }
+
+    // entry_pointを最初のカーネルに設定（もしあれば）
+    if !first_kernel_name.is_empty() {
+        program.entry_point = first_kernel_name;
+    }
+
+    program
+}
+
 impl Lowerer {
     pub fn new() -> Self {
         Self { alu_counter: 0 }
