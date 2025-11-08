@@ -46,6 +46,13 @@ pub trait Kernel {
     }
 }
 
+// 一通りの演算をまとめて行うためのパイプライン
+pub trait Pipeline {
+    type Compiler: Compiler;
+    type Renderer: Renderer<CodeRepr = <Self::Compiler as Compiler>::CodeRepr>;
+    
+}
+
 // カーネルへの指示をまとめる構造体
 #[derive(Debug)]
 pub struct Query<'a, B: Buffer> {
