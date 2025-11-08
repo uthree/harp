@@ -79,8 +79,10 @@ pub trait Buffer {
 
     /// 型付きスライスからバッファに書き込み（デフォルト実装）
     #[allow(clippy::wrong_self_convention)]
+    #[allow(clippy::manual_slice_size_calculation)]
     fn from_vec<T>(&mut self, data: &[T]) -> Result<(), String> {
-        let byte_len = std::mem::size_of_val(data);
+        let type_size = std::mem::size_of::<T>();
+        let byte_len = data.len() * type_size;
 
         if byte_len != self.byte_len() {
             return Err(format!(
@@ -93,6 +95,58 @@ pub trait Buffer {
         let bytes = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, byte_len) };
 
         self.from_bytes(bytes)
+    }
+
+    /// バッファの内容をndarrayとして取得（デフォルト実装）
+    ///
+    /// # Feature
+    /// この機能は `ndarray` featureが有効な場合のみ利用可能です
+    #[cfg(feature = "ndarray")]
+    fn to_ndarray<T: Clone + 'static>(&self) -> Result<ndarray::ArrayD<T>, String> {
+        let shape = self.shape();
+        let vec_data = self.to_vec::<T>()?;
+
+        // shapeをndarray用に変換（Vec<usize> -> IxDyn）
+        let ndarray_shape = ndarray::IxDyn(&shape);
+
+        // ArrayDを作成
+        ndarray::ArrayD::from_shape_vec(ndarray_shape, vec_data)
+            .map_err(|e| format!("Failed to create ndarray: {}", e))
+    }
+
+    /// ndarrayからバッファに書き込み（デフォルト実装）
+    ///
+    /// # Feature
+    /// この機能は `ndarray` featureが有効な場合のみ利用可能です
+    #[cfg(feature = "ndarray")]
+    #[allow(clippy::wrong_self_convention)]
+    fn from_ndarray<T>(&mut self, array: &ndarray::ArrayD<T>) -> Result<(), String>
+    where
+        T: Clone,
+    {
+        // shapeのチェック
+        let buffer_shape = self.shape();
+        let array_shape: Vec<usize> = array.shape().to_vec();
+
+        if buffer_shape != array_shape {
+            return Err(format!(
+                "Shape mismatch: buffer has shape {:?}, but array has shape {:?}",
+                buffer_shape, array_shape
+            ));
+        }
+
+        // as_slice()で直接スライスが取得できる場合はそれを使用
+        if let Some(slice) = array.as_slice() {
+            return self.from_vec(slice);
+        }
+
+        // 連続していない場合は、標準レイアウトにコピーしてから書き込み
+        let owned = array.as_standard_layout();
+        let slice = owned
+            .as_slice()
+            .ok_or_else(|| "Failed to convert array to contiguous slice".to_string())?;
+
+        self.from_vec(slice)
     }
 }
 

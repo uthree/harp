@@ -255,4 +255,87 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("does not match"));
     }
+
+    #[test]
+    #[cfg(feature = "ndarray")]
+    fn test_buffer_to_ndarray() {
+        let mut buffer = CBuffer::with_dtype(vec![2, 3], DType::F32);
+
+        // データを書き込み（2x3の行列）
+        let data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        buffer.from_vec(&data).unwrap();
+
+        // ndarrayとして取得
+        let array = buffer.to_ndarray::<f32>().unwrap();
+        assert_eq!(array.shape(), &[2, 3]);
+        assert_eq!(array[[0, 0]], 1.0);
+        assert_eq!(array[[0, 1]], 2.0);
+        assert_eq!(array[[0, 2]], 3.0);
+        assert_eq!(array[[1, 0]], 4.0);
+        assert_eq!(array[[1, 1]], 5.0);
+        assert_eq!(array[[1, 2]], 6.0);
+    }
+
+    #[test]
+    #[cfg(feature = "ndarray")]
+    fn test_buffer_from_ndarray() {
+        use ndarray::arr2;
+
+        let mut buffer = CBuffer::with_dtype(vec![2, 3], DType::F32);
+
+        // ndarrayを作成（明示的にf32を指定）
+        let array = arr2(&[[1.0_f32, 2.0, 3.0], [4.0, 5.0, 6.0]]);
+        let array_d = array.into_dyn();
+
+        // ndarrayから書き込み
+        buffer.from_ndarray(&array_d).unwrap();
+
+        // 読み出して確認
+        let result: Vec<f32> = buffer.to_vec().unwrap();
+        assert_eq!(result, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+    }
+
+    #[test]
+    #[cfg(feature = "ndarray")]
+    fn test_buffer_ndarray_roundtrip() {
+        use ndarray::arr3;
+
+        // 3次元配列でラウンドトリップテスト
+        let mut buffer = CBuffer::with_dtype(vec![2, 2, 2], DType::F32);
+
+        // 元のndarray（明示的にf32を指定）
+        let original = arr3(&[[[1.0_f32, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]]);
+        let original_d = original.clone().into_dyn();
+
+        // バッファに書き込み
+        buffer.from_ndarray(&original_d).unwrap();
+
+        // バッファから読み出し
+        let restored = buffer.to_ndarray::<f32>().unwrap();
+
+        // 元のデータと一致することを確認
+        assert_eq!(restored.shape(), original_d.shape());
+        for i in 0..2 {
+            for j in 0..2 {
+                for k in 0..2 {
+                    assert_eq!(restored[[i, j, k]], original_d[[i, j, k]]);
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "ndarray")]
+    fn test_buffer_ndarray_shape_mismatch() {
+        use ndarray::arr1;
+
+        let mut buffer = CBuffer::with_dtype(vec![3], DType::F32);
+
+        // 異なるshapeのndarrayで書き込みを試みる（明示的にf32を指定）
+        let array = arr1(&[1.0_f32, 2.0, 3.0, 4.0, 5.0]).into_dyn();
+        let result = buffer.from_ndarray(&array);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Shape mismatch"));
+    }
 }

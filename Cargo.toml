@@ -3,10 +3,15 @@ name = "harp"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = []
+ndarray = ["dep:ndarray"]
+
 [dependencies]
 indicatif = "0.18.1"
 log = "0.4"
 libloading = "0.8.9"  # C/OpenMP backendでの動的ライブラリロード用
+ndarray = { version = "0.16", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 metal = "0.32.0"
