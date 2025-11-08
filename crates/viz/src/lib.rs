@@ -73,6 +73,13 @@ impl HarpVizApp {
         self.current_tab = VizTab::AstViewer;
     }
 
+    /// Program全体を読み込む
+    pub fn load_program(&mut self, program: harp::ast::Program) {
+        self.ast_viewer.load_program(program);
+        // ASTビューアタブに切り替え
+        self.current_tab = VizTab::AstViewer;
+    }
+
     /// グラフを読み込む
     pub fn load_graph(&mut self, graph: harp::graph::Graph) {
         self.graph_viewer.load_graph(graph);

@@ -1,6 +1,7 @@
 //! AST最適化を可視化するビューア
 
 use harp::ast::renderer::render_ast_with;
+use harp::ast::Program;
 use harp::backend::c_like::CLikeRenderer;
 use harp::backend::openmp::CRenderer;
 use harp::opt::ast::OptimizationHistory;
@@ -33,6 +34,10 @@ where
     show_diff: bool,
     /// ASTレンダラー
     renderer: R,
+    /// Program全体（複数のFunctionを含む）
+    program: Option<Program>,
+    /// Program全体を表示するかどうか
+    show_full_program: bool,
 }
 
 impl Default for AstViewerApp<CRenderer> {
@@ -62,7 +67,18 @@ where
             show_cost_graph: false,
             show_diff: false,
             renderer,
+            program: None,
+            show_full_program: false,
         }
+    }
+
+    /// Program全体を読み込む
+    pub fn load_program(&mut self, program: Program) {
+        self.program = Some(program);
+        log::info!(
+            "Program loaded with {} functions",
+            self.program.as_ref().unwrap().functions.len()
+        );
     }
 
     /// 単一のFunction用の最適化履歴を読み込む（後方互換性のため）
@@ -276,8 +292,48 @@ where
                     }
                 }
             }
+
+            // Program全体を表示ボタン（Programが読み込まれている場合のみ）
+            if self.program.is_some() {
+                ui.add_space(10.0);
+                let program_button_text = if self.show_full_program {
+                    "Show Optimization Steps"
+                } else {
+                    "Show Full Program"
+                };
+                if ui.button(program_button_text).clicked() {
+                    self.show_full_program = !self.show_full_program;
+                }
+            }
         });
         ui.separator();
+
+        // Program全体を表示する場合
+        if self.show_full_program {
+            if let Some(ref program) = self.program {
+                ui.heading("Full Program");
+                ui.separator();
+
+                // Program全体をレンダリング
+                let mut renderer_clone = self.renderer.clone();
+                let rendered_code = renderer_clone.render_program_clike(program);
+
+                // スクロール可能なコード表示領域
+                egui::ScrollArea::vertical()
+                    .max_height(ui.available_height())
+                    .show(ui, |ui| {
+                        ui.add(
+                            egui::TextEdit::multiline(&mut rendered_code.as_str())
+                                .font(egui::TextStyle::Monospace)
+                                .code_editor()
+                                .desired_width(f32::INFINITY),
+                        );
+                    });
+            } else {
+                ui.label("No program loaded.");
+            }
+            return;
+        }
 
         if self.current_history().is_none() {
             ui.label("No AST optimization history loaded.");

@@ -131,6 +131,9 @@ fn main() -> eframe::Result {
             // 複数のFunction最適化履歴を読み込む
             app.load_multiple_ast_histories(function_histories);
 
+            // Program全体を読み込む
+            app.load_program(program);
+
             Ok(Box::new(app))
         }),
     )
