@@ -11,7 +11,7 @@ pub use ops::{ElementwiseOp, GraphOp, ReduceOp};
 pub use shape::{Expr, View};
 
 /// 各軸の並列化戦略
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AxisStrategy {
     /// 逐次実行（SIMD幅: 1=SIMD化なし、2以上=SIMD化、アンローリング係数: デフォルト1）
     Sequential {
@@ -167,6 +167,7 @@ pub struct GraphNodeData {
     pub op: GraphOp,
     pub src: Vec<GraphNode>, // 入力ノード
     pub view: View,
+    pub axis_strategies: Vec<AxisStrategy>, // 各軸の並列化・最適化戦略
 }
 
 #[derive(Debug, Clone)]
@@ -258,11 +259,36 @@ impl<'a> InputNodeBuilder<'a> {
 
 impl GraphNode {
     pub fn new(dtype: DType, op: GraphOp, src: Vec<GraphNode>, view: View) -> Self {
+        let ndim = view.ndim();
+        // デフォルトは全軸Sequential（simd_width=1, unroll_factor=1）
+        let axis_strategies = vec![AxisStrategy::sequential(); ndim];
         Self(Rc::new(GraphNodeData {
             dtype,
             op,
             src,
             view,
+            axis_strategies,
+        }))
+    }
+
+    pub fn with_axis_strategies(
+        dtype: DType,
+        op: GraphOp,
+        src: Vec<GraphNode>,
+        view: View,
+        axis_strategies: Vec<AxisStrategy>,
+    ) -> Self {
+        assert_eq!(
+            view.ndim(),
+            axis_strategies.len(),
+            "axis_strategies length must match view ndim"
+        );
+        Self(Rc::new(GraphNodeData {
+            dtype,
+            op,
+            src,
+            view,
+            axis_strategies,
         }))
     }
 

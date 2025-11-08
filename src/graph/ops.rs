@@ -1,8 +1,7 @@
 use crate::ast::Literal;
 use crate::graph::shape::View;
-use crate::graph::{AxisStrategy, DType, GraphNode, GraphNodeData};
+use crate::graph::{AxisStrategy, DType, GraphNode};
 use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
-use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub enum GraphOp {
@@ -79,15 +78,15 @@ impl Add for GraphNode {
     fn add(self, rhs: Self) -> Self::Output {
         let dtype = infer_dtype(&self.dtype, &rhs.dtype);
         let view = infer_view(&self.view, &rhs.view);
-        GraphNode(Rc::new(GraphNodeData {
+        GraphNode::new(
             dtype,
-            op: GraphOp::Elementwise {
+            GraphOp::Elementwise {
                 op: ElementwiseOp::Add,
                 axis_strategies: None,
             },
-            src: vec![self, rhs],
+            vec![self, rhs],
             view,
-        }))
+        )
     }
 }
 
@@ -97,15 +96,15 @@ impl Mul for GraphNode {
     fn mul(self, rhs: Self) -> Self::Output {
         let dtype = infer_dtype(&self.dtype, &rhs.dtype);
         let view = infer_view(&self.view, &rhs.view);
-        GraphNode(Rc::new(GraphNodeData {
+        GraphNode::new(
             dtype,
-            op: GraphOp::Elementwise {
+            GraphOp::Elementwise {
                 op: ElementwiseOp::Mul,
                 axis_strategies: None,
             },
-            src: vec![self, rhs],
+            vec![self, rhs],
             view,
-        }))
+        )
     }
 }
 
@@ -115,15 +114,15 @@ impl Neg for GraphNode {
     fn neg(self) -> Self::Output {
         let dtype = self.dtype.clone();
         let view = self.view.clone();
-        GraphNode(Rc::new(GraphNodeData {
+        GraphNode::new(
             dtype,
-            op: GraphOp::Elementwise {
+            GraphOp::Elementwise {
                 op: ElementwiseOp::Neg,
                 axis_strategies: None,
             },
-            src: vec![self],
+            vec![self],
             view,
-        }))
+        )
     }
 }
 
@@ -151,15 +150,15 @@ impl Rem for GraphNode {
     fn rem(self, rhs: Self) -> Self::Output {
         let dtype = infer_dtype(&self.dtype, &rhs.dtype);
         let view = infer_view(&self.view, &rhs.view);
-        GraphNode(Rc::new(GraphNodeData {
+        GraphNode::new(
             dtype,
-            op: GraphOp::Elementwise {
+            GraphOp::Elementwise {
                 op: ElementwiseOp::Rem,
                 axis_strategies: None,
             },
-            src: vec![self, rhs],
+            vec![self, rhs],
             view,
-        }))
+        )
     }
 }
 
@@ -167,30 +166,30 @@ impl Rem for GraphNode {
 pub fn recip(node: GraphNode) -> GraphNode {
     let view = node.view.clone();
     let dtype = node.dtype.clone();
-    GraphNode(Rc::new(GraphNodeData {
+    GraphNode::new(
         dtype,
-        op: GraphOp::Elementwise {
+        GraphOp::Elementwise {
             op: ElementwiseOp::Recip,
             axis_strategies: None,
         },
-        src: vec![node],
+        vec![node],
         view,
-    }))
+    )
 }
 
 // ヘルパー関数: Max
 pub fn max(lhs: GraphNode, rhs: GraphNode) -> GraphNode {
     let dtype = infer_dtype(&lhs.dtype, &rhs.dtype);
     let view = infer_view(&lhs.view, &rhs.view);
-    GraphNode(Rc::new(GraphNodeData {
+    GraphNode::new(
         dtype,
-        op: GraphOp::Elementwise {
+        GraphOp::Elementwise {
             op: ElementwiseOp::Max,
             axis_strategies: None,
         },
-        src: vec![lhs, rhs],
+        vec![lhs, rhs],
         view,
-    }))
+    )
 }
 
 // ヘルパー関数: Reduce（汎用）
@@ -209,16 +208,16 @@ pub fn reduce(node: GraphNode, op: ReduceOp, axis: usize) -> GraphNode {
     new_shape.remove(axis);
     let reduced_view = View::contiguous(new_shape);
 
-    GraphNode(Rc::new(GraphNodeData {
+    GraphNode::new(
         dtype,
-        op: GraphOp::Reduce {
+        GraphOp::Reduce {
             op,
             axis,
             axis_strategies: None,
         },
-        src: vec![node],
-        view: reduced_view,
-    }))
+        vec![node],
+        reduced_view,
+    )
 }
 
 // ヘルパー関数: Reduce Sum（指定軸の合計）

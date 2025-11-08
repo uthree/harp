@@ -659,22 +659,150 @@ impl Lowerer {
         for axis in (0..ndim).rev() {
             let loop_var = format!("ridx{}", axis);
             let shape_var = var(format!("shape{}", axis));
+            let axis_strategy = &node.axis_strategies[axis];
+            let unroll_factor = axis_strategy.unroll_factor();
 
-            let loop_body = AstNode::Block {
-                statements: body_statements,
-                scope: Box::new(Scope::new()),
-            };
+            if unroll_factor > 1 {
+                // ループアンローリングを適用
+                body_statements =
+                    self.generate_unrolled_loop(axis, unroll_factor, body_statements)?;
+            } else {
+                // 通常のループ
+                let loop_body = AstNode::Block {
+                    statements: body_statements,
+                    scope: Box::new(Scope::new()),
+                };
 
-            body_statements = vec![AstNode::Range {
-                var: loop_var.clone(),
-                start: Box::new(AstNode::Const(Literal::Usize(0))),
-                step: Box::new(AstNode::Const(Literal::Usize(1))),
-                stop: Box::new(shape_var),
-                body: Box::new(loop_body),
-            }];
+                body_statements = vec![AstNode::Range {
+                    var: loop_var.clone(),
+                    start: Box::new(AstNode::Const(Literal::Usize(0))),
+                    step: Box::new(AstNode::Const(Literal::Usize(1))),
+                    stop: Box::new(shape_var),
+                    body: Box::new(loop_body),
+                }];
+            }
         }
 
         Ok(body_statements)
+    }
+
+    /// ループアンローリングを適用したループを生成
+    fn generate_unrolled_loop(
+        &mut self,
+        axis: usize,
+        unroll_factor: usize,
+        body_statements: Vec<AstNode>,
+    ) -> Result<Vec<AstNode>, String> {
+        let loop_var = format!("ridx{}", axis);
+        let shape_var = var(format!("shape{}", axis));
+
+        // メインループ: shape / unroll_factor 回のイテレーション
+        let mut unrolled_body = vec![];
+
+        for i in 0..unroll_factor {
+            // ridx{axis} = ridx{axis}_base * unroll_factor + i
+            let offset = if i == 0 {
+                var(format!("{}_base", loop_var))
+            } else {
+                var(format!("{}_base", loop_var)) + AstNode::Const(Literal::Usize(i))
+            };
+
+            // ループ変数を置き換えた本体を生成
+            let mut iter_body = body_statements.clone();
+            for stmt in &mut iter_body {
+                self.substitute_loop_var(stmt, &loop_var, &offset);
+            }
+
+            unrolled_body.extend(iter_body);
+        }
+
+        let unrolled_loop_body = AstNode::Block {
+            statements: unrolled_body,
+            scope: Box::new(Scope::new()),
+        };
+
+        // メインループ: for ridx{axis}_base in 0..(shape{axis}/unroll_factor)
+        let main_loop_stop = idiv(
+            shape_var.clone(),
+            AstNode::Const(Literal::Usize(unroll_factor)),
+        );
+
+        let main_loop = AstNode::Range {
+            var: format!("{}_base", loop_var),
+            start: Box::new(AstNode::Const(Literal::Usize(0))),
+            step: Box::new(AstNode::Const(Literal::Usize(1))),
+            stop: Box::new(main_loop_stop),
+            body: Box::new(unrolled_loop_body),
+        };
+
+        // 残り処理: for ridx{axis} in (shape{axis}/unroll_factor)*unroll_factor..shape{axis}
+        let remainder_start = idiv(
+            shape_var.clone(),
+            AstNode::Const(Literal::Usize(unroll_factor)),
+        ) * AstNode::Const(Literal::Usize(unroll_factor));
+
+        let remainder_loop_body = AstNode::Block {
+            statements: body_statements,
+            scope: Box::new(Scope::new()),
+        };
+
+        let remainder_loop = AstNode::Range {
+            var: loop_var,
+            start: Box::new(remainder_start),
+            step: Box::new(AstNode::Const(Literal::Usize(1))),
+            stop: Box::new(shape_var),
+            body: Box::new(remainder_loop_body),
+        };
+
+        Ok(vec![main_loop, remainder_loop])
+    }
+
+    /// ASTノード内のループ変数を置換
+    #[allow(clippy::only_used_in_recursion)]
+    fn substitute_loop_var(&self, node: &mut AstNode, var_name: &str, replacement: &AstNode) {
+        match node {
+            AstNode::Var(name) if name == var_name => {
+                *node = replacement.clone();
+            }
+            AstNode::Add(lhs, rhs)
+            | AstNode::Mul(lhs, rhs)
+            | AstNode::Max(lhs, rhs)
+            | AstNode::Rem(lhs, rhs)
+            | AstNode::Idiv(lhs, rhs) => {
+                self.substitute_loop_var(lhs, var_name, replacement);
+                self.substitute_loop_var(rhs, var_name, replacement);
+            }
+            AstNode::Recip(inner)
+            | AstNode::Sqrt(inner)
+            | AstNode::Log2(inner)
+            | AstNode::Exp2(inner)
+            | AstNode::Sin(inner) => {
+                self.substitute_loop_var(inner, var_name, replacement);
+            }
+            AstNode::Cast(inner, _) => {
+                self.substitute_loop_var(inner, var_name, replacement);
+            }
+            AstNode::Load { ptr, offset, .. } => {
+                self.substitute_loop_var(ptr, var_name, replacement);
+                self.substitute_loop_var(offset, var_name, replacement);
+            }
+            AstNode::Store {
+                ptr, offset, value, ..
+            } => {
+                self.substitute_loop_var(ptr, var_name, replacement);
+                self.substitute_loop_var(offset, var_name, replacement);
+                self.substitute_loop_var(value, var_name, replacement);
+            }
+            AstNode::Assign { value, .. } => {
+                self.substitute_loop_var(value, var_name, replacement);
+            }
+            AstNode::Block { statements, .. } => {
+                for stmt in statements {
+                    self.substitute_loop_var(stmt, var_name, replacement);
+                }
+            }
+            _ => {}
+        }
     }
 
     /// Elementwise演算の本体を生成（ループ内部の処理）
