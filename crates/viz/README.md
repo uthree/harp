@@ -32,15 +32,23 @@ cargo run --package harp-viz --example optimization_demo
 - **Step表示**: 現在のステップ番号
 - **Description**: 各ステップの説明
 - **Cost**: 推定実行コスト
-- **Export to DOT**: グラフをGraphviz DOT形式でエクスポート
+- **Show/Hide DOT Text**: DOT形式のテキストを画面に表示/非表示
+  - DOTテキスト表示中は「Copy to Clipboard」ボタンでクリップボードにコピー可能
 
-### DOT形式でのエクスポート
+### DOT形式での出力
 
-グラフをGraphviz DOT形式でエクスポートできます。これにより、外部ツールでグラフを可視化したり、デバッグに利用できます。
+グラフをGraphviz DOT形式で利用する方法：
+
+1. **画面に表示**: 「Show DOT Text」ボタンをクリックして、右側にDOTテキストを表示
+2. **クリップボードにコピー**: DOTテキスト表示中に「Copy to Clipboard」ボタンをクリック
+
+コピーしたDOTテキストは外部ツールで可視化できます：
 
 ```bash
-# デモアプリケーションで「Export to DOT」ボタンをクリック
-# カレントディレクトリに graph.dot または graph_step_N.dot が生成されます
+# クリップボードからファイルに保存
+pbpaste > graph.dot  # macOS
+# または
+xclip -o > graph.dot  # Linux
 
 # Graphvizでレンダリング
 dot -Tpng graph.dot -o graph.png

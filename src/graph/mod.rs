@@ -809,24 +809,26 @@ mod tests {
             _ => panic!("Expected DType::F32"),
         }
 
-        // a - b = a + (-b) なので、トップレベルはAdd
+        // 減算演算として直接実装
         match &result.op {
             GraphOp::Elementwise {
-                op: ops::ElementwiseOp::Add,
+                op: ops::ElementwiseOp::Sub,
                 ..
             } => {}
-            _ => panic!("Expected Add operation at top level"),
+            _ => panic!("Expected Sub operation"),
         }
 
         assert_eq!(result.src.len(), 2);
 
-        // 右側のオペランドはNeg演算であることを確認
+        // 左側のオペランドは入力a、右側のオペランドは入力bであることを確認
+        match &result.src[0].op {
+            GraphOp::Input => {}
+            _ => panic!("Expected Input operation for left operand"),
+        }
+
         match &result.src[1].op {
-            GraphOp::Elementwise {
-                op: ops::ElementwiseOp::Neg,
-                ..
-            } => {}
-            _ => panic!("Expected Neg operation for right operand"),
+            GraphOp::Input => {}
+            _ => panic!("Expected Input operation for right operand"),
         }
     }
 

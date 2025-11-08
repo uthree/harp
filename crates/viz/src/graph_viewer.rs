@@ -148,30 +148,6 @@ impl GraphViewerApp {
         }
     }
 
-    /// DOT形式でエクスポート
-    fn export_to_dot(&self) {
-        if let Some(ref graph) = self.harp_graph {
-            // ファイル名を生成（最適化ステップがある場合はステップ番号を含める）
-            let filename = if self.optimization_history.is_some() {
-                format!("graph_step_{}.dot", self.current_step)
-            } else {
-                "graph.dot".to_string()
-            };
-
-            // DOT形式で保存
-            match graph.save_dot(&filename) {
-                Ok(_) => {
-                    log::info!("Graph exported to {}", filename);
-                }
-                Err(e) => {
-                    log::error!("Failed to export graph: {}", e);
-                }
-            }
-        } else {
-            log::warn!("No graph to export");
-        }
-    }
-
     /// GraphをSnarlノードに変換
     fn convert_graph_to_snarl(&mut self) {
         let graph = match &self.harp_graph {
@@ -419,13 +395,6 @@ impl GraphViewerApp {
             ui.heading("Graph Viewer");
             ui.add_space(20.0);
 
-            // DOTエクスポートボタン
-            if ui.button("Export to DOT").clicked() {
-                self.export_to_dot();
-            }
-
-            ui.add_space(10.0);
-
             // DOTテキスト表示トグルボタン
             let button_text = if self.show_dot_text {
                 "Hide DOT Text"
@@ -522,7 +491,19 @@ impl GraphViewerApp {
 
                 // 右側: DOTテキスト
                 columns[1].vertical(|ui| {
-                    ui.heading("DOT Format");
+                    ui.horizontal(|ui| {
+                        ui.heading("DOT Format");
+                        ui.add_space(10.0);
+
+                        // クリップボードにコピーボタン
+                        if ui.button("Copy to Clipboard").clicked() {
+                            if let Some(ref graph) = self.harp_graph {
+                                let dot_text = graph.to_dot();
+                                ui.output_mut(|o| o.copied_text = dot_text);
+                                log::info!("DOT text copied to clipboard");
+                            }
+                        }
+                    });
                     ui.separator();
 
                     if let Some(ref graph) = self.harp_graph {
