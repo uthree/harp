@@ -1,263 +1,20 @@
-use crate::ast::{
-    AstNode, DType, Function, FunctionKind, Literal, Mutability, Program, VarDecl, VarKind,
-};
+use crate::ast::{DType, Function, FunctionKind, Mutability, Program, VarDecl, VarKind};
 use crate::backend::Renderer;
+use crate::backend::c_like::CLikeRenderer;
 use crate::backend::metal::MetalCode;
 use log::{debug, info, trace};
 
 /// Metal Shading Language用のレンダラー
 pub struct MetalRenderer {
     indent_level: usize,
-    indent_size: usize,
 }
 
 impl MetalRenderer {
     pub fn new() -> Self {
-        Self {
-            indent_level: 0,
-            indent_size: 4,
-        }
+        Self { indent_level: 0 }
     }
 
-    fn indent(&self) -> String {
-        " ".repeat(self.indent_level * self.indent_size)
-    }
-
-    fn inc_indent(&mut self) {
-        self.indent_level += 1;
-    }
-
-    fn dec_indent(&mut self) {
-        if self.indent_level > 0 {
-            self.indent_level -= 1;
-        }
-    }
-
-    /// DTypeをMetal型文字列に変換
-    #[allow(clippy::only_used_in_recursion)]
-    fn render_dtype(&self, dtype: &DType) -> String {
-        match dtype {
-            DType::F32 => "float".to_string(),
-            DType::Isize => "int".to_string(),
-            DType::Usize => "uint".to_string(),
-            DType::Ptr(inner) => format!("device {}*", self.render_dtype(inner)),
-            DType::Vec(inner, size) => {
-                let base = self.render_dtype(inner);
-                format!("{}{}", base, size)
-            }
-            DType::Tuple(types) => {
-                if types.is_empty() {
-                    "void".to_string()
-                } else {
-                    // Metalはタプル型を直接サポートしないので構造体として表現
-                    format!("tuple_{}", types.len())
-                }
-            }
-            DType::Unknown => "auto".to_string(),
-        }
-    }
-
-    /// AstNodeを式として描画
-    fn render_expr(&self, node: &AstNode) -> String {
-        match node {
-            AstNode::Wildcard(name) => name.clone(),
-            AstNode::Const(lit) => self.render_literal(lit),
-            AstNode::Var(name) => name.clone(),
-            AstNode::Add(left, right) => {
-                format!("({} + {})", self.render_expr(left), self.render_expr(right))
-            }
-            AstNode::Mul(left, right) => {
-                format!("({} * {})", self.render_expr(left), self.render_expr(right))
-            }
-            AstNode::Max(left, right) => {
-                format!(
-                    "max({}, {})",
-                    self.render_expr(left),
-                    self.render_expr(right)
-                )
-            }
-            AstNode::Rem(left, right) => {
-                format!("({} % {})", self.render_expr(left), self.render_expr(right))
-            }
-            AstNode::Idiv(left, right) => {
-                format!("({} / {})", self.render_expr(left), self.render_expr(right))
-            }
-            AstNode::Recip(operand) => {
-                format!("(1.0f / {})", self.render_expr(operand))
-            }
-            AstNode::Sqrt(operand) => {
-                format!("sqrt({})", self.render_expr(operand))
-            }
-            AstNode::Log2(operand) => {
-                format!("log2({})", self.render_expr(operand))
-            }
-            AstNode::Exp2(operand) => {
-                format!("exp2({})", self.render_expr(operand))
-            }
-            AstNode::Sin(operand) => {
-                format!("sin({})", self.render_expr(operand))
-            }
-            AstNode::Cast(operand, dtype) => {
-                format!(
-                    "{}({})",
-                    self.render_dtype(dtype),
-                    self.render_expr(operand)
-                )
-            }
-            AstNode::Load { ptr, offset, count } => {
-                if *count == 1 {
-                    format!("{}[{}]", self.render_expr(ptr), self.render_expr(offset))
-                } else {
-                    // ベクトルロード
-                    format!(
-                        "*reinterpret_cast<device {}*>(&{}[{}])",
-                        self.render_dtype(&node.infer_type()),
-                        self.render_expr(ptr),
-                        self.render_expr(offset)
-                    )
-                }
-            }
-            AstNode::Call { name, args } => {
-                let arg_strs: Vec<String> = args.iter().map(|a| self.render_expr(a)).collect();
-                format!("{}({})", name, arg_strs.join(", "))
-            }
-            AstNode::Return { value } => {
-                format!("return {}", self.render_expr(value))
-            }
-            _ => format!("/* unsupported expression: {:?} */", node),
-        }
-    }
-
-    /// リテラルを描画
-    fn render_literal(&self, lit: &Literal) -> String {
-        match lit {
-            Literal::F32(v) => format!("{}f", v),
-            Literal::Isize(v) => format!("{}", v),
-            Literal::Usize(v) => format!("{}u", v),
-        }
-    }
-
-    /// 文として描画
-    fn render_statement(&mut self, node: &AstNode) -> String {
-        match node {
-            AstNode::Store { ptr, offset, value } => {
-                format!(
-                    "{}{}[{}] = {};",
-                    self.indent(),
-                    self.render_expr(ptr),
-                    self.render_expr(offset),
-                    self.render_expr(value)
-                )
-            }
-            AstNode::Assign { var, value } => {
-                format!(
-                    "{}auto {} = {};",
-                    self.indent(),
-                    var,
-                    self.render_expr(value)
-                )
-            }
-            AstNode::Block { statements, .. } => self.render_block(statements),
-            AstNode::Range {
-                var,
-                start,
-                step,
-                stop,
-                body,
-            } => self.render_range(var, start, step, stop, body),
-            AstNode::Return { value } => {
-                format!("{}return {};", self.indent(), self.render_expr(value))
-            }
-            AstNode::Barrier => {
-                format!(
-                    "{}threadgroup_barrier(mem_flags::mem_threadgroup);",
-                    self.indent()
-                )
-            }
-            AstNode::Call { name, args } => {
-                let arg_strs: Vec<String> = args.iter().map(|a| self.render_expr(a)).collect();
-                format!("{}{}({});", self.indent(), name, arg_strs.join(", "))
-            }
-            _ => {
-                // 式として評価できるものは文末にセミコロンを付ける
-                format!("{}{};", self.indent(), self.render_expr(node))
-            }
-        }
-    }
-
-    /// ブロックを描画
-    fn render_block(&mut self, statements: &[AstNode]) -> String {
-        let mut result = String::new();
-        for stmt in statements {
-            result.push_str(&self.render_statement(stmt));
-            result.push('\n');
-        }
-        result
-    }
-
-    /// Rangeループを描画
-    fn render_range(
-        &mut self,
-        var: &str,
-        start: &AstNode,
-        step: &AstNode,
-        stop: &AstNode,
-        body: &AstNode,
-    ) -> String {
-        let mut result = String::new();
-        result.push_str(&format!(
-            "{}for (uint {} = {}; {} < {}; {} += {}) {{",
-            self.indent(),
-            var,
-            self.render_expr(start),
-            var,
-            self.render_expr(stop),
-            var,
-            self.render_expr(step)
-        ));
-        result.push('\n');
-        self.inc_indent();
-        result.push_str(&self.render_statement(body));
-        self.dec_indent();
-        result.push_str(&format!("{}}}", self.indent()));
-        result
-    }
-
-    /// 関数パラメータを描画
-    fn render_param(&self, param: &VarDecl, is_kernel: bool) -> String {
-        let type_str = self.render_dtype(&param.dtype);
-        let mut_str = match param.mutability {
-            Mutability::Immutable => "const ",
-            Mutability::Mutable => "",
-        };
-
-        // カーネル関数の場合、buffer_indexなどの属性を付ける
-        if is_kernel {
-            match &param.kind {
-                VarKind::Normal => {
-                    // 通常の引数
-                    format!("{}{} {}", mut_str, type_str, param.name)
-                }
-                VarKind::ThreadId(_axis) => {
-                    // スレッドIDは関数パラメータではなく組み込み変数として扱う
-                    format!("uint {} [[thread_position_in_grid]]", param.name)
-                }
-                VarKind::GroupId(_axis) => {
-                    format!("uint {} [[threadgroup_position_in_grid]]", param.name)
-                }
-                VarKind::GroupSize(_axis) => {
-                    format!("uint {} [[threads_per_threadgroup]]", param.name)
-                }
-                VarKind::GridSize(_axis) => {
-                    format!("uint {} [[threads_per_grid]]", param.name)
-                }
-            }
-        } else {
-            format!("{}{} {}", mut_str, type_str, param.name)
-        }
-    }
-
-    /// 関数を描画
+    /// 関数を描画（パブリックメソッドとして維持）
     pub fn render_function(&mut self, name: &str, func: &Function) -> String {
         let is_kernel = matches!(func.kind, FunctionKind::Kernel(_));
         debug!(
@@ -267,29 +24,7 @@ impl MetalRenderer {
         );
         trace!("Function params: {} parameters", func.params.len());
 
-        let mut result = String::new();
-
-        let func_qualifier = if is_kernel { "kernel" } else { "" };
-        let return_type = self.render_dtype(&func.return_type);
-
-        // 関数シグネチャ
-        result.push_str(&format!("{} {} {}(", func_qualifier, return_type, name));
-
-        // パラメータ
-        let params: Vec<String> = func
-            .params
-            .iter()
-            .map(|p| self.render_param(p, is_kernel))
-            .collect();
-        result.push_str(&params.join(", "));
-        result.push_str(") {\n");
-
-        // 関数本体
-        self.inc_indent();
-        result.push_str(&self.render_statement(&func.body));
-        self.dec_indent();
-        result.push_str("}\n");
-
+        let result = CLikeRenderer::render_function(self, name, func);
         trace!("Function rendering completed");
         result
     }
@@ -311,22 +46,106 @@ impl MetalRenderer {
             program.functions.len()
         );
 
-        let mut result = String::new();
-
-        // ヘッダー
-        result.push_str("#include <metal_stdlib>\n");
-        result.push_str("using namespace metal;\n\n");
-
-        // 全関数を描画
-        for (name, func) in &program.functions {
-            result.push_str(&self.render_function(name, func));
-            result.push('\n');
-        }
+        let result = CLikeRenderer::render_program_clike(self, program);
 
         info!("Metal program rendering completed ({} bytes)", result.len());
         trace!("Generated Metal code:\n{}", result);
 
         MetalCode::with_signature(result, signature)
+    }
+}
+
+// CLikeRendererトレイトの実装
+impl CLikeRenderer for MetalRenderer {
+    fn indent_level(&self) -> usize {
+        self.indent_level
+    }
+
+    fn indent_level_mut(&mut self) -> &mut usize {
+        &mut self.indent_level
+    }
+
+    fn render_dtype_backend(&self, dtype: &DType) -> String {
+        match dtype {
+            DType::F32 => "float".to_string(),
+            DType::Isize => "int".to_string(),
+            DType::Usize => "uint".to_string(),
+            DType::Ptr(inner) => format!("device {}*", self.render_dtype_backend(inner)),
+            DType::Vec(inner, size) => {
+                let base = self.render_dtype_backend(inner);
+                format!("{}{}", base, size)
+            }
+            DType::Tuple(types) => {
+                if types.is_empty() {
+                    "void".to_string()
+                } else {
+                    // Metalはタプル型を直接サポートしないので構造体として表現
+                    format!("tuple_{}", types.len())
+                }
+            }
+            DType::Unknown => "auto".to_string(),
+        }
+    }
+
+    fn render_barrier_backend(&self) -> String {
+        "threadgroup_barrier(mem_flags::mem_threadgroup);".to_string()
+    }
+
+    fn render_header(&self) -> String {
+        "#include <metal_stdlib>\nusing namespace metal;\n\n".to_string()
+    }
+
+    fn render_function_qualifier(&self, func_kind: &FunctionKind) -> String {
+        match func_kind {
+            FunctionKind::Kernel(_) => "kernel".to_string(),
+            FunctionKind::Normal => String::new(),
+        }
+    }
+
+    fn render_param_attribute(&self, param: &VarDecl, is_kernel: bool) -> String {
+        let type_str = self.render_dtype_backend(&param.dtype);
+        let mut_str = match param.mutability {
+            Mutability::Immutable => "const ",
+            Mutability::Mutable => "",
+        };
+
+        if is_kernel {
+            match &param.kind {
+                VarKind::Normal => {
+                    format!("{}{} {}", mut_str, type_str, param.name)
+                }
+                VarKind::ThreadId(_) => {
+                    format!("uint {} [[thread_position_in_grid]]", param.name)
+                }
+                VarKind::GroupId(_) => {
+                    format!("uint {} [[threadgroup_position_in_grid]]", param.name)
+                }
+                VarKind::GroupSize(_) => {
+                    format!("uint {} [[threads_per_threadgroup]]", param.name)
+                }
+                VarKind::GridSize(_) => {
+                    format!("uint {} [[threads_per_grid]]", param.name)
+                }
+            }
+        } else {
+            format!("{}{} {}", mut_str, type_str, param.name)
+        }
+    }
+
+    fn render_thread_var_declarations(&self, _params: &[VarDecl], _indent: &str) -> String {
+        // Metalではスレッド変数はパラメータ属性として宣言されるので、ここでは何もしない
+        String::new()
+    }
+
+    fn render_math_func(&self, name: &str, args: &[String]) -> String {
+        match name {
+            "max" => format!("max({})", args.join(", ")),
+            "sqrt" => format!("sqrt({})", args.join(", ")),
+            "log2" => format!("log2({})", args.join(", ")),
+            "exp2" => format!("exp2({})", args.join(", ")),
+            "sin" => format!("sin({})", args.join(", ")),
+            _ => format!("{}({})", name, args.join(", ")),
+        }
     }
 }
 
@@ -355,7 +174,8 @@ impl Renderer for MetalRenderer {
 mod tests {
     use super::*;
     use crate::ast::helper::*;
-    use crate::ast::{AccessRegion, Scope};
+    use crate::ast::{AccessRegion, AstNode, Literal, Scope};
+    use crate::backend::c_like::CLikeRenderer;
 
     #[test]
     fn test_render_literal() {
@@ -368,11 +188,17 @@ mod tests {
     #[test]
     fn test_render_dtype() {
         let renderer = MetalRenderer::new();
-        assert_eq!(renderer.render_dtype(&DType::F32), "float");
-        assert_eq!(renderer.render_dtype(&DType::Isize), "int");
-        assert_eq!(renderer.render_dtype(&DType::Usize), "uint");
-        assert_eq!(renderer.render_dtype(&DType::F32.to_ptr()), "device float*");
-        assert_eq!(renderer.render_dtype(&DType::F32.to_vec(4)), "float4");
+        assert_eq!(renderer.render_dtype_backend(&DType::F32), "float");
+        assert_eq!(renderer.render_dtype_backend(&DType::Isize), "int");
+        assert_eq!(renderer.render_dtype_backend(&DType::Usize), "uint");
+        assert_eq!(
+            renderer.render_dtype_backend(&DType::F32.to_ptr()),
+            "device float*"
+        );
+        assert_eq!(
+            renderer.render_dtype_backend(&DType::F32.to_vec(4)),
+            "float4"
+        );
     }
 
     #[test]

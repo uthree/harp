@@ -1,7 +1,293 @@
+use crate::ast::{AstNode, DType, Function, FunctionKind, Literal, Program, VarDecl};
 use crate::backend::Renderer;
 
 // C言語に近い構文の言語のためのレンダラー
 // Metal, CUDA, C(with OpenMP), OpenCLなどのバックエンドは大体C言語に近い文法を採用しているので、共通化したい。
+
 pub trait CLikeRenderer: Renderer {
-    //TODO
+    // ========== インデント管理（実装側で提供） ==========
+    fn indent_level(&self) -> usize;
+    fn indent_level_mut(&mut self) -> &mut usize;
+    fn indent_size(&self) -> usize {
+        4 // デフォルト値
+    }
+
+    // ========== バックエンド固有のメソッド（実装側で提供） ==========
+
+    /// 型をバックエンド固有の文字列に変換
+    fn render_dtype_backend(&self, dtype: &DType) -> String;
+
+    /// バリア命令をレンダリング
+    fn render_barrier_backend(&self) -> String;
+
+    /// プログラムのヘッダー（includeなど）をレンダリング
+    fn render_header(&self) -> String;
+
+    /// 関数修飾子（kernelなど）をレンダリング
+    fn render_function_qualifier(&self, func_kind: &FunctionKind) -> String;
+
+    /// 関数パラメータの属性（Metal用のthread_position_in_gridなど）をレンダリング
+    fn render_param_attribute(&self, param: &VarDecl, is_kernel: bool) -> String;
+
+    /// スレッドID等の特殊変数の宣言をレンダリング（OpenMP用のomp_get_thread_num()など）
+    fn render_thread_var_declarations(&self, params: &[VarDecl], indent: &str) -> String;
+
+    /// 数学関数をレンダリング（max vs fmaxf など）
+    fn render_math_func(&self, name: &str, args: &[String]) -> String;
+
+    // ========== 共通実装（デフォルト実装） ==========
+
+    /// インデント文字列を取得
+    fn indent(&self) -> String {
+        " ".repeat(self.indent_level() * self.indent_size())
+    }
+
+    /// インデントレベルを増加
+    fn inc_indent(&mut self) {
+        *self.indent_level_mut() += 1;
+    }
+
+    /// インデントレベルを減少
+    fn dec_indent(&mut self) {
+        let level = self.indent_level_mut();
+        if *level > 0 {
+            *level -= 1;
+        }
+    }
+
+    /// リテラルをレンダリング
+    fn render_literal(&self, lit: &Literal) -> String {
+        match lit {
+            Literal::F32(v) => format!("{}f", v),
+            Literal::Isize(v) => format!("{}", v),
+            Literal::Usize(v) => format!("{}u", v),
+        }
+    }
+
+    /// AstNodeを式として描画
+    fn render_expr(&self, node: &AstNode) -> String {
+        match node {
+            AstNode::Wildcard(name) => name.clone(),
+            AstNode::Const(lit) => self.render_literal(lit),
+            AstNode::Var(name) => name.clone(),
+            AstNode::Add(left, right) => {
+                format!("({} + {})", self.render_expr(left), self.render_expr(right))
+            }
+            AstNode::Mul(left, right) => {
+                format!("({} * {})", self.render_expr(left), self.render_expr(right))
+            }
+            AstNode::Max(left, right) => {
+                let args = vec![self.render_expr(left), self.render_expr(right)];
+                self.render_math_func("max", &args)
+            }
+            AstNode::Rem(left, right) => {
+                format!("({} % {})", self.render_expr(left), self.render_expr(right))
+            }
+            AstNode::Idiv(left, right) => {
+                format!("({} / {})", self.render_expr(left), self.render_expr(right))
+            }
+            AstNode::Recip(operand) => {
+                format!("(1.0f / {})", self.render_expr(operand))
+            }
+            AstNode::Sqrt(operand) => {
+                let args = vec![self.render_expr(operand)];
+                self.render_math_func("sqrt", &args)
+            }
+            AstNode::Log2(operand) => {
+                let args = vec![self.render_expr(operand)];
+                self.render_math_func("log2", &args)
+            }
+            AstNode::Exp2(operand) => {
+                let args = vec![self.render_expr(operand)];
+                self.render_math_func("exp2", &args)
+            }
+            AstNode::Sin(operand) => {
+                let args = vec![self.render_expr(operand)];
+                self.render_math_func("sin", &args)
+            }
+            AstNode::Cast(operand, dtype) => {
+                format!(
+                    "{}({})",
+                    self.render_dtype_backend(dtype),
+                    self.render_expr(operand)
+                )
+            }
+            AstNode::Load { ptr, offset, count } => {
+                if *count == 1 {
+                    format!("{}[{}]", self.render_expr(ptr), self.render_expr(offset))
+                } else {
+                    // ベクトルロード
+                    format!(
+                        "*reinterpret_cast<{} *>(&{}[{}])",
+                        self.render_dtype_backend(&node.infer_type()),
+                        self.render_expr(ptr),
+                        self.render_expr(offset)
+                    )
+                }
+            }
+            AstNode::Call { name, args } => {
+                let arg_strs: Vec<String> = args.iter().map(|a| self.render_expr(a)).collect();
+                format!("{}({})", name, arg_strs.join(", "))
+            }
+            AstNode::Return { value } => {
+                format!("return {}", self.render_expr(value))
+            }
+            _ => format!("/* unsupported expression: {:?} */", node),
+        }
+    }
+
+    /// 文として描画
+    fn render_statement(&mut self, node: &AstNode) -> String {
+        match node {
+            AstNode::Store { ptr, offset, value } => {
+                format!(
+                    "{}{}[{}] = {};",
+                    self.indent(),
+                    self.render_expr(ptr),
+                    self.render_expr(offset),
+                    self.render_expr(value)
+                )
+            }
+            AstNode::Assign { var, value } => {
+                let inferred_type = value.infer_type();
+                let type_str = self.render_dtype_backend(&inferred_type);
+                format!(
+                    "{}{} {} = {};",
+                    self.indent(),
+                    type_str,
+                    var,
+                    self.render_expr(value)
+                )
+            }
+            AstNode::Block { statements, .. } => self.render_block(statements),
+            AstNode::Range {
+                var,
+                start,
+                step,
+                stop,
+                body,
+            } => self.render_range(var, start, step, stop, body),
+            AstNode::Return { value } => {
+                format!("{}return {};", self.indent(), self.render_expr(value))
+            }
+            AstNode::Barrier => {
+                format!("{}{}", self.indent(), self.render_barrier_backend())
+            }
+            AstNode::Call { name, args } => {
+                let arg_strs: Vec<String> = args.iter().map(|a| self.render_expr(a)).collect();
+                format!("{}{}({});", self.indent(), name, arg_strs.join(", "))
+            }
+            _ => {
+                // 式として評価できるものは文末にセミコロンを付ける
+                format!("{}{};", self.indent(), self.render_expr(node))
+            }
+        }
+    }
+
+    /// ブロックを描画
+    fn render_block(&mut self, statements: &[AstNode]) -> String {
+        let mut result = String::new();
+        for stmt in statements {
+            result.push_str(&self.render_statement(stmt));
+            result.push('\n');
+        }
+        result
+    }
+
+    /// Rangeループを描画
+    fn render_range(
+        &mut self,
+        var: &str,
+        start: &AstNode,
+        step: &AstNode,
+        stop: &AstNode,
+        body: &AstNode,
+    ) -> String {
+        let mut result = String::new();
+        let loop_var_type = self.render_dtype_backend(&DType::Usize);
+        result.push_str(&format!(
+            "{}for ({} {} = {}; {} < {}; {} += {}) {{",
+            self.indent(),
+            loop_var_type,
+            var,
+            self.render_expr(start),
+            var,
+            self.render_expr(stop),
+            var,
+            self.render_expr(step)
+        ));
+        result.push('\n');
+        self.inc_indent();
+        result.push_str(&self.render_statement(body));
+        self.dec_indent();
+        result.push_str(&format!("{}}}", self.indent()));
+        result
+    }
+
+    /// 関数パラメータを描画
+    fn render_param(&self, param: &VarDecl, is_kernel: bool) -> String {
+        let attribute = self.render_param_attribute(param, is_kernel);
+        if attribute.is_empty() {
+            // パラメータとして含めない（OpenMPのThreadIdなど）
+            String::new()
+        } else {
+            attribute
+        }
+    }
+
+    /// 関数を描画
+    fn render_function(&mut self, name: &str, func: &Function) -> String {
+        let is_kernel = matches!(func.kind, FunctionKind::Kernel(_));
+        let mut result = String::new();
+
+        let func_qualifier = self.render_function_qualifier(&func.kind);
+        let return_type = self.render_dtype_backend(&func.return_type);
+
+        // 関数シグネチャ
+        if func_qualifier.is_empty() {
+            result.push_str(&format!("{} {}(", return_type, name));
+        } else {
+            result.push_str(&format!("{} {} {}(", func_qualifier, return_type, name));
+        }
+
+        // パラメータ
+        let params: Vec<String> = func
+            .params
+            .iter()
+            .map(|p| self.render_param(p, is_kernel))
+            .filter(|s| !s.is_empty())
+            .collect();
+        result.push_str(&params.join(", "));
+        result.push_str(") {\n");
+
+        // スレッドID等の特殊変数の宣言
+        self.inc_indent();
+        let thread_vars = self.render_thread_var_declarations(&func.params, &self.indent());
+        if !thread_vars.is_empty() {
+            result.push_str(&thread_vars);
+        }
+
+        // 関数本体
+        result.push_str(&self.render_statement(&func.body));
+        self.dec_indent();
+        result.push_str("}\n");
+
+        result
+    }
+
+    /// プログラム全体を描画（デフォルト実装）
+    fn render_program_clike(&mut self, program: &Program) -> String {
+        let mut result = String::new();
+
+        // ヘッダー
+        result.push_str(&self.render_header());
+
+        // 全関数を描画
+        for (name, func) in &program.functions {
+            result.push_str(&self.render_function(name, func));
+            result.push('\n');
+        }
+
+        result
+    }
 }
