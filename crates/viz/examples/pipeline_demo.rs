@@ -50,7 +50,7 @@ fn main() -> eframe::Result {
 
     let graph_optimizer = BeamSearchGraphOptimizer::new(graph_suggester, graph_estimator)
         .with_beam_width(4)
-        .with_max_depth(8)
+        .with_max_steps(8)
         .with_progress(true);
 
     let (optimized_graph, graph_history) = graph_optimizer.optimize_with_history(graph);
@@ -75,7 +75,7 @@ fn main() -> eframe::Result {
 
     let ast_optimizer = AstBeamSearchOptimizer::new(ast_suggester, ast_estimator)
         .with_beam_width(5)
-        .with_max_depth(10)
+        .with_max_steps(10)
         .with_progress(true);
 
     // プログラムの各関数を最適化

@@ -35,7 +35,7 @@ fn main() -> eframe::Result {
 
     let graph_optimizer = BeamSearchGraphOptimizer::new(graph_suggester, graph_estimator)
         .with_beam_width(3)
-        .with_max_depth(5)
+        .with_max_steps(5)
         .with_progress(true);
 
     let (_optimized_graph, graph_history) = graph_optimizer.optimize_with_history(graph);
@@ -58,7 +58,7 @@ fn main() -> eframe::Result {
 
     let ast_optimizer = AstBeamSearchOptimizer::new(ast_suggester, ast_estimator)
         .with_beam_width(5)
-        .with_max_depth(10)
+        .with_max_steps(10)
         .with_progress(true);
 
     let (_optimized_ast, ast_history) = ast_optimizer.optimize_with_history(ast);

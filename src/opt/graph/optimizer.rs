@@ -6,6 +6,12 @@ use indicatif::{ProgressBar, ProgressStyle};
 use log::debug;
 
 /// ビームサーチグラフ最適化器
+///
+/// # 終了条件
+///
+/// 最適化は以下のいずれかの条件で終了します：
+/// - 最大ステップ数(`max_steps`)に達した
+/// - Suggesterから新しい提案がなくなった（これ以上最適化できない）
 pub struct BeamSearchGraphOptimizer<S, E>
 where
     S: GraphSuggester,
@@ -14,7 +20,7 @@ where
     suggester: S,
     estimator: E,
     beam_width: usize,
-    max_depth: usize,
+    max_steps: usize,
     show_progress: bool,
 }
 
@@ -29,21 +35,31 @@ where
             suggester,
             estimator,
             beam_width: 10,
-            max_depth: 10,
+            max_steps: 10,
             show_progress: true,
         }
     }
 
     /// ビーム幅を設定
+    ///
+    /// 各ステップで保持する候補の最大数
     pub fn with_beam_width(mut self, width: usize) -> Self {
         self.beam_width = width;
         self
     }
 
-    /// 最大深さを設定
-    pub fn with_max_depth(mut self, depth: usize) -> Self {
-        self.max_depth = depth;
+    /// 最大ステップ数を設定
+    ///
+    /// 最適化の最大反復回数。この回数に達するか、Suggesterからの提案がなくなると終了します。
+    pub fn with_max_steps(mut self, steps: usize) -> Self {
+        self.max_steps = steps;
         self
+    }
+
+    /// 最大深さを設定（`with_max_steps`のエイリアス）
+    #[deprecated(since = "0.1.0", note = "Use `with_max_steps` instead")]
+    pub fn with_max_depth(self, depth: usize) -> Self {
+        self.with_max_steps(depth)
     }
 
     /// プログレスバーの表示/非表示を設定
@@ -91,7 +107,7 @@ where
         ));
 
         let pb = if self.show_progress {
-            let pb = ProgressBar::new(self.max_depth as u64);
+            let pb = ProgressBar::new(self.max_steps as u64);
 
             // Cargoスタイルのプログレスバー
             pb.set_style(
@@ -105,10 +121,10 @@ where
             None
         };
 
-        for depth in 0..self.max_depth {
+        for step in 0..self.max_steps {
             if let Some(ref pb) = pb {
-                pb.set_message(format!("depth {}", depth + 1));
-                pb.set_position(depth as u64);
+                pb.set_message(format!("step {}", step + 1));
+                pb.set_position(step as u64);
             }
 
             let mut candidates = Vec::new();
@@ -121,19 +137,19 @@ where
 
             if candidates.is_empty() {
                 debug!(
-                    "BeamSearchGraphOptimizer: No more candidates at depth {}",
-                    depth
+                    "BeamSearchGraphOptimizer: No more candidates at step {} - optimization complete (early termination)",
+                    step
                 );
                 if let Some(ref pb) = pb {
-                    pb.set_position(self.max_depth as u64);
+                    pb.set_position(self.max_steps as u64);
                 }
                 break;
             }
 
             debug!(
-                "BeamSearchGraphOptimizer: Found {} candidates at depth {}",
+                "BeamSearchGraphOptimizer: Found {} candidates at step {}",
                 candidates.len(),
-                depth
+                step
             );
 
             // コストでソートして上位beam_width個を残す
@@ -155,7 +171,7 @@ where
                 // 入力・出力ノード数をログに出力
                 debug!(
                     "BeamSearchGraphOptimizer: Step {} - {} inputs, {} outputs",
-                    depth + 1,
+                    step + 1,
                     num_inputs,
                     num_outputs
                 );
@@ -165,19 +181,19 @@ where
                     let op_type = format!("{:?}", node.op);
                     debug!(
                         "BeamSearchGraphOptimizer: Step {} - Output '{}': {:?}",
-                        depth + 1,
+                        step + 1,
                         name,
                         op_type
                     );
                 }
 
                 history.add_snapshot(OptimizationSnapshot::new(
-                    depth + 1,
+                    step + 1,
                     best.clone(),
                     cost,
                     format!(
                         "Step {}: beam width {}, outputs: {}",
-                        depth + 1,
+                        step + 1,
                         beam.len(),
                         num_outputs
                     ),
@@ -241,7 +257,7 @@ mod tests {
 
         let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
             .with_beam_width(5)
-            .with_max_depth(5)
+            .with_max_steps(5)
             .with_progress(false);
 
         let mut graph = Graph::new();
