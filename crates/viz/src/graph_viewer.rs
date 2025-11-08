@@ -30,6 +30,21 @@ pub struct GraphNodeView {
     pub num_inputs: usize,
     /// 出力ピンの数
     pub num_outputs: usize,
+    /// 詳細情報
+    pub details: NodeDetails,
+}
+
+/// ノードの詳細情報
+#[derive(Clone)]
+pub struct NodeDetails {
+    /// データ型
+    pub dtype: String,
+    /// 形状
+    pub shape: Vec<String>,
+    /// 最適化戦略
+    pub strategies: Vec<String>,
+    /// 操作の詳細
+    pub op_details: String,
 }
 
 impl Default for GraphViewerApp {
@@ -274,14 +289,34 @@ impl GraphViewerApp {
 
     /// GraphNodeからGraphNodeViewを作成
     fn create_node_view(&self, node: &GraphNode, name: &str) -> GraphNodeView {
-        let op_type = format!("{:?}", node.op);
+        // 操作タイプを簡潔に表示
+        let op_type = self.simplify_op_type(&node.op);
         let num_inputs = node.src.len();
         let num_outputs = 1; // Harpのノードは常に1つの出力を持つ
 
+        // ノード名を決定（出力名がある場合はそれを使用、なければ操作タイプ）
         let display_name = if name.is_empty() {
             op_type.clone()
         } else {
-            format!("{} ({})", name, op_type)
+            name.to_string()
+        };
+
+        // 詳細情報を収集
+        let dtype = format!("{:?}", node.dtype);
+        let shape: Vec<String> = node.view.shape().iter().map(|e| format!("{}", e)).collect();
+        let strategies: Vec<String> = node
+            .elementwise_strategies
+            .iter()
+            .enumerate()
+            .map(|(i, s)| format!("axis {}: {:?}", i, s))
+            .collect();
+        let op_details = format!("{:?}", node.op);
+
+        let details = NodeDetails {
+            dtype,
+            shape,
+            strategies,
+            op_details,
         };
 
         GraphNodeView {
@@ -289,6 +324,24 @@ impl GraphViewerApp {
             op_type,
             num_inputs,
             num_outputs,
+            details,
+        }
+    }
+
+    /// 操作タイプを簡潔な表記に変換
+    fn simplify_op_type(&self, op: &harp::graph::GraphOp) -> String {
+        use harp::graph::GraphOp;
+        match op {
+            GraphOp::Input => "Input".to_string(),
+            GraphOp::Const(_) => "Const".to_string(),
+            GraphOp::View(_) => "View".to_string(),
+            GraphOp::Contiguous { .. } => "Contiguous".to_string(),
+            GraphOp::Elementwise { op, .. } => format!("Elem({:?})", op),
+            GraphOp::Reduce { op, axis, .. } => format!("Reduce({:?}, {})", op, axis),
+            GraphOp::Cumulative { .. } => "Cumulative".to_string(),
+            GraphOp::FusedElementwise { .. } => "FusedElem".to_string(),
+            GraphOp::FusedElementwiseReduce { .. } => "FusedElemReduce".to_string(),
+            GraphOp::FusedReduce { .. } => "FusedReduce".to_string(),
         }
     }
 
@@ -422,6 +475,43 @@ impl egui_snarl::ui::SnarlViewer<GraphNodeView> for GraphNodeViewStyle {
 
     fn outputs(&mut self, node: &GraphNodeView) -> usize {
         node.num_outputs
+    }
+
+    fn show_header(
+        &mut self,
+        node: NodeId,
+        _inputs: &[InPin],
+        _outputs: &[OutPin],
+        ui: &mut egui::Ui,
+        _scale: f32,
+        snarl: &mut Snarl<GraphNodeView>,
+    ) {
+        if let Some(node_data) = snarl.get_node(node) {
+            // ノードのタイトルを表示
+            ui.label(&node_data.name);
+
+            // 詳細情報を折りたたみ表示
+            ui.collapsing("Details", |ui| {
+                ui.label(format!("Type: {}", node_data.op_type));
+                ui.label(format!("DType: {}", node_data.details.dtype));
+
+                if !node_data.details.shape.is_empty() {
+                    ui.label(format!("Shape: [{}]", node_data.details.shape.join(", ")));
+                }
+
+                if !node_data.details.strategies.is_empty() {
+                    ui.collapsing("Strategies", |ui| {
+                        for strategy in &node_data.details.strategies {
+                            ui.label(strategy);
+                        }
+                    });
+                }
+
+                ui.collapsing("Operation Details", |ui| {
+                    ui.label(&node_data.details.op_details);
+                });
+            });
+        }
     }
 
     fn show_input(
