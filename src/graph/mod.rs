@@ -13,49 +13,145 @@ pub use shape::{Expr, View};
 /// 各軸の並列化戦略
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AxisStrategy {
-    /// 逐次実行（SIMD幅: 1=SIMD化なし、2以上=SIMD化）
-    Sequential { simd_width: usize },
-    /// スレッドで並列化（SIMD幅: 1=SIMD化なし、2以上=SIMD化）
-    Thread { simd_width: usize },
-    /// スレッドグループ/ブロック（SIMD幅: 1=SIMD化なし、2以上=SIMD化）
-    ThreadGroup { simd_width: usize },
+    /// 逐次実行（SIMD幅: 1=SIMD化なし、2以上=SIMD化、アンローリング係数: デフォルト1）
+    Sequential {
+        simd_width: usize,
+        unroll_factor: usize,
+    },
+    /// スレッドで並列化（SIMD幅: 1=SIMD化なし、2以上=SIMD化、アンローリング係数: デフォルト1）
+    Thread {
+        simd_width: usize,
+        unroll_factor: usize,
+    },
+    /// スレッドグループ/ブロック（SIMD幅: 1=SIMD化なし、2以上=SIMD化、アンローリング係数: デフォルト1）
+    ThreadGroup {
+        simd_width: usize,
+        unroll_factor: usize,
+    },
 }
 
 impl Default for AxisStrategy {
     fn default() -> Self {
-        Self::Sequential { simd_width: 1 }
+        Self::Sequential {
+            simd_width: 1,
+            unroll_factor: 1,
+        }
     }
 }
 
 impl AxisStrategy {
     /// SIMD化なしのSequentialを作成
     pub fn sequential() -> Self {
-        Self::Sequential { simd_width: 1 }
+        Self::Sequential {
+            simd_width: 1,
+            unroll_factor: 1,
+        }
     }
 
     /// SIMD化ありのSequentialを作成
     pub fn sequential_simd(simd_width: usize) -> Self {
-        Self::Sequential { simd_width }
+        Self::Sequential {
+            simd_width,
+            unroll_factor: 1,
+        }
+    }
+
+    /// アンローリングありのSequentialを作成
+    pub fn sequential_unroll(unroll_factor: usize) -> Self {
+        Self::Sequential {
+            simd_width: 1,
+            unroll_factor,
+        }
+    }
+
+    /// SIMD化とアンローリング両方ありのSequentialを作成
+    pub fn sequential_simd_unroll(simd_width: usize, unroll_factor: usize) -> Self {
+        Self::Sequential {
+            simd_width,
+            unroll_factor,
+        }
     }
 
     /// SIMD化なしのThreadを作成
     pub fn thread() -> Self {
-        Self::Thread { simd_width: 1 }
+        Self::Thread {
+            simd_width: 1,
+            unroll_factor: 1,
+        }
     }
 
     /// SIMD化ありのThreadを作成
     pub fn thread_simd(simd_width: usize) -> Self {
-        Self::Thread { simd_width }
+        Self::Thread {
+            simd_width,
+            unroll_factor: 1,
+        }
+    }
+
+    /// アンローリングありのThreadを作成
+    pub fn thread_unroll(unroll_factor: usize) -> Self {
+        Self::Thread {
+            simd_width: 1,
+            unroll_factor,
+        }
+    }
+
+    /// SIMD化とアンローリング両方ありのThreadを作成
+    pub fn thread_simd_unroll(simd_width: usize, unroll_factor: usize) -> Self {
+        Self::Thread {
+            simd_width,
+            unroll_factor,
+        }
     }
 
     /// SIMD化なしのThreadGroupを作成
     pub fn thread_group() -> Self {
-        Self::ThreadGroup { simd_width: 1 }
+        Self::ThreadGroup {
+            simd_width: 1,
+            unroll_factor: 1,
+        }
     }
 
     /// SIMD化ありのThreadGroupを作成
     pub fn thread_group_simd(simd_width: usize) -> Self {
-        Self::ThreadGroup { simd_width }
+        Self::ThreadGroup {
+            simd_width,
+            unroll_factor: 1,
+        }
+    }
+
+    /// アンローリングありのThreadGroupを作成
+    pub fn thread_group_unroll(unroll_factor: usize) -> Self {
+        Self::ThreadGroup {
+            simd_width: 1,
+            unroll_factor,
+        }
+    }
+
+    /// SIMD化とアンローリング両方ありのThreadGroupを作成
+    pub fn thread_group_simd_unroll(simd_width: usize, unroll_factor: usize) -> Self {
+        Self::ThreadGroup {
+            simd_width,
+            unroll_factor,
+        }
+    }
+
+    /// SIMD幅を取得
+    pub fn simd_width(&self) -> usize {
+        match self {
+            Self::Sequential { simd_width, .. } => *simd_width,
+            Self::Thread { simd_width, .. } => *simd_width,
+            Self::ThreadGroup { simd_width, .. } => *simd_width,
+        }
+    }
+
+    /// アンローリング係数を取得
+    pub fn unroll_factor(&self) -> usize {
+        match self {
+            Self::Sequential { unroll_factor, .. } => *unroll_factor,
+            Self::Thread { unroll_factor, .. } => *unroll_factor,
+            Self::ThreadGroup { unroll_factor, .. } => *unroll_factor,
+        }
     }
 }
 
@@ -664,34 +760,145 @@ mod tests {
     #[test]
     fn test_axis_strategy_default() {
         let default_strategy = AxisStrategy::default();
-        assert_eq!(default_strategy, AxisStrategy::Sequential { simd_width: 1 });
+        assert_eq!(
+            default_strategy,
+            AxisStrategy::Sequential {
+                simd_width: 1,
+                unroll_factor: 1
+            }
+        );
     }
 
     #[test]
     fn test_axis_strategy_sequential() {
         let strategy = AxisStrategy::sequential();
-        assert_eq!(strategy, AxisStrategy::Sequential { simd_width: 1 });
+        assert_eq!(
+            strategy,
+            AxisStrategy::Sequential {
+                simd_width: 1,
+                unroll_factor: 1
+            }
+        );
 
         let strategy_simd = AxisStrategy::sequential_simd(4);
-        assert_eq!(strategy_simd, AxisStrategy::Sequential { simd_width: 4 });
+        assert_eq!(
+            strategy_simd,
+            AxisStrategy::Sequential {
+                simd_width: 4,
+                unroll_factor: 1
+            }
+        );
+
+        let strategy_unroll = AxisStrategy::sequential_unroll(2);
+        assert_eq!(
+            strategy_unroll,
+            AxisStrategy::Sequential {
+                simd_width: 1,
+                unroll_factor: 2
+            }
+        );
+
+        let strategy_both = AxisStrategy::sequential_simd_unroll(4, 2);
+        assert_eq!(
+            strategy_both,
+            AxisStrategy::Sequential {
+                simd_width: 4,
+                unroll_factor: 2
+            }
+        );
     }
 
     #[test]
     fn test_axis_strategy_thread() {
         let strategy = AxisStrategy::thread();
-        assert_eq!(strategy, AxisStrategy::Thread { simd_width: 1 });
+        assert_eq!(
+            strategy,
+            AxisStrategy::Thread {
+                simd_width: 1,
+                unroll_factor: 1
+            }
+        );
 
         let strategy_simd = AxisStrategy::thread_simd(8);
-        assert_eq!(strategy_simd, AxisStrategy::Thread { simd_width: 8 });
+        assert_eq!(
+            strategy_simd,
+            AxisStrategy::Thread {
+                simd_width: 8,
+                unroll_factor: 1
+            }
+        );
+
+        let strategy_unroll = AxisStrategy::thread_unroll(4);
+        assert_eq!(
+            strategy_unroll,
+            AxisStrategy::Thread {
+                simd_width: 1,
+                unroll_factor: 4
+            }
+        );
+
+        let strategy_both = AxisStrategy::thread_simd_unroll(8, 4);
+        assert_eq!(
+            strategy_both,
+            AxisStrategy::Thread {
+                simd_width: 8,
+                unroll_factor: 4
+            }
+        );
     }
 
     #[test]
     fn test_axis_strategy_thread_group() {
         let strategy = AxisStrategy::thread_group();
-        assert_eq!(strategy, AxisStrategy::ThreadGroup { simd_width: 1 });
+        assert_eq!(
+            strategy,
+            AxisStrategy::ThreadGroup {
+                simd_width: 1,
+                unroll_factor: 1
+            }
+        );
 
         let strategy_simd = AxisStrategy::thread_group_simd(16);
-        assert_eq!(strategy_simd, AxisStrategy::ThreadGroup { simd_width: 16 });
+        assert_eq!(
+            strategy_simd,
+            AxisStrategy::ThreadGroup {
+                simd_width: 16,
+                unroll_factor: 1
+            }
+        );
+
+        let strategy_unroll = AxisStrategy::thread_group_unroll(8);
+        assert_eq!(
+            strategy_unroll,
+            AxisStrategy::ThreadGroup {
+                simd_width: 1,
+                unroll_factor: 8
+            }
+        );
+
+        let strategy_both = AxisStrategy::thread_group_simd_unroll(16, 8);
+        assert_eq!(
+            strategy_both,
+            AxisStrategy::ThreadGroup {
+                simd_width: 16,
+                unroll_factor: 8
+            }
+        );
+    }
+
+    #[test]
+    fn test_axis_strategy_accessors() {
+        let strategy = AxisStrategy::sequential_simd_unroll(4, 2);
+        assert_eq!(strategy.simd_width(), 4);
+        assert_eq!(strategy.unroll_factor(), 2);
+
+        let strategy = AxisStrategy::thread_simd_unroll(8, 4);
+        assert_eq!(strategy.simd_width(), 8);
+        assert_eq!(strategy.unroll_factor(), 4);
+
+        let strategy = AxisStrategy::thread_group_simd_unroll(16, 8);
+        assert_eq!(strategy.simd_width(), 16);
+        assert_eq!(strategy.unroll_factor(), 8);
     }
 
     #[test]
