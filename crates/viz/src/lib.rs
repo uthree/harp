@@ -63,6 +63,16 @@ impl HarpVizApp {
         self.current_tab = VizTab::AstViewer;
     }
 
+    /// 複数のFunction用のAST最適化履歴を読み込む
+    pub fn load_multiple_ast_histories(
+        &mut self,
+        histories: std::collections::HashMap<String, harp::opt::ast::OptimizationHistory>,
+    ) {
+        self.ast_viewer.load_multiple_histories(histories);
+        // ASTビューアタブに切り替え
+        self.current_tab = VizTab::AstViewer;
+    }
+
     /// グラフを読み込む
     pub fn load_graph(&mut self, graph: harp::graph::Graph) {
         self.graph_viewer.load_graph(graph);

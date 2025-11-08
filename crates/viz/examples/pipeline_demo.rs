@@ -80,13 +80,17 @@ fn main() -> eframe::Result {
 
     // プログラムの各関数を最適化
     let mut total_ast_steps = 0;
+    let mut function_histories = std::collections::HashMap::new();
 
-    for (_name, func) in &program.functions {
+    for (name, func) in &program.functions {
         let body = &*func.body;
         let (_optimized_body, ast_history) = ast_optimizer.optimize_with_history(body.clone());
         total_ast_steps += ast_history.len();
 
-        // 最初の関数の履歴を保存
+        // 各関数の履歴を保存
+        function_histories.insert(name.clone(), ast_history.clone());
+
+        // 最初の関数の履歴をPipelineにも保存（後方互換性のため）
         if pipeline.last_ast_optimization_history().is_none() {
             pipeline.set_ast_optimization_history(ast_history);
         }
@@ -118,8 +122,15 @@ fn main() -> eframe::Result {
         options,
         Box::new(move |_cc| {
             let mut app = HarpVizApp::new();
-            // Pipelineから履歴を読み込む（参照として）
-            app.load_from_pipeline(&pipeline);
+
+            // グラフ最適化履歴を読み込む
+            if let Some(graph_history) = pipeline.last_graph_optimization_history() {
+                app.load_graph_optimization_history(graph_history.clone());
+            }
+
+            // 複数のFunction最適化履歴を読み込む
+            app.load_multiple_ast_histories(function_histories);
+
             Ok(Box::new(app))
         }),
     )

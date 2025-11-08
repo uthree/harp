@@ -5,17 +5,24 @@ use harp::backend::c_like::CLikeRenderer;
 use harp::backend::openmp::CRenderer;
 use harp::opt::ast::OptimizationHistory;
 use similar::{ChangeTag, TextDiff};
+use std::collections::HashMap;
 
 /// ASTビューアアプリケーション（ジェネリックレンダラー対応）
 ///
 /// # 型パラメータ
 /// * `R` - ASTをレンダリングするレンダラー（`CLikeRenderer`を実装している必要があります）
+///
+/// # 複数のFunction対応
+/// このビューアは、Program内の複数のFunctionの最適化履歴を保持できます。
+/// Function名で切り替えて、それぞれの最適化過程を確認できます。
 pub struct AstViewerApp<R = CRenderer>
 where
     R: CLikeRenderer + Clone,
 {
-    /// 最適化履歴
-    optimization_history: Option<OptimizationHistory>,
+    /// Function名ごとの最適化履歴
+    function_histories: HashMap<String, OptimizationHistory>,
+    /// 現在選択されているFunction名
+    selected_function: Option<String>,
     /// 現在表示中のステップインデックス
     current_step_index: usize,
     /// 選択中のビーム内の候補（rank）
@@ -48,7 +55,8 @@ where
     /// カスタムレンダラーを使用してAstViewerAppを作成
     pub fn with_renderer(renderer: R) -> Self {
         Self {
-            optimization_history: None,
+            function_histories: HashMap::new(),
+            selected_function: None,
             current_step_index: 0,
             selected_rank: 0,
             show_cost_graph: false,
@@ -57,23 +65,55 @@ where
         }
     }
 
-    /// 最適化履歴を読み込む
+    /// 単一のFunction用の最適化履歴を読み込む（後方互換性のため）
     pub fn load_history(&mut self, history: OptimizationHistory) {
+        self.load_function_history("main".to_string(), history);
+    }
+
+    /// 指定されたFunction名で最適化履歴を読み込む
+    pub fn load_function_history(&mut self, function_name: String, history: OptimizationHistory) {
         if history.is_empty() {
-            log::warn!("Attempted to load empty AST optimization history");
+            log::warn!(
+                "Attempted to load empty AST optimization history for function '{}'",
+                function_name
+            );
             return;
         }
 
-        self.optimization_history = Some(history);
+        self.function_histories
+            .insert(function_name.clone(), history);
+
+        // 最初のFunctionを自動選択
+        if self.selected_function.is_none() {
+            self.selected_function = Some(function_name.clone());
+        }
+
         self.current_step_index = 0;
         self.selected_rank = 0;
 
-        log::info!("AST optimization history loaded");
+        log::info!(
+            "AST optimization history loaded for function '{}'",
+            function_name
+        );
+    }
+
+    /// 複数のFunctionの最適化履歴を一括で読み込む
+    pub fn load_multiple_histories(&mut self, histories: HashMap<String, OptimizationHistory>) {
+        for (name, history) in histories {
+            self.load_function_history(name, history);
+        }
+    }
+
+    /// 現在選択されているFunctionの最適化履歴を取得
+    fn current_history(&self) -> Option<&OptimizationHistory> {
+        self.selected_function
+            .as_ref()
+            .and_then(|name| self.function_histories.get(name))
     }
 
     /// 次のステップに進む
     pub fn next_step(&mut self) {
-        if let Some(ref history) = self.optimization_history {
+        if let Some(history) = self.current_history() {
             let current_step = self.get_current_step_number();
             let max_step = self.get_max_step_number();
 
@@ -94,7 +134,7 @@ where
 
     /// 前のステップに戻る
     pub fn prev_step(&mut self) {
-        if let Some(ref history) = self.optimization_history {
+        if let Some(history) = self.current_history() {
             let current_step = self.get_current_step_number();
 
             if current_step > 0 {
@@ -114,7 +154,7 @@ where
 
     /// 現在のステップ番号を取得
     fn get_current_step_number(&self) -> usize {
-        if let Some(ref history) = self.optimization_history {
+        if let Some(history) = self.current_history() {
             if let Some(snapshot) = history.get(self.current_step_index) {
                 return snapshot.step;
             }
@@ -124,7 +164,7 @@ where
 
     /// 最大ステップ番号を取得
     fn get_max_step_number(&self) -> usize {
-        if let Some(ref history) = self.optimization_history {
+        if let Some(history) = self.current_history() {
             history
                 .snapshots()
                 .iter()
@@ -138,7 +178,7 @@ where
 
     /// 現在のステップのすべての候補を取得
     fn get_current_step_candidates(&self) -> Vec<&harp::opt::ast::OptimizationSnapshot> {
-        if let Some(ref history) = self.optimization_history {
+        if let Some(history) = self.current_history() {
             let current_step = self.get_current_step_number();
             history.get_step(current_step)
         } else {
@@ -149,7 +189,7 @@ where
     /// UIを描画
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         // キーボード入力処理
-        if self.optimization_history.is_some() {
+        if self.current_history().is_some() {
             let num_candidates = self.get_current_step_candidates().len();
 
             ui.input(|i| {
@@ -177,8 +217,42 @@ where
             ui.heading("AST Optimizer Viewer");
             ui.add_space(20.0);
 
+            // Function選択ドロップダウン（複数のFunctionがある場合のみ）
+            if self.function_histories.len() > 1 {
+                ui.label("Function:");
+                let mut function_names: Vec<String> =
+                    self.function_histories.keys().cloned().collect();
+                function_names.sort();
+
+                let selected = self
+                    .selected_function
+                    .clone()
+                    .unwrap_or_else(|| "None".to_string());
+
+                egui::ComboBox::from_id_salt("function_selector")
+                    .selected_text(&selected)
+                    .show_ui(ui, |ui| {
+                        for name in &function_names {
+                            if ui
+                                .selectable_value(
+                                    &mut self.selected_function,
+                                    Some(name.clone()),
+                                    name,
+                                )
+                                .clicked()
+                            {
+                                // Function切り替え時にステップをリセット
+                                self.current_step_index = 0;
+                                self.selected_rank = 0;
+                            }
+                        }
+                    });
+
+                ui.add_space(10.0);
+            }
+
             // コスト遷移グラフ表示トグルボタン（最適化履歴がある場合のみ）
-            if self.optimization_history.is_some() {
+            if self.current_history().is_some() {
                 let cost_button_text = if self.show_cost_graph {
                     "Hide Cost Graph"
                 } else {
@@ -205,9 +279,13 @@ where
         });
         ui.separator();
 
-        if self.optimization_history.is_none() {
+        if self.current_history().is_none() {
             ui.label("No AST optimization history loaded.");
-            ui.label("Load an optimization history to visualize it here.");
+            if self.function_histories.is_empty() {
+                ui.label("Load an optimization history to visualize it here.");
+            } else {
+                ui.label("Select a function from the dropdown above.");
+            }
             return;
         }
 
@@ -257,14 +335,15 @@ where
             .inner;
 
         if let Some(step) = new_step {
-            let history = self.optimization_history.as_ref().unwrap();
-            // スライダーで選択されたステップに移動
-            for i in 0..history.len() {
-                if let Some(snapshot) = history.get(i) {
-                    if snapshot.step == step {
-                        self.current_step_index = i;
-                        self.selected_rank = 0;
-                        break;
+            if let Some(history) = self.current_history() {
+                // スライダーで選択されたステップに移動
+                for i in 0..history.len() {
+                    if let Some(snapshot) = history.get(i) {
+                        if snapshot.step == step {
+                            self.current_step_index = i;
+                            self.selected_rank = 0;
+                            break;
+                        }
                     }
                 }
             }
@@ -291,13 +370,14 @@ where
 
             // コストデータを収集
             let cost_points: Vec<[f64; 2]> = self
-                .optimization_history
-                .as_ref()
-                .unwrap()
-                .cost_transition()
-                .iter()
-                .map(|(step, cost)| [*step as f64, *cost as f64])
-                .collect();
+                .current_history()
+                .map(|h| {
+                    h.cost_transition()
+                        .iter()
+                        .map(|(step, cost)| [*step as f64, *cost as f64])
+                        .collect()
+                })
+                .unwrap_or_default();
 
             // プロットを表示
             egui_plot::Plot::new("ast_cost_plot")
@@ -333,15 +413,15 @@ where
         // 前のステップのコードを取得（Diff表示用）
         let prev_code = if self.show_diff && current_step > 0 {
             // 前のステップの最良候補を取得
-            let prev_step_candidates = self
-                .optimization_history
-                .as_ref()
-                .unwrap()
-                .get_step(current_step - 1);
-            prev_step_candidates
-                .iter()
-                .find(|c| c.rank == 0)
-                .map(|s| render_ast_with(&s.ast, &self.renderer))
+            self.current_history()
+                .map(|h| {
+                    let prev_step_candidates = h.get_step(current_step - 1);
+                    prev_step_candidates
+                        .iter()
+                        .find(|c| c.rank == 0)
+                        .map(|s| render_ast_with(&s.ast, &self.renderer))
+                })
+                .flatten()
         } else {
             None
         };
