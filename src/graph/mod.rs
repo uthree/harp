@@ -1,165 +1,249 @@
+use std::{
+    collections::HashMap,
+    ops::Deref,
+    rc::{Rc, Weak},
+};
 pub mod ops;
 pub mod shape;
-use crate::ast::{AstNode, ConstLiteral, DType};
-pub use crate::graph::ops::ReduceOps;
-use crate::graph::ops::{CumulativeOp, ElementwiseOp, ReduceOp};
-use crate::graph::shape::{view::View, Expr as ShapeExpr};
-use std::fmt;
-use std::ops::Deref;
-use std::rc::{Rc, Weak};
 
-/// Loop optimization strategy information attached to graph nodes
-/// This guides the lowerer on how to generate optimized code
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct LoopStrategy {
-    /// SIMD vectorization: (axis, vector_width)
-    /// Example: Some((2, 4)) means vectorize axis 2 with width 4
-    pub vectorize: Option<(usize, usize)>,
+// Re-export commonly used types
+pub use ops::{ElementwiseOp, GraphOp, ReduceOp};
+pub use shape::{Expr, View};
 
-    /// Loop unrolling: (axis, unroll_factor)
-    /// Example: Some((1, 8)) means unroll axis 1 by factor 8
-    pub unroll: Option<(usize, usize)>,
-
-    /// GPU parallelization: list of axes to parallelize
-    /// Example: vec![0, 1] means parallelize axes 0 and 1 across GPU threads
-    pub parallelize: Vec<usize>,
-
-    /// Loop tiling: list of (axis, tile_size) pairs
-    /// Example: vec![(0, 32), (1, 32)] means tile axes 0 and 1 with size 32
-    pub tile: Vec<(usize, usize)>,
-
-    /// Hint to use shared memory (GPU-specific)
-    /// The actual strategy is determined by the backend
-    pub use_shared_memory: bool,
+/// Element-wise演算の各軸の並列化戦略
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ElementwiseStrategy {
+    /// 逐次実行（SIMD幅: 1=SIMD化なし、2以上=SIMD化、アンローリング係数: デフォルト1）
+    Sequential {
+        simd_width: usize,
+        unroll_factor: usize,
+    },
+    /// スレッドで並列化（SIMD幅: 1=SIMD化なし、2以上=SIMD化、アンローリング係数: デフォルト1）
+    Thread {
+        simd_width: usize,
+        unroll_factor: usize,
+    },
+    /// スレッドグループ/ブロック（SIMD幅: 1=SIMD化なし、2以上=SIMD化、アンローリング係数: デフォルト1）
+    ThreadGroup {
+        simd_width: usize,
+        unroll_factor: usize,
+    },
 }
 
-#[derive(Debug)]
-pub struct GraphNodeData {
-    pub op: GraphOp,
-    pub dtype: DType,
-    pub view: View,
-    pub strategy: Option<LoopStrategy>,
-}
-
-#[derive(Debug, Clone)]
-pub struct GraphNode(Rc<GraphNodeData>);
-
-impl GraphNode {
-    pub(crate) fn new(op: GraphOp, dtype: DType, view: View) -> GraphNode {
-        GraphNode(Rc::new(GraphNodeData {
-            op,
-            dtype,
-            view,
-            strategy: None,
-        }))
-    }
-
-    pub(crate) fn from_rc(rc: Rc<GraphNodeData>) -> GraphNode {
-        GraphNode(rc)
-    }
-
-    /// Create a new node with the specified loop strategy
-    /// Returns a new node with the same op, dtype, and view but different strategy
-    pub fn with_strategy(self, strategy: LoopStrategy) -> GraphNode {
-        GraphNode(Rc::new(GraphNodeData {
-            op: self.op.clone(),
-            dtype: self.dtype.clone(),
-            view: self.view.clone(),
-            strategy: Some(strategy),
-        }))
-    }
-
-    /// Check if this node points to the same underlying data as another node
-    pub fn is_same_node(&self, other: &GraphNode) -> bool {
-        Rc::ptr_eq(&self.0, &other.0)
-    }
-
-    /// Get the strong reference count for this node
-    /// Used to detect branching in graph optimization
-    pub fn strong_count(&self) -> usize {
-        Rc::strong_count(&self.0)
-    }
-
-    /// Cast this tensor to a different data type
-    pub fn cast(self, target_dtype: DType) -> Self {
-        // viewはそのまま継承
-        let result_view = self.view.clone();
-
-        GraphNode::new(
-            GraphOp::Cast(self.clone(), target_dtype.clone()),
-            target_dtype,
-            result_view,
-        )
-    }
-
-    /// Get the input nodes for this node
-    pub fn input_nodes(&self) -> Vec<GraphNode> {
-        match &self.op {
-            GraphOp::Input(_) | GraphOp::Const(_) => vec![],
-            GraphOp::View(input)
-            | GraphOp::Contiguous(input)
-            | GraphOp::Cast(input, _)
-            | GraphOp::Pad(input, _, _) => vec![input.clone()],
-            GraphOp::Reduce(_, _, input)
-            | GraphOp::Cumulative(_, _, input)
-            | GraphOp::Fold(_, _, _, _, input) => {
-                vec![input.clone()]
-            }
-            GraphOp::Elementwise(op) => {
-                use crate::graph::ops::ElementwiseOp;
-                match op {
-                    ElementwiseOp::Add(a, b)
-                    | ElementwiseOp::Mul(a, b)
-                    | ElementwiseOp::Max(a, b)
-                    | ElementwiseOp::Mod(a, b)
-                    | ElementwiseOp::LessThan(a, b)
-                    | ElementwiseOp::Eq(a, b) => vec![a.clone(), b.clone()],
-                    ElementwiseOp::Neg(a)
-                    | ElementwiseOp::Recip(a)
-                    | ElementwiseOp::Sin(a)
-                    | ElementwiseOp::Sqrt(a)
-                    | ElementwiseOp::Log2(a)
-                    | ElementwiseOp::Exp2(a) => vec![a.clone()],
-                    ElementwiseOp::Select(cond, true_val, false_val) => {
-                        vec![cond.clone(), true_val.clone(), false_val.clone()]
-                    }
-                }
-            }
-            GraphOp::FusedElementwise(_, inputs) => inputs.clone(),
-            GraphOp::FusedReduce(_, _, input) => vec![input.clone()],
-            GraphOp::FusedElementwiseReduce(_, inputs, _, _) => inputs.clone(),
-            GraphOp::FusedElementwiseCumulative(_, inputs, _, _) => inputs.clone(),
+impl Default for ElementwiseStrategy {
+    fn default() -> Self {
+        Self::Sequential {
+            simd_width: 1,
+            unroll_factor: 1,
         }
     }
 }
 
-// PartialEq, Eq, Hash are based on pointer address, not content
-impl PartialEq for GraphNode {
-    fn eq(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.0, &other.0)
+impl ElementwiseStrategy {
+    /// SIMD化なしのSequentialを作成
+    pub fn sequential() -> Self {
+        Self::Sequential {
+            simd_width: 1,
+            unroll_factor: 1,
+        }
+    }
+
+    /// SIMD化ありのSequentialを作成
+    pub fn sequential_simd(simd_width: usize) -> Self {
+        Self::Sequential {
+            simd_width,
+            unroll_factor: 1,
+        }
+    }
+
+    /// アンローリングありのSequentialを作成
+    pub fn sequential_unroll(unroll_factor: usize) -> Self {
+        Self::Sequential {
+            simd_width: 1,
+            unroll_factor,
+        }
+    }
+
+    /// SIMD化とアンローリング両方ありのSequentialを作成
+    pub fn sequential_simd_unroll(simd_width: usize, unroll_factor: usize) -> Self {
+        Self::Sequential {
+            simd_width,
+            unroll_factor,
+        }
+    }
+
+    /// SIMD化なしのThreadを作成
+    pub fn thread() -> Self {
+        Self::Thread {
+            simd_width: 1,
+            unroll_factor: 1,
+        }
+    }
+
+    /// SIMD化ありのThreadを作成
+    pub fn thread_simd(simd_width: usize) -> Self {
+        Self::Thread {
+            simd_width,
+            unroll_factor: 1,
+        }
+    }
+
+    /// アンローリングありのThreadを作成
+    pub fn thread_unroll(unroll_factor: usize) -> Self {
+        Self::Thread {
+            simd_width: 1,
+            unroll_factor,
+        }
+    }
+
+    /// SIMD化とアンローリング両方ありのThreadを作成
+    pub fn thread_simd_unroll(simd_width: usize, unroll_factor: usize) -> Self {
+        Self::Thread {
+            simd_width,
+            unroll_factor,
+        }
+    }
+
+    /// SIMD化なしのThreadGroupを作成
+    pub fn thread_group() -> Self {
+        Self::ThreadGroup {
+            simd_width: 1,
+            unroll_factor: 1,
+        }
+    }
+
+    /// SIMD化ありのThreadGroupを作成
+    pub fn thread_group_simd(simd_width: usize) -> Self {
+        Self::ThreadGroup {
+            simd_width,
+            unroll_factor: 1,
+        }
+    }
+
+    /// アンローリングありのThreadGroupを作成
+    pub fn thread_group_unroll(unroll_factor: usize) -> Self {
+        Self::ThreadGroup {
+            simd_width: 1,
+            unroll_factor,
+        }
+    }
+
+    /// SIMD化とアンローリング両方ありのThreadGroupを作成
+    pub fn thread_group_simd_unroll(simd_width: usize, unroll_factor: usize) -> Self {
+        Self::ThreadGroup {
+            simd_width,
+            unroll_factor,
+        }
+    }
+
+    /// SIMD幅を取得
+    pub fn simd_width(&self) -> usize {
+        match self {
+            Self::Sequential { simd_width, .. } => *simd_width,
+            Self::Thread { simd_width, .. } => *simd_width,
+            Self::ThreadGroup { simd_width, .. } => *simd_width,
+        }
+    }
+
+    /// アンローリング係数を取得
+    pub fn unroll_factor(&self) -> usize {
+        match self {
+            Self::Sequential { unroll_factor, .. } => *unroll_factor,
+            Self::Thread { unroll_factor, .. } => *unroll_factor,
+            Self::ThreadGroup { unroll_factor, .. } => *unroll_factor,
+        }
     }
 }
 
-impl Eq for GraphNode {}
+/// Reduce演算の並列化戦略
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ReduceStrategy {
+    /// 逐次実行（アンローリング係数: デフォルト1）
+    /// 将来的には並列リダクションアルゴリズムなどを追加予定
+    Sequential { unroll_factor: usize },
+}
 
-impl std::hash::Hash for GraphNode {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        std::ptr::hash(Rc::as_ptr(&self.0), state)
+impl Default for ReduceStrategy {
+    fn default() -> Self {
+        Self::Sequential { unroll_factor: 1 }
     }
 }
 
-impl Deref for GraphNode {
-    type Target = GraphNodeData;
-    fn deref(&self) -> &Self::Target {
-        &self.0
+impl ReduceStrategy {
+    /// SIMD化なしのSequentialを作成
+    pub fn sequential() -> Self {
+        Self::Sequential { unroll_factor: 1 }
+    }
+
+    /// アンローリングありのSequentialを作成
+    pub fn sequential_unroll(unroll_factor: usize) -> Self {
+        Self::Sequential { unroll_factor }
+    }
+
+    /// アンローリング係数を取得
+    pub fn unroll_factor(&self) -> usize {
+        match self {
+            Self::Sequential { unroll_factor } => *unroll_factor,
+        }
+    }
+}
+
+/// Cumulative演算の並列化戦略
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum CumulativeStrategy {
+    /// 逐次実行（アンローリング係数: デフォルト1）
+    /// 将来的にはParallel Scan（Hillis-Steele、Blelloch等）を追加予定
+    Sequential { unroll_factor: usize },
+}
+
+impl Default for CumulativeStrategy {
+    fn default() -> Self {
+        Self::Sequential { unroll_factor: 1 }
+    }
+}
+
+impl CumulativeStrategy {
+    /// SIMD化なしのSequentialを作成
+    pub fn sequential() -> Self {
+        Self::Sequential { unroll_factor: 1 }
+    }
+
+    /// アンローリングありのSequentialを作成
+    pub fn sequential_unroll(unroll_factor: usize) -> Self {
+        Self::Sequential { unroll_factor }
+    }
+
+    /// アンローリング係数を取得
+    pub fn unroll_factor(&self) -> usize {
+        match self {
+            Self::Sequential { unroll_factor } => *unroll_factor,
+        }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct Graph {
-    pub inputs: Vec<Weak<GraphNodeData>>,
-    pub outputs: Vec<GraphNode>,
-    pub shape_variables: Vec<ShapeVariableSignature>,
+    inputs: HashMap<String, Weak<GraphNodeData>>, // Rcの参照カウントに影響を与えないために、Weak参照で保持する。
+    outputs: HashMap<String, GraphNode>,
+}
+
+#[derive(Debug, Clone)]
+pub struct GraphNodeData {
+    pub dtype: DType,
+    pub op: GraphOp,
+    pub src: Vec<GraphNode>, // 入力ノード
+    pub view: View,
+    pub elementwise_strategies: Vec<ElementwiseStrategy>, // Element-wise演算の各軸の並列化・最適化戦略
+}
+
+#[derive(Debug, Clone)]
+pub struct GraphNode(Rc<GraphNodeData>);
+
+// AstNoderのDTypeとは異なり、VecやPtrは扱わない。
+#[derive(Debug, Clone)]
+pub enum DType {
+    Unknown, // 未定または未知, プレースホルダー
+    F32,
 }
 
 impl Default for Graph {
@@ -169,113 +253,289 @@ impl Default for Graph {
 }
 
 impl Graph {
+    // 初期化
     pub fn new() -> Self {
-        Graph {
-            inputs: vec![],
-            outputs: vec![],
-            shape_variables: vec![],
+        Self {
+            inputs: HashMap::new(),
+            outputs: HashMap::new(),
         }
     }
 
-    // initialize input node
-    pub fn input(&mut self, dtype: DType, shape: Vec<ShapeExpr>) -> GraphNode {
-        let input_index = self.inputs.len();
-        let view = View::new_contiguous(shape);
-        let node_data = GraphNodeData {
-            op: GraphOp::Input(input_index),
-            dtype,
-            view,
-            strategy: None,
+    /// Graphviz DOT形式でグラフを出力
+    pub fn to_dot(&self) -> String {
+        use std::collections::HashSet;
+
+        let mut dot = String::from("digraph G {\n");
+        dot.push_str("  rankdir=LR;\n"); // 左から右へのレイアウト
+        dot.push_str("  node [shape=box];\n\n");
+
+        let mut visited = HashSet::new();
+        let mut node_counter = 0;
+        let mut node_ids = HashMap::new();
+
+        // 全ノードを収集してDOT形式に変換
+        fn traverse_and_collect(
+            node: &GraphNode,
+            visited: &mut HashSet<*const GraphNodeData>,
+            dot: &mut String,
+            node_ids: &mut HashMap<*const GraphNodeData, usize>,
+            counter: &mut usize,
+        ) -> usize {
+            let node_ptr = Rc::as_ptr(&node.0);
+
+            if visited.contains(&node_ptr) {
+                return *node_ids.get(&node_ptr).unwrap();
+            }
+            visited.insert(node_ptr);
+
+            // 入力ノードを先に処理
+            for input in &node.src {
+                traverse_and_collect(input, visited, dot, node_ids, counter);
+            }
+
+            // このノードのIDを取得
+            let node_id = if let Some(&id) = node_ids.get(&node_ptr) {
+                id
+            } else {
+                let id = *counter;
+                *counter += 1;
+                node_ids.insert(node_ptr, id);
+                id
+            };
+
+            // ノードのラベルを作成
+            let op_str = format!("{:?}", node.op);
+            let op_str = if op_str.len() > 50 {
+                format!("{}...", &op_str[..50])
+            } else {
+                op_str
+            };
+            let dtype_str = format!("{:?}", node.dtype);
+            let shape_str = node
+                .view
+                .shape()
+                .iter()
+                .map(|e| format!("{}", e))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            let label = format!(
+                "Node {}\\n{}\\nDType: {}\\nShape: [{}]",
+                node_id, op_str, dtype_str, shape_str
+            );
+
+            // ノード定義を追加
+            dot.push_str(&format!("  n{} [label=\"{}\"];\n", node_id, label));
+
+            // エッジを追加
+            for (i, input) in node.src.iter().enumerate() {
+                let input_id = *node_ids.get(&Rc::as_ptr(&input.0)).unwrap();
+                dot.push_str(&format!(
+                    "  n{} -> n{} [label=\"input {}\"];\n",
+                    input_id, node_id, i
+                ));
+            }
+
+            node_id
+        }
+
+        // 出力ノードから開始
+        for (output_name, output_node) in &self.outputs {
+            let output_id = traverse_and_collect(
+                output_node,
+                &mut visited,
+                &mut dot,
+                &mut node_ids,
+                &mut node_counter,
+            );
+
+            // 出力ノードにマーク
+            dot.push_str(&format!(
+                "  output_{} [label=\"Output: {}\", shape=ellipse, style=filled, fillcolor=lightblue];\n",
+                output_name, output_name
+            ));
+            dot.push_str(&format!("  n{} -> output_{};\n", output_id, output_name));
+        }
+
+        dot.push_str("}\n");
+        dot
+    }
+
+    /// DOT形式でファイルに保存
+    pub fn save_dot(&self, path: &str) -> std::io::Result<()> {
+        std::fs::write(path, self.to_dot())
+    }
+
+    // 入力ノードを新規作成, builderパターンを使う
+    pub fn input(&mut self, name: &str) -> InputNodeBuilder<'_> {
+        InputNodeBuilder {
+            graph: self,
+            name: name.to_string(),
+            dtype: None,
+            shape: None,
+        }
+    }
+
+    // 出力ノードを登録
+    pub fn output(&mut self, name: &str, output_node: GraphNode) {
+        self.outputs.insert(name.to_string(), output_node);
+    }
+
+    // 出力ノードのマップへのアクセス
+    pub fn outputs(&self) -> &HashMap<String, GraphNode> {
+        &self.outputs
+    }
+
+    // 入力ノードのマップへのアクセス
+    pub fn inputs(&self) -> &HashMap<String, Weak<GraphNodeData>> {
+        &self.inputs
+    }
+
+    // 入力ノードを登録（最適化時に使用）
+    pub fn register_input(&mut self, name: String, input_node: GraphNode) {
+        use std::rc::Rc;
+        let weak_ref = Rc::downgrade(&input_node.0);
+        self.inputs.insert(name, weak_ref);
+    }
+}
+
+pub struct InputNodeBuilder<'a> {
+    graph: &'a mut Graph,
+    name: String,
+    dtype: Option<DType>,
+    shape: Option<Vec<shape::Expr>>,
+}
+
+impl<'a> InputNodeBuilder<'a> {
+    pub fn with_dtype(mut self, dtype: DType) -> Self {
+        self.dtype = Some(dtype);
+        self
+    }
+
+    // TIPS: 入力ノードの形状(View)は必ずContinguousである必要がある。
+    pub fn with_shape<E: Into<shape::Expr> + Clone, I: IntoIterator<Item = E>>(
+        mut self,
+        shape: I,
+    ) -> Self {
+        self.shape = Some(shape.into_iter().map(|e| e.into()).collect());
+        self
+    }
+
+    pub fn build(self) -> GraphNode {
+        let dtype = self.dtype.unwrap_or(DType::Unknown);
+        let view = if let Some(shape) = self.shape {
+            View::contiguous(shape)
+        } else {
+            View::contiguous(Vec::<isize>::new())
         };
-        let rc_node_data = Rc::new(node_data);
-        let node = GraphNode(rc_node_data.clone());
-        self.inputs.push(Rc::downgrade(&rc_node_data));
+
+        let node = GraphNode::new(dtype, GraphOp::Input, vec![], view);
+        self.graph.inputs.insert(self.name, Rc::downgrade(&node.0));
         node
     }
+}
 
-    // apply output node
-    pub fn output(&mut self, node: GraphNode) {
-        self.outputs.push(node);
+impl GraphNode {
+    pub fn new(dtype: DType, op: GraphOp, src: Vec<GraphNode>, view: View) -> Self {
+        let ndim = view.ndim();
+        // デフォルトは全軸Sequential（simd_width=1, unroll_factor=1）
+        let elementwise_strategies = vec![ElementwiseStrategy::sequential(); ndim];
+        Self(Rc::new(GraphNodeData {
+            dtype,
+            op,
+            src,
+            view,
+            elementwise_strategies,
+        }))
     }
 
-    pub fn shape_var(&mut self, var_name: &str, default: impl Into<isize>) -> ShapeExpr {
-        self.shape_variables.push(ShapeVariableSignature {
-            name: { var_name.to_string() },
-            default: default.into(),
-        });
-        ShapeExpr::Var(var_name.to_string())
+    /// Rcから直接GraphNodeを作成（最適化時に使用）
+    pub fn from_rc(rc: Rc<GraphNodeData>) -> Self {
+        Self(rc)
+    }
+
+    pub fn with_elementwise_strategies(
+        dtype: DType,
+        op: GraphOp,
+        src: Vec<GraphNode>,
+        view: View,
+        elementwise_strategies: Vec<ElementwiseStrategy>,
+    ) -> Self {
+        assert_eq!(
+            view.ndim(),
+            elementwise_strategies.len(),
+            "elementwise_strategies length must match view ndim"
+        );
+        Self(Rc::new(GraphNodeData {
+            dtype,
+            op,
+            src,
+            view,
+            elementwise_strategies,
+        }))
+    }
+
+    /// ノードのポインタを取得（トポロジカルソートなどで識別に使用）
+    pub fn as_ptr(&self) -> *const GraphNodeData {
+        Rc::as_ptr(&self.0)
+    }
+
+    /// 指定軸を縮約（汎用）
+    pub fn reduce(&self, op: ops::ReduceOp, axis: usize) -> Self {
+        ops::reduce(self.clone(), op, axis)
+    }
+
+    /// 指定軸の合計
+    pub fn reduce_sum(&self, axis: usize) -> Self {
+        ops::reduce_sum(self.clone(), axis)
+    }
+
+    /// 指定軸の積
+    pub fn reduce_mul(&self, axis: usize) -> Self {
+        ops::reduce_mul(self.clone(), axis)
+    }
+
+    /// 指定軸の最大値
+    pub fn reduce_max(&self, axis: usize) -> Self {
+        ops::reduce_max(self.clone(), axis)
+    }
+
+    /// Viewを変更した新しいノードを作成
+    ///
+    /// このメソッドは、既存のノードに対してView操作（permute, unsqueeze, expand等）を
+    /// 適用した新しいノードを作成します。
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use harp::prelude::*;
+    ///
+    /// let mut graph = Graph::new();
+    /// let a = graph.input("a")
+    ///     .with_dtype(DType::F32)
+    ///     .with_shape(vec![3, 4])
+    ///     .build();
+    ///
+    /// // Viewを変更（転置）
+    /// let transposed_view = a.view.clone().permute(vec![1, 0]);
+    /// let a_transposed = a.view(transposed_view);
+    /// ```
+    pub fn view(&self, new_view: View) -> Self {
+        Self::new(
+            self.dtype.clone(),
+            GraphOp::View(new_view.clone()),
+            vec![self.clone()],
+            new_view,
+        )
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum GraphOp {
-    Input(usize),                                    // Input with index
-    Const(ConstLiteral),                             // initialize single element tensor, shape=[],
-    Elementwise(ElementwiseOp),                      // 要素ごとの演算
-    Reduce(ReduceOp, usize, GraphNode),              // 軸を縮約する: (op, axis, input)
-    Cumulative(ops::CumulativeOp, usize, GraphNode), // 累積演算: (op, axis, input)
-    View(GraphNode),                                 // view変更操作
-    Contiguous(GraphNode), // ContiguousなViewに並べ直す（入力のメモリレイアウトを連続に変換）
-    Cast(GraphNode, DType), // 型変換: (input, target_dtype)
-    Fold(usize, usize, usize, usize, GraphNode), // Fold operation (col2im): (dim, window_size, stride, dilation, input)
-    Pad(GraphNode, usize, ShapeExpr),            // Padding operation: (input, axis, padding_amount)
-    // Example: Pad(node, 0, Ceil(N / tile_size) * tile_size - N)
-    // Pads with zeros on the specified axis
-    // 融合済みの演算子
-    FusedElementwise(AstNode, Vec<GraphNode>), // Capture(n)がn番目のGraphNodeに対応する
-    FusedReduce(ReduceOp, Vec<usize>, GraphNode), // 複数の軸でReduceする
-    FusedElementwiseReduce(AstNode, Vec<GraphNode>, ReduceOp, Vec<usize>), // FusedElementwiseの直後にFusedReduceする
-    FusedElementwiseCumulative(AstNode, Vec<GraphNode>, CumulativeOp, usize), // FusedElementwiseの直後にCumlativeする (最後の引数は軸)
-}
-
-impl fmt::Display for GraphOp {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            GraphOp::Input(idx) => write!(f, "Input[{}]", idx),
-            GraphOp::Const(_) => write!(f, "Const"),
-            GraphOp::Elementwise(op) => write!(f, "{}", op),
-            GraphOp::Reduce(op, axis, _) => write!(f, "{}[{}]", op, axis),
-            GraphOp::Cumulative(op, axis, _) => write!(f, "{}[{}]", op, axis),
-            GraphOp::View(_) => write!(f, "View"),
-            GraphOp::Contiguous(_) => write!(f, "Contiguous"),
-            GraphOp::Cast(_, dtype) => write!(f, "Cast({})", dtype),
-            GraphOp::Fold(dim, window_size, stride, dilation, _) => {
-                write!(
-                    f,
-                    "Fold[dim={}, win={}, stride={}, dilation={}]",
-                    dim, window_size, stride, dilation
-                )
-            }
-            GraphOp::Pad(_, axis, amount) => write!(f, "Pad[axis={}, amount={:?}]", axis, amount),
-            GraphOp::FusedElementwise(_, _) => write!(f, "FusedElementwise"),
-            GraphOp::FusedReduce(op, axes, _) => write!(f, "Fused{}[{:?}]", op, axes),
-            GraphOp::FusedElementwiseReduce(_, _, op, axes) => {
-                write!(f, "FusedER-{}{:?}", op, axes)
-            }
-            GraphOp::FusedElementwiseCumulative(_, _, op, axis) => {
-                write!(f, "FusedEC-{}[{}]", op, axis)
-            }
-        }
+// .0 のように書かなくても内部のデータを読み取れるようにする
+impl Deref for GraphNode {
+    type Target = GraphNodeData;
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct GraphSignature {
-    pub shape_variables: Vec<ShapeVariableSignature>,
-    pub inputs: Vec<ArraySignature>,
-    pub outputs: Vec<ArraySignature>,
-}
-
-#[derive(Debug, Clone)]
-pub struct ShapeVariableSignature {
-    pub name: String,
-    pub default: isize,
-}
-
-#[derive(Debug, Clone)]
-pub struct ArraySignature {
-    pub dtype: DType,
-    pub shape: Vec<ShapeExpr>,
 }
 
 #[cfg(test)]
@@ -283,84 +543,860 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_input_output() {
+    fn test_graph_to_dot() {
         let mut graph = Graph::new();
 
-        // Create an input node
-        let input_node = graph.input(DType::F32, vec![2.into(), 3.into()]);
+        // 入力ノードを作成
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
 
-        // Add it as output
-        graph.output(input_node);
+        let b = graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
 
-        // Check that we have one input and one output
-        assert_eq!(graph.inputs.len(), 1);
-        assert_eq!(graph.outputs.len(), 1);
+        // 計算グラフを構築
+        let c = a + b;
 
-        // Check that the input weak reference is still valid
-        assert!(graph.inputs[0].upgrade().is_some());
+        // 出力ノードを登録
+        graph.output("c", c);
+
+        // DOT形式で出力
+        let dot = graph.to_dot();
+
+        // 基本的な構造を確認
+        assert!(dot.contains("digraph G {"));
+        assert!(dot.contains("rankdir=LR"));
+        assert!(dot.contains("Output: c"));
+        assert!(dot.contains("Input"));
+        assert!(dot.contains("Elementwise"));
+        assert!(dot.contains("DType: F32"));
+        assert!(dot.contains("Shape: [10, 20]"));
     }
 
     #[test]
-    fn test_multiple_inputs_outputs() {
+    fn test_graph_new() {
+        let graph = Graph::new();
+        assert_eq!(graph.inputs.len(), 0);
+        assert_eq!(graph.outputs.len(), 0);
+    }
+
+    #[test]
+    fn test_input_node_creation() {
         let mut graph = Graph::new();
+        let input = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
 
-        // Create multiple inputs
-        let input1 = graph.input(DType::F32, vec![2.into(), 3.into()]);
-        let input2 = graph.input(DType::Usize, vec![4.into()]);
+        // 入力ノードが作成されたことを確認
+        assert_eq!(graph.inputs.len(), 1);
+        assert!(graph.inputs.contains_key("x"));
 
-        // Add them as outputs
-        graph.output(input1);
-        graph.output(input2);
+        // ノードのプロパティを確認
+        match input.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
+
+        match &input.op {
+            GraphOp::Input => {}
+            _ => panic!("Expected GraphOp::Input"),
+        }
+
+        assert_eq!(input.view.ndim(), 2);
+        assert_eq!(input.view.shape().len(), 2);
+        assert!(input.view.is_contiguous());
+    }
+
+    #[test]
+    fn test_input_node_default_dtype() {
+        let mut graph = Graph::new();
+        let input = graph.input("x").with_shape(vec![5]).build();
+
+        // デフォルトのDTypeはUnknown
+        match input.dtype {
+            DType::Unknown => {}
+            _ => panic!("Expected DType::Unknown as default"),
+        }
+    }
+
+    #[test]
+    fn test_input_node_empty_shape() {
+        let mut graph = Graph::new();
+        let input = graph.input("scalar").with_dtype(DType::F32).build();
+
+        // 空のshapeはスカラーを表す
+        assert_eq!(input.view.ndim(), 0);
+        assert!(input.view.is_contiguous());
+    }
+
+    #[test]
+    fn test_output_node_registration() {
+        let mut graph = Graph::new();
+        let input = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        graph.output("y", input.clone());
+
+        assert_eq!(graph.outputs.len(), 1);
+        assert!(graph.outputs.contains_key("y"));
+    }
+
+    #[test]
+    fn test_multiple_inputs() {
+        let mut graph = Graph::new();
+        let input1 = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+        let input2 = graph
+            .input("y")
+            .with_dtype(DType::F32)
+            .with_shape(vec![20])
+            .build();
 
         assert_eq!(graph.inputs.len(), 2);
-        assert_eq!(graph.outputs.len(), 2);
+        assert!(graph.inputs.contains_key("x"));
+        assert!(graph.inputs.contains_key("y"));
 
-        // Check that both input weak references are still valid
-        assert!(graph.inputs[0].upgrade().is_some());
-        assert!(graph.inputs[1].upgrade().is_some());
+        assert_eq!(input1.view.ndim(), 1);
+        assert_eq!(input2.view.ndim(), 1);
     }
 
     #[test]
-    fn test_input_weak_reference() {
+    fn test_graph_node_new() {
+        let node = GraphNode::new(
+            DType::F32,
+            GraphOp::Input,
+            vec![],
+            View::contiguous(vec![3, 4]),
+        );
+
+        match node.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
+
+        assert_eq!(node.src.len(), 0);
+        assert_eq!(node.view.ndim(), 2);
+    }
+
+    // 演算のテスト
+
+    #[test]
+    fn test_add_operation() {
         let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+        let b = graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
 
-        // Create an input node
-        let input_node = graph.input(DType::F32, vec![2.into()]);
+        let result = a + b;
 
-        // The weak reference should be valid while the node exists
-        assert!(graph.inputs[0].upgrade().is_some());
+        match result.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
 
-        // Drop the node
-        drop(input_node);
+        match &result.op {
+            GraphOp::Elementwise {
+                op: ops::ElementwiseOp::Add,
+                ..
+            } => {}
+            _ => panic!("Expected Add operation"),
+        }
 
-        // Now the weak reference should be invalid
-        assert!(graph.inputs[0].upgrade().is_none());
+        assert_eq!(result.src.len(), 2);
+        assert_eq!(result.view.ndim(), 1);
+        assert_eq!(result.view.shape()[0], shape::Expr::from(10));
     }
 
     #[test]
-    fn test_view_transformations() {
+    fn test_mul_operation() {
         let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![5, 5])
+            .build();
+        let b = graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![5, 5])
+            .build();
 
-        // Create an input node with shape [2, 3]
-        let input_node = graph.input(DType::F32, vec![2.into(), 3.into()]);
+        let result = a * b;
 
-        // Test unsqueeze
-        let unsqueezed = input_node.clone().unsqueeze(1);
-        assert_eq!(unsqueezed.view.shape(), &[2.into(), 1.into(), 3.into()]);
+        match result.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
 
-        // Test squeeze
-        let squeezed = unsqueezed.squeeze(1);
-        assert_eq!(squeezed.view.shape(), &[2.into(), 3.into()]);
+        match &result.op {
+            GraphOp::Elementwise {
+                op: ops::ElementwiseOp::Mul,
+                ..
+            } => {}
+            _ => panic!("Expected Mul operation"),
+        }
 
-        // Test permute
-        let permuted = input_node.clone().permute(vec![1, 0]);
-        assert_eq!(permuted.view.shape(), &[3.into(), 2.into()]);
+        assert_eq!(result.src.len(), 2);
+        assert_eq!(result.view.ndim(), 2);
+    }
 
-        // Test expand
-        let expanded = input_node
-            .clone()
-            .unsqueeze(1)
-            .expand(vec![2.into(), 5.into(), 3.into()]);
-        assert_eq!(expanded.view.shape(), &[2.into(), 5.into(), 3.into()]);
+    #[test]
+    fn test_neg_operation() {
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        let result = -a;
+
+        match result.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
+
+        match &result.op {
+            GraphOp::Elementwise {
+                op: ops::ElementwiseOp::Neg,
+                ..
+            } => {}
+            _ => panic!("Expected Neg operation"),
+        }
+
+        assert_eq!(result.src.len(), 1);
+        assert_eq!(result.view.ndim(), 1);
+    }
+
+    #[test]
+    fn test_sub_operation() {
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+        let b = graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        let result = a - b;
+
+        match result.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
+
+        // 減算演算として直接実装
+        match &result.op {
+            GraphOp::Elementwise {
+                op: ops::ElementwiseOp::Sub,
+                ..
+            } => {}
+            _ => panic!("Expected Sub operation"),
+        }
+
+        assert_eq!(result.src.len(), 2);
+
+        // 左側のオペランドは入力a、右側のオペランドは入力bであることを確認
+        match &result.src[0].op {
+            GraphOp::Input => {}
+            _ => panic!("Expected Input operation for left operand"),
+        }
+
+        match &result.src[1].op {
+            GraphOp::Input => {}
+            _ => panic!("Expected Input operation for right operand"),
+        }
+    }
+
+    #[test]
+    fn test_rem_operation() {
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+        let b = graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        let result = a % b;
+
+        match result.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
+
+        match &result.op {
+            GraphOp::Elementwise {
+                op: ops::ElementwiseOp::Rem,
+                ..
+            } => {}
+            _ => panic!("Expected Rem operation"),
+        }
+
+        assert_eq!(result.src.len(), 2);
+    }
+
+    #[test]
+    fn test_recip_operation() {
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        let result = ops::recip(a);
+
+        match result.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
+
+        match &result.op {
+            GraphOp::Elementwise {
+                op: ops::ElementwiseOp::Recip,
+                ..
+            } => {}
+            _ => panic!("Expected Recip operation"),
+        }
+
+        assert_eq!(result.src.len(), 1);
+    }
+
+    #[test]
+    fn test_max_operation() {
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+        let b = graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        let result = ops::max(a, b);
+
+        match result.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
+
+        match &result.op {
+            GraphOp::Elementwise {
+                op: ops::ElementwiseOp::Max,
+                ..
+            } => {}
+            _ => panic!("Expected Max operation"),
+        }
+
+        assert_eq!(result.src.len(), 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "Shape mismatch")]
+    fn test_shape_mismatch() {
+        // 異なるshapeのノード同士の演算はpanicする
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+        let b = graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![20])
+            .build();
+
+        // これはpanicするべき
+        let _result = a + b;
+    }
+
+    #[test]
+    fn test_complex_expression() {
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+        let b = graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+        let c = graph
+            .input("c")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        // (a + b) * c
+        let result = (a + b) * c;
+
+        match &result.op {
+            GraphOp::Elementwise {
+                op: ops::ElementwiseOp::Mul,
+                ..
+            } => {}
+            _ => panic!("Expected Mul operation at top level"),
+        }
+
+        assert_eq!(result.src.len(), 2);
+
+        // 左側のノードがAdd演算であることを確認
+        match &result.src[0].op {
+            GraphOp::Elementwise {
+                op: ops::ElementwiseOp::Add,
+                ..
+            } => {}
+            _ => panic!("Expected Add operation in left operand"),
+        }
+    }
+
+    #[test]
+    fn test_dtype_inference() {
+        let mut graph = Graph::new();
+        let unknown = graph.input("unknown").with_shape(vec![10]).build();
+        let f32_node = graph
+            .input("f32")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        let result = unknown + f32_node;
+
+        // UnknownとF32を組み合わせた場合、F32になるべき
+        match result.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32 after inference"),
+        }
+    }
+
+    #[test]
+    fn test_elementwise_strategy_default() {
+        let default_strategy = ElementwiseStrategy::default();
+        assert_eq!(
+            default_strategy,
+            ElementwiseStrategy::Sequential {
+                simd_width: 1,
+                unroll_factor: 1
+            }
+        );
+    }
+
+    #[test]
+    fn test_elementwise_strategy_sequential() {
+        let strategy = ElementwiseStrategy::sequential();
+        assert_eq!(
+            strategy,
+            ElementwiseStrategy::Sequential {
+                simd_width: 1,
+                unroll_factor: 1
+            }
+        );
+
+        let strategy_simd = ElementwiseStrategy::sequential_simd(4);
+        assert_eq!(
+            strategy_simd,
+            ElementwiseStrategy::Sequential {
+                simd_width: 4,
+                unroll_factor: 1
+            }
+        );
+
+        let strategy_unroll = ElementwiseStrategy::sequential_unroll(2);
+        assert_eq!(
+            strategy_unroll,
+            ElementwiseStrategy::Sequential {
+                simd_width: 1,
+                unroll_factor: 2
+            }
+        );
+
+        let strategy_both = ElementwiseStrategy::sequential_simd_unroll(4, 2);
+        assert_eq!(
+            strategy_both,
+            ElementwiseStrategy::Sequential {
+                simd_width: 4,
+                unroll_factor: 2
+            }
+        );
+    }
+
+    #[test]
+    fn test_elementwise_strategy_thread() {
+        let strategy = ElementwiseStrategy::thread();
+        assert_eq!(
+            strategy,
+            ElementwiseStrategy::Thread {
+                simd_width: 1,
+                unroll_factor: 1
+            }
+        );
+
+        let strategy_simd = ElementwiseStrategy::thread_simd(8);
+        assert_eq!(
+            strategy_simd,
+            ElementwiseStrategy::Thread {
+                simd_width: 8,
+                unroll_factor: 1
+            }
+        );
+
+        let strategy_unroll = ElementwiseStrategy::thread_unroll(4);
+        assert_eq!(
+            strategy_unroll,
+            ElementwiseStrategy::Thread {
+                simd_width: 1,
+                unroll_factor: 4
+            }
+        );
+
+        let strategy_both = ElementwiseStrategy::thread_simd_unroll(8, 4);
+        assert_eq!(
+            strategy_both,
+            ElementwiseStrategy::Thread {
+                simd_width: 8,
+                unroll_factor: 4
+            }
+        );
+    }
+
+    #[test]
+    fn test_elementwise_strategy_thread_group() {
+        let strategy = ElementwiseStrategy::thread_group();
+        assert_eq!(
+            strategy,
+            ElementwiseStrategy::ThreadGroup {
+                simd_width: 1,
+                unroll_factor: 1
+            }
+        );
+
+        let strategy_simd = ElementwiseStrategy::thread_group_simd(16);
+        assert_eq!(
+            strategy_simd,
+            ElementwiseStrategy::ThreadGroup {
+                simd_width: 16,
+                unroll_factor: 1
+            }
+        );
+
+        let strategy_unroll = ElementwiseStrategy::thread_group_unroll(8);
+        assert_eq!(
+            strategy_unroll,
+            ElementwiseStrategy::ThreadGroup {
+                simd_width: 1,
+                unroll_factor: 8
+            }
+        );
+
+        let strategy_both = ElementwiseStrategy::thread_group_simd_unroll(16, 8);
+        assert_eq!(
+            strategy_both,
+            ElementwiseStrategy::ThreadGroup {
+                simd_width: 16,
+                unroll_factor: 8
+            }
+        );
+    }
+
+    #[test]
+    fn test_elementwise_strategy_accessors() {
+        let strategy = ElementwiseStrategy::sequential_simd_unroll(4, 2);
+        assert_eq!(strategy.simd_width(), 4);
+        assert_eq!(strategy.unroll_factor(), 2);
+
+        let strategy = ElementwiseStrategy::thread_simd_unroll(8, 4);
+        assert_eq!(strategy.simd_width(), 8);
+        assert_eq!(strategy.unroll_factor(), 4);
+
+        let strategy = ElementwiseStrategy::thread_group_simd_unroll(16, 8);
+        assert_eq!(strategy.simd_width(), 16);
+        assert_eq!(strategy.unroll_factor(), 8);
+    }
+
+    #[test]
+    fn test_reduce_strategy_default() {
+        let default_strategy = ReduceStrategy::default();
+        assert_eq!(
+            default_strategy,
+            ReduceStrategy::Sequential { unroll_factor: 1 }
+        );
+    }
+
+    #[test]
+    fn test_reduce_strategy_sequential() {
+        let strategy = ReduceStrategy::sequential();
+        assert_eq!(strategy, ReduceStrategy::Sequential { unroll_factor: 1 });
+
+        let strategy_unroll = ReduceStrategy::sequential_unroll(4);
+        assert_eq!(
+            strategy_unroll,
+            ReduceStrategy::Sequential { unroll_factor: 4 }
+        );
+    }
+
+    #[test]
+    fn test_reduce_strategy_accessors() {
+        let strategy = ReduceStrategy::sequential_unroll(8);
+        assert_eq!(strategy.unroll_factor(), 8);
+    }
+
+    #[test]
+    fn test_cumulative_strategy_default() {
+        let default_strategy = CumulativeStrategy::default();
+        assert_eq!(
+            default_strategy,
+            CumulativeStrategy::Sequential { unroll_factor: 1 }
+        );
+    }
+
+    #[test]
+    fn test_cumulative_strategy_sequential() {
+        let strategy = CumulativeStrategy::sequential();
+        assert_eq!(
+            strategy,
+            CumulativeStrategy::Sequential { unroll_factor: 1 }
+        );
+
+        let strategy_unroll = CumulativeStrategy::sequential_unroll(4);
+        assert_eq!(
+            strategy_unroll,
+            CumulativeStrategy::Sequential { unroll_factor: 4 }
+        );
+    }
+
+    #[test]
+    fn test_cumulative_strategy_accessors() {
+        let strategy = CumulativeStrategy::sequential_unroll(8);
+        assert_eq!(strategy.unroll_factor(), 8);
+    }
+
+    #[test]
+    fn test_reduce_sum() {
+        let mut graph = Graph::new();
+        let input = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20, 30])
+            .build();
+
+        // 軸1を縮約（10, 20, 30 -> 10, 30）
+        let result = input.reduce_sum(1);
+
+        // 型が保持されていることを確認
+        match result.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
+
+        // Viewのshapeが正しく縮約されていることを確認
+        assert_eq!(result.view.ndim(), 2);
+        assert_eq!(result.view.shape().len(), 2);
+
+        // Reduceオペレーションが正しく設定されていることを確認
+        match &result.op {
+            GraphOp::Reduce { op, axis, .. } => {
+                assert_eq!(*op, ReduceOp::Add);
+                assert_eq!(*axis, 1);
+            }
+            _ => panic!("Expected GraphOp::Reduce"),
+        }
+    }
+
+    #[test]
+    fn test_reduce_mul() {
+        let mut graph = Graph::new();
+        let input = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![5, 10])
+            .build();
+
+        // 軸0を縮約（5, 10 -> 10）
+        let result = input.reduce_mul(0);
+
+        // Viewのshapeが正しく縮約されていることを確認
+        assert_eq!(result.view.ndim(), 1);
+        assert_eq!(result.view.shape().len(), 1);
+
+        // Reduceオペレーションが正しく設定されていることを確認
+        match &result.op {
+            GraphOp::Reduce { op, axis, .. } => {
+                assert_eq!(*op, ReduceOp::Mul);
+                assert_eq!(*axis, 0);
+            }
+            _ => panic!("Expected GraphOp::Reduce"),
+        }
+    }
+
+    #[test]
+    fn test_reduce_max() {
+        let mut graph = Graph::new();
+        let input = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![3, 4, 5])
+            .build();
+
+        // 軸2を縮約（3, 4, 5 -> 3, 4）
+        let result = input.reduce_max(2);
+
+        // Viewのshapeが正しく縮約されていることを確認
+        assert_eq!(result.view.ndim(), 2);
+
+        // Reduceオペレーションが正しく設定されていることを確認
+        match &result.op {
+            GraphOp::Reduce { op, axis, .. } => {
+                assert_eq!(*op, ReduceOp::Max);
+                assert_eq!(*axis, 2);
+            }
+            _ => panic!("Expected GraphOp::Reduce"),
+        }
+    }
+
+    #[test]
+    fn test_view_method() {
+        let mut graph = Graph::new();
+        let input = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![3, 4])
+            .build();
+
+        // Viewを変更（転置）
+        let transposed_view = input.view.clone().permute(vec![1, 0]);
+        let transposed = input.view(transposed_view.clone());
+
+        // dtypeが保持されていることを確認
+        match transposed.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
+
+        // Viewが正しく設定されていることを確認
+        assert_eq!(transposed.view, transposed_view);
+        assert_eq!(transposed.view.ndim(), 2);
+
+        // GraphOp::Viewが設定されていることを確認
+        match &transposed.op {
+            GraphOp::View(v) => {
+                assert_eq!(*v, transposed_view);
+            }
+            _ => panic!("Expected GraphOp::View"),
+        }
+
+        // 元のノードが入力として保持されていることを確認
+        assert_eq!(transposed.src.len(), 1);
+    }
+
+    #[test]
+    fn test_view_method_unsqueeze() {
+        let mut graph = Graph::new();
+        let input = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![3, 4])
+            .build();
+
+        // Viewを変更（次元追加）
+        let unsqueezed_view = input.view.clone().unsqueeze(0);
+        let unsqueezed = input.view(unsqueezed_view.clone());
+
+        // Viewが正しく設定されていることを確認
+        assert_eq!(unsqueezed.view.ndim(), 3);
+
+        // GraphOp::Viewが設定されていることを確認
+        match &unsqueezed.op {
+            GraphOp::View(v) => {
+                assert_eq!(*v, unsqueezed_view);
+            }
+            _ => panic!("Expected GraphOp::View"),
+        }
+    }
+
+    #[test]
+    fn test_reduce_to_scalar() {
+        let mut graph = Graph::new();
+        let input = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        // 唯一の軸を縮約してスカラーに（10 -> []）
+        let result = input.reduce_sum(0);
+
+        // スカラー（ndim=0）になることを確認
+        assert_eq!(result.view.ndim(), 0);
+        assert_eq!(result.view.shape().len(), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "axis 3 is out of bounds")]
+    fn test_reduce_out_of_bounds() {
+        let mut graph = Graph::new();
+        let input = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
+
+        // 存在しない軸3を指定してパニック
+        let _result = input.reduce_sum(3);
+    }
+
+    #[test]
+    fn test_reduce_generic() {
+        let mut graph = Graph::new();
+        let input = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![5, 10, 15])
+            .build();
+
+        // ReduceOpを直接指定
+        let result = input.reduce(ReduceOp::Add, 1);
+
+        match &result.op {
+            GraphOp::Reduce { op, axis, .. } => {
+                assert_eq!(*op, ReduceOp::Add);
+                assert_eq!(*axis, 1);
+            }
+            _ => panic!("Expected GraphOp::Reduce"),
+        }
     }
 }

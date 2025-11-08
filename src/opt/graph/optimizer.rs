@@ -1,254 +1,259 @@
 use crate::graph::Graph;
-use crate::opt::graph::cost_estimator;
-use crate::opt::graph::suggester::CombinedSuggester;
+use crate::opt::graph::{
+    GraphCostEstimator, GraphOptimizer, GraphSuggester, OptimizationHistory, OptimizationSnapshot,
+};
+use indicatif::{ProgressBar, ProgressStyle};
+use log::debug;
 
-/// ビームサーチによるGraph最適化
-pub struct BeamSearchOptimizer {
+/// ビームサーチグラフ最適化器
+pub struct BeamSearchGraphOptimizer<S, E>
+where
+    S: GraphSuggester,
+    E: GraphCostEstimator,
+{
+    suggester: S,
+    estimator: E,
     beam_width: usize,
     max_depth: usize,
-    suggester: CombinedSuggester,
+    show_progress: bool,
 }
 
-/// 最適化の候補（Graphとそのコスト）
-#[derive(Clone)]
-struct Candidate {
-    graph: Graph,
-    cost: usize,
-    depth: usize,
-}
-
-impl BeamSearchOptimizer {
-    /// デフォルト設定で最適化器を作成
-    pub fn new() -> Self {
+impl<S, E> BeamSearchGraphOptimizer<S, E>
+where
+    S: GraphSuggester,
+    E: GraphCostEstimator,
+{
+    /// 新しいビームサーチ最適化器を作成
+    pub fn new(suggester: S, estimator: E) -> Self {
         Self {
-            beam_width: 3, // デフォルトビーム幅
-            max_depth: 5,  // デフォルト探索深さ
-            suggester: CombinedSuggester::new(),
+            suggester,
+            estimator,
+            beam_width: 10,
+            max_depth: 10,
+            show_progress: true,
         }
     }
 
-    /// ビーム幅を指定して最適化器を作成
-    pub fn with_beam_width(beam_width: usize) -> Self {
-        Self {
-            beam_width,
-            max_depth: 5,
-            suggester: CombinedSuggester::new(),
-        }
-    }
-
-    /// ビーム幅と探索深さを指定
-    pub fn with_params(beam_width: usize, max_depth: usize) -> Self {
-        Self {
-            beam_width,
-            max_depth,
-            suggester: CombinedSuggester::new(),
-        }
-    }
-
-    /// カスタムSuggesterを使用
-    pub fn with_suggester(mut self, suggester: CombinedSuggester) -> Self {
-        self.suggester = suggester;
+    /// ビーム幅を設定
+    pub fn with_beam_width(mut self, width: usize) -> Self {
+        self.beam_width = width;
         self
     }
 
-    /// ビームサーチでGraphを最適化
-    ///
-    /// アルゴリズム：
-    /// 1. 初期Graphをビームに追加
-    /// 2. 各ステップで、ビーム内の各候補に対してSuggesterを適用
-    /// 3. 生成された候補をコスト順にソート
-    /// 4. 上位beam_width個を保持
-    /// 5. max_depth到達またはコスト改善が停止したら終了
-    pub fn optimize(&self, initial_graph: &Graph) -> Graph {
-        let initial_cost = cost_estimator::estimate_graph_cost(&initial_graph.outputs);
-        let mut beam = vec![Candidate {
-            graph: initial_graph.clone(),
-            cost: initial_cost,
-            depth: 0,
-        }];
+    /// 最大深さを設定
+    pub fn with_max_depth(mut self, depth: usize) -> Self {
+        self.max_depth = depth;
+        self
+    }
 
-        let mut best_candidate = beam[0].clone();
-        let mut no_improvement_count = 0;
+    /// プログレスバーの表示/非表示を設定
+    pub fn with_progress(mut self, show: bool) -> Self {
+        self.show_progress = show;
+        self
+    }
+}
 
-        for _iteration in 0..self.max_depth {
-            let mut new_candidates = Vec::new();
+impl<S, E> BeamSearchGraphOptimizer<S, E>
+where
+    S: GraphSuggester,
+    E: GraphCostEstimator,
+{
+    /// グラフを最適化して、グラフと最適化履歴を返す
+    pub fn optimize_with_history(&self, graph: Graph) -> (Graph, OptimizationHistory) {
+        debug!("BeamSearchGraphOptimizer: Starting beam search optimization with history tracking");
 
-            // 各候補に対してSuggesterを適用
-            for candidate in &beam {
-                // 最大深度チェック
-                if candidate.depth >= self.max_depth {
-                    continue;
+        let mut history = OptimizationHistory::new();
+        let mut beam = vec![graph.clone()];
+
+        // 初期状態を記録
+        let initial_cost = self.estimator.estimate(&graph);
+        let initial_outputs = graph.outputs().len();
+
+        // 初期状態の入力・出力ノード情報をログに出力
+        debug!(
+            "BeamSearchGraphOptimizer: Initial - {} inputs, {} outputs",
+            graph.inputs().len(),
+            graph.outputs().len()
+        );
+        for (name, node) in graph.outputs() {
+            let op_type = format!("{:?}", node.op);
+            debug!(
+                "BeamSearchGraphOptimizer: Initial - Output '{}': {:?}",
+                name, op_type
+            );
+        }
+
+        history.add_snapshot(OptimizationSnapshot::new(
+            0,
+            graph,
+            initial_cost,
+            format!("Initial graph ({} outputs)", initial_outputs),
+        ));
+
+        let pb = if self.show_progress {
+            let pb = ProgressBar::new(self.max_depth as u64);
+
+            // Cargoスタイルのプログレスバー
+            pb.set_style(
+                ProgressStyle::with_template("{prefix:>12.cyan.bold} [{bar:24}] {pos}/{len} {msg}")
+                    .unwrap()
+                    .progress_chars("=> "),
+            );
+            pb.set_prefix("Optimizing");
+            Some(pb)
+        } else {
+            None
+        };
+
+        for depth in 0..self.max_depth {
+            if let Some(ref pb) = pb {
+                pb.set_message(format!("depth {}", depth + 1));
+                pb.set_position(depth as u64);
+            }
+
+            let mut candidates = Vec::new();
+
+            // 現在のビーム内の各候補から新しい候補を生成
+            for graph in &beam {
+                let new_candidates = self.suggester.suggest(graph);
+                candidates.extend(new_candidates);
+            }
+
+            if candidates.is_empty() {
+                debug!(
+                    "BeamSearchGraphOptimizer: No more candidates at depth {}",
+                    depth
+                );
+                if let Some(ref pb) = pb {
+                    pb.set_position(self.max_depth as u64);
+                }
+                break;
+            }
+
+            debug!(
+                "BeamSearchGraphOptimizer: Found {} candidates at depth {}",
+                candidates.len(),
+                depth
+            );
+
+            // コストでソートして上位beam_width個を残す
+            candidates.sort_by(|a, b| {
+                self.estimator
+                    .estimate(a)
+                    .partial_cmp(&self.estimator.estimate(b))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+            beam = candidates.into_iter().take(self.beam_width).collect();
+
+            // このステップの最良候補を記録
+            if let Some(best) = beam.first() {
+                let cost = self.estimator.estimate(best);
+                let num_outputs = best.outputs().len();
+                let num_inputs = best.inputs().len();
+
+                // 入力・出力ノード数をログに出力
+                debug!(
+                    "BeamSearchGraphOptimizer: Step {} - {} inputs, {} outputs",
+                    depth + 1,
+                    num_inputs,
+                    num_outputs
+                );
+
+                // 出力ノードの演算タイプもログに出力
+                for (name, node) in best.outputs() {
+                    let op_type = format!("{:?}", node.op);
+                    debug!(
+                        "BeamSearchGraphOptimizer: Step {} - Output '{}': {:?}",
+                        depth + 1,
+                        name,
+                        op_type
+                    );
                 }
 
-                // 全てのSuggesterから候補を生成
-                let suggestions = self.suggester.suggest_all(&candidate.graph);
-
-                for suggestion in suggestions {
-                    let cost = cost_estimator::estimate_graph_cost(&suggestion.outputs);
-                    new_candidates.push(Candidate {
-                        graph: suggestion,
-                        cost,
-                        depth: candidate.depth + 1,
-                    });
-                }
-            }
-
-            // 新しい候補がない場合は終了
-            if new_candidates.is_empty() {
-                break;
-            }
-
-            // コストでソート
-            new_candidates.sort_by_key(|c| c.cost);
-
-            // 最良候補を更新
-            if new_candidates[0].cost < best_candidate.cost {
-                best_candidate = new_candidates[0].clone();
-                no_improvement_count = 0;
-            } else {
-                no_improvement_count += 1;
-            }
-
-            // 改善が見られない場合は早期終了
-            if no_improvement_count >= 2 {
-                break;
-            }
-
-            // 上位beam_width個を保持
-            new_candidates.truncate(self.beam_width);
-            beam = new_candidates;
-
-            // ビームが空になったら終了
-            if beam.is_empty() {
-                break;
+                history.add_snapshot(OptimizationSnapshot::new(
+                    depth + 1,
+                    best.clone(),
+                    cost,
+                    format!(
+                        "Step {}: beam width {}, outputs: {}",
+                        depth + 1,
+                        beam.len(),
+                        num_outputs
+                    ),
+                ));
             }
         }
 
-        best_candidate.graph
-    }
+        if let Some(pb) = pb {
+            pb.finish_with_message("Complete");
+        }
 
-    /// 貪欲法で最適化（ビーム幅1の特殊ケース）
-    pub fn greedy_optimize(initial_graph: &Graph) -> Graph {
-        let optimizer = Self::with_beam_width(1);
-        optimizer.optimize(initial_graph)
+        debug!("BeamSearchGraphOptimizer: Beam search optimization complete");
+
+        // 最良の候補を返す
+        let best_graph = beam
+            .into_iter()
+            .min_by(|a, b| {
+                self.estimator
+                    .estimate(a)
+                    .partial_cmp(&self.estimator.estimate(b))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .unwrap();
+
+        (best_graph, history)
     }
 }
 
-impl Default for BeamSearchOptimizer {
-    fn default() -> Self {
-        Self::new()
+impl<S, E> GraphOptimizer for BeamSearchGraphOptimizer<S, E>
+where
+    S: GraphSuggester,
+    E: GraphCostEstimator,
+{
+    fn optimize(&self, graph: Graph) -> Graph {
+        // optimize_with_history()を呼び出して、グラフだけを返す
+        let (optimized_graph, _history) = self.optimize_with_history(graph);
+        optimized_graph
     }
-}
-
-/// Graph最適化のユーティリティ関数
-pub fn optimize_graph(graph: &Graph) -> Graph {
-    let optimizer = BeamSearchOptimizer::new();
-    optimizer.optimize(graph)
-}
-
-/// カスタムパラメータでGraph最適化
-pub fn optimize_graph_with_params(graph: &Graph, beam_width: usize, max_depth: usize) -> Graph {
-    let optimizer = BeamSearchOptimizer::with_params(beam_width, max_depth);
-    optimizer.optimize(graph)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::DType;
+    use crate::graph::{DType, Graph};
+    use crate::opt::graph::{GraphSuggester, SimpleCostEstimator};
 
-    #[test]
-    fn test_beam_search_optimizer_creation() {
-        let optimizer = BeamSearchOptimizer::new();
-        assert_eq!(optimizer.beam_width, 3);
-        assert_eq!(optimizer.max_depth, 5);
+    // テスト用のダミーSuggester
+    struct DummySuggester;
+
+    impl GraphSuggester for DummySuggester {
+        fn suggest(&self, _graph: &Graph) -> Vec<Graph> {
+            // 何も提案しない
+            vec![]
+        }
     }
 
     #[test]
-    fn test_beam_search_optimizer_with_beam_width() {
-        let optimizer = BeamSearchOptimizer::with_beam_width(5);
-        assert_eq!(optimizer.beam_width, 5);
-        assert_eq!(optimizer.max_depth, 5);
-    }
+    fn test_beam_search_optimizer_no_candidates() {
+        let suggester = DummySuggester;
+        let estimator = SimpleCostEstimator::new();
 
-    #[test]
-    fn test_beam_search_optimizer_with_params() {
-        let optimizer = BeamSearchOptimizer::with_params(10, 3);
-        assert_eq!(optimizer.beam_width, 10);
-        assert_eq!(optimizer.max_depth, 3);
-    }
+        let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
+            .with_beam_width(5)
+            .with_max_depth(5)
+            .with_progress(false);
 
-    #[test]
-    fn test_optimize_simple_graph() {
         let mut graph = Graph::new();
-        let input = graph.input(DType::F32, vec![2.into(), 3.into()]);
-        graph.output(input);
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+        graph.output("a", a);
 
-        let optimizer = BeamSearchOptimizer::new();
-        let optimized = optimizer.optimize(&graph);
-
-        // 最適化後のグラフが返される
-        // （現在はSuggesterが実際のGraph変換を実装していないため、同じグラフが返る）
-        assert_eq!(optimized.outputs.len(), 1);
-    }
-
-    #[test]
-    fn test_greedy_optimize() {
-        let mut graph = Graph::new();
-        let input = graph.input(DType::F32, vec![4.into(), 5.into()]);
-        graph.output(input);
-
-        let optimized = BeamSearchOptimizer::greedy_optimize(&graph);
-
-        assert_eq!(optimized.outputs.len(), 1);
-    }
-
-    #[test]
-    fn test_optimize_graph_utility() {
-        let mut graph = Graph::new();
-        let input = graph.input(DType::F32, vec![8.into(), 8.into()]);
-        graph.output(input);
-
-        let optimized = optimize_graph(&graph);
-
-        assert_eq!(optimized.outputs.len(), 1);
-    }
-
-    #[test]
-    fn test_optimize_graph_with_custom_params() {
-        let mut graph = Graph::new();
-        let input = graph.input(DType::F32, vec![16.into(), 16.into()]);
-        graph.output(input);
-
-        let optimized = optimize_graph_with_params(&graph, 2, 3);
-
-        assert_eq!(optimized.outputs.len(), 1);
-    }
-
-    #[test]
-    fn test_early_termination_no_improvement() {
-        let mut graph = Graph::new();
-        // 単純なグラフ（最適化の余地が少ない）
-        let input = graph.input(DType::F32, vec![2.into(), 2.into()]);
-        graph.output(input);
-
-        let optimizer = BeamSearchOptimizer::with_params(3, 10);
-        let optimized = optimizer.optimize(&graph);
-
-        // 改善がない場合でも、有効なグラフが返される
-        assert_eq!(optimized.outputs.len(), 1);
-    }
-
-    #[test]
-    fn test_empty_beam_handling() {
-        let mut graph = Graph::new();
-        let input = graph.input(DType::F32, vec![1.into(), 1.into()]);
-        graph.output(input);
-
-        let optimizer = BeamSearchOptimizer::with_beam_width(0); // ビーム幅0
-        let optimized = optimizer.optimize(&graph);
-
-        // ビームが空でも、元のグラフが返される
-        assert_eq!(optimized.outputs.len(), 1);
+        let result = optimizer.optimize(graph);
+        // 候補がないので元のグラフが返るはず
+        assert_eq!(result.outputs().len(), 1);
     }
 }

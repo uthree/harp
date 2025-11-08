@@ -1,0 +1,864 @@
+use super::*;
+use crate::ast::DType as AstDType;
+use crate::graph::DType as GraphDType;
+
+#[test]
+fn test_lower_simple_add() {
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    // a + b のグラフをカーネルに変換
+    let mut graph = Graph::new();
+    let a = graph
+        .input("a")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![10])
+        .build();
+    let b = graph
+        .input("b")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![10])
+        .build();
+    let result = a + b;
+
+    // カーネル関数を生成
+    let mut lowerer = Lowerer::new();
+    let function = lowerer.lower_node_to_kernel(&result, 0);
+
+    assert!(function.is_ok());
+    let function = function.unwrap();
+
+    // パラメータをチェック: input0, input1, output, shape0
+    assert_eq!(function.params.len(), 4);
+    assert_eq!(function.params[0].name, "input0");
+    assert_eq!(function.params[1].name, "input1");
+    assert_eq!(function.params[2].name, "output");
+    assert_eq!(function.params[3].name, "shape0");
+
+    // 返り値の型はunit型
+    assert_eq!(function.return_type, AstDType::Tuple(vec![]));
+
+    // 生成されたコードを表示（テスト実行時に確認用）
+    use crate::backend::metal::MetalRenderer;
+    let mut renderer = MetalRenderer::new();
+    let code = renderer.render_function("test_add_kernel", &function);
+    eprintln!(
+        "\n=== Generated Code for test_lower_simple_add ===\n{}\n",
+        code
+    );
+}
+
+#[test]
+fn test_lower_simple_mul() {
+    // a * b のグラフをカーネルに変換
+    let mut graph = Graph::new();
+    let a = graph
+        .input("a")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![20])
+        .build();
+    let b = graph
+        .input("b")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![20])
+        .build();
+    let result = a * b;
+
+    let mut lowerer = Lowerer::new();
+    let function = lowerer.lower_node_to_kernel(&result, 0);
+
+    assert!(function.is_ok());
+    let function = function.unwrap();
+
+    // パラメータをチェック
+    assert_eq!(function.params.len(), 4);
+    assert_eq!(function.params[0].name, "input0");
+    assert_eq!(function.params[1].name, "input1");
+    assert_eq!(function.params[2].name, "output");
+}
+
+#[test]
+fn test_lower_neg() {
+    // -a のグラフをカーネルに変換
+    let mut graph = Graph::new();
+    let a = graph
+        .input("a")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![10])
+        .build();
+    let result = -a;
+
+    let mut lowerer = Lowerer::new();
+    let function = lowerer.lower_node_to_kernel(&result, 0);
+
+    assert!(function.is_ok());
+    let function = function.unwrap();
+
+    // パラメータをチェック: input0, output, shape0
+    assert_eq!(function.params.len(), 3);
+    assert_eq!(function.params[0].name, "input0");
+    assert_eq!(function.params[1].name, "output");
+    assert_eq!(function.params[2].name, "shape0");
+}
+
+#[test]
+fn test_lower_with_permute() {
+    use crate::graph::ops::GraphOp;
+
+    // 転置されたテンソルの加算
+    let mut graph = Graph::new();
+    let a = graph
+        .input("a")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![3, 4])
+        .build();
+    let _b = graph
+        .input("b")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![3, 4])
+        .build();
+
+    // aを転置: (3, 4) -> (4, 3)
+    let a_transposed = GraphNode::new(
+        GraphDType::F32,
+        GraphOp::View(a.view.clone().permute(vec![1, 0])),
+        vec![a.clone()],
+        a.view.clone().permute(vec![1, 0]),
+    );
+
+    // 転置されたaと同じshapeのbの加算は失敗するはず
+    // （ここでは単純に転置されたViewの動作をテスト）
+    let mut lowerer = Lowerer::new();
+
+    // 転置されたテンソルのloweringをテスト
+    let function = lowerer.lower_node_to_kernel(&a_transposed, 0);
+
+    // Viewノードは直接lowering対象ではないのでエラーになる
+    assert!(function.is_err());
+}
+
+#[test]
+fn test_lower_with_flipped_view() {
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    // flipされたテンソルの否定演算
+    let mut graph = Graph::new();
+    let a = graph
+        .input("a")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![10])
+        .build();
+
+    // aをflip
+    let flipped_view = a.view.clone().flip(0);
+
+    // flipされたaの否定演算
+    // Viewの変更を直接Elementwise演算のsrcに含める
+    let a_flipped = GraphNode::new(GraphDType::F32, a.op.clone(), a.src.clone(), flipped_view);
+
+    let result = -a_flipped;
+
+    let mut lowerer = Lowerer::new();
+    let function = lowerer.lower_node_to_kernel(&result, 0);
+
+    // View変換が実装されたので成功するはず
+    assert!(function.is_ok());
+    let function = function.unwrap();
+
+    // パラメータをチェック
+    assert_eq!(function.params.len(), 3);
+
+    // 生成されたコードを表示（テスト実行時に確認用）
+    use crate::backend::metal::MetalRenderer;
+    let mut renderer = MetalRenderer::new();
+    let code = renderer.render_function("test_flip_kernel", &function);
+    eprintln!(
+        "\n=== Generated Code for test_lower_with_flipped_view ===\n{}\n",
+        code
+    );
+}
+
+#[test]
+#[cfg(target_os = "macos")]
+#[serial_test::serial]
+fn test_end_to_end_execution() {
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    // 手動でMetalカーネルを作成（lowererの出力を参考に）
+    // 後でlowererと統合する予定
+    let source = r#"
+#include <metal_stdlib>
+using namespace metal;
+
+kernel void test_add(
+    device const float* input0 [[buffer(0)]],
+    device const float* input1 [[buffer(1)]],
+    device float* output [[buffer(2)]],
+    uint tid [[thread_position_in_grid]]
+) {
+    output[tid] = input0[tid] + input1[tid];
+}
+"#;
+
+    eprintln!("\n=== Metal Kernel ===\n{}\n", source);
+
+    // Metal compilerで実行
+    use crate::backend::Compiler;
+    use crate::backend::metal::{MetalCode, MetalCompiler};
+    if let Some(mut compiler) = MetalCompiler::with_default_device() {
+        let code = MetalCode::new(source.to_string());
+        let mut kernel = compiler.compile(&code);
+
+        // バッファを作成
+        let mut input0_buffer = compiler.create_buffer(vec![10], 4);
+        let mut input1_buffer = compiler.create_buffer(vec![10], 4);
+        let output_buffer = compiler.create_buffer(vec![10], 4);
+
+        // 入力データを設定
+        let input0_data: Vec<f32> = (0..10).map(|i| i as f32).collect();
+        let input1_data: Vec<f32> = (0..10).map(|i| (i * 2) as f32).collect();
+
+        input0_buffer.write_data(&input0_data);
+        input1_buffer.write_data(&input1_data);
+
+        // グリッドサイズを設定
+        kernel.set_grid_size(10, 1, 1);
+
+        // カーネルを実行
+        kernel
+            .dispatch(&[&input0_buffer, &input1_buffer, &output_buffer])
+            .unwrap();
+
+        // 結果を読み出し
+        let mut output_data = vec![0.0f32; 10];
+        output_buffer.read_data(&mut output_data);
+
+        // 確認
+        let expected: Vec<f32> = input0_data
+            .iter()
+            .zip(input1_data.iter())
+            .map(|(&x, &y)| x + y)
+            .collect();
+
+        eprintln!("Input 0: {:?}", input0_data);
+        eprintln!("Input 1: {:?}", input1_data);
+        eprintln!("Output:  {:?}", output_data);
+        eprintln!("Expected: {:?}", expected);
+
+        assert_eq!(output_data, expected);
+        eprintln!("\n✅ End-to-end execution successful!\n");
+    } else {
+        eprintln!("⚠️ Metal not available, skipping test");
+    }
+}
+
+#[test]
+fn test_create_signature_simple() {
+    use crate::graph::shape::Expr;
+
+    // 単純なグラフ: a (shape=[10, 20]) → output
+    let mut graph = Graph::new();
+    let a = graph
+        .input("a")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![10, 20])
+        .build();
+    graph.output("result", a);
+
+    let signature = Lowerer::create_signature(&graph);
+
+    // 入力が1つ
+    assert_eq!(signature.inputs.len(), 1);
+    assert_eq!(signature.inputs[0].name, "a");
+    assert_eq!(signature.inputs[0].shape.len(), 2);
+    assert_eq!(signature.inputs[0].shape[0], Expr::from(10));
+    assert_eq!(signature.inputs[0].shape[1], Expr::from(20));
+
+    // 出力が1つ
+    assert_eq!(signature.outputs.len(), 1);
+    assert_eq!(signature.outputs[0].name, "result");
+    assert_eq!(signature.outputs[0].shape.len(), 2);
+
+    // 動的なshape変数はなし
+    assert_eq!(signature.shape_vars.len(), 0);
+}
+
+#[test]
+fn test_create_signature_with_dynamic_shape() {
+    use crate::graph::shape::Expr;
+
+    // 動的なshapeを持つグラフ: a (shape=[N, M])
+    let mut graph = Graph::new();
+    let n = Expr::Var("N".to_string());
+    let m = Expr::Var("M".to_string());
+    let a = graph
+        .input("a")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![n.clone(), m.clone()])
+        .build();
+    graph.output("result", a);
+
+    let signature = Lowerer::create_signature(&graph);
+
+    // 入力が1つ
+    assert_eq!(signature.inputs.len(), 1);
+    assert_eq!(signature.inputs[0].name, "a");
+    assert_eq!(signature.inputs[0].shape.len(), 2);
+    assert_eq!(signature.inputs[0].shape[0], n);
+    assert_eq!(signature.inputs[0].shape[1], m);
+
+    // 動的なshape変数が2つ（ソートされている）
+    assert_eq!(signature.shape_vars.len(), 2);
+    assert!(signature.shape_vars.contains(&"M".to_string()));
+    assert!(signature.shape_vars.contains(&"N".to_string()));
+}
+
+#[test]
+fn test_create_signature_multiple_inputs_outputs() {
+    use crate::graph::shape::Expr;
+
+    // 複数入出力のグラフ
+    let mut graph = Graph::new();
+    let a = graph
+        .input("input_a")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![10])
+        .build();
+    let b = graph
+        .input("input_b")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![10])
+        .build();
+
+    let sum = a.clone() + b.clone();
+    let prod = a * b;
+
+    graph.output("sum", sum);
+    graph.output("product", prod);
+
+    let signature = Lowerer::create_signature(&graph);
+
+    // 入力が2つ
+    assert_eq!(signature.inputs.len(), 2);
+    assert!(signature.inputs.iter().any(|i| i.name == "input_a"));
+    assert!(signature.inputs.iter().any(|i| i.name == "input_b"));
+
+    // 出力が2つ
+    assert_eq!(signature.outputs.len(), 2);
+    assert!(signature.outputs.iter().any(|o| o.name == "sum"));
+    assert!(signature.outputs.iter().any(|o| o.name == "product"));
+
+    // 全て同じshape [10]
+    for input in &signature.inputs {
+        assert_eq!(input.shape.len(), 1);
+        assert_eq!(input.shape[0], Expr::from(10));
+    }
+}
+
+#[test]
+fn test_topological_sort_simple() {
+    // a + b のグラフ
+    let mut graph = Graph::new();
+    let a = graph
+        .input("a")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![10])
+        .build();
+    let b = graph
+        .input("b")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![10])
+        .build();
+    let result = a + b;
+    graph.output("result", result);
+
+    let order = Lowerer::topological_sort(&graph);
+
+    // 2世代に分かれる：
+    // Generation 0: result (+)
+    // Generation 1: a, b (並列実行可能な入力ノード)
+    assert_eq!(order.len(), 2);
+    assert_eq!(order[0].len(), 1); // result
+    assert_eq!(order[1].len(), 2); // a, b
+}
+
+#[test]
+fn test_topological_sort_complex() {
+    // (a + b) * (c + d) のグラフ
+    let mut graph = Graph::new();
+    let a = graph
+        .input("a")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![10])
+        .build();
+    let b = graph
+        .input("b")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![10])
+        .build();
+    let c = graph
+        .input("c")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![10])
+        .build();
+    let d = graph
+        .input("d")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![10])
+        .build();
+
+    let sum1 = a + b;
+    let sum2 = c + d;
+    let result = sum1 * sum2;
+    graph.output("result", result);
+
+    let order = Lowerer::topological_sort(&graph);
+
+    // 世代構造を確認
+    // Generation 0: result (*)
+    // Generation 1: sum1 (+), sum2 (+) - 並列実行可能
+    // Generation 2: a, b, c, d - 並列実行可能（入力ノード）
+    assert_eq!(order.len(), 3);
+    assert_eq!(order[0].len(), 1); // result
+    assert_eq!(order[1].len(), 2); // sum1, sum2
+    assert_eq!(order[2].len(), 4); // a, b, c, d
+}
+
+#[test]
+fn test_lower_reduce_sum_1d() {
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    // 1次元テンソルの合計（スカラーに縮約）
+    let mut graph = Graph::new();
+    let a = graph
+        .input("a")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![10])
+        .build();
+    let result = a.reduce_sum(0);
+
+    // カーネル関数を生成
+    let mut lowerer = Lowerer::new();
+    let function = lowerer.lower_node_to_kernel(&result, 0);
+
+    assert!(function.is_ok());
+    let function = function.unwrap();
+
+    // パラメータをチェック: input0, output, shape0
+    assert_eq!(function.params.len(), 3);
+    assert_eq!(function.params[0].name, "input0");
+    assert_eq!(function.params[1].name, "output");
+    assert_eq!(function.params[2].name, "shape0");
+
+    // 返り値の型はunit型
+    assert_eq!(function.return_type, AstDType::Tuple(vec![]));
+
+    // 生成されたコードを表示（テスト実行時に確認用）
+    use crate::backend::metal::MetalRenderer;
+    let mut renderer = MetalRenderer::new();
+    let code = renderer.render_function("reduce_sum_kernel", &function);
+    eprintln!(
+        "\n=== Generated Code for test_lower_reduce_sum_1d ===\n{}\n",
+        code
+    );
+}
+
+#[test]
+fn test_lower_reduce_sum_2d() {
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    // 2次元テンソルの軸1方向の合計
+    let mut graph = Graph::new();
+    let a = graph
+        .input("a")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![3, 4])
+        .build();
+    let result = a.reduce_sum(1); // (3, 4) -> (3,)
+
+    // カーネル関数を生成
+    let mut lowerer = Lowerer::new();
+    let function = lowerer.lower_node_to_kernel(&result, 0);
+
+    assert!(function.is_ok());
+    let function = function.unwrap();
+
+    // パラメータをチェック: input0, output, shape0, shape1
+    assert_eq!(function.params.len(), 4);
+    assert_eq!(function.params[0].name, "input0");
+    assert_eq!(function.params[1].name, "output");
+    assert_eq!(function.params[2].name, "shape0");
+    assert_eq!(function.params[3].name, "shape1");
+
+    // 生成されたコードを表示
+    use crate::backend::metal::MetalRenderer;
+    let mut renderer = MetalRenderer::new();
+    let code = renderer.render_function("reduce_sum_2d_kernel", &function);
+    eprintln!(
+        "\n=== Generated Code for test_lower_reduce_sum_2d ===\n{}\n",
+        code
+    );
+}
+
+#[test]
+fn test_lower_reduce_sum_axis0() {
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    // 2次元テンソルの軸0方向の合計
+    let mut graph = Graph::new();
+    let a = graph
+        .input("a")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![3, 4])
+        .build();
+    let result = a.reduce_sum(0); // (3, 4) -> (4,)
+
+    // カーネル関数を生成
+    let mut lowerer = Lowerer::new();
+    let function = lowerer.lower_node_to_kernel(&result, 0);
+
+    assert!(function.is_ok());
+    let function = function.unwrap();
+
+    // パラメータをチェック
+    assert_eq!(function.params.len(), 4);
+
+    // 生成されたコードを表示
+    use crate::backend::metal::MetalRenderer;
+    let mut renderer = MetalRenderer::new();
+    let code = renderer.render_function("reduce_sum_axis0_kernel", &function);
+    eprintln!(
+        "\n=== Generated Code for test_lower_reduce_sum_axis0 ===\n{}\n",
+        code
+    );
+}
+
+#[test]
+fn test_lower_reduce_max() {
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    // 1次元テンソルの最大値（スカラーに縮約）
+    let mut graph = Graph::new();
+    let a = graph
+        .input("a")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![10])
+        .build();
+    let result = a.reduce_max(0);
+
+    // カーネル関数を生成
+    let mut lowerer = Lowerer::new();
+    let function = lowerer.lower_node_to_kernel(&result, 0);
+
+    assert!(function.is_ok());
+    let function = function.unwrap();
+
+    // パラメータをチェック
+    assert_eq!(function.params.len(), 3);
+    assert_eq!(function.params[0].name, "input0");
+    assert_eq!(function.params[1].name, "output");
+
+    // 生成されたコードを表示
+    use crate::backend::metal::MetalRenderer;
+    let mut renderer = MetalRenderer::new();
+    let code = renderer.render_function("reduce_max_kernel", &function);
+    eprintln!(
+        "\n=== Generated Code for test_lower_reduce_max ===\n{}\n",
+        code
+    );
+}
+
+#[test]
+fn test_lower_reduce_mul() {
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    // 2次元テンソルの積縮約
+    let mut graph = Graph::new();
+    let a = graph
+        .input("a")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![5, 6])
+        .build();
+    let result = a.reduce_mul(1); // (5, 6) -> (5,)
+
+    // カーネル関数を生成
+    let mut lowerer = Lowerer::new();
+    let function = lowerer.lower_node_to_kernel(&result, 0);
+
+    assert!(function.is_ok());
+    let function = function.unwrap();
+
+    // パラメータをチェック
+    assert_eq!(function.params.len(), 4);
+
+    // 生成されたコードを表示
+    use crate::backend::metal::MetalRenderer;
+    let mut renderer = MetalRenderer::new();
+    let code = renderer.render_function("reduce_mul_kernel", &function);
+    eprintln!(
+        "\n=== Generated Code for test_lower_reduce_mul ===\n{}\n",
+        code
+    );
+}
+
+#[test]
+fn test_lower_reduce_3d() {
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    // 3次元テンソルの縮約
+    let mut graph = Graph::new();
+    let a = graph
+        .input("a")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![2, 3, 4])
+        .build();
+    let result = a.reduce_sum(1); // (2, 3, 4) -> (2, 4)
+
+    // カーネル関数を生成
+    let mut lowerer = Lowerer::new();
+    let function = lowerer.lower_node_to_kernel(&result, 0);
+
+    assert!(function.is_ok());
+    let function = function.unwrap();
+
+    // パラメータをチェック: input0, output, shape0, shape1, shape2
+    assert_eq!(function.params.len(), 5);
+
+    // 生成されたコードを表示
+    use crate::backend::metal::MetalRenderer;
+    let mut renderer = MetalRenderer::new();
+    let code = renderer.render_function("reduce_3d_kernel", &function);
+    eprintln!(
+        "\n=== Generated Code for test_lower_reduce_3d ===\n{}\n",
+        code
+    );
+}
+
+#[test]
+fn test_lower_contiguous_2d() {
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    use crate::graph::ops::GraphOp;
+    use crate::graph::shape::View;
+
+    // 2次元テンソルの転置を持つノードを作成
+    let mut graph = Graph::new();
+    let a = graph
+        .input("a")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![3, 4]) // 3x4の行列
+        .build();
+
+    // 転置されたView（4x3になる）
+    let transposed_view = a.view.clone().permute(vec![1, 0]);
+
+    // Viewノードを作成（転置操作）
+    let view_node = GraphNode::new(
+        a.dtype.clone(),
+        GraphOp::View(transposed_view.clone()),
+        vec![a.clone()],
+        transposed_view.clone(),
+    );
+
+    // Contiguousノードを作成（実際のメモリレイアウト変換）
+    let contiguous_node = GraphNode::new(
+        view_node.dtype.clone(),
+        GraphOp::Contiguous {
+            elementwise_strategies: None,
+        },
+        vec![view_node.clone()],
+        View::contiguous(transposed_view.shape().to_vec()),
+    );
+
+    // カーネル関数を生成
+    let mut lowerer = Lowerer::new();
+    let function = lowerer.lower_node_to_kernel(&contiguous_node, 0);
+
+    assert!(function.is_ok());
+    let function = function.unwrap();
+
+    // パラメータをチェック: input0, output, shape0, shape1
+    assert_eq!(function.params.len(), 4);
+    assert_eq!(function.params[0].name, "input0");
+    assert_eq!(function.params[1].name, "output");
+    assert_eq!(function.params[2].name, "shape0");
+    assert_eq!(function.params[3].name, "shape1");
+
+    // 生成されたコードを表示
+    use crate::backend::metal::MetalRenderer;
+    let mut renderer = MetalRenderer::new();
+    let code = renderer.render_function("contiguous_2d_kernel", &function);
+    eprintln!(
+        "\n=== Generated Code for test_lower_contiguous_2d ===\n{}\n",
+        code
+    );
+}
+
+#[test]
+fn test_lower_contiguous_1d() {
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    use crate::graph::ops::GraphOp;
+    use crate::graph::shape::View;
+
+    // 1次元テンソルのflip（反転）を持つノードを作成
+    let mut graph = Graph::new();
+    let a = graph
+        .input("a")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![10])
+        .build();
+
+    // 反転されたView
+    let flipped_view = a.view.clone().flip(0);
+
+    // Viewノードを作成（反転操作）
+    let view_node = GraphNode::new(
+        a.dtype.clone(),
+        GraphOp::View(flipped_view.clone()),
+        vec![a.clone()],
+        flipped_view.clone(),
+    );
+
+    // Contiguousノードを作成（実際のメモリレイアウト変換）
+    let contiguous_node = GraphNode::new(
+        view_node.dtype.clone(),
+        GraphOp::Contiguous {
+            elementwise_strategies: None,
+        },
+        vec![view_node.clone()],
+        View::contiguous(flipped_view.shape().to_vec()),
+    );
+
+    // カーネル関数を生成
+    let mut lowerer = Lowerer::new();
+    let function = lowerer.lower_node_to_kernel(&contiguous_node, 0);
+
+    assert!(function.is_ok());
+    let function = function.unwrap();
+
+    // パラメータをチェック: input0, output, shape0
+    assert_eq!(function.params.len(), 3);
+    assert_eq!(function.params[0].name, "input0");
+    assert_eq!(function.params[1].name, "output");
+    assert_eq!(function.params[2].name, "shape0");
+
+    // 生成されたコードを表示
+    use crate::backend::metal::MetalRenderer;
+    let mut renderer = MetalRenderer::new();
+    let code = renderer.render_function("contiguous_1d_kernel", &function);
+    eprintln!(
+        "\n=== Generated Code for test_lower_contiguous_1d ===\n{}\n",
+        code
+    );
+}
+
+#[test]
+fn test_lower_fused_elementwise() {
+    use crate::graph::ops::{ElementwiseOp, FusedElementwiseOp, FusedInput};
+
+    // (a + b) * c を融合ノードとして生成
+    let mut graph = Graph::new();
+    let a = graph
+        .input("a")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![10])
+        .build();
+    let b = graph
+        .input("b")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![10])
+        .build();
+    let c = graph
+        .input("c")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![10])
+        .build();
+
+    // 融合演算を定義
+    let ops = vec![
+        FusedElementwiseOp {
+            op: ElementwiseOp::Add,
+            inputs: vec![FusedInput::GraphInput(0), FusedInput::GraphInput(1)],
+        },
+        FusedElementwiseOp {
+            op: ElementwiseOp::Mul,
+            inputs: vec![FusedInput::IntermediateResult(0), FusedInput::GraphInput(2)],
+        },
+    ];
+
+    let result = crate::graph::ops::fused_elementwise(vec![a, b, c], ops);
+
+    // カーネル関数を生成
+    let mut lowerer = Lowerer::new();
+    let function = lowerer.lower_node_to_kernel(&result, 0);
+
+    assert!(function.is_ok());
+    let function = function.unwrap();
+
+    // パラメータをチェック: input0, input1, input2, output, shape0
+    assert_eq!(function.params.len(), 5);
+    assert_eq!(function.params[0].name, "input0");
+    assert_eq!(function.params[1].name, "input1");
+    assert_eq!(function.params[2].name, "input2");
+    assert_eq!(function.params[3].name, "output");
+    assert_eq!(function.params[4].name, "shape0");
+
+    // 生成されたコードを表示
+    use crate::backend::metal::MetalRenderer;
+    let mut renderer = MetalRenderer::new();
+    let code = renderer.render_function("fused_elementwise_kernel", &function);
+    eprintln!(
+        "\n=== Generated Code for test_lower_fused_elementwise ===\n{}\n",
+        code
+    );
+}
+
+#[test]
+fn test_lower_fused_elementwise_reduce() {
+    use crate::graph::ops::{ElementwiseOp, FusedElementwiseOp, FusedInput, ReduceOp};
+
+    // reduce_sum(a * b, axis=0) を融合ノードとして生成
+    let mut graph = Graph::new();
+    let a = graph
+        .input("a")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![10, 20])
+        .build();
+    let b = graph
+        .input("b")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![10, 20])
+        .build();
+
+    // 融合演算を定義: a * b
+    let ops = vec![FusedElementwiseOp {
+        op: ElementwiseOp::Mul,
+        inputs: vec![FusedInput::GraphInput(0), FusedInput::GraphInput(1)],
+    }];
+
+    let result = crate::graph::ops::fused_elementwise_reduce(vec![a, b], ops, ReduceOp::Add, 0);
+
+    // カーネル関数を生成
+    let mut lowerer = Lowerer::new();
+    let function = lowerer.lower_node_to_kernel(&result, 0);
+
+    assert!(function.is_ok());
+    let function = function.unwrap();
+
+    // パラメータをチェック: input0, input1, output, shape0, shape1
+    assert_eq!(function.params.len(), 5);
+    assert_eq!(function.params[0].name, "input0");
+    assert_eq!(function.params[1].name, "input1");
+    assert_eq!(function.params[2].name, "output");
+    assert_eq!(function.params[3].name, "shape0");
+    assert_eq!(function.params[4].name, "shape1");
+
+    // 生成されたコードを表示
+    use crate::backend::metal::MetalRenderer;
+    let mut renderer = MetalRenderer::new();
+    let code = renderer.render_function("fused_er_kernel", &function);
+    eprintln!(
+        "\n=== Generated Code for test_lower_fused_elementwise_reduce ===\n{}\n",
+        code
+    );
+}

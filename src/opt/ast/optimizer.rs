@@ -1,459 +1,419 @@
 use crate::ast::AstNode;
-use crate::opt::ast::{CostEstimator, RewriteSuggester};
-use console::Style;
-use indicatif::MultiProgress;
-use std::sync::Arc;
+use crate::ast::pat::{AstRewriteRule, AstRewriter};
+use indicatif::{ProgressBar, ProgressStyle};
+use log::debug;
+use std::rc::Rc;
 
-/// An optimizer that uses a cost estimator to select the best rewrite.
-/// This is a wrapper around BeamSearchOptimizer with beam_width=1 (greedy search).
-pub type CostBasedOptimizer<S, E> = BeamSearchOptimizer<S, E>;
+use super::estimator::CostEstimator;
+use super::suggester::Suggester;
 
-/// An optimizer that uses beam search to explore multiple optimization paths.
-///
-/// Beam search maintains a set of k best candidates (the "beam") at each iteration,
-/// allowing it to explore a wider search space than greedy optimization.
-pub struct BeamSearchOptimizer<S: RewriteSuggester, E: CostEstimator> {
+/// ASTを最適化するトレイト
+pub trait Optimizer {
+    /// ASTを最適化して返す
+    fn optimize(&self, ast: AstNode) -> AstNode;
+}
+
+/// ルールベースの最適化器
+pub struct RuleBaseOptimizer {
+    rewriter: AstRewriter,
+}
+
+impl RuleBaseOptimizer {
+    /// 新しい最適化器を作成
+    pub fn new(rules: Vec<Rc<AstRewriteRule>>) -> Self {
+        Self {
+            rewriter: AstRewriter::new(rules),
+        }
+    }
+
+    /// 最大反復回数を設定
+    pub fn with_max_iterations(mut self, max: usize) -> Self {
+        self.rewriter = self.rewriter.with_max_iterations(max);
+        self
+    }
+}
+
+impl Optimizer for RuleBaseOptimizer {
+    fn optimize(&self, ast: AstNode) -> AstNode {
+        debug!("RuleBaseOptimizer: Starting optimization");
+        let result = self.rewriter.apply(ast);
+        debug!("RuleBaseOptimizer: Optimization complete");
+        result
+    }
+}
+
+/// ビームサーチ最適化器
+pub struct BeamSearchOptimizer<S, E>
+where
+    S: Suggester,
+    E: CostEstimator,
+{
     suggester: S,
     estimator: E,
     beam_width: usize,
-    max_iterations: usize,
-    max_history: usize,
+    max_depth: usize,
     show_progress: bool,
-    multi_progress: Option<Arc<MultiProgress>>,
 }
 
-impl<S: RewriteSuggester, E: CostEstimator> BeamSearchOptimizer<S, E> {
-    /// Create a new greedy optimizer (beam_width=1).
-    /// This is the constructor for CostBasedOptimizer.
-    pub fn new(suggester: S, estimator: E, max_iterations: usize) -> Self {
+impl<S, E> BeamSearchOptimizer<S, E>
+where
+    S: Suggester,
+    E: CostEstimator,
+{
+    /// 新しいビームサーチ最適化器を作成
+    pub fn new(suggester: S, estimator: E) -> Self {
         Self {
             suggester,
             estimator,
-            beam_width: 1,
-            max_iterations,
-            // デフォルトでは最大10000件の履歴を保持（メモリ消費を制限）
-            max_history: 10000,
-            // DEBUGビルドの時は自動的にプログレスバーを有効化
-            show_progress: cfg!(debug_assertions),
-            multi_progress: None,
+            beam_width: 10,
+            max_depth: 10,
+            show_progress: true,
         }
     }
 
-    /// Create a new beam search optimizer with specified beam width.
-    pub fn new_beam_search(
-        suggester: S,
-        estimator: E,
-        beam_width: usize,
-        max_iterations: usize,
-    ) -> Self {
-        Self {
-            suggester,
-            estimator,
-            beam_width,
-            max_iterations,
-            // デフォルトでは最大100件の履歴を保持（メモリ消費を制限）
-            max_history: 100,
-            // DEBUGビルドの時は自動的にプログレスバーを有効化
-            show_progress: cfg!(debug_assertions),
-            multi_progress: None,
-        }
-    }
-
-    pub fn with_progress(mut self, show_progress: bool) -> Self {
-        self.show_progress = show_progress;
+    /// ビーム幅を設定
+    pub fn with_beam_width(mut self, width: usize) -> Self {
+        self.beam_width = width;
         self
     }
 
-    pub fn with_max_history(mut self, max_history: usize) -> Self {
-        self.max_history = max_history;
+    /// 最大深さを設定
+    pub fn with_max_depth(mut self, depth: usize) -> Self {
+        self.max_depth = depth;
         self
     }
 
-    /// Set a MultiProgress instance for managing multiple progress bars.
-    /// Use this when running multiple optimizers in parallel to avoid output conflicts.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// use indicatif::MultiProgress;
-    /// use std::sync::Arc;
-    /// use std::thread;
-    ///
-    /// let mp = Arc::new(MultiProgress::new());
-    ///
-    /// let optimizer1 = BeamSearchOptimizer::new(suggester1, estimator1, 100)
-    ///     .with_progress(true)
-    ///     .with_multi_progress(Arc::clone(&mp));
-    ///
-    /// let optimizer2 = BeamSearchOptimizer::new(suggester2, estimator2, 100)
-    ///     .with_progress(true)
-    ///     .with_multi_progress(Arc::clone(&mp));
-    ///
-    /// // Run optimizations in parallel
-    /// let handle1 = thread::spawn(move || optimizer1.optimize(&ast1));
-    /// let handle2 = thread::spawn(move || optimizer2.optimize(&ast2));
-    ///
-    /// let result1 = handle1.join().unwrap();
-    /// let result2 = handle2.join().unwrap();
-    /// ```
-    pub fn with_multi_progress(mut self, multi_progress: Arc<MultiProgress>) -> Self {
-        self.multi_progress = Some(multi_progress);
+    /// プログレスバーの表示/非表示を設定
+    pub fn with_progress(mut self, show: bool) -> Self {
+        self.show_progress = show;
         self
     }
+}
 
-    pub fn optimize(&self, ast: &AstNode) -> AstNode {
-        use indicatif::{ProgressBar, ProgressStyle};
-        use std::cmp::Ordering;
-        use std::collections::{BinaryHeap, VecDeque};
-        let green_bold = Style::new().green().bold();
+impl<S, E> Optimizer for BeamSearchOptimizer<S, E>
+where
+    S: Suggester,
+    E: CostEstimator,
+{
+    fn optimize(&self, ast: AstNode) -> AstNode {
+        debug!("BeamSearchOptimizer: Starting beam search optimization");
 
-        // Wrapper to make AstNode sortable by cost
-        #[derive(Clone)]
-        struct Candidate {
-            ast: AstNode,
-            cost: f32,
-        }
-
-        impl PartialEq for Candidate {
-            fn eq(&self, other: &Self) -> bool {
-                self.cost == other.cost
-            }
-        }
-
-        impl Eq for Candidate {}
-
-        #[allow(clippy::non_canonical_partial_ord_impl)]
-        impl PartialOrd for Candidate {
-            fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-                // Reverse ordering for min-heap
-                other.cost.partial_cmp(&self.cost)
-            }
-        }
-
-        impl Ord for Candidate {
-            fn cmp(&self, other: &Self) -> Ordering {
-                self.partial_cmp(other).unwrap_or(Ordering::Equal)
-            }
-        }
-
-        // Initialize beam with the original AST
-        let initial_cost = self.estimator.estimate_cost(ast);
-        let mut beam = vec![Candidate {
-            ast: ast.clone(),
-            cost: initial_cost,
-        }];
-
-        // 千日手検出のため、訪問済みのASTノードを記録（VecDequeで履歴件数を制限）
-        let mut visited = VecDeque::new();
-        visited.push_back(format!("{:?}", ast));
+        let mut beam = vec![ast];
 
         let pb = if self.show_progress {
-            let pb = ProgressBar::new(self.max_iterations as u64);
+            let pb = ProgressBar::new(self.max_depth as u64);
+
+            // Cargoスタイルのプログレスバー
             pb.set_style(
-                ProgressStyle::default_bar()
-                    .template("{prefix:>12.cyan.bold} [{bar:24}] {pos}/{len} {wide_msg}")
+                ProgressStyle::with_template("{prefix:>12.cyan.bold} [{bar:24}] {pos}/{len} {msg}")
                     .unwrap()
                     .progress_chars("=> "),
             );
             pb.set_prefix("Optimizing");
-            pb.set_message(format!("beam {}, cost {:.6}", beam.len(), initial_cost));
-            pb.tick();
-
-            // If MultiProgress is provided, add the progress bar to it
-            if let Some(ref mp) = self.multi_progress {
-                Some(mp.add(pb))
-            } else {
-                Some(pb)
-            }
+            Some(pb)
         } else {
             None
         };
 
-        // 前回のイテレーションでのベストコストを記録
-        let mut prev_best_cost = initial_cost;
-
-        for _i in 0..self.max_iterations {
-            let mut candidates = BinaryHeap::new();
-
-            // Generate all possible rewrites from current beam
-            for current in &beam {
-                let suggestions = self.suggester.suggest(&current.ast);
-
-                for suggestion in suggestions {
-                    // 千日手検出: すでに訪問済みのノードは候補に追加しない
-                    let suggestion_repr = format!("{:?}", suggestion);
-                    if visited.contains(&suggestion_repr) {
-                        continue;
-                    }
-
-                    let cost = self.estimator.estimate_cost(&suggestion);
-                    candidates.push(Candidate {
-                        ast: suggestion,
-                        cost,
-                    });
-                }
-            }
-
-            // If no new candidates, we're done
-            if candidates.is_empty() {
-                let best = beam
-                    .into_iter()
-                    .min_by(|a, b| a.cost.partial_cmp(&b.cost).unwrap_or(Ordering::Equal))
-                    .map(|c| c.ast)
-                    .unwrap_or_else(|| ast.clone());
-
-                if let Some(ref pb) = pb {
-                    pb.set_position(self.max_iterations as u64);
-                    let best_cost = self.estimator.estimate_cost(&best);
-                    pb.finish_with_message(format!("cost {:.6} (converged)", best_cost));
-                    pb.finish_and_clear();
-                    pb.println(format!(
-                        "{:>12} converged optimization.",
-                        green_bold.apply_to("Finished")
-                    ))
-                }
-                return best;
-            }
-
-            // Select top k candidates for the new beam
-            let old_beam = beam.clone();
-            beam.clear();
-            for _ in 0..self.beam_width {
-                if let Some(candidate) = candidates.pop() {
-                    // 履歴に追加（上限に達したら古いものを削除）
-                    if visited.len() >= self.max_history {
-                        visited.pop_front();
-                    }
-                    visited.push_back(format!("{:?}", candidate.ast));
-                    beam.push(candidate);
-                } else {
-                    break;
-                }
-            }
-
-            // 現在のbeamのベストコストを計算
-            let current_best_cost = beam
-                .iter()
-                .map(|c| c.cost)
-                .min_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal))
-                .unwrap_or(initial_cost);
-
-            // コストが改善しなくなったら早期終了
-            if current_best_cost >= prev_best_cost {
-                // コストが改善していないので、前回のbeamから最良のものを返す
-                let best = old_beam
-                    .into_iter()
-                    .min_by(|a, b| a.cost.partial_cmp(&b.cost).unwrap_or(Ordering::Equal))
-                    .map(|c| c.ast)
-                    .unwrap_or_else(|| ast.clone());
-
-                if let Some(ref pb) = pb {
-                    pb.set_position(self.max_iterations as u64);
-                    pb.finish_with_message(format!("cost {:.6} (no improvement)", prev_best_cost));
-                    pb.finish_and_clear();
-                    pb.println(format!(
-                        "{:>12} no further improvement.",
-                        green_bold.apply_to("Finished")
-                    ))
-                }
-                return best;
-            }
-
-            prev_best_cost = current_best_cost;
-
-            // If beam is empty, we're stuck
-            if beam.is_empty() {
-                if let Some(ref pb) = pb {
-                    pb.set_position(self.max_iterations as u64);
-                    pb.finish_with_message(format!("cost {:.6} (beam empty)", initial_cost));
-                    pb.finish_and_clear();
-                    pb.println(format!(
-                        "{:>12} beam empty.",
-                        green_bold.apply_to("Finished")
-                    ))
-                }
-                return ast.clone();
-            }
-
+        for depth in 0..self.max_depth {
             if let Some(ref pb) = pb {
-                pb.set_message(format!(
-                    "beam {}, cost {:.6}",
-                    beam.len(),
-                    current_best_cost
-                ));
-                pb.inc(1);
+                pb.set_message(format!("depth {}", depth + 1));
+                pb.set_position(depth as u64);
             }
+
+            let mut candidates = Vec::new();
+
+            // 現在のビーム内の各候補から新しい候補を生成
+            for ast in &beam {
+                let new_candidates = self.suggester.suggest(ast);
+                candidates.extend(new_candidates);
+            }
+
+            if candidates.is_empty() {
+                debug!("BeamSearchOptimizer: No more candidates at depth {}", depth);
+                if let Some(ref pb) = pb {
+                    pb.set_position(self.max_depth as u64);
+                }
+                break;
+            }
+
+            debug!(
+                "BeamSearchOptimizer: Found {} candidates at depth {}",
+                candidates.len(),
+                depth
+            );
+
+            // コストでソートして上位beam_width個を残す
+            candidates.sort_by(|a, b| {
+                self.estimator
+                    .estimate(a)
+                    .partial_cmp(&self.estimator.estimate(b))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+            beam = candidates.into_iter().take(self.beam_width).collect();
         }
 
-        let best = beam
-            .into_iter()
-            .min_by(|a, b| a.cost.partial_cmp(&b.cost).unwrap_or(Ordering::Equal))
-            .map(|c| c.ast)
-            .unwrap_or_else(|| ast.clone());
-
-        if let Some(ref pb) = pb {
-            let final_cost = self.estimator.estimate_cost(&best);
-            pb.finish_with_message(format!("cost {:.6}", final_cost));
-            pb.finish_and_clear();
+        if let Some(pb) = pb {
+            pb.finish_with_message("Complete");
         }
 
-        best
+        debug!("BeamSearchOptimizer: Beam search optimization complete");
+
+        // 最良の候補を返す
+        beam.into_iter()
+            .min_by(|a, b| {
+                self.estimator
+                    .estimate(a)
+                    .partial_cmp(&self.estimator.estimate(b))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .unwrap()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast_pattern;
-    use crate::opt::ast::{NodeCountCostEstimator, OperationCostEstimator, RuleBasedSuggester};
+    use crate::ast::Literal;
+    use crate::astpat;
+    use crate::opt::ast::estimator::SimpleCostEstimator;
+    use crate::opt::ast::suggester::RuleBaseSuggester;
 
-    fn i(val: isize) -> AstNode {
-        AstNode::from(val)
+    #[test]
+    fn test_rule_base_optimizer() {
+        // Add(a, 0) -> a というルール
+        let rule = astpat!(|a| {
+            AstNode::Add(Box::new(a), Box::new(AstNode::Const(Literal::Isize(0))))
+        } => {
+            a
+        });
+
+        let optimizer = RuleBaseOptimizer::new(vec![rule]);
+
+        let input = AstNode::Add(
+            Box::new(AstNode::Const(Literal::Isize(42))),
+            Box::new(AstNode::Const(Literal::Isize(0))),
+        );
+
+        let result = optimizer.optimize(input);
+        assert_eq!(result, AstNode::Const(Literal::Isize(42)));
     }
 
     #[test]
-    fn test_cost_based_optimizer() {
-        // Create a simple rule: a + 0 -> a
-        let rule = ast_pattern!(|a| a + i(0) => a.clone());
-        let suggester = RuleBasedSuggester::new(vec![rule]);
-        let estimator = OperationCostEstimator;
-        let optimizer = CostBasedOptimizer::new(suggester, estimator, 10);
+    fn test_beam_search_optimizer() {
+        // 交換則と単位元除去のルール
+        let rule1 = astpat!(|a, b| {
+            AstNode::Add(Box::new(a), Box::new(b))
+        } => {
+            AstNode::Add(Box::new(b), Box::new(a))
+        });
 
-        // a + 0 should be optimized to a (cheaper)
-        let ast = AstNode::Var("a".to_string()) + i(0);
-        let optimized = optimizer.optimize(&ast);
+        let rule2 = astpat!(|a| {
+            AstNode::Add(Box::new(a), Box::new(AstNode::Const(Literal::Isize(0))))
+        } => {
+            a
+        });
 
-        // Check if optimization was applied
-        let expected = AstNode::Var("a".to_string());
-        let original_cost = estimator.estimate_cost(&ast);
-        let optimized_cost = estimator.estimate_cost(&optimized);
+        let suggester = RuleBaseSuggester::new(vec![rule1, rule2]);
+        let estimator = SimpleCostEstimator::new();
 
-        // The optimized cost should be lower than the original cost
-        assert!(optimized_cost < original_cost);
+        let optimizer = BeamSearchOptimizer::new(suggester, estimator)
+            .with_beam_width(5)
+            .with_max_depth(5)
+            .with_progress(false); // テスト中はプログレスバーを非表示
 
-        // The optimized result should match the expected result
-        assert_eq!(optimized, expected);
+        // (42 + 0) を最適化
+        let input = AstNode::Add(
+            Box::new(AstNode::Const(Literal::Isize(42))),
+            Box::new(AstNode::Const(Literal::Isize(0))),
+        );
+
+        let result = optimizer.optimize(input);
+        // 最終的に42に簡約されるはず
+        assert_eq!(result, AstNode::Const(Literal::Isize(42)));
     }
 
     #[test]
-    fn test_beam_search_optimizer_multiple_paths() {
-        // Create multiple rules
-        let rule1 = ast_pattern!(|a| a * i(2) => a.clone() + a.clone());
-        let rule2 = ast_pattern!(|a| a + i(0) => a.clone());
-        let suggester = RuleBasedSuggester::new(vec![rule1, rule2]);
-        let estimator = NodeCountCostEstimator;
-        let optimizer = BeamSearchOptimizer::new_beam_search(suggester, estimator, 5, 10);
+    fn test_beam_search_optimizer_complex() {
+        use crate::opt::ast::rules::{add_commutative, all_algebraic_rules};
 
-        // (a * 2) + 0 should be optimized
-        let ast = (AstNode::Var("a".to_string()) * i(2)) + i(0);
-        let optimized = optimizer.optimize(&ast);
+        let mut rules = all_algebraic_rules();
+        rules.push(add_commutative());
 
-        // Should be smaller than the original
-        let original_cost = estimator.estimate_cost(&ast);
-        let optimized_cost = estimator.estimate_cost(&optimized);
-        assert!(optimized_cost <= original_cost);
+        let suggester = RuleBaseSuggester::new(rules);
+        let estimator = SimpleCostEstimator::new();
+
+        let optimizer = BeamSearchOptimizer::new(suggester, estimator)
+            .with_beam_width(10)
+            .with_max_depth(10)
+            .with_progress(false);
+
+        // ((2 + 3) * 1) + 0 を最適化
+        let input = AstNode::Add(
+            Box::new(AstNode::Mul(
+                Box::new(AstNode::Add(
+                    Box::new(AstNode::Const(Literal::Isize(2))),
+                    Box::new(AstNode::Const(Literal::Isize(3))),
+                )),
+                Box::new(AstNode::Const(Literal::Isize(1))),
+            )),
+            Box::new(AstNode::Const(Literal::Isize(0))),
+        );
+
+        let result = optimizer.optimize(input);
+        // 最終的に5に簡約されるはず
+        assert_eq!(result, AstNode::Const(Literal::Isize(5)));
     }
 
     #[test]
-    fn test_beam_search_vs_greedy() {
-        // Create rules that might lead to different optimal paths
-        let rule1 = ast_pattern!(|a, b| a + b => b.clone() + a.clone()); // Commutative
-        let rule2 = ast_pattern!(|a| a * i(1) => a.clone());
-        let suggester = RuleBasedSuggester::new(vec![rule1, rule2]);
-        let estimator = NodeCountCostEstimator;
+    fn test_beam_search_no_applicable_rules() {
+        // マッチしないルールのみ
+        let rule = astpat!(|a| {
+            AstNode::Mul(Box::new(a), Box::new(AstNode::Const(Literal::Isize(99))))
+        } => {
+            a
+        });
 
-        let beam_optimizer =
-            BeamSearchOptimizer::new_beam_search(suggester.clone(), estimator, 10, 5);
-        let greedy_optimizer = CostBasedOptimizer::new(suggester, estimator, 5);
+        let suggester = RuleBaseSuggester::new(vec![rule]);
+        let estimator = SimpleCostEstimator::new();
 
-        let ast = (i(1) * AstNode::Var("x".to_string())) + AstNode::Var("y".to_string());
+        let optimizer = BeamSearchOptimizer::new(suggester, estimator)
+            .with_beam_width(5)
+            .with_max_depth(5)
+            .with_progress(false);
 
-        let beam_result = beam_optimizer.optimize(&ast);
-        let greedy_result = greedy_optimizer.optimize(&ast);
+        // ルールが適用されない入力
+        let input = AstNode::Const(Literal::Isize(42));
+        let result = optimizer.optimize(input.clone());
 
-        // Both should produce valid optimizations
-        let original_cost = estimator.estimate_cost(&ast);
-        let beam_cost = estimator.estimate_cost(&beam_result);
-        let greedy_cost = estimator.estimate_cost(&greedy_result);
-
-        assert!(beam_cost <= original_cost);
-        assert!(greedy_cost <= original_cost);
-
-        // Beam search should be at least as good as greedy
-        assert!(beam_cost <= greedy_cost);
+        // 変更されないはず
+        assert_eq!(result, input);
     }
 
     #[test]
-    fn test_multi_progress() {
-        use indicatif::MultiProgress;
-        use std::sync::Arc;
+    fn test_beam_search_already_optimal() {
+        use crate::opt::ast::rules::all_algebraic_rules;
 
-        // Create a MultiProgress instance for managing multiple progress bars
-        let mp = Arc::new(MultiProgress::new());
+        let suggester = RuleBaseSuggester::new(all_algebraic_rules());
+        let estimator = SimpleCostEstimator::new();
 
-        // Create two optimizers that share the same MultiProgress
-        let rule = ast_pattern!(|a| a + i(0) => a.clone());
-        let suggester = RuleBasedSuggester::new(vec![rule]);
-        let estimator = OperationCostEstimator;
+        let optimizer = BeamSearchOptimizer::new(suggester, estimator)
+            .with_beam_width(10)
+            .with_max_depth(10)
+            .with_progress(false);
 
-        let optimizer1 = CostBasedOptimizer::new(suggester.clone(), estimator, 5)
-            .with_progress(true)
-            .with_multi_progress(Arc::clone(&mp));
+        // すでに最適化済みの入力
+        let input = AstNode::Const(Literal::Isize(42));
+        let result = optimizer.optimize(input.clone());
 
-        let optimizer2 = CostBasedOptimizer::new(suggester, estimator, 5)
-            .with_progress(true)
-            .with_multi_progress(Arc::clone(&mp));
-
-        // Optimize two different ASTs
-        let ast1 = AstNode::Var("a".to_string()) + i(0);
-        let ast2 = AstNode::Var("b".to_string()) + i(0);
-
-        // In a real scenario, you'd run these in parallel threads
-        // For the test, we just verify they don't crash
-        let _result1 = optimizer1.optimize(&ast1);
-        let _result2 = optimizer2.optimize(&ast2);
-
-        // Both should complete without panicking
+        // 変更されないはず
+        assert_eq!(result, input);
     }
 
     #[test]
-    fn test_early_termination_on_no_improvement() {
-        // Create a simple rule that only works once: a + 0 -> a
-        let rule = ast_pattern!(|a| a + i(0) => a.clone());
-        let suggester = RuleBasedSuggester::new(vec![rule]);
-        let estimator = OperationCostEstimator;
+    fn test_beam_search_with_beam_width_one() {
+        use crate::opt::ast::rules::{add_commutative, all_algebraic_rules};
 
-        // Use a large max_iterations value to ensure early termination is working
-        let optimizer = CostBasedOptimizer::new(suggester, estimator, 1000);
+        let mut rules = all_algebraic_rules();
+        rules.push(add_commutative());
 
-        // a + 0 should be optimized to a, then no further improvements
-        let ast = AstNode::Var("a".to_string()) + i(0);
-        let optimized = optimizer.optimize(&ast);
+        let suggester = RuleBaseSuggester::new(rules);
+        let estimator = SimpleCostEstimator::new();
 
-        // Check that optimization was applied
-        let expected = AstNode::Var("a".to_string());
-        assert_eq!(optimized, expected);
+        // ビーム幅1（貪欲法）
+        let optimizer = BeamSearchOptimizer::new(suggester, estimator)
+            .with_beam_width(1)
+            .with_max_depth(10)
+            .with_progress(false);
 
-        // The optimizer should terminate early when no improvement is possible
-        // (we can't directly test the number of iterations, but the test should complete quickly)
+        let input = AstNode::Add(
+            Box::new(AstNode::Const(Literal::Isize(5))),
+            Box::new(AstNode::Const(Literal::Isize(0))),
+        );
+
+        let result = optimizer.optimize(input);
+        // ビーム幅1でも最適化できるはず
+        assert_eq!(result, AstNode::Const(Literal::Isize(5)));
     }
 
     #[test]
-    fn test_early_termination_on_convergence() {
-        // Create a rule that creates no improvement
-        let rule = ast_pattern!(|a, b| a + b => b.clone() + a.clone());
-        let suggester = RuleBasedSuggester::new(vec![rule]);
-        let estimator = NodeCountCostEstimator;
+    fn test_beam_search_with_max_depth_zero() {
+        use crate::opt::ast::rules::all_algebraic_rules;
 
-        let optimizer = CostBasedOptimizer::new(suggester, estimator, 1000);
+        let suggester = RuleBaseSuggester::new(all_algebraic_rules());
+        let estimator = SimpleCostEstimator::new();
 
-        // Commutative operations should have same cost, so should terminate early
-        let ast = AstNode::Var("a".to_string()) + AstNode::Var("b".to_string());
-        let optimized = optimizer.optimize(&ast);
+        // 最大深さ0（最適化しない）
+        let optimizer = BeamSearchOptimizer::new(suggester, estimator)
+            .with_beam_width(10)
+            .with_max_depth(0)
+            .with_progress(false);
 
-        // Cost should be the same
-        let original_cost = estimator.estimate_cost(&ast);
-        let optimized_cost = estimator.estimate_cost(&optimized);
-        assert_eq!(original_cost, optimized_cost);
+        let input = AstNode::Add(
+            Box::new(AstNode::Const(Literal::Isize(5))),
+            Box::new(AstNode::Const(Literal::Isize(0))),
+        );
+
+        let result = optimizer.optimize(input.clone());
+        // 変更されないはず
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn test_beam_search_early_termination() {
+        // 1回で最適化が完了し、それ以降候補がなくなるケース
+        let rule = astpat!(|a| {
+            AstNode::Add(Box::new(a), Box::new(AstNode::Const(Literal::Isize(0))))
+        } => {
+            a
+        });
+
+        let suggester = RuleBaseSuggester::new(vec![rule]);
+        let estimator = SimpleCostEstimator::new();
+
+        let optimizer = BeamSearchOptimizer::new(suggester, estimator)
+            .with_beam_width(5)
+            .with_max_depth(10) // 深さは10だが早期終了するはず
+            .with_progress(false);
+
+        let input = AstNode::Add(
+            Box::new(AstNode::Const(Literal::Isize(42))),
+            Box::new(AstNode::Const(Literal::Isize(0))),
+        );
+
+        let result = optimizer.optimize(input);
+        assert_eq!(result, AstNode::Const(Literal::Isize(42)));
+    }
+
+    #[test]
+    fn test_beam_search_large_beam_width() {
+        use crate::opt::ast::rules::{add_commutative, all_algebraic_rules};
+
+        let mut rules = all_algebraic_rules();
+        rules.push(add_commutative());
+
+        let suggester = RuleBaseSuggester::new(rules);
+        let estimator = SimpleCostEstimator::new();
+
+        // 非常に大きなビーム幅
+        let optimizer = BeamSearchOptimizer::new(suggester, estimator)
+            .with_beam_width(1000)
+            .with_max_depth(5)
+            .with_progress(false);
+
+        let input = AstNode::Add(
+            Box::new(AstNode::Mul(
+                Box::new(AstNode::Add(
+                    Box::new(AstNode::Const(Literal::Isize(2))),
+                    Box::new(AstNode::Const(Literal::Isize(3))),
+                )),
+                Box::new(AstNode::Const(Literal::Isize(1))),
+            )),
+            Box::new(AstNode::Const(Literal::Isize(0))),
+        );
+
+        let result = optimizer.optimize(input);
+        assert_eq!(result, AstNode::Const(Literal::Isize(5)));
     }
 }

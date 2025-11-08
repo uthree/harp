@@ -1,331 +1,356 @@
-use super::{
-    AstNode, ConstLiteral, DType, KernelScope, RangeBuilder, Scope, ThreadIdDecl, ThreadIdType,
-};
+use super::{AstNode, DType};
 
-// Convenience constructors for common variants
+// Convenience free functions for AST construction
 
-/// Create a variable reference
+/// Macro to generate binary operation helper functions
+macro_rules! impl_binary_helper {
+    ($fn_name:ident, $variant:ident, $doc:expr) => {
+        #[doc = $doc]
+        pub fn $fn_name(a: AstNode, b: AstNode) -> AstNode {
+            AstNode::$variant(Box::new(a), Box::new(b))
+        }
+    };
+}
+
+/// Macro to generate unary operation helper functions
+macro_rules! impl_unary_helper {
+    ($fn_name:ident, $variant:ident, $doc:expr) => {
+        #[doc = $doc]
+        pub fn $fn_name(a: AstNode) -> AstNode {
+            AstNode::$variant(Box::new(a))
+        }
+    };
+}
+
+// Binary operation helpers
+impl_binary_helper!(max, Max, "Create a max node: max(a, b)");
+impl_binary_helper!(idiv, Idiv, "Create an integer division node: a / b");
+
+// Unary operation helpers
+impl_unary_helper!(recip, Recip, "Create a reciprocal node: 1 / a");
+impl_unary_helper!(sqrt, Sqrt, "Create a square root node: sqrt(a)");
+impl_unary_helper!(log2, Log2, "Create a log2 node: log2(a)");
+impl_unary_helper!(exp2, Exp2, "Create an exp2 node: 2^a");
+impl_unary_helper!(sin, Sin, "Create a sine node: sin(a)");
+
+/// Create a cast node: cast a to dtype
+pub fn cast(a: AstNode, dtype: DType) -> AstNode {
+    AstNode::Cast(Box::new(a), dtype)
+}
+
+/// Create a variable reference node
 pub fn var(name: impl Into<String>) -> AstNode {
     AstNode::Var(name.into())
 }
 
-/// Create a constant from a literal
-pub fn const_val(val: impl Into<ConstLiteral>) -> AstNode {
-    AstNode::Const(val.into())
+/// Create a load node for scalar memory access
+pub fn load(ptr: AstNode, offset: AstNode) -> AstNode {
+    AstNode::Load {
+        ptr: Box::new(ptr),
+        offset: Box::new(offset),
+        count: 1,
+    }
 }
 
-/// Create a capture node for pattern matching
-pub fn capture(n: usize) -> AstNode {
-    AstNode::Capture(n)
+/// Create a load node for vector memory access (SIMD)
+pub fn load_vec(ptr: AstNode, offset: AstNode, count: usize) -> AstNode {
+    AstNode::Load {
+        ptr: Box::new(ptr),
+        offset: Box::new(offset),
+        count,
+    }
 }
 
-/// Create a random value node
-pub fn rand() -> AstNode {
-    AstNode::Rand
+/// Create a store node
+pub fn store(ptr: AstNode, offset: AstNode, value: AstNode) -> AstNode {
+    AstNode::Store {
+        ptr: Box::new(ptr),
+        offset: Box::new(offset),
+        value: Box::new(value),
+    }
 }
 
-/// Create a barrier node
+/// Create an assignment node
+pub fn assign(var: impl Into<String>, value: AstNode) -> AstNode {
+    AstNode::Assign {
+        var: var.into(),
+        value: Box::new(value),
+    }
+}
+
+/// Create a barrier node for synchronization in parallel execution
 pub fn barrier() -> AstNode {
     AstNode::Barrier
 }
 
-/// Create a cast node
-pub fn cast(dtype: DType, expr: impl Into<AstNode>) -> AstNode {
-    AstNode::Cast {
-        dtype,
-        expr: Box::new(expr.into()),
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::Literal;
+
+    #[test]
+    fn test_const_creation() {
+        // Test constant creation using Into
+        let f32_node = AstNode::Const(3.14f32.into());
+        match f32_node {
+            AstNode::Const(Literal::F32(v)) => assert_eq!(v, 3.14),
+            _ => panic!("Expected F32 constant"),
+        }
+
+        let isize_node = AstNode::Const(42isize.into());
+        match isize_node {
+            AstNode::Const(Literal::Isize(v)) => assert_eq!(v, 42),
+            _ => panic!("Expected Isize constant"),
+        }
+
+        let usize_node = AstNode::Const(100usize.into());
+        match usize_node {
+            AstNode::Const(Literal::Usize(v)) => assert_eq!(v, 100),
+            _ => panic!("Expected Usize constant"),
+        }
     }
-}
 
-/// Create an add node
-pub fn add(lhs: impl Into<AstNode>, rhs: impl Into<AstNode>) -> AstNode {
-    AstNode::Add(Box::new(lhs.into()), Box::new(rhs.into()))
-}
+    #[test]
+    fn test_binary_ops() {
+        // Test binary operation using operator overloading
+        let a = AstNode::Const(1.0f32.into());
+        let b = AstNode::Const(2.0f32.into());
 
-/// Create a mul node
-pub fn mul(lhs: impl Into<AstNode>, rhs: impl Into<AstNode>) -> AstNode {
-    AstNode::Mul(Box::new(lhs.into()), Box::new(rhs.into()))
-}
+        let add_node = a.clone() + b.clone();
+        match add_node {
+            AstNode::Add(left, right) => match (*left, *right) {
+                (AstNode::Const(Literal::F32(l)), AstNode::Const(Literal::F32(r))) => {
+                    assert_eq!(l, 1.0);
+                    assert_eq!(r, 2.0);
+                }
+                _ => panic!("Expected F32 constants in Add node"),
+            },
+            _ => panic!("Expected Add node"),
+        }
 
-/// Create a rem node
-pub fn rem(lhs: impl Into<AstNode>, rhs: impl Into<AstNode>) -> AstNode {
-    AstNode::Rem(Box::new(lhs.into()), Box::new(rhs.into()))
-}
+        let mul_node = a.clone() * b.clone();
+        match mul_node {
+            AstNode::Mul(_, _) => {}
+            _ => panic!("Expected Mul node"),
+        }
 
-/// Create a neg node
-pub fn neg(expr: impl Into<AstNode>) -> AstNode {
-    AstNode::Neg(Box::new(expr.into()))
-}
+        let max_node = max(a.clone(), b.clone());
+        match max_node {
+            AstNode::Max(_, _) => {}
+            _ => panic!("Expected Max node"),
+        }
 
-/// Create a recip node
-pub fn recip(expr: impl Into<AstNode>) -> AstNode {
-    AstNode::Recip(Box::new(expr.into()))
-}
+        let rem_node = a.clone() % b.clone();
+        match rem_node {
+            AstNode::Rem(_, _) => {}
+            _ => panic!("Expected Rem node"),
+        }
 
-/// Create a sin node
-pub fn sin(expr: impl Into<AstNode>) -> AstNode {
-    AstNode::Sin(Box::new(expr.into()))
-}
-
-/// Create a sqrt node
-pub fn sqrt(expr: impl Into<AstNode>) -> AstNode {
-    AstNode::Sqrt(Box::new(expr.into()))
-}
-
-/// Create a log2 node
-pub fn log2(expr: impl Into<AstNode>) -> AstNode {
-    AstNode::Log2(Box::new(expr.into()))
-}
-
-/// Create an exp2 node
-pub fn exp2(expr: impl Into<AstNode>) -> AstNode {
-    AstNode::Exp2(Box::new(expr.into()))
-}
-
-/// Create a max node
-pub fn max(lhs: impl Into<AstNode>, rhs: impl Into<AstNode>) -> AstNode {
-    AstNode::Max(Box::new(lhs.into()), Box::new(rhs.into()))
-}
-
-/// Create a bit_and node
-pub fn bit_and(lhs: impl Into<AstNode>, rhs: impl Into<AstNode>) -> AstNode {
-    AstNode::BitAnd(Box::new(lhs.into()), Box::new(rhs.into()))
-}
-
-/// Create a bit_or node
-pub fn bit_or(lhs: impl Into<AstNode>, rhs: impl Into<AstNode>) -> AstNode {
-    AstNode::BitOr(Box::new(lhs.into()), Box::new(rhs.into()))
-}
-
-/// Create a bit_xor node
-pub fn bit_xor(lhs: impl Into<AstNode>, rhs: impl Into<AstNode>) -> AstNode {
-    AstNode::BitXor(Box::new(lhs.into()), Box::new(rhs.into()))
-}
-
-/// Create a bit_not node
-pub fn bit_not(expr: impl Into<AstNode>) -> AstNode {
-    AstNode::BitNot(Box::new(expr.into()))
-}
-
-/// Create a shl node
-pub fn shl(lhs: impl Into<AstNode>, rhs: impl Into<AstNode>) -> AstNode {
-    AstNode::Shl(Box::new(lhs.into()), Box::new(rhs.into()))
-}
-
-/// Create a shr node
-pub fn shr(lhs: impl Into<AstNode>, rhs: impl Into<AstNode>) -> AstNode {
-    AstNode::Shr(Box::new(lhs.into()), Box::new(rhs.into()))
-}
-
-/// Create a less-than comparison node (returns Bool)
-pub fn less_than(lhs: impl Into<AstNode>, rhs: impl Into<AstNode>) -> AstNode {
-    AstNode::LessThan(Box::new(lhs.into()), Box::new(rhs.into()))
-}
-
-/// Create an equality comparison node (returns Bool)
-pub fn eq(lhs: impl Into<AstNode>, rhs: impl Into<AstNode>) -> AstNode {
-    AstNode::Eq(Box::new(lhs.into()), Box::new(rhs.into()))
-}
-
-/// Create a select (conditional) node
-pub fn select(
-    cond: impl Into<AstNode>,
-    true_val: impl Into<AstNode>,
-    false_val: impl Into<AstNode>,
-) -> AstNode {
-    AstNode::Select {
-        cond: Box::new(cond.into()),
-        true_val: Box::new(true_val.into()),
-        false_val: Box::new(false_val.into()),
+        let idiv_node = idiv(a.clone(), b.clone());
+        match idiv_node {
+            AstNode::Idiv(_, _) => {}
+            _ => panic!("Expected Idiv node"),
+        }
     }
-}
 
-/// Create an assign node
-pub fn assign(var_name: impl Into<String>, value: impl Into<AstNode>) -> AstNode {
-    AstNode::Assign(var_name.into(), Box::new(value.into()))
-}
+    #[test]
+    fn test_unary_ops() {
+        // Test unary operation helpers
+        let a = AstNode::Const(4.0f32.into());
 
-/// Create a load node (scalar, vector_width=1)
-pub fn load(target: impl Into<AstNode>, index: impl Into<AstNode>) -> AstNode {
-    AstNode::Load {
-        target: Box::new(target.into()),
-        index: Box::new(index.into()),
-        vector_width: 1,
+        let recip_node = recip(a.clone());
+        match recip_node {
+            AstNode::Recip(_) => {}
+            _ => panic!("Expected Recip node"),
+        }
+
+        let sqrt_node = sqrt(a.clone());
+        match sqrt_node {
+            AstNode::Sqrt(_) => {}
+            _ => panic!("Expected Sqrt node"),
+        }
+
+        let log2_node = log2(a.clone());
+        match log2_node {
+            AstNode::Log2(_) => {}
+            _ => panic!("Expected Log2 node"),
+        }
+
+        let exp2_node = exp2(a.clone());
+        match exp2_node {
+            AstNode::Exp2(_) => {}
+            _ => panic!("Expected Exp2 node"),
+        }
+
+        let sin_node = sin(a.clone());
+        match sin_node {
+            AstNode::Sin(_) => {}
+            _ => panic!("Expected Sin node"),
+        }
     }
-}
 
-/// Create a vector load node with specified width
-pub fn load_vec(
-    target: impl Into<AstNode>,
-    index: impl Into<AstNode>,
-    vector_width: usize,
-) -> AstNode {
-    AstNode::Load {
-        target: Box::new(target.into()),
-        index: Box::new(index.into()),
-        vector_width,
+    #[test]
+    fn test_cast() {
+        let a = AstNode::Const(3.14f32.into());
+        let cast_node = cast(a, DType::Isize);
+        match cast_node {
+            AstNode::Cast(_, dtype) => match dtype {
+                DType::Isize => {}
+                _ => panic!("Expected Isize dtype"),
+            },
+            _ => panic!("Expected Cast node"),
+        }
     }
-}
 
-/// Create a store node (scalar, vector_width=1)
-pub fn store(
-    target: impl Into<AstNode>,
-    index: impl Into<AstNode>,
-    value: impl Into<AstNode>,
-) -> AstNode {
-    AstNode::Store {
-        target: Box::new(target.into()),
-        index: Box::new(index.into()),
-        value: Box::new(value.into()),
-        vector_width: 1,
+    #[test]
+    fn test_composite_expression() {
+        // Test building a composite expression: (a + b) * c using operator overloading
+        let a = AstNode::Const(1.0f32.into());
+        let b = AstNode::Const(2.0f32.into());
+        let c = AstNode::Const(3.0f32.into());
+
+        let product = (a + b) * c;
+
+        match product {
+            AstNode::Mul(left, right) => match (*left, *right) {
+                (AstNode::Add(_, _), AstNode::Const(Literal::F32(v))) => {
+                    assert_eq!(v, 3.0);
+                }
+                _ => panic!("Expected Add node and F32 constant"),
+            },
+            _ => panic!("Expected Mul node"),
+        }
     }
-}
 
-/// Create a vector store node with specified width
-pub fn store_vec(
-    target: impl Into<AstNode>,
-    index: impl Into<AstNode>,
-    value: impl Into<AstNode>,
-    vector_width: usize,
-) -> AstNode {
-    AstNode::Store {
-        target: Box::new(target.into()),
-        index: Box::new(index.into()),
-        value: Box::new(value.into()),
-        vector_width,
+    #[test]
+    fn test_var_helper() {
+        let var_node = var("x");
+        match var_node {
+            AstNode::Var(name) => assert_eq!(name, "x"),
+            _ => panic!("Expected Var node"),
+        }
+
+        // Test with String
+        let var_node2 = var("buffer".to_string());
+        match var_node2 {
+            AstNode::Var(name) => assert_eq!(name, "buffer"),
+            _ => panic!("Expected Var node"),
+        }
     }
-}
 
-/// Create a drop node
-pub fn drop(var_name: impl Into<String>) -> AstNode {
-    AstNode::Drop(var_name.into())
-}
+    #[test]
+    fn test_load_helper() {
+        let ptr = var("input0");
+        let offset = AstNode::Const(0usize.into());
+        let load_node = load(ptr, offset);
 
-/// Create a function call node
-pub fn call(name: impl Into<String>, args: Vec<AstNode>) -> AstNode {
-    AstNode::CallFunction {
-        name: name.into(),
-        args,
+        match load_node {
+            AstNode::Load { ptr, offset, count } => {
+                assert_eq!(count, 1);
+                match *ptr {
+                    AstNode::Var(name) => assert_eq!(name, "input0"),
+                    _ => panic!("Expected Var node for ptr"),
+                }
+                match *offset {
+                    AstNode::Const(Literal::Usize(v)) => assert_eq!(v, 0),
+                    _ => panic!("Expected Usize constant for offset"),
+                }
+            }
+            _ => panic!("Expected Load node"),
+        }
     }
-}
 
-/// Create a block node
-pub fn block(scope: Scope, statements: Vec<AstNode>) -> AstNode {
-    AstNode::Block { scope, statements }
-}
+    #[test]
+    fn test_load_vec_helper() {
+        let ptr = cast(var("buffer"), DType::F32.to_ptr());
+        let offset = var("i");
+        let load_node = load_vec(ptr, offset, 4);
 
-/// Create a block node with empty scope
-pub fn block_with_statements(statements: Vec<AstNode>) -> AstNode {
-    AstNode::Block {
-        scope: Scope {
-            declarations: vec![],
-        },
-        statements,
+        match load_node {
+            AstNode::Load { count, .. } => {
+                assert_eq!(count, 4);
+            }
+            _ => panic!("Expected Load node"),
+        }
+
+        // Test type inference
+        let inferred = load_node.infer_type();
+        assert_eq!(inferred, DType::F32.to_vec(4));
     }
-}
 
-/// Create an if node
-pub fn if_then(condition: impl Into<AstNode>, then_branch: impl Into<AstNode>) -> AstNode {
-    AstNode::If {
-        condition: Box::new(condition.into()),
-        then_branch: Box::new(then_branch.into()),
-        else_branch: None,
+    #[test]
+    fn test_store_helper() {
+        let ptr = var("output0");
+        let offset = AstNode::Const(0usize.into());
+        let value = AstNode::Const(3.14f32.into());
+        let store_node = store(ptr, offset, value);
+
+        match store_node {
+            AstNode::Store { ptr, offset, value } => {
+                match *ptr {
+                    AstNode::Var(name) => assert_eq!(name, "output0"),
+                    _ => panic!("Expected Var node for ptr"),
+                }
+                match *offset {
+                    AstNode::Const(Literal::Usize(v)) => assert_eq!(v, 0),
+                    _ => panic!("Expected Usize constant for offset"),
+                }
+                match *value {
+                    AstNode::Const(Literal::F32(v)) => assert_eq!(v, 3.14),
+                    _ => panic!("Expected F32 constant for value"),
+                }
+            }
+            _ => panic!("Expected Store node"),
+        }
     }
-}
 
-/// Create an if-else node
-pub fn if_then_else(
-    condition: impl Into<AstNode>,
-    then_branch: impl Into<AstNode>,
-    else_branch: impl Into<AstNode>,
-) -> AstNode {
-    AstNode::If {
-        condition: Box::new(condition.into()),
-        then_branch: Box::new(then_branch.into()),
-        else_branch: Some(Box::new(else_branch.into())),
+    #[test]
+    fn test_assign_helper() {
+        let value = AstNode::Const(42isize.into());
+        let assign_node = assign("alu0", value);
+
+        match assign_node {
+            AstNode::Assign { var, value } => {
+                assert_eq!(var, "alu0");
+                match *value {
+                    AstNode::Const(Literal::Isize(v)) => assert_eq!(v, 42),
+                    _ => panic!("Expected Isize constant for value"),
+                }
+            }
+            _ => panic!("Expected Assign node"),
+        }
+
+        // Test with String
+        let assign_node2 = assign("temp".to_string(), AstNode::Const(10isize.into()));
+        match assign_node2 {
+            AstNode::Assign { var, .. } => assert_eq!(var, "temp"),
+            _ => panic!("Expected Assign node"),
+        }
     }
-}
 
-/// Helper to create a Range with default start=0 and step=1
-pub fn range(
-    counter_name: impl Into<String>,
-    max: impl Into<AstNode>,
-    body: impl Into<AstNode>,
-) -> AstNode {
-    RangeBuilder::new(counter_name, max, body).build()
-}
+    #[test]
+    fn test_memory_operation_combination() {
+        // Test realistic memory operation: output[i] = input[i] * 2
+        let input_ptr = var("input");
+        let output_ptr = var("output");
+        let i = var("i");
 
-/// Create a RangeBuilder for more control
-pub fn range_builder(
-    counter_name: impl Into<String>,
-    max: impl Into<AstNode>,
-    body: impl Into<AstNode>,
-) -> RangeBuilder {
-    RangeBuilder::new(counter_name, max, body)
-}
+        let loaded = load(input_ptr, i.clone());
+        let doubled = loaded * AstNode::Const(2.0f32.into());
+        let stored = store(output_ptr, i, doubled);
 
-/// Create a Function node
-pub fn function(
-    name: impl Into<String>,
-    arguments: Vec<(String, DType)>,
-    return_type: DType,
-    scope: Scope,
-    statements: Vec<AstNode>,
-) -> AstNode {
-    AstNode::function(name, arguments, return_type, scope, statements)
-}
-
-/// Create a Program node
-pub fn program(functions: Vec<AstNode>, entry_point: impl Into<String>) -> AstNode {
-    AstNode::program(functions, entry_point)
-}
-
-/// Create a Kernel node
-pub fn kernel(
-    name: impl Into<String>,
-    arguments: Vec<(String, DType)>,
-    return_type: DType,
-    scope: KernelScope,
-    statements: Vec<AstNode>,
-    global_size: [Box<AstNode>; 3],
-    local_size: [Box<AstNode>; 3],
-) -> AstNode {
-    AstNode::kernel(
-        name,
-        arguments,
-        return_type,
-        scope,
-        statements,
-        global_size,
-        local_size,
-    )
-}
-
-/// Create a CallKernel node
-pub fn call_kernel(
-    name: impl Into<String>,
-    args: Vec<AstNode>,
-    global_size: [Box<AstNode>; 3],
-    local_size: [Box<AstNode>; 3],
-) -> AstNode {
-    AstNode::call_kernel(name, args, global_size, local_size)
-}
-
-/// Create a ThreadIdDecl (3-dimensional vector variable)
-pub fn thread_id_decl(name: impl Into<String>, id_type: ThreadIdType) -> ThreadIdDecl {
-    ThreadIdDecl {
-        name: name.into(),
-        id_type,
+        match stored {
+            AstNode::Store { .. } => {}
+            _ => panic!("Expected Store node"),
+        }
     }
-}
 
-/// Create a KernelScope with thread IDs and regular variables
-pub fn kernel_scope(
-    thread_ids: Vec<ThreadIdDecl>,
-    declarations: Vec<super::VariableDecl>,
-) -> KernelScope {
-    KernelScope {
-        thread_ids,
-        declarations,
+    #[test]
+    fn test_barrier_helper() {
+        let barrier_node = barrier();
+        match barrier_node {
+            AstNode::Barrier => {}
+            _ => panic!("Expected Barrier node"),
+        }
     }
 }

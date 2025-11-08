@@ -1,135 +1,200 @@
-use super::utils::LowererUtils;
-use crate::ast::{AstNode, VariableDecl};
-use crate::graph::GraphNode;
+use crate::ast::{
+    AccessRegion, AstNode, DType as AstDType, Function, FunctionKind, Literal, Mutability, Scope,
+    VarDecl, VarKind, helper::*,
+};
+use crate::graph::{
+    GraphNode,
+    ops::{FusedElementwiseOp, FusedInput},
+};
+use log::debug;
 
-/// FusedElementwise演算のコード生成を行う構造体
-pub(super) struct FusedElementwiseLowerer;
+use super::Lowerer;
 
-impl FusedElementwiseLowerer {
-    /// FusedElementwise演算のコード生成
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn lower(
+impl Lowerer {
+    /// FusedElementwise演算をカーネル関数に変換
+    pub(super) fn lower_fused_elementwise_kernel(
+        &mut self,
         node: &GraphNode,
-        ast: &AstNode,
-        inputs: &[GraphNode],
-        declarations: &mut Vec<VariableDecl>,
-        mut get_var: impl FnMut(&GraphNode) -> String,
-    ) -> Option<AstNode> {
-        let result_var = get_var(node);
+        _node_id: usize,
+        ops: &[FusedElementwiseOp],
+    ) -> Result<Function, String> {
+        debug!(
+            "Lowering fused elementwise operation with {} ops",
+            ops.len()
+        );
+        debug!("View: {:?}", node.view);
 
-        // 出力ノードの場合は配列を宣言しない（引数として渡される）
-        LowererUtils::declare_result_variable(&result_var, &node.view, &node.dtype, declarations);
+        let shape = node.view.shape();
+        let ndim = shape.len();
 
-        // 入力の変数名を取得
-        let input_vars: Vec<String> = inputs.iter().map(get_var).collect();
+        // パラメータを生成: 入力バッファー、出力バッファー、shape変数
+        let mut params = Vec::new();
 
-        // ループを生成
-        Some(Self::create_loop(
-            &node.view,
-            ast,
-            &input_vars,
-            inputs,
-            &result_var,
-            0,
-        ))
-    }
-
-    fn create_loop(
-        view: &crate::graph::shape::view::View,
-        ast: &AstNode,
-        input_vars: &[String],
-        inputs: &[GraphNode],
-        result_var: &str,
-        dim: usize,
-    ) -> AstNode {
-        let crate::graph::shape::view::View::Linear {
-            shape,
-            strides,
-            offset,
-            ..
-        } = view;
-
-        if dim >= shape.len() {
-            // 最内レベル: 実際の計算を実行
-            // AstNode内のCaptureを実際の入力参照に置き換え
-            let value_ast = Self::replace_captures_with_input_refs(
-                ast,
-                input_vars,
-                inputs,
-                strides,
-                offset,
-                shape.len(),
-            );
-
-            // 結果を格納
-            let result_index = LowererUtils::compute_memory_index(strides, offset, shape.len());
-            return AstNode::Store {
-                target: Box::new(AstNode::Var(result_var.to_string())),
-                index: Box::new(result_index),
-                value: Box::new(value_ast),
-                vector_width: 1,
-            };
+        // 入力バッファー（srcノード）
+        for (i, src) in node.src.iter().enumerate() {
+            let dtype = self.graph_dtype_to_ast_ptr(&src.dtype)?;
+            params.push(VarDecl {
+                name: format!("input{}", i),
+                dtype,
+                mutability: Mutability::Immutable,
+                region: AccessRegion::Shared,
+                kind: VarKind::Normal,
+            });
         }
 
-        // ループを生成
-        let loop_var = format!("ridx{}", dim);
-        let inner_body = Self::create_loop(view, ast, input_vars, inputs, result_var, dim + 1);
+        // 出力バッファー
+        let output_dtype = self.graph_dtype_to_ast_ptr(&node.dtype)?;
+        params.push(VarDecl {
+            name: "output".to_string(),
+            dtype: output_dtype,
+            mutability: Mutability::Mutable,
+            region: AccessRegion::Shared,
+            kind: VarKind::Normal,
+        });
 
-        LowererUtils::create_dimension_loop(loop_var, &shape[dim], inner_body, None)
+        // Shape変数（各軸のサイズ）
+        for i in 0..ndim {
+            params.push(VarDecl {
+                name: format!("shape{}", i),
+                dtype: AstDType::Usize,
+                mutability: Mutability::Immutable,
+                region: AccessRegion::Shared,
+                kind: VarKind::Normal,
+            });
+        }
+
+        // ループ本体の生成
+        let body_statements = self.generate_fused_elementwise_loops(node, ops, ndim)?;
+
+        // カーネル関数を作成
+        let function = Function::new(
+            FunctionKind::Normal,
+            params,
+            AstDType::Tuple(vec![]),
+            body_statements,
+        )?;
+
+        debug!(
+            "Generated fused elementwise function with {} parameters",
+            function.params.len()
+        );
+        if log::log_enabled!(log::Level::Debug) {
+            use crate::backend::metal::MetalRenderer;
+            let mut renderer = MetalRenderer::new();
+            let code = renderer.render_function("fused_kernel_fn", &function);
+            debug!("Generated code:\n{}", code);
+        }
+
+        Ok(function)
     }
 
-    /// AstNode内のCaptureを実際の入力変数への参照に置き換え
-    pub(super) fn replace_captures_with_input_refs(
-        ast: &AstNode,
-        input_vars: &[String],
-        inputs: &[GraphNode],
-        _strides: &[crate::graph::shape::Expr],
-        _offset: &crate::graph::shape::Expr,
+    /// FusedElementwise演算のループを生成
+    fn generate_fused_elementwise_loops(
+        &mut self,
+        node: &GraphNode,
+        ops: &[FusedElementwiseOp],
         ndim: usize,
-    ) -> AstNode {
-        match ast {
-            AstNode::Capture(idx) => {
-                // Capture(idx)を inputs[idx] の参照に置き換え
-                let input_var = &input_vars[*idx];
-                let input_view = &inputs[*idx].view;
+    ) -> Result<Vec<AstNode>, String> {
+        if ndim == 0 {
+            // スカラー演算（ループなし）
+            return self.generate_fused_elementwise_body(node, ops, &[]);
+        }
 
-                // スカラー（空の形状）の場合は直接変数を使用
-                if input_view.shape().is_empty() {
-                    return AstNode::Var(input_var.clone());
-                }
+        // ネストしたループを生成（外側から内側へ）
+        let mut body_statements =
+            self.generate_fused_elementwise_body(node, ops, &(0..ndim).collect::<Vec<_>>())?;
 
-                // 入力のstrideとoffsetを取得
-                let crate::graph::shape::view::View::Linear {
-                    strides: input_strides,
-                    offset: input_offset,
-                    ..
-                } = input_view;
+        // ループを逆順に作成（内側から外側へ）
+        for axis in (0..ndim).rev() {
+            let loop_var = format!("ridx{}", axis);
+            let shape_var = var(format!("shape{}", axis));
+            let elementwise_strategy = &node.elementwise_strategies[axis];
+            let unroll_factor = elementwise_strategy.unroll_factor();
 
-                // 入力のindexを計算
-                let input_index =
-                    LowererUtils::compute_memory_index(input_strides, input_offset, ndim);
+            if unroll_factor > 1 {
+                // ループアンローリングを適用
+                body_statements =
+                    self.generate_unrolled_loop(axis, unroll_factor, body_statements)?;
+            } else {
+                // 通常のループ
+                let loop_body = AstNode::Block {
+                    statements: body_statements,
+                    scope: Box::new(Scope::new()),
+                };
 
-                // 参照を返す
-                AstNode::Load {
-                    target: Box::new(AstNode::Var(input_var.clone())),
-                    index: Box::new(input_index),
-                    vector_width: 1,
-                }
-            }
-            _ => {
-                // 再帰的に子ノードを置き換え
-                let new_ast = ast.clone();
-                let children: Vec<AstNode> = new_ast
-                    .children()
-                    .iter()
-                    .map(|child| {
-                        Self::replace_captures_with_input_refs(
-                            child, input_vars, inputs, _strides, _offset, ndim,
-                        )
-                    })
-                    .collect();
-                new_ast.replace_children(children)
+                body_statements = vec![AstNode::Range {
+                    var: loop_var.clone(),
+                    start: Box::new(AstNode::Const(Literal::Usize(0))),
+                    step: Box::new(AstNode::Const(Literal::Usize(1))),
+                    stop: Box::new(shape_var),
+                    body: Box::new(loop_body),
+                }];
             }
         }
+
+        Ok(body_statements)
+    }
+
+    /// FusedElementwise演算の本体を生成（ループ内部の処理）
+    fn generate_fused_elementwise_body(
+        &mut self,
+        node: &GraphNode,
+        ops: &[FusedElementwiseOp],
+        axes: &[usize],
+    ) -> Result<Vec<AstNode>, String> {
+        let mut statements = Vec::new();
+
+        // 全ての入力をロード
+        let mut graph_inputs = Vec::new();
+        for (i, src) in node.src.iter().enumerate() {
+            let alu_var = self.fresh_alu();
+            let input_ptr = var(format!("input{}", i));
+
+            // 各srcノードのViewからオフセットを計算
+            let offset = self.compute_offset_from_view(src, axes);
+            let load_node = load(input_ptr, offset);
+
+            statements.push(assign(&alu_var, load_node));
+            graph_inputs.push(alu_var);
+        }
+
+        // 中間結果を保存する配列
+        let mut intermediate_results = Vec::new();
+
+        // ops配列を順に評価
+        for fused_op in ops {
+            // この演算の入力を取得
+            let mut operands = Vec::new();
+            for input in &fused_op.inputs {
+                let operand = match input {
+                    FusedInput::GraphInput(idx) => {
+                        // GraphNodeのsrc[i]から読み込んだ値
+                        var(&graph_inputs[*idx])
+                    }
+                    FusedInput::IntermediateResult(idx) => {
+                        // ops[i]の中間結果
+                        var(&intermediate_results[*idx])
+                    }
+                };
+                operands.push(operand);
+            }
+
+            // 演算を適用
+            let result = self.apply_elementwise_op(&fused_op.op, &operands)?;
+            let result_var = self.fresh_alu();
+            statements.push(assign(&result_var, result));
+            intermediate_results.push(result_var);
+        }
+
+        // 最後の演算結果を出力にストア
+        if let Some(last_result) = intermediate_results.last() {
+            let output_ptr = var("output");
+            let output_offset = self.compute_offset_from_view(node, axes);
+            statements.push(store(output_ptr, output_offset, var(last_result)));
+        } else {
+            return Err("FusedElementwise requires at least one operation".to_string());
+        }
+
+        Ok(statements)
     }
 }

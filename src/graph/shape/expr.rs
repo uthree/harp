@@ -1,4 +1,3 @@
-use crate::ast::{AstNode, ConstLiteral};
 use std::fmt;
 use std::ops::{
     Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
@@ -18,23 +17,32 @@ pub enum Expr {
     Rem(Box<Self>, Box<Self>),
 }
 
-impl From<Expr> for AstNode {
+impl From<Expr> for crate::ast::AstNode {
     fn from(expr: Expr) -> Self {
+        use crate::ast::{AstNode, Literal};
+
         // 変換前にsimplifyして可読性を向上
         let expr = expr.simplify();
         match expr {
-            Expr::Const(c) => AstNode::Const(ConstLiteral::Isize(c)),
-            Expr::Var(s) => AstNode::Var(s),
+            Expr::Const(c) => AstNode::Const(Literal::Isize(c)),
+            Expr::Var(s) => {
+                // 変数を直接ASTのVarに変換
+                AstNode::Var(s)
+            }
             Expr::Add(l, r) => AstNode::Add(Box::new((*l).into()), Box::new((*r).into())),
-            Expr::Sub(l, r) => AstNode::Add(
-                Box::new((*l).into()),
-                Box::new(AstNode::Neg(Box::new((*r).into()))),
-            ),
+            Expr::Sub(l, r) => {
+                // a - b = a + (-b)
+                let left: AstNode = (*l).into();
+                let right: AstNode = (*r).into();
+                left + (-right)
+            }
             Expr::Mul(l, r) => AstNode::Mul(Box::new((*l).into()), Box::new((*r).into())),
-            Expr::Div(l, r) => AstNode::Add(
-                Box::new((*l).into()),
-                Box::new(AstNode::Recip(Box::new((*r).into()))),
-            ),
+            Expr::Div(l, r) => {
+                // a / b = a * recip(b)
+                let left: AstNode = (*l).into();
+                let right: AstNode = (*r).into();
+                left * crate::ast::helper::recip(right)
+            }
             Expr::Rem(l, r) => AstNode::Rem(Box::new((*l).into()), Box::new((*r).into())),
         }
     }
@@ -267,188 +275,6 @@ impl fmt::Display for Expr {
     }
 }
 
-/// Create a vector of `Expr` with a mix of constants and variables.
-///
-/// This macro allows you to easily create shape vectors by mixing integer literals
-/// and string literals (which become variables).
-///
-/// # Examples
-///
-/// ```
-/// use harp::{s, graph::shape::Expr};
-///
-/// // Pure constants
-/// let shape1 = s![1, 2, 3];
-/// assert_eq!(shape1, vec![Expr::from(1), Expr::from(2), Expr::from(3)]);
-///
-/// // Pure variables
-/// let shape2 = s!["a", "b"];
-/// assert_eq!(shape2, vec![Expr::Var("a".to_string()), Expr::Var("b".to_string())]);
-///
-/// // Mixed constants and variables
-/// let shape3 = s![1, "N", 2, "batch_size"];
-/// assert_eq!(shape3, vec![
-///     Expr::from(1),
-///     Expr::Var("N".to_string()),
-///     Expr::from(2),
-///     Expr::Var("batch_size".to_string())
-/// ]);
-///
-/// // Empty shape
-/// let shape4 = s![];
-/// let empty: Vec<Expr> = vec![];
-/// assert_eq!(shape4, empty);
-/// ```
-#[macro_export]
-macro_rules! s {
-    // Base case: empty
-    () => {
-        Vec::<$crate::graph::shape::Expr>::new()
-    };
-
-    // One or more elements
-    ($($item:expr),+ $(,)?) => {
-        vec![$($crate::graph::shape::Expr::from($item)),+]
-    };
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_simplify_add() {
-        let a = Expr::Var("a".to_string());
-        assert_eq!((a.clone() + 0).simplify(), a.clone());
-        assert_eq!((Expr::from(0) + a.clone()).simplify(), a.clone());
-        assert_eq!((Expr::from(2) + 3).simplify(), Expr::from(5));
-    }
-
-    #[test]
-    fn test_simplify_sub() {
-        let a = Expr::Var("a".to_string());
-        assert_eq!((a.clone() - 0).simplify(), a.clone());
-        assert_eq!((a.clone() - a.clone()).simplify(), Expr::from(0));
-        assert_eq!((Expr::from(5) - 2).simplify(), Expr::from(3));
-        assert_eq!(((a.clone() + 2) - 2).simplify(), a.clone());
-    }
-
-    #[test]
-    #[allow(clippy::erasing_op)]
-    fn test_simplify_mul() {
-        let a = Expr::Var("a".to_string());
-        assert_eq!((a.clone() * 1).simplify(), a.clone());
-        assert_eq!((Expr::from(1) * a.clone()).simplify(), a.clone());
-        assert_eq!((a.clone() * 0).simplify(), Expr::from(0));
-        assert_eq!((Expr::from(0) * a.clone()).simplify(), Expr::from(0));
-        assert_eq!((Expr::from(2) * 3).simplify(), Expr::from(6));
-    }
-
-    #[test]
-    fn test_simplify_div() {
-        let a = Expr::Var("a".to_string());
-        assert_eq!((a.clone() / 1).simplify(), a.clone());
-        assert_eq!((a.clone() / a.clone()).simplify(), Expr::from(1));
-        assert_eq!((Expr::from(0) / a).simplify(), Expr::from(0));
-        assert_eq!((Expr::from(6) / 2).simplify(), Expr::from(3));
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_simplify_div_by_zero() {
-        (Expr::from(1) / 0).simplify();
-    }
-
-    #[test]
-    #[allow(clippy::modulo_one)]
-    fn test_simplify_rem() {
-        let a = Expr::Var("a".to_string());
-        assert_eq!((a.clone() % 1).simplify(), Expr::from(0));
-        assert_eq!((a.clone() % a.clone()).simplify(), Expr::from(0));
-        assert_eq!((Expr::from(0) % a).simplify(), Expr::from(0));
-        assert_eq!((Expr::from(7) % 2).simplify(), Expr::from(1));
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_simplify_rem_by_zero() {
-        (Expr::from(1) % 0).simplify();
-    }
-
-    #[test]
-    fn test_simplify_complex() {
-        let a = Expr::Var("a".to_string());
-        let b = Expr::Var("b".to_string());
-        // ((a + 0) * 1 + b) / 1 = a + b
-        let expr = ((a.clone() + 0) * 1 + b.clone()) / 1;
-        assert_eq!(expr.simplify(), a + b);
-    }
-
-    #[test]
-    fn test_s_macro() {
-        use crate::s;
-
-        // Test the s! macro with various combinations
-        let shape1 = s![1, 2, 3];
-        assert_eq!(shape1, vec![Expr::from(1), Expr::from(2), Expr::from(3)]);
-
-        let shape2 = s!["a", "b"];
-        assert_eq!(
-            shape2,
-            vec![Expr::Var("a".to_string()), Expr::Var("b".to_string())]
-        );
-
-        let shape3 = s![1, "N", 2, "batch_size"];
-        assert_eq!(
-            shape3,
-            vec![
-                Expr::from(1),
-                Expr::Var("N".to_string()),
-                Expr::from(2),
-                Expr::Var("batch_size".to_string())
-            ]
-        );
-
-        let shape4 = s![];
-        let empty: Vec<Expr> = vec![];
-        assert_eq!(shape4, empty);
-    }
-
-    #[test]
-    fn test_s_macro_with_graph() {
-        use crate::{ast::DType, graph::Graph, s};
-
-        let mut graph = Graph::new();
-
-        // Use the s! macro to create shapes for graph input
-        let input_node = graph.input(DType::F32, s![1, "batch_size", 3, "height", "width"]);
-
-        // Verify the shape
-        let expected_shape = vec![
-            Expr::from(1),
-            Expr::Var("batch_size".to_string()),
-            Expr::from(3),
-            Expr::Var("height".to_string()),
-            Expr::Var("width".to_string()),
-        ];
-        assert_eq!(input_node.view.shape(), expected_shape);
-
-        // Also test with pure constants and pure variables
-        let const_input = graph.input(DType::F32, s![2, 3, 4]);
-        assert_eq!(
-            const_input.view.shape(),
-            &[Expr::from(2), Expr::from(3), Expr::from(4)]
-        );
-
-        let var_input = graph.input(DType::F32, s!["N", "C", "H", "W"]);
-        assert_eq!(
-            var_input.view.shape(),
-            &[
-                Expr::Var("N".to_string()),
-                Expr::Var("C".to_string()),
-                Expr::Var("H".to_string()),
-                Expr::Var("W".to_string())
-            ]
-        );
-    }
-}
+#[path = "tests.rs"]
+mod tests;

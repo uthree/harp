@@ -1,268 +1,185 @@
-use crate::ast::helper::range;
-use crate::ast::{AstNode, ConstLiteral, DType, VariableDecl};
-use crate::graph::ops::{CumulativeOp, ReduceOp};
-use crate::graph::shape::{view::View, Expr};
+use crate::ast::{AstNode, DType as AstDType, helper::*};
+use crate::backend::KernelSignature;
+use crate::graph::{DType as GraphDType, Graph, GraphNode};
+use std::collections::HashSet;
 
-/// ユーティリティ関数群
-pub(super) struct LowererUtils;
+use super::Lowerer;
 
-impl LowererUtils {
-    /// ループ変数名を生成
-    ///
-    /// # Arguments
-    /// * `dim` - 次元インデックス
-    ///
-    /// # Returns
-    /// ループ変数名（例: "ridx0", "ridx1"）
-    #[inline]
-    pub fn loop_var_name(dim: usize) -> String {
-        format!("ridx{}", dim)
-    }
+impl Lowerer {
+    /// GraphからKernelSignatureを生成
+    pub fn create_signature(graph: &Graph) -> KernelSignature {
+        use crate::backend::{BufferSignature, KernelSignature};
+        use std::collections::HashSet;
 
-    /// アキュムレータ変数名を生成
-    ///
-    /// # Arguments
-    /// * `dim` - 次元インデックス
-    ///
-    /// # Returns
-    /// アキュムレータ変数名（例: "acc0", "acc1"）
-    #[inline]
-    pub fn accumulator_var_name(dim: usize) -> String {
-        format!("acc{}", dim)
-    }
+        let mut inputs = Vec::new();
+        let mut outputs = Vec::new();
+        let mut shape_vars = HashSet::new();
 
-    /// Viewから総要素数を計算（静的サイズのみ）
-    pub fn compute_total_size(view: &View) -> Option<usize> {
-        let View::Linear { shape, .. } = view;
-        let mut total = 1;
-        for dim in shape {
-            if let crate::graph::shape::Expr::Const(n) = dim {
-                total *= *n as usize;
-            } else {
-                return None; // 動的サイズの場合
-            }
-        }
-        Some(total)
-    }
+        // 入力バッファのシグネチャを生成
+        for (name, weak_node) in graph.inputs() {
+            if let Some(node_rc) = weak_node.upgrade() {
+                let shape: Vec<_> = node_rc.view.shape().to_vec();
 
-    /// Viewから総要素数を計算するAstNode式を生成（動的サイズ対応）
-    pub fn compute_total_size_expr(view: &View) -> AstNode {
-        let View::Linear { shape, .. } = view;
-        if shape.is_empty() {
-            return AstNode::Const(ConstLiteral::Usize(1));
-        }
-
-        let mut size_expr = Self::shape_expr_to_ast_node(&shape[0]);
-        for dim in &shape[1..] {
-            let dim_ast = Self::shape_expr_to_ast_node(dim);
-            size_expr = AstNode::Mul(Box::new(size_expr), Box::new(dim_ast));
-        }
-        size_expr
-    }
-
-    /// メモリインデックスを計算（ループ変数i0, i1, ...を使用）
-    pub fn compute_memory_index(
-        strides: &[crate::graph::shape::Expr],
-        offset: &crate::graph::shape::Expr,
-        num_dims: usize,
-    ) -> AstNode {
-        use crate::graph::shape::Expr;
-
-        // Exprレベルで計算してからAstNodeに変換することで、simplifyが適用される
-        let mut index_expr = offset.clone();
-
-        for (i, stride) in strides.iter().enumerate().take(num_dims) {
-            let loop_var = Expr::Var(Self::loop_var_name(i));
-            let term = loop_var * stride.clone();
-            index_expr += term;
-        }
-
-        // 最終的にsimplifyしてからAstNodeに変換
-        let simplified = index_expr.simplify();
-        Self::shape_expr_to_ast_node(&simplified)
-    }
-
-    /// Reduce演算の結果インデックスを計算（reduce軸をスキップ）
-    pub fn compute_reduce_result_index(
-        result_strides: &[crate::graph::shape::Expr],
-        result_offset: &crate::graph::shape::Expr,
-        current_dim: usize,
-        reduce_axis: usize,
-    ) -> AstNode {
-        use crate::graph::shape::Expr;
-
-        // Exprレベルで計算してからAstNodeに変換することで、simplifyが適用される
-        let mut index_expr = result_offset.clone();
-
-        let mut result_dim = 0;
-        for input_dim in 0..current_dim {
-            if input_dim != reduce_axis {
-                // result_stridesの範囲チェック
-                if result_dim >= result_strides.len() {
-                    break;
+                // shape内の変数名を収集
+                for expr in &shape {
+                    Self::collect_shape_vars(expr, &mut shape_vars);
                 }
-                let loop_var = Expr::Var(Self::loop_var_name(input_dim));
-                let term = loop_var * result_strides[result_dim].clone();
-                index_expr += term;
-                result_dim += 1;
+
+                inputs.push(BufferSignature::new(name.clone(), shape));
             }
         }
 
-        // 最終的にsimplifyしてからAstNodeに変換
-        let simplified = index_expr.simplify();
-        Self::shape_expr_to_ast_node(&simplified)
+        // 出力バッファのシグネチャを生成
+        for (name, node) in graph.outputs() {
+            let shape: Vec<_> = node.view.shape().to_vec();
+
+            // shape内の変数名を収集
+            for expr in &shape {
+                Self::collect_shape_vars(expr, &mut shape_vars);
+            }
+
+            outputs.push(BufferSignature::new(name.clone(), shape));
+        }
+
+        // shape_varsをソートしてVecに変換
+        let mut shape_vars_vec: Vec<_> = shape_vars.into_iter().collect();
+        shape_vars_vec.sort();
+
+        KernelSignature::new(inputs, outputs, shape_vars_vec)
     }
 
-    /// 複数軸のReduce演算の結果インデックスを計算
-    pub fn compute_multi_reduce_result_index(
-        result_strides: &[crate::graph::shape::Expr],
-        result_offset: &crate::graph::shape::Expr,
-        ndim: usize,
-        reduce_axes: &[usize],
-    ) -> AstNode {
+    /// Exprから変数名を再帰的に収集
+    pub(super) fn collect_shape_vars(expr: &crate::graph::shape::Expr, vars: &mut HashSet<String>) {
         use crate::graph::shape::Expr;
 
-        let mut index_expr = result_offset.clone();
-        let mut result_dim = 0; // 出力テンソルの次元インデックス
-
-        for dim in 0..ndim {
-            if !reduce_axes.contains(&dim) {
-                // result_stridesの範囲チェック
-                if result_dim >= result_strides.len() {
-                    break;
-                }
-                let loop_var = Expr::Var(Self::loop_var_name(dim));
-                let term = loop_var * result_strides[result_dim].clone();
-                index_expr += term;
-                result_dim += 1; // 出力次元をインクリメント
-            }
-        }
-
-        let simplified = index_expr.simplify();
-        Self::shape_expr_to_ast_node(&simplified)
-    }
-
-    /// Shape ExprをAstNodeに変換
-    pub fn shape_expr_to_ast_node(expr: &Expr) -> AstNode {
         match expr {
-            Expr::Const(n) => AstNode::Const(ConstLiteral::Usize(*n as usize)),
-            Expr::Var(name) => AstNode::Var(name.clone()),
-            Expr::Add(left, right) => AstNode::Add(
-                Box::new(Self::shape_expr_to_ast_node(left)),
-                Box::new(Self::shape_expr_to_ast_node(right)),
-            ),
-            Expr::Mul(left, right) => AstNode::Mul(
-                Box::new(Self::shape_expr_to_ast_node(left)),
-                Box::new(Self::shape_expr_to_ast_node(right)),
-            ),
-            Expr::Div(left, right) => AstNode::Mul(
-                Box::new(Self::shape_expr_to_ast_node(left)),
-                Box::new(AstNode::Recip(Box::new(Self::shape_expr_to_ast_node(
-                    right,
-                )))),
-            ),
-            Expr::Sub(left, right) => AstNode::Add(
-                Box::new(Self::shape_expr_to_ast_node(left)),
-                Box::new(AstNode::Neg(Box::new(Self::shape_expr_to_ast_node(right)))),
-            ),
-            Expr::Rem(left, right) => AstNode::Rem(
-                Box::new(Self::shape_expr_to_ast_node(left)),
-                Box::new(Self::shape_expr_to_ast_node(right)),
-            ),
+            Expr::Var(name) => {
+                vars.insert(name.clone());
+            }
+            Expr::Add(a, b)
+            | Expr::Sub(a, b)
+            | Expr::Mul(a, b)
+            | Expr::Div(a, b)
+            | Expr::Rem(a, b) => {
+                Self::collect_shape_vars(a, vars);
+                Self::collect_shape_vars(b, vars);
+            }
+            Expr::Const(_) => {}
         }
     }
 
-    /// 基本的なループを生成（0からmaxまでstep 1で）
-    ///
-    /// 生成されるループ:
-    /// ```c
-    /// for (counter_name = 0; counter_name < max; counter_name += 1) {
-    ///     body
-    /// }
-    /// ```
-    pub fn create_simple_range_loop(
-        counter_name: String,
-        max: AstNode,
-        body: AstNode,
-        unroll: Option<usize>,
-    ) -> AstNode {
-        if let Some(unroll_count) = unroll {
-            use crate::ast::RangeBuilder;
-            if unroll_count == 0 {
-                RangeBuilder::new(counter_name, max, body).unroll().build()
-            } else {
-                RangeBuilder::new(counter_name, max, body)
-                    .unroll_by(unroll_count)
-                    .build()
+    /// GraphのDTypeをASTのPtr<DType>に変換
+    pub(super) fn graph_dtype_to_ast_ptr(&self, dtype: &GraphDType) -> Result<AstDType, String> {
+        let element_dtype = match dtype {
+            GraphDType::F32 => AstDType::F32,
+            GraphDType::Unknown => return Err("Cannot convert Unknown dtype".to_string()),
+        };
+        Ok(AstDType::Ptr(Box::new(element_dtype)))
+    }
+
+    /// Viewを考慮したオフセット計算
+    pub(super) fn compute_offset_from_view(&self, node: &GraphNode, axes: &[usize]) -> AstNode {
+        use crate::graph::shape::View;
+
+        if axes.is_empty() {
+            // スカラーの場合
+            match &node.view {
+                View::Linear { offset, .. } => {
+                    // Expr::intoでAstNodeに変換
+                    offset.clone().into()
+                }
             }
         } else {
-            range(counter_name, max, body)
+            // テンソルの場合：offset + sum(ridx[i] * stride[i])
+            match &node.view {
+                View::Linear {
+                    strides, offset, ..
+                } => {
+                    let mut result: AstNode = offset.clone().into();
+
+                    for &axis in axes {
+                        let ridx = var(format!("ridx{}", axis));
+                        let stride: AstNode = strides[axis].clone().into();
+                        result = result + ridx * stride;
+                    }
+
+                    result
+                }
+            }
         }
     }
 
-    /// 次元のサイズからループを生成
-    ///
-    /// loop_var: "ridx0", "ridx1" などのループカウンター名
-    /// dim_size: その次元のサイズ（Expr）
-    /// unroll: アンロールヒント (None=no unroll, Some(0)=full unroll, Some(n)=unroll n times)
-    pub fn create_dimension_loop(
-        loop_var: String,
-        dim_size: &Expr,
-        body: AstNode,
-        unroll: Option<usize>,
+    /// 入力のオフセット計算（ridx変数を使用）
+    pub(super) fn compute_offset_for_input(&self, axes: &[usize], input: &GraphNode) -> AstNode {
+        use crate::graph::shape::View;
+
+        match &input.view {
+            View::Linear {
+                strides, offset, ..
+            } => {
+                let mut result: AstNode = offset.clone().into();
+
+                for &axis in axes {
+                    let ridx = var(format!("ridx{}", axis));
+                    let stride: AstNode = strides[axis].clone().into();
+                    result = result + ridx * stride;
+                }
+
+                result
+            }
+        }
+    }
+
+    /// 出力のオフセット計算（oidx変数を使用）
+    pub(super) fn compute_offset_for_output(&self, axes: &[usize], output: &GraphNode) -> AstNode {
+        use crate::graph::shape::View;
+
+        match &output.view {
+            View::Linear {
+                strides, offset, ..
+            } => {
+                let mut result: AstNode = offset.clone().into();
+
+                for &axis in axes {
+                    let oidx = var(format!("oidx{}", axis));
+                    let stride: AstNode = strides[axis].clone().into();
+                    result = result + oidx * stride;
+                }
+
+                result
+            }
+        }
+    }
+
+    /// 入力のオフセット計算（縮約軸を含む、oidxとridxを組み合わせ）
+    pub(super) fn compute_offset_for_input_with_reduce_axis(
+        &self,
+        output_axes: &[usize],
+        reduce_axis: usize,
+        input: &GraphNode,
     ) -> AstNode {
-        let max = Self::shape_expr_to_ast_node(dim_size);
-        Self::create_simple_range_loop(loop_var, max, body, unroll)
-    }
+        use crate::graph::shape::View;
 
-    /// 結果変数の宣言を追加する（出力ノードでない場合のみ）
-    ///
-    /// result_var: 結果変数名
-    /// view: 結果のView情報
-    /// dtype: 結果の要素型
-    /// declarations: 変数宣言のリスト（ここに追加される）
-    pub fn declare_result_variable(
-        result_var: &str,
-        view: &View,
-        dtype: &DType,
-        declarations: &mut Vec<VariableDecl>,
-    ) {
-        if !result_var.starts_with("output_") {
-            let total_size = Self::compute_total_size(view);
-            let (result_dtype, size_expr) = if let Some(size) = total_size {
-                (DType::Vec(Box::new(dtype.clone()), size), None)
-            } else {
-                let size_expr = Self::compute_total_size_expr(view);
-                (
-                    DType::Ptr(Box::new(dtype.clone())),
-                    Some(Box::new(size_expr)),
-                )
-            };
+        match &input.view {
+            View::Linear {
+                strides, offset, ..
+            } => {
+                let mut result: AstNode = offset.clone().into();
 
-            declarations.push(VariableDecl {
-                name: result_var.to_string(),
-                dtype: result_dtype,
-                constant: false,
-                size_expr,
-            });
-        }
-    }
+                // 出力軸に対応する入力軸
+                for (out_idx, &in_axis) in output_axes.iter().enumerate() {
+                    let oidx = var(format!("oidx{}", out_idx));
+                    let stride: AstNode = strides[in_axis].clone().into();
+                    result = result + oidx * stride;
+                }
 
-    /// Reduce演算の初期値を生成
-    pub fn get_reduce_initial_value(op: &ReduceOp) -> AstNode {
-        match op {
-            ReduceOp::Add => AstNode::Const(ConstLiteral::F32(0.0)),
-            ReduceOp::Mul => AstNode::Const(ConstLiteral::F32(1.0)),
-            ReduceOp::Max => AstNode::Const(ConstLiteral::F32(f32::NEG_INFINITY)),
-        }
-    }
+                // 縮約軸
+                let ridx = var(format!("ridx{}", reduce_axis));
+                let stride: AstNode = strides[reduce_axis].clone().into();
+                result = result + ridx * stride;
 
-    /// Cumulative演算の初期値を生成
-    pub fn get_cumulative_initial_value(op: &CumulativeOp) -> AstNode {
-        match op {
-            CumulativeOp::Add => AstNode::Const(ConstLiteral::F32(0.0)),
-            CumulativeOp::Mul => AstNode::Const(ConstLiteral::F32(1.0)),
-            CumulativeOp::Max => AstNode::Const(ConstLiteral::F32(f32::NEG_INFINITY)),
+                result
+            }
         }
     }
 }

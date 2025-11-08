@@ -1,24 +1,33 @@
-pub mod cost_estimator;
-pub mod fusion;
+pub mod estimator;
+pub mod history;
 pub mod optimizer;
-pub mod suggester;
+pub mod suggesters;
 
 use crate::graph::Graph;
 
+/// グラフを最適化するトレイト
 pub trait GraphOptimizer {
-    fn optimize(&mut self, _graph: &mut Graph) {}
+    /// グラフを最適化して返す
+    fn optimize(&self, graph: Graph) -> Graph;
 }
 
-pub use cost_estimator::{estimate_graph_cost, estimate_node_cost};
-pub use fusion::{GraphFusionOptimizer, OptimizationSnapshot};
-pub use optimizer::{optimize_graph, optimize_graph_with_params, BeamSearchOptimizer};
-pub use suggester::{
-    CombinedSuggester, LoopPermutationSuggester, ParallelizationConfig, ParallelizationReason,
-    ParallelizationSuggester, TileSize, TilingSuggester, VectorizationConfig,
-    VectorizationSuggester,
+/// 複数の書き換え候補を提案するトレイト（ビームサーチ用）
+pub trait GraphSuggester {
+    /// 現在のグラフから書き換え可能な候補をすべて提案
+    fn suggest(&self, graph: &Graph) -> Vec<Graph>;
+}
+
+/// グラフの実行コストを推定するトレイト
+pub trait GraphCostEstimator {
+    /// グラフの実行コストを推定
+    fn estimate(&self, graph: &Graph) -> f32;
+}
+
+// Re-export commonly used types
+pub use estimator::SimpleCostEstimator;
+pub use history::{OptimizationHistory, OptimizationSnapshot};
+pub use optimizer::BeamSearchGraphOptimizer;
+pub use suggesters::{
+    CompositeSuggester, FusionSuggester, ParallelStrategyChanger, TilingSuggester,
+    ViewInsertionSuggester,
 };
-
-/// VIZ環境変数が有効かチェック
-pub fn is_viz_enabled() -> bool {
-    std::env::var("VIZ").map(|v| v == "1").unwrap_or(false)
-}
