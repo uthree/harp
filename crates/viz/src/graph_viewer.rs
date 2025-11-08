@@ -19,6 +19,8 @@ pub struct GraphViewerApp {
     current_step: usize,
     /// DOTテキストを表示するかどうか
     show_dot_text: bool,
+    /// コスト遷移グラフを表示するかどうか
+    show_cost_graph: bool,
 }
 
 /// egui-snarl用のノードビュー
@@ -65,6 +67,7 @@ impl GraphViewerApp {
             optimization_history: None,
             current_step: 0,
             show_dot_text: false,
+            show_cost_graph: false,
         }
     }
 
@@ -404,6 +407,20 @@ impl GraphViewerApp {
             if ui.button(button_text).clicked() {
                 self.show_dot_text = !self.show_dot_text;
             }
+
+            ui.add_space(10.0);
+
+            // コスト遷移グラフ表示トグルボタン（最適化履歴がある場合のみ）
+            if self.optimization_history.is_some() {
+                let cost_button_text = if self.show_cost_graph {
+                    "Hide Cost Graph"
+                } else {
+                    "Show Cost Graph"
+                };
+                if ui.button(cost_button_text).clicked() {
+                    self.show_cost_graph = !self.show_cost_graph;
+                }
+            }
         });
         ui.separator();
 
@@ -449,6 +466,44 @@ impl GraphViewerApp {
             }
 
             ui.separator();
+        }
+
+        // コスト遷移グラフを表示
+        if self.show_cost_graph {
+            if let Some(ref history) = self.optimization_history {
+                ui.heading("Cost Transition");
+
+                // コストデータを収集
+                let cost_points: Vec<[f64; 2]> = (0..history.len())
+                    .filter_map(|step| {
+                        history.get(step).map(|snapshot| {
+                            [step as f64, snapshot.cost as f64]
+                        })
+                    })
+                    .collect();
+
+                // プロットを表示
+                egui_plot::Plot::new("cost_plot")
+                    .view_aspect(2.0)
+                    .height(200.0)
+                    .show(ui, |plot_ui| {
+                        plot_ui.line(
+                            egui_plot::Line::new(cost_points)
+                                .color(egui::Color32::from_rgb(100, 150, 250))
+                                .name("Cost")
+                        );
+
+                        // 現在のステップを縦線で表示
+                        let current_step = self.current_step as f64;
+                        plot_ui.vline(
+                            egui_plot::VLine::new(current_step)
+                                .color(egui::Color32::from_rgb(255, 100, 100))
+                                .name("Current Step")
+                        );
+                    });
+
+                ui.separator();
+            }
         }
 
         if self.harp_graph.is_none() {
