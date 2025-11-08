@@ -19,9 +19,24 @@ Harpの計算グラフとAST最適化の各ステップを可視化するため�
 
 ## デモの実行方法
 
+### GenericPipeline統合デモ（推奨）
+
+GenericPipelineを使った複雑な計算グラフの最適化と可視化のデモ：
+
+```bash
+cargo run --package harp-viz --example pipeline_demo
+```
+
+このデモでは：
+- 複雑なテンソル演算を含む計算グラフを構築（128x256の行列演算）
+- GenericPipelineで最適化履歴を自動記録
+- グラフ最適化で約50-60%のコスト削減を実現
+- AST最適化でさらに20%のコスト削減
+- 両方の最適化過程を可視化UIで確認
+
 ### 統合最適化可視化デモ
 
-グラフ最適化とAST最適化の両方を可視化する統合デモを実行するには：
+グラフ最適化とAST最適化の両方を可視化する基本デモを実行するには：
 
 ```bash
 cargo run --package harp-viz --example optimization_demo
