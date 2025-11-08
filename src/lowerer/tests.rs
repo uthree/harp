@@ -1,4 +1,5 @@
 use super::*;
+use crate::ast::DType as AstDType;
 use crate::graph::DType as GraphDType;
 
 #[test]
