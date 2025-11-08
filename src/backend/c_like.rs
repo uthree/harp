@@ -282,8 +282,55 @@ pub trait CLikeRenderer: Renderer {
         // ヘッダー
         result.push_str(&self.render_header());
 
-        // 全関数を描画
+        // エントリーポイント情報をコメントとして追加
+        result.push_str(&format!("// Entry Point: {}\n\n", program.entry_point));
+
+        // カーネル関数（kernel_*）とその他の関数を分離
+        let mut kernel_functions: Vec<_> = Vec::new();
+        let mut other_functions: Vec<_> = Vec::new();
+        let mut entry_func: Option<(&String, &crate::ast::Function)> = None;
+
         for (name, func) in &program.functions {
+            if name == &program.entry_point {
+                entry_func = Some((name, func));
+            } else if name.starts_with("kernel_") {
+                kernel_functions.push((name, func));
+            } else {
+                other_functions.push((name, func));
+            }
+        }
+
+        // カーネル関数を番号順にソート
+        kernel_functions.sort_by_key(|(name, _)| {
+            name.strip_prefix("kernel_")
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(usize::MAX)
+        });
+
+        // その他の関数を名前順にソート
+        other_functions.sort_by_key(|(name, _)| *name);
+
+        // カーネル関数を最初に描画
+        if !kernel_functions.is_empty() {
+            result.push_str("// === Kernel Functions ===\n");
+            for (name, func) in kernel_functions {
+                result.push_str(&self.render_function(name, func));
+                result.push('\n');
+            }
+        }
+
+        // その他の関数を描画
+        if !other_functions.is_empty() {
+            result.push_str("// === Helper Functions ===\n");
+            for (name, func) in other_functions {
+                result.push_str(&self.render_function(name, func));
+                result.push('\n');
+            }
+        }
+
+        // エントリーポイント関数を最後に描画
+        if let Some((name, func)) = entry_func {
+            result.push_str("// === Entry Point Function ===\n");
             result.push_str(&self.render_function(name, func));
             result.push('\n');
         }

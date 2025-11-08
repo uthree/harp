@@ -46,7 +46,6 @@ pub(crate) fn lower(graph: Graph) -> crate::ast::Program {
 
     // 各世代の各ノードをカーネル関数に変換
     let mut kernel_id = 0;
-    let mut first_kernel_name = String::new();
     for generation in generations {
         for node in generation {
             // Input ノードはスキップ
@@ -57,21 +56,76 @@ pub(crate) fn lower(graph: Graph) -> crate::ast::Program {
             // カーネル関数を生成
             if let Ok(function) = lowerer.lower_node_to_kernel(&node, kernel_id) {
                 let kernel_name = format!("kernel_{}", kernel_id);
-                if kernel_id == 0 {
-                    first_kernel_name = kernel_name.clone();
-                }
                 let _ = program.add_function(kernel_name, function);
                 kernel_id += 1;
             }
         }
     }
 
-    // entry_pointを最初のカーネルに設定（もしあれば）
-    if !first_kernel_name.is_empty() {
-        program.entry_point = first_kernel_name;
+    // main関数を生成してすべてのカーネルを呼び出す
+    if kernel_id > 0 {
+        // すべてのカーネル名を収集
+        let kernel_names: Vec<String> = (0..kernel_id).map(|i| format!("kernel_{}", i)).collect();
+
+        // main関数を生成
+        let main_function = generate_main_function(&program, &kernel_names);
+        let _ = program.add_function("main".to_string(), main_function);
+
+        // entry_pointは"main"のまま
     }
 
     program
+}
+
+/// すべてのカーネルを呼び出すmain関数を生成
+fn generate_main_function(
+    program: &crate::ast::Program,
+    kernel_names: &[String],
+) -> crate::ast::Function {
+    use crate::ast::{AstNode, DType, Function, FunctionKind, VarDecl};
+
+    // すべてのカーネルのパラメータを収集して統合
+    let mut all_params: Vec<VarDecl> = Vec::new();
+    let mut seen_params: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    for kernel_name in kernel_names {
+        if let Some(kernel_func) = program.get_function(kernel_name) {
+            for param in &kernel_func.params {
+                if !seen_params.contains(&param.name) {
+                    all_params.push(param.clone());
+                    seen_params.insert(param.name.clone());
+                }
+            }
+        }
+    }
+
+    // 各カーネルを呼び出す文を生成
+    let mut statements = Vec::new();
+    for kernel_name in kernel_names {
+        if let Some(kernel_func) = program.get_function(kernel_name) {
+            // カーネル関数の引数を収集
+            let args: Vec<AstNode> = kernel_func
+                .params
+                .iter()
+                .map(|p| AstNode::Var(p.name.clone()))
+                .collect();
+
+            // Call文を追加
+            statements.push(AstNode::Call {
+                name: kernel_name.clone(),
+                args,
+            });
+        }
+    }
+
+    // main関数を作成
+    Function::new(
+        FunctionKind::Normal,
+        all_params,
+        DType::Tuple(vec![]), // void
+        statements,
+    )
+    .expect("Failed to create main function")
 }
 
 impl Lowerer {

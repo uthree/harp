@@ -35,7 +35,7 @@ where
             suggester,
             estimator,
             beam_width: 10,
-            max_steps: 10,
+            max_steps: 10000,
             show_progress: true,
         }
     }

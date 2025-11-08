@@ -311,23 +311,43 @@ where
         // Program全体を表示する場合
         if self.show_full_program {
             if let Some(ref program) = self.program {
-                ui.heading("Full Program");
+                ui.horizontal(|ui| {
+                    ui.heading("Full Program");
+                    ui.add_space(20.0);
+
+                    // クリップボードにコピーボタン
+                    if ui.button("📋 Copy to Clipboard").clicked() {
+                        let mut renderer_clone = self.renderer.clone();
+                        let code = renderer_clone.render_program_clike(program);
+                        ui.output_mut(|o| o.copied_text = code);
+                    }
+                });
                 ui.separator();
 
                 // Program全体をレンダリング
                 let mut renderer_clone = self.renderer.clone();
                 let rendered_code = renderer_clone.render_program_clike(program);
 
-                // スクロール可能なコード表示領域
+                // スクロール可能なコード表示領域（シンタックスハイライト付き）
                 egui::ScrollArea::vertical()
+                    .id_salt("full_program_scroll")
                     .max_height(ui.available_height())
                     .show(ui, |ui| {
-                        ui.add(
-                            egui::TextEdit::multiline(&mut rendered_code.as_str())
-                                .font(egui::TextStyle::Monospace)
-                                .code_editor()
-                                .desired_width(f32::INFINITY),
+                        // シンタックスハイライト付きでコードを表示
+                        let theme = egui_extras::syntax_highlighting::CodeTheme::from_memory(
+                            ui.ctx(),
+                            ui.style(),
                         );
+
+                        let highlighted_code = egui_extras::syntax_highlighting::highlight(
+                            ui.ctx(),
+                            ui.style(),
+                            &theme,
+                            &rendered_code,
+                            "c", // C言語風のシンタックスハイライト
+                        );
+
+                        ui.add(egui::Label::new(highlighted_code).selectable(true));
                     });
             } else {
                 ui.label("No program loaded.");
@@ -509,7 +529,17 @@ where
 
             // 右側: 選択したASTのコード表示
             columns[1].vertical(|ui| {
-                ui.heading("AST Code");
+                ui.horizontal(|ui| {
+                    ui.heading("AST Code");
+                    ui.add_space(10.0);
+
+                    // クリップボードにコピーボタン
+                    if let Some(ref code) = code_for_display {
+                        if ui.button("📋 Copy").clicked() {
+                            ui.output_mut(|o| o.copied_text = code.clone());
+                        }
+                    }
+                });
                 ui.separator();
 
                 if let Some(rendered_code) = code_for_display {
