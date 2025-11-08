@@ -97,6 +97,24 @@ impl Lowerer {
             GraphOp::Elementwise { op, .. } => self.lower_elementwise_kernel(node, node_id, op),
             GraphOp::Reduce { op, axis, .. } => self.lower_reduce_kernel(node, node_id, op, *axis),
             GraphOp::Contiguous { .. } => self.lower_contiguous_kernel(node, node_id),
+            GraphOp::FusedElementwise { ops, .. } => {
+                self.lower_fused_elementwise_kernel(node, node_id, ops)
+            }
+            GraphOp::FusedElementwiseReduce {
+                elementwise_ops,
+                reduce_op,
+                axis,
+                ..
+            } => self.lower_fused_elementwise_reduce_kernel(
+                node,
+                node_id,
+                elementwise_ops,
+                reduce_op,
+                *axis,
+            ),
+            GraphOp::FusedReduce { .. } => {
+                Err("FusedReduce is not yet supported (requires tuple output)".to_string())
+            }
             _ => Err(format!("Unsupported operation: {:?}", node.op)),
         }
     }

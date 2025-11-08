@@ -23,6 +23,23 @@ pub enum GraphOp {
     Cumulative {
         cumulative_strategy: Option<CumulativeStrategy>,
     }, // 累積
+    // 融合演算
+    FusedElementwise {
+        ops: Vec<FusedElementwiseOp>,
+        elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
+    }, // 複数のelementwise演算を融合
+    FusedElementwiseReduce {
+        elementwise_ops: Vec<FusedElementwiseOp>,
+        reduce_op: ReduceOp,
+        axis: usize,
+        elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
+        reduce_strategy: Option<ReduceStrategy>,
+    }, // elementwise -> reduce パターンを融合
+    FusedReduce {
+        ops: Vec<ReduceOp>,
+        axis: usize,
+        reduce_strategy: Option<ReduceStrategy>,
+    }, // 複数のreduce演算を融合（同じ軸）
 }
 
 #[derive(Debug, Clone)]
@@ -41,6 +58,22 @@ pub enum ReduceOp {
     Add, // 合計
     Mul, // 積
     Max, // 最大値
+}
+
+/// 融合されたelementwise演算チェーンの各ステップ
+#[derive(Debug, Clone)]
+pub struct FusedElementwiseOp {
+    pub op: ElementwiseOp,
+    pub inputs: Vec<FusedInput>,
+}
+
+/// 融合演算の入力ソース
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FusedInput {
+    /// GraphNodeのsrc[i]からの入力
+    GraphInput(usize),
+    /// ops[i]の中間結果
+    IntermediateResult(usize),
 }
 
 // DTypeの推論：両方が同じならそれを使う、片方がUnknownなら他方を使う
@@ -233,4 +266,117 @@ pub fn reduce_mul(node: GraphNode, axis: usize) -> GraphNode {
 // ヘルパー関数: Reduce Max（指定軸の最大値）
 pub fn reduce_max(node: GraphNode, axis: usize) -> GraphNode {
     reduce(node, ReduceOp::Max, axis)
+}
+
+// === 融合ノード生成ヘルパー関数 ===
+
+/// 複数のelementwise演算を融合したノードを作成
+///
+/// # 例
+/// ```no_run
+/// use harp::prelude::*;
+/// // (a + b) * c を融合して生成
+/// // ops[0]: Add(inputs: [GraphInput(0), GraphInput(1)])
+/// // ops[1]: Mul(inputs: [IntermediateResult(0), GraphInput(2)])
+/// ```
+pub fn fused_elementwise(inputs: Vec<GraphNode>, ops: Vec<FusedElementwiseOp>) -> GraphNode {
+    // 最後の演算の結果がこのノードの出力
+    // DTypeとViewは最初の入力から継承（全入力が同じshapeであることを前提）
+    if inputs.is_empty() {
+        panic!("fused_elementwise requires at least one input");
+    }
+
+    let dtype = inputs[0].dtype.clone();
+    let view = inputs[0].view.clone();
+
+    GraphNode::new(
+        dtype,
+        GraphOp::FusedElementwise {
+            ops,
+            elementwise_strategies: None,
+        },
+        inputs,
+        view,
+    )
+}
+
+/// elementwise演算とそれに続くreduce演算を融合したノードを作成
+///
+/// # 例
+/// ```no_run
+/// use harp::prelude::*;
+/// // reduce_sum(a * b, axis=0) を融合して生成
+/// ```
+pub fn fused_elementwise_reduce(
+    inputs: Vec<GraphNode>,
+    elementwise_ops: Vec<FusedElementwiseOp>,
+    reduce_op: ReduceOp,
+    axis: usize,
+) -> GraphNode {
+    if inputs.is_empty() {
+        panic!("fused_elementwise_reduce requires at least one input");
+    }
+
+    let dtype = inputs[0].dtype.clone();
+    let view = inputs[0].view.clone();
+
+    // 指定された軸を縮約した新しいViewを作成
+    let mut new_shape = view.shape().to_vec();
+    if axis >= new_shape.len() {
+        panic!(
+            "fused_elementwise_reduce: axis {} is out of bounds for shape {:?}",
+            axis, new_shape
+        );
+    }
+    new_shape.remove(axis);
+    let reduced_view = View::contiguous(new_shape);
+
+    GraphNode::new(
+        dtype,
+        GraphOp::FusedElementwiseReduce {
+            elementwise_ops,
+            reduce_op,
+            axis,
+            elementwise_strategies: None,
+            reduce_strategy: None,
+        },
+        inputs,
+        reduced_view,
+    )
+}
+
+/// 複数のreduce演算を融合したノードを作成
+///
+/// # 例
+/// ```no_run
+/// use harp::prelude::*;
+/// // 同じ入力に対して sum と max を同時に計算
+/// // 注意: 出力は複数のテンソルになるため、現在の設計では未対応
+/// // 将来的には tuple 出力として実装予定
+/// ```
+pub fn fused_reduce(node: GraphNode, ops: Vec<ReduceOp>, axis: usize) -> GraphNode {
+    let dtype = node.dtype.clone();
+    let view = node.view.clone();
+
+    // 指定された軸を縮約した新しいViewを作成
+    let mut new_shape = view.shape().to_vec();
+    if axis >= new_shape.len() {
+        panic!(
+            "fused_reduce: axis {} is out of bounds for shape {:?}",
+            axis, new_shape
+        );
+    }
+    new_shape.remove(axis);
+    let reduced_view = View::contiguous(new_shape);
+
+    GraphNode::new(
+        dtype,
+        GraphOp::FusedReduce {
+            ops,
+            axis,
+            reduce_strategy: None,
+        },
+        vec![node],
+        reduced_view,
+    )
 }

@@ -62,7 +62,13 @@ pub mod prelude {
     };
 
     // Graph operations (helper functions)
-    pub use crate::graph::ops::{max, recip, reduce, reduce_max, reduce_mul, reduce_sum};
+    pub use crate::graph::ops::{
+        fused_elementwise, fused_elementwise_reduce, fused_reduce, max, recip, reduce, reduce_max,
+        reduce_mul, reduce_sum,
+    };
+
+    // Fused operation types
+    pub use crate::graph::ops::{FusedElementwiseOp, FusedInput};
 
     // Backend traits
     pub use crate::backend::{Buffer, Compiler, Kernel, KernelSignature, Query, QueryBuilder};
