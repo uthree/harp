@@ -388,6 +388,17 @@ impl GraphViewerApp {
 
     /// UIを描画
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        // キーボード入力処理（左右矢印キー）
+        if self.optimization_history.is_some() {
+            ui.input(|i| {
+                if i.key_pressed(egui::Key::ArrowLeft) {
+                    self.prev_step();
+                } else if i.key_pressed(egui::Key::ArrowRight) {
+                    self.next_step();
+                }
+            });
+        }
+
         ui.horizontal(|ui| {
             ui.heading("Graph Viewer");
             ui.add_space(20.0);

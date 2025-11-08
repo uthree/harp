@@ -1,8 +1,8 @@
 //! AST最適化を可視化するビューア
 
-use egui::FontId;
 use harp::ast::renderer::render_ast;
 use harp::opt::ast::OptimizationHistory;
+use similar::{ChangeTag, TextDiff};
 
 /// ASTビューアアプリケーション
 pub struct AstViewerApp {
@@ -14,6 +14,8 @@ pub struct AstViewerApp {
     selected_rank: usize,
     /// コスト遷移グラフを表示するかどうか
     show_cost_graph: bool,
+    /// Diffを表示するかどうか
+    show_diff: bool,
 }
 
 impl Default for AstViewerApp {
@@ -30,6 +32,7 @@ impl AstViewerApp {
             current_step_index: 0,
             selected_rank: 0,
             show_cost_graph: false,
+            show_diff: false,
         }
     }
 
@@ -124,6 +127,17 @@ impl AstViewerApp {
 
     /// UIを描画
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        // キーボード入力処理（左右矢印キー）
+        if self.optimization_history.is_some() {
+            ui.input(|i| {
+                if i.key_pressed(egui::Key::ArrowLeft) {
+                    self.prev_step();
+                } else if i.key_pressed(egui::Key::ArrowRight) {
+                    self.next_step();
+                }
+            });
+        }
+
         ui.horizontal(|ui| {
             ui.heading("AST Optimizer Viewer");
             ui.add_space(20.0);
@@ -137,6 +151,20 @@ impl AstViewerApp {
                 };
                 if ui.button(cost_button_text).clicked() {
                     self.show_cost_graph = !self.show_cost_graph;
+                }
+
+                ui.add_space(10.0);
+
+                // Diff表示トグルボタン（ステップ0でない場合のみ）
+                if self.get_current_step_number() > 0 {
+                    let diff_button_text = if self.show_diff {
+                        "Hide Diff"
+                    } else {
+                        "Show Diff"
+                    };
+                    if ui.button(diff_button_text).clicked() {
+                        self.show_diff = !self.show_diff;
+                    }
                 }
             }
         });
@@ -265,6 +293,25 @@ impl AstViewerApp {
         let selected_rank = self.selected_rank;
         let selected_code = candidates.get(selected_rank).map(|s| render_ast(&s.ast));
 
+        // 前のステップのコードを取得（Diff表示用）
+        let prev_code = if self.show_diff && current_step > 0 {
+            // 前のステップの最良候補を取得
+            let prev_step_candidates = self
+                .optimization_history
+                .as_ref()
+                .unwrap()
+                .get_step(current_step - 1);
+            prev_step_candidates
+                .iter()
+                .find(|c| c.rank == 0)
+                .map(|s| render_ast(&s.ast))
+        } else {
+            None
+        };
+
+        // コード表示用のクローンを作成
+        let code_for_display = selected_code.clone();
+
         // 左右分割: 左側に候補リスト、右側にコード表示
         ui.columns(2, |columns| {
             // 左側: ビーム内の候補リスト
@@ -292,22 +339,63 @@ impl AstViewerApp {
                 ui.heading("AST Code");
                 ui.separator();
 
-                if let Some(rendered_code) = selected_code {
+                if let Some(rendered_code) = code_for_display {
                     egui::ScrollArea::vertical()
                         .id_salt("ast_code_scroll")
                         .max_height(ui.available_height())
                         .show(ui, |ui| {
-                            ui.add(
-                                egui::TextEdit::multiline(&mut rendered_code.clone())
-                                    .code_editor()
-                                    .font(FontId::monospace(14.0))
-                                    .desired_width(f32::INFINITY),
+                            // シンタックスハイライト付きでコードを表示
+                            let theme = egui_extras::syntax_highlighting::CodeTheme::from_memory(
+                                ui.ctx(),
+                                ui.style(),
                             );
+
+                            let code = egui_extras::syntax_highlighting::highlight(
+                                ui.ctx(),
+                                ui.style(),
+                                &theme,
+                                &rendered_code,
+                                "rs",
+                            );
+
+                            ui.add(egui::Label::new(code).selectable(true));
                         });
                 } else {
                     ui.label("No candidate selected");
                 }
             });
         });
+
+        // Diffを表示
+        if self.show_diff {
+            if let (Some(ref prev), Some(ref current)) = (&prev_code, &selected_code) {
+                ui.separator();
+                ui.heading("Code Diff (Previous → Current)");
+                ui.separator();
+
+                egui::ScrollArea::vertical()
+                    .id_salt("diff_scroll")
+                    .max_height(300.0)
+                    .show(ui, |ui| {
+                        // テキストdiffを計算
+                        let diff = TextDiff::from_lines(prev, current);
+
+                        // diffの各行を表示
+                        for change in diff.iter_all_changes() {
+                            let (prefix, color) = match change.tag() {
+                                ChangeTag::Delete => ("- ", egui::Color32::from_rgb(255, 100, 100)),
+                                ChangeTag::Insert => ("+ ", egui::Color32::from_rgb(100, 255, 100)),
+                                ChangeTag::Equal => ("  ", egui::Color32::GRAY),
+                            };
+
+                            let line = format!("{}{}", prefix, change.value());
+                            ui.colored_label(color, egui::RichText::new(line).monospace());
+                        }
+                    });
+            } else if prev_code.is_none() {
+                ui.separator();
+                ui.label("No previous step available for diff.");
+            }
+        }
     }
 }
