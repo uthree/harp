@@ -194,6 +194,35 @@ impl GraphNode {
     pub fn reduce_max(&self, axis: usize) -> Self {
         ops::reduce_max(self.clone(), axis)
     }
+
+    /// Viewを変更した新しいノードを作成
+    ///
+    /// このメソッドは、既存のノードに対してView操作（permute, unsqueeze, expand等）を
+    /// 適用した新しいノードを作成します。
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use harp::prelude::*;
+    ///
+    /// let mut graph = Graph::new();
+    /// let a = graph.input("a")
+    ///     .with_dtype(DType::F32)
+    ///     .with_shape(vec![3, 4])
+    ///     .build();
+    ///
+    /// // Viewを変更（転置）
+    /// let transposed_view = a.view.clone().permute(vec![1, 0]);
+    /// let a_transposed = a.view(transposed_view);
+    /// ```
+    pub fn view(&self, new_view: View) -> Self {
+        Self::new(
+            self.dtype.clone(),
+            GraphOp::View(new_view.clone()),
+            vec![self.clone()],
+            new_view,
+        )
+    }
 }
 
 // .0 のように書かなくても内部のデータを読み取れるようにする
@@ -745,6 +774,66 @@ mod tests {
                 assert_eq!(*axis, 2);
             }
             _ => panic!("Expected GraphOp::Reduce"),
+        }
+    }
+
+    #[test]
+    fn test_view_method() {
+        let mut graph = Graph::new();
+        let input = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![3, 4])
+            .build();
+
+        // Viewを変更（転置）
+        let transposed_view = input.view.clone().permute(vec![1, 0]);
+        let transposed = input.view(transposed_view.clone());
+
+        // dtypeが保持されていることを確認
+        match transposed.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
+
+        // Viewが正しく設定されていることを確認
+        assert_eq!(transposed.view, transposed_view);
+        assert_eq!(transposed.view.ndim(), 2);
+
+        // GraphOp::Viewが設定されていることを確認
+        match &transposed.op {
+            GraphOp::View(v) => {
+                assert_eq!(*v, transposed_view);
+            }
+            _ => panic!("Expected GraphOp::View"),
+        }
+
+        // 元のノードが入力として保持されていることを確認
+        assert_eq!(transposed.src.len(), 1);
+    }
+
+    #[test]
+    fn test_view_method_unsqueeze() {
+        let mut graph = Graph::new();
+        let input = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![3, 4])
+            .build();
+
+        // Viewを変更（次元追加）
+        let unsqueezed_view = input.view.clone().unsqueeze(0);
+        let unsqueezed = input.view(unsqueezed_view.clone());
+
+        // Viewが正しく設定されていることを確認
+        assert_eq!(unsqueezed.view.ndim(), 3);
+
+        // GraphOp::Viewが設定されていることを確認
+        match &unsqueezed.op {
+            GraphOp::View(v) => {
+                assert_eq!(*v, unsqueezed_view);
+            }
+            _ => panic!("Expected GraphOp::View"),
         }
     }
 

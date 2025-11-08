@@ -30,7 +30,7 @@ pub trait Compiler {
 pub trait Buffer {
     // get buffer size
     fn shape(&self) -> Vec<usize>;
-    // TODO: 初期化と（CPU上の）バイト列への相互変換
+    // TODO: 初期化と（CPU上の）バイト列(u8の配列?)への相互変換
 }
 
 pub trait Kernel {

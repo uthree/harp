@@ -19,10 +19,10 @@ ASTをターゲット言語のソースコードに変換。C言語系の構文�
 ### Query
 カーネル実行時の入出力バッファーとshape変数をまとめた構造体。
 
+### Pipeline
+Graphを最適化、lower、AST最適化などの一通りの処理をまとめて行うためのtrait
+
 ## 実装状況
 
 ### Metal Backend（macOS/iOS）
-完全実装。MetalのComputePipelineStateを使用してGPUで直接実行。
-
-### C-like Backend
-未実装。将来的に`tempfile`で一時ファイル生成→`libloading`で動的ロード予定。
+MetalのComputePipelineStateを使用してGPUで直接実行。
