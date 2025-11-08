@@ -153,6 +153,34 @@ ast_viewer.load_history(history);
 let mut ast_viewer = AstViewerApp::new();  // デフォルトでCRendererを使用
 ```
 
+### GenericPipelineとの統合
+
+`GenericPipeline`は最適化履歴を自動的に記録できます。記録された履歴を可視化するには：
+
+```rust
+use harp::backend::GenericPipeline;
+use harp_viz::HarpVizApp;
+
+// パイプラインを作成してグラフをコンパイル
+let mut pipeline = GenericPipeline::new(renderer, compiler);
+
+// 最適化を実行して履歴を記録
+let (optimized_graph, graph_history) = graph_optimizer.optimize_with_history(graph);
+pipeline.set_graph_optimization_history(graph_history);
+
+let (optimized_ast, ast_history) = ast_optimizer.optimize_with_history(ast);
+pipeline.set_ast_optimization_history(ast_history);
+
+// 可視化アプリで表示
+let mut viz_app = HarpVizApp::new();
+
+// 方法1: 履歴を参照として読み込む（Pipelineに履歴が残る）
+viz_app.load_from_pipeline(&pipeline);
+
+// 方法2: 履歴を移動する（Pipelineから履歴がクリアされる）
+viz_app.take_from_pipeline(&mut pipeline);
+```
+
 ## 依存関係
 
 - `egui`: GUIフレームワーク

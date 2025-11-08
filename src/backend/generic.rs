@@ -2,11 +2,15 @@ use std::collections::HashMap;
 
 use crate::backend::{Compiler, Pipeline, Renderer};
 use crate::graph::Graph;
+use crate::opt::ast::OptimizationHistory as AstOptimizationHistory;
+use crate::opt::graph::OptimizationHistory as GraphOptimizationHistory;
 
 /// 汎用的なPipeline実装
 ///
 /// 任意のRendererとCompilerを組み合わせて使用でき、
 /// コンパイル済みのKernelをキャッシュする機能を提供します。
+///
+/// 最適化履歴の記録機能を持ち、可視化ツールと統合できます。
 pub struct GenericPipeline<R, C>
 where
     R: Renderer,
@@ -17,6 +21,10 @@ where
     /// コンパイル済みKernelのキャッシュ
     /// キーはユーザーが指定する識別文字列
     kernel_cache: HashMap<String, C::Kernel>,
+    /// 最新のグラフ最適化履歴
+    last_graph_optimization_history: Option<GraphOptimizationHistory>,
+    /// 最新のAST最適化履歴
+    last_ast_optimization_history: Option<AstOptimizationHistory>,
 }
 
 impl<R, C> GenericPipeline<R, C>
@@ -30,7 +38,49 @@ where
             renderer,
             compiler,
             kernel_cache: HashMap::new(),
+            last_graph_optimization_history: None,
+            last_ast_optimization_history: None,
         }
+    }
+
+    /// 最新のグラフ最適化履歴を取得
+    pub fn last_graph_optimization_history(&self) -> Option<&GraphOptimizationHistory> {
+        self.last_graph_optimization_history.as_ref()
+    }
+
+    /// 最新のAST最適化履歴を取得
+    pub fn last_ast_optimization_history(&self) -> Option<&AstOptimizationHistory> {
+        self.last_ast_optimization_history.as_ref()
+    }
+
+    /// 最新のグラフ最適化履歴を所有権とともに取得
+    pub fn take_graph_optimization_history(&mut self) -> Option<GraphOptimizationHistory> {
+        self.last_graph_optimization_history.take()
+    }
+
+    /// 最新のAST最適化履歴を所有権とともに取得
+    pub fn take_ast_optimization_history(&mut self) -> Option<AstOptimizationHistory> {
+        self.last_ast_optimization_history.take()
+    }
+
+    /// 最適化履歴をクリア
+    pub fn clear_histories(&mut self) {
+        self.last_graph_optimization_history = None;
+        self.last_ast_optimization_history = None;
+    }
+
+    /// グラフ最適化履歴を設定
+    ///
+    /// 外部で最適化を行った後、その履歴をGenericPipelineに保存します。
+    pub fn set_graph_optimization_history(&mut self, history: GraphOptimizationHistory) {
+        self.last_graph_optimization_history = Some(history);
+    }
+
+    /// AST最適化履歴を設定
+    ///
+    /// 外部で最適化を行った後、その履歴をGenericPipelineに保存します。
+    pub fn set_ast_optimization_history(&mut self, history: AstOptimizationHistory) {
+        self.last_ast_optimization_history = Some(history);
     }
 
     /// キャッシュからKernelを取得
