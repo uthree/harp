@@ -17,6 +17,8 @@ pub struct GraphViewerApp {
     optimization_history: Option<OptimizationHistory>,
     /// 現在表示中のステップ
     current_step: usize,
+    /// DOTテキストを表示するかどうか
+    show_dot_text: bool,
 }
 
 /// egui-snarl用のノードビュー
@@ -62,6 +64,7 @@ impl GraphViewerApp {
             node_mapping: HashMap::new(),
             optimization_history: None,
             current_step: 0,
+            show_dot_text: false,
         }
     }
 
@@ -142,6 +145,30 @@ impl GraphViewerApp {
                 self.current_step = step;
                 self.update_graph_from_step();
             }
+        }
+    }
+
+    /// DOT形式でエクスポート
+    fn export_to_dot(&self) {
+        if let Some(ref graph) = self.harp_graph {
+            // ファイル名を生成（最適化ステップがある場合はステップ番号を含める）
+            let filename = if self.optimization_history.is_some() {
+                format!("graph_step_{}.dot", self.current_step)
+            } else {
+                "graph.dot".to_string()
+            };
+
+            // DOT形式で保存
+            match graph.save_dot(&filename) {
+                Ok(_) => {
+                    log::info!("Graph exported to {}", filename);
+                }
+                Err(e) => {
+                    log::error!("Failed to export graph: {}", e);
+                }
+            }
+        } else {
+            log::warn!("No graph to export");
         }
     }
 
@@ -388,7 +415,15 @@ impl GraphViewerApp {
 
     /// UIを描画
     pub fn ui(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Graph Viewer");
+        ui.horizontal(|ui| {
+            ui.heading("Graph Viewer");
+            ui.add_space(20.0);
+
+            // DOTエクスポートボタン
+            if ui.button("Export to DOT").clicked() {
+                self.export_to_dot();
+            }
+        });
         ui.separator();
 
         // 最適化履歴がある場合はナビゲーションを表示
@@ -446,6 +481,13 @@ impl GraphViewerApp {
             ui.horizontal(|ui| {
                 ui.label("Outputs:");
                 ui.label(graph.outputs().len().to_string());
+            });
+
+            // 出力ノードの詳細を折りたたみ表示
+            ui.collapsing("Output Nodes", |ui| {
+                for (name, _node) in graph.outputs() {
+                    ui.label(format!("• {}", name));
+                }
             });
         }
 

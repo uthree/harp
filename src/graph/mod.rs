@@ -261,6 +261,111 @@ impl Graph {
         }
     }
 
+    /// Graphviz DOT形式でグラフを出力
+    pub fn to_dot(&self) -> String {
+        use std::collections::HashSet;
+
+        let mut dot = String::from("digraph G {\n");
+        dot.push_str("  rankdir=LR;\n"); // 左から右へのレイアウト
+        dot.push_str("  node [shape=box];\n\n");
+
+        let mut visited = HashSet::new();
+        let mut node_counter = 0;
+        let mut node_ids = HashMap::new();
+
+        // 全ノードを収集してDOT形式に変換
+        fn traverse_and_collect(
+            node: &GraphNode,
+            visited: &mut HashSet<*const GraphNodeData>,
+            dot: &mut String,
+            node_ids: &mut HashMap<*const GraphNodeData, usize>,
+            counter: &mut usize,
+        ) -> usize {
+            let node_ptr = Rc::as_ptr(&node.0);
+
+            if visited.contains(&node_ptr) {
+                return *node_ids.get(&node_ptr).unwrap();
+            }
+            visited.insert(node_ptr);
+
+            // 入力ノードを先に処理
+            for input in &node.src {
+                traverse_and_collect(input, visited, dot, node_ids, counter);
+            }
+
+            // このノードのIDを取得
+            let node_id = if let Some(&id) = node_ids.get(&node_ptr) {
+                id
+            } else {
+                let id = *counter;
+                *counter += 1;
+                node_ids.insert(node_ptr, id);
+                id
+            };
+
+            // ノードのラベルを作成
+            let op_str = format!("{:?}", node.op);
+            let op_str = if op_str.len() > 50 {
+                format!("{}...", &op_str[..50])
+            } else {
+                op_str
+            };
+            let dtype_str = format!("{:?}", node.dtype);
+            let shape_str = node
+                .view
+                .shape()
+                .iter()
+                .map(|e| format!("{}", e))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            let label = format!(
+                "Node {}\\n{}\\nDType: {}\\nShape: [{}]",
+                node_id, op_str, dtype_str, shape_str
+            );
+
+            // ノード定義を追加
+            dot.push_str(&format!("  n{} [label=\"{}\"];\n", node_id, label));
+
+            // エッジを追加
+            for (i, input) in node.src.iter().enumerate() {
+                let input_id = *node_ids.get(&Rc::as_ptr(&input.0)).unwrap();
+                dot.push_str(&format!(
+                    "  n{} -> n{} [label=\"input {}\"];\n",
+                    input_id, node_id, i
+                ));
+            }
+
+            node_id
+        }
+
+        // 出力ノードから開始
+        for (output_name, output_node) in &self.outputs {
+            let output_id = traverse_and_collect(
+                output_node,
+                &mut visited,
+                &mut dot,
+                &mut node_ids,
+                &mut node_counter,
+            );
+
+            // 出力ノードにマーク
+            dot.push_str(&format!(
+                "  output_{} [label=\"Output: {}\", shape=ellipse, style=filled, fillcolor=lightblue];\n",
+                output_name, output_name
+            ));
+            dot.push_str(&format!("  n{} -> output_{};\n", output_id, output_name));
+        }
+
+        dot.push_str("}\n");
+        dot
+    }
+
+    /// DOT形式でファイルに保存
+    pub fn save_dot(&self, path: &str) -> std::io::Result<()> {
+        std::fs::write(path, self.to_dot())
+    }
+
     // 入力ノードを新規作成, builderパターンを使う
     pub fn input(&mut self, name: &str) -> InputNodeBuilder<'_> {
         InputNodeBuilder {
@@ -284,6 +389,13 @@ impl Graph {
     // 入力ノードのマップへのアクセス
     pub fn inputs(&self) -> &HashMap<String, Weak<GraphNodeData>> {
         &self.inputs
+    }
+
+    // 入力ノードを登録（最適化時に使用）
+    pub fn register_input(&mut self, name: String, input_node: GraphNode) {
+        use std::rc::Rc;
+        let weak_ref = Rc::downgrade(&input_node.0);
+        self.inputs.insert(name, weak_ref);
     }
 }
 
@@ -335,6 +447,11 @@ impl GraphNode {
             view,
             elementwise_strategies,
         }))
+    }
+
+    /// Rcから直接GraphNodeを作成（最適化時に使用）
+    pub fn from_rc(rc: Rc<GraphNodeData>) -> Self {
+        Self(rc)
     }
 
     pub fn with_elementwise_strategies(
@@ -424,6 +541,42 @@ impl Deref for GraphNode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_graph_to_dot() {
+        let mut graph = Graph::new();
+
+        // 入力ノードを作成
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
+
+        let b = graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
+
+        // 計算グラフを構築
+        let c = a + b;
+
+        // 出力ノードを登録
+        graph.output("c", c);
+
+        // DOT形式で出力
+        let dot = graph.to_dot();
+
+        // 基本的な構造を確認
+        assert!(dot.contains("digraph G {"));
+        assert!(dot.contains("rankdir=LR"));
+        assert!(dot.contains("Output: c"));
+        assert!(dot.contains("Input"));
+        assert!(dot.contains("Elementwise"));
+        assert!(dot.contains("DType: F32"));
+        assert!(dot.contains("Shape: [10, 20]"));
+    }
 
     #[test]
     fn test_graph_new() {

@@ -67,11 +67,27 @@ where
 
         // 初期状態を記録
         let initial_cost = self.estimator.estimate(&graph);
+        let initial_outputs = graph.outputs().len();
+
+        // 初期状態の入力・出力ノード情報をログに出力
+        debug!(
+            "BeamSearchGraphOptimizer: Initial - {} inputs, {} outputs",
+            graph.inputs().len(),
+            graph.outputs().len()
+        );
+        for (name, node) in graph.outputs() {
+            let op_type = format!("{:?}", node.op);
+            debug!(
+                "BeamSearchGraphOptimizer: Initial - Output '{}': {:?}",
+                name, op_type
+            );
+        }
+
         history.add_snapshot(OptimizationSnapshot::new(
             0,
             graph,
             initial_cost,
-            "Initial graph".to_string(),
+            format!("Initial graph ({} outputs)", initial_outputs),
         ));
 
         let pb = if self.show_progress {
@@ -133,11 +149,38 @@ where
             // このステップの最良候補を記録
             if let Some(best) = beam.first() {
                 let cost = self.estimator.estimate(best);
+                let num_outputs = best.outputs().len();
+                let num_inputs = best.inputs().len();
+
+                // 入力・出力ノード数をログに出力
+                debug!(
+                    "BeamSearchGraphOptimizer: Step {} - {} inputs, {} outputs",
+                    depth + 1,
+                    num_inputs,
+                    num_outputs
+                );
+
+                // 出力ノードの演算タイプもログに出力
+                for (name, node) in best.outputs() {
+                    let op_type = format!("{:?}", node.op);
+                    debug!(
+                        "BeamSearchGraphOptimizer: Step {} - Output '{}': {:?}",
+                        depth + 1,
+                        name,
+                        op_type
+                    );
+                }
+
                 history.add_snapshot(OptimizationSnapshot::new(
                     depth + 1,
                     best.clone(),
                     cost,
-                    format!("Step {}: beam width {}", depth + 1, beam.len()),
+                    format!(
+                        "Step {}: beam width {}, outputs: {}",
+                        depth + 1,
+                        beam.len(),
+                        num_outputs
+                    ),
                 ));
             }
         }

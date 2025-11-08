@@ -32,6 +32,38 @@ cargo run --package harp-viz --example optimization_demo
 - **Step表示**: 現在のステップ番号
 - **Description**: 各ステップの説明
 - **Cost**: 推定実行コスト
+- **Export to DOT**: グラフをGraphviz DOT形式でエクスポート
+
+### DOT形式でのエクスポート
+
+グラフをGraphviz DOT形式でエクスポートできます。これにより、外部ツールでグラフを可視化したり、デバッグに利用できます。
+
+```bash
+# デモアプリケーションで「Export to DOT」ボタンをクリック
+# カレントディレクトリに graph.dot または graph_step_N.dot が生成されます
+
+# Graphvizでレンダリング
+dot -Tpng graph.dot -o graph.png
+
+# または SVG形式で
+dot -Tsvg graph.dot -o graph.svg
+```
+
+プログラムから直接エクスポートすることもできます：
+
+```rust
+use harp::graph::Graph;
+
+let mut graph = Graph::new();
+// ... グラフを構築 ...
+
+// DOT形式で出力
+let dot_string = graph.to_dot();
+println!("{}", dot_string);
+
+// ファイルに保存
+graph.save_dot("my_graph.dot").unwrap();
+```
 
 ## ライブラリとして使用する
 

@@ -45,6 +45,7 @@ pub enum GraphOp {
 #[derive(Debug, Clone)]
 pub enum ElementwiseOp {
     Add,
+    Sub,
     Mul,
     Max,
     Rem,
@@ -159,11 +160,21 @@ impl Neg for GraphNode {
     }
 }
 
-// Sub: a - b = a + (-b)
+// Sub: a - b
 impl Sub for GraphNode {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self::Output {
-        self + (-rhs)
+        let dtype = infer_dtype(&self.dtype, &rhs.dtype);
+        let view = infer_view(&self.view, &rhs.view);
+        GraphNode::new(
+            dtype,
+            GraphOp::Elementwise {
+                op: ElementwiseOp::Sub,
+                elementwise_strategies: None,
+            },
+            vec![self, rhs],
+            view,
+        )
     }
 }
 

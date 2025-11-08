@@ -153,8 +153,16 @@ impl ViewInsertionSuggester {
 
         let mut new_graph = Graph::new();
 
+        // 入力ノードを保持
+        for (name, weak_input) in graph.inputs() {
+            if let Some(rc_node) = weak_input.upgrade() {
+                let input_node = GraphNode::from_rc(rc_node);
+                let rebuilt = rebuild_node(&input_node, &node_map, &mut visited);
+                new_graph.register_input(name.clone(), rebuilt);
+            }
+        }
+
         // 出力ノードを再構築
-        // 注: 入力ノードの名前は失われますが、ノード自体は参照されています
         for (name, output_node) in graph.outputs() {
             let rebuilt = rebuild_node(output_node, &node_map, &mut visited);
             new_graph.output(name, rebuilt);
