@@ -1,4 +1,3 @@
-use crate::graph::shape::View;
 use std::{
     collections::HashMap,
     ops::Deref,
@@ -8,7 +7,8 @@ pub mod ops;
 pub mod shape;
 
 // Re-export commonly used types
-pub use ops::{GraphOp, ReduceOp};
+pub use ops::{ElementwiseOp, GraphOp, ReduceOp};
+pub use shape::{Expr, View};
 
 /// 各軸の並列化戦略
 #[derive(Debug, Clone, PartialEq, Eq)]

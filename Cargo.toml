@@ -5,12 +5,11 @@ edition = "2024"
 
 [dependencies]
 indicatif = "0.18.1"
-libloading = "0.8.9"
 log = "0.4"
-ndarray = "0.16.1"
-rayon = "1.11.0"
-rstest = "0.26.1"
-tempfile = "3.23.0"
+
+# 将来の実装用に残してあるが現在未使用:
+# libloading = "0.8.9"  # C-like backendでの動的ライブラリロード用
+# tempfile = "3.23.0"   # 一時ファイル生成用
 
 [target.'cfg(target_os = "macos")'.dependencies]
 metal = "0.32.0"

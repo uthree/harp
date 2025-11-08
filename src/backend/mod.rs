@@ -4,6 +4,9 @@ use crate::ast::AstNode;
 pub mod c_like;
 pub mod metal;
 
+// Re-export commonly used types
+pub use metal::{MetalBuffer, MetalCode, MetalCompiler, MetalKernel, MetalRenderer};
+
 // レンダラー。
 // ASTを受け取って文字列としてレンダリングする
 pub trait Renderer {
