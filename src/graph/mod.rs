@@ -39,102 +39,49 @@ impl Default for ElementwiseStrategy {
     }
 }
 
+/// ElementwiseStrategyのビルダーメソッドを生成するマクロ
+macro_rules! impl_elementwise_strategy_builders {
+    ($variant:ident, $prefix:ident) => {
+        paste::paste! {
+            #[doc = "SIMD化なしの" $variant "を作成"]
+            pub fn $prefix() -> Self {
+                Self::$variant {
+                    simd_width: 1,
+                    unroll_factor: 1,
+                }
+            }
+
+            #[doc = "SIMD化ありの" $variant "を作成"]
+            pub fn [<$prefix _simd>](simd_width: usize) -> Self {
+                Self::$variant {
+                    simd_width,
+                    unroll_factor: 1,
+                }
+            }
+
+            #[doc = "アンローリングありの" $variant "を作成"]
+            pub fn [<$prefix _unroll>](unroll_factor: usize) -> Self {
+                Self::$variant {
+                    simd_width: 1,
+                    unroll_factor,
+                }
+            }
+
+            #[doc = "SIMD化とアンローリング両方ありの" $variant "を作成"]
+            pub fn [<$prefix _simd_unroll>](simd_width: usize, unroll_factor: usize) -> Self {
+                Self::$variant {
+                    simd_width,
+                    unroll_factor,
+                }
+            }
+        }
+    };
+}
+
 impl ElementwiseStrategy {
-    /// SIMD化なしのSequentialを作成
-    pub fn sequential() -> Self {
-        Self::Sequential {
-            simd_width: 1,
-            unroll_factor: 1,
-        }
-    }
-
-    /// SIMD化ありのSequentialを作成
-    pub fn sequential_simd(simd_width: usize) -> Self {
-        Self::Sequential {
-            simd_width,
-            unroll_factor: 1,
-        }
-    }
-
-    /// アンローリングありのSequentialを作成
-    pub fn sequential_unroll(unroll_factor: usize) -> Self {
-        Self::Sequential {
-            simd_width: 1,
-            unroll_factor,
-        }
-    }
-
-    /// SIMD化とアンローリング両方ありのSequentialを作成
-    pub fn sequential_simd_unroll(simd_width: usize, unroll_factor: usize) -> Self {
-        Self::Sequential {
-            simd_width,
-            unroll_factor,
-        }
-    }
-
-    /// SIMD化なしのThreadを作成
-    pub fn thread() -> Self {
-        Self::Thread {
-            simd_width: 1,
-            unroll_factor: 1,
-        }
-    }
-
-    /// SIMD化ありのThreadを作成
-    pub fn thread_simd(simd_width: usize) -> Self {
-        Self::Thread {
-            simd_width,
-            unroll_factor: 1,
-        }
-    }
-
-    /// アンローリングありのThreadを作成
-    pub fn thread_unroll(unroll_factor: usize) -> Self {
-        Self::Thread {
-            simd_width: 1,
-            unroll_factor,
-        }
-    }
-
-    /// SIMD化とアンローリング両方ありのThreadを作成
-    pub fn thread_simd_unroll(simd_width: usize, unroll_factor: usize) -> Self {
-        Self::Thread {
-            simd_width,
-            unroll_factor,
-        }
-    }
-
-    /// SIMD化なしのThreadGroupを作成
-    pub fn thread_group() -> Self {
-        Self::ThreadGroup {
-            simd_width: 1,
-            unroll_factor: 1,
-        }
-    }
-
-    /// SIMD化ありのThreadGroupを作成
-    pub fn thread_group_simd(simd_width: usize) -> Self {
-        Self::ThreadGroup {
-            simd_width,
-            unroll_factor: 1,
-        }
-    }
-
-    /// アンローリングありのThreadGroupを作成
-    pub fn thread_group_unroll(unroll_factor: usize) -> Self {
-        Self::ThreadGroup {
-            simd_width: 1,
-            unroll_factor,
-        }
-    }
-
-    /// SIMD化とアンローリング両方ありのThreadGroupを作成
-    pub fn thread_group_simd_unroll(simd_width: usize, unroll_factor: usize) -> Self {
-        Self::ThreadGroup {
-            simd_width,
-            unroll_factor,
-        }
-    }
+    impl_elementwise_strategy_builders!(Sequential, sequential);
+    impl_elementwise_strategy_builders!(Thread, thread);
+    impl_elementwise_strategy_builders!(ThreadGroup, thread_group);
 
     /// SIMD幅を取得
     pub fn simd_width(&self) -> usize {
@@ -169,24 +116,33 @@ impl Default for ReduceStrategy {
     }
 }
 
-impl ReduceStrategy {
-    /// SIMD化なしのSequentialを作成
-    pub fn sequential() -> Self {
-        Self::Sequential { unroll_factor: 1 }
-    }
+/// ReduceStrategyとCumulativeStrategyのビルダーメソッドを生成するマクロ
+macro_rules! impl_unroll_only_strategy_builders {
+    ($type:ident, $variant:ident, $prefix:ident) => {
+        paste::paste! {
+            impl $type {
+                #[doc = $variant "を作成"]
+                pub fn $prefix() -> Self {
+                    Self::$variant { unroll_factor: 1 }
+                }
 
-    /// アンローリングありのSequentialを作成
-    pub fn sequential_unroll(unroll_factor: usize) -> Self {
-        Self::Sequential { unroll_factor }
-    }
+                #[doc = "アンローリングありの" $variant "を作成"]
+                pub fn [<$prefix _unroll>](unroll_factor: usize) -> Self {
+                    Self::$variant { unroll_factor }
+                }
 
-    /// アンローリング係数を取得
-    pub fn unroll_factor(&self) -> usize {
-        match self {
-            Self::Sequential { unroll_factor } => *unroll_factor,
+                /// アンローリング係数を取得
+                pub fn unroll_factor(&self) -> usize {
+                    match self {
+                        Self::$variant { unroll_factor } => *unroll_factor,
+                    }
+                }
+            }
         }
-    }
+    };
 }
+
+impl_unroll_only_strategy_builders!(ReduceStrategy, Sequential, sequential);
 
 /// Cumulative演算の並列化戦略
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -202,24 +158,7 @@ impl Default for CumulativeStrategy {
     }
 }
 
-impl CumulativeStrategy {
-    /// SIMD化なしのSequentialを作成
-    pub fn sequential() -> Self {
-        Self::Sequential { unroll_factor: 1 }
-    }
-
-    /// アンローリングありのSequentialを作成
-    pub fn sequential_unroll(unroll_factor: usize) -> Self {
-        Self::Sequential { unroll_factor }
-    }
-
-    /// アンローリング係数を取得
-    pub fn unroll_factor(&self) -> usize {
-        match self {
-            Self::Sequential { unroll_factor } => *unroll_factor,
-        }
-    }
-}
+impl_unroll_only_strategy_builders!(CumulativeStrategy, Sequential, sequential);
 
 #[derive(Debug, Clone)]
 pub struct Graph {

@@ -1536,6 +1536,7 @@ dependencies = [
  "metal 0.32.0",
  "ndarray",
  "objc",
+ "paste",
  "serial_test",
 ]
 

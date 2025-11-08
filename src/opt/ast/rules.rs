@@ -8,65 +8,141 @@ use std::rc::Rc;
 /// このモジュールは、ASTノードに対する標準的な代数的変形ルールを提供します。
 /// これらのルールは、式の簡約や正規化、最適化に使用できます。
 // ============================================================================
+// マクロ定義: 共通パターンの生成
+// ============================================================================
+/// 単位元ルールを生成するマクロ
+/// op(a, identity) = a および op(identity, a) = a のパターン
+macro_rules! identity_rules {
+    ($right_name:ident, $left_name:ident, $op:ident, $identity:expr, $right_doc:expr, $left_doc:expr) => {
+        #[doc = $right_doc]
+        pub fn $right_name() -> Rc<AstRewriteRule> {
+            astpat!(|a| {
+                AstNode::$op(Box::new(a), Box::new(AstNode::Const($identity)))
+            } => {
+                a
+            })
+        }
+
+        #[doc = $left_doc]
+        pub fn $left_name() -> Rc<AstRewriteRule> {
+            astpat!(|a| {
+                AstNode::$op(Box::new(AstNode::Const($identity)), Box::new(a))
+            } => {
+                a
+            })
+        }
+    };
+}
+
+/// 零元ルールを生成するマクロ
+/// op(a, zero) = zero および op(zero, a) = zero のパターン
+macro_rules! zero_rules {
+    ($right_name:ident, $left_name:ident, $op:ident, $zero:expr, $right_doc:expr, $left_doc:expr) => {
+        #[doc = $right_doc]
+        pub fn $right_name() -> Rc<AstRewriteRule> {
+            astpat!(|_a| {
+                AstNode::$op(Box::new(_a), Box::new(AstNode::Const($zero)))
+            } => {
+                AstNode::Const($zero)
+            })
+        }
+
+        #[doc = $left_doc]
+        pub fn $left_name() -> Rc<AstRewriteRule> {
+            astpat!(|_a| {
+                AstNode::$op(Box::new(AstNode::Const($zero)), Box::new(_a))
+            } => {
+                AstNode::Const($zero)
+            })
+        }
+    };
+}
+
+/// 交換則ルールを生成するマクロ
+/// op(a, b) = op(b, a) のパターン
+macro_rules! commutative_rule {
+    ($name:ident, $op:ident, $doc:expr) => {
+        #[doc = $doc]
+        pub fn $name() -> Rc<AstRewriteRule> {
+            astpat!(|a, b| {
+                AstNode::$op(Box::new(a), Box::new(b))
+            } => {
+                AstNode::$op(Box::new(b), Box::new(a))
+            })
+        }
+    };
+}
+
+/// 結合則ルールを生成するマクロ
+/// op(op(a, b), c) = op(a, op(b, c)) とその逆のパターン
+macro_rules! associative_rules {
+    ($left_to_right:ident, $right_to_left:ident, $op:ident, $ltr_doc:expr, $rtl_doc:expr) => {
+        #[doc = $ltr_doc]
+        pub fn $left_to_right() -> Rc<AstRewriteRule> {
+            astpat!(|a, b, c| {
+                AstNode::$op(
+                    Box::new(AstNode::$op(Box::new(a), Box::new(b))),
+                    Box::new(c)
+                )
+            } => {
+                AstNode::$op(
+                    Box::new(a),
+                    Box::new(AstNode::$op(Box::new(b), Box::new(c)))
+                )
+            })
+        }
+
+        #[doc = $rtl_doc]
+        pub fn $right_to_left() -> Rc<AstRewriteRule> {
+            astpat!(|a, b, c| {
+                AstNode::$op(
+                    Box::new(a),
+                    Box::new(AstNode::$op(Box::new(b), Box::new(c)))
+                )
+            } => {
+                AstNode::$op(
+                    Box::new(AstNode::$op(Box::new(a), Box::new(b))),
+                    Box::new(c)
+                )
+            })
+        }
+    };
+}
+
+// ============================================================================
 // 単位元ルール (Identity Rules)
 // ============================================================================
-/// 加算の右単位元: a + 0 = a
-pub fn add_zero_right() -> Rc<AstRewriteRule> {
-    astpat!(|a| {
-        AstNode::Add(Box::new(a), Box::new(AstNode::Const(Literal::Isize(0))))
-    } => {
-        a
-    })
-}
 
-/// 加算の左単位元: 0 + a = a
-pub fn add_zero_left() -> Rc<AstRewriteRule> {
-    astpat!(|a| {
-        AstNode::Add(Box::new(AstNode::Const(Literal::Isize(0))), Box::new(a))
-    } => {
-        a
-    })
-}
+identity_rules!(
+    add_zero_right,
+    add_zero_left,
+    Add,
+    Literal::Isize(0),
+    "加算の右単位元: a + 0 = a",
+    "加算の左単位元: 0 + a = a"
+);
 
-/// 乗算の右単位元: a * 1 = a
-pub fn mul_one_right() -> Rc<AstRewriteRule> {
-    astpat!(|a| {
-        AstNode::Mul(Box::new(a), Box::new(AstNode::Const(Literal::Isize(1))))
-    } => {
-        a
-    })
-}
-
-/// 乗算の左単位元: 1 * a = a
-pub fn mul_one_left() -> Rc<AstRewriteRule> {
-    astpat!(|a| {
-        AstNode::Mul(Box::new(AstNode::Const(Literal::Isize(1))), Box::new(a))
-    } => {
-        a
-    })
-}
+identity_rules!(
+    mul_one_right,
+    mul_one_left,
+    Mul,
+    Literal::Isize(1),
+    "乗算の右単位元: a * 1 = a",
+    "乗算の左単位元: 1 * a = a"
+);
 
 // ============================================================================
 // 零元ルール (Zero Rules)
 // ============================================================================
 
-/// 乗算の右零元: a * 0 = 0
-pub fn mul_zero_right() -> Rc<AstRewriteRule> {
-    astpat!(|_a| {
-        AstNode::Mul(Box::new(_a), Box::new(AstNode::Const(Literal::Isize(0))))
-    } => {
-        AstNode::Const(Literal::Isize(0))
-    })
-}
-
-/// 乗算の左零元: 0 * a = 0
-pub fn mul_zero_left() -> Rc<AstRewriteRule> {
-    astpat!(|_a| {
-        AstNode::Mul(Box::new(AstNode::Const(Literal::Isize(0))), Box::new(_a))
-    } => {
-        AstNode::Const(Literal::Isize(0))
-    })
-}
+zero_rules!(
+    mul_zero_right,
+    mul_zero_left,
+    Mul,
+    Literal::Isize(0),
+    "乗算の右零元: a * 0 = 0",
+    "乗算の左零元: 0 * a = 0"
+);
 
 // ============================================================================
 // 冪等則 (Idempotent Rules)
@@ -111,96 +187,29 @@ pub fn sqrt_squared() -> Rc<AstRewriteRule> {
 // 交換則 (Commutative Rules)
 // ============================================================================
 
-/// 加算の交換則: a + b = b + a
-pub fn add_commutative() -> Rc<AstRewriteRule> {
-    astpat!(|a, b| {
-        AstNode::Add(Box::new(a), Box::new(b))
-    } => {
-        AstNode::Add(Box::new(b), Box::new(a))
-    })
-}
-
-/// 乗算の交換則: a * b = b * a
-pub fn mul_commutative() -> Rc<AstRewriteRule> {
-    astpat!(|a, b| {
-        AstNode::Mul(Box::new(a), Box::new(b))
-    } => {
-        AstNode::Mul(Box::new(b), Box::new(a))
-    })
-}
-
-/// maxの交換則: max(a, b) = max(b, a)
-pub fn max_commutative() -> Rc<AstRewriteRule> {
-    astpat!(|a, b| {
-        AstNode::Max(Box::new(a), Box::new(b))
-    } => {
-        AstNode::Max(Box::new(b), Box::new(a))
-    })
-}
+commutative_rule!(add_commutative, Add, "加算の交換則: a + b = b + a");
+commutative_rule!(mul_commutative, Mul, "乗算の交換則: a * b = b * a");
+commutative_rule!(max_commutative, Max, "maxの交換則: max(a, b) = max(b, a)");
 
 // ============================================================================
 // 結合則 (Associative Rules)
 // ============================================================================
 
-/// 加算の左結合から右結合: (a + b) + c = a + (b + c)
-pub fn add_associate_left_to_right() -> Rc<AstRewriteRule> {
-    astpat!(|a, b, c| {
-        AstNode::Add(
-            Box::new(AstNode::Add(Box::new(a), Box::new(b))),
-            Box::new(c)
-        )
-    } => {
-        AstNode::Add(
-            Box::new(a),
-            Box::new(AstNode::Add(Box::new(b), Box::new(c)))
-        )
-    })
-}
+associative_rules!(
+    add_associate_left_to_right,
+    add_associate_right_to_left,
+    Add,
+    "加算の左結合から右結合: (a + b) + c = a + (b + c)",
+    "加算の右結合から左結合: a + (b + c) = (a + b) + c"
+);
 
-/// 加算の右結合から左結合: a + (b + c) = (a + b) + c
-pub fn add_associate_right_to_left() -> Rc<AstRewriteRule> {
-    astpat!(|a, b, c| {
-        AstNode::Add(
-            Box::new(a),
-            Box::new(AstNode::Add(Box::new(b), Box::new(c)))
-        )
-    } => {
-        AstNode::Add(
-            Box::new(AstNode::Add(Box::new(a), Box::new(b))),
-            Box::new(c)
-        )
-    })
-}
-
-/// 乗算の左結合から右結合: (a * b) * c = a * (b * c)
-pub fn mul_associate_left_to_right() -> Rc<AstRewriteRule> {
-    astpat!(|a, b, c| {
-        AstNode::Mul(
-            Box::new(AstNode::Mul(Box::new(a), Box::new(b))),
-            Box::new(c)
-        )
-    } => {
-        AstNode::Mul(
-            Box::new(a),
-            Box::new(AstNode::Mul(Box::new(b), Box::new(c)))
-        )
-    })
-}
-
-/// 乗算の右結合から左結合: a * (b * c) = (a * b) * c
-pub fn mul_associate_right_to_left() -> Rc<AstRewriteRule> {
-    astpat!(|a, b, c| {
-        AstNode::Mul(
-            Box::new(a),
-            Box::new(AstNode::Mul(Box::new(b), Box::new(c)))
-        )
-    } => {
-        AstNode::Mul(
-            Box::new(AstNode::Mul(Box::new(a), Box::new(b))),
-            Box::new(c)
-        )
-    })
-}
+associative_rules!(
+    mul_associate_left_to_right,
+    mul_associate_right_to_left,
+    Mul,
+    "乗算の左結合から右結合: (a * b) * c = a * (b * c)",
+    "乗算の右結合から左結合: a * (b * c) = (a * b) * c"
+);
 
 // ============================================================================
 // 分配則 (Distributive Rules)
