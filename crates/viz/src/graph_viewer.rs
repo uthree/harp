@@ -423,6 +423,18 @@ impl GraphViewerApp {
             if ui.button("Export to DOT").clicked() {
                 self.export_to_dot();
             }
+
+            ui.add_space(10.0);
+
+            // DOTテキスト表示トグルボタン
+            let button_text = if self.show_dot_text {
+                "Hide DOT Text"
+            } else {
+                "Show DOT Text"
+            };
+            if ui.button(button_text).clicked() {
+                self.show_dot_text = !self.show_dot_text;
+            }
         });
         ui.separator();
 
@@ -493,13 +505,52 @@ impl GraphViewerApp {
 
         ui.separator();
 
-        // egui-snarlでグラフを表示
-        self.snarl.show(
-            &mut GraphNodeViewStyle,
-            &egui_snarl::ui::SnarlStyle::default(),
-            egui::Id::new("graph_viewer_snarl"),
-            ui,
-        );
+        // DOTテキストを表示する場合は横分割
+        if self.show_dot_text {
+            ui.columns(2, |columns| {
+                // 左側: グラフビュー
+                columns[0].vertical(|ui| {
+                    ui.heading("Graph View");
+                    ui.separator();
+                    self.snarl.show(
+                        &mut GraphNodeViewStyle,
+                        &egui_snarl::ui::SnarlStyle::default(),
+                        egui::Id::new("graph_viewer_snarl"),
+                        ui,
+                    );
+                });
+
+                // 右側: DOTテキスト
+                columns[1].vertical(|ui| {
+                    ui.heading("DOT Format");
+                    ui.separator();
+
+                    if let Some(ref graph) = self.harp_graph {
+                        let dot_text = graph.to_dot();
+
+                        egui::ScrollArea::vertical()
+                            .max_height(ui.available_height())
+                            .show(ui, |ui| {
+                                ui.add(
+                                    egui::TextEdit::multiline(&mut dot_text.clone())
+                                        .code_editor()
+                                        .desired_width(f32::INFINITY)
+                                );
+                            });
+                    } else {
+                        ui.label("No graph loaded");
+                    }
+                });
+            });
+        } else {
+            // 通常表示: グラフビューのみ
+            self.snarl.show(
+                &mut GraphNodeViewStyle,
+                &egui_snarl::ui::SnarlStyle::default(),
+                egui::Id::new("graph_viewer_snarl"),
+                ui,
+            );
+        }
     }
 }
 
