@@ -1,11 +1,19 @@
 //! AST最適化を可視化するビューア
 
-use harp::ast::renderer::render_ast;
+use harp::ast::renderer::render_ast_with;
+use harp::backend::c_like::CLikeRenderer;
+use harp::backend::openmp::CRenderer;
 use harp::opt::ast::OptimizationHistory;
 use similar::{ChangeTag, TextDiff};
 
-/// ASTビューアアプリケーション
-pub struct AstViewerApp {
+/// ASTビューアアプリケーション（ジェネリックレンダラー対応）
+///
+/// # 型パラメータ
+/// * `R` - ASTをレンダリングするレンダラー（`CLikeRenderer`を実装している必要があります）
+pub struct AstViewerApp<R = CRenderer>
+where
+    R: CLikeRenderer + Clone,
+{
     /// 最適化履歴
     optimization_history: Option<OptimizationHistory>,
     /// 現在表示中のステップインデックス
@@ -16,23 +24,36 @@ pub struct AstViewerApp {
     show_cost_graph: bool,
     /// Diffを表示するかどうか
     show_diff: bool,
+    /// ASTレンダラー
+    renderer: R,
 }
 
-impl Default for AstViewerApp {
+impl Default for AstViewerApp<CRenderer> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl AstViewerApp {
-    /// 新しいAstViewerAppを作成
+impl AstViewerApp<CRenderer> {
+    /// 新しいAstViewerAppを作成（デフォルトでCRendererを使用）
     pub fn new() -> Self {
+        Self::with_renderer(CRenderer::new())
+    }
+}
+
+impl<R> AstViewerApp<R>
+where
+    R: CLikeRenderer + Clone,
+{
+    /// カスタムレンダラーを使用してAstViewerAppを作成
+    pub fn with_renderer(renderer: R) -> Self {
         Self {
             optimization_history: None,
             current_step_index: 0,
             selected_rank: 0,
             show_cost_graph: false,
             show_diff: false,
+            renderer,
         }
     }
 
@@ -127,13 +148,27 @@ impl AstViewerApp {
 
     /// UIを描画
     pub fn ui(&mut self, ui: &mut egui::Ui) {
-        // キーボード入力処理（左右矢印キー）
+        // キーボード入力処理
         if self.optimization_history.is_some() {
+            let num_candidates = self.get_current_step_candidates().len();
+
             ui.input(|i| {
+                // 左右矢印キー：ステップ間を移動
                 if i.key_pressed(egui::Key::ArrowLeft) {
                     self.prev_step();
                 } else if i.key_pressed(egui::Key::ArrowRight) {
                     self.next_step();
+                }
+
+                // 上下矢印キー：ビーム候補間を移動
+                if i.key_pressed(egui::Key::ArrowUp) {
+                    if self.selected_rank > 0 {
+                        self.selected_rank -= 1;
+                    }
+                } else if i.key_pressed(egui::Key::ArrowDown) {
+                    if self.selected_rank + 1 < num_candidates {
+                        self.selected_rank += 1;
+                    }
                 }
             });
         }
@@ -291,7 +326,9 @@ impl AstViewerApp {
         let candidate_info: Vec<(usize, f32)> =
             candidates.iter().map(|c| (c.rank, c.cost)).collect();
         let selected_rank = self.selected_rank;
-        let selected_code = candidates.get(selected_rank).map(|s| render_ast(&s.ast));
+        let selected_code = candidates
+            .get(selected_rank)
+            .map(|s| render_ast_with(&s.ast, &self.renderer));
 
         // 前のステップのコードを取得（Diff表示用）
         let prev_code = if self.show_diff && current_step > 0 {
@@ -304,7 +341,7 @@ impl AstViewerApp {
             prev_step_candidates
                 .iter()
                 .find(|c| c.rank == 0)
-                .map(|s| render_ast(&s.ast))
+                .map(|s| render_ast_with(&s.ast, &self.renderer))
         } else {
             None
         };

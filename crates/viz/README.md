@@ -133,6 +133,26 @@ let mut app = HarpVizApp::new();
 app.load_ast_optimization_history(history);
 ```
 
+### カスタムレンダラーを使用したAST可視化
+
+`AstViewerApp`はジェネリックで、任意のバックエンドレンダラーを使用できます：
+
+```rust
+use harp_viz::AstViewerApp;
+use harp::backend::metal::MetalRenderer;  // または他のレンダラー
+use harp::opt::ast::OptimizationHistory;
+
+// MetalRendererを使用してAST Viewerを作成
+let renderer = MetalRenderer::new();
+let mut ast_viewer = AstViewerApp::with_renderer(renderer);
+
+// 最適化履歴を読み込む
+ast_viewer.load_history(history);
+
+// または、デフォルトのCRendererを使用
+let mut ast_viewer = AstViewerApp::new();  // デフォルトでCRendererを使用
+```
+
 ## 依存関係
 
 - `egui`: GUIフレームワーク

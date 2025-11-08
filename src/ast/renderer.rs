@@ -4,10 +4,23 @@ use super::AstNode;
 use crate::backend::c_like::CLikeRenderer;
 use crate::backend::openmp::CRenderer;
 
-/// ヘルパー関数: ASTを文字列に変換（backendのCRendererを使用）
-pub fn render_ast(ast: &AstNode) -> String {
-    let renderer = CRenderer::new();
-
+/// ASTを文字列に変換（ジェネリックレンダラー対応）
+///
+/// # 型パラメータ
+/// * `R` - `CLikeRenderer`を実装するレンダラー
+///
+/// # 例
+/// ```ignore
+/// use harp::backend::openmp::CRenderer;
+/// use harp::ast::renderer::render_ast_with;
+///
+/// let renderer = CRenderer::new();
+/// let code = render_ast_with(&ast, &renderer);
+/// ```
+pub fn render_ast_with<R>(ast: &AstNode, renderer: &R) -> String
+where
+    R: CLikeRenderer + Clone,
+{
     // AstNodeの種類によって適切なレンダリングメソッドを使用
     match ast {
         // 文として扱うべきノード
@@ -23,6 +36,14 @@ pub fn render_ast(ast: &AstNode) -> String {
         // 式として扱うべきノード
         _ => renderer.render_expr(ast),
     }
+}
+
+/// ヘルパー関数: ASTを文字列に変換（デフォルトでCRendererを使用）
+///
+/// より詳細な制御が必要な場合は、`render_ast_with`を使用してください。
+pub fn render_ast(ast: &AstNode) -> String {
+    let renderer = CRenderer::new();
+    render_ast_with(ast, &renderer)
 }
 
 #[cfg(test)]
