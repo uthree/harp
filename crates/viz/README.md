@@ -1,20 +1,27 @@
 # Harp Visualizer
 
-Harpの計算グラフとグラフ最適化の各ステップを可視化するためのGUIツールです。
+Harpの計算グラフとAST最適化の各ステップを可視化するためのGUIツールです。
 
 ## 機能
 
-- **グラフビューア**: 計算グラフの構造を可視化
-- **最適化履歴**: ビームサーチ最適化の各ステップを閲覧
+### グラフビューア
+- **計算グラフの構造を可視化**: ノードとエッジの視覚的表示
+- **グラフ最適化履歴**: ビームサーチ最適化の各ステップを閲覧
 - **ステップナビゲーション**: 前後のステップを移動して最適化の過程を確認
 - **コスト遷移グラフ**: 最適化の各ステップでのコストの変化を折れ線グラフで可視化
 - **DOTテキスト表示**: Graphviz DOT形式でのグラフ表現をリアルタイム表示
 
+### ASTビューア
+- **AST最適化履歴の可視化**: ビームサーチ最適化の各ステップを閲覧
+- **ビーム内の候補表示**: 各ステップのビーム内の全候補をランク付きで表示
+- **レンダリングされたコード表示**: 選択したASTを読みやすいコード形式で表示
+- **コスト遷移グラフ**: 最適化の各ステップでのコストの変化を可視化
+
 ## デモの実行方法
 
-### 最適化可視化デモ
+### 統合最適化可視化デモ
 
-グラフ最適化の各ステップを可視化するデモを実行するには：
+グラフ最適化とAST最適化の両方を可視化する統合デモを実行するには：
 
 ```bash
 cargo run --package harp-viz --example optimization_demo
@@ -22,18 +29,25 @@ cargo run --package harp-viz --example optimization_demo
 
 このデモでは以下のことが行われます：
 
+**グラフ最適化**:
 1. サンプルの計算グラフを作成（`y = ((a + b) * c) - d`, `z = reduce_sum(y, axis=0)`）
 2. ビームサーチ最適化器で最適化を実行
 3. 最適化の各ステップを記録
-4. GUIで各ステップを可視化
-   - グラフ構造の視覚的表示
-   - コスト遷移の折れ線グラフ
-   - DOT形式テキストの表示とコピー
+
+**AST最適化**:
+1. サンプルのASTを作成（`((2 + 3) * 1) + ((a + 0) * (b + c))`）
+2. 代数的書き換えルールを適用してビームサーチ最適化を実行
+3. 最適化の各ステップを記録
+
+**可視化**:
+- Graph Viewerタブ: グラフ最適化の履歴を表示
+- AST Viewerタブ: AST最適化の履歴を表示
+- タブを切り替えて両方の最適化過程を確認可能
 
 ### 操作方法
 
-- **◀ Prev**: 前のステップに戻る
-- **Next ▶**: 次のステップに進む
+#### グラフビューア
+- **◀ Prev / Next ▶**: 前後のステップに移動
 - **Step表示**: 現在のステップ番号
 - **Description**: 各ステップの説明
 - **Cost**: 推定実行コスト
@@ -41,6 +55,15 @@ cargo run --package harp-viz --example optimization_demo
   - DOTテキスト表示中は「Copy to Clipboard」ボタンでクリップボードにコピー可能
 - **Show/Hide Cost Graph**: 最適化ステップごとのコスト遷移を折れ線グラフで表示/非表示
   - 現在のステップが赤い縦線で表示されます
+
+#### ASTビューア
+- **◀ Prev / Next ▶**: 前後のステップに移動
+- **Stepスライダー**: 任意のステップに直接ジャンプ
+- **Beam Candidates**: ビーム内の候補リスト（ランクとコストを表示）
+  - クリックして候補を選択すると、右側にそのASTのコードが表示されます
+- **AST Code**: 選択したASTのレンダリングされたコード
+  - 構文ハイライト付きのモノスペースフォントで表示
+- **Show/Hide Cost Graph**: コスト遷移の折れ線グラフを表示/非表示
 
 ### DOT形式での出力
 
@@ -82,16 +105,32 @@ graph.save_dot("my_graph.dot").unwrap();
 
 ## ライブラリとして使用する
 
+### グラフ最適化履歴の可視化
+
 ```rust
 use harp_viz::HarpVizApp;
 use harp::opt::graph::OptimizationHistory;
 
-// 最適化履歴を作成
+// グラフ最適化履歴を作成
 let (optimized_graph, history) = optimizer.optimize_with_history(graph);
 
 // 可視化アプリケーションで表示
 let mut app = HarpVizApp::new();
-app.load_optimization_history(history);
+app.load_graph_optimization_history(history);
+```
+
+### AST最適化履歴の可視化
+
+```rust
+use harp_viz::HarpVizApp;
+use harp::opt::ast::OptimizationHistory;
+
+// AST最適化履歴を作成
+let (optimized_ast, history) = optimizer.optimize_with_history(ast);
+
+// 可視化アプリケーションで表示
+let mut app = HarpVizApp::new();
+app.load_ast_optimization_history(history);
 ```
 
 ## 依存関係
@@ -99,4 +138,13 @@ app.load_optimization_history(history);
 - `egui`: GUIフレームワーク
 - `eframe`: eGUIのネイティブバックエンド
 - `egui-snarl`: グラフ構造の可視化
+- `egui_plot`: グラフのプロット表示
 - `harp`: Harpライブラリ本体
+
+## タブの切り替え
+
+アプリケーション上部のメニューバーから以下のタブを切り替えできます：
+
+- **Graph Viewer**: 計算グラフの可視化
+- **AST Viewer**: AST最適化の可視化
+- **Performance**: パフォーマンス統計（将来の拡張）

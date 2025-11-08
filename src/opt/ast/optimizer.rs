@@ -5,6 +5,7 @@ use log::debug;
 use std::rc::Rc;
 
 use super::estimator::CostEstimator;
+use super::history::{OptimizationHistory, OptimizationSnapshot};
 use super::suggester::Suggester;
 
 /// ASTを最適化するトレイト
@@ -90,20 +91,31 @@ where
     }
 }
 
-impl<S, E> Optimizer for BeamSearchOptimizer<S, E>
+impl<S, E> BeamSearchOptimizer<S, E>
 where
     S: Suggester,
     E: CostEstimator,
 {
-    fn optimize(&self, ast: AstNode) -> AstNode {
-        debug!("BeamSearchOptimizer: Starting beam search optimization");
+    /// 履歴を記録しながら最適化を実行
+    pub fn optimize_with_history(&self, ast: AstNode) -> (AstNode, OptimizationHistory) {
+        debug!("BeamSearchOptimizer: Starting beam search optimization with history");
 
-        let mut beam = vec![ast];
+        let mut history = OptimizationHistory::new();
+        let mut beam = vec![ast.clone()];
+
+        // 初期状態を記録
+        let initial_cost = self.estimator.estimate(&ast);
+        history.add_snapshot(OptimizationSnapshot::new(
+            0,
+            ast,
+            initial_cost,
+            "Initial AST".to_string(),
+            0,
+            None,
+        ));
 
         let pb = if self.show_progress {
             let pb = ProgressBar::new(self.max_depth as u64);
-
-            // Cargoスタイルのプログレスバー
             pb.set_style(
                 ProgressStyle::with_template("{prefix:>12.cyan.bold} [{bar:24}] {pos}/{len} {msg}")
                     .unwrap()
@@ -152,6 +164,19 @@ where
             });
 
             beam = candidates.into_iter().take(self.beam_width).collect();
+
+            // ビーム内の各候補を履歴に記録
+            for (rank, ast) in beam.iter().enumerate() {
+                let cost = self.estimator.estimate(ast);
+                history.add_snapshot(OptimizationSnapshot::new(
+                    depth + 1,
+                    ast.clone(),
+                    cost,
+                    format!("Depth {} rank {}", depth + 1, rank),
+                    rank,
+                    None,
+                ));
+            }
         }
 
         if let Some(pb) = pb {
@@ -161,14 +186,28 @@ where
         debug!("BeamSearchOptimizer: Beam search optimization complete");
 
         // 最良の候補を返す
-        beam.into_iter()
+        let best = beam
+            .into_iter()
             .min_by(|a, b| {
                 self.estimator
                     .estimate(a)
                     .partial_cmp(&self.estimator.estimate(b))
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
-            .unwrap()
+            .unwrap();
+
+        (best, history)
+    }
+}
+
+impl<S, E> Optimizer for BeamSearchOptimizer<S, E>
+where
+    S: Suggester,
+    E: CostEstimator,
+{
+    fn optimize(&self, ast: AstNode) -> AstNode {
+        let (optimized, _) = self.optimize_with_history(ast);
+        optimized
     }
 }
 

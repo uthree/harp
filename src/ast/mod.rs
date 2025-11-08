@@ -3,6 +3,7 @@ pub mod ops;
 // Helper functions for constructing AST nodes
 pub mod helper;
 pub mod pat;
+pub mod renderer;
 
 use std::collections::HashMap;
 
