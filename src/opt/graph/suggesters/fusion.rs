@@ -61,8 +61,8 @@ impl FusionSuggester {
         // このノードの入力を処理
         for src in &node.src {
             let ptr = src.as_ptr();
-            if !input_mapping.contains_key(&ptr) {
-                input_mapping.insert(ptr, graph_inputs.len());
+            if let std::collections::hash_map::Entry::Vacant(e) = input_mapping.entry(ptr) {
+                e.insert(graph_inputs.len());
                 graph_inputs.push(src.clone());
             }
         }
@@ -123,7 +123,7 @@ impl FusionSuggester {
 
         // FusedElementwiseOpを作成
         let inputs: Vec<FusedInput> = (0..graph_inputs.len())
-            .map(|i| FusedInput::GraphInput(i))
+            .map(FusedInput::GraphInput)
             .collect();
 
         let ops = vec![FusedElementwiseOp {

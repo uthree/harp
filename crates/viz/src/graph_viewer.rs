@@ -260,13 +260,7 @@ impl GraphViewerApp {
 
         // 入力ノードを先にトラバース
         for input_node in &node.src {
-            self.traverse_and_add_node_with_layout(
-                input_node,
-                "",
-                visited,
-                depths,
-                depth_counters,
-            );
+            self.traverse_and_add_node_with_layout(input_node, "", visited, depths, depth_counters);
         }
 
         // このノードの深さを取得
@@ -476,9 +470,9 @@ impl GraphViewerApp {
                 // コストデータを収集
                 let cost_points: Vec<[f64; 2]> = (0..history.len())
                     .filter_map(|step| {
-                        history.get(step).map(|snapshot| {
-                            [step as f64, snapshot.cost as f64]
-                        })
+                        history
+                            .get(step)
+                            .map(|snapshot| [step as f64, snapshot.cost as f64])
                     })
                     .collect();
 
@@ -490,7 +484,7 @@ impl GraphViewerApp {
                         plot_ui.line(
                             egui_plot::Line::new(cost_points)
                                 .color(egui::Color32::from_rgb(100, 150, 250))
-                                .name("Cost")
+                                .name("Cost"),
                         );
 
                         // 現在のステップを縦線で表示
@@ -498,7 +492,7 @@ impl GraphViewerApp {
                         plot_ui.vline(
                             egui_plot::VLine::new(current_step)
                                 .color(egui::Color32::from_rgb(255, 100, 100))
-                                .name("Current Step")
+                                .name("Current Step"),
                         );
                     });
 
@@ -570,7 +564,7 @@ impl GraphViewerApp {
                                 ui.add(
                                     egui::TextEdit::multiline(&mut dot_text.clone())
                                         .code_editor()
-                                        .desired_width(f32::INFINITY)
+                                        .desired_width(f32::INFINITY),
                                 );
                             });
                     } else {
