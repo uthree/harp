@@ -2,8 +2,8 @@
 テンソル（多次元配列）単位での演算をDAGで表現する。
 
 ## ファイル構成
-- `src/graph/mod.rs` - Graph、GraphNode、GraphOp、AxisStrategyの定義
-- `src/graph/ops.rs` - 演算子オーバーロードとヘルパー関数
+- `src/graph/mod.rs` - Graph、GraphNode、GraphOp、AxisStrategyの定義 (802行、93テスト中87テストが本モジュールのテスト)
+- `src/graph/ops.rs` - 演算子オーバーロード、ReduceOp、ヘルパー関数 (237行)
 - `src/graph/shape/mod.rs` - shapeモジュール定義
 - `src/graph/shape/expr.rs` - Shape式（Expr）の実装 (280行)
 - `src/graph/shape/tests.rs` - Shape式のテストコード
@@ -359,3 +359,37 @@ let node = GraphNode(Rc::new(GraphNodeData {
 - **View操作との連携**: View操作を組み合わせることで、新たな軸を追加してアンローリング的なことが可能
   - その責務はグラフ最適化処理(`opt/graph`)に分離
 - **将来の拡張性**: WMMA(Tensor Core)対応などの高度な機能は将来的に追加予定
+
+## 実装状況
+
+### 実装済み機能
+- **基本データ構造**: Graph, GraphNode, GraphNodeData, DType
+- **入力/出力管理**: InputNodeBuilder, input/output登録
+- **Elementwise演算**: Add, Mul, Neg, Max, Rem, Idiv, Recip
+  - 演算子オーバーロード（+, -, *, /, %）に対応
+  - 完全に実装済み（テスト: 93個中87個成功、6個は他モジュールのテスト）
+- **Reduce演算**: Add (Sum), Mul (Product), Max
+  - Graph側: 完全に実装済み（ReduceOp enum, ヘルパー関数, GraphNodeメソッド）
+  - Lowering側: Sequential版のみ実装済み
+  - 6つのテストで動作確認済み
+- **Contiguous演算**: Viewに従った要素の並べ替え
+  - Graph側: 完全に実装済み（GraphOp::Contiguous）
+  - Lowering側: Sequential版のみ実装済み
+  - 2つのテストで動作確認済み（1次元flip、2次元transpose）
+- **View操作**: contiguous, permute, unsqueeze, squeeze, flip, expand
+  - 線形変換（Linear View）による効率的な実装
+  - ゼロコストの転置・次元操作に対応
+- **Shape推論**: Expr型による動的shapeのサポート
+  - 演算時の自動推論
+  - 明示的なshape変換の強制（暗黙的なbroadcastは禁止）
+- **DType推論**: 演算時の自動型推論
+
+### 部分実装
+- **並列化戦略**: AxisStrategy（Sequential/Thread/ThreadGroup）の定義は完了
+  - Lowering側ではSequentialのみサポート
+  - Thread/ThreadGroupは未実装
+
+### 未実装機能
+- **Cumulative演算**: 累積演算（GraphOp定義済み、実装なし）
+- **グラフ最適化**: ノード融合、メモリ最適化など
+- **その他の演算**: 畳み込み、行列乗算など

@@ -92,8 +92,10 @@ impl Buffer for MetalBuffer {
 mod tests {
     use super::*;
     use crate::backend::metal::MetalCompiler;
+    use serial_test::serial;
 
     #[test]
+    #[serial]
     fn test_buffer_creation() {
         if let Some(compiler) = MetalCompiler::with_default_device() {
             let buffer = compiler.create_buffer(vec![10, 20], 4);
@@ -103,6 +105,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_buffer_read_write() {
         if let Some(compiler) = MetalCompiler::with_default_device() {
             let mut buffer = compiler.create_buffer(vec![10], 4);

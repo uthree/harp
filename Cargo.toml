@@ -18,3 +18,4 @@ objc = "0.2"
 
 [dev-dependencies]
 env_logger = "0.11"
+serial_test = "3.2"

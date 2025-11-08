@@ -100,8 +100,10 @@ impl Kernel for MetalKernel {
 mod tests {
     use crate::backend::Compiler;
     use crate::backend::metal::{MetalCode, MetalCompiler};
+    use serial_test::serial;
 
     #[test]
+    #[serial]
     fn test_simple_kernel_compile() {
         if let Some(mut compiler) = MetalCompiler::with_default_device() {
             // 簡単なカーネルをコンパイル
@@ -125,6 +127,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_kernel_execution() {
         if let Some(mut compiler) = MetalCompiler::with_default_device() {
             // カーネルをコンパイル

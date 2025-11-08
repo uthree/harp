@@ -147,8 +147,10 @@ impl Compiler for MetalCompiler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
+    #[serial]
     fn test_metal_compiler_creation() {
         // Metal が利用可能な環境でのみテスト
         if let Some(compiler) = MetalCompiler::with_default_device() {
