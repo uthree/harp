@@ -5,7 +5,10 @@ pub mod c_like;
 pub mod metal;
 
 // Re-export commonly used types
-pub use metal::{MetalBuffer, MetalCode, MetalCompiler, MetalKernel, MetalRenderer};
+pub use metal::{MetalCode, MetalRenderer};
+
+#[cfg(target_os = "macos")]
+pub use metal::{MetalBuffer, MetalCompiler, MetalKernel};
 
 // レンダラー。
 // ASTを受け取って文字列としてレンダリングする
