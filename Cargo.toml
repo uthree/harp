@@ -1,3 +1,10 @@
+[workspace]
+members = [
+    ".",
+    "crates/viz",
+]
+resolver = "2"
+
 [package]
 name = "harp"
 version = "0.1.0"

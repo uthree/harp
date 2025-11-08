@@ -221,7 +221,7 @@ impl CumulativeStrategy {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Graph {
     inputs: HashMap<String, Weak<GraphNodeData>>, // Rcの参照カウントに影響を与えないために、Weak参照で保持する。
     outputs: HashMap<String, GraphNode>,

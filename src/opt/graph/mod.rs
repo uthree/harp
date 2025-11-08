@@ -1,4 +1,5 @@
 pub mod estimator;
+pub mod history;
 pub mod optimizer;
 pub mod suggesters;
 
@@ -24,6 +25,7 @@ pub trait GraphCostEstimator {
 
 // Re-export commonly used types
 pub use estimator::SimpleCostEstimator;
+pub use history::{OptimizationHistory, OptimizationSnapshot};
 pub use optimizer::BeamSearchGraphOptimizer;
 pub use suggesters::{
     CompositeSuggester, FusionSuggester, ParallelStrategyChanger, TilingSuggester,

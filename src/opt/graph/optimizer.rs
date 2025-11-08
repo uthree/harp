@@ -1,5 +1,7 @@
 use crate::graph::Graph;
-use crate::opt::graph::{GraphCostEstimator, GraphOptimizer, GraphSuggester};
+use crate::opt::graph::{
+    GraphCostEstimator, GraphOptimizer, GraphSuggester, OptimizationHistory, OptimizationSnapshot,
+};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::debug;
 
@@ -51,15 +53,26 @@ where
     }
 }
 
-impl<S, E> GraphOptimizer for BeamSearchGraphOptimizer<S, E>
+impl<S, E> BeamSearchGraphOptimizer<S, E>
 where
     S: GraphSuggester,
     E: GraphCostEstimator,
 {
-    fn optimize(&self, graph: Graph) -> Graph {
-        debug!("BeamSearchGraphOptimizer: Starting beam search optimization");
+    /// グラフを最適化して、グラフと最適化履歴を返す
+    pub fn optimize_with_history(&self, graph: Graph) -> (Graph, OptimizationHistory) {
+        debug!("BeamSearchGraphOptimizer: Starting beam search optimization with history tracking");
 
-        let mut beam = vec![graph];
+        let mut history = OptimizationHistory::new();
+        let mut beam = vec![graph.clone()];
+
+        // 初期状態を記録
+        let initial_cost = self.estimator.estimate(&graph);
+        history.add_snapshot(OptimizationSnapshot::new(
+            0,
+            graph,
+            initial_cost,
+            "Initial graph".to_string(),
+        ));
 
         let pb = if self.show_progress {
             let pb = ProgressBar::new(self.max_depth as u64);
@@ -116,6 +129,17 @@ where
             });
 
             beam = candidates.into_iter().take(self.beam_width).collect();
+
+            // このステップの最良候補を記録
+            if let Some(best) = beam.first() {
+                let cost = self.estimator.estimate(best);
+                history.add_snapshot(OptimizationSnapshot::new(
+                    depth + 1,
+                    best.clone(),
+                    cost,
+                    format!("Step {}: beam width {}", depth + 1, beam.len()),
+                ));
+            }
         }
 
         if let Some(pb) = pb {
@@ -125,14 +149,29 @@ where
         debug!("BeamSearchGraphOptimizer: Beam search optimization complete");
 
         // 最良の候補を返す
-        beam.into_iter()
+        let best_graph = beam
+            .into_iter()
             .min_by(|a, b| {
                 self.estimator
                     .estimate(a)
                     .partial_cmp(&self.estimator.estimate(b))
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
-            .unwrap()
+            .unwrap();
+
+        (best_graph, history)
+    }
+}
+
+impl<S, E> GraphOptimizer for BeamSearchGraphOptimizer<S, E>
+where
+    S: GraphSuggester,
+    E: GraphCostEstimator,
+{
+    fn optimize(&self, graph: Graph) -> Graph {
+        // optimize_with_history()を呼び出して、グラフだけを返す
+        let (optimized_graph, _history) = self.optimize_with_history(graph);
+        optimized_graph
     }
 }
 

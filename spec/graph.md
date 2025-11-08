@@ -77,5 +77,5 @@ Viewは各軸の添え字からメモリオフセットへの線形変換を表�
 ### 未実装
 - Thread/ThreadGroupレベルの並列実行のLowering
 - Cumulative演算とそのLowering
-- ループタイル化（TilingSuggester - reshape操作が必要）
+- ループタイル化（TilingSuggester - view変更の操作が必要）
 - 畳み込み、行列乗算などの高度な演算
