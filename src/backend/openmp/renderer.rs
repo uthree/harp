@@ -5,6 +5,7 @@ use crate::backend::Renderer;
 use crate::backend::openmp::CCode;
 
 /// C言語とOpenMP用のレンダラー
+#[derive(Debug, Clone)]
 pub struct CRenderer {
     indent_level: usize,
     indent_size: usize,

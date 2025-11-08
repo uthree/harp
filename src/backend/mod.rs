@@ -44,6 +44,7 @@ pub trait Buffer {
     fn to_bytes(&self) -> Vec<u8>;
 
     /// バイト列からバッファに書き込み
+    #[allow(clippy::wrong_self_convention)]
     fn from_bytes(&mut self, bytes: &[u8]) -> Result<(), String>;
 
     /// バッファの総バイト数を取得
@@ -53,14 +54,11 @@ pub trait Buffer {
     ///
     /// # Safety
     /// Tのサイズがdtypeの要素サイズと一致している必要があります
-    fn to_vec<T: Clone>(&self) -> Result<Vec<T>, String>
-    where
-        T: 'static,
-    {
+    fn to_vec<T: Clone + 'static>(&self) -> Result<Vec<T>, String> {
         let bytes = self.to_bytes();
         let type_size = std::mem::size_of::<T>();
 
-        if bytes.len() % type_size != 0 {
+        if !bytes.len().is_multiple_of(type_size) {
             return Err(format!(
                 "Buffer size {} is not a multiple of type size {}",
                 bytes.len(),
@@ -80,9 +78,9 @@ pub trait Buffer {
     }
 
     /// 型付きスライスからバッファに書き込み（デフォルト実装）
+    #[allow(clippy::wrong_self_convention)]
     fn from_vec<T>(&mut self, data: &[T]) -> Result<(), String> {
-        let type_size = std::mem::size_of::<T>();
-        let byte_len = data.len() * type_size;
+        let byte_len = std::mem::size_of_val(data);
 
         if byte_len != self.byte_len() {
             return Err(format!(
@@ -92,9 +90,7 @@ pub trait Buffer {
             ));
         }
 
-        let bytes = unsafe {
-            std::slice::from_raw_parts(data.as_ptr() as *const u8, byte_len)
-        };
+        let bytes = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, byte_len) };
 
         self.from_bytes(bytes)
     }

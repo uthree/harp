@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 /// C/OpenMPコンパイラ
+#[derive(Debug)]
 pub struct CCompiler {
     /// コンパイラのパス（デフォルトは "gcc" または "clang"）
     compiler_path: String,
@@ -106,9 +107,10 @@ impl CCompiler {
         for line in code.as_str().lines() {
             if (line.contains("void kernel_") || line.contains("int kernel_"))
                 && let Some(start) = line.find("kernel_")
-                    && let Some(end) = line[start..].find('(') {
-                        return line[start..start + end].to_string();
-                    }
+                && let Some(end) = line[start..].find('(')
+            {
+                return line[start..start + end].to_string();
+            }
         }
         // デフォルトはkernel_0
         "kernel_0".to_string()
