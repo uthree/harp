@@ -10,9 +10,9 @@ pub mod shape;
 pub use ops::{ElementwiseOp, GraphOp, ReduceOp};
 pub use shape::{Expr, View};
 
-/// 各軸の並列化戦略
+/// Element-wise演算の各軸の並列化戦略
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum AxisStrategy {
+pub enum ElementwiseStrategy {
     /// 逐次実行（SIMD幅: 1=SIMD化なし、2以上=SIMD化、アンローリング係数: デフォルト1）
     Sequential {
         simd_width: usize,
@@ -30,7 +30,7 @@ pub enum AxisStrategy {
     },
 }
 
-impl Default for AxisStrategy {
+impl Default for ElementwiseStrategy {
     fn default() -> Self {
         Self::Sequential {
             simd_width: 1,
@@ -39,7 +39,7 @@ impl Default for AxisStrategy {
     }
 }
 
-impl AxisStrategy {
+impl ElementwiseStrategy {
     /// SIMD化なしのSequentialを作成
     pub fn sequential() -> Self {
         Self::Sequential {
@@ -155,6 +155,72 @@ impl AxisStrategy {
     }
 }
 
+/// Reduce演算の並列化戦略
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ReduceStrategy {
+    /// 逐次実行（アンローリング係数: デフォルト1）
+    /// 将来的には並列リダクションアルゴリズムなどを追加予定
+    Sequential { unroll_factor: usize },
+}
+
+impl Default for ReduceStrategy {
+    fn default() -> Self {
+        Self::Sequential { unroll_factor: 1 }
+    }
+}
+
+impl ReduceStrategy {
+    /// SIMD化なしのSequentialを作成
+    pub fn sequential() -> Self {
+        Self::Sequential { unroll_factor: 1 }
+    }
+
+    /// アンローリングありのSequentialを作成
+    pub fn sequential_unroll(unroll_factor: usize) -> Self {
+        Self::Sequential { unroll_factor }
+    }
+
+    /// アンローリング係数を取得
+    pub fn unroll_factor(&self) -> usize {
+        match self {
+            Self::Sequential { unroll_factor } => *unroll_factor,
+        }
+    }
+}
+
+/// Cumulative演算の並列化戦略
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum CumulativeStrategy {
+    /// 逐次実行（アンローリング係数: デフォルト1）
+    /// 将来的にはParallel Scan（Hillis-Steele、Blelloch等）を追加予定
+    Sequential { unroll_factor: usize },
+}
+
+impl Default for CumulativeStrategy {
+    fn default() -> Self {
+        Self::Sequential { unroll_factor: 1 }
+    }
+}
+
+impl CumulativeStrategy {
+    /// SIMD化なしのSequentialを作成
+    pub fn sequential() -> Self {
+        Self::Sequential { unroll_factor: 1 }
+    }
+
+    /// アンローリングありのSequentialを作成
+    pub fn sequential_unroll(unroll_factor: usize) -> Self {
+        Self::Sequential { unroll_factor }
+    }
+
+    /// アンローリング係数を取得
+    pub fn unroll_factor(&self) -> usize {
+        match self {
+            Self::Sequential { unroll_factor } => *unroll_factor,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Graph {
     inputs: HashMap<String, Weak<GraphNodeData>>, // Rcの参照カウントに影響を与えないために、Weak参照で保持する。
@@ -167,7 +233,7 @@ pub struct GraphNodeData {
     pub op: GraphOp,
     pub src: Vec<GraphNode>, // 入力ノード
     pub view: View,
-    pub axis_strategies: Vec<AxisStrategy>, // 各軸の並列化・最適化戦略
+    pub elementwise_strategies: Vec<ElementwiseStrategy>, // Element-wise演算の各軸の並列化・最適化戦略
 }
 
 #[derive(Debug, Clone)]
@@ -261,34 +327,34 @@ impl GraphNode {
     pub fn new(dtype: DType, op: GraphOp, src: Vec<GraphNode>, view: View) -> Self {
         let ndim = view.ndim();
         // デフォルトは全軸Sequential（simd_width=1, unroll_factor=1）
-        let axis_strategies = vec![AxisStrategy::sequential(); ndim];
+        let elementwise_strategies = vec![ElementwiseStrategy::sequential(); ndim];
         Self(Rc::new(GraphNodeData {
             dtype,
             op,
             src,
             view,
-            axis_strategies,
+            elementwise_strategies,
         }))
     }
 
-    pub fn with_axis_strategies(
+    pub fn with_elementwise_strategies(
         dtype: DType,
         op: GraphOp,
         src: Vec<GraphNode>,
         view: View,
-        axis_strategies: Vec<AxisStrategy>,
+        elementwise_strategies: Vec<ElementwiseStrategy>,
     ) -> Self {
         assert_eq!(
             view.ndim(),
-            axis_strategies.len(),
-            "axis_strategies length must match view ndim"
+            elementwise_strategies.len(),
+            "elementwise_strategies length must match view ndim"
         );
         Self(Rc::new(GraphNodeData {
             dtype,
             op,
             src,
             view,
-            axis_strategies,
+            elementwise_strategies,
         }))
     }
 
@@ -784,11 +850,11 @@ mod tests {
     }
 
     #[test]
-    fn test_axis_strategy_default() {
-        let default_strategy = AxisStrategy::default();
+    fn test_elementwise_strategy_default() {
+        let default_strategy = ElementwiseStrategy::default();
         assert_eq!(
             default_strategy,
-            AxisStrategy::Sequential {
+            ElementwiseStrategy::Sequential {
                 simd_width: 1,
                 unroll_factor: 1
             }
@@ -796,38 +862,38 @@ mod tests {
     }
 
     #[test]
-    fn test_axis_strategy_sequential() {
-        let strategy = AxisStrategy::sequential();
+    fn test_elementwise_strategy_sequential() {
+        let strategy = ElementwiseStrategy::sequential();
         assert_eq!(
             strategy,
-            AxisStrategy::Sequential {
+            ElementwiseStrategy::Sequential {
                 simd_width: 1,
                 unroll_factor: 1
             }
         );
 
-        let strategy_simd = AxisStrategy::sequential_simd(4);
+        let strategy_simd = ElementwiseStrategy::sequential_simd(4);
         assert_eq!(
             strategy_simd,
-            AxisStrategy::Sequential {
+            ElementwiseStrategy::Sequential {
                 simd_width: 4,
                 unroll_factor: 1
             }
         );
 
-        let strategy_unroll = AxisStrategy::sequential_unroll(2);
+        let strategy_unroll = ElementwiseStrategy::sequential_unroll(2);
         assert_eq!(
             strategy_unroll,
-            AxisStrategy::Sequential {
+            ElementwiseStrategy::Sequential {
                 simd_width: 1,
                 unroll_factor: 2
             }
         );
 
-        let strategy_both = AxisStrategy::sequential_simd_unroll(4, 2);
+        let strategy_both = ElementwiseStrategy::sequential_simd_unroll(4, 2);
         assert_eq!(
             strategy_both,
-            AxisStrategy::Sequential {
+            ElementwiseStrategy::Sequential {
                 simd_width: 4,
                 unroll_factor: 2
             }
@@ -835,38 +901,38 @@ mod tests {
     }
 
     #[test]
-    fn test_axis_strategy_thread() {
-        let strategy = AxisStrategy::thread();
+    fn test_elementwise_strategy_thread() {
+        let strategy = ElementwiseStrategy::thread();
         assert_eq!(
             strategy,
-            AxisStrategy::Thread {
+            ElementwiseStrategy::Thread {
                 simd_width: 1,
                 unroll_factor: 1
             }
         );
 
-        let strategy_simd = AxisStrategy::thread_simd(8);
+        let strategy_simd = ElementwiseStrategy::thread_simd(8);
         assert_eq!(
             strategy_simd,
-            AxisStrategy::Thread {
+            ElementwiseStrategy::Thread {
                 simd_width: 8,
                 unroll_factor: 1
             }
         );
 
-        let strategy_unroll = AxisStrategy::thread_unroll(4);
+        let strategy_unroll = ElementwiseStrategy::thread_unroll(4);
         assert_eq!(
             strategy_unroll,
-            AxisStrategy::Thread {
+            ElementwiseStrategy::Thread {
                 simd_width: 1,
                 unroll_factor: 4
             }
         );
 
-        let strategy_both = AxisStrategy::thread_simd_unroll(8, 4);
+        let strategy_both = ElementwiseStrategy::thread_simd_unroll(8, 4);
         assert_eq!(
             strategy_both,
-            AxisStrategy::Thread {
+            ElementwiseStrategy::Thread {
                 simd_width: 8,
                 unroll_factor: 4
             }
@@ -874,38 +940,38 @@ mod tests {
     }
 
     #[test]
-    fn test_axis_strategy_thread_group() {
-        let strategy = AxisStrategy::thread_group();
+    fn test_elementwise_strategy_thread_group() {
+        let strategy = ElementwiseStrategy::thread_group();
         assert_eq!(
             strategy,
-            AxisStrategy::ThreadGroup {
+            ElementwiseStrategy::ThreadGroup {
                 simd_width: 1,
                 unroll_factor: 1
             }
         );
 
-        let strategy_simd = AxisStrategy::thread_group_simd(16);
+        let strategy_simd = ElementwiseStrategy::thread_group_simd(16);
         assert_eq!(
             strategy_simd,
-            AxisStrategy::ThreadGroup {
+            ElementwiseStrategy::ThreadGroup {
                 simd_width: 16,
                 unroll_factor: 1
             }
         );
 
-        let strategy_unroll = AxisStrategy::thread_group_unroll(8);
+        let strategy_unroll = ElementwiseStrategy::thread_group_unroll(8);
         assert_eq!(
             strategy_unroll,
-            AxisStrategy::ThreadGroup {
+            ElementwiseStrategy::ThreadGroup {
                 simd_width: 1,
                 unroll_factor: 8
             }
         );
 
-        let strategy_both = AxisStrategy::thread_group_simd_unroll(16, 8);
+        let strategy_both = ElementwiseStrategy::thread_group_simd_unroll(16, 8);
         assert_eq!(
             strategy_both,
-            AxisStrategy::ThreadGroup {
+            ElementwiseStrategy::ThreadGroup {
                 simd_width: 16,
                 unroll_factor: 8
             }
@@ -913,17 +979,74 @@ mod tests {
     }
 
     #[test]
-    fn test_axis_strategy_accessors() {
-        let strategy = AxisStrategy::sequential_simd_unroll(4, 2);
+    fn test_elementwise_strategy_accessors() {
+        let strategy = ElementwiseStrategy::sequential_simd_unroll(4, 2);
         assert_eq!(strategy.simd_width(), 4);
         assert_eq!(strategy.unroll_factor(), 2);
 
-        let strategy = AxisStrategy::thread_simd_unroll(8, 4);
+        let strategy = ElementwiseStrategy::thread_simd_unroll(8, 4);
         assert_eq!(strategy.simd_width(), 8);
         assert_eq!(strategy.unroll_factor(), 4);
 
-        let strategy = AxisStrategy::thread_group_simd_unroll(16, 8);
+        let strategy = ElementwiseStrategy::thread_group_simd_unroll(16, 8);
         assert_eq!(strategy.simd_width(), 16);
+        assert_eq!(strategy.unroll_factor(), 8);
+    }
+
+    #[test]
+    fn test_reduce_strategy_default() {
+        let default_strategy = ReduceStrategy::default();
+        assert_eq!(
+            default_strategy,
+            ReduceStrategy::Sequential { unroll_factor: 1 }
+        );
+    }
+
+    #[test]
+    fn test_reduce_strategy_sequential() {
+        let strategy = ReduceStrategy::sequential();
+        assert_eq!(strategy, ReduceStrategy::Sequential { unroll_factor: 1 });
+
+        let strategy_unroll = ReduceStrategy::sequential_unroll(4);
+        assert_eq!(
+            strategy_unroll,
+            ReduceStrategy::Sequential { unroll_factor: 4 }
+        );
+    }
+
+    #[test]
+    fn test_reduce_strategy_accessors() {
+        let strategy = ReduceStrategy::sequential_unroll(8);
+        assert_eq!(strategy.unroll_factor(), 8);
+    }
+
+    #[test]
+    fn test_cumulative_strategy_default() {
+        let default_strategy = CumulativeStrategy::default();
+        assert_eq!(
+            default_strategy,
+            CumulativeStrategy::Sequential { unroll_factor: 1 }
+        );
+    }
+
+    #[test]
+    fn test_cumulative_strategy_sequential() {
+        let strategy = CumulativeStrategy::sequential();
+        assert_eq!(
+            strategy,
+            CumulativeStrategy::Sequential { unroll_factor: 1 }
+        );
+
+        let strategy_unroll = CumulativeStrategy::sequential_unroll(4);
+        assert_eq!(
+            strategy_unroll,
+            CumulativeStrategy::Sequential { unroll_factor: 4 }
+        );
+    }
+
+    #[test]
+    fn test_cumulative_strategy_accessors() {
+        let strategy = CumulativeStrategy::sequential_unroll(8);
         assert_eq!(strategy.unroll_factor(), 8);
     }
 

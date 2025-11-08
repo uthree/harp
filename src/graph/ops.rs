@@ -1,6 +1,6 @@
 use crate::ast::Literal;
 use crate::graph::shape::View;
-use crate::graph::{AxisStrategy, DType, GraphNode};
+use crate::graph::{CumulativeStrategy, DType, ElementwiseStrategy, GraphNode, ReduceStrategy};
 use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 
 #[derive(Debug, Clone)]
@@ -9,19 +9,19 @@ pub enum GraphOp {
     Const(Literal), // 定数ノード, shape=[], ndim=0のスカラーを初期化する。
     View(View),     // Viewを変更する
     Contiguous {
-        axis_strategies: Option<Vec<AxisStrategy>>,
+        elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
     }, // Viewに従って要素を並べ直す。
     Elementwise {
         op: ElementwiseOp,
-        axis_strategies: Option<Vec<AxisStrategy>>,
+        elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
     }, // 要素ごとに演算を行う
     Reduce {
         op: ReduceOp,
         axis: usize,
-        axis_strategies: Option<Vec<AxisStrategy>>,
+        reduce_strategy: Option<ReduceStrategy>,
     }, // 縮約
     Cumulative {
-        axis_strategies: Option<Vec<AxisStrategy>>,
+        cumulative_strategy: Option<CumulativeStrategy>,
     }, // 累積
 }
 
@@ -82,7 +82,7 @@ impl Add for GraphNode {
             dtype,
             GraphOp::Elementwise {
                 op: ElementwiseOp::Add,
-                axis_strategies: None,
+                elementwise_strategies: None,
             },
             vec![self, rhs],
             view,
@@ -100,7 +100,7 @@ impl Mul for GraphNode {
             dtype,
             GraphOp::Elementwise {
                 op: ElementwiseOp::Mul,
-                axis_strategies: None,
+                elementwise_strategies: None,
             },
             vec![self, rhs],
             view,
@@ -118,7 +118,7 @@ impl Neg for GraphNode {
             dtype,
             GraphOp::Elementwise {
                 op: ElementwiseOp::Neg,
-                axis_strategies: None,
+                elementwise_strategies: None,
             },
             vec![self],
             view,
@@ -154,7 +154,7 @@ impl Rem for GraphNode {
             dtype,
             GraphOp::Elementwise {
                 op: ElementwiseOp::Rem,
-                axis_strategies: None,
+                elementwise_strategies: None,
             },
             vec![self, rhs],
             view,
@@ -170,7 +170,7 @@ pub fn recip(node: GraphNode) -> GraphNode {
         dtype,
         GraphOp::Elementwise {
             op: ElementwiseOp::Recip,
-            axis_strategies: None,
+            elementwise_strategies: None,
         },
         vec![node],
         view,
@@ -185,7 +185,7 @@ pub fn max(lhs: GraphNode, rhs: GraphNode) -> GraphNode {
         dtype,
         GraphOp::Elementwise {
             op: ElementwiseOp::Max,
-            axis_strategies: None,
+            elementwise_strategies: None,
         },
         vec![lhs, rhs],
         view,
@@ -213,7 +213,7 @@ pub fn reduce(node: GraphNode, op: ReduceOp, axis: usize) -> GraphNode {
         GraphOp::Reduce {
             op,
             axis,
-            axis_strategies: None,
+            reduce_strategy: None,
         },
         vec![node],
         reduced_view,

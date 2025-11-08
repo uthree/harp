@@ -659,8 +659,8 @@ impl Lowerer {
         for axis in (0..ndim).rev() {
             let loop_var = format!("ridx{}", axis);
             let shape_var = var(format!("shape{}", axis));
-            let axis_strategy = &node.axis_strategies[axis];
-            let unroll_factor = axis_strategy.unroll_factor();
+            let elementwise_strategy = &node.elementwise_strategies[axis];
+            let unroll_factor = elementwise_strategy.unroll_factor();
 
             if unroll_factor > 1 {
                 // ループアンローリングを適用

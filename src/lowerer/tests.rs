@@ -662,7 +662,7 @@ fn test_lower_contiguous_2d() {
     let contiguous_node = GraphNode::new(
         view_node.dtype.clone(),
         GraphOp::Contiguous {
-            axis_strategies: None,
+            elementwise_strategies: None,
         },
         vec![view_node.clone()],
         View::contiguous(transposed_view.shape().to_vec()),
@@ -722,7 +722,7 @@ fn test_lower_contiguous_1d() {
     let contiguous_node = GraphNode::new(
         view_node.dtype.clone(),
         GraphOp::Contiguous {
-            axis_strategies: None,
+            elementwise_strategies: None,
         },
         vec![view_node.clone()],
         View::contiguous(flipped_view.shape().to_vec()),
