@@ -19,6 +19,22 @@ impl Buffer for TestBuffer {
     fn shape(&self) -> Vec<usize> {
         self.shape.clone()
     }
+
+    fn dtype(&self) -> harp::ast::DType {
+        harp::ast::DType::F32
+    }
+
+    fn to_bytes(&self) -> Vec<u8> {
+        vec![0; self.shape.iter().product::<usize>() * self.element_size]
+    }
+
+    fn from_bytes(&mut self, _bytes: &[u8]) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn byte_len(&self) -> usize {
+        self.shape.iter().product::<usize>() * self.element_size
+    }
 }
 
 #[derive(Debug, Clone)]

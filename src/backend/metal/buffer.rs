@@ -1,3 +1,4 @@
+use crate::ast::DType;
 use crate::backend::Buffer;
 use log::{debug, trace};
 use metal::{Buffer as MTLBuffer, Device, MTLResourceOptions};
@@ -7,6 +8,7 @@ pub struct MetalBuffer {
     buffer: MTLBuffer,
     shape: Vec<usize>,
     element_size: usize,
+    dtype: DType,
 }
 
 impl MetalBuffer {
@@ -14,6 +16,12 @@ impl MetalBuffer {
     pub fn new(device: &Device, shape: Vec<usize>, element_size: usize) -> Self {
         let total_elements: usize = shape.iter().product();
         let byte_size = total_elements * element_size;
+
+        // element_sizeから型を推測
+        let dtype = match element_size {
+            4 => DType::F32, // デフォルトはF32
+            _ => DType::F32,
+        };
 
         debug!(
             "Creating Metal buffer: shape={:?}, element_size={}, total_bytes={}",
@@ -26,15 +34,43 @@ impl MetalBuffer {
             buffer,
             shape,
             element_size,
+            dtype,
+        }
+    }
+
+    /// 型を指定してバッファを作成
+    pub fn with_dtype(device: &Device, shape: Vec<usize>, dtype: DType) -> Self {
+        let element_size = dtype.size_in_bytes();
+        let total_elements: usize = shape.iter().product();
+        let byte_size = total_elements * element_size;
+
+        debug!(
+            "Creating Metal buffer: shape={:?}, dtype={:?}, total_bytes={}",
+            shape, dtype, byte_size
+        );
+
+        let buffer = device.new_buffer(byte_size as u64, MTLResourceOptions::StorageModeShared);
+
+        Self {
+            buffer,
+            shape,
+            element_size,
+            dtype,
         }
     }
 
     /// 既存の MTLBuffer からラップ
     pub fn from_buffer(buffer: MTLBuffer, shape: Vec<usize>, element_size: usize) -> Self {
+        let dtype = match element_size {
+            4 => DType::F32,
+            _ => DType::F32,
+        };
+
         Self {
             buffer,
             shape,
             element_size,
+            dtype,
         }
     }
 
@@ -85,6 +121,47 @@ impl MetalBuffer {
 impl Buffer for MetalBuffer {
     fn shape(&self) -> Vec<usize> {
         self.shape.clone()
+    }
+
+    fn dtype(&self) -> DType {
+        self.dtype.clone()
+    }
+
+    fn to_bytes(&self) -> Vec<u8> {
+        // GPU → CPU 転送
+        let byte_size = self.byte_size();
+        let mut bytes = vec![0u8; byte_size];
+
+        let ptr = self.buffer.contents() as *const u8;
+        unsafe {
+            std::ptr::copy_nonoverlapping(ptr, bytes.as_mut_ptr(), byte_size);
+        }
+
+        bytes
+    }
+
+    fn from_bytes(&mut self, bytes: &[u8]) -> Result<(), String> {
+        // CPU → GPU 転送
+        let byte_size = self.byte_size();
+
+        if bytes.len() != byte_size {
+            return Err(format!(
+                "Byte length mismatch: expected {}, got {}",
+                byte_size,
+                bytes.len()
+            ));
+        }
+
+        let ptr = self.buffer.contents() as *mut u8;
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, byte_size);
+        }
+
+        Ok(())
+    }
+
+    fn byte_len(&self) -> usize {
+        self.byte_size()
     }
 }
 

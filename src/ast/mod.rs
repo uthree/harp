@@ -436,6 +436,19 @@ impl Literal {
 }
 
 impl DType {
+    /// バイト単位でのサイズを取得
+    pub fn size_in_bytes(&self) -> usize {
+        match self {
+            DType::Isize => std::mem::size_of::<isize>(),
+            DType::Usize => std::mem::size_of::<usize>(),
+            DType::F32 => std::mem::size_of::<f32>(),
+            DType::Ptr(_) => std::mem::size_of::<usize>(), // ポインタはusizeと同じサイズ
+            DType::Vec(elem_type, size) => elem_type.size_in_bytes() * size,
+            DType::Tuple(types) => types.iter().map(|t| t.size_in_bytes()).sum(),
+            DType::Unknown => 0,
+        }
+    }
+
     /// Convert this type to a vector type with the given size
     pub fn to_vec(&self, size: usize) -> DType {
         DType::Vec(Box::new(self.clone()), size)

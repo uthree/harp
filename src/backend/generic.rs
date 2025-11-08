@@ -110,6 +110,22 @@ mod tests {
         fn shape(&self) -> Vec<usize> {
             vec![]
         }
+
+        fn dtype(&self) -> crate::ast::DType {
+            crate::ast::DType::F32
+        }
+
+        fn to_bytes(&self) -> Vec<u8> {
+            vec![]
+        }
+
+        fn from_bytes(&mut self, _bytes: &[u8]) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn byte_len(&self) -> usize {
+            0
+        }
     }
 
     #[derive(Debug, Clone)]

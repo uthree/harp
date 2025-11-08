@@ -34,9 +34,70 @@ pub trait Compiler {
     fn create_buffer(&self, shape: Vec<usize>, element_size: usize) -> Self::Buffer;
 }
 pub trait Buffer {
-    // get buffer size
+    /// バッファの形状を取得
     fn shape(&self) -> Vec<usize>;
-    // TODO: 初期化と（CPU上の）バイト列(u8の配列?)への相互変換
+
+    /// バッファの要素の型を取得
+    fn dtype(&self) -> crate::ast::DType;
+
+    /// バッファの内容をバイト列として取得
+    fn to_bytes(&self) -> Vec<u8>;
+
+    /// バイト列からバッファに書き込み
+    fn from_bytes(&mut self, bytes: &[u8]) -> Result<(), String>;
+
+    /// バッファの総バイト数を取得
+    fn byte_len(&self) -> usize;
+
+    /// バッファの内容を型付きベクタとして取得（デフォルト実装）
+    ///
+    /// # Safety
+    /// Tのサイズがdtypeの要素サイズと一致している必要があります
+    fn to_vec<T: Clone>(&self) -> Result<Vec<T>, String>
+    where
+        T: 'static,
+    {
+        let bytes = self.to_bytes();
+        let type_size = std::mem::size_of::<T>();
+
+        if bytes.len() % type_size != 0 {
+            return Err(format!(
+                "Buffer size {} is not a multiple of type size {}",
+                bytes.len(),
+                type_size
+            ));
+        }
+
+        let len = bytes.len() / type_size;
+        let mut result = Vec::with_capacity(len);
+
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr() as *const T, result.as_mut_ptr(), len);
+            result.set_len(len);
+        }
+
+        Ok(result)
+    }
+
+    /// 型付きスライスからバッファに書き込み（デフォルト実装）
+    fn from_vec<T>(&mut self, data: &[T]) -> Result<(), String> {
+        let type_size = std::mem::size_of::<T>();
+        let byte_len = data.len() * type_size;
+
+        if byte_len != self.byte_len() {
+            return Err(format!(
+                "Data size {} does not match buffer size {}",
+                byte_len,
+                self.byte_len()
+            ));
+        }
+
+        let bytes = unsafe {
+            std::slice::from_raw_parts(data.as_ptr() as *const u8, byte_len)
+        };
+
+        self.from_bytes(bytes)
+    }
 }
 
 pub trait Kernel {
@@ -365,6 +426,22 @@ mod tests {
     impl Buffer for DummyBuffer {
         fn shape(&self) -> Vec<usize> {
             self.shape.clone()
+        }
+
+        fn dtype(&self) -> crate::ast::DType {
+            crate::ast::DType::F32
+        }
+
+        fn to_bytes(&self) -> Vec<u8> {
+            vec![]
+        }
+
+        fn from_bytes(&mut self, _bytes: &[u8]) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn byte_len(&self) -> usize {
+            0
         }
     }
 
