@@ -58,14 +58,24 @@ Viewは各軸の添え字からメモリオフセットへの線形変換を表�
 - 基本データ構造（Graph、GraphNode、DType）
 - 入出力管理（InputNodeBuilder）
 - Elementwise演算（Add、Mul、Neg、Max、Rem、Idiv、Recip）+ 演算子オーバーロード
-- Reduce演算（Sum、Product、Max）- Sequential版のみ
-- Contiguous演算（転置、反転などの実体化）- Sequential版のみ
+- Reduce演算（Sum、Product、Max）
+- Contiguous演算（転置、反転などの実体化）
 - View操作（permute、unsqueeze、squeeze、flip、expand）
 - Shape/DType推論
-- 並列化戦略の定義（AxisStrategy）
+- 並列化戦略の定義（ElementwiseStrategy、ReduceStrategy、CumulativeStrategy）
+- **融合演算**:
+  - FusedElementwise: 複数のelementwise演算を融合
+  - FusedElementwiseReduce: elementwise → reduce パターンを融合
+  - FusedReduce: 複数のreduce演算を融合（同じ軸）
+- **グラフ最適化** (`src/opt/graph/`):
+  - ビームサーチベースの最適化フレームワーク
+  - 並列化戦略の変更（ParallelStrategyChanger）
+  - View変更の挿入（ViewInsertionSuggester）
+  - ノード融合（FusionSuggester）
+  - コスト推定（SimpleCostEstimator）
 
 ### 未実装
-- Thread/ThreadGroupレベルの並列実行
-- Cumulative演算
-- グラフ最適化（ノード融合等）
+- Thread/ThreadGroupレベルの並列実行のLowering
+- Cumulative演算とそのLowering
+- ループタイル化（TilingSuggester - reshape操作が必要）
 - 畳み込み、行列乗算などの高度な演算

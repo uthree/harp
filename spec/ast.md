@@ -56,3 +56,23 @@
 ## DType型変換
 
 SIMD対応のベクトル型（`Vec<T, N>`）とメモリバッファ用のポインタ型（`Ptr<T>`）を提供。型変換メソッド（`to_vec`, `to_ptr`等）により、型を自由にネスト可能です（例: `Vec<Ptr<F32>>`, `Ptr<Vec<F32>>`）。
+
+## AST最適化
+
+ASTノードに対する代数的最適化機能を`src/opt/ast/`に実装しています。詳細は[最適化仕様書](opt.md#ast最適化)を参照してください。
+
+### パターンマッチングと書き換え
+
+`src/ast/pat.rs`にASTパターンマッチングと書き換えルールの基礎機能を実装：
+- `AstPattern`: ワイルドカードを含むパターン表現
+- `AstRewriteRule`: パターンマッチと書き換えのルール
+- `AstRewriter`: ルール集を適用する書き換え器
+- `astpat!`マクロ: パターンマッチング用の便利マクロ
+
+### 最適化フレームワーク
+
+`src/opt/ast/`に体系的な最適化フレームワークを実装：
+- **CostEstimator**: ASTの実行コストを推定
+- **Optimizer**: ASTを最適化（RuleBaseOptimizer、BeamSearchOptimizer）
+- **Suggester**: 複数の書き換え候補を提案（ビームサーチ用）
+- **ルール集**: 代数的書き換えルール（単位元、交換則、結合則、分配則、定数畳み込みなど）

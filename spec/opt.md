@@ -1,18 +1,30 @@
 # 最適化
 
 ## ファイル構成
+
+### AST最適化
 - `src/opt/mod.rs` - 最適化モジュールの定義
 - `src/opt/ast/mod.rs` - AST最適化の公開API（15行）
 - `src/opt/ast/estimator.rs` - CostEstimator実装（158行）
 - `src/opt/ast/optimizer.rs` - Optimizer実装（257行、RuleBaseOptimizer、BeamSearchOptimizer）
 - `src/opt/ast/suggester.rs` - Suggester実装（314行）
 - `src/opt/ast/rules.rs` - 代数的書き換えルール集（899行、定数畳み込み含む）
-- `src/opt/graph/mod.rs` - グラフ最適化（未実装）
+
+### グラフ最適化
+- `src/opt/graph/mod.rs` - グラフ最適化の公開API・トレイト定義
+- `src/opt/graph/estimator.rs` - SimpleCostEstimator実装
+- `src/opt/graph/optimizer.rs` - BeamSearchGraphOptimizer実装
+- `src/opt/graph/suggesters/mod.rs` - Suggester関連の公開API
+- `src/opt/graph/suggesters/composite.rs` - CompositeSuggester実装
+- `src/opt/graph/suggesters/parallel.rs` - ParallelStrategyChanger実装
+- `src/opt/graph/suggesters/view.rs` - ViewInsertionSuggester実装
+- `src/opt/graph/suggesters/tiling.rs` - TilingSuggester実装（将来の拡張のためのスケルトン）
+- `src/opt/graph/suggesters/fusion.rs` - FusionSuggester実装
 
 ## 実装状況
 
 ### グラフ最適化
-未実装。将来的に実装予定。
+`src/opt/graph/mod.rs`に実装済み。ビームサーチベースの最適化フレームワーク。
 
 ### AST最適化
 `src/opt/ast/mod.rs`に実装済み。
@@ -426,3 +438,217 @@ let factor_rules = vec![
 
 ### 注記
 AST最適化の基礎機能として`src/ast/pat.rs`にAstRewriteRuleとAstRewriterが実装されており、`opt`モジュールはこれらをラップして体系的な最適化フレームワークを提供しています。
+
+## グラフ最適化
+
+グラフ最適化は計算グラフ（Graph）を対象とした最適化で、並列化戦略の変更、メモリレイアウトの最適化、ノード融合などを行います。AST最適化と同じパラダイム（Optimizer、Suggester、CostEstimator）を採用しています。
+
+### トレイト
+
+#### GraphCostEstimator
+グラフの実行コストを推定するトレイト。
+
+```rust
+pub trait GraphCostEstimator {
+    /// グラフの実行コストを推定
+    fn estimate(&self, graph: &Graph) -> f32;
+}
+```
+
+#### GraphOptimizer
+グラフを最適化するトレイト。
+
+```rust
+pub trait GraphOptimizer {
+    /// グラフを最適化して返す
+    fn optimize(&self, graph: Graph) -> Graph;
+}
+```
+
+#### GraphSuggester
+複数の書き換え候補を提案するトレイト（ビームサーチ用）。
+
+```rust
+pub trait GraphSuggester {
+    /// 現在のグラフから書き換え可能な候補をすべて提案
+    fn suggest(&self, graph: &Graph) -> Vec<Graph>;
+}
+```
+
+### 実装
+
+#### SimpleCostEstimator
+ノード数とメモリアクセスベースの簡単なコスト推定器。
+
+**特徴:**
+- 各ノードに固定コストを割り当て
+- メモリアクセス量を推定（dtype × 要素数）
+- 並列化戦略を考慮（Sequential < Thread < ThreadGroup）
+- カーネル起動オーバーヘッドを含む
+
+**使用例:**
+```rust
+use harp::opt::graph::{GraphCostEstimator, SimpleCostEstimator};
+
+let estimator = SimpleCostEstimator::new();
+let cost = estimator.estimate(&graph);
+```
+
+#### BeamSearchGraphOptimizer
+ビームサーチアルゴリズムを使用したグラフ最適化器。AST版と同じインターフェース。
+
+**特徴:**
+- ビームサーチによる探索的最適化
+- Cargoスタイルのプログレスバー表示（indicatif使用）
+- ビーム幅と探索深さを設定可能
+- デフォルト: ビーム幅10、最大深さ10
+
+**使用例:**
+```rust
+use harp::opt::graph::{
+    BeamSearchGraphOptimizer, SimpleCostEstimator,
+    ParallelStrategyChanger,
+};
+
+let suggester = ParallelStrategyChanger::with_default_strategies();
+let estimator = SimpleCostEstimator::new();
+
+let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
+    .with_beam_width(20)
+    .with_max_depth(15)
+    .with_progress(true);
+
+let optimized_graph = optimizer.optimize(graph);
+```
+
+#### ParallelStrategyChanger
+並列化戦略を変更するSuggester。
+
+**特徴:**
+- 各ノードの各軸について、異なる並列化戦略を試す
+- Sequential → Thread、Thread → ThreadGroup などの変更
+- SIMD幅とアンローリング係数の変更
+- 探索空間の爆発を防ぐため、一度に1つのノードの1つの軸のみを変更
+
+**使用例:**
+```rust
+use harp::opt::graph::ParallelStrategyChanger;
+use harp::graph::ElementwiseStrategy;
+
+// カスタム戦略候補
+let suggester = ParallelStrategyChanger::new(vec![
+    ElementwiseStrategy::sequential(),
+    ElementwiseStrategy::thread(),
+    ElementwiseStrategy::thread_simd(4),
+]);
+
+// デフォルト戦略候補
+let suggester = ParallelStrategyChanger::with_default_strategies();
+
+let suggestions = suggester.suggest(&graph);
+```
+
+#### ViewInsertionSuggester
+View変更ノード（転置など）を挿入するSuggester。
+
+**特徴:**
+- ノード間にView変更（permute）を挿入
+- その後にContiguousノードを挿入してメモリレイアウトを実体化
+- 主にメモリアクセスパターンの改善を目的とする
+
+**使用例:**
+```rust
+use harp::opt::graph::ViewInsertionSuggester;
+
+let suggester = ViewInsertionSuggester::new()
+    .with_transpose(true);
+
+let suggestions = suggester.suggest(&graph);
+```
+
+#### TilingSuggester
+ループのタイル化に相当するView変更を提案するSuggester（将来の拡張）。
+
+**注意:**
+現在のViewはreshape操作をサポートしていないため、完全なタイル化は未実装です。この実装は将来の拡張のためのスケルトンとなっています。
+
+将来的な実装方針:
+1. shape [N, M] を [N/tile, tile, M/tile, tile] に変換（reshape）
+2. permuteで [N/tile, M/tile, tile, tile] に並べ替え
+3. これにより内側ループがタイルサイズになり、時間的局所性が向上
+
+**使用例:**
+```rust
+use harp::opt::graph::TilingSuggester;
+
+let suggester = TilingSuggester::with_default_tile_sizes();
+// 現在は候補を生成しない（reshape未実装のため）
+let suggestions = suggester.suggest(&graph);
+```
+
+#### FusionSuggester
+ノード融合を提案するSuggester。
+
+**特徴:**
+- elementwise演算の連鎖を検出してFusedElementwiseに変換
+- elementwise → reduceパターンをFusedElementwiseReduceに変換
+- 中間バッファを削減し、メモリアクセスを削減
+
+**使用例:**
+```rust
+use harp::opt::graph::FusionSuggester;
+
+let suggester = FusionSuggester::new();
+let suggestions = suggester.suggest(&graph);
+```
+
+#### CompositeSuggester
+複数のSuggesterを組み合わせるSuggester。
+
+**特徴:**
+- 低レベルなSuggesterを組み合わせて使用
+- 各Suggesterから候補を収集して統合
+
+**使用例:**
+```rust
+use harp::opt::graph::{
+    CompositeSuggester, ParallelStrategyChanger,
+    ViewInsertionSuggester, FusionSuggester,
+};
+
+let composite = CompositeSuggester::new(vec![
+    Box::new(ParallelStrategyChanger::with_default_strategies()),
+    Box::new(ViewInsertionSuggester::new()),
+    Box::new(FusionSuggester::new()),
+]);
+
+let suggestions = composite.suggest(&graph);
+```
+
+### 組み合わせ例：グラフ最適化パイプライン
+
+```rust
+use harp::opt::graph::*;
+use harp::graph::Graph;
+
+// グラフを作成
+let mut graph = Graph::new();
+// ... グラフ構築 ...
+
+// 複数のSuggesterを組み合わせ
+let suggester = CompositeSuggester::new(vec![
+    Box::new(ParallelStrategyChanger::with_default_strategies()),
+    Box::new(ViewInsertionSuggester::new()),
+    Box::new(FusionSuggester::new()),
+]);
+
+let estimator = SimpleCostEstimator::new();
+
+// ビームサーチで最適化
+let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
+    .with_beam_width(20)
+    .with_max_depth(10)
+    .with_progress(true);
+
+let optimized_graph = optimizer.optimize(graph);
+```
