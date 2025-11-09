@@ -36,8 +36,6 @@ where
     renderer: R,
     /// Program全体（複数のFunctionを含む）
     program: Option<Program>,
-    /// Program全体を表示するかどうか
-    show_full_program: bool,
 }
 
 impl Default for AstViewerApp<CRenderer> {
@@ -64,11 +62,10 @@ where
             selected_function: None,
             current_step_index: 0,
             selected_rank: 0,
-            show_cost_graph: false,
-            show_diff: false,
+            show_cost_graph: true,
+            show_diff: true,
             renderer,
             program: None,
-            show_full_program: false,
         }
     }
 
@@ -221,10 +218,10 @@ where
                     if self.selected_rank > 0 {
                         self.selected_rank -= 1;
                     }
-                } else if i.key_pressed(egui::Key::ArrowDown) {
-                    if self.selected_rank + 1 < num_candidates {
-                        self.selected_rank += 1;
-                    }
+                } else if i.key_pressed(egui::Key::ArrowDown)
+                    && self.selected_rank + 1 < num_candidates
+                {
+                    self.selected_rank += 1;
                 }
             });
         }
@@ -292,68 +289,8 @@ where
                     }
                 }
             }
-
-            // Program全体を表示ボタン（Programが読み込まれている場合のみ）
-            if self.program.is_some() {
-                ui.add_space(10.0);
-                let program_button_text = if self.show_full_program {
-                    "Show Optimization Steps"
-                } else {
-                    "Show Full Program"
-                };
-                if ui.button(program_button_text).clicked() {
-                    self.show_full_program = !self.show_full_program;
-                }
-            }
         });
         ui.separator();
-
-        // Program全体を表示する場合
-        if self.show_full_program {
-            if let Some(ref program) = self.program {
-                ui.horizontal(|ui| {
-                    ui.heading("Full Program");
-                    ui.add_space(20.0);
-
-                    // クリップボードにコピーボタン
-                    if ui.button("📋 Copy to Clipboard").clicked() {
-                        let mut renderer_clone = self.renderer.clone();
-                        let code = renderer_clone.render_program_clike(program);
-                        ui.output_mut(|o| o.copied_text = code);
-                    }
-                });
-                ui.separator();
-
-                // Program全体をレンダリング
-                let mut renderer_clone = self.renderer.clone();
-                let rendered_code = renderer_clone.render_program_clike(program);
-
-                // スクロール可能なコード表示領域（シンタックスハイライト付き）
-                egui::ScrollArea::vertical()
-                    .id_salt("full_program_scroll")
-                    .max_height(ui.available_height())
-                    .show(ui, |ui| {
-                        // シンタックスハイライト付きでコードを表示
-                        let theme = egui_extras::syntax_highlighting::CodeTheme::from_memory(
-                            ui.ctx(),
-                            ui.style(),
-                        );
-
-                        let highlighted_code = egui_extras::syntax_highlighting::highlight(
-                            ui.ctx(),
-                            ui.style(),
-                            &theme,
-                            &rendered_code,
-                            "c", // C言語風のシンタックスハイライト
-                        );
-
-                        ui.add(egui::Label::new(highlighted_code).selectable(true));
-                    });
-            } else {
-                ui.label("No program loaded.");
-            }
-            return;
-        }
 
         if self.current_history().is_none() {
             ui.label("No AST optimization history loaded.");
@@ -489,15 +426,13 @@ where
         // 前のステップのコードを取得（Diff表示用）
         let prev_code = if self.show_diff && current_step > 0 {
             // 前のステップの最良候補を取得
-            self.current_history()
-                .map(|h| {
-                    let prev_step_candidates = h.get_step(current_step - 1);
-                    prev_step_candidates
-                        .iter()
-                        .find(|c| c.rank == 0)
-                        .map(|s| render_ast_with(&s.ast, &self.renderer))
-                })
-                .flatten()
+            self.current_history().and_then(|h| {
+                let prev_step_candidates = h.get_step(current_step - 1);
+                prev_step_candidates
+                    .iter()
+                    .find(|c| c.rank == 0)
+                    .map(|s| render_ast_with(&s.ast, &self.renderer))
+            })
         } else {
             None
         };
@@ -599,6 +534,55 @@ where
                 ui.separator();
                 ui.label("No previous step available for diff.");
             }
+        }
+    }
+
+    /// Program全体を表示するUI
+    pub fn ui_full_program(&mut self, ui: &mut egui::Ui) {
+        if let Some(ref program) = self.program {
+            ui.horizontal(|ui| {
+                ui.heading("Full Program");
+                ui.add_space(20.0);
+
+                // クリップボードにコピーボタン
+                if ui.button("📋 Copy to Clipboard").clicked() {
+                    let mut renderer_clone = self.renderer.clone();
+                    let code = renderer_clone.render_program_clike(program);
+                    ui.output_mut(|o| o.copied_text = code);
+                }
+            });
+            ui.separator();
+
+            // Program全体をレンダリング
+            let mut renderer_clone = self.renderer.clone();
+            let rendered_code = renderer_clone.render_program_clike(program);
+
+            // スクロール可能なコード表示領域（シンタックスハイライト付き）
+            egui::ScrollArea::vertical()
+                .id_salt("full_program_scroll")
+                .max_height(ui.available_height())
+                .show(ui, |ui| {
+                    // シンタックスハイライト付きでコードを表示
+                    let theme = egui_extras::syntax_highlighting::CodeTheme::from_memory(
+                        ui.ctx(),
+                        ui.style(),
+                    );
+
+                    let highlighted_code = egui_extras::syntax_highlighting::highlight(
+                        ui.ctx(),
+                        ui.style(),
+                        &theme,
+                        &rendered_code,
+                        "c", // C言語風のシンタックスハイライト
+                    );
+
+                    ui.add(egui::Label::new(highlighted_code).selectable(true));
+                });
+        } else {
+            ui.heading("Full Program");
+            ui.separator();
+            ui.label("No program loaded.");
+            ui.label("Load a program using the load_program() method to view the full code here.");
         }
     }
 }

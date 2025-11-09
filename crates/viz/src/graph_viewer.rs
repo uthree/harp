@@ -19,6 +19,8 @@ pub struct GraphViewerApp {
     current_step: usize,
     /// DOTテキストを表示するかどうか
     show_dot_text: bool,
+    /// DOTテキストのdiffを表示するかどうか
+    show_dot_diff: bool,
     /// コスト遷移グラフを表示するかどうか
     show_cost_graph: bool,
 }
@@ -66,8 +68,9 @@ impl GraphViewerApp {
             node_mapping: HashMap::new(),
             optimization_history: None,
             current_step: 0,
-            show_dot_text: false,
-            show_cost_graph: false,
+            show_dot_text: true,
+            show_dot_diff: true,
+            show_cost_graph: true,
         }
     }
 
@@ -526,7 +529,7 @@ impl GraphViewerApp {
 
             // 出力ノードの詳細を折りたたみ表示
             ui.collapsing("Output Nodes", |ui| {
-                for (name, _node) in graph.outputs() {
+                for name in graph.outputs().keys() {
                     ui.label(format!("• {}", name));
                 }
             });
@@ -556,27 +559,79 @@ impl GraphViewerApp {
                         ui.add_space(10.0);
 
                         // クリップボードにコピーボタン
-                        if ui.button("Copy to Clipboard").clicked() {
+                        if ui.button("📋 Copy").clicked() {
                             if let Some(ref graph) = self.harp_graph {
                                 let dot_text = graph.to_dot();
                                 ui.output_mut(|o| o.copied_text = dot_text);
                                 log::info!("DOT text copied to clipboard");
                             }
                         }
+
+                        // Diff表示切り替えボタン
+                        if self.optimization_history.is_some() {
+                            let diff_button_text = if self.show_dot_diff {
+                                "Hide Diff"
+                            } else {
+                                "Show Diff"
+                            };
+                            if ui.button(diff_button_text).clicked() {
+                                self.show_dot_diff = !self.show_dot_diff;
+                            }
+                        }
                     });
                     ui.separator();
 
                     if let Some(ref graph) = self.harp_graph {
-                        let dot_text = graph.to_dot();
+                        let current_dot = graph.to_dot();
+
+                        // Diff表示の場合、前のステップと比較
+                        let prev_dot = if self.show_dot_diff && self.current_step > 0 {
+                            self.optimization_history.as_ref().and_then(|history| {
+                                history
+                                    .get(self.current_step - 1)
+                                    .map(|prev_snapshot| prev_snapshot.graph.to_dot())
+                            })
+                        } else {
+                            None
+                        };
 
                         egui::ScrollArea::vertical()
                             .max_height(ui.available_height())
                             .show(ui, |ui| {
-                                ui.add(
-                                    egui::TextEdit::multiline(&mut dot_text.clone())
-                                        .code_editor()
-                                        .desired_width(f32::INFINITY),
-                                );
+                                if let Some(prev_text) = prev_dot {
+                                    // Diff表示
+                                    ui.label("Diff (Previous → Current):");
+                                    ui.separator();
+
+                                    let diff =
+                                        similar::TextDiff::from_lines(&prev_text, &current_dot);
+
+                                    for change in diff.iter_all_changes() {
+                                        let (color, prefix) = match change.tag() {
+                                            similar::ChangeTag::Delete => {
+                                                (egui::Color32::from_rgb(255, 200, 200), "-")
+                                            }
+                                            similar::ChangeTag::Insert => {
+                                                (egui::Color32::from_rgb(200, 255, 200), "+")
+                                            }
+                                            similar::ChangeTag::Equal => (egui::Color32::GRAY, " "),
+                                        };
+
+                                        ui.horizontal(|ui| {
+                                            ui.colored_label(
+                                                color,
+                                                format!("{} {}", prefix, change),
+                                            );
+                                        });
+                                    }
+                                } else {
+                                    // 通常表示
+                                    ui.add(
+                                        egui::TextEdit::multiline(&mut current_dot.clone())
+                                            .code_editor()
+                                            .desired_width(f32::INFINITY),
+                                    );
+                                }
                             });
                     } else {
                         ui.label("No graph loaded");

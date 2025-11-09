@@ -27,6 +27,7 @@ enum VizTab {
     GraphViewer,
     AstViewer,
     PerfViewer,
+    FullCode,
 }
 
 impl Default for HarpVizApp {
@@ -162,6 +163,13 @@ impl eframe::App for HarpVizApp {
                 {
                     self.current_tab = VizTab::PerfViewer;
                 }
+
+                if ui
+                    .selectable_label(self.current_tab == VizTab::FullCode, "Full Code")
+                    .clicked()
+                {
+                    self.current_tab = VizTab::FullCode;
+                }
             });
         });
 
@@ -174,6 +182,9 @@ impl eframe::App for HarpVizApp {
             }
             VizTab::PerfViewer => {
                 self.perf_viewer.ui(ui);
+            }
+            VizTab::FullCode => {
+                self.ast_viewer.ui_full_program(ui);
             }
         });
     }
