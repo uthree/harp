@@ -164,7 +164,7 @@ impl Lowerer {
         let mut statements = Vec::new();
 
         // アキュムレータを初期化
-        let acc_var = self.fresh_alu();
+        let acc_var = self.fresh_acc();
         let init_value = self.get_reduce_init_value(reduce_op, &node.dtype)?;
         statements.push(assign(&acc_var, init_value));
 
@@ -217,7 +217,7 @@ impl Lowerer {
         let mut statements = Vec::new();
 
         // アキュムレータを初期化
-        let acc_var = self.fresh_alu();
+        let acc_var = self.fresh_acc();
         let init_value = self.get_reduce_init_value(reduce_op, &node.dtype)?;
         statements.push(assign(&acc_var, init_value));
 

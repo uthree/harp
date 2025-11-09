@@ -14,6 +14,7 @@ mod utils;
 
 pub struct Lowerer {
     alu_counter: usize, // 一時変数のカウンター
+    acc_counter: usize, // アキュムレータのカウンター
 }
 
 /// トポロジカルソートの結果。各世代（Generation）は並列実行可能なノード群。
@@ -130,13 +131,23 @@ fn generate_main_function(
 
 impl Lowerer {
     pub fn new() -> Self {
-        Self { alu_counter: 0 }
+        Self {
+            alu_counter: 0,
+            acc_counter: 0,
+        }
     }
 
     /// 新しい一時変数名を生成
     pub(super) fn fresh_alu(&mut self) -> String {
         let name = format!("alu{}", self.alu_counter);
         self.alu_counter += 1;
+        name
+    }
+
+    /// 新しいアキュムレータ変数名を生成
+    pub(super) fn fresh_acc(&mut self) -> String {
+        let name = format!("acc{}", self.acc_counter);
+        self.acc_counter += 1;
         name
     }
 
