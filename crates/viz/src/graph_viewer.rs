@@ -574,18 +574,24 @@ impl GraphViewerApp {
 
             // 入力ノードの詳細を折りたたみ表示
             ui.collapsing("Input Nodes", |ui| {
-                for (name, weak_input) in graph.inputs() {
-                    if let Some(rc_node) = weak_input.upgrade() {
-                        let input_node = GraphNode::from_rc(rc_node);
-                        let shape_str: Vec<String> = input_node
-                            .view
-                            .shape()
-                            .iter()
-                            .map(|e| format!("{}", e))
-                            .collect();
-                        ui.label(format!("• {} : [{}]", name, shape_str.join(", ")));
-                    } else {
-                        ui.label(format!("• {} : <dropped>", name));
+                // 名前順にソート
+                let mut input_names: Vec<_> = graph.inputs().keys().cloned().collect();
+                input_names.sort();
+
+                for name in input_names {
+                    if let Some(weak_input) = graph.inputs().get(&name) {
+                        if let Some(rc_node) = weak_input.upgrade() {
+                            let input_node = GraphNode::from_rc(rc_node);
+                            let shape_str: Vec<String> = input_node
+                                .view
+                                .shape()
+                                .iter()
+                                .map(|e| format!("{}", e))
+                                .collect();
+                            ui.label(format!("• {} : [{}]", name, shape_str.join(", ")));
+                        } else {
+                            ui.label(format!("• {} : <dropped>", name));
+                        }
                     }
                 }
             });
@@ -600,14 +606,20 @@ impl GraphViewerApp {
 
             // 出力ノードの詳細を折りたたみ表示
             ui.collapsing("Output Nodes", |ui| {
-                for (name, output_node) in graph.outputs() {
-                    let shape_str: Vec<String> = output_node
-                        .view
-                        .shape()
-                        .iter()
-                        .map(|e| format!("{}", e))
-                        .collect();
-                    ui.label(format!("• {} : [{}]", name, shape_str.join(", ")));
+                // 名前順にソート
+                let mut output_names: Vec<_> = graph.outputs().keys().cloned().collect();
+                output_names.sort();
+
+                for name in output_names {
+                    if let Some(output_node) = graph.outputs().get(&name) {
+                        let shape_str: Vec<String> = output_node
+                            .view
+                            .shape()
+                            .iter()
+                            .map(|e| format!("{}", e))
+                            .collect();
+                        ui.label(format!("• {} : [{}]", name, shape_str.join(", ")));
+                    }
                 }
             });
 

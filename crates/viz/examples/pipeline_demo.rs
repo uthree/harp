@@ -171,9 +171,6 @@ fn create_complex_computation_graph() -> Graph {
     let z = x3.clone().reduce_sum(1);
 
     // 複数の中間結果を出力
-    graph.output("x1", x1);
-    graph.output("x2", x2);
-    graph.output("x3", x3);
     graph.output("y", y);
     graph.output("z", z);
 
