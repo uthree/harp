@@ -30,7 +30,7 @@ fn main() {
     // ビームサーチ最適化器を作成
     let optimizer = BeamSearchOptimizer::new(suggester, estimator)
         .with_beam_width(5)
-        .with_max_depth(5)
+        .with_max_steps(5)
         .with_progress(true);
 
     // 最適化を実行（履歴付き）
@@ -88,7 +88,7 @@ fn display_cost_transition(history: &OptimizationHistory) {
     let transition = history.cost_transition();
 
     for (step, cost) in &transition {
-        let bar_length = (100.0 - cost).max(0.0).min(50.0) as usize;
+        let bar_length = (100.0 - cost).clamp(0.0, 50.0) as usize;
         let bar = "█".repeat(bar_length);
         println!("Step {}: {:.2} {}", step, cost, bar);
     }

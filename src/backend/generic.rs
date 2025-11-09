@@ -1,9 +1,65 @@
 use std::collections::HashMap;
 
+use crate::ast::Program;
 use crate::backend::{Compiler, Pipeline, Renderer};
 use crate::graph::Graph;
-use crate::opt::ast::OptimizationHistory as AstOptimizationHistory;
-use crate::opt::graph::OptimizationHistory as GraphOptimizationHistory;
+use crate::opt::ast::rules::all_algebraic_rules;
+use crate::opt::ast::{
+    BeamSearchOptimizer as AstBeamSearchOptimizer, OptimizationHistory as AstOptimizationHistory,
+    Optimizer, RuleBaseOptimizer, RuleBaseSuggester, SimpleCostEstimator as AstSimpleCostEstimator,
+};
+use crate::opt::graph::{
+    BeamSearchGraphOptimizer, CompositeSuggester, FusionSuggester,
+    OptimizationHistory as GraphOptimizationHistory, ParallelStrategyChanger,
+    SimpleCostEstimator as GraphSimpleCostEstimator, ViewInsertionSuggester,
+};
+
+/// compile_graph_with_all_historiesの戻り値の型
+type CompileWithHistoriesResult<K> =
+    Result<(K, Program, HashMap<String, AstOptimizationHistory>), String>;
+
+/// グラフ最適化の設定
+pub struct GraphOptimizationConfig {
+    /// ビーム幅
+    pub beam_width: usize,
+    /// 最大ステップ数
+    pub max_steps: usize,
+    /// プログレスバーを表示するか
+    pub show_progress: bool,
+}
+
+impl Default for GraphOptimizationConfig {
+    fn default() -> Self {
+        Self {
+            beam_width: 10,
+            max_steps: 100,
+            show_progress: false,
+        }
+    }
+}
+
+/// AST最適化の設定
+pub struct AstOptimizationConfig {
+    /// ルールベース最適化の最大反復回数
+    pub rule_max_iterations: usize,
+    /// ビームサーチのビーム幅
+    pub beam_width: usize,
+    /// ビームサーチの最大ステップ数
+    pub max_steps: usize,
+    /// プログレスバーを表示するか
+    pub show_progress: bool,
+}
+
+impl Default for AstOptimizationConfig {
+    fn default() -> Self {
+        Self {
+            rule_max_iterations: 100,
+            beam_width: 10,
+            max_steps: 100,
+            show_progress: false,
+        }
+    }
+}
 
 /// 汎用的なPipeline実装
 ///
@@ -25,6 +81,14 @@ where
     last_graph_optimization_history: Option<GraphOptimizationHistory>,
     /// 最新のAST最適化履歴
     last_ast_optimization_history: Option<AstOptimizationHistory>,
+    /// グラフ最適化を有効にするか
+    enable_graph_optimization: bool,
+    /// グラフ最適化の設定
+    graph_optimization_config: GraphOptimizationConfig,
+    /// AST最適化を有効にするか
+    enable_ast_optimization: bool,
+    /// AST最適化の設定
+    ast_optimization_config: AstOptimizationConfig,
 }
 
 impl<R, C> GenericPipeline<R, C>
@@ -33,6 +97,9 @@ where
     C: Compiler<CodeRepr = R::CodeRepr>,
 {
     /// 新しいGenericPipelineを作成
+    ///
+    /// デフォルトでは最適化が無効になっています。
+    /// `with_graph_optimization()`や`with_ast_optimization()`で有効化してください。
     pub fn new(renderer: R, compiler: C) -> Self {
         Self {
             renderer,
@@ -40,7 +107,43 @@ where
             kernel_cache: HashMap::new(),
             last_graph_optimization_history: None,
             last_ast_optimization_history: None,
+            enable_graph_optimization: false,
+            graph_optimization_config: GraphOptimizationConfig::default(),
+            enable_ast_optimization: false,
+            ast_optimization_config: AstOptimizationConfig::default(),
         }
+    }
+
+    /// グラフ最適化を有効化
+    pub fn with_graph_optimization(mut self, enabled: bool) -> Self {
+        self.enable_graph_optimization = enabled;
+        self
+    }
+
+    /// グラフ最適化の設定を指定
+    pub fn with_graph_optimization_config(mut self, config: GraphOptimizationConfig) -> Self {
+        self.graph_optimization_config = config;
+        self.enable_graph_optimization = true;
+        self
+    }
+
+    /// AST最適化を有効化
+    pub fn with_ast_optimization(mut self, enabled: bool) -> Self {
+        self.enable_ast_optimization = enabled;
+        self
+    }
+
+    /// AST最適化の設定を指定
+    pub fn with_ast_optimization_config(mut self, config: AstOptimizationConfig) -> Self {
+        self.ast_optimization_config = config;
+        self.enable_ast_optimization = true;
+        self
+    }
+
+    /// グラフ最適化とAST最適化の両方を有効化
+    pub fn with_all_optimizations(self) -> Self {
+        self.with_graph_optimization(true)
+            .with_ast_optimization(true)
     }
 
     /// 最新のグラフ最適化履歴を取得
@@ -97,6 +200,176 @@ where
         Ok(self.kernel_cache.get(&key).unwrap())
     }
 
+    /// 最適化履歴を記録しながらグラフをコンパイル
+    ///
+    /// 最適化が有効な場合、最適化履歴を内部に保存します。
+    /// 複数のAST最適化履歴を取得するには、compile_graph_with_all_histories()を使用してください。
+    pub fn compile_graph_with_history(&mut self, graph: Graph) -> Result<C::Kernel, String> {
+        // グラフ最適化
+        let optimized_graph = if self.enable_graph_optimization {
+            let suggester = CompositeSuggester::new(vec![
+                Box::new(ViewInsertionSuggester::new().with_transpose(true)),
+                Box::new(FusionSuggester::new()),
+                Box::new(ParallelStrategyChanger::with_default_strategies()),
+            ]);
+            let estimator = GraphSimpleCostEstimator::new();
+
+            let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
+                .with_beam_width(self.graph_optimization_config.beam_width)
+                .with_max_steps(self.graph_optimization_config.max_steps)
+                .with_progress(self.graph_optimization_config.show_progress);
+
+            let (optimized, history) = optimizer.optimize_with_history(graph);
+            self.last_graph_optimization_history = Some(history);
+            optimized
+        } else {
+            graph
+        };
+
+        // Lowering
+        let program = self.lower_to_program(optimized_graph);
+
+        // AST最適化
+        let optimized_program = if self.enable_ast_optimization {
+            let mut opt_program = Program::new(program.entry_point.clone());
+            let mut all_histories = std::collections::HashMap::new();
+
+            for (name, func) in &program.functions {
+                let body = &*func.body;
+
+                // ステップ1: ルールベース最適化
+                let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules())
+                    .with_max_iterations(self.ast_optimization_config.rule_max_iterations);
+
+                let rule_optimized = rule_optimizer.optimize(body.clone());
+
+                // ステップ2: ビームサーチ最適化
+                let beam_suggester = RuleBaseSuggester::new(all_algebraic_rules());
+                let beam_estimator = AstSimpleCostEstimator::new();
+
+                let beam_optimizer = AstBeamSearchOptimizer::new(beam_suggester, beam_estimator)
+                    .with_beam_width(self.ast_optimization_config.beam_width)
+                    .with_max_steps(self.ast_optimization_config.max_steps)
+                    .with_progress(self.ast_optimization_config.show_progress);
+
+                let (final_optimized, history) =
+                    beam_optimizer.optimize_with_history(rule_optimized);
+                all_histories.insert(name.clone(), history);
+
+                // 最適化後の関数を作成
+                let optimized_func = crate::ast::Function::new(
+                    func.kind.clone(),
+                    func.params.clone(),
+                    func.return_type.clone(),
+                    vec![final_optimized],
+                )
+                .expect("Failed to create optimized function");
+
+                let _ = opt_program.add_function(name.clone(), optimized_func);
+            }
+
+            // 最初の関数の履歴を保存（後方互換性のため）
+            if let Some((_, first_history)) = all_histories.iter().next() {
+                self.last_ast_optimization_history = Some(first_history.clone());
+            }
+
+            opt_program
+        } else {
+            program
+        };
+
+        // レンダリングとコンパイル
+        let code = self.renderer().render(&optimized_program);
+        Ok(self.compiler().compile(&code))
+    }
+
+    /// 最適化履歴を記録しながらグラフをコンパイル（すべてのAST履歴を返す）
+    ///
+    /// 最適化が有効な場合、最適化履歴を内部に保存します。
+    /// すべてのFunction用のAST最適化履歴と最適化後のProgramを返します。
+    pub fn compile_graph_with_all_histories(
+        &mut self,
+        graph: Graph,
+    ) -> CompileWithHistoriesResult<C::Kernel> {
+        // グラフ最適化
+        let optimized_graph = if self.enable_graph_optimization {
+            let suggester = CompositeSuggester::new(vec![
+                Box::new(ViewInsertionSuggester::new().with_transpose(true)),
+                Box::new(FusionSuggester::new()),
+                Box::new(ParallelStrategyChanger::with_default_strategies()),
+            ]);
+            let estimator = GraphSimpleCostEstimator::new();
+
+            let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
+                .with_beam_width(self.graph_optimization_config.beam_width)
+                .with_max_steps(self.graph_optimization_config.max_steps)
+                .with_progress(self.graph_optimization_config.show_progress);
+
+            let (optimized, history) = optimizer.optimize_with_history(graph);
+            self.last_graph_optimization_history = Some(history);
+            optimized
+        } else {
+            graph
+        };
+
+        // Lowering
+        let program = self.lower_to_program(optimized_graph);
+
+        // AST最適化
+        let (optimized_program, all_histories) = if self.enable_ast_optimization {
+            let mut opt_program = Program::new(program.entry_point.clone());
+            let mut all_histories = std::collections::HashMap::new();
+
+            for (name, func) in &program.functions {
+                let body = &*func.body;
+
+                // ステップ1: ルールベース最適化
+                let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules())
+                    .with_max_iterations(self.ast_optimization_config.rule_max_iterations);
+
+                let rule_optimized = rule_optimizer.optimize(body.clone());
+
+                // ステップ2: ビームサーチ最適化
+                let beam_suggester = RuleBaseSuggester::new(all_algebraic_rules());
+                let beam_estimator = AstSimpleCostEstimator::new();
+
+                let beam_optimizer = AstBeamSearchOptimizer::new(beam_suggester, beam_estimator)
+                    .with_beam_width(self.ast_optimization_config.beam_width)
+                    .with_max_steps(self.ast_optimization_config.max_steps)
+                    .with_progress(self.ast_optimization_config.show_progress);
+
+                let (final_optimized, history) =
+                    beam_optimizer.optimize_with_history(rule_optimized);
+                all_histories.insert(name.clone(), history);
+
+                // 最適化後の関数を作成
+                let optimized_func = crate::ast::Function::new(
+                    func.kind.clone(),
+                    func.params.clone(),
+                    func.return_type.clone(),
+                    vec![final_optimized],
+                )
+                .expect("Failed to create optimized function");
+
+                let _ = opt_program.add_function(name.clone(), optimized_func);
+            }
+
+            // 最初の関数の履歴を保存（後方互換性のため）
+            if let Some((_, first_history)) = all_histories.iter().next() {
+                self.last_ast_optimization_history = Some(first_history.clone());
+            }
+
+            (opt_program, all_histories)
+        } else {
+            (program, std::collections::HashMap::new())
+        };
+
+        // レンダリングとコンパイル
+        let code = self.renderer().render(&optimized_program);
+        let kernel = self.compiler().compile(&code);
+        Ok((kernel, optimized_program, all_histories))
+    }
+
     /// キャッシュをクリア
     pub fn clear_cache(&mut self) {
         self.kernel_cache.clear();
@@ -128,6 +401,87 @@ where
 
     fn compiler(&mut self) -> &mut Self::Compiler {
         &mut self.compiler
+    }
+
+    /// グラフ最適化を実行
+    ///
+    /// 有効な場合、以下の最適化を適用：
+    /// 1. ViewInsertionSuggester（Transpose含む）
+    /// 2. FusionSuggester
+    /// 3. ParallelStrategyChanger
+    fn optimize_graph(&self, graph: Graph) -> Graph {
+        if !self.enable_graph_optimization {
+            return graph;
+        }
+
+        let suggester = CompositeSuggester::new(vec![
+            Box::new(ViewInsertionSuggester::new().with_transpose(true)),
+            Box::new(FusionSuggester::new()),
+            Box::new(ParallelStrategyChanger::with_default_strategies()),
+        ]);
+        let estimator = GraphSimpleCostEstimator::new();
+
+        let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
+            .with_beam_width(self.graph_optimization_config.beam_width)
+            .with_max_steps(self.graph_optimization_config.max_steps)
+            .with_progress(self.graph_optimization_config.show_progress);
+
+        let (optimized_graph, history) = optimizer.optimize_with_history(graph);
+
+        // 履歴を保存（mutabilityの問題があるため、内部可変性を使う必要がある）
+        // ここでは一旦最適化だけを実行し、履歴の保存は外部で行う
+        // より良い設計のために、後でCell/RefCellを使うことを検討
+        drop(history); // 履歴は今は保存できない
+
+        optimized_graph
+    }
+
+    /// プログラム（AST）最適化を実行
+    ///
+    /// 有効な場合、以下の最適化を2段階で適用：
+    /// 1. ルールベース最適化（代数的簡約）
+    /// 2. ビームサーチ最適化
+    fn optimize_program(&self, program: Program) -> Program {
+        if !self.enable_ast_optimization {
+            return program;
+        }
+
+        // 各関数を個別に最適化
+        let mut optimized_program = Program::new(program.entry_point.clone());
+
+        for (name, func) in &program.functions {
+            let body = &*func.body;
+
+            // ステップ1: ルールベース最適化
+            let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules())
+                .with_max_iterations(self.ast_optimization_config.rule_max_iterations);
+
+            let rule_optimized = rule_optimizer.optimize(body.clone());
+
+            // ステップ2: ビームサーチ最適化
+            let beam_suggester = RuleBaseSuggester::new(all_algebraic_rules());
+            let beam_estimator = AstSimpleCostEstimator::new();
+
+            let beam_optimizer = AstBeamSearchOptimizer::new(beam_suggester, beam_estimator)
+                .with_beam_width(self.ast_optimization_config.beam_width)
+                .with_max_steps(self.ast_optimization_config.max_steps)
+                .with_progress(self.ast_optimization_config.show_progress);
+
+            let (final_optimized, _history) = beam_optimizer.optimize_with_history(rule_optimized);
+
+            // 最適化後の関数を作成
+            let optimized_func = crate::ast::Function::new(
+                func.kind.clone(),
+                func.params.clone(),
+                func.return_type.clone(),
+                vec![final_optimized],
+            )
+            .expect("Failed to create optimized function");
+
+            let _ = optimized_program.add_function(name.clone(), optimized_func);
+        }
+
+        optimized_program
     }
 }
 
@@ -303,5 +657,69 @@ mod tests {
 
         // 上書きされるのでサイズは1
         assert_eq!(pipeline.cache_size(), 1);
+    }
+
+    #[test]
+    fn test_optimization_disabled_by_default() {
+        let renderer = DummyRenderer;
+        let compiler = DummyCompiler;
+        let pipeline = GenericPipeline::new(renderer, compiler);
+
+        // デフォルトでは最適化が無効
+        assert!(!pipeline.enable_graph_optimization);
+        assert!(!pipeline.enable_ast_optimization);
+    }
+
+    #[test]
+    fn test_enable_optimizations() {
+        let renderer = DummyRenderer;
+        let compiler = DummyCompiler;
+        let pipeline = GenericPipeline::new(renderer, compiler)
+            .with_graph_optimization(true)
+            .with_ast_optimization(true);
+
+        // 最適化が有効になっている
+        assert!(pipeline.enable_graph_optimization);
+        assert!(pipeline.enable_ast_optimization);
+    }
+
+    #[test]
+    fn test_all_optimizations() {
+        let renderer = DummyRenderer;
+        let compiler = DummyCompiler;
+        let pipeline = GenericPipeline::new(renderer, compiler).with_all_optimizations();
+
+        // すべての最適化が有効
+        assert!(pipeline.enable_graph_optimization);
+        assert!(pipeline.enable_ast_optimization);
+    }
+
+    #[test]
+    fn test_custom_optimization_config() {
+        let renderer = DummyRenderer;
+        let compiler = DummyCompiler;
+
+        let graph_config = GraphOptimizationConfig {
+            beam_width: 20,
+            max_steps: 50,
+            show_progress: true,
+        };
+
+        let ast_config = AstOptimizationConfig {
+            rule_max_iterations: 200,
+            beam_width: 15,
+            max_steps: 75,
+            show_progress: true,
+        };
+
+        let pipeline = GenericPipeline::new(renderer, compiler)
+            .with_graph_optimization_config(graph_config)
+            .with_ast_optimization_config(ast_config);
+
+        // カスタム設定が適用されている
+        assert_eq!(pipeline.graph_optimization_config.beam_width, 20);
+        assert_eq!(pipeline.graph_optimization_config.max_steps, 50);
+        assert_eq!(pipeline.ast_optimization_config.rule_max_iterations, 200);
+        assert_eq!(pipeline.ast_optimization_config.beam_width, 15);
     }
 }

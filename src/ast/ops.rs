@@ -261,6 +261,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn test_from_numeric_types() {
         let f32_node = AstNode::from(3.14f32);
         match f32_node {

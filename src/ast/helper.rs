@@ -89,6 +89,7 @@ mod tests {
     use crate::ast::Literal;
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn test_const_creation() {
         // Test constant creation using Into
         let f32_node = AstNode::Const(3.14f32.into());
@@ -190,6 +191,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn test_cast() {
         let a = AstNode::Const(3.14f32.into());
         let cast_node = cast(a, DType::Isize);
@@ -279,6 +281,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn test_store_helper() {
         let ptr = var("output0");
         let offset = AstNode::Const(0usize.into());

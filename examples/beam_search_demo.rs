@@ -64,7 +64,7 @@ fn main() {
 
     let optimizer = BeamSearchOptimizer::new(suggester, estimator)
         .with_beam_width(20) // ビーム幅
-        .with_max_depth(20) // 探索深さ（デバッグビルドでは各ステップ200ms待機するため約4秒）
+        .with_max_steps(20) // 探索深さ（デバッグビルドでは各ステップ200ms待機するため約4秒）
         .with_progress(true); // プログレスバーを表示
 
     println!("ビームサーチ最適化を開始...\n");

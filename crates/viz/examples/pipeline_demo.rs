@@ -4,17 +4,8 @@
 //! その過程を可視化します。
 
 use harp::backend::openmp::{CCompiler, CRenderer};
-use harp::backend::{GenericPipeline, Pipeline};
+use harp::backend::{AstOptimizationConfig, GenericPipeline, GraphOptimizationConfig};
 use harp::graph::{DType, Graph};
-use harp::opt::ast::rules::all_algebraic_rules;
-use harp::opt::ast::{
-    BeamSearchOptimizer as AstBeamSearchOptimizer, RuleBaseSuggester,
-    SimpleCostEstimator as AstSimpleCostEstimator,
-};
-use harp::opt::graph::{
-    BeamSearchGraphOptimizer, CompositeSuggester, FusionSuggester, ParallelStrategyChanger,
-    SimpleCostEstimator as GraphSimpleCostEstimator, ViewInsertionSuggester,
-};
 use harp_viz::HarpVizApp;
 
 fn main() -> eframe::Result {
@@ -24,93 +15,58 @@ fn main() -> eframe::Result {
     println!("このデモでは、行列積を含む複雑な計算グラフを最適化します。");
     println!("最適化の各ステップがGenericPipelineに記録され、可視化されます。\n");
 
-    // GenericPipelineを作成
-    println!("【1/4】GenericPipelineを初期化中...");
+    // GenericPipelineを作成（最適化を組み込み）
+    println!("【1/3】GenericPipelineを初期化中（最適化を組み込み）...");
     let renderer = CRenderer::new();
     let compiler = CCompiler::new();
-    let mut pipeline = GenericPipeline::new(renderer, compiler);
-    println!("  ✓ Pipeline作成完了\n");
+
+    // グラフ最適化の設定
+    let graph_config = GraphOptimizationConfig {
+        beam_width: 4,
+        max_steps: 8,
+        show_progress: true,
+    };
+
+    // AST最適化の設定
+    let ast_config = AstOptimizationConfig {
+        rule_max_iterations: 100,
+        beam_width: 5,
+        max_steps: 10,
+        show_progress: true,
+    };
+
+    let mut pipeline = GenericPipeline::new(renderer, compiler)
+        .with_graph_optimization_config(graph_config)
+        .with_ast_optimization_config(ast_config);
+
+    println!("  ✓ Pipeline作成完了（最適化有効）\n");
 
     // 複雑な計算グラフを作成（複数の演算を含む）
-    println!("【2/4】複雑な計算グラフを構築中...");
+    println!("【2/3】複雑な計算グラフを構築中...");
     let graph = create_complex_computation_graph();
     println!("  ✓ グラフ作成完了");
     println!("    - 入力数: {}", graph.inputs().len());
     println!("    - 出力数: {}", graph.outputs().len());
     println!();
 
-    // グラフ最適化を実行して履歴を記録
-    println!("【3/4】グラフ最適化を実行中...");
-    let graph_suggester = CompositeSuggester::new(vec![
-        Box::new(ViewInsertionSuggester::new().with_transpose(true)),
-        Box::new(FusionSuggester::new()),
-        Box::new(ParallelStrategyChanger::with_default_strategies()),
-    ]);
-    let graph_estimator = GraphSimpleCostEstimator::new();
+    // 最適化とコンパイルを一括実行
+    println!("【3/3】最適化とコンパイルを実行中...");
+    println!("  - グラフ最適化中...");
+    let (_kernel, optimized_program, function_histories) = pipeline
+        .compile_graph_with_all_histories(graph)
+        .expect("Failed to compile graph");
 
-    let graph_optimizer = BeamSearchGraphOptimizer::new(graph_suggester, graph_estimator)
-        .with_beam_width(4)
-        .with_max_steps(8)
-        .with_progress(true);
-
-    let (optimized_graph, graph_history) = graph_optimizer.optimize_with_history(graph);
-    pipeline.set_graph_optimization_history(graph_history);
-
-    println!("  ✓ グラフ最適化完了");
+    println!("  ✓ 最適化とコンパイル完了");
     println!(
-        "    - 最適化ステップ数: {}",
+        "    - グラフ最適化ステップ数: {}",
         pipeline
             .last_graph_optimization_history()
             .map_or(0, |h| h.len())
     );
-    println!();
-
-    // グラフをProgramにlower
-    let program = pipeline.lower_to_program(optimized_graph.clone());
-    println!("【4/4】AST最適化を実行中...");
-
-    // ASTの最適化を実行
-    let ast_suggester = RuleBaseSuggester::new(all_algebraic_rules());
-    let ast_estimator = AstSimpleCostEstimator::new();
-
-    let ast_optimizer = AstBeamSearchOptimizer::new(ast_suggester, ast_estimator)
-        .with_beam_width(5)
-        .with_max_steps(10)
-        .with_progress(true);
-
-    // プログラムの各関数を最適化
-    let mut total_ast_steps = 0;
-    let mut function_histories = std::collections::HashMap::new();
-    let mut optimized_program = harp::ast::Program::new(program.entry_point.clone());
-
-    for (name, func) in &program.functions {
-        let body = &*func.body;
-        let (optimized_body, ast_history) = ast_optimizer.optimize_with_history(body.clone());
-        total_ast_steps += ast_history.len();
-
-        // 各関数の履歴を保存
-        function_histories.insert(name.clone(), ast_history.clone());
-
-        // 最適化後のFunctionを作成
-        let optimized_func = harp::ast::Function::new(
-            func.kind.clone(),
-            func.params.clone(),
-            func.return_type.clone(),
-            vec![optimized_body],
-        )
-        .expect("Failed to create optimized function");
-
-        // 最適化後のProgramに追加
-        let _ = optimized_program.add_function(name.clone(), optimized_func);
-
-        // 最初の関数の履歴をPipelineにも保存（後方互換性のため）
-        if pipeline.last_ast_optimization_history().is_none() {
-            pipeline.set_ast_optimization_history(ast_history);
-        }
-    }
-
-    println!("  ✓ AST最適化完了");
-    println!("    - 最適化ステップ数: {}", total_ast_steps);
+    println!(
+        "    - AST最適化ステップ数: {}",
+        function_histories.values().map(|h| h.len()).sum::<usize>()
+    );
     println!();
 
     // 最適化の統計情報を表示

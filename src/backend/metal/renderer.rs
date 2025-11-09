@@ -178,6 +178,7 @@ mod tests {
     use crate::backend::c_like::CLikeRenderer;
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn test_render_literal() {
         let renderer = MetalRenderer::new();
         assert_eq!(renderer.render_literal(&Literal::F32(3.14)), "3.14f");

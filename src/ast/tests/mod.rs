@@ -1,3 +1,5 @@
+#![allow(clippy::approx_constant)]
+
 use super::*;
 use crate::ast::helper::*;
 

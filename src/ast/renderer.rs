@@ -52,6 +52,7 @@ mod tests {
     use crate::ast::helper::*;
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn test_render_const() {
         let ast = AstNode::Const(3.14f32.into());
         assert_eq!(render_ast(&ast), "3.14f");

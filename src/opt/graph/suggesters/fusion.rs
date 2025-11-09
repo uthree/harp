@@ -46,6 +46,7 @@ impl FusionSuggester {
     ///
     /// 連続する2つのElementwise演算を融合する
     /// 例: (a + b) * c -> FusedElementwise([a, b, c], [Add, Mul])
+    #[allow(dead_code)]
     fn detect_elementwise_chain(
         &self,
         node: &GraphNode,
@@ -371,7 +372,7 @@ mod tests {
 
         // Elementwiseチェーンが検出され、融合候補が生成されるはず
         assert!(
-            suggestions.len() > 0,
+            !suggestions.is_empty(),
             "Expected fusion suggestions for elementwise chain"
         );
 
@@ -425,7 +426,7 @@ mod tests {
 
         // 複数の融合候補が生成される可能性がある
         assert!(
-            suggestions.len() > 0,
+            !suggestions.is_empty(),
             "Expected fusion suggestions for complex chain"
         );
     }
