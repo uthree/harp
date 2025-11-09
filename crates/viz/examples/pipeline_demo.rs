@@ -49,14 +49,14 @@ fn main() -> eframe::Result {
     println!("    - 出力数: {}", graph.outputs().len());
     println!();
 
-    // 最適化とコンパイルを一括実行
-    println!("【3/3】最適化とコンパイルを実行中...");
+    // 最適化を一括実行（コンパイルなし）
+    println!("【3/3】最適化を実行中...");
     println!("  - グラフ最適化中...");
-    let (_kernel, optimized_program, function_histories) = pipeline
-        .compile_graph_with_all_histories(graph)
-        .expect("Failed to compile graph");
+    let (optimized_program, function_histories) = pipeline
+        .optimize_graph_with_all_histories(graph)
+        .expect("Failed to optimize graph");
 
-    println!("  ✓ 最適化とコンパイル完了");
+    println!("  ✓ 最適化完了");
     println!(
         "    - グラフ最適化ステップ数: {}",
         pipeline
