@@ -624,14 +624,20 @@ impl GraphViewerApp {
                                             );
                                         });
                                     }
-                                } else {
-                                    // 通常表示
-                                    ui.add(
-                                        egui::TextEdit::multiline(&mut current_dot.clone())
-                                            .code_editor()
-                                            .desired_width(f32::INFINITY),
-                                    );
+
+                                    // Diff表示の後に区切り線と通常表示も追加
+                                    ui.add_space(20.0);
+                                    ui.separator();
+                                    ui.label("Full DOT Text:");
+                                    ui.separator();
                                 }
+
+                                // 通常表示（diff表示の有無に関わらず表示）
+                                ui.add(
+                                    egui::TextEdit::multiline(&mut current_dot.clone())
+                                        .code_editor()
+                                        .desired_width(f32::INFINITY),
+                                );
                             });
                     } else {
                         ui.label("No graph loaded");
