@@ -304,12 +304,6 @@ impl Lowerer {
                 }
                 Ok(operands[0].clone() + operands[1].clone())
             }
-            ElementwiseOp::Sub => {
-                if operands.len() != 2 {
-                    return Err("Sub requires 2 operands".to_string());
-                }
-                Ok(operands[0].clone() - operands[1].clone())
-            }
             ElementwiseOp::Mul => {
                 if operands.len() != 2 {
                     return Err("Mul requires 2 operands".to_string());

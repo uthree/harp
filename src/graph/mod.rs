@@ -748,26 +748,36 @@ mod tests {
             _ => panic!("Expected DType::F32"),
         }
 
-        // 減算演算として直接実装
+        // 減算演算は a + (-b) として実装される
         match &result.op {
             GraphOp::Elementwise {
-                op: ops::ElementwiseOp::Sub,
+                op: ops::ElementwiseOp::Add,
                 ..
             } => {}
-            _ => panic!("Expected Sub operation"),
+            _ => panic!("Expected Add operation (a - b = a + (-b))"),
         }
 
         assert_eq!(result.src.len(), 2);
 
-        // 左側のオペランドは入力a、右側のオペランドは入力bであることを確認
+        // 左側のオペランドは入力a
         match &result.src[0].op {
             GraphOp::Input => {}
             _ => panic!("Expected Input operation for left operand"),
         }
 
+        // 右側のオペランドは -b (Neg演算)
         match &result.src[1].op {
+            GraphOp::Elementwise {
+                op: ops::ElementwiseOp::Neg,
+                ..
+            } => {}
+            _ => panic!("Expected Neg operation for right operand"),
+        }
+
+        // -b の入力は b
+        match &result.src[1].src[0].op {
             GraphOp::Input => {}
-            _ => panic!("Expected Input operation for right operand"),
+            _ => panic!("Expected Input operation for negated operand"),
         }
     }
 

@@ -45,7 +45,6 @@ pub enum GraphOp {
 #[derive(Debug, Clone)]
 pub enum ElementwiseOp {
     Add,
-    Sub,
     Mul,
     Max,
     Rem,
@@ -160,21 +159,13 @@ impl Neg for GraphNode {
     }
 }
 
-// Sub: a - b
+// Sub: a - b = a + (-b)
 impl Sub for GraphNode {
     type Output = Self;
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn sub(self, rhs: Self) -> Self::Output {
-        let dtype = infer_dtype(&self.dtype, &rhs.dtype);
-        let view = infer_view(&self.view, &rhs.view);
-        GraphNode::new(
-            dtype,
-            GraphOp::Elementwise {
-                op: ElementwiseOp::Sub,
-                elementwise_strategies: None,
-            },
-            vec![self, rhs],
-            view,
-        )
+        // Subtraction is implemented as addition of negation: a - b = a + (-b)
+        self + (-rhs)
     }
 }
 
