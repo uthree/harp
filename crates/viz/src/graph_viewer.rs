@@ -69,7 +69,7 @@ impl GraphViewerApp {
             optimization_history: None,
             current_step: 0,
             show_dot_text: true,
-            show_dot_diff: true,
+            show_dot_diff: false,
             show_cost_graph: true,
         }
     }
@@ -389,6 +389,50 @@ impl GraphViewerApp {
         }
     }
 
+    /// グラフ内のすべての動的shape変数を収集
+    fn collect_shape_vars(&self, graph: &Graph) -> Vec<String> {
+        use std::collections::BTreeSet;
+
+        let mut vars = BTreeSet::new();
+
+        fn collect_from_node(node: &GraphNode, vars: &mut BTreeSet<String>) {
+            // このノードのshapeから変数を収集
+            for expr in node.view.shape() {
+                collect_from_expr(expr, vars);
+            }
+
+            // 再帰的に入力ノードも処理
+            for src in &node.src {
+                collect_from_node(src, vars);
+            }
+        }
+
+        fn collect_from_expr(expr: &harp::graph::shape::Expr, vars: &mut BTreeSet<String>) {
+            use harp::graph::shape::Expr;
+            match expr {
+                Expr::Var(name) => {
+                    vars.insert(name.clone());
+                }
+                Expr::Add(l, r)
+                | Expr::Sub(l, r)
+                | Expr::Mul(l, r)
+                | Expr::Div(l, r)
+                | Expr::Rem(l, r) => {
+                    collect_from_expr(l, vars);
+                    collect_from_expr(r, vars);
+                }
+                Expr::Const(_) => {}
+            }
+        }
+
+        // 出力ノードから開始
+        for output_node in graph.outputs().values() {
+            collect_from_node(output_node, &mut vars);
+        }
+
+        vars.into_iter().collect()
+    }
+
     /// UIを描画
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         // キーボード入力処理（左右矢印キー）
@@ -522,6 +566,33 @@ impl GraphViewerApp {
 
         // グラフ情報を表示
         if let Some(ref graph) = self.harp_graph {
+            // Inputs情報
+            ui.horizontal(|ui| {
+                ui.label("Inputs:");
+                ui.label(graph.inputs().len().to_string());
+            });
+
+            // 入力ノードの詳細を折りたたみ表示
+            ui.collapsing("Input Nodes", |ui| {
+                for (name, weak_input) in graph.inputs() {
+                    if let Some(rc_node) = weak_input.upgrade() {
+                        let input_node = GraphNode::from_rc(rc_node);
+                        let shape_str: Vec<String> = input_node
+                            .view
+                            .shape()
+                            .iter()
+                            .map(|e| format!("{}", e))
+                            .collect();
+                        ui.label(format!("• {} : [{}]", name, shape_str.join(", ")));
+                    } else {
+                        ui.label(format!("• {} : <dropped>", name));
+                    }
+                }
+            });
+
+            ui.add_space(5.0);
+
+            // Outputs情報
             ui.horizontal(|ui| {
                 ui.label("Outputs:");
                 ui.label(graph.outputs().len().to_string());
@@ -529,10 +600,33 @@ impl GraphViewerApp {
 
             // 出力ノードの詳細を折りたたみ表示
             ui.collapsing("Output Nodes", |ui| {
-                for name in graph.outputs().keys() {
-                    ui.label(format!("• {}", name));
+                for (name, output_node) in graph.outputs() {
+                    let shape_str: Vec<String> = output_node
+                        .view
+                        .shape()
+                        .iter()
+                        .map(|e| format!("{}", e))
+                        .collect();
+                    ui.label(format!("• {} : [{}]", name, shape_str.join(", ")));
                 }
             });
+
+            ui.add_space(5.0);
+
+            // Shape Variables情報
+            let shape_vars = self.collect_shape_vars(graph);
+            ui.horizontal(|ui| {
+                ui.label("Shape Variables:");
+                ui.label(shape_vars.len().to_string());
+            });
+
+            if !shape_vars.is_empty() {
+                ui.collapsing("Shape Variables", |ui| {
+                    for var in &shape_vars {
+                        ui.label(format!("• {}", var));
+                    }
+                });
+            }
         }
 
         ui.separator();
