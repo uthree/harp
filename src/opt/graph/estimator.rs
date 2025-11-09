@@ -64,11 +64,46 @@ impl SimpleCostEstimator {
 
     /// 並列化戦略によるコスト係数を取得
     fn strategy_cost_factor(&self, strategy: &ElementwiseStrategy) -> f32 {
-        match strategy {
+        // ベースとなる並列化レベルの係数
+        let base_factor = match strategy {
             ElementwiseStrategy::Sequential { .. } => 1.0,
             ElementwiseStrategy::Thread { .. } => 0.3, // スレッド並列化で3倍高速化を想定
             ElementwiseStrategy::ThreadGroup { .. } => 0.1, // GPU並列化で10倍高速化を想定
-        }
+        };
+
+        // SIMD幅とアンローリング係数を取得
+        let (simd_width, unroll_factor) = match strategy {
+            ElementwiseStrategy::Sequential {
+                simd_width,
+                unroll_factor,
+            }
+            | ElementwiseStrategy::Thread {
+                simd_width,
+                unroll_factor,
+            }
+            | ElementwiseStrategy::ThreadGroup {
+                simd_width,
+                unroll_factor,
+            } => (*simd_width, *unroll_factor),
+        };
+
+        // SIMD効果: simd_width倍の並列化（ただし効率は85%と仮定）
+        let simd_factor = if simd_width > 1 {
+            1.0 / (simd_width as f32 * 0.85)
+        } else {
+            1.0
+        };
+
+        // アンローリング効果: ループオーバーヘッド削減
+        // unroll_factor倍にループを展開すると、ループ制御コストが1/unroll_factor
+        // ただし効果は小さいので、5%程度の改善と仮定
+        let unroll_effect = if unroll_factor > 1 {
+            1.0 - (0.05 * (unroll_factor as f32).log2())
+        } else {
+            1.0
+        };
+
+        base_factor * simd_factor * unroll_effect
     }
 
     /// ノードの要素数を計算

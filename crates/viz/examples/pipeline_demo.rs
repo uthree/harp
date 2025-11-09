@@ -81,14 +81,27 @@ fn main() -> eframe::Result {
     // プログラムの各関数を最適化
     let mut total_ast_steps = 0;
     let mut function_histories = std::collections::HashMap::new();
+    let mut optimized_program = harp::ast::Program::new(program.entry_point.clone());
 
     for (name, func) in &program.functions {
         let body = &*func.body;
-        let (_optimized_body, ast_history) = ast_optimizer.optimize_with_history(body.clone());
+        let (optimized_body, ast_history) = ast_optimizer.optimize_with_history(body.clone());
         total_ast_steps += ast_history.len();
 
         // 各関数の履歴を保存
         function_histories.insert(name.clone(), ast_history.clone());
+
+        // 最適化後のFunctionを作成
+        let optimized_func = harp::ast::Function::new(
+            func.kind.clone(),
+            func.params.clone(),
+            func.return_type.clone(),
+            vec![optimized_body],
+        )
+        .expect("Failed to create optimized function");
+
+        // 最適化後のProgramに追加
+        let _ = optimized_program.add_function(name.clone(), optimized_func);
 
         // 最初の関数の履歴をPipelineにも保存（後方互換性のため）
         if pipeline.last_ast_optimization_history().is_none() {
@@ -131,8 +144,8 @@ fn main() -> eframe::Result {
             // 複数のFunction最適化履歴を読み込む
             app.load_multiple_ast_histories(function_histories);
 
-            // Program全体を読み込む
-            app.load_program(program);
+            // 最適化後のProgram全体を読み込む
+            app.load_program(optimized_program);
 
             Ok(Box::new(app))
         }),
