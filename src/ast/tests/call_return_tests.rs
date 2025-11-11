@@ -45,6 +45,7 @@ fn test_call_check_scope() {
             DType::F32,
             Mutability::Immutable,
             AccessRegion::ThreadLocal,
+            None,
         )
         .unwrap();
     scope
@@ -53,6 +54,7 @@ fn test_call_check_scope() {
             DType::F32,
             Mutability::Immutable,
             AccessRegion::ThreadLocal,
+            None,
         )
         .unwrap();
 
@@ -93,6 +95,7 @@ fn test_return_check_scope() {
             DType::Isize,
             Mutability::Immutable,
             AccessRegion::ThreadLocal,
+            None,
         )
         .unwrap();
 

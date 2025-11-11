@@ -54,6 +54,7 @@ impl Lowerer {
                 mutability: Mutability::Immutable,
                 region: AccessRegion::Shared,
                 kind: VarKind::Normal,
+                initial_value: None,
             });
         }
 
@@ -65,6 +66,7 @@ impl Lowerer {
             mutability: Mutability::Mutable,
             region: AccessRegion::Shared,
             kind: VarKind::Normal,
+            initial_value: None,
         });
 
         // Shape変数（入力のshape）
@@ -75,6 +77,7 @@ impl Lowerer {
                 mutability: Mutability::Immutable,
                 region: AccessRegion::Shared,
                 kind: VarKind::Normal,
+                initial_value: None,
             });
         }
 
@@ -127,12 +130,25 @@ impl Lowerer {
         // 出力がスカラーの場合とテンソルの場合で処理を分ける
         if output_ndim == 0 {
             // 全縮約（スカラー出力）
-            return self.generate_fused_er_to_scalar(node, elementwise_ops, reduce_op, axis);
+            let mut scope = Scope::new();
+            return self.generate_fused_er_to_scalar(
+                node,
+                elementwise_ops,
+                reduce_op,
+                axis,
+                &mut scope,
+            );
         }
 
         // テンソル出力の場合
-        let mut body_statements =
-            self.generate_fused_er_body_with_axis(node, elementwise_ops, reduce_op, axis)?;
+        let mut scope = Scope::new();
+        let mut body_statements = self.generate_fused_er_body_with_axis(
+            node,
+            elementwise_ops,
+            reduce_op,
+            axis,
+            &mut scope,
+        )?;
 
         // 出力の各軸についてループを生成（逆順に、内側から外側へ）
         for out_idx in (0..output_ndim).rev() {
@@ -145,8 +161,11 @@ impl Lowerer {
 
             let loop_body = AstNode::Block {
                 statements: body_statements,
-                scope: Box::new(Scope::new()),
+                scope: Box::new(scope.clone()),
             };
+
+            // 外側のループ用に新しいスコープを作成
+            scope = Scope::new();
 
             body_statements = vec![AstNode::Range {
                 var: loop_var,
@@ -167,6 +186,7 @@ impl Lowerer {
         elementwise_ops: &[FusedElementwiseOp],
         reduce_op: &ReduceOp,
         _axis: usize,
+        scope: &mut Scope,
     ) -> Result<Vec<AstNode>, String> {
         let input = &node.src[0];
         let input_ndim = input.view.shape().len();
@@ -176,15 +196,25 @@ impl Lowerer {
         // アキュムレータを初期化
         let acc_var = self.fresh_acc();
         let init_value = self.get_reduce_init_value(reduce_op, &node.dtype)?;
-        statements.push(assign(&acc_var, init_value));
+        let acc_ptr_dtype = self.graph_dtype_to_ast_ptr(&node.dtype)?;
+        let acc_dtype = acc_ptr_dtype.deref_type().clone();
+        scope.declare(
+            acc_var.clone(),
+            acc_dtype,
+            Mutability::Mutable,
+            AccessRegion::ThreadLocal,
+            Some(init_value),
+        )?;
 
         // 全ての軸についてループしてアキュムレート
+        let mut inner_scope = Scope::new();
         let mut accumulate_statements = vec![self.generate_fused_er_accumulate_statement(
             &acc_var,
             elementwise_ops,
             reduce_op,
             &(0..input_ndim).collect::<Vec<_>>(),
             node,
+            &mut inner_scope,
         )?];
 
         // ループを逆順に作成（内側から外側へ）
@@ -194,8 +224,11 @@ impl Lowerer {
 
             let loop_body = AstNode::Block {
                 statements: accumulate_statements,
-                scope: Box::new(Scope::new()),
+                scope: Box::new(inner_scope.clone()),
             };
+
+            // 外側のループ用に新しいスコープを作成
+            inner_scope = Scope::new();
 
             accumulate_statements = vec![AstNode::Range {
                 var: loop_var,
@@ -223,13 +256,22 @@ impl Lowerer {
         elementwise_ops: &[FusedElementwiseOp],
         reduce_op: &ReduceOp,
         axis: usize,
+        scope: &mut Scope,
     ) -> Result<Vec<AstNode>, String> {
         let mut statements = Vec::new();
 
         // アキュムレータを初期化
         let acc_var = self.fresh_acc();
         let init_value = self.get_reduce_init_value(reduce_op, &node.dtype)?;
-        statements.push(assign(&acc_var, init_value));
+        let acc_ptr_dtype = self.graph_dtype_to_ast_ptr(&node.dtype)?;
+        let acc_dtype = acc_ptr_dtype.deref_type().clone();
+        scope.declare(
+            acc_var.clone(),
+            acc_dtype,
+            Mutability::Mutable,
+            AccessRegion::ThreadLocal,
+            Some(init_value),
+        )?;
 
         // 縮約軸についてループしてアキュムレート
         let loop_var = format!("ridx{}", axis);
@@ -243,6 +285,7 @@ impl Lowerer {
             input_axes.push(in_idx);
         }
 
+        let mut inner_scope = Scope::new();
         let accumulate_stmt = self.generate_fused_er_accumulate_statement_with_reduce_axis(
             &acc_var,
             elementwise_ops,
@@ -250,6 +293,7 @@ impl Lowerer {
             &input_axes,
             axis,
             node,
+            &mut inner_scope,
         )?;
 
         let reduce_loop = AstNode::Range {
@@ -259,7 +303,7 @@ impl Lowerer {
             stop: Box::new(shape_var),
             body: Box::new(AstNode::Block {
                 statements: vec![accumulate_stmt],
-                scope: Box::new(Scope::new()),
+                scope: Box::new(inner_scope),
             }),
         };
 
@@ -282,6 +326,7 @@ impl Lowerer {
         reduce_op: &ReduceOp,
         axes: &[usize],
         node: &GraphNode,
+        _scope: &mut Scope,
     ) -> Result<AstNode, String> {
         // elementwise演算チェーンを評価して、その結果をアキュムレート
         let elementwise_result =
@@ -295,6 +340,7 @@ impl Lowerer {
     }
 
     /// 縮約軸を含む融合elementwise-reduceのアキュムレート文を生成
+    #[allow(clippy::too_many_arguments)]
     fn generate_fused_er_accumulate_statement_with_reduce_axis(
         &mut self,
         acc_var: &str,
@@ -303,6 +349,7 @@ impl Lowerer {
         output_axes: &[usize],
         reduce_axis: usize,
         node: &GraphNode,
+        _scope: &mut Scope,
     ) -> Result<AstNode, String> {
         // インデックス変数の設定: oidx{i} と ridx{reduce_axis} を使う
         // これを実現するため、軸のリストを構築
@@ -343,7 +390,9 @@ impl Lowerer {
         for (i, src) in node.src.iter().enumerate() {
             let input_ptr = var(format!("input{}", i));
             let offset = self.compute_offset_from_view(src, axes);
-            graph_inputs.push(load(input_ptr, offset));
+            let src_ptr_dtype = self.graph_dtype_to_ast_ptr(&src.dtype)?;
+            let src_dtype = src_ptr_dtype.deref_type().clone();
+            graph_inputs.push(load(input_ptr, offset, src_dtype));
         }
 
         // 中間結果を保存
@@ -385,7 +434,9 @@ impl Lowerer {
             let input_ptr = var(format!("input{}", i));
             let offset =
                 self.compute_offset_for_input_with_reduce_axis(output_axes, reduce_axis, src);
-            graph_inputs.push(load(input_ptr, offset));
+            let src_ptr_dtype = self.graph_dtype_to_ast_ptr(&src.dtype)?;
+            let src_dtype = src_ptr_dtype.deref_type().clone();
+            graph_inputs.push(load(input_ptr, offset, src_dtype));
         }
 
         // 中間結果を保存

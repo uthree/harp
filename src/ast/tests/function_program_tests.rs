@@ -10,6 +10,7 @@ fn test_function_new() {
             mutability: Mutability::Immutable,
             region: AccessRegion::ThreadLocal,
             kind: VarKind::Normal,
+            initial_value: None,
         },
         VarDecl {
             name: "b".to_string(),
@@ -17,6 +18,7 @@ fn test_function_new() {
             mutability: Mutability::Immutable,
             region: AccessRegion::ThreadLocal,
             kind: VarKind::Normal,
+            initial_value: None,
         },
     ];
     let return_type = DType::F32;
@@ -49,6 +51,7 @@ fn test_function_check_body() {
         mutability: Mutability::Immutable,
         region: AccessRegion::ThreadLocal,
         kind: VarKind::Normal,
+        initial_value: None,
     }];
     let return_type = DType::Isize;
     let body = vec![AstNode::Return {
@@ -126,6 +129,7 @@ fn test_program_with_function_call() {
             mutability: Mutability::Immutable,
             region: AccessRegion::ThreadLocal,
             kind: VarKind::Normal,
+            initial_value: None,
         }],
         DType::Isize,
         vec![AstNode::Return {

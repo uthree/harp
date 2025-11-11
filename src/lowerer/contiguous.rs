@@ -37,6 +37,7 @@ impl Lowerer {
             mutability: Mutability::Immutable,
             region: AccessRegion::Shared,
             kind: VarKind::Normal,
+            initial_value: None,
         });
 
         // 出力バッファー
@@ -47,6 +48,7 @@ impl Lowerer {
             mutability: Mutability::Mutable,
             region: AccessRegion::Shared,
             kind: VarKind::Normal,
+            initial_value: None,
         });
 
         // Shape変数（各軸のサイズ）
@@ -57,6 +59,7 @@ impl Lowerer {
                 mutability: Mutability::Immutable,
                 region: AccessRegion::Shared,
                 kind: VarKind::Normal,
+                initial_value: None,
             });
         }
 
@@ -88,14 +91,16 @@ impl Lowerer {
         node: &GraphNode,
         ndim: usize,
     ) -> Result<Vec<AstNode>, String> {
+        let mut scope = Scope::new();
+
         if ndim == 0 {
             // スカラーの場合（ループなし）
-            return self.generate_contiguous_body(node, &[]);
+            return self.generate_contiguous_body(node, &[], &mut scope);
         }
 
         // ネストしたループを生成（外側から内側へ）
         let mut body_statements =
-            self.generate_contiguous_body(node, &(0..ndim).collect::<Vec<_>>())?;
+            self.generate_contiguous_body(node, &(0..ndim).collect::<Vec<_>>(), &mut scope)?;
 
         // ループを逆順に作成（内側から外側へ）
         for axis in (0..ndim).rev() {
@@ -104,8 +109,11 @@ impl Lowerer {
 
             let loop_body = AstNode::Block {
                 statements: body_statements,
-                scope: Box::new(Scope::new()),
+                scope: Box::new(scope.clone()),
             };
+
+            // 外側のループ用に新しいスコープを作成
+            scope = Scope::new();
 
             body_statements = vec![AstNode::Range {
                 var: loop_var,
@@ -124,6 +132,7 @@ impl Lowerer {
         &mut self,
         node: &GraphNode,
         axes: &[usize],
+        scope: &mut Scope,
     ) -> Result<Vec<AstNode>, String> {
         let mut statements = Vec::new();
 
@@ -133,7 +142,17 @@ impl Lowerer {
         let input_ptr = var("input0");
         let input_offset = self.compute_offset_from_view(input, axes);
         let alu_var = self.fresh_alu();
-        statements.push(assign(&alu_var, load(input_ptr, input_offset)));
+        let input_ptr_dtype = self.graph_dtype_to_ast_ptr(&input.dtype)?;
+        let input_dtype = input_ptr_dtype.deref_type().clone();
+
+        // 変数を宣言（初期値付き）
+        scope.declare(
+            alu_var.clone(),
+            input_dtype.clone(),
+            Mutability::Mutable,
+            AccessRegion::ThreadLocal,
+            Some(load(input_ptr, input_offset, input_dtype)),
+        )?;
 
         // 出力にストア（出力のViewを考慮）
         let output_ptr = var("output");

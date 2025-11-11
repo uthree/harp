@@ -39,6 +39,7 @@ impl Lowerer {
                 mutability: Mutability::Immutable,
                 region: AccessRegion::Shared,
                 kind: VarKind::Normal,
+                initial_value: None,
             });
         }
 
@@ -50,6 +51,7 @@ impl Lowerer {
             mutability: Mutability::Mutable,
             region: AccessRegion::Shared,
             kind: VarKind::Normal,
+            initial_value: None,
         });
 
         // Shape変数（各軸のサイズ）
@@ -60,16 +62,18 @@ impl Lowerer {
                 mutability: Mutability::Immutable,
                 region: AccessRegion::Shared,
                 kind: VarKind::Normal,
+                initial_value: None,
             });
         }
 
         // ループ本体の生成
-        let body_statements = self.generate_fused_elementwise_loops(node, ops, ndim)?;
+        let mut scope = Scope::new();
+        let body_statements = self.generate_fused_elementwise_loops(node, ops, ndim, &mut scope)?;
 
         // カーネル関数のbodyを作成（Blockノード）
         let body = AstNode::Block {
             statements: body_statements,
-            scope: Box::new(Scope::new()),
+            scope: Box::new(scope),
         };
 
         // カーネル関数名
@@ -91,15 +95,16 @@ impl Lowerer {
         node: &GraphNode,
         ops: &[FusedElementwiseOp],
         ndim: usize,
+        scope: &mut Scope,
     ) -> Result<Vec<AstNode>, String> {
         if ndim == 0 {
             // スカラー演算（ループなし）
-            return self.generate_fused_elementwise_body(node, ops, &[]);
+            return self.generate_fused_elementwise_body(node, ops, &[], scope);
         }
 
         // ネストしたループを生成（外側から内側へ）
         let mut body_statements =
-            self.generate_fused_elementwise_body(node, ops, &(0..ndim).collect::<Vec<_>>())?;
+            self.generate_fused_elementwise_body(node, ops, &(0..ndim).collect::<Vec<_>>(), scope)?;
 
         // ループを逆順に作成（内側から外側へ）
         for axis in (0..ndim).rev() {
@@ -116,8 +121,11 @@ impl Lowerer {
                 // 通常のループ
                 let loop_body = AstNode::Block {
                     statements: body_statements,
-                    scope: Box::new(Scope::new()),
+                    scope: Box::new(scope.clone()),
                 };
+
+                // 外側のループ用に新しいスコープを作成
+                *scope = Scope::new();
 
                 body_statements = vec![AstNode::Range {
                     var: loop_var.clone(),
@@ -138,6 +146,7 @@ impl Lowerer {
         node: &GraphNode,
         ops: &[FusedElementwiseOp],
         axes: &[usize],
+        scope: &mut Scope,
     ) -> Result<Vec<AstNode>, String> {
         let mut statements = Vec::new();
 
@@ -149,9 +158,18 @@ impl Lowerer {
 
             // 各srcノードのViewからオフセットを計算
             let offset = self.compute_offset_from_view(src, axes);
-            let load_node = load(input_ptr, offset);
+            let src_ptr_dtype = self.graph_dtype_to_ast_ptr(&src.dtype)?;
+            let src_dtype = src_ptr_dtype.deref_type().clone();
+            let load_node = load(input_ptr, offset, src_dtype.clone());
 
-            statements.push(assign(&alu_var, load_node));
+            // 変数を宣言（初期値付き）
+            scope.declare(
+                alu_var.clone(),
+                src_dtype,
+                Mutability::Mutable,
+                AccessRegion::ThreadLocal,
+                Some(load_node),
+            )?;
             graph_inputs.push(alu_var);
         }
 
@@ -179,7 +197,30 @@ impl Lowerer {
             // 演算を適用
             let result = self.apply_elementwise_op(&fused_op.op, &operands)?;
             let result_var = self.fresh_alu();
-            statements.push(assign(&result_var, result));
+
+            // 結果の型を取得（最初のオペランドの型を使用）
+            let result_dtype = if let Some(first_operand) = operands.first() {
+                if let AstNode::Var(var_name) = first_operand {
+                    scope
+                        .get(var_name)
+                        .ok_or_else(|| format!("Variable {} not found in scope", var_name))?
+                        .dtype
+                        .clone()
+                } else {
+                    return Err("Expected variable as operand".to_string());
+                }
+            } else {
+                return Err("Operation requires at least one operand".to_string());
+            };
+
+            // 変数を宣言（初期値付き）
+            scope.declare(
+                result_var.clone(),
+                result_dtype,
+                Mutability::Mutable,
+                AccessRegion::ThreadLocal,
+                Some(result),
+            )?;
             intermediate_results.push(result_var);
         }
 

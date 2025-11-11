@@ -77,7 +77,11 @@ impl CLikeRenderer for MetalRenderer {
                     format!("tuple_{}", types.len())
                 }
             }
-            DType::Unknown => "auto".to_string(),
+            DType::Unknown => {
+                panic!(
+                    "Type inference failed: DType::Unknown should not appear in code generation. This indicates a bug in type inference."
+                )
+            }
         }
     }
 
@@ -236,6 +240,7 @@ mod tests {
                 mutability: Mutability::Immutable,
                 region: AccessRegion::ThreadLocal,
                 kind: VarKind::ThreadId(0),
+                initial_value: None,
             },
             VarDecl {
                 name: "input".to_string(),
@@ -243,6 +248,7 @@ mod tests {
                 mutability: Mutability::Immutable,
                 region: AccessRegion::Shared,
                 kind: VarKind::Normal,
+                initial_value: None,
             },
             VarDecl {
                 name: "output".to_string(),
@@ -250,13 +256,14 @@ mod tests {
                 mutability: Mutability::Mutable,
                 region: AccessRegion::ShardedBy(vec![0]),
                 kind: VarKind::Normal,
+                initial_value: None,
             },
         ];
 
         let body_statements = vec![store(
             var("output"),
             var("tid"),
-            load(var("input"), var("tid")) * AstNode::Const(2.0f32.into()),
+            load(var("input"), var("tid"), DType::F32) * AstNode::Const(2.0f32.into()),
         )];
 
         use crate::ast::Scope;
@@ -293,6 +300,7 @@ mod tests {
             mutability: Mutability::Immutable,
             region: AccessRegion::ThreadLocal,
             kind: VarKind::Normal,
+            initial_value: None,
         }];
 
         let double_func = AstNode::Function {
@@ -352,6 +360,7 @@ mod tests {
                 DType::Usize,
                 Mutability::Immutable,
                 AccessRegion::ThreadLocal,
+                None,
             )
             .unwrap();
 
@@ -362,9 +371,17 @@ mod tests {
             stop: Box::new(AstNode::Const(10usize.into())),
             body: Box::new(AstNode::Block {
                 statements: vec![
-                    store(var("shared"), var("i"), load(var("input"), var("i"))),
+                    store(
+                        var("shared"),
+                        var("i"),
+                        load(var("input"), var("i"), DType::F32),
+                    ),
                     barrier(),
-                    store(var("output"), var("i"), load(var("shared"), var("i"))),
+                    store(
+                        var("output"),
+                        var("i"),
+                        load(var("shared"), var("i"), DType::F32),
+                    ),
                 ],
                 scope: Box::new(loop_scope),
             }),

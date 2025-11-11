@@ -112,14 +112,19 @@ pub trait CLikeRenderer: Renderer {
                     self.render_expr(operand)
                 )
             }
-            AstNode::Load { ptr, offset, count } => {
+            AstNode::Load {
+                ptr,
+                offset,
+                count,
+                dtype,
+            } => {
                 if *count == 1 {
                     format!("{}[{}]", self.render_expr(ptr), self.render_expr(offset))
                 } else {
                     // ベクトルロード
                     format!(
                         "*reinterpret_cast<{} *>(&{}[{}])",
-                        self.render_dtype_backend(&node.infer_type()),
+                        self.render_dtype_backend(dtype),
                         self.render_expr(ptr),
                         self.render_expr(offset)
                     )
@@ -149,17 +154,10 @@ pub trait CLikeRenderer: Renderer {
                 )
             }
             AstNode::Assign { var, value } => {
-                let inferred_type = value.infer_type();
-                let type_str = self.render_dtype_backend(&inferred_type);
-                format!(
-                    "{}{} {} = {};",
-                    self.indent(),
-                    type_str,
-                    var,
-                    self.render_expr(value)
-                )
+                // 単なる代入として扱う（変数宣言はBlockで行われる）
+                format!("{}{} = {};", self.indent(), var, self.render_expr(value))
             }
-            AstNode::Block { statements, .. } => self.render_block(statements),
+            AstNode::Block { statements, scope } => self.render_block(statements, scope),
             AstNode::Range {
                 var,
                 start,
@@ -185,8 +183,24 @@ pub trait CLikeRenderer: Renderer {
     }
 
     /// ブロックを描画
-    fn render_block(&mut self, statements: &[AstNode]) -> String {
+    fn render_block(&mut self, statements: &[AstNode], scope: &crate::ast::Scope) -> String {
         let mut result = String::new();
+
+        // ブロック先頭で変数宣言を出力
+        for var_decl in scope.local_variables() {
+            if let Some(initial_value) = &var_decl.initial_value {
+                let type_str = self.render_dtype_backend(&var_decl.dtype);
+                result.push_str(&format!(
+                    "{}{} {} = {};\n",
+                    self.indent(),
+                    type_str,
+                    var_decl.name,
+                    self.render_expr(initial_value)
+                ));
+            }
+        }
+
+        // 文を描画
         for stmt in statements {
             result.push_str(&self.render_statement(stmt));
             result.push('\n');

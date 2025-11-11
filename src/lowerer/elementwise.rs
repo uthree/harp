@@ -34,6 +34,7 @@ impl Lowerer {
                 mutability: Mutability::Immutable,
                 region: AccessRegion::Shared,
                 kind: VarKind::Normal,
+                initial_value: None,
             });
         }
 
@@ -45,6 +46,7 @@ impl Lowerer {
             mutability: Mutability::Mutable,
             region: AccessRegion::Shared,
             kind: VarKind::Normal,
+            initial_value: None,
         });
 
         // Shape変数（各軸のサイズ）
@@ -55,6 +57,7 @@ impl Lowerer {
                 mutability: Mutability::Immutable,
                 region: AccessRegion::Shared,
                 kind: VarKind::Normal,
+                initial_value: None,
             });
         }
 
@@ -98,14 +101,16 @@ impl Lowerer {
         op: &ElementwiseOp,
         ndim: usize,
     ) -> Result<Vec<AstNode>, String> {
+        let mut scope = Scope::new();
+
         if ndim == 0 {
             // スカラー演算（ループなし）
-            return self.generate_elementwise_body(node, op, &[]);
+            return self.generate_elementwise_body(node, op, &[], &mut scope);
         }
 
         // ネストしたループを生成（外側から内側へ）
         let mut body_statements =
-            self.generate_elementwise_body(node, op, &(0..ndim).collect::<Vec<_>>())?;
+            self.generate_elementwise_body(node, op, &(0..ndim).collect::<Vec<_>>(), &mut scope)?;
 
         // ループを逆順に作成（内側から外側へ）
         for axis in (0..ndim).rev() {
@@ -122,8 +127,11 @@ impl Lowerer {
                 // 通常のループ
                 let loop_body = AstNode::Block {
                     statements: body_statements,
-                    scope: Box::new(Scope::new()),
+                    scope: Box::new(scope.clone()),
                 };
+
+                // 外側のループ用に新しいスコープを作成
+                scope = Scope::new();
 
                 body_statements = vec![AstNode::Range {
                     var: loop_var.clone(),
@@ -168,9 +176,11 @@ impl Lowerer {
             unrolled_body.extend(iter_body);
         }
 
+        // メインループのスコープ
+        let main_scope = Scope::new();
         let unrolled_loop_body = AstNode::Block {
             statements: unrolled_body,
-            scope: Box::new(Scope::new()),
+            scope: Box::new(main_scope),
         };
 
         // メインループ: for ridx{axis}_base in 0..(shape{axis}/unroll_factor)
@@ -193,9 +203,11 @@ impl Lowerer {
             AstNode::Const(Literal::Usize(unroll_factor)),
         ) * AstNode::Const(Literal::Usize(unroll_factor));
 
+        // 残りループのスコープ
+        let remainder_scope = Scope::new();
         let remainder_loop_body = AstNode::Block {
             statements: body_statements,
-            scope: Box::new(Scope::new()),
+            scope: Box::new(remainder_scope),
         };
 
         let remainder_loop = AstNode::Range {
@@ -268,6 +280,7 @@ impl Lowerer {
         node: &GraphNode,
         op: &ElementwiseOp,
         axes: &[usize],
+        scope: &mut Scope,
     ) -> Result<Vec<AstNode>, String> {
         let mut statements = Vec::new();
 
@@ -279,16 +292,42 @@ impl Lowerer {
 
             // 各srcノードのViewからオフセットを計算
             let offset = self.compute_offset_from_view(src, axes);
-            let load_node = load(input_ptr, offset);
+            let src_ptr_dtype = self.graph_dtype_to_ast_ptr(&src.dtype)?;
+            let src_dtype = src_ptr_dtype.deref_type().clone();
+            let load_node = load(input_ptr, offset, src_dtype.clone());
 
-            statements.push(assign(&alu_var, load_node));
+            // 変数を宣言（初期値付き）
+            scope.declare(
+                alu_var.clone(),
+                src_dtype,
+                Mutability::Mutable,
+                AccessRegion::ThreadLocal,
+                Some(load_node),
+            )?;
+
             loaded_values.push(var(&alu_var));
         }
 
         // 演算を適用
         let result = self.apply_elementwise_op(op, &loaded_values)?;
         let result_var = self.fresh_alu();
-        statements.push(assign(&result_var, result));
+
+        // 結果の型を推定（最初の入力と同じ型を使用）
+        let result_dtype = if let Some(src) = node.src.first() {
+            let ptr_dtype = self.graph_dtype_to_ast_ptr(&src.dtype)?;
+            ptr_dtype.deref_type().clone()
+        } else {
+            return Err("No input found for elementwise operation".to_string());
+        };
+
+        // 変数を宣言（初期値付き）
+        scope.declare(
+            result_var.clone(),
+            result_dtype,
+            Mutability::Mutable,
+            AccessRegion::ThreadLocal,
+            Some(result),
+        )?;
 
         // 結果をストア（出力のViewを考慮）
         let output_ptr = var("output");

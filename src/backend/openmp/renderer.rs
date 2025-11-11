@@ -49,7 +49,11 @@ impl CLikeRenderer for CRenderer {
                     format!("tuple_{}", types.len())
                 }
             }
-            DType::Unknown => "auto".to_string(),
+            DType::Unknown => {
+                panic!(
+                    "Type inference failed: DType::Unknown should not appear in code generation. This indicates a bug in type inference."
+                )
+            }
         }
     }
 
@@ -204,6 +208,7 @@ mod tests {
                 dtype: DType::Ptr(Box::new(DType::F32)),
                 mutability: Mutability::Mutable,
                 kind: VarKind::Normal,
+                initial_value: None,
                 region: AccessRegion::Shared,
             }],
             return_type: DType::Tuple(vec![]),

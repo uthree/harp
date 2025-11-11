@@ -134,14 +134,17 @@ impl AstRewriteRule {
                 ptr: p_ptr,
                 offset: p_offset,
                 count: p_count,
+                dtype: p_dtype,
             } => {
                 if let AstNode::Load {
                     ptr: a_ptr,
                     offset: a_offset,
                     count: a_count,
+                    dtype: a_dtype,
                 } = ast
                 {
                     p_count == a_count
+                        && p_dtype == a_dtype
                         && self.pattern_match(p_ptr, a_ptr, bindings)
                         && self.pattern_match(p_offset, a_offset, bindings)
                 } else {

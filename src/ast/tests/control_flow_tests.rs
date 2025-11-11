@@ -10,6 +10,7 @@ fn test_range_basic() {
             DType::Usize,
             Mutability::Immutable,
             AccessRegion::ThreadLocal,
+            None,
         )
         .unwrap();
 
@@ -37,6 +38,7 @@ fn test_range_children() {
             DType::Usize,
             Mutability::Immutable,
             AccessRegion::ThreadLocal,
+            None,
         )
         .unwrap();
 
@@ -65,6 +67,7 @@ fn test_range_with_scope() {
             DType::Usize,
             Mutability::Immutable,
             AccessRegion::Shared,
+            None,
         )
         .unwrap();
 
@@ -74,6 +77,7 @@ fn test_range_with_scope() {
             DType::F32.to_ptr(),
             Mutability::Immutable,
             AccessRegion::Shared,
+            None,
         )
         .unwrap();
 
@@ -83,6 +87,7 @@ fn test_range_with_scope() {
             DType::F32.to_ptr(),
             Mutability::Mutable,
             AccessRegion::ShardedBy(vec![0]),
+            None,
         )
         .unwrap();
 
@@ -94,6 +99,7 @@ fn test_range_with_scope() {
             DType::Usize,
             Mutability::Immutable,
             AccessRegion::ThreadLocal,
+            None,
         )
         .unwrap();
 
@@ -112,6 +118,7 @@ fn test_range_with_scope() {
                         ptr: Box::new(AstNode::Var("input".to_string())),
                         offset: Box::new(AstNode::Var("i".to_string())),
                         count: 1,
+                        dtype: DType::F32,
                     }),
                     Box::new(AstNode::Const(2.0f32.into())),
                 )),
@@ -133,6 +140,7 @@ fn test_range_scope_check_undefined_loop_var() {
             DType::Usize,
             Mutability::Immutable,
             AccessRegion::Shared,
+            None,
         )
         .unwrap();
 
@@ -164,6 +172,7 @@ fn test_range_nested() {
             DType::Usize,
             Mutability::Immutable,
             AccessRegion::Shared,
+            None,
         )
         .unwrap();
 
@@ -175,6 +184,7 @@ fn test_range_nested() {
             DType::Usize,
             Mutability::Immutable,
             AccessRegion::ThreadLocal,
+            None,
         )
         .unwrap();
 
@@ -186,6 +196,7 @@ fn test_range_nested() {
             DType::Usize,
             Mutability::Immutable,
             AccessRegion::ThreadLocal,
+            None,
         )
         .unwrap();
 
@@ -227,6 +238,7 @@ fn test_block_basic() {
             DType::Isize,
             Mutability::Immutable,
             AccessRegion::ThreadLocal,
+            None,
         )
         .unwrap();
 
@@ -262,6 +274,7 @@ fn test_block_check_scope() {
             DType::F32,
             Mutability::Immutable,
             AccessRegion::ThreadLocal,
+            None,
         )
         .unwrap();
 

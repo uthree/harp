@@ -44,6 +44,7 @@ impl Lowerer {
             mutability: Mutability::Immutable,
             region: AccessRegion::Shared,
             kind: VarKind::Normal,
+            initial_value: None,
         });
 
         // 出力バッファー
@@ -54,6 +55,7 @@ impl Lowerer {
             mutability: Mutability::Mutable,
             region: AccessRegion::Shared,
             kind: VarKind::Normal,
+            initial_value: None,
         });
 
         // Shape変数（入力のshape）
@@ -64,6 +66,7 @@ impl Lowerer {
                 mutability: Mutability::Immutable,
                 region: AccessRegion::Shared,
                 kind: VarKind::Normal,
+                initial_value: None,
             });
         }
 
@@ -107,17 +110,19 @@ impl Lowerer {
         op: &ReduceOp,
         axis: usize,
     ) -> Result<Vec<AstNode>, String> {
+        let mut scope = Scope::new();
         let output_ndim = node.view.shape().len();
 
         // 出力がスカラーの場合とテンソルの場合で処理を分ける
         if output_ndim == 0 {
             // 全縮約（スカラー出力）
-            return self.generate_reduce_to_scalar(node, op, axis);
+            return self.generate_reduce_to_scalar(node, op, axis, &mut scope);
         }
 
         // テンソル出力の場合
         // アキュムレータ初期化、縮約ループ、書き込みを含む本体を生成
-        let mut body_statements = self.generate_reduce_body_with_axis(node, op, axis)?;
+        let mut body_statements =
+            self.generate_reduce_body_with_axis(node, op, axis, &mut scope)?;
 
         // 出力の各軸についてループを生成（逆順に、内側から外側へ）
         for out_idx in (0..output_ndim).rev() {
@@ -130,8 +135,11 @@ impl Lowerer {
 
             let loop_body = AstNode::Block {
                 statements: body_statements,
-                scope: Box::new(Scope::new()),
+                scope: Box::new(scope.clone()),
             };
+
+            // 外側のループ用に新しいスコープを作成
+            scope = Scope::new();
 
             body_statements = vec![AstNode::Range {
                 var: loop_var,
@@ -151,6 +159,7 @@ impl Lowerer {
         node: &GraphNode,
         op: &ReduceOp,
         _axis: usize,
+        scope: &mut Scope,
     ) -> Result<Vec<AstNode>, String> {
         let input = &node.src[0];
         let input_ndim = input.view.shape().len();
@@ -160,7 +169,21 @@ impl Lowerer {
         // アキュムレータを初期化
         let acc_var = self.fresh_acc();
         let init_value = self.get_reduce_init_value(op, &node.dtype)?;
-        statements.push(assign(&acc_var, init_value));
+        let acc_dtype = match &node.dtype {
+            crate::graph::DType::F32 => AstDType::F32,
+            crate::graph::DType::Unknown => {
+                return Err("Cannot determine dtype for Unknown".to_string());
+            }
+        };
+
+        // scope.declareを使用して変数を宣言
+        scope.declare(
+            acc_var.clone(),
+            acc_dtype,
+            Mutability::Mutable,
+            AccessRegion::ThreadLocal,
+            Some(init_value),
+        )?;
 
         // 全ての軸についてループしてアキュムレート
         let mut accumulate_statements = vec![self.generate_accumulate_statement(
@@ -205,6 +228,7 @@ impl Lowerer {
         node: &GraphNode,
         op: &ReduceOp,
         axis: usize,
+        scope: &mut Scope,
     ) -> Result<Vec<AstNode>, String> {
         let input = &node.src[0];
         let mut statements = Vec::new();
@@ -212,7 +236,21 @@ impl Lowerer {
         // アキュムレータを初期化
         let acc_var = self.fresh_acc();
         let init_value = self.get_reduce_init_value(op, &node.dtype)?;
-        statements.push(assign(&acc_var, init_value));
+        let acc_dtype = match &node.dtype {
+            crate::graph::DType::F32 => AstDType::F32,
+            crate::graph::DType::Unknown => {
+                return Err("Cannot determine dtype for Unknown".to_string());
+            }
+        };
+
+        // scope.declareを使用して変数を宣言
+        scope.declare(
+            acc_var.clone(),
+            acc_dtype,
+            Mutability::Mutable,
+            AccessRegion::ThreadLocal,
+            Some(init_value),
+        )?;
 
         // 縮約軸についてループしてアキュムレート
         let loop_var = format!("ridx{}", axis);
@@ -296,7 +334,9 @@ impl Lowerer {
         // 入力から値をロード
         let input_ptr = var("input0");
         let offset = self.compute_offset_for_input(axes, input);
-        let loaded_value = load(input_ptr, offset);
+        let input_ptr_dtype = self.graph_dtype_to_ast_ptr(&input.dtype)?;
+        let input_dtype = input_ptr_dtype.deref_type().clone();
+        let loaded_value = load(input_ptr, offset, input_dtype);
 
         // アキュムレート演算を適用
         let acc = var(acc_var);
@@ -319,7 +359,9 @@ impl Lowerer {
         let input_ptr = var("input0");
         let offset =
             self.compute_offset_for_input_with_reduce_axis(output_axes, reduce_axis, input);
-        let loaded_value = load(input_ptr, offset);
+        let input_ptr_dtype = self.graph_dtype_to_ast_ptr(&input.dtype)?;
+        let input_dtype = input_ptr_dtype.deref_type().clone();
+        let loaded_value = load(input_ptr, offset, input_dtype);
 
         // アキュムレート演算を適用
         let acc = var(acc_var);

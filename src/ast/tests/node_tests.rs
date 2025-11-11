@@ -14,16 +14,16 @@ fn test_load_scalar() {
         ptr: Box::new(AstNode::Var("input0".to_string())),
         offset: Box::new(AstNode::Const(0usize.into())),
         count: 1,
+        dtype: DType::F32,
     };
 
     // children should include ptr and offset
     let children = load.children();
     assert_eq!(children.len(), 2);
 
-    // Type inference: Var returns Unknown, so deref_type returns Unknown
-    // This test demonstrates the structure, actual type depends on context
+    // Type inference: Now returns the explicit dtype field
     let inferred = load.infer_type();
-    assert_eq!(inferred, DType::Unknown);
+    assert_eq!(inferred, DType::F32);
 }
 
 #[test]
@@ -38,6 +38,7 @@ fn test_load_vector() {
         ptr: Box::new(ptr_node),
         offset: Box::new(AstNode::Const(0usize.into())),
         count: 4,
+        dtype: DType::F32.to_vec(4),
     };
 
     // Type should be Vec<F32, 4>
@@ -88,6 +89,7 @@ fn test_load_store_map_children() {
         ptr: Box::new(AstNode::Const(1isize.into())),
         offset: Box::new(AstNode::Const(2isize.into())),
         count: 4,
+        dtype: DType::F32,
     };
 
     // Map children: multiply each constant by 2
@@ -96,7 +98,7 @@ fn test_load_store_map_children() {
         _ => node.clone(),
     });
 
-    if let AstNode::Load { ptr, offset, count } = mapped {
+    if let AstNode::Load { ptr, offset, count, dtype: _ } = mapped {
         assert_eq!(*ptr, AstNode::Const(Literal::Isize(2)));
         assert_eq!(*offset, AstNode::Const(Literal::Isize(4)));
         assert_eq!(count, 4);

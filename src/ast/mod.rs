@@ -34,6 +34,7 @@ pub enum AstNode {
         ptr: Box<AstNode>,    // ポインタ（Ptr<T>型の式）
         offset: Box<AstNode>, // オフセット（Usize型の式）
         count: usize,         // 読み込む要素数（コンパイル時定数、1ならスカラー）
+        dtype: DType,         // 読み込む要素の型
     },
     Store {
         ptr: Box<AstNode>,    // ポインタ（Ptr<T>型の式）
@@ -137,6 +138,7 @@ impl Function {
                     param.dtype.clone(),
                     param.mutability.clone(),
                     param.region.clone(),
+                    None, // パラメータは初期値なし
                 )?;
             }
         }
@@ -272,6 +274,7 @@ impl Scope {
         dtype: DType,
         mutability: Mutability,
         region: AccessRegion,
+        initial_value: Option<AstNode>,
     ) -> Result<(), String> {
         if self.variables.contains_key(&name) {
             return Err(format!(
@@ -287,6 +290,7 @@ impl Scope {
                 mutability,
                 region,
                 kind: VarKind::Normal, // 通常の変数宣言
+                initial_value,
             },
         );
         Ok(())
@@ -361,6 +365,11 @@ impl Scope {
     pub fn get(&self, name: &str) -> Option<&VarDecl> {
         self.lookup(name)
     }
+
+    /// Get an iterator over local variables declared in this scope (not including parent scopes)
+    pub fn local_variables(&self) -> impl Iterator<Item = &VarDecl> {
+        self.variables.values()
+    }
 }
 
 impl Default for Scope {
@@ -375,7 +384,8 @@ pub struct VarDecl {
     pub dtype: DType,
     pub mutability: Mutability,
     pub region: AccessRegion,
-    pub kind: VarKind, // 変数の種類
+    pub kind: VarKind,                  // 変数の種類
+    pub initial_value: Option<AstNode>, // 初期値（パラメータ等はNone）
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -580,10 +590,16 @@ impl AstNode {
             AstNode::Exp2(operand) => AstNode::Exp2(Box::new(f(operand))),
             AstNode::Sin(operand) => AstNode::Sin(Box::new(f(operand))),
             AstNode::Cast(operand, dtype) => AstNode::Cast(Box::new(f(operand)), dtype.clone()),
-            AstNode::Load { ptr, offset, count } => AstNode::Load {
+            AstNode::Load {
+                ptr,
+                offset,
+                count,
+                dtype,
+            } => AstNode::Load {
                 ptr: Box::new(f(ptr)),
                 offset: Box::new(f(offset)),
                 count: *count,
+                dtype: dtype.clone(),
             },
             AstNode::Store { ptr, offset, value } => AstNode::Store {
                 ptr: Box::new(f(ptr)),
@@ -676,15 +692,7 @@ impl AstNode {
             AstNode::Sqrt(_) | AstNode::Log2(_) | AstNode::Exp2(_) | AstNode::Sin(_) => DType::F32,
 
             // Memory operations
-            AstNode::Load { ptr, count, .. } => {
-                let ptr_type = ptr.infer_type();
-                let pointee_type = ptr_type.deref_type().clone();
-                if *count == 1 {
-                    pointee_type // スカラー
-                } else {
-                    pointee_type.to_vec(*count) // Vec型
-                }
-            }
+            AstNode::Load { dtype, .. } => dtype.clone(),
             AstNode::Store { .. } => DType::Tuple(vec![]), // Storeは値を返さない（unit型）
 
             // Assignment

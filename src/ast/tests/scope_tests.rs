@@ -336,6 +336,7 @@ fn test_check_scope_complex_expression() {
                 ptr: Box::new(AstNode::Var("input".to_string())),
                 offset: Box::new(AstNode::Var("i".to_string())),
                 count: 1,
+                dtype: DType::F32,
             }),
             Box::new(AstNode::Const(2.0f32.into())),
         )),

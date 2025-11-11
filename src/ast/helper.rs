@@ -44,20 +44,22 @@ pub fn var(name: impl Into<String>) -> AstNode {
 }
 
 /// Create a load node for scalar memory access
-pub fn load(ptr: AstNode, offset: AstNode) -> AstNode {
+pub fn load(ptr: AstNode, offset: AstNode, dtype: DType) -> AstNode {
     AstNode::Load {
         ptr: Box::new(ptr),
         offset: Box::new(offset),
         count: 1,
+        dtype,
     }
 }
 
 /// Create a load node for vector memory access (SIMD)
-pub fn load_vec(ptr: AstNode, offset: AstNode, count: usize) -> AstNode {
+pub fn load_vec(ptr: AstNode, offset: AstNode, count: usize, dtype: DType) -> AstNode {
     AstNode::Load {
         ptr: Box::new(ptr),
         offset: Box::new(offset),
         count,
+        dtype,
     }
 }
 
@@ -280,10 +282,15 @@ mod tests {
     fn test_load_helper() {
         let ptr = var("input0");
         let offset = AstNode::Const(0usize.into());
-        let load_node = load(ptr, offset);
+        let load_node = load(ptr, offset, DType::F32);
 
         match load_node {
-            AstNode::Load { ptr, offset, count } => {
+            AstNode::Load {
+                ptr,
+                offset,
+                count,
+                dtype: _,
+            } => {
                 assert_eq!(count, 1);
                 match *ptr {
                     AstNode::Var(name) => assert_eq!(name, "input0"),
@@ -302,7 +309,7 @@ mod tests {
     fn test_load_vec_helper() {
         let ptr = cast(var("buffer"), DType::F32.to_ptr());
         let offset = var("i");
-        let load_node = load_vec(ptr, offset, 4);
+        let load_node = load_vec(ptr, offset, 4, DType::F32.to_vec(4));
 
         match load_node {
             AstNode::Load { count, .. } => {
@@ -374,7 +381,7 @@ mod tests {
         let output_ptr = var("output");
         let i = var("i");
 
-        let loaded = load(input_ptr, i.clone());
+        let loaded = load(input_ptr, i.clone(), DType::F32);
         let doubled = loaded * AstNode::Const(2.0f32.into());
         let stored = store(output_ptr, i, doubled);
 
@@ -403,6 +410,7 @@ mod tests {
             mutability: Mutability::Immutable,
             region: AccessRegion::ThreadLocal,
             kind: VarKind::Normal,
+            initial_value: None,
         }];
 
         let body = AstNode::Return {
@@ -445,6 +453,7 @@ mod tests {
             mutability: Mutability::Immutable,
             region: AccessRegion::ThreadLocal,
             kind: VarKind::Normal,
+            initial_value: None,
         }];
 
         let body = AstNode::Return {
@@ -477,6 +486,7 @@ mod tests {
             mutability: Mutability::Immutable,
             region: AccessRegion::ThreadLocal,
             kind: VarKind::Normal,
+            initial_value: None,
         }];
 
         let body = AstNode::Return {
