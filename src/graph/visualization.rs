@@ -83,8 +83,11 @@ impl Graph {
             node_id
         }
 
-        // 出力ノードから開始
-        for (output_name, output_node) in &self.outputs {
+        // 出力ノードを名前順でソートして処理（重複除去のため順序を固定）
+        let mut outputs: Vec<_> = self.outputs.iter().collect();
+        outputs.sort_by_key(|(name, _)| name.as_str());
+
+        for (output_name, output_node) in outputs {
             let output_id = traverse_and_collect(
                 output_node,
                 &mut visited,
@@ -108,5 +111,73 @@ impl Graph {
     /// DOT形式でファイルに保存
     pub fn save_dot(&self, path: &str) -> std::io::Result<()> {
         std::fs::write(path, self.to_dot())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::DType;
+
+    #[test]
+    fn test_to_dot_output_order_independence() {
+        // 出力ノードの順序が異なっても同じDOT文字列が生成されることを確認
+
+        // グラフ1: 出力順序 "a", "b"
+        let mut graph1 = Graph::new();
+        let input1 = graph1
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+        graph1.output("a", input1.clone());
+        graph1.output("b", input1.clone());
+
+        // グラフ2: 出力順序 "b", "a"
+        let mut graph2 = Graph::new();
+        let input2 = graph2
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+        graph2.output("b", input2.clone());
+        graph2.output("a", input2.clone());
+
+        // 両方のグラフは同じDOT文字列を生成すべき
+        let dot1 = graph1.to_dot();
+        let dot2 = graph2.to_dot();
+
+        assert_eq!(
+            dot1, dot2,
+            "Graphs with different output order should produce the same DOT string"
+        );
+    }
+
+    #[test]
+    fn test_to_dot_multiple_outputs_sorted() {
+        // 複数の出力ノードが名前順でソートされることを確認
+        let mut graph = Graph::new();
+        let input = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        // 意図的に非アルファベット順で追加
+        graph.output("zebra", input.clone());
+        graph.output("alpha", input.clone());
+        graph.output("middle", input.clone());
+
+        let dot = graph.to_dot();
+
+        // "alpha"が"middle"より前に、"middle"が"zebra"より前に現れることを確認
+        let alpha_pos = dot.find("output_alpha").expect("alpha output not found");
+        let middle_pos = dot.find("output_middle").expect("middle output not found");
+        let zebra_pos = dot.find("output_zebra").expect("zebra output not found");
+
+        assert!(
+            alpha_pos < middle_pos && middle_pos < zebra_pos,
+            "Outputs should appear in alphabetical order in DOT string"
+        );
     }
 }

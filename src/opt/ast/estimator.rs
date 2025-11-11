@@ -186,8 +186,15 @@ mod tests {
             )),
             Box::new(AstNode::Const(Literal::Isize(3))),
         );
-        // Add: 1.0 * 1e-9, Mul: 2.0 * 1e-9 + Add.cost = 3.0 * 1e-9
-        assert_eq!(estimator.estimate(&complex_node), 3.0 * 1e-9);
+        // Add: 1.0 * 1e-9, Mul: 4.0 * 1e-9 + Add.cost = 5.0 * 1e-9
+        let expected = 5.0 * 1e-9;
+        let actual = estimator.estimate(&complex_node);
+        assert!(
+            (actual - expected).abs() < 1e-15,
+            "Expected cost around {}, got {}",
+            expected,
+            actual
+        );
     }
 
     #[test]

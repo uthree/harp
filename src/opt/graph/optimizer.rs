@@ -93,7 +93,7 @@ where
         // 千日手対策用の変数
         let mut best_cost = initial_cost;
         let mut no_improvement_count = 0;
-        const MAX_NO_IMPROVEMENT: usize = 100; // 100回連続で改善がなければ終了
+        const MAX_NO_IMPROVEMENT: usize = 10; // 10回連続で改善がなければ終了
 
         // 初期状態の入力・出力ノード情報をログに出力
         debug!(
@@ -176,21 +176,35 @@ where
 
             // 重複除去: グラフをシリアライズして比較
             use std::collections::HashMap;
+
+            // キャッシュのサイズ制限（メモリ消費を抑える）
+            const MAX_CACHE_SIZE: usize = 10000;
+
             let mut seen = HashMap::new();
             let mut unique_candidates = Vec::new();
 
             for graph in candidates {
                 // グラフの構造を文字列化（DOT形式）
                 let signature = graph.to_dot();
-                if !seen.contains_key(&signature) {
-                    seen.insert(signature, ());
+
+                // キャッシュサイズが制限を超えたらクリア
+                if seen.len() >= MAX_CACHE_SIZE {
+                    debug!(
+                        "BeamSearchGraphOptimizer: Cache size limit reached ({}), clearing cache",
+                        MAX_CACHE_SIZE
+                    );
+                    seen.clear();
+                }
+
+                if seen.insert(signature, ()).is_none() {
                     unique_candidates.push(graph);
                 }
             }
 
             debug!(
-                "BeamSearchGraphOptimizer: After deduplication: {} unique candidates",
-                unique_candidates.len()
+                "BeamSearchGraphOptimizer: After deduplication: {} unique candidates (cache size: {})",
+                unique_candidates.len(),
+                seen.len()
             );
 
             // コストでソートして上位beam_width個を残す
@@ -359,5 +373,53 @@ mod tests {
         let result = optimizer.optimize(graph);
         // 候補がないので元のグラフが返るはず
         assert_eq!(result.outputs().len(), 1);
+    }
+
+    #[test]
+    fn test_output_order_independence() {
+        // 出力順序が異なるグラフのDOT文字列が同じになることを確認
+
+        // グラフ1: 出力順序 "out_a", "out_b"
+        let mut graph1 = Graph::new();
+        let x = graph1
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+        let y = graph1
+            .input("y")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+        let result_a = x.clone() + y.clone();
+        let result_b = x.clone() * y.clone();
+        graph1.output("out_a", result_a);
+        graph1.output("out_b", result_b);
+
+        // グラフ2: 出力順序 "out_b", "out_a" (逆順)
+        let mut graph2 = Graph::new();
+        let x2 = graph2
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+        let y2 = graph2
+            .input("y")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+        let result_b2 = x2.clone() * y2.clone();
+        let result_a2 = x2.clone() + y2.clone();
+        graph2.output("out_b", result_b2);
+        graph2.output("out_a", result_a2);
+
+        // 両方のグラフは同じDOT文字列を生成すべき
+        let dot1 = graph1.to_dot();
+        let dot2 = graph2.to_dot();
+
+        assert_eq!(
+            dot1, dot2,
+            "Graphs with different output order should produce the same DOT signature"
+        );
     }
 }

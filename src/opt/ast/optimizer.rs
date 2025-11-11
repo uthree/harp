@@ -186,21 +186,35 @@ where
 
             // 重複除去: ASTをデバッグ文字列化して比較
             use std::collections::HashMap;
+
+            // キャッシュのサイズ制限（メモリ消費を抑える）
+            const MAX_CACHE_SIZE: usize = 10000;
+
             let mut seen = HashMap::new();
             let mut unique_candidates = Vec::new();
 
             for ast in candidates {
                 // ASTの構造を文字列化
                 let signature = format!("{:?}", ast);
-                if !seen.contains_key(&signature) {
-                    seen.insert(signature, ());
+
+                // キャッシュサイズが制限を超えたらクリア
+                if seen.len() >= MAX_CACHE_SIZE {
+                    debug!(
+                        "BeamSearchOptimizer: Cache size limit reached ({}), clearing cache",
+                        MAX_CACHE_SIZE
+                    );
+                    seen.clear();
+                }
+
+                if seen.insert(signature, ()).is_none() {
                     unique_candidates.push(ast);
                 }
             }
 
             debug!(
-                "BeamSearchOptimizer: After deduplication: {} unique candidates",
-                unique_candidates.len()
+                "BeamSearchOptimizer: After deduplication: {} unique candidates (cache size: {})",
+                unique_candidates.len(),
+                seen.len()
             );
 
             // コストでソートして上位beam_width個を残す

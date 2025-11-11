@@ -246,7 +246,6 @@ fn create_complex_computation_graph() -> Graph {
     // 複数の中間結果を出力
     graph.output("y", y);
     graph.output("z", z);
-    graph.output("x3", x3);
 
     graph
 }

@@ -282,8 +282,11 @@ impl FusionSuggester {
             }
         }
 
-        // 出力ノードを再構築
-        for (name, output_node) in graph.outputs() {
+        // 出力ノードを名前順でソートして再構築（順序を固定）
+        let mut outputs: Vec<_> = graph.outputs().iter().collect();
+        outputs.sort_by_key(|(name, _)| name.as_str());
+
+        for (name, output_node) in outputs {
             let rebuilt = rebuild_node(output_node, &node_map, &mut visited);
             new_graph.output(name, rebuilt);
         }
