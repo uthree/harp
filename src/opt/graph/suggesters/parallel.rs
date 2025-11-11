@@ -1,4 +1,4 @@
-use crate::graph::{ElementwiseStrategy, Graph, GraphNode, GraphNodeData};
+use crate::graph::{ElementwiseStrategy, Graph, GraphNode, GraphNodeData, GraphOp};
 use crate::opt::graph::GraphSuggester;
 use std::collections::{HashMap, HashSet};
 
@@ -99,6 +99,11 @@ impl ParallelStrategyChanger {
         ) -> GraphNode {
             let ptr = node.as_ptr();
 
+            // Inputノードは常に元のノードをそのまま返す（再構築しない）
+            if matches!(node.op, GraphOp::Input) {
+                return node.clone();
+            }
+
             // すでに置き換えマップに存在する場合はそれを返す
             if let Some(new_node) = node_map.get(&ptr) {
                 return new_node.clone();
@@ -140,12 +145,11 @@ impl ParallelStrategyChanger {
         // 新しいグラフを構築
         let mut new_graph = Graph::new();
 
-        // 入力ノードを保持
+        // 入力ノードを保持（再構築しない - Inputノードは変更されないため）
         for (name, weak_input) in graph.inputs() {
             if let Some(rc_node) = weak_input.upgrade() {
                 let input_node = GraphNode::from_rc(rc_node);
-                let rebuilt = rebuild_node(&input_node, &node_map, &mut visited);
-                new_graph.register_input(name.clone(), rebuilt);
+                new_graph.register_input(name.clone(), input_node);
             }
         }
 
