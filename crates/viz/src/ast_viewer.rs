@@ -25,8 +25,6 @@ where
     selected_function: Option<String>,
     /// 現在表示中のステップインデックス
     current_step_index: usize,
-    /// 選択中のビーム内の候補（rank）
-    selected_rank: usize,
     /// ASTレンダラー
     renderer: R,
 }
@@ -54,7 +52,6 @@ where
             function_histories: HashMap::new(),
             selected_function: None,
             current_step_index: 0,
-            selected_rank: 0,
             renderer,
         }
     }
@@ -83,7 +80,6 @@ where
         }
 
         self.current_step_index = 0;
-        self.selected_rank = 0;
 
         log::info!(
             "AST optimization history loaded for function '{}'",
@@ -117,7 +113,6 @@ where
                     if let Some(snapshot) = history.get(i) {
                         if snapshot.step > current_step {
                             self.current_step_index = i;
-                            self.selected_rank = 0;
                             return;
                         }
                     }
@@ -137,7 +132,6 @@ where
                     if let Some(snapshot) = history.get(i) {
                         if snapshot.step < current_step {
                             self.current_step_index = i;
-                            self.selected_rank = 0;
                             return;
                         }
                     }
@@ -182,27 +176,13 @@ where
 
     /// UIを描画
     pub fn ui(&mut self, ui: &mut egui::Ui) {
-        // キーボード入力処理
+        // キーボード入力処理（左右矢印キーでステップ間を移動）
         if self.current_history().is_some() {
-            let num_candidates = self.get_current_step_candidates().len();
-
             ui.input(|i| {
-                // 左右矢印キー：ステップ間を移動
                 if i.key_pressed(egui::Key::ArrowLeft) {
                     self.prev_step();
                 } else if i.key_pressed(egui::Key::ArrowRight) {
                     self.next_step();
-                }
-
-                // 上下矢印キー：ビーム候補間を移動
-                if i.key_pressed(egui::Key::ArrowUp) {
-                    if self.selected_rank > 0 {
-                        self.selected_rank -= 1;
-                    }
-                } else if i.key_pressed(egui::Key::ArrowDown)
-                    && self.selected_rank + 1 < num_candidates
-                {
-                    self.selected_rank += 1;
                 }
             });
         }
@@ -237,7 +217,6 @@ where
                             {
                                 // Function切り替え時にステップをリセット
                                 self.current_step_index = 0;
-                                self.selected_rank = 0;
                             }
                         }
                     });
@@ -309,7 +288,6 @@ where
                     if let Some(snapshot) = history.get(i) {
                         if snapshot.step == step {
                             self.current_step_index = i;
-                            self.selected_rank = 0;
                             break;
                         }
                     }
@@ -321,9 +299,9 @@ where
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-        // 現在のステップの情報を表示
+        // 現在のステップの情報を表示（常にrank 0の候補を表示）
         let candidates = self.get_current_step_candidates();
-        if let Some(current_snapshot) = candidates.get(self.selected_rank) {
+        if let Some(current_snapshot) = candidates.first() {
             ui.horizontal(|ui| {
                 ui.label("Cost:");
                 // ASTのコストは非常に小さい（1e-9スケール）ので常に科学記数法で表示
@@ -383,23 +361,18 @@ where
 
         ui.separator();
 
-        // 候補リストの情報を先に収集
-        let candidate_info: Vec<(usize, f32)> =
-            candidates.iter().map(|c| (c.rank, c.cost)).collect();
-        let selected_rank = self.selected_rank;
-        let selected_code = candidates
-            .get(selected_rank)
+        // 採用されたASTのコード（rank 0）を取得
+        let selected_code = candidates.first()
             .map(|s| render_ast_with(&s.ast, &self.renderer));
 
         // ログを先に取得（借用エラー回避のため）
-        let logs = candidates
-            .get(selected_rank)
+        let logs = candidates.first()
             .map(|s| s.logs.clone())
             .unwrap_or_default();
 
         // 前のステップのコードを取得（Diff表示用）
         let prev_code = if current_step > 0 {
-            // 前のステップの最良候補を取得
+            // 前のステップの最良候補（rank 0）を取得
             self.current_history().and_then(|h| {
                 let prev_step_candidates = h.get_step(current_step - 1);
                 prev_step_candidates
@@ -414,42 +387,8 @@ where
         // コード表示用のクローンを作成
         let code_for_display = selected_code.clone();
 
-        // 左右分割: 左側に候補リスト（狭く）、右側にコード表示（広く）
-        ui.horizontal(|ui| {
-            // 左側: ビーム内の候補リスト（リサイズ可能、デフォルト幅250px）
-            egui::Resize::default()
-                .default_width(250.0)
-                .min_width(150.0)
-                .max_width(500.0)
-                .resizable(true)
-                .show(ui, |ui| {
-                    ui.vertical(|ui| {
-                        ui.heading("Beam Candidates");
-                        ui.separator();
-
-                        egui::ScrollArea::vertical()
-                            .id_salt("beam_candidates_scroll")
-                            .max_height(ui.available_height())
-                            .show(ui, |ui| {
-                                for (i, (rank, cost)) in candidate_info.iter().enumerate() {
-                                    let is_selected = i == selected_rank;
-                                    let button_text = format!("Rank {}: Cost {:.2}", rank, cost);
-
-                                    if ui
-                                        .selectable_label(is_selected, button_text)
-                                        .clicked()
-                                    {
-                                        self.selected_rank = i;
-                                    }
-                                }
-                            });
-                    });
-                });
-
-            ui.separator();
-
-            // 右側: 選択したASTのコード表示（残りの幅を使用）
-            ui.vertical(|ui| {
+        // ASTのコード表示
+        ui.vertical(|ui| {
                 egui::CollapsingHeader::new("AST Code")
                     .default_open(true)
                     .show(ui, |ui| {
@@ -498,7 +437,6 @@ where
                         }
                     });
             });
-        });
 
         // Diffを表示（折りたたみ可能、高さリサイズ可能）
         if let (Some(ref prev), Some(ref current)) = (&prev_code, &selected_code) {
@@ -541,8 +479,8 @@ where
                                     }
                                 });
                         });
-                });
-        }
+                    });
+            }
 
         // ログを表示（折りたたみ可能、高さリサイズ可能）
         ui.separator();
