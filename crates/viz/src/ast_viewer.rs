@@ -548,36 +548,38 @@ where
 
         // ログを表示
         if self.show_logs {
-            if !logs.is_empty() {
-                ui.separator();
-                ui.heading("Debug Logs");
-                ui.separator();
+            ui.separator();
 
-                egui::ScrollArea::vertical()
-                    .id_salt("logs_scroll")
-                    .max_height(300.0)
-                    .show(ui, |ui| {
-                        for log_line in &logs {
-                            // ログレベルに応じて色分け
-                            let color = if log_line.contains("[ERROR]") {
-                                egui::Color32::from_rgb(255, 100, 100)
-                            } else if log_line.contains("[WARN]") {
-                                egui::Color32::from_rgb(255, 200, 100)
-                            } else if log_line.contains("[DEBUG]") {
-                                egui::Color32::from_rgb(150, 150, 255)
-                            } else if log_line.contains("[TRACE]") {
-                                egui::Color32::GRAY
-                            } else {
-                                egui::Color32::WHITE
-                            };
+            // 折りたたみ可能なセクションとして表示（デフォルトで開いた状態）
+            egui::CollapsingHeader::new(format!("Debug Logs ({} entries)", logs.len()))
+                .default_open(true)
+                .show(ui, |ui| {
+                    if !logs.is_empty() {
+                        egui::ScrollArea::vertical()
+                            .id_salt("logs_scroll")
+                            .max_height(300.0)
+                            .show(ui, |ui| {
+                                for log_line in &logs {
+                                    // ログレベルに応じて色分け
+                                    let color = if log_line.contains("[ERROR]") {
+                                        egui::Color32::from_rgb(255, 100, 100)
+                                    } else if log_line.contains("[WARN]") {
+                                        egui::Color32::from_rgb(255, 200, 100)
+                                    } else if log_line.contains("[DEBUG]") {
+                                        egui::Color32::from_rgb(150, 150, 255)
+                                    } else if log_line.contains("[TRACE]") {
+                                        egui::Color32::GRAY
+                                    } else {
+                                        egui::Color32::WHITE
+                                    };
 
-                            ui.colored_label(color, egui::RichText::new(log_line).monospace());
-                        }
-                    });
-            } else {
-                ui.separator();
-                ui.label("No logs captured for this step.");
-            }
+                                    ui.colored_label(color, egui::RichText::new(log_line).monospace());
+                                }
+                            });
+                    } else {
+                        ui.label("No logs captured for this step.");
+                    }
+                });
         }
     }
 }

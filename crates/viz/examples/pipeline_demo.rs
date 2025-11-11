@@ -68,6 +68,36 @@ fn main() -> eframe::Result {
         "    - AST最適化ステップ数: {}",
         function_histories.values().map(|h| h.len()).sum::<usize>()
     );
+
+    // デバッグ: ログがキャプチャされているか確認
+    if let Some(graph_history) = pipeline.last_graph_optimization_history() {
+        println!("  - グラフ最適化履歴のログ確認:");
+        for (i, snapshot) in graph_history.snapshots().iter().take(3).enumerate() {
+            println!(
+                "    Step {}: {} logs captured",
+                i,
+                snapshot.logs.len()
+            );
+            if !snapshot.logs.is_empty() {
+                println!("      First log: {}", snapshot.logs[0]);
+            }
+        }
+    }
+
+    if let Some((_, history)) = function_histories.iter().next() {
+        println!("  - AST最適化履歴のログ確認:");
+        for (i, snapshot) in history.snapshots().iter().take(3).enumerate() {
+            println!(
+                "    Step {}: {} logs captured",
+                i,
+                snapshot.logs.len()
+            );
+            if !snapshot.logs.is_empty() {
+                println!("      First log: {}", snapshot.logs[0]);
+            }
+        }
+    }
+
     println!();
 
     // 最適化の統計情報を表示
