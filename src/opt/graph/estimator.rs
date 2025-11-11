@@ -1,4 +1,6 @@
 use crate::graph::{DType, ElementwiseStrategy, Graph, GraphNode, GraphOp};
+use crate::lowerer::Lowerer;
+use crate::opt::ast::CostEstimator as AstCostEstimator;
 use crate::opt::graph::GraphCostEstimator;
 use std::collections::HashSet;
 
@@ -269,6 +271,212 @@ mod tests {
         let cost2 = estimator.estimate(&graph2);
 
         // 大きいグラフの方がコストが高いはず
+        assert!(cost2 > cost1);
+    }
+}
+
+/// ASTベースのコスト推定器
+///
+/// 各GraphNodeをASTに変換してからコストを推定します。
+/// より正確なコスト推定が可能ですが、SimpleCostEstimatorよりも計算コストが高いです。
+pub struct AstBasedCostEstimator<E: AstCostEstimator> {
+    ast_estimator: E,
+}
+
+impl<E: AstCostEstimator> AstBasedCostEstimator<E> {
+    /// 新しいASTベースコスト推定器を作成
+    pub fn new(ast_estimator: E) -> Self {
+        Self { ast_estimator }
+    }
+
+    /// 単一のGraphNodeをASTに変換してコストを推定
+    fn estimate_node(&self, node: &GraphNode, node_id: usize) -> f32 {
+        // Inputノードはスキップ（コストなし）
+        if matches!(node.op, GraphOp::Input) {
+            return 0.0;
+        }
+
+        // Lowererを使ってASTに変換
+        let mut lowerer = Lowerer::new();
+        match lowerer.lower_node_to_kernel(node, node_id) {
+            Ok(ast) => {
+                // Function本体のコストを推定
+                if let crate::ast::AstNode::Function { body, .. } = &ast {
+                    self.ast_estimator.estimate(body)
+                } else {
+                    0.0
+                }
+            }
+            Err(_) => {
+                // 変換に失敗した場合はデフォルト値を返す
+                0.0
+            }
+        }
+    }
+
+    /// グラフ内の全ノードを収集（トポロジカル順）
+    fn collect_all_nodes(&self, graph: &Graph) -> Vec<GraphNode> {
+        let mut visited = HashSet::new();
+        let mut nodes = Vec::new();
+
+        fn visit(
+            node: &GraphNode,
+            visited: &mut HashSet<*const crate::graph::GraphNodeData>,
+            nodes: &mut Vec<GraphNode>,
+        ) {
+            let ptr = node.as_ptr();
+            if visited.contains(&ptr) {
+                return;
+            }
+            visited.insert(ptr);
+
+            // 先に依存ノードを訪問
+            for src in &node.src {
+                visit(src, visited, nodes);
+            }
+
+            nodes.push(node.clone());
+        }
+
+        for output in graph.outputs().values() {
+            visit(output, &mut visited, &mut nodes);
+        }
+
+        nodes
+    }
+}
+
+impl<E: AstCostEstimator> GraphCostEstimator for AstBasedCostEstimator<E> {
+    fn estimate(&self, graph: &Graph) -> f32 {
+        let nodes = self.collect_all_nodes(graph);
+        let mut total_cost = 0.0;
+
+        for (node_id, node) in nodes.iter().enumerate() {
+            total_cost += self.estimate_node(node, node_id);
+        }
+
+        total_cost
+    }
+}
+
+#[cfg(test)]
+mod ast_based_tests {
+    use super::*;
+    use crate::graph::{DType, Graph};
+    use crate::opt::ast::SimpleCostEstimator as AstSimpleCostEstimator;
+
+    #[test]
+    fn test_ast_based_cost_estimator() {
+        let ast_estimator = AstSimpleCostEstimator::new();
+        let estimator = AstBasedCostEstimator::new(ast_estimator);
+
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
+
+        let b = graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
+
+        let c = a + b;
+        graph.output("c", c);
+
+        let cost = estimator.estimate(&graph);
+        // コストは正の値であるべき
+        assert!(cost > 0.0);
+    }
+
+    #[test]
+    fn test_ast_cost_same_structure() {
+        let ast_estimator = AstSimpleCostEstimator::new();
+        let estimator = AstBasedCostEstimator::new(ast_estimator);
+
+        // 小さいグラフ（10要素）
+        let mut graph1 = Graph::new();
+        let a1 = graph1
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+        let b1 = graph1
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+        graph1.output("c", a1 + b1);
+
+        // 大きいグラフ（1000要素）- しかし生成されるASTは同じ構造
+        let mut graph2 = Graph::new();
+        let a2 = graph2
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![1000])
+            .build();
+        let b2 = graph2
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![1000])
+            .build();
+        graph2.output("c", a2 + b2);
+
+        let cost1 = estimator.estimate(&graph1);
+        let cost2 = estimator.estimate(&graph2);
+
+        // GraphNodeをlowerする時、shapeはパラメータになるため、
+        // 生成されるASTは同じ構造になり、コストも同じになる
+        // （ループ回数は変数なので100回と推定される）
+        assert_eq!(cost1, cost2);
+    }
+
+    #[test]
+    fn test_ast_cost_multiple_ops() {
+        let ast_estimator = AstSimpleCostEstimator::new();
+        let estimator = AstBasedCostEstimator::new(ast_estimator);
+
+        // 単一演算
+        let mut graph1 = Graph::new();
+        let a1 = graph1
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![100])
+            .build();
+        let b1 = graph1
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![100])
+            .build();
+        graph1.output("c", a1 + b1);
+
+        // 複数演算（a + b） * c
+        let mut graph2 = Graph::new();
+        let a2 = graph2
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![100])
+            .build();
+        let b2 = graph2
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![100])
+            .build();
+        let c2 = graph2
+            .input("c")
+            .with_dtype(DType::F32)
+            .with_shape(vec![100])
+            .build();
+        let add = a2 + b2;
+        let mul = add * c2;
+        graph2.output("out", mul);
+
+        let cost1 = estimator.estimate(&graph1);
+        let cost2 = estimator.estimate(&graph2);
+
+        // 複数演算の方がコストが高いはず
         assert!(cost2 > cost1);
     }
 }

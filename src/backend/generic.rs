@@ -10,9 +10,9 @@ use crate::opt::ast::{
     SimpleCostEstimator as AstSimpleCostEstimator,
 };
 use crate::opt::graph::{
-    BeamSearchGraphOptimizer, CompositeSuggester, FusionSuggester,
+    AstBasedCostEstimator, BeamSearchGraphOptimizer, CompositeSuggester, FusionSuggester,
     OptimizationHistory as GraphOptimizationHistory, ParallelStrategyChanger,
-    SimpleCostEstimator as GraphSimpleCostEstimator, ViewInsertionSuggester,
+    ViewInsertionSuggester,
 };
 
 /// compile_graph_with_all_historiesの戻り値の型
@@ -213,7 +213,8 @@ where
                 Box::new(FusionSuggester::new()),
                 Box::new(ParallelStrategyChanger::with_default_strategies()),
             ]);
-            let estimator = GraphSimpleCostEstimator::new();
+            let ast_estimator = AstSimpleCostEstimator::new();
+            let estimator = AstBasedCostEstimator::new(ast_estimator);
 
             let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
                 .with_beam_width(self.graph_optimization_config.beam_width)
@@ -327,7 +328,8 @@ where
                 Box::new(FusionSuggester::new()),
                 Box::new(ParallelStrategyChanger::with_default_strategies()),
             ]);
-            let estimator = GraphSimpleCostEstimator::new();
+            let ast_estimator = AstSimpleCostEstimator::new();
+            let estimator = AstBasedCostEstimator::new(ast_estimator);
 
             let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
                 .with_beam_width(self.graph_optimization_config.beam_width)
@@ -444,7 +446,8 @@ where
                 Box::new(FusionSuggester::new()),
                 Box::new(ParallelStrategyChanger::with_default_strategies()),
             ]);
-            let estimator = GraphSimpleCostEstimator::new();
+            let ast_estimator = AstSimpleCostEstimator::new();
+            let estimator = AstBasedCostEstimator::new(ast_estimator);
 
             let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
                 .with_beam_width(self.graph_optimization_config.beam_width)
@@ -598,7 +601,8 @@ where
             Box::new(FusionSuggester::new()),
             Box::new(ParallelStrategyChanger::with_default_strategies()),
         ]);
-        let estimator = GraphSimpleCostEstimator::new();
+        let ast_estimator = AstSimpleCostEstimator::new();
+        let estimator = AstBasedCostEstimator::new(ast_estimator);
 
         let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
             .with_beam_width(self.graph_optimization_config.beam_width)
