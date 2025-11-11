@@ -16,7 +16,8 @@ ndarray = ["dep:ndarray"]
 
 [dependencies]
 indicatif = "0.18.1"
-log = "0.4"
+log = { version = "0.4", features = ["std"] }
+env_logger = "0.11"  # ログキャプチャ機能で使用
 libloading = "0.8.9"  # C/OpenMP backendでの動的ライブラリロード用
 ndarray = { version = "0.16", optional = true }
 paste = "1.0"  # マクロでの識別子連結用

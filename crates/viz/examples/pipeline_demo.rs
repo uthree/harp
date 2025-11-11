@@ -9,7 +9,8 @@ use harp::graph::{DType, Graph};
 use harp_viz::HarpVizApp;
 
 fn main() -> eframe::Result {
-    env_logger::init();
+    // env_logger::init()の代わりにlog_captureを使う
+    harp::opt::log_capture::init_with_env_logger();
 
     println!("=== Harp GenericPipeline 最適化デモ ===\n");
     println!("このデモでは、行列積を含む複雑な計算グラフを最適化します。");

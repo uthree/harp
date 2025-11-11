@@ -31,6 +31,8 @@ where
     show_cost_graph: bool,
     /// Diffを表示するかどうか
     show_diff: bool,
+    /// ログを表示するかどうか
+    show_logs: bool,
     /// ASTレンダラー
     renderer: R,
 }
@@ -61,6 +63,7 @@ where
             selected_rank: 0,
             show_cost_graph: true,
             show_diff: true,
+            show_logs: true,
             renderer,
         }
     }
@@ -274,6 +277,18 @@ where
                     if ui.button(diff_button_text).clicked() {
                         self.show_diff = !self.show_diff;
                     }
+
+                    ui.add_space(10.0);
+                }
+
+                // ログ表示トグルボタン
+                let logs_button_text = if self.show_logs {
+                    "Hide Logs"
+                } else {
+                    "Show Logs"
+                };
+                if ui.button(logs_button_text).clicked() {
+                    self.show_logs = !self.show_logs;
                 }
             }
         });
@@ -412,6 +427,12 @@ where
             .get(selected_rank)
             .map(|s| render_ast_with(&s.ast, &self.renderer));
 
+        // ログを先に取得（借用エラー回避のため）
+        let logs = candidates
+            .get(selected_rank)
+            .map(|s| s.logs.clone())
+            .unwrap_or_default();
+
         // 前のステップのコードを取得（Diff表示用）
         let prev_code = if self.show_diff && current_step > 0 {
             // 前のステップの最良候補を取得
@@ -522,6 +543,40 @@ where
             } else if prev_code.is_none() {
                 ui.separator();
                 ui.label("No previous step available for diff.");
+            }
+        }
+
+        // ログを表示
+        if self.show_logs {
+            if !logs.is_empty() {
+                ui.separator();
+                ui.heading("Debug Logs");
+                ui.separator();
+
+                egui::ScrollArea::vertical()
+                    .id_salt("logs_scroll")
+                    .max_height(300.0)
+                    .show(ui, |ui| {
+                        for log_line in &logs {
+                            // ログレベルに応じて色分け
+                            let color = if log_line.contains("[ERROR]") {
+                                egui::Color32::from_rgb(255, 100, 100)
+                            } else if log_line.contains("[WARN]") {
+                                egui::Color32::from_rgb(255, 200, 100)
+                            } else if log_line.contains("[DEBUG]") {
+                                egui::Color32::from_rgb(150, 150, 255)
+                            } else if log_line.contains("[TRACE]") {
+                                egui::Color32::GRAY
+                            } else {
+                                egui::Color32::WHITE
+                            };
+
+                            ui.colored_label(color, egui::RichText::new(log_line).monospace());
+                        }
+                    });
+            } else {
+                ui.separator();
+                ui.label("No logs captured for this step.");
             }
         }
     }

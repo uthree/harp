@@ -23,6 +23,8 @@ pub struct GraphViewerApp {
     show_dot_diff: bool,
     /// コスト遷移グラフを表示するかどうか
     show_cost_graph: bool,
+    /// ログを表示するかどうか
+    show_logs: bool,
 }
 
 /// egui-snarl用のノードビュー
@@ -71,6 +73,7 @@ impl GraphViewerApp {
             show_dot_text: true,
             show_dot_diff: false,
             show_cost_graph: true,
+            show_logs: true,
         }
     }
 
@@ -472,6 +475,18 @@ impl GraphViewerApp {
                 if ui.button(cost_button_text).clicked() {
                     self.show_cost_graph = !self.show_cost_graph;
                 }
+
+                ui.add_space(10.0);
+
+                // ログ表示トグルボタン
+                let logs_button_text = if self.show_logs {
+                    "Hide Logs"
+                } else {
+                    "Show Logs"
+                };
+                if ui.button(logs_button_text).clicked() {
+                    self.show_logs = !self.show_logs;
+                }
             }
         });
         ui.separator();
@@ -764,6 +779,41 @@ impl GraphViewerApp {
                 egui::Id::new("graph_viewer_snarl"),
                 ui,
             );
+        }
+
+        // ログを表示（最適化履歴がある場合）
+        if self.show_logs {
+            if let Some(ref history) = self.optimization_history {
+                if let Some(snapshot) = history.get(self.current_step) {
+                    if !snapshot.logs.is_empty() {
+                        ui.separator();
+                        ui.heading("Debug Logs");
+                        ui.separator();
+
+                        egui::ScrollArea::vertical()
+                            .id_salt("graph_logs_scroll")
+                            .max_height(300.0)
+                            .show(ui, |ui| {
+                                for log_line in &snapshot.logs {
+                                    // ログレベルに応じて色分け
+                                    let color = if log_line.contains("[ERROR]") {
+                                        egui::Color32::from_rgb(255, 100, 100)
+                                    } else if log_line.contains("[WARN]") {
+                                        egui::Color32::from_rgb(255, 200, 100)
+                                    } else if log_line.contains("[DEBUG]") {
+                                        egui::Color32::from_rgb(150, 150, 255)
+                                    } else if log_line.contains("[TRACE]") {
+                                        egui::Color32::GRAY
+                                    } else {
+                                        egui::Color32::WHITE
+                                    };
+
+                                    ui.colored_label(color, egui::RichText::new(log_line).monospace());
+                                }
+                            });
+                    }
+                }
+            }
         }
     }
 }
