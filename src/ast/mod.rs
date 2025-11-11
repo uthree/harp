@@ -137,7 +137,6 @@ impl Function {
                     param.name.clone(),
                     param.dtype.clone(),
                     param.mutability.clone(),
-                    param.region.clone(),
                     None, // パラメータは初期値なし
                 )?;
             }
@@ -273,7 +272,6 @@ impl Scope {
         name: String,
         dtype: DType,
         mutability: Mutability,
-        region: AccessRegion,
         initial_value: Option<AstNode>,
     ) -> Result<(), String> {
         if self.variables.contains_key(&name) {
@@ -288,7 +286,6 @@ impl Scope {
                 name,
                 dtype,
                 mutability,
-                region,
                 kind: VarKind::Normal, // 通常の変数宣言
                 initial_value,
             },
@@ -332,35 +329,6 @@ impl Scope {
         Ok(())
     }
 
-    /// Check if two variables can be accessed in parallel
-    pub fn can_access_parallel(&self, var1: &str, var2: &str) -> bool {
-        let Some(decl1) = self.lookup(var1) else {
-            return false;
-        };
-        let Some(decl2) = self.lookup(var2) else {
-            return false;
-        };
-
-        // 両方がImmutableなら常に並列OK
-        if decl1.mutability == Mutability::Immutable && decl2.mutability == Mutability::Immutable {
-            return true;
-        }
-
-        // 両方がThreadLocalなら並列OK
-        if decl1.region == AccessRegion::ThreadLocal && decl2.region == AccessRegion::ThreadLocal {
-            return true;
-        }
-
-        // ShardedByで分割されている場合
-        match (&decl1.region, &decl2.region) {
-            (AccessRegion::ShardedBy(axes1), AccessRegion::ShardedBy(axes2)) => {
-                // 異なる軸でシャーディングされていればOK
-                axes1.iter().any(|a1| axes2.iter().any(|a2| a1 != a2))
-            }
-            _ => false,
-        }
-    }
-
     /// Get a reference to a variable declaration
     pub fn get(&self, name: &str) -> Option<&VarDecl> {
         self.lookup(name)
@@ -383,7 +351,6 @@ pub struct VarDecl {
     pub name: String,
     pub dtype: DType,
     pub mutability: Mutability,
-    pub region: AccessRegion,
     pub kind: VarKind,                  // 変数の種類
     pub initial_value: Option<AstNode>, // 初期値（パラメータ等はNone）
 }
@@ -392,13 +359,6 @@ pub struct VarDecl {
 pub enum Mutability {
     Immutable, // 読み取り専用（複数スレッドから安全にアクセス可）
     Mutable,   // 書き込み可能（単一スレッドのみ）
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum AccessRegion {
-    ThreadLocal,           // スレッドローカル（競合なし）
-    Shared,                // 共有メモリ（読み取り専用なら安全）
-    ShardedBy(Vec<usize>), // 特定の軸でシャーディング（軸番号のリスト）
 }
 
 /// 変数の種類

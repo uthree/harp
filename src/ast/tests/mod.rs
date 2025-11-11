@@ -456,13 +456,7 @@ fn test_scope_declare() {
     let mut scope = Scope::new();
 
     scope
-        .declare(
-            "x".to_string(),
-            DType::F32,
-            Mutability::Immutable,
-            AccessRegion::ThreadLocal,
-            None,
-        )
+        .declare("x".to_string(), DType::F32, Mutability::Immutable, None)
         .unwrap();
 
     assert!(scope.get("x").is_some());
@@ -474,22 +468,10 @@ fn test_scope_duplicate_declare() {
     let mut scope = Scope::new();
 
     scope
-        .declare(
-            "x".to_string(),
-            DType::F32,
-            Mutability::Immutable,
-            AccessRegion::ThreadLocal,
-            None,
-        )
+        .declare("x".to_string(), DType::F32, Mutability::Immutable, None)
         .unwrap();
 
-    let result = scope.declare(
-        "x".to_string(),
-        DType::Isize,
-        Mutability::Mutable,
-        AccessRegion::ThreadLocal,
-        None,
-    );
+    let result = scope.declare("x".to_string(), DType::Isize, Mutability::Mutable, None);
 
     assert!(result.is_err());
 }
@@ -503,7 +485,6 @@ fn test_scope_check_read() {
             "input".to_string(),
             DType::F32.to_ptr(),
             Mutability::Immutable,
-            AccessRegion::Shared,
             None,
         )
         .unwrap();
@@ -517,13 +498,7 @@ fn test_scope_check_write_immutable() {
     let mut scope = Scope::new();
 
     scope
-        .declare(
-            "x".to_string(),
-            DType::F32,
-            Mutability::Immutable,
-            AccessRegion::ThreadLocal,
-            None,
-        )
+        .declare("x".to_string(), DType::F32, Mutability::Immutable, None)
         .unwrap();
 
     let result = scope.check_write("x", &DType::F32);
@@ -536,13 +511,7 @@ fn test_scope_check_write_mutable() {
     let mut scope = Scope::new();
 
     scope
-        .declare(
-            "output".to_string(),
-            DType::F32,
-            Mutability::Mutable,
-            AccessRegion::ThreadLocal,
-            None,
-        )
+        .declare("output".to_string(), DType::F32, Mutability::Mutable, None)
         .unwrap();
 
     assert!(scope.check_write("output", &DType::F32).is_ok());
@@ -553,13 +522,7 @@ fn test_scope_check_write_type_mismatch() {
     let mut scope = Scope::new();
 
     scope
-        .declare(
-            "x".to_string(),
-            DType::F32,
-            Mutability::Mutable,
-            AccessRegion::ThreadLocal,
-            None,
-        )
+        .declare("x".to_string(), DType::F32, Mutability::Mutable, None)
         .unwrap();
 
     let result = scope.check_write("x", &DType::Isize);
@@ -571,13 +534,7 @@ fn test_scope_check_write_type_mismatch() {
 fn test_scope_parent_lookup() {
     let mut parent = Scope::new();
     parent
-        .declare(
-            "x".to_string(),
-            DType::F32,
-            Mutability::Immutable,
-            AccessRegion::Shared,
-            None,
-        )
+        .declare("x".to_string(), DType::F32, Mutability::Immutable, None)
         .unwrap();
 
     let child = Scope::with_parent(parent);
@@ -587,129 +544,11 @@ fn test_scope_parent_lookup() {
 }
 
 #[test]
-fn test_scope_can_access_parallel_immutable() {
-    let mut scope = Scope::new();
-
-    scope
-        .declare(
-            "input1".to_string(),
-            DType::F32.to_ptr(),
-            Mutability::Immutable,
-            AccessRegion::Shared,
-            None,
-        )
-        .unwrap();
-
-    scope
-        .declare(
-            "input2".to_string(),
-            DType::F32.to_ptr(),
-            Mutability::Immutable,
-            AccessRegion::Shared,
-            None,
-        )
-        .unwrap();
-
-    // 両方immutableなので並列OK
-    assert!(scope.can_access_parallel("input1", "input2"));
-}
-
-#[test]
-fn test_scope_can_access_parallel_thread_local() {
-    let mut scope = Scope::new();
-
-    scope
-        .declare(
-            "temp1".to_string(),
-            DType::F32,
-            Mutability::Mutable,
-            AccessRegion::ThreadLocal,
-            None,
-        )
-        .unwrap();
-
-    scope
-        .declare(
-            "temp2".to_string(),
-            DType::F32,
-            Mutability::Mutable,
-            AccessRegion::ThreadLocal,
-            None,
-        )
-        .unwrap();
-
-    // 両方ThreadLocalなので並列OK
-    assert!(scope.can_access_parallel("temp1", "temp2"));
-}
-
-#[test]
-fn test_scope_can_access_parallel_sharded() {
-    let mut scope = Scope::new();
-
-    scope
-        .declare(
-            "output1".to_string(),
-            DType::F32.to_ptr(),
-            Mutability::Mutable,
-            AccessRegion::ShardedBy(vec![0]),
-            None,
-        )
-        .unwrap();
-
-    scope
-        .declare(
-            "output2".to_string(),
-            DType::F32.to_ptr(),
-            Mutability::Mutable,
-            AccessRegion::ShardedBy(vec![1]),
-            None,
-        )
-        .unwrap();
-
-    // 異なる軸でシャーディングされているので並列OK
-    assert!(scope.can_access_parallel("output1", "output2"));
-}
-
-#[test]
-fn test_scope_cannot_access_parallel_mutable_shared() {
-    let mut scope = Scope::new();
-
-    scope
-        .declare(
-            "output".to_string(),
-            DType::F32.to_ptr(),
-            Mutability::Mutable,
-            AccessRegion::Shared,
-            None,
-        )
-        .unwrap();
-
-    scope
-        .declare(
-            "input".to_string(),
-            DType::F32.to_ptr(),
-            Mutability::Immutable,
-            AccessRegion::Shared,
-            None,
-        )
-        .unwrap();
-
-    // 片方がMutableでSharedなので並列NG
-    assert!(!scope.can_access_parallel("output", "input"));
-}
-
-#[test]
 fn test_check_scope_var() {
     let mut scope = Scope::new();
 
     scope
-        .declare(
-            "x".to_string(),
-            DType::F32,
-            Mutability::Immutable,
-            AccessRegion::ThreadLocal,
-            None,
-        )
+        .declare("x".to_string(), DType::F32, Mutability::Immutable, None)
         .unwrap();
 
     let var_node = AstNode::Var("x".to_string());
@@ -724,13 +563,7 @@ fn test_check_scope_assign() {
     let mut scope = Scope::new();
 
     scope
-        .declare(
-            "x".to_string(),
-            DType::F32,
-            Mutability::Mutable,
-            AccessRegion::ThreadLocal,
-            None,
-        )
+        .declare("x".to_string(), DType::F32, Mutability::Mutable, None)
         .unwrap();
 
     let assign_node = AstNode::Assign {
@@ -746,13 +579,7 @@ fn test_check_scope_assign_immutable() {
     let mut scope = Scope::new();
 
     scope
-        .declare(
-            "x".to_string(),
-            DType::F32,
-            Mutability::Immutable,
-            AccessRegion::ThreadLocal,
-            None,
-        )
+        .declare("x".to_string(), DType::F32, Mutability::Immutable, None)
         .unwrap();
 
     let assign_node = AstNode::Assign {
@@ -774,7 +601,6 @@ fn test_check_scope_complex_expression() {
             "input".to_string(),
             DType::F32.to_ptr(),
             Mutability::Immutable,
-            AccessRegion::Shared,
             None,
         )
         .unwrap();
@@ -784,19 +610,12 @@ fn test_check_scope_complex_expression() {
             "output".to_string(),
             DType::F32.to_ptr(),
             Mutability::Mutable,
-            AccessRegion::ShardedBy(vec![0]),
             None,
         )
         .unwrap();
 
     scope
-        .declare(
-            "i".to_string(),
-            DType::Usize,
-            Mutability::Immutable,
-            AccessRegion::ThreadLocal,
-            None,
-        )
+        .declare("i".to_string(), DType::Usize, Mutability::Immutable, None)
         .unwrap();
 
     // output[i] = input[i] * 2.0

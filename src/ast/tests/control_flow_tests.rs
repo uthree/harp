@@ -5,13 +5,7 @@ use super::*;
 fn test_range_basic() {
     let mut scope = Scope::new();
     scope
-        .declare(
-            "i".to_string(),
-            DType::Usize,
-            Mutability::Immutable,
-            AccessRegion::ThreadLocal,
-            None,
-        )
+        .declare("i".to_string(), DType::Usize, Mutability::Immutable, None)
         .unwrap();
 
     let range = AstNode::Range {
@@ -33,13 +27,7 @@ fn test_range_basic() {
 fn test_range_children() {
     let mut scope = Scope::new();
     scope
-        .declare(
-            "i".to_string(),
-            DType::Usize,
-            Mutability::Immutable,
-            AccessRegion::ThreadLocal,
-            None,
-        )
+        .declare("i".to_string(), DType::Usize, Mutability::Immutable, None)
         .unwrap();
 
     let range = AstNode::Range {
@@ -62,13 +50,7 @@ fn test_range_children() {
 fn test_range_with_scope() {
     let mut outer_scope = Scope::new();
     outer_scope
-        .declare(
-            "N".to_string(),
-            DType::Usize,
-            Mutability::Immutable,
-            AccessRegion::Shared,
-            None,
-        )
+        .declare("N".to_string(), DType::Usize, Mutability::Immutable, None)
         .unwrap();
 
     outer_scope
@@ -76,7 +58,6 @@ fn test_range_with_scope() {
             "input".to_string(),
             DType::F32.to_ptr(),
             Mutability::Immutable,
-            AccessRegion::Shared,
             None,
         )
         .unwrap();
@@ -86,7 +67,6 @@ fn test_range_with_scope() {
             "output".to_string(),
             DType::F32.to_ptr(),
             Mutability::Mutable,
-            AccessRegion::ShardedBy(vec![0]),
             None,
         )
         .unwrap();
@@ -94,13 +74,7 @@ fn test_range_with_scope() {
     // ループ内のスコープ
     let mut loop_scope = Scope::with_parent(outer_scope.clone());
     loop_scope
-        .declare(
-            "i".to_string(),
-            DType::Usize,
-            Mutability::Immutable,
-            AccessRegion::ThreadLocal,
-            None,
-        )
+        .declare("i".to_string(), DType::Usize, Mutability::Immutable, None)
         .unwrap();
 
     // for i in 0..N: output[i] = input[i] * 2
@@ -135,13 +109,7 @@ fn test_range_with_scope() {
 fn test_range_scope_check_undefined_loop_var() {
     let mut outer_scope = Scope::new();
     outer_scope
-        .declare(
-            "N".to_string(),
-            DType::Usize,
-            Mutability::Immutable,
-            AccessRegion::Shared,
-            None,
-        )
+        .declare("N".to_string(), DType::Usize, Mutability::Immutable, None)
         .unwrap();
 
     // ループスコープにループ変数を宣言しない
@@ -167,37 +135,19 @@ fn test_range_scope_check_undefined_loop_var() {
 fn test_range_nested() {
     let mut outer_scope = Scope::new();
     outer_scope
-        .declare(
-            "N".to_string(),
-            DType::Usize,
-            Mutability::Immutable,
-            AccessRegion::Shared,
-            None,
-        )
+        .declare("N".to_string(), DType::Usize, Mutability::Immutable, None)
         .unwrap();
 
     // 外側のループスコープ
     let mut outer_loop_scope = Scope::with_parent(outer_scope.clone());
     outer_loop_scope
-        .declare(
-            "i".to_string(),
-            DType::Usize,
-            Mutability::Immutable,
-            AccessRegion::ThreadLocal,
-            None,
-        )
+        .declare("i".to_string(), DType::Usize, Mutability::Immutable, None)
         .unwrap();
 
     // 内側のループスコープ
     let mut inner_loop_scope = Scope::with_parent(outer_loop_scope.clone());
     inner_loop_scope
-        .declare(
-            "j".to_string(),
-            DType::Usize,
-            Mutability::Immutable,
-            AccessRegion::ThreadLocal,
-            None,
-        )
+        .declare("j".to_string(), DType::Usize, Mutability::Immutable, None)
         .unwrap();
 
     // for j in 0..N: use i and j
@@ -233,13 +183,7 @@ fn test_range_nested() {
 fn test_block_basic() {
     let mut scope = Scope::new();
     scope
-        .declare(
-            "x".to_string(),
-            DType::Isize,
-            Mutability::Immutable,
-            AccessRegion::ThreadLocal,
-            None,
-        )
+        .declare("x".to_string(), DType::Isize, Mutability::Immutable, None)
         .unwrap();
 
     let block = AstNode::Block {
@@ -269,13 +213,7 @@ fn test_block_children() {
 fn test_block_check_scope() {
     let mut scope = Scope::new();
     scope
-        .declare(
-            "a".to_string(),
-            DType::F32,
-            Mutability::Immutable,
-            AccessRegion::ThreadLocal,
-            None,
-        )
+        .declare("a".to_string(), DType::F32, Mutability::Immutable, None)
         .unwrap();
 
     let block = AstNode::Block {

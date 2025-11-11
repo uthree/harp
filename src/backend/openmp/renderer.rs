@@ -198,7 +198,7 @@ mod tests {
 
     #[test]
     fn test_render_simple_program() {
-        use crate::ast::{AccessRegion, Scope};
+        use crate::ast::Scope;
 
         let func = AstNode::Function {
             kind: FunctionKind::Normal,
@@ -209,7 +209,6 @@ mod tests {
                 mutability: Mutability::Mutable,
                 kind: VarKind::Normal,
                 initial_value: None,
-                region: AccessRegion::Shared,
             }],
             return_type: DType::Tuple(vec![]),
             body: Box::new(AstNode::Block {

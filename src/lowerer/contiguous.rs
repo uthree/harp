@@ -1,6 +1,6 @@
 use crate::ast::{
-    AccessRegion, AstNode, DType as AstDType, FunctionKind, Literal, Mutability, Scope, VarDecl,
-    VarKind, helper::*,
+    AstNode, DType as AstDType, FunctionKind, Literal, Mutability, Scope, VarDecl, VarKind,
+    helper::*,
 };
 use crate::graph::GraphNode;
 use log::debug;
@@ -35,7 +35,6 @@ impl Lowerer {
             name: "input0".to_string(),
             dtype: input_dtype,
             mutability: Mutability::Immutable,
-            region: AccessRegion::Shared,
             kind: VarKind::Normal,
             initial_value: None,
         });
@@ -46,7 +45,6 @@ impl Lowerer {
             name: "output".to_string(),
             dtype: output_dtype,
             mutability: Mutability::Mutable,
-            region: AccessRegion::Shared,
             kind: VarKind::Normal,
             initial_value: None,
         });
@@ -57,7 +55,6 @@ impl Lowerer {
                 name: format!("shape{}", i),
                 dtype: AstDType::Usize,
                 mutability: Mutability::Immutable,
-                region: AccessRegion::Shared,
                 kind: VarKind::Normal,
                 initial_value: None,
             });
@@ -150,7 +147,6 @@ impl Lowerer {
             alu_var.clone(),
             input_dtype.clone(),
             Mutability::Mutable,
-            AccessRegion::ThreadLocal,
             Some(load(input_ptr, input_offset, input_dtype)),
         )?;
 

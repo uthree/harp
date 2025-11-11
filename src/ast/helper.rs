@@ -402,13 +402,12 @@ mod tests {
 
     #[test]
     fn test_function_helper() {
-        use crate::ast::{AccessRegion, DType, FunctionKind, Mutability, VarDecl, VarKind};
+        use crate::ast::{DType, FunctionKind, Mutability, VarDecl, VarKind};
 
         let params = vec![VarDecl {
             name: "x".to_string(),
             dtype: DType::F32,
             mutability: Mutability::Immutable,
-            region: AccessRegion::ThreadLocal,
             kind: VarKind::Normal,
             initial_value: None,
         }];
@@ -445,13 +444,12 @@ mod tests {
 
     #[test]
     fn test_program_helper() {
-        use crate::ast::{AccessRegion, DType, FunctionKind, Mutability, VarDecl, VarKind};
+        use crate::ast::{DType, FunctionKind, Mutability, VarDecl, VarKind};
 
         let params = vec![VarDecl {
             name: "x".to_string(),
             dtype: DType::F32,
             mutability: Mutability::Immutable,
-            region: AccessRegion::ThreadLocal,
             kind: VarKind::Normal,
             initial_value: None,
         }];
@@ -478,13 +476,12 @@ mod tests {
 
     #[test]
     fn test_get_function() {
-        use crate::ast::{AccessRegion, DType, FunctionKind, Mutability, VarDecl, VarKind};
+        use crate::ast::{DType, FunctionKind, Mutability, VarDecl, VarKind};
 
         let params = vec![VarDecl {
             name: "x".to_string(),
             dtype: DType::F32,
             mutability: Mutability::Immutable,
-            region: AccessRegion::ThreadLocal,
             kind: VarKind::Normal,
             initial_value: None,
         }];

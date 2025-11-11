@@ -172,7 +172,7 @@ impl Renderer for MetalRenderer {
 mod tests {
     use super::*;
     use crate::ast::helper::*;
-    use crate::ast::{AccessRegion, AstNode, Literal, Scope};
+    use crate::ast::{AstNode, Literal, Scope};
     use crate::backend::c_like::CLikeRenderer;
 
     #[test]
@@ -238,7 +238,6 @@ mod tests {
                 name: "tid".to_string(),
                 dtype: DType::Usize,
                 mutability: Mutability::Immutable,
-                region: AccessRegion::ThreadLocal,
                 kind: VarKind::ThreadId(0),
                 initial_value: None,
             },
@@ -246,7 +245,6 @@ mod tests {
                 name: "input".to_string(),
                 dtype: DType::F32.to_ptr(),
                 mutability: Mutability::Immutable,
-                region: AccessRegion::Shared,
                 kind: VarKind::Normal,
                 initial_value: None,
             },
@@ -254,7 +252,6 @@ mod tests {
                 name: "output".to_string(),
                 dtype: DType::F32.to_ptr(),
                 mutability: Mutability::Mutable,
-                region: AccessRegion::ShardedBy(vec![0]),
                 kind: VarKind::Normal,
                 initial_value: None,
             },
@@ -291,14 +288,13 @@ mod tests {
 
     #[test]
     fn test_render_program() {
-        use crate::ast::{AccessRegion, Scope};
+        use crate::ast::Scope;
 
         // 簡単な関数: double(x) = x * 2
         let double_params = vec![VarDecl {
             name: "x".to_string(),
             dtype: DType::F32,
             mutability: Mutability::Immutable,
-            region: AccessRegion::ThreadLocal,
             kind: VarKind::Normal,
             initial_value: None,
         }];
@@ -355,13 +351,7 @@ mod tests {
         // ループとバリアを含むカーネル
         let mut loop_scope = Scope::new();
         loop_scope
-            .declare(
-                "i".to_string(),
-                DType::Usize,
-                Mutability::Immutable,
-                AccessRegion::ThreadLocal,
-                None,
-            )
+            .declare("i".to_string(), DType::Usize, Mutability::Immutable, None)
             .unwrap();
 
         let loop_node = AstNode::Range {

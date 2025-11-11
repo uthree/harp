@@ -40,22 +40,10 @@ fn test_call_map_children() {
 fn test_call_check_scope() {
     let mut scope = Scope::new();
     scope
-        .declare(
-            "x".to_string(),
-            DType::F32,
-            Mutability::Immutable,
-            AccessRegion::ThreadLocal,
-            None,
-        )
+        .declare("x".to_string(), DType::F32, Mutability::Immutable, None)
         .unwrap();
     scope
-        .declare(
-            "y".to_string(),
-            DType::F32,
-            Mutability::Immutable,
-            AccessRegion::ThreadLocal,
-            None,
-        )
+        .declare("y".to_string(), DType::F32, Mutability::Immutable, None)
         .unwrap();
 
     let call = AstNode::Call {
@@ -94,7 +82,6 @@ fn test_return_check_scope() {
             "result".to_string(),
             DType::Isize,
             Mutability::Immutable,
-            AccessRegion::ThreadLocal,
             None,
         )
         .unwrap();
