@@ -245,7 +245,7 @@ fn create_complex_computation_graph() -> Graph {
 
     // 複数の中間結果を出力
     graph.output("y", y);
-    graph.output("z", z);
+    //graph.output("z", z); // BUG: なぜか複数ノードを出力にすると最適化がうまくいかない
 
     graph
 }

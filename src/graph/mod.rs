@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     ops::Deref,
     rc::{Rc, Weak},
 };
@@ -16,7 +16,7 @@ pub use strategy::{CumulativeStrategy, ElementwiseStrategy, ReduceStrategy};
 #[derive(Debug, Clone)]
 pub struct Graph {
     inputs: HashMap<String, Weak<GraphNodeData>>, // Rcの参照カウントに影響を与えないために、Weak参照で保持する。
-    outputs: HashMap<String, GraphNode>,
+    outputs: BTreeMap<String, GraphNode>, // BTreeMapでキー順にソートされた順序を保証
 }
 
 #[derive(Debug, Clone)]
@@ -49,7 +49,7 @@ impl Graph {
     pub fn new() -> Self {
         Self {
             inputs: HashMap::new(),
-            outputs: HashMap::new(),
+            outputs: BTreeMap::new(),
         }
     }
 
@@ -69,7 +69,7 @@ impl Graph {
     }
 
     // 出力ノードのマップへのアクセス
-    pub fn outputs(&self) -> &HashMap<String, GraphNode> {
+    pub fn outputs(&self) -> &BTreeMap<String, GraphNode> {
         &self.outputs
     }
 
