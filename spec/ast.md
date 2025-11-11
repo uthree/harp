@@ -109,3 +109,9 @@ ASTノードに対する代数的最適化機能を`src/opt/ast/`に実装して
 - **Optimizer**: ASTを最適化（RuleBaseOptimizer、BeamSearchOptimizer）
 - **Suggester**: 複数の書き換え候補を提案（ビームサーチ用）
 - **ルール集**: 代数的書き換えルール（単位元、交換則、結合則、分配則、定数畳み込みなど）
+
+**GenericPipelineでの最適化**:
+- プログラム全体（`AstNode::Program`）を一つの単位として最適化
+- 2段階最適化: (1) ルールベース最適化 → (2) ビームサーチ最適化
+- ビームサーチでは`all_rules_with_search()`を使用し、交換則・分配則を含む完全なルール集で探索
+- 最適化履歴は`"program"`キーで保存され、可視化ツールで表示可能

@@ -229,71 +229,29 @@ where
         // Lowering
         let program = self.lower_to_program(optimized_graph);
 
-        // AST最適化
+        // AST最適化（プログラム全体を一つとして最適化）
         let optimized_program = if self.enable_ast_optimization {
-            let AstNode::Program {
-                functions,
-                entry_point,
-            } = &program
-            else {
-                panic!("Expected AstNode::Program");
-            };
+            // ステップ1: ルールベース最適化
+            let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules())
+                .with_max_iterations(self.ast_optimization_config.rule_max_iterations);
 
-            let mut optimized_functions = Vec::new();
-            let mut all_histories = std::collections::HashMap::new();
+            let rule_optimized = rule_optimizer.optimize(program.clone());
 
-            for func_node in functions {
-                let AstNode::Function {
-                    name,
-                    params,
-                    return_type,
-                    body,
-                    kind,
-                } = func_node
-                else {
-                    continue;
-                };
+            // ステップ2: ビームサーチ最適化（探索用の完全なルール集を使用）
+            let beam_suggester = RuleBaseSuggester::new(all_rules_with_search());
+            let beam_estimator = AstSimpleCostEstimator::new();
 
-                // ステップ1: ルールベース最適化
-                let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules())
-                    .with_max_iterations(self.ast_optimization_config.rule_max_iterations);
+            let beam_optimizer = AstBeamSearchOptimizer::new(beam_suggester, beam_estimator)
+                .with_beam_width(self.ast_optimization_config.beam_width)
+                .with_max_steps(self.ast_optimization_config.max_steps)
+                .with_progress(self.ast_optimization_config.show_progress);
 
-                let rule_optimized = rule_optimizer.optimize(body.as_ref().clone());
+            let (final_optimized, history) = beam_optimizer.optimize_with_history(rule_optimized);
 
-                // ステップ2: ビームサーチ最適化
-                let beam_suggester = RuleBaseSuggester::new(all_rules_with_search());
-                let beam_estimator = AstSimpleCostEstimator::new();
+            // プログラム全体の履歴を保存
+            self.last_ast_optimization_history = Some(history);
 
-                let beam_optimizer = AstBeamSearchOptimizer::new(beam_suggester, beam_estimator)
-                    .with_beam_width(self.ast_optimization_config.beam_width)
-                    .with_max_steps(self.ast_optimization_config.max_steps)
-                    .with_progress(self.ast_optimization_config.show_progress);
-
-                let (final_optimized, history) =
-                    beam_optimizer.optimize_with_history(rule_optimized);
-
-                if let Some(func_name) = name {
-                    all_histories.insert(func_name.clone(), history);
-                }
-
-                // 最適化後の関数を作成
-                let optimized_func = crate::ast::helper::function(
-                    name.clone(),
-                    kind.clone(),
-                    params.clone(),
-                    return_type.clone(),
-                    final_optimized,
-                );
-
-                optimized_functions.push(optimized_func);
-            }
-
-            // 最初の関数の履歴を保存（後方互換性のため）
-            if let Some((_, first_history)) = all_histories.iter().next() {
-                self.last_ast_optimization_history = Some(first_history.clone());
-            }
-
-            crate::ast::helper::program(optimized_functions, entry_point.clone())
+            final_optimized
         } else {
             program
         };
@@ -303,10 +261,10 @@ where
         Ok(self.compiler().compile(&code))
     }
 
-    /// 最適化のみを実行（コンパイルなし、すべてのAST履歴を返す）
+    /// 最適化のみを実行（コンパイルなし、AST履歴を返す）
     ///
     /// 最適化が有効な場合、最適化履歴を内部に保存します。
-    /// すべてのFunction用のAST最適化履歴と最適化後のProgramを返します。
+    /// プログラム全体のAST最適化履歴（キー: "program"）と最適化後のProgramを返します。
     /// コンパイルは行わないため、OpenMPなどのランタイムサポートが不要です。
     pub fn optimize_graph_with_all_histories(
         &mut self,
@@ -336,74 +294,32 @@ where
         // Lowering
         let program = self.lower_to_program(optimized_graph);
 
-        // AST最適化
+        // AST最適化（プログラム全体を一つとして最適化）
         let (optimized_program, all_histories) = if self.enable_ast_optimization {
-            let AstNode::Program {
-                functions,
-                entry_point,
-            } = &program
-            else {
-                panic!("Expected AstNode::Program");
-            };
+            // ステップ1: ルールベース最適化
+            let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules())
+                .with_max_iterations(self.ast_optimization_config.rule_max_iterations);
 
-            let mut optimized_functions = Vec::new();
+            let rule_optimized = rule_optimizer.optimize(program.clone());
+
+            // ステップ2: ビームサーチ最適化（探索用の完全なルール集を使用）
+            let beam_suggester = RuleBaseSuggester::new(all_rules_with_search());
+            let beam_estimator = AstSimpleCostEstimator::new();
+
+            let beam_optimizer = AstBeamSearchOptimizer::new(beam_suggester, beam_estimator)
+                .with_beam_width(self.ast_optimization_config.beam_width)
+                .with_max_steps(self.ast_optimization_config.max_steps)
+                .with_progress(self.ast_optimization_config.show_progress);
+
+            let (final_optimized, history) = beam_optimizer.optimize_with_history(rule_optimized);
+
+            // プログラム全体の履歴を保存
+            self.last_ast_optimization_history = Some(history.clone());
+
             let mut all_histories = std::collections::HashMap::new();
+            all_histories.insert("program".to_string(), history);
 
-            for func_node in functions {
-                let AstNode::Function {
-                    name,
-                    params,
-                    return_type,
-                    body,
-                    kind,
-                } = func_node
-                else {
-                    continue;
-                };
-
-                // ステップ1: ルールベース最適化
-                let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules())
-                    .with_max_iterations(self.ast_optimization_config.rule_max_iterations);
-
-                let rule_optimized = rule_optimizer.optimize(body.as_ref().clone());
-
-                // ステップ2: ビームサーチ最適化
-                let beam_suggester = RuleBaseSuggester::new(all_rules_with_search());
-                let beam_estimator = AstSimpleCostEstimator::new();
-
-                let beam_optimizer = AstBeamSearchOptimizer::new(beam_suggester, beam_estimator)
-                    .with_beam_width(self.ast_optimization_config.beam_width)
-                    .with_max_steps(self.ast_optimization_config.max_steps)
-                    .with_progress(self.ast_optimization_config.show_progress);
-
-                let (final_optimized, history) =
-                    beam_optimizer.optimize_with_history(rule_optimized);
-
-                if let Some(func_name) = name {
-                    all_histories.insert(func_name.clone(), history);
-                }
-
-                // 最適化後の関数を作成
-                let optimized_func = crate::ast::helper::function(
-                    name.clone(),
-                    kind.clone(),
-                    params.clone(),
-                    return_type.clone(),
-                    final_optimized,
-                );
-
-                optimized_functions.push(optimized_func);
-            }
-
-            // 最初の関数の履歴を保存（後方互換性のため）
-            if let Some((_, first_history)) = all_histories.iter().next() {
-                self.last_ast_optimization_history = Some(first_history.clone());
-            }
-
-            (
-                crate::ast::helper::program(optimized_functions, entry_point.clone()),
-                all_histories,
-            )
+            (final_optimized, all_histories)
         } else {
             (program, std::collections::HashMap::new())
         };
@@ -411,10 +327,10 @@ where
         Ok((optimized_program, all_histories))
     }
 
-    /// 最適化履歴を記録しながらグラフをコンパイル（すべてのAST履歴を返す）
+    /// 最適化履歴を記録しながらグラフをコンパイル（AST履歴を返す）
     ///
     /// 最適化が有効な場合、最適化履歴を内部に保存します。
-    /// すべてのFunction用のAST最適化履歴と最適化後のProgramを返します。
+    /// プログラム全体のAST最適化履歴（キー: "program"）と最適化後のProgramを返します。
     pub fn compile_graph_with_all_histories(
         &mut self,
         graph: Graph,
@@ -443,74 +359,32 @@ where
         // Lowering
         let program = self.lower_to_program(optimized_graph);
 
-        // AST最適化
+        // AST最適化（プログラム全体を一つとして最適化）
         let (optimized_program, all_histories) = if self.enable_ast_optimization {
-            let AstNode::Program {
-                functions,
-                entry_point,
-            } = &program
-            else {
-                panic!("Expected AstNode::Program");
-            };
+            // ステップ1: ルールベース最適化
+            let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules())
+                .with_max_iterations(self.ast_optimization_config.rule_max_iterations);
 
-            let mut optimized_functions = Vec::new();
+            let rule_optimized = rule_optimizer.optimize(program.clone());
+
+            // ステップ2: ビームサーチ最適化（探索用の完全なルール集を使用）
+            let beam_suggester = RuleBaseSuggester::new(all_rules_with_search());
+            let beam_estimator = AstSimpleCostEstimator::new();
+
+            let beam_optimizer = AstBeamSearchOptimizer::new(beam_suggester, beam_estimator)
+                .with_beam_width(self.ast_optimization_config.beam_width)
+                .with_max_steps(self.ast_optimization_config.max_steps)
+                .with_progress(self.ast_optimization_config.show_progress);
+
+            let (final_optimized, history) = beam_optimizer.optimize_with_history(rule_optimized);
+
+            // プログラム全体の履歴を保存
+            self.last_ast_optimization_history = Some(history.clone());
+
             let mut all_histories = std::collections::HashMap::new();
+            all_histories.insert("program".to_string(), history);
 
-            for func_node in functions {
-                let AstNode::Function {
-                    name,
-                    params,
-                    return_type,
-                    body,
-                    kind,
-                } = func_node
-                else {
-                    continue;
-                };
-
-                // ステップ1: ルールベース最適化
-                let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules())
-                    .with_max_iterations(self.ast_optimization_config.rule_max_iterations);
-
-                let rule_optimized = rule_optimizer.optimize(body.as_ref().clone());
-
-                // ステップ2: ビームサーチ最適化
-                let beam_suggester = RuleBaseSuggester::new(all_rules_with_search());
-                let beam_estimator = AstSimpleCostEstimator::new();
-
-                let beam_optimizer = AstBeamSearchOptimizer::new(beam_suggester, beam_estimator)
-                    .with_beam_width(self.ast_optimization_config.beam_width)
-                    .with_max_steps(self.ast_optimization_config.max_steps)
-                    .with_progress(self.ast_optimization_config.show_progress);
-
-                let (final_optimized, history) =
-                    beam_optimizer.optimize_with_history(rule_optimized);
-
-                if let Some(func_name) = name {
-                    all_histories.insert(func_name.clone(), history);
-                }
-
-                // 最適化後の関数を作成
-                let optimized_func = crate::ast::helper::function(
-                    name.clone(),
-                    kind.clone(),
-                    params.clone(),
-                    return_type.clone(),
-                    final_optimized,
-                );
-
-                optimized_functions.push(optimized_func);
-            }
-
-            // 最初の関数の履歴を保存（後方互換性のため）
-            if let Some((_, first_history)) = all_histories.iter().next() {
-                self.last_ast_optimization_history = Some(first_history.clone());
-            }
-
-            (
-                crate::ast::helper::program(optimized_functions, entry_point.clone()),
-                all_histories,
-            )
+            (final_optimized, all_histories)
         } else {
             (program, std::collections::HashMap::new())
         };
@@ -589,7 +463,7 @@ where
 
     /// プログラム（AST）最適化を実行
     ///
-    /// 有効な場合、以下の最適化を2段階で適用：
+    /// 有効な場合、プログラム全体に対して以下の最適化を2段階で適用：
     /// 1. ルールベース最適化（代数的簡約）
     /// 2. ビームサーチ最適化
     fn optimize_program(&self, program: AstNode) -> AstNode {
@@ -597,58 +471,24 @@ where
             return program;
         }
 
-        let AstNode::Program {
-            functions,
-            entry_point,
-        } = &program
-        else {
-            panic!("Expected AstNode::Program");
-        };
+        // ステップ1: ルールベース最適化
+        let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules())
+            .with_max_iterations(self.ast_optimization_config.rule_max_iterations);
 
-        // 各関数を個別に最適化
-        let mut optimized_functions = Vec::new();
+        let rule_optimized = rule_optimizer.optimize(program);
 
-        for func in functions {
-            let AstNode::Function {
-                name,
-                params,
-                return_type,
-                body,
-                kind,
-            } = func
-            else {
-                continue;
-            };
-            // ステップ1: ルールベース最適化
-            let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules())
-                .with_max_iterations(self.ast_optimization_config.rule_max_iterations);
+        // ステップ2: ビームサーチ最適化（探索用の完全なルール集を使用）
+        let beam_suggester = RuleBaseSuggester::new(all_rules_with_search());
+        let beam_estimator = AstSimpleCostEstimator::new();
 
-            let rule_optimized = rule_optimizer.optimize(body.as_ref().clone());
+        let beam_optimizer = AstBeamSearchOptimizer::new(beam_suggester, beam_estimator)
+            .with_beam_width(self.ast_optimization_config.beam_width)
+            .with_max_steps(self.ast_optimization_config.max_steps)
+            .with_progress(self.ast_optimization_config.show_progress);
 
-            // ステップ2: ビームサーチ最適化（探索用の完全なルール集を使用）
-            let beam_suggester = RuleBaseSuggester::new(all_rules_with_search());
-            let beam_estimator = AstSimpleCostEstimator::new();
+        let (final_optimized, _history) = beam_optimizer.optimize_with_history(rule_optimized);
 
-            let beam_optimizer = AstBeamSearchOptimizer::new(beam_suggester, beam_estimator)
-                .with_beam_width(self.ast_optimization_config.beam_width)
-                .with_max_steps(self.ast_optimization_config.max_steps)
-                .with_progress(self.ast_optimization_config.show_progress);
-
-            let (final_optimized, _history) = beam_optimizer.optimize_with_history(rule_optimized);
-
-            // 最適化後の関数を作成
-            let optimized_func = crate::ast::helper::function(
-                name.clone(),
-                kind.clone(),
-                params.clone(),
-                return_type.clone(),
-                final_optimized,
-            );
-
-            optimized_functions.push(optimized_func);
-        }
-
-        crate::ast::helper::program(optimized_functions, entry_point.clone())
+        final_optimized
     }
 }
 
