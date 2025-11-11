@@ -17,14 +17,6 @@ pub struct GraphViewerApp {
     optimization_history: Option<OptimizationHistory>,
     /// 現在表示中のステップ
     current_step: usize,
-    /// DOTテキストを表示するかどうか
-    show_dot_text: bool,
-    /// DOTテキストのdiffを表示するかどうか
-    show_dot_diff: bool,
-    /// コスト遷移グラフを表示するかどうか
-    show_cost_graph: bool,
-    /// ログを表示するかどうか
-    show_logs: bool,
 }
 
 /// egui-snarl用のノードビュー
@@ -70,10 +62,6 @@ impl GraphViewerApp {
             node_mapping: HashMap::new(),
             optimization_history: None,
             current_step: 0,
-            show_dot_text: true,
-            show_dot_diff: false,
-            show_cost_graph: true,
-            show_logs: true,
         }
     }
 
@@ -544,35 +532,42 @@ impl GraphViewerApp {
         if let Some(ref history) = self.optimization_history {
             if let Some(snapshot) = history.get(self.current_step) {
                 // 折りたたみ可能なセクションとして表示
-                egui::CollapsingHeader::new(format!("Debug Logs ({} entries)", snapshot.logs.len()))
-                    .default_open(false) // デフォルトで閉じた状態にして、画面を広く使う
-                    .show(ui, |ui| {
-                        if !snapshot.logs.is_empty() {
-                            egui::ScrollArea::vertical()
-                                .id_salt("graph_logs_scroll")
-                                .max_height(200.0) // 高さを少し小さくして、他のコンテンツも見やすく
-                                .show(ui, |ui| {
-                                    for log_line in &snapshot.logs {
-                                        // ログレベルに応じて色分け
-                                        let color = if log_line.contains("[ERROR]") {
-                                            egui::Color32::from_rgb(255, 100, 100)
-                                        } else if log_line.contains("[WARN]") {
-                                            egui::Color32::from_rgb(255, 200, 100)
-                                        } else if log_line.contains("[DEBUG]") {
-                                            egui::Color32::from_rgb(150, 150, 255)
-                                        } else if log_line.contains("[TRACE]") {
-                                            egui::Color32::GRAY
-                                        } else {
-                                            egui::Color32::WHITE
-                                        };
+                egui::CollapsingHeader::new(format!(
+                    "Debug Logs ({} entries)",
+                    snapshot.logs.len()
+                ))
+                .default_open(false) // デフォルトで閉じた状態にして、画面を広く使う
+                .show(ui, |ui| {
+                    if !snapshot.logs.is_empty() {
+                        egui::ScrollArea::both() // 長いログ行にも対応
+                            .id_salt("graph_logs_scroll")
+                            .max_height(200.0) // 高さを少し小さくして、他のコンテンツも見やすく
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                for log_line in &snapshot.logs {
+                                    // ログレベルに応じて色分け
+                                    let color = if log_line.contains("[ERROR]") {
+                                        egui::Color32::from_rgb(255, 100, 100)
+                                    } else if log_line.contains("[WARN]") {
+                                        egui::Color32::from_rgb(255, 200, 100)
+                                    } else if log_line.contains("[DEBUG]") {
+                                        egui::Color32::from_rgb(150, 150, 255)
+                                    } else if log_line.contains("[TRACE]") {
+                                        egui::Color32::GRAY
+                                    } else {
+                                        egui::Color32::WHITE
+                                    };
 
-                                        ui.colored_label(color, egui::RichText::new(log_line).monospace());
-                                    }
-                                });
-                        } else {
-                            ui.label("No logs captured for this step.");
-                        }
-                    });
+                                    ui.colored_label(
+                                        color,
+                                        egui::RichText::new(log_line).monospace(),
+                                    );
+                                }
+                            });
+                    } else {
+                        ui.label("No logs captured for this step.");
+                    }
+                });
 
                 ui.separator();
             }
@@ -697,31 +692,43 @@ impl GraphViewerApp {
                             .default_open(false)
                             .show(ui, |ui| {
                                 let current_dot = graph.to_dot();
-                                let prev_dot = self.optimization_history.as_ref().and_then(|history| {
-                                    history
-                                        .get(self.current_step - 1)
-                                        .map(|prev_snapshot| prev_snapshot.graph.to_dot())
-                                });
+                                let prev_dot =
+                                    self.optimization_history.as_ref().and_then(|history| {
+                                        history
+                                            .get(self.current_step - 1)
+                                            .map(|prev_snapshot| prev_snapshot.graph.to_dot())
+                                    });
 
                                 if let Some(prev_text) = prev_dot {
-                                    egui::ScrollArea::vertical()
+                                    egui::ScrollArea::both() // 縦横両方にスクロール可能
                                         .max_height(300.0)
+                                        .auto_shrink([false, false]) // 自動縮小を無効化して全幅を使う
                                         .show(ui, |ui| {
-                                            let diff = similar::TextDiff::from_lines(&prev_text, &current_dot);
+                                            let diff = similar::TextDiff::from_lines(
+                                                &prev_text,
+                                                &current_dot,
+                                            );
 
                                             for change in diff.iter_all_changes() {
                                                 let (color, prefix) = match change.tag() {
-                                                    similar::ChangeTag::Delete => {
-                                                        (egui::Color32::from_rgb(255, 200, 200), "-")
+                                                    similar::ChangeTag::Delete => (
+                                                        egui::Color32::from_rgb(255, 200, 200),
+                                                        "-",
+                                                    ),
+                                                    similar::ChangeTag::Insert => (
+                                                        egui::Color32::from_rgb(200, 255, 200),
+                                                        "+",
+                                                    ),
+                                                    similar::ChangeTag::Equal => {
+                                                        (egui::Color32::GRAY, " ")
                                                     }
-                                                    similar::ChangeTag::Insert => {
-                                                        (egui::Color32::from_rgb(200, 255, 200), "+")
-                                                    }
-                                                    similar::ChangeTag::Equal => (egui::Color32::GRAY, " "),
                                                 };
 
                                                 ui.horizontal(|ui| {
-                                                    ui.colored_label(color, format!("{} {}", prefix, change));
+                                                    ui.colored_label(
+                                                        color,
+                                                        format!("{} {}", prefix, change),
+                                                    );
                                                 });
                                             }
                                         });
@@ -733,8 +740,9 @@ impl GraphViewerApp {
 
                     // DOTテキスト本文
                     let current_dot = graph.to_dot();
-                    egui::ScrollArea::vertical()
+                    egui::ScrollArea::both() // 縦横両方にスクロール可能
                         .max_height(400.0)
+                        .auto_shrink([false, false]) // 自動縮小を無効化して全幅を使う
                         .show(ui, |ui| {
                             ui.add(
                                 egui::TextEdit::multiline(&mut current_dot.clone())

@@ -186,11 +186,7 @@ mod tests {
             }
         }
 
-        assert!(
-            has_debug,
-            "Debug log should be captured. Logs: {:?}",
-            logs
-        );
+        assert!(has_debug, "Debug log should be captured. Logs: {:?}", logs);
         assert!(has_info, "Info log should be captured. Logs: {:?}", logs);
         assert!(has_warn, "Warn log should be captured. Logs: {:?}", logs);
     }

@@ -27,12 +27,6 @@ where
     current_step_index: usize,
     /// 選択中のビーム内の候補（rank）
     selected_rank: usize,
-    /// コスト遷移グラフを表示するかどうか
-    show_cost_graph: bool,
-    /// Diffを表示するかどうか
-    show_diff: bool,
-    /// ログを表示するかどうか
-    show_logs: bool,
     /// ASTレンダラー
     renderer: R,
 }
@@ -61,9 +55,6 @@ where
             selected_function: None,
             current_step_index: 0,
             selected_rank: 0,
-            show_cost_graph: true,
-            show_diff: true,
-            show_logs: true,
             renderer,
         }
     }
@@ -253,7 +244,6 @@ where
 
                 ui.add_space(10.0);
             }
-
         });
         ui.separator();
 
@@ -451,9 +441,10 @@ where
                 ui.separator();
 
                 if let Some(rendered_code) = code_for_display {
-                    egui::ScrollArea::vertical()
+                    egui::ScrollArea::both() // 縦横両方にスクロール可能
                         .id_salt("ast_code_scroll")
                         .max_height(ui.available_height())
+                        .auto_shrink([false, false]) // 自動縮小を無効化して全幅を使う
                         .show(ui, |ui| {
                             // シンタックスハイライト付きでコードを表示
                             let theme = egui_extras::syntax_highlighting::CodeTheme::from_memory(
@@ -469,7 +460,7 @@ where
                                 "c", // C言語風のシンタックスハイライト
                             );
 
-                            ui.add(egui::Label::new(code).selectable(true));
+                            ui.add(egui::Label::new(code).selectable(true)); // 折り返しなし、ScrollArea::both()で横スクロール対応
                         });
                 } else {
                     ui.label("No candidate selected");
@@ -484,9 +475,10 @@ where
             egui::CollapsingHeader::new("Code Diff (Previous → Current)")
                 .default_open(false)
                 .show(ui, |ui| {
-                    egui::ScrollArea::vertical()
+                    egui::ScrollArea::both() // 縦横両方にスクロール可能
                         .id_salt("diff_scroll")
                         .max_height(300.0)
+                        .auto_shrink([false, false]) // 自動縮小を無効化して全幅を使う
                         .show(ui, |ui| {
                             // テキストdiffを計算
                             let diff = TextDiff::from_lines(prev, current);
@@ -494,8 +486,12 @@ where
                             // diffの各行を表示
                             for change in diff.iter_all_changes() {
                                 let (prefix, color) = match change.tag() {
-                                    ChangeTag::Delete => ("- ", egui::Color32::from_rgb(255, 100, 100)),
-                                    ChangeTag::Insert => ("+ ", egui::Color32::from_rgb(100, 255, 100)),
+                                    ChangeTag::Delete => {
+                                        ("- ", egui::Color32::from_rgb(255, 100, 100))
+                                    }
+                                    ChangeTag::Insert => {
+                                        ("+ ", egui::Color32::from_rgb(100, 255, 100))
+                                    }
                                     ChangeTag::Equal => ("  ", egui::Color32::GRAY),
                                 };
 
@@ -513,9 +509,10 @@ where
             .default_open(false)
             .show(ui, |ui| {
                 if !logs.is_empty() {
-                    egui::ScrollArea::vertical()
+                    egui::ScrollArea::both() // 長いログ行にも対応
                         .id_salt("logs_scroll")
                         .max_height(300.0)
+                        .auto_shrink([false, false])
                         .show(ui, |ui| {
                             for log_line in &logs {
                                 // ログレベルに応じて色分け
