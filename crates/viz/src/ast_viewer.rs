@@ -334,39 +334,46 @@ where
 
         ui.separator();
 
-        // コスト遷移グラフを表示（折りたたみ可能）
+        // コスト遷移グラフを表示（折りたたみ可能、高さリサイズ可能）
         egui::CollapsingHeader::new("Cost Transition")
             .default_open(true)
             .show(ui, |ui| {
-                // コストデータを収集
-                let cost_points: Vec<[f64; 2]> = self
-                    .current_history()
-                    .map(|h| {
-                        h.cost_transition()
-                            .iter()
-                            .map(|(step, cost)| [*step as f64, *cost as f64])
-                            .collect()
-                    })
-                    .unwrap_or_default();
+                egui::Resize::default()
+                    .default_height(200.0)
+                    .min_height(100.0)
+                    .max_height(600.0)
+                    .resizable(true)
+                    .show(ui, |ui| {
+                        // コストデータを収集
+                        let cost_points: Vec<[f64; 2]> = self
+                            .current_history()
+                            .map(|h| {
+                                h.cost_transition()
+                                    .iter()
+                                    .map(|(step, cost)| [*step as f64, *cost as f64])
+                                    .collect()
+                            })
+                            .unwrap_or_default();
 
-                // プロットを表示
-                egui_plot::Plot::new("ast_cost_plot")
-                    .view_aspect(2.0)
-                    .height(200.0)
-                    .show(ui, |plot_ui| {
-                        plot_ui.line(
-                            egui_plot::Line::new(cost_points)
-                                .color(egui::Color32::from_rgb(100, 200, 150))
-                                .name("Cost"),
-                        );
+                        // プロットを表示
+                        egui_plot::Plot::new("ast_cost_plot")
+                            .view_aspect(2.0)
+                            .height(ui.available_height())
+                            .show(ui, |plot_ui| {
+                                plot_ui.line(
+                                    egui_plot::Line::new(cost_points)
+                                        .color(egui::Color32::from_rgb(100, 200, 150))
+                                        .name("Cost"),
+                                );
 
-                        // 現在のステップを縦線で表示
-                        let current_step_f64 = current_step as f64;
-                        plot_ui.vline(
-                            egui_plot::VLine::new(current_step_f64)
-                                .color(egui::Color32::from_rgb(255, 100, 100))
-                                .name("Current Step"),
-                        );
+                                // 現在のステップを縦線で表示
+                                let current_step_f64 = current_step as f64;
+                                plot_ui.vline(
+                                    egui_plot::VLine::new(current_step_f64)
+                                        .color(egui::Color32::from_rgb(255, 100, 100))
+                                        .name("Current Step"),
+                                );
+                            });
                     });
             });
 
@@ -387,7 +394,7 @@ where
             .unwrap_or_default();
 
         // 前のステップのコードを取得（Diff表示用）
-        let prev_code = if self.show_diff && current_step > 0 {
+        let prev_code = if current_step > 0 {
             // 前のステップの最良候補を取得
             self.current_history().and_then(|h| {
                 let prev_step_candidates = h.get_step(current_step - 1);
@@ -403,137 +410,170 @@ where
         // コード表示用のクローンを作成
         let code_for_display = selected_code.clone();
 
-        // 左右分割: 左側に候補リスト、右側にコード表示
-        ui.columns(2, |columns| {
-            // 左側: ビーム内の候補リスト
-            columns[0].vertical(|ui| {
-                ui.heading("Beam Candidates");
-                ui.separator();
+        // 左右分割: 左側に候補リスト（狭く）、右側にコード表示（広く）
+        ui.horizontal(|ui| {
+            // 左側: ビーム内の候補リスト（リサイズ可能、デフォルト幅250px）
+            egui::Resize::default()
+                .default_width(250.0)
+                .min_width(150.0)
+                .max_width(500.0)
+                .resizable(true)
+                .show(ui, |ui| {
+                    ui.vertical(|ui| {
+                        ui.heading("Beam Candidates");
+                        ui.separator();
 
-                egui::ScrollArea::vertical()
-                    .id_salt("beam_candidates_scroll")
-                    .max_height(ui.available_height())
+                        egui::ScrollArea::vertical()
+                            .id_salt("beam_candidates_scroll")
+                            .max_height(ui.available_height())
+                            .show(ui, |ui| {
+                                for (i, (rank, cost)) in candidate_info.iter().enumerate() {
+                                    let is_selected = i == selected_rank;
+                                    let button_text = format!("Rank {}: Cost {:.2}", rank, cost);
+
+                                    if ui
+                                        .selectable_label(is_selected, button_text)
+                                        .clicked()
+                                    {
+                                        self.selected_rank = i;
+                                    }
+                                }
+                            });
+                    });
+                });
+
+            ui.separator();
+
+            // 右側: 選択したASTのコード表示（残りの幅を使用）
+            ui.vertical(|ui| {
+                egui::CollapsingHeader::new("AST Code")
+                    .default_open(true)
                     .show(ui, |ui| {
-                        for (i, (rank, cost)) in candidate_info.iter().enumerate() {
-                            let is_selected = i == selected_rank;
-                            let button_text = format!("Rank {}: Cost {:.2}", rank, cost);
-
-                            if ui.selectable_label(is_selected, button_text).clicked() {
-                                self.selected_rank = i;
+                        ui.horizontal(|ui| {
+                            // クリップボードにコピーボタン
+                            if let Some(ref code) = code_for_display {
+                                if ui.button("📋 Copy").clicked() {
+                                    ui.output_mut(|o| o.copied_text = code.clone());
+                                }
                             }
+                        });
+
+                        if let Some(rendered_code) = code_for_display {
+                            egui::ScrollArea::both() // 縦横両方にスクロール可能
+                                .id_salt("ast_code_scroll")
+                                .max_height(ui.available_height())
+                                .auto_shrink([false, false]) // 自動縮小を無効化して全幅を使う
+                                .show(ui, |ui| {
+                                    // シンタックスハイライト付きでコードを表示
+                                    let theme =
+                                        egui_extras::syntax_highlighting::CodeTheme::from_memory(
+                                            ui.ctx(),
+                                            ui.style(),
+                                        );
+
+                                    let code = egui_extras::syntax_highlighting::highlight(
+                                        ui.ctx(),
+                                        ui.style(),
+                                        &theme,
+                                        &rendered_code,
+                                        "c", // C言語風のシンタックスハイライト
+                                    );
+
+                                    ui.add(egui::Label::new(code).selectable(true)); // 折り返しなし、ScrollArea::both()で横スクロール対応
+                                });
+                        } else {
+                            ui.label("No candidate selected");
                         }
                     });
             });
-
-            // 右側: 選択したASTのコード表示
-            columns[1].vertical(|ui| {
-                ui.horizontal(|ui| {
-                    ui.heading("AST Code");
-                    ui.add_space(10.0);
-
-                    // クリップボードにコピーボタン
-                    if let Some(ref code) = code_for_display {
-                        if ui.button("📋 Copy").clicked() {
-                            ui.output_mut(|o| o.copied_text = code.clone());
-                        }
-                    }
-                });
-                ui.separator();
-
-                if let Some(rendered_code) = code_for_display {
-                    egui::ScrollArea::both() // 縦横両方にスクロール可能
-                        .id_salt("ast_code_scroll")
-                        .max_height(ui.available_height())
-                        .auto_shrink([false, false]) // 自動縮小を無効化して全幅を使う
-                        .show(ui, |ui| {
-                            // シンタックスハイライト付きでコードを表示
-                            let theme = egui_extras::syntax_highlighting::CodeTheme::from_memory(
-                                ui.ctx(),
-                                ui.style(),
-                            );
-
-                            let code = egui_extras::syntax_highlighting::highlight(
-                                ui.ctx(),
-                                ui.style(),
-                                &theme,
-                                &rendered_code,
-                                "c", // C言語風のシンタックスハイライト
-                            );
-
-                            ui.add(egui::Label::new(code).selectable(true)); // 折り返しなし、ScrollArea::both()で横スクロール対応
-                        });
-                } else {
-                    ui.label("No candidate selected");
-                }
-            });
         });
 
-        // Diffを表示（折りたたみ可能）
+        // Diffを表示（折りたたみ可能、高さリサイズ可能）
         if let (Some(ref prev), Some(ref current)) = (&prev_code, &selected_code) {
             ui.separator();
 
             egui::CollapsingHeader::new("Code Diff (Previous → Current)")
                 .default_open(false)
                 .show(ui, |ui| {
-                    egui::ScrollArea::both() // 縦横両方にスクロール可能
-                        .id_salt("diff_scroll")
-                        .max_height(300.0)
-                        .auto_shrink([false, false]) // 自動縮小を無効化して全幅を使う
+                    egui::Resize::default()
+                        .default_height(300.0)
+                        .min_height(100.0)
+                        .max_height(800.0)
+                        .resizable(true)
                         .show(ui, |ui| {
-                            // テキストdiffを計算
-                            let diff = TextDiff::from_lines(prev, current);
+                            egui::ScrollArea::both() // 縦横両方にスクロール可能
+                                .id_salt("diff_scroll")
+                                .max_height(ui.available_height())
+                                .auto_shrink([false, false]) // 自動縮小を無効化して全幅を使う
+                                .show(ui, |ui| {
+                                    // テキストdiffを計算
+                                    let diff = TextDiff::from_lines(prev, current);
 
-                            // diffの各行を表示
-                            for change in diff.iter_all_changes() {
-                                let (prefix, color) = match change.tag() {
-                                    ChangeTag::Delete => {
-                                        ("- ", egui::Color32::from_rgb(255, 100, 100))
-                                    }
-                                    ChangeTag::Insert => {
-                                        ("+ ", egui::Color32::from_rgb(100, 255, 100))
-                                    }
-                                    ChangeTag::Equal => ("  ", egui::Color32::GRAY),
-                                };
+                                    // diffの各行を表示
+                                    for change in diff.iter_all_changes() {
+                                        let (prefix, color) = match change.tag() {
+                                            ChangeTag::Delete => {
+                                                ("- ", egui::Color32::from_rgb(255, 100, 100))
+                                            }
+                                            ChangeTag::Insert => {
+                                                ("+ ", egui::Color32::from_rgb(100, 255, 100))
+                                            }
+                                            ChangeTag::Equal => ("  ", egui::Color32::GRAY),
+                                        };
 
-                                let line = format!("{}{}", prefix, change.value());
-                                ui.colored_label(color, egui::RichText::new(line).monospace());
-                            }
+                                        let line = format!("{}{}", prefix, change.value());
+                                        ui.colored_label(
+                                            color,
+                                            egui::RichText::new(line).monospace(),
+                                        );
+                                    }
+                                });
                         });
                 });
         }
 
-        // ログを表示（折りたたみ可能）
+        // ログを表示（折りたたみ可能、高さリサイズ可能）
         ui.separator();
 
         egui::CollapsingHeader::new(format!("Debug Logs ({} entries)", logs.len()))
             .default_open(false)
             .show(ui, |ui| {
-                if !logs.is_empty() {
-                    egui::ScrollArea::both() // 長いログ行にも対応
-                        .id_salt("logs_scroll")
-                        .max_height(300.0)
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            for log_line in &logs {
-                                // ログレベルに応じて色分け
-                                let color = if log_line.contains("[ERROR]") {
-                                    egui::Color32::from_rgb(255, 100, 100)
-                                } else if log_line.contains("[WARN]") {
-                                    egui::Color32::from_rgb(255, 200, 100)
-                                } else if log_line.contains("[DEBUG]") {
-                                    egui::Color32::from_rgb(150, 150, 255)
-                                } else if log_line.contains("[TRACE]") {
-                                    egui::Color32::GRAY
-                                } else {
-                                    egui::Color32::WHITE
-                                };
+                egui::Resize::default()
+                    .default_height(300.0)
+                    .min_height(100.0)
+                    .max_height(800.0)
+                    .resizable(true)
+                    .show(ui, |ui| {
+                        if !logs.is_empty() {
+                            egui::ScrollArea::both() // 長いログ行にも対応
+                                .id_salt("logs_scroll")
+                                .max_height(ui.available_height())
+                                .auto_shrink([false, false])
+                                .show(ui, |ui| {
+                                    for log_line in &logs {
+                                        // ログレベルに応じて色分け
+                                        let color = if log_line.contains("[ERROR]") {
+                                            egui::Color32::from_rgb(255, 100, 100)
+                                        } else if log_line.contains("[WARN]") {
+                                            egui::Color32::from_rgb(255, 200, 100)
+                                        } else if log_line.contains("[DEBUG]") {
+                                            egui::Color32::from_rgb(150, 150, 255)
+                                        } else if log_line.contains("[TRACE]") {
+                                            egui::Color32::GRAY
+                                        } else {
+                                            egui::Color32::WHITE
+                                        };
 
-                                ui.colored_label(color, egui::RichText::new(log_line).monospace());
-                            }
-                        });
-                } else {
-                    ui.label("No logs captured for this step.");
-                }
+                                        ui.colored_label(
+                                            color,
+                                            egui::RichText::new(log_line).monospace(),
+                                        );
+                                    }
+                                });
+                        } else {
+                            ui.label("No logs captured for this step.");
+                        }
+                    });
             });
     }
 }
