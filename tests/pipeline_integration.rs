@@ -57,13 +57,17 @@ impl Renderer for TestRenderer {
     type CodeRepr = String;
     type Option = ();
 
-    fn render(&self, program: &harp::ast::Program) -> Self::CodeRepr {
+    fn render(&self, program: &harp::ast::AstNode) -> Self::CodeRepr {
         // シンプルなコード生成：エントリーポイントと関数数を文字列化
-        format!(
-            "entry: {}, functions: {}",
-            program.entry_point,
-            program.functions.len()
-        )
+        match program {
+            harp::ast::AstNode::Program {
+                functions,
+                entry_point,
+            } => {
+                format!("entry: {}, functions: {}", entry_point, functions.len())
+            }
+            _ => "not a program".to_string(),
+        }
     }
 
     fn is_available(&self) -> bool {

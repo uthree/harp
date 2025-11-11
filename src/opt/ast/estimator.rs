@@ -39,6 +39,8 @@ impl SimpleCostEstimator {
             AstNode::Range { .. } => 0.0,
             AstNode::Call { .. } => 5.0,
             AstNode::Return { .. } => 1.0,
+            AstNode::Function { .. } => 0.0, // 関数定義自体にはコストがない
+            AstNode::Program { .. } => 0.0,  // プログラム構造自体にはコストがない
         }
     }
 }

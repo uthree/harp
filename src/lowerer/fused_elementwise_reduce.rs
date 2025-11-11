@@ -1,6 +1,6 @@
 use crate::ast::{
-    AccessRegion, AstNode, DType as AstDType, Function, FunctionKind, Literal, Mutability, Scope,
-    VarDecl, VarKind, helper::*,
+    AccessRegion, AstNode, DType as AstDType, FunctionKind, Literal, Mutability, Scope, VarDecl,
+    VarKind, helper::*,
 };
 use crate::graph::{
     GraphNode,
@@ -15,11 +15,11 @@ impl Lowerer {
     pub(super) fn lower_fused_elementwise_reduce_kernel(
         &mut self,
         node: &GraphNode,
-        _node_id: usize,
+        node_id: usize,
         elementwise_ops: &[FusedElementwiseOp],
         reduce_op: &ReduceOp,
         axis: usize,
-    ) -> Result<Function, String> {
+    ) -> Result<AstNode, String> {
         debug!(
             "Lowering fused elementwise-reduce operation: {} elementwise ops, reduce: {:?} on axis {}",
             elementwise_ops.len(),
@@ -82,26 +82,36 @@ impl Lowerer {
         let body_statements =
             self.generate_fused_elementwise_reduce_loops(node, elementwise_ops, reduce_op, axis)?;
 
-        // カーネル関数を作成
-        let function = Function::new(
-            FunctionKind::Normal,
-            params,
-            AstDType::Tuple(vec![]),
-            body_statements,
-        )?;
+        // カーネル関数のbodyを作成（Blockノード）
+        let body = AstNode::Block {
+            statements: body_statements,
+            scope: Box::new(Scope::new()),
+        };
+
+        // カーネル関数名
+        let function_name = format!("kernel_{}", node_id);
 
         debug!(
             "Generated fused elementwise-reduce function with {} parameters",
-            function.params.len()
+            params.len()
         );
-        if log::log_enabled!(log::Level::Debug) {
-            use crate::backend::metal::MetalRenderer;
-            let mut renderer = MetalRenderer::new();
-            let code = renderer.render_function("fused_er_kernel_fn", &function);
-            debug!("Generated code:\n{}", code);
-        }
 
-        Ok(function)
+        // TODO: Renderer更新後にデバッグ出力を復活させる
+        // if log::log_enabled!(log::Level::Debug) {
+        //     use crate::backend::metal::MetalRenderer;
+        //     let mut renderer = MetalRenderer::new();
+        //     let code = renderer.render_function(&function_name, &function);
+        //     debug!("Generated code:\n{}", code);
+        // }
+
+        // AstNode::Functionとして返す
+        Ok(function(
+            Some(function_name),
+            FunctionKind::Normal,
+            params,
+            AstDType::Tuple(vec![]),
+            body,
+        ))
     }
 
     /// FusedElementwiseReduce演算のループを生成

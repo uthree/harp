@@ -1,6 +1,6 @@
 use crate::ast::{
-    AccessRegion, AstNode, DType as AstDType, Function, FunctionKind, Literal, Mutability, Scope,
-    VarDecl, VarKind, helper::*,
+    AccessRegion, AstNode, DType as AstDType, FunctionKind, Literal, Mutability, Scope, VarDecl,
+    VarKind, helper::*,
 };
 use crate::graph::{
     GraphNode,
@@ -15,9 +15,9 @@ impl Lowerer {
     pub(super) fn lower_fused_elementwise_kernel(
         &mut self,
         node: &GraphNode,
-        _node_id: usize,
+        node_id: usize,
         ops: &[FusedElementwiseOp],
-    ) -> Result<Function, String> {
+    ) -> Result<AstNode, String> {
         debug!(
             "Lowering fused elementwise operation with {} ops",
             ops.len()
@@ -66,26 +66,23 @@ impl Lowerer {
         // ループ本体の生成
         let body_statements = self.generate_fused_elementwise_loops(node, ops, ndim)?;
 
-        // カーネル関数を作成
-        let function = Function::new(
+        // カーネル関数のbodyを作成（Blockノード）
+        let body = AstNode::Block {
+            statements: body_statements,
+            scope: Box::new(Scope::new()),
+        };
+
+        // カーネル関数名
+        let function_name = format!("kernel_{}", node_id);
+
+        // AstNode::Functionとして返す
+        Ok(function(
+            Some(function_name),
             FunctionKind::Normal,
             params,
             AstDType::Tuple(vec![]),
-            body_statements,
-        )?;
-
-        debug!(
-            "Generated fused elementwise function with {} parameters",
-            function.params.len()
-        );
-        if log::log_enabled!(log::Level::Debug) {
-            use crate::backend::metal::MetalRenderer;
-            let mut renderer = MetalRenderer::new();
-            let code = renderer.render_function("fused_kernel_fn", &function);
-            debug!("Generated code:\n{}", code);
-        }
-
-        Ok(function)
+            body,
+        ))
     }
 
     /// FusedElementwise演算のループを生成

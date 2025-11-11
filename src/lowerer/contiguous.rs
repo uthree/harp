@@ -1,6 +1,6 @@
 use crate::ast::{
-    AccessRegion, AstNode, DType as AstDType, Function, FunctionKind, Literal, Mutability, Scope,
-    VarDecl, VarKind, helper::*,
+    AccessRegion, AstNode, DType as AstDType, FunctionKind, Literal, Mutability, Scope, VarDecl,
+    VarKind, helper::*,
 };
 use crate::graph::GraphNode;
 use log::debug;
@@ -12,8 +12,8 @@ impl Lowerer {
     pub(super) fn lower_contiguous_kernel(
         &mut self,
         node: &GraphNode,
-        _node_id: usize,
-    ) -> Result<Function, String> {
+        node_id: usize,
+    ) -> Result<AstNode, String> {
         debug!("Lowering contiguous operation");
         debug!("Input view: {:?}", node.src[0].view);
         debug!("Output view: {:?}", node.view);
@@ -63,27 +63,23 @@ impl Lowerer {
         // ループ本体の生成
         let body_statements = self.generate_contiguous_loops(node, ndim)?;
 
-        // カーネル関数を作成
-        let function = Function::new(
+        // カーネル関数のbodyを作成（Blockノード）
+        let body = AstNode::Block {
+            statements: body_statements,
+            scope: Box::new(Scope::new()),
+        };
+
+        // カーネル関数名
+        let function_name = format!("kernel_{}", node_id);
+
+        // AstNode::Functionとして返す
+        Ok(function(
+            Some(function_name),
             FunctionKind::Normal,
             params,
             AstDType::Tuple(vec![]),
-            body_statements,
-        )?;
-
-        // 生成されたコードをログ出力
-        debug!(
-            "Generated contiguous function with {} parameters",
-            function.params.len()
-        );
-        if log::log_enabled!(log::Level::Debug) {
-            use crate::backend::metal::MetalRenderer;
-            let mut renderer = MetalRenderer::new();
-            let code = renderer.render_function("contiguous_kernel_fn", &function);
-            debug!("Generated code:\n{}", code);
-        }
-
-        Ok(function)
+            body,
+        ))
     }
 
     /// Contiguous演算のループを生成

@@ -18,7 +18,7 @@ pub use metal::{MetalBuffer, MetalCompiler, MetalKernel, MetalPipeline};
 pub trait Renderer {
     type CodeRepr;
     type Option;
-    fn render(&self, program: &crate::ast::Program) -> Self::CodeRepr;
+    fn render(&self, program: &crate::ast::AstNode) -> Self::CodeRepr;
     fn is_available(&self) -> bool;
     fn with_option(&mut self, _option: Self::Option) {} // default implementation is "do nothing".
 }
@@ -180,12 +180,12 @@ pub trait Pipeline {
     }
 
     // Lowering (Graph → Program)
-    fn lower_to_program(&self, graph: crate::graph::Graph) -> crate::ast::Program {
+    fn lower_to_program(&self, graph: crate::graph::Graph) -> crate::ast::AstNode {
         crate::lowerer::lower(graph)
     }
 
     // Program最適化
-    fn optimize_program(&self, program: crate::ast::Program) -> crate::ast::Program {
+    fn optimize_program(&self, program: crate::ast::AstNode) -> crate::ast::AstNode {
         // デフォルトは最適化なし
         program
     }

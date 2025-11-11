@@ -41,14 +41,53 @@
 範囲ベースのループを表現。ループ変数は自動的にスコープに宣言され、親スコープの変数にもアクセス可能です。
 
 ### Function
+**v0.2.0以降**: `AstNode`の一つのバリアントとして実装されています。
+
 通常の関数とGPUカーネルを統一的に表現：
 - `FunctionKind::Normal`: CPU上で逐次実行
 - `FunctionKind::Kernel(ndim)`: GPU上で並列実行（ndimは並列次元数）
 
 組み込み変数（`ThreadId`, `GroupId`等）はスコープに登録せず、特別扱いします。
 
+```rust
+AstNode::Function {
+    name: Option<String>,    // 関数名（匿名関数の場合はNone）
+    params: Vec<VarDecl>,    // 引数リスト
+    return_type: DType,      // 返り値の型
+    body: Box<AstNode>,      // 関数本体
+    kind: FunctionKind,      // 関数の種類
+}
+```
+
 ### Program
-複数の関数定義を管理し、`validate()`でエントリーポイントの存在と全関数本体の妥当性を検証します。
+**v0.2.0以降**: `AstNode`の一つのバリアントとして実装されています。
+
+プログラム全体を表現し、複数の関数定義（`AstNode::Function`のリスト）を管理。エントリーポイント関数から実行が開始されます。
+
+```rust
+AstNode::Program {
+    functions: Vec<AstNode>,  // Function ノードのリスト
+    entry_point: String,      // エントリーポイント関数名
+}
+```
+
+`get_function(name)` と `get_entry()` メソッドで関数を取得できます。
+
+## AST統一化のメリット
+
+**v0.2.0の重要な変更**: `Function`と`Program`が`AstNode`のバリアントになったことで、以下が可能になりました：
+
+1. **関数を跨いだ最適化**
+   - インライン展開: 小さな関数を呼び出し元に展開
+   - 関数融合: 連続した関数呼び出しを1つに統合
+   - 未使用関数の削除: エントリーポイントから到達不可能な関数を除去
+
+2. **統一的なAST操作**
+   - `children()`, `map_children()`, `infer_type()`, `check_scope()` が全てのノードに適用可能
+   - パターンマッチング（`ast/pat.rs`）が関数・プログラムレベルでも機能
+
+3. **コードの簡略化**
+   - 異なる型を扱う必要がなくなり、LowererとRendererがシンプルに
 
 ### Barrier
 並列実行における同期点。GPU等で全スレッドがこの地点に到達するまで待機し、共有メモリアクセスのデータ競合を防ぎます。

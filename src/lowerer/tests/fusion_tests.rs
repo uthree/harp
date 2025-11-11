@@ -45,17 +45,23 @@ fn test_lower_fused_elementwise() {
     let function = function.unwrap();
 
     // パラメータをチェック: input0, input1, input2, output, shape0
-    assert_eq!(function.params.len(), 5);
-    assert_eq!(function.params[0].name, "input0");
-    assert_eq!(function.params[1].name, "input1");
-    assert_eq!(function.params[2].name, "input2");
-    assert_eq!(function.params[3].name, "output");
-    assert_eq!(function.params[4].name, "shape0");
+    use crate::ast::AstNode;
+    if let AstNode::Function { params, .. } = &function {
+        assert_eq!(params.len(), 5);
+        assert_eq!(params[0].name, "input0");
+        assert_eq!(params[1].name, "input1");
+        assert_eq!(params[2].name, "input2");
+        assert_eq!(params[3].name, "output");
+        assert_eq!(params[4].name, "shape0");
+    } else {
+        panic!("Expected AstNode::Function");
+    }
 
     // 生成されたコードを表示
+    use crate::backend::c_like::CLikeRenderer;
     use crate::backend::metal::MetalRenderer;
     let mut renderer = MetalRenderer::new();
-    let code = renderer.render_function("fused_elementwise_kernel", &function);
+    let code = renderer.render_function_node(&function);
     eprintln!(
         "\n=== Generated Code for test_lower_fused_elementwise ===\n{}\n",
         code
@@ -95,17 +101,23 @@ fn test_lower_fused_elementwise_reduce() {
     let function = function.unwrap();
 
     // パラメータをチェック: input0, input1, output, shape0, shape1
-    assert_eq!(function.params.len(), 5);
-    assert_eq!(function.params[0].name, "input0");
-    assert_eq!(function.params[1].name, "input1");
-    assert_eq!(function.params[2].name, "output");
-    assert_eq!(function.params[3].name, "shape0");
-    assert_eq!(function.params[4].name, "shape1");
+    use crate::ast::AstNode;
+    if let AstNode::Function { params, .. } = &function {
+        assert_eq!(params.len(), 5);
+        assert_eq!(params[0].name, "input0");
+        assert_eq!(params[1].name, "input1");
+        assert_eq!(params[2].name, "output");
+        assert_eq!(params[3].name, "shape0");
+        assert_eq!(params[4].name, "shape1");
+    } else {
+        panic!("Expected AstNode::Function");
+    }
 
     // 生成されたコードを表示
+    use crate::backend::c_like::CLikeRenderer;
     use crate::backend::metal::MetalRenderer;
     let mut renderer = MetalRenderer::new();
-    let code = renderer.render_function("fused_er_kernel", &function);
+    let code = renderer.render_function_node(&function);
     eprintln!(
         "\n=== Generated Code for test_lower_fused_elementwise_reduce ===\n{}\n",
         code

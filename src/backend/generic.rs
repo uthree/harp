@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::ast::Program;
+use crate::ast::AstNode;
 use crate::backend::{Compiler, Pipeline, Renderer};
 use crate::graph::Graph;
 use crate::opt::ast::rules::all_algebraic_rules;
@@ -16,7 +16,7 @@ use crate::opt::graph::{
 
 /// compile_graph_with_all_historiesの戻り値の型
 type CompileWithHistoriesResult<K> =
-    Result<(K, Program, HashMap<String, AstOptimizationHistory>), String>;
+    Result<(K, AstNode, HashMap<String, AstOptimizationHistory>), String>;
 
 /// グラフ最適化の設定
 pub struct GraphOptimizationConfig {
@@ -231,17 +231,34 @@ where
 
         // AST最適化
         let optimized_program = if self.enable_ast_optimization {
-            let mut opt_program = Program::new(program.entry_point.clone());
+            let AstNode::Program {
+                functions,
+                entry_point,
+            } = &program
+            else {
+                panic!("Expected AstNode::Program");
+            };
+
+            let mut optimized_functions = Vec::new();
             let mut all_histories = std::collections::HashMap::new();
 
-            for (name, func) in &program.functions {
-                let body = &*func.body;
+            for func_node in functions {
+                let AstNode::Function {
+                    name,
+                    params,
+                    return_type,
+                    body,
+                    kind,
+                } = func_node
+                else {
+                    continue;
+                };
 
                 // ステップ1: ルールベース最適化
                 let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules())
                     .with_max_iterations(self.ast_optimization_config.rule_max_iterations);
 
-                let rule_optimized = rule_optimizer.optimize(body.clone());
+                let rule_optimized = rule_optimizer.optimize(body.as_ref().clone());
 
                 // ステップ2: ビームサーチ最適化
                 let beam_suggester = RuleBaseSuggester::new(all_algebraic_rules());
@@ -254,18 +271,21 @@ where
 
                 let (final_optimized, history) =
                     beam_optimizer.optimize_with_history(rule_optimized);
-                all_histories.insert(name.clone(), history);
+
+                if let Some(func_name) = name {
+                    all_histories.insert(func_name.clone(), history);
+                }
 
                 // 最適化後の関数を作成
-                let optimized_func = crate::ast::Function::new(
-                    func.kind.clone(),
-                    func.params.clone(),
-                    func.return_type.clone(),
-                    vec![final_optimized],
-                )
-                .expect("Failed to create optimized function");
+                let optimized_func = crate::ast::helper::function(
+                    name.clone(),
+                    kind.clone(),
+                    params.clone(),
+                    return_type.clone(),
+                    final_optimized,
+                );
 
-                let _ = opt_program.add_function(name.clone(), optimized_func);
+                optimized_functions.push(optimized_func);
             }
 
             // 最初の関数の履歴を保存（後方互換性のため）
@@ -273,7 +293,7 @@ where
                 self.last_ast_optimization_history = Some(first_history.clone());
             }
 
-            opt_program
+            crate::ast::helper::program(optimized_functions, entry_point.clone())
         } else {
             program
         };
@@ -291,7 +311,7 @@ where
     pub fn optimize_graph_with_all_histories(
         &mut self,
         graph: Graph,
-    ) -> Result<(Program, HashMap<String, AstOptimizationHistory>), String> {
+    ) -> Result<(AstNode, HashMap<String, AstOptimizationHistory>), String> {
         // グラフ最適化
         let optimized_graph = if self.enable_graph_optimization {
             let suggester = CompositeSuggester::new(vec![
@@ -318,17 +338,34 @@ where
 
         // AST最適化
         let (optimized_program, all_histories) = if self.enable_ast_optimization {
-            let mut opt_program = Program::new(program.entry_point.clone());
+            let AstNode::Program {
+                functions,
+                entry_point,
+            } = &program
+            else {
+                panic!("Expected AstNode::Program");
+            };
+
+            let mut optimized_functions = Vec::new();
             let mut all_histories = std::collections::HashMap::new();
 
-            for (name, func) in &program.functions {
-                let body = &*func.body;
+            for func_node in functions {
+                let AstNode::Function {
+                    name,
+                    params,
+                    return_type,
+                    body,
+                    kind,
+                } = func_node
+                else {
+                    continue;
+                };
 
                 // ステップ1: ルールベース最適化
                 let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules())
                     .with_max_iterations(self.ast_optimization_config.rule_max_iterations);
 
-                let rule_optimized = rule_optimizer.optimize(body.clone());
+                let rule_optimized = rule_optimizer.optimize(body.as_ref().clone());
 
                 // ステップ2: ビームサーチ最適化
                 let beam_suggester = RuleBaseSuggester::new(all_algebraic_rules());
@@ -341,18 +378,21 @@ where
 
                 let (final_optimized, history) =
                     beam_optimizer.optimize_with_history(rule_optimized);
-                all_histories.insert(name.clone(), history);
+
+                if let Some(func_name) = name {
+                    all_histories.insert(func_name.clone(), history);
+                }
 
                 // 最適化後の関数を作成
-                let optimized_func = crate::ast::Function::new(
-                    func.kind.clone(),
-                    func.params.clone(),
-                    func.return_type.clone(),
-                    vec![final_optimized],
-                )
-                .expect("Failed to create optimized function");
+                let optimized_func = crate::ast::helper::function(
+                    name.clone(),
+                    kind.clone(),
+                    params.clone(),
+                    return_type.clone(),
+                    final_optimized,
+                );
 
-                let _ = opt_program.add_function(name.clone(), optimized_func);
+                optimized_functions.push(optimized_func);
             }
 
             // 最初の関数の履歴を保存（後方互換性のため）
@@ -360,7 +400,10 @@ where
                 self.last_ast_optimization_history = Some(first_history.clone());
             }
 
-            (opt_program, all_histories)
+            (
+                crate::ast::helper::program(optimized_functions, entry_point.clone()),
+                all_histories,
+            )
         } else {
             (program, std::collections::HashMap::new())
         };
@@ -402,17 +445,34 @@ where
 
         // AST最適化
         let (optimized_program, all_histories) = if self.enable_ast_optimization {
-            let mut opt_program = Program::new(program.entry_point.clone());
+            let AstNode::Program {
+                functions,
+                entry_point,
+            } = &program
+            else {
+                panic!("Expected AstNode::Program");
+            };
+
+            let mut optimized_functions = Vec::new();
             let mut all_histories = std::collections::HashMap::new();
 
-            for (name, func) in &program.functions {
-                let body = &*func.body;
+            for func_node in functions {
+                let AstNode::Function {
+                    name,
+                    params,
+                    return_type,
+                    body,
+                    kind,
+                } = func_node
+                else {
+                    continue;
+                };
 
                 // ステップ1: ルールベース最適化
                 let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules())
                     .with_max_iterations(self.ast_optimization_config.rule_max_iterations);
 
-                let rule_optimized = rule_optimizer.optimize(body.clone());
+                let rule_optimized = rule_optimizer.optimize(body.as_ref().clone());
 
                 // ステップ2: ビームサーチ最適化
                 let beam_suggester = RuleBaseSuggester::new(all_algebraic_rules());
@@ -425,18 +485,21 @@ where
 
                 let (final_optimized, history) =
                     beam_optimizer.optimize_with_history(rule_optimized);
-                all_histories.insert(name.clone(), history);
+
+                if let Some(func_name) = name {
+                    all_histories.insert(func_name.clone(), history);
+                }
 
                 // 最適化後の関数を作成
-                let optimized_func = crate::ast::Function::new(
-                    func.kind.clone(),
-                    func.params.clone(),
-                    func.return_type.clone(),
-                    vec![final_optimized],
-                )
-                .expect("Failed to create optimized function");
+                let optimized_func = crate::ast::helper::function(
+                    name.clone(),
+                    kind.clone(),
+                    params.clone(),
+                    return_type.clone(),
+                    final_optimized,
+                );
 
-                let _ = opt_program.add_function(name.clone(), optimized_func);
+                optimized_functions.push(optimized_func);
             }
 
             // 最初の関数の履歴を保存（後方互換性のため）
@@ -444,7 +507,10 @@ where
                 self.last_ast_optimization_history = Some(first_history.clone());
             }
 
-            (opt_program, all_histories)
+            (
+                crate::ast::helper::program(optimized_functions, entry_point.clone()),
+                all_histories,
+            )
         } else {
             (program, std::collections::HashMap::new())
         };
@@ -526,22 +592,38 @@ where
     /// 有効な場合、以下の最適化を2段階で適用：
     /// 1. ルールベース最適化（代数的簡約）
     /// 2. ビームサーチ最適化
-    fn optimize_program(&self, program: Program) -> Program {
+    fn optimize_program(&self, program: AstNode) -> AstNode {
         if !self.enable_ast_optimization {
             return program;
         }
 
+        let AstNode::Program {
+            functions,
+            entry_point,
+        } = &program
+        else {
+            panic!("Expected AstNode::Program");
+        };
+
         // 各関数を個別に最適化
-        let mut optimized_program = Program::new(program.entry_point.clone());
+        let mut optimized_functions = Vec::new();
 
-        for (name, func) in &program.functions {
-            let body = &*func.body;
-
+        for func in functions {
+            let AstNode::Function {
+                name,
+                params,
+                return_type,
+                body,
+                kind,
+            } = func
+            else {
+                continue;
+            };
             // ステップ1: ルールベース最適化
             let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules())
                 .with_max_iterations(self.ast_optimization_config.rule_max_iterations);
 
-            let rule_optimized = rule_optimizer.optimize(body.clone());
+            let rule_optimized = rule_optimizer.optimize(body.as_ref().clone());
 
             // ステップ2: ビームサーチ最適化
             let beam_suggester = RuleBaseSuggester::new(all_algebraic_rules());
@@ -555,18 +637,18 @@ where
             let (final_optimized, _history) = beam_optimizer.optimize_with_history(rule_optimized);
 
             // 最適化後の関数を作成
-            let optimized_func = crate::ast::Function::new(
-                func.kind.clone(),
-                func.params.clone(),
-                func.return_type.clone(),
-                vec![final_optimized],
-            )
-            .expect("Failed to create optimized function");
+            let optimized_func = crate::ast::helper::function(
+                name.clone(),
+                kind.clone(),
+                params.clone(),
+                return_type.clone(),
+                final_optimized,
+            );
 
-            let _ = optimized_program.add_function(name.clone(), optimized_func);
+            optimized_functions.push(optimized_func);
         }
 
-        optimized_program
+        crate::ast::helper::program(optimized_functions, entry_point.clone())
     }
 }
 
@@ -583,7 +665,7 @@ mod tests {
         type CodeRepr = String;
         type Option = ();
 
-        fn render(&self, _program: &crate::ast::Program) -> Self::CodeRepr {
+        fn render(&self, _program: &crate::ast::AstNode) -> Self::CodeRepr {
             "dummy code".to_string()
         }
 

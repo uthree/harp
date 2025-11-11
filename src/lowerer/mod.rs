@@ -33,17 +33,17 @@ impl Default for Lowerer {
 
 /// GraphをProgramに変換する公開関数
 ///
-/// Graphの全ノードをカーネル関数に変換し、Programとして返します。
+/// Graphの全ノードをカーネル関数に変換し、AstNode::Programとして返します。
 /// 現時点では各ノードを個別のカーネル関数として生成し、
 /// kernel_main関数による統合は未実装です。
-pub(crate) fn lower(graph: Graph) -> crate::ast::Program {
+pub(crate) fn lower(graph: Graph) -> crate::ast::AstNode {
     let mut lowerer = Lowerer::new();
 
     // トポロジカルソートでノードを取得
     let generations = Lowerer::topological_sort(&graph);
 
-    // Programを作成（entry_pointはとりあえず"main"）
-    let mut program = crate::ast::Program::new("main".to_string());
+    // 関数リストを作成
+    let mut functions = Vec::new();
 
     // 各世代の各ノードをカーネル関数に変換
     let mut kernel_id = 0;
@@ -54,10 +54,9 @@ pub(crate) fn lower(graph: Graph) -> crate::ast::Program {
                 continue;
             }
 
-            // カーネル関数を生成
+            // カーネル関数を生成（AstNode::Functionとして）
             if let Ok(function) = lowerer.lower_node_to_kernel(&node, kernel_id) {
-                let kernel_name = format!("kernel_{}", kernel_id);
-                let _ = program.add_function(kernel_name, function);
+                functions.push(function);
                 kernel_id += 1;
             }
         }
@@ -65,33 +64,29 @@ pub(crate) fn lower(graph: Graph) -> crate::ast::Program {
 
     // main関数を生成してすべてのカーネルを呼び出す
     if kernel_id > 0 {
-        // すべてのカーネル名を収集
-        let kernel_names: Vec<String> = (0..kernel_id).map(|i| format!("kernel_{}", i)).collect();
-
         // main関数を生成
-        let main_function = generate_main_function(&program, &kernel_names);
-        let _ = program.add_function("main".to_string(), main_function);
-
-        // entry_pointは"main"のまま
+        let main_function = generate_main_function(&functions, kernel_id);
+        functions.push(main_function);
     }
 
-    program
+    // AstNode::Programを作成
+    crate::ast::helper::program(functions, "main")
 }
 
 /// すべてのカーネルを呼び出すmain関数を生成
 fn generate_main_function(
-    program: &crate::ast::Program,
-    kernel_names: &[String],
-) -> crate::ast::Function {
-    use crate::ast::{AstNode, DType, Function, FunctionKind, VarDecl};
+    kernel_functions: &[crate::ast::AstNode],
+    kernel_count: usize,
+) -> crate::ast::AstNode {
+    use crate::ast::{AstNode, DType, FunctionKind, Scope, VarDecl};
 
     // すべてのカーネルのパラメータを収集して統合
     let mut all_params: Vec<VarDecl> = Vec::new();
     let mut seen_params: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    for kernel_name in kernel_names {
-        if let Some(kernel_func) = program.get_function(kernel_name) {
-            for param in &kernel_func.params {
+    for kernel_func in kernel_functions {
+        if let AstNode::Function { params, .. } = kernel_func {
+            for param in params {
                 if !seen_params.contains(&param.name) {
                     all_params.push(param.clone());
                     seen_params.insert(param.name.clone());
@@ -102,31 +97,37 @@ fn generate_main_function(
 
     // 各カーネルを呼び出す文を生成
     let mut statements = Vec::new();
-    for kernel_name in kernel_names {
-        if let Some(kernel_func) = program.get_function(kernel_name) {
+    for i in 0..kernel_count {
+        let kernel_name = format!("kernel_{}", i);
+        if let Some(AstNode::Function { params, .. }) = kernel_functions.get(i) {
             // カーネル関数の引数を収集
-            let args: Vec<AstNode> = kernel_func
-                .params
+            let args: Vec<AstNode> = params
                 .iter()
                 .map(|p| AstNode::Var(p.name.clone()))
                 .collect();
 
             // Call文を追加
             statements.push(AstNode::Call {
-                name: kernel_name.clone(),
+                name: kernel_name,
                 args,
             });
         }
     }
 
-    // main関数を作成
-    Function::new(
+    // main関数のbodyを作成（Blockノード）
+    let body = AstNode::Block {
+        statements,
+        scope: Box::new(Scope::new()),
+    };
+
+    // AstNode::Functionとして返す
+    crate::ast::helper::function(
+        Some("main"),
         FunctionKind::Normal,
         all_params,
         DType::Tuple(vec![]), // void
-        statements,
+        body,
     )
-    .expect("Failed to create main function")
 }
 
 impl Lowerer {
@@ -157,7 +158,7 @@ impl Lowerer {
         &mut self,
         node: &GraphNode,
         node_id: usize,
-    ) -> Result<crate::ast::Function, String> {
+    ) -> Result<crate::ast::AstNode, String> {
         match &node.op {
             GraphOp::Elementwise { op, .. } => self.lower_elementwise_kernel(node, node_id, op),
             GraphOp::Reduce { op, axis, .. } => self.lower_reduce_kernel(node, node_id, op, *axis),

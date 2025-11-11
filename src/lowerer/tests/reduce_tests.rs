@@ -23,18 +23,29 @@ fn test_lower_reduce_sum_1d() {
     let function = function.unwrap();
 
     // パラメータをチェック: input0, output, shape0
-    assert_eq!(function.params.len(), 3);
-    assert_eq!(function.params[0].name, "input0");
-    assert_eq!(function.params[1].name, "output");
-    assert_eq!(function.params[2].name, "shape0");
+    use crate::ast::AstNode;
+    if let AstNode::Function {
+        params,
+        return_type,
+        ..
+    } = &function
+    {
+        assert_eq!(params.len(), 3);
+        assert_eq!(params[0].name, "input0");
+        assert_eq!(params[1].name, "output");
+        assert_eq!(params[2].name, "shape0");
 
-    // 返り値の型はunit型
-    assert_eq!(function.return_type, AstDType::Tuple(vec![]));
+        // 返り値の型はunit型
+        assert_eq!(*return_type, AstDType::Tuple(vec![]));
+    } else {
+        panic!("Expected AstNode::Function");
+    }
 
     // 生成されたコードを表示（テスト実行時に確認用）
+    use crate::backend::c_like::CLikeRenderer;
     use crate::backend::metal::MetalRenderer;
     let mut renderer = MetalRenderer::new();
-    let code = renderer.render_function("reduce_sum_kernel", &function);
+    let code = renderer.render_function_node(&function);
     eprintln!(
         "\n=== Generated Code for test_lower_reduce_sum_1d ===\n{}\n",
         code
@@ -62,16 +73,22 @@ fn test_lower_reduce_sum_2d() {
     let function = function.unwrap();
 
     // パラメータをチェック: input0, output, shape0, shape1
-    assert_eq!(function.params.len(), 4);
-    assert_eq!(function.params[0].name, "input0");
-    assert_eq!(function.params[1].name, "output");
-    assert_eq!(function.params[2].name, "shape0");
-    assert_eq!(function.params[3].name, "shape1");
+    use crate::ast::AstNode;
+    if let AstNode::Function { params, .. } = &function {
+        assert_eq!(params.len(), 4);
+        assert_eq!(params[0].name, "input0");
+        assert_eq!(params[1].name, "output");
+        assert_eq!(params[2].name, "shape0");
+        assert_eq!(params[3].name, "shape1");
+    } else {
+        panic!("Expected AstNode::Function");
+    }
 
     // 生成されたコードを表示
+    use crate::backend::c_like::CLikeRenderer;
     use crate::backend::metal::MetalRenderer;
     let mut renderer = MetalRenderer::new();
-    let code = renderer.render_function("reduce_sum_2d_kernel", &function);
+    let code = renderer.render_function_node(&function);
     eprintln!(
         "\n=== Generated Code for test_lower_reduce_sum_2d ===\n{}\n",
         code
@@ -99,12 +116,18 @@ fn test_lower_reduce_sum_axis0() {
     let function = function.unwrap();
 
     // パラメータをチェック
-    assert_eq!(function.params.len(), 4);
+    use crate::ast::AstNode;
+    if let AstNode::Function { params, .. } = &function {
+        assert_eq!(params.len(), 4);
+    } else {
+        panic!("Expected AstNode::Function");
+    }
 
     // 生成されたコードを表示
+    use crate::backend::c_like::CLikeRenderer;
     use crate::backend::metal::MetalRenderer;
     let mut renderer = MetalRenderer::new();
-    let code = renderer.render_function("reduce_sum_axis0_kernel", &function);
+    let code = renderer.render_function_node(&function);
     eprintln!(
         "\n=== Generated Code for test_lower_reduce_sum_axis0 ===\n{}\n",
         code
@@ -132,14 +155,20 @@ fn test_lower_reduce_max() {
     let function = function.unwrap();
 
     // パラメータをチェック
-    assert_eq!(function.params.len(), 3);
-    assert_eq!(function.params[0].name, "input0");
-    assert_eq!(function.params[1].name, "output");
+    use crate::ast::AstNode;
+    if let AstNode::Function { params, .. } = &function {
+        assert_eq!(params.len(), 3);
+        assert_eq!(params[0].name, "input0");
+        assert_eq!(params[1].name, "output");
+    } else {
+        panic!("Expected AstNode::Function");
+    }
 
     // 生成されたコードを表示
+    use crate::backend::c_like::CLikeRenderer;
     use crate::backend::metal::MetalRenderer;
     let mut renderer = MetalRenderer::new();
-    let code = renderer.render_function("reduce_max_kernel", &function);
+    let code = renderer.render_function_node(&function);
     eprintln!(
         "\n=== Generated Code for test_lower_reduce_max ===\n{}\n",
         code
@@ -167,12 +196,18 @@ fn test_lower_reduce_mul() {
     let function = function.unwrap();
 
     // パラメータをチェック
-    assert_eq!(function.params.len(), 4);
+    use crate::ast::AstNode;
+    if let AstNode::Function { params, .. } = &function {
+        assert_eq!(params.len(), 4);
+    } else {
+        panic!("Expected AstNode::Function");
+    }
 
     // 生成されたコードを表示
+    use crate::backend::c_like::CLikeRenderer;
     use crate::backend::metal::MetalRenderer;
     let mut renderer = MetalRenderer::new();
-    let code = renderer.render_function("reduce_mul_kernel", &function);
+    let code = renderer.render_function_node(&function);
     eprintln!(
         "\n=== Generated Code for test_lower_reduce_mul ===\n{}\n",
         code
@@ -200,12 +235,18 @@ fn test_lower_reduce_3d() {
     let function = function.unwrap();
 
     // パラメータをチェック: input0, output, shape0, shape1, shape2
-    assert_eq!(function.params.len(), 5);
+    use crate::ast::AstNode;
+    if let AstNode::Function { params, .. } = &function {
+        assert_eq!(params.len(), 5);
+    } else {
+        panic!("Expected AstNode::Function");
+    }
 
     // 生成されたコードを表示
+    use crate::backend::c_like::CLikeRenderer;
     use crate::backend::metal::MetalRenderer;
     let mut renderer = MetalRenderer::new();
-    let code = renderer.render_function("reduce_3d_kernel", &function);
+    let code = renderer.render_function_node(&function);
     eprintln!(
         "\n=== Generated Code for test_lower_reduce_3d ===\n{}\n",
         code

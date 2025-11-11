@@ -83,6 +83,42 @@ pub fn barrier() -> AstNode {
     AstNode::Barrier
 }
 
+/// Create a function node
+///
+/// # Arguments
+/// * `name` - Function name (can be None for anonymous functions)
+/// * `kind` - Function kind (Normal or Kernel)
+/// * `params` - Parameter declarations
+/// * `return_type` - Return type
+/// * `body` - Function body (typically a Block node)
+pub fn function(
+    name: Option<impl Into<String>>,
+    kind: super::FunctionKind,
+    params: Vec<super::VarDecl>,
+    return_type: DType,
+    body: AstNode,
+) -> AstNode {
+    AstNode::Function {
+        name: name.map(|n| n.into()),
+        params,
+        return_type,
+        body: Box::new(body),
+        kind,
+    }
+}
+
+/// Create a program node
+///
+/// # Arguments
+/// * `functions` - List of AstNode::Function
+/// * `entry_point` - Name of the entry point function
+pub fn program(functions: Vec<AstNode>, entry_point: impl Into<String>) -> AstNode {
+    AstNode::Program {
+        functions,
+        entry_point: entry_point.into(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -355,5 +391,137 @@ mod tests {
             AstNode::Barrier => {}
             _ => panic!("Expected Barrier node"),
         }
+    }
+
+    #[test]
+    fn test_function_helper() {
+        use crate::ast::{AccessRegion, DType, FunctionKind, Mutability, VarDecl, VarKind};
+
+        let params = vec![VarDecl {
+            name: "x".to_string(),
+            dtype: DType::F32,
+            mutability: Mutability::Immutable,
+            region: AccessRegion::ThreadLocal,
+            kind: VarKind::Normal,
+        }];
+
+        let body = AstNode::Return {
+            value: Box::new(var("x")),
+        };
+
+        let func = function(
+            Some("test_func"),
+            FunctionKind::Normal,
+            params.clone(),
+            DType::F32,
+            body,
+        );
+
+        match func {
+            AstNode::Function {
+                name,
+                params: func_params,
+                return_type,
+                kind,
+                ..
+            } => {
+                assert_eq!(name, Some("test_func".to_string()));
+                assert_eq!(func_params.len(), 1);
+                assert_eq!(func_params[0].name, "x");
+                assert_eq!(return_type, DType::F32);
+                assert_eq!(kind, FunctionKind::Normal);
+            }
+            _ => panic!("Expected Function node"),
+        }
+    }
+
+    #[test]
+    fn test_program_helper() {
+        use crate::ast::{AccessRegion, DType, FunctionKind, Mutability, VarDecl, VarKind};
+
+        let params = vec![VarDecl {
+            name: "x".to_string(),
+            dtype: DType::F32,
+            mutability: Mutability::Immutable,
+            region: AccessRegion::ThreadLocal,
+            kind: VarKind::Normal,
+        }];
+
+        let body = AstNode::Return {
+            value: Box::new(var("x")),
+        };
+
+        let main_func = function(Some("main"), FunctionKind::Normal, params, DType::F32, body);
+
+        let prog = program(vec![main_func], "main");
+
+        match prog {
+            AstNode::Program {
+                functions,
+                entry_point,
+            } => {
+                assert_eq!(functions.len(), 1);
+                assert_eq!(entry_point, "main");
+            }
+            _ => panic!("Expected Program node"),
+        }
+    }
+
+    #[test]
+    fn test_get_function() {
+        use crate::ast::{AccessRegion, DType, FunctionKind, Mutability, VarDecl, VarKind};
+
+        let params = vec![VarDecl {
+            name: "x".to_string(),
+            dtype: DType::F32,
+            mutability: Mutability::Immutable,
+            region: AccessRegion::ThreadLocal,
+            kind: VarKind::Normal,
+        }];
+
+        let body = AstNode::Return {
+            value: Box::new(var("x")),
+        };
+
+        let main_func = function(
+            Some("main"),
+            FunctionKind::Normal,
+            params.clone(),
+            DType::F32,
+            body.clone(),
+        );
+
+        let helper_func = function(
+            Some("helper"),
+            FunctionKind::Normal,
+            params,
+            DType::F32,
+            body,
+        );
+
+        let prog = program(vec![main_func, helper_func], "main");
+
+        // Get function by name
+        let found = prog.get_function("helper");
+        assert!(found.is_some());
+        match found.unwrap() {
+            AstNode::Function { name, .. } => {
+                assert_eq!(name, &Some("helper".to_string()));
+            }
+            _ => panic!("Expected Function node"),
+        }
+
+        // Get entry point
+        let entry = prog.get_entry();
+        assert!(entry.is_some());
+        match entry.unwrap() {
+            AstNode::Function { name, .. } => {
+                assert_eq!(name, &Some("main".to_string()));
+            }
+            _ => panic!("Expected Function node"),
+        }
+
+        // Try to get non-existent function
+        assert!(prog.get_function("nonexistent").is_none());
     }
 }

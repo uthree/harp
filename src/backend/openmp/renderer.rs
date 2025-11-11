@@ -1,4 +1,4 @@
-use crate::ast::{DType, FunctionKind, Mutability, Program, VarDecl, VarKind};
+use crate::ast::{AstNode, DType, FunctionKind, Mutability, VarDecl, VarKind};
 use crate::backend::Renderer;
 use crate::backend::c_like::CLikeRenderer;
 use crate::backend::openmp::CCode;
@@ -15,7 +15,7 @@ impl CRenderer {
     }
 
     /// Programをレンダリング
-    pub fn render_program(&mut self, program: &Program) -> CCode {
+    pub fn render_program(&mut self, program: &AstNode) -> CCode {
         let code = CLikeRenderer::render_program_clike(self, program);
         CCode::new(code)
     }
@@ -144,7 +144,7 @@ impl Renderer for CRenderer {
     type CodeRepr = CCode;
     type Option = ();
 
-    fn render(&self, program: &Program) -> Self::CodeRepr {
+    fn render(&self, program: &AstNode) -> Self::CodeRepr {
         let mut renderer = Self::new();
         renderer.render_program(program)
     }
@@ -158,7 +158,7 @@ impl Renderer for CRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{AstNode, DType, Function, Literal, helper::*};
+    use crate::ast::{AstNode, DType, Literal, helper::*};
     use crate::backend::c_like::CLikeRenderer;
 
     #[test]
@@ -194,29 +194,33 @@ mod tests {
 
     #[test]
     fn test_render_simple_program() {
-        use crate::ast::AccessRegion;
+        use crate::ast::{AccessRegion, Scope};
 
-        let mut program = Program::new("test_entry".to_string());
-
-        let func = Function::new(
-            FunctionKind::Normal,
-            vec![VarDecl {
+        let func = AstNode::Function {
+            kind: FunctionKind::Normal,
+            name: Some("test_func".to_string()),
+            params: vec![VarDecl {
                 name: "x".to_string(),
                 dtype: DType::Ptr(Box::new(DType::F32)),
                 mutability: Mutability::Mutable,
                 kind: VarKind::Normal,
                 region: AccessRegion::Shared,
             }],
-            DType::Tuple(vec![]),
-            vec![store(
-                var("x"),
-                AstNode::Const(Literal::Usize(0)),
-                AstNode::Const(Literal::F32(1.0)),
-            )],
-        )
-        .unwrap();
+            return_type: DType::Tuple(vec![]),
+            body: Box::new(AstNode::Block {
+                statements: vec![store(
+                    var("x"),
+                    AstNode::Const(Literal::Usize(0)),
+                    AstNode::Const(Literal::F32(1.0)),
+                )],
+                scope: Box::new(Scope::new()),
+            }),
+        };
 
-        let _ = program.add_function("test_func".to_string(), func);
+        let program = AstNode::Program {
+            functions: vec![func],
+            entry_point: "test_func".to_string(),
+        };
 
         let renderer = CRenderer::new();
         let code = renderer.render(&program);

@@ -75,6 +75,21 @@ pub enum AstNode {
 
     // Barrier - 同期バリア（並列実行の同期点）
     Barrier,
+
+    // Function definition - 関数定義
+    Function {
+        name: Option<String>, // 関数名（Program内ではこのフィールドは使用されず、匿名関数も可能）
+        params: Vec<VarDecl>, // 引数リスト
+        return_type: DType,   // 返り値の型
+        body: Box<AstNode>,   // 関数本体（通常はBlock）
+        kind: FunctionKind,   // 関数の種類（Normal or Kernel）
+    },
+
+    // Program - プログラム全体
+    Program {
+        functions: Vec<AstNode>, // AstNode::Function のリスト
+        entry_point: String,     // エントリーポイントの関数名
+    },
 }
 
 /// 関数の種類
@@ -539,6 +554,10 @@ impl AstNode {
             AstNode::Call { args, .. } => args.iter().map(|node| node as &AstNode).collect(),
             AstNode::Return { value } => vec![value.as_ref()],
             AstNode::Barrier => vec![],
+            AstNode::Function { body, .. } => vec![body.as_ref()],
+            AstNode::Program { functions, .. } => {
+                functions.iter().map(|node| node as &AstNode).collect()
+            }
         }
     }
 
@@ -600,6 +619,26 @@ impl AstNode {
                 value: Box::new(f(value)),
             },
             AstNode::Barrier => AstNode::Barrier,
+            AstNode::Function {
+                name,
+                params,
+                return_type,
+                body,
+                kind,
+            } => AstNode::Function {
+                name: name.clone(),
+                params: params.clone(),
+                return_type: return_type.clone(),
+                body: Box::new(f(body)),
+                kind: kind.clone(),
+            },
+            AstNode::Program {
+                functions,
+                entry_point,
+            } => AstNode::Program {
+                functions: functions.iter().map(f).collect(),
+                entry_point: entry_point.clone(),
+            },
         }
     }
 
@@ -670,6 +709,18 @@ impl AstNode {
 
             // Barrier - 同期バリアは値を返さない（unit型）
             AstNode::Barrier => DType::Tuple(vec![]),
+
+            // Function - 関数自体の型は返り値の型
+            AstNode::Function { return_type, .. } => return_type.clone(),
+
+            // Program - プログラム全体の型はエントリーポイントの返り値の型
+            AstNode::Program { .. } => {
+                if let Some(entry) = self.get_entry() {
+                    entry.infer_type()
+                } else {
+                    DType::Unknown
+                }
+            }
         }
     }
 
@@ -775,6 +826,37 @@ impl AstNode {
             }
             // Barrier - 同期バリアはスコープに依存しない
             AstNode::Barrier => Ok(()),
+            // Function - 関数本体のスコープチェック（パラメータは関数のスコープに含まれる）
+            AstNode::Function { body, .. } => body.check_scope(scope),
+            // Program - 各関数のスコープチェック
+            AstNode::Program { functions, .. } => {
+                for func in functions {
+                    func.check_scope(scope)?;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// Get a function from a Program by name
+    ///
+    /// Returns None if this is not a Program or if the function is not found
+    pub fn get_function(&self, name: &str) -> Option<&AstNode> {
+        match self {
+            AstNode::Program { functions, .. } => functions
+                .iter()
+                .find(|f| matches!(f, AstNode::Function { name: Some(n), .. } if n == name)),
+            _ => None,
+        }
+    }
+
+    /// Get the entry point function from a Program
+    ///
+    /// Returns None if this is not a Program or if the entry point is not found
+    pub fn get_entry(&self) -> Option<&AstNode> {
+        match self {
+            AstNode::Program { entry_point, .. } => self.get_function(entry_point),
+            _ => None,
         }
     }
 }

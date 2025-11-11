@@ -1,8 +1,8 @@
-use crate::ast::{DType, Function, FunctionKind, Mutability, Program, VarDecl, VarKind};
+use crate::ast::{AstNode, DType, FunctionKind, Mutability, VarDecl, VarKind};
 use crate::backend::Renderer;
 use crate::backend::c_like::CLikeRenderer;
 use crate::backend::metal::MetalCode;
-use log::{debug, info, trace};
+use log::{info, trace};
 
 /// Metal Shading Language用のレンダラー
 pub struct MetalRenderer {
@@ -15,43 +15,37 @@ impl MetalRenderer {
     }
 
     /// 関数を描画（パブリックメソッドとして維持）
-    pub fn render_function(&mut self, name: &str, func: &Function) -> String {
-        let is_kernel = matches!(func.kind, FunctionKind::Kernel(_));
-        debug!(
-            "Rendering Metal {} function: {}",
-            if is_kernel { "kernel" } else { "device" },
-            name
-        );
-        trace!("Function params: {} parameters", func.params.len());
-
-        let result = CLikeRenderer::render_function(self, name, func);
-        trace!("Function rendering completed");
-        result
-    }
-
     /// プログラム全体を描画
-    pub fn render_program(&mut self, program: &Program) -> MetalCode {
+    pub fn render_program(&mut self, program: &AstNode) -> MetalCode {
         self.render_program_with_signature(program, crate::backend::KernelSignature::empty())
     }
 
     /// シグネチャ付きでプログラムをレンダリング
     pub fn render_program_with_signature(
         &mut self,
-        program: &Program,
+        program: &AstNode,
         signature: crate::backend::KernelSignature,
     ) -> MetalCode {
-        info!(
-            "Rendering Metal program: {} with {} functions",
-            program.entry_point,
-            program.functions.len()
-        );
+        if let AstNode::Program {
+            functions,
+            entry_point,
+        } = program
+        {
+            info!(
+                "Rendering Metal program: {} with {} functions",
+                entry_point,
+                functions.len()
+            );
 
-        let result = CLikeRenderer::render_program_clike(self, program);
+            let result = CLikeRenderer::render_program_clike(self, program);
 
-        info!("Metal program rendering completed ({} bytes)", result.len());
-        trace!("Generated Metal code:\n{}", result);
+            info!("Metal program rendering completed ({} bytes)", result.len());
+            trace!("Generated Metal code:\n{}", result);
 
-        MetalCode::with_signature(result, signature)
+            MetalCode::with_signature(result, signature)
+        } else {
+            panic!("Expected AstNode::Program");
+        }
     }
 }
 
@@ -159,7 +153,7 @@ impl Renderer for MetalRenderer {
     type CodeRepr = MetalCode;
     type Option = ();
 
-    fn render(&self, program: &Program) -> Self::CodeRepr {
+    fn render(&self, program: &AstNode) -> Self::CodeRepr {
         let mut renderer = Self::new();
         renderer.render_program(program)
     }
@@ -265,16 +259,20 @@ mod tests {
             load(var("input"), var("tid")) * AstNode::Const(2.0f32.into()),
         )];
 
-        let func = Function::new(
-            FunctionKind::Kernel(1),
+        use crate::ast::Scope;
+        let func = AstNode::Function {
+            kind: FunctionKind::Kernel(1),
+            name: Some("scale_kernel".to_string()),
             params,
-            DType::Tuple(vec![]),
-            body_statements,
-        )
-        .unwrap();
+            return_type: DType::Tuple(vec![]),
+            body: Box::new(AstNode::Block {
+                statements: body_statements,
+                scope: Box::new(Scope::new()),
+            }),
+        };
 
         let mut renderer = MetalRenderer::new();
-        let code = renderer.render_function("scale_kernel", &func);
+        let code = renderer.render_function_node(&func);
 
         // 基本的な構造をチェック
         assert!(code.contains("kernel"));
@@ -286,7 +284,7 @@ mod tests {
 
     #[test]
     fn test_render_program() {
-        let mut program = Program::new("main".to_string());
+        use crate::ast::{AccessRegion, Scope};
 
         // 簡単な関数: double(x) = x * 2
         let double_params = vec![VarDecl {
@@ -297,33 +295,38 @@ mod tests {
             kind: VarKind::Normal,
         }];
 
-        let double_func = Function::new(
-            FunctionKind::Normal,
-            double_params,
-            DType::F32,
-            vec![AstNode::Return {
-                value: Box::new(var("x") * AstNode::Const(2.0f32.into())),
-            }],
-        )
-        .unwrap();
-
-        program
-            .add_function("double".to_string(), double_func)
-            .unwrap();
+        let double_func = AstNode::Function {
+            kind: FunctionKind::Normal,
+            name: Some("double".to_string()),
+            params: double_params,
+            return_type: DType::F32,
+            body: Box::new(AstNode::Block {
+                statements: vec![AstNode::Return {
+                    value: Box::new(var("x") * AstNode::Const(2.0f32.into())),
+                }],
+                scope: Box::new(Scope::new()),
+            }),
+        };
 
         // メイン関数
-        let main_func = Function::new(
-            FunctionKind::Normal,
-            vec![],
-            DType::F32,
-            vec![AstNode::Call {
-                name: "double".to_string(),
-                args: vec![AstNode::Const(5.0f32.into())],
-            }],
-        )
-        .unwrap();
+        let main_func = AstNode::Function {
+            kind: FunctionKind::Normal,
+            name: Some("main".to_string()),
+            params: vec![],
+            return_type: DType::F32,
+            body: Box::new(AstNode::Block {
+                statements: vec![AstNode::Call {
+                    name: "double".to_string(),
+                    args: vec![AstNode::Const(5.0f32.into())],
+                }],
+                scope: Box::new(Scope::new()),
+            }),
+        };
 
-        program.add_function("main".to_string(), main_func).unwrap();
+        let program = AstNode::Program {
+            functions: vec![double_func, main_func],
+            entry_point: "main".to_string(),
+        };
 
         let mut renderer = MetalRenderer::new();
         let code = renderer.render_program(&program);
