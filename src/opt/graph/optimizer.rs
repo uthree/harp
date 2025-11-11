@@ -147,7 +147,10 @@ where
                 );
                 if let Some(ref pb) = pb {
                     pb.finish_and_clear();
-                    println!("{:>12} graph optimization (no more candidates)", "\x1b[1;36mFinished\x1b[0m");
+                    println!(
+                        "{:>12} graph optimization (no more candidates)",
+                        "\x1b[1;32mFinished\x1b[0m"
+                    );
                 }
                 break;
             }
@@ -243,7 +246,10 @@ where
                         );
                         if let Some(ref pb) = pb {
                             pb.finish_and_clear();
-                            println!("{:>12} graph optimization (no improvement)", "\x1b[1;36mFinished\x1b[0m");
+                            println!(
+                                "{:>12} graph optimization (no improvement)",
+                                "\x1b[1;32mFinished\x1b[0m"
+                            );
                         }
                         break;
                     }
@@ -254,7 +260,7 @@ where
         if let Some(pb) = pb {
             pb.finish_and_clear();
             // Cargoスタイルの完了メッセージ
-            println!("{:>12} graph optimization", "\x1b[1;36mFinished\x1b[0m");
+            println!("{:>12} graph optimization", "\x1b[1;32mFinished\x1b[0m");
         }
 
         debug!("BeamSearchGraphOptimizer: Beam search optimization complete");

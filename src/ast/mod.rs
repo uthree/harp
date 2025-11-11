@@ -26,6 +26,14 @@ pub enum AstNode {
     Sin(Box<AstNode>),
     Cast(Box<AstNode>, DType),
 
+    // bitwise operations - ビット演算
+    BitwiseAnd(Box<AstNode>, Box<AstNode>),
+    BitwiseOr(Box<AstNode>, Box<AstNode>),
+    BitwiseXor(Box<AstNode>, Box<AstNode>),
+    BitwiseNot(Box<AstNode>),
+    LeftShift(Box<AstNode>, Box<AstNode>),
+    RightShift(Box<AstNode>, Box<AstNode>),
+
     // Variables - 変数
     Var(String),
 
@@ -499,12 +507,18 @@ impl AstNode {
             | AstNode::Mul(left, right)
             | AstNode::Max(left, right)
             | AstNode::Rem(left, right)
-            | AstNode::Idiv(left, right) => vec![left.as_ref(), right.as_ref()],
+            | AstNode::Idiv(left, right)
+            | AstNode::BitwiseAnd(left, right)
+            | AstNode::BitwiseOr(left, right)
+            | AstNode::BitwiseXor(left, right)
+            | AstNode::LeftShift(left, right)
+            | AstNode::RightShift(left, right) => vec![left.as_ref(), right.as_ref()],
             AstNode::Recip(operand)
             | AstNode::Sqrt(operand)
             | AstNode::Log2(operand)
             | AstNode::Exp2(operand)
             | AstNode::Sin(operand)
+            | AstNode::BitwiseNot(operand)
             | AstNode::Cast(operand, _) => vec![operand.as_ref()],
             AstNode::Load { ptr, offset, .. } => vec![ptr.as_ref(), offset.as_ref()],
             AstNode::Store { ptr, offset, value } => {
@@ -553,11 +567,27 @@ impl AstNode {
             AstNode::Max(left, right) => AstNode::Max(Box::new(f(left)), Box::new(f(right))),
             AstNode::Rem(left, right) => AstNode::Rem(Box::new(f(left)), Box::new(f(right))),
             AstNode::Idiv(left, right) => AstNode::Idiv(Box::new(f(left)), Box::new(f(right))),
+            AstNode::BitwiseAnd(left, right) => {
+                AstNode::BitwiseAnd(Box::new(f(left)), Box::new(f(right)))
+            }
+            AstNode::BitwiseOr(left, right) => {
+                AstNode::BitwiseOr(Box::new(f(left)), Box::new(f(right)))
+            }
+            AstNode::BitwiseXor(left, right) => {
+                AstNode::BitwiseXor(Box::new(f(left)), Box::new(f(right)))
+            }
+            AstNode::LeftShift(left, right) => {
+                AstNode::LeftShift(Box::new(f(left)), Box::new(f(right)))
+            }
+            AstNode::RightShift(left, right) => {
+                AstNode::RightShift(Box::new(f(left)), Box::new(f(right)))
+            }
             AstNode::Recip(operand) => AstNode::Recip(Box::new(f(operand))),
             AstNode::Sqrt(operand) => AstNode::Sqrt(Box::new(f(operand))),
             AstNode::Log2(operand) => AstNode::Log2(Box::new(f(operand))),
             AstNode::Exp2(operand) => AstNode::Exp2(Box::new(f(operand))),
             AstNode::Sin(operand) => AstNode::Sin(Box::new(f(operand))),
+            AstNode::BitwiseNot(operand) => AstNode::BitwiseNot(Box::new(f(operand))),
             AstNode::Cast(operand, dtype) => AstNode::Cast(Box::new(f(operand)), dtype.clone()),
             AstNode::Load {
                 ptr,
@@ -619,7 +649,7 @@ impl AstNode {
                         dtype: param.dtype.clone(),
                         mutability: param.mutability.clone(),
                         kind: param.kind.clone(),
-                        initial_value: param.initial_value.as_ref().map(|init| f(init)),
+                        initial_value: param.initial_value.as_ref().map(f),
                     })
                     .collect(),
                 return_type: return_type.clone(),
@@ -649,7 +679,12 @@ impl AstNode {
             | AstNode::Mul(left, right)
             | AstNode::Max(left, right)
             | AstNode::Rem(left, right)
-            | AstNode::Idiv(left, right) => {
+            | AstNode::Idiv(left, right)
+            | AstNode::BitwiseAnd(left, right)
+            | AstNode::BitwiseOr(left, right)
+            | AstNode::BitwiseXor(left, right)
+            | AstNode::LeftShift(left, right)
+            | AstNode::RightShift(left, right) => {
                 let left_type = left.infer_type();
                 let right_type = right.infer_type();
 
@@ -664,7 +699,7 @@ impl AstNode {
             }
 
             // Unary operations that preserve type
-            AstNode::Recip(operand) => operand.infer_type(),
+            AstNode::Recip(operand) | AstNode::BitwiseNot(operand) => operand.infer_type(),
 
             // Mathematical operations that typically return F32
             AstNode::Sqrt(_) | AstNode::Log2(_) | AstNode::Exp2(_) | AstNode::Sin(_) => DType::F32,
@@ -746,7 +781,12 @@ impl AstNode {
             | AstNode::Mul(left, right)
             | AstNode::Max(left, right)
             | AstNode::Rem(left, right)
-            | AstNode::Idiv(left, right) => {
+            | AstNode::Idiv(left, right)
+            | AstNode::BitwiseAnd(left, right)
+            | AstNode::BitwiseOr(left, right)
+            | AstNode::BitwiseXor(left, right)
+            | AstNode::LeftShift(left, right)
+            | AstNode::RightShift(left, right) => {
                 left.check_scope(scope)?;
                 right.check_scope(scope)?;
                 Ok(())
@@ -756,6 +796,7 @@ impl AstNode {
             | AstNode::Log2(operand)
             | AstNode::Exp2(operand)
             | AstNode::Sin(operand)
+            | AstNode::BitwiseNot(operand)
             | AstNode::Cast(operand, _) => {
                 operand.check_scope(scope)?;
                 Ok(())

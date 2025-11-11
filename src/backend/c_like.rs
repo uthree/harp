@@ -105,6 +105,32 @@ pub trait CLikeRenderer: Renderer {
                 let args = vec![self.render_expr(operand)];
                 self.render_math_func("sin", &args)
             }
+            AstNode::BitwiseAnd(left, right) => {
+                format!("({} & {})", self.render_expr(left), self.render_expr(right))
+            }
+            AstNode::BitwiseOr(left, right) => {
+                format!("({} | {})", self.render_expr(left), self.render_expr(right))
+            }
+            AstNode::BitwiseXor(left, right) => {
+                format!("({} ^ {})", self.render_expr(left), self.render_expr(right))
+            }
+            AstNode::BitwiseNot(operand) => {
+                format!("(~{})", self.render_expr(operand))
+            }
+            AstNode::LeftShift(left, right) => {
+                format!(
+                    "({} << {})",
+                    self.render_expr(left),
+                    self.render_expr(right)
+                )
+            }
+            AstNode::RightShift(left, right) => {
+                format!(
+                    "({} >> {})",
+                    self.render_expr(left),
+                    self.render_expr(right)
+                )
+            }
             AstNode::Cast(operand, dtype) => {
                 format!(
                     "{}({})",

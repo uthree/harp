@@ -1,5 +1,5 @@
 use super::{AstNode, Literal};
-use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
+use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl, Shr, Sub};
 
 // Operator overloading for AstNode with Into<AstNode> abstraction
 
@@ -53,6 +53,56 @@ impl Neg for AstNode {
 
     fn neg(self) -> AstNode {
         AstNode::Const(Literal::F32(-1.0)) * self
+    }
+}
+
+// Bitwise operations
+impl<T: Into<AstNode>> BitAnd<T> for AstNode {
+    type Output = AstNode;
+
+    fn bitand(self, rhs: T) -> AstNode {
+        AstNode::BitwiseAnd(Box::new(self), Box::new(rhs.into()))
+    }
+}
+
+impl<T: Into<AstNode>> BitOr<T> for AstNode {
+    type Output = AstNode;
+
+    fn bitor(self, rhs: T) -> AstNode {
+        AstNode::BitwiseOr(Box::new(self), Box::new(rhs.into()))
+    }
+}
+
+impl<T: Into<AstNode>> BitXor<T> for AstNode {
+    type Output = AstNode;
+
+    fn bitxor(self, rhs: T) -> AstNode {
+        AstNode::BitwiseXor(Box::new(self), Box::new(rhs.into()))
+    }
+}
+
+impl Not for AstNode {
+    type Output = AstNode;
+
+    fn not(self) -> AstNode {
+        AstNode::BitwiseNot(Box::new(self))
+    }
+}
+
+// Shift operations
+impl<T: Into<AstNode>> Shl<T> for AstNode {
+    type Output = AstNode;
+
+    fn shl(self, rhs: T) -> AstNode {
+        AstNode::LeftShift(Box::new(self), Box::new(rhs.into()))
+    }
+}
+
+impl<T: Into<AstNode>> Shr<T> for AstNode {
+    type Output = AstNode;
+
+    fn shr(self, rhs: T) -> AstNode {
+        AstNode::RightShift(Box::new(self), Box::new(rhs.into()))
     }
 }
 
@@ -279,6 +329,123 @@ mod tests {
         match usize_node {
             AstNode::Const(Literal::Usize(v)) => assert_eq!(v, 100),
             _ => panic!("Expected Usize constant"),
+        }
+    }
+
+    #[test]
+    fn test_bitwise_and_operator() {
+        let a = AstNode::from(5isize);
+        let b = AstNode::from(3isize);
+        let result = a & b;
+
+        match result {
+            AstNode::BitwiseAnd(left, right) => match (*left, *right) {
+                (AstNode::Const(Literal::Isize(l)), AstNode::Const(Literal::Isize(r))) => {
+                    assert_eq!(l, 5);
+                    assert_eq!(r, 3);
+                }
+                _ => panic!("Expected Isize constants in BitwiseAnd node"),
+            },
+            _ => panic!("Expected BitwiseAnd node"),
+        }
+    }
+
+    #[test]
+    fn test_bitwise_or_operator() {
+        let a = AstNode::from(5isize);
+        let b = AstNode::from(3isize);
+        let result = a | b;
+
+        match result {
+            AstNode::BitwiseOr(_, _) => {}
+            _ => panic!("Expected BitwiseOr node"),
+        }
+    }
+
+    #[test]
+    fn test_bitwise_xor_operator() {
+        let a = AstNode::from(5isize);
+        let b = AstNode::from(3isize);
+        let result = a ^ b;
+
+        match result {
+            AstNode::BitwiseXor(_, _) => {}
+            _ => panic!("Expected BitwiseXor node"),
+        }
+    }
+
+    #[test]
+    fn test_bitwise_not_operator() {
+        let a = AstNode::from(5isize);
+        let result = !a;
+
+        match result {
+            AstNode::BitwiseNot(inner) => match *inner {
+                AstNode::Const(Literal::Isize(v)) => assert_eq!(v, 5),
+                _ => panic!("Expected Isize constant"),
+            },
+            _ => panic!("Expected BitwiseNot node"),
+        }
+    }
+
+    #[test]
+    fn test_left_shift_operator() {
+        let a = AstNode::from(4isize);
+        let b = AstNode::from(2isize);
+        let result = a << b;
+
+        match result {
+            AstNode::LeftShift(left, right) => match (*left, *right) {
+                (AstNode::Const(Literal::Isize(l)), AstNode::Const(Literal::Isize(r))) => {
+                    assert_eq!(l, 4);
+                    assert_eq!(r, 2);
+                }
+                _ => panic!("Expected Isize constants in LeftShift node"),
+            },
+            _ => panic!("Expected LeftShift node"),
+        }
+    }
+
+    #[test]
+    fn test_right_shift_operator() {
+        let a = AstNode::from(16isize);
+        let b = AstNode::from(2isize);
+        let result = a >> b;
+
+        match result {
+            AstNode::RightShift(_, _) => {}
+            _ => panic!("Expected RightShift node"),
+        }
+    }
+
+    #[test]
+    fn test_bitwise_with_literal() {
+        // Test Into<AstNode> abstraction with isize
+        let a = AstNode::from(5isize);
+        let result = a & 3isize;
+
+        match result {
+            AstNode::BitwiseAnd(_, _) => {}
+            _ => panic!("Expected BitwiseAnd node"),
+        }
+    }
+
+    #[test]
+    fn test_composite_bitwise_operations() {
+        // Test (a & b) | c
+        let a = AstNode::from(5isize);
+        let b = AstNode::from(3isize);
+        let c = AstNode::from(2isize);
+        let result = (a & b) | c;
+
+        match result {
+            AstNode::BitwiseOr(left, right) => match (*left, *right) {
+                (AstNode::BitwiseAnd(_, _), AstNode::Const(Literal::Isize(v))) => {
+                    assert_eq!(v, 2);
+                }
+                _ => panic!("Expected BitwiseAnd node and Isize constant"),
+            },
+            _ => panic!("Expected BitwiseOr node"),
         }
     }
 }

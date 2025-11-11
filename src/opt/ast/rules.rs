@@ -509,6 +509,88 @@ unary_const_fold_f32!(
 );
 
 // ============================================================================
+// ビット演算最適化 (Bit Operation Optimizations)
+// ============================================================================
+
+/// 値が2の累乗かどうかをチェックするヘルパー関数
+fn is_power_of_two(n: isize) -> bool {
+    n > 0 && (n & (n - 1)) == 0
+}
+
+/// 2の累乗の値からlog2を計算するヘルパー関数
+fn log2_of_power_of_two(n: isize) -> isize {
+    n.trailing_zeros() as isize
+}
+
+/// 乗算を左シフトに変換: x * 2^n = x << n
+pub fn mul_power_of_two_to_shift_right() -> Rc<AstRewriteRule> {
+    AstRewriteRule::new(
+        AstNode::Mul(
+            Box::new(AstNode::Wildcard("a".to_string())),
+            Box::new(AstNode::Wildcard("b".to_string())),
+        ),
+        |bindings| {
+            let a = bindings.get("a").unwrap();
+            let b = bindings.get("b").unwrap();
+
+            if let AstNode::Const(Literal::Isize(n)) = b
+                && is_power_of_two(*n)
+            {
+                return AstNode::LeftShift(
+                    Box::new(a.clone()),
+                    Box::new(AstNode::Const(Literal::Isize(log2_of_power_of_two(*n)))),
+                );
+            }
+
+            // 条件に合わなければ元のノードを返す
+            AstNode::Mul(Box::new(a.clone()), Box::new(b.clone()))
+        },
+        |bindings| {
+            // 条件：bが2の累乗の定数
+            if let Some(AstNode::Const(Literal::Isize(n))) = bindings.get("b") {
+                is_power_of_two(*n)
+            } else {
+                false
+            }
+        },
+    )
+}
+
+/// 乗算を左シフトに変換: 2^n * x = x << n
+pub fn mul_power_of_two_to_shift_left() -> Rc<AstRewriteRule> {
+    AstRewriteRule::new(
+        AstNode::Mul(
+            Box::new(AstNode::Wildcard("a".to_string())),
+            Box::new(AstNode::Wildcard("b".to_string())),
+        ),
+        |bindings| {
+            let a = bindings.get("a").unwrap();
+            let b = bindings.get("b").unwrap();
+
+            if let AstNode::Const(Literal::Isize(n)) = a
+                && is_power_of_two(*n)
+            {
+                return AstNode::LeftShift(
+                    Box::new(b.clone()),
+                    Box::new(AstNode::Const(Literal::Isize(log2_of_power_of_two(*n)))),
+                );
+            }
+
+            // 条件に合わなければ元のノードを返す
+            AstNode::Mul(Box::new(a.clone()), Box::new(b.clone()))
+        },
+        |bindings| {
+            // 条件：aが2の累乗の定数
+            if let Some(AstNode::Const(Literal::Isize(n))) = bindings.get("a") {
+                is_power_of_two(*n)
+            } else {
+                false
+            }
+        },
+    )
+}
+
+// ============================================================================
 // ルール集の生成
 // ============================================================================
 
@@ -544,6 +626,9 @@ pub fn simplification_rules() -> Vec<Rc<AstRewriteRule>> {
         // 逆演算
         recip_recip(),
         sqrt_squared(),
+        // ビット演算最適化（2の累乗の乗算をシフトに変換）
+        mul_power_of_two_to_shift_right(),
+        mul_power_of_two_to_shift_left(),
     ]
 }
 
@@ -904,5 +989,117 @@ mod tests {
 
         let result = optimizer.optimize(input);
         assert_eq!(result, AstNode::Const(Literal::Isize(5)));
+    }
+
+    #[test]
+    fn test_mul_power_of_two_to_shift_right() {
+        // x * 4 → x << 2
+        let rule = mul_power_of_two_to_shift_right();
+        let input = AstNode::Mul(
+            Box::new(AstNode::Var("x".to_string())),
+            Box::new(AstNode::Const(Literal::Isize(4))),
+        );
+        let result = rule.apply(&input);
+
+        match result {
+            AstNode::LeftShift(left, right) => {
+                assert_eq!(*left, AstNode::Var("x".to_string()));
+                assert_eq!(*right, AstNode::Const(Literal::Isize(2)));
+            }
+            _ => panic!("Expected LeftShift node"),
+        }
+    }
+
+    #[test]
+    fn test_mul_power_of_two_to_shift_left() {
+        // 8 * x → x << 3
+        let rule = mul_power_of_two_to_shift_left();
+        let input = AstNode::Mul(
+            Box::new(AstNode::Const(Literal::Isize(8))),
+            Box::new(AstNode::Var("x".to_string())),
+        );
+        let result = rule.apply(&input);
+
+        match result {
+            AstNode::LeftShift(left, right) => {
+                assert_eq!(*left, AstNode::Var("x".to_string()));
+                assert_eq!(*right, AstNode::Const(Literal::Isize(3)));
+            }
+            _ => panic!("Expected LeftShift node"),
+        }
+    }
+
+    #[test]
+    fn test_mul_non_power_of_two() {
+        // 非2の累乗の場合は変換されない（元のノードが返る）
+        let rule = mul_power_of_two_to_shift_right();
+        let input = AstNode::Mul(
+            Box::new(AstNode::Var("x".to_string())),
+            Box::new(AstNode::Const(Literal::Isize(5))),
+        );
+        let result = rule.apply(&input);
+
+        // 元のMulノードが返ってくるはず
+        match result {
+            AstNode::Mul(left, right) => {
+                assert_eq!(*left, AstNode::Var("x".to_string()));
+                assert_eq!(*right, AstNode::Const(Literal::Isize(5)));
+            }
+            _ => panic!("Expected Mul node (unchanged)"),
+        }
+    }
+
+    #[test]
+    fn test_mul_various_powers_of_two() {
+        // さまざまな2の累乗をテスト
+        let test_cases = vec![
+            (1, 0),   // 1 = 2^0
+            (2, 1),   // 2 = 2^1
+            (4, 2),   // 4 = 2^2
+            (8, 3),   // 8 = 2^3
+            (16, 4),  // 16 = 2^4
+            (32, 5),  // 32 = 2^5
+            (64, 6),  // 64 = 2^6
+            (128, 7), // 128 = 2^7
+            (256, 8), // 256 = 2^8
+        ];
+
+        let rule = mul_power_of_two_to_shift_right();
+        for (power_of_two, expected_shift) in test_cases {
+            let input = AstNode::Mul(
+                Box::new(AstNode::Var("x".to_string())),
+                Box::new(AstNode::Const(Literal::Isize(power_of_two))),
+            );
+            let result = rule.apply(&input);
+
+            match result {
+                AstNode::LeftShift(_, right) => {
+                    assert_eq!(*right, AstNode::Const(Literal::Isize(expected_shift)));
+                }
+                _ => panic!("Expected LeftShift node for {}", power_of_two),
+            }
+        }
+    }
+
+    #[test]
+    fn test_mul_power_of_two_with_optimizer() {
+        // オプティマイザーと組み合わせてテスト
+        let optimizer = RuleBaseOptimizer::new(simplification_rules());
+
+        // x * 16 → x << 4
+        let input = AstNode::Mul(
+            Box::new(AstNode::Var("x".to_string())),
+            Box::new(AstNode::Const(Literal::Isize(16))),
+        );
+
+        let result = optimizer.optimize(input);
+
+        match result {
+            AstNode::LeftShift(left, right) => {
+                assert_eq!(*left, AstNode::Var("x".to_string()));
+                assert_eq!(*right, AstNode::Const(Literal::Isize(4)));
+            }
+            _ => panic!("Expected LeftShift node"),
+        }
     }
 }

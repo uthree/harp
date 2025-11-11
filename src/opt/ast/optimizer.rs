@@ -184,15 +184,15 @@ where
 
             beam = candidates.into_iter().take(self.beam_width).collect();
 
-            // ビーム内の各候補を履歴に記録
-            for (rank, ast) in beam.iter().enumerate() {
-                let cost = self.estimator.estimate(ast);
+            // このステップの最良候補を記録
+            if let Some(best) = beam.first() {
+                let cost = self.estimator.estimate(best);
                 history.add_snapshot(OptimizationSnapshot::new(
                     step + 1,
-                    ast.clone(),
+                    best.clone(),
                     cost,
-                    format!("Step {} rank {}", step + 1, rank),
-                    rank,
+                    format!("Step {}: beam width {}", step + 1, beam.len()),
+                    0,
                     None,
                 ));
             }
@@ -201,7 +201,7 @@ where
         if let Some(pb) = pb {
             pb.finish_and_clear();
             // Cargoスタイルの完了メッセージ
-            println!("{:>12} AST optimization", "\x1b[1;36mFinished\x1b[0m");
+            println!("{:>12} AST optimization", "\x1b[1;32mFinished\x1b[0m");
         }
 
         debug!("BeamSearchOptimizer: Beam search optimization complete");

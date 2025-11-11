@@ -31,6 +31,13 @@ impl SimpleCostEstimator {
             AstNode::Exp2(_) => 15.0,
             AstNode::Sin(_) => 15.0,
             AstNode::Cast(_, _) => 4.0,
+            // Bitwise operations - ビット演算（シフトは乗算より低コスト）
+            AstNode::BitwiseAnd(_, _) => 0.5,
+            AstNode::BitwiseOr(_, _) => 0.5,
+            AstNode::BitwiseXor(_, _) => 0.5,
+            AstNode::BitwiseNot(_) => 0.5,
+            AstNode::LeftShift(_, _) => 0.8, // 乗算(2.0)より低コスト
+            AstNode::RightShift(_, _) => 0.8, // 乗算(2.0)より低コスト
             AstNode::Load { .. } => 10.0,
             AstNode::Store { .. } => 10.0,
             AstNode::Assign { .. } => 10.0,
@@ -62,12 +69,18 @@ impl CostEstimator for SimpleCostEstimator {
             | AstNode::Mul(l, r)
             | AstNode::Max(l, r)
             | AstNode::Rem(l, r)
-            | AstNode::Idiv(l, r) => self.estimate(l) + self.estimate(r),
+            | AstNode::Idiv(l, r)
+            | AstNode::BitwiseAnd(l, r)
+            | AstNode::BitwiseOr(l, r)
+            | AstNode::BitwiseXor(l, r)
+            | AstNode::LeftShift(l, r)
+            | AstNode::RightShift(l, r) => self.estimate(l) + self.estimate(r),
             AstNode::Recip(n)
             | AstNode::Sqrt(n)
             | AstNode::Log2(n)
             | AstNode::Exp2(n)
-            | AstNode::Sin(n) => self.estimate(n),
+            | AstNode::Sin(n)
+            | AstNode::BitwiseNot(n) => self.estimate(n),
             AstNode::Cast(n, _) => self.estimate(n),
             AstNode::Load {
                 ptr, offset, count, ..
