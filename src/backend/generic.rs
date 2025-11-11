@@ -365,10 +365,10 @@ where
         // AST最適化（Program全体を最適化）
         let (optimized_program, all_histories) = if self.enable_ast_optimization {
             // ステップ1: ルールベース最適化
-            let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules())
+            let _rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules())
                 .with_max_iterations(self.ast_optimization_config.rule_max_iterations);
 
-            //let rule_optimized = rule_optimizer.optimize(program); // デバッグ用に一時的に無効化
+            //let rule_optimized = _rule_optimizer.optimize(program); // デバッグ用に一時的に無効化
             let rule_optimized = program;
 
             // ステップ2: ビームサーチ最適化（探索用の完全なルール集を使用）
