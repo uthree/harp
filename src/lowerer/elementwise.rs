@@ -382,6 +382,18 @@ impl Lowerer {
                 }
                 Ok(recip(operands[0].clone()))
             }
+            ElementwiseOp::Log2 => {
+                if operands.len() != 1 {
+                    return Err("Log2 requires 1 operand".to_string());
+                }
+                Ok(AstNode::Log2(Box::new(operands[0].clone())))
+            }
+            ElementwiseOp::Exp2 => {
+                if operands.len() != 1 {
+                    return Err("Exp2 requires 1 operand".to_string());
+                }
+                Ok(AstNode::Exp2(Box::new(operands[0].clone())))
+            }
         }
     }
 }

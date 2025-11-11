@@ -3,6 +3,7 @@ use std::{
     ops::Deref,
     rc::{Rc, Weak},
 };
+pub mod hlops;
 pub mod ops;
 pub mod shape;
 pub mod strategy;
@@ -16,7 +17,7 @@ pub use strategy::{CumulativeStrategy, ElementwiseStrategy, ReduceStrategy};
 #[derive(Debug, Clone)]
 pub struct Graph {
     inputs: HashMap<String, Weak<GraphNodeData>>, // Rcの参照カウントに影響を与えないために、Weak参照で保持する。
-    outputs: BTreeMap<String, GraphNode>, // BTreeMapでキー順にソートされた順序を保証
+    outputs: BTreeMap<String, GraphNode>,         // BTreeMapでキー順にソートされた順序を保証
 }
 
 #[derive(Debug, Clone)]
@@ -165,6 +166,27 @@ impl GraphNode {
     /// ノードのポインタを取得（トポロジカルソートなどで識別に使用）
     pub fn as_ptr(&self) -> *const GraphNodeData {
         Rc::as_ptr(&self.0)
+    }
+
+    /// スカラー定数ノードを作成
+    ///
+    /// # 例
+    /// ```
+    /// use harp::prelude::*;
+    ///
+    /// // F32のスカラー定数
+    /// let const_node = GraphNode::constant(2.5f32);
+    /// ```
+    pub fn constant<L: Into<crate::ast::Literal>>(value: L) -> Self {
+        let literal = value.into();
+        let dtype = match &literal {
+            crate::ast::Literal::F32(_) => DType::F32,
+            crate::ast::Literal::Isize(_) => DType::Unknown, // Isizeは将来的に追加
+            crate::ast::Literal::Usize(_) => DType::Unknown, // Usizeは将来的に追加
+        };
+        // 定数はスカラー（shape=[]）
+        let view = View::contiguous(Vec::<isize>::new());
+        Self::new(dtype, GraphOp::Const(literal), vec![], view)
     }
 
     /// 指定軸を縮約（汎用）
@@ -1094,6 +1116,67 @@ mod tests {
                 assert_eq!(*axis, 1);
             }
             _ => panic!("Expected GraphOp::Reduce"),
+        }
+    }
+
+    #[test]
+    fn test_constant_f32() {
+        // F32定数ノードを作成
+        let const_node = GraphNode::constant(2.5f32);
+
+        // dtypeがF32であることを確認
+        match const_node.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
+
+        // スカラー（ndim=0）であることを確認
+        assert_eq!(const_node.view.ndim(), 0);
+        assert_eq!(const_node.view.shape().len(), 0);
+
+        // GraphOp::Constであることを確認
+        match &const_node.op {
+            GraphOp::Const(crate::ast::Literal::F32(v)) => {
+                assert_eq!(*v, 2.5f32);
+            }
+            _ => panic!("Expected GraphOp::Const with F32 literal"),
+        }
+
+        // 入力ノードがないことを確認
+        assert_eq!(const_node.src.len(), 0);
+    }
+
+    #[test]
+    fn test_constant_isize() {
+        // isize定数ノードを作成
+        let const_node = GraphNode::constant(42isize);
+
+        // スカラーであることを確認
+        assert_eq!(const_node.view.ndim(), 0);
+
+        // GraphOp::Constであることを確認
+        match &const_node.op {
+            GraphOp::Const(crate::ast::Literal::Isize(v)) => {
+                assert_eq!(*v, 42);
+            }
+            _ => panic!("Expected GraphOp::Const with Isize literal"),
+        }
+    }
+
+    #[test]
+    fn test_constant_usize() {
+        // usize定数ノードを作成
+        let const_node = GraphNode::constant(100usize);
+
+        // スカラーであることを確認
+        assert_eq!(const_node.view.ndim(), 0);
+
+        // GraphOp::Constであることを確認
+        match &const_node.op {
+            GraphOp::Const(crate::ast::Literal::Usize(v)) => {
+                assert_eq!(*v, 100);
+            }
+            _ => panic!("Expected GraphOp::Const with Usize literal"),
         }
     }
 }

@@ -51,6 +51,8 @@ pub enum ElementwiseOp {
     Idiv,
     Neg,
     Recip,
+    Log2, // 底が2の対数
+    Exp2, // 2の累乗
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
