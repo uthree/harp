@@ -365,10 +365,20 @@ pub trait CLikeRenderer: Renderer {
                 result.push_str(&self.render_param(param, is_kernel));
             }
 
-            result.push_str(") ");
+            result.push_str(") {\n");
 
             // 関数本体（Blockノードのはず）
+            self.inc_indent();
+
+            // スレッドID等の特殊変数の宣言（カーネル関数の場合）
+            let thread_vars = self.render_thread_var_declarations(params, &self.indent());
+            if !thread_vars.is_empty() {
+                result.push_str(&thread_vars);
+            }
+
             result.push_str(&self.render_statement(body));
+            self.dec_indent();
+            result.push_str(&format!("{}}}\n", self.indent()));
 
             result
         } else {

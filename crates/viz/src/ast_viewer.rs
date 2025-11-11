@@ -1,7 +1,7 @@
 //! AST最適化を可視化するビューア
 
 use harp::ast::renderer::render_ast_with;
-use harp::ast::Program;
+use harp::ast::AstNode;
 use harp::backend::c_like::CLikeRenderer;
 use harp::backend::openmp::CRenderer;
 use harp::opt::ast::OptimizationHistory;
@@ -35,7 +35,7 @@ where
     /// ASTレンダラー
     renderer: R,
     /// Program全体（複数のFunctionを含む）
-    program: Option<Program>,
+    program: Option<AstNode>,
 }
 
 impl Default for AstViewerApp<CRenderer> {
@@ -70,12 +70,11 @@ where
     }
 
     /// Program全体を読み込む
-    pub fn load_program(&mut self, program: Program) {
+    pub fn load_program(&mut self, program: AstNode) {
+        if let AstNode::Program { ref functions, .. } = program {
+            log::info!("Program loaded with {} functions", functions.len());
+        }
         self.program = Some(program);
-        log::info!(
-            "Program loaded with {} functions",
-            self.program.as_ref().unwrap().functions.len()
-        );
     }
 
     /// 単一のFunction用の最適化履歴を読み込む（後方互換性のため）

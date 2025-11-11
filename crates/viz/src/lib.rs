@@ -75,7 +75,7 @@ impl HarpVizApp {
     }
 
     /// Program全体を読み込む
-    pub fn load_program(&mut self, program: harp::ast::Program) {
+    pub fn load_program(&mut self, program: harp::ast::AstNode) {
         self.ast_viewer.load_program(program);
         // ASTビューアタブに切り替え
         self.current_tab = VizTab::AstViewer;
@@ -202,7 +202,7 @@ mod tests {
         type CodeRepr = String;
         type Option = ();
 
-        fn render(&self, _program: &harp::ast::Program) -> Self::CodeRepr {
+        fn render(&self, _program: &harp::ast::AstNode) -> Self::CodeRepr {
             "dummy code".to_string()
         }
 
