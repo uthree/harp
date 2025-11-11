@@ -31,7 +31,7 @@ pub struct GraphOptimizationConfig {
 impl Default for GraphOptimizationConfig {
     fn default() -> Self {
         Self {
-            beam_width: 10,
+            beam_width: 4,
             max_steps: 100,
             show_progress: false,
         }
@@ -54,8 +54,8 @@ impl Default for AstOptimizationConfig {
     fn default() -> Self {
         Self {
             rule_max_iterations: 100,
-            beam_width: 10,
-            max_steps: 100,
+            beam_width: 4,
+            max_steps: 10000,
             show_progress: false,
         }
     }

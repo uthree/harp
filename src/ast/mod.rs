@@ -524,7 +524,16 @@ impl AstNode {
             AstNode::Call { args, .. } => args.iter().map(|node| node as &AstNode).collect(),
             AstNode::Return { value } => vec![value.as_ref()],
             AstNode::Barrier => vec![],
-            AstNode::Function { body, .. } => vec![body.as_ref()],
+            AstNode::Function { body, params, .. } => {
+                let mut children: Vec<&AstNode> = vec![body.as_ref()];
+                // paramsのinitial_valueも子ノードに含める
+                for param in params {
+                    if let Some(ref init) = param.initial_value {
+                        children.push(init);
+                    }
+                }
+                children
+            }
             AstNode::Program { functions, .. } => {
                 functions.iter().map(|node| node as &AstNode).collect()
             }
@@ -603,7 +612,16 @@ impl AstNode {
                 kind,
             } => AstNode::Function {
                 name: name.clone(),
-                params: params.clone(),
+                params: params
+                    .iter()
+                    .map(|param| VarDecl {
+                        name: param.name.clone(),
+                        dtype: param.dtype.clone(),
+                        mutability: param.mutability.clone(),
+                        kind: param.kind.clone(),
+                        initial_value: param.initial_value.as_ref().map(|init| f(init)),
+                    })
+                    .collect(),
                 return_type: return_type.clone(),
                 body: Box::new(f(body)),
                 kind: kind.clone(),

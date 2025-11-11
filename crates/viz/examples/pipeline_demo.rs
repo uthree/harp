@@ -23,15 +23,15 @@ fn main() -> eframe::Result {
     // グラフ最適化の設定
     let graph_config = GraphOptimizationConfig {
         beam_width: 4,
-        max_steps: 8,
+        max_steps: 100,
         show_progress: true,
     };
 
     // AST最適化の設定
     let ast_config = AstOptimizationConfig {
-        rule_max_iterations: 100,
-        beam_width: 5,
-        max_steps: 10,
+        rule_max_iterations: 10,
+        beam_width: 4,
+        max_steps: 100,
         show_progress: true,
     };
 

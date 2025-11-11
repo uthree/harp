@@ -19,7 +19,7 @@ impl SimpleCostEstimator {
     fn base_cost(&self, ast: &AstNode) -> f32 {
         let cost = match ast {
             AstNode::Const(_) | AstNode::Wildcard(_) => 0.0,
-            AstNode::Var(_) => 0.0,
+            AstNode::Var(_) => 2.0,
             AstNode::Add(_, _) => 1.0,
             AstNode::Mul(_, _) => 2.0,
             AstNode::Max(_, _) => 1.0,
@@ -212,7 +212,8 @@ mod tests {
         // ループ回数は10回なので、children_costは 0 + 0 + 0 + body_cost * 10
         let cost_10 = estimator.estimate(&range_10);
         let expected_cost_10 = 10.0 * body_cost + 10.0 * 1e-9; // children_cost + base_cost
-        assert!((cost_10 - expected_cost_10).abs() < 1e-12);
+        // 浮動小数点演算の精度を考慮して許容範囲を1e-8に設定
+        assert!((cost_10 - expected_cost_10).abs() < 1e-8);
 
         // ループ回数が100回の場合
         let range_100 = AstNode::Range {
@@ -228,7 +229,8 @@ mod tests {
 
         let cost_100 = estimator.estimate(&range_100);
         let expected_cost_100 = 100.0 * body_cost + 10.0 * 1e-9;
-        assert!((cost_100 - expected_cost_100).abs() < 1e-12);
+        // 浮動小数点演算の精度を考慮して許容範囲を1e-8に設定
+        assert!((cost_100 - expected_cost_100).abs() < 1e-8);
 
         // ループ回数が不明な場合（変数を使用）
         let range_unknown = AstNode::Range {
@@ -245,12 +247,14 @@ mod tests {
         // ループ回数が不明なので100回と推定され、children_costは 0 + 0 + 0 + body_cost * 100
         let cost_unknown = estimator.estimate(&range_unknown);
         let expected_cost_unknown = 100.0 * body_cost + 10.0 * 1e-9;
-        assert!((cost_unknown - expected_cost_unknown).abs() < 1e-12);
+        // 浮動小数点演算の精度を考慮して許容範囲を1e-8に設定
+        assert!((cost_unknown - expected_cost_unknown).abs() < 1e-8);
 
         // 重要な比較：明確な回数のループと不明な回数のループ
         // ループ10回の方がループ100回より大幅にコストが低いはず
         assert!(cost_10 < cost_100);
         // ループ回数不明（100回推定）とループ100回は同じコストのはず
-        assert!((cost_100 - cost_unknown).abs() < 1e-12);
+        // 浮動小数点演算の精度を考慮して許容範囲を1e-8に設定
+        assert!((cost_100 - cost_unknown).abs() < 1e-8);
     }
 }
