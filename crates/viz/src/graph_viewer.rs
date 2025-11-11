@@ -440,6 +440,10 @@ impl GraphViewerApp {
         ui.heading("Graph Viewer");
         ui.separator();
 
+        // メインコンテンツ全体をスクロール可能に
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
         // 最適化履歴がある場合はナビゲーションを表示
         if self.optimization_history.is_some() {
             let history_len = self.optimization_history.as_ref().unwrap().len();
@@ -782,6 +786,7 @@ impl GraphViewerApp {
                     ui.label("No graph loaded");
                 }
             });
+        }); // ScrollArea::vertical() を閉じる
     }
 }
 

@@ -317,6 +317,10 @@ where
             }
         }
 
+        // メインコンテンツ全体をスクロール可能に
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
         // 現在のステップの情報を表示
         let candidates = self.get_current_step_candidates();
         if let Some(current_snapshot) = candidates.get(self.selected_rank) {
@@ -459,27 +463,35 @@ where
                         });
 
                         if let Some(rendered_code) = code_for_display {
-                            egui::ScrollArea::both() // 縦横両方にスクロール可能
-                                .id_salt("ast_code_scroll")
-                                .max_height(ui.available_height())
-                                .auto_shrink([false, false]) // 自動縮小を無効化して全幅を使う
+                            // 高さをリサイズ可能に
+                            egui::Resize::default()
+                                .default_height(400.0)
+                                .min_height(200.0)
+                                .max_height(1000.0)
+                                .resizable(true)
                                 .show(ui, |ui| {
-                                    // シンタックスハイライト付きでコードを表示
-                                    let theme =
-                                        egui_extras::syntax_highlighting::CodeTheme::from_memory(
-                                            ui.ctx(),
-                                            ui.style(),
-                                        );
+                                    egui::ScrollArea::both() // 縦横両方にスクロール可能
+                                        .id_salt("ast_code_scroll")
+                                        .max_height(ui.available_height())
+                                        .auto_shrink([false, false]) // 自動縮小を無効化して全幅を使う
+                                        .show(ui, |ui| {
+                                            // シンタックスハイライト付きでコードを表示
+                                            let theme =
+                                                egui_extras::syntax_highlighting::CodeTheme::from_memory(
+                                                    ui.ctx(),
+                                                    ui.style(),
+                                                );
 
-                                    let code = egui_extras::syntax_highlighting::highlight(
-                                        ui.ctx(),
-                                        ui.style(),
-                                        &theme,
-                                        &rendered_code,
-                                        "c", // C言語風のシンタックスハイライト
-                                    );
+                                            let code = egui_extras::syntax_highlighting::highlight(
+                                                ui.ctx(),
+                                                ui.style(),
+                                                &theme,
+                                                &rendered_code,
+                                                "c", // C言語風のシンタックスハイライト
+                                            );
 
-                                    ui.add(egui::Label::new(code).selectable(true)); // 折り返しなし、ScrollArea::both()で横スクロール対応
+                                            ui.add(egui::Label::new(code).selectable(true)); // 折り返しなし、ScrollArea::both()で横スクロール対応
+                                        });
                                 });
                         } else {
                             ui.label("No candidate selected");
@@ -575,5 +587,6 @@ where
                         }
                     });
             });
+        }); // ScrollArea::vertical() を閉じる
     }
 }
