@@ -133,6 +133,20 @@ impl CostEstimator for SimpleCostEstimator {
                 args.iter().map(|a| self.estimate(a)).sum::<f32>() + 5.0
             }
             AstNode::Return { value } => self.estimate(value) + 1.0,
+            AstNode::Function { body, params, .. } => {
+                // 関数本体のコスト + パラメータの初期値のコスト
+                let body_cost = self.estimate(body);
+                let params_cost: f32 = params
+                    .iter()
+                    .filter_map(|p| p.initial_value.as_ref())
+                    .map(|init| self.estimate(init))
+                    .sum();
+                body_cost + params_cost
+            }
+            AstNode::Program { functions, .. } => {
+                // すべての関数のコストの合計
+                functions.iter().map(|f| self.estimate(f)).sum()
+            }
             _ => 0.0,
         };
 
@@ -269,5 +283,171 @@ mod tests {
         // ループ回数不明（100回推定）とループ100回は同じコストのはず
         // 浮動小数点演算の精度を考慮して許容範囲を1e-8に設定
         assert!((cost_100 - cost_unknown).abs() < 1e-8);
+    }
+
+    #[test]
+    fn test_function_cost() {
+        use crate::ast::{DType, FunctionKind, Mutability, VarDecl, VarKind};
+
+        let estimator = SimpleCostEstimator::new();
+
+        // 単純な関数: fn test() { return 42; }
+        let simple_func = AstNode::Function {
+            name: Some("test".to_string()),
+            params: vec![],
+            return_type: DType::Isize,
+            body: Box::new(AstNode::Return {
+                value: Box::new(AstNode::Const(Literal::Isize(42))),
+            }),
+            kind: FunctionKind::Normal,
+        };
+
+        let cost = estimator.estimate(&simple_func);
+        // Return (1.0) + Const (0.0) = 1.0
+        // 全て 1e-9 スケール
+        assert_eq!(cost, 1.0);
+
+        // パラメータに初期値を持つ関数
+        let func_with_params = AstNode::Function {
+            name: Some("add".to_string()),
+            params: vec![
+                VarDecl {
+                    name: "a".to_string(),
+                    dtype: DType::Isize,
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::Normal,
+                    initial_value: Some(AstNode::Const(Literal::Isize(1))),
+                },
+                VarDecl {
+                    name: "b".to_string(),
+                    dtype: DType::Isize,
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::Normal,
+                    initial_value: Some(AstNode::Const(Literal::Isize(2))),
+                },
+            ],
+            return_type: DType::Isize,
+            body: Box::new(AstNode::Return {
+                value: Box::new(AstNode::Add(
+                    Box::new(AstNode::Var("a".to_string())),
+                    Box::new(AstNode::Var("b".to_string())),
+                )),
+            }),
+            kind: FunctionKind::Normal,
+        };
+
+        let cost = estimator.estimate(&func_with_params);
+        // body: Return (base: 0, children: self.estimate(Add) + 1.0)
+        //   - Add (base: 1e-9, children: Var + Var = 2e-9 + 2e-9 = 4e-9) ≈ 5e-9
+        //   - Return children_cost = 5e-9 + 1.0 ≈ 1.0
+        //   - Return total = 0 + 1.0 = 1.0
+        // params: Const (0.0) + Const (0.0) = 0.0
+        // total = 1.0
+        assert_eq!(cost, 1.0);
+    }
+
+    #[test]
+    fn test_program_cost() {
+        use crate::ast::{DType, FunctionKind};
+
+        let estimator = SimpleCostEstimator::new();
+
+        // 2つの関数を持つプログラム
+        let program = AstNode::Program {
+            functions: vec![
+                AstNode::Function {
+                    name: Some("func1".to_string()),
+                    params: vec![],
+                    return_type: DType::Isize,
+                    body: Box::new(AstNode::Return {
+                        value: Box::new(AstNode::Const(Literal::Isize(1))),
+                    }),
+                    kind: FunctionKind::Normal,
+                },
+                AstNode::Function {
+                    name: Some("func2".to_string()),
+                    params: vec![],
+                    return_type: DType::Isize,
+                    body: Box::new(AstNode::Return {
+                        value: Box::new(AstNode::Const(Literal::Isize(2))),
+                    }),
+                    kind: FunctionKind::Normal,
+                },
+            ],
+            entry_point: "func1".to_string(),
+        };
+
+        let cost = estimator.estimate(&program);
+        // func1: Return (1.0) + Const (0.0) = 1.0
+        // func2: Return (1.0) + Const (0.0) = 1.0
+        // total = 2.0
+        assert_eq!(cost, 2.0);
+
+        // より複雑な関数を持つプログラム
+        let complex_program = AstNode::Program {
+            functions: vec![AstNode::Function {
+                name: Some("compute".to_string()),
+                params: vec![],
+                return_type: DType::Isize,
+                body: Box::new(AstNode::Return {
+                    value: Box::new(AstNode::Add(
+                        Box::new(AstNode::Mul(
+                            Box::new(AstNode::Const(Literal::Isize(2))),
+                            Box::new(AstNode::Const(Literal::Isize(3))),
+                        )),
+                        Box::new(AstNode::Const(Literal::Isize(4))),
+                    )),
+                }),
+                kind: FunctionKind::Normal,
+            }],
+            entry_point: "compute".to_string(),
+        };
+
+        let cost = estimator.estimate(&complex_program);
+        // Return (base: 0, children: self.estimate(Add) + 1.0)
+        //   - Add (base: 1e-9, children: Mul + Const)
+        //     - Mul (base: 2e-9, children: Const + Const = 0) = 2e-9
+        //     - Const = 0
+        //     - Add total = 1e-9 + 2e-9 = 3e-9
+        //   - Return total = 0 + 3e-9 + 1.0 ≈ 1.0
+        // program total = 1.0
+        assert_eq!(cost, 1.0);
+    }
+
+    #[test]
+    fn test_function_and_program_nonzero_cost() {
+        use crate::ast::{DType, FunctionKind};
+
+        let estimator = SimpleCostEstimator::new();
+
+        // 最小限の関数
+        let func = AstNode::Function {
+            name: Some("empty".to_string()),
+            params: vec![],
+            return_type: DType::Isize,
+            body: Box::new(AstNode::Return {
+                value: Box::new(AstNode::Const(Literal::Isize(0))),
+            }),
+            kind: FunctionKind::Normal,
+        };
+
+        let func_cost = estimator.estimate(&func);
+        // 関数のコストは0より大きいはず（Returnのbase_costがある）
+        assert!(func_cost > 0.0, "Function cost should be non-zero");
+
+        // 最小限のプログラム
+        let program = AstNode::Program {
+            functions: vec![func.clone()],
+            entry_point: "empty".to_string(),
+        };
+
+        let program_cost = estimator.estimate(&program);
+        // プログラムのコストは関数のコストと等しいはず
+        assert_eq!(program_cost, func_cost);
+        assert!(
+            program_cost > 0.0,
+            "Program cost should be non-zero: got {}",
+            program_cost
+        );
     }
 }

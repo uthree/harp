@@ -17,6 +17,8 @@ pub struct OptimizationSnapshot {
     pub rank: usize,
     /// このステップで適用されたルール名（あれば）
     pub applied_rule: Option<String>,
+    /// このステップまでのログ
+    pub logs: Vec<String>,
 }
 
 impl OptimizationSnapshot {
@@ -36,6 +38,28 @@ impl OptimizationSnapshot {
             description,
             rank,
             applied_rule,
+            logs: Vec::new(),
+        }
+    }
+
+    /// ログ付きで新しいスナップショットを作成
+    pub fn with_logs(
+        step: usize,
+        ast: AstNode,
+        cost: f32,
+        description: String,
+        rank: usize,
+        applied_rule: Option<String>,
+        logs: Vec<String>,
+    ) -> Self {
+        Self {
+            step,
+            ast,
+            cost,
+            description,
+            rank,
+            applied_rule,
+            logs,
         }
     }
 }

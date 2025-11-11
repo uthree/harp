@@ -354,13 +354,8 @@ where
         if let Some(current_snapshot) = candidates.get(self.selected_rank) {
             ui.horizontal(|ui| {
                 ui.label("Cost:");
-                // 科学記数法で表示（小さい値でも読みやすく）
-                let cost_str =
-                    if current_snapshot.cost.abs() < 0.001 && current_snapshot.cost != 0.0 {
-                        format!("{:.2e}", current_snapshot.cost)
-                    } else {
-                        format!("{:.6}", current_snapshot.cost)
-                    };
+                // ASTのコストは非常に小さい（1e-9スケール）ので常に科学記数法で表示
+                let cost_str = format!("{:.2e}", current_snapshot.cost);
                 ui.label(cost_str);
             });
             ui.horizontal(|ui| {

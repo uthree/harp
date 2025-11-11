@@ -68,7 +68,12 @@ impl RuleBaseSuggester {
             | AstNode::Mul(l, r)
             | AstNode::Max(l, r)
             | AstNode::Rem(l, r)
-            | AstNode::Idiv(l, r) => {
+            | AstNode::Idiv(l, r)
+            | AstNode::BitwiseAnd(l, r)
+            | AstNode::BitwiseOr(l, r)
+            | AstNode::BitwiseXor(l, r)
+            | AstNode::LeftShift(l, r)
+            | AstNode::RightShift(l, r) => {
                 // 左側の子に適用
                 for new_left in self.apply_rule_at_all_positions(l, rule) {
                     results.push(ast.map_children(&|child| {
@@ -96,6 +101,7 @@ impl RuleBaseSuggester {
             | AstNode::Log2(n)
             | AstNode::Exp2(n)
             | AstNode::Sin(n)
+            | AstNode::BitwiseNot(n)
             | AstNode::Cast(n, _) => {
                 for new_child in self.apply_rule_at_all_positions(n, rule) {
                     results.push(ast.map_children(&|_| new_child.clone()));
@@ -209,6 +215,76 @@ impl RuleBaseSuggester {
                         stop: stop.clone(),
                         body: Box::new(new_body),
                     });
+                }
+            }
+            AstNode::Return { value } => {
+                for new_value in self.apply_rule_at_all_positions(value, rule) {
+                    results.push(AstNode::Return {
+                        value: Box::new(new_value),
+                    });
+                }
+            }
+            AstNode::Function {
+                name,
+                params,
+                return_type,
+                body,
+                kind,
+            } => {
+                // 関数本体に対してルールを適用
+                for new_body in self.apply_rule_at_all_positions(body, rule) {
+                    results.push(AstNode::Function {
+                        name: name.clone(),
+                        params: params.clone(),
+                        return_type: return_type.clone(),
+                        body: Box::new(new_body),
+                        kind: kind.clone(),
+                    });
+                }
+                // パラメータの初期値に対してルールを適用
+                for (i, param) in params.iter().enumerate() {
+                    if let Some(init_value) = &param.initial_value {
+                        for new_init in self.apply_rule_at_all_positions(init_value, rule) {
+                            let mut new_params = params.clone();
+                            new_params[i].initial_value = Some(new_init);
+                            results.push(AstNode::Function {
+                                name: name.clone(),
+                                params: new_params,
+                                return_type: return_type.clone(),
+                                body: body.clone(),
+                                kind: kind.clone(),
+                            });
+                        }
+                    }
+                }
+            }
+            AstNode::Program {
+                functions,
+                entry_point,
+            } => {
+                // 各関数に対してルールを適用
+                for (i, func) in functions.iter().enumerate() {
+                    for new_func in self.apply_rule_at_all_positions(func, rule) {
+                        let mut new_functions = functions.clone();
+                        new_functions[i] = new_func;
+                        results.push(AstNode::Program {
+                            functions: new_functions,
+                            entry_point: entry_point.clone(),
+                        });
+                    }
+                }
+            }
+            AstNode::Call { name, args } => {
+                // 引数に対してルールを適用
+                for (i, arg) in args.iter().enumerate() {
+                    for new_arg in self.apply_rule_at_all_positions(arg, rule) {
+                        let mut new_args = args.clone();
+                        new_args[i] = new_arg;
+                        results.push(AstNode::Call {
+                            name: name.clone(),
+                            args: new_args,
+                        });
+                    }
                 }
             }
             _ => {}

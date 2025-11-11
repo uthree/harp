@@ -13,6 +13,8 @@ pub struct OptimizationSnapshot {
     pub cost: f32,
     /// このステップの説明
     pub description: String,
+    /// このステップまでのログ
+    pub logs: Vec<String>,
 }
 
 impl OptimizationSnapshot {
@@ -23,6 +25,24 @@ impl OptimizationSnapshot {
             graph,
             cost,
             description,
+            logs: Vec::new(),
+        }
+    }
+
+    /// ログ付きで新しいスナップショットを作成
+    pub fn with_logs(
+        step: usize,
+        graph: Graph,
+        cost: f32,
+        description: String,
+        logs: Vec<String>,
+    ) -> Self {
+        Self {
+            step,
+            graph,
+            cost,
+            description,
+            logs,
         }
     }
 }

@@ -76,6 +76,11 @@ where
 {
     /// グラフを最適化して、グラフと最適化履歴を返す
     pub fn optimize_with_history(&self, graph: Graph) -> (Graph, OptimizationHistory) {
+        use crate::opt::log_capture;
+
+        // ログキャプチャを開始
+        log_capture::start_capture();
+
         debug!("BeamSearchGraphOptimizer: Starting beam search optimization with history tracking");
 
         let mut history = OptimizationHistory::new();
@@ -104,12 +109,17 @@ where
             );
         }
 
-        history.add_snapshot(OptimizationSnapshot::new(
+        let initial_logs = log_capture::get_captured_logs();
+        history.add_snapshot(OptimizationSnapshot::with_logs(
             0,
             graph,
             initial_cost,
             format!("Initial graph ({} outputs)", initial_outputs),
+            initial_logs,
         ));
+
+        // 初期ログをクリア（各ステップで新しいログのみを記録するため）
+        log_capture::clear_logs();
 
         let pb = if self.show_progress {
             let pb = ProgressBar::new(self.max_steps as u64);
@@ -206,7 +216,8 @@ where
                     );
                 }
 
-                history.add_snapshot(OptimizationSnapshot::new(
+                let step_logs = log_capture::get_captured_logs();
+                history.add_snapshot(OptimizationSnapshot::with_logs(
                     step + 1,
                     best.clone(),
                     *cost,
@@ -216,7 +227,11 @@ where
                         beam.len(),
                         num_outputs
                     ),
+                    step_logs,
                 ));
+
+                // このステップのログをクリア（次のステップで新しいログのみを記録するため）
+                log_capture::clear_logs();
 
                 // コスト改善チェック（千日手対策）
                 const EPSILON: f32 = 1e-6; // 浮動小数点の誤差を考慮

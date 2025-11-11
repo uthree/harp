@@ -114,6 +114,11 @@ where
 {
     /// 履歴を記録しながら最適化を実行
     pub fn optimize_with_history(&self, ast: AstNode) -> (AstNode, OptimizationHistory) {
+        use crate::opt::log_capture;
+
+        // ログキャプチャを開始
+        log_capture::start_capture();
+
         debug!("BeamSearchOptimizer: Starting beam search optimization with history");
 
         let mut history = OptimizationHistory::new();
@@ -121,14 +126,19 @@ where
 
         // 初期状態を記録
         let initial_cost = self.estimator.estimate(&ast);
-        history.add_snapshot(OptimizationSnapshot::new(
+        let initial_logs = log_capture::get_captured_logs();
+        history.add_snapshot(OptimizationSnapshot::with_logs(
             0,
             ast,
             initial_cost,
             "Initial AST".to_string(),
             0,
             None,
+            initial_logs,
         ));
+
+        // 初期ログをクリア（各ステップで新しいログのみを記録するため）
+        log_capture::clear_logs();
 
         let pb = if self.show_progress {
             let pb = ProgressBar::new(self.max_steps as u64);
@@ -187,14 +197,18 @@ where
             // このステップの最良候補を記録
             if let Some(best) = beam.first() {
                 let cost = self.estimator.estimate(best);
-                history.add_snapshot(OptimizationSnapshot::new(
+                let step_logs = log_capture::get_captured_logs();
+                history.add_snapshot(OptimizationSnapshot::with_logs(
                     step + 1,
                     best.clone(),
                     cost,
                     format!("Step {}: beam width {}", step + 1, beam.len()),
                     0,
                     None,
+                    step_logs,
                 ));
+                // このステップのログをクリア（次のステップで新しいログのみを記録するため）
+                log_capture::clear_logs();
             }
         }
 
