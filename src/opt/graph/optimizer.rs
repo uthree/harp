@@ -93,7 +93,7 @@ where
         // 千日手対策用の変数
         let mut best_cost = initial_cost;
         let mut no_improvement_count = 0;
-        const MAX_NO_IMPROVEMENT: usize = 5; // 5回連続で改善がなければ終了
+        const MAX_NO_IMPROVEMENT: usize = 100; // 100回連続で改善がなければ終了
 
         // 初期状態の入力・出力ノード情報をログに出力
         debug!(
@@ -136,6 +136,8 @@ where
             None
         };
 
+        let mut early_terminated = false;
+
         for step in 0..self.max_steps {
             if let Some(ref pb) = pb {
                 pb.set_message(format!("step {}", step + 1));
@@ -162,6 +164,7 @@ where
                         "\x1b[1;32mFinished\x1b[0m"
                     );
                 }
+                early_terminated = true;
                 break;
             }
 
@@ -171,9 +174,28 @@ where
                 step
             );
 
+            // 重複除去: グラフをシリアライズして比較
+            use std::collections::HashMap;
+            let mut seen = HashMap::new();
+            let mut unique_candidates = Vec::new();
+
+            for graph in candidates {
+                // グラフの構造を文字列化（DOT形式）
+                let signature = graph.to_dot();
+                if !seen.contains_key(&signature) {
+                    seen.insert(signature, ());
+                    unique_candidates.push(graph);
+                }
+            }
+
+            debug!(
+                "BeamSearchGraphOptimizer: After deduplication: {} unique candidates",
+                unique_candidates.len()
+            );
+
             // コストでソートして上位beam_width個を残す
             // 各候補のコストを事前に計算してキャッシュ（重複計算を避ける）
-            let mut candidates_with_cost: Vec<(Graph, f32)> = candidates
+            let mut candidates_with_cost: Vec<(Graph, f32)> = unique_candidates
                 .into_iter()
                 .map(|g| {
                     let cost = self.estimator.estimate(&g);
@@ -266,13 +288,14 @@ where
                                 "\x1b[1;32mFinished\x1b[0m"
                             );
                         }
+                        early_terminated = true;
                         break;
                     }
                 }
             }
         }
 
-        if let Some(pb) = pb {
+        if !early_terminated && let Some(pb) = pb {
             pb.finish_and_clear();
             // Cargoスタイルの完了メッセージ
             println!("{:>12} graph optimization", "\x1b[1;32mFinished\x1b[0m");

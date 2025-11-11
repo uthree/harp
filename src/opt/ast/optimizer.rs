@@ -184,15 +184,37 @@ where
                 step
             );
 
+            // 重複除去: ASTをデバッグ文字列化して比較
+            use std::collections::HashMap;
+            let mut seen = HashMap::new();
+            let mut unique_candidates = Vec::new();
+
+            for ast in candidates {
+                // ASTの構造を文字列化
+                let signature = format!("{:?}", ast);
+                if !seen.contains_key(&signature) {
+                    seen.insert(signature, ());
+                    unique_candidates.push(ast);
+                }
+            }
+
+            debug!(
+                "BeamSearchOptimizer: After deduplication: {} unique candidates",
+                unique_candidates.len()
+            );
+
             // コストでソートして上位beam_width個を残す
-            candidates.sort_by(|a, b| {
+            unique_candidates.sort_by(|a, b| {
                 self.estimator
                     .estimate(a)
                     .partial_cmp(&self.estimator.estimate(b))
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
 
-            beam = candidates.into_iter().take(self.beam_width).collect();
+            beam = unique_candidates
+                .into_iter()
+                .take(self.beam_width)
+                .collect();
 
             // このステップの最良候補を記録
             if let Some(best) = beam.first() {

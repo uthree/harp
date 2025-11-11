@@ -5,15 +5,16 @@
 
 use harp::backend::openmp::{CCompiler, CRenderer};
 use harp::backend::{AstOptimizationConfig, GenericPipeline, GraphOptimizationConfig};
-use harp::graph::{DType, Graph};
+use harp::graph::{DType, Graph, GraphNode};
 use harp_viz::HarpVizApp;
 
 fn main() -> eframe::Result {
     // env_logger::init()の代わりにlog_captureを使う
     harp::opt::log_capture::init_with_env_logger();
 
-    println!("=== Harp GenericPipeline 最適化デモ ===\n");
+    println!("=== Harp GenericPipeline 最適化デモ（行列積版） ===\n");
     println!("このデモでは、行列積を含む複雑な計算グラフを最適化します。");
+    println!("行列積は elementwise 乗算と reduce_sum の組み合わせで実装されています。");
     println!("最適化の各ステップがGenericPipelineに記録され、可視化されます。\n");
 
     // GenericPipelineを作成（最適化を組み込み）
@@ -23,7 +24,7 @@ fn main() -> eframe::Result {
 
     // グラフ最適化の設定
     let graph_config = GraphOptimizationConfig {
-        beam_width: 4,
+        beam_width: 1,
         max_steps: 100,
         show_progress: true,
     };
@@ -31,7 +32,7 @@ fn main() -> eframe::Result {
     // AST最適化の設定
     let ast_config = AstOptimizationConfig {
         rule_max_iterations: 10,
-        beam_width: 4,
+        beam_width: 1,
         max_steps: 100,
         show_progress: true,
     };
@@ -128,71 +129,124 @@ fn main() -> eframe::Result {
     )
 }
 
-/// 複雑な計算グラフを作成
+/// 行列積を計算するヘルパー関数
+/// C = A @ B (A: [M, K], B: [K, N]) -> C: [M, N]
+///
+/// 実装方法:
+/// 1. A: [M, K] -> unsqueeze(2) -> [M, K, 1]
+/// 2. B: [K, N] -> unsqueeze(0) -> [1, K, N]
+/// 3. A_expanded, B_expanded を [M, K, N] に expand
+/// 4. elementwise 乗算: [M, K, N]
+/// 5. reduce_sum(axis=1): [M, N]
+fn matmul(a: GraphNode, b: GraphNode) -> GraphNode {
+    use harp::graph::shape::Expr;
+
+    // A: [M, K], B: [K, N]
+    let a_shape = a.view.shape();
+    let b_shape = b.view.shape();
+
+    assert_eq!(a_shape.len(), 2, "matmul: A must be 2D");
+    assert_eq!(b_shape.len(), 2, "matmul: B must be 2D");
+
+    let m = a_shape[0].clone();
+    let k_a = a_shape[1].clone();
+    let k_b = b_shape[0].clone();
+    let n = b_shape[1].clone();
+
+    // K次元が一致するか確認（数値の場合のみ）
+    if let (Expr::Const(k_a_val), Expr::Const(k_b_val)) = (&k_a, &k_b) {
+        assert_eq!(
+            k_a_val, k_b_val,
+            "matmul: dimension mismatch K: {} != {}",
+            k_a_val, k_b_val
+        );
+    }
+
+    // A: [M, K] -> [M, K, 1]
+    let a_unsqueezed = a.view(a.view.clone().unsqueeze(2));
+
+    // B: [K, N] -> [1, K, N]
+    let b_unsqueezed = b.view(b.view.clone().unsqueeze(0));
+
+    // expand to [M, K, N]
+    let expanded_shape = vec![m.clone(), k_a.clone(), n.clone()];
+    let a_expanded = a_unsqueezed.view(a_unsqueezed.view.clone().expand(expanded_shape.clone()));
+    let b_expanded = b_unsqueezed.view(b_unsqueezed.view.clone().expand(expanded_shape));
+
+    // elementwise multiply: [M, K, N]
+    let product = a_expanded * b_expanded;
+
+    // reduce_sum along axis=1: [M, N]
+    product.reduce_sum(1)
+}
+
+/// 複雑な計算グラフを作成（行列積を含む）
 ///
 /// 以下の計算を実装:
 /// ```
-/// # 複数のテンソル演算を組み合わせ
-/// x1 = a + b
-/// x2 = x1 * c
-/// x3 = x2 - d
-/// y = reduce_sum(x3, axis=0)
-/// z = reduce_sum(x3, axis=1)
-/// w = y + (z expanded)
+/// # 行列積を含む複数のテンソル演算
+/// x1 = matmul(a, b)  # [M, K] @ [K, N] -> [M, N]
+/// x2 = x1 + c        # [M, N] + [M, N]
+/// x3 = matmul(x2, d) # [M, N] @ [N, P] -> [M, P]
+/// y = reduce_sum(x3, axis=0) -> [P]
+/// z = reduce_sum(x3, axis=1) -> [M]
 /// ```
 fn create_complex_computation_graph() -> Graph {
     let mut graph = Graph::new();
 
-    let rows = 128;
-    let cols = 256;
+    let m = 64;
+    let k = 128;
+    let n = 96;
+    let p = 80;
 
-    // 入力: a [rows, cols]
+    // 入力: a [M, K]
     let a = graph
         .input("a")
         .with_dtype(DType::F32)
-        .with_shape(vec![rows, cols])
+        .with_shape(vec![m, k])
         .build();
 
-    // 入力: b [rows, cols]
+    // 入力: b [K, N]
     let b = graph
         .input("b")
         .with_dtype(DType::F32)
-        .with_shape(vec![rows, cols])
+        .with_shape(vec![k, n])
         .build();
 
-    // 入力: c [rows, cols]
+    // 入力: c [M, N]
     let c = graph
         .input("c")
         .with_dtype(DType::F32)
-        .with_shape(vec![rows, cols])
+        .with_shape(vec![m, n])
         .build();
 
-    // 入力: d [rows, cols]
+    // 入力: d [N, P]
     let d = graph
         .input("d")
         .with_dtype(DType::F32)
-        .with_shape(vec![rows, cols])
+        .with_shape(vec![n, p])
         .build();
 
     // 計算グラフを構築
-    // x1 = a + b
-    let x1 = a + b;
+    // x1 = matmul(a, b) -> [M, N]
+    let x1 = matmul(a, b);
 
-    // x2 = x1 * c
-    let x2 = x1.clone() * c;
+    // x2 = x1 + c -> [M, N]
+    let x2 = x1 + c;
 
-    // x3 = x2 - d
-    let x3 = x2.clone() - d;
+    // x3 = matmul(x2, d) -> [M, P]
+    let x3 = matmul(x2, d);
 
-    // y = reduce_sum(x3, axis=0) -> [cols]
+    // y = reduce_sum(x3, axis=0) -> [P]
     let y = x3.clone().reduce_sum(0);
 
-    // z = reduce_sum(x3, axis=1) -> [rows]
+    // z = reduce_sum(x3, axis=1) -> [M]
     let z = x3.clone().reduce_sum(1);
 
     // 複数の中間結果を出力
     graph.output("y", y);
     graph.output("z", z);
+    graph.output("x3", x3);
 
     graph
 }

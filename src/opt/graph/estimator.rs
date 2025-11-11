@@ -1,5 +1,4 @@
 use crate::graph::{DType, ElementwiseStrategy, Graph, GraphNode, GraphOp};
-use crate::lowerer::Lowerer;
 use crate::opt::ast::CostEstimator as AstCostEstimator;
 use crate::opt::graph::GraphCostEstimator;
 use std::collections::HashSet;
@@ -16,8 +15,8 @@ impl SimpleCostEstimator {
     /// 各ノードのベースコストを取得
     fn node_base_cost(&self, node: &GraphNode) -> f32 {
         match &node.op {
-            GraphOp::Input | GraphOp::Const(_) => 0.0,
-            GraphOp::View(_) => 0.0, // View変更はゼロコスト
+            GraphOp::Input | GraphOp::Const(_) => 0.1,
+            GraphOp::View(_) => 0.1, // View変更はほぼゼロ
             GraphOp::Contiguous { .. } => {
                 // メモリコピーのコスト = 要素数 × dtype size × 2 (read + write)
                 let num_elements = self.compute_num_elements(node);
@@ -277,7 +276,7 @@ mod tests {
 
 /// ASTベースのコスト推定器
 ///
-/// 各GraphNodeをASTに変換してからコストを推定します。
+/// グラフ全体をProgramに変換してからコストを推定します。
 /// より正確なコスト推定が可能ですが、SimpleCostEstimatorよりも計算コストが高いです。
 pub struct AstBasedCostEstimator<E: AstCostEstimator> {
     ast_estimator: E,
@@ -288,74 +287,13 @@ impl<E: AstCostEstimator> AstBasedCostEstimator<E> {
     pub fn new(ast_estimator: E) -> Self {
         Self { ast_estimator }
     }
-
-    /// 単一のGraphNodeをASTに変換してコストを推定
-    fn estimate_node(&self, node: &GraphNode, node_id: usize) -> f32 {
-        // Inputノードはスキップ（コストなし）
-        if matches!(node.op, GraphOp::Input) {
-            return 0.0;
-        }
-
-        // Lowererを使ってASTに変換
-        let mut lowerer = Lowerer::new();
-        match lowerer.lower_node_to_kernel(node, node_id) {
-            Ok(ast) => {
-                // Function本体のコストを推定
-                if let crate::ast::AstNode::Function { body, .. } = &ast {
-                    self.ast_estimator.estimate(body)
-                } else {
-                    0.0
-                }
-            }
-            Err(_) => {
-                // 変換に失敗した場合はデフォルト値を返す
-                0.0
-            }
-        }
-    }
-
-    /// グラフ内の全ノードを収集（トポロジカル順）
-    fn collect_all_nodes(&self, graph: &Graph) -> Vec<GraphNode> {
-        let mut visited = HashSet::new();
-        let mut nodes = Vec::new();
-
-        fn visit(
-            node: &GraphNode,
-            visited: &mut HashSet<*const crate::graph::GraphNodeData>,
-            nodes: &mut Vec<GraphNode>,
-        ) {
-            let ptr = node.as_ptr();
-            if visited.contains(&ptr) {
-                return;
-            }
-            visited.insert(ptr);
-
-            // 先に依存ノードを訪問
-            for src in &node.src {
-                visit(src, visited, nodes);
-            }
-
-            nodes.push(node.clone());
-        }
-
-        for output in graph.outputs().values() {
-            visit(output, &mut visited, &mut nodes);
-        }
-
-        nodes
-    }
 }
 
 impl<E: AstCostEstimator> GraphCostEstimator for AstBasedCostEstimator<E> {
     fn estimate(&self, graph: &Graph) -> f32 {
-        let nodes = self.collect_all_nodes(graph);
-        let mut total_cost = 0.0;
-
-        for (node_id, node) in nodes.iter().enumerate() {
-            total_cost += self.estimate_node(node, node_id);
-        }
-
-        total_cost
+        // グラフ全体をProgramに変換
+        let program = crate::lowerer::lower(graph.clone());
+        self.ast_estimator.estimate(&program)
     }
 }
 
@@ -410,7 +348,7 @@ mod ast_based_tests {
             .build();
         graph1.output("c", a1 + b1);
 
-        // 大きいグラフ（1000要素）- しかし生成されるASTは同じ構造
+        // 大きいグラフ（1000要素）- 生成されるASTは同じ構造
         let mut graph2 = Graph::new();
         let a2 = graph2
             .input("a")
@@ -427,9 +365,9 @@ mod ast_based_tests {
         let cost1 = estimator.estimate(&graph1);
         let cost2 = estimator.estimate(&graph2);
 
-        // GraphNodeをlowerする時、shapeはパラメータになるため、
-        // 生成されるASTは同じ構造になり、コストも同じになる
-        // （ループ回数は変数なので100回と推定される）
+        // グラフ全体をProgramに変換するため、shapeはパラメータになり
+        // 生成されるASTは同じ構造になる（ループ回数は変数なので100回と推定）
+        // したがってコストも同じになる
         assert_eq!(cost1, cost2);
     }
 

@@ -10,7 +10,7 @@ use crate::opt::ast::{
 };
 use crate::opt::graph::{
     AstBasedCostEstimator, BeamSearchGraphOptimizer, CompositeSuggester, FusionSuggester,
-    OptimizationHistory as GraphOptimizationHistory, ParallelStrategyChanger,
+    OptimizationHistory as GraphOptimizationHistory, ParallelStrategyChanger, SimpleCostEstimator,
     ViewInsertionSuggester,
 };
 
@@ -31,8 +31,8 @@ pub struct GraphOptimizationConfig {
 impl Default for GraphOptimizationConfig {
     fn default() -> Self {
         Self {
-            beam_width: 4,
-            max_steps: 100,
+            beam_width: 1,
+            max_steps: 10000,
             show_progress: false,
         }
     }
@@ -54,7 +54,7 @@ impl Default for AstOptimizationConfig {
     fn default() -> Self {
         Self {
             rule_max_iterations: 100,
-            beam_width: 4,
+            beam_width: 1,
             max_steps: 10000,
             show_progress: false,
         }
@@ -212,8 +212,7 @@ where
                 Box::new(FusionSuggester::new()),
                 Box::new(ParallelStrategyChanger::with_default_strategies()),
             ]);
-            let ast_estimator = AstSimpleCostEstimator::new();
-            let estimator = AstBasedCostEstimator::new(ast_estimator);
+            let estimator = SimpleCostEstimator::new();
 
             let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
                 .with_beam_width(self.graph_optimization_config.beam_width)

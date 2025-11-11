@@ -70,12 +70,7 @@ impl log::Log for CaptureLogger {
     }
 
     fn log(&self, record: &Record) {
-        // 元のロガーにもログを送る
-        if let Ok(inner) = self.inner.lock() {
-            inner.log(record);
-        }
-
-        // バッファにもログを追加
+        // バッファにログを追加
         let message = format!(
             "[{}] {} - {}",
             record.level(),

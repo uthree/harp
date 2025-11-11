@@ -134,6 +134,44 @@ impl FusionSuggester {
         Some((graph_inputs, ops))
     }
 
+    /// 連続するView変更を検出
+    ///
+    /// View(v1) -> View(v2) のようなパターンを検出し、View(v2)だけに簡略化
+    fn detect_consecutive_views(&self, node: &GraphNode) -> Option<GraphNode> {
+        // このノードがViewでない場合はNone
+        let final_view = match &node.op {
+            GraphOp::View(v) => v.clone(),
+            _ => return None,
+        };
+
+        // 入力が1つでない場合はパターンに一致しない
+        if node.src.len() != 1 {
+            return None;
+        }
+
+        let input = &node.src[0];
+
+        // 入力もViewの場合、融合可能
+        if matches!(input.op, GraphOp::View(_)) {
+            // さらにその入力（元のデータソース）を取得
+            if input.src.len() == 1 {
+                let original_source = &input.src[0];
+
+                // 最終的なViewだけを適用した新しいノードを作成
+                let fused_node = GraphNode::new(
+                    node.dtype.clone(),
+                    GraphOp::View(final_view),
+                    vec![original_source.clone()],
+                    node.view.clone(),
+                );
+
+                return Some(fused_node);
+            }
+        }
+
+        None
+    }
+
     /// Elementwise -> Reduceパターンを検出
     fn detect_elementwise_reduce_pattern(
         &self,
@@ -266,6 +304,12 @@ impl GraphSuggester for FusionSuggester {
         let nodes = self.collect_all_nodes(graph);
 
         for node in &nodes {
+            // 連続するView変更を検出して融合
+            if let Some(fused_node) = self.detect_consecutive_views(node) {
+                let new_graph = self.replace_node_in_graph(graph, node, fused_node);
+                suggestions.push(new_graph);
+            }
+
             // Elementwise -> Reduceパターンを検出して融合
             if let Some((graph_inputs, ops, reduce_op, axis)) =
                 self.detect_elementwise_reduce_pattern(node)
@@ -432,6 +476,56 @@ mod tests {
         assert!(
             !suggestions.is_empty(),
             "Expected fusion suggestions for complex chain"
+        );
+    }
+
+    #[test]
+    fn test_fusion_consecutive_views() {
+        let suggester = FusionSuggester::new();
+
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![2, 3, 4])
+            .build();
+
+        // View変更を連続で適用: permute -> unsqueeze
+        let view1 = a.view.clone().permute(vec![2, 0, 1]); // [4, 2, 3]
+        let a_permuted = a.view(view1);
+
+        let view2 = a_permuted.view.clone().unsqueeze(0); // [1, 4, 2, 3]
+        let a_unsqueezed = a_permuted.view(view2);
+
+        graph.output("result", a_unsqueezed);
+
+        let suggestions = suggester.suggest(&graph);
+
+        // 連続するView変更が検出され、融合候補が生成されるはず
+        assert!(
+            !suggestions.is_empty(),
+            "Expected fusion suggestions for consecutive views"
+        );
+
+        // 融合された結果も1つのViewになっているか確認
+        let fused_graph = &suggestions[0];
+        let output_node = fused_graph.outputs().get("result").unwrap();
+
+        // 出力ノードがViewであることを確認
+        assert!(
+            matches!(output_node.op, GraphOp::View(_)),
+            "Expected View operation after fusion"
+        );
+
+        // 入力が元のInputノードに直接つながっているか確認
+        assert_eq!(
+            output_node.src.len(),
+            1,
+            "Fused view should have exactly one input"
+        );
+        assert!(
+            matches!(output_node.src[0].op, GraphOp::Input),
+            "Fused view should connect directly to input"
         );
     }
 }

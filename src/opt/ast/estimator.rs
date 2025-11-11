@@ -21,7 +21,7 @@ impl SimpleCostEstimator {
             AstNode::Const(_) | AstNode::Wildcard(_) => 0.0,
             AstNode::Var(_) => 2.0,
             AstNode::Add(_, _) => 1.0,
-            AstNode::Mul(_, _) => 2.0,
+            AstNode::Mul(_, _) => 4.0,
             AstNode::Max(_, _) => 1.0,
             AstNode::Rem(_, _) => 5.0,
             AstNode::Idiv(_, _) => 2.0,
@@ -45,9 +45,9 @@ impl SimpleCostEstimator {
             AstNode::Block { .. } => 10.0,
             AstNode::Range { .. } => 10.0,
             AstNode::Call { .. } => 20.0,
-            AstNode::Return { .. } => 0.0,
-            AstNode::Function { .. } => 0.0, // 関数定義自体にはコストがない
-            AstNode::Program { .. } => 0.0,  // プログラム構造自体にはコストがない
+            AstNode::Return { .. } => 1.0,
+            AstNode::Function { .. } => 1.0,
+            AstNode::Program { .. } => 0.0, // プログラム構造自体にはコストがない
         };
         cost * 1e-9
     }
