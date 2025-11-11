@@ -153,18 +153,28 @@ where
             );
 
             // コストでソートして上位beam_width個を残す
-            candidates.sort_by(|a, b| {
-                self.estimator
-                    .estimate(a)
-                    .partial_cmp(&self.estimator.estimate(b))
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
+            // 各候補のコストを事前に計算してキャッシュ（重複計算を避ける）
+            let mut candidates_with_cost: Vec<(Graph, f32)> = candidates
+                .into_iter()
+                .map(|g| {
+                    let cost = self.estimator.estimate(&g);
+                    (g, cost)
+                })
+                .collect();
 
-            beam = candidates.into_iter().take(self.beam_width).collect();
+            candidates_with_cost
+                .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
-            // このステップの最良候補を記録
-            if let Some(best) = beam.first() {
-                let cost = self.estimator.estimate(best);
+            // 上位beam_width個を取得（コスト情報も保持）
+            let top_candidates: Vec<(Graph, f32)> = candidates_with_cost
+                .into_iter()
+                .take(self.beam_width)
+                .collect();
+
+            beam = top_candidates.iter().map(|(g, _)| g.clone()).collect();
+
+            // このステップの最良候補を記録（既に計算したコストを再利用）
+            if let Some((best, cost)) = top_candidates.first() {
                 let num_outputs = best.outputs().len();
                 let num_inputs = best.inputs().len();
 
@@ -190,7 +200,7 @@ where
                 history.add_snapshot(OptimizationSnapshot::new(
                     step + 1,
                     best.clone(),
-                    cost,
+                    *cost,
                     format!(
                         "Step {}: beam width {}, outputs: {}",
                         step + 1,
@@ -207,16 +217,8 @@ where
 
         debug!("BeamSearchGraphOptimizer: Beam search optimization complete");
 
-        // 最良の候補を返す
-        let best_graph = beam
-            .into_iter()
-            .min_by(|a, b| {
-                self.estimator
-                    .estimate(a)
-                    .partial_cmp(&self.estimator.estimate(b))
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .unwrap();
+        // 最良の候補を返す（beamは既にコスト順にソート済み）
+        let best_graph = beam.into_iter().next().unwrap();
 
         (best_graph, history)
     }
