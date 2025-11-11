@@ -449,46 +449,7 @@ impl GraphViewerApp {
             });
         }
 
-        ui.horizontal(|ui| {
-            ui.heading("Graph Viewer");
-            ui.add_space(20.0);
-
-            // DOTテキスト表示トグルボタン
-            let button_text = if self.show_dot_text {
-                "Hide DOT Text"
-            } else {
-                "Show DOT Text"
-            };
-            if ui.button(button_text).clicked() {
-                self.show_dot_text = !self.show_dot_text;
-            }
-
-            ui.add_space(10.0);
-
-            // コスト遷移グラフ表示トグルボタン（最適化履歴がある場合のみ）
-            if self.optimization_history.is_some() {
-                let cost_button_text = if self.show_cost_graph {
-                    "Hide Cost Graph"
-                } else {
-                    "Show Cost Graph"
-                };
-                if ui.button(cost_button_text).clicked() {
-                    self.show_cost_graph = !self.show_cost_graph;
-                }
-
-                ui.add_space(10.0);
-
-                // ログ表示トグルボタン
-                let logs_button_text = if self.show_logs {
-                    "Hide Logs"
-                } else {
-                    "Show Logs"
-                };
-                if ui.button(logs_button_text).clicked() {
-                    self.show_logs = !self.show_logs;
-                }
-            }
-        });
+        ui.heading("Graph Viewer");
         ui.separator();
 
         // 最適化履歴がある場合はナビゲーションを表示
@@ -541,38 +502,76 @@ impl GraphViewerApp {
             ui.separator();
         }
 
-        // コスト遷移グラフを表示
-        if self.show_cost_graph {
-            if let Some(ref history) = self.optimization_history {
-                ui.heading("Cost Transition");
+        // コスト遷移グラフを表示（折りたたみ可能）
+        if let Some(ref history) = self.optimization_history {
+            egui::CollapsingHeader::new("Cost Transition")
+                .default_open(true)
+                .show(ui, |ui| {
+                    // コストデータを収集
+                    let cost_points: Vec<[f64; 2]> = (0..history.len())
+                        .filter_map(|step| {
+                            history
+                                .get(step)
+                                .map(|snapshot| [step as f64, snapshot.cost as f64])
+                        })
+                        .collect();
 
-                // コストデータを収集
-                let cost_points: Vec<[f64; 2]> = (0..history.len())
-                    .filter_map(|step| {
-                        history
-                            .get(step)
-                            .map(|snapshot| [step as f64, snapshot.cost as f64])
-                    })
-                    .collect();
+                    // プロットを表示
+                    egui_plot::Plot::new("cost_plot")
+                        .view_aspect(2.0)
+                        .height(200.0)
+                        .show(ui, |plot_ui| {
+                            plot_ui.line(
+                                egui_plot::Line::new(cost_points)
+                                    .color(egui::Color32::from_rgb(100, 150, 250))
+                                    .name("Cost"),
+                            );
 
-                // プロットを表示
-                egui_plot::Plot::new("cost_plot")
-                    .view_aspect(2.0)
-                    .height(200.0)
-                    .show(ui, |plot_ui| {
-                        plot_ui.line(
-                            egui_plot::Line::new(cost_points)
-                                .color(egui::Color32::from_rgb(100, 150, 250))
-                                .name("Cost"),
-                        );
+                            // 現在のステップを縦線で表示
+                            let current_step = self.current_step as f64;
+                            plot_ui.vline(
+                                egui_plot::VLine::new(current_step)
+                                    .color(egui::Color32::from_rgb(255, 100, 100))
+                                    .name("Current Step"),
+                            );
+                        });
+                });
 
-                        // 現在のステップを縦線で表示
-                        let current_step = self.current_step as f64;
-                        plot_ui.vline(
-                            egui_plot::VLine::new(current_step)
-                                .color(egui::Color32::from_rgb(255, 100, 100))
-                                .name("Current Step"),
-                        );
+            ui.separator();
+        }
+
+        // ログを表示（最適化履歴がある場合）- グラフビューの前に配置
+        if let Some(ref history) = self.optimization_history {
+            if let Some(snapshot) = history.get(self.current_step) {
+                // 折りたたみ可能なセクションとして表示
+                egui::CollapsingHeader::new(format!("Debug Logs ({} entries)", snapshot.logs.len()))
+                    .default_open(false) // デフォルトで閉じた状態にして、画面を広く使う
+                    .show(ui, |ui| {
+                        if !snapshot.logs.is_empty() {
+                            egui::ScrollArea::vertical()
+                                .id_salt("graph_logs_scroll")
+                                .max_height(200.0) // 高さを少し小さくして、他のコンテンツも見やすく
+                                .show(ui, |ui| {
+                                    for log_line in &snapshot.logs {
+                                        // ログレベルに応じて色分け
+                                        let color = if log_line.contains("[ERROR]") {
+                                            egui::Color32::from_rgb(255, 100, 100)
+                                        } else if log_line.contains("[WARN]") {
+                                            egui::Color32::from_rgb(255, 200, 100)
+                                        } else if log_line.contains("[DEBUG]") {
+                                            egui::Color32::from_rgb(150, 150, 255)
+                                        } else if log_line.contains("[TRACE]") {
+                                            egui::Color32::GRAY
+                                        } else {
+                                            egui::Color32::WHITE
+                                        };
+
+                                        ui.colored_label(color, egui::RichText::new(log_line).monospace());
+                                    }
+                                });
+                        } else {
+                            ui.label("No logs captured for this step.");
+                        }
                     });
 
                 ui.separator();
@@ -664,162 +663,89 @@ impl GraphViewerApp {
 
         ui.separator();
 
-        // DOTテキストを表示する場合は横分割
-        if self.show_dot_text {
-            ui.columns(2, |columns| {
-                // 左側: グラフビュー
-                columns[0].vertical(|ui| {
-                    ui.heading("Graph View");
-                    ui.separator();
-                    self.snarl.show(
-                        &mut GraphNodeViewStyle,
-                        &egui_snarl::ui::SnarlStyle::default(),
-                        egui::Id::new("graph_viewer_snarl"),
-                        ui,
-                    );
-                });
-
-                // 右側: DOTテキスト
-                columns[1].vertical(|ui| {
-                    ui.horizontal(|ui| {
-                        ui.heading("DOT Format");
-                        ui.add_space(10.0);
-
-                        // クリップボードにコピーボタン
-                        if ui.button("📋 Copy").clicked() {
-                            if let Some(ref graph) = self.harp_graph {
-                                let dot_text = graph.to_dot();
-                                ui.output_mut(|o| o.copied_text = dot_text);
-                                log::info!("DOT text copied to clipboard");
-                            }
-                        }
-
-                        // Diff表示切り替えボタン
-                        if self.optimization_history.is_some() {
-                            let diff_button_text = if self.show_dot_diff {
-                                "Hide Diff"
-                            } else {
-                                "Show Diff"
-                            };
-                            if ui.button(diff_button_text).clicked() {
-                                self.show_dot_diff = !self.show_dot_diff;
-                            }
-                        }
-                    });
-                    ui.separator();
-
-                    if let Some(ref graph) = self.harp_graph {
-                        let current_dot = graph.to_dot();
-
-                        // Diff表示の場合、前のステップと比較
-                        let prev_dot = if self.show_dot_diff && self.current_step > 0 {
-                            self.optimization_history.as_ref().and_then(|history| {
-                                history
-                                    .get(self.current_step - 1)
-                                    .map(|prev_snapshot| prev_snapshot.graph.to_dot())
-                            })
-                        } else {
-                            None
-                        };
-
-                        egui::ScrollArea::vertical()
-                            .max_height(ui.available_height())
-                            .show(ui, |ui| {
-                                if let Some(prev_text) = prev_dot {
-                                    // Diff表示
-                                    ui.label("Diff (Previous → Current):");
-                                    ui.separator();
-
-                                    let diff =
-                                        similar::TextDiff::from_lines(&prev_text, &current_dot);
-
-                                    for change in diff.iter_all_changes() {
-                                        let (color, prefix) = match change.tag() {
-                                            similar::ChangeTag::Delete => {
-                                                (egui::Color32::from_rgb(255, 200, 200), "-")
-                                            }
-                                            similar::ChangeTag::Insert => {
-                                                (egui::Color32::from_rgb(200, 255, 200), "+")
-                                            }
-                                            similar::ChangeTag::Equal => (egui::Color32::GRAY, " "),
-                                        };
-
-                                        ui.horizontal(|ui| {
-                                            ui.colored_label(
-                                                color,
-                                                format!("{} {}", prefix, change),
-                                            );
-                                        });
-                                    }
-
-                                    // Diff表示の後に区切り線と通常表示も追加
-                                    ui.add_space(20.0);
-                                    ui.separator();
-                                    ui.label("Full DOT Text:");
-                                    ui.separator();
-                                }
-
-                                // 通常表示（diff表示の有無に関わらず表示）
-                                ui.add(
-                                    egui::TextEdit::multiline(&mut current_dot.clone())
-                                        .code_editor()
-                                        .desired_width(f32::INFINITY),
-                                );
-                            });
-                    } else {
-                        ui.label("No graph loaded");
-                    }
-                });
+        // グラフビュー
+        egui::CollapsingHeader::new("Graph View")
+            .default_open(true)
+            .show(ui, |ui| {
+                self.snarl.show(
+                    &mut GraphNodeViewStyle,
+                    &egui_snarl::ui::SnarlStyle::default(),
+                    egui::Id::new("graph_viewer_snarl"),
+                    ui,
+                );
             });
-        } else {
-            // 通常表示: グラフビューのみ
-            self.snarl.show(
-                &mut GraphNodeViewStyle,
-                &egui_snarl::ui::SnarlStyle::default(),
-                egui::Id::new("graph_viewer_snarl"),
-                ui,
-            );
-        }
 
-        // ログを表示（最適化履歴がある場合）
-        if self.show_logs {
-            if let Some(ref history) = self.optimization_history {
-                if let Some(snapshot) = history.get(self.current_step) {
-                    ui.separator();
+        ui.separator();
 
-                    // 折りたたみ可能なセクションとして表示（デフォルトで開いた状態）
-                    egui::CollapsingHeader::new(format!("Debug Logs ({} entries)", snapshot.logs.len()))
-                        .default_open(true)
+        // DOTテキスト（折りたたみ可能）
+        egui::CollapsingHeader::new("DOT Format")
+            .default_open(false)
+            .show(ui, |ui| {
+                if let Some(ref graph) = self.harp_graph {
+                    // クリップボードにコピーボタン
+                    if ui.button("📋 Copy to Clipboard").clicked() {
+                        let dot_text = graph.to_dot();
+                        ui.output_mut(|o| o.copied_text = dot_text);
+                        log::info!("DOT text copied to clipboard");
+                    }
+
+                    ui.add_space(5.0);
+
+                    // Diff表示（最適化履歴がある場合のみ、折りたたみ可能）
+                    if self.optimization_history.is_some() && self.current_step > 0 {
+                        egui::CollapsingHeader::new("Show Diff (Previous → Current)")
+                            .default_open(false)
+                            .show(ui, |ui| {
+                                let current_dot = graph.to_dot();
+                                let prev_dot = self.optimization_history.as_ref().and_then(|history| {
+                                    history
+                                        .get(self.current_step - 1)
+                                        .map(|prev_snapshot| prev_snapshot.graph.to_dot())
+                                });
+
+                                if let Some(prev_text) = prev_dot {
+                                    egui::ScrollArea::vertical()
+                                        .max_height(300.0)
+                                        .show(ui, |ui| {
+                                            let diff = similar::TextDiff::from_lines(&prev_text, &current_dot);
+
+                                            for change in diff.iter_all_changes() {
+                                                let (color, prefix) = match change.tag() {
+                                                    similar::ChangeTag::Delete => {
+                                                        (egui::Color32::from_rgb(255, 200, 200), "-")
+                                                    }
+                                                    similar::ChangeTag::Insert => {
+                                                        (egui::Color32::from_rgb(200, 255, 200), "+")
+                                                    }
+                                                    similar::ChangeTag::Equal => (egui::Color32::GRAY, " "),
+                                                };
+
+                                                ui.horizontal(|ui| {
+                                                    ui.colored_label(color, format!("{} {}", prefix, change));
+                                                });
+                                            }
+                                        });
+                                }
+                            });
+
+                        ui.add_space(5.0);
+                    }
+
+                    // DOTテキスト本文
+                    let current_dot = graph.to_dot();
+                    egui::ScrollArea::vertical()
+                        .max_height(400.0)
                         .show(ui, |ui| {
-                            if !snapshot.logs.is_empty() {
-                                egui::ScrollArea::vertical()
-                                    .id_salt("graph_logs_scroll")
-                                    .max_height(300.0)
-                                    .show(ui, |ui| {
-                                        for log_line in &snapshot.logs {
-                                            // ログレベルに応じて色分け
-                                            let color = if log_line.contains("[ERROR]") {
-                                                egui::Color32::from_rgb(255, 100, 100)
-                                            } else if log_line.contains("[WARN]") {
-                                                egui::Color32::from_rgb(255, 200, 100)
-                                            } else if log_line.contains("[DEBUG]") {
-                                                egui::Color32::from_rgb(150, 150, 255)
-                                            } else if log_line.contains("[TRACE]") {
-                                                egui::Color32::GRAY
-                                            } else {
-                                                egui::Color32::WHITE
-                                            };
-
-                                            ui.colored_label(color, egui::RichText::new(log_line).monospace());
-                                        }
-                                    });
-                            } else {
-                                ui.label("No logs captured for this step.");
-                            }
+                            ui.add(
+                                egui::TextEdit::multiline(&mut current_dot.clone())
+                                    .code_editor()
+                                    .desired_width(f32::INFINITY),
+                            );
                         });
+                } else {
+                    ui.label("No graph loaded");
                 }
-            }
-        }
+            });
     }
 }
 

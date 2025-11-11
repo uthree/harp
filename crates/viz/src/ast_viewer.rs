@@ -254,43 +254,6 @@ where
                 ui.add_space(10.0);
             }
 
-            // コスト遷移グラフ表示トグルボタン（最適化履歴がある場合のみ）
-            if self.current_history().is_some() {
-                let cost_button_text = if self.show_cost_graph {
-                    "Hide Cost Graph"
-                } else {
-                    "Show Cost Graph"
-                };
-                if ui.button(cost_button_text).clicked() {
-                    self.show_cost_graph = !self.show_cost_graph;
-                }
-
-                ui.add_space(10.0);
-
-                // Diff表示トグルボタン（ステップ0でない場合のみ）
-                if self.get_current_step_number() > 0 {
-                    let diff_button_text = if self.show_diff {
-                        "Hide Diff"
-                    } else {
-                        "Show Diff"
-                    };
-                    if ui.button(diff_button_text).clicked() {
-                        self.show_diff = !self.show_diff;
-                    }
-
-                    ui.add_space(10.0);
-                }
-
-                // ログ表示トグルボタン
-                let logs_button_text = if self.show_logs {
-                    "Hide Logs"
-                } else {
-                    "Show Logs"
-                };
-                if ui.button(logs_button_text).clicked() {
-                    self.show_logs = !self.show_logs;
-                }
-            }
         });
         ui.separator();
 
@@ -381,43 +344,43 @@ where
 
         ui.separator();
 
-        // コスト遷移グラフを表示
-        if self.show_cost_graph {
-            ui.heading("Cost Transition");
+        // コスト遷移グラフを表示（折りたたみ可能）
+        egui::CollapsingHeader::new("Cost Transition")
+            .default_open(true)
+            .show(ui, |ui| {
+                // コストデータを収集
+                let cost_points: Vec<[f64; 2]> = self
+                    .current_history()
+                    .map(|h| {
+                        h.cost_transition()
+                            .iter()
+                            .map(|(step, cost)| [*step as f64, *cost as f64])
+                            .collect()
+                    })
+                    .unwrap_or_default();
 
-            // コストデータを収集
-            let cost_points: Vec<[f64; 2]> = self
-                .current_history()
-                .map(|h| {
-                    h.cost_transition()
-                        .iter()
-                        .map(|(step, cost)| [*step as f64, *cost as f64])
-                        .collect()
-                })
-                .unwrap_or_default();
+                // プロットを表示
+                egui_plot::Plot::new("ast_cost_plot")
+                    .view_aspect(2.0)
+                    .height(200.0)
+                    .show(ui, |plot_ui| {
+                        plot_ui.line(
+                            egui_plot::Line::new(cost_points)
+                                .color(egui::Color32::from_rgb(100, 200, 150))
+                                .name("Cost"),
+                        );
 
-            // プロットを表示
-            egui_plot::Plot::new("ast_cost_plot")
-                .view_aspect(2.0)
-                .height(200.0)
-                .show(ui, |plot_ui| {
-                    plot_ui.line(
-                        egui_plot::Line::new(cost_points)
-                            .color(egui::Color32::from_rgb(100, 200, 150))
-                            .name("Cost"),
-                    );
+                        // 現在のステップを縦線で表示
+                        let current_step_f64 = current_step as f64;
+                        plot_ui.vline(
+                            egui_plot::VLine::new(current_step_f64)
+                                .color(egui::Color32::from_rgb(255, 100, 100))
+                                .name("Current Step"),
+                        );
+                    });
+            });
 
-                    // 現在のステップを縦線で表示
-                    let current_step_f64 = current_step as f64;
-                    plot_ui.vline(
-                        egui_plot::VLine::new(current_step_f64)
-                            .color(egui::Color32::from_rgb(255, 100, 100))
-                            .name("Current Step"),
-                    );
-                });
-
-            ui.separator();
-        }
+        ui.separator();
 
         // 候補リストの情報を先に収集
         let candidate_info: Vec<(usize, f32)> =
@@ -514,72 +477,66 @@ where
             });
         });
 
-        // Diffを表示
-        if self.show_diff {
-            if let (Some(ref prev), Some(ref current)) = (&prev_code, &selected_code) {
-                ui.separator();
-                ui.heading("Code Diff (Previous → Current)");
-                ui.separator();
-
-                egui::ScrollArea::vertical()
-                    .id_salt("diff_scroll")
-                    .max_height(300.0)
-                    .show(ui, |ui| {
-                        // テキストdiffを計算
-                        let diff = TextDiff::from_lines(prev, current);
-
-                        // diffの各行を表示
-                        for change in diff.iter_all_changes() {
-                            let (prefix, color) = match change.tag() {
-                                ChangeTag::Delete => ("- ", egui::Color32::from_rgb(255, 100, 100)),
-                                ChangeTag::Insert => ("+ ", egui::Color32::from_rgb(100, 255, 100)),
-                                ChangeTag::Equal => ("  ", egui::Color32::GRAY),
-                            };
-
-                            let line = format!("{}{}", prefix, change.value());
-                            ui.colored_label(color, egui::RichText::new(line).monospace());
-                        }
-                    });
-            } else if prev_code.is_none() {
-                ui.separator();
-                ui.label("No previous step available for diff.");
-            }
-        }
-
-        // ログを表示
-        if self.show_logs {
+        // Diffを表示（折りたたみ可能）
+        if let (Some(ref prev), Some(ref current)) = (&prev_code, &selected_code) {
             ui.separator();
 
-            // 折りたたみ可能なセクションとして表示（デフォルトで開いた状態）
-            egui::CollapsingHeader::new(format!("Debug Logs ({} entries)", logs.len()))
-                .default_open(true)
+            egui::CollapsingHeader::new("Code Diff (Previous → Current)")
+                .default_open(false)
                 .show(ui, |ui| {
-                    if !logs.is_empty() {
-                        egui::ScrollArea::vertical()
-                            .id_salt("logs_scroll")
-                            .max_height(300.0)
-                            .show(ui, |ui| {
-                                for log_line in &logs {
-                                    // ログレベルに応じて色分け
-                                    let color = if log_line.contains("[ERROR]") {
-                                        egui::Color32::from_rgb(255, 100, 100)
-                                    } else if log_line.contains("[WARN]") {
-                                        egui::Color32::from_rgb(255, 200, 100)
-                                    } else if log_line.contains("[DEBUG]") {
-                                        egui::Color32::from_rgb(150, 150, 255)
-                                    } else if log_line.contains("[TRACE]") {
-                                        egui::Color32::GRAY
-                                    } else {
-                                        egui::Color32::WHITE
-                                    };
+                    egui::ScrollArea::vertical()
+                        .id_salt("diff_scroll")
+                        .max_height(300.0)
+                        .show(ui, |ui| {
+                            // テキストdiffを計算
+                            let diff = TextDiff::from_lines(prev, current);
 
-                                    ui.colored_label(color, egui::RichText::new(log_line).monospace());
-                                }
-                            });
-                    } else {
-                        ui.label("No logs captured for this step.");
-                    }
+                            // diffの各行を表示
+                            for change in diff.iter_all_changes() {
+                                let (prefix, color) = match change.tag() {
+                                    ChangeTag::Delete => ("- ", egui::Color32::from_rgb(255, 100, 100)),
+                                    ChangeTag::Insert => ("+ ", egui::Color32::from_rgb(100, 255, 100)),
+                                    ChangeTag::Equal => ("  ", egui::Color32::GRAY),
+                                };
+
+                                let line = format!("{}{}", prefix, change.value());
+                                ui.colored_label(color, egui::RichText::new(line).monospace());
+                            }
+                        });
                 });
         }
+
+        // ログを表示（折りたたみ可能）
+        ui.separator();
+
+        egui::CollapsingHeader::new(format!("Debug Logs ({} entries)", logs.len()))
+            .default_open(false)
+            .show(ui, |ui| {
+                if !logs.is_empty() {
+                    egui::ScrollArea::vertical()
+                        .id_salt("logs_scroll")
+                        .max_height(300.0)
+                        .show(ui, |ui| {
+                            for log_line in &logs {
+                                // ログレベルに応じて色分け
+                                let color = if log_line.contains("[ERROR]") {
+                                    egui::Color32::from_rgb(255, 100, 100)
+                                } else if log_line.contains("[WARN]") {
+                                    egui::Color32::from_rgb(255, 200, 100)
+                                } else if log_line.contains("[DEBUG]") {
+                                    egui::Color32::from_rgb(150, 150, 255)
+                                } else if log_line.contains("[TRACE]") {
+                                    egui::Color32::GRAY
+                                } else {
+                                    egui::Color32::WHITE
+                                };
+
+                                ui.colored_label(color, egui::RichText::new(log_line).monospace());
+                            }
+                        });
+                } else {
+                    ui.label("No logs captured for this step.");
+                }
+            });
     }
 }
