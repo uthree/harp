@@ -566,6 +566,27 @@ pub fn all_algebraic_rules() -> Vec<Rc<AstRewriteRule>> {
     rules
 }
 
+/// 探索用の完全なルール集（交換則・分配則を含む）
+///
+/// ビームサーチなどの探索ベース最適化で使用することを想定しています。
+/// RuleBaseOptimizerで直接使うと無限ループする可能性があるため注意してください。
+pub fn all_rules_with_search() -> Vec<Rc<AstRewriteRule>> {
+    let mut rules = Vec::new();
+    rules.extend(constant_folding_rules());
+    rules.extend(simplification_rules());
+    rules.extend(normalization_rules());
+    // 交換則を追加
+    rules.push(add_commutative());
+    rules.push(mul_commutative());
+    rules.push(max_commutative());
+    // 分配則を追加
+    rules.push(distributive_left());
+    rules.push(distributive_right());
+    rules.push(factor_left());
+    rules.push(factor_right());
+    rules
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

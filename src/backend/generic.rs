@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::ast::AstNode;
 use crate::backend::{Compiler, Pipeline, Renderer};
 use crate::graph::Graph;
-use crate::opt::ast::rules::all_algebraic_rules;
+use crate::opt::ast::rules::{all_algebraic_rules, all_rules_with_search};
 use crate::opt::ast::{
     BeamSearchOptimizer as AstBeamSearchOptimizer, OptimizationHistory as AstOptimizationHistory,
     Optimizer, RuleBaseOptimizer, RuleBaseSuggester, SimpleCostEstimator as AstSimpleCostEstimator,
@@ -261,7 +261,7 @@ where
                 let rule_optimized = rule_optimizer.optimize(body.as_ref().clone());
 
                 // ステップ2: ビームサーチ最適化
-                let beam_suggester = RuleBaseSuggester::new(all_algebraic_rules());
+                let beam_suggester = RuleBaseSuggester::new(all_rules_with_search());
                 let beam_estimator = AstSimpleCostEstimator::new();
 
                 let beam_optimizer = AstBeamSearchOptimizer::new(beam_suggester, beam_estimator)
@@ -368,7 +368,7 @@ where
                 let rule_optimized = rule_optimizer.optimize(body.as_ref().clone());
 
                 // ステップ2: ビームサーチ最適化
-                let beam_suggester = RuleBaseSuggester::new(all_algebraic_rules());
+                let beam_suggester = RuleBaseSuggester::new(all_rules_with_search());
                 let beam_estimator = AstSimpleCostEstimator::new();
 
                 let beam_optimizer = AstBeamSearchOptimizer::new(beam_suggester, beam_estimator)
@@ -475,7 +475,7 @@ where
                 let rule_optimized = rule_optimizer.optimize(body.as_ref().clone());
 
                 // ステップ2: ビームサーチ最適化
-                let beam_suggester = RuleBaseSuggester::new(all_algebraic_rules());
+                let beam_suggester = RuleBaseSuggester::new(all_rules_with_search());
                 let beam_estimator = AstSimpleCostEstimator::new();
 
                 let beam_optimizer = AstBeamSearchOptimizer::new(beam_suggester, beam_estimator)
@@ -625,8 +625,8 @@ where
 
             let rule_optimized = rule_optimizer.optimize(body.as_ref().clone());
 
-            // ステップ2: ビームサーチ最適化
-            let beam_suggester = RuleBaseSuggester::new(all_algebraic_rules());
+            // ステップ2: ビームサーチ最適化（探索用の完全なルール集を使用）
+            let beam_suggester = RuleBaseSuggester::new(all_rules_with_search());
             let beam_estimator = AstSimpleCostEstimator::new();
 
             let beam_optimizer = AstBeamSearchOptimizer::new(beam_suggester, beam_estimator)
