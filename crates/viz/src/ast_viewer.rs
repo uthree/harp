@@ -1,7 +1,6 @@
 //! AST最適化を可視化するビューア
 
 use harp::ast::renderer::render_ast_with;
-use harp::ast::AstNode;
 use harp::backend::c_like::CLikeRenderer;
 use harp::backend::openmp::CRenderer;
 use harp::opt::ast::OptimizationHistory;
@@ -34,8 +33,6 @@ where
     show_diff: bool,
     /// ASTレンダラー
     renderer: R,
-    /// Program全体（複数のFunctionを含む）
-    program: Option<AstNode>,
 }
 
 impl Default for AstViewerApp<CRenderer> {
@@ -65,16 +62,7 @@ where
             show_cost_graph: true,
             show_diff: true,
             renderer,
-            program: None,
         }
-    }
-
-    /// Program全体を読み込む
-    pub fn load_program(&mut self, program: AstNode) {
-        if let AstNode::Program { ref functions, .. } = program {
-            log::info!("Program loaded with {} functions", functions.len());
-        }
-        self.program = Some(program);
     }
 
     /// 単一のFunction用の最適化履歴を読み込む（後方互換性のため）
@@ -533,55 +521,6 @@ where
                 ui.separator();
                 ui.label("No previous step available for diff.");
             }
-        }
-    }
-
-    /// Program全体を表示するUI
-    pub fn ui_full_program(&mut self, ui: &mut egui::Ui) {
-        if let Some(ref program) = self.program {
-            ui.horizontal(|ui| {
-                ui.heading("Full Program");
-                ui.add_space(20.0);
-
-                // クリップボードにコピーボタン
-                if ui.button("📋 Copy to Clipboard").clicked() {
-                    let mut renderer_clone = self.renderer.clone();
-                    let code = renderer_clone.render_program_clike(program);
-                    ui.output_mut(|o| o.copied_text = code);
-                }
-            });
-            ui.separator();
-
-            // Program全体をレンダリング
-            let mut renderer_clone = self.renderer.clone();
-            let rendered_code = renderer_clone.render_program_clike(program);
-
-            // スクロール可能なコード表示領域（シンタックスハイライト付き）
-            egui::ScrollArea::vertical()
-                .id_salt("full_program_scroll")
-                .max_height(ui.available_height())
-                .show(ui, |ui| {
-                    // シンタックスハイライト付きでコードを表示
-                    let theme = egui_extras::syntax_highlighting::CodeTheme::from_memory(
-                        ui.ctx(),
-                        ui.style(),
-                    );
-
-                    let highlighted_code = egui_extras::syntax_highlighting::highlight(
-                        ui.ctx(),
-                        ui.style(),
-                        &theme,
-                        &rendered_code,
-                        "c", // C言語風のシンタックスハイライト
-                    );
-
-                    ui.add(egui::Label::new(highlighted_code).selectable(true));
-                });
-        } else {
-            ui.heading("Full Program");
-            ui.separator();
-            ui.label("No program loaded.");
-            ui.label("Load a program using the load_program() method to view the full code here.");
         }
     }
 }

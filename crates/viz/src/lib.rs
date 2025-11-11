@@ -27,7 +27,6 @@ enum VizTab {
     GraphViewer,
     AstViewer,
     PerfViewer,
-    FullCode,
 }
 
 impl Default for HarpVizApp {
@@ -70,13 +69,6 @@ impl HarpVizApp {
         histories: std::collections::HashMap<String, harp::opt::ast::OptimizationHistory>,
     ) {
         self.ast_viewer.load_multiple_histories(histories);
-        // ASTビューアタブに切り替え
-        self.current_tab = VizTab::AstViewer;
-    }
-
-    /// Program全体を読み込む
-    pub fn load_program(&mut self, program: harp::ast::AstNode) {
-        self.ast_viewer.load_program(program);
         // ASTビューアタブに切り替え
         self.current_tab = VizTab::AstViewer;
     }
@@ -163,13 +155,6 @@ impl eframe::App for HarpVizApp {
                 {
                     self.current_tab = VizTab::PerfViewer;
                 }
-
-                if ui
-                    .selectable_label(self.current_tab == VizTab::FullCode, "Full Code")
-                    .clicked()
-                {
-                    self.current_tab = VizTab::FullCode;
-                }
             });
         });
 
@@ -182,9 +167,6 @@ impl eframe::App for HarpVizApp {
             }
             VizTab::PerfViewer => {
                 self.perf_viewer.ui(ui);
-            }
-            VizTab::FullCode => {
-                self.ast_viewer.ui_full_program(ui);
             }
         });
     }

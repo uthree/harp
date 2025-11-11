@@ -23,6 +23,16 @@ where
 {
     // AstNodeの種類によって適切なレンダリングメソッドを使用
     match ast {
+        // Program全体をレンダリング
+        AstNode::Program { .. } => {
+            let mut mutable_renderer = renderer.clone();
+            mutable_renderer.render_program_clike(ast)
+        }
+        // 単一のFunctionをレンダリング
+        AstNode::Function { .. } => {
+            let mut mutable_renderer = renderer.clone();
+            mutable_renderer.render_function_node(ast)
+        }
         // 文として扱うべきノード
         AstNode::Store { .. }
         | AstNode::Assign { .. }
@@ -50,6 +60,7 @@ pub fn render_ast(ast: &AstNode) -> String {
 mod tests {
     use super::*;
     use crate::ast::helper::*;
+    use crate::ast::{DType, FunctionKind, Scope};
 
     #[test]
     #[allow(clippy::approx_constant)]
@@ -75,5 +86,59 @@ mod tests {
     fn test_render_sqrt() {
         let ast = sqrt(AstNode::Const(4.0f32.into()));
         assert_eq!(render_ast(&ast), "sqrtf(4f)");
+    }
+
+    #[test]
+    fn test_render_function() {
+        // 簡単な関数をテスト: void foo() { return; }
+        let params = vec![];
+        let return_type = DType::Tuple(vec![]);
+        let scope = Scope::new();
+        let body = Box::new(AstNode::Block {
+            statements: vec![],
+            scope: Box::new(scope),
+        });
+
+        let func = AstNode::Function {
+            name: Some("foo".to_string()),
+            params,
+            return_type,
+            body,
+            kind: FunctionKind::Normal,
+        };
+
+        let rendered = render_ast(&func);
+        // 関数全体がレンダリングされることを確認
+        assert!(rendered.contains("foo"));
+        assert!(rendered.contains("{"));
+        assert!(rendered.contains("}"));
+    }
+
+    #[test]
+    fn test_render_program() {
+        // 簡単なプログラムをテスト
+        let scope = Scope::new();
+        let body = Box::new(AstNode::Block {
+            statements: vec![],
+            scope: Box::new(scope),
+        });
+
+        let func = AstNode::Function {
+            name: Some("main".to_string()),
+            params: vec![],
+            return_type: DType::Tuple(vec![]),
+            body,
+            kind: FunctionKind::Normal,
+        };
+
+        let program = AstNode::Program {
+            functions: vec![func],
+            entry_point: "main".to_string(),
+        };
+
+        let rendered = render_ast(&program);
+        // Program全体がレンダリングされることを確認
+        assert!(rendered.contains("main"));
+        assert!(rendered.contains("Entry Point"));
     }
 }

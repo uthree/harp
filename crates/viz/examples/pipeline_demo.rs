@@ -52,7 +52,7 @@ fn main() -> eframe::Result {
     // 最適化を一括実行（コンパイルなし）
     println!("【3/3】最適化を実行中...");
     println!("  - グラフ最適化中...");
-    let (optimized_program, function_histories) = pipeline
+    let (_optimized_program, function_histories) = pipeline
         .optimize_graph_with_all_histories(graph)
         .expect("Failed to optimize graph");
 
@@ -99,9 +99,6 @@ fn main() -> eframe::Result {
 
             // 複数のFunction最適化履歴を読み込む
             app.load_multiple_ast_histories(function_histories);
-
-            // 最適化後のProgram全体を読み込む
-            app.load_program(optimized_program);
 
             Ok(Box::new(app))
         }),
