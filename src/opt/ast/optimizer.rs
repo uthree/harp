@@ -199,7 +199,9 @@ where
         }
 
         if let Some(pb) = pb {
-            pb.finish_with_message("Complete");
+            pb.finish_and_clear();
+            // Cargoスタイルの完了メッセージ
+            println!("{:>12} AST optimization", "\x1b[1;36mFinished\x1b[0m");
         }
 
         debug!("BeamSearchOptimizer: Beam search optimization complete");

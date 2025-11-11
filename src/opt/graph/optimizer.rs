@@ -85,6 +85,11 @@ where
         let initial_cost = self.estimator.estimate(&graph);
         let initial_outputs = graph.outputs().len();
 
+        // 千日手対策用の変数
+        let mut best_cost = initial_cost;
+        let mut no_improvement_count = 0;
+        const MAX_NO_IMPROVEMENT: usize = 5; // 5回連続で改善がなければ終了
+
         // 初期状態の入力・出力ノード情報をログに出力
         debug!(
             "BeamSearchGraphOptimizer: Initial - {} inputs, {} outputs",
@@ -141,7 +146,8 @@ where
                     step
                 );
                 if let Some(ref pb) = pb {
-                    pb.set_position(self.max_steps as u64);
+                    pb.finish_and_clear();
+                    println!("{:>12} graph optimization (no more candidates)", "\x1b[1;36mFinished\x1b[0m");
                 }
                 break;
             }
@@ -208,11 +214,47 @@ where
                         num_outputs
                     ),
                 ));
+
+                // コスト改善チェック（千日手対策）
+                const EPSILON: f32 = 1e-6; // 浮動小数点の誤差を考慮
+                if *cost < best_cost - EPSILON {
+                    // コストが改善された
+                    best_cost = *cost;
+                    no_improvement_count = 0;
+                    debug!(
+                        "BeamSearchGraphOptimizer: Cost improved to {} at step {}",
+                        cost,
+                        step + 1
+                    );
+                } else {
+                    // コストが改善されなかった
+                    no_improvement_count += 1;
+                    debug!(
+                        "BeamSearchGraphOptimizer: No cost improvement at step {} (count: {}/{})",
+                        step + 1,
+                        no_improvement_count,
+                        MAX_NO_IMPROVEMENT
+                    );
+
+                    if no_improvement_count >= MAX_NO_IMPROVEMENT {
+                        debug!(
+                            "BeamSearchGraphOptimizer: No improvement for {} steps - early termination",
+                            MAX_NO_IMPROVEMENT
+                        );
+                        if let Some(ref pb) = pb {
+                            pb.finish_and_clear();
+                            println!("{:>12} graph optimization (no improvement)", "\x1b[1;36mFinished\x1b[0m");
+                        }
+                        break;
+                    }
+                }
             }
         }
 
         if let Some(pb) = pb {
-            pb.finish_with_message("Complete");
+            pb.finish_and_clear();
+            // Cargoスタイルの完了メッセージ
+            println!("{:>12} graph optimization", "\x1b[1;36mFinished\x1b[0m");
         }
 
         debug!("BeamSearchGraphOptimizer: Beam search optimization complete");
