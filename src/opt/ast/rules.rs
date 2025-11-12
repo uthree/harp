@@ -660,10 +660,10 @@ pub fn all_rules_with_search() -> Vec<Rc<AstRewriteRule>> {
     rules.extend(constant_folding_rules());
     rules.extend(simplification_rules());
     rules.extend(normalization_rules());
-    // 交換則: 無限ループ防止のため一旦無効化している
-    //rules.push(add_commutative());
-    //rules.push(mul_commutative());
-    //rules.push(max_commutative());
+    // 交換則
+    rules.push(add_commutative());
+    rules.push(mul_commutative());
+    rules.push(max_commutative());
     // 分配則を追加
     rules.push(distributive_left());
     rules.push(distributive_right());

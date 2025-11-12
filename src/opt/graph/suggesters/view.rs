@@ -6,23 +6,12 @@ use std::collections::{HashMap, HashSet};
 ///
 /// 全入力を転置 → 演算実行 → 出力を逆転置することで、
 /// メモリコピーなしでメモリアクセスパターンを最適化します。
-pub struct ViewInsertionSuggester {
-    /// 転置を試みるかどうか
-    try_transpose: bool,
-}
+pub struct ViewInsertionSuggester;
 
 impl ViewInsertionSuggester {
     /// 新しいViewInsertionSuggesterを作成
     pub fn new() -> Self {
-        Self {
-            try_transpose: true,
-        }
-    }
-
-    /// 転置を試みるかどうかを設定
-    pub fn with_transpose(mut self, enable: bool) -> Self {
-        self.try_transpose = enable;
-        self
+        ViewInsertionSuggester {}
     }
 
     /// グラフ内の全ノードを収集（トポロジカル順）
@@ -211,10 +200,6 @@ impl Default for ViewInsertionSuggester {
 
 impl GraphSuggester for ViewInsertionSuggester {
     fn suggest(&self, graph: &Graph) -> Vec<Graph> {
-        if !self.try_transpose {
-            return vec![];
-        }
-
         let mut suggestions = Vec::new();
         let nodes = self.collect_all_nodes(graph);
 
@@ -293,7 +278,7 @@ mod tests {
 
     #[test]
     fn test_view_insertion_disabled() {
-        let suggester = ViewInsertionSuggester::new().with_transpose(false);
+        let suggester = ViewInsertionSuggester::new();
 
         let mut graph = Graph::new();
         let a = graph

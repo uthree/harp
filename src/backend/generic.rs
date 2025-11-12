@@ -209,9 +209,9 @@ where
         // グラフ最適化
         let optimized_graph = if self.enable_graph_optimization {
             let suggester = CompositeSuggester::new(vec![
-                Box::new(ViewInsertionSuggester::new().with_transpose(true)),
+                Box::new(ViewInsertionSuggester::new()),
                 Box::new(FusionSuggester::new()),
-                Box::new(ParallelStrategyChanger::with_default_strategies()),
+                Box::new(ParallelStrategyChanger::new()),
             ]);
             let estimator = SimpleCostEstimator::new();
 
@@ -278,9 +278,9 @@ where
         // グラフ最適化
         let optimized_graph = if self.enable_graph_optimization {
             let suggester = CompositeSuggester::new(vec![
-                Box::new(ViewInsertionSuggester::new().with_transpose(true)),
+                Box::new(ViewInsertionSuggester::new()),
                 Box::new(FusionSuggester::new()),
-                Box::new(ParallelStrategyChanger::with_default_strategies()),
+                Box::new(ParallelStrategyChanger::new()),
             ]);
             let ast_estimator = AstSimpleCostEstimator::new();
             let estimator = AstBasedCostEstimator::new(ast_estimator);
@@ -347,9 +347,9 @@ where
         // グラフ最適化
         let optimized_graph = if self.enable_graph_optimization {
             let suggester = CompositeSuggester::new(vec![
-                Box::new(ViewInsertionSuggester::new().with_transpose(true)),
+                Box::new(ViewInsertionSuggester::new()),
                 Box::new(FusionSuggester::new()),
-                //Box::new(ParallelStrategyChanger::with_default_strategies()),
+                Box::new(ParallelStrategyChanger::new()),
             ]);
             let ast_estimator = AstSimpleCostEstimator::new();
             let estimator = AstBasedCostEstimator::new(ast_estimator);
@@ -454,9 +454,9 @@ where
         }
 
         let suggester = CompositeSuggester::new(vec![
-            Box::new(ViewInsertionSuggester::new().with_transpose(true)),
+            Box::new(ViewInsertionSuggester::new()),
             Box::new(FusionSuggester::new()),
-            Box::new(ParallelStrategyChanger::with_default_strategies()),
+            Box::new(ParallelStrategyChanger::new()),
         ]);
         let ast_estimator = AstSimpleCostEstimator::new();
         let estimator = AstBasedCostEstimator::new(ast_estimator);

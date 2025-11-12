@@ -10,22 +10,17 @@ pub struct ParallelStrategyChanger {
 
 impl ParallelStrategyChanger {
     /// 新しいParallelStrategyChangerを作成
-    pub fn new(strategy_candidates: Vec<ElementwiseStrategy>) -> Self {
+    pub fn new() -> Self {
         Self {
-            strategy_candidates,
+            strategy_candidates: vec![
+                ElementwiseStrategy::sequential(),
+                ElementwiseStrategy::sequential_simd(4),
+                ElementwiseStrategy::sequential_unroll(4),
+                ElementwiseStrategy::thread(),
+                ElementwiseStrategy::thread_simd(4),
+                ElementwiseStrategy::thread_group(),
+            ],
         }
-    }
-
-    /// デフォルトの戦略候補を使用
-    pub fn with_default_strategies() -> Self {
-        Self::new(vec![
-            ElementwiseStrategy::sequential(),
-            ElementwiseStrategy::sequential_simd(4),
-            ElementwiseStrategy::sequential_unroll(4),
-            ElementwiseStrategy::thread(),
-            ElementwiseStrategy::thread_simd(4),
-            ElementwiseStrategy::thread_group(),
-        ])
     }
 
     /// グラフ内の全ノードを収集（トポロジカル順）
@@ -208,7 +203,7 @@ mod tests {
 
     #[test]
     fn test_parallel_strategy_changer() {
-        let changer = ParallelStrategyChanger::with_default_strategies();
+        let changer = ParallelStrategyChanger::new();
 
         let mut graph = Graph::new();
         let a = graph
