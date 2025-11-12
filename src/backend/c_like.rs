@@ -243,7 +243,7 @@ pub trait CLikeRenderer: Renderer {
         body: &AstNode,
     ) -> String {
         let mut result = String::new();
-        let loop_var_type = self.render_dtype_backend(&DType::Usize);
+        let loop_var_type = self.render_dtype_backend(&DType::Int);
         result.push_str(&format!(
             "{}for ({} {} = {}; {} < {}; {} += {}) {{",
             self.indent(),

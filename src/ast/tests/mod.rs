@@ -59,10 +59,10 @@ fn test_literal_dtype() {
     assert_eq!(f32_lit.dtype(), DType::F32);
 
     let int_lit = Literal::Int(42);
-    assert_eq!(int_lit.dtype(), DType::Isize);
+    assert_eq!(int_lit.dtype(), DType::Int);
 
     let int_lit = Literal::Int(100);
-    assert_eq!(int_lit.dtype(), DType::Isize);
+    assert_eq!(int_lit.dtype(), DType::Int);
 }
 
 #[test]
@@ -102,7 +102,7 @@ fn test_children_unary_ops() {
 
 #[test]
 fn test_children_cast() {
-    let node = cast(AstNode::Const(3.14f32.into()), DType::Isize);
+    let node = cast(AstNode::Const(3.14f32.into()), DType::Int);
     let children = node.children();
     assert_eq!(children.len(), 1);
 }
@@ -129,10 +129,10 @@ fn test_infer_type_const() {
     assert_eq!(node.infer_type(), DType::F32);
 
     let node = AstNode::Const(42isize.into());
-    assert_eq!(node.infer_type(), DType::Isize);
+    assert_eq!(node.infer_type(), DType::Int);
 
     let node = AstNode::Const(100isize.into());
-    assert_eq!(node.infer_type(), DType::Isize);
+    assert_eq!(node.infer_type(), DType::Int);
 }
 
 #[test]
@@ -142,7 +142,7 @@ fn test_infer_type_binary_ops() {
     assert_eq!(node.infer_type(), DType::F32);
 
     let node = AstNode::Const(3isize.into()) * AstNode::Const(4isize.into());
-    assert_eq!(node.infer_type(), DType::Isize);
+    assert_eq!(node.infer_type(), DType::Int);
 
     // Mixed types should return Unknown
     let node = AstNode::Const(1.0f32.into()) + AstNode::Const(2isize.into());
@@ -171,8 +171,8 @@ fn test_infer_type_unary_ops() {
 
 #[test]
 fn test_infer_type_cast() {
-    let node = cast(AstNode::Const(3.14f32.into()), DType::Isize);
-    assert_eq!(node.infer_type(), DType::Isize);
+    let node = cast(AstNode::Const(3.14f32.into()), DType::Int);
+    assert_eq!(node.infer_type(), DType::Int);
 
     let node = cast(AstNode::Const(42isize.into()), DType::F32);
     assert_eq!(node.infer_type(), DType::F32);
@@ -264,8 +264,8 @@ fn test_dtype_element_type() {
     assert_eq!(vec_type.element_type(), &DType::F32);
 
     // Non-vec should return self
-    let scalar = DType::Isize;
-    assert_eq!(scalar.element_type(), &DType::Isize);
+    let scalar = DType::Int;
+    assert_eq!(scalar.element_type(), &DType::Int);
 }
 
 #[test]
@@ -275,8 +275,8 @@ fn test_dtype_deref_type() {
     assert_eq!(ptr_type.deref_type(), &DType::F32);
 
     // Non-ptr should return self
-    let scalar = DType::Isize;
-    assert_eq!(scalar.deref_type(), &DType::Isize);
+    let scalar = DType::Int;
+    assert_eq!(scalar.deref_type(), &DType::Int);
 }
 
 #[test]
@@ -396,7 +396,7 @@ fn test_assign() {
 
     // Assign returns the type of the value
     let inferred = assign.infer_type();
-    assert_eq!(inferred, DType::Isize);
+    assert_eq!(inferred, DType::Int);
 }
 
 #[test]
@@ -471,7 +471,7 @@ fn test_scope_duplicate_declare() {
         .declare("x".to_string(), DType::F32, Mutability::Immutable, None)
         .unwrap();
 
-    let result = scope.declare("x".to_string(), DType::Isize, Mutability::Mutable, None);
+    let result = scope.declare("x".to_string(), DType::Int, Mutability::Mutable, None);
 
     assert!(result.is_err());
 }
@@ -525,7 +525,7 @@ fn test_scope_check_write_type_mismatch() {
         .declare("x".to_string(), DType::F32, Mutability::Mutable, None)
         .unwrap();
 
-    let result = scope.check_write("x", &DType::Isize);
+    let result = scope.check_write("x", &DType::Int);
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("Type mismatch"));
 }
@@ -615,7 +615,7 @@ fn test_check_scope_complex_expression() {
         .unwrap();
 
     scope
-        .declare("i".to_string(), DType::Usize, Mutability::Immutable, None)
+        .declare("i".to_string(), DType::Int, Mutability::Immutable, None)
         .unwrap();
 
     // output[i] = input[i] * 2.0

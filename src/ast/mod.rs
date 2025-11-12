@@ -381,8 +381,7 @@ pub enum VarKind {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DType {
-    Isize,                  // signed integer
-    Usize,                  // unsigned integer (for array indexing)
+    Int,                    // integer (for array indexing and general computation)
     F32,                    // float
     Ptr(Box<DType>),        // pointer for memory buffer, 値を渡す時は参照を渡す。
     Vec(Box<DType>, usize), // fixed size vector for SIMD, 値は渡す時にコピーされる
@@ -422,7 +421,7 @@ impl Literal {
     pub fn dtype(&self) -> DType {
         match self {
             Literal::F32(_) => DType::F32,
-            Literal::Int(_) => DType::Isize,
+            Literal::Int(_) => DType::Int,
         }
     }
 
@@ -453,8 +452,7 @@ impl DType {
     /// バイト単位でのサイズを取得
     pub fn size_in_bytes(&self) -> usize {
         match self {
-            DType::Isize => std::mem::size_of::<isize>(),
-            DType::Usize => std::mem::size_of::<usize>(),
+            DType::Int => std::mem::size_of::<isize>(),
             DType::F32 => std::mem::size_of::<f32>(),
             DType::Ptr(_) => std::mem::size_of::<usize>(), // ポインタはusizeと同じサイズ
             DType::Vec(elem_type, size) => elem_type.size_in_bytes() * size,

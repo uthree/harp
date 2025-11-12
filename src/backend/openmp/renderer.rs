@@ -34,8 +34,7 @@ impl CLikeRenderer for CRenderer {
     fn render_dtype_backend(&self, dtype: &DType) -> String {
         match dtype {
             DType::F32 => "float".to_string(),
-            DType::Isize => "int".to_string(),
-            DType::Usize => "int".to_string(),
+            DType::Int => "int".to_string(),
             DType::Ptr(inner) => format!("{}*", self.render_dtype_backend(inner)),
             DType::Vec(inner, size) => {
                 // C言語ではベクトル型をサポートしていないので、配列として表現
@@ -169,8 +168,7 @@ mod tests {
     fn test_render_dtype() {
         let renderer = CRenderer::new();
         assert_eq!(renderer.render_dtype_backend(&DType::F32), "float");
-        assert_eq!(renderer.render_dtype_backend(&DType::Isize), "int");
-        assert_eq!(renderer.render_dtype_backend(&DType::Usize), "int");
+        assert_eq!(renderer.render_dtype_backend(&DType::Int), "int");
         assert_eq!(
             renderer.render_dtype_backend(&DType::Ptr(Box::new(DType::F32))),
             "float*"

@@ -45,12 +45,12 @@ fn test_function_new() {
 fn test_function_check_body() {
     let params = vec![VarDecl {
         name: "x".to_string(),
-        dtype: DType::Isize,
+        dtype: DType::Int,
         mutability: Mutability::Immutable,
         kind: VarKind::Normal,
         initial_value: None,
     }];
-    let return_type = DType::Isize;
+    let return_type = DType::Int;
     let body = vec![AstNode::Return {
         value: Box::new(var("x") * AstNode::Const(2isize.into())),
     }];
@@ -122,12 +122,12 @@ fn test_program_with_function_call() {
         FunctionKind::Normal,
         vec![VarDecl {
             name: "x".to_string(),
-            dtype: DType::Isize,
+            dtype: DType::Int,
             mutability: Mutability::Immutable,
             kind: VarKind::Normal,
             initial_value: None,
         }],
-        DType::Isize,
+        DType::Int,
         vec![AstNode::Return {
             value: Box::new(var("x") * AstNode::Const(2isize.into())),
         }],
@@ -141,7 +141,7 @@ fn test_program_with_function_call() {
     let main_func = Function::new(
         FunctionKind::Normal,
         vec![],
-        DType::Isize,
+        DType::Int,
         vec![AstNode::Call {
             name: "double".to_string(),
             args: vec![AstNode::Const(5isize.into())],

@@ -174,7 +174,7 @@ impl Lowerer {
             .into_iter()
             .map(|var_name| VarDecl {
                 name: var_name,
-                dtype: AstDType::Usize,
+                dtype: AstDType::Int,
                 mutability: Mutability::Immutable,
                 kind: VarKind::Normal,
                 initial_value: None,

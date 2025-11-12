@@ -80,7 +80,7 @@ fn test_return_check_scope() {
     scope
         .declare(
             "result".to_string(),
-            DType::Isize,
+            DType::Int,
             Mutability::Immutable,
             None,
         )

@@ -232,11 +232,11 @@ mod tests {
     #[allow(clippy::approx_constant)]
     fn test_cast() {
         let a = AstNode::Const(3.14f32.into());
-        let cast_node = cast(a, DType::Isize);
+        let cast_node = cast(a, DType::Int);
         match cast_node {
             AstNode::Cast(_, dtype) => match dtype {
-                DType::Isize => {}
-                _ => panic!("Expected Isize dtype"),
+                DType::Int => {}
+                _ => panic!("Expected Int dtype"),
             },
             _ => panic!("Expected Cast node"),
         }

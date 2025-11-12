@@ -176,9 +176,9 @@ fn test_cast_op() {
     let mut lowerer = RecursiveLowerer::new();
     let mut graph = Graph::new();
 
-    // Cast操作: F32 -> Isize
+    // Cast操作: F32 -> Int
     let input = graph.input(DType::F32, vec![10.into()]);
-    let result = input.cast(DType::Isize);
+    let result = input.cast(DType::Int);
 
     // lowering実行
     lowerer.lower_node(&result);
@@ -189,8 +189,8 @@ fn test_cast_op() {
     // 結果ノードに変数名がマッピングされていることを確認
     assert!(lowerer.get_var_name(&result).is_some());
 
-    // 型がIsizeであることを確認
-    assert_eq!(result.dtype, DType::Isize);
+    // 型がIntであることを確認
+    assert_eq!(result.dtype, DType::Int);
 }
 
 #[test]

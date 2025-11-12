@@ -62,8 +62,7 @@ impl CLikeRenderer for MetalRenderer {
     fn render_dtype_backend(&self, dtype: &DType) -> String {
         match dtype {
             DType::F32 => "float".to_string(),
-            DType::Isize => "int".to_string(),
-            DType::Usize => "uint".to_string(),
+            DType::Int => "int".to_string(),
             DType::Ptr(inner) => format!("device {}*", self.render_dtype_backend(inner)),
             DType::Vec(inner, size) => {
                 let base = self.render_dtype_backend(inner);
@@ -187,8 +186,7 @@ mod tests {
     fn test_render_dtype() {
         let renderer = MetalRenderer::new();
         assert_eq!(renderer.render_dtype_backend(&DType::F32), "float");
-        assert_eq!(renderer.render_dtype_backend(&DType::Isize), "int");
-        assert_eq!(renderer.render_dtype_backend(&DType::Usize), "uint");
+        assert_eq!(renderer.render_dtype_backend(&DType::Int), "int");
         assert_eq!(
             renderer.render_dtype_backend(&DType::F32.to_ptr()),
             "device float*"
@@ -235,7 +233,7 @@ mod tests {
         let params = vec![
             VarDecl {
                 name: "tid".to_string(),
-                dtype: DType::Usize,
+                dtype: DType::Int,
                 mutability: Mutability::Immutable,
                 kind: VarKind::ThreadId(0),
                 initial_value: None,
@@ -350,7 +348,7 @@ mod tests {
         // ループとバリアを含むカーネル
         let mut loop_scope = Scope::new();
         loop_scope
-            .declare("i".to_string(), DType::Usize, Mutability::Immutable, None)
+            .declare("i".to_string(), DType::Int, Mutability::Immutable, None)
             .unwrap();
 
         let loop_node = AstNode::Range {
@@ -379,7 +377,7 @@ mod tests {
         let mut renderer = MetalRenderer::new();
         let code = renderer.render_statement(&loop_node);
 
-        assert!(code.contains("for (uint i = 0; i < 10; i += 1)"));
+        assert!(code.contains("for (int i = 0; i < 10; i += 1)"));
         assert!(code.contains("shared[i] = input[i]"));
         assert!(code.contains("threadgroup_barrier"));
         assert!(code.contains("output[i] = shared[i]"));
