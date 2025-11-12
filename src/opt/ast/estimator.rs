@@ -44,7 +44,8 @@ impl SimpleCostEstimator {
             AstNode::Assign { .. } => 2.0,
             AstNode::Barrier => 2.0,
             AstNode::Call { .. } => 2.0,
-            _ => 0.01,
+            AstNode::Range { .. } => 25.0,
+            _ => 0.02,
         };
         cost * 1e-10
     }
@@ -129,9 +130,9 @@ impl CostEstimator for SimpleCostEstimator {
                 };
                 self.estimate(start)
                     + (self.estimate(body)
-                        + OVERHEAD_PER_LOOP
                         + self.estimate(step)
-                        + self.estimate(stop))
+                        + self.estimate(stop)
+                        + OVERHEAD_PER_LOOP)
                         * loop_count
             }
             AstNode::Block { statements, .. } => statements.iter().map(|s| self.estimate(s)).sum(),
@@ -154,7 +155,7 @@ impl CostEstimator for SimpleCostEstimator {
                 // すべての関数のコストの合計
                 functions.iter().map(|f| self.estimate(f)).sum()
             }
-            _ => 0.0,
+            _ => 0.,
         };
 
         base_cost + children_cost

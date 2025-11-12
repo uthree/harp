@@ -35,18 +35,22 @@ pub fn inline_small_loop(loop_node: &AstNode, max_iterations: usize) -> Option<A
             body,
         } => {
             // start, step, stopが全て定数の場合のみ展開可能
-            let start_val = match start.as_ref() {
-                AstNode::Const(Literal::Isize(v)) => *v,
+            // IsizeとUsizeの両方をサポート
+            let (start_val, use_usize) = match start.as_ref() {
+                AstNode::Const(Literal::Isize(v)) => (*v as usize, false),
+                AstNode::Const(Literal::Usize(v)) => (*v, true),
                 _ => return None,
             };
 
             let step_val = match step.as_ref() {
-                AstNode::Const(Literal::Isize(v)) if *v > 0 => *v,
+                AstNode::Const(Literal::Isize(v)) if *v > 0 => *v as usize,
+                AstNode::Const(Literal::Usize(v)) if *v > 0 => *v,
                 _ => return None, // ステップが定数でないか、0以下の場合は展開不可
             };
 
             let stop_val = match stop.as_ref() {
-                AstNode::Const(Literal::Isize(v)) => *v,
+                AstNode::Const(Literal::Isize(v)) => *v as usize,
+                AstNode::Const(Literal::Usize(v)) => *v,
                 _ => return None,
             };
 
@@ -59,7 +63,7 @@ pub fn inline_small_loop(loop_node: &AstNode, max_iterations: usize) -> Option<A
                 });
             }
 
-            let iterations = ((stop_val - start_val + step_val - 1) / step_val) as usize;
+            let iterations = (stop_val - start_val + step_val - 1) / step_val;
 
             // 反復回数が多すぎる場合は展開しない
             if iterations > max_iterations {
@@ -71,7 +75,11 @@ pub fn inline_small_loop(loop_node: &AstNode, max_iterations: usize) -> Option<A
             let mut current = start_val;
 
             while current < stop_val {
-                let var_value = Box::new(AstNode::Const(Literal::Isize(current)));
+                let var_value = Box::new(if use_usize {
+                    AstNode::Const(Literal::Usize(current))
+                } else {
+                    AstNode::Const(Literal::Isize(current as isize))
+                });
                 let replaced_body = replace_var_in_ast(body, var, &var_value);
                 statements.push(replaced_body);
                 current += step_val;
@@ -124,13 +132,60 @@ pub fn tile_loop(loop_node: &AstNode, tile_size: usize) -> Option<AstNode> {
             stop,
             body,
         } => {
-            // ステップが1の場合のみタイル化可能（簡易実装）
-            if !matches!(step.as_ref(), AstNode::Const(Literal::Isize(1))) {
+            // 既にタイル化されたループ（_outer, _inner, _remainderを含む変数名）は再度タイル化しない
+            if var.contains("_outer") || var.contains("_inner") || var.contains("_remainder") {
+                log::trace!("Skipping tiling for already tiled loop: {}", var);
                 return None;
             }
 
+            // ステップが1の場合のみタイル化可能（簡易実装）
+            let is_step_one = matches!(step.as_ref(), AstNode::Const(Literal::Isize(1)))
+                || matches!(step.as_ref(), AstNode::Const(Literal::Usize(1)));
+            if !is_step_one {
+                log::trace!("Skipping tiling for loop with step != 1: {}", var);
+                return None;
+            }
+
+            // stopが定数の場合のみタイル化可能（簡易実装）
+            // これによりタイル化後のRangeノードのstopフィールドが必ず定数になる
+            let stop_val = match stop.as_ref() {
+                AstNode::Const(Literal::Usize(v)) => *v,
+                AstNode::Const(Literal::Isize(v)) if *v >= 0 => *v as usize,
+                _ => {
+                    log::trace!("Skipping tiling for loop with non-constant stop: {}", var);
+                    return None;
+                }
+            };
+
+            // stepの型を検出（use_usizeを決定）
+            let use_usize = matches!(step.as_ref(), AstNode::Const(Literal::Usize(_)));
+
+            log::debug!("Tiling loop: {} with tile_size: {}, stop_val: {}", var, tile_size, stop_val);
+            let make_zero = || {
+                if use_usize {
+                    AstNode::Const(Literal::Usize(0))
+                } else {
+                    AstNode::Const(Literal::Isize(0))
+                }
+            };
+            let make_one = || {
+                if use_usize {
+                    AstNode::Const(Literal::Usize(1))
+                } else {
+                    AstNode::Const(Literal::Isize(1))
+                }
+            };
+            let make_tile_size = || {
+                if use_usize {
+                    AstNode::Const(Literal::Usize(tile_size))
+                } else {
+                    AstNode::Const(Literal::Isize(tile_size as isize))
+                }
+            };
+
             let outer_var = format!("{}_outer", var);
             let inner_var = format!("{}_inner", var);
+            let remainder_var = format!("{}_remainder", var);
 
             // 内側ループの本体: i = i_outer + i_inner; body(i)
             let i_expr = Box::new(AstNode::Add(
@@ -154,37 +209,46 @@ pub fn tile_loop(loop_node: &AstNode, tile_size: usize) -> Option<AstNode> {
             // 内側ループ: for i_inner in 0..tile_size step 1
             let inner_loop = AstNode::Range {
                 var: inner_var.clone(),
-                start: Box::new(AstNode::Const(Literal::Isize(0))),
-                step: Box::new(AstNode::Const(Literal::Isize(1))),
-                stop: Box::new(AstNode::Const(Literal::Isize(tile_size as isize))),
+                start: Box::new(make_zero()),
+                step: Box::new(make_one()),
+                stop: Box::new(make_tile_size()),
                 body: Box::new(inner_body),
             };
 
-            // メインループの終了値: (stop / tile_size) * tile_size
-            let main_stop = Box::new(AstNode::Mul(
-                Box::new(AstNode::Idiv(
-                    stop.clone(),
-                    Box::new(AstNode::Const(Literal::Isize(tile_size as isize))),
-                )),
-                Box::new(AstNode::Const(Literal::Isize(tile_size as isize))),
-            ));
+            // メインループの終了値: (stop_val / tile_size) * tile_size
+            // stopが定数であることが保証されているので、main_stopも常に定数
+            let aligned_stop = (stop_val / tile_size) * tile_size;
+            let main_stop = Box::new(if use_usize {
+                AstNode::Const(Literal::Usize(aligned_stop))
+            } else {
+                AstNode::Const(Literal::Isize(aligned_stop as isize))
+            });
 
             // 外側ループ: for i_outer in start..main_stop step tile_size
             let outer_loop = AstNode::Range {
                 var: outer_var.clone(),
                 start: start.clone(),
-                step: Box::new(AstNode::Const(Literal::Isize(tile_size as isize))),
+                step: Box::new(make_tile_size()),
                 stop: main_stop.clone(),
                 body: Box::new(inner_loop),
             };
 
-            // 端数処理ループ: for i in main_stop..stop step 1
-            let remainder_loop = AstNode::Range {
+            // 端数処理ループ: for i_remainder in main_stop..stop step 1
+            // ループ本体の中で元の変数名を使うため、代入を追加
+            let remainder_assign = AstNode::Assign {
                 var: var.clone(),
+                value: Box::new(AstNode::Var(remainder_var.clone())),
+            };
+            let remainder_body = AstNode::Block {
+                statements: vec![remainder_assign, body.as_ref().clone()],
+                scope: Box::new(Scope::new()),
+            };
+            let remainder_loop = AstNode::Range {
+                var: remainder_var,
                 start: main_stop,
                 step: step.clone(),
                 stop: stop.clone(),
-                body: body.clone(),
+                body: Box::new(remainder_body),
             };
 
             // メインループと端数処理ループを含むBlock
@@ -408,7 +472,7 @@ mod tests {
 
             // 2番目のstatementが端数処理ループ
             if let AstNode::Range { var, .. } = &statements[1] {
-                assert_eq!(var, "i");
+                assert_eq!(var, "i_remainder");
             } else {
                 panic!("Expected Range node for remainder loop");
             }
