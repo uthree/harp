@@ -428,41 +428,39 @@ impl LoopInterchangeSuggester {
             }
 
             // 外側ループの本体がBlockで、その中に単一のRangeがある場合
-            if let AstNode::Block { statements, scope } = outer_body.as_ref() {
-                if statements.len() == 1 {
-                    if let AstNode::Range {
-                        var: inner_var,
-                        start: inner_start,
-                        step: inner_step,
-                        stop: inner_stop,
-                        body: inner_body,
-                    } = &statements[0]
-                    {
-                        // ループを交換: 内側を外側に、外側を内側に
-                        let new_inner = AstNode::Range {
-                            var: outer_var.clone(),
-                            start: outer_start.clone(),
-                            step: outer_step.clone(),
-                            stop: outer_stop.clone(),
-                            body: inner_body.clone(),
-                        };
+            if let AstNode::Block { statements, scope } = outer_body.as_ref()
+                && statements.len() == 1
+                && let AstNode::Range {
+                    var: inner_var,
+                    start: inner_start,
+                    step: inner_step,
+                    stop: inner_stop,
+                    body: inner_body,
+                } = &statements[0]
+            {
+                // ループを交換: 内側を外側に、外側を内側に
+                let new_inner = AstNode::Range {
+                    var: outer_var.clone(),
+                    start: outer_start.clone(),
+                    step: outer_step.clone(),
+                    stop: outer_stop.clone(),
+                    body: inner_body.clone(),
+                };
 
-                        let new_outer_body = AstNode::Block {
-                            statements: vec![new_inner],
-                            scope: scope.clone(),
-                        };
+                let new_outer_body = AstNode::Block {
+                    statements: vec![new_inner],
+                    scope: scope.clone(),
+                };
 
-                        let new_outer = AstNode::Range {
-                            var: inner_var.clone(),
-                            start: inner_start.clone(),
-                            step: inner_step.clone(),
-                            stop: inner_stop.clone(),
-                            body: Box::new(new_outer_body),
-                        };
+                let new_outer = AstNode::Range {
+                    var: inner_var.clone(),
+                    start: inner_start.clone(),
+                    step: inner_step.clone(),
+                    stop: inner_stop.clone(),
+                    body: Box::new(new_outer_body),
+                };
 
-                        return Some(new_outer);
-                    }
-                }
+                return Some(new_outer);
             }
         }
 

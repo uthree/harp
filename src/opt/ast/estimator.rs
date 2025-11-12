@@ -44,7 +44,7 @@ impl SimpleCostEstimator {
             AstNode::Assign { .. } => 2.0,
             AstNode::Barrier => 2.0,
             AstNode::Call { .. } => 2.0,
-            AstNode::Range { .. } => 0.0,
+            AstNode::Range { .. } => 10.0,
             _ => 0.01,
         };
         cost * 1e-10

@@ -93,7 +93,7 @@ where
         // 千日手対策用の変数
         let mut best_cost = initial_cost;
         let mut no_improvement_count = 0;
-        const MAX_NO_IMPROVEMENT: usize = 10; // 10回連続で改善がなければ終了
+        const MAX_NO_IMPROVEMENT: usize = 4; // 4回連続で改善がなければ終了
 
         // 初期状態の入力・出力ノード情報をログに出力
         debug!(

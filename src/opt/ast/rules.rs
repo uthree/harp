@@ -244,6 +244,37 @@ pub fn add_same_to_mul_two() -> Rc<AstRewriteRule> {
 }
 
 // ============================================================================
+// Block簡約 (Block Simplification)
+// ============================================================================
+
+/// 単一要素のBlockを展開: Block { statements: [x], .. } = x
+///
+/// 単一の文しか含まないBlockノードは、その文に直接置き換えることができます。
+/// これにより、ループ交換や他の最適化で生成された不要なBlockが削除されます。
+pub fn unwrap_single_statement_block() -> Rc<AstRewriteRule> {
+    AstRewriteRule::new(
+        AstNode::Wildcard("block".to_string()),
+        |bindings| {
+            let block = bindings.get("block").unwrap();
+
+            if let AstNode::Block { statements, .. } = block
+                && statements.len() == 1
+            {
+                return statements[0].clone();
+            }
+
+            block.clone()
+        },
+        |bindings| {
+            matches!(
+                bindings.get("block"),
+                Some(AstNode::Block { statements, .. }) if statements.len() == 1
+            )
+        },
+    )
+}
+
+// ============================================================================
 // 分配則 (Distributive Rules)
 // ============================================================================
 
@@ -661,6 +692,8 @@ pub fn simplification_rules() -> Vec<Rc<AstRewriteRule>> {
         exp2_log2(),
         // 同項規則
         add_same_to_mul_two(),
+        // Block簡約
+        unwrap_single_statement_block(),
         // ビット演算最適化（2の累乗の乗算をシフトに変換）
         mul_power_of_two_to_shift_right(),
         mul_power_of_two_to_shift_left(),
@@ -1178,5 +1211,73 @@ mod tests {
         // 5 * 2
         let expected = AstNode::Mul(Box::new(const_5), Box::new(AstNode::Const(Literal::Int(2))));
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_unwrap_single_statement_block() {
+        use crate::ast::Scope;
+        let rule = unwrap_single_statement_block();
+
+        // 単一のステートメントを持つBlockは展開される
+        let single_stmt = AstNode::Var("x".to_string());
+        let block = AstNode::Block {
+            statements: vec![single_stmt.clone()],
+            scope: Box::new(Scope::new()),
+        };
+        let result = rule.apply(&block);
+        assert_eq!(result, single_stmt);
+    }
+
+    #[test]
+    fn test_unwrap_single_statement_block_multiple_statements() {
+        use crate::ast::Scope;
+        let rule = unwrap_single_statement_block();
+
+        // 複数のステートメントを持つBlockは展開されない
+        let multi_block = AstNode::Block {
+            statements: vec![
+                AstNode::Var("x".to_string()),
+                AstNode::Var("y".to_string()),
+            ],
+            scope: Box::new(Scope::new()),
+        };
+        let result = rule.apply(&multi_block);
+        // Blockのまま変わらないはず
+        match result {
+            AstNode::Block { statements, .. } => {
+                assert_eq!(statements.len(), 2);
+            }
+            _ => panic!("Expected Block node"),
+        }
+    }
+
+    #[test]
+    fn test_unwrap_single_statement_block_with_optimizer() {
+        use crate::ast::Scope;
+        let optimizer = RuleBaseOptimizer::new(simplification_rules());
+
+        // Block内にRangeがあるケース（ループ交換などで生成されるパターン）
+        let inner_range = AstNode::Range {
+            var: "i".to_string(),
+            start: Box::new(AstNode::Const(Literal::Int(0))),
+            step: Box::new(AstNode::Const(Literal::Int(1))),
+            stop: Box::new(AstNode::Const(Literal::Int(10))),
+            body: Box::new(AstNode::Var("body".to_string())),
+        };
+
+        let block = AstNode::Block {
+            statements: vec![inner_range.clone()],
+            scope: Box::new(Scope::new()),
+        };
+
+        let result = optimizer.optimize(block);
+
+        // Blockが展開されてRangeが直接返されるはず
+        match result {
+            AstNode::Range { var, .. } => {
+                assert_eq!(var, "i");
+            }
+            _ => panic!("Expected Range node after unwrapping"),
+        }
     }
 }
