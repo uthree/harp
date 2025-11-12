@@ -18,34 +18,10 @@ impl SimpleCostEstimator {
     /// ノードのベースコストを取得
     fn base_cost(&self, ast: &AstNode) -> f32 {
         let cost = match ast {
-            AstNode::Const(_) | AstNode::Wildcard(_) => 0.,
-            AstNode::Var(_) => 1.0,
-            AstNode::Add(_, _) => 1.0,
-            AstNode::Mul(_, _) => 5.0,
-            AstNode::Max(_, _) => 2.0,
-            AstNode::Rem(_, _) => 5.0,
-            AstNode::Idiv(_, _) => 5.0,
-            AstNode::Recip(_) => 10.0,
-            AstNode::Sqrt(_) => 20.0,
-            AstNode::Log2(_) => 20.0,
-            AstNode::Exp2(_) => 20.0,
-            AstNode::Sin(_) => 20.0,
-            AstNode::Cast(_, _) => 2.0,
-            // Bitwise operations - ビット演算（シフトは乗算より低コスト）
-            AstNode::BitwiseAnd(_, _) => 0.5,
-            AstNode::BitwiseOr(_, _) => 0.5,
-            AstNode::BitwiseXor(_, _) => 0.5,
+            AstNode::BitwiseAnd(_, _) | AstNode::BitwiseOr(_, _) | AstNode::BitwiseXor(_, _) => 0.5,
             AstNode::BitwiseNot(_) => 0.5,
-            AstNode::LeftShift(_, _) => 0.5,
-            AstNode::RightShift(_, _) => 0.5,
-
-            AstNode::Load { .. } => 2.0,
-            AstNode::Store { .. } => 2.0,
-            AstNode::Assign { .. } => 2.0,
-            AstNode::Barrier => 2.0,
-            AstNode::Call { .. } => 2.0,
-            AstNode::Range { .. } => 10.0,
-            _ => 0.01,
+            AstNode::LeftShift(_, _) | AstNode::RightShift(_, _) => 0.5,
+            _ => 1.0,
         };
         cost * 1e-10
     }

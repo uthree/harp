@@ -174,10 +174,7 @@ pub fn recip_recip() -> Rc<AstRewriteRule> {
 /// 注: このルールは a >= 0 の場合のみ有効なので、条件付きルールとして実装
 pub fn sqrt_squared() -> Rc<AstRewriteRule> {
     astpat!(|a| {
-        AstNode::Mul(
-            Box::new(AstNode::Sqrt(Box::new(a.clone()))),
-            Box::new(AstNode::Sqrt(Box::new(a)))
-        )
+        AstNode::Sqrt(Box::new(a.clone())) * AstNode::Sqrt(Box::new(a))
     } => {
         a
     })
@@ -237,9 +234,9 @@ associative_rules!(
 /// 同じ項の加算: a + a = a * 2
 pub fn add_same_to_mul_two() -> Rc<AstRewriteRule> {
     astpat!(|a| {
-        AstNode::Add(Box::new(a.clone()), Box::new(a))
+        a.clone() + a
     } => {
-        AstNode::Mul(Box::new(a), Box::new(AstNode::Const(Literal::Int(2))))
+        a * 2isize
     })
 }
 
@@ -281,60 +278,36 @@ pub fn unwrap_single_statement_block() -> Rc<AstRewriteRule> {
 /// 左分配則: a * (b + c) = a * b + a * c
 pub fn distributive_left() -> Rc<AstRewriteRule> {
     astpat!(|a, b, c| {
-        AstNode::Mul(
-            Box::new(a.clone()),
-            Box::new(AstNode::Add(Box::new(b), Box::new(c)))
-        )
+        a.clone() * (b.clone() + c.clone())
     } => {
-        AstNode::Add(
-            Box::new(AstNode::Mul(Box::new(a.clone()), Box::new(b))),
-            Box::new(AstNode::Mul(Box::new(a), Box::new(c)))
-        )
+        a.clone() * b + a * c
     })
 }
 
 /// 右分配則: (a + b) * c = a * c + b * c
 pub fn distributive_right() -> Rc<AstRewriteRule> {
     astpat!(|a, b, c| {
-        AstNode::Mul(
-            Box::new(AstNode::Add(Box::new(a), Box::new(b))),
-            Box::new(c.clone())
-        )
+        (a.clone() + b.clone()) * c.clone()
     } => {
-        AstNode::Add(
-            Box::new(AstNode::Mul(Box::new(a), Box::new(c.clone()))),
-            Box::new(AstNode::Mul(Box::new(b), Box::new(c)))
-        )
+        a * c.clone() + b * c
     })
 }
 
 /// 因数分解（左）: a * b + a * c = a * (b + c)
 pub fn factor_left() -> Rc<AstRewriteRule> {
     astpat!(|a, b, c| {
-        AstNode::Add(
-            Box::new(AstNode::Mul(Box::new(a.clone()), Box::new(b))),
-            Box::new(AstNode::Mul(Box::new(a.clone()), Box::new(c)))
-        )
+        a.clone() * b.clone() + a.clone() * c.clone()
     } => {
-        AstNode::Mul(
-            Box::new(a),
-            Box::new(AstNode::Add(Box::new(b), Box::new(c)))
-        )
+        a * (b + c)
     })
 }
 
 /// 因数分解（右）: a * c + b * c = (a + b) * c
 pub fn factor_right() -> Rc<AstRewriteRule> {
     astpat!(|a, b, c| {
-        AstNode::Add(
-            Box::new(AstNode::Mul(Box::new(a), Box::new(c.clone()))),
-            Box::new(AstNode::Mul(Box::new(b), Box::new(c.clone())))
-        )
+        a.clone() * c.clone() + b.clone() * c.clone()
     } => {
-        AstNode::Mul(
-            Box::new(AstNode::Add(Box::new(a), Box::new(b))),
-            Box::new(c)
-        )
+        (a + b) * c
     })
 }
 
@@ -1235,10 +1208,7 @@ mod tests {
 
         // 複数のステートメントを持つBlockは展開されない
         let multi_block = AstNode::Block {
-            statements: vec![
-                AstNode::Var("x".to_string()),
-                AstNode::Var("y".to_string()),
-            ],
+            statements: vec![AstNode::Var("x".to_string()), AstNode::Var("y".to_string())],
             scope: Box::new(Scope::new()),
         };
         let result = rule.apply(&multi_block);

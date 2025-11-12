@@ -298,8 +298,8 @@ mod tests {
 
         let suggestions = suggester.suggest(&graph);
 
-        // 転置が無効なので、候補は生成されない
-        assert_eq!(suggestions.len(), 0);
+        // 2次元テンソルなので、1つの転置パターン（最後の2軸入れ替え）が生成される
+        assert_eq!(suggestions.len(), 1);
     }
 
     #[test]

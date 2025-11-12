@@ -308,7 +308,7 @@ where
             let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules())
                 .with_max_iterations(self.ast_optimization_config.rule_max_iterations);
 
-            let rule_optimized = rule_optimizer.optimize(program);
+            let program = rule_optimizer.optimize(program);
             // ステップ2: ビームサーチ最適化（ルールベース + ループ最適化）
             let beam_suggester = AstCompositeSuggester::new(vec![
                 Box::new(RuleBaseSuggester::new(all_rules_with_search())),
@@ -323,7 +323,7 @@ where
                 .with_max_steps(self.ast_optimization_config.max_steps)
                 .with_progress(self.ast_optimization_config.show_progress);
 
-            let (optimized, history) = beam_optimizer.optimize_with_history(rule_optimized);
+            let (optimized, history) = beam_optimizer.optimize_with_history(program);
 
             // 履歴を保存
             self.last_ast_optimization_history = Some(history.clone());

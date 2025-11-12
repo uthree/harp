@@ -93,7 +93,6 @@ where
         // 千日手対策用の変数
         let mut best_cost = initial_cost;
         let mut no_improvement_count = 0;
-        const MAX_NO_IMPROVEMENT: usize = 4; // 4回連続で改善がなければ終了
 
         // 初期状態の入力・出力ノード情報をログに出力
         debug!(
@@ -269,42 +268,14 @@ where
                 // このステップのログをクリア（次のステップで新しいログのみを記録するため）
                 log_capture::clear_logs();
 
-                // コスト改善チェック（千日手対策）
-                const EPSILON: f32 = 1e-6; // 浮動小数点の誤差を考慮
-                if *cost < best_cost - EPSILON {
-                    // コストが改善された
-                    best_cost = *cost;
-                    no_improvement_count = 0;
-                    debug!(
-                        "BeamSearchGraphOptimizer: Cost improved to {} at step {}",
-                        cost,
-                        step + 1
-                    );
-                } else {
-                    // コストが改善されなかった
-                    no_improvement_count += 1;
-                    debug!(
-                        "BeamSearchGraphOptimizer: No cost improvement at step {} (count: {}/{})",
-                        step + 1,
-                        no_improvement_count,
-                        MAX_NO_IMPROVEMENT
-                    );
-
-                    if no_improvement_count >= MAX_NO_IMPROVEMENT {
-                        debug!(
-                            "BeamSearchGraphOptimizer: No improvement for {} steps - early termination",
-                            MAX_NO_IMPROVEMENT
-                        );
-                        if let Some(ref pb) = pb {
-                            pb.finish_and_clear();
-                            println!(
-                                "{:>12} graph optimization (no improvement)",
-                                "\x1b[1;32mFinished\x1b[0m"
-                            );
-                        }
-                        early_terminated = true;
-                        break;
+                // コストが改善しないなら停止
+                if *cost <= best_cost {
+                    if let Some(ref pb) = pb {
+                        pb.finish_and_clear();
+                        println!("{:>12} graph optimization", "\x1b[1;32mFinished\x1b[0m");
                     }
+                    early_terminated = true;
+                    break;
                 }
             }
         }
