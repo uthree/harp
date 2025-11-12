@@ -21,6 +21,9 @@ impl SimpleCostEstimator {
             AstNode::BitwiseAnd(_, _) | AstNode::BitwiseOr(_, _) | AstNode::BitwiseXor(_, _) => 0.5,
             AstNode::BitwiseNot(_) => 0.5,
             AstNode::LeftShift(_, _) | AstNode::RightShift(_, _) => 0.5,
+            AstNode::Add(_, _) => 1.1,
+            AstNode::Mul(_, _) => 1.5,
+            AstNode::Max(_, _) => 0.85,
             _ => 1.0,
         };
         cost * 1e-10
