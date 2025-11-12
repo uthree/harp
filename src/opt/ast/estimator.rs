@@ -1,5 +1,5 @@
 use crate::ast::AstNode;
-const OVERHEAD_PER_LOOP: f32 = 1e-8;
+const OVERHEAD_PER_LOOP: f32 = 1e-10;
 /// ASTの実行コストを推定するトレイト
 pub trait CostEstimator {
     /// ASTノードのコストを推定

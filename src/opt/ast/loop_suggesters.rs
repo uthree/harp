@@ -23,7 +23,7 @@ impl LoopTilingSuggester {
     /// デフォルトのタイルサイズで作成
     pub fn with_default_sizes() -> Self {
         Self {
-            tile_sizes: vec![2, 4, 8, 16],
+            tile_sizes: vec![2, 4, 8, 16, 32, 64],
         }
     }
 
