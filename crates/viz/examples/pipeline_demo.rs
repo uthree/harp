@@ -203,10 +203,10 @@ fn create_complex_computation_graph() -> Graph {
     let mut graph = Graph::new();
 
     // サイズは小さめにして最適化の効果を見やすくする
-    let m = 32;
-    let k = 48;
-    let n = 40;
-    let p = 36;
+    let m = 320;
+    let k = 480;
+    let n = 400;
+    let p = 360;
 
     // 入力行列
     let a = graph

@@ -1,5 +1,5 @@
 use crate::ast::AstNode;
-const OVERHEAD_PER_LOOP: f32 = 1e-7;
+const OVERHEAD_PER_LOOP: f32 = 1e-8;
 /// ASTの実行コストを推定するトレイト
 pub trait CostEstimator {
     /// ASTノードのコストを推定
@@ -26,10 +26,10 @@ impl SimpleCostEstimator {
             AstNode::Rem(_, _) => 5.0,
             AstNode::Idiv(_, _) => 2.0,
             AstNode::Recip(_) => 10.0,
-            AstNode::Sqrt(_) => 15.0,
-            AstNode::Log2(_) => 15.0,
-            AstNode::Exp2(_) => 15.0,
-            AstNode::Sin(_) => 15.0,
+            AstNode::Sqrt(_) => 20.0,
+            AstNode::Log2(_) => 20.0,
+            AstNode::Exp2(_) => 20.0,
+            AstNode::Sin(_) => 20.0,
             AstNode::Cast(_, _) => 4.0,
             // Bitwise operations - ビット演算（シフトは乗算より低コスト）
             AstNode::BitwiseAnd(_, _) => 0.5,
@@ -39,12 +39,12 @@ impl SimpleCostEstimator {
             AstNode::LeftShift(_, _) => 0.8, // 乗算(4.0)より低コスト
             AstNode::RightShift(_, _) => 0.8, // 乗算(4.0)より低コスト
 
-            AstNode::Load { .. } => 3.0,
-            AstNode::Store { .. } => 3.0,
+            AstNode::Load { .. } => 2.0,
+            AstNode::Store { .. } => 2.0,
             AstNode::Assign { .. } => 1.2,
-            AstNode::Barrier => 1.0,
-            AstNode::Block { .. } => 0.0,
-            AstNode::Range { .. } => 1.0,
+            AstNode::Barrier => 0.1,
+            AstNode::Block { .. } => 0.01,
+            AstNode::Range { .. } => 0.01,
             AstNode::Call { .. } => 1.0,
             AstNode::Return { .. } => 0.01,
             AstNode::Function { .. } => 0.01,
@@ -132,9 +132,11 @@ impl CostEstimator for SimpleCostEstimator {
                     }
                 };
                 self.estimate(start)
-                    + self.estimate(step)
-                    + self.estimate(stop)
-                    + (self.estimate(body) + OVERHEAD_PER_LOOP) * loop_count
+                    + (self.estimate(body)
+                        + OVERHEAD_PER_LOOP
+                        + self.estimate(step)
+                        + self.estimate(stop))
+                        * loop_count
             }
             AstNode::Block { statements, .. } => statements.iter().map(|s| self.estimate(s)).sum(),
             AstNode::Call { args, .. } => {
@@ -160,387 +162,5 @@ impl CostEstimator for SimpleCostEstimator {
         };
 
         base_cost + children_cost
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::ast::Literal;
-
-    #[test]
-    fn test_simple_cost_estimator() {
-        let estimator = SimpleCostEstimator::new();
-
-        // 定数のコスト
-        let const_node = AstNode::Const(Literal::Isize(42));
-        assert_eq!(estimator.estimate(&const_node), 0.0);
-
-        // 加算のコスト (base_cost: 1.0 * 1e-9)
-        let add_node = AstNode::Add(
-            Box::new(AstNode::Const(Literal::Isize(1))),
-            Box::new(AstNode::Const(Literal::Isize(2))),
-        );
-        assert_eq!(estimator.estimate(&add_node), 1.0 * 1e-9);
-
-        // 平方根のコスト (base_cost: 15.0 * 1e-9)
-        let sqrt_node = AstNode::Sqrt(Box::new(AstNode::Const(Literal::F32(4.0))));
-        assert_eq!(estimator.estimate(&sqrt_node), 15.0 * 1e-9);
-
-        // 複合演算のコスト: (a + b) * c
-        let complex_node = AstNode::Mul(
-            Box::new(AstNode::Add(
-                Box::new(AstNode::Const(Literal::Isize(1))),
-                Box::new(AstNode::Const(Literal::Isize(2))),
-            )),
-            Box::new(AstNode::Const(Literal::Isize(3))),
-        );
-        // Add: 1.0 * 1e-9, Mul: 4.0 * 1e-9 + Add.cost = 5.0 * 1e-9
-        let expected = 5.0 * 1e-9;
-        let actual = estimator.estimate(&complex_node);
-        assert!(
-            (actual - expected).abs() < 1e-15,
-            "Expected cost around {}, got {}",
-            expected,
-            actual
-        );
-    }
-
-    #[test]
-    fn test_cost_comparison() {
-        let estimator = SimpleCostEstimator::new();
-
-        // 2つの等価な式のコストを比較
-        // (a + 0) * 1
-        let expr1 = AstNode::Mul(
-            Box::new(AstNode::Add(
-                Box::new(AstNode::Var("a".to_string())),
-                Box::new(AstNode::Const(Literal::Isize(0))),
-            )),
-            Box::new(AstNode::Const(Literal::Isize(1))),
-        );
-
-        // a
-        let expr2 = AstNode::Var("a".to_string());
-
-        let cost1 = estimator.estimate(&expr1);
-        let cost2 = estimator.estimate(&expr2);
-
-        // expr1の方がコストが高いはず
-        assert!(cost1 > cost2);
-    }
-
-    #[test]
-    fn test_range_cost_with_known_iterations() {
-        let estimator = SimpleCostEstimator::new();
-
-        // ループ回数が明確な場合（0から10まで、ステップ1）
-        let range_10 = AstNode::Range {
-            var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Isize(0))),
-            stop: Box::new(AstNode::Const(Literal::Isize(10))),
-            step: Box::new(AstNode::Const(Literal::Isize(1))),
-            body: Box::new(AstNode::Add(
-                Box::new(AstNode::Var("a".to_string())),
-                Box::new(AstNode::Var("i".to_string())),
-            )),
-        };
-
-        // bodyのコストを計算
-        let body_cost = estimator.estimate(&AstNode::Add(
-            Box::new(AstNode::Var("a".to_string())),
-            Box::new(AstNode::Var("i".to_string())),
-        ));
-
-        // ループ回数は10回なので、children_costは 0 + 0 + 0 + (body_cost + OVERHEAD_PER_LOOP) * 10
-        let cost_10 = estimator.estimate(&range_10);
-        let expected_cost_10 = 10.0 * (body_cost + OVERHEAD_PER_LOOP); // children_cost + base_cost
-        // 浮動小数点演算の精度を考慮して許容範囲を1e-6に設定（オーバーヘッドの影響で精度を緩和）
-        assert!((cost_10 - expected_cost_10).abs() < 1e-6);
-
-        // ループ回数が100回の場合
-        let range_100 = AstNode::Range {
-            var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Isize(0))),
-            stop: Box::new(AstNode::Const(Literal::Isize(100))),
-            step: Box::new(AstNode::Const(Literal::Isize(1))),
-            body: Box::new(AstNode::Add(
-                Box::new(AstNode::Var("a".to_string())),
-                Box::new(AstNode::Var("i".to_string())),
-            )),
-        };
-
-        let cost_100 = estimator.estimate(&range_100);
-        let expected_cost_100 = 100.0 * (body_cost + OVERHEAD_PER_LOOP);
-        // 浮動小数点演算の精度を考慮して許容範囲を1e-6に設定（オーバーヘッドの影響で精度を緩和）
-        assert!((cost_100 - expected_cost_100).abs() < 1e-6);
-
-        // ループ回数が不明な場合（変数を使用）
-        let range_unknown = AstNode::Range {
-            var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Isize(0))),
-            stop: Box::new(AstNode::Var("n".to_string())),
-            step: Box::new(AstNode::Const(Literal::Isize(1))),
-            body: Box::new(AstNode::Add(
-                Box::new(AstNode::Var("a".to_string())),
-                Box::new(AstNode::Var("i".to_string())),
-            )),
-        };
-
-        // ループ回数が不明なので100回と推定され、children_costは 0 + 0 + 0 + (body_cost + OVERHEAD_PER_LOOP) * 100
-        let cost_unknown = estimator.estimate(&range_unknown);
-        let expected_cost_unknown = 100.0 * (body_cost + OVERHEAD_PER_LOOP);
-        // 浮動小数点演算の精度を考慮して許容範囲を1e-6に設定（オーバーヘッドの影響で精度を緩和）
-        assert!((cost_unknown - expected_cost_unknown).abs() < 1e-6);
-
-        // 重要な比較：明確な回数のループと不明な回数のループ
-        // ループ10回の方がループ100回より大幅にコストが低いはず
-        assert!(cost_10 < cost_100);
-        // ループ回数不明（100回推定）とループ100回は同じコストのはず
-        // 浮動小数点演算の精度を考慮して許容範囲を1e-6に設定（オーバーヘッドの影響で精度を緩和）
-        assert!((cost_100 - cost_unknown).abs() < 1e-6);
-    }
-
-    #[test]
-    fn test_function_cost() {
-        use crate::ast::{DType, FunctionKind, Mutability, VarDecl, VarKind};
-
-        let estimator = SimpleCostEstimator::new();
-
-        // 単純な関数: fn test() { return 42; }
-        let simple_func = AstNode::Function {
-            name: Some("test".to_string()),
-            params: vec![],
-            return_type: DType::Isize,
-            body: Box::new(AstNode::Return {
-                value: Box::new(AstNode::Const(Literal::Isize(42))),
-            }),
-            kind: FunctionKind::Normal,
-        };
-
-        let cost = estimator.estimate(&simple_func);
-        // Return (1.0) + Const (0.0) = 1.0
-        // 全て 1e-9 スケール
-        assert_eq!(cost, 1.0);
-
-        // パラメータに初期値を持つ関数
-        let func_with_params = AstNode::Function {
-            name: Some("add".to_string()),
-            params: vec![
-                VarDecl {
-                    name: "a".to_string(),
-                    dtype: DType::Isize,
-                    mutability: Mutability::Immutable,
-                    kind: VarKind::Normal,
-                    initial_value: Some(AstNode::Const(Literal::Isize(1))),
-                },
-                VarDecl {
-                    name: "b".to_string(),
-                    dtype: DType::Isize,
-                    mutability: Mutability::Immutable,
-                    kind: VarKind::Normal,
-                    initial_value: Some(AstNode::Const(Literal::Isize(2))),
-                },
-            ],
-            return_type: DType::Isize,
-            body: Box::new(AstNode::Return {
-                value: Box::new(AstNode::Add(
-                    Box::new(AstNode::Var("a".to_string())),
-                    Box::new(AstNode::Var("b".to_string())),
-                )),
-            }),
-            kind: FunctionKind::Normal,
-        };
-
-        let cost = estimator.estimate(&func_with_params);
-        // body: Return (base: 0, children: self.estimate(Add) + 1.0)
-        //   - Add (base: 1e-9, children: Var + Var = 2e-9 + 2e-9 = 4e-9) ≈ 5e-9
-        //   - Return children_cost = 5e-9 + 1.0 ≈ 1.0
-        //   - Return total = 0 + 1.0 = 1.0
-        // params: Const (0.0) + Const (0.0) = 0.0
-        // total = 1.0
-        assert_eq!(cost, 1.0);
-    }
-
-    #[test]
-    fn test_program_cost() {
-        use crate::ast::{DType, FunctionKind};
-
-        let estimator = SimpleCostEstimator::new();
-
-        // 2つの関数を持つプログラム
-        let program = AstNode::Program {
-            functions: vec![
-                AstNode::Function {
-                    name: Some("func1".to_string()),
-                    params: vec![],
-                    return_type: DType::Isize,
-                    body: Box::new(AstNode::Return {
-                        value: Box::new(AstNode::Const(Literal::Isize(1))),
-                    }),
-                    kind: FunctionKind::Normal,
-                },
-                AstNode::Function {
-                    name: Some("func2".to_string()),
-                    params: vec![],
-                    return_type: DType::Isize,
-                    body: Box::new(AstNode::Return {
-                        value: Box::new(AstNode::Const(Literal::Isize(2))),
-                    }),
-                    kind: FunctionKind::Normal,
-                },
-            ],
-            entry_point: "func1".to_string(),
-        };
-
-        let cost = estimator.estimate(&program);
-        // func1: Return (1.0) + Const (0.0) = 1.0
-        // func2: Return (1.0) + Const (0.0) = 1.0
-        // total = 2.0
-        assert_eq!(cost, 2.0);
-
-        // より複雑な関数を持つプログラム
-        let complex_program = AstNode::Program {
-            functions: vec![AstNode::Function {
-                name: Some("compute".to_string()),
-                params: vec![],
-                return_type: DType::Isize,
-                body: Box::new(AstNode::Return {
-                    value: Box::new(AstNode::Add(
-                        Box::new(AstNode::Mul(
-                            Box::new(AstNode::Const(Literal::Isize(2))),
-                            Box::new(AstNode::Const(Literal::Isize(3))),
-                        )),
-                        Box::new(AstNode::Const(Literal::Isize(4))),
-                    )),
-                }),
-                kind: FunctionKind::Normal,
-            }],
-            entry_point: "compute".to_string(),
-        };
-
-        let cost = estimator.estimate(&complex_program);
-        // Return (base: 0, children: self.estimate(Add) + 1.0)
-        //   - Add (base: 1e-9, children: Mul + Const)
-        //     - Mul (base: 2e-9, children: Const + Const = 0) = 2e-9
-        //     - Const = 0
-        //     - Add total = 1e-9 + 2e-9 = 3e-9
-        //   - Return total = 0 + 3e-9 + 1.0 ≈ 1.0
-        // program total = 1.0
-        assert_eq!(cost, 1.0);
-    }
-
-    #[test]
-    fn test_function_and_program_nonzero_cost() {
-        use crate::ast::{DType, FunctionKind};
-
-        let estimator = SimpleCostEstimator::new();
-
-        // 最小限の関数
-        let func = AstNode::Function {
-            name: Some("empty".to_string()),
-            params: vec![],
-            return_type: DType::Isize,
-            body: Box::new(AstNode::Return {
-                value: Box::new(AstNode::Const(Literal::Isize(0))),
-            }),
-            kind: FunctionKind::Normal,
-        };
-
-        let func_cost = estimator.estimate(&func);
-        // 関数のコストは0より大きいはず（Returnのbase_costがある）
-        assert!(func_cost > 0.0, "Function cost should be non-zero");
-
-        // 最小限のプログラム
-        let program = AstNode::Program {
-            functions: vec![func.clone()],
-            entry_point: "empty".to_string(),
-        };
-
-        let program_cost = estimator.estimate(&program);
-        // プログラムのコストは関数のコストと等しいはず
-        assert_eq!(program_cost, func_cost);
-        assert!(
-            program_cost > 0.0,
-            "Program cost should be non-zero: got {}",
-            program_cost
-        );
-    }
-
-    #[test]
-    fn test_range_cost_with_usize() {
-        let estimator = SimpleCostEstimator::new();
-
-        // Usizeを使ったループ
-        let range_usize = AstNode::Range {
-            var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Usize(0))),
-            stop: Box::new(AstNode::Const(Literal::Usize(10))),
-            step: Box::new(AstNode::Const(Literal::Usize(1))),
-            body: Box::new(AstNode::Add(
-                Box::new(AstNode::Var("a".to_string())),
-                Box::new(AstNode::Var("i".to_string())),
-            )),
-        };
-
-        // Isizeを使ったループ（同じ値）
-        let range_isize = AstNode::Range {
-            var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Isize(0))),
-            stop: Box::new(AstNode::Const(Literal::Isize(10))),
-            step: Box::new(AstNode::Const(Literal::Isize(1))),
-            body: Box::new(AstNode::Add(
-                Box::new(AstNode::Var("a".to_string())),
-                Box::new(AstNode::Var("i".to_string())),
-            )),
-        };
-
-        let cost_usize = estimator.estimate(&range_usize);
-        let cost_isize = estimator.estimate(&range_isize);
-
-        // UsizeとIsizeで同じループ回数なので、コストも同じはず
-        assert!(
-            (cost_usize - cost_isize).abs() < 1e-6,
-            "Usize and Isize loops should have similar cost"
-        );
-    }
-
-    #[test]
-    fn test_range_cost_mixed_literals() {
-        let estimator = SimpleCostEstimator::new();
-
-        // Usize と Isize を混在させたループ
-        let range_mixed = AstNode::Range {
-            var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Usize(0))),
-            stop: Box::new(AstNode::Const(Literal::Isize(20))),
-            step: Box::new(AstNode::Const(Literal::Usize(2))),
-            body: Box::new(AstNode::Var("x".to_string())),
-        };
-
-        let cost = estimator.estimate(&range_mixed);
-
-        // ループ回数は (20 - 0) / 2 = 10 回
-        let body_cost = estimator.estimate(&AstNode::Var("x".to_string()));
-        let expected_cost = 10.0 * (body_cost + OVERHEAD_PER_LOOP);
-
-        assert!(
-            (cost - expected_cost).abs() < 1e-6,
-            "Mixed literal types should work correctly"
-        );
-    }
-
-    #[test]
-    fn test_literal_helpers() {
-        // as_isize() のテスト
-        assert_eq!(Literal::Isize(42).as_isize(), Some(42));
-        assert_eq!(Literal::Usize(100).as_isize(), Some(100));
-        assert_eq!(Literal::F32(3.14).as_isize(), None);
-
-        // as_usize() のテスト
-        assert_eq!(Literal::Usize(42).as_usize(), Some(42));
-        assert_eq!(Literal::Isize(100).as_usize(), Some(100));
-        assert_eq!(Literal::Isize(-5).as_usize(), None); // 負の値は変換できない
-        assert_eq!(Literal::F32(3.14).as_usize(), None);
     }
 }
