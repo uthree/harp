@@ -10,9 +10,9 @@ fn test_range_basic() {
 
     let range = AstNode::Range {
         var: "i".to_string(),
-        start: Box::new(AstNode::Const(0usize.into())),
-        step: Box::new(AstNode::Const(1usize.into())),
-        stop: Box::new(AstNode::Const(10usize.into())),
+        start: Box::new(AstNode::Const(0isize.into())),
+        step: Box::new(AstNode::Const(1isize.into())),
+        stop: Box::new(AstNode::Const(10isize.into())),
         body: Box::new(AstNode::Block {
             statements: vec![],
             scope: Box::new(scope),
@@ -32,9 +32,9 @@ fn test_range_children() {
 
     let range = AstNode::Range {
         var: "i".to_string(),
-        start: Box::new(AstNode::Const(0usize.into())),
-        step: Box::new(AstNode::Const(1usize.into())),
-        stop: Box::new(AstNode::Const(10usize.into())),
+        start: Box::new(AstNode::Const(0isize.into())),
+        step: Box::new(AstNode::Const(1isize.into())),
+        stop: Box::new(AstNode::Const(10isize.into())),
         body: Box::new(AstNode::Block {
             statements: vec![AstNode::Const(1.0f32.into()), AstNode::Const(2.0f32.into())],
             scope: Box::new(scope),
@@ -80,8 +80,8 @@ fn test_range_with_scope() {
     // for i in 0..N: output[i] = input[i] * 2
     let range = AstNode::Range {
         var: "i".to_string(),
-        start: Box::new(AstNode::Const(0usize.into())),
-        step: Box::new(AstNode::Const(1usize.into())),
+        start: Box::new(AstNode::Const(0isize.into())),
+        step: Box::new(AstNode::Const(1isize.into())),
         stop: Box::new(AstNode::Var("N".to_string())),
         body: Box::new(AstNode::Block {
             statements: vec![AstNode::Store {
@@ -117,8 +117,8 @@ fn test_range_scope_check_undefined_loop_var() {
 
     let range = AstNode::Range {
         var: "i".to_string(),
-        start: Box::new(AstNode::Const(0usize.into())),
-        step: Box::new(AstNode::Const(1usize.into())),
+        start: Box::new(AstNode::Const(0isize.into())),
+        step: Box::new(AstNode::Const(1isize.into())),
         stop: Box::new(AstNode::Var("N".to_string())),
         body: Box::new(AstNode::Block {
             statements: vec![AstNode::Var("i".to_string())],
@@ -153,8 +153,8 @@ fn test_range_nested() {
     // for j in 0..N: use i and j
     let inner_range = AstNode::Range {
         var: "j".to_string(),
-        start: Box::new(AstNode::Const(0usize.into())),
-        step: Box::new(AstNode::Const(1usize.into())),
+        start: Box::new(AstNode::Const(0isize.into())),
+        step: Box::new(AstNode::Const(1isize.into())),
         stop: Box::new(AstNode::Var("N".to_string())),
         body: Box::new(AstNode::Block {
             statements: vec![AstNode::Var("i".to_string()), AstNode::Var("j".to_string())],
@@ -165,8 +165,8 @@ fn test_range_nested() {
     // for i in 0..N: ...
     let outer_range = AstNode::Range {
         var: "i".to_string(),
-        start: Box::new(AstNode::Const(0usize.into())),
-        step: Box::new(AstNode::Const(1usize.into())),
+        start: Box::new(AstNode::Const(0isize.into())),
+        step: Box::new(AstNode::Const(1isize.into())),
         stop: Box::new(AstNode::Var("N".to_string())),
         body: Box::new(AstNode::Block {
             statements: vec![inner_range],

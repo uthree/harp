@@ -35,22 +35,18 @@ pub fn inline_small_loop(loop_node: &AstNode, max_iterations: usize) -> Option<A
             body,
         } => {
             // start, step, stopが全て定数の場合のみ展開可能
-            // IsizeとUsizeの両方をサポート
-            let (start_val, use_usize) = match start.as_ref() {
-                AstNode::Const(Literal::Isize(v)) => (*v as usize, false),
-                AstNode::Const(Literal::Usize(v)) => (*v, true),
+            let start_val = match start.as_ref() {
+                AstNode::Const(Literal::Int(v)) => *v as usize,
                 _ => return None,
             };
 
             let step_val = match step.as_ref() {
-                AstNode::Const(Literal::Isize(v)) if *v > 0 => *v as usize,
-                AstNode::Const(Literal::Usize(v)) if *v > 0 => *v,
+                AstNode::Const(Literal::Int(v)) if *v > 0 => *v as usize,
                 _ => return None, // ステップが定数でないか、0以下の場合は展開不可
             };
 
             let stop_val = match stop.as_ref() {
-                AstNode::Const(Literal::Isize(v)) => *v as usize,
-                AstNode::Const(Literal::Usize(v)) => *v,
+                AstNode::Const(Literal::Int(v)) => *v as usize,
                 _ => return None,
             };
 
@@ -75,11 +71,7 @@ pub fn inline_small_loop(loop_node: &AstNode, max_iterations: usize) -> Option<A
             let mut current = start_val;
 
             while current < stop_val {
-                let var_value = Box::new(if use_usize {
-                    AstNode::Const(Literal::Usize(current))
-                } else {
-                    AstNode::Const(Literal::Isize(current as isize))
-                });
+                let var_value = Box::new(AstNode::Const(Literal::Int(current as isize)));
                 let replaced_body = replace_var_in_ast(body, var, &var_value);
                 statements.push(replaced_body);
                 current += step_val;
@@ -139,8 +131,7 @@ pub fn tile_loop(loop_node: &AstNode, tile_size: usize) -> Option<AstNode> {
             }
 
             // ステップが1の場合のみタイル化可能（簡易実装）
-            let is_step_one = matches!(step.as_ref(), AstNode::Const(Literal::Isize(1)))
-                || matches!(step.as_ref(), AstNode::Const(Literal::Usize(1)));
+            let is_step_one = matches!(step.as_ref(), AstNode::Const(Literal::Int(1)));
             if !is_step_one {
                 log::trace!("Skipping tiling for loop with step != 1: {}", var);
                 return None;
@@ -149,39 +140,22 @@ pub fn tile_loop(loop_node: &AstNode, tile_size: usize) -> Option<AstNode> {
             // stopが定数の場合のみタイル化可能（簡易実装）
             // これによりタイル化後のRangeノードのstopフィールドが必ず定数になる
             let stop_val = match stop.as_ref() {
-                AstNode::Const(Literal::Usize(v)) => *v,
-                AstNode::Const(Literal::Isize(v)) if *v >= 0 => *v as usize,
+                AstNode::Const(Literal::Int(v)) if *v >= 0 => *v as usize,
                 _ => {
                     log::trace!("Skipping tiling for loop with non-constant stop: {}", var);
                     return None;
                 }
             };
 
-            // stepの型を検出（use_usizeを決定）
-            let use_usize = matches!(step.as_ref(), AstNode::Const(Literal::Usize(_)));
-
-            log::debug!("Tiling loop: {} with tile_size: {}, stop_val: {}", var, tile_size, stop_val);
-            let make_zero = || {
-                if use_usize {
-                    AstNode::Const(Literal::Usize(0))
-                } else {
-                    AstNode::Const(Literal::Isize(0))
-                }
-            };
-            let make_one = || {
-                if use_usize {
-                    AstNode::Const(Literal::Usize(1))
-                } else {
-                    AstNode::Const(Literal::Isize(1))
-                }
-            };
-            let make_tile_size = || {
-                if use_usize {
-                    AstNode::Const(Literal::Usize(tile_size))
-                } else {
-                    AstNode::Const(Literal::Isize(tile_size as isize))
-                }
-            };
+            log::debug!(
+                "Tiling loop: {} with tile_size: {}, stop_val: {}",
+                var,
+                tile_size,
+                stop_val
+            );
+            let make_zero = || AstNode::Const(Literal::Int(0));
+            let make_one = || AstNode::Const(Literal::Int(1));
+            let make_tile_size = || AstNode::Const(Literal::Int(tile_size as isize));
 
             let outer_var = format!("{}_outer", var);
             let inner_var = format!("{}_inner", var);
@@ -218,11 +192,7 @@ pub fn tile_loop(loop_node: &AstNode, tile_size: usize) -> Option<AstNode> {
             // メインループの終了値: (stop_val / tile_size) * tile_size
             // stopが定数であることが保証されているので、main_stopも常に定数
             let aligned_stop = (stop_val / tile_size) * tile_size;
-            let main_stop = Box::new(if use_usize {
-                AstNode::Const(Literal::Usize(aligned_stop))
-            } else {
-                AstNode::Const(Literal::Isize(aligned_stop as isize))
-            });
+            let main_stop = Box::new(AstNode::Const(Literal::Int(aligned_stop as isize)));
 
             // 外側ループ: for i_outer in start..main_stop step tile_size
             let outer_loop = AstNode::Range {
@@ -361,9 +331,9 @@ mod tests {
 
         let loop_node = AstNode::Range {
             var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Isize(0))),
-            step: Box::new(AstNode::Const(Literal::Isize(1))),
-            stop: Box::new(AstNode::Const(Literal::Isize(4))),
+            start: Box::new(AstNode::Const(Literal::Int(0))),
+            step: Box::new(AstNode::Const(Literal::Int(1))),
+            stop: Box::new(AstNode::Const(Literal::Int(4))),
             body,
         };
 
@@ -377,8 +347,8 @@ mod tests {
             // 各statementでiが0, 1, 2, 3に置き換えられているか確認
             for (idx, stmt) in statements.iter().enumerate() {
                 if let AstNode::Store { offset, value, .. } = stmt {
-                    assert_eq!(**offset, AstNode::Const(Literal::Isize(idx as isize)));
-                    assert_eq!(**value, AstNode::Const(Literal::Isize(idx as isize)));
+                    assert_eq!(**offset, AstNode::Const(Literal::Int(idx as isize)));
+                    assert_eq!(**value, AstNode::Const(Literal::Int(idx as isize)));
                 } else {
                     panic!("Expected Store node");
                 }
@@ -394,9 +364,9 @@ mod tests {
 
         let loop_node = AstNode::Range {
             var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Isize(0))),
-            step: Box::new(AstNode::Const(Literal::Isize(1))),
-            stop: Box::new(AstNode::Const(Literal::Isize(100))),
+            start: Box::new(AstNode::Const(Literal::Int(0))),
+            step: Box::new(AstNode::Const(Literal::Int(1))),
+            stop: Box::new(AstNode::Const(Literal::Int(100))),
             body,
         };
 
@@ -412,9 +382,9 @@ mod tests {
 
         let loop_node = AstNode::Range {
             var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Isize(0))),
-            step: Box::new(AstNode::Const(Literal::Isize(2))),
-            stop: Box::new(AstNode::Const(Literal::Isize(10))),
+            start: Box::new(AstNode::Const(Literal::Int(0))),
+            step: Box::new(AstNode::Const(Literal::Int(2))),
+            stop: Box::new(AstNode::Const(Literal::Int(10))),
             body,
         };
 
@@ -440,9 +410,9 @@ mod tests {
 
         let original_loop = AstNode::Range {
             var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Isize(0))),
-            step: Box::new(AstNode::Const(Literal::Isize(1))),
-            stop: Box::new(AstNode::Const(Literal::Isize(16))),
+            start: Box::new(AstNode::Const(Literal::Int(0))),
+            step: Box::new(AstNode::Const(Literal::Int(1))),
+            stop: Box::new(AstNode::Const(Literal::Int(16))),
             body,
         };
 
@@ -462,7 +432,7 @@ mod tests {
             } = &statements[0]
             {
                 assert_eq!(var, "i_outer");
-                assert_eq!(**step, AstNode::Const(Literal::Isize(4))); // tile_size
+                assert_eq!(**step, AstNode::Const(Literal::Int(4))); // tile_size
 
                 // 内側ループが存在するか確認
                 assert!(matches!(outer_body.as_ref(), AstNode::Range { .. }));
@@ -488,9 +458,9 @@ mod tests {
 
         let original_loop = AstNode::Range {
             var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Isize(0))),
-            step: Box::new(AstNode::Const(Literal::Isize(1))),
-            stop: Box::new(AstNode::Const(Literal::Isize(10))),
+            start: Box::new(AstNode::Const(Literal::Int(0))),
+            step: Box::new(AstNode::Const(Literal::Int(1))),
+            stop: Box::new(AstNode::Const(Literal::Int(10))),
             body,
         };
 
@@ -511,9 +481,9 @@ mod tests {
 
         let original_loop = AstNode::Range {
             var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Isize(0))),
-            step: Box::new(AstNode::Const(Literal::Isize(1))),
-            stop: Box::new(AstNode::Const(Literal::Isize(16))),
+            start: Box::new(AstNode::Const(Literal::Int(0))),
+            step: Box::new(AstNode::Const(Literal::Int(1))),
+            stop: Box::new(AstNode::Const(Literal::Int(16))),
             body,
         };
 
@@ -525,12 +495,12 @@ mod tests {
     fn test_replace_var_in_ast() {
         let ast = AstNode::Add(
             Box::new(AstNode::Var("i".to_string())),
-            Box::new(AstNode::Const(Literal::Isize(5))),
+            Box::new(AstNode::Const(Literal::Int(5))),
         );
 
         let replacement = AstNode::Mul(
             Box::new(AstNode::Var("j".to_string())),
-            Box::new(AstNode::Const(Literal::Isize(2))),
+            Box::new(AstNode::Const(Literal::Int(2))),
         );
 
         let result = replace_var_in_ast(&ast, "i", &replacement);
@@ -538,7 +508,7 @@ mod tests {
         // i が (j * 2) に置き換えられているか確認
         if let AstNode::Add(left, right) = result {
             assert_eq!(*left, replacement);
-            assert_eq!(*right, AstNode::Const(Literal::Isize(5)));
+            assert_eq!(*right, AstNode::Const(Literal::Int(5)));
         } else {
             panic!("Expected Add node");
         }

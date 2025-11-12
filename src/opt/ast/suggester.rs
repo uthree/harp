@@ -336,8 +336,8 @@ mod tests {
         let suggester = RuleBaseSuggester::new(vec![rule]);
 
         let input = AstNode::Add(
-            Box::new(AstNode::Const(Literal::Isize(1))),
-            Box::new(AstNode::Const(Literal::Isize(2))),
+            Box::new(AstNode::Const(Literal::Int(1))),
+            Box::new(AstNode::Const(Literal::Int(2))),
         );
 
         let suggestions = suggester.suggest(&input);
@@ -347,8 +347,8 @@ mod tests {
         assert_eq!(
             suggestions[0],
             AstNode::Add(
-                Box::new(AstNode::Const(Literal::Isize(2))),
-                Box::new(AstNode::Const(Literal::Isize(1))),
+                Box::new(AstNode::Const(Literal::Int(2))),
+                Box::new(AstNode::Const(Literal::Int(1))),
             )
         );
     }
@@ -357,14 +357,14 @@ mod tests {
     fn test_suggester_multiple_rules() {
         // ルール1: Add(a, 0) -> a
         let rule1 = astpat!(|a| {
-            AstNode::Add(Box::new(a), Box::new(AstNode::Const(Literal::Isize(0))))
+            AstNode::Add(Box::new(a), Box::new(AstNode::Const(Literal::Int(0))))
         } => {
             a
         });
 
         // ルール2: Mul(a, 1) -> a
         let rule2 = astpat!(|a| {
-            AstNode::Mul(Box::new(a), Box::new(AstNode::Const(Literal::Isize(1))))
+            AstNode::Mul(Box::new(a), Box::new(AstNode::Const(Literal::Int(1))))
         } => {
             a
         });
@@ -374,10 +374,10 @@ mod tests {
         // Mul(Add(x, 0), 1)
         let input = AstNode::Mul(
             Box::new(AstNode::Add(
-                Box::new(AstNode::Const(Literal::Isize(42))),
-                Box::new(AstNode::Const(Literal::Isize(0))),
+                Box::new(AstNode::Const(Literal::Int(42))),
+                Box::new(AstNode::Const(Literal::Int(0))),
             )),
-            Box::new(AstNode::Const(Literal::Isize(1))),
+            Box::new(AstNode::Const(Literal::Int(1))),
         );
 
         let suggestions = suggester.suggest(&input);
@@ -447,14 +447,14 @@ mod composite_tests {
         // for i in 0..4 step 1 { body }
         let body = Box::new(AstNode::Add(
             Box::new(AstNode::Var("x".to_string())),
-            Box::new(AstNode::Const(Literal::Isize(0))),
+            Box::new(AstNode::Const(Literal::Int(0))),
         ));
 
         let loop_node = AstNode::Range {
             var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Isize(0))),
-            step: Box::new(AstNode::Const(Literal::Isize(1))),
-            stop: Box::new(AstNode::Const(Literal::Isize(4))),
+            start: Box::new(AstNode::Const(Literal::Int(0))),
+            step: Box::new(AstNode::Const(Literal::Int(1))),
+            stop: Box::new(AstNode::Const(Literal::Int(4))),
             body,
         };
 
@@ -475,7 +475,7 @@ mod composite_tests {
         // x + 0
         let input = AstNode::Add(
             Box::new(AstNode::Var("x".to_string())),
-            Box::new(AstNode::Const(Literal::Isize(0))),
+            Box::new(AstNode::Const(Literal::Int(0))),
         );
 
         let suggestions = suggester.suggest(&input);
@@ -497,9 +497,9 @@ mod composite_tests {
 
         let loop_node = AstNode::Range {
             var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Isize(0))),
-            step: Box::new(AstNode::Const(Literal::Isize(1))),
-            stop: Box::new(AstNode::Const(Literal::Isize(4))),
+            start: Box::new(AstNode::Const(Literal::Int(0))),
+            step: Box::new(AstNode::Const(Literal::Int(1))),
+            stop: Box::new(AstNode::Const(Literal::Int(4))),
             body,
         };
 
@@ -522,9 +522,9 @@ mod composite_tests {
 
         let loop_node = AstNode::Range {
             var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Isize(0))),
-            step: Box::new(AstNode::Const(Literal::Isize(1))),
-            stop: Box::new(AstNode::Const(Literal::Isize(4))),
+            start: Box::new(AstNode::Const(Literal::Int(0))),
+            step: Box::new(AstNode::Const(Literal::Int(1))),
+            stop: Box::new(AstNode::Const(Literal::Int(4))),
             body,
         };
 

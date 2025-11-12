@@ -181,8 +181,7 @@ impl GraphNode {
         let literal = value.into();
         let dtype = match &literal {
             crate::ast::Literal::F32(_) => DType::F32,
-            crate::ast::Literal::Isize(_) => DType::Unknown, // Isizeは将来的に追加
-            crate::ast::Literal::Usize(_) => DType::Unknown, // Usizeは将来的に追加
+            crate::ast::Literal::Int(_) => DType::Unknown, // Intは将来的に追加
         };
         // 定数はスカラー（shape=[]）
         let view = View::contiguous(Vec::<isize>::new());
@@ -1156,10 +1155,10 @@ mod tests {
 
         // GraphOp::Constであることを確認
         match &const_node.op {
-            GraphOp::Const(crate::ast::Literal::Isize(v)) => {
+            GraphOp::Const(crate::ast::Literal::Int(v)) => {
                 assert_eq!(*v, 42);
             }
-            _ => panic!("Expected GraphOp::Const with Isize literal"),
+            _ => panic!("Expected GraphOp::Const with Int literal"),
         }
     }
 
@@ -1173,10 +1172,10 @@ mod tests {
 
         // GraphOp::Constであることを確認
         match &const_node.op {
-            GraphOp::Const(crate::ast::Literal::Usize(v)) => {
+            GraphOp::Const(crate::ast::Literal::Int(v)) => {
                 assert_eq!(*v, 100);
             }
-            _ => panic!("Expected GraphOp::Const with Usize literal"),
+            _ => panic!("Expected GraphOp::Const with Int literal"),
         }
     }
 }

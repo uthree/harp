@@ -51,8 +51,8 @@ fn create_sample_ast() -> AstNode {
     // ((a + 0) * 1) + (b * 0)
     let a = var("a");
     let b = var("b");
-    let zero = AstNode::Const(Literal::Isize(0));
-    let one = AstNode::Const(Literal::Isize(1));
+    let zero = AstNode::Const(Literal::Int(0));
+    let one = AstNode::Const(Literal::Int(1));
 
     let a_plus_zero = a + zero.clone();
     let left = a_plus_zero * one;

@@ -313,7 +313,7 @@ mod tests {
     fn test_rule_base_optimizer() {
         // Add(a, 0) -> a というルール
         let rule = astpat!(|a| {
-            AstNode::Add(Box::new(a), Box::new(AstNode::Const(Literal::Isize(0))))
+            AstNode::Add(Box::new(a), Box::new(AstNode::Const(Literal::Int(0))))
         } => {
             a
         });
@@ -321,12 +321,12 @@ mod tests {
         let optimizer = RuleBaseOptimizer::new(vec![rule]);
 
         let input = AstNode::Add(
-            Box::new(AstNode::Const(Literal::Isize(42))),
-            Box::new(AstNode::Const(Literal::Isize(0))),
+            Box::new(AstNode::Const(Literal::Int(42))),
+            Box::new(AstNode::Const(Literal::Int(0))),
         );
 
         let result = optimizer.optimize(input);
-        assert_eq!(result, AstNode::Const(Literal::Isize(42)));
+        assert_eq!(result, AstNode::Const(Literal::Int(42)));
     }
 
     #[test]
@@ -339,7 +339,7 @@ mod tests {
         });
 
         let rule2 = astpat!(|a| {
-            AstNode::Add(Box::new(a), Box::new(AstNode::Const(Literal::Isize(0))))
+            AstNode::Add(Box::new(a), Box::new(AstNode::Const(Literal::Int(0))))
         } => {
             a
         });
@@ -354,13 +354,13 @@ mod tests {
 
         // (42 + 0) を最適化
         let input = AstNode::Add(
-            Box::new(AstNode::Const(Literal::Isize(42))),
-            Box::new(AstNode::Const(Literal::Isize(0))),
+            Box::new(AstNode::Const(Literal::Int(42))),
+            Box::new(AstNode::Const(Literal::Int(0))),
         );
 
         let result = optimizer.optimize(input);
         // 最終的に42に簡約されるはず
-        assert_eq!(result, AstNode::Const(Literal::Isize(42)));
+        assert_eq!(result, AstNode::Const(Literal::Int(42)));
     }
 
     #[test]
@@ -382,24 +382,24 @@ mod tests {
         let input = AstNode::Add(
             Box::new(AstNode::Mul(
                 Box::new(AstNode::Add(
-                    Box::new(AstNode::Const(Literal::Isize(2))),
-                    Box::new(AstNode::Const(Literal::Isize(3))),
+                    Box::new(AstNode::Const(Literal::Int(2))),
+                    Box::new(AstNode::Const(Literal::Int(3))),
                 )),
-                Box::new(AstNode::Const(Literal::Isize(1))),
+                Box::new(AstNode::Const(Literal::Int(1))),
             )),
-            Box::new(AstNode::Const(Literal::Isize(0))),
+            Box::new(AstNode::Const(Literal::Int(0))),
         );
 
         let result = optimizer.optimize(input);
         // 最終的に5に簡約されるはず
-        assert_eq!(result, AstNode::Const(Literal::Isize(5)));
+        assert_eq!(result, AstNode::Const(Literal::Int(5)));
     }
 
     #[test]
     fn test_beam_search_no_applicable_rules() {
         // マッチしないルールのみ
         let rule = astpat!(|a| {
-            AstNode::Mul(Box::new(a), Box::new(AstNode::Const(Literal::Isize(99))))
+            AstNode::Mul(Box::new(a), Box::new(AstNode::Const(Literal::Int(99))))
         } => {
             a
         });
@@ -413,7 +413,7 @@ mod tests {
             .with_progress(false);
 
         // ルールが適用されない入力
-        let input = AstNode::Const(Literal::Isize(42));
+        let input = AstNode::Const(Literal::Int(42));
         let result = optimizer.optimize(input.clone());
 
         // 変更されないはず
@@ -433,7 +433,7 @@ mod tests {
             .with_progress(false);
 
         // すでに最適化済みの入力
-        let input = AstNode::Const(Literal::Isize(42));
+        let input = AstNode::Const(Literal::Int(42));
         let result = optimizer.optimize(input.clone());
 
         // 変更されないはず
@@ -457,13 +457,13 @@ mod tests {
             .with_progress(false);
 
         let input = AstNode::Add(
-            Box::new(AstNode::Const(Literal::Isize(5))),
-            Box::new(AstNode::Const(Literal::Isize(0))),
+            Box::new(AstNode::Const(Literal::Int(5))),
+            Box::new(AstNode::Const(Literal::Int(0))),
         );
 
         let result = optimizer.optimize(input);
         // ビーム幅1でも最適化できるはず
-        assert_eq!(result, AstNode::Const(Literal::Isize(5)));
+        assert_eq!(result, AstNode::Const(Literal::Int(5)));
     }
 
     #[test]
@@ -480,8 +480,8 @@ mod tests {
             .with_progress(false);
 
         let input = AstNode::Add(
-            Box::new(AstNode::Const(Literal::Isize(5))),
-            Box::new(AstNode::Const(Literal::Isize(0))),
+            Box::new(AstNode::Const(Literal::Int(5))),
+            Box::new(AstNode::Const(Literal::Int(0))),
         );
 
         let result = optimizer.optimize(input.clone());
@@ -493,7 +493,7 @@ mod tests {
     fn test_beam_search_early_termination() {
         // 1回で最適化が完了し、それ以降候補がなくなるケース
         let rule = astpat!(|a| {
-            AstNode::Add(Box::new(a), Box::new(AstNode::Const(Literal::Isize(0))))
+            AstNode::Add(Box::new(a), Box::new(AstNode::Const(Literal::Int(0))))
         } => {
             a
         });
@@ -507,12 +507,12 @@ mod tests {
             .with_progress(false);
 
         let input = AstNode::Add(
-            Box::new(AstNode::Const(Literal::Isize(42))),
-            Box::new(AstNode::Const(Literal::Isize(0))),
+            Box::new(AstNode::Const(Literal::Int(42))),
+            Box::new(AstNode::Const(Literal::Int(0))),
         );
 
         let result = optimizer.optimize(input);
-        assert_eq!(result, AstNode::Const(Literal::Isize(42)));
+        assert_eq!(result, AstNode::Const(Literal::Int(42)));
     }
 
     #[test]
@@ -534,15 +534,15 @@ mod tests {
         let input = AstNode::Add(
             Box::new(AstNode::Mul(
                 Box::new(AstNode::Add(
-                    Box::new(AstNode::Const(Literal::Isize(2))),
-                    Box::new(AstNode::Const(Literal::Isize(3))),
+                    Box::new(AstNode::Const(Literal::Int(2))),
+                    Box::new(AstNode::Const(Literal::Int(3))),
                 )),
-                Box::new(AstNode::Const(Literal::Isize(1))),
+                Box::new(AstNode::Const(Literal::Int(1))),
             )),
-            Box::new(AstNode::Const(Literal::Isize(0))),
+            Box::new(AstNode::Const(Literal::Int(0))),
         );
 
         let result = optimizer.optimize(input);
-        assert_eq!(result, AstNode::Const(Literal::Isize(5)));
+        assert_eq!(result, AstNode::Const(Literal::Int(5)));
     }
 }

@@ -59,8 +59,7 @@ pub trait CLikeRenderer: Renderer {
     fn render_literal(&self, lit: &Literal) -> String {
         match lit {
             Literal::F32(v) => format!("{}f", v),
-            Literal::Isize(v) => format!("{}", v),
-            Literal::Usize(v) => format!("{}u", v),
+            Literal::Int(v) => format!("{}", v),
         }
     }
 

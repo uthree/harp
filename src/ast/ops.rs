@@ -115,13 +115,13 @@ impl From<f32> for AstNode {
 
 impl From<isize> for AstNode {
     fn from(value: isize) -> Self {
-        AstNode::Const(Literal::Isize(value))
+        AstNode::Const(Literal::Int(value))
     }
 }
 
 impl From<usize> for AstNode {
     fn from(value: usize) -> Self {
-        AstNode::Const(Literal::Usize(value))
+        AstNode::Const(Literal::Int(value as isize))
     }
 }
 
@@ -321,14 +321,14 @@ mod tests {
 
         let isize_node = AstNode::from(42isize);
         match isize_node {
-            AstNode::Const(Literal::Isize(v)) => assert_eq!(v, 42),
-            _ => panic!("Expected Isize constant"),
+            AstNode::Const(Literal::Int(v)) => assert_eq!(v, 42),
+            _ => panic!("Expected Int constant"),
         }
 
         let usize_node = AstNode::from(100usize);
         match usize_node {
-            AstNode::Const(Literal::Usize(v)) => assert_eq!(v, 100),
-            _ => panic!("Expected Usize constant"),
+            AstNode::Const(Literal::Int(v)) => assert_eq!(v, 100),
+            _ => panic!("Expected Int constant"),
         }
     }
 
@@ -340,11 +340,11 @@ mod tests {
 
         match result {
             AstNode::BitwiseAnd(left, right) => match (*left, *right) {
-                (AstNode::Const(Literal::Isize(l)), AstNode::Const(Literal::Isize(r))) => {
+                (AstNode::Const(Literal::Int(l)), AstNode::Const(Literal::Int(r))) => {
                     assert_eq!(l, 5);
                     assert_eq!(r, 3);
                 }
-                _ => panic!("Expected Isize constants in BitwiseAnd node"),
+                _ => panic!("Expected Int constants in BitwiseAnd node"),
             },
             _ => panic!("Expected BitwiseAnd node"),
         }
@@ -381,8 +381,8 @@ mod tests {
 
         match result {
             AstNode::BitwiseNot(inner) => match *inner {
-                AstNode::Const(Literal::Isize(v)) => assert_eq!(v, 5),
-                _ => panic!("Expected Isize constant"),
+                AstNode::Const(Literal::Int(v)) => assert_eq!(v, 5),
+                _ => panic!("Expected Int constant"),
             },
             _ => panic!("Expected BitwiseNot node"),
         }
@@ -396,11 +396,11 @@ mod tests {
 
         match result {
             AstNode::LeftShift(left, right) => match (*left, *right) {
-                (AstNode::Const(Literal::Isize(l)), AstNode::Const(Literal::Isize(r))) => {
+                (AstNode::Const(Literal::Int(l)), AstNode::Const(Literal::Int(r))) => {
                     assert_eq!(l, 4);
                     assert_eq!(r, 2);
                 }
-                _ => panic!("Expected Isize constants in LeftShift node"),
+                _ => panic!("Expected Int constants in LeftShift node"),
             },
             _ => panic!("Expected LeftShift node"),
         }
@@ -440,10 +440,10 @@ mod tests {
 
         match result {
             AstNode::BitwiseOr(left, right) => match (*left, *right) {
-                (AstNode::BitwiseAnd(_, _), AstNode::Const(Literal::Isize(v))) => {
+                (AstNode::BitwiseAnd(_, _), AstNode::Const(Literal::Int(v))) => {
                     assert_eq!(v, 2);
                 }
-                _ => panic!("Expected BitwiseAnd node and Isize constant"),
+                _ => panic!("Expected BitwiseAnd node and Int constant"),
             },
             _ => panic!("Expected BitwiseOr node"),
         }

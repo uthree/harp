@@ -662,11 +662,11 @@ impl RecursiveLowerer {
                 let fold_index = AstNode::Add(
                     Box::new(AstNode::Mul(
                         Box::new(AstNode::Var(loop_var)),
-                        Box::new(AstNode::Const(ConstLiteral::Isize(stride as isize))),
+                        Box::new(AstNode::Const(ConstLiteral::Int(stride as isize))),
                     )),
                     Box::new(AstNode::Mul(
                         Box::new(AstNode::Var(format!("ridx{}", window_dim))),
-                        Box::new(AstNode::Const(ConstLiteral::Isize(dilation as isize))),
+                        Box::new(AstNode::Const(ConstLiteral::Int(dilation as isize))),
                     )),
                 );
                 index += LowererUtils::shape_expr_to_ast_node(&result_strides[result_dim].clone())

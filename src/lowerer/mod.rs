@@ -156,7 +156,10 @@ impl Lowerer {
     ///
     /// shapeの各軸の式から変数を収集し、それらをパラメータとして返す。
     /// 定数のみの式の場合は空のVecを返す。
-    pub(super) fn extract_shape_params(&self, shape: &[crate::graph::shape::Expr]) -> Vec<crate::ast::VarDecl> {
+    pub(super) fn extract_shape_params(
+        &self,
+        shape: &[crate::graph::shape::Expr],
+    ) -> Vec<crate::ast::VarDecl> {
         use crate::ast::{DType as AstDType, Mutability, VarDecl, VarKind};
         use std::collections::BTreeSet;
 

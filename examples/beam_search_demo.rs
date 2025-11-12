@@ -15,14 +15,14 @@ fn main() {
         AstNode::Mul(
             Box::new(AstNode::Add(
                 Box::new(AstNode::Add(
-                    Box::new(AstNode::Const(Literal::Isize(val))),
-                    Box::new(AstNode::Const(Literal::Isize(0))),
+                    Box::new(AstNode::Const(Literal::Int(val))),
+                    Box::new(AstNode::Const(Literal::Int(0))),
                 )),
-                Box::new(AstNode::Const(Literal::Isize(0))),
+                Box::new(AstNode::Const(Literal::Int(0))),
             )),
             Box::new(AstNode::Mul(
-                Box::new(AstNode::Const(Literal::Isize(1))),
-                Box::new(AstNode::Const(Literal::Isize(1))),
+                Box::new(AstNode::Const(Literal::Int(1))),
+                Box::new(AstNode::Const(Literal::Int(1))),
             )),
         )
     }

@@ -180,8 +180,7 @@ mod tests {
     fn test_render_literal() {
         let renderer = MetalRenderer::new();
         assert_eq!(renderer.render_literal(&Literal::F32(3.14)), "3.14f");
-        assert_eq!(renderer.render_literal(&Literal::Isize(42)), "42");
-        assert_eq!(renderer.render_literal(&Literal::Usize(100)), "100u");
+        assert_eq!(renderer.render_literal(&Literal::Int(42)), "42");
     }
 
     #[test]
@@ -356,9 +355,9 @@ mod tests {
 
         let loop_node = AstNode::Range {
             var: "i".to_string(),
-            start: Box::new(AstNode::Const(0usize.into())),
-            step: Box::new(AstNode::Const(1usize.into())),
-            stop: Box::new(AstNode::Const(10usize.into())),
+            start: Box::new(AstNode::Const((0 as isize).into())),
+            step: Box::new(AstNode::Const((1 as isize).into())),
+            stop: Box::new(AstNode::Const((10 as isize).into())),
             body: Box::new(AstNode::Block {
                 statements: vec![
                     store(
@@ -380,7 +379,7 @@ mod tests {
         let mut renderer = MetalRenderer::new();
         let code = renderer.render_statement(&loop_node);
 
-        assert!(code.contains("for (uint i = 0u; i < 10u; i += 1u)"));
+        assert!(code.contains("for (uint i = 0; i < 10; i += 1)"));
         assert!(code.contains("shared[i] = input[i]"));
         assert!(code.contains("threadgroup_barrier"));
         assert!(code.contains("output[i] = shared[i]"));

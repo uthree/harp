@@ -320,19 +320,19 @@ mod tests {
             |bindings| {
                 // x を取得して、それを2倍にする: x * 2
                 let x = bindings.get("x").unwrap().clone();
-                AstNode::Mul(Box::new(x), Box::new(AstNode::Const(Literal::Isize(2))))
+                AstNode::Mul(Box::new(x), Box::new(AstNode::Const(Literal::Int(2))))
             },
             |_| true,
         );
 
-        let input = AstNode::Const(Literal::Isize(5));
+        let input = AstNode::Const(Literal::Int(5));
         let result = rule.apply(&input);
 
         // 5 -> 5 * 2
         match result {
             AstNode::Mul(left, right) => {
-                assert_eq!(*left, AstNode::Const(Literal::Isize(5)));
-                assert_eq!(*right, AstNode::Const(Literal::Isize(2)));
+                assert_eq!(*left, AstNode::Const(Literal::Int(5)));
+                assert_eq!(*right, AstNode::Const(Literal::Int(2)));
             }
             _ => panic!("Expected Mul node"),
         }
@@ -357,16 +357,16 @@ mod tests {
         );
 
         let input = AstNode::Add(
-            Box::new(AstNode::Const(Literal::Isize(1))),
-            Box::new(AstNode::Const(Literal::Isize(2))),
+            Box::new(AstNode::Const(Literal::Int(1))),
+            Box::new(AstNode::Const(Literal::Int(2))),
         );
         let result = rule.apply(&input);
 
         // Add(1, 2) -> Add(2, 1)
         match result {
             AstNode::Add(left, right) => {
-                assert_eq!(*left, AstNode::Const(Literal::Isize(2)));
-                assert_eq!(*right, AstNode::Const(Literal::Isize(1)));
+                assert_eq!(*left, AstNode::Const(Literal::Int(2)));
+                assert_eq!(*right, AstNode::Const(Literal::Int(1)));
             }
             _ => panic!("Expected Add node"),
         }
@@ -382,15 +382,15 @@ mod tests {
         });
 
         let input = AstNode::Add(
-            Box::new(AstNode::Const(Literal::Isize(3))),
-            Box::new(AstNode::Const(Literal::Isize(4))),
+            Box::new(AstNode::Const(Literal::Int(3))),
+            Box::new(AstNode::Const(Literal::Int(4))),
         );
         let result = rule.apply(&input);
 
         match result {
             AstNode::Add(left, right) => {
-                assert_eq!(*left, AstNode::Const(Literal::Isize(4)));
-                assert_eq!(*right, AstNode::Const(Literal::Isize(3)));
+                assert_eq!(*left, AstNode::Const(Literal::Int(4)));
+                assert_eq!(*right, AstNode::Const(Literal::Int(3)));
             }
             _ => panic!("Expected Add node"),
         }
@@ -401,7 +401,7 @@ mod tests {
         // 複数のルールを組み合わせたリライタ
         // Add(a, 0) -> a という簡約ルールを使う
         let rule1 = astpat!(|a| {
-            AstNode::Add(Box::new(a), Box::new(AstNode::Const(Literal::Isize(0))))
+            AstNode::Add(Box::new(a), Box::new(AstNode::Const(Literal::Int(0))))
         } => {
             a
         });
@@ -409,13 +409,13 @@ mod tests {
         let rewriter = ast_rewriter![rule1];
 
         let input = AstNode::Add(
-            Box::new(AstNode::Const(Literal::Isize(5))),
-            Box::new(AstNode::Const(Literal::Isize(0))),
+            Box::new(AstNode::Const(Literal::Int(5))),
+            Box::new(AstNode::Const(Literal::Int(0))),
         );
         let result = rewriter.apply(input);
 
         // Add(5, 0) -> 5
-        assert_eq!(result, AstNode::Const(Literal::Isize(5)));
+        assert_eq!(result, AstNode::Const(Literal::Int(5)));
     }
 
     #[test]
@@ -431,29 +431,29 @@ mod tests {
             |bindings| {
                 let x = bindings.get("x").unwrap().clone();
                 // x + x -> x * 2
-                AstNode::Mul(Box::new(x), Box::new(AstNode::Const(Literal::Isize(2))))
+                AstNode::Mul(Box::new(x), Box::new(AstNode::Const(Literal::Int(2))))
             },
             |_| true,
         );
 
         // Add(5, 5) にマッチするはず
         let input1 = AstNode::Add(
-            Box::new(AstNode::Const(Literal::Isize(5))),
-            Box::new(AstNode::Const(Literal::Isize(5))),
+            Box::new(AstNode::Const(Literal::Int(5))),
+            Box::new(AstNode::Const(Literal::Int(5))),
         );
         let result1 = rule.apply(&input1);
         match result1 {
             AstNode::Mul(left, right) => {
-                assert_eq!(*left, AstNode::Const(Literal::Isize(5)));
-                assert_eq!(*right, AstNode::Const(Literal::Isize(2)));
+                assert_eq!(*left, AstNode::Const(Literal::Int(5)));
+                assert_eq!(*right, AstNode::Const(Literal::Int(2)));
             }
             _ => panic!("Expected Mul node for Add(5, 5)"),
         }
 
         // Add(5, 6) にはマッチしないはず（異なる値）
         let input2 = AstNode::Add(
-            Box::new(AstNode::Const(Literal::Isize(5))),
-            Box::new(AstNode::Const(Literal::Isize(6))),
+            Box::new(AstNode::Const(Literal::Int(5))),
+            Box::new(AstNode::Const(Literal::Int(6))),
         );
         let result2 = rule.apply(&input2);
         // マッチしないので元のまま
@@ -467,7 +467,7 @@ mod tests {
         let rule1 = AstRewriteRule::new(
             AstNode::Add(
                 Box::new(AstNode::Wildcard("a".to_string())),
-                Box::new(AstNode::Const(Literal::Isize(0))),
+                Box::new(AstNode::Const(Literal::Int(0))),
             ),
             |bindings| bindings.get("a").unwrap().clone(),
             |_| true,
@@ -477,7 +477,7 @@ mod tests {
         let rule2 = AstRewriteRule::new(
             AstNode::Mul(
                 Box::new(AstNode::Wildcard("a".to_string())),
-                Box::new(AstNode::Const(Literal::Isize(1))),
+                Box::new(AstNode::Const(Literal::Int(1))),
             ),
             |bindings| bindings.get("a").unwrap().clone(),
             |_| true,
@@ -488,14 +488,14 @@ mod tests {
         // Mul(Add(x, 0), 1) -> Mul(x, 1) -> x
         let input = AstNode::Mul(
             Box::new(AstNode::Add(
-                Box::new(AstNode::Const(Literal::Isize(42))),
-                Box::new(AstNode::Const(Literal::Isize(0))),
+                Box::new(AstNode::Const(Literal::Int(42))),
+                Box::new(AstNode::Const(Literal::Int(0))),
             )),
-            Box::new(AstNode::Const(Literal::Isize(1))),
+            Box::new(AstNode::Const(Literal::Int(1))),
         );
 
         let result = rewriter.apply(input);
-        assert_eq!(result, AstNode::Const(Literal::Isize(42)));
+        assert_eq!(result, AstNode::Const(Literal::Int(42)));
     }
 
     #[test]
@@ -518,8 +518,8 @@ mod tests {
         let rewriter = AstRewriter::new(vec![rule]).with_max_iterations(10);
 
         let input = AstNode::Add(
-            Box::new(AstNode::Const(Literal::Isize(1))),
-            Box::new(AstNode::Const(Literal::Isize(2))),
+            Box::new(AstNode::Const(Literal::Int(1))),
+            Box::new(AstNode::Const(Literal::Int(2))),
         );
 
         // 最大反復回数で停止するはず

@@ -22,15 +22,15 @@ fn test_call_map_children() {
     };
 
     let mapped = call.map_children(&|node| match node {
-        AstNode::Const(Literal::Isize(n)) => AstNode::Const(Literal::Isize(n * 2)),
+        AstNode::Const(Literal::Int(n)) => AstNode::Const(Literal::Int(n * 2)),
         _ => node.clone(),
     });
 
     if let AstNode::Call { name, args } = mapped {
         assert_eq!(name, "mul");
         assert_eq!(args.len(), 2);
-        assert_eq!(args[0], AstNode::Const(Literal::Isize(6)));
-        assert_eq!(args[1], AstNode::Const(Literal::Isize(8)));
+        assert_eq!(args[0], AstNode::Const(Literal::Int(6)));
+        assert_eq!(args[1], AstNode::Const(Literal::Int(8)));
     } else {
         panic!("Expected Call node");
     }

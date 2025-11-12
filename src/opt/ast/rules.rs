@@ -117,7 +117,7 @@ identity_rules!(
     add_zero_right,
     add_zero_left,
     Add,
-    Literal::Isize(0),
+    Literal::Int(0),
     "加算の右単位元: a + 0 = a",
     "加算の左単位元: 0 + a = a"
 );
@@ -126,7 +126,7 @@ identity_rules!(
     mul_one_right,
     mul_one_left,
     Mul,
-    Literal::Isize(1),
+    Literal::Int(1),
     "乗算の右単位元: a * 1 = a",
     "乗算の左単位元: 1 * a = a"
 );
@@ -139,7 +139,7 @@ zero_rules!(
     mul_zero_right,
     mul_zero_left,
     Mul,
-    Literal::Isize(0),
+    Literal::Int(0),
     "乗算の右零元: a * 0 = 0",
     "乗算の左零元: 0 * a = 0"
 );
@@ -239,7 +239,7 @@ pub fn add_same_to_mul_two() -> Rc<AstRewriteRule> {
     astpat!(|a| {
         AstNode::Add(Box::new(a.clone()), Box::new(a))
     } => {
-        AstNode::Mul(Box::new(a), Box::new(AstNode::Const(Literal::Isize(2))))
+        AstNode::Mul(Box::new(a), Box::new(AstNode::Const(Literal::Int(2))))
     })
 }
 
@@ -326,8 +326,8 @@ macro_rules! binary_const_fold_both {
                     let b = bindings.get("b").unwrap();
 
                     match (a, b) {
-                        (AstNode::Const(Literal::Isize(av)), AstNode::Const(Literal::Isize(bv))) => {
-                            AstNode::Const(Literal::Isize(av $op bv))
+                        (AstNode::Const(Literal::Int(av)), AstNode::Const(Literal::Int(bv))) => {
+                            AstNode::Const(Literal::Int(av $op bv))
                         }
                         (AstNode::Const(Literal::F32(av)), AstNode::Const(Literal::F32(bv))) => {
                             AstNode::Const(Literal::F32(av $op bv))
@@ -361,10 +361,9 @@ macro_rules! binary_const_fold_method {
                     let b = bindings.get("b").unwrap();
 
                     match (a, b) {
-                        (
-                            AstNode::Const(Literal::Isize(av)),
-                            AstNode::Const(Literal::Isize(bv)),
-                        ) => AstNode::Const(Literal::Isize(*av.$method(bv))),
+                        (AstNode::Const(Literal::Int(av)), AstNode::Const(Literal::Int(bv))) => {
+                            AstNode::Const(Literal::Int(*av.$method(bv)))
+                        }
                         (AstNode::Const(Literal::F32(av)), AstNode::Const(Literal::F32(bv))) => {
                             AstNode::Const(Literal::F32(av.$method(*bv)))
                         }
@@ -397,10 +396,10 @@ macro_rules! binary_const_fold_isize_checked {
                     let b = bindings.get("b").unwrap();
 
                     match (a, b) {
-                        (AstNode::Const(Literal::Isize(av)), AstNode::Const(Literal::Isize(bv)))
+                        (AstNode::Const(Literal::Int(av)), AstNode::Const(Literal::Int(bv)))
                             if *bv != 0 =>
                         {
-                            AstNode::Const(Literal::Isize(av $op bv))
+                            AstNode::Const(Literal::Int(av $op bv))
                         }
                         _ => AstNode::$node_variant(Box::new(a.clone()), Box::new(b.clone())),
                     }
@@ -408,7 +407,7 @@ macro_rules! binary_const_fold_isize_checked {
                 |bindings| {
                     matches!(
                         (bindings.get("a"), bindings.get("b")),
-                        (Some(AstNode::Const(Literal::Isize(_))), Some(AstNode::Const(Literal::Isize(b)))) if *b != 0
+                        (Some(AstNode::Const(Literal::Int(_))), Some(AstNode::Const(Literal::Int(b)))) if *b != 0
                     )
                 },
             )
@@ -565,12 +564,12 @@ pub fn mul_power_of_two_to_shift_right() -> Rc<AstRewriteRule> {
             let a = bindings.get("a").unwrap();
             let b = bindings.get("b").unwrap();
 
-            if let AstNode::Const(Literal::Isize(n)) = b
+            if let AstNode::Const(Literal::Int(n)) = b
                 && is_power_of_two(*n)
             {
                 return AstNode::LeftShift(
                     Box::new(a.clone()),
-                    Box::new(AstNode::Const(Literal::Isize(log2_of_power_of_two(*n)))),
+                    Box::new(AstNode::Const(Literal::Int(log2_of_power_of_two(*n)))),
                 );
             }
 
@@ -579,7 +578,7 @@ pub fn mul_power_of_two_to_shift_right() -> Rc<AstRewriteRule> {
         },
         |bindings| {
             // 条件：bが2の累乗の定数
-            if let Some(AstNode::Const(Literal::Isize(n))) = bindings.get("b") {
+            if let Some(AstNode::Const(Literal::Int(n))) = bindings.get("b") {
                 is_power_of_two(*n)
             } else {
                 false
@@ -599,12 +598,12 @@ pub fn mul_power_of_two_to_shift_left() -> Rc<AstRewriteRule> {
             let a = bindings.get("a").unwrap();
             let b = bindings.get("b").unwrap();
 
-            if let AstNode::Const(Literal::Isize(n)) = a
+            if let AstNode::Const(Literal::Int(n)) = a
                 && is_power_of_two(*n)
             {
                 return AstNode::LeftShift(
                     Box::new(b.clone()),
-                    Box::new(AstNode::Const(Literal::Isize(log2_of_power_of_two(*n)))),
+                    Box::new(AstNode::Const(Literal::Int(log2_of_power_of_two(*n)))),
                 );
             }
 
@@ -613,7 +612,7 @@ pub fn mul_power_of_two_to_shift_left() -> Rc<AstRewriteRule> {
         },
         |bindings| {
             // 条件：aが2の累乗の定数
-            if let Some(AstNode::Const(Literal::Isize(n))) = bindings.get("a") {
+            if let Some(AstNode::Const(Literal::Int(n))) = bindings.get("a") {
                 is_power_of_two(*n)
             } else {
                 false
@@ -718,33 +717,33 @@ mod tests {
     fn test_add_zero() {
         let rule = add_zero_right();
         let input = AstNode::Add(
-            Box::new(AstNode::Const(Literal::Isize(42))),
-            Box::new(AstNode::Const(Literal::Isize(0))),
+            Box::new(AstNode::Const(Literal::Int(42))),
+            Box::new(AstNode::Const(Literal::Int(0))),
         );
         let result = rule.apply(&input);
-        assert_eq!(result, AstNode::Const(Literal::Isize(42)));
+        assert_eq!(result, AstNode::Const(Literal::Int(42)));
     }
 
     #[test]
     fn test_mul_one() {
         let rule = mul_one_right();
         let input = AstNode::Mul(
-            Box::new(AstNode::Const(Literal::Isize(42))),
-            Box::new(AstNode::Const(Literal::Isize(1))),
+            Box::new(AstNode::Const(Literal::Int(42))),
+            Box::new(AstNode::Const(Literal::Int(1))),
         );
         let result = rule.apply(&input);
-        assert_eq!(result, AstNode::Const(Literal::Isize(42)));
+        assert_eq!(result, AstNode::Const(Literal::Int(42)));
     }
 
     #[test]
     fn test_mul_zero() {
         let rule = mul_zero_right();
         let input = AstNode::Mul(
-            Box::new(AstNode::Const(Literal::Isize(42))),
-            Box::new(AstNode::Const(Literal::Isize(0))),
+            Box::new(AstNode::Const(Literal::Int(42))),
+            Box::new(AstNode::Const(Literal::Int(0))),
         );
         let result = rule.apply(&input);
-        assert_eq!(result, AstNode::Const(Literal::Isize(0)));
+        assert_eq!(result, AstNode::Const(Literal::Int(0)));
     }
 
     #[test]
@@ -836,15 +835,15 @@ mod tests {
         // (42 + 0) * 1
         let input = AstNode::Mul(
             Box::new(AstNode::Add(
-                Box::new(AstNode::Const(Literal::Isize(42))),
-                Box::new(AstNode::Const(Literal::Isize(0))),
+                Box::new(AstNode::Const(Literal::Int(42))),
+                Box::new(AstNode::Const(Literal::Int(0))),
             )),
-            Box::new(AstNode::Const(Literal::Isize(1))),
+            Box::new(AstNode::Const(Literal::Int(1))),
         );
 
         let result = optimizer.optimize(input);
         // 42
-        assert_eq!(result, AstNode::Const(Literal::Isize(42)));
+        assert_eq!(result, AstNode::Const(Literal::Int(42)));
     }
 
     #[test]
@@ -876,11 +875,11 @@ mod tests {
 
         // Isize: 2 + 3 = 5
         let input = AstNode::Add(
-            Box::new(AstNode::Const(Literal::Isize(2))),
-            Box::new(AstNode::Const(Literal::Isize(3))),
+            Box::new(AstNode::Const(Literal::Int(2))),
+            Box::new(AstNode::Const(Literal::Int(3))),
         );
         let result = rule.apply(&input);
-        assert_eq!(result, AstNode::Const(Literal::Isize(5)));
+        assert_eq!(result, AstNode::Const(Literal::Int(5)));
 
         // F32: 1.5 + 2.5 = 4.0
         let input = AstNode::Add(
@@ -897,11 +896,11 @@ mod tests {
 
         // Isize: 6 * 7 = 42
         let input = AstNode::Mul(
-            Box::new(AstNode::Const(Literal::Isize(6))),
-            Box::new(AstNode::Const(Literal::Isize(7))),
+            Box::new(AstNode::Const(Literal::Int(6))),
+            Box::new(AstNode::Const(Literal::Int(7))),
         );
         let result = rule.apply(&input);
-        assert_eq!(result, AstNode::Const(Literal::Isize(42)));
+        assert_eq!(result, AstNode::Const(Literal::Int(42)));
 
         // F32: 2.5 * 4.0 = 10.0
         let input = AstNode::Mul(
@@ -948,11 +947,11 @@ mod tests {
 
         // max(3, 5) = 5
         let input = AstNode::Max(
-            Box::new(AstNode::Const(Literal::Isize(3))),
-            Box::new(AstNode::Const(Literal::Isize(5))),
+            Box::new(AstNode::Const(Literal::Int(3))),
+            Box::new(AstNode::Const(Literal::Int(5))),
         );
         let result = rule.apply(&input);
-        assert_eq!(result, AstNode::Const(Literal::Isize(5)));
+        assert_eq!(result, AstNode::Const(Literal::Int(5)));
 
         // max(2.5, 1.5) = 2.5
         let input = AstNode::Max(
@@ -969,11 +968,11 @@ mod tests {
 
         // 10 % 3 = 1
         let input = AstNode::Rem(
-            Box::new(AstNode::Const(Literal::Isize(10))),
-            Box::new(AstNode::Const(Literal::Isize(3))),
+            Box::new(AstNode::Const(Literal::Int(10))),
+            Box::new(AstNode::Const(Literal::Int(3))),
         );
         let result = rule.apply(&input);
-        assert_eq!(result, AstNode::Const(Literal::Isize(1)));
+        assert_eq!(result, AstNode::Const(Literal::Int(1)));
     }
 
     #[test]
@@ -982,11 +981,11 @@ mod tests {
 
         // 10 / 3 = 3
         let input = AstNode::Idiv(
-            Box::new(AstNode::Const(Literal::Isize(10))),
-            Box::new(AstNode::Const(Literal::Isize(3))),
+            Box::new(AstNode::Const(Literal::Int(10))),
+            Box::new(AstNode::Const(Literal::Int(3))),
         );
         let result = rule.apply(&input);
-        assert_eq!(result, AstNode::Const(Literal::Isize(3)));
+        assert_eq!(result, AstNode::Const(Literal::Int(3)));
     }
 
     #[test]
@@ -996,14 +995,14 @@ mod tests {
         // (2 + 3) * 4 = 5 * 4 = 20
         let input = AstNode::Mul(
             Box::new(AstNode::Add(
-                Box::new(AstNode::Const(Literal::Isize(2))),
-                Box::new(AstNode::Const(Literal::Isize(3))),
+                Box::new(AstNode::Const(Literal::Int(2))),
+                Box::new(AstNode::Const(Literal::Int(3))),
             )),
-            Box::new(AstNode::Const(Literal::Isize(4))),
+            Box::new(AstNode::Const(Literal::Int(4))),
         );
 
         let result = optimizer.optimize(input);
-        assert_eq!(result, AstNode::Const(Literal::Isize(20)));
+        assert_eq!(result, AstNode::Const(Literal::Int(20)));
     }
 
     #[test]
@@ -1015,16 +1014,16 @@ mod tests {
         let input = AstNode::Add(
             Box::new(AstNode::Mul(
                 Box::new(AstNode::Add(
-                    Box::new(AstNode::Const(Literal::Isize(2))),
-                    Box::new(AstNode::Const(Literal::Isize(3))),
+                    Box::new(AstNode::Const(Literal::Int(2))),
+                    Box::new(AstNode::Const(Literal::Int(3))),
                 )),
-                Box::new(AstNode::Const(Literal::Isize(1))),
+                Box::new(AstNode::Const(Literal::Int(1))),
             )),
-            Box::new(AstNode::Const(Literal::Isize(0))),
+            Box::new(AstNode::Const(Literal::Int(0))),
         );
 
         let result = optimizer.optimize(input);
-        assert_eq!(result, AstNode::Const(Literal::Isize(5)));
+        assert_eq!(result, AstNode::Const(Literal::Int(5)));
     }
 
     #[test]
@@ -1033,14 +1032,14 @@ mod tests {
         let rule = mul_power_of_two_to_shift_right();
         let input = AstNode::Mul(
             Box::new(AstNode::Var("x".to_string())),
-            Box::new(AstNode::Const(Literal::Isize(4))),
+            Box::new(AstNode::Const(Literal::Int(4))),
         );
         let result = rule.apply(&input);
 
         match result {
             AstNode::LeftShift(left, right) => {
                 assert_eq!(*left, AstNode::Var("x".to_string()));
-                assert_eq!(*right, AstNode::Const(Literal::Isize(2)));
+                assert_eq!(*right, AstNode::Const(Literal::Int(2)));
             }
             _ => panic!("Expected LeftShift node"),
         }
@@ -1051,7 +1050,7 @@ mod tests {
         // 8 * x → x << 3
         let rule = mul_power_of_two_to_shift_left();
         let input = AstNode::Mul(
-            Box::new(AstNode::Const(Literal::Isize(8))),
+            Box::new(AstNode::Const(Literal::Int(8))),
             Box::new(AstNode::Var("x".to_string())),
         );
         let result = rule.apply(&input);
@@ -1059,7 +1058,7 @@ mod tests {
         match result {
             AstNode::LeftShift(left, right) => {
                 assert_eq!(*left, AstNode::Var("x".to_string()));
-                assert_eq!(*right, AstNode::Const(Literal::Isize(3)));
+                assert_eq!(*right, AstNode::Const(Literal::Int(3)));
             }
             _ => panic!("Expected LeftShift node"),
         }
@@ -1071,7 +1070,7 @@ mod tests {
         let rule = mul_power_of_two_to_shift_right();
         let input = AstNode::Mul(
             Box::new(AstNode::Var("x".to_string())),
-            Box::new(AstNode::Const(Literal::Isize(5))),
+            Box::new(AstNode::Const(Literal::Int(5))),
         );
         let result = rule.apply(&input);
 
@@ -1079,7 +1078,7 @@ mod tests {
         match result {
             AstNode::Mul(left, right) => {
                 assert_eq!(*left, AstNode::Var("x".to_string()));
-                assert_eq!(*right, AstNode::Const(Literal::Isize(5)));
+                assert_eq!(*right, AstNode::Const(Literal::Int(5)));
             }
             _ => panic!("Expected Mul node (unchanged)"),
         }
@@ -1104,13 +1103,13 @@ mod tests {
         for (power_of_two, expected_shift) in test_cases {
             let input = AstNode::Mul(
                 Box::new(AstNode::Var("x".to_string())),
-                Box::new(AstNode::Const(Literal::Isize(power_of_two))),
+                Box::new(AstNode::Const(Literal::Int(power_of_two))),
             );
             let result = rule.apply(&input);
 
             match result {
                 AstNode::LeftShift(_, right) => {
-                    assert_eq!(*right, AstNode::Const(Literal::Isize(expected_shift)));
+                    assert_eq!(*right, AstNode::Const(Literal::Int(expected_shift)));
                 }
                 _ => panic!("Expected LeftShift node for {}", power_of_two),
             }
@@ -1125,7 +1124,7 @@ mod tests {
         // x * 16 → x << 4
         let input = AstNode::Mul(
             Box::new(AstNode::Var("x".to_string())),
-            Box::new(AstNode::Const(Literal::Isize(16))),
+            Box::new(AstNode::Const(Literal::Int(16))),
         );
 
         let result = optimizer.optimize(input);
@@ -1133,7 +1132,7 @@ mod tests {
         match result {
             AstNode::LeftShift(left, right) => {
                 assert_eq!(*left, AstNode::Var("x".to_string()));
-                assert_eq!(*right, AstNode::Const(Literal::Isize(4)));
+                assert_eq!(*right, AstNode::Const(Literal::Int(4)));
             }
             _ => panic!("Expected LeftShift node"),
         }
@@ -1165,7 +1164,7 @@ mod tests {
         let input = AstNode::Add(Box::new(var_a.clone()), Box::new(var_a.clone()));
         let result = rule.apply(&input);
         // x * 2
-        let expected = AstNode::Mul(Box::new(var_a), Box::new(AstNode::Const(Literal::Isize(2))));
+        let expected = AstNode::Mul(Box::new(var_a), Box::new(AstNode::Const(Literal::Int(2))));
         assert_eq!(result, expected);
     }
 
@@ -1173,14 +1172,11 @@ mod tests {
     fn test_add_same_to_mul_two_with_const() {
         let rule = add_same_to_mul_two();
         // 5 + 5
-        let const_5 = AstNode::Const(Literal::Isize(5));
+        let const_5 = AstNode::Const(Literal::Int(5));
         let input = AstNode::Add(Box::new(const_5.clone()), Box::new(const_5.clone()));
         let result = rule.apply(&input);
         // 5 * 2
-        let expected = AstNode::Mul(
-            Box::new(const_5),
-            Box::new(AstNode::Const(Literal::Isize(2))),
-        );
+        let expected = AstNode::Mul(Box::new(const_5), Box::new(AstNode::Const(Literal::Int(2))));
         assert_eq!(result, expected);
     }
 }

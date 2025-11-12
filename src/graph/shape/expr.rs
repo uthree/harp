@@ -24,7 +24,7 @@ impl From<Expr> for crate::ast::AstNode {
         // 変換前にsimplifyして可読性を向上
         let expr = expr.simplify();
         match expr {
-            Expr::Const(c) => AstNode::Const(Literal::Isize(c)),
+            Expr::Const(c) => AstNode::Const(Literal::Int(c)),
             Expr::Var(s) => {
                 // 変数を直接ASTのVarに変換
                 AstNode::Var(s)
@@ -72,7 +72,11 @@ impl Expr {
             Expr::Var(name) => {
                 vars.insert(name.clone());
             }
-            Expr::Add(l, r) | Expr::Sub(l, r) | Expr::Mul(l, r) | Expr::Div(l, r) | Expr::Rem(l, r) => {
+            Expr::Add(l, r)
+            | Expr::Sub(l, r)
+            | Expr::Mul(l, r)
+            | Expr::Div(l, r)
+            | Expr::Rem(l, r) => {
                 l.collect_vars_recursive(vars);
                 r.collect_vars_recursive(vars);
             }

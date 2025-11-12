@@ -112,8 +112,12 @@ impl Lowerer {
 
             if unroll_factor > 1 {
                 // ループアンローリングを適用
-                body_statements =
-                    self.generate_unrolled_loop_with_shape(axis, unroll_factor, &shape_expr, body_statements)?;
+                body_statements = self.generate_unrolled_loop_with_shape(
+                    axis,
+                    unroll_factor,
+                    &shape_expr,
+                    body_statements,
+                )?;
             } else {
                 // 通常のループ
                 let loop_body = AstNode::Block {
@@ -126,8 +130,8 @@ impl Lowerer {
 
                 body_statements = vec![AstNode::Range {
                     var: loop_var.clone(),
-                    start: Box::new(AstNode::Const(Literal::Usize(0))),
-                    step: Box::new(AstNode::Const(Literal::Usize(1))),
+                    start: Box::new(AstNode::Const(Literal::Int(0))),
+                    step: Box::new(AstNode::Const(Literal::Int(1))),
                     stop: Box::new(shape_expr),
                     body: Box::new(loop_body),
                 }];
@@ -155,7 +159,7 @@ impl Lowerer {
             let offset = if i == 0 {
                 var(format!("{}_base", loop_var))
             } else {
-                var(format!("{}_base", loop_var)) + AstNode::Const(Literal::Usize(i))
+                var(format!("{}_base", loop_var)) + AstNode::Const(Literal::Int(i as isize))
             };
 
             // ループ変数を置き換えた本体を生成
@@ -177,13 +181,13 @@ impl Lowerer {
         // メインループ: for ridx{axis}_base in 0..(shape{axis}/unroll_factor)
         let main_loop_stop = idiv(
             shape_expr.clone(),
-            AstNode::Const(Literal::Usize(unroll_factor)),
+            AstNode::Const(Literal::Int(unroll_factor as isize)),
         );
 
         let main_loop = AstNode::Range {
             var: format!("{}_base", loop_var),
-            start: Box::new(AstNode::Const(Literal::Usize(0))),
-            step: Box::new(AstNode::Const(Literal::Usize(1))),
+            start: Box::new(AstNode::Const(Literal::Int(0))),
+            step: Box::new(AstNode::Const(Literal::Int(1))),
             stop: Box::new(main_loop_stop),
             body: Box::new(unrolled_loop_body),
         };
@@ -191,8 +195,8 @@ impl Lowerer {
         // 残り処理: for ridx{axis} in (shape{axis}/unroll_factor)*unroll_factor..shape{axis}
         let remainder_start = idiv(
             shape_expr.clone(),
-            AstNode::Const(Literal::Usize(unroll_factor)),
-        ) * AstNode::Const(Literal::Usize(unroll_factor));
+            AstNode::Const(Literal::Int(unroll_factor as isize)),
+        ) * AstNode::Const(Literal::Int(unroll_factor as isize));
 
         // 残りループのスコープ
         let remainder_scope = Scope::new();
@@ -204,7 +208,7 @@ impl Lowerer {
         let remainder_loop = AstNode::Range {
             var: loop_var,
             start: Box::new(remainder_start),
-            step: Box::new(AstNode::Const(Literal::Usize(1))),
+            step: Box::new(AstNode::Const(Literal::Int(1))),
             stop: Box::new(shape_expr.clone()),
             body: Box::new(remainder_loop_body),
         };

@@ -165,8 +165,8 @@ impl Lowerer {
 
             body_statements = vec![AstNode::Range {
                 var: loop_var,
-                start: Box::new(AstNode::Const(Literal::Usize(0))),
-                step: Box::new(AstNode::Const(Literal::Usize(1))),
+                start: Box::new(AstNode::Const(Literal::Int(0))),
+                step: Box::new(AstNode::Const(Literal::Int(1))),
                 stop: Box::new(shape_expr),
                 body: Box::new(loop_body),
             }];
@@ -229,8 +229,8 @@ impl Lowerer {
 
             accumulate_statements = vec![AstNode::Range {
                 var: loop_var,
-                start: Box::new(AstNode::Const(Literal::Usize(0))),
-                step: Box::new(AstNode::Const(Literal::Usize(1))),
+                start: Box::new(AstNode::Const(Literal::Int(0))),
+                step: Box::new(AstNode::Const(Literal::Int(1))),
                 stop: Box::new(shape_expr),
                 body: Box::new(loop_body),
             }];
@@ -240,7 +240,7 @@ impl Lowerer {
 
         // 結果をoutput[0]に書き込み
         let output_ptr = var("output");
-        let output_offset = AstNode::Const(Literal::Usize(0));
+        let output_offset = AstNode::Const(Literal::Int(0));
         statements.push(store(output_ptr, output_offset, var(&acc_var)));
 
         Ok(statements)
@@ -297,8 +297,8 @@ impl Lowerer {
 
         let reduce_loop = AstNode::Range {
             var: loop_var,
-            start: Box::new(AstNode::Const(Literal::Usize(0))),
-            step: Box::new(AstNode::Const(Literal::Usize(1))),
+            start: Box::new(AstNode::Const(Literal::Int(0))),
+            step: Box::new(AstNode::Const(Literal::Int(1))),
             stop: Box::new(shape_expr),
             body: Box::new(AstNode::Block {
                 statements: vec![accumulate_stmt],

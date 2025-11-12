@@ -138,13 +138,13 @@ mod tests {
 
         let isize_node = AstNode::Const(42isize.into());
         match isize_node {
-            AstNode::Const(Literal::Isize(v)) => assert_eq!(v, 42),
+            AstNode::Const(Literal::Int(v)) => assert_eq!(v, 42),
             _ => panic!("Expected Isize constant"),
         }
 
         let usize_node = AstNode::Const(100usize.into());
         match usize_node {
-            AstNode::Const(Literal::Usize(v)) => assert_eq!(v, 100),
+            AstNode::Const(Literal::Int(v)) => assert_eq!(v, 100),
             _ => panic!("Expected Usize constant"),
         }
     }
@@ -297,7 +297,7 @@ mod tests {
                     _ => panic!("Expected Var node for ptr"),
                 }
                 match *offset {
-                    AstNode::Const(Literal::Usize(v)) => assert_eq!(v, 0),
+                    AstNode::Const(Literal::Int(v)) => assert_eq!(v, 0),
                     _ => panic!("Expected Usize constant for offset"),
                 }
             }
@@ -338,7 +338,7 @@ mod tests {
                     _ => panic!("Expected Var node for ptr"),
                 }
                 match *offset {
-                    AstNode::Const(Literal::Usize(v)) => assert_eq!(v, 0),
+                    AstNode::Const(Literal::Int(v)) => assert_eq!(v, 0),
                     _ => panic!("Expected Usize constant for offset"),
                 }
                 match *value {
@@ -359,7 +359,7 @@ mod tests {
             AstNode::Assign { var, value } => {
                 assert_eq!(var, "alu0");
                 match *value {
-                    AstNode::Const(Literal::Isize(v)) => assert_eq!(v, 42),
+                    AstNode::Const(Literal::Int(v)) => assert_eq!(v, 42),
                     _ => panic!("Expected Isize constant for value"),
                 }
             }

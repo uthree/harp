@@ -27,14 +27,14 @@ fn test_literal_from_f32() {
 fn test_literal_from_isize() {
     let lit: Literal = 42isize.into();
     match lit {
-        Literal::Isize(v) => assert_eq!(v, 42),
-        _ => panic!("Expected Isize literal"),
+        Literal::Int(v) => assert_eq!(v, 42),
+        _ => panic!("Expected Int literal"),
     }
 
     let lit = Literal::from(-10isize);
     match lit {
-        Literal::Isize(v) => assert_eq!(v, -10),
-        _ => panic!("Expected Isize literal"),
+        Literal::Int(v) => assert_eq!(v, -10),
+        _ => panic!("Expected Int literal"),
     }
 }
 
@@ -42,14 +42,14 @@ fn test_literal_from_isize() {
 fn test_literal_from_usize() {
     let lit: Literal = 100usize.into();
     match lit {
-        Literal::Usize(v) => assert_eq!(v, 100),
-        _ => panic!("Expected Usize literal"),
+        Literal::Int(v) => assert_eq!(v, 100),
+        _ => panic!("Expected Int literal"),
     }
 
     let lit = Literal::from(256usize);
     match lit {
-        Literal::Usize(v) => assert_eq!(v, 256),
-        _ => panic!("Expected Usize literal"),
+        Literal::Int(v) => assert_eq!(v, 256),
+        _ => panic!("Expected Int literal"),
     }
 }
 
@@ -58,11 +58,11 @@ fn test_literal_dtype() {
     let f32_lit = Literal::F32(3.14);
     assert_eq!(f32_lit.dtype(), DType::F32);
 
-    let isize_lit = Literal::Isize(42);
-    assert_eq!(isize_lit.dtype(), DType::Isize);
+    let int_lit = Literal::Int(42);
+    assert_eq!(int_lit.dtype(), DType::Isize);
 
-    let usize_lit = Literal::Usize(100);
-    assert_eq!(usize_lit.dtype(), DType::Usize);
+    let int_lit = Literal::Int(100);
+    assert_eq!(int_lit.dtype(), DType::Isize);
 }
 
 #[test]
@@ -131,8 +131,8 @@ fn test_infer_type_const() {
     let node = AstNode::Const(42isize.into());
     assert_eq!(node.infer_type(), DType::Isize);
 
-    let node = AstNode::Const(100usize.into());
-    assert_eq!(node.infer_type(), DType::Usize);
+    let node = AstNode::Const(100isize.into());
+    assert_eq!(node.infer_type(), DType::Isize);
 }
 
 #[test]
@@ -328,7 +328,7 @@ fn test_var_node() {
 fn test_load_scalar() {
     let load = AstNode::Load {
         ptr: Box::new(AstNode::Var("input0".to_string())),
-        offset: Box::new(AstNode::Const(0usize.into())),
+        offset: Box::new(AstNode::Const(0isize.into())),
         count: 1,
         dtype: DType::F32,
     };
@@ -352,7 +352,7 @@ fn test_load_vector() {
 
     let load = AstNode::Load {
         ptr: Box::new(ptr_node),
-        offset: Box::new(AstNode::Const(0usize.into())),
+        offset: Box::new(AstNode::Const(0isize.into())),
         count: 4,
         dtype: DType::F32.to_vec(4),
     };
@@ -370,7 +370,7 @@ fn test_load_vector() {
 fn test_store() {
     let store = AstNode::Store {
         ptr: Box::new(AstNode::Var("output0".to_string())),
-        offset: Box::new(AstNode::Const(0usize.into())),
+        offset: Box::new(AstNode::Const(0isize.into())),
         value: Box::new(AstNode::Const(3.14f32.into())),
     };
 
@@ -410,7 +410,7 @@ fn test_load_store_map_children() {
 
     // Map children: multiply each constant by 2
     let mapped = load.map_children(&|node| match node {
-        AstNode::Const(Literal::Isize(n)) => AstNode::Const(Literal::Isize(n * 2)),
+        AstNode::Const(Literal::Int(n)) => AstNode::Const(Literal::Int(n * 2)),
         _ => node.clone(),
     });
 
@@ -421,8 +421,8 @@ fn test_load_store_map_children() {
         dtype: _,
     } = mapped
     {
-        assert_eq!(*ptr, AstNode::Const(Literal::Isize(2)));
-        assert_eq!(*offset, AstNode::Const(Literal::Isize(4)));
+        assert_eq!(*ptr, AstNode::Const(Literal::Int(2)));
+        assert_eq!(*offset, AstNode::Const(Literal::Int(4)));
         assert_eq!(count, 4);
     } else {
         panic!("Expected Load node");
@@ -438,13 +438,13 @@ fn test_assign_map_children() {
 
     // Map children: increment constant
     let mapped = assign.map_children(&|node| match node {
-        AstNode::Const(Literal::Isize(n)) => AstNode::Const(Literal::Isize(n + 1)),
+        AstNode::Const(Literal::Int(n)) => AstNode::Const(Literal::Int(n + 1)),
         _ => node.clone(),
     });
 
     if let AstNode::Assign { var, value } = mapped {
         assert_eq!(var, "x");
-        assert_eq!(*value, AstNode::Const(Literal::Isize(11)));
+        assert_eq!(*value, AstNode::Const(Literal::Int(11)));
     } else {
         panic!("Expected Assign node");
     }

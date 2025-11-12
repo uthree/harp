@@ -108,8 +108,12 @@ impl Lowerer {
 
             if unroll_factor > 1 {
                 // ループアンローリングを適用
-                body_statements =
-                    self.generate_unrolled_loop_with_shape(axis, unroll_factor, &shape_expr, body_statements)?;
+                body_statements = self.generate_unrolled_loop_with_shape(
+                    axis,
+                    unroll_factor,
+                    &shape_expr,
+                    body_statements,
+                )?;
             } else {
                 // 通常のループ
                 let loop_body = AstNode::Block {
@@ -122,8 +126,8 @@ impl Lowerer {
 
                 body_statements = vec![AstNode::Range {
                     var: loop_var.clone(),
-                    start: Box::new(AstNode::Const(Literal::Usize(0))),
-                    step: Box::new(AstNode::Const(Literal::Usize(1))),
+                    start: Box::new(AstNode::Const(Literal::Int(0))),
+                    step: Box::new(AstNode::Const(Literal::Int(1))),
                     stop: Box::new(shape_expr),
                     body: Box::new(loop_body),
                 }];

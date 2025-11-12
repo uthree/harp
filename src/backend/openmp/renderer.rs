@@ -35,7 +35,7 @@ impl CLikeRenderer for CRenderer {
         match dtype {
             DType::F32 => "float".to_string(),
             DType::Isize => "int".to_string(),
-            DType::Usize => "unsigned int".to_string(),
+            DType::Usize => "int".to_string(),
             DType::Ptr(inner) => format!("{}*", self.render_dtype_backend(inner)),
             DType::Vec(inner, size) => {
                 // C言語ではベクトル型をサポートしていないので、配列として表現
@@ -98,25 +98,25 @@ impl CLikeRenderer for CRenderer {
             match &param.kind {
                 VarKind::ThreadId(_) => {
                     result.push_str(&format!(
-                        "{}unsigned int {} = omp_get_thread_num();\n",
+                        "{}int {} = omp_get_thread_num();\n",
                         indent, param.name
                     ));
                 }
                 VarKind::GroupId(_) => {
                     result.push_str(&format!(
-                        "{}unsigned int {} = 0; // group_id not supported\n",
+                        "{}int {} = 0; // group_id not supported\n",
                         indent, param.name
                     ));
                 }
                 VarKind::GroupSize(_) => {
                     result.push_str(&format!(
-                        "{}unsigned int {} = omp_get_num_threads();\n",
+                        "{}int {} = omp_get_num_threads();\n",
                         indent, param.name
                     ));
                 }
                 VarKind::GridSize(_) => {
                     result.push_str(&format!(
-                        "{}unsigned int {} = 0; // grid_size not supported\n",
+                        "{}int {} = 0; // grid_size not supported\n",
                         indent, param.name
                     ));
                 }
@@ -170,7 +170,7 @@ mod tests {
         let renderer = CRenderer::new();
         assert_eq!(renderer.render_dtype_backend(&DType::F32), "float");
         assert_eq!(renderer.render_dtype_backend(&DType::Isize), "int");
-        assert_eq!(renderer.render_dtype_backend(&DType::Usize), "unsigned int");
+        assert_eq!(renderer.render_dtype_backend(&DType::Usize), "int");
         assert_eq!(
             renderer.render_dtype_backend(&DType::Ptr(Box::new(DType::F32))),
             "float*"
@@ -181,8 +181,7 @@ mod tests {
     fn test_render_literal() {
         let renderer = CRenderer::new();
         assert_eq!(renderer.render_literal(&Literal::F32(1.5)), "1.5f");
-        assert_eq!(renderer.render_literal(&Literal::Isize(42)), "42");
-        assert_eq!(renderer.render_literal(&Literal::Usize(10)), "10u");
+        assert_eq!(renderer.render_literal(&Literal::Int(42)), "42");
     }
 
     #[test]
@@ -214,7 +213,7 @@ mod tests {
             body: Box::new(AstNode::Block {
                 statements: vec![store(
                     var("x"),
-                    AstNode::Const(Literal::Usize(0)),
+                    AstNode::Const(Literal::Int(0)),
                     AstNode::Const(Literal::F32(1.0)),
                 )],
                 scope: Box::new(Scope::new()),

@@ -394,8 +394,7 @@ pub enum DType {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
-    Isize(isize),
-    Usize(usize),
+    Int(isize),
     F32(f32),
 }
 
@@ -408,13 +407,13 @@ impl From<f32> for Literal {
 
 impl From<isize> for Literal {
     fn from(value: isize) -> Self {
-        Literal::Isize(value)
+        Literal::Int(value)
     }
 }
 
 impl From<usize> for Literal {
     fn from(value: usize) -> Self {
-        Literal::Usize(value)
+        Literal::Int(value as isize)
     }
 }
 
@@ -423,31 +422,28 @@ impl Literal {
     pub fn dtype(&self) -> DType {
         match self {
             Literal::F32(_) => DType::F32,
-            Literal::Isize(_) => DType::Isize,
-            Literal::Usize(_) => DType::Usize,
+            Literal::Int(_) => DType::Isize,
         }
     }
 
     /// 整数リテラルを isize として取得
     ///
-    /// Isize または Usize を isize に変換して返します。
+    /// Int を isize に変換して返します。
     /// F32 の場合は None を返します。
     pub fn as_isize(&self) -> Option<isize> {
         match self {
-            Literal::Isize(v) => Some(*v),
-            Literal::Usize(v) => (*v).try_into().ok(),
+            Literal::Int(v) => Some(*v),
             Literal::F32(_) => None,
         }
     }
 
     /// 整数リテラルを usize として取得
     ///
-    /// Usize または Isize を usize に変換して返します。
-    /// F32 または負の Isize の場合は None を返します。
+    /// Int を usize に変換して返します。
+    /// F32 または負の Int の場合は None を返します。
     pub fn as_usize(&self) -> Option<usize> {
         match self {
-            Literal::Usize(v) => Some(*v),
-            Literal::Isize(v) => (*v).try_into().ok(),
+            Literal::Int(v) => (*v).try_into().ok(),
             Literal::F32(_) => None,
         }
     }
