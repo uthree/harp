@@ -47,16 +47,9 @@ impl Lowerer {
             initial_value: None,
         });
 
-        // Shape変数（各軸のサイズ）
-        for i in 0..ndim {
-            params.push(VarDecl {
-                name: format!("shape{}", i),
-                dtype: AstDType::Usize,
-                mutability: Mutability::Immutable,
-                kind: VarKind::Normal,
-                initial_value: None,
-            });
-        }
+        // Shape変数（必要な変数のみをパラメータとして追加）
+        let shape_params = self.extract_shape_params(&shape);
+        params.extend(shape_params);
 
         // ループ本体の生成
         let body_statements = self.generate_elementwise_loops(node, op, ndim)?;
@@ -112,14 +105,15 @@ impl Lowerer {
         // ループを逆順に作成（内側から外側へ）
         for axis in (0..ndim).rev() {
             let loop_var = format!("ridx{}", axis);
-            let shape_var = var(format!("shape{}", axis));
+            // shapeから直接AstNodeに変換
+            let shape_expr: AstNode = node.view.shape()[axis].clone().into();
             let elementwise_strategy = &node.elementwise_strategies[axis];
             let unroll_factor = elementwise_strategy.unroll_factor();
 
             if unroll_factor > 1 {
                 // ループアンローリングを適用
                 body_statements =
-                    self.generate_unrolled_loop(axis, unroll_factor, body_statements)?;
+                    self.generate_unrolled_loop_with_shape(axis, unroll_factor, &shape_expr, body_statements)?;
             } else {
                 // 通常のループ
                 let loop_body = AstNode::Block {
@@ -134,7 +128,7 @@ impl Lowerer {
                     var: loop_var.clone(),
                     start: Box::new(AstNode::Const(Literal::Usize(0))),
                     step: Box::new(AstNode::Const(Literal::Usize(1))),
-                    stop: Box::new(shape_var),
+                    stop: Box::new(shape_expr),
                     body: Box::new(loop_body),
                 }];
             }
@@ -144,14 +138,14 @@ impl Lowerer {
     }
 
     /// ループアンローリングを適用したループを生成
-    pub(super) fn generate_unrolled_loop(
+    pub(super) fn generate_unrolled_loop_with_shape(
         &mut self,
         axis: usize,
         unroll_factor: usize,
+        shape_expr: &AstNode,
         body_statements: Vec<AstNode>,
     ) -> Result<Vec<AstNode>, String> {
         let loop_var = format!("ridx{}", axis);
-        let shape_var = var(format!("shape{}", axis));
 
         // メインループ: shape / unroll_factor 回のイテレーション
         let mut unrolled_body = vec![];
@@ -182,7 +176,7 @@ impl Lowerer {
 
         // メインループ: for ridx{axis}_base in 0..(shape{axis}/unroll_factor)
         let main_loop_stop = idiv(
-            shape_var.clone(),
+            shape_expr.clone(),
             AstNode::Const(Literal::Usize(unroll_factor)),
         );
 
@@ -196,7 +190,7 @@ impl Lowerer {
 
         // 残り処理: for ridx{axis} in (shape{axis}/unroll_factor)*unroll_factor..shape{axis}
         let remainder_start = idiv(
-            shape_var.clone(),
+            shape_expr.clone(),
             AstNode::Const(Literal::Usize(unroll_factor)),
         ) * AstNode::Const(Literal::Usize(unroll_factor));
 
@@ -211,7 +205,7 @@ impl Lowerer {
             var: loop_var,
             start: Box::new(remainder_start),
             step: Box::new(AstNode::Const(Literal::Usize(1))),
-            stop: Box::new(shape_var),
+            stop: Box::new(shape_expr.clone()),
             body: Box::new(remainder_loop_body),
         };
 

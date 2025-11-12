@@ -22,7 +22,7 @@ fn test_lower_reduce_sum_1d() {
     assert!(function.is_ok());
     let function = function.unwrap();
 
-    // パラメータをチェック: input0, output, shape0
+    // パラメータをチェック: input0, output (shapeは定数なのでパラメータ不要)
     use crate::ast::AstNode;
     if let AstNode::Function {
         params,
@@ -30,10 +30,9 @@ fn test_lower_reduce_sum_1d() {
         ..
     } = &function
     {
-        assert_eq!(params.len(), 3);
+        assert_eq!(params.len(), 2);
         assert_eq!(params[0].name, "input0");
         assert_eq!(params[1].name, "output");
-        assert_eq!(params[2].name, "shape0");
 
         // 返り値の型はunit型
         assert_eq!(*return_type, AstDType::Tuple(vec![]));
@@ -72,14 +71,12 @@ fn test_lower_reduce_sum_2d() {
     assert!(function.is_ok());
     let function = function.unwrap();
 
-    // パラメータをチェック: input0, output, shape0, shape1
+    // パラメータをチェック: input0, output (shapeは定数なのでパラメータ不要)
     use crate::ast::AstNode;
     if let AstNode::Function { params, .. } = &function {
-        assert_eq!(params.len(), 4);
+        assert_eq!(params.len(), 2);
         assert_eq!(params[0].name, "input0");
         assert_eq!(params[1].name, "output");
-        assert_eq!(params[2].name, "shape0");
-        assert_eq!(params[3].name, "shape1");
     } else {
         panic!("Expected AstNode::Function");
     }
@@ -115,10 +112,10 @@ fn test_lower_reduce_sum_axis0() {
     assert!(function.is_ok());
     let function = function.unwrap();
 
-    // パラメータをチェック
+    // パラメータをチェック: input0, output (shapeは定数なのでパラメータ不要)
     use crate::ast::AstNode;
     if let AstNode::Function { params, .. } = &function {
-        assert_eq!(params.len(), 4);
+        assert_eq!(params.len(), 2);
     } else {
         panic!("Expected AstNode::Function");
     }
@@ -154,10 +151,10 @@ fn test_lower_reduce_max() {
     assert!(function.is_ok());
     let function = function.unwrap();
 
-    // パラメータをチェック
+    // パラメータをチェック: input0, output (shapeは定数なのでパラメータ不要)
     use crate::ast::AstNode;
     if let AstNode::Function { params, .. } = &function {
-        assert_eq!(params.len(), 3);
+        assert_eq!(params.len(), 2);
         assert_eq!(params[0].name, "input0");
         assert_eq!(params[1].name, "output");
     } else {
@@ -195,10 +192,10 @@ fn test_lower_reduce_mul() {
     assert!(function.is_ok());
     let function = function.unwrap();
 
-    // パラメータをチェック
+    // パラメータをチェック: input0, output (shapeは定数なのでパラメータ不要)
     use crate::ast::AstNode;
     if let AstNode::Function { params, .. } = &function {
-        assert_eq!(params.len(), 4);
+        assert_eq!(params.len(), 2);
     } else {
         panic!("Expected AstNode::Function");
     }
@@ -234,10 +231,10 @@ fn test_lower_reduce_3d() {
     assert!(function.is_ok());
     let function = function.unwrap();
 
-    // パラメータをチェック: input0, output, shape0, shape1, shape2
+    // パラメータをチェック: input0, output (shapeは定数なのでパラメータ不要)
     use crate::ast::AstNode;
     if let AstNode::Function { params, .. } = &function {
-        assert_eq!(params.len(), 5);
+        assert_eq!(params.len(), 2);
     } else {
         panic!("Expected AstNode::Function");
     }

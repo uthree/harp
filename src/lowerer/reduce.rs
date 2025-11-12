@@ -56,16 +56,10 @@ impl Lowerer {
             initial_value: None,
         });
 
-        // Shape変数（入力のshape）
-        for i in 0..input_ndim {
-            params.push(VarDecl {
-                name: format!("shape{}", i),
-                dtype: AstDType::Usize,
-                mutability: Mutability::Immutable,
-                kind: VarKind::Normal,
-                initial_value: None,
-            });
-        }
+        // Shape変数（必要な変数のみをパラメータとして追加）
+        let input_shape = input.view.shape();
+        let shape_params = self.extract_shape_params(&input_shape);
+        params.extend(shape_params);
 
         // ループ本体の生成
         let body_statements = self.generate_reduce_loops(node, op, axis)?;
@@ -110,6 +104,10 @@ impl Lowerer {
         let mut scope = Scope::new();
         let output_ndim = node.view.shape().len();
 
+        // 入力shapeを取得（後でループ生成に使用）
+        let input = &node.src[0];
+        let input_shape = input.view.shape();
+
         // 出力がスカラーの場合とテンソルの場合で処理を分ける
         if output_ndim == 0 {
             // 全縮約（スカラー出力）
@@ -128,7 +126,8 @@ impl Lowerer {
             let in_idx = if out_idx < axis { out_idx } else { out_idx + 1 };
 
             let loop_var = format!("oidx{}", out_idx);
-            let shape_var = var(format!("shape{}", in_idx));
+            // 入力shapeから直接AstNodeに変換
+            let shape_expr: AstNode = input_shape[in_idx].clone().into();
 
             let loop_body = AstNode::Block {
                 statements: body_statements,
@@ -142,7 +141,7 @@ impl Lowerer {
                 var: loop_var,
                 start: Box::new(AstNode::Const(Literal::Usize(0))),
                 step: Box::new(AstNode::Const(Literal::Usize(1))),
-                stop: Box::new(shape_var),
+                stop: Box::new(shape_expr),
                 body: Box::new(loop_body),
             }];
         }
@@ -159,7 +158,8 @@ impl Lowerer {
         scope: &mut Scope,
     ) -> Result<Vec<AstNode>, String> {
         let input = &node.src[0];
-        let input_ndim = input.view.shape().len();
+        let input_shape = input.view.shape();
+        let input_ndim = input_shape.len();
 
         let mut statements = Vec::new();
 
@@ -192,7 +192,8 @@ impl Lowerer {
         // ループを逆順に作成（内側から外側へ）
         for i in (0..input_ndim).rev() {
             let loop_var = format!("ridx{}", i);
-            let shape_var = var(format!("shape{}", i));
+            // 入力shapeから直接AstNodeに変換
+            let shape_expr: AstNode = input_shape[i].clone().into();
 
             let loop_body = AstNode::Block {
                 statements: accumulate_statements,
@@ -203,7 +204,7 @@ impl Lowerer {
                 var: loop_var,
                 start: Box::new(AstNode::Const(Literal::Usize(0))),
                 step: Box::new(AstNode::Const(Literal::Usize(1))),
-                stop: Box::new(shape_var),
+                stop: Box::new(shape_expr),
                 body: Box::new(loop_body),
             }];
         }
@@ -227,6 +228,7 @@ impl Lowerer {
         scope: &mut Scope,
     ) -> Result<Vec<AstNode>, String> {
         let input = &node.src[0];
+        let input_shape = input.view.shape();
         let mut statements = Vec::new();
 
         // アキュムレータを初期化
@@ -249,7 +251,8 @@ impl Lowerer {
 
         // 縮約軸についてループしてアキュムレート
         let loop_var = format!("ridx{}", axis);
-        let shape_var = var(format!("shape{}", axis));
+        // 入力shapeから直接AstNodeに変換
+        let shape_expr: AstNode = input_shape[axis].clone().into();
 
         // ループ内でアキュムレートする
         // 入力のインデックスを構築: 出力インデックス + 縮約軸インデックス
@@ -272,7 +275,7 @@ impl Lowerer {
             var: loop_var,
             start: Box::new(AstNode::Const(Literal::Usize(0))),
             step: Box::new(AstNode::Const(Literal::Usize(1))),
-            stop: Box::new(shape_var),
+            stop: Box::new(shape_expr),
             body: Box::new(AstNode::Block {
                 statements: vec![accumulate_stmt],
                 scope: Box::new(Scope::new()),

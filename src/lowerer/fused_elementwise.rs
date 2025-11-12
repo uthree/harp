@@ -52,16 +52,9 @@ impl Lowerer {
             initial_value: None,
         });
 
-        // Shape変数（各軸のサイズ）
-        for i in 0..ndim {
-            params.push(VarDecl {
-                name: format!("shape{}", i),
-                dtype: AstDType::Usize,
-                mutability: Mutability::Immutable,
-                kind: VarKind::Normal,
-                initial_value: None,
-            });
-        }
+        // Shape変数（必要な変数のみをパラメータとして追加）
+        let shape_params = self.extract_shape_params(&shape);
+        params.extend(shape_params);
 
         // ループ本体の生成
         let mut scope = Scope::new();
@@ -94,6 +87,8 @@ impl Lowerer {
         ndim: usize,
         scope: &mut Scope,
     ) -> Result<Vec<AstNode>, String> {
+        let shape = node.view.shape();
+
         if ndim == 0 {
             // スカラー演算（ループなし）
             return self.generate_fused_elementwise_body(node, ops, &[], scope);
@@ -106,14 +101,15 @@ impl Lowerer {
         // ループを逆順に作成（内側から外側へ）
         for axis in (0..ndim).rev() {
             let loop_var = format!("ridx{}", axis);
-            let shape_var = var(format!("shape{}", axis));
+            // shapeから直接AstNodeに変換
+            let shape_expr: AstNode = shape[axis].clone().into();
             let elementwise_strategy = &node.elementwise_strategies[axis];
             let unroll_factor = elementwise_strategy.unroll_factor();
 
             if unroll_factor > 1 {
                 // ループアンローリングを適用
                 body_statements =
-                    self.generate_unrolled_loop(axis, unroll_factor, body_statements)?;
+                    self.generate_unrolled_loop_with_shape(axis, unroll_factor, &shape_expr, body_statements)?;
             } else {
                 // 通常のループ
                 let loop_body = AstNode::Block {
@@ -128,7 +124,7 @@ impl Lowerer {
                     var: loop_var.clone(),
                     start: Box::new(AstNode::Const(Literal::Usize(0))),
                     step: Box::new(AstNode::Const(Literal::Usize(1))),
-                    stop: Box::new(shape_var),
+                    stop: Box::new(shape_expr),
                     body: Box::new(loop_body),
                 }];
             }

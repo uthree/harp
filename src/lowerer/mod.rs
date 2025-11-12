@@ -152,6 +152,33 @@ impl Lowerer {
         name
     }
 
+    /// shapeの式から必要なパラメータを抽出
+    ///
+    /// shapeの各軸の式から変数を収集し、それらをパラメータとして返す。
+    /// 定数のみの式の場合は空のVecを返す。
+    pub(super) fn extract_shape_params(&self, shape: &[crate::graph::shape::Expr]) -> Vec<crate::ast::VarDecl> {
+        use crate::ast::{DType as AstDType, Mutability, VarDecl, VarKind};
+        use std::collections::BTreeSet;
+
+        // 全ての式から変数を収集
+        let mut all_vars = BTreeSet::new();
+        for expr in shape {
+            all_vars.extend(expr.collect_vars());
+        }
+
+        // 変数をパラメータに変換（BTreeSetを使っているので自動的にソートされる）
+        all_vars
+            .into_iter()
+            .map(|var_name| VarDecl {
+                name: var_name,
+                dtype: AstDType::Usize,
+                mutability: Mutability::Immutable,
+                kind: VarKind::Normal,
+                initial_value: None,
+            })
+            .collect()
+    }
+
     /// GraphNodeを一つのカーネル関数に変換（最も単純なケース）
     /// 前提：contiguous, 全軸Sequential, SIMD未使用
     pub fn lower_node_to_kernel(

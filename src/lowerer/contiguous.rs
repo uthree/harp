@@ -49,16 +49,9 @@ impl Lowerer {
             initial_value: None,
         });
 
-        // Shape変数（各軸のサイズ）
-        for i in 0..ndim {
-            params.push(VarDecl {
-                name: format!("shape{}", i),
-                dtype: AstDType::Usize,
-                mutability: Mutability::Immutable,
-                kind: VarKind::Normal,
-                initial_value: None,
-            });
-        }
+        // Shape変数（必要な変数のみをパラメータとして追加）
+        let shape_params = self.extract_shape_params(&shape);
+        params.extend(shape_params);
 
         // ループ本体の生成
         let body_statements = self.generate_contiguous_loops(node, ndim)?;
@@ -89,6 +82,7 @@ impl Lowerer {
         ndim: usize,
     ) -> Result<Vec<AstNode>, String> {
         let mut scope = Scope::new();
+        let shape = node.view.shape();
 
         if ndim == 0 {
             // スカラーの場合（ループなし）
@@ -102,7 +96,8 @@ impl Lowerer {
         // ループを逆順に作成（内側から外側へ）
         for axis in (0..ndim).rev() {
             let loop_var = format!("ridx{}", axis);
-            let shape_var = var(format!("shape{}", axis));
+            // shapeから直接AstNodeに変換
+            let shape_expr: AstNode = shape[axis].clone().into();
 
             let loop_body = AstNode::Block {
                 statements: body_statements,
@@ -116,7 +111,7 @@ impl Lowerer {
                 var: loop_var,
                 start: Box::new(AstNode::Const(Literal::Usize(0))),
                 step: Box::new(AstNode::Const(Literal::Usize(1))),
-                stop: Box::new(shape_var),
+                stop: Box::new(shape_expr),
                 body: Box::new(loop_body),
             }];
         }

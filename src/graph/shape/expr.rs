@@ -57,6 +57,28 @@ impl Expr {
         matches!(self, Expr::Const(1))
     }
 
+    /// この式で使用されている全ての変数名を収集
+    pub fn collect_vars(&self) -> std::collections::BTreeSet<String> {
+        use std::collections::BTreeSet;
+
+        let mut vars = BTreeSet::new();
+        self.collect_vars_recursive(&mut vars);
+        vars
+    }
+
+    fn collect_vars_recursive(&self, vars: &mut std::collections::BTreeSet<String>) {
+        match self {
+            Expr::Const(_) => {}
+            Expr::Var(name) => {
+                vars.insert(name.clone());
+            }
+            Expr::Add(l, r) | Expr::Sub(l, r) | Expr::Mul(l, r) | Expr::Div(l, r) | Expr::Rem(l, r) => {
+                l.collect_vars_recursive(vars);
+                r.collect_vars_recursive(vars);
+            }
+        }
+    }
+
     pub fn simplify(self) -> Self {
         match self {
             Expr::Add(lhs, rhs) => {

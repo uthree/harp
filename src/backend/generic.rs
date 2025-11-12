@@ -376,8 +376,7 @@ where
             let _rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules())
                 .with_max_iterations(self.ast_optimization_config.rule_max_iterations);
 
-            //let rule_optimized = _rule_optimizer.optimize(program); // デバッグ用に一時的に無効化
-            let rule_optimized = program;
+            let rule_optimized = _rule_optimizer.optimize(program); // デバッグ用に一時的に無効化
 
             // ステップ2: ビームサーチ最適化（ルールベース + ループ最適化）
             let beam_suggester = AstCompositeSuggester::new(vec![

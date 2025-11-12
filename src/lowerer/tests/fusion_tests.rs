@@ -44,15 +44,14 @@ fn test_lower_fused_elementwise() {
     assert!(function.is_ok());
     let function = function.unwrap();
 
-    // パラメータをチェック: input0, input1, input2, output, shape0
+    // パラメータをチェック: input0, input1, input2, output (shapeは定数なのでパラメータ不要)
     use crate::ast::AstNode;
     if let AstNode::Function { params, .. } = &function {
-        assert_eq!(params.len(), 5);
+        assert_eq!(params.len(), 4);
         assert_eq!(params[0].name, "input0");
         assert_eq!(params[1].name, "input1");
         assert_eq!(params[2].name, "input2");
         assert_eq!(params[3].name, "output");
-        assert_eq!(params[4].name, "shape0");
     } else {
         panic!("Expected AstNode::Function");
     }
@@ -100,15 +99,13 @@ fn test_lower_fused_elementwise_reduce() {
     assert!(function.is_ok());
     let function = function.unwrap();
 
-    // パラメータをチェック: input0, input1, output, shape0, shape1
+    // パラメータをチェック: input0, input1, output (shapeは定数なのでパラメータ不要)
     use crate::ast::AstNode;
     if let AstNode::Function { params, .. } = &function {
-        assert_eq!(params.len(), 5);
+        assert_eq!(params.len(), 3);
         assert_eq!(params[0].name, "input0");
         assert_eq!(params[1].name, "input1");
         assert_eq!(params[2].name, "output");
-        assert_eq!(params[3].name, "shape0");
-        assert_eq!(params[4].name, "shape1");
     } else {
         panic!("Expected AstNode::Function");
     }
