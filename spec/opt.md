@@ -105,13 +105,13 @@ use harp::astpat;
 
 // ルールを定義
 let rule1 = astpat!(|a| {
-    AstNode::Add(Box::new(a), Box::new(AstNode::Const(Literal::Isize(0))))
+    AstNode::Add(Box::new(a), Box::new(AstNode::Const(Literal::Int(0))))
 } => {
     a  // a + 0 -> a
 });
 
 let rule2 = astpat!(|a| {
-    AstNode::Mul(Box::new(a), Box::new(AstNode::Const(Literal::Isize(1))))
+    AstNode::Mul(Box::new(a), Box::new(AstNode::Const(Literal::Int(1))))
 } => {
     a  // a * 1 -> a
 });
@@ -503,10 +503,10 @@ let optimizer = RuleBaseOptimizer::new(constant_folding_rules());
 // (2 + 3) * 4 を最適化
 let input = AstNode::Mul(
     Box::new(AstNode::Add(
-        Box::new(AstNode::Const(Literal::Isize(2))),
-        Box::new(AstNode::Const(Literal::Isize(3))),
+        Box::new(AstNode::Const(Literal::Int(2))),
+        Box::new(AstNode::Const(Literal::Int(3))),
     )),
-    Box::new(AstNode::Const(Literal::Isize(4))),
+    Box::new(AstNode::Const(Literal::Int(4))),
 );
 
 let result = optimizer.optimize(input);
@@ -526,10 +526,10 @@ let optimizer = RuleBaseOptimizer::new(simplification_rules());
 // (42 + 0) * 1 を最適化
 let input = AstNode::Mul(
     Box::new(AstNode::Add(
-        Box::new(AstNode::Const(Literal::Isize(42))),
-        Box::new(AstNode::Const(Literal::Isize(0))),
+        Box::new(AstNode::Const(Literal::Int(42))),
+        Box::new(AstNode::Const(Literal::Int(0))),
     )),
-    Box::new(AstNode::Const(Literal::Isize(1))),
+    Box::new(AstNode::Const(Literal::Int(1))),
 );
 
 let result = optimizer.optimize(input);
@@ -553,12 +553,12 @@ let optimizer = RuleBaseOptimizer::new(all_algebraic_rules());
 let input = AstNode::Add(
     Box::new(AstNode::Mul(
         Box::new(AstNode::Add(
-            Box::new(AstNode::Const(Literal::Isize(2))),
-            Box::new(AstNode::Const(Literal::Isize(3))),
+            Box::new(AstNode::Const(Literal::Int(2))),
+            Box::new(AstNode::Const(Literal::Int(3))),
         )),
-        Box::new(AstNode::Const(Literal::Isize(1))),
+        Box::new(AstNode::Const(Literal::Int(1))),
     )),
-    Box::new(AstNode::Const(Literal::Isize(0))),
+    Box::new(AstNode::Const(Literal::Int(0))),
 );
 
 let result = optimizer.optimize(input);

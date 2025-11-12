@@ -157,11 +157,11 @@ fn create_sample_graph() -> Graph {
 /// ```
 fn create_sample_ast() -> AstNode {
     // 左辺: (2 + 3) * 1
-    let left = (AstNode::Const(Literal::Isize(2)) + AstNode::Const(Literal::Isize(3)))
-        * AstNode::Const(Literal::Isize(1));
+    let left = (AstNode::Const(Literal::Int(2)) + AstNode::Const(Literal::Int(3)))
+        * AstNode::Const(Literal::Int(1));
 
     // 右辺: (a + 0) * (b + c)
-    let a_plus_zero = var("a") + AstNode::Const(Literal::Isize(0));
+    let a_plus_zero = var("a") + AstNode::Const(Literal::Int(0));
     let b_plus_c = var("b") + var("c");
     let right = a_plus_zero * b_plus_c;
 
