@@ -6,7 +6,7 @@ pub trait CostEstimator {
     fn estimate(&self, ast: &AstNode) -> f32;
 }
 
-/// 簡単なコスト推定器（ノード数ベース）
+/// 簡単なコスト推定器
 pub struct SimpleCostEstimator;
 
 impl SimpleCostEstimator {
