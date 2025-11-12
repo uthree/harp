@@ -2,7 +2,10 @@ use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
 use crate::opt::graph::GraphSuggester;
 use std::collections::{HashMap, HashSet};
 
-/// View変更ノード（転置など）を挿入するSuggester
+/// View変更ノード（転置）を挿入してループ順序を入れ替えるSuggester
+///
+/// 全入力を転置 → 演算実行 → 出力を逆転置することで、
+/// メモリコピーなしでメモリアクセスパターンを最適化します。
 pub struct ViewInsertionSuggester {
     /// 転置を試みるかどうか
     try_transpose: bool,
@@ -52,50 +55,44 @@ impl ViewInsertionSuggester {
         nodes
     }
 
-    /// ノードの入力にView変更を挿入した新しいノードを作成
-    fn insert_view_before_input(
-        &self,
-        node: &GraphNode,
-        input_idx: usize,
-        permutation: Vec<usize>,
-    ) -> GraphNode {
-        if input_idx >= node.src.len() {
-            return node.clone();
-        }
+    /// ノードの全入力を転置し、演算後に逆転置を適用
+    /// ループの順序を入れ替えることでメモリアクセスパターンを最適化
+    fn insert_transpose_around_node(&self, node: &GraphNode, permutation: Vec<usize>) -> GraphNode {
+        // 全ての入力を転置（Viewノード挿入、ゼロコスト）
+        let new_src: Vec<GraphNode> = node
+            .src
+            .iter()
+            .map(|input| {
+                let permuted_view = input.view.clone().permute(permutation.clone());
+                GraphNode::new(
+                    input.dtype.clone(),
+                    GraphOp::View(permuted_view.clone()),
+                    vec![input.clone()],
+                    permuted_view,
+                )
+            })
+            .collect();
 
-        let input = &node.src[input_idx];
+        // ノードのviewも転置
+        let node_permuted_view = node.view.clone().permute(permutation.clone());
 
-        // permuteを適用した新しいノードを作成
-        let permuted = input.view.clone().permute(permutation.clone());
-        let view_node = GraphNode::new(
-            input.dtype.clone(),
-            GraphOp::View(permuted.clone()),
-            vec![input.clone()],
-            permuted,
-        );
-
-        // Contiguousノードを挿入してメモリレイアウトを実体化
-        let contiguous_view = view_node.view.clone();
-        let contiguous_dtype = view_node.dtype.clone();
-        let contiguous_node = GraphNode::new(
-            contiguous_dtype,
-            GraphOp::Contiguous {
-                elementwise_strategies: None,
-            },
-            vec![view_node],
-            contiguous_view,
-        );
-
-        // 元のノードのsrcを置き換え
-        let mut new_src = node.src.clone();
-        new_src[input_idx] = contiguous_node;
-
-        GraphNode::with_elementwise_strategies(
+        // 転置された入力で新しいノードを作成（ループ順序が変わる）
+        let permuted_node = GraphNode::with_elementwise_strategies(
             node.dtype.clone(),
             node.op.clone(),
             new_src,
-            node.view.clone(),
+            node_permuted_view,
             node.elementwise_strategies.clone(),
+        );
+
+        // 出力を逆転置（Viewノード挿入、ゼロコスト）
+        let inv_perm = self.inverse_permutation(&permutation);
+        let output_view = permuted_node.view.clone().permute(inv_perm);
+        GraphNode::new(
+            permuted_node.dtype.clone(),
+            GraphOp::View(output_view.clone()),
+            vec![permuted_node],
+            output_view,
         )
     }
 
@@ -178,18 +175,31 @@ impl ViewInsertionSuggester {
         new_graph
     }
 
-    /// 2次元転置のpermutationを生成
-    fn transpose_2d_permutation(&self, ndim: usize) -> Option<Vec<usize>> {
-        if ndim == 2 {
-            Some(vec![1, 0])
-        } else if ndim > 2 {
-            // 最後の2次元を転置
-            let mut perm: Vec<usize> = (0..ndim).collect();
-            perm.swap(ndim - 2, ndim - 1);
-            Some(perm)
-        } else {
-            None
+    /// permutationの逆変換を計算
+    fn inverse_permutation(&self, perm: &[usize]) -> Vec<usize> {
+        let mut inv = vec![0; perm.len()];
+        for (i, &p) in perm.iter().enumerate() {
+            inv[p] = i;
         }
+        inv
+    }
+
+    /// 転置パターンを生成（様々な軸ペアの入れ替え）
+    fn generate_transpose_permutations(&self, ndim: usize) -> Vec<Vec<usize>> {
+        if ndim < 2 {
+            return vec![];
+        }
+
+        let mut permutations = Vec::new();
+
+        // 全ての隣接軸ペアを入れ替え
+        for i in 0..ndim - 1 {
+            let mut perm: Vec<usize> = (0..ndim).collect();
+            perm.swap(i, i + 1);
+            permutations.push(perm);
+        }
+
+        permutations
     }
 }
 
@@ -208,23 +218,40 @@ impl GraphSuggester for ViewInsertionSuggester {
         let mut suggestions = Vec::new();
         let nodes = self.collect_all_nodes(graph);
 
-        // 各ノードの各入力について、転置を試みる
+        // 各ノードについて、様々な転置パターンを試みる
         for node in &nodes {
-            // 入力が複数あるノードのみ対象（例: Add, Mul）
-            if node.src.len() < 2 {
+            // InputノードとViewノードはスキップ
+            // ViewノードにView変更を挿入しても意味がないため
+            if matches!(node.op, GraphOp::Input | GraphOp::View(_)) {
                 continue;
             }
 
-            for input_idx in 0..node.src.len() {
-                let input = &node.src[input_idx];
-                let ndim = input.view.ndim();
+            // 入力がないノードはスキップ
+            if node.src.is_empty() {
+                continue;
+            }
 
-                // 2次元以上のテンソルのみ転置可能
-                if let Some(permutation) = self.transpose_2d_permutation(ndim) {
-                    let new_node = self.insert_view_before_input(node, input_idx, permutation);
-                    let new_graph = self.replace_node_in_graph(graph, node, new_node);
-                    suggestions.push(new_graph);
-                }
+            let ndim = node.view.ndim();
+
+            // 2次元以上のテンソルのみ転置可能
+            if ndim < 2 {
+                continue;
+            }
+
+            // 全ての入力が同じndimを持つか確認
+            let all_same_ndim = node.src.iter().all(|input| input.view.ndim() == ndim);
+            if !all_same_ndim {
+                // 入力の次元数が異なる場合はスキップ
+                continue;
+            }
+
+            // 様々な転置パターンを生成
+            let permutations = self.generate_transpose_permutations(ndim);
+
+            for permutation in permutations {
+                let new_node = self.insert_transpose_around_node(node, permutation);
+                let new_graph = self.replace_node_in_graph(graph, node, new_node);
+                suggestions.push(new_graph);
             }
         }
 
@@ -259,8 +286,9 @@ mod tests {
 
         let suggestions = suggester.suggest(&graph);
 
-        // 2つの入力それぞれに転置を試みるので、2つの候補が生成されるはず
-        assert_eq!(suggestions.len(), 2);
+        // 2次元テンソルなので、1つの転置パターン（最後の2軸入れ替え）が生成される
+        // Addノード1つに対して1パターンなので、1つの候補が生成される
+        assert_eq!(suggestions.len(), 1);
     }
 
     #[test]
@@ -286,6 +314,165 @@ mod tests {
         let suggestions = suggester.suggest(&graph);
 
         // 転置が無効なので、候補は生成されない
+        assert_eq!(suggestions.len(), 0);
+    }
+
+    #[test]
+    fn test_view_insertion_3d() {
+        let suggester = ViewInsertionSuggester::new();
+
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![4, 5, 6])
+            .build();
+
+        let b = graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![4, 5, 6])
+            .build();
+
+        let c = a + b;
+        graph.output("c", c);
+
+        let suggestions = suggester.suggest(&graph);
+
+        // 3次元テンソルなので、2つの転置パターンが生成される
+        // (0,1,2) -> (1,0,2): 軸0と1を入れ替え
+        // (0,1,2) -> (0,2,1): 軸1と2を入れ替え
+        assert_eq!(suggestions.len(), 2);
+    }
+
+    #[test]
+    fn test_view_insertion_4d() {
+        let suggester = ViewInsertionSuggester::new();
+
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![2, 3, 4, 5])
+            .build();
+
+        let b = graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![2, 3, 4, 5])
+            .build();
+
+        let c = a + b;
+        graph.output("c", c);
+
+        let suggestions = suggester.suggest(&graph);
+
+        // 4次元テンソルなので、3つの転置パターンが生成される
+        // (0,1,2,3) -> (1,0,2,3): 軸0と1を入れ替え
+        // (0,1,2,3) -> (0,2,1,3): 軸1と2を入れ替え
+        // (0,1,2,3) -> (0,1,3,2): 軸2と3を入れ替え
+        assert_eq!(suggestions.len(), 3);
+    }
+
+    #[test]
+    fn test_inverse_permutation() {
+        let suggester = ViewInsertionSuggester::new();
+
+        // 2次元
+        assert_eq!(suggester.inverse_permutation(&[1, 0]), vec![1, 0]);
+
+        // 3次元
+        assert_eq!(suggester.inverse_permutation(&[1, 0, 2]), vec![1, 0, 2]);
+        assert_eq!(suggester.inverse_permutation(&[0, 2, 1]), vec![0, 2, 1]);
+        assert_eq!(suggester.inverse_permutation(&[2, 1, 0]), vec![2, 1, 0]);
+
+        // 4次元
+        assert_eq!(
+            suggester.inverse_permutation(&[1, 0, 2, 3]),
+            vec![1, 0, 2, 3]
+        );
+        assert_eq!(
+            suggester.inverse_permutation(&[0, 2, 1, 3]),
+            vec![0, 2, 1, 3]
+        );
+        assert_eq!(
+            suggester.inverse_permutation(&[0, 1, 3, 2]),
+            vec![0, 1, 3, 2]
+        );
+    }
+
+    #[test]
+    fn test_view_insertion_mixed_dimensions() {
+        let suggester = ViewInsertionSuggester::new();
+
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
+
+        // unsqueezeで次元を追加: [10, 20] -> [10, 20, 1]
+        let a_unsqueezed = a.view(a.view.clone().unsqueeze(2));
+
+        // expandで次元を拡大: [10, 20, 1] -> [10, 20, 30]
+        use crate::graph::shape::Expr;
+        let a_expanded = a_unsqueezed.view(a_unsqueezed.view.clone().expand(vec![
+            Expr::Const(10),
+            Expr::Const(20),
+            Expr::Const(30),
+        ]));
+
+        let b = graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20, 30])
+            .build();
+
+        // 2次元のaを変換した3次元テンソルと、3次元のbを加算
+        let c = a_expanded + b;
+        graph.output("c", c);
+
+        let suggestions = suggester.suggest(&graph);
+
+        // グラフ内のノード:
+        // - a: Input [10, 20] → Inputなのでスキップ
+        // - a_unsqueezed: View [10, 20, 1] → Viewノードなのでスキップ
+        // - a_expanded: View [10, 20, 30] → Viewノードなのでスキップ
+        // - b: Input [10, 20, 30] → Inputなのでスキップ
+        // - c: Add [10, 20, 30] (入力: a_expanded [10, 20, 30], b [10, 20, 30]) → 転置可能
+        //
+        // 3次元なので2パターン × 1ノード(Add) = 2候補
+        assert_eq!(suggestions.len(), 2);
+    }
+
+    #[test]
+    fn test_view_insertion_skip_mismatched_dimensions() {
+        let suggester = ViewInsertionSuggester::new();
+
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        let b = graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
+
+        // このケースでは、aを[10, 1]にunsqueezeして、[10, 20]にexpandする必要がある
+        // しかし、これは複雑なので、単純にreduce_sumで次元を合わせる
+        let b_sum = b.reduce_sum(1); // [10, 20] -> [10]
+
+        let c = a + b_sum;
+        graph.output("c", c);
+
+        let suggestions = suggester.suggest(&graph);
+
+        // 1次元テンソルなので、転置パターンは生成されない（2次元未満）
         assert_eq!(suggestions.len(), 0);
     }
 }

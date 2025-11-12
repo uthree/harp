@@ -494,6 +494,32 @@ let estimator = SimpleCostEstimator::new();
 let cost = estimator.estimate(&graph);
 ```
 
+#### AstBasedCostEstimator
+ASTベースのコスト推定器。グラフをProgramに変換してからASTレベルでコストを推定します。
+
+**特徴:**
+- グラフ全体をProgramに変換してからコスト推定
+- AST CostEstimatorでより正確なコスト推定が可能
+- ノード数のペナルティ項を追加して、View変更の挿入による際限のないノード数の増加を防止
+- デフォルトのペナルティ係数: 0.1
+
+**使用例:**
+```rust
+use harp::opt::graph::{GraphCostEstimator, AstBasedCostEstimator};
+use harp::opt::ast::SimpleCostEstimator as AstSimpleCostEstimator;
+
+let ast_estimator = AstSimpleCostEstimator::new();
+let estimator = AstBasedCostEstimator::new(ast_estimator)
+    .with_node_count_penalty(0.5); // ノード数ペナルティを設定
+
+let cost = estimator.estimate(&graph);
+```
+
+**ノード数ペナルティ:**
+- ペナルティなし（0.0）: AST costのみでコスト推定（View変更が無制限に追加される可能性）
+- 小さいペナルティ（0.1〜0.5）: View変更の効果とノード数のバランスを取る
+- 大きいペナルティ（1.0〜）: ノード数を強く抑制（View変更がほとんど追加されない）
+
 #### BeamSearchGraphOptimizer
 ビームサーチアルゴリズムを使用したグラフ最適化器。AST版と同じインターフェース。
 
@@ -549,12 +575,22 @@ let suggestions = suggester.suggest(&graph);
 ```
 
 #### ViewInsertionSuggester
-View変更ノード（転置など）を挿入するSuggester。
+View変更ノード（転置）を挿入してループ順序を入れ替えるSuggester。
 
 **特徴:**
-- ノード間にView変更（permute）を挿入
-- その後にContiguousノードを挿入してメモリレイアウトを実体化
-- 主にメモリアクセスパターンの改善を目的とする
+- ノードの全入力を転置（View挿入、ゼロコスト）
+- 演算を転置されたループ順序で実行
+- 出力を逆転置（View挿入、ゼロコスト）
+- メモリコピーなしでメモリアクセスパターンを最適化
+- 2次元以上のテンソルに対して、全ての隣接軸ペアの転置パターンを生成
+  - 2次元: 1パターン（軸0と1の入れ替え）
+  - 3次元: 2パターン（軸0と1、軸1と2の入れ替え）
+  - 4次元: 3パターン（軸0と1、軸1と2、軸2と3の入れ替え）
+
+**対象ノードの条件:**
+- InputノードとViewノード以外
+- 全ての入力が同じ次元数を持つノードのみ
+  - 異なる次元数の入力を持つノードはスキップ（例: unsqueeze/expand後の演算）
 
 **使用例:**
 ```rust
@@ -564,6 +600,13 @@ let suggester = ViewInsertionSuggester::new()
     .with_transpose(true);
 
 let suggestions = suggester.suggest(&graph);
+```
+
+**最適化の例:**
+```
+通常:      A[i,j] + B[i,j] = C[i,j]  (i→j順でループ)
+転置後:    View(A)[j,i] + View(B)[j,i] = C'[j,i]  (j→i順でループ)
+          View^-1(C')[i,j] = C[i,j]
 ```
 
 #### TilingSuggester

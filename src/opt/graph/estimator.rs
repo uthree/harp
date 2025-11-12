@@ -278,14 +278,56 @@ mod tests {
 ///
 /// グラフ全体をProgramに変換してからコストを推定します。
 /// より正確なコスト推定が可能ですが、SimpleCostEstimatorよりも計算コストが高いです。
+///
+/// ノード数のペナルティ項を追加して、View変更の挿入による
+/// 際限のないノード数の増加を防ぎます。
 pub struct AstBasedCostEstimator<E: AstCostEstimator> {
     ast_estimator: E,
+    /// ノード数あたりのペナルティ係数（デフォルト: 0.1）
+    node_count_penalty: f32,
 }
 
 impl<E: AstCostEstimator> AstBasedCostEstimator<E> {
     /// 新しいASTベースコスト推定器を作成
     pub fn new(ast_estimator: E) -> Self {
-        Self { ast_estimator }
+        Self {
+            ast_estimator,
+            node_count_penalty: 0.1,
+        }
+    }
+
+    /// ノード数ペナルティ係数を設定
+    pub fn with_node_count_penalty(mut self, penalty: f32) -> Self {
+        self.node_count_penalty = penalty;
+        self
+    }
+
+    /// グラフ内の全ノード数を数える
+    fn count_nodes(&self, graph: &Graph) -> usize {
+        let mut visited = HashSet::new();
+
+        fn visit(
+            node: &GraphNode,
+            visited: &mut HashSet<*const crate::graph::GraphNodeData>,
+        ) -> usize {
+            let ptr = node.as_ptr();
+            if visited.contains(&ptr) {
+                return 0;
+            }
+            visited.insert(ptr);
+
+            let mut count = 1;
+            for src in &node.src {
+                count += visit(src, visited);
+            }
+            count
+        }
+
+        let mut total = 0;
+        for output in graph.outputs().values() {
+            total += visit(output, &mut visited);
+        }
+        total
     }
 }
 
@@ -293,7 +335,13 @@ impl<E: AstCostEstimator> GraphCostEstimator for AstBasedCostEstimator<E> {
     fn estimate(&self, graph: &Graph) -> f32 {
         // グラフ全体をProgramに変換
         let program = crate::lowerer::lower(graph.clone());
-        self.ast_estimator.estimate(&program)
+        let ast_cost = self.ast_estimator.estimate(&program);
+
+        // ノード数のペナルティを追加
+        let node_count = self.count_nodes(graph);
+        let node_penalty = node_count as f32 * self.node_count_penalty;
+
+        ast_cost + node_penalty
     }
 }
 
@@ -416,5 +464,163 @@ mod ast_based_tests {
 
         // 複数演算の方がコストが高いはず
         assert!(cost2 > cost1);
+    }
+
+    #[test]
+    fn test_node_count_penalty() {
+        let ast_estimator = AstSimpleCostEstimator::new();
+        let estimator = AstBasedCostEstimator::new(ast_estimator).with_node_count_penalty(1.0);
+
+        // 少ないノード (3ノード: a, b, c)
+        let mut graph1 = Graph::new();
+        let a1 = graph1
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![100])
+            .build();
+        let b1 = graph1
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![100])
+            .build();
+        graph1.output("c", a1 + b1);
+
+        // 多いノード (5ノード: a, b, c, d, e)
+        let mut graph2 = Graph::new();
+        let a2 = graph2
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![100])
+            .build();
+        let b2 = graph2
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![100])
+            .build();
+        let c2 = graph2
+            .input("c")
+            .with_dtype(DType::F32)
+            .with_shape(vec![100])
+            .build();
+        let d2 = a2 + b2;
+        let e2 = d2 * c2;
+        graph2.output("out", e2);
+
+        let cost1 = estimator.estimate(&graph1);
+        let cost2 = estimator.estimate(&graph2);
+
+        // ノード数が多い方がコストが高いはず（ペナルティが効いている）
+        assert!(cost2 > cost1);
+
+        // ノード数の差は2なので、ペナルティ差は約2.0のはず
+        let cost_diff = cost2 - cost1;
+        // AST costの差もあるので、少なくとも2.0以上の差があるはず
+        assert!(cost_diff >= 2.0);
+    }
+
+    #[test]
+    fn test_node_count_penalty_with_views() {
+        let ast_estimator = AstSimpleCostEstimator::new();
+        let estimator = AstBasedCostEstimator::new(ast_estimator).with_node_count_penalty(0.5);
+
+        // Viewノードなし
+        let mut graph1 = Graph::new();
+        let a1 = graph1
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
+        let b1 = graph1
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
+        graph1.output("c", a1 + b1);
+
+        // Viewノードあり（転置を追加）
+        let mut graph2 = Graph::new();
+        let a2 = graph2
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
+        let b2 = graph2
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
+
+        // a, bを転置
+        let a2_t = a2.view(a2.view.clone().permute(vec![1, 0]));
+        let b2_t = b2.view(b2.view.clone().permute(vec![1, 0]));
+
+        // 転置されたテンソルで加算
+        let c2_t = a2_t + b2_t;
+
+        // 結果を逆転置
+        let c2 = c2_t.view(c2_t.view.clone().permute(vec![1, 0]));
+
+        graph2.output("c", c2);
+
+        let cost1 = estimator.estimate(&graph1);
+        let cost2 = estimator.estimate(&graph2);
+
+        // Viewノードが追加された分、コストが高くなるはず
+        assert!(cost2 > cost1);
+    }
+
+    #[test]
+    fn test_zero_penalty() {
+        let estimator_no_penalty =
+            AstBasedCostEstimator::new(AstSimpleCostEstimator::new()).with_node_count_penalty(0.0);
+        let estimator_with_penalty =
+            AstBasedCostEstimator::new(AstSimpleCostEstimator::new()).with_node_count_penalty(1.0);
+
+        let mut graph1 = Graph::new();
+        let a1 = graph1
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![100])
+            .build();
+        let b1 = graph1
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![100])
+            .build();
+        graph1.output("c", a1 + b1);
+
+        let mut graph2 = Graph::new();
+        let a2 = graph2
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![100])
+            .build();
+        let b2 = graph2
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![100])
+            .build();
+        let c2 = graph2
+            .input("c")
+            .with_dtype(DType::F32)
+            .with_shape(vec![100])
+            .build();
+        let d2 = a2 + b2;
+        let e2 = d2 * c2;
+        graph2.output("out", e2);
+
+        let cost1_no_penalty = estimator_no_penalty.estimate(&graph1);
+        let cost2_no_penalty = estimator_no_penalty.estimate(&graph2);
+        let cost1_with_penalty = estimator_with_penalty.estimate(&graph1);
+        let cost2_with_penalty = estimator_with_penalty.estimate(&graph2);
+
+        // ペナルティなしの場合、AST costのみの差
+        // graph2の方が複雑なので、コストは高い
+        assert!(cost2_no_penalty > cost1_no_penalty);
+
+        // ペナルティありの場合、ノード数の差も加わるので、さらに差が大きくなる
+        let diff_no_penalty = cost2_no_penalty - cost1_no_penalty;
+        let diff_with_penalty = cost2_with_penalty - cost1_with_penalty;
+        assert!(diff_with_penalty > diff_no_penalty);
     }
 }
