@@ -189,51 +189,15 @@ where
                 step
             );
 
-            // 重複除去: ASTをデバッグ文字列化して比較
-            use std::collections::HashMap;
-
-            // キャッシュのサイズ制限（メモリ消費を抑える）
-            const MAX_CACHE_SIZE: usize = 10000;
-
-            let mut seen = HashMap::new();
-            let mut unique_candidates = Vec::new();
-
-            for ast in candidates {
-                // ASTの構造を文字列化
-                let signature = format!("{:?}", ast);
-
-                // キャッシュサイズが制限を超えたらクリア
-                if seen.len() >= MAX_CACHE_SIZE {
-                    debug!(
-                        "BeamSearchOptimizer: Cache size limit reached ({}), clearing cache",
-                        MAX_CACHE_SIZE
-                    );
-                    seen.clear();
-                }
-
-                if seen.insert(signature, ()).is_none() {
-                    unique_candidates.push(ast);
-                }
-            }
-
-            debug!(
-                "BeamSearchOptimizer: After deduplication: {} unique candidates (cache size: {})",
-                unique_candidates.len(),
-                seen.len()
-            );
-
             // コストでソートして上位beam_width個を残す
-            unique_candidates.sort_by(|a, b| {
+            candidates.sort_by(|a, b| {
                 self.estimator
                     .estimate(a)
                     .partial_cmp(&self.estimator.estimate(b))
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
 
-            beam = unique_candidates
-                .into_iter()
-                .take(self.beam_width)
-                .collect();
+            beam = candidates.into_iter().take(self.beam_width).collect();
 
             // このステップの最良候補を記録
             if let Some(best) = beam.first() {

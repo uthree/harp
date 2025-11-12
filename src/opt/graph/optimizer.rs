@@ -90,10 +90,6 @@ where
         let initial_cost = self.estimator.estimate(&graph);
         let initial_outputs = graph.outputs().len();
 
-        // 千日手対策用の変数
-        let mut best_cost = initial_cost;
-        let mut no_improvement_count = 0;
-
         // 初期状態の入力・出力ノード情報をログに出力
         debug!(
             "BeamSearchGraphOptimizer: Initial - {} inputs, {} outputs",
@@ -173,42 +169,8 @@ where
                 step
             );
 
-            // 重複除去: グラフをシリアライズして比較
-            use std::collections::HashMap;
-
-            // キャッシュのサイズ制限（メモリ消費を抑える）
-            const MAX_CACHE_SIZE: usize = 10000;
-
-            let mut seen = HashMap::new();
-            let mut unique_candidates = Vec::new();
-
-            for graph in candidates {
-                // グラフの構造を文字列化（DOT形式）
-                let signature = graph.to_dot();
-
-                // キャッシュサイズが制限を超えたらクリア
-                if seen.len() >= MAX_CACHE_SIZE {
-                    debug!(
-                        "BeamSearchGraphOptimizer: Cache size limit reached ({}), clearing cache",
-                        MAX_CACHE_SIZE
-                    );
-                    seen.clear();
-                }
-
-                if seen.insert(signature, ()).is_none() {
-                    unique_candidates.push(graph);
-                }
-            }
-
-            debug!(
-                "BeamSearchGraphOptimizer: After deduplication: {} unique candidates (cache size: {})",
-                unique_candidates.len(),
-                seen.len()
-            );
-
             // コストでソートして上位beam_width個を残す
-            // 各候補のコストを事前に計算してキャッシュ（重複計算を避ける）
-            let mut candidates_with_cost: Vec<(Graph, f32)> = unique_candidates
+            let mut candidates_with_cost: Vec<(Graph, f32)> = candidates
                 .into_iter()
                 .map(|g| {
                     let cost = self.estimator.estimate(&g);
@@ -267,16 +229,6 @@ where
 
                 // このステップのログをクリア（次のステップで新しいログのみを記録するため）
                 log_capture::clear_logs();
-
-                // コストが改善しないなら停止
-                if *cost <= best_cost {
-                    if let Some(ref pb) = pb {
-                        pb.finish_and_clear();
-                        println!("{:>12} graph optimization", "\x1b[1;32mFinished\x1b[0m");
-                    }
-                    early_terminated = true;
-                    break;
-                }
             }
         }
 
