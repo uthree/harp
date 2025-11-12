@@ -5,7 +5,8 @@ use crate::backend::{Compiler, Pipeline, Renderer};
 use crate::graph::Graph;
 use crate::opt::ast::rules::{all_algebraic_rules, all_rules_with_search};
 use crate::opt::ast::{
-    BeamSearchOptimizer as AstBeamSearchOptimizer, OptimizationHistory as AstOptimizationHistory,
+    BeamSearchOptimizer as AstBeamSearchOptimizer, CompositeSuggester as AstCompositeSuggester,
+    LoopInliningSuggester, LoopTilingSuggester, OptimizationHistory as AstOptimizationHistory,
     Optimizer, RuleBaseOptimizer, RuleBaseSuggester, SimpleCostEstimator as AstSimpleCostEstimator,
 };
 use crate::opt::graph::{
@@ -237,8 +238,12 @@ where
 
             let rule_optimized = rule_optimizer.optimize(program);
 
-            // ステップ2: ビームサーチ最適化（探索用の完全なルール集を使用）
-            let beam_suggester = RuleBaseSuggester::new(all_rules_with_search());
+            // ステップ2: ビームサーチ最適化（ルールベース + ループ最適化）
+            let beam_suggester = AstCompositeSuggester::new(vec![
+                Box::new(RuleBaseSuggester::new(all_rules_with_search())),
+                Box::new(LoopTilingSuggester::with_default_sizes()),
+                Box::new(LoopInliningSuggester::with_default_limit()),
+            ]);
             let beam_estimator = AstSimpleCostEstimator::new();
 
             let beam_optimizer = AstBeamSearchOptimizer::new(beam_suggester, beam_estimator)
@@ -303,8 +308,12 @@ where
 
             let rule_optimized = rule_optimizer.optimize(program);
 
-            // ステップ2: ビームサーチ最適化（探索用の完全なルール集を使用）
-            let beam_suggester = RuleBaseSuggester::new(all_rules_with_search());
+            // ステップ2: ビームサーチ最適化（ルールベース + ループ最適化）
+            let beam_suggester = AstCompositeSuggester::new(vec![
+                Box::new(RuleBaseSuggester::new(all_rules_with_search())),
+                Box::new(LoopTilingSuggester::with_default_sizes()),
+                Box::new(LoopInliningSuggester::with_default_limit()),
+            ]);
             let beam_estimator = AstSimpleCostEstimator::new();
 
             let beam_optimizer = AstBeamSearchOptimizer::new(beam_suggester, beam_estimator)
@@ -341,7 +350,7 @@ where
             let suggester = CompositeSuggester::new(vec![
                 Box::new(ViewInsertionSuggester::new().with_transpose(true)),
                 Box::new(FusionSuggester::new()),
-                Box::new(ParallelStrategyChanger::with_default_strategies()),
+                //Box::new(ParallelStrategyChanger::with_default_strategies()),
             ]);
             let ast_estimator = AstSimpleCostEstimator::new();
             let estimator = AstBasedCostEstimator::new(ast_estimator);
@@ -370,8 +379,12 @@ where
             //let rule_optimized = _rule_optimizer.optimize(program); // デバッグ用に一時的に無効化
             let rule_optimized = program;
 
-            // ステップ2: ビームサーチ最適化（探索用の完全なルール集を使用）
-            let beam_suggester = RuleBaseSuggester::new(all_rules_with_search());
+            // ステップ2: ビームサーチ最適化（ルールベース + ループ最適化）
+            let beam_suggester = AstCompositeSuggester::new(vec![
+                Box::new(RuleBaseSuggester::new(all_rules_with_search())),
+                Box::new(LoopTilingSuggester::with_default_sizes()),
+                Box::new(LoopInliningSuggester::with_default_limit()),
+            ]);
             let beam_estimator = AstSimpleCostEstimator::new();
 
             let beam_optimizer = AstBeamSearchOptimizer::new(beam_suggester, beam_estimator)
@@ -469,7 +482,7 @@ where
     ///
     /// 有効な場合、Program全体に対して以下の最適化を2段階で適用：
     /// 1. ルールベース最適化（代数的簡約）
-    /// 2. ビームサーチ最適化
+    /// 2. ビームサーチ最適化（代数的ルール + ループタイル化 + ループインライン展開）
     fn optimize_program(&self, program: AstNode) -> AstNode {
         if !self.enable_ast_optimization {
             return program;
@@ -481,8 +494,12 @@ where
 
         let rule_optimized = rule_optimizer.optimize(program);
 
-        // ステップ2: ビームサーチ最適化（探索用の完全なルール集を使用）
-        let beam_suggester = RuleBaseSuggester::new(all_rules_with_search());
+        // ステップ2: ビームサーチ最適化（ルールベース + ループ最適化）
+        let beam_suggester = AstCompositeSuggester::new(vec![
+            Box::new(RuleBaseSuggester::new(all_rules_with_search())),
+            Box::new(LoopTilingSuggester::with_default_sizes()),
+            Box::new(LoopInliningSuggester::with_default_limit()),
+        ]);
         let beam_estimator = AstSimpleCostEstimator::new();
 
         let beam_optimizer = AstBeamSearchOptimizer::new(beam_suggester, beam_estimator)

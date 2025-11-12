@@ -9,6 +9,8 @@
 - `src/opt/ast/optimizer.rs` - Optimizer実装（257行、RuleBaseOptimizer、BeamSearchOptimizer）
 - `src/opt/ast/suggester.rs` - Suggester実装（314行）
 - `src/opt/ast/rules.rs` - 代数的書き換えルール集（899行、定数畳み込み含む）
+- `src/opt/ast/transforms.rs` - ループ変換関数（tile_loop、inline_small_loop）
+- `src/opt/ast/loop_suggesters.rs` - ループ最適化Suggester（LoopTilingSuggester、LoopInliningSuggester）
 
 ### グラフ最適化
 - `src/opt/graph/mod.rs` - グラフ最適化の公開API・トレイト定義
@@ -195,6 +197,169 @@ let best = candidates.iter()
             .partial_cmp(&estimator.estimate(b))
             .unwrap()
     });
+```
+
+#### LoopTilingSuggester
+ループタイル化を提案するSuggester。`tile_loop`を使用して複数のタイルサイズの候補を生成します。
+
+**特徴:**
+- AST内の全てのRangeノードに対してタイル化を試みる
+- 複数のタイルサイズを試行（デフォルト: 2, 4, 8, 16）
+- 重複する候補を除外
+- ネストされたループにも対応
+
+**使用例:**
+```rust
+use harp::opt::ast::{
+    Suggester, LoopTilingSuggester,
+    BeamSearchOptimizer, SimpleCostEstimator,
+};
+
+// カスタムタイルサイズ
+let suggester = LoopTilingSuggester::new(vec![4, 8, 16]);
+
+// デフォルトタイルサイズ（2, 4, 8, 16）
+let suggester = LoopTilingSuggester::with_default_sizes();
+
+// 候補を生成
+let candidates = suggester.suggest(&ast);
+
+// ビームサーチと組み合わせ
+let optimizer = BeamSearchOptimizer::new(suggester, SimpleCostEstimator::new())
+    .with_beam_width(10)
+    .with_max_depth(5);
+
+let optimized = optimizer.optimize(ast);
+```
+
+#### LoopInliningSuggester
+小さなループのインライン展開を提案するSuggester。`inline_small_loop`を使用して固定回数の小さなループを展開します。
+
+**特徴:**
+- AST内の全てのRangeノードに対してインライン展開を試みる
+- start, step, stopが定数のループのみ対象
+- 反復回数が閾値以下のループのみ展開（デフォルト: 8回）
+- ネストされたループにも対応
+
+**使用例:**
+```rust
+use harp::opt::ast::{
+    Suggester, LoopInliningSuggester,
+    BeamSearchOptimizer, SimpleCostEstimator,
+};
+
+// カスタム最大反復回数
+let suggester = LoopInliningSuggester::new(4);
+
+// デフォルト（最大8回まで展開）
+let suggester = LoopInliningSuggester::with_default_limit();
+
+// 候補を生成
+let candidates = suggester.suggest(&ast);
+
+// ビームサーチと組み合わせ
+let optimizer = BeamSearchOptimizer::new(suggester, SimpleCostEstimator::new())
+    .with_beam_width(10)
+    .with_max_depth(5);
+
+let optimized = optimizer.optimize(ast);
+```
+
+#### CompositeSuggester
+複数のSuggesterを組み合わせるSuggester。ルールベース最適化とループ最適化を統合して使用できます。
+
+**特徴:**
+- 複数のSuggesterから候補を収集して統合
+- 重複する候補を除外
+- カスタマイズ可能な組み合わせ
+
+**使用例:**
+```rust
+use harp::opt::ast::{
+    CompositeSuggester, RuleBaseSuggester, LoopTilingSuggester, LoopInliningSuggester,
+    BeamSearchOptimizer, SimpleCostEstimator,
+};
+use harp::opt::ast::rules::all_rules_with_search;
+
+// 全ての最適化を含む（推奨）
+let suggester = CompositeSuggester::new(vec![
+    Box::new(RuleBaseSuggester::new(all_rules_with_search())),
+    Box::new(LoopTilingSuggester::with_default_sizes()),
+    Box::new(LoopInliningSuggester::with_default_limit()),
+]);
+
+// ルールベース最適化のみ
+let suggester = CompositeSuggester::new(vec![
+    Box::new(RuleBaseSuggester::new(all_rules_with_search())),
+]);
+
+// ループ最適化のみ
+let suggester = CompositeSuggester::new(vec![
+    Box::new(LoopTilingSuggester::with_default_sizes()),
+    Box::new(LoopInliningSuggester::with_default_limit()),
+]);
+
+// ビームサーチで最適化
+let optimizer = BeamSearchOptimizer::new(suggester, SimpleCostEstimator::new())
+    .with_beam_width(20)
+    .with_max_depth(10);
+
+let optimized = optimizer.optimize(ast);
+```
+
+**GenericPipelineでの使用:**
+
+GenericPipelineは内部でCompositeSuggesterを使用してAST最適化を実行します。
+最適化を有効にすると、以下が自動的に適用されます：
+
+```rust
+use harp::backend::GenericPipeline;
+
+let mut pipeline = GenericPipeline::new(compiler, renderer)
+    .enable_optimizations(true);
+
+// AST最適化は以下を含む:
+// 1. ルールベース最適化（代数的簡約）
+// 2. ビームサーチ最適化:
+//    - 代数的書き換えルール（RuleBaseSuggester）
+//    - ループタイル化（LoopTilingSuggester、タイルサイズ: 2, 4, 8, 16）
+//    - ループインライン展開（LoopInliningSuggester、最大8回まで）
+```
+
+#### 複数Suggesterの組み合わせ（段階的適用）
+タイル化とインライン展開を段階的に組み合わせることで、効果的なループアンローリングが実現できます。
+
+**使用例:**
+```rust
+use harp::opt::ast::{
+    Suggester, RuleBaseSuggester,
+    LoopTilingSuggester, LoopInliningSuggester,
+    BeamSearchOptimizer, SimpleCostEstimator,
+};
+
+// 複数のSuggesterを順番に適用
+let tiling_suggester = LoopTilingSuggester::with_default_sizes();
+let inlining_suggester = LoopInliningSuggester::with_default_limit();
+let rule_suggester = RuleBaseSuggester::new(all_algebraic_rules());
+
+// ビームサーチで順次適用
+// 1. タイル化を探索
+let tiled = BeamSearchOptimizer::new(tiling_suggester, SimpleCostEstimator::new())
+    .with_beam_width(10)
+    .with_max_depth(3)
+    .optimize(ast);
+
+// 2. 内側ループのインライン展開を探索
+let inlined = BeamSearchOptimizer::new(inlining_suggester, SimpleCostEstimator::new())
+    .with_beam_width(10)
+    .with_max_depth(3)
+    .optimize(tiled);
+
+// 3. 代数的簡約を適用
+let optimized = BeamSearchOptimizer::new(rule_suggester, SimpleCostEstimator::new())
+    .with_beam_width(10)
+    .with_max_depth(5)
+    .optimize(inlined);
 ```
 
 ### 組み合わせ例：ビームサーチ
@@ -438,6 +603,101 @@ let factor_rules = vec![
 
 ### 注記
 AST最適化の基礎機能として`src/ast/pat.rs`にAstRewriteRuleとAstRewriterが実装されており、`opt`モジュールはこれらをラップして体系的な最適化フレームワークを提供しています。
+
+## AST変換
+
+`src/opt/ast/transforms.rs`には、ループのタイル化やインライン展開などの複雑なAST変換関数が実装されています。
+
+### inline_small_loop
+ループ回数が固定かつ小さいfor文をインライン展開します。
+
+**特徴:**
+- start, step, stopが全て定数の場合のみ展開可能
+- 反復回数がmax_iterationsを超える場合は展開しない
+- 各反復でループ変数を定数値に置き換えた本体を生成
+
+**使用例:**
+```rust
+use harp::opt::ast::inline_small_loop;
+use harp::ast::{AstNode, Literal};
+
+// for i in 0..4 step 1 { body(i) }
+let loop_node = AstNode::Range { ... };
+
+// 最大10回まで展開
+let inlined = inline_small_loop(&loop_node, 10);
+
+// 結果: Block { body(0), body(1), body(2), body(3) }
+```
+
+### tile_loop
+ループをタイル化します。
+
+**特徴:**
+- 2重ループ構造に変換（外側ループ + 内側ループ）
+- 端数処理のための小さなループを自動追加
+- メモリアクセスの局所性を向上
+
+**使用例:**
+```rust
+use harp::opt::ast::tile_loop;
+use harp::ast::{AstNode, Literal};
+
+// for i in 0..N step 1 { body(i) }
+let loop_node = AstNode::Range { ... };
+
+// タイルサイズ4で変換
+let tiled = tile_loop(&loop_node, 4);
+
+// 結果:
+// Block {
+//   // メインループ
+//   for i_outer in 0..(N/4)*4 step 4 {
+//     for i_inner in 0..4 step 1 {
+//       i = i_outer + i_inner
+//       body(i)
+//     }
+//   }
+//   // 端数処理
+//   for i in (N/4)*4..N step 1 {
+//     body(i)
+//   }
+// }
+```
+
+### タイル化 + インライン展開によるループアンローリング
+
+タイル化と内側ループのインライン展開を組み合わせることで、実質的にループアンローリングと同じ効果が得られます。
+
+**手順:**
+1. `tile_loop`でタイル化
+2. 生成された内側ループを`inline_small_loop`で展開
+
+**例:**
+```rust
+// 元のループ
+// for i in 0..N step 1 { body(i) }
+
+// ステップ1: タイル化 (tile_size=4)
+let tiled = tile_loop(&loop_node, 4)?;
+
+// ステップ2: 内側ループをインライン展開
+// for i_inner in 0..4 step 1 → body(i_outer+0), body(i_outer+1), ...
+
+// 結果（実質的にループアンローリング）:
+// for i_outer in 0..(N/4)*4 step 4 {
+//   i = i_outer + 0; body(i)
+//   i = i_outer + 1; body(i)
+//   i = i_outer + 2; body(i)
+//   i = i_outer + 3; body(i)
+// }
+// + 端数処理ループ
+```
+
+**利点:**
+- ループオーバーヘッドの削減
+- 命令レベル並列性の向上
+- メモリアクセスの局所性向上
 
 ## グラフ最適化
 

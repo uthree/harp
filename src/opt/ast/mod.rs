@@ -1,9 +1,11 @@
 // AST最適化のサブモジュール
 mod estimator;
 mod history;
+mod loop_suggesters;
 mod optimizer;
 pub mod rules;
 mod suggester;
+pub mod transforms;
 
 // 公開API: トレイト
 pub use estimator::CostEstimator;
@@ -13,5 +15,7 @@ pub use suggester::Suggester;
 // 公開API: 実装
 pub use estimator::SimpleCostEstimator;
 pub use history::{OptimizationHistory, OptimizationSnapshot};
+pub use loop_suggesters::{LoopInliningSuggester, LoopTilingSuggester};
 pub use optimizer::{BeamSearchOptimizer, RuleBaseOptimizer};
-pub use suggester::RuleBaseSuggester;
+pub use suggester::{CompositeSuggester, RuleBaseSuggester};
+pub use transforms::{inline_small_loop, tile_loop};

@@ -388,3 +388,149 @@ mod tests {
         assert!(suggestions.len() >= 2);
     }
 }
+
+/// 複数のSuggesterを組み合わせるSuggester
+pub struct CompositeSuggester {
+    suggesters: Vec<Box<dyn Suggester>>,
+}
+
+impl CompositeSuggester {
+    /// 新しいCompositeSuggesterを作成
+    pub fn new(suggesters: Vec<Box<dyn Suggester>>) -> Self {
+        Self { suggesters }
+    }
+}
+
+impl Suggester for CompositeSuggester {
+    fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
+        trace!("CompositeSuggester: Generating suggestions from multiple suggesters");
+        let mut suggestions = Vec::new();
+        let mut seen = HashSet::new();
+
+        // 各Suggesterから候補を収集
+        for suggester in &self.suggesters {
+            let candidates = suggester.suggest(ast);
+            for candidate in candidates {
+                let candidate_str = format!("{:?}", candidate);
+                if !seen.contains(&candidate_str) {
+                    seen.insert(candidate_str);
+                    suggestions.push(candidate);
+                }
+            }
+        }
+
+        debug!(
+            "CompositeSuggester: Generated {} unique suggestions from {} suggesters",
+            suggestions.len(),
+            self.suggesters.len()
+        );
+        suggestions
+    }
+}
+
+#[cfg(test)]
+mod composite_tests {
+    use super::*;
+    use crate::ast::Literal;
+    use crate::opt::ast::loop_suggesters::{LoopInliningSuggester, LoopTilingSuggester};
+    use crate::opt::ast::rules::all_rules_with_search;
+
+    #[test]
+    fn test_composite_suggester_with_all_optimizations() {
+        // 全ての最適化を含むSuggester
+        let suggester = CompositeSuggester::new(vec![
+            Box::new(RuleBaseSuggester::new(all_rules_with_search())),
+            Box::new(LoopTilingSuggester::with_default_sizes()),
+            Box::new(LoopInliningSuggester::with_default_limit()),
+        ]);
+
+        // for i in 0..4 step 1 { body }
+        let body = Box::new(AstNode::Add(
+            Box::new(AstNode::Var("x".to_string())),
+            Box::new(AstNode::Const(Literal::Isize(0))),
+        ));
+
+        let loop_node = AstNode::Range {
+            var: "i".to_string(),
+            start: Box::new(AstNode::Const(Literal::Isize(0))),
+            step: Box::new(AstNode::Const(Literal::Isize(1))),
+            stop: Box::new(AstNode::Const(Literal::Isize(4))),
+            body,
+        };
+
+        let suggestions = suggester.suggest(&loop_node);
+
+        // ルールベース（Add(x, 0) -> x）、タイル化、インライン展開の
+        // 候補が含まれるはず
+        assert!(!suggestions.is_empty());
+    }
+
+    #[test]
+    fn test_composite_suggester_rules_only() {
+        // ルールベース最適化のみ
+        let suggester = CompositeSuggester::new(vec![Box::new(RuleBaseSuggester::new(
+            all_rules_with_search(),
+        ))]);
+
+        // x + 0
+        let input = AstNode::Add(
+            Box::new(AstNode::Var("x".to_string())),
+            Box::new(AstNode::Const(Literal::Isize(0))),
+        );
+
+        let suggestions = suggester.suggest(&input);
+
+        // 交換則などの候補が生成されるはず
+        assert!(!suggestions.is_empty());
+    }
+
+    #[test]
+    fn test_composite_suggester_loop_only() {
+        // ループ最適化のみ
+        let suggester = CompositeSuggester::new(vec![
+            Box::new(LoopTilingSuggester::with_default_sizes()),
+            Box::new(LoopInliningSuggester::with_default_limit()),
+        ]);
+
+        // for i in 0..4 step 1 { body }
+        let body = Box::new(AstNode::Var("x".to_string()));
+
+        let loop_node = AstNode::Range {
+            var: "i".to_string(),
+            start: Box::new(AstNode::Const(Literal::Isize(0))),
+            step: Box::new(AstNode::Const(Literal::Isize(1))),
+            stop: Box::new(AstNode::Const(Literal::Isize(4))),
+            body,
+        };
+
+        let suggestions = suggester.suggest(&loop_node);
+
+        // タイル化とインライン展開の候補が生成されるはず
+        // タイル化: デフォルトで4つのタイルサイズ（2, 4, 8, 16）
+        // インライン展開: 1つ
+        assert!(!suggestions.is_empty());
+    }
+
+    #[test]
+    fn test_composite_suggester_custom() {
+        // カスタム: インライン展開のみ
+        let suggester =
+            CompositeSuggester::new(vec![Box::new(LoopInliningSuggester::with_default_limit())]);
+
+        // for i in 0..4 step 1 { body }
+        let body = Box::new(AstNode::Var("x".to_string()));
+
+        let loop_node = AstNode::Range {
+            var: "i".to_string(),
+            start: Box::new(AstNode::Const(Literal::Isize(0))),
+            step: Box::new(AstNode::Const(Literal::Isize(1))),
+            stop: Box::new(AstNode::Const(Literal::Isize(4))),
+            body,
+        };
+
+        let suggestions = suggester.suggest(&loop_node);
+
+        // インライン展開の候補が1つ生成されるはず
+        assert_eq!(suggestions.len(), 1);
+    }
+}
