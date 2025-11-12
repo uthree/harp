@@ -18,39 +18,35 @@ impl SimpleCostEstimator {
     /// ノードのベースコストを取得
     fn base_cost(&self, ast: &AstNode) -> f32 {
         let cost = match ast {
-            AstNode::Const(_) | AstNode::Wildcard(_) => 0.01,
-            AstNode::Var(_) => 1.2,
+            AstNode::Const(_) | AstNode::Wildcard(_) => 0.5,
+            AstNode::Var(_) => 1.0,
             AstNode::Add(_, _) => 1.0,
-            AstNode::Mul(_, _) => 4.0,
-            AstNode::Max(_, _) => 3.0,
+            AstNode::Mul(_, _) => 5.0,
+            AstNode::Max(_, _) => 2.0,
             AstNode::Rem(_, _) => 5.0,
-            AstNode::Idiv(_, _) => 2.0,
+            AstNode::Idiv(_, _) => 5.0,
             AstNode::Recip(_) => 10.0,
             AstNode::Sqrt(_) => 20.0,
             AstNode::Log2(_) => 20.0,
             AstNode::Exp2(_) => 20.0,
             AstNode::Sin(_) => 20.0,
-            AstNode::Cast(_, _) => 4.0,
+            AstNode::Cast(_, _) => 2.0,
             // Bitwise operations - ビット演算（シフトは乗算より低コスト）
             AstNode::BitwiseAnd(_, _) => 0.5,
             AstNode::BitwiseOr(_, _) => 0.5,
             AstNode::BitwiseXor(_, _) => 0.5,
             AstNode::BitwiseNot(_) => 0.5,
-            AstNode::LeftShift(_, _) => 0.8, // 乗算(4.0)より低コスト
-            AstNode::RightShift(_, _) => 0.8, // 乗算(4.0)より低コスト
+            AstNode::LeftShift(_, _) => 0.5,
+            AstNode::RightShift(_, _) => 0.5,
 
             AstNode::Load { .. } => 2.0,
             AstNode::Store { .. } => 2.0,
-            AstNode::Assign { .. } => 1.2,
-            AstNode::Barrier => 0.1,
-            AstNode::Block { .. } => 0.01,
-            AstNode::Range { .. } => 0.01,
-            AstNode::Call { .. } => 1.0,
-            AstNode::Return { .. } => 0.01,
-            AstNode::Function { .. } => 0.01,
-            AstNode::Program { .. } => 0.01, // プログラム構造自体にはコストがない
+            AstNode::Assign { .. } => 2.0,
+            AstNode::Barrier => 2.0,
+            AstNode::Call { .. } => 2.0,
+            _ => 0.01,
         };
-        cost * 1e-9
+        cost * 1e-10
     }
 }
 
@@ -158,7 +154,7 @@ impl CostEstimator for SimpleCostEstimator {
                 // すべての関数のコストの合計
                 functions.iter().map(|f| self.estimate(f)).sum()
             }
-            _ => 0.01,
+            _ => 0.0,
         };
 
         base_cost + children_cost
