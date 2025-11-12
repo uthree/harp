@@ -34,6 +34,14 @@ pub fn inline_small_loop(loop_node: &AstNode, max_iterations: usize) -> Option<A
             stop,
             body,
         } => {
+            // タイル化されたループの内側・外側ループは展開しない
+            // （_inner/_outer は小さいが多くのループで再利用されるため）
+            // ただし、_remainder（端数処理）は展開を許可
+            if var.contains("_outer") || var.contains("_inner") {
+                log::trace!("Skipping inlining for tiled loop component: {}", var);
+                return None;
+            }
+
             // start, step, stopが全て定数の場合のみ展開可能
             let start_val = match start.as_ref() {
                 AstNode::Const(Literal::Int(v)) => *v as usize,

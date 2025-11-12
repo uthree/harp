@@ -1,0 +1,72 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running `target/debug/examples/pipeline_demo`
+=== Harp GenericPipeline 総合最適化デモ ===
+
+このデモでは、様々な最適化が適用される複雑な計算グラフを構築します。
+以下の最適化が順次適用されます：
+  1. グラフ最適化:
+     - View挿入 (転置の最適化)
+     - 演算の融合 (Fusion)
+  2. AST最適化:
+     - 定数畳み込み (Constant Folding)
+     - 代数的簡約 (x+0→x, x*1→x)
+     - ループ最適化 (タイル化、展開)
+最適化の各ステップがGenericPipelineに記録され、可視化されます。
+
+【1/3】GenericPipelineを初期化中（最適化を組み込み）...
+  ✓ Pipeline作成完了（最適化有効）
+
+【2/3】複雑な計算グラフを構築中...
+  ✓ グラフ作成完了
+    - 入力数: 4
+    - 出力数: 1
+
+【3/3】最適化を実行中...
+  - グラフ最適化中...
+[1;32mFinished[0m graph optimization (no improvement)
+[1;32mFinished[0m AST optimization (10 steps)
+  ✓ 最適化完了
+    - グラフ最適化ステップ数: 19
+    - AST最適化ステップ数: 11
+  - グラフ最適化履歴のログ確認:
+    Step 0: 27 logs captured
+      First log: [DEBUG] harp::opt::graph::optimizer - BeamSearchGraphOptimizer: Starting beam search optimization with history tracking
+    Step 1: 350 logs captured
+      First log: [DEBUG] harp::opt::graph::optimizer - BeamSearchGraphOptimizer: Found 264 candidates at step 0
+    Step 2: 911 logs captured
+      First log: [DEBUG] harp::opt::graph::optimizer - BeamSearchGraphOptimizer: Cost improved to 4.3377724 at step 1
+  - AST最適化履歴のログ確認:
+    Step 0: 1 logs captured
+      First log: [DEBUG] harp::opt::ast::optimizer - BeamSearchOptimizer: Starting beam search optimization with history
+    Step 1: 191 logs captured
+      First log: [DEBUG] harp::ast::pat - Pattern matched! Bindings: {"a": Var("acc0"), "b": Mul(Load { ptr: Var("input0"), offset: Add(Mul(Var("oidx0"), Const(Int(400))), Var("ridx1")), count: 1, dtype: F32 }, Load { ptr: Var("input1"), offset: Add(Var("oidx1"), Mul(Var("ridx1"), Const(Int(360)))), count: 1, dtype: F32 })}
+    Step 2: 758 logs captured
+      First log: [DEBUG] harp::ast::pat - Pattern matched! Bindings: {"a": Mul(Load { ptr: Var("input0"), offset: Add(Mul(Var("oidx0"), Const(Int(400))), Var("ridx1")), count: 1, dtype: F32 }, Load { ptr: Var("input1"), offset: Add(Var("oidx1"), Mul(Var("ridx1"), Const(Int(360)))), count: 1, dtype: F32 }), "b": Var("acc0")}
+
+=== 最適化統計 ===
+
+【グラフ最適化】
+  ステップ数: 19
+  初期コスト: 5.03
+  最終コスト: 3.19
+  コスト削減: 1.84 (36.5%)
+
+  コスト遷移:
+    Step 0: 5.03
+    Step 1: 4.34
+    Step 2: 3.79
+    Step 3: 3.69
+    Step 4: 3.59
+    ... (19 steps total)
+
+【AST最適化】
+  ステップ数: 11
+  初期コスト: 1.41
+  最終コスト: 1.41
+  コスト削減: 0.00 (0.0%)
+
+可視化UIを起動中...
+  - Graph Viewerタブ: グラフ最適化の履歴を表示
+  - AST Viewerタブ: AST最適化の履歴を表示
+  - 矢印キーで前後のステップに移動できます
+
