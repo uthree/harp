@@ -153,7 +153,9 @@ where
             None
         };
 
+        let mut actual_steps = 0;
         for step in 0..self.max_steps {
+            actual_steps = step;
             if let Some(ref pb) = pb {
                 pb.set_message(format!("step {}", step + 1));
                 pb.set_position(step as u64);
@@ -172,8 +174,11 @@ where
                     "BeamSearchOptimizer: No more candidates at step {} - optimization complete (early termination)",
                     step
                 );
+                // 早期終了時は実際のステップ数を記録
+                actual_steps = step;
                 if let Some(ref pb) = pb {
-                    pb.set_position(self.max_steps as u64);
+                    pb.set_position(step as u64);
+                    pb.set_message(format!("converged at step {}", step));
                 }
                 break;
             }
@@ -251,7 +256,21 @@ where
         if let Some(pb) = pb {
             pb.finish_and_clear();
             // Cargoスタイルの完了メッセージ
-            println!("{:>12} AST optimization", "\x1b[1;32mFinished\x1b[0m");
+            if actual_steps + 1 < self.max_steps {
+                // 早期終了
+                println!(
+                    "{:>12} AST optimization (converged after {} steps)",
+                    "\x1b[1;32mFinished\x1b[0m",
+                    actual_steps + 1
+                );
+            } else {
+                // 最大ステップ数に到達
+                println!(
+                    "{:>12} AST optimization ({} steps)",
+                    "\x1b[1;32mFinished\x1b[0m",
+                    actual_steps + 1
+                );
+            }
         }
 
         debug!("BeamSearchOptimizer: Beam search optimization complete");

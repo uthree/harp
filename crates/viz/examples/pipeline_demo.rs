@@ -12,9 +12,16 @@ fn main() -> eframe::Result {
     // env_logger::init()の代わりにlog_captureを使う
     harp::opt::log_capture::init_with_env_logger();
 
-    println!("=== Harp GenericPipeline 最適化デモ（行列積版） ===\n");
-    println!("このデモでは、行列積を含む複雑な計算グラフを最適化します。");
-    println!("行列積は elementwise 乗算と reduce_sum の組み合わせで実装されています。");
+    println!("=== Harp GenericPipeline 総合最適化デモ ===\n");
+    println!("このデモでは、様々な最適化が適用される複雑な計算グラフを構築します。");
+    println!("以下の最適化が順次適用されます：");
+    println!("  1. グラフ最適化:");
+    println!("     - View挿入 (転置の最適化)");
+    println!("     - 演算の融合 (Fusion)");
+    println!("  2. AST最適化:");
+    println!("     - 定数畳み込み (Constant Folding)");
+    println!("     - 代数的簡約 (x+0→x, x*1→x)");
+    println!("     - ループ最適化 (タイル化、展開)");
     println!("最適化の各ステップがGenericPipelineに記録され、可視化されます。\n");
 
     // GenericPipelineを作成（最適化を組み込み）
@@ -24,7 +31,7 @@ fn main() -> eframe::Result {
 
     // グラフ最適化の設定
     let graph_config = GraphOptimizationConfig {
-        beam_width: 1,
+        beam_width: 4,
         max_steps: 100,
         show_progress: true,
     };
@@ -32,7 +39,7 @@ fn main() -> eframe::Result {
     // AST最適化の設定
     let ast_config = AstOptimizationConfig {
         rule_max_iterations: 10,
-        beam_width: 1,
+        beam_width: 4,
         max_steps: 100,
         show_progress: true,
     };
@@ -106,7 +113,7 @@ fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1600.0, 1000.0])
-            .with_title("Harp Pipeline Optimization Visualizer - Matrix Computation Demo"),
+            .with_title("Harp Pipeline Optimization Visualizer - Comprehensive Demo"),
         ..Default::default()
     };
 
@@ -131,17 +138,9 @@ fn main() -> eframe::Result {
 
 /// 行列積を計算するヘルパー関数
 /// C = A @ B (A: [M, K], B: [K, N]) -> C: [M, N]
-///
-/// 実装方法:
-/// 1. A: [M, K] -> unsqueeze(2) -> [M, K, 1]
-/// 2. B: [K, N] -> unsqueeze(0) -> [1, K, N]
-/// 3. A_expanded, B_expanded を [M, K, N] に expand
-/// 4. elementwise 乗算: [M, K, N]
-/// 5. reduce_sum(axis=1): [M, N]
 fn matmul(a: GraphNode, b: GraphNode) -> GraphNode {
     use harp::graph::shape::Expr;
 
-    // A: [M, K], B: [K, N]
     let a_shape = a.view.shape();
     let b_shape = b.view.shape();
 
@@ -180,72 +179,86 @@ fn matmul(a: GraphNode, b: GraphNode) -> GraphNode {
     product.reduce_sum(1)
 }
 
-/// 複雑な計算グラフを作成（行列積を含む）
+/// 複雑な計算グラフを作成（行列積と定数演算を含む）
 ///
 /// 以下の計算を実装:
 /// ```
-/// # 行列積を含む複数のテンソル演算
-/// x1 = matmul(a, b)  # [M, K] @ [K, N] -> [M, N]
-/// x2 = x1 + c        # [M, N] + [M, N]
-/// x3 = matmul(x2, d) # [M, N] @ [N, P] -> [M, P]
-/// y = reduce_sum(x3, axis=0) -> [P]
-/// z = reduce_sum(x3, axis=1) -> [M]
+/// # 行列積と定数演算を組み合わせた計算
+/// # 複数の最適化が順次適用される
+///
+/// # 定数畳み込み
+/// scale = 2.0 * 3.0  # 6.0に最適化
+///
+/// # 行列積 (View挿入とFusionが働く)
+/// temp1 = matmul(a, b)  # [M, K] @ [K, N] -> [M, N]
+///
+/// # Elementwise演算の連鎖 (Fusionが働く)
+/// temp2 = temp1 + c
+/// temp3 = temp2 * scale
+///
+/// # さらなる行列積
+/// result = matmul(temp3, d)  # [M, N] @ [N, P] -> [M, P]
 /// ```
 fn create_complex_computation_graph() -> Graph {
     let mut graph = Graph::new();
 
-    let m = 64;
-    let k = 128;
-    let n = 96;
-    let p = 80;
+    // サイズは小さめにして最適化の効果を見やすくする
+    let m = 32;
+    let k = 48;
+    let n = 40;
+    let p = 36;
 
-    // 入力: a [M, K]
+    // 入力行列
     let a = graph
         .input("a")
         .with_dtype(DType::F32)
         .with_shape(vec![m, k])
         .build();
 
-    // 入力: b [K, N]
     let b = graph
         .input("b")
         .with_dtype(DType::F32)
         .with_shape(vec![k, n])
         .build();
 
-    // 入力: c [M, N]
     let c = graph
         .input("c")
         .with_dtype(DType::F32)
         .with_shape(vec![m, n])
         .build();
 
-    // 入力: d [N, P]
     let d = graph
         .input("d")
         .with_dtype(DType::F32)
         .with_shape(vec![n, p])
         .build();
 
-    // 計算グラフを構築
-    // x1 = matmul(a, b) -> [M, N]
-    let x1 = matmul(a, b);
+    // 定数演算（定数畳み込みが働く）
+    let const1 = GraphNode::constant(2.0);
+    let const2 = GraphNode::constant(3.0);
+    let scale_scalar = const1 * const2; // 6.0に畳み込まれる
 
-    // x2 = x1 + c -> [M, N]
-    let x2 = x1 + c;
+    // スカラーを [M, N] にブロードキャスト
+    let scale_unsqueezed = scale_scalar.view(scale_scalar.view.clone().unsqueeze(0).unsqueeze(0));
+    let scale = scale_unsqueezed.view(
+        scale_unsqueezed
+            .view
+            .clone()
+            .expand(vec![m.into(), n.into()]),
+    );
 
-    // x3 = matmul(x2, d) -> [M, P]
-    let x3 = matmul(x2, d);
+    // 行列積 (View挿入とFusionが働く)
+    let temp1 = matmul(a, b); // [M, N]
 
-    // y = reduce_sum(x3, axis=0) -> [P]
-    let y = x3.clone().reduce_sum(0);
+    // Elementwise演算の連鎖 (これらがFusionで1つのカーネルになる)
+    let temp2 = temp1 + c;
+    let temp3 = temp2 * scale;
 
-    // z = reduce_sum(x3, axis=1) -> [M]
-    let z = x3.clone().reduce_sum(1);
+    // さらなる行列積
+    let result = matmul(temp3, d); // [M, P]
 
-    // 複数の中間結果を出力
-    graph.output("y", y);
-    //graph.output("z", z); // BUG: なぜか複数ノードを出力にすると最適化がうまくいかない
+    // 出力
+    graph.output("result", result);
 
     graph
 }

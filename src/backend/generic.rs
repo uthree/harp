@@ -32,7 +32,7 @@ pub struct GraphOptimizationConfig {
 impl Default for GraphOptimizationConfig {
     fn default() -> Self {
         Self {
-            beam_width: 1,
+            beam_width: 4,
             max_steps: 10000,
             show_progress: false,
         }
@@ -55,7 +55,7 @@ impl Default for AstOptimizationConfig {
     fn default() -> Self {
         Self {
             rule_max_iterations: 100,
-            beam_width: 1,
+            beam_width: 4,
             max_steps: 10000,
             show_progress: false,
         }
@@ -307,7 +307,6 @@ where
                 .with_max_iterations(self.ast_optimization_config.rule_max_iterations);
 
             let rule_optimized = rule_optimizer.optimize(program);
-
             // ステップ2: ビームサーチ最適化（ルールベース + ループ最適化）
             let beam_suggester = AstCompositeSuggester::new(vec![
                 Box::new(RuleBaseSuggester::new(all_rules_with_search())),
