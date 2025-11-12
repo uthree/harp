@@ -427,6 +427,30 @@ impl Literal {
             Literal::Usize(_) => DType::Usize,
         }
     }
+
+    /// 整数リテラルを isize として取得
+    ///
+    /// Isize または Usize を isize に変換して返します。
+    /// F32 の場合は None を返します。
+    pub fn as_isize(&self) -> Option<isize> {
+        match self {
+            Literal::Isize(v) => Some(*v),
+            Literal::Usize(v) => (*v).try_into().ok(),
+            Literal::F32(_) => None,
+        }
+    }
+
+    /// 整数リテラルを usize として取得
+    ///
+    /// Usize または Isize を usize に変換して返します。
+    /// F32 または負の Isize の場合は None を返します。
+    pub fn as_usize(&self) -> Option<usize> {
+        match self {
+            Literal::Usize(v) => Some(*v),
+            Literal::Isize(v) => (*v).try_into().ok(),
+            Literal::F32(_) => None,
+        }
+    }
 }
 
 impl DType {

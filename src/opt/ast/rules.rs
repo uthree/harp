@@ -183,6 +183,25 @@ pub fn sqrt_squared() -> Rc<AstRewriteRule> {
     })
 }
 
+/// log2とexp2の逆関数関係: log2(exp2(a)) = a
+pub fn log2_exp2() -> Rc<AstRewriteRule> {
+    astpat!(|a| {
+        AstNode::Log2(Box::new(AstNode::Exp2(Box::new(a))))
+    } => {
+        a
+    })
+}
+
+/// exp2とlog2の逆関数関係: exp2(log2(a)) = a (ただし a > 0)
+/// 注: このルールは a > 0 の場合のみ有効
+pub fn exp2_log2() -> Rc<AstRewriteRule> {
+    astpat!(|a| {
+        AstNode::Exp2(Box::new(AstNode::Log2(Box::new(a))))
+    } => {
+        a
+    })
+}
+
 // ============================================================================
 // 交換則 (Commutative Rules)
 // ============================================================================
@@ -210,6 +229,19 @@ associative_rules!(
     "乗算の左結合から右結合: (a * b) * c = a * (b * c)",
     "乗算の右結合から左結合: a * (b * c) = (a * b) * c"
 );
+
+// ============================================================================
+// 同項規則 (Same Term Rules)
+// ============================================================================
+
+/// 同じ項の加算: a + a = a * 2
+pub fn add_same_to_mul_two() -> Rc<AstRewriteRule> {
+    astpat!(|a| {
+        AstNode::Add(Box::new(a.clone()), Box::new(a))
+    } => {
+        AstNode::Mul(Box::new(a), Box::new(AstNode::Const(Literal::Isize(2))))
+    })
+}
 
 // ============================================================================
 // 分配則 (Distributive Rules)
@@ -626,6 +658,10 @@ pub fn simplification_rules() -> Vec<Rc<AstRewriteRule>> {
         // 逆演算
         recip_recip(),
         sqrt_squared(),
+        log2_exp2(),
+        exp2_log2(),
+        // 同項規則
+        add_same_to_mul_two(),
         // ビット演算最適化（2の累乗の乗算をシフトに変換）
         mul_power_of_two_to_shift_right(),
         mul_power_of_two_to_shift_left(),
@@ -1101,5 +1137,50 @@ mod tests {
             }
             _ => panic!("Expected LeftShift node"),
         }
+    }
+
+    #[test]
+    fn test_log2_exp2() {
+        let rule = log2_exp2();
+        let var_a = AstNode::Var("a".to_string());
+        let input = AstNode::Log2(Box::new(AstNode::Exp2(Box::new(var_a.clone()))));
+        let result = rule.apply(&input);
+        assert_eq!(result, var_a);
+    }
+
+    #[test]
+    fn test_exp2_log2() {
+        let rule = exp2_log2();
+        let var_a = AstNode::Var("a".to_string());
+        let input = AstNode::Exp2(Box::new(AstNode::Log2(Box::new(var_a.clone()))));
+        let result = rule.apply(&input);
+        assert_eq!(result, var_a);
+    }
+
+    #[test]
+    fn test_add_same_to_mul_two() {
+        let rule = add_same_to_mul_two();
+        let var_a = AstNode::Var("x".to_string());
+        // x + x
+        let input = AstNode::Add(Box::new(var_a.clone()), Box::new(var_a.clone()));
+        let result = rule.apply(&input);
+        // x * 2
+        let expected = AstNode::Mul(Box::new(var_a), Box::new(AstNode::Const(Literal::Isize(2))));
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_add_same_to_mul_two_with_const() {
+        let rule = add_same_to_mul_two();
+        // 5 + 5
+        let const_5 = AstNode::Const(Literal::Isize(5));
+        let input = AstNode::Add(Box::new(const_5.clone()), Box::new(const_5.clone()));
+        let result = rule.apply(&input);
+        // 5 * 2
+        let expected = AstNode::Mul(
+            Box::new(const_5),
+            Box::new(AstNode::Const(Literal::Isize(2))),
+        );
+        assert_eq!(result, expected);
     }
 }

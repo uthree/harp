@@ -6,8 +6,9 @@ use crate::graph::Graph;
 use crate::opt::ast::rules::{all_algebraic_rules, all_rules_with_search};
 use crate::opt::ast::{
     BeamSearchOptimizer as AstBeamSearchOptimizer, CompositeSuggester as AstCompositeSuggester,
-    LoopInliningSuggester, LoopTilingSuggester, OptimizationHistory as AstOptimizationHistory,
-    Optimizer, RuleBaseOptimizer, RuleBaseSuggester, SimpleCostEstimator as AstSimpleCostEstimator,
+    LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester,
+    OptimizationHistory as AstOptimizationHistory, Optimizer, RuleBaseOptimizer, RuleBaseSuggester,
+    SimpleCostEstimator as AstSimpleCostEstimator,
 };
 use crate::opt::graph::{
     AstBasedCostEstimator, BeamSearchGraphOptimizer, CompositeSuggester, FusionSuggester,
@@ -243,6 +244,7 @@ where
                 Box::new(RuleBaseSuggester::new(all_rules_with_search())),
                 Box::new(LoopTilingSuggester::with_default_sizes()),
                 Box::new(LoopInliningSuggester::with_default_limit()),
+                Box::new(LoopInterchangeSuggester::new()),
             ]);
             let beam_estimator = AstSimpleCostEstimator::new();
 
@@ -312,6 +314,7 @@ where
                 Box::new(RuleBaseSuggester::new(all_rules_with_search())),
                 Box::new(LoopTilingSuggester::with_default_sizes()),
                 Box::new(LoopInliningSuggester::with_default_limit()),
+                Box::new(LoopInterchangeSuggester::new()),
             ]);
             let beam_estimator = AstSimpleCostEstimator::new();
 
@@ -382,6 +385,7 @@ where
                 Box::new(RuleBaseSuggester::new(all_rules_with_search())),
                 Box::new(LoopTilingSuggester::with_default_sizes()),
                 Box::new(LoopInliningSuggester::with_default_limit()),
+                Box::new(LoopInterchangeSuggester::new()),
             ]);
             let beam_estimator = AstSimpleCostEstimator::new();
 
@@ -497,6 +501,7 @@ where
             Box::new(RuleBaseSuggester::new(all_rules_with_search())),
             Box::new(LoopTilingSuggester::with_default_sizes()),
             Box::new(LoopInliningSuggester::with_default_limit()),
+            Box::new(LoopInterchangeSuggester::new()),
         ]);
         let beam_estimator = AstSimpleCostEstimator::new();
 

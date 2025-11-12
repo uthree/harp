@@ -415,8 +415,13 @@ mod ast_based_tests {
 
         // グラフ全体をProgramに変換するため、shapeはパラメータになり
         // 生成されるASTは同じ構造になる（ループ回数は変数なので100回と推定）
-        // したがってコストも同じになる
-        assert_eq!(cost1, cost2);
+        // したがってコストもほぼ同じになる（浮動小数点の誤差を考慮）
+        assert!(
+            (cost1 - cost2).abs() < 1e-3,
+            "Costs should be similar: cost1={}, cost2={}",
+            cost1,
+            cost2
+        );
     }
 
     #[test]

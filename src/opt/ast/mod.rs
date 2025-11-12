@@ -15,7 +15,7 @@ pub use suggester::Suggester;
 // 公開API: 実装
 pub use estimator::SimpleCostEstimator;
 pub use history::{OptimizationHistory, OptimizationSnapshot};
-pub use loop_suggesters::{LoopInliningSuggester, LoopTilingSuggester};
+pub use loop_suggesters::{LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester};
 pub use optimizer::{BeamSearchOptimizer, RuleBaseOptimizer};
 pub use suggester::{CompositeSuggester, RuleBaseSuggester};
 pub use transforms::{inline_small_loop, tile_loop};

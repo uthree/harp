@@ -1,4 +1,4 @@
-use crate::ast::{AstNode, Literal};
+use crate::ast::AstNode;
 const OVERHEAD_PER_LOOP: f32 = 1e-7;
 /// ASTの実行コストを推定するトレイト
 pub trait CostEstimator {
@@ -18,11 +18,11 @@ impl SimpleCostEstimator {
     /// ノードのベースコストを取得
     fn base_cost(&self, ast: &AstNode) -> f32 {
         let cost = match ast {
-            AstNode::Const(_) | AstNode::Wildcard(_) => 0.0,
-            AstNode::Var(_) => 2.0,
+            AstNode::Const(_) | AstNode::Wildcard(_) => 0.01,
+            AstNode::Var(_) => 1.2,
             AstNode::Add(_, _) => 1.0,
             AstNode::Mul(_, _) => 4.0,
-            AstNode::Max(_, _) => 1.0,
+            AstNode::Max(_, _) => 3.0,
             AstNode::Rem(_, _) => 5.0,
             AstNode::Idiv(_, _) => 2.0,
             AstNode::Recip(_) => 10.0,
@@ -36,18 +36,19 @@ impl SimpleCostEstimator {
             AstNode::BitwiseOr(_, _) => 0.5,
             AstNode::BitwiseXor(_, _) => 0.5,
             AstNode::BitwiseNot(_) => 0.5,
-            AstNode::LeftShift(_, _) => 0.8, // 乗算(2.0)より低コスト
-            AstNode::RightShift(_, _) => 0.8, // 乗算(2.0)より低コスト
-            AstNode::Load { .. } => 10.0,
-            AstNode::Store { .. } => 10.0,
-            AstNode::Assign { .. } => 10.0,
-            AstNode::Barrier => 10.0,
-            AstNode::Block { .. } => 10.0,
+            AstNode::LeftShift(_, _) => 0.8, // 乗算(4.0)より低コスト
+            AstNode::RightShift(_, _) => 0.8, // 乗算(4.0)より低コスト
+
+            AstNode::Load { .. } => 3.0,
+            AstNode::Store { .. } => 3.0,
+            AstNode::Assign { .. } => 1.2,
+            AstNode::Barrier => 1.0,
+            AstNode::Block { .. } => 0.0,
             AstNode::Range { .. } => 1.0,
-            AstNode::Call { .. } => 20.0,
-            AstNode::Return { .. } => 1.0,
-            AstNode::Function { .. } => 1.0,
-            AstNode::Program { .. } => 0.0, // プログラム構造自体にはコストがない
+            AstNode::Call { .. } => 1.0,
+            AstNode::Return { .. } => 0.01,
+            AstNode::Function { .. } => 0.01,
+            AstNode::Program { .. } => 0.01, // プログラム構造自体にはコストがない
         };
         cost * 1e-9
     }
@@ -82,9 +83,7 @@ impl CostEstimator for SimpleCostEstimator {
             | AstNode::Sin(n)
             | AstNode::BitwiseNot(n) => self.estimate(n),
             AstNode::Cast(n, _) => self.estimate(n),
-            AstNode::Load {
-                ptr, offset, count, ..
-            } => self.estimate(ptr) + self.estimate(offset) + 1e-9 * (*count as f32),
+            AstNode::Load { ptr, offset, .. } => self.estimate(ptr) + self.estimate(offset),
             AstNode::Store { ptr, offset, value } => {
                 self.estimate(ptr) + self.estimate(offset) + self.estimate(value)
             }
@@ -99,29 +98,39 @@ impl CostEstimator for SimpleCostEstimator {
                 // start, stop, stepが定数の場合は実際のループ回数を計算
                 let loop_count = match (start.as_ref(), stop.as_ref(), step.as_ref()) {
                     (
-                        AstNode::Const(Literal::Isize(start_val)),
-                        AstNode::Const(Literal::Isize(stop_val)),
-                        AstNode::Const(Literal::Isize(step_val)),
-                    ) if *step_val > 0 => {
-                        // 正の方向のループ
-                        let iterations = (stop_val - start_val + step_val - 1) / step_val;
-                        iterations.max(0) as f32
-                    }
-                    (
-                        AstNode::Const(Literal::Isize(start_val)),
-                        AstNode::Const(Literal::Isize(stop_val)),
-                        AstNode::Const(Literal::Isize(step_val)),
-                    ) if *step_val < 0 => {
-                        // 負の方向のループ
-                        let iterations = (start_val - stop_val - step_val - 1) / (-step_val);
-                        iterations.max(0) as f32
+                        AstNode::Const(start_lit),
+                        AstNode::Const(stop_lit),
+                        AstNode::Const(step_lit),
+                    ) => {
+                        // 整数リテラル（Isize または Usize）から値を取得
+                        if let (Some(start_val), Some(stop_val), Some(step_val)) = (
+                            start_lit.as_isize(),
+                            stop_lit.as_isize(),
+                            step_lit.as_isize(),
+                        ) {
+                            if step_val > 0 {
+                                // 正の方向のループ
+                                let iterations = (stop_val - start_val + step_val - 1) / step_val;
+                                iterations.max(0) as f32
+                            } else if step_val < 0 {
+                                // 負の方向のループ
+                                let iterations =
+                                    (start_val - stop_val - step_val - 1) / (-step_val);
+                                iterations.max(0) as f32
+                            } else {
+                                // step_val == 0 の場合は無限ループになるので、デフォルト値を使用
+                                100.0
+                            }
+                        } else {
+                            // 整数リテラルではない（F32など）場合はデフォルト値
+                            100.0
+                        }
                     }
                     _ => {
                         // ループ回数が不明な場合は100回と推定
                         100.0
                     }
                 };
-
                 self.estimate(start)
                     + self.estimate(step)
                     + self.estimate(stop)
@@ -130,9 +139,9 @@ impl CostEstimator for SimpleCostEstimator {
             AstNode::Block { statements, .. } => statements.iter().map(|s| self.estimate(s)).sum(),
             AstNode::Call { args, .. } => {
                 // 関数呼び出しは引数の評価コスト + 呼び出しコスト
-                args.iter().map(|a| self.estimate(a)).sum::<f32>() + 5.0
+                args.iter().map(|a| self.estimate(a)).sum::<f32>()
             }
-            AstNode::Return { value } => self.estimate(value) + 1.0,
+            AstNode::Return { value } => self.estimate(value),
             AstNode::Function { body, params, .. } => {
                 // 関数本体のコスト + パラメータの初期値のコスト
                 let body_cost = self.estimate(body);
@@ -147,7 +156,7 @@ impl CostEstimator for SimpleCostEstimator {
                 // すべての関数のコストの合計
                 functions.iter().map(|f| self.estimate(f)).sum()
             }
-            _ => 0.0,
+            _ => 0.01,
         };
 
         base_cost + children_cost
@@ -456,5 +465,82 @@ mod tests {
             "Program cost should be non-zero: got {}",
             program_cost
         );
+    }
+
+    #[test]
+    fn test_range_cost_with_usize() {
+        let estimator = SimpleCostEstimator::new();
+
+        // Usizeを使ったループ
+        let range_usize = AstNode::Range {
+            var: "i".to_string(),
+            start: Box::new(AstNode::Const(Literal::Usize(0))),
+            stop: Box::new(AstNode::Const(Literal::Usize(10))),
+            step: Box::new(AstNode::Const(Literal::Usize(1))),
+            body: Box::new(AstNode::Add(
+                Box::new(AstNode::Var("a".to_string())),
+                Box::new(AstNode::Var("i".to_string())),
+            )),
+        };
+
+        // Isizeを使ったループ（同じ値）
+        let range_isize = AstNode::Range {
+            var: "i".to_string(),
+            start: Box::new(AstNode::Const(Literal::Isize(0))),
+            stop: Box::new(AstNode::Const(Literal::Isize(10))),
+            step: Box::new(AstNode::Const(Literal::Isize(1))),
+            body: Box::new(AstNode::Add(
+                Box::new(AstNode::Var("a".to_string())),
+                Box::new(AstNode::Var("i".to_string())),
+            )),
+        };
+
+        let cost_usize = estimator.estimate(&range_usize);
+        let cost_isize = estimator.estimate(&range_isize);
+
+        // UsizeとIsizeで同じループ回数なので、コストも同じはず
+        assert!(
+            (cost_usize - cost_isize).abs() < 1e-6,
+            "Usize and Isize loops should have similar cost"
+        );
+    }
+
+    #[test]
+    fn test_range_cost_mixed_literals() {
+        let estimator = SimpleCostEstimator::new();
+
+        // Usize と Isize を混在させたループ
+        let range_mixed = AstNode::Range {
+            var: "i".to_string(),
+            start: Box::new(AstNode::Const(Literal::Usize(0))),
+            stop: Box::new(AstNode::Const(Literal::Isize(20))),
+            step: Box::new(AstNode::Const(Literal::Usize(2))),
+            body: Box::new(AstNode::Var("x".to_string())),
+        };
+
+        let cost = estimator.estimate(&range_mixed);
+
+        // ループ回数は (20 - 0) / 2 = 10 回
+        let body_cost = estimator.estimate(&AstNode::Var("x".to_string()));
+        let expected_cost = 10.0 * (body_cost + OVERHEAD_PER_LOOP);
+
+        assert!(
+            (cost - expected_cost).abs() < 1e-6,
+            "Mixed literal types should work correctly"
+        );
+    }
+
+    #[test]
+    fn test_literal_helpers() {
+        // as_isize() のテスト
+        assert_eq!(Literal::Isize(42).as_isize(), Some(42));
+        assert_eq!(Literal::Usize(100).as_isize(), Some(100));
+        assert_eq!(Literal::F32(3.14).as_isize(), None);
+
+        // as_usize() のテスト
+        assert_eq!(Literal::Usize(42).as_usize(), Some(42));
+        assert_eq!(Literal::Isize(100).as_usize(), Some(100));
+        assert_eq!(Literal::Isize(-5).as_usize(), None); // 負の値は変換できない
+        assert_eq!(Literal::F32(3.14).as_usize(), None);
     }
 }
