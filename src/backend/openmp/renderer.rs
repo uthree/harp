@@ -37,8 +37,9 @@ impl CLikeRenderer for CRenderer {
             DType::Int => "int".to_string(),
             DType::Ptr(inner) => format!("{}*", self.render_dtype_backend(inner)),
             DType::Vec(inner, size) => {
-                // C言語ではベクトル型をサポートしていないので、配列として表現
-                format!("{}[{}]", self.render_dtype_backend(inner), size)
+                // GCC/Clangのベクトル拡張を使用
+                let base = self.render_dtype_backend(inner);
+                format!("{}{}", base, size)
             }
             DType::Tuple(types) => {
                 if types.is_empty() {
@@ -61,7 +62,20 @@ impl CLikeRenderer for CRenderer {
     }
 
     fn render_header(&self) -> String {
-        "#include <math.h>\n#include <omp.h>\n#include <stdint.h>\n\n".to_string()
+        let mut header =
+            String::from("#include <math.h>\n#include <omp.h>\n#include <stdint.h>\n\n");
+
+        // GCC/Clangのベクトル拡張を使用したベクトル型の定義
+        header.push_str("// SIMD vector types using GCC/Clang vector extensions\n");
+        header.push_str("typedef float float2 __attribute__((vector_size(8)));\n");
+        header.push_str("typedef float float4 __attribute__((vector_size(16)));\n");
+        header.push_str("typedef float float8 __attribute__((vector_size(32)));\n");
+        header.push_str("typedef int int2 __attribute__((vector_size(8)));\n");
+        header.push_str("typedef int int4 __attribute__((vector_size(16)));\n");
+        header.push_str("typedef int int8 __attribute__((vector_size(32)));\n");
+        header.push_str("\n");
+
+        header
     }
 
     fn render_function_qualifier(&self, _func_kind: &FunctionKind) -> String {
@@ -134,6 +148,11 @@ impl CLikeRenderer for CRenderer {
             "sin" => format!("sinf({})", args.join(", ")),
             _ => format!("{}({})", name, args.join(", ")),
         }
+    }
+
+    fn render_vector_load(&self, ptr_expr: &str, offset_expr: &str, dtype: &str) -> String {
+        // C言語のキャスト構文を使用
+        format!("*({}*)(&{}[{}])", dtype, ptr_expr, offset_expr)
     }
 }
 
@@ -230,5 +249,28 @@ mod tests {
         assert!(code.contains("#include <omp.h>"));
         assert!(code.contains("void test_func("));
         assert!(code.contains("float* x"));
+    }
+
+    #[test]
+    fn test_render_simd_vector_type() {
+        let renderer = CRenderer::new();
+
+        // ベクトル型のレンダリング
+        let vec_type = DType::Vec(Box::new(DType::F32), 4);
+        assert_eq!(renderer.render_dtype_backend(&vec_type), "float4");
+
+        // ヘッダーにベクトル型の定義が含まれることを確認
+        let header = renderer.render_header();
+        assert!(header.contains("typedef float float4"));
+        assert!(header.contains("__attribute__((vector_size(16)))"));
+    }
+
+    #[test]
+    fn test_render_vector_load() {
+        let renderer = CRenderer::new();
+
+        // ベクトルロードのレンダリング
+        let load_code = renderer.render_vector_load("input", "i", "float4");
+        assert_eq!(load_code, "*(float4*)(&input[i])");
     }
 }

@@ -35,6 +35,14 @@ pub trait CLikeRenderer: Renderer {
     /// 数学関数をレンダリング（max vs fmaxf など）
     fn render_math_func(&self, name: &str, args: &[String]) -> String;
 
+    /// ベクトルロードをレンダリング（デフォルトはreinterpret_cast）
+    fn render_vector_load(&self, ptr_expr: &str, offset_expr: &str, dtype: &str) -> String {
+        format!(
+            "*reinterpret_cast<{} *>(&{}[{}])",
+            dtype, ptr_expr, offset_expr
+        )
+    }
+
     // ========== 共通実装（デフォルト実装） ==========
 
     /// インデント文字列を取得
@@ -147,12 +155,10 @@ pub trait CLikeRenderer: Renderer {
                     format!("{}[{}]", self.render_expr(ptr), self.render_expr(offset))
                 } else {
                     // ベクトルロード
-                    format!(
-                        "*reinterpret_cast<{} *>(&{}[{}])",
-                        self.render_dtype_backend(dtype),
-                        self.render_expr(ptr),
-                        self.render_expr(offset)
-                    )
+                    let ptr_expr = self.render_expr(ptr);
+                    let offset_expr = self.render_expr(offset);
+                    let dtype_str = self.render_dtype_backend(dtype);
+                    self.render_vector_load(&ptr_expr, &offset_expr, &dtype_str)
                 }
             }
             AstNode::Call { name, args } => {
