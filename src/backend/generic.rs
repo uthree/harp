@@ -727,7 +727,6 @@ mod tests {
         };
 
         let ast_config = AstOptimizationConfig {
-            rule_max_iterations: 200,
             beam_width: 15,
             max_steps: 75,
             show_progress: true,
@@ -740,7 +739,6 @@ mod tests {
         // カスタム設定が適用されている
         assert_eq!(pipeline.graph_optimization_config.beam_width, 20);
         assert_eq!(pipeline.graph_optimization_config.max_steps, 50);
-        assert_eq!(pipeline.ast_optimization_config.rule_max_iterations, 200);
         assert_eq!(pipeline.ast_optimization_config.beam_width, 15);
     }
 }

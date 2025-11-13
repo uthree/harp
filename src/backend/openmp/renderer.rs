@@ -73,7 +73,7 @@ impl CLikeRenderer for CRenderer {
         header.push_str("typedef int int2 __attribute__((vector_size(8)));\n");
         header.push_str("typedef int int4 __attribute__((vector_size(16)));\n");
         header.push_str("typedef int int8 __attribute__((vector_size(32)));\n");
-        header.push_str("\n");
+        header.push('\n');
 
         header
     }

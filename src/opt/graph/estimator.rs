@@ -283,7 +283,7 @@ mod tests {
 /// 際限のないノード数の増加を防ぎます。
 pub struct AstBasedCostEstimator<E: AstCostEstimator> {
     ast_estimator: E,
-    /// ノード数あたりのペナルティ係数（デフォルト: 0.1）
+    /// ノード数あたりのペナルティ係数（デフォルト: 0.0001）
     node_count_penalty: f32,
 }
 
@@ -292,7 +292,7 @@ impl<E: AstCostEstimator> AstBasedCostEstimator<E> {
     pub fn new(ast_estimator: E) -> Self {
         Self {
             ast_estimator,
-            node_count_penalty: 0.1,
+            node_count_penalty: 0.0001,
         }
     }
 

@@ -1,7 +1,7 @@
 use super::CostEstimator;
 use crate::ast::AstNode;
 
-const OVERHEAD_PER_LOOP: f32 = 1e-10;
+const OVERHEAD_PER_LOOP: f32 = 0.0;
 
 /// 簡単なコスト推定器
 pub struct SimpleCostEstimator;
@@ -23,7 +23,7 @@ impl SimpleCostEstimator {
             AstNode::Max(_, _) => 0.85,
             _ => 1.0,
         };
-        cost * 1e-10
+        cost * 1e-7
     }
 }
 
@@ -92,6 +92,7 @@ impl CostEstimator for SimpleCostEstimator {
                                 iterations.max(0) as f32
                             } else {
                                 // step_val == 0 の場合は無限ループになるので、デフォルト値を使用
+                                log::warn!("detected infinity loop");
                                 100.0
                             }
                         } else {

@@ -468,6 +468,7 @@ impl LoopInterchangeSuggester {
     }
 
     /// AST内の全てのネストループを探索して交換を試みる
+    #[allow(clippy::only_used_in_recursion)]
     fn collect_interchange_candidates(&self, ast: &AstNode) -> Vec<AstNode> {
         let mut candidates = Vec::new();
 
