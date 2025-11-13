@@ -11,9 +11,10 @@ use crate::opt::ast::{
     SimpleCostEstimator as AstSimpleCostEstimator,
 };
 use crate::opt::graph::{
-    AstBasedCostEstimator, BeamSearchGraphOptimizer, CompositeSuggester, FusionSuggester,
-    OptimizationHistory as GraphOptimizationHistory, ParallelStrategyChanger, SimdSuggester,
-    SimpleCostEstimator, TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
+    AstBasedCostEstimator, BeamSearchGraphOptimizer, CompositeSuggester,
+    ContiguousInsertionSuggester, FusionSuggester, OptimizationHistory as GraphOptimizationHistory,
+    ParallelStrategyChanger, SimdSuggester, SimpleCostEstimator, TilingSuggester,
+    ViewInsertionSuggester, ViewMergeSuggester,
 };
 
 /// compile_graph_with_all_historiesの戻り値の型
@@ -213,6 +214,7 @@ where
                 Box::new(ViewInsertionSuggester::new()),
                 Box::new(ViewMergeSuggester::new()),
                 Box::new(TilingSuggester::with_default_tile_sizes()),
+                Box::new(ContiguousInsertionSuggester::new()),
                 Box::new(FusionSuggester::new()),
                 Box::new(ParallelStrategyChanger::new()),
                 Box::new(SimdSuggester::new()),
@@ -286,6 +288,7 @@ where
                 Box::new(ViewInsertionSuggester::new()),
                 Box::new(ViewMergeSuggester::new()),
                 Box::new(TilingSuggester::with_default_tile_sizes()),
+                Box::new(ContiguousInsertionSuggester::new()),
                 Box::new(FusionSuggester::new()),
                 Box::new(ParallelStrategyChanger::new()),
                 Box::new(SimdSuggester::new()),
@@ -360,6 +363,7 @@ where
                 Box::new(ViewInsertionSuggester::new()),
                 Box::new(ViewMergeSuggester::new()),
                 Box::new(TilingSuggester::with_default_tile_sizes()),
+                Box::new(ContiguousInsertionSuggester::new()),
                 Box::new(FusionSuggester::new()),
                 Box::new(ParallelStrategyChanger::new()),
                 Box::new(SimdSuggester::new()),
@@ -471,6 +475,7 @@ where
         let suggester = CompositeSuggester::new(vec![
             Box::new(ViewInsertionSuggester::new()),
             // Box::new(TilingSuggester::with_default_tile_sizes()), // 一時的に無効化
+            Box::new(ContiguousInsertionSuggester::new()),
             Box::new(FusionSuggester::new()),
             Box::new(ParallelStrategyChanger::new()),
             Box::new(SimdSuggester::new()),

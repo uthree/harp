@@ -44,6 +44,15 @@ Graphを最適化。`optimize(&self, graph: Graph) -> Graph`
 - メモリレイアウト最適化のためのView操作挿入
 - 連続するelementwise演算間にpermute/flipを挿入
 
+### ContiguousInsertionSuggester
+- 非contiguousなViewを持つノードの前にContiguousノードを挿入
+- View操作（permute、flipなど）で非連続になったメモリレイアウトを実体化
+- メモリコピーのコストと、非連続アクセスのコストのトレードオフを探索
+
+**挿入条件:**
+- 入力ノードが非contiguousなView（転置、反転など）を持つ
+- ノード自体がViewまたはContiguousノードでない
+
 ### ParallelStrategyChanger
 並列化戦略を変更した候補を生成。
 
@@ -63,6 +72,7 @@ use harp::opt::graph::*;
 // Suggesterの組み合わせ
 let suggester = CompositeSuggester::new(vec![
     Box::new(FusionSuggester::new()),
+    Box::new(ContiguousInsertionSuggester::new()),
     Box::new(ParallelStrategyChanger::new()),
 ]);
 
