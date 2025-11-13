@@ -53,7 +53,7 @@ impl Lowerer {
         });
 
         // Shape変数（必要な変数のみをパラメータとして追加）
-        let shape_params = self.extract_shape_params(&shape);
+        let shape_params = self.extract_shape_params(shape);
         params.extend(shape_params);
 
         // ループ本体の生成
@@ -147,6 +147,13 @@ impl Lowerer {
     ) -> Result<Vec<AstNode>, String> {
         let mut statements = Vec::new();
 
+        // 最内側の軸のSIMD幅を取得（最後の軸を使用）
+        let simd_width = if let Some(&last_axis) = axes.last() {
+            node.elementwise_strategies[last_axis].simd_width()
+        } else {
+            1
+        };
+
         // 全ての入力をロード
         let mut graph_inputs = Vec::new();
         for (i, src) in node.src.iter().enumerate() {
@@ -157,12 +164,22 @@ impl Lowerer {
             let offset = self.compute_offset_from_view(src, axes);
             let src_ptr_dtype = self.graph_dtype_to_ast_ptr(&src.dtype)?;
             let src_dtype = src_ptr_dtype.deref_type().clone();
-            let load_node = load(input_ptr, offset, src_dtype.clone());
+
+            // SIMD化: simd_width > 1の場合はベクトルロード
+            let (load_node, final_dtype) = if simd_width > 1 {
+                let vec_dtype = src_dtype.to_vec(simd_width);
+                (
+                    load_vec(input_ptr, offset, simd_width, vec_dtype.clone()),
+                    vec_dtype,
+                )
+            } else {
+                (load(input_ptr, offset, src_dtype.clone()), src_dtype)
+            };
 
             // 変数を宣言（初期値付き）
             scope.declare(
                 alu_var.clone(),
-                src_dtype,
+                final_dtype,
                 Mutability::Mutable,
                 Some(load_node),
             )?;

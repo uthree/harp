@@ -69,7 +69,7 @@ impl Lowerer {
 
         // Shape変数（必要な変数のみをパラメータとして追加）
         let input_shape = input.view.shape();
-        let shape_params = self.extract_shape_params(&input_shape);
+        let shape_params = self.extract_shape_params(input_shape);
         params.extend(shape_params);
 
         // ループ本体の生成

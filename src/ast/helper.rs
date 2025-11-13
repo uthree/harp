@@ -85,6 +85,16 @@ pub fn barrier() -> AstNode {
     AstNode::Barrier
 }
 
+/// Broadcast a scalar value to a vector type (for SIMD)
+///
+/// This creates a cast that converts a scalar to a vector where all elements have the same value.
+/// Example: broadcast(2.0, 4) creates float4(2.0, 2.0, 2.0, 2.0)
+pub fn broadcast(value: AstNode, width: usize) -> AstNode {
+    let value_type = value.infer_type();
+    let vec_type = value_type.to_vec(width);
+    AstNode::Cast(Box::new(value), vec_type)
+}
+
 /// Create a function node
 ///
 /// # Arguments

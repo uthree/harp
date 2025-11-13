@@ -50,7 +50,7 @@ impl Lowerer {
         });
 
         // Shape変数（必要な変数のみをパラメータとして追加）
-        let shape_params = self.extract_shape_params(&shape);
+        let shape_params = self.extract_shape_params(shape);
         params.extend(shape_params);
 
         // ループ本体の生成

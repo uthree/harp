@@ -353,9 +353,9 @@ mod tests {
 
         let loop_node = AstNode::Range {
             var: "i".to_string(),
-            start: Box::new(AstNode::Const((0 as isize).into())),
-            step: Box::new(AstNode::Const((1 as isize).into())),
-            stop: Box::new(AstNode::Const((10 as isize).into())),
+            start: Box::new(AstNode::Const(0_isize.into())),
+            step: Box::new(AstNode::Const(1_isize.into())),
+            stop: Box::new(AstNode::Const(10_isize.into())),
             body: Box::new(AstNode::Block {
                 statements: vec![
                     store(

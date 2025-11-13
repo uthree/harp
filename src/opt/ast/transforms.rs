@@ -67,7 +67,7 @@ pub fn inline_small_loop(loop_node: &AstNode, max_iterations: usize) -> Option<A
                 });
             }
 
-            let iterations = (stop_val - start_val + step_val - 1) / step_val;
+            let iterations = (stop_val - start_val).div_ceil(step_val);
 
             // 反復回数が多すぎる場合は展開しない
             if iterations > max_iterations {

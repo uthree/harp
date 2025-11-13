@@ -48,7 +48,7 @@ impl Lowerer {
         });
 
         // Shape変数（必要な変数のみをパラメータとして追加）
-        let shape_params = self.extract_shape_params(&shape);
+        let shape_params = self.extract_shape_params(shape);
         params.extend(shape_params);
 
         // ループ本体の生成
@@ -109,6 +109,7 @@ impl Lowerer {
             let shape_expr: AstNode = node.view.shape()[axis].clone().into();
             let elementwise_strategy = &node.elementwise_strategies[axis];
             let unroll_factor = elementwise_strategy.unroll_factor();
+            let simd_width = elementwise_strategy.simd_width();
 
             if unroll_factor > 1 {
                 // ループアンローリングを適用
@@ -128,13 +129,61 @@ impl Lowerer {
                 // 外側のループ用に新しいスコープを作成
                 scope = Scope::new();
 
-                body_statements = vec![AstNode::Range {
-                    var: loop_var.clone(),
-                    start: Box::new(AstNode::Const(Literal::Int(0))),
-                    step: Box::new(AstNode::Const(Literal::Int(1))),
-                    stop: Box::new(shape_expr),
-                    body: Box::new(loop_body),
-                }];
+                // ステップをSIMD幅に合わせる
+                if simd_width > 1 {
+                    // SIMD化されたループ
+                    let simd_step = AstNode::Const(Literal::Int(simd_width as isize));
+
+                    // メインループ: SIMD幅の倍数まで処理
+                    // stop = (shape / simd_width) * simd_width
+                    let simd_stop = idiv(
+                        shape_expr.clone(),
+                        AstNode::Const(Literal::Int(simd_width as isize)),
+                    ) * AstNode::Const(Literal::Int(simd_width as isize));
+
+                    let simd_loop = AstNode::Range {
+                        var: loop_var.clone(),
+                        start: Box::new(AstNode::Const(Literal::Int(0))),
+                        step: Box::new(simd_step),
+                        stop: Box::new(simd_stop.clone()),
+                        body: Box::new(loop_body.clone()),
+                    };
+
+                    // 残りループ: スカラー処理（SIMD幅の倍数から最後まで）
+                    // スカラー用のbodyを生成（simd_width = 1として再生成）
+                    let mut scalar_scope = Scope::new();
+                    let scalar_body_statements = self.generate_elementwise_body_with_simd(
+                        node,
+                        op,
+                        &(0..ndim).collect::<Vec<_>>(),
+                        &mut scalar_scope,
+                        Some(1), // スカラー処理
+                    )?;
+
+                    let scalar_loop_body = AstNode::Block {
+                        statements: scalar_body_statements,
+                        scope: Box::new(scalar_scope),
+                    };
+
+                    let remainder_loop = AstNode::Range {
+                        var: loop_var.clone(),
+                        start: Box::new(simd_stop),
+                        step: Box::new(AstNode::Const(Literal::Int(1))),
+                        stop: Box::new(shape_expr),
+                        body: Box::new(scalar_loop_body),
+                    };
+
+                    body_statements = vec![simd_loop, remainder_loop];
+                } else {
+                    // 通常のスカラーループ
+                    body_statements = vec![AstNode::Range {
+                        var: loop_var.clone(),
+                        start: Box::new(AstNode::Const(Literal::Int(0))),
+                        step: Box::new(AstNode::Const(Literal::Int(1))),
+                        stop: Box::new(shape_expr),
+                        body: Box::new(loop_body),
+                    }];
+                }
             }
         }
 
@@ -277,7 +326,28 @@ impl Lowerer {
         axes: &[usize],
         scope: &mut Scope,
     ) -> Result<Vec<AstNode>, String> {
+        self.generate_elementwise_body_with_simd(node, op, axes, scope, None)
+    }
+
+    /// Elementwise演算の本体を生成（SIMD幅をオーバーライド可能）
+    fn generate_elementwise_body_with_simd(
+        &mut self,
+        node: &GraphNode,
+        op: &ElementwiseOp,
+        axes: &[usize],
+        scope: &mut Scope,
+        override_simd_width: Option<usize>,
+    ) -> Result<Vec<AstNode>, String> {
         let mut statements = Vec::new();
+
+        // 最内側の軸のSIMD幅を取得（最後の軸を使用）またはオーバーライド値を使用
+        let simd_width = if let Some(width) = override_simd_width {
+            width
+        } else if let Some(&last_axis) = axes.last() {
+            node.elementwise_strategies[last_axis].simd_width()
+        } else {
+            1
+        };
 
         // 入力をロード（各入力のViewを考慮）
         let mut loaded_values = Vec::new();
@@ -289,12 +359,22 @@ impl Lowerer {
             let offset = self.compute_offset_from_view(src, axes);
             let src_ptr_dtype = self.graph_dtype_to_ast_ptr(&src.dtype)?;
             let src_dtype = src_ptr_dtype.deref_type().clone();
-            let load_node = load(input_ptr, offset, src_dtype.clone());
+
+            // SIMD化: simd_width > 1の場合はベクトルロード
+            let (load_node, final_dtype) = if simd_width > 1 {
+                let vec_dtype = src_dtype.to_vec(simd_width);
+                (
+                    load_vec(input_ptr, offset, simd_width, vec_dtype.clone()),
+                    vec_dtype,
+                )
+            } else {
+                (load(input_ptr, offset, src_dtype.clone()), src_dtype)
+            };
 
             // 変数を宣言（初期値付き）
             scope.declare(
                 alu_var.clone(),
-                src_dtype,
+                final_dtype,
                 Mutability::Mutable,
                 Some(load_node),
             )?;
@@ -306,10 +386,15 @@ impl Lowerer {
         let result = self.apply_elementwise_op(op, &loaded_values)?;
         let result_var = self.fresh_alu();
 
-        // 結果の型を推定（最初の入力と同じ型を使用）
+        // 結果の型を推定（SIMD化を考慮）
         let result_dtype = if let Some(src) = node.src.first() {
             let ptr_dtype = self.graph_dtype_to_ast_ptr(&src.dtype)?;
-            ptr_dtype.deref_type().clone()
+            let src_dtype = ptr_dtype.deref_type().clone();
+            if simd_width > 1 {
+                src_dtype.to_vec(simd_width)
+            } else {
+                src_dtype
+            }
         } else {
             return Err("No input found for elementwise operation".to_string());
         };

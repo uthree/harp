@@ -482,7 +482,7 @@ impl GraphViewerApp {
                         ui.label("Cost:");
                         // 科学記数法で表示（小さい値でも読みやすく）
                         let cost_str = if snapshot.cost.abs() < 0.001 && snapshot.cost != 0.0 {
-                            format!("{:.2e}", snapshot.cost)
+                            format!("{:.6e}", snapshot.cost)
                         } else {
                             format!("{:.6}", snapshot.cost)
                         };
@@ -706,7 +706,7 @@ impl GraphViewerApp {
 
                     // Diff表示（最適化履歴がある場合のみ、折りたたみ可能）
                     if self.optimization_history.is_some() && self.current_step > 0 {
-                        egui::CollapsingHeader::new("Show Diff (Previous → Current)")
+                        egui::CollapsingHeader::new("Show Diff (Previous -> Current)")
                             .default_open(false)
                             .show(ui, |ui| {
                                 egui::Resize::default()

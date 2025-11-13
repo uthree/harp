@@ -305,7 +305,7 @@ where
             ui.horizontal(|ui| {
                 ui.label("Cost:");
                 // ASTのコストは非常に小さい（1e-9スケール）ので常に科学記数法で表示
-                let cost_str = format!("{:.2e}", current_snapshot.cost);
+                let cost_str = format!("{:.6e}", current_snapshot.cost);
                 ui.label(cost_str);
             });
             ui.horizontal(|ui| {
@@ -442,7 +442,7 @@ where
         if let (Some(ref prev), Some(ref current)) = (&prev_code, &selected_code) {
             ui.separator();
 
-            egui::CollapsingHeader::new("Code Diff (Previous → Current)")
+            egui::CollapsingHeader::new("Code Diff (Previous -> Current)")
                 .default_open(false)
                 .show(ui, |ui| {
                     egui::Resize::default()

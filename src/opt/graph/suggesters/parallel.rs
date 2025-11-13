@@ -8,6 +8,12 @@ pub struct ParallelStrategyChanger {
     strategy_candidates: Vec<ElementwiseStrategy>,
 }
 
+impl Default for ParallelStrategyChanger {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ParallelStrategyChanger {
     /// 新しいParallelStrategyChangerを作成
     pub fn new() -> Self {

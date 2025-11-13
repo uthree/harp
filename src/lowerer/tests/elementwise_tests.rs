@@ -275,3 +275,122 @@ kernel void test_add(
         eprintln!("⚠️ Metal not available, skipping test");
     }
 }
+
+#[test]
+fn test_lower_add_with_simd() {
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    use crate::graph::{
+        ElementwiseStrategy, Expr, GraphNode, View,
+        ops::{ElementwiseOp, GraphOp},
+    };
+
+    // a + b のグラフをSIMD化してカーネルに変換
+    let mut graph = Graph::new();
+    let a = graph
+        .input("a")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![16])
+        .build();
+    let b = graph
+        .input("b")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![16])
+        .build();
+
+    // SIMD幅を4に設定したAdd演算ノードを直接作成
+    let view = View::contiguous(vec![Expr::from(16)]);
+    let simd_node = GraphNode::with_elementwise_strategies(
+        GraphDType::F32,
+        GraphOp::Elementwise {
+            op: ElementwiseOp::Add,
+            elementwise_strategies: None,
+        },
+        vec![a, b],
+        view,
+        vec![ElementwiseStrategy::sequential_simd(4)],
+    );
+
+    // カーネル関数を生成
+    let mut lowerer = Lowerer::new();
+    let function = lowerer.lower_node_to_kernel(&simd_node, 0);
+
+    assert!(function.is_ok());
+    let function = function.unwrap();
+
+    // 生成されたコードを表示（MetalRendererを使用）
+    use crate::backend::c_like::CLikeRenderer;
+    use crate::backend::metal::MetalRenderer;
+    let mut renderer = MetalRenderer::new();
+    let code = renderer.render_function_node(&function);
+    println!("\nGenerated SIMD code:\n{}", code);
+
+    // ベクトル型（float4）が含まれることを確認
+    assert!(
+        code.contains("float4"),
+        "Generated code should contain float4 vector type"
+    );
+}
+
+#[test]
+fn test_lower_add_with_simd_remainder() {
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    use crate::graph::{
+        ElementwiseStrategy, Expr, GraphNode, View,
+        ops::{ElementwiseOp, GraphOp},
+    };
+
+    // a + b のグラフをSIMD化してカーネルに変換（サイズが4で割り切れない場合）
+    let mut graph = Graph::new();
+    let a = graph
+        .input("a")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![17]) // 4で割り切れない
+        .build();
+    let b = graph
+        .input("b")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![17])
+        .build();
+
+    // SIMD幅を4に設定したAdd演算ノードを直接作成
+    let view = View::contiguous(vec![Expr::from(17)]);
+    let simd_node = GraphNode::with_elementwise_strategies(
+        GraphDType::F32,
+        GraphOp::Elementwise {
+            op: ElementwiseOp::Add,
+            elementwise_strategies: None,
+        },
+        vec![a, b],
+        view,
+        vec![ElementwiseStrategy::sequential_simd(4)],
+    );
+
+    // カーネル関数を生成
+    let mut lowerer = Lowerer::new();
+    let function = lowerer.lower_node_to_kernel(&simd_node, 0);
+
+    assert!(function.is_ok());
+    let function = function.unwrap();
+
+    // 生成されたコードを表示（MetalRendererを使用）
+    use crate::backend::c_like::CLikeRenderer;
+    use crate::backend::metal::MetalRenderer;
+    let mut renderer = MetalRenderer::new();
+    let code = renderer.render_function_node(&function);
+    println!("\nGenerated SIMD code with remainder:\n{}", code);
+
+    // ベクトル型（float4）とスカラー型（float）の両方が含まれることを確認
+    assert!(
+        code.contains("float4"),
+        "Generated code should contain float4 vector type"
+    );
+
+    // 2つのループがあることを確認（メインループと残りループ）
+    let loop_count = code.matches("for (").count();
+    assert_eq!(
+        loop_count, 2,
+        "Generated code should have 2 loops (main + remainder)"
+    );
+}
