@@ -1,0 +1,53 @@
+use harp::backend::openmp::{CCompiler, CRenderer};
+use harp::backend::{GenericPipeline, GraphOptimizationConfig, Pipeline};
+use harp::graph::{DType, Graph};
+
+#[test]
+fn test_pipeline_selects_simd() {
+    // GenericPipelineがSIMD化を選択するか確認
+    let mut graph = Graph::new();
+    let a = graph
+        .input("a")
+        .with_dtype(DType::F32)
+        .with_shape(vec![100])
+        .build();
+    let b = graph
+        .input("b")
+        .with_dtype(DType::F32)
+        .with_shape(vec![100])
+        .build();
+    let c = a + b;
+    graph.output("c", c);
+
+    let renderer = CRenderer::new();
+    let compiler = CCompiler::new();
+
+    let graph_config = GraphOptimizationConfig {
+        beam_width: 10,
+        max_steps: 20,
+        show_progress: false,
+    };
+
+    let pipeline =
+        GenericPipeline::new(renderer, compiler).with_graph_optimization_config(graph_config);
+
+    // グラフ最適化を実行（コンパイルはスキップ）
+    let optimized = pipeline.optimize_graph(graph);
+
+    // 出力ノードのelementwise_strategiesを確認
+    let output = optimized.outputs().get("c").unwrap();
+    println!("Pipeline optimization result:");
+    println!(
+        "  elementwise_strategies: {:?}",
+        output.elementwise_strategies
+    );
+
+    // SIMD化されているか確認
+    if !output.elementwise_strategies.is_empty() {
+        let simd_width = output.elementwise_strategies[0].simd_width();
+        println!("  SIMD width: {}", simd_width);
+        assert!(simd_width > 1, "SIMD化が選択されるべき");
+    } else {
+        panic!("elementwise_strategiesが空です");
+    }
+}

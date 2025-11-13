@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 /// SIMD化を提案するSuggester
 pub struct SimdSuggester {
     /// 試行するSIMD幅の候補
-    simd_widths: Vec<usize>,
+    pub simd_widths: Vec<usize>,
 }
 
 impl Default for SimdSuggester {
@@ -18,7 +18,7 @@ impl SimdSuggester {
     /// 新しいSimdSuggesterを作成
     pub fn new() -> Self {
         Self {
-            simd_widths: vec![2, 4, 8],
+            simd_widths: vec![2, 3, 4, 8],
         }
     }
 
@@ -99,8 +99,54 @@ impl SimdSuggester {
                     new_strategies,
                 ))
             }
-            // Thread系の戦略の場合はスキップ（並列化とSIMDは別の最適化）
-            ElementwiseStrategy::Thread { .. } | ElementwiseStrategy::ThreadGroup { .. } => None,
+            ElementwiseStrategy::Thread {
+                simd_width: current_simd,
+                unroll_factor,
+            } => {
+                // すでにSIMD化されている場合（simd_width > 1）はスキップ
+                if *current_simd > 1 {
+                    return None;
+                }
+
+                // Thread並列化にSIMD化を追加
+                let mut new_strategies = node.elementwise_strategies.clone();
+                new_strategies[innermost_axis] = ElementwiseStrategy::Thread {
+                    simd_width,
+                    unroll_factor: *unroll_factor,
+                };
+
+                Some(GraphNode::with_elementwise_strategies(
+                    node.dtype.clone(),
+                    node.op.clone(),
+                    node.src.clone(),
+                    node.view.clone(),
+                    new_strategies,
+                ))
+            }
+            ElementwiseStrategy::ThreadGroup {
+                simd_width: current_simd,
+                unroll_factor,
+            } => {
+                // すでにSIMD化されている場合（simd_width > 1）はスキップ
+                if *current_simd > 1 {
+                    return None;
+                }
+
+                // ThreadGroup並列化にSIMD化を追加
+                let mut new_strategies = node.elementwise_strategies.clone();
+                new_strategies[innermost_axis] = ElementwiseStrategy::ThreadGroup {
+                    simd_width,
+                    unroll_factor: *unroll_factor,
+                };
+
+                Some(GraphNode::with_elementwise_strategies(
+                    node.dtype.clone(),
+                    node.op.clone(),
+                    node.src.clone(),
+                    node.view.clone(),
+                    new_strategies,
+                ))
+            }
         }
     }
 

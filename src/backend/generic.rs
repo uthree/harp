@@ -286,8 +286,7 @@ where
                 Box::new(ParallelStrategyChanger::new()),
                 Box::new(SimdSuggester::new()),
             ]);
-            let ast_estimator = AstSimpleCostEstimator::new();
-            let estimator = AstBasedCostEstimator::new(ast_estimator);
+            let estimator = AstBasedCostEstimator::new(AstSimpleCostEstimator::new());
 
             let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
                 .with_beam_width(self.graph_optimization_config.beam_width)
@@ -308,9 +307,9 @@ where
         let (optimized_program, all_histories) = if self.enable_ast_optimization {
             // ステップ1: ルールベース最適化
             // a+0 -> a のような, 不要なノードを削除したり、定数項のみで構成される演算を事前に計算したりする。
-            // ASTの最適化の流れを観察するために、一時的に無効化。
-            // let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules())
-            //    .with_max_iterations(self.ast_optimization_config.rule_max_iterations);
+            let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules())
+                .with_max_iterations(self.ast_optimization_config.rule_max_iterations);
+            let program = rule_optimizer.optimize(program);
 
             // let program = rule_optimizer.optimize(program);
             // ステップ2: ビームサーチ最適化（ルールベース + ループ最適化）
@@ -359,8 +358,8 @@ where
                 Box::new(ParallelStrategyChanger::new()),
                 Box::new(SimdSuggester::new()),
             ]);
-            let ast_estimator = AstSimpleCostEstimator::new();
-            let estimator = AstBasedCostEstimator::new(ast_estimator);
+            // SimpleCostEstimatorを使用してSIMD/並列化効果を正しく評価
+            let estimator = SimpleCostEstimator::new();
 
             let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
                 .with_beam_width(self.graph_optimization_config.beam_width)
@@ -469,8 +468,8 @@ where
             Box::new(ParallelStrategyChanger::new()),
             Box::new(SimdSuggester::new()),
         ]);
-        let ast_estimator = AstSimpleCostEstimator::new();
-        let estimator = AstBasedCostEstimator::new(ast_estimator);
+        // SimpleCostEstimatorを使用してSIMD/並列化効果を正しく評価
+        let estimator = SimpleCostEstimator::new();
 
         let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
             .with_beam_width(self.graph_optimization_config.beam_width)

@@ -14,7 +14,7 @@ use crate::opt::graph::GraphSuggester;
 pub struct TilingSuggester {
     /// 試行するタイルサイズの候補
     #[allow(dead_code)]
-    tile_sizes: Vec<Vec<usize>>,
+    pub tile_sizes: Vec<Vec<usize>>,
 }
 
 impl TilingSuggester {
