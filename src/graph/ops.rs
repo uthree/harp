@@ -53,6 +53,8 @@ pub enum ElementwiseOp {
     Recip,
     Log2, // 底が2の対数
     Exp2, // 2の累乗
+    Sin,  // 正弦
+    Sqrt, // 平方根
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

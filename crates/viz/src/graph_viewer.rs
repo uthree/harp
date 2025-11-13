@@ -327,14 +327,14 @@ impl GraphViewerApp {
         use harp::graph::GraphOp;
         match op {
             GraphOp::Input => "Input".to_string(),
-            GraphOp::Const(_) => "Const".to_string(),
+            GraphOp::Const(l) => format!("{:?}", l),
             GraphOp::View(_) => "View".to_string(),
             GraphOp::Contiguous { .. } => "Contiguous".to_string(),
-            GraphOp::Elementwise { op, .. } => format!("Elem({:?})", op),
-            GraphOp::Reduce { op, axis, .. } => format!("Reduce({:?}, {})", op, axis),
-            GraphOp::Cumulative { .. } => "Cumulative".to_string(),
-            GraphOp::FusedElementwise { .. } => "FusedElem".to_string(),
-            GraphOp::FusedElementwiseReduce { .. } => "FusedElemReduce".to_string(),
+            GraphOp::Elementwise { op, .. } => format!("{:?}", op),
+            GraphOp::Reduce { op, axis, .. } => format!("{:?}Reduce({})", op, axis),
+            GraphOp::Cumulative { .. } => "Cum".to_string(),
+            GraphOp::FusedElementwise { .. } => "FusedE".to_string(),
+            GraphOp::FusedElementwiseReduce { .. } => "FusedEReduce".to_string(),
             GraphOp::FusedReduce { .. } => "FusedReduce".to_string(),
         }
     }

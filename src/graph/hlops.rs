@@ -4,7 +4,7 @@
 //! より高レベルな数学的演算や便利な演算を提供します。
 
 use crate::graph::GraphNode;
-use crate::graph::ops::{ElementwiseOp, GraphOp, max, reduce_sum};
+use crate::graph::ops::{max, recip, reduce_sum, ElementwiseOp, GraphOp};
 
 impl GraphNode {
     /// 二乗: x^2
@@ -301,6 +301,64 @@ impl GraphNode {
         let expanded_const = log2_e.view(view);
 
         (self * expanded_const).exp2()
+    }
+
+    /// 正弦: sin(x)
+    pub fn sin(self) -> GraphNode {
+        let dtype = self.dtype.clone();
+        let view = self.view.clone();
+        GraphNode::new(
+            dtype,
+            GraphOp::Elementwise {
+                op: ElementwiseOp::Sin,
+                elementwise_strategies: None,
+            },
+            vec![self],
+            view,
+        )
+    }
+
+    /// 余弦: cos(x) = sin(x + π/2)
+    ///
+    /// sinを使って実装します。
+    pub fn cos(self) -> GraphNode {
+        // cos(x) = sin(x + π/2)
+        const HALF_PI: f32 = std::f32::consts::FRAC_PI_2;
+
+        let half_pi = GraphNode::constant(HALF_PI);
+
+        // 定数（スカラー）をxのshapeにexpand
+        let ndim = self.view.ndim();
+        let mut view = half_pi.view.clone();
+        for _ in 0..ndim {
+            view = view.unsqueeze(0);
+        }
+        view = view.expand(self.view.shape().to_vec());
+        let expanded_const = half_pi.view(view);
+
+        (self + expanded_const).sin()
+    }
+
+    /// 平方根: sqrt(x)
+    pub fn sqrt(self) -> GraphNode {
+        let dtype = self.dtype.clone();
+        let view = self.view.clone();
+        GraphNode::new(
+            dtype,
+            GraphOp::Elementwise {
+                op: ElementwiseOp::Sqrt,
+                elementwise_strategies: None,
+            },
+            vec![self],
+            view,
+        )
+    }
+
+    /// 平方根の逆数: rsqrt(x) = 1/sqrt(x)
+    ///
+    /// sqrtとrecipを使って実装します。
+    pub fn rsqrt(self) -> GraphNode {
+        recip(self.sqrt())
     }
 }
 
@@ -629,6 +687,100 @@ mod tests {
         let result = x.exp();
 
         // exp(x) = exp2(x * const) なので、exp2演算が含まれる
+        match result.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
+
+        assert_eq!(result.view.ndim(), 1);
+    }
+
+    #[test]
+    fn test_sin() {
+        let mut graph = Graph::new();
+        let x = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        let result = x.sin();
+
+        match result.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
+
+        assert_eq!(result.view.ndim(), 1);
+
+        match &result.op {
+            GraphOp::Elementwise {
+                op: ElementwiseOp::Sin,
+                ..
+            } => {}
+            _ => panic!("Expected Sin operation"),
+        }
+    }
+
+    #[test]
+    fn test_cos() {
+        let mut graph = Graph::new();
+        let x = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        let result = x.cos();
+
+        // cos(x) = sin(x + const)
+        match result.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
+
+        assert_eq!(result.view.ndim(), 1);
+    }
+
+    #[test]
+    fn test_sqrt() {
+        let mut graph = Graph::new();
+        let x = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        let result = x.sqrt();
+
+        match result.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
+
+        assert_eq!(result.view.ndim(), 1);
+
+        match &result.op {
+            GraphOp::Elementwise {
+                op: ElementwiseOp::Sqrt,
+                ..
+            } => {}
+            _ => panic!("Expected Sqrt operation"),
+        }
+    }
+
+    #[test]
+    fn test_rsqrt() {
+        let mut graph = Graph::new();
+        let x = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        let result = x.rsqrt();
+
+        // rsqrt(x) = recip(sqrt(x))
         match result.dtype {
             DType::F32 => {}
             _ => panic!("Expected DType::F32"),

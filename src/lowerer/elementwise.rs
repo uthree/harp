@@ -392,6 +392,18 @@ impl Lowerer {
                 }
                 Ok(AstNode::Exp2(Box::new(operands[0].clone())))
             }
+            ElementwiseOp::Sin => {
+                if operands.len() != 1 {
+                    return Err("Sin requires 1 operand".to_string());
+                }
+                Ok(AstNode::Sin(Box::new(operands[0].clone())))
+            }
+            ElementwiseOp::Sqrt => {
+                if operands.len() != 1 {
+                    return Err("Sqrt requires 1 operand".to_string());
+                }
+                Ok(AstNode::Sqrt(Box::new(operands[0].clone())))
+            }
         }
     }
 }
