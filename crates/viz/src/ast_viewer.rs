@@ -451,18 +451,13 @@ where
         egui::CollapsingHeader::new(format!("Debug Logs ({} entries)", logs.len()))
             .default_open(false)
             .show(ui, |ui| {
-                egui::Resize::default()
-                    .default_height(300.0)
-                    .min_height(100.0)
-                    .max_height(800.0)
-                    .resizable(true)
-                    .show(ui, |ui| {
-                        if !logs.is_empty() {
-                            egui::ScrollArea::both() // 長いログ行にも対応
-                                .id_salt("logs_scroll")
-                                .max_height(ui.available_height())
-                                .auto_shrink([false, false])
-                                .show(ui, |ui| {
+                if !logs.is_empty() {
+                    egui::ScrollArea::both() // 長いログ行にも対応
+                        .id_salt("logs_scroll")
+                        .max_width(f32::INFINITY)
+                        .max_height(300.0)
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
                                     for log_line in &logs {
                                         // ログレベルに応じて色分け
                                         let color = if log_line.contains("[ERROR]") {
@@ -483,10 +478,9 @@ where
                                         );
                                     }
                                 });
-                        } else {
-                            ui.label("No logs captured for this step.");
-                        }
-                    });
+                } else {
+                    ui.label("No logs captured for this step.");
+                }
             });
         }); // ScrollArea::vertical() を閉じる
     }
