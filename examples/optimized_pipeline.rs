@@ -65,7 +65,6 @@ fn main() {
     };
 
     let ast_config = AstOptimizationConfig {
-        rule_max_iterations: 50,
         beam_width: 5,
         max_steps: 10,
         show_progress: true,
