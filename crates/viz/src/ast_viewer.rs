@@ -401,18 +401,12 @@ where
                         });
 
                         if let Some(rendered_code) = code_for_display {
-                            // 高さをリサイズ可能に
-                            egui::Resize::default()
-                                .default_height(400.0)
-                                .min_height(200.0)
-                                .max_height(1000.0)
-                                .resizable(true)
+                            egui::ScrollArea::both() // 縦横両方にスクロール可能
+                                .id_salt("ast_code_scroll")
+                                .max_width(ui.available_width())
+                                .max_height(400.0)
+                                .auto_shrink([false, false]) // 自動縮小を無効化して全幅を使う
                                 .show(ui, |ui| {
-                                    egui::ScrollArea::both() // 縦横両方にスクロール可能
-                                        .id_salt("ast_code_scroll")
-                                        .max_height(ui.available_height())
-                                        .auto_shrink([false, false]) // 自動縮小を無効化して全幅を使う
-                                        .show(ui, |ui| {
                                             // シンタックスハイライト付きでコードを表示
                                             let theme =
                                                 egui_extras::syntax_highlighting::CodeTheme::from_memory(
@@ -430,16 +424,14 @@ where
 
                                             ui.add(egui::Label::new(code).selectable(true)); // 折り返しなし、ScrollArea::both()で横スクロール対応
                                         });
-                                });
                         } else {
                             ui.label("No candidate selected");
                         }
                     });
             });
 
-        // Diffを表示（折りたたみ可能、高さリサイズ可能）
+        // Diffを表示（折りたたみ可能）
         if let (Some(ref prev), Some(ref current)) = (&prev_code, &selected_code) {
-            log::debug!("AST diff display: prev_len={}, current_len={}", prev.len(), current.len());
             ui.separator();
 
             crate::diff_viewer::show_collapsible_diff(
@@ -448,11 +440,9 @@ where
                 current,
                 "Code Diff (Previous -> Current)",
                 "ast_code_diff",
-                true, // デフォルトで開く（テスト用）
+                true, // デフォルトで開く
                 None,
             );
-        } else {
-            log::debug!("AST diff not shown: prev={}, current={}", prev_code.is_some(), selected_code.is_some());
         }
 
         // ログを表示（折りたたみ可能、高さリサイズ可能）

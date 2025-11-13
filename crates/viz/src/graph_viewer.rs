@@ -710,10 +710,6 @@ impl GraphViewerApp {
 
                             // Diff表示（最適化履歴がある場合のみ、折りたたみ可能）
                             if self.optimization_history.is_some() && self.current_step > 0 {
-                                log::debug!(
-                                    "Graph diff display: history exists, current_step={}",
-                                    self.current_step
-                                );
                                 let current_dot = graph.to_dot();
                                 let prev_dot =
                                     self.optimization_history.as_ref().and_then(|history| {
@@ -723,42 +719,24 @@ impl GraphViewerApp {
                                     });
 
                                 if let Some(prev_text) = prev_dot {
-                                    log::debug!(
-                                        "Showing graph diff: prev_len={}, current_len={}",
-                                        prev_text.len(),
-                                        current_dot.len()
-                                    );
                                     crate::diff_viewer::show_collapsible_diff(
                                         ui,
                                         &prev_text,
                                         &current_dot,
                                         "Show Diff (Previous -> Current)",
                                         "graph_dot_diff",
-                                        true, // デフォルトで開く（テスト用）
+                                        true, // デフォルトで開く
                                         None,
                                     );
-                                } else {
-                                    log::warn!("Graph diff: prev_dot is None");
                                 }
 
                                 ui.add_space(5.0);
-                            } else {
-                                log::debug!(
-                                    "Graph diff not shown: history={}, current_step={}",
-                                    self.optimization_history.is_some(),
-                                    self.current_step
-                                );
                             }
 
-                            // DOTテキスト本文（高さリサイズ可能）
+                            // DOTテキスト本文
                             let current_dot = graph.to_dot();
-                            egui::Resize::default()
-                                .default_height(400.0)
-                                .min_height(100.0)
-                                .max_height(800.0)
-                                .resizable(true)
-                                .show(ui, |ui| {
-                                    egui::ScrollArea::both() // 縦横両方にスクロール可能
+                            egui::ScrollArea::both() // 縦横両方にスクロール可能
+                                .max_width(ui.available_width())
                                 .max_height(ui.available_height())
                                 .auto_shrink([false, false]) // 自動縮小を無効化して全幅を使う
                                 .show(ui, |ui| {
@@ -767,7 +745,6 @@ impl GraphViewerApp {
                                             .code_editor()
                                             .desired_width(f32::INFINITY),
                                     );
-                                });
                                 });
                         } else {
                             ui.label("No graph loaded");

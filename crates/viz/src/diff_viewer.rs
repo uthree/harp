@@ -79,19 +79,13 @@ pub fn show_resizable_diff(
     id_salt: &str,
     config: Option<&DiffViewerConfig>,
 ) {
-    egui::Resize::default()
-        .default_height(300.0)
-        .min_height(100.0)
-        .max_height(800.0)
-        .resizable(true)
+    egui::ScrollArea::both()
+        .id_salt(id_salt)
+        .max_width(f32::INFINITY)
+        .max_height(300.0)
+        .auto_shrink([false, false])
         .show(ui, |ui| {
-            egui::ScrollArea::both()
-                .id_salt(id_salt)
-                .max_height(ui.available_height())
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    show_text_diff(ui, prev_text, current_text, config);
-                });
+            show_text_diff(ui, prev_text, current_text, config);
         });
 }
 
