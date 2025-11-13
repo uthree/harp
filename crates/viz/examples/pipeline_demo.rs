@@ -202,10 +202,9 @@ fn create_complex_computation_graph() -> Graph {
     let mut graph = Graph::new();
 
     // サイズは小さめにして最適化の効果を見やすくする
-    let m = 64;
-    let k = 32;
+    let m = 256;
+    let k = 128;
     let n = 64;
-    let p = 128;
 
     // 入力行列
     let a = graph
@@ -218,18 +217,6 @@ fn create_complex_computation_graph() -> Graph {
         .input("b")
         .with_dtype(DType::F32)
         .with_shape(vec![k, n])
-        .build();
-
-    let c = graph
-        .input("c")
-        .with_dtype(DType::F32)
-        .with_shape(vec![m, n])
-        .build();
-
-    let d = graph
-        .input("d")
-        .with_dtype(DType::F32)
-        .with_shape(vec![n, p])
         .build();
 
     // 定数演算（定数畳み込みが働く）
@@ -247,16 +234,7 @@ fn create_complex_computation_graph() -> Graph {
     );
 
     // 行列積 (View挿入とFusionが働く)
-    let temp1 = matmul(a, b); // [M, N]
-
-    // Elementwise演算の連鎖 (これらがFusionで1つのカーネルになる)
-    let temp2 = temp1 + c;
-    let temp3 = temp2 * scale;
-
-    // さらなる行列積
-    let result = matmul(temp3, d); // [M, P]
-
-    // 出力
+    let result = matmul(a, b) + scale; // [M, N]
     graph.output("result", result);
 
     graph
