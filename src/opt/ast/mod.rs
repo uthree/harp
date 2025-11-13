@@ -1,21 +1,36 @@
-// AST最適化のサブモジュール
-mod estimator;
-mod history;
-mod loop_suggesters;
-mod optimizer;
+pub mod estimator;
+pub mod history;
+pub mod optimizer;
 pub mod rules;
-mod suggester;
+pub mod suggesters;
 pub mod transforms;
 
-// 公開API: トレイト
-pub use estimator::CostEstimator;
-pub use optimizer::Optimizer;
-pub use suggester::Suggester;
+use crate::ast::AstNode;
 
-// 公開API: 実装
+/// ASTを最適化するトレイト
+pub trait Optimizer {
+    /// ASTを最適化して返す
+    fn optimize(&self, ast: AstNode) -> AstNode;
+}
+
+/// 複数の書き換え候補を提案するトレイト（ビームサーチ用）
+pub trait Suggester {
+    /// 現在のASTから書き換え可能な候補をすべて提案
+    fn suggest(&self, ast: &AstNode) -> Vec<AstNode>;
+}
+
+/// ASTの実行コストを推定するトレイト
+pub trait CostEstimator {
+    /// ASTの実行コストを推定
+    fn estimate(&self, ast: &AstNode) -> f32;
+}
+
+// Re-export commonly used types
 pub use estimator::SimpleCostEstimator;
 pub use history::{OptimizationHistory, OptimizationSnapshot};
-pub use loop_suggesters::{LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester};
 pub use optimizer::{BeamSearchOptimizer, RuleBaseOptimizer};
-pub use suggester::{CompositeSuggester, RuleBaseSuggester};
+pub use suggesters::{
+    CompositeSuggester, LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester,
+    RuleBaseSuggester,
+};
 pub use transforms::{inline_small_loop, tile_loop};

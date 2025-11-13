@@ -1,10 +1,7 @@
+use super::CostEstimator;
 use crate::ast::AstNode;
+
 const OVERHEAD_PER_LOOP: f32 = 1e-10;
-/// ASTの実行コストを推定するトレイト
-pub trait CostEstimator {
-    /// ASTノードのコストを推定
-    fn estimate(&self, ast: &AstNode) -> f32;
-}
 
 /// 簡単なコスト推定器
 pub struct SimpleCostEstimator;

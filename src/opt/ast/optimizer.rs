@@ -4,15 +4,8 @@ use indicatif::{ProgressBar, ProgressStyle};
 use log::debug;
 use std::rc::Rc;
 
-use super::estimator::CostEstimator;
 use super::history::{OptimizationHistory, OptimizationSnapshot};
-use super::suggester::Suggester;
-
-/// ASTを最適化するトレイト
-pub trait Optimizer {
-    /// ASTを最適化して返す
-    fn optimize(&self, ast: AstNode) -> AstNode;
-}
+use super::{CostEstimator, Optimizer, Suggester};
 
 /// ルールベースの最適化器
 pub struct RuleBaseOptimizer {
@@ -323,7 +316,7 @@ mod tests {
     use crate::ast::Literal;
     use crate::astpat;
     use crate::opt::ast::estimator::SimpleCostEstimator;
-    use crate::opt::ast::suggester::RuleBaseSuggester;
+    use crate::opt::ast::suggesters::RuleBaseSuggester;
 
     #[test]
     fn test_rule_base_optimizer() {
