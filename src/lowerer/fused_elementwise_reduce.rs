@@ -53,7 +53,6 @@ impl Lowerer {
                 dtype: input_dtype,
                 mutability: Mutability::Immutable,
                 kind: VarKind::Normal,
-                initial_value: None,
             });
         }
 
@@ -64,7 +63,6 @@ impl Lowerer {
             dtype: output_dtype,
             mutability: Mutability::Mutable,
             kind: VarKind::Normal,
-            initial_value: None,
         });
 
         // Shape変数（必要な変数のみをパラメータとして追加）
@@ -199,8 +197,10 @@ impl Lowerer {
             acc_var.clone(),
             acc_dtype,
             Mutability::Mutable,
-            Some(init_value),
         )?;
+
+        // 初期値を代入
+        statements.push(assign(&acc_var, init_value));
 
         // 全ての軸についてループしてアキュムレート
         let mut inner_scope = Scope::new();
@@ -268,8 +268,10 @@ impl Lowerer {
             acc_var.clone(),
             acc_dtype,
             Mutability::Mutable,
-            Some(init_value),
         )?;
+
+        // 初期値を代入
+        statements.push(assign(&acc_var, init_value));
 
         // 縮約軸についてループしてアキュムレート
         let loop_var = format!("ridx{}", axis);

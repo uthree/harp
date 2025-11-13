@@ -9,14 +9,12 @@ fn test_function_new() {
             dtype: DType::F32,
             mutability: Mutability::Immutable,
             kind: VarKind::Normal,
-            initial_value: None,
         },
         VarDecl {
             name: "b".to_string(),
             dtype: DType::F32,
             mutability: Mutability::Immutable,
             kind: VarKind::Normal,
-            initial_value: None,
         },
     ];
     let return_type = DType::F32;
@@ -48,7 +46,6 @@ fn test_function_check_body() {
         dtype: DType::Int,
         mutability: Mutability::Immutable,
         kind: VarKind::Normal,
-        initial_value: None,
     }];
     let return_type = DType::Int;
     let body = vec![AstNode::Return {
@@ -125,7 +122,6 @@ fn test_program_with_function_call() {
             dtype: DType::Int,
             mutability: Mutability::Immutable,
             kind: VarKind::Normal,
-            initial_value: None,
         }],
         DType::Int,
         vec![AstNode::Return {

@@ -181,7 +181,6 @@ impl Lowerer {
                 dtype: AstDType::Int,
                 mutability: Mutability::Immutable,
                 kind: VarKind::Normal,
-                initial_value: None,
             })
             .collect()
     }

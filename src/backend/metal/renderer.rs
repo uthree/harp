@@ -236,21 +236,18 @@ mod tests {
                 dtype: DType::Int,
                 mutability: Mutability::Immutable,
                 kind: VarKind::ThreadId(0),
-                initial_value: None,
             },
             VarDecl {
                 name: "input".to_string(),
                 dtype: DType::F32.to_ptr(),
                 mutability: Mutability::Immutable,
                 kind: VarKind::Normal,
-                initial_value: None,
             },
             VarDecl {
                 name: "output".to_string(),
                 dtype: DType::F32.to_ptr(),
                 mutability: Mutability::Mutable,
                 kind: VarKind::Normal,
-                initial_value: None,
             },
         ];
 
@@ -293,7 +290,6 @@ mod tests {
             dtype: DType::F32,
             mutability: Mutability::Immutable,
             kind: VarKind::Normal,
-            initial_value: None,
         }];
 
         let double_func = AstNode::Function {
@@ -348,7 +344,7 @@ mod tests {
         // ループとバリアを含むカーネル
         let mut loop_scope = Scope::new();
         loop_scope
-            .declare("i".to_string(), DType::Int, Mutability::Immutable, None)
+            .declare("i".to_string(), DType::Int, Mutability::Immutable)
             .unwrap();
 
         let loop_node = AstNode::Range {

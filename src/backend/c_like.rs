@@ -217,18 +217,15 @@ pub trait CLikeRenderer: Renderer {
     fn render_block(&mut self, statements: &[AstNode], scope: &crate::ast::Scope) -> String {
         let mut result = String::new();
 
-        // ブロック先頭で変数宣言を出力
+        // ブロック先頭で変数宣言を出力（初期値なし）
         for var_decl in scope.local_variables() {
-            if let Some(initial_value) = &var_decl.initial_value {
-                let type_str = self.render_dtype_backend(&var_decl.dtype);
-                result.push_str(&format!(
-                    "{}{} {} = {};\n",
-                    self.indent(),
-                    type_str,
-                    var_decl.name,
-                    self.render_expr(initial_value)
-                ));
-            }
+            let type_str = self.render_dtype_backend(&var_decl.dtype);
+            result.push_str(&format!(
+                "{}{} {};\n",
+                self.indent(),
+                type_str,
+                var_decl.name
+            ));
         }
 
         // 文を描画

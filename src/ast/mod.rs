@@ -146,7 +146,6 @@ impl Function {
                     param.name.clone(),
                     param.dtype.clone(),
                     param.mutability.clone(),
-                    None, // パラメータは初期値なし
                 )?;
             }
         }
@@ -281,7 +280,6 @@ impl Scope {
         name: String,
         dtype: DType,
         mutability: Mutability,
-        initial_value: Option<AstNode>,
     ) -> Result<(), String> {
         if self.variables.contains_key(&name) {
             return Err(format!(
@@ -296,7 +294,6 @@ impl Scope {
                 dtype,
                 mutability,
                 kind: VarKind::Normal, // 通常の変数宣言
-                initial_value,
             },
         );
         Ok(())
@@ -360,8 +357,7 @@ pub struct VarDecl {
     pub name: String,
     pub dtype: DType,
     pub mutability: Mutability,
-    pub kind: VarKind,                  // 変数の種類
-    pub initial_value: Option<AstNode>, // 初期値（パラメータ等はNone）
+    pub kind: VarKind, // 変数の種類
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -557,16 +553,7 @@ impl AstNode {
             AstNode::Call { args, .. } => args.iter().map(|node| node as &AstNode).collect(),
             AstNode::Return { value } => vec![value.as_ref()],
             AstNode::Barrier => vec![],
-            AstNode::Function { body, params, .. } => {
-                let mut children: Vec<&AstNode> = vec![body.as_ref()];
-                // paramsのinitial_valueも子ノードに含める
-                for param in params {
-                    if let Some(ref init) = param.initial_value {
-                        children.push(init);
-                    }
-                }
-                children
-            }
+            AstNode::Function { body, .. } => vec![body.as_ref()],
             AstNode::Program { functions, .. } => {
                 functions.iter().map(|node| node as &AstNode).collect()
             }
@@ -661,16 +648,7 @@ impl AstNode {
                 kind,
             } => AstNode::Function {
                 name: name.clone(),
-                params: params
-                    .iter()
-                    .map(|param| VarDecl {
-                        name: param.name.clone(),
-                        dtype: param.dtype.clone(),
-                        mutability: param.mutability.clone(),
-                        kind: param.kind.clone(),
-                        initial_value: param.initial_value.as_ref().map(f),
-                    })
-                    .collect(),
+                params: params.clone(),
                 return_type: return_type.clone(),
                 body: Box::new(f(body)),
                 kind: kind.clone(),

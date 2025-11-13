@@ -38,7 +38,6 @@ impl Lowerer {
                 dtype,
                 mutability: Mutability::Immutable,
                 kind: VarKind::Normal,
-                initial_value: None,
             });
         }
 
@@ -49,7 +48,6 @@ impl Lowerer {
             dtype: output_dtype,
             mutability: Mutability::Mutable,
             kind: VarKind::Normal,
-            initial_value: None,
         });
 
         // Shape変数（必要な変数のみをパラメータとして追加）
@@ -176,13 +174,15 @@ impl Lowerer {
                 (load(input_ptr, offset, src_dtype.clone()), src_dtype)
             };
 
-            // 変数を宣言（初期値付き）
+            // 変数を宣言
             scope.declare(
                 alu_var.clone(),
                 final_dtype,
                 Mutability::Mutable,
-                Some(load_node),
             )?;
+
+            // 初期値を代入
+            statements.push(assign(&alu_var, load_node));
             graph_inputs.push(alu_var);
         }
 

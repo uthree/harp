@@ -456,7 +456,7 @@ fn test_scope_declare() {
     let mut scope = Scope::new();
 
     scope
-        .declare("x".to_string(), DType::F32, Mutability::Immutable, None)
+        .declare("x".to_string(), DType::F32, Mutability::Immutable)
         .unwrap();
 
     assert!(scope.get("x").is_some());
@@ -468,10 +468,10 @@ fn test_scope_duplicate_declare() {
     let mut scope = Scope::new();
 
     scope
-        .declare("x".to_string(), DType::F32, Mutability::Immutable, None)
+        .declare("x".to_string(), DType::F32, Mutability::Immutable)
         .unwrap();
 
-    let result = scope.declare("x".to_string(), DType::Int, Mutability::Mutable, None);
+    let result = scope.declare("x".to_string(), DType::Int, Mutability::Mutable);
 
     assert!(result.is_err());
 }
@@ -485,7 +485,6 @@ fn test_scope_check_read() {
             "input".to_string(),
             DType::F32.to_ptr(),
             Mutability::Immutable,
-            None,
         )
         .unwrap();
 
@@ -498,7 +497,7 @@ fn test_scope_check_write_immutable() {
     let mut scope = Scope::new();
 
     scope
-        .declare("x".to_string(), DType::F32, Mutability::Immutable, None)
+        .declare("x".to_string(), DType::F32, Mutability::Immutable)
         .unwrap();
 
     let result = scope.check_write("x", &DType::F32);
@@ -511,7 +510,7 @@ fn test_scope_check_write_mutable() {
     let mut scope = Scope::new();
 
     scope
-        .declare("output".to_string(), DType::F32, Mutability::Mutable, None)
+        .declare("output".to_string(), DType::F32, Mutability::Mutable)
         .unwrap();
 
     assert!(scope.check_write("output", &DType::F32).is_ok());
@@ -522,7 +521,7 @@ fn test_scope_check_write_type_mismatch() {
     let mut scope = Scope::new();
 
     scope
-        .declare("x".to_string(), DType::F32, Mutability::Mutable, None)
+        .declare("x".to_string(), DType::F32, Mutability::Mutable)
         .unwrap();
 
     let result = scope.check_write("x", &DType::Int);
@@ -534,7 +533,7 @@ fn test_scope_check_write_type_mismatch() {
 fn test_scope_parent_lookup() {
     let mut parent = Scope::new();
     parent
-        .declare("x".to_string(), DType::F32, Mutability::Immutable, None)
+        .declare("x".to_string(), DType::F32, Mutability::Immutable)
         .unwrap();
 
     let child = Scope::with_parent(parent);
@@ -548,7 +547,7 @@ fn test_check_scope_var() {
     let mut scope = Scope::new();
 
     scope
-        .declare("x".to_string(), DType::F32, Mutability::Immutable, None)
+        .declare("x".to_string(), DType::F32, Mutability::Immutable)
         .unwrap();
 
     let var_node = AstNode::Var("x".to_string());
@@ -563,7 +562,7 @@ fn test_check_scope_assign() {
     let mut scope = Scope::new();
 
     scope
-        .declare("x".to_string(), DType::F32, Mutability::Mutable, None)
+        .declare("x".to_string(), DType::F32, Mutability::Mutable)
         .unwrap();
 
     let assign_node = AstNode::Assign {
@@ -579,7 +578,7 @@ fn test_check_scope_assign_immutable() {
     let mut scope = Scope::new();
 
     scope
-        .declare("x".to_string(), DType::F32, Mutability::Immutable, None)
+        .declare("x".to_string(), DType::F32, Mutability::Immutable)
         .unwrap();
 
     let assign_node = AstNode::Assign {
@@ -601,7 +600,6 @@ fn test_check_scope_complex_expression() {
             "input".to_string(),
             DType::F32.to_ptr(),
             Mutability::Immutable,
-            None,
         )
         .unwrap();
 
@@ -610,12 +608,11 @@ fn test_check_scope_complex_expression() {
             "output".to_string(),
             DType::F32.to_ptr(),
             Mutability::Mutable,
-            None,
         )
         .unwrap();
 
     scope
-        .declare("i".to_string(), DType::Int, Mutability::Immutable, None)
+        .declare("i".to_string(), DType::Int, Mutability::Immutable)
         .unwrap();
 
     // output[i] = input[i] * 2.0

@@ -36,7 +36,6 @@ impl Lowerer {
             dtype: input_dtype,
             mutability: Mutability::Immutable,
             kind: VarKind::Normal,
-            initial_value: None,
         });
 
         // 出力バッファー
@@ -46,7 +45,6 @@ impl Lowerer {
             dtype: output_dtype,
             mutability: Mutability::Mutable,
             kind: VarKind::Normal,
-            initial_value: None,
         });
 
         // Shape変数（必要な変数のみをパラメータとして追加）
@@ -137,13 +135,18 @@ impl Lowerer {
         let input_ptr_dtype = self.graph_dtype_to_ast_ptr(&input.dtype)?;
         let input_dtype = input_ptr_dtype.deref_type().clone();
 
-        // 変数を宣言（初期値付き）
+        // 変数を宣言
         scope.declare(
             alu_var.clone(),
             input_dtype.clone(),
             Mutability::Mutable,
-            Some(load(input_ptr, input_offset, input_dtype)),
         )?;
+
+        // 初期値を代入
+        statements.push(assign(
+            &alu_var,
+            load(input_ptr, input_offset, input_dtype),
+        ));
 
         // 出力にストア（出力のViewを考慮）
         let output_ptr = var("output");

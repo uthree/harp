@@ -224,7 +224,6 @@ mod tests {
                 dtype: DType::Ptr(Box::new(DType::F32)),
                 mutability: Mutability::Mutable,
                 kind: VarKind::Normal,
-                initial_value: None,
             }],
             return_type: DType::Tuple(vec![]),
             body: Box::new(AstNode::Block {

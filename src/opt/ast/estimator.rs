@@ -191,16 +191,9 @@ impl CostEstimator for SimpleCostEstimator {
                 log_sum_exp(args_cost, FUNCTION_CALL_OVERHEAD.ln())
             }
             AstNode::Return { value } => self.estimate(value),
-            AstNode::Function { body, params, .. } => {
-                // 関数本体のコスト + パラメータの初期値のコスト
-                let body_cost = self.estimate(body);
-                let params_cost = log_sum_exp_iter(
-                    params
-                        .iter()
-                        .filter_map(|p| p.initial_value.as_ref())
-                        .map(|init| self.estimate(init)),
-                );
-                log_sum_exp(body_cost, params_cost)
+            AstNode::Function { body, .. } => {
+                // 関数本体のコスト
+                self.estimate(body)
             }
             AstNode::Program { functions, .. } => {
                 // すべての関数のコストの合計

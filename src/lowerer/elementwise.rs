@@ -33,7 +33,6 @@ impl Lowerer {
                 dtype,
                 mutability: Mutability::Immutable,
                 kind: VarKind::Normal,
-                initial_value: None,
             });
         }
 
@@ -44,7 +43,6 @@ impl Lowerer {
             dtype: output_dtype,
             mutability: Mutability::Mutable,
             kind: VarKind::Normal,
-            initial_value: None,
         });
 
         // Shape変数（必要な変数のみをパラメータとして追加）
@@ -379,13 +377,15 @@ impl Lowerer {
                 (load(input_ptr, offset, src_dtype.clone()), src_dtype)
             };
 
-            // 変数を宣言（初期値付き）
+            // 変数を宣言
             scope.declare(
                 alu_var.clone(),
                 final_dtype,
                 Mutability::Mutable,
-                Some(load_node),
             )?;
+
+            // 初期値を代入
+            statements.push(assign(&alu_var, load_node));
 
             loaded_values.push(var(&alu_var));
         }
@@ -407,13 +407,15 @@ impl Lowerer {
             return Err("No input found for elementwise operation".to_string());
         };
 
-        // 変数を宣言（初期値付き）
+        // 変数を宣言
         scope.declare(
             result_var.clone(),
             result_dtype,
             Mutability::Mutable,
-            Some(result),
         )?;
+
+        // 結果を変数に代入
+        statements.push(assign(&result_var, result));
 
         // 結果をストア（出力のViewを考慮）
         let output_ptr = var("output");

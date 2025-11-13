@@ -419,7 +419,6 @@ mod tests {
             dtype: DType::F32,
             mutability: Mutability::Immutable,
             kind: VarKind::Normal,
-            initial_value: None,
         }];
 
         let body = AstNode::Return {
@@ -461,7 +460,6 @@ mod tests {
             dtype: DType::F32,
             mutability: Mutability::Immutable,
             kind: VarKind::Normal,
-            initial_value: None,
         }];
 
         let body = AstNode::Return {
@@ -493,7 +491,6 @@ mod tests {
             dtype: DType::F32,
             mutability: Mutability::Immutable,
             kind: VarKind::Normal,
-            initial_value: None,
         }];
 
         let body = AstNode::Return {

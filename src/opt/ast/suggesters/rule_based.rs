@@ -236,22 +236,6 @@ impl RuleBaseSuggester {
                         kind: kind.clone(),
                     });
                 }
-                // パラメータの初期値に対してルールを適用
-                for (i, param) in params.iter().enumerate() {
-                    if let Some(init_value) = &param.initial_value {
-                        for new_init in self.apply_rule_at_all_positions(init_value, rule) {
-                            let mut new_params = params.clone();
-                            new_params[i].initial_value = Some(new_init);
-                            results.push(AstNode::Function {
-                                name: name.clone(),
-                                params: new_params,
-                                return_type: return_type.clone(),
-                                body: body.clone(),
-                                kind: kind.clone(),
-                            });
-                        }
-                    }
-                }
             }
             AstNode::Program {
                 functions,
