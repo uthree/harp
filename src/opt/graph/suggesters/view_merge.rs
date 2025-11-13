@@ -71,16 +71,9 @@ impl ViewMergeSuggester {
 
         let input_node = &view_node.src[0];
 
-        // 入力ノードがInputノードの場合は、Viewを直接書き換えられない
-        // （Inputノードは変更すべきでない）
-        if matches!(input_node.op, GraphOp::Input) {
-            return None;
-        }
-
         // 入力ノードのviewをViewノードのviewで置き換えた新しいノードを作成
         // elementwise_strategiesの長さを新しいviewのndimに合わせて調整
         let new_ndim = target_view.ndim();
-        let old_ndim = input_node.view.ndim();
 
         // スカラー（ndim=0）の場合や、elementwise_strategiesが空の場合はマージをスキップ
         // （これらは特殊なケースで、elementwise演算の対象外）
@@ -88,12 +81,6 @@ impl ViewMergeSuggester {
             return None;
         }
 
-        // 次元数が変更される場合はマージをスキップ
-        // （unsqueeze、expand、squeezeなどで次元数が変わる場合、入力ノードの入力との
-        //   次元の不一致が発生する可能性があるため）
-        if old_ndim != new_ndim {
-            return None;
-        }
         let old_strategies = &input_node.elementwise_strategies;
         let mut new_strategies = Vec::new();
 
