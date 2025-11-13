@@ -22,6 +22,7 @@ where
     beam_width: usize,
     max_steps: usize,
     show_progress: bool,
+    collect_logs: bool,
 }
 
 impl<S, E> BeamSearchGraphOptimizer<S, E>
@@ -36,7 +37,8 @@ where
             estimator,
             beam_width: 10,
             max_steps: 10000,
-            show_progress: true,
+            show_progress: cfg!(debug_assertions),
+            collect_logs: cfg!(debug_assertions),
         }
     }
 
@@ -67,6 +69,12 @@ where
         self.show_progress = show;
         self
     }
+
+    /// ログ収集の有効/無効を設定
+    pub fn with_collect_logs(mut self, collect: bool) -> Self {
+        self.collect_logs = collect;
+        self
+    }
 }
 
 impl<S, E> BeamSearchGraphOptimizer<S, E>
@@ -78,8 +86,10 @@ where
     pub fn optimize_with_history(&self, graph: Graph) -> (Graph, OptimizationHistory) {
         use crate::opt::log_capture;
 
-        // ログキャプチャを開始
-        log_capture::start_capture();
+        // ログキャプチャを開始（collect_logsが有効な場合のみ）
+        if self.collect_logs {
+            log_capture::start_capture();
+        }
 
         debug!("BeamSearchGraphOptimizer: Starting beam search optimization with history tracking");
 
@@ -104,7 +114,11 @@ where
             );
         }
 
-        let initial_logs = log_capture::get_captured_logs();
+        let initial_logs = if self.collect_logs {
+            log_capture::get_captured_logs()
+        } else {
+            Vec::new()
+        };
         history.add_snapshot(OptimizationSnapshot::with_logs(
             0,
             graph,
@@ -114,7 +128,9 @@ where
         ));
 
         // 初期ログをクリア（各ステップで新しいログのみを記録するため）
-        log_capture::clear_logs();
+        if self.collect_logs {
+            log_capture::clear_logs();
+        }
 
         let pb = if self.show_progress {
             let pb = ProgressBar::new(self.max_steps as u64);
@@ -213,7 +229,11 @@ where
                     );
                 }
 
-                let step_logs = log_capture::get_captured_logs();
+                let step_logs = if self.collect_logs {
+                    log_capture::get_captured_logs()
+                } else {
+                    Vec::new()
+                };
                 history.add_snapshot(OptimizationSnapshot::with_logs(
                     step + 1,
                     best.clone(),
@@ -228,7 +248,9 @@ where
                 ));
 
                 // このステップのログをクリア（次のステップで新しいログのみを記録するため）
-                log_capture::clear_logs();
+                if self.collect_logs {
+                    log_capture::clear_logs();
+                }
             }
         }
 
