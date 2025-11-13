@@ -141,6 +141,10 @@ where
         } else {
             Vec::new()
         };
+
+        // これまでで最良の候補を保持（astを移動する前に初期化）
+        let mut global_best = ast.clone();
+
         history.add_snapshot(OptimizationSnapshot::with_logs(
             0,
             ast,
@@ -170,6 +174,10 @@ where
         };
 
         let mut actual_steps = 0;
+        let mut best_cost = initial_cost;
+        let mut no_improvement_count = 0;
+        const MAX_NO_IMPROVEMENT_STEPS: usize = 3;
+
         for step in 0..self.max_steps {
             actual_steps = step;
             if let Some(ref pb) = pb {
@@ -218,6 +226,38 @@ where
             // このステップの最良候補を記録
             if let Some(best) = beam.first() {
                 let cost = self.estimator.estimate(best);
+
+                // コストが改善されない場合はカウンターを増やす
+                if cost >= best_cost {
+                    no_improvement_count += 1;
+                    debug!(
+                        "BeamSearchOptimizer: No cost improvement at step {} (current: {}, best: {}, count: {}/{})",
+                        step, cost, best_cost, no_improvement_count, MAX_NO_IMPROVEMENT_STEPS
+                    );
+
+                    // 連続で改善がない場合は早期終了
+                    if no_improvement_count >= MAX_NO_IMPROVEMENT_STEPS {
+                        debug!(
+                            "BeamSearchOptimizer: No cost improvement for {} steps - optimization complete (early termination)",
+                            MAX_NO_IMPROVEMENT_STEPS
+                        );
+                        actual_steps = step;
+                        if let Some(ref pb) = pb {
+                            pb.set_position(step as u64);
+                            pb.set_message(format!(
+                                "no cost improvement for {} steps",
+                                MAX_NO_IMPROVEMENT_STEPS
+                            ));
+                        }
+                        break;
+                    }
+                } else {
+                    // コストが改善された場合はカウンターをリセット
+                    no_improvement_count = 0;
+                    best_cost = cost;
+                    global_best = best.clone();
+                }
+
                 let step_logs = if self.collect_logs {
                     log_capture::get_captured_logs()
                 } else {
@@ -261,18 +301,8 @@ where
 
         debug!("BeamSearchOptimizer: Beam search optimization complete");
 
-        // 最良の候補を返す
-        let best = beam
-            .into_iter()
-            .min_by(|a, b| {
-                self.estimator
-                    .estimate(a)
-                    .partial_cmp(&self.estimator.estimate(b))
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .unwrap();
-
-        (best, history)
+        // これまでで最良の候補を返す
+        (global_best, history)
     }
 }
 

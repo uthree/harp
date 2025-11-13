@@ -119,6 +119,10 @@ where
         } else {
             Vec::new()
         };
+
+        // これまでで最良の候補を保持（graphを移動する前に初期化）
+        let mut global_best = graph.clone();
+
         history.add_snapshot(OptimizationSnapshot::with_logs(
             0,
             graph,
@@ -148,6 +152,9 @@ where
         };
 
         let mut early_terminated = false;
+        let mut best_cost = initial_cost;
+        let mut no_improvement_count = 0;
+        const MAX_NO_IMPROVEMENT_STEPS: usize = 3;
 
         for step in 0..self.max_steps {
             if let Some(ref pb) = pb {
@@ -207,6 +214,36 @@ where
 
             // このステップの最良候補を記録（既に計算したコストを再利用）
             if let Some((best, cost)) = top_candidates.first() {
+                // コストが改善されない場合はカウンターを増やす
+                if *cost >= best_cost {
+                    no_improvement_count += 1;
+                    debug!(
+                        "BeamSearchGraphOptimizer: No cost improvement at step {} (current: {}, best: {}, count: {}/{})",
+                        step, cost, best_cost, no_improvement_count, MAX_NO_IMPROVEMENT_STEPS
+                    );
+
+                    // 連続で改善がない場合は早期終了
+                    if no_improvement_count >= MAX_NO_IMPROVEMENT_STEPS {
+                        debug!(
+                            "BeamSearchGraphOptimizer: No cost improvement for {} steps - optimization complete (early termination)",
+                            MAX_NO_IMPROVEMENT_STEPS
+                        );
+                        if let Some(ref pb) = pb {
+                            pb.finish_and_clear();
+                            println!(
+                                "{:>12} graph optimization (no cost improvement)",
+                                "\x1b[1;32mFinished\x1b[0m"
+                            );
+                        }
+                        early_terminated = true;
+                        break;
+                    }
+                } else {
+                    // コストが改善された場合はカウンターをリセット
+                    no_improvement_count = 0;
+                    best_cost = *cost;
+                    global_best = best.clone();
+                }
                 let num_outputs = best.outputs().len();
                 let num_inputs = best.inputs().len();
 
@@ -262,10 +299,8 @@ where
 
         debug!("BeamSearchGraphOptimizer: Beam search optimization complete");
 
-        // 最良の候補を返す（beamは既にコスト順にソート済み）
-        let best_graph = beam.into_iter().next().unwrap();
-
-        (best_graph, history)
+        // これまでで最良の候補を返す
+        (global_best, history)
     }
 }
 

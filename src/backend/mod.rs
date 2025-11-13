@@ -209,7 +209,7 @@ pub trait Pipeline {
 pub struct Query<'a, B: Buffer> {
     pub inputs: HashMap<String, &'a B>, // inputsは読み取り専用なので借用
     pub outputs: HashMap<String, B>,    // outputsは書き込み対象
-    pub shape_vars: HashMap<String, usize>, // 動的shape変数の値
+    pub shape_vars: HashMap<String, isize>, // 動的shape変数の値
 }
 
 impl<'a, B: Buffer> Query<'a, B> {
@@ -243,7 +243,7 @@ pub struct QueryBuilder<'a, K: Kernel> {
     kernel: &'a K,
     inputs: HashMap<String, &'a K::Buffer>,
     outputs: HashMap<String, OutputSpec<K::Buffer>>,
-    shape_vars: HashMap<String, usize>,
+    shape_vars: HashMap<String, isize>,
 }
 
 impl<'a, K: Kernel> QueryBuilder<'a, K> {
@@ -288,7 +288,7 @@ impl<'a, K: Kernel> QueryBuilder<'a, K> {
     }
 
     /// shape変数の値を設定
-    pub fn shape_var(mut self, name: impl Into<String>, value: usize) -> Self {
+    pub fn shape_var(mut self, name: impl Into<String>, value: isize) -> Self {
         self.shape_vars.insert(name.into(), value);
         self
     }
@@ -422,7 +422,7 @@ impl<'a, K: Kernel> QueryBuilder<'a, K> {
 pub struct KernelSignature {
     pub inputs: Vec<BufferSignature>,
     pub outputs: Vec<BufferSignature>,
-    pub shape_vars: HashMap<String, usize>, // 動的shape変数の名前とデフォルト値
+    pub shape_vars: HashMap<String, isize>, // 動的shape変数の名前とデフォルト値
 }
 
 impl KernelSignature {
@@ -430,7 +430,7 @@ impl KernelSignature {
     pub fn new(
         inputs: Vec<BufferSignature>,
         outputs: Vec<BufferSignature>,
-        shape_vars: HashMap<String, usize>,
+        shape_vars: HashMap<String, isize>,
     ) -> Self {
         Self {
             inputs,
