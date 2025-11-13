@@ -248,6 +248,32 @@ impl GraphNode {
             new_view,
         )
     }
+
+    /// テンソルの形状を変更（reshape）
+    ///
+    /// 要素数が同じで、現在のViewが連続している場合のみ使用可能です。
+    ///
+    /// # 例
+    /// ```no_run
+    /// use harp::prelude::*;
+    /// use harp::graph::shape::Expr;
+    ///
+    /// let mut graph = Graph::new();
+    /// let a = graph.input("a")
+    ///     .with_dtype(DType::F32)
+    ///     .with_shape(vec![3, 4])
+    ///     .build();
+    ///
+    /// // (3, 4) -> (12,) にreshape
+    /// let flattened = a.reshape(vec![Expr::from(12)]);
+    ///
+    /// // (3, 4) -> (2, 6) にreshape
+    /// let reshaped = a.reshape(vec![Expr::from(2), Expr::from(6)]);
+    /// ```
+    pub fn reshape(&self, new_shape: Vec<Expr>) -> Self {
+        let new_view = self.view.clone().reshape(new_shape);
+        self.view(new_view)
+    }
 }
 
 // .0 のように書かなくても内部のデータを読み取れるようにする
@@ -1189,5 +1215,52 @@ mod tests {
             }
             _ => panic!("Expected GraphOp::Const with Int literal"),
         }
+    }
+
+    #[test]
+    fn test_reshape() {
+        use crate::graph::shape::Expr;
+
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![3, 4])
+            .build();
+
+        // (3, 4) -> (12,) にreshape
+        let flattened = a.reshape(vec![Expr::from(12)]);
+        assert_eq!(flattened.view.shape(), &[Expr::from(12)]);
+
+        // GraphOp::Viewであることを確認
+        match &flattened.op {
+            GraphOp::View(v) => {
+                assert_eq!(v.shape(), &[Expr::from(12)]);
+            }
+            _ => panic!("Expected GraphOp::View"),
+        }
+
+        // (3, 4) -> (2, 6) にreshape
+        let reshaped = a.reshape(vec![Expr::from(2), Expr::from(6)]);
+        assert_eq!(reshaped.view.shape(), &[Expr::from(2), Expr::from(6)]);
+    }
+
+    #[test]
+    #[should_panic(expected = "reshape can only be applied to contiguous views")]
+    fn test_reshape_non_contiguous() {
+        use crate::graph::shape::Expr;
+
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![3, 4])
+            .build();
+
+        // Permuteして非連続にする
+        let transposed = a.view(a.view.clone().permute(vec![1, 0]));
+
+        // 非連続なViewに対してreshapeを試みる（panicするはず）
+        let _ = transposed.reshape(vec![Expr::from(12)]);
     }
 }

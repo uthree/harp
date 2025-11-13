@@ -158,6 +158,50 @@ impl View {
             }
         }
     }
+
+    /// Reshapeは連続したViewに対してのみ適用可能
+    ///
+    /// 要素数が一致する新しいshapeに変換します。
+    /// 非連続なViewに対してはpanicします。
+    pub fn reshape(self, new_shape: Vec<Expr>) -> Self {
+        assert!(
+            self.is_contiguous(),
+            "reshape can only be applied to contiguous views"
+        );
+
+        match self {
+            View::Linear { shape, offset, .. } => {
+                // 要素数の一致を確認（シンボリック式の場合は実行時にチェックされる）
+                // ここでは定数の場合のみチェック
+                let old_numel = shape
+                    .iter()
+                    .fold(Expr::from(1), |acc, s| acc * s.clone())
+                    .simplify();
+                let new_numel = new_shape
+                    .iter()
+                    .fold(Expr::from(1), |acc, s| acc * s.clone())
+                    .simplify();
+
+                // 定数の場合のみ検証
+                if let (Expr::Const(old_val), Expr::Const(new_val)) = (&old_numel, &new_numel) {
+                    assert_eq!(
+                        old_val, new_val,
+                        "reshape requires the number of elements to match"
+                    );
+                }
+
+                // 新しいshapeで連続したViewを作成（offsetは保持）
+                let mut reshaped = View::contiguous(new_shape);
+                let View::Linear {
+                    offset: ref mut new_offset,
+                    ..
+                } = reshaped;
+                *new_offset = offset;
+                reshaped
+            }
+        }
+    }
+
     pub fn is_contiguous(&self) -> bool {
         match self {
             View::Linear { shape, .. } => *self == View::contiguous(shape.clone()),
@@ -452,5 +496,105 @@ mod tests {
                 assert_eq!(offset, Expr::from(0));
             }
         }
+    }
+
+    #[test]
+    fn test_reshape_basic() {
+        // (2, 3, 4) -> (6, 4)
+        let view = View::contiguous(vec![2, 3, 4]);
+        let reshaped = view.reshape(vec![Expr::from(6), Expr::from(4)]);
+
+        match reshaped {
+            View::Linear {
+                shape,
+                strides,
+                offset,
+            } => {
+                assert_eq!(shape, vec![Expr::from(6), Expr::from(4)]);
+                assert_eq!(strides, vec![Expr::from(4), Expr::from(1)]);
+                assert_eq!(offset, Expr::from(0));
+            }
+        }
+    }
+
+    #[test]
+    fn test_reshape_flatten() {
+        // (2, 3, 4) -> (24,)
+        let view = View::contiguous(vec![2, 3, 4]);
+        let reshaped = view.reshape(vec![Expr::from(24)]);
+
+        match reshaped {
+            View::Linear {
+                shape,
+                strides,
+                offset,
+            } => {
+                assert_eq!(shape, vec![Expr::from(24)]);
+                assert_eq!(strides, vec![Expr::from(1)]);
+                assert_eq!(offset, Expr::from(0));
+            }
+        }
+    }
+
+    #[test]
+    fn test_reshape_expand_dims() {
+        // (24,) -> (2, 3, 4)
+        let view = View::contiguous(vec![24]);
+        let reshaped = view.reshape(vec![Expr::from(2), Expr::from(3), Expr::from(4)]);
+
+        match reshaped {
+            View::Linear {
+                shape,
+                strides,
+                offset,
+            } => {
+                assert_eq!(shape, vec![Expr::from(2), Expr::from(3), Expr::from(4)]);
+                assert_eq!(strides, vec![Expr::from(12), Expr::from(4), Expr::from(1)]);
+                assert_eq!(offset, Expr::from(0));
+            }
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "reshape can only be applied to contiguous views")]
+    fn test_reshape_non_contiguous() {
+        // Permuted view is not contiguous
+        let view = View::contiguous(vec![2, 3, 4]).permute(vec![2, 1, 0]);
+        let _ = view.reshape(vec![Expr::from(6), Expr::from(4)]); // Should panic
+    }
+
+    #[test]
+    #[should_panic(expected = "reshape requires the number of elements to match")]
+    fn test_reshape_wrong_numel() {
+        let view = View::contiguous(vec![2, 3, 4]);
+        let _ = view.reshape(vec![Expr::from(5), Expr::from(5)]); // 24 != 25, should panic
+    }
+
+    #[test]
+    fn test_reshape_for_tiling() {
+        // Tilingのユースケース: (12, 16) -> (4, 3, 4, 4) -> permute -> (4, 4, 3, 4)
+        let view = View::contiguous(vec![12, 16]);
+        let tiled = view.reshape(vec![
+            Expr::from(4),
+            Expr::from(3),
+            Expr::from(4),
+            Expr::from(4),
+        ]);
+
+        match &tiled {
+            View::Linear { shape, .. } => {
+                assert_eq!(
+                    shape,
+                    &vec![Expr::from(4), Expr::from(3), Expr::from(4), Expr::from(4)]
+                );
+            }
+        }
+
+        // Permute to group tiles: (4, 4, 3, 4) for better cache locality
+        let permuted = tiled.permute(vec![0, 2, 1, 3]);
+        assert_eq!(
+            permuted.shape(),
+            &[Expr::from(4), Expr::from(4), Expr::from(3), Expr::from(4)]
+        );
     }
 }
