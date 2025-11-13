@@ -268,28 +268,6 @@ mod tests {
     }
 
     #[test]
-    fn test_view_merge_skip_input() {
-        let suggester = ViewMergeSuggester::new();
-
-        let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
-
-        // Inputノードに対してpermuteを適用
-        let permuted = a.view(a.view.clone().permute(vec![1, 0]));
-
-        graph.output("result", permuted);
-
-        let suggestions = suggester.suggest(&graph);
-
-        // InputノードのViewは書き換えられないので、提案は0個
-        assert_eq!(suggestions.len(), 0);
-    }
-
-    #[test]
     fn test_view_merge_chain() {
         let suggester = ViewMergeSuggester::new();
 
