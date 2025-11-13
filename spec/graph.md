@@ -39,6 +39,8 @@ Viewは各軸の添え字からメモリオフセットへの線形変換を表�
 
 主なView操作：転置（permute）、次元追加/削除（unsqueeze/squeeze）、反転（flip）、拡張（expand）など。
 
+なお、入出力のバッファーのViewは常にContiguousである必要があります。
+
 ## Shape変換の方針
 
 **明示的なshape変換のみを許可**：演算を行う2つのノードは完全に同じshapeである必要があり、異なる場合は実行時にpanicします。

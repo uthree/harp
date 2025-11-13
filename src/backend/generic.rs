@@ -13,7 +13,7 @@ use crate::opt::ast::{
 use crate::opt::graph::{
     AstBasedCostEstimator, BeamSearchGraphOptimizer, CompositeSuggester, FusionSuggester,
     OptimizationHistory as GraphOptimizationHistory, ParallelStrategyChanger, SimdSuggester,
-    SimpleCostEstimator, ViewInsertionSuggester,
+    SimpleCostEstimator, ViewInsertionSuggester, ViewMergeSuggester,
 };
 
 /// compile_graph_with_all_historiesの戻り値の型
@@ -211,6 +211,7 @@ where
         let optimized_graph = if self.enable_graph_optimization {
             let suggester = CompositeSuggester::new(vec![
                 Box::new(ViewInsertionSuggester::new()),
+                Box::new(ViewMergeSuggester::new()),
                 Box::new(FusionSuggester::new()),
                 Box::new(ParallelStrategyChanger::new()),
                 Box::new(SimdSuggester::new()),
@@ -282,6 +283,7 @@ where
         let optimized_graph = if self.enable_graph_optimization {
             let suggester = CompositeSuggester::new(vec![
                 Box::new(ViewInsertionSuggester::new()),
+                Box::new(ViewMergeSuggester::new()),
                 Box::new(FusionSuggester::new()),
                 Box::new(ParallelStrategyChanger::new()),
                 Box::new(SimdSuggester::new()),
@@ -354,6 +356,7 @@ where
         let optimized_graph = if self.enable_graph_optimization {
             let suggester = CompositeSuggester::new(vec![
                 Box::new(ViewInsertionSuggester::new()),
+                Box::new(ViewMergeSuggester::new()),
                 Box::new(FusionSuggester::new()),
                 Box::new(ParallelStrategyChanger::new()),
                 Box::new(SimdSuggester::new()),
