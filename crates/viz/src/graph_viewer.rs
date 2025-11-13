@@ -483,13 +483,8 @@ impl GraphViewerApp {
                             });
                             ui.horizontal(|ui| {
                                 ui.label("Cost:");
-                                // 科学記数法で表示（小さい値でも読みやすく）
-                                let cost_str =
-                                    if snapshot.cost.abs() < 0.001 && snapshot.cost != 0.0 {
-                                        format!("{:.6e}", snapshot.cost)
-                                    } else {
-                                        format!("{:.6}", snapshot.cost)
-                                    };
+                                // コストは対数スケール（log(CPUサイクル数)）で表示
+                                let cost_str = format!("{:.2}", snapshot.cost);
                                 ui.label(cost_str);
                             });
                         }

@@ -303,8 +303,8 @@ where
         if let Some(current_snapshot) = candidates.first() {
             ui.horizontal(|ui| {
                 ui.label("Cost:");
-                // ASTのコストは非常に小さい（1e-9スケール）ので常に科学記数法で表示
-                let cost_str = format!("{:.6e}", current_snapshot.cost);
+                // コストは対数スケール（log(CPUサイクル数)）で表示
+                let cost_str = format!("{:.2}", current_snapshot.cost);
                 ui.label(cost_str);
             });
             ui.horizontal(|ui| {
