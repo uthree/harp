@@ -1,5 +1,6 @@
 use super::CostEstimator;
 use crate::ast::AstNode;
+use crate::opt::cost_utils::{log_sum_exp, log_sum_exp_iter};
 
 // ループのオーバーヘッド（ループカウンタのインクリメント、比較、分岐）
 const OVERHEAD_PER_LOOP: f32 = 2.0;
@@ -15,6 +16,9 @@ const BARRIER_COST: f32 = 100.0;
 
 /// 簡単なコスト推定器
 ///
+/// **重要**: このコスト推定器は対数スケール（log(CPUサイクル数)）でコストを返します。
+/// 実際のサイクル数が必要な場合は、`result.exp()`を使用してください。
+///
 /// コストの単位は概ねCPUサイクル数を想定しています。
 /// 実際のレイテンシは以下を参考にしています：
 /// - 整数演算（加算/減算/ビット演算/シフト）: 1サイクル
@@ -26,6 +30,11 @@ const BARRIER_COST: f32 = 100.0;
 /// - 平方根: 10-20サイクル
 /// - 超越関数（sin, exp, log）: 20-100サイクル
 /// - メモリアクセス（L1キャッシュ）: 4サイクル
+///
+/// # 対数スケールの利点
+/// - 大きな値を扱う際の数値的安定性
+/// - 乗算が加算に変換されるため計算が簡潔
+/// - オーバーフロー/アンダーフローのリスクが低減
 pub struct SimpleCostEstimator;
 
 impl SimpleCostEstimator {
@@ -34,46 +43,48 @@ impl SimpleCostEstimator {
         Self
     }
 
-    /// ノードのベースコストを取得（CPUサイクル数の推定値）
+    /// ノードのベースコストを取得（log(CPUサイクル数)）
     fn base_cost(&self, ast: &AstNode) -> f32 {
         match ast {
             // ビット演算とシフト演算（高速）
-            AstNode::BitwiseAnd(_, _) | AstNode::BitwiseOr(_, _) | AstNode::BitwiseXor(_, _) => 1.0,
-            AstNode::BitwiseNot(_) => 1.0,
-            AstNode::LeftShift(_, _) | AstNode::RightShift(_, _) => 1.0,
+            AstNode::BitwiseAnd(_, _) | AstNode::BitwiseOr(_, _) | AstNode::BitwiseXor(_, _) => {
+                1.0_f32.ln()
+            }
+            AstNode::BitwiseNot(_) => 1.0_f32.ln(),
+            AstNode::LeftShift(_, _) | AstNode::RightShift(_, _) => 1.0_f32.ln(),
 
             // 加算・減算（高速）
-            AstNode::Add(_, _) => 3.0,
+            AstNode::Add(_, _) => 3.0_f32.ln(),
 
             // 乗算（中速）
-            AstNode::Mul(_, _) => 4.0,
+            AstNode::Mul(_, _) => 4.0_f32.ln(),
 
             // 除算・剰余（低速）
-            AstNode::Idiv(_, _) => 25.0,
-            AstNode::Rem(_, _) => 25.0,
-            AstNode::Recip(_) => 14.0,
+            AstNode::Idiv(_, _) => 25.0_f32.ln(),
+            AstNode::Rem(_, _) => 25.0_f32.ln(),
+            AstNode::Recip(_) => 14.0_f32.ln(),
 
             // 数学関数（低速）
-            AstNode::Sqrt(_) => 15.0,
-            AstNode::Log2(_) => 40.0,
-            AstNode::Exp2(_) => 40.0,
-            AstNode::Sin(_) => 50.0,
+            AstNode::Sqrt(_) => 15.0_f32.ln(),
+            AstNode::Log2(_) => 40.0_f32.ln(),
+            AstNode::Exp2(_) => 40.0_f32.ln(),
+            AstNode::Sin(_) => 50.0_f32.ln(),
 
             // 比較・選択
-            AstNode::Max(_, _) => 2.0,
+            AstNode::Max(_, _) => 2.0_f32.ln(),
 
             // メモリアクセス
-            AstNode::Load { count, .. } => MEMORY_ACCESS_COST * (*count as f32),
-            AstNode::Store { .. } => MEMORY_ACCESS_COST,
+            AstNode::Load { count, .. } => (MEMORY_ACCESS_COST * (*count as f32)).ln(),
+            AstNode::Store { .. } => MEMORY_ACCESS_COST.ln(),
 
             // 型変換（整数↔浮動小数点など）
-            AstNode::Cast(_, _) => 2.0,
+            AstNode::Cast(_, _) => 2.0_f32.ln(),
 
             // 同期バリア（スレッド間の同期待ち）
-            AstNode::Barrier => BARRIER_COST,
+            AstNode::Barrier => BARRIER_COST.ln(),
 
             // その他（変数参照、定数など）
-            _ => 0.0,
+            _ => f32::NEG_INFINITY, // log(0) = -∞
         }
     }
 }
@@ -88,7 +99,7 @@ impl CostEstimator for SimpleCostEstimator {
     fn estimate(&self, ast: &AstNode) -> f32 {
         let base_cost = self.base_cost(ast);
 
-        // 子ノードのコストを再帰的に計算
+        // 子ノードのコストを再帰的に計算（対数スケール）
         let children_cost: f32 = match ast {
             AstNode::Add(l, r)
             | AstNode::Mul(l, r)
@@ -99,7 +110,7 @@ impl CostEstimator for SimpleCostEstimator {
             | AstNode::BitwiseOr(l, r)
             | AstNode::BitwiseXor(l, r)
             | AstNode::LeftShift(l, r)
-            | AstNode::RightShift(l, r) => self.estimate(l) + self.estimate(r),
+            | AstNode::RightShift(l, r) => log_sum_exp(self.estimate(l), self.estimate(r)),
             AstNode::Recip(n)
             | AstNode::Sqrt(n)
             | AstNode::Log2(n)
@@ -107,10 +118,13 @@ impl CostEstimator for SimpleCostEstimator {
             | AstNode::Sin(n)
             | AstNode::BitwiseNot(n) => self.estimate(n),
             AstNode::Cast(n, _) => self.estimate(n),
-            AstNode::Load { ptr, offset, .. } => self.estimate(ptr) + self.estimate(offset),
-            AstNode::Store { ptr, offset, value } => {
-                self.estimate(ptr) + self.estimate(offset) + self.estimate(value)
+            AstNode::Load { ptr, offset, .. } => {
+                log_sum_exp(self.estimate(ptr), self.estimate(offset))
             }
+            AstNode::Store { ptr, offset, value } => log_sum_exp(
+                log_sum_exp(self.estimate(ptr), self.estimate(offset)),
+                self.estimate(value),
+            ),
             AstNode::Assign { value, .. } => self.estimate(value),
             AstNode::Range {
                 start,
@@ -156,37 +170,45 @@ impl CostEstimator for SimpleCostEstimator {
                         100.0
                     }
                 };
-                self.estimate(start)
-                    + (self.estimate(body)
-                        + self.estimate(step)
-                        + self.estimate(stop)
-                        + OVERHEAD_PER_LOOP)
-                        * loop_count
+                // 対数スケールでの乗算: log(a * b) = log(a) + log(b)
+                // (body_cost + step_cost + stop_cost + overhead) * loop_count
+                // → log(loop_count) + log_sum_exp(body_cost, step_cost, stop_cost, log(overhead))
+                let log_loop_count = loop_count.ln();
+                let per_iteration_cost = log_sum_exp_iter(vec![
+                    self.estimate(body),
+                    self.estimate(step),
+                    self.estimate(stop),
+                    OVERHEAD_PER_LOOP.ln(),
+                ]);
+                log_sum_exp(self.estimate(start), log_loop_count + per_iteration_cost)
             }
-            AstNode::Block { statements, .. } => statements.iter().map(|s| self.estimate(s)).sum(),
+            AstNode::Block { statements, .. } => {
+                log_sum_exp_iter(statements.iter().map(|s| self.estimate(s)))
+            }
             AstNode::Call { args, .. } => {
                 // 関数呼び出しは引数の評価コスト + 呼び出しオーバーヘッド
-                let args_cost: f32 = args.iter().map(|a| self.estimate(a)).sum();
-                args_cost + FUNCTION_CALL_OVERHEAD
+                let args_cost = log_sum_exp_iter(args.iter().map(|a| self.estimate(a)));
+                log_sum_exp(args_cost, FUNCTION_CALL_OVERHEAD.ln())
             }
             AstNode::Return { value } => self.estimate(value),
             AstNode::Function { body, params, .. } => {
                 // 関数本体のコスト + パラメータの初期値のコスト
                 let body_cost = self.estimate(body);
-                let params_cost: f32 = params
-                    .iter()
-                    .filter_map(|p| p.initial_value.as_ref())
-                    .map(|init| self.estimate(init))
-                    .sum();
-                body_cost + params_cost
+                let params_cost = log_sum_exp_iter(
+                    params
+                        .iter()
+                        .filter_map(|p| p.initial_value.as_ref())
+                        .map(|init| self.estimate(init)),
+                );
+                log_sum_exp(body_cost, params_cost)
             }
             AstNode::Program { functions, .. } => {
                 // すべての関数のコストの合計
-                functions.iter().map(|f| self.estimate(f)).sum()
+                log_sum_exp_iter(functions.iter().map(|f| self.estimate(f)))
             }
-            _ => 0.,
+            _ => f32::NEG_INFINITY, // log(0)
         };
 
-        base_cost + children_cost
+        log_sum_exp(base_cost, children_cost)
     }
 }
