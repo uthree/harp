@@ -3,11 +3,11 @@ use std::collections::HashMap;
 use crate::ast::AstNode;
 use crate::backend::{Compiler, Pipeline, Renderer};
 use crate::graph::Graph;
-use crate::opt::ast::rules::{all_algebraic_rules, all_rules_with_search};
+use crate::opt::ast::rules::all_rules_with_search;
 use crate::opt::ast::{
     BeamSearchOptimizer as AstBeamSearchOptimizer, CompositeSuggester as AstCompositeSuggester,
     LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester,
-    OptimizationHistory as AstOptimizationHistory, Optimizer, RuleBaseOptimizer, RuleBaseSuggester,
+    OptimizationHistory as AstOptimizationHistory, RuleBaseSuggester,
     SimpleCostEstimator as AstSimpleCostEstimator,
 };
 use crate::opt::graph::{

@@ -1,9 +1,31 @@
 use super::CostEstimator;
 use crate::ast::AstNode;
 
-const OVERHEAD_PER_LOOP: f32 = 0.0;
+// ループのオーバーヘッド（ループカウンタのインクリメント、比較、分岐）
+const OVERHEAD_PER_LOOP: f32 = 2.0;
+
+// メモリアクセスのコスト（L1キャッシュヒット想定）
+const MEMORY_ACCESS_COST: f32 = 4.0;
+
+// 関数呼び出しのオーバーヘッド（スタックフレームの設定、レジスタ退避など）
+const FUNCTION_CALL_OVERHEAD: f32 = 10.0;
+
+// 同期バリアのコスト（スレッド間の同期待ち）
+const BARRIER_COST: f32 = 100.0;
 
 /// 簡単なコスト推定器
+///
+/// コストの単位は概ねCPUサイクル数を想定しています。
+/// 実際のレイテンシは以下を参考にしています：
+/// - 整数演算（加算/減算/ビット演算/シフト）: 1サイクル
+/// - 整数乗算: 3サイクル
+/// - 整数除算/剰余: 10-40サイクル
+/// - 浮動小数点加算/減算: 3-4サイクル
+/// - 浮動小数点乗算: 4-5サイクル
+/// - 浮動小数点除算: 10-15サイクル
+/// - 平方根: 10-20サイクル
+/// - 超越関数（sin, exp, log）: 20-100サイクル
+/// - メモリアクセス（L1キャッシュ）: 4サイクル
 pub struct SimpleCostEstimator;
 
 impl SimpleCostEstimator {
@@ -12,18 +34,47 @@ impl SimpleCostEstimator {
         Self
     }
 
-    /// ノードのベースコストを取得
+    /// ノードのベースコストを取得（CPUサイクル数の推定値）
     fn base_cost(&self, ast: &AstNode) -> f32 {
-        let cost = match ast {
-            AstNode::BitwiseAnd(_, _) | AstNode::BitwiseOr(_, _) | AstNode::BitwiseXor(_, _) => 0.5,
-            AstNode::BitwiseNot(_) => 0.5,
-            AstNode::LeftShift(_, _) | AstNode::RightShift(_, _) => 0.5,
-            AstNode::Add(_, _) => 1.1,
-            AstNode::Mul(_, _) => 1.5,
-            AstNode::Max(_, _) => 0.85,
-            _ => 1.0,
-        };
-        cost * 1e-7
+        match ast {
+            // ビット演算とシフト演算（高速）
+            AstNode::BitwiseAnd(_, _) | AstNode::BitwiseOr(_, _) | AstNode::BitwiseXor(_, _) => 1.0,
+            AstNode::BitwiseNot(_) => 1.0,
+            AstNode::LeftShift(_, _) | AstNode::RightShift(_, _) => 1.0,
+
+            // 加算・減算（高速）
+            AstNode::Add(_, _) => 3.0,
+
+            // 乗算（中速）
+            AstNode::Mul(_, _) => 4.0,
+
+            // 除算・剰余（低速）
+            AstNode::Idiv(_, _) => 25.0,
+            AstNode::Rem(_, _) => 25.0,
+            AstNode::Recip(_) => 14.0,
+
+            // 数学関数（低速）
+            AstNode::Sqrt(_) => 15.0,
+            AstNode::Log2(_) => 40.0,
+            AstNode::Exp2(_) => 40.0,
+            AstNode::Sin(_) => 50.0,
+
+            // 比較・選択
+            AstNode::Max(_, _) => 2.0,
+
+            // メモリアクセス
+            AstNode::Load { count, .. } => MEMORY_ACCESS_COST * (*count as f32),
+            AstNode::Store { .. } => MEMORY_ACCESS_COST,
+
+            // 型変換（整数↔浮動小数点など）
+            AstNode::Cast(_, _) => 2.0,
+
+            // 同期バリア（スレッド間の同期待ち）
+            AstNode::Barrier => BARRIER_COST,
+
+            // その他（変数参照、定数など）
+            _ => 0.0,
+        }
     }
 }
 
@@ -114,8 +165,9 @@ impl CostEstimator for SimpleCostEstimator {
             }
             AstNode::Block { statements, .. } => statements.iter().map(|s| self.estimate(s)).sum(),
             AstNode::Call { args, .. } => {
-                // 関数呼び出しは引数の評価コスト + 呼び出しコスト
-                args.iter().map(|a| self.estimate(a)).sum::<f32>()
+                // 関数呼び出しは引数の評価コスト + 呼び出しオーバーヘッド
+                let args_cost: f32 = args.iter().map(|a| self.estimate(a)).sum();
+                args_cost + FUNCTION_CALL_OVERHEAD
             }
             AstNode::Return { value } => self.estimate(value),
             AstNode::Function { body, params, .. } => {

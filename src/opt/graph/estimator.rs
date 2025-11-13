@@ -1,9 +1,19 @@
-use crate::graph::{DType, ElementwiseStrategy, Graph, GraphNode, GraphOp};
+use crate::graph::{ElementwiseOp, ElementwiseStrategy, Graph, GraphNode, GraphOp};
 use crate::opt::ast::CostEstimator as AstCostEstimator;
 use crate::opt::graph::GraphCostEstimator;
 use std::collections::HashSet;
 
+// メモリアクセスのコスト（L1キャッシュヒット想定、CPUサイクル）
+const MEMORY_ACCESS_COST: f32 = 4.0;
+
+// カーネル起動オーバーヘッド（CPUサイクル）
+const KERNEL_LAUNCH_OVERHEAD: f32 = 100.0;
+
 /// 簡単なコスト推定器（ノード数とメモリアクセスベース）
+///
+/// コストの単位はCPUサイクル数を想定しています。
+/// AST評価関数と同じ単位系を使用することで、
+/// グラフレベルとASTレベルの最適化を統一的に扱えます。
 pub struct SimpleCostEstimator;
 
 impl SimpleCostEstimator {
@@ -12,53 +22,105 @@ impl SimpleCostEstimator {
         Self
     }
 
-    /// 各ノードのベースコストを取得
+    /// ElementwiseOp の演算コストを取得（CPUサイクル/演算）
+    fn elementwise_op_cost(&self, op: &ElementwiseOp) -> f32 {
+        match op {
+            ElementwiseOp::Add => 3.0,
+            ElementwiseOp::Mul => 4.0,
+            ElementwiseOp::Neg => 3.0,
+            ElementwiseOp::Max => 2.0,
+            ElementwiseOp::Rem => 25.0,
+            ElementwiseOp::Idiv => 25.0,
+            ElementwiseOp::Recip => 14.0,
+            ElementwiseOp::Sqrt => 15.0,
+            ElementwiseOp::Log2 => 40.0,
+            ElementwiseOp::Exp2 => 40.0,
+            ElementwiseOp::Sin => 50.0,
+        }
+    }
+
+    /// ReduceOp の演算コストを取得（CPUサイクル/演算）
+    fn reduce_op_cost(&self, op: &crate::graph::ReduceOp) -> f32 {
+        match op {
+            crate::graph::ReduceOp::Sum => 3.0,
+            crate::graph::ReduceOp::Max => 2.0,
+            crate::graph::ReduceOp::Prod => 4.0,
+        }
+    }
+
+    /// 各ノードのベースコストを取得（CPUサイクル）
     fn node_base_cost(&self, node: &GraphNode) -> f32 {
         match &node.op {
-            GraphOp::Input | GraphOp::Const(_) => 0.1,
-            GraphOp::View(_) => 0.1, // View変更はほぼゼロ
+            GraphOp::Input | GraphOp::Const(_) => {
+                // 入力/定数ノードは実行時コストなし（メモリは既に確保済み）
+                0.0
+            }
+            GraphOp::View(_) => {
+                // View変更は実行時コストゼロ（メタデータのみの変更）
+                0.0
+            }
             GraphOp::Contiguous { .. } => {
-                // メモリコピーのコスト = 要素数 × dtype size × 2 (read + write)
+                // メモリコピーのコスト = 要素数 × (read + write) × MEMORY_ACCESS_COST
                 let num_elements = self.compute_num_elements(node);
-                let dtype_size = self.dtype_size(&node.dtype);
-                num_elements * dtype_size * 2.0
+                num_elements * 2.0 * MEMORY_ACCESS_COST
             }
-            GraphOp::Elementwise { .. } => {
-                // 演算コスト = 要素数 × 演算コスト
+            GraphOp::Elementwise { op, .. } => {
+                // 演算コスト = 要素数 × (演算コスト + メモリアクセスコスト)
                 let num_elements = self.compute_num_elements(node);
-                let compute_cost = 1.0; // 基本演算コスト
-                num_elements * compute_cost
+                let compute_cost = self.elementwise_op_cost(op);
+                // 入力を読み、出力を書く
+                let memory_cost = (node.src.len() as f32 + 1.0) * MEMORY_ACCESS_COST;
+                num_elements * (compute_cost + memory_cost)
             }
-            GraphOp::Reduce { .. } => {
+            GraphOp::Reduce { op, .. } => {
                 // Reduceは入力サイズに依存
                 let input = &node.src[0];
                 let num_elements = self.compute_num_elements(input);
-                num_elements * 1.5 // 縮約は若干重い
+                let reduce_cost = self.reduce_op_cost(op);
+                // 入力読み取り + 縮約演算
+                num_elements * (MEMORY_ACCESS_COST + reduce_cost)
             }
             GraphOp::Cumulative { .. } => {
-                // Cumulativeは逐次依存性が高い
+                // Cumulativeは逐次依存性が高い（並列化が困難）
+                // 累積和を想定（Sumのコスト）
                 let num_elements = self.compute_num_elements(node);
-                num_elements * 2.0
+                let cumulative_cost = 3.0; // Sumのコスト
+                // 各要素で読み取り + 演算 + 書き込み
+                num_elements * (2.0 * MEMORY_ACCESS_COST + cumulative_cost)
             }
             GraphOp::FusedElementwise { ops, .. } => {
                 // 融合演算は中間バッファを節約
                 let num_elements = self.compute_num_elements(node);
-                let num_ops = ops.len() as f32;
-                num_elements * num_ops * 0.8 // 融合により20%削減
+                let ops_cost: f32 = ops
+                    .iter()
+                    .map(|fused_op| self.elementwise_op_cost(&fused_op.op))
+                    .sum();
+                // 融合により中間バッファへのメモリアクセスが削減される
+                // 入力読み取り + 演算 + 出力書き込みのみ
+                let memory_cost = (node.src.len() as f32 + 1.0) * MEMORY_ACCESS_COST;
+                num_elements * (ops_cost + memory_cost)
             }
             GraphOp::FusedElementwiseReduce {
-                elementwise_ops, ..
+                elementwise_ops,
+                reduce_op,
+                ..
             } => {
                 let input = &node.src[0];
                 let num_elements = self.compute_num_elements(input);
-                let num_ops = elementwise_ops.len() as f32;
-                num_elements * (num_ops + 1.5) * 0.8
+                let elementwise_cost: f32 = elementwise_ops
+                    .iter()
+                    .map(|fused_op| self.elementwise_op_cost(&fused_op.op))
+                    .sum();
+                let reduce_cost = self.reduce_op_cost(reduce_op);
+                // 入力読み取り + elementwise演算 + reduce演算
+                num_elements * (MEMORY_ACCESS_COST + elementwise_cost + reduce_cost)
             }
             GraphOp::FusedReduce { ops, .. } => {
                 let input = &node.src[0];
                 let num_elements = self.compute_num_elements(input);
-                let num_ops = ops.len() as f32;
-                num_elements * num_ops * 1.5 * 0.9 // 融合により10%削減
+                let reduce_cost: f32 = ops.iter().map(|op| self.reduce_op_cost(op)).sum();
+                // 複数のreduce演算を融合
+                num_elements * (MEMORY_ACCESS_COST + reduce_cost)
             }
         }
     }
@@ -128,14 +190,6 @@ impl SimpleCostEstimator {
         num_elements
     }
 
-    /// DTypeのサイズを取得（バイト）
-    fn dtype_size(&self, dtype: &DType) -> f32 {
-        match dtype {
-            DType::F32 => 4.0,
-            DType::Unknown => 4.0, // デフォルトで4バイトと仮定
-        }
-    }
-
     /// グラフ内の全ノードを収集（トポロジカル順）
     fn collect_all_nodes(&self, graph: &Graph) -> Vec<GraphNode> {
         let mut visited = HashSet::new();
@@ -199,7 +253,7 @@ impl GraphCostEstimator for SimpleCostEstimator {
         }
 
         // カーネル起動オーバーヘッド（出力ノード数に比例）
-        let kernel_overhead = graph.outputs().len() as f32 * 10.0;
+        let kernel_overhead = graph.outputs().len() as f32 * KERNEL_LAUNCH_OVERHEAD;
         total_cost + kernel_overhead
     }
 }
@@ -413,14 +467,19 @@ mod ast_based_tests {
         let cost1 = estimator.estimate(&graph1);
         let cost2 = estimator.estimate(&graph2);
 
-        // グラフ全体をProgramに変換するため、shapeはパラメータになり
-        // 生成されるASTは同じ構造になる（ループ回数は変数なので100回と推定）
-        // したがってコストもほぼ同じになる（浮動小数点の誤差を考慮）
+        // グラフ全体をProgramに変換する際、shapeが定数の場合はループ回数も定数になる
+        // したがって、要素数が異なる場合は総コストも異なるが、要素あたりのコストは同じになる
+        let per_element_cost1 = cost1 / 10.0;
+        let per_element_cost2 = cost2 / 1000.0;
+
+        // 要素あたりのコストがほぼ同じであることを確認
         assert!(
-            (cost1 - cost2).abs() < 1e-3,
-            "Costs should be similar: cost1={}, cost2={}",
+            (per_element_cost1 - per_element_cost2).abs() / per_element_cost1 < 0.1,
+            "Per-element costs should be similar: cost1={} ({}/elem), cost2={} ({}/elem)",
             cost1,
-            cost2
+            per_element_cost1,
+            cost2,
+            per_element_cost2
         );
     }
 
