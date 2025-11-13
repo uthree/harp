@@ -4,10 +4,7 @@
 //! その過程を可視化します。
 
 use harp::backend::openmp::{CCompiler, CRenderer};
-use harp::backend::{
-    AstOptimizationConfig, Compiler, GenericPipeline, GraphOptimizationConfig, MetalCompiler,
-    MetalRenderer,
-};
+use harp::backend::{AstOptimizationConfig, GenericPipeline, GraphOptimizationConfig};
 use harp::graph::{DType, Graph, GraphNode};
 use harp_viz::HarpVizApp;
 
@@ -43,7 +40,7 @@ fn main() -> eframe::Result {
     let ast_config = AstOptimizationConfig {
         rule_max_iterations: 10,
         beam_width: 4,
-        max_steps: 100,
+        max_steps: 1000,
         show_progress: true,
     };
 

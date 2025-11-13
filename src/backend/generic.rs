@@ -306,8 +306,9 @@ where
         let (optimized_program, all_histories) = if self.enable_ast_optimization {
             // ステップ1: ルールベース最適化
             // a+0 -> a のような, 不要なノードを削除したり、定数項のみで構成される演算を事前に計算したりする。
-            let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules())
-                .with_max_iterations(self.ast_optimization_config.rule_max_iterations);
+            // ASTの最適化の流れを観察するために、一時的に無効化。
+            // let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules())
+            //    .with_max_iterations(self.ast_optimization_config.rule_max_iterations);
 
             // let program = rule_optimizer.optimize(program);
             // ステップ2: ビームサーチ最適化（ルールベース + ループ最適化）
