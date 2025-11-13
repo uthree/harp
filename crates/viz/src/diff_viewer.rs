@@ -50,7 +50,10 @@ pub fn show_text_diff(
             ChangeTag::Equal => (" ", config.equal_color),
         };
 
-        let line = format!("{} {}", prefix, change);
+        // changeには既に改行が含まれているので、末尾の改行を削除
+        let change_str = change.to_string();
+        let change_trimmed = change_str.trim_end_matches('\n').trim_end_matches('\r');
+        let line = format!("{} {}", prefix, change_trimmed);
         let text = if config.monospace {
             egui::RichText::new(line).monospace()
         } else {
