@@ -337,7 +337,7 @@ impl<'a, K: Kernel> QueryBuilder<'a, K> {
         }
 
         // shape変数の検証
-        for var_name in &signature.shape_vars {
+        for var_name in signature.shape_vars.keys() {
             if !self.shape_vars.contains_key(var_name) {
                 return Err(format!("Missing shape variable: {}", var_name));
             }
@@ -393,7 +393,7 @@ impl<'a, K: Kernel> QueryBuilder<'a, K> {
         }
 
         // shape変数の検証
-        for var_name in &signature.shape_vars {
+        for var_name in signature.shape_vars.keys() {
             if !self.shape_vars.contains_key(var_name) {
                 return Err(format!("Missing shape variable: {}", var_name));
             }
@@ -422,7 +422,7 @@ impl<'a, K: Kernel> QueryBuilder<'a, K> {
 pub struct KernelSignature {
     pub inputs: Vec<BufferSignature>,
     pub outputs: Vec<BufferSignature>,
-    pub shape_vars: Vec<String>, // 動的なshape変数の名前リスト
+    pub shape_vars: HashMap<String, usize>, // 動的shape変数の名前とデフォルト値
 }
 
 impl KernelSignature {
@@ -430,7 +430,7 @@ impl KernelSignature {
     pub fn new(
         inputs: Vec<BufferSignature>,
         outputs: Vec<BufferSignature>,
-        shape_vars: Vec<String>,
+        shape_vars: HashMap<String, usize>,
     ) -> Self {
         Self {
             inputs,
@@ -444,7 +444,7 @@ impl KernelSignature {
         Self {
             inputs: Vec::new(),
             outputs: Vec::new(),
-            shape_vars: Vec::new(),
+            shape_vars: HashMap::new(),
         }
     }
 }
@@ -547,7 +547,7 @@ mod tests {
                 "output".to_string(),
                 vec![Expr::from(10)],
             )],
-            vec![],
+            HashMap::new(),
         );
 
         let kernel = DummyKernel { signature };
@@ -579,7 +579,7 @@ mod tests {
                 "output".to_string(),
                 vec![Expr::from(10)],
             )],
-            vec![],
+            HashMap::new(),
         );
 
         let kernel = DummyKernel { signature };
@@ -604,7 +604,7 @@ mod tests {
                 "output".to_string(),
                 vec![Expr::from(10)],
             )],
-            vec![],
+            HashMap::new(),
         );
 
         let kernel = DummyKernel { signature };
@@ -628,6 +628,9 @@ mod tests {
     fn test_query_builder_shape_vars() {
         use crate::graph::shape::Expr;
 
+        let mut shape_vars = HashMap::new();
+        shape_vars.insert("N".to_string(), 10);
+
         let signature = KernelSignature::new(
             vec![BufferSignature::new(
                 "input".to_string(),
@@ -637,7 +640,7 @@ mod tests {
                 "output".to_string(),
                 vec![Expr::Var("N".to_string())],
             )],
-            vec!["N".to_string()],
+            shape_vars,
         );
 
         let kernel = DummyKernel { signature };

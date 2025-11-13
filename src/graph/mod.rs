@@ -18,6 +18,7 @@ pub use strategy::{CumulativeStrategy, ElementwiseStrategy, ReduceStrategy};
 pub struct Graph {
     inputs: HashMap<String, Weak<GraphNodeData>>, // Rcの参照カウントに影響を与えないために、Weak参照で保持する。
     outputs: BTreeMap<String, GraphNode>,         // BTreeMapでキー順にソートされた順序を保証
+    shape_var_defaults: HashMap<String, usize>,   // 動的shape変数のデフォルト値（必須）
 }
 
 #[derive(Debug, Clone)]
@@ -51,6 +52,7 @@ impl Graph {
         Self {
             inputs: HashMap::new(),
             outputs: BTreeMap::new(),
+            shape_var_defaults: HashMap::new(),
         }
     }
 
@@ -84,6 +86,16 @@ impl Graph {
         use std::rc::Rc;
         let weak_ref = Rc::downgrade(&input_node.0);
         self.inputs.insert(name, weak_ref);
+    }
+
+    // shape変数のデフォルト値を設定
+    pub fn set_shape_var_default(&mut self, name: impl Into<String>, default_value: usize) {
+        self.shape_var_defaults.insert(name.into(), default_value);
+    }
+
+    // shape変数のデフォルト値を取得
+    pub fn shape_var_defaults(&self) -> &HashMap<String, usize> {
+        &self.shape_var_defaults
     }
 }
 

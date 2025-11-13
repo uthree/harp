@@ -4,7 +4,7 @@
 //! より高レベルな数学的演算や便利な演算を提供します。
 
 use crate::graph::GraphNode;
-use crate::graph::ops::{max, recip, reduce_sum, ElementwiseOp, GraphOp};
+use crate::graph::ops::{ElementwiseOp, GraphOp, max, recip, reduce_sum};
 
 impl GraphNode {
     /// 二乗: x^2

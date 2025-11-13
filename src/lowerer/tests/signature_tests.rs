@@ -40,6 +40,11 @@ fn test_create_signature_with_dynamic_shape() {
     let mut graph = Graph::new();
     let n = Expr::Var("N".to_string());
     let m = Expr::Var("M".to_string());
+
+    // shape変数のデフォルト値を設定（必須）
+    graph.set_shape_var_default("N", 100);
+    graph.set_shape_var_default("M", 200);
+
     let a = graph
         .input("a")
         .with_dtype(GraphDType::F32)
@@ -56,10 +61,10 @@ fn test_create_signature_with_dynamic_shape() {
     assert_eq!(signature.inputs[0].shape[0], n);
     assert_eq!(signature.inputs[0].shape[1], m);
 
-    // 動的なshape変数が2つ（ソートされている）
+    // 動的なshape変数が2つ、デフォルト値付き
     assert_eq!(signature.shape_vars.len(), 2);
-    assert!(signature.shape_vars.contains(&"M".to_string()));
-    assert!(signature.shape_vars.contains(&"N".to_string()));
+    assert_eq!(signature.shape_vars.get("M"), Some(&200));
+    assert_eq!(signature.shape_vars.get("N"), Some(&100));
 }
 
 #[test]

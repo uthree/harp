@@ -41,11 +41,24 @@ impl Lowerer {
             outputs.push(BufferSignature::new(name.clone(), shape));
         }
 
-        // shape_varsをソートしてVecに変換
-        let mut shape_vars_vec: Vec<_> = shape_vars.into_iter().collect();
-        shape_vars_vec.sort();
+        // shape_varsのHashMapを作成（名前とデフォルト値）
+        let shape_var_defaults = graph.shape_var_defaults();
+        let mut shape_vars_map = std::collections::HashMap::new();
 
-        KernelSignature::new(inputs, outputs, shape_vars_vec)
+        for var_name in shape_vars {
+            // デフォルト値が設定されているか確認
+            if let Some(&default_value) = shape_var_defaults.get(&var_name) {
+                shape_vars_map.insert(var_name, default_value);
+            } else {
+                panic!(
+                    "Shape variable '{}' is used but no default value is set. \
+                    Use graph.set_shape_var_default(\"{}\", value) to set a default value.",
+                    var_name, var_name
+                );
+            }
+        }
+
+        KernelSignature::new(inputs, outputs, shape_vars_map)
     }
 
     /// Exprから変数名を再帰的に収集

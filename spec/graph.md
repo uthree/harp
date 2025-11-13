@@ -63,16 +63,8 @@ Viewは各軸の添え字からメモリオフセットへの線形変換を表�
 - View操作（permute、unsqueeze、squeeze、flip、expand）
 - Shape/DType推論
 - 並列化戦略の定義（ElementwiseStrategy、ReduceStrategy、CumulativeStrategy）
-- **融合演算**:
-  - FusedElementwise: 複数のelementwise演算を融合
-  - FusedElementwiseReduce: elementwise → reduce パターンを融合
-  - FusedReduce: 複数のreduce演算を融合（同じ軸）
-- **グラフ最適化** (`src/opt/graph/`):
-  - ビームサーチベースの最適化フレームワーク
-  - 並列化戦略の変更（ParallelStrategyChanger）
-  - View変更の挿入（ViewInsertionSuggester）
-  - ノード融合（FusionSuggester）
-  - コスト推定（SimpleCostEstimator）
+- 融合演算（FusedElementwise、FusedElementwiseReduce、FusedReduce）
+- グラフ最適化（詳細は[opt-graph.md](opt-graph.md)を参照）
 
 ### 未実装
 - Thread/ThreadGroupレベルの並列実行のLowering
