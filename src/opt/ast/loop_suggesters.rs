@@ -288,9 +288,9 @@ mod tests {
 
         let suggestions = suggester.suggest(&loop_node);
 
-        // デフォルトで4つのタイルサイズ（2, 4, 8, 16）を試すので、
-        // 4つの候補が生成されるはず
-        assert_eq!(suggestions.len(), 4);
+        // デフォルトで6つのタイルサイズ（2, 4, 8, 16, 32, 64）を試すので、
+        // 6つの候補が生成されるはず
+        assert_eq!(suggestions.len(), 6);
     }
 
     #[test]
