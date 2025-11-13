@@ -49,10 +49,14 @@ pub(crate) fn lower(graph: Graph) -> crate::ast::AstNode {
     let mut kernel_id = 0;
     for generation in generations {
         for node in generation {
-            // Input ノードはスキップ
-            if matches!(node.op, GraphOp::Input) {
+            // Input と Const ノードはスキップ（Constは使用先で直接埋め込まれる）
+            if matches!(node.op, GraphOp::Input | GraphOp::Const(_)) {
                 continue;
             }
+
+            // 各カーネル関数は独立しているので、変数カウンターをリセット
+            lowerer.alu_counter = 0;
+            lowerer.acc_counter = 0;
 
             // カーネル関数を生成（AstNode::Functionとして）
             if let Ok(function) = lowerer.lower_node_to_kernel(&node, kernel_id) {

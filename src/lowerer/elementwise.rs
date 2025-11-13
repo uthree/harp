@@ -51,13 +51,13 @@ impl Lowerer {
         let shape_params = self.extract_shape_params(shape);
         params.extend(shape_params);
 
-        // ループ本体の生成
-        let body_statements = self.generate_elementwise_loops(node, op, ndim)?;
+        // ループ本体の生成（scopeも返す）
+        let (body_statements, body_scope) = self.generate_elementwise_loops(node, op, ndim)?;
 
         // カーネル関数のbodyを作成（Blockノード）
         let body = AstNode::Block {
             statements: body_statements,
-            scope: Box::new(Scope::new()),
+            scope: Box::new(body_scope),
         };
 
         // カーネル関数名
@@ -84,18 +84,19 @@ impl Lowerer {
         ))
     }
 
-    /// Elementwise演算のループを生成
+    /// Elementwise演算のループを生成（statements と scope を返す）
     pub(super) fn generate_elementwise_loops(
         &mut self,
         node: &GraphNode,
         op: &ElementwiseOp,
         ndim: usize,
-    ) -> Result<Vec<AstNode>, String> {
+    ) -> Result<(Vec<AstNode>, Scope), String> {
         let mut scope = Scope::new();
 
         if ndim == 0 {
             // スカラー演算（ループなし）
-            return self.generate_elementwise_body(node, op, &[], &mut scope);
+            let statements = self.generate_elementwise_body(node, op, &[], &mut scope)?;
+            return Ok((statements, scope));
         }
 
         // ネストしたループを生成（外側から内側へ）
@@ -187,7 +188,7 @@ impl Lowerer {
             }
         }
 
-        Ok(body_statements)
+        Ok((body_statements, scope))
     }
 
     /// ループアンローリングを適用したループを生成
@@ -352,6 +353,13 @@ impl Lowerer {
         // 入力をロード（各入力のViewを考慮）
         let mut loaded_values = Vec::new();
         for (i, src) in node.src.iter().enumerate() {
+            // Constノードの場合は直接定数として使用
+            if let crate::graph::ops::GraphOp::Const(lit) = &src.op {
+                // 定数値を直接AstNodeとして使用
+                loaded_values.push(AstNode::Const(lit.clone()));
+                continue;
+            }
+
             let alu_var = self.fresh_alu();
             let input_ptr = var(format!("input{}", i));
 

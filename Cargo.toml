@@ -16,6 +16,7 @@ ndarray = ["dep:ndarray"]
 
 [dependencies]
 indicatif = "0.18.1"
+indexmap = "2.0"  # Scopeで変数の宣言順序を保持するため
 log = { version = "0.4", features = ["std"] }
 env_logger = "0.11"  # ログキャプチャ機能で使用
 libloading = "0.8.9"  # C/OpenMP backendでの動的ライブラリロード用

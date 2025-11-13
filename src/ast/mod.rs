@@ -5,6 +5,7 @@ pub mod helper;
 pub mod pat;
 pub mod renderer;
 
+use indexmap::IndexMap;
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -252,8 +253,8 @@ impl Program {
 // Scope management for variable access control
 #[derive(Clone, Debug, PartialEq)]
 pub struct Scope {
-    // 変数名 -> 宣言情報
-    variables: HashMap<String, VarDecl>,
+    // 変数名 -> 宣言情報（IndexMapを使用して宣言順序を保持）
+    variables: IndexMap<String, VarDecl>,
     parent: Option<Box<Scope>>,
 }
 
@@ -261,7 +262,7 @@ impl Scope {
     /// Create a new empty scope
     pub fn new() -> Self {
         Scope {
-            variables: HashMap::new(),
+            variables: IndexMap::new(),
             parent: None,
         }
     }
@@ -269,7 +270,7 @@ impl Scope {
     /// Create a new scope with a parent
     pub fn with_parent(parent: Scope) -> Self {
         Scope {
-            variables: HashMap::new(),
+            variables: IndexMap::new(),
             parent: Some(Box::new(parent)),
         }
     }
