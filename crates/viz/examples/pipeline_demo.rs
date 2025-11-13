@@ -4,7 +4,10 @@
 //! その過程を可視化します。
 
 use harp::backend::openmp::{CCompiler, CRenderer};
-use harp::backend::{AstOptimizationConfig, GenericPipeline, GraphOptimizationConfig};
+use harp::backend::{
+    AstOptimizationConfig, Compiler, GenericPipeline, GraphOptimizationConfig, MetalCompiler,
+    MetalRenderer,
+};
 use harp::graph::{DType, Graph, GraphNode};
 use harp_viz::HarpVizApp;
 

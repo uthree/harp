@@ -67,7 +67,7 @@ fn test_matmul_demo() {
     // 検証: 最後の演算がReduceであることを確認
     match &matmul_result.op {
         GraphOp::Reduce { op, axis, .. } => {
-            assert_eq!(*op, ReduceOp::Add);
+            assert_eq!(*op, ReduceOp::Sum);
             assert_eq!(*axis, 1); // k軸で縮約
         }
         _ => panic!("Expected GraphOp::Reduce"),

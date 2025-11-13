@@ -59,9 +59,9 @@ pub enum ElementwiseOp {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReduceOp {
-    Add, // 合計
-    Mul, // 積
-    Max, // 最大値
+    Sum,  // 合計
+    Prod, // 積
+    Max,  // 最大値
 }
 
 /// 融合されたelementwise演算チェーンの各ステップ
@@ -261,12 +261,12 @@ pub fn reduce(node: GraphNode, op: ReduceOp, axis: usize) -> GraphNode {
 
 // ヘルパー関数: Reduce Sum（指定軸の合計）
 pub fn reduce_sum(node: GraphNode, axis: usize) -> GraphNode {
-    reduce(node, ReduceOp::Add, axis)
+    reduce(node, ReduceOp::Sum, axis)
 }
 
 // ヘルパー関数: Reduce Mul（指定軸の積）
 pub fn reduce_mul(node: GraphNode, axis: usize) -> GraphNode {
-    reduce(node, ReduceOp::Mul, axis)
+    reduce(node, ReduceOp::Prod, axis)
 }
 
 // ヘルパー関数: Reduce Max（指定軸の最大値）

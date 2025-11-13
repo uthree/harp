@@ -169,10 +169,10 @@ impl Lowerer {
             graph_inputs.push(alu_var);
         }
 
-        // 中間結果を保存する配列
-        let mut intermediate_results = Vec::new();
+        // 中間結果をAstNodeとして保存する配列（変数名ではなく式そのもの）
+        let mut intermediate_results: Vec<AstNode> = Vec::new();
 
-        // ops配列を順に評価
+        // ops配列を順に評価して、最終的な式を構築
         for fused_op in ops {
             // この演算の入力を取得
             let mut operands = Vec::new();
@@ -183,47 +183,23 @@ impl Lowerer {
                         var(&graph_inputs[*idx])
                     }
                     FusedInput::IntermediateResult(idx) => {
-                        // ops[i]の中間結果
-                        var(&intermediate_results[*idx])
+                        // ops[i]の中間結果（式として保持）
+                        intermediate_results[*idx].clone()
                     }
                 };
                 operands.push(operand);
             }
 
-            // 演算を適用
+            // 演算を適用（結果は式として保存）
             let result = self.apply_elementwise_op(&fused_op.op, &operands)?;
-            let result_var = self.fresh_alu();
-
-            // 結果の型を取得（最初のオペランドの型を使用）
-            let result_dtype = if let Some(first_operand) = operands.first() {
-                if let AstNode::Var(var_name) = first_operand {
-                    scope
-                        .get(var_name)
-                        .ok_or_else(|| format!("Variable {} not found in scope", var_name))?
-                        .dtype
-                        .clone()
-                } else {
-                    return Err("Expected variable as operand".to_string());
-                }
-            } else {
-                return Err("Operation requires at least one operand".to_string());
-            };
-
-            // 変数を宣言（初期値付き）
-            scope.declare(
-                result_var.clone(),
-                result_dtype,
-                Mutability::Mutable,
-                Some(result),
-            )?;
-            intermediate_results.push(result_var);
+            intermediate_results.push(result);
         }
 
-        // 最後の演算結果を出力にストア
-        if let Some(last_result) = intermediate_results.last() {
+        // 最後の演算結果を出力にストア（1つの式として）
+        if let Some(final_result) = intermediate_results.last() {
             let output_ptr = var("output");
             let output_offset = self.compute_offset_from_view(node, axes);
-            statements.push(store(output_ptr, output_offset, var(last_result)));
+            statements.push(store(output_ptr, output_offset, final_result.clone()));
         } else {
             return Err("FusedElementwise requires at least one operation".to_string());
         }

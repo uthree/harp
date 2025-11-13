@@ -300,13 +300,13 @@ impl Lowerer {
         dtype: &GraphDType,
     ) -> Result<AstNode, String> {
         match op {
-            ReduceOp::Add => match dtype {
+            ReduceOp::Sum => match dtype {
                 GraphDType::F32 => Ok(AstNode::Const(Literal::F32(0.0))),
                 GraphDType::Unknown => {
                     Err("Cannot determine init value for Unknown dtype".to_string())
                 }
             },
-            ReduceOp::Mul => match dtype {
+            ReduceOp::Prod => match dtype {
                 GraphDType::F32 => Ok(AstNode::Const(Literal::F32(1.0))),
                 GraphDType::Unknown => {
                     Err("Cannot determine init value for Unknown dtype".to_string())
@@ -376,8 +376,8 @@ impl Lowerer {
         value: AstNode,
     ) -> Result<AstNode, String> {
         match op {
-            ReduceOp::Add => Ok(acc + value),
-            ReduceOp::Mul => Ok(acc * value),
+            ReduceOp::Sum => Ok(acc + value),
+            ReduceOp::Prod => Ok(acc * value),
             ReduceOp::Max => Ok(max(acc, value)),
         }
     }

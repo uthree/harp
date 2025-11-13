@@ -960,7 +960,7 @@ mod tests {
         // Reduceオペレーションが正しく設定されていることを確認
         match &result.op {
             GraphOp::Reduce { op, axis, .. } => {
-                assert_eq!(*op, ReduceOp::Add);
+                assert_eq!(*op, ReduceOp::Sum);
                 assert_eq!(*axis, 1);
             }
             _ => panic!("Expected GraphOp::Reduce"),
@@ -986,7 +986,7 @@ mod tests {
         // Reduceオペレーションが正しく設定されていることを確認
         match &result.op {
             GraphOp::Reduce { op, axis, .. } => {
-                assert_eq!(*op, ReduceOp::Mul);
+                assert_eq!(*op, ReduceOp::Prod);
                 assert_eq!(*axis, 0);
             }
             _ => panic!("Expected GraphOp::Reduce"),
@@ -1119,11 +1119,11 @@ mod tests {
             .build();
 
         // ReduceOpを直接指定
-        let result = input.reduce(ReduceOp::Add, 1);
+        let result = input.reduce(ReduceOp::Sum, 1);
 
         match &result.op {
             GraphOp::Reduce { op, axis, .. } => {
-                assert_eq!(*op, ReduceOp::Add);
+                assert_eq!(*op, ReduceOp::Sum);
                 assert_eq!(*axis, 1);
             }
             _ => panic!("Expected GraphOp::Reduce"),

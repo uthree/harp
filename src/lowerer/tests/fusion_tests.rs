@@ -90,7 +90,7 @@ fn test_lower_fused_elementwise_reduce() {
         inputs: vec![FusedInput::GraphInput(0), FusedInput::GraphInput(1)],
     }];
 
-    let result = crate::graph::ops::fused_elementwise_reduce(vec![a, b], ops, ReduceOp::Add, 0);
+    let result = crate::graph::ops::fused_elementwise_reduce(vec![a, b], ops, ReduceOp::Sum, 0);
 
     // カーネル関数を生成
     let mut lowerer = Lowerer::new();
