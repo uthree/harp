@@ -38,7 +38,6 @@ fn main() -> eframe::Result {
 
     // AST最適化の設定
     let ast_config = AstOptimizationConfig {
-        rule_max_iterations: 10,
         beam_width: 4,
         max_steps: 10000,
         show_progress: true,
@@ -203,10 +202,10 @@ fn create_complex_computation_graph() -> Graph {
     let mut graph = Graph::new();
 
     // サイズは小さめにして最適化の効果を見やすくする
-    let m = 320;
-    let k = 480;
-    let n = 400;
-    let p = 360;
+    let m = 64;
+    let k = 32;
+    let n = 64;
+    let p = 128;
 
     // 入力行列
     let a = graph

@@ -43,8 +43,6 @@ impl Default for GraphOptimizationConfig {
 
 /// AST最適化の設定
 pub struct AstOptimizationConfig {
-    /// ルールベース最適化の最大反復回数
-    pub rule_max_iterations: usize,
     /// ビームサーチのビーム幅
     pub beam_width: usize,
     /// ビームサーチの最大ステップ数
@@ -56,7 +54,6 @@ pub struct AstOptimizationConfig {
 impl Default for AstOptimizationConfig {
     fn default() -> Self {
         Self {
-            rule_max_iterations: 100,
             beam_width: 4,
             max_steps: 10000,
             show_progress: false,
@@ -238,27 +235,21 @@ where
 
         // AST最適化（Program全体を最適化）
         let optimized_program = if self.enable_ast_optimization {
-            // ステップ1: ルールベース最適化
-            let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules())
-                .with_max_iterations(self.ast_optimization_config.rule_max_iterations);
-
-            let rule_optimized = rule_optimizer.optimize(program);
-
-            // ステップ2: ビームサーチ最適化（ルールベース + ループ最適化）
-            let beam_suggester = AstCompositeSuggester::new(vec![
+            //ビームサーチ最適化
+            let suggester = AstCompositeSuggester::new(vec![
                 Box::new(RuleBaseSuggester::new(all_rules_with_search())),
                 Box::new(LoopTilingSuggester::with_default_sizes()),
                 Box::new(LoopInliningSuggester::with_default_limit()),
                 Box::new(LoopInterchangeSuggester::new()),
             ]);
-            let beam_estimator = AstSimpleCostEstimator::new();
+            let estimator = AstSimpleCostEstimator::new();
 
-            let beam_optimizer = AstBeamSearchOptimizer::new(beam_suggester, beam_estimator)
+            let beam_optimizer = AstBeamSearchOptimizer::new(suggester, estimator)
                 .with_beam_width(self.ast_optimization_config.beam_width)
                 .with_max_steps(self.ast_optimization_config.max_steps)
                 .with_progress(self.ast_optimization_config.show_progress);
 
-            let (optimized, history) = beam_optimizer.optimize_with_history(rule_optimized);
+            let (optimized, history) = beam_optimizer.optimize_with_history(program);
 
             // 履歴を保存
             self.last_ast_optimization_history = Some(history);
@@ -311,14 +302,7 @@ where
         let program = self.lower_to_program(optimized_graph);
 
         // AST最適化（Program全体を最適化）
-        let (optimized_program, all_histories) = if self.enable_ast_optimization {
-            // ステップ1: ルールベース最適化
-            // a+0 -> a のような, 不要なノードを削除したり、定数項のみで構成される演算を事前に計算したりする。
-            let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules())
-                .with_max_iterations(self.ast_optimization_config.rule_max_iterations);
-            let program = rule_optimizer.optimize(program);
-
-            // let program = rule_optimizer.optimize(program);
+        let (program, all_histories) = if self.enable_ast_optimization {
             // ステップ2: ビームサーチ最適化（ルールベース + ループ最適化）
             let beam_suggester = AstCompositeSuggester::new(vec![
                 Box::new(RuleBaseSuggester::new(all_rules_with_search())),
@@ -333,7 +317,7 @@ where
                 .with_max_steps(self.ast_optimization_config.max_steps)
                 .with_progress(self.ast_optimization_config.show_progress);
 
-            let (optimized, history) = beam_optimizer.optimize_with_history(program);
+            let (program, history) = beam_optimizer.optimize_with_history(program);
 
             // 履歴を保存
             self.last_ast_optimization_history = Some(history.clone());
@@ -341,12 +325,12 @@ where
             let mut all_histories = std::collections::HashMap::new();
             all_histories.insert("program".to_string(), history);
 
-            (optimized, all_histories)
+            (program, all_histories)
         } else {
             (program, std::collections::HashMap::new())
         };
 
-        Ok((optimized_program, all_histories))
+        Ok((program, all_histories))
     }
 
     /// 最適化履歴を記録しながらグラフをコンパイル（AST履歴を返す）
@@ -388,12 +372,6 @@ where
 
         // AST最適化（Program全体を最適化）
         let (optimized_program, all_histories) = if self.enable_ast_optimization {
-            // ステップ1: ルールベース最適化
-            let _rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules())
-                .with_max_iterations(self.ast_optimization_config.rule_max_iterations);
-
-            let rule_optimized = _rule_optimizer.optimize(program); // デバッグ用に一時的に無効化
-
             // ステップ2: ビームサーチ最適化（ルールベース + ループ最適化）
             let beam_suggester = AstCompositeSuggester::new(vec![
                 Box::new(RuleBaseSuggester::new(all_rules_with_search())),
@@ -408,7 +386,7 @@ where
                 .with_max_steps(self.ast_optimization_config.max_steps)
                 .with_progress(self.ast_optimization_config.show_progress);
 
-            let (optimized, history) = beam_optimizer.optimize_with_history(rule_optimized);
+            let (program, history) = beam_optimizer.optimize_with_history(program);
 
             // 履歴を保存
             self.last_ast_optimization_history = Some(history.clone());
@@ -416,7 +394,7 @@ where
             let mut all_histories = std::collections::HashMap::new();
             all_histories.insert("program".to_string(), history);
 
-            (optimized, all_histories)
+            (program, all_histories)
         } else {
             (program, std::collections::HashMap::new())
         };
@@ -508,12 +486,6 @@ where
             return program;
         }
 
-        // ステップ1: ルールベース最適化
-        let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules())
-            .with_max_iterations(self.ast_optimization_config.rule_max_iterations);
-
-        let rule_optimized = rule_optimizer.optimize(program);
-
         // ステップ2: ビームサーチ最適化（ルールベース + ループ最適化）
         let beam_suggester = AstCompositeSuggester::new(vec![
             Box::new(RuleBaseSuggester::new(all_rules_with_search())),
@@ -528,9 +500,9 @@ where
             .with_max_steps(self.ast_optimization_config.max_steps)
             .with_progress(self.ast_optimization_config.show_progress);
 
-        let (optimized, _history) = beam_optimizer.optimize_with_history(rule_optimized);
+        let (program, _history) = beam_optimizer.optimize_with_history(program);
 
-        optimized
+        program
     }
 }
 
