@@ -283,8 +283,8 @@ mod tests {
 
         let suggestions = suggester.suggest(&graph);
 
-        // 3つのSIMD幅候補(2, 4, 8)が生成されるはず
-        assert_eq!(suggestions.len(), 3);
+        // 4つのSIMD幅候補(2, 3, 4, 8)が生成されるはず
+        assert_eq!(suggestions.len(), 4);
     }
 
     #[test]

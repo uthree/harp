@@ -263,7 +263,12 @@ pub trait CLikeRenderer: Renderer {
         ));
         result.push('\n');
         self.inc_indent();
-        result.push_str(&self.render_statement(body));
+        let body_str = self.render_statement(body);
+        result.push_str(&body_str);
+        // Blockでない場合は改行が含まれていないので追加
+        if !body_str.ends_with('\n') {
+            result.push('\n');
+        }
         self.dec_indent();
         result.push_str(&format!("{}}}", self.indent()));
         result
