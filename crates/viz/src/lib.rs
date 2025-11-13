@@ -3,10 +3,14 @@
 //! グラフ構造とパフォーマンス統計を可視化するためのライブラリ
 
 pub mod ast_viewer;
+pub mod diff_viewer;
 pub mod graph_viewer;
 pub mod perf_viewer;
 
 pub use ast_viewer::AstViewerApp;
+pub use diff_viewer::{
+    show_collapsible_diff, show_resizable_diff, show_text_diff, DiffViewerConfig,
+};
 pub use graph_viewer::GraphViewerApp;
 pub use perf_viewer::PerfViewerApp;
 

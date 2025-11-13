@@ -3,7 +3,7 @@ use crate::opt::graph::{
     GraphCostEstimator, GraphOptimizer, GraphSuggester, OptimizationHistory, OptimizationSnapshot,
 };
 use indicatif::{ProgressBar, ProgressStyle};
-use log::debug;
+use log::{debug, info, trace};
 
 /// ビームサーチグラフ最適化器
 ///
@@ -91,7 +91,10 @@ where
             log_capture::start_capture();
         }
 
-        debug!("BeamSearchGraphOptimizer: Starting beam search optimization with history tracking");
+        info!(
+            "Graph optimization started (beam_width={}, max_steps={})",
+            self.beam_width, self.max_steps
+        );
 
         let mut history = OptimizationHistory::new();
         let mut beam = vec![graph.clone()];
@@ -101,17 +104,15 @@ where
         let initial_outputs = graph.outputs().len();
 
         // 初期状態の入力・出力ノード情報をログに出力
-        debug!(
-            "BeamSearchGraphOptimizer: Initial - {} inputs, {} outputs",
+        info!(
+            "Initial graph: {} inputs, {} outputs, cost={:.2e}",
             graph.inputs().len(),
-            graph.outputs().len()
+            graph.outputs().len(),
+            initial_cost
         );
         for (name, node) in graph.outputs() {
             let op_type = format!("{:?}", node.op);
-            debug!(
-                "BeamSearchGraphOptimizer: Initial - Output '{}': {:?}",
-                name, op_type
-            );
+            debug!("Initial output '{}': {:?}", name, op_type);
         }
 
         let initial_logs = if self.collect_logs {
@@ -171,8 +172,8 @@ where
             }
 
             if candidates.is_empty() {
-                debug!(
-                    "BeamSearchGraphOptimizer: No more candidates at step {} - optimization complete (early termination)",
+                info!(
+                    "No more candidates at step {} - optimization complete",
                     step
                 );
                 if let Some(ref pb) = pb {
@@ -186,11 +187,7 @@ where
                 break;
             }
 
-            debug!(
-                "BeamSearchGraphOptimizer: Found {} candidates at step {}",
-                candidates.len(),
-                step
-            );
+            trace!("Found {} candidates at step {}", candidates.len(), step);
 
             // コストでソートして上位beam_width個を残す
             let mut candidates_with_cost: Vec<(Graph, f32)> = candidates
@@ -218,14 +215,14 @@ where
                 if *cost >= best_cost {
                     no_improvement_count += 1;
                     debug!(
-                        "BeamSearchGraphOptimizer: No cost improvement at step {} (current: {}, best: {}, count: {}/{})",
+                        "Step {}: no improvement (current={:.2e}, best={:.2e}, {}/{})",
                         step, cost, best_cost, no_improvement_count, MAX_NO_IMPROVEMENT_STEPS
                     );
 
                     // 連続で改善がない場合は早期終了
                     if no_improvement_count >= MAX_NO_IMPROVEMENT_STEPS {
-                        debug!(
-                            "BeamSearchGraphOptimizer: No cost improvement for {} steps - optimization complete (early termination)",
+                        info!(
+                            "No cost improvement for {} steps - optimization complete",
                             MAX_NO_IMPROVEMENT_STEPS
                         );
                         if let Some(ref pb) = pb {
@@ -241,6 +238,11 @@ where
                 } else {
                     // コストが改善された場合はカウンターをリセット
                     no_improvement_count = 0;
+                    let improvement_pct = (best_cost - *cost) / best_cost * 100.0;
+                    info!(
+                        "Step {}: cost improved {:.2e} -> {:.2e} ({:+.1}%)",
+                        step, best_cost, *cost, -improvement_pct
+                    );
                     best_cost = *cost;
                     global_best = best.clone();
                 }
@@ -248,8 +250,8 @@ where
                 let num_inputs = best.inputs().len();
 
                 // 入力・出力ノード数をログに出力
-                debug!(
-                    "BeamSearchGraphOptimizer: Step {} - {} inputs, {} outputs",
+                trace!(
+                    "Step {} - {} inputs, {} outputs",
                     step + 1,
                     num_inputs,
                     num_outputs
@@ -258,12 +260,7 @@ where
                 // 出力ノードの演算タイプもログに出力
                 for (name, node) in best.outputs() {
                     let op_type = format!("{:?}", node.op);
-                    debug!(
-                        "BeamSearchGraphOptimizer: Step {} - Output '{}': {:?}",
-                        step + 1,
-                        name,
-                        op_type
-                    );
+                    trace!("Step {} - Output '{}': {:?}", step + 1, name, op_type);
                 }
 
                 let step_logs = if self.collect_logs {
@@ -297,7 +294,19 @@ where
             println!("{:>12} graph optimization", "\x1b[1;32mFinished\x1b[0m");
         }
 
-        debug!("BeamSearchGraphOptimizer: Beam search optimization complete");
+        let final_cost = self.estimator.estimate(&global_best);
+        let improvement_pct = if initial_cost > 0.0 {
+            (initial_cost - final_cost) / initial_cost * 100.0
+        } else {
+            0.0
+        };
+        info!(
+            "Graph optimization complete: {} steps, cost {:.2e} -> {:.2e} ({:+.1}%)",
+            history.snapshots().len() - 1,
+            initial_cost,
+            final_cost,
+            -improvement_pct
+        );
 
         // これまでで最良の候補を返す
         (global_best, history)

@@ -4,7 +4,6 @@ use harp::ast::renderer::render_ast_with;
 use harp::backend::c_like::CLikeRenderer;
 use harp::backend::openmp::CRenderer;
 use harp::opt::ast::OptimizationHistory;
-use similar::{ChangeTag, TextDiff};
 use std::collections::HashMap;
 
 /// ASTビューアアプリケーション（ジェネリックレンダラー対応）
@@ -442,45 +441,16 @@ where
         if let (Some(ref prev), Some(ref current)) = (&prev_code, &selected_code) {
             ui.separator();
 
-            egui::CollapsingHeader::new("Code Diff (Previous -> Current)")
-                .default_open(false)
-                .show(ui, |ui| {
-                    egui::Resize::default()
-                        .default_height(300.0)
-                        .min_height(100.0)
-                        .max_height(800.0)
-                        .resizable(true)
-                        .show(ui, |ui| {
-                            egui::ScrollArea::both() // 縦横両方にスクロール可能
-                                .id_salt("diff_scroll")
-                                .max_height(ui.available_height())
-                                .auto_shrink([false, false]) // 自動縮小を無効化して全幅を使う
-                                .show(ui, |ui| {
-                                    // テキストdiffを計算
-                                    let diff = TextDiff::from_lines(prev, current);
-
-                                    // diffの各行を表示
-                                    for change in diff.iter_all_changes() {
-                                        let (prefix, color) = match change.tag() {
-                                            ChangeTag::Delete => {
-                                                ("- ", egui::Color32::from_rgb(255, 100, 100))
-                                            }
-                                            ChangeTag::Insert => {
-                                                ("+ ", egui::Color32::from_rgb(100, 255, 100))
-                                            }
-                                            ChangeTag::Equal => ("  ", egui::Color32::GRAY),
-                                        };
-
-                                        let line = format!("{}{}", prefix, change.value());
-                                        ui.colored_label(
-                                            color,
-                                            egui::RichText::new(line).monospace(),
-                                        );
-                                    }
-                                });
-                        });
-                    });
-            }
+            crate::diff_viewer::show_collapsible_diff(
+                ui,
+                prev,
+                current,
+                "Code Diff (Previous -> Current)",
+                "ast_code_diff",
+                false,
+                None,
+            );
+        }
 
         // ログを表示（折りたたみ可能、高さリサイズ可能）
         ui.separator();

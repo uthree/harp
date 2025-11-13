@@ -1,7 +1,7 @@
 use crate::ast::AstNode;
 use crate::ast::pat::{AstRewriteRule, AstRewriter};
 use indicatif::{ProgressBar, ProgressStyle};
-use log::debug;
+use log::{debug, info, trace};
 use std::rc::Rc;
 
 use super::history::{OptimizationHistory, OptimizationSnapshot};
@@ -29,9 +29,9 @@ impl RuleBaseOptimizer {
 
 impl Optimizer for RuleBaseOptimizer {
     fn optimize(&self, ast: AstNode) -> AstNode {
-        debug!("RuleBaseOptimizer: Starting optimization");
+        info!("AST rule-based optimization started");
         let result = self.rewriter.apply(ast);
-        debug!("RuleBaseOptimizer: Optimization complete");
+        info!("AST rule-based optimization complete");
         result
     }
 }
@@ -122,13 +122,17 @@ where
             log_capture::start_capture();
         }
 
-        debug!("BeamSearchOptimizer: Starting beam search optimization with history");
+        info!(
+            "AST beam search optimization started (beam_width={}, max_steps={})",
+            self.beam_width, self.max_steps
+        );
 
         let mut history = OptimizationHistory::new();
         let mut beam = vec![ast.clone()];
 
         // 初期状態を記録
         let initial_cost = self.estimator.estimate(&ast);
+        info!("Initial AST cost: {:.2e}", initial_cost);
         let initial_logs = if self.collect_logs {
             log_capture::get_captured_logs()
         } else {
@@ -187,8 +191,8 @@ where
             }
 
             if candidates.is_empty() {
-                debug!(
-                    "BeamSearchOptimizer: No more candidates at step {} - optimization complete (early termination)",
+                info!(
+                    "No more candidates at step {} - optimization complete",
                     step
                 );
                 // 早期終了時は実際のステップ数を記録
@@ -200,11 +204,7 @@ where
                 break;
             }
 
-            debug!(
-                "BeamSearchOptimizer: Found {} candidates at step {}",
-                candidates.len(),
-                step
-            );
+            trace!("Found {} candidates at step {}", candidates.len(), step);
 
             // コストでソートして上位beam_width個を残す
             candidates.sort_by(|a, b| {
@@ -224,14 +224,14 @@ where
                 if cost >= best_cost {
                     no_improvement_count += 1;
                     debug!(
-                        "BeamSearchOptimizer: No cost improvement at step {} (current: {}, best: {}, count: {}/{})",
+                        "Step {}: no improvement (current={:.2e}, best={:.2e}, {}/{})",
                         step, cost, best_cost, no_improvement_count, MAX_NO_IMPROVEMENT_STEPS
                     );
 
                     // 連続で改善がない場合は早期終了
                     if no_improvement_count >= MAX_NO_IMPROVEMENT_STEPS {
-                        debug!(
-                            "BeamSearchOptimizer: No cost improvement for {} steps - optimization complete (early termination)",
+                        info!(
+                            "No cost improvement for {} steps - optimization complete",
                             MAX_NO_IMPROVEMENT_STEPS
                         );
                         actual_steps = step;
@@ -247,6 +247,11 @@ where
                 } else {
                     // コストが改善された場合はカウンターをリセット
                     no_improvement_count = 0;
+                    let improvement_pct = (best_cost - cost) / best_cost * 100.0;
+                    info!(
+                        "Step {}: cost improved {:.2e} -> {:.2e} ({:+.1}%)",
+                        step, best_cost, cost, -improvement_pct
+                    );
                     best_cost = cost;
                     global_best = best.clone();
                 }
@@ -292,7 +297,19 @@ where
             }
         }
 
-        debug!("BeamSearchOptimizer: Beam search optimization complete");
+        let final_cost = self.estimator.estimate(&global_best);
+        let improvement_pct = if initial_cost > 0.0 {
+            (initial_cost - final_cost) / initial_cost * 100.0
+        } else {
+            0.0
+        };
+        info!(
+            "AST optimization complete: {} steps, cost {:.2e} -> {:.2e} ({:+.1}%)",
+            actual_steps + 1,
+            initial_cost,
+            final_cost,
+            -improvement_pct
+        );
 
         // これまでで最良の候補を返す
         (global_best, history)
