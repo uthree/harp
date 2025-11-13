@@ -28,6 +28,6 @@ pub use estimator::{AstBasedCostEstimator, SimpleCostEstimator};
 pub use history::{OptimizationHistory, OptimizationSnapshot};
 pub use optimizer::BeamSearchGraphOptimizer;
 pub use suggesters::{
-    CompositeSuggester, FusionSuggester, ParallelStrategyChanger, TilingSuggester,
+    CompositeSuggester, FusionSuggester, ParallelStrategyChanger, SimdSuggester, TilingSuggester,
     ViewInsertionSuggester,
 };

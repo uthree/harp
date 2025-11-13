@@ -86,6 +86,7 @@ fn main() {
     println!("     - ViewInsertion（Transpose含む）");
     println!("     - Fusion（演算融合）");
     println!("     - ParallelStrategy（並列化戦略）");
+    println!("     - SimdSuggester（SIMD化）");
     println!("  2. AST最適化:");
     println!("     - ルールベース最適化（代数的簡約）");
     println!("     - ビームサーチ最適化");

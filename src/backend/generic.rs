@@ -12,8 +12,8 @@ use crate::opt::ast::{
 };
 use crate::opt::graph::{
     AstBasedCostEstimator, BeamSearchGraphOptimizer, CompositeSuggester, FusionSuggester,
-    OptimizationHistory as GraphOptimizationHistory, ParallelStrategyChanger, SimpleCostEstimator,
-    ViewInsertionSuggester,
+    OptimizationHistory as GraphOptimizationHistory, ParallelStrategyChanger, SimdSuggester,
+    SimpleCostEstimator, ViewInsertionSuggester,
 };
 
 /// compile_graph_with_all_historiesの戻り値の型
@@ -213,6 +213,7 @@ where
                 Box::new(ViewInsertionSuggester::new()),
                 Box::new(FusionSuggester::new()),
                 Box::new(ParallelStrategyChanger::new()),
+                Box::new(SimdSuggester::new()),
             ]);
             let estimator = SimpleCostEstimator::new();
 
@@ -283,6 +284,7 @@ where
                 Box::new(ViewInsertionSuggester::new()),
                 Box::new(FusionSuggester::new()),
                 Box::new(ParallelStrategyChanger::new()),
+                Box::new(SimdSuggester::new()),
             ]);
             let ast_estimator = AstSimpleCostEstimator::new();
             let estimator = AstBasedCostEstimator::new(ast_estimator);
@@ -355,6 +357,7 @@ where
                 Box::new(ViewInsertionSuggester::new()),
                 Box::new(FusionSuggester::new()),
                 Box::new(ParallelStrategyChanger::new()),
+                Box::new(SimdSuggester::new()),
             ]);
             let ast_estimator = AstSimpleCostEstimator::new();
             let estimator = AstBasedCostEstimator::new(ast_estimator);
@@ -454,6 +457,7 @@ where
     /// 1. ViewInsertionSuggester（Transpose含む）
     /// 2. FusionSuggester
     /// 3. ParallelStrategyChanger
+    /// 4. SimdSuggester
     fn optimize_graph(&self, graph: Graph) -> Graph {
         if !self.enable_graph_optimization {
             return graph;
@@ -463,6 +467,7 @@ where
             Box::new(ViewInsertionSuggester::new()),
             Box::new(FusionSuggester::new()),
             Box::new(ParallelStrategyChanger::new()),
+            Box::new(SimdSuggester::new()),
         ]);
         let ast_estimator = AstSimpleCostEstimator::new();
         let estimator = AstBasedCostEstimator::new(ast_estimator);
