@@ -9,7 +9,7 @@ use crate::opt::ast::{
     SimpleCostEstimator as AstSimpleCostEstimator,
 };
 use crate::opt::graph::{
-    AstBasedCostEstimator, BeamSearchGraphOptimizer, CompositeSuggester,
+    AstBasedCostEstimator, BeamSearchGraphOptimizer, CompositeSuggester, ConstPropagationSuggester,
     ContiguousInsertionSuggester, FusionSuggester, GraphCostEstimator,
     OptimizationHistory as GraphOptimizationHistory, ParallelStrategyChanger, SimdSuggester,
     SimpleCostEstimator, TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
@@ -259,6 +259,7 @@ where
         CompositeSuggester::new(vec![
             Box::new(ViewInsertionSuggester::new()),
             Box::new(ViewMergeSuggester::new()),
+            Box::new(ConstPropagationSuggester::new()),
             Box::new(TilingSuggester::with_default_tile_sizes()),
             Box::new(ContiguousInsertionSuggester::new()),
             Box::new(FusionSuggester::new()),

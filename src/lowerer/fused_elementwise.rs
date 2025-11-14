@@ -199,6 +199,10 @@ impl Lowerer {
                         // ops[i]の中間結果（式として保持）
                         intermediate_results[*idx].clone()
                     }
+                    FusedInput::Const(lit) => {
+                        // 定数値を直接埋め込む
+                        AstNode::Const(lit.clone())
+                    }
                 };
                 operands.push(operand);
             }

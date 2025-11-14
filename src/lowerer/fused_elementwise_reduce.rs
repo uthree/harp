@@ -398,6 +398,7 @@ impl Lowerer {
                 let operand = match input {
                     FusedInput::GraphInput(idx) => graph_inputs[*idx].clone(),
                     FusedInput::IntermediateResult(idx) => intermediate_results[*idx].clone(),
+                    FusedInput::Const(lit) => AstNode::Const(lit.clone()),
                 };
                 operands.push(operand);
             }
@@ -442,6 +443,7 @@ impl Lowerer {
                 let operand = match input {
                     FusedInput::GraphInput(idx) => graph_inputs[*idx].clone(),
                     FusedInput::IntermediateResult(idx) => intermediate_results[*idx].clone(),
+                    FusedInput::Const(lit) => AstNode::Const(lit.clone()),
                 };
                 operands.push(operand);
             }

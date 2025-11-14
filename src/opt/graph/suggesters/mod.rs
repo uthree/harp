@@ -1,4 +1,5 @@
 pub mod composite;
+pub mod const_propagation;
 pub mod contiguous;
 pub mod fusion;
 pub mod parallel;
@@ -9,6 +10,7 @@ pub mod view_merge;
 
 // Re-export commonly used types
 pub use composite::CompositeSuggester;
+pub use const_propagation::ConstPropagationSuggester;
 pub use contiguous::ContiguousInsertionSuggester;
 pub use fusion::FusionSuggester;
 pub use parallel::ParallelStrategyChanger;

@@ -72,12 +72,14 @@ pub struct FusedElementwiseOp {
 }
 
 /// 融合演算の入力ソース
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum FusedInput {
     /// GraphNodeのsrc[i]からの入力
     GraphInput(usize),
     /// ops[i]の中間結果
     IntermediateResult(usize),
+    /// 定数値（ブロードキャストされる）
+    Const(crate::ast::Literal),
 }
 
 // DTypeの推論：両方が同じならそれを使う、片方がUnknownなら他方を使う
