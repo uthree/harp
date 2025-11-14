@@ -1,4 +1,4 @@
-use super::{AstNode, DType};
+use super::{AstNode, DType, Literal, Scope};
 
 // Convenience free functions for AST construction
 
@@ -129,6 +129,60 @@ pub fn program(functions: Vec<AstNode>, entry_point: impl Into<String>) -> AstNo
         functions,
         entry_point: entry_point.into(),
     }
+}
+
+/// Create a range (for loop) node
+///
+/// # Arguments
+/// * `var` - Loop variable name
+/// * `start` - Start value
+/// * `step` - Step value
+/// * `stop` - Stop value (exclusive)
+/// * `body` - Loop body
+pub fn range(
+    var: impl Into<String>,
+    start: AstNode,
+    step: AstNode,
+    stop: AstNode,
+    body: AstNode,
+) -> AstNode {
+    AstNode::Range {
+        var: var.into(),
+        start: Box::new(start),
+        step: Box::new(step),
+        stop: Box::new(stop),
+        body: Box::new(body),
+    }
+}
+
+/// Create a block node with statements and scope
+///
+/// # Arguments
+/// * `statements` - List of statements in the block
+/// * `scope` - Scope for the block
+pub fn block(statements: Vec<AstNode>, scope: Scope) -> AstNode {
+    AstNode::Block {
+        statements,
+        scope: Box::new(scope),
+    }
+}
+
+/// Create an empty block
+pub fn empty_block() -> AstNode {
+    AstNode::Block {
+        statements: vec![],
+        scope: Box::new(Scope::new()),
+    }
+}
+
+/// Create an integer constant node
+pub fn const_int(value: isize) -> AstNode {
+    AstNode::Const(Literal::Int(value))
+}
+
+/// Create a float constant node (f32)
+pub fn const_f32(value: f32) -> AstNode {
+    AstNode::Const(Literal::F32(value))
 }
 
 #[cfg(test)]

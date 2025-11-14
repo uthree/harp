@@ -185,6 +185,131 @@ impl Lowerer {
             .collect()
     }
 
+    /// ネストしたループを生成する汎用関数
+    ///
+    /// # Arguments
+    /// * `ndim` - ループのネストレベル（次元数）
+    /// * `shape` - 各軸のサイズを表す式
+    /// * `var_prefix` - ループ変数のプレフィックス（例: "ridx"）
+    /// * `inner_statements` - 最内側のループ本体の文
+    /// * `inner_scope` - 最内側のスコープ
+    ///
+    /// # Returns
+    /// ネストされたループを含む文のベクトルとスコープのタプル
+    pub(super) fn generate_nested_loops(
+        &self,
+        ndim: usize,
+        shape: &[crate::graph::shape::Expr],
+        var_prefix: &str,
+        inner_statements: Vec<crate::ast::AstNode>,
+        inner_scope: crate::ast::Scope,
+    ) -> (Vec<crate::ast::AstNode>, crate::ast::Scope) {
+        use crate::ast::Scope;
+        use crate::ast::helper::{block, const_int, range};
+
+        let mut body_statements = inner_statements;
+        let mut scope = inner_scope;
+
+        // ループを逆順に作成（内側から外側へ）
+        for axis in (0..ndim).rev() {
+            let loop_var = format!("{}{}", var_prefix, axis);
+            let shape_expr: crate::ast::AstNode = shape[axis].clone().into();
+
+            let loop_body = block(body_statements, scope);
+
+            scope = Scope::new();
+
+            body_statements = vec![range(
+                loop_var,
+                const_int(0),
+                const_int(1),
+                shape_expr,
+                loop_body,
+            )];
+        }
+
+        (body_statements, scope)
+    }
+
+    /// カーネル関数の標準パラメータを生成
+    ///
+    /// # Arguments
+    /// * `inputs` - 入力ノードのスライス
+    /// * `output` - 出力ノード
+    /// * `shape` - 出力の形状
+    ///
+    /// # Returns
+    /// パラメータ宣言のベクトル（入力バッファ、出力バッファ、形状パラメータの順）
+    #[allow(dead_code)]
+    pub(super) fn generate_kernel_params(
+        &mut self,
+        inputs: &[&GraphNode],
+        output: &GraphNode,
+        shape: &[crate::graph::shape::Expr],
+    ) -> Result<Vec<crate::ast::VarDecl>, String> {
+        use crate::ast::{Mutability, VarDecl, VarKind};
+
+        let mut params = Vec::new();
+
+        // 入力バッファー
+        for (i, input) in inputs.iter().enumerate() {
+            let dtype = self.graph_dtype_to_ast_ptr(&input.dtype)?;
+            params.push(VarDecl {
+                name: format!("input{}", i),
+                dtype,
+                mutability: Mutability::Immutable,
+                kind: VarKind::Normal,
+            });
+        }
+
+        // 出力バッファー
+        let output_dtype = self.graph_dtype_to_ast_ptr(&output.dtype)?;
+        params.push(VarDecl {
+            name: "output".to_string(),
+            dtype: output_dtype,
+            mutability: Mutability::Mutable,
+            kind: VarKind::Normal,
+        });
+
+        // Shape変数
+        let shape_params = self.extract_shape_params(shape);
+        params.extend(shape_params);
+
+        Ok(params)
+    }
+
+    /// カーネル関数ノードを作成
+    ///
+    /// # Arguments
+    /// * `node_id` - ノードID（カーネル名の生成に使用）
+    /// * `params` - パラメータ宣言
+    /// * `body_statements` - 本体の文
+    /// * `body_scope` - 本体のスコープ
+    ///
+    /// # Returns
+    /// AstNode::Function
+    #[allow(dead_code)]
+    pub(super) fn wrap_as_kernel(
+        &self,
+        node_id: usize,
+        params: Vec<crate::ast::VarDecl>,
+        body_statements: Vec<crate::ast::AstNode>,
+        body_scope: crate::ast::Scope,
+    ) -> crate::ast::AstNode {
+        use crate::ast::helper::{block, function};
+        use crate::ast::{DType, FunctionKind};
+
+        let body = block(body_statements, body_scope);
+
+        function(
+            Some(format!("kernel_{}", node_id)),
+            FunctionKind::Normal,
+            params,
+            DType::Tuple(vec![]),
+            body,
+        )
+    }
+
     /// GraphNodeを一つのカーネル関数に変換（最も単純なケース）
     /// 前提：contiguous, 全軸Sequential, SIMD未使用
     pub fn lower_node_to_kernel(

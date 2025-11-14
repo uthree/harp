@@ -471,25 +471,25 @@ impl Lowerer {
                 if operands.len() != 1 {
                     return Err("Log2 requires 1 operand".to_string());
                 }
-                Ok(AstNode::Log2(Box::new(operands[0].clone())))
+                Ok(crate::ast::helper::log2(operands[0].clone()))
             }
             ElementwiseOp::Exp2 => {
                 if operands.len() != 1 {
                     return Err("Exp2 requires 1 operand".to_string());
                 }
-                Ok(AstNode::Exp2(Box::new(operands[0].clone())))
+                Ok(crate::ast::helper::exp2(operands[0].clone()))
             }
             ElementwiseOp::Sin => {
                 if operands.len() != 1 {
                     return Err("Sin requires 1 operand".to_string());
                 }
-                Ok(AstNode::Sin(Box::new(operands[0].clone())))
+                Ok(crate::ast::helper::sin(operands[0].clone()))
             }
             ElementwiseOp::Sqrt => {
                 if operands.len() != 1 {
                     return Err("Sqrt requires 1 operand".to_string());
                 }
-                Ok(AstNode::Sqrt(Box::new(operands[0].clone())))
+                Ok(crate::ast::helper::sqrt(operands[0].clone()))
             }
         }
     }
