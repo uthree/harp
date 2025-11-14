@@ -25,12 +25,37 @@ Graphを最適化、lower、AST最適化などの一通りの処理をまとめ�
 処理フロー:
 1. **グラフ最適化** (オプション): 並列化戦略変更、View挿入、ノード融合など
 2. **Lowering**: Graph → AST変換
-3. **AST最適化** (オプション): 代数的書き換え、定数畳み込みなど
+3. **AST最適化** (オプション):
+   - ルールベース最適化（代数的簡約、定数畳み込み）
+   - ビームサーチ最適化（ループ変換など）
 4. **レンダリング**: AST → ソースコード
 5. **コンパイル**: ソースコード → 実行可能カーネル
 
 #### GenericPipeline
-任意のRendererとCompilerを組み合わせて使用できる汎用Pipeline実装。コンパイル済みKernelをキーでキャッシュする機能を提供。
+任意のRendererとCompilerを組み合わせて使用できる汎用Pipeline実装。
+
+**主要な機能:**
+- コンパイル済みKernelのキャッシュ機能
+- 最適化履歴の収集（可視化ツールとの統合用）
+- グラフ最適化とAST最適化の個別制御
+
+**設定フィールド:**
+- `enable_graph_optimization`: グラフ最適化の有効化
+- `enable_ast_optimization`: AST最適化の有効化
+- `graph_config`: グラフ最適化の設定（ビーム幅、最大ステップ数、プログレス表示）
+- `ast_config`: AST最適化の設定
+- `collect_histories`: 最適化履歴を収集するか（DEBUGビルドでデフォルトtrue、RELEASEビルドでfalse）
+
+**使用例:**
+```rust
+let mut pipeline = GenericPipeline::new(renderer, compiler);
+pipeline.enable_graph_optimization = true;
+pipeline.enable_ast_optimization = true;
+pipeline.graph_config.beam_width = 8;
+```
+
+**最適化履歴:**
+最適化の各ステップは`OptimizationHistories`に記録され、`pipeline.histories.graph`および`pipeline.histories.ast`からアクセス可能。可視化ツール（harp-viz）で最適化過程を確認できる。
 
 ## 実装状況
 
