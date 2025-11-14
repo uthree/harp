@@ -43,6 +43,14 @@ ASTを最適化。`optimize(&self, ast: AstNode) -> AstNode`
 #### LoopInliningSuggester
 - 小さいループをインライン展開
 
+#### LoopInterchangeSuggester
+- ネストしたループの順序を入れ替え
+
+#### FunctionInliningSuggester
+- 小さい関数をインライン展開
+- Return文が1つだけの単純な関数が対象
+- デフォルトで50ノードまでの関数を展開
+
 #### CompositeSuggester
 - 複数のSuggesterを組み合わせる
 

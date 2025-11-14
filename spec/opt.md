@@ -22,7 +22,7 @@ AST (低レベル表現)
 ### AST最適化（低レベル）
 GenericPipelineでは以下の2段階で実行される：
 1. **ルールベース最適化**: 代数的書き換え（定数畳み込み、単位元除去など）
-2. **ビームサーチ最適化**: ループ最適化（タイル化、インライン展開、交換など）
+2. **ビームサーチ最適化**: ループ最適化（タイル化、インライン展開、交換など）と関数インライン展開
 
 ## 設計思想
 
@@ -45,7 +45,11 @@ GenericPipelineでは以下の2段階で実行される：
 - `src/opt/ast/` - AST最適化の実装
   - `rules.rs` - 代数的書き換えルール集
   - `optimizer.rs` - RuleBaseOptimizer、BeamSearchOptimizer
-  - `suggester.rs` - 各種Suggester実装
+  - `suggesters/` - 各種Suggester実装
+    - `rule_based.rs` - ルールベース書き換え
+    - `loop_transforms.rs` - ループ最適化（タイル化、インライン展開、交換）
+    - `function_inlining.rs` - 関数インライン展開
+    - `composite.rs` - 複数Suggesterの統合
   - `transforms.rs` - ループ変換関数
 
 ### Graph最適化

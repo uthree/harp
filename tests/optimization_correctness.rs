@@ -7,7 +7,7 @@
 mod tests {
     use harp::backend::openmp::{CCompiler, CRenderer};
     use harp::backend::{Buffer, Compiler, GenericPipeline, Kernel, Pipeline};
-    use harp::graph::{shape::Expr, DType, Graph, GraphNode};
+    use harp::graph::{DType, Graph, GraphNode, shape::Expr};
 
     /// ExprをVec<usize>に変換（定数のみサポート）
     fn expr_vec_to_usize_vec(exprs: &[Expr]) -> Vec<usize> {
@@ -75,10 +75,7 @@ mod tests {
                 .create_buffer(shape, std::mem::size_of::<f32>());
 
             // データをバッファに書き込み
-            let bytes: Vec<u8> = data
-                .iter()
-                .flat_map(|&f| f.to_le_bytes())
-                .collect();
+            let bytes: Vec<u8> = data.iter().flat_map(|&f| f.to_le_bytes()).collect();
             buffer.from_bytes(&bytes).expect("Failed to write buffer");
             input_buffers.push(buffer);
         }
@@ -156,7 +153,8 @@ mod tests {
         let input_b: Vec<f32> = (0..16).map(|x| (x * 2) as f32).collect();
 
         // 最適化なしで実行
-        let result_no_opt = compile_and_run(graph.clone(), false, vec![input_a.clone(), input_b.clone()]);
+        let result_no_opt =
+            compile_and_run(graph.clone(), false, vec![input_a.clone(), input_b.clone()]);
 
         // 最適化ありで実行
         let result_with_opt = compile_and_run(graph, true, vec![input_a, input_b]);
@@ -288,7 +286,8 @@ mod tests {
         let input_b: Vec<f32> = (0..32).map(|x| (x * 2) as f32).collect();
 
         // 最適化なしで実行
-        let result_no_opt = compile_and_run(graph.clone(), false, vec![input_a.clone(), input_b.clone()]);
+        let result_no_opt =
+            compile_and_run(graph.clone(), false, vec![input_a.clone(), input_b.clone()]);
 
         // 最適化ありで実行
         let result_with_opt = compile_and_run(graph, true, vec![input_a, input_b]);
@@ -350,7 +349,8 @@ mod tests {
         );
 
         // 最適化ありで実行
-        let result_with_opt = compile_and_run(graph, true, vec![input_a, input_b, input_c, input_d]);
+        let result_with_opt =
+            compile_and_run(graph, true, vec![input_a, input_b, input_c, input_d]);
 
         // 結果を比較
         assert_approx_eq(&result_no_opt, &result_with_opt, 1e-4);
@@ -385,7 +385,8 @@ mod tests {
         let input_b: Vec<f32> = (0..12).map(|x| (x * 2) as f32).collect();
 
         // 最適化なしで実行
-        let result_no_opt = compile_and_run(graph.clone(), false, vec![input_a.clone(), input_b.clone()]);
+        let result_no_opt =
+            compile_and_run(graph.clone(), false, vec![input_a.clone(), input_b.clone()]);
 
         // 最適化ありで実行
         let result_with_opt = compile_and_run(graph, true, vec![input_a, input_b]);
@@ -422,7 +423,8 @@ mod tests {
         let input_b: Vec<f32> = (0..128).map(|x| (x as f32) * 0.02).collect();
 
         // 最適化なしで実行
-        let result_no_opt = compile_and_run(graph.clone(), false, vec![input_a.clone(), input_b.clone()]);
+        let result_no_opt =
+            compile_and_run(graph.clone(), false, vec![input_a.clone(), input_b.clone()]);
 
         // 最適化ありで実行
         let result_with_opt = compile_and_run(graph, true, vec![input_a, input_b]);

@@ -11,6 +11,9 @@ const MEMORY_ACCESS_COST: f32 = 4.0;
 // 関数呼び出しのオーバーヘッド（スタックフレームの設定、レジスタ退避など）
 const FUNCTION_CALL_OVERHEAD: f32 = 10.0;
 
+// 関数定義のオーバーヘッド（プロローグ/エピローグ生成、シンボルテーブルエントリなど）
+const FUNCTION_DEFINITION_OVERHEAD: f32 = 50.0;
+
 // 同期バリアのコスト（スレッド間の同期待ち）
 const BARRIER_COST: f32 = 100.0;
 
@@ -192,16 +195,295 @@ impl CostEstimator for SimpleCostEstimator {
             }
             AstNode::Return { value } => self.estimate(value),
             AstNode::Function { body, .. } => {
-                // 関数本体のコスト
-                self.estimate(body)
+                // 関数本体のコスト + 関数定義オーバーヘッド
+                // 関数定義自体にもコストがかかる（プロローグ/エピローグ、スタックフレーム管理など）
+                log_sum_exp(self.estimate(body), FUNCTION_DEFINITION_OVERHEAD.ln())
             }
-            AstNode::Program { functions, .. } => {
+            AstNode::Program {
+                functions,
+                entry_point,
+            } => {
+                // エントリポイント以外の関数の数に基づいてペナルティを計算
+                // 未使用の関数が多いほどコストが高くなる（インライン展開を促進）
+                let non_entry_functions = functions
+                    .iter()
+                    .filter(|f| {
+                        if let AstNode::Function { name: Some(n), .. } = f {
+                            n != entry_point
+                        } else {
+                            true
+                        }
+                    })
+                    .count();
+
                 // すべての関数のコストの合計
-                log_sum_exp_iter(functions.iter().map(|f| self.estimate(f)))
+                let functions_cost = log_sum_exp_iter(functions.iter().map(|f| self.estimate(f)));
+
+                // 非エントリポイント関数の数に比例したペナルティを追加
+                // 関数が多いほど、コードサイズが大きくなり、キャッシュ効率が悪化する
+                if non_entry_functions > 0 {
+                    let penalty = (non_entry_functions as f32 * FUNCTION_DEFINITION_OVERHEAD).ln();
+                    log_sum_exp(functions_cost, penalty)
+                } else {
+                    functions_cost
+                }
             }
             _ => f32::NEG_INFINITY, // log(0)
         };
 
         log_sum_exp(base_cost, children_cost)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::{DType, FunctionKind, Literal, Mutability, Scope, VarDecl, VarKind};
+
+    #[test]
+    fn test_function_inlining_reduces_cost() {
+        let estimator = SimpleCostEstimator::new();
+
+        // インライン展開前: 2つの関数（add_one + main）
+        // fn add_one(x: Int) -> Int { return x + 1 }
+        // fn main() -> Int { return add_one(5) }
+        let add_one_func = AstNode::Function {
+            name: Some("add_one".to_string()),
+            params: vec![VarDecl {
+                name: "x".to_string(),
+                dtype: DType::Int,
+                mutability: Mutability::Immutable,
+                kind: VarKind::Normal,
+            }],
+            return_type: DType::Int,
+            body: Box::new(AstNode::Return {
+                value: Box::new(AstNode::Add(
+                    Box::new(AstNode::Var("x".to_string())),
+                    Box::new(AstNode::Const(Literal::Int(1))),
+                )),
+            }),
+            kind: FunctionKind::Normal,
+        };
+
+        let main_with_call = AstNode::Function {
+            name: Some("main".to_string()),
+            params: vec![],
+            return_type: DType::Int,
+            body: Box::new(AstNode::Return {
+                value: Box::new(AstNode::Call {
+                    name: "add_one".to_string(),
+                    args: vec![AstNode::Const(Literal::Int(5))],
+                }),
+            }),
+            kind: FunctionKind::Normal,
+        };
+
+        let program_before = AstNode::Program {
+            functions: vec![add_one_func, main_with_call],
+            entry_point: "main".to_string(),
+        };
+
+        // インライン展開後: 1つの関数（mainのみ）
+        // fn main() -> Int { return 5 + 1 }
+        let main_inlined = AstNode::Function {
+            name: Some("main".to_string()),
+            params: vec![],
+            return_type: DType::Int,
+            body: Box::new(AstNode::Return {
+                value: Box::new(AstNode::Add(
+                    Box::new(AstNode::Const(Literal::Int(5))),
+                    Box::new(AstNode::Const(Literal::Int(1))),
+                )),
+            }),
+            kind: FunctionKind::Normal,
+        };
+
+        let program_after = AstNode::Program {
+            functions: vec![main_inlined],
+            entry_point: "main".to_string(),
+        };
+
+        let cost_before = estimator.estimate(&program_before);
+        let cost_after = estimator.estimate(&program_after);
+
+        // インライン展開後の方がコストが低いはず
+        // （関数定義オーバーヘッド + 関数呼び出しオーバーヘッドが削減される）
+        assert!(
+            cost_after < cost_before,
+            "Expected cost after inlining ({}) to be less than before ({})",
+            cost_after,
+            cost_before
+        );
+    }
+
+    #[test]
+    fn test_more_functions_higher_cost() {
+        let estimator = SimpleCostEstimator::new();
+
+        // 1つの関数
+        let single_func = AstNode::Program {
+            functions: vec![AstNode::Function {
+                name: Some("main".to_string()),
+                params: vec![],
+                return_type: DType::Int,
+                body: Box::new(AstNode::Return {
+                    value: Box::new(AstNode::Const(Literal::Int(1))),
+                }),
+                kind: FunctionKind::Normal,
+            }],
+            entry_point: "main".to_string(),
+        };
+
+        // 2つの関数（同じ本体だが関数定義が多い）
+        let two_funcs = AstNode::Program {
+            functions: vec![
+                AstNode::Function {
+                    name: Some("helper".to_string()),
+                    params: vec![],
+                    return_type: DType::Int,
+                    body: Box::new(AstNode::Return {
+                        value: Box::new(AstNode::Const(Literal::Int(1))),
+                    }),
+                    kind: FunctionKind::Normal,
+                },
+                AstNode::Function {
+                    name: Some("main".to_string()),
+                    params: vec![],
+                    return_type: DType::Int,
+                    body: Box::new(AstNode::Return {
+                        value: Box::new(AstNode::Const(Literal::Int(1))),
+                    }),
+                    kind: FunctionKind::Normal,
+                },
+            ],
+            entry_point: "main".to_string(),
+        };
+
+        let cost_single = estimator.estimate(&single_func);
+        let cost_two = estimator.estimate(&two_funcs);
+
+        // 関数が多い方がコストが高い（関数定義オーバーヘッドが追加される）
+        assert!(
+            cost_two > cost_single,
+            "Expected cost with two functions ({}) to be greater than one ({})",
+            cost_two,
+            cost_single
+        );
+    }
+
+    #[test]
+    fn test_call_overhead() {
+        let estimator = SimpleCostEstimator::new();
+
+        // 直接計算: 5 + 1
+        let direct = AstNode::Add(
+            Box::new(AstNode::Const(Literal::Int(5))),
+            Box::new(AstNode::Const(Literal::Int(1))),
+        );
+
+        // 関数呼び出し経由: call add_one(5)
+        let via_call = AstNode::Call {
+            name: "add_one".to_string(),
+            args: vec![AstNode::Const(Literal::Int(5))],
+        };
+
+        let cost_direct = estimator.estimate(&direct);
+        let cost_via_call = estimator.estimate(&via_call);
+
+        // 関数呼び出しにはオーバーヘッドがあるので、直接計算より高コスト
+        assert!(
+            cost_via_call > cost_direct,
+            "Expected call overhead to increase cost: {} > {}",
+            cost_via_call,
+            cost_direct
+        );
+    }
+
+    #[test]
+    fn test_void_function_inlining_reduces_cost() {
+        let estimator = SimpleCostEstimator::new();
+
+        // インライン展開前: 副作用関数を呼び出し
+        let write_value_func = AstNode::Function {
+            name: Some("write_value".to_string()),
+            params: vec![
+                VarDecl {
+                    name: "ptr".to_string(),
+                    dtype: DType::Ptr(Box::new(DType::Int)),
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::Normal,
+                },
+                VarDecl {
+                    name: "value".to_string(),
+                    dtype: DType::Int,
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::Normal,
+                },
+            ],
+            return_type: DType::Tuple(vec![]),
+            body: Box::new(AstNode::Block {
+                statements: vec![AstNode::Store {
+                    ptr: Box::new(AstNode::Var("ptr".to_string())),
+                    offset: Box::new(AstNode::Const(Literal::Int(0))),
+                    value: Box::new(AstNode::Var("value".to_string())),
+                }],
+                scope: Box::new(Scope::new()),
+            }),
+            kind: FunctionKind::Normal,
+        };
+
+        let main_with_call = AstNode::Function {
+            name: Some("main".to_string()),
+            params: vec![],
+            return_type: DType::Tuple(vec![]),
+            body: Box::new(AstNode::Block {
+                statements: vec![AstNode::Call {
+                    name: "write_value".to_string(),
+                    args: vec![
+                        AstNode::Var("buffer".to_string()),
+                        AstNode::Const(Literal::Int(42)),
+                    ],
+                }],
+                scope: Box::new(Scope::new()),
+            }),
+            kind: FunctionKind::Normal,
+        };
+
+        let program_before = AstNode::Program {
+            functions: vec![write_value_func, main_with_call],
+            entry_point: "main".to_string(),
+        };
+
+        // インライン展開後
+        let main_inlined = AstNode::Function {
+            name: Some("main".to_string()),
+            params: vec![],
+            return_type: DType::Tuple(vec![]),
+            body: Box::new(AstNode::Block {
+                statements: vec![AstNode::Store {
+                    ptr: Box::new(AstNode::Var("buffer".to_string())),
+                    offset: Box::new(AstNode::Const(Literal::Int(0))),
+                    value: Box::new(AstNode::Const(Literal::Int(42))),
+                }],
+                scope: Box::new(Scope::new()),
+            }),
+            kind: FunctionKind::Normal,
+        };
+
+        let program_after = AstNode::Program {
+            functions: vec![main_inlined],
+            entry_point: "main".to_string(),
+        };
+
+        let cost_before = estimator.estimate(&program_before);
+        let cost_after = estimator.estimate(&program_after);
+
+        // インライン展開後の方がコストが低い
+        assert!(
+            cost_after < cost_before,
+            "Expected cost after void function inlining ({}) to be less than before ({})",
+            cost_after,
+            cost_before
+        );
     }
 }

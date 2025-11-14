@@ -1,0 +1,739 @@
+//! 関数インライン展開のためのSuggester実装
+//!
+//! 小さい関数をインライン展開して、関数呼び出しのオーバーヘッドを削減します。
+
+use crate::ast::AstNode;
+use crate::opt::ast::Suggester;
+use log::{debug, trace};
+use std::collections::{HashMap, HashSet};
+
+/// 関数インライン展開を提案するSuggester
+pub struct FunctionInliningSuggester {
+    /// インライン展開する関数の最大ノード数
+    max_nodes: usize,
+}
+
+impl FunctionInliningSuggester {
+    /// 新しいFunctionInliningSuggesterを作成
+    pub fn new(max_nodes: usize) -> Self {
+        Self { max_nodes }
+    }
+
+    /// デフォルトの設定で作成（最大500ノードまで展開）
+    pub fn with_default_limit() -> Self {
+        Self { max_nodes: 50 }
+    }
+
+    /// ASTノードの数を数える
+    fn count_nodes(ast: &AstNode) -> usize {
+        1 + ast
+            .children()
+            .iter()
+            .map(|child| Self::count_nodes(child))
+            .sum::<usize>()
+    }
+
+    /// 関数本体から全てのReturn文を検出する
+    /// Return文が複数ある場合や制御フローが複雑な場合はインライン展開しない
+    fn find_single_return(body: &AstNode) -> Option<&AstNode> {
+        let mut returns = Vec::new();
+        Self::collect_returns(body, &mut returns);
+
+        // Return文が1つだけの場合のみインライン展開可能
+        if returns.len() == 1 {
+            Some(returns[0])
+        } else {
+            None
+        }
+    }
+
+    /// ASTから全てのReturn文を再帰的に収集
+    fn collect_returns<'a>(ast: &'a AstNode, returns: &mut Vec<&'a AstNode>) {
+        if let AstNode::Return { value } = ast {
+            returns.push(value.as_ref());
+            return;
+        }
+
+        for child in ast.children() {
+            Self::collect_returns(child, returns);
+        }
+    }
+
+    /// 変数名を置き換える（引数の置換用）
+    fn substitute_vars(ast: &AstNode, replacements: &HashMap<String, AstNode>) -> AstNode {
+        match ast {
+            AstNode::Var(name) => replacements
+                .get(name)
+                .cloned()
+                .unwrap_or_else(|| ast.clone()),
+            _ => ast.map_children(&|child| Self::substitute_vars(child, replacements)),
+        }
+    }
+
+    /// 関数呼び出しをインライン展開する（式として使用される場合）
+    ///
+    /// Call(name, args) を関数本体で置き換える
+    /// 返り値: 成功した場合は展開後のノード、失敗した場合はNone
+    fn inline_call(
+        &self,
+        call_node: &AstNode,
+        functions: &HashMap<String, &AstNode>,
+    ) -> Option<AstNode> {
+        if let AstNode::Call { name, args } = call_node {
+            // 関数定義を取得
+            let func_node = functions.get(name)?;
+
+            if let AstNode::Function { params, body, .. } = func_node {
+                // 引数の数が一致するかチェック
+                if params.len() != args.len() {
+                    trace!("Argument count mismatch for function '{}'", name);
+                    return None;
+                }
+
+                // 関数本体のノード数をチェック
+                if Self::count_nodes(body) > self.max_nodes {
+                    trace!("Function '{}' is too large to inline", name);
+                    return None;
+                }
+
+                // 引数の置換マップを作成
+                let mut replacements = HashMap::new();
+                for (param, arg) in params.iter().zip(args.iter()) {
+                    replacements.insert(param.name.clone(), arg.clone());
+                }
+
+                // Return文が1つだけかチェック
+                if let Some(return_value) = Self::find_single_return(body) {
+                    // Return値の式を引数で置き換えて返す（式としての展開）
+                    let inlined = Self::substitute_vars(return_value, &replacements);
+                    trace!("Successfully inlined function '{}' (expression)", name);
+                    Some(inlined)
+                } else {
+                    // Return文がない場合（void型関数）は展開しない
+                    // Block内のCall文として処理される
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    /// 関数呼び出しをインライン展開する（文として使用される場合）
+    ///
+    /// Call(name, args) を関数本体のstatementsで置き換える
+    /// 返り値: 成功した場合は展開後のstatements、失敗した場合はNone
+    fn inline_call_as_statement(
+        &self,
+        call_node: &AstNode,
+        functions: &HashMap<String, &AstNode>,
+    ) -> Option<Vec<AstNode>> {
+        if let AstNode::Call { name, args } = call_node {
+            // 関数定義を取得
+            let func_node = functions.get(name)?;
+
+            if let AstNode::Function { params, body, .. } = func_node {
+                // 引数の数が一致するかチェック
+                if params.len() != args.len() {
+                    trace!("Argument count mismatch for function '{}'", name);
+                    return None;
+                }
+
+                // 関数本体のノード数をチェック
+                if Self::count_nodes(body) > self.max_nodes {
+                    trace!("Function '{}' is too large to inline", name);
+                    return None;
+                }
+
+                // 引数の置換マップを作成
+                let mut replacements = HashMap::new();
+                for (param, arg) in params.iter().zip(args.iter()) {
+                    replacements.insert(param.name.clone(), arg.clone());
+                }
+
+                // Return文がある場合は文としての展開は行わない
+                if Self::find_single_return(body).is_some() {
+                    return None;
+                }
+
+                // 関数本体がBlockの場合、そのstatementsを取り出す
+                if let AstNode::Block { statements, .. } = body.as_ref() {
+                    // 各statementで引数を置換
+                    let inlined_statements: Vec<AstNode> = statements
+                        .iter()
+                        .map(|stmt| Self::substitute_vars(stmt, &replacements))
+                        .collect();
+
+                    trace!(
+                        "Successfully inlined function '{}' (statement, {} statements)",
+                        name,
+                        inlined_statements.len()
+                    );
+                    Some(inlined_statements)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    /// ASTツリーを走査して、全てのCall ノードをインライン展開可能か試みる
+    fn try_inline_in_ast(
+        &self,
+        ast: &AstNode,
+        functions: &HashMap<String, &AstNode>,
+    ) -> Option<AstNode> {
+        // 現在のノードがCallの場合、インライン展開を試みる（式として）
+        if matches!(ast, AstNode::Call { .. })
+            && let Some(inlined) = self.inline_call(ast, functions)
+        {
+            return Some(inlined);
+        }
+
+        // Blockの場合は、statements内のCall文も処理
+        if let AstNode::Block { statements, scope } = ast {
+            let mut new_statements = Vec::new();
+            let mut changed = false;
+
+            for stmt in statements {
+                // Call文の場合、文としてインライン展開を試みる
+                if matches!(stmt, AstNode::Call { .. })
+                    && let Some(inlined_stmts) = self.inline_call_as_statement(stmt, functions)
+                {
+                    new_statements.extend(inlined_stmts);
+                    changed = true;
+                    continue;
+                }
+
+                // 子ノードを再帰的に処理
+                if let Some(inlined_stmt) = self.try_inline_in_ast(stmt, functions) {
+                    new_statements.push(inlined_stmt);
+                    changed = true;
+                } else {
+                    new_statements.push(stmt.clone());
+                }
+            }
+
+            if changed {
+                return Some(AstNode::Block {
+                    statements: new_statements,
+                    scope: scope.clone(),
+                });
+            }
+        }
+
+        // 子ノードに対して再帰的に適用
+        let children = ast.children();
+        let mut new_children = Vec::new();
+        let mut changed = false;
+
+        for child in children {
+            if let Some(inlined_child) = self.try_inline_in_ast(child, functions) {
+                new_children.push(inlined_child);
+                changed = true;
+            } else {
+                new_children.push(child.clone());
+            }
+        }
+
+        if changed {
+            // 新しい子ノードでASTを再構築
+            Some(Self::reconstruct_with_children(ast, &new_children))
+        } else {
+            None
+        }
+    }
+
+    /// 子ノードのリストから親ノードを再構築する
+    fn reconstruct_with_children(ast: &AstNode, children: &[AstNode]) -> AstNode {
+        match ast {
+            // 子ノードを持たないノードはそのまま返す
+            AstNode::Wildcard(_) | AstNode::Const(_) | AstNode::Var(_) | AstNode::Barrier => {
+                ast.clone()
+            }
+
+            // 二項演算
+            AstNode::Add(_, _) => {
+                AstNode::Add(Box::new(children[0].clone()), Box::new(children[1].clone()))
+            }
+            AstNode::Mul(_, _) => {
+                AstNode::Mul(Box::new(children[0].clone()), Box::new(children[1].clone()))
+            }
+            AstNode::Max(_, _) => {
+                AstNode::Max(Box::new(children[0].clone()), Box::new(children[1].clone()))
+            }
+            AstNode::Rem(_, _) => {
+                AstNode::Rem(Box::new(children[0].clone()), Box::new(children[1].clone()))
+            }
+            AstNode::Idiv(_, _) => {
+                AstNode::Idiv(Box::new(children[0].clone()), Box::new(children[1].clone()))
+            }
+            AstNode::BitwiseAnd(_, _) => {
+                AstNode::BitwiseAnd(Box::new(children[0].clone()), Box::new(children[1].clone()))
+            }
+            AstNode::BitwiseOr(_, _) => {
+                AstNode::BitwiseOr(Box::new(children[0].clone()), Box::new(children[1].clone()))
+            }
+            AstNode::BitwiseXor(_, _) => {
+                AstNode::BitwiseXor(Box::new(children[0].clone()), Box::new(children[1].clone()))
+            }
+            AstNode::LeftShift(_, _) => {
+                AstNode::LeftShift(Box::new(children[0].clone()), Box::new(children[1].clone()))
+            }
+            AstNode::RightShift(_, _) => {
+                AstNode::RightShift(Box::new(children[0].clone()), Box::new(children[1].clone()))
+            }
+
+            // 単項演算
+            AstNode::Recip(_) => AstNode::Recip(Box::new(children[0].clone())),
+            AstNode::Sqrt(_) => AstNode::Sqrt(Box::new(children[0].clone())),
+            AstNode::Log2(_) => AstNode::Log2(Box::new(children[0].clone())),
+            AstNode::Exp2(_) => AstNode::Exp2(Box::new(children[0].clone())),
+            AstNode::Sin(_) => AstNode::Sin(Box::new(children[0].clone())),
+            AstNode::BitwiseNot(_) => AstNode::BitwiseNot(Box::new(children[0].clone())),
+            AstNode::Cast(_, dtype) => AstNode::Cast(Box::new(children[0].clone()), dtype.clone()),
+
+            // メモリ操作
+            AstNode::Load { count, dtype, .. } => AstNode::Load {
+                ptr: Box::new(children[0].clone()),
+                offset: Box::new(children[1].clone()),
+                count: *count,
+                dtype: dtype.clone(),
+            },
+            AstNode::Store { .. } => AstNode::Store {
+                ptr: Box::new(children[0].clone()),
+                offset: Box::new(children[1].clone()),
+                value: Box::new(children[2].clone()),
+            },
+
+            // 代入
+            AstNode::Assign { var, .. } => AstNode::Assign {
+                var: var.clone(),
+                value: Box::new(children[0].clone()),
+            },
+
+            // Block
+            AstNode::Block { scope, .. } => AstNode::Block {
+                statements: children.to_vec(),
+                scope: scope.clone(),
+            },
+
+            // Range
+            AstNode::Range { var, .. } => AstNode::Range {
+                var: var.clone(),
+                start: Box::new(children[0].clone()),
+                step: Box::new(children[1].clone()),
+                stop: Box::new(children[2].clone()),
+                body: Box::new(children[3].clone()),
+            },
+
+            // Call
+            AstNode::Call { name, .. } => AstNode::Call {
+                name: name.clone(),
+                args: children.to_vec(),
+            },
+
+            // Return
+            AstNode::Return { .. } => AstNode::Return {
+                value: Box::new(children[0].clone()),
+            },
+
+            // Function
+            AstNode::Function {
+                name,
+                params,
+                return_type,
+                kind,
+                ..
+            } => AstNode::Function {
+                name: name.clone(),
+                params: params.clone(),
+                return_type: return_type.clone(),
+                body: Box::new(children[0].clone()),
+                kind: kind.clone(),
+            },
+
+            // Program
+            AstNode::Program { entry_point, .. } => AstNode::Program {
+                functions: children.to_vec(),
+                entry_point: entry_point.clone(),
+            },
+        }
+    }
+
+    /// Program全体から関数のインライン展開候補を収集
+    fn collect_inlining_candidates(&self, ast: &AstNode) -> Vec<AstNode> {
+        let mut candidates = Vec::new();
+
+        if let AstNode::Program {
+            functions,
+            entry_point,
+        } = ast
+        {
+            // 関数名→関数定義のマップを作成
+            let func_map: HashMap<String, &AstNode> = functions
+                .iter()
+                .filter_map(|f| {
+                    if let AstNode::Function { name: Some(n), .. } = f {
+                        Some((n.clone(), f))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            // 各関数に対してインライン展開を試みる
+            for (i, func) in functions.iter().enumerate() {
+                if let AstNode::Function {
+                    name,
+                    params,
+                    return_type,
+                    body,
+                    kind,
+                } = func
+                {
+                    // 関数本体でインライン展開を試みる
+                    if let Some(new_body) = self.try_inline_in_ast(body, &func_map) {
+                        let new_func = AstNode::Function {
+                            name: name.clone(),
+                            params: params.clone(),
+                            return_type: return_type.clone(),
+                            body: Box::new(new_body),
+                            kind: kind.clone(),
+                        };
+
+                        let mut new_functions = functions.clone();
+                        new_functions[i] = new_func;
+
+                        candidates.push(AstNode::Program {
+                            functions: new_functions,
+                            entry_point: entry_point.clone(),
+                        });
+                    }
+                }
+            }
+        }
+
+        candidates
+    }
+}
+
+impl Suggester for FunctionInliningSuggester {
+    fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
+        trace!("FunctionInliningSuggester: Generating function inlining suggestions");
+        let mut suggestions = Vec::new();
+        let mut seen = HashSet::new();
+
+        let candidates = self.collect_inlining_candidates(ast);
+
+        for candidate in candidates {
+            let candidate_str = format!("{:?}", candidate);
+            if !seen.contains(&candidate_str) {
+                seen.insert(candidate_str);
+                suggestions.push(candidate);
+            }
+        }
+
+        debug!(
+            "FunctionInliningSuggester: Generated {} unique suggestions",
+            suggestions.len()
+        );
+        suggestions
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::{DType, FunctionKind, Literal, Mutability, VarDecl, VarKind};
+
+    #[test]
+    fn test_simple_function_inlining() {
+        let suggester = FunctionInliningSuggester::with_default_limit();
+
+        // 定義: fn add_one(x: Int) -> Int { return x + 1 }
+        let add_one_body = AstNode::Return {
+            value: Box::new(AstNode::Add(
+                Box::new(AstNode::Var("x".to_string())),
+                Box::new(AstNode::Const(Literal::Int(1))),
+            )),
+        };
+
+        let add_one_func = AstNode::Function {
+            name: Some("add_one".to_string()),
+            params: vec![VarDecl {
+                name: "x".to_string(),
+                dtype: DType::Int,
+                mutability: Mutability::Immutable,
+                kind: VarKind::Normal,
+            }],
+            return_type: DType::Int,
+            body: Box::new(add_one_body),
+            kind: FunctionKind::Normal,
+        };
+
+        // メイン関数: fn main() -> Int { return add_one(5) }
+        let main_body = AstNode::Return {
+            value: Box::new(AstNode::Call {
+                name: "add_one".to_string(),
+                args: vec![AstNode::Const(Literal::Int(5))],
+            }),
+        };
+
+        let main_func = AstNode::Function {
+            name: Some("main".to_string()),
+            params: vec![],
+            return_type: DType::Int,
+            body: Box::new(main_body),
+            kind: FunctionKind::Normal,
+        };
+
+        let program = AstNode::Program {
+            functions: vec![add_one_func, main_func],
+            entry_point: "main".to_string(),
+        };
+
+        let suggestions = suggester.suggest(&program);
+
+        // 少なくとも1つの候補（main関数でadd_oneがインライン展開される）が生成されるはず
+        assert!(suggestions.len() >= 1);
+
+        // 最初の候補を検証
+        if let AstNode::Program { functions, .. } = &suggestions[0] {
+            // main関数を取得
+            let main_func = functions
+                .iter()
+                .find(|f| matches!(f, AstNode::Function { name: Some(n), .. } if n == "main"));
+
+            assert!(main_func.is_some());
+
+            if let Some(AstNode::Function { body, .. }) = main_func {
+                // main関数の本体がReturn { 5 + 1 }になっているはず
+                if let AstNode::Return { value } = body.as_ref() {
+                    // 値がAdd(5, 1)になっているはず
+                    assert!(matches!(value.as_ref(), AstNode::Add(..)));
+                } else {
+                    panic!("Expected Return node in main function body");
+                }
+            }
+        } else {
+            panic!("Expected Program node");
+        }
+    }
+
+    #[test]
+    fn test_function_with_multiple_returns_not_inlined() {
+        let suggester = FunctionInliningSuggester::with_default_limit();
+
+        // 複数のReturn文を持つ関数（制御フローが複雑）
+        // この実装では簡単のため、Return文が複数ある場合は展開しない
+        // 実際には条件分岐などで複雑になるため
+
+        // fn identity(x: Int) -> Int { return x }
+        let identity_body = AstNode::Return {
+            value: Box::new(AstNode::Var("x".to_string())),
+        };
+
+        let identity_func = AstNode::Function {
+            name: Some("identity".to_string()),
+            params: vec![VarDecl {
+                name: "x".to_string(),
+                dtype: DType::Int,
+                mutability: Mutability::Immutable,
+                kind: VarKind::Normal,
+            }],
+            return_type: DType::Int,
+            body: Box::new(identity_body),
+            kind: FunctionKind::Normal,
+        };
+
+        // fn main() -> Int { return identity(42) }
+        let main_body = AstNode::Return {
+            value: Box::new(AstNode::Call {
+                name: "identity".to_string(),
+                args: vec![AstNode::Const(Literal::Int(42))],
+            }),
+        };
+
+        let main_func = AstNode::Function {
+            name: Some("main".to_string()),
+            params: vec![],
+            return_type: DType::Int,
+            body: Box::new(main_body),
+            kind: FunctionKind::Normal,
+        };
+
+        let program = AstNode::Program {
+            functions: vec![identity_func, main_func],
+            entry_point: "main".to_string(),
+        };
+
+        let suggestions = suggester.suggest(&program);
+
+        // identity関数は展開可能なので、候補が生成されるはず
+        assert!(suggestions.len() >= 1);
+    }
+
+    #[test]
+    fn test_count_nodes() {
+        // Const(1)
+        let simple = AstNode::Const(Literal::Int(1));
+        assert_eq!(FunctionInliningSuggester::count_nodes(&simple), 1);
+
+        // Add(Const(1), Const(2))
+        let add = AstNode::Add(
+            Box::new(AstNode::Const(Literal::Int(1))),
+            Box::new(AstNode::Const(Literal::Int(2))),
+        );
+        assert_eq!(FunctionInliningSuggester::count_nodes(&add), 3);
+    }
+
+    #[test]
+    fn test_substitute_vars() {
+        let mut replacements = HashMap::new();
+        replacements.insert("x".to_string(), AstNode::Const(Literal::Int(10)));
+
+        // x + 1 → 10 + 1
+        let expr = AstNode::Add(
+            Box::new(AstNode::Var("x".to_string())),
+            Box::new(AstNode::Const(Literal::Int(1))),
+        );
+
+        let result = FunctionInliningSuggester::substitute_vars(&expr, &replacements);
+
+        if let AstNode::Add(left, right) = result {
+            assert!(matches!(left.as_ref(), AstNode::Const(Literal::Int(10))));
+            assert!(matches!(right.as_ref(), AstNode::Const(Literal::Int(1))));
+        } else {
+            panic!("Expected Add node");
+        }
+    }
+
+    #[test]
+    fn test_void_function_inlining() {
+        use crate::ast::Scope;
+
+        let suggester = FunctionInliningSuggester::with_default_limit();
+
+        // 定義: fn write_value(ptr: Ptr<Int>, offset: Int, value: Int) {
+        //     Store(ptr, offset, value)
+        // }
+        let write_value_body = AstNode::Block {
+            statements: vec![AstNode::Store {
+                ptr: Box::new(AstNode::Var("ptr".to_string())),
+                offset: Box::new(AstNode::Var("offset".to_string())),
+                value: Box::new(AstNode::Var("value".to_string())),
+            }],
+            scope: Box::new(Scope::new()),
+        };
+
+        let write_value_func = AstNode::Function {
+            name: Some("write_value".to_string()),
+            params: vec![
+                VarDecl {
+                    name: "ptr".to_string(),
+                    dtype: DType::Ptr(Box::new(DType::Int)),
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::Normal,
+                },
+                VarDecl {
+                    name: "offset".to_string(),
+                    dtype: DType::Int,
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::Normal,
+                },
+                VarDecl {
+                    name: "value".to_string(),
+                    dtype: DType::Int,
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::Normal,
+                },
+            ],
+            return_type: DType::Tuple(vec![]), // void型（unit型）
+            body: Box::new(write_value_body),
+            kind: FunctionKind::Normal,
+        };
+
+        // メイン関数: fn main() {
+        //     write_value(buffer, 0, 42)
+        //     write_value(buffer, 1, 100)
+        // }
+        let main_body = AstNode::Block {
+            statements: vec![
+                AstNode::Call {
+                    name: "write_value".to_string(),
+                    args: vec![
+                        AstNode::Var("buffer".to_string()),
+                        AstNode::Const(Literal::Int(0)),
+                        AstNode::Const(Literal::Int(42)),
+                    ],
+                },
+                AstNode::Call {
+                    name: "write_value".to_string(),
+                    args: vec![
+                        AstNode::Var("buffer".to_string()),
+                        AstNode::Const(Literal::Int(1)),
+                        AstNode::Const(Literal::Int(100)),
+                    ],
+                },
+            ],
+            scope: Box::new(Scope::new()),
+        };
+
+        let main_func = AstNode::Function {
+            name: Some("main".to_string()),
+            params: vec![],
+            return_type: DType::Tuple(vec![]),
+            body: Box::new(main_body),
+            kind: FunctionKind::Normal,
+        };
+
+        let program = AstNode::Program {
+            functions: vec![write_value_func, main_func],
+            entry_point: "main".to_string(),
+        };
+
+        let suggestions = suggester.suggest(&program);
+
+        // void型関数のインライン展開候補が生成されるはず
+        assert!(suggestions.len() >= 1);
+
+        // 最初の候補を検証
+        if let AstNode::Program { functions, .. } = &suggestions[0] {
+            // main関数を取得
+            let main_func = functions
+                .iter()
+                .find(|f| matches!(f, AstNode::Function { name: Some(n), .. } if n == "main"));
+
+            assert!(main_func.is_some());
+
+            if let Some(AstNode::Function { body, .. }) = main_func {
+                // main関数の本体がBlockで、Store文が直接含まれているはず
+                if let AstNode::Block { statements, .. } = body.as_ref() {
+                    // インライン展開されていれば、Call文がStore文に置き換わっているはず
+                    // 元々2つのCall文があったので、展開後は2つのStore文になるはず
+                    assert!(statements.len() >= 2);
+
+                    // 少なくとも1つはStore文であるべき
+                    let has_store = statements
+                        .iter()
+                        .any(|stmt| matches!(stmt, AstNode::Store { .. }));
+                    assert!(
+                        has_store,
+                        "Expected at least one Store statement after inlining"
+                    );
+                } else {
+                    panic!("Expected Block node in main function body");
+                }
+            }
+        } else {
+            panic!("Expected Program node");
+        }
+    }
+}

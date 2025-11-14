@@ -45,10 +45,10 @@ impl Suggester for CompositeSuggester {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::Literal;
+    use crate::ast::{DType, FunctionKind, Literal, Mutability, VarDecl, VarKind};
     use crate::opt::ast::rules::all_rules_with_search;
     use crate::opt::ast::suggesters::{
-        LoopInliningSuggester, LoopTilingSuggester, RuleBaseSuggester,
+        FunctionInliningSuggester, LoopInliningSuggester, LoopTilingSuggester, RuleBaseSuggester,
     };
 
     #[test]
@@ -148,5 +148,57 @@ mod tests {
 
         // インライン展開の候補が1つ生成されるはず
         assert_eq!(suggestions.len(), 1);
+    }
+
+    #[test]
+    fn test_composite_suggester_with_function_inlining() {
+        // 関数インライン展開を含む統合テスト
+        let suggester = CompositeSuggester::new(vec![
+            Box::new(RuleBaseSuggester::new(all_rules_with_search())),
+            Box::new(FunctionInliningSuggester::with_default_limit()),
+        ]);
+
+        // fn add_one(x: Int) -> Int { return x + 1 }
+        let add_one_func = AstNode::Function {
+            name: Some("add_one".to_string()),
+            params: vec![VarDecl {
+                name: "x".to_string(),
+                dtype: DType::Int,
+                mutability: Mutability::Immutable,
+                kind: VarKind::Normal,
+            }],
+            return_type: DType::Int,
+            body: Box::new(AstNode::Return {
+                value: Box::new(AstNode::Add(
+                    Box::new(AstNode::Var("x".to_string())),
+                    Box::new(AstNode::Const(Literal::Int(1))),
+                )),
+            }),
+            kind: FunctionKind::Normal,
+        };
+
+        // fn main() -> Int { return add_one(5) }
+        let main_func = AstNode::Function {
+            name: Some("main".to_string()),
+            params: vec![],
+            return_type: DType::Int,
+            body: Box::new(AstNode::Return {
+                value: Box::new(AstNode::Call {
+                    name: "add_one".to_string(),
+                    args: vec![AstNode::Const(Literal::Int(5))],
+                }),
+            }),
+            kind: FunctionKind::Normal,
+        };
+
+        let program = AstNode::Program {
+            functions: vec![add_one_func, main_func],
+            entry_point: "main".to_string(),
+        };
+
+        let suggestions = suggester.suggest(&program);
+
+        // 関数インライン展開とルールベース最適化の候補が生成されるはず
+        assert!(!suggestions.is_empty());
     }
 }
