@@ -1,5 +1,5 @@
 use harp::backend::openmp::{CCompiler, CRenderer};
-use harp::backend::{AstOptimizationConfig, GenericPipeline};
+use harp::backend::{GenericPipeline, OptimizationConfig};
 use harp::graph::{DType, Graph};
 
 fn main() {
@@ -8,14 +8,13 @@ fn main() {
     let renderer = CRenderer::new();
     let compiler = CCompiler::new();
 
-    let ast_config = AstOptimizationConfig {
+    let mut pipeline = GenericPipeline::new(renderer, compiler);
+    pipeline.enable_ast_optimization = true;
+    pipeline.ast_config = OptimizationConfig {
         beam_width: 4,
         max_steps: 100,
         show_progress: false,
     };
-
-    let mut pipeline =
-        GenericPipeline::new(renderer, compiler).with_ast_optimization_config(ast_config);
 
     // シンプルなグラフ: a + b
     let mut graph = Graph::new();

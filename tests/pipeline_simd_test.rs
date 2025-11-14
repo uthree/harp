@@ -1,5 +1,5 @@
 use harp::backend::openmp::{CCompiler, CRenderer};
-use harp::backend::{GenericPipeline, GraphOptimizationConfig, Pipeline};
+use harp::backend::{GenericPipeline, OptimizationConfig, Pipeline};
 use harp::graph::{DType, Graph};
 
 #[test]
@@ -22,14 +22,13 @@ fn test_pipeline_selects_simd() {
     let renderer = CRenderer::new();
     let compiler = CCompiler::new();
 
-    let graph_config = GraphOptimizationConfig {
+    let mut pipeline = GenericPipeline::new(renderer, compiler);
+    pipeline.enable_graph_optimization = true;
+    pipeline.graph_config = OptimizationConfig {
         beam_width: 10,
         max_steps: 20,
         show_progress: false,
     };
-
-    let pipeline =
-        GenericPipeline::new(renderer, compiler).with_graph_optimization_config(graph_config);
 
     // グラフ最適化を実行（コンパイルはスキップ）
     let optimized = pipeline.optimize_graph(graph);

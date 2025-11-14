@@ -3,7 +3,7 @@
 use crate::ast::AstNode;
 
 /// 最適化の各ステップのスナップショット
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct OptimizationSnapshot {
     /// ステップ番号
     pub step: usize,
@@ -65,7 +65,7 @@ impl OptimizationSnapshot {
 }
 
 /// 最適化の履歴全体を保持
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct OptimizationHistory {
     /// スナップショットのリスト
     snapshots: Vec<OptimizationSnapshot>,

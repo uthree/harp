@@ -6,7 +6,7 @@ pub mod metal;
 pub mod openmp;
 
 // Re-export commonly used types
-pub use generic::{AstOptimizationConfig, GenericPipeline, GraphOptimizationConfig};
+pub use generic::{GenericPipeline, OptimizationConfig, OptimizationHistories};
 pub use metal::{MetalCode, MetalRenderer};
 pub use openmp::{CBuffer, CCode, CCompiler, CKernel, CPipeline, CRenderer};
 

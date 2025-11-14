@@ -20,8 +20,9 @@ use std::collections::HashMap;
 type CompileWithHistoriesResult<K> =
     Result<(K, AstNode, HashMap<String, AstOptimizationHistory>), String>;
 
-/// グラフ最適化の設定
-pub struct GraphOptimizationConfig {
+/// 最適化の設定（グラフとASTで共通）
+#[derive(Debug, Clone)]
+pub struct OptimizationConfig {
     /// ビーム幅
     pub beam_width: usize,
     /// 最大ステップ数
@@ -30,7 +31,7 @@ pub struct GraphOptimizationConfig {
     pub show_progress: bool,
 }
 
-impl Default for GraphOptimizationConfig {
+impl Default for OptimizationConfig {
     fn default() -> Self {
         Self {
             beam_width: 4,
@@ -40,23 +41,20 @@ impl Default for GraphOptimizationConfig {
     }
 }
 
-/// AST最適化の設定
-pub struct AstOptimizationConfig {
-    /// ビームサーチのビーム幅
-    pub beam_width: usize,
-    /// ビームサーチの最大ステップ数
-    pub max_steps: usize,
-    /// プログレスバーを表示するか
-    pub show_progress: bool,
+/// 最適化履歴を管理する構造体
+#[derive(Debug, Clone, Default)]
+pub struct OptimizationHistories {
+    /// グラフ最適化履歴
+    pub graph: Option<GraphOptimizationHistory>,
+    /// AST最適化履歴
+    pub ast: Option<AstOptimizationHistory>,
 }
 
-impl Default for AstOptimizationConfig {
-    fn default() -> Self {
-        Self {
-            beam_width: 4,
-            max_steps: 10000,
-            show_progress: false,
-        }
+impl OptimizationHistories {
+    /// 全ての履歴をクリア
+    pub fn clear(&mut self) {
+        self.graph = None;
+        self.ast = None;
     }
 }
 
@@ -66,6 +64,21 @@ impl Default for AstOptimizationConfig {
 /// コンパイル済みのKernelをキャッシュする機能を提供します。
 ///
 /// 最適化履歴の記録機能を持ち、可視化ツールと統合できます。
+///
+/// # 使用例
+/// ```ignore
+/// let mut pipeline = GenericPipeline::new(renderer, compiler);
+///
+/// // 最適化を有効化（フィールドに直接アクセス）
+/// pipeline.enable_graph_optimization = true;
+/// pipeline.enable_ast_optimization = true;
+///
+/// // 設定のカスタマイズ
+/// pipeline.graph_config.beam_width = 8;
+///
+/// // コンパイル
+/// let kernel = pipeline.compile_graph(graph)?;
+/// ```
 pub struct GenericPipeline<R, C>
 where
     R: Renderer,
@@ -74,20 +87,17 @@ where
     renderer: R,
     compiler: C,
     /// コンパイル済みKernelのキャッシュ
-    /// キーはユーザーが指定する識別文字列
     kernel_cache: HashMap<String, C::Kernel>,
-    /// 最新のグラフ最適化履歴
-    last_graph_optimization_history: Option<GraphOptimizationHistory>,
-    /// 最新のAST最適化履歴
-    last_ast_optimization_history: Option<AstOptimizationHistory>,
+    /// 最適化履歴
+    pub histories: OptimizationHistories,
     /// グラフ最適化を有効にするか
-    enable_graph_optimization: bool,
+    pub enable_graph_optimization: bool,
     /// グラフ最適化の設定
-    graph_optimization_config: GraphOptimizationConfig,
+    pub graph_config: OptimizationConfig,
     /// AST最適化を有効にするか
-    enable_ast_optimization: bool,
+    pub enable_ast_optimization: bool,
     /// AST最適化の設定
-    ast_optimization_config: AstOptimizationConfig,
+    pub ast_config: OptimizationConfig,
 }
 
 impl<R, C> GenericPipeline<R, C>
@@ -98,91 +108,18 @@ where
     /// 新しいGenericPipelineを作成
     ///
     /// デフォルトでは最適化が無効になっています。
-    /// `with_graph_optimization()`や`with_ast_optimization()`で有効化してください。
+    /// 最適化を有効にするには、フィールドに直接アクセスしてください。
     pub fn new(renderer: R, compiler: C) -> Self {
         Self {
             renderer,
             compiler,
             kernel_cache: HashMap::new(),
-            last_graph_optimization_history: None,
-            last_ast_optimization_history: None,
+            histories: OptimizationHistories::default(),
             enable_graph_optimization: false,
-            graph_optimization_config: GraphOptimizationConfig::default(),
+            graph_config: OptimizationConfig::default(),
             enable_ast_optimization: false,
-            ast_optimization_config: AstOptimizationConfig::default(),
+            ast_config: OptimizationConfig::default(),
         }
-    }
-
-    /// グラフ最適化を有効化
-    pub fn with_graph_optimization(mut self, enabled: bool) -> Self {
-        self.enable_graph_optimization = enabled;
-        self
-    }
-
-    /// グラフ最適化の設定を指定
-    pub fn with_graph_optimization_config(mut self, config: GraphOptimizationConfig) -> Self {
-        self.graph_optimization_config = config;
-        self.enable_graph_optimization = true;
-        self
-    }
-
-    /// AST最適化を有効化
-    pub fn with_ast_optimization(mut self, enabled: bool) -> Self {
-        self.enable_ast_optimization = enabled;
-        self
-    }
-
-    /// AST最適化の設定を指定
-    pub fn with_ast_optimization_config(mut self, config: AstOptimizationConfig) -> Self {
-        self.ast_optimization_config = config;
-        self.enable_ast_optimization = true;
-        self
-    }
-
-    /// グラフ最適化とAST最適化の両方を有効化
-    pub fn with_all_optimizations(self) -> Self {
-        self.with_graph_optimization(true)
-            .with_ast_optimization(true)
-    }
-
-    /// 最新のグラフ最適化履歴を取得
-    pub fn last_graph_optimization_history(&self) -> Option<&GraphOptimizationHistory> {
-        self.last_graph_optimization_history.as_ref()
-    }
-
-    /// 最新のAST最適化履歴を取得
-    pub fn last_ast_optimization_history(&self) -> Option<&AstOptimizationHistory> {
-        self.last_ast_optimization_history.as_ref()
-    }
-
-    /// 最新のグラフ最適化履歴を所有権とともに取得
-    pub fn take_graph_optimization_history(&mut self) -> Option<GraphOptimizationHistory> {
-        self.last_graph_optimization_history.take()
-    }
-
-    /// 最新のAST最適化履歴を所有権とともに取得
-    pub fn take_ast_optimization_history(&mut self) -> Option<AstOptimizationHistory> {
-        self.last_ast_optimization_history.take()
-    }
-
-    /// 最適化履歴をクリア
-    pub fn clear_histories(&mut self) {
-        self.last_graph_optimization_history = None;
-        self.last_ast_optimization_history = None;
-    }
-
-    /// グラフ最適化履歴を設定
-    ///
-    /// 外部で最適化を行った後、その履歴をGenericPipelineに保存します。
-    pub fn set_graph_optimization_history(&mut self, history: GraphOptimizationHistory) {
-        self.last_graph_optimization_history = Some(history);
-    }
-
-    /// AST最適化履歴を設定
-    ///
-    /// 外部で最適化を行った後、その履歴をGenericPipelineに保存します。
-    pub fn set_ast_optimization_history(&mut self, history: AstOptimizationHistory) {
-        self.last_ast_optimization_history = Some(history);
     }
 
     /// キャッシュからKernelを取得
@@ -239,7 +176,7 @@ where
             let optimizer = self.create_graph_optimizer(suggester, estimator);
 
             let (optimized, history) = optimizer.optimize_with_history(graph);
-            self.last_graph_optimization_history = Some(history);
+            self.histories.graph = Some(history);
             optimized
         } else {
             graph
@@ -333,9 +270,9 @@ where
         E: GraphCostEstimator,
     {
         BeamSearchGraphOptimizer::new(suggester, estimator)
-            .with_beam_width(self.graph_optimization_config.beam_width)
-            .with_max_steps(self.graph_optimization_config.max_steps)
-            .with_progress(self.graph_optimization_config.show_progress)
+            .with_beam_width(self.graph_config.beam_width)
+            .with_max_steps(self.graph_config.max_steps)
+            .with_progress(self.graph_config.show_progress)
     }
 
     /// AST最適化用のSuggesterを作成
@@ -358,9 +295,9 @@ where
         E: crate::opt::ast::CostEstimator,
     {
         AstBeamSearchOptimizer::new(suggester, estimator)
-            .with_beam_width(self.ast_optimization_config.beam_width)
-            .with_max_steps(self.ast_optimization_config.max_steps)
-            .with_progress(self.ast_optimization_config.show_progress)
+            .with_beam_width(self.ast_config.beam_width)
+            .with_max_steps(self.ast_config.max_steps)
+            .with_progress(self.ast_config.show_progress)
     }
 
     /// グラフ最適化の内部処理（履歴付き）
@@ -374,7 +311,7 @@ where
         let optimizer = self.create_graph_optimizer(suggester, estimator);
 
         let (optimized, history) = optimizer.optimize_with_history(graph);
-        self.last_graph_optimization_history = Some(history);
+        self.histories.graph = Some(history);
         optimized
     }
 
@@ -385,7 +322,7 @@ where
         let optimizer = self.create_ast_optimizer(suggester, estimator);
 
         let (optimized, history) = optimizer.optimize_with_history(program);
-        self.last_ast_optimization_history = Some(history.clone());
+        self.histories.ast = Some(history.clone());
         (optimized, history)
     }
 }
@@ -642,22 +579,13 @@ mod tests {
     fn test_enable_optimizations() {
         let renderer = DummyRenderer;
         let compiler = DummyCompiler;
-        let pipeline = GenericPipeline::new(renderer, compiler)
-            .with_graph_optimization(true)
-            .with_ast_optimization(true);
+        let mut pipeline = GenericPipeline::new(renderer, compiler);
+
+        // フィールドに直接アクセスして最適化を有効化
+        pipeline.enable_graph_optimization = true;
+        pipeline.enable_ast_optimization = true;
 
         // 最適化が有効になっている
-        assert!(pipeline.enable_graph_optimization);
-        assert!(pipeline.enable_ast_optimization);
-    }
-
-    #[test]
-    fn test_all_optimizations() {
-        let renderer = DummyRenderer;
-        let compiler = DummyCompiler;
-        let pipeline = GenericPipeline::new(renderer, compiler).with_all_optimizations();
-
-        // すべての最適化が有効
         assert!(pipeline.enable_graph_optimization);
         assert!(pipeline.enable_ast_optimization);
     }
@@ -666,26 +594,20 @@ mod tests {
     fn test_custom_optimization_config() {
         let renderer = DummyRenderer;
         let compiler = DummyCompiler;
+        let mut pipeline = GenericPipeline::new(renderer, compiler);
 
-        let graph_config = GraphOptimizationConfig {
-            beam_width: 20,
-            max_steps: 50,
-            show_progress: true,
-        };
+        // フィールドに直接アクセスして設定をカスタマイズ
+        pipeline.graph_config.beam_width = 20;
+        pipeline.graph_config.max_steps = 50;
+        pipeline.graph_config.show_progress = true;
 
-        let ast_config = AstOptimizationConfig {
-            beam_width: 15,
-            max_steps: 75,
-            show_progress: true,
-        };
-
-        let pipeline = GenericPipeline::new(renderer, compiler)
-            .with_graph_optimization_config(graph_config)
-            .with_ast_optimization_config(ast_config);
+        pipeline.ast_config.beam_width = 15;
+        pipeline.ast_config.max_steps = 75;
+        pipeline.ast_config.show_progress = true;
 
         // カスタム設定が適用されている
-        assert_eq!(pipeline.graph_optimization_config.beam_width, 20);
-        assert_eq!(pipeline.graph_optimization_config.max_steps, 50);
-        assert_eq!(pipeline.ast_optimization_config.beam_width, 15);
+        assert_eq!(pipeline.graph_config.beam_width, 20);
+        assert_eq!(pipeline.graph_config.max_steps, 50);
+        assert_eq!(pipeline.ast_config.beam_width, 15);
     }
 }

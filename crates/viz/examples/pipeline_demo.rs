@@ -4,7 +4,7 @@
 //! その過程を可視化します。
 
 use harp::backend::openmp::{CCompiler, CRenderer};
-use harp::backend::{AstOptimizationConfig, GenericPipeline, GraphOptimizationConfig};
+use harp::backend::{GenericPipeline, OptimizationConfig};
 use harp::graph::{DType, Graph, GraphNode};
 use harp_viz::HarpVizApp;
 
@@ -29,23 +29,25 @@ fn main() -> eframe::Result {
     let renderer = CRenderer::new();
     let compiler = CCompiler::new();
 
+    let mut pipeline = GenericPipeline::new(renderer, compiler);
+
+    // 最適化を有効化（フィールドに直接アクセス）
+    pipeline.enable_graph_optimization = true;
+    pipeline.enable_ast_optimization = true;
+
     // グラフ最適化の設定
-    let graph_config = GraphOptimizationConfig {
+    pipeline.graph_config = OptimizationConfig {
         beam_width: 4,
         max_steps: 100,
         show_progress: true,
     };
 
     // AST最適化の設定
-    let ast_config = AstOptimizationConfig {
+    pipeline.ast_config = OptimizationConfig {
         beam_width: 4,
         max_steps: 10000,
         show_progress: true,
     };
-
-    let mut pipeline = GenericPipeline::new(renderer, compiler)
-        .with_graph_optimization_config(graph_config)
-        .with_ast_optimization_config(ast_config);
 
     println!("  ✓ Pipeline作成完了（最適化有効）\n");
 
@@ -67,9 +69,7 @@ fn main() -> eframe::Result {
     println!("  ✓ 最適化完了");
     println!(
         "    - グラフ最適化ステップ数: {}",
-        pipeline
-            .last_graph_optimization_history()
-            .map_or(0, |h| h.len())
+        pipeline.histories.graph.as_ref().map_or(0, |h| h.len())
     );
     println!(
         "    - AST最適化ステップ数: {}",
@@ -77,7 +77,7 @@ fn main() -> eframe::Result {
     );
 
     // デバッグ: ログがキャプチャされているか確認
-    if let Some(graph_history) = pipeline.last_graph_optimization_history() {
+    if let Some(graph_history) = &pipeline.histories.graph {
         println!("  - グラフ最適化履歴のログ確認:");
         for (i, snapshot) in graph_history.snapshots().iter().take(3).enumerate() {
             println!("    Step {}: {} logs captured", i, snapshot.logs.len());
@@ -123,7 +123,7 @@ fn main() -> eframe::Result {
             let mut app = HarpVizApp::new();
 
             // グラフ最適化履歴を読み込む
-            if let Some(graph_history) = pipeline.last_graph_optimization_history() {
+            if let Some(graph_history) = &pipeline.histories.graph {
                 app.load_graph_optimization_history(graph_history.clone());
             }
 
@@ -244,7 +244,7 @@ fn create_complex_computation_graph() -> Graph {
 fn print_optimization_stats(pipeline: &GenericPipeline<CRenderer, CCompiler>) {
     println!("=== 最適化統計 ===");
 
-    if let Some(graph_history) = pipeline.last_graph_optimization_history() {
+    if let Some(graph_history) = &pipeline.histories.graph {
         println!("\n【グラフ最適化】");
         println!("  ステップ数: {}", graph_history.len());
 
@@ -279,7 +279,7 @@ fn print_optimization_stats(pipeline: &GenericPipeline<CRenderer, CCompiler>) {
         }
     }
 
-    if let Some(ast_history) = pipeline.last_ast_optimization_history() {
+    if let Some(ast_history) = &pipeline.histories.ast {
         println!("\n【AST最適化】");
         println!("  ステップ数: {}", ast_history.len());
 

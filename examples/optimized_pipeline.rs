@@ -1,7 +1,7 @@
 //! 最適化機能を組み込んだGenericPipelineの使用例
 
 use harp::backend::openmp::{CCompiler, CRenderer};
-use harp::backend::{AstOptimizationConfig, GenericPipeline, GraphOptimizationConfig, Pipeline};
+use harp::backend::{GenericPipeline, OptimizationConfig, Pipeline};
 use harp::graph::{DType, Graph};
 
 fn main() {
@@ -45,8 +45,8 @@ fn main() {
     println!("【2/3】グラフ最適化のみ有効でコンパイル...");
     let renderer = CRenderer::new();
     let compiler = CCompiler::new();
-    let mut pipeline_graph_opt =
-        GenericPipeline::new(renderer, compiler).with_graph_optimization(true);
+    let mut pipeline_graph_opt = GenericPipeline::new(renderer, compiler);
+    pipeline_graph_opt.enable_graph_optimization = true;
 
     match pipeline_graph_opt.compile_graph(graph.clone()) {
         Ok(_kernel) => println!("  ✓ コンパイル成功（グラフ最適化あり）\n"),
@@ -57,22 +57,20 @@ fn main() {
     let renderer = CRenderer::new();
     let compiler = CCompiler::new();
 
+    let mut pipeline_all_opt = GenericPipeline::new(renderer, compiler);
     // カスタム設定で最適化を有効化
-    let graph_config = GraphOptimizationConfig {
+    pipeline_all_opt.enable_graph_optimization = true;
+    pipeline_all_opt.enable_ast_optimization = true;
+    pipeline_all_opt.graph_config = OptimizationConfig {
         beam_width: 5,
         max_steps: 10,
         show_progress: true,
     };
-
-    let ast_config = AstOptimizationConfig {
+    pipeline_all_opt.ast_config = OptimizationConfig {
         beam_width: 5,
         max_steps: 10,
         show_progress: true,
     };
-
-    let mut pipeline_all_opt = GenericPipeline::new(renderer, compiler)
-        .with_graph_optimization_config(graph_config)
-        .with_ast_optimization_config(ast_config);
 
     match pipeline_all_opt.compile_graph(graph) {
         Ok(_kernel) => println!("\n  ✓ コンパイル成功（全最適化あり）\n"),

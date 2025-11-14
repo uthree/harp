@@ -97,12 +97,12 @@ impl HarpVizApp {
         C: harp::backend::Compiler<CodeRepr = R::CodeRepr>,
     {
         // グラフ最適化履歴を読み込む
-        if let Some(graph_history) = pipeline.last_graph_optimization_history() {
+        if let Some(graph_history) = &pipeline.histories.graph {
             self.load_graph_optimization_history(graph_history.clone());
         }
 
         // AST最適化履歴を読み込む
-        if let Some(ast_history) = pipeline.last_ast_optimization_history() {
+        if let Some(ast_history) = &pipeline.histories.ast {
             self.load_ast_optimization_history(ast_history.clone());
         }
     }
@@ -121,12 +121,12 @@ impl HarpVizApp {
         C: harp::backend::Compiler<CodeRepr = R::CodeRepr>,
     {
         // グラフ最適化履歴を取得
-        if let Some(graph_history) = pipeline.take_graph_optimization_history() {
+        if let Some(graph_history) = pipeline.histories.graph.take() {
             self.load_graph_optimization_history(graph_history);
         }
 
         // AST最適化履歴を取得
-        if let Some(ast_history) = pipeline.take_ast_optimization_history() {
+        if let Some(ast_history) = pipeline.histories.ast.take() {
             self.load_ast_optimization_history(ast_history);
         }
     }
