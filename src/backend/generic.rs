@@ -98,6 +98,8 @@ where
     pub enable_ast_optimization: bool,
     /// AST最適化の設定
     pub ast_config: OptimizationConfig,
+    /// 最適化履歴を収集するか（DEBUGビルドではデフォルトでtrue、RELEASEビルドではfalse）
+    pub collect_histories: bool,
 }
 
 impl<R, C> GenericPipeline<R, C>
@@ -109,6 +111,8 @@ where
     ///
     /// デフォルトでは最適化が無効になっています。
     /// 最適化を有効にするには、フィールドに直接アクセスしてください。
+    ///
+    /// 最適化履歴の収集は、DEBUGビルドではデフォルトで有効、RELEASEビルドでは無効です。
     pub fn new(renderer: R, compiler: C) -> Self {
         Self {
             renderer,
@@ -119,6 +123,7 @@ where
             graph_config: OptimizationConfig::default(),
             enable_ast_optimization: false,
             ast_config: OptimizationConfig::default(),
+            collect_histories: cfg!(debug_assertions),
         }
     }
 
@@ -176,7 +181,9 @@ where
             let optimizer = self.create_graph_optimizer(suggester, estimator);
 
             let (optimized, history) = optimizer.optimize_with_history(graph);
-            self.histories.graph = Some(history);
+            if self.collect_histories {
+                self.histories.graph = Some(history);
+            }
             optimized
         } else {
             graph
@@ -311,7 +318,9 @@ where
         let optimizer = self.create_graph_optimizer(suggester, estimator);
 
         let (optimized, history) = optimizer.optimize_with_history(graph);
-        self.histories.graph = Some(history);
+        if self.collect_histories {
+            self.histories.graph = Some(history);
+        }
         optimized
     }
 
@@ -322,7 +331,9 @@ where
         let optimizer = self.create_ast_optimizer(suggester, estimator);
 
         let (optimized, history) = optimizer.optimize_with_history(program);
-        self.histories.ast = Some(history.clone());
+        if self.collect_histories {
+            self.histories.ast = Some(history.clone());
+        }
         (optimized, history)
     }
 }
