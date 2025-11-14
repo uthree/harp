@@ -2,11 +2,11 @@ use harp::ast::helper::{assign, load, store, var};
 use harp::ast::renderer::render_ast_with;
 use harp::ast::{AstNode, DType, Literal, Mutability, Scope};
 use harp::backend::openmp::CRenderer;
+use harp::opt::ast::Optimizer;
 use harp::opt::ast::estimator::SimpleCostEstimator;
 use harp::opt::ast::optimizer::BeamSearchOptimizer;
 use harp::opt::ast::rules::all_algebraic_rules;
 use harp::opt::ast::suggesters::RuleBaseSuggester;
-use harp::opt::ast::Optimizer;
 
 fn main() {
     let input0_ptr = var("input0");
@@ -61,10 +61,7 @@ fn main() {
             .iter()
             .filter(|s| matches!(s, AstNode::Assign { .. }))
             .count();
-        println!(
-            "\n✓ Assign文の数: {} (期待値: 1)",
-            assign_count
-        );
+        println!("\n✓ Assign文の数: {} (期待値: 1)", assign_count);
 
         if assign_count == 0 {
             eprintln!("❌ エラー: Assign文が消えています！");

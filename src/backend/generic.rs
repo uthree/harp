@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::ast::AstNode;
 use crate::backend::{Compiler, Pipeline, Renderer};
 use crate::graph::Graph;
@@ -12,10 +10,11 @@ use crate::opt::ast::{
 };
 use crate::opt::graph::{
     AstBasedCostEstimator, BeamSearchGraphOptimizer, CompositeSuggester,
-    ContiguousInsertionSuggester, FusionSuggester, OptimizationHistory as GraphOptimizationHistory,
-    ParallelStrategyChanger, SimdSuggester, SimpleCostEstimator, TilingSuggester,
-    ViewInsertionSuggester, ViewMergeSuggester,
+    ContiguousInsertionSuggester, FusionSuggester, GraphCostEstimator,
+    OptimizationHistory as GraphOptimizationHistory, ParallelStrategyChanger, SimdSuggester,
+    SimpleCostEstimator, TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
 };
+use std::collections::HashMap;
 
 /// compile_graph_with_all_historiesの戻り値の型
 type CompileWithHistoriesResult<K> =
@@ -206,55 +205,15 @@ where
     /// 複数のAST最適化履歴を取得するには、compile_graph_with_all_histories()を使用してください。
     pub fn compile_graph_with_history(&mut self, graph: Graph) -> Result<C::Kernel, String> {
         // グラフ最適化
-        let optimized_graph = if self.enable_graph_optimization {
-            let suggester = CompositeSuggester::new(vec![
-                Box::new(ViewInsertionSuggester::new()),
-                Box::new(ViewMergeSuggester::new()),
-                Box::new(TilingSuggester::with_default_tile_sizes()),
-                Box::new(ContiguousInsertionSuggester::new()),
-                Box::new(FusionSuggester::new()),
-                Box::new(ParallelStrategyChanger::new()),
-                Box::new(SimdSuggester::new()),
-            ]);
-            let estimator = SimpleCostEstimator::new();
-
-            let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
-                .with_beam_width(self.graph_optimization_config.beam_width)
-                .with_max_steps(self.graph_optimization_config.max_steps)
-                .with_progress(self.graph_optimization_config.show_progress);
-
-            let (optimized, history) = optimizer.optimize_with_history(graph);
-            self.last_graph_optimization_history = Some(history);
-            optimized
-        } else {
-            graph
-        };
+        let optimized_graph = self.optimize_graph_internal(graph);
 
         // Lowering
         let program = self.lower_to_program(optimized_graph);
 
-        // AST最適化（Program全体を最適化）
+        // AST最適化
         let optimized_program = if self.enable_ast_optimization {
-            //ビームサーチ最適化
-            let suggester = AstCompositeSuggester::new(vec![
-                Box::new(RuleBaseSuggester::new(all_rules_with_search())),
-                Box::new(LoopTilingSuggester::with_default_sizes()),
-                Box::new(LoopInliningSuggester::with_default_limit()),
-                Box::new(LoopInterchangeSuggester::new()),
-            ]);
-            let estimator = AstSimpleCostEstimator::new();
-
-            let beam_optimizer = AstBeamSearchOptimizer::new(suggester, estimator)
-                .with_beam_width(self.ast_optimization_config.beam_width)
-                .with_max_steps(self.ast_optimization_config.max_steps)
-                .with_progress(self.ast_optimization_config.show_progress);
-
-            let (optimized, history) = beam_optimizer.optimize_with_history(program);
-
-            // 履歴を保存
-            self.last_ast_optimization_history = Some(history);
-
-            optimized
+            let (program, _history) = self.optimize_ast_internal(program);
+            program
         } else {
             program
         };
@@ -273,23 +232,11 @@ where
         &mut self,
         graph: Graph,
     ) -> Result<(AstNode, HashMap<String, AstOptimizationHistory>), String> {
-        // グラフ最適化
+        // グラフ最適化（AstBasedCostEstimatorを使用）
         let optimized_graph = if self.enable_graph_optimization {
-            let suggester = CompositeSuggester::new(vec![
-                Box::new(ViewInsertionSuggester::new()),
-                Box::new(ViewMergeSuggester::new()),
-                Box::new(TilingSuggester::with_default_tile_sizes()),
-                Box::new(ContiguousInsertionSuggester::new()),
-                Box::new(FusionSuggester::new()),
-                Box::new(ParallelStrategyChanger::new()),
-                Box::new(SimdSuggester::new()),
-            ]);
+            let suggester = Self::create_graph_suggester();
             let estimator = AstBasedCostEstimator::new(AstSimpleCostEstimator::new());
-
-            let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
-                .with_beam_width(self.graph_optimization_config.beam_width)
-                .with_max_steps(self.graph_optimization_config.max_steps)
-                .with_progress(self.graph_optimization_config.show_progress);
+            let optimizer = self.create_graph_optimizer(suggester, estimator);
 
             let (optimized, history) = optimizer.optimize_with_history(graph);
             self.last_graph_optimization_history = Some(history);
@@ -303,31 +250,14 @@ where
 
         // AST最適化（Program全体を最適化）
         let (program, all_histories) = if self.enable_ast_optimization {
-            // ステップ2: ビームサーチ最適化（ルールベース + ループ最適化）
-            let beam_suggester = AstCompositeSuggester::new(vec![
-                Box::new(RuleBaseSuggester::new(all_rules_with_search())),
-                Box::new(LoopTilingSuggester::with_default_sizes()),
-                Box::new(LoopInliningSuggester::with_default_limit()),
-                Box::new(LoopInterchangeSuggester::new()),
-            ]);
-            let beam_estimator = AstSimpleCostEstimator::new();
+            let (program, history) = self.optimize_ast_internal(program);
 
-            let beam_optimizer = AstBeamSearchOptimizer::new(beam_suggester, beam_estimator)
-                .with_beam_width(self.ast_optimization_config.beam_width)
-                .with_max_steps(self.ast_optimization_config.max_steps)
-                .with_progress(self.ast_optimization_config.show_progress);
-
-            let (program, history) = beam_optimizer.optimize_with_history(program);
-
-            // 履歴を保存
-            self.last_ast_optimization_history = Some(history.clone());
-
-            let mut all_histories = std::collections::HashMap::new();
+            let mut all_histories = HashMap::new();
             all_histories.insert("program".to_string(), history);
 
             (program, all_histories)
         } else {
-            (program, std::collections::HashMap::new())
+            (program, HashMap::new())
         };
 
         Ok((program, all_histories))
@@ -342,61 +272,21 @@ where
         graph: Graph,
     ) -> CompileWithHistoriesResult<C::Kernel> {
         // グラフ最適化
-        let optimized_graph = if self.enable_graph_optimization {
-            let suggester = CompositeSuggester::new(vec![
-                Box::new(ViewInsertionSuggester::new()),
-                Box::new(ViewMergeSuggester::new()),
-                Box::new(TilingSuggester::with_default_tile_sizes()),
-                Box::new(ContiguousInsertionSuggester::new()),
-                Box::new(FusionSuggester::new()),
-                Box::new(ParallelStrategyChanger::new()),
-                Box::new(SimdSuggester::new()),
-            ]);
-            // SimpleCostEstimatorを使用してSIMD/並列化効果を正しく評価
-            let estimator = SimpleCostEstimator::new();
-
-            let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
-                .with_beam_width(self.graph_optimization_config.beam_width)
-                .with_max_steps(self.graph_optimization_config.max_steps)
-                .with_progress(self.graph_optimization_config.show_progress);
-
-            let (optimized, history) = optimizer.optimize_with_history(graph);
-            self.last_graph_optimization_history = Some(history);
-            optimized
-        } else {
-            graph
-        };
+        let optimized_graph = self.optimize_graph_internal(graph);
 
         // Lowering
         let program = self.lower_to_program(optimized_graph);
 
         // AST最適化（Program全体を最適化）
         let (optimized_program, all_histories) = if self.enable_ast_optimization {
-            // ステップ2: ビームサーチ最適化（ルールベース + ループ最適化）
-            let beam_suggester = AstCompositeSuggester::new(vec![
-                Box::new(RuleBaseSuggester::new(all_rules_with_search())),
-                Box::new(LoopTilingSuggester::with_default_sizes()),
-                Box::new(LoopInliningSuggester::with_default_limit()),
-                Box::new(LoopInterchangeSuggester::new()),
-            ]);
-            let beam_estimator = AstSimpleCostEstimator::new();
+            let (program, history) = self.optimize_ast_internal(program);
 
-            let beam_optimizer = AstBeamSearchOptimizer::new(beam_suggester, beam_estimator)
-                .with_beam_width(self.ast_optimization_config.beam_width)
-                .with_max_steps(self.ast_optimization_config.max_steps)
-                .with_progress(self.ast_optimization_config.show_progress);
-
-            let (program, history) = beam_optimizer.optimize_with_history(program);
-
-            // 履歴を保存
-            self.last_ast_optimization_history = Some(history.clone());
-
-            let mut all_histories = std::collections::HashMap::new();
+            let mut all_histories = HashMap::new();
             all_histories.insert("program".to_string(), history);
 
             (program, all_histories)
         } else {
-            (program, std::collections::HashMap::new())
+            (program, HashMap::new())
         };
 
         // レンダリングとコンパイル
@@ -418,6 +308,85 @@ where
     /// 特定のキャッシュエントリを削除
     pub fn remove_cached_kernel(&mut self, key: &str) -> Option<C::Kernel> {
         self.kernel_cache.remove(key)
+    }
+
+    /// グラフ最適化用のSuggesterを作成
+    fn create_graph_suggester() -> CompositeSuggester {
+        CompositeSuggester::new(vec![
+            Box::new(ViewInsertionSuggester::new()),
+            Box::new(ViewMergeSuggester::new()),
+            Box::new(TilingSuggester::with_default_tile_sizes()),
+            Box::new(ContiguousInsertionSuggester::new()),
+            Box::new(FusionSuggester::new()),
+            Box::new(ParallelStrategyChanger::new()),
+            Box::new(SimdSuggester::new()),
+        ])
+    }
+
+    /// グラフ最適化用のOptimizerを作成・設定
+    fn create_graph_optimizer<E>(
+        &self,
+        suggester: CompositeSuggester,
+        estimator: E,
+    ) -> BeamSearchGraphOptimizer<CompositeSuggester, E>
+    where
+        E: GraphCostEstimator,
+    {
+        BeamSearchGraphOptimizer::new(suggester, estimator)
+            .with_beam_width(self.graph_optimization_config.beam_width)
+            .with_max_steps(self.graph_optimization_config.max_steps)
+            .with_progress(self.graph_optimization_config.show_progress)
+    }
+
+    /// AST最適化用のSuggesterを作成
+    fn create_ast_suggester() -> AstCompositeSuggester {
+        AstCompositeSuggester::new(vec![
+            Box::new(RuleBaseSuggester::new(all_rules_with_search())),
+            Box::new(LoopTilingSuggester::with_default_sizes()),
+            Box::new(LoopInliningSuggester::with_default_limit()),
+            Box::new(LoopInterchangeSuggester::new()),
+        ])
+    }
+
+    /// AST最適化用のOptimizerを作成・設定
+    fn create_ast_optimizer<E>(
+        &self,
+        suggester: AstCompositeSuggester,
+        estimator: E,
+    ) -> AstBeamSearchOptimizer<AstCompositeSuggester, E>
+    where
+        E: crate::opt::ast::CostEstimator,
+    {
+        AstBeamSearchOptimizer::new(suggester, estimator)
+            .with_beam_width(self.ast_optimization_config.beam_width)
+            .with_max_steps(self.ast_optimization_config.max_steps)
+            .with_progress(self.ast_optimization_config.show_progress)
+    }
+
+    /// グラフ最適化の内部処理（履歴付き）
+    fn optimize_graph_internal(&mut self, graph: Graph) -> Graph {
+        if !self.enable_graph_optimization {
+            return graph;
+        }
+
+        let suggester = Self::create_graph_suggester();
+        let estimator = SimpleCostEstimator::new();
+        let optimizer = self.create_graph_optimizer(suggester, estimator);
+
+        let (optimized, history) = optimizer.optimize_with_history(graph);
+        self.last_graph_optimization_history = Some(history);
+        optimized
+    }
+
+    /// AST最適化の内部処理（履歴付き）
+    fn optimize_ast_internal(&mut self, program: AstNode) -> (AstNode, AstOptimizationHistory) {
+        let suggester = Self::create_ast_suggester();
+        let estimator = AstSimpleCostEstimator::new();
+        let optimizer = self.create_ast_optimizer(suggester, estimator);
+
+        let (optimized, history) = optimizer.optimize_with_history(program);
+        self.last_ast_optimization_history = Some(history.clone());
+        (optimized, history)
     }
 }
 
@@ -450,21 +419,9 @@ where
             return graph;
         }
 
-        let suggester = CompositeSuggester::new(vec![
-            Box::new(ViewInsertionSuggester::new()),
-            // Box::new(TilingSuggester::with_default_tile_sizes()), // 一時的に無効化
-            Box::new(ContiguousInsertionSuggester::new()),
-            Box::new(FusionSuggester::new()),
-            Box::new(ParallelStrategyChanger::new()),
-            Box::new(SimdSuggester::new()),
-        ]);
-        // SimpleCostEstimatorを使用してSIMD/並列化効果を正しく評価
+        let suggester = Self::create_graph_suggester();
         let estimator = SimpleCostEstimator::new();
-
-        let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
-            .with_beam_width(self.graph_optimization_config.beam_width)
-            .with_max_steps(self.graph_optimization_config.max_steps)
-            .with_progress(self.graph_optimization_config.show_progress);
+        let optimizer = self.create_graph_optimizer(suggester, estimator);
 
         let (optimized_graph, history) = optimizer.optimize_with_history(graph);
 
@@ -486,21 +443,11 @@ where
             return program;
         }
 
-        // ステップ2: ビームサーチ最適化（ルールベース + ループ最適化）
-        let beam_suggester = AstCompositeSuggester::new(vec![
-            Box::new(RuleBaseSuggester::new(all_rules_with_search())),
-            Box::new(LoopTilingSuggester::with_default_sizes()),
-            Box::new(LoopInliningSuggester::with_default_limit()),
-            Box::new(LoopInterchangeSuggester::new()),
-        ]);
-        let beam_estimator = AstSimpleCostEstimator::new();
+        let suggester = Self::create_ast_suggester();
+        let estimator = AstSimpleCostEstimator::new();
+        let optimizer = self.create_ast_optimizer(suggester, estimator);
 
-        let beam_optimizer = AstBeamSearchOptimizer::new(beam_suggester, beam_estimator)
-            .with_beam_width(self.ast_optimization_config.beam_width)
-            .with_max_steps(self.ast_optimization_config.max_steps)
-            .with_progress(self.ast_optimization_config.show_progress);
-
-        let (program, _history) = beam_optimizer.optimize_with_history(program);
+        let (program, _history) = optimizer.optimize_with_history(program);
 
         program
     }

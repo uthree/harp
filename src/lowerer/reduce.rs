@@ -172,11 +172,7 @@ impl Lowerer {
         };
 
         // scope.declareを使用して変数を宣言
-        scope.declare(
-            acc_var.clone(),
-            acc_dtype,
-            Mutability::Mutable,
-        )?;
+        scope.declare(acc_var.clone(), acc_dtype, Mutability::Mutable)?;
 
         // 初期値を代入
         statements.push(assign(&acc_var, init_value));
@@ -242,11 +238,7 @@ impl Lowerer {
         };
 
         // scope.declareを使用して変数を宣言
-        scope.declare(
-            acc_var.clone(),
-            acc_dtype,
-            Mutability::Mutable,
-        )?;
+        scope.declare(acc_var.clone(), acc_dtype, Mutability::Mutable)?;
 
         // 初期値を代入
         statements.push(assign(&acc_var, init_value));

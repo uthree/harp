@@ -14,8 +14,8 @@ fn main() {
         show_progress: false,
     };
 
-    let mut pipeline = GenericPipeline::new(renderer, compiler)
-        .with_ast_optimization_config(ast_config);
+    let mut pipeline =
+        GenericPipeline::new(renderer, compiler).with_ast_optimization_config(ast_config);
 
     // シンプルなグラフ: a + b
     let mut graph = Graph::new();

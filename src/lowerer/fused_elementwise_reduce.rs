@@ -193,11 +193,7 @@ impl Lowerer {
         let init_value = self.get_reduce_init_value(reduce_op, &node.dtype)?;
         let acc_ptr_dtype = self.graph_dtype_to_ast_ptr(&node.dtype)?;
         let acc_dtype = acc_ptr_dtype.deref_type().clone();
-        scope.declare(
-            acc_var.clone(),
-            acc_dtype,
-            Mutability::Mutable,
-        )?;
+        scope.declare(acc_var.clone(), acc_dtype, Mutability::Mutable)?;
 
         // 初期値を代入
         statements.push(assign(&acc_var, init_value));
@@ -264,11 +260,7 @@ impl Lowerer {
         let init_value = self.get_reduce_init_value(reduce_op, &node.dtype)?;
         let acc_ptr_dtype = self.graph_dtype_to_ast_ptr(&node.dtype)?;
         let acc_dtype = acc_ptr_dtype.deref_type().clone();
-        scope.declare(
-            acc_var.clone(),
-            acc_dtype,
-            Mutability::Mutable,
-        )?;
+        scope.declare(acc_var.clone(), acc_dtype, Mutability::Mutable)?;
 
         // 初期値を代入
         statements.push(assign(&acc_var, init_value));

@@ -175,11 +175,7 @@ impl Lowerer {
             };
 
             // 変数を宣言
-            scope.declare(
-                alu_var.clone(),
-                final_dtype,
-                Mutability::Mutable,
-            )?;
+            scope.declare(alu_var.clone(), final_dtype, Mutability::Mutable)?;
 
             // 初期値を代入
             statements.push(assign(&alu_var, load_node));

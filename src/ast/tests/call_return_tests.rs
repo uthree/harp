@@ -78,11 +78,7 @@ fn test_return_infer_type() {
 fn test_return_check_scope() {
     let mut scope = Scope::new();
     scope
-        .declare(
-            "result".to_string(),
-            DType::Int,
-            Mutability::Immutable,
-        )
+        .declare("result".to_string(), DType::Int, Mutability::Immutable)
         .unwrap();
 
     let ret = AstNode::Return {
