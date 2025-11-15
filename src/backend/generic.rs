@@ -4,9 +4,10 @@ use crate::graph::Graph;
 use crate::opt::ast::rules::all_rules_with_search;
 use crate::opt::ast::{
     BeamSearchOptimizer as AstBeamSearchOptimizer, CompositeSuggester as AstCompositeSuggester,
-    FunctionInliningSuggester, LoopInliningSuggester, LoopInterchangeSuggester,
-    LoopTilingSuggester, OptimizationHistory as AstOptimizationHistory, Optimizer,
-    RuleBaseOptimizer, RuleBaseSuggester, SimpleCostEstimator as AstSimpleCostEstimator,
+    FunctionInliningSuggester, LoopFusionSuggester, LoopInliningSuggester,
+    LoopInterchangeSuggester, LoopTilingSuggester,
+    OptimizationHistory as AstOptimizationHistory, Optimizer, RuleBaseOptimizer,
+    RuleBaseSuggester, SimpleCostEstimator as AstSimpleCostEstimator,
 };
 use crate::opt::graph::{
     AstBasedCostEstimator, BeamSearchGraphOptimizer, CompositeSuggester, ConstPropagationSuggester,
@@ -290,6 +291,7 @@ where
             Box::new(LoopTilingSuggester::with_default_sizes()),
             Box::new(LoopInliningSuggester::with_default_limit()),
             Box::new(LoopInterchangeSuggester::new()),
+            Box::new(LoopFusionSuggester::new()),
             Box::new(FunctionInliningSuggester::with_default_limit()),
         ])
     }
