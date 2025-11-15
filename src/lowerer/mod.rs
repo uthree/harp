@@ -20,6 +20,20 @@ pub struct Lowerer {
 /// トポロジカルソートの結果。各世代（Generation）は並列実行可能なノード群。
 pub type TopologicalOrder = Vec<Vec<GraphNode>>;
 
+/// カーネル関数の情報（main関数生成用）
+struct KernelInfo {
+    /// カーネル関数のAST
+    function: crate::ast::AstNode,
+    /// 入力バッファー名のリスト（input0, input1, tmp0 など）
+    input_buffers: Vec<String>,
+    /// 出力バッファー名（output, tmp0 など）
+    output_buffer: String,
+    /// 出力の型
+    output_dtype: crate::ast::DType,
+    /// 出力のサイズ（要素数）を計算する式
+    output_size: crate::ast::AstNode,
+}
+
 /// GraphNodeから内部のポインタを取得するヘルパー関数
 fn node_ptr(node: &GraphNode) -> *const () {
     node.as_ptr() as *const ()
@@ -34,22 +48,50 @@ impl Default for Lowerer {
 /// GraphをProgramに変換する公開関数
 ///
 /// Graphの全ノードをカーネル関数に変換し、AstNode::Programとして返します。
-/// 現時点では各ノードを個別のカーネル関数として生成し、
-/// kernel_main関数による統合は未実装です。
+/// 中間バッファーは自動的に確保・管理されます。
 pub(crate) fn lower(graph: Graph) -> crate::ast::AstNode {
     let mut lowerer = Lowerer::new();
 
     // トポロジカルソートでノードを取得
     let generations = Lowerer::topological_sort(&graph);
 
-    // 関数リストを作成
-    let mut functions = Vec::new();
+    // 各ノードの出力バッファー名を追跡（ノードポインタ → バッファー名）
+    let mut node_buffer_map: HashMap<*const (), String> = HashMap::new();
+
+    // 入力ノードのバッファー名を設定
+    // 注: グラフ最適化後はgraph.inputs()のWeakリファレンスと実際のノードのポインタが
+    // 異なる場合があるため、トポロジカルソートから収集されたノードを使用する
+    let mut input_counter = 0;
+    for generation in &generations {
+        for node in generation {
+            if matches!(node.op, GraphOp::Input) {
+                let buffer_name = format!("input{}", input_counter);
+                let ptr = node_ptr(node);
+                log::debug!("Registering input node as {}", buffer_name);
+                node_buffer_map.insert(ptr, buffer_name);
+                input_counter += 1;
+            }
+        }
+    }
+
+    // グラフの出力ノードを収集（最終出力として扱う）
+    // トポロジカルソートは出力→入力の順序なので、最初の世代が出力ノード
+    let final_output_ptrs: HashSet<*const ()> = if !generations.is_empty() {
+        generations[0].iter().map(node_ptr).collect()
+    } else {
+        graph.outputs().values().map(node_ptr).collect()
+    };
+
+    // カーネル情報を収集
+    let mut kernel_infos: Vec<KernelInfo> = Vec::new();
+    let mut tmp_counter = 0;
 
     // 各世代の各ノードをカーネル関数に変換
+    // トポロジカルソートは出力→入力の順序なので、逆順にする（入力→出力）
     let mut kernel_id = 0;
-    for generation in generations {
+    for generation in generations.into_iter().rev() {
         for node in generation {
-            // Input と Const ノードはスキップ（Constは使用先で直接埋め込まれる）
+            // Input と Const ノードはスキップ
             if matches!(node.op, GraphOp::Input | GraphOp::Const(_)) {
                 continue;
             }
@@ -58,26 +100,272 @@ pub(crate) fn lower(graph: Graph) -> crate::ast::AstNode {
             lowerer.alu_counter = 0;
             lowerer.acc_counter = 0;
 
-            // カーネル関数を生成（AstNode::Functionとして）
+            // 入力バッファー名を収集
+            let input_buffers: Vec<String> = node
+                .src
+                .iter()
+                .filter_map(|src| {
+                    // Constノードはバッファーを持たない
+                    if matches!(src.op, GraphOp::Const(_)) {
+                        None
+                    } else {
+                        let src_ptr = node_ptr(src);
+                        let buf = node_buffer_map.get(&src_ptr).cloned();
+                        log::debug!(
+                            "Kernel {}: src node {:?} -> buffer {:?}",
+                            kernel_id,
+                            src.op,
+                            buf
+                        );
+                        buf
+                    }
+                })
+                .collect();
+
+            // 出力バッファー名を決定
+            let output_buffer = if final_output_ptrs.contains(&node_ptr(&node)) {
+                "output".to_string()
+            } else {
+                let name = format!("tmp{}", tmp_counter);
+                tmp_counter += 1;
+                name
+            };
+
+            log::debug!(
+                "Kernel {}: input_buffers = {:?}, output_buffer = {}",
+                kernel_id,
+                input_buffers,
+                output_buffer
+            );
+
+            // このノードの出力バッファー名を記録
+            node_buffer_map.insert(node_ptr(&node), output_buffer.clone());
+
+            // 出力サイズを計算
+            let output_size = compute_buffer_size(&node);
+            let output_dtype = lowerer
+                .graph_dtype_to_ast(&node.dtype)
+                .unwrap_or(crate::ast::DType::Ptr(Box::new(crate::ast::DType::F32)));
+
+            // カーネル関数を生成
             if let Ok(function) = lowerer.lower_node_to_kernel(&node, kernel_id) {
-                functions.push(function);
+                kernel_infos.push(KernelInfo {
+                    function,
+                    input_buffers,
+                    output_buffer,
+                    output_dtype,
+                    output_size,
+                });
                 kernel_id += 1;
             }
         }
     }
 
-    // main関数を生成してすべてのカーネルを呼び出す
-    if kernel_id > 0 {
-        // main関数を生成
-        let main_function = generate_main_function(&functions, kernel_id);
-        functions.push(main_function);
-    }
+    // main関数を生成
+    let functions: Vec<crate::ast::AstNode> = kernel_infos
+        .iter()
+        .map(|info| info.function.clone())
+        .collect();
+
+    let main_function = generate_main_function_with_intermediates(&kernel_infos, input_counter);
+
+    let mut all_functions = functions;
+    all_functions.push(main_function);
 
     // AstNode::Programを作成
-    crate::ast::helper::program(functions, "main")
+    crate::ast::helper::program(all_functions, "main")
 }
 
-/// すべてのカーネルを呼び出すmain関数を生成
+/// ノードの出力サイズを計算する式を生成
+fn compute_buffer_size(node: &GraphNode) -> crate::ast::AstNode {
+    use crate::ast::helper::const_int;
+
+    let shape = node.view.shape();
+    if shape.is_empty() {
+        return const_int(1);
+    }
+
+    // 全要素数 = product of all dimensions
+    let mut size: crate::ast::AstNode = shape[0].clone().into();
+    for dim in &shape[1..] {
+        let dim_ast: crate::ast::AstNode = dim.clone().into();
+        size = size * dim_ast;
+    }
+    size
+}
+
+/// 中間バッファーを含むmain関数を生成
+fn generate_main_function_with_intermediates(
+    kernel_infos: &[KernelInfo],
+    input_count: usize,
+) -> crate::ast::AstNode {
+    use crate::ast::helper::{assign, var};
+    use crate::ast::{AstNode, DType, FunctionKind, Mutability, Scope, VarDecl, VarKind};
+
+    // main関数のパラメータを収集
+    let mut params: Vec<VarDecl> = Vec::new();
+    let mut param_names: HashSet<String> = HashSet::new();
+
+    // 1. 入力バッファーをパラメータとして追加
+    for i in 0..input_count {
+        let input_name = format!("input{}", i);
+        if !param_names.contains(&input_name) {
+            // 型はカーネル情報から推測（最初に使われているカーネルから）
+            let dtype = kernel_infos
+                .iter()
+                .find(|info| info.input_buffers.contains(&input_name))
+                .and_then(|info| {
+                    info.input_buffers
+                        .iter()
+                        .position(|b| b == &input_name)
+                        .and_then(|_| {
+                            // カーネル関数のパラメータから型を取得
+                            if let AstNode::Function { params, .. } = &info.function {
+                                params
+                                    .iter()
+                                    .find(|p| p.name.starts_with("input"))
+                                    .map(|p| p.dtype.clone())
+                            } else {
+                                None
+                            }
+                        })
+                })
+                .unwrap_or(DType::Ptr(Box::new(DType::F32)));
+
+            params.push(VarDecl {
+                name: input_name.clone(),
+                dtype,
+                mutability: Mutability::Immutable,
+                kind: VarKind::Normal,
+            });
+            param_names.insert(input_name);
+        }
+    }
+
+    // 2. 出力バッファーをパラメータとして追加
+    let output_dtype = kernel_infos
+        .iter()
+        .find(|info| info.output_buffer == "output")
+        .map(|info| DType::Ptr(Box::new(info.output_dtype.clone())))
+        .unwrap_or(DType::Ptr(Box::new(DType::F32)));
+
+    params.push(VarDecl {
+        name: "output".to_string(),
+        dtype: output_dtype,
+        mutability: Mutability::Mutable,
+        kind: VarKind::Normal,
+    });
+
+    // 3. Shape変数をパラメータとして追加（全カーネルから収集）
+    for info in kernel_infos {
+        if let AstNode::Function {
+            params: kernel_params,
+            ..
+        } = &info.function
+        {
+            for param in kernel_params {
+                // shape変数（Int型）のみ追加
+                if param.dtype == DType::Int && !param_names.contains(&param.name) {
+                    params.push(param.clone());
+                    param_names.insert(param.name.clone());
+                }
+            }
+        }
+    }
+
+    // main関数のbody文を生成
+    let mut statements: Vec<AstNode> = Vec::new();
+    let mut scope = Scope::new();
+
+    // 4. 中間バッファーを宣言・確保
+    let mut allocated_buffers: HashSet<String> = HashSet::new();
+    for info in kernel_infos {
+        if info.output_buffer.starts_with("tmp") && !allocated_buffers.contains(&info.output_buffer)
+        {
+            let ptr_dtype = DType::Ptr(Box::new(info.output_dtype.clone()));
+
+            // 変数宣言をスコープに追加
+            if scope
+                .declare(
+                    info.output_buffer.clone(),
+                    ptr_dtype.clone(),
+                    Mutability::Mutable,
+                )
+                .is_ok()
+            {
+                // malloc相当の処理（Allocate文として表現）
+                // 注: ASTにAllocate文がない場合は、Cast(malloc(...))として表現
+                let alloc_expr = AstNode::Allocate {
+                    dtype: Box::new(info.output_dtype.clone()),
+                    size: Box::new(info.output_size.clone()),
+                };
+                statements.push(assign(&info.output_buffer, alloc_expr));
+                allocated_buffers.insert(info.output_buffer.clone());
+            }
+        }
+    }
+
+    // 5. 各カーネルを呼び出す
+    for (i, info) in kernel_infos.iter().enumerate() {
+        let kernel_name = format!("kernel_{}", i);
+
+        // カーネル関数のパラメータに対応する引数を構築
+        if let AstNode::Function {
+            params: kernel_params,
+            ..
+        } = &info.function
+        {
+            let mut args: Vec<AstNode> = Vec::new();
+            let mut input_idx = 0;
+
+            for param in kernel_params {
+                if param.name.starts_with("input") {
+                    // 入力バッファー → 実際のバッファー名に置換
+                    if input_idx < info.input_buffers.len() {
+                        args.push(var(&info.input_buffers[input_idx]));
+                        input_idx += 1;
+                    }
+                } else if param.name == "output" {
+                    // 出力バッファー → 実際のバッファー名に置換
+                    args.push(var(&info.output_buffer));
+                } else {
+                    // その他のパラメータ（shape変数など）はそのまま
+                    args.push(var(&param.name));
+                }
+            }
+
+            statements.push(AstNode::Call {
+                name: kernel_name,
+                args,
+            });
+        }
+    }
+
+    // 6. 中間バッファーを解放（Deallocate文）
+    for buffer_name in &allocated_buffers {
+        statements.push(AstNode::Deallocate {
+            ptr: Box::new(var(buffer_name)),
+        });
+    }
+
+    // main関数のbodyを作成
+    let body = AstNode::Block {
+        statements,
+        scope: Box::new(scope),
+    };
+
+    // AstNode::Functionとして返す
+    crate::ast::helper::function(
+        Some("main"),
+        FunctionKind::Normal,
+        params,
+        DType::Tuple(vec![]), // void
+        body,
+    )
+}
+
+/// すべてのカーネルを呼び出すmain関数を生成（旧バージョン、互換性のため残す）
+#[allow(dead_code)]
 fn generate_main_function(
     kernel_functions: &[crate::ast::AstNode],
     kernel_count: usize,

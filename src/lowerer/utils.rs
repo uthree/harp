@@ -90,6 +90,14 @@ impl Lowerer {
         Ok(AstDType::Ptr(Box::new(element_dtype)))
     }
 
+    /// GraphのDTypeをASTのDTypeに変換（ポインタなし）
+    pub(super) fn graph_dtype_to_ast(&self, dtype: &GraphDType) -> Result<AstDType, String> {
+        match dtype {
+            GraphDType::F32 => Ok(AstDType::F32),
+            GraphDType::Unknown => Err("Cannot convert Unknown dtype".to_string()),
+        }
+    }
+
     /// Viewを考慮したオフセット計算
     pub(super) fn compute_offset_from_view(&self, node: &GraphNode, axes: &[usize]) -> AstNode {
         use crate::graph::shape::View;

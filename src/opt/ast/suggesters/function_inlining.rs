@@ -394,6 +394,17 @@ impl FunctionInliningSuggester {
                 value: Box::new(children[0].clone()),
             },
 
+            // Allocate
+            AstNode::Allocate { dtype, .. } => AstNode::Allocate {
+                dtype: dtype.clone(),
+                size: Box::new(children[0].clone()),
+            },
+
+            // Deallocate
+            AstNode::Deallocate { .. } => AstNode::Deallocate {
+                ptr: Box::new(children[0].clone()),
+            },
+
             // Function
             AstNode::Function {
                 name,

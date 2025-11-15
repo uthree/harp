@@ -168,6 +168,14 @@ pub trait CLikeRenderer: Renderer {
             AstNode::Return { value } => {
                 format!("return {}", self.render_expr(value))
             }
+            AstNode::Allocate { dtype, size } => {
+                let dtype_str = self.render_dtype_backend(dtype);
+                let size_expr = self.render_expr(size);
+                format!(
+                    "({}*)malloc({} * sizeof({}))",
+                    dtype_str, size_expr, dtype_str
+                )
+            }
             _ => format!("/* unsupported expression: {:?} */", node),
         }
     }
@@ -205,6 +213,9 @@ pub trait CLikeRenderer: Renderer {
             AstNode::Call { name, args } => {
                 let arg_strs: Vec<String> = args.iter().map(|a| self.render_expr(a)).collect();
                 format!("{}{}({});", self.indent(), name, arg_strs.join(", "))
+            }
+            AstNode::Deallocate { ptr } => {
+                format!("{}free({});", self.indent(), self.render_expr(ptr))
             }
             _ => {
                 // 式として評価できるものは文末にセミコロンを付ける

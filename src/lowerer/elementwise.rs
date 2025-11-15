@@ -25,15 +25,21 @@ impl Lowerer {
         // パラメータを生成: 入力バッファー、出力バッファー、shape変数
         let mut params = Vec::new();
 
-        // 入力バッファー（srcノード）
-        for (i, src) in node.src.iter().enumerate() {
+        // 入力バッファー（srcノード、Constノードを除く）
+        let mut input_idx = 0;
+        for src in node.src.iter() {
+            // Constノードはパラメータとして必要ない（コード内に直接埋め込まれる）
+            if matches!(src.op, crate::graph::GraphOp::Const(_)) {
+                continue;
+            }
             let dtype = self.graph_dtype_to_ast_ptr(&src.dtype)?;
             params.push(VarDecl {
-                name: format!("input{}", i),
+                name: format!("input{}", input_idx),
                 dtype,
                 mutability: Mutability::Immutable,
                 kind: VarKind::Normal,
             });
+            input_idx += 1;
         }
 
         // 出力バッファー
@@ -371,7 +377,8 @@ impl Lowerer {
 
         // 入力をロード（各入力のViewを考慮）
         let mut loaded_values = Vec::new();
-        for (i, src) in node.src.iter().enumerate() {
+        let mut input_idx = 0; // Constノードをスキップした後のパラメータインデックス
+        for src in node.src.iter() {
             // Constノードの場合は直接定数として使用
             if let crate::graph::ops::GraphOp::Const(lit) = &src.op {
                 // 定数値を直接AstNodeとして使用
@@ -380,7 +387,8 @@ impl Lowerer {
             }
 
             let alu_var = self.fresh_alu();
-            let input_ptr = var(format!("input{}", i));
+            let input_ptr = var(format!("input{}", input_idx));
+            input_idx += 1;
 
             // 各srcノードのViewからオフセットを計算
             let offset = self.compute_offset_from_view(src, axes);

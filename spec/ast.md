@@ -68,6 +68,29 @@ AstNode::Program {
 ### Barrier
 並列実行における同期点。GPU等で全スレッドがこの地点に到達するまで待機し、共有メモリアクセスのデータ競合を防ぎます。
 
+### Allocate / Deallocate
+動的メモリ管理のためのノード。中間バッファーの確保と解放に使用します。
+
+```rust
+AstNode::Allocate {
+    dtype: Box<DType>,    // 要素の型（例: F32）
+    size: Box<AstNode>,   // 要素数（式で指定可能）
+}
+
+AstNode::Deallocate {
+    ptr: Box<AstNode>,    // 解放するポインタ
+}
+```
+
+C言語へのレンダリング例:
+```c
+// Allocate
+float* tmp0 = (float*)malloc(size * sizeof(float));
+
+// Deallocate
+free(tmp0);
+```
+
 ## DType型変換
 
 SIMD対応のベクトル型（`Vec<T, N>`）とメモリバッファ用のポインタ型（`Ptr<T>`）を提供。型変換メソッド（`to_vec`, `to_ptr`等）により、型を自由にネスト可能です（例: `Vec<Ptr<F32>>`, `Ptr<Vec<F32>>`）。

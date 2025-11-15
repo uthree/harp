@@ -86,6 +86,15 @@ pub enum AstNode {
     // Barrier - 同期バリア（並列実行の同期点）
     Barrier,
 
+    // Memory allocation - メモリ確保
+    Allocate {
+        dtype: Box<DType>,  // 確保する要素の型
+        size: Box<AstNode>, // 確保する要素数
+    },
+    Deallocate {
+        ptr: Box<AstNode>, // 解放するポインタ
+    },
+
     // Function definition - 関数定義
     Function {
         name: Option<String>, // 関数名（Program内ではこのフィールドは使用されず、匿名関数も可能）
@@ -553,6 +562,8 @@ impl AstNode {
             AstNode::Call { args, .. } => args.iter().map(|node| node as &AstNode).collect(),
             AstNode::Return { value } => vec![value.as_ref()],
             AstNode::Barrier => vec![],
+            AstNode::Allocate { size, .. } => vec![size.as_ref()],
+            AstNode::Deallocate { ptr } => vec![ptr.as_ref()],
             AstNode::Function { body, .. } => vec![body.as_ref()],
             AstNode::Program { functions, .. } => {
                 functions.iter().map(|node| node as &AstNode).collect()
@@ -640,6 +651,13 @@ impl AstNode {
                 value: Box::new(f(value)),
             },
             AstNode::Barrier => AstNode::Barrier,
+            AstNode::Allocate { dtype, size } => AstNode::Allocate {
+                dtype: dtype.clone(),
+                size: Box::new(f(size)),
+            },
+            AstNode::Deallocate { ptr } => AstNode::Deallocate {
+                ptr: Box::new(f(ptr)),
+            },
             AstNode::Function {
                 name,
                 params,
@@ -727,6 +745,12 @@ impl AstNode {
 
             // Barrier - 同期バリアは値を返さない（unit型）
             AstNode::Barrier => DType::Tuple(vec![]),
+
+            // Allocate - ポインタを返す
+            AstNode::Allocate { dtype, .. } => DType::Ptr(dtype.clone()),
+
+            // Deallocate - 値を返さない（unit型）
+            AstNode::Deallocate { .. } => DType::Tuple(vec![]),
 
             // Function - 関数自体の型は返り値の型
             AstNode::Function { return_type, .. } => return_type.clone(),
@@ -850,6 +874,16 @@ impl AstNode {
             }
             // Barrier - 同期バリアはスコープに依存しない
             AstNode::Barrier => Ok(()),
+            // Allocate - サイズ式のスコープチェック
+            AstNode::Allocate { size, .. } => {
+                size.check_scope(scope)?;
+                Ok(())
+            }
+            // Deallocate - ポインタのスコープチェック
+            AstNode::Deallocate { ptr } => {
+                ptr.check_scope(scope)?;
+                Ok(())
+            }
             // Function - 関数本体のスコープチェック（パラメータは関数のスコープに含まれる）
             AstNode::Function { body, .. } => body.check_scope(scope),
             // Program - 各関数のスコープチェック
