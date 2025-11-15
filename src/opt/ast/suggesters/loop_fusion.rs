@@ -258,6 +258,7 @@ impl LoopFusionSuggester {
     }
 
     /// Block内で連続するRangeをfusionできるか試みる
+    /// Barrierノードを挟む場合は融合しない（依存関係の保証）
     fn try_fuse_in_block(&self, statements: &[AstNode]) -> Option<Vec<AstNode>> {
         if statements.len() < 2 {
             return None;
@@ -269,6 +270,13 @@ impl LoopFusionSuggester {
 
         while i < statements.len() {
             if i + 1 < statements.len() {
+                // Barrierノードは融合の境界として扱う
+                if matches!(statements[i], AstNode::Barrier) {
+                    new_statements.push(statements[i].clone());
+                    i += 1;
+                    continue;
+                }
+
                 // 連続する2つのRangeをチェック
                 if let (
                     AstNode::Range {
@@ -651,6 +659,86 @@ mod tests {
                     assert_eq!(inner.len(), 1);
                 }
             }
+        }
+    }
+
+    #[test]
+    fn test_no_fusion_across_barrier() {
+        let suggester = LoopFusionSuggester::new();
+
+        // Barrierを挟むループは融合しない
+        let loop1 = range(
+            "i",
+            const_int(0),
+            const_int(1),
+            const_int(100),
+            store(var("a"), var("i"), const_int(1)),
+        );
+
+        let barrier = AstNode::Barrier;
+
+        let loop2 = range(
+            "i",
+            const_int(0),
+            const_int(1),
+            const_int(100),
+            store(var("b"), var("i"), const_int(2)),
+        );
+
+        let program_body = block(vec![loop1, barrier, loop2], Scope::new());
+
+        let suggestions = suggester.suggest(&program_body);
+
+        // Barrierを挟むので融合されない
+        assert_eq!(suggestions.len(), 0);
+    }
+
+    #[test]
+    fn test_fusion_between_barriers() {
+        let suggester = LoopFusionSuggester::new();
+
+        // Barrierの間のループは融合可能
+        let loop1 = range(
+            "i",
+            const_int(0),
+            const_int(1),
+            const_int(100),
+            store(var("a"), var("i"), const_int(1)),
+        );
+
+        let loop2 = range(
+            "i",
+            const_int(0),
+            const_int(1),
+            const_int(100),
+            store(var("b"), var("i"), const_int(2)),
+        );
+
+        let barrier = AstNode::Barrier;
+
+        let loop3 = range(
+            "i",
+            const_int(0),
+            const_int(1),
+            const_int(100),
+            store(var("c"), var("i"), const_int(3)),
+        );
+
+        let program_body = block(vec![loop1, loop2, barrier, loop3], Scope::new());
+
+        let suggestions = suggester.suggest(&program_body);
+
+        // loop1とloop2が融合される
+        assert_eq!(suggestions.len(), 1);
+
+        if let AstNode::Block { statements, .. } = &suggestions[0] {
+            // Barrierの前に1つのRangeになっているはず
+            assert_eq!(statements.len(), 3); // fused_loop, barrier, loop3
+            assert!(matches!(statements[0], AstNode::Range { .. }));
+            assert!(matches!(statements[1], AstNode::Barrier));
+            assert!(matches!(statements[2], AstNode::Range { .. }));
+        } else {
+            panic!("Expected Block");
         }
     }
 }

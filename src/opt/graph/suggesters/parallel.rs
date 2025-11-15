@@ -21,7 +21,7 @@ impl ParallelStrategyChanger {
             strategy_candidates: vec![
                 ElementwiseStrategy::sequential(),
                 ElementwiseStrategy::sequential_simd(4),
-                ElementwiseStrategy::sequential_unroll(4),
+                //ElementwiseStrategy::sequential_unroll(4),
                 ElementwiseStrategy::thread(),
                 ElementwiseStrategy::thread_simd(4),
                 ElementwiseStrategy::thread_group(),
