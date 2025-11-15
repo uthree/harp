@@ -19,9 +19,17 @@ impl FunctionInliningSuggester {
         Self { max_nodes }
     }
 
-    /// デフォルトの設定で作成（最大500ノードまで展開）
+    /// デフォルトの設定で作成（最大10000ノードまで展開）
+    /// カーネル関数は大きくなることが多いため、十分大きな値を使用
     pub fn with_default_limit() -> Self {
-        Self { max_nodes: 50 }
+        Self { max_nodes: 10000 }
+    }
+
+    /// サイズ制限なしで作成
+    pub fn without_limit() -> Self {
+        Self {
+            max_nodes: usize::MAX,
+        }
     }
 
     /// ASTノードの数を数える
@@ -132,18 +140,30 @@ impl FunctionInliningSuggester {
     ) -> Option<Vec<AstNode>> {
         if let AstNode::Call { name, args } = call_node {
             // 関数定義を取得
-            let func_node = functions.get(name)?;
+            let Some(func_node) = functions.get(name) else {
+                debug!("Function '{}' not found in func_map", name);
+                return None;
+            };
 
             if let AstNode::Function { params, body, .. } = func_node {
                 // 引数の数が一致するかチェック
                 if params.len() != args.len() {
-                    trace!("Argument count mismatch for function '{}'", name);
+                    debug!(
+                        "Argument count mismatch for function '{}': expected {}, got {}",
+                        name,
+                        params.len(),
+                        args.len()
+                    );
                     return None;
                 }
 
                 // 関数本体のノード数をチェック
-                if Self::count_nodes(body) > self.max_nodes {
-                    trace!("Function '{}' is too large to inline", name);
+                let node_count = Self::count_nodes(body);
+                if node_count > self.max_nodes {
+                    debug!(
+                        "Function '{}' is too large to inline: {} nodes > {} max",
+                        name, node_count, self.max_nodes
+                    );
                     return None;
                 }
 
@@ -155,6 +175,10 @@ impl FunctionInliningSuggester {
 
                 // Return文がある場合は文としての展開は行わない
                 if Self::find_single_return(body).is_some() {
+                    debug!(
+                        "Function '{}' has return statement, cannot inline as statement",
+                        name
+                    );
                     return None;
                 }
 
@@ -173,9 +197,25 @@ impl FunctionInliningSuggester {
                     );
                     Some(inlined_statements)
                 } else {
-                    None
+                    // Blockでない場合（例: 直接Rangeノードの場合）、単一の文として扱う
+                    debug!(
+                        "Function '{}' body is not a Block ({}), treating as single statement",
+                        name,
+                        match body.as_ref() {
+                            AstNode::Range { .. } => "Range",
+                            _ => "other",
+                        }
+                    );
+
+                    let inlined_stmt = Self::substitute_vars(body, &replacements);
+                    trace!(
+                        "Successfully inlined function '{}' (single statement body)",
+                        name
+                    );
+                    Some(vec![inlined_stmt])
                 }
             } else {
+                debug!("func_node is not a Function: {:?}", func_node);
                 None
             }
         } else {
@@ -201,14 +241,27 @@ impl FunctionInliningSuggester {
             let mut new_statements = Vec::new();
             let mut changed = false;
 
+            debug!(
+                "Processing Block with {} statements",
+                statements.len()
+            );
+
             for stmt in statements {
                 // Call文の場合、文としてインライン展開を試みる
-                if matches!(stmt, AstNode::Call { .. })
-                    && let Some(inlined_stmts) = self.inline_call_as_statement(stmt, functions)
-                {
-                    new_statements.extend(inlined_stmts);
-                    changed = true;
-                    continue;
+                if let AstNode::Call { name, .. } = stmt {
+                    debug!("Found Call statement to function '{}'", name);
+                    if let Some(inlined_stmts) = self.inline_call_as_statement(stmt, functions) {
+                        debug!(
+                            "Successfully inlined '{}' as {} statements",
+                            name,
+                            inlined_stmts.len()
+                        );
+                        new_statements.extend(inlined_stmts);
+                        changed = true;
+                        continue;
+                    } else {
+                        debug!("Failed to inline function '{}'", name);
+                    }
                 }
 
                 // 子ノードを再帰的に処理
@@ -398,6 +451,11 @@ impl FunctionInliningSuggester {
                     kind,
                 } = func
                 {
+                    debug!(
+                        "Checking function {:?} for inlining opportunities",
+                        name
+                    );
+
                     // 関数本体でインライン展開を試みる
                     if let Some(new_body) = self.try_inline_in_ast(body, &func_map) {
                         let new_func = AstNode::Function {
@@ -418,9 +476,75 @@ impl FunctionInliningSuggester {
                     }
                 }
             }
+
+            // デッドコード削除：使われていない関数を削除する候補を生成
+            let dead_code_candidate = self.remove_dead_functions(ast);
+            if let Some(candidate) = dead_code_candidate {
+                candidates.push(candidate);
+            }
         }
 
         candidates
+    }
+
+    /// 使われていない関数を削除する
+    ///
+    /// Programから、エントリポイント以外でCall文から呼び出されていない関数を削除する
+    fn remove_dead_functions(&self, ast: &AstNode) -> Option<AstNode> {
+        if let AstNode::Program {
+            functions,
+            entry_point,
+        } = ast
+        {
+            // 使われている関数名を収集
+            let mut used_functions: HashSet<String> = HashSet::new();
+            used_functions.insert(entry_point.clone());
+
+            // 全てのCall文を走査して使われている関数を特定
+            for func in functions {
+                Self::collect_called_functions(func, &mut used_functions);
+            }
+
+            // 使われていない関数を削除
+            let new_functions: Vec<AstNode> = functions
+                .iter()
+                .filter(|f| {
+                    if let AstNode::Function { name: Some(n), .. } = f {
+                        used_functions.contains(n)
+                    } else {
+                        true
+                    }
+                })
+                .cloned()
+                .collect();
+
+            // 関数が削除された場合のみ候補を生成
+            if new_functions.len() < functions.len() {
+                trace!(
+                    "Removed {} dead functions",
+                    functions.len() - new_functions.len()
+                );
+                Some(AstNode::Program {
+                    functions: new_functions,
+                    entry_point: entry_point.clone(),
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    /// ASTから全てのCall文で使われている関数名を収集
+    fn collect_called_functions(ast: &AstNode, used: &mut HashSet<String>) {
+        if let AstNode::Call { name, .. } = ast {
+            used.insert(name.clone());
+        }
+
+        for child in ast.children() {
+            Self::collect_called_functions(child, used);
+        }
     }
 }
 
@@ -433,10 +557,15 @@ impl Suggester for FunctionInliningSuggester {
         let candidates = self.collect_inlining_candidates(ast);
 
         for candidate in candidates {
-            let candidate_str = format!("{:?}", candidate);
+            // インライン展開後にデッドコード削除を適用
+            let optimized = self
+                .remove_dead_functions(&candidate)
+                .unwrap_or(candidate);
+
+            let candidate_str = format!("{:?}", optimized);
             if !seen.contains(&candidate_str) {
                 seen.insert(candidate_str);
-                suggestions.push(candidate);
+                suggestions.push(optimized);
             }
         }
 
@@ -612,6 +741,119 @@ mod tests {
             assert!(matches!(right.as_ref(), AstNode::Const(Literal::Int(1))));
         } else {
             panic!("Expected Add node");
+        }
+    }
+
+    #[test]
+    fn test_kernel_function_inlining() {
+        use crate::ast::Scope;
+        use crate::ast::helper::{block, range, store, var};
+
+        // カーネル関数のような構造を作成（Blockの中にRangeがある）
+        // fn kernel_0(input: Ptr<Int>, output: Ptr<Int>) {
+        //     for i in 0..10 {
+        //         Store(output, i, Load(input, i))
+        //     }
+        // }
+        let kernel_body = block(
+            vec![range(
+                "i".to_string(),
+                AstNode::Const(Literal::Int(0)),
+                AstNode::Const(Literal::Int(1)),
+                AstNode::Const(Literal::Int(10)),
+                store(var("output"), var("i"), var("input")),
+            )],
+            Scope::new(),
+        );
+
+        let kernel_func = AstNode::Function {
+            name: Some("kernel_0".to_string()),
+            params: vec![
+                VarDecl {
+                    name: "input".to_string(),
+                    dtype: DType::Ptr(Box::new(DType::Int)),
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::Normal,
+                },
+                VarDecl {
+                    name: "output".to_string(),
+                    dtype: DType::Ptr(Box::new(DType::Int)),
+                    mutability: Mutability::Mutable,
+                    kind: VarKind::Normal,
+                },
+            ],
+            return_type: DType::Tuple(vec![]),
+            body: Box::new(kernel_body),
+            kind: FunctionKind::Normal,
+        };
+
+        // main関数: kernel_0を呼び出す
+        let main_body = block(
+            vec![AstNode::Call {
+                name: "kernel_0".to_string(),
+                args: vec![var("a"), var("b")],
+            }],
+            Scope::new(),
+        );
+
+        let main_func = AstNode::Function {
+            name: Some("main".to_string()),
+            params: vec![
+                VarDecl {
+                    name: "a".to_string(),
+                    dtype: DType::Ptr(Box::new(DType::Int)),
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::Normal,
+                },
+                VarDecl {
+                    name: "b".to_string(),
+                    dtype: DType::Ptr(Box::new(DType::Int)),
+                    mutability: Mutability::Mutable,
+                    kind: VarKind::Normal,
+                },
+            ],
+            return_type: DType::Tuple(vec![]),
+            body: Box::new(main_body),
+            kind: FunctionKind::Normal,
+        };
+
+        let program = AstNode::Program {
+            functions: vec![kernel_func, main_func],
+            entry_point: "main".to_string(),
+        };
+
+        let suggester = FunctionInliningSuggester::with_default_limit();
+        let suggestions = suggester.suggest(&program);
+
+        // カーネル関数がmainにインライン展開されるはず
+        assert!(
+            !suggestions.is_empty(),
+            "Expected at least one suggestion for kernel inlining"
+        );
+
+        // インライン展開後の構造を確認
+        if let AstNode::Program { functions, .. } = &suggestions[0] {
+            // mainだけになっているはず（kernel_0が削除された場合）
+            // または、main内にCallがなくなっているはず
+            let main_func = functions
+                .iter()
+                .find(|f| matches!(f, AstNode::Function { name: Some(n), .. } if n == "main"));
+
+            assert!(main_func.is_some());
+
+            if let Some(AstNode::Function { body, .. }) = main_func {
+                if let AstNode::Block { statements, .. } = body.as_ref() {
+                    // Call文がRangeに置き換わっているはず
+                    let has_range = statements
+                        .iter()
+                        .any(|stmt| matches!(stmt, AstNode::Range { .. }));
+                    assert!(
+                        has_range,
+                        "Expected Range statement after inlining, got: {:?}",
+                        statements
+                    );
+                }
+            }
         }
     }
 
