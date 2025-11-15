@@ -62,11 +62,17 @@ fn main() -> eframe::Result {
     // 最適化を一括実行（コンパイルなし）
     println!("【3/3】最適化を実行中...");
     println!("  - グラフ最適化中...");
-    let (_optimized_program, function_histories) = pipeline
+    let (optimized_program, function_histories) = pipeline
         .optimize_graph_with_all_histories(graph)
         .expect("Failed to optimize graph");
 
     println!("  ✓ 最適化完了");
+
+    // 生成されたCコードを表示
+    println!("\n=== 生成されたCコード ===");
+    let mut c_renderer = CRenderer::new();
+    let code = c_renderer.render_program(&optimized_program);
+    println!("{}", code);
     println!(
         "    - グラフ最適化ステップ数: {}",
         pipeline.histories.graph.as_ref().map_or(0, |h| h.len())

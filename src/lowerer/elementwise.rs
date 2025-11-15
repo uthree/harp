@@ -199,15 +199,15 @@ impl Lowerer {
     ) -> Result<Vec<AstNode>, String> {
         let loop_var = format!("ridx{}", axis);
 
-        // メインループ: shape / unroll_factor 回のイテレーション
+        // メインループ: step数をunroll_factorに変更
         let mut unrolled_body = vec![];
 
         for i in 0..unroll_factor {
-            // ridx{axis} = ridx{axis}_base * unroll_factor + i
+            // ridx{axis} + i でオフセット
             let offset = if i == 0 {
-                var(format!("{}_base", loop_var))
+                var(loop_var.clone())
             } else {
-                var(format!("{}_base", loop_var)) + AstNode::Const(Literal::Int(i as isize))
+                var(loop_var.clone()) + AstNode::Const(Literal::Int(i as isize))
             };
 
             // ループ変数を置き換えた本体を生成
@@ -226,27 +226,22 @@ impl Lowerer {
             scope: Box::new(main_scope),
         };
 
-        // メインループ: for ridx{axis}_base in 0..(shape{axis}/unroll_factor)
-        let main_loop_stop = idiv(
-            shape_expr.clone(),
-            AstNode::Const(Literal::Int(unroll_factor as isize)),
-        );
-
-        let main_loop = AstNode::Range {
-            var: format!("{}_base", loop_var),
-            start: Box::new(AstNode::Const(Literal::Int(0))),
-            step: Box::new(AstNode::Const(Literal::Int(1))),
-            stop: Box::new(main_loop_stop),
-            body: Box::new(unrolled_loop_body),
-        };
-
-        // 残り処理: for ridx{axis} in (shape{axis}/unroll_factor)*unroll_factor..shape{axis}
-        let remainder_start = idiv(
+        // メインループ: for ridx{axis} in 0..(shape{axis}/unroll_factor)*unroll_factor step unroll_factor
+        // stop値を切り下げて、unroll_factorの倍数にする
+        let aligned_stop = idiv(
             shape_expr.clone(),
             AstNode::Const(Literal::Int(unroll_factor as isize)),
         ) * AstNode::Const(Literal::Int(unroll_factor as isize));
 
-        // 残りループのスコープ
+        let main_loop = AstNode::Range {
+            var: loop_var.clone(),
+            start: Box::new(AstNode::Const(Literal::Int(0))),
+            step: Box::new(AstNode::Const(Literal::Int(unroll_factor as isize))),
+            stop: Box::new(aligned_stop.clone()),
+            body: Box::new(unrolled_loop_body),
+        };
+
+        // 残り処理: for ridx{axis} in aligned_stop..shape{axis} step 1
         let remainder_scope = Scope::new();
         let remainder_loop_body = AstNode::Block {
             statements: body_statements,
@@ -255,7 +250,7 @@ impl Lowerer {
 
         let remainder_loop = AstNode::Range {
             var: loop_var,
-            start: Box::new(remainder_start),
+            start: Box::new(aligned_stop),
             step: Box::new(AstNode::Const(Literal::Int(1))),
             stop: Box::new(shape_expr.clone()),
             body: Box::new(remainder_loop_body),
@@ -312,6 +307,32 @@ impl Lowerer {
                 for stmt in statements {
                     self.substitute_loop_var(stmt, var_name, replacement);
                 }
+            }
+            AstNode::Range {
+                var,
+                start,
+                step,
+                stop,
+                body,
+            } => {
+                // ループ変数がシャドウイングされている場合は本体を置換しない
+                if var != var_name {
+                    self.substitute_loop_var(start, var_name, replacement);
+                    self.substitute_loop_var(step, var_name, replacement);
+                    self.substitute_loop_var(stop, var_name, replacement);
+                    self.substitute_loop_var(body, var_name, replacement);
+                }
+            }
+            AstNode::BitwiseAnd(lhs, rhs)
+            | AstNode::BitwiseOr(lhs, rhs)
+            | AstNode::BitwiseXor(lhs, rhs)
+            | AstNode::LeftShift(lhs, rhs)
+            | AstNode::RightShift(lhs, rhs) => {
+                self.substitute_loop_var(lhs, var_name, replacement);
+                self.substitute_loop_var(rhs, var_name, replacement);
+            }
+            AstNode::BitwiseNot(inner) => {
+                self.substitute_loop_var(inner, var_name, replacement);
             }
             _ => {}
         }

@@ -241,10 +241,7 @@ impl FunctionInliningSuggester {
             let mut new_statements = Vec::new();
             let mut changed = false;
 
-            debug!(
-                "Processing Block with {} statements",
-                statements.len()
-            );
+            debug!("Processing Block with {} statements", statements.len());
 
             for stmt in statements {
                 // Call文の場合、文としてインライン展開を試みる
@@ -451,10 +448,7 @@ impl FunctionInliningSuggester {
                     kind,
                 } = func
                 {
-                    debug!(
-                        "Checking function {:?} for inlining opportunities",
-                        name
-                    );
+                    debug!("Checking function {:?} for inlining opportunities", name);
 
                     // 関数本体でインライン展開を試みる
                     if let Some(new_body) = self.try_inline_in_ast(body, &func_map) {
@@ -558,9 +552,7 @@ impl Suggester for FunctionInliningSuggester {
 
         for candidate in candidates {
             // インライン展開後にデッドコード削除を適用
-            let optimized = self
-                .remove_dead_functions(&candidate)
-                .unwrap_or(candidate);
+            let optimized = self.remove_dead_functions(&candidate).unwrap_or(candidate);
 
             let candidate_str = format!("{:?}", optimized);
             if !seen.contains(&candidate_str) {

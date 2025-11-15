@@ -42,9 +42,7 @@ impl LoopFusionSuggester {
             (AstNode::Log2(a1), AstNode::Log2(a2)) => Self::ast_equal(a1, a2),
             (AstNode::Exp2(a1), AstNode::Exp2(a2)) => Self::ast_equal(a1, a2),
             (AstNode::Sin(a1), AstNode::Sin(a2)) => Self::ast_equal(a1, a2),
-            (AstNode::Cast(a1, t1), AstNode::Cast(a2, t2)) => {
-                t1 == t2 && Self::ast_equal(a1, a2)
-            }
+            (AstNode::Cast(a1, t1), AstNode::Cast(a2, t2)) => t1 == t2 && Self::ast_equal(a1, a2),
             (AstNode::BitwiseAnd(a1, b1), AstNode::BitwiseAnd(a2, b2)) => {
                 Self::ast_equal(a1, a2) && Self::ast_equal(b1, b2)
             }
@@ -294,10 +292,7 @@ impl LoopFusionSuggester {
                         && Self::ast_equal(step1, step2)
                         && Self::ast_equal(stop1, stop2)
                     {
-                        debug!(
-                            "Found fusable loops: var1='{}', var2='{}'",
-                            var1, var2
-                        );
+                        debug!("Found fusable loops: var1='{}', var2='{}'", var1, var2);
 
                         // ループ変数が異なる場合、2番目のbodyの変数を1番目に合わせる
                         let adjusted_body2 = if var1 != var2 {
@@ -322,16 +317,6 @@ impl LoopFusionSuggester {
                         i += 2; // 2つのRangeをスキップ
                         continue;
                     }
-
-                    // ループ入れ替え後に融合可能かチェック（ネストしたループの場合）
-                    if let Some(fused_range) =
-                        self.try_fuse_with_interchange(&statements[i], &statements[i + 1])
-                    {
-                        new_statements.push(fused_range);
-                        fused = true;
-                        i += 2;
-                        continue;
-                    }
                 }
             }
 
@@ -340,92 +325,15 @@ impl LoopFusionSuggester {
         }
 
         if fused {
-            trace!("Fused loops, reduced {} to {} statements", statements.len(), new_statements.len());
+            trace!(
+                "Fused loops, reduced {} to {} statements",
+                statements.len(),
+                new_statements.len()
+            );
             Some(new_statements)
         } else {
             None
         }
-    }
-
-    /// ループ入れ替え後に融合可能かチェックし、可能なら入れ替え+融合を行う
-    fn try_fuse_with_interchange(&self, range1: &AstNode, range2: &AstNode) -> Option<AstNode> {
-        // range1がネストしたループ（外側+内側）で、range2が単純なループの場合
-        if let AstNode::Range {
-            var: outer_var1,
-            start: outer_start1,
-            step: outer_step1,
-            stop: outer_stop1,
-            body: outer_body1,
-        } = range1
-        {
-            // range1の内側ループを探す
-            if let AstNode::Range {
-                var: inner_var1,
-                start: inner_start1,
-                step: inner_step1,
-                stop: inner_stop1,
-                body: inner_body1,
-            } = outer_body1.as_ref()
-            {
-                // range2の境界を確認
-                if let AstNode::Range {
-                    var: var2,
-                    start: start2,
-                    step: step2,
-                    stop: stop2,
-                    body: body2,
-                } = range2
-                {
-                    // 入れ替え後の外側（inner_var1の境界）とrange2の境界が同じか
-                    if Self::ast_equal(inner_start1, start2)
-                        && Self::ast_equal(inner_step1, step2)
-                        && Self::ast_equal(inner_stop1, stop2)
-                    {
-                        debug!(
-                            "Found fusable loops after interchange: inner_var1='{}', var2='{}'",
-                            inner_var1, var2
-                        );
-
-                        // ループ1を入れ替え（外側と内側を交換）
-                        // 新しい外側: inner_var1の境界
-                        // 新しい内側: outer_var1の境界、body: inner_body1
-
-                        // range2の変数をinner_var1に合わせる
-                        let adjusted_body2 = if inner_var1 != var2 {
-                            Self::substitute_loop_var(body2, var2, inner_var1)
-                        } else {
-                            body2.as_ref().clone()
-                        };
-
-                        // 入れ替え後のrange1の内側ループ
-                        let interchanged_inner1 = AstNode::Range {
-                            var: outer_var1.clone(),
-                            start: outer_start1.clone(),
-                            step: outer_step1.clone(),
-                            stop: outer_stop1.clone(),
-                            body: inner_body1.clone(),
-                        };
-
-                        // bodyをマージ
-                        let merged_body =
-                            Self::merge_loop_bodies(&interchanged_inner1, &adjusted_body2);
-
-                        let fused_range = AstNode::Range {
-                            var: inner_var1.clone(),
-                            start: inner_start1.clone(),
-                            step: inner_step1.clone(),
-                            stop: inner_stop1.clone(),
-                            body: Box::new(merged_body),
-                        };
-
-                        trace!("Successfully fused loops with interchange");
-                        return Some(fused_range);
-                    }
-                }
-            }
-        }
-
-        None
     }
 
     /// ASTツリーを走査して、融合可能なループを探す
@@ -486,13 +394,15 @@ impl LoopFusionSuggester {
                 return_type,
                 body,
                 kind,
-            } => self.try_fuse_in_ast(body).map(|new_body| AstNode::Function {
-                name: name.clone(),
-                params: params.clone(),
-                return_type: return_type.clone(),
-                body: Box::new(new_body),
-                kind: kind.clone(),
-            }),
+            } => self
+                .try_fuse_in_ast(body)
+                .map(|new_body| AstNode::Function {
+                    name: name.clone(),
+                    params: params.clone(),
+                    return_type: return_type.clone(),
+                    body: Box::new(new_body),
+                    kind: kind.clone(),
+                }),
 
             AstNode::Program {
                 functions,
@@ -569,8 +479,8 @@ impl Suggester for LoopFusionSuggester {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ast::Scope;
     use crate::ast::helper::{block, const_int, range, store, var};
-    use crate::ast::{Literal, Scope};
 
     #[test]
     fn test_simple_loop_fusion() {
@@ -743,91 +653,4 @@ mod tests {
             }
         }
     }
-
-    #[test]
-    fn test_loop_fusion_with_interchange() {
-        let suggester = LoopFusionSuggester::new();
-
-        // ループ1: ネストしたループ (外側: 0..64, 内側: 0..256)
-        let nested_loop = range(
-            "ridx1",
-            const_int(0),
-            const_int(1),
-            const_int(64),
-            range(
-                "ridx0",
-                const_int(0),
-                const_int(1),
-                const_int(256),
-                store(var("a"), var("ridx0"), var("ridx1")),
-            ),
-        );
-
-        // ループ2: 単純なループ (外側: 0..256)
-        let simple_loop = range(
-            "oidx0",
-            const_int(0),
-            const_int(1),
-            const_int(256),
-            store(var("b"), var("oidx0"), const_int(42)),
-        );
-
-        let program_body = block(vec![nested_loop, simple_loop], Scope::new());
-
-        let suggestions = suggester.suggest(&program_body);
-
-        assert_eq!(suggestions.len(), 1);
-
-        // 入れ替え+融合後、外側ループが0..256になるはず
-        if let AstNode::Block { statements, .. } = &suggestions[0] {
-            assert_eq!(statements.len(), 1);
-
-            if let AstNode::Range {
-                var: loop_var,
-                stop,
-                body,
-                ..
-            } = &statements[0]
-            {
-                // 外側ループはridx0 (0..256)
-                assert_eq!(loop_var, "ridx0");
-                assert_eq!(stop.as_ref(), &const_int(256));
-
-                // bodyには2つの文がある（内側ループとstore）
-                if let AstNode::Block {
-                    statements: inner, ..
-                } = body.as_ref()
-                {
-                    assert_eq!(inner.len(), 2);
-
-                    // 1つ目は内側ループ (ridx1: 0..64)
-                    if let AstNode::Range {
-                        var: inner_var,
-                        stop: inner_stop,
-                        ..
-                    } = &inner[0]
-                    {
-                        assert_eq!(inner_var, "ridx1");
-                        assert_eq!(inner_stop.as_ref(), &const_int(64));
-                    } else {
-                        panic!("Expected inner Range");
-                    }
-
-                    // 2つ目はstore (oidx0がridx0に置換されている)
-                    if let AstNode::Store { offset, .. } = &inner[1] {
-                        assert_eq!(offset.as_ref(), &AstNode::Var("ridx0".to_string()));
-                    } else {
-                        panic!("Expected Store");
-                    }
-                } else {
-                    panic!("Expected Block body");
-                }
-            } else {
-                panic!("Expected Range");
-            }
-        } else {
-            panic!("Expected Block");
-        }
-    }
 }
-

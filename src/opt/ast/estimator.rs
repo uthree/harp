@@ -17,6 +17,9 @@ const FUNCTION_DEFINITION_OVERHEAD: f32 = 50.0;
 // 同期バリアのコスト（スレッド間の同期待ち）
 const BARRIER_COST: f32 = 100.0;
 
+// 連続ループの境界が揃っている場合のボーナス（融合可能性への報酬）
+const LOOP_FUSION_BONUS: f32 = 50.0;
+
 /// 簡単なコスト推定器
 ///
 /// **重要**: このコスト推定器は対数スケール（log(CPUサイクル数)）でコストを返します。
@@ -44,6 +47,53 @@ impl SimpleCostEstimator {
     /// 新しいコスト推定器を作成
     pub fn new() -> Self {
         Self
+    }
+
+    /// 2つのASTノードが構造的に等しいかチェック（境界比較用）
+    fn ast_equal(a: &AstNode, b: &AstNode) -> bool {
+        match (a, b) {
+            (AstNode::Const(l1), AstNode::Const(l2)) => l1 == l2,
+            (AstNode::Var(n1), AstNode::Var(n2)) => n1 == n2,
+            (AstNode::Add(a1, b1), AstNode::Add(a2, b2)) => {
+                Self::ast_equal(a1, a2) && Self::ast_equal(b1, b2)
+            }
+            (AstNode::Mul(a1, b1), AstNode::Mul(a2, b2)) => {
+                Self::ast_equal(a1, a2) && Self::ast_equal(b1, b2)
+            }
+            _ => false,
+        }
+    }
+
+    /// Block内の連続するRangeの境界が揃っている数をカウント
+    fn count_fusable_loop_pairs(statements: &[AstNode]) -> usize {
+        if statements.len() < 2 {
+            return 0;
+        }
+
+        let mut count = 0;
+        for i in 0..statements.len() - 1 {
+            if let (
+                AstNode::Range {
+                    start: start1,
+                    step: step1,
+                    stop: stop1,
+                    ..
+                },
+                AstNode::Range {
+                    start: start2,
+                    step: step2,
+                    stop: stop2,
+                    ..
+                },
+            ) = (&statements[i], &statements[i + 1])
+                && Self::ast_equal(start1, start2)
+                && Self::ast_equal(step1, step2)
+                && Self::ast_equal(stop1, stop2)
+            {
+                count += 1;
+            }
+        }
+        count
     }
 
     /// ノードのベースコストを取得（log(CPUサイクル数)）
@@ -186,7 +236,17 @@ impl CostEstimator for SimpleCostEstimator {
                 log_sum_exp(self.estimate(start), log_loop_count + per_iteration_cost)
             }
             AstNode::Block { statements, .. } => {
-                log_sum_exp_iter(statements.iter().map(|s| self.estimate(s)))
+                let statements_cost = log_sum_exp_iter(statements.iter().map(|s| self.estimate(s)));
+
+                // 連続するループの境界が揃っている場合、融合可能としてボーナスを与える
+                let fusable_pairs = Self::count_fusable_loop_pairs(statements);
+                if fusable_pairs > 0 {
+                    // ボーナスを減算（対数スケールなので、低いコストが良い）
+                    let bonus = (fusable_pairs as f32 * LOOP_FUSION_BONUS).ln();
+                    statements_cost - bonus
+                } else {
+                    statements_cost
+                }
             }
             AstNode::Call { args, .. } => {
                 // 関数呼び出しは引数の評価コスト + 呼び出しオーバーヘッド
