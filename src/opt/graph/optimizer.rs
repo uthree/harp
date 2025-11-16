@@ -4,6 +4,7 @@ use crate::opt::graph::{
 };
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, info, trace};
+use std::time::Instant;
 
 /// ビームサーチグラフ最適化器
 ///
@@ -85,6 +86,9 @@ where
     /// グラフを最適化して、グラフと最適化履歴を返す
     pub fn optimize_with_history(&self, graph: Graph) -> (Graph, OptimizationHistory) {
         use crate::opt::log_capture;
+
+        // 時間計測を開始
+        let start_time = Instant::now();
 
         // ログキャプチャを開始（collect_logsが有効な場合のみ）
         if self.collect_logs {
@@ -178,9 +182,15 @@ where
                 );
                 if let Some(ref pb) = pb {
                     pb.finish_and_clear();
+                    let elapsed = start_time.elapsed();
+                    let time_str = if elapsed.as_secs() > 0 {
+                        format!("{:.2}s", elapsed.as_secs_f64())
+                    } else {
+                        format!("{}ms", elapsed.as_millis())
+                    };
                     println!(
-                        "{:>12} graph optimization (no more candidates)",
-                        "\x1b[1;32mFinished\x1b[0m"
+                        "{:>12} graph optimization in {} (no more candidates)",
+                        "\x1b[1;32mFinished\x1b[0m", time_str
                     );
                 }
                 early_terminated = true;
@@ -227,9 +237,15 @@ where
                         );
                         if let Some(ref pb) = pb {
                             pb.finish_and_clear();
+                            let elapsed = start_time.elapsed();
+                            let time_str = if elapsed.as_secs() > 0 {
+                                format!("{:.2}s", elapsed.as_secs_f64())
+                            } else {
+                                format!("{}ms", elapsed.as_millis())
+                            };
                             println!(
-                                "{:>12} graph optimization (no cost improvement)",
-                                "\x1b[1;32mFinished\x1b[0m"
+                                "{:>12} graph optimization in {} (converged)",
+                                "\x1b[1;32mFinished\x1b[0m", time_str
                             );
                         }
                         early_terminated = true;
@@ -291,7 +307,16 @@ where
         if !early_terminated && let Some(pb) = pb {
             pb.finish_and_clear();
             // Cargoスタイルの完了メッセージ
-            println!("{:>12} graph optimization", "\x1b[1;32mFinished\x1b[0m");
+            let elapsed = start_time.elapsed();
+            let time_str = if elapsed.as_secs() > 0 {
+                format!("{:.2}s", elapsed.as_secs_f64())
+            } else {
+                format!("{}ms", elapsed.as_millis())
+            };
+            println!(
+                "{:>12} graph optimization in {}",
+                "\x1b[1;32mFinished\x1b[0m", time_str
+            );
         }
 
         let final_cost = self.estimator.estimate(&global_best);

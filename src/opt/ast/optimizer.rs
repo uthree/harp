@@ -3,6 +3,7 @@ use crate::ast::pat::{AstRewriteRule, AstRewriter};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, info, trace};
 use std::rc::Rc;
+use std::time::Instant;
 
 use super::history::{OptimizationHistory, OptimizationSnapshot};
 use super::{CostEstimator, Optimizer, Suggester};
@@ -116,6 +117,9 @@ where
     /// 履歴を記録しながら最適化を実行
     pub fn optimize_with_history(&self, ast: AstNode) -> (AstNode, OptimizationHistory) {
         use crate::opt::log_capture;
+
+        // 時間計測を開始
+        let start_time = Instant::now();
 
         // ログキャプチャを開始（collect_logsが有効な場合のみ）
         if self.collect_logs {
@@ -280,18 +284,26 @@ where
         if let Some(pb) = pb {
             pb.finish_and_clear();
             // Cargoスタイルの完了メッセージ
+            let elapsed = start_time.elapsed();
+            let time_str = if elapsed.as_secs() > 0 {
+                format!("{:.2}s", elapsed.as_secs_f64())
+            } else {
+                format!("{}ms", elapsed.as_millis())
+            };
             if actual_steps + 1 < self.max_steps {
                 // 早期終了
                 println!(
-                    "{:>12} AST optimization (converged after {} steps)",
+                    "{:>12} AST optimization in {} (converged after {} steps)",
                     "\x1b[1;32mFinished\x1b[0m",
+                    time_str,
                     actual_steps + 1
                 );
             } else {
                 // 最大ステップ数に到達
                 println!(
-                    "{:>12} AST optimization ({} steps)",
+                    "{:>12} AST optimization in {} ({} steps)",
                     "\x1b[1;32mFinished\x1b[0m",
+                    time_str,
                     actual_steps + 1
                 );
             }
