@@ -241,6 +241,16 @@ impl GraphNode {
         ops::cumprod(self.clone(), axis)
     }
 
+    /// elementwise演算の後に累積演算を行う融合ノードを作成
+    pub fn fused_elementwise_cumulative(
+        inputs: Vec<Self>,
+        elementwise_ops: Vec<ops::FusedElementwiseOp>,
+        cumulative_op: ops::CumulativeOp,
+        axis: usize,
+    ) -> Self {
+        ops::fused_elementwise_cumulative(inputs, elementwise_ops, cumulative_op, axis)
+    }
+
     /// 逆数を計算（1/x）
     pub fn recip(self) -> Self {
         let view = self.view.clone();
@@ -1461,5 +1471,106 @@ mod tests {
 
         // 無効な軸（2次元テンソルに対して軸3）
         let _result = input.cumsum(3);
+    }
+
+    #[test]
+    fn test_fused_elementwise_cumulative() {
+        let mut graph = Graph::new();
+        let input = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![4, 8])
+            .build();
+
+        // 入力を二乗してから累積和: cumsum(x^2)
+        let result = GraphNode::fused_elementwise_cumulative(
+            vec![input],
+            vec![ops::FusedElementwiseOp {
+                op: ops::ElementwiseOp::Mul,
+                inputs: vec![
+                    ops::FusedInput::GraphInput(0),
+                    ops::FusedInput::GraphInput(0),
+                ],
+            }],
+            ops::CumulativeOp::Sum,
+            1, // 軸1に沿って累積
+        );
+
+        // 出力shapeは入力と同じ
+        assert_eq!(result.view.shape().len(), 2);
+        match &result.op {
+            ops::GraphOp::FusedElementwiseCumulative {
+                elementwise_ops,
+                cumulative_op,
+                axis,
+                ..
+            } => {
+                assert_eq!(elementwise_ops.len(), 1);
+                assert_eq!(*cumulative_op, ops::CumulativeOp::Sum);
+                assert_eq!(*axis, 1);
+            }
+            _ => panic!("Expected FusedElementwiseCumulative operation"),
+        }
+    }
+
+    #[test]
+    fn test_fused_elementwise_cumprod() {
+        let mut graph = Graph::new();
+        let x = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![3, 5])
+            .build();
+
+        // 入力に2を加えてから累積積: cumprod(x + 2)
+        let result = GraphNode::fused_elementwise_cumulative(
+            vec![x],
+            vec![ops::FusedElementwiseOp {
+                op: ops::ElementwiseOp::Add,
+                inputs: vec![
+                    ops::FusedInput::GraphInput(0),
+                    ops::FusedInput::Const(crate::ast::Literal::F32(2.0)),
+                ],
+            }],
+            ops::CumulativeOp::Prod,
+            0, // 軸0に沿って累積
+        );
+
+        match &result.op {
+            ops::GraphOp::FusedElementwiseCumulative {
+                cumulative_op,
+                axis,
+                ..
+            } => {
+                assert_eq!(*cumulative_op, ops::CumulativeOp::Prod);
+                assert_eq!(*axis, 0);
+            }
+            _ => panic!("Expected FusedElementwiseCumulative operation"),
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "axis 2 is out of bounds")]
+    fn test_fused_elementwise_cumulative_out_of_bounds() {
+        let mut graph = Graph::new();
+        let input = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![4, 8])
+            .build();
+
+        // 無効な軸（2次元テンソルに対して軸2）
+        let _result = GraphNode::fused_elementwise_cumulative(
+            vec![input],
+            vec![ops::FusedElementwiseOp {
+                op: ops::ElementwiseOp::Mul,
+                inputs: vec![
+                    ops::FusedInput::GraphInput(0),
+                    ops::FusedInput::GraphInput(0),
+                ],
+            }],
+            ops::CumulativeOp::Sum,
+            2,
+        );
     }
 }

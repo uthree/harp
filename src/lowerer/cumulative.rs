@@ -191,7 +191,7 @@ impl Lowerer {
     }
 
     /// Cumulative演算の初期値を取得
-    fn get_cumulative_init_value(
+    pub(super) fn get_cumulative_init_value(
         &self,
         op: &CumulativeOp,
         dtype: &crate::graph::DType,
@@ -208,7 +208,12 @@ impl Lowerer {
     }
 
     /// Cumulative演算を適用
-    fn apply_cumulative_op(&self, op: &CumulativeOp, acc: AstNode, value: AstNode) -> AstNode {
+    pub(super) fn apply_cumulative_op(
+        &self,
+        op: &CumulativeOp,
+        acc: AstNode,
+        value: AstNode,
+    ) -> AstNode {
         match op {
             CumulativeOp::Sum => acc + value,
             CumulativeOp::Prod => acc * value,

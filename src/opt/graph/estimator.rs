@@ -131,6 +131,26 @@ impl SimpleCostEstimator {
                         log_reduce_cost,
                     ])
             }
+            GraphOp::FusedElementwiseCumulative {
+                elementwise_ops, ..
+            } => {
+                // FusedElementwiseCumulativeはCumulativeと同様の逐次依存性
+                // + elementwise演算のコスト
+                let num_elements = self.compute_num_elements(node);
+                let log_elementwise_cost = log_sum_exp_iter(
+                    elementwise_ops
+                        .iter()
+                        .map(|fused_op| self.elementwise_op_cost(&fused_op.op)),
+                );
+                let log_cumulative_cost = 3.0_f32.ln(); // Sumのコスト
+                // 各要素で読み取り + elementwise演算 + 累積演算 + 書き込み
+                num_elements.ln()
+                    + log_sum_exp_iter(vec![
+                        (2.0 * MEMORY_ACCESS_COST).ln(),
+                        log_elementwise_cost,
+                        log_cumulative_cost,
+                    ])
+            }
             GraphOp::FusedReduce { ops, .. } => {
                 let input = &node.src[0];
                 let num_elements = self.compute_num_elements(input);

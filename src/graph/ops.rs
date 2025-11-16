@@ -37,6 +37,13 @@ pub enum GraphOp {
         elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
         reduce_strategy: Option<ReduceStrategy>,
     }, // elementwise -> reduce パターンを融合
+    FusedElementwiseCumulative {
+        elementwise_ops: Vec<FusedElementwiseOp>,
+        cumulative_op: CumulativeOp,
+        axis: usize,
+        elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
+        cumulative_strategy: Option<CumulativeStrategy>,
+    }, // elementwise -> cumulative パターンを融合
     FusedReduce {
         ops: Vec<ReduceOp>,
         axis: usize,
@@ -572,6 +579,62 @@ pub fn fused_elementwise_reduce(
         },
         inputs,
         reduced_view,
+    )
+}
+
+/// 複数のelementwise演算の後に累積演算を行う融合ノードを作成
+///
+/// # 例
+/// ```no_run
+/// use harp::prelude::*;
+/// use harp::graph::ops::{fused_elementwise_cumulative, FusedElementwiseOp, FusedInput, ElementwiseOp, CumulativeOp};
+/// let mut graph = Graph::new();
+/// let x = graph.input("x").with_dtype(DType::F32).with_shape([4, 8]).build();
+///
+/// // 入力を二乗してから累積和: cumsum(x^2)
+/// let squared_cumsum = fused_elementwise_cumulative(
+///     vec![x],
+///     vec![FusedElementwiseOp {
+///         op: ElementwiseOp::Mul,
+///         inputs: vec![FusedInput::GraphInput(0), FusedInput::GraphInput(0)],
+///     }],
+///     CumulativeOp::Sum,
+///     1, // 軸1に沿って累積
+/// );
+/// ```
+pub fn fused_elementwise_cumulative(
+    inputs: Vec<GraphNode>,
+    elementwise_ops: Vec<FusedElementwiseOp>,
+    cumulative_op: CumulativeOp,
+    axis: usize,
+) -> GraphNode {
+    if inputs.is_empty() {
+        panic!("fused_elementwise_cumulative requires at least one input");
+    }
+
+    let dtype = inputs[0].dtype.clone();
+    let view = inputs[0].view.clone();
+
+    // 累積演算はshapeを変えないので、同じViewを使用
+    if axis >= view.shape().len() {
+        panic!(
+            "fused_elementwise_cumulative: axis {} is out of bounds for shape {:?}",
+            axis,
+            view.shape()
+        );
+    }
+
+    GraphNode::new(
+        dtype,
+        GraphOp::FusedElementwiseCumulative {
+            elementwise_ops,
+            cumulative_op,
+            axis,
+            elementwise_strategies: None,
+            cumulative_strategy: None,
+        },
+        inputs,
+        view,
     )
 }
 

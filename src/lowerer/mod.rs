@@ -7,6 +7,7 @@ mod cumulative;
 mod elementwise;
 mod fold;
 mod fused_elementwise;
+mod fused_elementwise_cumulative;
 mod fused_elementwise_reduce;
 mod fused_reduce;
 mod reduce;
@@ -611,6 +612,18 @@ impl Lowerer {
                 node_id,
                 elementwise_ops,
                 reduce_op,
+                *axis,
+            ),
+            GraphOp::FusedElementwiseCumulative {
+                elementwise_ops,
+                cumulative_op,
+                axis,
+                ..
+            } => self.lower_fused_elementwise_cumulative_kernel(
+                node,
+                node_id,
+                elementwise_ops,
+                cumulative_op,
                 *axis,
             ),
             GraphOp::FusedReduce { .. } => {

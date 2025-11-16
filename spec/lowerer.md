@@ -68,6 +68,7 @@ lowerer/mod.rsを演算タイプごとに分割：
 - `cumulative.rs`: Cumulative演算のlowering（累積和、累積積）
 - `fold.rs`: 将来の拡張用スケルトン
 - `fused_elementwise.rs`: FusedElementwise演算のlowering（195行）
+- `fused_elementwise_cumulative.rs`: FusedElementwiseCumulative演算のlowering
 - `fused_elementwise_reduce.rs`: FusedElementwiseReduce演算のlowering（405行）
 - `fused_reduce.rs`: 将来の拡張用スケルトン
 
@@ -116,6 +117,25 @@ elementwise演算とそれに続くreduce演算を融合。
 - スカラー出力と指定軸縮約の両方に対応
 - インデックス管理が複雑（`oidx` + `ridx`の組み合わせ）
 
+#### FusedElementwiseCumulative
+elementwise演算とそれに続く累積演算を融合。
+- 累積軸以外の軸でループ（`idx{i}`）→累積軸でループ（`cumidx{axis}`）
+- 各反復でelementwise演算チェーンを評価→アキュムレータ更新→結果書き込み
+- 出力shapeは入力と同じ（reduceとは異なり軸を消さない）
+
+```c
+// 例: cumsum(x^2)
+for (int idx0 = 0; idx0 < shape0; idx0 += 1) {
+    float acc0 = 0f;
+    for (int cumidx1 = 0; cumidx1 < shape1; cumidx1 += 1) {
+        float alu0 = input0[idx0 * stride0 + cumidx1 * stride1];
+        float alu1 = alu0 * alu0;  // elementwise演算
+        acc0 = acc0 + alu1;        // cumulative演算
+        output[idx0 * out_stride0 + cumidx1 * out_stride1] = acc0;
+    }
+}
+```
+
 **行列積のサポート:**
 FusedElementwiseReduceを使用して行列積を実装できます：
 ```rust
@@ -155,7 +175,7 @@ for (int oidx0 = 0; oidx0 < M; oidx0 += 1) {
 ### 実装済み
 - Elementwise、Reduce、Contiguous演算
 - **Cumulative演算**: cumsum（累積和）、cumprod（累積積）
-- **融合演算**: FusedElementwise、FusedElementwiseReduce
+- **融合演算**: FusedElementwise、FusedElementwiseReduce、FusedElementwiseCumulative
 - トポロジカルソート（Kahn）
 - 動的shape対応のシグネチャ生成
 - ループアンローリング（`unroll_factor`）

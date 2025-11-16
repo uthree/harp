@@ -115,7 +115,7 @@ let final_result = &x + 100.0f32;
 - View操作（permute、unsqueeze、squeeze、flip、expand）
 - Shape/DType推論
 - 並列化戦略の定義（ElementwiseStrategy、ReduceStrategy、CumulativeStrategy）
-- 融合演算（FusedElementwise、FusedElementwiseReduce、FusedReduce）
+- 融合演算（FusedElementwise、FusedElementwiseReduce、FusedElementwiseCumulative、FusedReduce）
 - グラフ最適化（詳細は[opt-graph.md](opt-graph.md)を参照）
 
 ### 未実装
