@@ -42,6 +42,26 @@ let expr = var("a") + var("b") * const_int(2);
 let mem_op = store(var("out"), var("i"), load(var("in"), var("i"), DType::F32) * const_f32(2.0));
 ```
 
+#### 数値型からの自動変換
+
+`From`トレイトと双方向演算子により、数値型を直接演算に使用できます：
+
+```rust
+use crate::ast::helper::var;
+
+// 右辺に数値（Into<AstNode>経由）
+let expr = var("x") + 2;          // const_int不要
+let expr = var("y") * 3.14f32;    // const_f32不要
+
+// 左辺に数値（逆演算子）
+let expr = 2.0 * var("x") + 1.0;  // 数式のように自然に記述
+let expr = 10 - var("i");
+let expr = 1.0 / var("y");
+
+// 対応する数値型
+// f32, isize, usize, i32, i64
+```
+
 冗長な`AstNode::Variant { field: Box::new(...) }`の直接初期化を避け、可読性と保守性を向上させます。
 
 ## Scopeと変数管理

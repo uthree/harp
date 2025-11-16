@@ -125,6 +125,64 @@ impl From<usize> for AstNode {
     }
 }
 
+impl From<i32> for AstNode {
+    fn from(value: i32) -> Self {
+        AstNode::Const(Literal::Int(value as isize))
+    }
+}
+
+impl From<i64> for AstNode {
+    fn from(value: i64) -> Self {
+        AstNode::Const(Literal::Int(value as isize))
+    }
+}
+
+// Reverse operations: numeric + AstNode
+macro_rules! impl_reverse_ops {
+    ($ty:ty) => {
+        impl Add<AstNode> for $ty {
+            type Output = AstNode;
+            fn add(self, rhs: AstNode) -> AstNode {
+                AstNode::from(self) + rhs
+            }
+        }
+
+        impl Sub<AstNode> for $ty {
+            type Output = AstNode;
+            fn sub(self, rhs: AstNode) -> AstNode {
+                AstNode::from(self) - rhs
+            }
+        }
+
+        impl Mul<AstNode> for $ty {
+            type Output = AstNode;
+            fn mul(self, rhs: AstNode) -> AstNode {
+                AstNode::from(self) * rhs
+            }
+        }
+
+        impl Div<AstNode> for $ty {
+            type Output = AstNode;
+            fn div(self, rhs: AstNode) -> AstNode {
+                AstNode::from(self) / rhs
+            }
+        }
+
+        impl Rem<AstNode> for $ty {
+            type Output = AstNode;
+            fn rem(self, rhs: AstNode) -> AstNode {
+                AstNode::from(self) % rhs
+            }
+        }
+    };
+}
+
+impl_reverse_ops!(f32);
+impl_reverse_ops!(isize);
+impl_reverse_ops!(usize);
+impl_reverse_ops!(i32);
+impl_reverse_ops!(i64);
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -446,6 +504,106 @@ mod tests {
                 _ => panic!("Expected BitwiseAnd node and Int constant"),
             },
             _ => panic!("Expected BitwiseOr node"),
+        }
+    }
+
+    #[test]
+    fn test_reverse_add_operations() {
+        use crate::ast::helper::var;
+
+        // numeric + AstNode
+        let result = 2.0f32 + var("x");
+        match result {
+            AstNode::Add(left, right) => match (*left, *right) {
+                (AstNode::Const(Literal::F32(v)), AstNode::Var(name)) => {
+                    assert_eq!(v, 2.0);
+                    assert_eq!(name, "x");
+                }
+                _ => panic!("Expected F32 constant and Var"),
+            },
+            _ => panic!("Expected Add node"),
+        }
+
+        let result = 3isize + var("y");
+        match result {
+            AstNode::Add(left, right) => match (*left, *right) {
+                (AstNode::Const(Literal::Int(v)), AstNode::Var(name)) => {
+                    assert_eq!(v, 3);
+                    assert_eq!(name, "y");
+                }
+                _ => panic!("Expected Int constant and Var"),
+            },
+            _ => panic!("Expected Add node"),
+        }
+    }
+
+    #[test]
+    fn test_reverse_mul_operations() {
+        use crate::ast::helper::var;
+
+        let result = 2.0f32 * var("x");
+        match result {
+            AstNode::Mul(left, right) => match (*left, *right) {
+                (AstNode::Const(Literal::F32(v)), AstNode::Var(_)) => {
+                    assert_eq!(v, 2.0);
+                }
+                _ => panic!("Expected F32 constant and Var"),
+            },
+            _ => panic!("Expected Mul node"),
+        }
+
+        // i32 also works
+        let result = 10i32 * var("z");
+        match result {
+            AstNode::Mul(_, _) => {}
+            _ => panic!("Expected Mul node"),
+        }
+    }
+
+    #[test]
+    fn test_mixed_numeric_operations() {
+        use crate::ast::helper::var;
+
+        // Complex expression: 2 * x + 3
+        let x = var("x");
+        let result = 2isize * x + 3isize;
+        match result {
+            AstNode::Add(_, _) => {}
+            _ => panic!("Expected Add node"),
+        }
+
+        // 10 - x
+        let x = var("x");
+        let result = 10isize - x;
+        match result {
+            AstNode::Add(_, _) => {} // Sub is Add(a, Neg(b))
+            _ => panic!("Expected Add node"),
+        }
+
+        // 1.0 / x
+        let x = var("x");
+        let result = 1.0f32 / x;
+        match result {
+            AstNode::Mul(_, right) => match *right {
+                AstNode::Recip(_) => {}
+                _ => panic!("Expected Recip node"),
+            },
+            _ => panic!("Expected Mul node"),
+        }
+    }
+
+    #[test]
+    fn test_from_i32_and_i64() {
+        let i32_node = AstNode::from(42i32);
+        match i32_node {
+            AstNode::Const(Literal::Int(v)) => assert_eq!(v, 42),
+            _ => panic!("Expected Int constant"),
+        }
+
+        let i64_node = AstNode::from(100i64);
+        match i64_node {
+            AstNode::Const(Literal::Int(v)) => assert_eq!(v, 100),
+            _ => panic!("Expected Int constant"),
         }
     }
 }
