@@ -65,7 +65,8 @@ lowerer/mod.rsを演算タイプごとに分割：
 - `elementwise.rs`: Elementwise演算のlowering
 - `reduce.rs`: Reduce演算のlowering
 - `contiguous.rs`: Contiguous演算のlowering
-- `cumulative.rs`, `fold.rs`: 将来の拡張用スケルトン
+- `cumulative.rs`: Cumulative演算のlowering（累積和、累積積）
+- `fold.rs`: 将来の拡張用スケルトン
 - `fused_elementwise.rs`: FusedElementwise演算のlowering（195行）
 - `fused_elementwise_reduce.rs`: FusedElementwiseReduce演算のlowering（405行）
 - `fused_reduce.rs`: 将来の拡張用スケルトン
@@ -83,6 +84,23 @@ lowerer/mod.rsを演算タイプごとに分割：
 
 ### Contiguous演算
 非連続なView（転置、反転など）を連続メモリレイアウトに変換。入力Viewでロード→出力（contiguous）にストア。
+
+### Cumulative演算
+累積軸に沿った累積和（cumsum）・累積積（cumprod）を生成。
+- 累積軸以外の軸でネストループを生成
+- 内側でアキュムレータを初期化し、累積軸に沿ってループ
+- 各反復で入力値をロード→アキュムレータを更新→結果をストア
+
+```c
+for (int idx0 = 0; idx0 < shape0; idx0 += 1) {
+    float acc0 = 0f;  // cumsum: 0, cumprod: 1
+    for (int cumidx1 = 0; cumidx1 < shape1; cumidx1 += 1) {
+        float alu0 = input0[idx0 * stride0 + cumidx1 * stride1];
+        acc0 = acc0 + alu0;  // or * for cumprod
+        output[idx0 * out_stride0 + cumidx1 * out_stride1] = acc0;
+    }
+}
+```
 
 ### 融合演算
 
@@ -136,6 +154,7 @@ for (int oidx0 = 0; oidx0 < M; oidx0 += 1) {
 
 ### 実装済み
 - Elementwise、Reduce、Contiguous演算
+- **Cumulative演算**: cumsum（累積和）、cumprod（累積積）
 - **融合演算**: FusedElementwise、FusedElementwiseReduce
 - トポロジカルソート（Kahn）
 - 動的shape対応のシグネチャ生成
@@ -149,7 +168,6 @@ for (int oidx0 = 0; oidx0 < M; oidx0 += 1) {
 ### 未実装
 - Thread/ThreadGroupレベルの並列化のコード生成
 - SIMD化のコード生成（simd_width=1のみ）
-- Cumulative演算のlowering
 - FusedReduce演算（tuple出力が必要）
 - AST最適化後のmain関数更新（関数インライン化との整合性）
 - バリア同期の挿入（同世代カーネルの並列実行サポート）

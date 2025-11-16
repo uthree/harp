@@ -21,6 +21,8 @@ pub enum GraphOp {
         reduce_strategy: Option<ReduceStrategy>,
     }, // 縮約
     Cumulative {
+        op: CumulativeOp,
+        axis: usize,
         cumulative_strategy: Option<CumulativeStrategy>,
     }, // 累積
     // 融合演算
@@ -62,6 +64,13 @@ pub enum ReduceOp {
     Sum,  // 合計
     Prod, // 積
     Max,  // 最大値
+}
+
+/// 累積演算の種類
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CumulativeOp {
+    Sum,  // 累積和（cumsum）
+    Prod, // 累積積（cumprod）
 }
 
 /// 融合されたelementwise演算チェーンの各ステップ
@@ -451,6 +460,42 @@ pub fn reduce_mul(node: GraphNode, axis: usize) -> GraphNode {
 // ヘルパー関数: Reduce Max（指定軸の最大値）
 pub fn reduce_max(node: GraphNode, axis: usize) -> GraphNode {
     reduce(node, ReduceOp::Max, axis)
+}
+
+// ヘルパー関数: Cumulative（汎用累積演算）
+pub fn cumulative(node: GraphNode, op: CumulativeOp, axis: usize) -> GraphNode {
+    let dtype = node.dtype.clone();
+    let view = node.view.clone();
+
+    // 累積演算はshapeを変更しない（軸を保持）
+    if axis >= view.shape().len() {
+        panic!(
+            "Cumulative: axis {} is out of bounds for shape {:?}",
+            axis,
+            view.shape()
+        );
+    }
+
+    GraphNode::new(
+        dtype,
+        GraphOp::Cumulative {
+            op,
+            axis,
+            cumulative_strategy: None,
+        },
+        vec![node],
+        view,
+    )
+}
+
+// ヘルパー関数: Cumulative Sum（累積和）
+pub fn cumsum(node: GraphNode, axis: usize) -> GraphNode {
+    cumulative(node, CumulativeOp::Sum, axis)
+}
+
+// ヘルパー関数: Cumulative Prod（累積積）
+pub fn cumprod(node: GraphNode, axis: usize) -> GraphNode {
+    cumulative(node, CumulativeOp::Prod, axis)
 }
 
 // === 融合ノード生成ヘルパー関数 ===

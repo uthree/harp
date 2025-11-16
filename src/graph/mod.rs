@@ -220,6 +220,27 @@ impl GraphNode {
         ops::reduce_max(self.clone(), axis)
     }
 
+    /// 累積演算（汎用）
+    pub fn cumulative(&self, op: ops::CumulativeOp, axis: usize) -> Self {
+        ops::cumulative(self.clone(), op, axis)
+    }
+
+    /// 累積和（cumulative sum）
+    ///
+    /// 指定軸に沿って累積和を計算します。
+    /// 例: [1, 2, 3, 4] -> [1, 3, 6, 10]
+    pub fn cumsum(&self, axis: usize) -> Self {
+        ops::cumsum(self.clone(), axis)
+    }
+
+    /// 累積積（cumulative product）
+    ///
+    /// 指定軸に沿って累積積を計算します。
+    /// 例: [1, 2, 3, 4] -> [1, 2, 6, 24]
+    pub fn cumprod(&self, axis: usize) -> Self {
+        ops::cumprod(self.clone(), axis)
+    }
+
     /// 逆数を計算（1/x）
     pub fn recip(self) -> Self {
         let view = self.view.clone();
@@ -1368,5 +1389,77 @@ mod tests {
 
         // 結果がスカラーであることを確認
         assert_eq!(result.view.shape().len(), 0);
+    }
+
+    #[test]
+    fn test_cumsum() {
+        let mut graph = Graph::new();
+        let input = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![3, 4])
+            .build();
+
+        // 軸1に沿って累積和（shapeは変わらない）
+        let result = input.cumsum(1);
+
+        // 型が保持されていることを確認
+        match result.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
+
+        // Viewのshapeが変わらないことを確認
+        assert_eq!(result.view.ndim(), 2);
+        assert_eq!(result.view.shape().len(), 2);
+
+        // Cumulativeオペレーションが正しく設定されていることを確認
+        match &result.op {
+            GraphOp::Cumulative { op, axis, .. } => {
+                assert_eq!(*op, ops::CumulativeOp::Sum);
+                assert_eq!(*axis, 1);
+            }
+            _ => panic!("Expected GraphOp::Cumulative"),
+        }
+    }
+
+    #[test]
+    fn test_cumprod() {
+        let mut graph = Graph::new();
+        let input = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20, 30])
+            .build();
+
+        // 軸0に沿って累積積
+        let result = input.cumprod(0);
+
+        // Viewのshapeが変わらないことを確認
+        assert_eq!(result.view.ndim(), 3);
+        assert_eq!(result.view.shape().len(), 3);
+
+        // Cumulativeオペレーションが正しく設定されていることを確認
+        match &result.op {
+            GraphOp::Cumulative { op, axis, .. } => {
+                assert_eq!(*op, ops::CumulativeOp::Prod);
+                assert_eq!(*axis, 0);
+            }
+            _ => panic!("Expected GraphOp::Cumulative"),
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "axis 3 is out of bounds")]
+    fn test_cumsum_out_of_bounds() {
+        let mut graph = Graph::new();
+        let input = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
+
+        // 無効な軸（2次元テンソルに対して軸3）
+        let _result = input.cumsum(3);
     }
 }

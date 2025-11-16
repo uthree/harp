@@ -110,6 +110,7 @@ let final_result = &x + 100.0f32;
 - 入出力管理（InputNodeBuilder）
 - Elementwise演算（Add、Mul、Neg、Max、Rem、Idiv、Recip）+ 演算子オーバーロード
 - Reduce演算（Sum、Product、Max）
+- Cumulative演算（cumsum、cumprod）とそのLowering
 - Contiguous演算（転置、反転などの実体化）
 - View操作（permute、unsqueeze、squeeze、flip、expand）
 - Shape/DType推論
@@ -119,6 +120,5 @@ let final_result = &x + 100.0f32;
 
 ### 未実装
 - Thread/ThreadGroupレベルの並列実行のLowering
-- Cumulative演算とそのLowering
 - ループタイル化（TilingSuggester - view変更の操作が必要）
 - 畳み込み、行列乗算などの高度な演算

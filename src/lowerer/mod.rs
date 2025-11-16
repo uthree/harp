@@ -594,6 +594,9 @@ impl Lowerer {
         match &node.op {
             GraphOp::Elementwise { op, .. } => self.lower_elementwise_kernel(node, node_id, op),
             GraphOp::Reduce { op, axis, .. } => self.lower_reduce_kernel(node, node_id, op, *axis),
+            GraphOp::Cumulative { op, axis, .. } => {
+                self.lower_cumulative_kernel(node, node_id, op, *axis)
+            }
             GraphOp::Contiguous { .. } => self.lower_contiguous_kernel(node, node_id),
             GraphOp::FusedElementwise { ops, .. } => {
                 self.lower_fused_elementwise_kernel(node, node_id, ops)
