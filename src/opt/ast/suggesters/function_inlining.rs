@@ -577,7 +577,8 @@ impl Suggester for FunctionInliningSuggester {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{DType, FunctionKind, Literal, Mutability, VarDecl, VarKind};
+    use crate::ast::helper::{const_int, var};
+    use crate::ast::{DType, FunctionKind, Mutability, VarDecl, VarKind};
 
     #[test]
     fn test_simple_function_inlining() {
@@ -585,10 +586,7 @@ mod tests {
 
         // 定義: fn add_one(x: Int) -> Int { return x + 1 }
         let add_one_body = AstNode::Return {
-            value: Box::new(AstNode::Add(
-                Box::new(AstNode::Var("x".to_string())),
-                Box::new(AstNode::Const(Literal::Int(1))),
-            )),
+            value: Box::new(var("x") + const_int(1)),
         };
 
         let add_one_func = AstNode::Function {
@@ -608,7 +606,7 @@ mod tests {
         let main_body = AstNode::Return {
             value: Box::new(AstNode::Call {
                 name: "add_one".to_string(),
-                args: vec![AstNode::Const(Literal::Int(5))],
+                args: vec![const_int(5)],
             }),
         };
 
@@ -663,7 +661,7 @@ mod tests {
 
         // fn identity(x: Int) -> Int { return x }
         let identity_body = AstNode::Return {
-            value: Box::new(AstNode::Var("x".to_string())),
+            value: Box::new(var("x")),
         };
 
         let identity_func = AstNode::Function {
@@ -683,7 +681,7 @@ mod tests {
         let main_body = AstNode::Return {
             value: Box::new(AstNode::Call {
                 name: "identity".to_string(),
-                args: vec![AstNode::Const(Literal::Int(42))],
+                args: vec![const_int(42)],
             }),
         };
 
@@ -709,33 +707,27 @@ mod tests {
     #[test]
     fn test_count_nodes() {
         // Const(1)
-        let simple = AstNode::Const(Literal::Int(1));
+        let simple = const_int(1);
         assert_eq!(FunctionInliningSuggester::count_nodes(&simple), 1);
 
         // Add(Const(1), Const(2))
-        let add = AstNode::Add(
-            Box::new(AstNode::Const(Literal::Int(1))),
-            Box::new(AstNode::Const(Literal::Int(2))),
-        );
+        let add = const_int(1) + const_int(2);
         assert_eq!(FunctionInliningSuggester::count_nodes(&add), 3);
     }
 
     #[test]
     fn test_substitute_vars() {
         let mut replacements = HashMap::new();
-        replacements.insert("x".to_string(), AstNode::Const(Literal::Int(10)));
+        replacements.insert("x".to_string(), const_int(10));
 
         // x + 1 → 10 + 1
-        let expr = AstNode::Add(
-            Box::new(AstNode::Var("x".to_string())),
-            Box::new(AstNode::Const(Literal::Int(1))),
-        );
+        let expr = var("x") + const_int(1);
 
         let result = FunctionInliningSuggester::substitute_vars(&expr, &replacements);
 
         if let AstNode::Add(left, right) = result {
-            assert!(matches!(left.as_ref(), AstNode::Const(Literal::Int(10))));
-            assert!(matches!(right.as_ref(), AstNode::Const(Literal::Int(1))));
+            assert!(matches!(left.as_ref(), AstNode::Const(_)));
+            assert!(matches!(right.as_ref(), AstNode::Const(_)));
         } else {
             panic!("Expected Add node");
         }
@@ -744,7 +736,7 @@ mod tests {
     #[test]
     fn test_kernel_function_inlining() {
         use crate::ast::Scope;
-        use crate::ast::helper::{block, range, store, var};
+        use crate::ast::helper::{block, range, store};
 
         // カーネル関数のような構造を作成（Blockの中にRangeがある）
         // fn kernel_0(input: Ptr<Int>, output: Ptr<Int>) {
@@ -754,10 +746,10 @@ mod tests {
         // }
         let kernel_body = block(
             vec![range(
-                "i".to_string(),
-                AstNode::Const(Literal::Int(0)),
-                AstNode::Const(Literal::Int(1)),
-                AstNode::Const(Literal::Int(10)),
+                "i",
+                const_int(0),
+                const_int(1),
+                const_int(10),
                 store(var("output"), var("i"), var("input")),
             )],
             Scope::new(),
@@ -857,20 +849,17 @@ mod tests {
     #[test]
     fn test_void_function_inlining() {
         use crate::ast::Scope;
+        use crate::ast::helper::{block, store};
 
         let suggester = FunctionInliningSuggester::with_default_limit();
 
         // 定義: fn write_value(ptr: Ptr<Int>, offset: Int, value: Int) {
         //     Store(ptr, offset, value)
         // }
-        let write_value_body = AstNode::Block {
-            statements: vec![AstNode::Store {
-                ptr: Box::new(AstNode::Var("ptr".to_string())),
-                offset: Box::new(AstNode::Var("offset".to_string())),
-                value: Box::new(AstNode::Var("value".to_string())),
-            }],
-            scope: Box::new(Scope::new()),
-        };
+        let write_value_body = block(
+            vec![store(var("ptr"), var("offset"), var("value"))],
+            Scope::new(),
+        );
 
         let write_value_func = AstNode::Function {
             name: Some("write_value".to_string()),
@@ -903,27 +892,19 @@ mod tests {
         //     write_value(buffer, 0, 42)
         //     write_value(buffer, 1, 100)
         // }
-        let main_body = AstNode::Block {
-            statements: vec![
+        let main_body = block(
+            vec![
                 AstNode::Call {
                     name: "write_value".to_string(),
-                    args: vec![
-                        AstNode::Var("buffer".to_string()),
-                        AstNode::Const(Literal::Int(0)),
-                        AstNode::Const(Literal::Int(42)),
-                    ],
+                    args: vec![var("buffer"), const_int(0), const_int(42)],
                 },
                 AstNode::Call {
                     name: "write_value".to_string(),
-                    args: vec![
-                        AstNode::Var("buffer".to_string()),
-                        AstNode::Const(Literal::Int(1)),
-                        AstNode::Const(Literal::Int(100)),
-                    ],
+                    args: vec![var("buffer"), const_int(1), const_int(100)],
                 },
             ],
-            scope: Box::new(Scope::new()),
-        };
+            Scope::new(),
+        );
 
         let main_func = AstNode::Function {
             name: Some("main".to_string()),

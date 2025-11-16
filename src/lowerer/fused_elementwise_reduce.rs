@@ -1,4 +1,4 @@
-use crate::ast::{AstNode, Literal, Mutability, Scope, helper::*};
+use crate::ast::{AstNode, Mutability, Scope, helper::*};
 use crate::graph::{
     GraphNode,
     ops::{FusedElementwiseOp, FusedInput, ReduceOp},
@@ -111,21 +111,18 @@ impl Lowerer {
             // 入力shapeから直接AstNodeに変換
             let shape_expr: AstNode = input_shape[in_idx].clone().into();
 
-            let loop_body = AstNode::Block {
-                statements: body_statements,
-                scope: Box::new(scope.clone()),
-            };
+            let loop_body = block(body_statements, scope.clone());
 
             // 外側のループ用に新しいスコープを作成
             scope = Scope::new();
 
-            body_statements = vec![AstNode::Range {
-                var: loop_var,
-                start: Box::new(AstNode::Const(Literal::Int(0))),
-                step: Box::new(AstNode::Const(Literal::Int(1))),
-                stop: Box::new(shape_expr),
-                body: Box::new(loop_body),
-            }];
+            body_statements = vec![range(
+                loop_var,
+                const_int(0),
+                const_int(1),
+                shape_expr,
+                loop_body,
+            )];
         }
 
         Ok(body_statements)
@@ -173,28 +170,25 @@ impl Lowerer {
             // 入力shapeから直接AstNodeに変換
             let shape_expr: AstNode = input_shape[i].clone().into();
 
-            let loop_body = AstNode::Block {
-                statements: accumulate_statements,
-                scope: Box::new(inner_scope.clone()),
-            };
+            let loop_body = block(accumulate_statements, inner_scope.clone());
 
             // 外側のループ用に新しいスコープを作成
             inner_scope = Scope::new();
 
-            accumulate_statements = vec![AstNode::Range {
-                var: loop_var,
-                start: Box::new(AstNode::Const(Literal::Int(0))),
-                step: Box::new(AstNode::Const(Literal::Int(1))),
-                stop: Box::new(shape_expr),
-                body: Box::new(loop_body),
-            }];
+            accumulate_statements = vec![range(
+                loop_var,
+                const_int(0),
+                const_int(1),
+                shape_expr,
+                loop_body,
+            )];
         }
 
         statements.extend(accumulate_statements);
 
         // 結果をoutput[0]に書き込み
         let output_ptr = var("output");
-        let output_offset = AstNode::Const(Literal::Int(0));
+        let output_offset = const_int(0);
         statements.push(store(output_ptr, output_offset, var(&acc_var)));
 
         Ok(statements)
@@ -247,16 +241,13 @@ impl Lowerer {
             &mut inner_scope,
         )?;
 
-        let reduce_loop = AstNode::Range {
-            var: loop_var,
-            start: Box::new(AstNode::Const(Literal::Int(0))),
-            step: Box::new(AstNode::Const(Literal::Int(1))),
-            stop: Box::new(shape_expr),
-            body: Box::new(AstNode::Block {
-                statements: vec![accumulate_stmt],
-                scope: Box::new(inner_scope),
-            }),
-        };
+        let reduce_loop = range(
+            loop_var,
+            const_int(0),
+            const_int(1),
+            shape_expr,
+            block(vec![accumulate_stmt], inner_scope),
+        );
 
         statements.push(reduce_loop);
 

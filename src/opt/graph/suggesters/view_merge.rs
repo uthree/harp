@@ -71,11 +71,17 @@ impl ViewMergeSuggester {
 
         let input_node = &view_node.src[0];
 
-        // InputノードとConstノードはContiguousなViewを持つべきで、
+        // ConstノードはContiguousなViewを持つべきで、
         // そのviewを変更すると物理メモリレイアウトとの不整合が発生する
-        // これらのノードにはViewマージを適用しない
-        if matches!(input_node.op, GraphOp::Input | GraphOp::Const(_)) {
+        // Constノードにはマージを適用しない
+        if matches!(input_node.op, GraphOp::Const(_)) {
             return None;
+        }
+
+        // Inputノードの場合は特別処理：View融合を許可
+        // Inputノードは外部から提供されるデータで、Viewは論理的なアクセスパターンを定義
+        if matches!(input_node.op, GraphOp::Input) {
+            return self.merge_input_view_node(input_node, target_view);
         }
 
         // 入力ノードのviewをViewノードのviewで置き換えた新しいノードを作成
@@ -123,6 +129,43 @@ impl ViewMergeSuggester {
         Some(new_input)
     }
 
+    /// InputノードとViewノードをマージ
+    ///
+    /// Inputノードに対してViewを直接適用することで、中間のViewノードを削除します。
+    fn merge_input_view_node(
+        &self,
+        input_node: &GraphNode,
+        target_view: crate::graph::shape::View,
+    ) -> Option<GraphNode> {
+        let new_ndim = target_view.ndim();
+
+        // elementwise_strategiesを新しい次元数に合わせて調整
+        let mut new_strategies = Vec::new();
+        let old_strategies = &input_node.elementwise_strategies;
+
+        for i in 0..new_ndim {
+            if i < old_strategies.len() {
+                new_strategies.push(old_strategies[i].clone());
+            } else {
+                new_strategies.push(ElementwiseStrategy::Sequential {
+                    simd_width: 1,
+                    unroll_factor: 1,
+                });
+            }
+        }
+
+        // Inputノードのviewを新しいviewで置き換えた新しいノードを作成
+        let new_input = GraphNode::with_elementwise_strategies(
+            input_node.dtype.clone(),
+            GraphOp::Input,
+            vec![], // Inputノードはsrcを持たない
+            target_view,
+            new_strategies,
+        );
+
+        Some(new_input)
+    }
+
     /// グラフ内の特定ノードを置き換えた新しいグラフを作成
     fn replace_node_in_graph(
         &self,
@@ -142,13 +185,14 @@ impl ViewMergeSuggester {
         ) -> GraphNode {
             let ptr = node.as_ptr();
 
-            // Inputノードは常に元のノードをそのまま返す（再構築しない）
-            if matches!(node.op, GraphOp::Input) {
-                return node.clone();
-            }
-
+            // まずnode_mapを確認（Inputノードも置き換え対象になりうる）
             if let Some(new_node) = node_map.get(&ptr) {
                 return new_node.clone();
+            }
+
+            // Inputノードで置き換え対象でない場合はそのまま返す
+            if matches!(node.op, GraphOp::Input) {
+                return node.clone();
             }
 
             if visited.contains(&ptr) {
@@ -182,15 +226,109 @@ impl ViewMergeSuggester {
 
         let mut new_graph = Graph::new();
 
-        // 入力ノードを保持（再構築しない - Inputノードは変更されないため）
+        // 入力ノードを保持（置き換え対象の場合は新しいノードを登録）
         for (name, weak_input) in graph.inputs() {
             if let Some(rc_node) = weak_input.upgrade() {
                 let input_node = GraphNode::from_rc(rc_node);
-                new_graph.register_input(name.clone(), input_node);
+                // 入力ノードが置き換え対象の場合は新しいノードを登録
+                if let Some(replaced) = node_map.get(&input_node.as_ptr()) {
+                    new_graph.register_input(name.clone(), replaced.clone());
+                } else {
+                    new_graph.register_input(name.clone(), input_node);
+                }
             }
         }
 
         // 出力ノードを名前順でソートして再構築（順序を固定）
+        let mut outputs: Vec<_> = graph.outputs().iter().collect();
+        outputs.sort_by_key(|(name, _)| name.as_str());
+
+        for (name, output_node) in outputs {
+            let rebuilt = rebuild_node(output_node, &node_map, &mut visited);
+            new_graph.output(name, rebuilt);
+        }
+
+        new_graph
+    }
+
+    /// InputノードとViewノードを両方置き換えた新しいグラフを作成
+    ///
+    /// 元のInputノードを新しいノードで置き換え、Viewノードも同じ新しいノードで置き換える
+    fn replace_input_and_view(
+        &self,
+        graph: &Graph,
+        old_input: &GraphNode,
+        old_view: &GraphNode,
+        new_node: GraphNode,
+    ) -> Graph {
+        let mut node_map: HashMap<*const GraphNodeData, GraphNode> = HashMap::new();
+        // InputノードとViewノード両方を新しいノードにマップ
+        node_map.insert(old_input.as_ptr(), new_node.clone());
+        node_map.insert(old_view.as_ptr(), new_node.clone());
+
+        let mut visited = HashSet::new();
+
+        fn rebuild_node(
+            node: &GraphNode,
+            node_map: &HashMap<*const GraphNodeData, GraphNode>,
+            visited: &mut HashSet<*const GraphNodeData>,
+        ) -> GraphNode {
+            let ptr = node.as_ptr();
+
+            // まずnode_mapを確認
+            if let Some(new_node) = node_map.get(&ptr) {
+                return new_node.clone();
+            }
+
+            // Inputノードで置き換え対象でない場合はそのまま返す
+            if matches!(node.op, GraphOp::Input) {
+                return node.clone();
+            }
+
+            if visited.contains(&ptr) {
+                return node.clone();
+            }
+            visited.insert(ptr);
+
+            let new_src: Vec<GraphNode> = node
+                .src
+                .iter()
+                .map(|src| rebuild_node(src, node_map, visited))
+                .collect();
+
+            let src_changed = new_src
+                .iter()
+                .zip(&node.src)
+                .any(|(a, b)| a.as_ptr() != b.as_ptr());
+
+            if !src_changed {
+                return node.clone();
+            }
+
+            GraphNode::with_elementwise_strategies(
+                node.dtype.clone(),
+                node.op.clone(),
+                new_src,
+                node.view.clone(),
+                node.elementwise_strategies.clone(),
+            )
+        }
+
+        let mut new_graph = Graph::new();
+
+        // 入力ノードを登録（置き換え対象の場合は新しいノードを登録）
+        for (name, weak_input) in graph.inputs() {
+            if let Some(rc_node) = weak_input.upgrade() {
+                let input_node = GraphNode::from_rc(rc_node);
+                if let Some(replaced) = node_map.get(&input_node.as_ptr()) {
+                    new_graph.register_input(name.clone(), replaced.clone());
+                } else {
+                    new_graph.register_input(name.clone(), input_node);
+                }
+            }
+        }
+
+        // 出力ノードを名前順でソートして再構築
         let mut outputs: Vec<_> = graph.outputs().iter().collect();
         outputs.sort_by_key(|(name, _)| name.as_str());
 
@@ -223,10 +361,17 @@ impl GraphSuggester for ViewMergeSuggester {
 
             // Viewノードをマージして、入力ノードのViewを更新
             if let Some(merged_input) = self.merge_view_node(node) {
-                // Viewノードを新しい入力ノードで置き換える
-                // （実際にはViewノードを削除して、その入力を直接使う）
-                let new_graph = self.replace_node_in_graph(graph, node, merged_input);
-                suggestions.push(new_graph);
+                // Inputノードの場合は特別処理：元のInputノードを置き換える
+                if node.src.len() == 1 && matches!(node.src[0].op, GraphOp::Input) {
+                    // 元のInputノードを新しいノードで置き換え、Viewノードも削除
+                    let new_graph =
+                        self.replace_input_and_view(graph, &node.src[0], node, merged_input);
+                    suggestions.push(new_graph);
+                } else {
+                    // 通常のケース：Viewノードを新しい入力ノードで置き換える
+                    let new_graph = self.replace_node_in_graph(graph, node, merged_input);
+                    suggestions.push(new_graph);
+                }
             }
         }
 
@@ -313,5 +458,120 @@ mod tests {
         // 1. view1をマージ
         // 2. view2をマージ
         assert_eq!(suggestions.len(), 2);
+    }
+
+    #[test]
+    fn test_input_view_merge() {
+        let suggester = ViewMergeSuggester::new();
+
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
+
+        // Inputノードに直接Viewを適用
+        let permuted = a.view(a.view.clone().permute(vec![1, 0]));
+
+        graph.output("result", permuted);
+
+        let suggestions = suggester.suggest(&graph);
+
+        // Input -> View の融合が1つ提案される
+        assert_eq!(suggestions.len(), 1);
+
+        // 提案されたグラフを確認
+        let new_graph = &suggestions[0];
+        let result = new_graph.outputs().get("result").unwrap();
+
+        // 結果ノードがInputノードであることを確認（Viewノードが削除された）
+        assert!(matches!(result.op, GraphOp::Input));
+
+        // Inputノードのviewがpermuteされていることを確認
+        assert_eq!(result.view.shape(), &[20.into(), 10.into()]);
+
+        // 入力ノードも更新されていることを確認
+        let input_a = new_graph.inputs().get("a").unwrap().upgrade().unwrap();
+        let input_node = GraphNode::from_rc(input_a);
+        assert_eq!(input_node.view.shape(), &[20.into(), 10.into()]);
+    }
+
+    #[test]
+    fn test_input_view_merge_with_computation() {
+        let suggester = ViewMergeSuggester::new();
+
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
+
+        let b = graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![20, 10])
+            .build();
+
+        // aをpermuteしてbと同じshapeにする
+        let a_permuted = a.view(a.view.clone().permute(vec![1, 0]));
+
+        // permute後のaとbを加算
+        let sum = a_permuted + b;
+
+        graph.output("result", sum);
+
+        let suggestions = suggester.suggest(&graph);
+
+        // Input -> View の融合が1つ提案される
+        assert_eq!(suggestions.len(), 1);
+
+        // 提案されたグラフを確認
+        let new_graph = &suggestions[0];
+        let result = new_graph.outputs().get("result").unwrap();
+
+        // 結果ノードがElementwise(Add)ノードであることを確認
+        assert!(matches!(result.op, GraphOp::Elementwise { .. }));
+
+        // Addノードのソースが両方ともInputノードであることを確認
+        // （Viewノードが削除されている）
+        assert_eq!(result.src.len(), 2);
+        assert!(matches!(result.src[0].op, GraphOp::Input));
+        assert!(matches!(result.src[1].op, GraphOp::Input));
+
+        // 最初のソース（元のaをpermute）のviewが変更されていることを確認
+        assert_eq!(result.src[0].view.shape(), &[20.into(), 10.into()]);
+    }
+
+    #[test]
+    fn test_input_view_unsqueeze() {
+        let suggester = ViewMergeSuggester::new();
+
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        // unsqueezeでshapeを変更: [10] -> [1, 10]
+        let unsqueezed = a.view(a.view.clone().unsqueeze(0));
+
+        graph.output("result", unsqueezed);
+
+        let suggestions = suggester.suggest(&graph);
+
+        // Input -> View (unsqueeze) の融合が1つ提案される
+        assert_eq!(suggestions.len(), 1);
+
+        let new_graph = &suggestions[0];
+        let result = new_graph.outputs().get("result").unwrap();
+
+        // 結果ノードがInputノードであることを確認
+        assert!(matches!(result.op, GraphOp::Input));
+
+        // shapeが[1, 10]に変更されていることを確認
+        assert_eq!(result.view.shape(), &[1.into(), 10.into()]);
     }
 }

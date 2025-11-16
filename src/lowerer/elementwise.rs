@@ -1,4 +1,4 @@
-use crate::ast::{AstNode, Literal, Mutability, Scope, helper::*};
+use crate::ast::{AstNode, Mutability, Scope, helper::*};
 use crate::graph::{GraphNode, ops::ElementwiseOp};
 use log::debug;
 
@@ -84,10 +84,7 @@ impl Lowerer {
                 )?;
             } else {
                 // 通常のループ
-                let loop_body = AstNode::Block {
-                    statements: body_statements,
-                    scope: Box::new(scope.clone()),
-                };
+                let loop_body = block(body_statements, scope.clone());
 
                 // 外側のループ用に新しいスコープを作成
                 scope = Scope::new();
@@ -95,22 +92,20 @@ impl Lowerer {
                 // ステップをSIMD幅に合わせる
                 if simd_width > 1 {
                     // SIMD化されたループ
-                    let simd_step = AstNode::Const(Literal::Int(simd_width as isize));
+                    let simd_step = const_int(simd_width as isize);
 
                     // メインループ: SIMD幅の倍数まで処理
                     // stop = (shape / simd_width) * simd_width
-                    let simd_stop = idiv(
-                        shape_expr.clone(),
-                        AstNode::Const(Literal::Int(simd_width as isize)),
-                    ) * AstNode::Const(Literal::Int(simd_width as isize));
+                    let simd_stop = idiv(shape_expr.clone(), const_int(simd_width as isize))
+                        * const_int(simd_width as isize);
 
-                    let simd_loop = AstNode::Range {
-                        var: loop_var.clone(),
-                        start: Box::new(AstNode::Const(Literal::Int(0))),
-                        step: Box::new(simd_step),
-                        stop: Box::new(simd_stop.clone()),
-                        body: Box::new(loop_body.clone()),
-                    };
+                    let simd_loop = range(
+                        loop_var.clone(),
+                        const_int(0),
+                        simd_step,
+                        simd_stop.clone(),
+                        loop_body.clone(),
+                    );
 
                     // 残りループ: スカラー処理（SIMD幅の倍数から最後まで）
                     // スカラー用のbodyを生成（simd_width = 1として再生成）
@@ -123,29 +118,26 @@ impl Lowerer {
                         Some(1), // スカラー処理
                     )?;
 
-                    let scalar_loop_body = AstNode::Block {
-                        statements: scalar_body_statements,
-                        scope: Box::new(scalar_scope),
-                    };
+                    let scalar_loop_body = block(scalar_body_statements, scalar_scope);
 
-                    let remainder_loop = AstNode::Range {
-                        var: loop_var.clone(),
-                        start: Box::new(simd_stop),
-                        step: Box::new(AstNode::Const(Literal::Int(1))),
-                        stop: Box::new(shape_expr),
-                        body: Box::new(scalar_loop_body),
-                    };
+                    let remainder_loop = range(
+                        loop_var.clone(),
+                        simd_stop,
+                        const_int(1),
+                        shape_expr,
+                        scalar_loop_body,
+                    );
 
                     body_statements = vec![simd_loop, remainder_loop];
                 } else {
                     // 通常のスカラーループ
-                    body_statements = vec![AstNode::Range {
-                        var: loop_var.clone(),
-                        start: Box::new(AstNode::Const(Literal::Int(0))),
-                        step: Box::new(AstNode::Const(Literal::Int(1))),
-                        stop: Box::new(shape_expr),
-                        body: Box::new(loop_body),
-                    }];
+                    body_statements = vec![range(
+                        loop_var.clone(),
+                        const_int(0),
+                        const_int(1),
+                        shape_expr,
+                        loop_body,
+                    )];
                 }
             }
         }
@@ -171,7 +163,7 @@ impl Lowerer {
             let offset = if i == 0 {
                 var(loop_var.clone())
             } else {
-                var(loop_var.clone()) + AstNode::Const(Literal::Int(i as isize))
+                var(loop_var.clone()) + const_int(i as isize)
             };
 
             // ループ変数を置き換えた本体を生成
@@ -185,40 +177,32 @@ impl Lowerer {
 
         // メインループのスコープ
         let main_scope = Scope::new();
-        let unrolled_loop_body = AstNode::Block {
-            statements: unrolled_body,
-            scope: Box::new(main_scope),
-        };
+        let unrolled_loop_body = block(unrolled_body, main_scope);
 
         // メインループ: for ridx{axis} in 0..(shape{axis}/unroll_factor)*unroll_factor step unroll_factor
         // stop値を切り下げて、unroll_factorの倍数にする
-        let aligned_stop = idiv(
-            shape_expr.clone(),
-            AstNode::Const(Literal::Int(unroll_factor as isize)),
-        ) * AstNode::Const(Literal::Int(unroll_factor as isize));
+        let aligned_stop = idiv(shape_expr.clone(), const_int(unroll_factor as isize))
+            * const_int(unroll_factor as isize);
 
-        let main_loop = AstNode::Range {
-            var: loop_var.clone(),
-            start: Box::new(AstNode::Const(Literal::Int(0))),
-            step: Box::new(AstNode::Const(Literal::Int(unroll_factor as isize))),
-            stop: Box::new(aligned_stop.clone()),
-            body: Box::new(unrolled_loop_body),
-        };
+        let main_loop = range(
+            loop_var.clone(),
+            const_int(0),
+            const_int(unroll_factor as isize),
+            aligned_stop.clone(),
+            unrolled_loop_body,
+        );
 
         // 残り処理: for ridx{axis} in aligned_stop..shape{axis} step 1
         let remainder_scope = Scope::new();
-        let remainder_loop_body = AstNode::Block {
-            statements: body_statements,
-            scope: Box::new(remainder_scope),
-        };
+        let remainder_loop_body = block(body_statements, remainder_scope);
 
-        let remainder_loop = AstNode::Range {
-            var: loop_var,
-            start: Box::new(aligned_stop),
-            step: Box::new(AstNode::Const(Literal::Int(1))),
-            stop: Box::new(shape_expr.clone()),
-            body: Box::new(remainder_loop_body),
-        };
+        let remainder_loop = range(
+            loop_var,
+            aligned_stop,
+            const_int(1),
+            shape_expr.clone(),
+            remainder_loop_body,
+        );
 
         Ok(vec![main_loop, remainder_loop])
     }
@@ -428,7 +412,7 @@ impl Lowerer {
                     return Err("Neg requires 1 operand".to_string());
                 }
                 // -x = -1 * x
-                Ok(AstNode::Const(Literal::F32(-1.0)) * operands[0].clone())
+                Ok(const_f32(-1.0) * operands[0].clone())
             }
             ElementwiseOp::Max => {
                 if operands.len() != 2 {

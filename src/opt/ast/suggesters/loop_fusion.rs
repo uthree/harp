@@ -3,7 +3,7 @@
 //! 連続するループで境界が同じ場合に、ループ本体をマージして
 //! ループのオーバーヘッドを削減します。
 
-use crate::ast::AstNode;
+use crate::ast::{AstNode, Scope, helper::block};
 use crate::opt::ast::Suggester;
 use log::{debug, trace};
 
@@ -201,8 +201,6 @@ impl LoopFusionSuggester {
     /// 両方のbodyがBlockなら、statementsを連結する
     /// そうでない場合は、新しいBlockを作成する
     fn merge_loop_bodies(body1: &AstNode, body2: &AstNode) -> AstNode {
-        use crate::ast::Scope;
-
         match (body1, body2) {
             (
                 AstNode::Block {
@@ -216,10 +214,7 @@ impl LoopFusionSuggester {
             ) => {
                 let mut merged = s1.clone();
                 merged.extend(s2.clone());
-                AstNode::Block {
-                    statements: merged,
-                    scope: Box::new(Scope::new()),
-                }
+                block(merged, Scope::new())
             }
             (
                 AstNode::Block {
@@ -230,10 +225,7 @@ impl LoopFusionSuggester {
             ) => {
                 let mut merged = s1.clone();
                 merged.push(other.clone());
-                AstNode::Block {
-                    statements: merged,
-                    scope: Box::new(Scope::new()),
-                }
+                block(merged, Scope::new())
             }
             (
                 other,
@@ -244,15 +236,9 @@ impl LoopFusionSuggester {
             ) => {
                 let mut merged = vec![other.clone()];
                 merged.extend(s2.clone());
-                AstNode::Block {
-                    statements: merged,
-                    scope: Box::new(Scope::new()),
-                }
+                block(merged, Scope::new())
             }
-            (b1, b2) => AstNode::Block {
-                statements: vec![b1.clone(), b2.clone()],
-                scope: Box::new(Scope::new()),
-            },
+            (b1, b2) => block(vec![b1.clone(), b2.clone()], Scope::new()),
         }
     }
 

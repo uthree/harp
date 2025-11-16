@@ -222,7 +222,7 @@ fn generate_main_function_with_intermediates(
     kernel_infos: &[KernelInfo],
     input_count: usize,
 ) -> crate::ast::AstNode {
-    use crate::ast::helper::{assign, var};
+    use crate::ast::helper::{assign, block, function, var};
     use crate::ast::{AstNode, DType, FunctionKind, Mutability, Scope, VarDecl, VarKind};
 
     // main関数のパラメータを収集
@@ -372,13 +372,10 @@ fn generate_main_function_with_intermediates(
     }
 
     // main関数のbodyを作成
-    let body = AstNode::Block {
-        statements,
-        scope: Box::new(scope),
-    };
+    let body = block(statements, scope);
 
     // AstNode::Functionとして返す
-    crate::ast::helper::function(
+    function(
         Some("main"),
         FunctionKind::Normal,
         params,
@@ -393,6 +390,7 @@ fn generate_main_function(
     kernel_functions: &[crate::ast::AstNode],
     kernel_count: usize,
 ) -> crate::ast::AstNode {
+    use crate::ast::helper::{block, function, var};
     use crate::ast::{AstNode, DType, FunctionKind, Scope, VarDecl};
 
     // すべてのカーネルのパラメータを収集して統合
@@ -416,10 +414,7 @@ fn generate_main_function(
         let kernel_name = format!("kernel_{}", i);
         if let Some(AstNode::Function { params, .. }) = kernel_functions.get(i) {
             // カーネル関数の引数を収集
-            let args: Vec<AstNode> = params
-                .iter()
-                .map(|p| AstNode::Var(p.name.clone()))
-                .collect();
+            let args: Vec<AstNode> = params.iter().map(|p| var(p.name.clone())).collect();
 
             // Call文を追加
             statements.push(AstNode::Call {
@@ -430,13 +425,10 @@ fn generate_main_function(
     }
 
     // main関数のbodyを作成（Blockノード）
-    let body = AstNode::Block {
-        statements,
-        scope: Box::new(Scope::new()),
-    };
+    let body = block(statements, Scope::new());
 
     // AstNode::Functionとして返す
-    crate::ast::helper::function(
+    function(
         Some("main"),
         FunctionKind::Normal,
         all_params,

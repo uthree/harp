@@ -2,7 +2,10 @@
 //!
 //! ループのタイル化やループ展開などの複雑なAST変換を提供します。
 
-use crate::ast::{AstNode, Literal, Scope};
+use crate::ast::{
+    AstNode, Literal, Scope,
+    helper::{assign, const_int, empty_block, range, var as helper_var},
+};
 
 /// ループ回数が固定かつ小さいfor文をインライン展開する
 ///
@@ -61,10 +64,7 @@ pub fn inline_small_loop(loop_node: &AstNode, max_iterations: usize) -> Option<A
             // ループ回数を計算
             if start_val >= stop_val {
                 // ループが実行されない
-                return Some(AstNode::Block {
-                    statements: vec![],
-                    scope: Box::new(Scope::new()),
-                });
+                return Some(empty_block());
             }
 
             let iterations = (stop_val - start_val).div_ceil(step_val);
@@ -79,7 +79,7 @@ pub fn inline_small_loop(loop_node: &AstNode, max_iterations: usize) -> Option<A
             let mut current = start_val;
 
             while current < stop_val {
-                let var_value = Box::new(AstNode::Const(Literal::Int(current as isize)));
+                let var_value = const_int(current as isize);
                 let replaced_body = replace_var_in_ast(body, var, &var_value);
                 statements.push(replaced_body);
                 current += step_val;
@@ -161,25 +161,16 @@ pub fn tile_loop(loop_node: &AstNode, tile_size: usize) -> Option<AstNode> {
                 tile_size,
                 stop_val
             );
-            let make_zero = || AstNode::Const(Literal::Int(0));
-            let make_one = || AstNode::Const(Literal::Int(1));
-            let make_tile_size = || AstNode::Const(Literal::Int(tile_size as isize));
 
             let outer_var = format!("{}_outer", var);
             let inner_var = format!("{}_inner", var);
             let remainder_var = format!("{}_remainder", var);
 
             // 内側ループの本体: i = i_outer + i_inner; body(i)
-            let i_expr = Box::new(AstNode::Add(
-                Box::new(AstNode::Var(outer_var.clone())),
-                Box::new(AstNode::Var(inner_var.clone())),
-            ));
+            let i_expr = helper_var(outer_var.clone()) + helper_var(inner_var.clone());
 
             // i = i_outer + i_inner の代入
-            let assign_i = AstNode::Assign {
-                var: var.clone(),
-                value: i_expr.clone(),
-            };
+            let assign_i = assign(var.clone(), i_expr);
 
             let inner_body_statements = vec![assign_i, body.as_ref().clone()];
 
@@ -189,45 +180,42 @@ pub fn tile_loop(loop_node: &AstNode, tile_size: usize) -> Option<AstNode> {
             };
 
             // 内側ループ: for i_inner in 0..tile_size step 1
-            let inner_loop = AstNode::Range {
-                var: inner_var.clone(),
-                start: Box::new(make_zero()),
-                step: Box::new(make_one()),
-                stop: Box::new(make_tile_size()),
-                body: Box::new(inner_body),
-            };
+            let inner_loop = range(
+                inner_var.clone(),
+                const_int(0),
+                const_int(1),
+                const_int(tile_size as isize),
+                inner_body,
+            );
 
             // メインループの終了値: (stop_val / tile_size) * tile_size
             // stopが定数であることが保証されているので、main_stopも常に定数
             let aligned_stop = (stop_val / tile_size) * tile_size;
-            let main_stop = Box::new(AstNode::Const(Literal::Int(aligned_stop as isize)));
+            let main_stop = const_int(aligned_stop as isize);
 
             // 外側ループ: for i_outer in start..main_stop step tile_size
-            let outer_loop = AstNode::Range {
-                var: outer_var.clone(),
-                start: start.clone(),
-                step: Box::new(make_tile_size()),
-                stop: main_stop.clone(),
-                body: Box::new(inner_loop),
-            };
+            let outer_loop = range(
+                outer_var.clone(),
+                start.as_ref().clone(),
+                const_int(tile_size as isize),
+                main_stop.clone(),
+                inner_loop,
+            );
 
             // 端数処理ループ: for i_remainder in main_stop..stop step 1
             // ループ本体の中で元の変数名を使うため、代入を追加
-            let remainder_assign = AstNode::Assign {
-                var: var.clone(),
-                value: Box::new(AstNode::Var(remainder_var.clone())),
-            };
+            let remainder_assign = assign(var.clone(), helper_var(remainder_var.clone()));
             let remainder_body = AstNode::Block {
                 statements: vec![remainder_assign, body.as_ref().clone()],
                 scope: Box::new(Scope::new()),
             };
-            let remainder_loop = AstNode::Range {
-                var: remainder_var,
-                start: main_stop,
-                step: step.clone(),
-                stop: stop.clone(),
-                body: Box::new(remainder_body),
-            };
+            let remainder_loop = range(
+                remainder_var,
+                main_stop,
+                step.as_ref().clone(),
+                stop.as_ref().clone(),
+                remainder_body,
+            );
 
             // メインループと端数処理ループを含むBlock
             Some(AstNode::Block {

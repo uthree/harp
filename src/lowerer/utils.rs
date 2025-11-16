@@ -282,10 +282,7 @@ impl Lowerer {
         body_statements: Vec<AstNode>,
         body_scope: Scope,
     ) -> AstNode {
-        let body = AstNode::Block {
-            statements: body_statements,
-            scope: Box::new(body_scope),
-        };
+        let body = block(body_statements, body_scope);
 
         let function_name = format!("kernel_{}", node_id);
 
