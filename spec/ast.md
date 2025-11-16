@@ -14,6 +14,36 @@
 
 演算子オーバーロードで提供: 減算（`a - b = a + (-b)`）, 除算（`a / b = a * recip(b)`）
 
+### ヘルパー関数とビルダー
+
+`src/ast/helper.rs`にAST構築を簡潔にするヘルパー関数群を提供しています。
+
+#### 演算ヘルパー（マクロ生成）
+- **二項演算**: `max`, `idiv`, `rem`
+- **単項演算**: `recip`, `sqrt`, `log2`, `exp2`, `sin`
+
+#### 構造化ヘルパー
+- **変数**: `var("x")` - 変数参照
+- **定数**: `const_int(42)`, `const_f32(3.14)` - 型付き定数
+- **制御構造**: `range`, `block`, `empty_block` - ループとブロック
+- **メモリ操作**: `load`, `load_vec`, `store`, `assign` - メモリアクセス
+- **型変換**: `cast`, `broadcast` - 型変換とSIMDブロードキャスト
+- **プログラム構造**: `function`, `program`, `barrier` - 関数とプログラム
+
+#### 演算子オーバーロード
+
+`AstNode`に対する演算子オーバーロードと組み合わせることで、数式を直感的に記述できます：
+
+```rust
+use crate::ast::helper::{var, const_int, load};
+
+// 複雑なAST構築を簡潔に
+let expr = var("a") + var("b") * const_int(2);
+let mem_op = store(var("out"), var("i"), load(var("in"), var("i"), DType::F32) * const_f32(2.0));
+```
+
+冗長な`AstNode::Variant { field: Box::new(...) }`の直接初期化を避け、可読性と保守性を向上させます。
+
 ## Scopeと変数管理
 
 変数の宣言と型管理を担当します。

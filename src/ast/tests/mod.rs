@@ -67,42 +67,42 @@ fn test_literal_dtype() {
 
 #[test]
 fn test_children_const() {
-    let node = AstNode::Const(3.14f32.into());
+    let node = const_f32(3.14);
     let children = node.children();
     assert_eq!(children.len(), 0);
 }
 
 #[test]
 fn test_children_binary_ops() {
-    let a = AstNode::Const(1.0f32.into());
-    let b = AstNode::Const(2.0f32.into());
+    let a = const_f32(1.0);
+    let b = const_f32(2.0);
     let node = a + b;
     let children = node.children();
     assert_eq!(children.len(), 2);
 
-    let node = AstNode::Const(3isize.into()) * AstNode::Const(4isize.into());
+    let node = const_int(3) * const_int(4);
     let children = node.children();
     assert_eq!(children.len(), 2);
 }
 
 #[test]
 fn test_children_unary_ops() {
-    let node = sqrt(AstNode::Const(4.0f32.into()));
+    let node = sqrt(const_f32(4.0));
     let children = node.children();
     assert_eq!(children.len(), 1);
 
-    let node = sin(AstNode::Const(1.0f32.into()));
+    let node = sin(const_f32(1.0));
     let children = node.children();
     assert_eq!(children.len(), 1);
 
-    let node = recip(AstNode::Const(2.0f32.into()));
+    let node = recip(const_f32(2.0));
     let children = node.children();
     assert_eq!(children.len(), 1);
 }
 
 #[test]
 fn test_children_cast() {
-    let node = cast(AstNode::Const(3.14f32.into()), DType::Int);
+    let node = cast(const_f32(3.14), DType::Int);
     let children = node.children();
     assert_eq!(children.len(), 1);
 }
@@ -110,9 +110,9 @@ fn test_children_cast() {
 #[test]
 fn test_children_composite() {
     // (a + b) * c
-    let a = AstNode::Const(1.0f32.into());
-    let b = AstNode::Const(2.0f32.into());
-    let c = AstNode::Const(3.0f32.into());
+    let a = const_f32(1.0);
+    let b = const_f32(2.0);
+    let c = const_f32(3.0);
     let product = (a + b) * c;
 
     let children = product.children();
@@ -125,77 +125,77 @@ fn test_children_composite() {
 
 #[test]
 fn test_infer_type_const() {
-    let node = AstNode::Const(3.14f32.into());
+    let node = const_f32(3.14);
     assert_eq!(node.infer_type(), DType::F32);
 
-    let node = AstNode::Const(42isize.into());
+    let node = const_int(42);
     assert_eq!(node.infer_type(), DType::Int);
 
-    let node = AstNode::Const(100isize.into());
+    let node = const_int(100);
     assert_eq!(node.infer_type(), DType::Int);
 }
 
 #[test]
 fn test_infer_type_binary_ops() {
     // Same types should return that type
-    let node = AstNode::Const(1.0f32.into()) + AstNode::Const(2.0f32.into());
+    let node = const_f32(1.0) + const_f32(2.0);
     assert_eq!(node.infer_type(), DType::F32);
 
-    let node = AstNode::Const(3isize.into()) * AstNode::Const(4isize.into());
+    let node = const_int(3) * const_int(4);
     assert_eq!(node.infer_type(), DType::Int);
 
     // Mixed types should return Unknown
-    let node = AstNode::Const(1.0f32.into()) + AstNode::Const(2isize.into());
+    let node = const_f32(1.0) + const_int(2);
     assert_eq!(node.infer_type(), DType::Unknown);
 }
 
 #[test]
 fn test_infer_type_unary_ops() {
     // Recip preserves type
-    let node = recip(AstNode::Const(2.0f32.into()));
+    let node = recip(const_f32(2.0));
     assert_eq!(node.infer_type(), DType::F32);
 
     // Math operations return F32
-    let node = sqrt(AstNode::Const(4.0f32.into()));
+    let node = sqrt(const_f32(4.0));
     assert_eq!(node.infer_type(), DType::F32);
 
-    let node = sin(AstNode::Const(1.0f32.into()));
+    let node = sin(const_f32(1.0));
     assert_eq!(node.infer_type(), DType::F32);
 
-    let node = log2(AstNode::Const(8.0f32.into()));
+    let node = log2(const_f32(8.0));
     assert_eq!(node.infer_type(), DType::F32);
 
-    let node = exp2(AstNode::Const(3.0f32.into()));
+    let node = exp2(const_f32(3.0));
     assert_eq!(node.infer_type(), DType::F32);
 }
 
 #[test]
 fn test_infer_type_cast() {
-    let node = cast(AstNode::Const(3.14f32.into()), DType::Int);
+    let node = cast(const_f32(3.14), DType::Int);
     assert_eq!(node.infer_type(), DType::Int);
 
-    let node = cast(AstNode::Const(42isize.into()), DType::F32);
+    let node = cast(const_int(42), DType::F32);
     assert_eq!(node.infer_type(), DType::F32);
 }
 
 #[test]
 fn test_infer_type_composite() {
     // (a + b) * c where all are F32
-    let a = AstNode::Const(1.0f32.into());
-    let b = AstNode::Const(2.0f32.into());
-    let c = AstNode::Const(3.0f32.into());
+    let a = const_f32(1.0);
+    let b = const_f32(2.0);
+    let c = const_f32(3.0);
     let expr = (a + b) * c;
     assert_eq!(expr.infer_type(), DType::F32);
 
     // sqrt(a + b) where a, b are F32
-    let a = AstNode::Const(4.0f32.into());
-    let b = AstNode::Const(5.0f32.into());
+    let a = const_f32(4.0);
+    let b = const_f32(5.0);
     let expr = sqrt(a + b);
     assert_eq!(expr.infer_type(), DType::F32);
 
     // Complex expression with cast
-    let a = AstNode::Const(10isize.into());
-    let b = AstNode::Const(20isize.into());
+    let a = const_int(10);
+    let b = const_int(20);
     let casted = cast(a + b, DType::F32);
     let result = sqrt(casted);
     assert_eq!(result.infer_type(), DType::F32);
@@ -319,98 +319,73 @@ fn test_dtype_nested_types() {
 
 #[test]
 fn test_var_node() {
-    let var = AstNode::Var("x".to_string());
-    assert_eq!(var.children().len(), 0);
-    assert_eq!(var.infer_type(), DType::Unknown);
+    let v = var("x");
+    assert_eq!(v.children().len(), 0);
+    assert_eq!(v.infer_type(), DType::Unknown);
 }
 
 #[test]
 fn test_load_scalar() {
-    let load = AstNode::Load {
-        ptr: Box::new(AstNode::Var("input0".to_string())),
-        offset: Box::new(AstNode::Const(0isize.into())),
-        count: 1,
-        dtype: DType::F32,
-    };
+    let load_node = load(var("input0"), const_int(0), DType::F32);
 
     // children should include ptr and offset
-    let children = load.children();
+    let children = load_node.children();
     assert_eq!(children.len(), 2);
 
     // Type inference: Now returns the explicit dtype field
-    let inferred = load.infer_type();
+    let inferred = load_node.infer_type();
     assert_eq!(inferred, DType::F32);
 }
 
 #[test]
 fn test_load_vector() {
     // Create a proper pointer type for testing
-    let ptr_node = AstNode::Cast(
-        Box::new(AstNode::Var("buffer".to_string())),
-        DType::F32.to_ptr(),
-    );
+    let ptr_node = cast(var("buffer"), DType::F32.to_ptr());
 
-    let load = AstNode::Load {
-        ptr: Box::new(ptr_node),
-        offset: Box::new(AstNode::Const(0isize.into())),
-        count: 4,
-        dtype: DType::F32.to_vec(4),
-    };
+    let load_node = load_vec(ptr_node, const_int(0), 4, DType::F32.to_vec(4));
 
     // Type should be Vec<F32, 4>
-    let inferred = load.infer_type();
+    let inferred = load_node.infer_type();
     assert_eq!(inferred, DType::F32.to_vec(4));
 
     // children should include ptr and offset
-    let children = load.children();
+    let children = load_node.children();
     assert_eq!(children.len(), 2);
 }
 
 #[test]
 fn test_store() {
-    let store = AstNode::Store {
-        ptr: Box::new(AstNode::Var("output0".to_string())),
-        offset: Box::new(AstNode::Const(0isize.into())),
-        value: Box::new(AstNode::Const(3.14f32.into())),
-    };
+    let store_node = store(var("output0"), const_int(0), const_f32(3.14));
 
     // children should include ptr, offset, and value
-    let children = store.children();
+    let children = store_node.children();
     assert_eq!(children.len(), 3);
 
     // Store returns unit type (empty tuple)
-    let inferred = store.infer_type();
+    let inferred = store_node.infer_type();
     assert_eq!(inferred, DType::Tuple(vec![]));
 }
 
 #[test]
 fn test_assign() {
-    let assign = AstNode::Assign {
-        var: "alu0".to_string(),
-        value: Box::new(AstNode::Const(42isize.into())),
-    };
+    let assign_node = assign("alu0", const_int(42));
 
     // children should include only value
-    let children = assign.children();
+    let children = assign_node.children();
     assert_eq!(children.len(), 1);
 
     // Assign returns the type of the value
-    let inferred = assign.infer_type();
+    let inferred = assign_node.infer_type();
     assert_eq!(inferred, DType::Int);
 }
 
 #[test]
 fn test_load_store_map_children() {
-    let load = AstNode::Load {
-        ptr: Box::new(AstNode::Const(1isize.into())),
-        offset: Box::new(AstNode::Const(2isize.into())),
-        count: 4,
-        dtype: DType::F32,
-    };
+    let load_node = load_vec(const_int(1), const_int(2), 4, DType::F32);
 
     // Map children: multiply each constant by 2
-    let mapped = load.map_children(&|node| match node {
-        AstNode::Const(Literal::Int(n)) => AstNode::Const(Literal::Int(n * 2)),
+    let mapped = load_node.map_children(&|node| match node {
+        AstNode::Const(Literal::Int(n)) => const_int(n * 2),
         _ => node.clone(),
     });
 
@@ -421,8 +396,8 @@ fn test_load_store_map_children() {
         dtype: _,
     } = mapped
     {
-        assert_eq!(*ptr, AstNode::Const(Literal::Int(2)));
-        assert_eq!(*offset, AstNode::Const(Literal::Int(4)));
+        assert_eq!(*ptr, const_int(2));
+        assert_eq!(*offset, const_int(4));
         assert_eq!(count, 4);
     } else {
         panic!("Expected Load node");
@@ -431,20 +406,21 @@ fn test_load_store_map_children() {
 
 #[test]
 fn test_assign_map_children() {
-    let assign = AstNode::Assign {
-        var: "x".to_string(),
-        value: Box::new(AstNode::Const(10isize.into())),
-    };
+    let assign_node = assign("x", const_int(10));
 
     // Map children: increment constant
-    let mapped = assign.map_children(&|node| match node {
-        AstNode::Const(Literal::Int(n)) => AstNode::Const(Literal::Int(n + 1)),
+    let mapped = assign_node.map_children(&|node| match node {
+        AstNode::Const(Literal::Int(n)) => const_int(n + 1),
         _ => node.clone(),
     });
 
-    if let AstNode::Assign { var, value } = mapped {
-        assert_eq!(var, "x");
-        assert_eq!(*value, AstNode::Const(Literal::Int(11)));
+    if let AstNode::Assign {
+        var: var_name,
+        value,
+    } = mapped
+    {
+        assert_eq!(var_name, "x");
+        assert_eq!(*value, const_int(11));
     } else {
         panic!("Expected Assign node");
     }
@@ -550,10 +526,10 @@ fn test_check_scope_var() {
         .declare("x".to_string(), DType::F32, Mutability::Immutable)
         .unwrap();
 
-    let var_node = AstNode::Var("x".to_string());
+    let var_node = var("x");
     assert!(var_node.check_scope(&scope).is_ok());
 
-    let undefined_var = AstNode::Var("undefined".to_string());
+    let undefined_var = var("undefined");
     assert!(undefined_var.check_scope(&scope).is_err());
 }
 
@@ -565,10 +541,7 @@ fn test_check_scope_assign() {
         .declare("x".to_string(), DType::F32, Mutability::Mutable)
         .unwrap();
 
-    let assign_node = AstNode::Assign {
-        var: "x".to_string(),
-        value: Box::new(AstNode::Const(3.14f32.into())),
-    };
+    let assign_node = assign("x", const_f32(3.14));
 
     assert!(assign_node.check_scope(&scope).is_ok());
 }
@@ -581,10 +554,7 @@ fn test_check_scope_assign_immutable() {
         .declare("x".to_string(), DType::F32, Mutability::Immutable)
         .unwrap();
 
-    let assign_node = AstNode::Assign {
-        var: "x".to_string(),
-        value: Box::new(AstNode::Const(3.14f32.into())),
-    };
+    let assign_node = assign("x", const_f32(3.14));
 
     let result = assign_node.check_scope(&scope);
     assert!(result.is_err());
@@ -616,19 +586,11 @@ fn test_check_scope_complex_expression() {
         .unwrap();
 
     // output[i] = input[i] * 2.0
-    let expr = AstNode::Store {
-        ptr: Box::new(AstNode::Var("output".to_string())),
-        offset: Box::new(AstNode::Var("i".to_string())),
-        value: Box::new(AstNode::Mul(
-            Box::new(AstNode::Load {
-                ptr: Box::new(AstNode::Var("input".to_string())),
-                offset: Box::new(AstNode::Var("i".to_string())),
-                count: 1,
-                dtype: DType::F32,
-            }),
-            Box::new(AstNode::Const(2.0f32.into())),
-        )),
-    };
+    let expr = store(
+        var("output"),
+        var("i"),
+        load(var("input"), var("i"), DType::F32) * const_f32(2.0),
+    );
 
     assert!(expr.check_scope(&scope).is_ok());
 }

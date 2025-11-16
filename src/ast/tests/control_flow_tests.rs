@@ -1,4 +1,5 @@
 use super::*;
+use crate::ast::helper::*;
 
 // Range tests
 #[test]
@@ -8,19 +9,16 @@ fn test_range_basic() {
         .declare("i".to_string(), DType::Int, Mutability::Immutable)
         .unwrap();
 
-    let range = AstNode::Range {
-        var: "i".to_string(),
-        start: Box::new(AstNode::Const(0isize.into())),
-        step: Box::new(AstNode::Const(1isize.into())),
-        stop: Box::new(AstNode::Const(10isize.into())),
-        body: Box::new(AstNode::Block {
-            statements: vec![],
-            scope: Box::new(scope),
-        }),
-    };
+    let range_node = range(
+        "i",
+        const_int(0),
+        const_int(1),
+        const_int(10),
+        block(vec![], scope),
+    );
 
     // Rangeはunit型を返す
-    assert_eq!(range.infer_type(), DType::Tuple(vec![]));
+    assert_eq!(range_node.infer_type(), DType::Tuple(vec![]));
 }
 
 #[test]
@@ -30,18 +28,15 @@ fn test_range_children() {
         .declare("i".to_string(), DType::Int, Mutability::Immutable)
         .unwrap();
 
-    let range = AstNode::Range {
-        var: "i".to_string(),
-        start: Box::new(AstNode::Const(0isize.into())),
-        step: Box::new(AstNode::Const(1isize.into())),
-        stop: Box::new(AstNode::Const(10isize.into())),
-        body: Box::new(AstNode::Block {
-            statements: vec![AstNode::Const(1.0f32.into()), AstNode::Const(2.0f32.into())],
-            scope: Box::new(scope),
-        }),
-    };
+    let range_node = range(
+        "i",
+        const_int(0),
+        const_int(1),
+        const_int(10),
+        block(vec![const_f32(1.0), const_f32(2.0)], scope),
+    );
 
-    let children = range.children();
+    let children = range_node.children();
     // start, step, stop, body = 4個
     assert_eq!(children.len(), 4);
 }
@@ -76,31 +71,23 @@ fn test_range_with_scope() {
         .unwrap();
 
     // for i in 0..N: output[i] = input[i] * 2
-    let range = AstNode::Range {
-        var: "i".to_string(),
-        start: Box::new(AstNode::Const(0isize.into())),
-        step: Box::new(AstNode::Const(1isize.into())),
-        stop: Box::new(AstNode::Var("N".to_string())),
-        body: Box::new(AstNode::Block {
-            statements: vec![AstNode::Store {
-                ptr: Box::new(AstNode::Var("output".to_string())),
-                offset: Box::new(AstNode::Var("i".to_string())),
-                value: Box::new(AstNode::Mul(
-                    Box::new(AstNode::Load {
-                        ptr: Box::new(AstNode::Var("input".to_string())),
-                        offset: Box::new(AstNode::Var("i".to_string())),
-                        count: 1,
-                        dtype: DType::F32,
-                    }),
-                    Box::new(AstNode::Const(2.0f32.into())),
-                )),
-            }],
-            scope: Box::new(loop_scope),
-        }),
-    };
+    let range_node = range(
+        "i",
+        const_int(0),
+        const_int(1),
+        var("N"),
+        block(
+            vec![store(
+                var("output"),
+                var("i"),
+                load(var("input"), var("i"), DType::F32) * const_f32(2.0),
+            )],
+            loop_scope,
+        ),
+    );
 
     // スコープチェック
-    assert!(range.check_scope(&outer_scope).is_ok());
+    assert!(range_node.check_scope(&outer_scope).is_ok());
 }
 
 #[test]
@@ -113,19 +100,16 @@ fn test_range_scope_check_undefined_loop_var() {
     // ループスコープにループ変数を宣言しない
     let loop_scope = Scope::with_parent(outer_scope.clone());
 
-    let range = AstNode::Range {
-        var: "i".to_string(),
-        start: Box::new(AstNode::Const(0isize.into())),
-        step: Box::new(AstNode::Const(1isize.into())),
-        stop: Box::new(AstNode::Var("N".to_string())),
-        body: Box::new(AstNode::Block {
-            statements: vec![AstNode::Var("i".to_string())],
-            scope: Box::new(loop_scope),
-        }),
-    };
+    let range_node = range(
+        "i",
+        const_int(0),
+        const_int(1),
+        var("N"),
+        block(vec![var("i")], loop_scope),
+    );
 
     // ループ変数が宣言されていないのでエラー
-    let result = range.check_scope(&outer_scope);
+    let result = range_node.check_scope(&outer_scope);
     assert!(result.is_err());
 }
 
@@ -149,28 +133,22 @@ fn test_range_nested() {
         .unwrap();
 
     // for j in 0..N: use i and j
-    let inner_range = AstNode::Range {
-        var: "j".to_string(),
-        start: Box::new(AstNode::Const(0isize.into())),
-        step: Box::new(AstNode::Const(1isize.into())),
-        stop: Box::new(AstNode::Var("N".to_string())),
-        body: Box::new(AstNode::Block {
-            statements: vec![AstNode::Var("i".to_string()), AstNode::Var("j".to_string())],
-            scope: Box::new(inner_loop_scope),
-        }),
-    };
+    let inner_range = range(
+        "j",
+        const_int(0),
+        const_int(1),
+        var("N"),
+        block(vec![var("i"), var("j")], inner_loop_scope),
+    );
 
     // for i in 0..N: ...
-    let outer_range = AstNode::Range {
-        var: "i".to_string(),
-        start: Box::new(AstNode::Const(0isize.into())),
-        step: Box::new(AstNode::Const(1isize.into())),
-        stop: Box::new(AstNode::Var("N".to_string())),
-        body: Box::new(AstNode::Block {
-            statements: vec![inner_range],
-            scope: Box::new(outer_loop_scope),
-        }),
-    };
+    let outer_range = range(
+        "i",
+        const_int(0),
+        const_int(1),
+        var("N"),
+        block(vec![inner_range], outer_loop_scope),
+    );
 
     // ネストしたループのスコープチェック
     assert!(outer_range.check_scope(&outer_scope).is_ok());
@@ -184,26 +162,17 @@ fn test_block_basic() {
         .declare("x".to_string(), DType::Int, Mutability::Immutable)
         .unwrap();
 
-    let block = AstNode::Block {
-        statements: vec![
-            AstNode::Var("x".to_string()),
-            AstNode::Const(42isize.into()),
-        ],
-        scope: Box::new(scope),
-    };
+    let block_node = block(vec![var("x"), const_int(42)], scope);
 
     // Blockは最後の文の型を返す
-    assert_eq!(block.infer_type(), DType::Int);
+    assert_eq!(block_node.infer_type(), DType::Int);
 }
 
 #[test]
 fn test_block_children() {
-    let block = AstNode::Block {
-        statements: vec![AstNode::Const(1isize.into()), AstNode::Const(2isize.into())],
-        scope: Box::new(Scope::new()),
-    };
+    let block_node = block(vec![const_int(1), const_int(2)], Scope::new());
 
-    let children = block.children();
+    let children = block_node.children();
     assert_eq!(children.len(), 2);
 }
 
@@ -214,12 +183,9 @@ fn test_block_check_scope() {
         .declare("a".to_string(), DType::F32, Mutability::Immutable)
         .unwrap();
 
-    let block = AstNode::Block {
-        statements: vec![var("a"), AstNode::Const(1.0f32.into())],
-        scope: Box::new(scope),
-    };
+    let block_node = block(vec![var("a"), const_f32(1.0)], scope);
 
     // スコープチェックが成功するはず
     let outer_scope = Scope::new();
-    assert!(block.check_scope(&outer_scope).is_ok());
+    assert!(block_node.check_scope(&outer_scope).is_ok());
 }

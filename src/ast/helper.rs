@@ -25,6 +25,7 @@ macro_rules! impl_unary_helper {
 // Binary operation helpers
 impl_binary_helper!(max, Max, "Create a max node: max(a, b)");
 impl_binary_helper!(idiv, Idiv, "Create an integer division node: a / b");
+impl_binary_helper!(rem, Rem, "Create a remainder node: a % b");
 
 // Unary operation helpers
 impl_unary_helper!(recip, Recip, "Create a reciprocal node: 1 / a");

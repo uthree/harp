@@ -127,48 +127,40 @@ pub fn all_rules_with_search() -> Vec<Rc<AstRewriteRule>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{AstNode, Literal, Scope};
+    use crate::ast::helper::{const_f32, const_int, exp2, idiv, log2, max, recip, rem, sqrt, var};
+    use crate::ast::{AstNode, Scope};
     use crate::opt::ast::Optimizer;
     use crate::opt::ast::RuleBaseOptimizer;
 
     #[test]
     fn test_add_zero() {
         let rule = add_zero_right();
-        let input = AstNode::Add(
-            Box::new(AstNode::Const(Literal::Int(42))),
-            Box::new(AstNode::Const(Literal::Int(0))),
-        );
+        let input = const_int(42) + const_int(0);
         let result = rule.apply(&input);
-        assert_eq!(result, AstNode::Const(Literal::Int(42)));
+        assert_eq!(result, const_int(42));
     }
 
     #[test]
     fn test_mul_one() {
         let rule = mul_one_right();
-        let input = AstNode::Mul(
-            Box::new(AstNode::Const(Literal::Int(42))),
-            Box::new(AstNode::Const(Literal::Int(1))),
-        );
+        let input = const_int(42) * const_int(1);
         let result = rule.apply(&input);
-        assert_eq!(result, AstNode::Const(Literal::Int(42)));
+        assert_eq!(result, const_int(42));
     }
 
     #[test]
     fn test_mul_zero() {
         let rule = mul_zero_right();
-        let input = AstNode::Mul(
-            Box::new(AstNode::Const(Literal::Int(42))),
-            Box::new(AstNode::Const(Literal::Int(0))),
-        );
+        let input = const_int(42) * const_int(0);
         let result = rule.apply(&input);
-        assert_eq!(result, AstNode::Const(Literal::Int(0)));
+        assert_eq!(result, const_int(0));
     }
 
     #[test]
     fn test_max_idempotent() {
         let rule = max_idempotent();
-        let var_a = AstNode::Var("a".to_string());
-        let input = AstNode::Max(Box::new(var_a.clone()), Box::new(var_a.clone()));
+        let var_a = var("a");
+        let input = max(var_a.clone(), var_a.clone());
         let result = rule.apply(&input);
         assert_eq!(result, var_a);
     }
@@ -176,8 +168,8 @@ mod tests {
     #[test]
     fn test_recip_recip() {
         let rule = recip_recip();
-        let var_a = AstNode::Var("a".to_string());
-        let input = AstNode::Recip(Box::new(AstNode::Recip(Box::new(var_a.clone()))));
+        let var_a = var("a");
+        let input = recip(recip(var_a.clone()));
         let result = rule.apply(&input);
         assert_eq!(result, var_a);
     }
@@ -185,11 +177,8 @@ mod tests {
     #[test]
     fn test_sqrt_squared() {
         let rule = sqrt_squared();
-        let var_a = AstNode::Var("a".to_string());
-        let input = AstNode::Mul(
-            Box::new(AstNode::Sqrt(Box::new(var_a.clone()))),
-            Box::new(AstNode::Sqrt(Box::new(var_a.clone()))),
-        );
+        let var_a = var("a");
+        let input = sqrt(var_a.clone()) * sqrt(var_a.clone());
         let result = rule.apply(&input);
         assert_eq!(result, var_a);
     }
@@ -198,25 +187,10 @@ mod tests {
     fn test_distributive_left() {
         let rule = distributive_left();
         // a * (b + c)
-        let input = AstNode::Mul(
-            Box::new(AstNode::Var("a".to_string())),
-            Box::new(AstNode::Add(
-                Box::new(AstNode::Var("b".to_string())),
-                Box::new(AstNode::Var("c".to_string())),
-            )),
-        );
+        let input = var("a") * (var("b") + var("c"));
         let result = rule.apply(&input);
         // a * b + a * c
-        let expected = AstNode::Add(
-            Box::new(AstNode::Mul(
-                Box::new(AstNode::Var("a".to_string())),
-                Box::new(AstNode::Var("b".to_string())),
-            )),
-            Box::new(AstNode::Mul(
-                Box::new(AstNode::Var("a".to_string())),
-                Box::new(AstNode::Var("c".to_string())),
-            )),
-        );
+        let expected = var("a") * var("b") + var("a") * var("c");
         assert_eq!(result, expected);
     }
 
@@ -224,25 +198,10 @@ mod tests {
     fn test_factor_left() {
         let rule = factor_left();
         // a * b + a * c
-        let input = AstNode::Add(
-            Box::new(AstNode::Mul(
-                Box::new(AstNode::Var("a".to_string())),
-                Box::new(AstNode::Var("b".to_string())),
-            )),
-            Box::new(AstNode::Mul(
-                Box::new(AstNode::Var("a".to_string())),
-                Box::new(AstNode::Var("c".to_string())),
-            )),
-        );
+        let input = var("a") * var("b") + var("a") * var("c");
         let result = rule.apply(&input);
         // a * (b + c)
-        let expected = AstNode::Mul(
-            Box::new(AstNode::Var("a".to_string())),
-            Box::new(AstNode::Add(
-                Box::new(AstNode::Var("b".to_string())),
-                Box::new(AstNode::Var("c".to_string())),
-            )),
-        );
+        let expected = var("a") * (var("b") + var("c"));
         assert_eq!(result, expected);
     }
 
@@ -251,39 +210,21 @@ mod tests {
         let optimizer = RuleBaseOptimizer::new(simplification_rules());
 
         // (42 + 0) * 1
-        let input = AstNode::Mul(
-            Box::new(AstNode::Add(
-                Box::new(AstNode::Const(Literal::Int(42))),
-                Box::new(AstNode::Const(Literal::Int(0))),
-            )),
-            Box::new(AstNode::Const(Literal::Int(1))),
-        );
+        let input = (const_int(42) + const_int(0)) * const_int(1);
 
         let result = optimizer.optimize(input);
         // 42
-        assert_eq!(result, AstNode::Const(Literal::Int(42)));
+        assert_eq!(result, const_int(42));
     }
 
     #[test]
     fn test_associative_rules() {
         let rule = add_associate_left_to_right();
         // (a + b) + c
-        let input = AstNode::Add(
-            Box::new(AstNode::Add(
-                Box::new(AstNode::Var("a".to_string())),
-                Box::new(AstNode::Var("b".to_string())),
-            )),
-            Box::new(AstNode::Var("c".to_string())),
-        );
+        let input = (var("a") + var("b")) + var("c");
         let result = rule.apply(&input);
         // a + (b + c)
-        let expected = AstNode::Add(
-            Box::new(AstNode::Var("a".to_string())),
-            Box::new(AstNode::Add(
-                Box::new(AstNode::Var("b".to_string())),
-                Box::new(AstNode::Var("c".to_string())),
-            )),
-        );
+        let expected = var("a") + (var("b") + var("c"));
         assert_eq!(result, expected);
     }
 
@@ -292,20 +233,14 @@ mod tests {
         let rule = const_fold_add();
 
         // Isize: 2 + 3 = 5
-        let input = AstNode::Add(
-            Box::new(AstNode::Const(Literal::Int(2))),
-            Box::new(AstNode::Const(Literal::Int(3))),
-        );
+        let input = const_int(2) + const_int(3);
         let result = rule.apply(&input);
-        assert_eq!(result, AstNode::Const(Literal::Int(5)));
+        assert_eq!(result, const_int(5));
 
         // F32: 1.5 + 2.5 = 4.0
-        let input = AstNode::Add(
-            Box::new(AstNode::Const(Literal::F32(1.5))),
-            Box::new(AstNode::Const(Literal::F32(2.5))),
-        );
+        let input = const_f32(1.5) + const_f32(2.5);
         let result = rule.apply(&input);
-        assert_eq!(result, AstNode::Const(Literal::F32(4.0)));
+        assert_eq!(result, const_f32(4.0));
     }
 
     #[test]
@@ -313,20 +248,14 @@ mod tests {
         let rule = const_fold_mul();
 
         // Isize: 6 * 7 = 42
-        let input = AstNode::Mul(
-            Box::new(AstNode::Const(Literal::Int(6))),
-            Box::new(AstNode::Const(Literal::Int(7))),
-        );
+        let input = const_int(6) * const_int(7);
         let result = rule.apply(&input);
-        assert_eq!(result, AstNode::Const(Literal::Int(42)));
+        assert_eq!(result, const_int(42));
 
         // F32: 2.5 * 4.0 = 10.0
-        let input = AstNode::Mul(
-            Box::new(AstNode::Const(Literal::F32(2.5))),
-            Box::new(AstNode::Const(Literal::F32(4.0))),
-        );
+        let input = const_f32(2.5) * const_f32(4.0);
         let result = rule.apply(&input);
-        assert_eq!(result, AstNode::Const(Literal::F32(10.0)));
+        assert_eq!(result, const_f32(10.0));
     }
 
     #[test]
@@ -334,14 +263,14 @@ mod tests {
         let rule = const_fold_sqrt();
 
         // sqrt(4.0) = 2.0
-        let input = AstNode::Sqrt(Box::new(AstNode::Const(Literal::F32(4.0))));
+        let input = sqrt(const_f32(4.0));
         let result = rule.apply(&input);
-        assert_eq!(result, AstNode::Const(Literal::F32(2.0)));
+        assert_eq!(result, const_f32(2.0));
 
         // sqrt(9.0) = 3.0
-        let input = AstNode::Sqrt(Box::new(AstNode::Const(Literal::F32(9.0))));
+        let input = sqrt(const_f32(9.0));
         let result = rule.apply(&input);
-        assert_eq!(result, AstNode::Const(Literal::F32(3.0)));
+        assert_eq!(result, const_f32(3.0));
     }
 
     #[test]
@@ -349,14 +278,14 @@ mod tests {
         let rule = const_fold_recip();
 
         // recip(2.0) = 0.5
-        let input = AstNode::Recip(Box::new(AstNode::Const(Literal::F32(2.0))));
+        let input = recip(const_f32(2.0));
         let result = rule.apply(&input);
-        assert_eq!(result, AstNode::Const(Literal::F32(0.5)));
+        assert_eq!(result, const_f32(0.5));
 
         // recip(4.0) = 0.25
-        let input = AstNode::Recip(Box::new(AstNode::Const(Literal::F32(4.0))));
+        let input = recip(const_f32(4.0));
         let result = rule.apply(&input);
-        assert_eq!(result, AstNode::Const(Literal::F32(0.25)));
+        assert_eq!(result, const_f32(0.25));
     }
 
     #[test]
@@ -364,20 +293,14 @@ mod tests {
         let rule = const_fold_max();
 
         // max(3, 5) = 5
-        let input = AstNode::Max(
-            Box::new(AstNode::Const(Literal::Int(3))),
-            Box::new(AstNode::Const(Literal::Int(5))),
-        );
+        let input = max(const_int(3), const_int(5));
         let result = rule.apply(&input);
-        assert_eq!(result, AstNode::Const(Literal::Int(5)));
+        assert_eq!(result, const_int(5));
 
         // max(2.5, 1.5) = 2.5
-        let input = AstNode::Max(
-            Box::new(AstNode::Const(Literal::F32(2.5))),
-            Box::new(AstNode::Const(Literal::F32(1.5))),
-        );
+        let input = max(const_f32(2.5), const_f32(1.5));
         let result = rule.apply(&input);
-        assert_eq!(result, AstNode::Const(Literal::F32(2.5)));
+        assert_eq!(result, const_f32(2.5));
     }
 
     #[test]
@@ -385,12 +308,9 @@ mod tests {
         let rule = const_fold_rem();
 
         // 10 % 3 = 1
-        let input = AstNode::Rem(
-            Box::new(AstNode::Const(Literal::Int(10))),
-            Box::new(AstNode::Const(Literal::Int(3))),
-        );
+        let input = rem(const_int(10), const_int(3));
         let result = rule.apply(&input);
-        assert_eq!(result, AstNode::Const(Literal::Int(1)));
+        assert_eq!(result, const_int(1));
     }
 
     #[test]
@@ -398,12 +318,9 @@ mod tests {
         let rule = const_fold_idiv();
 
         // 10 / 3 = 3
-        let input = AstNode::Idiv(
-            Box::new(AstNode::Const(Literal::Int(10))),
-            Box::new(AstNode::Const(Literal::Int(3))),
-        );
+        let input = idiv(const_int(10), const_int(3));
         let result = rule.apply(&input);
-        assert_eq!(result, AstNode::Const(Literal::Int(3)));
+        assert_eq!(result, const_int(3));
     }
 
     #[test]
@@ -411,16 +328,10 @@ mod tests {
         let optimizer = RuleBaseOptimizer::new(constant_folding_rules());
 
         // (2 + 3) * 4 = 5 * 4 = 20
-        let input = AstNode::Mul(
-            Box::new(AstNode::Add(
-                Box::new(AstNode::Const(Literal::Int(2))),
-                Box::new(AstNode::Const(Literal::Int(3))),
-            )),
-            Box::new(AstNode::Const(Literal::Int(4))),
-        );
+        let input = (const_int(2) + const_int(3)) * const_int(4);
 
         let result = optimizer.optimize(input);
-        assert_eq!(result, AstNode::Const(Literal::Int(20)));
+        assert_eq!(result, const_int(20));
     }
 
     #[test]
@@ -429,35 +340,23 @@ mod tests {
         let optimizer = RuleBaseOptimizer::new(all_algebraic_rules());
 
         // ((2 + 3) * 1) + 0 = 5 * 1 + 0 = 5 + 0 = 5
-        let input = AstNode::Add(
-            Box::new(AstNode::Mul(
-                Box::new(AstNode::Add(
-                    Box::new(AstNode::Const(Literal::Int(2))),
-                    Box::new(AstNode::Const(Literal::Int(3))),
-                )),
-                Box::new(AstNode::Const(Literal::Int(1))),
-            )),
-            Box::new(AstNode::Const(Literal::Int(0))),
-        );
+        let input = ((const_int(2) + const_int(3)) * const_int(1)) + const_int(0);
 
         let result = optimizer.optimize(input);
-        assert_eq!(result, AstNode::Const(Literal::Int(5)));
+        assert_eq!(result, const_int(5));
     }
 
     #[test]
     fn test_mul_power_of_two_to_shift_right() {
         // x * 4 → x << 2
         let rule = mul_power_of_two_to_shift_right();
-        let input = AstNode::Mul(
-            Box::new(AstNode::Var("x".to_string())),
-            Box::new(AstNode::Const(Literal::Int(4))),
-        );
+        let input = var("x") * const_int(4);
         let result = rule.apply(&input);
 
         match result {
             AstNode::LeftShift(left, right) => {
-                assert_eq!(*left, AstNode::Var("x".to_string()));
-                assert_eq!(*right, AstNode::Const(Literal::Int(2)));
+                assert_eq!(*left, var("x"));
+                assert_eq!(*right, const_int(2));
             }
             _ => panic!("Expected LeftShift node"),
         }
@@ -467,16 +366,13 @@ mod tests {
     fn test_mul_power_of_two_to_shift_left() {
         // 8 * x → x << 3
         let rule = mul_power_of_two_to_shift_left();
-        let input = AstNode::Mul(
-            Box::new(AstNode::Const(Literal::Int(8))),
-            Box::new(AstNode::Var("x".to_string())),
-        );
+        let input = const_int(8) * var("x");
         let result = rule.apply(&input);
 
         match result {
             AstNode::LeftShift(left, right) => {
-                assert_eq!(*left, AstNode::Var("x".to_string()));
-                assert_eq!(*right, AstNode::Const(Literal::Int(3)));
+                assert_eq!(*left, var("x"));
+                assert_eq!(*right, const_int(3));
             }
             _ => panic!("Expected LeftShift node"),
         }
@@ -486,17 +382,14 @@ mod tests {
     fn test_mul_non_power_of_two() {
         // 非2の累乗の場合は変換されない（元のノードが返る）
         let rule = mul_power_of_two_to_shift_right();
-        let input = AstNode::Mul(
-            Box::new(AstNode::Var("x".to_string())),
-            Box::new(AstNode::Const(Literal::Int(5))),
-        );
+        let input = var("x") * const_int(5);
         let result = rule.apply(&input);
 
         // 元のMulノードが返ってくるはず
         match result {
             AstNode::Mul(left, right) => {
-                assert_eq!(*left, AstNode::Var("x".to_string()));
-                assert_eq!(*right, AstNode::Const(Literal::Int(5)));
+                assert_eq!(*left, var("x"));
+                assert_eq!(*right, const_int(5));
             }
             _ => panic!("Expected Mul node (unchanged)"),
         }
@@ -519,15 +412,12 @@ mod tests {
 
         let rule = mul_power_of_two_to_shift_right();
         for (power_of_two, expected_shift) in test_cases {
-            let input = AstNode::Mul(
-                Box::new(AstNode::Var("x".to_string())),
-                Box::new(AstNode::Const(Literal::Int(power_of_two))),
-            );
+            let input = var("x") * const_int(power_of_two);
             let result = rule.apply(&input);
 
             match result {
                 AstNode::LeftShift(_, right) => {
-                    assert_eq!(*right, AstNode::Const(Literal::Int(expected_shift)));
+                    assert_eq!(*right, const_int(expected_shift));
                 }
                 _ => panic!("Expected LeftShift node for {}", power_of_two),
             }
@@ -540,17 +430,14 @@ mod tests {
         let optimizer = RuleBaseOptimizer::new(simplification_rules());
 
         // x * 16 → x << 4
-        let input = AstNode::Mul(
-            Box::new(AstNode::Var("x".to_string())),
-            Box::new(AstNode::Const(Literal::Int(16))),
-        );
+        let input = var("x") * const_int(16);
 
         let result = optimizer.optimize(input);
 
         match result {
             AstNode::LeftShift(left, right) => {
-                assert_eq!(*left, AstNode::Var("x".to_string()));
-                assert_eq!(*right, AstNode::Const(Literal::Int(4)));
+                assert_eq!(*left, var("x"));
+                assert_eq!(*right, const_int(4));
             }
             _ => panic!("Expected LeftShift node"),
         }
@@ -559,8 +446,8 @@ mod tests {
     #[test]
     fn test_log2_exp2() {
         let rule = log2_exp2();
-        let var_a = AstNode::Var("a".to_string());
-        let input = AstNode::Log2(Box::new(AstNode::Exp2(Box::new(var_a.clone()))));
+        let var_a = var("a");
+        let input = log2(exp2(var_a.clone()));
         let result = rule.apply(&input);
         assert_eq!(result, var_a);
     }
@@ -568,8 +455,8 @@ mod tests {
     #[test]
     fn test_exp2_log2() {
         let rule = exp2_log2();
-        let var_a = AstNode::Var("a".to_string());
-        let input = AstNode::Exp2(Box::new(AstNode::Log2(Box::new(var_a.clone()))));
+        let var_a = var("a");
+        let input = exp2(log2(var_a.clone()));
         let result = rule.apply(&input);
         assert_eq!(result, var_a);
     }
@@ -577,12 +464,12 @@ mod tests {
     #[test]
     fn test_add_same_to_mul_two() {
         let rule = add_same_to_mul_two();
-        let var_a = AstNode::Var("x".to_string());
+        let var_x = var("x");
         // x + x
-        let input = AstNode::Add(Box::new(var_a.clone()), Box::new(var_a.clone()));
+        let input = var_x.clone() + var_x.clone();
         let result = rule.apply(&input);
         // x * 2
-        let expected = AstNode::Mul(Box::new(var_a), Box::new(AstNode::Const(Literal::Int(2))));
+        let expected = var_x * const_int(2);
         assert_eq!(result, expected);
     }
 
@@ -590,37 +477,33 @@ mod tests {
     fn test_add_same_to_mul_two_with_const() {
         let rule = add_same_to_mul_two();
         // 5 + 5
-        let const_5 = AstNode::Const(Literal::Int(5));
-        let input = AstNode::Add(Box::new(const_5.clone()), Box::new(const_5.clone()));
+        let const_5 = const_int(5);
+        let input = const_5.clone() + const_5.clone();
         let result = rule.apply(&input);
         // 5 * 2
-        let expected = AstNode::Mul(Box::new(const_5), Box::new(AstNode::Const(Literal::Int(2))));
+        let expected = const_5 * const_int(2);
         assert_eq!(result, expected);
     }
 
     #[test]
     fn test_unwrap_single_statement_block() {
+        use crate::ast::helper::block;
         let rule = unwrap_single_statement_block();
 
         // 単一のステートメントを持つBlockは展開される
-        let single_stmt = AstNode::Var("x".to_string());
-        let block = AstNode::Block {
-            statements: vec![single_stmt.clone()],
-            scope: Box::new(Scope::new()),
-        };
-        let result = rule.apply(&block);
+        let single_stmt = var("x");
+        let blk = block(vec![single_stmt.clone()], Scope::new());
+        let result = rule.apply(&blk);
         assert_eq!(result, single_stmt);
     }
 
     #[test]
     fn test_unwrap_single_statement_block_multiple_statements() {
+        use crate::ast::helper::block;
         let rule = unwrap_single_statement_block();
 
         // 複数のステートメントを持つBlockは展開されない
-        let multi_block = AstNode::Block {
-            statements: vec![AstNode::Var("x".to_string()), AstNode::Var("y".to_string())],
-            scope: Box::new(Scope::new()),
-        };
+        let multi_block = block(vec![var("x"), var("y")], Scope::new());
         let result = rule.apply(&multi_block);
         // Blockのまま変わらないはず
         match result {
@@ -633,28 +516,20 @@ mod tests {
 
     #[test]
     fn test_unwrap_single_statement_block_with_optimizer() {
+        use crate::ast::helper::{block, range};
         let optimizer = RuleBaseOptimizer::new(simplification_rules());
 
         // Block内にRangeがあるケース（ループ交換などで生成されるパターン）
-        let inner_range = AstNode::Range {
-            var: "i".to_string(),
-            start: Box::new(AstNode::Const(Literal::Int(0))),
-            step: Box::new(AstNode::Const(Literal::Int(1))),
-            stop: Box::new(AstNode::Const(Literal::Int(10))),
-            body: Box::new(AstNode::Var("body".to_string())),
-        };
+        let inner_range = range("i", const_int(0), const_int(1), const_int(10), var("body"));
 
-        let block = AstNode::Block {
-            statements: vec![inner_range.clone()],
-            scope: Box::new(Scope::new()),
-        };
+        let blk = block(vec![inner_range.clone()], Scope::new());
 
-        let result = optimizer.optimize(block);
+        let result = optimizer.optimize(blk);
 
         // Blockが展開されてRangeが直接返されるはず
         match result {
-            AstNode::Range { var, .. } => {
-                assert_eq!(var, "i");
+            AstNode::Range { var: v, .. } => {
+                assert_eq!(v, "i");
             }
             _ => panic!("Expected Range node after unwrapping"),
         }

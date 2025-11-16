@@ -1,4 +1,5 @@
 use super::*;
+use crate::ast::helper::{const_f32, const_int, var};
 
 // Function tests
 #[test]
@@ -49,7 +50,7 @@ fn test_function_check_body() {
     }];
     let return_type = DType::Int;
     let body = vec![AstNode::Return {
-        value: Box::new(var("x") * AstNode::Const(2isize.into())),
+        value: Box::new(var("x") * const_int(2)),
     }];
 
     let func = Function::new(FunctionKind::Normal, params, return_type, body).unwrap();
@@ -61,7 +62,7 @@ fn test_function_infer_return_type() {
     let params = vec![];
     let return_type = DType::F32;
     let body = vec![AstNode::Return {
-        value: Box::new(AstNode::Const(1.0f32.into())),
+        value: Box::new(const_f32(1.0)),
     }];
 
     let func = Function::new(FunctionKind::Normal, params, return_type, body).unwrap();
@@ -125,7 +126,7 @@ fn test_program_with_function_call() {
         }],
         DType::Int,
         vec![AstNode::Return {
-            value: Box::new(var("x") * AstNode::Const(2isize.into())),
+            value: Box::new(var("x") * const_int(2)),
         }],
     )
     .unwrap();
@@ -140,7 +141,7 @@ fn test_program_with_function_call() {
         DType::Int,
         vec![AstNode::Call {
             name: "double".to_string(),
-            args: vec![AstNode::Const(5isize.into())],
+            args: vec![const_int(5)],
         }],
     )
     .unwrap();
