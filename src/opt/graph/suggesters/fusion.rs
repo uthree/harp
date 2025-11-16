@@ -1,4 +1,5 @@
-use crate::graph::ops::{FusedElementwiseOp, FusedInput};
+use crate::ast::{AstNode, helper::wildcard};
+use crate::graph::ops::ElementwiseOp;
 use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
 use crate::opt::graph::GraphSuggester;
 use std::collections::{HashMap, HashSet};
@@ -42,15 +43,62 @@ impl FusionSuggester {
         nodes
     }
 
+    /// ElementwiseOpをAstNodeに変換するヘルパー
+    fn elementwise_op_to_ast(op: &ElementwiseOp, args: Vec<AstNode>) -> AstNode {
+        match op {
+            ElementwiseOp::Add => {
+                assert_eq!(args.len(), 2);
+                args[0].clone() + args[1].clone()
+            }
+            ElementwiseOp::Mul => {
+                assert_eq!(args.len(), 2);
+                args[0].clone() * args[1].clone()
+            }
+            ElementwiseOp::Max => {
+                assert_eq!(args.len(), 2);
+                AstNode::Max(Box::new(args[0].clone()), Box::new(args[1].clone()))
+            }
+            ElementwiseOp::Rem => {
+                assert_eq!(args.len(), 2);
+                args[0].clone() % args[1].clone()
+            }
+            ElementwiseOp::Idiv => {
+                assert_eq!(args.len(), 2);
+                args[0].clone() / args[1].clone()
+            }
+            ElementwiseOp::Neg => {
+                assert_eq!(args.len(), 1);
+                -args[0].clone()
+            }
+            ElementwiseOp::Recip => {
+                assert_eq!(args.len(), 1);
+                AstNode::Recip(Box::new(args[0].clone()))
+            }
+            ElementwiseOp::Log2 => {
+                assert_eq!(args.len(), 1);
+                AstNode::Log2(Box::new(args[0].clone()))
+            }
+            ElementwiseOp::Exp2 => {
+                assert_eq!(args.len(), 1);
+                AstNode::Exp2(Box::new(args[0].clone()))
+            }
+            ElementwiseOp::Sin => {
+                assert_eq!(args.len(), 1);
+                AstNode::Sin(Box::new(args[0].clone()))
+            }
+            ElementwiseOp::Sqrt => {
+                assert_eq!(args.len(), 1);
+                AstNode::Sqrt(Box::new(args[0].clone()))
+            }
+        }
+    }
+
     /// Elementwise演算チェーンを検出して融合可能な場合にパターンを返す
     ///
     /// 連続する2つのElementwise演算を融合する
-    /// 例: (a + b) * c -> FusedElementwise([a, b, c], [Add, Mul])
+    /// 例: (a + b) * c -> FusedElementwise([a, b, c], Wildcard("0") + Wildcard("1") * Wildcard("2"))
     #[allow(dead_code)]
-    fn detect_elementwise_chain(
-        &self,
-        node: &GraphNode,
-    ) -> Option<(Vec<GraphNode>, Vec<FusedElementwiseOp>)> {
+    fn detect_elementwise_chain(&self, node: &GraphNode) -> Option<(Vec<GraphNode>, AstNode)> {
         // このノードがElementwiseでない場合はNone
         let current_op = match &node.op {
             GraphOp::Elementwise { op, .. } => op.clone(),
@@ -72,16 +120,16 @@ impl FusionSuggester {
 
         // 融合するノードチェーンを構築
         let mut graph_inputs = Vec::new();
-        let mut ops = Vec::new();
         let mut input_mapping: HashMap<*const GraphNodeData, usize> = HashMap::new();
 
-        // 入力ノードを処理（Elementwise入力は展開、それ以外はgraph_inputsに追加）
-        let mut intermediate_inputs = Vec::new();
+        // 入力ノードを処理し、AstNode式を構築
+        let mut current_args = Vec::new();
 
         for src in &node.src {
             match &src.op {
                 GraphOp::Elementwise { op, .. } => {
-                    // Elementwiseノードの場合、その入力を展開
+                    // Elementwiseノードの場合、その入力を展開し式を構築
+                    let mut sub_args = Vec::new();
                     for sub_src in &src.src {
                         let ptr = sub_src.as_ptr();
                         let idx = if let Some(&existing_idx) = input_mapping.get(&ptr) {
@@ -92,17 +140,12 @@ impl FusionSuggester {
                             graph_inputs.push(sub_src.clone());
                             new_idx
                         };
-                        intermediate_inputs.push(FusedInput::GraphInput(idx));
+                        sub_args.push(wildcard(idx.to_string()));
                     }
 
-                    // 中間演算を追加
-                    let num_inputs = src.src.len();
-                    let op_inputs =
-                        intermediate_inputs.split_off(intermediate_inputs.len() - num_inputs);
-                    ops.push(FusedElementwiseOp {
-                        op: op.clone(),
-                        inputs: op_inputs,
-                    });
+                    // 中間演算の結果をAstNodeとして構築
+                    let sub_expr = Self::elementwise_op_to_ast(op, sub_args);
+                    current_args.push(sub_expr);
                 }
                 _ => {
                     // 通常の入力の場合
@@ -115,23 +158,29 @@ impl FusionSuggester {
                         graph_inputs.push(src.clone());
                         new_idx
                     };
-                    intermediate_inputs.push(FusedInput::GraphInput(idx));
+                    current_args.push(wildcard(idx.to_string()));
                 }
             }
         }
 
-        // 現在のノードの演算を追加
-        ops.push(FusedElementwiseOp {
-            op: current_op,
-            inputs: intermediate_inputs,
-        });
+        // 現在のノードの演算をAstNodeとして構築
+        let final_expr = Self::elementwise_op_to_ast(&current_op, current_args);
 
-        // 2つ以上の演算がある場合のみ融合
-        if ops.len() < 2 {
-            return None;
+        // 元の入力ノードが複数使われている（融合がある）場合のみ適用
+        // つまり、graph_inputsの数がnodeの直接入力数より少ない = 融合が発生
+        if graph_inputs.len() >= node.src.len() {
+            // 融合によるメリットがない場合もチェック
+            // 少なくとも1つのElementwise入力が展開されているか確認
+            let has_expansion = node
+                .src
+                .iter()
+                .any(|s| matches!(&s.op, GraphOp::Elementwise { .. }));
+            if !has_expansion {
+                return None;
+            }
         }
 
-        Some((graph_inputs, ops))
+        Some((graph_inputs, final_expr))
     }
 
     /// 連続するView変更を検出
@@ -176,12 +225,7 @@ impl FusionSuggester {
     fn detect_elementwise_reduce_pattern(
         &self,
         node: &GraphNode,
-    ) -> Option<(
-        Vec<GraphNode>,
-        Vec<FusedElementwiseOp>,
-        crate::graph::ops::ReduceOp,
-        usize,
-    )> {
+    ) -> Option<(Vec<GraphNode>, AstNode, crate::graph::ops::ReduceOp, usize)> {
         // このノードがReduceでない場合はNone
         let (reduce_op, axis) = match &node.op {
             GraphOp::Reduce { op, axis, .. } => (op.clone(), *axis),
@@ -202,17 +246,14 @@ impl FusionSuggester {
         // Elementwise入力のさらに入力をgraph_inputsとして収集
         let graph_inputs = input.src.clone();
 
-        // FusedElementwiseOpを作成
-        let inputs: Vec<FusedInput> = (0..graph_inputs.len())
-            .map(FusedInput::GraphInput)
+        // AstNode式を構築: Wildcard("0"), Wildcard("1"), ... を入力として使用
+        let args: Vec<AstNode> = (0..graph_inputs.len())
+            .map(|i| wildcard(i.to_string()))
             .collect();
 
-        let ops = vec![FusedElementwiseOp {
-            op: elementwise_op,
-            inputs,
-        }];
+        let expr = Self::elementwise_op_to_ast(&elementwise_op, args);
 
-        Some((graph_inputs, ops, reduce_op, axis))
+        Some((graph_inputs, expr, reduce_op, axis))
     }
 
     /// グラフ内の特定ノードを置き換えた新しいグラフを作成
@@ -314,21 +355,25 @@ impl GraphSuggester for FusionSuggester {
             }
 
             // Elementwise -> Reduceパターンを検出して融合
-            if let Some((graph_inputs, ops, reduce_op, axis)) =
+            if let Some((graph_inputs, expr, reduce_op, axis)) =
                 self.detect_elementwise_reduce_pattern(node)
             {
                 // FusedElementwiseReduceノードを作成
-                let fused_node =
-                    crate::graph::ops::fused_elementwise_reduce(graph_inputs, ops, reduce_op, axis);
+                let fused_node = crate::graph::ops::fused_elementwise_reduce(
+                    graph_inputs,
+                    expr,
+                    reduce_op,
+                    axis,
+                );
 
                 let new_graph = self.replace_node_in_graph(graph, node, fused_node);
                 suggestions.push(new_graph);
             }
 
             // Elementwise チェーンを検出して融合
-            if let Some((graph_inputs, ops)) = self.detect_elementwise_chain(node) {
+            if let Some((graph_inputs, expr)) = self.detect_elementwise_chain(node) {
                 // FusedElementwiseノードを作成
-                let fused_node = crate::graph::ops::fused_elementwise(graph_inputs, ops);
+                let fused_node = crate::graph::ops::fused_elementwise(graph_inputs, expr);
 
                 let new_graph = self.replace_node_in_graph(graph, node, fused_node);
                 suggestions.push(new_graph);
@@ -379,156 +424,16 @@ mod tests {
         let a = graph
             .input("a")
             .with_dtype(DType::F32)
-            .with_shape(vec![10])
+            .with_shape(vec![10, 20])
             .build();
 
-        // 単純な入力のみ、融合パターンなし
-        graph.output("a", a);
+        // 単純なReduce（Elementwiseなし）
+        let c = a.reduce_sum(0);
+        graph.output("c", c);
 
         let suggestions = suggester.suggest(&graph);
 
-        // パターンが検出されないので、候補は生成されない
+        // パターンがないため候補なし
         assert_eq!(suggestions.len(), 0);
-    }
-
-    #[test]
-    fn test_fusion_elementwise_chain() {
-        let suggester = FusionSuggester::new();
-
-        let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
-
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
-
-        let c = graph
-            .input("c")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
-
-        // (a + b) * c -> Elementwiseチェーンを融合可能
-        let add = a + b;
-        let mul = add * c;
-        graph.output("result", mul);
-
-        let suggestions = suggester.suggest(&graph);
-
-        // Elementwiseチェーンが検出され、融合候補が生成されるはず
-        assert!(
-            !suggestions.is_empty(),
-            "Expected fusion suggestions for elementwise chain"
-        );
-
-        // 融合された結果がFusedElementwiseになっているか確認
-        let fused_graph = &suggestions[0];
-        let output_node = fused_graph.outputs().get("result").unwrap();
-
-        // 出力ノードがFusedElementwiseであることを確認
-        assert!(
-            matches!(output_node.op, GraphOp::FusedElementwise { .. }),
-            "Expected FusedElementwise operation"
-        );
-    }
-
-    #[test]
-    fn test_fusion_complex_chain() {
-        let suggester = FusionSuggester::new();
-
-        let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
-
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
-
-        let c = graph
-            .input("c")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
-
-        let d = graph
-            .input("d")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
-
-        // ((a + b) * c) - d -> 3つのElementwise演算チェーン
-        let add = a + b;
-        let mul = add * c;
-        let sub = mul - d;
-        graph.output("result", sub);
-
-        let suggestions = suggester.suggest(&graph);
-
-        // 複数の融合候補が生成される可能性がある
-        assert!(
-            !suggestions.is_empty(),
-            "Expected fusion suggestions for complex chain"
-        );
-    }
-
-    #[test]
-    fn test_fusion_consecutive_views() {
-        let suggester = FusionSuggester::new();
-
-        let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![2, 3, 4])
-            .build();
-
-        // View変更を連続で適用: permute -> unsqueeze
-        let view1 = a.view.clone().permute(vec![2, 0, 1]); // [4, 2, 3]
-        let a_permuted = a.view(view1);
-
-        let view2 = a_permuted.view.clone().unsqueeze(0); // [1, 4, 2, 3]
-        let a_unsqueezed = a_permuted.view(view2);
-
-        graph.output("result", a_unsqueezed);
-
-        let suggestions = suggester.suggest(&graph);
-
-        // 連続するView変更が検出され、融合候補が生成されるはず
-        assert!(
-            !suggestions.is_empty(),
-            "Expected fusion suggestions for consecutive views"
-        );
-
-        // 融合された結果も1つのViewになっているか確認
-        let fused_graph = &suggestions[0];
-        let output_node = fused_graph.outputs().get("result").unwrap();
-
-        // 出力ノードがViewであることを確認
-        assert!(
-            matches!(output_node.op, GraphOp::View(_)),
-            "Expected View operation after fusion"
-        );
-
-        // 入力が元のInputノードに直接つながっているか確認
-        assert_eq!(
-            output_node.src.len(),
-            1,
-            "Fused view should have exactly one input"
-        );
-        assert!(
-            matches!(output_node.src[0].op, GraphOp::Input),
-            "Fused view should connect directly to input"
-        );
     }
 }

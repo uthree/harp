@@ -244,11 +244,11 @@ impl GraphNode {
     /// elementwise演算の後に累積演算を行う融合ノードを作成
     pub fn fused_elementwise_cumulative(
         inputs: Vec<Self>,
-        elementwise_ops: Vec<ops::FusedElementwiseOp>,
+        expr: crate::ast::AstNode,
         cumulative_op: ops::CumulativeOp,
         axis: usize,
     ) -> Self {
-        ops::fused_elementwise_cumulative(inputs, elementwise_ops, cumulative_op, axis)
+        ops::fused_elementwise_cumulative(inputs, expr, cumulative_op, axis)
     }
 
     /// 逆数を計算（1/x）
@@ -1483,15 +1483,12 @@ mod tests {
             .build();
 
         // 入力を二乗してから累積和: cumsum(x^2)
+        // expr: Wildcard("0") * Wildcard("0") (入力を二乗)
+        use crate::ast::helper::wildcard;
+        let expr = wildcard("0") * wildcard("0");
         let result = GraphNode::fused_elementwise_cumulative(
             vec![input],
-            vec![ops::FusedElementwiseOp {
-                op: ops::ElementwiseOp::Mul,
-                inputs: vec![
-                    ops::FusedInput::GraphInput(0),
-                    ops::FusedInput::GraphInput(0),
-                ],
-            }],
+            expr,
             ops::CumulativeOp::Sum,
             1, // 軸1に沿って累積
         );
@@ -1500,12 +1497,11 @@ mod tests {
         assert_eq!(result.view.shape().len(), 2);
         match &result.op {
             ops::GraphOp::FusedElementwiseCumulative {
-                elementwise_ops,
+                expr: _,
                 cumulative_op,
                 axis,
                 ..
             } => {
-                assert_eq!(elementwise_ops.len(), 1);
                 assert_eq!(*cumulative_op, ops::CumulativeOp::Sum);
                 assert_eq!(*axis, 1);
             }
@@ -1523,15 +1519,12 @@ mod tests {
             .build();
 
         // 入力に2を加えてから累積積: cumprod(x + 2)
+        // expr: Wildcard("0") + Const(2.0)
+        use crate::ast::{Literal, helper::wildcard};
+        let expr = wildcard("0") + crate::ast::AstNode::Const(Literal::F32(2.0));
         let result = GraphNode::fused_elementwise_cumulative(
             vec![x],
-            vec![ops::FusedElementwiseOp {
-                op: ops::ElementwiseOp::Add,
-                inputs: vec![
-                    ops::FusedInput::GraphInput(0),
-                    ops::FusedInput::Const(crate::ast::Literal::F32(2.0)),
-                ],
-            }],
+            expr,
             ops::CumulativeOp::Prod,
             0, // 軸0に沿って累積
         );
@@ -1560,17 +1553,10 @@ mod tests {
             .build();
 
         // 無効な軸（2次元テンソルに対して軸2）
-        let _result = GraphNode::fused_elementwise_cumulative(
-            vec![input],
-            vec![ops::FusedElementwiseOp {
-                op: ops::ElementwiseOp::Mul,
-                inputs: vec![
-                    ops::FusedInput::GraphInput(0),
-                    ops::FusedInput::GraphInput(0),
-                ],
-            }],
-            ops::CumulativeOp::Sum,
-            2,
-        );
+        // expr: Wildcard("0") * Wildcard("0")
+        use crate::ast::helper::wildcard;
+        let expr = wildcard("0") * wildcard("0");
+        let _result =
+            GraphNode::fused_elementwise_cumulative(vec![input], expr, ops::CumulativeOp::Sum, 2);
     }
 }

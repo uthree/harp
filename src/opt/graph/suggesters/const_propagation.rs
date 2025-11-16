@@ -215,28 +215,73 @@ impl ConstPropagationSuggester {
         original_view: crate::graph::View,
         original_dtype: crate::graph::DType,
     ) -> GraphNode {
-        use crate::graph::ops::{FusedElementwiseOp, FusedInput};
+        use crate::ast::{AstNode, Literal as AstLiteral, helper::wildcard};
 
-        // 非定数入力をGraphInputとして登録
-        let graph_inputs: Vec<FusedInput> = (0..non_const_inputs.len())
-            .map(FusedInput::GraphInput)
+        // 非定数入力をWildcardとして参照
+        let non_const_args: Vec<AstNode> = (0..non_const_inputs.len())
+            .map(|i| wildcard(i.to_string()))
             .collect();
 
-        // 定数入力を追加
-        let mut all_inputs = graph_inputs;
-        all_inputs.push(FusedInput::Const(const_value));
+        // 定数値をAstNodeに変換
+        let const_ast = match const_value {
+            Literal::F32(v) => AstNode::Const(AstLiteral::F32(v)),
+            Literal::Int(v) => AstNode::Const(AstLiteral::Int(v)),
+        };
 
-        // FusedElementwiseOpを作成
-        let fused_op = FusedElementwiseOp {
-            op,
-            inputs: all_inputs,
+        // ElementwiseOpに基づいてAstNode式を構築
+        let expr = match op {
+            ElementwiseOp::Add => {
+                assert_eq!(non_const_args.len(), 1);
+                non_const_args[0].clone() + const_ast
+            }
+            ElementwiseOp::Mul => {
+                assert_eq!(non_const_args.len(), 1);
+                non_const_args[0].clone() * const_ast
+            }
+            ElementwiseOp::Max => {
+                assert_eq!(non_const_args.len(), 1);
+                AstNode::Max(Box::new(non_const_args[0].clone()), Box::new(const_ast))
+            }
+            ElementwiseOp::Rem => {
+                assert_eq!(non_const_args.len(), 1);
+                non_const_args[0].clone() % const_ast
+            }
+            ElementwiseOp::Idiv => {
+                assert_eq!(non_const_args.len(), 1);
+                non_const_args[0].clone() / const_ast
+            }
+            ElementwiseOp::Neg => {
+                // Negは単項演算なので定数は使用されないはず
+                assert_eq!(non_const_args.len(), 1);
+                -non_const_args[0].clone()
+            }
+            ElementwiseOp::Recip => {
+                assert_eq!(non_const_args.len(), 1);
+                AstNode::Recip(Box::new(non_const_args[0].clone()))
+            }
+            ElementwiseOp::Log2 => {
+                assert_eq!(non_const_args.len(), 1);
+                AstNode::Log2(Box::new(non_const_args[0].clone()))
+            }
+            ElementwiseOp::Exp2 => {
+                assert_eq!(non_const_args.len(), 1);
+                AstNode::Exp2(Box::new(non_const_args[0].clone()))
+            }
+            ElementwiseOp::Sin => {
+                assert_eq!(non_const_args.len(), 1);
+                AstNode::Sin(Box::new(non_const_args[0].clone()))
+            }
+            ElementwiseOp::Sqrt => {
+                assert_eq!(non_const_args.len(), 1);
+                AstNode::Sqrt(Box::new(non_const_args[0].clone()))
+            }
         };
 
         // FusedElementwiseノードを作成
         GraphNode::new(
             original_dtype,
             GraphOp::FusedElementwise {
-                ops: vec![fused_op],
+                expr,
                 elementwise_strategies: None,
             },
             non_const_inputs,

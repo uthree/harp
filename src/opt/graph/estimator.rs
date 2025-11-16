@@ -98,30 +98,21 @@ impl SimpleCostEstimator {
                 num_elements.ln()
                     + log_sum_exp((2.0 * MEMORY_ACCESS_COST).ln(), log_cumulative_cost)
             }
-            GraphOp::FusedElementwise { ops, .. } => {
+            GraphOp::FusedElementwise { expr, .. } => {
                 // 融合演算は中間バッファを節約
                 let num_elements = self.compute_num_elements(node);
-                let log_ops_cost = log_sum_exp_iter(
-                    ops.iter()
-                        .map(|fused_op| self.elementwise_op_cost(&fused_op.op)),
-                );
+                let log_ops_cost = self.ast_expr_cost(expr);
                 // 融合により中間バッファへのメモリアクセスが削減される
                 // 入力読み取り + 演算 + 出力書き込みのみ
                 let log_memory_cost = ((node.src.len() as f32 + 1.0) * MEMORY_ACCESS_COST).ln();
                 num_elements.ln() + log_sum_exp(log_ops_cost, log_memory_cost)
             }
             GraphOp::FusedElementwiseReduce {
-                elementwise_ops,
-                reduce_op,
-                ..
+                expr, reduce_op, ..
             } => {
                 let input = &node.src[0];
                 let num_elements = self.compute_num_elements(input);
-                let log_elementwise_cost = log_sum_exp_iter(
-                    elementwise_ops
-                        .iter()
-                        .map(|fused_op| self.elementwise_op_cost(&fused_op.op)),
-                );
+                let log_elementwise_cost = self.ast_expr_cost(expr);
                 let log_reduce_cost = self.reduce_op_cost(reduce_op);
                 // 入力読み取り + elementwise演算 + reduce演算
                 num_elements.ln()
@@ -131,17 +122,11 @@ impl SimpleCostEstimator {
                         log_reduce_cost,
                     ])
             }
-            GraphOp::FusedElementwiseCumulative {
-                elementwise_ops, ..
-            } => {
+            GraphOp::FusedElementwiseCumulative { expr, .. } => {
                 // FusedElementwiseCumulativeはCumulativeと同様の逐次依存性
                 // + elementwise演算のコスト
                 let num_elements = self.compute_num_elements(node);
-                let log_elementwise_cost = log_sum_exp_iter(
-                    elementwise_ops
-                        .iter()
-                        .map(|fused_op| self.elementwise_op_cost(&fused_op.op)),
-                );
+                let log_elementwise_cost = self.ast_expr_cost(expr);
                 let log_cumulative_cost = 3.0_f32.ln(); // Sumのコスト
                 // 各要素で読み取り + elementwise演算 + 累積演算 + 書き込み
                 num_elements.ln()
@@ -204,6 +189,49 @@ impl SimpleCostEstimator {
         };
 
         base_factor * simd_factor * unroll_effect
+    }
+
+    /// AstNode式の演算コストを推定（対数スケール）
+    #[allow(clippy::only_used_in_recursion)]
+    fn ast_expr_cost(&self, expr: &crate::ast::AstNode) -> f32 {
+        use crate::ast::AstNode;
+        match expr {
+            AstNode::Wildcard(_) | AstNode::Const(_) | AstNode::Var(_) => {
+                // リーフノードはコストなし
+                f32::NEG_INFINITY
+            }
+            AstNode::Add(left, right)
+            | AstNode::Mul(left, right)
+            | AstNode::Max(left, right)
+            | AstNode::Rem(left, right)
+            | AstNode::Idiv(left, right) => {
+                // 基本演算コスト + 子ノードのコスト
+                let op_cost = 3.0_f32.ln(); // 基本演算コスト
+                let left_cost = self.ast_expr_cost(left);
+                let right_cost = self.ast_expr_cost(right);
+                log_sum_exp_iter(vec![op_cost, left_cost, right_cost])
+            }
+            AstNode::Recip(operand) | AstNode::Sqrt(operand) => {
+                // 重い演算 + 子ノードのコスト
+                let op_cost = 20.0_f32.ln();
+                let child_cost = self.ast_expr_cost(operand);
+                log_sum_exp(op_cost, child_cost)
+            }
+            AstNode::Log2(operand) | AstNode::Exp2(operand) | AstNode::Sin(operand) => {
+                // 非常に重い演算
+                let op_cost = 50.0_f32.ln();
+                let child_cost = self.ast_expr_cost(operand);
+                log_sum_exp(op_cost, child_cost)
+            }
+            AstNode::Cast(operand, _) => {
+                // キャストはほぼ無料
+                self.ast_expr_cost(operand)
+            }
+            _ => {
+                // その他の複雑なノードは基本コスト
+                3.0_f32.ln()
+            }
+        }
     }
 
     /// ノードの要素数を計算

@@ -3,7 +3,7 @@ use crate::graph::DType as GraphDType;
 
 #[test]
 fn test_lower_fused_elementwise() {
-    use crate::graph::ops::{ElementwiseOp, FusedElementwiseOp, FusedInput};
+    use crate::ast::helper::wildcard;
 
     // (a + b) * c を融合ノードとして生成
     let mut graph = Graph::new();
@@ -23,19 +23,10 @@ fn test_lower_fused_elementwise() {
         .with_shape(vec![10])
         .build();
 
-    // 融合演算を定義
-    let ops = vec![
-        FusedElementwiseOp {
-            op: ElementwiseOp::Add,
-            inputs: vec![FusedInput::GraphInput(0), FusedInput::GraphInput(1)],
-        },
-        FusedElementwiseOp {
-            op: ElementwiseOp::Mul,
-            inputs: vec![FusedInput::IntermediateResult(0), FusedInput::GraphInput(2)],
-        },
-    ];
+    // 融合演算を定義: (Wildcard("0") + Wildcard("1")) * Wildcard("2")
+    let expr = (wildcard("0") + wildcard("1")) * wildcard("2");
 
-    let result = crate::graph::ops::fused_elementwise(vec![a, b, c], ops);
+    let result = crate::graph::ops::fused_elementwise(vec![a, b, c], expr);
 
     // カーネル関数を生成
     let mut lowerer = Lowerer::new();
@@ -69,7 +60,8 @@ fn test_lower_fused_elementwise() {
 
 #[test]
 fn test_lower_fused_elementwise_reduce() {
-    use crate::graph::ops::{ElementwiseOp, FusedElementwiseOp, FusedInput, ReduceOp};
+    use crate::ast::helper::wildcard;
+    use crate::graph::ops::ReduceOp;
 
     // reduce_sum(a * b, axis=0) を融合ノードとして生成
     let mut graph = Graph::new();
@@ -84,13 +76,10 @@ fn test_lower_fused_elementwise_reduce() {
         .with_shape(vec![10, 20])
         .build();
 
-    // 融合演算を定義: a * b
-    let ops = vec![FusedElementwiseOp {
-        op: ElementwiseOp::Mul,
-        inputs: vec![FusedInput::GraphInput(0), FusedInput::GraphInput(1)],
-    }];
+    // 融合演算を定義: Wildcard("0") * Wildcard("1")
+    let expr = wildcard("0") * wildcard("1");
 
-    let result = crate::graph::ops::fused_elementwise_reduce(vec![a, b], ops, ReduceOp::Sum, 0);
+    let result = crate::graph::ops::fused_elementwise_reduce(vec![a, b], expr, ReduceOp::Sum, 0);
 
     // カーネル関数を生成
     let mut lowerer = Lowerer::new();

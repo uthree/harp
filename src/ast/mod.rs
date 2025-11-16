@@ -511,6 +511,43 @@ impl AstNode {
             _ => None,
         }
     }
+
+    /// Substitute Wildcard nodes with provided mappings
+    ///
+    /// This recursively traverses the AST and replaces Wildcard("name") with the
+    /// corresponding AstNode from the mapping. Used for fused operations where
+    /// Wildcard("0"), Wildcard("1"), etc. represent input sources.
+    ///
+    /// # Example
+    /// ```
+    /// use harp::ast::{AstNode, helper::*};
+    /// use std::collections::HashMap;
+    ///
+    /// // Create an expression: Wildcard("0") + Wildcard("1")
+    /// let expr = wildcard("0") + wildcard("1");
+    ///
+    /// // Create mappings
+    /// let mut mappings = HashMap::new();
+    /// mappings.insert("0".to_string(), const_f32(2.0));
+    /// mappings.insert("1".to_string(), const_f32(3.0));
+    ///
+    /// // Substitute wildcards
+    /// let result = expr.substitute(&mappings);
+    ///
+    /// // Result is: const_f32(2.0) + const_f32(3.0)
+    /// ```
+    pub fn substitute(&self, mappings: &std::collections::HashMap<String, AstNode>) -> AstNode {
+        match self {
+            AstNode::Wildcard(name) => {
+                if let Some(replacement) = mappings.get(name) {
+                    replacement.clone()
+                } else {
+                    self.clone()
+                }
+            }
+            _ => self.map_children(&|child| child.substitute(mappings)),
+        }
+    }
 }
 
 #[cfg(test)]

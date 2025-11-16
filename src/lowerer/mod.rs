@@ -599,30 +599,24 @@ impl Lowerer {
                 self.lower_cumulative_kernel(node, node_id, op, *axis)
             }
             GraphOp::Contiguous { .. } => self.lower_contiguous_kernel(node, node_id),
-            GraphOp::FusedElementwise { ops, .. } => {
-                self.lower_fused_elementwise_kernel(node, node_id, ops)
+            GraphOp::FusedElementwise { expr, .. } => {
+                self.lower_fused_elementwise_kernel(node, node_id, expr)
             }
             GraphOp::FusedElementwiseReduce {
-                elementwise_ops,
+                expr,
                 reduce_op,
                 axis,
                 ..
-            } => self.lower_fused_elementwise_reduce_kernel(
-                node,
-                node_id,
-                elementwise_ops,
-                reduce_op,
-                *axis,
-            ),
+            } => self.lower_fused_elementwise_reduce_kernel(node, node_id, expr, reduce_op, *axis),
             GraphOp::FusedElementwiseCumulative {
-                elementwise_ops,
+                expr,
                 cumulative_op,
                 axis,
                 ..
             } => self.lower_fused_elementwise_cumulative_kernel(
                 node,
                 node_id,
-                elementwise_ops,
+                expr,
                 cumulative_op,
                 *axis,
             ),

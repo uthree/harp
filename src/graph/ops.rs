@@ -26,19 +26,20 @@ pub enum GraphOp {
         cumulative_strategy: Option<CumulativeStrategy>,
     }, // 累積
     // 融合演算
+    // expr内のWildcard("0"), Wildcard("1")等がsrc[0], src[1]に対応
     FusedElementwise {
-        ops: Vec<FusedElementwiseOp>,
+        expr: crate::ast::AstNode,
         elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
     }, // 複数のelementwise演算を融合
     FusedElementwiseReduce {
-        elementwise_ops: Vec<FusedElementwiseOp>,
+        expr: crate::ast::AstNode,
         reduce_op: ReduceOp,
         axis: usize,
         elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
         reduce_strategy: Option<ReduceStrategy>,
     }, // elementwise -> reduce パターンを融合
     FusedElementwiseCumulative {
-        elementwise_ops: Vec<FusedElementwiseOp>,
+        expr: crate::ast::AstNode,
         cumulative_op: CumulativeOp,
         axis: usize,
         elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
@@ -78,24 +79,6 @@ pub enum ReduceOp {
 pub enum CumulativeOp {
     Sum,  // 累積和（cumsum）
     Prod, // 累積積（cumprod）
-}
-
-/// 融合されたelementwise演算チェーンの各ステップ
-#[derive(Debug, Clone)]
-pub struct FusedElementwiseOp {
-    pub op: ElementwiseOp,
-    pub inputs: Vec<FusedInput>,
-}
-
-/// 融合演算の入力ソース
-#[derive(Debug, Clone, PartialEq)]
-pub enum FusedInput {
-    /// GraphNodeのsrc[i]からの入力
-    GraphInput(usize),
-    /// ops[i]の中間結果
-    IntermediateResult(usize),
-    /// 定数値（ブロードキャストされる）
-    Const(crate::ast::Literal),
 }
 
 // DTypeの推論：両方が同じならそれを使う、片方がUnknownなら他方を使う
@@ -509,15 +492,22 @@ pub fn cumprod(node: GraphNode, axis: usize) -> GraphNode {
 
 /// 複数のelementwise演算を融合したノードを作成
 ///
+/// expr内のWildcard("0"), Wildcard("1")等がsrc[0], src[1]に対応します。
+///
 /// # 例
 /// ```no_run
 /// use harp::prelude::*;
+/// use harp::ast::helper::wildcard;
+/// let mut graph = Graph::new();
+/// let a = graph.input("a").with_dtype(DType::F32).with_shape([4]).build();
+/// let b = graph.input("b").with_dtype(DType::F32).with_shape([4]).build();
+/// let c = graph.input("c").with_dtype(DType::F32).with_shape([4]).build();
+///
 /// // (a + b) * c を融合して生成
-/// // ops[0]: Add(inputs: [GraphInput(0), GraphInput(1)])
-/// // ops[1]: Mul(inputs: [IntermediateResult(0), GraphInput(2)])
+/// let expr = (wildcard("0") + wildcard("1")) * wildcard("2");
+/// let result = fused_elementwise(vec![a, b, c], expr);
 /// ```
-pub fn fused_elementwise(inputs: Vec<GraphNode>, ops: Vec<FusedElementwiseOp>) -> GraphNode {
-    // 最後の演算の結果がこのノードの出力
+pub fn fused_elementwise(inputs: Vec<GraphNode>, expr: crate::ast::AstNode) -> GraphNode {
     // DTypeとViewは最初の入力から継承（全入力が同じshapeであることを前提）
     if inputs.is_empty() {
         panic!("fused_elementwise requires at least one input");
@@ -529,7 +519,7 @@ pub fn fused_elementwise(inputs: Vec<GraphNode>, ops: Vec<FusedElementwiseOp>) -
     GraphNode::new(
         dtype,
         GraphOp::FusedElementwise {
-            ops,
+            expr,
             elementwise_strategies: None,
         },
         inputs,
@@ -539,14 +529,23 @@ pub fn fused_elementwise(inputs: Vec<GraphNode>, ops: Vec<FusedElementwiseOp>) -
 
 /// elementwise演算とそれに続くreduce演算を融合したノードを作成
 ///
+/// expr内のWildcard("0"), Wildcard("1")等がsrc[0], src[1]に対応します。
+///
 /// # 例
 /// ```no_run
 /// use harp::prelude::*;
-/// // reduce_sum(a * b, axis=0) を融合して生成
+/// use harp::ast::helper::wildcard;
+/// let mut graph = Graph::new();
+/// let a = graph.input("a").with_dtype(DType::F32).with_shape([4, 8]).build();
+/// let b = graph.input("b").with_dtype(DType::F32).with_shape([4, 8]).build();
+///
+/// // reduce_sum(a * b, axis=1) を融合して生成
+/// let expr = wildcard("0") * wildcard("1");
+/// let result = fused_elementwise_reduce(vec![a, b], expr, ReduceOp::Sum, 1);
 /// ```
 pub fn fused_elementwise_reduce(
     inputs: Vec<GraphNode>,
-    elementwise_ops: Vec<FusedElementwiseOp>,
+    expr: crate::ast::AstNode,
     reduce_op: ReduceOp,
     axis: usize,
 ) -> GraphNode {
@@ -571,7 +570,7 @@ pub fn fused_elementwise_reduce(
     GraphNode::new(
         dtype,
         GraphOp::FusedElementwiseReduce {
-            elementwise_ops,
+            expr,
             reduce_op,
             axis,
             elementwise_strategies: None,
@@ -584,27 +583,23 @@ pub fn fused_elementwise_reduce(
 
 /// 複数のelementwise演算の後に累積演算を行う融合ノードを作成
 ///
+/// expr内のWildcard("0"), Wildcard("1")等がsrc[0], src[1]に対応します。
+///
 /// # 例
 /// ```no_run
 /// use harp::prelude::*;
-/// use harp::graph::ops::{fused_elementwise_cumulative, FusedElementwiseOp, FusedInput, ElementwiseOp, CumulativeOp};
+/// use harp::ast::helper::wildcard;
+/// use harp::graph::ops::{CumulativeOp, fused_elementwise_cumulative};
 /// let mut graph = Graph::new();
 /// let x = graph.input("x").with_dtype(DType::F32).with_shape([4, 8]).build();
 ///
 /// // 入力を二乗してから累積和: cumsum(x^2)
-/// let squared_cumsum = fused_elementwise_cumulative(
-///     vec![x],
-///     vec![FusedElementwiseOp {
-///         op: ElementwiseOp::Mul,
-///         inputs: vec![FusedInput::GraphInput(0), FusedInput::GraphInput(0)],
-///     }],
-///     CumulativeOp::Sum,
-///     1, // 軸1に沿って累積
-/// );
+/// let expr = wildcard("0") * wildcard("0");
+/// let squared_cumsum = fused_elementwise_cumulative(vec![x], expr, CumulativeOp::Sum, 1);
 /// ```
 pub fn fused_elementwise_cumulative(
     inputs: Vec<GraphNode>,
-    elementwise_ops: Vec<FusedElementwiseOp>,
+    expr: crate::ast::AstNode,
     cumulative_op: CumulativeOp,
     axis: usize,
 ) -> GraphNode {
@@ -627,7 +622,7 @@ pub fn fused_elementwise_cumulative(
     GraphNode::new(
         dtype,
         GraphOp::FusedElementwiseCumulative {
-            elementwise_ops,
+            expr,
             cumulative_op,
             axis,
             elementwise_strategies: None,

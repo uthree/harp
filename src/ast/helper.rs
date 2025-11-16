@@ -44,6 +44,11 @@ pub fn var(name: impl Into<String>) -> AstNode {
     AstNode::Var(name.into())
 }
 
+/// Create a wildcard node for pattern matching or input capture
+pub fn wildcard(name: impl Into<String>) -> AstNode {
+    AstNode::Wildcard(name.into())
+}
+
 /// Create a load node for scalar memory access
 pub fn load(ptr: AstNode, offset: AstNode, dtype: DType) -> AstNode {
     AstNode::Load {

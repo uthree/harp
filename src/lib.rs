@@ -67,9 +67,6 @@ pub mod prelude {
         reduce_mul, reduce_sum,
     };
 
-    // Fused operation types
-    pub use crate::graph::ops::{FusedElementwiseOp, FusedInput};
-
     // Backend traits
     pub use crate::backend::{Buffer, Compiler, Kernel, KernelSignature, Query, QueryBuilder};
 

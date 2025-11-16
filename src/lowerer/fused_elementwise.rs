@@ -1,9 +1,7 @@
 use crate::ast::{AstNode, Literal, Mutability, Scope, helper::*};
-use crate::graph::{
-    GraphNode,
-    ops::{FusedElementwiseOp, FusedInput},
-};
+use crate::graph::GraphNode;
 use log::debug;
+use std::collections::HashMap;
 
 use super::Lowerer;
 
@@ -13,12 +11,9 @@ impl Lowerer {
         &mut self,
         node: &GraphNode,
         node_id: usize,
-        ops: &[FusedElementwiseOp],
+        expr: &AstNode,
     ) -> Result<AstNode, String> {
-        debug!(
-            "Lowering fused elementwise operation with {} ops",
-            ops.len()
-        );
+        debug!("Lowering fused elementwise operation with expr");
         debug!("View: {:?}", node.view);
 
         let shape = node.view.shape();
@@ -38,7 +33,8 @@ impl Lowerer {
 
         // ループ本体の生成
         let mut scope = Scope::new();
-        let body_statements = self.generate_fused_elementwise_loops(node, ops, ndim, &mut scope)?;
+        let body_statements =
+            self.generate_fused_elementwise_loops(node, expr, ndim, &mut scope)?;
 
         // カーネル関数を作成して返す
         Ok(self.create_kernel_function(node_id, params, body_statements, scope))
@@ -48,7 +44,7 @@ impl Lowerer {
     fn generate_fused_elementwise_loops(
         &mut self,
         node: &GraphNode,
-        ops: &[FusedElementwiseOp],
+        expr: &AstNode,
         ndim: usize,
         scope: &mut Scope,
     ) -> Result<Vec<AstNode>, String> {
@@ -56,12 +52,16 @@ impl Lowerer {
 
         if ndim == 0 {
             // スカラー演算（ループなし）
-            return self.generate_fused_elementwise_body(node, ops, &[], scope);
+            return self.generate_fused_elementwise_body(node, expr, &[], scope);
         }
 
         // ネストしたループを生成（外側から内側へ）
-        let mut body_statements =
-            self.generate_fused_elementwise_body(node, ops, &(0..ndim).collect::<Vec<_>>(), scope)?;
+        let mut body_statements = self.generate_fused_elementwise_body(
+            node,
+            expr,
+            &(0..ndim).collect::<Vec<_>>(),
+            scope,
+        )?;
 
         // ループを逆順に作成（内側から外側へ）
         for axis in (0..ndim).rev() {
@@ -106,7 +106,7 @@ impl Lowerer {
     fn generate_fused_elementwise_body(
         &mut self,
         node: &GraphNode,
-        ops: &[FusedElementwiseOp],
+        expr: &AstNode,
         axes: &[usize],
         scope: &mut Scope,
     ) -> Result<Vec<AstNode>, String> {
@@ -119,8 +119,8 @@ impl Lowerer {
             1
         };
 
-        // 全ての入力をロード
-        let mut graph_inputs = Vec::new();
+        // 全ての入力をロードし、Wildcardのマッピングを作成
+        let mut mappings: HashMap<String, AstNode> = HashMap::new();
         for (i, src) in node.src.iter().enumerate() {
             let alu_var = self.fresh_alu();
             let input_ptr = var(format!("input{}", i));
@@ -146,47 +146,18 @@ impl Lowerer {
 
             // 初期値を代入
             statements.push(assign(&alu_var, load_node));
-            graph_inputs.push(alu_var);
+
+            // Wildcard("0"), Wildcard("1") 等に対応する変数をマッピング
+            mappings.insert(i.to_string(), var(&alu_var));
         }
 
-        // 中間結果をAstNodeとして保存する配列（変数名ではなく式そのもの）
-        let mut intermediate_results: Vec<AstNode> = Vec::new();
+        // exprのWildcardを置き換えて最終的な式を生成
+        let final_result = expr.substitute(&mappings);
 
-        // ops配列を順に評価して、最終的な式を構築
-        for fused_op in ops {
-            // この演算の入力を取得
-            let mut operands = Vec::new();
-            for input in &fused_op.inputs {
-                let operand = match input {
-                    FusedInput::GraphInput(idx) => {
-                        // GraphNodeのsrc[i]から読み込んだ値
-                        var(&graph_inputs[*idx])
-                    }
-                    FusedInput::IntermediateResult(idx) => {
-                        // ops[i]の中間結果（式として保持）
-                        intermediate_results[*idx].clone()
-                    }
-                    FusedInput::Const(lit) => {
-                        // 定数値を直接埋め込む
-                        AstNode::Const(lit.clone())
-                    }
-                };
-                operands.push(operand);
-            }
-
-            // 演算を適用（結果は式として保存）
-            let result = self.apply_elementwise_op(&fused_op.op, &operands)?;
-            intermediate_results.push(result);
-        }
-
-        // 最後の演算結果を出力にストア（1つの式として）
-        if let Some(final_result) = intermediate_results.last() {
-            let output_ptr = var("output");
-            let output_offset = self.compute_offset_from_view(node, axes);
-            statements.push(store(output_ptr, output_offset, final_result.clone()));
-        } else {
-            return Err("FusedElementwise requires at least one operation".to_string());
-        }
+        // 最終結果を出力にストア
+        let output_ptr = var("output");
+        let output_offset = self.compute_offset_from_view(node, axes);
+        statements.push(store(output_ptr, output_offset, final_result));
 
         Ok(statements)
     }

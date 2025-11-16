@@ -159,7 +159,7 @@ impl Lowerer {
     }
 
     /// Cumulative演算用のオフセット計算
-    fn compute_offset_for_cumulative(
+    pub(super) fn compute_offset_for_cumulative(
         &self,
         node: &GraphNode,
         ndim: usize,

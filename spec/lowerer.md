@@ -105,31 +105,54 @@ for (int idx0 = 0; idx0 < shape0; idx0 += 1) {
 
 ### 融合演算
 
+融合演算は **AstNode式**を使用して、elementwise演算パターンを表現します。
+`Wildcard("0")`, `Wildcard("1")` 等が `src[0]`, `src[1]` に対応し、`substitute()` メソッドで実際の入力値に置き換えられます。
+
 #### FusedElementwise
 複数のelementwise演算を1つのカーネルに融合。
-- 全入力をロード→演算チェーンを順に評価→最後の結果をストア
+- 全入力をロード→AstNode式のWildcardを置き換え→結果をストア
 - 中間バッファを削減し、メモリアクセスを削減
+
+```rust
+use harp::ast::helper::wildcard;
+// (a + b) * c を融合
+let expr = (wildcard("0") + wildcard("1")) * wildcard("2");
+let result = fused_elementwise(vec![a, b, c], expr);
+```
 
 #### FusedElementwiseReduce
 elementwise演算とそれに続くreduce演算を融合。
 - 出力軸でループ（`oidx{i}`）→縮約軸でループ（`ridx{reduce_axis}`）
-- 各反復でelementwise演算チェーンを評価→アキュムレート
+- 各反復でAstNode式を評価→アキュムレート
 - スカラー出力と指定軸縮約の両方に対応
 - インデックス管理が複雑（`oidx` + `ridx`の組み合わせ）
+
+```rust
+// reduce_sum(a * b, axis=0)
+let expr = wildcard("0") * wildcard("1");
+let result = fused_elementwise_reduce(vec![a, b], expr, ReduceOp::Sum, 0);
+```
 
 #### FusedElementwiseCumulative
 elementwise演算とそれに続く累積演算を融合。
 - 累積軸以外の軸でループ（`idx{i}`）→累積軸でループ（`cumidx{axis}`）
-- 各反復でelementwise演算チェーンを評価→アキュムレータ更新→結果書き込み
+- 各反復でAstNode式を評価→アキュムレータ更新→結果書き込み
 - 出力shapeは入力と同じ（reduceとは異なり軸を消さない）
 
+```rust
+// cumsum(x^2)
+let expr = wildcard("0") * wildcard("0");  // 二乗
+let result = fused_elementwise_cumulative(vec![x], expr, CumulativeOp::Sum, 1);
+```
+
+生成されるコード例：
 ```c
 // 例: cumsum(x^2)
 for (int idx0 = 0; idx0 < shape0; idx0 += 1) {
     float acc0 = 0f;
     for (int cumidx1 = 0; cumidx1 < shape1; cumidx1 += 1) {
         float alu0 = input0[idx0 * stride0 + cumidx1 * stride1];
-        float alu1 = alu0 * alu0;  // elementwise演算
+        float alu1 = alu0 * alu0;  // elementwise演算（AstNode式の評価結果）
         acc0 = acc0 + alu1;        // cumulative演算
         output[idx0 * out_stride0 + cumidx1 * out_stride1] = acc0;
     }
@@ -146,9 +169,10 @@ FusedElementwiseReduceを使用して行列積を実装できます：
 let a_expanded = a.view(...unsqueeze(1).expand([M, N, K]));
 let b_transposed = b.view(...permute([1, 0]));
 let b_t_expanded = b_transposed.view(...unsqueeze(0).expand([M, N, K]));
+let expr = wildcard("0") * wildcard("1");
 fused_elementwise_reduce(
     vec![a_expanded, b_t_expanded],
-    vec![FusedElementwiseOp { op: Mul, inputs: [GraphInput(0), GraphInput(1)] }],
+    expr,
     ReduceOp::Sum,
     axis=2
 )

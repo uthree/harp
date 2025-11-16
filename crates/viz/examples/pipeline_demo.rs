@@ -3,10 +3,10 @@
 //! 行列積を含む複雑な計算グラフを作成し、GenericPipelineで最適化を実行して
 //! その過程を可視化します。
 
+use harp::ast::helper::wildcard;
 use harp::backend::openmp::{CCompiler, CRenderer};
 use harp::backend::{GenericPipeline, OptimizationConfig};
 use harp::graph::{DType, Graph, GraphNode};
-use harp::prelude::{FusedElementwiseOp, FusedInput};
 use harp_viz::HarpVizApp;
 
 fn main() -> eframe::Result {
@@ -147,7 +147,7 @@ fn main() -> eframe::Result {
 fn matmul(a: GraphNode, b: GraphNode) -> GraphNode {
     use harp::graph::ops::fused_elementwise_reduce;
     use harp::graph::shape::Expr;
-    use harp::graph::{ElementwiseOp, ReduceOp};
+    use harp::graph::ReduceOp;
 
     let a_shape = a.view.shape();
     let b_shape = b.view.shape();
@@ -231,12 +231,11 @@ fn matmul(a: GraphNode, b: GraphNode) -> GraphNode {
     let b_t_expanded = b_t_unsqueezed.view(b_t_unsqueezed.view.clone().expand(expanded_shape));
 
     // FusedElementwiseReduceを使用
+    // expr: Wildcard("0") * Wildcard("1")
+    let expr = wildcard("0") * wildcard("1");
     fused_elementwise_reduce(
         vec![a_expanded, b_t_expanded],
-        vec![FusedElementwiseOp {
-            op: ElementwiseOp::Mul,
-            inputs: vec![FusedInput::GraphInput(0), FusedInput::GraphInput(1)],
-        }],
+        expr,
         ReduceOp::Sum,
         2, // K軸でreduce
     )

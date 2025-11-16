@@ -1,11 +1,12 @@
+use harp::ast::helper::wildcard;
 use harp::backend::GenericPipeline;
 /// FusedElementwiseReduceを使用した行列積の統合テスト
 ///
 /// View展開とFusedElementwiseReduceを組み合わせた行列積の実装を検証します。
 /// このテストはloweringとコード生成が正しく動作することを確認します。
 use harp::backend::openmp::{CCompiler, CRenderer};
-use harp::graph::{DType, ElementwiseOp, Graph, GraphNode};
-use harp::prelude::{FusedElementwiseOp, FusedInput, ReduceOp, fused_elementwise_reduce};
+use harp::graph::{DType, Graph, GraphNode};
+use harp::prelude::{ReduceOp, fused_elementwise_reduce};
 
 /// 行列積を計算するヘルパー関数
 /// C = A @ B (A: [M, K], B: [K, N]) -> C: [M, N]
@@ -33,12 +34,11 @@ fn matmul(a: GraphNode, b: GraphNode) -> GraphNode {
     let b_t_expanded = b_t_unsqueezed.view(b_t_unsqueezed.view.clone().expand(expanded_shape));
 
     // FusedElementwiseReduce: multiply + sum over K axis
+    // expr: Wildcard("0") * Wildcard("1")
+    let expr = wildcard("0") * wildcard("1");
     fused_elementwise_reduce(
         vec![a_expanded, b_t_expanded],
-        vec![FusedElementwiseOp {
-            op: ElementwiseOp::Mul,
-            inputs: vec![FusedInput::GraphInput(0), FusedInput::GraphInput(1)],
-        }],
+        expr,
         ReduceOp::Sum,
         2, // K軸でreduce
     )

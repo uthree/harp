@@ -1,11 +1,9 @@
 // FusedElementwiseCumulative演算のコード生成
 
 use crate::ast::{AstNode, DType as AstDType, Mutability, Scope, helper::*};
-use crate::graph::{
-    GraphNode,
-    ops::{CumulativeOp, FusedElementwiseOp, FusedInput},
-};
+use crate::graph::{GraphNode, ops::CumulativeOp};
 use log::debug;
+use std::collections::HashMap;
 
 use super::Lowerer;
 
@@ -15,15 +13,13 @@ impl Lowerer {
         &mut self,
         node: &GraphNode,
         node_id: usize,
-        elementwise_ops: &[FusedElementwiseOp],
+        expr: &AstNode,
         cumulative_op: &CumulativeOp,
         axis: usize,
     ) -> Result<AstNode, String> {
         debug!(
-            "Lowering fused elementwise-cumulative operation: {} elementwise ops, cumulative: {:?} on axis {}",
-            elementwise_ops.len(),
-            cumulative_op,
-            axis
+            "Lowering fused elementwise-cumulative operation: cumulative {:?} on axis {}",
+            cumulative_op, axis
         );
 
         if node.src.is_empty() {
@@ -56,12 +52,8 @@ impl Lowerer {
         params.extend(self.extract_shape_params(input_shape));
 
         // ループ本体の生成
-        let body_statements = self.generate_fused_elementwise_cumulative_loops(
-            node,
-            elementwise_ops,
-            cumulative_op,
-            axis,
-        )?;
+        let body_statements =
+            self.generate_fused_elementwise_cumulative_loops(node, expr, cumulative_op, axis)?;
 
         debug!(
             "Generated fused elementwise-cumulative function with {} parameters",
@@ -76,7 +68,7 @@ impl Lowerer {
     fn generate_fused_elementwise_cumulative_loops(
         &mut self,
         node: &GraphNode,
-        elementwise_ops: &[FusedElementwiseOp],
+        expr: &AstNode,
         cumulative_op: &CumulativeOp,
         axis: usize,
     ) -> Result<Vec<AstNode>, String> {
@@ -86,8 +78,7 @@ impl Lowerer {
         let ndim = input_shape.len();
 
         // 累積演算本体を生成（アキュムレータ初期化、累積ループ）
-        let mut body_statements =
-            self.generate_fused_ec_body(node, elementwise_ops, cumulative_op, axis)?;
+        let mut body_statements = self.generate_fused_ec_body(node, expr, cumulative_op, axis)?;
 
         // 累積軸以外の各軸についてループを生成（逆順に、内側から外側へ）
         let mut current_scope = scope;
@@ -119,7 +110,7 @@ impl Lowerer {
     fn generate_fused_ec_body(
         &mut self,
         node: &GraphNode,
-        elementwise_ops: &[FusedElementwiseOp],
+        expr: &AstNode,
         cumulative_op: &CumulativeOp,
         axis: usize,
     ) -> Result<Vec<AstNode>, String> {
@@ -153,13 +144,20 @@ impl Lowerer {
         // 3. 結果を出力に書き込み
         let mut inner_statements = Vec::new();
 
-        // elementwise演算チェーンを評価
-        let elementwise_result = self.evaluate_fused_elementwise_chain_with_cumulative_axis(
-            elementwise_ops,
-            axis,
-            &loop_var,
-            node,
-        )?;
+        // 入力をロードしてマッピングを作成
+        let mut mappings = HashMap::new();
+        for (i, src) in node.src.iter().enumerate() {
+            let input_ptr = var(format!("input{}", i));
+            let src_ndim = src.view.shape().len();
+            let offset = self.compute_offset_for_cumulative(src, src_ndim, axis, &loop_var, "idx");
+            let src_ptr_dtype = self.graph_dtype_to_ast_ptr(&src.dtype)?;
+            let src_dtype = src_ptr_dtype.deref_type().clone();
+            let loaded = load(input_ptr, offset, src_dtype);
+            mappings.insert(i.to_string(), loaded);
+        }
+
+        // exprのWildcardを置き換えてelementwise演算結果を生成
+        let elementwise_result = expr.substitute(&mappings);
 
         let alu_var = self.fresh_alu();
         scope.declare(alu_var.clone(), acc_dtype.clone(), Mutability::Mutable)?;
@@ -171,7 +169,7 @@ impl Lowerer {
 
         // 結果を出力に書き込み（出力のインデックスは入力と同じ）
         let output_ptr = var("output");
-        let output_offset = self.compute_offset_for_cumulative_output(node, ndim, axis, &loop_var);
+        let output_offset = self.compute_offset_for_cumulative(node, ndim, axis, &loop_var, "idx");
         inner_statements.push(store(output_ptr, output_offset, var(&acc_var)));
 
         // ループを作成
@@ -182,117 +180,5 @@ impl Lowerer {
 
         // スコープをBlockにラップして返す
         Ok(vec![block(statements, scope)])
-    }
-
-    /// elementwise演算チェーンを評価（idx + cumidx変数を使用）
-    fn evaluate_fused_elementwise_chain_with_cumulative_axis(
-        &mut self,
-        ops: &[FusedElementwiseOp],
-        cumulative_axis: usize,
-        cumulative_var: &str,
-        node: &GraphNode,
-    ) -> Result<AstNode, String> {
-        // 全ての入力から値をロード（idx + cumidxを使用）
-        let mut graph_inputs = Vec::new();
-        for (i, src) in node.src.iter().enumerate() {
-            let input_ptr = var(format!("input{}", i));
-            let ndim = src.view.shape().len();
-            let offset = self.compute_offset_for_cumulative_input(
-                src,
-                ndim,
-                cumulative_axis,
-                cumulative_var,
-            );
-            let src_ptr_dtype = self.graph_dtype_to_ast_ptr(&src.dtype)?;
-            let src_dtype = src_ptr_dtype.deref_type().clone();
-            graph_inputs.push(load(input_ptr, offset, src_dtype));
-        }
-
-        // 中間結果を保存
-        let mut intermediate_results: Vec<AstNode> = Vec::new();
-
-        // ops配列を順に評価
-        for fused_op in ops {
-            let mut operands = Vec::new();
-            for input in &fused_op.inputs {
-                let operand = match input {
-                    FusedInput::GraphInput(idx) => graph_inputs[*idx].clone(),
-                    FusedInput::IntermediateResult(idx) => intermediate_results[*idx].clone(),
-                    FusedInput::Const(lit) => AstNode::Const(lit.clone()),
-                };
-                operands.push(operand);
-            }
-
-            let result = self.apply_elementwise_op(&fused_op.op, &operands)?;
-            intermediate_results.push(result);
-        }
-
-        // 最後の演算結果を返す
-        intermediate_results
-            .last()
-            .cloned()
-            .ok_or_else(|| "FusedElementwiseCumulative requires at least one operation".to_string())
-    }
-
-    /// Cumulative入力用のオフセット計算（idx + cumidx変数を使用）
-    fn compute_offset_for_cumulative_input(
-        &self,
-        node: &GraphNode,
-        ndim: usize,
-        cumulative_axis: usize,
-        cumulative_var: &str,
-    ) -> AstNode {
-        use crate::graph::shape::View;
-
-        match &node.view {
-            View::Linear {
-                strides, offset, ..
-            } => {
-                let mut result: AstNode = offset.clone().into();
-
-                for (i, stride_expr) in strides.iter().take(ndim).enumerate() {
-                    let idx_var = if i == cumulative_axis {
-                        var(cumulative_var)
-                    } else {
-                        var(format!("idx{}", i))
-                    };
-                    let stride: AstNode = stride_expr.clone().into();
-                    result = result + idx_var * stride;
-                }
-
-                result
-            }
-        }
-    }
-
-    /// Cumulative出力用のオフセット計算
-    fn compute_offset_for_cumulative_output(
-        &self,
-        node: &GraphNode,
-        ndim: usize,
-        cumulative_axis: usize,
-        cumulative_var: &str,
-    ) -> AstNode {
-        use crate::graph::shape::View;
-
-        match &node.view {
-            View::Linear {
-                strides, offset, ..
-            } => {
-                let mut result: AstNode = offset.clone().into();
-
-                for (i, stride_expr) in strides.iter().take(ndim).enumerate() {
-                    let idx_var = if i == cumulative_axis {
-                        var(cumulative_var)
-                    } else {
-                        var(format!("idx{}", i))
-                    };
-                    let stride: AstNode = stride_expr.clone().into();
-                    result = result + idx_var * stride;
-                }
-
-                result
-            }
-        }
     }
 }
