@@ -115,6 +115,22 @@ impl CBuffer {
             None
         }
     }
+
+    /// f32のVecからCBufferを作成（1次元）
+    pub fn from_f32_vec(data: Vec<f32>) -> Self {
+        let len = data.len();
+        let byte_data = unsafe {
+            std::slice::from_raw_parts(data.as_ptr() as *const u8, len * std::mem::size_of::<f32>())
+        }
+        .to_vec();
+
+        Self {
+            data: byte_data,
+            shape: vec![len],
+            element_size: std::mem::size_of::<f32>(),
+            dtype: DType::F32,
+        }
+    }
 }
 
 impl Buffer for CBuffer {

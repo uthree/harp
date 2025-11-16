@@ -8,6 +8,12 @@ pub use compiler::CCompiler;
 pub use kernel::CKernel;
 pub use renderer::CRenderer;
 
+/// libloading用のラッパー関数名
+///
+/// libloadingは固定シグネチャを期待するため、エントリーポイント関数を
+/// ラップする関数を生成する。この定数はレンダラーとコンパイラの両方で使用される。
+pub const LIBLOADING_WRAPPER_NAME: &str = "__harp_entry";
+
 /// CRenderer と CCompiler を組み合わせた Pipeline
 pub type CPipeline = crate::backend::GenericPipeline<CRenderer, CCompiler>;
 

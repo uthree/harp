@@ -1,23 +1,102 @@
 use crate::ast::{AstNode, DType, FunctionKind, Mutability, VarDecl, VarKind};
 use crate::backend::Renderer;
 use crate::backend::c_like::CLikeRenderer;
-use crate::backend::openmp::CCode;
+use crate::backend::openmp::{CCode, LIBLOADING_WRAPPER_NAME};
 
 /// C言語とOpenMP用のレンダラー
 #[derive(Debug, Clone)]
 pub struct CRenderer {
     indent_level: usize,
+    /// OpenMPヘッダーを含めるかどうか
+    include_openmp_header: bool,
 }
 
 impl CRenderer {
     pub fn new() -> Self {
-        Self { indent_level: 0 }
+        Self {
+            indent_level: 0,
+            include_openmp_header: true,
+        }
+    }
+
+    /// OpenMPヘッダーの有効/無効を設定
+    pub fn with_openmp_header(mut self, include: bool) -> Self {
+        self.include_openmp_header = include;
+        self
     }
 
     /// Programをレンダリング
     pub fn render_program(&mut self, program: &AstNode) -> CCode {
-        let code = CLikeRenderer::render_program_clike(self, program);
+        let mut code = CLikeRenderer::render_program_clike(self, program);
+
+        // libloading用のラッパー関数を生成
+        if let AstNode::Program {
+            functions,
+            entry_point,
+        } = program
+        {
+            // エントリーポイント関数を取得
+            if let Some(entry_func) = functions.iter().find(
+                |f| matches!(f, AstNode::Function { name: Some(name), .. } if name == entry_point),
+            ) {
+                let wrapper = self.generate_libloading_wrapper(entry_func, entry_point);
+                code.push_str(&wrapper);
+            }
+        }
+
         CCode::new(code)
+    }
+
+    /// libloading用のラッパー関数を生成
+    ///
+    /// libloadingは固定シグネチャ `void f(void** buffers)` を期待するため、
+    /// エントリーポイント関数をラップする関数を生成する。
+    fn generate_libloading_wrapper(&self, entry_func: &AstNode, entry_point: &str) -> String {
+        if let AstNode::Function { params, .. } = entry_func {
+            let mut result = String::new();
+
+            result.push_str("// === libloading Wrapper ===\n");
+            result.push_str(&format!(
+                "void {}(void** buffers) {{\n",
+                LIBLOADING_WRAPPER_NAME
+            ));
+
+            // エントリーポイント関数の呼び出しを生成
+            let mut call_args = Vec::new();
+            let mut buffer_idx = 0;
+
+            for param in params {
+                // ThreadId等の特殊な変数はスキップ（パラメータにならない）
+                match &param.kind {
+                    VarKind::Normal => {
+                        // パラメータの型に基づいてキャストを生成
+                        let type_str = self.render_dtype_backend(&param.dtype);
+                        let mut_str = match param.mutability {
+                            Mutability::Immutable => "const ",
+                            Mutability::Mutable => "",
+                        };
+                        call_args.push(format!(
+                            "({}{})(buffers[{}])",
+                            mut_str, type_str, buffer_idx
+                        ));
+                        buffer_idx += 1;
+                    }
+                    VarKind::ThreadId(_)
+                    | VarKind::GroupId(_)
+                    | VarKind::GroupSize(_)
+                    | VarKind::GridSize(_) => {
+                        // これらはパラメータに含まれないのでスキップ
+                    }
+                }
+            }
+
+            result.push_str(&format!("    {}({});\n", entry_point, call_args.join(", ")));
+            result.push_str("}\n");
+
+            result
+        } else {
+            String::new()
+        }
     }
 }
 
@@ -62,8 +141,14 @@ impl CLikeRenderer for CRenderer {
     }
 
     fn render_header(&self) -> String {
-        let mut header =
-            String::from("#include <math.h>\n#include <omp.h>\n#include <stdint.h>\n\n");
+        let mut header = String::from("#include <math.h>\n");
+
+        if self.include_openmp_header {
+            header.push_str("#include <omp.h>\n");
+        }
+
+        header.push_str("#include <stdint.h>\n");
+        header.push_str("#include <stdlib.h>\n\n");
 
         // GCC/Clangのベクトル拡張を使用したベクトル型の定義
         header.push_str("// SIMD vector types using GCC/Clang vector extensions\n");
@@ -215,6 +300,7 @@ mod tests {
     #[test]
     fn test_render_simple_program() {
         use crate::ast::Scope;
+        use crate::backend::openmp::LIBLOADING_WRAPPER_NAME;
 
         let func = AstNode::Function {
             kind: FunctionKind::Normal,
@@ -248,6 +334,16 @@ mod tests {
         assert!(code.contains("#include <omp.h>"));
         assert!(code.contains("void test_func("));
         assert!(code.contains("float* x"));
+
+        // libloading用のラッパー関数が生成されていることを確認
+        assert!(
+            code.contains(&format!("void {}(void** buffers)", LIBLOADING_WRAPPER_NAME)),
+            "libloading wrapper should be generated"
+        );
+        assert!(
+            code.contains("test_func((float*)(buffers[0]))"),
+            "wrapper should call entry point with correct cast"
+        );
     }
 
     #[test]
@@ -271,5 +367,62 @@ mod tests {
         // ベクトルロードのレンダリング
         let load_code = renderer.render_vector_load("input", "i", "float4");
         assert_eq!(load_code, "*(float4*)(&input[i])");
+    }
+
+    #[test]
+    fn test_libloading_wrapper_multiple_params() {
+        use crate::ast::Scope;
+        use crate::backend::openmp::LIBLOADING_WRAPPER_NAME;
+
+        let func = AstNode::Function {
+            kind: FunctionKind::Normal,
+            name: Some("main".to_string()),
+            params: vec![
+                VarDecl {
+                    name: "input0".to_string(),
+                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::Normal,
+                },
+                VarDecl {
+                    name: "input1".to_string(),
+                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::Normal,
+                },
+                VarDecl {
+                    name: "output".to_string(),
+                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    mutability: Mutability::Mutable,
+                    kind: VarKind::Normal,
+                },
+            ],
+            return_type: DType::Tuple(vec![]),
+            body: Box::new(AstNode::Block {
+                statements: vec![],
+                scope: Box::new(Scope::new()),
+            }),
+        };
+
+        let program = AstNode::Program {
+            functions: vec![func],
+            entry_point: "main".to_string(),
+        };
+
+        let renderer = CRenderer::new();
+        let code = renderer.render(&program);
+
+        // ラッパー関数のシグネチャを確認
+        assert!(code.contains(&format!("void {}(void** buffers)", LIBLOADING_WRAPPER_NAME)));
+
+        // 各パラメータが正しくキャストされていることを確認
+        assert!(code.contains("(const float*)(buffers[0])"));
+        assert!(code.contains("(const float*)(buffers[1])"));
+        assert!(code.contains("(float*)(buffers[2])"));
+
+        // 呼び出しが正しい形式であることを確認
+        assert!(code.contains(
+            "main((const float*)(buffers[0]), (const float*)(buffers[1]), (float*)(buffers[2]))"
+        ));
     }
 }

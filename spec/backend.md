@@ -64,3 +64,23 @@ MetalのComputePipelineStateを使用してGPUで直接実行。
 
 ### OpenMP Backend（クロスプラットフォーム）
 C言語とOpenMPを使ったCPUバックエンド。ASTをC言語コードに変換し、OpenMPの`#pragma omp parallel for`でカーネル関数を並列実行することでGPU並列実行を擬似的に再現。動的ライブラリ(.so/.dylib/.dll)としてコンパイルして実行。
+
+**libloading対応:**
+libloadingは固定シグネチャ `fn(*mut *mut u8)` を期待するため、CRendererは自動的にラッパー関数を生成する：
+```c
+// エントリーポイント関数
+void harp_main(const float* input0, float* output) { ... }
+
+// libloading用ラッパー（自動生成）
+void __harp_entry(void** buffers) {
+    harp_main((const float*)(buffers[0]), (float*)(buffers[1]));
+}
+```
+
+**ビルドオプション:**
+- `CCompiler::with_openmp(bool)`: OpenMPフラグの有効/無効
+- `CRenderer::with_openmp_header(bool)`: omp.hヘッダーの有効/無効（macOS互換性）
+
+**注意事項:**
+- エントリーポイント関数名は "harp_main"（C言語のmain関数との衝突回避）
+- Lowererがパラメータを依存関係順序で配置するため、バッファ順序に注意

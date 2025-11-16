@@ -197,7 +197,8 @@ pub(crate) fn lower(graph: Graph) -> crate::ast::AstNode {
     all_functions.push(main_function);
 
     // AstNode::Programを作成
-    crate::ast::helper::program(all_functions, "main")
+    // エントリーポイント名を "harp_main" にしてC言語のmain関数との衝突を避ける
+    crate::ast::helper::program(all_functions, "harp_main")
 }
 
 /// ノードの出力サイズを計算する式を生成
@@ -377,7 +378,7 @@ fn generate_main_function_with_intermediates(
 
     // AstNode::Functionとして返す
     function(
-        Some("main"),
+        Some("harp_main"),
         FunctionKind::Normal,
         params,
         DType::Tuple(vec![]), // void
@@ -430,7 +431,7 @@ fn generate_main_function(
 
     // AstNode::Functionとして返す
     function(
-        Some("main"),
+        Some("harp_main"),
         FunctionKind::Normal,
         all_params,
         DType::Tuple(vec![]), // void
