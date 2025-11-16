@@ -20,6 +20,12 @@ const BARRIER_COST: f32 = 100.0;
 // 連続ループの境界が揃っている場合のボーナス（融合可能性への報酬）
 const LOOP_FUSION_BONUS: f32 = 50.0;
 
+// ノード数に対するペナルティ係数（コンパイル時間・メモリ使用量を考慮）
+const NODE_COUNT_PENALTY_FACTOR: f32 = 0.1;
+
+// ノード数ペナルティが適用される閾値
+const NODE_COUNT_PENALTY_THRESHOLD: usize = 100;
+
 /// 簡単なコスト推定器
 ///
 /// **重要**: このコスト推定器は対数スケール（log(CPUサイクル数)）でコストを返します。
@@ -94,6 +100,53 @@ impl SimpleCostEstimator {
             }
         }
         count
+    }
+
+    /// ASTノードの総数をカウント（コンパイル時間・メモリ使用量の指標）
+    fn count_nodes(ast: &AstNode) -> usize {
+        let children_count: usize = match ast {
+            AstNode::Add(l, r)
+            | AstNode::Mul(l, r)
+            | AstNode::Max(l, r)
+            | AstNode::Rem(l, r)
+            | AstNode::Idiv(l, r)
+            | AstNode::BitwiseAnd(l, r)
+            | AstNode::BitwiseOr(l, r)
+            | AstNode::BitwiseXor(l, r)
+            | AstNode::LeftShift(l, r)
+            | AstNode::RightShift(l, r) => Self::count_nodes(l) + Self::count_nodes(r),
+            AstNode::Recip(n)
+            | AstNode::Sqrt(n)
+            | AstNode::Log2(n)
+            | AstNode::Exp2(n)
+            | AstNode::Sin(n)
+            | AstNode::BitwiseNot(n) => Self::count_nodes(n),
+            AstNode::Cast(n, _) => Self::count_nodes(n),
+            AstNode::Load { ptr, offset, .. } => Self::count_nodes(ptr) + Self::count_nodes(offset),
+            AstNode::Store { ptr, offset, value } => {
+                Self::count_nodes(ptr) + Self::count_nodes(offset) + Self::count_nodes(value)
+            }
+            AstNode::Assign { value, .. } => Self::count_nodes(value),
+            AstNode::Range {
+                start,
+                step,
+                stop,
+                body,
+                ..
+            } => {
+                Self::count_nodes(start)
+                    + Self::count_nodes(step)
+                    + Self::count_nodes(stop)
+                    + Self::count_nodes(body)
+            }
+            AstNode::Block { statements, .. } => statements.iter().map(Self::count_nodes).sum(),
+            AstNode::Call { args, .. } => args.iter().map(Self::count_nodes).sum(),
+            AstNode::Return { value } => Self::count_nodes(value),
+            AstNode::Function { body, .. } => Self::count_nodes(body),
+            AstNode::Program { functions, .. } => functions.iter().map(Self::count_nodes).sum(),
+            _ => 0, // Const, Var, Barrier, etc.
+        };
+        1 + children_count
     }
 
     /// ノードのベースコストを取得（log(CPUサイクル数)）
@@ -281,17 +334,35 @@ impl CostEstimator for SimpleCostEstimator {
 
                 // 非エントリポイント関数の数に比例したペナルティを追加
                 // 関数が多いほど、コードサイズが大きくなり、キャッシュ効率が悪化する
-                if non_entry_functions > 0 {
+                let base_program_cost = if non_entry_functions > 0 {
                     let penalty = (non_entry_functions as f32 * FUNCTION_DEFINITION_OVERHEAD).ln();
                     log_sum_exp(functions_cost, penalty)
                 } else {
                     functions_cost
+                };
+
+                // ノード数に基づくペナルティを追加（コンパイル時間・メモリ使用量を考慮）
+                // これにより、ループ展開などでノード数が爆発する変換が抑制される
+                let node_count = Self::count_nodes(ast);
+                if node_count > NODE_COUNT_PENALTY_THRESHOLD {
+                    let excess_nodes = (node_count - NODE_COUNT_PENALTY_THRESHOLD) as f32;
+                    let node_penalty = (excess_nodes * NODE_COUNT_PENALTY_FACTOR).ln();
+                    log_sum_exp(base_program_cost, node_penalty)
+                } else {
+                    base_program_cost
                 }
             }
             _ => f32::NEG_INFINITY, // log(0)
         };
 
         log_sum_exp(base_cost, children_cost)
+    }
+}
+
+impl SimpleCostEstimator {
+    /// ASTのノード数を取得（デバッグ用公開メソッド）
+    pub fn get_node_count(ast: &AstNode) -> usize {
+        Self::count_nodes(ast)
     }
 }
 
@@ -544,6 +615,94 @@ mod tests {
             "Expected cost after void function inlining ({}) to be less than before ({})",
             cost_after,
             cost_before
+        );
+    }
+
+    #[test]
+    fn test_node_count() {
+        // 単純なノード
+        let const_node = AstNode::Const(Literal::Int(42));
+        assert_eq!(SimpleCostEstimator::get_node_count(&const_node), 1);
+
+        // 二項演算（3ノード: Add + 2つの定数）
+        let add_node = AstNode::Add(
+            Box::new(AstNode::Const(Literal::Int(1))),
+            Box::new(AstNode::Const(Literal::Int(2))),
+        );
+        assert_eq!(SimpleCostEstimator::get_node_count(&add_node), 3);
+
+        // ネストした演算（5ノード: Add + Mul + 3つの定数）
+        let nested = AstNode::Add(
+            Box::new(AstNode::Mul(
+                Box::new(AstNode::Const(Literal::Int(2))),
+                Box::new(AstNode::Const(Literal::Int(3))),
+            )),
+            Box::new(AstNode::Const(Literal::Int(1))),
+        );
+        assert_eq!(SimpleCostEstimator::get_node_count(&nested), 5);
+    }
+
+    #[test]
+    fn test_node_count_penalty() {
+        let estimator = SimpleCostEstimator::new();
+
+        // 小さいプログラム（ペナルティなし）
+        let small_program = AstNode::Program {
+            functions: vec![AstNode::Function {
+                name: Some("main".to_string()),
+                params: vec![],
+                return_type: DType::Int,
+                body: Box::new(AstNode::Return {
+                    value: Box::new(AstNode::Const(Literal::Int(1))),
+                }),
+                kind: FunctionKind::Normal,
+            }],
+            entry_point: "main".to_string(),
+        };
+
+        // ノード数が閾値以下なのでペナルティなし
+        let node_count = SimpleCostEstimator::get_node_count(&small_program);
+        assert!(node_count <= NODE_COUNT_PENALTY_THRESHOLD);
+
+        // 大きいプログラム（ペナルティあり）
+        // 多数のステートメントを持つBlock
+        let mut statements = Vec::new();
+        for i in 0..200 {
+            statements.push(AstNode::Assign {
+                var: format!("var_{}", i),
+                value: Box::new(AstNode::Add(
+                    Box::new(AstNode::Const(Literal::Int(i as isize))),
+                    Box::new(AstNode::Const(Literal::Int(1))),
+                )),
+            });
+        }
+
+        let large_program = AstNode::Program {
+            functions: vec![AstNode::Function {
+                name: Some("main".to_string()),
+                params: vec![],
+                return_type: DType::Tuple(vec![]),
+                body: Box::new(AstNode::Block {
+                    statements,
+                    scope: Box::new(Scope::new()),
+                }),
+                kind: FunctionKind::Normal,
+            }],
+            entry_point: "main".to_string(),
+        };
+
+        let large_node_count = SimpleCostEstimator::get_node_count(&large_program);
+        assert!(large_node_count > NODE_COUNT_PENALTY_THRESHOLD);
+
+        let cost_small = estimator.estimate(&small_program);
+        let cost_large = estimator.estimate(&large_program);
+
+        // 大きいプログラムの方がコストが高い
+        assert!(
+            cost_large > cost_small,
+            "Expected larger program cost ({}) to be greater than small program cost ({})",
+            cost_large,
+            cost_small
         );
     }
 }

@@ -55,6 +55,7 @@ where
     max_steps: usize,
     show_progress: bool,
     collect_logs: bool,
+    max_node_count: Option<usize>,
 }
 
 impl<S, E> BeamSearchOptimizer<S, E>
@@ -71,6 +72,7 @@ where
             max_steps: 10000,
             show_progress: cfg!(debug_assertions),
             collect_logs: cfg!(debug_assertions),
+            max_node_count: Some(10000), // デフォルトで最大1万ノードに制限
         }
     }
 
@@ -107,6 +109,15 @@ where
         self.collect_logs = collect;
         self
     }
+
+    /// 最大ノード数を設定
+    ///
+    /// ASTのノード数がこの値を超える候補は自動的に除外されます。
+    /// Noneを指定すると制限なしになります。
+    pub fn with_max_node_count(mut self, max: Option<usize>) -> Self {
+        self.max_node_count = max;
+        self
+    }
 }
 
 impl<S, E> BeamSearchOptimizer<S, E>
@@ -116,6 +127,7 @@ where
 {
     /// 履歴を記録しながら最適化を実行
     pub fn optimize_with_history(&self, ast: AstNode) -> (AstNode, OptimizationHistory) {
+        use crate::opt::ast::estimator::SimpleCostEstimator;
         use crate::opt::log_capture;
 
         // 時間計測を開始
@@ -127,8 +139,8 @@ where
         }
 
         info!(
-            "AST beam search optimization started (beam_width={}, max_steps={})",
-            self.beam_width, self.max_steps
+            "AST beam search optimization started (beam_width={}, max_steps={}, max_nodes={:?})",
+            self.beam_width, self.max_steps, self.max_node_count
         );
 
         let mut history = OptimizationHistory::new();
@@ -192,6 +204,30 @@ where
             for ast in &beam {
                 let new_candidates = self.suggester.suggest(ast);
                 candidates.extend(new_candidates);
+            }
+
+            // 最大ノード数制限を適用
+            let original_count = candidates.len();
+            if let Some(max_nodes) = self.max_node_count {
+                candidates.retain(|ast| {
+                    let node_count = SimpleCostEstimator::get_node_count(ast);
+                    if node_count > max_nodes {
+                        trace!(
+                            "Rejecting candidate with {} nodes (max: {})",
+                            node_count, max_nodes
+                        );
+                        false
+                    } else {
+                        true
+                    }
+                });
+                if candidates.len() < original_count {
+                    debug!(
+                        "Filtered out {} candidates exceeding max node count ({})",
+                        original_count - candidates.len(),
+                        max_nodes
+                    );
+                }
             }
 
             if candidates.is_empty() {
