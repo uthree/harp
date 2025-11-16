@@ -43,16 +43,65 @@ Viewは各軸の添え字からメモリオフセットへの線形変換を表�
 
 ## Shape変換の方針
 
-**明示的なshape変換のみを許可**：演算を行う2つのノードは完全に同じshapeである必要があり、異なる場合は実行時にpanicします。
+**明示的なshape変換のみを許可**：演算を行う2つのノードは完全に同じshapeである必要があり、異なる場合は実行時にpanicします。ただし、**スカラー（ndim=0）は任意のテンソルにブロードキャスト可能**です。
 
 これにより：
 - **明示性**: shape変換を全て明示的に記述
 - **安全性**: 意図しないbroadcastによるバグを防止
 - **拡張性**: 将来的に`expand()`、`broadcast_to()`などを追加しやすい
+- **利便性**: スカラー定数との演算は自然に記述可能
 
 ## DType推論
 
 演算時に自動的にDTypeが推論されます（両方同じ→そのDType、片方Unknown→もう片方、異なる→Unknown）。
+
+## 演算子オーバーロードと数値型変換
+
+GraphNodeは直感的な数式記法をサポートします。
+
+### 基本的な演算子
+`+`, `-`, `*`, `/`, `%`などの演算子が`Into<GraphNode>`を受け取るため、GraphNode同士だけでなく数値型も直接使用可能です：
+
+```rust
+let mut graph = Graph::new();
+let x = graph.input("x").with_dtype(DType::F32).with_shape([4]).build();
+
+// GraphNode op 数値
+let result = x.clone() * 2.0f32 + 1.0f32;
+
+// 数値 op GraphNode（逆演算子も実装済み）
+let result = 2.0f32 * x.clone() + 1.0f32;
+
+// 複雑な式
+let normalized = (x.clone() - 0.5f32) / 0.5f32;
+let scaled = 1.0f32 / x;  // 逆数
+```
+
+### 参照ベースの演算子
+`.clone()`を避けるため、参照版の演算子も実装されています：
+
+```rust
+let x = graph.input("x").with_dtype(DType::F32).with_shape([4]).build();
+
+// &GraphNode op numeric（cloneが不要）
+let result = &x * 2.0f32 + 1.0f32;
+
+// numeric op &GraphNode
+let scaled = 2.0f32 * &x;
+
+// &GraphNode op &GraphNode（x * xのような式）
+let squared = &x * &x;
+
+// xは消費されないので再利用可能
+let final_result = &x + 100.0f32;
+```
+
+### 対応する数値型
+- `f32` → `GraphNode::constant(f32)` → DType::F32
+- `isize`, `i32`, `i64` → `GraphNode::constant(isize)` → DType::Unknown
+- `&GraphNode` → clone
+
+スカラー定数はndim=0のテンソルとして扱われ、任意のshapeのテンソルにブロードキャストされます。
 
 ## 実装状況
 

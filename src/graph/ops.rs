@@ -93,12 +93,21 @@ pub fn infer_dtype(dtype1: &DType, dtype2: &DType) -> DType {
 
 // Viewの推論：完全に同じshapeのみを許可
 // shapeの変更は明示的に行う必要がある（expand, unsqueezeなどを使用）
+// ただしスカラー（ndim=0）は任意のテンソルにブロードキャスト可能
 pub fn infer_view(view1: &View, view2: &View) -> View {
     let shape1 = view1.shape();
     let shape2 = view2.shape();
 
     // 両方が同じshapeの場合のみ許可
     if shape1 == shape2 {
+        return View::contiguous(shape1.to_vec());
+    }
+
+    // スカラー（ndim=0）は任意のテンソルにブロードキャスト可能
+    if shape1.is_empty() {
+        return View::contiguous(shape2.to_vec());
+    }
+    if shape2.is_empty() {
         return View::contiguous(shape1.to_vec());
     }
 
@@ -112,9 +121,10 @@ pub fn infer_view(view1: &View, view2: &View) -> View {
 // 演算子のトレイトを実装
 
 // Add: a + b
-impl Add for GraphNode {
+impl<T: Into<GraphNode>> Add<T> for GraphNode {
     type Output = Self;
-    fn add(self, rhs: Self) -> Self::Output {
+    fn add(self, rhs: T) -> Self::Output {
+        let rhs = rhs.into();
         let dtype = infer_dtype(&self.dtype, &rhs.dtype);
         let view = infer_view(&self.view, &rhs.view);
         GraphNode::new(
@@ -130,9 +140,10 @@ impl Add for GraphNode {
 }
 
 // Mul: a * b
-impl Mul for GraphNode {
+impl<T: Into<GraphNode>> Mul<T> for GraphNode {
     type Output = Self;
-    fn mul(self, rhs: Self) -> Self::Output {
+    fn mul(self, rhs: T) -> Self::Output {
+        let rhs = rhs.into();
         let dtype = infer_dtype(&self.dtype, &rhs.dtype);
         let view = infer_view(&self.view, &rhs.view);
         GraphNode::new(
@@ -166,29 +177,30 @@ impl Neg for GraphNode {
 }
 
 // Sub: a - b = a + (-b)
-impl Sub for GraphNode {
+impl<T: Into<GraphNode>> Sub<T> for GraphNode {
     type Output = Self;
     #[allow(clippy::suspicious_arithmetic_impl)]
-    fn sub(self, rhs: Self) -> Self::Output {
+    fn sub(self, rhs: T) -> Self::Output {
         // Subtraction is implemented as addition of negation: a - b = a + (-b)
-        self + (-rhs)
+        self + (-rhs.into())
     }
 }
 
 // Div: a / b = a * recip(b)
-impl Div for GraphNode {
+impl<T: Into<GraphNode>> Div<T> for GraphNode {
     type Output = Self;
     #[allow(clippy::suspicious_arithmetic_impl)]
-    fn div(self, rhs: Self) -> Self::Output {
+    fn div(self, rhs: T) -> Self::Output {
         // Division is implemented as multiplication by reciprocal: a / b = a * recip(b)
-        self * recip(rhs)
+        self * recip(rhs.into())
     }
 }
 
 // Rem: a % b
-impl Rem for GraphNode {
+impl<T: Into<GraphNode>> Rem<T> for GraphNode {
     type Output = Self;
-    fn rem(self, rhs: Self) -> Self::Output {
+    fn rem(self, rhs: T) -> Self::Output {
+        let rhs = rhs.into();
         let dtype = infer_dtype(&self.dtype, &rhs.dtype);
         let view = infer_view(&self.view, &rhs.view);
         GraphNode::new(
@@ -202,6 +214,171 @@ impl Rem for GraphNode {
         )
     }
 }
+
+// Into<GraphNode> implementations for numeric types
+impl From<f32> for GraphNode {
+    fn from(value: f32) -> Self {
+        GraphNode::constant(value)
+    }
+}
+
+impl From<isize> for GraphNode {
+    fn from(value: isize) -> Self {
+        GraphNode::constant(value)
+    }
+}
+
+impl From<i32> for GraphNode {
+    fn from(value: i32) -> Self {
+        GraphNode::constant(value as isize)
+    }
+}
+
+impl From<i64> for GraphNode {
+    fn from(value: i64) -> Self {
+        GraphNode::constant(value as isize)
+    }
+}
+
+impl From<&GraphNode> for GraphNode {
+    fn from(value: &GraphNode) -> Self {
+        value.clone()
+    }
+}
+
+// Reverse operations: numeric op GraphNode
+macro_rules! impl_reverse_ops {
+    ($ty:ty) => {
+        impl Add<GraphNode> for $ty {
+            type Output = GraphNode;
+            fn add(self, rhs: GraphNode) -> GraphNode {
+                GraphNode::from(self) + rhs
+            }
+        }
+
+        impl Sub<GraphNode> for $ty {
+            type Output = GraphNode;
+            fn sub(self, rhs: GraphNode) -> GraphNode {
+                GraphNode::from(self) - rhs
+            }
+        }
+
+        impl Mul<GraphNode> for $ty {
+            type Output = GraphNode;
+            fn mul(self, rhs: GraphNode) -> GraphNode {
+                GraphNode::from(self) * rhs
+            }
+        }
+
+        impl Div<GraphNode> for $ty {
+            type Output = GraphNode;
+            fn div(self, rhs: GraphNode) -> GraphNode {
+                GraphNode::from(self) / rhs
+            }
+        }
+
+        impl Rem<GraphNode> for $ty {
+            type Output = GraphNode;
+            fn rem(self, rhs: GraphNode) -> GraphNode {
+                GraphNode::from(self) % rhs
+            }
+        }
+    };
+}
+
+impl_reverse_ops!(f32);
+impl_reverse_ops!(isize);
+impl_reverse_ops!(i32);
+impl_reverse_ops!(i64);
+
+// Reference-based operator overloading to avoid cloning
+// &GraphNode op T
+impl<T: Into<GraphNode>> Add<T> for &GraphNode {
+    type Output = GraphNode;
+    fn add(self, rhs: T) -> GraphNode {
+        self.clone() + rhs
+    }
+}
+
+impl<T: Into<GraphNode>> Sub<T> for &GraphNode {
+    type Output = GraphNode;
+    fn sub(self, rhs: T) -> GraphNode {
+        self.clone() - rhs
+    }
+}
+
+impl<T: Into<GraphNode>> Mul<T> for &GraphNode {
+    type Output = GraphNode;
+    fn mul(self, rhs: T) -> GraphNode {
+        self.clone() * rhs
+    }
+}
+
+impl<T: Into<GraphNode>> Div<T> for &GraphNode {
+    type Output = GraphNode;
+    fn div(self, rhs: T) -> GraphNode {
+        self.clone() / rhs
+    }
+}
+
+impl<T: Into<GraphNode>> Rem<T> for &GraphNode {
+    type Output = GraphNode;
+    fn rem(self, rhs: T) -> GraphNode {
+        self.clone() % rhs
+    }
+}
+
+impl Neg for &GraphNode {
+    type Output = GraphNode;
+    fn neg(self) -> GraphNode {
+        -self.clone()
+    }
+}
+
+// numeric op &GraphNode
+macro_rules! impl_reverse_ops_for_ref {
+    ($ty:ty) => {
+        impl Add<&GraphNode> for $ty {
+            type Output = GraphNode;
+            fn add(self, rhs: &GraphNode) -> GraphNode {
+                GraphNode::from(self) + rhs.clone()
+            }
+        }
+
+        impl Sub<&GraphNode> for $ty {
+            type Output = GraphNode;
+            fn sub(self, rhs: &GraphNode) -> GraphNode {
+                GraphNode::from(self) - rhs.clone()
+            }
+        }
+
+        impl Mul<&GraphNode> for $ty {
+            type Output = GraphNode;
+            fn mul(self, rhs: &GraphNode) -> GraphNode {
+                GraphNode::from(self) * rhs.clone()
+            }
+        }
+
+        impl Div<&GraphNode> for $ty {
+            type Output = GraphNode;
+            fn div(self, rhs: &GraphNode) -> GraphNode {
+                GraphNode::from(self) / rhs.clone()
+            }
+        }
+
+        impl Rem<&GraphNode> for $ty {
+            type Output = GraphNode;
+            fn rem(self, rhs: &GraphNode) -> GraphNode {
+                GraphNode::from(self) % rhs.clone()
+            }
+        }
+    };
+}
+
+impl_reverse_ops_for_ref!(f32);
+impl_reverse_ops_for_ref!(isize);
+impl_reverse_ops_for_ref!(i32);
+impl_reverse_ops_for_ref!(i64);
 
 // ヘルパー関数: Recip (逆数)
 pub fn recip(node: GraphNode) -> GraphNode {
@@ -387,4 +564,348 @@ pub fn fused_reduce(node: GraphNode, ops: Vec<ReduceOp>, axis: usize) -> GraphNo
         vec![node],
         reduced_view,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::{Graph, View};
+
+    #[test]
+    fn test_from_f32() {
+        let node = GraphNode::from(2.5f32);
+        assert_eq!(node.dtype, DType::F32);
+        assert!(node.view.shape().is_empty()); // Scalar
+
+        match &node.op {
+            GraphOp::Const(Literal::F32(v)) => assert_eq!(*v, 2.5),
+            _ => panic!("Expected F32 constant"),
+        }
+    }
+
+    #[test]
+    fn test_from_isize() {
+        let node = GraphNode::from(42isize);
+        assert!(node.view.shape().is_empty());
+
+        match &node.op {
+            GraphOp::Const(Literal::Int(v)) => assert_eq!(*v, 42),
+            _ => panic!("Expected Int constant"),
+        }
+    }
+
+    #[test]
+    fn test_from_i32() {
+        let node = GraphNode::from(100i32);
+        match &node.op {
+            GraphOp::Const(Literal::Int(v)) => assert_eq!(*v, 100),
+            _ => panic!("Expected Int constant"),
+        }
+    }
+
+    #[test]
+    fn test_add_with_numeric() {
+        let mut graph = Graph::new();
+        let x = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape([4])
+            .build();
+
+        // GraphNode + f32
+        let result = x.clone() + 2.0f32;
+        assert_eq!(result.view.shape(), &[4.into()]);
+        match &result.op {
+            GraphOp::Elementwise { op, .. } => {
+                assert!(matches!(op, ElementwiseOp::Add));
+            }
+            _ => panic!("Expected Elementwise Add"),
+        }
+    }
+
+    #[test]
+    fn test_mul_with_numeric() {
+        let mut graph = Graph::new();
+        let x = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape([8])
+            .build();
+
+        // GraphNode * isize
+        let result = x * 3isize;
+        assert_eq!(result.view.shape(), &[8.into()]);
+    }
+
+    #[test]
+    fn test_sub_with_numeric() {
+        let mut graph = Graph::new();
+        let x = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape([10])
+            .build();
+
+        // GraphNode - f32
+        let result = x - 1.0f32;
+        // Sub is Add(a, Neg(b))
+        match &result.op {
+            GraphOp::Elementwise {
+                op: ElementwiseOp::Add,
+                ..
+            } => {}
+            _ => panic!("Expected Add (for subtraction)"),
+        }
+    }
+
+    #[test]
+    fn test_div_with_numeric() {
+        let mut graph = Graph::new();
+        let x = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape([5])
+            .build();
+
+        // GraphNode / f32
+        let result = x / 2.0f32;
+        // Div is Mul(a, Recip(b))
+        match &result.op {
+            GraphOp::Elementwise {
+                op: ElementwiseOp::Mul,
+                ..
+            } => {}
+            _ => panic!("Expected Mul (for division)"),
+        }
+    }
+
+    #[test]
+    fn test_reverse_add() {
+        let mut graph = Graph::new();
+        let x = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape([4])
+            .build();
+
+        // f32 + GraphNode
+        let result = 2.0f32 + x;
+        assert_eq!(result.view.shape(), &[4.into()]);
+        match &result.op {
+            GraphOp::Elementwise {
+                op: ElementwiseOp::Add,
+                ..
+            } => {}
+            _ => panic!("Expected Add"),
+        }
+    }
+
+    #[test]
+    fn test_reverse_mul() {
+        let mut graph = Graph::new();
+        let x = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape([6])
+            .build();
+
+        // i32 * GraphNode
+        let result = 5i32 * x;
+        assert_eq!(result.view.shape(), &[6.into()]);
+    }
+
+    #[test]
+    fn test_reverse_sub() {
+        let mut graph = Graph::new();
+        let x = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape([3])
+            .build();
+
+        // f32 - GraphNode
+        let result = 10.0f32 - x;
+        assert_eq!(result.view.shape(), &[3.into()]);
+    }
+
+    #[test]
+    fn test_reverse_div() {
+        let mut graph = Graph::new();
+        let x = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape([7])
+            .build();
+
+        // f32 / GraphNode (1 / x)
+        let result = 1.0f32 / x;
+        assert_eq!(result.view.shape(), &[7.into()]);
+    }
+
+    #[test]
+    fn test_mixed_operations() {
+        let mut graph = Graph::new();
+        let x = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape([4])
+            .build();
+
+        // Complex expression: 2.0 * x + 1.0
+        let result = 2.0f32 * x + 1.0f32;
+        assert_eq!(result.view.shape(), &[4.into()]);
+
+        // Result should be Add(Mul(...), Const)
+        match &result.op {
+            GraphOp::Elementwise {
+                op: ElementwiseOp::Add,
+                ..
+            } => {}
+            _ => panic!("Expected Add"),
+        }
+    }
+
+    #[test]
+    fn test_scalar_broadcast() {
+        let mut graph = Graph::new();
+        let x = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape([2, 3])
+            .build();
+
+        // Scalar constant should broadcast to [2, 3]
+        let result = x + 1.0f32;
+        assert_eq!(result.view.shape(), &[2.into(), 3.into()]);
+    }
+
+    #[test]
+    fn test_infer_view_with_scalar() {
+        let scalar_view = View::contiguous(Vec::<isize>::new());
+        let tensor_view = View::contiguous(vec![4, 8]);
+
+        // Scalar + Tensor should give Tensor's shape
+        let result = infer_view(&scalar_view, &tensor_view);
+        assert_eq!(result.shape(), &[4.into(), 8.into()]);
+
+        // Tensor + Scalar should also give Tensor's shape
+        let result2 = infer_view(&tensor_view, &scalar_view);
+        assert_eq!(result2.shape(), &[4.into(), 8.into()]);
+    }
+
+    #[test]
+    fn test_reference_add() {
+        let mut graph = Graph::new();
+        let x = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape([4])
+            .build();
+
+        // &GraphNode + numeric (no clone needed)
+        let result = &x + 2.0f32;
+        assert_eq!(result.view.shape(), &[4.into()]);
+
+        // Can still use x
+        let result2 = &x * 3.0f32;
+        assert_eq!(result2.view.shape(), &[4.into()]);
+    }
+
+    #[test]
+    fn test_reference_mul() {
+        let mut graph = Graph::new();
+        let x = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape([5])
+            .build();
+
+        let result = &x * 2.0f32;
+        match &result.op {
+            GraphOp::Elementwise {
+                op: ElementwiseOp::Mul,
+                ..
+            } => {}
+            _ => panic!("Expected Mul"),
+        }
+    }
+
+    #[test]
+    fn test_reference_sub_div() {
+        let mut graph = Graph::new();
+        let x = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape([3])
+            .build();
+
+        let _sub_result = &x - 1.0f32;
+        let _div_result = &x / 2.0f32;
+
+        // x is still usable
+        let _final = &x + 10.0f32;
+    }
+
+    #[test]
+    fn test_reverse_reference_ops() {
+        let mut graph = Graph::new();
+        let x = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape([4])
+            .build();
+
+        // numeric op &GraphNode
+        let result = 2.0f32 * &x;
+        assert_eq!(result.view.shape(), &[4.into()]);
+
+        let result2 = 10.0f32 - &x;
+        assert_eq!(result2.view.shape(), &[4.into()]);
+
+        let result3 = 1.0f32 / &x;
+        assert_eq!(result3.view.shape(), &[4.into()]);
+    }
+
+    #[test]
+    fn test_complex_expression_with_references() {
+        let mut graph = Graph::new();
+        let x = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape([8])
+            .build();
+
+        // Complex expression without clone
+        let result = 2.0f32 * &x + 1.0f32;
+        assert_eq!(result.view.shape(), &[8.into()]);
+
+        // x * x without consuming x
+        let squared = &x * &x;
+        assert_eq!(squared.view.shape(), &[8.into()]);
+
+        // Still can use x
+        let _final = &x + 100.0f32;
+    }
+
+    #[test]
+    fn test_neg_reference() {
+        let mut graph = Graph::new();
+        let x = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape([4])
+            .build();
+
+        let neg_x = -&x;
+        match &neg_x.op {
+            GraphOp::Elementwise {
+                op: ElementwiseOp::Neg,
+                ..
+            } => {}
+            _ => panic!("Expected Neg"),
+        }
+
+        // x is still usable
+        let _sum = &x + 1.0f32;
+    }
 }

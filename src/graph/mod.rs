@@ -34,7 +34,7 @@ pub struct GraphNodeData {
 pub struct GraphNode(Rc<GraphNodeData>);
 
 // AstNoderのDTypeとは異なり、VecやPtrは扱わない。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum DType {
     Unknown, // 未定または未知, プレースホルダー
     F32,
