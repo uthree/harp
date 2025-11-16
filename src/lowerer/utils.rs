@@ -119,6 +119,20 @@ impl Lowerer {
                     let mut result: AstNode = offset.clone().into();
 
                     for &axis in axes {
+                        if axis >= strides.len() {
+                            log::error!(
+                                "compute_offset_from_view: axis {} out of bounds for strides (len {}). Node op: {:?}, shape: {:?}",
+                                axis,
+                                strides.len(),
+                                node.op,
+                                node.view.shape()
+                            );
+                            panic!(
+                                "compute_offset_from_view: axis {} out of bounds for strides (len {})",
+                                axis,
+                                strides.len()
+                            );
+                        }
                         let ridx = var(format!("ridx{}", axis));
                         let stride: AstNode = strides[axis].clone().into();
                         result = result + ridx * stride;

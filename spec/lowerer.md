@@ -39,6 +39,12 @@ void main(const float* input0, ..., float* output) {
 - 入力ノード: `GraphOp::Input`を持つノード
 - 出力ノード: トポロジカルソートの最初の世代（出力→入力の順序）
 
+**Viewノードの処理:**
+Viewノード（`GraphOp::View`）はメモリアクセスパターンを記述するだけで、独自のバッファーを持ちません。
+- lowering時にViewノードはスキップされる（カーネル生成なし）
+- Viewノードをソースとして持つカーネルは、Viewの基底ストレージノードまでトレースバック
+- Viewのstride情報はオフセット計算時に使用される
+
 ## 命名法則（tinygradを参考）
 
 **変数:**
@@ -92,6 +98,36 @@ elementwise演算とそれに続くreduce演算を融合。
 - スカラー出力と指定軸縮約の両方に対応
 - インデックス管理が複雑（`oidx` + `ridx`の組み合わせ）
 
+**行列積のサポート:**
+FusedElementwiseReduceを使用して行列積を実装できます：
+```rust
+// A[M, K] @ B[K, N] -> C[M, N]
+// 1. Aを[M, 1, K]に拡張、Bを転置して[N, K]、[1, N, K]に拡張
+// 2. 両者を[M, N, K]にブロードキャスト
+// 3. 要素積 + 軸2でsum reduce
+let a_expanded = a.view(...unsqueeze(1).expand([M, N, K]));
+let b_transposed = b.view(...permute([1, 0]));
+let b_t_expanded = b_transposed.view(...unsqueeze(0).expand([M, N, K]));
+fused_elementwise_reduce(
+    vec![a_expanded, b_t_expanded],
+    vec![FusedElementwiseOp { op: Mul, inputs: [GraphInput(0), GraphInput(1)] }],
+    ReduceOp::Sum,
+    axis=2
+)
+```
+生成されるコード（最適化前）：
+```c
+for (int oidx0 = 0; oidx0 < M; oidx0 += 1) {
+    for (int oidx1 = 0; oidx1 < N; oidx1 += 1) {
+        float acc0 = 0f;
+        for (int ridx2 = 0; ridx2 < K; ridx2 += 1) {
+            acc0 += A[oidx0*K + ridx2] * B[oidx1 + ridx2*N];
+        }
+        C[oidx0*N + oidx1] = acc0;
+    }
+}
+```
+
 #### FusedReduce
 複数のreduce演算を同じ軸で融合（将来の拡張）。
 - 注: 複数の出力が必要なため、tuple出力のサポートが必要
@@ -106,6 +142,8 @@ elementwise演算とそれに続くreduce演算を融合。
 - ループアンローリング（`unroll_factor`）
 - **中間バッファー管理**: main関数でのtmp{n}の自動確保・解放
 - **main関数生成**: カーネルの順次呼び出しとバッファーマッピング
+- **Viewノード処理**: View操作をスキップし、基底ストレージまでトレースバック
+- **行列積サポート**: View展開 + FusedElementwiseReduceによるmatmul
 - ファイル分割による保守性向上（1176行 → 203行 + 個別ファイル）
 
 ### 未実装
@@ -115,3 +153,6 @@ elementwise演算とそれに続くreduce演算を融合。
 - FusedReduce演算（tuple出力が必要）
 - AST最適化後のmain関数更新（関数インライン化との整合性）
 - バリア同期の挿入（同世代カーネルの並列実行サポート）
+
+### 既知の問題
+- **AST最適化の変数スコープバグ**: 関数インライン化後に変数宣言が適切に伝播されない場合がある（重複宣言が生成されることがある）。

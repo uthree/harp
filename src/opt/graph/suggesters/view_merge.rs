@@ -71,9 +71,24 @@ impl ViewMergeSuggester {
 
         let input_node = &view_node.src[0];
 
+        // InputノードとConstノードはContiguousなViewを持つべきで、
+        // そのviewを変更すると物理メモリレイアウトとの不整合が発生する
+        // これらのノードにはViewマージを適用しない
+        if matches!(input_node.op, GraphOp::Input | GraphOp::Const(_)) {
+            return None;
+        }
+
         // 入力ノードのviewをViewノードのviewで置き換えた新しいノードを作成
         // elementwise_strategiesの長さを新しいviewのndimに合わせて調整
         let new_ndim = target_view.ndim();
+        let old_ndim = input_node.view.ndim();
+
+        // 次元数が変わる場合、input_nodeのソースノードとの次元数不整合が発生する
+        // 例えば、Add[2D] → View[3D] をマージすると、Addのソースは2Dのままなので、
+        // lowering時に3Dインデックスを2Dストライドに適用しようとしてエラーになる
+        if new_ndim != old_ndim {
+            return None;
+        }
 
         // スカラー（ndim=0）の場合や、elementwise_strategiesが空の場合はマージをスキップ
         // （これらは特殊なケースで、elementwise演算の対象外）

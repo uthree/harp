@@ -6,6 +6,7 @@
 use harp::backend::openmp::{CCompiler, CRenderer};
 use harp::backend::{GenericPipeline, OptimizationConfig};
 use harp::graph::{DType, Graph, GraphNode};
+use harp::prelude::{FusedElementwiseOp, FusedInput};
 use harp_viz::HarpVizApp;
 
 fn main() -> eframe::Result {
@@ -144,7 +145,9 @@ fn main() -> eframe::Result {
 /// 行列積を計算するヘルパー関数
 /// C = A @ B (A: [M, K], B: [K, N]) -> C: [M, N]
 fn matmul(a: GraphNode, b: GraphNode) -> GraphNode {
+    use harp::graph::ops::fused_elementwise_reduce;
     use harp::graph::shape::Expr;
+    use harp::graph::{ElementwiseOp, ReduceOp};
 
     let a_shape = a.view.shape();
     let b_shape = b.view.shape();
@@ -166,22 +169,77 @@ fn matmul(a: GraphNode, b: GraphNode) -> GraphNode {
         );
     }
 
-    // A: [M, K] -> [M, K, 1]
-    let a_unsqueezed = a.view(a.view.clone().unsqueeze(2));
+    // A: [M, K]をそのまま使用
+    // B: [K, N] -> transpose -> [N, K] として扱う
 
-    // B: [K, N] -> [1, K, N]
-    let b_unsqueezed = b.view(b.view.clone().unsqueeze(0));
+    // 結果は [M, N] で、各 (i, j) について sum over k of A[i, k] * B[k, j]
+    // FusedElementwiseReduceを使用: fused_elementwise_reduce(inputs, op, reduce_op, axis)
 
-    // expand to [M, K, N]
-    let expanded_shape = vec![m.clone(), k_a.clone(), n.clone()];
+    // ただし、現状のfused_elementwise_reduceは入力が同じshapeである必要があるため、
+    // ここでは2次元のreduceパターンを直接実装
+
+    // [M, K] と [K, N] を組み合わせる方法:
+    // 出力 [M, N] の各要素について、K次元でsum(A[m, k] * B[k, n])を計算
+
+    // 簡易実装: A の各行と B の各列の内積
+    // 現状のLowererの制限により、単純なFusedElementwiseReduceを使用
+
+    // A: [M, K] -> [M, K] (そのまま)
+    // B: [K, N] -> [K, N] (転置して [N, K] として扱うが、Viewで対応)
+
+    // fused_elementwise_reduceを使うには、すべての入力が同じshapeである必要がある
+    // そのため、3次元に拡張するアプローチは現状のLowererでは未サポート
+
+    // 代わりに、GraphOp::Reduceを使用してシンプルに実装
+    // A: [M, K], B: [K, N]
+    // 1. Bを転置: [N, K]
+    // 2. Aを[M, 1, K]にexpand, Bを[1, N, K]にexpand -> broadcast後 [M, N, K]
+    // 3. elementwise multiply
+    // 4. reduce_sum(axis=2) -> [M, N]
+
+    // この処理はブロードキャストを必要とするため、現在のLowererでは直接サポートされていない
+    // 暫定的に、fused_elementwise_reduceを使った近似を行う
+
+    // 仮実装: 各出力位置について手動で計算するパターン（Lowerer拡張が必要）
+    // 現状では、単純なreduce_sumのパターンを使用
+
+    // 暫定的な実装: 2次元行列積を直接サポートするGraphOpが必要
+    // 今は、reduce操作を使った近似
+
+    // 簡単な回避策: Aの転置を使って内積を計算
+    // A: [M, K], B: [K, N]
+    // 転置B: [N, K]
+
+    // まず単純にB[K, N]をviewで[N, K]に転置
+    let b_transposed = b.view(b.view.clone().permute(vec![1, 0])); // [N, K]
+
+    // 出力は[M, N]になる
+    // 各(m, n)について: sum_k A[m, k] * B_T[n, k]
+
+    // これをfused_elementwise_reduceで実現するには、
+    // A: [M, K] を [M, 1, K] に拡張
+    // B_T: [N, K] を [1, N, K] に拡張
+    // broadcast後 [M, N, K]
+    // multiply -> [M, N, K]
+    // reduce_sum(axis=2) -> [M, N]
+
+    let a_unsqueezed = a.view(a.view.clone().unsqueeze(1)); // [M, 1, K]
+    let b_t_unsqueezed = b_transposed.view(b_transposed.view.clone().unsqueeze(0)); // [1, N, K]
+
+    let expanded_shape = vec![m.clone(), n.clone(), k_a.clone()];
     let a_expanded = a_unsqueezed.view(a_unsqueezed.view.clone().expand(expanded_shape.clone()));
-    let b_expanded = b_unsqueezed.view(b_unsqueezed.view.clone().expand(expanded_shape));
+    let b_t_expanded = b_t_unsqueezed.view(b_t_unsqueezed.view.clone().expand(expanded_shape));
 
-    // elementwise multiply: [M, K, N]
-    let product = a_expanded * b_expanded;
-
-    // reduce_sum along axis=1: [M, N]
-    product.reduce_sum(1)
+    // FusedElementwiseReduceを使用
+    fused_elementwise_reduce(
+        vec![a_expanded, b_t_expanded],
+        vec![FusedElementwiseOp {
+            op: ElementwiseOp::Mul,
+            inputs: vec![FusedInput::GraphInput(0), FusedInput::GraphInput(1)],
+        }],
+        ReduceOp::Sum,
+        2, // K軸でreduce
+    )
 }
 
 /// 複雑な計算グラフを作成（行列積と定数演算を含む）
@@ -208,9 +266,10 @@ fn create_complex_computation_graph() -> Graph {
     let mut graph = Graph::new();
 
     // サイズは小さめにして最適化の効果を見やすくする
-    let m = 256;
-    let k = 128;
-    let n = 64;
+    let m = 64;
+    let k = 32;
+    let n = 16;
+    let p = 8;
 
     // 入力行列
     let a = graph
@@ -225,22 +284,26 @@ fn create_complex_computation_graph() -> Graph {
         .with_shape(vec![k, n])
         .build();
 
-    // 定数演算（定数畳み込みが働く）
-    let const1 = GraphNode::constant(2.0);
-    let const2 = GraphNode::constant(3.0);
-    let scale_scalar = const1 * const2; // 6.0に畳み込まれる
+    let c = graph
+        .input("c")
+        .with_dtype(DType::F32)
+        .with_shape(vec![m, n])
+        .build();
 
-    // スカラーを [M, N] にブロードキャスト
-    let scale_unsqueezed = scale_scalar.view(scale_scalar.view.clone().unsqueeze(0).unsqueeze(0));
-    let scale = scale_unsqueezed.view(
-        scale_unsqueezed
-            .view
-            .clone()
-            .expand(vec![m.into(), n.into()]),
-    );
+    let d = graph
+        .input("d")
+        .with_dtype(DType::F32)
+        .with_shape(vec![n, p])
+        .build();
 
-    // 行列積 (View挿入とFusionが働く)
-    let result = matmul(a, b) + scale; // [M, N]
+    // 1回目の行列積: matmul(a, b) -> [M, N]
+    let temp1 = matmul(a, b);
+
+    // Elementwise演算の連鎖
+    let temp2 = temp1 + c; // [M, N]
+
+    // 2回目の行列積: matmul(temp2, d) -> [M, P]
+    let result = matmul(temp2, d);
     graph.output("result", result);
 
     graph

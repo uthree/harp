@@ -39,6 +39,21 @@ fn node_ptr(node: &GraphNode) -> *const () {
     node.as_ptr() as *const ()
 }
 
+/// Viewノードの場合、実際のストレージノードまでトレースバックする
+/// Viewノードはメモリアクセスパターンを記述するだけで、バッファーは持たない
+fn trace_to_storage_node(node: &GraphNode) -> &GraphNode {
+    match &node.op {
+        GraphOp::View(_) => {
+            if let Some(src) = node.src.first() {
+                trace_to_storage_node(src)
+            } else {
+                node
+            }
+        }
+        _ => node,
+    }
+}
+
 impl Default for Lowerer {
     fn default() -> Self {
         Self::new()
@@ -91,8 +106,12 @@ pub(crate) fn lower(graph: Graph) -> crate::ast::AstNode {
     let mut kernel_id = 0;
     for generation in generations.into_iter().rev() {
         for node in generation {
-            // Input と Const ノードはスキップ
-            if matches!(node.op, GraphOp::Input | GraphOp::Const(_)) {
+            // Input, Const, View ノードはスキップ
+            // Viewノードはメモリアクセスパターンを記述するだけで、バッファーを生成しない
+            if matches!(
+                node.op,
+                GraphOp::Input | GraphOp::Const(_) | GraphOp::View(_)
+            ) {
                 continue;
             }
 
@@ -101,6 +120,7 @@ pub(crate) fn lower(graph: Graph) -> crate::ast::AstNode {
             lowerer.acc_counter = 0;
 
             // 入力バッファー名を収集
+            // Viewノードの場合は実際のストレージノードまでトレースバック
             let input_buffers: Vec<String> = node
                 .src
                 .iter()
@@ -109,12 +129,15 @@ pub(crate) fn lower(graph: Graph) -> crate::ast::AstNode {
                     if matches!(src.op, GraphOp::Const(_)) {
                         None
                     } else {
-                        let src_ptr = node_ptr(src);
+                        // Viewノードは実際のストレージノードまでトレース
+                        let storage_node = trace_to_storage_node(src);
+                        let src_ptr = node_ptr(storage_node);
                         let buf = node_buffer_map.get(&src_ptr).cloned();
                         log::debug!(
-                            "Kernel {}: src node {:?} -> buffer {:?}",
+                            "Kernel {}: src node {:?} -> storage {:?} -> buffer {:?}",
                             kernel_id,
                             src.op,
+                            storage_node.op,
                             buf
                         );
                         buf
