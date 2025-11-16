@@ -1,7 +1,6 @@
 use crate::backend::Compiler;
 use crate::backend::openmp::{CBuffer, CCode, CKernel, LIBLOADING_WRAPPER_NAME};
 use libloading::Library;
-use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -67,23 +66,24 @@ impl CCompiler {
     }
 
     /// C言語コードをコンパイルして動的ライブラリを生成
+    ///
+    /// 標準入力経由でコードを渡すことで一時ファイルの作成を回避
     fn compile_to_library(&self, code: &str, output_path: &PathBuf) -> Result<(), String> {
-        // ソースファイルのパス
-        let source_path = output_path.with_extension("c");
-
-        // ソースファイルを書き込み
-        fs::write(&source_path, code).map_err(|e| format!("Failed to write source file: {}", e))?;
+        use std::io::Write;
+        use std::process::Stdio;
 
         // コンパイルコマンドを構築
         let mut cmd = Command::new(&self.compiler_path);
 
         // 基本的なフラグ
-        cmd.arg("-shared") // 共有ライブラリとしてコンパイル
+        cmd.arg("-x")
+            .arg("c") // 入力言語をCとして指定
+            .arg("-") // 標準入力から読み込み
+            .arg("-shared") // 共有ライブラリとしてコンパイル
             .arg("-fPIC") // Position Independent Code
             .arg("-O2") // 最適化レベル2
             .arg("-o")
-            .arg(output_path)
-            .arg(&source_path);
+            .arg(output_path);
 
         // OpenMPサポート（オプション）
         if self.enable_openmp {
@@ -95,18 +95,32 @@ impl CCompiler {
             cmd.arg(flag);
         }
 
-        // コンパイルを実行
-        let output = cmd
-            .output()
+        // 標準入力を設定
+        cmd.stdin(Stdio::piped());
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+
+        // プロセスを起動
+        let mut child = cmd
+            .spawn()
             .map_err(|e| format!("Failed to execute compiler: {}", e))?;
+
+        // 標準入力にコードを書き込み
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin
+                .write_all(code.as_bytes())
+                .map_err(|e| format!("Failed to write to compiler stdin: {}", e))?;
+        }
+
+        // コンパイル結果を待機
+        let output = child
+            .wait_with_output()
+            .map_err(|e| format!("Failed to wait for compiler: {}", e))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(format!("Compilation failed:\n{}", stderr));
         }
-
-        // ソースファイルを削除（オプション）
-        let _ = fs::remove_file(&source_path);
 
         Ok(())
     }
@@ -155,11 +169,12 @@ impl Compiler for CCompiler {
     }
 
     fn compile(&mut self, code: &Self::CodeRepr) -> Self::Kernel {
-        // 一時的なライブラリファイルのパス
+        // 一時的なライブラリファイルのパス（タイムスタンプ + スレッドID で一意性を確保）
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
+        let thread_id = std::thread::current().id();
 
         #[cfg(target_os = "macos")]
         let lib_extension = "dylib";
@@ -168,9 +183,10 @@ impl Compiler for CCompiler {
         #[cfg(target_os = "windows")]
         let lib_extension = "dll";
 
-        let lib_path = self
-            .temp_dir
-            .join(format!("harp_kernel_{}.{}", timestamp, lib_extension));
+        let lib_path = self.temp_dir.join(format!(
+            "harp_kernel_{}_{:?}.{}",
+            timestamp, thread_id, lib_extension
+        ));
 
         // コンパイル
         self.compile_to_library(code.as_str(), &lib_path)
