@@ -100,22 +100,36 @@ fn test_multiple_kernels_variable_naming() {
     let renderer = CRenderer::new();
     let code = render_ast_with(&program, &renderer);
 
-    // 各カーネル関数で alu0 が使われているべき（未初期化変数 alu1, alu2 などは存在しない）
-    // kernel_0 では alu0 が定義される
-    // kernel_1 でも alu0 が定義される（alu1 ではない）
-    // kernel_2 でも alu0 が定義される（alu2 ではない）
+    // 最適化により中間変数を排除し、直接演算結果をストアする形式になった
+    // kernel_0: output[...] = (input0[...] + input1[...]);
+    // kernel_1: output[...] = (input0[...] * input1[...]);
+    // kernel_2: output[...] = (input0[...] + input1[...]);
 
     // デバッグ出力
     println!("Generated code:\n{}", code);
 
-    // 各カーネル関数が独立した変数名を持つことを確認
-    // "alu0" は各カーネルで定義されているべき
-    assert!(code.contains("alu0"), "alu0 should be defined");
+    // 各カーネル関数が直接ストアを行っていることを確認
+    // 中間変数（alu0 など）は生成されない
+    assert!(
+        !code.contains("alu0"),
+        "alu0 should not be defined (intermediate variables eliminated)"
+    );
 
-    // 未初期化変数（alu1, alu2 など）が存在しないことを確認
-    // ただし、複雑な演算の場合は alu1 も定義される可能性があるので、
-    // ここでは単純に「未定義変数が使われていない」ことを期待する
+    // 代わりに、直接演算結果をストアしていることを確認
+    // output[...] = (...); の形式
+    assert!(
+        code.contains("output[("),
+        "output should be directly assigned"
+    );
 
-    // より具体的には、kernel_2 で使われる変数が kernel_2 内で定義されていることを確認
-    // これは完全なチェックではないが、基本的な問題を検出できる
+    // 各カーネルが正しく生成されていることを確認
+    assert!(code.contains("kernel_0"), "kernel_0 should be defined");
+    assert!(code.contains("kernel_1"), "kernel_1 should be defined");
+    assert!(code.contains("kernel_2"), "kernel_2 should be defined");
+
+    // 演算が含まれていることを確認
+    assert!(
+        code.contains("input0[") && code.contains("input1["),
+        "inputs should be directly loaded"
+    );
 }
