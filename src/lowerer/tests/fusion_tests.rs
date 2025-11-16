@@ -109,3 +109,54 @@ fn test_lower_fused_elementwise_reduce() {
         code
     );
 }
+
+#[test]
+fn test_lower_fused_elementwise_cumulative() {
+    use crate::ast::helper::wildcard;
+    use crate::graph::ops::CumulativeOp;
+
+    // cumsum(x^2) を融合ノードとして生成
+    let mut graph = Graph::new();
+    let x = graph
+        .input("x")
+        .with_dtype(GraphDType::F32)
+        .with_shape(vec![4, 8])
+        .build();
+
+    // 融合演算を定義: Wildcard("0") * Wildcard("0") (二乗)
+    let expr = wildcard("0") * wildcard("0");
+
+    let result = crate::graph::ops::fused_elementwise_cumulative(
+        vec![x],
+        expr,
+        CumulativeOp::Sum,
+        1, // 軸1に沿って累積
+    );
+
+    // カーネル関数を生成
+    let mut lowerer = Lowerer::new();
+    let function = lowerer.lower_node_to_kernel(&result, 0);
+
+    assert!(function.is_ok());
+    let function = function.unwrap();
+
+    // パラメータをチェック: input0, output
+    use crate::ast::AstNode;
+    if let AstNode::Function { params, .. } = &function {
+        assert_eq!(params.len(), 2);
+        assert_eq!(params[0].name, "input0");
+        assert_eq!(params[1].name, "output");
+    } else {
+        panic!("Expected AstNode::Function");
+    }
+
+    // 生成されたコードを表示
+    use crate::backend::c_like::CLikeRenderer;
+    use crate::backend::metal::MetalRenderer;
+    let mut renderer = MetalRenderer::new();
+    let code = renderer.render_function_node(&function);
+    eprintln!(
+        "\n=== Generated Code for test_lower_fused_elementwise_cumulative ===\n{}\n",
+        code
+    );
+}

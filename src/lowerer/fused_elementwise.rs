@@ -1,4 +1,4 @@
-use crate::ast::{AstNode, Literal, Mutability, Scope, helper::*};
+use crate::ast::{AstNode, Literal, Scope, helper::*};
 use crate::graph::GraphNode;
 use log::debug;
 use std::collections::HashMap;
@@ -108,10 +108,8 @@ impl Lowerer {
         node: &GraphNode,
         expr: &AstNode,
         axes: &[usize],
-        scope: &mut Scope,
+        _scope: &mut Scope,
     ) -> Result<Vec<AstNode>, String> {
-        let mut statements = Vec::new();
-
         // 最内側の軸のSIMD幅を取得（最後の軸を使用）
         let simd_width = if let Some(&last_axis) = axes.last() {
             node.elementwise_strategies[last_axis].simd_width()
@@ -119,10 +117,9 @@ impl Lowerer {
             1
         };
 
-        // 全ての入力をロードし、Wildcardのマッピングを作成
+        // Wildcardを直接load式に対応させる（中間変数を排除）
         let mut mappings: HashMap<String, AstNode> = HashMap::new();
         for (i, src) in node.src.iter().enumerate() {
-            let alu_var = self.fresh_alu();
             let input_ptr = var(format!("input{}", i));
 
             // 各srcノードのViewからオフセットを計算
@@ -131,34 +128,25 @@ impl Lowerer {
             let src_dtype = src_ptr_dtype.deref_type().clone();
 
             // SIMD化: simd_width > 1の場合はベクトルロード
-            let (load_node, final_dtype) = if simd_width > 1 {
+            let load_node = if simd_width > 1 {
                 let vec_dtype = src_dtype.to_vec(simd_width);
-                (
-                    load_vec(input_ptr, offset, simd_width, vec_dtype.clone()),
-                    vec_dtype,
-                )
+                load_vec(input_ptr, offset, simd_width, vec_dtype)
             } else {
-                (load(input_ptr, offset, src_dtype.clone()), src_dtype)
+                load(input_ptr, offset, src_dtype)
             };
 
-            // 変数を宣言
-            scope.declare(alu_var.clone(), final_dtype, Mutability::Mutable)?;
-
-            // 初期値を代入
-            statements.push(assign(&alu_var, load_node));
-
-            // Wildcard("0"), Wildcard("1") 等に対応する変数をマッピング
-            mappings.insert(i.to_string(), var(&alu_var));
+            // Wildcard("0"), Wildcard("1") 等に対応するload式をマッピング
+            mappings.insert(i.to_string(), load_node);
         }
 
         // exprのWildcardを置き換えて最終的な式を生成
         let final_result = expr.substitute(&mappings);
 
-        // 最終結果を出力にストア
+        // 最終結果を直接出力にストア
         let output_ptr = var("output");
         let output_offset = self.compute_offset_from_view(node, axes);
-        statements.push(store(output_ptr, output_offset, final_result));
+        let store_stmt = store(output_ptr, output_offset, final_result);
 
-        Ok(statements)
+        Ok(vec![store_stmt])
     }
 }

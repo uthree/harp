@@ -1,4 +1,4 @@
-use crate::ast::{AstNode, Mutability, Scope, helper::*};
+use crate::ast::{AstNode, Scope, helper::*};
 use crate::graph::{GraphNode, ops::ElementwiseOp};
 use log::debug;
 
@@ -303,11 +303,9 @@ impl Lowerer {
         node: &GraphNode,
         op: &ElementwiseOp,
         axes: &[usize],
-        scope: &mut Scope,
+        _scope: &mut Scope,
         override_simd_width: Option<usize>,
     ) -> Result<Vec<AstNode>, String> {
-        let mut statements = Vec::new();
-
         // 最内側の軸のSIMD幅を取得（最後の軸を使用）またはオーバーライド値を使用
         let simd_width = if let Some(width) = override_simd_width {
             width
@@ -317,7 +315,7 @@ impl Lowerer {
             1
         };
 
-        // 入力をロード（各入力のViewを考慮）
+        // 入力をロード式に直接対応させる（中間変数を排除）
         let mut loaded_values = Vec::new();
         let mut input_idx = 0; // Constノードをスキップした後のパラメータインデックス
         for src in node.src.iter() {
@@ -328,7 +326,6 @@ impl Lowerer {
                 continue;
             }
 
-            let alu_var = self.fresh_alu();
             let input_ptr = var(format!("input{}", input_idx));
             input_idx += 1;
 
@@ -338,54 +335,25 @@ impl Lowerer {
             let src_dtype = src_ptr_dtype.deref_type().clone();
 
             // SIMD化: simd_width > 1の場合はベクトルロード
-            let (load_node, final_dtype) = if simd_width > 1 {
+            let load_node = if simd_width > 1 {
                 let vec_dtype = src_dtype.to_vec(simd_width);
-                (
-                    load_vec(input_ptr, offset, simd_width, vec_dtype.clone()),
-                    vec_dtype,
-                )
+                load_vec(input_ptr, offset, simd_width, vec_dtype)
             } else {
-                (load(input_ptr, offset, src_dtype.clone()), src_dtype)
+                load(input_ptr, offset, src_dtype)
             };
 
-            // 変数を宣言
-            scope.declare(alu_var.clone(), final_dtype, Mutability::Mutable)?;
-
-            // 初期値を代入
-            statements.push(assign(&alu_var, load_node));
-
-            loaded_values.push(var(&alu_var));
+            loaded_values.push(load_node);
         }
 
         // 演算を適用
         let result = self.apply_elementwise_op(op, &loaded_values)?;
-        let result_var = self.fresh_alu();
 
-        // 結果の型を推定（SIMD化を考慮）
-        let result_dtype = if let Some(src) = node.src.first() {
-            let ptr_dtype = self.graph_dtype_to_ast_ptr(&src.dtype)?;
-            let src_dtype = ptr_dtype.deref_type().clone();
-            if simd_width > 1 {
-                src_dtype.to_vec(simd_width)
-            } else {
-                src_dtype
-            }
-        } else {
-            return Err("No input found for elementwise operation".to_string());
-        };
-
-        // 変数を宣言
-        scope.declare(result_var.clone(), result_dtype, Mutability::Mutable)?;
-
-        // 結果を変数に代入
-        statements.push(assign(&result_var, result));
-
-        // 結果をストア（出力のViewを考慮）
+        // 結果を直接ストア（出力のViewを考慮）
         let output_ptr = var("output");
         let output_offset = self.compute_offset_from_view(node, axes);
-        statements.push(store(output_ptr, output_offset, var(&result_var)));
+        let store_stmt = store(output_ptr, output_offset, result);
 
-        Ok(statements)
+        Ok(vec![store_stmt])
     }
 
     /// Elementwise演算をASTノードに変換

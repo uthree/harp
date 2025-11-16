@@ -144,7 +144,7 @@ impl Lowerer {
         // 3. 結果を出力に書き込み
         let mut inner_statements = Vec::new();
 
-        // 入力をロードしてマッピングを作成
+        // 入力をロードしてマッピングを作成（直接load式をWildcardに対応）
         let mut mappings = HashMap::new();
         for (i, src) in node.src.iter().enumerate() {
             let input_ptr = var(format!("input{}", i));
@@ -159,12 +159,9 @@ impl Lowerer {
         // exprのWildcardを置き換えてelementwise演算結果を生成
         let elementwise_result = expr.substitute(&mappings);
 
-        let alu_var = self.fresh_alu();
-        scope.declare(alu_var.clone(), acc_dtype.clone(), Mutability::Mutable)?;
-        inner_statements.push(assign(&alu_var, elementwise_result));
-
-        // アキュムレータを更新
-        let accumulate_expr = self.apply_cumulative_op(cumulative_op, var(&acc_var), var(&alu_var));
+        // アキュムレータを更新（中間変数を排除）
+        let accumulate_expr =
+            self.apply_cumulative_op(cumulative_op, var(&acc_var), elementwise_result);
         inner_statements.push(assign(&acc_var, accumulate_expr));
 
         // 結果を出力に書き込み（出力のインデックスは入力と同じ）
