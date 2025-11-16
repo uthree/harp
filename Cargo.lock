@@ -1616,6 +1616,7 @@ dependencies = [
  "objc",
  "paste",
  "serial_test",
+ "tempfile",
 ]
 
 [[package]]

@@ -2,6 +2,7 @@ use crate::backend::openmp::CBuffer;
 use crate::backend::{Kernel, KernelSignature};
 use libloading::{Library, Symbol};
 use std::path::PathBuf;
+use tempfile::NamedTempFile;
 
 /// C/OpenMPカーネルの実行関数の型
 ///
@@ -10,11 +11,15 @@ use std::path::PathBuf;
 type KernelFn = unsafe extern "C" fn(*mut *mut u8);
 
 /// C/OpenMP用のカーネル
+///
+/// 一時ファイル（コンパイルされた動的ライブラリ）を保持し、
+/// CKernelがDropされると自動的に削除される
 pub struct CKernel {
     _library: Library,
     signature: KernelSignature,
     entry_point: String,
-    library_path: PathBuf,
+    /// 一時ファイルを保持（Dropで自動削除）
+    _temp_file: NamedTempFile,
 }
 
 impl CKernel {
@@ -23,13 +28,13 @@ impl CKernel {
         library: Library,
         signature: KernelSignature,
         entry_point: String,
-        library_path: PathBuf,
+        temp_file: NamedTempFile,
     ) -> Self {
         Self {
             _library: library,
             signature,
             entry_point,
-            library_path,
+            _temp_file: temp_file,
         }
     }
 
@@ -42,7 +47,7 @@ impl CKernel {
     pub unsafe fn execute(&self, buffers: &mut [&mut CBuffer]) -> Result<(), String> {
         // 動的ライブラリを再ロード（関数ポインタを取得するため）
         let lib = unsafe {
-            Library::new(&self.library_path)
+            Library::new(self._temp_file.path())
                 .map_err(|e| format!("Failed to load library: {}", e))?
         };
 
@@ -68,8 +73,8 @@ impl CKernel {
     }
 
     /// ライブラリパスを取得
-    pub fn library_path(&self) -> &PathBuf {
-        &self.library_path
+    pub fn library_path(&self) -> PathBuf {
+        self._temp_file.path().to_path_buf()
     }
 
     /// エントリーポイント名を取得

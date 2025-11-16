@@ -169,24 +169,21 @@ impl Compiler for CCompiler {
     }
 
     fn compile(&mut self, code: &Self::CodeRepr) -> Self::Kernel {
-        // 一時的なライブラリファイルのパス（タイムスタンプ + スレッドID で一意性を確保）
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let thread_id = std::thread::current().id();
-
+        // 一時ファイルを作成（適切な拡張子を設定）
         #[cfg(target_os = "macos")]
-        let lib_extension = "dylib";
+        let lib_suffix = ".dylib";
         #[cfg(target_os = "linux")]
-        let lib_extension = "so";
+        let lib_suffix = ".so";
         #[cfg(target_os = "windows")]
-        let lib_extension = "dll";
+        let lib_suffix = ".dll";
 
-        let lib_path = self.temp_dir.join(format!(
-            "harp_kernel_{}_{:?}.{}",
-            timestamp, thread_id, lib_extension
-        ));
+        let temp_file = tempfile::Builder::new()
+            .prefix("harp_kernel_")
+            .suffix(lib_suffix)
+            .tempfile_in(&self.temp_dir)
+            .expect("Failed to create temporary file");
+
+        let lib_path = temp_file.path().to_path_buf();
 
         // コンパイル
         self.compile_to_library(code.as_str(), &lib_path)
@@ -206,7 +203,7 @@ impl Compiler for CCompiler {
             library,
             signature,
             LIBLOADING_WRAPPER_NAME.to_string(),
-            lib_path,
+            temp_file,
         )
     }
 
