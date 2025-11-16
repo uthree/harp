@@ -6,7 +6,6 @@
 use crate::ast::AstNode;
 use crate::opt::ast::Suggester;
 use log::{debug, trace};
-use std::collections::HashSet;
 
 /// ループ融合を提案するSuggester
 pub struct LoopFusionSuggester;
@@ -463,18 +462,8 @@ impl Default for LoopFusionSuggester {
 impl Suggester for LoopFusionSuggester {
     fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
         trace!("LoopFusionSuggester: Generating loop fusion suggestions");
-        let mut suggestions = Vec::new();
-        let mut seen = HashSet::new();
-
         let candidates = self.collect_fusion_candidates(ast);
-
-        for candidate in candidates {
-            let candidate_str = format!("{:?}", candidate);
-            if !seen.contains(&candidate_str) {
-                seen.insert(candidate_str);
-                suggestions.push(candidate);
-            }
-        }
+        let suggestions = super::deduplicate_candidates(candidates);
 
         debug!(
             "LoopFusionSuggester: Generated {} unique suggestions",

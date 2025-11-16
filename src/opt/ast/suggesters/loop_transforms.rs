@@ -6,7 +6,6 @@ use crate::ast::AstNode;
 use crate::opt::ast::Suggester;
 use crate::opt::ast::transforms::{inline_small_loop, tile_loop};
 use log::{debug, trace};
-use std::collections::HashSet;
 
 /// ループタイル化を提案するSuggester
 pub struct LoopTilingSuggester {
@@ -116,19 +115,8 @@ impl LoopTilingSuggester {
 impl Suggester for LoopTilingSuggester {
     fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
         trace!("LoopTilingSuggester: Generating tiling suggestions");
-        let mut suggestions = Vec::new();
-        let mut seen = HashSet::new();
-
         let candidates = self.collect_tiling_candidates(ast);
-
-        for candidate in candidates {
-            let candidate_str = format!("{:?}", candidate);
-            if !seen.contains(&candidate_str) {
-                seen.insert(candidate_str);
-                suggestions.push(candidate);
-            }
-        }
-
+        let suggestions = super::deduplicate_candidates(candidates);
         debug!(
             "LoopTilingSuggester: Generated {} unique suggestions",
             suggestions.len()
@@ -241,19 +229,8 @@ impl LoopInliningSuggester {
 impl Suggester for LoopInliningSuggester {
     fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
         trace!("LoopInliningSuggester: Generating inlining suggestions");
-        let mut suggestions = Vec::new();
-        let mut seen = HashSet::new();
-
         let candidates = self.collect_inlining_candidates(ast);
-
-        for candidate in candidates {
-            let candidate_str = format!("{:?}", candidate);
-            if !seen.contains(&candidate_str) {
-                seen.insert(candidate_str);
-                suggestions.push(candidate);
-            }
-        }
-
+        let suggestions = super::deduplicate_candidates(candidates);
         debug!(
             "LoopInliningSuggester: Generated {} unique suggestions",
             suggestions.len()
@@ -559,19 +536,8 @@ impl Default for LoopInterchangeSuggester {
 impl Suggester for LoopInterchangeSuggester {
     fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
         trace!("LoopInterchangeSuggester: Generating loop interchange suggestions");
-        let mut suggestions = Vec::new();
-        let mut seen = HashSet::new();
-
         let candidates = self.collect_interchange_candidates(ast);
-
-        for candidate in candidates {
-            let candidate_str = format!("{:?}", candidate);
-            if !seen.contains(&candidate_str) {
-                seen.insert(candidate_str);
-                suggestions.push(candidate);
-            }
-        }
-
+        let suggestions = super::deduplicate_candidates(candidates);
         debug!(
             "LoopInterchangeSuggester: Generated {} unique suggestions",
             suggestions.len()

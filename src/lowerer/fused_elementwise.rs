@@ -1,7 +1,4 @@
-use crate::ast::{
-    AstNode, DType as AstDType, FunctionKind, Literal, Mutability, Scope, VarDecl, VarKind,
-    helper::*,
-};
+use crate::ast::{AstNode, Literal, Mutability, Scope, helper::*};
 use crate::graph::{
     GraphNode,
     ops::{FusedElementwiseOp, FusedInput},
@@ -32,49 +29,19 @@ impl Lowerer {
 
         // 入力バッファー（srcノード）
         for (i, src) in node.src.iter().enumerate() {
-            let dtype = self.graph_dtype_to_ast_ptr(&src.dtype)?;
-            params.push(VarDecl {
-                name: format!("input{}", i),
-                dtype,
-                mutability: Mutability::Immutable,
-                kind: VarKind::Normal,
-            });
+            params.push(self.create_input_param(i, &src.dtype)?);
         }
 
-        // 出力バッファー
-        let output_dtype = self.graph_dtype_to_ast_ptr(&node.dtype)?;
-        params.push(VarDecl {
-            name: "output".to_string(),
-            dtype: output_dtype,
-            mutability: Mutability::Mutable,
-            kind: VarKind::Normal,
-        });
-
-        // Shape変数（必要な変数のみをパラメータとして追加）
-        let shape_params = self.extract_shape_params(shape);
-        params.extend(shape_params);
+        // 出力バッファーとShape変数
+        params.push(self.create_output_param(&node.dtype)?);
+        params.extend(self.extract_shape_params(shape));
 
         // ループ本体の生成
         let mut scope = Scope::new();
         let body_statements = self.generate_fused_elementwise_loops(node, ops, ndim, &mut scope)?;
 
-        // カーネル関数のbodyを作成（Blockノード）
-        let body = AstNode::Block {
-            statements: body_statements,
-            scope: Box::new(scope),
-        };
-
-        // カーネル関数名
-        let function_name = format!("kernel_{}", node_id);
-
-        // AstNode::Functionとして返す
-        Ok(function(
-            Some(function_name),
-            FunctionKind::Normal,
-            params,
-            AstDType::Tuple(vec![]),
-            body,
-        ))
+        // カーネル関数を作成して返す
+        Ok(self.create_kernel_function(node_id, params, body_statements, scope))
     }
 
     /// FusedElementwise演算のループを生成

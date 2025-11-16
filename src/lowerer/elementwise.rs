@@ -1,7 +1,4 @@
-use crate::ast::{
-    AstNode, DType as AstDType, FunctionKind, Literal, Mutability, Scope, VarDecl, VarKind,
-    helper::*,
-};
+use crate::ast::{AstNode, Literal, Mutability, Scope, helper::*};
 use crate::graph::{GraphNode, ops::ElementwiseOp};
 use log::debug;
 
@@ -32,60 +29,21 @@ impl Lowerer {
             if matches!(src.op, crate::graph::GraphOp::Const(_)) {
                 continue;
             }
-            let dtype = self.graph_dtype_to_ast_ptr(&src.dtype)?;
-            params.push(VarDecl {
-                name: format!("input{}", input_idx),
-                dtype,
-                mutability: Mutability::Immutable,
-                kind: VarKind::Normal,
-            });
+            params.push(self.create_input_param(input_idx, &src.dtype)?);
             input_idx += 1;
         }
 
-        // 出力バッファー
-        let output_dtype = self.graph_dtype_to_ast_ptr(&node.dtype)?;
-        params.push(VarDecl {
-            name: "output".to_string(),
-            dtype: output_dtype,
-            mutability: Mutability::Mutable,
-            kind: VarKind::Normal,
-        });
-
-        // Shape変数（必要な変数のみをパラメータとして追加）
-        let shape_params = self.extract_shape_params(shape);
-        params.extend(shape_params);
+        // 出力バッファーとShape変数
+        params.push(self.create_output_param(&node.dtype)?);
+        params.extend(self.extract_shape_params(shape));
 
         // ループ本体の生成（scopeも返す）
         let (body_statements, body_scope) = self.generate_elementwise_loops(node, op, ndim)?;
 
-        // カーネル関数のbodyを作成（Blockノード）
-        let body = AstNode::Block {
-            statements: body_statements,
-            scope: Box::new(body_scope),
-        };
-
-        // カーネル関数名
-        let function_name = format!("kernel_{}", node_id);
-
-        // 生成されたコードをログ出力
         debug!("Generated function with {} parameters", params.len());
 
-        // TODO: Renderer更新後にデバッグ出力を復活させる
-        // if log::log_enabled!(log::Level::Debug) {
-        //     use crate::backend::metal::MetalRenderer;
-        //     let mut renderer = MetalRenderer::new();
-        //     let code = renderer.render_function(&function_name, &function);
-        //     debug!("Generated code:\n{}", code);
-        // }
-
-        // AstNode::Functionとして返す
-        Ok(function(
-            Some(function_name),
-            FunctionKind::Normal, // まずは通常の関数として（並列化は後で）
-            params,
-            AstDType::Tuple(vec![]), // unit型
-            body,
-        ))
+        // カーネル関数を作成して返す
+        Ok(self.create_kernel_function(node_id, params, body_statements, body_scope))
     }
 
     /// Elementwise演算のループを生成（statements と scope を返す）

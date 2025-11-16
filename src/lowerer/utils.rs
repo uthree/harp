@@ -1,6 +1,8 @@
-use crate::ast::{AstNode, DType as AstDType, helper::*};
+use crate::ast::{
+    AstNode, DType as AstDType, FunctionKind, Mutability, Scope, VarDecl, VarKind, helper::*,
+};
 use crate::backend::KernelSignature;
-use crate::graph::{DType as GraphDType, Graph, GraphNode};
+use crate::graph::{DType as GraphDType, Graph, GraphNode, shape::Expr};
 use std::collections::HashSet;
 
 use super::Lowerer;
@@ -216,5 +218,83 @@ impl Lowerer {
                 result
             }
         }
+    }
+
+    // ========================================================================
+    // カーネル生成ヘルパー関数
+    // ========================================================================
+
+    /// 出力バッファパラメータを作成
+    pub(super) fn create_output_param(&self, dtype: &GraphDType) -> Result<VarDecl, String> {
+        let output_dtype = self.graph_dtype_to_ast_ptr(dtype)?;
+        Ok(VarDecl {
+            name: "output".to_string(),
+            dtype: output_dtype,
+            mutability: Mutability::Mutable,
+            kind: VarKind::Normal,
+        })
+    }
+
+    /// 入力バッファパラメータを作成
+    pub(super) fn create_input_param(
+        &self,
+        index: usize,
+        dtype: &GraphDType,
+    ) -> Result<VarDecl, String> {
+        let input_dtype = self.graph_dtype_to_ast_ptr(dtype)?;
+        Ok(VarDecl {
+            name: format!("input{}", index),
+            dtype: input_dtype,
+            mutability: Mutability::Immutable,
+            kind: VarKind::Normal,
+        })
+    }
+
+    /// Shape式から必要な変数パラメータを抽出
+    pub(super) fn extract_shape_params(&self, shape: &[Expr]) -> Vec<VarDecl> {
+        let mut vars = HashSet::new();
+
+        // Shape式から変数名を収集
+        for expr in shape {
+            Self::collect_shape_vars(expr, &mut vars);
+        }
+
+        // 変数をソートして一貫した順序で返す
+        let mut sorted_vars: Vec<_> = vars.into_iter().collect();
+        sorted_vars.sort();
+
+        sorted_vars
+            .into_iter()
+            .map(|name| VarDecl {
+                name,
+                dtype: AstDType::Int,
+                mutability: Mutability::Immutable,
+                kind: VarKind::Normal,
+            })
+            .collect()
+    }
+
+    /// カーネル関数を作成するヘルパー
+    pub(super) fn create_kernel_function(
+        &self,
+        node_id: usize,
+        params: Vec<VarDecl>,
+        body_statements: Vec<AstNode>,
+        body_scope: Scope,
+    ) -> AstNode {
+        let body = AstNode::Block {
+            statements: body_statements,
+            scope: Box::new(body_scope),
+        };
+
+        let function_name = format!("kernel_{}", node_id);
+
+        function(
+            Some(function_name),
+            FunctionKind::Normal,
+            params,
+            AstDType::Tuple(vec![]),
+            body,
+        )
     }
 }

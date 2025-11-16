@@ -556,21 +556,15 @@ impl FunctionInliningSuggester {
 impl Suggester for FunctionInliningSuggester {
     fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
         trace!("FunctionInliningSuggester: Generating function inlining suggestions");
-        let mut suggestions = Vec::new();
-        let mut seen = HashSet::new();
-
         let candidates = self.collect_inlining_candidates(ast);
 
-        for candidate in candidates {
-            // インライン展開後にデッドコード削除を適用
-            let optimized = self.remove_dead_functions(&candidate).unwrap_or(candidate);
+        // インライン展開後にデッドコード削除を適用
+        let optimized_candidates: Vec<AstNode> = candidates
+            .into_iter()
+            .map(|candidate| self.remove_dead_functions(&candidate).unwrap_or(candidate))
+            .collect();
 
-            let candidate_str = format!("{:?}", optimized);
-            if !seen.contains(&candidate_str) {
-                seen.insert(candidate_str);
-                suggestions.push(optimized);
-            }
-        }
+        let suggestions = super::deduplicate_candidates(optimized_candidates);
 
         debug!(
             "FunctionInliningSuggester: Generated {} unique suggestions",

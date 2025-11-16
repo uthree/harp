@@ -1,6 +1,4 @@
-use crate::ast::{
-    AstNode, DType as AstDType, FunctionKind, Mutability, Scope, VarDecl, VarKind, helper::*,
-};
+use crate::ast::{AstNode, Mutability, Scope, helper::*};
 use crate::graph::GraphNode;
 use log::debug;
 
@@ -27,49 +25,15 @@ impl Lowerer {
 
         // パラメータを生成: 入力バッファー、出力バッファー、shape変数
         let mut params = Vec::new();
-
-        // 入力バッファー
-        let input_dtype = self.graph_dtype_to_ast_ptr(&input.dtype)?;
-        params.push(VarDecl {
-            name: "input0".to_string(),
-            dtype: input_dtype,
-            mutability: Mutability::Immutable,
-            kind: VarKind::Normal,
-        });
-
-        // 出力バッファー
-        let output_dtype = self.graph_dtype_to_ast_ptr(&node.dtype)?;
-        params.push(VarDecl {
-            name: "output".to_string(),
-            dtype: output_dtype,
-            mutability: Mutability::Mutable,
-            kind: VarKind::Normal,
-        });
-
-        // Shape変数（必要な変数のみをパラメータとして追加）
-        let shape_params = self.extract_shape_params(shape);
-        params.extend(shape_params);
+        params.push(self.create_input_param(0, &input.dtype)?);
+        params.push(self.create_output_param(&node.dtype)?);
+        params.extend(self.extract_shape_params(shape));
 
         // ループ本体の生成
         let body_statements = self.generate_contiguous_loops(node, ndim)?;
 
-        // カーネル関数のbodyを作成（Blockノード）
-        let body = AstNode::Block {
-            statements: body_statements,
-            scope: Box::new(Scope::new()),
-        };
-
-        // カーネル関数名
-        let function_name = format!("kernel_{}", node_id);
-
-        // AstNode::Functionとして返す
-        Ok(function(
-            Some(function_name),
-            FunctionKind::Normal,
-            params,
-            AstDType::Tuple(vec![]),
-            body,
-        ))
+        // カーネル関数を作成して返す
+        Ok(self.create_kernel_function(node_id, params, body_statements, Scope::new()))
     }
 
     /// Contiguous演算のループを生成
