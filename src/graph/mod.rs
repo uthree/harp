@@ -220,6 +220,36 @@ impl GraphNode {
         ops::reduce_max(self.clone(), axis)
     }
 
+    /// 逆数を計算（1/x）
+    pub fn recip(self) -> Self {
+        let view = self.view.clone();
+        let dtype = self.dtype.clone();
+        Self::new(
+            dtype,
+            ops::GraphOp::Elementwise {
+                op: ops::ElementwiseOp::Recip,
+                elementwise_strategies: None,
+            },
+            vec![self],
+            view,
+        )
+    }
+
+    /// 要素ごとの最大値
+    pub fn max(self, other: Self) -> Self {
+        let dtype = ops::infer_dtype(&self.dtype, &other.dtype);
+        let view = ops::infer_view(&self.view, &other.view);
+        Self::new(
+            dtype,
+            ops::GraphOp::Elementwise {
+                op: ops::ElementwiseOp::Max,
+                elementwise_strategies: None,
+            },
+            vec![self, other],
+            view,
+        )
+    }
+
     /// Viewを変更した新しいノードを作成
     ///
     /// このメソッドは、既存のノードに対してView操作（permute, unsqueeze, expand等）を
@@ -1262,5 +1292,81 @@ mod tests {
 
         // 非連続なViewに対してreshapeを試みる（panicするはず）
         let _ = transposed.reshape(vec![Expr::from(12)]);
+    }
+
+    #[test]
+    fn test_recip_method() {
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
+
+        // メソッド形式でrecipを呼び出し
+        let result = a.recip();
+
+        // 正しいGraphOpが生成されたことを確認
+        match &result.op {
+            GraphOp::Elementwise { op, .. } => {
+                assert!(matches!(op, ops::ElementwiseOp::Recip));
+            }
+            _ => panic!("Expected Elementwise::Recip"),
+        }
+
+        // 形状とDTypeが保持されていることを確認
+        assert_eq!(result.view.shape().len(), 2);
+        assert!(matches!(result.dtype, DType::F32));
+    }
+
+    #[test]
+    fn test_max_method() {
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
+        let b = graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
+
+        // メソッド形式でmaxを呼び出し: a.max(b)
+        let result = a.max(b);
+
+        // 正しいGraphOpが生成されたことを確認
+        match &result.op {
+            GraphOp::Elementwise { op, .. } => {
+                assert!(matches!(op, ops::ElementwiseOp::Max));
+            }
+            _ => panic!("Expected Elementwise::Max"),
+        }
+
+        // 形状とDTypeが保持されていることを確認
+        assert_eq!(result.view.shape().len(), 2);
+        assert!(matches!(result.dtype, DType::F32));
+    }
+
+    #[test]
+    fn test_method_chaining() {
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+        let b = graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        // メソッドチェーン: a.max(b).recip().reduce_sum(0)
+        let result = a.max(b).recip().reduce_sum(0);
+
+        // 結果がスカラーであることを確認
+        assert_eq!(result.view.shape().len(), 0);
     }
 }

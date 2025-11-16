@@ -22,7 +22,7 @@ impl LoopTilingSuggester {
     /// デフォルトのタイルサイズで作成
     pub fn with_default_sizes() -> Self {
         Self {
-            tile_sizes: vec![2, 4, 8, 16, 32, 64],
+            tile_sizes: vec![2, 3, 4, 5, 7, 8, 16, 32, 64],
         }
     }
 
@@ -137,7 +137,7 @@ impl LoopInliningSuggester {
         Self { max_iterations }
     }
 
-    /// デフォルトの設定で作成（最大8回まで展開）
+    /// デフォルトの設定で作成（最大4回まで展開）
     pub fn with_default_limit() -> Self {
         Self { max_iterations: 8 }
     }
