@@ -1,5 +1,5 @@
 use harp::backend::openmp::CRenderer;
-use harp::graph::{DType, Graph, GraphNode};
+use harp::graph::{DType, Graph};
 use harp::lowerer::lower;
 use harp::ast::renderer::render_ast_with;
 
@@ -12,14 +12,9 @@ fn main() {
         .with_shape(vec![10])
         .build();
 
-    // 定数ノードを作成してブロードキャスト
-    let const_val = GraphNode::constant(5.0);
-    // スカラーを[1]にreshapeしてから[10]にexpand
-    let const_reshaped = const_val.view(const_val.view.clone().unsqueeze(0));
-    let const_broadcast = const_reshaped.view(const_reshaped.view.clone().expand(vec![10.into()]));
-
+    // スカラー定数は自動的にブロードキャストされる
     // a + const
-    let result = a + const_broadcast;
+    let result = a + 5.0f32;
     graph.output("result", result);
 
     // Lower to AST

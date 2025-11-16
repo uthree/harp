@@ -373,18 +373,9 @@ mod tests {
             .with_shape(vec![10, 20])
             .build();
 
-        // 定数を作成してブロードキャスト
-        let const_node = GraphNode::constant(5.0);
-        let const_unsqueezed = const_node.view(const_node.view.clone().unsqueeze(0).unsqueeze(0));
-        let const_expanded = const_unsqueezed.view(
-            const_unsqueezed
-                .view
-                .clone()
-                .expand(vec![10.into(), 20.into()]),
-        );
-
-        // a + const_expanded
-        let result = a + const_expanded;
+        // スカラー定数は自動的にブロードキャストされる
+        // a + const
+        let result = a + 5.0f32;
         graph.output("result", result);
 
         let suggestions = suggester.suggest(&graph);
@@ -434,22 +425,14 @@ mod tests {
             .with_shape(vec![10, 20])
             .build();
 
-        // 定数演算: 2.0 * 3.0 = 6.0
-        let const1 = GraphNode::constant(2.0);
-        let const2 = GraphNode::constant(3.0);
+        // 定数演算（スカラー定数は自動的にブロードキャストされる）
+        // 2.0 * 3.0 = 6.0
+        let const1: GraphNode = 2.0f32.into();
+        let const2: GraphNode = 3.0f32.into();
         let scale = const1 * const2;
 
-        // ブロードキャスト
-        let scale_unsqueezed = scale.view(scale.view.clone().unsqueeze(0).unsqueeze(0));
-        let scale_expanded = scale_unsqueezed.view(
-            scale_unsqueezed
-                .view
-                .clone()
-                .expand(vec![10.into(), 20.into()]),
-        );
-
-        // a + scale_expanded
-        let result = a + scale_expanded;
+        // a + scale
+        let result = a + scale;
         graph.output("result", result);
 
         let suggestions = suggester.suggest(&graph);

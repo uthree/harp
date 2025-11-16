@@ -224,21 +224,12 @@ mod tests {
             .with_shape(vec![10, 10])
             .build();
 
-        // 定数演算
-        let const1 = GraphNode::constant(2.0);
-        let const2 = GraphNode::constant(3.0);
+        // 定数演算（スカラー定数は自動的にブロードキャストされる）
+        let const1: GraphNode = 2.0f32.into();
+        let const2: GraphNode = 3.0f32.into();
         let scale = const1 * const2; // 6.0に畳み込まれる
 
-        // ブロードキャスト
-        let scale_unsqueezed = scale.view(scale.view.clone().unsqueeze(0).unsqueeze(0));
-        let scale_expanded = scale_unsqueezed.view(
-            scale_unsqueezed
-                .view
-                .clone()
-                .expand(vec![10.into(), 10.into()]),
-        );
-
-        let result = a + scale_expanded;
+        let result = a + scale;
         graph.output("result", result);
 
         // 入力データ

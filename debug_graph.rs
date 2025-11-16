@@ -32,23 +32,12 @@ fn main() {
     let c = graph.input("c").with_dtype(DType::F32).with_shape(vec![m, n]).build();
     let d = graph.input("d").with_dtype(DType::F32).with_shape(vec![n, p]).build();
     
-    let const1 = GraphNode::constant(2.0);
-    let const2 = GraphNode::constant(3.0);
-    let scale_scalar = const1 * const2;
-    
-    println!("scale_scalar op: {:?}", scale_scalar.op);
-    println!("scale_scalar shape: {:?}", scale_scalar.view.shape());
-    println!("scale_scalar src count: {}", scale_scalar.src.len());
-    for (i, src) in scale_scalar.src.iter().enumerate() {
-        println!("  src[{}] op: {:?}", i, src.op);
-    }
-    
-    let scale_unsqueezed = scale_scalar.view(scale_scalar.view.clone().unsqueeze(0).unsqueeze(0));
-    let scale = scale_unsqueezed.view(scale_unsqueezed.view.clone().expand(vec![m.into(), n.into()]));
-    
+    // スカラー定数は自動的にブロードキャストされる
+    let scale_scalar = 2.0f32 * 3.0f32;
+
     let temp1 = matmul(a, b);
     let temp2 = temp1 + c;
-    let temp3 = temp2 * scale;
+    let temp3 = temp2 * scale_scalar;
     let result = matmul(temp3, d);
     
     graph.output("result", result);

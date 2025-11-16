@@ -1,6 +1,6 @@
 use harp::backend::openmp::{CCompiler, CRenderer};
 use harp::backend::GenericPipeline;
-use harp::graph::{DType, Graph, GraphNode};
+use harp::graph::{DType, Graph};
 
 fn main() {
     harp::opt::log_capture::init_with_env_logger();
@@ -14,13 +14,8 @@ fn main() {
         .with_shape(vec![256, 64])
         .build();
     
-    let scale = GraphNode::constant(6.0);
-    let scale_unsqueezed = scale.view(scale.view.clone().unsqueeze(0).unsqueeze(0));
-    let scale_expanded = scale_unsqueezed.view(
-        scale_unsqueezed.view.clone().expand(vec![256.into(), 64.into()])
-    );
-    
-    let result = input + scale_expanded;
+    // スカラー定数は自動的にブロードキャストされる
+    let result = input + 6.0f32;
     graph.output("result", result);
     
     let renderer = CRenderer::new();

@@ -1,6 +1,6 @@
 use harp::backend::openmp::{CRenderer, CCompiler};
 use harp::backend::{GenericPipeline, GraphOptimizationConfig, AstOptimizationConfig};
-use harp::graph::{DType, Graph, GraphNode};
+use harp::graph::{DType, Graph};
 use harp::ast::renderer::render_ast_with;
 
 fn main() {
@@ -42,11 +42,9 @@ fn main() {
         .with_shape(vec![k, n])
         .build();
     
-    // 定数演算（これが問題の原因かも）
-    let const1 = GraphNode::constant(2.0);
-    let const2 = GraphNode::constant(3.0);
-    let scale = const1 * const2;
-    
+    // 定数演算（スカラー定数は自動的にブロードキャストされる）
+    let _scale = 2.0f32 * 3.0f32;
+
     let result = a + b;
     
     graph.output("result", result);

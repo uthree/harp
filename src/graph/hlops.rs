@@ -22,7 +22,7 @@ impl GraphNode {
     /// let x_squared = x.square();
     /// ```
     pub fn square(self) -> GraphNode {
-        self.clone() * self
+        &self * &self
     }
 
     /// 累乗: x^n (正の整数のみ)
@@ -38,7 +38,7 @@ impl GraphNode {
 
         let mut result = self.clone();
         for _ in 1..n {
-            result = result * self.clone();
+            result = &result * &self;
         }
         result
     }
@@ -110,24 +110,9 @@ impl GraphNode {
             ),
         };
 
-        // 合計を計算
-        let sum = reduce_sum(self.clone(), axis);
-
-        // 定数ノード（1/size）を作成
-        let inv_size = GraphNode::constant(1.0f32 / size_value);
-
-        // sumの各要素に1/sizeを掛ける
-        // 定数（スカラー）をsumのshapeにexpand
-        // まずスカラーを必要な次元数まで unsqueeze してから expand
-        let sum_ndim = sum.view.ndim();
-        let mut view = inv_size.view.clone();
-        for _ in 0..sum_ndim {
-            view = view.unsqueeze(0);
-        }
-        view = view.expand(sum.view.shape().to_vec());
-        let expanded_inv_size = inv_size.view(view);
-
-        sum * expanded_inv_size
+        // 合計を計算し、サイズで割る
+        // スカラーは自動的にブロードキャストされる
+        reduce_sum(self, axis) * (1.0f32 / size_value)
     }
 
     /// 分散を計算: var(x, axis)
@@ -267,19 +252,8 @@ impl GraphNode {
         // 1 / log2(e) ≈ 0.6931471805599453
         const INV_LOG2_E: f32 = 1.0 / std::f32::consts::LOG2_E;
 
-        let log2_x = self.log2();
-        let inv_log2_e = GraphNode::constant(INV_LOG2_E);
-
-        // 定数（スカラー）をlog2_xのshapeにexpand
-        let ndim = log2_x.view.ndim();
-        let mut view = inv_log2_e.view.clone();
-        for _ in 0..ndim {
-            view = view.unsqueeze(0);
-        }
-        view = view.expand(log2_x.view.shape().to_vec());
-        let expanded_const = inv_log2_e.view(view);
-
-        log2_x * expanded_const
+        // スカラー定数は自動的にブロードキャストされる
+        self.log2() * INV_LOG2_E
     }
 
     /// 指数関数: e^x = exp(x)
@@ -289,18 +263,8 @@ impl GraphNode {
         // exp(x) = 2^(x * log2(e))
         const LOG2_E: f32 = std::f32::consts::LOG2_E;
 
-        let log2_e = GraphNode::constant(LOG2_E);
-
-        // 定数（スカラー）をxのshapeにexpand
-        let ndim = self.view.ndim();
-        let mut view = log2_e.view.clone();
-        for _ in 0..ndim {
-            view = view.unsqueeze(0);
-        }
-        view = view.expand(self.view.shape().to_vec());
-        let expanded_const = log2_e.view(view);
-
-        (self * expanded_const).exp2()
+        // スカラー定数は自動的にブロードキャストされる
+        (self * LOG2_E).exp2()
     }
 
     /// 正弦: sin(x)
@@ -325,18 +289,8 @@ impl GraphNode {
         // cos(x) = sin(x + π/2)
         const HALF_PI: f32 = std::f32::consts::FRAC_PI_2;
 
-        let half_pi = GraphNode::constant(HALF_PI);
-
-        // 定数（スカラー）をxのshapeにexpand
-        let ndim = self.view.ndim();
-        let mut view = half_pi.view.clone();
-        for _ in 0..ndim {
-            view = view.unsqueeze(0);
-        }
-        view = view.expand(self.view.shape().to_vec());
-        let expanded_const = half_pi.view(view);
-
-        (self + expanded_const).sin()
+        // スカラー定数は自動的にブロードキャストされる
+        (self + HALF_PI).sin()
     }
 
     /// 平方根: sqrt(x)
