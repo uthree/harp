@@ -1,120 +1,87 @@
 use crate::ast::DType;
 use crate::backend::Buffer;
-use log::{debug, trace};
-use metal::{Buffer as MTLBuffer, Device, MTLResourceOptions};
 
-/// Metal デバイスバッファのラッパー
+/// Metalバックエンド用のホストメモリバッファ
+///
+/// C/OpenCLバックエンドと同様に、ホストメモリを使用する。
+/// Metal APIを使った実行時に、このデータがGPUに転送される。
 pub struct MetalBuffer {
-    buffer: MTLBuffer,
+    data: Vec<u8>,
     shape: Vec<usize>,
     element_size: usize,
-    dtype: DType,
 }
 
 impl MetalBuffer {
     /// 新しいバッファを作成
-    pub fn new(device: &Device, shape: Vec<usize>, element_size: usize) -> Self {
+    pub fn new(shape: Vec<usize>, element_size: usize) -> Self {
         let total_elements: usize = shape.iter().product();
         let byte_size = total_elements * element_size;
+        let data = vec![0u8; byte_size];
 
-        // element_sizeから型を推測
-        let dtype = match element_size {
-            4 => DType::F32, // デフォルトはF32
-            _ => DType::F32,
+        Self {
+            data,
+            shape,
+            element_size,
+        }
+    }
+
+    /// f32データから直接バッファを作成
+    pub fn from_f32_vec(data: Vec<f32>) -> Self {
+        let shape = vec![data.len()];
+        let element_size = std::mem::size_of::<f32>();
+        let byte_size = data.len() * element_size;
+
+        let mut buffer = Self {
+            data: vec![0u8; byte_size],
+            shape,
+            element_size,
         };
 
-        debug!(
-            "Creating Metal buffer: shape={:?}, element_size={}, total_bytes={}",
-            shape, element_size, byte_size
-        );
-
-        let buffer = device.new_buffer(byte_size as u64, MTLResourceOptions::StorageModeShared);
-
-        Self {
-            buffer,
-            shape,
-            element_size,
-            dtype,
-        }
-    }
-
-    /// 型を指定してバッファを作成
-    pub fn with_dtype(device: &Device, shape: Vec<usize>, dtype: DType) -> Self {
-        let element_size = dtype.size_in_bytes();
-        let total_elements: usize = shape.iter().product();
-        let byte_size = total_elements * element_size;
-
-        debug!(
-            "Creating Metal buffer: shape={:?}, dtype={:?}, total_bytes={}",
-            shape, dtype, byte_size
-        );
-
-        let buffer = device.new_buffer(byte_size as u64, MTLResourceOptions::StorageModeShared);
-
-        Self {
-            buffer,
-            shape,
-            element_size,
-            dtype,
-        }
-    }
-
-    /// 既存の MTLBuffer からラップ
-    pub fn from_buffer(buffer: MTLBuffer, shape: Vec<usize>, element_size: usize) -> Self {
-        let dtype = match element_size {
-            4 => DType::F32,
-            _ => DType::F32,
-        };
-
-        Self {
-            buffer,
-            shape,
-            element_size,
-            dtype,
-        }
-    }
-
-    /// 内部の MTLBuffer への参照を取得
-    pub fn inner(&self) -> &MTLBuffer {
-        &self.buffer
-    }
-
-    /// バッファのバイトサイズを取得
-    pub fn byte_size(&self) -> usize {
-        self.buffer.length() as usize
-    }
-
-    /// 要素のサイズを取得（バイト単位）
-    pub fn element_size(&self) -> usize {
-        self.element_size
-    }
-
-    /// データを CPU から GPU へコピー
-    pub fn write_data<T: Copy>(&mut self, data: &[T]) {
-        trace!(
-            "Writing {} elements to Metal buffer (shape={:?})",
-            data.len(),
-            self.shape
-        );
-        let ptr = self.buffer.contents() as *mut T;
         unsafe {
-            std::ptr::copy_nonoverlapping(data.as_ptr(), ptr, data.len());
+            std::ptr::copy_nonoverlapping(
+                data.as_ptr() as *const u8,
+                buffer.data.as_mut_ptr(),
+                byte_size,
+            );
         }
-        trace!("Write completed");
+
+        buffer
     }
 
-    /// データを GPU から CPU へコピー
-    pub fn read_data<T: Copy>(&self, data: &mut [T]) {
-        trace!(
-            "Reading {} elements from Metal buffer (shape={:?})",
-            data.len(),
-            self.shape
-        );
-        let ptr = self.buffer.contents() as *const T;
-        unsafe {
-            std::ptr::copy_nonoverlapping(ptr, data.as_mut_ptr(), data.len());
+    /// データポインタを取得（可変）
+    pub fn as_mut_ptr(&mut self) -> *mut u8 {
+        self.data.as_mut_ptr()
+    }
+
+    /// データポインタを取得（不変）
+    pub fn as_ptr(&self) -> *const u8 {
+        self.data.as_ptr()
+    }
+
+    /// f32スライスとして取得
+    pub fn as_f32_slice(&self) -> Option<&[f32]> {
+        if self.element_size != std::mem::size_of::<f32>() {
+            return None;
         }
-        trace!("Read completed");
+        unsafe {
+            Some(std::slice::from_raw_parts(
+                self.data.as_ptr() as *const f32,
+                self.data.len() / self.element_size,
+            ))
+        }
+    }
+
+    /// f32スライスとして取得（可変）
+    pub fn as_f32_slice_mut(&mut self) -> Option<&mut [f32]> {
+        if self.element_size != std::mem::size_of::<f32>() {
+            return None;
+        }
+        unsafe {
+            Some(std::slice::from_raw_parts_mut(
+                self.data.as_mut_ptr() as *mut f32,
+                self.data.len() / self.element_size,
+            ))
+        }
     }
 }
 
@@ -124,79 +91,72 @@ impl Buffer for MetalBuffer {
     }
 
     fn dtype(&self) -> DType {
-        self.dtype.clone()
+        // element_sizeから型を推測
+        match self.element_size {
+            4 => DType::F32,
+            8 => DType::Int, // i64相当
+            _ => DType::F32,
+        }
     }
 
     fn to_bytes(&self) -> Vec<u8> {
-        // GPU → CPU 転送
-        let byte_size = self.byte_size();
-        let mut bytes = vec![0u8; byte_size];
-
-        let ptr = self.buffer.contents() as *const u8;
-        unsafe {
-            std::ptr::copy_nonoverlapping(ptr, bytes.as_mut_ptr(), byte_size);
-        }
-
-        bytes
+        self.data.clone()
     }
 
     fn from_bytes(&mut self, bytes: &[u8]) -> Result<(), String> {
-        // CPU → GPU 転送
-        let byte_size = self.byte_size();
-
-        if bytes.len() != byte_size {
+        if bytes.len() != self.data.len() {
             return Err(format!(
                 "Byte length mismatch: expected {}, got {}",
-                byte_size,
+                self.data.len(),
                 bytes.len()
             ));
         }
 
-        let ptr = self.buffer.contents() as *mut u8;
-        unsafe {
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, byte_size);
-        }
-
+        self.data.copy_from_slice(bytes);
         Ok(())
     }
 
     fn byte_len(&self) -> usize {
-        self.byte_size()
+        self.data.len()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::metal::MetalCompiler;
-    use serial_test::serial;
 
     #[test]
-    #[serial]
     fn test_buffer_creation() {
-        if let Some(compiler) = MetalCompiler::with_default_device() {
-            let buffer = compiler.create_buffer(vec![10, 20], 4);
-            assert_eq!(buffer.shape(), vec![10, 20]);
-            assert_eq!(buffer.byte_size(), 10 * 20 * 4);
-        }
+        let buffer = MetalBuffer::new(vec![10, 20], 4);
+        assert_eq!(buffer.shape(), vec![10, 20]);
+        assert_eq!(buffer.byte_len(), 10 * 20 * 4);
     }
 
     #[test]
-    #[serial]
+    fn test_buffer_from_f32() {
+        let data: Vec<f32> = (0..10).map(|i| i as f32).collect();
+        let buffer = MetalBuffer::from_f32_vec(data.clone());
+
+        assert_eq!(buffer.shape(), vec![10]);
+        assert_eq!(buffer.element_size, std::mem::size_of::<f32>());
+
+        let read_data = buffer.as_f32_slice().unwrap();
+        assert_eq!(read_data, data.as_slice());
+    }
+
+    #[test]
     fn test_buffer_read_write() {
-        if let Some(compiler) = MetalCompiler::with_default_device() {
-            let mut buffer = compiler.create_buffer(vec![10], 4);
+        let mut buffer = MetalBuffer::new(vec![10], std::mem::size_of::<f32>());
 
-            // データを書き込み
-            let write_data: Vec<f32> = (0..10).map(|i| i as f32).collect();
-            buffer.write_data(&write_data);
+        // データを書き込み
+        let write_data: Vec<f32> = (0..10).map(|i| i as f32).collect();
+        let slice = buffer.as_f32_slice_mut().unwrap();
+        slice.copy_from_slice(&write_data);
 
-            // データを読み出し
-            let mut read_data = vec![0.0f32; 10];
-            buffer.read_data(&mut read_data);
+        // データを読み出し
+        let read_data = buffer.as_f32_slice().unwrap();
 
-            // 確認
-            assert_eq!(write_data, read_data);
-        }
+        // 確認
+        assert_eq!(write_data.as_slice(), read_data);
     }
 }

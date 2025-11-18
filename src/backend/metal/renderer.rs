@@ -1,10 +1,9 @@
 use crate::ast::{AstNode, DType, FunctionKind, Mutability, VarDecl, VarKind};
 use crate::backend::Renderer;
 use crate::backend::c_like::CLikeRenderer;
-use crate::backend::metal::MetalCode;
-use log::{info, trace};
+use crate::backend::metal::{LIBLOADING_WRAPPER_NAME, MetalCode};
 
-/// Metal Shading Language用のレンダラー
+/// Metal Shading Language用のレンダラー（C++ラッパー方式）
 pub struct MetalRenderer {
     indent_level: usize,
 }
@@ -14,8 +13,7 @@ impl MetalRenderer {
         Self { indent_level: 0 }
     }
 
-    /// 関数を描画（パブリックメソッドとして維持）
-    /// プログラム全体を描画
+    /// プログラム全体をObjective-C++ + Metal APIコードとして描画
     pub fn render_program(&mut self, program: &AstNode) -> MetalCode {
         self.render_program_with_signature(program, crate::backend::KernelSignature::empty())
     }
@@ -31,20 +29,318 @@ impl MetalRenderer {
             entry_point,
         } = program
         {
-            info!(
-                "Rendering Metal program: {} with {} functions",
-                entry_point,
-                functions.len()
-            );
+            let mut code = String::new();
 
-            let result = CLikeRenderer::render_program_clike(self, program);
+            // 1. ヘッダー
+            code.push_str(&self.render_objcpp_header());
+            code.push_str("\n\n");
 
-            info!("Metal program rendering completed ({} bytes)", result.len());
-            trace!("Generated Metal code:\n{}", result);
+            // 2. Metal Shading Languageカーネルを文字列リテラルとして生成
+            let mut kernel_renderer = MetalKernelRenderer::new();
+            let kernel_source = kernel_renderer.render_kernel_source(functions);
 
-            MetalCode::with_signature(result, signature)
+            code.push_str("// Metal Shading Language kernel source\n");
+            code.push_str("const char* METAL_KERNEL_SOURCE = R\"(\n");
+            code.push_str(&kernel_source);
+            code.push_str(")\";\n\n");
+
+            // 3. libloading用のエントリーポイント関数を生成
+            code.push_str(&self.generate_host_code(entry_point, functions));
+
+            MetalCode::with_signature(code, signature)
         } else {
             panic!("Expected AstNode::Program");
+        }
+    }
+
+    /// Objective-C++ヘッダーを生成
+    fn render_objcpp_header(&self) -> String {
+        let mut header = String::new();
+        header.push_str("#include <Metal/Metal.h>\n");
+        header.push_str("#include <Foundation/Foundation.h>\n");
+        header.push_str("#include <stdio.h>\n");
+        header.push_str("#include <stdlib.h>\n");
+        header
+    }
+
+    /// Metal APIを使ったホストコードを生成
+    fn generate_host_code(&self, entry_point: &str, functions: &[AstNode]) -> String {
+        // エントリーポイント関数のパラメータを取得
+        let entry_func = functions.iter().find(
+            |f| matches!(f, AstNode::Function { name: Some(name), .. } if name == entry_point),
+        );
+
+        let buffer_count = if let Some(AstNode::Function { params, .. }) = entry_func {
+            params
+                .iter()
+                .filter(|p| matches!(p.kind, VarKind::Normal))
+                .count()
+        } else {
+            0
+        };
+
+        let mut code = String::new();
+
+        code.push_str("// === Metal API Host Code ===\n");
+        code.push_str("extern \"C\" {\n");
+        code.push_str(&format!(
+            "void {}(void** buffers) {{\n",
+            LIBLOADING_WRAPPER_NAME
+        ));
+        code.push_str("    @autoreleasepool {\n");
+        code.push_str("        // Initialize Metal device\n");
+        code.push_str("        id<MTLDevice> device = MTLCreateSystemDefaultDevice();\n");
+        code.push_str("        if (!device) {\n");
+        code.push_str("            fprintf(stderr, \"Failed to create Metal device\\n\");\n");
+        code.push_str("            return;\n");
+        code.push_str("        }\n\n");
+
+        code.push_str("        // Create command queue\n");
+        code.push_str("        id<MTLCommandQueue> commandQueue = [device newCommandQueue];\n\n");
+
+        code.push_str("        // Compile kernel source\n");
+        code.push_str("        NSError* error = nil;\n");
+        code.push_str("        MTLCompileOptions* options = [[MTLCompileOptions alloc] init];\n");
+        code.push_str("        id<MTLLibrary> library = [device newLibraryWithSource:@(METAL_KERNEL_SOURCE)\n");
+        code.push_str("                                                      options:options\n");
+        code.push_str("                                                        error:&error];\n");
+        code.push_str("        if (!library) {\n");
+        code.push_str("            NSLog(@\"Failed to compile Metal library: %@\", error);\n");
+        code.push_str("            return;\n");
+        code.push_str("        }\n\n");
+
+        code.push_str(&format!(
+            "        // Get kernel function: {}\n",
+            entry_point
+        ));
+        code.push_str(&format!(
+            "        id<MTLFunction> function = [library newFunctionWithName:@\"{}\"];\n",
+            entry_point
+        ));
+        code.push_str("        if (!function) {\n");
+        code.push_str(&format!(
+            "            fprintf(stderr, \"Failed to find kernel function '{}'\\n\");\n",
+            entry_point
+        ));
+        code.push_str("            return;\n");
+        code.push_str("        }\n\n");
+
+        code.push_str("        // Create pipeline state\n");
+        code.push_str("        id<MTLComputePipelineState> pipelineState =\n");
+        code.push_str(
+            "            [device newComputePipelineStateWithFunction:function error:&error];\n",
+        );
+        code.push_str("        if (!pipelineState) {\n");
+        code.push_str("            NSLog(@\"Failed to create pipeline state: %@\", error);\n");
+        code.push_str("            return;\n");
+        code.push_str("        }\n\n");
+
+        code.push_str("        // Create Metal buffers from host buffers\n");
+        code.push_str(&format!(
+            "        id<MTLBuffer> metalBuffers[{}];\n",
+            buffer_count
+        ));
+        code.push_str(&format!(
+            "        for (int i = 0; i < {}; i++) {{\n",
+            buffer_count
+        ));
+        code.push_str("            // TODO: Get actual buffer size\n");
+        code.push_str("            size_t bufferSize = 1024 * sizeof(float);\n");
+        code.push_str("            metalBuffers[i] = [device newBufferWithBytes:buffers[i]\n");
+        code.push_str("                                                  length:bufferSize\n");
+        code.push_str(
+            "                                                 options:MTLResourceStorageModeShared];\n",
+        );
+        code.push_str("        }\n\n");
+
+        code.push_str("        // Create command buffer and encoder\n");
+        code.push_str(
+            "        id<MTLCommandBuffer> commandBuffer = [commandQueue commandBuffer];\n",
+        );
+        code.push_str("        id<MTLComputeCommandEncoder> encoder = [commandBuffer computeCommandEncoder];\n");
+        code.push_str("        [encoder setComputePipelineState:pipelineState];\n\n");
+
+        code.push_str("        // Bind buffers\n");
+        code.push_str(&format!(
+            "        for (int i = 0; i < {}; i++) {{\n",
+            buffer_count
+        ));
+        code.push_str("            [encoder setBuffer:metalBuffers[i] offset:0 atIndex:i];\n");
+        code.push_str("        }\n\n");
+
+        code.push_str("        // Execute kernel\n");
+        code.push_str("        MTLSize gridSize = MTLSizeMake(1024, 1, 1);\n");
+        code.push_str(
+            "        NSUInteger threadGroupSize = pipelineState.maxTotalThreadsPerThreadgroup;\n",
+        );
+        code.push_str("        if (threadGroupSize > 256) threadGroupSize = 256;\n");
+        code.push_str("        MTLSize threadgroupSize = MTLSizeMake(threadGroupSize, 1, 1);\n");
+        code.push_str(
+            "        [encoder dispatchThreads:gridSize threadsPerThreadgroup:threadgroupSize];\n",
+        );
+        code.push_str("        [encoder endEncoding];\n\n");
+
+        code.push_str("        // Commit and wait\n");
+        code.push_str("        [commandBuffer commit];\n");
+        code.push_str("        [commandBuffer waitUntilCompleted];\n\n");
+
+        code.push_str("        // Copy results back to host buffers\n");
+        code.push_str(&format!(
+            "        for (int i = 0; i < {}; i++) {{\n",
+            buffer_count
+        ));
+        code.push_str("            void* contents = [metalBuffers[i] contents];\n");
+        code.push_str("            size_t bufferSize = [metalBuffers[i] length];\n");
+        code.push_str("            memcpy(buffers[i], contents, bufferSize);\n");
+        code.push_str("        }\n");
+
+        code.push_str("    }\n");
+        code.push_str("}\n");
+        code.push_str("}\n");
+
+        code
+    }
+}
+
+/// Metal Shading Languageカーネルをレンダリングする内部レンダラー
+struct MetalKernelRenderer {
+    indent_level: usize,
+}
+
+impl MetalKernelRenderer {
+    fn new() -> Self {
+        Self { indent_level: 0 }
+    }
+
+    fn render_kernel_source(&mut self, functions: &[AstNode]) -> String {
+        let mut code = String::new();
+
+        // Metal Shading Languageヘッダー
+        code.push_str("#include <metal_stdlib>\n");
+        code.push_str("using namespace metal;\n\n");
+
+        // カーネル関数のみをレンダリング
+        for func in functions {
+            if matches!(
+                func,
+                AstNode::Function {
+                    kind: FunctionKind::Kernel(_),
+                    ..
+                }
+            ) {
+                code.push_str(&self.render_function_node(func));
+                code.push('\n');
+            }
+        }
+
+        code
+    }
+}
+
+// MetalKernelRenderer用のRenderer実装（内部使用のためダミー）
+impl Renderer for MetalKernelRenderer {
+    type CodeRepr = MetalCode;
+    type Option = ();
+
+    fn render(&self, _program: &AstNode) -> Self::CodeRepr {
+        panic!("MetalKernelRenderer::render should not be called directly");
+    }
+
+    fn is_available(&self) -> bool {
+        true
+    }
+}
+
+// MetalKernelRenderer用のCLikeRenderer実装
+impl CLikeRenderer for MetalKernelRenderer {
+    fn indent_level(&self) -> usize {
+        self.indent_level
+    }
+
+    fn indent_level_mut(&mut self) -> &mut usize {
+        &mut self.indent_level
+    }
+
+    fn render_dtype_backend(&self, dtype: &DType) -> String {
+        match dtype {
+            DType::F32 => "float".to_string(),
+            DType::Int => "int".to_string(),
+            DType::Ptr(inner) => format!("device {}*", self.render_dtype_backend(inner)),
+            DType::Vec(inner, size) => {
+                let base = self.render_dtype_backend(inner);
+                format!("{}{}", base, size)
+            }
+            DType::Tuple(types) => {
+                if types.is_empty() {
+                    "void".to_string()
+                } else {
+                    format!("tuple_{}", types.len())
+                }
+            }
+            DType::Unknown => {
+                panic!("Type inference failed: DType::Unknown should not appear in code generation")
+            }
+        }
+    }
+
+    fn render_barrier_backend(&self) -> String {
+        "threadgroup_barrier(mem_flags::mem_threadgroup);".to_string()
+    }
+
+    fn render_header(&self) -> String {
+        "#include <metal_stdlib>\nusing namespace metal;\n\n".to_string()
+    }
+
+    fn render_function_qualifier(&self, func_kind: &FunctionKind) -> String {
+        match func_kind {
+            FunctionKind::Kernel(_) => "kernel".to_string(),
+            FunctionKind::Normal => String::new(),
+        }
+    }
+
+    fn render_param_attribute(&self, param: &VarDecl, is_kernel: bool) -> String {
+        let type_str = self.render_dtype_backend(&param.dtype);
+        let mut_str = match param.mutability {
+            Mutability::Immutable => "const ",
+            Mutability::Mutable => "",
+        };
+
+        if is_kernel {
+            match &param.kind {
+                VarKind::Normal => {
+                    format!("{}{} {}", mut_str, type_str, param.name)
+                }
+                VarKind::ThreadId(_) => {
+                    format!("uint {} [[thread_position_in_grid]]", param.name)
+                }
+                VarKind::GroupId(_) => {
+                    format!("uint {} [[threadgroup_position_in_grid]]", param.name)
+                }
+                VarKind::GroupSize(_) => {
+                    format!("uint {} [[threads_per_threadgroup]]", param.name)
+                }
+                VarKind::GridSize(_) => {
+                    format!("uint {} [[threads_per_grid]]", param.name)
+                }
+            }
+        } else {
+            format!("{}{} {}", mut_str, type_str, param.name)
+        }
+    }
+
+    fn render_thread_var_declarations(&self, _params: &[VarDecl], _indent: &str) -> String {
+        // Metalではスレッド変数はパラメータ属性として宣言されるので、ここでは何もしない
+        String::new()
+    }
+
+    fn render_math_func(&self, name: &str, args: &[String]) -> String {
+        match name {
+            "max" => format!("max({})", args.join(", ")),
+            "sqrt" => format!("sqrt({})", args.join(", ")),
+            "log2" => format!("log2({})", args.join(", ")),
+            "exp2" => format!("exp2({})", args.join(", ")),
+            "sin" => format!("sin({})", args.join(", ")),
+            _ => format!("{}({})", name, args.join(", ")),
         }
     }
 }
@@ -284,59 +580,67 @@ mod tests {
     fn test_render_program() {
         use crate::ast::Scope;
 
-        // 簡単な関数: double(x) = x * 2
-        let double_params = vec![VarDecl {
-            name: "x".to_string(),
-            dtype: DType::F32,
-            mutability: Mutability::Immutable,
-            kind: VarKind::Normal,
-        }];
+        // カーネル関数を作成
+        let kernel_params = vec![
+            VarDecl {
+                name: "tid".to_string(),
+                dtype: DType::Int,
+                mutability: Mutability::Immutable,
+                kind: VarKind::ThreadId(0),
+            },
+            VarDecl {
+                name: "input".to_string(),
+                dtype: DType::F32.to_ptr(),
+                mutability: Mutability::Immutable,
+                kind: VarKind::Normal,
+            },
+            VarDecl {
+                name: "output".to_string(),
+                dtype: DType::F32.to_ptr(),
+                mutability: Mutability::Mutable,
+                kind: VarKind::Normal,
+            },
+        ];
 
-        let double_func = AstNode::Function {
-            kind: FunctionKind::Normal,
-            name: Some("double".to_string()),
-            params: double_params,
-            return_type: DType::F32,
+        let kernel_func = AstNode::Function {
+            kind: FunctionKind::Kernel(1),
+            name: Some("test_kernel".to_string()),
+            params: kernel_params,
+            return_type: DType::Tuple(vec![]),
             body: Box::new(AstNode::Block {
-                statements: vec![AstNode::Return {
-                    value: Box::new(var("x") * AstNode::Const(2.0f32.into())),
-                }],
-                scope: Box::new(Scope::new()),
-            }),
-        };
-
-        // メイン関数
-        let main_func = AstNode::Function {
-            kind: FunctionKind::Normal,
-            name: Some("main".to_string()),
-            params: vec![],
-            return_type: DType::F32,
-            body: Box::new(AstNode::Block {
-                statements: vec![AstNode::Call {
-                    name: "double".to_string(),
-                    args: vec![AstNode::Const(5.0f32.into())],
-                }],
+                statements: vec![store(
+                    var("output"),
+                    var("tid"),
+                    load(var("input"), var("tid"), DType::F32) * AstNode::Const(2.0f32.into()),
+                )],
                 scope: Box::new(Scope::new()),
             }),
         };
 
         let program = AstNode::Program {
-            functions: vec![double_func, main_func],
-            entry_point: "main".to_string(),
+            functions: vec![kernel_func],
+            entry_point: "test_kernel".to_string(),
         };
 
         let mut renderer = MetalRenderer::new();
         let code = renderer.render_program(&program);
 
-        // ヘッダーとインクルードをチェック
+        // Objective-C++ヘッダーをチェック
+        assert!(code.contains("#include <Metal/Metal.h>"));
+        assert!(code.contains("#include <Foundation/Foundation.h>"));
+
+        // Metal Shading Languageカーネルソースがrawリテラルに埋め込まれているかチェック
+        assert!(code.contains("const char* METAL_KERNEL_SOURCE = R\"("));
         assert!(code.contains("#include <metal_stdlib>"));
         assert!(code.contains("using namespace metal;"));
 
-        // 関数定義をチェック
-        assert!(code.contains("float double("));
-        assert!(code.contains("float main("));
-        assert!(code.contains("return (x * 2f)"));
-        assert!(code.contains("double(5f)"));
+        // libloading用のエントリーポイントをチェック
+        assert!(code.contains("extern \"C\""));
+        assert!(code.contains("void __harp_metal_entry(void** buffers)"));
+
+        // Metal API呼び出しをチェック
+        assert!(code.contains("MTLCreateSystemDefaultDevice"));
+        assert!(code.contains("newLibraryWithSource"));
     }
 
     #[test]

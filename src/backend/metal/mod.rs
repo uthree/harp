@@ -20,6 +20,12 @@ pub use compiler::MetalCompiler;
 
 pub use renderer::MetalRenderer;
 
+/// libloading用のラッパー関数名
+///
+/// libloadingは固定シグネチャを期待するため、エントリーポイント関数を
+/// ラップする関数を生成する。この定数はレンダラーとコンパイラの両方で使用される。
+pub const LIBLOADING_WRAPPER_NAME: &str = "__harp_metal_entry";
+
 /// MetalRenderer と MetalCompiler を組み合わせた Pipeline
 #[cfg(target_os = "macos")]
 pub type MetalPipeline = crate::backend::GenericPipeline<MetalRenderer, MetalCompiler>;
