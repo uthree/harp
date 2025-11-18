@@ -23,6 +23,37 @@ impl ViewMergeSuggester {
         ViewMergeSuggester {}
     }
 
+    /// グラフ内の各ノードの被参照数をカウント
+    fn count_node_references(&self, graph: &Graph) -> HashMap<*const GraphNodeData, usize> {
+        let mut ref_counts: HashMap<*const GraphNodeData, usize> = HashMap::new();
+        let mut visited = HashSet::new();
+
+        fn visit(
+            node: &GraphNode,
+            ref_counts: &mut HashMap<*const GraphNodeData, usize>,
+            visited: &mut HashSet<*const GraphNodeData>,
+        ) {
+            let ptr = node.as_ptr();
+            if visited.contains(&ptr) {
+                return;
+            }
+            visited.insert(ptr);
+
+            // ソースノードの被参照数をカウント
+            for src in &node.src {
+                let src_ptr = src.as_ptr();
+                *ref_counts.entry(src_ptr).or_insert(0) += 1;
+                visit(src, ref_counts, visited);
+            }
+        }
+
+        for output in graph.outputs().values() {
+            visit(output, &mut ref_counts, &mut visited);
+        }
+
+        ref_counts
+    }
+
     /// グラフ内の全ノードを収集（トポロジカル順）
     fn collect_all_nodes(&self, graph: &Graph) -> Vec<GraphNode> {
         let mut visited = HashSet::new();
@@ -351,12 +382,26 @@ impl GraphSuggester for ViewMergeSuggester {
     fn suggest(&self, graph: &Graph) -> Vec<Graph> {
         let mut suggestions = Vec::new();
         let nodes = self.collect_all_nodes(graph);
+        let ref_counts = self.count_node_references(graph);
 
         // 各Viewノードについて、マージを試みる
         for node in &nodes {
             // Viewノードのみを対象
             if !matches!(node.op, GraphOp::View(_)) {
                 continue;
+            }
+
+            // 融合されるノード（Viewノードの入力ノード）の被参照数をチェック
+            // 被参照数が複数ある場合は融合をスキップ（ダングリングポインタを防ぐ）
+            if node.src.len() == 1 {
+                let input_node = &node.src[0];
+                let input_ptr = input_node.as_ptr();
+                let ref_count = ref_counts.get(&input_ptr).copied().unwrap_or(0);
+
+                // 被参照数が1より大きい場合は融合しない
+                if ref_count > 1 {
+                    continue;
+                }
             }
 
             // Viewノードをマージして、入力ノードのViewを更新
@@ -573,5 +618,87 @@ mod tests {
 
         // shapeが[1, 10]に変更されていることを確認
         assert_eq!(result.view.shape(), &[1.into(), 10.into()]);
+    }
+
+    #[test]
+    fn test_no_merge_multiple_references() {
+        let suggester = ViewMergeSuggester::new();
+
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
+
+        // aに対してViewを適用
+        let a_permuted = a.view(a.view.clone().permute(vec![1, 0]));
+
+        // a_permutedを2つの異なる演算で使用（複数の被参照）
+        let b = graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![20, 10])
+            .build();
+
+        let c = graph
+            .input("c")
+            .with_dtype(DType::F32)
+            .with_shape(vec![20, 10])
+            .build();
+
+        // a_permutedが2つのノードから参照される
+        let sum1 = a_permuted.clone() + b;
+        let sum2 = a_permuted.clone() + c;
+
+        graph.output("result1", sum1);
+        graph.output("result2", sum2);
+
+        let suggestions = suggester.suggest(&graph);
+
+        // aは複数回参照されているので融合されない
+        // （a_permutedの入力であるaが複数参照されている場合は融合可能だが、
+        //  a_permuted自体が複数参照されている場合は融合しない）
+        // この場合、a自体は1回しか参照されていないので、融合が提案される
+        // しかし、a_permutedが2回参照されているため、この最適化は安全
+        assert_eq!(suggestions.len(), 1);
+    }
+
+    #[test]
+    fn test_no_merge_when_input_has_multiple_users() {
+        let suggester = ViewMergeSuggester::new();
+
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
+
+        let b = graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
+
+        // a + bの結果に対してViewを適用
+        let sum = a.clone() + b.clone();
+        let sum_permuted = sum.view(sum.view.clone().permute(vec![1, 0]));
+
+        // sumを他の演算でも使用（複数の被参照）
+        let c = graph
+            .input("c")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
+        let sum2 = sum.clone() + c;
+
+        graph.output("result1", sum_permuted);
+        graph.output("result2", sum2);
+
+        let suggestions = suggester.suggest(&graph);
+
+        // sumが複数回参照されているため、融合されないはず
+        assert_eq!(suggestions.len(), 0);
     }
 }

@@ -13,6 +13,37 @@ impl FusionSuggester {
         Self
     }
 
+    /// グラフ内の各ノードの被参照数をカウント
+    fn count_node_references(&self, graph: &Graph) -> HashMap<*const GraphNodeData, usize> {
+        let mut ref_counts: HashMap<*const GraphNodeData, usize> = HashMap::new();
+        let mut visited = HashSet::new();
+
+        fn visit(
+            node: &GraphNode,
+            ref_counts: &mut HashMap<*const GraphNodeData, usize>,
+            visited: &mut HashSet<*const GraphNodeData>,
+        ) {
+            let ptr = node.as_ptr();
+            if visited.contains(&ptr) {
+                return;
+            }
+            visited.insert(ptr);
+
+            // ソースノードの被参照数をカウント
+            for src in &node.src {
+                let src_ptr = src.as_ptr();
+                *ref_counts.entry(src_ptr).or_insert(0) += 1;
+                visit(src, ref_counts, visited);
+            }
+        }
+
+        for output in graph.outputs().values() {
+            visit(output, &mut ref_counts, &mut visited);
+        }
+
+        ref_counts
+    }
+
     /// グラフ内の全ノードを収集（トポロジカル順）
     fn collect_all_nodes(&self, graph: &Graph) -> Vec<GraphNode> {
         let mut visited = HashSet::new();
@@ -346,10 +377,21 @@ impl GraphSuggester for FusionSuggester {
     fn suggest(&self, graph: &Graph) -> Vec<Graph> {
         let mut suggestions = Vec::new();
         let nodes = self.collect_all_nodes(graph);
+        let ref_counts = self.count_node_references(graph);
 
         for node in &nodes {
             // 連続するView変更を検出して融合
             if let Some(fused_node) = self.detect_consecutive_views(node) {
+                // 融合される中間Viewノードの被参照数をチェック
+                if node.src.len() == 1 {
+                    let input_ptr = node.src[0].as_ptr();
+                    let ref_count = ref_counts.get(&input_ptr).copied().unwrap_or(0);
+                    // 被参照数が1より大きい場合は融合しない
+                    if ref_count > 1 {
+                        continue;
+                    }
+                }
+
                 let new_graph = self.replace_node_in_graph(graph, node, fused_node);
                 suggestions.push(new_graph);
             }
@@ -358,6 +400,16 @@ impl GraphSuggester for FusionSuggester {
             if let Some((graph_inputs, expr, reduce_op, axis)) =
                 self.detect_elementwise_reduce_pattern(node)
             {
+                // 融合されるElementwiseノードの被参照数をチェック
+                if node.src.len() == 1 {
+                    let input_ptr = node.src[0].as_ptr();
+                    let ref_count = ref_counts.get(&input_ptr).copied().unwrap_or(0);
+                    // 被参照数が1より大きい場合は融合しない
+                    if ref_count > 1 {
+                        continue;
+                    }
+                }
+
                 // FusedElementwiseReduceノードを作成
                 let fused_node = crate::graph::ops::fused_elementwise_reduce(
                     graph_inputs,
@@ -372,6 +424,22 @@ impl GraphSuggester for FusionSuggester {
 
             // Elementwise チェーンを検出して融合
             if let Some((graph_inputs, expr)) = self.detect_elementwise_chain(node) {
+                // 融合されるElementwiseノードの被参照数をチェック
+                // チェーン内の全ノードが1回しか参照されていない場合のみ融合
+                let can_fuse = node.src.iter().all(|src| {
+                    if matches!(src.op, GraphOp::Elementwise { .. }) {
+                        let src_ptr = src.as_ptr();
+                        let ref_count = ref_counts.get(&src_ptr).copied().unwrap_or(0);
+                        ref_count <= 1
+                    } else {
+                        true
+                    }
+                });
+
+                if !can_fuse {
+                    continue;
+                }
+
                 // FusedElementwiseノードを作成
                 let fused_node = crate::graph::ops::fused_elementwise(graph_inputs, expr);
 
@@ -434,6 +502,44 @@ mod tests {
         let suggestions = suggester.suggest(&graph);
 
         // パターンがないため候補なし
+        assert_eq!(suggestions.len(), 0);
+    }
+
+    #[test]
+    fn test_no_fusion_multiple_references() {
+        let suggester = FusionSuggester::new();
+
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
+
+        let b = graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
+
+        // (a + b)を計算
+        let sum = a + b;
+
+        // sumを2つの異なる演算で使用（複数の被参照）
+        let result1 = sum.clone().reduce_sum(0);
+        let c = graph
+            .input("c")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
+        let result2 = sum.clone() + c;
+
+        graph.output("result1", result1);
+        graph.output("result2", result2);
+
+        let suggestions = suggester.suggest(&graph);
+
+        // sumが複数回参照されているため、Elementwise->Reduce融合は提案されないはず
         assert_eq!(suggestions.len(), 0);
     }
 }
