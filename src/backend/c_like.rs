@@ -66,7 +66,15 @@ pub trait CLikeRenderer: Renderer {
     /// リテラルをレンダリング
     fn render_literal(&self, lit: &Literal) -> String {
         match lit {
-            Literal::F32(v) => format!("{}f", v),
+            Literal::F32(v) => {
+                let s = format!("{}", v);
+                // 小数点が含まれていない場合は .0 を追加（0f → 0.0f）
+                if !s.contains('.') && !s.contains('e') && !s.contains('E') {
+                    format!("{}.0f", s)
+                } else {
+                    format!("{}f", s)
+                }
+            }
             Literal::Int(v) => format!("{}", v),
         }
     }

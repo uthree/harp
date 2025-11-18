@@ -5,8 +5,8 @@
 
 #[cfg(test)]
 mod tests {
-    use harp::backend::c::{CCompiler, CRenderer};
-    use harp::backend::{Buffer, Compiler, GenericPipeline, Kernel, Pipeline};
+    use harp::backend::c::{CCompiler, CPipeline, CRenderer};
+    use harp::backend::{Buffer, Compiler, Kernel, Pipeline};
     use harp::graph::{DType, Graph, GraphNode, shape::Expr};
 
     /// ExprをVec<usize>に変換（定数のみサポート）
@@ -20,8 +20,8 @@ mod tests {
             .collect()
     }
 
-    /// OpenMPコンパイラが利用可能かチェック
-    fn check_openmp_available() -> bool {
+    /// Cコンパイラが利用可能かチェック
+    fn check_compiler_available() -> bool {
         use std::panic;
 
         // panicをキャッチしてfalseを返す
@@ -38,7 +38,7 @@ mod tests {
                 .build();
             test_graph.output("out", a);
 
-            let mut pipeline = GenericPipeline::new(renderer, compiler);
+            let mut pipeline = CPipeline::new(renderer, compiler);
             pipeline.compile_graph(test_graph).is_ok()
         });
 
@@ -53,7 +53,7 @@ mod tests {
     ) -> Vec<f32> {
         let renderer = CRenderer::new();
         let compiler = CCompiler::new();
-        let mut pipeline = GenericPipeline::new(renderer, compiler);
+        let mut pipeline = CPipeline::new(renderer, compiler);
 
         // 最適化の有効/無効を設定
         pipeline.enable_graph_optimization = enable_optimization;
@@ -129,8 +129,8 @@ mod tests {
 
     #[test]
     fn test_elementwise_add_optimization() {
-        if !check_openmp_available() {
-            eprintln!("OpenMP compiler not available, skipping test");
+        if !check_compiler_available() {
+            eprintln!("C compiler not available, skipping test");
             return;
         }
         // シンプルな加算: a + b
@@ -165,8 +165,8 @@ mod tests {
 
     #[test]
     fn test_elementwise_chain_optimization() {
-        if !check_openmp_available() {
-            eprintln!("OpenMP compiler not available, skipping test");
+        if !check_compiler_available() {
+            eprintln!("C compiler not available, skipping test");
             return;
         }
         // 連鎖演算: (a + b) * c
@@ -212,8 +212,8 @@ mod tests {
 
     #[test]
     fn test_const_propagation_optimization() {
-        if !check_openmp_available() {
-            eprintln!("OpenMP compiler not available, skipping test");
+        if !check_compiler_available() {
+            eprintln!("C compiler not available, skipping test");
             return;
         }
         // 定数伝播: a + (2.0 * 3.0)
@@ -251,8 +251,8 @@ mod tests {
 
     #[test]
     fn test_reduce_sum_optimization() {
-        if !check_openmp_available() {
-            eprintln!("OpenMP compiler not available, skipping test");
+        if !check_compiler_available() {
+            eprintln!("C compiler not available, skipping test");
             return;
         }
         // Reduce演算: reduce_sum(a + b, axis=0)
@@ -289,8 +289,8 @@ mod tests {
 
     #[test]
     fn test_complex_graph_optimization() {
-        if !check_openmp_available() {
-            eprintln!("OpenMP compiler not available, skipping test");
+        if !check_compiler_available() {
+            eprintln!("C compiler not available, skipping test");
             return;
         }
         // 複雑なグラフ: ((a + b) * c) + d
@@ -349,8 +349,8 @@ mod tests {
 
     #[test]
     fn test_view_transformation_optimization() {
-        if !check_openmp_available() {
-            eprintln!("OpenMP compiler not available, skipping test");
+        if !check_compiler_available() {
+            eprintln!("C compiler not available, skipping test");
             return;
         }
         // View変換を含む演算: a.permute([1, 0]) + b
@@ -388,8 +388,8 @@ mod tests {
 
     #[test]
     fn test_matmul_like_pattern_optimization() {
-        if !check_openmp_available() {
-            eprintln!("OpenMP compiler not available, skipping test");
+        if !check_compiler_available() {
+            eprintln!("C compiler not available, skipping test");
             return;
         }
         // 行列積のようなパターン: reduce_sum(a * b, axis=1)

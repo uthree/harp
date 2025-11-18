@@ -500,10 +500,10 @@ mod tests {
         let b = AstNode::Const(2.0f32.into());
 
         let add = a.clone() + b.clone();
-        assert_eq!(renderer.render_expr(&add), "(1f + 2f)");
+        assert_eq!(renderer.render_expr(&add), "(1.0f + 2.0f)");
 
         let mul = a.clone() * b.clone();
-        assert_eq!(renderer.render_expr(&mul), "(1f * 2f)");
+        assert_eq!(renderer.render_expr(&mul), "(1.0f * 2.0f)");
     }
 
     #[test]
@@ -511,9 +511,9 @@ mod tests {
         let renderer = MetalRenderer::new();
         let x = AstNode::Const(4.0f32.into());
 
-        assert_eq!(renderer.render_expr(&sqrt(x.clone())), "sqrt(4f)");
-        assert_eq!(renderer.render_expr(&sin(x.clone())), "sin(4f)");
-        assert_eq!(renderer.render_expr(&log2(x.clone())), "log2(4f)");
+        assert_eq!(renderer.render_expr(&sqrt(x.clone())), "sqrt(4.0f)");
+        assert_eq!(renderer.render_expr(&sin(x.clone())), "sin(4.0f)");
+        assert_eq!(renderer.render_expr(&log2(x.clone())), "log2(4.0f)");
     }
 
     #[test]
@@ -573,7 +573,7 @@ mod tests {
         assert!(code.contains("void scale_kernel"));
         assert!(code.contains("thread_position_in_grid"));
         assert!(code.contains("device float*"));
-        assert!(code.contains("output[tid] = (input[tid] * 2f)"));
+        assert!(code.contains("output[tid] = (input[tid] * 2.0f)"));
     }
 
     #[test]

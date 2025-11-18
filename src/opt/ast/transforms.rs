@@ -256,6 +256,27 @@ fn replace_var_in_ast(ast: &AstNode, var_name: &str, replacement: &AstNode) -> A
         AstNode::Log2(a) => AstNode::Log2(Box::new(replace_var_in_ast(a, var_name, replacement))),
         AstNode::Exp2(a) => AstNode::Exp2(Box::new(replace_var_in_ast(a, var_name, replacement))),
         AstNode::Sin(a) => AstNode::Sin(Box::new(replace_var_in_ast(a, var_name, replacement))),
+        AstNode::BitwiseAnd(a, b) => AstNode::BitwiseAnd(
+            Box::new(replace_var_in_ast(a, var_name, replacement)),
+            Box::new(replace_var_in_ast(b, var_name, replacement)),
+        ),
+        AstNode::BitwiseOr(a, b) => AstNode::BitwiseOr(
+            Box::new(replace_var_in_ast(a, var_name, replacement)),
+            Box::new(replace_var_in_ast(b, var_name, replacement)),
+        ),
+        AstNode::BitwiseXor(a, b) => AstNode::BitwiseXor(
+            Box::new(replace_var_in_ast(a, var_name, replacement)),
+            Box::new(replace_var_in_ast(b, var_name, replacement)),
+        ),
+        AstNode::BitwiseNot(a) => AstNode::BitwiseNot(Box::new(replace_var_in_ast(a, var_name, replacement))),
+        AstNode::LeftShift(a, b) => AstNode::LeftShift(
+            Box::new(replace_var_in_ast(a, var_name, replacement)),
+            Box::new(replace_var_in_ast(b, var_name, replacement)),
+        ),
+        AstNode::RightShift(a, b) => AstNode::RightShift(
+            Box::new(replace_var_in_ast(a, var_name, replacement)),
+            Box::new(replace_var_in_ast(b, var_name, replacement)),
+        ),
         AstNode::Cast(a, dtype) => AstNode::Cast(
             Box::new(replace_var_in_ast(a, var_name, replacement)),
             dtype.clone(),

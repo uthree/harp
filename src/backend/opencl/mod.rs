@@ -11,8 +11,169 @@ pub use renderer::OpenCLRenderer;
 /// libloading用のラッパー関数名
 pub const LIBLOADING_WRAPPER_NAME: &str = "__harp_entry";
 
-/// OpenCLRenderer と OpenCLCompiler を組み合わせた Pipeline
-pub type OpenCLPipeline = crate::backend::GenericPipeline<OpenCLRenderer, OpenCLCompiler>;
+use crate::ast::AstNode;
+use crate::backend::{
+    pipeline::{optimize_ast_with_history, optimize_graph_with_history, SuggesterFlags},
+    Compiler, OptimizationConfig, OptimizationHistories, Pipeline, Renderer,
+};
+use crate::graph::Graph;
+use crate::opt::graph::SimpleCostEstimator;
+use std::collections::HashMap;
+
+/// OpenCLバックエンド専用のPipeline
+///
+/// 並列化・SIMD最適化を含むため、GPU/マルチコア実行に最適化されています。
+pub struct OpenCLPipeline {
+    renderer: OpenCLRenderer,
+    compiler: OpenCLCompiler,
+    kernel_cache: HashMap<String, OpenCLKernel>,
+    pub histories: OptimizationHistories,
+    pub enable_graph_optimization: bool,
+    pub graph_config: OptimizationConfig,
+    pub enable_ast_optimization: bool,
+    pub ast_config: OptimizationConfig,
+    pub collect_histories: bool,
+}
+
+impl OpenCLPipeline {
+    /// 新しいOpenCLPipelineを作成
+    pub fn new(renderer: OpenCLRenderer, compiler: OpenCLCompiler) -> Self {
+        Self {
+            renderer,
+            compiler,
+            kernel_cache: HashMap::new(),
+            histories: OptimizationHistories::default(),
+            enable_graph_optimization: false,
+            graph_config: OptimizationConfig::default(),
+            enable_ast_optimization: false,
+            ast_config: OptimizationConfig::default(),
+            collect_histories: cfg!(debug_assertions),
+        }
+    }
+
+    /// キャッシュからKernelを取得
+    pub fn get_cached_kernel(&self, key: &str) -> Option<&OpenCLKernel> {
+        self.kernel_cache.get(key)
+    }
+
+    /// グラフをコンパイルし、結果をキャッシュに保存
+    pub fn compile_and_cache(
+        &mut self,
+        key: String,
+        graph: Graph,
+    ) -> Result<&OpenCLKernel, String> {
+        let kernel = self.compile_graph(graph)?;
+        self.kernel_cache.insert(key.clone(), kernel);
+        Ok(self.kernel_cache.get(&key).unwrap())
+    }
+
+    /// キャッシュをクリア
+    pub fn clear_cache(&mut self) {
+        self.kernel_cache.clear();
+    }
+
+    /// グラフ最適化の内部処理（並列化・SIMD有効）
+    fn optimize_graph_internal(&mut self, graph: Graph) -> Graph {
+        if !self.enable_graph_optimization {
+            return graph;
+        }
+
+        let flags = SuggesterFlags::all(); // 並列化・SIMD有効
+        let (optimized, history) = optimize_graph_with_history(
+            graph,
+            flags,
+            SimpleCostEstimator::new(),
+            self.graph_config.beam_width,
+            self.graph_config.max_steps,
+            self.graph_config.show_progress,
+        );
+
+        if self.collect_histories {
+            self.histories.graph = Some(history);
+        }
+        optimized
+    }
+
+    /// AST最適化の内部処理
+    fn optimize_ast_internal(&mut self, program: AstNode) -> AstNode {
+        if !self.enable_ast_optimization {
+            return program;
+        }
+
+        let (optimized, history) = optimize_ast_with_history(
+            program,
+            self.ast_config.beam_width,
+            self.ast_config.max_steps,
+            self.ast_config.show_progress,
+        );
+
+        if self.collect_histories {
+            self.histories.ast = Some(history);
+        }
+        optimized
+    }
+}
+
+impl Pipeline for OpenCLPipeline {
+    type Compiler = OpenCLCompiler;
+    type Renderer = OpenCLRenderer;
+    type Error = String;
+
+    fn renderer(&self) -> &Self::Renderer {
+        &self.renderer
+    }
+
+    fn compiler(&mut self) -> &mut Self::Compiler {
+        &mut self.compiler
+    }
+
+    fn optimize_graph(&self, graph: Graph) -> Graph {
+        if !self.enable_graph_optimization {
+            return graph;
+        }
+
+        // 並列化・SIMD有効のSuggesterを使用
+        let flags = SuggesterFlags::all();
+        let (optimized, _history) = optimize_graph_with_history(
+            graph,
+            flags,
+            SimpleCostEstimator::new(),
+            self.graph_config.beam_width,
+            self.graph_config.max_steps,
+            self.graph_config.show_progress,
+        );
+        optimized
+    }
+
+    fn optimize_program(&self, program: AstNode) -> AstNode {
+        if !self.enable_ast_optimization {
+            return program;
+        }
+
+        let (optimized, _history) = optimize_ast_with_history(
+            program,
+            self.ast_config.beam_width,
+            self.ast_config.max_steps,
+            self.ast_config.show_progress,
+        );
+        optimized
+    }
+
+    fn compile_graph(&mut self, graph: Graph) -> Result<OpenCLKernel, String> {
+        // Signatureを作成（最適化前のGraphから）
+        let signature = crate::lowerer::Lowerer::create_signature(&graph);
+
+        let optimized_graph = self.optimize_graph_internal(graph);
+        let program = self.lower_to_program(optimized_graph);
+        let optimized_program = self.optimize_ast_internal(program);
+        let mut code = self.renderer().render(&optimized_program);
+
+        // Signatureを設定
+        code = OpenCLCode::with_signature(code.into_inner(), signature);
+
+        Ok(self.compiler().compile(&code))
+    }
+}
 
 /// OpenCL Cコードを表す型
 #[derive(Debug, Clone, PartialEq, Eq)]

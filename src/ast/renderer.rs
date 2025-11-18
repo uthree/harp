@@ -72,7 +72,7 @@ mod tests {
     #[test]
     fn test_render_add() {
         let ast = AstNode::Const(1.0f32.into()) + AstNode::Const(2.0f32.into());
-        assert_eq!(render_ast(&ast), "(1f + 2f)");
+        assert_eq!(render_ast(&ast), "(1.0f + 2.0f)");
     }
 
     #[test]
@@ -85,7 +85,7 @@ mod tests {
     #[test]
     fn test_render_sqrt() {
         let ast = sqrt(AstNode::Const(4.0f32.into()));
-        assert_eq!(render_ast(&ast), "sqrtf(4f)");
+        assert_eq!(render_ast(&ast), "sqrtf(4.0f)");
     }
 
     #[test]

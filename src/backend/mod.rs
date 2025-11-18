@@ -5,6 +5,7 @@ pub mod c_like;
 pub mod generic;
 pub mod metal;
 pub mod opencl;
+pub mod pipeline;
 
 // Re-export commonly used types
 pub use c::{CBuffer, CCode, CCompiler, CKernel, CPipeline, CRenderer};
