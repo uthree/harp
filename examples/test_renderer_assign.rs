@@ -1,7 +1,7 @@
 use harp::ast::helper::{assign, load, store, var};
 use harp::ast::renderer::render_ast_with;
 use harp::ast::{AstNode, DType, Literal, Mutability, Scope};
-use harp::backend::openmp::CRenderer;
+use harp::backend::c::CRenderer;
 use harp::opt::ast::Optimizer;
 use harp::opt::ast::estimator::SimpleCostEstimator;
 use harp::opt::ast::optimizer::BeamSearchOptimizer;

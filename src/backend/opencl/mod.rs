@@ -3,31 +3,26 @@ pub mod compiler;
 pub mod kernel;
 pub mod renderer;
 
-pub use buffer::CBuffer;
-pub use compiler::CCompiler;
-pub use kernel::CKernel;
-pub use renderer::CRenderer;
+pub use buffer::OpenCLBuffer;
+pub use compiler::OpenCLCompiler;
+pub use kernel::OpenCLKernel;
+pub use renderer::OpenCLRenderer;
 
 /// libloading用のラッパー関数名
-///
-/// libloadingは固定シグネチャを期待するため、エントリーポイント関数を
-/// ラップする関数を生成する。この定数はレンダラーとコンパイラの両方で使用される。
 pub const LIBLOADING_WRAPPER_NAME: &str = "__harp_entry";
 
-/// CRenderer と CCompiler を組み合わせた Pipeline
-pub type CPipeline = crate::backend::GenericPipeline<CRenderer, CCompiler>;
+/// OpenCLRenderer と OpenCLCompiler を組み合わせた Pipeline
+pub type OpenCLPipeline = crate::backend::GenericPipeline<OpenCLRenderer, OpenCLCompiler>;
 
-/// C言語とOpenMPを使ったソースコードを表す型
-///
-/// new type pattern を使用して、型システムで C 専用のコードとして扱う。
+/// OpenCL Cコードを表す型
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CCode {
+pub struct OpenCLCode {
     code: String,
     signature: crate::backend::KernelSignature,
 }
 
-impl CCode {
-    /// 新しい CCode を作成（シグネチャなし）
+impl OpenCLCode {
+    /// 新しい OpenCLCode を作成
     pub fn new(code: String) -> Self {
         Self {
             code,
@@ -35,7 +30,7 @@ impl CCode {
         }
     }
 
-    /// シグネチャ付きで新しい CCode を作成
+    /// シグネチャ付きで新しい OpenCLCode を作成
     pub fn with_signature(code: String, signature: crate::backend::KernelSignature) -> Self {
         Self { code, signature }
     }
@@ -71,25 +66,25 @@ impl CCode {
     }
 }
 
-impl From<String> for CCode {
+impl From<String> for OpenCLCode {
     fn from(s: String) -> Self {
         Self::new(s)
     }
 }
 
-impl From<CCode> for String {
-    fn from(code: CCode) -> Self {
+impl From<OpenCLCode> for String {
+    fn from(code: OpenCLCode) -> Self {
         code.into_inner()
     }
 }
 
-impl AsRef<str> for CCode {
+impl AsRef<str> for OpenCLCode {
     fn as_ref(&self) -> &str {
         self.as_str()
     }
 }
 
-impl std::fmt::Display for CCode {
+impl std::fmt::Display for OpenCLCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.code)
     }

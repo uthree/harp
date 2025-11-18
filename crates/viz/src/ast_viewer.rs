@@ -1,8 +1,8 @@
 //! AST最適化を可視化するビューア
 
 use harp::ast::renderer::render_ast_with;
+use harp::backend::c::CRenderer;
 use harp::backend::c_like::CLikeRenderer;
-use harp::backend::openmp::CRenderer;
 use harp::opt::ast::OptimizationHistory;
 use std::collections::HashMap;
 

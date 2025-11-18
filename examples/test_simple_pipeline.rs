@@ -1,4 +1,4 @@
-use harp::backend::openmp::{CCompiler, CRenderer};
+use harp::backend::c::{CCompiler, CRenderer};
 use harp::backend::{GenericPipeline, OptimizationConfig};
 use harp::graph::{DType, Graph};
 

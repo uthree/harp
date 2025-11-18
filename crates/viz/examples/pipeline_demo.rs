@@ -4,7 +4,7 @@
 //! その過程を可視化します。
 
 use harp::ast::helper::wildcard;
-use harp::backend::openmp::{CCompiler, CRenderer};
+use harp::backend::c::{CCompiler, CRenderer};
 use harp::backend::{GenericPipeline, OptimizationConfig};
 use harp::graph::{DType, Graph, GraphNode};
 use harp_viz::HarpVizApp;

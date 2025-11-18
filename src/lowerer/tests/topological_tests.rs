@@ -1,6 +1,6 @@
 use super::super::*;
 use crate::ast::renderer::render_ast_with;
-use crate::backend::openmp::CRenderer;
+use crate::backend::c::CRenderer;
 use crate::graph::DType as GraphDType;
 
 #[test]

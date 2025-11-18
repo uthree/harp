@@ -1,14 +1,18 @@
 use std::collections::HashMap;
 
+pub mod c;
 pub mod c_like;
 pub mod generic;
 pub mod metal;
-pub mod openmp;
+pub mod opencl;
 
 // Re-export commonly used types
+pub use c::{CBuffer, CCode, CCompiler, CKernel, CPipeline, CRenderer};
 pub use generic::{GenericPipeline, OptimizationConfig, OptimizationHistories};
 pub use metal::{MetalCode, MetalRenderer};
-pub use openmp::{CBuffer, CCode, CCompiler, CKernel, CPipeline, CRenderer};
+pub use opencl::{
+    OpenCLBuffer, OpenCLCode, OpenCLCompiler, OpenCLKernel, OpenCLPipeline, OpenCLRenderer,
+};
 
 #[cfg(target_os = "macos")]
 pub use metal::{MetalBuffer, MetalCompiler, MetalKernel, MetalPipeline};

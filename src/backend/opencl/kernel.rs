@@ -1,20 +1,20 @@
-use crate::backend::openmp::CBuffer;
+use crate::backend::opencl::OpenCLBuffer;
 use crate::backend::{Kernel, KernelSignature};
 use libloading::{Library, Symbol};
 use std::path::PathBuf;
 use tempfile::NamedTempFile;
 
-/// C/OpenMPカーネルの実行関数の型
+/// OpenCLカーネルの実行関数の型
 ///
 /// カーネル関数は複数のポインタを引数として受け取る
-/// 例: void kernel_0(float* in0, float* in1, float* out0)
+/// 例: void kernel_entry(void** buffers)
 type KernelFn = unsafe extern "C" fn(*mut *mut u8);
 
-/// C/OpenMP用のカーネル
+/// OpenCL用のカーネル
 ///
 /// 一時ファイル（コンパイルされた動的ライブラリ）を保持し、
-/// CKernelがDropされると自動的に削除される
-pub struct CKernel {
+/// OpenCLKernelがDropされると自動的に削除される
+pub struct OpenCLKernel {
     _library: Library,
     signature: KernelSignature,
     entry_point: String,
@@ -22,8 +22,8 @@ pub struct CKernel {
     _temp_file: NamedTempFile,
 }
 
-impl CKernel {
-    /// 新しいCKernelを作成
+impl OpenCLKernel {
+    /// 新しいOpenCLKernelを作成
     pub fn new(
         library: Library,
         signature: KernelSignature,
@@ -44,7 +44,7 @@ impl CKernel {
     /// この関数はunsafeです。呼び出し側は以下を保証する必要があります：
     /// - バッファの数と順序が署名と一致している
     /// - バッファのサイズが十分である
-    pub unsafe fn execute(&self, buffers: &mut [&mut CBuffer]) -> Result<(), String> {
+    pub unsafe fn execute(&self, buffers: &mut [&mut OpenCLBuffer]) -> Result<(), String> {
         // 動的ライブラリを再ロード（関数ポインタを取得するため）
         let lib = unsafe {
             Library::new(self._temp_file.path())
@@ -83,8 +83,8 @@ impl CKernel {
     }
 }
 
-impl Kernel for CKernel {
-    type Buffer = CBuffer;
+impl Kernel for OpenCLKernel {
+    type Buffer = OpenCLBuffer;
 
     fn signature(&self) -> KernelSignature {
         self.signature.clone()
@@ -96,7 +96,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_ckernel_signature() {
+    fn test_opencl_kernel_signature() {
         // 空のシグネチャでテスト
         let signature = KernelSignature::empty();
 

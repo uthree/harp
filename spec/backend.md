@@ -62,8 +62,8 @@ pipeline.graph_config.beam_width = 8;
 ### Metal Backend（macOS/iOS）
 MetalのComputePipelineStateを使用してGPUで直接実行。
 
-### OpenMP Backend（クロスプラットフォーム）
-C言語とOpenMPを使ったCPUバックエンド。ASTをC言語コードに変換し、OpenMPの`#pragma omp parallel for`でカーネル関数を並列実行することでGPU並列実行を擬似的に再現。動的ライブラリ(.so/.dylib/.dll)としてコンパイルして実行。
+### C Backend（クロスプラットフォーム、シングルスレッド）
+C言語（シングルスレッド）を使ったリファレンス実装バックエンド。ASTをC言語コードに変換し、動的ライブラリ(.so/.dylib/.dll)としてコンパイルして実行。並列化は行わず、単一スレッドでの実行のみをサポート。
 
 **libloading対応:**
 libloadingは固定シグネチャ `fn(*mut *mut u8)` を期待するため、CRendererは自動的にラッパー関数を生成する：
@@ -77,10 +77,23 @@ void __harp_entry(void** buffers) {
 }
 ```
 
-**ビルドオプション:**
-- `CCompiler::with_openmp(bool)`: OpenMPフラグの有効/無効
-- `CRenderer::with_openmp_header(bool)`: omp.hヘッダーの有効/無効（macOS互換性）
-
 **注意事項:**
 - エントリーポイント関数名は "harp_main"（C言語のmain関数との衝突回避）
 - Lowererがパラメータを依存関係順序で配置するため、バッファ順序に注意
+- 並列化はサポートしない（単一スレッドでの実行のみ）
+
+### OpenCL Backend（クロスプラットフォーム、並列実行）
+OpenCLを使ったGPU/並列実行バックエンド。ASTをOpenCLカーネルソース + ホストコードに変換し、動的ライブラリとしてコンパイルして実行。
+
+**実装方式:**
+- OpenCLカーネルソースを文字列リテラルとしてC言語コードに埋め込み
+- ホストコードでOpenCLの初期化、コンパイル、実行を行う
+- libloadingでラッパー関数を呼び出す
+
+**コンパイラフラグ:**
+- macOS: `-framework OpenCL`
+- Linux/Windows: `-lOpenCL`
+
+**現在の実装状況:**
+- 基本的なOpenCL初期化とプログラムビルドのコード生成が実装済み
+- カーネルボディとバッファ管理の実装は未完成（TODO）

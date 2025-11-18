@@ -4,7 +4,7 @@ use harp::backend::GenericPipeline;
 ///
 /// View展開とFusedElementwiseReduceを組み合わせた行列積の実装を検証します。
 /// このテストはloweringとコード生成が正しく動作することを確認します。
-use harp::backend::openmp::{CCompiler, CRenderer};
+use harp::backend::c::{CCompiler, CRenderer};
 use harp::graph::{DType, Graph, GraphNode};
 use harp::prelude::{ReduceOp, fused_elementwise_reduce};
 

@@ -1,8 +1,8 @@
 //! ASTを可読性の高い文字列に変換するモジュール
 
 use super::AstNode;
+use crate::backend::c::CRenderer;
 use crate::backend::c_like::CLikeRenderer;
-use crate::backend::openmp::CRenderer;
 
 /// ASTを文字列に変換（ジェネリックレンダラー対応）
 ///
@@ -11,7 +11,7 @@ use crate::backend::openmp::CRenderer;
 ///
 /// # 例
 /// ```ignore
-/// use harp::backend::openmp::CRenderer;
+/// use harp::backend::c::CRenderer;
 /// use harp::ast::renderer::render_ast_with;
 ///
 /// let renderer = CRenderer::new();

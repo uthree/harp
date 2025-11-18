@@ -5,7 +5,7 @@
 
 #[cfg(test)]
 mod tests {
-    use harp::backend::openmp::{CCompiler, CRenderer};
+    use harp::backend::c::{CCompiler, CRenderer};
     use harp::backend::{Buffer, Compiler, GenericPipeline, Kernel, Pipeline};
     use harp::graph::{DType, Graph, GraphNode, shape::Expr};
 

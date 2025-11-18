@@ -61,6 +61,11 @@ Graphを最適化。`optimize(&self, graph: Graph) -> Graph`
 - Thread（スレッド並列）
 - ThreadGroup（スレッドグループ並列、GPU向け）
 
+**バックエンド実装状況:**
+- C backend: 並列化未対応（Sequential戦略のみ）
+- OpenCL backend: Thread/ThreadGroup戦略のコード生成は未実装（TODO）
+- Metal backend: Thread/ThreadGroup戦略をサポート
+
 ### CompositeSuggester
 複数のSuggesterを組み合わせる。
 

@@ -1,28 +1,17 @@
 use crate::ast::{AstNode, DType, FunctionKind, Mutability, VarDecl, VarKind};
 use crate::backend::Renderer;
+use crate::backend::c::{CCode, LIBLOADING_WRAPPER_NAME};
 use crate::backend::c_like::CLikeRenderer;
-use crate::backend::openmp::{CCode, LIBLOADING_WRAPPER_NAME};
 
-/// C言語とOpenMP用のレンダラー
+/// C言語レンダラー（シングルスレッド実行専用）
 #[derive(Debug, Clone)]
 pub struct CRenderer {
     indent_level: usize,
-    /// OpenMPヘッダーを含めるかどうか
-    include_openmp_header: bool,
 }
 
 impl CRenderer {
     pub fn new() -> Self {
-        Self {
-            indent_level: 0,
-            include_openmp_header: true,
-        }
-    }
-
-    /// OpenMPヘッダーの有効/無効を設定
-    pub fn with_openmp_header(mut self, include: bool) -> Self {
-        self.include_openmp_header = include;
-        self
+        Self { indent_level: 0 }
     }
 
     /// Programをレンダリング
@@ -137,16 +126,12 @@ impl CLikeRenderer for CRenderer {
     }
 
     fn render_barrier_backend(&self) -> String {
-        "#pragma omp barrier".to_string()
+        // シングルスレッド実行のため、バリアは不要（空文字列を返す）
+        String::new()
     }
 
     fn render_header(&self) -> String {
         let mut header = String::from("#include <math.h>\n");
-
-        if self.include_openmp_header {
-            header.push_str("#include <omp.h>\n");
-        }
-
         header.push_str("#include <stdint.h>\n");
         header.push_str("#include <stdlib.h>\n\n");
 
@@ -300,7 +285,7 @@ mod tests {
     #[test]
     fn test_render_simple_program() {
         use crate::ast::Scope;
-        use crate::backend::openmp::LIBLOADING_WRAPPER_NAME;
+        use crate::backend::c::LIBLOADING_WRAPPER_NAME;
 
         let func = AstNode::Function {
             kind: FunctionKind::Normal,
@@ -331,7 +316,6 @@ mod tests {
         let code = renderer.render(&program);
 
         assert!(code.contains("#include <math.h>"));
-        assert!(code.contains("#include <omp.h>"));
         assert!(code.contains("void test_func("));
         assert!(code.contains("float* x"));
 
@@ -372,7 +356,7 @@ mod tests {
     #[test]
     fn test_libloading_wrapper_multiple_params() {
         use crate::ast::Scope;
-        use crate::backend::openmp::LIBLOADING_WRAPPER_NAME;
+        use crate::backend::c::LIBLOADING_WRAPPER_NAME;
 
         let func = AstNode::Function {
             kind: FunctionKind::Normal,

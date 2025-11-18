@@ -438,8 +438,8 @@ fn test_lower_add_with_simd_openmp() {
     let function = function.unwrap();
 
     // 生成されたコードを表示（OpenMP CRendererを使用）
+    use crate::backend::c::CRenderer;
     use crate::backend::c_like::CLikeRenderer;
-    use crate::backend::openmp::CRenderer;
     let mut renderer = CRenderer::new();
     let code = renderer.render_function_node(&function);
     println!("\nGenerated OpenMP SIMD code:\n{}", code);

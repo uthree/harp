@@ -1,10 +1,10 @@
 use crate::backend::Compiler;
-use crate::backend::openmp::{CBuffer, CCode, CKernel, LIBLOADING_WRAPPER_NAME};
+use crate::backend::c::{CBuffer, CCode, CKernel, LIBLOADING_WRAPPER_NAME};
 use libloading::Library;
 use std::path::PathBuf;
 use std::process::Command;
 
-/// C/OpenMPコンパイラ
+/// Cコンパイラ（シングルスレッド実行専用）
 #[derive(Debug)]
 pub struct CCompiler {
     /// コンパイラのパス（デフォルトは "gcc" または "clang"）
@@ -13,8 +13,6 @@ pub struct CCompiler {
     extra_flags: Vec<String>,
     /// 一時ファイルを保存するディレクトリ
     temp_dir: PathBuf,
-    /// OpenMPを有効にするかどうか
-    enable_openmp: bool,
 }
 
 impl CCompiler {
@@ -24,7 +22,6 @@ impl CCompiler {
             compiler_path: Self::detect_compiler(),
             extra_flags: vec![],
             temp_dir: std::env::temp_dir(),
-            enable_openmp: true,
         }
     }
 
@@ -59,12 +56,6 @@ impl CCompiler {
         self
     }
 
-    /// OpenMPの有効/無効を設定
-    pub fn with_openmp(mut self, enable: bool) -> Self {
-        self.enable_openmp = enable;
-        self
-    }
-
     /// C言語コードをコンパイルして動的ライブラリを生成
     ///
     /// 標準入力経由でコードを渡すことで一時ファイルの作成を回避
@@ -84,11 +75,6 @@ impl CCompiler {
             .arg("-O2") // 最適化レベル2
             .arg("-o")
             .arg(output_path);
-
-        // OpenMPサポート（オプション）
-        if self.enable_openmp {
-            cmd.arg("-fopenmp");
-        }
 
         // 追加のフラグ
         for flag in &self.extra_flags {
@@ -272,7 +258,7 @@ void kernel_0(float** buffers) {
     /// 結合テスト: 簡単なベクトル加算をコンパイル・実行し、計算結果を検証
     #[test]
     fn test_integration_vector_add() {
-        use crate::backend::openmp::CRenderer;
+        use crate::backend::c::CRenderer;
         use crate::graph::{DType as GraphDType, Graph};
         use crate::lowerer::lower;
 
@@ -294,14 +280,14 @@ void kernel_0(float** buffers) {
         // 2. Lower to AST
         let program = lower(graph);
 
-        // 3. Render to C code (disable OpenMP header for macOS compatibility)
-        let mut renderer = CRenderer::new().with_openmp_header(false);
+        // 3. Render to C code
+        let mut renderer = CRenderer::new();
         let c_code = renderer.render_program(&program);
 
         println!("Generated C code:\n{}", c_code.as_str());
 
-        // 4. Compile (disable OpenMP for macOS compatibility)
-        let mut compiler = CCompiler::new().with_openmp(false);
+        // 4. Compile
+        let mut compiler = CCompiler::new();
         let kernel = compiler.compile(&c_code);
 
         // 5. Create buffers
@@ -324,7 +310,7 @@ void kernel_0(float** buffers) {
     /// 結合テスト: 要素ごとの乗算をコンパイル・実行し、計算結果を検証
     #[test]
     fn test_integration_vector_mul() {
-        use crate::backend::openmp::CRenderer;
+        use crate::backend::c::CRenderer;
         use crate::graph::{DType as GraphDType, Graph};
         use crate::lowerer::lower;
 
@@ -347,11 +333,11 @@ void kernel_0(float** buffers) {
         let program = lower(graph);
 
         // 3. Render to C code (disable OpenMP header for macOS compatibility)
-        let mut renderer = CRenderer::new().with_openmp_header(false);
+        let mut renderer = CRenderer::new();
         let c_code = renderer.render_program(&program);
 
         // 4. Compile (disable OpenMP for macOS compatibility)
-        let mut compiler = CCompiler::new().with_openmp(false);
+        let mut compiler = CCompiler::new();
         let kernel = compiler.compile(&c_code);
 
         // 5. Create buffers
@@ -374,7 +360,7 @@ void kernel_0(float** buffers) {
     /// 結合テスト: 複数ステップの計算 (a + b) * c
     #[test]
     fn test_integration_multi_step_computation() {
-        use crate::backend::openmp::CRenderer;
+        use crate::backend::c::CRenderer;
         use crate::graph::{DType as GraphDType, Graph};
         use crate::lowerer::lower;
 
@@ -403,13 +389,13 @@ void kernel_0(float** buffers) {
         let program = lower(graph);
 
         // 3. Render to C code (disable OpenMP header for macOS compatibility)
-        let mut renderer = CRenderer::new().with_openmp_header(false);
+        let mut renderer = CRenderer::new();
         let c_code = renderer.render_program(&program);
 
         println!("Generated C code for multi-step:\n{}", c_code.as_str());
 
         // 4. Compile (disable OpenMP for macOS compatibility)
-        let mut compiler = CCompiler::new().with_openmp(false);
+        let mut compiler = CCompiler::new();
         let kernel = compiler.compile(&c_code);
 
         // 5. Create buffers
@@ -439,7 +425,7 @@ void kernel_0(float** buffers) {
     /// 結合テスト: 2次元配列の加算
     #[test]
     fn test_integration_2d_array_add() {
-        use crate::backend::openmp::CRenderer;
+        use crate::backend::c::CRenderer;
         use crate::graph::{DType as GraphDType, Graph};
         use crate::lowerer::lower;
 
@@ -462,11 +448,11 @@ void kernel_0(float** buffers) {
         let program = lower(graph);
 
         // 3. Render to C code (disable OpenMP header for macOS compatibility)
-        let mut renderer = CRenderer::new().with_openmp_header(false);
+        let mut renderer = CRenderer::new();
         let c_code = renderer.render_program(&program);
 
         // 4. Compile (disable OpenMP for macOS compatibility)
-        let mut compiler = CCompiler::new().with_openmp(false);
+        let mut compiler = CCompiler::new();
         let kernel = compiler.compile(&c_code);
 
         // 5. Create buffers (row-major order)

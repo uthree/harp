@@ -3,7 +3,7 @@
 //! この例では、GenericPipelineで最適化を有効化し、
 //! HarpVizApp::run_from_pipeline()を使ってワンライナーで可視化を起動します。
 
-use harp::backend::openmp::{CCompiler, CRenderer};
+use harp::backend::c::{CCompiler, CRenderer};
 use harp::backend::{GenericPipeline, Pipeline};
 use harp::graph::{DType, Graph};
 use harp_viz::HarpVizApp;
