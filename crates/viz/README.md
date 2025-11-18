@@ -19,6 +19,19 @@ Harpの計算グラフとAST最適化の各ステップを可視化するため�
 
 ## デモの実行方法
 
+### クイックスタート（最も簡単）
+
+Pipelineから直接visualizerを起動する最も簡単な例：
+
+```bash
+cargo run --package harp-viz --example quick_viz
+```
+
+このデモでは：
+- GenericPipelineで最適化を有効化
+- サンプルグラフをコンパイル（最適化履歴を自動記録）
+- `HarpVizApp::run_from_pipeline()`でワンライナーで可視化
+
 ### GenericPipeline統合デモ（推奨）
 
 GenericPipelineを使った複雑な計算グラフの最適化と可視化のデモ：
@@ -119,6 +132,26 @@ graph.save_dot("my_graph.dot").unwrap();
 ```
 
 ## ライブラリとして使用する
+
+### 最も簡単な使い方（GenericPipelineから直接起動）
+
+```rust
+use harp::backend::GenericPipeline;
+use harp_viz::HarpVizApp;
+
+let mut pipeline = GenericPipeline::new(renderer, compiler);
+
+// 最適化を有効化
+pipeline.enable_graph_optimization = true;
+pipeline.enable_ast_optimization = true;
+pipeline.collect_histories = true;  // 履歴を記録
+
+// グラフをコンパイル（最適化履歴が自動的に記録される）
+let kernel = pipeline.compile_graph(graph)?;
+
+// ワンライナーで可視化ウィンドウを起動
+HarpVizApp::run_from_pipeline(&pipeline)?;
+```
 
 ### グラフ最適化履歴の可視化
 

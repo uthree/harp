@@ -130,6 +130,96 @@ impl HarpVizApp {
             self.load_ast_optimization_history(ast_history);
         }
     }
+
+    /// Pipelineから直接visualizerを起動するヘルパー関数
+    ///
+    /// この関数は、GenericPipelineに保存されている最適化履歴を読み込んで、
+    /// 可視化ウィンドウを起動します。
+    ///
+    /// # 例
+    /// ```ignore
+    /// use harp::backend::GenericPipeline;
+    /// use harp_viz::HarpVizApp;
+    ///
+    /// let mut pipeline = GenericPipeline::new(renderer, compiler);
+    /// pipeline.enable_graph_optimization = true;
+    /// pipeline.enable_ast_optimization = true;
+    /// pipeline.collect_histories = true;
+    ///
+    /// // グラフをコンパイル（最適化履歴が記録される）
+    /// let kernel = pipeline.compile_graph(graph)?;
+    ///
+    /// // 可視化ウィンドウを起動
+    /// HarpVizApp::run_from_pipeline(&pipeline)?;
+    /// ```
+    ///
+    /// # 型パラメータ
+    /// * `R` - Rendererの型
+    /// * `C` - Compilerの型
+    pub fn run_from_pipeline<R, C>(
+        pipeline: &harp::backend::GenericPipeline<R, C>,
+    ) -> Result<(), eframe::Error>
+    where
+        R: harp::backend::Renderer,
+        C: harp::backend::Compiler<CodeRepr = R::CodeRepr>,
+    {
+        let mut app = Self::new();
+        app.load_from_pipeline(pipeline);
+
+        let native_options = eframe::NativeOptions {
+            viewport: egui::ViewportBuilder::default()
+                .with_inner_size([1200.0, 800.0])
+                .with_title("Harp Visualizer"),
+            ..Default::default()
+        };
+
+        eframe::run_native(
+            "Harp Visualizer",
+            native_options,
+            Box::new(|_cc| Ok(Box::new(app))),
+        )
+    }
+
+    /// 最適化履歴を読み込んでvisualizerを起動
+    ///
+    /// グラフとASTの最適化履歴を個別に指定して可視化ウィンドウを起動します。
+    ///
+    /// # 例
+    /// ```ignore
+    /// use harp_viz::HarpVizApp;
+    ///
+    /// let (optimized_graph, graph_history) = graph_optimizer.optimize_with_history(graph);
+    /// let (optimized_ast, ast_history) = ast_optimizer.optimize_with_history(ast);
+    ///
+    /// HarpVizApp::run_with_histories(Some(graph_history), Some(ast_history))?;
+    /// ```
+    pub fn run_with_histories(
+        graph_history: Option<harp::opt::graph::OptimizationHistory>,
+        ast_history: Option<harp::opt::ast::OptimizationHistory>,
+    ) -> Result<(), eframe::Error> {
+        let mut app = Self::new();
+
+        if let Some(history) = graph_history {
+            app.load_graph_optimization_history(history);
+        }
+
+        if let Some(history) = ast_history {
+            app.load_ast_optimization_history(history);
+        }
+
+        let native_options = eframe::NativeOptions {
+            viewport: egui::ViewportBuilder::default()
+                .with_inner_size([1200.0, 800.0])
+                .with_title("Harp Visualizer"),
+            ..Default::default()
+        };
+
+        eframe::run_native(
+            "Harp Visualizer",
+            native_options,
+            Box::new(|_cc| Ok(Box::new(app))),
+        )
+    }
 }
 
 impl eframe::App for HarpVizApp {
