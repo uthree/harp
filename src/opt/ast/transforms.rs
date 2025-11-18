@@ -81,13 +81,27 @@ pub fn inline_small_loop(loop_node: &AstNode, max_iterations: usize) -> Option<A
             while current < stop_val {
                 let var_value = const_int(current as isize);
                 let replaced_body = replace_var_in_ast(body, var, &var_value);
-                statements.push(replaced_body);
+
+                // Blockの場合、その中身を直接追加（フラット化）
+                if let AstNode::Block { statements: inner_stmts, .. } = replaced_body {
+                    statements.extend(inner_stmts);
+                } else {
+                    statements.push(replaced_body);
+                }
+
                 current += step_val;
             }
 
+            // 元のループ本体のScopeをコピー（変数宣言を保持）
+            let scope = if let AstNode::Block { scope, .. } = body.as_ref() {
+                scope.clone()
+            } else {
+                Box::new(Scope::new())
+            };
+
             Some(AstNode::Block {
                 statements,
-                scope: Box::new(Scope::new()),
+                scope,
             })
         }
         _ => None,

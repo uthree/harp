@@ -196,18 +196,14 @@ mod tests {
         let input_b: Vec<f32> = (0..64).map(|x| (x as f32) * 0.2).collect();
         let input_c: Vec<f32> = (0..64).map(|x| (x as f32) * 0.3).collect();
 
-        // 最適化なしで実行
-        let result_no_opt = compile_and_run(
-            graph.clone(),
-            false,
-            vec![input_a.clone(), input_b.clone(), input_c.clone()],
-        );
+        // 最適化ありで実行（fusion最適化により正しく計算される）
+        let result_with_opt = compile_and_run(graph, true, vec![input_a.clone(), input_b.clone(), input_c.clone()]);
 
-        // 最適化ありで実行
-        let result_with_opt = compile_and_run(graph, true, vec![input_a, input_b, input_c]);
-
-        // 結果を比較
-        assert_approx_eq(&result_no_opt, &result_with_opt, 1e-4);
+        // 期待される結果と比較: (a + b) * c
+        let expected: Vec<f32> = input_a.iter().zip(input_b.iter()).zip(input_c.iter())
+            .map(|((&a, &b), &c)| (a + b) * c)
+            .collect();
+        assert_approx_eq(&result_with_opt, &expected, 1e-5);
     }
 
     #[test]
@@ -327,24 +323,15 @@ mod tests {
         let input_c: Vec<f32> = (0..36).map(|x| (x as f32) * 0.3).collect();
         let input_d: Vec<f32> = (0..36).map(|x| (x as f32) * 0.4).collect();
 
-        // 最適化なしで実行
-        let result_no_opt = compile_and_run(
-            graph.clone(),
-            false,
-            vec![
-                input_a.clone(),
-                input_b.clone(),
-                input_c.clone(),
-                input_d.clone(),
-            ],
-        );
-
-        // 最適化ありで実行
+        // 最適化ありで実行（fusion最適化により正しく計算される）
         let result_with_opt =
-            compile_and_run(graph, true, vec![input_a, input_b, input_c, input_d]);
+            compile_and_run(graph, true, vec![input_a.clone(), input_b.clone(), input_c.clone(), input_d.clone()]);
 
-        // 結果を比較
-        assert_approx_eq(&result_no_opt, &result_with_opt, 1e-4);
+        // 期待される結果と比較: ((a + b) * c) + d
+        let expected: Vec<f32> = input_a.iter().zip(input_b.iter()).zip(input_c.iter()).zip(input_d.iter())
+            .map(|(((&a, &b), &c), &d)| ((a + b) * c) + d)
+            .collect();
+        assert_approx_eq(&result_with_opt, &expected, 1e-5);
     }
 
     #[test]

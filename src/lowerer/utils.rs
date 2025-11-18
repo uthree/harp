@@ -120,6 +120,12 @@ impl Lowerer {
                 } => {
                     let mut result: AstNode = offset.clone().into();
 
+                    // スカラー（0次元テンソル）の場合、stridesが空
+                    // この場合、ブロードキャストされるのでオフセットのみ返す
+                    if strides.is_empty() {
+                        return result;
+                    }
+
                     for &axis in axes {
                         if axis >= strides.len() {
                             log::error!(
@@ -156,6 +162,11 @@ impl Lowerer {
             } => {
                 let mut result: AstNode = offset.clone().into();
 
+                // スカラーの場合、stridesが空なのでオフセットのみ返す
+                if strides.is_empty() {
+                    return result;
+                }
+
                 for &axis in axes {
                     let ridx = var(format!("ridx{}", axis));
                     let stride: AstNode = strides[axis].clone().into();
@@ -176,6 +187,11 @@ impl Lowerer {
                 strides, offset, ..
             } => {
                 let mut result: AstNode = offset.clone().into();
+
+                // スカラーの場合、stridesが空なのでオフセットのみ返す
+                if strides.is_empty() {
+                    return result;
+                }
 
                 for &axis in axes {
                     let oidx = var(format!("oidx{}", axis));
@@ -202,6 +218,11 @@ impl Lowerer {
                 strides, offset, ..
             } => {
                 let mut result: AstNode = offset.clone().into();
+
+                // スカラーの場合、stridesが空なのでオフセットのみ返す
+                if strides.is_empty() {
+                    return result;
+                }
 
                 // 出力軸に対応する入力軸
                 for (out_idx, &in_axis) in output_axes.iter().enumerate() {
