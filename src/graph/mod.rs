@@ -336,6 +336,19 @@ impl GraphNode {
         self.view(new_view)
     }
 
+    /// ブロードキャストのためにshapeを拡張
+    ///
+    /// サイズが1の次元を新しいサイズに拡張します。
+    /// サイズが1でない次元は変更できません。
+    ///
+    /// # パニック
+    /// - rankが変わる場合
+    /// - サイズが1でない次元を変更しようとした場合
+    pub fn expand(&self, new_shape: Vec<Expr>) -> Self {
+        let new_view = self.view.clone().expand(new_shape);
+        self.view(new_view)
+    }
+
     /// 1D unfold操作（スライディングウィンドウ）
     ///
     /// 畳み込みの前処理として、入力から重複するパッチを抽出します。
