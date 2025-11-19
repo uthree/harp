@@ -59,7 +59,6 @@ mod tests {
         pipeline.enable_graph_optimization = enable_optimization;
         pipeline.enable_ast_optimization = enable_optimization;
 
-
         // コンパイル
         let kernel = pipeline
             .compile_graph(graph.clone())
@@ -198,10 +197,17 @@ mod tests {
         let input_c: Vec<f32> = (0..64).map(|x| (x as f32) * 0.3).collect();
 
         // 最適化ありで実行（fusion最適化により正しく計算される）
-        let result_with_opt = compile_and_run(graph, true, vec![input_a.clone(), input_b.clone(), input_c.clone()]);
+        let result_with_opt = compile_and_run(
+            graph,
+            true,
+            vec![input_a.clone(), input_b.clone(), input_c.clone()],
+        );
 
         // 期待される結果と比較: (a + b) * c
-        let expected: Vec<f32> = input_a.iter().zip(input_b.iter()).zip(input_c.iter())
+        let expected: Vec<f32> = input_a
+            .iter()
+            .zip(input_b.iter())
+            .zip(input_c.iter())
             .map(|((&a, &b), &c)| (a + b) * c)
             .collect();
         assert_approx_eq(&result_with_opt, &expected, 1e-5);
@@ -325,11 +331,23 @@ mod tests {
         let input_d: Vec<f32> = (0..36).map(|x| (x as f32) * 0.4).collect();
 
         // 最適化ありで実行（fusion最適化により正しく計算される）
-        let result_with_opt =
-            compile_and_run(graph, true, vec![input_a.clone(), input_b.clone(), input_c.clone(), input_d.clone()]);
+        let result_with_opt = compile_and_run(
+            graph,
+            true,
+            vec![
+                input_a.clone(),
+                input_b.clone(),
+                input_c.clone(),
+                input_d.clone(),
+            ],
+        );
 
         // 期待される結果と比較: ((a + b) * c) + d
-        let expected: Vec<f32> = input_a.iter().zip(input_b.iter()).zip(input_c.iter()).zip(input_d.iter())
+        let expected: Vec<f32> = input_a
+            .iter()
+            .zip(input_b.iter())
+            .zip(input_c.iter())
+            .zip(input_d.iter())
             .map(|(((&a, &b), &c), &d)| ((a + b) * c) + d)
             .collect();
         assert_approx_eq(&result_with_opt, &expected, 1e-5);

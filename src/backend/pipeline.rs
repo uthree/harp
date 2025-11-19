@@ -126,7 +126,8 @@ where
     E: GraphCostEstimator,
 {
     let suggester = create_graph_suggester(flags);
-    let optimizer = create_graph_optimizer(suggester, estimator, beam_width, max_steps, show_progress);
+    let optimizer =
+        create_graph_optimizer(suggester, estimator, beam_width, max_steps, show_progress);
     optimizer.optimize_with_history(graph)
 }
 
@@ -145,7 +146,8 @@ pub fn optimize_ast_with_history(
     // 2. ビームサーチ最適化を適用
     let suggester = create_ast_suggester();
     let estimator = AstSimpleCostEstimator::new();
-    let optimizer = create_ast_optimizer(suggester, estimator, beam_width, max_steps, show_progress);
+    let optimizer =
+        create_ast_optimizer(suggester, estimator, beam_width, max_steps, show_progress);
 
     optimizer.optimize_with_history(program)
 }

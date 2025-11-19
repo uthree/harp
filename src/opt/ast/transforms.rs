@@ -83,7 +83,11 @@ pub fn inline_small_loop(loop_node: &AstNode, max_iterations: usize) -> Option<A
                 let replaced_body = replace_var_in_ast(body, var, &var_value);
 
                 // Blockの場合、その中身を直接追加（フラット化）
-                if let AstNode::Block { statements: inner_stmts, .. } = replaced_body {
+                if let AstNode::Block {
+                    statements: inner_stmts,
+                    ..
+                } = replaced_body
+                {
                     statements.extend(inner_stmts);
                 } else {
                     statements.push(replaced_body);
@@ -99,10 +103,7 @@ pub fn inline_small_loop(loop_node: &AstNode, max_iterations: usize) -> Option<A
                 Box::new(Scope::new())
             };
 
-            Some(AstNode::Block {
-                statements,
-                scope,
-            })
+            Some(AstNode::Block { statements, scope })
         }
         _ => None,
     }
@@ -282,7 +283,9 @@ fn replace_var_in_ast(ast: &AstNode, var_name: &str, replacement: &AstNode) -> A
             Box::new(replace_var_in_ast(a, var_name, replacement)),
             Box::new(replace_var_in_ast(b, var_name, replacement)),
         ),
-        AstNode::BitwiseNot(a) => AstNode::BitwiseNot(Box::new(replace_var_in_ast(a, var_name, replacement))),
+        AstNode::BitwiseNot(a) => {
+            AstNode::BitwiseNot(Box::new(replace_var_in_ast(a, var_name, replacement)))
+        }
         AstNode::LeftShift(a, b) => AstNode::LeftShift(
             Box::new(replace_var_in_ast(a, var_name, replacement)),
             Box::new(replace_var_in_ast(b, var_name, replacement)),

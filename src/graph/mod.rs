@@ -335,6 +335,157 @@ impl GraphNode {
         let new_view = self.view.clone().reshape(new_shape);
         self.view(new_view)
     }
+
+    /// 1D unfold操作（スライディングウィンドウ）
+    ///
+    /// 畳み込みの前処理として、入力から重複するパッチを抽出します。
+    ///
+    /// # 引数
+    /// - `kernel_size`: ウィンドウサイズ
+    /// - `stride`: ストライド（スライディングウィンドウの移動距離）
+    /// - `dilation`: 膨張率（カーネル要素間の距離）
+    /// - `groups`: グループ数（チャネルを分割する数、2D入力のみ）
+    ///
+    /// # 入出力
+    /// - 1D入力の場合: (L,) -> (k, L')
+    /// - 2D入力（groups=1）: (C, L) -> (C, k, L')
+    /// - 2D入力（groups=g）: (C, L) -> (g, C/g, k, L')
+    ///
+    /// where:
+    /// - effective_kernel_size = (k - 1) * d + 1
+    /// - L' = (L - effective_kernel_size) / s + 1
+    ///
+    /// # 例
+    /// ```no_run
+    /// use harp::prelude::*;
+    ///
+    /// let mut graph = Graph::new();
+    /// let x = graph.input("x")
+    ///     .with_dtype(DType::F32)
+    ///     .with_shape(vec![10])
+    ///     .build();
+    ///
+    /// // 通常のunfold: (10,) -> (3, 8)
+    /// let unfolded = x.unfold1d(3, 1, 1, 1);
+    ///
+    /// // dilationあり: (10,) -> (3, 6)
+    /// // effective_kernel_size = (3-1)*2+1 = 5
+    /// let unfolded_dilated = x.unfold1d(3, 1, 2, 1);
+    ///
+    /// // グループ畳み込み
+    /// let y = graph.input("y")
+    ///     .with_dtype(DType::F32)
+    ///     .with_shape(vec![6, 10])
+    ///     .build();
+    /// // (6, 10) -> (2, 3, 3, 8) with groups=2
+    /// let grouped = y.unfold1d(3, 1, 1, 2);
+    /// ```
+    ///
+    /// 現在はpadding=0のみサポート
+    pub fn unfold1d(
+        &self,
+        kernel_size: usize,
+        stride: usize,
+        dilation: usize,
+        groups: usize,
+    ) -> Self {
+        let new_view = self
+            .view
+            .clone()
+            .unfold1d(kernel_size, stride, dilation, groups);
+        self.view(new_view)
+    }
+
+    /// 2D unfold操作（スライディングウィンドウ）
+    ///
+    /// 2次元畳み込みの前処理として、入力から重複するパッチを抽出します。
+    ///
+    /// # 引数
+    /// - `kernel_size`: ウィンドウサイズ (kH, kW)
+    /// - `stride`: ストライド (sH, sW)
+    /// - `dilation`: 膨張率 (dH, dW)
+    /// - `groups`: グループ数（3D入力のみ）
+    ///
+    /// # 入出力
+    /// - 2D入力: (H, W) -> (kH, kW, H', W')
+    /// - 3D入力（groups=1）: (C, H, W) -> (C, kH, kW, H', W')
+    /// - 3D入力（groups=g）: (C, H, W) -> (g, C/g, kH, kW, H', W')
+    ///
+    /// # 例
+    /// ```no_run
+    /// use harp::prelude::*;
+    ///
+    /// let mut graph = Graph::new();
+    /// let x = graph.input("x")
+    ///     .with_dtype(DType::F32)
+    ///     .with_shape(vec![3, 32, 32])
+    ///     .build();
+    ///
+    /// // 通常の2D unfold: (3, 32, 32) -> (3, 3, 3, 30, 30)
+    /// let unfolded = x.unfold2d((3, 3), (1, 1), (1, 1), 1);
+    ///
+    /// // depthwise: (3, 32, 32) -> (3, 1, 3, 3, 30, 30)
+    /// let depthwise = x.unfold2d((3, 3), (1, 1), (1, 1), 3);
+    /// ```
+    ///
+    /// 現在はpadding=0のみサポート
+    pub fn unfold2d(
+        &self,
+        kernel_size: (usize, usize),
+        stride: (usize, usize),
+        dilation: (usize, usize),
+        groups: usize,
+    ) -> Self {
+        let new_view = self
+            .view
+            .clone()
+            .unfold2d(kernel_size, stride, dilation, groups);
+        self.view(new_view)
+    }
+
+    /// 3D unfold操作（スライディングウィンドウ）
+    ///
+    /// 3次元畳み込みの前処理として、入力から重複するパッチを抽出します。
+    ///
+    /// # 引数
+    /// - `kernel_size`: ウィンドウサイズ (kD, kH, kW)
+    /// - `stride`: ストライド (sD, sH, sW)
+    /// - `dilation`: 膨張率 (dD, dH, dW)
+    /// - `groups`: グループ数（4D入力のみ）
+    ///
+    /// # 入出力
+    /// - 3D入力: (D, H, W) -> (kD, kH, kW, D', H', W')
+    /// - 4D入力（groups=1）: (C, D, H, W) -> (C, kD, kH, kW, D', H', W')
+    /// - 4D入力（groups=g）: (C, D, H, W) -> (g, C/g, kD, kH, kW, D', H', W')
+    ///
+    /// # 例
+    /// ```no_run
+    /// use harp::prelude::*;
+    ///
+    /// let mut graph = Graph::new();
+    /// let x = graph.input("x")
+    ///     .with_dtype(DType::F32)
+    ///     .with_shape(vec![2, 16, 16, 16])
+    ///     .build();
+    ///
+    /// // 3D unfold: (2, 16, 16, 16) -> (2, 3, 3, 3, 14, 14, 14)
+    /// let unfolded = x.unfold3d((3, 3, 3), (1, 1, 1), (1, 1, 1), 1);
+    /// ```
+    ///
+    /// 現在はpadding=0のみサポート
+    pub fn unfold3d(
+        &self,
+        kernel_size: (usize, usize, usize),
+        stride: (usize, usize, usize),
+        dilation: (usize, usize, usize),
+        groups: usize,
+    ) -> Self {
+        let new_view = self
+            .view
+            .clone()
+            .unfold3d(kernel_size, stride, dilation, groups);
+        self.view(new_view)
+    }
 }
 
 // .0 のように書かなくても内部のデータを読み取れるようにする

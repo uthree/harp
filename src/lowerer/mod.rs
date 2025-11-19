@@ -76,11 +76,7 @@ pub(crate) fn lower(graph: Graph) -> crate::ast::AstNode {
 
     // 入力ノードのバッファー名を設定
     // 決定論的な順序にするため、入力名をアルファベット順にソートする
-    let mut sorted_input_names: Vec<_> = graph
-        .inputs()
-        .keys()
-        .cloned()
-        .collect();
+    let mut sorted_input_names: Vec<_> = graph.inputs().keys().cloned().collect();
     sorted_input_names.sort();
 
     // 入力ノードのポインタを名前にマッピング
@@ -212,7 +208,8 @@ pub(crate) fn lower(graph: Graph) -> crate::ast::AstNode {
         .map(|info| info.function.clone())
         .collect();
 
-    let main_function = generate_main_function_with_intermediates(&kernel_infos, sorted_input_names.len());
+    let main_function =
+        generate_main_function_with_intermediates(&kernel_infos, sorted_input_names.len());
 
     let mut all_functions = functions;
     all_functions.push(main_function);

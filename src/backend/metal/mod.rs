@@ -30,8 +30,8 @@ pub const LIBLOADING_WRAPPER_NAME: &str = "__harp_metal_entry";
 use crate::ast::AstNode;
 #[cfg(target_os = "macos")]
 use crate::backend::{
-    pipeline::{optimize_ast_with_history, optimize_graph_with_history, SuggesterFlags},
     Compiler, OptimizationConfig, OptimizationHistories, Pipeline, Renderer,
+    pipeline::{SuggesterFlags, optimize_ast_with_history, optimize_graph_with_history},
 };
 #[cfg(target_os = "macos")]
 use crate::graph::Graph;

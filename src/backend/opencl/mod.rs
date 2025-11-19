@@ -13,8 +13,8 @@ pub const LIBLOADING_WRAPPER_NAME: &str = "__harp_entry";
 
 use crate::ast::AstNode;
 use crate::backend::{
-    pipeline::{optimize_ast_with_history, optimize_graph_with_history, SuggesterFlags},
     Compiler, OptimizationConfig, OptimizationHistories, Pipeline, Renderer,
+    pipeline::{SuggesterFlags, optimize_ast_with_history, optimize_graph_with_history},
 };
 use crate::graph::Graph;
 use crate::opt::graph::SimpleCostEstimator;
