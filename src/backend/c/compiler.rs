@@ -399,9 +399,9 @@ void kernel_0(float** buffers) {
         let kernel = compiler.compile(&c_code);
 
         // 5. Create buffers
-        // Note: lowerer orders parameters by dependency order, not alphabetically
+        // Note: lowerer orders parameters alphabetically
         // The generated code expects: harp_main(input0, input1, input2, output)
-        // where input0=a, input1=b, input2=c based on processing order
+        // where input0=a, input1=b, input2=c (alphabetically sorted)
         let mut input_a = CBuffer::from_f32_vec(vec![1.0f32, 2.0, 3.0, 4.0]);
         let mut input_b = CBuffer::from_f32_vec(vec![2.0f32, 3.0, 4.0, 5.0]);
         let mut input_c = CBuffer::from_f32_vec(vec![10.0f32, 10.0, 10.0, 10.0]);
@@ -415,11 +415,10 @@ void kernel_0(float** buffers) {
         }
 
         // 7. Verify results
-        // Due to lowerer's parameter ordering (based on dependency), the actual computation is:
-        // kernel_0: input1 + input2 (b + c), kernel_1: tmp * input0 ((b+c)*a)
-        // So: (b+c)*a = (2+10)*1=12, (3+10)*2=26, (4+10)*3=42, (5+10)*4=60
+        // Computation: (a + b) * c
+        // (1+2)*10=30, (2+3)*10=50, (3+4)*10=70, (4+5)*10=90
         let result_vec = output.as_f32_slice().unwrap().to_vec();
-        assert_eq!(result_vec, vec![12.0, 26.0, 42.0, 60.0]);
+        assert_eq!(result_vec, vec![30.0, 50.0, 70.0, 90.0]);
     }
 
     /// 結合テスト: 2次元配列の加算

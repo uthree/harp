@@ -75,18 +75,39 @@ pub(crate) fn lower(graph: Graph) -> crate::ast::AstNode {
     let mut node_buffer_map: HashMap<*const (), String> = HashMap::new();
 
     // 入力ノードのバッファー名を設定
-    // 注: グラフ最適化後はgraph.inputs()のWeakリファレンスと実際のノードのポインタが
-    // 異なる場合があるため、トポロジカルソートから収集されたノードを使用する
-    let mut input_counter = 0;
+    // 決定論的な順序にするため、入力名をアルファベット順にソートする
+    let mut sorted_input_names: Vec<_> = graph
+        .inputs()
+        .keys()
+        .cloned()
+        .collect();
+    sorted_input_names.sort();
+
+    // 入力ノードのポインタを名前にマッピング
+    let mut input_node_by_name: HashMap<String, *const ()> = HashMap::new();
     for generation in &generations {
         for node in generation {
             if matches!(node.op, GraphOp::Input) {
-                let buffer_name = format!("input{}", input_counter);
-                let ptr = node_ptr(node);
-                log::debug!("Registering input node as {}", buffer_name);
-                node_buffer_map.insert(ptr, buffer_name);
-                input_counter += 1;
+                // 入力ノードの名前を見つける
+                for (name, weak_node) in graph.inputs().iter() {
+                    if let Some(rc_node) = weak_node.upgrade() {
+                        let input_node = GraphNode::from_rc(rc_node);
+                        if node_ptr(&input_node) == node_ptr(node) {
+                            input_node_by_name.insert(name.clone(), node_ptr(node));
+                            break;
+                        }
+                    }
+                }
             }
+        }
+    }
+
+    // ソートされた順序でバッファー名を割り当て
+    for (input_counter, name) in sorted_input_names.iter().enumerate() {
+        if let Some(&ptr) = input_node_by_name.get(name) {
+            let buffer_name = format!("input{}", input_counter);
+            log::debug!("Registering input '{}' as {}", name, buffer_name);
+            node_buffer_map.insert(ptr, buffer_name);
         }
     }
 
@@ -191,7 +212,7 @@ pub(crate) fn lower(graph: Graph) -> crate::ast::AstNode {
         .map(|info| info.function.clone())
         .collect();
 
-    let main_function = generate_main_function_with_intermediates(&kernel_infos, input_counter);
+    let main_function = generate_main_function_with_intermediates(&kernel_infos, sorted_input_names.len());
 
     let mut all_functions = functions;
     all_functions.push(main_function);

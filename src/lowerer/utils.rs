@@ -18,7 +18,11 @@ impl Lowerer {
         let mut shape_vars = HashSet::new();
 
         // 入力バッファのシグネチャを生成
-        for (name, weak_node) in graph.inputs() {
+        // HashMapの順序は不安定なので、名前でソートして決定論的な順序にする
+        let mut sorted_inputs: Vec<_> = graph.inputs().iter().collect();
+        sorted_inputs.sort_by(|a, b| a.0.cmp(b.0));
+
+        for (name, weak_node) in sorted_inputs {
             if let Some(node_rc) = weak_node.upgrade() {
                 let shape: Vec<_> = node_rc.view.shape().to_vec();
 
@@ -32,7 +36,11 @@ impl Lowerer {
         }
 
         // 出力バッファのシグネチャを生成
-        for (name, node) in graph.outputs() {
+        // HashMapの順序は不安定なので、名前でソートして決定論的な順序にする
+        let mut sorted_outputs: Vec<_> = graph.outputs().iter().collect();
+        sorted_outputs.sort_by(|a, b| a.0.cmp(b.0));
+
+        for (name, node) in sorted_outputs {
             let shape: Vec<_> = node.view.shape().to_vec();
 
             // shape内の変数名を収集

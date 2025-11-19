@@ -59,6 +59,7 @@ mod tests {
         pipeline.enable_graph_optimization = enable_optimization;
         pipeline.enable_ast_optimization = enable_optimization;
 
+
         // コンパイル
         let kernel = pipeline
             .compile_graph(graph.clone())
