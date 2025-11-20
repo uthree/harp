@@ -392,7 +392,7 @@ impl GraphNode {
             let mul_result = &unfolded_broadcasted * &kernel_broadcasted;
 
             // reduce sum over C_in (axis=1) and k (axis=2)
-            
+
             mul_result.reduce_sum(1).reduce_sum(1)
         } else {
             // グループ畳み込み
@@ -448,7 +448,7 @@ impl GraphNode {
 
             // reshape: (groups, C_out/groups, L') -> (C_out, L')
             let l_out = reduced.view.shape()[2].clone();
-            
+
             reduced.reshape(vec![c_out, l_out])
         }
     }
@@ -545,7 +545,7 @@ impl GraphNode {
             let mul_result = &unfolded_broadcasted * &kernel_broadcasted;
 
             // reduce sum over C_in (axis=1), kH (axis=2), kW (axis=3)
-            
+
             mul_result.reduce_sum(1).reduce_sum(1).reduce_sum(1)
         } else {
             // グループ畳み込み
@@ -611,7 +611,7 @@ impl GraphNode {
             // reshape: (groups, C_out/groups, H', W') -> (C_out, H', W')
             let h_out = reduced.view.shape()[2].clone();
             let w_out = reduced.view.shape()[3].clone();
-            
+
             reduced.reshape(vec![c_out, h_out, w_out])
         }
     }
@@ -703,7 +703,7 @@ impl GraphNode {
             let mul_result = &unfolded_broadcasted * &kernel_broadcasted;
 
             // reduce sum over C_in (axis=1), kD (axis=2), kH (axis=3), kW (axis=4)
-            
+
             mul_result
                 .reduce_sum(1)
                 .reduce_sum(1)
@@ -787,7 +787,7 @@ impl GraphNode {
             let d_out = reduced.view.shape()[2].clone();
             let h_out = reduced.view.shape()[3].clone();
             let w_out = reduced.view.shape()[4].clone();
-            
+
             reduced.reshape(vec![c_out, d_out, h_out, w_out])
         }
     }
