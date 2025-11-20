@@ -42,15 +42,15 @@ pub(super) fn backward(output: &Tensor, grad_output: GraphNode) {
 
             // 各入力に勾配を伝播
             for (input, input_grad) in grad_fn_wrapper.inputs.iter().zip(input_grads) {
-                if let Some(ig) = input_grad {
-                    if input.requires_grad() {
-                        let input_ptr = input.data.as_ptr();
-                        // 勾配を累積
-                        if let Some(existing_grad) = grads.get_mut(&input_ptr) {
-                            *existing_grad = existing_grad.clone() + ig.data.clone();
-                        } else {
-                            grads.insert(input_ptr, ig.data.clone());
-                        }
+                if let Some(ig) = input_grad
+                    && input.requires_grad()
+                {
+                    let input_ptr = input.data.as_ptr();
+                    // 勾配を累積
+                    if let Some(existing_grad) = grads.get_mut(&input_ptr) {
+                        *existing_grad = existing_grad.clone() + ig.data.clone();
+                    } else {
+                        grads.insert(input_ptr, ig.data.clone());
                     }
                 }
             }
