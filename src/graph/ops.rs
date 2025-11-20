@@ -54,6 +54,9 @@ pub enum GraphOp {
         padding: Vec<(usize, usize)>, // 各軸の(前, 後)パディング量
         value: f32,                   // パディング値
     }, // テンソルをパディングで拡張
+    Slice {
+        ranges: Vec<(usize, usize)>, // 各軸の(start, end)範囲（endは含まない）
+    }, // テンソルの一部を切り出し
 }
 
 #[derive(Debug, Clone)]

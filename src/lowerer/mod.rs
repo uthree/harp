@@ -12,6 +12,7 @@ mod fused_elementwise_reduce;
 mod fused_reduce;
 mod pad;
 mod reduce;
+mod slice;
 mod utils;
 
 pub struct Lowerer {
@@ -646,6 +647,7 @@ impl Lowerer {
             GraphOp::Pad { padding, value } => {
                 self.lower_pad_kernel(node, node_id, padding, *value)
             }
+            GraphOp::Slice { ranges } => self.lower_slice_kernel(node, node_id, ranges),
             _ => Err(format!("Unsupported operation: {:?}", node.op)),
         }
     }

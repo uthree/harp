@@ -535,3 +535,69 @@ fn test_rsqrt() {
 
     assert!(x.grad().is_some());
 }
+
+// === Pad/Slice演算のテスト ===
+
+#[test]
+fn test_pad() {
+    let mut graph = Graph::new();
+    let x = Tensor::from_graph_node(
+        graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape([3])
+            .build(),
+        true,
+    );
+
+    // パディングを追加
+    let padded = x.pad(vec![(1, 1)], 0.0);
+    let loss = padded.sum(0);
+    loss.backward();
+
+    assert!(x.grad().is_some());
+}
+
+#[test]
+fn test_slice() {
+    let mut graph = Graph::new();
+    let x = Tensor::from_graph_node(
+        graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape([10])
+            .build(),
+        true,
+    );
+
+    // スライスを取得
+    let sliced = x.slice(vec![(2, 7)]);
+    let loss = sliced.sum(0);
+    loss.backward();
+
+    assert!(x.grad().is_some());
+}
+
+#[test]
+fn test_slice_pad_roundtrip() {
+    let mut graph = Graph::new();
+    let x = Tensor::from_graph_node(
+        graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape([10])
+            .build(),
+        true,
+    );
+
+    // Slice -> Pad のラウンドトリップ
+    // こちらはsliceの入力が定数shapeなので動作する
+    let sliced = x.slice(vec![(2, 7)]);
+    let padded = sliced.pad(vec![(1, 1)], 0.0);
+
+    let loss = padded.sum(0);
+    loss.backward();
+
+    // 勾配が計算されているか確認
+    assert!(x.grad().is_some());
+}

@@ -5,7 +5,7 @@
 use super::grad_fn::{
     AddBackward, AddConstBackward, Exp2Backward, GradFn, Log2Backward, MulBackward,
     MulConstBackward, NegBackward, PadBackward, RecipBackward, ReduceSumBackward, SinBackward,
-    SqrtBackward,
+    SliceBackward, SqrtBackward,
 };
 use crate::graph::{GraphNode, ops::ElementwiseOp, ops::GraphOp};
 use std::cell::RefCell;
@@ -333,6 +333,12 @@ impl Tensor {
     pub fn pad(&self, padding: Vec<(usize, usize)>, value: f32) -> Tensor {
         let result = self.data.pad(padding.clone(), value);
         Tensor::from_forward(result, vec![self.clone()], PadBackward { padding })
+    }
+
+    /// スライス
+    pub fn slice(&self, ranges: Vec<(usize, usize)>) -> Tensor {
+        let result = self.data.slice(ranges.clone());
+        Tensor::from_forward(result, vec![self.clone()], SliceBackward { ranges })
     }
 }
 

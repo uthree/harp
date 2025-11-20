@@ -550,6 +550,63 @@ impl GraphNode {
             new_view,
         )
     }
+
+    /// テンソルの一部を切り出し
+    ///
+    /// 各軸に対してstart:endの範囲でスライスします（endは含まない）。
+    ///
+    /// # 引数
+    /// - `ranges`: 各軸の(start, end)範囲のベクタ
+    ///
+    /// # パニック
+    /// - ranges.len()がテンソルのndimと一致しない場合
+    /// - start >= endの場合
+    ///
+    /// # 例
+    /// ```no_run
+    /// use harp::prelude::*;
+    ///
+    /// let mut graph = Graph::new();
+    /// let x = graph.input("x")
+    ///     .with_dtype(DType::F32)
+    ///     .with_shape(vec![10, 20])
+    ///     .build();
+    ///
+    /// // [10, 20] から [2:5, 3:18] を切り出し -> [3, 15]
+    /// let sliced = x.slice(vec![(2, 5), (3, 18)]);
+    /// ```
+    pub fn slice(&self, ranges: Vec<(usize, usize)>) -> Self {
+        assert_eq!(
+            ranges.len(),
+            self.view.ndim(),
+            "ranges length must match tensor ndim"
+        );
+
+        // 範囲のバリデーション
+        for (i, (start, end)) in ranges.iter().enumerate() {
+            assert!(
+                start < end,
+                "Invalid range for axis {}: start ({}) must be less than end ({})",
+                i,
+                start,
+                end
+            );
+        }
+
+        // スライス後のshapeを計算
+        let new_shape: Vec<Expr> = ranges
+            .iter()
+            .map(|(start, end)| Expr::from((end - start) as isize))
+            .collect();
+
+        let new_view = View::contiguous(new_shape);
+        Self::new(
+            self.dtype.clone(),
+            GraphOp::Slice { ranges },
+            vec![self.clone()],
+            new_view,
+        )
+    }
 }
 
 // .0 のように書かなくても内部のデータを読み取れるようにする
@@ -1866,5 +1923,81 @@ mod tests {
 
         // 2Dテンソルに1Dのパディング指定（エラー）
         let _padded = x.pad(vec![(1, 1)], 0.0);
+    }
+
+    #[test]
+    fn test_slice_1d() {
+        let mut graph = Graph::new();
+        let x = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        // [10] から [2:7] を切り出し -> [5]
+        let sliced = x.slice(vec![(2, 7)]);
+
+        // 出力の次元数を確認
+        assert_eq!(sliced.view.ndim(), 1);
+        assert_eq!(sliced.view.shape().len(), 1);
+
+        // Slice演算が正しく設定されていることを確認
+        match &sliced.op {
+            GraphOp::Slice { ranges } => {
+                assert_eq!(*ranges, vec![(2, 7)]);
+            }
+            _ => panic!("Expected Slice operation"),
+        }
+    }
+
+    #[test]
+    fn test_slice_2d() {
+        let mut graph = Graph::new();
+        let x = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
+
+        // [10, 20] から [2:5, 3:18] を切り出し -> [3, 15]
+        let sliced = x.slice(vec![(2, 5), (3, 18)]);
+
+        assert_eq!(sliced.view.ndim(), 2);
+        assert_eq!(sliced.view.shape().len(), 2);
+
+        match &sliced.op {
+            GraphOp::Slice { ranges } => {
+                assert_eq!(*ranges, vec![(2, 5), (3, 18)]);
+            }
+            _ => panic!("Expected Slice operation"),
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "ranges length must match tensor ndim")]
+    fn test_slice_dimension_mismatch() {
+        let mut graph = Graph::new();
+        let x = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10, 20])
+            .build();
+
+        // 2Dテンソルに1Dのranges指定（エラー）
+        let _sliced = x.slice(vec![(2, 5)]);
+    }
+
+    #[test]
+    #[should_panic(expected = "start (5) must be less than end (2)")]
+    fn test_slice_invalid_range() {
+        let mut graph = Graph::new();
+        let x = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        // start >= end のケース（エラー）
+        let _sliced = x.slice(vec![(5, 2)]);
     }
 }

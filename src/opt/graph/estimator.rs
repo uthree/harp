@@ -150,6 +150,12 @@ impl SimpleCostEstimator {
                 let num_elements = self.compute_num_elements(node);
                 num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln()
             }
+            GraphOp::Slice { .. } => {
+                // Sliceは入力からのコピーのみ（出力要素数ベース）
+                // コスト = 出力要素数 × (read + write) × MEMORY_ACCESS_COST
+                let num_elements = self.compute_num_elements(node);
+                num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln()
+            }
         }
     }
 

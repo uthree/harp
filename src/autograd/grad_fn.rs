@@ -198,8 +198,7 @@ impl GradFn for SqrtBackward {
 
 /// Pad演算の勾配: パディング部分を除去して元のサイズに戻す
 ///
-/// TODO: 現在はslicing機能がないため、完全な実装は保留
-/// 将来的には、grad_output から padding 部分を除去するslice/crop操作が必要
+/// grad_output から padding 部分を除去するslice操作
 #[derive(Debug)]
 pub struct PadBackward {
     pub padding: Vec<(usize, usize)>,
@@ -209,15 +208,70 @@ impl GradFn for PadBackward {
     fn apply(&self, grad_output: &Tensor, inputs: &[Tensor]) -> Vec<Option<Tensor>> {
         assert_eq!(inputs.len(), 1, "Pad requires 1 input");
 
-        // TODO: Slice/crop機能を実装してから、paddingを除去する
-        // 現時点では、とりあえずgrad_outputをそのまま返す（形状が合わないのでエラーになる可能性がある）
-        // 正しい実装:
-        // grad_input = grad_output.slice(
-        //     [padding[i].0 .. original_size[i] + padding[i].0 for i in range(ndim)]
-        // )
+        let input = &inputs[0];
+        let input_shape = input.data.view.shape();
 
-        // 暫定的に警告を出す
-        eprintln!("Warning: PadBackward is not fully implemented. Slicing/cropping is needed.");
-        vec![Some(grad_output.clone())]
+        // パディングを除去する範囲を計算
+        // 各軸について: [padding_before, padding_before + original_size]
+        let ranges: Vec<(usize, usize)> = self
+            .padding
+            .iter()
+            .enumerate()
+            .map(|(i, (before, _after))| {
+                // input_shape[i]は式なので、定数の場合のみ処理
+                // TODO: 式の評価が必要な場合は対応が必要
+                let size = match &input_shape[i] {
+                    crate::graph::shape::Expr::Const(val) => *val as usize,
+                    _ => panic!("PadBackward requires constant input shape"),
+                };
+                (*before, before + size)
+            })
+            .collect();
+
+        vec![Some(grad_output.slice(ranges))]
+    }
+}
+
+/// Slice演算の勾配: 元のサイズのゼロテンソルを作り、slice部分に勾配を配置
+///
+/// Padの逆操作として実装
+#[derive(Debug)]
+pub struct SliceBackward {
+    pub ranges: Vec<(usize, usize)>,
+}
+
+impl GradFn for SliceBackward {
+    fn apply(&self, grad_output: &Tensor, inputs: &[Tensor]) -> Vec<Option<Tensor>> {
+        assert_eq!(inputs.len(), 1, "Slice requires 1 input");
+
+        let input = &inputs[0];
+        let input_shape = input.data.view.shape();
+
+        // Sliceの勾配は、元のサイズに戻すためにパディングを追加
+        // 各軸について: padding_before = ranges[i].0, padding_after = input_shape[i] - ranges[i].1
+
+        let padding: Vec<(usize, usize)> = self
+            .ranges
+            .iter()
+            .enumerate()
+            .map(|(i, (start, end))| {
+                // input_shape[i]から実際のサイズを取得
+                let input_size = match &input_shape[i] {
+                    crate::graph::shape::Expr::Const(val) => *val as usize,
+                    _ => {
+                        // 式の場合は計算（start + (end - start) + padding_after = input_size）
+                        // つまり padding_after = input_size - end
+                        // しかしinput_sizeが式なので、endとの差分を計算する必要がある
+                        // とりあえず、定数のみサポート
+                        panic!("SliceBackward requires constant input shape")
+                    }
+                };
+                let padding_before = *start;
+                let padding_after = input_size - end;
+                (padding_before, padding_after)
+            })
+            .collect();
+
+        vec![Some(grad_output.pad(padding, 0.0))]
     }
 }
