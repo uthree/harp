@@ -4,7 +4,8 @@
 
 use super::grad_fn::{
     AddBackward, AddConstBackward, Exp2Backward, GradFn, Log2Backward, MulBackward,
-    MulConstBackward, NegBackward, RecipBackward, ReduceSumBackward, SinBackward, SqrtBackward,
+    MulConstBackward, NegBackward, PadBackward, RecipBackward, ReduceSumBackward, SinBackward,
+    SqrtBackward,
 };
 use crate::graph::{GraphNode, ops::ElementwiseOp, ops::GraphOp};
 use std::cell::RefCell;
@@ -326,6 +327,12 @@ impl Tensor {
 
         // (x - mean)^2 の平均を計算
         (self - &x_mean_expanded).square().mean(axis)
+    }
+
+    /// パディング
+    pub fn pad(&self, padding: Vec<(usize, usize)>, value: f32) -> Tensor {
+        let result = self.data.pad(padding.clone(), value);
+        Tensor::from_forward(result, vec![self.clone()], PadBackward { padding })
     }
 }
 

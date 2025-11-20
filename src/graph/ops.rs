@@ -50,6 +50,10 @@ pub enum GraphOp {
         axis: usize,
         reduce_strategy: Option<ReduceStrategy>,
     }, // 複数のreduce演算を融合（同じ軸）
+    Pad {
+        padding: Vec<(usize, usize)>, // 各軸の(前, 後)パディング量
+        value: f32,                   // パディング値
+    }, // テンソルをパディングで拡張
 }
 
 #[derive(Debug, Clone)]

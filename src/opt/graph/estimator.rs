@@ -144,6 +144,12 @@ impl SimpleCostEstimator {
                 // 複数のreduce演算を融合
                 num_elements.ln() + log_sum_exp(MEMORY_ACCESS_COST.ln(), log_reduce_cost)
             }
+            GraphOp::Pad { .. } => {
+                // Padは出力バッファの初期化 + 入力データのコピー
+                // コスト = 出力要素数 × (初期化 + コピー) × MEMORY_ACCESS_COST
+                let num_elements = self.compute_num_elements(node);
+                num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln()
+            }
         }
     }
 

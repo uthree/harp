@@ -499,6 +499,57 @@ impl GraphNode {
             .unfold3d(kernel_size, stride, dilation, groups);
         self.view(new_view)
     }
+
+    /// テンソルをパディング
+    ///
+    /// 各軸に対して前後にパディングを追加します。
+    ///
+    /// # 引数
+    /// - `padding`: 各軸の(前, 後)パディング量のベクタ
+    /// - `value`: パディング値（通常0.0）
+    ///
+    /// # パニック
+    /// - padding.len()がテンソルのndimと一致しない場合
+    ///
+    /// # 例
+    /// ```no_run
+    /// use harp::prelude::*;
+    ///
+    /// let mut graph = Graph::new();
+    /// let x = graph.input("x")
+    ///     .with_dtype(DType::F32)
+    ///     .with_shape(vec![3, 32, 32])
+    ///     .build();
+    ///
+    /// // 2D画像の高さ・幅に1ピクセルずつパディング
+    /// // (3, 32, 32) -> (3, 34, 34)
+    /// let padded = x.pad(vec![(0, 0), (1, 1), (1, 1)], 0.0);
+    /// ```
+    pub fn pad(&self, padding: Vec<(usize, usize)>, value: f32) -> Self {
+        assert_eq!(
+            padding.len(),
+            self.view.ndim(),
+            "padding length must match tensor ndim"
+        );
+
+        // パディング後のshapeを計算
+        let old_shape = self.view.shape();
+        let new_shape: Vec<Expr> = old_shape
+            .iter()
+            .zip(padding.iter())
+            .map(|(size, (before, after))| {
+                size.clone() + Expr::from(*before as isize) + Expr::from(*after as isize)
+            })
+            .collect();
+
+        let new_view = View::contiguous(new_shape);
+        Self::new(
+            self.dtype.clone(),
+            GraphOp::Pad { padding, value },
+            vec![self.clone()],
+            new_view,
+        )
+    }
 }
 
 // .0 のように書かなくても内部のデータを読み取れるようにする
@@ -1722,5 +1773,98 @@ mod tests {
         let expr = wildcard("0") * wildcard("0");
         let _result =
             GraphNode::fused_elementwise_cumulative(vec![input], expr, ops::CumulativeOp::Sum, 2);
+    }
+
+    #[test]
+    fn test_pad_1d() {
+        let mut graph = Graph::new();
+        let x = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![3])
+            .build();
+
+        // (3,) に両側1要素ずつパディング -> (5,)
+        let padded = x.pad(vec![(1, 1)], 0.0);
+
+        // 出力の次元数を確認
+        assert_eq!(padded.view.ndim(), 1);
+        // shapeの式が 3 + 1 + 1 = 5 になっていることを確認
+        // 式は Add(Add(Const(3), Const(1)), Const(1)) の形式
+        assert_eq!(padded.view.shape().len(), 1);
+
+        // Pad演算が正しく設定されていることを確認
+        match &padded.op {
+            GraphOp::Pad { padding, value } => {
+                assert_eq!(*padding, vec![(1, 1)]);
+                assert_eq!(*value, 0.0);
+            }
+            _ => panic!("Expected Pad operation"),
+        }
+    }
+
+    #[test]
+    fn test_pad_2d() {
+        let mut graph = Graph::new();
+        let x = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![3, 4])
+            .build();
+
+        // (3, 4) -> (5, 6) にパディング
+        let padded = x.pad(vec![(1, 1), (1, 1)], 0.0);
+
+        // 出力の次元数を確認
+        assert_eq!(padded.view.ndim(), 2);
+        assert_eq!(padded.view.shape().len(), 2);
+
+        // Pad演算が正しく設定されていることを確認
+        match &padded.op {
+            GraphOp::Pad { padding, value } => {
+                assert_eq!(*padding, vec![(1, 1), (1, 1)]);
+                assert_eq!(*value, 0.0);
+            }
+            _ => panic!("Expected Pad operation"),
+        }
+    }
+
+    #[test]
+    fn test_pad_asymmetric() {
+        let mut graph = Graph::new();
+        let x = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![10])
+            .build();
+
+        // 非対称なパディング: 前に2, 後に3
+        let padded = x.pad(vec![(2, 3)], 1.0);
+
+        // (10,) -> (15,)
+        assert_eq!(padded.view.ndim(), 1);
+        assert_eq!(padded.view.shape().len(), 1);
+
+        match &padded.op {
+            GraphOp::Pad { padding, value } => {
+                assert_eq!(*padding, vec![(2, 3)]);
+                assert_eq!(*value, 1.0);
+            }
+            _ => panic!("Expected Pad operation"),
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "padding length must match tensor ndim")]
+    fn test_pad_dimension_mismatch() {
+        let mut graph = Graph::new();
+        let x = graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape(vec![3, 4])
+            .build();
+
+        // 2Dテンソルに1Dのパディング指定（エラー）
+        let _padded = x.pad(vec![(1, 1)], 0.0);
     }
 }

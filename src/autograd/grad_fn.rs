@@ -195,3 +195,29 @@ impl GradFn for SqrtBackward {
         vec![Some(grad_output / &x.sqrt() * 0.5)]
     }
 }
+
+/// Pad演算の勾配: パディング部分を除去して元のサイズに戻す
+///
+/// TODO: 現在はslicing機能がないため、完全な実装は保留
+/// 将来的には、grad_output から padding 部分を除去するslice/crop操作が必要
+#[derive(Debug)]
+pub struct PadBackward {
+    pub padding: Vec<(usize, usize)>,
+}
+
+impl GradFn for PadBackward {
+    fn apply(&self, grad_output: &Tensor, inputs: &[Tensor]) -> Vec<Option<Tensor>> {
+        assert_eq!(inputs.len(), 1, "Pad requires 1 input");
+
+        // TODO: Slice/crop機能を実装してから、paddingを除去する
+        // 現時点では、とりあえずgrad_outputをそのまま返す（形状が合わないのでエラーになる可能性がある）
+        // 正しい実装:
+        // grad_input = grad_output.slice(
+        //     [padding[i].0 .. original_size[i] + padding[i].0 for i in range(ndim)]
+        // )
+
+        // 暫定的に警告を出す
+        eprintln!("Warning: PadBackward is not fully implemented. Slicing/cropping is needed.");
+        vec![Some(grad_output.clone())]
+    }
+}

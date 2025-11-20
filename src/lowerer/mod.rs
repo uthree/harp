@@ -10,6 +10,7 @@ mod fused_elementwise;
 mod fused_elementwise_cumulative;
 mod fused_elementwise_reduce;
 mod fused_reduce;
+mod pad;
 mod reduce;
 mod utils;
 
@@ -641,6 +642,9 @@ impl Lowerer {
             ),
             GraphOp::FusedReduce { .. } => {
                 Err("FusedReduce is not yet supported (requires tuple output)".to_string())
+            }
+            GraphOp::Pad { padding, value } => {
+                self.lower_pad_kernel(node, node_id, padding, *value)
             }
             _ => Err(format!("Unsupported operation: {:?}", node.op)),
         }
