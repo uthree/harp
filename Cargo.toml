@@ -2,6 +2,7 @@
 members = [
     ".",
     "crates/viz",
+    "crates/unified_ir",
 ]
 resolver = "2"
 
