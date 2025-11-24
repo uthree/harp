@@ -2,10 +2,33 @@
 
 バックエンドはAST→実行可能コードへの変換と実行を担当します。
 
+## モジュール構成
+
+バックエンド関連のコードは以下のように構成されています：
+
+### コアモジュール
+- `mod.rs`: Renderer、Compiler、Kernel、Buffer、Device等の基本trait定義
+- `device.rs`: デバイス抽象化（CPU、GPU等の実行環境）
+- `pipeline.rs`: Pipeline trait（グラフからカーネルまでの処理フロー）
+- `generic.rs`: GenericPipeline（任意のRendererとCompilerを組み合わせた汎用実装）
+- `c_like.rs`: C言語系構文の共通レンダリングロジック（CLikeRenderer trait）
+
+### バックエンド実装
+各バックエンドは独立したモジュールとして実装されています：
+
+- `c/`: Cバックエンド（シングルスレッド）
+  - `mod.rs`, `renderer.rs`, `compiler.rs`, `kernel.rs`, `buffer.rs`
+- `metal/`: Metalバックエンド（macOS/iOS GPU）
+  - `mod.rs`, `renderer.rs`, `compiler.rs`, `kernel.rs`, `buffer.rs`
+- `opencl/`: OpenCLバックエンド（クロスプラットフォームGPU）
+  - `mod.rs`, `renderer.rs`, `compiler.rs`, `kernel.rs`, `buffer.rs`
+
+各バックエンドは共通のtrait（Renderer、Compiler、Kernel、Buffer）を実装しており、バックエンドの切り替えが容易です。
+
 ## 主要コンポーネント
 
 ### Renderer
-ASTをターゲット言語のソースコードに変換。C言語系の構文を持つ言語は`CLikeRenderer` traitで共通化予定。
+ASTをターゲット言語のソースコードに変換。C言語系の構文を持つ言語（C、Metal、OpenCL）は`CLikeRenderer` traitで共通ロジックを共有。
 
 ### Compiler
 ソースコードをコンパイルしてKernel（実行可能バイナリ）を生成。

@@ -103,6 +103,45 @@ let final_result = &x + 100.0f32;
 
 スカラー定数はndim=0のテンソルとして扱われ、任意のshapeのテンソルにブロードキャストされます。
 
+## コード構成とリファクタリング履歴
+
+### 2025-11-24: モジュール分割リファクタリング
+大きなファイルを機能ごとに分割し、可読性と保守性を向上させました：
+
+- **view.rs (1294行) → view.rs (600行) + view_ops.rs (705行)**
+  - 基本的なView操作とunfold操作を分離
+  - テストもview_ops.rsに移動
+  
+- **hlops.rs (1222行) → hlops.rs (746行) + hlops_conv.rs (452行)**
+  - 畳み込み演算を独立したモジュールに分離
+  - 高レベル演算の見通しが改善
+
+全630テストが合格し、既存機能に影響なく分割完了。
+
+## モジュール構成
+
+計算グラフ関連のコードは以下のように分割されています：
+
+### コアモジュール
+- `mod.rs`: Graph、GraphNode、DType等の基本データ構造
+- `ops.rs`: GraphOp定義と基本的な演算（Elementwise、Reduce、Cumulative等）
+- `node_view_ops.rs`: GraphNodeのView操作メソッド（permute、unsqueeze、squeeze等）
+- `strategy.rs`: 並列化戦略の定義（ElementwiseStrategy、ReduceStrategy、CumulativeStrategy）
+- `visualization.rs`: DOT形式でのグラフ可視化
+
+### 高レベル演算
+- `hlops.rs`: 高レベル演算のヘルパー関数（square、powi、mean、variance、数学関数等）
+- `hlops_conv.rs`: 畳み込み演算（conv1d、conv2d、conv3d）
+
+### Shape関連
+- `shape/mod.rs`: Shape関連モジュールの定義
+- `shape/expr.rs`: シンボリック式（Expr）の定義と演算
+- `shape/view.rs`: View構造体と基本操作（contiguous、permute、reshape等）
+- `shape/view_ops.rs`: View unfold操作（unfold1d、unfold2d、unfold3d）
+- `shape/tests.rs`: Shape関連のテスト
+
+この分割により、機能ごとに独立したモジュールとなり、可読性と保守性が向上しています。
+
 ## 実装状況
 
 ### 実装済み
@@ -112,13 +151,16 @@ let final_result = &x + 100.0f32;
 - Reduce演算（Sum、Product、Max）
 - Cumulative演算（cumsum、cumprod）とそのLowering
 - Contiguous演算（転置、反転などの実体化）
-- View操作（permute、unsqueeze、squeeze、flip、expand）
+- View操作（permute、unsqueeze、squeeze、flip、expand、reshape）
+- View unfold操作（unfold1d、unfold2d、unfold3d）- スライディングウィンドウでの畳み込み用
 - Shape/DType推論
 - 並列化戦略の定義（ElementwiseStrategy、ReduceStrategy、CumulativeStrategy）
 - 融合演算（FusedElementwise、FusedElementwiseReduce、FusedElementwiseCumulative、FusedReduce）
+- 高レベル演算（square、powi、mean、variance、数学関数）
+- 畳み込み演算（conv1d、conv2d、conv3d）- unfold + reduce で実装
 - グラフ最適化（詳細は[opt-graph.md](opt-graph.md)を参照）
 
 ### 未実装
 - Thread/ThreadGroupレベルの並列実行のLowering
 - ループタイル化（TilingSuggester - view変更の操作が必要）
-- 畳み込み、行列乗算などの高度な演算
+- 行列乗算（matmul、batch_matmul）- unsqueezeとbroadcastの実装待ち

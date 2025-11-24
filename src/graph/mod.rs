@@ -4,6 +4,7 @@ use std::{
     rc::{Rc, Weak},
 };
 pub mod hlops;
+pub mod hlops_conv;
 pub mod node_view_ops;
 pub mod ops;
 pub mod shape;
