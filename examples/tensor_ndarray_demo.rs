@@ -6,7 +6,7 @@
 #[cfg(feature = "ndarray")]
 fn main() {
     use harp::autograd::Tensor;
-    use ndarray::{arr1, arr2, Array1, Array2};
+    use ndarray::{Array1, Array2, arr1, arr2};
 
     env_logger::init();
 

@@ -126,45 +126,35 @@ pub fn infer_view(view1: &View, view2: &View) -> View {
 
 // 演算子のトレイトを実装
 
-// Add: a + b
-impl<T: Into<GraphNode>> Add<T> for GraphNode {
-    type Output = Self;
-    fn add(self, rhs: T) -> Self::Output {
-        let rhs = rhs.into();
-        let dtype = infer_dtype(&self.dtype, &rhs.dtype);
-        let view = infer_view(&self.view, &rhs.view);
-        GraphNode::new(
-            dtype,
-            GraphOp::Elementwise {
-                op: ElementwiseOp::Add,
-                elementwise_strategies: None,
-            },
-            vec![self, rhs],
-            view,
-        )
-    }
+/// 二項演算のelementwise演算子を実装するマクロ
+macro_rules! impl_binary_elementwise_op {
+    ($trait:ident, $method:ident, $op:ident) => {
+        impl<T: Into<GraphNode>> $trait<T> for GraphNode {
+            type Output = Self;
+            fn $method(self, rhs: T) -> Self::Output {
+                let rhs = rhs.into();
+                let dtype = infer_dtype(&self.dtype, &rhs.dtype);
+                let view = infer_view(&self.view, &rhs.view);
+                GraphNode::new(
+                    dtype,
+                    GraphOp::Elementwise {
+                        op: ElementwiseOp::$op,
+                        elementwise_strategies: None,
+                    },
+                    vec![self, rhs],
+                    view,
+                )
+            }
+        }
+    };
 }
 
-// Mul: a * b
-impl<T: Into<GraphNode>> Mul<T> for GraphNode {
-    type Output = Self;
-    fn mul(self, rhs: T) -> Self::Output {
-        let rhs = rhs.into();
-        let dtype = infer_dtype(&self.dtype, &rhs.dtype);
-        let view = infer_view(&self.view, &rhs.view);
-        GraphNode::new(
-            dtype,
-            GraphOp::Elementwise {
-                op: ElementwiseOp::Mul,
-                elementwise_strategies: None,
-            },
-            vec![self, rhs],
-            view,
-        )
-    }
-}
+// マクロを使って演算子を実装
+impl_binary_elementwise_op!(Add, add, Add);
+impl_binary_elementwise_op!(Mul, mul, Mul);
+impl_binary_elementwise_op!(Rem, rem, Rem);
 
-// Neg: -a
+// Neg: -a (単項演算なので別途実装)
 impl Neg for GraphNode {
     type Output = Self;
     fn neg(self) -> Self::Output {
@@ -199,25 +189,6 @@ impl<T: Into<GraphNode>> Div<T> for GraphNode {
     fn div(self, rhs: T) -> Self::Output {
         // Division is implemented as multiplication by reciprocal: a / b = a * recip(b)
         self * recip(rhs.into())
-    }
-}
-
-// Rem: a % b
-impl<T: Into<GraphNode>> Rem<T> for GraphNode {
-    type Output = Self;
-    fn rem(self, rhs: T) -> Self::Output {
-        let rhs = rhs.into();
-        let dtype = infer_dtype(&self.dtype, &rhs.dtype);
-        let view = infer_view(&self.view, &rhs.view);
-        GraphNode::new(
-            dtype,
-            GraphOp::Elementwise {
-                op: ElementwiseOp::Rem,
-                elementwise_strategies: None,
-            },
-            vec![self, rhs],
-            view,
-        )
     }
 }
 
