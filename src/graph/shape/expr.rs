@@ -57,6 +57,75 @@ impl Expr {
         matches!(self, Expr::Const(1))
     }
 
+    /// 定数値を取得（定数の場合のみ）
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use harp::graph::shape::Expr;
+    ///
+    /// let expr = Expr::Const(42);
+    /// assert_eq!(expr.as_const(), Some(42));
+    ///
+    /// let var = Expr::Var("x".to_string());
+    /// assert_eq!(var.as_const(), None);
+    /// ```
+    pub fn as_const(&self) -> Option<isize> {
+        match self {
+            Expr::Const(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    /// 定数値をusizeとして取得（定数の場合のみ）
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use harp::graph::shape::Expr;
+    ///
+    /// let expr = Expr::Const(42);
+    /// assert_eq!(expr.as_usize(), Some(42));
+    ///
+    /// let negative = Expr::Const(-1);
+    /// assert_eq!(negative.as_usize(), None);
+    /// ```
+    pub fn as_usize(&self) -> Option<usize> {
+        match self {
+            Expr::Const(v) if *v >= 0 => Some(*v as usize),
+            _ => None,
+        }
+    }
+
+    /// 定数値を強制的に取得（定数でない場合はパニック）
+    ///
+    /// # Panics
+    ///
+    /// 式が定数でない場合にパニックします。
+    ///
+    /// # Examples
+    ///
+    /// ```should_panic
+    /// use harp::graph::shape::Expr;
+    ///
+    /// let var = Expr::Var("x".to_string());
+    /// var.expect_const("variable not allowed"); // パニック
+    /// ```
+    pub fn expect_const(&self, msg: &str) -> isize {
+        self.as_const()
+            .unwrap_or_else(|| panic!("Expected constant expression: {}", msg))
+    }
+
+    /// 定数値をusizeとして強制的に取得（定数でない場合はパニック）
+    ///
+    /// # Panics
+    ///
+    /// 式が定数でない場合、または負の値の場合にパニックします。
+    pub fn expect_usize(&self, msg: &str) -> usize {
+        self.as_usize()
+            .unwrap_or_else(|| panic!("Expected non-negative constant: {}", msg))
+    }
+
     /// この式で使用されている全ての変数名を収集
     pub fn collect_vars(&self) -> std::collections::BTreeSet<String> {
         use std::collections::BTreeSet;

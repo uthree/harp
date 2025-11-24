@@ -548,14 +548,14 @@ impl Tensor {
     /// use harp::backend::Device;
     /// use std::collections::HashMap;
     ///
-    /// // Metal デバイスで実行するTensorを作成
-    /// let x = Tensor::ones(vec![3]).to(Device::metal(0));
+    /// // 利用可能な最適なデバイスで実行するTensorを作成
+    /// let x = Tensor::ones(vec![3]).to(Device::auto_select());
     /// let y = &x * 2.0 + 1.0;
     ///
     /// let mut inputs = HashMap::new();
     /// inputs.insert("x".to_string(), vec![1.0f32, 2.0, 3.0]);
     ///
-    /// // yが持つデバイス（metal:0）で実行される
+    /// // yが持つデバイスで実行される
     /// let result = y.realize(inputs).unwrap();
     /// // result = [3.0, 5.0, 7.0]
     /// ```
