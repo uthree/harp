@@ -643,3 +643,124 @@ fn test_abs_square() {
     // xの勾配が計算されているか確認
     assert!(x.grad().is_some());
 }
+
+#[test]
+fn test_zeros() {
+    let zeros = Tensor::zeros(vec![2, 3]);
+
+    // 形状が正しいか確認
+    assert_eq!(zeros.data.view.shape().len(), 2);
+    // requires_gradはfalse（デフォルト）
+    assert!(!zeros.requires_grad());
+}
+
+#[test]
+fn test_ones() {
+    let ones = Tensor::ones(vec![3, 4]);
+
+    // 形状が正しいか確認
+    assert_eq!(ones.data.view.shape().len(), 2);
+    // requires_gradはfalse（デフォルト）
+    assert!(!ones.requires_grad());
+}
+
+#[test]
+fn test_full() {
+    let tensor = Tensor::full(vec![2, 2], 5.0);
+
+    // 形状が正しいか確認
+    assert_eq!(tensor.data.view.shape().len(), 2);
+    // requires_gradはfalse（デフォルト）
+    assert!(!tensor.requires_grad());
+}
+
+#[test]
+fn test_zeros_with_operations() {
+    let zeros = Tensor::zeros(vec![3]);
+    let ones = Tensor::ones(vec![3]);
+
+    // ゼロテンソルと1テンソルの加算
+    let result = &zeros + &ones;
+
+    // 計算グラフが構築されているか確認
+    assert_eq!(result.data.view.shape().len(), 1);
+}
+
+#[cfg(feature = "ndarray")]
+#[test]
+fn test_from_ndarray_shape() {
+    use ndarray::Array2;
+
+    let array = Array2::<f32>::zeros((2, 3));
+    let tensor = Tensor::from_ndarray_shape(&array.into_dyn());
+
+    // 形状が正しくコピーされているか確認
+    assert_eq!(tensor.data.view.shape().len(), 2);
+}
+
+#[cfg(feature = "ndarray")]
+#[test]
+fn test_from_trait() {
+    use ndarray::Array2;
+
+    let array = Array2::<f32>::zeros((3, 4));
+    let tensor: Tensor = array.into();
+
+    // 形状が正しくコピーされているか確認
+    assert_eq!(tensor.data.view.shape().len(), 2);
+}
+
+#[test]
+fn test_tensor_device() {
+    use crate::backend::Device;
+
+    // デフォルトデバイスで作成
+    let tensor = Tensor::zeros(vec![2, 3]);
+    let device = tensor.device();
+    assert!(device.is_available());
+}
+
+#[test]
+fn test_tensor_to_device() {
+    use crate::backend::Device;
+
+    let tensor = Tensor::ones(vec![3, 4]);
+    let original_device = tensor.device();
+
+    // 別のデバイスに変更
+    let new_device = Device::cpu();
+    let tensor_cpu = tensor.to(new_device);
+
+    // デバイスが変更されていることを確認
+    assert_eq!(tensor_cpu.device(), new_device);
+
+    // 元のテンソルは変更されていない
+    assert_eq!(tensor.device(), original_device);
+}
+
+#[test]
+fn test_operations_preserve_device() {
+    use crate::backend::Device;
+
+    let device = Device::cpu();
+    let a = Tensor::ones_on(vec![3], device);
+    let b = Tensor::zeros_on(vec![3], device);
+
+    // 演算結果のデバイスは入力と同じ
+    let c = &a + &b;
+    assert_eq!(c.device(), device);
+
+    let d = &a * &b;
+    assert_eq!(d.device(), device);
+}
+
+#[test]
+fn test_device_in_debug() {
+    use crate::backend::Device;
+
+    let tensor = Tensor::zeros_on(vec![2, 3], Device::cpu());
+    let debug_str = format!("{:?}", tensor);
+
+    // Debug出力にdeviceフィールドが含まれていることを確認
+    assert!(debug_str.contains("device"));
+}

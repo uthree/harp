@@ -7,18 +7,26 @@ use super::grad_fn::{
     MulConstBackward, NegBackward, PadBackward, RecipBackward, ReduceSumBackward, SinBackward,
     SliceBackward, SqrtBackward,
 };
-use crate::graph::{GraphNode, ops::ElementwiseOp, ops::GraphOp};
+use crate::backend::Device;
+use crate::graph::{Graph, GraphNode, ops::ElementwiseOp, ops::GraphOp};
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ops::{Add, Div, Mul, Neg, Sub};
 use std::rc::Rc;
 
 /// 自動微分対応のTensor
 ///
 /// GraphNodeをラップし、勾配計算機能を追加します。
+///
+/// PyTorch風にデバイス情報を保持しますが、遅延評価を維持します。
+/// realize()を呼ぶまで実際の計算は行われません。
 #[derive(Clone)]
 pub struct Tensor {
     /// 計算グラフのノード
     pub data: GraphNode,
+
+    /// このTensorを実行する予定のデバイス
+    device: Device,
 
     /// 勾配を計算するかどうか
     requires_grad: bool,
@@ -38,23 +46,169 @@ pub(super) struct GradFnWrapper {
 }
 
 impl Tensor {
-    /// GraphNodeから新しいTensorを作成
+    /// GraphNodeから新しいTensorを作成（デフォルトデバイス）
     ///
     /// # 引数
     /// - `data`: 計算グラフノード
     /// - `requires_grad`: 勾配を計算するかどうか
     pub fn from_graph_node(data: GraphNode, requires_grad: bool) -> Self {
+        Self::from_graph_node_with_device(data, requires_grad, Device::default())
+    }
+
+    /// GraphNodeから新しいTensorを作成（デバイス指定版）
+    ///
+    /// # 引数
+    /// - `data`: 計算グラフノード
+    /// - `requires_grad`: 勾配を計算するかどうか
+    /// - `device`: 使用するデバイス
+    pub fn from_graph_node_with_device(
+        data: GraphNode,
+        requires_grad: bool,
+        device: Device,
+    ) -> Self {
         Self {
             data,
+            device,
             requires_grad,
             grad: Rc::new(RefCell::new(None)),
             grad_fn: None,
         }
     }
 
+    /// 指定した形状のゼロテンソルを作成（デフォルトデバイス）
+    ///
+    /// # 引数
+    /// - `shape`: テンソルの形状
+    ///
+    /// # 例
+    /// ```
+    /// use harp::autograd::Tensor;
+    ///
+    /// let zeros = Tensor::zeros(vec![2, 3]); // 2x3のゼロ行列
+    /// ```
+    pub fn zeros(shape: Vec<usize>) -> Self {
+        Self::full(shape, 0.0)
+    }
+
+    /// 指定した形状のゼロテンソルを作成（デバイス指定版）
+    pub fn zeros_on(shape: Vec<usize>, device: Device) -> Self {
+        Self::full_on(shape, 0.0, device)
+    }
+
+    /// 指定した形状の1で埋められたテンソルを作成（デフォルトデバイス）
+    ///
+    /// # 引数
+    /// - `shape`: テンソルの形状
+    ///
+    /// # 例
+    /// ```
+    /// use harp::autograd::Tensor;
+    ///
+    /// let ones = Tensor::ones(vec![2, 3]); // 2x3の1行列
+    /// ```
+    pub fn ones(shape: Vec<usize>) -> Self {
+        Self::full(shape, 1.0)
+    }
+
+    /// 指定した形状の1で埋められたテンソルを作成（デバイス指定版）
+    pub fn ones_on(shape: Vec<usize>, device: Device) -> Self {
+        Self::full_on(shape, 1.0, device)
+    }
+
+    /// 指定した形状と値で埋められたテンソルを作成（デフォルトデバイス）
+    ///
+    /// # 引数
+    /// - `shape`: テンソルの形状
+    /// - `value`: 埋める値
+    ///
+    /// # 例
+    /// ```
+    /// use harp::autograd::Tensor;
+    ///
+    /// let tensor = Tensor::full(vec![2, 3], 5.0); // 2x3の5で埋められた行列
+    /// ```
+    pub fn full(shape: Vec<usize>, value: f32) -> Self {
+        Self::full_on(shape, value, Device::default())
+    }
+
+    /// 指定した形状と値で埋められたテンソルを作成（デバイス指定版）
+    ///
+    /// # 引数
+    /// - `shape`: テンソルの形状
+    /// - `value`: 埋める値
+    /// - `device`: 使用するデバイス
+    pub fn full_on(shape: Vec<usize>, value: f32, device: Device) -> Self {
+        use crate::graph::shape::Expr;
+
+        // スカラー定数を作成
+        let mut node = GraphNode::constant(value);
+
+        // 各次元に対してunsqueezeしてから、expandで目的の形状にする
+        if !shape.is_empty() {
+            // まず全次元をunsqueezeして [1, 1, ..., 1] の形状にする
+            let mut view = node.view.clone();
+            for _ in 0..shape.len() {
+                view = view.unsqueeze(0);
+            }
+            node = node.view(view);
+
+            // 次にexpandで目的の形状にブロードキャスト
+            let shape_exprs: Vec<Expr> = shape.iter().map(|&s| Expr::from(s as isize)).collect();
+            node = node.expand(shape_exprs);
+        }
+
+        Self::from_graph_node_with_device(node, false, device)
+    }
+
     /// 勾配を計算するかどうかを取得
     pub fn requires_grad(&self) -> bool {
         self.requires_grad
+    }
+
+    /// このTensorが使用するデバイスを取得
+    ///
+    /// # 例
+    /// ```
+    /// use harp::autograd::Tensor;
+    /// use harp::backend::Device;
+    ///
+    /// let tensor = Tensor::zeros(vec![2, 3]);
+    /// println!("Device: {}", tensor.device());
+    /// ```
+    pub fn device(&self) -> Device {
+        self.device
+    }
+
+    /// デバイスを変更した新しいTensorを作成
+    ///
+    /// 計算グラフは共有され、デバイス情報のみが変更されます。
+    /// 遅延評価のため、実際のデータ転送は行われません。
+    ///
+    /// # 引数
+    /// - `device`: 新しいデバイス
+    ///
+    /// # 例
+    /// ```
+    /// use harp::autograd::Tensor;
+    /// use harp::backend::Device;
+    ///
+    /// let tensor = Tensor::zeros(vec![2, 3]);
+    /// let tensor_gpu = tensor.to(Device::metal(0));
+    /// ```
+    pub fn to(&self, device: Device) -> Self {
+        if self.device == device {
+            // 同じデバイスなら自分自身をクローン
+            self.clone()
+        } else {
+            // デバイス情報のみ変更
+            Self {
+                data: self.data.clone(),
+                device,
+                requires_grad: self.requires_grad,
+                grad: self.grad.clone(),
+                grad_fn: self.grad_fn.clone(),
+            }
+        }
     }
 
     /// 勾配を取得
@@ -87,12 +241,21 @@ impl Tensor {
     }
 
     /// 前向き計算の結果から新しいTensorを作成（内部用）
+    ///
+    /// デバイス情報は入力テンソルから引き継がれます。
+    /// 複数の入力がある場合は、最初のテンソルのデバイスを使用します。
     pub(super) fn from_forward(
         data: GraphNode,
         inputs: Vec<Tensor>,
         grad_fn: impl GradFn + 'static,
     ) -> Self {
         let requires_grad = inputs.iter().any(|t| t.requires_grad);
+
+        // 入力テンソルからデバイスを取得（最初のテンソルのデバイスを使用）
+        let device = inputs
+            .first()
+            .map(|t| t.device)
+            .unwrap_or_else(Device::default);
 
         let grad_fn_wrapper = if requires_grad {
             Some(Rc::new(GradFnWrapper {
@@ -105,6 +268,7 @@ impl Tensor {
 
         Self {
             data,
+            device,
             requires_grad,
             grad: Rc::new(RefCell::new(None)),
             grad_fn: grad_fn_wrapper,
@@ -340,6 +504,131 @@ impl Tensor {
         let result = self.data.slice(ranges.clone());
         Tensor::from_forward(result, vec![self.clone()], SliceBackward { ranges })
     }
+
+    // === 実行（realize）メソッド ===
+
+    /// このTensorをこのTensorが持つデバイス上で実行（tinygradスタイル）
+    ///
+    /// 入力データを提供してこのTensorの計算を実行します。
+    /// このTensorが持つデバイス情報を使用します。
+    ///
+    /// # 引数
+    /// - `inputs`: 入力ノード名 -> データのマッピング
+    ///
+    /// # 戻り値
+    /// 計算結果のバイト列
+    ///
+    /// # 例
+    /// ```no_run
+    /// use harp::autograd::Tensor;
+    /// use harp::backend::Device;
+    /// use std::collections::HashMap;
+    ///
+    /// // Metal デバイスで実行するTensorを作成
+    /// let x = Tensor::ones(vec![3]).to(Device::metal(0));
+    /// let y = &x * 2.0 + 1.0;
+    ///
+    /// let mut inputs = HashMap::new();
+    /// inputs.insert("x".to_string(), vec![1.0f32, 2.0, 3.0]);
+    ///
+    /// // yが持つデバイス（metal:0）で実行される
+    /// let result = y.realize(inputs).unwrap();
+    /// // result = [3.0, 5.0, 7.0]
+    /// ```
+    pub fn realize(&self, inputs: HashMap<String, Vec<f32>>) -> Result<Vec<f32>, String> {
+        // このTensorが持つデバイスを使用
+        self.realize_on(inputs, self.device)
+    }
+
+    /// このTensorを指定されたデバイス上で実行
+    ///
+    /// # 引数
+    /// - `inputs`: 入力ノード名 -> データのマッピング
+    /// - `device`: 使用するデバイス
+    pub fn realize_on(
+        &self,
+        inputs: HashMap<String, Vec<f32>>,
+        device: Device,
+    ) -> Result<Vec<f32>, String> {
+        // 1. このTensorを出力とするGraphを構築
+        let mut graph = Graph::new();
+
+        // 入力ノードを登録（GraphNodeから逆算する必要がある）
+        // 簡略化のため、入力データから推論
+        for (name, data) in &inputs {
+            let shape = vec![data.len()];
+            let input_node = graph
+                .input(name)
+                .with_dtype(crate::graph::DType::F32)
+                .with_shape(shape)
+                .build();
+            graph.register_input(name.clone(), input_node);
+        }
+
+        // 出力ノードを登録
+        graph.output("result", self.data.clone());
+
+        // 2. Graphのrealize_with_deviceを使用
+        let mut results = graph.realize_with_device(inputs, Some(device))?;
+
+        // 3. "result"の出力を取得
+        results
+            .remove("result")
+            .ok_or_else(|| "Result not found in outputs".to_string())
+    }
+
+    /// このTensorを実行（古いAPI、互換性のため残す）
+    ///
+    /// # 非推奨
+    /// 代わりに`realize()`を使用してください。
+    #[deprecated(since = "0.1.0", note = "Use `realize()` instead")]
+    pub fn realize_with(&self, inputs: HashMap<String, Vec<f32>>) -> Result<Vec<f32>, String> {
+        self.realize(inputs)
+    }
+
+    /// このTensorを実行（古いAPI、互換性のため残す）
+    ///
+    /// # 非推奨
+    /// 代わりに`realize_on()`を使用してください。
+    #[deprecated(since = "0.1.0", note = "Use `realize_on()` instead")]
+    pub fn realize_with_device(
+        &self,
+        inputs: HashMap<String, Vec<f32>>,
+        device: Option<Device>,
+    ) -> Result<Vec<f32>, String> {
+        self.realize_on(inputs, device.unwrap_or(self.device))
+    }
+}
+
+/// Graphに対する実行メソッド
+impl Graph {
+    /// このGraphを実行（tinygradスタイル）
+    ///
+    /// # 引数
+    /// - `inputs`: 入力ノード名 -> データのマッピング
+    ///
+    /// # 戻り値
+    /// 出力ノード名 -> 計算結果のマッピング
+    pub fn realize(
+        &self,
+        inputs: HashMap<String, Vec<f32>>,
+    ) -> Result<HashMap<String, Vec<f32>>, String> {
+        self.realize_with_device(inputs, None)
+    }
+
+    /// このGraphを実行（デバイス指定版）
+    pub fn realize_with_device(
+        &self,
+        _inputs: HashMap<String, Vec<f32>>,
+        _device: Option<Device>,
+    ) -> Result<HashMap<String, Vec<f32>>, String> {
+        // TODO: 実装を完成させる
+        // 現在は簡易版として、エラーを返す
+        Err(
+            "Graph::realize() is not yet fully implemented. Use device pipeline directly for now."
+                .to_string(),
+        )
+    }
 }
 
 // === 演算子オーバーロード ===
@@ -567,8 +856,101 @@ impl std::fmt::Debug for Tensor {
         f.debug_struct("Tensor")
             .field("shape", &self.data.view.shape())
             .field("dtype", &self.data.dtype)
+            .field("device", &self.device)
             .field("requires_grad", &self.requires_grad)
             .field("has_grad", &self.grad.borrow().is_some())
             .finish()
+    }
+}
+
+// ndarray feature が有効な場合の変換機能
+#[cfg(feature = "ndarray")]
+impl Tensor {
+    /// ndarrayから形状情報を使ってゼロテンソルを作成
+    ///
+    /// 注意: この関数は形状のみをコピーし、データはコピーしません。
+    /// データを含むテンソルを作成する場合は、realize()を使用して
+    /// データを渡す必要があります。
+    ///
+    /// # 引数
+    /// - `array`: 参照するndarray
+    ///
+    /// # 例
+    /// ```ignore
+    /// use ndarray::Array2;
+    /// use harp::autograd::Tensor;
+    ///
+    /// let array = Array2::<f32>::zeros((2, 3));
+    /// let tensor = Tensor::from_ndarray_shape(&array.into_dyn());
+    /// // tensorは2x3のゼロテンソルとして作成される
+    /// ```
+    pub fn from_ndarray_shape(array: &ndarray::ArrayD<f32>) -> Self {
+        let shape: Vec<usize> = array.shape().to_vec();
+        Self::zeros(shape)
+    }
+
+    /// ndarrayのデータを使ってテンソルを作成
+    ///
+    /// 注意: 現在の実装では、小さな配列のみを推奨します。
+    /// 大きな配列の場合、計算グラフが肥大化する可能性があります。
+    ///
+    /// # 引数
+    /// - `array`: ndarrayの配列
+    ///
+    /// # 例
+    /// ```ignore
+    /// use ndarray::{Array2, arr2};
+    /// use harp::autograd::Tensor;
+    ///
+    /// let array = arr2(&[[1.0, 2.0], [3.0, 4.0]]);
+    /// let tensor = Tensor::from_ndarray(array.into_dyn());
+    /// ```
+    pub fn from_ndarray(array: ndarray::ArrayD<f32>) -> Self {
+        // 現在の実装では形状のみを使用
+        // TODO: 将来的にはデータを計算グラフに埋め込む実装を検討
+        Self::from_ndarray_shape(&array)
+    }
+}
+
+/// ndarrayからTensorへの変換
+///
+/// 注意: 現在の実装では、形状のみをコピーします。
+/// データは含まれません（ゼロ初期化されます）。
+#[cfg(feature = "ndarray")]
+impl From<ndarray::ArrayD<f32>> for Tensor {
+    fn from(array: ndarray::ArrayD<f32>) -> Self {
+        Self::from_ndarray(array)
+    }
+}
+
+/// ndarray::Array1からの変換
+#[cfg(feature = "ndarray")]
+impl From<ndarray::Array1<f32>> for Tensor {
+    fn from(array: ndarray::Array1<f32>) -> Self {
+        Self::from_ndarray(array.into_dyn())
+    }
+}
+
+/// ndarray::Array2からの変換
+#[cfg(feature = "ndarray")]
+impl From<ndarray::Array2<f32>> for Tensor {
+    fn from(array: ndarray::Array2<f32>) -> Self {
+        Self::from_ndarray(array.into_dyn())
+    }
+}
+
+/// ndarray::Array3からの変換
+#[cfg(feature = "ndarray")]
+impl From<ndarray::Array3<f32>> for Tensor {
+    fn from(array: ndarray::Array3<f32>) -> Self {
+        Self::from_ndarray(array.into_dyn())
+    }
+}
+
+/// ndarray::Array4からの変換
+#[cfg(feature = "ndarray")]
+impl From<ndarray::Array4<f32>> for Tensor {
+    fn from(array: ndarray::Array4<f32>) -> Self {
+        Self::from_ndarray(array.into_dyn())
     }
 }
