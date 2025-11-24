@@ -193,7 +193,8 @@ impl Tensor {
     /// use harp::backend::Device;
     ///
     /// let tensor = Tensor::zeros(vec![2, 3]);
-    /// let tensor_gpu = tensor.to(Device::metal(0));
+    /// // 利用可能な最適なデバイスを自動選択
+    /// let tensor_gpu = tensor.to(Device::auto_select());
     /// ```
     pub fn to(&self, device: Device) -> Self {
         if self.device == device {
