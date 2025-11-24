@@ -248,5 +248,8 @@ fn test_tensor_conv1d_backward_works() {
 
     // Verify gradients are computed
     assert!(x.grad().is_some(), "Input gradient should be computed");
-    assert!(kernel.grad().is_some(), "Kernel gradient should be computed");
+    assert!(
+        kernel.grad().is_some(),
+        "Kernel gradient should be computed"
+    );
 }
