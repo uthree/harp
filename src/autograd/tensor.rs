@@ -348,22 +348,6 @@ impl Tensor {
         Tensor::from_forward(result, vec![self.clone()], Exp2Backward)
     }
 
-    /// 自然対数: ln(x)
-    ///
-    /// log2を使って実装: log(x) = log2(x) / log2(e)
-    pub fn log(&self) -> Tensor {
-        const INV_LOG2_E: f32 = 1.0 / std::f32::consts::LOG2_E;
-        &self.log2() * INV_LOG2_E
-    }
-
-    /// 指数関数: e^x
-    ///
-    /// exp2を使って実装: exp(x) = 2^(x * log2(e))
-    pub fn exp(&self) -> Tensor {
-        const LOG2_E: f32 = std::f32::consts::LOG2_E;
-        (self * LOG2_E).exp2()
-    }
-
     /// 正弦: sin(x)
     pub fn sin(&self) -> Tensor {
         let dtype = self.data.dtype.clone();
@@ -378,12 +362,6 @@ impl Tensor {
             view,
         );
         Tensor::from_forward(result, vec![self.clone()], SinBackward)
-    }
-
-    /// 余弦: cos(x) = sin(x + π/2)
-    pub fn cos(&self) -> Tensor {
-        const HALF_PI: f32 = std::f32::consts::FRAC_PI_2;
-        (self + HALF_PI).sin()
     }
 
     /// 平方根: sqrt(x)
@@ -402,96 +380,7 @@ impl Tensor {
         Tensor::from_forward(result, vec![self.clone()], SqrtBackward)
     }
 
-    /// 平方根の逆数: rsqrt(x) = 1/sqrt(x)
-    pub fn rsqrt(&self) -> Tensor {
-        self.sqrt().recip()
-    }
-
-    // === 高レベル演算 ===
-
-    /// 二乗: x^2
-    pub fn square(&self) -> Tensor {
-        self * self
-    }
-
-    /// 累乗: x^n (正の整数のみ)
-    pub fn powi(&self, n: u32) -> Tensor {
-        assert!(n > 0, "powi: n must be positive");
-
-        if n == 1 {
-            return self.clone();
-        }
-
-        let mut result = self.clone();
-        for _ in 1..n {
-            result = &result * self;
-        }
-        result
-    }
-
-    /// 絶対値の二乗: x^2 (常に非負)
-    pub fn abs_square(&self) -> Tensor {
-        self.square()
-    }
-
-    /// 2つのテンソルの要素ごとの最小値: min(a, b) = -max(-a, -b)
-    pub fn min(&self, other: &Tensor) -> Tensor {
-        let neg_self = -self;
-        let neg_other = -other;
-        -neg_self.max(&neg_other)
-    }
-
-    /// クランプ: min_val <= x <= max_val に制限
-    pub fn clamp(&self, min_val: &Tensor, max_val: &Tensor) -> Tensor {
-        self.max(min_val).min(max_val)
-    }
-
-    /// 平均を計算: mean(x, axis)
-    ///
-    /// 指定された軸に沿った平均を計算します。
-    pub fn mean(&self, axis: usize) -> Tensor {
-        use crate::graph::shape::Expr;
-
-        let shape = self.data.view.shape();
-        if axis >= shape.len() {
-            panic!("mean: axis {} is out of bounds for shape {:?}", axis, shape);
-        }
-
-        // 軸のサイズを取得
-        let axis_size = &shape[axis];
-
-        // 軸サイズが定数の場合のみ処理
-        let size_value = match axis_size {
-            Expr::Const(n) => *n as f32,
-            _ => panic!(
-                "mean: axis size must be constant, got symbolic expression: {:?}",
-                axis_size
-            ),
-        };
-
-        // 合計を計算し、サイズで割る
-        &self.sum(axis) * (1.0f32 / size_value)
-    }
-
-    /// 分散を計算: var(x, axis)
-    ///
-    /// 不偏分散を計算します: E[(x - mean(x))^2]
-    pub fn variance(&self, axis: usize) -> Tensor {
-        // 平均を計算
-        let x_mean = self.mean(axis);
-
-        // meanの次元を復元してbroadcast可能にする
-        let x_mean_view = x_mean
-            .data
-            .view
-            .clone()
-            .unsqueeze(axis)
-            .expand(self.data.view.shape().to_vec());
-        let x_mean_expanded = Tensor::from_graph_node(x_mean.data.view(x_mean_view), false);
-
-        // (x - mean)^2 の平均を計算
-        (self - &x_mean_expanded).square().mean(axis)
-    }
+    // === パディング・スライス演算 ===
 
     /// パディング
     pub fn pad(&self, padding: Vec<(usize, usize)>, value: f32) -> Tensor {

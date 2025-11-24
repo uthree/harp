@@ -5,6 +5,7 @@
 
 mod backward;
 mod grad_fn;
+mod hlops; // 高レベル演算（他の演算の組み合わせで実現）
 mod tensor;
 
 pub use grad_fn::GradFn;
