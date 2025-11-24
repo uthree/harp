@@ -27,28 +27,28 @@ fn main() {
     // log(x) = log2(x) / log2(e)
     println!("  log(x):");
     println!("    Implemented as: log2(x) * (1 / log2(e))");
-    let log_x = x.log();
+    let _log_x = x.log();
     println!("    Graph created (will be optimized later)");
     println!();
 
     // exp(x) = 2^(x * log2(e))
     println!("  exp(x):");
     println!("    Implemented as: exp2(x * log2(e))");
-    let exp_x = x.exp();
+    let _exp_x = x.exp();
     println!("    Graph created (will be optimized later)");
     println!();
 
     // cos(x) = sin(x + π/2)
     println!("  cos(x):");
     println!("    Implemented as: sin(x + π/2)");
-    let cos_x = x.cos();
+    let _cos_x = x.cos();
     println!("    Graph created (will be optimized later)");
     println!();
 
     // rsqrt(x) = recip(sqrt(x))
     println!("  rsqrt(x):");
     println!("    Implemented as: recip(sqrt(x))");
-    let rsqrt_x = x.rsqrt();
+    let _rsqrt_x = x.rsqrt();
     println!("    Graph created (will be optimized later)");
     println!();
 
@@ -58,14 +58,14 @@ fn main() {
     // square(x) = x * x
     println!("  square(x):");
     println!("    Implemented as: x * x");
-    let squared = x.square();
+    let _squared = x.square();
     println!("    Graph created");
     println!();
 
     // powi(x, 3) = x * x * x
     println!("  powi(x, 3):");
     println!("    Implemented as: x * x * x");
-    let cubed = x.powi(3);
+    let _cubed = x.powi(3);
     println!("    Graph created");
     println!();
 
@@ -80,7 +80,7 @@ fn main() {
             .build(),
         true,
     );
-    let min_xy = x.min(&y);
+    let _min_xy = x.min(&y);
     println!("    Graph created");
     println!();
 
@@ -89,7 +89,7 @@ fn main() {
     println!("    Implemented as: max(x, min_val).min(max_val)");
     let min_val = Tensor::zeros(vec![5]);
     let max_val = Tensor::ones(vec![5]);
-    let clamped = x.clamp(&min_val, &max_val);
+    let _clamped = x.clamp(&min_val, &max_val);
     println!("    Graph created");
     println!();
 
@@ -109,14 +109,14 @@ fn main() {
     // mean(x, axis) = sum(x, axis) / size(axis)
     println!("  mean(x, axis):");
     println!("    Implemented as: sum(x, axis) / size(axis)");
-    let mean_val = matrix.mean(1);
+    let _mean_val = matrix.mean(1);
     println!("    Graph created");
     println!();
 
     // variance(x, axis) = mean((x - mean(x))^2, axis)
     println!("  variance(x, axis):");
     println!("    Implemented as: mean((x - mean(x))^2, axis)");
-    let var_val = matrix.variance(1);
+    let _var_val = matrix.variance(1);
     println!("    Graph created (includes multiple operations)");
     println!();
 

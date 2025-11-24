@@ -38,7 +38,7 @@ fn main() {
 
     // 3. .to()でデバイス変更
     println!("3. Moving tensors between devices:");
-    let tensor = Tensor::full(vec![4, 5], 3.14);
+    let tensor = Tensor::full(vec![4, 5], 2.5);
     println!("  Original device: {}", tensor.device());
 
     let tensor_cpu = tensor.to(Device::cpu());

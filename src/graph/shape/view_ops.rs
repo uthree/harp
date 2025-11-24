@@ -1,8 +1,5 @@
 use super::{Expr, View};
 
-#[cfg(test)]
-use super::view::View as _;
-
 impl View {
     /// 1D unfold操作
     ///

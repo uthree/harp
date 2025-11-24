@@ -2,7 +2,6 @@
 ///
 /// 複雑な計算グラフに対して、最適化あり/なしでコンパイル・実行し、
 /// 結果が一致することを確認します。
-
 #[cfg(test)]
 mod tests {
     use harp::backend::c::{CCompiler, CPipeline, CRenderer};

@@ -712,8 +712,6 @@ fn test_from_trait() {
 
 #[test]
 fn test_tensor_device() {
-    use crate::backend::Device;
-
     // デフォルトデバイスで作成
     let tensor = Tensor::zeros(vec![2, 3]);
     let device = tensor.device();

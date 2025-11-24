@@ -542,19 +542,18 @@ mod tests {
         assert_eq!(suggestions.len(), 1);
 
         // 融合後、jはiに置換されるはず
-        if let AstNode::Block { statements, .. } = &suggestions[0] {
-            if let AstNode::Range { var, body, .. } = &statements[0] {
-                assert_eq!(var, "i");
+        if let AstNode::Block { statements, .. } = &suggestions[0]
+            && let AstNode::Range { var, body, .. } = &statements[0]
+        {
+            assert_eq!(var, "i");
 
-                // 2番目のstoreでvar("j")がvar("i")に置換されているか確認
-                if let AstNode::Block {
-                    statements: inner, ..
-                } = body.as_ref()
-                {
-                    if let AstNode::Store { offset, .. } = &inner[1] {
-                        assert_eq!(offset.as_ref(), &AstNode::Var("i".to_string()));
-                    }
-                }
+            // 2番目のstoreでvar("j")がvar("i")に置換されているか確認
+            if let AstNode::Block {
+                statements: inner, ..
+            } = body.as_ref()
+                && let AstNode::Store { offset, .. } = &inner[1]
+            {
+                assert_eq!(offset.as_ref(), &AstNode::Var("i".to_string()));
             }
         }
     }
@@ -624,16 +623,14 @@ mod tests {
         assert_eq!(suggestions.len(), 1);
 
         // 外側のループ内で内側のループが融合されているはず
-        if let AstNode::Block { statements, .. } = &suggestions[0] {
-            if let AstNode::Range { body, .. } = &statements[0] {
-                if let AstNode::Block {
-                    statements: inner, ..
-                } = body.as_ref()
-                {
-                    // 内側は1つのRangeに融合されているはず
-                    assert_eq!(inner.len(), 1);
-                }
-            }
+        if let AstNode::Block { statements, .. } = &suggestions[0]
+            && let AstNode::Range { body, .. } = &statements[0]
+            && let AstNode::Block {
+                statements: inner, ..
+            } = body.as_ref()
+        {
+            // 内側は1つのRangeに融合されているはず
+            assert_eq!(inner.len(), 1);
         }
     }
 

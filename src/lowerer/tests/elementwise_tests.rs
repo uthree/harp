@@ -203,6 +203,7 @@ fn test_lower_with_flipped_view() {
 }
 
 #[test]
+#[allow(unexpected_cfgs)]
 #[cfg(target_os = "macos")]
 #[serial_test::serial]
 fn test_end_to_end_execution() {
@@ -228,53 +229,55 @@ kernel void test_add(
 
     // Metal compilerで実行
     // TODO: 新しいlibloading方式に対応したテストに書き換える
-    use crate::backend::Compiler;
-    use crate::backend::metal::{MetalCode, MetalCompiler};
     #[cfg(feature = "old_metal_api")]
-    if let Some(mut compiler) = MetalCompiler::with_default_device() {
-        let code = MetalCode::new(source.to_string());
-        let mut kernel = compiler.compile(&code);
+    {
+        use crate::backend::Compiler;
+        use crate::backend::metal::{MetalCode, MetalCompiler};
+        if let Some(mut compiler) = MetalCompiler::with_default_device() {
+            let code = MetalCode::new(source.to_string());
+            let mut kernel = compiler.compile(&code);
 
-        // バッファを作成
-        let mut input0_buffer = compiler.create_buffer(vec![10], 4);
-        let mut input1_buffer = compiler.create_buffer(vec![10], 4);
-        let output_buffer = compiler.create_buffer(vec![10], 4);
+            // バッファを作成
+            let mut input0_buffer = compiler.create_buffer(vec![10], 4);
+            let mut input1_buffer = compiler.create_buffer(vec![10], 4);
+            let output_buffer = compiler.create_buffer(vec![10], 4);
 
-        // 入力データを設定
-        let input0_data: Vec<f32> = (0..10).map(|i| i as f32).collect();
-        let input1_data: Vec<f32> = (0..10).map(|i| (i * 2) as f32).collect();
+            // 入力データを設定
+            let input0_data: Vec<f32> = (0..10).map(|i| i as f32).collect();
+            let input1_data: Vec<f32> = (0..10).map(|i| (i * 2) as f32).collect();
 
-        input0_buffer.write_data(&input0_data);
-        input1_buffer.write_data(&input1_data);
+            input0_buffer.write_data(&input0_data);
+            input1_buffer.write_data(&input1_data);
 
-        // グリッドサイズを設定
-        kernel.set_grid_size(10, 1, 1);
+            // グリッドサイズを設定
+            kernel.set_grid_size(10, 1, 1);
 
-        // カーネルを実行
-        kernel
-            .dispatch(&[&input0_buffer, &input1_buffer, &output_buffer])
-            .unwrap();
+            // カーネルを実行
+            kernel
+                .dispatch(&[&input0_buffer, &input1_buffer, &output_buffer])
+                .unwrap();
 
-        // 結果を読み出し
-        let mut output_data = vec![0.0f32; 10];
-        output_buffer.read_data(&mut output_data);
+            // 結果を読み出し
+            let mut output_data = vec![0.0f32; 10];
+            output_buffer.read_data(&mut output_data);
 
-        // 確認
-        let expected: Vec<f32> = input0_data
-            .iter()
-            .zip(input1_data.iter())
-            .map(|(&x, &y)| x + y)
-            .collect();
+            // 確認
+            let expected: Vec<f32> = input0_data
+                .iter()
+                .zip(input1_data.iter())
+                .map(|(&x, &y)| x + y)
+                .collect();
 
-        eprintln!("Input 0: {:?}", input0_data);
-        eprintln!("Input 1: {:?}", input1_data);
-        eprintln!("Output:  {:?}", output_data);
-        eprintln!("Expected: {:?}", expected);
+            eprintln!("Input 0: {:?}", input0_data);
+            eprintln!("Input 1: {:?}", input1_data);
+            eprintln!("Output:  {:?}", output_data);
+            eprintln!("Expected: {:?}", expected);
 
-        assert_eq!(output_data, expected);
-        eprintln!("\n✅ End-to-end execution successful!\n");
-    } else {
-        eprintln!("⚠️ Metal not available, skipping test");
+            assert_eq!(output_data, expected);
+            eprintln!("\n✅ End-to-end execution successful!\n");
+        } else {
+            eprintln!("⚠️ Metal not available, skipping test");
+        }
     }
 }
 

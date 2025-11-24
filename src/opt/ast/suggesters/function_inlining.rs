@@ -626,7 +626,7 @@ mod tests {
         let suggestions = suggester.suggest(&program);
 
         // 少なくとも1つの候補（main関数でadd_oneがインライン展開される）が生成されるはず
-        assert!(suggestions.len() >= 1);
+        assert!(!suggestions.is_empty());
 
         // 最初の候補を検証
         if let AstNode::Program { functions, .. } = &suggestions[0] {
@@ -701,7 +701,7 @@ mod tests {
         let suggestions = suggester.suggest(&program);
 
         // identity関数は展開可能なので、候補が生成されるはず
-        assert!(suggestions.len() >= 1);
+        assert!(!suggestions.is_empty());
     }
 
     #[test]
@@ -830,18 +830,18 @@ mod tests {
 
             assert!(main_func.is_some());
 
-            if let Some(AstNode::Function { body, .. }) = main_func {
-                if let AstNode::Block { statements, .. } = body.as_ref() {
-                    // Call文がRangeに置き換わっているはず
-                    let has_range = statements
-                        .iter()
-                        .any(|stmt| matches!(stmt, AstNode::Range { .. }));
-                    assert!(
-                        has_range,
-                        "Expected Range statement after inlining, got: {:?}",
-                        statements
-                    );
-                }
+            if let Some(AstNode::Function { body, .. }) = main_func
+                && let AstNode::Block { statements, .. } = body.as_ref()
+            {
+                // Call文がRangeに置き換わっているはず
+                let has_range = statements
+                    .iter()
+                    .any(|stmt| matches!(stmt, AstNode::Range { .. }));
+                assert!(
+                    has_range,
+                    "Expected Range statement after inlining, got: {:?}",
+                    statements
+                );
             }
         }
     }
@@ -922,7 +922,7 @@ mod tests {
         let suggestions = suggester.suggest(&program);
 
         // void型関数のインライン展開候補が生成されるはず
-        assert!(suggestions.len() >= 1);
+        assert!(!suggestions.is_empty());
 
         // 最初の候補を検証
         if let AstNode::Program { functions, .. } = &suggestions[0] {
