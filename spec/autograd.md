@@ -195,6 +195,50 @@ Unfoldの逆操作。畳み込みのbackward計算で使用されます。
 - 高階微分
 - 畳み込み演算でのdilation, groupsサポート
 
+## コード構成とリファクタリング履歴
+
+### 2025-11-25: grad_fn.rsの機能別分割
+大きなファイルを責任ごとに分割し、可読性と保守性を大幅に向上：
+
+#### ファイル分割
+**grad_fn.rs (930行) → grad_fn/ディレクトリ（モジュール化）**
+
+新しいモジュール構成：
+- `grad_fn/mod.rs`: GradFnトレイト定義とモジュール再エクスポート
+- `grad_fn/basic.rs`: 基本演算の勾配関数
+  - AddBackward, MulBackward, NegBackward, RecipBackward
+  - ReduceSumBackward, MaxBackward
+  - AddConstBackward, MulConstBackward
+- `grad_fn/math.rs`: 数学関数の勾配関数
+  - Log2Backward, Exp2Backward
+  - SinBackward, SqrtBackward
+- `grad_fn/memory.rs`: メモリ操作の勾配関数
+  - PadBackward, SliceBackward
+- `grad_fn/conv.rs`: 畳み込み演算の勾配関数（最大のモジュール、約25KB）
+  - Conv1dBackward, Conv2dBackward, Conv3dBackward
+
+#### Expr抽出パターンの統一
+コードベース全体（特にconv.rs内の35箇所以上）で繰り返されていた以下のパターンを、`Expr`型のヘルパーメソッドを使用するように統一：
+
+```rust
+// Before: 35箇所で重複していたパターン
+let value = match &shape[i] {
+    crate::graph::shape::Expr::Const(v) => *v as usize,
+    _ => panic!("requires constant"),
+};
+
+// After: ヘルパーメソッドで統一
+let value = shape[i].expect_usize("requires constant");
+```
+
+**効果**:
+- 各モジュールの責任が明確化
+- コードの可読性が大幅に向上
+- 保守性が向上（関連する勾配関数が同じファイルにまとまる）
+- ボイラープレートコードが削減
+
+全725テスト（676統合テスト + 49 doctest）が合格し、既存機能に影響なく完了。
+
 ## 将来的な改善計画
 
 ### Conv/Fold/Unfoldの実装統合
