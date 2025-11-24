@@ -226,3 +226,102 @@ fn test_conv3d_backward_simple() {
     eprintln!("Conv3d Input gradient: {:?}", x.grad());
     eprintln!("Conv3d Kernel gradient: {:?}", kernel.grad());
 }
+
+#[test]
+fn test_conv1d_backward_groups() {
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    // Group Conv1d backward (groups=2)
+    // Input: (C_in=2, L=5), Kernel: (C_out=2, C_in/groups=1, k=3)
+    // groups=2なので、depthwise convolution
+    let x = Tensor::from_graph_node(
+        crate::graph::GraphNode::constant(1.0f32)
+            .view(crate::graph::shape::View::contiguous(vec![
+                crate::graph::shape::Expr::from(1),
+                crate::graph::shape::Expr::from(1),
+            ]))
+            .expand(vec![
+                crate::graph::shape::Expr::from(2),
+                crate::graph::shape::Expr::from(5),
+            ]),
+        true, // requires_grad
+    );
+
+    // Kernelはcontiguousである必要があるため、expandではなく直接作成
+    let mut kernel_graph = crate::graph::Graph::new();
+    let kernel_node = kernel_graph
+        .input("kernel")
+        .with_dtype(crate::graph::DType::F32)
+        .with_shape(vec![2, 1, 3])
+        .build();
+
+    let kernel = Tensor::from_graph_node(kernel_node, true);
+
+    let output = x.conv1d(&kernel, 1, 1, 2); // groups=2
+
+    // sum to reduce to scalar
+    let scalar = output.sum(0).sum(0);
+
+    // backwardを実行
+    scalar.backward();
+
+    // 勾配が計算されているか確認
+    assert!(x.grad().is_some(), "Input gradient should be computed");
+    assert!(
+        kernel.grad().is_some(),
+        "Kernel gradient should be computed"
+    );
+
+    eprintln!("Conv1d (groups=2) Input gradient: {:?}", x.grad());
+    eprintln!("Conv1d (groups=2) Kernel gradient: {:?}", kernel.grad());
+}
+
+#[test]
+fn test_conv2d_backward_groups() {
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    // Group Conv2d backward (groups=2)
+    // Input: (C_in=2, H=4, W=4), Kernel: (C_out=2, C_in/groups=1, kh=2, kw=2)
+    let x = Tensor::from_graph_node(
+        crate::graph::GraphNode::constant(1.0f32)
+            .view(crate::graph::shape::View::contiguous(vec![
+                crate::graph::shape::Expr::from(1),
+                crate::graph::shape::Expr::from(1),
+                crate::graph::shape::Expr::from(1),
+            ]))
+            .expand(vec![
+                crate::graph::shape::Expr::from(2),
+                crate::graph::shape::Expr::from(4),
+                crate::graph::shape::Expr::from(4),
+            ]),
+        true, // requires_grad
+    );
+
+    // Kernelはcontiguousである必要があるため、expandではなく直接作成
+    let mut kernel_graph = crate::graph::Graph::new();
+    let kernel_node = kernel_graph
+        .input("kernel")
+        .with_dtype(crate::graph::DType::F32)
+        .with_shape(vec![2, 1, 2, 2])
+        .build();
+
+    let kernel = Tensor::from_graph_node(kernel_node, true);
+
+    let output = x.conv2d(&kernel, (1, 1), (1, 1), 2); // groups=2
+
+    // sum to reduce to scalar
+    let scalar = output.sum(0).sum(0).sum(0);
+
+    // backwardを実行
+    scalar.backward();
+
+    // 勾配が計算されているか確認
+    assert!(x.grad().is_some(), "Input gradient should be computed");
+    assert!(
+        kernel.grad().is_some(),
+        "Kernel gradient should be computed"
+    );
+
+    eprintln!("Conv2d (groups=2) Input gradient: {:?}", x.grad());
+    eprintln!("Conv2d (groups=2) Kernel gradient: {:?}", kernel.grad());
+}

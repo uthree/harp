@@ -22,7 +22,7 @@ impl Lowerer {
     /// - `kernel_size`: カーネルサイズ
     /// - `stride`: ストライド
     /// - `dilation`: 膨張率
-    /// - `_groups`: グループ数（現在は未使用）
+    /// - `groups`: グループ数
     #[allow(clippy::too_many_arguments)]
     pub(super) fn lower_fold_kernel(
         &mut self,
@@ -32,7 +32,7 @@ impl Lowerer {
         kernel_size: &[usize],
         stride: &[usize],
         dilation: &[usize],
-        _groups: usize,
+        groups: usize,
     ) -> Result<AstNode, String> {
         let input_node = &node.src[0];
         let output_view = &node.view;
@@ -61,6 +61,7 @@ impl Lowerer {
             stride,
             dilation,
             ndim,
+            groups,
         )?;
         body_statements.extend(accumulate_statements);
 
@@ -108,6 +109,7 @@ impl Lowerer {
         stride: &[usize],
         dilation: &[usize],
         ndim: usize,
+        groups: usize,
     ) -> Result<Vec<AstNode>, String> {
         let input_view = &input_node.view;
         let input_shape = input_view.shape();
@@ -154,6 +156,7 @@ impl Lowerer {
             stride,
             dilation,
             ndim,
+            groups,
         );
 
         // 出力のオフセットを計算
@@ -189,128 +192,206 @@ impl Lowerer {
     }
 
     /// Foldの出力インデックスを計算
+    #[allow(clippy::too_many_arguments)]
     fn compute_fold_output_indices(
         &self,
         axes: &[usize],
         output_size: &[usize],
-        kernel_size: &[usize],
+        _kernel_size: &[usize],
         stride: &[usize],
         dilation: &[usize],
         ndim: usize,
+        groups: usize,
     ) -> Vec<AstNode> {
-        // 簡略化のため、現在は1次元のfoldのみサポート
-        // TODO: 2D/3D foldのサポート
-
         match ndim {
             1 => {
-                // Fold1d: 入力 [C_out, C_in * kernel_size, L_out]
-                // 軸0 (c_out): そのまま出力の軸0になる可能性があるが、
-                //              実際にはC_inに変換する必要がある
-                // 軸1 (k_idx): C_in と k に分解
-                // 軸2 (l_out_idx): l_in に変換
+                if groups == 1 {
+                    // groups=1: 入力 (C, k, L')
+                    // 軸0: C
+                    // 軸1: k
+                    // 軸2: L'
 
-                let _c_out_idx = var(format!("iidx{}", axes[0]));
-                let k_idx = var(format!("iidx{}", axes[1]));
-                let l_out_idx = var(format!("iidx{}", axes[2]));
+                    let c_in = var(format!("iidx{}", axes[0]));
+                    let k = var(format!("iidx{}", axes[1]));
+                    let l_out_idx = var(format!("iidx{}", axes[2]));
 
-                // k_idx = c_in * kernel_size + k
-                // c_in = k_idx / kernel_size
-                let kernel_size_expr = const_int(kernel_size[0] as isize);
-                let c_in = idiv(k_idx.clone(), kernel_size_expr.clone());
+                    // l_in = l_out_idx * stride + k * dilation
+                    let l_in = l_out_idx * const_int(stride[0] as isize)
+                        + k * const_int(dilation[0] as isize);
 
-                // k = k_idx % kernel_size
-                let k = rem(k_idx, kernel_size_expr);
+                    vec![c_in, l_in]
+                } else {
+                    // groups>1: 入力 (groups, C/groups, k, L')
+                    // 軸0: groups
+                    // 軸1: C/groups
+                    // 軸2: k
+                    // 軸3: L'
 
-                // l_in = l_out_idx * stride + k * dilation
-                let l_in =
-                    l_out_idx * const_int(stride[0] as isize) + k * const_int(dilation[0] as isize);
+                    let g_idx = var(format!("iidx{}", axes[0]));
+                    let c_per_group_idx = var(format!("iidx{}", axes[1]));
+                    let k = var(format!("iidx{}", axes[2]));
+                    let l_out_idx = var(format!("iidx{}", axes[3]));
 
-                vec![c_in, l_in]
+                    // c_in = g_idx * (C/groups) + c_per_group_idx
+                    let c_per_group = (output_size[0] / groups) as isize;
+                    let c_in = g_idx * const_int(c_per_group) + c_per_group_idx;
+
+                    // l_in = l_out_idx * stride + k * dilation
+                    let l_in = l_out_idx * const_int(stride[0] as isize)
+                        + k * const_int(dilation[0] as isize);
+
+                    vec![c_in, l_in]
+                }
             }
             2 => {
-                // Fold2d: 入力 [C_out, C_in * kernel_h * kernel_w, H_out * W_out]
-                let _c_out_idx = var(format!("iidx{}", axes[0]));
-                let k_idx = var(format!("iidx{}", axes[1]));
-                let spatial_idx = var(format!("iidx{}", axes[2]));
+                if groups == 1 {
+                    // groups=1: 入力 (C, kH, kW, H', W')
+                    // 軸0: C
+                    // 軸1: kH
+                    // 軸2: kW
+                    // 軸3: H'
+                    // 軸4: W'
 
-                let kernel_h = kernel_size[0];
-                let kernel_w = kernel_size[1];
-                let _output_h = output_size[0];
-                let _output_w = output_size[1];
-                let stride_h = stride[0];
-                let stride_w = stride[1];
-                let dilation_h = dilation[0];
-                let dilation_w = dilation[1];
+                    let c_in = var(format!("iidx{}", axes[0]));
+                    let kh = var(format!("iidx{}", axes[1]));
+                    let kw = var(format!("iidx{}", axes[2]));
+                    let h_out = var(format!("iidx{}", axes[3]));
+                    let w_out = var(format!("iidx{}", axes[4]));
 
-                // k_idx = c_in * kernel_h * kernel_w + kh * kernel_w + kw
-                let kernel_hw = (kernel_h * kernel_w) as isize;
-                let c_in = idiv(k_idx.clone(), const_int(kernel_hw));
+                    let stride_h = stride[0];
+                    let stride_w = stride[1];
+                    let dilation_h = dilation[0];
+                    let dilation_w = dilation[1];
 
-                let k_hw = rem(k_idx, const_int(kernel_hw));
-                let kh = idiv(k_hw.clone(), const_int(kernel_w as isize));
-                let kw = rem(k_hw, const_int(kernel_w as isize));
+                    // h_in = h_out * stride_h + kh * dilation_h
+                    let h_in =
+                        h_out * const_int(stride_h as isize) + kh * const_int(dilation_h as isize);
 
-                // spatial_idx = h_out * W_out + w_out
-                let h_out = idiv(spatial_idx.clone(), const_int(output_size[1] as isize));
-                let w_out = rem(spatial_idx, const_int(output_size[1] as isize));
+                    // w_in = w_out * stride_w + kw * dilation_w
+                    let w_in =
+                        w_out * const_int(stride_w as isize) + kw * const_int(dilation_w as isize);
 
-                // h_in = h_out * stride_h + kh * dilation_h
-                let h_in =
-                    h_out * const_int(stride_h as isize) + kh * const_int(dilation_h as isize);
+                    vec![c_in, h_in, w_in]
+                } else {
+                    // groups>1: 入力 (groups, C/groups, kH, kW, H', W')
+                    // 軸0: groups
+                    // 軸1: C/groups
+                    // 軸2: kH
+                    // 軸3: kW
+                    // 軸4: H'
+                    // 軸5: W'
 
-                // w_in = w_out * stride_w + kw * dilation_w
-                let w_in =
-                    w_out * const_int(stride_w as isize) + kw * const_int(dilation_w as isize);
+                    let g_idx = var(format!("iidx{}", axes[0]));
+                    let c_per_group_idx = var(format!("iidx{}", axes[1]));
+                    let kh = var(format!("iidx{}", axes[2]));
+                    let kw = var(format!("iidx{}", axes[3]));
+                    let h_out = var(format!("iidx{}", axes[4]));
+                    let w_out = var(format!("iidx{}", axes[5]));
 
-                vec![c_in, h_in, w_in]
+                    // c_in = g_idx * (C/groups) + c_per_group_idx
+                    let c_per_group = (output_size[0] / groups) as isize;
+                    let c_in = g_idx * const_int(c_per_group) + c_per_group_idx;
+
+                    let stride_h = stride[0];
+                    let stride_w = stride[1];
+                    let dilation_h = dilation[0];
+                    let dilation_w = dilation[1];
+
+                    // h_in = h_out * stride_h + kh * dilation_h
+                    let h_in =
+                        h_out * const_int(stride_h as isize) + kh * const_int(dilation_h as isize);
+
+                    // w_in = w_out * stride_w + kw * dilation_w
+                    let w_in =
+                        w_out * const_int(stride_w as isize) + kw * const_int(dilation_w as isize);
+
+                    vec![c_in, h_in, w_in]
+                }
             }
             3 => {
-                // Fold3d: 入力 [C_out, C_in * kernel_d * kernel_h * kernel_w, D_out * H_out * W_out]
-                let _c_out_idx = var(format!("iidx{}", axes[0]));
-                let k_idx = var(format!("iidx{}", axes[1]));
-                let spatial_idx = var(format!("iidx{}", axes[2]));
+                if groups == 1 {
+                    // groups=1: 入力 (C, kD, kH, kW, D', H', W')
+                    // 軸0: C
+                    // 軸1: kD
+                    // 軸2: kH
+                    // 軸3: kW
+                    // 軸4: D'
+                    // 軸5: H'
+                    // 軸6: W'
 
-                let kernel_d = kernel_size[0];
-                let kernel_h = kernel_size[1];
-                let kernel_w = kernel_size[2];
-                let stride_d = stride[0];
-                let stride_h = stride[1];
-                let stride_w = stride[2];
-                let dilation_d = dilation[0];
-                let dilation_h = dilation[1];
-                let dilation_w = dilation[2];
+                    let c_in = var(format!("iidx{}", axes[0]));
+                    let kd = var(format!("iidx{}", axes[1]));
+                    let kh = var(format!("iidx{}", axes[2]));
+                    let kw = var(format!("iidx{}", axes[3]));
+                    let d_out = var(format!("iidx{}", axes[4]));
+                    let h_out = var(format!("iidx{}", axes[5]));
+                    let w_out = var(format!("iidx{}", axes[6]));
 
-                // k_idx = c_in * kernel_d * kernel_h * kernel_w + kd * kernel_h * kernel_w + kh * kernel_w + kw
-                let kernel_dhw = (kernel_d * kernel_h * kernel_w) as isize;
-                let c_in = idiv(k_idx.clone(), const_int(kernel_dhw));
+                    let stride_d = stride[0];
+                    let stride_h = stride[1];
+                    let stride_w = stride[2];
+                    let dilation_d = dilation[0];
+                    let dilation_h = dilation[1];
+                    let dilation_w = dilation[2];
 
-                let k_dhw = rem(k_idx, const_int(kernel_dhw));
-                let kernel_hw = (kernel_h * kernel_w) as isize;
-                let kd = idiv(k_dhw.clone(), const_int(kernel_hw));
-                let k_hw = rem(k_dhw, const_int(kernel_hw));
-                let kh = idiv(k_hw.clone(), const_int(kernel_w as isize));
-                let kw = rem(k_hw, const_int(kernel_w as isize));
+                    // d_in = d_out * stride_d + kd * dilation_d
+                    let d_in =
+                        d_out * const_int(stride_d as isize) + kd * const_int(dilation_d as isize);
 
-                // spatial_idx = d_out * H_out * W_out + h_out * W_out + w_out
-                let output_hw = (output_size[1] * output_size[2]) as isize;
-                let d_out = idiv(spatial_idx.clone(), const_int(output_hw));
-                let hw_idx = rem(spatial_idx, const_int(output_hw));
-                let h_out = idiv(hw_idx.clone(), const_int(output_size[2] as isize));
-                let w_out = rem(hw_idx, const_int(output_size[2] as isize));
+                    // h_in = h_out * stride_h + kh * dilation_h
+                    let h_in =
+                        h_out * const_int(stride_h as isize) + kh * const_int(dilation_h as isize);
 
-                // d_in = d_out * stride_d + kd * dilation_d
-                let d_in =
-                    d_out * const_int(stride_d as isize) + kd * const_int(dilation_d as isize);
+                    // w_in = w_out * stride_w + kw * dilation_w
+                    let w_in =
+                        w_out * const_int(stride_w as isize) + kw * const_int(dilation_w as isize);
 
-                // h_in = h_out * stride_h + kh * dilation_h
-                let h_in =
-                    h_out * const_int(stride_h as isize) + kh * const_int(dilation_h as isize);
+                    vec![c_in, d_in, h_in, w_in]
+                } else {
+                    // groups>1: 入力 (groups, C/groups, kD, kH, kW, D', H', W')
+                    // 軸0: groups
+                    // 軸1: C/groups
+                    // 軸2: kD
+                    // 軸3: kH
+                    // 軸4: kW
+                    // 軸5: D'
+                    // 軸6: H'
+                    // 軸7: W'
 
-                // w_in = w_out * stride_w + kw * dilation_w
-                let w_in =
-                    w_out * const_int(stride_w as isize) + kw * const_int(dilation_w as isize);
+                    let g_idx = var(format!("iidx{}", axes[0]));
+                    let c_per_group_idx = var(format!("iidx{}", axes[1]));
+                    let kd = var(format!("iidx{}", axes[2]));
+                    let kh = var(format!("iidx{}", axes[3]));
+                    let kw = var(format!("iidx{}", axes[4]));
+                    let d_out = var(format!("iidx{}", axes[5]));
+                    let h_out = var(format!("iidx{}", axes[6]));
+                    let w_out = var(format!("iidx{}", axes[7]));
 
-                vec![c_in, d_in, h_in, w_in]
+                    // c_in = g_idx * (C/groups) + c_per_group_idx
+                    let c_per_group = (output_size[0] / groups) as isize;
+                    let c_in = g_idx * const_int(c_per_group) + c_per_group_idx;
+
+                    let stride_d = stride[0];
+                    let stride_h = stride[1];
+                    let stride_w = stride[2];
+                    let dilation_d = dilation[0];
+                    let dilation_h = dilation[1];
+                    let dilation_w = dilation[2];
+
+                    // d_in = d_out * stride_d + kd * dilation_d
+                    let d_in =
+                        d_out * const_int(stride_d as isize) + kd * const_int(dilation_d as isize);
+
+                    // h_in = h_out * stride_h + kh * dilation_h
+                    let h_in =
+                        h_out * const_int(stride_h as isize) + kh * const_int(dilation_h as isize);
+
+                    // w_in = w_out * stride_w + kw * dilation_w
+                    let w_in =
+                        w_out * const_int(stride_w as isize) + kw * const_int(dilation_w as isize);
+
+                    vec![c_in, d_in, h_in, w_in]
+                }
             }
             _ => panic!("Unsupported ndim for fold: {}", ndim),
         }
