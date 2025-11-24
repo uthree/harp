@@ -601,3 +601,45 @@ fn test_slice_pad_roundtrip() {
     // 勾配が計算されているか確認
     assert!(x.grad().is_some());
 }
+
+#[test]
+fn test_variance() {
+    let mut graph = Graph::new();
+    let x = Tensor::from_graph_node(
+        graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape([3, 4])
+            .build(),
+        true,
+    );
+
+    // 軸1の分散を計算
+    let var = x.variance(1);
+    let loss = var.sum(0);
+    loss.backward();
+
+    // xの勾配が計算されているか確認
+    assert!(x.grad().is_some());
+}
+
+#[test]
+fn test_abs_square() {
+    let mut graph = Graph::new();
+    let x = Tensor::from_graph_node(
+        graph
+            .input("x")
+            .with_dtype(DType::F32)
+            .with_shape([3])
+            .build(),
+        true,
+    );
+
+    // abs_squareはsquareのエイリアスなので、squareと同じ挙動
+    let y = x.abs_square();
+    let loss = y.sum(0);
+    loss.backward();
+
+    // xの勾配が計算されているか確認
+    assert!(x.grad().is_some());
+}
