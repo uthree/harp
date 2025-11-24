@@ -127,7 +127,13 @@ fn main() -> eframe::Result {
         "Harp Pipeline Visualizer",
         options,
         Box::new(move |_cc| {
+            // デフォルトのCRendererを使用してHarpVizAppを作成
             let mut app = HarpVizApp::new();
+
+            // カスタムレンダラーを使用する場合は以下のようにwith_renderer()を使用できます:
+            // use harp::backend::metal::MetalRenderer;
+            // let renderer = MetalRenderer::new();
+            // let mut app = HarpVizApp::with_renderer(renderer);
 
             // グラフ最適化履歴を読み込む
             if let Some(graph_history) = &pipeline.histories.graph {

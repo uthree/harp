@@ -14,14 +14,23 @@ pub use diff_viewer::{
 pub use graph_viewer::GraphViewerApp;
 pub use perf_viewer::PerfViewerApp;
 
-/// 可視化アプリケーション全体を統合するメインアプリ
-pub struct HarpVizApp {
+use harp::backend::c::CRenderer;
+use harp::backend::c_like::CLikeRenderer;
+
+/// 可視化アプリケーション全体を統合するメインアプリ（ジェネリックレンダラー対応）
+///
+/// # 型パラメータ
+/// * `R` - ASTをレンダリングするレンダラー（`CLikeRenderer`を実装している必要があります）
+pub struct HarpVizApp<R = CRenderer>
+where
+    R: CLikeRenderer + Clone,
+{
     /// 現在のタブ
     current_tab: VizTab,
     /// グラフビューア
     graph_viewer: GraphViewerApp,
     /// ASTビューア
-    ast_viewer: AstViewerApp,
+    ast_viewer: AstViewerApp<R>,
     /// パフォーマンスビューア
     perf_viewer: PerfViewerApp,
 }
@@ -34,19 +43,29 @@ enum VizTab {
     PerfViewer,
 }
 
-impl Default for HarpVizApp {
+impl Default for HarpVizApp<CRenderer> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl HarpVizApp {
-    /// 新しいHarpVizAppを作成
+impl HarpVizApp<CRenderer> {
+    /// 新しいHarpVizAppを作成（デフォルトでCRendererを使用）
     pub fn new() -> Self {
+        Self::with_renderer(CRenderer::new())
+    }
+}
+
+impl<R> HarpVizApp<R>
+where
+    R: CLikeRenderer + Clone,
+{
+    /// カスタムレンダラーを使用してHarpVizAppを作成
+    pub fn with_renderer(renderer: R) -> Self {
         Self {
             current_tab: VizTab::GraphViewer,
             graph_viewer: GraphViewerApp::new(),
-            ast_viewer: AstViewerApp::new(),
+            ast_viewer: AstViewerApp::with_renderer(renderer),
             perf_viewer: PerfViewerApp::new(),
         }
     }
@@ -90,12 +109,12 @@ impl HarpVizApp {
     /// 履歴が存在する場合、適切なタブに切り替えます。
     ///
     /// # 型パラメータ
-    /// * `R` - Rendererの型
-    /// * `C` - Compilerの型
-    pub fn load_from_pipeline<R, C>(&mut self, pipeline: &harp::backend::GenericPipeline<R, C>)
+    /// * `PR` - Rendererの型
+    /// * `PC` - Compilerの型
+    pub fn load_from_pipeline<PR, PC>(&mut self, pipeline: &harp::backend::GenericPipeline<PR, PC>)
     where
-        R: harp::backend::Renderer,
-        C: harp::backend::Compiler<CodeRepr = R::CodeRepr>,
+        PR: harp::backend::Renderer,
+        PC: harp::backend::Compiler<CodeRepr = PR::CodeRepr>,
     {
         // グラフ最適化履歴を読み込む
         if let Some(graph_history) = &pipeline.histories.graph {
@@ -114,12 +133,14 @@ impl HarpVizApp {
     /// Pipeline内の履歴はクリアされます。
     ///
     /// # 型パラメータ
-    /// * `R` - Rendererの型
-    /// * `C` - Compilerの型
-    pub fn take_from_pipeline<R, C>(&mut self, pipeline: &mut harp::backend::GenericPipeline<R, C>)
-    where
-        R: harp::backend::Renderer,
-        C: harp::backend::Compiler<CodeRepr = R::CodeRepr>,
+    /// * `PR` - Rendererの型
+    /// * `PC` - Compilerの型
+    pub fn take_from_pipeline<PR, PC>(
+        &mut self,
+        pipeline: &mut harp::backend::GenericPipeline<PR, PC>,
+    ) where
+        PR: harp::backend::Renderer,
+        PC: harp::backend::Compiler<CodeRepr = PR::CodeRepr>,
     {
         // グラフ最適化履歴を取得
         if let Some(graph_history) = pipeline.histories.graph.take() {
@@ -131,8 +152,10 @@ impl HarpVizApp {
             self.load_ast_optimization_history(ast_history);
         }
     }
+}
 
-    /// Pipelineから直接visualizerを起動するヘルパー関数
+impl HarpVizApp<CRenderer> {
+    /// Pipelineから直接visualizerを起動するヘルパー関数（CRendererを使用）
     ///
     /// この関数は、GenericPipelineに保存されている最適化履歴を読み込んで、
     /// 可視化ウィンドウを起動します。
@@ -155,14 +178,14 @@ impl HarpVizApp {
     /// ```
     ///
     /// # 型パラメータ
-    /// * `R` - Rendererの型
-    /// * `C` - Compilerの型
-    pub fn run_from_pipeline<R, C>(
-        pipeline: &harp::backend::GenericPipeline<R, C>,
+    /// * `PR` - Rendererの型
+    /// * `PC` - Compilerの型
+    pub fn run_from_pipeline<PR, PC>(
+        pipeline: &harp::backend::GenericPipeline<PR, PC>,
     ) -> Result<(), eframe::Error>
     where
-        R: harp::backend::Renderer,
-        C: harp::backend::Compiler<CodeRepr = R::CodeRepr>,
+        PR: harp::backend::Renderer,
+        PC: harp::backend::Compiler<CodeRepr = PR::CodeRepr>,
     {
         let mut app = Self::new();
         app.load_from_pipeline(pipeline);
@@ -181,7 +204,7 @@ impl HarpVizApp {
         )
     }
 
-    /// 最適化履歴を読み込んでvisualizerを起動
+    /// 最適化履歴を読み込んでvisualizerを起動（CRendererを使用）
     ///
     /// グラフとASTの最適化履歴を個別に指定して可視化ウィンドウを起動します。
     ///
@@ -223,7 +246,10 @@ impl HarpVizApp {
     }
 }
 
-impl eframe::App for HarpVizApp {
+impl<R> eframe::App for HarpVizApp<R>
+where
+    R: CLikeRenderer + Clone,
+{
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
