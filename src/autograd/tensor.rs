@@ -3,9 +3,9 @@
 //! PyTorchライクな自動微分対応のTensor型を提供します。
 
 use super::grad_fn::{
-    AddBackward, AddConstBackward, Exp2Backward, GradFn, Log2Backward, MulBackward,
-    MulConstBackward, NegBackward, PadBackward, RecipBackward, ReduceSumBackward, SinBackward,
-    SliceBackward, SqrtBackward,
+    AddBackward, AddConstBackward, Conv1dBackward, Conv2dBackward, Conv3dBackward, Exp2Backward,
+    GradFn, Log2Backward, MulBackward, MulConstBackward, NegBackward, PadBackward, RecipBackward,
+    ReduceSumBackward, SinBackward, SliceBackward, SqrtBackward,
 };
 use crate::backend::Device;
 use crate::graph::{Graph, GraphNode, ops::ElementwiseOp, ops::GraphOp};
@@ -389,6 +389,143 @@ impl Tensor {
     pub fn slice(&self, ranges: Vec<(usize, usize)>) -> Tensor {
         let result = self.data.slice(ranges.clone());
         Tensor::from_forward(result, vec![self.clone()], SliceBackward { ranges })
+    }
+
+    // === 畳み込み演算 ===
+
+    /// 1D畳み込み
+    ///
+    /// # 引数
+    /// - `kernel`: 畳み込みカーネル (C_out, C_in/groups, k)
+    /// - `stride`: ストライド
+    /// - `dilation`: 膨張率
+    /// - `groups`: グループ数（1=通常、C_in=depthwise）
+    ///
+    /// # 入出力
+    /// - 入力: (C_in, L)
+    /// - カーネル: (C_out, C_in/groups, k)
+    /// - 出力: (C_out, L')
+    ///
+    /// # 注意
+    /// 現在、勾配計算は未実装です。backward()を呼ぶとpanicします。
+    /// fold/col2im演算の実装が必要です。
+    ///
+    /// # 例
+    /// ```no_run
+    /// use harp::autograd::Tensor;
+    ///
+    /// let x = Tensor::ones(vec![2, 5]); // (C_in=2, L=5)
+    /// let kernel = Tensor::ones(vec![3, 2, 3]); // (C_out=3, C_in=2, k=3)
+    /// let output = x.conv1d(&kernel, 1, 1, 1); // (3, 3)
+    /// ```
+    pub fn conv1d(&self, kernel: &Tensor, stride: usize, dilation: usize, groups: usize) -> Tensor {
+        let result = self
+            .data
+            .clone()
+            .conv1d(kernel.data.clone(), stride, dilation, groups);
+        Tensor::from_forward(
+            result,
+            vec![self.clone(), kernel.clone()],
+            Conv1dBackward {
+                stride,
+                dilation,
+                groups,
+            },
+        )
+    }
+
+    /// 2D畳み込み
+    ///
+    /// # 引数
+    /// - `kernel`: 畳み込みカーネル (C_out, C_in/groups, kH, kW)
+    /// - `stride`: ストライド (sH, sW)
+    /// - `dilation`: 膨張率 (dH, dW)
+    /// - `groups`: グループ数（1=通常、C_in=depthwise）
+    ///
+    /// # 入出力
+    /// - 入力: (C_in, H, W)
+    /// - カーネル: (C_out, C_in/groups, kH, kW)
+    /// - 出力: (C_out, H', W')
+    ///
+    /// # 注意
+    /// 現在、勾配計算は未実装です。backward()を呼ぶとpanicします。
+    /// fold/col2im演算の実装が必要です。
+    ///
+    /// # 例
+    /// ```no_run
+    /// use harp::autograd::Tensor;
+    ///
+    /// let x = Tensor::ones(vec![3, 32, 32]); // (C_in=3, H=32, W=32)
+    /// let kernel = Tensor::ones(vec![16, 3, 3, 3]); // (C_out=16, C_in=3, kH=3, kW=3)
+    /// let output = x.conv2d(&kernel, (1, 1), (1, 1), 1); // (16, 30, 30)
+    /// ```
+    pub fn conv2d(
+        &self,
+        kernel: &Tensor,
+        stride: (usize, usize),
+        dilation: (usize, usize),
+        groups: usize,
+    ) -> Tensor {
+        let result = self
+            .data
+            .clone()
+            .conv2d(kernel.data.clone(), stride, dilation, groups);
+        Tensor::from_forward(
+            result,
+            vec![self.clone(), kernel.clone()],
+            Conv2dBackward {
+                stride,
+                dilation,
+                groups,
+            },
+        )
+    }
+
+    /// 3D畳み込み
+    ///
+    /// # 引数
+    /// - `kernel`: 畳み込みカーネル (C_out, C_in/groups, kD, kH, kW)
+    /// - `stride`: ストライド (sD, sH, sW)
+    /// - `dilation`: 膨張率 (dD, dH, dW)
+    /// - `groups`: グループ数（1=通常、C_in=depthwise）
+    ///
+    /// # 入出力
+    /// - 入力: (C_in, D, H, W)
+    /// - カーネル: (C_out, C_in/groups, kD, kH, kW)
+    /// - 出力: (C_out, D', H', W')
+    ///
+    /// # 注意
+    /// 現在、勾配計算は未実装です。backward()を呼ぶとpanicします。
+    /// fold/col2im演算の実装が必要です。
+    ///
+    /// # 例
+    /// ```no_run
+    /// use harp::autograd::Tensor;
+    ///
+    /// let x = Tensor::ones(vec![2, 16, 16, 16]); // (C_in=2, D=16, H=16, W=16)
+    /// let kernel = Tensor::ones(vec![8, 2, 3, 3, 3]); // (C_out=8, C_in=2, kD=3, kH=3, kW=3)
+    /// let output = x.conv3d(&kernel, (1, 1, 1), (1, 1, 1), 1); // (8, 14, 14, 14)
+    /// ```
+    pub fn conv3d(
+        &self,
+        kernel: &Tensor,
+        stride: (usize, usize, usize),
+        dilation: (usize, usize, usize),
+        groups: usize,
+    ) -> Tensor {
+        let result = self
+            .data
+            .clone()
+            .conv3d(kernel.data.clone(), stride, dilation, groups);
+        Tensor::from_forward(
+            result,
+            vec![self.clone(), kernel.clone()],
+            Conv3dBackward {
+                stride,
+                dilation,
+                groups,
+            },
+        )
     }
 
     // === 実行（realize）メソッド ===

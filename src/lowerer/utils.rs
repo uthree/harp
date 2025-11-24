@@ -323,4 +323,63 @@ impl Lowerer {
             body,
         )
     }
+
+    /// インデックス式からオフセットを計算
+    ///
+    /// PadやFoldなどで使用される共通ヘルパー
+    pub(super) fn compute_output_offset_from_indices(
+        &self,
+        node: &GraphNode,
+        indices: &[AstNode],
+    ) -> AstNode {
+        use crate::graph::shape::View;
+
+        match &node.view {
+            View::Linear {
+                strides, offset, ..
+            } => {
+                let mut result: AstNode = offset.clone().into();
+
+                for (i, idx) in indices.iter().enumerate() {
+                    let stride: AstNode = strides[i].clone().into();
+                    result = result + idx.clone() * stride;
+                }
+
+                result
+            }
+        }
+    }
+
+    /// カスタムプレフィックスを持つインデックス変数を使ってオフセットを計算
+    ///
+    /// Fold演算などで"iidx", "oidx"などのカスタムプレフィックスが必要な場合に使用
+    pub(super) fn compute_input_offset_with_prefix(
+        &self,
+        node: &GraphNode,
+        axes: &[usize],
+        prefix: &str,
+    ) -> AstNode {
+        use crate::graph::shape::View;
+
+        match &node.view {
+            View::Linear {
+                strides, offset, ..
+            } => {
+                let mut result: AstNode = offset.clone().into();
+
+                // スカラーの場合、stridesが空なのでオフセットのみ返す
+                if strides.is_empty() {
+                    return result;
+                }
+
+                for &axis in axes {
+                    let idx = var(format!("{}{}", prefix, axis));
+                    let stride: AstNode = strides[axis].clone().into();
+                    result = result + idx * stride;
+                }
+
+                result
+            }
+        }
+    }
 }

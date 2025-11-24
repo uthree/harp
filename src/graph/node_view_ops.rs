@@ -330,4 +330,155 @@ impl GraphNode {
             new_view,
         )
     }
+
+    /// 1D fold操作（unfoldの逆操作、col2im）
+    ///
+    /// unfoldされたテンソルを元の形状に戻します。
+    /// 重複する部分は加算されます。
+    ///
+    /// # 引数
+    /// - `output_size`: 出力サイズ（unfold前のサイズ）
+    /// - `kernel_size`: カーネルサイズ
+    /// - `stride`: ストライド
+    /// - `dilation`: 膨張率
+    /// - `groups`: グループ数
+    ///
+    /// # 入出力
+    /// - 入力: unfold1dの出力形状
+    /// - 出力: unfold1dの入力形状
+    ///
+    /// # 例
+    /// ```no_run
+    /// use harp::prelude::*;
+    ///
+    /// let mut graph = Graph::new();
+    /// let x = graph.input("x")
+    ///     .with_dtype(DType::F32)
+    ///     .with_shape(vec![2, 3, 8])  // unfoldの出力: (C, k, L')
+    ///     .build();
+    ///
+    /// // fold1d: (2, 3, 8) -> (2, 10)
+    /// let folded = x.fold1d(vec![10], 3, 1, 1, 1);
+    /// ```
+    pub fn fold1d(
+        &self,
+        output_size: Vec<usize>,
+        kernel_size: usize,
+        stride: usize,
+        dilation: usize,
+        groups: usize,
+    ) -> Self {
+        let new_shape: Vec<Expr> = output_size
+            .iter()
+            .map(|&s| Expr::from(s as isize))
+            .collect();
+        let new_view = View::contiguous(new_shape);
+
+        Self::new(
+            self.dtype.clone(),
+            GraphOp::Fold {
+                output_size,
+                kernel_size: vec![kernel_size],
+                stride: vec![stride],
+                dilation: vec![dilation],
+                groups,
+            },
+            vec![self.clone()],
+            new_view,
+        )
+    }
+
+    /// 2D fold操作（unfoldの逆操作、col2im）
+    ///
+    /// # 引数
+    /// - `output_size`: 出力サイズ（unfold前のサイズ）
+    /// - `kernel_size`: カーネルサイズ (kH, kW)
+    /// - `stride`: ストライド (sH, sW)
+    /// - `dilation`: 膨張率 (dH, dW)
+    /// - `groups`: グループ数
+    ///
+    /// # 入出力
+    /// - 入力: unfold2dの出力形状
+    /// - 出力: unfold2dの入力形状
+    ///
+    /// # 例
+    /// ```no_run
+    /// use harp::prelude::*;
+    ///
+    /// let mut graph = Graph::new();
+    /// let x = graph.input("x")
+    ///     .with_dtype(DType::F32)
+    ///     .with_shape(vec![3, 3, 3, 30, 30])  // unfoldの出力: (C, kH, kW, H', W')
+    ///     .build();
+    ///
+    /// // fold2d: (3, 3, 3, 30, 30) -> (3, 32, 32)
+    /// let folded = x.fold2d(vec![32, 32], (3, 3), (1, 1), (1, 1), 1);
+    /// ```
+    pub fn fold2d(
+        &self,
+        output_size: Vec<usize>,
+        kernel_size: (usize, usize),
+        stride: (usize, usize),
+        dilation: (usize, usize),
+        groups: usize,
+    ) -> Self {
+        let new_shape: Vec<Expr> = output_size
+            .iter()
+            .map(|&s| Expr::from(s as isize))
+            .collect();
+        let new_view = View::contiguous(new_shape);
+
+        Self::new(
+            self.dtype.clone(),
+            GraphOp::Fold {
+                output_size,
+                kernel_size: vec![kernel_size.0, kernel_size.1],
+                stride: vec![stride.0, stride.1],
+                dilation: vec![dilation.0, dilation.1],
+                groups,
+            },
+            vec![self.clone()],
+            new_view,
+        )
+    }
+
+    /// 3D fold操作（unfoldの逆操作、col2im）
+    ///
+    /// # 引数
+    /// - `output_size`: 出力サイズ（unfold前のサイズ）
+    /// - `kernel_size`: カーネルサイズ (kD, kH, kW)
+    /// - `stride`: ストライド (sD, sH, sW)
+    /// - `dilation`: 膨張率 (dD, dH, dW)
+    /// - `groups`: グループ数
+    ///
+    /// # 入出力
+    /// - 入力: unfold3dの出力形状
+    /// - 出力: unfold3dの入力形状
+    pub fn fold3d(
+        &self,
+        output_size: Vec<usize>,
+        kernel_size: (usize, usize, usize),
+        stride: (usize, usize, usize),
+        dilation: (usize, usize, usize),
+        groups: usize,
+    ) -> Self {
+        let new_shape: Vec<Expr> = output_size
+            .iter()
+            .map(|&s| Expr::from(s as isize))
+            .collect();
+        let new_view = View::contiguous(new_shape);
+
+        Self::new(
+            self.dtype.clone(),
+            GraphOp::Fold {
+                output_size,
+                kernel_size: vec![kernel_size.0, kernel_size.1, kernel_size.2],
+                stride: vec![stride.0, stride.1, stride.2],
+                dilation: vec![dilation.0, dilation.1, dilation.2],
+                groups,
+            },
+            vec![self.clone()],
+            new_view,
+        )
+    }
 }

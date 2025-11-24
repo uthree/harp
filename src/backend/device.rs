@@ -17,24 +17,18 @@ use crate::backend::{
     opencl::{OpenCLBuffer, OpenCLCompiler, OpenCLKernel, OpenCLPipeline, OpenCLRenderer},
 };
 
-/// デバイスの種類
+/// デバイス指定（PyTorchの torch.device に相当）
+///
+/// デバイスの種類とインデックス（将来の複数GPU対応用）を保持します。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum DeviceType {
+pub enum Device {
     /// CPUバックエンド (C/C++)
-    Cpu,
+    Cpu(usize),
     /// Metalバックエンド (macOS GPU)
     #[cfg(target_os = "macos")]
-    Metal,
+    Metal(usize),
     /// OpenCLバックエンド (クロスプラットフォームGPU)
-    OpenCL,
-}
-
-/// デバイス指定（PyTorchの torch.device に相当）
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Device {
-    pub device_type: DeviceType,
-    /// デバイスインデックス（将来の複数GPU対応用）
-    pub index: usize,
+    OpenCL(usize),
 }
 
 impl Default for Device {
@@ -66,36 +60,37 @@ impl Device {
 
     /// CPUデバイスを作成
     pub fn cpu() -> Self {
-        Self {
-            device_type: DeviceType::Cpu,
-            index: 0,
-        }
+        Self::Cpu(0)
     }
 
     /// Metalデバイスを作成 (macOSのみ)
     #[cfg(target_os = "macos")]
     pub fn metal(index: usize) -> Self {
-        Self {
-            device_type: DeviceType::Metal,
-            index,
-        }
+        Self::Metal(index)
     }
 
     /// OpenCLデバイスを作成
     pub fn opencl(index: usize) -> Self {
-        Self {
-            device_type: DeviceType::OpenCL,
-            index,
-        }
+        Self::OpenCL(index)
     }
 
     /// デバイスが利用可能かチェック
     pub fn is_available(&self) -> bool {
-        match self.device_type {
-            DeviceType::Cpu => CCompiler::new().is_available(),
+        match self {
+            Self::Cpu(_) => CCompiler::new().is_available(),
             #[cfg(target_os = "macos")]
-            DeviceType::Metal => MetalCompiler::new().is_available(),
-            DeviceType::OpenCL => OpenCLCompiler::new().is_available(),
+            Self::Metal(_) => MetalCompiler::new().is_available(),
+            Self::OpenCL(_) => OpenCLCompiler::new().is_available(),
+        }
+    }
+
+    /// デバイスのインデックスを取得
+    pub fn index(&self) -> usize {
+        match self {
+            Self::Cpu(index) => *index,
+            #[cfg(target_os = "macos")]
+            Self::Metal(index) => *index,
+            Self::OpenCL(index) => *index,
         }
     }
 
@@ -119,13 +114,6 @@ impl std::str::FromStr for Device {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parts: Vec<&str> = s.split(':').collect();
-        let device_type = match parts[0] {
-            "cpu" => DeviceType::Cpu,
-            #[cfg(target_os = "macos")]
-            "metal" => DeviceType::Metal,
-            "opencl" => DeviceType::OpenCL,
-            _ => return Err(format!("Unknown device type: {}", parts[0])),
-        };
 
         let index = if parts.len() > 1 {
             parts[1]
@@ -135,17 +123,23 @@ impl std::str::FromStr for Device {
             0
         };
 
-        Ok(Self { device_type, index })
+        match parts[0] {
+            "cpu" => Ok(Self::Cpu(index)),
+            #[cfg(target_os = "macos")]
+            "metal" => Ok(Self::Metal(index)),
+            "opencl" => Ok(Self::OpenCL(index)),
+            _ => Err(format!("Unknown device type: {}", parts[0])),
+        }
     }
 }
 
 impl std::fmt::Display for Device {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.device_type {
-            DeviceType::Cpu => write!(f, "cpu:{}", self.index),
+        match self {
+            Self::Cpu(index) => write!(f, "cpu:{}", index),
             #[cfg(target_os = "macos")]
-            DeviceType::Metal => write!(f, "metal:{}", self.index),
-            DeviceType::OpenCL => write!(f, "opencl:{}", self.index),
+            Self::Metal(index) => write!(f, "metal:{}", index),
+            Self::OpenCL(index) => write!(f, "opencl:{}", index),
         }
     }
 }
@@ -167,19 +161,19 @@ impl DevicePipeline {
             return Err(format!("Device {} is not available", device));
         }
 
-        match device.device_type {
-            DeviceType::Cpu => {
+        match device {
+            Device::Cpu(_) => {
                 let renderer = CRenderer::new();
                 let compiler = CCompiler::new();
                 Ok(Self::Cpu(CPipeline::new(renderer, compiler)))
             }
             #[cfg(target_os = "macos")]
-            DeviceType::Metal => {
+            Device::Metal(_) => {
                 let renderer = MetalRenderer::new();
                 let compiler = MetalCompiler::new();
                 Ok(Self::Metal(MetalPipeline::new(renderer, compiler)))
             }
-            DeviceType::OpenCL => {
+            Device::OpenCL(_) => {
                 let renderer = OpenCLRenderer::new();
                 let compiler = OpenCLCompiler::new();
                 Ok(Self::OpenCL(OpenCLPipeline::new(renderer, compiler)))
@@ -359,39 +353,39 @@ mod tests {
     #[test]
     fn test_device_creation() {
         let cpu = Device::cpu();
-        assert_eq!(cpu.device_type, DeviceType::Cpu);
-        assert_eq!(cpu.index, 0);
+        assert_eq!(cpu, Device::Cpu(0));
+        assert_eq!(cpu.index(), 0);
 
         #[cfg(target_os = "macos")]
         {
             let metal = Device::metal(0);
-            assert_eq!(metal.device_type, DeviceType::Metal);
-            assert_eq!(metal.index, 0);
+            assert_eq!(metal, Device::Metal(0));
+            assert_eq!(metal.index(), 0);
         }
 
         let opencl = Device::opencl(0);
-        assert_eq!(opencl.device_type, DeviceType::OpenCL);
-        assert_eq!(opencl.index, 0);
+        assert_eq!(opencl, Device::OpenCL(0));
+        assert_eq!(opencl.index(), 0);
     }
 
     #[test]
     fn test_device_from_str() {
         let cpu: Device = "cpu:0".parse().unwrap();
-        assert_eq!(cpu.device_type, DeviceType::Cpu);
-        assert_eq!(cpu.index, 0);
+        assert_eq!(cpu, Device::Cpu(0));
+        assert_eq!(cpu.index(), 0);
 
         let cpu_default: Device = "cpu".parse().unwrap();
-        assert_eq!(cpu_default.index, 0);
+        assert_eq!(cpu_default.index(), 0);
 
         #[cfg(target_os = "macos")]
         {
             let metal: Device = "metal:0".parse().unwrap();
-            assert_eq!(metal.device_type, DeviceType::Metal);
+            assert_eq!(metal, Device::Metal(0));
         }
 
         let opencl: Device = "opencl:1".parse().unwrap();
-        assert_eq!(opencl.device_type, DeviceType::OpenCL);
-        assert_eq!(opencl.index, 1);
+        assert_eq!(opencl, Device::OpenCL(1));
+        assert_eq!(opencl.index(), 1);
 
         assert!("invalid:0".parse::<Device>().is_err());
     }

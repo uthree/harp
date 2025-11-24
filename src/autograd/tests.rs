@@ -762,3 +762,7 @@ fn test_device_in_debug() {
     // Debug出力にdeviceフィールドが含まれていることを確認
     assert!(debug_str.contains("device"));
 }
+
+// 畳み込み演算のテスト
+mod conv_gradient_tests;
+mod conv_tests;

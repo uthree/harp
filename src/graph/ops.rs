@@ -57,6 +57,13 @@ pub enum GraphOp {
     Slice {
         ranges: Vec<(usize, usize)>, // 各軸の(start, end)範囲（endは含まない）
     }, // テンソルの一部を切り出し
+    Fold {
+        output_size: Vec<usize>, // 出力サイズ (unfold前のサイズ)
+        kernel_size: Vec<usize>, // カーネルサイズ
+        stride: Vec<usize>,      // ストライド
+        dilation: Vec<usize>,    // 膨張率
+        groups: usize,           // グループ数
+    }, // unfoldの逆操作（col2im）
 }
 
 #[derive(Debug, Clone)]

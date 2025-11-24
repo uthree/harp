@@ -156,6 +156,12 @@ impl SimpleCostEstimator {
                 let num_elements = self.compute_num_elements(node);
                 num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln()
             }
+            GraphOp::Fold { .. } => {
+                // Fold: col2im、重複部分の加算が必要
+                // unfold演算の逆操作なので、高コスト
+                let num_elements = self.compute_num_elements(node);
+                num_elements.ln() + (3.0 * MEMORY_ACCESS_COST).ln() // 読み込み + 書き込み + 加算
+            }
         }
     }
 

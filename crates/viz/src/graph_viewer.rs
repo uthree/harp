@@ -339,6 +339,7 @@ impl GraphViewerApp {
             GraphOp::FusedReduce { .. } => "FusedReduce".to_string(),
             GraphOp::Pad { .. } => "Pad".to_string(),
             GraphOp::Slice { .. } => "Slice".to_string(),
+            GraphOp::Fold { .. } => "Fold".to_string(),
         }
     }
 

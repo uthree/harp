@@ -648,6 +648,21 @@ impl Lowerer {
                 self.lower_pad_kernel(node, node_id, padding, *value)
             }
             GraphOp::Slice { ranges } => self.lower_slice_kernel(node, node_id, ranges),
+            GraphOp::Fold {
+                output_size,
+                kernel_size,
+                stride,
+                dilation,
+                groups,
+            } => self.lower_fold_kernel(
+                node,
+                node_id,
+                output_size,
+                kernel_size,
+                stride,
+                dilation,
+                *groups,
+            ),
             _ => Err(format!("Unsupported operation: {:?}", node.op)),
         }
     }

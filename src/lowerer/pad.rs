@@ -155,24 +155,4 @@ impl Lowerer {
 
         Ok(loop_statements)
     }
-
-    /// インデックス式からオフセットを計算
-    fn compute_output_offset_from_indices(&self, node: &GraphNode, indices: &[AstNode]) -> AstNode {
-        use crate::graph::shape::View;
-
-        match &node.view {
-            View::Linear {
-                strides, offset, ..
-            } => {
-                let mut result: AstNode = offset.clone().into();
-
-                for (i, idx) in indices.iter().enumerate() {
-                    let stride: AstNode = strides[i].clone().into();
-                    result = result + idx.clone() * stride;
-                }
-
-                result
-            }
-        }
-    }
 }
