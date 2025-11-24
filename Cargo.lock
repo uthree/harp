@@ -1596,6 +1596,7 @@ name = "harp"
 version = "0.1.0"
 dependencies = [
  "env_logger",
+ "harp-derive",
  "indexmap",
  "indicatif",
  "libloading",
@@ -1604,6 +1605,15 @@ dependencies = [
  "paste",
  "serial_test",
  "tempfile",
+]
+
+[[package]]
+name = "harp-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

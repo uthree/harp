@@ -112,6 +112,100 @@ pub trait Module {
 - **引数の型が異なる**: `forward(&self, x: &Tensor, mask: Option<&Tensor>)`
 - **返り値が複数**: `forward(&self, x: &Tensor) -> (Tensor, Tensor)`（LSTMなど）
 
+## impl_module!マクロ
+
+Module traitの実装を自動化するマクロです。ボイラープレートを削減し、コードを簡潔に保ちます。
+
+### 基本的な使い方
+
+```rust
+use harp::impl_module;
+
+struct Linear {
+    weight: Parameter,
+    bias: Parameter,
+}
+
+// Parameterフィールドを指定するだけでModule traitが実装される
+impl_module! {
+    for Linear {
+        parameters: [weight, bias]
+    }
+}
+```
+
+### 階層的なモジュール
+
+サブモジュールを含む場合も簡単に実装できます：
+
+```rust
+struct MLP {
+    layer1: Linear,
+    layer2: Linear,
+}
+
+// サブモジュールを指定
+impl_module! {
+    for MLP {
+        modules: [layer1, layer2]
+    }
+}
+
+// パラメータ名は自動的に階層的になる
+// "layer1.weight", "layer1.bias", "layer2.weight", "layer2.bias"
+```
+
+### パラメータとモジュールの混在
+
+```rust
+struct CustomNet {
+    scale: Parameter,
+    offset: Parameter,
+    mlp: MLP,
+}
+
+impl_module! {
+    for CustomNet {
+        parameters: [scale, offset],
+        modules: [mlp]
+    }
+}
+
+// 生成されるパラメータ名：
+// "scale", "offset", "mlp.layer1.weight", "mlp.layer1.bias", ...
+```
+
+### derive macroによる自動実装（実装済み）
+
+`#[derive(DeriveModule)]`を使うことで、structの宣言だけでModule traitが自動実装されます：
+
+```rust
+use harp::prelude::*;
+
+#[derive(DeriveModule)]
+struct Linear {
+    weight: Parameter,
+    bias: Parameter,
+}
+```
+
+**自動検出機能:**
+- `Parameter`型のフィールド → 自動的にパラメータとして登録
+- `Module` traitを実装している型のフィールド → 自動的にサブモジュールとして登録
+- 階層的な名前も自動生成（例: `mlp.layer1.weight`）
+
+**比較：derive vs 宣言的マクロ**
+
+| 特徴 | `#[derive(DeriveModule)]` | `impl_module!` |
+|------|---------------------------|----------------|
+| 使いやすさ | ✅ struct宣言に1行追加するだけ | フィールドを明示的に列挙 |
+| 自動検出 | ✅ Parameter型を自動検出 | ❌ フィールドを手動で指定 |
+| 依存関係 | `harp-derive` crate必要 | 不要 |
+| コンパイル時間 | やや長い（proc-macro） | 短い |
+
+**両方使える:**
+どちらのマクロも利用可能です。好みに応じて選択できます。
+
 ## 使用例
 
 ### 基本的な使い方
@@ -365,6 +459,8 @@ for _ in 0..100 {
 
 - ✅ `Parameter` 構造体
 - ✅ `Module` trait
+- ✅ `impl_module!` マクロ（宣言的マクロ）
+- ✅ `#[derive(DeriveModule)]` マクロ（proc-macro）
 - ✅ `Deref`/`DerefMut` による透過的なアクセス
 - ✅ `parameters()` / `parameters_mut()`
 - ✅ `named_parameters()` / `named_parameters_mut()`
@@ -469,6 +565,8 @@ pub struct Conv2d {
 | Parameter | ✅ | ✅ | newtype pattern |
 | parameters() | ✅ | ✅ | |
 | named_parameters() | ✅ | ✅ | 実装済み |
+| Module自動実装（宣言的マクロ） | ❌ | ✅ | `impl_module!` |
+| Module自動実装（derive） | ❌ | ✅ | `#[derive(DeriveModule)]` |
 | Optimizer trait | ✅ | ✅ | 実装済み |
 | SGD | ✅ | ✅ | 基本版のみ（momentumなし） |
 | Adam | ✅ | ❌ | 将来実装 |
@@ -491,8 +589,9 @@ pub struct Conv2d {
 - Rustらしい設計
 - 保守性が高い
 - パフォーマンスが予測可能
+- `impl_module!`マクロによりボイラープレート削減
 
 **欠点:**
 - PyTorchとの互換性は低い
-- 階層的なモジュールは手動管理が必要
-- ボイラープレートが若干増える
+- 階層的なモジュールは明示的に管理（マクロで軽減）
+- 自動パラメータ登録がない（型安全性とのトレードオフ）

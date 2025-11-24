@@ -43,7 +43,7 @@ mod tests {
 
     #[test]
     fn test_constant() {
-        let tensor = constant(vec![10, 20], 3.14);
+        let tensor = constant(vec![10, 20], 2.5);
         let shape = tensor.data.view.shape();
         assert_eq!(shape.len(), 2);
     }

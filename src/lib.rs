@@ -46,6 +46,9 @@ pub use backend::{Buffer, Compiler, Kernel, Renderer};
 // Re-export lowerer
 pub use lowerer::Lowerer;
 
+// Re-export derive macro
+pub use harp_derive::Module as DeriveModule;
+
 /// Prelude module with commonly used types and traits
 ///
 /// このモジュールをインポートすることで、Harpを使う上で必要な
@@ -62,6 +65,12 @@ pub mod prelude {
 
     // Neural network modules
     pub use crate::nn::{Module, Parameter};
+
+    // Macros for automatic Module implementation
+    pub use crate::impl_module;
+
+    // Derive macro for Module trait
+    pub use crate::DeriveModule;
 
     // Optimizers
     pub use crate::nn::optim::{Optimizer, SGD};

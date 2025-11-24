@@ -10,6 +10,7 @@
 //! - **ゼロコスト抽象化**: ランタイムオーバーヘッドを最小化
 
 pub mod init;
+pub mod macros;
 pub mod optim;
 
 use crate::autograd::Tensor;
@@ -33,7 +34,7 @@ use std::collections::HashMap;
 /// let param = Parameter::new(tensor);
 ///
 /// // Tensorのメソッドを透過的に使用可能（Derefトレイトによる）
-/// let shape = param.shape();
+/// let shape = param.data.view.shape();
 /// ```
 #[derive(Clone)]
 pub struct Parameter(Tensor);

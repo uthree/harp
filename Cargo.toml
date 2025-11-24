@@ -2,7 +2,7 @@
 members = [
     ".",
     "crates/viz",
-    "crates/unified_ir",
+    "crates/unified_ir", "harp-derive",
 ]
 resolver = "2"
 
@@ -16,6 +16,7 @@ default = []
 ndarray = ["dep:ndarray"]
 
 [dependencies]
+harp-derive = { path = "harp-derive" }
 indicatif = "0.18.1"
 indexmap = "2.0"  # Scopeで変数の宣言順序を保持するため
 log = { version = "0.4", features = ["std"] }
