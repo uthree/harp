@@ -252,10 +252,7 @@ impl Tensor {
         let requires_grad = inputs.iter().any(|t| t.requires_grad);
 
         // 入力テンソルからデバイスを取得（最初のテンソルのデバイスを使用）
-        let device = inputs
-            .first()
-            .map(|t| t.device)
-            .unwrap_or_else(Device::default);
+        let device = inputs.first().map(|t| t.device).unwrap_or_default();
 
         let grad_fn_wrapper = if requires_grad {
             Some(Rc::new(GradFnWrapper {

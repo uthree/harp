@@ -27,6 +27,7 @@ pub struct HarpVizApp {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)]
 enum VizTab {
     GraphViewer,
     AstViewer,
@@ -272,6 +273,7 @@ mod tests {
     use harp::backend::{Buffer, Compiler, Kernel, KernelSignature, Renderer};
 
     // テスト用のダミー実装
+    #[allow(dead_code)]
     struct DummyRenderer;
 
     impl Renderer for DummyRenderer {
@@ -287,6 +289,7 @@ mod tests {
         }
     }
 
+    #[allow(dead_code)]
     #[derive(Debug, Clone)]
     struct DummyBuffer;
 
@@ -312,6 +315,7 @@ mod tests {
         }
     }
 
+    #[allow(dead_code)]
     #[derive(Debug, Clone)]
     struct DummyKernel;
 
@@ -323,6 +327,7 @@ mod tests {
         }
     }
 
+    #[allow(dead_code)]
     struct DummyCompiler;
 
     impl Compiler for DummyCompiler {

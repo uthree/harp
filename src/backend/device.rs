@@ -37,12 +37,14 @@ pub struct Device {
     pub index: usize,
 }
 
-impl Device {
+impl Default for Device {
     /// デフォルトデバイスを取得（利用可能な最速のデバイス）
-    pub fn default() -> Self {
+    fn default() -> Self {
         Self::auto_select()
     }
+}
 
+impl Device {
     /// 利用可能なデバイスを自動選択
     /// 優先順位: Metal > OpenCL > CPU
     pub fn auto_select() -> Self {

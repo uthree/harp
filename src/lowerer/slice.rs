@@ -81,12 +81,10 @@ impl Lowerer {
             .declare(alu_var.clone(), input_dtype.clone(), Mutability::Mutable)
             .map_err(|e| format!("Failed to declare variable: {:?}", e))?;
 
-        let mut body_statements = Vec::new();
-        body_statements.push(assign(
-            &alu_var,
-            load(var("input0"), input_offset, input_dtype),
-        ));
-        body_statements.push(store(var("output"), output_offset, var(&alu_var)));
+        let body_statements = vec![
+            assign(&alu_var, load(var("input0"), input_offset, input_dtype)),
+            store(var("output"), output_offset, var(&alu_var)),
+        ];
 
         // ネストされたループを生成（出力のshapeでループ）
         let (loop_statements, _) =

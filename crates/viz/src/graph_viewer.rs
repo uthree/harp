@@ -337,6 +337,8 @@ impl GraphViewerApp {
             GraphOp::FusedElementwiseReduce { .. } => "FusedEReduce".to_string(),
             GraphOp::FusedElementwiseCumulative { .. } => "FusedECum".to_string(),
             GraphOp::FusedReduce { .. } => "FusedReduce".to_string(),
+            GraphOp::Pad { .. } => "Pad".to_string(),
+            GraphOp::Slice { .. } => "Slice".to_string(),
         }
     }
 
