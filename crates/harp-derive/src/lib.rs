@@ -11,7 +11,7 @@ use syn::{parse_macro_input, Data, DeriveInput, Fields};
 /// # 使用例
 ///
 /// ```ignore
-/// use harp::prelude::*;
+/// use harp_nn::{Module, Parameter};
 ///
 /// #[derive(Module)]
 /// struct Linear {
@@ -135,12 +135,12 @@ pub fn derive_module(input: TokenStream) -> TokenStream {
 
     // Module trait実装を生成
     let expanded = quote! {
-        impl #impl_generics harp::nn::Module for #name #ty_generics #where_clause {
-            fn named_parameters(&self) -> std::collections::HashMap<String, &harp::nn::Parameter> {
+        impl #impl_generics harp_nn::Module for #name #ty_generics #where_clause {
+            fn named_parameters(&self) -> std::collections::HashMap<String, &harp_nn::Parameter> {
                 #named_params_impl
             }
 
-            fn named_parameters_mut(&mut self) -> std::collections::HashMap<String, &mut harp::nn::Parameter> {
+            fn named_parameters_mut(&mut self) -> std::collections::HashMap<String, &mut harp_nn::Parameter> {
                 #named_params_mut_impl
             }
         }

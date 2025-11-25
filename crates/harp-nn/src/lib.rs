@@ -13,7 +13,7 @@ pub mod init;
 pub mod macros;
 pub mod optim;
 
-use crate::autograd::Tensor;
+use harp::autograd::Tensor;
 use std::collections::HashMap;
 
 /// 学習可能なパラメータ
@@ -23,7 +23,7 @@ use std::collections::HashMap;
 /// # Examples
 ///
 /// ```
-/// use harp::nn::Parameter;
+/// use harp_nn::Parameter;
 /// use harp::autograd::Tensor;
 ///
 /// // ゼロで初期化
@@ -122,7 +122,7 @@ impl std::ops::DerefMut for Parameter {
 /// # Examples
 ///
 /// ```ignore
-/// use harp::nn::{Module, Parameter};
+/// use harp_nn::{Module, Parameter};
 /// use harp::autograd::Tensor;
 /// use std::collections::HashMap;
 ///
@@ -236,7 +236,7 @@ pub trait Module {
                     .shape()
                     .iter()
                     .map(|s| match s {
-                        crate::graph::shape::Expr::Const(v) => *v as usize,
+                        harp::graph::shape::Expr::Const(v) => *v as usize,
                         _ => 0,
                     })
                     .product::<usize>()

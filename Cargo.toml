@@ -4,6 +4,7 @@ members = [
     "crates/viz",
     "crates/unified_ir",
     "crates/harp-derive",
+    "crates/harp-nn",
 ]
 resolver = "2"
 
@@ -30,3 +31,4 @@ tempfile = "3.20"  # 一時ファイル管理用
 [dev-dependencies]
 env_logger = "0.11"
 serial_test = "3.2"
+harp-nn = { path = "crates/harp-nn" }

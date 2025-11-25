@@ -11,8 +11,8 @@
 //! # 使用例
 //!
 //! ```ignore
-//! use harp::nn::{Module, Parameter};
-//! use harp::nn::optim::{Optimizer, SGD};
+//! use harp_nn::{Module, Parameter};
+//! use harp_nn::optim::{Optimizer, SGD};
 //!
 //! let mut module = MyModule::new();
 //! let mut optimizer = SGD::new(0.01);
@@ -33,8 +33,8 @@
 //! }
 //! ```
 
-use super::Parameter;
-use crate::autograd::Tensor;
+use crate::Parameter;
+use harp::autograd::Tensor;
 
 /// パラメータ更新を行うオプティマイザーのtrait
 ///
@@ -89,7 +89,7 @@ pub trait Optimizer {
 /// # Examples
 ///
 /// ```
-/// use harp::nn::optim::SGD;
+/// use harp_nn::optim::SGD;
 ///
 /// // 学習率0.01でSGDを作成
 /// let mut optimizer = SGD::new(0.01);
@@ -109,7 +109,7 @@ impl SGD {
     /// # Examples
     ///
     /// ```
-    /// use harp::nn::optim::SGD;
+    /// use harp_nn::optim::SGD;
     ///
     /// let optimizer = SGD::new(0.01);
     /// ```

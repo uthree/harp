@@ -7,8 +7,8 @@
 //! ## Parameterのみの場合
 //!
 //! ```ignore
-//! use harp::nn::{Module, Parameter};
-//! use harp::impl_module;
+//! use harp_nn::{Module, Parameter};
+//! use harp_nn::impl_module;
 //!
 //! struct Linear {
 //!     weight: Parameter,
@@ -79,8 +79,8 @@ macro_rules! impl_module {
     (for $struct_name:ident {
         parameters: [$($param:ident),* $(,)?]
     }) => {
-        impl $crate::nn::Module for $struct_name {
-            fn named_parameters(&self) -> std::collections::HashMap<String, &$crate::nn::Parameter> {
+        impl $crate::Module for $struct_name {
+            fn named_parameters(&self) -> std::collections::HashMap<String, &$crate::Parameter> {
                 let mut params = std::collections::HashMap::new();
                 $(
                     params.insert(stringify!($param).to_string(), &self.$param);
@@ -88,7 +88,7 @@ macro_rules! impl_module {
                 params
             }
 
-            fn named_parameters_mut(&mut self) -> std::collections::HashMap<String, &mut $crate::nn::Parameter> {
+            fn named_parameters_mut(&mut self) -> std::collections::HashMap<String, &mut $crate::Parameter> {
                 let mut params = std::collections::HashMap::new();
                 $(
                     params.insert(stringify!($param).to_string(), &mut self.$param);
@@ -102,8 +102,8 @@ macro_rules! impl_module {
     (for $struct_name:ident {
         modules: [$($module:ident),* $(,)?]
     }) => {
-        impl $crate::nn::Module for $struct_name {
-            fn named_parameters(&self) -> std::collections::HashMap<String, &$crate::nn::Parameter> {
+        impl $crate::Module for $struct_name {
+            fn named_parameters(&self) -> std::collections::HashMap<String, &$crate::Parameter> {
                 let mut params = std::collections::HashMap::new();
                 $(
                     for (name, param) in self.$module.named_parameters() {
@@ -113,7 +113,7 @@ macro_rules! impl_module {
                 params
             }
 
-            fn named_parameters_mut(&mut self) -> std::collections::HashMap<String, &mut $crate::nn::Parameter> {
+            fn named_parameters_mut(&mut self) -> std::collections::HashMap<String, &mut $crate::Parameter> {
                 let mut params = std::collections::HashMap::new();
                 $(
                     for (name, param) in self.$module.named_parameters_mut() {
@@ -130,8 +130,8 @@ macro_rules! impl_module {
         parameters: [$($param:ident),* $(,)?],
         modules: [$($module:ident),* $(,)?]
     }) => {
-        impl $crate::nn::Module for $struct_name {
-            fn named_parameters(&self) -> std::collections::HashMap<String, &$crate::nn::Parameter> {
+        impl $crate::Module for $struct_name {
+            fn named_parameters(&self) -> std::collections::HashMap<String, &$crate::Parameter> {
                 let mut params = std::collections::HashMap::new();
 
                 // Parameterフィールドを追加
@@ -149,7 +149,7 @@ macro_rules! impl_module {
                 params
             }
 
-            fn named_parameters_mut(&mut self) -> std::collections::HashMap<String, &mut $crate::nn::Parameter> {
+            fn named_parameters_mut(&mut self) -> std::collections::HashMap<String, &mut $crate::Parameter> {
                 let mut params = std::collections::HashMap::new();
 
                 // Parameterフィールドを追加
@@ -185,7 +185,7 @@ macro_rules! impl_module {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{Module, Parameter};
+    use crate::{Module, Parameter};
 
     // テスト用の簡単なモジュール
     struct SimpleModule {

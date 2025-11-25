@@ -34,7 +34,6 @@ pub mod autograd;
 pub mod backend;
 pub mod graph;
 pub mod lowerer;
-pub mod nn;
 pub mod opt;
 
 // Re-export commonly used types from graph module
@@ -63,17 +62,8 @@ pub mod prelude {
     // Autograd (PyTorch-like API)
     pub use crate::autograd::Tensor;
 
-    // Neural network modules
-    pub use crate::nn::{Module, Parameter};
-
-    // Macros for automatic Module implementation
-    pub use crate::impl_module;
-
     // Derive macro for Module trait
     pub use crate::DeriveModule;
-
-    // Optimizers
-    pub use crate::nn::optim::{Optimizer, SGD};
 
     // Graph types
     pub use crate::graph::{

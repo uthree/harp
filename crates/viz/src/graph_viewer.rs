@@ -340,6 +340,7 @@ impl GraphViewerApp {
             GraphOp::Pad { .. } => "Pad".to_string(),
             GraphOp::Slice { .. } => "Slice".to_string(),
             GraphOp::Fold { .. } => "Fold".to_string(),
+            GraphOp::RandInit { .. } => "RandInit".to_string(),
         }
     }
 

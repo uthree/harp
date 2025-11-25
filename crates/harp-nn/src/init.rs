@@ -7,7 +7,7 @@
 //! 現在、乱数初期化（Xavier, He等）は未実装です。
 //! 定数初期化のみサポートしています。
 
-use crate::autograd::Tensor;
+use harp::autograd::Tensor;
 
 /// 定数で初期化
 ///
@@ -19,7 +19,7 @@ use crate::autograd::Tensor;
 /// # Examples
 ///
 /// ```
-/// use harp::nn::init;
+/// use harp_nn::init;
 ///
 /// let tensor = init::constant(vec![10, 20], 0.5);
 /// ```

@@ -3,6 +3,7 @@
 //! `impl_module!`マクロを使った簡単な例
 
 use harp::prelude::*;
+use harp_nn::{Module, Parameter, impl_module};
 
 // 1. 基本的なLinear層
 struct Linear {

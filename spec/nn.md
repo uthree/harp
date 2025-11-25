@@ -1,6 +1,9 @@
-# ニューラルネットワークモジュール (nn)
+# ニューラルネットワークモジュール (harp-nn)
 
-PyTorchの`torch.nn`に相当する機能を提供します。
+PyTorchの`torch.nn`に相当する機能を提供するサブクレートです。
+
+> **注意**: `harp-nn`は独立したクレートとして`crates/harp-nn/`に配置されています。
+> 使用する場合は`harp_nn`としてインポートしてください。
 
 ## 設計思想
 
@@ -119,7 +122,7 @@ Module traitの実装を自動化するマクロです。ボイラープレー�
 ### 基本的な使い方
 
 ```rust
-use harp::impl_module;
+use harp_nn::{impl_module, Module, Parameter};
 
 struct Linear {
     weight: Parameter,
@@ -181,6 +184,7 @@ impl_module! {
 
 ```rust
 use harp::prelude::*;
+use harp_nn::{Module, Parameter};
 
 #[derive(DeriveModule)]
 struct Linear {
@@ -212,7 +216,7 @@ struct Linear {
 
 ```rust
 use harp::prelude::*;
-use harp::nn::{Module, Parameter};
+use harp_nn::{Module, Parameter};
 use std::collections::HashMap;
 
 // カスタムモジュールの定義
@@ -427,7 +431,7 @@ impl SGD {
 
 ```rust
 use harp::prelude::*;
-use harp::nn::optim::{Optimizer, SGD};
+use harp_nn::optim::{Optimizer, SGD};
 
 let mut module = MyModule::new();
 let mut optimizer = SGD::new(0.01);
