@@ -244,6 +244,58 @@ impl From<String> for Expr {
     }
 }
 
+impl From<char> for Expr {
+    fn from(c: char) -> Self {
+        Expr::Var(c.to_string())
+    }
+}
+
+/// 数値型、文字型、文字列型を混在させてVec<Expr>を初期化するマクロ
+///
+/// - 数値型（i32, usize等）→ `Expr::Const`
+/// - char型（'N'など）→ `Expr::Var`（1文字の変数名）
+/// - &str型（"batch"など）→ `Expr::Var`（複数文字の変数名）
+///
+/// # 使用例
+///
+/// ```
+/// use harp::shape;
+/// use harp::graph::shape::Expr;
+///
+/// // 静的な形状
+/// let shape = shape![2, 3, 4];
+/// assert_eq!(shape, vec![Expr::Const(2), Expr::Const(3), Expr::Const(4)]);
+///
+/// // 動的な形状（char型は変数名として扱われる）
+/// let shape = shape![2, 'N', 4];
+/// assert_eq!(shape, vec![Expr::Const(2), Expr::Var("N".to_string()), Expr::Const(4)]);
+///
+/// // &str型で複数文字の変数名を使用
+/// let shape = shape![32, "batch", "seq_len"];
+/// assert_eq!(shape, vec![
+///     Expr::Const(32),
+///     Expr::Var("batch".to_string()),
+///     Expr::Var("seq_len".to_string()),
+/// ]);
+///
+/// // 数値、char、&strを混在
+/// let shape = shape![32, 'N', "hidden"];
+/// assert_eq!(shape, vec![
+///     Expr::Const(32),
+///     Expr::Var("N".to_string()),
+///     Expr::Var("hidden".to_string()),
+/// ]);
+/// ```
+#[macro_export]
+macro_rules! shape {
+    () => {
+        ::std::vec::Vec::<$crate::graph::shape::Expr>::new()
+    };
+    ($($elem:expr),+ $(,)?) => {
+        vec![$(::std::convert::Into::<$crate::graph::shape::Expr>::into($elem)),+]
+    };
+}
+
 macro_rules! impl_expr_binary_op {
     ($trait:ident, $fname:ident, $variant:expr) => {
         impl<T: Into<Expr>> $trait<T> for Expr {

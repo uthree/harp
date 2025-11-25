@@ -64,6 +64,10 @@ pub enum GraphOp {
         dilation: Vec<usize>,    // 膨張率
         groups: usize,           // グループ数
     }, // unfoldの逆操作（col2im）
+    /// 一様乱数でテンソルを初期化 [0, 1)
+    RandInit {
+        elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
+    },
 }
 
 #[derive(Debug, Clone)]

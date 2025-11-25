@@ -1,4 +1,5 @@
 use super::*;
+use crate::shape;
 
 #[test]
 fn test_const_creation() {
@@ -481,4 +482,106 @@ fn test_to_astnode_var() {
         AstNode::Var(name) => assert_eq!(name, "x"),
         _ => panic!("Expected Var node"),
     }
+}
+
+// ===== From<char> tests =====
+
+#[test]
+fn test_from_char() {
+    let expr = Expr::from('A');
+    assert_eq!(expr, Expr::Var("A".to_string()));
+
+    let expr = Expr::from('N');
+    assert_eq!(expr, Expr::Var("N".to_string()));
+}
+
+// ===== shape! macro tests =====
+
+#[test]
+fn test_shape_macro_empty() {
+    let shape: Vec<Expr> = shape![];
+    assert!(shape.is_empty());
+}
+
+#[test]
+fn test_shape_macro_all_const() {
+    let shape = shape![2, 3, 4];
+    assert_eq!(shape, vec![Expr::Const(2), Expr::Const(3), Expr::Const(4)]);
+}
+
+#[test]
+fn test_shape_macro_all_var() {
+    let shape = shape!['B', 'H', 'W', 'C'];
+    assert_eq!(
+        shape,
+        vec![
+            Expr::Var("B".to_string()),
+            Expr::Var("H".to_string()),
+            Expr::Var("W".to_string()),
+            Expr::Var("C".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn test_shape_macro_mixed() {
+    let shape = shape![2, 'N', 4];
+    assert_eq!(
+        shape,
+        vec![Expr::Const(2), Expr::Var("N".to_string()), Expr::Const(4),]
+    );
+}
+
+#[test]
+fn test_shape_macro_trailing_comma() {
+    let shape = shape![1, 2, 3,];
+    assert_eq!(shape, vec![Expr::Const(1), Expr::Const(2), Expr::Const(3)]);
+}
+
+#[test]
+fn test_shape_macro_single_element() {
+    let shape = shape![10];
+    assert_eq!(shape, vec![Expr::Const(10)]);
+
+    let shape = shape!['X'];
+    assert_eq!(shape, vec![Expr::Var("X".to_string())]);
+}
+
+#[test]
+fn test_shape_macro_with_str() {
+    // &str型も変数名として扱われる
+    let shape = shape![2, "batch", 4];
+    assert_eq!(
+        shape,
+        vec![
+            Expr::Const(2),
+            Expr::Var("batch".to_string()),
+            Expr::Const(4),
+        ]
+    );
+
+    // 複数文字の変数名
+    let shape = shape!["batch_size", "seq_len", "hidden_dim"];
+    assert_eq!(
+        shape,
+        vec![
+            Expr::Var("batch_size".to_string()),
+            Expr::Var("seq_len".to_string()),
+            Expr::Var("hidden_dim".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn test_shape_macro_mixed_all_types() {
+    // 数値、char、&strを全て混在
+    let shape = shape![32, 'N', "hidden"];
+    assert_eq!(
+        shape,
+        vec![
+            Expr::Const(32),
+            Expr::Var("N".to_string()),
+            Expr::Var("hidden".to_string()),
+        ]
+    );
 }

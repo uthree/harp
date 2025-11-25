@@ -11,6 +11,7 @@ mod fused_elementwise_cumulative;
 mod fused_elementwise_reduce;
 mod fused_reduce;
 mod pad;
+mod rand_init;
 mod reduce;
 mod slice;
 mod utils;
@@ -663,6 +664,7 @@ impl Lowerer {
                 dilation,
                 *groups,
             ),
+            GraphOp::RandInit { .. } => self.lower_rand_init_kernel(node, node_id),
             _ => Err(format!("Unsupported operation: {:?}", node.op)),
         }
     }

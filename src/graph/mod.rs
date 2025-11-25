@@ -202,6 +202,35 @@ impl GraphNode {
         Self::new(dtype, GraphOp::Const(literal), vec![], view)
     }
 
+    /// 指定した形状の一様乱数テンソルを生成 [0, 1)
+    ///
+    /// # 引数
+    /// - `shape`: テンソルの形状（静的な`usize`/`isize`または動的な`Expr`を受け付ける）
+    ///
+    /// # 例
+    /// ```ignore
+    /// use harp::prelude::*;
+    ///
+    /// // 静的な形状: 2x3の乱数テンソル
+    /// let rand_node = GraphNode::rand_init(vec![2, 3]);
+    ///
+    /// // 動的な形状: Expr型を使用
+    /// let batch_size = shape::Expr::var("batch");
+    /// let rand_node = GraphNode::rand_init(vec![batch_size, 64.into()]);
+    /// ```
+    pub fn rand_init<E: Into<shape::Expr> + Clone, I: IntoIterator<Item = E>>(shape: I) -> Self {
+        let shape_exprs: Vec<shape::Expr> = shape.into_iter().map(|e| e.into()).collect();
+        let view = View::contiguous(shape_exprs);
+        Self::new(
+            DType::F32,
+            GraphOp::RandInit {
+                elementwise_strategies: None,
+            },
+            vec![],
+            view,
+        )
+    }
+
     /// 指定軸を縮約（汎用）
     pub fn reduce(&self, op: ops::ReduceOp, axis: usize) -> Self {
         ops::reduce(self.clone(), op, axis)

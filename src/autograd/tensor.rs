@@ -116,6 +116,29 @@ impl Tensor {
         Self::full_on(shape, 1.0, device)
     }
 
+    /// 指定した形状の一様乱数テンソルを作成（デフォルトデバイス）
+    ///
+    /// 各要素は[0, 1)の範囲の一様乱数で初期化されます。
+    ///
+    /// # 引数
+    /// - `shape`: テンソルの形状
+    ///
+    /// # 例
+    /// ```
+    /// use harp::autograd::Tensor;
+    ///
+    /// let rand_tensor = Tensor::rand(vec![2, 3]); // 2x3の乱数テンソル
+    /// ```
+    pub fn rand(shape: Vec<usize>) -> Self {
+        Self::rand_on(shape, Device::default())
+    }
+
+    /// 指定した形状の一様乱数テンソルを作成（デバイス指定版）
+    pub fn rand_on(shape: Vec<usize>, device: Device) -> Self {
+        let node = GraphNode::rand_init(shape);
+        Self::from_graph_node_with_device(node, false, device)
+    }
+
     /// 指定した形状と値で埋められたテンソルを作成（デフォルトデバイス）
     ///
     /// # 引数
@@ -164,6 +187,32 @@ impl Tensor {
     /// 勾配を計算するかどうかを取得
     pub fn requires_grad(&self) -> bool {
         self.requires_grad
+    }
+
+    /// 勾配グラフから切り離した新しいTensorを作成
+    ///
+    /// 返されるTensorは `requires_grad = false` となり、
+    /// backward時にこのTensorより先に勾配が伝播されなくなります。
+    ///
+    /// # 例
+    /// ```
+    /// use harp::autograd::Tensor;
+    ///
+    /// let a = Tensor::from_graph_node(
+    ///     harp::graph::GraphNode::full(vec![2, 3], 1.0),
+    ///     true,
+    /// );
+    /// let b = a.detach(); // 勾配グラフから切り離し
+    /// assert!(!b.requires_grad());
+    /// ```
+    pub fn detach(&self) -> Self {
+        Self {
+            data: self.data.clone(),
+            device: self.device,
+            requires_grad: false,
+            grad: Rc::new(RefCell::new(None)),
+            grad_fn: None,
+        }
     }
 
     /// このTensorが使用するデバイスを取得

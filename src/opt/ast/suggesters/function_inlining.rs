@@ -304,9 +304,11 @@ impl FunctionInliningSuggester {
     fn reconstruct_with_children(ast: &AstNode, children: &[AstNode]) -> AstNode {
         match ast {
             // 子ノードを持たないノードはそのまま返す
-            AstNode::Wildcard(_) | AstNode::Const(_) | AstNode::Var(_) | AstNode::Barrier => {
-                ast.clone()
-            }
+            AstNode::Wildcard(_)
+            | AstNode::Const(_)
+            | AstNode::Var(_)
+            | AstNode::Barrier
+            | AstNode::Rand => ast.clone(),
 
             // 二項演算
             AstNode::Add(_, _) => {

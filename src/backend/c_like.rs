@@ -120,6 +120,8 @@ pub trait CLikeRenderer: Renderer {
                 let args = vec![self.render_expr(operand)];
                 self.render_math_func("sin", &args)
             }
+            // 0〜1の一様乱数を生成
+            AstNode::Rand => "((float)rand() / (float)RAND_MAX)".to_string(),
             AstNode::BitwiseAnd(left, right) => {
                 format!("({} & {})", self.render_expr(left), self.render_expr(right))
             }

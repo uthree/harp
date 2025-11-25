@@ -34,6 +34,11 @@ impl_unary_helper!(log2, Log2, "Create a log2 node: log2(a)");
 impl_unary_helper!(exp2, Exp2, "Create an exp2 node: 2^a");
 impl_unary_helper!(sin, Sin, "Create a sine node: sin(a)");
 
+/// Create a random number node: generates uniform random value in [0, 1)
+pub fn rand() -> AstNode {
+    AstNode::Rand
+}
+
 /// Create a cast node: cast a to dtype
 pub fn cast(a: AstNode, dtype: DType) -> AstNode {
     AstNode::Cast(Box::new(a), dtype)

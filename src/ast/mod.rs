@@ -32,6 +32,10 @@ pub enum AstNode {
     Sin(Box<AstNode>),
     Cast(Box<AstNode>, DType),
 
+    // Random number generation - 乱数生成
+    /// 0〜1の一様乱数を生成（F32型）
+    Rand,
+
     // bitwise operations - ビット演算
     BitwiseAnd(Box<AstNode>, Box<AstNode>),
     BitwiseOr(Box<AstNode>, Box<AstNode>),
@@ -120,7 +124,7 @@ impl AstNode {
     /// Get child nodes of this AST node
     pub fn children(&self) -> Vec<&AstNode> {
         match self {
-            AstNode::Wildcard(_) | AstNode::Const(_) | AstNode::Var(_) => vec![],
+            AstNode::Wildcard(_) | AstNode::Const(_) | AstNode::Var(_) | AstNode::Rand => vec![],
             AstNode::Add(left, right)
             | AstNode::Mul(left, right)
             | AstNode::Max(left, right)
@@ -172,7 +176,9 @@ impl AstNode {
         F: Fn(&AstNode) -> AstNode,
     {
         match self {
-            AstNode::Wildcard(_) | AstNode::Const(_) | AstNode::Var(_) => self.clone(),
+            AstNode::Wildcard(_) | AstNode::Const(_) | AstNode::Var(_) | AstNode::Rand => {
+                self.clone()
+            }
             AstNode::Add(left, right) => AstNode::Add(Box::new(f(left)), Box::new(f(right))),
             AstNode::Mul(left, right) => AstNode::Mul(Box::new(f(left)), Box::new(f(right))),
             AstNode::Max(left, right) => AstNode::Max(Box::new(f(left)), Box::new(f(right))),
@@ -312,6 +318,9 @@ impl AstNode {
 
             // Mathematical operations that typically return F32
             AstNode::Sqrt(_) | AstNode::Log2(_) | AstNode::Exp2(_) | AstNode::Sin(_) => DType::F32,
+
+            // Random number generation returns F32
+            AstNode::Rand => DType::F32,
 
             // Memory operations
             AstNode::Load { dtype, .. } => dtype.clone(),
@@ -468,6 +477,8 @@ impl AstNode {
             }
             // Barrier - 同期バリアはスコープに依存しない
             AstNode::Barrier => Ok(()),
+            // Rand - 乱数生成はスコープに依存しない
+            AstNode::Rand => Ok(()),
             // Allocate - サイズ式のスコープチェック
             AstNode::Allocate { size, .. } => {
                 size.check_scope(scope)?;

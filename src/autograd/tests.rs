@@ -675,6 +675,24 @@ fn test_full() {
 }
 
 #[test]
+fn test_rand() {
+    let rand_tensor = Tensor::rand(vec![3, 4]);
+
+    // 形状が正しいか確認
+    assert_eq!(rand_tensor.data.view.shape().len(), 2);
+    assert_eq!(
+        rand_tensor.data.view.shape()[0],
+        crate::graph::shape::Expr::from(3)
+    );
+    assert_eq!(
+        rand_tensor.data.view.shape()[1],
+        crate::graph::shape::Expr::from(4)
+    );
+    // requires_gradはfalse（デフォルト）
+    assert!(!rand_tensor.requires_grad());
+}
+
+#[test]
 fn test_zeros_with_operations() {
     let zeros = Tensor::zeros(vec![3]);
     let ones = Tensor::ones(vec![3]);
@@ -761,6 +779,67 @@ fn test_device_in_debug() {
 
     // Debug出力にdeviceフィールドが含まれていることを確認
     assert!(debug_str.contains("device"));
+}
+
+#[test]
+fn test_detach() {
+    let mut graph = Graph::new();
+    let a = Tensor::from_graph_node(
+        graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape([3])
+            .build(),
+        true,
+    );
+
+    // detach前: requires_grad = true
+    assert!(a.requires_grad());
+
+    // detach後: requires_grad = false
+    let b = a.detach();
+    assert!(!b.requires_grad());
+
+    // 元のテンソルは影響を受けない
+    assert!(a.requires_grad());
+}
+
+#[test]
+fn test_detach_stops_gradient() {
+    let mut graph = Graph::new();
+    let a = Tensor::from_graph_node(
+        graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape([3])
+            .build(),
+        true,
+    );
+    let b = Tensor::from_graph_node(
+        graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape([3])
+            .build(),
+        true,
+    );
+
+    // a を detach してから演算
+    let a_detached = a.detach();
+    let c = &a_detached + &b;
+
+    // c は requires_grad = true (bがrequires_grad=trueなので)
+    assert!(c.requires_grad());
+
+    // スカラーに変換してからbackward実行
+    let loss = c.sum(0);
+    loss.backward();
+
+    // b には勾配が伝播する
+    assert!(b.grad().is_some());
+
+    // a には勾配が伝播しない（detachしたので）
+    assert!(a.grad().is_none());
 }
 
 // 畳み込み演算のテスト
