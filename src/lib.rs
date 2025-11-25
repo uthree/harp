@@ -45,9 +45,6 @@ pub use backend::{Buffer, Compiler, Kernel, Renderer};
 // Re-export lowerer
 pub use lowerer::Lowerer;
 
-// Re-export derive macro
-pub use harp_derive::Module as DeriveModule;
-
 /// Prelude module with commonly used types and traits
 ///
 /// このモジュールをインポートすることで、Harpを使う上で必要な
@@ -61,9 +58,6 @@ pub use harp_derive::Module as DeriveModule;
 pub mod prelude {
     // Autograd (PyTorch-like API)
     pub use crate::autograd::Tensor;
-
-    // Derive macro for Module trait
-    pub use crate::DeriveModule;
 
     // Graph types
     pub use crate::graph::{

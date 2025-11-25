@@ -1,7 +1,6 @@
 //! Derive macro integration tests
 
-use harp::prelude::*;
-use harp_nn::{Module, Parameter, impl_module};
+use harp_nn::{DeriveModule, Module, Parameter, impl_module};
 
 // 簡単なモジュール（impl_module!マクロ使用）
 struct SimpleModule {

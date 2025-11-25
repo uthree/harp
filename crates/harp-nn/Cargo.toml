@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 harp = { path = "../.." }
+harp-derive = { path = "../harp-derive" }

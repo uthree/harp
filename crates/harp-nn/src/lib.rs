@@ -13,6 +13,9 @@ pub mod init;
 pub mod macros;
 pub mod optim;
 
+// Re-export derive macro
+pub use harp_derive::Module as DeriveModule;
+
 use harp::autograd::Tensor;
 use std::collections::HashMap;
 

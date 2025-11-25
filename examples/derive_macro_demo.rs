@@ -2,8 +2,7 @@
 //!
 //! `#[derive(Module)]`を使った自動実装の例
 
-use harp::prelude::*;
-use harp_nn::{Module, Parameter};
+use harp_nn::{DeriveModule, Module, Parameter};
 
 // 1. 基本的なLinear層（deriveマクロ使用）
 #[derive(DeriveModule)]
