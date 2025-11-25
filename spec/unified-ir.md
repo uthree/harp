@@ -47,17 +47,26 @@ OpenCL/Metal/Cカーネル
 
 ### UOp (uop.rs)
 
-統一中間表現の型定義。`UOp(Rc<UOpData>)`でDAG構造を表現。
+統一中間表現の型定義。直接enumとして定義し、子ノードは`Rc<UOp>`で参照。
 
 **設計上の特徴**:
-- 全ての演算を`UOpKind` enumで表現
-- `Rc<>`による参照カウントでDAG構造を実現
-- `substitute()`メソッドでWildcard置換
+- 全ての演算を`enum UOp { ... }`のバリアントとして直接表現
+- 各バリアントに必要なフィールド（dtype, lhs, rhs等）を含む
+- `Rc<UOp>`による参照カウントでDAG構造を実現
 
 **現在のharpとの対応**:
-- `UOpKind::Input/Elementwise/Reduce` ≈ `GraphOp`の高レベル演算
-- `UOpKind::Loop/Load/Store` ≈ Lowererが生成する中間表現
-- `UOpKind::Add/Mul/...` ≈ `AstNode`のスカラー演算
+- `UOp::Input/Elementwise/Reduce` ≈ `GraphOp`の高レベル演算
+- `UOp::Loop/Load/Store` ≈ Lowererが生成する中間表現
+- `UOp::Add/Mul/...` ≈ `AstNode`のスカラー演算
+
+### helper (helper.rs)
+
+`Rc<UOp>`の生成を簡潔に記述するためのヘルパー関数群。
+
+**設計上の特徴**:
+- マクロで二項演算・単項演算のヘルパーを自動生成
+- 本体のharpの`src/ast/helper.rs`と同様のパターン
+- `helper::add()`, `helper::mul()`, `helper::input()` 等で簡潔に構築可能
 
 ### Rewriter (rewriter.rs)
 

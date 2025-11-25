@@ -1,5 +1,5 @@
-use crate::uop::{UOp, UOpKind};
-use std::collections::HashSet;
+use crate::uop::UOp;
+use std::rc::Rc;
 
 /// OpenCLコード生成器
 pub struct OpenCLCodegen {
@@ -12,7 +12,7 @@ impl OpenCLCodegen {
     }
 
     /// UOpからOpenCLカーネルコードを生成
-    pub fn generate_kernel(&mut self, uop: &UOp, kernel_name: &str) -> String {
+    pub fn generate_kernel(&mut self, uop: &Rc<UOp>, kernel_name: &str) -> String {
         let mut code = String::new();
 
         // カーネル関数のシグネチャ
@@ -34,33 +34,37 @@ impl OpenCLCodegen {
     }
 
     /// UOpからコードを生成
-    pub fn generate(&mut self, uop: &UOp) -> String {
-        match &uop.0.op {
-            UOpKind::Loop {
+    pub fn generate(&mut self, uop: &Rc<UOp>) -> String {
+        match &**uop {
+            UOp::Loop {
                 var,
                 start,
                 end,
                 parallel,
+                body,
                 ..
-            } => self.generate_loop(var, *start, *end, *parallel, &uop.0.src[0]),
+            } => self.generate_loop(var, *start, *end, *parallel, body),
 
-            UOpKind::Load { buffer, index } => self.generate_load(buffer, index.as_ref()),
+            UOp::Load { buffer, index, .. } => self.generate_load(buffer, index.as_ref()),
 
-            UOpKind::Store { buffer, index } => {
-                self.generate_store(buffer, index.as_ref(), &uop.0.src[0])
-            }
+            UOp::Store {
+                buffer,
+                index,
+                value,
+                ..
+            } => self.generate_store(buffer, index.as_ref(), value),
 
-            UOpKind::ThreadIdx { dim } => {
+            UOp::ThreadIdx { dim, .. } => {
                 format!("get_global_id({})", dim)
             }
 
-            UOpKind::GroupIdx { dim } => {
+            UOp::GroupIdx { dim, .. } => {
                 format!("get_group_id({})", dim)
             }
 
-            UOpKind::Var { name } => name.clone(),
+            UOp::Var { name, .. } => name.clone(),
 
-            UOpKind::Const { value } => {
+            UOp::Const { value, .. } => {
                 if value.fract() == 0.0 && value.abs() < 1e10 {
                     format!("{:.1}f", value)
                 } else {
@@ -68,49 +72,76 @@ impl OpenCLCodegen {
                 }
             }
 
-            UOpKind::Add => {
-                let lhs = self.generate(&uop.0.src[0]);
-                let rhs = self.generate(&uop.0.src[1]);
-                format!("({} + {})", lhs, rhs)
+            UOp::Add { lhs, rhs, .. } => {
+                let lhs_code = self.generate(lhs);
+                let rhs_code = self.generate(rhs);
+                format!("({} + {})", lhs_code, rhs_code)
             }
 
-            UOpKind::Mul => {
-                let lhs = self.generate(&uop.0.src[0]);
-                let rhs = self.generate(&uop.0.src[1]);
-                format!("({} * {})", lhs, rhs)
+            UOp::Mul { lhs, rhs, .. } => {
+                let lhs_code = self.generate(lhs);
+                let rhs_code = self.generate(rhs);
+                format!("({} * {})", lhs_code, rhs_code)
             }
 
-            UOpKind::Max => {
-                let lhs = self.generate(&uop.0.src[0]);
-                let rhs = self.generate(&uop.0.src[1]);
-                format!("fmax({}, {})", lhs, rhs)
+            UOp::Max { lhs, rhs, .. } => {
+                let lhs_code = self.generate(lhs);
+                let rhs_code = self.generate(rhs);
+                format!("fmax({}, {})", lhs_code, rhs_code)
             }
 
-            UOpKind::Recip => {
-                let arg = self.generate(&uop.0.src[0]);
-                format!("(1.0f / {})", arg)
+            UOp::Recip { arg, .. } => {
+                let arg_code = self.generate(arg);
+                format!("(1.0f / {})", arg_code)
             }
 
-            UOpKind::Sqrt => {
-                let arg = self.generate(&uop.0.src[0]);
-                format!("sqrt({})", arg)
+            UOp::Sqrt { arg, .. } => {
+                let arg_code = self.generate(arg);
+                format!("sqrt({})", arg_code)
             }
 
-            UOpKind::Sequence => {
+            UOp::Sequence { ops, .. } => {
                 let mut code = String::new();
-                for op in &uop.0.src {
+                for op in ops {
                     code.push_str(&self.generate(op));
                 }
                 code
             }
 
-            UOpKind::Barrier => {
+            UOp::Barrier { .. } => {
                 format!("{}barrier(CLK_LOCAL_MEM_FENCE);\n", self.indent())
+            }
+
+            UOp::Rem { lhs, rhs, .. } => {
+                let lhs_code = self.generate(lhs);
+                let rhs_code = self.generate(rhs);
+                format!("({} % {})", lhs_code, rhs_code)
+            }
+
+            UOp::Idiv { lhs, rhs, .. } => {
+                let lhs_code = self.generate(lhs);
+                let rhs_code = self.generate(rhs);
+                format!("({} / {})", lhs_code, rhs_code)
+            }
+
+            UOp::LessThan { lhs, rhs, .. } => {
+                let lhs_code = self.generate(lhs);
+                let rhs_code = self.generate(rhs);
+                format!("({} < {})", lhs_code, rhs_code)
+            }
+
+            UOp::Select {
+                cond, then_, else_, ..
+            } => {
+                let cond_code = self.generate(cond);
+                let then_code = self.generate(then_);
+                let else_code = self.generate(else_);
+                format!("({} ? {} : {})", cond_code, then_code, else_code)
             }
 
             _ => {
                 // その他の演算は未実装
-                format!("{}/* TODO: {:?} */\n", self.indent(), uop.0.op)
+                format!("{}/* TODO: {:?} */\n", self.indent(), uop)
             }
         }
     }
@@ -121,7 +152,7 @@ impl OpenCLCodegen {
         start: usize,
         end: usize,
         parallel: bool,
-        body: &UOp,
+        body: &Rc<UOp>,
     ) -> String {
         let mut code = String::new();
 
@@ -157,7 +188,7 @@ impl OpenCLCodegen {
         code
     }
 
-    fn generate_load(&mut self, buffer: &str, index: Option<&Box<UOp>>) -> String {
+    fn generate_load(&mut self, buffer: &str, index: Option<&Rc<UOp>>) -> String {
         if let Some(idx) = index {
             let idx_code = self.generate(idx);
             format!("{}[(int){}]", buffer, idx_code)
@@ -166,7 +197,7 @@ impl OpenCLCodegen {
         }
     }
 
-    fn generate_store(&mut self, buffer: &str, index: Option<&Box<UOp>>, value: &UOp) -> String {
+    fn generate_store(&mut self, buffer: &str, index: Option<&Rc<UOp>>, value: &Rc<UOp>) -> String {
         let value_code = self.generate(value);
         let mut code = String::new();
 
@@ -200,6 +231,7 @@ impl Default for OpenCLCodegen {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::helper;
     use crate::lowering::Lowerer;
     use crate::uop::ElementwiseOp;
     use harp::DType;
@@ -208,9 +240,9 @@ mod tests {
     fn test_codegen_simple_add() {
         let mut codegen = OpenCLCodegen::new();
 
-        let a = UOp::input("a", vec![10], DType::F32);
-        let b = UOp::input("b", vec![10], DType::F32);
-        let add = UOp::elementwise(ElementwiseOp::Add, vec![a, b], DType::F32);
+        let a = helper::input("a", vec![10], DType::F32);
+        let b = helper::input("b", vec![10], DType::F32);
+        let add = helper::elementwise(ElementwiseOp::Add, vec![a, b], DType::F32);
 
         // Loweringしてからコード生成
         let lowerer = Lowerer::new(256);
@@ -231,12 +263,12 @@ mod tests {
         let mut codegen = OpenCLCodegen::new();
 
         // 手動でUOpを構築
-        let tid = UOp::thread_idx(0, DType::F32);
-        let a = UOp::load("input".to_string(), Some(tid.clone()), DType::F32);
-        let b = UOp::const_val(2.0, DType::F32);
-        let result = UOp::mul(a, b);
-        let store = UOp::store("output".to_string(), Some(tid.clone()), result);
-        let kernel = UOp::loop_op("tid".to_string(), 0, 100, store, true);
+        let tid = helper::thread_idx(0, DType::F32);
+        let a = helper::load("input", Some(tid.clone()), DType::F32);
+        let b = helper::const_val(2.0, DType::F32);
+        let result = helper::mul(a, b);
+        let store = helper::store("output", Some(tid.clone()), result);
+        let kernel = helper::loop_op("tid", 0, 100, store, true);
 
         let code = codegen.generate_kernel(&kernel, "mul_kernel");
 

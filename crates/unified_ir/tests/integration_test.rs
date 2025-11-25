@@ -8,13 +8,13 @@ fn test_end_to_end_elementwise() {
     );
 
     // 1. 高レベル演算の構築
-    let a = UOp::input("a", vec![1024], DType::F32);
-    let b = UOp::input("b", vec![1024], DType::F32);
-    let zero = UOp::const_val(0.0, DType::F32);
+    let a = helper::input("a", vec![1024], DType::F32);
+    let b = helper::input("b", vec![1024], DType::F32);
+    let zero = helper::const_val(0.0, DType::F32);
 
     // (a + b) + 0  （意図的に冗長な演算を追加）
-    let add1 = UOp::elementwise(ElementwiseOp::Add, vec![a, b], DType::F32);
-    let add2 = UOp::elementwise(ElementwiseOp::Add, vec![add1, zero], DType::F32);
+    let add1 = helper::elementwise(ElementwiseOp::Add, vec![a, b], DType::F32);
+    let add2 = helper::elementwise(ElementwiseOp::Add, vec![add1, zero], DType::F32);
 
     println!("【1. 高レベルIR】");
     println!("{}\n", add2.to_debug_string(0));
@@ -54,8 +54,8 @@ fn test_end_to_end_reduce() {
     println!("\n========== Reduce Sum: 高レベル → Lowering → コード生成 ==========\n");
 
     // 1. 高レベル演算の構築
-    let a = UOp::input("a", vec![10, 20], DType::F32);
-    let sum = UOp::reduce(ReduceOp::Sum, a, 1, vec![10, 20]);
+    let a = helper::input("a", vec![10, 20], DType::F32);
+    let sum = helper::reduce(ReduceOp::Sum, a, 1, vec![10, 20]);
 
     println!("【1. 高レベルIR（Reduce）】");
     println!("{}\n", sum.to_debug_string(0));
@@ -84,13 +84,13 @@ fn test_end_to_end_reduce() {
 fn test_optimization_chain() {
     println!("\n========== 最適化チェーン: x * 0 + y * 1 ==========\n");
 
-    let x = UOp::var("x", DType::F32);
-    let y = UOp::var("y", DType::F32);
-    let zero = UOp::const_val(0.0, DType::F32);
-    let one = UOp::const_val(1.0, DType::F32);
+    let x = helper::var("x", DType::F32);
+    let y = helper::var("y", DType::F32);
+    let zero = helper::const_val(0.0, DType::F32);
+    let one = helper::const_val(1.0, DType::F32);
 
     // x * 0 + y * 1
-    let expr = UOp::add(UOp::mul(x, zero), UOp::mul(y.clone(), one));
+    let expr = helper::add(helper::mul(x, zero), helper::mul(y.clone(), one));
 
     println!("【最適化前】");
     println!("{}\n", expr.to_debug_string(0));
@@ -105,8 +105,8 @@ fn test_optimization_chain() {
 
     // x * 0 = 0, 0 + (y * 1) = 0 + y = y, y * 1 = y のいずれかになるはず
     // 最終的には y になることを期待
-    match &optimized.0.op {
-        UOpKind::Var { name } => {
+    match &*optimized {
+        UOp::Var { name, .. } => {
             assert_eq!(name, "y", "最適化後は y のみになるはず");
         }
         _ => {
@@ -121,12 +121,12 @@ fn test_manual_kernel_construction() {
     println!("\n========== 手動カーネル構築テスト ==========\n");
 
     // 手動で低レベルIRを構築: output[i] = input[i] * 2.0
-    let tid = UOp::thread_idx(0, DType::F32);
-    let input_val = UOp::load("input".to_string(), Some(tid.clone()), DType::F32);
-    let two = UOp::const_val(2.0, DType::F32);
-    let result = UOp::mul(input_val, two);
-    let store = UOp::store("output".to_string(), Some(tid.clone()), result);
-    let kernel = UOp::loop_op("tid".to_string(), 0, 100, store, true);
+    let tid = helper::thread_idx(0, DType::F32);
+    let input_val = helper::load("input", Some(tid.clone()), DType::F32);
+    let two = helper::const_val(2.0, DType::F32);
+    let result = helper::mul(input_val, two);
+    let store = helper::store("output", Some(tid.clone()), result);
+    let kernel = helper::loop_op("tid", 0, 100, store, true);
 
     println!("【手動構築したIR】");
     println!("{}\n", kernel.to_debug_string(0));
