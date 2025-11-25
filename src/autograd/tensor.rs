@@ -139,6 +139,30 @@ impl Tensor {
         Self::from_graph_node_with_device(node, false, device)
     }
 
+    /// 指定した形状の標準正規分布乱数テンソルを作成（デフォルトデバイス）
+    ///
+    /// 各要素は平均0、標準偏差1の正規分布に従う乱数で初期化されます。
+    /// Box-Muller法を使用して一様乱数から正規乱数を生成します。
+    ///
+    /// # 引数
+    /// - `shape`: テンソルの形状
+    ///
+    /// # 例
+    /// ```
+    /// use harp::autograd::Tensor;
+    ///
+    /// let randn_tensor = Tensor::randn(vec![2, 3]); // 2x3の正規乱数テンソル
+    /// ```
+    pub fn randn(shape: Vec<usize>) -> Self {
+        Self::randn_on(shape, Device::default())
+    }
+
+    /// 指定した形状の標準正規分布乱数テンソルを作成（デバイス指定版）
+    pub fn randn_on(shape: Vec<usize>, device: Device) -> Self {
+        let node = GraphNode::randn(shape);
+        Self::from_graph_node_with_device(node, false, device)
+    }
+
     /// 指定した形状と値で埋められたテンソルを作成（デフォルトデバイス）
     ///
     /// # 引数

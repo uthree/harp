@@ -693,6 +693,24 @@ fn test_rand() {
 }
 
 #[test]
+fn test_randn() {
+    let randn_tensor = Tensor::randn(vec![5, 6]);
+
+    // 形状が正しいか確認
+    assert_eq!(randn_tensor.data.view.shape().len(), 2);
+    assert_eq!(
+        randn_tensor.data.view.shape()[0],
+        crate::graph::shape::Expr::from(5)
+    );
+    assert_eq!(
+        randn_tensor.data.view.shape()[1],
+        crate::graph::shape::Expr::from(6)
+    );
+    // requires_gradはfalse（デフォルト）
+    assert!(!randn_tensor.requires_grad());
+}
+
+#[test]
 fn test_zeros_with_operations() {
     let zeros = Tensor::zeros(vec![3]);
     let ones = Tensor::ones(vec![3]);
