@@ -168,8 +168,9 @@ let result = 2.0 * &x + &w * 0.5;
 
 **現在の対応状況：**
 - ✅ stride != 1 をサポート
-- ❌ dilation != 1 は未対応（panic）
-- ❌ groups != 1 は未対応（panic）
+- ✅ dilation != 1 をサポート（Conv1d/Conv2d）
+- ✅ groups != 1 をサポート（Conv1d/Conv2d）
+- ❌ Conv3dはdilation != 1, groups != 1 は未対応（panic）
 
 ### Fold演算（col2im）
 
@@ -187,13 +188,13 @@ Unfoldの逆操作。畳み込みのbackward計算で使用されます。
 - backwardはスカラーテンソル（ndim=0）に対してのみ実行可能
 - 比較演算（Max等）の勾配は簡易実装
 - 高階微分は未実装
-- 畳み込み演算はdilation=1, groups=1のみサポート
+- Conv3dはdilation!=1, groups!=1のbackwardが未サポート
 
 将来的な拡張：
 - ベクトル値関数のJacobian計算
 - 前向きモード自動微分
 - 高階微分
-- 畳み込み演算でのdilation, groupsサポート
+- Conv3dでのdilation, groupsサポート
 
 ## コード構成とリファクタリング履歴
 

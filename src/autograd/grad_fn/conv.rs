@@ -497,8 +497,201 @@ impl GradFn for Conv2dBackward {
             (grad_input_data, grad_kernel_data)
         } else {
             // === groups>1: group convolution backward ===
-            // Conv1dと同じパターンでgroups対応
-            panic!("Conv2d backward with groups>1 is not yet implemented");
+            // Conv1dBackwardと同じパターンでgroups対応
+
+            let c_in_per_group = c_in / self.groups;
+            let c_out =
+                kernel_shape[0].expect_usize("Conv2d backward requires constant kernel shape");
+            let c_out_per_group = c_out / self.groups;
+
+            // === grad_input: transposed conv with groups ===
+            // kernel: (C_out, C_in/groups, kH, kW) -> reshape -> (groups, C_out/groups, C_in/groups, kH, kW)
+            // -> flip and permute -> (groups, C_in/groups, C_out/groups, kH, kW)
+
+            // まずcontiguous化
+            let kernel_contiguous_view =
+                crate::graph::shape::View::contiguous(kernel.data.view.shape().to_vec());
+            let kernel_contiguous = crate::graph::GraphNode::new(
+                kernel.data.dtype.clone(),
+                crate::graph::GraphOp::Contiguous {
+                    elementwise_strategies: None,
+                },
+                vec![kernel.data.clone()],
+                kernel_contiguous_view,
+            );
+
+            let kernel_reshaped_view = kernel_contiguous.view.clone().reshape(vec![
+                crate::graph::shape::Expr::from(self.groups as isize),
+                crate::graph::shape::Expr::from(c_out_per_group as isize),
+                crate::graph::shape::Expr::from(c_in_per_group as isize),
+                crate::graph::shape::Expr::from(kernel_h as isize),
+                crate::graph::shape::Expr::from(kernel_w as isize),
+            ]);
+            let kernel_reshaped = kernel_contiguous.view(kernel_reshaped_view);
+
+            // flip and permute: (groups, C_out/groups, C_in/groups, kH, kW) -> (groups, C_in/groups, C_out/groups, kH, kW)
+            let kernel_flipped = kernel_reshaped.view(kernel_reshaped.view.clone().flip(3).flip(4));
+            let kernel_transposed =
+                kernel_flipped.view(kernel_flipped.view.clone().permute(vec![0, 2, 1, 3, 4]));
+
+            // grad_output: (C_out, H', W') -> reshape -> (groups, C_out/groups, H', W')
+            let grad_out_contiguous_view =
+                crate::graph::shape::View::contiguous(grad_output.data.view.shape().to_vec());
+            let grad_out_contiguous = crate::graph::GraphNode::new(
+                grad_output.data.dtype.clone(),
+                crate::graph::GraphOp::Contiguous {
+                    elementwise_strategies: None,
+                },
+                vec![grad_output.data.clone()],
+                grad_out_contiguous_view,
+            );
+
+            let grad_out_reshaped_view = grad_out_contiguous.view.clone().reshape(vec![
+                crate::graph::shape::Expr::from(self.groups as isize),
+                crate::graph::shape::Expr::from(c_out_per_group as isize),
+                grad_output_shape[1].clone(),
+                grad_output_shape[2].clone(),
+            ]);
+            let grad_out_reshaped = grad_out_contiguous.view(grad_out_reshaped_view);
+
+            // expand and multiply: (groups, C_in/groups, C_out/groups, kH, kW, H', W')
+            let grad_out_tmp = grad_out_reshaped
+                .view
+                .clone()
+                .unsqueeze(1)
+                .unsqueeze(3)
+                .unsqueeze(4);
+            let grad_out_expanded = grad_out_reshaped.view(grad_out_tmp);
+
+            let kernel_t_tmp = kernel_transposed.view.clone().unsqueeze(5).unsqueeze(6);
+            let kernel_t_expanded = kernel_transposed.view(kernel_t_tmp);
+
+            let h_out_expr = &grad_output_shape[1];
+            let w_out_expr = &grad_output_shape[2];
+            let shape_for_mult = vec![
+                crate::graph::shape::Expr::from(self.groups as isize),
+                crate::graph::shape::Expr::from(c_in_per_group as isize),
+                crate::graph::shape::Expr::from(c_out_per_group as isize),
+                crate::graph::shape::Expr::from(kernel_h as isize),
+                crate::graph::shape::Expr::from(kernel_w as isize),
+                h_out_expr.clone(),
+                w_out_expr.clone(),
+            ];
+
+            let grad_out_bc = grad_out_expanded.expand(shape_for_mult.clone());
+            let kernel_t_bc = kernel_t_expanded.expand(shape_for_mult);
+
+            let multiplied = &grad_out_bc * &kernel_t_bc;
+            let reduced_for_fold = multiplied.reduce_sum(2); // reduce C_out/groups
+
+            // fold with groups: (groups, C_in/groups, kH, kW, H', W') -> (C_in, H, W)
+            let grad_input_folded = reduced_for_fold.fold2d(
+                vec![c_in, h_in, w_in],
+                (kernel_h, kernel_w),
+                self.stride,
+                self.dilation,
+                self.groups,
+            );
+            let grad_input_data = grad_input_folded;
+
+            // === grad_kernel: correlation with groups ===
+            // unfold input with groups: (C_in, H, W) -> (groups, C_in/groups, kH, kW, H', W')
+            let input_unfolded = input.data.unfold2d(
+                (kernel_h, kernel_w),
+                self.stride,
+                self.dilation,
+                self.groups,
+            );
+
+            // reshape grad_output for spatial flatten: (groups, C_out/groups, H', W') -> (groups, C_out/groups, H'*W')
+            let spatial_dims_product = h_out_expr.clone() * w_out_expr.clone();
+            let grad_out_for_kernel_view = grad_out_reshaped.view.clone().reshape(vec![
+                crate::graph::shape::Expr::from(self.groups as isize),
+                crate::graph::shape::Expr::from(c_out_per_group as isize),
+                spatial_dims_product.clone(),
+            ]);
+            // contiguous化してからreshape
+            let grad_out_cont_for_reshape_view =
+                crate::graph::shape::View::contiguous(grad_out_reshaped.view.shape().to_vec());
+            let grad_out_cont_for_reshape = crate::graph::GraphNode::new(
+                grad_out_reshaped.dtype.clone(),
+                crate::graph::GraphOp::Contiguous {
+                    elementwise_strategies: None,
+                },
+                vec![grad_out_reshaped.clone()],
+                grad_out_cont_for_reshape_view,
+            );
+            let grad_out_for_kernel = grad_out_cont_for_reshape.view(grad_out_for_kernel_view);
+
+            // reshape input_unfolded: (groups, C_in/groups, kH, kW, H', W') -> (groups, C_in/groups, kH, kW, H'*W')
+            let input_unf_contiguous_view =
+                crate::graph::shape::View::contiguous(input_unfolded.view.shape().to_vec());
+            let input_unf_contiguous = crate::graph::GraphNode::new(
+                input_unfolded.dtype.clone(),
+                crate::graph::GraphOp::Contiguous {
+                    elementwise_strategies: None,
+                },
+                vec![input_unfolded.clone()],
+                input_unf_contiguous_view,
+            );
+            let input_unf_reshaped_view = input_unf_contiguous.view.clone().reshape(vec![
+                crate::graph::shape::Expr::from(self.groups as isize),
+                crate::graph::shape::Expr::from(c_in_per_group as isize),
+                crate::graph::shape::Expr::from(kernel_h as isize),
+                crate::graph::shape::Expr::from(kernel_w as isize),
+                spatial_dims_product.clone(),
+            ]);
+            let input_unf_reshaped = input_unf_contiguous.view(input_unf_reshaped_view);
+
+            // expand: (groups, C_out/groups, C_in/groups, kH, kW, H'*W')
+            let grad_out_tmp1 = grad_out_for_kernel
+                .view
+                .clone()
+                .unsqueeze(2)
+                .unsqueeze(3)
+                .unsqueeze(4);
+            let grad_out_for_kernel_expanded = grad_out_for_kernel.view(grad_out_tmp1);
+
+            let input_unf_tmp = input_unf_reshaped.view.clone().unsqueeze(1);
+            let input_unf_for_kernel = input_unf_reshaped.view(input_unf_tmp);
+
+            let common_shape_kernel = vec![
+                crate::graph::shape::Expr::from(self.groups as isize),
+                crate::graph::shape::Expr::from(c_out_per_group as isize),
+                crate::graph::shape::Expr::from(c_in_per_group as isize),
+                crate::graph::shape::Expr::from(kernel_h as isize),
+                crate::graph::shape::Expr::from(kernel_w as isize),
+                spatial_dims_product,
+            ];
+
+            let grad_out_bc_kernel =
+                grad_out_for_kernel_expanded.expand(common_shape_kernel.clone());
+            let input_unf_bc_kernel = input_unf_for_kernel.expand(common_shape_kernel);
+
+            let grad_kernel_grouped = (&grad_out_bc_kernel * &input_unf_bc_kernel).reduce_sum(5);
+
+            // reshape back: (groups, C_out/groups, C_in/groups, kH, kW) -> (C_out, C_in/groups, kH, kW)
+            // contiguous化してからreshape
+            let grad_kernel_grouped_cont_view =
+                crate::graph::shape::View::contiguous(grad_kernel_grouped.view.shape().to_vec());
+            let grad_kernel_grouped_cont = crate::graph::GraphNode::new(
+                grad_kernel_grouped.dtype.clone(),
+                crate::graph::GraphOp::Contiguous {
+                    elementwise_strategies: None,
+                },
+                vec![grad_kernel_grouped.clone()],
+                grad_kernel_grouped_cont_view,
+            );
+
+            let grad_kernel_data_view = grad_kernel_grouped_cont.view.clone().reshape(vec![
+                crate::graph::shape::Expr::from(c_out as isize),
+                crate::graph::shape::Expr::from(c_in_per_group as isize),
+                crate::graph::shape::Expr::from(kernel_h as isize),
+                crate::graph::shape::Expr::from(kernel_w as isize),
+            ]);
+            let grad_kernel_data = grad_kernel_grouped_cont.view(grad_kernel_data_view);
+
+            (grad_input_data, grad_kernel_data)
         };
 
         vec![
