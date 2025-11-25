@@ -1227,3 +1227,560 @@ impl GradFn for ConvTranspose2dBackward {
         ]
     }
 }
+
+/// ConvTranspose1d演算の勾配
+///
+/// 1D転置畳み込みの逆伝播を実装します。
+#[derive(Debug)]
+#[allow(dead_code)]
+pub struct ConvTranspose1dBackward {
+    pub stride: usize,
+    pub padding: usize,
+    pub output_padding: usize,
+    pub dilation: usize,
+    pub groups: usize,
+}
+
+impl GradFn for ConvTranspose1dBackward {
+    fn apply(&self, grad_output: &Tensor, inputs: &[Tensor]) -> Vec<Option<Tensor>> {
+        assert_eq!(
+            inputs.len(),
+            2,
+            "ConvTranspose1d requires 2 inputs (input, kernel)"
+        );
+        let input = &inputs[0];
+        let kernel = &inputs[1];
+
+        let input_shape = input.data.view.shape();
+        let kernel_shape = kernel.data.view.shape();
+
+        let c_in =
+            input_shape[0].expect_usize("ConvTranspose1d backward requires constant input shape");
+        let l_in =
+            input_shape[1].expect_usize("ConvTranspose1d backward requires constant input shape");
+
+        let kernel_size =
+            kernel_shape[2].expect_usize("ConvTranspose1d backward requires constant kernel shape");
+        let c_out_per_group =
+            kernel_shape[1].expect_usize("ConvTranspose1d backward requires constant kernel shape");
+
+        let c_out = c_out_per_group * self.groups;
+
+        let (grad_input_data, grad_kernel_data) = if self.groups == 1 {
+            // === groups=1 ===
+            // カーネルを空間的に反転してからconv1d
+            let kernel_flipped_view = kernel.data.view.clone().flip(2);
+            let kernel_flipped = kernel.data.view(kernel_flipped_view);
+
+            let grad_input_data =
+                grad_output
+                    .data
+                    .clone()
+                    .conv1d(kernel_flipped, self.stride, self.dilation, 1);
+
+            // === grad_kernel: 入力とgrad_outputの相関 ===
+            let grad_out_unfolded =
+                grad_output
+                    .data
+                    .unfold1d(kernel_size, self.stride, self.dilation, 1);
+            // output: (C_out, k, L_in)
+
+            // 空間次元を平坦化: (C_out, k, L_in) -> (C_out, k, L_in)
+            let grad_out_cont_view =
+                crate::graph::shape::View::contiguous(grad_out_unfolded.view.shape().to_vec());
+            let grad_out_cont = crate::graph::GraphNode::new(
+                grad_out_unfolded.dtype.clone(),
+                crate::graph::GraphOp::Contiguous {
+                    elementwise_strategies: None,
+                },
+                vec![grad_out_unfolded.clone()],
+                grad_out_cont_view,
+            );
+            let grad_out_reshaped_view = grad_out_cont.view.clone().reshape(vec![
+                crate::graph::shape::Expr::from(c_out as isize),
+                crate::graph::shape::Expr::from(kernel_size as isize),
+                crate::graph::shape::Expr::from(l_in as isize),
+            ]);
+            let grad_out_reshaped = grad_out_cont.view(grad_out_reshaped_view);
+
+            // 入力: (C_in, L_in)
+            let input_cont_view =
+                crate::graph::shape::View::contiguous(input.data.view.shape().to_vec());
+            let input_cont = crate::graph::GraphNode::new(
+                input.data.dtype.clone(),
+                crate::graph::GraphOp::Contiguous {
+                    elementwise_strategies: None,
+                },
+                vec![input.data.clone()],
+                input_cont_view,
+            );
+
+            // unsqueeze: (C_in, L_in) -> (C_in, 1, 1, L_in)
+            let input_expanded = input_cont.view(input_cont.view.clone().unsqueeze(1).unsqueeze(2));
+
+            // unsqueeze: (C_out, k, L_in) -> (1, C_out, k, L_in)
+            let grad_out_expanded =
+                grad_out_reshaped.view(grad_out_reshaped.view.clone().unsqueeze(0));
+
+            // expand: (C_in, C_out, k, L_in)
+            let common_shape = vec![
+                crate::graph::shape::Expr::from(c_in as isize),
+                crate::graph::shape::Expr::from(c_out as isize),
+                crate::graph::shape::Expr::from(kernel_size as isize),
+                crate::graph::shape::Expr::from(l_in as isize),
+            ];
+
+            let input_bc = input_expanded.expand(common_shape.clone());
+            let grad_out_bc = grad_out_expanded.expand(common_shape);
+
+            // 乗算してL_in次元でreduce
+            let grad_kernel_data = (&input_bc * &grad_out_bc).reduce_sum(3);
+
+            (grad_input_data, grad_kernel_data)
+        } else {
+            // === groups > 1 ===
+            let c_in_per_group = c_in / self.groups;
+
+            // カーネルをreshape & permute
+            let kernel_cont_view =
+                crate::graph::shape::View::contiguous(kernel.data.view.shape().to_vec());
+            let kernel_cont = crate::graph::GraphNode::new(
+                kernel.data.dtype.clone(),
+                crate::graph::GraphOp::Contiguous {
+                    elementwise_strategies: None,
+                },
+                vec![kernel.data.clone()],
+                kernel_cont_view,
+            );
+            let kernel_reshaped_view = kernel_cont.view.clone().reshape(vec![
+                crate::graph::shape::Expr::from(self.groups as isize),
+                crate::graph::shape::Expr::from(c_in_per_group as isize),
+                crate::graph::shape::Expr::from(c_out_per_group as isize),
+                crate::graph::shape::Expr::from(kernel_size as isize),
+            ]);
+            let kernel_reshaped = kernel_cont.view(kernel_reshaped_view);
+
+            // permute: (groups, C_in/g, C_out/g, k) -> (groups, C_out/g, C_in/g, k)
+            let kernel_permuted =
+                kernel_reshaped.view(kernel_reshaped.view.clone().permute(vec![0, 2, 1, 3]));
+
+            // reshape back: (groups, C_out/g, C_in/g, k) -> (C_out, C_in/g, k)
+            let kernel_cont2_view =
+                crate::graph::shape::View::contiguous(kernel_permuted.view.shape().to_vec());
+            let kernel_cont2 = crate::graph::GraphNode::new(
+                kernel_permuted.dtype.clone(),
+                crate::graph::GraphOp::Contiguous {
+                    elementwise_strategies: None,
+                },
+                vec![kernel_permuted.clone()],
+                kernel_cont2_view,
+            );
+            let kernel_transposed_view = kernel_cont2.view.clone().reshape(vec![
+                crate::graph::shape::Expr::from(c_out as isize),
+                crate::graph::shape::Expr::from(c_in_per_group as isize),
+                crate::graph::shape::Expr::from(kernel_size as isize),
+            ]);
+            let kernel_transposed = kernel_cont2.view(kernel_transposed_view);
+
+            let grad_input_data = grad_output.data.clone().conv1d(
+                kernel_transposed,
+                self.stride,
+                self.dilation,
+                self.groups,
+            );
+
+            // === grad_kernel with groups ===
+            let grad_out_unfolded =
+                grad_output
+                    .data
+                    .unfold1d(kernel_size, self.stride, self.dilation, self.groups);
+            // output: (groups, C_out/g, k, L_in)
+
+            let grad_out_cont_view =
+                crate::graph::shape::View::contiguous(grad_out_unfolded.view.shape().to_vec());
+            let grad_out_cont = crate::graph::GraphNode::new(
+                grad_out_unfolded.dtype.clone(),
+                crate::graph::GraphOp::Contiguous {
+                    elementwise_strategies: None,
+                },
+                vec![grad_out_unfolded.clone()],
+                grad_out_cont_view,
+            );
+            let grad_out_reshaped_view = grad_out_cont.view.clone().reshape(vec![
+                crate::graph::shape::Expr::from(self.groups as isize),
+                crate::graph::shape::Expr::from(c_out_per_group as isize),
+                crate::graph::shape::Expr::from(kernel_size as isize),
+                crate::graph::shape::Expr::from(l_in as isize),
+            ]);
+            let grad_out_reshaped = grad_out_cont.view(grad_out_reshaped_view);
+
+            // 入力をreshape: (C_in, L_in) -> (groups, C_in/g, L_in)
+            let input_cont_view =
+                crate::graph::shape::View::contiguous(input.data.view.shape().to_vec());
+            let input_cont = crate::graph::GraphNode::new(
+                input.data.dtype.clone(),
+                crate::graph::GraphOp::Contiguous {
+                    elementwise_strategies: None,
+                },
+                vec![input.data.clone()],
+                input_cont_view,
+            );
+            let input_reshaped_view = input_cont.view.clone().reshape(vec![
+                crate::graph::shape::Expr::from(self.groups as isize),
+                crate::graph::shape::Expr::from(c_in_per_group as isize),
+                crate::graph::shape::Expr::from(l_in as isize),
+            ]);
+            let input_reshaped = input_cont.view(input_reshaped_view);
+
+            // unsqueeze: (groups, C_in/g, L_in) -> (groups, C_in/g, 1, 1, L_in)
+            let input_expanded =
+                input_reshaped.view(input_reshaped.view.clone().unsqueeze(2).unsqueeze(3));
+
+            // unsqueeze: (groups, C_out/g, k, L_in) -> (groups, 1, C_out/g, k, L_in)
+            let grad_out_expanded =
+                grad_out_reshaped.view(grad_out_reshaped.view.clone().unsqueeze(1));
+
+            // expand: (groups, C_in/g, C_out/g, k, L_in)
+            let common_shape = vec![
+                crate::graph::shape::Expr::from(self.groups as isize),
+                crate::graph::shape::Expr::from(c_in_per_group as isize),
+                crate::graph::shape::Expr::from(c_out_per_group as isize),
+                crate::graph::shape::Expr::from(kernel_size as isize),
+                crate::graph::shape::Expr::from(l_in as isize),
+            ];
+
+            let input_bc = input_expanded.expand(common_shape.clone());
+            let grad_out_bc = grad_out_expanded.expand(common_shape);
+
+            // 乗算してL_in次元でreduce: (groups, C_in/g, C_out/g, k)
+            let grad_kernel_grouped = (&input_bc * &grad_out_bc).reduce_sum(4);
+
+            // reshape back: (groups, C_in/g, C_out/g, k) -> (C_in, C_out/g, k)
+            let grad_kernel_cont_view =
+                crate::graph::shape::View::contiguous(grad_kernel_grouped.view.shape().to_vec());
+            let grad_kernel_cont = crate::graph::GraphNode::new(
+                grad_kernel_grouped.dtype.clone(),
+                crate::graph::GraphOp::Contiguous {
+                    elementwise_strategies: None,
+                },
+                vec![grad_kernel_grouped.clone()],
+                grad_kernel_cont_view,
+            );
+            let grad_kernel_data_view = grad_kernel_cont.view.clone().reshape(vec![
+                crate::graph::shape::Expr::from(c_in as isize),
+                crate::graph::shape::Expr::from(c_out_per_group as isize),
+                crate::graph::shape::Expr::from(kernel_size as isize),
+            ]);
+            let grad_kernel_data = grad_kernel_cont.view(grad_kernel_data_view);
+
+            (grad_input_data, grad_kernel_data)
+        };
+
+        vec![
+            Some(Tensor::from_graph_node(grad_input_data, false)),
+            Some(Tensor::from_graph_node(grad_kernel_data, false)),
+        ]
+    }
+}
+
+/// ConvTranspose3d演算の勾配
+///
+/// 3D転置畳み込みの逆伝播を実装します。
+#[derive(Debug)]
+#[allow(dead_code)]
+pub struct ConvTranspose3dBackward {
+    pub stride: (usize, usize, usize),
+    pub padding: (usize, usize, usize),
+    pub output_padding: (usize, usize, usize),
+    pub dilation: (usize, usize, usize),
+    pub groups: usize,
+}
+
+impl GradFn for ConvTranspose3dBackward {
+    fn apply(&self, grad_output: &Tensor, inputs: &[Tensor]) -> Vec<Option<Tensor>> {
+        assert_eq!(
+            inputs.len(),
+            2,
+            "ConvTranspose3d requires 2 inputs (input, kernel)"
+        );
+        let input = &inputs[0];
+        let kernel = &inputs[1];
+
+        let input_shape = input.data.view.shape();
+        let kernel_shape = kernel.data.view.shape();
+
+        let c_in =
+            input_shape[0].expect_usize("ConvTranspose3d backward requires constant input shape");
+        let d_in =
+            input_shape[1].expect_usize("ConvTranspose3d backward requires constant input shape");
+        let h_in =
+            input_shape[2].expect_usize("ConvTranspose3d backward requires constant input shape");
+        let w_in =
+            input_shape[3].expect_usize("ConvTranspose3d backward requires constant input shape");
+
+        let kernel_d =
+            kernel_shape[2].expect_usize("ConvTranspose3d backward requires constant kernel shape");
+        let kernel_h =
+            kernel_shape[3].expect_usize("ConvTranspose3d backward requires constant kernel shape");
+        let kernel_w =
+            kernel_shape[4].expect_usize("ConvTranspose3d backward requires constant kernel shape");
+        let c_out_per_group =
+            kernel_shape[1].expect_usize("ConvTranspose3d backward requires constant kernel shape");
+
+        let c_out = c_out_per_group * self.groups;
+
+        let (grad_input_data, grad_kernel_data) = if self.groups == 1 {
+            // === groups=1 ===
+            // カーネルを空間的に反転してからconv3d
+            let kernel_flipped_view = kernel.data.view.clone().flip(2).flip(3).flip(4);
+            let kernel_flipped = kernel.data.view(kernel_flipped_view);
+
+            let grad_input_data =
+                grad_output
+                    .data
+                    .clone()
+                    .conv3d(kernel_flipped, self.stride, self.dilation, 1);
+
+            // === grad_kernel: 入力とgrad_outputの相関 ===
+            let grad_out_unfolded = grad_output.data.unfold3d(
+                (kernel_d, kernel_h, kernel_w),
+                self.stride,
+                self.dilation,
+                1,
+            );
+            // output: (C_out, kD, kH, kW, D_in, H_in, W_in)
+
+            let spatial_product = d_in * h_in * w_in;
+            let grad_out_cont_view =
+                crate::graph::shape::View::contiguous(grad_out_unfolded.view.shape().to_vec());
+            let grad_out_cont = crate::graph::GraphNode::new(
+                grad_out_unfolded.dtype.clone(),
+                crate::graph::GraphOp::Contiguous {
+                    elementwise_strategies: None,
+                },
+                vec![grad_out_unfolded.clone()],
+                grad_out_cont_view,
+            );
+            let grad_out_reshaped_view = grad_out_cont.view.clone().reshape(vec![
+                crate::graph::shape::Expr::from(c_out as isize),
+                crate::graph::shape::Expr::from(kernel_d as isize),
+                crate::graph::shape::Expr::from(kernel_h as isize),
+                crate::graph::shape::Expr::from(kernel_w as isize),
+                crate::graph::shape::Expr::from(spatial_product as isize),
+            ]);
+            let grad_out_reshaped = grad_out_cont.view(grad_out_reshaped_view);
+
+            // 入力: (C_in, D_in, H_in, W_in) -> (C_in, D*H*W)
+            let input_cont_view =
+                crate::graph::shape::View::contiguous(input.data.view.shape().to_vec());
+            let input_cont = crate::graph::GraphNode::new(
+                input.data.dtype.clone(),
+                crate::graph::GraphOp::Contiguous {
+                    elementwise_strategies: None,
+                },
+                vec![input.data.clone()],
+                input_cont_view,
+            );
+            let input_reshaped_view = input_cont.view.clone().reshape(vec![
+                crate::graph::shape::Expr::from(c_in as isize),
+                crate::graph::shape::Expr::from(spatial_product as isize),
+            ]);
+            let input_reshaped = input_cont.view(input_reshaped_view);
+
+            // unsqueeze: (C_in, D*H*W) -> (C_in, 1, 1, 1, 1, D*H*W)
+            let input_expanded = input_reshaped.view(
+                input_reshaped
+                    .view
+                    .clone()
+                    .unsqueeze(1)
+                    .unsqueeze(2)
+                    .unsqueeze(3)
+                    .unsqueeze(4),
+            );
+
+            // unsqueeze: (C_out, kD, kH, kW, D*H*W) -> (1, C_out, kD, kH, kW, D*H*W)
+            let grad_out_expanded =
+                grad_out_reshaped.view(grad_out_reshaped.view.clone().unsqueeze(0));
+
+            // expand: (C_in, C_out, kD, kH, kW, D*H*W)
+            let common_shape = vec![
+                crate::graph::shape::Expr::from(c_in as isize),
+                crate::graph::shape::Expr::from(c_out as isize),
+                crate::graph::shape::Expr::from(kernel_d as isize),
+                crate::graph::shape::Expr::from(kernel_h as isize),
+                crate::graph::shape::Expr::from(kernel_w as isize),
+                crate::graph::shape::Expr::from(spatial_product as isize),
+            ];
+
+            let input_bc = input_expanded.expand(common_shape.clone());
+            let grad_out_bc = grad_out_expanded.expand(common_shape);
+
+            // 乗算して空間次元でreduce
+            let grad_kernel_data = (&input_bc * &grad_out_bc).reduce_sum(5);
+
+            (grad_input_data, grad_kernel_data)
+        } else {
+            // === groups > 1 ===
+            let c_in_per_group = c_in / self.groups;
+            let spatial_product = d_in * h_in * w_in;
+
+            // カーネルをreshape & permute
+            let kernel_cont_view =
+                crate::graph::shape::View::contiguous(kernel.data.view.shape().to_vec());
+            let kernel_cont = crate::graph::GraphNode::new(
+                kernel.data.dtype.clone(),
+                crate::graph::GraphOp::Contiguous {
+                    elementwise_strategies: None,
+                },
+                vec![kernel.data.clone()],
+                kernel_cont_view,
+            );
+            let kernel_reshaped_view = kernel_cont.view.clone().reshape(vec![
+                crate::graph::shape::Expr::from(self.groups as isize),
+                crate::graph::shape::Expr::from(c_in_per_group as isize),
+                crate::graph::shape::Expr::from(c_out_per_group as isize),
+                crate::graph::shape::Expr::from(kernel_d as isize),
+                crate::graph::shape::Expr::from(kernel_h as isize),
+                crate::graph::shape::Expr::from(kernel_w as isize),
+            ]);
+            let kernel_reshaped = kernel_cont.view(kernel_reshaped_view);
+
+            // permute: (groups, C_in/g, C_out/g, kD, kH, kW) -> (groups, C_out/g, C_in/g, kD, kH, kW)
+            let kernel_permuted =
+                kernel_reshaped.view(kernel_reshaped.view.clone().permute(vec![0, 2, 1, 3, 4, 5]));
+
+            // reshape back: -> (C_out, C_in/g, kD, kH, kW)
+            let kernel_cont2_view =
+                crate::graph::shape::View::contiguous(kernel_permuted.view.shape().to_vec());
+            let kernel_cont2 = crate::graph::GraphNode::new(
+                kernel_permuted.dtype.clone(),
+                crate::graph::GraphOp::Contiguous {
+                    elementwise_strategies: None,
+                },
+                vec![kernel_permuted.clone()],
+                kernel_cont2_view,
+            );
+            let kernel_transposed_view = kernel_cont2.view.clone().reshape(vec![
+                crate::graph::shape::Expr::from(c_out as isize),
+                crate::graph::shape::Expr::from(c_in_per_group as isize),
+                crate::graph::shape::Expr::from(kernel_d as isize),
+                crate::graph::shape::Expr::from(kernel_h as isize),
+                crate::graph::shape::Expr::from(kernel_w as isize),
+            ]);
+            let kernel_transposed = kernel_cont2.view(kernel_transposed_view);
+
+            let grad_input_data = grad_output.data.clone().conv3d(
+                kernel_transposed,
+                self.stride,
+                self.dilation,
+                self.groups,
+            );
+
+            // === grad_kernel with groups ===
+            let grad_out_unfolded = grad_output.data.unfold3d(
+                (kernel_d, kernel_h, kernel_w),
+                self.stride,
+                self.dilation,
+                self.groups,
+            );
+            // output: (groups, C_out/g, kD, kH, kW, D_in, H_in, W_in)
+
+            let grad_out_cont_view =
+                crate::graph::shape::View::contiguous(grad_out_unfolded.view.shape().to_vec());
+            let grad_out_cont = crate::graph::GraphNode::new(
+                grad_out_unfolded.dtype.clone(),
+                crate::graph::GraphOp::Contiguous {
+                    elementwise_strategies: None,
+                },
+                vec![grad_out_unfolded.clone()],
+                grad_out_cont_view,
+            );
+            let grad_out_reshaped_view = grad_out_cont.view.clone().reshape(vec![
+                crate::graph::shape::Expr::from(self.groups as isize),
+                crate::graph::shape::Expr::from(c_out_per_group as isize),
+                crate::graph::shape::Expr::from(kernel_d as isize),
+                crate::graph::shape::Expr::from(kernel_h as isize),
+                crate::graph::shape::Expr::from(kernel_w as isize),
+                crate::graph::shape::Expr::from(spatial_product as isize),
+            ]);
+            let grad_out_reshaped = grad_out_cont.view(grad_out_reshaped_view);
+
+            // 入力をreshape: (C_in, D, H, W) -> (groups, C_in/g, D*H*W)
+            let input_cont_view =
+                crate::graph::shape::View::contiguous(input.data.view.shape().to_vec());
+            let input_cont = crate::graph::GraphNode::new(
+                input.data.dtype.clone(),
+                crate::graph::GraphOp::Contiguous {
+                    elementwise_strategies: None,
+                },
+                vec![input.data.clone()],
+                input_cont_view,
+            );
+            let input_reshaped_view = input_cont.view.clone().reshape(vec![
+                crate::graph::shape::Expr::from(self.groups as isize),
+                crate::graph::shape::Expr::from(c_in_per_group as isize),
+                crate::graph::shape::Expr::from(spatial_product as isize),
+            ]);
+            let input_reshaped = input_cont.view(input_reshaped_view);
+
+            // unsqueeze: (groups, C_in/g, D*H*W) -> (groups, C_in/g, 1, 1, 1, 1, D*H*W)
+            let input_expanded = input_reshaped.view(
+                input_reshaped
+                    .view
+                    .clone()
+                    .unsqueeze(2)
+                    .unsqueeze(3)
+                    .unsqueeze(4)
+                    .unsqueeze(5),
+            );
+
+            // unsqueeze: (groups, C_out/g, kD, kH, kW, D*H*W) -> (groups, 1, C_out/g, kD, kH, kW, D*H*W)
+            let grad_out_expanded =
+                grad_out_reshaped.view(grad_out_reshaped.view.clone().unsqueeze(1));
+
+            // expand: (groups, C_in/g, C_out/g, kD, kH, kW, D*H*W)
+            let common_shape = vec![
+                crate::graph::shape::Expr::from(self.groups as isize),
+                crate::graph::shape::Expr::from(c_in_per_group as isize),
+                crate::graph::shape::Expr::from(c_out_per_group as isize),
+                crate::graph::shape::Expr::from(kernel_d as isize),
+                crate::graph::shape::Expr::from(kernel_h as isize),
+                crate::graph::shape::Expr::from(kernel_w as isize),
+                crate::graph::shape::Expr::from(spatial_product as isize),
+            ];
+
+            let input_bc = input_expanded.expand(common_shape.clone());
+            let grad_out_bc = grad_out_expanded.expand(common_shape);
+
+            // 乗算して空間次元でreduce: (groups, C_in/g, C_out/g, kD, kH, kW)
+            let grad_kernel_grouped = (&input_bc * &grad_out_bc).reduce_sum(6);
+
+            // reshape back: -> (C_in, C_out/g, kD, kH, kW)
+            let grad_kernel_cont_view =
+                crate::graph::shape::View::contiguous(grad_kernel_grouped.view.shape().to_vec());
+            let grad_kernel_cont = crate::graph::GraphNode::new(
+                grad_kernel_grouped.dtype.clone(),
+                crate::graph::GraphOp::Contiguous {
+                    elementwise_strategies: None,
+                },
+                vec![grad_kernel_grouped.clone()],
+                grad_kernel_cont_view,
+            );
+            let grad_kernel_data_view = grad_kernel_cont.view.clone().reshape(vec![
+                crate::graph::shape::Expr::from(c_in as isize),
+                crate::graph::shape::Expr::from(c_out_per_group as isize),
+                crate::graph::shape::Expr::from(kernel_d as isize),
+                crate::graph::shape::Expr::from(kernel_h as isize),
+                crate::graph::shape::Expr::from(kernel_w as isize),
+            ]);
+            let grad_kernel_data = grad_kernel_cont.view(grad_kernel_data_view);
+
+            (grad_input_data, grad_kernel_data)
+        };
+
+        vec![
+            Some(Tensor::from_graph_node(grad_input_data, false)),
+            Some(Tensor::from_graph_node(grad_kernel_data, false)),
+        ]
+    }
+}

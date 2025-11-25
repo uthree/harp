@@ -4,9 +4,9 @@
 
 use super::grad_fn::{
     AddBackward, AddConstBackward, Conv1dBackward, Conv2dBackward, Conv3dBackward,
-    ConvTranspose2dBackward, Exp2Backward, GradFn, Log2Backward, MulBackward, MulConstBackward,
-    NegBackward, PadBackward, RecipBackward, ReduceSumBackward, SinBackward, SliceBackward,
-    SqrtBackward,
+    ConvTranspose1dBackward, ConvTranspose2dBackward, ConvTranspose3dBackward, Exp2Backward,
+    GradFn, Log2Backward, MulBackward, MulConstBackward, NegBackward, PadBackward, RecipBackward,
+    ReduceSumBackward, SinBackward, SliceBackward, SqrtBackward,
 };
 use crate::backend::Device;
 use crate::graph::{Graph, GraphNode, ops::ElementwiseOp, ops::GraphOp};
@@ -530,6 +530,53 @@ impl Tensor {
         )
     }
 
+    /// 1D転置畳み込み（deconvolution / transposed convolution）
+    ///
+    /// 畳み込みの逆操作を行います。主にアップサンプリングに使用されます。
+    ///
+    /// # 引数
+    /// - `kernel`: 畳み込みカーネル (C_in, C_out/groups, k)
+    /// - `stride`: ストライド
+    /// - `padding`: パディング - 出力から削られるサイズ
+    /// - `output_padding`: 出力パディング - 出力に追加されるサイズ
+    /// - `dilation`: 膨張率
+    /// - `groups`: グループ数
+    ///
+    /// # 入出力
+    /// - 入力: (C_in, L_in)
+    /// - カーネル: (C_in, C_out/groups, k)
+    /// - 出力: (C_out, L_out)
+    ///   - L_out = (L_in - 1) * s - 2 * p + d * (k - 1) + op + 1
+    pub fn conv_transpose1d(
+        &self,
+        kernel: &Tensor,
+        stride: usize,
+        padding: usize,
+        output_padding: usize,
+        dilation: usize,
+        groups: usize,
+    ) -> Tensor {
+        let result = self.data.clone().conv_transpose1d(
+            kernel.data.clone(),
+            stride,
+            padding,
+            output_padding,
+            dilation,
+            groups,
+        );
+        Tensor::from_forward(
+            result,
+            vec![self.clone(), kernel.clone()],
+            ConvTranspose1dBackward {
+                stride,
+                padding,
+                output_padding,
+                dilation,
+                groups,
+            },
+        )
+    }
+
     /// 2D転置畳み込み（deconvolution / transposed convolution）
     ///
     /// 畳み込みの逆操作を行います。主にアップサンプリングに使用されます。
@@ -578,6 +625,52 @@ impl Tensor {
             result,
             vec![self.clone(), kernel.clone()],
             ConvTranspose2dBackward {
+                stride,
+                padding,
+                output_padding,
+                dilation,
+                groups,
+            },
+        )
+    }
+
+    /// 3D転置畳み込み（deconvolution / transposed convolution）
+    ///
+    /// 畳み込みの逆操作を行います。主にアップサンプリングに使用されます。
+    ///
+    /// # 引数
+    /// - `kernel`: 畳み込みカーネル (C_in, C_out/groups, kD, kH, kW)
+    /// - `stride`: ストライド (sD, sH, sW)
+    /// - `padding`: パディング (pD, pH, pW) - 出力から削られるサイズ
+    /// - `output_padding`: 出力パディング (opD, opH, opW) - 出力に追加されるサイズ
+    /// - `dilation`: 膨張率 (dD, dH, dW)
+    /// - `groups`: グループ数
+    ///
+    /// # 入出力
+    /// - 入力: (C_in, D_in, H_in, W_in)
+    /// - カーネル: (C_in, C_out/groups, kD, kH, kW)
+    /// - 出力: (C_out, D_out, H_out, W_out)
+    pub fn conv_transpose3d(
+        &self,
+        kernel: &Tensor,
+        stride: (usize, usize, usize),
+        padding: (usize, usize, usize),
+        output_padding: (usize, usize, usize),
+        dilation: (usize, usize, usize),
+        groups: usize,
+    ) -> Tensor {
+        let result = self.data.clone().conv_transpose3d(
+            kernel.data.clone(),
+            stride,
+            padding,
+            output_padding,
+            dilation,
+            groups,
+        );
+        Tensor::from_forward(
+            result,
+            vec![self.clone(), kernel.clone()],
+            ConvTranspose3dBackward {
                 stride,
                 padding,
                 output_padding,
