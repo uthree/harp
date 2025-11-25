@@ -3,9 +3,10 @@
 //! PyTorchライクな自動微分対応のTensor型を提供します。
 
 use super::grad_fn::{
-    AddBackward, AddConstBackward, Conv1dBackward, Conv2dBackward, Conv3dBackward, Exp2Backward,
-    GradFn, Log2Backward, MulBackward, MulConstBackward, NegBackward, PadBackward, RecipBackward,
-    ReduceSumBackward, SinBackward, SliceBackward, SqrtBackward,
+    AddBackward, AddConstBackward, Conv1dBackward, Conv2dBackward, Conv3dBackward,
+    ConvTranspose2dBackward, Exp2Backward, GradFn, Log2Backward, MulBackward, MulConstBackward,
+    NegBackward, PadBackward, RecipBackward, ReduceSumBackward, SinBackward, SliceBackward,
+    SqrtBackward,
 };
 use crate::backend::Device;
 use crate::graph::{Graph, GraphNode, ops::ElementwiseOp, ops::GraphOp};
@@ -523,6 +524,63 @@ impl Tensor {
             vec![self.clone(), kernel.clone()],
             Conv3dBackward {
                 stride,
+                dilation,
+                groups,
+            },
+        )
+    }
+
+    /// 2D転置畳み込み（deconvolution / transposed convolution）
+    ///
+    /// 畳み込みの逆操作を行います。主にアップサンプリングに使用されます。
+    ///
+    /// # 引数
+    /// - `kernel`: 畳み込みカーネル (C_in, C_out/groups, kH, kW)
+    /// - `stride`: ストライド (sH, sW)
+    /// - `padding`: パディング (pH, pW) - 出力から削られるサイズ
+    /// - `output_padding`: 出力パディング (opH, opW) - 出力に追加されるサイズ
+    /// - `dilation`: 膨張率 (dH, dW)
+    /// - `groups`: グループ数
+    ///
+    /// # 入出力
+    /// - 入力: (C_in, H_in, W_in)
+    /// - カーネル: (C_in, C_out/groups, kH, kW)
+    /// - 出力: (C_out, H_out, W_out)
+    ///   - H_out = (H_in - 1) * sH - 2 * pH + dH * (kH - 1) + opH + 1
+    ///   - W_out = (W_in - 1) * sW - 2 * pW + dW * (kW - 1) + opW + 1
+    ///
+    /// # 例
+    /// ```no_run
+    /// use harp::autograd::Tensor;
+    ///
+    /// let x = Tensor::ones(vec![16, 4, 4]); // (C_in=16, H=4, W=4)
+    /// let kernel = Tensor::ones(vec![16, 3, 3, 3]); // (C_in=16, C_out=3, kH=3, kW=3)
+    /// let output = x.conv_transpose2d(&kernel, (2, 2), (0, 0), (0, 0), (1, 1), 1); // (3, 9, 9)
+    /// ```
+    pub fn conv_transpose2d(
+        &self,
+        kernel: &Tensor,
+        stride: (usize, usize),
+        padding: (usize, usize),
+        output_padding: (usize, usize),
+        dilation: (usize, usize),
+        groups: usize,
+    ) -> Tensor {
+        let result = self.data.clone().conv_transpose2d(
+            kernel.data.clone(),
+            stride,
+            padding,
+            output_padding,
+            dilation,
+            groups,
+        );
+        Tensor::from_forward(
+            result,
+            vec![self.clone(), kernel.clone()],
+            ConvTranspose2dBackward {
+                stride,
+                padding,
+                output_padding,
                 dilation,
                 groups,
             },

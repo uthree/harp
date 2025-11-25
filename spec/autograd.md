@@ -65,6 +65,7 @@ pub trait GradFn {
 - `Conv1dBackward`: 1次元畳み込みの勾配（stride対応）
 - `Conv2dBackward`: 2次元畳み込みの勾配（stride対応）
 - `Conv3dBackward`: 3次元畳み込みの勾配（stride対応）
+- `ConvTranspose2dBackward`: 2次元転置畳み込みの勾配
 
 ### backward処理
 
@@ -172,6 +173,27 @@ let result = 2.0 * &x + &w * 0.5;
 - ✅ groups != 1 をサポート（Conv1d/Conv2d）
 - ❌ Conv3dはdilation != 1, groups != 1 は未対応（panic）
 
+### ConvTranspose2d（転置畳み込み/デコンボリューション）
+
+転置畳み込みは通常の畳み込みの「逆操作」であり、アップサンプリングに使用されます。
+
+**アルゴリズム（順伝播）：**
+1. 入力を展開: (B, C_in, H, W) → (B, C_in, 1, 1, H, W)
+2. カーネルを展開: (C_in, C_out, kH, kW) → (1, C_in, C_out, kH, kW, 1, 1)
+3. 要素ごとに乗算してC_in次元で総和
+4. Fold2d演算で出力形状に変換（strideで拡大）
+
+**逆伝播：**
+1. **grad_input**: grad_outputとカーネル（空間方向に反転）でconv2dを実行
+2. **grad_kernel**: grad_outputをunfoldし、入力との相関を計算
+
+**対応状況：**
+- ✅ stride != 1 をサポート
+- ✅ padding をサポート
+- ✅ output_padding をサポート
+- ✅ dilation != 1 をサポート
+- ✅ groups != 1 をサポート
+
 ### Fold演算（col2im）
 
 Unfoldの逆操作。畳み込みのbackward計算で使用されます。
@@ -189,12 +211,14 @@ Unfoldの逆操作。畳み込みのbackward計算で使用されます。
 - 比較演算（Max等）の勾配は簡易実装
 - 高階微分は未実装
 - Conv3dはdilation!=1, groups!=1のbackwardが未サポート
+- ConvTranspose1d/3dは未実装
 
 将来的な拡張：
 - ベクトル値関数のJacobian計算
 - 前向きモード自動微分
 - 高階微分
 - Conv3dでのdilation, groupsサポート
+- ConvTranspose1d/3dの追加
 
 ## コード構成とリファクタリング履歴
 
@@ -215,8 +239,8 @@ Unfoldの逆操作。畳み込みのbackward計算で使用されます。
   - SinBackward, SqrtBackward
 - `grad_fn/memory.rs`: メモリ操作の勾配関数
   - PadBackward, SliceBackward
-- `grad_fn/conv.rs`: 畳み込み演算の勾配関数（最大のモジュール、約25KB）
-  - Conv1dBackward, Conv2dBackward, Conv3dBackward
+- `grad_fn/conv.rs`: 畳み込み演算の勾配関数（最大のモジュール）
+  - Conv1dBackward, Conv2dBackward, Conv3dBackward, ConvTranspose2dBackward
 
 #### Expr抽出パターンの統一
 コードベース全体（特にconv.rs内の35箇所以上）で繰り返されていた以下のパターンを、`Expr`型のヘルパーメソッドを使用するように統一：

@@ -449,4 +449,238 @@ impl GraphNode {
             reduced.reshape(vec![c_out, d_out, h_out, w_out])
         }
     }
+
+    /// 2D転置畳み込み（deconvolution / transposed convolution）
+    ///
+    /// 畳み込みの逆操作を行います。主にアップサンプリングに使用されます。
+    ///
+    /// # 引数
+    /// - `kernel`: 畳み込みカーネル (C_in, C_out/groups, kH, kW)
+    /// - `stride`: ストライド (sH, sW)
+    /// - `padding`: パディング (pH, pW) - 出力から削られるサイズ
+    /// - `output_padding`: 出力パディング (opH, opW) - 出力に追加されるサイズ
+    /// - `dilation`: 膨張率 (dH, dW)
+    /// - `groups`: グループ数
+    ///
+    /// # 入出力
+    /// - 入力: (C_in, H_in, W_in)
+    /// - カーネル: (C_in, C_out/groups, kH, kW)
+    /// - 出力: (C_out, H_out, W_out)
+    ///   - H_out = (H_in - 1) * sH - 2 * pH + dH * (kH - 1) + opH + 1
+    ///   - W_out = (W_in - 1) * sW - 2 * pW + dW * (kW - 1) + opW + 1
+    pub fn conv_transpose2d(
+        self,
+        kernel: GraphNode,
+        stride: (usize, usize),
+        padding: (usize, usize),
+        output_padding: (usize, usize),
+        dilation: (usize, usize),
+        groups: usize,
+    ) -> GraphNode {
+        use crate::graph::shape::Expr;
+
+        assert_eq!(
+            self.view.ndim(),
+            3,
+            "conv_transpose2d: input must be 3D (C_in, H, W)"
+        );
+        assert_eq!(
+            kernel.view.ndim(),
+            4,
+            "conv_transpose2d: kernel must be 4D (C_in, C_out/groups, kH, kW)"
+        );
+
+        let input_shape = self.view.shape();
+        let kernel_shape = kernel.view.shape();
+
+        let c_in = input_shape[0].expect_usize("C_in must be constant");
+        let h_in = input_shape[1].expect_usize("H_in must be constant");
+        let w_in = input_shape[2].expect_usize("W_in must be constant");
+
+        let kernel_c_in = kernel_shape[0].expect_usize("kernel C_in must be constant");
+        let c_out_per_group = kernel_shape[1].expect_usize("C_out/groups must be constant");
+        let kernel_h = kernel_shape[2].expect_usize("kH must be constant");
+        let kernel_w = kernel_shape[3].expect_usize("kW must be constant");
+
+        assert_eq!(
+            c_in, kernel_c_in,
+            "Input channels must match kernel input channels"
+        );
+
+        let c_out = c_out_per_group * groups;
+
+        // 出力サイズを計算
+        let h_out = (h_in - 1) * stride.0 + dilation.0 * (kernel_h - 1) + output_padding.0 + 1
+            - 2 * padding.0;
+        let w_out = (w_in - 1) * stride.1 + dilation.1 * (kernel_w - 1) + output_padding.1 + 1
+            - 2 * padding.1;
+
+        if groups == 1 {
+            // === groups=1: 通常の転置畳み込み ===
+            // 入力: (C_in, H_in, W_in)
+            // カーネル: (C_in, C_out, kH, kW)
+
+            // 入力をunsqueeze: (C_in, H_in, W_in) -> (C_in, 1, 1, 1, H_in, W_in)
+            let input_expanded_view = self.view.clone().unsqueeze(1).unsqueeze(2).unsqueeze(3);
+            let input_expanded = self.view(input_expanded_view);
+
+            // カーネルをunsqueeze: (C_in, C_out, kH, kW) -> (C_in, C_out, kH, kW, 1, 1)
+            let kernel_expanded_view = kernel.view.clone().unsqueeze(4).unsqueeze(5);
+            let kernel_expanded = kernel.view(kernel_expanded_view);
+
+            // 共通シェイプに展開: (C_in, C_out, kH, kW, H_in, W_in)
+            let common_shape = vec![
+                Expr::from(c_in as isize),
+                Expr::from(c_out as isize),
+                Expr::from(kernel_h as isize),
+                Expr::from(kernel_w as isize),
+                Expr::from(h_in as isize),
+                Expr::from(w_in as isize),
+            ];
+
+            let input_bc = input_expanded.expand(common_shape.clone());
+            let kernel_bc = kernel_expanded.expand(common_shape);
+
+            // 乗算: (C_in, C_out, kH, kW, H_in, W_in)
+            let multiplied = &input_bc * &kernel_bc;
+
+            // C_in軸でreduce: (C_out, kH, kW, H_in, W_in)
+            let reduced = multiplied.reduce_sum(0);
+
+            // reshape for fold: (C_out, kH, kW, H_in, W_in) -> (1, C_out * kH * kW, H_in * W_in)
+            let reshaped_view = reduced.view.clone().reshape(vec![
+                Expr::from(1),
+                Expr::from((c_out * kernel_h * kernel_w) as isize),
+                Expr::from((h_in * w_in) as isize),
+            ]);
+            // contiguous化してからreshape
+            let reduced_cont_view =
+                crate::graph::shape::View::contiguous(reduced.view.shape().to_vec());
+            let reduced_cont = crate::graph::GraphNode::new(
+                reduced.dtype.clone(),
+                crate::graph::GraphOp::Contiguous {
+                    elementwise_strategies: None,
+                },
+                vec![reduced.clone()],
+                reduced_cont_view,
+            );
+            let reshaped = reduced_cont.view(reshaped_view);
+
+            // fold: 出力形状に畳み込む
+            let folded = reshaped.fold2d(
+                vec![c_out, h_out, w_out],
+                (kernel_h, kernel_w),
+                stride,
+                dilation,
+                1,
+            );
+
+            // paddingがある場合はスライスで削る
+            if padding.0 > 0 || padding.1 > 0 {
+                let h_start = padding.0;
+                let h_end = h_out + 2 * padding.0 - padding.0;
+                let w_start = padding.1;
+                let w_end = w_out + 2 * padding.1 - padding.1;
+                folded.slice(vec![(0, c_out), (h_start, h_end), (w_start, w_end)])
+            } else {
+                folded
+            }
+        } else {
+            // === groups>1: グループ転置畳み込み ===
+            let c_in_per_group = c_in / groups;
+
+            // 入力をreshape: (C_in, H_in, W_in) -> (groups, C_in/groups, H_in, W_in)
+            let input_contiguous_view =
+                crate::graph::shape::View::contiguous(self.view.shape().to_vec());
+            let input_contiguous = crate::graph::GraphNode::new(
+                self.dtype.clone(),
+                crate::graph::GraphOp::Contiguous {
+                    elementwise_strategies: None,
+                },
+                vec![self.clone()],
+                input_contiguous_view,
+            );
+            let input_reshaped_view = input_contiguous.view.clone().reshape(vec![
+                Expr::from(groups as isize),
+                Expr::from(c_in_per_group as isize),
+                Expr::from(h_in as isize),
+                Expr::from(w_in as isize),
+            ]);
+            let input_reshaped = input_contiguous.view(input_reshaped_view);
+
+            // 入力をunsqueeze: (groups, C_in/groups, H_in, W_in) -> (groups, C_in/groups, 1, 1, 1, H_in, W_in)
+            let input_expanded = input_reshaped.view(
+                input_reshaped
+                    .view
+                    .clone()
+                    .unsqueeze(2)
+                    .unsqueeze(3)
+                    .unsqueeze(4),
+            );
+
+            // カーネルをreshape: (C_in, C_out/groups, kH, kW) -> (groups, C_in/groups, C_out/groups, kH, kW)
+            let kernel_contiguous_view =
+                crate::graph::shape::View::contiguous(kernel.view.shape().to_vec());
+            let kernel_contiguous = crate::graph::GraphNode::new(
+                kernel.dtype.clone(),
+                crate::graph::GraphOp::Contiguous {
+                    elementwise_strategies: None,
+                },
+                vec![kernel.clone()],
+                kernel_contiguous_view,
+            );
+            let kernel_reshaped_view = kernel_contiguous.view.clone().reshape(vec![
+                Expr::from(groups as isize),
+                Expr::from(c_in_per_group as isize),
+                Expr::from(c_out_per_group as isize),
+                Expr::from(kernel_h as isize),
+                Expr::from(kernel_w as isize),
+            ]);
+            let kernel_reshaped = kernel_contiguous.view(kernel_reshaped_view);
+
+            // カーネルをunsqueeze: (groups, C_in/groups, C_out/groups, kH, kW) -> (groups, C_in/groups, C_out/groups, kH, kW, 1, 1)
+            let kernel_expanded =
+                kernel_reshaped.view(kernel_reshaped.view.clone().unsqueeze(5).unsqueeze(6));
+
+            // 共通シェイプに展開: (groups, C_in/groups, C_out/groups, kH, kW, H_in, W_in)
+            let common_shape = vec![
+                Expr::from(groups as isize),
+                Expr::from(c_in_per_group as isize),
+                Expr::from(c_out_per_group as isize),
+                Expr::from(kernel_h as isize),
+                Expr::from(kernel_w as isize),
+                Expr::from(h_in as isize),
+                Expr::from(w_in as isize),
+            ];
+
+            let input_bc = input_expanded.expand(common_shape.clone());
+            let kernel_bc = kernel_expanded.expand(common_shape);
+
+            // 乗算: (groups, C_in/groups, C_out/groups, kH, kW, H_in, W_in)
+            let multiplied = &input_bc * &kernel_bc;
+
+            // C_in/groups軸でreduce: (groups, C_out/groups, kH, kW, H_in, W_in)
+            let reduced = multiplied.reduce_sum(1);
+
+            // fold with groups
+            let folded = reduced.fold2d(
+                vec![c_out, h_out, w_out],
+                (kernel_h, kernel_w),
+                stride,
+                dilation,
+                groups,
+            );
+
+            // paddingがある場合はスライスで削る
+            if padding.0 > 0 || padding.1 > 0 {
+                let h_start = padding.0;
+                let h_end = h_out + 2 * padding.0 - padding.0;
+                let w_start = padding.1;
+                let w_end = w_out + 2 * padding.1 - padding.1;
+                folded.slice(vec![(0, c_out), (h_start, h_end), (w_start, w_end)])
+            } else {
+                folded
+            }
+        }
+    }
 }
