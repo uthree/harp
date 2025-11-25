@@ -72,10 +72,21 @@ impl GraphNode {
             let unfolded_expanded = unfolded.view(unfolded.view.clone().unsqueeze(1));
 
             // kernel: (C_out, C_in/groups, k) を (groups, C_out/groups, C_in/groups, k) にreshape
+            // 注: reshapeの前にcontiguous化が必要（非連続Viewの場合に正しく動作しないため）
             let c_out = kernel.view.shape()[0].clone();
             let c_out_per_group = (c_out.clone() / Expr::from(groups as isize)).simplify();
 
-            let kernel_reshaped = kernel.reshape(vec![
+            let kernel_contiguous_view =
+                crate::graph::shape::View::contiguous(kernel.view.shape().to_vec());
+            let kernel_contiguous = crate::graph::GraphNode::new(
+                kernel.dtype.clone(),
+                crate::graph::GraphOp::Contiguous {
+                    elementwise_strategies: None,
+                },
+                vec![kernel.clone()],
+                kernel_contiguous_view,
+            );
+            let kernel_reshaped = kernel_contiguous.reshape(vec![
                 Expr::from(groups as isize),
                 c_out_per_group.clone(),
                 Expr::from(c_in_per_group as isize),
@@ -229,10 +240,21 @@ impl GraphNode {
             let unfolded_expanded = unfolded.view(unfolded.view.clone().unsqueeze(1));
 
             // kernel: (C_out, C_in/groups, kH, kW) を (groups, C_out/groups, C_in/groups, kH, kW) にreshape
+            // 注: reshapeの前にcontiguous化が必要（非連続Viewの場合に正しく動作しないため）
             let c_out = kernel.view.shape()[0].clone();
             let c_out_per_group = (c_out.clone() / Expr::from(groups as isize)).simplify();
 
-            let kernel_reshaped = kernel.reshape(vec![
+            let kernel_contiguous_view =
+                crate::graph::shape::View::contiguous(kernel.view.shape().to_vec());
+            let kernel_contiguous = crate::graph::GraphNode::new(
+                kernel.dtype.clone(),
+                crate::graph::GraphOp::Contiguous {
+                    elementwise_strategies: None,
+                },
+                vec![kernel.clone()],
+                kernel_contiguous_view,
+            );
+            let kernel_reshaped = kernel_contiguous.reshape(vec![
                 Expr::from(groups as isize),
                 c_out_per_group.clone(),
                 Expr::from(c_in_per_group as isize),
@@ -395,10 +417,21 @@ impl GraphNode {
             let unfolded_expanded = unfolded.view(unfolded.view.clone().unsqueeze(1));
 
             // kernel: (C_out, C_in/groups, kD, kH, kW) を (groups, C_out/groups, C_in/groups, kD, kH, kW) にreshape
+            // 注: reshapeの前にcontiguous化が必要（非連続Viewの場合に正しく動作しないため）
             let c_out = kernel.view.shape()[0].clone();
             let c_out_per_group = (c_out.clone() / Expr::from(groups as isize)).simplify();
 
-            let kernel_reshaped = kernel.reshape(vec![
+            let kernel_contiguous_view =
+                crate::graph::shape::View::contiguous(kernel.view.shape().to_vec());
+            let kernel_contiguous = crate::graph::GraphNode::new(
+                kernel.dtype.clone(),
+                crate::graph::GraphOp::Contiguous {
+                    elementwise_strategies: None,
+                },
+                vec![kernel.clone()],
+                kernel_contiguous_view,
+            );
+            let kernel_reshaped = kernel_contiguous.reshape(vec![
                 Expr::from(groups as isize),
                 c_out_per_group.clone(),
                 Expr::from(c_in_per_group as isize),

@@ -42,7 +42,6 @@ fn test_tensor_conv1d_stride() {
 }
 
 #[test]
-#[ignore = "Group convolution has reshape issue with non-contiguous views - needs fix in hlops_conv.rs"]
 fn test_tensor_conv1d_groups() {
     // Test with groups=2 (group convolution)
     // Input: (2, 3), Kernel: (2, 1, 2)
@@ -121,7 +120,6 @@ fn test_tensor_conv2d_multi_channel() {
 }
 
 #[test]
-#[ignore = "Group convolution has reshape issue with non-contiguous views - needs fix in hlops_conv.rs"]
 fn test_tensor_conv2d_depthwise() {
     // Depthwise 2D convolution (groups = in_channels)
     // Input: (2, 3, 3), Kernel: (2, 1, 2, 2)
