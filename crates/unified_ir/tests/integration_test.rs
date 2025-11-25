@@ -13,8 +13,8 @@ fn test_end_to_end_elementwise() {
     let zero = helper::const_val(0.0, DType::F32);
 
     // (a + b) + 0  （意図的に冗長な演算を追加）
-    let add1 = helper::elementwise(ElementwiseOp::Add, vec![a, b], DType::F32);
-    let add2 = helper::elementwise(ElementwiseOp::Add, vec![add1, zero], DType::F32);
+    let add1 = helper::elementwise(ElementwiseOp::Add, vec![a, b]);
+    let add2 = helper::elementwise(ElementwiseOp::Add, vec![add1, zero]);
 
     println!("【1. 高レベルIR】");
     println!("{}\n", add2.to_debug_string(0));

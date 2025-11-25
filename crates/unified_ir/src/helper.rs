@@ -9,8 +9,7 @@ macro_rules! impl_binary_helper {
     ($fn_name:ident, $variant:ident, $doc:expr) => {
         #[doc = $doc]
         pub fn $fn_name(lhs: Rc<UOp>, rhs: Rc<UOp>) -> Rc<UOp> {
-            let dtype = lhs.dtype().clone();
-            Rc::new(UOp::$variant { dtype, lhs, rhs })
+            Rc::new(UOp::$variant(lhs, rhs))
         }
     };
 }
@@ -20,8 +19,7 @@ macro_rules! impl_unary_helper {
     ($fn_name:ident, $variant:ident, $doc:expr) => {
         #[doc = $doc]
         pub fn $fn_name(arg: Rc<UOp>) -> Rc<UOp> {
-            let dtype = arg.dtype().clone();
-            Rc::new(UOp::$variant { dtype, arg })
+            Rc::new(UOp::$variant(arg))
         }
     };
 }
@@ -63,8 +61,8 @@ pub fn var(name: impl Into<String>, dtype: DType) -> Rc<UOp> {
 }
 
 /// ワイルドカードノードを作成（パターンマッチング用）
-pub fn wildcard(id: usize, dtype: DType) -> Rc<UOp> {
-    Rc::new(UOp::Wildcard { dtype, id })
+pub fn wildcard(id: usize) -> Rc<UOp> {
+    Rc::new(UOp::Wildcard(id))
 }
 
 /// スレッドインデックスノードを作成
@@ -78,20 +76,18 @@ pub fn group_idx(dim: usize, dtype: DType) -> Rc<UOp> {
 }
 
 /// バリアノードを作成
-pub fn barrier(dtype: DType) -> Rc<UOp> {
-    Rc::new(UOp::Barrier { dtype })
+pub fn barrier() -> Rc<UOp> {
+    Rc::new(UOp::Barrier)
 }
 
 /// Element-wise演算ノードを作成
-pub fn elementwise(op: ElementwiseOp, inputs: Vec<Rc<UOp>>, dtype: DType) -> Rc<UOp> {
-    Rc::new(UOp::Elementwise { dtype, op, inputs })
+pub fn elementwise(op: ElementwiseOp, inputs: Vec<Rc<UOp>>) -> Rc<UOp> {
+    Rc::new(UOp::Elementwise { op, inputs })
 }
 
 /// Reduce演算ノードを作成
 pub fn reduce(op: ReduceOp, input: Rc<UOp>, axis: usize, input_shape: Vec<usize>) -> Rc<UOp> {
-    let dtype = input.dtype().clone();
     Rc::new(UOp::Reduce {
-        dtype,
         op,
         input,
         axis,
@@ -107,9 +103,7 @@ pub fn loop_op(
     body: Rc<UOp>,
     parallel: bool,
 ) -> Rc<UOp> {
-    let dtype = body.dtype().clone();
     Rc::new(UOp::Loop {
-        dtype,
         var: var.into(),
         start,
         end,
@@ -129,9 +123,7 @@ pub fn load(buffer: impl Into<String>, index: Option<Rc<UOp>>, dtype: DType) -> 
 
 /// ストアノードを作成
 pub fn store(buffer: impl Into<String>, index: Option<Rc<UOp>>, value: Rc<UOp>) -> Rc<UOp> {
-    let dtype = value.dtype().clone();
     Rc::new(UOp::Store {
-        dtype,
         buffer: buffer.into(),
         index,
         value,
@@ -140,23 +132,12 @@ pub fn store(buffer: impl Into<String>, index: Option<Rc<UOp>>, value: Rc<UOp>) 
 
 /// シーケンスノードを作成
 pub fn sequence(ops: Vec<Rc<UOp>>) -> Rc<UOp> {
-    let dtype = if ops.is_empty() {
-        DType::F32
-    } else {
-        ops.last().unwrap().dtype().clone()
-    };
-    Rc::new(UOp::Sequence { dtype, ops })
+    Rc::new(UOp::Sequence(ops))
 }
 
 /// Select（三項演算子）ノードを作成
 pub fn select(cond: Rc<UOp>, then_: Rc<UOp>, else_: Rc<UOp>) -> Rc<UOp> {
-    let dtype = then_.dtype().clone();
-    Rc::new(UOp::Select {
-        dtype,
-        cond,
-        then_,
-        else_,
-    })
+    Rc::new(UOp::Select(cond, then_, else_))
 }
 
 #[cfg(test)]
@@ -170,19 +151,19 @@ mod tests {
 
         let add_node = add(a.clone(), b.clone());
         match &*add_node {
-            UOp::Add { .. } => {}
+            UOp::Add(..) => {}
             _ => panic!("Expected Add node"),
         }
 
         let mul_node = mul(a.clone(), b.clone());
         match &*mul_node {
-            UOp::Mul { .. } => {}
+            UOp::Mul(..) => {}
             _ => panic!("Expected Mul node"),
         }
 
         let max_node = max(a.clone(), b.clone());
         match &*max_node {
-            UOp::Max { .. } => {}
+            UOp::Max(..) => {}
             _ => panic!("Expected Max node"),
         }
     }
@@ -193,13 +174,13 @@ mod tests {
 
         let recip_node = recip(a.clone());
         match &*recip_node {
-            UOp::Recip { .. } => {}
+            UOp::Recip(_) => {}
             _ => panic!("Expected Recip node"),
         }
 
         let sqrt_node = sqrt(a.clone());
         match &*sqrt_node {
-            UOp::Sqrt { .. } => {}
+            UOp::Sqrt(_) => {}
             _ => panic!("Expected Sqrt node"),
         }
     }
@@ -257,7 +238,7 @@ mod tests {
         let b = const_val(2.0, DType::F32);
         let seq = sequence(vec![a, b]);
         match &*seq {
-            UOp::Sequence { ops, .. } => assert_eq!(ops.len(), 2),
+            UOp::Sequence(ops) => assert_eq!(ops.len(), 2),
             _ => panic!("Expected Sequence node"),
         }
     }
@@ -273,8 +254,8 @@ mod tests {
         let product = mul(sum, c);
 
         match &*product {
-            UOp::Mul { lhs, .. } => match &**lhs {
-                UOp::Add { .. } => {}
+            UOp::Mul(lhs, _) => match &**lhs {
+                UOp::Add(..) => {}
                 _ => panic!("Expected Add node inside Mul"),
             },
             _ => panic!("Expected Mul node"),
@@ -293,6 +274,26 @@ mod tests {
         match &*stored {
             UOp::Store { .. } => {}
             _ => panic!("Expected Store node"),
+        }
+    }
+
+    #[test]
+    fn test_dtype_inference_from_helpers() {
+        // 二項演算の型推論テスト
+        let a = const_val(1.0, DType::F32);
+        let b = const_val(2.0, DType::F32);
+        let sum = add(a, b);
+
+        // 型推論により F32 が取得できる
+        assert_eq!(sum.dtype(), DType::F32);
+    }
+
+    #[test]
+    fn test_wildcard_helper() {
+        let w = wildcard(0);
+        match &*w {
+            UOp::Wildcard(id) => assert_eq!(*id, 0),
+            _ => panic!("Expected Wildcard node"),
         }
     }
 }

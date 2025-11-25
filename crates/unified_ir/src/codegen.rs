@@ -42,7 +42,6 @@ impl OpenCLCodegen {
                 end,
                 parallel,
                 body,
-                ..
             } => self.generate_loop(var, *start, *end, *parallel, body),
 
             UOp::Load { buffer, index, .. } => self.generate_load(buffer, index.as_ref()),
@@ -51,7 +50,6 @@ impl OpenCLCodegen {
                 buffer,
                 index,
                 value,
-                ..
             } => self.generate_store(buffer, index.as_ref(), value),
 
             UOp::ThreadIdx { dim, .. } => {
@@ -72,35 +70,35 @@ impl OpenCLCodegen {
                 }
             }
 
-            UOp::Add { lhs, rhs, .. } => {
+            UOp::Add(lhs, rhs) => {
                 let lhs_code = self.generate(lhs);
                 let rhs_code = self.generate(rhs);
                 format!("({} + {})", lhs_code, rhs_code)
             }
 
-            UOp::Mul { lhs, rhs, .. } => {
+            UOp::Mul(lhs, rhs) => {
                 let lhs_code = self.generate(lhs);
                 let rhs_code = self.generate(rhs);
                 format!("({} * {})", lhs_code, rhs_code)
             }
 
-            UOp::Max { lhs, rhs, .. } => {
+            UOp::Max(lhs, rhs) => {
                 let lhs_code = self.generate(lhs);
                 let rhs_code = self.generate(rhs);
                 format!("fmax({}, {})", lhs_code, rhs_code)
             }
 
-            UOp::Recip { arg, .. } => {
+            UOp::Recip(arg) => {
                 let arg_code = self.generate(arg);
                 format!("(1.0f / {})", arg_code)
             }
 
-            UOp::Sqrt { arg, .. } => {
+            UOp::Sqrt(arg) => {
                 let arg_code = self.generate(arg);
                 format!("sqrt({})", arg_code)
             }
 
-            UOp::Sequence { ops, .. } => {
+            UOp::Sequence(ops) => {
                 let mut code = String::new();
                 for op in ops {
                     code.push_str(&self.generate(op));
@@ -108,31 +106,29 @@ impl OpenCLCodegen {
                 code
             }
 
-            UOp::Barrier { .. } => {
+            UOp::Barrier => {
                 format!("{}barrier(CLK_LOCAL_MEM_FENCE);\n", self.indent())
             }
 
-            UOp::Rem { lhs, rhs, .. } => {
+            UOp::Rem(lhs, rhs) => {
                 let lhs_code = self.generate(lhs);
                 let rhs_code = self.generate(rhs);
                 format!("({} % {})", lhs_code, rhs_code)
             }
 
-            UOp::Idiv { lhs, rhs, .. } => {
+            UOp::Idiv(lhs, rhs) => {
                 let lhs_code = self.generate(lhs);
                 let rhs_code = self.generate(rhs);
                 format!("({} / {})", lhs_code, rhs_code)
             }
 
-            UOp::LessThan { lhs, rhs, .. } => {
+            UOp::LessThan(lhs, rhs) => {
                 let lhs_code = self.generate(lhs);
                 let rhs_code = self.generate(rhs);
                 format!("({} < {})", lhs_code, rhs_code)
             }
 
-            UOp::Select {
-                cond, then_, else_, ..
-            } => {
+            UOp::Select(cond, then_, else_) => {
                 let cond_code = self.generate(cond);
                 let then_code = self.generate(then_);
                 let else_code = self.generate(else_);
@@ -242,7 +238,7 @@ mod tests {
 
         let a = helper::input("a", vec![10], DType::F32);
         let b = helper::input("b", vec![10], DType::F32);
-        let add = helper::elementwise(ElementwiseOp::Add, vec![a, b], DType::F32);
+        let add = helper::elementwise(ElementwiseOp::Add, vec![a, b]);
 
         // Loweringしてからコード生成
         let lowerer = Lowerer::new(256);

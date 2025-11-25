@@ -27,8 +27,9 @@ impl Lowerer {
 
         match &**uop {
             // ========== 高レベル演算のlowering ==========
-            UOp::Elementwise { op, inputs, dtype } => {
-                self.lower_elementwise(op, inputs, dtype.clone(), depth)
+            UOp::Elementwise { op, inputs } => {
+                let dtype = uop.dtype();
+                self.lower_elementwise(op, inputs, dtype, depth)
             }
 
             UOp::Reduce {
@@ -36,8 +37,10 @@ impl Lowerer {
                 input,
                 axis,
                 input_shape,
-                dtype,
-            } => self.lower_reduce(*op, input, *axis, input_shape, dtype.clone(), depth),
+            } => {
+                let dtype = uop.dtype();
+                self.lower_reduce(*op, input, *axis, input_shape, dtype, depth)
+            }
 
             // ========== その他の演算は子ノードのみlower ==========
             _ => self.lower_children(uop, depth),
@@ -52,11 +55,10 @@ impl Lowerer {
             | UOp::ThreadIdx { .. }
             | UOp::GroupIdx { .. }
             | UOp::Var { .. }
-            | UOp::Barrier { .. }
-            | UOp::Wildcard { .. } => uop.clone(),
+            | UOp::Barrier
+            | UOp::Wildcard(_) => uop.clone(),
 
             UOp::Loop {
-                dtype,
                 var,
                 start,
                 end,
@@ -68,7 +70,6 @@ impl Lowerer {
                     uop.clone()
                 } else {
                     Rc::new(UOp::Loop {
-                        dtype: dtype.clone(),
                         var: var.clone(),
                         start: *start,
                         end: *end,
@@ -101,7 +102,6 @@ impl Lowerer {
             }
 
             UOp::Store {
-                dtype,
                 buffer,
                 index,
                 value,
@@ -117,7 +117,6 @@ impl Lowerer {
                     uop.clone()
                 } else {
                     Rc::new(UOp::Store {
-                        dtype: dtype.clone(),
                         buffer: buffer.clone(),
                         index: new_index,
                         value: new_value,
@@ -125,7 +124,7 @@ impl Lowerer {
                 }
             }
 
-            UOp::Sequence { dtype, ops } => {
+            UOp::Sequence(ops) => {
                 let new_ops: Vec<Rc<UOp>> =
                     ops.iter().map(|o| self.lower_impl(o, depth + 1)).collect();
                 let unchanged = new_ops.len() == ops.len()
@@ -136,76 +135,55 @@ impl Lowerer {
                 if unchanged {
                     uop.clone()
                 } else {
-                    Rc::new(UOp::Sequence {
-                        dtype: dtype.clone(),
-                        ops: new_ops,
-                    })
+                    Rc::new(UOp::Sequence(new_ops))
                 }
             }
 
-            UOp::Add { dtype, lhs, rhs } => {
+            UOp::Add(lhs, rhs) => {
                 let new_lhs = self.lower_impl(lhs, depth + 1);
                 let new_rhs = self.lower_impl(rhs, depth + 1);
                 if Rc::ptr_eq(&new_lhs, lhs) && Rc::ptr_eq(&new_rhs, rhs) {
                     uop.clone()
                 } else {
-                    Rc::new(UOp::Add {
-                        dtype: dtype.clone(),
-                        lhs: new_lhs,
-                        rhs: new_rhs,
-                    })
+                    Rc::new(UOp::Add(new_lhs, new_rhs))
                 }
             }
 
-            UOp::Mul { dtype, lhs, rhs } => {
+            UOp::Mul(lhs, rhs) => {
                 let new_lhs = self.lower_impl(lhs, depth + 1);
                 let new_rhs = self.lower_impl(rhs, depth + 1);
                 if Rc::ptr_eq(&new_lhs, lhs) && Rc::ptr_eq(&new_rhs, rhs) {
                     uop.clone()
                 } else {
-                    Rc::new(UOp::Mul {
-                        dtype: dtype.clone(),
-                        lhs: new_lhs,
-                        rhs: new_rhs,
-                    })
+                    Rc::new(UOp::Mul(new_lhs, new_rhs))
                 }
             }
 
-            UOp::Max { dtype, lhs, rhs } => {
+            UOp::Max(lhs, rhs) => {
                 let new_lhs = self.lower_impl(lhs, depth + 1);
                 let new_rhs = self.lower_impl(rhs, depth + 1);
                 if Rc::ptr_eq(&new_lhs, lhs) && Rc::ptr_eq(&new_rhs, rhs) {
                     uop.clone()
                 } else {
-                    Rc::new(UOp::Max {
-                        dtype: dtype.clone(),
-                        lhs: new_lhs,
-                        rhs: new_rhs,
-                    })
+                    Rc::new(UOp::Max(new_lhs, new_rhs))
                 }
             }
 
-            UOp::Recip { dtype, arg } => {
+            UOp::Recip(arg) => {
                 let new_arg = self.lower_impl(arg, depth + 1);
                 if Rc::ptr_eq(&new_arg, arg) {
                     uop.clone()
                 } else {
-                    Rc::new(UOp::Recip {
-                        dtype: dtype.clone(),
-                        arg: new_arg,
-                    })
+                    Rc::new(UOp::Recip(new_arg))
                 }
             }
 
-            UOp::Sqrt { dtype, arg } => {
+            UOp::Sqrt(arg) => {
                 let new_arg = self.lower_impl(arg, depth + 1);
                 if Rc::ptr_eq(&new_arg, arg) {
                     uop.clone()
                 } else {
-                    Rc::new(UOp::Sqrt {
-                        dtype: dtype.clone(),
-                        arg: new_arg,
-                    })
+                    Rc::new(UOp::Sqrt(new_arg))
                 }
             }
 
@@ -390,7 +368,7 @@ mod tests {
 
         let a = helper::input("a", vec![10], DType::F32);
         let b = helper::input("b", vec![10], DType::F32);
-        let add = helper::elementwise(ElementwiseOp::Add, vec![a, b], DType::F32);
+        let add = helper::elementwise(ElementwiseOp::Add, vec![a, b]);
 
         let lowered = lowerer.lower(&add);
 

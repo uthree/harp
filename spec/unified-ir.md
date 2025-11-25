@@ -51,8 +51,19 @@ OpenCL/Metal/Cカーネル
 
 **設計上の特徴**:
 - 全ての演算を`enum UOp { ... }`のバリアントとして直接表現
-- 各バリアントに必要なフィールド（dtype, lhs, rhs等）を含む
 - `Rc<UOp>`による参照カウントでDAG構造を実現
+- **型推論**: dtypeは葉ノード（Input, Const, Var, ThreadIdx, GroupIdx, Load）のみが保持し、演算ノードは子ノードから自動推論
+
+**型推論のルール**:
+- 葉ノード: 明示的にdtypeを保持
+- 二項演算（Add, Mul等）: 左辺の型を継承
+- 単項演算（Recip, Sqrt）: 引数の型を継承
+- Select: then_の型を継承
+- Elementwise/Reduce: 入力の型を継承
+- Loop/Store: body/valueの型を継承
+- Sequence: 最後の要素の型
+- LessThan: 比較演算のためUnknown（bool相当）
+- Barrier/Wildcard: Unknown
 
 **現在のharpとの対応**:
 - `UOp::Input/Elementwise/Reduce` ≈ `GraphOp`の高レベル演算

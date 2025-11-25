@@ -3,6 +3,9 @@ use std::rc::Rc;
 
 /// 統一中間表現（Unified Operation）
 /// 高レベル演算から低レベル演算までを単一のグラフ構造で表現
+///
+/// dtypeは葉ノード（Input, Const, Var, ThreadIdx, GroupIdx, Load）のみが保持し、
+/// その他のノードは子ノードから型推論される。
 #[derive(Debug, Clone, PartialEq)]
 pub enum UOp {
     // ========== 高レベル演算（テンソルレベル） ==========
@@ -18,14 +21,12 @@ pub enum UOp {
 
     /// Element-wise演算
     Elementwise {
-        dtype: DType,
         op: ElementwiseOp,
         inputs: Vec<Rc<UOp>>,
     },
 
     /// Reduce演算
     Reduce {
-        dtype: DType,
         op: ReduceOp,
         input: Rc<UOp>,
         axis: usize,
@@ -35,7 +36,6 @@ pub enum UOp {
     // ========== 中レベル演算（ループレベル） ==========
     /// ループ構造
     Loop {
-        dtype: DType,
         var: String,
         start: usize,
         end: usize,
@@ -52,17 +52,16 @@ pub enum UOp {
 
     /// メモリストア
     Store {
-        dtype: DType,
         buffer: String,
         index: Option<Rc<UOp>>,
         value: Rc<UOp>,
     },
 
     /// バリア同期
-    Barrier { dtype: DType },
+    Barrier,
 
     /// シーケンス（複数の操作を順次実行）
-    Sequence { dtype: DType, ops: Vec<Rc<UOp>> },
+    Sequence(Vec<Rc<UOp>>),
 
     // ========== 低レベル演算（スカラーレベル） ==========
     /// スレッドインデックス（GPUの場合）
@@ -75,64 +74,35 @@ pub enum UOp {
     Var { dtype: DType, name: String },
 
     /// スカラー加算
-    Add {
-        dtype: DType,
-        lhs: Rc<UOp>,
-        rhs: Rc<UOp>,
-    },
+    Add(Rc<UOp>, Rc<UOp>),
 
     /// スカラー乗算
-    Mul {
-        dtype: DType,
-        lhs: Rc<UOp>,
-        rhs: Rc<UOp>,
-    },
+    Mul(Rc<UOp>, Rc<UOp>),
 
     /// スカラー最大値
-    Max {
-        dtype: DType,
-        lhs: Rc<UOp>,
-        rhs: Rc<UOp>,
-    },
+    Max(Rc<UOp>, Rc<UOp>),
 
     /// スカラー剰余
-    Rem {
-        dtype: DType,
-        lhs: Rc<UOp>,
-        rhs: Rc<UOp>,
-    },
+    Rem(Rc<UOp>, Rc<UOp>),
 
     /// スカラー整数除算
-    Idiv {
-        dtype: DType,
-        lhs: Rc<UOp>,
-        rhs: Rc<UOp>,
-    },
+    Idiv(Rc<UOp>, Rc<UOp>),
 
     /// スカラー逆数
-    Recip { dtype: DType, arg: Rc<UOp> },
+    Recip(Rc<UOp>),
 
     /// スカラー平方根
-    Sqrt { dtype: DType, arg: Rc<UOp> },
+    Sqrt(Rc<UOp>),
 
     /// スカラー比較（小なり）
-    LessThan {
-        dtype: DType,
-        lhs: Rc<UOp>,
-        rhs: Rc<UOp>,
-    },
+    LessThan(Rc<UOp>, Rc<UOp>),
 
     /// 三項演算子 (cond ? then : else_)
-    Select {
-        dtype: DType,
-        cond: Rc<UOp>,
-        then_: Rc<UOp>,
-        else_: Rc<UOp>,
-    },
+    Select(Rc<UOp>, Rc<UOp>, Rc<UOp>),
 
     // ========== パターンマッチング用 ==========
     /// ワイルドカード（パターンマッチング用）
-    Wildcard { dtype: DType, id: usize },
+    Wildcard(usize),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -159,31 +129,53 @@ pub enum ReduceOp {
 }
 
 impl UOp {
-    /// dtypeを取得
-    pub fn dtype(&self) -> &DType {
+    /// dtypeを型推論で取得
+    pub fn dtype(&self) -> DType {
         match self {
-            UOp::Input { dtype, .. }
-            | UOp::Const { dtype, .. }
-            | UOp::Elementwise { dtype, .. }
-            | UOp::Reduce { dtype, .. }
-            | UOp::Loop { dtype, .. }
-            | UOp::Load { dtype, .. }
-            | UOp::Store { dtype, .. }
-            | UOp::Barrier { dtype }
-            | UOp::Sequence { dtype, .. }
-            | UOp::ThreadIdx { dtype, .. }
-            | UOp::GroupIdx { dtype, .. }
-            | UOp::Var { dtype, .. }
-            | UOp::Add { dtype, .. }
-            | UOp::Mul { dtype, .. }
-            | UOp::Max { dtype, .. }
-            | UOp::Rem { dtype, .. }
-            | UOp::Idiv { dtype, .. }
-            | UOp::Recip { dtype, .. }
-            | UOp::Sqrt { dtype, .. }
-            | UOp::LessThan { dtype, .. }
-            | UOp::Select { dtype, .. }
-            | UOp::Wildcard { dtype, .. } => dtype,
+            // 葉ノード: dtypeを保持
+            UOp::Input { dtype, .. } => dtype.clone(),
+            UOp::Const { dtype, .. } => dtype.clone(),
+            UOp::Var { dtype, .. } => dtype.clone(),
+            UOp::ThreadIdx { dtype, .. } => dtype.clone(),
+            UOp::GroupIdx { dtype, .. } => dtype.clone(),
+            UOp::Load { dtype, .. } => dtype.clone(),
+
+            // 二項演算: 左辺の型を継承
+            UOp::Add(lhs, _)
+            | UOp::Mul(lhs, _)
+            | UOp::Max(lhs, _)
+            | UOp::Rem(lhs, _)
+            | UOp::Idiv(lhs, _) => lhs.dtype(),
+
+            // 比較演算: bool (Unknown で代用)
+            UOp::LessThan(..) => DType::Unknown,
+
+            // 単項演算: 引数の型を継承
+            UOp::Recip(arg) | UOp::Sqrt(arg) => arg.dtype(),
+
+            // Select: then_の型を継承
+            UOp::Select(_, then_, _) => then_.dtype(),
+
+            // Elementwise/Reduce: 入力の型を継承
+            UOp::Elementwise { inputs, .. } => {
+                inputs.first().map(|i| i.dtype()).unwrap_or(DType::Unknown)
+            }
+            UOp::Reduce { input, .. } => input.dtype(),
+
+            // Loop: bodyの型を継承
+            UOp::Loop { body, .. } => body.dtype(),
+
+            // Store: valueの型を継承
+            UOp::Store { value, .. } => value.dtype(),
+
+            // Sequence: 最後の要素の型（空ならUnknown）
+            UOp::Sequence(ops) => ops.last().map(|o| o.dtype()).unwrap_or(DType::Unknown),
+
+            // Barrier: void相当
+            UOp::Barrier => DType::Unknown,
+
+            // Wildcard: パターンマッチング用、任意の型にマッチ
+            UOp::Wildcard(_) => DType::Unknown,
         }
     }
 
@@ -195,8 +187,8 @@ impl UOp {
             | UOp::ThreadIdx { .. }
             | UOp::GroupIdx { .. }
             | UOp::Var { .. }
-            | UOp::Barrier { .. }
-            | UOp::Wildcard { .. } => vec![],
+            | UOp::Barrier
+            | UOp::Wildcard(_) => vec![],
 
             UOp::Elementwise { inputs, .. } => inputs.iter().collect(),
             UOp::Reduce { input, .. } => vec![input],
@@ -207,17 +199,15 @@ impl UOp {
                 v.push(value);
                 v
             }
-            UOp::Sequence { ops, .. } => ops.iter().collect(),
-            UOp::Add { lhs, rhs, .. }
-            | UOp::Mul { lhs, rhs, .. }
-            | UOp::Max { lhs, rhs, .. }
-            | UOp::Rem { lhs, rhs, .. }
-            | UOp::Idiv { lhs, rhs, .. }
-            | UOp::LessThan { lhs, rhs, .. } => vec![lhs, rhs],
-            UOp::Recip { arg, .. } | UOp::Sqrt { arg, .. } => vec![arg],
-            UOp::Select {
-                cond, then_, else_, ..
-            } => vec![cond, then_, else_],
+            UOp::Sequence(ops) => ops.iter().collect(),
+            UOp::Add(lhs, rhs)
+            | UOp::Mul(lhs, rhs)
+            | UOp::Max(lhs, rhs)
+            | UOp::Rem(lhs, rhs)
+            | UOp::Idiv(lhs, rhs)
+            | UOp::LessThan(lhs, rhs) => vec![lhs, rhs],
+            UOp::Recip(arg) | UOp::Sqrt(arg) => vec![arg],
+            UOp::Select(cond, then_, else_) => vec![cond, then_, else_],
         }
     }
 
@@ -242,10 +232,10 @@ impl UOp {
             UOp::GroupIdx { dim, .. } => {
                 format!("{}GroupIdx({}):{}", prefix, dim, dtype_str)
             }
-            UOp::Wildcard { id, .. } => {
+            UOp::Wildcard(id) => {
                 format!("{}Wildcard({}):{}", prefix, id, dtype_str)
             }
-            UOp::Barrier { .. } => {
+            UOp::Barrier => {
                 format!("{}Barrier:{}", prefix, dtype_str)
             }
             _ => {
@@ -261,16 +251,16 @@ impl UOp {
                     } => format!("Loop({}, {}..{}, parallel={})", var, start, end, parallel),
                     UOp::Load { buffer, .. } => format!("Load({})", buffer),
                     UOp::Store { buffer, .. } => format!("Store({})", buffer),
-                    UOp::Sequence { .. } => "Sequence".to_string(),
-                    UOp::Add { .. } => "Add".to_string(),
-                    UOp::Mul { .. } => "Mul".to_string(),
-                    UOp::Max { .. } => "Max".to_string(),
-                    UOp::Rem { .. } => "Rem".to_string(),
-                    UOp::Idiv { .. } => "Idiv".to_string(),
-                    UOp::Recip { .. } => "Recip".to_string(),
-                    UOp::Sqrt { .. } => "Sqrt".to_string(),
-                    UOp::LessThan { .. } => "LessThan".to_string(),
-                    UOp::Select { .. } => "Select".to_string(),
+                    UOp::Sequence(_) => "Sequence".to_string(),
+                    UOp::Add(..) => "Add".to_string(),
+                    UOp::Mul(..) => "Mul".to_string(),
+                    UOp::Max(..) => "Max".to_string(),
+                    UOp::Rem(..) => "Rem".to_string(),
+                    UOp::Idiv(..) => "Idiv".to_string(),
+                    UOp::Recip(_) => "Recip".to_string(),
+                    UOp::Sqrt(_) => "Sqrt".to_string(),
+                    UOp::LessThan(..) => "LessThan".to_string(),
+                    UOp::Select(..) => "Select".to_string(),
                     _ => "Unknown".to_string(),
                 };
 
@@ -305,7 +295,7 @@ mod tests {
         println!("{}", c.to_debug_string(0));
 
         match &*c {
-            UOp::Add { .. } => {}
+            UOp::Add(..) => {}
             _ => panic!("Expected Add"),
         }
         assert_eq!(c.children().len(), 2);
@@ -328,12 +318,22 @@ mod tests {
     }
 
     #[test]
-    fn test_dtype_accessor() {
+    fn test_dtype_inference() {
+        // Inputからの型推論
         let a = input("a", vec![10], DType::F32);
-        assert_eq!(*a.dtype(), DType::F32);
+        assert_eq!(a.dtype(), DType::F32);
 
+        // Constからの型推論（異なる型でテスト）
         let b = const_val(42.0, DType::Unknown);
-        assert_eq!(*b.dtype(), DType::Unknown);
+        assert_eq!(b.dtype(), DType::Unknown);
+
+        // Addの型推論（左辺から継承）
+        let c = add(a.clone(), input("b", vec![10], DType::F32));
+        assert_eq!(c.dtype(), DType::F32);
+
+        // ネストした演算の型推論
+        let d = mul(c.clone(), const_val(2.0, DType::F32));
+        assert_eq!(d.dtype(), DType::F32);
     }
 
     #[test]
