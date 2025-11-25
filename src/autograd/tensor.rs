@@ -221,11 +221,10 @@ impl Tensor {
     /// # 例
     /// ```
     /// use harp::autograd::Tensor;
+    /// use harp::graph::GraphNode;
     ///
-    /// let a = Tensor::from_graph_node(
-    ///     harp::graph::GraphNode::full(vec![2, 3], 1.0),
-    ///     true,
-    /// );
+    /// let a = Tensor::from_graph_node(GraphNode::constant(1.0f32), true);
+    /// assert!(a.requires_grad());
     /// let b = a.detach(); // 勾配グラフから切り離し
     /// assert!(!b.requires_grad());
     /// ```
