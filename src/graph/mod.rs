@@ -212,13 +212,13 @@ impl GraphNode {
     /// use harp::prelude::*;
     ///
     /// // 静的な形状: 2x3の乱数テンソル
-    /// let rand_node = GraphNode::rand_init(vec![2, 3]);
+    /// let rand_node = GraphNode::rand(vec![2, 3]);
     ///
     /// // 動的な形状: Expr型を使用
     /// let batch_size = shape::Expr::var("batch");
-    /// let rand_node = GraphNode::rand_init(vec![batch_size, 64.into()]);
+    /// let rand_node = GraphNode::rand(vec![batch_size, 64.into()]);
     /// ```
-    pub fn rand_init<E: Into<shape::Expr> + Clone, I: IntoIterator<Item = E>>(shape: I) -> Self {
+    pub fn rand<E: Into<shape::Expr> + Clone, I: IntoIterator<Item = E>>(shape: I) -> Self {
         let shape_exprs: Vec<shape::Expr> = shape.into_iter().map(|e| e.into()).collect();
         let view = View::contiguous(shape_exprs);
         Self::new(

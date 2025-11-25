@@ -315,6 +315,65 @@ impl GraphNode {
     pub fn rsqrt(self) -> GraphNode {
         recip(self.sqrt())
     }
+
+    // ============================================================================
+    // 乱数初期化
+    // ============================================================================
+
+    /// 指定した形状の標準正規分布（平均0、標準偏差1）の乱数テンソルを生成
+    ///
+    /// Box-Muller法を使用して一様乱数から正規乱数を生成します。
+    ///
+    /// # アルゴリズム
+    /// 2つの独立した一様乱数 U1, U2 ∈ (0, 1) から：
+    /// - Z = sqrt(-2 * ln(U1)) * cos(2 * π * U2)
+    ///
+    /// Z は標準正規分布に従います。
+    ///
+    /// # 引数
+    /// - `shape`: テンソルの形状（静的な`usize`/`isize`または動的な`Expr`を受け付ける）
+    ///
+    /// # 例
+    /// ```ignore
+    /// use harp::prelude::*;
+    ///
+    /// // 静的な形状: 2x3の正規乱数テンソル
+    /// let randn_node = GraphNode::randn(vec![2, 3]);
+    ///
+    /// // 動的な形状
+    /// let batch_size = shape::Expr::var("batch");
+    /// let randn_node = GraphNode::randn(vec![batch_size, 64.into()]);
+    /// ```
+    pub fn randn<E: Into<crate::graph::shape::Expr> + Clone, I: IntoIterator<Item = E>>(
+        shape: I,
+    ) -> Self {
+        use crate::graph::shape::Expr;
+        use std::f32::consts::PI;
+
+        let shape_exprs: Vec<Expr> = shape.into_iter().map(|e| e.into()).collect();
+
+        // 2つの独立した一様乱数テンソルを生成
+        let u1 = GraphNode::rand(shape_exprs.clone());
+        let u2 = GraphNode::rand(shape_exprs);
+
+        // Box-Muller変換:
+        // Z = sqrt(-2 * ln(U1)) * cos(2 * π * U2)
+        //
+        // Note: U1が0に非常に近い場合、ln(U1)は負の大きな値になりますが、
+        // 実用上は問題になることは稀です。
+
+        // sqrt(-2 * ln(U1))
+        // -2 * ln(U1) = -2 * log2(U1) / log2(e) = log2(U1) * (-2 / log2(e))
+        const NEG_2_DIV_LOG2_E: f32 = -2.0 / std::f32::consts::LOG2_E;
+        let r = (u1.log2() * NEG_2_DIV_LOG2_E).sqrt();
+
+        // cos(2 * π * U2)
+        let theta = u2 * (2.0 * PI);
+        let cos_theta = theta.cos();
+
+        // Z = r * cos(theta)
+        r * cos_theta
+    }
 }
 
 #[cfg(test)]
@@ -742,5 +801,54 @@ mod tests {
         }
 
         assert_eq!(result.view.ndim(), 1);
+    }
+
+    // ============================================================================
+    // 乱数初期化テスト
+    // ============================================================================
+
+    #[test]
+    fn test_randn() {
+        // 静的な形状で正規乱数テンソルを生成
+        let result = GraphNode::randn(vec![10, 20]);
+
+        match result.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
+
+        assert_eq!(result.view.ndim(), 2);
+        assert_eq!(result.view.shape()[0], Expr::from(10));
+        assert_eq!(result.view.shape()[1], Expr::from(20));
+    }
+
+    #[test]
+    fn test_randn_dynamic_shape() {
+        // 動的な形状で正規乱数テンソルを生成
+        let batch = Expr::Var("batch".to_string());
+        let result = GraphNode::randn(vec![batch.clone(), Expr::from(64)]);
+
+        match result.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
+
+        assert_eq!(result.view.ndim(), 2);
+        assert_eq!(result.view.shape()[0], batch);
+        assert_eq!(result.view.shape()[1], Expr::from(64));
+    }
+
+    #[test]
+    fn test_randn_1d() {
+        // 1次元の正規乱数テンソルを生成
+        let result = GraphNode::randn(vec![100]);
+
+        match result.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
+
+        assert_eq!(result.view.ndim(), 1);
+        assert_eq!(result.view.shape()[0], Expr::from(100));
     }
 }

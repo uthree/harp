@@ -135,7 +135,7 @@ impl Tensor {
 
     /// 指定した形状の一様乱数テンソルを作成（デバイス指定版）
     pub fn rand_on(shape: Vec<usize>, device: Device) -> Self {
-        let node = GraphNode::rand_init(shape);
+        let node = GraphNode::rand(shape);
         Self::from_graph_node_with_device(node, false, device)
     }
 
