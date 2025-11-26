@@ -7,6 +7,10 @@ use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 pub enum GraphOp {
     Input,          // 入力ノード
     Const(Literal), // 定数ノード, shape=[], ndim=0のスカラーを初期化する。
+    ComplexConst {
+        re: f32,
+        im: f32,
+    }, // 複素数定数ノード (real, imaginary)
     View(View),     // Viewを変更する
     Contiguous {
         elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
@@ -240,6 +244,13 @@ impl From<i64> for GraphNode {
 impl From<&GraphNode> for GraphNode {
     fn from(value: &GraphNode) -> Self {
         value.clone()
+    }
+}
+
+// Complex number from tuple (re, im)
+impl From<(f32, f32)> for GraphNode {
+    fn from(value: (f32, f32)) -> Self {
+        GraphNode::complex_constant(value.0, value.1)
     }
 }
 
@@ -1090,5 +1101,49 @@ mod tests {
 
         // x is still usable
         let _sum = &x + 1.0f32;
+    }
+
+    #[test]
+    fn test_complex_constant() {
+        let node = GraphNode::complex_constant(1.0, 2.0);
+        assert_eq!(node.dtype, DType::Complex);
+        assert!(node.view.shape().is_empty()); // Scalar
+
+        match &node.op {
+            GraphOp::ComplexConst { re, im } => {
+                assert_eq!(*re, 1.0);
+                assert_eq!(*im, 2.0);
+            }
+            _ => panic!("Expected ComplexConst"),
+        }
+    }
+
+    #[test]
+    fn test_complex_from_tuple() {
+        let node: GraphNode = (3.0f32, 4.0f32).into();
+        assert_eq!(node.dtype, DType::Complex);
+        assert!(node.view.shape().is_empty());
+
+        match &node.op {
+            GraphOp::ComplexConst { re, im } => {
+                assert_eq!(*re, 3.0);
+                assert_eq!(*im, 4.0);
+            }
+            _ => panic!("Expected ComplexConst"),
+        }
+    }
+
+    #[test]
+    fn test_complex_constant_from() {
+        let node = GraphNode::complex_constant_from((5.0, -1.0));
+        assert_eq!(node.dtype, DType::Complex);
+
+        match &node.op {
+            GraphOp::ComplexConst { re, im } => {
+                assert_eq!(*re, 5.0);
+                assert_eq!(*im, -1.0);
+            }
+            _ => panic!("Expected ComplexConst"),
+        }
     }
 }

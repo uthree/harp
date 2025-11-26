@@ -126,6 +126,11 @@ impl Lowerer {
         let acc_dtype = match &node.dtype {
             crate::graph::DType::Bool => AstDType::Bool,
             crate::graph::DType::F32 => AstDType::F32,
+            crate::graph::DType::Complex => {
+                return Err(
+                    "Complex fused elementwise cumulative requires special lowering".to_string(),
+                );
+            }
             crate::graph::DType::Unknown => {
                 return Err("Cannot determine dtype for Unknown".to_string());
             }

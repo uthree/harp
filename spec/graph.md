@@ -58,7 +58,29 @@ Viewは各軸の添え字からメモリオフセットへの線形変換を表�
 ### サポートされるDType
 - `Bool`: ブール型（attention maskなど向け）。内部的には8ビット整数で表現
 - `F32`: 32ビット浮動小数点
+- `Complex`: 複素数型（FFTなど向け）。Lowering時に2つのF32（実部・虚部）に分解
 - `Unknown`: 型推論前の未確定型
+
+### Complex型の設計
+複素数型はGraph層で`DType::Complex`として表現され、Lowering時に2つの`F32`バッファ（実部と虚部）に分解されます。これにより：
+- AST層の演算子数を最小限に維持
+- 複素数演算が実数演算の組み合わせとして自然にベクトル化可能
+- バックエンド（C/OpenCL/Metal）で特別な複素数サポートが不要
+
+```rust
+// 複素数定数の作成
+let z1 = GraphNode::complex_constant(1.0, 2.0);  // 1.0 + 2.0i
+let z2 = GraphNode::complex_constant_from((3.0, 4.0));  // 3.0 + 4.0i
+let z3: GraphNode = (5.0f32, -1.0f32).into();  // タプルからの変換
+
+// 複素数演算（実装済み）
+let sum = &z1 + &z2;  // 複素数加算: (a+bi) + (c+di) = (a+c) + (b+d)i
+let prod = &z1 * &z2;  // 複素数乗算: (a+bi) * (c+di) = (ac-bd) + (ad+bc)i
+let neg = -&z1;        // 複素数否定: -(a+bi) = -a + (-b)i
+let inv = z1.recip();  // 複素数逆数: 1/(a+bi) = (a-bi)/(a²+b²)
+```
+
+**実装状況**: 複素数Elementwise演算（Add, Mul, Neg, Recip）のLoweringは実装済みです。Reduce、Cumulative等の複素数演算は未実装です。
 
 ## 演算子オーバーロードと数値型変換
 
@@ -104,6 +126,7 @@ let final_result = &x + 100.0f32;
 ### 対応する数値型
 - `bool` → `GraphNode::constant(bool)` → DType::Bool
 - `f32` → `GraphNode::constant(f32)` → DType::F32
+- `(f32, f32)` → `GraphNode::complex_constant(re, im)` → DType::Complex
 - `isize`, `i32`, `i64` → `GraphNode::constant(isize)` → DType::Unknown
 - `&GraphNode` → clone
 
@@ -198,8 +221,10 @@ let value = shape[i].expect_usize("requires constant");
 - テンソル切り出し（Slice）- テンソルの一部を切り出す
 - パディング（Pad）- テンソルの境界を指定値で拡張
 - グラフ最適化（詳細は[opt-graph.md](opt-graph.md)を参照）
+- 複素数型（Complex）のElementwise演算Lowering（Add、Mul、Neg、Recip）- 2つのF32バッファに分解
 
 ### 未実装
 - Thread/ThreadGroupレベルの並列実行のLowering
 - ループタイル化（TilingSuggester - view変更の操作が必要）
 - 行列乗算（matmul、batch_matmul）- unsqueezeとbroadcastの実装待ち
+- 複素数型のReduce/Cumulative演算のLowering

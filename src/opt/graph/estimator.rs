@@ -77,7 +77,7 @@ impl SimpleCostEstimator {
     /// 各ノードのベースコストを取得（log(CPUサイクル)）
     fn node_base_cost(&self, node: &GraphNode) -> f32 {
         match &node.op {
-            GraphOp::Input | GraphOp::Const(_) => {
+            GraphOp::Input | GraphOp::Const(_) | GraphOp::ComplexConst { .. } => {
                 // 入力/定数ノードは実行時コストなし（メモリは既に確保済み）
                 f32::NEG_INFINITY // log(0)
             }

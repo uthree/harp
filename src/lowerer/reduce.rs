@@ -117,6 +117,9 @@ impl Lowerer {
         let acc_dtype = match &node.dtype {
             crate::graph::DType::Bool => AstDType::Bool,
             crate::graph::DType::F32 => AstDType::F32,
+            crate::graph::DType::Complex => {
+                return Err("Complex reduce requires special lowering".to_string());
+            }
             crate::graph::DType::Unknown => {
                 return Err("Cannot determine dtype for Unknown".to_string());
             }
@@ -181,6 +184,9 @@ impl Lowerer {
         let acc_dtype = match &node.dtype {
             crate::graph::DType::Bool => AstDType::Bool,
             crate::graph::DType::F32 => AstDType::F32,
+            crate::graph::DType::Complex => {
+                return Err("Complex reduce requires special lowering".to_string());
+            }
             crate::graph::DType::Unknown => {
                 return Err("Cannot determine dtype for Unknown".to_string());
             }
@@ -243,6 +249,7 @@ impl Lowerer {
             ReduceOp::Sum => match dtype {
                 GraphDType::Bool => Ok(AstNode::Const(false.into())), // OR演算の初期値
                 GraphDType::F32 => Ok(const_f32(0.0)),
+                GraphDType::Complex => Err("Complex reduce requires special lowering".to_string()),
                 GraphDType::Unknown => {
                     Err("Cannot determine init value for Unknown dtype".to_string())
                 }
@@ -250,6 +257,7 @@ impl Lowerer {
             ReduceOp::Prod => match dtype {
                 GraphDType::Bool => Ok(AstNode::Const(true.into())), // AND演算の初期値
                 GraphDType::F32 => Ok(const_f32(1.0)),
+                GraphDType::Complex => Err("Complex reduce requires special lowering".to_string()),
                 GraphDType::Unknown => {
                     Err("Cannot determine init value for Unknown dtype".to_string())
                 }
@@ -257,6 +265,7 @@ impl Lowerer {
             ReduceOp::Max => match dtype {
                 GraphDType::Bool => Ok(AstNode::Const(false.into())), // Max(false) = false
                 GraphDType::F32 => Ok(const_f32(f32::NEG_INFINITY)),
+                GraphDType::Complex => Err("Complex Max is not defined".to_string()),
                 GraphDType::Unknown => {
                     Err("Cannot determine init value for Unknown dtype".to_string())
                 }

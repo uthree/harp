@@ -40,7 +40,8 @@ pub struct GraphNode(Rc<GraphNodeData>);
 pub enum DType {
     Unknown, // 未定または未知, プレースホルダー
     Bool,    // boolean (internally u8: 0 = false, non-zero = true)
-    F32,
+    F32,     // 32-bit floating point
+    Complex, // complex number (lowered to two F32 values: real and imaginary)
 }
 
 impl Default for Graph {
@@ -230,6 +231,33 @@ impl GraphNode {
         // 定数はスカラー（shape=[]）
         let view = View::contiguous(Vec::<isize>::new());
         Self::new(dtype, GraphOp::Const(literal), vec![], view)
+    }
+
+    /// 複素数スカラー定数ノードを作成
+    ///
+    /// # 例
+    /// ```
+    /// use harp::prelude::*;
+    ///
+    /// // 複素数定数 (1.0 + 2.0i)
+    /// let complex_const = GraphNode::complex_constant(1.0, 2.0);
+    ///
+    /// // タプルから
+    /// let complex_const2 = GraphNode::complex_constant_from((3.0, 4.0));
+    /// ```
+    pub fn complex_constant(re: f32, im: f32) -> Self {
+        let view = View::contiguous(Vec::<isize>::new());
+        Self::new(
+            DType::Complex,
+            GraphOp::ComplexConst { re, im },
+            vec![],
+            view,
+        )
+    }
+
+    /// タプルから複素数スカラー定数ノードを作成
+    pub fn complex_constant_from(value: (f32, f32)) -> Self {
+        Self::complex_constant(value.0, value.1)
     }
 
     /// 指定した形状の一様乱数テンソルを生成 [0, 1)

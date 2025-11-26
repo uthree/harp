@@ -2,6 +2,7 @@ use crate::graph::{Graph, GraphNode, ops::GraphOp};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 // モジュール宣言
+mod complex;
 mod concat;
 mod contiguous;
 mod cumulative;
@@ -128,11 +129,14 @@ pub(crate) fn lower(graph: Graph) -> crate::ast::AstNode {
     let mut kernel_id = 0;
     for generation in generations.into_iter().rev() {
         for node in generation {
-            // Input, Const, View ノードはスキップ
+            // Input, Const, ComplexConst, View ノードはスキップ
             // Viewノードはメモリアクセスパターンを記述するだけで、バッファーを生成しない
             if matches!(
                 node.op,
-                GraphOp::Input | GraphOp::Const(_) | GraphOp::View(_)
+                GraphOp::Input
+                    | GraphOp::Const(_)
+                    | GraphOp::ComplexConst { .. }
+                    | GraphOp::View(_)
             ) {
                 continue;
             }
@@ -147,8 +151,8 @@ pub(crate) fn lower(graph: Graph) -> crate::ast::AstNode {
                 .src
                 .iter()
                 .filter_map(|src| {
-                    // Constノードはバッファーを持たない
-                    if matches!(src.op, GraphOp::Const(_)) {
+                    // Constノード、ComplexConstノードはバッファーを持たない
+                    if matches!(src.op, GraphOp::Const(_) | GraphOp::ComplexConst { .. }) {
                         None
                     } else {
                         // Viewノードは実際のストレージノードまでトレース
@@ -616,7 +620,14 @@ impl Lowerer {
         node_id: usize,
     ) -> Result<crate::ast::AstNode, String> {
         match &node.op {
-            GraphOp::Elementwise { op, .. } => self.lower_elementwise_kernel(node, node_id, op),
+            GraphOp::Elementwise { op, .. } => {
+                // 複素数型の場合は専用のローワリングを使用
+                if Self::is_complex_node(node) || node.src.iter().any(Self::is_complex_node) {
+                    self.lower_complex_elementwise_kernel(node, node_id, op)
+                } else {
+                    self.lower_elementwise_kernel(node, node_id, op)
+                }
+            }
             GraphOp::Reduce { op, axis, .. } => self.lower_reduce_kernel(node, node_id, op, *axis),
             GraphOp::Cumulative { op, axis, .. } => {
                 self.lower_cumulative_kernel(node, node_id, op, *axis)

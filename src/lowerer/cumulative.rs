@@ -110,6 +110,9 @@ impl Lowerer {
         let acc_dtype = match &node.dtype {
             crate::graph::DType::Bool => AstDType::Bool,
             crate::graph::DType::F32 => AstDType::F32,
+            crate::graph::DType::Complex => {
+                return Err("Complex cumulative requires special lowering".to_string());
+            }
             crate::graph::DType::Unknown => {
                 return Err("Cannot determine dtype for Unknown".to_string());
             }
@@ -206,6 +209,9 @@ impl Lowerer {
                 CumulativeOp::Sum => Ok(const_f32(0.0)),
                 CumulativeOp::Prod => Ok(const_f32(1.0)),
             },
+            crate::graph::DType::Complex => {
+                Err("Complex cumulative requires special lowering".to_string())
+            }
             crate::graph::DType::Unknown => {
                 Err("Cannot determine init value for Unknown dtype".to_string())
             }

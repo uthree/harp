@@ -96,6 +96,12 @@ impl Lowerer {
         let element_dtype = match dtype {
             GraphDType::Bool => AstDType::Bool,
             GraphDType::F32 => AstDType::F32,
+            GraphDType::Complex => {
+                return Err(
+                    "Complex type requires special lowering (decomposed to two F32 buffers)"
+                        .to_string(),
+                );
+            }
             GraphDType::Unknown => return Err("Cannot convert Unknown dtype".to_string()),
         };
         Ok(AstDType::Ptr(Box::new(element_dtype)))
@@ -106,6 +112,9 @@ impl Lowerer {
         match dtype {
             GraphDType::Bool => Ok(AstDType::Bool),
             GraphDType::F32 => Ok(AstDType::F32),
+            GraphDType::Complex => Err(
+                "Complex type requires special lowering (decomposed to two F32 values)".to_string(),
+            ),
             GraphDType::Unknown => Err("Cannot convert Unknown dtype".to_string()),
         }
     }
