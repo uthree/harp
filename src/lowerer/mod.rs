@@ -2,6 +2,7 @@ use crate::graph::{Graph, GraphNode, ops::GraphOp};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 // モジュール宣言
+mod concat;
 mod contiguous;
 mod cumulative;
 mod elementwise;
@@ -649,6 +650,7 @@ impl Lowerer {
                 self.lower_pad_kernel(node, node_id, padding, *value)
             }
             GraphOp::Slice { ranges } => self.lower_slice_kernel(node, node_id, ranges),
+            GraphOp::Concat { axis } => self.lower_concat_kernel(node, node_id, *axis),
             GraphOp::Fold {
                 output_size,
                 kernel_size,
@@ -664,7 +666,7 @@ impl Lowerer {
                 dilation,
                 *groups,
             ),
-            GraphOp::RandInit { .. } => self.lower_rand_init_kernel(node, node_id),
+            GraphOp::Rand { .. } => self.lower_rand_init_kernel(node, node_id),
             _ => Err(format!("Unsupported operation: {:?}", node.op)),
         }
     }

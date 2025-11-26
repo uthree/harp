@@ -1,3 +1,4 @@
+mod concat_tests;
 mod contiguous_tests;
 mod elementwise_tests;
 mod fusion_tests;

@@ -188,6 +188,9 @@ let value = shape[i].expect_usize("requires constant");
 - 融合演算（FusedElementwise、FusedElementwiseReduce、FusedElementwiseCumulative、FusedReduce）
 - 高レベル演算（square、powi、mean、variance、数学関数）
 - 畳み込み演算（conv1d、conv2d、conv3d）- unfold + reduce で実装
+- テンソル結合（Concat）- torch.catに相当、複数テンソルを指定軸で結合
+- テンソル切り出し（Slice）- テンソルの一部を切り出す
+- パディング（Pad）- テンソルの境界を指定値で拡張
 - グラフ最適化（詳細は[opt-graph.md](opt-graph.md)を参照）
 
 ### 未実装

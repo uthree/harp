@@ -251,7 +251,7 @@ impl GraphNode {
         let view = View::contiguous(shape_exprs);
         Self::new(
             DType::F32,
-            GraphOp::RandInit {
+            GraphOp::Rand {
                 elementwise_strategies: None,
             },
             vec![],
@@ -338,6 +338,48 @@ impl GraphNode {
             vec![self, other],
             view,
         )
+    }
+
+    /// 複数のテンソルを指定した軸で結合（staticメソッド）
+    ///
+    /// # 引数
+    /// - `inputs`: 結合するテンソルのベクター
+    /// - `axis`: 結合する軸
+    ///
+    /// # 例
+    /// ```no_run
+    /// use harp::prelude::*;
+    ///
+    /// let mut graph = Graph::new();
+    /// let a = graph.input("a").with_dtype(DType::F32).with_shape([2, 3]).build();
+    /// let b = graph.input("b").with_dtype(DType::F32).with_shape([2, 5]).build();
+    ///
+    /// // axis=1で結合: [2, 3] + [2, 5] => [2, 8]
+    /// let c = GraphNode::concat(vec![a, b], 1);
+    /// ```
+    pub fn concat(inputs: Vec<Self>, axis: usize) -> Self {
+        ops::concat(inputs, axis)
+    }
+
+    /// このテンソルと別のテンソルを指定した軸で結合
+    ///
+    /// # 引数
+    /// - `other`: 結合するテンソル
+    /// - `axis`: 結合する軸
+    ///
+    /// # 例
+    /// ```no_run
+    /// use harp::prelude::*;
+    ///
+    /// let mut graph = Graph::new();
+    /// let a = graph.input("a").with_dtype(DType::F32).with_shape([2, 3]).build();
+    /// let b = graph.input("b").with_dtype(DType::F32).with_shape([2, 5]).build();
+    ///
+    /// // axis=1で結合: [2, 3] + [2, 5] => [2, 8]
+    /// let c = a.cat(b, 1);
+    /// ```
+    pub fn cat(self, other: Self, axis: usize) -> Self {
+        ops::concat(vec![self, other], axis)
     }
 }
 

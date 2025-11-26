@@ -57,6 +57,9 @@ pub enum GraphOp {
     Slice {
         ranges: Vec<(usize, usize)>, // 各軸の(start, end)範囲（endは含まない）
     }, // テンソルの一部を切り出し
+    Concat {
+        axis: usize, // 結合する軸
+    }, // 複数のテンソルを指定軸で結合（torch.catに相当）
     Fold {
         output_size: Vec<usize>, // 出力サイズ (unfold前のサイズ)
         kernel_size: Vec<usize>, // カーネルサイズ
@@ -65,7 +68,7 @@ pub enum GraphOp {
         groups: usize,           // グループ数
     }, // unfoldの逆操作（col2im）
     /// 一様乱数でテンソルを初期化 [0, 1)
-    RandInit {
+    Rand {
         elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
     },
 }
@@ -620,6 +623,88 @@ pub fn fused_elementwise_cumulative(
         inputs,
         view,
     )
+}
+
+/// 複数のテンソルを指定した軸で結合する
+///
+/// # 引数
+/// - `inputs`: 結合するテンソルのベクター（2つ以上）
+/// - `axis`: 結合する軸
+///
+/// # パニック
+/// - inputsが空の場合
+/// - 結合軸以外の次元が一致しない場合
+/// - axisがテンソルの次元数以上の場合
+///
+/// # 例
+/// ```no_run
+/// use harp::prelude::*;
+/// use harp::graph::ops::concat;
+///
+/// let mut graph = Graph::new();
+/// let a = graph.input("a").with_dtype(DType::F32).with_shape([2, 3]).build();
+/// let b = graph.input("b").with_dtype(DType::F32).with_shape([2, 5]).build();
+///
+/// // axis=1で結合: [2, 3] + [2, 5] => [2, 8]
+/// let c = concat(vec![a, b], 1);
+/// ```
+pub fn concat(inputs: Vec<GraphNode>, axis: usize) -> GraphNode {
+    if inputs.is_empty() {
+        panic!("concat requires at least one input");
+    }
+
+    if inputs.len() == 1 {
+        return inputs.into_iter().next().unwrap();
+    }
+
+    let first = &inputs[0];
+    let first_shape = first.view.shape();
+    let ndim = first_shape.len();
+
+    if axis >= ndim {
+        panic!(
+            "concat: axis {} is out of bounds for tensor with {} dimensions",
+            axis, ndim
+        );
+    }
+
+    // 結合軸以外の次元が一致することを確認
+    for (i, input) in inputs.iter().enumerate().skip(1) {
+        let shape = input.view.shape();
+        if shape.len() != ndim {
+            panic!(
+                "concat: all inputs must have the same number of dimensions. \
+                 Input 0 has {} dimensions, but input {} has {} dimensions",
+                ndim,
+                i,
+                shape.len()
+            );
+        }
+
+        for (dim, (s1, s2)) in first_shape.iter().zip(shape.iter()).enumerate() {
+            if dim != axis && s1 != s2 {
+                panic!(
+                    "concat: dimension mismatch at axis {}. \
+                     Input 0 has size {:?}, but input {} has size {:?}",
+                    dim, s1, i, s2
+                );
+            }
+        }
+    }
+
+    // 出力形状を計算：結合軸のサイズは全入力の合計
+    let mut output_shape = first_shape.to_vec();
+    let mut concat_size = first_shape[axis].clone();
+    for input in inputs.iter().skip(1) {
+        concat_size += input.view.shape()[axis].clone();
+    }
+    output_shape[axis] = concat_size;
+
+    // DTypeは最初の入力から継承
+    let dtype = first.dtype.clone();
+    let output_view = crate::graph::shape::View::contiguous(output_shape);
+
+    GraphNode::new(dtype, GraphOp::Concat { axis }, inputs, output_view)
 }
 
 /// 複数のreduce演算を融合したノードを作成
