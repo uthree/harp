@@ -129,17 +129,71 @@ impl Suggester for LoopTilingSuggester {
 pub struct LoopInliningSuggester {
     /// 展開する最大反復回数
     max_iterations: usize,
+    /// 最内側のループのみを展開するかどうか（デフォルト: true）
+    /// これを有効にすると、ネストしたループの外側は展開されません。
+    innermost_only: bool,
 }
 
 impl LoopInliningSuggester {
     /// 新しいLoopInliningSuggesterを作成
     pub fn new(max_iterations: usize) -> Self {
-        Self { max_iterations }
+        Self {
+            max_iterations,
+            innermost_only: true, // デフォルトで最内側のみ
+        }
     }
 
-    /// デフォルトの設定で作成（最大4回まで展開）
+    /// デフォルトの設定で作成（最大8回まで展開、最内側のみ）
     pub fn with_default_limit() -> Self {
-        Self { max_iterations: 8 }
+        Self {
+            max_iterations: 8,
+            innermost_only: true,
+        }
+    }
+
+    /// 最内側ループのみを展開するかどうかを設定
+    pub fn with_innermost_only(mut self, innermost_only: bool) -> Self {
+        self.innermost_only = innermost_only;
+        self
+    }
+
+    /// ASTノードが内部にRangeノードを含むかどうかをチェック
+    fn contains_range(ast: &AstNode) -> bool {
+        match ast {
+            AstNode::Range { .. } => true,
+            AstNode::Block { statements, .. } => statements.iter().any(Self::contains_range),
+            AstNode::Function { body, .. } => Self::contains_range(body),
+            AstNode::Program { functions, .. } => functions.iter().any(Self::contains_range),
+            // その他の複合ノード
+            AstNode::Add(a, b)
+            | AstNode::Mul(a, b)
+            | AstNode::Max(a, b)
+            | AstNode::Rem(a, b)
+            | AstNode::Idiv(a, b)
+            | AstNode::BitwiseAnd(a, b)
+            | AstNode::BitwiseOr(a, b)
+            | AstNode::BitwiseXor(a, b)
+            | AstNode::LeftShift(a, b)
+            | AstNode::RightShift(a, b) => Self::contains_range(a) || Self::contains_range(b),
+            AstNode::Recip(a)
+            | AstNode::Sqrt(a)
+            | AstNode::Log2(a)
+            | AstNode::Exp2(a)
+            | AstNode::Sin(a)
+            | AstNode::BitwiseNot(a)
+            | AstNode::Cast(a, _) => Self::contains_range(a),
+            AstNode::Store { ptr, offset, value } => {
+                Self::contains_range(ptr)
+                    || Self::contains_range(offset)
+                    || Self::contains_range(value)
+            }
+            AstNode::Load { ptr, offset, .. } => {
+                Self::contains_range(ptr) || Self::contains_range(offset)
+            }
+            AstNode::Assign { value, .. } => Self::contains_range(value),
+            // リーフノード
+            _ => false,
+        }
     }
 
     /// AST内の全てのRangeノードを探索してインライン展開を試みる
@@ -147,10 +201,19 @@ impl LoopInliningSuggester {
         let mut candidates = Vec::new();
 
         // 現在のノードがRangeの場合、インライン展開を試みる
-        if matches!(ast, AstNode::Range { .. })
-            && let Some(inlined) = inline_small_loop(ast, self.max_iterations)
-        {
-            candidates.push(inlined);
+        if let AstNode::Range { body, .. } = ast {
+            // innermost_onlyがtrueの場合、本体にRangeを含むループは展開しない
+            let should_inline = if self.innermost_only {
+                !Self::contains_range(body)
+            } else {
+                true
+            };
+
+            if should_inline
+                && let Some(inlined) = inline_small_loop(ast, self.max_iterations)
+            {
+                candidates.push(inlined);
+            }
         }
 
         // 子ノードを再帰的に探索
@@ -320,6 +383,59 @@ mod tests {
         // 外側ループと内側ループのタイル化候補が生成される
         // 少なくとも2つの候補があるはず
         assert!(suggestions.len() >= 2);
+    }
+
+    #[test]
+    fn test_loop_inlining_innermost_only() {
+        // innermost_only=true（デフォルト）の場合、外側ループは展開されない
+        let suggester = LoopInliningSuggester::with_default_limit();
+
+        // 2重ネストループ: for i in 0..2 { for j in 0..3 { body } }
+        let inner_loop = range("j", const_int(0), const_int(1), const_int(3), var("x"));
+        let outer_loop = range("i", const_int(0), const_int(1), const_int(2), inner_loop);
+
+        let suggestions = suggester.suggest(&outer_loop);
+
+        // innermost_only=trueなので、外側ループは展開されず、内側ループのみ展開される
+        // 候補は1つ（外側ループ内の内側ループが展開されたもの）
+        assert_eq!(suggestions.len(), 1);
+
+        // 展開結果は外側ループが残っているはず
+        assert!(matches!(suggestions[0], AstNode::Range { .. }));
+    }
+
+    #[test]
+    fn test_loop_inlining_all_loops() {
+        // innermost_only=falseの場合、すべてのループが展開候補になる
+        let suggester = LoopInliningSuggester::new(10).with_innermost_only(false);
+
+        // 2重ネストループ: for i in 0..2 { for j in 0..3 { body } }
+        let inner_loop = range("j", const_int(0), const_int(1), const_int(3), var("x"));
+        let outer_loop = range("i", const_int(0), const_int(1), const_int(2), inner_loop);
+
+        let suggestions = suggester.suggest(&outer_loop);
+
+        // innermost_only=falseなので、外側と内側の両方が展開候補になる
+        // 少なくとも2つの候補があるはず（外側展開、内側展開）
+        assert!(
+            suggestions.len() >= 2,
+            "Expected at least 2 suggestions, got {}",
+            suggestions.len()
+        );
+    }
+
+    #[test]
+    fn test_loop_inlining_single_loop() {
+        // 単一ループの場合、innermost_onlyの設定に関わらず展開される
+        let suggester = LoopInliningSuggester::with_default_limit();
+
+        let single_loop = range("i", const_int(0), const_int(1), const_int(4), var("x"));
+
+        let suggestions = suggester.suggest(&single_loop);
+
+        // 単一ループなので展開可能
+        assert_eq!(suggestions.len(), 1);
+        assert!(matches!(suggestions[0], AstNode::Block { .. }));
     }
 }
 

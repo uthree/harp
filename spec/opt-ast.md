@@ -42,6 +42,8 @@ ASTを最適化。`optimize(&self, ast: AstNode) -> AstNode`
 
 #### LoopInliningSuggester
 - 小さいループをインライン展開
+- `innermost_only`オプション（デフォルト: true）で最内側ループのみを展開
+- これによりネストループの外側が展開されてノード数が爆発する問題を防止
 
 #### LoopInterchangeSuggester
 - ネストしたループの順序を入れ替え
