@@ -16,6 +16,30 @@ harp-nn → harp-autograd → harp
 - `harp-nn`は`harp-autograd`に依存（`Tensor`型を使用）
 - `harp-autograd`は`harp`に依存（`GraphNode`, `Graph`型を使用）
 
+### インポート例
+
+```rust
+// harp-nnを使用する場合
+use harp_nn::{Module, Parameter};
+use harp_autograd::Tensor;  // Tensorはharp-autogradから直接インポート
+use harp::graph::{Graph, DType};  // Graph関連はharpから
+
+// Cargo.tomlの依存関係
+[dependencies]
+harp = { path = "path/to/harp" }
+harp-autograd = { path = "path/to/harp/crates/harp-autograd" }
+harp-nn = { path = "path/to/harp/crates/harp-nn" }
+```
+
+### 2025-11-26: harp-autograd分離に伴う変更
+
+`harp-nn`が使用していた`harp::autograd::Tensor`を`harp_autograd::Tensor`に変更：
+
+- `src/lib.rs` - use文を変更
+- `src/init.rs` - use文を変更
+- `src/optim.rs` - use文を変更
+- `Cargo.toml` - `harp-autograd`への依存を追加
+
 ## 設計思想
 
 ### 軽量なModule trait

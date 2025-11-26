@@ -240,6 +240,54 @@ Unfoldの逆操作。畳み込みのbackward計算で使用されます。
 
 ## コード構成とリファクタリング履歴
 
+### 2025-11-26: サブクレート化（harp-autograd）
+
+`autograd`モジュールを`harp`本体から分離し、独立したサブクレート`harp-autograd`として再構成しました。
+
+#### 変更内容
+
+**新規作成:**
+- `crates/harp-autograd/Cargo.toml`
+- `crates/harp-autograd/src/lib.rs` - モジュール定義
+- `crates/harp-autograd/src/tensor.rs` - Tensor実装
+- `crates/harp-autograd/src/backward.rs` - 逆伝播処理
+- `crates/harp-autograd/src/hlops.rs` - 高レベル演算
+- `crates/harp-autograd/src/tests.rs` - テスト
+- `crates/harp-autograd/src/grad_fn/` - 勾配関数モジュール
+- `crates/harp-autograd/src/tests/` - 畳み込みテスト
+
+**削除:**
+- `src/autograd/` - harp本体から完全に削除
+
+**変更:**
+- `harp/Cargo.toml` - ワークスペースに`harp-autograd`を追加
+- `harp/src/lib.rs` - `autograd`モジュールを削除、preludeから`Tensor`を削除
+- `harp/src/graph/mod.rs` - `Graph::realize()`と`Graph::realize_with_device()`メソッドを追加
+- `harp-nn/Cargo.toml` - `harp-autograd`への依存を追加
+- `harp-nn/src/*.rs` - `harp::autograd::Tensor`を`harp_autograd::Tensor`に変更
+
+#### 依存関係
+
+```
+harp-nn → harp-autograd → harp
+```
+
+#### 使用方法の変更
+
+```rust
+// Before
+use harp::autograd::Tensor;
+
+// After
+use harp_autograd::Tensor;
+```
+
+#### 目的
+
+- **モジュール独立性**: autograd機能を必要としないユーザーは`harp`のみを使用可能
+- **コンパイル時間**: 変更の影響範囲を限定
+- **保守性**: 関連機能が単一クレートにまとまり、依存関係が明確に
+
 ### 2025-11-25: grad_fn.rsの機能別分割
 大きなファイルを責任ごとに分割し、可読性と保守性を大幅に向上：
 
