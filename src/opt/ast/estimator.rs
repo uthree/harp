@@ -20,12 +20,6 @@ const BARRIER_COST: f32 = 100.0;
 // 連続ループの境界が揃っている場合のボーナス（融合可能性への報酬）
 const LOOP_FUSION_BONUS: f32 = 50.0;
 
-// ノード数に対するペナルティ係数（コンパイル時間・メモリ使用量を考慮）
-const NODE_COUNT_PENALTY_FACTOR: f32 = 0.1;
-
-// ノード数ペナルティが適用される閾値
-const NODE_COUNT_PENALTY_THRESHOLD: usize = 100;
-
 /// 簡単なコスト推定器
 ///
 /// **重要**: このコスト推定器は対数スケール（log(CPUサイクル数)）でコストを返します。
@@ -47,12 +41,29 @@ const NODE_COUNT_PENALTY_THRESHOLD: usize = 100;
 /// - 大きな値を扱う際の数値的安定性
 /// - 乗算が加算に変換されるため計算が簡潔
 /// - オーバーフロー/アンダーフローのリスクが低減
-pub struct SimpleCostEstimator;
+///
+/// # ノード数ペナルティ
+/// ノード数に比例するペナルティ項を追加することで、ループ展開などで
+/// ノード数が爆発する変換を抑制できます。ペナルティは対数スケールで
+/// 直接加算されるため、元のスケールでは乗算的な効果があります。
+pub struct SimpleCostEstimator {
+    /// ノード数あたりのペナルティ係数（対数スケール、デフォルト: 0.01）
+    /// 値が大きいほど、ノード数増加に対するペナルティが強くなります。
+    node_count_penalty: f32,
+}
 
 impl SimpleCostEstimator {
     /// 新しいコスト推定器を作成
     pub fn new() -> Self {
-        Self
+        Self {
+            node_count_penalty: 0.01, // デフォルト値
+        }
+    }
+
+    /// ノード数ペナルティ係数を設定
+    pub fn with_node_count_penalty(mut self, penalty: f32) -> Self {
+        self.node_count_penalty = penalty;
+        self
     }
 
     /// 2つのASTノードが構造的に等しいかチェック（境界比較用）
@@ -341,16 +352,13 @@ impl CostEstimator for SimpleCostEstimator {
                     functions_cost
                 };
 
-                // ノード数に基づくペナルティを追加（コンパイル時間・メモリ使用量を考慮）
-                // これにより、ループ展開などでノード数が爆発する変換が抑制される
+                // ノード数に基づくペナルティを対数スケールで直接加算
+                // final_cost = base_cost + penalty_coefficient * node_count
+                // これは元のスケールで cost = base_cost * exp(penalty_coefficient * node_count)
                 let node_count = Self::count_nodes(ast);
-                if node_count > NODE_COUNT_PENALTY_THRESHOLD {
-                    let excess_nodes = (node_count - NODE_COUNT_PENALTY_THRESHOLD) as f32;
-                    let node_penalty = (excess_nodes * NODE_COUNT_PENALTY_FACTOR).ln();
-                    log_sum_exp(base_program_cost, node_penalty)
-                } else {
-                    base_program_cost
-                }
+                let node_penalty = self.node_count_penalty * node_count as f32;
+
+                base_program_cost + node_penalty
             }
             _ => f32::NEG_INFINITY, // log(0)
         };
@@ -646,7 +654,7 @@ mod tests {
     fn test_node_count_penalty() {
         let estimator = SimpleCostEstimator::new();
 
-        // 小さいプログラム（ペナルティなし）
+        // 小さいプログラム
         let small_program = AstNode::Program {
             functions: vec![AstNode::Function {
                 name: Some("main".to_string()),
@@ -660,11 +668,9 @@ mod tests {
             entry_point: "main".to_string(),
         };
 
-        // ノード数が閾値以下なのでペナルティなし
-        let node_count = SimpleCostEstimator::get_node_count(&small_program);
-        assert!(node_count <= NODE_COUNT_PENALTY_THRESHOLD);
+        let small_node_count = SimpleCostEstimator::get_node_count(&small_program);
 
-        // 大きいプログラム（ペナルティあり）
+        // 大きいプログラム
         // 多数のステートメントを持つBlock
         let mut statements = Vec::new();
         for i in 0..200 {
@@ -692,17 +698,52 @@ mod tests {
         };
 
         let large_node_count = SimpleCostEstimator::get_node_count(&large_program);
-        assert!(large_node_count > NODE_COUNT_PENALTY_THRESHOLD);
+        assert!(large_node_count > small_node_count);
 
         let cost_small = estimator.estimate(&small_program);
         let cost_large = estimator.estimate(&large_program);
 
-        // 大きいプログラムの方がコストが高い
+        // 大きいプログラムの方がコストが高い（ノード数ペナルティの効果）
         assert!(
             cost_large > cost_small,
             "Expected larger program cost ({}) to be greater than small program cost ({})",
             cost_large,
             cost_small
+        );
+    }
+
+    #[test]
+    fn test_node_count_penalty_configurable() {
+        // ペナルティなし
+        let estimator_no_penalty = SimpleCostEstimator::new().with_node_count_penalty(0.0);
+        // 高いペナルティ
+        let estimator_high_penalty = SimpleCostEstimator::new().with_node_count_penalty(1.0);
+
+        let program = AstNode::Program {
+            functions: vec![AstNode::Function {
+                name: Some("main".to_string()),
+                params: vec![],
+                return_type: DType::Int,
+                body: Box::new(AstNode::Return {
+                    value: Box::new(AstNode::Add(
+                        Box::new(AstNode::Const(Literal::Int(1))),
+                        Box::new(AstNode::Const(Literal::Int(2))),
+                    )),
+                }),
+                kind: FunctionKind::Normal,
+            }],
+            entry_point: "main".to_string(),
+        };
+
+        let cost_no_penalty = estimator_no_penalty.estimate(&program);
+        let cost_high_penalty = estimator_high_penalty.estimate(&program);
+
+        // 高いペナルティの方がコストが高い
+        assert!(
+            cost_high_penalty > cost_no_penalty,
+            "Expected high penalty cost ({}) > no penalty cost ({})",
+            cost_high_penalty,
+            cost_no_penalty
         );
     }
 }

@@ -209,9 +209,7 @@ impl LoopInliningSuggester {
                 true
             };
 
-            if should_inline
-                && let Some(inlined) = inline_small_loop(ast, self.max_iterations)
-            {
+            if should_inline && let Some(inlined) = inline_small_loop(ast, self.max_iterations) {
                 candidates.push(inlined);
             }
         }
