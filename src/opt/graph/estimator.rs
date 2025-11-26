@@ -18,12 +18,34 @@ const KERNEL_LAUNCH_OVERHEAD: f32 = 100.0;
 /// コストの単位はCPUサイクル数を想定しています。
 /// AST評価関数と同じ単位系を使用することで、
 /// グラフレベルとASTレベルの最適化を統一的に扱えます。
-pub struct SimpleCostEstimator;
+///
+/// ノード数のペナルティ項を追加して、View変更の挿入による
+/// 際限のないノード数の増加を防ぎます。
+///
+/// # ペナルティの計算
+/// 対数スケールでは、ペナルティを次のように計算します：
+/// ```text
+/// final_cost = log_base_cost + penalty_coefficient * node_count
+/// ```
+/// これは元のスケールで `cost = base_cost * exp(penalty_coefficient * node_count)` に相当します。
+pub struct SimpleCostEstimator {
+    /// ノード数あたりのペナルティ係数（対数スケール、デフォルト: 0.01）
+    /// 値が大きいほど、ノード数増加に対するペナルティが強くなります。
+    node_count_penalty: f32,
+}
 
 impl SimpleCostEstimator {
     /// 新しいコスト推定器を作成
     pub fn new() -> Self {
-        Self
+        Self {
+            node_count_penalty: 0.01, // デフォルト値
+        }
+    }
+
+    /// ノード数ペナルティ係数を設定
+    pub fn with_node_count_penalty(mut self, penalty: f32) -> Self {
+        self.node_count_penalty = penalty;
+        self
     }
 
     /// ElementwiseOp の演算コストを取得（log(CPUサイクル/演算)）
@@ -327,6 +349,7 @@ impl Default for SimpleCostEstimator {
 impl GraphCostEstimator for SimpleCostEstimator {
     fn estimate(&self, graph: &Graph) -> f32 {
         let nodes = self.collect_all_nodes(graph);
+        let node_count = nodes.len();
         let mut log_costs = Vec::new();
 
         for node in &nodes {
@@ -356,7 +379,14 @@ impl GraphCostEstimator for SimpleCostEstimator {
 
         // すべてのコストを合計
         log_costs.push(log_kernel_overhead);
-        log_sum_exp_iter(log_costs)
+        let log_base_cost = log_sum_exp_iter(log_costs);
+
+        // ノード数のペナルティを対数スケールで直接加算
+        // final_cost = log_base_cost + penalty_coefficient * node_count
+        // これは元のスケールで cost = base_cost * exp(penalty_coefficient * node_count)
+        let penalty = self.node_count_penalty * node_count as f32;
+
+        log_base_cost + penalty
     }
 }
 
@@ -427,6 +457,77 @@ mod tests {
 
         // 大きいグラフの方がコストが高いはず
         assert!(cost2 > cost1);
+    }
+
+    #[test]
+    fn test_simple_node_count_penalty() {
+        let estimator = SimpleCostEstimator::new().with_node_count_penalty(1.0);
+
+        // 少ないノード (3ノード: a, b, c)
+        let mut graph1 = Graph::new();
+        let a1 = graph1
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![100])
+            .build();
+        let b1 = graph1
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![100])
+            .build();
+        graph1.output("c", a1 + b1);
+
+        // 多いノード (5ノード: a, b, c, d, e)
+        let mut graph2 = Graph::new();
+        let a2 = graph2
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![100])
+            .build();
+        let b2 = graph2
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![100])
+            .build();
+        let c2 = graph2
+            .input("c")
+            .with_dtype(DType::F32)
+            .with_shape(vec![100])
+            .build();
+        let d2 = a2 + b2;
+        let e2 = d2 * c2;
+        graph2.output("out", e2);
+
+        let log_cost1 = estimator.estimate(&graph1);
+        let log_cost2 = estimator.estimate(&graph2);
+
+        // ノード数が多い方がコストが高いはず（ペナルティが効いている）
+        assert!(log_cost2 > log_cost1);
+    }
+
+    #[test]
+    fn test_simple_zero_penalty() {
+        let estimator_no_penalty = SimpleCostEstimator::new().with_node_count_penalty(0.0);
+        let estimator_with_penalty = SimpleCostEstimator::new().with_node_count_penalty(10.0);
+
+        let mut graph = Graph::new();
+        let a = graph
+            .input("a")
+            .with_dtype(DType::F32)
+            .with_shape(vec![100])
+            .build();
+        let b = graph
+            .input("b")
+            .with_dtype(DType::F32)
+            .with_shape(vec![100])
+            .build();
+        graph.output("c", a + b);
+
+        let cost_no_penalty = estimator_no_penalty.estimate(&graph);
+        let cost_with_penalty = estimator_with_penalty.estimate(&graph);
+
+        // ペナルティありの場合、コストが上昇するはず
+        assert!(cost_with_penalty > cost_no_penalty);
     }
 }
 

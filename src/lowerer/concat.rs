@@ -146,11 +146,6 @@ impl Lowerer {
             all_statements.push(assign(offset_var, var(offset_var) + axis_size));
         }
 
-        Ok(self.create_kernel_function(
-            node_id,
-            params,
-            all_statements,
-            outer_scope,
-        ))
+        Ok(self.create_kernel_function(node_id, params, all_statements, outer_scope))
     }
 }

@@ -1,7 +1,7 @@
 //! Concat演算のloweringテスト
 
-use crate::graph::{DType, Graph, GraphNode};
 use crate::graph::ops::concat;
+use crate::graph::{DType, Graph, GraphNode};
 use crate::lowerer::Lowerer;
 
 /// 基本的なconcat演算（axis=0）

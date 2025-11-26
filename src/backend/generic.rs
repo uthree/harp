@@ -177,7 +177,7 @@ where
         // グラフ最適化（AstBasedCostEstimatorを使用）
         let optimized_graph = if self.enable_graph_optimization {
             let suggester = Self::create_graph_suggester();
-            let estimator = AstBasedCostEstimator::new(AstSimpleCostEstimator::new());
+            let estimator = SimpleCostEstimator::new();
             let optimizer = self.create_graph_optimizer(suggester, estimator);
 
             let (optimized, history) = optimizer.optimize_with_history(graph);

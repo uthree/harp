@@ -14,7 +14,9 @@ Graphを最適化。`optimize(&self, graph: Graph) -> Graph`
 ## コスト推定器
 
 ### SimpleCostEstimator
-ノード数ベースの簡易推定器。
+ノード数とメモリアクセスベースの簡易推定器。
+- ノード数ペナルティ項で無限のノード増加を防止
+- `with_node_count_penalty(penalty: f32)`でペナルティ係数を調整可能（デフォルト: 0.01）
 
 ### AstBasedCostEstimator（推奨）
 - GraphをASTに変換してコストを推定
