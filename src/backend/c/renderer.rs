@@ -101,6 +101,7 @@ impl CLikeRenderer for CRenderer {
 
     fn render_dtype_backend(&self, dtype: &DType) -> String {
         match dtype {
+            DType::Bool => "unsigned char".to_string(), // boolはu8として表現
             DType::F32 => "float".to_string(),
             DType::Int => "int".to_string(),
             DType::Ptr(inner) => format!("{}*", self.render_dtype_backend(inner)),
@@ -256,6 +257,7 @@ mod tests {
     #[test]
     fn test_render_dtype() {
         let renderer = CRenderer::new();
+        assert_eq!(renderer.render_dtype_backend(&DType::Bool), "unsigned char");
         assert_eq!(renderer.render_dtype_backend(&DType::F32), "float");
         assert_eq!(renderer.render_dtype_backend(&DType::Int), "int");
         assert_eq!(
@@ -267,6 +269,8 @@ mod tests {
     #[test]
     fn test_render_literal() {
         let renderer = CRenderer::new();
+        assert_eq!(renderer.render_literal(&Literal::Bool(true)), "1");
+        assert_eq!(renderer.render_literal(&Literal::Bool(false)), "0");
         assert_eq!(renderer.render_literal(&Literal::F32(1.5)), "1.5f");
         assert_eq!(renderer.render_literal(&Literal::Int(42)), "42");
     }

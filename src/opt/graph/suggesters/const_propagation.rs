@@ -145,6 +145,7 @@ impl ConstPropagationSuggester {
         F: Fn(f64) -> f64,
     {
         match lit {
+            Literal::Bool(x) => Literal::Bool(f(if x { 1.0 } else { 0.0 }) != 0.0),
             Literal::F32(x) => Literal::F32(f(x as f64) as f32),
             Literal::Int(x) => Literal::Int(f(x as f64) as isize),
         }
@@ -156,11 +157,22 @@ impl ConstPropagationSuggester {
         F: Fn(f64, f64) -> f64,
     {
         match (a, b) {
+            (Literal::Bool(x), Literal::Bool(y)) => {
+                let xf = if x { 1.0 } else { 0.0 };
+                let yf = if y { 1.0 } else { 0.0 };
+                Literal::Bool(f(xf, yf) != 0.0)
+            }
             (Literal::F32(x), Literal::F32(y)) => Literal::F32(f(x as f64, y as f64) as f32),
             (Literal::Int(x), Literal::Int(y)) => Literal::Int(f(x as f64, y as f64) as isize),
             // 型が一致しない場合は、F32に合わせる
             (Literal::F32(x), Literal::Int(y)) => Literal::F32(f(x as f64, y as f64) as f32),
             (Literal::Int(x), Literal::F32(y)) => Literal::F32(f(x as f64, y as f64) as f32),
+            // Bool と他の型の混合はF32に合わせる
+            (Literal::Bool(x), _) | (_, Literal::Bool(x)) => {
+                let xf = if x { 1.0 } else { 0.0 };
+                // このケースは通常発生しないが、安全のため
+                Literal::F32(xf as f32)
+            }
         }
     }
 
@@ -224,6 +236,7 @@ impl ConstPropagationSuggester {
 
         // 定数値をAstNodeに変換
         let const_ast = match const_value {
+            Literal::Bool(v) => AstNode::Const(AstLiteral::Bool(v)),
             Literal::F32(v) => AstNode::Const(AstLiteral::F32(v)),
             Literal::Int(v) => AstNode::Const(AstLiteral::Int(v)),
         };

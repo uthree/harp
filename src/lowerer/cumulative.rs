@@ -108,6 +108,7 @@ impl Lowerer {
         let acc_var = self.fresh_acc();
         let init_value = self.get_cumulative_init_value(op, &node.dtype)?;
         let acc_dtype = match &node.dtype {
+            crate::graph::DType::Bool => AstDType::Bool,
             crate::graph::DType::F32 => AstDType::F32,
             crate::graph::DType::Unknown => {
                 return Err("Cannot determine dtype for Unknown".to_string());
@@ -197,6 +198,10 @@ impl Lowerer {
         dtype: &crate::graph::DType,
     ) -> Result<AstNode, String> {
         match dtype {
+            crate::graph::DType::Bool => match op {
+                CumulativeOp::Sum => Ok(AstNode::Const(false.into())), // 累積OR
+                CumulativeOp::Prod => Ok(AstNode::Const(true.into())), // 累積AND
+            },
             crate::graph::DType::F32 => match op {
                 CumulativeOp::Sum => Ok(const_f32(0.0)),
                 CumulativeOp::Prod => Ok(const_f32(1.0)),

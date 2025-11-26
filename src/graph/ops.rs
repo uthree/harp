@@ -207,6 +207,12 @@ impl<T: Into<GraphNode>> Div<T> for GraphNode {
 }
 
 // Into<GraphNode> implementations for numeric types
+impl From<bool> for GraphNode {
+    fn from(value: bool) -> Self {
+        GraphNode::constant(value)
+    }
+}
+
 impl From<f32> for GraphNode {
     fn from(value: f32) -> Self {
         GraphNode::constant(value)

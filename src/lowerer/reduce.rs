@@ -115,6 +115,7 @@ impl Lowerer {
         let acc_var = self.fresh_acc();
         let init_value = self.get_reduce_init_value(op, &node.dtype)?;
         let acc_dtype = match &node.dtype {
+            crate::graph::DType::Bool => AstDType::Bool,
             crate::graph::DType::F32 => AstDType::F32,
             crate::graph::DType::Unknown => {
                 return Err("Cannot determine dtype for Unknown".to_string());
@@ -178,6 +179,7 @@ impl Lowerer {
         let acc_var = self.fresh_acc();
         let init_value = self.get_reduce_init_value(op, &node.dtype)?;
         let acc_dtype = match &node.dtype {
+            crate::graph::DType::Bool => AstDType::Bool,
             crate::graph::DType::F32 => AstDType::F32,
             crate::graph::DType::Unknown => {
                 return Err("Cannot determine dtype for Unknown".to_string());
@@ -239,18 +241,21 @@ impl Lowerer {
     ) -> Result<AstNode, String> {
         match op {
             ReduceOp::Sum => match dtype {
+                GraphDType::Bool => Ok(AstNode::Const(false.into())), // OR演算の初期値
                 GraphDType::F32 => Ok(const_f32(0.0)),
                 GraphDType::Unknown => {
                     Err("Cannot determine init value for Unknown dtype".to_string())
                 }
             },
             ReduceOp::Prod => match dtype {
+                GraphDType::Bool => Ok(AstNode::Const(true.into())), // AND演算の初期値
                 GraphDType::F32 => Ok(const_f32(1.0)),
                 GraphDType::Unknown => {
                     Err("Cannot determine init value for Unknown dtype".to_string())
                 }
             },
             ReduceOp::Max => match dtype {
+                GraphDType::Bool => Ok(AstNode::Const(false.into())), // Max(false) = false
                 GraphDType::F32 => Ok(const_f32(f32::NEG_INFINITY)),
                 GraphDType::Unknown => {
                     Err("Cannot determine init value for Unknown dtype".to_string())

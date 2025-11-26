@@ -39,6 +39,7 @@ pub struct GraphNode(Rc<GraphNodeData>);
 #[derive(Debug, Clone, PartialEq)]
 pub enum DType {
     Unknown, // 未定または未知, プレースホルダー
+    Bool,    // boolean (internally u8: 0 = false, non-zero = true)
     F32,
 }
 
@@ -222,6 +223,7 @@ impl GraphNode {
     pub fn constant<L: Into<crate::ast::Literal>>(value: L) -> Self {
         let literal = value.into();
         let dtype = match &literal {
+            crate::ast::Literal::Bool(_) => DType::Bool,
             crate::ast::Literal::F32(_) => DType::F32,
             crate::ast::Literal::Int(_) => DType::Unknown, // Intは将来的に追加
         };

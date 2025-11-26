@@ -143,7 +143,10 @@ free(tmp0);
 
 ## DType型変換
 
-SIMD対応のベクトル型（`Vec<T, N>`）とメモリバッファ用のポインタ型（`Ptr<T>`）を提供。型変換メソッド（`to_vec`, `to_ptr`等）により、型を自由にネスト可能です（例: `Vec<Ptr<F32>>`, `Ptr<Vec<F32>>`）。
+基本型として`Bool`（内部的には`unsigned char`/`uchar`として8ビット整数で表現）、`Int`（整数）、`F32`（浮動小数点）を提供。SIMD対応のベクトル型（`Vec<T, N>`）とメモリバッファ用のポインタ型（`Ptr<T>`）も提供。型変換メソッド（`to_vec`, `to_ptr`等）により、型を自由にネスト可能です（例: `Vec<Ptr<F32>>`, `Ptr<Vec<F32>>`）。
+
+### Bool型
+Attention maskなどの用途向けにブール型を提供。内部実装では8ビット整数（C/Metalでは`unsigned char`、OpenCLでは`uchar`）として表現されます。リテラルは`true`→`1`、`false`→`0`としてレンダリングされます。
 
 ## AST最適化
 

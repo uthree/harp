@@ -94,6 +94,7 @@ impl Lowerer {
     /// GraphのDTypeをASTのPtr<DType>に変換
     pub(super) fn graph_dtype_to_ast_ptr(&self, dtype: &GraphDType) -> Result<AstDType, String> {
         let element_dtype = match dtype {
+            GraphDType::Bool => AstDType::Bool,
             GraphDType::F32 => AstDType::F32,
             GraphDType::Unknown => return Err("Cannot convert Unknown dtype".to_string()),
         };
@@ -103,6 +104,7 @@ impl Lowerer {
     /// GraphのDTypeをASTのDTypeに変換（ポインタなし）
     pub(super) fn graph_dtype_to_ast(&self, dtype: &GraphDType) -> Result<AstDType, String> {
         match dtype {
+            GraphDType::Bool => Ok(AstDType::Bool),
             GraphDType::F32 => Ok(AstDType::F32),
             GraphDType::Unknown => Err("Cannot convert Unknown dtype".to_string()),
         }

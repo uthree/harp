@@ -55,6 +55,11 @@ Viewは各軸の添え字からメモリオフセットへの線形変換を表�
 
 演算時に自動的にDTypeが推論されます（両方同じ→そのDType、片方Unknown→もう片方、異なる→Unknown）。
 
+### サポートされるDType
+- `Bool`: ブール型（attention maskなど向け）。内部的には8ビット整数で表現
+- `F32`: 32ビット浮動小数点
+- `Unknown`: 型推論前の未確定型
+
 ## 演算子オーバーロードと数値型変換
 
 GraphNodeは直感的な数式記法をサポートします。
@@ -97,6 +102,7 @@ let final_result = &x + 100.0f32;
 ```
 
 ### 対応する数値型
+- `bool` → `GraphNode::constant(bool)` → DType::Bool
 - `f32` → `GraphNode::constant(f32)` → DType::F32
 - `isize`, `i32`, `i64` → `GraphNode::constant(isize)` → DType::Unknown
 - `&GraphNode` → clone

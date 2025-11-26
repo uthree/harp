@@ -268,6 +268,7 @@ impl CLikeRenderer for OpenCLRenderer {
 
     fn render_dtype_backend(&self, dtype: &DType) -> String {
         match dtype {
+            DType::Bool => "uchar".to_string(), // OpenCLではucharを使用
             DType::F32 => "float".to_string(),
             DType::Int => "int".to_string(),
             DType::Ptr(inner) => {
@@ -519,6 +520,7 @@ mod tests {
         let renderer = OpenCLRenderer::new();
 
         // 基本型
+        assert_eq!(renderer.render_dtype_backend(&DType::Bool), "uchar");
         assert_eq!(renderer.render_dtype_backend(&DType::F32), "float");
         assert_eq!(renderer.render_dtype_backend(&DType::Int), "int");
 
