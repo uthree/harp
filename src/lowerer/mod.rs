@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 // モジュール宣言
 mod arange;
+mod cast;
 mod complex;
 mod concat;
 mod contiguous;
@@ -680,6 +681,9 @@ impl Lowerer {
             ),
             GraphOp::Rand { .. } => self.lower_rand_init_kernel(node, node_id),
             GraphOp::Arange { .. } => self.lower_arange_kernel(node, node_id),
+            GraphOp::Cast { target_dtype, .. } => {
+                self.lower_cast_kernel(node, target_dtype, node_id)
+            }
             _ => Err(format!("Unsupported operation: {:?}", node.op)),
         }
     }

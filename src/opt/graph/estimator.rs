@@ -199,9 +199,15 @@ impl SimpleCostEstimator {
             }
             GraphOp::Arange { .. } => {
                 // 連番初期化: 各要素にインデックス値を書き込み
-                // 非常に軽量（キャスト + 書き込み）
+                // 非常に軽量（書き込みのみ）
                 let num_elements = self.compute_num_elements(node);
                 num_elements.ln() + MEMORY_ACCESS_COST.ln()
+            }
+            GraphOp::Cast { .. } => {
+                // 型変換: 各要素をキャスト
+                // 非常に軽量（読み込み + キャスト + 書き込み）
+                let num_elements = self.compute_num_elements(node);
+                num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln()
             }
         }
     }

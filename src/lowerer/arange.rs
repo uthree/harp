@@ -2,7 +2,7 @@
 //!
 //! 連番テンソル [0, 1, 2, ..., n-1] を生成する演算をカーネル関数に変換します。
 
-use crate::ast::{AstNode, DType as AstDType, Scope, helper::*};
+use crate::ast::{AstNode, Scope, helper::*};
 use crate::graph::GraphNode;
 
 use super::Lowerer;
@@ -45,7 +45,7 @@ impl Lowerer {
 
     /// 連番初期化ループを生成
     ///
-    /// 出力バッファの各要素にインデックス値を書き込む: output[i] = (float)i
+    /// 出力バッファの各要素にインデックス値を書き込む: output[i] = i
     fn generate_arange_loop(&mut self, node: &GraphNode) -> Result<Vec<AstNode>, String> {
         let output_view = &node.view;
         let output_shape = output_view.shape();
@@ -53,13 +53,10 @@ impl Lowerer {
         // ループ変数
         let loop_var = "ridx0";
 
-        // 最内側のループ本体: output[i] = (float)i
+        // 最内側のループ本体: output[i] = i (整数のまま)
         let output_offset = self.compute_offset_from_view(node, &[0]);
 
-        // ループ変数をfloatにキャスト
-        let index_as_float = cast(var(loop_var), AstDType::F32);
-
-        let body_statements = vec![store(var("output"), output_offset, index_as_float)];
+        let body_statements = vec![store(var("output"), output_offset, var(loop_var))];
 
         // ループを生成
         let shape_expr: AstNode = output_shape[0].clone().into();

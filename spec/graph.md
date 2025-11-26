@@ -57,6 +57,7 @@ Viewは各軸の添え字からメモリオフセットへの線形変換を表�
 
 ### サポートされるDType
 - `Bool`: ブール型（attention maskなど向け）。内部的には8ビット整数で表現
+- `I32`: 32ビット符号付き整数（インデックス、カウンタなど向け）
 - `F32`: 32ビット浮動小数点
 - `Complex`: 複素数型（FFTなど向け）。Lowering時にインターリーブF32バッファ`[re, im, ...]`に分解
 - `Unknown`: 型推論前の未確定型
@@ -154,20 +155,23 @@ let final_result = &x + 100.0f32;
 
 ## 連番生成（Arange）
 
-PyTorchの`torch.arange`に相当する機能です。基本形`arange(size)`のみを提供し、開始値やステップが必要な場合は演算で表現します。
+PyTorchの`torch.arange`に相当する機能です。基本形`arange(size)`のみを提供し、**I32型**を返します。浮動小数点が必要な場合は`.cast(DType::F32)`を使用してください。
 
 ```rust
-// 基本: [0, 1, 2, 3, 4]
+// 基本: [0, 1, 2, 3, 4] (I32)
 let indices = GraphNode::arange(5);
 
-// 開始値を変更: [10, 11, 12, 13, 14]
-let shifted = GraphNode::arange(5) + 10.0f32;
+// floatに変換: [0.0, 1.0, 2.0, 3.0, 4.0] (F32)
+let floats = GraphNode::arange(5).cast(DType::F32);
+
+// 開始値を変更: [10.0, 11.0, 12.0, 13.0, 14.0]
+let shifted = GraphNode::arange(5).cast(DType::F32) + 10.0f32;
 
 // ステップを変更: [0.0, 0.5, 1.0, 1.5, 2.0]
-let scaled = GraphNode::arange(5) * 0.5f32;
+let scaled = GraphNode::arange(5).cast(DType::F32) * 0.5f32;
 
-// 開始値とステップ: [10.0, 12.0, 14.0, 16.0, 18.0]
-let combined = GraphNode::arange(5) * 2.0f32 + 10.0f32;
+// 整数演算: [10, 11, 12, 13, 14] (I32)
+let int_shifted = GraphNode::arange(5) + GraphNode::constant(10isize);
 
 // 動的サイズ（Shape変数を使用）
 let n = Expr::Var("n".to_string());
@@ -175,6 +179,18 @@ let dynamic = GraphNode::arange(n);
 ```
 
 この設計により、演算子の種類を減らしつつ柔軟な連番生成が可能です。
+
+## 型変換（Cast）
+
+テンソルの要素を別の型にキャストします。同じ型へのキャストは最適化されて何もしません。
+
+```rust
+// I32からF32へ
+let floats = int_tensor.cast(DType::F32);
+
+// F32からI32へ（切り捨て）
+let ints = float_tensor.cast(DType::I32);
+```
 
 ## コード構成とリファクタリング履歴
 
@@ -264,7 +280,8 @@ let value = shape[i].expect_usize("requires constant");
 - テンソル結合（Concat）- torch.catに相当、複数テンソルを指定軸で結合
 - テンソル切り出し（Slice）- テンソルの一部を切り出す
 - パディング（Pad）- テンソルの境界を指定値で拡張
-- 連番生成（Arange）- torch.arangeに相当、`[0, 1, 2, ..., n-1]`を生成
+- 連番生成（Arange）- torch.arangeに相当、`[0, 1, 2, ..., n-1]`を生成（I32型）
+- 型変換（Cast）- テンソル要素の型変換（I32⇔F32など）
 - グラフ最適化（詳細は[opt-graph.md](opt-graph.md)を参照）
 - 複素数型（Complex）のElementwise演算Lowering（Add、Mul、Neg、Recip）- インターリーブF32バッファ`[re, im, ...]`
 

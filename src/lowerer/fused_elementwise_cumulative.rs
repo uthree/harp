@@ -125,6 +125,7 @@ impl Lowerer {
         let init_value = self.get_cumulative_init_value(cumulative_op, &node.dtype)?;
         let acc_dtype = match &node.dtype {
             crate::graph::DType::Bool => AstDType::Bool,
+            crate::graph::DType::I32 => AstDType::Int,
             crate::graph::DType::F32 => AstDType::F32,
             crate::graph::DType::Complex => {
                 return Err(

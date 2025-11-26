@@ -95,6 +95,7 @@ impl Lowerer {
     pub(super) fn graph_dtype_to_ast_ptr(&self, dtype: &GraphDType) -> Result<AstDType, String> {
         let element_dtype = match dtype {
             GraphDType::Bool => AstDType::Bool,
+            GraphDType::I32 => AstDType::Int,
             GraphDType::F32 => AstDType::F32,
             GraphDType::Complex => {
                 return Err(
@@ -111,6 +112,7 @@ impl Lowerer {
     pub(super) fn graph_dtype_to_ast(&self, dtype: &GraphDType) -> Result<AstDType, String> {
         match dtype {
             GraphDType::Bool => Ok(AstDType::Bool),
+            GraphDType::I32 => Ok(AstDType::Int),
             GraphDType::F32 => Ok(AstDType::F32),
             GraphDType::Complex => Err(
                 "Complex type requires special lowering (decomposed to two F32 values)".to_string(),

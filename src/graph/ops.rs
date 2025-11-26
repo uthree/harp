@@ -79,6 +79,11 @@ pub enum GraphOp {
     Arange {
         elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
     },
+    /// 型変換（キャスト）
+    Cast {
+        target_dtype: DType,
+        elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
+    },
 }
 
 #[derive(Debug, Clone)]

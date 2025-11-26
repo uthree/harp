@@ -40,6 +40,7 @@ pub struct GraphNode(Rc<GraphNodeData>);
 pub enum DType {
     Unknown, // 未定または未知, プレースホルダー
     Bool,    // boolean (internally u8: 0 = false, non-zero = true)
+    I32,     // 32-bit signed integer
     F32,     // 32-bit floating point
     Complex, // complex number (lowered to two F32 values: real and imaginary)
 }
@@ -289,40 +290,63 @@ impl GraphNode {
         )
     }
 
-    /// 連番テンソル `[0, 1, 2, ..., size-1]` を生成
+    /// 連番テンソル `[0, 1, 2, ..., size-1]` を生成（I32型）
     ///
-    /// PyTorchの`torch.arange(size)`に相当します。
-    /// 他の範囲やステップが必要な場合は、この結果に演算を適用してください：
-    /// - `arange(n) + start` → `[start, start+1, ..., start+n-1]`
-    /// - `arange(n) * step` → `[0, step, 2*step, ..., (n-1)*step]`
-    /// - `arange(n) * step + start` → `[start, start+step, ..., start+(n-1)*step]`
+    /// PyTorchの`torch.arange(size, dtype=torch.int32)`に相当します。
+    /// 浮動小数点が必要な場合は`.cast(DType::F32)`を使用してください。
     ///
     /// # 例
     /// ```
-    /// use harp::graph::GraphNode;
+    /// use harp::graph::{GraphNode, DType};
     ///
-    /// // 基本形: [0, 1, 2, 3, 4]
-    /// let x = GraphNode::arange(5);
+    /// // 基本形: [0, 1, 2, 3, 4] (I32)
+    /// let indices = GraphNode::arange(5);
     ///
-    /// // [1, 2, 3, 4, 5] (start=1)
-    /// let x = GraphNode::arange(5) + 1.0f32;
+    /// // floatに変換: [0.0, 1.0, 2.0, 3.0, 4.0] (F32)
+    /// let floats = GraphNode::arange(5).cast(DType::F32);
     ///
-    /// // [0.0, 0.5, 1.0, 1.5, 2.0] (step=0.5)
-    /// let x = GraphNode::arange(5) * 0.5f32;
-    ///
-    /// // [10.0, 12.0, 14.0, 16.0, 18.0] (start=10, step=2)
-    /// let x = GraphNode::arange(5) * 2.0f32 + 10.0f32;
+    /// // float演算と組み合わせ: [0.0, 0.5, 1.0, 1.5, 2.0]
+    /// let scaled = GraphNode::arange(5).cast(DType::F32) * 0.5f32;
     /// ```
     pub fn arange<E: Into<shape::Expr>>(size: E) -> Self {
         let size_expr: shape::Expr = size.into();
         let view = View::contiguous(vec![size_expr]);
         Self::new(
-            DType::F32,
+            DType::I32,
             GraphOp::Arange {
                 elementwise_strategies: None,
             },
             vec![],
             view,
+        )
+    }
+
+    /// 型変換（キャスト）
+    ///
+    /// テンソルの要素をターゲット型に変換します。
+    ///
+    /// # 引数
+    /// - `target_dtype`: 変換先の型
+    ///
+    /// # 例
+    /// ```ignore
+    /// // I32からF32への変換
+    /// let indices = GraphNode::arange(5);  // [0, 1, 2, 3, 4] (I32)
+    /// let floats = indices.cast(DType::F32);  // [0.0, 1.0, 2.0, 3.0, 4.0] (F32)
+    /// ```
+    pub fn cast(&self, target_dtype: DType) -> Self {
+        // 既に同じ型なら何もしない
+        if self.dtype == target_dtype {
+            return self.clone();
+        }
+        Self::new(
+            target_dtype.clone(),
+            GraphOp::Cast {
+                target_dtype,
+                elementwise_strategies: None,
+            },
+            vec![self.clone()],
+            self.view.clone(),
         )
     }
 
