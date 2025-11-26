@@ -340,7 +340,9 @@ impl GraphViewerApp {
             GraphOp::Pad { .. } => "Pad".to_string(),
             GraphOp::Slice { .. } => "Slice".to_string(),
             GraphOp::Fold { .. } => "Fold".to_string(),
-            GraphOp::Rand { .. } => "RandInit".to_string(),
+            GraphOp::Rand { .. } => "Rand".to_string(),
+            GraphOp::Concat { axis } => format!("Concat({})", axis),
+            _ => "Unknown".to_string(),
         }
     }
 
