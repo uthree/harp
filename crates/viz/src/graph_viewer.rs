@@ -342,7 +342,6 @@ impl GraphViewerApp {
             GraphOp::Fold { .. } => "Fold".to_string(),
             GraphOp::Rand { .. } => "Rand".to_string(),
             GraphOp::Concat { axis } => format!("Concat({})", axis),
-            _ => "Unknown".to_string(),
         }
     }
 

@@ -424,14 +424,14 @@ pub trait CLikeRenderer: Renderer {
             result.push_str(func_name);
             result.push('(');
 
-            // パラメータリスト
+            // パラメータリスト（空文字列のパラメータはスキップ）
             let is_kernel = matches!(kind, FunctionKind::Kernel(_));
-            for (i, param) in params.iter().enumerate() {
-                if i > 0 {
-                    result.push_str(", ");
-                }
-                result.push_str(&self.render_param(param, is_kernel));
-            }
+            let rendered_params: Vec<String> = params
+                .iter()
+                .map(|p| self.render_param(p, is_kernel))
+                .filter(|s| !s.is_empty())
+                .collect();
+            result.push_str(&rendered_params.join(", "));
 
             result.push_str(") {\n");
 

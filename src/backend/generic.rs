@@ -9,7 +9,7 @@ use crate::opt::ast::{
     Optimizer, RuleBaseOptimizer, RuleBaseSuggester, SimpleCostEstimator as AstSimpleCostEstimator,
 };
 use crate::opt::graph::{
-    AstBasedCostEstimator, BeamSearchGraphOptimizer, CompositeSuggester, ConstPropagationSuggester,
+    BeamSearchGraphOptimizer, CompositeSuggester, ConstPropagationSuggester,
     ContiguousInsertionSuggester, FusionSuggester, GraphCostEstimator,
     OptimizationHistory as GraphOptimizationHistory, ParallelStrategyChanger, SimdSuggester,
     SimpleCostEstimator, TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
@@ -174,7 +174,7 @@ where
         &mut self,
         graph: Graph,
     ) -> Result<(AstNode, HashMap<String, AstOptimizationHistory>), String> {
-        // グラフ最適化（AstBasedCostEstimatorを使用）
+        // グラフ最適化（SimpleCostEstimatorを使用）
         let optimized_graph = if self.enable_graph_optimization {
             let suggester = Self::create_graph_suggester();
             let estimator = SimpleCostEstimator::new();

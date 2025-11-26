@@ -1,10 +1,10 @@
-//! GenericPipelineを使った最適化と可視化のデモ
+//! GenericPipelineを使った最適化と可視化のデモ（OpenCL版）
 //!
 //! 行列積を含む複雑な計算グラフを作成し、GenericPipelineで最適化を実行して
-//! その過程を可視化します。
+//! その過程を可視化します。OpenCLバックエンドを使用してGPU向けコードを生成します。
 
 use harp::ast::helper::wildcard;
-use harp::backend::c::{CCompiler, CRenderer};
+use harp::backend::opencl::{OpenCLCompiler, OpenCLRenderer};
 use harp::backend::{GenericPipeline, OptimizationConfig};
 use harp::graph::{DType, Graph, GraphNode};
 use harp_viz::HarpVizApp;
@@ -13,12 +13,14 @@ fn main() -> eframe::Result {
     // env_logger::init()の代わりにlog_captureを使う
     harp::opt::log_capture::init_with_env_logger();
 
-    println!("=== Harp GenericPipeline 総合最適化デモ ===\n");
+    println!("=== Harp GenericPipeline 総合最適化デモ (OpenCL版) ===\n");
     println!("このデモでは、様々な最適化が適用される複雑な計算グラフを構築します。");
+    println!("OpenCLバックエンドを使用してGPU向けコードを生成します。");
     println!("以下の最適化が順次適用されます：");
     println!("  1. グラフ最適化:");
     println!("     - View挿入 (転置の最適化)");
     println!("     - 演算の融合 (Fusion)");
+    println!("     - 並列化戦略の最適化 (GPU用)");
     println!("  2. AST最適化:");
     println!("     - 定数畳み込み (Constant Folding)");
     println!("     - 代数的簡約 (x+0→x, x*1→x)");
@@ -26,9 +28,9 @@ fn main() -> eframe::Result {
     println!("最適化の各ステップがGenericPipelineに記録され、可視化されます。\n");
 
     // GenericPipelineを作成（最適化を組み込み）
-    println!("【1/3】GenericPipelineを初期化中（最適化を組み込み）...");
-    let renderer = CRenderer::new();
-    let compiler = CCompiler::new();
+    println!("【1/3】GenericPipelineを初期化中（OpenCLバックエンド）...");
+    let renderer = OpenCLRenderer::new();
+    let compiler = OpenCLCompiler::new();
 
     let mut pipeline = GenericPipeline::new(renderer, compiler);
 
@@ -50,7 +52,7 @@ fn main() -> eframe::Result {
         show_progress: true,
     };
 
-    println!("  ✓ Pipeline作成完了（最適化有効）\n");
+    println!("  ✓ Pipeline作成完了（OpenCL最適化有効）\n");
 
     // 複雑な計算グラフを作成（複数の演算を含む）
     println!("【2/3】複雑な計算グラフを構築中...");
@@ -69,10 +71,10 @@ fn main() -> eframe::Result {
 
     println!("  ✓ 最適化完了");
 
-    // 生成されたCコードを表示
-    println!("\n=== 生成されたCコード ===");
-    let mut c_renderer = CRenderer::new();
-    let code = c_renderer.render_program(&optimized_program);
+    // 生成されたOpenCLコードを表示
+    println!("\n=== 生成されたOpenCLコード ===");
+    let mut opencl_renderer = OpenCLRenderer::new();
+    let code = opencl_renderer.render_program(&optimized_program);
     println!("{}", code);
     println!(
         "    - グラフ最適化ステップ数: {}",
@@ -127,13 +129,8 @@ fn main() -> eframe::Result {
         "Harp Pipeline Visualizer",
         options,
         Box::new(move |_cc| {
-            // デフォルトのCRendererを使用してHarpVizAppを作成
-            let mut app = HarpVizApp::new();
-
-            // カスタムレンダラーを使用する場合は以下のようにwith_renderer()を使用できます:
-            // use harp::backend::metal::MetalRenderer;
-            // let renderer = MetalRenderer::new();
-            // let mut app = HarpVizApp::with_renderer(renderer);
+            // OpenCLRendererを使用してHarpVizAppを作成
+            let mut app = HarpVizApp::with_renderer(OpenCLRenderer::new());
 
             // グラフ最適化履歴を読み込む
             if let Some(graph_history) = &pipeline.histories.graph {
@@ -315,7 +312,7 @@ fn create_complex_computation_graph() -> Graph {
 }
 
 /// 最適化の統計情報を表示
-fn print_optimization_stats(pipeline: &GenericPipeline<CRenderer, CCompiler>) {
+fn print_optimization_stats(pipeline: &GenericPipeline<OpenCLRenderer, OpenCLCompiler>) {
     println!("=== 最適化統計 ===");
 
     if let Some(graph_history) = &pipeline.histories.graph {
