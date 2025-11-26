@@ -472,4 +472,164 @@ mod tests {
         assert!(rendered.contains("input"));
         assert!(rendered.contains("output"));
     }
+
+    #[test]
+    fn test_kernel_function_all_params_filtered() {
+        // 全パラメータがフィルタされる場合（ThreadId, GroupIdのみ）
+        let mut renderer = OpenCLRenderer::new();
+
+        let params = vec![
+            VarDecl {
+                name: "tid".to_string(),
+                dtype: DType::Int,
+                kind: VarKind::ThreadId(0),
+                mutability: Mutability::Immutable,
+            },
+            VarDecl {
+                name: "gid".to_string(),
+                dtype: DType::Int,
+                kind: VarKind::GroupId(0),
+                mutability: Mutability::Immutable,
+            },
+        ];
+
+        let scope = Scope::new();
+        let body = Box::new(AstNode::Block {
+            statements: vec![],
+            scope: Box::new(scope),
+        });
+
+        let func = AstNode::Function {
+            name: Some("empty_params_kernel".to_string()),
+            params,
+            return_type: DType::Tuple(vec![]),
+            body,
+            kind: FunctionKind::Kernel(64),
+        };
+
+        let rendered = renderer.render_function_node(&func);
+
+        // 空のパラメータリストになること
+        assert!(rendered.contains("empty_params_kernel()"));
+        assert!(!rendered.contains("(,"));
+    }
+
+    #[test]
+    fn test_render_dtype_backend_variants() {
+        let renderer = OpenCLRenderer::new();
+
+        // 基本型
+        assert_eq!(renderer.render_dtype_backend(&DType::F32), "float");
+        assert_eq!(renderer.render_dtype_backend(&DType::Int), "int");
+
+        // ポインタ型
+        assert_eq!(
+            renderer.render_dtype_backend(&DType::Ptr(Box::new(DType::F32))),
+            "__global float*"
+        );
+
+        // ベクトル型
+        assert_eq!(
+            renderer.render_dtype_backend(&DType::Vec(Box::new(DType::F32), 4)),
+            "float4"
+        );
+        assert_eq!(
+            renderer.render_dtype_backend(&DType::Vec(Box::new(DType::Int), 2)),
+            "int2"
+        );
+
+        // タプル型（空 = void）
+        assert_eq!(renderer.render_dtype_backend(&DType::Tuple(vec![])), "void");
+    }
+
+    #[test]
+    fn test_render_math_functions() {
+        let renderer = OpenCLRenderer::new();
+
+        // max/min
+        assert_eq!(
+            renderer.render_math_func("max", &["a".to_string(), "b".to_string()]),
+            "fmax(a, b)"
+        );
+        assert_eq!(
+            renderer.render_math_func("min", &["a".to_string(), "b".to_string()]),
+            "fmin(a, b)"
+        );
+
+        // 単項関数
+        assert_eq!(
+            renderer.render_math_func("sqrt", &["x".to_string()]),
+            "sqrt(x)"
+        );
+        assert_eq!(
+            renderer.render_math_func("exp2", &["x".to_string()]),
+            "exp2(x)"
+        );
+        assert_eq!(
+            renderer.render_math_func("log2", &["x".to_string()]),
+            "log2(x)"
+        );
+        assert_eq!(
+            renderer.render_math_func("sin", &["x".to_string()]),
+            "sin(x)"
+        );
+        assert_eq!(
+            renderer.render_math_func("cos", &["x".to_string()]),
+            "cos(x)"
+        );
+        assert_eq!(
+            renderer.render_math_func("rsqrt", &["x".to_string()]),
+            "rsqrt(x)"
+        );
+    }
+
+    #[test]
+    fn test_render_barrier() {
+        let renderer = OpenCLRenderer::new();
+        let barrier = renderer.render_barrier_backend();
+        assert!(barrier.contains("barrier"));
+        assert!(barrier.contains("CLK_LOCAL_MEM_FENCE"));
+        assert!(barrier.contains("CLK_GLOBAL_MEM_FENCE"));
+    }
+
+    #[test]
+    fn test_render_function_qualifier() {
+        let renderer = OpenCLRenderer::new();
+
+        assert_eq!(
+            renderer.render_function_qualifier(&FunctionKind::Kernel(64)),
+            "__kernel "
+        );
+        assert_eq!(
+            renderer.render_function_qualifier(&FunctionKind::Normal),
+            ""
+        );
+    }
+
+    #[test]
+    fn test_render_vector_load() {
+        let renderer = OpenCLRenderer::new();
+
+        // ベクトル4のロード
+        let load4 = renderer.render_vector_load("ptr", "offset", "float4");
+        assert!(load4.contains("vload4"));
+
+        // ベクトル2のロード
+        let load2 = renderer.render_vector_load("ptr", "offset", "float2");
+        assert!(load2.contains("vload2"));
+
+        // スカラのロード
+        let load_scalar = renderer.render_vector_load("ptr", "offset", "float");
+        assert!(load_scalar.contains("ptr[offset]"));
+    }
+
+    #[test]
+    fn test_render_thread_var_declarations() {
+        let renderer = OpenCLRenderer::new();
+        let decls = renderer.render_thread_var_declarations(&[], "    ");
+
+        assert!(decls.contains("get_global_id(0)"));
+        assert!(decls.contains("get_local_id(0)"));
+        assert!(decls.contains("get_group_id(0)"));
+    }
 }

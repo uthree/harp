@@ -459,3 +459,246 @@ pub trait CLikeRenderer: Renderer {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::{Literal, Mutability, Scope};
+    use crate::backend::c::CRenderer;
+
+    #[test]
+    fn test_render_literal() {
+        let renderer = CRenderer::new();
+
+        // 整数
+        assert_eq!(renderer.render_literal(&Literal::Int(42)), "42");
+
+        // 浮動小数点（小数点あり）
+        assert_eq!(renderer.render_literal(&Literal::F32(3.14)), "3.14f");
+
+        // 浮動小数点（小数点なし → .0が追加される）
+        assert_eq!(renderer.render_literal(&Literal::F32(5.0)), "5.0f");
+    }
+
+    #[test]
+    fn test_render_expr_bitwise_operations() {
+        let renderer = CRenderer::new();
+
+        // BitwiseAnd
+        let and_expr = AstNode::BitwiseAnd(
+            Box::new(AstNode::Var("a".to_string())),
+            Box::new(AstNode::Var("b".to_string())),
+        );
+        assert_eq!(renderer.render_expr(&and_expr), "(a & b)");
+
+        // BitwiseOr
+        let or_expr = AstNode::BitwiseOr(
+            Box::new(AstNode::Var("a".to_string())),
+            Box::new(AstNode::Var("b".to_string())),
+        );
+        assert_eq!(renderer.render_expr(&or_expr), "(a | b)");
+
+        // BitwiseXor
+        let xor_expr = AstNode::BitwiseXor(
+            Box::new(AstNode::Var("a".to_string())),
+            Box::new(AstNode::Var("b".to_string())),
+        );
+        assert_eq!(renderer.render_expr(&xor_expr), "(a ^ b)");
+
+        // BitwiseNot
+        let not_expr = AstNode::BitwiseNot(Box::new(AstNode::Var("x".to_string())));
+        assert_eq!(renderer.render_expr(&not_expr), "(~x)");
+    }
+
+    #[test]
+    fn test_render_expr_shift_operations() {
+        let renderer = CRenderer::new();
+
+        // LeftShift
+        let left_shift = AstNode::LeftShift(
+            Box::new(AstNode::Var("x".to_string())),
+            Box::new(AstNode::Const(Literal::Int(2))),
+        );
+        assert_eq!(renderer.render_expr(&left_shift), "(x << 2)");
+
+        // RightShift
+        let right_shift = AstNode::RightShift(
+            Box::new(AstNode::Var("x".to_string())),
+            Box::new(AstNode::Const(Literal::Int(3))),
+        );
+        assert_eq!(renderer.render_expr(&right_shift), "(x >> 3)");
+    }
+
+    #[test]
+    fn test_render_expr_math_operations() {
+        let renderer = CRenderer::new();
+
+        // Recip
+        let recip = AstNode::Recip(Box::new(AstNode::Var("x".to_string())));
+        assert_eq!(renderer.render_expr(&recip), "(1.0f / x)");
+
+        // Rem (modulo)
+        let rem = AstNode::Rem(
+            Box::new(AstNode::Var("a".to_string())),
+            Box::new(AstNode::Var("b".to_string())),
+        );
+        assert_eq!(renderer.render_expr(&rem), "(a % b)");
+
+        // Idiv
+        let idiv = AstNode::Idiv(
+            Box::new(AstNode::Var("a".to_string())),
+            Box::new(AstNode::Var("b".to_string())),
+        );
+        assert_eq!(renderer.render_expr(&idiv), "(a / b)");
+    }
+
+    #[test]
+    fn test_render_expr_cast() {
+        let renderer = CRenderer::new();
+
+        let cast = AstNode::Cast(Box::new(AstNode::Var("x".to_string())), DType::Int);
+        assert_eq!(renderer.render_expr(&cast), "int(x)");
+    }
+
+    #[test]
+    fn test_render_expr_load() {
+        let renderer = CRenderer::new();
+
+        // スカラロード
+        let load = AstNode::Load {
+            ptr: Box::new(AstNode::Var("arr".to_string())),
+            offset: Box::new(AstNode::Var("i".to_string())),
+            count: 1,
+            dtype: DType::F32,
+        };
+        assert_eq!(renderer.render_expr(&load), "arr[i]");
+    }
+
+    #[test]
+    fn test_render_expr_call() {
+        let renderer = CRenderer::new();
+
+        let call = AstNode::Call {
+            name: "foo".to_string(),
+            args: vec![
+                AstNode::Var("a".to_string()),
+                AstNode::Const(Literal::Int(42)),
+            ],
+        };
+        assert_eq!(renderer.render_expr(&call), "foo(a, 42)");
+    }
+
+    #[test]
+    fn test_render_expr_return() {
+        let renderer = CRenderer::new();
+
+        let ret = AstNode::Return {
+            value: Box::new(AstNode::Var("result".to_string())),
+        };
+        assert_eq!(renderer.render_expr(&ret), "return result");
+    }
+
+    #[test]
+    fn test_render_statement_store() {
+        let mut renderer = CRenderer::new();
+
+        let store = AstNode::Store {
+            ptr: Box::new(AstNode::Var("arr".to_string())),
+            offset: Box::new(AstNode::Var("i".to_string())),
+            value: Box::new(AstNode::Const(Literal::F32(1.0))),
+        };
+        let rendered = renderer.render_statement(&store);
+        assert!(rendered.contains("arr[i] = 1.0f;"));
+    }
+
+    #[test]
+    fn test_render_statement_assign() {
+        let mut renderer = CRenderer::new();
+
+        let assign = AstNode::Assign {
+            var: "x".to_string(),
+            value: Box::new(AstNode::Const(Literal::Int(10))),
+        };
+        let rendered = renderer.render_statement(&assign);
+        assert!(rendered.contains("x = 10;"));
+    }
+
+    #[test]
+    fn test_render_range_loop() {
+        let mut renderer = CRenderer::new();
+
+        let scope = Scope::new();
+        let range = AstNode::Range {
+            var: "i".to_string(),
+            start: Box::new(AstNode::Const(Literal::Int(0))),
+            step: Box::new(AstNode::Const(Literal::Int(1))),
+            stop: Box::new(AstNode::Const(Literal::Int(10))),
+            body: Box::new(AstNode::Block {
+                statements: vec![],
+                scope: Box::new(scope),
+            }),
+        };
+
+        let rendered = renderer.render_statement(&range);
+        assert!(rendered.contains("for (int i = 0; i < 10; i += 1)"));
+    }
+
+    #[test]
+    fn test_render_block_with_local_variables() {
+        let mut renderer = CRenderer::new();
+
+        let mut scope = Scope::new();
+        scope
+            .declare("temp".to_string(), DType::F32, Mutability::Mutable)
+            .unwrap();
+
+        let block = AstNode::Block {
+            statements: vec![AstNode::Assign {
+                var: "temp".to_string(),
+                value: Box::new(AstNode::Const(Literal::F32(0.0))),
+            }],
+            scope: Box::new(scope),
+        };
+
+        let rendered = renderer.render_statement(&block);
+        // ローカル変数の宣言が含まれること
+        assert!(rendered.contains("float temp;"));
+        // 代入文が含まれること
+        assert!(rendered.contains("temp = 0.0f;"));
+    }
+
+    #[test]
+    fn test_render_barrier_statement() {
+        let mut renderer = CRenderer::new();
+        let barrier = AstNode::Barrier;
+        let rendered = renderer.render_statement(&barrier);
+        // CRendererはシングルスレッドなのでバリアは空
+        // 重要なのは、エラーなくレンダリングされること
+        // バリアの内容は各バックエンドで異なる（OpenCLは "barrier(..)", CRendererは空）
+        assert!(rendered.is_empty() || rendered.contains("barrier"));
+    }
+
+    #[test]
+    fn test_indent_management() {
+        let mut renderer = CRenderer::new();
+        assert_eq!(renderer.indent_level(), 0);
+
+        renderer.inc_indent();
+        assert_eq!(renderer.indent_level(), 1);
+        assert_eq!(renderer.indent(), "    "); // 4 spaces
+
+        renderer.inc_indent();
+        assert_eq!(renderer.indent_level(), 2);
+        assert_eq!(renderer.indent(), "        "); // 8 spaces
+
+        renderer.dec_indent();
+        assert_eq!(renderer.indent_level(), 1);
+
+        renderer.dec_indent();
+        assert_eq!(renderer.indent_level(), 0);
+
+        // Should not go negative
+        renderer.dec_indent();
+        assert_eq!(renderer.indent_level(), 0);
+    }
+}
