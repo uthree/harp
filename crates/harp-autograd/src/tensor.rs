@@ -8,8 +8,8 @@ use super::grad_fn::{
     GradFn, Log2Backward, MulBackward, MulConstBackward, NegBackward, PadBackward, RecipBackward,
     ReduceSumBackward, SinBackward, SliceBackward, SqrtBackward,
 };
-use crate::backend::Device;
-use crate::graph::{Graph, GraphNode, ops::ElementwiseOp, ops::GraphOp};
+use harp::backend::Device;
+use harp::graph::{Graph, GraphNode, ops::ElementwiseOp, ops::GraphOp};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::{Add, Div, Mul, Neg, Sub};
@@ -83,7 +83,7 @@ impl Tensor {
     ///
     /// # 例
     /// ```
-    /// use harp::autograd::Tensor;
+    /// use harp_autograd::Tensor;
     ///
     /// let zeros = Tensor::zeros(vec![2, 3]); // 2x3のゼロ行列
     /// ```
@@ -103,7 +103,7 @@ impl Tensor {
     ///
     /// # 例
     /// ```
-    /// use harp::autograd::Tensor;
+    /// use harp_autograd::Tensor;
     ///
     /// let ones = Tensor::ones(vec![2, 3]); // 2x3の1行列
     /// ```
@@ -125,7 +125,7 @@ impl Tensor {
     ///
     /// # 例
     /// ```
-    /// use harp::autograd::Tensor;
+    /// use harp_autograd::Tensor;
     ///
     /// let rand_tensor = Tensor::rand(vec![2, 3]); // 2x3の乱数テンソル
     /// ```
@@ -149,7 +149,7 @@ impl Tensor {
     ///
     /// # 例
     /// ```
-    /// use harp::autograd::Tensor;
+    /// use harp_autograd::Tensor;
     ///
     /// let randn_tensor = Tensor::randn(vec![2, 3]); // 2x3の正規乱数テンソル
     /// ```
@@ -171,7 +171,7 @@ impl Tensor {
     ///
     /// # 例
     /// ```
-    /// use harp::autograd::Tensor;
+    /// use harp_autograd::Tensor;
     ///
     /// let tensor = Tensor::full(vec![2, 3], 5.0); // 2x3の5で埋められた行列
     /// ```
@@ -186,7 +186,7 @@ impl Tensor {
     /// - `value`: 埋める値
     /// - `device`: 使用するデバイス
     pub fn full_on(shape: Vec<usize>, value: f32, device: Device) -> Self {
-        use crate::graph::shape::Expr;
+        use harp::graph::shape::Expr;
 
         // スカラー定数を作成
         let mut node = GraphNode::constant(value);
@@ -220,7 +220,7 @@ impl Tensor {
     ///
     /// # 例
     /// ```
-    /// use harp::autograd::Tensor;
+    /// use harp_autograd::Tensor;
     /// use harp::graph::GraphNode;
     ///
     /// let a = Tensor::from_graph_node(GraphNode::constant(1.0f32), true);
@@ -242,7 +242,7 @@ impl Tensor {
     ///
     /// # 例
     /// ```
-    /// use harp::autograd::Tensor;
+    /// use harp_autograd::Tensor;
     /// use harp::backend::Device;
     ///
     /// let tensor = Tensor::zeros(vec![2, 3]);
@@ -262,7 +262,7 @@ impl Tensor {
     ///
     /// # 例
     /// ```
-    /// use harp::autograd::Tensor;
+    /// use harp_autograd::Tensor;
     /// use harp::backend::Device;
     ///
     /// let tensor = Tensor::zeros(vec![2, 3]);
@@ -486,7 +486,7 @@ impl Tensor {
     ///
     /// # 例
     /// ```no_run
-    /// use harp::autograd::Tensor;
+    /// use harp_autograd::Tensor;
     ///
     /// let x = Tensor::ones(vec![2, 5]); // (C_in=2, L=5)
     /// let kernel = Tensor::ones(vec![3, 2, 3]); // (C_out=3, C_in=2, k=3)
@@ -527,7 +527,7 @@ impl Tensor {
     ///
     /// # 例
     /// ```no_run
-    /// use harp::autograd::Tensor;
+    /// use harp_autograd::Tensor;
     ///
     /// let x = Tensor::ones(vec![3, 32, 32]); // (C_in=3, H=32, W=32)
     /// let kernel = Tensor::ones(vec![16, 3, 3, 3]); // (C_out=16, C_in=3, kH=3, kW=3)
@@ -574,7 +574,7 @@ impl Tensor {
     ///
     /// # 例
     /// ```no_run
-    /// use harp::autograd::Tensor;
+    /// use harp_autograd::Tensor;
     ///
     /// let x = Tensor::ones(vec![2, 16, 16, 16]); // (C_in=2, D=16, H=16, W=16)
     /// let kernel = Tensor::ones(vec![8, 2, 3, 3, 3]); // (C_out=8, C_in=2, kD=3, kH=3, kW=3)
@@ -670,7 +670,7 @@ impl Tensor {
     ///
     /// # 例
     /// ```no_run
-    /// use harp::autograd::Tensor;
+    /// use harp_autograd::Tensor;
     ///
     /// let x = Tensor::ones(vec![16, 4, 4]); // (C_in=16, H=4, W=4)
     /// let kernel = Tensor::ones(vec![16, 3, 3, 3]); // (C_in=16, C_out=3, kH=3, kW=3)
@@ -767,7 +767,7 @@ impl Tensor {
     ///
     /// # 例
     /// ```no_run
-    /// use harp::autograd::Tensor;
+    /// use harp_autograd::Tensor;
     /// use harp::backend::Device;
     /// use std::collections::HashMap;
     ///
@@ -806,7 +806,7 @@ impl Tensor {
             let shape = vec![data.len()];
             let input_node = graph
                 .input(name)
-                .with_dtype(crate::graph::DType::F32)
+                .with_dtype(harp::graph::DType::F32)
                 .with_shape(shape)
                 .build();
             graph.register_input(name.clone(), input_node);
@@ -844,37 +844,6 @@ impl Tensor {
         device: Option<Device>,
     ) -> Result<Vec<f32>, String> {
         self.realize_on(inputs, device.unwrap_or(self.device))
-    }
-}
-
-/// Graphに対する実行メソッド
-impl Graph {
-    /// このGraphを実行（tinygradスタイル）
-    ///
-    /// # 引数
-    /// - `inputs`: 入力ノード名 -> データのマッピング
-    ///
-    /// # 戻り値
-    /// 出力ノード名 -> 計算結果のマッピング
-    pub fn realize(
-        &self,
-        inputs: HashMap<String, Vec<f32>>,
-    ) -> Result<HashMap<String, Vec<f32>>, String> {
-        self.realize_with_device(inputs, None)
-    }
-
-    /// このGraphを実行（デバイス指定版）
-    pub fn realize_with_device(
-        &self,
-        _inputs: HashMap<String, Vec<f32>>,
-        _device: Option<Device>,
-    ) -> Result<HashMap<String, Vec<f32>>, String> {
-        // TODO: 実装を完成させる
-        // 現在は簡易版として、エラーを返す
-        Err(
-            "Graph::realize() is not yet fully implemented. Use device pipeline directly for now."
-                .to_string(),
-        )
     }
 }
 
@@ -1125,7 +1094,7 @@ impl Tensor {
     /// # 例
     /// ```ignore
     /// use ndarray::Array2;
-    /// use harp::autograd::Tensor;
+    /// use harp_autograd::Tensor;
     ///
     /// let array = Array2::<f32>::zeros((2, 3));
     /// let tensor = Tensor::from_ndarray_shape(&array.into_dyn());
@@ -1147,7 +1116,7 @@ impl Tensor {
     /// # 例
     /// ```ignore
     /// use ndarray::{Array2, arr2};
-    /// use harp::autograd::Tensor;
+    /// use harp_autograd::Tensor;
     ///
     /// let array = arr2(&[[1.0, 2.0], [3.0, 4.0]]);
     /// let tensor = Tensor::from_ndarray(array.into_dyn());

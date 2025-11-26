@@ -2,7 +2,7 @@
 //!
 //! Tensor::zeros(), Tensor::ones(), Tensor::full() の使用例
 
-use harp::autograd::Tensor;
+use harp_autograd::Tensor;
 
 fn main() {
     env_logger::init();

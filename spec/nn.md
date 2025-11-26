@@ -7,6 +7,15 @@ PyTorchの`torch.nn`に相当する機能を提供するサブクレートです
 >
 > `harp-derive`（derive macro）も`harp-nn`に統合されており、`harp_nn::DeriveModule`として利用できます。
 
+## クレート依存関係
+
+```
+harp-nn → harp-autograd → harp
+```
+
+- `harp-nn`は`harp-autograd`に依存（`Tensor`型を使用）
+- `harp-autograd`は`harp`に依存（`GraphNode`, `Graph`型を使用）
+
 ## 設計思想
 
 ### 軽量なModule trait

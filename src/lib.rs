@@ -30,7 +30,6 @@
 
 // Core modules
 pub mod ast;
-pub mod autograd;
 pub mod backend;
 pub mod graph;
 pub mod lowerer;
@@ -56,9 +55,6 @@ pub use lowerer::Lowerer;
 /// use harp::prelude::*;
 /// ```
 pub mod prelude {
-    // Autograd (PyTorch-like API)
-    pub use crate::autograd::Tensor;
-
     // Graph types
     pub use crate::graph::{
         CumulativeStrategy, DType, ElementwiseStrategy, Graph, GraphNode, GraphOp, ReduceOp,

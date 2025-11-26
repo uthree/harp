@@ -7,7 +7,7 @@
 //! 現在、乱数初期化（Xavier, He等）は未実装です。
 //! 定数初期化のみサポートしています。
 
-use harp::autograd::Tensor;
+use harp_autograd::Tensor;
 
 /// 定数で初期化
 ///

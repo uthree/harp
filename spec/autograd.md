@@ -2,6 +2,23 @@
 
 PyTorchライクな逆向きモード自動微分を提供します。
 
+## クレート構成
+
+`harp-autograd`は独立したサブクレートとして`crates/harp-autograd/`に配置されています。
+
+**依存関係：**
+- `harp-autograd` → `harp` (graph, backend)
+- `harp-nn` → `harp-autograd`
+
+**使用方法：**
+```rust
+// harp-autograd を直接使用
+use harp_autograd::Tensor;
+
+// または harp-nn 経由で使用
+use harp_nn::Parameter;  // 内部で harp_autograd::Tensor を使用
+```
+
 ## 設計思想
 
 ### グラフからグラフへの変換
@@ -83,6 +100,7 @@ pub trait GradFn {
 
 ```rust
 use harp::prelude::*;
+use harp_autograd::Tensor;
 
 fn main() {
     let mut graph = Graph::new();

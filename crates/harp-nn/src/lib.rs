@@ -16,7 +16,7 @@ pub mod optim;
 // Re-export derive macro
 pub use harp_derive::Module as DeriveModule;
 
-use harp::autograd::Tensor;
+use harp_autograd::Tensor;
 use std::collections::HashMap;
 
 /// 学習可能なパラメータ
@@ -27,7 +27,7 @@ use std::collections::HashMap;
 ///
 /// ```
 /// use harp_nn::Parameter;
-/// use harp::autograd::Tensor;
+/// use harp_autograd::Tensor;
 ///
 /// // ゼロで初期化
 /// let param = Parameter::zeros(vec![10, 20]);
@@ -126,7 +126,7 @@ impl std::ops::DerefMut for Parameter {
 ///
 /// ```ignore
 /// use harp_nn::{Module, Parameter};
-/// use harp::autograd::Tensor;
+/// use harp_autograd::Tensor;
 /// use std::collections::HashMap;
 ///
 /// struct Linear {

@@ -3,7 +3,7 @@
 //! トポロジカルソートして計算グラフを逆順に辿り、勾配を伝播します。
 
 use super::tensor::Tensor;
-use crate::graph::{GraphNode, GraphNodeData};
+use harp::graph::{GraphNode, GraphNodeData};
 use std::collections::{HashMap, HashSet};
 
 /// 逆伝播を実行
@@ -97,7 +97,7 @@ fn topological_sort(output: &Tensor) -> Vec<Tensor> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{DType, Graph};
+    use harp::graph::{DType, Graph};
 
     #[test]
     fn test_topological_sort() {

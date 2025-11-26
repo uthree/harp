@@ -9,7 +9,7 @@
 //! - `memory`: メモリ操作（パディング、スライス）の勾配
 //! - `conv`: 畳み込み演算（Conv1d, Conv2d, Conv3d）の勾配
 
-use crate::autograd::Tensor;
+use crate::Tensor;
 
 /// 勾配関数のトレイト
 ///

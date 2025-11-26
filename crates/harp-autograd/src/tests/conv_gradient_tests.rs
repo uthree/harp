@@ -1,7 +1,7 @@
 /// Conv演算の勾配計算のテスト
 ///
 /// 注意: 現在はconv1dのみ実装されており、stride=1, dilation=1, groups=1のみサポート
-use crate::autograd::Tensor;
+use crate::Tensor;
 
 #[test]
 fn test_conv1d_backward_simple() {
@@ -11,29 +11,29 @@ fn test_conv1d_backward_simple() {
     // Input: (C_in=1, L=5), Kernel: (C_out=1, C_in=1, k=3)
     // Output: (1, 3)
     let x = Tensor::from_graph_node(
-        crate::graph::GraphNode::constant(1.0f32)
-            .view(crate::graph::shape::View::contiguous(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
+        harp::graph::GraphNode::constant(1.0f32)
+            .view(harp::graph::shape::View::contiguous(vec![
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
             ]))
             .expand(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(5),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(5),
             ]),
         true, // requires_grad
     );
 
     let kernel = Tensor::from_graph_node(
-        crate::graph::GraphNode::constant(0.5f32)
-            .view(crate::graph::shape::View::contiguous(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
+        harp::graph::GraphNode::constant(0.5f32)
+            .view(harp::graph::shape::View::contiguous(vec![
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
             ]))
             .expand(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(3),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(3),
             ]),
         true, // requires_grad
     );
@@ -65,29 +65,29 @@ fn test_conv1d_backward_stride_2() {
     // Input: (C_in=1, L=5), Kernel: (C_out=1, C_in=1, k=3)
     // Output: (1, 2) with stride=2
     let x = Tensor::from_graph_node(
-        crate::graph::GraphNode::constant(1.0f32)
-            .view(crate::graph::shape::View::contiguous(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
+        harp::graph::GraphNode::constant(1.0f32)
+            .view(harp::graph::shape::View::contiguous(vec![
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
             ]))
             .expand(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(5),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(5),
             ]),
         true, // requires_grad
     );
 
     let kernel = Tensor::from_graph_node(
-        crate::graph::GraphNode::constant(0.5f32)
-            .view(crate::graph::shape::View::contiguous(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
+        harp::graph::GraphNode::constant(0.5f32)
+            .view(harp::graph::shape::View::contiguous(vec![
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
             ]))
             .expand(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(3),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(3),
             ]),
         true, // requires_grad
     );
@@ -118,33 +118,33 @@ fn test_conv2d_backward_simple() {
     // Conv2d backward (stride対応)
     // Input: (C_in=1, H=4, W=4), Kernel: (C_out=1, C_in=1, kh=2, kw=2)
     let x = Tensor::from_graph_node(
-        crate::graph::GraphNode::constant(1.0f32)
-            .view(crate::graph::shape::View::contiguous(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
+        harp::graph::GraphNode::constant(1.0f32)
+            .view(harp::graph::shape::View::contiguous(vec![
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
             ]))
             .expand(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(4),
-                crate::graph::shape::Expr::from(4),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(4),
+                harp::graph::shape::Expr::from(4),
             ]),
         true, // requires_grad
     );
 
     let kernel = Tensor::from_graph_node(
-        crate::graph::GraphNode::constant(0.5f32)
-            .view(crate::graph::shape::View::contiguous(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
+        harp::graph::GraphNode::constant(0.5f32)
+            .view(harp::graph::shape::View::contiguous(vec![
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
             ]))
             .expand(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(2),
-                crate::graph::shape::Expr::from(2),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(2),
+                harp::graph::shape::Expr::from(2),
             ]),
         true, // requires_grad
     );
@@ -174,37 +174,37 @@ fn test_conv3d_backward_simple() {
     // Conv3d backward (stride対応)
     // Input: (C_in=1, D=3, H=3, W=3), Kernel: (C_out=1, C_in=1, kD=2, kH=2, kW=2)
     let x = Tensor::from_graph_node(
-        crate::graph::GraphNode::constant(1.0f32)
-            .view(crate::graph::shape::View::contiguous(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
+        harp::graph::GraphNode::constant(1.0f32)
+            .view(harp::graph::shape::View::contiguous(vec![
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
             ]))
             .expand(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(3),
-                crate::graph::shape::Expr::from(3),
-                crate::graph::shape::Expr::from(3),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(3),
+                harp::graph::shape::Expr::from(3),
+                harp::graph::shape::Expr::from(3),
             ]),
         true, // requires_grad
     );
 
     let kernel = Tensor::from_graph_node(
-        crate::graph::GraphNode::constant(0.5f32)
-            .view(crate::graph::shape::View::contiguous(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
+        harp::graph::GraphNode::constant(0.5f32)
+            .view(harp::graph::shape::View::contiguous(vec![
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
             ]))
             .expand(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(2),
-                crate::graph::shape::Expr::from(2),
-                crate::graph::shape::Expr::from(2),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(2),
+                harp::graph::shape::Expr::from(2),
+                harp::graph::shape::Expr::from(2),
             ]),
         true, // requires_grad
     );
@@ -235,23 +235,23 @@ fn test_conv1d_backward_groups() {
     // Input: (C_in=2, L=5), Kernel: (C_out=2, C_in/groups=1, k=3)
     // groups=2なので、depthwise convolution
     let x = Tensor::from_graph_node(
-        crate::graph::GraphNode::constant(1.0f32)
-            .view(crate::graph::shape::View::contiguous(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
+        harp::graph::GraphNode::constant(1.0f32)
+            .view(harp::graph::shape::View::contiguous(vec![
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
             ]))
             .expand(vec![
-                crate::graph::shape::Expr::from(2),
-                crate::graph::shape::Expr::from(5),
+                harp::graph::shape::Expr::from(2),
+                harp::graph::shape::Expr::from(5),
             ]),
         true, // requires_grad
     );
 
     // Kernelはcontiguousである必要があるため、expandではなく直接作成
-    let mut kernel_graph = crate::graph::Graph::new();
+    let mut kernel_graph = harp::graph::Graph::new();
     let kernel_node = kernel_graph
         .input("kernel")
-        .with_dtype(crate::graph::DType::F32)
+        .with_dtype(harp::graph::DType::F32)
         .with_shape(vec![2, 1, 3])
         .build();
 
@@ -283,25 +283,25 @@ fn test_conv2d_backward_groups() {
     // Group Conv2d backward (groups=2)
     // Input: (C_in=2, H=4, W=4), Kernel: (C_out=2, C_in/groups=1, kh=2, kw=2)
     let x = Tensor::from_graph_node(
-        crate::graph::GraphNode::constant(1.0f32)
-            .view(crate::graph::shape::View::contiguous(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
+        harp::graph::GraphNode::constant(1.0f32)
+            .view(harp::graph::shape::View::contiguous(vec![
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
             ]))
             .expand(vec![
-                crate::graph::shape::Expr::from(2),
-                crate::graph::shape::Expr::from(4),
-                crate::graph::shape::Expr::from(4),
+                harp::graph::shape::Expr::from(2),
+                harp::graph::shape::Expr::from(4),
+                harp::graph::shape::Expr::from(4),
             ]),
         true, // requires_grad
     );
 
     // Kernelはcontiguousである必要があるため、expandではなく直接作成
-    let mut kernel_graph = crate::graph::Graph::new();
+    let mut kernel_graph = harp::graph::Graph::new();
     let kernel_node = kernel_graph
         .input("kernel")
-        .with_dtype(crate::graph::DType::F32)
+        .with_dtype(harp::graph::DType::F32)
         .with_shape(vec![2, 1, 2, 2])
         .build();
 
@@ -333,25 +333,25 @@ fn test_conv2d_backward_groups_stride() {
     // Group Conv2d backward with stride (groups=2, stride=(2,2))
     // Input: (C_in=4, H=6, W=6), Kernel: (C_out=4, C_in/groups=2, kh=3, kw=3)
     let x = Tensor::from_graph_node(
-        crate::graph::GraphNode::constant(1.0f32)
-            .view(crate::graph::shape::View::contiguous(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
+        harp::graph::GraphNode::constant(1.0f32)
+            .view(harp::graph::shape::View::contiguous(vec![
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
             ]))
             .expand(vec![
-                crate::graph::shape::Expr::from(4),
-                crate::graph::shape::Expr::from(6),
-                crate::graph::shape::Expr::from(6),
+                harp::graph::shape::Expr::from(4),
+                harp::graph::shape::Expr::from(6),
+                harp::graph::shape::Expr::from(6),
             ]),
         true, // requires_grad
     );
 
     // Kernel: (C_out=4, C_in/groups=2, kH=3, kW=3)
-    let mut kernel_graph = crate::graph::Graph::new();
+    let mut kernel_graph = harp::graph::Graph::new();
     let kernel_node = kernel_graph
         .input("kernel")
-        .with_dtype(crate::graph::DType::F32)
+        .with_dtype(harp::graph::DType::F32)
         .with_shape(vec![4, 2, 3, 3])
         .build();
 
@@ -388,25 +388,25 @@ fn test_conv2d_backward_groups_dilation() {
     // Input: (C_in=4, H=8, W=8), Kernel: (C_out=4, C_in/groups=2, kh=3, kw=3)
     // effective kernel size = 3 + (3-1)*(2-1) = 5
     let x = Tensor::from_graph_node(
-        crate::graph::GraphNode::constant(1.0f32)
-            .view(crate::graph::shape::View::contiguous(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
+        harp::graph::GraphNode::constant(1.0f32)
+            .view(harp::graph::shape::View::contiguous(vec![
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
             ]))
             .expand(vec![
-                crate::graph::shape::Expr::from(4),
-                crate::graph::shape::Expr::from(8),
-                crate::graph::shape::Expr::from(8),
+                harp::graph::shape::Expr::from(4),
+                harp::graph::shape::Expr::from(8),
+                harp::graph::shape::Expr::from(8),
             ]),
         true, // requires_grad
     );
 
     // Kernel: (C_out=4, C_in/groups=2, kH=3, kW=3)
-    let mut kernel_graph = crate::graph::Graph::new();
+    let mut kernel_graph = harp::graph::Graph::new();
     let kernel_node = kernel_graph
         .input("kernel")
-        .with_dtype(crate::graph::DType::F32)
+        .with_dtype(harp::graph::DType::F32)
         .with_shape(vec![4, 2, 3, 3])
         .build();
 
@@ -446,25 +446,25 @@ fn test_conv_transpose2d_backward_simple() {
     // Input: (C_in=2, H=3, W=3), Kernel: (C_in=2, C_out=4, kH=2, kW=2)
     // Output with stride=1: (4, 4, 4)
     let x = Tensor::from_graph_node(
-        crate::graph::GraphNode::constant(1.0f32)
-            .view(crate::graph::shape::View::contiguous(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
+        harp::graph::GraphNode::constant(1.0f32)
+            .view(harp::graph::shape::View::contiguous(vec![
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
             ]))
             .expand(vec![
-                crate::graph::shape::Expr::from(2),
-                crate::graph::shape::Expr::from(3),
-                crate::graph::shape::Expr::from(3),
+                harp::graph::shape::Expr::from(2),
+                harp::graph::shape::Expr::from(3),
+                harp::graph::shape::Expr::from(3),
             ]),
         true, // requires_grad
     );
 
     // Kernel: (C_in=2, C_out=4, kH=2, kW=2)
-    let mut kernel_graph = crate::graph::Graph::new();
+    let mut kernel_graph = harp::graph::Graph::new();
     let kernel_node = kernel_graph
         .input("kernel")
-        .with_dtype(crate::graph::DType::F32)
+        .with_dtype(harp::graph::DType::F32)
         .with_shape(vec![2, 4, 2, 2])
         .build();
 
@@ -498,25 +498,25 @@ fn test_conv_transpose2d_backward_stride() {
     // Input: (C_in=2, H=3, W=3), Kernel: (C_in=2, C_out=4, kH=3, kW=3)
     // Output with stride=2: (4, 7, 7)
     let x = Tensor::from_graph_node(
-        crate::graph::GraphNode::constant(1.0f32)
-            .view(crate::graph::shape::View::contiguous(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
+        harp::graph::GraphNode::constant(1.0f32)
+            .view(harp::graph::shape::View::contiguous(vec![
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
             ]))
             .expand(vec![
-                crate::graph::shape::Expr::from(2),
-                crate::graph::shape::Expr::from(3),
-                crate::graph::shape::Expr::from(3),
+                harp::graph::shape::Expr::from(2),
+                harp::graph::shape::Expr::from(3),
+                harp::graph::shape::Expr::from(3),
             ]),
         true, // requires_grad
     );
 
     // Kernel: (C_in=2, C_out=4, kH=3, kW=3)
-    let mut kernel_graph = crate::graph::Graph::new();
+    let mut kernel_graph = harp::graph::Graph::new();
     let kernel_node = kernel_graph
         .input("kernel")
-        .with_dtype(crate::graph::DType::F32)
+        .with_dtype(harp::graph::DType::F32)
         .with_shape(vec![2, 4, 3, 3])
         .build();
 
@@ -553,25 +553,25 @@ fn test_conv_transpose2d_backward_groups() {
     // Input: (C_in=4, H=3, W=3), Kernel: (C_in=4, C_out/groups=2, kH=2, kW=2)
     // groups=2, so C_out=4
     let x = Tensor::from_graph_node(
-        crate::graph::GraphNode::constant(1.0f32)
-            .view(crate::graph::shape::View::contiguous(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
+        harp::graph::GraphNode::constant(1.0f32)
+            .view(harp::graph::shape::View::contiguous(vec![
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
             ]))
             .expand(vec![
-                crate::graph::shape::Expr::from(4),
-                crate::graph::shape::Expr::from(3),
-                crate::graph::shape::Expr::from(3),
+                harp::graph::shape::Expr::from(4),
+                harp::graph::shape::Expr::from(3),
+                harp::graph::shape::Expr::from(3),
             ]),
         true, // requires_grad
     );
 
     // Kernel: (C_in=4, C_out/groups=2, kH=2, kW=2)
-    let mut kernel_graph = crate::graph::Graph::new();
+    let mut kernel_graph = harp::graph::Graph::new();
     let kernel_node = kernel_graph
         .input("kernel")
-        .with_dtype(crate::graph::DType::F32)
+        .with_dtype(harp::graph::DType::F32)
         .with_shape(vec![4, 2, 2, 2])
         .build();
 
@@ -608,23 +608,23 @@ fn test_conv_transpose1d_backward_simple() {
     // Input: (C_in=2, L=4), Kernel: (C_in=2, C_out=3, k=3)
     // Output with stride=1: (3, 6)
     let x = Tensor::from_graph_node(
-        crate::graph::GraphNode::constant(1.0f32)
-            .view(crate::graph::shape::View::contiguous(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
+        harp::graph::GraphNode::constant(1.0f32)
+            .view(harp::graph::shape::View::contiguous(vec![
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
             ]))
             .expand(vec![
-                crate::graph::shape::Expr::from(2),
-                crate::graph::shape::Expr::from(4),
+                harp::graph::shape::Expr::from(2),
+                harp::graph::shape::Expr::from(4),
             ]),
         true, // requires_grad
     );
 
     // Kernel: (C_in=2, C_out=3, k=3)
-    let mut kernel_graph = crate::graph::Graph::new();
+    let mut kernel_graph = harp::graph::Graph::new();
     let kernel_node = kernel_graph
         .input("kernel")
-        .with_dtype(crate::graph::DType::F32)
+        .with_dtype(harp::graph::DType::F32)
         .with_shape(vec![2, 3, 3])
         .build();
 
@@ -658,23 +658,23 @@ fn test_conv_transpose1d_backward_stride() {
     // Input: (C_in=2, L=4), Kernel: (C_in=2, C_out=3, k=3)
     // Output with stride=2: (3, 9)
     let x = Tensor::from_graph_node(
-        crate::graph::GraphNode::constant(1.0f32)
-            .view(crate::graph::shape::View::contiguous(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
+        harp::graph::GraphNode::constant(1.0f32)
+            .view(harp::graph::shape::View::contiguous(vec![
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
             ]))
             .expand(vec![
-                crate::graph::shape::Expr::from(2),
-                crate::graph::shape::Expr::from(4),
+                harp::graph::shape::Expr::from(2),
+                harp::graph::shape::Expr::from(4),
             ]),
         true, // requires_grad
     );
 
     // Kernel: (C_in=2, C_out=3, k=3)
-    let mut kernel_graph = crate::graph::Graph::new();
+    let mut kernel_graph = harp::graph::Graph::new();
     let kernel_node = kernel_graph
         .input("kernel")
-        .with_dtype(crate::graph::DType::F32)
+        .with_dtype(harp::graph::DType::F32)
         .with_shape(vec![2, 3, 3])
         .build();
 
@@ -711,23 +711,23 @@ fn test_conv_transpose1d_backward_groups() {
     // Input: (C_in=4, L=4), Kernel: (C_in=4, C_out/groups=2, k=3)
     // groups=2, so C_out=4
     let x = Tensor::from_graph_node(
-        crate::graph::GraphNode::constant(1.0f32)
-            .view(crate::graph::shape::View::contiguous(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
+        harp::graph::GraphNode::constant(1.0f32)
+            .view(harp::graph::shape::View::contiguous(vec![
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
             ]))
             .expand(vec![
-                crate::graph::shape::Expr::from(4),
-                crate::graph::shape::Expr::from(4),
+                harp::graph::shape::Expr::from(4),
+                harp::graph::shape::Expr::from(4),
             ]),
         true, // requires_grad
     );
 
     // Kernel: (C_in=4, C_out/groups=2, k=3)
-    let mut kernel_graph = crate::graph::Graph::new();
+    let mut kernel_graph = harp::graph::Graph::new();
     let kernel_node = kernel_graph
         .input("kernel")
-        .with_dtype(crate::graph::DType::F32)
+        .with_dtype(harp::graph::DType::F32)
         .with_shape(vec![4, 2, 3])
         .build();
 
@@ -764,27 +764,27 @@ fn test_conv_transpose3d_backward_simple() {
     // Input: (C_in=2, D=2, H=2, W=2), Kernel: (C_in=2, C_out=3, kD=2, kH=2, kW=2)
     // Output with stride=1: (3, 3, 3, 3)
     let x = Tensor::from_graph_node(
-        crate::graph::GraphNode::constant(1.0f32)
-            .view(crate::graph::shape::View::contiguous(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
+        harp::graph::GraphNode::constant(1.0f32)
+            .view(harp::graph::shape::View::contiguous(vec![
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
             ]))
             .expand(vec![
-                crate::graph::shape::Expr::from(2),
-                crate::graph::shape::Expr::from(2),
-                crate::graph::shape::Expr::from(2),
-                crate::graph::shape::Expr::from(2),
+                harp::graph::shape::Expr::from(2),
+                harp::graph::shape::Expr::from(2),
+                harp::graph::shape::Expr::from(2),
+                harp::graph::shape::Expr::from(2),
             ]),
         true, // requires_grad
     );
 
     // Kernel: (C_in=2, C_out=3, kD=2, kH=2, kW=2)
-    let mut kernel_graph = crate::graph::Graph::new();
+    let mut kernel_graph = harp::graph::Graph::new();
     let kernel_node = kernel_graph
         .input("kernel")
-        .with_dtype(crate::graph::DType::F32)
+        .with_dtype(harp::graph::DType::F32)
         .with_shape(vec![2, 3, 2, 2, 2])
         .build();
 
@@ -818,27 +818,27 @@ fn test_conv_transpose3d_backward_stride() {
     // Input: (C_in=2, D=2, H=2, W=2), Kernel: (C_in=2, C_out=3, kD=2, kH=2, kW=2)
     // Output with stride=2: (3, 5, 5, 5)
     let x = Tensor::from_graph_node(
-        crate::graph::GraphNode::constant(1.0f32)
-            .view(crate::graph::shape::View::contiguous(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
+        harp::graph::GraphNode::constant(1.0f32)
+            .view(harp::graph::shape::View::contiguous(vec![
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
             ]))
             .expand(vec![
-                crate::graph::shape::Expr::from(2),
-                crate::graph::shape::Expr::from(2),
-                crate::graph::shape::Expr::from(2),
-                crate::graph::shape::Expr::from(2),
+                harp::graph::shape::Expr::from(2),
+                harp::graph::shape::Expr::from(2),
+                harp::graph::shape::Expr::from(2),
+                harp::graph::shape::Expr::from(2),
             ]),
         true, // requires_grad
     );
 
     // Kernel: (C_in=2, C_out=3, kD=2, kH=2, kW=2)
-    let mut kernel_graph = crate::graph::Graph::new();
+    let mut kernel_graph = harp::graph::Graph::new();
     let kernel_node = kernel_graph
         .input("kernel")
-        .with_dtype(crate::graph::DType::F32)
+        .with_dtype(harp::graph::DType::F32)
         .with_shape(vec![2, 3, 2, 2, 2])
         .build();
 
@@ -875,27 +875,27 @@ fn test_conv_transpose3d_backward_groups() {
     // Input: (C_in=4, D=2, H=2, W=2), Kernel: (C_in=4, C_out/groups=2, kD=2, kH=2, kW=2)
     // groups=2, so C_out=4
     let x = Tensor::from_graph_node(
-        crate::graph::GraphNode::constant(1.0f32)
-            .view(crate::graph::shape::View::contiguous(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
+        harp::graph::GraphNode::constant(1.0f32)
+            .view(harp::graph::shape::View::contiguous(vec![
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
             ]))
             .expand(vec![
-                crate::graph::shape::Expr::from(4),
-                crate::graph::shape::Expr::from(2),
-                crate::graph::shape::Expr::from(2),
-                crate::graph::shape::Expr::from(2),
+                harp::graph::shape::Expr::from(4),
+                harp::graph::shape::Expr::from(2),
+                harp::graph::shape::Expr::from(2),
+                harp::graph::shape::Expr::from(2),
             ]),
         true, // requires_grad
     );
 
     // Kernel: (C_in=4, C_out/groups=2, kD=2, kH=2, kW=2)
-    let mut kernel_graph = crate::graph::Graph::new();
+    let mut kernel_graph = harp::graph::Graph::new();
     let kernel_node = kernel_graph
         .input("kernel")
-        .with_dtype(crate::graph::DType::F32)
+        .with_dtype(harp::graph::DType::F32)
         .with_shape(vec![4, 2, 2, 2, 2])
         .build();
 

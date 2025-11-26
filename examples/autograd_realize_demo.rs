@@ -2,9 +2,9 @@
 //!
 //! tinygradスタイルのrealize()メソッドの使用例
 
-use harp::autograd::Tensor;
 use harp::backend::Device;
 use harp::graph::{DType, Graph};
+use harp_autograd::Tensor;
 
 fn main() {
     env_logger::init();

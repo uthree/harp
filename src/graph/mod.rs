@@ -99,6 +99,34 @@ impl Graph {
     pub fn shape_var_defaults(&self) -> &HashMap<String, isize> {
         &self.shape_var_defaults
     }
+
+    /// このGraphを実行（tinygradスタイル）
+    ///
+    /// # 引数
+    /// - `inputs`: 入力ノード名 -> データのマッピング
+    ///
+    /// # 戻り値
+    /// 出力ノード名 -> 計算結果のマッピング
+    pub fn realize(
+        &self,
+        inputs: HashMap<String, Vec<f32>>,
+    ) -> Result<HashMap<String, Vec<f32>>, String> {
+        self.realize_with_device(inputs, None)
+    }
+
+    /// このGraphを実行（デバイス指定版）
+    pub fn realize_with_device(
+        &self,
+        _inputs: HashMap<String, Vec<f32>>,
+        _device: Option<crate::backend::Device>,
+    ) -> Result<HashMap<String, Vec<f32>>, String> {
+        // TODO: 実装を完成させる
+        // 現在は簡易版として、エラーを返す
+        Err(
+            "Graph::realize() is not yet fully implemented. Use device pipeline directly for now."
+                .to_string(),
+        )
+    }
 }
 
 pub struct InputNodeBuilder<'a> {

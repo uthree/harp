@@ -2,7 +2,7 @@
 //!
 //! `impl_module!`マクロを使った簡単な例
 
-use harp::autograd::Tensor;
+use harp_autograd::Tensor;
 use harp_nn::{Module, Parameter, impl_module};
 
 // 1. 基本的なLinear層

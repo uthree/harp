@@ -34,7 +34,7 @@
 //! ```
 
 use crate::Parameter;
-use harp::autograd::Tensor;
+use harp_autograd::Tensor;
 
 /// パラメータ更新を行うオプティマイザーのtrait
 ///

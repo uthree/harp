@@ -20,7 +20,7 @@ impl Tensor {
     ///
     /// # 例
     /// ```no_run
-    /// use harp::autograd::Tensor;
+    /// use harp_autograd::Tensor;
     ///
     /// let x = Tensor::ones(vec![10]);
     /// let log_x = x.log();
@@ -38,7 +38,7 @@ impl Tensor {
     ///
     /// # 例
     /// ```no_run
-    /// use harp::autograd::Tensor;
+    /// use harp_autograd::Tensor;
     ///
     /// let x = Tensor::zeros(vec![5]);
     /// let exp_x = x.exp();
@@ -55,7 +55,7 @@ impl Tensor {
     ///
     /// # 例
     /// ```no_run
-    /// use harp::autograd::Tensor;
+    /// use harp_autograd::Tensor;
     ///
     /// let x = Tensor::zeros(vec![10]);
     /// let cos_x = x.cos();
@@ -72,7 +72,7 @@ impl Tensor {
     ///
     /// # 例
     /// ```no_run
-    /// use harp::autograd::Tensor;
+    /// use harp_autograd::Tensor;
     ///
     /// let x = Tensor::ones(vec![5]);
     /// let rsqrt_x = x.rsqrt();
@@ -91,7 +91,7 @@ impl Tensor {
     ///
     /// # 例
     /// ```no_run
-    /// use harp::autograd::Tensor;
+    /// use harp_autograd::Tensor;
     ///
     /// let x = Tensor::ones(vec![3, 4]);
     /// let x_squared = x.square();
@@ -109,7 +109,7 @@ impl Tensor {
     ///
     /// # 例
     /// ```no_run
-    /// use harp::autograd::Tensor;
+    /// use harp_autograd::Tensor;
     ///
     /// let x = Tensor::ones(vec![5]);
     /// let x_cubed = x.powi(3);
@@ -136,7 +136,7 @@ impl Tensor {
     ///
     /// # 例
     /// ```no_run
-    /// use harp::autograd::Tensor;
+    /// use harp_autograd::Tensor;
     ///
     /// let x = Tensor::ones(vec![10]);
     /// let abs_sq = x.abs_square();
@@ -151,7 +151,7 @@ impl Tensor {
     ///
     /// # 例
     /// ```no_run
-    /// use harp::autograd::Tensor;
+    /// use harp_autograd::Tensor;
     ///
     /// let a = Tensor::ones(vec![10]);
     /// let b = Tensor::zeros(vec![10]);
@@ -169,7 +169,7 @@ impl Tensor {
     ///
     /// # 例
     /// ```no_run
-    /// use harp::autograd::Tensor;
+    /// use harp_autograd::Tensor;
     ///
     /// let x = Tensor::full(vec![10], 5.0);
     /// let min_val = Tensor::zeros(vec![10]);
@@ -198,7 +198,7 @@ impl Tensor {
     ///
     /// # 例
     /// ```no_run
-    /// use harp::autograd::Tensor;
+    /// use harp_autograd::Tensor;
     /// use harp::graph::{Graph, DType};
     ///
     /// let mut graph = Graph::new();
@@ -209,7 +209,7 @@ impl Tensor {
     /// let mean_x = x.mean(1);  // 軸1の平均を計算
     /// ```
     pub fn mean(&self, axis: usize) -> Tensor {
-        use crate::graph::shape::Expr;
+        use harp::graph::shape::Expr;
 
         let shape = self.data.view.shape();
         if axis >= shape.len() {
@@ -242,7 +242,7 @@ impl Tensor {
     ///
     /// # 例
     /// ```no_run
-    /// use harp::autograd::Tensor;
+    /// use harp_autograd::Tensor;
     /// use harp::graph::{Graph, DType};
     ///
     /// let mut graph = Graph::new();
@@ -273,7 +273,7 @@ impl Tensor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{DType, Graph};
+    use harp::graph::{DType, Graph};
 
     #[test]
     fn test_log() {

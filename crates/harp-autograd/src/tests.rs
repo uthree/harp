@@ -1,7 +1,7 @@
 //! 自動微分のテスト
 
 use super::Tensor;
-use crate::graph::{DType, Graph};
+use harp::graph::{DType, Graph};
 
 #[test]
 fn test_tensor_creation() {
@@ -682,11 +682,11 @@ fn test_rand() {
     assert_eq!(rand_tensor.data.view.shape().len(), 2);
     assert_eq!(
         rand_tensor.data.view.shape()[0],
-        crate::graph::shape::Expr::from(3)
+        harp::graph::shape::Expr::from(3)
     );
     assert_eq!(
         rand_tensor.data.view.shape()[1],
-        crate::graph::shape::Expr::from(4)
+        harp::graph::shape::Expr::from(4)
     );
     // requires_gradはfalse（デフォルト）
     assert!(!rand_tensor.requires_grad());
@@ -700,11 +700,11 @@ fn test_randn() {
     assert_eq!(randn_tensor.data.view.shape().len(), 2);
     assert_eq!(
         randn_tensor.data.view.shape()[0],
-        crate::graph::shape::Expr::from(5)
+        harp::graph::shape::Expr::from(5)
     );
     assert_eq!(
         randn_tensor.data.view.shape()[1],
-        crate::graph::shape::Expr::from(6)
+        harp::graph::shape::Expr::from(6)
     );
     // requires_gradはfalse（デフォルト）
     assert!(!randn_tensor.requires_grad());
@@ -756,7 +756,7 @@ fn test_tensor_device() {
 
 #[test]
 fn test_tensor_to_device() {
-    use crate::backend::Device;
+    use harp::backend::Device;
 
     let tensor = Tensor::ones(vec![3, 4]);
     let original_device = tensor.device();
@@ -774,7 +774,7 @@ fn test_tensor_to_device() {
 
 #[test]
 fn test_operations_preserve_device() {
-    use crate::backend::Device;
+    use harp::backend::Device;
 
     let device = Device::cpu();
     let a = Tensor::ones_on(vec![3], device);
@@ -790,7 +790,7 @@ fn test_operations_preserve_device() {
 
 #[test]
 fn test_device_in_debug() {
-    use crate::backend::Device;
+    use harp::backend::Device;
 
     let tensor = Tensor::zeros_on(vec![2, 3], Device::cpu());
     let debug_str = format!("{:?}", tensor);

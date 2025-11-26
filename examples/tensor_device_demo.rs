@@ -2,8 +2,8 @@
 //!
 //! PyTorch風のデバイス指定と遅延評価の組み合わせを示します
 
-use harp::autograd::Tensor;
 use harp::backend::Device;
+use harp_autograd::Tensor;
 
 fn main() {
     env_logger::init();

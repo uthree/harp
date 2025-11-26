@@ -3,8 +3,8 @@
 //! autograd::Tensorの高レベル演算は、基本演算を組み合わせて実装されています。
 //! これにより、計算グラフが大きくなりますが、後段の最適化機能で効率化されます。
 
-use harp::autograd::Tensor;
 use harp::graph::{DType, Graph};
+use harp_autograd::Tensor;
 
 fn main() {
     env_logger::init();

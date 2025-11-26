@@ -72,9 +72,9 @@ impl GradFn for Conv1dBackward {
             let c_out_expr = &kernel_shape[0];
             let l_out_expr = &grad_output_shape[1];
             let shape_for_mult = vec![
-                crate::graph::shape::Expr::from(c_in as isize),
+                harp::graph::shape::Expr::from(c_in as isize),
                 c_out_expr.clone(),
-                crate::graph::shape::Expr::from(kernel_size as isize),
+                harp::graph::shape::Expr::from(kernel_size as isize),
                 l_out_expr.clone(),
             ];
 
@@ -95,8 +95,8 @@ impl GradFn for Conv1dBackward {
             let k_val = reduced_shape[1].as_usize().unwrap_or(kernel_size);
 
             let reshaped_for_fold_view = reduced_for_fold.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from((c_in_val * k_val) as isize),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from((c_in_val * k_val) as isize),
                 l_out_expr.clone(),
             ]);
             let reshaped_for_fold = reduced_for_fold.view(reshaped_for_fold_view);
@@ -132,9 +132,9 @@ impl GradFn for Conv1dBackward {
             let c_out =
                 kernel_shape[0].expect_const("Conv1d backward requires constant kernel shape");
             let common_shape = vec![
-                crate::graph::shape::Expr::from(c_out),
-                crate::graph::shape::Expr::from(c_in as isize),
-                crate::graph::shape::Expr::from(kernel_size as isize),
+                harp::graph::shape::Expr::from(c_out),
+                harp::graph::shape::Expr::from(c_in as isize),
+                harp::graph::shape::Expr::from(kernel_size as isize),
                 grad_output_shape[1].clone(),
             ];
 
@@ -159,10 +159,10 @@ impl GradFn for Conv1dBackward {
 
             // まずcontiguous化
             let kernel_contiguous_view =
-                crate::graph::shape::View::contiguous(kernel.data.view.shape().to_vec());
-            let kernel_contiguous = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(kernel.data.view.shape().to_vec());
+            let kernel_contiguous = harp::graph::GraphNode::new(
                 kernel.data.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![kernel.data.clone()],
@@ -170,10 +170,10 @@ impl GradFn for Conv1dBackward {
             );
 
             let kernel_reshaped_view = kernel_contiguous.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(self.groups as isize),
-                crate::graph::shape::Expr::from(c_out_per_group as isize),
-                crate::graph::shape::Expr::from(c_in_per_group as isize),
-                crate::graph::shape::Expr::from(kernel_size as isize),
+                harp::graph::shape::Expr::from(self.groups as isize),
+                harp::graph::shape::Expr::from(c_out_per_group as isize),
+                harp::graph::shape::Expr::from(c_in_per_group as isize),
+                harp::graph::shape::Expr::from(kernel_size as isize),
             ]);
             let kernel_reshaped = kernel_contiguous.view(kernel_reshaped_view);
 
@@ -184,10 +184,10 @@ impl GradFn for Conv1dBackward {
 
             // grad_output: (C_out, L') -> reshape -> (groups, C_out/groups, L')
             let grad_out_contiguous_view =
-                crate::graph::shape::View::contiguous(grad_output.data.view.shape().to_vec());
-            let grad_out_contiguous = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(grad_output.data.view.shape().to_vec());
+            let grad_out_contiguous = harp::graph::GraphNode::new(
                 grad_output.data.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![grad_output.data.clone()],
@@ -195,8 +195,8 @@ impl GradFn for Conv1dBackward {
             );
 
             let grad_out_reshaped_view = grad_out_contiguous.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(self.groups as isize),
-                crate::graph::shape::Expr::from(c_out_per_group as isize),
+                harp::graph::shape::Expr::from(self.groups as isize),
+                harp::graph::shape::Expr::from(c_out_per_group as isize),
                 grad_output_shape[1].clone(),
             ]);
             let grad_out_reshaped = grad_out_contiguous.view(grad_out_reshaped_view);
@@ -210,10 +210,10 @@ impl GradFn for Conv1dBackward {
 
             let l_out_expr = &grad_output_shape[1];
             let shape_for_mult = vec![
-                crate::graph::shape::Expr::from(self.groups as isize),
-                crate::graph::shape::Expr::from(c_in_per_group as isize),
-                crate::graph::shape::Expr::from(c_out_per_group as isize),
-                crate::graph::shape::Expr::from(kernel_size as isize),
+                harp::graph::shape::Expr::from(self.groups as isize),
+                harp::graph::shape::Expr::from(c_in_per_group as isize),
+                harp::graph::shape::Expr::from(c_out_per_group as isize),
+                harp::graph::shape::Expr::from(kernel_size as isize),
                 l_out_expr.clone(),
             ];
 
@@ -249,10 +249,10 @@ impl GradFn for Conv1dBackward {
             let input_unf_for_kernel = input_unfolded.view(input_unf_tmp);
 
             let common_shape_kernel = vec![
-                crate::graph::shape::Expr::from(self.groups as isize),
-                crate::graph::shape::Expr::from(c_out_per_group as isize),
-                crate::graph::shape::Expr::from(c_in_per_group as isize),
-                crate::graph::shape::Expr::from(kernel_size as isize),
+                harp::graph::shape::Expr::from(self.groups as isize),
+                harp::graph::shape::Expr::from(c_out_per_group as isize),
+                harp::graph::shape::Expr::from(c_in_per_group as isize),
+                harp::graph::shape::Expr::from(kernel_size as isize),
                 l_out_expr.clone(),
             ];
 
@@ -264,10 +264,10 @@ impl GradFn for Conv1dBackward {
             // reshape back: (groups, C_out/groups, C_in/groups, k) -> (C_out, C_in/groups, k)
             // contiguous化してからreshape
             let grad_kernel_grouped_cont_view =
-                crate::graph::shape::View::contiguous(grad_kernel_grouped.view.shape().to_vec());
-            let grad_kernel_grouped_cont = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(grad_kernel_grouped.view.shape().to_vec());
+            let grad_kernel_grouped_cont = harp::graph::GraphNode::new(
                 grad_kernel_grouped.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![grad_kernel_grouped.clone()],
@@ -275,9 +275,9 @@ impl GradFn for Conv1dBackward {
             );
 
             let grad_kernel_data_view = grad_kernel_grouped_cont.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(c_out as isize),
-                crate::graph::shape::Expr::from(c_in_per_group as isize),
-                crate::graph::shape::Expr::from(kernel_size as isize),
+                harp::graph::shape::Expr::from(c_out as isize),
+                harp::graph::shape::Expr::from(c_in_per_group as isize),
+                harp::graph::shape::Expr::from(kernel_size as isize),
             ]);
             let grad_kernel_data = grad_kernel_grouped_cont.view(grad_kernel_data_view);
 
@@ -378,10 +378,10 @@ impl GradFn for Conv2dBackward {
             let h_out_expr = &grad_output_shape[1];
             let w_out_expr = &grad_output_shape[2];
             let shape_for_mult = vec![
-                crate::graph::shape::Expr::from(c_in as isize),
+                harp::graph::shape::Expr::from(c_in as isize),
                 c_out_expr.clone(),
-                crate::graph::shape::Expr::from(kernel_h as isize),
-                crate::graph::shape::Expr::from(kernel_w as isize),
+                harp::graph::shape::Expr::from(kernel_h as isize),
+                harp::graph::shape::Expr::from(kernel_w as isize),
                 h_out_expr.clone(),
                 w_out_expr.clone(),
             ];
@@ -409,9 +409,9 @@ impl GradFn for Conv2dBackward {
                 .expect_usize("Conv2d backward requires constant grad_output shape");
 
             let reshaped_for_fold_view = reduced_for_fold.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from((c_in_val * kh_val * kw_val) as isize),
-                crate::graph::shape::Expr::from((h_out_val * w_out_val) as isize),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from((c_in_val * kh_val * kw_val) as isize),
+                harp::graph::shape::Expr::from((h_out_val * w_out_val) as isize),
             ]);
             let reshaped_for_fold = reduced_for_fold.view(reshaped_for_fold_view);
 
@@ -432,10 +432,10 @@ impl GradFn for Conv2dBackward {
                     .unfold2d((kernel_h, kernel_w), self.stride, self.dilation, 1);
             // unfoldの出力をcontiguous化
             let input_unf_contiguous_view =
-                crate::graph::shape::View::contiguous(input_unfolded_raw.view.shape().to_vec());
-            let input_unf_contiguous = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(input_unfolded_raw.view.shape().to_vec());
+            let input_unf_contiguous = harp::graph::GraphNode::new(
                 input_unfolded_raw.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![input_unfolded_raw.clone()],
@@ -444,8 +444,8 @@ impl GradFn for Conv2dBackward {
             // unfold2dの出力: (C_in, kH, kW, H_out, W_out) -> (C_in, kH, kW, H_out*W_out)
             let input_unfolded_reshaped_view = input_unf_contiguous.view.clone().reshape(vec![
                 input_shape[0].clone(),
-                crate::graph::shape::Expr::from(kernel_h as isize),
-                crate::graph::shape::Expr::from(kernel_w as isize),
+                harp::graph::shape::Expr::from(kernel_h as isize),
+                harp::graph::shape::Expr::from(kernel_w as isize),
                 spatial_dims_product.clone(),
             ]);
             let input_unfolded = input_unf_contiguous.view(input_unfolded_reshaped_view);
@@ -453,10 +453,10 @@ impl GradFn for Conv2dBackward {
             // reshape grad_output: (C_out, H_out, W_out) -> (C_out, H_out*W_out)
             // まずcontiguous化
             let grad_out_contiguous_view =
-                crate::graph::shape::View::contiguous(grad_output_shape.to_vec());
-            let grad_out_contiguous = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(grad_output_shape.to_vec());
+            let grad_out_contiguous = harp::graph::GraphNode::new(
                 grad_output.data.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![grad_output.data.clone()],
@@ -482,10 +482,10 @@ impl GradFn for Conv2dBackward {
                 kernel_shape[0].expect_const("Conv2d backward requires constant kernel shape");
 
             let common_shape = vec![
-                crate::graph::shape::Expr::from(c_out),
-                crate::graph::shape::Expr::from(c_in as isize),
-                crate::graph::shape::Expr::from(kernel_h as isize),
-                crate::graph::shape::Expr::from(kernel_w as isize),
+                harp::graph::shape::Expr::from(c_out),
+                harp::graph::shape::Expr::from(c_in as isize),
+                harp::graph::shape::Expr::from(kernel_h as isize),
+                harp::graph::shape::Expr::from(kernel_w as isize),
                 spatial_dims_product,
             ];
 
@@ -510,10 +510,10 @@ impl GradFn for Conv2dBackward {
 
             // まずcontiguous化
             let kernel_contiguous_view =
-                crate::graph::shape::View::contiguous(kernel.data.view.shape().to_vec());
-            let kernel_contiguous = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(kernel.data.view.shape().to_vec());
+            let kernel_contiguous = harp::graph::GraphNode::new(
                 kernel.data.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![kernel.data.clone()],
@@ -521,11 +521,11 @@ impl GradFn for Conv2dBackward {
             );
 
             let kernel_reshaped_view = kernel_contiguous.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(self.groups as isize),
-                crate::graph::shape::Expr::from(c_out_per_group as isize),
-                crate::graph::shape::Expr::from(c_in_per_group as isize),
-                crate::graph::shape::Expr::from(kernel_h as isize),
-                crate::graph::shape::Expr::from(kernel_w as isize),
+                harp::graph::shape::Expr::from(self.groups as isize),
+                harp::graph::shape::Expr::from(c_out_per_group as isize),
+                harp::graph::shape::Expr::from(c_in_per_group as isize),
+                harp::graph::shape::Expr::from(kernel_h as isize),
+                harp::graph::shape::Expr::from(kernel_w as isize),
             ]);
             let kernel_reshaped = kernel_contiguous.view(kernel_reshaped_view);
 
@@ -536,10 +536,10 @@ impl GradFn for Conv2dBackward {
 
             // grad_output: (C_out, H', W') -> reshape -> (groups, C_out/groups, H', W')
             let grad_out_contiguous_view =
-                crate::graph::shape::View::contiguous(grad_output.data.view.shape().to_vec());
-            let grad_out_contiguous = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(grad_output.data.view.shape().to_vec());
+            let grad_out_contiguous = harp::graph::GraphNode::new(
                 grad_output.data.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![grad_output.data.clone()],
@@ -547,8 +547,8 @@ impl GradFn for Conv2dBackward {
             );
 
             let grad_out_reshaped_view = grad_out_contiguous.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(self.groups as isize),
-                crate::graph::shape::Expr::from(c_out_per_group as isize),
+                harp::graph::shape::Expr::from(self.groups as isize),
+                harp::graph::shape::Expr::from(c_out_per_group as isize),
                 grad_output_shape[1].clone(),
                 grad_output_shape[2].clone(),
             ]);
@@ -569,11 +569,11 @@ impl GradFn for Conv2dBackward {
             let h_out_expr = &grad_output_shape[1];
             let w_out_expr = &grad_output_shape[2];
             let shape_for_mult = vec![
-                crate::graph::shape::Expr::from(self.groups as isize),
-                crate::graph::shape::Expr::from(c_in_per_group as isize),
-                crate::graph::shape::Expr::from(c_out_per_group as isize),
-                crate::graph::shape::Expr::from(kernel_h as isize),
-                crate::graph::shape::Expr::from(kernel_w as isize),
+                harp::graph::shape::Expr::from(self.groups as isize),
+                harp::graph::shape::Expr::from(c_in_per_group as isize),
+                harp::graph::shape::Expr::from(c_out_per_group as isize),
+                harp::graph::shape::Expr::from(kernel_h as isize),
+                harp::graph::shape::Expr::from(kernel_w as isize),
                 h_out_expr.clone(),
                 w_out_expr.clone(),
             ];
@@ -606,16 +606,16 @@ impl GradFn for Conv2dBackward {
             // reshape grad_output for spatial flatten: (groups, C_out/groups, H', W') -> (groups, C_out/groups, H'*W')
             let spatial_dims_product = h_out_expr.clone() * w_out_expr.clone();
             let grad_out_for_kernel_view = grad_out_reshaped.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(self.groups as isize),
-                crate::graph::shape::Expr::from(c_out_per_group as isize),
+                harp::graph::shape::Expr::from(self.groups as isize),
+                harp::graph::shape::Expr::from(c_out_per_group as isize),
                 spatial_dims_product.clone(),
             ]);
             // contiguous化してからreshape
             let grad_out_cont_for_reshape_view =
-                crate::graph::shape::View::contiguous(grad_out_reshaped.view.shape().to_vec());
-            let grad_out_cont_for_reshape = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(grad_out_reshaped.view.shape().to_vec());
+            let grad_out_cont_for_reshape = harp::graph::GraphNode::new(
                 grad_out_reshaped.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![grad_out_reshaped.clone()],
@@ -625,20 +625,20 @@ impl GradFn for Conv2dBackward {
 
             // reshape input_unfolded: (groups, C_in/groups, kH, kW, H', W') -> (groups, C_in/groups, kH, kW, H'*W')
             let input_unf_contiguous_view =
-                crate::graph::shape::View::contiguous(input_unfolded.view.shape().to_vec());
-            let input_unf_contiguous = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(input_unfolded.view.shape().to_vec());
+            let input_unf_contiguous = harp::graph::GraphNode::new(
                 input_unfolded.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![input_unfolded.clone()],
                 input_unf_contiguous_view,
             );
             let input_unf_reshaped_view = input_unf_contiguous.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(self.groups as isize),
-                crate::graph::shape::Expr::from(c_in_per_group as isize),
-                crate::graph::shape::Expr::from(kernel_h as isize),
-                crate::graph::shape::Expr::from(kernel_w as isize),
+                harp::graph::shape::Expr::from(self.groups as isize),
+                harp::graph::shape::Expr::from(c_in_per_group as isize),
+                harp::graph::shape::Expr::from(kernel_h as isize),
+                harp::graph::shape::Expr::from(kernel_w as isize),
                 spatial_dims_product.clone(),
             ]);
             let input_unf_reshaped = input_unf_contiguous.view(input_unf_reshaped_view);
@@ -656,11 +656,11 @@ impl GradFn for Conv2dBackward {
             let input_unf_for_kernel = input_unf_reshaped.view(input_unf_tmp);
 
             let common_shape_kernel = vec![
-                crate::graph::shape::Expr::from(self.groups as isize),
-                crate::graph::shape::Expr::from(c_out_per_group as isize),
-                crate::graph::shape::Expr::from(c_in_per_group as isize),
-                crate::graph::shape::Expr::from(kernel_h as isize),
-                crate::graph::shape::Expr::from(kernel_w as isize),
+                harp::graph::shape::Expr::from(self.groups as isize),
+                harp::graph::shape::Expr::from(c_out_per_group as isize),
+                harp::graph::shape::Expr::from(c_in_per_group as isize),
+                harp::graph::shape::Expr::from(kernel_h as isize),
+                harp::graph::shape::Expr::from(kernel_w as isize),
                 spatial_dims_product,
             ];
 
@@ -673,10 +673,10 @@ impl GradFn for Conv2dBackward {
             // reshape back: (groups, C_out/groups, C_in/groups, kH, kW) -> (C_out, C_in/groups, kH, kW)
             // contiguous化してからreshape
             let grad_kernel_grouped_cont_view =
-                crate::graph::shape::View::contiguous(grad_kernel_grouped.view.shape().to_vec());
-            let grad_kernel_grouped_cont = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(grad_kernel_grouped.view.shape().to_vec());
+            let grad_kernel_grouped_cont = harp::graph::GraphNode::new(
                 grad_kernel_grouped.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![grad_kernel_grouped.clone()],
@@ -684,10 +684,10 @@ impl GradFn for Conv2dBackward {
             );
 
             let grad_kernel_data_view = grad_kernel_grouped_cont.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(c_out as isize),
-                crate::graph::shape::Expr::from(c_in_per_group as isize),
-                crate::graph::shape::Expr::from(kernel_h as isize),
-                crate::graph::shape::Expr::from(kernel_w as isize),
+                harp::graph::shape::Expr::from(c_out as isize),
+                harp::graph::shape::Expr::from(c_in_per_group as isize),
+                harp::graph::shape::Expr::from(kernel_h as isize),
+                harp::graph::shape::Expr::from(kernel_w as isize),
             ]);
             let grad_kernel_data = grad_kernel_grouped_cont.view(grad_kernel_data_view);
 
@@ -782,11 +782,11 @@ impl GradFn for Conv3dBackward {
         let h_out_expr = &grad_output_shape[2];
         let w_out_expr = &grad_output_shape[3];
         let shape_for_mult = vec![
-            crate::graph::shape::Expr::from(c_in as isize),
+            harp::graph::shape::Expr::from(c_in as isize),
             c_out_expr.clone(),
-            crate::graph::shape::Expr::from(kernel_d as isize),
-            crate::graph::shape::Expr::from(kernel_h as isize),
-            crate::graph::shape::Expr::from(kernel_w as isize),
+            harp::graph::shape::Expr::from(kernel_d as isize),
+            harp::graph::shape::Expr::from(kernel_h as isize),
+            harp::graph::shape::Expr::from(kernel_w as isize),
             d_out_expr.clone(),
             h_out_expr.clone(),
             w_out_expr.clone(),
@@ -812,9 +812,9 @@ impl GradFn for Conv3dBackward {
             reduced_shape[6].expect_usize("Conv3d backward requires constant grad_output shape");
 
         let reshaped_for_fold_view = reduced_for_fold.view.clone().reshape(vec![
-            crate::graph::shape::Expr::from(1),
-            crate::graph::shape::Expr::from((c_in_val * kd_val * kh_val * kw_val) as isize),
-            crate::graph::shape::Expr::from((d_out_val * h_out_val * w_out_val) as isize),
+            harp::graph::shape::Expr::from(1),
+            harp::graph::shape::Expr::from((c_in_val * kd_val * kh_val * kw_val) as isize),
+            harp::graph::shape::Expr::from((d_out_val * h_out_val * w_out_val) as isize),
         ]);
         let reshaped_for_fold = reduced_for_fold.view(reshaped_for_fold_view);
 
@@ -837,10 +837,10 @@ impl GradFn for Conv3dBackward {
         );
         // unfoldの出力をcontiguous化
         let input_unf_contiguous_view =
-            crate::graph::shape::View::contiguous(input_unfolded_raw.view.shape().to_vec());
-        let input_unf_contiguous = crate::graph::GraphNode::new(
+            harp::graph::shape::View::contiguous(input_unfolded_raw.view.shape().to_vec());
+        let input_unf_contiguous = harp::graph::GraphNode::new(
             input_unfolded_raw.dtype.clone(),
-            crate::graph::GraphOp::Contiguous {
+            harp::graph::GraphOp::Contiguous {
                 elementwise_strategies: None,
             },
             vec![input_unfolded_raw.clone()],
@@ -849,9 +849,9 @@ impl GradFn for Conv3dBackward {
         // unfold3dの出力: (C_in, kD, kH, kW, D_out, H_out, W_out) -> (C_in, kD, kH, kW, D_out*H_out*W_out)
         let input_unfolded_reshaped_view = input_unf_contiguous.view.clone().reshape(vec![
             input_shape[0].clone(),
-            crate::graph::shape::Expr::from(kernel_d as isize),
-            crate::graph::shape::Expr::from(kernel_h as isize),
-            crate::graph::shape::Expr::from(kernel_w as isize),
+            harp::graph::shape::Expr::from(kernel_d as isize),
+            harp::graph::shape::Expr::from(kernel_h as isize),
+            harp::graph::shape::Expr::from(kernel_w as isize),
             spatial_dims_product.clone(),
         ]);
         let input_unfolded = input_unf_contiguous.view(input_unfolded_reshaped_view);
@@ -859,10 +859,10 @@ impl GradFn for Conv3dBackward {
         // reshape grad_output: (C_out, D_out, H_out, W_out) -> (C_out, D_out*H_out*W_out)
         // まずcontiguous化
         let grad_out_contiguous_view =
-            crate::graph::shape::View::contiguous(grad_output_shape.to_vec());
-        let grad_out_contiguous = crate::graph::GraphNode::new(
+            harp::graph::shape::View::contiguous(grad_output_shape.to_vec());
+        let grad_out_contiguous = harp::graph::GraphNode::new(
             grad_output.data.dtype.clone(),
-            crate::graph::GraphOp::Contiguous {
+            harp::graph::GraphOp::Contiguous {
                 elementwise_strategies: None,
             },
             vec![grad_output.data.clone()],
@@ -888,11 +888,11 @@ impl GradFn for Conv3dBackward {
         let c_out = kernel_shape[0].expect_const("Conv3d backward requires constant kernel shape");
 
         let common_shape = vec![
-            crate::graph::shape::Expr::from(c_out),
-            crate::graph::shape::Expr::from(c_in as isize),
-            crate::graph::shape::Expr::from(kernel_d as isize),
-            crate::graph::shape::Expr::from(kernel_h as isize),
-            crate::graph::shape::Expr::from(kernel_w as isize),
+            harp::graph::shape::Expr::from(c_out),
+            harp::graph::shape::Expr::from(c_in as isize),
+            harp::graph::shape::Expr::from(kernel_d as isize),
+            harp::graph::shape::Expr::from(kernel_h as isize),
+            harp::graph::shape::Expr::from(kernel_w as isize),
             spatial_dims_product,
         ];
 
@@ -1000,37 +1000,37 @@ impl GradFn for ConvTranspose2dBackward {
             // 空間次元を平坦化
             let spatial_product = h_in * w_in;
             let grad_out_cont_view =
-                crate::graph::shape::View::contiguous(grad_out_unfolded.view.shape().to_vec());
-            let grad_out_cont = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(grad_out_unfolded.view.shape().to_vec());
+            let grad_out_cont = harp::graph::GraphNode::new(
                 grad_out_unfolded.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![grad_out_unfolded.clone()],
                 grad_out_cont_view,
             );
             let grad_out_reshaped_view = grad_out_cont.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(c_out as isize),
-                crate::graph::shape::Expr::from(kernel_h as isize),
-                crate::graph::shape::Expr::from(kernel_w as isize),
-                crate::graph::shape::Expr::from(spatial_product as isize),
+                harp::graph::shape::Expr::from(c_out as isize),
+                harp::graph::shape::Expr::from(kernel_h as isize),
+                harp::graph::shape::Expr::from(kernel_w as isize),
+                harp::graph::shape::Expr::from(spatial_product as isize),
             ]);
             let grad_out_reshaped = grad_out_cont.view(grad_out_reshaped_view);
 
             // 入力も平坦化: (C_in, H_in, W_in) -> (C_in, H_in*W_in)
             let input_cont_view =
-                crate::graph::shape::View::contiguous(input.data.view.shape().to_vec());
-            let input_cont = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(input.data.view.shape().to_vec());
+            let input_cont = harp::graph::GraphNode::new(
                 input.data.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![input.data.clone()],
                 input_cont_view,
             );
             let input_reshaped_view = input_cont.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(c_in as isize),
-                crate::graph::shape::Expr::from(spatial_product as isize),
+                harp::graph::shape::Expr::from(c_in as isize),
+                harp::graph::shape::Expr::from(spatial_product as isize),
             ]);
             let input_reshaped = input_cont.view(input_reshaped_view);
 
@@ -1050,11 +1050,11 @@ impl GradFn for ConvTranspose2dBackward {
 
             // expand: (C_in, C_out, kH, kW, H*W)
             let common_shape = vec![
-                crate::graph::shape::Expr::from(c_in as isize),
-                crate::graph::shape::Expr::from(c_out as isize),
-                crate::graph::shape::Expr::from(kernel_h as isize),
-                crate::graph::shape::Expr::from(kernel_w as isize),
-                crate::graph::shape::Expr::from(spatial_product as isize),
+                harp::graph::shape::Expr::from(c_in as isize),
+                harp::graph::shape::Expr::from(c_out as isize),
+                harp::graph::shape::Expr::from(kernel_h as isize),
+                harp::graph::shape::Expr::from(kernel_w as isize),
+                harp::graph::shape::Expr::from(spatial_product as isize),
             ];
 
             let input_bc = input_expanded.expand(common_shape.clone());
@@ -1070,21 +1070,21 @@ impl GradFn for ConvTranspose2dBackward {
 
             // カーネルをreshape & permute: (C_in, C_out/groups, kH, kW) -> (groups, C_in/g, C_out/g, kH, kW) -> (groups, C_out/g, C_in/g, kH, kW)
             let kernel_cont_view =
-                crate::graph::shape::View::contiguous(kernel.data.view.shape().to_vec());
-            let kernel_cont = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(kernel.data.view.shape().to_vec());
+            let kernel_cont = harp::graph::GraphNode::new(
                 kernel.data.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![kernel.data.clone()],
                 kernel_cont_view,
             );
             let kernel_reshaped_view = kernel_cont.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(self.groups as isize),
-                crate::graph::shape::Expr::from(c_in_per_group as isize),
-                crate::graph::shape::Expr::from(c_out_per_group as isize),
-                crate::graph::shape::Expr::from(kernel_h as isize),
-                crate::graph::shape::Expr::from(kernel_w as isize),
+                harp::graph::shape::Expr::from(self.groups as isize),
+                harp::graph::shape::Expr::from(c_in_per_group as isize),
+                harp::graph::shape::Expr::from(c_out_per_group as isize),
+                harp::graph::shape::Expr::from(kernel_h as isize),
+                harp::graph::shape::Expr::from(kernel_w as isize),
             ]);
             let kernel_reshaped = kernel_cont.view(kernel_reshaped_view);
 
@@ -1094,20 +1094,20 @@ impl GradFn for ConvTranspose2dBackward {
 
             // reshape back: (groups, C_out/g, C_in/g, kH, kW) -> (C_out, C_in/g, kH, kW)
             let kernel_cont2_view =
-                crate::graph::shape::View::contiguous(kernel_permuted.view.shape().to_vec());
-            let kernel_cont2 = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(kernel_permuted.view.shape().to_vec());
+            let kernel_cont2 = harp::graph::GraphNode::new(
                 kernel_permuted.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![kernel_permuted.clone()],
                 kernel_cont2_view,
             );
             let kernel_transposed_view = kernel_cont2.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(c_out as isize),
-                crate::graph::shape::Expr::from(c_in_per_group as isize),
-                crate::graph::shape::Expr::from(kernel_h as isize),
-                crate::graph::shape::Expr::from(kernel_w as isize),
+                harp::graph::shape::Expr::from(c_out as isize),
+                harp::graph::shape::Expr::from(c_in_per_group as isize),
+                harp::graph::shape::Expr::from(kernel_h as isize),
+                harp::graph::shape::Expr::from(kernel_w as isize),
             ]);
             let kernel_transposed = kernel_cont2.view(kernel_transposed_view);
 
@@ -1133,39 +1133,39 @@ impl GradFn for ConvTranspose2dBackward {
 
             // reshape: (groups, C_out/g, kH, kW, H*W)
             let grad_out_cont_view =
-                crate::graph::shape::View::contiguous(grad_out_unfolded.view.shape().to_vec());
-            let grad_out_cont = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(grad_out_unfolded.view.shape().to_vec());
+            let grad_out_cont = harp::graph::GraphNode::new(
                 grad_out_unfolded.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![grad_out_unfolded.clone()],
                 grad_out_cont_view,
             );
             let grad_out_reshaped_view = grad_out_cont.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(self.groups as isize),
-                crate::graph::shape::Expr::from(c_out_per_group as isize),
-                crate::graph::shape::Expr::from(kernel_h as isize),
-                crate::graph::shape::Expr::from(kernel_w as isize),
-                crate::graph::shape::Expr::from(spatial_product as isize),
+                harp::graph::shape::Expr::from(self.groups as isize),
+                harp::graph::shape::Expr::from(c_out_per_group as isize),
+                harp::graph::shape::Expr::from(kernel_h as isize),
+                harp::graph::shape::Expr::from(kernel_w as isize),
+                harp::graph::shape::Expr::from(spatial_product as isize),
             ]);
             let grad_out_reshaped = grad_out_cont.view(grad_out_reshaped_view);
 
             // 入力をreshape: (C_in, H, W) -> (groups, C_in/g, H*W)
             let input_cont_view =
-                crate::graph::shape::View::contiguous(input.data.view.shape().to_vec());
-            let input_cont = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(input.data.view.shape().to_vec());
+            let input_cont = harp::graph::GraphNode::new(
                 input.data.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![input.data.clone()],
                 input_cont_view,
             );
             let input_reshaped_view = input_cont.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(self.groups as isize),
-                crate::graph::shape::Expr::from(c_in_per_group as isize),
-                crate::graph::shape::Expr::from(spatial_product as isize),
+                harp::graph::shape::Expr::from(self.groups as isize),
+                harp::graph::shape::Expr::from(c_in_per_group as isize),
+                harp::graph::shape::Expr::from(spatial_product as isize),
             ]);
             let input_reshaped = input_cont.view(input_reshaped_view);
 
@@ -1185,12 +1185,12 @@ impl GradFn for ConvTranspose2dBackward {
 
             // expand: (groups, C_in/g, C_out/g, kH, kW, H*W)
             let common_shape = vec![
-                crate::graph::shape::Expr::from(self.groups as isize),
-                crate::graph::shape::Expr::from(c_in_per_group as isize),
-                crate::graph::shape::Expr::from(c_out_per_group as isize),
-                crate::graph::shape::Expr::from(kernel_h as isize),
-                crate::graph::shape::Expr::from(kernel_w as isize),
-                crate::graph::shape::Expr::from(spatial_product as isize),
+                harp::graph::shape::Expr::from(self.groups as isize),
+                harp::graph::shape::Expr::from(c_in_per_group as isize),
+                harp::graph::shape::Expr::from(c_out_per_group as isize),
+                harp::graph::shape::Expr::from(kernel_h as isize),
+                harp::graph::shape::Expr::from(kernel_w as isize),
+                harp::graph::shape::Expr::from(spatial_product as isize),
             ];
 
             let input_bc = input_expanded.expand(common_shape.clone());
@@ -1201,20 +1201,20 @@ impl GradFn for ConvTranspose2dBackward {
 
             // reshape back: (groups, C_in/g, C_out/g, kH, kW) -> (C_in, C_out/g, kH, kW)
             let grad_kernel_cont_view =
-                crate::graph::shape::View::contiguous(grad_kernel_grouped.view.shape().to_vec());
-            let grad_kernel_cont = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(grad_kernel_grouped.view.shape().to_vec());
+            let grad_kernel_cont = harp::graph::GraphNode::new(
                 grad_kernel_grouped.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![grad_kernel_grouped.clone()],
                 grad_kernel_cont_view,
             );
             let grad_kernel_data_view = grad_kernel_cont.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(c_in as isize),
-                crate::graph::shape::Expr::from(c_out_per_group as isize),
-                crate::graph::shape::Expr::from(kernel_h as isize),
-                crate::graph::shape::Expr::from(kernel_w as isize),
+                harp::graph::shape::Expr::from(c_in as isize),
+                harp::graph::shape::Expr::from(c_out_per_group as isize),
+                harp::graph::shape::Expr::from(kernel_h as isize),
+                harp::graph::shape::Expr::from(kernel_w as isize),
             ]);
             let grad_kernel_data = grad_kernel_cont.view(grad_kernel_data_view);
 
@@ -1287,28 +1287,28 @@ impl GradFn for ConvTranspose1dBackward {
 
             // 空間次元を平坦化: (C_out, k, L_in) -> (C_out, k, L_in)
             let grad_out_cont_view =
-                crate::graph::shape::View::contiguous(grad_out_unfolded.view.shape().to_vec());
-            let grad_out_cont = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(grad_out_unfolded.view.shape().to_vec());
+            let grad_out_cont = harp::graph::GraphNode::new(
                 grad_out_unfolded.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![grad_out_unfolded.clone()],
                 grad_out_cont_view,
             );
             let grad_out_reshaped_view = grad_out_cont.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(c_out as isize),
-                crate::graph::shape::Expr::from(kernel_size as isize),
-                crate::graph::shape::Expr::from(l_in as isize),
+                harp::graph::shape::Expr::from(c_out as isize),
+                harp::graph::shape::Expr::from(kernel_size as isize),
+                harp::graph::shape::Expr::from(l_in as isize),
             ]);
             let grad_out_reshaped = grad_out_cont.view(grad_out_reshaped_view);
 
             // 入力: (C_in, L_in)
             let input_cont_view =
-                crate::graph::shape::View::contiguous(input.data.view.shape().to_vec());
-            let input_cont = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(input.data.view.shape().to_vec());
+            let input_cont = harp::graph::GraphNode::new(
                 input.data.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![input.data.clone()],
@@ -1324,10 +1324,10 @@ impl GradFn for ConvTranspose1dBackward {
 
             // expand: (C_in, C_out, k, L_in)
             let common_shape = vec![
-                crate::graph::shape::Expr::from(c_in as isize),
-                crate::graph::shape::Expr::from(c_out as isize),
-                crate::graph::shape::Expr::from(kernel_size as isize),
-                crate::graph::shape::Expr::from(l_in as isize),
+                harp::graph::shape::Expr::from(c_in as isize),
+                harp::graph::shape::Expr::from(c_out as isize),
+                harp::graph::shape::Expr::from(kernel_size as isize),
+                harp::graph::shape::Expr::from(l_in as isize),
             ];
 
             let input_bc = input_expanded.expand(common_shape.clone());
@@ -1343,20 +1343,20 @@ impl GradFn for ConvTranspose1dBackward {
 
             // カーネルをreshape & permute
             let kernel_cont_view =
-                crate::graph::shape::View::contiguous(kernel.data.view.shape().to_vec());
-            let kernel_cont = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(kernel.data.view.shape().to_vec());
+            let kernel_cont = harp::graph::GraphNode::new(
                 kernel.data.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![kernel.data.clone()],
                 kernel_cont_view,
             );
             let kernel_reshaped_view = kernel_cont.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(self.groups as isize),
-                crate::graph::shape::Expr::from(c_in_per_group as isize),
-                crate::graph::shape::Expr::from(c_out_per_group as isize),
-                crate::graph::shape::Expr::from(kernel_size as isize),
+                harp::graph::shape::Expr::from(self.groups as isize),
+                harp::graph::shape::Expr::from(c_in_per_group as isize),
+                harp::graph::shape::Expr::from(c_out_per_group as isize),
+                harp::graph::shape::Expr::from(kernel_size as isize),
             ]);
             let kernel_reshaped = kernel_cont.view(kernel_reshaped_view);
 
@@ -1366,19 +1366,19 @@ impl GradFn for ConvTranspose1dBackward {
 
             // reshape back: (groups, C_out/g, C_in/g, k) -> (C_out, C_in/g, k)
             let kernel_cont2_view =
-                crate::graph::shape::View::contiguous(kernel_permuted.view.shape().to_vec());
-            let kernel_cont2 = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(kernel_permuted.view.shape().to_vec());
+            let kernel_cont2 = harp::graph::GraphNode::new(
                 kernel_permuted.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![kernel_permuted.clone()],
                 kernel_cont2_view,
             );
             let kernel_transposed_view = kernel_cont2.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(c_out as isize),
-                crate::graph::shape::Expr::from(c_in_per_group as isize),
-                crate::graph::shape::Expr::from(kernel_size as isize),
+                harp::graph::shape::Expr::from(c_out as isize),
+                harp::graph::shape::Expr::from(c_in_per_group as isize),
+                harp::graph::shape::Expr::from(kernel_size as isize),
             ]);
             let kernel_transposed = kernel_cont2.view(kernel_transposed_view);
 
@@ -1397,38 +1397,38 @@ impl GradFn for ConvTranspose1dBackward {
             // output: (groups, C_out/g, k, L_in)
 
             let grad_out_cont_view =
-                crate::graph::shape::View::contiguous(grad_out_unfolded.view.shape().to_vec());
-            let grad_out_cont = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(grad_out_unfolded.view.shape().to_vec());
+            let grad_out_cont = harp::graph::GraphNode::new(
                 grad_out_unfolded.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![grad_out_unfolded.clone()],
                 grad_out_cont_view,
             );
             let grad_out_reshaped_view = grad_out_cont.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(self.groups as isize),
-                crate::graph::shape::Expr::from(c_out_per_group as isize),
-                crate::graph::shape::Expr::from(kernel_size as isize),
-                crate::graph::shape::Expr::from(l_in as isize),
+                harp::graph::shape::Expr::from(self.groups as isize),
+                harp::graph::shape::Expr::from(c_out_per_group as isize),
+                harp::graph::shape::Expr::from(kernel_size as isize),
+                harp::graph::shape::Expr::from(l_in as isize),
             ]);
             let grad_out_reshaped = grad_out_cont.view(grad_out_reshaped_view);
 
             // 入力をreshape: (C_in, L_in) -> (groups, C_in/g, L_in)
             let input_cont_view =
-                crate::graph::shape::View::contiguous(input.data.view.shape().to_vec());
-            let input_cont = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(input.data.view.shape().to_vec());
+            let input_cont = harp::graph::GraphNode::new(
                 input.data.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![input.data.clone()],
                 input_cont_view,
             );
             let input_reshaped_view = input_cont.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(self.groups as isize),
-                crate::graph::shape::Expr::from(c_in_per_group as isize),
-                crate::graph::shape::Expr::from(l_in as isize),
+                harp::graph::shape::Expr::from(self.groups as isize),
+                harp::graph::shape::Expr::from(c_in_per_group as isize),
+                harp::graph::shape::Expr::from(l_in as isize),
             ]);
             let input_reshaped = input_cont.view(input_reshaped_view);
 
@@ -1442,11 +1442,11 @@ impl GradFn for ConvTranspose1dBackward {
 
             // expand: (groups, C_in/g, C_out/g, k, L_in)
             let common_shape = vec![
-                crate::graph::shape::Expr::from(self.groups as isize),
-                crate::graph::shape::Expr::from(c_in_per_group as isize),
-                crate::graph::shape::Expr::from(c_out_per_group as isize),
-                crate::graph::shape::Expr::from(kernel_size as isize),
-                crate::graph::shape::Expr::from(l_in as isize),
+                harp::graph::shape::Expr::from(self.groups as isize),
+                harp::graph::shape::Expr::from(c_in_per_group as isize),
+                harp::graph::shape::Expr::from(c_out_per_group as isize),
+                harp::graph::shape::Expr::from(kernel_size as isize),
+                harp::graph::shape::Expr::from(l_in as isize),
             ];
 
             let input_bc = input_expanded.expand(common_shape.clone());
@@ -1457,19 +1457,19 @@ impl GradFn for ConvTranspose1dBackward {
 
             // reshape back: (groups, C_in/g, C_out/g, k) -> (C_in, C_out/g, k)
             let grad_kernel_cont_view =
-                crate::graph::shape::View::contiguous(grad_kernel_grouped.view.shape().to_vec());
-            let grad_kernel_cont = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(grad_kernel_grouped.view.shape().to_vec());
+            let grad_kernel_cont = harp::graph::GraphNode::new(
                 grad_kernel_grouped.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![grad_kernel_grouped.clone()],
                 grad_kernel_cont_view,
             );
             let grad_kernel_data_view = grad_kernel_cont.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(c_in as isize),
-                crate::graph::shape::Expr::from(c_out_per_group as isize),
-                crate::graph::shape::Expr::from(kernel_size as isize),
+                harp::graph::shape::Expr::from(c_in as isize),
+                harp::graph::shape::Expr::from(c_out_per_group as isize),
+                harp::graph::shape::Expr::from(kernel_size as isize),
             ]);
             let grad_kernel_data = grad_kernel_cont.view(grad_kernel_data_view);
 
@@ -1552,38 +1552,38 @@ impl GradFn for ConvTranspose3dBackward {
 
             let spatial_product = d_in * h_in * w_in;
             let grad_out_cont_view =
-                crate::graph::shape::View::contiguous(grad_out_unfolded.view.shape().to_vec());
-            let grad_out_cont = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(grad_out_unfolded.view.shape().to_vec());
+            let grad_out_cont = harp::graph::GraphNode::new(
                 grad_out_unfolded.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![grad_out_unfolded.clone()],
                 grad_out_cont_view,
             );
             let grad_out_reshaped_view = grad_out_cont.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(c_out as isize),
-                crate::graph::shape::Expr::from(kernel_d as isize),
-                crate::graph::shape::Expr::from(kernel_h as isize),
-                crate::graph::shape::Expr::from(kernel_w as isize),
-                crate::graph::shape::Expr::from(spatial_product as isize),
+                harp::graph::shape::Expr::from(c_out as isize),
+                harp::graph::shape::Expr::from(kernel_d as isize),
+                harp::graph::shape::Expr::from(kernel_h as isize),
+                harp::graph::shape::Expr::from(kernel_w as isize),
+                harp::graph::shape::Expr::from(spatial_product as isize),
             ]);
             let grad_out_reshaped = grad_out_cont.view(grad_out_reshaped_view);
 
             // 入力: (C_in, D_in, H_in, W_in) -> (C_in, D*H*W)
             let input_cont_view =
-                crate::graph::shape::View::contiguous(input.data.view.shape().to_vec());
-            let input_cont = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(input.data.view.shape().to_vec());
+            let input_cont = harp::graph::GraphNode::new(
                 input.data.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![input.data.clone()],
                 input_cont_view,
             );
             let input_reshaped_view = input_cont.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(c_in as isize),
-                crate::graph::shape::Expr::from(spatial_product as isize),
+                harp::graph::shape::Expr::from(c_in as isize),
+                harp::graph::shape::Expr::from(spatial_product as isize),
             ]);
             let input_reshaped = input_cont.view(input_reshaped_view);
 
@@ -1604,12 +1604,12 @@ impl GradFn for ConvTranspose3dBackward {
 
             // expand: (C_in, C_out, kD, kH, kW, D*H*W)
             let common_shape = vec![
-                crate::graph::shape::Expr::from(c_in as isize),
-                crate::graph::shape::Expr::from(c_out as isize),
-                crate::graph::shape::Expr::from(kernel_d as isize),
-                crate::graph::shape::Expr::from(kernel_h as isize),
-                crate::graph::shape::Expr::from(kernel_w as isize),
-                crate::graph::shape::Expr::from(spatial_product as isize),
+                harp::graph::shape::Expr::from(c_in as isize),
+                harp::graph::shape::Expr::from(c_out as isize),
+                harp::graph::shape::Expr::from(kernel_d as isize),
+                harp::graph::shape::Expr::from(kernel_h as isize),
+                harp::graph::shape::Expr::from(kernel_w as isize),
+                harp::graph::shape::Expr::from(spatial_product as isize),
             ];
 
             let input_bc = input_expanded.expand(common_shape.clone());
@@ -1626,22 +1626,22 @@ impl GradFn for ConvTranspose3dBackward {
 
             // カーネルをreshape & permute
             let kernel_cont_view =
-                crate::graph::shape::View::contiguous(kernel.data.view.shape().to_vec());
-            let kernel_cont = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(kernel.data.view.shape().to_vec());
+            let kernel_cont = harp::graph::GraphNode::new(
                 kernel.data.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![kernel.data.clone()],
                 kernel_cont_view,
             );
             let kernel_reshaped_view = kernel_cont.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(self.groups as isize),
-                crate::graph::shape::Expr::from(c_in_per_group as isize),
-                crate::graph::shape::Expr::from(c_out_per_group as isize),
-                crate::graph::shape::Expr::from(kernel_d as isize),
-                crate::graph::shape::Expr::from(kernel_h as isize),
-                crate::graph::shape::Expr::from(kernel_w as isize),
+                harp::graph::shape::Expr::from(self.groups as isize),
+                harp::graph::shape::Expr::from(c_in_per_group as isize),
+                harp::graph::shape::Expr::from(c_out_per_group as isize),
+                harp::graph::shape::Expr::from(kernel_d as isize),
+                harp::graph::shape::Expr::from(kernel_h as isize),
+                harp::graph::shape::Expr::from(kernel_w as isize),
             ]);
             let kernel_reshaped = kernel_cont.view(kernel_reshaped_view);
 
@@ -1651,21 +1651,21 @@ impl GradFn for ConvTranspose3dBackward {
 
             // reshape back: -> (C_out, C_in/g, kD, kH, kW)
             let kernel_cont2_view =
-                crate::graph::shape::View::contiguous(kernel_permuted.view.shape().to_vec());
-            let kernel_cont2 = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(kernel_permuted.view.shape().to_vec());
+            let kernel_cont2 = harp::graph::GraphNode::new(
                 kernel_permuted.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![kernel_permuted.clone()],
                 kernel_cont2_view,
             );
             let kernel_transposed_view = kernel_cont2.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(c_out as isize),
-                crate::graph::shape::Expr::from(c_in_per_group as isize),
-                crate::graph::shape::Expr::from(kernel_d as isize),
-                crate::graph::shape::Expr::from(kernel_h as isize),
-                crate::graph::shape::Expr::from(kernel_w as isize),
+                harp::graph::shape::Expr::from(c_out as isize),
+                harp::graph::shape::Expr::from(c_in_per_group as isize),
+                harp::graph::shape::Expr::from(kernel_d as isize),
+                harp::graph::shape::Expr::from(kernel_h as isize),
+                harp::graph::shape::Expr::from(kernel_w as isize),
             ]);
             let kernel_transposed = kernel_cont2.view(kernel_transposed_view);
 
@@ -1686,40 +1686,40 @@ impl GradFn for ConvTranspose3dBackward {
             // output: (groups, C_out/g, kD, kH, kW, D_in, H_in, W_in)
 
             let grad_out_cont_view =
-                crate::graph::shape::View::contiguous(grad_out_unfolded.view.shape().to_vec());
-            let grad_out_cont = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(grad_out_unfolded.view.shape().to_vec());
+            let grad_out_cont = harp::graph::GraphNode::new(
                 grad_out_unfolded.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![grad_out_unfolded.clone()],
                 grad_out_cont_view,
             );
             let grad_out_reshaped_view = grad_out_cont.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(self.groups as isize),
-                crate::graph::shape::Expr::from(c_out_per_group as isize),
-                crate::graph::shape::Expr::from(kernel_d as isize),
-                crate::graph::shape::Expr::from(kernel_h as isize),
-                crate::graph::shape::Expr::from(kernel_w as isize),
-                crate::graph::shape::Expr::from(spatial_product as isize),
+                harp::graph::shape::Expr::from(self.groups as isize),
+                harp::graph::shape::Expr::from(c_out_per_group as isize),
+                harp::graph::shape::Expr::from(kernel_d as isize),
+                harp::graph::shape::Expr::from(kernel_h as isize),
+                harp::graph::shape::Expr::from(kernel_w as isize),
+                harp::graph::shape::Expr::from(spatial_product as isize),
             ]);
             let grad_out_reshaped = grad_out_cont.view(grad_out_reshaped_view);
 
             // 入力をreshape: (C_in, D, H, W) -> (groups, C_in/g, D*H*W)
             let input_cont_view =
-                crate::graph::shape::View::contiguous(input.data.view.shape().to_vec());
-            let input_cont = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(input.data.view.shape().to_vec());
+            let input_cont = harp::graph::GraphNode::new(
                 input.data.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![input.data.clone()],
                 input_cont_view,
             );
             let input_reshaped_view = input_cont.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(self.groups as isize),
-                crate::graph::shape::Expr::from(c_in_per_group as isize),
-                crate::graph::shape::Expr::from(spatial_product as isize),
+                harp::graph::shape::Expr::from(self.groups as isize),
+                harp::graph::shape::Expr::from(c_in_per_group as isize),
+                harp::graph::shape::Expr::from(spatial_product as isize),
             ]);
             let input_reshaped = input_cont.view(input_reshaped_view);
 
@@ -1740,13 +1740,13 @@ impl GradFn for ConvTranspose3dBackward {
 
             // expand: (groups, C_in/g, C_out/g, kD, kH, kW, D*H*W)
             let common_shape = vec![
-                crate::graph::shape::Expr::from(self.groups as isize),
-                crate::graph::shape::Expr::from(c_in_per_group as isize),
-                crate::graph::shape::Expr::from(c_out_per_group as isize),
-                crate::graph::shape::Expr::from(kernel_d as isize),
-                crate::graph::shape::Expr::from(kernel_h as isize),
-                crate::graph::shape::Expr::from(kernel_w as isize),
-                crate::graph::shape::Expr::from(spatial_product as isize),
+                harp::graph::shape::Expr::from(self.groups as isize),
+                harp::graph::shape::Expr::from(c_in_per_group as isize),
+                harp::graph::shape::Expr::from(c_out_per_group as isize),
+                harp::graph::shape::Expr::from(kernel_d as isize),
+                harp::graph::shape::Expr::from(kernel_h as isize),
+                harp::graph::shape::Expr::from(kernel_w as isize),
+                harp::graph::shape::Expr::from(spatial_product as isize),
             ];
 
             let input_bc = input_expanded.expand(common_shape.clone());
@@ -1757,21 +1757,21 @@ impl GradFn for ConvTranspose3dBackward {
 
             // reshape back: -> (C_in, C_out/g, kD, kH, kW)
             let grad_kernel_cont_view =
-                crate::graph::shape::View::contiguous(grad_kernel_grouped.view.shape().to_vec());
-            let grad_kernel_cont = crate::graph::GraphNode::new(
+                harp::graph::shape::View::contiguous(grad_kernel_grouped.view.shape().to_vec());
+            let grad_kernel_cont = harp::graph::GraphNode::new(
                 grad_kernel_grouped.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
+                harp::graph::GraphOp::Contiguous {
                     elementwise_strategies: None,
                 },
                 vec![grad_kernel_grouped.clone()],
                 grad_kernel_cont_view,
             );
             let grad_kernel_data_view = grad_kernel_cont.view.clone().reshape(vec![
-                crate::graph::shape::Expr::from(c_in as isize),
-                crate::graph::shape::Expr::from(c_out_per_group as isize),
-                crate::graph::shape::Expr::from(kernel_d as isize),
-                crate::graph::shape::Expr::from(kernel_h as isize),
-                crate::graph::shape::Expr::from(kernel_w as isize),
+                harp::graph::shape::Expr::from(c_in as isize),
+                harp::graph::shape::Expr::from(c_out_per_group as isize),
+                harp::graph::shape::Expr::from(kernel_d as isize),
+                harp::graph::shape::Expr::from(kernel_h as isize),
+                harp::graph::shape::Expr::from(kernel_w as isize),
             ]);
             let grad_kernel_data = grad_kernel_cont.view(grad_kernel_data_view);
 

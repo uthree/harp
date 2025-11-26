@@ -1,7 +1,7 @@
 /// autograd::Tensorの畳み込み演算のテスト
 ///
 /// 注意: 勾配計算は未実装のため、前向き計算のみをテストします。
-use crate::autograd::Tensor;
+use crate::Tensor;
 
 #[test]
 fn test_tensor_conv1d_basic() {
@@ -16,8 +16,8 @@ fn test_tensor_conv1d_basic() {
     assert_eq!(
         output.data.view.shape(),
         &[
-            crate::graph::shape::Expr::from(3),
-            crate::graph::shape::Expr::from(3)
+            harp::graph::shape::Expr::from(3),
+            harp::graph::shape::Expr::from(3)
         ]
     );
 }
@@ -35,8 +35,8 @@ fn test_tensor_conv1d_stride() {
     assert_eq!(
         output.data.view.shape(),
         &[
-            crate::graph::shape::Expr::from(1),
-            crate::graph::shape::Expr::from(2)
+            harp::graph::shape::Expr::from(1),
+            harp::graph::shape::Expr::from(2)
         ]
     );
 }
@@ -54,8 +54,8 @@ fn test_tensor_conv1d_groups() {
     assert_eq!(
         output.data.view.shape(),
         &[
-            crate::graph::shape::Expr::from(2),
-            crate::graph::shape::Expr::from(2)
+            harp::graph::shape::Expr::from(2),
+            harp::graph::shape::Expr::from(2)
         ]
     );
 }
@@ -72,9 +72,9 @@ fn test_tensor_conv2d_basic() {
     assert_eq!(
         output.data.view.shape(),
         &[
-            crate::graph::shape::Expr::from(1),
-            crate::graph::shape::Expr::from(3),
-            crate::graph::shape::Expr::from(3)
+            harp::graph::shape::Expr::from(1),
+            harp::graph::shape::Expr::from(3),
+            harp::graph::shape::Expr::from(3)
         ]
     );
 }
@@ -92,9 +92,9 @@ fn test_tensor_conv2d_stride() {
     assert_eq!(
         output.data.view.shape(),
         &[
-            crate::graph::shape::Expr::from(1),
-            crate::graph::shape::Expr::from(2),
-            crate::graph::shape::Expr::from(2)
+            harp::graph::shape::Expr::from(1),
+            harp::graph::shape::Expr::from(2),
+            harp::graph::shape::Expr::from(2)
         ]
     );
 }
@@ -112,9 +112,9 @@ fn test_tensor_conv2d_multi_channel() {
     assert_eq!(
         output.data.view.shape(),
         &[
-            crate::graph::shape::Expr::from(16),
-            crate::graph::shape::Expr::from(3),
-            crate::graph::shape::Expr::from(3)
+            harp::graph::shape::Expr::from(16),
+            harp::graph::shape::Expr::from(3),
+            harp::graph::shape::Expr::from(3)
         ]
     );
 }
@@ -132,9 +132,9 @@ fn test_tensor_conv2d_depthwise() {
     assert_eq!(
         output.data.view.shape(),
         &[
-            crate::graph::shape::Expr::from(2),
-            crate::graph::shape::Expr::from(2),
-            crate::graph::shape::Expr::from(2)
+            harp::graph::shape::Expr::from(2),
+            harp::graph::shape::Expr::from(2),
+            harp::graph::shape::Expr::from(2)
         ]
     );
 }
@@ -151,10 +151,10 @@ fn test_tensor_conv3d_basic() {
     assert_eq!(
         output.data.view.shape(),
         &[
-            crate::graph::shape::Expr::from(1),
-            crate::graph::shape::Expr::from(2),
-            crate::graph::shape::Expr::from(2),
-            crate::graph::shape::Expr::from(2)
+            harp::graph::shape::Expr::from(1),
+            harp::graph::shape::Expr::from(2),
+            harp::graph::shape::Expr::from(2),
+            harp::graph::shape::Expr::from(2)
         ]
     );
 }
@@ -172,10 +172,10 @@ fn test_tensor_conv3d_stride() {
     assert_eq!(
         output.data.view.shape(),
         &[
-            crate::graph::shape::Expr::from(1),
-            crate::graph::shape::Expr::from(2),
-            crate::graph::shape::Expr::from(2),
-            crate::graph::shape::Expr::from(2)
+            harp::graph::shape::Expr::from(1),
+            harp::graph::shape::Expr::from(2),
+            harp::graph::shape::Expr::from(2),
+            harp::graph::shape::Expr::from(2)
         ]
     );
 }
@@ -193,10 +193,10 @@ fn test_tensor_conv3d_multi_channel() {
     assert_eq!(
         output.data.view.shape(),
         &[
-            crate::graph::shape::Expr::from(8),
-            crate::graph::shape::Expr::from(3),
-            crate::graph::shape::Expr::from(3),
-            crate::graph::shape::Expr::from(3)
+            harp::graph::shape::Expr::from(8),
+            harp::graph::shape::Expr::from(3),
+            harp::graph::shape::Expr::from(3),
+            harp::graph::shape::Expr::from(3)
         ]
     );
 }
@@ -208,30 +208,30 @@ fn test_tensor_conv1d_backward_works() {
 
     // Input needs to be 2D: (C_in, L)
     let x = Tensor::from_graph_node(
-        crate::graph::GraphNode::constant(1.0f32)
-            .view(crate::graph::shape::View::contiguous(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
+        harp::graph::GraphNode::constant(1.0f32)
+            .view(harp::graph::shape::View::contiguous(vec![
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
             ]))
             .expand(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(3),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(3),
             ]),
         true,
     );
 
     // Kernel needs to be 3D: (C_out, C_in, k)
     let kernel = Tensor::from_graph_node(
-        crate::graph::GraphNode::constant(1.0f32)
-            .view(crate::graph::shape::View::contiguous(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
+        harp::graph::GraphNode::constant(1.0f32)
+            .view(harp::graph::shape::View::contiguous(vec![
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
             ]))
             .expand(vec![
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(1),
-                crate::graph::shape::Expr::from(2),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(1),
+                harp::graph::shape::Expr::from(2),
             ]),
         true,
     );
