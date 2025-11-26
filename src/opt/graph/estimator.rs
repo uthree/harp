@@ -197,6 +197,12 @@ impl SimpleCostEstimator {
                 let log_rand_cost = 10.0_f32.ln(); // 乱数生成は比較的高コスト
                 num_elements.ln() + log_sum_exp(log_rand_cost, MEMORY_ACCESS_COST.ln())
             }
+            GraphOp::Arange { .. } => {
+                // 連番初期化: 各要素にインデックス値を書き込み
+                // 非常に軽量（キャスト + 書き込み）
+                let num_elements = self.compute_num_elements(node);
+                num_elements.ln() + MEMORY_ACCESS_COST.ln()
+            }
         }
     }
 

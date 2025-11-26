@@ -289,6 +289,43 @@ impl GraphNode {
         )
     }
 
+    /// 連番テンソル `[0, 1, 2, ..., size-1]` を生成
+    ///
+    /// PyTorchの`torch.arange(size)`に相当します。
+    /// 他の範囲やステップが必要な場合は、この結果に演算を適用してください：
+    /// - `arange(n) + start` → `[start, start+1, ..., start+n-1]`
+    /// - `arange(n) * step` → `[0, step, 2*step, ..., (n-1)*step]`
+    /// - `arange(n) * step + start` → `[start, start+step, ..., start+(n-1)*step]`
+    ///
+    /// # 例
+    /// ```
+    /// use harp::graph::GraphNode;
+    ///
+    /// // 基本形: [0, 1, 2, 3, 4]
+    /// let x = GraphNode::arange(5);
+    ///
+    /// // [1, 2, 3, 4, 5] (start=1)
+    /// let x = GraphNode::arange(5) + 1.0f32;
+    ///
+    /// // [0.0, 0.5, 1.0, 1.5, 2.0] (step=0.5)
+    /// let x = GraphNode::arange(5) * 0.5f32;
+    ///
+    /// // [10.0, 12.0, 14.0, 16.0, 18.0] (start=10, step=2)
+    /// let x = GraphNode::arange(5) * 2.0f32 + 10.0f32;
+    /// ```
+    pub fn arange<E: Into<shape::Expr>>(size: E) -> Self {
+        let size_expr: shape::Expr = size.into();
+        let view = View::contiguous(vec![size_expr]);
+        Self::new(
+            DType::F32,
+            GraphOp::Arange {
+                elementwise_strategies: None,
+            },
+            vec![],
+            view,
+        )
+    }
+
     /// 指定軸を縮約（汎用）
     pub fn reduce(&self, op: ops::ReduceOp, axis: usize) -> Self {
         ops::reduce(self.clone(), op, axis)

@@ -152,6 +152,30 @@ let final_result = &x + 100.0f32;
 
 スカラー定数はndim=0のテンソルとして扱われ、任意のshapeのテンソルにブロードキャストされます。
 
+## 連番生成（Arange）
+
+PyTorchの`torch.arange`に相当する機能です。基本形`arange(size)`のみを提供し、開始値やステップが必要な場合は演算で表現します。
+
+```rust
+// 基本: [0, 1, 2, 3, 4]
+let indices = GraphNode::arange(5);
+
+// 開始値を変更: [10, 11, 12, 13, 14]
+let shifted = GraphNode::arange(5) + 10.0f32;
+
+// ステップを変更: [0.0, 0.5, 1.0, 1.5, 2.0]
+let scaled = GraphNode::arange(5) * 0.5f32;
+
+// 開始値とステップ: [10.0, 12.0, 14.0, 16.0, 18.0]
+let combined = GraphNode::arange(5) * 2.0f32 + 10.0f32;
+
+// 動的サイズ（Shape変数を使用）
+let n = Expr::Var("n".to_string());
+let dynamic = GraphNode::arange(n);
+```
+
+この設計により、演算子の種類を減らしつつ柔軟な連番生成が可能です。
+
 ## コード構成とリファクタリング履歴
 
 ### 2025-11-25: Expr型ヘルパーメソッド追加とテスト分離
@@ -240,6 +264,7 @@ let value = shape[i].expect_usize("requires constant");
 - テンソル結合（Concat）- torch.catに相当、複数テンソルを指定軸で結合
 - テンソル切り出し（Slice）- テンソルの一部を切り出す
 - パディング（Pad）- テンソルの境界を指定値で拡張
+- 連番生成（Arange）- torch.arangeに相当、`[0, 1, 2, ..., n-1]`を生成
 - グラフ最適化（詳細は[opt-graph.md](opt-graph.md)を参照）
 - 複素数型（Complex）のElementwise演算Lowering（Add、Mul、Neg、Recip）- インターリーブF32バッファ`[re, im, ...]`
 

@@ -75,6 +75,10 @@ pub enum GraphOp {
     Rand {
         elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
     },
+    /// 連番テンソルを生成 [0, 1, 2, ..., n-1]
+    Arange {
+        elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
+    },
 }
 
 #[derive(Debug, Clone)]

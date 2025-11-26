@@ -1,3 +1,4 @@
+mod arange_tests;
 mod complex_tests;
 mod concat_tests;
 mod contiguous_tests;

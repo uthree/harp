@@ -2,6 +2,7 @@ use crate::graph::{Graph, GraphNode, ops::GraphOp};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 // モジュール宣言
+mod arange;
 mod complex;
 mod concat;
 mod contiguous;
@@ -678,6 +679,7 @@ impl Lowerer {
                 *groups,
             ),
             GraphOp::Rand { .. } => self.lower_rand_init_kernel(node, node_id),
+            GraphOp::Arange { .. } => self.lower_arange_kernel(node, node_id),
             _ => Err(format!("Unsupported operation: {:?}", node.op)),
         }
     }
