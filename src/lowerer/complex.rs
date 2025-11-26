@@ -1,8 +1,12 @@
 // Complex number lowering - decomposes complex operations into two F32 operations
 //
-// Complex numbers are represented as two separate F32 buffers:
-// - `{name}_re` for real part
-// - `{name}_im` for imaginary part
+// Complex numbers are represented as interleaved F32 values in a single buffer:
+// [re0, im0, re1, im1, re2, im2, ...]
+//
+// This layout provides:
+// - Better cache locality (real and imaginary parts are adjacent)
+// - Simpler buffer management (single buffer per complex tensor)
+// - Natural alignment for SIMD operations on complex pairs
 
 use crate::ast::{AstNode, DType as AstDType, Mutability, Scope, VarDecl, VarKind, helper::*};
 use crate::graph::{GraphNode, ops::ElementwiseOp};
@@ -15,42 +19,24 @@ impl Lowerer {
         matches!(node.dtype, crate::graph::DType::Complex)
     }
 
-    /// Create input parameters for complex type (returns two F32* parameters)
-    pub(super) fn create_complex_input_params(&self, index: usize) -> Vec<VarDecl> {
-        let f32_ptr = AstDType::Ptr(Box::new(AstDType::F32));
-        vec![
-            VarDecl {
-                name: format!("input{}_re", index),
-                dtype: f32_ptr.clone(),
-                mutability: Mutability::Immutable,
-                kind: VarKind::Normal,
-            },
-            VarDecl {
-                name: format!("input{}_im", index),
-                dtype: f32_ptr,
-                mutability: Mutability::Immutable,
-                kind: VarKind::Normal,
-            },
-        ]
+    /// Create input parameter for complex type (single F32* buffer with interleaved layout)
+    pub(super) fn create_complex_input_param(&self, index: usize) -> VarDecl {
+        VarDecl {
+            name: format!("input{}", index),
+            dtype: AstDType::Ptr(Box::new(AstDType::F32)),
+            mutability: Mutability::Immutable,
+            kind: VarKind::Normal,
+        }
     }
 
-    /// Create output parameters for complex type (returns two F32* parameters)
-    pub(super) fn create_complex_output_params(&self) -> Vec<VarDecl> {
-        let f32_ptr = AstDType::Ptr(Box::new(AstDType::F32));
-        vec![
-            VarDecl {
-                name: "output_re".to_string(),
-                dtype: f32_ptr.clone(),
-                mutability: Mutability::Mutable,
-                kind: VarKind::Normal,
-            },
-            VarDecl {
-                name: "output_im".to_string(),
-                dtype: f32_ptr,
-                mutability: Mutability::Mutable,
-                kind: VarKind::Normal,
-            },
-        ]
+    /// Create output parameter for complex type (single F32* buffer with interleaved layout)
+    pub(super) fn create_complex_output_param(&self) -> VarDecl {
+        VarDecl {
+            name: "output".to_string(),
+            dtype: AstDType::Ptr(Box::new(AstDType::F32)),
+            mutability: Mutability::Mutable,
+            kind: VarKind::Normal,
+        }
     }
 
     /// Lower complex elementwise kernel
@@ -68,7 +54,7 @@ impl Lowerer {
         // Generate parameters: complex input buffers, complex output buffers, shape vars
         let mut params = Vec::new();
 
-        // Input buffers (complex -> two F32 buffers each)
+        // Input buffers (complex -> single F32 buffer with interleaved layout)
         let mut input_idx = 0;
         for src in node.src.iter() {
             // 定数ノード（Const, ComplexConst）はバッファを持たないのでスキップ
@@ -79,16 +65,16 @@ impl Lowerer {
                 continue;
             }
             if Self::is_complex_node(src) {
-                params.extend(self.create_complex_input_params(input_idx));
+                params.push(self.create_complex_input_param(input_idx));
             } else {
                 params.push(self.create_input_param(input_idx, &src.dtype)?);
             }
             input_idx += 1;
         }
 
-        // Output buffers (complex -> two F32 buffers)
+        // Output buffer (complex -> single F32 buffer with interleaved layout)
         if Self::is_complex_node(node) {
-            params.extend(self.create_complex_output_params());
+            params.push(self.create_complex_output_param());
         } else {
             params.push(self.create_output_param(&node.dtype)?);
         }
@@ -153,7 +139,7 @@ impl Lowerer {
         axes: &[usize],
         _scope: &mut Scope,
     ) -> Result<Vec<AstNode>, String> {
-        // Load input values (real and imaginary parts separately)
+        // Load input values (real and imaginary parts from interleaved layout)
         let mut input_real_parts = Vec::new();
         let mut input_imag_parts = Vec::new();
         let mut input_idx = 0;
@@ -174,20 +160,22 @@ impl Lowerer {
                 continue;
             }
 
-            let offset = self.compute_offset_from_view(src, axes);
+            let base_offset = self.compute_offset_from_view(src, axes);
 
             if Self::is_complex_node(src) {
-                // Complex input: load from both buffers
-                let input_re_ptr = var(format!("input{}_re", input_idx));
-                let input_im_ptr = var(format!("input{}_im", input_idx));
+                // Complex input: load from interleaved buffer
+                // real part at offset * 2, imaginary part at offset * 2 + 1
+                let input_ptr = var(format!("input{}", input_idx));
+                let offset_re = base_offset.clone() * const_int(2);
+                let offset_im = base_offset * const_int(2) + const_int(1);
 
-                input_real_parts.push(load(input_re_ptr, offset.clone(), AstDType::F32));
-                input_imag_parts.push(load(input_im_ptr, offset, AstDType::F32));
+                input_real_parts.push(load(input_ptr.clone(), offset_re, AstDType::F32));
+                input_imag_parts.push(load(input_ptr, offset_im, AstDType::F32));
             } else {
                 // Real input: imaginary part is 0
                 let input_ptr = var(format!("input{}", input_idx));
                 let src_dtype = self.graph_dtype_to_ast(&src.dtype)?;
-                input_real_parts.push(load(input_ptr, offset, src_dtype));
+                input_real_parts.push(load(input_ptr, base_offset, src_dtype));
                 input_imag_parts.push(const_f32(0.0));
             }
             input_idx += 1;
@@ -198,16 +186,21 @@ impl Lowerer {
             self.apply_complex_elementwise_op(op, &input_real_parts, &input_imag_parts)?;
 
         // Store results
-        let output_offset = self.compute_offset_from_view(node, axes);
+        let base_output_offset = self.compute_offset_from_view(node, axes);
 
         if Self::is_complex_node(node) {
-            // Complex output: store to both buffers
-            let store_re = store(var("output_re"), output_offset.clone(), result_re);
-            let store_im = store(var("output_im"), output_offset, result_im);
+            // Complex output: store to interleaved buffer
+            // real part at offset * 2, imaginary part at offset * 2 + 1
+            let output_ptr = var("output");
+            let offset_re = base_output_offset.clone() * const_int(2);
+            let offset_im = base_output_offset * const_int(2) + const_int(1);
+
+            let store_re = store(output_ptr.clone(), offset_re, result_re);
+            let store_im = store(output_ptr, offset_im, result_im);
             Ok(vec![store_re, store_im])
         } else {
             // Real output (only possible for operations that produce real from complex, not implemented yet)
-            Ok(vec![store(var("output"), output_offset, result_re)])
+            Ok(vec![store(var("output"), base_output_offset, result_re)])
         }
     }
 

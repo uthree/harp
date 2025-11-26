@@ -58,15 +58,35 @@ Viewは各軸の添え字からメモリオフセットへの線形変換を表�
 ### サポートされるDType
 - `Bool`: ブール型（attention maskなど向け）。内部的には8ビット整数で表現
 - `F32`: 32ビット浮動小数点
-- `Complex`: 複素数型（FFTなど向け）。Lowering時に2つのF32（実部・虚部）に分解
+- `Complex`: 複素数型（FFTなど向け）。Lowering時にインターリーブF32バッファ`[re, im, ...]`に分解
 - `Unknown`: 型推論前の未確定型
 
 ### Complex型の設計
-複素数型はGraph層で`DType::Complex`として表現され、Lowering時に2つの`F32`バッファ（実部と虚部）に分解されます。これにより：
-- AST層の演算子数を最小限に維持
-- 複素数演算が実数演算の組み合わせとして自然にベクトル化可能
-- バックエンド（C/OpenCL/Metal）で特別な複素数サポートが不要
+複素数型はGraph層で`DType::Complex`として表現され、Lowering時にインターリーブレイアウトの`F32`バッファに分解されます。
 
+#### メモリレイアウト
+複素数配列 `[z0, z1, z2, ...]` はメモリ上で以下のようにインターリーブされます：
+```
+[re0, im0, re1, im1, re2, im2, ...]
+```
+
+このレイアウトにより：
+- キャッシュ局所性の向上（実部と虚部が隣接）
+- シンプルなバッファ管理（複素数テンソルごとに単一バッファ）
+- SIMD演算との親和性
+
+#### コード生成例
+```c
+// 複素数加算のカーネル
+void kernel_0(const float* input0, const float* input1, float* output) {
+    for (int i = 0; i < n; i++) {
+        output[i * 2]     = input0[i * 2]     + input1[i * 2];     // 実部
+        output[i * 2 + 1] = input0[i * 2 + 1] + input1[i * 2 + 1]; // 虚部
+    }
+}
+```
+
+#### 使用例
 ```rust
 // 複素数定数の作成
 let z1 = GraphNode::complex_constant(1.0, 2.0);  // 1.0 + 2.0i
@@ -221,7 +241,7 @@ let value = shape[i].expect_usize("requires constant");
 - テンソル切り出し（Slice）- テンソルの一部を切り出す
 - パディング（Pad）- テンソルの境界を指定値で拡張
 - グラフ最適化（詳細は[opt-graph.md](opt-graph.md)を参照）
-- 複素数型（Complex）のElementwise演算Lowering（Add、Mul、Neg、Recip）- 2つのF32バッファに分解
+- 複素数型（Complex）のElementwise演算Lowering（Add、Mul、Neg、Recip）- インターリーブF32バッファ`[re, im, ...]`
 
 ### 未実装
 - Thread/ThreadGroupレベルの並列実行のLowering

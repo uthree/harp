@@ -28,16 +28,16 @@ fn test_lower_complex_add() {
     let function = function.unwrap();
 
     // パラメータをチェック:
-    // input0_re, input0_im, input1_re, input1_im, output_re, output_im
+    // インターリーブレイアウト: input0, input1, output（それぞれ1つのF32*バッファ）
     if let AstNode::Function { params, .. } = &function {
-        // 2入力 × 2 (re/im) + 1出力 × 2 (re/im) = 6
-        assert_eq!(params.len(), 6, "Expected 6 parameters for complex add");
-        assert_eq!(params[0].name, "input0_re");
-        assert_eq!(params[1].name, "input0_im");
-        assert_eq!(params[2].name, "input1_re");
-        assert_eq!(params[3].name, "input1_im");
-        assert_eq!(params[4].name, "output_re");
-        assert_eq!(params[5].name, "output_im");
+        assert_eq!(
+            params.len(),
+            3,
+            "Expected 3 parameters for complex add (interleaved layout)"
+        );
+        assert_eq!(params[0].name, "input0");
+        assert_eq!(params[1].name, "input1");
+        assert_eq!(params[2].name, "output");
     } else {
         panic!("Expected AstNode::Function");
     }
@@ -80,13 +80,14 @@ fn test_lower_complex_mul() {
 
     // パラメータをチェック
     if let AstNode::Function { params, .. } = &function {
-        assert_eq!(params.len(), 6, "Expected 6 parameters for complex mul");
-        assert_eq!(params[0].name, "input0_re");
-        assert_eq!(params[1].name, "input0_im");
-        assert_eq!(params[2].name, "input1_re");
-        assert_eq!(params[3].name, "input1_im");
-        assert_eq!(params[4].name, "output_re");
-        assert_eq!(params[5].name, "output_im");
+        assert_eq!(
+            params.len(),
+            3,
+            "Expected 3 parameters for complex mul (interleaved layout)"
+        );
+        assert_eq!(params[0].name, "input0");
+        assert_eq!(params[1].name, "input1");
+        assert_eq!(params[2].name, "output");
     } else {
         panic!("Expected AstNode::Function");
     }
@@ -123,13 +124,15 @@ fn test_lower_complex_neg() {
     let function = function.unwrap();
 
     // パラメータをチェック:
-    // input0_re, input0_im, output_re, output_im
+    // input0, output
     if let AstNode::Function { params, .. } = &function {
-        assert_eq!(params.len(), 4, "Expected 4 parameters for complex neg");
-        assert_eq!(params[0].name, "input0_re");
-        assert_eq!(params[1].name, "input0_im");
-        assert_eq!(params[2].name, "output_re");
-        assert_eq!(params[3].name, "output_im");
+        assert_eq!(
+            params.len(),
+            2,
+            "Expected 2 parameters for complex neg (interleaved layout)"
+        );
+        assert_eq!(params[0].name, "input0");
+        assert_eq!(params[1].name, "output");
     } else {
         panic!("Expected AstNode::Function");
     }
@@ -166,13 +169,15 @@ fn test_lower_complex_recip() {
     let function = function.unwrap();
 
     // パラメータをチェック:
-    // input0_re, input0_im, output_re, output_im
+    // input0, output
     if let AstNode::Function { params, .. } = &function {
-        assert_eq!(params.len(), 4, "Expected 4 parameters for complex recip");
-        assert_eq!(params[0].name, "input0_re");
-        assert_eq!(params[1].name, "input0_im");
-        assert_eq!(params[2].name, "output_re");
-        assert_eq!(params[3].name, "output_im");
+        assert_eq!(
+            params.len(),
+            2,
+            "Expected 2 parameters for complex recip (interleaved layout)"
+        );
+        assert_eq!(params[0].name, "input0");
+        assert_eq!(params[1].name, "output");
     } else {
         panic!("Expected AstNode::Function");
     }
@@ -211,17 +216,15 @@ fn test_lower_complex_with_constant() {
 
     // パラメータをチェック:
     // 入力は1つの複素数バッファのみ (定数はインライン化される)
-    // input0_re, input0_im, output_re, output_im
+    // input0, output
     if let AstNode::Function { params, .. } = &function {
         assert_eq!(
             params.len(),
-            4,
-            "Expected 4 parameters for complex add with constant"
+            2,
+            "Expected 2 parameters for complex add with constant (interleaved layout)"
         );
-        assert_eq!(params[0].name, "input0_re");
-        assert_eq!(params[1].name, "input0_im");
-        assert_eq!(params[2].name, "output_re");
-        assert_eq!(params[3].name, "output_im");
+        assert_eq!(params[0].name, "input0");
+        assert_eq!(params[1].name, "output");
     } else {
         panic!("Expected AstNode::Function");
     }
@@ -255,9 +258,12 @@ fn test_lower_complex_scalar() {
 
     // 出力のみのパラメータ（定数はインライン化）
     if let AstNode::Function { params, .. } = &function {
-        assert_eq!(params.len(), 2, "Expected 2 parameters for scalar complex");
-        assert_eq!(params[0].name, "output_re");
-        assert_eq!(params[1].name, "output_im");
+        assert_eq!(
+            params.len(),
+            1,
+            "Expected 1 parameter for scalar complex (interleaved layout)"
+        );
+        assert_eq!(params[0].name, "output");
     } else {
         panic!("Expected AstNode::Function");
     }
@@ -269,6 +275,41 @@ fn test_lower_complex_scalar() {
     let code = renderer.render_function_node(&function);
     eprintln!(
         "\n=== Generated Code for test_lower_complex_scalar ===\n{}\n",
+        code
+    );
+}
+
+#[test]
+fn test_complex_interleaved_layout() {
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    // インターリーブレイアウトの検証
+    // 複素数配列 [z0, z1, z2] はメモリ上で [re0, im0, re1, im1, re2, im2] となる
+    let mut graph = Graph::new();
+    let a = graph
+        .input("a")
+        .with_dtype(GraphDType::Complex)
+        .with_shape(vec![4])
+        .build();
+    let result = -&a;
+
+    let mut lowerer = Lowerer::new();
+    let function = lowerer.lower_node_to_kernel(&result, 0).unwrap();
+
+    use crate::backend::c::CRenderer;
+    use crate::backend::c_like::CLikeRenderer;
+    let mut renderer = CRenderer::new();
+    let code = renderer.render_function_node(&function);
+
+    // インデックスが * 2 と * 2 + 1 になっていることを確認
+    assert!(code.contains("* 2)"), "Should use * 2 for real part offset");
+    assert!(
+        code.contains("* 2) + 1)"),
+        "Should use * 2 + 1 for imaginary part offset"
+    );
+
+    eprintln!(
+        "\n=== Generated Code for test_complex_interleaved_layout ===\n{}\n",
         code
     );
 }
