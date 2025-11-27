@@ -30,7 +30,7 @@ pub use estimator::SimpleCostEstimator;
 pub use history::{OptimizationHistory, OptimizationSnapshot};
 pub use optimizer::{BeamSearchOptimizer, RuleBaseOptimizer};
 pub use suggesters::{
-    CompositeSuggester, FunctionInliningSuggester, LoopFusionSuggester, LoopInliningSuggester,
-    LoopInterchangeSuggester, LoopTilingSuggester, RuleBaseSuggester,
+    CompositeSuggester, CseSuggester, FunctionInliningSuggester, LoopFusionSuggester,
+    LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester, RuleBaseSuggester,
 };
 pub use transforms::{inline_small_loop, tile_loop};
