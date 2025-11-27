@@ -101,7 +101,51 @@ let neg = -&z1;        // 複素数否定: -(a+bi) = -a + (-b)i
 let inv = z1.recip();  // 複素数逆数: 1/(a+bi) = (a-bi)/(a²+b²)
 ```
 
-**実装状況**: 複素数Elementwise演算（Add, Mul, Neg, Recip）のLoweringは実装済みです。Reduce、Cumulative等の複素数演算は未実装です。
+#### 実部・虚部の分離と結合
+
+複素数テンソルと実数テンソル間の変換をサポートしています。
+
+```rust
+// 複素数テンソルから実部・虚部を取り出す
+let z = graph.input("z").with_dtype(DType::Complex).with_shape([10]).build();
+let re = z.real();  // 実部（F32テンソル）
+let im = z.imag();  // 虚部（F32テンソル）
+
+// 実部・虚部のテンソルから複素数を構築
+let re = graph.input("re").with_dtype(DType::F32).with_shape([10]).build();
+let im = graph.input("im").with_dtype(DType::F32).with_shape([10]).build();
+let z = GraphNode::complex_from_parts(re, im);  // Complex テンソル
+
+// 往復変換（z = complex_from_parts(z.real(), z.imag())）
+let reconstructed = GraphNode::complex_from_parts(z.real(), z.imag());
+```
+
+コード生成例:
+```c
+// real() - 実部の抽出
+void kernel_real(const float* input0, float* output) {
+    for (int i = 0; i < n; i++) {
+        output[i] = input0[i * 2];  // インターリーブバッファの偶数インデックス
+    }
+}
+
+// imag() - 虚部の抽出
+void kernel_imag(const float* input0, float* output) {
+    for (int i = 0; i < n; i++) {
+        output[i] = input0[i * 2 + 1];  // インターリーブバッファの奇数インデックス
+    }
+}
+
+// complex_from_parts() - 複素数の構築
+void kernel_from_parts(const float* real, const float* imag, float* output) {
+    for (int i = 0; i < n; i++) {
+        output[i * 2] = real[i];      // 実部
+        output[i * 2 + 1] = imag[i];  // 虚部
+    }
+}
+```
+
+**実装状況**: 複素数Elementwise演算（Add, Mul, Neg, Recip）および実部/虚部の分離・結合（Real, Imag, ComplexFromParts）のLoweringは実装済みです。Reduce、Cumulative等の複素数演算は未実装です。
 
 ## 演算子オーバーロードと数値型変換
 
@@ -282,6 +326,7 @@ let value = shape[i].expect_usize("requires constant");
 - パディング（Pad）- テンソルの境界を指定値で拡張
 - 連番生成（Arange）- torch.arangeに相当、`[0, 1, 2, ..., n-1]`を生成（I32型）
 - 型変換（Cast）- テンソル要素の型変換（I32⇔F32など）
+- 複素数の実部/虚部分離・結合（Real、Imag、ComplexFromParts）- 複素数⇔実数テンソル変換
 - グラフ最適化（詳細は[opt-graph.md](opt-graph.md)を参照）
 - 複素数型（Complex）のElementwise演算Lowering（Add、Mul、Neg、Recip）- インターリーブF32バッファ`[re, im, ...]`
 

@@ -268,4 +268,261 @@ impl Lowerer {
             _ => Err(format!("Complex {:?} operation is not yet implemented", op)),
         }
     }
+
+    /// Lower Real operation kernel (extract real part from complex tensor)
+    ///
+    /// Generates kernel:
+    /// ```c
+    /// void kernel_N(const float* input0, float* output) {
+    ///     for (int ridx0 = 0; ridx0 < n; ridx0 += 1) {
+    ///         output[ridx0] = input0[ridx0 * 2];  // real part
+    ///     }
+    /// }
+    /// ```
+    pub(super) fn lower_real_kernel(
+        &mut self,
+        node: &GraphNode,
+        node_id: usize,
+    ) -> Result<AstNode, String> {
+        log::debug!("Lowering Real operation for node {}", node_id);
+
+        let input_node = &node.src[0];
+        let shape = node.view.shape();
+        let ndim = shape.len();
+
+        // Parameters: input (complex F32* buffer), output (F32* buffer), shape vars
+        let mut params = Vec::new();
+        params.push(self.create_complex_input_param(0)); // Complex input
+        params.push(self.create_output_param(&node.dtype)?); // F32 output
+        params.extend(self.extract_shape_params(shape));
+
+        // Generate loop body
+        let (body_statements, body_scope) =
+            self.generate_real_imag_loops(node, input_node, ndim, true)?;
+
+        Ok(self.create_kernel_function(node_id, params, body_statements, body_scope))
+    }
+
+    /// Lower Imag operation kernel (extract imaginary part from complex tensor)
+    ///
+    /// Generates kernel:
+    /// ```c
+    /// void kernel_N(const float* input0, float* output) {
+    ///     for (int ridx0 = 0; ridx0 < n; ridx0 += 1) {
+    ///         output[ridx0] = input0[ridx0 * 2 + 1];  // imaginary part
+    ///     }
+    /// }
+    /// ```
+    pub(super) fn lower_imag_kernel(
+        &mut self,
+        node: &GraphNode,
+        node_id: usize,
+    ) -> Result<AstNode, String> {
+        log::debug!("Lowering Imag operation for node {}", node_id);
+
+        let input_node = &node.src[0];
+        let shape = node.view.shape();
+        let ndim = shape.len();
+
+        // Parameters: input (complex F32* buffer), output (F32* buffer), shape vars
+        let mut params = Vec::new();
+        params.push(self.create_complex_input_param(0)); // Complex input
+        params.push(self.create_output_param(&node.dtype)?); // F32 output
+        params.extend(self.extract_shape_params(shape));
+
+        // Generate loop body
+        let (body_statements, body_scope) =
+            self.generate_real_imag_loops(node, input_node, ndim, false)?;
+
+        Ok(self.create_kernel_function(node_id, params, body_statements, body_scope))
+    }
+
+    /// Generate loops for Real/Imag extraction
+    /// is_real: true for Real, false for Imag
+    fn generate_real_imag_loops(
+        &mut self,
+        node: &GraphNode,
+        input_node: &GraphNode,
+        ndim: usize,
+        is_real: bool,
+    ) -> Result<(Vec<AstNode>, Scope), String> {
+        let scope = Scope::new();
+
+        if ndim == 0 {
+            // Scalar operation
+            let statements = self.generate_real_imag_body(node, input_node, &[], is_real)?;
+            return Ok((statements, scope));
+        }
+
+        // Generate innermost body
+        let mut body_statements = self.generate_real_imag_body(
+            node,
+            input_node,
+            &(0..ndim).collect::<Vec<_>>(),
+            is_real,
+        )?;
+        let mut scope = Scope::new();
+
+        // Create loops in reverse order (inner to outer)
+        for axis in (0..ndim).rev() {
+            let loop_var = format!("ridx{}", axis);
+            let shape_expr: AstNode = node.view.shape()[axis].clone().into();
+
+            let loop_body = block(body_statements, scope);
+            scope = Scope::new();
+
+            body_statements = vec![range(
+                loop_var,
+                const_int(0),
+                const_int(1),
+                shape_expr,
+                loop_body,
+            )];
+        }
+
+        Ok((body_statements, scope))
+    }
+
+    /// Generate body for Real/Imag extraction
+    fn generate_real_imag_body(
+        &self,
+        node: &GraphNode,
+        input_node: &GraphNode,
+        axes: &[usize],
+        is_real: bool,
+    ) -> Result<Vec<AstNode>, String> {
+        // Input offset (for complex input, in terms of complex elements)
+        let input_base_offset = self.compute_offset_from_view(input_node, axes);
+
+        // Complex input: load from interleaved buffer
+        // real part at offset * 2, imaginary part at offset * 2 + 1
+        let complex_offset = if is_real {
+            input_base_offset * const_int(2) // Real: offset * 2
+        } else {
+            input_base_offset * const_int(2) + const_int(1) // Imag: offset * 2 + 1
+        };
+
+        let input_ptr = var("input0");
+        let loaded_value = load(input_ptr, complex_offset, AstDType::F32);
+
+        // Output offset (for F32 output)
+        let output_offset = self.compute_offset_from_view(node, axes);
+        let output_ptr = var("output");
+
+        Ok(vec![store(output_ptr, output_offset, loaded_value)])
+    }
+
+    /// Lower ComplexFromParts operation kernel (construct complex from real and imag F32 tensors)
+    ///
+    /// Generates kernel:
+    /// ```c
+    /// void kernel_N(const float* input0, const float* input1, float* output) {
+    ///     for (int ridx0 = 0; ridx0 < n; ridx0 += 1) {
+    ///         output[ridx0 * 2] = input0[ridx0];      // real part
+    ///         output[ridx0 * 2 + 1] = input1[ridx0];  // imaginary part
+    ///     }
+    /// }
+    /// ```
+    pub(super) fn lower_complex_from_parts_kernel(
+        &mut self,
+        node: &GraphNode,
+        node_id: usize,
+    ) -> Result<AstNode, String> {
+        log::debug!("Lowering ComplexFromParts operation for node {}", node_id);
+
+        let real_node = &node.src[0];
+        let imag_node = &node.src[1];
+        let shape = node.view.shape();
+        let ndim = shape.len();
+
+        // Parameters: real input (F32*), imag input (F32*), output (complex F32* buffer), shape vars
+        let mut params = Vec::new();
+        params.push(self.create_input_param(0, &real_node.dtype)?); // F32 input (real)
+        params.push(self.create_input_param(1, &imag_node.dtype)?); // F32 input (imag)
+        params.push(self.create_complex_output_param()); // Complex output
+        params.extend(self.extract_shape_params(shape));
+
+        // Generate loop body
+        let (body_statements, body_scope) =
+            self.generate_complex_from_parts_loops(node, real_node, imag_node, ndim)?;
+
+        Ok(self.create_kernel_function(node_id, params, body_statements, body_scope))
+    }
+
+    /// Generate loops for ComplexFromParts
+    fn generate_complex_from_parts_loops(
+        &mut self,
+        node: &GraphNode,
+        real_node: &GraphNode,
+        imag_node: &GraphNode,
+        ndim: usize,
+    ) -> Result<(Vec<AstNode>, Scope), String> {
+        let scope = Scope::new();
+
+        if ndim == 0 {
+            // Scalar operation
+            let statements =
+                self.generate_complex_from_parts_body(node, real_node, imag_node, &[])?;
+            return Ok((statements, scope));
+        }
+
+        // Generate innermost body
+        let mut body_statements = self.generate_complex_from_parts_body(
+            node,
+            real_node,
+            imag_node,
+            &(0..ndim).collect::<Vec<_>>(),
+        )?;
+        let mut scope = Scope::new();
+
+        // Create loops in reverse order (inner to outer)
+        for axis in (0..ndim).rev() {
+            let loop_var = format!("ridx{}", axis);
+            let shape_expr: AstNode = node.view.shape()[axis].clone().into();
+
+            let loop_body = block(body_statements, scope);
+            scope = Scope::new();
+
+            body_statements = vec![range(
+                loop_var,
+                const_int(0),
+                const_int(1),
+                shape_expr,
+                loop_body,
+            )];
+        }
+
+        Ok((body_statements, scope))
+    }
+
+    /// Generate body for ComplexFromParts
+    fn generate_complex_from_parts_body(
+        &self,
+        node: &GraphNode,
+        real_node: &GraphNode,
+        imag_node: &GraphNode,
+        axes: &[usize],
+    ) -> Result<Vec<AstNode>, String> {
+        // Load real part from input0
+        let real_offset = self.compute_offset_from_view(real_node, axes);
+        let real_value = load(var("input0"), real_offset, AstDType::F32);
+
+        // Load imag part from input1
+        let imag_offset = self.compute_offset_from_view(imag_node, axes);
+        let imag_value = load(var("input1"), imag_offset, AstDType::F32);
+
+        // Output offset (for complex output, in terms of complex elements)
+        let output_base_offset = self.compute_offset_from_view(node, axes);
+
+        // Store to interleaved complex buffer
+        // real part at offset * 2, imaginary part at offset * 2 + 1
+        let output_ptr = var("output");
+        let offset_re = output_base_offset.clone() * const_int(2);
+        let offset_im = output_base_offset * const_int(2) + const_int(1);
+
+        Ok(vec![
+            store(output_ptr.clone(), offset_re, real_value),
+            store(output_ptr, offset_im, imag_value),
+        ])
+    }
 }

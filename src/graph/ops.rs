@@ -84,6 +84,21 @@ pub enum GraphOp {
         target_dtype: DType,
         elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
     },
+    /// 複素数テンソルから実部を取り出す
+    /// 入力: Complex tensor, 出力: F32 tensor (same shape)
+    Real {
+        elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
+    },
+    /// 複素数テンソルから虚部を取り出す
+    /// 入力: Complex tensor, 出力: F32 tensor (same shape)
+    Imag {
+        elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
+    },
+    /// 実部と虚部のF32テンソルから複素数テンソルを構築する
+    /// 入力: 2つのF32 tensor (real, imag), 出力: Complex tensor (same shape)
+    ComplexFromParts {
+        elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
+    },
 }
 
 #[derive(Debug, Clone)]

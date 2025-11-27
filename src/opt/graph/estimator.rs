@@ -209,6 +209,18 @@ impl SimpleCostEstimator {
                 let num_elements = self.compute_num_elements(node);
                 num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln()
             }
+            GraphOp::Real { .. } | GraphOp::Imag { .. } => {
+                // 複素数から実部/虚部を抽出
+                // 読み込み + 書き込み（stride 2でのアクセス）
+                let num_elements = self.compute_num_elements(node);
+                num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln()
+            }
+            GraphOp::ComplexFromParts { .. } => {
+                // 実部と虚部から複素数を構築
+                // 2つの入力を読み込み + インターリーブして書き込み
+                let num_elements = self.compute_num_elements(node);
+                num_elements.ln() + (3.0 * MEMORY_ACCESS_COST).ln()
+            }
         }
     }
 

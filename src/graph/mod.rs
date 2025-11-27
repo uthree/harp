@@ -350,6 +350,116 @@ impl GraphNode {
         )
     }
 
+    /// 複素数テンソルから実部を取り出す
+    ///
+    /// # 例
+    /// ```
+    /// use harp::graph::{Graph, GraphNode, DType};
+    ///
+    /// let mut graph = Graph::new();
+    /// let z = graph.input("z").with_dtype(DType::Complex).with_shape([4]).build();
+    /// let re = z.real();  // 実部（F32）
+    /// assert_eq!(re.dtype, DType::F32);
+    /// ```
+    ///
+    /// # パニック
+    /// 入力がComplex型でない場合にパニックします。
+    pub fn real(&self) -> Self {
+        assert_eq!(
+            self.dtype,
+            DType::Complex,
+            "real() can only be applied to Complex tensors"
+        );
+        Self::new(
+            DType::F32,
+            GraphOp::Real {
+                elementwise_strategies: None,
+            },
+            vec![self.clone()],
+            self.view.clone(),
+        )
+    }
+
+    /// 複素数テンソルから虚部を取り出す
+    ///
+    /// # 例
+    /// ```
+    /// use harp::graph::{Graph, GraphNode, DType};
+    ///
+    /// let mut graph = Graph::new();
+    /// let z = graph.input("z").with_dtype(DType::Complex).with_shape([4]).build();
+    /// let im = z.imag();  // 虚部（F32）
+    /// assert_eq!(im.dtype, DType::F32);
+    /// ```
+    ///
+    /// # パニック
+    /// 入力がComplex型でない場合にパニックします。
+    pub fn imag(&self) -> Self {
+        assert_eq!(
+            self.dtype,
+            DType::Complex,
+            "imag() can only be applied to Complex tensors"
+        );
+        Self::new(
+            DType::F32,
+            GraphOp::Imag {
+                elementwise_strategies: None,
+            },
+            vec![self.clone()],
+            self.view.clone(),
+        )
+    }
+
+    /// 実部と虚部のテンソルから複素数テンソルを構築する
+    ///
+    /// # 引数
+    /// - `real`: 実部（F32テンソル）
+    /// - `imag`: 虚部（F32テンソル）- realと同じshapeである必要がある
+    ///
+    /// # 例
+    /// ```
+    /// use harp::graph::{Graph, GraphNode, DType};
+    ///
+    /// let mut graph = Graph::new();
+    /// let re = graph.input("re").with_dtype(DType::F32).with_shape([4]).build();
+    /// let im = graph.input("im").with_dtype(DType::F32).with_shape([4]).build();
+    /// let z = GraphNode::complex_from_parts(re, im);
+    /// assert_eq!(z.dtype, DType::Complex);
+    /// ```
+    ///
+    /// # パニック
+    /// - realまたはimagがF32型でない場合
+    /// - realとimagのshapeが一致しない場合
+    pub fn complex_from_parts(real: Self, imag: Self) -> Self {
+        assert_eq!(
+            real.dtype,
+            DType::F32,
+            "real part must be F32, got {:?}",
+            real.dtype
+        );
+        assert_eq!(
+            imag.dtype,
+            DType::F32,
+            "imag part must be F32, got {:?}",
+            imag.dtype
+        );
+        assert_eq!(
+            real.view.shape(),
+            imag.view.shape(),
+            "real and imag must have the same shape: {:?} vs {:?}",
+            real.view.shape(),
+            imag.view.shape()
+        );
+        Self::new(
+            DType::Complex,
+            GraphOp::ComplexFromParts {
+                elementwise_strategies: None,
+            },
+            vec![real.clone(), imag],
+            real.view.clone(),
+        )
+    }
+
     /// 指定軸を縮約（汎用）
     pub fn reduce(&self, op: ops::ReduceOp, axis: usize) -> Self {
         ops::reduce(self.clone(), op, axis)

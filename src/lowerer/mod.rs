@@ -684,6 +684,9 @@ impl Lowerer {
             GraphOp::Cast { target_dtype, .. } => {
                 self.lower_cast_kernel(node, target_dtype, node_id)
             }
+            GraphOp::Real { .. } => self.lower_real_kernel(node, node_id),
+            GraphOp::Imag { .. } => self.lower_imag_kernel(node, node_id),
+            GraphOp::ComplexFromParts { .. } => self.lower_complex_from_parts_kernel(node, node_id),
             _ => Err(format!("Unsupported operation: {:?}", node.op)),
         }
     }
