@@ -493,6 +493,15 @@ impl GraphViewerApp {
                                 // コストは対数スケール（log(CPUサイクル数)）で表示
                                 let cost_str = format!("{:.2}", snapshot.cost);
                                 ui.label(cost_str);
+
+                                ui.separator();
+
+                                ui.label("Candidates:");
+                                if let Some(num_candidates) = snapshot.num_candidates {
+                                    ui.label(format!("{}", num_candidates));
+                                } else {
+                                    ui.label("-");
+                                }
                             });
                         }
                     }
@@ -502,7 +511,7 @@ impl GraphViewerApp {
 
                 // コスト遷移グラフを表示（折りたたみ可能）
                 if let Some(ref history) = self.optimization_history {
-                    egui::CollapsingHeader::new("Cost Transition")
+                    egui::CollapsingHeader::new("Cost & Candidates Transition")
                         .default_open(true)
                         .show(ui, |ui| {
                             egui::Resize::default()
@@ -512,24 +521,66 @@ impl GraphViewerApp {
                                 .resizable(true)
                                 .show(ui, |ui| {
                                     // コストデータを収集
-                                    let cost_points: Vec<[f64; 2]> = (0..history.len())
-                                        .filter_map(|step| {
-                                            history
-                                                .get(step)
-                                                .map(|snapshot| [step as f64, snapshot.cost as f64])
-                                        })
+                                    let cost_points: Vec<[f64; 2]> = history
+                                        .cost_transition()
+                                        .iter()
+                                        .map(|(step, cost)| [*step as f64, *cost as f64])
+                                        .collect();
+
+                                    // 候補数データを収集
+                                    let candidate_points: Vec<[f64; 2]> = history
+                                        .candidate_transition()
+                                        .iter()
+                                        .map(|(step, count)| [*step as f64, *count as f64])
+                                        .collect();
+
+                                    // 候補数の最大値を取得してスケーリング係数を計算
+                                    let max_candidates = candidate_points
+                                        .iter()
+                                        .map(|p| p[1])
+                                        .fold(0.0_f64, |a, b| a.max(b));
+                                    let max_cost = cost_points
+                                        .iter()
+                                        .map(|p| p[1])
+                                        .fold(0.0_f64, |a, b| a.max(b));
+
+                                    // 候補数をコストスケールに正規化（同じグラフに表示するため）
+                                    let scale = if max_candidates > 0.0 && max_cost > 0.0 {
+                                        max_cost / max_candidates
+                                    } else {
+                                        1.0
+                                    };
+                                    let scaled_candidate_points: Vec<[f64; 2]> = candidate_points
+                                        .iter()
+                                        .map(|p| [p[0], p[1] * scale])
                                         .collect();
 
                                     // プロットを表示
                                     egui_plot::Plot::new("cost_plot")
                                         .view_aspect(2.0)
                                         .height(ui.available_height())
+                                        .legend(egui_plot::Legend::default())
                                         .show(ui, |plot_ui| {
+                                            // コストライン（青）
                                             plot_ui.line(
                                                 egui_plot::Line::new(cost_points)
                                                     .color(egui::Color32::from_rgb(100, 150, 250))
                                                     .name("Cost"),
                                             );
+
+                                            // 候補数ライン（緑、スケール済み）
+                                            if !scaled_candidate_points.is_empty() {
+                                                plot_ui.line(
+                                                    egui_plot::Line::new(scaled_candidate_points)
+                                                        .color(egui::Color32::from_rgb(
+                                                            100, 200, 150,
+                                                        ))
+                                                        .name(format!(
+                                                            "Candidates (×{:.1})",
+                                                            scale
+                                                        )),
+                                                );
+                                            }
 
                                             // 現在のステップを縦線で表示
                                             let current_step = self.current_step as f64;

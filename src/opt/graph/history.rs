@@ -15,6 +15,8 @@ pub struct OptimizationSnapshot {
     pub description: String,
     /// このステップまでのログ
     pub logs: Vec<String>,
+    /// このステップでSuggesterが提案した候補の数
+    pub num_candidates: Option<usize>,
 }
 
 impl OptimizationSnapshot {
@@ -26,6 +28,7 @@ impl OptimizationSnapshot {
             cost,
             description,
             logs: Vec::new(),
+            num_candidates: None,
         }
     }
 
@@ -43,6 +46,26 @@ impl OptimizationSnapshot {
             cost,
             description,
             logs,
+            num_candidates: None,
+        }
+    }
+
+    /// 候補数付きで新しいスナップショットを作成
+    pub fn with_candidates(
+        step: usize,
+        graph: Graph,
+        cost: f32,
+        description: String,
+        logs: Vec<String>,
+        num_candidates: usize,
+    ) -> Self {
+        Self {
+            step,
+            graph,
+            cost,
+            description,
+            logs,
+            num_candidates: Some(num_candidates),
         }
     }
 }
@@ -85,5 +108,18 @@ impl OptimizationHistory {
     /// 特定のステップのスナップショットを取得
     pub fn get(&self, step: usize) -> Option<&OptimizationSnapshot> {
         self.snapshots.get(step)
+    }
+
+    /// コストの遷移を取得
+    pub fn cost_transition(&self) -> Vec<(usize, f32)> {
+        self.snapshots.iter().map(|s| (s.step, s.cost)).collect()
+    }
+
+    /// 候補数の遷移を取得
+    pub fn candidate_transition(&self) -> Vec<(usize, usize)> {
+        self.snapshots
+            .iter()
+            .filter_map(|s| s.num_candidates.map(|n| (s.step, n)))
+            .collect()
     }
 }

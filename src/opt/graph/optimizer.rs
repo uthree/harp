@@ -128,12 +128,13 @@ where
         // これまでで最良の候補を保持（graphを移動する前に初期化）
         let mut global_best = graph.clone();
 
-        history.add_snapshot(OptimizationSnapshot::with_logs(
+        history.add_snapshot(OptimizationSnapshot::with_candidates(
             0,
             graph,
             initial_cost,
             format!("Initial graph ({} outputs)", initial_outputs),
             initial_logs,
+            0, // 初期状態では候補数は0
         ));
 
         // 初期ログをクリア（各ステップで新しいログのみを記録するため）
@@ -197,7 +198,9 @@ where
                 break;
             }
 
-            trace!("Found {} candidates at step {}", candidates.len(), step);
+            // 候補数を記録
+            let num_candidates = candidates.len();
+            trace!("Found {} candidates at step {}", num_candidates, step);
 
             // コストでソートして上位beam_width個を残す
             let mut candidates_with_cost: Vec<(Graph, f32)> = candidates
@@ -284,17 +287,19 @@ where
                 } else {
                     Vec::new()
                 };
-                history.add_snapshot(OptimizationSnapshot::with_logs(
+                history.add_snapshot(OptimizationSnapshot::with_candidates(
                     step + 1,
                     best.clone(),
                     *cost,
                     format!(
-                        "Step {}: beam width {}, outputs: {}",
+                        "Step {}: {} candidates, beam width {}, outputs: {}",
                         step + 1,
+                        num_candidates,
                         beam.len(),
                         num_outputs
                     ),
                     step_logs,
+                    num_candidates,
                 ));
 
                 // このステップのログをクリア（次のステップで新しいログのみを記録するため）

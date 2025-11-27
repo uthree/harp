@@ -158,7 +158,7 @@ where
         // これまでで最良の候補を保持（astを移動する前に初期化）
         let mut global_best = ast.clone();
 
-        history.add_snapshot(OptimizationSnapshot::with_logs(
+        history.add_snapshot(OptimizationSnapshot::with_candidates(
             0,
             ast,
             initial_cost,
@@ -166,6 +166,7 @@ where
             0,
             None,
             initial_logs,
+            0, // 初期状態では候補数は0
         ));
 
         // 初期ログをクリア（各ステップで新しいログのみを記録するため）
@@ -244,7 +245,9 @@ where
                 break;
             }
 
-            trace!("Found {} candidates at step {}", candidates.len(), step);
+            // フィルタリング後の候補数を記録
+            let num_candidates = candidates.len();
+            trace!("Found {} candidates at step {}", num_candidates, step);
 
             // コストでソートして上位beam_width個を残す
             candidates.sort_by(|a, b| {
@@ -301,14 +304,20 @@ where
                 } else {
                     Vec::new()
                 };
-                history.add_snapshot(OptimizationSnapshot::with_logs(
+                history.add_snapshot(OptimizationSnapshot::with_candidates(
                     step + 1,
                     best.clone(),
                     cost,
-                    format!("Step {}: beam width {}", step + 1, beam.len()),
+                    format!(
+                        "Step {}: {} candidates, beam width {}",
+                        step + 1,
+                        num_candidates,
+                        beam.len()
+                    ),
                     0,
                     None,
                     step_logs,
+                    num_candidates,
                 ));
                 // このステップのログをクリア（次のステップで新しいログのみを記録するため）
                 if self.collect_logs {

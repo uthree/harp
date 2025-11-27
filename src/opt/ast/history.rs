@@ -19,6 +19,8 @@ pub struct OptimizationSnapshot {
     pub applied_rule: Option<String>,
     /// このステップまでのログ
     pub logs: Vec<String>,
+    /// このステップでSuggesterが提案した候補の数
+    pub num_candidates: Option<usize>,
 }
 
 impl OptimizationSnapshot {
@@ -39,6 +41,7 @@ impl OptimizationSnapshot {
             rank,
             applied_rule,
             logs: Vec::new(),
+            num_candidates: None,
         }
     }
 
@@ -60,6 +63,31 @@ impl OptimizationSnapshot {
             rank,
             applied_rule,
             logs,
+            num_candidates: None,
+        }
+    }
+
+    /// 候補数付きで新しいスナップショットを作成
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_candidates(
+        step: usize,
+        ast: AstNode,
+        cost: f32,
+        description: String,
+        rank: usize,
+        applied_rule: Option<String>,
+        logs: Vec<String>,
+        num_candidates: usize,
+    ) -> Self {
+        Self {
+            step,
+            ast,
+            cost,
+            description,
+            rank,
+            applied_rule,
+            logs,
+            num_candidates: Some(num_candidates),
         }
     }
 }
@@ -117,6 +145,24 @@ impl OptimizationHistory {
         for snapshot in &self.snapshots {
             if snapshot.rank == 0 && !seen_steps.contains(&snapshot.step) {
                 transitions.push((snapshot.step, snapshot.cost));
+                seen_steps.insert(snapshot.step);
+            }
+        }
+
+        transitions.sort_by_key(|(step, _)| *step);
+        transitions
+    }
+
+    /// 候補数の遷移を取得（最良候補のみ）
+    pub fn candidate_transition(&self) -> Vec<(usize, usize)> {
+        let mut transitions = Vec::new();
+        let mut seen_steps = std::collections::HashSet::new();
+
+        for snapshot in &self.snapshots {
+            if snapshot.rank == 0 && !seen_steps.contains(&snapshot.step) {
+                if let Some(num_candidates) = snapshot.num_candidates {
+                    transitions.push((snapshot.step, num_candidates));
+                }
                 seen_steps.insert(snapshot.step);
             }
         }
