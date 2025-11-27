@@ -58,6 +58,19 @@ ASTを最適化。`optimize(&self, ast: AstNode) -> AstNode`
 - Return文が1つだけの単純な関数が対象
 - デフォルトで50ノードまでの関数を展開
 
+#### CseSuggester（共通部分式除去）
+- 共通する部分式を一時変数に抽出（Common Subexpression Elimination）
+- 例: `y = (a * b) + (a * b)` → `cse_tmp_0 = a * b; y = cse_tmp_0 + cse_tmp_0`
+- `min_expr_cost`で抽出対象の最小複雑度を設定（デフォルト: 2）
+- `with_prefix`で生成する一時変数名のプレフィックスを指定（デフォルト: "cse_tmp_"）
+
+#### VariableExpansionSuggester（変数展開）
+- 一時変数をその定義式で置換（CSEの逆操作）
+- 例: `x = a * b; y = x + x` → `y = (a * b) + (a * b)`
+- `with_prefix`で展開対象の変数名プレフィックスを指定可能（例: "cse_tmp_"）
+- `with_max_usage`で使用回数が指定値以下の変数のみ展開対象に
+- 未使用変数の定義を削除する候補も生成
+
 #### CompositeSuggester
 - 複数のSuggesterを組み合わせる
 

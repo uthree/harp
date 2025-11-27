@@ -336,12 +336,13 @@ impl GraphViewerApp {
             GraphOp::FusedElementwise { .. } => "FusedE".to_string(),
             GraphOp::FusedElementwiseReduce { .. } => "FusedER".to_string(),
             GraphOp::FusedElementwiseCumulative { .. } => "FusedEC".to_string(),
-            GraphOp::FusedReduce { .. } => "FusedReduce".to_string(),
+            GraphOp::FusedReduce { .. } => "FusedR".to_string(),
             GraphOp::Pad { .. } => "Pad".to_string(),
             GraphOp::Slice { .. } => "Slice".to_string(),
             GraphOp::Fold { .. } => "Fold".to_string(),
             GraphOp::Rand { .. } => "Rand".to_string(),
             GraphOp::Concat { axis } => format!("Concat({})", axis),
+            _ => "Unknown".to_string(),
         }
     }
 

@@ -32,5 +32,6 @@ pub use optimizer::{BeamSearchOptimizer, RuleBaseOptimizer};
 pub use suggesters::{
     CompositeSuggester, CseSuggester, FunctionInliningSuggester, LoopFusionSuggester,
     LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester, RuleBaseSuggester,
+    VariableExpansionSuggester,
 };
 pub use transforms::{inline_small_loop, tile_loop};
