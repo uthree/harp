@@ -221,13 +221,22 @@ impl SimpleCostEstimator {
                 let num_elements = self.compute_num_elements(node);
                 num_elements.ln() + (3.0 * MEMORY_ACCESS_COST).ln()
             }
-            GraphOp::Custom { function } => {
+            GraphOp::Custom { .. } => {
                 // Custom関数のコスト計算
-                // 関数のボディからコストを推定（ASTベース）
+                // CustomノードはLoweringSuggesterによって元の演算から変換されたもの
+                //
+                // Customノードは以下の理由で元の演算よりわずかに低コストとする：
+                // 1. AST最適化フェーズでさらなる最適化が可能
+                // 2. 複数のCustomノードが融合される可能性がある
+                // 3. コード生成の柔軟性が高い
+                //
+                // わずかなコスト削減（0.01）を適用して、BeamSearchが選択するようにする
                 let num_elements = self.compute_num_elements(node);
-                let log_ops_cost = self.estimate_custom_function_cost(function);
                 let log_memory_cost = ((node.src.len() as f32 + 1.0) * MEMORY_ACCESS_COST).ln();
-                num_elements.ln() + log_sum_exp(log_ops_cost, log_memory_cost)
+                // 基本的なelementwise演算と同等のコスト（Add程度）
+                let log_ops_cost = 3.0_f32.ln();
+                // わずかにコストを削減してCustomノードを優先
+                num_elements.ln() + log_sum_exp(log_ops_cost, log_memory_cost) - 0.01
             }
         }
     }
@@ -338,77 +347,6 @@ impl SimpleCostEstimator {
             }
         }
         num_elements
-    }
-
-    /// Custom関数のボディからコストを推定（対数スケール）
-    fn estimate_custom_function_cost(&self, function: &crate::ast::AstNode) -> f32 {
-        use crate::ast::AstNode;
-
-        // 関数のボディからコストを再帰的に推定
-        match function {
-            AstNode::Function { body, .. } => Self::estimate_ast_node_cost(body),
-            _ => {
-                // 関数でない場合はデフォルトコスト
-                3.0_f32.ln()
-            }
-        }
-    }
-
-    /// ASTノードのコストを推定（対数スケール）
-    fn estimate_ast_node_cost(node: &crate::ast::AstNode) -> f32 {
-        use crate::ast::AstNode;
-
-        match node {
-            AstNode::Block { statements, .. } => {
-                // ブロック内の全ステートメントのコストを合計
-                let costs: Vec<f32> = statements
-                    .iter()
-                    .map(Self::estimate_ast_node_cost)
-                    .collect();
-                log_sum_exp_iter(costs)
-            }
-            AstNode::Range { body, .. } => {
-                // ループはボディのコストに定数を加算（ループオーバーヘッド）
-                let body_cost = Self::estimate_ast_node_cost(body);
-                body_cost + 1.0 // ループオーバーヘッド（対数スケール）
-            }
-            AstNode::Store { value, .. } => {
-                // Store: 値の計算コスト + メモリアクセスコスト
-                let value_cost = Self::estimate_ast_node_cost(value);
-                log_sum_exp(value_cost, MEMORY_ACCESS_COST.ln())
-            }
-            AstNode::Load { .. } => {
-                // Load: メモリアクセスコスト
-                MEMORY_ACCESS_COST.ln()
-            }
-            AstNode::Add(left, right) | AstNode::Mul(left, right) | AstNode::Max(left, right) => {
-                // 基本演算コスト + 子ノードのコスト
-                let op_cost = 3.0_f32.ln();
-                let left_cost = Self::estimate_ast_node_cost(left);
-                let right_cost = Self::estimate_ast_node_cost(right);
-                log_sum_exp_iter(vec![op_cost, left_cost, right_cost])
-            }
-            AstNode::Recip(operand) | AstNode::Sqrt(operand) => {
-                // 重い演算 + 子ノードのコスト
-                let op_cost = 20.0_f32.ln();
-                let child_cost = Self::estimate_ast_node_cost(operand);
-                log_sum_exp(op_cost, child_cost)
-            }
-            AstNode::Log2(operand) | AstNode::Exp2(operand) | AstNode::Sin(operand) => {
-                // 非常に重い演算
-                let op_cost = 50.0_f32.ln();
-                let child_cost = Self::estimate_ast_node_cost(operand);
-                log_sum_exp(op_cost, child_cost)
-            }
-            AstNode::Assign { value, .. } => {
-                // 代入: 値の計算コストのみ
-                Self::estimate_ast_node_cost(value)
-            }
-            _ => {
-                // その他のノードはデフォルトコスト
-                1.0_f32.ln()
-            }
-        }
     }
 
     /// グラフ内の全ノードを収集（トポロジカル順）

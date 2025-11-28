@@ -669,16 +669,14 @@ mod tests {
         assert_eq!(suggestions.len(), 1);
 
         // ループ本体で展開されている
-        if let AstNode::Block { statements, .. } = &suggestions[0] {
-            if let AstNode::Range { body, .. } = &statements[0] {
-                if let AstNode::Block {
-                    statements: inner, ..
-                } = body.as_ref()
-                {
-                    // 1つのstatementのみ（tmpの代入が削除）
-                    assert_eq!(inner.len(), 1);
-                }
-            }
+        if let AstNode::Block { statements, .. } = &suggestions[0]
+            && let AstNode::Range { body, .. } = &statements[0]
+            && let AstNode::Block {
+                statements: inner, ..
+            } = body.as_ref()
+        {
+            // 1つのstatementのみ（tmpの代入が削除）
+            assert_eq!(inner.len(), 1);
         }
     }
 

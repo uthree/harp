@@ -209,7 +209,7 @@ impl CustomFusionSuggester {
         }
     }
 
-    /// Load式をWildcardに置換
+    /// Load式をWildcardに置換（汎用的な再帰処理）
     fn replace_loads_with_wildcards(expr: &AstNode, inputs: &[GraphNode]) -> AstNode {
         use crate::graph::ops::custom_placeholders as ph;
 
@@ -225,6 +225,7 @@ impl CustomFusionSuggester {
                 }
                 expr.clone()
             }
+            // 二項演算
             AstNode::Add(left, right) => {
                 let new_left = Self::replace_loads_with_wildcards(left, inputs);
                 let new_right = Self::replace_loads_with_wildcards(right, inputs);
@@ -235,11 +236,22 @@ impl CustomFusionSuggester {
                 let new_right = Self::replace_loads_with_wildcards(right, inputs);
                 new_left * new_right
             }
+            AstNode::Rem(left, right) => {
+                let new_left = Self::replace_loads_with_wildcards(left, inputs);
+                let new_right = Self::replace_loads_with_wildcards(right, inputs);
+                new_left % new_right
+            }
+            AstNode::Idiv(left, right) => {
+                let new_left = Self::replace_loads_with_wildcards(left, inputs);
+                let new_right = Self::replace_loads_with_wildcards(right, inputs);
+                AstNode::Idiv(Box::new(new_left), Box::new(new_right))
+            }
             AstNode::Max(left, right) => {
                 let new_left = Self::replace_loads_with_wildcards(left, inputs);
                 let new_right = Self::replace_loads_with_wildcards(right, inputs);
                 AstNode::Max(Box::new(new_left), Box::new(new_right))
             }
+            // 単項演算
             AstNode::Recip(operand) => {
                 let new_operand = Self::replace_loads_with_wildcards(operand, inputs);
                 AstNode::Recip(Box::new(new_operand))
@@ -260,6 +272,11 @@ impl CustomFusionSuggester {
                 let new_operand = Self::replace_loads_with_wildcards(operand, inputs);
                 AstNode::Sin(Box::new(new_operand))
             }
+            AstNode::Cast(value, dtype) => {
+                let new_value = Self::replace_loads_with_wildcards(value, inputs);
+                AstNode::Cast(Box::new(new_value), dtype.clone())
+            }
+            // 定数やその他はそのまま
             _ => expr.clone(),
         }
     }
@@ -550,6 +567,25 @@ impl GraphSuggester for CustomFusionSuggester {
         let nodes = self.collect_all_nodes(graph);
         let ref_counts = self.count_node_references(graph);
 
+        // Customノードの数をカウント
+        let custom_count = nodes
+            .iter()
+            .filter(|n| matches!(n.op, GraphOp::Custom { .. }))
+            .count();
+        let elementwise_count = nodes
+            .iter()
+            .filter(|n| Self::is_elementwise_type(n))
+            .count();
+
+        if custom_count > 0 || elementwise_count > 1 {
+            log::debug!(
+                "CustomFusionSuggester: {} nodes total, {} custom, {} elementwise-type",
+                nodes.len(),
+                custom_count,
+                elementwise_count
+            );
+        }
+
         for node in &nodes {
             // Elementwise チェーンを検出してGraphOp::Customに融合
             if let Some((graph_inputs, expr)) = self.detect_elementwise_chain(node) {
@@ -577,11 +613,17 @@ impl GraphSuggester for CustomFusionSuggester {
                     custom_builder::build_elementwise_function(ndim, graph_inputs.len(), expr);
 
                 // GraphOp::Customノードを作成
+                let num_inputs = graph_inputs.len();
                 let fused_node = GraphNode::new(
                     node.dtype.clone(),
                     GraphOp::Custom { function },
                     graph_inputs,
                     node.view.clone(),
+                );
+
+                log::debug!(
+                    "CustomFusionSuggester: fusing elementwise chain into Custom with {} inputs",
+                    num_inputs
                 );
 
                 let new_graph = self.replace_node_in_graph(graph, node, fused_node);
@@ -676,6 +718,13 @@ impl GraphSuggester for CustomFusionSuggester {
                     suggestions.push(new_graph);
                 }
             }
+        }
+
+        if !suggestions.is_empty() {
+            log::debug!(
+                "CustomFusionSuggester: generated {} fusion suggestions",
+                suggestions.len()
+            );
         }
 
         suggestions
@@ -878,5 +927,65 @@ mod tests {
 
         // 全ての入力が単一のCustomノードに融合されていること
         assert_eq!(output.src.len(), 3);
+    }
+
+    #[test]
+    fn test_custom_to_custom_fusion() {
+        use crate::opt::graph::LoweringSuggester;
+
+        // LoweringSuggesterでCustomに変換してから、CustomFusionSuggesterで融合する
+        let lowering = LoweringSuggester::new();
+        let fusion = CustomFusionSuggester::new();
+
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
+        let b = graph.input("b", DType::F32, vec![10, 20]);
+        let c = graph.input("c", DType::F32, vec![10, 20]);
+
+        // (a + b) * c
+        let sum = a + b;
+        let result = sum * c;
+        graph.output("result", result);
+
+        // Step 1: LoweringSuggesterで各ノードをCustomに変換
+        let mut current_graph = graph;
+        loop {
+            let suggestions = lowering.suggest(&current_graph);
+            if suggestions.is_empty() {
+                break;
+            }
+            current_graph = suggestions.into_iter().next().unwrap();
+        }
+
+        // Customノードが生成されていることを確認
+        let output_before = current_graph.outputs().get("result").unwrap();
+        assert!(
+            matches!(output_before.op, GraphOp::Custom { .. }),
+            "Expected Custom node after lowering"
+        );
+
+        // Step 2: CustomFusionSuggesterでCustom同士を融合
+        let suggestions = fusion.suggest(&current_graph);
+
+        // Custom同士の融合が提案されるはず
+        assert!(
+            !suggestions.is_empty(),
+            "Expected CustomFusionSuggester to suggest Custom-to-Custom fusion"
+        );
+
+        // 融合後のグラフを確認
+        let fused_graph = &suggestions[0];
+        let output = fused_graph.outputs().get("result").unwrap();
+
+        // Customノードであることを確認
+        assert!(matches!(output.op, GraphOp::Custom { .. }));
+
+        // 入力が3つ（a, b, c）であることを確認（中間ノードが融合されている）
+        assert_eq!(
+            output.src.len(),
+            3,
+            "Expected 3 inputs after Custom-to-Custom fusion, got {}",
+            output.src.len()
+        );
     }
 }

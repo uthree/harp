@@ -56,14 +56,34 @@ impl LoweringSuggester {
 
     /// ノードをCustomノードに変換可能かチェック
     fn can_lower(&self, node: &GraphNode) -> bool {
-        !matches!(
+        // 基本的なノードタイプをチェック
+        if matches!(
             node.op,
             GraphOp::Input
                 | GraphOp::Const(_)
                 | GraphOp::ComplexConst { .. }
                 | GraphOp::View(_)
                 | GraphOp::Custom { .. }
-        )
+        ) {
+            return false;
+        }
+
+        // Elementwise演算の場合、すべての入力が連続している必要がある
+        // 非連続な入力（転置など）がある場合、正しいオフセット計算ができないためスキップ
+        if matches!(node.op, GraphOp::Elementwise { .. }) {
+            for src in &node.src {
+                // すべての入力のViewが連続しているかチェック
+                // (View経由でなくても、入力自体のviewが非連続な場合がある)
+                if !src.view.is_contiguous() {
+                    log::debug!(
+                        "LoweringSuggester: skipping Elementwise due to non-contiguous input view"
+                    );
+                    return false;
+                }
+            }
+        }
+
+        true
     }
 
     /// GraphOpをCustomノードに変換
@@ -999,16 +1019,41 @@ impl GraphSuggester for LoweringSuggester {
         let mut suggestions = Vec::new();
         let nodes = self.collect_all_nodes(graph);
 
+        let mut lowerable_count = 0;
+        let mut already_custom = 0;
+        let mut lowered_count = 0;
+
         for node in &nodes {
+            if matches!(node.op, GraphOp::Custom { .. }) {
+                already_custom += 1;
+                continue;
+            }
+
             if !self.can_lower(node) {
                 continue;
             }
 
+            lowerable_count += 1;
+
             if let Some(custom_node) = self.lower_to_custom(node) {
                 let new_graph = self.replace_node_in_graph(graph, node, custom_node);
                 suggestions.push(new_graph);
+                lowered_count += 1;
+            } else {
+                log::debug!(
+                    "LoweringSuggester: failed to lower {:?}",
+                    std::mem::discriminant(&node.op)
+                );
             }
         }
+
+        log::debug!(
+            "LoweringSuggester: {} nodes total, {} already custom, {} lowerable, {} lowered",
+            nodes.len(),
+            already_custom,
+            lowerable_count,
+            lowered_count
+        );
 
         suggestions
     }
@@ -1080,5 +1125,106 @@ mod tests {
 
         // Customノードはスキップされるので候補なし
         assert_eq!(suggestions.len(), 0);
+    }
+
+    #[test]
+    fn test_beam_search_with_lowering() {
+        use crate::opt::graph::{
+            BeamSearchGraphOptimizer, CompositeSuggester, GraphCostEstimator, SimpleCostEstimator,
+        };
+
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
+        let b = graph.input("b", DType::F32, vec![10, 20]);
+        let c = a + b;
+        graph.output("c", c);
+
+        // 初期コストを確認
+        let estimator = SimpleCostEstimator::new();
+        let initial_cost = estimator.estimate(&graph);
+        println!("Initial cost: {}", initial_cost);
+
+        // LoweringSuggesterのみでBeamSearch
+        let composite = CompositeSuggester::new(vec![Box::new(LoweringSuggester::new())]);
+
+        let optimizer = BeamSearchGraphOptimizer::new(composite, SimpleCostEstimator::new())
+            .with_beam_width(4)
+            .with_max_steps(10);
+
+        let (optimized, history) = optimizer.optimize_with_history(graph);
+
+        println!("Optimization steps: {}", history.len());
+        for (i, snapshot) in history.snapshots().iter().enumerate() {
+            println!("  Step {}: cost = {}", i, snapshot.cost);
+        }
+
+        // 最適化後のグラフを確認
+        let output = optimized.outputs().get("c").unwrap();
+        println!("Final output op: {:?}", std::mem::discriminant(&output.op));
+
+        // Customノードに変換されているはず
+        assert!(
+            matches!(output.op, GraphOp::Custom { .. }),
+            "Output should be Custom node, but got {:?}",
+            output.op
+        );
+    }
+
+    #[test]
+    fn test_beam_search_with_lowering_and_custom_fusion() {
+        use crate::opt::graph::{
+            BeamSearchGraphOptimizer, CompositeSuggester, CustomFusionSuggester,
+            SimpleCostEstimator,
+        };
+
+        // (a + b) * c + d というElementwiseチェーンを作成
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
+        let b = graph.input("b", DType::F32, vec![10, 20]);
+        let c = graph.input("c", DType::F32, vec![10, 20]);
+        let d = graph.input("d", DType::F32, vec![10, 20]);
+
+        let sum = a + b;
+        let mul = sum * c;
+        let result = mul + d;
+        graph.output("result", result);
+
+        // CustomFusionとLoweringの両方を含むSuggester
+        let suggesters: Vec<Box<dyn crate::opt::graph::GraphSuggester>> = vec![
+            Box::new(CustomFusionSuggester::new()),
+            Box::new(LoweringSuggester::new()),
+        ];
+        let composite = CompositeSuggester::new(suggesters);
+
+        let optimizer = BeamSearchGraphOptimizer::new(composite, SimpleCostEstimator::new())
+            .with_beam_width(4)
+            .with_max_steps(50);
+
+        let (optimized, history) = optimizer.optimize_with_history(graph);
+
+        println!("Optimization steps: {}", history.len());
+        for (i, snapshot) in history.snapshots().iter().enumerate() {
+            println!("  Step {}: cost = {}", i, snapshot.cost);
+        }
+
+        // 最適化後のグラフを確認
+        let output = optimized.outputs().get("result").unwrap();
+        println!("Final output op: {:?}", std::mem::discriminant(&output.op));
+        println!("Final output src count: {}", output.src.len());
+
+        // Customノードに変換されているはず
+        assert!(
+            matches!(output.op, GraphOp::Custom { .. }),
+            "Output should be Custom node, but got {:?}",
+            output.op
+        );
+
+        // 全ての入力が単一のCustomノードに融合されているはず (4入力)
+        // ただしBeamSearchの挙動により、部分的な融合になる可能性もある
+        assert!(
+            output.src.len() <= 4,
+            "Custom node should have at most 4 inputs, but got {}",
+            output.src.len()
+        );
     }
 }

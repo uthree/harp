@@ -13,8 +13,8 @@ use crate::opt::ast::{
 use crate::opt::graph::{
     BeamSearchGraphOptimizer, CompositeSuggester, ConstPropagationSuggester,
     ContiguousInsertionSuggester, CustomFusionSuggester, FusionSuggester, GraphCostEstimator,
-    ParallelStrategyChanger, SimdSuggester, TilingSuggester, ViewInsertionSuggester,
-    ViewMergeSuggester,
+    LoweringSuggester, ParallelStrategyChanger, SimdSuggester, TilingSuggester,
+    ViewInsertionSuggester, ViewMergeSuggester,
 };
 
 /// Suggesterの種類を指定するフラグ
@@ -65,6 +65,9 @@ pub fn create_graph_suggester(flags: SuggesterFlags) -> CompositeSuggester {
     if flags.enable_simd {
         suggesters.push(Box::new(SimdSuggester::new()));
     }
+
+    // LoweringSuggesterは最後に追加（他の最適化後にlowering）
+    suggesters.push(Box::new(LoweringSuggester::new()));
 
     CompositeSuggester::new(suggesters)
 }

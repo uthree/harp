@@ -471,6 +471,7 @@ mod tests {
     use crate::backend::c::CRenderer;
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn test_render_literal() {
         let renderer = CRenderer::new();
 

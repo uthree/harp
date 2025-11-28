@@ -667,16 +667,14 @@ mod tests {
         assert_eq!(suggestions.len(), 1);
 
         // ループ本体のBlock内でCSEが適用されている
-        if let AstNode::Block { statements, .. } = &suggestions[0] {
-            if let AstNode::Range { body, .. } = &statements[0] {
-                if let AstNode::Block {
-                    statements: inner, ..
-                } = body.as_ref()
-                {
-                    // 2つのstatement（一時変数の代入 + store）
-                    assert_eq!(inner.len(), 2);
-                }
-            }
+        if let AstNode::Block { statements, .. } = &suggestions[0]
+            && let AstNode::Range { body, .. } = &statements[0]
+            && let AstNode::Block {
+                statements: inner, ..
+            } = body.as_ref()
+        {
+            // 2つのstatement（一時変数の代入 + store）
+            assert_eq!(inner.len(), 2);
         }
     }
 
@@ -721,14 +719,14 @@ mod tests {
         assert_eq!(suggestions.len(), 1);
 
         // カスタムプレフィックスが使用されている
-        if let AstNode::Block { statements, .. } = &suggestions[0] {
-            if let AstNode::Assign { var, .. } = &statements[0] {
-                assert!(
-                    var.starts_with("temp_"),
-                    "Expected temp_ prefix, got {}",
-                    var
-                );
-            }
+        if let AstNode::Block { statements, .. } = &suggestions[0]
+            && let AstNode::Assign { var, .. } = &statements[0]
+        {
+            assert!(
+                var.starts_with("temp_"),
+                "Expected temp_ prefix, got {}",
+                var
+            );
         }
     }
 
