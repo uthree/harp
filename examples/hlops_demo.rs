@@ -15,14 +15,7 @@ fn main() {
     println!("1. Mathematical functions composed from basic operations:\n");
 
     let mut graph = Graph::new();
-    let x = Tensor::from_graph_node(
-        graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape([5])
-            .build(),
-        true,
-    );
+    let x = Tensor::from_graph_node(graph.input("x", DType::F32, [5]), true);
 
     // log(x) = log2(x) / log2(e)
     println!("  log(x):");
@@ -72,14 +65,7 @@ fn main() {
     // min(a, b) = -max(-a, -b)
     println!("  min(a, b):");
     println!("    Implemented as: -max(-a, -b)");
-    let y = Tensor::from_graph_node(
-        graph
-            .input("y")
-            .with_dtype(DType::F32)
-            .with_shape([5])
-            .build(),
-        true,
-    );
+    let y = Tensor::from_graph_node(graph.input("y", DType::F32, [5]), true);
     let _min_xy = x.min(&y);
     println!("    Graph created");
     println!();
@@ -97,14 +83,7 @@ fn main() {
     println!("3. Statistical operations:\n");
 
     let mut graph2 = Graph::new();
-    let matrix = Tensor::from_graph_node(
-        graph2
-            .input("matrix")
-            .with_dtype(DType::F32)
-            .with_shape([3, 4])
-            .build(),
-        true,
-    );
+    let matrix = Tensor::from_graph_node(graph2.input("matrix", DType::F32, [3, 4]), true);
 
     // mean(x, axis) = sum(x, axis) / size(axis)
     println!("  mean(x, axis):");

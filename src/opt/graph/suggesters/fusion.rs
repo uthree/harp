@@ -462,17 +462,9 @@ mod tests {
         let suggester = FusionSuggester::new();
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
 
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let b = graph.input("b", DType::F32, vec![10, 20]);
 
         // (a + b).reduce_sum(0) -> FusedElementwiseReduce
         let c = (a + b).reduce_sum(0);
@@ -489,11 +481,7 @@ mod tests {
         let suggester = FusionSuggester::new();
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
 
         // 単純なReduce（Elementwiseなし）
         let c = a.reduce_sum(0);
@@ -510,28 +498,16 @@ mod tests {
         let suggester = FusionSuggester::new();
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
 
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let b = graph.input("b", DType::F32, vec![10, 20]);
 
         // (a + b)を計算
         let sum = a + b;
 
         // sumを2つの異なる演算で使用（複数の被参照）
         let result1 = sum.clone().reduce_sum(0);
-        let c = graph
-            .input("c")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let c = graph.input("c", DType::F32, vec![10, 20]);
         let result2 = sum.clone() + c;
 
         graph.output("result1", result1);

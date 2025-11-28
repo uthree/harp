@@ -10,11 +10,7 @@ fn test_lower_contiguous_2d() {
 
     // 2次元テンソルの転置を持つノードを作成
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![3, 4]) // 3x4の行列
-        .build();
+    let a = graph.input("a", GraphDType::F32, vec![3, 4]); // 3x4の行列
 
     // 転置されたView（4x3になる）
     let transposed_view = a.view.clone().permute(vec![1, 0]);
@@ -74,11 +70,7 @@ fn test_lower_contiguous_1d() {
 
     // 1次元テンソルのflip（反転）を持つノードを作成
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10])
-        .build();
+    let a = graph.input("a", GraphDType::F32, vec![10]);
 
     // 反転されたView
     let flipped_view = a.view.clone().flip(0);

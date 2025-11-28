@@ -102,16 +102,8 @@ mod tests {
     #[test]
     fn test_topological_sort() {
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape([2, 3])
-            .build();
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape([2, 3])
-            .build();
+        let a = graph.input("a", DType::F32, [2, 3]);
+        let b = graph.input("b", DType::F32, [2, 3]);
 
         let ta = Tensor::from_graph_node(a, true);
         let tb = Tensor::from_graph_node(b, true);

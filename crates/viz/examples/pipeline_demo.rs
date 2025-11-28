@@ -274,29 +274,13 @@ fn create_complex_computation_graph() -> Graph {
     let p = 8;
 
     // 入力行列
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape(vec![m, k])
-        .build();
+    let a = graph.input("a", DType::F32, vec![m, k]);
 
-    let b = graph
-        .input("b")
-        .with_dtype(DType::F32)
-        .with_shape(vec![k, n])
-        .build();
+    let b = graph.input("b", DType::F32, vec![k, n]);
 
-    let c = graph
-        .input("c")
-        .with_dtype(DType::F32)
-        .with_shape(vec![m, n])
-        .build();
+    let c = graph.input("c", DType::F32, vec![m, n]);
 
-    let d = graph
-        .input("d")
-        .with_dtype(DType::F32)
-        .with_shape(vec![n, p])
-        .build();
+    let d = graph.input("d", DType::F32, vec![n, p]);
 
     // 1回目の行列積: matmul(a, b) -> [M, N]
     let temp1 = matmul(a, b);

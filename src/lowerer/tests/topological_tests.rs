@@ -7,16 +7,8 @@ use crate::graph::DType as GraphDType;
 fn test_topological_sort_simple() {
     // a + b のグラフ
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10])
-        .build();
+    let a = graph.input("a", GraphDType::F32, vec![10]);
+    let b = graph.input("b", GraphDType::F32, vec![10]);
     let result = a + b;
     graph.output("result", result);
 
@@ -34,26 +26,10 @@ fn test_topological_sort_simple() {
 fn test_topological_sort_complex() {
     // (a + b) * (c + d) のグラフ
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10])
-        .build();
-    let c = graph
-        .input("c")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10])
-        .build();
-    let d = graph
-        .input("d")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10])
-        .build();
+    let a = graph.input("a", GraphDType::F32, vec![10]);
+    let b = graph.input("b", GraphDType::F32, vec![10]);
+    let c = graph.input("c", GraphDType::F32, vec![10]);
+    let d = graph.input("d", GraphDType::F32, vec![10]);
 
     let sum1 = a + b;
     let sum2 = c + d;
@@ -76,16 +52,8 @@ fn test_topological_sort_complex() {
 fn test_multiple_kernels_variable_naming() {
     // 複数のカーネル関数が生成される場合、各カーネル内の変数名が独立していることを確認
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10])
-        .build();
+    let a = graph.input("a", GraphDType::F32, vec![10]);
+    let b = graph.input("b", GraphDType::F32, vec![10]);
 
     // 3つの演算（3つのカーネル関数が生成される）
     let sum1 = a.clone() + b.clone();

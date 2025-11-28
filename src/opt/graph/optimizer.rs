@@ -382,11 +382,7 @@ mod tests {
             .with_progress(false);
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10]);
         graph.output("a", a);
 
         let result = optimizer.optimize(graph);
@@ -400,16 +396,8 @@ mod tests {
 
         // グラフ1: 出力順序 "out_a", "out_b"
         let mut graph1 = Graph::new();
-        let x = graph1
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
-        let y = graph1
-            .input("y")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
+        let x = graph1.input("x", DType::F32, vec![10]);
+        let y = graph1.input("y", DType::F32, vec![10]);
         let result_a = x.clone() + y.clone();
         let result_b = x.clone() * y.clone();
         graph1.output("out_a", result_a);
@@ -417,16 +405,8 @@ mod tests {
 
         // グラフ2: 出力順序 "out_b", "out_a" (逆順)
         let mut graph2 = Graph::new();
-        let x2 = graph2
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
-        let y2 = graph2
-            .input("y")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
+        let x2 = graph2.input("x", DType::F32, vec![10]);
+        let y2 = graph2.input("y", DType::F32, vec![10]);
         let result_b2 = x2.clone() * y2.clone();
         let result_a2 = x2.clone() + y2.clone();
         graph2.output("out_b", result_b2);

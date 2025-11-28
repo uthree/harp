@@ -532,9 +532,9 @@ pub fn cumprod(node: GraphNode, axis: usize) -> GraphNode {
 /// use harp::prelude::*;
 /// use harp::ast::helper::wildcard;
 /// let mut graph = Graph::new();
-/// let a = graph.input("a").with_dtype(DType::F32).with_shape([4]).build();
-/// let b = graph.input("b").with_dtype(DType::F32).with_shape([4]).build();
-/// let c = graph.input("c").with_dtype(DType::F32).with_shape([4]).build();
+/// let a = graph.input("a", DType::F32, [4]);
+/// let b = graph.input("b", DType::F32, [4]);
+/// let c = graph.input("c", DType::F32, [4]);
 ///
 /// // (a + b) * c を融合して生成
 /// let expr = (wildcard("0") + wildcard("1")) * wildcard("2");
@@ -569,8 +569,8 @@ pub fn fused_elementwise(inputs: Vec<GraphNode>, expr: crate::ast::AstNode) -> G
 /// use harp::prelude::*;
 /// use harp::ast::helper::wildcard;
 /// let mut graph = Graph::new();
-/// let a = graph.input("a").with_dtype(DType::F32).with_shape([4, 8]).build();
-/// let b = graph.input("b").with_dtype(DType::F32).with_shape([4, 8]).build();
+/// let a = graph.input("a", DType::F32, [4, 8]);
+/// let b = graph.input("b", DType::F32, [4, 8]);
 ///
 /// // reduce_sum(a * b, axis=1) を融合して生成
 /// let expr = wildcard("0") * wildcard("1");
@@ -624,7 +624,7 @@ pub fn fused_elementwise_reduce(
 /// use harp::ast::helper::wildcard;
 /// use harp::graph::ops::{CumulativeOp, fused_elementwise_cumulative};
 /// let mut graph = Graph::new();
-/// let x = graph.input("x").with_dtype(DType::F32).with_shape([4, 8]).build();
+/// let x = graph.input("x", DType::F32, [4, 8]);
 ///
 /// // 入力を二乗してから累積和: cumsum(x^2)
 /// let expr = wildcard("0") * wildcard("0");
@@ -683,8 +683,8 @@ pub fn fused_elementwise_cumulative(
 /// use harp::graph::ops::concat;
 ///
 /// let mut graph = Graph::new();
-/// let a = graph.input("a").with_dtype(DType::F32).with_shape([2, 3]).build();
-/// let b = graph.input("b").with_dtype(DType::F32).with_shape([2, 5]).build();
+/// let a = graph.input("a", DType::F32, [2, 3]);
+/// let b = graph.input("b", DType::F32, [2, 5]);
 ///
 /// // axis=1で結合: [2, 3] + [2, 5] => [2, 8]
 /// let c = concat(vec![a, b], 1);
@@ -824,11 +824,7 @@ mod tests {
     #[test]
     fn test_add_with_numeric() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape([4])
-            .build();
+        let x = graph.input("x", DType::F32, [4]);
 
         // GraphNode + f32
         let result = x.clone() + 2.0f32;
@@ -844,11 +840,7 @@ mod tests {
     #[test]
     fn test_mul_with_numeric() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape([8])
-            .build();
+        let x = graph.input("x", DType::F32, [8]);
 
         // GraphNode * isize
         let result = x * 3isize;
@@ -858,11 +850,7 @@ mod tests {
     #[test]
     fn test_sub_with_numeric() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape([10])
-            .build();
+        let x = graph.input("x", DType::F32, [10]);
 
         // GraphNode - f32
         let result = x - 1.0f32;
@@ -879,11 +867,7 @@ mod tests {
     #[test]
     fn test_div_with_numeric() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape([5])
-            .build();
+        let x = graph.input("x", DType::F32, [5]);
 
         // GraphNode / f32
         let result = x / 2.0f32;
@@ -900,11 +884,7 @@ mod tests {
     #[test]
     fn test_reverse_add() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape([4])
-            .build();
+        let x = graph.input("x", DType::F32, [4]);
 
         // f32 + GraphNode
         let result = 2.0f32 + x;
@@ -921,11 +901,7 @@ mod tests {
     #[test]
     fn test_reverse_mul() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape([6])
-            .build();
+        let x = graph.input("x", DType::F32, [6]);
 
         // i32 * GraphNode
         let result = 5i32 * x;
@@ -935,11 +911,7 @@ mod tests {
     #[test]
     fn test_reverse_sub() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape([3])
-            .build();
+        let x = graph.input("x", DType::F32, [3]);
 
         // f32 - GraphNode
         let result = 10.0f32 - x;
@@ -949,11 +921,7 @@ mod tests {
     #[test]
     fn test_reverse_div() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape([7])
-            .build();
+        let x = graph.input("x", DType::F32, [7]);
 
         // f32 / GraphNode (1 / x)
         let result = 1.0f32 / x;
@@ -963,11 +931,7 @@ mod tests {
     #[test]
     fn test_mixed_operations() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape([4])
-            .build();
+        let x = graph.input("x", DType::F32, [4]);
 
         // Complex expression: 2.0 * x + 1.0
         let result = 2.0f32 * x + 1.0f32;
@@ -986,11 +950,7 @@ mod tests {
     #[test]
     fn test_scalar_broadcast() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape([2, 3])
-            .build();
+        let x = graph.input("x", DType::F32, [2, 3]);
 
         // Scalar constant should broadcast to [2, 3]
         let result = x + 1.0f32;
@@ -1014,11 +974,7 @@ mod tests {
     #[test]
     fn test_reference_add() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape([4])
-            .build();
+        let x = graph.input("x", DType::F32, [4]);
 
         // &GraphNode + numeric (no clone needed)
         let result = &x + 2.0f32;
@@ -1032,11 +988,7 @@ mod tests {
     #[test]
     fn test_reference_mul() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape([5])
-            .build();
+        let x = graph.input("x", DType::F32, [5]);
 
         let result = &x * 2.0f32;
         match &result.op {
@@ -1051,11 +1003,7 @@ mod tests {
     #[test]
     fn test_reference_sub_div() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape([3])
-            .build();
+        let x = graph.input("x", DType::F32, [3]);
 
         let _sub_result = &x - 1.0f32;
         let _div_result = &x / 2.0f32;
@@ -1067,11 +1015,7 @@ mod tests {
     #[test]
     fn test_reverse_reference_ops() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape([4])
-            .build();
+        let x = graph.input("x", DType::F32, [4]);
 
         // numeric op &GraphNode
         let result = 2.0f32 * &x;
@@ -1087,11 +1031,7 @@ mod tests {
     #[test]
     fn test_complex_expression_with_references() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape([8])
-            .build();
+        let x = graph.input("x", DType::F32, [8]);
 
         // Complex expression without clone
         let result = 2.0f32 * &x + 1.0f32;
@@ -1108,11 +1048,7 @@ mod tests {
     #[test]
     fn test_neg_reference() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape([4])
-            .build();
+        let x = graph.input("x", DType::F32, [4]);
 
         let neg_x = -&x;
         match &neg_x.op {

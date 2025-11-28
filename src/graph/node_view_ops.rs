@@ -15,10 +15,7 @@ impl GraphNode {
     /// use harp::prelude::*;
     ///
     /// let mut graph = Graph::new();
-    /// let a = graph.input("a")
-    ///     .with_dtype(DType::F32)
-    ///     .with_shape(vec![3, 4])
-    ///     .build();
+    /// let a = graph.input("a", DType::F32, vec![3, 4]);
     ///
     /// // Viewを変更（転置）
     /// let transposed_view = a.view.clone().permute(vec![1, 0]);
@@ -43,10 +40,7 @@ impl GraphNode {
     /// use harp::graph::shape::Expr;
     ///
     /// let mut graph = Graph::new();
-    /// let a = graph.input("a")
-    ///     .with_dtype(DType::F32)
-    ///     .with_shape(vec![3, 4])
-    ///     .build();
+    /// let a = graph.input("a", DType::F32, vec![3, 4]);
     ///
     /// // (3, 4) -> (12,) にreshape
     /// let flattened = a.reshape(vec![Expr::from(12)]);
@@ -96,10 +90,7 @@ impl GraphNode {
     /// use harp::prelude::*;
     ///
     /// let mut graph = Graph::new();
-    /// let x = graph.input("x")
-    ///     .with_dtype(DType::F32)
-    ///     .with_shape(vec![10])
-    ///     .build();
+    /// let x = graph.input("x", DType::F32, vec![10]);
     ///
     /// // 通常のunfold: (10,) -> (3, 8)
     /// let unfolded = x.unfold1d(3, 1, 1, 1);
@@ -109,10 +100,7 @@ impl GraphNode {
     /// let unfolded_dilated = x.unfold1d(3, 1, 2, 1);
     ///
     /// // グループ畳み込み
-    /// let y = graph.input("y")
-    ///     .with_dtype(DType::F32)
-    ///     .with_shape(vec![6, 10])
-    ///     .build();
+    /// let y = graph.input("y", DType::F32, vec![6, 10]);
     /// // (6, 10) -> (2, 3, 3, 8) with groups=2
     /// let grouped = y.unfold1d(3, 1, 1, 2);
     /// ```
@@ -152,10 +140,7 @@ impl GraphNode {
     /// use harp::prelude::*;
     ///
     /// let mut graph = Graph::new();
-    /// let x = graph.input("x")
-    ///     .with_dtype(DType::F32)
-    ///     .with_shape(vec![3, 32, 32])
-    ///     .build();
+    /// let x = graph.input("x", DType::F32, vec![3, 32, 32]);
     ///
     /// // 通常の2D unfold: (3, 32, 32) -> (3, 3, 3, 30, 30)
     /// let unfolded = x.unfold2d((3, 3), (1, 1), (1, 1), 1);
@@ -199,10 +184,7 @@ impl GraphNode {
     /// use harp::prelude::*;
     ///
     /// let mut graph = Graph::new();
-    /// let x = graph.input("x")
-    ///     .with_dtype(DType::F32)
-    ///     .with_shape(vec![2, 16, 16, 16])
-    ///     .build();
+    /// let x = graph.input("x", DType::F32, vec![2, 16, 16, 16]);
     ///
     /// // 3D unfold: (2, 16, 16, 16) -> (2, 3, 3, 3, 14, 14, 14)
     /// let unfolded = x.unfold3d((3, 3, 3), (1, 1, 1), (1, 1, 1), 1);
@@ -239,10 +221,7 @@ impl GraphNode {
     /// use harp::prelude::*;
     ///
     /// let mut graph = Graph::new();
-    /// let x = graph.input("x")
-    ///     .with_dtype(DType::F32)
-    ///     .with_shape(vec![3, 32, 32])
-    ///     .build();
+    /// let x = graph.input("x", DType::F32, vec![3, 32, 32]);
     ///
     /// // 2D画像の高さ・幅に1ピクセルずつパディング
     /// // (3, 32, 32) -> (3, 34, 34)
@@ -290,10 +269,7 @@ impl GraphNode {
     /// use harp::prelude::*;
     ///
     /// let mut graph = Graph::new();
-    /// let x = graph.input("x")
-    ///     .with_dtype(DType::F32)
-    ///     .with_shape(vec![10, 20])
-    ///     .build();
+    /// let x = graph.input("x", DType::F32, vec![10, 20]);
     ///
     /// // [10, 20] から [2:5, 3:18] を切り出し -> [3, 15]
     /// let sliced = x.slice(vec![(2, 5), (3, 18)]);
@@ -352,10 +328,7 @@ impl GraphNode {
     /// use harp::prelude::*;
     ///
     /// let mut graph = Graph::new();
-    /// let x = graph.input("x")
-    ///     .with_dtype(DType::F32)
-    ///     .with_shape(vec![2, 3, 8])  // unfoldの出力: (C, k, L')
-    ///     .build();
+    /// let x = graph.input("x", DType::F32, vec![2, 3, 8]);  // unfoldの出力: (C, k, L')
     ///
     /// // fold1d: (2, 3, 8) -> (2, 10)
     /// let folded = x.fold1d(vec![10], 3, 1, 1, 1);
@@ -406,10 +379,7 @@ impl GraphNode {
     /// use harp::prelude::*;
     ///
     /// let mut graph = Graph::new();
-    /// let x = graph.input("x")
-    ///     .with_dtype(DType::F32)
-    ///     .with_shape(vec![3, 3, 3, 30, 30])  // unfoldの出力: (C, kH, kW, H', W')
-    ///     .build();
+    /// let x = graph.input("x", DType::F32, vec![3, 3, 3, 30, 30]);  // unfoldの出力: (C, kH, kW, H', W')
     ///
     /// // fold2d: (3, 3, 3, 30, 30) -> (3, 32, 32)
     /// let folded = x.fold2d(vec![32, 32], (3, 3), (1, 1), (1, 1), 1);

@@ -18,16 +18,8 @@ fn test_simd_selection_with_simple_estimator() {
     let estimator = SimpleCostEstimator::new();
 
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape(vec![100])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(DType::F32)
-        .with_shape(vec![100])
-        .build();
+    let a = graph.input("a", DType::F32, vec![100]);
+    let b = graph.input("b", DType::F32, vec![100]);
     let c = a + b;
     graph.output("c", c);
 
@@ -63,16 +55,8 @@ fn test_simd_selection_with_ast_based_estimator() {
         Box::new(SimdSuggester::new()),
     ]);
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape(vec![100])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(DType::F32)
-        .with_shape(vec![100])
-        .build();
+    let a = graph.input("a", DType::F32, vec![100]);
+    let b = graph.input("b", DType::F32, vec![100]);
     let c = a + b;
     graph.output("c", c);
 

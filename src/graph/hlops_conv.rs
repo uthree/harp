@@ -142,14 +142,8 @@ impl GraphNode {
     /// use harp::prelude::*;
     ///
     /// let mut graph = Graph::new();
-    /// let x = graph.input("x")
-    ///     .with_dtype(DType::F32)
-    ///     .with_shape(vec![3, 32, 32])
-    ///     .build();
-    /// let kernel = graph.input("kernel")
-    ///     .with_dtype(DType::F32)
-    ///     .with_shape(vec![16, 3, 3, 3])
-    ///     .build();
+    /// let x = graph.input("x", DType::F32, vec![3, 32, 32]);
+    /// let kernel = graph.input("kernel", DType::F32, vec![16, 3, 3, 3]);
     ///
     /// // (3, 32, 32) conv (16, 3, 3, 3) -> (16, 30, 30)
     /// let output = x.conv2d(kernel, (1, 1), (1, 1), 1);

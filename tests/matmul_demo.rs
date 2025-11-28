@@ -15,18 +15,10 @@ fn test_matmul_demo() {
     let mut graph = Graph::new();
 
     // A: [3, 4] 行列
-    let a = graph
-        .input("A")
-        .with_dtype(DType::F32)
-        .with_shape(vec![3, 4])
-        .build();
+    let a = graph.input("A", DType::F32, vec![3, 4]);
 
     // B: [4, 5] 行列
-    let b = graph
-        .input("B")
-        .with_dtype(DType::F32)
-        .with_shape(vec![4, 5])
-        .build();
+    let b = graph.input("B", DType::F32, vec![4, 5]);
 
     // 1. A[3,4] → A[3,4,1] (unsqueezeで次元追加)
     let a_view_expanded = a.view.clone().unsqueeze(2); // [3, 4, 1]

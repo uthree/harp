@@ -212,17 +212,9 @@ mod tests {
         let changer = ParallelStrategyChanger::new();
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
 
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let b = graph.input("b", DType::F32, vec![10, 20]);
 
         let c = a + b;
         graph.output("c", c);

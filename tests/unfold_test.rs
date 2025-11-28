@@ -10,11 +10,7 @@ mod tests {
         let mut graph = Graph::new();
 
         // 1D入力: (6,) -> unfold(3, 1, 1, 1) -> (3, 4)
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![6])
-            .build();
+        let x = graph.input("x", DType::F32, vec![6]);
 
         let unfolded = x.unfold1d(3, 1, 1, 1);
 
@@ -29,11 +25,7 @@ mod tests {
 
         // 1D入力: (10,) -> unfold(3, 2, 1, 1) -> (3, 4)
         // L' = (10 - 3) / 2 + 1 = 4
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
+        let x = graph.input("x", DType::F32, vec![10]);
 
         let unfolded = x.unfold1d(3, 2, 1, 1);
 
@@ -48,11 +40,7 @@ mod tests {
         // 1D入力: (10,) -> unfold(3, 1, 2, 1) -> (3, 6)
         // effective_kernel_size = (3-1)*2+1 = 5
         // L' = (10 - 5) / 1 + 1 = 6
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
+        let x = graph.input("x", DType::F32, vec![10]);
 
         let unfolded = x.unfold1d(3, 1, 2, 1);
 
@@ -66,11 +54,7 @@ mod tests {
 
         // 2D入力: (2, 10) -> unfold(4, 2, 1, 1) -> (2, 4, 4)
         // L' = (10 - 4) / 2 + 1 = 4
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![2, 10])
-            .build();
+        let x = graph.input("x", DType::F32, vec![2, 10]);
 
         let unfolded = x.unfold1d(4, 2, 1, 1);
 
@@ -86,11 +70,7 @@ mod tests {
         let mut graph = Graph::new();
 
         // チャネル付き: (3, 6) -> unfold(3, 1, 1, 1) -> (3, 3, 4)
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![3, 6])
-            .build();
+        let x = graph.input("x", DType::F32, vec![3, 6]);
 
         let unfolded = x.unfold1d(3, 1, 1, 1);
 
@@ -108,11 +88,7 @@ mod tests {
         // 2D入力: (2, 15) -> unfold(4, 1, 3, 1) -> (2, 4, 6)
         // effective_kernel_size = (4-1)*3+1 = 10
         // L' = (15 - 10) / 1 + 1 = 6
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![2, 15])
-            .build();
+        let x = graph.input("x", DType::F32, vec![2, 15]);
 
         let unfolded = x.unfold1d(4, 1, 3, 1);
 
@@ -128,11 +104,7 @@ mod tests {
         let mut graph = Graph::new();
 
         // グループ畳み込み: (6, 10) -> unfold(3, 1, 1, 2) -> (2, 3, 3, 8)
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![6, 10])
-            .build();
+        let x = graph.input("x", DType::F32, vec![6, 10]);
 
         let unfolded = x.unfold1d(3, 1, 1, 2);
 
@@ -148,11 +120,7 @@ mod tests {
         let mut graph = Graph::new();
 
         // Depthwise: (4, 10) -> unfold(3, 1, 1, 4) -> (4, 1, 3, 8)
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![4, 10])
-            .build();
+        let x = graph.input("x", DType::F32, vec![4, 10]);
 
         let unfolded = x.unfold1d(3, 1, 1, 4);
 
@@ -169,11 +137,7 @@ mod tests {
 
         // unfold後にreduce操作を適用するユースケース
         // (8,) -> unfold(3, 1, 1, 1) -> (3, 6) -> reduce_sum(axis=0) -> (6,)
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![8])
-            .build();
+        let x = graph.input("x", DType::F32, vec![8]);
 
         let unfolded = x.unfold1d(3, 1, 1, 1);
         let summed = unfolded.reduce_sum(0);
@@ -189,11 +153,7 @@ mod tests {
         // kernel_size == stride の場合、重複なし
         // (12,) -> unfold(4, 4, 1, 1) -> (4, 3)
         // L' = (12 - 4) / 4 + 1 = 3
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![12])
-            .build();
+        let x = graph.input("x", DType::F32, vec![12]);
 
         let unfolded = x.unfold1d(4, 4, 1, 1);
 
@@ -209,11 +169,7 @@ mod tests {
         // (8, 12) -> unfold1d(3, 1, 2, 4) -> (4, 2, 3, 8)
         // effective_kernel_size = (3-1)*2+1 = 5
         // L' = (12 - 5) / 1 + 1 = 8
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![8, 12])
-            .build();
+        let x = graph.input("x", DType::F32, vec![8, 12]);
 
         let unfolded = x.unfold1d(3, 1, 2, 4);
 
@@ -231,11 +187,7 @@ mod tests {
         let mut graph = Graph::new();
 
         // 2D入力: (8, 8) -> unfold2d((3, 3), (1, 1), (1, 1), 1) -> (3, 3, 6, 6)
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![8, 8])
-            .build();
+        let x = graph.input("x", DType::F32, vec![8, 8]);
 
         let unfolded = x.unfold2d((3, 3), (1, 1), (1, 1), 1);
 
@@ -251,11 +203,7 @@ mod tests {
         let mut graph = Graph::new();
 
         // 3D入力: (3, 32, 32) -> unfold2d((3, 3), (1, 1), (1, 1), 1) -> (3, 3, 3, 30, 30)
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![3, 32, 32])
-            .build();
+        let x = graph.input("x", DType::F32, vec![3, 32, 32]);
 
         let unfolded = x.unfold2d((3, 3), (1, 1), (1, 1), 1);
 
@@ -278,11 +226,7 @@ mod tests {
 
         // stride付き: (3, 16, 16) -> unfold2d((3, 3), (2, 2), (1, 1), 1) -> (3, 3, 3, 7, 7)
         // H' = (16 - 3) / 2 + 1 = 7
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![3, 16, 16])
-            .build();
+        let x = graph.input("x", DType::F32, vec![3, 16, 16]);
 
         let unfolded = x.unfold2d((3, 3), (2, 2), (1, 1), 1);
 
@@ -306,11 +250,7 @@ mod tests {
         // dilation付き: (2, 16, 16) -> unfold2d((3, 3), (1, 1), (2, 2), 1) -> (2, 3, 3, 12, 12)
         // effective_kernel = (3-1)*2+1 = 5
         // H' = (16 - 5) / 1 + 1 = 12
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![2, 16, 16])
-            .build();
+        let x = graph.input("x", DType::F32, vec![2, 16, 16]);
 
         let unfolded = x.unfold2d((3, 3), (1, 1), (2, 2), 1);
 
@@ -332,11 +272,7 @@ mod tests {
         let mut graph = Graph::new();
 
         // groups=2: (6, 16, 16) -> unfold2d((3, 3), (1, 1), (1, 1), 2) -> (2, 3, 3, 3, 14, 14)
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![6, 16, 16])
-            .build();
+        let x = graph.input("x", DType::F32, vec![6, 16, 16]);
 
         let unfolded = x.unfold2d((3, 3), (1, 1), (1, 1), 2);
 
@@ -359,11 +295,7 @@ mod tests {
         let mut graph = Graph::new();
 
         // depthwise: (4, 16, 16) -> unfold2d((3, 3), (1, 1), (1, 1), 4) -> (4, 1, 3, 3, 14, 14)
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![4, 16, 16])
-            .build();
+        let x = graph.input("x", DType::F32, vec![4, 16, 16]);
 
         let unfolded = x.unfold2d((3, 3), (1, 1), (1, 1), 4);
 
@@ -388,11 +320,7 @@ mod tests {
         let mut graph = Graph::new();
 
         // 3D入力: (8, 8, 8) -> unfold3d((3, 3, 3), (1, 1, 1), (1, 1, 1), 1) -> (3, 3, 3, 6, 6, 6)
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![8, 8, 8])
-            .build();
+        let x = graph.input("x", DType::F32, vec![8, 8, 8]);
 
         let unfolded = x.unfold3d((3, 3, 3), (1, 1, 1), (1, 1, 1), 1);
 
@@ -415,11 +343,7 @@ mod tests {
         let mut graph = Graph::new();
 
         // 4D入力: (2, 16, 16, 16) -> unfold3d((3, 3, 3), (1, 1, 1), (1, 1, 1), 1) -> (2, 3, 3, 3, 14, 14, 14)
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![2, 16, 16, 16])
-            .build();
+        let x = graph.input("x", DType::F32, vec![2, 16, 16, 16]);
 
         let unfolded = x.unfold3d((3, 3, 3), (1, 1, 1), (1, 1, 1), 1);
 
@@ -443,11 +367,7 @@ mod tests {
         let mut graph = Graph::new();
 
         // stride付き: (2, 16, 16, 16) -> unfold3d((3, 3, 3), (2, 2, 2), (1, 1, 1), 1) -> (2, 3, 3, 3, 7, 7, 7)
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![2, 16, 16, 16])
-            .build();
+        let x = graph.input("x", DType::F32, vec![2, 16, 16, 16]);
 
         let unfolded = x.unfold3d((3, 3, 3), (2, 2, 2), (1, 1, 1), 1);
 
@@ -471,11 +391,7 @@ mod tests {
         let mut graph = Graph::new();
 
         // groups=2: (4, 12, 12, 12) -> unfold3d((3, 3, 3), (1, 1, 1), (1, 1, 1), 2) -> (2, 2, 3, 3, 3, 10, 10, 10)
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![4, 12, 12, 12])
-            .build();
+        let x = graph.input("x", DType::F32, vec![4, 12, 12, 12]);
 
         let unfolded = x.unfold3d((3, 3, 3), (1, 1, 1), (1, 1, 1), 2);
 

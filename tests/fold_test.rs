@@ -12,11 +12,7 @@ fn test_fold1d_compilation() {
     let mut graph = Graph::new();
 
     // 入力: [2, 10] (C_in=2, L=10)
-    let input = graph
-        .input("input")
-        .with_shape(vec![2, 10])
-        .with_dtype(DType::F32)
-        .build();
+    let input = graph.input("input", DType::F32, vec![2, 10]);
 
     // unfold1d: kernel_size=3, stride=1, dilation=1, groups=1
     // 出力: [2, 2*3, 8] = [2, 6, 8]
@@ -50,11 +46,7 @@ fn test_fold2d_compilation() {
     let mut graph = Graph::new();
 
     // 入力: [3, 5, 5] (C_in=3, H=5, W=5)
-    let input = graph
-        .input("input")
-        .with_shape(vec![3, 5, 5])
-        .with_dtype(DType::F32)
-        .build();
+    let input = graph.input("input", DType::F32, vec![3, 5, 5]);
 
     // unfold2d: kernel_size=(3,3), stride=(1,1), dilation=(1,1), groups=1
     let unfolded = input.unfold2d((3, 3), (1, 1), (1, 1), 1);
@@ -86,11 +78,7 @@ fn test_fold3d_compilation() {
     let mut graph = Graph::new();
 
     // 入力: [2, 4, 4, 4] (C_in=2, D=4, H=4, W=4)
-    let input = graph
-        .input("input")
-        .with_shape(vec![2, 4, 4, 4])
-        .with_dtype(DType::F32)
-        .build();
+    let input = graph.input("input", DType::F32, vec![2, 4, 4, 4]);
 
     // unfold3d: kernel_size=(2,2,2), stride=(1,1,1), dilation=(1,1,1), groups=1
     let unfolded = input.unfold3d((2, 2, 2), (1, 1, 1), (1, 1, 1), 1);

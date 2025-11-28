@@ -264,16 +264,8 @@ void kernel_0(float** buffers) {
 
         // 1. グラフを作成: a + b
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(GraphDType::F32)
-            .with_shape(vec![4])
-            .build();
-        let b = graph
-            .input("b")
-            .with_dtype(GraphDType::F32)
-            .with_shape(vec![4])
-            .build();
+        let a = graph.input("a", GraphDType::F32, vec![4]);
+        let b = graph.input("b", GraphDType::F32, vec![4]);
         let result = a + b;
         graph.output("result", result);
 
@@ -316,16 +308,8 @@ void kernel_0(float** buffers) {
 
         // 1. グラフを作成: a * b
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(GraphDType::F32)
-            .with_shape(vec![4])
-            .build();
-        let b = graph
-            .input("b")
-            .with_dtype(GraphDType::F32)
-            .with_shape(vec![4])
-            .build();
+        let a = graph.input("a", GraphDType::F32, vec![4]);
+        let b = graph.input("b", GraphDType::F32, vec![4]);
         let result = a * b;
         graph.output("result", result);
 
@@ -366,21 +350,9 @@ void kernel_0(float** buffers) {
 
         // 1. グラフを作成: (a + b) * c
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(GraphDType::F32)
-            .with_shape(vec![4])
-            .build();
-        let b = graph
-            .input("b")
-            .with_dtype(GraphDType::F32)
-            .with_shape(vec![4])
-            .build();
-        let c = graph
-            .input("c")
-            .with_dtype(GraphDType::F32)
-            .with_shape(vec![4])
-            .build();
+        let a = graph.input("a", GraphDType::F32, vec![4]);
+        let b = graph.input("b", GraphDType::F32, vec![4]);
+        let c = graph.input("c", GraphDType::F32, vec![4]);
         let sum_ab = a + b;
         let result = sum_ab * c;
         graph.output("result", result);
@@ -430,16 +402,8 @@ void kernel_0(float** buffers) {
 
         // 1. グラフを作成: 2x3 配列の加算
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(GraphDType::F32)
-            .with_shape(vec![2, 3])
-            .build();
-        let b = graph
-            .input("b")
-            .with_dtype(GraphDType::F32)
-            .with_shape(vec![2, 3])
-            .build();
+        let a = graph.input("a", GraphDType::F32, vec![2, 3]);
+        let b = graph.input("b", GraphDType::F32, vec![2, 3]);
         let result = a + b;
         graph.output("result", result);
 

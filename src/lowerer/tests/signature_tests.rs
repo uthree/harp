@@ -7,11 +7,7 @@ fn test_create_signature_simple() {
 
     // 単純なグラフ: a (shape=[10, 20]) → output
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10, 20])
-        .build();
+    let a = graph.input("a", GraphDType::F32, vec![10, 20]);
     graph.output("result", a);
 
     let signature = Lowerer::create_signature(&graph);
@@ -45,11 +41,7 @@ fn test_create_signature_with_dynamic_shape() {
     graph.set_shape_var_default("N", 100);
     graph.set_shape_var_default("M", 200);
 
-    let a = graph
-        .input("a")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![n.clone(), m.clone()])
-        .build();
+    let a = graph.input("a", GraphDType::F32, vec![n.clone(), m.clone()]);
     graph.output("result", a);
 
     let signature = Lowerer::create_signature(&graph);
@@ -73,16 +65,8 @@ fn test_create_signature_multiple_inputs_outputs() {
 
     // 複数入出力のグラフ
     let mut graph = Graph::new();
-    let a = graph
-        .input("input_a")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10])
-        .build();
-    let b = graph
-        .input("input_b")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10])
-        .build();
+    let a = graph.input("input_a", GraphDType::F32, vec![10]);
+    let b = graph.input("input_b", GraphDType::F32, vec![10]);
 
     let sum = a.clone() + b.clone();
     let prod = a * b;

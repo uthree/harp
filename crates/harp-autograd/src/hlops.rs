@@ -203,7 +203,7 @@ impl Tensor {
     ///
     /// let mut graph = Graph::new();
     /// let x = Tensor::from_graph_node(
-    ///     graph.input("x").with_dtype(DType::F32).with_shape([10, 20]).build(),
+    ///     graph.input("x", DType::F32, [10, 20]),
     ///     true
     /// );
     /// let mean_x = x.mean(1);  // 軸1の平均を計算
@@ -247,7 +247,7 @@ impl Tensor {
     ///
     /// let mut graph = Graph::new();
     /// let x = Tensor::from_graph_node(
-    ///     graph.input("x").with_dtype(DType::F32).with_shape([3, 4]).build(),
+    ///     graph.input("x", DType::F32, [3, 4]),
     ///     true
     /// );
     /// let var = x.variance(1);  // 軸1の分散を計算
@@ -278,14 +278,7 @@ mod tests {
     #[test]
     fn test_log() {
         let mut graph = Graph::new();
-        let x = Tensor::from_graph_node(
-            graph
-                .input("x")
-                .with_dtype(DType::F32)
-                .with_shape([10])
-                .build(),
-            true,
-        );
+        let x = Tensor::from_graph_node(graph.input("x", DType::F32, [10]), true);
 
         let log_x = x.log();
         assert_eq!(log_x.data.view.ndim(), 1);
@@ -294,14 +287,7 @@ mod tests {
     #[test]
     fn test_exp() {
         let mut graph = Graph::new();
-        let x = Tensor::from_graph_node(
-            graph
-                .input("x")
-                .with_dtype(DType::F32)
-                .with_shape([10])
-                .build(),
-            true,
-        );
+        let x = Tensor::from_graph_node(graph.input("x", DType::F32, [10]), true);
 
         let exp_x = x.exp();
         assert_eq!(exp_x.data.view.ndim(), 1);
@@ -310,14 +296,7 @@ mod tests {
     #[test]
     fn test_cos() {
         let mut graph = Graph::new();
-        let x = Tensor::from_graph_node(
-            graph
-                .input("x")
-                .with_dtype(DType::F32)
-                .with_shape([10])
-                .build(),
-            true,
-        );
+        let x = Tensor::from_graph_node(graph.input("x", DType::F32, [10]), true);
 
         let cos_x = x.cos();
         assert_eq!(cos_x.data.view.ndim(), 1);
@@ -326,14 +305,7 @@ mod tests {
     #[test]
     fn test_rsqrt() {
         let mut graph = Graph::new();
-        let x = Tensor::from_graph_node(
-            graph
-                .input("x")
-                .with_dtype(DType::F32)
-                .with_shape([10])
-                .build(),
-            true,
-        );
+        let x = Tensor::from_graph_node(graph.input("x", DType::F32, [10]), true);
 
         let rsqrt_x = x.rsqrt();
         assert_eq!(rsqrt_x.data.view.ndim(), 1);
@@ -342,14 +314,7 @@ mod tests {
     #[test]
     fn test_square() {
         let mut graph = Graph::new();
-        let x = Tensor::from_graph_node(
-            graph
-                .input("x")
-                .with_dtype(DType::F32)
-                .with_shape([5])
-                .build(),
-            true,
-        );
+        let x = Tensor::from_graph_node(graph.input("x", DType::F32, [5]), true);
 
         let squared = x.square();
         assert_eq!(squared.data.view.ndim(), 1);
@@ -358,14 +323,7 @@ mod tests {
     #[test]
     fn test_powi() {
         let mut graph = Graph::new();
-        let x = Tensor::from_graph_node(
-            graph
-                .input("x")
-                .with_dtype(DType::F32)
-                .with_shape([5])
-                .build(),
-            true,
-        );
+        let x = Tensor::from_graph_node(graph.input("x", DType::F32, [5]), true);
 
         let cubed = x.powi(3);
         assert_eq!(cubed.data.view.ndim(), 1);
@@ -375,14 +333,7 @@ mod tests {
     #[should_panic(expected = "powi: n must be positive")]
     fn test_powi_zero() {
         let mut graph = Graph::new();
-        let x = Tensor::from_graph_node(
-            graph
-                .input("x")
-                .with_dtype(DType::F32)
-                .with_shape([5])
-                .build(),
-            true,
-        );
+        let x = Tensor::from_graph_node(graph.input("x", DType::F32, [5]), true);
 
         let _ = x.powi(0);
     }
@@ -390,14 +341,7 @@ mod tests {
     #[test]
     fn test_abs_square() {
         let mut graph = Graph::new();
-        let x = Tensor::from_graph_node(
-            graph
-                .input("x")
-                .with_dtype(DType::F32)
-                .with_shape([10])
-                .build(),
-            true,
-        );
+        let x = Tensor::from_graph_node(graph.input("x", DType::F32, [10]), true);
 
         let abs_sq = x.abs_square();
         assert_eq!(abs_sq.data.view.ndim(), 1);
@@ -406,22 +350,8 @@ mod tests {
     #[test]
     fn test_min() {
         let mut graph = Graph::new();
-        let a = Tensor::from_graph_node(
-            graph
-                .input("a")
-                .with_dtype(DType::F32)
-                .with_shape([10])
-                .build(),
-            true,
-        );
-        let b = Tensor::from_graph_node(
-            graph
-                .input("b")
-                .with_dtype(DType::F32)
-                .with_shape([10])
-                .build(),
-            true,
-        );
+        let a = Tensor::from_graph_node(graph.input("a", DType::F32, [10]), true);
+        let b = Tensor::from_graph_node(graph.input("b", DType::F32, [10]), true);
 
         let min_ab = a.min(&b);
         assert_eq!(min_ab.data.view.ndim(), 1);
@@ -430,30 +360,9 @@ mod tests {
     #[test]
     fn test_clamp() {
         let mut graph = Graph::new();
-        let x = Tensor::from_graph_node(
-            graph
-                .input("x")
-                .with_dtype(DType::F32)
-                .with_shape([10])
-                .build(),
-            true,
-        );
-        let min_val = Tensor::from_graph_node(
-            graph
-                .input("min")
-                .with_dtype(DType::F32)
-                .with_shape([10])
-                .build(),
-            false,
-        );
-        let max_val = Tensor::from_graph_node(
-            graph
-                .input("max")
-                .with_dtype(DType::F32)
-                .with_shape([10])
-                .build(),
-            false,
-        );
+        let x = Tensor::from_graph_node(graph.input("x", DType::F32, [10]), true);
+        let min_val = Tensor::from_graph_node(graph.input("min", DType::F32, [10]), false);
+        let max_val = Tensor::from_graph_node(graph.input("max", DType::F32, [10]), false);
 
         let clamped = x.clamp(&min_val, &max_val);
         assert_eq!(clamped.data.view.ndim(), 1);
@@ -462,14 +371,7 @@ mod tests {
     #[test]
     fn test_mean() {
         let mut graph = Graph::new();
-        let x = Tensor::from_graph_node(
-            graph
-                .input("x")
-                .with_dtype(DType::F32)
-                .with_shape([10, 20])
-                .build(),
-            true,
-        );
+        let x = Tensor::from_graph_node(graph.input("x", DType::F32, [10, 20]), true);
 
         let mean_x = x.mean(1);
         assert_eq!(mean_x.data.view.ndim(), 1);
@@ -478,14 +380,7 @@ mod tests {
     #[test]
     fn test_variance() {
         let mut graph = Graph::new();
-        let x = Tensor::from_graph_node(
-            graph
-                .input("x")
-                .with_dtype(DType::F32)
-                .with_shape([3, 4])
-                .build(),
-            true,
-        );
+        let x = Tensor::from_graph_node(graph.input("x", DType::F32, [3, 4]), true);
 
         let var_x = x.variance(1);
         assert_eq!(var_x.data.view.ndim(), 1);

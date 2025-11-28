@@ -8,16 +8,8 @@ fn test_lower_simple_add() {
 
     // a + b のグラフをカーネルに変換
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10])
-        .build();
+    let a = graph.input("a", GraphDType::F32, vec![10]);
+    let b = graph.input("b", GraphDType::F32, vec![10]);
     let result = a + b;
 
     // カーネル関数を生成
@@ -61,16 +53,8 @@ fn test_lower_simple_add() {
 fn test_lower_simple_mul() {
     // a * b のグラフをカーネルに変換
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![20])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![20])
-        .build();
+    let a = graph.input("a", GraphDType::F32, vec![20]);
+    let b = graph.input("b", GraphDType::F32, vec![20]);
     let result = a * b;
 
     let mut lowerer = Lowerer::new();
@@ -95,11 +79,7 @@ fn test_lower_simple_mul() {
 fn test_lower_neg() {
     // -a のグラフをカーネルに変換
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10])
-        .build();
+    let a = graph.input("a", GraphDType::F32, vec![10]);
     let result = -a;
 
     let mut lowerer = Lowerer::new();
@@ -125,16 +105,8 @@ fn test_lower_with_permute() {
 
     // 転置されたテンソルの加算
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![3, 4])
-        .build();
-    let _b = graph
-        .input("b")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![3, 4])
-        .build();
+    let a = graph.input("a", GraphDType::F32, vec![3, 4]);
+    let _b = graph.input("b", GraphDType::F32, vec![3, 4]);
 
     // aを転置: (3, 4) -> (4, 3)
     let a_transposed = GraphNode::new(
@@ -161,11 +133,7 @@ fn test_lower_with_flipped_view() {
 
     // flipされたテンソルの否定演算
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10])
-        .build();
+    let a = graph.input("a", GraphDType::F32, vec![10]);
 
     // aをflip
     let flipped_view = a.view.clone().flip(0);
@@ -292,16 +260,8 @@ fn test_lower_add_with_simd() {
 
     // a + b のグラフをSIMD化してカーネルに変換
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![16])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![16])
-        .build();
+    let a = graph.input("a", GraphDType::F32, vec![16]);
+    let b = graph.input("b", GraphDType::F32, vec![16]);
 
     // SIMD幅を4に設定したAdd演算ノードを直接作成
     let view = View::contiguous(vec![Expr::from(16)]);
@@ -348,16 +308,8 @@ fn test_lower_add_with_simd_remainder() {
 
     // a + b のグラフをSIMD化してカーネルに変換（サイズが4で割り切れない場合）
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![17]) // 4で割り切れない
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![17])
-        .build();
+    let a = graph.input("a", GraphDType::F32, vec![17]); // 4で割り切れない
+    let b = graph.input("b", GraphDType::F32, vec![17]);
 
     // SIMD幅を4に設定したAdd演算ノードを直接作成
     let view = View::contiguous(vec![Expr::from(17)]);
@@ -411,16 +363,8 @@ fn test_lower_add_with_simd_openmp() {
 
     // a + b のグラフをSIMD化してカーネルに変換（OpenMP用）
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![16])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![16])
-        .build();
+    let a = graph.input("a", GraphDType::F32, vec![16]);
+    let b = graph.input("b", GraphDType::F32, vec![16]);
 
     // SIMD幅を4に設定したAdd演算ノードを直接作成
     let view = View::contiguous(vec![Expr::from(16)]);

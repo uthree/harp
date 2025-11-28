@@ -124,16 +124,8 @@ impl Compiler for TestCompiler {
 /// 単純なグラフを作成するヘルパー関数
 fn create_simple_graph() -> Graph {
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10, 20])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10, 20])
-        .build();
+    let a = graph.input("a", DType::F32, vec![10, 20]);
+    let b = graph.input("b", DType::F32, vec![10, 20]);
     let c = a + b; // 演算子オーバーロードを使用
     graph.output("out", c);
     graph
@@ -142,16 +134,8 @@ fn create_simple_graph() -> Graph {
 /// より複雑なグラフを作成するヘルパー関数
 fn create_complex_graph() -> Graph {
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10, 20])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10, 20])
-        .build();
+    let a = graph.input("a", DType::F32, vec![10, 20]);
+    let b = graph.input("b", DType::F32, vec![10, 20]);
     let c = a.clone() + b.clone(); // 演算子オーバーロードを使用
     let d = c * a;
     let e = d / b;

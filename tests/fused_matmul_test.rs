@@ -49,18 +49,10 @@ fn test_fused_matmul_lowering() {
     let mut graph = Graph::new();
 
     // A: [4, 3] 行列
-    let a = graph
-        .input("A")
-        .with_dtype(DType::F32)
-        .with_shape(vec![4, 3])
-        .build();
+    let a = graph.input("A", DType::F32, vec![4, 3]);
 
     // B: [3, 2] 行列
-    let b = graph
-        .input("B")
-        .with_dtype(DType::F32)
-        .with_shape(vec![3, 2])
-        .build();
+    let b = graph.input("B", DType::F32, vec![3, 2]);
 
     // 行列積: C = A @ B -> [4, 2]
     let c = matmul(a, b);
@@ -126,23 +118,11 @@ fn test_double_matmul_lowering() {
     let mut graph = Graph::new();
 
     // 連続した行列積: (A @ B) @ C
-    let a = graph
-        .input("A")
-        .with_dtype(DType::F32)
-        .with_shape(vec![8, 4])
-        .build();
+    let a = graph.input("A", DType::F32, vec![8, 4]);
 
-    let b = graph
-        .input("B")
-        .with_dtype(DType::F32)
-        .with_shape(vec![4, 6])
-        .build();
+    let b = graph.input("B", DType::F32, vec![4, 6]);
 
-    let c = graph
-        .input("C")
-        .with_dtype(DType::F32)
-        .with_shape(vec![6, 3])
-        .build();
+    let c = graph.input("C", DType::F32, vec![6, 3]);
 
     // 1回目のmatmul: A[8,4] @ B[4,6] -> [8,6]
     let ab = matmul(a, b);

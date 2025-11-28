@@ -15,10 +15,7 @@ impl GraphNode {
     /// use harp::prelude::*;
     ///
     /// let mut graph = Graph::new();
-    /// let x = graph.input("x")
-    ///     .with_dtype(DType::F32)
-    ///     .with_shape(vec![10, 20])
-    ///     .build();
+    /// let x = graph.input("x", DType::F32, vec![10, 20]);
     ///
     /// let x_squared = x.square();
     /// ```
@@ -65,18 +62,9 @@ impl GraphNode {
     /// use harp::prelude::*;
     ///
     /// let mut graph = Graph::new();
-    /// let x = graph.input("x")
-    ///     .with_dtype(DType::F32)
-    ///     .with_shape(vec![10])
-    ///     .build();
-    /// let min_val = graph.input("min")
-    ///     .with_dtype(DType::F32)
-    ///     .with_shape(vec![10])
-    ///     .build();
-    /// let max_val = graph.input("max")
-    ///     .with_dtype(DType::F32)
-    ///     .with_shape(vec![10])
-    ///     .build();
+    /// let x = graph.input("x", DType::F32, vec![10]);
+    /// let min_val = graph.input("min", DType::F32, vec![10]);
+    /// let max_val = graph.input("max", DType::F32, vec![10]);
     ///
     /// let clamped = x.clamp(min_val, max_val);
     /// ```
@@ -385,11 +373,7 @@ mod tests {
     #[test]
     fn test_square() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let x = graph.input("x", DType::F32, vec![10, 20]);
 
         let x_squared = x.square();
 
@@ -407,11 +391,7 @@ mod tests {
     #[test]
     fn test_cube() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![5])
-            .build();
+        let x = graph.input("x", DType::F32, vec![5]);
 
         let x_cubed = x.powi(3);
 
@@ -426,11 +406,7 @@ mod tests {
     #[test]
     fn test_powi() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![5])
-            .build();
+        let x = graph.input("x", DType::F32, vec![5]);
 
         let x_pow4 = x.powi(4);
 
@@ -446,11 +422,7 @@ mod tests {
     #[should_panic(expected = "powi: n must be positive")]
     fn test_powi_zero() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![5])
-            .build();
+        let x = graph.input("x", DType::F32, vec![5]);
 
         let _ = x.powi(0);
     }
@@ -458,11 +430,7 @@ mod tests {
     #[test]
     fn test_abs_square() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
+        let x = graph.input("x", DType::F32, vec![10]);
 
         let abs_sq = x.abs_square();
 
@@ -477,16 +445,8 @@ mod tests {
     #[test]
     fn test_min() {
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10]);
+        let b = graph.input("b", DType::F32, vec![10]);
 
         let min_ab = a.min(b);
 
@@ -501,21 +461,9 @@ mod tests {
     #[test]
     fn test_clamp() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
-        let min_val = graph
-            .input("min")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
-        let max_val = graph
-            .input("max")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
+        let x = graph.input("x", DType::F32, vec![10]);
+        let min_val = graph.input("min", DType::F32, vec![10]);
+        let max_val = graph.input("max", DType::F32, vec![10]);
 
         let clamped = x.clamp(min_val, max_val);
 
@@ -530,11 +478,7 @@ mod tests {
     #[test]
     fn test_mean() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20, 30])
-            .build();
+        let x = graph.input("x", DType::F32, vec![10, 20, 30]);
 
         // Note: 現在の実装では実際にはsumのみを計算
         let mean_x = x.mean(1);
@@ -552,11 +496,7 @@ mod tests {
     #[should_panic(expected = "mean: axis")]
     fn test_mean_out_of_bounds() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let x = graph.input("x", DType::F32, vec![10, 20]);
 
         let _ = x.mean(3);
     }
@@ -565,16 +505,8 @@ mod tests {
     #[should_panic(expected = "matmul: not yet implemented")]
     fn test_matmul_not_implemented() {
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![20, 30])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
+        let b = graph.input("b", DType::F32, vec![20, 30]);
 
         let _ = a.matmul(b);
     }
@@ -583,16 +515,8 @@ mod tests {
     #[should_panic(expected = "matmul: first argument must be 2D")]
     fn test_matmul_wrong_dim_a() {
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10]);
+        let b = graph.input("b", DType::F32, vec![10, 20]);
 
         let _ = a.matmul(b);
     }
@@ -601,16 +525,8 @@ mod tests {
     #[should_panic(expected = "batch_matmul: not yet implemented")]
     fn test_batch_matmul_not_implemented() {
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![5, 10, 20])
-            .build();
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![5, 20, 30])
-            .build();
+        let a = graph.input("a", DType::F32, vec![5, 10, 20]);
+        let b = graph.input("b", DType::F32, vec![5, 20, 30]);
 
         let _ = a.batch_matmul(b);
     }
@@ -618,11 +534,7 @@ mod tests {
     #[test]
     fn test_log2() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
+        let x = graph.input("x", DType::F32, vec![10]);
 
         let result = x.log2();
 
@@ -645,11 +557,7 @@ mod tests {
     #[test]
     fn test_exp2() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![5, 5])
-            .build();
+        let x = graph.input("x", DType::F32, vec![5, 5]);
 
         let result = x.exp2();
 
@@ -672,11 +580,7 @@ mod tests {
     #[test]
     fn test_log() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
+        let x = graph.input("x", DType::F32, vec![10]);
 
         let result = x.log();
 
@@ -692,11 +596,7 @@ mod tests {
     #[test]
     fn test_exp() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
+        let x = graph.input("x", DType::F32, vec![10]);
 
         let result = x.exp();
 
@@ -712,11 +612,7 @@ mod tests {
     #[test]
     fn test_sin() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
+        let x = graph.input("x", DType::F32, vec![10]);
 
         let result = x.sin();
 
@@ -739,11 +635,7 @@ mod tests {
     #[test]
     fn test_cos() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
+        let x = graph.input("x", DType::F32, vec![10]);
 
         let result = x.cos();
 
@@ -759,11 +651,7 @@ mod tests {
     #[test]
     fn test_sqrt() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
+        let x = graph.input("x", DType::F32, vec![10]);
 
         let result = x.sqrt();
 
@@ -786,11 +674,7 @@ mod tests {
     #[test]
     fn test_rsqrt() {
         let mut graph = Graph::new();
-        let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
+        let x = graph.input("x", DType::F32, vec![10]);
 
         let result = x.rsqrt();
 

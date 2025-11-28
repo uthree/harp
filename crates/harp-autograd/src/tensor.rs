@@ -804,12 +804,7 @@ impl Tensor {
         // 簡略化のため、入力データから推論
         for (name, data) in &inputs {
             let shape = vec![data.len()];
-            let input_node = graph
-                .input(name)
-                .with_dtype(harp::graph::DType::F32)
-                .with_shape(shape)
-                .build();
-            graph.register_input(name.clone(), input_node);
+            let _input_node = graph.input(name, harp::graph::DType::F32, shape);
         }
 
         // 出力ノードを登録

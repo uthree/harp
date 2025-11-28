@@ -6,17 +6,9 @@ fn test_graph_to_dot() {
     let mut graph = Graph::new();
 
     // 入力ノードを作成
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10, 20])
-        .build();
+    let a = graph.input("a", DType::F32, vec![10, 20]);
 
-    let b = graph
-        .input("b")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10, 20])
-        .build();
+    let b = graph.input("b", DType::F32, vec![10, 20]);
 
     // 計算グラフを構築
     let c = a + b;
@@ -47,11 +39,7 @@ fn test_graph_new() {
 #[test]
 fn test_input_node_creation() {
     let mut graph = Graph::new();
-    let input = graph
-        .input("x")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10, 20])
-        .build();
+    let input = graph.input("x", DType::F32, vec![10, 20]);
 
     // 入力ノードが作成されたことを確認
     assert_eq!(graph.inputs().len(), 1);
@@ -76,7 +64,7 @@ fn test_input_node_creation() {
 #[test]
 fn test_input_node_default_dtype() {
     let mut graph = Graph::new();
-    let input = graph.input("x").with_shape(vec![5]).build();
+    let input = graph.input("x", DType::Unknown, vec![5]);
 
     // デフォルトのDTypeはUnknown
     match input.dtype {
@@ -88,7 +76,7 @@ fn test_input_node_default_dtype() {
 #[test]
 fn test_input_node_empty_shape() {
     let mut graph = Graph::new();
-    let input = graph.input("scalar").with_dtype(DType::F32).build();
+    let input = graph.input("scalar", DType::F32, Vec::<isize>::new());
 
     // 空のshapeはスカラーを表す
     assert_eq!(input.view.ndim(), 0);
@@ -98,11 +86,7 @@ fn test_input_node_empty_shape() {
 #[test]
 fn test_output_node_registration() {
     let mut graph = Graph::new();
-    let input = graph
-        .input("x")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10])
-        .build();
+    let input = graph.input("x", DType::F32, vec![10]);
 
     graph.output("y", input.clone());
 
@@ -113,16 +97,8 @@ fn test_output_node_registration() {
 #[test]
 fn test_multiple_inputs() {
     let mut graph = Graph::new();
-    let input1 = graph
-        .input("x")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10])
-        .build();
-    let input2 = graph
-        .input("y")
-        .with_dtype(DType::F32)
-        .with_shape(vec![20])
-        .build();
+    let input1 = graph.input("x", DType::F32, vec![10]);
+    let input2 = graph.input("y", DType::F32, vec![20]);
 
     assert_eq!(graph.inputs().len(), 2);
     assert!(graph.inputs().contains_key("x"));
@@ -155,16 +131,8 @@ fn test_graph_node_new() {
 #[test]
 fn test_add_operation() {
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10])
-        .build();
+    let a = graph.input("a", DType::F32, vec![10]);
+    let b = graph.input("b", DType::F32, vec![10]);
 
     let result = a + b;
 
@@ -189,16 +157,8 @@ fn test_add_operation() {
 #[test]
 fn test_mul_operation() {
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape(vec![5, 5])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(DType::F32)
-        .with_shape(vec![5, 5])
-        .build();
+    let a = graph.input("a", DType::F32, vec![5, 5]);
+    let b = graph.input("b", DType::F32, vec![5, 5]);
 
     let result = a * b;
 
@@ -222,11 +182,7 @@ fn test_mul_operation() {
 #[test]
 fn test_neg_operation() {
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10])
-        .build();
+    let a = graph.input("a", DType::F32, vec![10]);
 
     let result = -a;
 
@@ -250,16 +206,8 @@ fn test_neg_operation() {
 #[test]
 fn test_sub_operation() {
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10])
-        .build();
+    let a = graph.input("a", DType::F32, vec![10]);
+    let b = graph.input("b", DType::F32, vec![10]);
 
     let result = a - b;
 
@@ -304,16 +252,8 @@ fn test_sub_operation() {
 #[test]
 fn test_rem_operation() {
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10])
-        .build();
+    let a = graph.input("a", DType::F32, vec![10]);
+    let b = graph.input("b", DType::F32, vec![10]);
 
     let result = a % b;
 
@@ -336,11 +276,7 @@ fn test_rem_operation() {
 #[test]
 fn test_recip_operation() {
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10])
-        .build();
+    let a = graph.input("a", DType::F32, vec![10]);
 
     let result = ops::recip(a);
 
@@ -363,16 +299,8 @@ fn test_recip_operation() {
 #[test]
 fn test_max_operation() {
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10])
-        .build();
+    let a = graph.input("a", DType::F32, vec![10]);
+    let b = graph.input("b", DType::F32, vec![10]);
 
     let result = ops::max(a, b);
 
@@ -397,16 +325,8 @@ fn test_max_operation() {
 fn test_shape_mismatch() {
     // 異なるshapeのノード同士の演算はpanicする
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(DType::F32)
-        .with_shape(vec![20])
-        .build();
+    let a = graph.input("a", DType::F32, vec![10]);
+    let b = graph.input("b", DType::F32, vec![20]);
 
     // これはpanicするべき
     let _result = a + b;
@@ -415,21 +335,9 @@ fn test_shape_mismatch() {
 #[test]
 fn test_complex_expression() {
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10])
-        .build();
-    let c = graph
-        .input("c")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10])
-        .build();
+    let a = graph.input("a", DType::F32, vec![10]);
+    let b = graph.input("b", DType::F32, vec![10]);
+    let c = graph.input("c", DType::F32, vec![10]);
 
     // (a + b) * c
     let result = (a + b) * c;
@@ -457,12 +365,8 @@ fn test_complex_expression() {
 #[test]
 fn test_dtype_inference() {
     let mut graph = Graph::new();
-    let unknown = graph.input("unknown").with_shape(vec![10]).build();
-    let f32_node = graph
-        .input("f32")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10])
-        .build();
+    let unknown = graph.input("unknown", DType::Unknown, vec![10]);
+    let f32_node = graph.input("f32", DType::F32, vec![10]);
 
     let result = unknown + f32_node;
 
@@ -677,11 +581,7 @@ fn test_cumulative_strategy_accessors() {
 #[test]
 fn test_reduce_sum() {
     let mut graph = Graph::new();
-    let input = graph
-        .input("x")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10, 20, 30])
-        .build();
+    let input = graph.input("x", DType::F32, vec![10, 20, 30]);
 
     // 軸1を縮約（10, 20, 30 -> 10, 30）
     let result = input.reduce_sum(1);
@@ -709,11 +609,7 @@ fn test_reduce_sum() {
 #[test]
 fn test_reduce_mul() {
     let mut graph = Graph::new();
-    let input = graph
-        .input("x")
-        .with_dtype(DType::F32)
-        .with_shape(vec![5, 10])
-        .build();
+    let input = graph.input("x", DType::F32, vec![5, 10]);
 
     // 軸0を縮約（5, 10 -> 10）
     let result = input.reduce_mul(0);
@@ -735,11 +631,7 @@ fn test_reduce_mul() {
 #[test]
 fn test_reduce_max() {
     let mut graph = Graph::new();
-    let input = graph
-        .input("x")
-        .with_dtype(DType::F32)
-        .with_shape(vec![3, 4, 5])
-        .build();
+    let input = graph.input("x", DType::F32, vec![3, 4, 5]);
 
     // 軸2を縮約（3, 4, 5 -> 3, 4）
     let result = input.reduce_max(2);
@@ -760,11 +652,7 @@ fn test_reduce_max() {
 #[test]
 fn test_view_method() {
     let mut graph = Graph::new();
-    let input = graph
-        .input("x")
-        .with_dtype(DType::F32)
-        .with_shape(vec![3, 4])
-        .build();
+    let input = graph.input("x", DType::F32, vec![3, 4]);
 
     // Viewを変更（転置）
     let transposed_view = input.view.clone().permute(vec![1, 0]);
@@ -795,11 +683,7 @@ fn test_view_method() {
 #[test]
 fn test_view_method_unsqueeze() {
     let mut graph = Graph::new();
-    let input = graph
-        .input("x")
-        .with_dtype(DType::F32)
-        .with_shape(vec![3, 4])
-        .build();
+    let input = graph.input("x", DType::F32, vec![3, 4]);
 
     // Viewを変更（次元追加）
     let unsqueezed_view = input.view.clone().unsqueeze(0);
@@ -820,11 +704,7 @@ fn test_view_method_unsqueeze() {
 #[test]
 fn test_reduce_to_scalar() {
     let mut graph = Graph::new();
-    let input = graph
-        .input("x")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10])
-        .build();
+    let input = graph.input("x", DType::F32, vec![10]);
 
     // 唯一の軸を縮約してスカラーに（10 -> []）
     let result = input.reduce_sum(0);
@@ -838,11 +718,7 @@ fn test_reduce_to_scalar() {
 #[should_panic(expected = "axis 3 is out of bounds")]
 fn test_reduce_out_of_bounds() {
     let mut graph = Graph::new();
-    let input = graph
-        .input("x")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10, 20])
-        .build();
+    let input = graph.input("x", DType::F32, vec![10, 20]);
 
     // 存在しない軸3を指定してパニック
     let _result = input.reduce_sum(3);
@@ -851,11 +727,7 @@ fn test_reduce_out_of_bounds() {
 #[test]
 fn test_reduce_generic() {
     let mut graph = Graph::new();
-    let input = graph
-        .input("x")
-        .with_dtype(DType::F32)
-        .with_shape(vec![5, 10, 15])
-        .build();
+    let input = graph.input("x", DType::F32, vec![5, 10, 15]);
 
     // ReduceOpを直接指定
     let result = input.reduce(ReduceOp::Sum, 1);
@@ -935,11 +807,7 @@ fn test_reshape() {
     use harp::graph::shape::Expr;
 
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape(vec![3, 4])
-        .build();
+    let a = graph.input("a", DType::F32, vec![3, 4]);
 
     // (3, 4) -> (12,) にreshape
     let flattened = a.reshape(vec![Expr::from(12)]);
@@ -964,11 +832,7 @@ fn test_reshape_non_contiguous() {
     use harp::graph::shape::Expr;
 
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape(vec![3, 4])
-        .build();
+    let a = graph.input("a", DType::F32, vec![3, 4]);
 
     // Permuteして非連続にする
     let transposed = a.view(a.view.clone().permute(vec![1, 0]));
@@ -980,11 +844,7 @@ fn test_reshape_non_contiguous() {
 #[test]
 fn test_recip_method() {
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10, 20])
-        .build();
+    let a = graph.input("a", DType::F32, vec![10, 20]);
 
     // メソッド形式でrecipを呼び出し
     let result = a.recip();
@@ -1005,16 +865,8 @@ fn test_recip_method() {
 #[test]
 fn test_max_method() {
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10, 20])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10, 20])
-        .build();
+    let a = graph.input("a", DType::F32, vec![10, 20]);
+    let b = graph.input("b", DType::F32, vec![10, 20]);
 
     // メソッド形式でmaxを呼び出し: a.max(b)
     let result = a.max(b);
@@ -1035,16 +887,8 @@ fn test_max_method() {
 #[test]
 fn test_method_chaining() {
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10])
-        .build();
+    let a = graph.input("a", DType::F32, vec![10]);
+    let b = graph.input("b", DType::F32, vec![10]);
 
     // メソッドチェーン: a.max(b).recip().reduce_sum(0)
     let result = a.max(b).recip().reduce_sum(0);
@@ -1056,11 +900,7 @@ fn test_method_chaining() {
 #[test]
 fn test_cumsum() {
     let mut graph = Graph::new();
-    let input = graph
-        .input("x")
-        .with_dtype(DType::F32)
-        .with_shape(vec![3, 4])
-        .build();
+    let input = graph.input("x", DType::F32, vec![3, 4]);
 
     // 軸1に沿って累積和（shapeは変わらない）
     let result = input.cumsum(1);
@@ -1088,11 +928,7 @@ fn test_cumsum() {
 #[test]
 fn test_cumprod() {
     let mut graph = Graph::new();
-    let input = graph
-        .input("x")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10, 20, 30])
-        .build();
+    let input = graph.input("x", DType::F32, vec![10, 20, 30]);
 
     // 軸0に沿って累積積
     let result = input.cumprod(0);
@@ -1115,11 +951,7 @@ fn test_cumprod() {
 #[should_panic(expected = "axis 3 is out of bounds")]
 fn test_cumsum_out_of_bounds() {
     let mut graph = Graph::new();
-    let input = graph
-        .input("x")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10, 20])
-        .build();
+    let input = graph.input("x", DType::F32, vec![10, 20]);
 
     // 無効な軸（2次元テンソルに対して軸3）
     let _result = input.cumsum(3);
@@ -1128,11 +960,7 @@ fn test_cumsum_out_of_bounds() {
 #[test]
 fn test_fused_elementwise_cumulative() {
     let mut graph = Graph::new();
-    let input = graph
-        .input("x")
-        .with_dtype(DType::F32)
-        .with_shape(vec![4, 8])
-        .build();
+    let input = graph.input("x", DType::F32, vec![4, 8]);
 
     // 入力を二乗してから累積和: cumsum(x^2)
     // expr: Wildcard("0") * Wildcard("0") (入力を二乗)
@@ -1164,11 +992,7 @@ fn test_fused_elementwise_cumulative() {
 #[test]
 fn test_fused_elementwise_cumprod() {
     let mut graph = Graph::new();
-    let x = graph
-        .input("x")
-        .with_dtype(DType::F32)
-        .with_shape(vec![3, 5])
-        .build();
+    let x = graph.input("x", DType::F32, vec![3, 5]);
 
     // 入力に2を加えてから累積積: cumprod(x + 2)
     // expr: Wildcard("0") + Const(2.0)
@@ -1198,11 +1022,7 @@ fn test_fused_elementwise_cumprod() {
 #[should_panic(expected = "axis 2 is out of bounds")]
 fn test_fused_elementwise_cumulative_out_of_bounds() {
     let mut graph = Graph::new();
-    let input = graph
-        .input("x")
-        .with_dtype(DType::F32)
-        .with_shape(vec![4, 8])
-        .build();
+    let input = graph.input("x", DType::F32, vec![4, 8]);
 
     // 無効な軸（2次元テンソルに対して軸2）
     // expr: Wildcard("0") * Wildcard("0")
@@ -1215,11 +1035,7 @@ fn test_fused_elementwise_cumulative_out_of_bounds() {
 #[test]
 fn test_pad_1d() {
     let mut graph = Graph::new();
-    let x = graph
-        .input("x")
-        .with_dtype(DType::F32)
-        .with_shape(vec![3])
-        .build();
+    let x = graph.input("x", DType::F32, vec![3]);
 
     // (3,) に両側1要素ずつパディング -> (5,)
     let padded = x.pad(vec![(1, 1)], 0.0);
@@ -1243,11 +1059,7 @@ fn test_pad_1d() {
 #[test]
 fn test_pad_2d() {
     let mut graph = Graph::new();
-    let x = graph
-        .input("x")
-        .with_dtype(DType::F32)
-        .with_shape(vec![3, 4])
-        .build();
+    let x = graph.input("x", DType::F32, vec![3, 4]);
 
     // (3, 4) -> (5, 6) にパディング
     let padded = x.pad(vec![(1, 1), (1, 1)], 0.0);
@@ -1269,11 +1081,7 @@ fn test_pad_2d() {
 #[test]
 fn test_pad_asymmetric() {
     let mut graph = Graph::new();
-    let x = graph
-        .input("x")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10])
-        .build();
+    let x = graph.input("x", DType::F32, vec![10]);
 
     // 非対称なパディング: 前に2, 後に3
     let padded = x.pad(vec![(2, 3)], 1.0);
@@ -1295,11 +1103,7 @@ fn test_pad_asymmetric() {
 #[should_panic(expected = "padding length must match tensor ndim")]
 fn test_pad_dimension_mismatch() {
     let mut graph = Graph::new();
-    let x = graph
-        .input("x")
-        .with_dtype(DType::F32)
-        .with_shape(vec![3, 4])
-        .build();
+    let x = graph.input("x", DType::F32, vec![3, 4]);
 
     // 2Dテンソルに1Dのパディング指定（エラー）
     let _padded = x.pad(vec![(1, 1)], 0.0);
@@ -1308,11 +1112,7 @@ fn test_pad_dimension_mismatch() {
 #[test]
 fn test_slice_1d() {
     let mut graph = Graph::new();
-    let x = graph
-        .input("x")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10])
-        .build();
+    let x = graph.input("x", DType::F32, vec![10]);
 
     // [10] から [2:7] を切り出し -> [5]
     let sliced = x.slice(vec![(2, 7)]);
@@ -1333,11 +1133,7 @@ fn test_slice_1d() {
 #[test]
 fn test_slice_2d() {
     let mut graph = Graph::new();
-    let x = graph
-        .input("x")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10, 20])
-        .build();
+    let x = graph.input("x", DType::F32, vec![10, 20]);
 
     // [10, 20] から [2:5, 3:18] を切り出し -> [3, 15]
     let sliced = x.slice(vec![(2, 5), (3, 18)]);
@@ -1357,11 +1153,7 @@ fn test_slice_2d() {
 #[should_panic(expected = "ranges length must match tensor ndim")]
 fn test_slice_dimension_mismatch() {
     let mut graph = Graph::new();
-    let x = graph
-        .input("x")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10, 20])
-        .build();
+    let x = graph.input("x", DType::F32, vec![10, 20]);
 
     // 2Dテンソルに1Dのranges指定（エラー）
     let _sliced = x.slice(vec![(2, 5)]);
@@ -1371,11 +1163,7 @@ fn test_slice_dimension_mismatch() {
 #[should_panic(expected = "start (5) must be less than end (2)")]
 fn test_slice_invalid_range() {
     let mut graph = Graph::new();
-    let x = graph
-        .input("x")
-        .with_dtype(DType::F32)
-        .with_shape(vec![10])
-        .build();
+    let x = graph.input("x", DType::F32, vec![10]);
 
     // start >= end のケース（エラー）
     let _sliced = x.slice(vec![(5, 2)]);

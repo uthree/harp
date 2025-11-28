@@ -212,22 +212,14 @@ mod tests {
         let suggester = ContiguousInsertionSuggester::new();
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
 
         // 転置してViewを非contiguousにする
         let transposed_view = a.view.clone().permute(vec![1, 0]);
         let a_transposed = a.view(transposed_view);
 
         // 非contiguousなViewを持つテンソルに演算を適用
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![20, 10])
-            .build();
+        let b = graph.input("b", DType::F32, vec![20, 10]);
 
         let c = a_transposed + b;
         graph.output("c", c);
@@ -247,11 +239,7 @@ mod tests {
         let suggester = ContiguousInsertionSuggester::new();
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
 
         // 反転してViewを非contiguousにする
         let flipped_view = a.view.clone().flip(0);
@@ -271,17 +259,9 @@ mod tests {
         let suggester = ContiguousInsertionSuggester::new();
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
 
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let b = graph.input("b", DType::F32, vec![10, 20]);
 
         // contiguousなViewのみなので、Contiguous挿入の必要なし
         let c = a + b;
@@ -298,11 +278,7 @@ mod tests {
         let suggester = ContiguousInsertionSuggester::new();
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
 
         // 転置（Viewノード）
         let transposed_view = a.view.clone().permute(vec![1, 0]);
@@ -322,17 +298,9 @@ mod tests {
         let suggester = ContiguousInsertionSuggester::new();
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
 
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let b = graph.input("b", DType::F32, vec![10, 20]);
 
         // 両方のテンソルを転置して非contiguousに
         let a_transposed = a.view(a.view.clone().permute(vec![1, 0]));

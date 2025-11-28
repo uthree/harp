@@ -61,16 +61,8 @@ fn main() {
 
     // グラフを作成
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape(vec![100])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(DType::F32)
-        .with_shape(vec![100])
-        .build();
+    let a = graph.input("a", DType::F32, vec![100]);
+    let b = graph.input("b", DType::F32, vec![100]);
     let c = &a + &b;
     let d = &c * 2.0;
     graph.output("result", d);

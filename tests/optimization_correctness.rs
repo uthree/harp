@@ -30,11 +30,7 @@ mod tests {
 
             // シンプルなグラフでコンパイルを試行
             let mut test_graph = Graph::new();
-            let a = test_graph
-                .input("a")
-                .with_dtype(DType::F32)
-                .with_shape(vec![2, 2])
-                .build();
+            let a = test_graph.input("a", DType::F32, vec![2, 2]);
             test_graph.output("out", a);
 
             let mut pipeline = CPipeline::new(renderer, compiler);
@@ -134,16 +130,8 @@ mod tests {
         }
         // シンプルな加算: a + b
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![4, 4])
-            .build();
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![4, 4])
-            .build();
+        let a = graph.input("a", DType::F32, vec![4, 4]);
+        let b = graph.input("b", DType::F32, vec![4, 4]);
         let result = a + b;
         graph.output("result", result);
 
@@ -170,21 +158,9 @@ mod tests {
         }
         // 連鎖演算: (a + b) * c
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![8, 8])
-            .build();
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![8, 8])
-            .build();
-        let c = graph
-            .input("c")
-            .with_dtype(DType::F32)
-            .with_shape(vec![8, 8])
-            .build();
+        let a = graph.input("a", DType::F32, vec![8, 8]);
+        let b = graph.input("b", DType::F32, vec![8, 8]);
+        let c = graph.input("c", DType::F32, vec![8, 8]);
 
         let temp = a + b;
         let result = temp * c;
@@ -220,11 +196,7 @@ mod tests {
         }
         // 定数伝播: a + (2.0 * 3.0)
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 10])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10, 10]);
 
         // 定数演算（スカラー定数は自動的にブロードキャストされる）
         let const1: GraphNode = 2.0f32.into();
@@ -259,16 +231,8 @@ mod tests {
         }
         // Reduce演算: reduce_sum(a + b, axis=0)
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![4, 8])
-            .build();
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![4, 8])
-            .build();
+        let a = graph.input("a", DType::F32, vec![4, 8]);
+        let b = graph.input("b", DType::F32, vec![4, 8]);
 
         let sum_input = a + b;
         let result = sum_input.reduce_sum(0);
@@ -297,26 +261,10 @@ mod tests {
         }
         // 複雑なグラフ: ((a + b) * c) + d
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![6, 6])
-            .build();
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![6, 6])
-            .build();
-        let c = graph
-            .input("c")
-            .with_dtype(DType::F32)
-            .with_shape(vec![6, 6])
-            .build();
-        let d = graph
-            .input("d")
-            .with_dtype(DType::F32)
-            .with_shape(vec![6, 6])
-            .build();
+        let a = graph.input("a", DType::F32, vec![6, 6]);
+        let b = graph.input("b", DType::F32, vec![6, 6]);
+        let c = graph.input("c", DType::F32, vec![6, 6]);
+        let d = graph.input("d", DType::F32, vec![6, 6]);
 
         let temp1 = a + b;
         let temp2 = temp1 * c;
@@ -360,16 +308,8 @@ mod tests {
         }
         // View変換を含む演算: a.permute([1, 0]) + b
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![3, 4])
-            .build();
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![4, 3])
-            .build();
+        let a = graph.input("a", DType::F32, vec![3, 4]);
+        let b = graph.input("b", DType::F32, vec![4, 3]);
 
         // aを転置して [4, 3] にする
         let a_transposed = a.view(a.view.clone().permute(vec![1, 0]));
@@ -399,16 +339,8 @@ mod tests {
         }
         // 行列積のようなパターン: reduce_sum(a * b, axis=1)
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![8, 16])
-            .build();
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![8, 16])
-            .build();
+        let a = graph.input("a", DType::F32, vec![8, 16]);
+        let b = graph.input("b", DType::F32, vec![8, 16]);
 
         let mul_result = a * b;
         let result = mul_result.reduce_sum(1);

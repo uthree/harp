@@ -266,17 +266,9 @@ mod tests {
         let suggester = SimdSuggester::new();
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
 
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let b = graph.input("b", DType::F32, vec![10, 20]);
 
         let c = a + b;
         graph.output("c", c);
@@ -292,17 +284,9 @@ mod tests {
         let suggester = SimdSuggester::with_simd_widths(vec![4]);
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![16])
-            .build();
+        let a = graph.input("a", DType::F32, vec![16]);
 
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![16])
-            .build();
+        let b = graph.input("b", DType::F32, vec![16]);
 
         let c = a + b;
         graph.output("c", c);
@@ -323,17 +307,9 @@ mod tests {
         let suggester = SimdSuggester::new();
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![16])
-            .build();
+        let a = graph.input("a", DType::F32, vec![16]);
 
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![16])
-            .build();
+        let b = graph.input("b", DType::F32, vec![16]);
 
         // すでにSIMD化されたノードを作成（simd_width = 4）
         let view = View::contiguous(vec![Expr::from(16)]);
@@ -367,17 +343,9 @@ mod tests {
         let estimator = SimpleCostEstimator::new();
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![16])
-            .build();
+        let a = graph.input("a", DType::F32, vec![16]);
 
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![16])
-            .build();
+        let b = graph.input("b", DType::F32, vec![16]);
 
         let c = a + b;
         graph.output("c", c);

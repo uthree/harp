@@ -8,16 +8,8 @@ use crate::lowerer::Lowerer;
 #[test]
 fn test_concat_axis0() {
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape([2, 4])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(DType::F32)
-        .with_shape([3, 4])
-        .build();
+    let a = graph.input("a", DType::F32, [2, 4]);
+    let b = graph.input("b", DType::F32, [3, 4]);
 
     // axis=0で結合: [2, 4] + [3, 4] => [5, 4]
     let c = concat(vec![a, b], 0);
@@ -34,16 +26,8 @@ fn test_concat_axis0() {
 #[test]
 fn test_concat_axis1() {
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape([2, 3])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(DType::F32)
-        .with_shape([2, 5])
-        .build();
+    let a = graph.input("a", DType::F32, [2, 3]);
+    let b = graph.input("b", DType::F32, [2, 5]);
 
     // axis=1で結合: [2, 3] + [2, 5] => [2, 8]
     let c = concat(vec![a, b], 1);
@@ -57,21 +41,9 @@ fn test_concat_axis1() {
 #[test]
 fn test_concat_three_tensors() {
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape([2, 3])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(DType::F32)
-        .with_shape([2, 4])
-        .build();
-    let c = graph
-        .input("c")
-        .with_dtype(DType::F32)
-        .with_shape([2, 5])
-        .build();
+    let a = graph.input("a", DType::F32, [2, 3]);
+    let b = graph.input("b", DType::F32, [2, 4]);
+    let c = graph.input("c", DType::F32, [2, 5]);
 
     // axis=1で結合: [2, 3] + [2, 4] + [2, 5] => [2, 12]
     let result = concat(vec![a, b, c], 1);
@@ -85,16 +57,8 @@ fn test_concat_three_tensors() {
 #[test]
 fn test_concat_1d() {
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape([5])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(DType::F32)
-        .with_shape([3])
-        .build();
+    let a = graph.input("a", DType::F32, [5]);
+    let b = graph.input("b", DType::F32, [3]);
 
     let c = concat(vec![a, b], 0);
     let shape = c.view.shape();
@@ -106,16 +70,8 @@ fn test_concat_1d() {
 #[test]
 fn test_concat_3d_batch() {
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape([2, 4, 8])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(DType::F32)
-        .with_shape([3, 4, 8])
-        .build();
+    let a = graph.input("a", DType::F32, [2, 4, 8]);
+    let b = graph.input("b", DType::F32, [3, 4, 8]);
 
     // axis=0（バッチ軸）で結合: [2, 4, 8] + [3, 4, 8] => [5, 4, 8]
     let c = concat(vec![a, b], 0);
@@ -130,16 +86,8 @@ fn test_concat_3d_batch() {
 #[test]
 fn test_concat_3d_middle_axis() {
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape([2, 3, 8])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(DType::F32)
-        .with_shape([2, 5, 8])
-        .build();
+    let a = graph.input("a", DType::F32, [2, 3, 8]);
+    let b = graph.input("b", DType::F32, [2, 5, 8]);
 
     // axis=1で結合: [2, 3, 8] + [2, 5, 8] => [2, 8, 8]
     let c = concat(vec![a, b], 1);
@@ -154,16 +102,8 @@ fn test_concat_3d_middle_axis() {
 #[test]
 fn test_graphnode_cat_method() {
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape([2, 3])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(DType::F32)
-        .with_shape([2, 5])
-        .build();
+    let a = graph.input("a", DType::F32, [2, 3]);
+    let b = graph.input("b", DType::F32, [2, 5]);
 
     // catメソッドを使用
     let c = a.cat(b, 1);
@@ -177,16 +117,8 @@ fn test_graphnode_cat_method() {
 #[test]
 fn test_graphnode_concat_static() {
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape([2, 3])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(DType::F32)
-        .with_shape([2, 5])
-        .build();
+    let a = graph.input("a", DType::F32, [2, 3]);
+    let b = graph.input("b", DType::F32, [2, 5]);
 
     // スタティックメソッドを使用
     let c = GraphNode::concat(vec![a, b], 1);
@@ -199,16 +131,8 @@ fn test_graphnode_concat_static() {
 #[test]
 fn test_concat_kernel_generation() {
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape([2, 4])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(DType::F32)
-        .with_shape([3, 4])
-        .build();
+    let a = graph.input("a", DType::F32, [2, 4]);
+    let b = graph.input("b", DType::F32, [3, 4]);
 
     let c = concat(vec![a, b], 0);
     graph.output("c", c.clone());
@@ -235,11 +159,7 @@ fn test_concat_kernel_generation() {
 #[test]
 fn test_concat_single_input() {
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape([2, 3])
-        .build();
+    let a = graph.input("a", DType::F32, [2, 3]);
 
     // 単一入力はそのまま返される
     let c = concat(vec![a.clone()], 0);
@@ -253,16 +173,8 @@ fn test_concat_single_input() {
 #[should_panic(expected = "dimension mismatch")]
 fn test_concat_dimension_mismatch() {
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape([2, 3])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(DType::F32)
-        .with_shape([2, 5])
-        .build();
+    let a = graph.input("a", DType::F32, [2, 3]);
+    let b = graph.input("b", DType::F32, [2, 5]);
 
     // axis=0では次元1のサイズが一致する必要がある
     // [2, 3] と [2, 5] はaxis=0では結合できない
@@ -274,16 +186,8 @@ fn test_concat_dimension_mismatch() {
 #[should_panic(expected = "out of bounds")]
 fn test_concat_axis_out_of_bounds() {
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape([2, 3])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(DType::F32)
-        .with_shape([2, 5])
-        .build();
+    let a = graph.input("a", DType::F32, [2, 3]);
+    let b = graph.input("b", DType::F32, [2, 5]);
 
     // axis=2は2次元テンソルに対して範囲外
     let _ = concat(vec![a, b], 2);
@@ -301,16 +205,8 @@ fn test_concat_empty_inputs() {
 #[should_panic(expected = "same number of dimensions")]
 fn test_concat_ndim_mismatch() {
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape([2, 3])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(DType::F32)
-        .with_shape([2, 3, 4])
-        .build();
+    let a = graph.input("a", DType::F32, [2, 3]);
+    let b = graph.input("b", DType::F32, [2, 3, 4]);
 
     // 2次元と3次元は結合できない
     let _ = concat(vec![a, b], 0);

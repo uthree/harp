@@ -254,17 +254,9 @@ mod tests {
         let suggester = ViewInsertionSuggester::new();
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
 
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let b = graph.input("b", DType::F32, vec![10, 20]);
 
         let c = a + b;
         graph.output("c", c);
@@ -281,17 +273,9 @@ mod tests {
         let suggester = ViewInsertionSuggester::new();
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
 
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let b = graph.input("b", DType::F32, vec![10, 20]);
 
         let c = a + b;
         graph.output("c", c);
@@ -307,17 +291,9 @@ mod tests {
         let suggester = ViewInsertionSuggester::new();
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![4, 5, 6])
-            .build();
+        let a = graph.input("a", DType::F32, vec![4, 5, 6]);
 
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![4, 5, 6])
-            .build();
+        let b = graph.input("b", DType::F32, vec![4, 5, 6]);
 
         let c = a + b;
         graph.output("c", c);
@@ -335,17 +311,9 @@ mod tests {
         let suggester = ViewInsertionSuggester::new();
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![2, 3, 4, 5])
-            .build();
+        let a = graph.input("a", DType::F32, vec![2, 3, 4, 5]);
 
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![2, 3, 4, 5])
-            .build();
+        let b = graph.input("b", DType::F32, vec![2, 3, 4, 5]);
 
         let c = a + b;
         graph.output("c", c);
@@ -391,11 +359,7 @@ mod tests {
         let suggester = ViewInsertionSuggester::new();
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
 
         // unsqueezeで次元を追加: [10, 20] -> [10, 20, 1]
         let a_unsqueezed = a.view(a.view.clone().unsqueeze(2));
@@ -408,11 +372,7 @@ mod tests {
             Expr::Const(30),
         ]));
 
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20, 30])
-            .build();
+        let b = graph.input("b", DType::F32, vec![10, 20, 30]);
 
         // 2次元のaを変換した3次元テンソルと、3次元のbを加算
         let c = a_expanded + b;
@@ -436,17 +396,9 @@ mod tests {
         let suggester = ViewInsertionSuggester::new();
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10]);
 
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let b = graph.input("b", DType::F32, vec![10, 20]);
 
         // このケースでは、aを[10, 1]にunsqueezeして、[10, 20]にexpandする必要がある
         // しかし、これは複雑なので、単純にreduce_sumで次元を合わせる

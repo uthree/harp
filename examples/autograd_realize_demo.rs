@@ -14,14 +14,7 @@ fn main() {
     // 1. Graphの構築
     println!("1. Building computation graph:");
     let mut graph = Graph::new();
-    let x = Tensor::from_graph_node(
-        graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![5])
-            .build(),
-        true,
-    );
+    let x = Tensor::from_graph_node(graph.input("x", DType::F32, vec![5]), true);
 
     // y = 2 * x + 3
     let y = &x * 2.0 + 3.0;
@@ -72,16 +65,8 @@ fn main() {
 
                     // グラフのコンパイル（実行なし）
                     let mut g = Graph::new();
-                    let a = g
-                        .input("a")
-                        .with_dtype(DType::F32)
-                        .with_shape(vec![10])
-                        .build();
-                    let b = g
-                        .input("b")
-                        .with_dtype(DType::F32)
-                        .with_shape(vec![10])
-                        .build();
+                    let a = g.input("a", DType::F32, vec![10]);
+                    let b = g.input("b", DType::F32, vec![10]);
                     let c = a + b;
                     g.output("result", c);
 

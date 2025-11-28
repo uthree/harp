@@ -8,16 +8,8 @@ fn test_lower_complex_add() {
 
     // (a+bi) + (c+di) の複素数加算
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(GraphDType::Complex)
-        .with_shape(vec![10])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(GraphDType::Complex)
-        .with_shape(vec![10])
-        .build();
+    let a = graph.input("a", GraphDType::Complex, vec![10]);
+    let b = graph.input("b", GraphDType::Complex, vec![10]);
     let result = &a + &b;
 
     // カーネル関数を生成
@@ -59,16 +51,8 @@ fn test_lower_complex_mul() {
 
     // (a+bi) * (c+di) の複素数乗算
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(GraphDType::Complex)
-        .with_shape(vec![10])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(GraphDType::Complex)
-        .with_shape(vec![10])
-        .build();
+    let a = graph.input("a", GraphDType::Complex, vec![10]);
+    let b = graph.input("b", GraphDType::Complex, vec![10]);
     let result = &a * &b;
 
     // カーネル関数を生成
@@ -109,11 +93,7 @@ fn test_lower_complex_neg() {
 
     // -(a+bi) の複素数否定
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(GraphDType::Complex)
-        .with_shape(vec![10])
-        .build();
+    let a = graph.input("a", GraphDType::Complex, vec![10]);
     let result = -&a;
 
     // カーネル関数を生成
@@ -154,11 +134,7 @@ fn test_lower_complex_recip() {
 
     // 1/(a+bi) の複素数逆数
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(GraphDType::Complex)
-        .with_shape(vec![10])
-        .build();
+    let a = graph.input("a", GraphDType::Complex, vec![10]);
     let result = a.recip();
 
     // カーネル関数を生成
@@ -199,11 +175,7 @@ fn test_lower_complex_with_constant() {
 
     // (a+bi) + (1+2i) 複素数定数との加算
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(GraphDType::Complex)
-        .with_shape(vec![10])
-        .build();
+    let a = graph.input("a", GraphDType::Complex, vec![10]);
     let constant = GraphNode::complex_constant(1.0, 2.0);
     let result = &a + &constant;
 
@@ -286,11 +258,7 @@ fn test_complex_interleaved_layout() {
     // インターリーブレイアウトの検証
     // 複素数配列 [z0, z1, z2] はメモリ上で [re0, im0, re1, im1, re2, im2] となる
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(GraphDType::Complex)
-        .with_shape(vec![4])
-        .build();
+    let a = graph.input("a", GraphDType::Complex, vec![4]);
     let result = -&a;
 
     let mut lowerer = Lowerer::new();
@@ -320,11 +288,7 @@ fn test_lower_complex_real() {
 
     // 複素数テンソルから実部を取り出す
     let mut graph = Graph::new();
-    let z = graph
-        .input("z")
-        .with_dtype(GraphDType::Complex)
-        .with_shape(vec![10])
-        .build();
+    let z = graph.input("z", GraphDType::Complex, vec![10]);
     let result = z.real();
 
     // カーネル関数を生成
@@ -364,11 +328,7 @@ fn test_lower_complex_imag() {
 
     // 複素数テンソルから虚部を取り出す
     let mut graph = Graph::new();
-    let z = graph
-        .input("z")
-        .with_dtype(GraphDType::Complex)
-        .with_shape(vec![10])
-        .build();
+    let z = graph.input("z", GraphDType::Complex, vec![10]);
     let result = z.imag();
 
     // カーネル関数を生成
@@ -411,16 +371,8 @@ fn test_lower_complex_from_parts() {
 
     // 実部と虚部のF32テンソルから複素数テンソルを構築
     let mut graph = Graph::new();
-    let re = graph
-        .input("re")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10])
-        .build();
-    let im = graph
-        .input("im")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10])
-        .build();
+    let re = graph.input("re", GraphDType::F32, vec![10]);
+    let im = graph.input("im", GraphDType::F32, vec![10]);
     let result = GraphNode::complex_from_parts(re, im);
 
     // カーネル関数を生成
@@ -473,11 +425,7 @@ fn test_complex_roundtrip() {
     // 複素数 -> 実部/虚部 -> 複素数の往復変換
     // z = complex_from_parts(z.real(), z.imag()) であることを構造的に確認
     let mut graph = Graph::new();
-    let z = graph
-        .input("z")
-        .with_dtype(GraphDType::Complex)
-        .with_shape(vec![10])
-        .build();
+    let z = graph.input("z", GraphDType::Complex, vec![10]);
 
     let re = z.real();
     let im = z.imag();
@@ -508,11 +456,7 @@ fn test_real_imag_multidimensional() {
 
     // 多次元複素数テンソルのreal/imag
     let mut graph = Graph::new();
-    let z = graph
-        .input("z")
-        .with_dtype(GraphDType::Complex)
-        .with_shape(vec![4, 5, 6])
-        .build();
+    let z = graph.input("z", GraphDType::Complex, vec![4, 5, 6]);
 
     let re = z.real();
     let im = z.imag();
@@ -561,16 +505,8 @@ fn test_complex_from_parts_multidimensional() {
 
     // 多次元テンソルからの複素数構築
     let mut graph = Graph::new();
-    let re = graph
-        .input("re")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![4, 5, 6])
-        .build();
-    let im = graph
-        .input("im")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![4, 5, 6])
-        .build();
+    let re = graph.input("re", GraphDType::F32, vec![4, 5, 6]);
+    let im = graph.input("im", GraphDType::F32, vec![4, 5, 6]);
     let z = GraphNode::complex_from_parts(re, im);
 
     // 型の確認
@@ -604,11 +540,7 @@ fn test_complex_from_parts_multidimensional() {
 #[should_panic(expected = "real() can only be applied to Complex tensors")]
 fn test_real_on_non_complex_panics() {
     let mut graph = Graph::new();
-    let f = graph
-        .input("f")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10])
-        .build();
+    let f = graph.input("f", GraphDType::F32, vec![10]);
     let _ = f.real(); // should panic
 }
 
@@ -616,11 +548,7 @@ fn test_real_on_non_complex_panics() {
 #[should_panic(expected = "imag() can only be applied to Complex tensors")]
 fn test_imag_on_non_complex_panics() {
     let mut graph = Graph::new();
-    let f = graph
-        .input("f")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10])
-        .build();
+    let f = graph.input("f", GraphDType::F32, vec![10]);
     let _ = f.imag(); // should panic
 }
 
@@ -628,16 +556,8 @@ fn test_imag_on_non_complex_panics() {
 #[should_panic(expected = "real part must be F32")]
 fn test_complex_from_parts_wrong_real_type_panics() {
     let mut graph = Graph::new();
-    let re = graph
-        .input("re")
-        .with_dtype(GraphDType::I32)
-        .with_shape(vec![10])
-        .build();
-    let im = graph
-        .input("im")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10])
-        .build();
+    let re = graph.input("re", GraphDType::I32, vec![10]);
+    let im = graph.input("im", GraphDType::F32, vec![10]);
     let _ = GraphNode::complex_from_parts(re, im); // should panic
 }
 
@@ -645,16 +565,8 @@ fn test_complex_from_parts_wrong_real_type_panics() {
 #[should_panic(expected = "imag part must be F32")]
 fn test_complex_from_parts_wrong_imag_type_panics() {
     let mut graph = Graph::new();
-    let re = graph
-        .input("re")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10])
-        .build();
-    let im = graph
-        .input("im")
-        .with_dtype(GraphDType::I32)
-        .with_shape(vec![10])
-        .build();
+    let re = graph.input("re", GraphDType::F32, vec![10]);
+    let im = graph.input("im", GraphDType::I32, vec![10]);
     let _ = GraphNode::complex_from_parts(re, im); // should panic
 }
 
@@ -662,15 +574,7 @@ fn test_complex_from_parts_wrong_imag_type_panics() {
 #[should_panic(expected = "real and imag must have the same shape")]
 fn test_complex_from_parts_shape_mismatch_panics() {
     let mut graph = Graph::new();
-    let re = graph
-        .input("re")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10])
-        .build();
-    let im = graph
-        .input("im")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![20])
-        .build();
+    let re = graph.input("re", GraphDType::F32, vec![10]);
+    let im = graph.input("im", GraphDType::F32, vec![20]);
     let _ = GraphNode::complex_from_parts(re, im); // should panic
 }

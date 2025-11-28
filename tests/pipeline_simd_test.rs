@@ -6,16 +6,8 @@ use harp::graph::{DType, Graph};
 fn test_pipeline_selects_simd() {
     // GenericPipelineがSIMD化を選択するか確認
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(DType::F32)
-        .with_shape(vec![100])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(DType::F32)
-        .with_shape(vec![100])
-        .build();
+    let a = graph.input("a", DType::F32, vec![100]);
+    let b = graph.input("b", DType::F32, vec![100]);
     let c = a + b;
     graph.output("c", c);
 

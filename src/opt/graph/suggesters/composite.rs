@@ -59,11 +59,7 @@ mod tests {
             CompositeSuggester::new(vec![Box::new(DummySuggester1), Box::new(DummySuggester2)]);
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10]);
         graph.output("a", a);
 
         let suggestions = composite.suggest(&graph);

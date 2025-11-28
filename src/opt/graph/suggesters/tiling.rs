@@ -297,17 +297,9 @@ mod tests {
         let suggester = TilingSuggester::new(vec![32]);
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![64, 128])
-            .build();
+        let a = graph.input("a", DType::F32, vec![64, 128]);
 
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![64, 128])
-            .build();
+        let b = graph.input("b", DType::F32, vec![64, 128]);
 
         let c = a + b;
         graph.output("c", c);
@@ -341,17 +333,9 @@ mod tests {
         let suggester = TilingSuggester::new(vec![32]);
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![63, 127]) // 32で割り切れない
-            .build();
+        let a = graph.input("a", DType::F32, vec![63, 127]); // 32で割り切れない
 
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![63, 127])
-            .build();
+        let b = graph.input("b", DType::F32, vec![63, 127]);
 
         let c = a + b;
         graph.output("c", c);
@@ -367,17 +351,9 @@ mod tests {
         let suggester = TilingSuggester::new(vec![16, 32]);
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![64, 128])
-            .build();
+        let a = graph.input("a", DType::F32, vec![64, 128]);
 
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![64, 128])
-            .build();
+        let b = graph.input("b", DType::F32, vec![64, 128]);
 
         let c = a + b;
         graph.output("c", c);
@@ -393,11 +369,7 @@ mod tests {
         let suggester = TilingSuggester::new(vec![32]);
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![64, 128])
-            .build();
+        let a = graph.input("a", DType::F32, vec![64, 128]);
 
         // Inputノードをそのまま出力
         graph.output("a", a);
@@ -413,17 +385,9 @@ mod tests {
         let suggester = TilingSuggester::new(vec![64]);
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![32, 128]) // 軸0は64以下
-            .build();
+        let a = graph.input("a", DType::F32, vec![32, 128]); // 軸0は64以下
 
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![32, 128])
-            .build();
+        let b = graph.input("b", DType::F32, vec![32, 128]);
 
         let c = a + b;
         graph.output("c", c);
@@ -449,17 +413,9 @@ mod tests {
         let suggester = TilingSuggester::new(vec![32]);
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![64, 128])
-            .build();
+        let a = graph.input("a", DType::F32, vec![64, 128]);
 
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![64, 128])
-            .build();
+        let b = graph.input("b", DType::F32, vec![64, 128]);
 
         let c = a + b;
         graph.output("c", c);

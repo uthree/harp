@@ -61,14 +61,25 @@ impl Graph {
         }
     }
 
-    // 入力ノードを新規作成, builderパターンを使う
-    pub fn input(&mut self, name: &str) -> InputNodeBuilder<'_> {
-        InputNodeBuilder {
-            graph: self,
-            name: name.to_string(),
-            dtype: None,
-            shape: None,
-        }
+    /// 入力ノードを新規作成
+    ///
+    /// # Example
+    /// ```
+    /// use harp::{Graph, DType};
+    ///
+    /// let mut graph = Graph::new();
+    /// let x = graph.input("x", DType::F32, [4, 8]);
+    /// ```
+    pub fn input<E, I>(&mut self, name: &str, dtype: DType, shape: I) -> GraphNode
+    where
+        E: Into<shape::Expr> + Clone,
+        I: IntoIterator<Item = E>,
+    {
+        let shape: Vec<shape::Expr> = shape.into_iter().map(|e| e.into()).collect();
+        let view = View::contiguous(shape);
+        let node = GraphNode::new(dtype, GraphOp::Input, vec![], view);
+        self.inputs.insert(name.to_string(), Rc::downgrade(&node.0));
+        node
     }
 
     // 出力ノードを登録
@@ -131,43 +142,6 @@ impl Graph {
         )
     }
 }
-
-pub struct InputNodeBuilder<'a> {
-    graph: &'a mut Graph,
-    name: String,
-    dtype: Option<DType>,
-    shape: Option<Vec<shape::Expr>>,
-}
-
-impl<'a> InputNodeBuilder<'a> {
-    pub fn with_dtype(mut self, dtype: DType) -> Self {
-        self.dtype = Some(dtype);
-        self
-    }
-
-    // TIPS: 入力ノードの形状(View)は必ずContinguousである必要がある。
-    pub fn with_shape<E: Into<shape::Expr> + Clone, I: IntoIterator<Item = E>>(
-        mut self,
-        shape: I,
-    ) -> Self {
-        self.shape = Some(shape.into_iter().map(|e| e.into()).collect());
-        self
-    }
-
-    pub fn build(self) -> GraphNode {
-        let dtype = self.dtype.unwrap_or(DType::Unknown);
-        let view = if let Some(shape) = self.shape {
-            View::contiguous(shape)
-        } else {
-            View::contiguous(Vec::<isize>::new())
-        };
-
-        let node = GraphNode::new(dtype, GraphOp::Input, vec![], view);
-        self.graph.inputs.insert(self.name, Rc::downgrade(&node.0));
-        node
-    }
-}
-
 impl GraphNode {
     pub fn new(dtype: DType, op: GraphOp, src: Vec<GraphNode>, view: View) -> Self {
         let ndim = view.ndim();
@@ -357,7 +331,7 @@ impl GraphNode {
     /// use harp::graph::{Graph, GraphNode, DType};
     ///
     /// let mut graph = Graph::new();
-    /// let z = graph.input("z").with_dtype(DType::Complex).with_shape([4]).build();
+    /// let z = graph.input("z", DType::Complex, [4]);
     /// let re = z.real();  // 実部（F32）
     /// assert_eq!(re.dtype, DType::F32);
     /// ```
@@ -387,7 +361,7 @@ impl GraphNode {
     /// use harp::graph::{Graph, GraphNode, DType};
     ///
     /// let mut graph = Graph::new();
-    /// let z = graph.input("z").with_dtype(DType::Complex).with_shape([4]).build();
+    /// let z = graph.input("z", DType::Complex, [4]);
     /// let im = z.imag();  // 虚部（F32）
     /// assert_eq!(im.dtype, DType::F32);
     /// ```
@@ -421,8 +395,8 @@ impl GraphNode {
     /// use harp::graph::{Graph, GraphNode, DType};
     ///
     /// let mut graph = Graph::new();
-    /// let re = graph.input("re").with_dtype(DType::F32).with_shape([4]).build();
-    /// let im = graph.input("im").with_dtype(DType::F32).with_shape([4]).build();
+    /// let re = graph.input("re", DType::F32, [4]);
+    /// let im = graph.input("im", DType::F32, [4]);
     /// let z = GraphNode::complex_from_parts(re, im);
     /// assert_eq!(z.dtype, DType::Complex);
     /// ```
@@ -552,8 +526,8 @@ impl GraphNode {
     /// use harp::prelude::*;
     ///
     /// let mut graph = Graph::new();
-    /// let a = graph.input("a").with_dtype(DType::F32).with_shape([2, 3]).build();
-    /// let b = graph.input("b").with_dtype(DType::F32).with_shape([2, 5]).build();
+    /// let a = graph.input("a", DType::F32, [2, 3]);
+    /// let b = graph.input("b", DType::F32, [2, 5]);
     ///
     /// // axis=1で結合: [2, 3] + [2, 5] => [2, 8]
     /// let c = GraphNode::concat(vec![a, b], 1);
@@ -573,8 +547,8 @@ impl GraphNode {
     /// use harp::prelude::*;
     ///
     /// let mut graph = Graph::new();
-    /// let a = graph.input("a").with_dtype(DType::F32).with_shape([2, 3]).build();
-    /// let b = graph.input("b").with_dtype(DType::F32).with_shape([2, 5]).build();
+    /// let a = graph.input("a", DType::F32, [2, 3]);
+    /// let b = graph.input("b", DType::F32, [2, 5]);
     ///
     /// // axis=1で結合: [2, 3] + [2, 5] => [2, 8]
     /// let c = a.cat(b, 1);

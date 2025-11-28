@@ -9,10 +9,7 @@ mod tests {
     fn test_history_creation() {
         let mut graph = Graph::new();
         let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
+            .input("x", DType::F32, vec![10]);
 
         let history = OptimizationHistory::new(graph.clone());
         assert_eq!(history.steps().len(), 0);
@@ -22,10 +19,7 @@ mod tests {
     fn test_history_add_step() {
         let mut graph = Graph::new();
         let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
+            .input("x", DType::F32, vec![10]);
         graph.output("y", x);
 
         let mut history = OptimizationHistory::new(graph.clone());
@@ -43,10 +37,7 @@ mod tests {
     fn test_history_best_graph() {
         let mut graph = Graph::new();
         let x = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
+            .input("x", DType::F32, vec![10]);
         graph.output("y", x);
 
         let mut history = OptimizationHistory::new(graph.clone());

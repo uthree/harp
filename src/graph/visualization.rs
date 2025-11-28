@@ -125,21 +125,13 @@ mod tests {
 
         // グラフ1: 出力順序 "a", "b"
         let mut graph1 = Graph::new();
-        let input1 = graph1
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
+        let input1 = graph1.input("x", DType::F32, vec![10]);
         graph1.output("a", input1.clone());
         graph1.output("b", input1.clone());
 
         // グラフ2: 出力順序 "b", "a"
         let mut graph2 = Graph::new();
-        let input2 = graph2
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
+        let input2 = graph2.input("x", DType::F32, vec![10]);
         graph2.output("b", input2.clone());
         graph2.output("a", input2.clone());
 
@@ -157,11 +149,7 @@ mod tests {
     fn test_to_dot_multiple_outputs_sorted() {
         // 複数の出力ノードが名前順でソートされることを確認
         let mut graph = Graph::new();
-        let input = graph
-            .input("x")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
+        let input = graph.input("x", DType::F32, vec![10]);
 
         // 意図的に非アルファベット順で追加
         graph.output("zebra", input.clone());

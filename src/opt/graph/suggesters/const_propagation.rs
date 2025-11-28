@@ -425,11 +425,7 @@ mod tests {
         let suggester = ConstPropagationSuggester::new();
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
 
         // スカラー定数は自動的にブロードキャストされる
         // a + const
@@ -450,17 +446,9 @@ mod tests {
         let suggester = ConstPropagationSuggester::new();
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
 
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let b = graph.input("b", DType::F32, vec![10, 20]);
 
         // 定数がない場合
         let result = a + b;
@@ -477,11 +465,7 @@ mod tests {
         let suggester = ConstPropagationSuggester::new();
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
 
         // 定数演算（スカラー定数は自動的にブロードキャストされる）
         // 2.0 * 3.0 = 6.0

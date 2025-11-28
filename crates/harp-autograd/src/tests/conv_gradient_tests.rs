@@ -249,11 +249,7 @@ fn test_conv1d_backward_groups() {
 
     // Kernelはcontiguousである必要があるため、expandではなく直接作成
     let mut kernel_graph = harp::graph::Graph::new();
-    let kernel_node = kernel_graph
-        .input("kernel")
-        .with_dtype(harp::graph::DType::F32)
-        .with_shape(vec![2, 1, 3])
-        .build();
+    let kernel_node = kernel_graph.input("kernel", harp::graph::DType::F32, vec![2, 1, 3]);
 
     let kernel = Tensor::from_graph_node(kernel_node, true);
 
@@ -299,11 +295,7 @@ fn test_conv2d_backward_groups() {
 
     // Kernelはcontiguousである必要があるため、expandではなく直接作成
     let mut kernel_graph = harp::graph::Graph::new();
-    let kernel_node = kernel_graph
-        .input("kernel")
-        .with_dtype(harp::graph::DType::F32)
-        .with_shape(vec![2, 1, 2, 2])
-        .build();
+    let kernel_node = kernel_graph.input("kernel", harp::graph::DType::F32, vec![2, 1, 2, 2]);
 
     let kernel = Tensor::from_graph_node(kernel_node, true);
 
@@ -349,11 +341,7 @@ fn test_conv2d_backward_groups_stride() {
 
     // Kernel: (C_out=4, C_in/groups=2, kH=3, kW=3)
     let mut kernel_graph = harp::graph::Graph::new();
-    let kernel_node = kernel_graph
-        .input("kernel")
-        .with_dtype(harp::graph::DType::F32)
-        .with_shape(vec![4, 2, 3, 3])
-        .build();
+    let kernel_node = kernel_graph.input("kernel", harp::graph::DType::F32, vec![4, 2, 3, 3]);
 
     let kernel = Tensor::from_graph_node(kernel_node, true);
 
@@ -404,11 +392,7 @@ fn test_conv2d_backward_groups_dilation() {
 
     // Kernel: (C_out=4, C_in/groups=2, kH=3, kW=3)
     let mut kernel_graph = harp::graph::Graph::new();
-    let kernel_node = kernel_graph
-        .input("kernel")
-        .with_dtype(harp::graph::DType::F32)
-        .with_shape(vec![4, 2, 3, 3])
-        .build();
+    let kernel_node = kernel_graph.input("kernel", harp::graph::DType::F32, vec![4, 2, 3, 3]);
 
     let kernel = Tensor::from_graph_node(kernel_node, true);
 
@@ -462,11 +446,7 @@ fn test_conv_transpose2d_backward_simple() {
 
     // Kernel: (C_in=2, C_out=4, kH=2, kW=2)
     let mut kernel_graph = harp::graph::Graph::new();
-    let kernel_node = kernel_graph
-        .input("kernel")
-        .with_dtype(harp::graph::DType::F32)
-        .with_shape(vec![2, 4, 2, 2])
-        .build();
+    let kernel_node = kernel_graph.input("kernel", harp::graph::DType::F32, vec![2, 4, 2, 2]);
 
     let kernel = Tensor::from_graph_node(kernel_node, true);
 
@@ -514,11 +494,7 @@ fn test_conv_transpose2d_backward_stride() {
 
     // Kernel: (C_in=2, C_out=4, kH=3, kW=3)
     let mut kernel_graph = harp::graph::Graph::new();
-    let kernel_node = kernel_graph
-        .input("kernel")
-        .with_dtype(harp::graph::DType::F32)
-        .with_shape(vec![2, 4, 3, 3])
-        .build();
+    let kernel_node = kernel_graph.input("kernel", harp::graph::DType::F32, vec![2, 4, 3, 3]);
 
     let kernel = Tensor::from_graph_node(kernel_node, true);
 
@@ -569,11 +545,7 @@ fn test_conv_transpose2d_backward_groups() {
 
     // Kernel: (C_in=4, C_out/groups=2, kH=2, kW=2)
     let mut kernel_graph = harp::graph::Graph::new();
-    let kernel_node = kernel_graph
-        .input("kernel")
-        .with_dtype(harp::graph::DType::F32)
-        .with_shape(vec![4, 2, 2, 2])
-        .build();
+    let kernel_node = kernel_graph.input("kernel", harp::graph::DType::F32, vec![4, 2, 2, 2]);
 
     let kernel = Tensor::from_graph_node(kernel_node, true);
 
@@ -622,11 +594,7 @@ fn test_conv_transpose1d_backward_simple() {
 
     // Kernel: (C_in=2, C_out=3, k=3)
     let mut kernel_graph = harp::graph::Graph::new();
-    let kernel_node = kernel_graph
-        .input("kernel")
-        .with_dtype(harp::graph::DType::F32)
-        .with_shape(vec![2, 3, 3])
-        .build();
+    let kernel_node = kernel_graph.input("kernel", harp::graph::DType::F32, vec![2, 3, 3]);
 
     let kernel = Tensor::from_graph_node(kernel_node, true);
 
@@ -672,11 +640,7 @@ fn test_conv_transpose1d_backward_stride() {
 
     // Kernel: (C_in=2, C_out=3, k=3)
     let mut kernel_graph = harp::graph::Graph::new();
-    let kernel_node = kernel_graph
-        .input("kernel")
-        .with_dtype(harp::graph::DType::F32)
-        .with_shape(vec![2, 3, 3])
-        .build();
+    let kernel_node = kernel_graph.input("kernel", harp::graph::DType::F32, vec![2, 3, 3]);
 
     let kernel = Tensor::from_graph_node(kernel_node, true);
 
@@ -725,11 +689,7 @@ fn test_conv_transpose1d_backward_groups() {
 
     // Kernel: (C_in=4, C_out/groups=2, k=3)
     let mut kernel_graph = harp::graph::Graph::new();
-    let kernel_node = kernel_graph
-        .input("kernel")
-        .with_dtype(harp::graph::DType::F32)
-        .with_shape(vec![4, 2, 3])
-        .build();
+    let kernel_node = kernel_graph.input("kernel", harp::graph::DType::F32, vec![4, 2, 3]);
 
     let kernel = Tensor::from_graph_node(kernel_node, true);
 
@@ -782,11 +742,7 @@ fn test_conv_transpose3d_backward_simple() {
 
     // Kernel: (C_in=2, C_out=3, kD=2, kH=2, kW=2)
     let mut kernel_graph = harp::graph::Graph::new();
-    let kernel_node = kernel_graph
-        .input("kernel")
-        .with_dtype(harp::graph::DType::F32)
-        .with_shape(vec![2, 3, 2, 2, 2])
-        .build();
+    let kernel_node = kernel_graph.input("kernel", harp::graph::DType::F32, vec![2, 3, 2, 2, 2]);
 
     let kernel = Tensor::from_graph_node(kernel_node, true);
 
@@ -836,11 +792,7 @@ fn test_conv_transpose3d_backward_stride() {
 
     // Kernel: (C_in=2, C_out=3, kD=2, kH=2, kW=2)
     let mut kernel_graph = harp::graph::Graph::new();
-    let kernel_node = kernel_graph
-        .input("kernel")
-        .with_dtype(harp::graph::DType::F32)
-        .with_shape(vec![2, 3, 2, 2, 2])
-        .build();
+    let kernel_node = kernel_graph.input("kernel", harp::graph::DType::F32, vec![2, 3, 2, 2, 2]);
 
     let kernel = Tensor::from_graph_node(kernel_node, true);
 
@@ -893,11 +845,7 @@ fn test_conv_transpose3d_backward_groups() {
 
     // Kernel: (C_in=4, C_out/groups=2, kD=2, kH=2, kW=2)
     let mut kernel_graph = harp::graph::Graph::new();
-    let kernel_node = kernel_graph
-        .input("kernel")
-        .with_dtype(harp::graph::DType::F32)
-        .with_shape(vec![4, 2, 2, 2, 2])
-        .build();
+    let kernel_node = kernel_graph.input("kernel", harp::graph::DType::F32, vec![4, 2, 2, 2, 2]);
 
     let kernel = Tensor::from_graph_node(kernel_node, true);
 

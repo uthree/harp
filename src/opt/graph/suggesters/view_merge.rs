@@ -434,17 +434,9 @@ mod tests {
         let suggester = ViewMergeSuggester::new();
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
 
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let b = graph.input("b", DType::F32, vec![10, 20]);
 
         // a + b を計算
         let sum = a.clone() + b.clone();
@@ -477,17 +469,9 @@ mod tests {
         let suggester = ViewMergeSuggester::new();
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![2, 3, 4])
-            .build();
+        let a = graph.input("a", DType::F32, vec![2, 3, 4]);
 
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![2, 3, 4])
-            .build();
+        let b = graph.input("b", DType::F32, vec![2, 3, 4]);
 
         let sum = a + b;
 
@@ -510,11 +494,7 @@ mod tests {
         let suggester = ViewMergeSuggester::new();
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
 
         // Inputノードに直接Viewを適用
         let permuted = a.view(a.view.clone().permute(vec![1, 0]));
@@ -547,17 +527,9 @@ mod tests {
         let suggester = ViewMergeSuggester::new();
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
 
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![20, 10])
-            .build();
+        let b = graph.input("b", DType::F32, vec![20, 10]);
 
         // aをpermuteしてbと同じshapeにする
         let a_permuted = a.view(a.view.clone().permute(vec![1, 0]));
@@ -594,11 +566,7 @@ mod tests {
         let suggester = ViewMergeSuggester::new();
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10]);
 
         // unsqueezeでshapeを変更: [10] -> [1, 10]
         let unsqueezed = a.view(a.view.clone().unsqueeze(0));
@@ -625,27 +593,15 @@ mod tests {
         let suggester = ViewMergeSuggester::new();
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
 
         // aに対してViewを適用
         let a_permuted = a.view(a.view.clone().permute(vec![1, 0]));
 
         // a_permutedを2つの異なる演算で使用（複数の被参照）
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![20, 10])
-            .build();
+        let b = graph.input("b", DType::F32, vec![20, 10]);
 
-        let c = graph
-            .input("c")
-            .with_dtype(DType::F32)
-            .with_shape(vec![20, 10])
-            .build();
+        let c = graph.input("c", DType::F32, vec![20, 10]);
 
         // a_permutedが2つのノードから参照される
         let sum1 = a_permuted.clone() + b;
@@ -669,28 +625,16 @@ mod tests {
         let suggester = ViewMergeSuggester::new();
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
 
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let b = graph.input("b", DType::F32, vec![10, 20]);
 
         // a + bの結果に対してViewを適用
         let sum = a.clone() + b.clone();
         let sum_permuted = sum.view(sum.view.clone().permute(vec![1, 0]));
 
         // sumを他の演算でも使用（複数の被参照）
-        let c = graph
-            .input("c")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let c = graph.input("c", DType::F32, vec![10, 20]);
         let sum2 = sum.clone() + c;
 
         graph.output("result1", sum_permuted);

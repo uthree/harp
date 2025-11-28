@@ -424,17 +424,9 @@ mod tests {
         let estimator = SimpleCostEstimator::new();
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
 
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let b = graph.input("b", DType::F32, vec![10, 20]);
 
         let c = a + b;
         graph.output("c", c);
@@ -450,30 +442,14 @@ mod tests {
 
         // 小さいグラフ
         let mut graph1 = Graph::new();
-        let a1 = graph1
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
-        let b1 = graph1
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
+        let a1 = graph1.input("a", DType::F32, vec![10]);
+        let b1 = graph1.input("b", DType::F32, vec![10]);
         graph1.output("c", a1 + b1);
 
         // 大きいグラフ
         let mut graph2 = Graph::new();
-        let a2 = graph2
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![1000])
-            .build();
-        let b2 = graph2
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![1000])
-            .build();
+        let a2 = graph2.input("a", DType::F32, vec![1000]);
+        let b2 = graph2.input("b", DType::F32, vec![1000]);
         graph2.output("c", a2 + b2);
 
         let cost1 = estimator.estimate(&graph1);
@@ -489,35 +465,15 @@ mod tests {
 
         // 少ないノード (3ノード: a, b, c)
         let mut graph1 = Graph::new();
-        let a1 = graph1
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![100])
-            .build();
-        let b1 = graph1
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![100])
-            .build();
+        let a1 = graph1.input("a", DType::F32, vec![100]);
+        let b1 = graph1.input("b", DType::F32, vec![100]);
         graph1.output("c", a1 + b1);
 
         // 多いノード (5ノード: a, b, c, d, e)
         let mut graph2 = Graph::new();
-        let a2 = graph2
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![100])
-            .build();
-        let b2 = graph2
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![100])
-            .build();
-        let c2 = graph2
-            .input("c")
-            .with_dtype(DType::F32)
-            .with_shape(vec![100])
-            .build();
+        let a2 = graph2.input("a", DType::F32, vec![100]);
+        let b2 = graph2.input("b", DType::F32, vec![100]);
+        let c2 = graph2.input("c", DType::F32, vec![100]);
         let d2 = a2 + b2;
         let e2 = d2 * c2;
         graph2.output("out", e2);
@@ -535,16 +491,8 @@ mod tests {
         let estimator_with_penalty = SimpleCostEstimator::new().with_node_count_penalty(10.0);
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![100])
-            .build();
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![100])
-            .build();
+        let a = graph.input("a", DType::F32, vec![100]);
+        let b = graph.input("b", DType::F32, vec![100]);
         graph.output("c", a + b);
 
         let cost_no_penalty = estimator_no_penalty.estimate(&graph);
@@ -653,17 +601,9 @@ mod ast_based_tests {
         let estimator = AstBasedCostEstimator::new(ast_estimator);
 
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
 
-        let b = graph
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let b = graph.input("b", DType::F32, vec![10, 20]);
 
         let c = a + b;
         graph.output("c", c);
@@ -680,30 +620,14 @@ mod ast_based_tests {
 
         // 小さいグラフ（10要素）
         let mut graph1 = Graph::new();
-        let a1 = graph1
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
-        let b1 = graph1
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
+        let a1 = graph1.input("a", DType::F32, vec![10]);
+        let b1 = graph1.input("b", DType::F32, vec![10]);
         graph1.output("c", a1 + b1);
 
         // 大きいグラフ（1000要素）- 生成されるASTは同じ構造
         let mut graph2 = Graph::new();
-        let a2 = graph2
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![1000])
-            .build();
-        let b2 = graph2
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![1000])
-            .build();
+        let a2 = graph2.input("a", DType::F32, vec![1000]);
+        let b2 = graph2.input("b", DType::F32, vec![1000]);
         graph2.output("c", a2 + b2);
 
         let log_cost1 = estimator.estimate(&graph1);
@@ -737,35 +661,15 @@ mod ast_based_tests {
 
         // 単一演算
         let mut graph1 = Graph::new();
-        let a1 = graph1
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![100])
-            .build();
-        let b1 = graph1
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![100])
-            .build();
+        let a1 = graph1.input("a", DType::F32, vec![100]);
+        let b1 = graph1.input("b", DType::F32, vec![100]);
         graph1.output("c", a1 + b1);
 
         // 複数演算（a + b） * c
         let mut graph2 = Graph::new();
-        let a2 = graph2
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![100])
-            .build();
-        let b2 = graph2
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![100])
-            .build();
-        let c2 = graph2
-            .input("c")
-            .with_dtype(DType::F32)
-            .with_shape(vec![100])
-            .build();
+        let a2 = graph2.input("a", DType::F32, vec![100]);
+        let b2 = graph2.input("b", DType::F32, vec![100]);
+        let c2 = graph2.input("c", DType::F32, vec![100]);
         let add = a2 + b2;
         let mul = add * c2;
         graph2.output("out", mul);
@@ -784,35 +688,15 @@ mod ast_based_tests {
 
         // 少ないノード (3ノード: a, b, c)
         let mut graph1 = Graph::new();
-        let a1 = graph1
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![100])
-            .build();
-        let b1 = graph1
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![100])
-            .build();
+        let a1 = graph1.input("a", DType::F32, vec![100]);
+        let b1 = graph1.input("b", DType::F32, vec![100]);
         graph1.output("c", a1 + b1);
 
         // 多いノード (5ノード: a, b, c, d, e)
         let mut graph2 = Graph::new();
-        let a2 = graph2
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![100])
-            .build();
-        let b2 = graph2
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![100])
-            .build();
-        let c2 = graph2
-            .input("c")
-            .with_dtype(DType::F32)
-            .with_shape(vec![100])
-            .build();
+        let a2 = graph2.input("a", DType::F32, vec![100]);
+        let b2 = graph2.input("b", DType::F32, vec![100]);
+        let c2 = graph2.input("c", DType::F32, vec![100]);
         let d2 = a2 + b2;
         let e2 = d2 * c2;
         graph2.output("out", e2);
@@ -839,30 +723,14 @@ mod ast_based_tests {
 
         // Viewノードなし
         let mut graph1 = Graph::new();
-        let a1 = graph1
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
-        let b1 = graph1
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let a1 = graph1.input("a", DType::F32, vec![10, 20]);
+        let b1 = graph1.input("b", DType::F32, vec![10, 20]);
         graph1.output("c", a1 + b1);
 
         // Viewノードあり（転置を追加）
         let mut graph2 = Graph::new();
-        let a2 = graph2
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
-        let b2 = graph2
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10, 20])
-            .build();
+        let a2 = graph2.input("a", DType::F32, vec![10, 20]);
+        let b2 = graph2.input("b", DType::F32, vec![10, 20]);
 
         // a, bを転置
         let a2_t = a2.view(a2.view.clone().permute(vec![1, 0]));
@@ -892,34 +760,14 @@ mod ast_based_tests {
             AstBasedCostEstimator::new(AstSimpleCostEstimator::new()).with_node_count_penalty(10.0);
 
         let mut graph1 = Graph::new();
-        let a1 = graph1
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![100])
-            .build();
-        let b1 = graph1
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![100])
-            .build();
+        let a1 = graph1.input("a", DType::F32, vec![100]);
+        let b1 = graph1.input("b", DType::F32, vec![100]);
         graph1.output("c", a1 + b1);
 
         let mut graph2 = Graph::new();
-        let a2 = graph2
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![100])
-            .build();
-        let b2 = graph2
-            .input("b")
-            .with_dtype(DType::F32)
-            .with_shape(vec![100])
-            .build();
-        let c2 = graph2
-            .input("c")
-            .with_dtype(DType::F32)
-            .with_shape(vec![100])
-            .build();
+        let a2 = graph2.input("a", DType::F32, vec![100]);
+        let b2 = graph2.input("b", DType::F32, vec![100]);
+        let c2 = graph2.input("c", DType::F32, vec![100]);
         let d2 = a2 + b2;
         let e2 = d2 * c2;
         graph2.output("out", e2);

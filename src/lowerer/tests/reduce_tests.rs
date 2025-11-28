@@ -8,11 +8,7 @@ fn test_lower_reduce_sum_1d() {
 
     // 1次元テンソルの合計（スカラーに縮約）
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10])
-        .build();
+    let a = graph.input("a", GraphDType::F32, vec![10]);
     let result = a.reduce_sum(0);
 
     // カーネル関数を生成
@@ -57,11 +53,7 @@ fn test_lower_reduce_sum_2d() {
 
     // 2次元テンソルの軸1方向の合計
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![3, 4])
-        .build();
+    let a = graph.input("a", GraphDType::F32, vec![3, 4]);
     let result = a.reduce_sum(1); // (3, 4) -> (3,)
 
     // カーネル関数を生成
@@ -98,11 +90,7 @@ fn test_lower_reduce_sum_axis0() {
 
     // 2次元テンソルの軸0方向の合計
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![3, 4])
-        .build();
+    let a = graph.input("a", GraphDType::F32, vec![3, 4]);
     let result = a.reduce_sum(0); // (3, 4) -> (4,)
 
     // カーネル関数を生成
@@ -137,11 +125,7 @@ fn test_lower_reduce_max() {
 
     // 1次元テンソルの最大値（スカラーに縮約）
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10])
-        .build();
+    let a = graph.input("a", GraphDType::F32, vec![10]);
     let result = a.reduce_max(0);
 
     // カーネル関数を生成
@@ -178,11 +162,7 @@ fn test_lower_reduce_mul() {
 
     // 2次元テンソルの積縮約
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![5, 6])
-        .build();
+    let a = graph.input("a", GraphDType::F32, vec![5, 6]);
     let result = a.reduce_mul(1); // (5, 6) -> (5,)
 
     // カーネル関数を生成
@@ -217,11 +197,7 @@ fn test_lower_reduce_3d() {
 
     // 3次元テンソルの縮約
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![2, 3, 4])
-        .build();
+    let a = graph.input("a", GraphDType::F32, vec![2, 3, 4]);
     let result = a.reduce_sum(1); // (2, 3, 4) -> (2, 4)
 
     // カーネル関数を生成

@@ -7,21 +7,9 @@ fn test_lower_fused_elementwise() {
 
     // (a + b) * c を融合ノードとして生成
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10])
-        .build();
-    let c = graph
-        .input("c")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10])
-        .build();
+    let a = graph.input("a", GraphDType::F32, vec![10]);
+    let b = graph.input("b", GraphDType::F32, vec![10]);
+    let c = graph.input("c", GraphDType::F32, vec![10]);
 
     // 融合演算を定義: (Wildcard("0") + Wildcard("1")) * Wildcard("2")
     let expr = (wildcard("0") + wildcard("1")) * wildcard("2");
@@ -65,16 +53,8 @@ fn test_lower_fused_elementwise_reduce() {
 
     // reduce_sum(a * b, axis=0) を融合ノードとして生成
     let mut graph = Graph::new();
-    let a = graph
-        .input("a")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10, 20])
-        .build();
-    let b = graph
-        .input("b")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![10, 20])
-        .build();
+    let a = graph.input("a", GraphDType::F32, vec![10, 20]);
+    let b = graph.input("b", GraphDType::F32, vec![10, 20]);
 
     // 融合演算を定義: Wildcard("0") * Wildcard("1")
     let expr = wildcard("0") * wildcard("1");
@@ -117,11 +97,7 @@ fn test_lower_fused_elementwise_cumulative() {
 
     // cumsum(x^2) を融合ノードとして生成
     let mut graph = Graph::new();
-    let x = graph
-        .input("x")
-        .with_dtype(GraphDType::F32)
-        .with_shape(vec![4, 8])
-        .build();
+    let x = graph.input("x", GraphDType::F32, vec![4, 8]);
 
     // 融合演算を定義: Wildcard("0") * Wildcard("0") (二乗)
     let expr = wildcard("0") * wildcard("0");

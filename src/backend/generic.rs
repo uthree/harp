@@ -510,11 +510,7 @@ mod tests {
 
         // シンプルなグラフを作成
         let mut graph = Graph::new();
-        let a = graph
-            .input("a")
-            .with_dtype(DType::F32)
-            .with_shape(vec![10])
-            .build();
+        let a = graph.input("a", DType::F32, vec![10]);
         graph.output("out", a);
 
         // コンパイルしてキャッシュ
@@ -536,11 +532,7 @@ mod tests {
         // 複数のグラフをキャッシュ
         for i in 0..3 {
             let mut graph = Graph::new();
-            let a = graph
-                .input("a")
-                .with_dtype(DType::F32)
-                .with_shape(vec![10])
-                .build();
+            let a = graph.input("a", DType::F32, vec![10]);
             graph.output("out", a);
 
             let key = format!("key_{}", i);
@@ -568,11 +560,7 @@ mod tests {
         // 同じキーで2回キャッシュ
         for _ in 0..2 {
             let mut graph = Graph::new();
-            let a = graph
-                .input("a")
-                .with_dtype(DType::F32)
-                .with_shape(vec![10])
-                .build();
+            let a = graph.input("a", DType::F32, vec![10]);
             graph.output("out", a);
 
             pipeline
