@@ -615,8 +615,18 @@ impl Lowerer {
         )
     }
 
-    /// GraphNodeを一つのカーネル関数に変換（最も単純なケース）
-    /// 前提：contiguous, 全軸Sequential, SIMD未使用
+    /// GraphNodeを一つのカーネル関数に変換
+    ///
+    /// ## 新しいアーキテクチャ
+    /// LoweringSuggesterがグラフ最適化中にGraphOpをCustomノードに変換するため、
+    /// 最適化後のグラフでは多くのノードがCustomになっています。
+    ///
+    /// - **Custom nodes**: `lower_custom_function`で処理（推奨パス）
+    /// - **Other nodes**: フォールバックとして従来のlowering処理を使用
+    ///
+    /// フォールバックは以下の場合に使用されます：
+    /// - LoweringSuggesterがまだサポートしていない操作（Pad, Concat, Fold等）
+    /// - ビームサーチが収束前に終了した場合
     pub fn lower_node_to_kernel(
         &mut self,
         node: &GraphNode,
