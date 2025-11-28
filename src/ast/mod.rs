@@ -559,6 +559,33 @@ impl AstNode {
             _ => self.map_children(&|child| child.substitute(mappings)),
         }
     }
+
+    /// 変数ノード（Var）を指定されたマッピングで置換します。
+    ///
+    /// マッピングに含まれる変数名に一致するVarノードを、対応するAstNodeに置換します。
+    /// Wildcardも同時に置換されます。
+    pub fn substitute_vars(
+        &self,
+        mappings: &std::collections::HashMap<String, AstNode>,
+    ) -> AstNode {
+        match self {
+            AstNode::Var(name) => {
+                if let Some(replacement) = mappings.get(name) {
+                    replacement.clone()
+                } else {
+                    self.clone()
+                }
+            }
+            AstNode::Wildcard(name) => {
+                if let Some(replacement) = mappings.get(name) {
+                    replacement.clone()
+                } else {
+                    self.clone()
+                }
+            }
+            _ => self.map_children(&|child| child.substitute_vars(mappings)),
+        }
+    }
 }
 
 #[cfg(test)]

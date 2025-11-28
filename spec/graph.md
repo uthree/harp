@@ -238,14 +238,31 @@ let ints = float_tensor.cast(DType::I32);
 
 ## カスタム演算（Custom）
 
-任意のASTノードを埋め込むことで、柔軟な演算定義を可能にします。tinygradのUOps設計を参考にしており、**段階的なノード融合とlowering**をサポートします。
+任意の`AstNode::Function`を埋め込むことで、柔軟な演算定義を可能にします。tinygradのUOps設計を参考にしており、**段階的なノード融合とlowering**をサポートします。
 
-### CustomKind
+### 設計原則
 
-カスタム演算の種類を示します：
-- `Elementwise`: 要素ごとの演算（FusedElementwiseと同等のloweringを使用）
-- `Reduce { reduce_op, axis }`: 削減演算（FusedElementwiseReduceと同等のloweringを使用）
-- `Cumulative { cumulative_op, axis }`: 累積演算（FusedElementwiseCumulativeと同等のloweringを使用）
+「1つのGraphノード = 1つの関数」の原則に従い、`GraphOp::Custom`は完全な`AstNode::Function`を保持します。これにより：
+- Lowering時に関数をほぼパススルーで使用
+- 複雑な融合パターンも統一的に表現
+- 最適化パスでの扱いが容易
+
+### プレースホルダー変数
+
+カスタム関数内では以下のプレースホルダー変数を使用します（`custom_placeholders`モジュール）：
+- `input0`, `input1`, ... : 入力バッファへのポインタ
+- `output` : 出力バッファへのポインタ
+- `shape0`, `shape1`, ... : 各軸のサイズ
+- `ridx0`, `ridx1`, ... : ループインデックス変数
+
+これらはLowering時に実際の値に置換されます。
+
+### custom_builder モジュール
+
+`custom_builder`モジュールは、高レベルな式から完全な関数テンプレートを生成します：
+- `build_elementwise_function(ndim, num_inputs, expr)`: Elementwise関数を生成
+- `build_reduce_function(ndim, num_inputs, axis, reduce_op, expr)`: Reduce関数を生成
+- `build_cumulative_function(ndim, num_inputs, axis, cum_op, expr)`: Cumulative関数を生成
 
 ### 使用例
 
@@ -276,6 +293,32 @@ let custom = GraphNode::custom_reduce(inputs, expr, ReduceOp::Sum, 0);
 let inputs = vec![a.clone(), b.clone()];
 let expr = wildcard("0") * wildcard("1");  // (a * b).cumsum(axis)
 let custom = GraphNode::custom_cumulative(inputs, expr, CumulativeOp::Sum, 1);
+
+// 完全な関数を直接指定
+use harp::ast::{DType as AstDType, FunctionKind, Scope, helper::*};
+use harp::graph::custom_placeholders as ph;
+
+let func = function(
+    None::<String>,
+    FunctionKind::Normal,
+    vec![],
+    AstDType::Tuple(vec![]),
+    range(
+        ph::ridx(0),
+        const_int(0),
+        const_int(1),
+        var(ph::shape(0)),
+        block(vec![
+            store(
+                var(ph::OUTPUT),
+                var(ph::ridx(0)),
+                load(var(ph::input(0)), var(ph::ridx(0)), AstDType::F32)
+                  * load(var(ph::input(0)), var(ph::ridx(0)), AstDType::F32),
+            ),
+        ], Scope::new()),
+    ),
+);
+let custom = x.custom_function(func);
 ```
 
 ### 段階的ノード融合
@@ -288,7 +331,7 @@ a + b -> temp
 temp * c -> result
 
 // 最適化後（CustomFusionSuggester適用）
-Custom { ast: (W("0") + W("1")) * W("2"), inputs: [a, b, c] } -> result
+Custom { function: ... } -> result  // (W("0") + W("1")) * W("2") を表現する関数
 ```
 
 さらに、Elementwise→ReduceやElementwise→Cumulativeのパターンも融合されます：
@@ -299,7 +342,7 @@ a + b -> temp
 temp.reduce_sum(axis=1) -> result
 
 // 最適化後
-Custom { kind: Reduce, ast: W("0") + W("1"), reduce_op: Sum, axis: 1 } -> result
+Custom { function: ... } -> result  // W("0") + W("1") を累積するReduce関数
 ```
 
 これにより、中間バッファの削減とカーネル呼び出し回数の削減が可能です。

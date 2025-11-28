@@ -3,6 +3,7 @@ use std::{
     ops::Deref,
     rc::{Rc, Weak},
 };
+pub mod custom_builder;
 pub mod hlops;
 pub mod hlops_conv;
 pub mod node_view_ops;
@@ -12,7 +13,7 @@ pub mod strategy;
 pub mod visualization;
 
 // Re-export commonly used types
-pub use ops::{CumulativeOp, CustomKind, ElementwiseOp, GraphOp, ReduceOp};
+pub use ops::{CumulativeOp, ElementwiseOp, GraphOp, ReduceOp, custom_placeholders};
 pub use shape::{Expr, View};
 pub use strategy::{CumulativeStrategy, ElementwiseStrategy, ReduceStrategy};
 

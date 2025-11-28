@@ -99,37 +99,52 @@ pub enum GraphOp {
     ComplexFromParts {
         elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
     },
-    /// カスタムAST演算
+    /// カスタム関数演算
     ///
-    /// FusedElementwiseの一般化版。任意のASTノードを埋め込める。
-    /// ast内のWildcard("0"), Wildcard("1")等がsrc[0], src[1]に対応。
+    /// 完全なAstNode::Functionを保持し、lowering時にほぼパススルーで使用される。
+    /// 関数内ではプレースホルダー変数を使用（[`custom_placeholders`]参照）。
+    ///
+    /// # プレースホルダー変数
+    /// - `input0`, `input1`, ... : 入力バッファへのポインタ
+    /// - `output` : 出力バッファへのポインタ
+    /// - `shape0`, `shape1`, ... : 各軸のサイズ
+    /// - `ridx0`, `ridx1`, ... : ループインデックス変数
     ///
     /// # Example
     /// ```
     /// use harp::prelude::*;
-    /// use harp::ast::AstNode;
+    /// use harp::ast::{AstNode, DType as AstDType, FunctionKind, Scope, helper::*};
+    /// use harp::graph::ops::custom_placeholders as ph;
     ///
     /// let mut graph = Graph::new();
-    /// let x = graph.input("x", DType::F32, [10]);
+    /// let x = graph.input("x", DType::F32, vec![10]);
     ///
-    /// // cos(x) をカスタム演算として表現
-    /// let ast = AstNode::Call {
-    ///     name: "cos".to_string(),
-    ///     args: vec![AstNode::Wildcard("0".to_string())],
-    /// };
-    /// let y = x.custom_elementwise(ast);
+    /// // x^2 を計算するカスタム関数を構築
+    /// let func = function(
+    ///     None::<String>,  // 名前はlowering時に設定
+    ///     FunctionKind::Normal,
+    ///     vec![],  // パラメータはlowering時に設定
+    ///     AstDType::Tuple(vec![]),
+    ///     range(
+    ///         &ph::ridx(0),
+    ///         const_int(0),
+    ///         const_int(1),
+    ///         var(&ph::shape(0)),
+    ///         block(vec![
+    ///             store(
+    ///                 var(ph::OUTPUT),
+    ///                 var(&ph::ridx(0)),
+    ///                 load(var(&ph::input(0)), var(&ph::ridx(0)), AstDType::F32)
+    ///                   * load(var(&ph::input(0)), var(&ph::ridx(0)), AstDType::F32),
+    ///             ),
+    ///         ], Scope::new()),
+    ///     ),
+    /// );
+    /// let y = x.custom_function(func);
     /// ```
     Custom {
-        /// AST式（Wildcard("0"), Wildcard("1")等で入力を参照）
-        ast: crate::ast::AstNode,
-        /// 演算の種類（lowering方法の決定に使用）
-        kind: CustomKind,
-        /// elementwise演算の戦略
-        elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
-        /// reduce演算の戦略（kindがReduceの場合）
-        reduce_strategy: Option<ReduceStrategy>,
-        /// cumulative演算の戦略（kindがCumulativeの場合）
-        cumulative_strategy: Option<CumulativeStrategy>,
+        /// 完全な関数定義（AstNode::Functionを期待）
+        function: crate::ast::AstNode,
     },
 }
 
@@ -162,20 +177,33 @@ pub enum CumulativeOp {
     Prod, // 累積積（cumprod）
 }
 
-/// カスタム演算の種類
+/// カスタム関数で使用するプレースホルダー変数の規約
 ///
-/// GraphOp::Customのlowering方法を決定するために使用
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CustomKind {
-    /// 要素ごとの演算（FusedElementwiseと同等）
-    Elementwise,
-    /// Elementwise → Reduce パターン（FusedElementwiseReduceと同等）
-    Reduce { reduce_op: ReduceOp, axis: usize },
-    /// Elementwise → Cumulative パターン（FusedElementwiseCumulativeと同等）
-    Cumulative {
-        cumulative_op: CumulativeOp,
-        axis: usize,
-    },
+/// Custom関数内では以下のプレースホルダー変数を使用します：
+/// - `input0`, `input1`, ... : 入力バッファへのポインタ (src[0], src[1], ...)
+/// - `output` : 出力バッファへのポインタ
+/// - `shape0`, `shape1`, ... : 各軸のサイズ (node.view.shape()[0], [1], ...)
+/// - `ridx0`, `ridx1`, ... : ループインデックス変数
+///
+/// これらの変数は lowering 時に実際のパラメータにマッピングされます。
+pub mod custom_placeholders {
+    /// 入力バッファのプレースホルダー名を生成
+    pub fn input(index: usize) -> String {
+        format!("input{}", index)
+    }
+
+    /// 出力バッファのプレースホルダー名
+    pub const OUTPUT: &str = "output";
+
+    /// Shape変数のプレースホルダー名を生成
+    pub fn shape(axis: usize) -> String {
+        format!("shape{}", axis)
+    }
+
+    /// ループインデックス変数のプレースホルダー名を生成
+    pub fn ridx(axis: usize) -> String {
+        format!("ridx{}", axis)
+    }
 }
 
 // DTypeの推論：両方が同じならそれを使う、片方がUnknownなら他方を使う

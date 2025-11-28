@@ -5,9 +5,9 @@
 //! より高レベルな数学的演算や便利な演算を提供します。
 
 use crate::graph::GraphNode;
+use crate::graph::custom_builder;
 use crate::graph::ops::{
-    CumulativeOp, CustomKind, ElementwiseOp, GraphOp, ReduceOp, infer_dtype, infer_view, max,
-    recip, reduce_sum,
+    CumulativeOp, ElementwiseOp, GraphOp, ReduceOp, infer_dtype, infer_view, max, recip, reduce_sum,
 };
 
 impl GraphNode {
@@ -311,10 +311,66 @@ impl GraphNode {
     // カスタム演算
     // ============================================================================
 
+    /// カスタム関数演算を作成
+    ///
+    /// 完全なAstNode::Functionを直接指定してカスタム演算を定義します。
+    /// 関数内ではプレースホルダー変数（input0, output, shape0, ridx0等）を使用します。
+    ///
+    /// # Example
+    /// ```
+    /// use harp::prelude::*;
+    /// use harp::ast::{AstNode, DType as AstDType, FunctionKind, Scope, helper::*};
+    /// use harp::graph::custom_placeholders as ph;
+    ///
+    /// let mut graph = Graph::new();
+    /// let x = graph.input("x", DType::F32, vec![10]);
+    ///
+    /// // x^2 を計算するカスタム関数
+    /// let func = function(
+    ///     None::<String>,
+    ///     FunctionKind::Normal,
+    ///     vec![],
+    ///     AstDType::Tuple(vec![]),
+    ///     range(
+    ///         &ph::ridx(0),
+    ///         const_int(0),
+    ///         const_int(1),
+    ///         var(&ph::shape(0)),
+    ///         block(vec![
+    ///             store(
+    ///                 var(ph::OUTPUT),
+    ///                 var(&ph::ridx(0)),
+    ///                 load(var(&ph::input(0)), var(&ph::ridx(0)), AstDType::F32)
+    ///                   * load(var(&ph::input(0)), var(&ph::ridx(0)), AstDType::F32),
+    ///             ),
+    ///         ], Scope::new()),
+    ///     ),
+    /// );
+    /// let y = x.custom_function(func);
+    /// ```
+    pub fn custom_function(self, function: crate::ast::AstNode) -> Self {
+        let dtype = self.dtype.clone();
+        let view = self.view.clone();
+        GraphNode::new(dtype, GraphOp::Custom { function }, vec![self], view)
+    }
+
+    /// カスタム関数演算を複数入力で作成
+    pub fn custom_function_multi(inputs: Vec<Self>, function: crate::ast::AstNode) -> Self {
+        if inputs.is_empty() {
+            panic!("custom_function_multi requires at least one input");
+        }
+
+        let dtype = inputs[0].dtype.clone();
+        let view = inputs[0].view.clone();
+
+        GraphNode::new(dtype, GraphOp::Custom { function }, inputs, view)
+    }
+
     /// カスタムAST単項演算を作成
     ///
-    /// 任意のASTノードを使って要素ごとの演算を定義できます。
+    /// 任意のASTノード（式）を使って要素ごとの演算を定義できます。
     /// AST内の`Wildcard("0")`が入力（self）に対応します。
+    /// 内部的に完全な関数に変換されます。
     ///
     /// # Example
     /// ```
@@ -331,21 +387,14 @@ impl GraphNode {
     /// };
     /// let y = x.custom_elementwise(ast);
     /// ```
-    pub fn custom_elementwise(self, ast: crate::ast::AstNode) -> Self {
+    pub fn custom_elementwise(self, expr: crate::ast::AstNode) -> Self {
         let dtype = self.dtype.clone();
         let view = self.view.clone();
-        GraphNode::new(
-            dtype,
-            GraphOp::Custom {
-                ast,
-                kind: CustomKind::Elementwise,
-                elementwise_strategies: None,
-                reduce_strategy: None,
-                cumulative_strategy: None,
-            },
-            vec![self],
-            view,
-        )
+        let ndim = view.shape().len();
+
+        let function = custom_builder::build_elementwise_function(ndim, 1, expr);
+
+        GraphNode::new(dtype, GraphOp::Custom { function }, vec![self], view)
     }
 
     /// カスタムAST二項演算を作成
@@ -372,21 +421,14 @@ impl GraphNode {
     /// };
     /// let z = x.custom_elementwise_binary(y, ast);
     /// ```
-    pub fn custom_elementwise_binary(self, other: Self, ast: crate::ast::AstNode) -> Self {
+    pub fn custom_elementwise_binary(self, other: Self, expr: crate::ast::AstNode) -> Self {
         let dtype = infer_dtype(&self.dtype, &other.dtype);
         let view = infer_view(&self.view, &other.view);
-        GraphNode::new(
-            dtype,
-            GraphOp::Custom {
-                ast,
-                kind: CustomKind::Elementwise,
-                elementwise_strategies: None,
-                reduce_strategy: None,
-                cumulative_strategy: None,
-            },
-            vec![self, other],
-            view,
-        )
+        let ndim = view.shape().len();
+
+        let function = custom_builder::build_elementwise_function(ndim, 2, expr);
+
+        GraphNode::new(dtype, GraphOp::Custom { function }, vec![self, other], view)
     }
 
     /// カスタムAST多入力演算を作成
@@ -414,27 +456,19 @@ impl GraphNode {
     /// );
     /// let result = GraphNode::custom_elementwise_multi(vec![a, b, c], ast);
     /// ```
-    pub fn custom_elementwise_multi(inputs: Vec<Self>, ast: crate::ast::AstNode) -> Self {
+    pub fn custom_elementwise_multi(inputs: Vec<Self>, expr: crate::ast::AstNode) -> Self {
         if inputs.is_empty() {
             panic!("custom_elementwise_multi requires at least one input");
         }
 
-        // DTypeとViewは最初の入力から継承（全入力が同じshapeであることを前提）
         let dtype = inputs[0].dtype.clone();
         let view = inputs[0].view.clone();
+        let ndim = view.shape().len();
+        let num_inputs = inputs.len();
 
-        GraphNode::new(
-            dtype,
-            GraphOp::Custom {
-                ast,
-                kind: CustomKind::Elementwise,
-                elementwise_strategies: None,
-                reduce_strategy: None,
-                cumulative_strategy: None,
-            },
-            inputs,
-            view,
-        )
+        let function = custom_builder::build_elementwise_function(ndim, num_inputs, expr);
+
+        GraphNode::new(dtype, GraphOp::Custom { function }, inputs, view)
     }
 
     /// カスタムAST Reduce演算を作成
@@ -453,12 +487,12 @@ impl GraphNode {
     /// let b = graph.input("b", DType::F32, vec![10, 20]);
     ///
     /// // reduce_sum(a * b, axis=1) をカスタム演算として表現
-    /// let ast = wildcard("0") * wildcard("1");
-    /// let result = GraphNode::custom_reduce(vec![a, b], ast, ReduceOp::Sum, 1);
+    /// let expr = wildcard("0") * wildcard("1");
+    /// let result = GraphNode::custom_reduce(vec![a, b], expr, ReduceOp::Sum, 1);
     /// ```
     pub fn custom_reduce(
         inputs: Vec<Self>,
-        ast: crate::ast::AstNode,
+        expr: crate::ast::AstNode,
         reduce_op: ReduceOp,
         axis: usize,
     ) -> Self {
@@ -468,6 +502,8 @@ impl GraphNode {
 
         let dtype = inputs[0].dtype.clone();
         let input_view = inputs[0].view.clone();
+        let ndim = input_view.shape().len();
+        let num_inputs = inputs.len();
 
         // Reduce後のViewを計算（指定軸を削除）
         let mut new_shape = input_view.shape().to_vec();
@@ -476,18 +512,10 @@ impl GraphNode {
         }
         let view = crate::graph::shape::View::contiguous(new_shape);
 
-        GraphNode::new(
-            dtype,
-            GraphOp::Custom {
-                ast,
-                kind: CustomKind::Reduce { reduce_op, axis },
-                elementwise_strategies: None,
-                reduce_strategy: None,
-                cumulative_strategy: None,
-            },
-            inputs,
-            view,
-        )
+        let function =
+            custom_builder::build_reduce_function(ndim, num_inputs, axis, &reduce_op, expr);
+
+        GraphNode::new(dtype, GraphOp::Custom { function }, inputs, view)
     }
 
     /// カスタムAST Cumulative演算を作成
@@ -505,12 +533,12 @@ impl GraphNode {
     /// let x = graph.input("x", DType::F32, vec![10, 20]);
     ///
     /// // cumsum(x * x, axis=1) をカスタム演算として表現
-    /// let ast = wildcard("0") * wildcard("0");
-    /// let result = GraphNode::custom_cumulative(vec![x], ast, CumulativeOp::Sum, 1);
+    /// let expr = wildcard("0") * wildcard("0");
+    /// let result = GraphNode::custom_cumulative(vec![x], expr, CumulativeOp::Sum, 1);
     /// ```
     pub fn custom_cumulative(
         inputs: Vec<Self>,
-        ast: crate::ast::AstNode,
+        expr: crate::ast::AstNode,
         cumulative_op: CumulativeOp,
         axis: usize,
     ) -> Self {
@@ -519,23 +547,14 @@ impl GraphNode {
         }
 
         let dtype = inputs[0].dtype.clone();
-        let view = inputs[0].view.clone(); // Cumulativeは形状を変えない
+        let view = inputs[0].view.clone();
+        let ndim = view.shape().len();
+        let num_inputs = inputs.len();
 
-        GraphNode::new(
-            dtype,
-            GraphOp::Custom {
-                ast,
-                kind: CustomKind::Cumulative {
-                    cumulative_op,
-                    axis,
-                },
-                elementwise_strategies: None,
-                reduce_strategy: None,
-                cumulative_strategy: None,
-            },
-            inputs,
-            view,
-        )
+        let function =
+            custom_builder::build_cumulative_function(ndim, num_inputs, axis, &cumulative_op, expr);
+
+        GraphNode::new(dtype, GraphOp::Custom { function }, inputs, view)
     }
 
     // ============================================================================

@@ -1,7 +1,4 @@
-use crate::graph::{
-    Graph, GraphNode,
-    ops::{CustomKind, GraphOp},
-};
+use crate::graph::{Graph, GraphNode, ops::GraphOp};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 // モジュール宣言
@@ -11,6 +8,7 @@ mod complex;
 mod concat;
 mod contiguous;
 mod cumulative;
+mod custom;
 mod elementwise;
 mod fold;
 mod fused_elementwise;
@@ -641,29 +639,11 @@ impl Lowerer {
             GraphOp::FusedElementwise { expr, .. } => {
                 self.lower_fused_elementwise_kernel(node, node_id, expr)
             }
-            GraphOp::Custom { ast, kind, .. } => match kind {
-                CustomKind::Elementwise => {
-                    // CustomKind::Elementwise は FusedElementwise と同じloweringを使用
-                    self.lower_fused_elementwise_kernel(node, node_id, ast)
-                }
-                CustomKind::Reduce { reduce_op, axis } => {
-                    // CustomKind::Reduce は FusedElementwiseReduce と同じloweringを使用
-                    self.lower_fused_elementwise_reduce_kernel(node, node_id, ast, reduce_op, *axis)
-                }
-                CustomKind::Cumulative {
-                    cumulative_op,
-                    axis,
-                } => {
-                    // CustomKind::Cumulative は FusedElementwiseCumulative と同じloweringを使用
-                    self.lower_fused_elementwise_cumulative_kernel(
-                        node,
-                        node_id,
-                        ast,
-                        cumulative_op,
-                        *axis,
-                    )
-                }
-            },
+            GraphOp::Custom { function } => {
+                // Custom関数をloweringする
+                // プレースホルダー変数を実際のパラメータに置換
+                self.lower_custom_function(node, node_id, function)
+            }
             GraphOp::FusedElementwiseReduce {
                 expr,
                 reduce_op,

@@ -1,4 +1,4 @@
-use crate::graph::{CustomKind, ElementwiseOp, ElementwiseStrategy, Graph, GraphNode, GraphOp};
+use crate::graph::{ElementwiseOp, ElementwiseStrategy, Graph, GraphNode, GraphOp};
 use crate::opt::ast::CostEstimator as AstCostEstimator;
 use crate::opt::cost_utils::{log_sum_exp, log_sum_exp_iter};
 use crate::opt::graph::GraphCostEstimator;
@@ -221,43 +221,13 @@ impl SimpleCostEstimator {
                 let num_elements = self.compute_num_elements(node);
                 num_elements.ln() + (3.0 * MEMORY_ACCESS_COST).ln()
             }
-            GraphOp::Custom { ast, kind, .. } => {
-                // Custom演算のコスト計算はkindによって分岐
-                match kind {
-                    CustomKind::Elementwise => {
-                        // FusedElementwiseと同様のコスト計算
-                        let num_elements = self.compute_num_elements(node);
-                        let log_ops_cost = self.ast_expr_cost(ast);
-                        let log_memory_cost =
-                            ((node.src.len() as f32 + 1.0) * MEMORY_ACCESS_COST).ln();
-                        num_elements.ln() + log_sum_exp(log_ops_cost, log_memory_cost)
-                    }
-                    CustomKind::Reduce { reduce_op, .. } => {
-                        // FusedElementwiseReduceと同様のコスト計算
-                        let input = &node.src[0];
-                        let num_elements = self.compute_num_elements(input);
-                        let log_elementwise_cost = self.ast_expr_cost(ast);
-                        let log_reduce_cost = self.reduce_op_cost(reduce_op);
-                        num_elements.ln()
-                            + log_sum_exp_iter(vec![
-                                MEMORY_ACCESS_COST.ln(),
-                                log_elementwise_cost,
-                                log_reduce_cost,
-                            ])
-                    }
-                    CustomKind::Cumulative { .. } => {
-                        // FusedElementwiseCumulativeと同様のコスト計算
-                        let num_elements = self.compute_num_elements(node);
-                        let log_elementwise_cost = self.ast_expr_cost(ast);
-                        let log_cumulative_cost = 3.0_f32.ln(); // Sumのコスト
-                        num_elements.ln()
-                            + log_sum_exp_iter(vec![
-                                (2.0 * MEMORY_ACCESS_COST).ln(),
-                                log_elementwise_cost,
-                                log_cumulative_cost,
-                            ])
-                    }
-                }
+            GraphOp::Custom { function } => {
+                // Custom関数のコスト計算
+                // 関数のボディからコストを推定（ASTベース）
+                let num_elements = self.compute_num_elements(node);
+                let log_ops_cost = self.estimate_custom_function_cost(function);
+                let log_memory_cost = ((node.src.len() as f32 + 1.0) * MEMORY_ACCESS_COST).ln();
+                num_elements.ln() + log_sum_exp(log_ops_cost, log_memory_cost)
             }
         }
     }
@@ -368,6 +338,77 @@ impl SimpleCostEstimator {
             }
         }
         num_elements
+    }
+
+    /// Custom関数のボディからコストを推定（対数スケール）
+    fn estimate_custom_function_cost(&self, function: &crate::ast::AstNode) -> f32 {
+        use crate::ast::AstNode;
+
+        // 関数のボディからコストを再帰的に推定
+        match function {
+            AstNode::Function { body, .. } => Self::estimate_ast_node_cost(body),
+            _ => {
+                // 関数でない場合はデフォルトコスト
+                3.0_f32.ln()
+            }
+        }
+    }
+
+    /// ASTノードのコストを推定（対数スケール）
+    fn estimate_ast_node_cost(node: &crate::ast::AstNode) -> f32 {
+        use crate::ast::AstNode;
+
+        match node {
+            AstNode::Block { statements, .. } => {
+                // ブロック内の全ステートメントのコストを合計
+                let costs: Vec<f32> = statements
+                    .iter()
+                    .map(Self::estimate_ast_node_cost)
+                    .collect();
+                log_sum_exp_iter(costs)
+            }
+            AstNode::Range { body, .. } => {
+                // ループはボディのコストに定数を加算（ループオーバーヘッド）
+                let body_cost = Self::estimate_ast_node_cost(body);
+                body_cost + 1.0 // ループオーバーヘッド（対数スケール）
+            }
+            AstNode::Store { value, .. } => {
+                // Store: 値の計算コスト + メモリアクセスコスト
+                let value_cost = Self::estimate_ast_node_cost(value);
+                log_sum_exp(value_cost, MEMORY_ACCESS_COST.ln())
+            }
+            AstNode::Load { .. } => {
+                // Load: メモリアクセスコスト
+                MEMORY_ACCESS_COST.ln()
+            }
+            AstNode::Add(left, right) | AstNode::Mul(left, right) | AstNode::Max(left, right) => {
+                // 基本演算コスト + 子ノードのコスト
+                let op_cost = 3.0_f32.ln();
+                let left_cost = Self::estimate_ast_node_cost(left);
+                let right_cost = Self::estimate_ast_node_cost(right);
+                log_sum_exp_iter(vec![op_cost, left_cost, right_cost])
+            }
+            AstNode::Recip(operand) | AstNode::Sqrt(operand) => {
+                // 重い演算 + 子ノードのコスト
+                let op_cost = 20.0_f32.ln();
+                let child_cost = Self::estimate_ast_node_cost(operand);
+                log_sum_exp(op_cost, child_cost)
+            }
+            AstNode::Log2(operand) | AstNode::Exp2(operand) | AstNode::Sin(operand) => {
+                // 非常に重い演算
+                let op_cost = 50.0_f32.ln();
+                let child_cost = Self::estimate_ast_node_cost(operand);
+                log_sum_exp(op_cost, child_cost)
+            }
+            AstNode::Assign { value, .. } => {
+                // 代入: 値の計算コストのみ
+                Self::estimate_ast_node_cost(value)
+            }
+            _ => {
+                // その他のノードはデフォルトコスト
+                1.0_f32.ln()
+            }
+        }
     }
 
     /// グラフ内の全ノードを収集（トポロジカル順）
