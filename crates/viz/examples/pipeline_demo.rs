@@ -34,8 +34,8 @@ fn main() -> eframe::Result {
 
     let mut pipeline = GenericPipeline::new(renderer, compiler);
 
-    // 最適化を有効化（フィールドに直接アクセス）
-    pipeline.enable_graph_optimization = true;
+    // グラフ最適化は常に有効（LoweringSuggesterが必須）
+    // AST最適化のみオプション
     pipeline.enable_ast_optimization = true;
 
     // グラフ最適化の設定
