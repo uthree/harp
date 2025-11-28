@@ -173,32 +173,6 @@ impl Lowerer {
         }
     }
 
-    /// 入力のオフセット計算（ridx変数を使用）
-    pub(super) fn compute_offset_for_input(&self, axes: &[usize], input: &GraphNode) -> AstNode {
-        use crate::graph::shape::View;
-
-        match &input.view {
-            View::Linear {
-                strides, offset, ..
-            } => {
-                let mut result: AstNode = offset.clone().into();
-
-                // スカラーの場合、stridesが空なのでオフセットのみ返す
-                if strides.is_empty() {
-                    return result;
-                }
-
-                for &axis in axes {
-                    let ridx = var(format!("ridx{}", axis));
-                    let stride: AstNode = strides[axis].clone().into();
-                    result = result + ridx * stride;
-                }
-
-                result
-            }
-        }
-    }
-
     /// 出力のオフセット計算（oidx変数を使用）
     pub(super) fn compute_offset_for_output(&self, axes: &[usize], output: &GraphNode) -> AstNode {
         use crate::graph::shape::View;
@@ -219,43 +193,6 @@ impl Lowerer {
                     let stride: AstNode = strides[axis].clone().into();
                     result = result + oidx * stride;
                 }
-
-                result
-            }
-        }
-    }
-
-    /// 入力のオフセット計算（縮約軸を含む、oidxとridxを組み合わせ）
-    pub(super) fn compute_offset_for_input_with_reduce_axis(
-        &self,
-        output_axes: &[usize],
-        reduce_axis: usize,
-        input: &GraphNode,
-    ) -> AstNode {
-        use crate::graph::shape::View;
-
-        match &input.view {
-            View::Linear {
-                strides, offset, ..
-            } => {
-                let mut result: AstNode = offset.clone().into();
-
-                // スカラーの場合、stridesが空なのでオフセットのみ返す
-                if strides.is_empty() {
-                    return result;
-                }
-
-                // 出力軸に対応する入力軸
-                for (out_idx, &in_axis) in output_axes.iter().enumerate() {
-                    let oidx = var(format!("oidx{}", out_idx));
-                    let stride: AstNode = strides[in_axis].clone().into();
-                    result = result + oidx * stride;
-                }
-
-                // 縮約軸
-                let ridx = var(format!("ridx{}", reduce_axis));
-                let stride: AstNode = strides[reduce_axis].clone().into();
-                result = result + ridx * stride;
 
                 result
             }

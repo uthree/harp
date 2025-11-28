@@ -69,8 +69,7 @@ impl OptimizationHistories {
 /// ```ignore
 /// let mut pipeline = GenericPipeline::new(renderer, compiler);
 ///
-/// // 最適化を有効化（フィールドに直接アクセス）
-/// pipeline.enable_graph_optimization = true;
+/// // AST最適化を有効化
 /// pipeline.enable_ast_optimization = true;
 ///
 /// // 設定のカスタマイズ
@@ -79,6 +78,9 @@ impl OptimizationHistories {
 /// // コンパイル
 /// let kernel = pipeline.compile_graph(graph)?;
 /// ```
+///
+/// # Note
+/// グラフ最適化は常に有効です（LoweringSuggesterによるCustomノード変換が必須）。
 pub struct GenericPipeline<R, C>
 where
     R: Renderer,
@@ -90,8 +92,6 @@ where
     kernel_cache: HashMap<String, C::Kernel>,
     /// 最適化履歴
     pub histories: OptimizationHistories,
-    /// グラフ最適化を有効にするか
-    pub enable_graph_optimization: bool,
     /// グラフ最適化の設定
     pub graph_config: OptimizationConfig,
     /// AST最適化を有効にするか
@@ -109,8 +109,8 @@ where
 {
     /// 新しいGenericPipelineを作成
     ///
-    /// デフォルトでは最適化が無効になっています。
-    /// 最適化を有効にするには、フィールドに直接アクセスしてください。
+    /// グラフ最適化は常に有効です（LoweringSuggesterによるCustomノード変換が必須）。
+    /// AST最適化はデフォルトで無効です。
     ///
     /// 最適化履歴の収集は、DEBUGビルドではデフォルトで有効、RELEASEビルドでは無効です。
     pub fn new(renderer: R, compiler: C) -> Self {
@@ -119,7 +119,6 @@ where
             compiler,
             kernel_cache: HashMap::new(),
             histories: OptimizationHistories::default(),
-            enable_graph_optimization: false,
             graph_config: OptimizationConfig::default(),
             enable_ast_optimization: false,
             ast_config: OptimizationConfig::default(),
@@ -174,20 +173,15 @@ where
         &mut self,
         graph: Graph,
     ) -> Result<(AstNode, HashMap<String, AstOptimizationHistory>), String> {
-        // グラフ最適化（SimpleCostEstimatorを使用）
-        let optimized_graph = if self.enable_graph_optimization {
-            let suggester = Self::create_graph_suggester();
-            let estimator = SimpleCostEstimator::new();
-            let optimizer = self.create_graph_optimizer(suggester, estimator);
+        // グラフ最適化（常に有効）
+        let suggester = Self::create_graph_suggester();
+        let estimator = SimpleCostEstimator::new();
+        let optimizer = self.create_graph_optimizer(suggester, estimator);
 
-            let (optimized, history) = optimizer.optimize_with_history(graph);
-            if self.collect_histories {
-                self.histories.graph = Some(history);
-            }
-            optimized
-        } else {
-            graph
-        };
+        let (optimized_graph, history) = optimizer.optimize_with_history(graph);
+        if self.collect_histories {
+            self.histories.graph = Some(history);
+        }
 
         // Lowering
         let program = self.lower_to_program(optimized_graph);
@@ -314,10 +308,6 @@ where
 
     /// グラフ最適化の内部処理（履歴付き）
     fn optimize_graph_internal(&mut self, graph: Graph) -> Graph {
-        if !self.enable_graph_optimization {
-            return graph;
-        }
-
         let suggester = Self::create_graph_suggester();
         let estimator = SimpleCostEstimator::new();
         let optimizer = self.create_graph_optimizer(suggester, estimator);
@@ -368,16 +358,13 @@ where
 
     /// グラフ最適化を実行
     ///
-    /// 有効な場合、以下の最適化を適用：
+    /// 以下の最適化を適用（常に有効）：
     /// 1. ViewInsertionSuggester（Transpose含む）
     /// 2. FusionSuggester
     /// 3. ParallelStrategyChanger
     /// 4. SimdSuggester
+    /// 5. LoweringSuggester（GraphOp → Custom変換）
     fn optimize_graph(&self, graph: Graph) -> Graph {
-        if !self.enable_graph_optimization {
-            return graph;
-        }
-
         let suggester = Self::create_graph_suggester();
         let estimator = SimpleCostEstimator::new();
         let optimizer = self.create_graph_optimizer(suggester, estimator);
@@ -575,28 +562,25 @@ mod tests {
     }
 
     #[test]
-    fn test_optimization_disabled_by_default() {
+    fn test_ast_optimization_disabled_by_default() {
         let renderer = DummyRenderer;
         let compiler = DummyCompiler;
         let pipeline = GenericPipeline::new(renderer, compiler);
 
-        // デフォルトでは最適化が無効
-        assert!(!pipeline.enable_graph_optimization);
+        // AST最適化はデフォルトで無効（グラフ最適化は常に有効）
         assert!(!pipeline.enable_ast_optimization);
     }
 
     #[test]
-    fn test_enable_optimizations() {
+    fn test_enable_ast_optimization() {
         let renderer = DummyRenderer;
         let compiler = DummyCompiler;
         let mut pipeline = GenericPipeline::new(renderer, compiler);
 
-        // フィールドに直接アクセスして最適化を有効化
-        pipeline.enable_graph_optimization = true;
+        // フィールドに直接アクセスしてAST最適化を有効化
         pipeline.enable_ast_optimization = true;
 
-        // 最適化が有効になっている
-        assert!(pipeline.enable_graph_optimization);
+        // AST最適化が有効になっている
         assert!(pipeline.enable_ast_optimization);
     }
 

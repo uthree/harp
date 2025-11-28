@@ -50,12 +50,12 @@ fn test_topological_sort_complex() {
 
 #[test]
 fn test_multiple_kernels_variable_naming() {
-    // 複数のカーネル関数が生成される場合、各カーネル内の変数名が独立していることを確認
+    // グラフ最適化により連続した演算は1つのカーネルに融合される
     let mut graph = Graph::new();
     let a = graph.input("a", GraphDType::F32, vec![10]);
     let b = graph.input("b", GraphDType::F32, vec![10]);
 
-    // 3つの演算（3つのカーネル関数が生成される）
+    // ((a + b) * a) + b - グラフ最適化により1つのCustomノードに融合
     let sum1 = a.clone() + b.clone();
     let sum2 = sum1.clone() * a.clone();
     let result = sum2 + b;
@@ -68,34 +68,26 @@ fn test_multiple_kernels_variable_naming() {
     let renderer = CRenderer::new();
     let code = render_ast_with(&program, &renderer);
 
-    // 最適化により中間変数を排除し、直接演算結果をストアする形式になった
-    // kernel_0: output[...] = (input0[...] + input1[...]);
-    // kernel_1: output[...] = (input0[...] * input1[...]);
-    // kernel_2: output[...] = (input0[...] + input1[...]);
-
     // デバッグ出力
     println!("Generated code:\n{}", code);
 
-    // 各カーネル関数が直接ストアを行っていることを確認
     // 中間変数（alu0 など）は生成されない
     assert!(
         !code.contains("alu0"),
         "alu0 should not be defined (intermediate variables eliminated)"
     );
 
-    // 代わりに、直接演算結果をストアしていることを確認
-    // output[...] = (...); の形式
+    // 出力への直接代入が行われていることを確認
+    // グラフ最適化後は output[ridx0] = ... の形式
     assert!(
-        code.contains("output[("),
+        code.contains("output["),
         "output should be directly assigned"
     );
 
-    // 各カーネルが正しく生成されていることを確認
+    // グラフ最適化により1つのカーネルに融合される
     assert!(code.contains("kernel_0"), "kernel_0 should be defined");
-    assert!(code.contains("kernel_1"), "kernel_1 should be defined");
-    assert!(code.contains("kernel_2"), "kernel_2 should be defined");
 
-    // 演算が含まれていることを確認
+    // 演算が含まれていることを確認（入力バッファへのアクセス）
     assert!(
         code.contains("input0[") && code.contains("input1["),
         "inputs should be directly loaded"

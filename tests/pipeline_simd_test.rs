@@ -15,7 +15,7 @@ fn test_pipeline_selects_simd() {
     let compiler = CCompiler::new();
 
     let mut pipeline = GenericPipeline::new(renderer, compiler);
-    pipeline.enable_graph_optimization = true;
+    // グラフ最適化は常に有効
     pipeline.graph_config = OptimizationConfig {
         beam_width: 10,
         max_steps: 20,

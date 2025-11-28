@@ -1,25 +1,12 @@
 use crate::graph::{Graph, GraphNode, ops::GraphOp};
+use crate::opt::graph::{BeamSearchGraphOptimizer, GraphOptimizer, SimpleCostEstimator};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 // モジュール宣言
-mod arange;
-mod cast;
-mod complex;
-mod concat;
-mod contiguous;
-mod cumulative;
-mod custom;
-mod elementwise;
-mod fold;
-mod fused_elementwise;
-mod fused_elementwise_cumulative;
-mod fused_elementwise_reduce;
-mod fused_reduce;
-mod pad;
-mod rand_init;
-mod reduce;
-mod slice;
-mod utils;
+// グラフ最適化が必須のため、LoweringSuggesterが対応していないノードのみを処理
+mod custom; // Customノード（LoweringSuggesterで生成）
+mod fold; // Foldノード（LoweringSuggesterで未対応）
+mod utils; // 共通ユーティリティ
 
 pub struct Lowerer {
     alu_counter: usize, // 一時変数のカウンター
@@ -69,22 +56,42 @@ impl Default for Lowerer {
     }
 }
 
+/// グラフ最適化を実行する（シングルスレッド向けフラグ）
+///
+/// LoweringSuggesterにより、ほとんどのGraphOpがCustomノードに変換されます。
+fn optimize_graph_for_lowering(graph: Graph) -> Graph {
+    use crate::backend::pipeline::{SuggesterFlags, create_graph_suggester};
+
+    let flags = SuggesterFlags::single_threaded();
+    let suggester = create_graph_suggester(flags);
+    let cost_estimator = SimpleCostEstimator::new();
+    let optimizer = BeamSearchGraphOptimizer::new(suggester, cost_estimator)
+        .with_beam_width(10)
+        .with_max_steps(100)
+        .with_progress(false);
+
+    optimizer.optimize(graph)
+}
+
 /// GraphをProgramに変換する公開関数
 ///
-/// Graphの全ノードをカーネル関数に変換し、AstNode::Programとして返します。
+/// グラフ最適化を自動的に実行し、全ノードをカーネル関数に変換します。
 /// 中間バッファーは自動的に確保・管理されます。
 pub(crate) fn lower(graph: Graph) -> crate::ast::AstNode {
+    // グラフ最適化を実行（LoweringSuggesterでCustomノードに変換）
+    let optimized_graph = optimize_graph_for_lowering(graph);
+
     let mut lowerer = Lowerer::new();
 
     // トポロジカルソートでノードを取得
-    let generations = Lowerer::topological_sort(&graph);
+    let generations = Lowerer::topological_sort(&optimized_graph);
 
     // 各ノードの出力バッファー名を追跡（ノードポインタ → バッファー名）
     let mut node_buffer_map: HashMap<*const (), String> = HashMap::new();
 
     // 入力ノードのバッファー名を設定
     // 決定論的な順序にするため、入力名をアルファベット順にソートする
-    let mut sorted_input_names: Vec<_> = graph.inputs().keys().cloned().collect();
+    let mut sorted_input_names: Vec<_> = optimized_graph.inputs().keys().cloned().collect();
     sorted_input_names.sort();
 
     // 入力ノードのポインタを名前にマッピング
@@ -93,7 +100,7 @@ pub(crate) fn lower(graph: Graph) -> crate::ast::AstNode {
         for node in generation {
             if matches!(node.op, GraphOp::Input) {
                 // 入力ノードの名前を見つける
-                for (name, weak_node) in graph.inputs().iter() {
+                for (name, weak_node) in optimized_graph.inputs().iter() {
                     if let Some(rc_node) = weak_node.upgrade() {
                         let input_node = GraphNode::from_rc(rc_node);
                         if node_ptr(&input_node) == node_ptr(node) {
@@ -120,7 +127,7 @@ pub(crate) fn lower(graph: Graph) -> crate::ast::AstNode {
     let final_output_ptrs: HashSet<*const ()> = if !generations.is_empty() {
         generations[0].iter().map(node_ptr).collect()
     } else {
-        graph.outputs().values().map(node_ptr).collect()
+        optimized_graph.outputs().values().map(node_ptr).collect()
     };
 
     // カーネル情報を収集
@@ -617,69 +624,27 @@ impl Lowerer {
 
     /// GraphNodeを一つのカーネル関数に変換
     ///
-    /// ## 新しいアーキテクチャ
-    /// LoweringSuggesterがグラフ最適化中にGraphOpをCustomノードに変換するため、
-    /// 最適化後のグラフでは多くのノードがCustomになっています。
+    /// ## アーキテクチャ
+    /// グラフ最適化は必須であり、LoweringSuggesterがほとんどのGraphOpを
+    /// Customノードに変換します。最適化後のグラフでは、
+    /// 以下のノードタイプのみが残ります：
     ///
-    /// - **Custom nodes**: `lower_custom_function`で処理（推奨パス）
-    /// - **Other nodes**: フォールバックとして従来のlowering処理を使用
+    /// - **Custom**: LoweringSuggesterによって生成（`lower_custom_function`で処理）
+    /// - **Fold**: 複雑なため、LoweringSuggesterでは未対応（`lower_fold_kernel`で処理）
+    /// - **FusedReduce**: タプル出力が必要なため、未対応（エラー）
     ///
-    /// フォールバックは以下の場合に使用されます：
-    /// - LoweringSuggesterがまだサポートしていない操作（Pad, Concat, Fold等）
-    /// - ビームサーチが収束前に終了した場合
+    /// それ以外のノードタイプは、グラフ最適化によってCustomノードに変換されているべきです。
     pub fn lower_node_to_kernel(
         &mut self,
         node: &GraphNode,
         node_id: usize,
     ) -> Result<crate::ast::AstNode, String> {
         match &node.op {
-            GraphOp::Elementwise { op, .. } => {
-                // 複素数型の場合は専用のローワリングを使用
-                if Self::is_complex_node(node) || node.src.iter().any(Self::is_complex_node) {
-                    self.lower_complex_elementwise_kernel(node, node_id, op)
-                } else {
-                    self.lower_elementwise_kernel(node, node_id, op)
-                }
-            }
-            GraphOp::Reduce { op, axis, .. } => self.lower_reduce_kernel(node, node_id, op, *axis),
-            GraphOp::Cumulative { op, axis, .. } => {
-                self.lower_cumulative_kernel(node, node_id, op, *axis)
-            }
-            GraphOp::Contiguous { .. } => self.lower_contiguous_kernel(node, node_id),
-            GraphOp::FusedElementwise { expr, .. } => {
-                self.lower_fused_elementwise_kernel(node, node_id, expr)
-            }
             GraphOp::Custom { function } => {
                 // Custom関数をloweringする
                 // プレースホルダー変数を実際のパラメータに置換
                 self.lower_custom_function(node, node_id, function)
             }
-            GraphOp::FusedElementwiseReduce {
-                expr,
-                reduce_op,
-                axis,
-                ..
-            } => self.lower_fused_elementwise_reduce_kernel(node, node_id, expr, reduce_op, *axis),
-            GraphOp::FusedElementwiseCumulative {
-                expr,
-                cumulative_op,
-                axis,
-                ..
-            } => self.lower_fused_elementwise_cumulative_kernel(
-                node,
-                node_id,
-                expr,
-                cumulative_op,
-                *axis,
-            ),
-            GraphOp::FusedReduce { .. } => {
-                Err("FusedReduce is not yet supported (requires tuple output)".to_string())
-            }
-            GraphOp::Pad { padding, value } => {
-                self.lower_pad_kernel(node, node_id, padding, *value)
-            }
-            GraphOp::Slice { ranges } => self.lower_slice_kernel(node, node_id, ranges),
-            GraphOp::Concat { axis } => self.lower_concat_kernel(node, node_id, *axis),
             GraphOp::Fold {
                 output_size,
                 kernel_size,
@@ -695,15 +660,13 @@ impl Lowerer {
                 dilation,
                 *groups,
             ),
-            GraphOp::Rand { .. } => self.lower_rand_init_kernel(node, node_id),
-            GraphOp::Arange { .. } => self.lower_arange_kernel(node, node_id),
-            GraphOp::Cast { target_dtype, .. } => {
-                self.lower_cast_kernel(node, target_dtype, node_id)
+            GraphOp::FusedReduce { .. } => {
+                Err("FusedReduce is not yet supported (requires tuple output)".to_string())
             }
-            GraphOp::Real { .. } => self.lower_real_kernel(node, node_id),
-            GraphOp::Imag { .. } => self.lower_imag_kernel(node, node_id),
-            GraphOp::ComplexFromParts { .. } => self.lower_complex_from_parts_kernel(node, node_id),
-            _ => Err(format!("Unsupported operation: {:?}", node.op)),
+            _ => Err(format!(
+                "Unsupported operation: {:?}. Graph optimization should have converted this to Custom node.",
+                node.op
+            )),
         }
     }
 

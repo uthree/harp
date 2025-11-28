@@ -23,12 +23,12 @@ use std::collections::HashMap;
 /// OpenCLバックエンド専用のPipeline
 ///
 /// 並列化・SIMD最適化を含むため、GPU/マルチコア実行に最適化されています。
+/// グラフ最適化は常に有効です（LoweringSuggesterによるCustomノード変換が必須）。
 pub struct OpenCLPipeline {
     renderer: OpenCLRenderer,
     compiler: OpenCLCompiler,
     kernel_cache: HashMap<String, OpenCLKernel>,
     pub histories: OptimizationHistories,
-    pub enable_graph_optimization: bool,
     pub graph_config: OptimizationConfig,
     pub enable_ast_optimization: bool,
     pub ast_config: OptimizationConfig,
@@ -43,7 +43,6 @@ impl OpenCLPipeline {
             compiler,
             kernel_cache: HashMap::new(),
             histories: OptimizationHistories::default(),
-            enable_graph_optimization: false,
             graph_config: OptimizationConfig::default(),
             enable_ast_optimization: false,
             ast_config: OptimizationConfig::default(),
@@ -73,11 +72,9 @@ impl OpenCLPipeline {
     }
 
     /// グラフ最適化の内部処理（並列化・SIMD有効）
+    ///
+    /// グラフ最適化は常に有効（LoweringSuggesterによるCustomノード変換が必須）
     fn optimize_graph_internal(&mut self, graph: Graph) -> Graph {
-        if !self.enable_graph_optimization {
-            return graph;
-        }
-
         let flags = SuggesterFlags::all(); // 並列化・SIMD有効
         let (optimized, history) = optimize_graph_with_history(
             graph,
@@ -128,11 +125,7 @@ impl Pipeline for OpenCLPipeline {
     }
 
     fn optimize_graph(&self, graph: Graph) -> Graph {
-        if !self.enable_graph_optimization {
-            return graph;
-        }
-
-        // 並列化・SIMD有効のSuggesterを使用
+        // 並列化・SIMD有効のSuggesterを使用（グラフ最適化は常に有効）
         let flags = SuggesterFlags::all();
         let (optimized, _history) = optimize_graph_with_history(
             graph,

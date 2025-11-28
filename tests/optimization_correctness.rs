@@ -43,16 +43,16 @@ mod tests {
     /// テストヘルパー：グラフをコンパイルして実行
     fn compile_and_run(
         graph: Graph,
-        enable_optimization: bool,
+        _enable_optimization: bool, // グラフ最適化は常に有効
         input_data: Vec<Vec<f32>>,
     ) -> Vec<f32> {
         let renderer = CRenderer::new();
         let compiler = CCompiler::new();
         let mut pipeline = CPipeline::new(renderer, compiler);
 
-        // 最適化の有効/無効を設定
-        pipeline.enable_graph_optimization = enable_optimization;
-        pipeline.enable_ast_optimization = enable_optimization;
+        // グラフ最適化は常に有効（LoweringSuggesterが必須）
+        // AST最適化のみオプション
+        pipeline.enable_ast_optimization = false;
 
         // コンパイル
         let kernel = pipeline

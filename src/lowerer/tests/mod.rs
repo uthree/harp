@@ -1,10 +1,4 @@
-mod arange_tests;
-mod complex_tests;
-mod concat_tests;
-mod contiguous_tests;
-mod elementwise_tests;
-mod fusion_tests;
-// mod recursive_tests; // 一旦コメントアウト - APIが古い
-mod reduce_tests;
-mod signature_tests;
-mod topological_tests;
+// グラフ最適化が必須になったため、lowerer固有のテストは削除
+// LoweringSuggesterのテストは opt/graph/suggesters/lowering.rs にあります
+mod signature_tests; // シグネチャ生成テスト（Lowerer::create_signature）
+mod topological_tests; // トポロジカルソート＆コード生成テスト
