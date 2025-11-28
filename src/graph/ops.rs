@@ -99,6 +99,34 @@ pub enum GraphOp {
     ComplexFromParts {
         elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
     },
+    /// カスタムAST演算
+    ///
+    /// FusedElementwiseの一般化版。任意のASTノードを埋め込める。
+    /// ast内のWildcard("0"), Wildcard("1")等がsrc[0], src[1]に対応。
+    ///
+    /// # Example
+    /// ```
+    /// use harp::prelude::*;
+    /// use harp::ast::AstNode;
+    ///
+    /// let mut graph = Graph::new();
+    /// let x = graph.input("x", DType::F32, [10]);
+    ///
+    /// // cos(x) をカスタム演算として表現
+    /// let ast = AstNode::Call {
+    ///     name: "cos".to_string(),
+    ///     args: vec![AstNode::Wildcard("0".to_string())],
+    /// };
+    /// let y = x.custom_elementwise(ast);
+    /// ```
+    Custom {
+        /// AST式（Wildcard("0"), Wildcard("1")等で入力を参照）
+        ast: crate::ast::AstNode,
+        /// 演算の種類（lowering方法の決定に使用）
+        kind: CustomKind,
+        /// elementwise演算の戦略（kindがElementwiseの場合）
+        elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -128,6 +156,15 @@ pub enum ReduceOp {
 pub enum CumulativeOp {
     Sum,  // 累積和（cumsum）
     Prod, // 累積積（cumprod）
+}
+
+/// カスタム演算の種類
+///
+/// GraphOp::Customのlowering方法を決定するために使用
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CustomKind {
+    /// 要素ごとの演算（FusedElementwiseと同等）
+    Elementwise,
 }
 
 // DTypeの推論：両方が同じならそれを使う、片方がUnknownなら他方を使う

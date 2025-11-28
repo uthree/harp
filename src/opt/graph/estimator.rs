@@ -221,6 +221,13 @@ impl SimpleCostEstimator {
                 let num_elements = self.compute_num_elements(node);
                 num_elements.ln() + (3.0 * MEMORY_ACCESS_COST).ln()
             }
+            GraphOp::Custom { ast, .. } => {
+                // Custom演算はFusedElementwiseと同様のコスト計算
+                let num_elements = self.compute_num_elements(node);
+                let log_ops_cost = self.ast_expr_cost(ast);
+                let log_memory_cost = ((node.src.len() as f32 + 1.0) * MEMORY_ACCESS_COST).ln();
+                num_elements.ln() + log_sum_exp(log_ops_cost, log_memory_cost)
+            }
         }
     }
 

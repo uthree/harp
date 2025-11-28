@@ -1,4 +1,7 @@
-use crate::graph::{Graph, GraphNode, ops::GraphOp};
+use crate::graph::{
+    Graph, GraphNode,
+    ops::{CustomKind, GraphOp},
+};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 // モジュール宣言
@@ -638,6 +641,12 @@ impl Lowerer {
             GraphOp::FusedElementwise { expr, .. } => {
                 self.lower_fused_elementwise_kernel(node, node_id, expr)
             }
+            GraphOp::Custom { ast, kind, .. } => match kind {
+                CustomKind::Elementwise => {
+                    // CustomKind::Elementwise は FusedElementwise と同じloweringを使用
+                    self.lower_fused_elementwise_kernel(node, node_id, ast)
+                }
+            },
             GraphOp::FusedElementwiseReduce {
                 expr,
                 reduce_op,

@@ -12,8 +12,9 @@ use crate::opt::ast::{
 };
 use crate::opt::graph::{
     BeamSearchGraphOptimizer, CompositeSuggester, ConstPropagationSuggester,
-    ContiguousInsertionSuggester, FusionSuggester, GraphCostEstimator, ParallelStrategyChanger,
-    SimdSuggester, TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
+    ContiguousInsertionSuggester, CustomFusionSuggester, FusionSuggester, GraphCostEstimator,
+    ParallelStrategyChanger, SimdSuggester, TilingSuggester, ViewInsertionSuggester,
+    ViewMergeSuggester,
 };
 
 /// Suggesterの種類を指定するフラグ
@@ -51,6 +52,7 @@ pub fn create_graph_suggester(flags: SuggesterFlags) -> CompositeSuggester {
         Box::new(ConstPropagationSuggester::new()),
         Box::new(TilingSuggester::with_default_tile_sizes()),
         Box::new(ContiguousInsertionSuggester::new()),
+        Box::new(CustomFusionSuggester::new()),
         Box::new(FusionSuggester::new()),
     ];
 

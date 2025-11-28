@@ -236,6 +236,50 @@ let floats = int_tensor.cast(DType::F32);
 let ints = float_tensor.cast(DType::I32);
 ```
 
+## カスタム演算（Custom）
+
+任意のASTノードを埋め込むことで、柔軟な演算定義を可能にします。tinygradのUOps設計を参考にしており、**段階的なノード融合とlowering**をサポートします。
+
+### CustomKind
+
+カスタム演算の種類を示します：
+- `Elementwise`: 要素ごとの演算（FusedElementwiseと同等のloweringを使用）
+
+### 使用例
+
+```rust
+use harp::ast::helper::wildcard;
+
+// 単入力のカスタム演算
+let x = graph.input("x", DType::F32, vec![10]);
+let custom = x.custom_elementwise(wildcard("0") * wildcard("0"));  // x^2
+
+// 2入力のカスタム演算
+let a = graph.input("a", DType::F32, vec![10]);
+let b = graph.input("b", DType::F32, vec![10]);
+let custom = a.custom_elementwise_binary(b, wildcard("0") + wildcard("1"));  // a + b
+
+// 多入力のカスタム演算
+let inputs = vec![a, b, c];
+let expr = (wildcard("0") + wildcard("1")) * wildcard("2");  // (a + b) * c
+let custom = GraphNode::custom_elementwise_multi(inputs, expr);
+```
+
+### 段階的ノード融合
+
+`CustomFusionSuggester`により、Graph最適化フェーズで連続するElementwise演算が自動的に`GraphOp::Custom`に融合されます：
+
+```
+// 最適化前
+a + b -> temp
+temp * c -> result
+
+// 最適化後（CustomFusionSuggester適用）
+Custom { ast: (W("0") + W("1")) * W("2"), inputs: [a, b, c] } -> result
+```
+
+これにより、中間バッファの削減とカーネル呼び出し回数の削減が可能です。
+
 ## コード構成とリファクタリング履歴
 
 ### 2025-11-25: Expr型ヘルパーメソッド追加とテスト分離
@@ -319,6 +363,7 @@ let value = shape[i].expect_usize("requires constant");
 - Shape/DType推論
 - 並列化戦略の定義（ElementwiseStrategy、ReduceStrategy、CumulativeStrategy）
 - 融合演算（FusedElementwise、FusedElementwiseReduce、FusedElementwiseCumulative、FusedReduce）
+- カスタム演算（Custom）- 任意のASTノードを埋め込むことでユーザー定義演算を表現
 - 高レベル演算（square、powi、mean、variance、数学関数）
 - 畳み込み演算（conv1d、conv2d、conv3d）- unfold + reduce で実装
 - テンソル結合（Concat）- torch.catに相当、複数テンソルを指定軸で結合

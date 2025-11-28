@@ -5,7 +5,9 @@
 //! より高レベルな数学的演算や便利な演算を提供します。
 
 use crate::graph::GraphNode;
-use crate::graph::ops::{ElementwiseOp, GraphOp, max, recip, reduce_sum};
+use crate::graph::ops::{
+    CustomKind, ElementwiseOp, GraphOp, infer_dtype, infer_view, max, recip, reduce_sum,
+};
 
 impl GraphNode {
     /// 二乗: x^2
@@ -302,6 +304,130 @@ impl GraphNode {
     /// sqrtとrecipを使って実装します。
     pub fn rsqrt(self) -> GraphNode {
         recip(self.sqrt())
+    }
+
+    // ============================================================================
+    // カスタム演算
+    // ============================================================================
+
+    /// カスタムAST単項演算を作成
+    ///
+    /// 任意のASTノードを使って要素ごとの演算を定義できます。
+    /// AST内の`Wildcard("0")`が入力（self）に対応します。
+    ///
+    /// # Example
+    /// ```
+    /// use harp::prelude::*;
+    /// use harp::ast::AstNode;
+    ///
+    /// let mut graph = Graph::new();
+    /// let x = graph.input("x", DType::F32, [10]);
+    ///
+    /// // cos(x) をカスタム演算として表現
+    /// let ast = AstNode::Call {
+    ///     name: "cos".to_string(),
+    ///     args: vec![AstNode::Wildcard("0".to_string())],
+    /// };
+    /// let y = x.custom_elementwise(ast);
+    /// ```
+    pub fn custom_elementwise(self, ast: crate::ast::AstNode) -> Self {
+        let dtype = self.dtype.clone();
+        let view = self.view.clone();
+        GraphNode::new(
+            dtype,
+            GraphOp::Custom {
+                ast,
+                kind: CustomKind::Elementwise,
+                elementwise_strategies: None,
+            },
+            vec![self],
+            view,
+        )
+    }
+
+    /// カスタムAST二項演算を作成
+    ///
+    /// 任意のASTノードを使って2入力の要素ごとの演算を定義できます。
+    /// AST内の`Wildcard("0")`が第1入力（self）、`Wildcard("1")`が第2入力（other）に対応します。
+    ///
+    /// # Example
+    /// ```
+    /// use harp::prelude::*;
+    /// use harp::ast::AstNode;
+    ///
+    /// let mut graph = Graph::new();
+    /// let x = graph.input("x", DType::F32, [10]);
+    /// let y = graph.input("y", DType::F32, [10]);
+    ///
+    /// // pow(x, y) をカスタム演算として表現
+    /// let ast = AstNode::Call {
+    ///     name: "pow".to_string(),
+    ///     args: vec![
+    ///         AstNode::Wildcard("0".to_string()),
+    ///         AstNode::Wildcard("1".to_string()),
+    ///     ],
+    /// };
+    /// let z = x.custom_elementwise_binary(y, ast);
+    /// ```
+    pub fn custom_elementwise_binary(self, other: Self, ast: crate::ast::AstNode) -> Self {
+        let dtype = infer_dtype(&self.dtype, &other.dtype);
+        let view = infer_view(&self.view, &other.view);
+        GraphNode::new(
+            dtype,
+            GraphOp::Custom {
+                ast,
+                kind: CustomKind::Elementwise,
+                elementwise_strategies: None,
+            },
+            vec![self, other],
+            view,
+        )
+    }
+
+    /// カスタムAST多入力演算を作成
+    ///
+    /// 任意の数の入力を持つカスタム演算を定義できます。
+    /// AST内の`Wildcard("0")`, `Wildcard("1")`, ... が対応する入力に置換されます。
+    ///
+    /// # Example
+    /// ```
+    /// use harp::prelude::*;
+    /// use harp::ast::AstNode;
+    ///
+    /// let mut graph = Graph::new();
+    /// let a = graph.input("a", DType::F32, [10]);
+    /// let b = graph.input("b", DType::F32, [10]);
+    /// let c = graph.input("c", DType::F32, [10]);
+    ///
+    /// // (a + b) * c をカスタム演算として表現
+    /// let ast = AstNode::Mul(
+    ///     Box::new(AstNode::Add(
+    ///         Box::new(AstNode::Wildcard("0".to_string())),
+    ///         Box::new(AstNode::Wildcard("1".to_string())),
+    ///     )),
+    ///     Box::new(AstNode::Wildcard("2".to_string())),
+    /// );
+    /// let result = GraphNode::custom_elementwise_multi(vec![a, b, c], ast);
+    /// ```
+    pub fn custom_elementwise_multi(inputs: Vec<Self>, ast: crate::ast::AstNode) -> Self {
+        if inputs.is_empty() {
+            panic!("custom_elementwise_multi requires at least one input");
+        }
+
+        // DTypeとViewは最初の入力から継承（全入力が同じshapeであることを前提）
+        let dtype = inputs[0].dtype.clone();
+        let view = inputs[0].view.clone();
+
+        GraphNode::new(
+            dtype,
+            GraphOp::Custom {
+                ast,
+                kind: CustomKind::Elementwise,
+                elementwise_strategies: None,
+            },
+            inputs,
+            view,
+        )
     }
 
     // ============================================================================

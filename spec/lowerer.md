@@ -200,6 +200,7 @@ for (int oidx0 = 0; oidx0 < M; oidx0 += 1) {
 - Elementwise、Reduce、Contiguous演算
 - **Cumulative演算**: cumsum（累積和）、cumprod（累積積）
 - **融合演算**: FusedElementwise、FusedElementwiseReduce、FusedElementwiseCumulative
+- **カスタム演算**: GraphOp::Custom（CustomKind::ElementwiseはFusedElementwiseと同様にlowering）
 - トポロジカルソート（Kahn）
 - 動的shape対応のシグネチャ生成
 - ループアンローリング（`unroll_factor`）
