@@ -244,13 +244,16 @@ let ints = float_tensor.cast(DType::I32);
 
 カスタム演算の種類を示します：
 - `Elementwise`: 要素ごとの演算（FusedElementwiseと同等のloweringを使用）
+- `Reduce { reduce_op, axis }`: 削減演算（FusedElementwiseReduceと同等のloweringを使用）
+- `Cumulative { cumulative_op, axis }`: 累積演算（FusedElementwiseCumulativeと同等のloweringを使用）
 
 ### 使用例
 
 ```rust
 use harp::ast::helper::wildcard;
+use harp::graph::{ReduceOp, CumulativeOp};
 
-// 単入力のカスタム演算
+// 単入力のカスタム演算（Elementwise）
 let x = graph.input("x", DType::F32, vec![10]);
 let custom = x.custom_elementwise(wildcard("0") * wildcard("0"));  // x^2
 
@@ -260,9 +263,19 @@ let b = graph.input("b", DType::F32, vec![10]);
 let custom = a.custom_elementwise_binary(b, wildcard("0") + wildcard("1"));  // a + b
 
 // 多入力のカスタム演算
-let inputs = vec![a, b, c];
+let inputs = vec![a.clone(), b.clone(), c.clone()];
 let expr = (wildcard("0") + wildcard("1")) * wildcard("2");  // (a + b) * c
 let custom = GraphNode::custom_elementwise_multi(inputs, expr);
+
+// Reduce演算を含むカスタム演算
+let inputs = vec![a.clone(), b.clone()];
+let expr = wildcard("0") + wildcard("1");  // (a + b).reduce_sum(axis)
+let custom = GraphNode::custom_reduce(inputs, expr, ReduceOp::Sum, 0);
+
+// Cumulative演算を含むカスタム演算
+let inputs = vec![a.clone(), b.clone()];
+let expr = wildcard("0") * wildcard("1");  // (a * b).cumsum(axis)
+let custom = GraphNode::custom_cumulative(inputs, expr, CumulativeOp::Sum, 1);
 ```
 
 ### 段階的ノード融合
@@ -276,6 +289,17 @@ temp * c -> result
 
 // 最適化後（CustomFusionSuggester適用）
 Custom { ast: (W("0") + W("1")) * W("2"), inputs: [a, b, c] } -> result
+```
+
+さらに、Elementwise→ReduceやElementwise→Cumulativeのパターンも融合されます：
+
+```
+// 最適化前
+a + b -> temp
+temp.reduce_sum(axis=1) -> result
+
+// 最適化後
+Custom { kind: Reduce, ast: W("0") + W("1"), reduce_op: Sum, axis: 1 } -> result
 ```
 
 これにより、中間バッファの削減とカーネル呼び出し回数の削減が可能です。

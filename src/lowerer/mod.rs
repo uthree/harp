@@ -646,6 +646,23 @@ impl Lowerer {
                     // CustomKind::Elementwise は FusedElementwise と同じloweringを使用
                     self.lower_fused_elementwise_kernel(node, node_id, ast)
                 }
+                CustomKind::Reduce { reduce_op, axis } => {
+                    // CustomKind::Reduce は FusedElementwiseReduce と同じloweringを使用
+                    self.lower_fused_elementwise_reduce_kernel(node, node_id, ast, reduce_op, *axis)
+                }
+                CustomKind::Cumulative {
+                    cumulative_op,
+                    axis,
+                } => {
+                    // CustomKind::Cumulative は FusedElementwiseCumulative と同じloweringを使用
+                    self.lower_fused_elementwise_cumulative_kernel(
+                        node,
+                        node_id,
+                        ast,
+                        cumulative_op,
+                        *axis,
+                    )
+                }
             },
             GraphOp::FusedElementwiseReduce {
                 expr,

@@ -43,17 +43,25 @@ Graphを最適化。`optimize(&self, graph: Graph) -> Graph`
 - elementwise → reduce → FusedElementwiseReduce
 
 ### CustomFusionSuggester
-連続するElementwise演算をGraphOp::Customに融合。
+連続するElementwise演算をGraphOp::Customに融合。さらにElementwise→Reduce、Elementwise→Cumulativeパターンも融合。
+
+**融合パターン:**
+- Elementwiseチェーン → Custom(Elementwise)
+- Elementwise → Reduce → Custom(Reduce)
+- Elementwise → Cumulative → Custom(Cumulative)
+- Custom(Elementwise) → Reduce → Custom(Reduce)
+- Custom(Elementwise) → Cumulative → Custom(Cumulative)
 
 **融合条件:**
-- 現在のノードがElementwise/FusedElementwise/Customのいずれか
-- 入力の少なくとも1つがElementwise/FusedElementwise/Custom
+- 現在のノードがElementwise/FusedElementwise/Custom(Elementwise)のいずれか
+- 入力の少なくとも1つがElementwise/FusedElementwise/Custom(Elementwise)
 - 融合対象のノードの被参照数が1（複数回参照されるノードは融合しない）
 
 **効果:**
 - 中間バッファの削減
 - カーネル呼び出し回数の削減
 - 任意のAST式による柔軟な演算表現
+- Reduce/Cumulative演算前のElementwise演算を融合してカーネル効率を向上
 
 ### ViewInsertionSuggester
 - メモリレイアウト最適化のためのView操作挿入

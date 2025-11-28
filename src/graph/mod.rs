@@ -12,7 +12,7 @@ pub mod strategy;
 pub mod visualization;
 
 // Re-export commonly used types
-pub use ops::{ElementwiseOp, GraphOp, ReduceOp};
+pub use ops::{CumulativeOp, CustomKind, ElementwiseOp, GraphOp, ReduceOp};
 pub use shape::{Expr, View};
 pub use strategy::{CumulativeStrategy, ElementwiseStrategy, ReduceStrategy};
 

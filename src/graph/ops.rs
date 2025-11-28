@@ -124,8 +124,12 @@ pub enum GraphOp {
         ast: crate::ast::AstNode,
         /// 演算の種類（lowering方法の決定に使用）
         kind: CustomKind,
-        /// elementwise演算の戦略（kindがElementwiseの場合）
+        /// elementwise演算の戦略
         elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
+        /// reduce演算の戦略（kindがReduceの場合）
+        reduce_strategy: Option<ReduceStrategy>,
+        /// cumulative演算の戦略（kindがCumulativeの場合）
+        cumulative_strategy: Option<CumulativeStrategy>,
     },
 }
 
@@ -165,6 +169,13 @@ pub enum CumulativeOp {
 pub enum CustomKind {
     /// 要素ごとの演算（FusedElementwiseと同等）
     Elementwise,
+    /// Elementwise → Reduce パターン（FusedElementwiseReduceと同等）
+    Reduce { reduce_op: ReduceOp, axis: usize },
+    /// Elementwise → Cumulative パターン（FusedElementwiseCumulativeと同等）
+    Cumulative {
+        cumulative_op: CumulativeOp,
+        axis: usize,
+    },
 }
 
 // DTypeの推論：両方が同じならそれを使う、片方がUnknownなら他方を使う

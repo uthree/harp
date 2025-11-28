@@ -1,5 +1,5 @@
 use crate::ast::{AstNode, helper::wildcard};
-use crate::graph::ops::{CustomKind, ElementwiseOp};
+use crate::graph::ops::{CumulativeOp, CustomKind, ElementwiseOp, ReduceOp};
 use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
 use crate::opt::graph::GraphSuggester;
 use std::collections::{HashMap, HashSet};
@@ -232,6 +232,152 @@ impl CustomFusionSuggester {
         Some((graph_inputs, final_expr))
     }
 
+    /// Elementwise → Reduce パターンを検出
+    ///
+    /// Reduceノードの入力がElementwise演算の場合、両方を融合してCustom(Reduce)にする
+    fn detect_elementwise_reduce_pattern(
+        &self,
+        node: &GraphNode,
+    ) -> Option<(Vec<GraphNode>, AstNode, ReduceOp, usize)> {
+        // このノードがReduceでない場合はNone
+        let (reduce_op, axis) = match &node.op {
+            GraphOp::Reduce { op, axis, .. } => (op.clone(), *axis),
+            GraphOp::FusedElementwiseReduce {
+                reduce_op, axis, ..
+            } => (reduce_op.clone(), *axis),
+            GraphOp::Custom {
+                kind: CustomKind::Reduce { reduce_op, axis },
+                ..
+            } => (reduce_op.clone(), *axis),
+            _ => return None,
+        };
+
+        // Reduceの入力がElementwise/FusedElementwise/Custom(Elementwise)かチェック
+        if node.src.len() != 1 {
+            return None;
+        }
+
+        let src = &node.src[0];
+        let (src_expr, src_inputs) = Self::node_to_ast_expr(src, "")?;
+
+        // 入力ノードがElementwiseタイプでない場合は融合しない
+        if !matches!(
+            &src.op,
+            GraphOp::Elementwise { .. }
+                | GraphOp::FusedElementwise { .. }
+                | GraphOp::Custom {
+                    kind: CustomKind::Elementwise,
+                    ..
+                }
+        ) {
+            return None;
+        }
+
+        // 入力をグラフ入力としてマッピング
+        let mut graph_inputs = Vec::new();
+        let mut input_mapping: HashMap<*const GraphNodeData, usize> = HashMap::new();
+        let mut final_args = Vec::new();
+
+        for sub_src in &src_inputs {
+            let ptr = sub_src.as_ptr();
+            let idx = if let Some(&existing_idx) = input_mapping.get(&ptr) {
+                existing_idx
+            } else {
+                let new_idx = graph_inputs.len();
+                input_mapping.insert(ptr, new_idx);
+                graph_inputs.push(sub_src.clone());
+                new_idx
+            };
+            final_args.push(wildcard(idx.to_string()));
+        }
+
+        // Wildcardを置換した最終式を構築
+        let src_expr_mapping: HashMap<String, AstNode> = src_inputs
+            .iter()
+            .enumerate()
+            .map(|(i, _)| (i.to_string(), final_args[i].clone()))
+            .collect();
+        let final_expr = src_expr.substitute(&src_expr_mapping);
+
+        Some((graph_inputs, final_expr, reduce_op, axis))
+    }
+
+    /// Elementwise → Cumulative パターンを検出
+    ///
+    /// Cumulativeノードの入力がElementwise演算の場合、両方を融合してCustom(Cumulative)にする
+    fn detect_elementwise_cumulative_pattern(
+        &self,
+        node: &GraphNode,
+    ) -> Option<(Vec<GraphNode>, AstNode, CumulativeOp, usize)> {
+        // このノードがCumulativeでない場合はNone
+        let (cumulative_op, axis) = match &node.op {
+            GraphOp::Cumulative { op, axis, .. } => (op.clone(), *axis),
+            GraphOp::FusedElementwiseCumulative {
+                cumulative_op,
+                axis,
+                ..
+            } => (cumulative_op.clone(), *axis),
+            GraphOp::Custom {
+                kind:
+                    CustomKind::Cumulative {
+                        cumulative_op,
+                        axis,
+                    },
+                ..
+            } => (cumulative_op.clone(), *axis),
+            _ => return None,
+        };
+
+        // Cumulativeの入力がElementwise/FusedElementwise/Custom(Elementwise)かチェック
+        if node.src.len() != 1 {
+            return None;
+        }
+
+        let src = &node.src[0];
+        let (src_expr, src_inputs) = Self::node_to_ast_expr(src, "")?;
+
+        // 入力ノードがElementwiseタイプでない場合は融合しない
+        if !matches!(
+            &src.op,
+            GraphOp::Elementwise { .. }
+                | GraphOp::FusedElementwise { .. }
+                | GraphOp::Custom {
+                    kind: CustomKind::Elementwise,
+                    ..
+                }
+        ) {
+            return None;
+        }
+
+        // 入力をグラフ入力としてマッピング
+        let mut graph_inputs = Vec::new();
+        let mut input_mapping: HashMap<*const GraphNodeData, usize> = HashMap::new();
+        let mut final_args = Vec::new();
+
+        for sub_src in &src_inputs {
+            let ptr = sub_src.as_ptr();
+            let idx = if let Some(&existing_idx) = input_mapping.get(&ptr) {
+                existing_idx
+            } else {
+                let new_idx = graph_inputs.len();
+                input_mapping.insert(ptr, new_idx);
+                graph_inputs.push(sub_src.clone());
+                new_idx
+            };
+            final_args.push(wildcard(idx.to_string()));
+        }
+
+        // Wildcardを置換した最終式を構築
+        let src_expr_mapping: HashMap<String, AstNode> = src_inputs
+            .iter()
+            .enumerate()
+            .map(|(i, _)| (i.to_string(), final_args[i].clone()))
+            .collect();
+        let final_expr = src_expr.substitute(&src_expr_mapping);
+
+        Some((graph_inputs, final_expr, cumulative_op, axis))
+    }
+
     /// グラフ内の特定ノードを置き換えた新しいグラフを作成
     fn replace_node_in_graph(
         &self,
@@ -359,6 +505,8 @@ impl GraphSuggester for CustomFusionSuggester {
                         ast: expr,
                         kind: CustomKind::Elementwise,
                         elementwise_strategies: None,
+                        reduce_strategy: None,
+                        cumulative_strategy: None,
                     },
                     graph_inputs,
                     node.view.clone(),
@@ -366,6 +514,104 @@ impl GraphSuggester for CustomFusionSuggester {
 
                 let new_graph = self.replace_node_in_graph(graph, node, fused_node);
                 suggestions.push(new_graph);
+            }
+
+            // Elementwise → Reduce パターンを検出してCustom(Reduce)に融合
+            if let Some((graph_inputs, expr, reduce_op, axis)) =
+                self.detect_elementwise_reduce_pattern(node)
+            {
+                // 融合対象のElementwiseノードの被参照数をチェック
+                let can_fuse = node.src.iter().all(|src| {
+                    let is_fuseable = matches!(
+                        &src.op,
+                        GraphOp::Elementwise { .. }
+                            | GraphOp::FusedElementwise { .. }
+                            | GraphOp::Custom {
+                                kind: CustomKind::Elementwise,
+                                ..
+                            }
+                    );
+                    if is_fuseable {
+                        let src_ptr = src.as_ptr();
+                        let ref_count = ref_counts.get(&src_ptr).copied().unwrap_or(0);
+                        ref_count <= 1
+                    } else {
+                        true
+                    }
+                });
+
+                if can_fuse {
+                    // Reduce後のViewを計算
+                    let input_view = &node.src[0].view;
+                    let mut new_shape = input_view.shape().to_vec();
+                    if axis < new_shape.len() {
+                        new_shape.remove(axis);
+                    }
+                    let new_view = crate::graph::shape::View::contiguous(new_shape);
+
+                    let fused_node = GraphNode::new(
+                        node.dtype.clone(),
+                        GraphOp::Custom {
+                            ast: expr,
+                            kind: CustomKind::Reduce { reduce_op, axis },
+                            elementwise_strategies: None,
+                            reduce_strategy: None,
+                            cumulative_strategy: None,
+                        },
+                        graph_inputs,
+                        new_view,
+                    );
+
+                    let new_graph = self.replace_node_in_graph(graph, node, fused_node);
+                    suggestions.push(new_graph);
+                }
+            }
+
+            // Elementwise → Cumulative パターンを検出してCustom(Cumulative)に融合
+            if let Some((graph_inputs, expr, cumulative_op, axis)) =
+                self.detect_elementwise_cumulative_pattern(node)
+            {
+                // 融合対象のElementwiseノードの被参照数をチェック
+                let can_fuse = node.src.iter().all(|src| {
+                    let is_fuseable = matches!(
+                        &src.op,
+                        GraphOp::Elementwise { .. }
+                            | GraphOp::FusedElementwise { .. }
+                            | GraphOp::Custom {
+                                kind: CustomKind::Elementwise,
+                                ..
+                            }
+                    );
+                    if is_fuseable {
+                        let src_ptr = src.as_ptr();
+                        let ref_count = ref_counts.get(&src_ptr).copied().unwrap_or(0);
+                        ref_count <= 1
+                    } else {
+                        true
+                    }
+                });
+
+                if can_fuse {
+                    // Cumulativeは形状を変えない
+                    let fused_node = GraphNode::new(
+                        node.dtype.clone(),
+                        GraphOp::Custom {
+                            ast: expr,
+                            kind: CustomKind::Cumulative {
+                                cumulative_op,
+                                axis,
+                            },
+                            elementwise_strategies: None,
+                            reduce_strategy: None,
+                            cumulative_strategy: None,
+                        },
+                        graph_inputs,
+                        node.view.clone(),
+                    );
+
+                    let new_graph = self.replace_node_in_graph(graph, node, fused_node);
+                    suggestions.push(new_graph);
+                }
             }
         }
 
@@ -477,5 +723,139 @@ mod tests {
 
         // 複数の融合候補が生成される可能性がある
         assert!(!suggestions.is_empty());
+    }
+
+    #[test]
+    fn test_elementwise_reduce_fusion() {
+        use crate::graph::ReduceOp;
+
+        let suggester = CustomFusionSuggester::new();
+
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
+        let b = graph.input("b", DType::F32, vec![10, 20]);
+
+        // (a + b).reduce_sum(axis=1) -> Custom { kind: Reduce, ast: Add(W(0), W(1)) }
+        let sum = a + b;
+        let result = sum.reduce_sum(1);
+        graph.output("result", result);
+
+        let suggestions = suggester.suggest(&graph);
+
+        // Elementwise + Reduce パターンが検出されるはず
+        assert!(!suggestions.is_empty());
+
+        // 融合後のグラフでCustom(Reduce)ノードがあることを確認
+        let fused_graph = &suggestions[0];
+        let output = fused_graph.outputs().get("result").unwrap();
+
+        match &output.op {
+            GraphOp::Custom {
+                kind: CustomKind::Reduce { reduce_op, axis },
+                ..
+            } => {
+                assert_eq!(*reduce_op, ReduceOp::Sum);
+                assert_eq!(*axis, 1);
+            }
+            _ => panic!("Expected Custom node with Reduce kind"),
+        }
+
+        // 入力が2つであることを確認
+        assert_eq!(output.src.len(), 2);
+    }
+
+    #[test]
+    fn test_elementwise_cumulative_fusion() {
+        use crate::graph::CumulativeOp;
+
+        let suggester = CustomFusionSuggester::new();
+
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
+        let b = graph.input("b", DType::F32, vec![10, 20]);
+
+        // (a * b).cumsum(axis=0) -> Custom { kind: Cumulative, ast: Mul(W(0), W(1)) }
+        let prod = a * b;
+        let result = prod.cumsum(0);
+        graph.output("result", result);
+
+        let suggestions = suggester.suggest(&graph);
+
+        // Elementwise + Cumulative パターンが検出されるはず
+        assert!(!suggestions.is_empty());
+
+        // 融合後のグラフでCustom(Cumulative)ノードがあることを確認
+        let fused_graph = &suggestions[0];
+        let output = fused_graph.outputs().get("result").unwrap();
+
+        match &output.op {
+            GraphOp::Custom {
+                kind:
+                    CustomKind::Cumulative {
+                        cumulative_op,
+                        axis,
+                    },
+                ..
+            } => {
+                assert_eq!(*cumulative_op, CumulativeOp::Sum);
+                assert_eq!(*axis, 0);
+            }
+            _ => panic!("Expected Custom node with Cumulative kind"),
+        }
+
+        // 入力が2つであることを確認
+        assert_eq!(output.src.len(), 2);
+    }
+
+    #[test]
+    fn test_custom_elementwise_to_reduce_fusion() {
+        use crate::graph::ReduceOp;
+
+        let suggester = CustomFusionSuggester::new();
+
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
+        let b = graph.input("b", DType::F32, vec![10, 20]);
+        let c = graph.input("c", DType::F32, vec![10, 20]);
+
+        // 最初に a + b を計算し、次に * c、そして reduce
+        // ((a + b) * c).reduce_max(axis=1)
+        let sum = a + b;
+        let mul = sum * c;
+        let result = mul.reduce_max(1);
+        graph.output("result", result);
+
+        let suggestions = suggester.suggest(&graph);
+
+        // 最初の提案はElementwiseチェーンの融合
+        assert!(!suggestions.is_empty());
+
+        // 段階的に適用して最終的にCustom(Reduce)になることを確認
+        let mut current_graph = graph;
+        loop {
+            let new_suggestions = suggester.suggest(&current_graph);
+            if new_suggestions.is_empty() {
+                break;
+            }
+            current_graph = new_suggestions.into_iter().next().unwrap();
+        }
+
+        let output = current_graph.outputs().get("result").unwrap();
+        match &output.op {
+            GraphOp::Custom {
+                kind: CustomKind::Reduce { reduce_op, axis },
+                ..
+            } => {
+                assert_eq!(*reduce_op, ReduceOp::Max);
+                assert_eq!(*axis, 1);
+            }
+            _ => panic!(
+                "Expected final graph to have Custom(Reduce) node, got {:?}",
+                output.op
+            ),
+        }
+
+        // 全ての入力が単一のCustomノードに融合されていること
+        assert_eq!(output.src.len(), 3);
     }
 }

@@ -6,7 +6,8 @@
 
 use crate::graph::GraphNode;
 use crate::graph::ops::{
-    CustomKind, ElementwiseOp, GraphOp, infer_dtype, infer_view, max, recip, reduce_sum,
+    CumulativeOp, CustomKind, ElementwiseOp, GraphOp, ReduceOp, infer_dtype, infer_view, max,
+    recip, reduce_sum,
 };
 
 impl GraphNode {
@@ -339,6 +340,8 @@ impl GraphNode {
                 ast,
                 kind: CustomKind::Elementwise,
                 elementwise_strategies: None,
+                reduce_strategy: None,
+                cumulative_strategy: None,
             },
             vec![self],
             view,
@@ -378,6 +381,8 @@ impl GraphNode {
                 ast,
                 kind: CustomKind::Elementwise,
                 elementwise_strategies: None,
+                reduce_strategy: None,
+                cumulative_strategy: None,
             },
             vec![self, other],
             view,
@@ -424,6 +429,109 @@ impl GraphNode {
                 ast,
                 kind: CustomKind::Elementwise,
                 elementwise_strategies: None,
+                reduce_strategy: None,
+                cumulative_strategy: None,
+            },
+            inputs,
+            view,
+        )
+    }
+
+    /// カスタムAST Reduce演算を作成
+    ///
+    /// Elementwise演算 → Reduce演算のパターンを単一ノードで表現します。
+    /// AST内の`Wildcard("0")`, `Wildcard("1")`, ... が対応する入力に置換されます。
+    ///
+    /// # Example
+    /// ```
+    /// use harp::prelude::*;
+    /// use harp::ast::helper::wildcard;
+    /// use harp::graph::ReduceOp;
+    ///
+    /// let mut graph = Graph::new();
+    /// let a = graph.input("a", DType::F32, vec![10, 20]);
+    /// let b = graph.input("b", DType::F32, vec![10, 20]);
+    ///
+    /// // reduce_sum(a * b, axis=1) をカスタム演算として表現
+    /// let ast = wildcard("0") * wildcard("1");
+    /// let result = GraphNode::custom_reduce(vec![a, b], ast, ReduceOp::Sum, 1);
+    /// ```
+    pub fn custom_reduce(
+        inputs: Vec<Self>,
+        ast: crate::ast::AstNode,
+        reduce_op: ReduceOp,
+        axis: usize,
+    ) -> Self {
+        if inputs.is_empty() {
+            panic!("custom_reduce requires at least one input");
+        }
+
+        let dtype = inputs[0].dtype.clone();
+        let input_view = inputs[0].view.clone();
+
+        // Reduce後のViewを計算（指定軸を削除）
+        let mut new_shape = input_view.shape().to_vec();
+        if axis < new_shape.len() {
+            new_shape.remove(axis);
+        }
+        let view = crate::graph::shape::View::contiguous(new_shape);
+
+        GraphNode::new(
+            dtype,
+            GraphOp::Custom {
+                ast,
+                kind: CustomKind::Reduce { reduce_op, axis },
+                elementwise_strategies: None,
+                reduce_strategy: None,
+                cumulative_strategy: None,
+            },
+            inputs,
+            view,
+        )
+    }
+
+    /// カスタムAST Cumulative演算を作成
+    ///
+    /// Elementwise演算 → Cumulative演算のパターンを単一ノードで表現します。
+    /// AST内の`Wildcard("0")`, `Wildcard("1")`, ... が対応する入力に置換されます。
+    ///
+    /// # Example
+    /// ```
+    /// use harp::prelude::*;
+    /// use harp::ast::helper::wildcard;
+    /// use harp::graph::CumulativeOp;
+    ///
+    /// let mut graph = Graph::new();
+    /// let x = graph.input("x", DType::F32, vec![10, 20]);
+    ///
+    /// // cumsum(x * x, axis=1) をカスタム演算として表現
+    /// let ast = wildcard("0") * wildcard("0");
+    /// let result = GraphNode::custom_cumulative(vec![x], ast, CumulativeOp::Sum, 1);
+    /// ```
+    pub fn custom_cumulative(
+        inputs: Vec<Self>,
+        ast: crate::ast::AstNode,
+        cumulative_op: CumulativeOp,
+        axis: usize,
+    ) -> Self {
+        if inputs.is_empty() {
+            panic!("custom_cumulative requires at least one input");
+        }
+
+        let dtype = inputs[0].dtype.clone();
+        let view = inputs[0].view.clone(); // Cumulativeは形状を変えない
+
+        GraphNode::new(
+            dtype,
+            GraphOp::Custom {
+                ast,
+                kind: CustomKind::Cumulative {
+                    cumulative_op,
+                    axis,
+                },
+                elementwise_strategies: None,
+                reduce_strategy: None,
+                cumulative_strategy: None,
             },
             inputs,
             view,
