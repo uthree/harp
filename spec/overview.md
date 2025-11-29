@@ -152,22 +152,3 @@ impl_module! {
 }
 ```
 
-## 変更履歴
-
-### 2025-11-26: autograd サブクレート化
-
-`autograd`モジュールを`harp`本体から分離し、独立したサブクレート`harp-autograd`として再構成。
-
-**変更点:**
-- `harp::autograd::Tensor` → `harp_autograd::Tensor`
-- `harp-nn`は`harp-autograd`に依存するよう変更
-- `Graph::realize()`メソッドを`harp`本体に移動
-
-**目的:**
-- モジュール独立性の向上
-- コンパイル時間の最適化
-- 依存関係の明確化
-
-### 2025-11-25: nn サブクレート化
-
-`nn`モジュールを`harp`本体から分離し、独立したサブクレート`harp-nn`として再構成。

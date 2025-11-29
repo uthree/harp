@@ -46,8 +46,8 @@ ASTをターゲット言語のソースコードに変換。C言語系の構文�
 Graphを最適化、lower、AST最適化などの一通りの処理をまとめて行うためのtrait。
 
 処理フロー:
-1. **グラフ最適化** (オプション): 並列化戦略変更、View挿入、ノード融合など
-2. **Lowering**: Graph → AST変換
+1. **グラフ最適化** (必須): LoweringSuggesterでGraphOpをCustomノードに変換、融合、並列化戦略変更など
+2. **Lowering**: Graph → AST変換（Customノードの展開）
 3. **AST最適化** (オプション):
    - ルールベース最適化（代数的簡約、定数畳み込み）
    - ビームサーチ最適化（ループ変換など）
@@ -60,10 +60,9 @@ Graphを最適化、lower、AST最適化などの一通りの処理をまとめ�
 **主要な機能:**
 - コンパイル済みKernelのキャッシュ機能
 - 最適化履歴の収集（可視化ツールとの統合用）
-- グラフ最適化とAST最適化の個別制御
+- グラフ最適化（必須）とAST最適化（オプション）
 
 **設定フィールド:**
-- `enable_graph_optimization`: グラフ最適化の有効化
 - `enable_ast_optimization`: AST最適化の有効化
 - `graph_config`: グラフ最適化の設定（ビーム幅、最大ステップ数、プログレス表示）
 - `ast_config`: AST最適化の設定
@@ -72,7 +71,7 @@ Graphを最適化、lower、AST最適化などの一通りの処理をまとめ�
 **使用例:**
 ```rust
 let mut pipeline = GenericPipeline::new(renderer, compiler);
-pipeline.enable_graph_optimization = true;
+// グラフ最適化は常に有効（LoweringSuggesterが必須）
 pipeline.enable_ast_optimization = true;
 pipeline.graph_config.beam_width = 8;
 ```

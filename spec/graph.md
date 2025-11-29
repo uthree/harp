@@ -347,51 +347,6 @@ Custom { function: ... } -> result  // W("0") + W("1") を累積するReduce関�
 
 これにより、中間バッファの削減とカーネル呼び出し回数の削減が可能です。
 
-## コード構成とリファクタリング履歴
-
-### 2025-11-25: Expr型ヘルパーメソッド追加とテスト分離
-コードの可読性と保守性を向上させるリファクタリングを実施：
-
-#### Expr型のヘルパーメソッド追加
-`src/graph/shape/expr.rs`に定数値抽出用のヘルパーメソッドを追加：
-- `as_const() -> Option<isize>`: 定数値をOptionで取得
-- `as_usize() -> Option<usize>`: 定数値を非負整数として取得
-- `expect_const(msg: &str) -> isize`: 定数値を取得（失敗時はパニック）
-- `expect_usize(msg: &str) -> usize`: 非負整数を取得（失敗時はパニック）
-
-**効果**: コードベース全体で35箇所以上あった以下のようなパターンを統一：
-```rust
-// Before
-let value = match &shape[i] {
-    crate::graph::shape::Expr::Const(v) => *v as usize,
-    _ => panic!("requires constant"),
-};
-
-// After
-let value = shape[i].expect_usize("requires constant");
-```
-
-#### graph/mod.rsからテストを分離
-- **mod.rs (1678行) → mod.rs (1082行) + tests/graph_tests.rs (596行)**
-  - 実装とテストコードを分離
-  - 59個のテストを独立したファイルに移動
-  - テストの可読性と管理性が向上
-
-全725テスト（676統合テスト + 49 doctest）が合格し、既存機能に影響なく完了。
-
-### 2025-11-24: モジュール分割リファクタリング
-大きなファイルを機能ごとに分割し、可読性と保守性を向上させました：
-
-- **view.rs (1294行) → view.rs (600行) + view_ops.rs (705行)**
-  - 基本的なView操作とunfold操作を分離
-  - テストもview_ops.rsに移動
-
-- **hlops.rs (1222行) → hlops.rs (746行) + hlops_conv.rs (452行)**
-  - 畳み込み演算を独立したモジュールに分離
-  - 高レベル演算の見通しが改善
-
-全630テストが合格し、既存機能に影響なく分割完了。
-
 ## モジュール構成
 
 計算グラフ関連のコードは以下のように分割されています：

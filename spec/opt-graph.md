@@ -89,6 +89,23 @@ Graphを最適化。`optimize(&self, graph: Graph) -> Graph`
 - OpenCL backend: Thread/ThreadGroup戦略のコード生成は未実装（TODO）
 - Metal backend: Thread/ThreadGroup戦略をサポート
 
+### LoweringSuggester
+GraphOpをCustomノード（`AstNode::Function`を保持）に変換する。グラフ最適化の必須コンポーネント。
+
+**変換対象:**
+- Elementwise → Custom
+- Reduce → Custom
+- Cumulative → Custom
+- Contiguous → Custom
+- FusedElementwise → Custom
+- FusedElementwiseReduce → Custom
+- FusedElementwiseCumulative → Custom
+- Pad/Slice/Concat/Arange/Cast/RandInit → Custom
+
+**変換条件:**
+- 入力のViewが連続（contiguous）であること（Elementwiseの場合）
+- 既にCustomノードでないこと
+
 ### CompositeSuggester
 複数のSuggesterを組み合わせる。
 
@@ -97,21 +114,18 @@ Graphを最適化。`optimize(&self, graph: Graph) -> Graph`
 ```rust
 use harp::opt::graph::*;
 
-// Suggesterの組み合わせ
+// Suggesterの組み合わせ（LoweringSuggesterは必須）
 let suggester = CompositeSuggester::new(vec![
-    Box::new(FusionSuggester::new()),
+    Box::new(LoweringSuggester::new()),
     Box::new(CustomFusionSuggester::new()),
     Box::new(ContiguousInsertionSuggester::new()),
-    Box::new(ParallelStrategyChanger::new()),
 ]);
 
 // 最適化器の構築
-let optimizer = BeamSearchGraphOptimizer::builder()
-    .beam_width(10)
-    .max_depth(15)
-    .suggester(suggester)
-    .estimator(AstBasedCostEstimator::new())
-    .build();
+let estimator = SimpleCostEstimator::new();
+let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
+    .with_beam_width(10)
+    .with_max_steps(100);
 
 // 最適化実行
 let optimized_graph = optimizer.optimize(graph);
