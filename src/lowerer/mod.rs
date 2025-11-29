@@ -640,10 +640,10 @@ impl Lowerer {
         node_id: usize,
     ) -> Result<crate::ast::AstNode, String> {
         match &node.op {
-            GraphOp::Custom { function } => {
-                // Custom関数をloweringする
+            GraphOp::Custom { ast } => {
+                // Custom AST（Function または Program）をloweringする
                 // プレースホルダー変数を実際のパラメータに置換
-                self.lower_custom_function(node, node_id, function)
+                self.lower_custom_ast(node, node_id, ast)
             }
             GraphOp::Fold {
                 output_size,

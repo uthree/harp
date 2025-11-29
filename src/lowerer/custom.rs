@@ -1,6 +1,7 @@
-//! Custom関数のLowering
+//! Custom ASTのLowering
 //!
 //! GraphOp::Customを処理し、プレースホルダー変数を実際のパラメータに置換します。
+//! AstNode::Function または AstNode::Program の両方をサポートします。
 
 use crate::ast::{AstNode, DType as AstDType, FunctionKind, VarDecl};
 use crate::graph::GraphNode;
@@ -11,14 +12,34 @@ use std::collections::{HashMap, HashSet};
 use super::Lowerer;
 
 impl Lowerer {
-    /// Custom関数をカーネル関数に変換
+    /// Custom AST（Function または Program）をカーネル関数に変換
     ///
-    /// Custom関数は既にAstNode::Functionの形式で構築されています。
-    /// ここでは以下を行います：
+    /// # 処理内容
+    /// - `AstNode::Function`: 単一カーネル関数として処理
+    /// - `AstNode::Program`: 複数カーネルを含むプログラムとして処理（パススルー）
+    ///
+    /// 単一関数の場合：
     /// 1. 関数名を設定（kernel_N）
     /// 2. パラメータリストを構築（input0, input1, ..., output, shape0, shape1, ...）
     /// 3. プレースホルダー変数を実際のパラメータに置換
-    pub(super) fn lower_custom_function(
+    pub(super) fn lower_custom_ast(
+        &mut self,
+        node: &GraphNode,
+        node_id: usize,
+        custom_ast: &AstNode,
+    ) -> Result<AstNode, String> {
+        match custom_ast {
+            AstNode::Function { .. } => self.lower_custom_function(node, node_id, custom_ast),
+            AstNode::Program { .. } => self.lower_custom_program(node, custom_ast),
+            _ => Err(format!(
+                "Custom AST must be AstNode::Function or AstNode::Program, got: {:?}",
+                std::mem::discriminant(custom_ast)
+            )),
+        }
+    }
+
+    /// Custom関数をカーネル関数に変換
+    fn lower_custom_function(
         &mut self,
         node: &GraphNode,
         node_id: usize,
@@ -90,6 +111,25 @@ impl Lowerer {
             return_type: AstDType::Tuple(vec![]),
             body: Box::new(body),
         })
+    }
+
+    /// Custom Program（複数カーネル）を処理
+    ///
+    /// Programは既に複数のFunctionとmain関数を含んでいるため、
+    /// ほぼパススルーで出力します。
+    fn lower_custom_program(
+        &self,
+        _node: &GraphNode,
+        custom_program: &AstNode,
+    ) -> Result<AstNode, String> {
+        debug!("Lowering custom program (passthrough)");
+
+        // Programはそのまま返す
+        // TODO: 将来的には、複数のCustom Programをマージする機能が必要かもしれない
+        match custom_program {
+            AstNode::Program { .. } => Ok(custom_program.clone()),
+            _ => Err("Expected AstNode::Program".to_string()),
+        }
     }
 
     /// Custom関数のボディを抽出し、プレースホルダー変数を置換

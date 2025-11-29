@@ -238,14 +238,19 @@ let ints = float_tensor.cast(DType::I32);
 
 ## カスタム演算（Custom）
 
-任意の`AstNode::Function`を埋め込むことで、柔軟な演算定義を可能にします。tinygradのUOps設計を参考にしており、**段階的なノード融合とlowering**をサポートします。
+任意の`AstNode::Function`または`AstNode::Program`を埋め込むことで、柔軟な演算定義を可能にします。tinygradのUOps設計を参考にしており、**段階的なノード融合とlowering**をサポートします。
 
 ### 設計原則
 
-「1つのGraphノード = 1つの関数」の原則に従い、`GraphOp::Custom`は完全な`AstNode::Function`を保持します。これにより：
-- Lowering時に関数をほぼパススルーで使用
+`GraphOp::Custom`は`ast`フィールドを持ち、以下のいずれかを保持します：
+- `AstNode::Function`: 単一カーネル関数（LoweringSuggesterが生成）
+- `AstNode::Program`: 複数カーネルとmain関数を含むプログラム（KernelMergeSuggesterが生成）
+
+これにより：
+- Lowering時にほぼパススルーで使用
 - 複雑な融合パターンも統一的に表現
 - 最適化パスでの扱いが容易
+- 複数カーネルの協調実行を表現可能
 
 ### プレースホルダー変数
 
@@ -323,15 +328,22 @@ let custom = x.custom_function(func);
 
 ### 段階的ノード融合
 
-`CustomFusionSuggester`により、Graph最適化フェーズで連続するElementwise演算が自動的に`GraphOp::Custom`に融合されます：
+Graph最適化フェーズでは、以下のSuggesterにより段階的に演算が融合されます：
+
+1. **CustomFusionSuggester**: 連続するElementwise演算を`Custom(Function)`に融合
+2. **LoweringSuggester**: 残りのGraphOpを`Custom(Function)`に変換
+3. **KernelMergeSuggester**: 複数の`Custom(Function)`を`Custom(Program)`にマージ
 
 ```
 // 最適化前
 a + b -> temp
 temp * c -> result
 
-// 最適化後（CustomFusionSuggester適用）
-Custom { function: ... } -> result  // (W("0") + W("1")) * W("2") を表現する関数
+// CustomFusionSuggester適用後
+Custom { ast: Function } -> result  // (W("0") + W("1")) * W("2") を表現する関数
+
+// KernelMergeSuggester適用後（複数カーネルがある場合）
+Custom { ast: Program } -> result  // 複数カーネルとmain関数を含むプログラム
 ```
 
 さらに、Elementwise→ReduceやElementwise→Cumulativeのパターンも融合されます：
@@ -342,7 +354,7 @@ a + b -> temp
 temp.reduce_sum(axis=1) -> result
 
 // 最適化後
-Custom { function: ... } -> result  // W("0") + W("1") を累積するReduce関数
+Custom { ast: ... } -> result  // W("0") + W("1") を累積するReduce関数
 ```
 
 これにより、中間バッファの削減とカーネル呼び出し回数の削減が可能です。

@@ -106,6 +106,24 @@ GraphOpをCustomノード（`AstNode::Function`を保持）に変換する。グ
 - 入力のViewが連続（contiguous）であること（Elementwiseの場合）
 - 既にCustomノードでないこと
 
+### KernelMergeSuggester
+複数のCustomノード（Function）を1つのCustomノード（Program）にマージする。
+
+**効果:**
+- グラフ全体を1つのProgram ASTとして表現
+- 中間バッファの管理を明示的に制御
+- Lowererがほぼパススルーになり、コード生成が簡潔に
+
+**マージ条件:**
+- グラフに2つ以上のCustomノード（Function）が存在すること
+
+**生成するProgram構造:**
+- 各カーネル関数（kernel_0, kernel_1, ...）
+- main関数（harp_main）
+  - 中間バッファの確保（Allocate）
+  - カーネル呼び出し順序の管理
+  - 中間バッファの解放（Deallocate）
+
 ### CompositeSuggester
 複数のSuggesterを組み合わせる。
 
@@ -114,11 +132,15 @@ GraphOpをCustomノード（`AstNode::Function`を保持）に変換する。グ
 ```rust
 use harp::opt::graph::*;
 
-// Suggesterの組み合わせ（LoweringSuggesterは必須）
+// Suggesterの組み合わせ（推奨順序）
 let suggester = CompositeSuggester::new(vec![
-    Box::new(LoweringSuggester::new()),
+    // 1. 最適化系
     Box::new(CustomFusionSuggester::new()),
     Box::new(ContiguousInsertionSuggester::new()),
+    // 2. GraphOp → Custom(Function)への変換
+    Box::new(LoweringSuggester::new()),
+    // 3. 複数Custom → Custom(Program)へのマージ
+    Box::new(KernelMergeSuggester::new()),
 ]);
 
 // 最適化器の構築

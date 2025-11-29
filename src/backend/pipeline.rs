@@ -66,8 +66,12 @@ pub fn create_graph_suggester(flags: SuggesterFlags) -> CompositeSuggester {
         suggesters.push(Box::new(SimdSuggester::new()));
     }
 
-    // LoweringSuggesterは最後に追加（他の最適化後にlowering）
+    // LoweringSuggesterは他の最適化後にlowering
     suggesters.push(Box::new(LoweringSuggester::new()));
+
+    // TODO: KernelMergeSuggesterは中間バッファの処理にバグがあるため一時無効化
+    // KernelMergeSuggesterは最後に追加（複数のCustomノードをProgramにマージ）
+    // suggesters.push(Box::new(KernelMergeSuggester::new()));
 
     CompositeSuggester::new(suggesters)
 }

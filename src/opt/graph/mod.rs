@@ -29,6 +29,7 @@ pub use history::{OptimizationHistory, OptimizationSnapshot};
 pub use optimizer::BeamSearchGraphOptimizer;
 pub use suggesters::{
     CompositeSuggester, ConstPropagationSuggester, ContiguousInsertionSuggester,
-    CustomFusionSuggester, FusionSuggester, LoweringSuggester, ParallelStrategyChanger,
-    SimdSuggester, TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
+    CustomFusionSuggester, FusionSuggester, KernelMergeSuggester, LoweringSuggester,
+    ParallelStrategyChanger, SimdSuggester, TilingSuggester, ViewInsertionSuggester,
+    ViewMergeSuggester,
 };

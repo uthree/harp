@@ -131,7 +131,7 @@ impl LoweringSuggester {
         // Customノードを作成
         Some(GraphNode::with_elementwise_strategies(
             node.dtype.clone(),
-            GraphOp::Custom { function },
+            GraphOp::Custom { ast: function },
             node.src.clone(),
             node.view.clone(),
             node.elementwise_strategies.clone(),

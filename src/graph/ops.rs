@@ -99,9 +99,12 @@ pub enum GraphOp {
     ComplexFromParts {
         elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
     },
-    /// カスタム関数演算
+    /// カスタムAST演算
     ///
-    /// 完全なAstNode::Functionを保持し、lowering時にほぼパススルーで使用される。
+    /// `AstNode::Function`または`AstNode::Program`を保持し、lowering時にほぼパススルーで使用される。
+    /// - 単一カーネル: `AstNode::Function`を保持
+    /// - 複数カーネル（融合後）: `AstNode::Program`を保持（複数のFunctionとmain関数を含む）
+    ///
     /// 関数内ではプレースホルダー変数を使用（[`custom_placeholders`]参照）。
     ///
     /// # プレースホルダー変数
@@ -143,8 +146,8 @@ pub enum GraphOp {
     /// let y = x.custom_function(func);
     /// ```
     Custom {
-        /// 完全な関数定義（AstNode::Functionを期待）
-        function: crate::ast::AstNode,
+        /// AstNode::Function または AstNode::Program
+        ast: crate::ast::AstNode,
     },
 }
 

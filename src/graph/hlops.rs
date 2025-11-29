@@ -351,7 +351,7 @@ impl GraphNode {
     pub fn custom_function(self, function: crate::ast::AstNode) -> Self {
         let dtype = self.dtype.clone();
         let view = self.view.clone();
-        GraphNode::new(dtype, GraphOp::Custom { function }, vec![self], view)
+        GraphNode::new(dtype, GraphOp::Custom { ast: function }, vec![self], view)
     }
 
     /// カスタム関数演算を複数入力で作成
@@ -363,7 +363,7 @@ impl GraphNode {
         let dtype = inputs[0].dtype.clone();
         let view = inputs[0].view.clone();
 
-        GraphNode::new(dtype, GraphOp::Custom { function }, inputs, view)
+        GraphNode::new(dtype, GraphOp::Custom { ast: function }, inputs, view)
     }
 
     /// カスタムAST単項演算を作成
@@ -394,7 +394,7 @@ impl GraphNode {
 
         let function = custom_builder::build_elementwise_function(ndim, 1, expr);
 
-        GraphNode::new(dtype, GraphOp::Custom { function }, vec![self], view)
+        GraphNode::new(dtype, GraphOp::Custom { ast: function }, vec![self], view)
     }
 
     /// カスタムAST二項演算を作成
@@ -428,7 +428,12 @@ impl GraphNode {
 
         let function = custom_builder::build_elementwise_function(ndim, 2, expr);
 
-        GraphNode::new(dtype, GraphOp::Custom { function }, vec![self, other], view)
+        GraphNode::new(
+            dtype,
+            GraphOp::Custom { ast: function },
+            vec![self, other],
+            view,
+        )
     }
 
     /// カスタムAST多入力演算を作成
@@ -468,7 +473,7 @@ impl GraphNode {
 
         let function = custom_builder::build_elementwise_function(ndim, num_inputs, expr);
 
-        GraphNode::new(dtype, GraphOp::Custom { function }, inputs, view)
+        GraphNode::new(dtype, GraphOp::Custom { ast: function }, inputs, view)
     }
 
     /// カスタムAST Reduce演算を作成
@@ -515,7 +520,7 @@ impl GraphNode {
         let function =
             custom_builder::build_reduce_function(ndim, num_inputs, axis, &reduce_op, expr);
 
-        GraphNode::new(dtype, GraphOp::Custom { function }, inputs, view)
+        GraphNode::new(dtype, GraphOp::Custom { ast: function }, inputs, view)
     }
 
     /// カスタムAST Cumulative演算を作成
@@ -554,7 +559,7 @@ impl GraphNode {
         let function =
             custom_builder::build_cumulative_function(ndim, num_inputs, axis, &cumulative_op, expr);
 
-        GraphNode::new(dtype, GraphOp::Custom { function }, inputs, view)
+        GraphNode::new(dtype, GraphOp::Custom { ast: function }, inputs, view)
     }
 
     // ============================================================================

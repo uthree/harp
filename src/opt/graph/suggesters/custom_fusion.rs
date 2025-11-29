@@ -148,10 +148,10 @@ impl CustomFusionSuggester {
                 Some((expr, node.src.clone()))
             }
             GraphOp::FusedElementwise { expr, .. } => Some((expr.clone(), node.src.clone())),
-            GraphOp::Custom { function } => {
+            GraphOp::Custom { ast } => {
                 // Custom関数からElementwise式を抽出する
                 // 関数ボディからWildcard式を探して返す
-                Self::extract_expr_from_custom_function(function, node)
+                Self::extract_expr_from_custom_function(ast, node)
             }
             _ => None,
         }
@@ -616,7 +616,7 @@ impl GraphSuggester for CustomFusionSuggester {
                 let num_inputs = graph_inputs.len();
                 let fused_node = GraphNode::new(
                     node.dtype.clone(),
-                    GraphOp::Custom { function },
+                    GraphOp::Custom { ast: function },
                     graph_inputs,
                     node.view.clone(),
                 );
@@ -668,7 +668,7 @@ impl GraphSuggester for CustomFusionSuggester {
 
                     let fused_node = GraphNode::new(
                         node.dtype.clone(),
-                        GraphOp::Custom { function },
+                        GraphOp::Custom { ast: function },
                         graph_inputs,
                         new_view,
                     );
@@ -709,7 +709,7 @@ impl GraphSuggester for CustomFusionSuggester {
                     // Cumulativeは形状を変えない
                     let fused_node = GraphNode::new(
                         node.dtype.clone(),
-                        GraphOp::Custom { function },
+                        GraphOp::Custom { ast: function },
                         graph_inputs,
                         node.view.clone(),
                     );

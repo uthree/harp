@@ -8,7 +8,8 @@ use std::collections::HashSet;
 const MEMORY_ACCESS_COST: f32 = 4.0;
 
 // カーネル起動オーバーヘッド（CPUサイクル）
-const KERNEL_LAUNCH_OVERHEAD: f32 = 100.0;
+// 複数カーネルよりも1つのProgram/Functionを優先するため、高めに設定
+const KERNEL_LAUNCH_OVERHEAD: f32 = 1000.0;
 
 /// 簡単なコスト推定器（ノード数とメモリアクセスベース）
 ///
@@ -393,6 +394,13 @@ impl GraphCostEstimator for SimpleCostEstimator {
         let node_count = nodes.len();
         let mut log_costs = Vec::new();
 
+        // カーネル数をカウント（カーネル起動オーバーヘッド計算用）
+        // Custom(Function)とlowering対象のノード（FusedElementwiseReduceなど）の両方をカウント
+        // これにより、lowering前後でカーネルオーバーヘッドが変わらず、
+        // loweringが進むようになる
+        let mut kernel_count = 0;
+        let mut has_custom_program = false;
+
         for node in &nodes {
             let log_base_cost = self.node_base_cost(node);
 
@@ -412,11 +420,49 @@ impl GraphCostEstimator for SimpleCostEstimator {
 
             // 対数スケールでの乗算: log(base_cost * strategy_factor) = log_base_cost + log_strategy_factor
             log_costs.push(log_base_cost + log_strategy_factor);
+
+            // カーネルとしてカウントするノード
+            match &node.op {
+                GraphOp::Custom { ast } => match ast {
+                    crate::ast::AstNode::Function { .. } => kernel_count += 1,
+                    crate::ast::AstNode::Program { .. } => has_custom_program = true,
+                    _ => {}
+                },
+                // lowering対象のノードもカーネルとしてカウント
+                // これにより、lowering前後でオーバーヘッドが変わらない
+                GraphOp::FusedElementwiseReduce { .. }
+                | GraphOp::FusedElementwiseCumulative { .. }
+                | GraphOp::FusedElementwise { .. }
+                | GraphOp::Reduce { .. }
+                | GraphOp::Cumulative { .. }
+                | GraphOp::Contiguous { .. }
+                | GraphOp::Pad { .. }
+                | GraphOp::Slice { .. }
+                | GraphOp::Concat { .. }
+                | GraphOp::Rand { .. }
+                | GraphOp::Arange { .. }
+                | GraphOp::Cast { .. }
+                | GraphOp::Real { .. }
+                | GraphOp::Imag { .. }
+                | GraphOp::ComplexFromParts { .. } => {
+                    kernel_count += 1;
+                }
+                // Elementwiseはfusion対象なのでカウントしない
+                // Input, Const, Viewはカーネルではない
+                _ => {}
+            }
         }
 
-        // カーネル起動オーバーヘッド（出力ノード数に比例）
-        let num_outputs = graph.outputs().len() as f32;
-        let log_kernel_overhead = num_outputs.ln() + KERNEL_LAUNCH_OVERHEAD.ln();
+        // カーネル起動オーバーヘッド
+        // Custom(Program)は1つのプログラムとして扱われるため、1回分のオーバーヘッド
+        let kernel_count_f32 = if has_custom_program {
+            1.0 // Programは全体で1つのカーネル起動として扱う
+        } else if kernel_count > 0 {
+            kernel_count as f32
+        } else {
+            graph.outputs().len() as f32
+        };
+        let log_kernel_overhead = kernel_count_f32.ln() + KERNEL_LAUNCH_OVERHEAD.ln();
 
         // すべてのコストを合計
         log_costs.push(log_kernel_overhead);
