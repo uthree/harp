@@ -4,7 +4,7 @@
 //! 可視化します。
 
 use harp::graph::{DType, Graph};
-use harp::opt::graph::{BeamSearchGraphOptimizer, CustomFusionSuggester, SimpleCostEstimator};
+use harp::opt::graph::{BeamSearchGraphOptimizer, FusionSuggester, SimpleCostEstimator};
 use harp_viz::HarpVizApp;
 
 fn main() -> eframe::Result {
@@ -35,7 +35,7 @@ fn main() -> eframe::Result {
 
     // CustomFusionSuggesterのみを使って最適化
     println!("【最適化実行中...】");
-    let suggester = CustomFusionSuggester::new();
+    let suggester = FusionSuggester::new();
     let estimator = SimpleCostEstimator::new();
 
     let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
@@ -124,7 +124,7 @@ fn create_elementwise_chain_graph() -> Graph {
 fn format_op_type(op: &harp::graph::GraphOp) -> String {
     use harp::graph::GraphOp;
     match op {
-        GraphOp::Input => "Input".to_string(),
+        GraphOp::Buffer { name } => name.clone(),
         GraphOp::Const(_) => "Const".to_string(),
         GraphOp::Elementwise { op, .. } => format!("Elementwise({:?})", op),
         GraphOp::Custom { ast } => {

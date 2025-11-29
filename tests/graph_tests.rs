@@ -23,7 +23,7 @@ fn test_graph_to_dot() {
     assert!(dot.contains("digraph G {"));
     assert!(dot.contains("rankdir=LR"));
     assert!(dot.contains("Output: c"));
-    assert!(dot.contains("Input"));
+    assert!(dot.contains("Buffer")); // GraphOp::Buffer
     assert!(dot.contains("Elementwise"));
     assert!(dot.contains("DType: F32"));
     assert!(dot.contains("Shape: [10, 20]"));
@@ -52,8 +52,8 @@ fn test_input_node_creation() {
     }
 
     match &input.op {
-        GraphOp::Input => {}
-        _ => panic!("Expected GraphOp::Input"),
+        GraphOp::Buffer { .. } => {}
+        _ => panic!("Expected GraphOp::Buffer"),
     }
 
     assert_eq!(input.view.ndim(), 2);
@@ -112,7 +112,9 @@ fn test_multiple_inputs() {
 fn test_graph_node_new() {
     let node = GraphNode::new(
         DType::F32,
-        GraphOp::Input,
+        GraphOp::Buffer {
+            name: "test".to_string(),
+        },
         vec![],
         View::contiguous(vec![3, 4]),
     );
@@ -229,8 +231,8 @@ fn test_sub_operation() {
 
     // 左側のオペランドは入力a
     match &result.src[0].op {
-        GraphOp::Input => {}
-        _ => panic!("Expected Input operation for left operand"),
+        GraphOp::Buffer { .. } => {}
+        _ => panic!("Expected Buffer operation for left operand"),
     }
 
     // 右側のオペランドは -b (Neg演算)
@@ -244,8 +246,8 @@ fn test_sub_operation() {
 
     // -b の入力は b
     match &result.src[1].src[0].op {
-        GraphOp::Input => {}
-        _ => panic!("Expected Input operation for negated operand"),
+        GraphOp::Buffer { .. } => {}
+        _ => panic!("Expected Buffer operation for negated operand"),
     }
 }
 

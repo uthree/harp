@@ -59,7 +59,7 @@ impl LoweringSuggester {
         // 基本的なノードタイプをチェック
         if matches!(
             node.op,
-            GraphOp::Input
+            GraphOp::Buffer { .. }
                 | GraphOp::Const(_)
                 | GraphOp::ComplexConst { .. }
                 | GraphOp::View(_)
@@ -129,10 +129,27 @@ impl LoweringSuggester {
         }?;
 
         // Customノードを作成
+        // 出力バッファーも含めたsrcを構築
+        // 構造: [input0, input1, ..., output_buffer]
+        // これにより、lowerer側でsrcとASTパラメータの対応が明確になる
+        let mut new_src = node.src.clone();
+
+        // 出力バッファーを作成
+        // 名前は "output" とし、ASTの "output" パラメータに対応
+        let output_buffer = GraphNode::new(
+            node.dtype.clone(),
+            GraphOp::Buffer {
+                name: "output".to_string(),
+            },
+            vec![],
+            node.view.clone(),
+        );
+        new_src.push(output_buffer);
+
         Some(GraphNode::new(
             node.dtype.clone(),
             GraphOp::Custom { ast: function },
-            node.src.clone(),
+            new_src,
             node.view.clone(),
         ))
     }
@@ -156,7 +173,7 @@ impl LoweringSuggester {
         ) -> GraphNode {
             let ptr = node.as_ptr();
 
-            if matches!(node.op, GraphOp::Input) {
+            if matches!(node.op, GraphOp::Buffer { .. }) {
                 return node.clone();
             }
 
@@ -1201,11 +1218,12 @@ mod tests {
             output.op
         );
 
-        // 全ての入力が単一のCustomノードに融合されているはず (4入力)
+        // 全ての入力が単一のCustomノードに融合されているはず (4入力 + 1出力Buffer = 5)
         // ただしBeamSearchの挙動により、部分的な融合になる可能性もある
+        // 注: src = [input0, input1, ..., output_buffer] の構造
         assert!(
-            output.src.len() <= 4,
-            "Custom node should have at most 4 inputs, but got {}",
+            output.src.len() <= 5,
+            "Custom node should have at most 5 src nodes (4 inputs + 1 output buffer), but got {}",
             output.src.len()
         );
     }

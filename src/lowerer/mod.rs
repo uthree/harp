@@ -124,7 +124,7 @@ pub(crate) fn lower(graph: Graph) -> crate::ast::AstNode {
     let mut input_node_by_name: HashMap<String, *const ()> = HashMap::new();
     for generation in &generations {
         for node in generation {
-            if matches!(node.op, GraphOp::Input) {
+            if matches!(node.op, GraphOp::Buffer { .. }) {
                 // 入力ノードの名前を見つける
                 for (name, weak_node) in optimized_graph.inputs().iter() {
                     if let Some(rc_node) = weak_node.upgrade() {
@@ -165,11 +165,11 @@ pub(crate) fn lower(graph: Graph) -> crate::ast::AstNode {
     let mut kernel_id = 0;
     for generation in generations.into_iter().rev() {
         for node in generation {
-            // Input, Const, ComplexConst, View ノードはスキップ
+            // Buffer, Const, ComplexConst, View ノードはスキップ
             // Viewノードはメモリアクセスパターンを記述するだけで、バッファーを生成しない
             if matches!(
                 node.op,
-                GraphOp::Input
+                GraphOp::Buffer { .. }
                     | GraphOp::Const(_)
                     | GraphOp::ComplexConst { .. }
                     | GraphOp::View(_)
@@ -183,27 +183,31 @@ pub(crate) fn lower(graph: Graph) -> crate::ast::AstNode {
 
             // 入力バッファー名を収集
             // Viewノードの場合は実際のストレージノードまでトレースバック
+            // 出力Buffer（名前が "output" で始まる）はスキップ
             let input_buffers: Vec<String> = node
                 .src
                 .iter()
                 .filter_map(|src| {
                     // Constノード、ComplexConstノードはバッファーを持たない
                     if matches!(src.op, GraphOp::Const(_) | GraphOp::ComplexConst { .. }) {
-                        None
-                    } else {
-                        // Viewノードは実際のストレージノードまでトレース
-                        let storage_node = trace_to_storage_node(src);
-                        let src_ptr = node_ptr(storage_node);
-                        let buf = node_buffer_map.get(&src_ptr).cloned();
-                        log::debug!(
-                            "Kernel {}: src node {:?} -> storage {:?} -> buffer {:?}",
-                            kernel_id,
-                            src.op,
-                            storage_node.op,
-                            buf
-                        );
-                        buf
+                        return None;
                     }
+                    // 出力Bufferはスキップ（入力として扱わない）
+                    if matches!(&src.op, GraphOp::Buffer { name } if name.starts_with("output")) {
+                        return None;
+                    }
+                    // Viewノードは実際のストレージノードまでトレース
+                    let storage_node = trace_to_storage_node(src);
+                    let src_ptr = node_ptr(storage_node);
+                    let buf = node_buffer_map.get(&src_ptr).cloned();
+                    log::debug!(
+                        "Kernel {}: src node {:?} -> storage {:?} -> buffer {:?}",
+                        kernel_id,
+                        src.op,
+                        storage_node.op,
+                        buf
+                    );
+                    buf
                 })
                 .collect();
 

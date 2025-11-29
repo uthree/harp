@@ -319,7 +319,7 @@ impl ConstPropagationSuggester {
             let ptr = node.as_ptr();
 
             // Inputノードは常に元のノードをそのまま返す
-            if matches!(node.op, GraphOp::Input) {
+            if matches!(node.op, GraphOp::Buffer { .. }) {
                 return node.clone();
             }
 

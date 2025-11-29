@@ -11,6 +11,22 @@
 ### GraphOpの設計
 GraphOpは最適化の段階で最終的に融合されるため、**最適化よりも演算子の種類を減らすこと**を重視しています。例えば、減算は`Add`と`Neg`を組み合わせて表現します。
 
+### Bufferノード
+`GraphOp::Buffer { name: String }`は入力または出力バッファを表します。
+
+**入力バッファ**: `Graph::input()`で作成されたノードは自動的にBuffer型になり、`Graph.inputs()`に登録されます。nameフィールドは入力名（例: "a", "b"）に対応します。
+
+**出力バッファ**: `LoweringSuggester`がCustomノードを生成する際、出力バッファも`src`に含めます。これにより、入力と出力の対応関係が明確になります：
+```
+Custom node src = [input0, input1, ..., output_buffer]
+```
+出力バッファの名前は "output" で始まります（例: "output"）。
+
+この設計により：
+- ASTパラメータとsrcノードの対応が名前ベースで明確
+- コスト推定器が出力バッファをノード数カウントから除外可能
+- Lowerer側での入出力バッファ管理が簡潔
+
 ### Cumulative演算の並列化
 Cumulative演算（累積和、累積積など）は逐次依存性が高い演算ですが、**Parallel Scan（Prefix Sum）アルゴリズム**を用いることで効率的に並列化できます。
 

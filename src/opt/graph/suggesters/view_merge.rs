@@ -111,7 +111,7 @@ impl ViewMergeSuggester {
 
         // Inputノードの場合は特別処理：View融合を許可
         // Inputノードは外部から提供されるデータで、Viewは論理的なアクセスパターンを定義
-        if matches!(input_node.op, GraphOp::Input) {
+        if matches!(input_node.op, GraphOp::Buffer { .. }) {
             return self.merge_input_view_node(input_node, target_view);
         }
 
@@ -141,19 +141,19 @@ impl ViewMergeSuggester {
         Some(new_input)
     }
 
-    /// InputノードとViewノードをマージ
+    /// BufferノードとViewノードをマージ
     ///
-    /// Inputノードに対してViewを直接適用することで、中間のViewノードを削除します。
+    /// Bufferノードに対してViewを直接適用することで、中間のViewノードを削除します。
     fn merge_input_view_node(
         &self,
         input_node: &GraphNode,
         target_view: crate::graph::shape::View,
     ) -> Option<GraphNode> {
-        // Inputノードのviewを新しいviewで置き換えた新しいノードを作成
+        // Bufferノードのviewを新しいviewで置き換えた新しいノードを作成
         let new_input = GraphNode::new(
             input_node.dtype.clone(),
-            GraphOp::Input,
-            vec![], // Inputノードはsrcを持たない
+            input_node.op.clone(), // 名前を保持
+            vec![],                // Bufferノードはsrcを持たない
             target_view,
         );
 
@@ -185,7 +185,7 @@ impl ViewMergeSuggester {
             }
 
             // Inputノードで置き換え対象でない場合はそのまま返す
-            if matches!(node.op, GraphOp::Input) {
+            if matches!(node.op, GraphOp::Buffer { .. }) {
                 return node.clone();
             }
 
@@ -274,7 +274,7 @@ impl ViewMergeSuggester {
             }
 
             // Inputノードで置き換え対象でない場合はそのまま返す
-            if matches!(node.op, GraphOp::Input) {
+            if matches!(node.op, GraphOp::Buffer { .. }) {
                 return node.clone();
             }
 
@@ -372,7 +372,7 @@ impl GraphSuggester for ViewMergeSuggester {
             // Viewノードをマージして、入力ノードのViewを更新
             if let Some(merged_input) = self.merge_view_node(node) {
                 // Inputノードの場合は特別処理：元のInputノードを置き換える
-                if node.src.len() == 1 && matches!(node.src[0].op, GraphOp::Input) {
+                if node.src.len() == 1 && matches!(node.src[0].op, GraphOp::Buffer { .. }) {
                     // 元のInputノードを新しいノードで置き換え、Viewノードも削除
                     let new_graph =
                         self.replace_input_and_view(graph, &node.src[0], node, merged_input);
@@ -476,7 +476,7 @@ mod tests {
         let result = new_graph.outputs().get("result").unwrap();
 
         // 結果ノードがInputノードであることを確認（Viewノードが削除された）
-        assert!(matches!(result.op, GraphOp::Input));
+        assert!(matches!(result.op, GraphOp::Buffer { .. }));
 
         // Inputノードのviewがpermuteされていることを確認
         assert_eq!(result.view.shape(), &[20.into(), 10.into()]);
@@ -519,8 +519,8 @@ mod tests {
         // Addノードのソースが両方ともInputノードであることを確認
         // （Viewノードが削除されている）
         assert_eq!(result.src.len(), 2);
-        assert!(matches!(result.src[0].op, GraphOp::Input));
-        assert!(matches!(result.src[1].op, GraphOp::Input));
+        assert!(matches!(result.src[0].op, GraphOp::Buffer { .. }));
+        assert!(matches!(result.src[1].op, GraphOp::Buffer { .. }));
 
         // 最初のソース（元のaをpermute）のviewが変更されていることを確認
         assert_eq!(result.src[0].view.shape(), &[20.into(), 10.into()]);
@@ -547,7 +547,7 @@ mod tests {
         let result = new_graph.outputs().get("result").unwrap();
 
         // 結果ノードがInputノードであることを確認
-        assert!(matches!(result.op, GraphOp::Input));
+        assert!(matches!(result.op, GraphOp::Buffer { .. }));
 
         // shapeが[1, 10]に変更されていることを確認
         assert_eq!(result.view.shape(), &[1.into(), 10.into()]);

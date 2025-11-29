@@ -261,6 +261,12 @@ impl GraphViewerApp {
         depths
     }
 
+    /// ノードが出力 Buffer かどうかを判定
+    fn is_output_buffer(node: &GraphNode) -> bool {
+        use harp::graph::GraphOp;
+        matches!(&node.op, GraphOp::Buffer { name } if name.starts_with("output"))
+    }
+
     /// ノードをトラバースしてSnarlに追加（階層レイアウト付き）
     fn traverse_and_add_node_with_layout(
         &mut self,
@@ -272,15 +278,28 @@ impl GraphViewerApp {
     ) {
         let node_ptr = node.as_ptr();
 
+        // 出力 Buffer ノードはスキップ（表示しない）
+        if Self::is_output_buffer(node) {
+            return;
+        }
+
         // 既に訪問済みならスキップ
         if visited.contains(&node_ptr) {
             return;
         }
         visited.insert(node_ptr);
 
-        // 入力ノードを先にトラバース
+        // 入力ノードを先にトラバース（出力 Buffer を除外）
         for input_node in &node.src {
-            self.traverse_and_add_node_with_layout(input_node, "", visited, depths, depth_counters);
+            if !Self::is_output_buffer(input_node) {
+                self.traverse_and_add_node_with_layout(
+                    input_node,
+                    "",
+                    visited,
+                    depths,
+                    depth_counters,
+                );
+            }
         }
 
         // このノードの深さを取得
@@ -355,7 +374,7 @@ impl GraphViewerApp {
     fn simplify_op_type(&self, op: &harp::graph::GraphOp) -> String {
         use harp::graph::GraphOp;
         match op {
-            GraphOp::Input => "Input".to_string(),
+            GraphOp::Buffer { name } => name.clone(),
             GraphOp::Const(l) => format!("{:?}", l),
             GraphOp::View(_) => "View".to_string(),
             GraphOp::Contiguous => "Contiguous".to_string(),
@@ -384,6 +403,11 @@ impl GraphViewerApp {
     ) {
         let node_ptr = node.as_ptr();
 
+        // 出力 Buffer ノードはスキップ
+        if Self::is_output_buffer(node) {
+            return;
+        }
+
         // 既に訪問済みならスキップ
         if visited.contains(&node_ptr) {
             return;
@@ -396,8 +420,15 @@ impl GraphViewerApp {
             None => return,
         };
 
-        // 各入力ノードからこのノードへのエッジを追加
-        for (input_idx, input_node) in node.src.iter().enumerate() {
+        // 各入力ノードからこのノードへのエッジを追加（出力 Buffer を除外）
+        // 出力 Buffer は node_mapping に登録されていないため実際にはスキップされるが、
+        // 入力インデックスが正しくなるように明示的にフィルタリング
+        let input_nodes: Vec<_> = node
+            .src
+            .iter()
+            .filter(|n| !Self::is_output_buffer(n))
+            .collect();
+        for (input_idx, input_node) in input_nodes.iter().enumerate() {
             let from_node_ptr = input_node.as_ptr();
             if let Some(&from_node_id) = self.node_mapping.get(&from_node_ptr) {
                 // エッジを追加（from_node_idの出力0からto_node_idの入力input_idxへ）

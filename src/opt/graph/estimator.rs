@@ -82,7 +82,7 @@ impl SimpleCostEstimator {
     /// 各ノードのベースコストを取得（log(CPUサイクル)）
     fn node_base_cost(&self, node: &GraphNode) -> f32 {
         match &node.op {
-            GraphOp::Input | GraphOp::Const(_) | GraphOp::ComplexConst { .. } => {
+            GraphOp::Buffer { .. } | GraphOp::Const(_) | GraphOp::ComplexConst { .. } => {
                 // 入力/定数ノードは実行時コストなし（メモリは既に確保済み）
                 f32::NEG_INFINITY // log(0)
             }
@@ -94,7 +94,9 @@ impl SimpleCostEstimator {
                 // メモリコピーのコスト = 要素数 × (read + write) × MEMORY_ACCESS_COST
                 // 対数スケール: log(num_elements * 2 * cost) = log(num_elements) + log(2 * cost)
                 let num_elements = self.compute_num_elements(node);
-                num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln()
+                // ContiguousもCustomにloweringされるべきなのでペナルティを追加
+                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
+                num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln() + lowering_penalty
             }
             GraphOp::Elementwise { op, .. } => {
                 // 演算コスト = 要素数 × (演算コスト + メモリアクセスコスト)
@@ -104,7 +106,12 @@ impl SimpleCostEstimator {
                 let log_compute_cost = self.elementwise_op_cost(op);
                 // 入力を読み、出力を書く
                 let log_memory_cost = ((node.src.len() as f32 + 1.0) * MEMORY_ACCESS_COST).ln();
-                num_elements.ln() + log_sum_exp(log_compute_cost, log_memory_cost)
+                // ElementwiseはCustomにloweringされるべきなので、大きなペナルティを追加
+                // これによりオプティマイザはElementwiseをCustomに変換する方向に進む
+                let elementwise_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
+                num_elements.ln()
+                    + log_sum_exp(log_compute_cost, log_memory_cost)
+                    + elementwise_penalty
             }
             GraphOp::Reduce { op, .. } => {
                 // Reduceは入力サイズに依存
@@ -113,7 +120,11 @@ impl SimpleCostEstimator {
                 let log_reduce_cost = self.reduce_op_cost(op);
                 // 入力読み取り + 縮約演算
                 // log(num_elements * (MEMORY_ACCESS_COST + reduce_cost))
-                num_elements.ln() + log_sum_exp(MEMORY_ACCESS_COST.ln(), log_reduce_cost)
+                // ReduceもCustomにloweringされるべきなのでペナルティを追加
+                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
+                num_elements.ln()
+                    + log_sum_exp(MEMORY_ACCESS_COST.ln(), log_reduce_cost)
+                    + lowering_penalty
             }
             GraphOp::Cumulative { .. } => {
                 // Cumulativeは逐次依存性が高い（並列化が困難）
@@ -122,8 +133,11 @@ impl SimpleCostEstimator {
                 let log_cumulative_cost = 3.0_f32.ln(); // Sumのコスト
                 // 各要素で読み取り + 演算 + 書き込み
                 // log(num_elements * (2 * MEMORY_ACCESS_COST + cumulative_cost))
+                // CumulativeもCustomにloweringされるべきなのでペナルティを追加
+                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
                 num_elements.ln()
                     + log_sum_exp((2.0 * MEMORY_ACCESS_COST).ln(), log_cumulative_cost)
+                    + lowering_penalty
             }
             GraphOp::FusedElementwise { expr, .. } => {
                 // 融合演算は中間バッファを節約
@@ -132,7 +146,9 @@ impl SimpleCostEstimator {
                 // 融合により中間バッファへのメモリアクセスが削減される
                 // 入力読み取り + 演算 + 出力書き込みのみ
                 let log_memory_cost = ((node.src.len() as f32 + 1.0) * MEMORY_ACCESS_COST).ln();
-                num_elements.ln() + log_sum_exp(log_ops_cost, log_memory_cost)
+                // FusedElementwiseもCustomにloweringされるべきなのでペナルティを追加
+                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
+                num_elements.ln() + log_sum_exp(log_ops_cost, log_memory_cost) + lowering_penalty
             }
             GraphOp::FusedElementwiseReduce {
                 expr, reduce_op, ..
@@ -142,12 +158,15 @@ impl SimpleCostEstimator {
                 let log_elementwise_cost = self.ast_expr_cost(expr);
                 let log_reduce_cost = self.reduce_op_cost(reduce_op);
                 // 入力読み取り + elementwise演算 + reduce演算
+                // FusedElementwiseReduceもCustomにloweringされるべきなのでペナルティを追加
+                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
                 num_elements.ln()
                     + log_sum_exp_iter(vec![
                         MEMORY_ACCESS_COST.ln(),
                         log_elementwise_cost,
                         log_reduce_cost,
                     ])
+                    + lowering_penalty
             }
             GraphOp::FusedElementwiseCumulative { expr, .. } => {
                 // FusedElementwiseCumulativeはCumulativeと同様の逐次依存性
@@ -156,12 +175,15 @@ impl SimpleCostEstimator {
                 let log_elementwise_cost = self.ast_expr_cost(expr);
                 let log_cumulative_cost = 3.0_f32.ln(); // Sumのコスト
                 // 各要素で読み取り + elementwise演算 + 累積演算 + 書き込み
+                // FusedElementwiseCumulativeもCustomにloweringされるべきなのでペナルティを追加
+                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
                 num_elements.ln()
                     + log_sum_exp_iter(vec![
                         (2.0 * MEMORY_ACCESS_COST).ln(),
                         log_elementwise_cost,
                         log_cumulative_cost,
                     ])
+                    + lowering_penalty
             }
             GraphOp::FusedReduce { ops, .. } => {
                 let input = &node.src[0];
@@ -181,7 +203,9 @@ impl SimpleCostEstimator {
                 // Sliceは入力からのコピーのみ（出力要素数ベース）
                 // コスト = 出力要素数 × (read + write) × MEMORY_ACCESS_COST
                 let num_elements = self.compute_num_elements(node);
-                num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln()
+                // SliceもCustomにloweringされるべきなのでペナルティを追加
+                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
+                num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln() + lowering_penalty
             }
             GraphOp::Concat { .. } => {
                 // Concatは全入力からのコピー（出力要素数ベース）
@@ -200,31 +224,43 @@ impl SimpleCostEstimator {
                 // 乱数生成のコストは比較的高い
                 let num_elements = self.compute_num_elements(node);
                 let log_rand_cost = 10.0_f32.ln(); // 乱数生成は比較的高コスト
-                num_elements.ln() + log_sum_exp(log_rand_cost, MEMORY_ACCESS_COST.ln())
+                // RandもCustomにloweringされるべきなのでペナルティを追加
+                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
+                num_elements.ln()
+                    + log_sum_exp(log_rand_cost, MEMORY_ACCESS_COST.ln())
+                    + lowering_penalty
             }
             GraphOp::Arange => {
                 // 連番初期化: 各要素にインデックス値を書き込み
                 // 非常に軽量（書き込みのみ）
                 let num_elements = self.compute_num_elements(node);
-                num_elements.ln() + MEMORY_ACCESS_COST.ln()
+                // ArangeもCustomにloweringされるべきなのでペナルティを追加
+                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
+                num_elements.ln() + MEMORY_ACCESS_COST.ln() + lowering_penalty
             }
             GraphOp::Cast { .. } => {
                 // 型変換: 各要素をキャスト
                 // 非常に軽量（読み込み + キャスト + 書き込み）
                 let num_elements = self.compute_num_elements(node);
-                num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln()
+                // CastもCustomにloweringされるべきなのでペナルティを追加
+                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
+                num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln() + lowering_penalty
             }
             GraphOp::Real | GraphOp::Imag => {
                 // 複素数から実部/虚部を抽出
                 // 読み込み + 書き込み（stride 2でのアクセス）
                 let num_elements = self.compute_num_elements(node);
-                num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln()
+                // Real/ImagもCustomにloweringされるべきなのでペナルティを追加
+                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
+                num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln() + lowering_penalty
             }
             GraphOp::ComplexFromParts => {
                 // 実部と虚部から複素数を構築
                 // 2つの入力を読み込み + インターリーブして書き込み
                 let num_elements = self.compute_num_elements(node);
-                num_elements.ln() + (3.0 * MEMORY_ACCESS_COST).ln()
+                // ComplexFromPartsもCustomにloweringされるべきなのでペナルティを追加
+                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
+                num_elements.ln() + (3.0 * MEMORY_ACCESS_COST).ln() + lowering_penalty
             }
             GraphOp::Custom { ast } => {
                 // Custom関数のコスト計算
@@ -377,7 +413,12 @@ impl Default for SimpleCostEstimator {
 impl GraphCostEstimator for SimpleCostEstimator {
     fn estimate(&self, graph: &Graph) -> f32 {
         let nodes = self.collect_all_nodes(graph);
-        let node_count = nodes.len();
+        // ノード数ペナルティの計算時、出力Buffer（Custom srcに含まれる出力バッファ）を除外
+        // 出力Bufferは名前が "output" で始まる
+        let node_count = nodes
+            .iter()
+            .filter(|n| !matches!(&n.op, GraphOp::Buffer { name } if name.starts_with("output")))
+            .count();
         let mut log_costs = Vec::new();
 
         // カーネル数をカウント（カーネル起動オーバーヘッド計算用）

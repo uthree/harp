@@ -78,9 +78,37 @@ impl Graph {
     {
         let shape: Vec<shape::Expr> = shape.into_iter().map(|e| e.into()).collect();
         let view = View::contiguous(shape);
-        let node = GraphNode::new(dtype, GraphOp::Input, vec![], view);
+        let node = GraphNode::new(
+            dtype,
+            GraphOp::Buffer {
+                name: name.to_string(),
+            },
+            vec![],
+            view,
+        );
         self.inputs.insert(name.to_string(), Rc::downgrade(&node.0));
         node
+    }
+
+    /// 名前付きバッファノードを作成（Customノード用）
+    ///
+    /// Graph.inputsには登録されない内部バッファを作成します。
+    /// 主にCustomノードの出力バッファとして使用されます。
+    pub fn buffer<E, I>(name: &str, dtype: DType, shape: I) -> GraphNode
+    where
+        E: Into<shape::Expr> + Clone,
+        I: IntoIterator<Item = E>,
+    {
+        let shape: Vec<shape::Expr> = shape.into_iter().map(|e| e.into()).collect();
+        let view = View::contiguous(shape);
+        GraphNode::new(
+            dtype,
+            GraphOp::Buffer {
+                name: name.to_string(),
+            },
+            vec![],
+            view,
+        )
     }
 
     // 出力ノードを登録

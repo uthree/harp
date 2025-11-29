@@ -27,6 +27,17 @@ impl KernelMergeSuggester {
         Self
     }
 
+    /// ノードが出力 Buffer かどうかを判定
+    /// 出力 Buffer は名前が "output" で始まる GraphOp::Buffer
+    fn is_output_buffer(node: &GraphNode) -> bool {
+        matches!(&node.op, GraphOp::Buffer { name } if name.starts_with("output"))
+    }
+
+    /// src から入力ノードのみを取得（出力 Buffer を除外）
+    fn get_input_nodes(src: &[GraphNode]) -> Vec<&GraphNode> {
+        src.iter().filter(|n| !Self::is_output_buffer(n)).collect()
+    }
+
     /// グラフ内の全ノードを収集（トポロジカル順）
     fn collect_all_nodes(&self, graph: &Graph) -> Vec<GraphNode> {
         let mut visited = HashSet::new();
@@ -76,7 +87,9 @@ impl KernelMergeSuggester {
         let ref_counts = self.count_node_references(graph);
 
         for consumer in &custom_nodes {
-            for producer in &consumer.src {
+            // 出力 Buffer を除外した入力ノードのみを処理
+            let input_nodes = Self::get_input_nodes(&consumer.src);
+            for producer in input_nodes {
                 // producerがCustomノードかチェック
                 if !matches!(&producer.op, GraphOp::Custom { .. }) {
                     continue;
@@ -167,11 +180,21 @@ impl KernelMergeSuggester {
         };
 
         // 新しいCustomノードの入力を構築
-        // producer の入力 + consumer の入力（producerを除く）
-        let mut new_inputs: Vec<GraphNode> = producer.src.clone();
+        // producer の入力 + consumer の入力（producerと出力Bufferを除く）
+        // 出力 Buffer は最後に追加する
+        let producer_inputs = Self::get_input_nodes(&producer.src);
+        let mut new_inputs: Vec<GraphNode> = producer_inputs.iter().map(|n| (*n).clone()).collect();
         for src in &consumer.src {
-            if src.as_ptr() != producer.as_ptr() {
+            // producer と出力 Buffer は除外
+            if src.as_ptr() != producer.as_ptr() && !Self::is_output_buffer(src) {
                 new_inputs.push(src.clone());
+            }
+        }
+        // 出力 Buffer を追加（consumer の出力 Buffer を使用）
+        for src in &consumer.src {
+            if Self::is_output_buffer(src) {
+                new_inputs.push(src.clone());
+                break;
             }
         }
 
@@ -261,8 +284,11 @@ impl KernelMergeSuggester {
         func_ast: &AstNode,
         kernel_name_counter: &usize,
     ) -> AstNode {
-        let input_shape = if !node.src.is_empty() {
-            node.src[0].view.shape().to_vec()
+        // 入力ノードのみを取得（出力 Buffer を除外）
+        let input_nodes = Self::get_input_nodes(&node.src);
+
+        let input_shape = if !input_nodes.is_empty() {
+            input_nodes[0].view.shape().to_vec()
         } else {
             node.view.shape().to_vec()
         };
@@ -270,8 +296,8 @@ impl KernelMergeSuggester {
         // パラメータを生成
         let mut params = Vec::new();
 
-        // 入力バッファー
-        for (i, src) in node.src.iter().enumerate() {
+        // 入力バッファー（出力 Buffer を除外）
+        for (i, src) in input_nodes.iter().enumerate() {
             params.push(VarDecl {
                 name: ph::input(i),
                 dtype: Self::graph_dtype_to_ast_ptr(&src.dtype),
@@ -336,8 +362,9 @@ impl KernelMergeSuggester {
         let mut params: Vec<VarDecl> = Vec::new();
         let mut param_names: HashSet<String> = HashSet::new();
 
-        // Producer の入力バッファー
-        for (i, src) in producer.src.iter().enumerate() {
+        // Producer の入力バッファー（出力 Buffer を除外）
+        let producer_inputs = Self::get_input_nodes(&producer.src);
+        for (i, src) in producer_inputs.iter().enumerate() {
             let name = format!("input{}", i);
             if !param_names.contains(&name) {
                 params.push(VarDecl {
@@ -350,10 +377,11 @@ impl KernelMergeSuggester {
             }
         }
 
-        // Consumer の追加入力バッファー（producerを除く）
-        let mut consumer_input_offset = producer.src.len();
+        // Consumer の追加入力バッファー（producerと出力Bufferを除く）
+        let mut consumer_input_offset = producer_inputs.len();
         for src in &consumer.src {
-            if src.as_ptr() != producer.as_ptr() {
+            // producer と出力 Buffer は除外
+            if src.as_ptr() != producer.as_ptr() && !Self::is_output_buffer(src) {
                 let name = format!("input{}", consumer_input_offset);
                 if !param_names.contains(&name) {
                     params.push(VarDecl {
@@ -402,8 +430,8 @@ impl KernelMergeSuggester {
             let kernel_name = Self::get_kernel_name(kernel);
             let mut args: Vec<AstNode> = Vec::new();
 
-            // 入力バッファー
-            for j in 0..producer.src.len() {
+            // 入力バッファー（出力 Buffer を除外した数だけ）
+            for j in 0..producer_inputs.len() {
                 args.push(var(format!("input{}", j)));
             }
             // 出力は中間バッファー
@@ -419,6 +447,7 @@ impl KernelMergeSuggester {
         statements.push(AstNode::Barrier);
 
         // Consumer カーネルの呼び出し
+        let consumer_inputs = Self::get_input_nodes(&consumer.src);
         for kernel in all_kernels.iter().skip(producer_kernel_count) {
             let kernel_name = Self::get_kernel_name(kernel);
 
@@ -429,10 +458,10 @@ impl KernelMergeSuggester {
 
             let mut args: Vec<AstNode> = Vec::new();
 
-            // Consumer の入力を構築
+            // Consumer の入力を構築（出力 Buffer を除外）
             // producer の位置には中間バッファーを使用
-            let mut input_idx = producer.src.len();
-            for src in &consumer.src {
+            let mut input_idx = producer_inputs.len();
+            for src in consumer_inputs.iter() {
                 if src.as_ptr() == producer.as_ptr() {
                     args.push(var(&tmp_buffer_name));
                 } else {
@@ -488,7 +517,7 @@ impl KernelMergeSuggester {
             let ptr = node.as_ptr();
 
             // Inputノードは常に元のノードをそのまま返す
-            if matches!(node.op, GraphOp::Input) {
+            if matches!(node.op, GraphOp::Buffer { .. }) {
                 return node.clone();
             }
 

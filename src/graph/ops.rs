@@ -5,7 +5,13 @@ use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 
 #[derive(Debug, Clone)]
 pub enum GraphOp {
-    Input,          // 入力ノード
+    /// バッファノード（入力または出力）
+    ///
+    /// 名前付きバッファを表す。Graph.inputs に登録されている場合は外部入力、
+    /// Custom ノードの src に含まれる場合は AST 関数のパラメータに対応する。
+    Buffer {
+        name: String, // AST関数のパラメータ名に対応 (e.g., "input0", "output")
+    },
     Const(Literal), // 定数ノード, shape=[], ndim=0のスカラーを初期化する。
     ComplexConst {
         re: f32,

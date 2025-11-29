@@ -383,7 +383,7 @@ impl FusionSuggester {
             let ptr = node.as_ptr();
 
             // Inputノードは常に元のノードをそのまま返す（再構築しない）
-            if matches!(node.op, GraphOp::Input) {
+            if matches!(node.op, GraphOp::Buffer { .. }) {
                 return node.clone();
             }
 

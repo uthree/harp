@@ -99,7 +99,7 @@ impl ContiguousInsertionSuggester {
             let ptr = node.as_ptr();
 
             // Inputノードは常に元のノードをそのまま返す（再構築しない）
-            if matches!(node.op, GraphOp::Input) {
+            if matches!(node.op, GraphOp::Buffer { .. }) {
                 return node.clone();
             }
 
@@ -175,8 +175,8 @@ impl GraphSuggester for ContiguousInsertionSuggester {
 
         // 各ノードについて、非contiguousな入力を持つかチェック
         for node in &nodes {
-            // InputノードとConstノードはスキップ（入力がない）
-            if matches!(node.op, GraphOp::Input | GraphOp::Const(_)) {
+            // BufferノードとConstノードはスキップ（入力がない）
+            if matches!(node.op, GraphOp::Buffer { .. } | GraphOp::Const(_)) {
                 continue;
             }
 

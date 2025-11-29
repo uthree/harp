@@ -5,6 +5,7 @@
 
 use crate::ast::{AstNode, DType as AstDType, VarDecl};
 use crate::graph::GraphNode;
+use crate::graph::ops::GraphOp;
 use crate::graph::ops::custom_placeholders as ph;
 use log::debug;
 use std::collections::{HashMap, HashSet};
@@ -48,12 +49,23 @@ impl Lowerer {
         debug!("Lowering custom function");
         debug!("View: {:?}", node.view);
 
+        // srcから入力ノードのみを抽出（出力Bufferを除外）
+        // 構造: [input0, input1, ..., output_buffer]
+        // 出力Bufferは名前が "output" で始まる GraphOp::Buffer
+        let input_nodes: Vec<&GraphNode> = node
+            .src
+            .iter()
+            .filter(
+                |src| !matches!(&src.op, GraphOp::Buffer { name } if name.starts_with("output")),
+            )
+            .collect();
+
         // Custom関数が構築された時の次元数を決定
         // Reduce/Cumulative操作では入力と出力の次元数が異なるため、
         // 入力ノードの次元数を使用する
-        let input_shape = if !node.src.is_empty() {
+        let input_shape = if !input_nodes.is_empty() {
             // 最初の入力ノードのshapeを使用
-            node.src[0].view.shape().to_vec()
+            input_nodes[0].view.shape().to_vec()
         } else {
             node.view.shape().to_vec()
         };
@@ -62,8 +74,8 @@ impl Lowerer {
         // パラメータを生成
         let mut params = Vec::new();
 
-        // 入力バッファー（srcノード）
-        for (i, src) in node.src.iter().enumerate() {
+        // 入力バッファー（出力Bufferを除外したsrcノード）
+        for (i, src) in input_nodes.iter().enumerate() {
             params.push(self.create_input_param(i, &src.dtype)?);
         }
 

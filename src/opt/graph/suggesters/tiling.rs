@@ -69,7 +69,7 @@ impl TilingSuggester {
     /// 軸のサイズがタイルサイズで割り切れない場合はNoneを返す
     fn tile_node_axis(&self, node: &GraphNode, axis: usize, tile_size: usize) -> Option<GraphNode> {
         // Inputノードは変更しない
-        if matches!(node.op, GraphOp::Input) {
+        if matches!(node.op, GraphOp::Buffer { .. }) {
             return None;
         }
 
@@ -165,7 +165,7 @@ impl TilingSuggester {
             let ptr = node.as_ptr();
 
             // Inputノードは常に元のノードをそのまま返す
-            if matches!(node.op, GraphOp::Input) {
+            if matches!(node.op, GraphOp::Buffer { .. }) {
                 return node.clone();
             }
 

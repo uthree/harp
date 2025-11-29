@@ -104,7 +104,7 @@ impl ViewInsertionSuggester {
             let ptr = node.as_ptr();
 
             // Inputノードは常に元のノードをそのまま返す（再構築しない）
-            if matches!(node.op, GraphOp::Input) {
+            if matches!(node.op, GraphOp::Buffer { .. }) {
                 return node.clone();
             }
 
@@ -207,9 +207,9 @@ impl GraphSuggester for ViewInsertionSuggester {
 
         // 各ノードについて、様々な転置パターンを試みる
         for node in &nodes {
-            // InputノードとViewノードはスキップ
+            // BufferノードとViewノードはスキップ
             // ViewノードにView変更を挿入しても意味がないため
-            if matches!(node.op, GraphOp::Input | GraphOp::View(_)) {
+            if matches!(node.op, GraphOp::Buffer { .. } | GraphOp::View(_)) {
                 continue;
             }
 
