@@ -91,9 +91,10 @@ fn test_fused_matmul_lowering() {
     assert!(!code_str.is_empty(), "Generated code should not be empty");
 
     // カーネル関数が生成されていることを確認
+    // 新しい命名規則: E_/ER_/C_/R_/O_ + shape
     assert!(
-        code_str.contains("kernel_"),
-        "Code should contain kernel functions"
+        code_str.contains("ER_") || code_str.contains("E_") || code_str.contains("O_"),
+        "Code should contain kernel functions (E_, ER_, O_, etc.)"
     );
 
     println!("✓ Fused matmul lowering test passed");
@@ -145,9 +146,10 @@ fn test_double_matmul_lowering() {
     assert!(!code_str.is_empty(), "Generated code should not be empty");
 
     // カーネル関数が生成されていることを確認
+    // 新しい命名規則: E_/ER_/C_/R_/O_ + shape
     assert!(
-        code_str.contains("kernel_"),
-        "Code should contain kernel functions"
+        code_str.contains("ER_") || code_str.contains("E_") || code_str.contains("O_"),
+        "Code should contain kernel functions (E_, ER_, O_, etc.)"
     );
 
     // 中間バッファーが使用されていることを確認

@@ -19,9 +19,86 @@ use std::collections::{HashMap, HashSet};
 /// ASTレベルの最適化が可能になります。
 pub struct LoweringSuggester;
 
+/// カーネル/関数の種類を表すプレフィックス
+#[derive(Debug, Clone, Copy)]
+enum KernelKind {
+    /// Elementwise演算
+    Elementwise,
+    /// ElementwiseReduce演算 (FusedElementwiseReduceを含む)
+    ElementwiseReduce,
+    /// Cumulative演算 (FusedElementwiseCumulativeを含む)
+    Cumulative,
+    /// Reduce演算
+    Reduce,
+    /// その他の演算 (Contiguous, Cast, etc.)
+    Other,
+}
+
+impl KernelKind {
+    /// プレフィックス文字列を取得
+    fn prefix(&self) -> &'static str {
+        match self {
+            KernelKind::Elementwise => "E",
+            KernelKind::ElementwiseReduce => "ER",
+            KernelKind::Cumulative => "C",
+            KernelKind::Reduce => "R",
+            KernelKind::Other => "O",
+        }
+    }
+}
+
 impl LoweringSuggester {
     pub fn new() -> Self {
         LoweringSuggester
+    }
+
+    /// ノードの種類とshapeからカーネル/関数名を生成
+    ///
+    /// 命名規則:
+    /// - プレフィックス: E (Elementwise), ER (ElementwiseReduce), C (Cumulative), R (Reduce), O (Other)
+    /// - 出力shape: `_`区切りで追加
+    /// - 例: shape [2, 4] のElementwise演算 → `E_2_4`
+    fn generate_kernel_name(
+        &self,
+        kind: KernelKind,
+        shape: &[crate::graph::shape::Expr],
+    ) -> String {
+        let mut name = kind.prefix().to_string();
+
+        for dim in shape {
+            name.push('_');
+            // Exprを文字列に変換（Constの場合は値、Varの場合は変数名）
+            match dim {
+                crate::graph::shape::Expr::Const(val) => {
+                    name.push_str(&val.to_string());
+                }
+                crate::graph::shape::Expr::Var(var_name) => {
+                    // 変数名をそのまま使用
+                    name.push_str(var_name);
+                }
+                _ => {
+                    // 複雑な式の場合は "dyn" と表示
+                    name.push_str("dyn");
+                }
+            }
+        }
+
+        name
+    }
+
+    /// ノードからカーネル種類を判定
+    fn get_kernel_kind(&self, op: &GraphOp) -> KernelKind {
+        match op {
+            GraphOp::Elementwise { .. } | GraphOp::FusedElementwise { .. } => {
+                KernelKind::Elementwise
+            }
+            GraphOp::FusedElementwiseReduce { .. } => KernelKind::ElementwiseReduce,
+            GraphOp::Cumulative { .. } | GraphOp::FusedElementwiseCumulative { .. } => {
+                KernelKind::Cumulative
+            }
+            GraphOp::Reduce { .. } => KernelKind::Reduce,
+            _ => KernelKind::Other,
+        }
     }
 
     /// グラフ内の全ノードを収集（トポロジカル順）
@@ -88,35 +165,49 @@ impl LoweringSuggester {
 
     /// GraphOpをCustomノードに変換
     fn lower_to_custom(&self, node: &GraphNode) -> Option<GraphNode> {
+        // カーネル名を生成
+        let kind = self.get_kernel_kind(&node.op);
+        let name = self.generate_kernel_name(kind, node.view.shape());
+
         let function = match &node.op {
-            GraphOp::Elementwise { op, .. } => self.build_elementwise_function(node, op),
-            GraphOp::Reduce { op, axis, .. } => self.build_reduce_function(node, op, *axis),
-            GraphOp::Cumulative { op, axis, .. } => self.build_cumulative_function(node, op, *axis),
-            GraphOp::Contiguous => self.build_contiguous_function(node),
+            GraphOp::Elementwise { op, .. } => self.build_elementwise_function(node, op, &name),
+            GraphOp::Reduce { op, axis, .. } => self.build_reduce_function(node, op, *axis, &name),
+            GraphOp::Cumulative { op, axis, .. } => {
+                self.build_cumulative_function(node, op, *axis, &name)
+            }
+            GraphOp::Contiguous => self.build_contiguous_function(node, &name),
             GraphOp::FusedElementwise { expr, .. } => {
-                self.build_fused_elementwise_function(node, expr)
+                self.build_fused_elementwise_function(node, expr, &name)
             }
             GraphOp::FusedElementwiseReduce {
                 expr,
                 reduce_op,
                 axis,
                 ..
-            } => self.build_fused_elementwise_reduce_function(node, expr, reduce_op, *axis),
+            } => self.build_fused_elementwise_reduce_function(node, expr, reduce_op, *axis, &name),
             GraphOp::FusedElementwiseCumulative {
                 expr,
                 cumulative_op,
                 axis,
                 ..
-            } => self.build_fused_elementwise_cumulative_function(node, expr, cumulative_op, *axis),
+            } => self.build_fused_elementwise_cumulative_function(
+                node,
+                expr,
+                cumulative_op,
+                *axis,
+                &name,
+            ),
             GraphOp::Pad { padding, value } => self.build_pad_function(node, padding, *value),
-            GraphOp::Slice { ranges } => self.build_slice_function(node, ranges),
+            GraphOp::Slice { ranges } => self.build_slice_function(node, ranges, &name),
             GraphOp::Concat { axis } => self.build_concat_function(node, *axis),
-            GraphOp::Rand => self.build_rand_function(node),
-            GraphOp::Arange => self.build_arange_function(node),
-            GraphOp::Cast { target_dtype, .. } => self.build_cast_function(node, target_dtype),
-            GraphOp::Real => self.build_real_function(node),
-            GraphOp::Imag => self.build_imag_function(node),
-            GraphOp::ComplexFromParts => self.build_complex_from_parts_function(node),
+            GraphOp::Rand => self.build_rand_function(node, &name),
+            GraphOp::Arange => self.build_arange_function(node, &name),
+            GraphOp::Cast { target_dtype, .. } => {
+                self.build_cast_function(node, target_dtype, &name)
+            }
+            GraphOp::Real => self.build_real_function(node, &name),
+            GraphOp::Imag => self.build_imag_function(node, &name),
+            GraphOp::ComplexFromParts => self.build_complex_from_parts_function(node, &name),
             GraphOp::Fold { .. } => {
                 // Foldは複雑なので後で実装
                 return None;
@@ -238,6 +329,7 @@ impl LoweringSuggester {
         &self,
         node: &GraphNode,
         op: &crate::graph::ops::ElementwiseOp,
+        name: &str,
     ) -> Option<AstNode> {
         use crate::graph::ops::ElementwiseOp;
 
@@ -269,7 +361,13 @@ impl LoweringSuggester {
         // 定数を埋め込んだ式を構築
         let expr_with_consts = self.embed_constants(&expr, &node.src);
 
-        Some(self.build_elementwise_function_impl(ndim, num_inputs, expr_with_consts, &node.dtype))
+        Some(self.build_elementwise_function_impl(
+            ndim,
+            num_inputs,
+            expr_with_consts,
+            &node.dtype,
+            name,
+        ))
     }
 
     /// 定数ノードを式に埋め込む
@@ -303,6 +401,7 @@ impl LoweringSuggester {
         num_inputs: usize,
         expr: AstNode,
         output_dtype: &GraphDType,
+        name: &str,
     ) -> AstNode {
         let offset = self.build_contiguous_offset(ndim);
         let load_dtype = self.graph_dtype_to_ast(output_dtype);
@@ -318,7 +417,12 @@ impl LoweringSuggester {
         let store_stmt = store(var(ph::OUTPUT), offset, final_expr);
         let body = self.wrap_with_loops(ndim, vec![store_stmt]);
 
-        function(None::<String>, vec![], AstDType::Tuple(vec![]), body)
+        function(
+            Some(name.to_string()),
+            vec![],
+            AstDType::Tuple(vec![]),
+            body,
+        )
     }
 
     /// Reduce演算の関数を生成
@@ -327,6 +431,7 @@ impl LoweringSuggester {
         node: &GraphNode,
         op: &ReduceOp,
         axis: usize,
+        name: &str,
     ) -> Option<AstNode> {
         let input = node.src.first()?;
         let input_shape = input.view.shape();
@@ -375,7 +480,7 @@ impl LoweringSuggester {
         let body = self.wrap_with_loops_excluding_axis_with_scope(ndim, axis, inner_body, scope);
 
         Some(function(
-            None::<String>,
+            Some(name.to_string()),
             vec![],
             AstDType::Tuple(vec![]),
             body,
@@ -388,6 +493,7 @@ impl LoweringSuggester {
         node: &GraphNode,
         op: &CumulativeOp,
         axis: usize,
+        name: &str,
     ) -> Option<AstNode> {
         let input = node.src.first()?;
         let ndim = input.view.shape().len();
@@ -426,7 +532,7 @@ impl LoweringSuggester {
         let body = self.wrap_with_loops_excluding_axis_with_scope(ndim, axis, inner_body, scope);
 
         Some(function(
-            None::<String>,
+            Some(name.to_string()),
             vec![],
             AstDType::Tuple(vec![]),
             body,
@@ -434,7 +540,7 @@ impl LoweringSuggester {
     }
 
     /// Contiguous演算の関数を生成
-    fn build_contiguous_function(&self, node: &GraphNode) -> Option<AstNode> {
+    fn build_contiguous_function(&self, node: &GraphNode, name: &str) -> Option<AstNode> {
         let input = node.src.first()?;
         let shape = node.view.shape();
         let ndim = shape.len();
@@ -450,7 +556,7 @@ impl LoweringSuggester {
         let body = self.wrap_with_loops(ndim, vec![store_stmt]);
 
         Some(function(
-            None::<String>,
+            Some(name.to_string()),
             vec![],
             AstDType::Tuple(vec![]),
             body,
@@ -462,6 +568,7 @@ impl LoweringSuggester {
         &self,
         node: &GraphNode,
         expr: &AstNode,
+        name: &str,
     ) -> Option<AstNode> {
         let shape = node.view.shape();
         let ndim = shape.len();
@@ -473,7 +580,13 @@ impl LoweringSuggester {
 
         let expr_with_consts = self.embed_constants(expr, &node.src);
 
-        Some(self.build_elementwise_function_impl(ndim, num_inputs, expr_with_consts, &node.dtype))
+        Some(self.build_elementwise_function_impl(
+            ndim,
+            num_inputs,
+            expr_with_consts,
+            &node.dtype,
+            name,
+        ))
     }
 
     /// FusedElementwiseReduce演算の関数を生成
@@ -483,6 +596,7 @@ impl LoweringSuggester {
         expr: &AstNode,
         reduce_op: &ReduceOp,
         axis: usize,
+        name: &str,
     ) -> Option<AstNode> {
         let input = node.src.first()?;
         let input_shape = input.view.shape();
@@ -547,7 +661,7 @@ impl LoweringSuggester {
         let body = self.wrap_with_loops_excluding_axis_with_scope(ndim, axis, inner_body, scope);
 
         Some(function(
-            None::<String>,
+            Some(name.to_string()),
             vec![],
             AstDType::Tuple(vec![]),
             body,
@@ -561,6 +675,7 @@ impl LoweringSuggester {
         expr: &AstNode,
         cum_op: &CumulativeOp,
         axis: usize,
+        name: &str,
     ) -> Option<AstNode> {
         let input = node.src.first()?;
         let ndim = input.view.shape().len();
@@ -615,7 +730,7 @@ impl LoweringSuggester {
         let body = self.wrap_with_loops_excluding_axis_with_scope(ndim, axis, inner_body, scope);
 
         Some(function(
-            None::<String>,
+            Some(name.to_string()),
             vec![],
             AstDType::Tuple(vec![]),
             body,
@@ -635,7 +750,12 @@ impl LoweringSuggester {
     }
 
     /// Slice演算の関数を生成
-    fn build_slice_function(&self, node: &GraphNode, ranges: &[(usize, usize)]) -> Option<AstNode> {
+    fn build_slice_function(
+        &self,
+        node: &GraphNode,
+        ranges: &[(usize, usize)],
+        name: &str,
+    ) -> Option<AstNode> {
         let input = node.src.first()?;
         let shape = node.view.shape();
         let ndim = shape.len();
@@ -669,7 +789,7 @@ impl LoweringSuggester {
         let body = self.wrap_with_loops(ndim, vec![store_stmt]);
 
         Some(function(
-            None::<String>,
+            Some(name.to_string()),
             vec![],
             AstDType::Tuple(vec![]),
             body,
@@ -684,7 +804,7 @@ impl LoweringSuggester {
     }
 
     /// Rand演算の関数を生成
-    fn build_rand_function(&self, node: &GraphNode) -> Option<AstNode> {
+    fn build_rand_function(&self, node: &GraphNode, name: &str) -> Option<AstNode> {
         let shape = node.view.shape();
         let ndim = shape.len();
 
@@ -701,7 +821,7 @@ impl LoweringSuggester {
         let body = self.wrap_with_loops(ndim, vec![store_stmt]);
 
         Some(function(
-            None::<String>,
+            Some(name.to_string()),
             vec![],
             AstDType::Tuple(vec![]),
             body,
@@ -709,7 +829,7 @@ impl LoweringSuggester {
     }
 
     /// Arange演算の関数を生成
-    fn build_arange_function(&self, node: &GraphNode) -> Option<AstNode> {
+    fn build_arange_function(&self, node: &GraphNode, name: &str) -> Option<AstNode> {
         let shape = node.view.shape();
         let ndim = shape.len();
 
@@ -731,7 +851,7 @@ impl LoweringSuggester {
         let body = self.wrap_with_loops(ndim, vec![store_stmt]);
 
         Some(function(
-            None::<String>,
+            Some(name.to_string()),
             vec![],
             AstDType::Tuple(vec![]),
             body,
@@ -739,7 +859,12 @@ impl LoweringSuggester {
     }
 
     /// Cast演算の関数を生成
-    fn build_cast_function(&self, node: &GraphNode, target_dtype: &GraphDType) -> Option<AstNode> {
+    fn build_cast_function(
+        &self,
+        node: &GraphNode,
+        target_dtype: &GraphDType,
+        name: &str,
+    ) -> Option<AstNode> {
         let input = node.src.first()?;
         let shape = node.view.shape();
         let ndim = shape.len();
@@ -755,7 +880,7 @@ impl LoweringSuggester {
         let body = self.wrap_with_loops(ndim, vec![store_stmt]);
 
         Some(function(
-            None::<String>,
+            Some(name.to_string()),
             vec![],
             AstDType::Tuple(vec![]),
             body,
@@ -763,7 +888,7 @@ impl LoweringSuggester {
     }
 
     /// Real演算の関数を生成
-    fn build_real_function(&self, node: &GraphNode) -> Option<AstNode> {
+    fn build_real_function(&self, node: &GraphNode, name: &str) -> Option<AstNode> {
         let _input = node.src.first()?;
         let shape = node.view.shape();
         let ndim = shape.len();
@@ -782,7 +907,7 @@ impl LoweringSuggester {
         let body = self.wrap_with_loops(ndim, vec![store_stmt]);
 
         Some(function(
-            None::<String>,
+            Some(name.to_string()),
             vec![],
             AstDType::Tuple(vec![]),
             body,
@@ -790,7 +915,7 @@ impl LoweringSuggester {
     }
 
     /// Imag演算の関数を生成
-    fn build_imag_function(&self, node: &GraphNode) -> Option<AstNode> {
+    fn build_imag_function(&self, node: &GraphNode, name: &str) -> Option<AstNode> {
         let _input = node.src.first()?;
         let shape = node.view.shape();
         let ndim = shape.len();
@@ -808,7 +933,7 @@ impl LoweringSuggester {
         let body = self.wrap_with_loops(ndim, vec![store_stmt]);
 
         Some(function(
-            None::<String>,
+            Some(name.to_string()),
             vec![],
             AstDType::Tuple(vec![]),
             body,
@@ -816,7 +941,7 @@ impl LoweringSuggester {
     }
 
     /// ComplexFromParts演算の関数を生成
-    fn build_complex_from_parts_function(&self, node: &GraphNode) -> Option<AstNode> {
+    fn build_complex_from_parts_function(&self, node: &GraphNode, name: &str) -> Option<AstNode> {
         if node.src.len() < 2 {
             return None;
         }
@@ -836,7 +961,7 @@ impl LoweringSuggester {
         let body = self.wrap_with_loops(ndim, vec![store_real, store_imag]);
 
         Some(function(
-            None::<String>,
+            Some(name.to_string()),
             vec![],
             AstDType::Tuple(vec![]),
             body,

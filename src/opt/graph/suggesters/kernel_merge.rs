@@ -183,17 +183,17 @@ impl KernelMergeSuggester {
 
         // 各ASTからカーネル関数を抽出/作成
         let mut kernels: Vec<AstNode> = Vec::new();
-        let mut kernel_name_counter = 0;
+        let mut used_names: HashSet<String> = HashSet::new();
 
         // Producer側のカーネルを追加
         let producer_kernels =
-            self.extract_or_create_kernels(producer, producer_ast, &mut kernel_name_counter);
+            self.extract_or_create_kernels(producer, producer_ast, &mut used_names);
         kernels.extend(producer_kernels);
         let producer_kernel_count = kernels.len();
 
         // Consumer側のカーネルを追加
         let consumer_kernels =
-            self.extract_or_create_kernels(consumer, consumer_ast, &mut kernel_name_counter);
+            self.extract_or_create_kernels(consumer, consumer_ast, &mut used_names);
         kernels.extend(consumer_kernels);
 
         // main関数を生成
@@ -241,17 +241,21 @@ impl KernelMergeSuggester {
     }
 
     /// ASTからカーネル関数を抽出、または新規作成
+    ///
+    /// 元のFunction/Kernel名を保持し、重複時は`__n`を追加
     fn extract_or_create_kernels(
         &self,
         node: &GraphNode,
         ast: &AstNode,
-        kernel_name_counter: &mut usize,
+        used_names: &mut HashSet<String>,
     ) -> Vec<AstNode> {
         match ast {
             AstNode::Function { .. } => {
-                // Custom(Function) → Kernelに変換
-                let kernel = self.create_kernel_from_function(node, ast, kernel_name_counter);
-                *kernel_name_counter += 1;
+                // Custom(Function) → Kernelに変換、元の名前を保持
+                let kernel = self.create_kernel_from_function(node, ast, used_names);
+                if let AstNode::Kernel { name: Some(n), .. } = &kernel {
+                    used_names.insert(n.clone());
+                }
                 vec![kernel]
             }
             AstNode::Program { functions, .. } => {
@@ -260,15 +264,16 @@ impl KernelMergeSuggester {
                 for func in functions {
                     match func {
                         AstNode::Kernel {
-                            name: _,
+                            name,
                             params,
                             return_type,
                             body,
                             thread_group_size,
                         } => {
-                            // リネームして追加
-                            let new_name = format!("kernel_{}", *kernel_name_counter);
-                            *kernel_name_counter += 1;
+                            // 元の名前を保持、重複時は__nを追加
+                            let base_name = name.clone().unwrap_or_else(|| "kernel".to_string());
+                            let new_name = Self::make_unique_name(&base_name, used_names);
+                            used_names.insert(new_name.clone());
                             kernels.push(AstNode::Kernel {
                                 name: Some(new_name),
                                 params: params.clone(),
@@ -285,8 +290,10 @@ impl KernelMergeSuggester {
                         } => {
                             // main関数以外をKernelに変換
                             if name.as_deref() != Some("harp_main") {
-                                let new_name = format!("kernel_{}", *kernel_name_counter);
-                                *kernel_name_counter += 1;
+                                let base_name =
+                                    name.clone().unwrap_or_else(|| "kernel".to_string());
+                                let new_name = Self::make_unique_name(&base_name, used_names);
+                                used_names.insert(new_name.clone());
                                 kernels.push(AstNode::Kernel {
                                     name: Some(new_name),
                                     params: params.clone(),
@@ -305,12 +312,32 @@ impl KernelMergeSuggester {
         }
     }
 
+    /// 重複を避けてユニークな名前を生成
+    ///
+    /// base_nameが使用済みの場合、`__1`, `__2`, ... を追加
+    fn make_unique_name(base_name: &str, used_names: &HashSet<String>) -> String {
+        if !used_names.contains(base_name) {
+            return base_name.to_string();
+        }
+
+        let mut counter = 1;
+        loop {
+            let candidate = format!("{}__{}", base_name, counter);
+            if !used_names.contains(&candidate) {
+                return candidate;
+            }
+            counter += 1;
+        }
+    }
+
     /// FunctionからKernelを作成
+    ///
+    /// 元のFunction名を保持し、重複時は`__n`を追加
     fn create_kernel_from_function(
         &self,
         node: &GraphNode,
         func_ast: &AstNode,
-        kernel_name_counter: &usize,
+        used_names: &HashSet<String>,
     ) -> AstNode {
         // 入力ノードのみを取得（出力 Buffer を除外）
         let input_nodes = Self::get_input_nodes(&node.src);
@@ -370,8 +397,16 @@ impl KernelMergeSuggester {
             }
         };
 
+        // 元のFunction名を取得し、重複を避けてユニークな名前を生成
+        let base_name = if let AstNode::Function { name: Some(n), .. } = func_ast {
+            n.clone()
+        } else {
+            "kernel".to_string()
+        };
+        let kernel_name = Self::make_unique_name(&base_name, used_names);
+
         AstNode::Kernel {
-            name: Some(format!("kernel_{}", kernel_name_counter)),
+            name: Some(kernel_name),
             params,
             return_type: AstDType::Tuple(vec![]),
             body: Box::new(body),

@@ -127,6 +127,12 @@ GraphOpをCustomノード（`AstNode::Function`を保持）に変換する。グ
 - 入力のViewが連続（contiguous）であること（Elementwiseの場合）
 - 既にCustomノードでないこと
 
+**カーネル命名規則:**
+生成されるFunction/Kernel名は以下の規則に従う:
+- プレフィックス: `E`(Elementwise), `ER`(ElementwiseReduce), `C`(Cumulative), `R`(Reduce), `O`(Other)
+- 出力shapeを`_`区切りで追加: 例 `E_2_4` (shape [2, 4]のElementwise)
+- 重複時は末尾に`__n`を追加: 例 `E_2_4__1`
+
 ### KernelMergeSuggester
 依存関係にある2つのCustomノード（Function/Program）をペアワイズでマージする。
 ビームサーチにより最適なマージ順序を探索できる。
@@ -159,7 +165,7 @@ Step 2: suggest() → 残り1ペアをマージ
 - LowererはCustom(Program)を検出した場合、直接返す（パススルー）
 
 **生成するProgram構造:**
-- 各カーネル関数（kernel_0, kernel_1, ...）
+- 各カーネル関数（E_2_4, ER_4_2など、元のFunction名を保持）
 - main関数（harp_main）
   - 中間バッファの確保（Allocate）
   - カーネル呼び出し + バリア挿入
