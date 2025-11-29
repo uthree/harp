@@ -126,6 +126,29 @@ where
     pub enable_kernel_merge: bool,
 }
 
+/// 最適化済みグラフからAST Programを抽出する
+///
+/// KernelMergeSuggesterが生成したCustom(Program)を直接返すか、
+/// Custom(Function)がある場合はLowererを使用してProgramを生成します。
+fn extract_program_from_graph(graph: Graph) -> AstNode {
+    use crate::graph::GraphOp;
+
+    // Custom(Program)ノードがあれば直接返す
+    for output in graph.outputs().values() {
+        if let GraphOp::Custom { ast } = &output.op
+            && matches!(ast, AstNode::Program { .. })
+        {
+            log::debug!("Extracting Custom(Program) directly from graph");
+            return ast.clone();
+        }
+    }
+
+    // Custom(Program)がない場合はLowererを使用
+    // ただし、グラフ最適化は既に完了しているので、Lowererの内部で再度最適化はしない
+    log::debug!("No Custom(Program) found, using Lowerer to create Program");
+    crate::lowerer::lower(graph)
+}
+
 impl<R, C> GenericPipeline<R, C>
 where
     R: Renderer,
@@ -170,11 +193,11 @@ where
     /// 最適化が有効な場合、最適化履歴を内部に保存します。
     /// 複数のAST最適化履歴を取得するには、compile_graph_with_all_histories()を使用してください。
     pub fn compile_graph_with_history(&mut self, graph: Graph) -> Result<C::Kernel, String> {
-        // グラフ最適化
+        // グラフ最適化（Phase 1 + Phase 2）
         let optimized_graph = self.optimize_graph_internal(graph);
 
-        // Lowering
-        let program = self.lower_to_program(optimized_graph);
+        // グラフからAST Programを抽出（Custom(Program)があれば直接使用）
+        let program = extract_program_from_graph(optimized_graph);
 
         // AST最適化
         let optimized_program = if self.enable_ast_optimization {
@@ -198,11 +221,11 @@ where
         &mut self,
         graph: Graph,
     ) -> Result<(AstNode, HashMap<String, AstOptimizationHistory>), String> {
-        // グラフ最適化（2段階最適化を使用）
+        // グラフ最適化（Phase 1 + Phase 2）
         let optimized_graph = self.optimize_graph_internal(graph);
 
-        // Lowering
-        let program = self.lower_to_program(optimized_graph);
+        // グラフからAST Programを抽出（Custom(Program)があれば直接使用）
+        let program = extract_program_from_graph(optimized_graph);
 
         // AST最適化（Program全体を最適化）
         let (program, all_histories) = if self.enable_ast_optimization {
@@ -227,11 +250,11 @@ where
         &mut self,
         graph: Graph,
     ) -> CompileWithHistoriesResult<C::Kernel> {
-        // グラフ最適化
+        // グラフ最適化（Phase 1 + Phase 2）
         let optimized_graph = self.optimize_graph_internal(graph);
 
-        // Lowering
-        let program = self.lower_to_program(optimized_graph);
+        // グラフからAST Programを抽出（Custom(Program)があれば直接使用）
+        let program = extract_program_from_graph(optimized_graph);
 
         // AST最適化（Program全体を最適化）
         let (optimized_program, all_histories) = if self.enable_ast_optimization {
