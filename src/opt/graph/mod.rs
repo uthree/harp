@@ -24,7 +24,7 @@ pub trait GraphCostEstimator {
 }
 
 // Re-export commonly used types
-pub use estimator::{AstBasedCostEstimator, SimpleCostEstimator};
+pub use estimator::{AstBasedCostEstimator, KernelMergeCostEstimator, SimpleCostEstimator};
 pub use history::{OptimizationHistory, OptimizationSnapshot};
 pub use optimizer::BeamSearchGraphOptimizer;
 pub use suggesters::{

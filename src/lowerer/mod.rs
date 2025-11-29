@@ -1,5 +1,5 @@
 use crate::graph::{Graph, GraphNode, ops::GraphOp};
-use crate::opt::graph::{BeamSearchGraphOptimizer, GraphOptimizer, SimpleCostEstimator};
+use crate::opt::graph::SimpleCostEstimator;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 // モジュール宣言
@@ -59,18 +59,27 @@ impl Default for Lowerer {
 /// グラフ最適化を実行する（シングルスレッド向けフラグ）
 ///
 /// LoweringSuggesterにより、ほとんどのGraphOpがCustomノードに変換されます。
+/// カーネルマージは現在無効（KernelMergeSuggesterにバグがあるため）
 fn optimize_graph_for_lowering(graph: Graph) -> Graph {
-    use crate::backend::pipeline::{SuggesterFlags, create_graph_suggester};
+    use crate::backend::pipeline::{SuggesterFlags, optimize_graph_two_phase};
 
     let flags = SuggesterFlags::single_threaded();
-    let suggester = create_graph_suggester(flags);
     let cost_estimator = SimpleCostEstimator::new();
-    let optimizer = BeamSearchGraphOptimizer::new(suggester, cost_estimator)
-        .with_beam_width(10)
-        .with_max_steps(100)
-        .with_progress(false);
 
-    optimizer.optimize(graph)
+    // 2段階最適化を実行
+    // 第1フェーズ: 一般的なグラフ最適化（lowering含む）
+    // 第2フェーズ: カーネルマージ（現在無効）
+    let (optimized_graph, _phase1_history, _phase2_history) = optimize_graph_two_phase(
+        graph,
+        flags,
+        cost_estimator,
+        10,    // beam_width
+        100,   // max_steps
+        false, // show_progress
+        false, // enable_kernel_merge: TODO: バグ修正後に有効化
+    );
+
+    optimized_graph
 }
 
 /// GraphをProgramに変換する公開関数

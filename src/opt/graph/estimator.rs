@@ -477,6 +477,105 @@ impl GraphCostEstimator for SimpleCostEstimator {
     }
 }
 
+/// KernelMerge専用のコスト推定器
+///
+/// 複数のCustom(Function)を1つのCustom(Program)にマージすることを強く優先します。
+/// グラフ最適化の第2フェーズ（カーネルマージ）で使用します。
+///
+/// # コスト計算
+/// - Custom(Function)の数に強いペナルティを与える
+/// - Custom(Program)を持つグラフを強く優先する
+/// - その他のノードは無視（既にlowering済みの前提）
+pub struct KernelMergeCostEstimator {
+    /// Custom(Function)あたりのペナルティ（対数スケール）
+    function_penalty: f32,
+}
+
+impl KernelMergeCostEstimator {
+    pub fn new() -> Self {
+        Self {
+            // 各Custom(Function)に大きなペナルティを与える
+            // これにより、複数FunctionをProgramにマージすることが強く優先される
+            function_penalty: 10.0,
+        }
+    }
+
+    /// Custom(Function)ペナルティを設定
+    pub fn with_function_penalty(mut self, penalty: f32) -> Self {
+        self.function_penalty = penalty;
+        self
+    }
+
+    fn collect_all_nodes(&self, graph: &Graph) -> Vec<GraphNode> {
+        let mut visited = HashSet::new();
+        let mut nodes = Vec::new();
+
+        fn visit(
+            node: &GraphNode,
+            visited: &mut HashSet<*const std::ffi::c_void>,
+            nodes: &mut Vec<GraphNode>,
+        ) {
+            let ptr = std::ptr::from_ref(node) as *const std::ffi::c_void;
+            if visited.contains(&ptr) {
+                return;
+            }
+            visited.insert(ptr);
+
+            for src in &node.src {
+                visit(src, visited, nodes);
+            }
+            nodes.push(node.clone());
+        }
+
+        for output in graph.outputs().values() {
+            visit(output, &mut visited, &mut nodes);
+        }
+
+        nodes
+    }
+}
+
+impl Default for KernelMergeCostEstimator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl GraphCostEstimator for KernelMergeCostEstimator {
+    fn estimate(&self, graph: &Graph) -> f32 {
+        let nodes = self.collect_all_nodes(graph);
+
+        let mut custom_function_count = 0;
+        let mut has_custom_program = false;
+
+        for node in &nodes {
+            if let GraphOp::Custom { ast } = &node.op {
+                match ast {
+                    crate::ast::AstNode::Function { .. } => custom_function_count += 1,
+                    crate::ast::AstNode::Program { .. } => has_custom_program = true,
+                    _ => {}
+                }
+            }
+        }
+
+        // Custom(Program)があれば非常に低コスト
+        // Custom(Function)が多いほど高コスト
+        if has_custom_program {
+            // Programがあれば、追加のFunctionがあってもペナルティを軽減
+            // （既にマージが始まっている状態）
+            1.0 + custom_function_count as f32 * 0.1
+        } else if custom_function_count >= 2 {
+            // 2つ以上のFunctionがある：マージ可能
+            // Functionの数に応じてペナルティ
+            custom_function_count as f32 * self.function_penalty
+        } else {
+            // 0-1個のFunction：マージ不要または不可能
+            // 基本コスト
+            1.0
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

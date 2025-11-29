@@ -13,8 +13,8 @@ use crate::opt::ast::{
 use crate::opt::graph::{
     BeamSearchGraphOptimizer, CompositeSuggester, ConstPropagationSuggester,
     ContiguousInsertionSuggester, CustomFusionSuggester, FusionSuggester, GraphCostEstimator,
-    LoweringSuggester, ParallelStrategyChanger, SimdSuggester, TilingSuggester,
-    ViewInsertionSuggester, ViewMergeSuggester,
+    KernelMergeCostEstimator, KernelMergeSuggester, LoweringSuggester, ParallelStrategyChanger,
+    SimdSuggester, TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
 };
 
 /// Suggesterの種類を指定するフラグ
@@ -69,11 +69,18 @@ pub fn create_graph_suggester(flags: SuggesterFlags) -> CompositeSuggester {
     // LoweringSuggesterは他の最適化後にlowering
     suggesters.push(Box::new(LoweringSuggester::new()));
 
-    // TODO: KernelMergeSuggesterは中間バッファの処理にバグがあるため一時無効化
-    // KernelMergeSuggesterは最後に追加（複数のCustomノードをProgramにマージ）
-    // suggesters.push(Box::new(KernelMergeSuggester::new()));
+    // 注意: KernelMergeSuggesterはここには含めない
+    // カーネルマージは別のフェーズ（optimize_graph_with_kernel_merge）で行う
 
     CompositeSuggester::new(suggesters)
+}
+
+/// カーネルマージ用のSuggesterを作成
+///
+/// KernelMergeSuggesterのみを含むSuggesterを作成します。
+/// グラフ最適化の第2フェーズで使用します。
+pub fn create_kernel_merge_suggester() -> CompositeSuggester {
+    CompositeSuggester::new(vec![Box::new(KernelMergeSuggester::new())])
 }
 
 /// AST最適化用のSuggesterを作成
@@ -159,4 +166,68 @@ pub fn optimize_ast_with_history(
         create_ast_optimizer(suggester, estimator, beam_width, max_steps, show_progress);
 
     optimizer.optimize_with_history(program)
+}
+
+/// カーネルマージ最適化を実行（履歴付き）
+///
+/// 複数のCustom(Function)を1つのCustom(Program)にマージします。
+/// グラフ最適化の第2フェーズとして使用します。
+pub fn optimize_kernel_merge_with_history(
+    graph: Graph,
+    beam_width: usize,
+    max_steps: usize,
+    show_progress: bool,
+) -> (Graph, crate::opt::graph::OptimizationHistory) {
+    let suggester = create_kernel_merge_suggester();
+    let estimator = KernelMergeCostEstimator::new();
+    let optimizer =
+        create_graph_optimizer(suggester, estimator, beam_width, max_steps, show_progress);
+    optimizer.optimize_with_history(graph)
+}
+
+/// 2段階グラフ最適化を実行（履歴付き）
+///
+/// 1. 第1フェーズ: 一般的なグラフ最適化（fusion, lowering等）
+/// 2. 第2フェーズ: カーネルマージ（複数Custom(Function)を1つのCustom(Program)に統合）
+///
+/// # Arguments
+/// * `graph` - 最適化対象のグラフ
+/// * `flags` - Suggesterの設定フラグ
+/// * `estimator` - 第1フェーズ用のコスト推定器
+/// * `beam_width` - ビームサーチの幅
+/// * `max_steps` - 各フェーズの最大ステップ数
+/// * `show_progress` - 進捗表示フラグ
+/// * `enable_kernel_merge` - カーネルマージを有効にするか
+pub fn optimize_graph_two_phase<E>(
+    graph: Graph,
+    flags: SuggesterFlags,
+    estimator: E,
+    beam_width: usize,
+    max_steps: usize,
+    show_progress: bool,
+    enable_kernel_merge: bool,
+) -> (
+    Graph,
+    crate::opt::graph::OptimizationHistory,
+    Option<crate::opt::graph::OptimizationHistory>,
+)
+where
+    E: GraphCostEstimator,
+{
+    // 第1フェーズ: 一般的なグラフ最適化
+    let (phase1_graph, phase1_history) =
+        optimize_graph_with_history(graph, flags, estimator, beam_width, max_steps, show_progress);
+
+    // 第2フェーズ: カーネルマージ（有効な場合）
+    if enable_kernel_merge {
+        let (phase2_graph, phase2_history) = optimize_kernel_merge_with_history(
+            phase1_graph,
+            beam_width,
+            max_steps / 2, // カーネルマージは少ないステップで十分
+            show_progress,
+        );
+        (phase2_graph, phase1_history, Some(phase2_history))
+    } else {
+        (phase1_graph, phase1_history, None)
+    }
 }

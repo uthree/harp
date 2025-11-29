@@ -23,6 +23,12 @@ Graphを最適化。`optimize(&self, graph: Graph) -> Graph`
 - より正確だが計算コストが高い
 - `ast_optimizer`で使用するAST最適化を設定可能
 
+### KernelMergeCostEstimator
+カーネルマージ最適化専用の推定器。
+- Custom(Program)が存在する場合は低コスト
+- Custom(Function)の数が多いほど高コスト
+- 2段階最適化のPhase 2で使用
+
 ## Optimizer実装
 
 ### BeamSearchGraphOptimizer
@@ -126,6 +132,22 @@ GraphOpをCustomノード（`AstNode::Function`を保持）に変換する。グ
 
 ### CompositeSuggester
 複数のSuggesterを組み合わせる。
+
+## 2段階最適化アーキテクチャ
+
+グラフ最適化は2段階に分けて実行される:
+
+### Phase 1: 一般的なグラフ最適化
+- View挿入、Fusion、定数伝播、タイリング、並列化など
+- 最後にLoweringSuggesterでGraphOp→Custom(Function)に変換
+- SimpleCostEstimatorまたはAstBasedCostEstimatorで評価
+
+### Phase 2: カーネルマージ（オプション）
+- KernelMergeSuggesterで複数Custom(Function)を1つのCustom(Program)に統合
+- KernelMergeCostEstimatorで評価
+- 中間バッファの管理を明示的にAST内に含める
+
+`backend::pipeline::optimize_graph_two_phase()`で2段階最適化を実行可能。
 
 ## 使用例
 
