@@ -7,6 +7,15 @@ mod tests {
     use harp::backend::c::{CCompiler, CPipeline, CRenderer};
     use harp::backend::{Buffer, Compiler, Kernel, Pipeline};
     use harp::graph::{DType, Graph, GraphNode, shape::Expr};
+    use std::sync::Once;
+
+    static INIT: Once = Once::new();
+
+    fn init_logging() {
+        INIT.call_once(|| {
+            let _ = env_logger::builder().is_test(true).try_init();
+        });
+    }
 
     /// ExprをVec<usize>に変換（定数のみサポート）
     fn expr_vec_to_usize_vec(exprs: &[Expr]) -> Vec<usize> {

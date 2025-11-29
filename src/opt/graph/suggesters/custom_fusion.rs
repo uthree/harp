@@ -128,10 +128,62 @@ impl CustomFusionSuggester {
 
     /// ノードがElementwiseタイプ（Elementwise, FusedElementwise, またはCustomのElementwise関数）かチェック
     fn is_elementwise_type(node: &GraphNode) -> bool {
-        matches!(
-            &node.op,
-            GraphOp::Elementwise { .. } | GraphOp::FusedElementwise { .. } | GraphOp::Custom { .. }
-        )
+        match &node.op {
+            GraphOp::Elementwise { .. } | GraphOp::FusedElementwise { .. } => true,
+            GraphOp::Custom { ast } => Self::is_elementwise_custom_function(ast),
+            _ => false,
+        }
+    }
+
+    /// Custom関数がシンプルなElementwise関数かどうかをチェック
+    ///
+    /// Elementwise関数の特徴:
+    /// - ネストしたループ構造
+    /// - acc変数を使用していない（Reduce/Cumulativeではない）
+    /// - Store文の値がacc以外
+    fn is_elementwise_custom_function(ast: &AstNode) -> bool {
+        if let AstNode::Function { body, .. } = ast {
+            // acc変数を使用しているかチェック
+            !Self::uses_acc_variable(body)
+        } else {
+            false
+        }
+    }
+
+    /// AST内でacc変数を使用しているかチェック（Reduce/Cumulativeパターンの検出）
+    fn uses_acc_variable(node: &AstNode) -> bool {
+        match node {
+            AstNode::Var(name) => name == "acc",
+            AstNode::Block {
+                statements, scope, ..
+            } => {
+                // スコープ内にaccが宣言されているかチェック
+                if scope.local_variables().any(|v| v.name == "acc") {
+                    return true;
+                }
+                statements.iter().any(Self::uses_acc_variable)
+            }
+            AstNode::Range { body, .. } => Self::uses_acc_variable(body),
+            AstNode::Assign { var, value } => var == "acc" || Self::uses_acc_variable(value),
+            AstNode::Store { value, .. } => Self::uses_acc_variable(value),
+            AstNode::Load { ptr, offset, .. } => {
+                Self::uses_acc_variable(ptr) || Self::uses_acc_variable(offset)
+            }
+            AstNode::Add(left, right)
+            | AstNode::Mul(left, right)
+            | AstNode::Rem(left, right)
+            | AstNode::Idiv(left, right)
+            | AstNode::Max(left, right) => {
+                Self::uses_acc_variable(left) || Self::uses_acc_variable(right)
+            }
+            AstNode::Recip(inner)
+            | AstNode::Sqrt(inner)
+            | AstNode::Log2(inner)
+            | AstNode::Exp2(inner)
+            | AstNode::Sin(inner)
+            | AstNode::Cast(inner, _) => Self::uses_acc_variable(inner),
+            _ => false,
+        }
     }
 
     /// 既存のCustomノード、Elementwiseノード、FusedElementwiseノードからAST式を取得
@@ -286,6 +338,12 @@ impl CustomFusionSuggester {
     /// 連続する2つのElementwise/Custom演算を融合する
     /// 例: (a + b) * c -> Custom([a, b, c], ...)
     fn detect_elementwise_chain(&self, node: &GraphNode) -> Option<(Vec<GraphNode>, AstNode)> {
+        // このノードがElementwiseタイプでない場合はNone
+        // Custom(Reduce)やCustom(Cumulative)は除外される
+        if !Self::is_elementwise_type(node) {
+            return None;
+        }
+
         // このノードがElementwise/FusedElementwise/Customでない場合はNone
         let (current_expr, _) = Self::node_to_ast_expr(node, "")?;
 

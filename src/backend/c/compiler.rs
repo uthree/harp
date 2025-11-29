@@ -172,8 +172,14 @@ impl Compiler for CCompiler {
         let lib_path = temp_file.path().to_path_buf();
 
         // コンパイル
-        self.compile_to_library(code.as_str(), &lib_path)
-            .expect("Failed to compile C code");
+        if let Err(e) = self.compile_to_library(code.as_str(), &lib_path) {
+            // エラー時に生成されたコードを出力
+            eprintln!(
+                "=== Generated C code ===\n{}\n=== End of code ===",
+                code.as_str()
+            );
+            panic!("Failed to compile C code: {:?}", e);
+        }
 
         // ライブラリをロード
         let library = unsafe { Library::new(&lib_path).expect("Failed to load compiled library") };

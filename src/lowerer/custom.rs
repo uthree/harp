@@ -99,7 +99,9 @@ impl Lowerer {
         }
 
         // カスタム関数からボディを取得し、shape変数を置換
+        debug!("Custom function AST: {:?}", custom_fn);
         let body = self.extract_and_substitute_body(node, custom_fn, ndim, &shape_substitutions)?;
+        debug!("Extracted body (after substitution): {:?}", body);
 
         // カーネル関数を作成
         let function_name = format!("kernel_{}", node_id);

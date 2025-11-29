@@ -183,7 +183,7 @@ impl FunctionInliningSuggester {
                 }
 
                 // 関数本体がBlockの場合、そのstatementsを取り出す
-                if let AstNode::Block { statements, .. } = body.as_ref() {
+                if let AstNode::Block { statements, scope } = body.as_ref() {
                     // 各statementで引数を置換
                     let inlined_statements: Vec<AstNode> = statements
                         .iter()
@@ -195,7 +195,18 @@ impl FunctionInliningSuggester {
                         name,
                         inlined_statements.len()
                     );
-                    Some(inlined_statements)
+
+                    // スコープにローカル変数がある場合は、Block全体を返す
+                    // （ローカル変数の宣言を保持するため）
+                    if scope.local_variables().next().is_some() {
+                        let block = AstNode::Block {
+                            statements: inlined_statements,
+                            scope: scope.clone(),
+                        };
+                        Some(vec![block])
+                    } else {
+                        Some(inlined_statements)
+                    }
                 } else {
                     // Blockでない場合（例: 直接Rangeノードの場合）、単一の文として扱う
                     debug!(

@@ -132,6 +132,18 @@ where
 fn extract_program_from_graph(graph: Graph) -> AstNode {
     use crate::graph::GraphOp;
 
+    // デバッグ: 出力ノードのopを表示
+    for (name, output) in graph.outputs() {
+        log::debug!(
+            "extract_program_from_graph: output '{}' op = {:?}",
+            name,
+            std::mem::discriminant(&output.op)
+        );
+        if let GraphOp::Custom { ast } = &output.op {
+            log::debug!("  Custom AST variant: {:?}", std::mem::discriminant(ast));
+        }
+    }
+
     // Custom(Program)ノードがあれば直接返す
     for output in graph.outputs().values() {
         if let GraphOp::Custom { ast } = &output.op
