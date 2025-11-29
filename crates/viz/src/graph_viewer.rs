@@ -41,8 +41,7 @@ pub struct NodeDetails {
     pub dtype: String,
     /// 形状
     pub shape: Vec<String>,
-    /// 最適化戦略
-    pub strategies: Vec<String>,
+
     /// 操作の詳細
     pub op_details: String,
 }
@@ -298,18 +297,13 @@ impl GraphViewerApp {
         // 詳細情報を収集
         let dtype = format!("{:?}", node.dtype);
         let shape: Vec<String> = node.view.shape().iter().map(|e| format!("{}", e)).collect();
-        let strategies: Vec<String> = node
-            .elementwise_strategies
-            .iter()
-            .enumerate()
-            .map(|(i, s)| format!("axis {}: {:?}", i, s))
-            .collect();
+
         let op_details = format!("{:?}", node.op);
 
         let details = NodeDetails {
             dtype,
             shape,
-            strategies,
+
             op_details,
         };
 
@@ -858,13 +852,7 @@ impl egui_snarl::ui::SnarlViewer<GraphNodeView> for GraphNodeViewStyle {
                     ui.label(format!("Shape: [{}]", node_data.details.shape.join(", ")));
                 }
 
-                if !node_data.details.strategies.is_empty() {
-                    ui.collapsing("Strategies", |ui| {
-                        for strategy in &node_data.details.strategies {
-                            ui.label(strategy);
-                        }
-                    });
-                }
+
 
                 ui.collapsing("Operation Details", |ui| {
                     ui.label(&node_data.details.op_details);
