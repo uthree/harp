@@ -862,8 +862,6 @@ impl egui_snarl::ui::SnarlViewer<GraphNodeView> for GraphNodeViewStyle {
                     ui.label(format!("Shape: [{}]", node_data.details.shape.join(", ")));
                 }
 
-
-
                 ui.collapsing("Operation Details", |ui| {
                     ui.label(&node_data.details.op_details);
                 });
@@ -879,17 +877,19 @@ impl egui_snarl::ui::SnarlViewer<GraphNodeView> for GraphNodeViewStyle {
                                         ui.style(),
                                     );
 
-                                let mut layouter = |ui: &egui::Ui, string: &str, wrap_width: f32| {
-                                    let mut layout_job = egui_extras::syntax_highlighting::highlight(
-                                        ui.ctx(),
-                                        ui.style(),
-                                        &theme,
-                                        string,
-                                        "c", // C言語風のシンタックスハイライト
-                                    );
-                                    layout_job.wrap.max_width = wrap_width;
-                                    ui.fonts(|f| f.layout_job(layout_job))
-                                };
+                                let mut layouter =
+                                    |ui: &egui::Ui, string: &str, wrap_width: f32| {
+                                        let mut layout_job =
+                                            egui_extras::syntax_highlighting::highlight(
+                                                ui.ctx(),
+                                                ui.style(),
+                                                &theme,
+                                                string,
+                                                "c", // C言語風のシンタックスハイライト
+                                            );
+                                        layout_job.wrap.max_width = wrap_width;
+                                        ui.fonts(|f| f.layout_job(layout_job))
+                                    };
 
                                 ui.add(
                                     egui::TextEdit::multiline(&mut code.as_str())

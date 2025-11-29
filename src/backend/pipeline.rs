@@ -18,21 +18,48 @@ use crate::opt::graph::{
 };
 
 /// Suggesterの種類を指定するフラグ
-///
-/// 現在は将来の拡張のためのプレースホルダーです。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct SuggesterFlags;
+pub struct SuggesterFlags {
+    /// KernelMergeSuggesterを含めるかどうか
+    ///
+    /// trueの場合、単一ステージでCustom(Function)のマージも行います。
+    /// これにより、部分的にloweringされた状態でも増分マージが可能になります。
+    pub include_kernel_merge: bool,
+}
 
 impl SuggesterFlags {
     /// デフォルトのSuggesterフラグを作成
+    ///
+    /// デフォルトではKernelMergeSuggesterは含まれません（従来の2ステージ動作）。
     pub fn new() -> Self {
-        Self
+        Self {
+            include_kernel_merge: false,
+        }
+    }
+
+    /// KernelMergeSuggesterを含む単一ステージ最適化用のフラグを作成
+    ///
+    /// Custom(Program)の増分マージをサポートし、
+    /// 単一のビームサーチでloweringからマージまで行います。
+    pub fn single_stage() -> Self {
+        Self {
+            include_kernel_merge: true,
+        }
+    }
+
+    /// KernelMergeSuggesterを含めるかどうかを設定
+    pub fn with_kernel_merge(mut self, include: bool) -> Self {
+        self.include_kernel_merge = include;
+        self
     }
 }
 
 /// グラフ最適化用のSuggesterを作成
-pub fn create_graph_suggester(_flags: SuggesterFlags) -> CompositeSuggester {
-    let suggesters: Vec<Box<dyn crate::opt::graph::GraphSuggester>> = vec![
+///
+/// `flags.include_kernel_merge`がtrueの場合、KernelMergeSuggesterも含まれ、
+/// 単一ステージでloweringからマージまで行います。
+pub fn create_graph_suggester(flags: SuggesterFlags) -> CompositeSuggester {
+    let mut suggesters: Vec<Box<dyn crate::opt::graph::GraphSuggester>> = vec![
         Box::new(ViewInsertionSuggester::new()),
         Box::new(ViewMergeSuggester::new()),
         Box::new(ConstPropagationSuggester::new()),
@@ -42,9 +69,13 @@ pub fn create_graph_suggester(_flags: SuggesterFlags) -> CompositeSuggester {
         Box::new(FusionSuggester::new()),
         // LoweringSuggesterは他の最適化後にlowering
         Box::new(LoweringSuggester::new()),
-        // 注意: KernelMergeSuggesterはここには含めない
-        // カーネルマージは別のフェーズ（optimize_graph_with_kernel_merge）で行う
     ];
+
+    // 単一ステージモードの場合、KernelMergeSuggesterも含める
+    // これにより、Custom(Program)の増分マージが可能になる
+    if flags.include_kernel_merge {
+        suggesters.push(Box::new(KernelMergeSuggester::new()));
+    }
 
     CompositeSuggester::new(suggesters)
 }
@@ -172,6 +203,13 @@ pub fn optimize_kernel_merge_with_history(
 /// * `max_steps` - 各フェーズの最大ステップ数
 /// * `show_progress` - 進捗表示フラグ
 /// * `enable_kernel_merge` - カーネルマージを有効にするか
+///
+/// # Note
+/// 単一ステージ最適化を使用したい場合は、`optimize_graph_single_stage`を使用してください。
+#[deprecated(
+    since = "0.2.0",
+    note = "Use `optimize_graph_single_stage` for unified optimization, or `optimize_graph_with_history` with `SuggesterFlags::single_stage()` for single-stage mode"
+)]
 pub fn optimize_graph_two_phase<E>(
     graph: Graph,
     flags: SuggesterFlags,
@@ -210,4 +248,53 @@ where
     } else {
         (phase1_graph, phase1_history, None)
     }
+}
+
+/// 単一ステージグラフ最適化を実行（履歴付き）
+///
+/// KernelMergeSuggesterを含む単一のビームサーチで、
+/// fusion, lowering, カーネルマージを統合的に最適化します。
+///
+/// Custom(Program)の増分マージをサポートするため、
+/// 従来の2ステージ最適化よりも柔軟な最適化が可能です。
+///
+/// # Arguments
+/// * `graph` - 最適化対象のグラフ
+/// * `estimator` - コスト推定器
+/// * `beam_width` - ビームサーチの幅
+/// * `max_steps` - 最大ステップ数
+/// * `show_progress` - 進捗表示フラグ
+///
+/// # Example
+/// ```ignore
+/// use harp::backend::pipeline::optimize_graph_single_stage;
+/// use harp::opt::graph::SimpleCostEstimator;
+///
+/// let (optimized, history) = optimize_graph_single_stage(
+///     graph,
+///     SimpleCostEstimator::new(),
+///     8,    // beam_width
+///     200,  // max_steps
+///     true, // show_progress
+/// );
+/// ```
+pub fn optimize_graph_single_stage<E>(
+    graph: Graph,
+    estimator: E,
+    beam_width: usize,
+    max_steps: usize,
+    show_progress: bool,
+) -> (Graph, crate::opt::graph::OptimizationHistory)
+where
+    E: GraphCostEstimator,
+{
+    let flags = SuggesterFlags::single_stage();
+    optimize_graph_with_history(
+        graph,
+        flags,
+        estimator,
+        beam_width,
+        max_steps,
+        show_progress,
+    )
 }

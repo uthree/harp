@@ -122,23 +122,34 @@ GraphOpをCustomノード（`AstNode::Function`を保持）に変換する。グ
 - 既にCustomノードでないこと
 
 ### KernelMergeSuggester
-複数のCustomノード（Function）を1つのCustomノード（Program）にマージする。
+複数のCustomノード（Function/Program）を1つのCustomノード（Program）にマージする。
+
+**サポートするマージパターン:**
+- Custom(Function) × N → Custom(Program)
+- Custom(Program) + Custom(Function) → Custom(Program)（増分マージ）
+- Custom(Program) + Custom(Program) → Custom(Program)（Program融合）
 
 **効果:**
 - グラフ全体を1つのProgram ASTとして表現
 - 中間バッファの管理を明示的に制御
+- カーネル呼び出し間にバリアを自動挿入（メモリ同期の保証）
 - Lowererはカーネル関数を`AstNode::Kernel`として生成
 - LowererはCustom(Program)を検出した場合、直接返す（パススルー）
 
 **マージ条件:**
-- グラフに2つ以上のCustomノード（Function）が存在すること
+- Custom(Function)が2つ以上、または
+- Custom(Program)が1つ以上かつCustom(Function)が1つ以上、または
+- Custom(Program)が2つ以上
 
 **生成するProgram構造:**
 - 各カーネル関数（kernel_0, kernel_1, ...）
 - main関数（harp_main）
   - 中間バッファの確保（Allocate）
-  - カーネル呼び出し順序の管理
+  - カーネル呼び出し + バリア挿入
   - 中間バッファの解放（Deallocate）
+
+**バリア挿入:**
+カーネル呼び出し間に`AstNode::Barrier`を挿入し、前のカーネルの書き込み完了を保証する。
 
 ### CompositeSuggester
 複数のSuggesterを組み合わせる。
@@ -146,21 +157,39 @@ GraphOpをCustomノード（`AstNode::Function`を保持）に変換する。グ
 - `suggest_named()`をオーバーライドし、各内部Suggesterの名前を正確に追跡
 - 各Suggesterが提案したグラフには、そのSuggesterの名前が関連付けられる
 
-## 2段階最適化アーキテクチャ
+## 最適化アーキテクチャ
 
-グラフ最適化は2段階に分けて実行される:
+### 単一ステージ最適化（推奨）
 
-### Phase 1: 一般的なグラフ最適化
-- View挿入、Fusion、定数伝播、タイリング、並列化など
-- 最後にLoweringSuggesterでGraphOp→Custom(Function)に変換
-- SimpleCostEstimatorまたはAstBasedCostEstimatorで評価
+KernelMergeSuggesterがCustom(Program)の増分マージをサポートするため、
+単一のビームサーチでloweringからマージまで統合的に最適化できる。
 
-### Phase 2: カーネルマージ（オプション）
-- KernelMergeSuggesterで複数Custom(Function)を1つのCustom(Program)に統合
-- KernelMergeCostEstimatorで評価
-- 中間バッファの管理を明示的にAST内に含める
+**メリット:**
+- lowering途中の状態でも増分マージが可能
+- 探索空間がより柔軟
+- コスト関数が一貫
 
-`backend::pipeline::optimize_graph_two_phase()`で2段階最適化を実行可能。
+**API:**
+```rust
+// SuggesterFlags::single_stage()でKernelMergeSuggesterを含む
+let (graph, history) = optimize_graph_single_stage(
+    graph,
+    SimpleCostEstimator::new(),
+    8,     // beam_width
+    200,   // max_steps
+    true,  // show_progress
+);
+```
+
+### 2段階最適化（従来方式、非推奨）
+
+従来は2段階に分けて実行していた:
+
+1. **Phase 1**: 一般的なグラフ最適化（fusion, lowering等）
+2. **Phase 2**: カーネルマージ（複数Custom(Function)→Custom(Program)）
+
+`backend::pipeline::optimize_graph_two_phase()`は非推奨。
+`optimize_graph_single_stage()`または`SuggesterFlags::single_stage()`を使用推奨。
 
 ## 使用例
 

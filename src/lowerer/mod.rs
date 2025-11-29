@@ -69,27 +69,24 @@ impl Default for Lowerer {
     }
 }
 
-/// グラフ最適化を実行する（シングルスレッド向けフラグ）
+/// グラフ最適化を実行する
 ///
 /// LoweringSuggesterにより、ほとんどのGraphOpがCustomノードに変換されます。
-/// カーネルマージは現在無効（KernelMergeSuggesterにバグがあるため）
+/// 単一ステージ最適化により、KernelMergeSuggesterも同時に動作し、
+/// Custom(Program)への統合も行われます。
 fn optimize_graph_for_lowering(graph: Graph) -> Graph {
-    use crate::backend::pipeline::{SuggesterFlags, optimize_graph_two_phase};
+    use crate::backend::pipeline::optimize_graph_single_stage;
 
-    let flags = SuggesterFlags::new();
     let cost_estimator = SimpleCostEstimator::new();
 
-    // 2段階最適化を実行
-    // 第1フェーズ: 一般的なグラフ最適化（lowering含む）
-    // 第2フェーズ: カーネルマージ（現在無効）
-    let (optimized_graph, _phase1_history, _phase2_history) = optimize_graph_two_phase(
+    // 単一ステージ最適化を実行
+    // lowering, fusion, カーネルマージを統合的に最適化
+    let (optimized_graph, _history) = optimize_graph_single_stage(
         graph,
-        flags,
         cost_estimator,
         10,    // beam_width
         100,   // max_steps
         false, // show_progress
-        false, // enable_kernel_merge: TODO: バグ修正後に有効化
     );
 
     optimized_graph
