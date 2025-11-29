@@ -118,7 +118,8 @@ GraphOpをCustomノード（`AstNode::Function`を保持）に変換する。グ
 **効果:**
 - グラフ全体を1つのProgram ASTとして表現
 - 中間バッファの管理を明示的に制御
-- Lowererがほぼパススルーになり、コード生成が簡潔に
+- Lowererはカーネル関数を`FunctionKind::Kernel`として生成
+- LowererはCustom(Program)を検出した場合、直接返す（パススルー）
 
 **マージ条件:**
 - グラフに2つ以上のCustomノード（Function）が存在すること

@@ -92,69 +92,11 @@ impl OpenCLRenderer {
     }
 
     /// カーネル関数をOpenCL形式でレンダリング
+    ///
+    /// CLikeRendererの共通実装を使用して、関数本体を正しくレンダリングします。
     fn render_kernel_function(&mut self, func: &AstNode) -> String {
-        if let AstNode::Function {
-            name: Some(func_name),
-            params,
-            body: _,
-            ..
-        } = func
-        {
-            let mut kernel_code = String::new();
-
-            // カーネル関数のシグネチャ
-            kernel_code.push_str(&format!("__kernel void {}(", func_name));
-
-            // パラメータ
-            let param_strs: Vec<String> = params
-                .iter()
-                .enumerate()
-                .map(|(i, param)| {
-                    let type_str = self.render_opencl_param_type(&param.dtype);
-                    format!("{} arg{}", type_str, i)
-                })
-                .collect();
-
-            kernel_code.push_str(&param_strs.join(", "));
-            kernel_code.push_str(") {\n");
-
-            // スレッドIDの取得
-            kernel_code.push_str("    int gid = get_global_id(0);\n");
-
-            // ボディ（簡易実装：単純なループ展開）
-            kernel_code.push_str("    // TODO: Implement kernel body\n");
-
-            kernel_code.push_str("}\n");
-
-            kernel_code
-        } else {
-            String::new()
-        }
-    }
-
-    /// OpenCLパラメータ型をレンダリング
-    fn render_opencl_param_type(&self, dtype: &DType) -> String {
-        match dtype {
-            DType::Ptr(inner) => {
-                let base = self.render_opencl_type(inner);
-                format!("__global {}", base)
-            }
-            _ => self.render_opencl_type(dtype),
-        }
-    }
-
-    /// OpenCL型をレンダリング
-    #[allow(clippy::only_used_in_recursion)]
-    fn render_opencl_type(&self, dtype: &DType) -> String {
-        match dtype {
-            DType::F32 => "float*".to_string(),
-            DType::Int => "int*".to_string(),
-            DType::Ptr(inner) => {
-                let base = self.render_opencl_type(inner);
-                format!("{}*", base)
-            }
-            _ => "void*".to_string(),
-        }
+        // CLikeRendererの共通実装を使用
+        self.render_function_node(func)
     }
 
     /// ホストコード（OpenCL初期化 + カーネル実行）を生成
@@ -411,14 +353,6 @@ mod tests {
 
         #[cfg(not(target_os = "macos"))]
         assert!(header.contains("#include <CL/cl.h>"));
-    }
-
-    #[test]
-    fn test_opencl_type_rendering() {
-        let renderer = OpenCLRenderer::new();
-
-        assert_eq!(renderer.render_opencl_type(&DType::F32), "float*");
-        assert_eq!(renderer.render_opencl_type(&DType::Int), "int*");
     }
 
     #[test]

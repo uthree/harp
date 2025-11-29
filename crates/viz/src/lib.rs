@@ -80,6 +80,30 @@ where
         self.current_tab = VizTab::GraphViewer;
     }
 
+    /// 複数のグラフ最適化履歴をフェーズ名付きで結合して読み込む
+    ///
+    /// 2段階最適化（Phase 1: グラフ最適化、Phase 2: カーネルマージなど）の
+    /// 履歴を1つのタイムラインとして表示するために使用します。
+    ///
+    /// # Arguments
+    /// * `histories` - (フェーズ名, 履歴) のタプルのベクター
+    ///
+    /// # Example
+    /// ```ignore
+    /// app.load_combined_graph_histories(vec![
+    ///     ("Graph Opt".to_string(), phase1_history),
+    ///     ("Kernel Merge".to_string(), phase2_history),
+    /// ]);
+    /// ```
+    pub fn load_combined_graph_histories(
+        &mut self,
+        histories: Vec<(String, harp::opt::graph::OptimizationHistory)>,
+    ) {
+        let combined = harp::opt::graph::OptimizationHistory::from_phases(&histories);
+        self.graph_viewer.load_history(combined);
+        self.current_tab = VizTab::GraphViewer;
+    }
+
     /// AST最適化履歴を読み込む
     pub fn load_ast_optimization_history(&mut self, history: harp::opt::ast::OptimizationHistory) {
         self.ast_viewer.load_history(history);
@@ -106,6 +130,7 @@ where
     /// GenericPipelineから最適化履歴を読み込む
     ///
     /// GenericPipelineに保存されているグラフとAST両方の最適化履歴を読み込みます。
+    /// 2段階最適化（Phase 1 + Phase 2）の履歴は自動的に結合されて表示されます。
     /// 履歴が存在する場合、適切なタブに切り替えます。
     ///
     /// # 型パラメータ
@@ -116,9 +141,9 @@ where
         PR: harp::backend::Renderer,
         PC: harp::backend::Compiler<CodeRepr = PR::CodeRepr>,
     {
-        // グラフ最適化履歴を読み込む
-        if let Some(graph_history) = &pipeline.histories.graph {
-            self.load_graph_optimization_history(graph_history.clone());
+        // グラフ最適化履歴を読み込む（Phase 1 + Phase 2 を結合）
+        if let Some(combined_history) = pipeline.histories.combined_graph_history() {
+            self.load_graph_optimization_history(combined_history);
         }
 
         // AST最適化履歴を読み込む
@@ -131,6 +156,7 @@ where
     ///
     /// `load_from_pipeline`と異なり、Pipelineから履歴を取り出して所有権を移動します。
     /// Pipeline内の履歴はクリアされます。
+    /// 2段階最適化の履歴は結合されて読み込まれます。
     ///
     /// # 型パラメータ
     /// * `PR` - Rendererの型
@@ -142,10 +168,13 @@ where
         PR: harp::backend::Renderer,
         PC: harp::backend::Compiler<CodeRepr = PR::CodeRepr>,
     {
-        // グラフ最適化履歴を取得
-        if let Some(graph_history) = pipeline.histories.graph.take() {
-            self.load_graph_optimization_history(graph_history);
+        // グラフ最適化履歴を取得（Phase 1 + Phase 2 を結合）
+        if let Some(combined_history) = pipeline.histories.combined_graph_history() {
+            self.load_graph_optimization_history(combined_history);
         }
+        // 元の履歴をクリア
+        pipeline.histories.graph = None;
+        pipeline.histories.graph_phase2 = None;
 
         // AST最適化履歴を取得
         if let Some(ast_history) = pipeline.histories.ast.take() {

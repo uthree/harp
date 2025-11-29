@@ -342,7 +342,7 @@ impl KernelMergeSuggester {
 
         AstNode::Function {
             name: Some(function_name.to_string()),
-            kind: FunctionKind::Normal,
+            kind: FunctionKind::Kernel(64), // GPU用のカーネル関数として作成
             params,
             return_type: AstDType::Tuple(vec![]),
             body: Box::new(body),

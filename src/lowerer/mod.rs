@@ -35,6 +35,19 @@ fn node_ptr(node: &GraphNode) -> *const () {
     node.as_ptr() as *const ()
 }
 
+/// グラフ内にCustom(Program)ノードがあれば、そのProgramを返す
+/// KernelMergeSuggesterの出力を検出するために使用
+fn find_custom_program(graph: &Graph) -> Option<crate::ast::AstNode> {
+    for output in graph.outputs().values() {
+        if let GraphOp::Custom { ast } = &output.op
+            && matches!(ast, crate::ast::AstNode::Program { .. })
+        {
+            return Some(ast.clone());
+        }
+    }
+    None
+}
+
 /// Viewノードの場合、実際のストレージノードまでトレースバックする
 /// Viewノードはメモリアクセスパターンを記述するだけで、バッファーは持たない
 fn trace_to_storage_node(node: &GraphNode) -> &GraphNode {
@@ -89,6 +102,12 @@ fn optimize_graph_for_lowering(graph: Graph) -> Graph {
 pub(crate) fn lower(graph: Graph) -> crate::ast::AstNode {
     // グラフ最適化を実行（LoweringSuggesterでCustomノードに変換）
     let optimized_graph = optimize_graph_for_lowering(graph);
+
+    // Custom(Program)ノードがあればそれを直接返す（KernelMergeSuggesterの出力）
+    if let Some(program) = find_custom_program(&optimized_graph) {
+        log::debug!("Found Custom(Program) node, returning directly");
+        return program;
+    }
 
     let mut lowerer = Lowerer::new();
 

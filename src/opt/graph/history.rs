@@ -122,4 +122,46 @@ impl OptimizationHistory {
             .filter_map(|s| s.num_candidates.map(|n| (s.step, n)))
             .collect()
     }
+
+    /// 別の履歴を結合（ステップ番号を調整して連結）
+    ///
+    /// 結合時に、追加する履歴のステップ番号は現在の最大ステップ番号+1から開始するように調整されます。
+    /// また、説明にはフェーズ名のプレフィックスを追加できます。
+    ///
+    /// # Arguments
+    /// * `other` - 結合する履歴
+    /// * `phase_name` - フェーズ名（descriptionのプレフィックスとして使用）
+    pub fn extend_with_phase(&mut self, other: OptimizationHistory, phase_name: &str) {
+        if other.is_empty() {
+            return;
+        }
+
+        // 現在の最大ステップ番号を取得
+        let step_offset = self.snapshots.last().map(|s| s.step + 1).unwrap_or(0);
+
+        // 他の履歴のスナップショットをステップ番号を調整して追加
+        for snapshot in other.snapshots {
+            let adjusted_snapshot = OptimizationSnapshot {
+                step: snapshot.step + step_offset,
+                graph: snapshot.graph,
+                cost: snapshot.cost,
+                description: format!("[{}] {}", phase_name, snapshot.description),
+                logs: snapshot.logs,
+                num_candidates: snapshot.num_candidates,
+            };
+            self.snapshots.push(adjusted_snapshot);
+        }
+    }
+
+    /// 複数の履歴をフェーズ名付きで結合
+    ///
+    /// # Arguments
+    /// * `histories` - (フェーズ名, 履歴) のタプルのスライス
+    pub fn from_phases(histories: &[(String, OptimizationHistory)]) -> Self {
+        let mut combined = Self::new();
+        for (phase_name, history) in histories {
+            combined.extend_with_phase(history.clone(), phase_name);
+        }
+        combined
+    }
 }

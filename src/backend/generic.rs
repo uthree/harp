@@ -10,9 +10,10 @@ use crate::opt::ast::{
 };
 use crate::opt::graph::{
     BeamSearchGraphOptimizer, CompositeSuggester, ConstPropagationSuggester,
-    ContiguousInsertionSuggester, FusionSuggester, GraphCostEstimator, LoweringSuggester,
-    OptimizationHistory as GraphOptimizationHistory, ParallelStrategyChanger, SimdSuggester,
-    SimpleCostEstimator, TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
+    ContiguousInsertionSuggester, FusionSuggester, GraphCostEstimator, KernelMergeCostEstimator,
+    KernelMergeSuggester, LoweringSuggester, OptimizationHistory as GraphOptimizationHistory,
+    ParallelStrategyChanger, SimdSuggester, SimpleCostEstimator, TilingSuggester,
+    ViewInsertionSuggester, ViewMergeSuggester,
 };
 use std::collections::HashMap;
 
@@ -44,8 +45,10 @@ impl Default for OptimizationConfig {
 /// 最適化履歴を管理する構造体
 #[derive(Debug, Clone, Default)]
 pub struct OptimizationHistories {
-    /// グラフ最適化履歴
+    /// グラフ最適化履歴（Phase 1: 一般最適化）
     pub graph: Option<GraphOptimizationHistory>,
+    /// グラフ最適化履歴（Phase 2: カーネルマージ）
+    pub graph_phase2: Option<GraphOptimizationHistory>,
     /// AST最適化履歴
     pub ast: Option<AstOptimizationHistory>,
 }
@@ -54,7 +57,25 @@ impl OptimizationHistories {
     /// 全ての履歴をクリア
     pub fn clear(&mut self) {
         self.graph = None;
+        self.graph_phase2 = None;
         self.ast = None;
+    }
+
+    /// 2段階のグラフ最適化履歴を結合して取得
+    ///
+    /// Phase 1とPhase 2の履歴をフェーズ名付きで結合します。
+    /// 可視化ツールで1つのタイムラインとして表示するために使用します。
+    pub fn combined_graph_history(&self) -> Option<GraphOptimizationHistory> {
+        match (&self.graph, &self.graph_phase2) {
+            (Some(phase1), Some(phase2)) => {
+                let mut combined = phase1.clone();
+                combined.extend_with_phase(phase2.clone(), "Kernel Merge");
+                Some(combined)
+            }
+            (Some(phase1), None) => Some(phase1.clone()),
+            (None, Some(phase2)) => Some(phase2.clone()),
+            (None, None) => None,
+        }
     }
 }
 
@@ -100,6 +121,9 @@ where
     pub ast_config: OptimizationConfig,
     /// 最適化履歴を収集するか（DEBUGビルドではデフォルトでtrue、RELEASEビルドではfalse）
     pub collect_histories: bool,
+    /// カーネルマージ（2段階最適化）を有効にするか
+    /// 複数のCustom(Function)を1つのCustom(Program)にマージします
+    pub enable_kernel_merge: bool,
 }
 
 impl<R, C> GenericPipeline<R, C>
@@ -123,6 +147,7 @@ where
             enable_ast_optimization: false,
             ast_config: OptimizationConfig::default(),
             collect_histories: cfg!(debug_assertions),
+            enable_kernel_merge: false, // デフォルトで無効（バグ修正後に有効化予定）
         }
     }
 
@@ -173,15 +198,8 @@ where
         &mut self,
         graph: Graph,
     ) -> Result<(AstNode, HashMap<String, AstOptimizationHistory>), String> {
-        // グラフ最適化（常に有効）
-        let suggester = Self::create_graph_suggester();
-        let estimator = SimpleCostEstimator::new();
-        let optimizer = self.create_graph_optimizer(suggester, estimator);
-
-        let (optimized_graph, history) = optimizer.optimize_with_history(graph);
-        if self.collect_histories {
-            self.histories.graph = Some(history);
-        }
+        // グラフ最適化（2段階最適化を使用）
+        let optimized_graph = self.optimize_graph_internal(graph);
 
         // Lowering
         let program = self.lower_to_program(optimized_graph);
@@ -307,16 +325,46 @@ where
     }
 
     /// グラフ最適化の内部処理（履歴付き）
+    ///
+    /// 2段階最適化に対応:
+    /// - Phase 1: 一般的なグラフ最適化（fusion, lowering等）
+    /// - Phase 2: カーネルマージ（enable_kernel_mergeが有効な場合）
     fn optimize_graph_internal(&mut self, graph: Graph) -> Graph {
+        // Phase 1: 一般的なグラフ最適化
         let suggester = Self::create_graph_suggester();
         let estimator = SimpleCostEstimator::new();
         let optimizer = self.create_graph_optimizer(suggester, estimator);
 
-        let (optimized, history) = optimizer.optimize_with_history(graph);
+        let (phase1_graph, phase1_history) = optimizer.optimize_with_history(graph);
         if self.collect_histories {
-            self.histories.graph = Some(history);
+            self.histories.graph = Some(phase1_history);
         }
-        optimized
+
+        // Phase 2: カーネルマージ（有効な場合）
+        if self.enable_kernel_merge {
+            // Phase 1完了後のCustom(Function)の数を確認
+            let custom_function_count = count_custom_functions(&phase1_graph);
+            log::info!(
+                "Phase 1 completed: {} Custom(Function) nodes found. Starting kernel merge.",
+                custom_function_count
+            );
+
+            let merge_suggester =
+                CompositeSuggester::new(vec![Box::new(KernelMergeSuggester::new())]);
+            let merge_estimator = KernelMergeCostEstimator::new();
+            let merge_optimizer = BeamSearchGraphOptimizer::new(merge_suggester, merge_estimator)
+                .with_beam_width(self.graph_config.beam_width)
+                .with_max_steps(self.graph_config.max_steps / 2) // カーネルマージは少ないステップで十分
+                .with_progress(self.graph_config.show_progress);
+
+            let (phase2_graph, phase2_history) = merge_optimizer.optimize_with_history(phase1_graph);
+            if self.collect_histories {
+                self.histories.graph_phase2 = Some(phase2_history);
+            }
+            phase2_graph
+        } else {
+            phase1_graph
+        }
     }
 
     /// AST最適化の内部処理（履歴付き）
@@ -397,6 +445,40 @@ where
 
         program
     }
+}
+
+/// グラフ内のCustom(Function)ノードの数をカウント
+fn count_custom_functions(graph: &Graph) -> usize {
+    use std::collections::HashSet;
+
+    fn visit(
+        node: &crate::graph::GraphNode,
+        visited: &mut HashSet<*const crate::graph::GraphNodeData>,
+        count: &mut usize,
+    ) {
+        let ptr = node.as_ptr();
+        if visited.contains(&ptr) {
+            return;
+        }
+        visited.insert(ptr);
+
+        if let crate::graph::GraphOp::Custom { ast } = &node.op
+            && matches!(ast, AstNode::Function { .. })
+        {
+            *count += 1;
+        }
+
+        for src in &node.src {
+            visit(src, visited, count);
+        }
+    }
+
+    let mut visited = HashSet::new();
+    let mut count = 0;
+    for output in graph.outputs().values() {
+        visit(output, &mut visited, &mut count);
+    }
+    count
 }
 
 #[cfg(test)]
