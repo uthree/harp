@@ -163,15 +163,49 @@ impl OptimizationHistory {
         }
 
         // 現在の最大ステップ番号を取得
-        let step_offset = self.snapshots.last().map(|s| s.step + 1).unwrap_or(0);
+        let base_step_offset = self.snapshots.last().map(|s| s.step + 1).unwrap_or(0);
+
+        // Phase 2の初期スナップショット（step=0でsuggeseter_nameがNone）はPhase 1の最後と
+        // 同じグラフなのでスキップする。スキップした場合、step番号を1減らして連続性を保つ。
+        let skip_initial = !self.snapshots.is_empty()
+            && other
+                .snapshots
+                .first()
+                .map(|s| s.step == 0 && s.suggester_name.is_none())
+                .unwrap_or(false);
+        let step_offset = if skip_initial {
+            base_step_offset.saturating_sub(1)
+        } else {
+            base_step_offset
+        };
 
         // 他の履歴のスナップショットをステップ番号を調整して追加
         for snapshot in other.snapshots {
+            // 初期スナップショット（suggester情報なし）をスキップ
+            if skip_initial && snapshot.step == 0 && snapshot.suggester_name.is_none() {
+                continue;
+            }
+
+            // 既存のdescriptionが[...]プレフィックスを持つ場合は置き換え、そうでなければ追加
+            let description = if snapshot.description.starts_with('[') {
+                if let Some(bracket_end) = snapshot.description.find(']') {
+                    // 既存のプレフィックスをフェーズ名に置き換え
+                    format!(
+                        "[{}]{}",
+                        phase_name,
+                        &snapshot.description[bracket_end + 1..]
+                    )
+                } else {
+                    format!("[{}] {}", phase_name, snapshot.description)
+                }
+            } else {
+                format!("[{}] {}", phase_name, snapshot.description)
+            };
             let adjusted_snapshot = OptimizationSnapshot {
                 step: snapshot.step + step_offset,
                 graph: snapshot.graph,
                 cost: snapshot.cost,
-                description: format!("[{}] {}", phase_name, snapshot.description),
+                description,
                 logs: snapshot.logs,
                 num_candidates: snapshot.num_candidates,
                 suggester_name: snapshot.suggester_name,
