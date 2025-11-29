@@ -1091,63 +1091,14 @@ impl egui_snarl::ui::SnarlViewer<GraphNodeView> for GraphNodeViewStyle<'_> {
 
                 // 選択ボタン（Customノードの場合のみ表示）
                 if has_code {
-                    let btn = ui.small_button("📝").on_hover_text("View code");
+                    let btn = ui.small_button("📝").on_hover_text("View code in sidebar");
                     if btn.clicked() {
                         *self.clicked_node = Some(node);
                     }
                 }
             });
 
-            // 詳細情報を折りたたみ表示
-            ui.collapsing("Details", |ui| {
-                ui.label(format!("Type: {}", node_data.op_type));
-                ui.label(format!("DType: {}", node_data.details.dtype));
-
-                if !node_data.details.shape.is_empty() {
-                    ui.label(format!("Shape: [{}]", node_data.details.shape.join(", ")));
-                }
-
-                ui.collapsing("Operation Details", |ui| {
-                    ui.label(&node_data.details.op_details);
-                });
-
-                if let Some(ref code) = node_data.details.code {
-                    ui.collapsing("Generated Code", |ui| {
-                        egui::ScrollArea::vertical()
-                            .max_height(300.0)
-                            .show(ui, |ui| {
-                                let theme =
-                                    egui_extras::syntax_highlighting::CodeTheme::from_memory(
-                                        ui.ctx(),
-                                        ui.style(),
-                                    );
-
-                                let mut layouter =
-                                    |ui: &egui::Ui, string: &str, wrap_width: f32| {
-                                        let mut layout_job =
-                                            egui_extras::syntax_highlighting::highlight(
-                                                ui.ctx(),
-                                                ui.style(),
-                                                &theme,
-                                                string,
-                                                "c", // C言語風のシンタックスハイライト
-                                            );
-                                        layout_job.wrap.max_width = wrap_width;
-                                        ui.fonts(|f| f.layout_job(layout_job))
-                                    };
-
-                                ui.add(
-                                    egui::TextEdit::multiline(&mut code.as_str())
-                                        .font(egui::TextStyle::Monospace)
-                                        .code_editor()
-                                        .lock_focus(true)
-                                        .desired_width(f32::INFINITY)
-                                        .layouter(&mut layouter),
-                                );
-                            });
-                    });
-                }
-            });
+            // 詳細情報はサイドパネルに表示するため、ここでは省略
         }
     }
 
