@@ -115,6 +115,13 @@ impl ViewMergeSuggester {
             return self.merge_input_view_node(input_node, target_view);
         }
 
+        // Customノードの場合は特別処理：Viewを出力に取り込む
+        // Custom → View → Consumer のパターンを Custom[View適用済み] → Consumer に変換
+        // これにより、後続のKernelMergeSuggesterがCustom同士を直接マージできる
+        if matches!(input_node.op, GraphOp::Custom { .. }) {
+            return self.merge_custom_view_node(input_node, target_view);
+        }
+
         // 入力ノードのviewをViewノードのviewで置き換えた新しいノードを作成
         let new_ndim = target_view.ndim();
         let old_ndim = input_node.view.ndim();
@@ -139,6 +146,29 @@ impl ViewMergeSuggester {
         );
 
         Some(new_input)
+    }
+
+    /// CustomノードとViewノードをマージ
+    ///
+    /// Custom → View のパターンで、CustomノードにView変換を取り込む。
+    /// これにより、Custom[View適用済み] → Consumer の形になり、
+    /// KernelMergeSuggesterがCustom同士を直接マージできるようになる。
+    fn merge_custom_view_node(
+        &self,
+        custom_node: &GraphNode,
+        target_view: crate::graph::shape::View,
+    ) -> Option<GraphNode> {
+        // Customノードの出力Viewを新しいViewで置き換えた新しいノードを作成
+        // ASTは変更せず、GraphNodeのviewフィールドのみを更新
+        // lowering時にこのviewが使用されるため、メモリアクセスパターンが反映される
+        let new_custom = GraphNode::new(
+            custom_node.dtype.clone(),
+            custom_node.op.clone(),
+            custom_node.src.clone(),
+            target_view,
+        );
+
+        Some(new_custom)
     }
 
     /// BufferノードとViewノードをマージ
@@ -609,5 +639,68 @@ mod tests {
 
         // sumが複数回参照されているため、融合されないはず
         assert_eq!(suggestions.len(), 0);
+    }
+
+    #[test]
+    fn test_custom_view_merge() {
+        use crate::opt::graph::GraphSuggester as _;
+        use crate::opt::graph::suggesters::LoweringSuggester;
+
+        let view_suggester = ViewMergeSuggester::new();
+        let lowering_suggester = LoweringSuggester::new();
+
+        // グラフを作成: a + b
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
+        let b = graph.input("b", DType::F32, vec![10, 20]);
+        let sum = a + b;
+        graph.output("result", sum);
+
+        // LoweringSuggesterでCustomノードに変換
+        let lowered_graphs = lowering_suggester.suggest(&graph);
+        assert!(
+            !lowered_graphs.is_empty(),
+            "LoweringSuggester should produce suggestions"
+        );
+        let lowered_graph = &lowered_graphs[0];
+
+        // Customノードの出力にViewを適用
+        let result_node = lowered_graph.outputs().get("result").unwrap();
+        assert!(
+            matches!(result_node.op, GraphOp::Custom { .. }),
+            "Should be Custom node"
+        );
+
+        // Viewを適用した新しいグラフを作成
+        let permuted = result_node.view(result_node.view.clone().permute(vec![1, 0]));
+        let mut graph_with_view = Graph::new();
+        for (name, weak_input) in lowered_graph.inputs() {
+            if let Some(rc_node) = weak_input.upgrade() {
+                let input_node = GraphNode::from_rc(rc_node);
+                graph_with_view.register_input(name.clone(), input_node);
+            }
+        }
+        graph_with_view.output("result", permuted);
+
+        // ViewMergeSuggesterでCustom→ViewをCustom[View適用済み]にマージ
+        let merged_graphs = view_suggester.suggest(&graph_with_view);
+        assert_eq!(merged_graphs.len(), 1, "Should produce 1 merged graph");
+
+        // マージ後のグラフを確認
+        let merged_result = merged_graphs[0].outputs().get("result").unwrap();
+
+        // 結果がCustomノードであることを確認（Viewノードではない）
+        assert!(
+            matches!(merged_result.op, GraphOp::Custom { .. }),
+            "Result should be Custom node after merge, got {:?}",
+            merged_result.op
+        );
+
+        // Viewが適用されていることを確認
+        assert_eq!(
+            merged_result.view.shape(),
+            &[20.into(), 10.into()],
+            "Custom node should have permuted view"
+        );
     }
 }

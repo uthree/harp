@@ -72,21 +72,21 @@ impl Default for Lowerer {
 /// グラフ最適化を実行する
 ///
 /// LoweringSuggesterにより、ほとんどのGraphOpがCustomノードに変換されます。
-/// KernelMergeSuggesterは無効にして、Custom(Function)をそのまま使用します。
+/// KernelMergeSuggesterを使用して、複数のCustom(Function)を1つのCustom(Program)にマージします。
 fn optimize_graph_for_lowering(graph: Graph) -> Graph {
     use crate::backend::pipeline::{SuggesterFlags, optimize_graph_with_history};
 
     let cost_estimator = SimpleCostEstimator::new();
 
-    // KernelMergeSuggesterを無効にした最適化を実行
-    // lowering, fusionのみで、カーネルマージは行わない
-    let flags = SuggesterFlags::new(); // include_kernel_merge = false
+    // KernelMergeSuggesterを有効にして、単一のCustom(Program)に収束するまで最適化
+    // single_stage()はinclude_kernel_merge = trueを設定
+    let flags = SuggesterFlags::single_stage();
     let (optimized_graph, _history) = optimize_graph_with_history(
         graph,
         flags,
         cost_estimator,
         10,    // beam_width
-        100,   // max_steps
+        500,   // max_steps: 十分な回数まで繰り返す
         false, // show_progress
     );
 

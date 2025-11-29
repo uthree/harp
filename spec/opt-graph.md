@@ -25,7 +25,8 @@ Graphを最適化。`optimize(&self, graph: Graph) -> Graph`
 ### SimpleCostEstimator
 ノード数とメモリアクセスベースの簡易推定器。
 - ノード数ペナルティ項で無限のノード増加を防止
-- `with_node_count_penalty(penalty: f32)`でペナルティ係数を調整可能（デフォルト: 0.01）
+- `with_node_count_penalty(penalty: f32)`でペナルティ係数を調整可能（デフォルト: 0.5）
+- 複数のCustom(Function)がある場合に追加ペナルティを付与し、単一のCustom(Program)への収束を促進
 
 ### AstBasedCostEstimator（推奨）
 - GraphをASTに変換してコストを推定
@@ -84,6 +85,18 @@ Graphを最適化。`optimize(&self, graph: Graph) -> Graph`
 - 中間バッファの削減
 - カーネル呼び出し回数の削減
 
+### ViewMergeSuggester
+Viewノードを上流ノードにマージしてノード数を削減。
+
+**マージパターン:**
+- Input → View → Consumer : Input[View適用済み] → Consumer
+- Op → View → Consumer : Op[View適用済み] → Consumer
+- Custom → View → Consumer : Custom[View適用済み] → Consumer
+
+**Custom → View マージの効果:**
+Custom → View → Custom のパターンで、前のCustomにViewを取り込むことで、
+KernelMergeSuggesterがCustom同士を直接マージできるようになる。
+
 ### ViewInsertionSuggester
 - メモリレイアウト最適化のためのView操作挿入
 - 連続するelementwise演算間にpermute/flipを挿入
@@ -137,6 +150,7 @@ Step 2: suggest() → 残り1ペアをマージ
 **マージ条件:**
 - consumer → producer の依存関係があるCustomノードのペア
 - producerの被参照数が1（複数箇所で使われるノードはマージしない）
+- Viewノードが間に挟まっている場合もトレースバックして検出
 
 **効果:**
 - 中間バッファの管理を明示的に制御

@@ -76,9 +76,27 @@ impl KernelMergeSuggester {
             .collect()
     }
 
+    /// Viewノードをトレースバックして、実際のストレージノードを取得
+    ///
+    /// Viewノードはメモリアクセスパターンを記述するだけで、
+    /// バッファーを持たないため、実際のストレージノードまでトレースバックする
+    fn trace_to_storage_node(node: &GraphNode) -> &GraphNode {
+        match &node.op {
+            GraphOp::View(_) => {
+                if let Some(src) = node.src.first() {
+                    Self::trace_to_storage_node(src)
+                } else {
+                    node
+                }
+            }
+            _ => node,
+        }
+    }
+
     /// マージ可能なCustomノードのペアを検出
     ///
     /// 親ノード（consumer）と子ノード（producer）の関係にあるペアを返す
+    /// Viewノードが間に挟まっている場合もトレースバックして検出する
     fn find_mergeable_pairs(&self, graph: &Graph) -> Vec<(GraphNode, GraphNode)> {
         let custom_nodes = self.collect_custom_nodes(graph);
         let mut pairs = Vec::new();
@@ -89,7 +107,10 @@ impl KernelMergeSuggester {
         for consumer in &custom_nodes {
             // 出力 Buffer を除外した入力ノードのみを処理
             let input_nodes = Self::get_input_nodes(&consumer.src);
-            for producer in input_nodes {
+            for producer_or_view in input_nodes {
+                // Viewノードをトレースバックして実際のストレージノードを取得
+                let producer = Self::trace_to_storage_node(producer_or_view);
+
                 // producerがCustomノードかチェック
                 if !matches!(&producer.op, GraphOp::Custom { .. }) {
                     continue;
@@ -111,6 +132,9 @@ impl KernelMergeSuggester {
     }
 
     /// グラフ内の各ノードの被参照数をカウント
+    ///
+    /// Viewノードを透過的に扱い、実際のストレージノード（Custom等）の
+    /// 被参照数をカウントします。
     fn count_node_references(&self, graph: &Graph) -> HashMap<*const GraphNodeData, usize> {
         let mut ref_counts: HashMap<*const GraphNodeData, usize> = HashMap::new();
         let mut visited = HashSet::new();
@@ -127,8 +151,12 @@ impl KernelMergeSuggester {
             visited.insert(ptr);
 
             for src in &node.src {
-                let src_ptr = src.as_ptr();
-                *ref_counts.entry(src_ptr).or_insert(0) += 1;
+                // Viewノードをトレースバックして実際のストレージノードの参照をカウント
+                let storage_node = KernelMergeSuggester::trace_to_storage_node(src);
+                let storage_ptr = storage_node.as_ptr();
+                *ref_counts.entry(storage_ptr).or_insert(0) += 1;
+
+                // 再帰的に訪問
                 visit(src, ref_counts, visited);
             }
         }

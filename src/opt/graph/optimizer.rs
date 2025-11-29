@@ -161,7 +161,9 @@ where
         let mut early_terminated = false;
         let mut best_cost = initial_cost;
         let mut no_improvement_count = 0;
-        const MAX_NO_IMPROVEMENT_STEPS: usize = 3;
+        // loweringとマージが完了するまで十分な回数を許容
+        // コスト改善がなくても、候補がある限りは続行する
+        const MAX_NO_IMPROVEMENT_STEPS: usize = 10;
 
         for step in 0..self.max_steps {
             if let Some(ref pb) = pb {

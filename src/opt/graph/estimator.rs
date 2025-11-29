@@ -484,7 +484,18 @@ impl GraphCostEstimator for SimpleCostEstimator {
         // これは元のスケールで cost = base_cost * exp(penalty_coefficient * node_count)
         let penalty = self.node_count_penalty * node_count as f32;
 
-        log_base_cost + penalty
+        // 複数のCustom(Function)がある場合、強いペナルティを追加
+        // これにより、単一のCustom(Program)への収束を強く優先する
+        // kernel_count >= 2の場合：マージによりコストが大幅に下がるようにする
+        let merge_penalty = if !has_custom_program && kernel_count >= 2 {
+            // 2つ以上のカーネルがある場合、大きなペナルティを追加
+            // これによりKernelMergeSuggesterの提案が採用されやすくなる
+            KERNEL_LAUNCH_OVERHEAD.ln() * (kernel_count as f32 - 1.0)
+        } else {
+            0.0
+        };
+
+        log_base_cost + penalty + merge_penalty
     }
 }
 
