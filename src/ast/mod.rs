@@ -9,7 +9,7 @@ pub mod scope;
 pub mod types;
 
 // Re-export types for backwards compatibility
-pub use program::{Function, FunctionKind, Program};
+pub use program::{Function, Program};
 pub use scope::{Mutability, Scope, VarDecl, VarKind};
 pub use types::{DType, Literal};
 
@@ -104,18 +104,26 @@ pub enum AstNode {
         ptr: Box<AstNode>, // 解放するポインタ
     },
 
-    // Function definition - 関数定義
+    // Function definition - 通常関数定義
     Function {
         name: Option<String>, // 関数名（Program内ではこのフィールドは使用されず、匿名関数も可能）
         params: Vec<VarDecl>, // 引数リスト
         return_type: DType,   // 返り値の型
         body: Box<AstNode>,   // 関数本体（通常はBlock）
-        kind: FunctionKind,   // 関数の種類（Normal or Kernel）
+    },
+
+    // Kernel definition - GPUカーネル定義
+    Kernel {
+        name: Option<String>,     // カーネル名
+        params: Vec<VarDecl>,     // 引数リスト
+        return_type: DType,       // 返り値の型（通常はvoid）
+        body: Box<AstNode>,       // カーネル本体（通常はBlock）
+        thread_group_size: usize, // スレッドグループサイズ（並列実行単位）
     },
 
     // Program - プログラム全体
     Program {
-        functions: Vec<AstNode>, // AstNode::Function のリスト
+        functions: Vec<AstNode>, // AstNode::Function または AstNode::Kernel のリスト
         entry_point: String,     // エントリーポイントの関数名
     },
 }
@@ -162,7 +170,7 @@ impl AstNode {
             AstNode::Barrier => vec![],
             AstNode::Allocate { size, .. } => vec![size.as_ref()],
             AstNode::Deallocate { ptr } => vec![ptr.as_ref()],
-            AstNode::Function { body, .. } => vec![body.as_ref()],
+            AstNode::Function { body, .. } | AstNode::Kernel { body, .. } => vec![body.as_ref()],
             AstNode::Program { functions, .. } => {
                 functions.iter().map(|node| node as &AstNode).collect()
             }
@@ -263,13 +271,24 @@ impl AstNode {
                 params,
                 return_type,
                 body,
-                kind,
             } => AstNode::Function {
                 name: name.clone(),
                 params: params.clone(),
                 return_type: return_type.clone(),
                 body: Box::new(f(body)),
-                kind: kind.clone(),
+            },
+            AstNode::Kernel {
+                name,
+                params,
+                return_type,
+                body,
+                thread_group_size,
+            } => AstNode::Kernel {
+                name: name.clone(),
+                params: params.clone(),
+                return_type: return_type.clone(),
+                body: Box::new(f(body)),
+                thread_group_size: *thread_group_size,
             },
             AstNode::Program {
                 functions,
@@ -355,8 +374,10 @@ impl AstNode {
             // Deallocate - 値を返さない（unit型）
             AstNode::Deallocate { .. } => DType::Tuple(vec![]),
 
-            // Function - 関数自体の型は返り値の型
-            AstNode::Function { return_type, .. } => return_type.clone(),
+            // Function/Kernel - 関数自体の型は返り値の型
+            AstNode::Function { return_type, .. } | AstNode::Kernel { return_type, .. } => {
+                return_type.clone()
+            }
 
             // Program - プログラム全体の型はエントリーポイントの返り値の型
             AstNode::Program { .. } => {
@@ -489,8 +510,10 @@ impl AstNode {
                 ptr.check_scope(scope)?;
                 Ok(())
             }
-            // Function - 関数本体のスコープチェック（パラメータは関数のスコープに含まれる）
-            AstNode::Function { body, .. } => body.check_scope(scope),
+            // Function/Kernel - 関数本体のスコープチェック（パラメータは関数のスコープに含まれる）
+            AstNode::Function { body, .. } | AstNode::Kernel { body, .. } => {
+                body.check_scope(scope)
+            }
             // Program - 各関数のスコープチェック
             AstNode::Program { functions, .. } => {
                 for func in functions {
@@ -501,14 +524,14 @@ impl AstNode {
         }
     }
 
-    /// Get a function from a Program by name
+    /// Get a function or kernel from a Program by name
     ///
-    /// Returns None if this is not a Program or if the function is not found
+    /// Returns None if this is not a Program or if the function/kernel is not found
     pub fn get_function(&self, name: &str) -> Option<&AstNode> {
         match self {
-            AstNode::Program { functions, .. } => functions
-                .iter()
-                .find(|f| matches!(f, AstNode::Function { name: Some(n), .. } if n == name)),
+            AstNode::Program { functions, .. } => functions.iter().find(|f| {
+                matches!(f, AstNode::Function { name: Some(n), .. } | AstNode::Kernel { name: Some(n), .. } if n == name)
+            }),
             _ => None,
         }
     }

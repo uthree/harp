@@ -76,7 +76,6 @@ impl LoopTilingSuggester {
                 params,
                 return_type,
                 body,
-                kind,
             } => {
                 // 関数本体を再帰的に探索
                 for tiled_body in self.collect_tiling_candidates(body) {
@@ -85,7 +84,24 @@ impl LoopTilingSuggester {
                         params: params.clone(),
                         return_type: return_type.clone(),
                         body: Box::new(tiled_body),
-                        kind: kind.clone(),
+                    });
+                }
+            }
+            AstNode::Kernel {
+                name,
+                params,
+                return_type,
+                body,
+                thread_group_size,
+            } => {
+                // カーネル本体を再帰的に探索
+                for tiled_body in self.collect_tiling_candidates(body) {
+                    candidates.push(AstNode::Kernel {
+                        name: name.clone(),
+                        params: params.clone(),
+                        return_type: return_type.clone(),
+                        body: Box::new(tiled_body),
+                        thread_group_size: *thread_group_size,
                     });
                 }
             }
@@ -251,7 +267,6 @@ impl LoopInliningSuggester {
                 params,
                 return_type,
                 body,
-                kind,
             } => {
                 // 関数本体を再帰的に探索
                 for inlined_body in self.collect_inlining_candidates(body) {
@@ -260,7 +275,24 @@ impl LoopInliningSuggester {
                         params: params.clone(),
                         return_type: return_type.clone(),
                         body: Box::new(inlined_body),
-                        kind: kind.clone(),
+                    });
+                }
+            }
+            AstNode::Kernel {
+                name,
+                params,
+                return_type,
+                body,
+                thread_group_size,
+            } => {
+                // カーネル本体を再帰的に探索
+                for inlined_body in self.collect_inlining_candidates(body) {
+                    candidates.push(AstNode::Kernel {
+                        name: name.clone(),
+                        params: params.clone(),
+                        return_type: return_type.clone(),
+                        body: Box::new(inlined_body),
+                        thread_group_size: *thread_group_size,
                     });
                 }
             }
@@ -577,7 +609,6 @@ impl LoopInterchangeSuggester {
                 params,
                 return_type,
                 body,
-                kind,
             } => {
                 // 関数本体を再帰的に探索
                 for interchanged_body in self.collect_interchange_candidates(body) {
@@ -586,7 +617,24 @@ impl LoopInterchangeSuggester {
                         params: params.clone(),
                         return_type: return_type.clone(),
                         body: Box::new(interchanged_body),
-                        kind: kind.clone(),
+                    });
+                }
+            }
+            AstNode::Kernel {
+                name,
+                params,
+                return_type,
+                body,
+                thread_group_size,
+            } => {
+                // カーネル本体を再帰的に探索
+                for interchanged_body in self.collect_interchange_candidates(body) {
+                    candidates.push(AstNode::Kernel {
+                        name: name.clone(),
+                        params: params.clone(),
+                        return_type: return_type.clone(),
+                        body: Box::new(interchanged_body),
+                        thread_group_size: *thread_group_size,
                     });
                 }
             }

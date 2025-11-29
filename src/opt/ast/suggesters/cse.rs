@@ -298,13 +298,24 @@ impl CseSuggester {
                 params,
                 return_type,
                 body,
-                kind,
             } => AstNode::Function {
                 name: name.clone(),
                 params: params.clone(),
                 return_type: return_type.clone(),
                 body: Box::new(Self::substitute_expr(body, target, var_name)),
-                kind: kind.clone(),
+            },
+            AstNode::Kernel {
+                name,
+                params,
+                return_type,
+                body,
+                thread_group_size,
+            } => AstNode::Kernel {
+                name: name.clone(),
+                params: params.clone(),
+                return_type: return_type.clone(),
+                body: Box::new(Self::substitute_expr(body, target, var_name)),
+                thread_group_size: *thread_group_size,
             },
             AstNode::Program {
                 functions,
@@ -450,7 +461,6 @@ impl CseSuggester {
                 params,
                 return_type,
                 body,
-                kind,
             } => self
                 .try_cse_in_ast(body, temp_counter)
                 .map(|new_body| AstNode::Function {
@@ -458,7 +468,21 @@ impl CseSuggester {
                     params: params.clone(),
                     return_type: return_type.clone(),
                     body: Box::new(new_body),
-                    kind: kind.clone(),
+                }),
+            AstNode::Kernel {
+                name,
+                params,
+                return_type,
+                body,
+                thread_group_size,
+            } => self
+                .try_cse_in_ast(body, temp_counter)
+                .map(|new_body| AstNode::Kernel {
+                    name: name.clone(),
+                    params: params.clone(),
+                    return_type: return_type.clone(),
+                    body: Box::new(new_body),
+                    thread_group_size: *thread_group_size,
                 }),
 
             AstNode::Program {

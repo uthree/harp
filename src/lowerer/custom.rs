@@ -3,7 +3,7 @@
 //! GraphOp::Customを処理し、プレースホルダー変数を実際のパラメータに置換します。
 //! AstNode::Function または AstNode::Program の両方をサポートします。
 
-use crate::ast::{AstNode, DType as AstDType, FunctionKind, VarDecl};
+use crate::ast::{AstNode, DType as AstDType, VarDecl};
 use crate::graph::GraphNode;
 use crate::graph::ops::custom_placeholders as ph;
 use log::debug;
@@ -106,7 +106,6 @@ impl Lowerer {
 
         Ok(AstNode::Function {
             name: Some(function_name),
-            kind: FunctionKind::Normal,
             params,
             return_type: AstDType::Tuple(vec![]),
             body: Box::new(body),

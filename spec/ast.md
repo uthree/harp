@@ -87,11 +87,7 @@ let expr = 1.0 / var("y");
 ### Function
 `AstNode`の一つのバリアントとして実装されています。
 
-通常の関数とGPUカーネルを統一的に表現：
-- `FunctionKind::Normal`: CPU上で逐次実行
-- `FunctionKind::Kernel(ndim)`: GPU上で並列実行（ndimは並列次元数）
-
-組み込み変数（`ThreadId`, `GroupId`等）はスコープに登録せず、特別扱いします。
+通常のCPU関数を表現します。
 
 ```rust
 AstNode::Function {
@@ -99,7 +95,21 @@ AstNode::Function {
     params: Vec<VarDecl>,    // 引数リスト
     return_type: DType,      // 返り値の型
     body: Box<AstNode>,      // 関数本体
-    kind: FunctionKind,      // 関数の種類
+}
+```
+
+### Kernel
+GPUカーネル関数を表現します。GPU上で並列実行されます。
+
+組み込み変数（`ThreadId`, `GroupId`等）はスコープに登録せず、特別扱いします。
+
+```rust
+AstNode::Kernel {
+    name: Option<String>,       // カーネル名
+    params: Vec<VarDecl>,       // 引数リスト
+    return_type: DType,         // 返り値の型
+    body: Box<AstNode>,         // カーネル本体
+    thread_group_size: usize,   // スレッドグループサイズ
 }
 ```
 

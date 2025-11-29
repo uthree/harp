@@ -289,7 +289,7 @@ fn generate_main_function_with_intermediates(
     input_count: usize,
 ) -> crate::ast::AstNode {
     use crate::ast::helper::{assign, block, function, var};
-    use crate::ast::{AstNode, DType, FunctionKind, Mutability, Scope, VarDecl, VarKind};
+    use crate::ast::{AstNode, DType, Mutability, Scope, VarDecl, VarKind};
 
     // main関数のパラメータを収集
     let mut params: Vec<VarDecl> = Vec::new();
@@ -441,13 +441,7 @@ fn generate_main_function_with_intermediates(
     let body = block(statements, scope);
 
     // AstNode::Functionとして返す
-    function(
-        Some("harp_main"),
-        FunctionKind::Normal,
-        params,
-        DType::Tuple(vec![]), // void
-        body,
-    )
+    function(Some("harp_main"), params, DType::Tuple(vec![]), body)
 }
 
 /// すべてのカーネルを呼び出すmain関数を生成（旧バージョン、互換性のため残す）
@@ -457,7 +451,7 @@ fn generate_main_function(
     kernel_count: usize,
 ) -> crate::ast::AstNode {
     use crate::ast::helper::{block, function, var};
-    use crate::ast::{AstNode, DType, FunctionKind, Scope, VarDecl};
+    use crate::ast::{AstNode, DType, Scope, VarDecl};
 
     // すべてのカーネルのパラメータを収集して統合
     let mut all_params: Vec<VarDecl> = Vec::new();
@@ -496,7 +490,6 @@ fn generate_main_function(
     // AstNode::Functionとして返す
     function(
         Some("harp_main"),
-        FunctionKind::Normal,
         all_params,
         DType::Tuple(vec![]), // void
         body,
@@ -636,14 +629,13 @@ impl Lowerer {
         body_statements: Vec<crate::ast::AstNode>,
         body_scope: crate::ast::Scope,
     ) -> crate::ast::AstNode {
+        use crate::ast::DType;
         use crate::ast::helper::{block, function};
-        use crate::ast::{DType, FunctionKind};
 
         let body = block(body_statements, body_scope);
 
         function(
             Some(format!("kernel_{}", node_id)),
-            FunctionKind::Normal,
             params,
             DType::Tuple(vec![]),
             body,

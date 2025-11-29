@@ -5,23 +5,15 @@ use super::scope::{Scope, VarDecl, VarKind};
 use super::types::DType;
 use std::collections::HashMap;
 
-/// 関数の種類
-#[derive(Clone, Debug, PartialEq)]
-pub enum FunctionKind {
-    /// 通常の関数（CPU上で逐次実行）
-    Normal,
-    /// GPUカーネル（並列実行される）
-    /// 内部の数値は並列実行の次元数（1D, 2D, 3Dなど）
-    Kernel(usize),
-}
-
-/// 関数定義
+/// 関数定義（ASTノードではなく、構造体としての関数表現）
+///
+/// 注意: GPUカーネルは `AstNode::Kernel` を使用してください。
+/// この構造体は通常関数の定義に使用します。
 #[derive(Clone, Debug, PartialEq)]
 pub struct Function {
     pub params: Vec<VarDecl>, // 引数リスト
     pub return_type: DType,   // 返り値の型
     pub body: Box<AstNode>,   // 関数本体（Blockノード）
-    pub kind: FunctionKind,   // 関数の種類（通常 or カーネル）
 }
 
 /// プログラム全体の構造
@@ -34,7 +26,6 @@ pub struct Program {
 impl Function {
     /// Create a new function with parameters and return type
     pub fn new(
-        kind: FunctionKind,
         params: Vec<VarDecl>,
         return_type: DType,
         body_statements: Vec<AstNode>,
@@ -63,7 +54,6 @@ impl Function {
             params,
             return_type,
             body,
-            kind,
         })
     }
 

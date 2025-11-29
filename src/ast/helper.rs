@@ -106,17 +106,15 @@ pub fn broadcast(value: AstNode, width: usize) -> AstNode {
     AstNode::Cast(Box::new(value), vec_type)
 }
 
-/// Create a function node
+/// Create a function node (normal function)
 ///
 /// # Arguments
 /// * `name` - Function name (can be None for anonymous functions)
-/// * `kind` - Function kind (Normal or Kernel)
 /// * `params` - Parameter declarations
 /// * `return_type` - Return type
 /// * `body` - Function body (typically a Block node)
 pub fn function(
     name: Option<impl Into<String>>,
-    kind: super::FunctionKind,
     params: Vec<super::VarDecl>,
     return_type: DType,
     body: AstNode,
@@ -126,7 +124,30 @@ pub fn function(
         params,
         return_type,
         body: Box::new(body),
-        kind,
+    }
+}
+
+/// Create a kernel node (GPU kernel function)
+///
+/// # Arguments
+/// * `name` - Kernel name (can be None for anonymous kernels)
+/// * `params` - Parameter declarations
+/// * `return_type` - Return type (usually void/unit)
+/// * `body` - Kernel body (typically a Block node)
+/// * `thread_group_size` - Thread group size for parallel execution
+pub fn kernel(
+    name: Option<impl Into<String>>,
+    params: Vec<super::VarDecl>,
+    return_type: DType,
+    body: AstNode,
+    thread_group_size: usize,
+) -> AstNode {
+    AstNode::Kernel {
+        name: name.map(|n| n.into()),
+        params,
+        return_type,
+        body: Box::new(body),
+        thread_group_size,
     }
 }
 
@@ -477,7 +498,7 @@ mod tests {
 
     #[test]
     fn test_function_helper() {
-        use crate::ast::{DType, FunctionKind, Mutability, VarDecl, VarKind};
+        use crate::ast::{DType, Mutability, VarDecl, VarKind};
 
         let params = vec![VarDecl {
             name: "x".to_string(),
@@ -490,35 +511,66 @@ mod tests {
             value: Box::new(var("x")),
         };
 
-        let func = function(
-            Some("test_func"),
-            FunctionKind::Normal,
-            params.clone(),
-            DType::F32,
-            body,
-        );
+        let func = function(Some("test_func"), params.clone(), DType::F32, body);
 
         match func {
             AstNode::Function {
                 name,
                 params: func_params,
                 return_type,
-                kind,
                 ..
             } => {
                 assert_eq!(name, Some("test_func".to_string()));
                 assert_eq!(func_params.len(), 1);
                 assert_eq!(func_params[0].name, "x");
                 assert_eq!(return_type, DType::F32);
-                assert_eq!(kind, FunctionKind::Normal);
             }
             _ => panic!("Expected Function node"),
         }
     }
 
     #[test]
+    fn test_kernel_helper() {
+        use crate::ast::{DType, Mutability, VarDecl, VarKind};
+
+        let params = vec![VarDecl {
+            name: "buffer".to_string(),
+            dtype: DType::Ptr(Box::new(DType::F32)),
+            mutability: Mutability::Mutable,
+            kind: VarKind::Normal,
+        }];
+
+        let body = empty_block();
+
+        let kern = kernel(
+            Some("compute_kernel"),
+            params.clone(),
+            DType::Tuple(vec![]),
+            body,
+            64, // thread_group_size
+        );
+
+        match kern {
+            AstNode::Kernel {
+                name,
+                params: kern_params,
+                return_type,
+                thread_group_size,
+                ..
+            } => {
+                assert_eq!(name, Some("compute_kernel".to_string()));
+                assert_eq!(kern_params.len(), 1);
+                assert_eq!(kern_params[0].name, "buffer");
+                assert_eq!(return_type, DType::Tuple(vec![]));
+                assert_eq!(thread_group_size, 64);
+            }
+            _ => panic!("Expected Kernel node"),
+        }
+    }
+
+    #[test]
     fn test_program_helper() {
-        use crate::ast::{DType, FunctionKind, Mutability, VarDecl, VarKind};
+        use crate::ast::{DType, Mutability, VarDecl, VarKind};
 
         let params = vec![VarDecl {
             name: "x".to_string(),
@@ -531,7 +583,7 @@ mod tests {
             value: Box::new(var("x")),
         };
 
-        let main_func = function(Some("main"), FunctionKind::Normal, params, DType::F32, body);
+        let main_func = function(Some("main"), params, DType::F32, body);
 
         let prog = program(vec![main_func], "main");
 
@@ -549,7 +601,7 @@ mod tests {
 
     #[test]
     fn test_get_function() {
-        use crate::ast::{DType, FunctionKind, Mutability, VarDecl, VarKind};
+        use crate::ast::{DType, Mutability, VarDecl, VarKind};
 
         let params = vec![VarDecl {
             name: "x".to_string(),
@@ -562,21 +614,9 @@ mod tests {
             value: Box::new(var("x")),
         };
 
-        let main_func = function(
-            Some("main"),
-            FunctionKind::Normal,
-            params.clone(),
-            DType::F32,
-            body.clone(),
-        );
+        let main_func = function(Some("main"), params.clone(), DType::F32, body.clone());
 
-        let helper_func = function(
-            Some("helper"),
-            FunctionKind::Normal,
-            params,
-            DType::F32,
-            body,
-        );
+        let helper_func = function(Some("helper"), params, DType::F32, body);
 
         let prog = program(vec![main_func, helper_func], "main");
 

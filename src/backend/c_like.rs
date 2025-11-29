@@ -1,4 +1,4 @@
-use crate::ast::{AstNode, DType, FunctionKind, Literal, VarDecl};
+use crate::ast::{AstNode, DType, Literal, VarDecl};
 use crate::backend::Renderer;
 
 // C言語に近い構文の言語のためのレンダラー
@@ -24,7 +24,7 @@ pub trait CLikeRenderer: Renderer {
     fn render_header(&self) -> String;
 
     /// 関数修飾子（kernelなど）をレンダリング
-    fn render_function_qualifier(&self, func_kind: &FunctionKind) -> String;
+    fn render_function_qualifier(&self, is_kernel: bool) -> String;
 
     /// 関数パラメータの属性（Metal用のthread_position_in_gridなど）をレンダリング
     fn render_param_attribute(&self, param: &VarDecl, is_kernel: bool) -> String;
@@ -330,14 +330,20 @@ pub trait CLikeRenderer: Renderer {
         let mut other_functions: Vec<_> = Vec::new();
         let mut entry_func: Option<&AstNode> = None;
 
+        // 関数名を取得するヘルパー関数
+        fn get_func_name(func: &AstNode) -> Option<String> {
+            match func {
+                AstNode::Function { name, .. } => name.clone(),
+                AstNode::Kernel { name, .. } => name.clone(),
+                _ => None,
+            }
+        }
+
         for func in functions {
-            if let AstNode::Function {
-                name: Some(name), ..
-            } = func
-            {
-                if name == entry_point {
+            if let Some(name) = get_func_name(func) {
+                if name == *entry_point {
                     entry_func = Some(func);
-                } else if name.starts_with("kernel_") {
+                } else if name.starts_with("kernel_") || matches!(func, AstNode::Kernel { .. }) {
                     kernel_functions.push(func);
                 } else {
                     other_functions.push(func);
@@ -347,10 +353,7 @@ pub trait CLikeRenderer: Renderer {
 
         // カーネル関数を番号順にソート
         kernel_functions.sort_by_key(|func| {
-            if let AstNode::Function {
-                name: Some(name), ..
-            } = func
-            {
+            if let Some(name) = get_func_name(func) {
                 name.strip_prefix("kernel_")
                     .and_then(|s| s.parse::<usize>().ok())
                     .unwrap_or(usize::MAX)
@@ -360,16 +363,7 @@ pub trait CLikeRenderer: Renderer {
         });
 
         // その他の関数を名前順にソート
-        other_functions.sort_by_key(|func| {
-            if let AstNode::Function {
-                name: Some(name), ..
-            } = func
-            {
-                name.clone()
-            } else {
-                String::new()
-            }
-        });
+        other_functions.sort_by_key(|func| get_func_name(func).unwrap_or_default());
 
         // カーネル関数を最初に描画
         if !kernel_functions.is_empty() {
@@ -399,68 +393,74 @@ pub trait CLikeRenderer: Renderer {
         result
     }
 
-    /// AstNode::Functionをレンダリング
+    /// AstNode::FunctionまたはAstNode::Kernelをレンダリング
     fn render_function_node(&mut self, func_node: &AstNode) -> String {
-        if let AstNode::Function {
-            name,
-            params,
-            return_type,
-            body,
-            kind,
-        } = func_node
-        {
-            let func_name = name.as_ref().map(|s| s.as_str()).unwrap_or("anonymous");
+        // FunctionとKernelの両方を処理
+        let (name, params, return_type, body, is_kernel) = match func_node {
+            AstNode::Function {
+                name,
+                params,
+                return_type,
+                body,
+            } => (name, params, return_type, body, false),
+            AstNode::Kernel {
+                name,
+                params,
+                return_type,
+                body,
+                ..
+            } => (name, params, return_type, body, true),
+            _ => panic!("Expected AstNode::Function or AstNode::Kernel"),
+        };
 
-            let mut result = String::new();
+        let func_name = name.as_ref().map(|s| s.as_str()).unwrap_or("anonymous");
 
-            // 関数修飾子（kernel, __globalなど）
-            let qualifier = self.render_function_qualifier(kind);
-            if !qualifier.is_empty() {
-                result.push_str(&qualifier);
-                result.push(' ');
-            }
+        let mut result = String::new();
 
-            // 返り値の型
-            result.push_str(&self.render_dtype_backend(return_type));
+        // 関数修飾子（kernel, __globalなど）
+        let qualifier = self.render_function_qualifier(is_kernel);
+        if !qualifier.is_empty() {
+            result.push_str(&qualifier);
             result.push(' ');
-
-            // 関数名
-            result.push_str(func_name);
-            result.push('(');
-
-            // パラメータリスト（空文字列のパラメータはスキップ）
-            let is_kernel = matches!(kind, FunctionKind::Kernel(_));
-            let rendered_params: Vec<String> = params
-                .iter()
-                .map(|p| self.render_param(p, is_kernel))
-                .filter(|s| !s.is_empty())
-                .collect();
-            result.push_str(&rendered_params.join(", "));
-
-            result.push_str(") {\n");
-
-            // 関数本体（Blockノードのはず）
-            self.inc_indent();
-
-            // スレッドID等の特殊変数の宣言（カーネル関数の場合）
-            let thread_vars = self.render_thread_var_declarations(params, &self.indent());
-            if !thread_vars.is_empty() {
-                result.push_str(&thread_vars);
-            }
-
-            let body_str = self.render_statement(body);
-            result.push_str(&body_str);
-            // Blockでない場合は改行が含まれていないので追加
-            if !body_str.ends_with('\n') {
-                result.push('\n');
-            }
-            self.dec_indent();
-            result.push_str(&format!("{}}}\n", self.indent()));
-
-            result
-        } else {
-            panic!("Expected AstNode::Function");
         }
+
+        // 返り値の型
+        result.push_str(&self.render_dtype_backend(return_type));
+        result.push(' ');
+
+        // 関数名
+        result.push_str(func_name);
+        result.push('(');
+
+        // パラメータリスト（空文字列のパラメータはスキップ）
+        let rendered_params: Vec<String> = params
+            .iter()
+            .map(|p| self.render_param(p, is_kernel))
+            .filter(|s| !s.is_empty())
+            .collect();
+        result.push_str(&rendered_params.join(", "));
+
+        result.push_str(") {\n");
+
+        // 関数本体（Blockノードのはず）
+        self.inc_indent();
+
+        // スレッドID等の特殊変数の宣言（カーネル関数の場合）
+        let thread_vars = self.render_thread_var_declarations(params, &self.indent());
+        if !thread_vars.is_empty() {
+            result.push_str(&thread_vars);
+        }
+
+        let body_str = self.render_statement(body);
+        result.push_str(&body_str);
+        // Blockでない場合は改行が含まれていないので追加
+        if !body_str.ends_with('\n') {
+            result.push('\n');
+        }
+        self.dec_indent();
+        result.push_str(&format!("{}}}\n", self.indent()));
+
+        result
     }
 }
 

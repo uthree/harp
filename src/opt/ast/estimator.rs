@@ -377,7 +377,7 @@ impl SimpleCostEstimator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{DType, FunctionKind, Literal, Mutability, Scope, VarDecl, VarKind};
+    use crate::ast::{DType, Literal, Mutability, Scope, VarDecl, VarKind};
 
     #[test]
     fn test_function_inlining_reduces_cost() {
@@ -401,7 +401,6 @@ mod tests {
                     Box::new(AstNode::Const(Literal::Int(1))),
                 )),
             }),
-            kind: FunctionKind::Normal,
         };
 
         let main_with_call = AstNode::Function {
@@ -414,7 +413,6 @@ mod tests {
                     args: vec![AstNode::Const(Literal::Int(5))],
                 }),
             }),
-            kind: FunctionKind::Normal,
         };
 
         let program_before = AstNode::Program {
@@ -434,7 +432,6 @@ mod tests {
                     Box::new(AstNode::Const(Literal::Int(1))),
                 )),
             }),
-            kind: FunctionKind::Normal,
         };
 
         let program_after = AstNode::Program {
@@ -468,7 +465,6 @@ mod tests {
                 body: Box::new(AstNode::Return {
                     value: Box::new(AstNode::Const(Literal::Int(1))),
                 }),
-                kind: FunctionKind::Normal,
             }],
             entry_point: "main".to_string(),
         };
@@ -483,7 +479,6 @@ mod tests {
                     body: Box::new(AstNode::Return {
                         value: Box::new(AstNode::Const(Literal::Int(1))),
                     }),
-                    kind: FunctionKind::Normal,
                 },
                 AstNode::Function {
                     name: Some("main".to_string()),
@@ -492,7 +487,6 @@ mod tests {
                     body: Box::new(AstNode::Return {
                         value: Box::new(AstNode::Const(Literal::Int(1))),
                     }),
-                    kind: FunctionKind::Normal,
                 },
             ],
             entry_point: "main".to_string(),
@@ -568,7 +562,6 @@ mod tests {
                 }],
                 scope: Box::new(Scope::new()),
             }),
-            kind: FunctionKind::Normal,
         };
 
         let main_with_call = AstNode::Function {
@@ -585,7 +578,6 @@ mod tests {
                 }],
                 scope: Box::new(Scope::new()),
             }),
-            kind: FunctionKind::Normal,
         };
 
         let program_before = AstNode::Program {
@@ -606,7 +598,6 @@ mod tests {
                 }],
                 scope: Box::new(Scope::new()),
             }),
-            kind: FunctionKind::Normal,
         };
 
         let program_after = AstNode::Program {
@@ -663,7 +654,6 @@ mod tests {
                 body: Box::new(AstNode::Return {
                     value: Box::new(AstNode::Const(Literal::Int(1))),
                 }),
-                kind: FunctionKind::Normal,
             }],
             entry_point: "main".to_string(),
         };
@@ -692,7 +682,6 @@ mod tests {
                     statements,
                     scope: Box::new(Scope::new()),
                 }),
-                kind: FunctionKind::Normal,
             }],
             entry_point: "main".to_string(),
         };
@@ -730,7 +719,6 @@ mod tests {
                         Box::new(AstNode::Const(Literal::Int(2))),
                     )),
                 }),
-                kind: FunctionKind::Normal,
             }],
             entry_point: "main".to_string(),
         };

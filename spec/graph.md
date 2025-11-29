@@ -300,12 +300,11 @@ let expr = wildcard("0") * wildcard("1");  // (a * b).cumsum(axis)
 let custom = GraphNode::custom_cumulative(inputs, expr, CumulativeOp::Sum, 1);
 
 // 完全な関数を直接指定
-use harp::ast::{DType as AstDType, FunctionKind, Scope, helper::*};
+use harp::ast::{DType as AstDType, Scope, helper::*};
 use harp::graph::custom_placeholders as ph;
 
 let func = function(
     None::<String>,
-    FunctionKind::Normal,
     vec![],
     AstDType::Tuple(vec![]),
     range(

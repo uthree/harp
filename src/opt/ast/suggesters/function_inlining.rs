@@ -412,14 +412,27 @@ impl FunctionInliningSuggester {
                 name,
                 params,
                 return_type,
-                kind,
                 ..
             } => AstNode::Function {
                 name: name.clone(),
                 params: params.clone(),
                 return_type: return_type.clone(),
                 body: Box::new(children[0].clone()),
-                kind: kind.clone(),
+            },
+
+            // Kernel
+            AstNode::Kernel {
+                name,
+                params,
+                return_type,
+                thread_group_size,
+                ..
+            } => AstNode::Kernel {
+                name: name.clone(),
+                params: params.clone(),
+                return_type: return_type.clone(),
+                body: Box::new(children[0].clone()),
+                thread_group_size: *thread_group_size,
             },
 
             // Program
@@ -453,34 +466,52 @@ impl FunctionInliningSuggester {
 
             // 各関数に対してインライン展開を試みる
             for (i, func) in functions.iter().enumerate() {
-                if let AstNode::Function {
-                    name,
-                    params,
-                    return_type,
-                    body,
-                    kind,
-                } = func
-                {
-                    debug!("Checking function {:?} for inlining opportunities", name);
+                // FunctionとKernelの両方を処理
+                let (name, params, return_type, body, is_kernel, thread_group_size) = match func {
+                    AstNode::Function {
+                        name,
+                        params,
+                        return_type,
+                        body,
+                    } => (name, params, return_type, body, false, 0),
+                    AstNode::Kernel {
+                        name,
+                        params,
+                        return_type,
+                        body,
+                        thread_group_size,
+                    } => (name, params, return_type, body, true, *thread_group_size),
+                    _ => continue,
+                };
 
-                    // 関数本体でインライン展開を試みる
-                    if let Some(new_body) = self.try_inline_in_ast(body, &func_map) {
-                        let new_func = AstNode::Function {
+                debug!("Checking function {:?} for inlining opportunities", name);
+
+                // 関数本体でインライン展開を試みる
+                if let Some(new_body) = self.try_inline_in_ast(body, &func_map) {
+                    let new_func = if is_kernel {
+                        AstNode::Kernel {
                             name: name.clone(),
                             params: params.clone(),
                             return_type: return_type.clone(),
                             body: Box::new(new_body),
-                            kind: kind.clone(),
-                        };
+                            thread_group_size,
+                        }
+                    } else {
+                        AstNode::Function {
+                            name: name.clone(),
+                            params: params.clone(),
+                            return_type: return_type.clone(),
+                            body: Box::new(new_body),
+                        }
+                    };
 
-                        let mut new_functions = functions.clone();
-                        new_functions[i] = new_func;
+                    let mut new_functions = functions.clone();
+                    new_functions[i] = new_func;
 
-                        candidates.push(AstNode::Program {
-                            functions: new_functions,
-                            entry_point: entry_point.clone(),
-                        });
-                    }
+                    candidates.push(AstNode::Program {
+                        functions: new_functions,
+                        entry_point: entry_point.clone(),
+                    });
                 }
             }
 
@@ -580,7 +611,7 @@ impl Suggester for FunctionInliningSuggester {
 mod tests {
     use super::*;
     use crate::ast::helper::{const_int, var};
-    use crate::ast::{DType, FunctionKind, Mutability, VarDecl, VarKind};
+    use crate::ast::{DType, Mutability, VarDecl, VarKind};
 
     #[test]
     fn test_simple_function_inlining() {
@@ -601,7 +632,6 @@ mod tests {
             }],
             return_type: DType::Int,
             body: Box::new(add_one_body),
-            kind: FunctionKind::Normal,
         };
 
         // メイン関数: fn main() -> Int { return add_one(5) }
@@ -617,7 +647,6 @@ mod tests {
             params: vec![],
             return_type: DType::Int,
             body: Box::new(main_body),
-            kind: FunctionKind::Normal,
         };
 
         let program = AstNode::Program {
@@ -676,7 +705,6 @@ mod tests {
             }],
             return_type: DType::Int,
             body: Box::new(identity_body),
-            kind: FunctionKind::Normal,
         };
 
         // fn main() -> Int { return identity(42) }
@@ -692,7 +720,6 @@ mod tests {
             params: vec![],
             return_type: DType::Int,
             body: Box::new(main_body),
-            kind: FunctionKind::Normal,
         };
 
         let program = AstNode::Program {
@@ -775,7 +802,6 @@ mod tests {
             ],
             return_type: DType::Tuple(vec![]),
             body: Box::new(kernel_body),
-            kind: FunctionKind::Normal,
         };
 
         // main関数: kernel_0を呼び出す
@@ -805,7 +831,6 @@ mod tests {
             ],
             return_type: DType::Tuple(vec![]),
             body: Box::new(main_body),
-            kind: FunctionKind::Normal,
         };
 
         let program = AstNode::Program {
@@ -887,7 +912,6 @@ mod tests {
             ],
             return_type: DType::Tuple(vec![]), // void型（unit型）
             body: Box::new(write_value_body),
-            kind: FunctionKind::Normal,
         };
 
         // メイン関数: fn main() {
@@ -913,7 +937,6 @@ mod tests {
             params: vec![],
             return_type: DType::Tuple(vec![]),
             body: Box::new(main_body),
-            kind: FunctionKind::Normal,
         };
 
         let program = AstNode::Program {

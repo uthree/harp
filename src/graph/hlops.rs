@@ -319,7 +319,7 @@ impl GraphNode {
     /// # Example
     /// ```
     /// use harp::prelude::*;
-    /// use harp::ast::{AstNode, DType as AstDType, FunctionKind, Scope, helper::*};
+    /// use harp::ast::{AstNode, DType as AstDType, Scope, helper::*};
     /// use harp::graph::custom_placeholders as ph;
     ///
     /// let mut graph = Graph::new();
@@ -328,7 +328,6 @@ impl GraphNode {
     /// // x^2 を計算するカスタム関数
     /// let func = function(
     ///     None::<String>,
-    ///     FunctionKind::Normal,
     ///     vec![],
     ///     AstDType::Tuple(vec![]),
     ///     range(

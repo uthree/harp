@@ -1,4 +1,4 @@
-use crate::ast::{AstNode, DType, FunctionKind, Mutability, VarDecl, VarKind};
+use crate::ast::{AstNode, DType, Mutability, VarDecl, VarKind};
 use crate::backend::Renderer;
 use crate::backend::c_like::CLikeRenderer;
 use crate::backend::metal::{LIBLOADING_WRAPPER_NAME, MetalCode};
@@ -221,13 +221,7 @@ impl MetalKernelRenderer {
 
         // カーネル関数のみをレンダリング
         for func in functions {
-            if matches!(
-                func,
-                AstNode::Function {
-                    kind: FunctionKind::Kernel(_),
-                    ..
-                }
-            ) {
+            if matches!(func, AstNode::Kernel { .. }) {
                 code.push_str(&self.render_function_node(func));
                 code.push('\n');
             }
@@ -292,10 +286,11 @@ impl CLikeRenderer for MetalKernelRenderer {
         "#include <metal_stdlib>\nusing namespace metal;\n\n".to_string()
     }
 
-    fn render_function_qualifier(&self, func_kind: &FunctionKind) -> String {
-        match func_kind {
-            FunctionKind::Kernel(_) => "kernel".to_string(),
-            FunctionKind::Normal => String::new(),
+    fn render_function_qualifier(&self, is_kernel: bool) -> String {
+        if is_kernel {
+            "kernel".to_string()
+        } else {
+            String::new()
         }
     }
 
@@ -390,10 +385,11 @@ impl CLikeRenderer for MetalRenderer {
         "#include <metal_stdlib>\nusing namespace metal;\n\n".to_string()
     }
 
-    fn render_function_qualifier(&self, func_kind: &FunctionKind) -> String {
-        match func_kind {
-            FunctionKind::Kernel(_) => "kernel".to_string(),
-            FunctionKind::Normal => String::new(),
+    fn render_function_qualifier(&self, is_kernel: bool) -> String {
+        if is_kernel {
+            "kernel".to_string()
+        } else {
+            String::new()
         }
     }
 
@@ -559,8 +555,7 @@ mod tests {
         )];
 
         use crate::ast::Scope;
-        let func = AstNode::Function {
-            kind: FunctionKind::Kernel(1),
+        let func = AstNode::Kernel {
             name: Some("scale_kernel".to_string()),
             params,
             return_type: DType::Tuple(vec![]),
@@ -568,6 +563,7 @@ mod tests {
                 statements: body_statements,
                 scope: Box::new(Scope::new()),
             }),
+            thread_group_size: 1,
         };
 
         let mut renderer = MetalRenderer::new();
@@ -607,8 +603,7 @@ mod tests {
             },
         ];
 
-        let kernel_func = AstNode::Function {
-            kind: FunctionKind::Kernel(1),
+        let kernel_func = AstNode::Kernel {
             name: Some("test_kernel".to_string()),
             params: kernel_params,
             return_type: DType::Tuple(vec![]),
@@ -620,6 +615,7 @@ mod tests {
                 )],
                 scope: Box::new(Scope::new()),
             }),
+            thread_group_size: 1,
         };
 
         let program = AstNode::Program {

@@ -2,7 +2,7 @@
 //!
 //! GraphOp::Custom 用の AstNode::Function を構築するヘルパー
 
-use crate::ast::{AstNode, DType, FunctionKind, Mutability, Scope, helper::*};
+use crate::ast::{AstNode, DType, Mutability, Scope, helper::*};
 use crate::graph::ops::custom_placeholders as ph;
 
 /// Elementwise演算の関数テンプレートを生成
@@ -39,8 +39,7 @@ pub fn build_elementwise_function(ndim: usize, num_inputs: usize, expr: AstNode)
     // 関数を作成（パラメータはlowering時に設定）
     function(
         None::<String>, // 名前はlowering時に設定
-        FunctionKind::Normal,
-        vec![], // パラメータはlowering時に設定
+        vec![],         // パラメータはlowering時に設定
         DType::Tuple(vec![]),
         body,
     )
@@ -113,13 +112,7 @@ pub fn build_reduce_function(
     let inner_body = vec![acc_init, reduce_loop, store_stmt];
     let body = wrap_with_loops_excluding_axis_with_scope(ndim, reduce_axis, inner_body, scope);
 
-    function(
-        None::<String>,
-        FunctionKind::Normal,
-        vec![],
-        DType::Tuple(vec![]),
-        body,
-    )
+    function(None::<String>, vec![], DType::Tuple(vec![]), body)
 }
 
 /// Cumulative演算の関数テンプレートを生成
@@ -172,13 +165,7 @@ pub fn build_cumulative_function(
     let inner_body = vec![acc_init, cum_loop];
     let body = wrap_with_loops_excluding_axis_with_scope(ndim, cum_axis, inner_body, scope);
 
-    function(
-        None::<String>,
-        FunctionKind::Normal,
-        vec![],
-        DType::Tuple(vec![]),
-        body,
-    )
+    function(None::<String>, vec![], DType::Tuple(vec![]), body)
 }
 
 // ============================================================================

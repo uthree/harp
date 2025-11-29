@@ -2,7 +2,6 @@
 members = [
     ".",
     "crates/viz",
-    "crates/unified_ir",
     "crates/harp-derive",
     "crates/harp-nn",
     "crates/harp-autograd",

@@ -1,6 +1,4 @@
-use crate::ast::{
-    AstNode, DType as AstDType, FunctionKind, Mutability, Scope, VarDecl, VarKind, helper::*,
-};
+use crate::ast::{AstNode, DType as AstDType, Mutability, Scope, VarDecl, VarKind, helper::*};
 use crate::backend::KernelSignature;
 use crate::graph::{DType as GraphDType, Graph, GraphNode, shape::Expr};
 use std::collections::HashSet;
@@ -265,13 +263,7 @@ impl Lowerer {
 
         let function_name = format!("kernel_{}", node_id);
 
-        function(
-            Some(function_name),
-            FunctionKind::Normal,
-            params,
-            AstDType::Tuple(vec![]),
-            body,
-        )
+        function(Some(function_name), params, AstDType::Tuple(vec![]), body)
     }
 
     /// インデックス式からオフセットを計算

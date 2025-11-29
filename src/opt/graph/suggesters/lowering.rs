@@ -4,7 +4,7 @@
 //! 各GraphOpに対して、対応するAstNode::Functionを生成し、
 //! Custom演算として統合します。
 
-use crate::ast::{AstNode, DType as AstDType, FunctionKind, Mutability, Scope, helper::*};
+use crate::ast::{AstNode, DType as AstDType, Mutability, Scope, helper::*};
 use crate::graph::ops::custom_placeholders as ph;
 use crate::graph::{
     CumulativeOp, DType as GraphDType, Graph, GraphNode, GraphNodeData, GraphOp, ReduceOp,
@@ -303,13 +303,7 @@ impl LoweringSuggester {
         let store_stmt = store(var(ph::OUTPUT), offset, final_expr);
         let body = self.wrap_with_loops(ndim, vec![store_stmt]);
 
-        function(
-            None::<String>,
-            FunctionKind::Normal,
-            vec![],
-            AstDType::Tuple(vec![]),
-            body,
-        )
+        function(None::<String>, vec![], AstDType::Tuple(vec![]), body)
     }
 
     /// Reduce演算の関数を生成
@@ -367,7 +361,6 @@ impl LoweringSuggester {
 
         Some(function(
             None::<String>,
-            FunctionKind::Normal,
             vec![],
             AstDType::Tuple(vec![]),
             body,
@@ -419,7 +412,6 @@ impl LoweringSuggester {
 
         Some(function(
             None::<String>,
-            FunctionKind::Normal,
             vec![],
             AstDType::Tuple(vec![]),
             body,
@@ -444,7 +436,6 @@ impl LoweringSuggester {
 
         Some(function(
             None::<String>,
-            FunctionKind::Normal,
             vec![],
             AstDType::Tuple(vec![]),
             body,
@@ -542,7 +533,6 @@ impl LoweringSuggester {
 
         Some(function(
             None::<String>,
-            FunctionKind::Normal,
             vec![],
             AstDType::Tuple(vec![]),
             body,
@@ -611,7 +601,6 @@ impl LoweringSuggester {
 
         Some(function(
             None::<String>,
-            FunctionKind::Normal,
             vec![],
             AstDType::Tuple(vec![]),
             body,
@@ -666,7 +655,6 @@ impl LoweringSuggester {
 
         Some(function(
             None::<String>,
-            FunctionKind::Normal,
             vec![],
             AstDType::Tuple(vec![]),
             body,
@@ -699,7 +687,6 @@ impl LoweringSuggester {
 
         Some(function(
             None::<String>,
-            FunctionKind::Normal,
             vec![],
             AstDType::Tuple(vec![]),
             body,
@@ -730,7 +717,6 @@ impl LoweringSuggester {
 
         Some(function(
             None::<String>,
-            FunctionKind::Normal,
             vec![],
             AstDType::Tuple(vec![]),
             body,
@@ -755,7 +741,6 @@ impl LoweringSuggester {
 
         Some(function(
             None::<String>,
-            FunctionKind::Normal,
             vec![],
             AstDType::Tuple(vec![]),
             body,
@@ -783,7 +768,6 @@ impl LoweringSuggester {
 
         Some(function(
             None::<String>,
-            FunctionKind::Normal,
             vec![],
             AstDType::Tuple(vec![]),
             body,
@@ -810,7 +794,6 @@ impl LoweringSuggester {
 
         Some(function(
             None::<String>,
-            FunctionKind::Normal,
             vec![],
             AstDType::Tuple(vec![]),
             body,
@@ -839,7 +822,6 @@ impl LoweringSuggester {
 
         Some(function(
             None::<String>,
-            FunctionKind::Normal,
             vec![],
             AstDType::Tuple(vec![]),
             body,
@@ -1117,7 +1099,6 @@ mod tests {
         // 既にCustomノードを使用
         let custom_func = function(
             None::<String>,
-            FunctionKind::Normal,
             vec![],
             AstDType::Tuple(vec![]),
             block(vec![], Scope::new()),

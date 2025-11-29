@@ -116,7 +116,7 @@ pub enum GraphOp {
     /// # Example
     /// ```
     /// use harp::prelude::*;
-    /// use harp::ast::{AstNode, DType as AstDType, FunctionKind, Scope, helper::*};
+    /// use harp::ast::{AstNode, DType as AstDType, Scope, helper::*};
     /// use harp::graph::ops::custom_placeholders as ph;
     ///
     /// let mut graph = Graph::new();
@@ -125,7 +125,6 @@ pub enum GraphOp {
     /// // x^2 を計算するカスタム関数を構築
     /// let func = function(
     ///     None::<String>,  // 名前はlowering時に設定
-    ///     FunctionKind::Normal,
     ///     vec![],  // パラメータはlowering時に設定
     ///     AstDType::Tuple(vec![]),
     ///     range(

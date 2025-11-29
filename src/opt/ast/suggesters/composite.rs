@@ -45,7 +45,7 @@ impl Suggester for CompositeSuggester {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{DType, FunctionKind, Literal, Mutability, VarDecl, VarKind};
+    use crate::ast::{DType, Literal, Mutability, VarDecl, VarKind};
     use crate::opt::ast::rules::all_rules_with_search;
     use crate::opt::ast::suggesters::{
         FunctionInliningSuggester, LoopInliningSuggester, LoopTilingSuggester, RuleBaseSuggester,
@@ -174,7 +174,6 @@ mod tests {
                     Box::new(AstNode::Const(Literal::Int(1))),
                 )),
             }),
-            kind: FunctionKind::Normal,
         };
 
         // fn main() -> Int { return add_one(5) }
@@ -188,7 +187,6 @@ mod tests {
                     args: vec![AstNode::Const(Literal::Int(5))],
                 }),
             }),
-            kind: FunctionKind::Normal,
         };
 
         let program = AstNode::Program {

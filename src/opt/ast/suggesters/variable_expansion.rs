@@ -250,13 +250,24 @@ impl VariableExpansionSuggester {
                 params,
                 return_type,
                 body,
-                kind,
             } => AstNode::Function {
                 name: name.clone(),
                 params: params.clone(),
                 return_type: return_type.clone(),
                 body: Box::new(Self::substitute_var(body, var_name, replacement)),
-                kind: kind.clone(),
+            },
+            AstNode::Kernel {
+                name,
+                params,
+                return_type,
+                body,
+                thread_group_size,
+            } => AstNode::Kernel {
+                name: name.clone(),
+                params: params.clone(),
+                return_type: return_type.clone(),
+                body: Box::new(Self::substitute_var(body, var_name, replacement)),
+                thread_group_size: *thread_group_size,
             },
             AstNode::Program {
                 functions,
@@ -380,7 +391,6 @@ impl VariableExpansionSuggester {
                 params,
                 return_type,
                 body,
-                kind,
             } => {
                 let child_candidates = self.collect_expansion_candidates(body);
                 for child in child_candidates {
@@ -389,7 +399,25 @@ impl VariableExpansionSuggester {
                         params: params.clone(),
                         return_type: return_type.clone(),
                         body: Box::new(child),
-                        kind: kind.clone(),
+                    });
+                }
+            }
+
+            AstNode::Kernel {
+                name,
+                params,
+                return_type,
+                body,
+                thread_group_size,
+            } => {
+                let child_candidates = self.collect_expansion_candidates(body);
+                for child in child_candidates {
+                    candidates.push(AstNode::Kernel {
+                        name: name.clone(),
+                        params: params.clone(),
+                        return_type: return_type.clone(),
+                        body: Box::new(child),
+                        thread_group_size: *thread_group_size,
                     });
                 }
             }

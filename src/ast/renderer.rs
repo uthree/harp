@@ -60,7 +60,7 @@ pub fn render_ast(ast: &AstNode) -> String {
 mod tests {
     use super::*;
     use crate::ast::helper::*;
-    use crate::ast::{DType, FunctionKind, Scope};
+    use crate::ast::{DType, Scope};
 
     #[test]
     #[allow(clippy::approx_constant)]
@@ -104,7 +104,6 @@ mod tests {
             params,
             return_type,
             body,
-            kind: FunctionKind::Normal,
         };
 
         let rendered = render_ast(&func);
@@ -128,7 +127,6 @@ mod tests {
             params: vec![],
             return_type: DType::Tuple(vec![]),
             body,
-            kind: FunctionKind::Normal,
         };
 
         let program = AstNode::Program {

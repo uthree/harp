@@ -1,4 +1,4 @@
-use crate::ast::{AstNode, DType, FunctionKind, Mutability, VarDecl, VarKind};
+use crate::ast::{AstNode, DType, Mutability, VarDecl, VarKind};
 use crate::backend::Renderer;
 use crate::backend::c::{CCode, LIBLOADING_WRAPPER_NAME};
 use crate::backend::c_like::CLikeRenderer;
@@ -149,7 +149,7 @@ impl CLikeRenderer for CRenderer {
         header
     }
 
-    fn render_function_qualifier(&self, _func_kind: &FunctionKind) -> String {
+    fn render_function_qualifier(&self, _is_kernel: bool) -> String {
         // C言語/OpenMPには関数修飾子がない
         String::new()
     }
@@ -292,7 +292,6 @@ mod tests {
         use crate::backend::c::LIBLOADING_WRAPPER_NAME;
 
         let func = AstNode::Function {
-            kind: FunctionKind::Normal,
             name: Some("test_func".to_string()),
             params: vec![VarDecl {
                 name: "x".to_string(),
@@ -363,7 +362,6 @@ mod tests {
         use crate::backend::c::LIBLOADING_WRAPPER_NAME;
 
         let func = AstNode::Function {
-            kind: FunctionKind::Normal,
             name: Some("main".to_string()),
             params: vec![
                 VarDecl {

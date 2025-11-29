@@ -4,7 +4,7 @@
 //! これにより、グラフ全体が1つのProgramとして表現され、Lowererがほぼパススルーになります。
 
 use crate::ast::helper::{assign, block, function, var};
-use crate::ast::{AstNode, DType as AstDType, FunctionKind, Mutability, Scope, VarDecl, VarKind};
+use crate::ast::{AstNode, DType as AstDType, Mutability, Scope, VarDecl, VarKind};
 use crate::graph::ops::custom_placeholders as ph;
 use crate::graph::{DType as GraphDType, Graph, GraphNode, GraphNodeData, GraphOp};
 use crate::opt::graph::GraphSuggester;
@@ -340,12 +340,12 @@ impl KernelMergeSuggester {
             }
         };
 
-        AstNode::Function {
+        AstNode::Kernel {
             name: Some(function_name.to_string()),
-            kind: FunctionKind::Kernel(64), // GPU用のカーネル関数として作成
             params,
             return_type: AstDType::Tuple(vec![]),
             body: Box::new(body),
+            thread_group_size: 64, // GPU用のカーネル関数として作成
         }
     }
 
@@ -432,13 +432,7 @@ impl KernelMergeSuggester {
 
         let body = block(statements, scope);
 
-        function(
-            Some("harp_main"),
-            FunctionKind::Normal,
-            params,
-            AstDType::Tuple(vec![]),
-            body,
-        )
+        function(Some("harp_main"), params, AstDType::Tuple(vec![]), body)
     }
 
     fn graph_dtype_to_ast(dtype: &GraphDType) -> AstDType {

@@ -1,4 +1,4 @@
-use crate::ast::{AstNode, DType, FunctionKind};
+use crate::ast::{AstNode, DType};
 use crate::backend::Renderer;
 use crate::backend::c_like::CLikeRenderer;
 use crate::backend::opencl::{LIBLOADING_WRAPPER_NAME, OpenCLCode};
@@ -32,18 +32,14 @@ impl OpenCLRenderer {
             // 2. カーネル関数を文字列として生成
             let mut kernel_sources = Vec::new();
             for func in functions {
-                if let AstNode::Function {
-                    kind,
+                if let AstNode::Kernel {
                     name: Some(func_name),
                     ..
                 } = func
                 {
-                    // カーネル関数のみを処理（FunctionKind::Kernel(_)）
-                    if matches!(kind, FunctionKind::Kernel(_)) {
-                        // カーネル関数をOpenCL形式で生成
-                        let kernel_source = self.render_kernel_function(func);
-                        kernel_sources.push((func_name.clone(), kernel_source));
-                    }
+                    // カーネル関数をOpenCL形式で生成
+                    let kernel_source = self.render_kernel_function(func);
+                    kernel_sources.push((func_name.clone(), kernel_source));
                 }
             }
 
@@ -257,10 +253,11 @@ impl CLikeRenderer for OpenCLRenderer {
         header
     }
 
-    fn render_function_qualifier(&self, func_kind: &FunctionKind) -> String {
-        match func_kind {
-            FunctionKind::Kernel(_) => "__kernel ".to_string(),
-            FunctionKind::Normal => String::new(),
+    fn render_function_qualifier(&self, is_kernel: bool) -> String {
+        if is_kernel {
+            "__kernel ".to_string()
+        } else {
+            String::new()
         }
     }
 
@@ -387,12 +384,12 @@ mod tests {
             scope: Box::new(scope),
         });
 
-        let func = AstNode::Function {
+        let func = AstNode::Kernel {
             name: Some("test_kernel".to_string()),
             params,
             return_type: DType::Tuple(vec![]),
             body,
-            kind: FunctionKind::Kernel(64),
+            thread_group_size: 64,
         };
 
         let rendered = renderer.render_function_node(&func);
@@ -434,12 +431,12 @@ mod tests {
             scope: Box::new(scope),
         });
 
-        let func = AstNode::Function {
+        let func = AstNode::Kernel {
             name: Some("empty_params_kernel".to_string()),
             params,
             return_type: DType::Tuple(vec![]),
             body,
-            kind: FunctionKind::Kernel(64),
+            thread_group_size: 64,
         };
 
         let rendered = renderer.render_function_node(&func);
@@ -532,14 +529,8 @@ mod tests {
     fn test_render_function_qualifier() {
         let renderer = OpenCLRenderer::new();
 
-        assert_eq!(
-            renderer.render_function_qualifier(&FunctionKind::Kernel(64)),
-            "__kernel "
-        );
-        assert_eq!(
-            renderer.render_function_qualifier(&FunctionKind::Normal),
-            ""
-        );
+        assert_eq!(renderer.render_function_qualifier(true), "__kernel ");
+        assert_eq!(renderer.render_function_qualifier(false), "");
     }
 
     #[test]

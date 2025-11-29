@@ -12,8 +12,7 @@ harp/
 │   ├── harp-autograd/  # 自動微分機能
 │   ├── harp-nn/        # ニューラルネットワークモジュール
 │   ├── harp-derive/    # proc-macro (Module derive)
-│   ├── viz/            # 可視化ツール (harp-viz)
-│   └── unified_ir/     # 統一中間表現
+│   └── viz/            # 可視化ツール (harp-viz)
 ├── examples/           # 使用例
 └── spec/               # 仕様書
 ```
@@ -31,9 +30,9 @@ harp/
                   └───────┬────────┘
                           │
                           ▼
-┌──────────┐      ┌───────────────┐      ┌──────────────┐
-│ harp-viz │─────▶│     harp      │◀─────│  unified_ir  │
-└──────────┘      └───────────────┘      └──────────────┘
+┌──────────┐      ┌───────────────┐
+│ harp-viz │─────▶│     harp      │
+└──────────┘      └───────────────┘
                           ▲
                           │
                   ┌───────────────┐
@@ -50,7 +49,6 @@ harp/
 | `harp-nn` | harp-autograd, harp-derive | ニューラルネットワーク（Module, Parameter, Optimizer） |
 | `harp-derive` | - | proc-macro（`#[derive(DeriveModule)]`） |
 | `harp-viz` | harp | 計算グラフ可視化 |
-| `unified_ir` | harp | 統一中間表現 |
 
 ## クレート詳細
 
@@ -99,12 +97,6 @@ PyTorchの`torch.nn`に相当するニューラルネットワーク機能。
 ### harp-viz
 
 計算グラフの可視化ツール。
-
-### unified_ir
-
-異なるバックエンド間で共有可能な統一中間表現。
-
-**仕様書:** [unified-ir.md](unified-ir.md)
 
 ## 使用例
 

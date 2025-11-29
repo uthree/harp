@@ -23,13 +23,12 @@ fn test_function_new() {
         value: Box::new(var("a") + var("b")),
     }];
 
-    let func = Function::new(FunctionKind::Normal, params, return_type, body);
+    let func = Function::new(params, return_type, body);
     assert!(func.is_ok());
 
     let func = func.unwrap();
     assert_eq!(func.params.len(), 2);
     assert_eq!(func.return_type, DType::F32);
-    assert_eq!(func.kind, FunctionKind::Normal);
 
     // bodyはBlock nodeになっている
     match &*func.body {
@@ -53,7 +52,7 @@ fn test_function_check_body() {
         value: Box::new(var("x") * const_int(2)),
     }];
 
-    let func = Function::new(FunctionKind::Normal, params, return_type, body).unwrap();
+    let func = Function::new(params, return_type, body).unwrap();
     assert!(func.check_body().is_ok());
 }
 
@@ -65,7 +64,7 @@ fn test_function_infer_return_type() {
         value: Box::new(const_f32(1.0)),
     }];
 
-    let func = Function::new(FunctionKind::Normal, params, return_type, body).unwrap();
+    let func = Function::new(params, return_type, body).unwrap();
     assert_eq!(func.infer_return_type(), DType::F32);
 }
 
@@ -81,7 +80,7 @@ fn test_program_new() {
 fn test_program_add_function() {
     let mut program = Program::new("main".to_string());
 
-    let func = Function::new(FunctionKind::Normal, vec![], DType::Tuple(vec![]), vec![]).unwrap();
+    let func = Function::new(vec![], DType::Tuple(vec![]), vec![]).unwrap();
     assert!(program.add_function("main".to_string(), func).is_ok());
     assert_eq!(program.functions.len(), 1);
 }
@@ -89,7 +88,7 @@ fn test_program_add_function() {
 #[test]
 fn test_program_get_function() {
     let mut program = Program::new("main".to_string());
-    let func = Function::new(FunctionKind::Normal, vec![], DType::Tuple(vec![]), vec![]).unwrap();
+    let func = Function::new(vec![], DType::Tuple(vec![]), vec![]).unwrap();
     program.add_function("main".to_string(), func).unwrap();
 
     assert!(program.get_function("main").is_some());
@@ -104,7 +103,7 @@ fn test_program_validate() {
     assert!(program.validate().is_err());
 
     // エントリーポイントを追加
-    let func = Function::new(FunctionKind::Normal, vec![], DType::Tuple(vec![]), vec![]).unwrap();
+    let func = Function::new(vec![], DType::Tuple(vec![]), vec![]).unwrap();
     program.add_function("main".to_string(), func).unwrap();
 
     // 成功するはず
@@ -117,7 +116,6 @@ fn test_program_with_function_call() {
 
     // helper関数: double(x) = x * 2
     let double_func = Function::new(
-        FunctionKind::Normal,
         vec![VarDecl {
             name: "x".to_string(),
             dtype: DType::Int,
@@ -136,7 +134,6 @@ fn test_program_with_function_call() {
 
     // main関数: Call double(5)
     let main_func = Function::new(
-        FunctionKind::Normal,
         vec![],
         DType::Int,
         vec![AstNode::Call {

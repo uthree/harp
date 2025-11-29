@@ -224,7 +224,6 @@ impl RuleBaseSuggester {
                 params,
                 return_type,
                 body,
-                kind,
             } => {
                 // 関数本体に対してルールを適用
                 for new_body in self.apply_rule_at_all_positions(body, rule) {
@@ -233,7 +232,24 @@ impl RuleBaseSuggester {
                         params: params.clone(),
                         return_type: return_type.clone(),
                         body: Box::new(new_body),
-                        kind: kind.clone(),
+                    });
+                }
+            }
+            AstNode::Kernel {
+                name,
+                params,
+                return_type,
+                body,
+                thread_group_size,
+            } => {
+                // カーネル本体に対してルールを適用
+                for new_body in self.apply_rule_at_all_positions(body, rule) {
+                    results.push(AstNode::Kernel {
+                        name: name.clone(),
+                        params: params.clone(),
+                        return_type: return_type.clone(),
+                        body: Box::new(new_body),
+                        thread_group_size: *thread_group_size,
                     });
                 }
             }
