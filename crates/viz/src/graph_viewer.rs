@@ -17,6 +17,12 @@ pub struct GraphViewerApp {
     optimization_history: Option<OptimizationHistory>,
     /// 現在表示中のステップ
     current_step: usize,
+    /// 選択中のノードID（詳細パネル表示用）
+    selected_node: Option<NodeId>,
+    /// サイドパネルの幅
+    side_panel_width: f32,
+    /// サイドパネルを表示するか
+    show_side_panel: bool,
 }
 
 /// egui-snarl用のノードビュー
@@ -63,6 +69,9 @@ impl GraphViewerApp {
             node_mapping: HashMap::new(),
             optimization_history: None,
             current_step: 0,
+            selected_node: None,
+            side_panel_width: 450.0,
+            show_side_panel: true,
         }
     }
 
@@ -72,6 +81,7 @@ impl GraphViewerApp {
         self.harp_graph = Some(graph);
         self.optimization_history = None;
         self.current_step = 0;
+        self.selected_node = None;
 
         // グラフをSnarlノードに変換
         self.convert_graph_to_snarl();
@@ -111,6 +121,7 @@ impl GraphViewerApp {
         };
 
         self.harp_graph = Some(graph);
+        self.selected_node = None;
 
         // グラフをSnarlノードに変換
         self.convert_graph_to_snarl();
@@ -333,7 +344,7 @@ impl GraphViewerApp {
             GraphOp::Input => "Input".to_string(),
             GraphOp::Const(l) => format!("{:?}", l),
             GraphOp::View(_) => "View".to_string(),
-            GraphOp::Contiguous { .. } => "Contiguous".to_string(),
+            GraphOp::Contiguous => "Contiguous".to_string(),
             GraphOp::Elementwise { op, .. } => format!("{:?}", op),
             GraphOp::Reduce { op, axis, .. } => format!("{:?}Reduce({})", op, axis),
             GraphOp::Cumulative { .. } => "Cum".to_string(),
@@ -345,7 +356,7 @@ impl GraphViewerApp {
             GraphOp::Pad { .. } => "Pad".to_string(),
             GraphOp::Slice { .. } => "Slice".to_string(),
             GraphOp::Fold { .. } => "Fold".to_string(),
-            GraphOp::Rand { .. } => "Rand".to_string(),
+            GraphOp::Rand => "Rand".to_string(),
             GraphOp::Concat { axis } => format!("Concat({})", axis),
             _ => "Unknown".to_string(),
         }
@@ -436,6 +447,162 @@ impl GraphViewerApp {
         vars.into_iter().collect()
     }
 
+    /// 全ノードのIDと名前のリストを取得
+    fn get_node_list(&self) -> Vec<(NodeId, String, bool)> {
+        let mut nodes = Vec::new();
+        for (node_id, node_data) in self.snarl.node_ids() {
+            let has_code = node_data.details.code.is_some();
+            nodes.push((node_id, node_data.name.clone(), has_code));
+        }
+        // 名前でソート（Customノードを先に）
+        nodes.sort_by(|a, b| match (a.2, b.2) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.1.cmp(&b.1),
+        });
+        nodes
+    }
+
+    /// サイドパネルの内容を表示（ノード詳細）
+    fn show_side_panel_content(&mut self, ui: &mut egui::Ui) {
+        ui.heading("📝 Node Details");
+        ui.separator();
+
+        // ノード選択ドロップダウン
+        let node_list = self.get_node_list();
+        let custom_nodes: Vec<_> = node_list
+            .iter()
+            .filter(|(_, _, has_code)| *has_code)
+            .collect();
+
+        if custom_nodes.is_empty() {
+            ui.label("No Custom nodes in the current graph.");
+            return;
+        }
+
+        // 現在選択中のノード名を取得
+        let current_name = self
+            .selected_node
+            .and_then(|id| self.snarl.get_node(id))
+            .map(|n| n.name.clone())
+            .unwrap_or_else(|| "Select a node...".to_string());
+
+        ui.horizontal(|ui| {
+            ui.label("Node:");
+            egui::ComboBox::from_id_salt("node_selector")
+                .selected_text(&current_name)
+                .width(ui.available_width() - 60.0)
+                .show_ui(ui, |ui| {
+                    for (node_id, name, has_code) in &node_list {
+                        let label = if *has_code {
+                            format!("🔧 {}", name)
+                        } else {
+                            name.clone()
+                        };
+                        if ui
+                            .selectable_value(&mut self.selected_node, Some(*node_id), label)
+                            .clicked()
+                        {
+                            log::debug!("Selected node: {}", name);
+                        }
+                    }
+                });
+
+            // クリアボタン
+            if self.selected_node.is_some() && ui.button("✕").clicked() {
+                self.selected_node = None;
+            }
+        });
+
+        ui.separator();
+
+        // 選択されたノードの詳細を表示
+        if let Some(node_id) = self.selected_node {
+            if let Some(node_data) = self.snarl.get_node(node_id) {
+                // ノード基本情報
+                egui::Grid::new("node_info_grid")
+                    .num_columns(2)
+                    .spacing([10.0, 4.0])
+                    .show(ui, |ui| {
+                        ui.label("Name:");
+                        ui.strong(&node_data.name);
+                        ui.end_row();
+
+                        ui.label("Type:");
+                        ui.code(&node_data.op_type);
+                        ui.end_row();
+
+                        ui.label("DType:");
+                        ui.label(&node_data.details.dtype);
+                        ui.end_row();
+
+                        if !node_data.details.shape.is_empty() {
+                            ui.label("Shape:");
+                            ui.label(format!("[{}]", node_data.details.shape.join(", ")));
+                            ui.end_row();
+                        }
+                    });
+
+                // コードがある場合は全画面で表示
+                if let Some(ref code) = node_data.details.code {
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        ui.strong("Generated Code");
+                        ui.label(format!("({} lines)", code.lines().count()));
+
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("📋 Copy").clicked() {
+                                ui.output_mut(|o| o.copied_text = code.clone());
+                                log::info!("Code copied to clipboard");
+                            }
+                        });
+                    });
+
+                    ui.separator();
+
+                    // コード表示エリア（残りの高さを全て使用）
+                    egui::ScrollArea::both()
+                        .id_salt("node_code_scroll")
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            let theme = egui_extras::syntax_highlighting::CodeTheme::from_memory(
+                                ui.ctx(),
+                                ui.style(),
+                            );
+
+                            let highlighted_code = egui_extras::syntax_highlighting::highlight(
+                                ui.ctx(),
+                                ui.style(),
+                                &theme,
+                                code,
+                                "c",
+                            );
+
+                            ui.add(egui::Label::new(highlighted_code).selectable(true));
+                        });
+                } else {
+                    ui.add_space(10.0);
+                    ui.label("This node does not have generated code.");
+                }
+            } else {
+                ui.label("Selected node not found.");
+                self.selected_node = None;
+            }
+        } else {
+            ui.add_space(10.0);
+            ui.label("Select a Custom node to view its details and generated code.");
+            ui.add_space(10.0);
+
+            // Customノードのクイック選択ボタン
+            ui.label("Quick select:");
+            for (node_id, name, has_code) in &custom_nodes {
+                if *has_code && ui.button(format!("🔧 {}", name)).clicked() {
+                    self.selected_node = Some(*node_id);
+                }
+            }
+        }
+    }
+
     /// UIを描画
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         // キーボード入力処理（左右矢印キー）
@@ -449,10 +616,35 @@ impl GraphViewerApp {
             });
         }
 
-        ui.heading("Graph Viewer");
+        // ヘッダーとサイドパネルトグルボタン
+        ui.horizontal(|ui| {
+            ui.heading("Graph Viewer");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let toggle_text = if self.show_side_panel {
+                    "Hide Details ▶"
+                } else {
+                    "◀ Show Details"
+                };
+                if ui.button(toggle_text).clicked() {
+                    self.show_side_panel = !self.show_side_panel;
+                }
+            });
+        });
         ui.separator();
 
-        // メインコンテンツ全体をスクロール可能に
+        // サイドパネルを先に表示（右側）
+        if self.show_side_panel {
+            egui::SidePanel::right("node_details_panel")
+                .default_width(self.side_panel_width)
+                .min_width(300.0)
+                .max_width(800.0)
+                .resizable(true)
+                .show_inside(ui, |ui| {
+                    self.show_side_panel_content(ui);
+                });
+        }
+
+        // メインコンテンツ（残りのスペース）
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
@@ -754,12 +946,26 @@ impl GraphViewerApp {
                 egui::CollapsingHeader::new("Graph View")
                     .default_open(true)
                     .show(ui, |ui| {
+                        // クリック検出用の一時変数
+                        let mut clicked_node: Option<NodeId> = None;
+                        let selected = self.selected_node;
+
                         self.snarl.show(
-                            &mut GraphNodeViewStyle,
+                            &mut GraphNodeViewStyle::new(&mut clicked_node, selected),
                             &egui_snarl::ui::SnarlStyle::default(),
                             egui::Id::new("graph_viewer_snarl"),
                             ui,
                         );
+
+                        // クリックされたノードがあれば選択を更新
+                        if let Some(node_id) = clicked_node {
+                            self.selected_node = Some(node_id);
+                            // サイドパネルを自動的に開く
+                            if !self.show_side_panel {
+                                self.show_side_panel = true;
+                            }
+                            log::debug!("Node clicked: {:?}", node_id);
+                        }
                     });
 
                 ui.separator();
@@ -824,10 +1030,24 @@ impl GraphViewerApp {
     }
 }
 
-/// egui-snarlのノードスタイル
-struct GraphNodeViewStyle;
+/// egui-snarlのノードスタイル（クリックイベントを検出）
+struct GraphNodeViewStyle<'a> {
+    /// クリックされたノードID（クリック時に設定される）
+    clicked_node: &'a mut Option<NodeId>,
+    /// 現在選択されているノードID（ハイライト表示用）
+    selected_node: Option<NodeId>,
+}
 
-impl egui_snarl::ui::SnarlViewer<GraphNodeView> for GraphNodeViewStyle {
+impl<'a> GraphNodeViewStyle<'a> {
+    fn new(clicked_node: &'a mut Option<NodeId>, selected_node: Option<NodeId>) -> Self {
+        Self {
+            clicked_node,
+            selected_node,
+        }
+    }
+}
+
+impl egui_snarl::ui::SnarlViewer<GraphNodeView> for GraphNodeViewStyle<'_> {
     fn title(&mut self, node: &GraphNodeView) -> String {
         node.name.clone()
     }
@@ -850,8 +1070,33 @@ impl egui_snarl::ui::SnarlViewer<GraphNodeView> for GraphNodeViewStyle {
         snarl: &mut Snarl<GraphNodeView>,
     ) {
         if let Some(node_data) = snarl.get_node(node) {
-            // ノードのタイトルを表示
-            ui.label(&node_data.name);
+            let is_selected = self.selected_node == Some(node);
+            let has_code = node_data.details.code.is_some();
+
+            // ノードヘッダー
+            ui.horizontal(|ui| {
+                // 選択状態やCustomノードを示すインジケータ
+                if is_selected {
+                    ui.label("▶");
+                } else if has_code {
+                    ui.label("🔧");
+                }
+
+                // ノード名（選択時は強調）
+                if is_selected {
+                    ui.strong(&node_data.name);
+                } else {
+                    ui.label(&node_data.name);
+                }
+
+                // 選択ボタン（Customノードの場合のみ表示）
+                if has_code {
+                    let btn = ui.small_button("📝").on_hover_text("View code");
+                    if btn.clicked() {
+                        *self.clicked_node = Some(node);
+                    }
+                }
+            });
 
             // 詳細情報を折りたたみ表示
             ui.collapsing("Details", |ui| {

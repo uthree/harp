@@ -1,6 +1,6 @@
 # Harp Visualizer
 
-Harpの計算グラフとAST最適化の各ステップを可視化するためのGUIツールです。
+Harpの計算グラフ最適化の各ステップを可視化するためのGUIツールです。
 
 ## 機能
 
@@ -10,12 +10,17 @@ Harpの計算グラフとAST最適化の各ステップを可視化するため�
 - **ステップナビゲーション**: 前後のステップを移動して最適化の過程を確認
 - **コスト遷移グラフ**: 最適化の各ステップでのコストの変化を折れ線グラフで可視化
 - **DOTテキスト表示**: Graphviz DOT形式でのグラフ表現をリアルタイム表示
+- **Customノードのコード表示**: 各ノードの詳細パネルで生成されたコードを確認
 
-### ASTビューア
-- **AST最適化履歴の可視化**: ビームサーチ最適化の各ステップを閲覧
-- **ビーム内の候補表示**: 各ステップのビーム内の全候補をランク付きで表示
-- **レンダリングされたコード表示**: 選択したASTを読みやすいコード形式で表示
-- **コスト遷移グラフ**: 最適化の各ステップでのコストの変化を可視化
+### コードビューア
+- **最終的な生成コードを表示**: グラフ最適化後のCustom(Program)のコードを表示
+- **シンタックスハイライト**: C言語風の構文ハイライト付きで表示
+- **コピー機能**: クリップボードにワンクリックでコピー
+- **統計情報**: 最適化ステップ数、最終コスト、コード行数を表示
+
+### 統合最適化アーキテクチャ
+AST最適化は現在グラフ最適化に統合されています（`AstOptimizationSuggester`）。
+これにより、グラフ変換とAST変換を単一のビームサーチで統合的に探索できます。
 
 ## デモの実行方法
 
@@ -43,13 +48,12 @@ cargo run --package harp-viz --example pipeline_demo
 このデモでは：
 - 複雑なテンソル演算を含む計算グラフを構築（128x256の行列演算）
 - GenericPipelineで最適化履歴を自動記録
-- グラフ最適化で約50-60%のコスト削減を実現
-- AST最適化でさらに20%のコスト削減
-- 両方の最適化過程を可視化UIで確認
+- 統合最適化で大幅なコスト削減を実現
+- 最適化過程を可視化UIで確認
 
 ### 統合最適化可視化デモ
 
-グラフ最適化とAST最適化の両方を可視化する基本デモを実行するには：
+グラフ最適化を可視化する基本デモを実行するには：
 
 ```bash
 cargo run --package harp-viz --example optimization_demo
@@ -59,18 +63,13 @@ cargo run --package harp-viz --example optimization_demo
 
 **グラフ最適化**:
 1. サンプルの計算グラフを作成（`y = ((a + b) * c) - d`, `z = reduce_sum(y, axis=0)`）
-2. ビームサーチ最適化器で最適化を実行
-3. 最適化の各ステップを記録
-
-**AST最適化**:
-1. サンプルのASTを作成（`((2 + 3) * 1) + ((a + 0) * (b + c))`）
-2. 代数的書き換えルールを適用してビームサーチ最適化を実行
+2. ビームサーチ最適化器で統合最適化を実行（グラフ変換 + AST最適化）
 3. 最適化の各ステップを記録
 
 **可視化**:
 - Graph Viewerタブ: グラフ最適化の履歴を表示
-- AST Viewerタブ: AST最適化の履歴を表示
-- タブを切り替えて両方の最適化過程を確認可能
+- Code Viewerタブ: 最終的な生成コードを表示
+- タブを切り替えて最適化過程と最終結果を確認
 
 ### 操作方法
 
@@ -84,14 +83,10 @@ cargo run --package harp-viz --example optimization_demo
 - **Show/Hide Cost Graph**: 最適化ステップごとのコスト遷移を折れ線グラフで表示/非表示
   - 現在のステップが赤い縦線で表示されます
 
-#### ASTビューア
-- **◀ Prev / Next ▶**: 前後のステップに移動
-- **Stepスライダー**: 任意のステップに直接ジャンプ
-- **Beam Candidates**: ビーム内の候補リスト（ランクとコストを表示）
-  - クリックして候補を選択すると、右側にそのASTのコードが表示されます
-- **AST Code**: 選択したASTのレンダリングされたコード
-  - 構文ハイライト付きのモノスペースフォントで表示
-- **Show/Hide Cost Graph**: コスト遷移の折れ線グラフを表示/非表示
+#### コードビューア
+- **Copy to Clipboard**: 生成コードをクリップボードにコピー
+- **コード表示**: シンタックスハイライト付きで最終的な生成コードを表示
+- **統計情報**: 最適化ステップ数、最終コスト、コード行数を表示
 
 ### DOT形式での出力
 
@@ -143,7 +138,6 @@ let mut pipeline = GenericPipeline::new(renderer, compiler);
 
 // 最適化を有効化
 pipeline.enable_graph_optimization = true;
-pipeline.enable_ast_optimization = true;
 pipeline.collect_histories = true;  // 履歴を記録
 
 // グラフをコンパイル（最適化履歴が自動的に記録される）
@@ -167,38 +161,23 @@ let mut app = HarpVizApp::new();
 app.load_graph_optimization_history(history);
 ```
 
-### AST最適化履歴の可視化
+### カスタムレンダラーを使用したコード表示
+
+`CodeViewerApp`はジェネリックで、任意のバックエンドレンダラーを使用できます：
 
 ```rust
-use harp_viz::HarpVizApp;
-use harp::opt::ast::OptimizationHistory;
-
-// AST最適化履歴を作成
-let (optimized_ast, history) = optimizer.optimize_with_history(ast);
-
-// 可視化アプリケーションで表示
-let mut app = HarpVizApp::new();
-app.load_ast_optimization_history(history);
-```
-
-### カスタムレンダラーを使用したAST可視化
-
-`AstViewerApp`はジェネリックで、任意のバックエンドレンダラーを使用できます：
-
-```rust
-use harp_viz::AstViewerApp;
+use harp_viz::CodeViewerApp;
 use harp::backend::metal::MetalRenderer;  // または他のレンダラー
-use harp::opt::ast::OptimizationHistory;
 
-// MetalRendererを使用してAST Viewerを作成
+// MetalRendererを使用してCode Viewerを作成
 let renderer = MetalRenderer::new();
-let mut ast_viewer = AstViewerApp::with_renderer(renderer);
+let mut code_viewer = CodeViewerApp::with_renderer(renderer);
 
 // 最適化履歴を読み込む
-ast_viewer.load_history(history);
+code_viewer.load_history(history);
 
 // または、デフォルトのCRendererを使用
-let mut ast_viewer = AstViewerApp::new();  // デフォルトでCRendererを使用
+let mut code_viewer = CodeViewerApp::new();  // デフォルトでCRendererを使用
 ```
 
 ### GenericPipelineとの統合
@@ -211,13 +190,11 @@ use harp_viz::HarpVizApp;
 
 // パイプラインを作成してグラフをコンパイル
 let mut pipeline = GenericPipeline::new(renderer, compiler);
+pipeline.enable_graph_optimization = true;
+pipeline.collect_histories = true;
 
-// 最適化を実行して履歴を記録
-let (optimized_graph, graph_history) = graph_optimizer.optimize_with_history(graph);
-pipeline.set_graph_optimization_history(graph_history);
-
-let (optimized_ast, ast_history) = ast_optimizer.optimize_with_history(ast);
-pipeline.set_ast_optimization_history(ast_history);
+// グラフをコンパイル（最適化履歴が自動記録される）
+let kernel = pipeline.compile_graph(graph)?;
 
 // 可視化アプリで表示
 let mut viz_app = HarpVizApp::new();
@@ -241,6 +218,20 @@ viz_app.take_from_pipeline(&mut pipeline);
 
 アプリケーション上部のメニューバーから以下のタブを切り替えできます：
 
-- **Graph Viewer**: 計算グラフの可視化
-- **AST Viewer**: AST最適化の可視化
+- **Graph Viewer**: 計算グラフの可視化と最適化履歴
+- **Code Viewer**: 最終的な生成コードの表示
 - **Performance**: パフォーマンス統計（将来の拡張）
+
+## 実装ノート
+
+### egui-snarlのノードクリック検出について
+
+**問題**: egui-snarl 0.6ではノードのクリックイベントが内部のドラッグ・複数選択機能によって消費されるため、`SnarlViewer::show_header`内で`ui.response().clicked()`を使用してもクリックを検出できない。
+
+**解決策**: Customノード（生成コードを持つノード）には明示的な`📝`ボタンを追加し、このボタンのクリックで選択を行う実装とした。
+
+**バージョン情報**:
+- egui-snarl 0.6: `SnarlState`の`selected_nodes()`メソッドは内部のみで使用され、外部からアクセスするAPIがない
+- egui-snarl 0.8.0: `get_selected_nodes()`関数が追加されているが、APIの破壊的変更があるためアップグレードは見送り
+
+**将来の改善**: egui-snarl 0.8.0以降にアップグレードする場合、`get_selected_nodes()`を使用することでノードのクリック選択を実現できる可能性がある。

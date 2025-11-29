@@ -151,6 +151,22 @@ GraphOpをCustomノード（`AstNode::Function`を保持）に変換する。グ
 **バリア挿入:**
 カーネル呼び出し間に`AstNode::Barrier`を挿入し、前のカーネルの書き込み完了を保証する。
 
+### AstOptimizationSuggester
+CustomノードのASTに対してAstSuggesterを適用し、グラフ最適化の枠組みでAST最適化を行うラッパー。
+
+**効果:**
+- グラフ変換とAST変換を単一のビームサーチで探索
+- 相互作用による最適化機会の発見
+- 統一されたコスト関数での評価
+
+**設定:**
+- `with_max_suggestions_per_node(n)`: 各Customノードあたりの最大提案数
+
+**含まれるAstSuggester:**
+- `RuleBaseSuggester`: 代数的簡約ルール
+- `LoopTilingSuggester`: ループタイリング
+- `LoopFusionSuggester`: ループ融合
+
 ### CompositeSuggester
 複数のSuggesterを組み合わせる。
 
@@ -159,27 +175,49 @@ GraphOpをCustomノード（`AstNode::Function`を保持）に変換する。グ
 
 ## 最適化アーキテクチャ
 
-### 単一ステージ最適化（推奨）
+### 統合最適化（推奨）
 
-KernelMergeSuggesterがCustom(Program)の増分マージをサポートするため、
-単一のビームサーチでloweringからマージまで統合的に最適化できる。
+`SuggesterFlags::unified()`を使用すると、グラフ最適化とAST最適化を
+単一のビームサーチで統合的に探索できる。
 
 **メリット:**
+- グラフ変換とAST変換の相互作用を発見
 - lowering途中の状態でも増分マージが可能
-- 探索空間がより柔軟
-- コスト関数が一貫
+- 統一されたコスト関数での評価
 
 **API:**
 ```rust
-// SuggesterFlags::single_stage()でKernelMergeSuggesterを含む
-let (graph, history) = optimize_graph_single_stage(
+use harp::backend::pipeline::{SuggesterFlags, optimize_graph_with_history};
+use harp::opt::graph::SimpleCostEstimator;
+
+let flags = SuggesterFlags::unified(); // KernelMerge + AstOptimization
+let (graph, history) = optimize_graph_with_history(
     graph,
+    flags,
     SimpleCostEstimator::new(),
     8,     // beam_width
     200,   // max_steps
     true,  // show_progress
 );
 ```
+
+### 単一ステージ最適化
+
+KernelMergeSuggesterのみを含む（AstOptimizationなし）。
+
+```rust
+let flags = SuggesterFlags::single_stage();
+// または
+let (graph, history) = optimize_graph_single_stage(graph, estimator, 8, 200, true);
+```
+
+### SuggesterFlagsオプション
+
+| フラグ | include_kernel_merge | include_ast_optimization |
+|--------|---------------------|-------------------------|
+| `new()` | false | false |
+| `single_stage()` | true | false |
+| `unified()` | true | true |
 
 ### 2段階最適化（従来方式、非推奨）
 
@@ -189,7 +227,7 @@ let (graph, history) = optimize_graph_single_stage(
 2. **Phase 2**: カーネルマージ（複数Custom(Function)→Custom(Program)）
 
 `backend::pipeline::optimize_graph_two_phase()`は非推奨。
-`optimize_graph_single_stage()`または`SuggesterFlags::single_stage()`を使用推奨。
+`SuggesterFlags::unified()`または`single_stage()`を使用推奨。
 
 ## 使用例
 

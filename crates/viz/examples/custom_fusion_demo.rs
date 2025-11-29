@@ -127,8 +127,8 @@ fn format_op_type(op: &harp::graph::GraphOp) -> String {
         GraphOp::Input => "Input".to_string(),
         GraphOp::Const(_) => "Const".to_string(),
         GraphOp::Elementwise { op, .. } => format!("Elementwise({:?})", op),
-        GraphOp::Custom { kind, ast, .. } => {
-            format!("Custom({:?}, ast={})", kind, format_ast_brief(ast))
+        GraphOp::Custom { ast } => {
+            format!("Custom(ast={})", format_ast_brief(ast))
         }
         GraphOp::FusedElementwise { expr, .. } => {
             format!("FusedElementwise({})", format_ast_brief(expr))

@@ -58,7 +58,7 @@ pub use estimator::{AstBasedCostEstimator, KernelMergeCostEstimator, SimpleCostE
 pub use history::{OptimizationHistory, OptimizationSnapshot};
 pub use optimizer::BeamSearchGraphOptimizer;
 pub use suggesters::{
-    CompositeSuggester, ConstPropagationSuggester, ContiguousInsertionSuggester,
-    CustomFusionSuggester, FusionSuggester, KernelMergeSuggester, LoweringSuggester,
-    TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
+    AstOptimizationSuggester, CompositeSuggester, ConstPropagationSuggester,
+    ContiguousInsertionSuggester, CustomFusionSuggester, FusionSuggester, KernelMergeSuggester,
+    LoweringSuggester, TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
 };

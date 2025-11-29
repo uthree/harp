@@ -11,10 +11,10 @@ use crate::opt::ast::{
     Optimizer, RuleBaseOptimizer, RuleBaseSuggester, SimpleCostEstimator as AstSimpleCostEstimator,
 };
 use crate::opt::graph::{
-    BeamSearchGraphOptimizer, CompositeSuggester, ConstPropagationSuggester,
-    ContiguousInsertionSuggester, CustomFusionSuggester, FusionSuggester, GraphCostEstimator,
-    KernelMergeCostEstimator, KernelMergeSuggester, LoweringSuggester, TilingSuggester,
-    ViewInsertionSuggester, ViewMergeSuggester,
+    AstOptimizationSuggester, BeamSearchGraphOptimizer, CompositeSuggester,
+    ConstPropagationSuggester, ContiguousInsertionSuggester, CustomFusionSuggester,
+    FusionSuggester, GraphCostEstimator, KernelMergeCostEstimator, KernelMergeSuggester,
+    LoweringSuggester, TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
 };
 
 /// Suggesterの種類を指定するフラグ
@@ -25,15 +25,22 @@ pub struct SuggesterFlags {
     /// trueの場合、単一ステージでCustom(Function)のマージも行います。
     /// これにより、部分的にloweringされた状態でも増分マージが可能になります。
     pub include_kernel_merge: bool,
+
+    /// AstOptimizationSuggesterを含めるかどうか
+    ///
+    /// trueの場合、CustomノードのASTに対してAST最適化を適用します。
+    /// これにより、グラフ最適化とAST最適化を統合的に探索できます。
+    pub include_ast_optimization: bool,
 }
 
 impl SuggesterFlags {
     /// デフォルトのSuggesterフラグを作成
     ///
-    /// デフォルトではKernelMergeSuggesterは含まれません（従来の2ステージ動作）。
+    /// デフォルトではKernelMergeSuggester、AstOptimizationSuggesterは含まれません。
     pub fn new() -> Self {
         Self {
             include_kernel_merge: false,
+            include_ast_optimization: false,
         }
     }
 
@@ -44,6 +51,18 @@ impl SuggesterFlags {
     pub fn single_stage() -> Self {
         Self {
             include_kernel_merge: true,
+            include_ast_optimization: false,
+        }
+    }
+
+    /// 統合最適化用のフラグを作成
+    ///
+    /// KernelMergeSuggesterとAstOptimizationSuggesterの両方を含み、
+    /// グラフ最適化とAST最適化を単一のビームサーチで探索します。
+    pub fn unified() -> Self {
+        Self {
+            include_kernel_merge: true,
+            include_ast_optimization: true,
         }
     }
 
@@ -52,12 +71,21 @@ impl SuggesterFlags {
         self.include_kernel_merge = include;
         self
     }
+
+    /// AstOptimizationSuggesterを含めるかどうかを設定
+    pub fn with_ast_optimization(mut self, include: bool) -> Self {
+        self.include_ast_optimization = include;
+        self
+    }
 }
 
 /// グラフ最適化用のSuggesterを作成
 ///
 /// `flags.include_kernel_merge`がtrueの場合、KernelMergeSuggesterも含まれ、
 /// 単一ステージでloweringからマージまで行います。
+///
+/// `flags.include_ast_optimization`がtrueの場合、AstOptimizationSuggesterも含まれ、
+/// CustomノードのASTに対してAST最適化を適用します。
 pub fn create_graph_suggester(flags: SuggesterFlags) -> CompositeSuggester {
     let mut suggesters: Vec<Box<dyn crate::opt::graph::GraphSuggester>> = vec![
         Box::new(ViewInsertionSuggester::new()),
@@ -77,7 +105,28 @@ pub fn create_graph_suggester(flags: SuggesterFlags) -> CompositeSuggester {
         suggesters.push(Box::new(KernelMergeSuggester::new()));
     }
 
+    // AST最適化を含める場合、AstOptimizationSuggesterを追加
+    // CustomノードのASTに対してRuleBaseSuggesterなどを適用
+    if flags.include_ast_optimization {
+        let ast_suggesters = create_ast_suggesters_for_graph();
+        suggesters.push(Box::new(
+            AstOptimizationSuggester::new(ast_suggesters).with_max_suggestions_per_node(2),
+        ));
+    }
+
     CompositeSuggester::new(suggesters)
+}
+
+/// グラフ最適化内で使用するAstSuggesterを作成
+fn create_ast_suggesters_for_graph() -> Vec<Box<dyn crate::opt::ast::Suggester>> {
+    vec![
+        // ルールベース最適化（代数的簡約など）
+        Box::new(RuleBaseSuggester::new(all_rules_with_search())),
+        // ループタイリング
+        Box::new(LoopTilingSuggester::with_default_sizes()),
+        // ループ融合
+        Box::new(LoopFusionSuggester::new()),
+    ]
 }
 
 /// カーネルマージ用のSuggesterを作成

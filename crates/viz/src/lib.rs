@@ -2,12 +2,12 @@
 //!
 //! グラフ構造とパフォーマンス統計を可視化するためのライブラリ
 
-pub mod ast_viewer;
+pub mod code_viewer;
 pub mod diff_viewer;
 pub mod graph_viewer;
 pub mod perf_viewer;
 
-pub use ast_viewer::AstViewerApp;
+pub use code_viewer::CodeViewerApp;
 pub use diff_viewer::{
     show_collapsible_diff, show_resizable_diff, show_text_diff, DiffViewerConfig,
 };
@@ -29,8 +29,8 @@ where
     current_tab: VizTab,
     /// グラフビューア
     graph_viewer: GraphViewerApp,
-    /// ASTビューア
-    ast_viewer: AstViewerApp<R>,
+    /// コードビューア（最終的な生成コードを表示）
+    code_viewer: CodeViewerApp<R>,
     /// パフォーマンスビューア
     perf_viewer: PerfViewerApp,
 }
@@ -39,7 +39,7 @@ where
 #[allow(clippy::enum_variant_names)]
 enum VizTab {
     GraphViewer,
-    AstViewer,
+    CodeViewer,
     PerfViewer,
 }
 
@@ -65,7 +65,7 @@ where
         Self {
             current_tab: VizTab::GraphViewer,
             graph_viewer: GraphViewerApp::new(),
-            ast_viewer: AstViewerApp::with_renderer(renderer),
+            code_viewer: CodeViewerApp::with_renderer(renderer),
             perf_viewer: PerfViewerApp::new(),
         }
     }
@@ -75,6 +75,8 @@ where
         &mut self,
         history: harp::opt::graph::OptimizationHistory,
     ) {
+        // コードビューアにも履歴を読み込む（最終コード表示用）
+        self.code_viewer.load_history(history.clone());
         self.graph_viewer.load_history(history);
         // グラフビューアタブに切り替え
         self.current_tab = VizTab::GraphViewer;
@@ -100,38 +102,29 @@ where
         histories: Vec<(String, harp::opt::graph::OptimizationHistory)>,
     ) {
         let combined = harp::opt::graph::OptimizationHistory::from_phases(&histories);
+        // コードビューアにも履歴を読み込む（最終コード表示用）
+        self.code_viewer.load_history(combined.clone());
         self.graph_viewer.load_history(combined);
         self.current_tab = VizTab::GraphViewer;
     }
 
-    /// AST最適化履歴を読み込む
-    pub fn load_ast_optimization_history(&mut self, history: harp::opt::ast::OptimizationHistory) {
-        self.ast_viewer.load_history(history);
-        // ASTビューアタブに切り替え
-        self.current_tab = VizTab::AstViewer;
-    }
-
-    /// 複数のFunction用のAST最適化履歴を読み込む
-    pub fn load_multiple_ast_histories(
-        &mut self,
-        histories: std::collections::HashMap<String, harp::opt::ast::OptimizationHistory>,
-    ) {
-        self.ast_viewer.load_multiple_histories(histories);
-        // ASTビューアタブに切り替え
-        self.current_tab = VizTab::AstViewer;
-    }
-
     /// グラフを読み込む
     pub fn load_graph(&mut self, graph: harp::graph::Graph) {
+        // コードビューアにもグラフを読み込む
+        self.code_viewer.load_graph(graph.clone());
         self.graph_viewer.load_graph(graph);
         self.current_tab = VizTab::GraphViewer;
     }
 
     /// GenericPipelineから最適化履歴を読み込む
     ///
-    /// GenericPipelineに保存されているグラフとAST両方の最適化履歴を読み込みます。
+    /// GenericPipelineに保存されているグラフ最適化履歴を読み込みます。
     /// 2段階最適化（Phase 1 + Phase 2）の履歴は自動的に結合されて表示されます。
     /// 履歴が存在する場合、適切なタブに切り替えます。
+    ///
+    /// # Note
+    /// AST最適化は現在グラフ最適化に統合されているため、
+    /// 別途AST最適化履歴を読み込む必要はありません。
     ///
     /// # 型パラメータ
     /// * `PR` - Rendererの型
@@ -145,11 +138,6 @@ where
         if let Some(combined_history) = pipeline.histories.combined_graph_history() {
             self.load_graph_optimization_history(combined_history);
         }
-
-        // AST最適化履歴を読み込む
-        if let Some(ast_history) = &pipeline.histories.ast {
-            self.load_ast_optimization_history(ast_history.clone());
-        }
     }
 
     /// GenericPipelineから最適化履歴を読み込んで所有権を移動
@@ -157,6 +145,10 @@ where
     /// `load_from_pipeline`と異なり、Pipelineから履歴を取り出して所有権を移動します。
     /// Pipeline内の履歴はクリアされます。
     /// 2段階最適化の履歴は結合されて読み込まれます。
+    ///
+    /// # Note
+    /// AST最適化は現在グラフ最適化に統合されているため、
+    /// 別途AST最適化履歴を読み込む必要はありません。
     ///
     /// # 型パラメータ
     /// * `PR` - Rendererの型
@@ -175,11 +167,6 @@ where
         // 元の履歴をクリア
         pipeline.histories.graph = None;
         pipeline.histories.graph_phase2 = None;
-
-        // AST最適化履歴を取得
-        if let Some(ast_history) = pipeline.histories.ast.take() {
-            self.load_ast_optimization_history(ast_history);
-        }
     }
 }
 
@@ -196,7 +183,6 @@ impl HarpVizApp<CRenderer> {
     ///
     /// let mut pipeline = GenericPipeline::new(renderer, compiler);
     /// pipeline.enable_graph_optimization = true;
-    /// pipeline.enable_ast_optimization = true;
     /// pipeline.collect_histories = true;
     ///
     /// // グラフをコンパイル（最適化履歴が記録される）
@@ -233,32 +219,27 @@ impl HarpVizApp<CRenderer> {
         )
     }
 
-    /// 最適化履歴を読み込んでvisualizerを起動（CRendererを使用）
+    /// グラフ最適化履歴を読み込んでvisualizerを起動（CRendererを使用）
     ///
-    /// グラフとASTの最適化履歴を個別に指定して可視化ウィンドウを起動します。
+    /// グラフ最適化履歴を指定して可視化ウィンドウを起動します。
+    ///
+    /// # Note
+    /// AST最適化は現在グラフ最適化に統合されているため、
+    /// 別途AST最適化履歴を指定する必要はありません。
     ///
     /// # 例
     /// ```ignore
     /// use harp_viz::HarpVizApp;
     ///
-    /// let (optimized_graph, graph_history) = graph_optimizer.optimize_with_history(graph);
-    /// let (optimized_ast, ast_history) = ast_optimizer.optimize_with_history(ast);
+    /// let (optimized_graph, history) = optimizer.optimize_with_history(graph);
     ///
-    /// HarpVizApp::run_with_histories(Some(graph_history), Some(ast_history))?;
+    /// HarpVizApp::run_with_history(history)?;
     /// ```
-    pub fn run_with_histories(
-        graph_history: Option<harp::opt::graph::OptimizationHistory>,
-        ast_history: Option<harp::opt::ast::OptimizationHistory>,
+    pub fn run_with_history(
+        graph_history: harp::opt::graph::OptimizationHistory,
     ) -> Result<(), eframe::Error> {
         let mut app = Self::new();
-
-        if let Some(history) = graph_history {
-            app.load_graph_optimization_history(history);
-        }
-
-        if let Some(history) = ast_history {
-            app.load_ast_optimization_history(history);
-        }
+        app.load_graph_optimization_history(graph_history);
 
         let native_options = eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default()
@@ -293,10 +274,10 @@ where
                 }
 
                 if ui
-                    .selectable_label(self.current_tab == VizTab::AstViewer, "AST Viewer")
+                    .selectable_label(self.current_tab == VizTab::CodeViewer, "Code Viewer")
                     .clicked()
                 {
-                    self.current_tab = VizTab::AstViewer;
+                    self.current_tab = VizTab::CodeViewer;
                 }
 
                 if ui
@@ -312,8 +293,8 @@ where
             VizTab::GraphViewer => {
                 self.graph_viewer.ui(ui);
             }
-            VizTab::AstViewer => {
-                self.ast_viewer.ui(ui);
+            VizTab::CodeViewer => {
+                self.code_viewer.ui(ui);
             }
             VizTab::PerfViewer => {
                 self.perf_viewer.ui(ui);

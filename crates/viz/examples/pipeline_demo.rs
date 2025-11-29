@@ -13,22 +13,16 @@ fn main() -> eframe::Result {
     // env_logger::init()の代わりにlog_captureを使う
     harp::opt::log_capture::init_with_env_logger();
 
-    println!("=== Harp GenericPipeline 総合最適化デモ (OpenCL版) ===\n");
+    println!("=== Harp GenericPipeline 統合最適化デモ (OpenCL版) ===\n");
     println!("このデモでは、様々な最適化が適用される複雑な計算グラフを構築します。");
     println!("OpenCLバックエンドを使用してGPU向けコードを生成します。");
-    println!("以下の最適化が順次適用されます：");
-    println!("  1. グラフ最適化 Phase 1:");
-    println!("     - View挿入 (転置の最適化)");
-    println!("     - 演算の融合 (Fusion)");
-    println!("     - 並列化戦略の最適化 (GPU用)");
-    println!("     - Lowering (GraphOp → Custom変換)");
-    println!("  2. グラフ最適化 Phase 2 (カーネルマージ):");
-    println!("     - 複数のCustom(Function)を1つのCustom(Program)に統合");
-    println!("     - 中間バッファの最適化");
-    println!("  3. AST最適化:");
-    println!("     - 定数畳み込み (Constant Folding)");
-    println!("     - 代数的簡約 (x+0→x, x*1→x)");
-    println!("     - ループ最適化 (タイル化、展開)");
+    println!("統合最適化により以下が一括で適用されます：");
+    println!("  - View挿入 (転置の最適化)");
+    println!("  - 演算の融合 (Fusion)");
+    println!("  - 並列化戦略の最適化 (GPU用)");
+    println!("  - Lowering (GraphOp → Custom変換)");
+    println!("  - カーネルマージ (複数Custom → Program統合)");
+    println!("  - AST最適化 (代数的簡約、ループ最適化)");
     println!("最適化の各ステップがGenericPipelineに記録され、可視化されます。\n");
 
     // GenericPipelineを作成（最適化を組み込み）
@@ -38,12 +32,10 @@ fn main() -> eframe::Result {
 
     let mut pipeline = GenericPipeline::new(renderer, compiler);
 
-    // グラフ最適化は常に有効（LoweringSuggesterが必須）
-    // AST最適化のみオプション
-    pipeline.enable_ast_optimization = true;
-
-    // 2段階最適化（カーネルマージ）を有効化
+    // 統合最適化を有効化（グラフ最適化 + カーネルマージ + AST最適化）
     pipeline.enable_kernel_merge = true;
+    pipeline.enable_ast_optimization = true;
+    pipeline.collect_histories = true;
 
     // グラフ最適化の設定
     pipeline.graph_config = OptimizationConfig {
@@ -52,14 +44,7 @@ fn main() -> eframe::Result {
         show_progress: true,
     };
 
-    // AST最適化の設定
-    pipeline.ast_config = OptimizationConfig {
-        beam_width: 4,
-        max_steps: 10000,
-        show_progress: true,
-    };
-
-    println!("  ✓ Pipeline作成完了（OpenCL最適化有効、カーネルマージ有効）\n");
+    println!("  ✓ Pipeline作成完了（統合最適化有効）\n");
 
     // 複雑な計算グラフを作成（複数の演算を含む）
     println!("【2/3】複雑な計算グラフを構築中...");
@@ -71,8 +56,8 @@ fn main() -> eframe::Result {
 
     // 最適化を一括実行（コンパイルなし）
     println!("【3/3】最適化を実行中...");
-    println!("  - グラフ最適化中...");
-    let (optimized_program, function_histories) = pipeline
+    println!("  - 統合グラフ最適化中...");
+    let (optimized_program, _ast_histories) = pipeline
         .optimize_graph_with_all_histories(graph)
         .expect("Failed to optimize graph");
 
@@ -84,48 +69,14 @@ fn main() -> eframe::Result {
     let code = opencl_renderer.render_program(&optimized_program);
     println!("{}", code);
 
-    // 2段階最適化の履歴情報を表示
-    let phase1_steps = pipeline.histories.graph.as_ref().map_or(0, |h| h.len());
-    let phase2_steps = pipeline
-        .histories
-        .graph_phase2
-        .as_ref()
-        .map_or(0, |h| h.len());
-    println!(
-        "    - グラフ最適化ステップ数: {} (Phase 1: {}, Phase 2: {})",
-        phase1_steps + phase2_steps,
-        phase1_steps,
-        phase2_steps
-    );
-    println!(
-        "    - AST最適化ステップ数: {}",
-        function_histories.values().map(|h| h.len()).sum::<usize>()
-    );
+    // 統合最適化の履歴情報を表示
+    let graph_steps = pipeline.histories.graph.as_ref().map_or(0, |h| h.len());
+    println!("    - グラフ最適化ステップ数: {}", graph_steps);
 
     // デバッグ: ログがキャプチャされているか確認
     if let Some(graph_history) = &pipeline.histories.graph {
-        println!("  - グラフ最適化 Phase 1 履歴のログ確認:");
+        println!("  - グラフ最適化履歴のログ確認:");
         for (i, snapshot) in graph_history.snapshots().iter().take(3).enumerate() {
-            println!("    Step {}: {} logs captured", i, snapshot.logs.len());
-            if !snapshot.logs.is_empty() {
-                println!("      First log: {}", snapshot.logs[0]);
-            }
-        }
-    }
-
-    if let Some(phase2_history) = &pipeline.histories.graph_phase2 {
-        println!("  - グラフ最適化 Phase 2 (カーネルマージ) 履歴のログ確認:");
-        for (i, snapshot) in phase2_history.snapshots().iter().take(3).enumerate() {
-            println!("    Step {}: {} logs captured", i, snapshot.logs.len());
-            if !snapshot.logs.is_empty() {
-                println!("      First log: {}", snapshot.logs[0]);
-            }
-        }
-    }
-
-    if let Some((_, history)) = function_histories.iter().next() {
-        println!("  - AST最適化履歴のログ確認:");
-        for (i, snapshot) in history.snapshots().iter().take(3).enumerate() {
             println!("    Step {}: {} logs captured", i, snapshot.logs.len());
             if !snapshot.logs.is_empty() {
                 println!("      First log: {}", snapshot.logs[0]);
@@ -141,14 +92,14 @@ fn main() -> eframe::Result {
     // 可視化アプリケーションを起動
     println!("\n可視化UIを起動中...");
     println!("  - Graph Viewerタブ: グラフ最適化の履歴を表示");
-    println!("  - AST Viewerタブ: AST最適化の履歴を表示");
+    println!("  - Code Viewerタブ: 最終的な生成コードを表示");
     println!("  - 矢印キーで前後のステップに移動できます");
     println!();
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1600.0, 1000.0])
-            .with_title("Harp Pipeline Optimization Visualizer - Comprehensive Demo"),
+            .with_title("Harp Pipeline Optimization Visualizer - Unified Demo"),
         ..Default::default()
     };
 
@@ -159,13 +110,10 @@ fn main() -> eframe::Result {
             // OpenCLRendererを使用してHarpVizAppを作成
             let mut app = HarpVizApp::with_renderer(OpenCLRenderer::new());
 
-            // グラフ最適化履歴を読み込む（Phase 1 + Phase 2 を結合）
-            if let Some(combined_history) = pipeline.histories.combined_graph_history() {
-                app.load_graph_optimization_history(combined_history);
+            // グラフ最適化履歴を読み込む（Phase 1 + Phase 2を結合）
+            if let Some(graph_history) = pipeline.histories.combined_graph_history() {
+                app.load_graph_optimization_history(graph_history);
             }
-
-            // 複数のFunction最適化履歴を読み込む
-            app.load_multiple_ast_histories(function_histories);
 
             Ok(Box::new(app))
         }),
@@ -326,9 +274,9 @@ fn create_complex_computation_graph() -> Graph {
 fn print_optimization_stats(pipeline: &GenericPipeline<OpenCLRenderer, OpenCLCompiler>) {
     println!("=== 最適化統計 ===");
 
-    // Phase 1: 一般グラフ最適化
+    // 統合グラフ最適化
     if let Some(graph_history) = &pipeline.histories.graph {
-        println!("\n【グラフ最適化 Phase 1】");
+        println!("\n【統合グラフ最適化】");
         println!("  ステップ数: {}", graph_history.len());
 
         if let (Some(first), Some(last)) = (
@@ -359,66 +307,6 @@ fn print_optimization_stats(pipeline: &GenericPipeline<OpenCLRenderer, OpenCLCom
         }
         if graph_history.len() > 5 {
             println!("    ... ({} steps total)", graph_history.len());
-        }
-    }
-
-    // Phase 2: カーネルマージ
-    if let Some(phase2_history) = &pipeline.histories.graph_phase2 {
-        println!("\n【グラフ最適化 Phase 2 (カーネルマージ)】");
-        println!("  ステップ数: {}", phase2_history.len());
-
-        if let (Some(first), Some(last)) = (
-            phase2_history.get(0),
-            phase2_history.get(phase2_history.len() - 1),
-        ) {
-            let cost_reduction = first.cost - last.cost;
-            let cost_reduction_percent = if first.cost > 0.0 {
-                (cost_reduction / first.cost) * 100.0
-            } else {
-                0.0
-            };
-
-            println!("  初期コスト: {:.2}", first.cost);
-            println!("  最終コスト: {:.2}", last.cost);
-            println!(
-                "  コスト削減: {:.2} ({:.1}%)",
-                cost_reduction, cost_reduction_percent
-            );
-        }
-
-        // コスト遷移を表示
-        println!("\n  コスト遷移:");
-        for i in 0..phase2_history.len().min(5) {
-            if let Some(snapshot) = phase2_history.get(i) {
-                println!("    Step {}: {:.2}", snapshot.step, snapshot.cost);
-            }
-        }
-        if phase2_history.len() > 5 {
-            println!("    ... ({} steps total)", phase2_history.len());
-        }
-    }
-
-    if let Some(ast_history) = &pipeline.histories.ast {
-        println!("\n【AST最適化】");
-        println!("  ステップ数: {}", ast_history.len());
-
-        if let (Some(first), Some(last)) = (
-            ast_history.snapshots().first(),
-            ast_history.snapshots().last(),
-        ) {
-            let cost_reduction = first.cost - last.cost;
-            let cost_reduction_percent = if first.cost > 0.0 {
-                (cost_reduction / first.cost) * 100.0
-            } else {
-                0.0
-            };
-
-            println!("  初期コスト: {:.2}", first.cost);
-            println!("  最終コスト: {:.2}", last.cost);
-            println!(
-                "  コスト削減: {:.2} ({:.1}%)",
-                cost_reduction, cost_reduction_percent
-            );
         }
     }
 }
