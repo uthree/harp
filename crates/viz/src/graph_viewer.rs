@@ -44,6 +44,8 @@ pub struct NodeDetails {
 
     /// 操作の詳細
     pub op_details: String,
+    /// 生成されたコード（Customノードの場合）
+    pub code: Option<String>,
 }
 
 impl Default for GraphViewerApp {
@@ -300,11 +302,19 @@ impl GraphViewerApp {
 
         let op_details = format!("{:?}", node.op);
 
+        // Customノードの場合はコードをレンダリング
+        let code = if let harp::graph::GraphOp::Custom { ast } = &node.op {
+            Some(harp::ast::renderer::render_ast(ast))
+        } else {
+            None
+        };
+
         let details = NodeDetails {
             dtype,
             shape,
 
             op_details,
+            code,
         };
 
         GraphNodeView {
@@ -857,6 +867,22 @@ impl egui_snarl::ui::SnarlViewer<GraphNodeView> for GraphNodeViewStyle {
                 ui.collapsing("Operation Details", |ui| {
                     ui.label(&node_data.details.op_details);
                 });
+
+                if let Some(ref code) = node_data.details.code {
+                    ui.collapsing("Generated Code", |ui| {
+                        egui::ScrollArea::vertical()
+                            .max_height(300.0)
+                            .show(ui, |ui| {
+                                ui.add(
+                                    egui::TextEdit::multiline(&mut code.as_str())
+                                        .font(egui::TextStyle::Monospace)
+                                        .code_editor()
+                                        .lock_focus(true)
+                                        .desired_width(f32::INFINITY),
+                                );
+                            });
+                    });
+                }
             });
         }
     }
