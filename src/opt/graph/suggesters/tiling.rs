@@ -136,42 +136,12 @@ impl TilingSuggester {
             .map(|src| src.reshape(new_shape.clone()))
             .collect();
 
-        // elementwise_strategiesを調整
-        // タイル化によって軸が挿入されるため、正しいマッピングが必要
-        // 例: 元のshape [64, 128]、軸0をタイル化 → [2, 32, 128]
-        // - 新軸0（num_tiles） → 元軸0に対応 → old_strategies[0]
-        // - 新軸1（tile_size） → 新規追加 → デフォルト
-        // - 新軸2 → 元軸1に対応 → old_strategies[1]
-        let old_strategies = &node.elementwise_strategies;
-        let mut new_strategies = Vec::new();
-
-        for new_idx in 0..tiled_view.shape().len() {
-            if new_idx < axis {
-                // タイル化された軸より前の軸: そのままマッピング
-                new_strategies.push(old_strategies[new_idx].clone());
-            } else if new_idx == axis {
-                // タイル化された軸（num_tiles）: 元の軸のstrategyを使用
-                new_strategies.push(old_strategies[axis].clone());
-            } else if new_idx == axis + 1 {
-                // 挿入されたタイル軸（tile_size）: デフォルトのstrategy
-                new_strategies.push(crate::graph::ElementwiseStrategy::Sequential {
-                    simd_width: 1,
-                    unroll_factor: 1,
-                });
-            } else {
-                // タイル化された軸より後の軸: old_strategies[new_idx - 1]を使用
-                // （1つ軸が挿入されたため、インデックスを1つ戻す）
-                new_strategies.push(old_strategies[new_idx - 1].clone());
-            }
-        }
-
         // 新しいノードを作成
-        Some(GraphNode::with_elementwise_strategies(
+        Some(GraphNode::new(
             node.dtype.clone(),
             node.op.clone(),
             new_src,
             tiled_view,
-            new_strategies,
         ))
     }
 
@@ -223,12 +193,11 @@ impl TilingSuggester {
                 return node.clone();
             }
 
-            GraphNode::with_elementwise_strategies(
+            GraphNode::new(
                 node.dtype.clone(),
                 node.op.clone(),
                 new_src,
                 node.view.clone(),
-                node.elementwise_strategies.clone(),
             )
         }
 

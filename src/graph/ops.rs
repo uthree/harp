@@ -1,6 +1,6 @@
 use crate::ast::Literal;
 use crate::graph::shape::View;
-use crate::graph::{CumulativeStrategy, DType, ElementwiseStrategy, GraphNode, ReduceStrategy};
+use crate::graph::{CumulativeStrategy, DType, GraphNode, ReduceStrategy};
 use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 
 #[derive(Debug, Clone)]
@@ -12,12 +12,9 @@ pub enum GraphOp {
         im: f32,
     }, // 複素数定数ノード (real, imaginary)
     View(View),     // Viewを変更する
-    Contiguous {
-        elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
-    }, // Viewに従って要素を並べ直す。
+    Contiguous,     // Viewに従って要素を並べ直す。
     Elementwise {
         op: ElementwiseOp,
-        elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
     }, // 要素ごとに演算を行う
     Reduce {
         op: ReduceOp,
@@ -33,20 +30,17 @@ pub enum GraphOp {
     // expr内のWildcard("0"), Wildcard("1")等がsrc[0], src[1]に対応
     FusedElementwise {
         expr: crate::ast::AstNode,
-        elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
     }, // 複数のelementwise演算を融合
     FusedElementwiseReduce {
         expr: crate::ast::AstNode,
         reduce_op: ReduceOp,
         axis: usize,
-        elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
         reduce_strategy: Option<ReduceStrategy>,
     }, // elementwise -> reduce パターンを融合
     FusedElementwiseCumulative {
         expr: crate::ast::AstNode,
         cumulative_op: CumulativeOp,
         axis: usize,
-        elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
         cumulative_strategy: Option<CumulativeStrategy>,
     }, // elementwise -> cumulative パターンを融合
     FusedReduce {
@@ -72,33 +66,22 @@ pub enum GraphOp {
         groups: usize,           // グループ数
     }, // unfoldの逆操作（col2im）
     /// 一様乱数でテンソルを初期化 [0, 1)
-    Rand {
-        elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
-    },
+    Rand,
     /// 連番テンソルを生成 [0, 1, 2, ..., n-1]
-    Arange {
-        elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
-    },
+    Arange,
     /// 型変換（キャスト）
     Cast {
         target_dtype: DType,
-        elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
     },
     /// 複素数テンソルから実部を取り出す
     /// 入力: Complex tensor, 出力: F32 tensor (same shape)
-    Real {
-        elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
-    },
+    Real,
     /// 複素数テンソルから虚部を取り出す
     /// 入力: Complex tensor, 出力: F32 tensor (same shape)
-    Imag {
-        elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
-    },
+    Imag,
     /// 実部と虚部のF32テンソルから複素数テンソルを構築する
     /// 入力: 2つのF32 tensor (real, imag), 出力: Complex tensor (same shape)
-    ComplexFromParts {
-        elementwise_strategies: Option<Vec<ElementwiseStrategy>>,
-    },
+    ComplexFromParts,
     /// カスタムAST演算
     ///
     /// `AstNode::Function`または`AstNode::Program`を保持し、lowering時にほぼパススルーで使用される。
@@ -259,7 +242,6 @@ macro_rules! impl_binary_elementwise_op {
                     dtype,
                     GraphOp::Elementwise {
                         op: ElementwiseOp::$op,
-                        elementwise_strategies: None,
                     },
                     vec![self, rhs],
                     view,
@@ -284,7 +266,6 @@ impl Neg for GraphNode {
             dtype,
             GraphOp::Elementwise {
                 op: ElementwiseOp::Neg,
-                elementwise_strategies: None,
             },
             vec![self],
             view,
@@ -498,7 +479,6 @@ pub fn recip(node: GraphNode) -> GraphNode {
         dtype,
         GraphOp::Elementwise {
             op: ElementwiseOp::Recip,
-            elementwise_strategies: None,
         },
         vec![node],
         view,
@@ -513,7 +493,6 @@ pub fn max(lhs: GraphNode, rhs: GraphNode) -> GraphNode {
         dtype,
         GraphOp::Elementwise {
             op: ElementwiseOp::Max,
-            elementwise_strategies: None,
         },
         vec![lhs, rhs],
         view,
@@ -627,15 +606,7 @@ pub fn fused_elementwise(inputs: Vec<GraphNode>, expr: crate::ast::AstNode) -> G
     let dtype = inputs[0].dtype.clone();
     let view = inputs[0].view.clone();
 
-    GraphNode::new(
-        dtype,
-        GraphOp::FusedElementwise {
-            expr,
-            elementwise_strategies: None,
-        },
-        inputs,
-        view,
-    )
+    GraphNode::new(dtype, GraphOp::FusedElementwise { expr }, inputs, view)
 }
 
 /// elementwise演算とそれに続くreduce演算を融合したノードを作成
@@ -684,7 +655,6 @@ pub fn fused_elementwise_reduce(
             expr,
             reduce_op,
             axis,
-            elementwise_strategies: None,
             reduce_strategy: None,
         },
         inputs,
@@ -736,7 +706,6 @@ pub fn fused_elementwise_cumulative(
             expr,
             cumulative_op,
             axis,
-            elementwise_strategies: None,
             cumulative_strategy: None,
         },
         inputs,

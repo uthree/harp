@@ -80,9 +80,7 @@ impl GraphNode {
                 crate::graph::shape::View::contiguous(kernel.view.shape().to_vec());
             let kernel_contiguous = crate::graph::GraphNode::new(
                 kernel.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                crate::graph::GraphOp::Contiguous {},
                 vec![kernel.clone()],
                 kernel_contiguous_view,
             );
@@ -242,9 +240,7 @@ impl GraphNode {
                 crate::graph::shape::View::contiguous(kernel.view.shape().to_vec());
             let kernel_contiguous = crate::graph::GraphNode::new(
                 kernel.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                crate::graph::GraphOp::Contiguous {},
                 vec![kernel.clone()],
                 kernel_contiguous_view,
             );
@@ -419,9 +415,7 @@ impl GraphNode {
                 crate::graph::shape::View::contiguous(kernel.view.shape().to_vec());
             let kernel_contiguous = crate::graph::GraphNode::new(
                 kernel.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                crate::graph::GraphOp::Contiguous {},
                 vec![kernel.clone()],
                 kernel_contiguous_view,
             );
@@ -578,9 +572,7 @@ impl GraphNode {
                 crate::graph::shape::View::contiguous(reduced.view.shape().to_vec());
             let reduced_cont = crate::graph::GraphNode::new(
                 reduced.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                crate::graph::GraphOp::Contiguous {},
                 vec![reduced.clone()],
                 reduced_cont_view,
             );
@@ -606,9 +598,7 @@ impl GraphNode {
                 crate::graph::shape::View::contiguous(self.view.shape().to_vec());
             let input_contiguous = crate::graph::GraphNode::new(
                 self.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                crate::graph::GraphOp::Contiguous {},
                 vec![self.clone()],
                 input_contiguous_view,
             );
@@ -628,9 +618,7 @@ impl GraphNode {
                 crate::graph::shape::View::contiguous(kernel.view.shape().to_vec());
             let kernel_contiguous = crate::graph::GraphNode::new(
                 kernel.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                crate::graph::GraphOp::Contiguous {},
                 vec![kernel.clone()],
                 kernel_contiguous_view,
             );
@@ -785,9 +773,7 @@ impl GraphNode {
                 crate::graph::shape::View::contiguous(reduced.view.shape().to_vec());
             let reduced_cont = crate::graph::GraphNode::new(
                 reduced.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                crate::graph::GraphOp::Contiguous {},
                 vec![reduced.clone()],
                 reduced_cont_view,
             );
@@ -821,9 +807,7 @@ impl GraphNode {
                 crate::graph::shape::View::contiguous(self.view.shape().to_vec());
             let input_contiguous = crate::graph::GraphNode::new(
                 self.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                crate::graph::GraphOp::Contiguous {},
                 vec![self.clone()],
                 input_contiguous_view,
             );
@@ -850,9 +834,7 @@ impl GraphNode {
                 crate::graph::shape::View::contiguous(kernel.view.shape().to_vec());
             let kernel_contiguous = crate::graph::GraphNode::new(
                 kernel.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                crate::graph::GraphOp::Contiguous {},
                 vec![kernel.clone()],
                 kernel_contiguous_view,
             );
@@ -1029,9 +1011,7 @@ impl GraphNode {
                 crate::graph::shape::View::contiguous(reduced.view.shape().to_vec());
             let reduced_cont = crate::graph::GraphNode::new(
                 reduced.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                crate::graph::GraphOp::Contiguous {},
                 vec![reduced.clone()],
                 reduced_cont_view,
             );
@@ -1072,9 +1052,7 @@ impl GraphNode {
                 crate::graph::shape::View::contiguous(self.view.shape().to_vec());
             let input_contiguous = crate::graph::GraphNode::new(
                 self.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                crate::graph::GraphOp::Contiguous {},
                 vec![self.clone()],
                 input_contiguous_view,
             );
@@ -1103,9 +1081,7 @@ impl GraphNode {
                 crate::graph::shape::View::contiguous(kernel.view.shape().to_vec());
             let kernel_contiguous = crate::graph::GraphNode::new(
                 kernel.dtype.clone(),
-                crate::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                crate::graph::GraphOp::Contiguous {},
                 vec![kernel.clone()],
                 kernel_contiguous_view,
             );

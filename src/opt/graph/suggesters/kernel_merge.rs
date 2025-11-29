@@ -558,7 +558,7 @@ mod tests {
         graph.output("result", result);
 
         // Suggesterを作成
-        let suggester = create_graph_suggester(SuggesterFlags::single_threaded());
+        let suggester = create_graph_suggester(SuggesterFlags::new());
         let estimator = SimpleCostEstimator::new();
         let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
             .with_beam_width(4)
@@ -639,7 +639,7 @@ mod tests {
         graph.output("result", result);
 
         // Suggesterを作成
-        let suggester = create_graph_suggester(SuggesterFlags::single_threaded());
+        let suggester = create_graph_suggester(SuggesterFlags::new());
         let estimator = SimpleCostEstimator::new();
         let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
             .with_beam_width(4)

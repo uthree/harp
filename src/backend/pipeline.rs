@@ -13,40 +13,26 @@ use crate::opt::ast::{
 use crate::opt::graph::{
     BeamSearchGraphOptimizer, CompositeSuggester, ConstPropagationSuggester,
     ContiguousInsertionSuggester, CustomFusionSuggester, FusionSuggester, GraphCostEstimator,
-    KernelMergeCostEstimator, KernelMergeSuggester, LoweringSuggester, ParallelStrategyChanger,
-    SimdSuggester, TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
+    KernelMergeCostEstimator, KernelMergeSuggester, LoweringSuggester, TilingSuggester,
+    ViewInsertionSuggester, ViewMergeSuggester,
 };
 
 /// Suggesterの種類を指定するフラグ
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SuggesterFlags {
-    /// 並列化Suggesterを含めるか
-    pub enable_parallel: bool,
-    /// SIMD Suggesterを含めるか
-    pub enable_simd: bool,
-}
+///
+/// 現在は将来の拡張のためのプレースホルダーです。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SuggesterFlags;
 
 impl SuggesterFlags {
-    /// すべてのSuggesterを有効にする
-    pub fn all() -> Self {
-        Self {
-            enable_parallel: true,
-            enable_simd: true,
-        }
-    }
-
-    /// 並列化とSIMDを無効にする（シングルスレッドバックエンド用）
-    pub fn single_threaded() -> Self {
-        Self {
-            enable_parallel: false,
-            enable_simd: false,
-        }
+    /// デフォルトのSuggesterフラグを作成
+    pub fn new() -> Self {
+        Self
     }
 }
 
 /// グラフ最適化用のSuggesterを作成
-pub fn create_graph_suggester(flags: SuggesterFlags) -> CompositeSuggester {
-    let mut suggesters: Vec<Box<dyn crate::opt::graph::GraphSuggester>> = vec![
+pub fn create_graph_suggester(_flags: SuggesterFlags) -> CompositeSuggester {
+    let suggesters: Vec<Box<dyn crate::opt::graph::GraphSuggester>> = vec![
         Box::new(ViewInsertionSuggester::new()),
         Box::new(ViewMergeSuggester::new()),
         Box::new(ConstPropagationSuggester::new()),
@@ -54,23 +40,11 @@ pub fn create_graph_suggester(flags: SuggesterFlags) -> CompositeSuggester {
         Box::new(ContiguousInsertionSuggester::new()),
         Box::new(CustomFusionSuggester::new()),
         Box::new(FusionSuggester::new()),
+        // LoweringSuggesterは他の最適化後にlowering
+        Box::new(LoweringSuggester::new()),
+        // 注意: KernelMergeSuggesterはここには含めない
+        // カーネルマージは別のフェーズ（optimize_graph_with_kernel_merge）で行う
     ];
-
-    // 並列化Suggesterを追加（フラグが有効な場合）
-    if flags.enable_parallel {
-        suggesters.push(Box::new(ParallelStrategyChanger::new()));
-    }
-
-    // SIMD Suggesterを追加（フラグが有効な場合）
-    if flags.enable_simd {
-        suggesters.push(Box::new(SimdSuggester::new()));
-    }
-
-    // LoweringSuggesterは他の最適化後にlowering
-    suggesters.push(Box::new(LoweringSuggester::new()));
-
-    // 注意: KernelMergeSuggesterはここには含めない
-    // カーネルマージは別のフェーズ（optimize_graph_with_kernel_merge）で行う
 
     CompositeSuggester::new(suggesters)
 }

@@ -162,9 +162,7 @@ impl GradFn for Conv1dBackward {
                 harp::graph::shape::View::contiguous(kernel.data.view.shape().to_vec());
             let kernel_contiguous = harp::graph::GraphNode::new(
                 kernel.data.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![kernel.data.clone()],
                 kernel_contiguous_view,
             );
@@ -187,9 +185,7 @@ impl GradFn for Conv1dBackward {
                 harp::graph::shape::View::contiguous(grad_output.data.view.shape().to_vec());
             let grad_out_contiguous = harp::graph::GraphNode::new(
                 grad_output.data.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![grad_output.data.clone()],
                 grad_out_contiguous_view,
             );
@@ -267,9 +263,7 @@ impl GradFn for Conv1dBackward {
                 harp::graph::shape::View::contiguous(grad_kernel_grouped.view.shape().to_vec());
             let grad_kernel_grouped_cont = harp::graph::GraphNode::new(
                 grad_kernel_grouped.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![grad_kernel_grouped.clone()],
                 grad_kernel_grouped_cont_view,
             );
@@ -435,9 +429,7 @@ impl GradFn for Conv2dBackward {
                 harp::graph::shape::View::contiguous(input_unfolded_raw.view.shape().to_vec());
             let input_unf_contiguous = harp::graph::GraphNode::new(
                 input_unfolded_raw.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![input_unfolded_raw.clone()],
                 input_unf_contiguous_view,
             );
@@ -456,9 +448,7 @@ impl GradFn for Conv2dBackward {
                 harp::graph::shape::View::contiguous(grad_output_shape.to_vec());
             let grad_out_contiguous = harp::graph::GraphNode::new(
                 grad_output.data.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![grad_output.data.clone()],
                 grad_out_contiguous_view,
             );
@@ -513,9 +503,7 @@ impl GradFn for Conv2dBackward {
                 harp::graph::shape::View::contiguous(kernel.data.view.shape().to_vec());
             let kernel_contiguous = harp::graph::GraphNode::new(
                 kernel.data.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![kernel.data.clone()],
                 kernel_contiguous_view,
             );
@@ -539,9 +527,7 @@ impl GradFn for Conv2dBackward {
                 harp::graph::shape::View::contiguous(grad_output.data.view.shape().to_vec());
             let grad_out_contiguous = harp::graph::GraphNode::new(
                 grad_output.data.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![grad_output.data.clone()],
                 grad_out_contiguous_view,
             );
@@ -615,9 +601,7 @@ impl GradFn for Conv2dBackward {
                 harp::graph::shape::View::contiguous(grad_out_reshaped.view.shape().to_vec());
             let grad_out_cont_for_reshape = harp::graph::GraphNode::new(
                 grad_out_reshaped.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![grad_out_reshaped.clone()],
                 grad_out_cont_for_reshape_view,
             );
@@ -628,9 +612,7 @@ impl GradFn for Conv2dBackward {
                 harp::graph::shape::View::contiguous(input_unfolded.view.shape().to_vec());
             let input_unf_contiguous = harp::graph::GraphNode::new(
                 input_unfolded.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![input_unfolded.clone()],
                 input_unf_contiguous_view,
             );
@@ -676,9 +658,7 @@ impl GradFn for Conv2dBackward {
                 harp::graph::shape::View::contiguous(grad_kernel_grouped.view.shape().to_vec());
             let grad_kernel_grouped_cont = harp::graph::GraphNode::new(
                 grad_kernel_grouped.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![grad_kernel_grouped.clone()],
                 grad_kernel_grouped_cont_view,
             );
@@ -840,9 +820,7 @@ impl GradFn for Conv3dBackward {
             harp::graph::shape::View::contiguous(input_unfolded_raw.view.shape().to_vec());
         let input_unf_contiguous = harp::graph::GraphNode::new(
             input_unfolded_raw.dtype.clone(),
-            harp::graph::GraphOp::Contiguous {
-                elementwise_strategies: None,
-            },
+            harp::graph::GraphOp::Contiguous {},
             vec![input_unfolded_raw.clone()],
             input_unf_contiguous_view,
         );
@@ -862,9 +840,7 @@ impl GradFn for Conv3dBackward {
             harp::graph::shape::View::contiguous(grad_output_shape.to_vec());
         let grad_out_contiguous = harp::graph::GraphNode::new(
             grad_output.data.dtype.clone(),
-            harp::graph::GraphOp::Contiguous {
-                elementwise_strategies: None,
-            },
+            harp::graph::GraphOp::Contiguous {},
             vec![grad_output.data.clone()],
             grad_out_contiguous_view,
         );
@@ -1003,9 +979,7 @@ impl GradFn for ConvTranspose2dBackward {
                 harp::graph::shape::View::contiguous(grad_out_unfolded.view.shape().to_vec());
             let grad_out_cont = harp::graph::GraphNode::new(
                 grad_out_unfolded.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![grad_out_unfolded.clone()],
                 grad_out_cont_view,
             );
@@ -1022,9 +996,7 @@ impl GradFn for ConvTranspose2dBackward {
                 harp::graph::shape::View::contiguous(input.data.view.shape().to_vec());
             let input_cont = harp::graph::GraphNode::new(
                 input.data.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![input.data.clone()],
                 input_cont_view,
             );
@@ -1073,9 +1045,7 @@ impl GradFn for ConvTranspose2dBackward {
                 harp::graph::shape::View::contiguous(kernel.data.view.shape().to_vec());
             let kernel_cont = harp::graph::GraphNode::new(
                 kernel.data.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![kernel.data.clone()],
                 kernel_cont_view,
             );
@@ -1097,9 +1067,7 @@ impl GradFn for ConvTranspose2dBackward {
                 harp::graph::shape::View::contiguous(kernel_permuted.view.shape().to_vec());
             let kernel_cont2 = harp::graph::GraphNode::new(
                 kernel_permuted.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![kernel_permuted.clone()],
                 kernel_cont2_view,
             );
@@ -1136,9 +1104,7 @@ impl GradFn for ConvTranspose2dBackward {
                 harp::graph::shape::View::contiguous(grad_out_unfolded.view.shape().to_vec());
             let grad_out_cont = harp::graph::GraphNode::new(
                 grad_out_unfolded.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![grad_out_unfolded.clone()],
                 grad_out_cont_view,
             );
@@ -1156,9 +1122,7 @@ impl GradFn for ConvTranspose2dBackward {
                 harp::graph::shape::View::contiguous(input.data.view.shape().to_vec());
             let input_cont = harp::graph::GraphNode::new(
                 input.data.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![input.data.clone()],
                 input_cont_view,
             );
@@ -1204,9 +1168,7 @@ impl GradFn for ConvTranspose2dBackward {
                 harp::graph::shape::View::contiguous(grad_kernel_grouped.view.shape().to_vec());
             let grad_kernel_cont = harp::graph::GraphNode::new(
                 grad_kernel_grouped.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![grad_kernel_grouped.clone()],
                 grad_kernel_cont_view,
             );
@@ -1290,9 +1252,7 @@ impl GradFn for ConvTranspose1dBackward {
                 harp::graph::shape::View::contiguous(grad_out_unfolded.view.shape().to_vec());
             let grad_out_cont = harp::graph::GraphNode::new(
                 grad_out_unfolded.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![grad_out_unfolded.clone()],
                 grad_out_cont_view,
             );
@@ -1308,9 +1268,7 @@ impl GradFn for ConvTranspose1dBackward {
                 harp::graph::shape::View::contiguous(input.data.view.shape().to_vec());
             let input_cont = harp::graph::GraphNode::new(
                 input.data.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![input.data.clone()],
                 input_cont_view,
             );
@@ -1346,9 +1304,7 @@ impl GradFn for ConvTranspose1dBackward {
                 harp::graph::shape::View::contiguous(kernel.data.view.shape().to_vec());
             let kernel_cont = harp::graph::GraphNode::new(
                 kernel.data.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![kernel.data.clone()],
                 kernel_cont_view,
             );
@@ -1369,9 +1325,7 @@ impl GradFn for ConvTranspose1dBackward {
                 harp::graph::shape::View::contiguous(kernel_permuted.view.shape().to_vec());
             let kernel_cont2 = harp::graph::GraphNode::new(
                 kernel_permuted.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![kernel_permuted.clone()],
                 kernel_cont2_view,
             );
@@ -1400,9 +1354,7 @@ impl GradFn for ConvTranspose1dBackward {
                 harp::graph::shape::View::contiguous(grad_out_unfolded.view.shape().to_vec());
             let grad_out_cont = harp::graph::GraphNode::new(
                 grad_out_unfolded.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![grad_out_unfolded.clone()],
                 grad_out_cont_view,
             );
@@ -1419,9 +1371,7 @@ impl GradFn for ConvTranspose1dBackward {
                 harp::graph::shape::View::contiguous(input.data.view.shape().to_vec());
             let input_cont = harp::graph::GraphNode::new(
                 input.data.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![input.data.clone()],
                 input_cont_view,
             );
@@ -1460,9 +1410,7 @@ impl GradFn for ConvTranspose1dBackward {
                 harp::graph::shape::View::contiguous(grad_kernel_grouped.view.shape().to_vec());
             let grad_kernel_cont = harp::graph::GraphNode::new(
                 grad_kernel_grouped.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![grad_kernel_grouped.clone()],
                 grad_kernel_cont_view,
             );
@@ -1555,9 +1503,7 @@ impl GradFn for ConvTranspose3dBackward {
                 harp::graph::shape::View::contiguous(grad_out_unfolded.view.shape().to_vec());
             let grad_out_cont = harp::graph::GraphNode::new(
                 grad_out_unfolded.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![grad_out_unfolded.clone()],
                 grad_out_cont_view,
             );
@@ -1575,9 +1521,7 @@ impl GradFn for ConvTranspose3dBackward {
                 harp::graph::shape::View::contiguous(input.data.view.shape().to_vec());
             let input_cont = harp::graph::GraphNode::new(
                 input.data.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![input.data.clone()],
                 input_cont_view,
             );
@@ -1629,9 +1573,7 @@ impl GradFn for ConvTranspose3dBackward {
                 harp::graph::shape::View::contiguous(kernel.data.view.shape().to_vec());
             let kernel_cont = harp::graph::GraphNode::new(
                 kernel.data.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![kernel.data.clone()],
                 kernel_cont_view,
             );
@@ -1654,9 +1596,7 @@ impl GradFn for ConvTranspose3dBackward {
                 harp::graph::shape::View::contiguous(kernel_permuted.view.shape().to_vec());
             let kernel_cont2 = harp::graph::GraphNode::new(
                 kernel_permuted.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![kernel_permuted.clone()],
                 kernel_cont2_view,
             );
@@ -1689,9 +1629,7 @@ impl GradFn for ConvTranspose3dBackward {
                 harp::graph::shape::View::contiguous(grad_out_unfolded.view.shape().to_vec());
             let grad_out_cont = harp::graph::GraphNode::new(
                 grad_out_unfolded.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![grad_out_unfolded.clone()],
                 grad_out_cont_view,
             );
@@ -1710,9 +1648,7 @@ impl GradFn for ConvTranspose3dBackward {
                 harp::graph::shape::View::contiguous(input.data.view.shape().to_vec());
             let input_cont = harp::graph::GraphNode::new(
                 input.data.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![input.data.clone()],
                 input_cont_view,
             );
@@ -1760,9 +1696,7 @@ impl GradFn for ConvTranspose3dBackward {
                 harp::graph::shape::View::contiguous(grad_kernel_grouped.view.shape().to_vec());
             let grad_kernel_cont = harp::graph::GraphNode::new(
                 grad_kernel_grouped.dtype.clone(),
-                harp::graph::GraphOp::Contiguous {
-                    elementwise_strategies: None,
-                },
+                harp::graph::GraphOp::Contiguous {},
                 vec![grad_kernel_grouped.clone()],
                 grad_kernel_cont_view,
             );

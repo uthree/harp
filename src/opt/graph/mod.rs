@@ -60,6 +60,5 @@ pub use optimizer::BeamSearchGraphOptimizer;
 pub use suggesters::{
     CompositeSuggester, ConstPropagationSuggester, ContiguousInsertionSuggester,
     CustomFusionSuggester, FusionSuggester, KernelMergeSuggester, LoweringSuggester,
-    ParallelStrategyChanger, SimdSuggester, TilingSuggester, ViewInsertionSuggester,
-    ViewMergeSuggester,
+    TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
 };

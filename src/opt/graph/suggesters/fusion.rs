@@ -335,12 +335,11 @@ impl FusionSuggester {
                 return node.clone();
             }
 
-            GraphNode::with_elementwise_strategies(
+            GraphNode::new(
                 node.dtype.clone(),
                 node.op.clone(),
                 new_src,
                 node.view.clone(),
-                node.elementwise_strategies.clone(),
             )
         }
 

@@ -1,4 +1,4 @@
-use crate::graph::{ElementwiseOp, ElementwiseStrategy, Graph, GraphNode, GraphOp};
+use crate::graph::{ElementwiseOp, Graph, GraphNode, GraphOp};
 use crate::opt::ast::CostEstimator as AstCostEstimator;
 use crate::opt::cost_utils::{log_sum_exp, log_sum_exp_iter};
 use crate::opt::graph::GraphCostEstimator;
@@ -86,7 +86,7 @@ impl SimpleCostEstimator {
                 // View変更は実行時コストゼロ（メタデータのみの変更）
                 f32::NEG_INFINITY // log(0)
             }
-            GraphOp::Contiguous { .. } => {
+            GraphOp::Contiguous => {
                 // メモリコピーのコスト = 要素数 × (read + write) × MEMORY_ACCESS_COST
                 // 対数スケール: log(num_elements * 2 * cost) = log(num_elements) + log(2 * cost)
                 let num_elements = self.compute_num_elements(node);
@@ -191,14 +191,14 @@ impl SimpleCostEstimator {
                 let num_elements = self.compute_num_elements(node);
                 num_elements.ln() + (3.0 * MEMORY_ACCESS_COST).ln() // 読み込み + 書き込み + 加算
             }
-            GraphOp::Rand { .. } => {
+            GraphOp::Rand => {
                 // 乱数初期化: 各要素に乱数生成 + 書き込み
                 // 乱数生成のコストは比較的高い
                 let num_elements = self.compute_num_elements(node);
                 let log_rand_cost = 10.0_f32.ln(); // 乱数生成は比較的高コスト
                 num_elements.ln() + log_sum_exp(log_rand_cost, MEMORY_ACCESS_COST.ln())
             }
-            GraphOp::Arange { .. } => {
+            GraphOp::Arange => {
                 // 連番初期化: 各要素にインデックス値を書き込み
                 // 非常に軽量（書き込みのみ）
                 let num_elements = self.compute_num_elements(node);
@@ -210,13 +210,13 @@ impl SimpleCostEstimator {
                 let num_elements = self.compute_num_elements(node);
                 num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln()
             }
-            GraphOp::Real { .. } | GraphOp::Imag { .. } => {
+            GraphOp::Real | GraphOp::Imag => {
                 // 複素数から実部/虚部を抽出
                 // 読み込み + 書き込み（stride 2でのアクセス）
                 let num_elements = self.compute_num_elements(node);
                 num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln()
             }
-            GraphOp::ComplexFromParts { .. } => {
+            GraphOp::ComplexFromParts => {
                 // 実部と虚部から複素数を構築
                 // 2つの入力を読み込み + インターリーブして書き込み
                 let num_elements = self.compute_num_elements(node);
@@ -240,50 +240,6 @@ impl SimpleCostEstimator {
                 num_elements.ln() + log_sum_exp(log_ops_cost, log_memory_cost) - 0.01
             }
         }
-    }
-
-    /// 並列化戦略によるコスト係数を取得
-    fn strategy_cost_factor(&self, strategy: &ElementwiseStrategy) -> f32 {
-        // ベースとなる並列化レベルの係数
-        let base_factor = match strategy {
-            ElementwiseStrategy::Sequential { .. } => 1.0,
-            ElementwiseStrategy::Thread { .. } => 0.3, // スレッド並列化で3倍高速化を想定
-            ElementwiseStrategy::ThreadGroup { .. } => 0.1, // GPU並列化で10倍高速化を想定
-        };
-
-        // SIMD幅とアンローリング係数を取得
-        let (simd_width, unroll_factor) = match strategy {
-            ElementwiseStrategy::Sequential {
-                simd_width,
-                unroll_factor,
-            }
-            | ElementwiseStrategy::Thread {
-                simd_width,
-                unroll_factor,
-            }
-            | ElementwiseStrategy::ThreadGroup {
-                simd_width,
-                unroll_factor,
-            } => (*simd_width, *unroll_factor),
-        };
-
-        // SIMD効果: simd_width倍の並列化（ただし効率は85%と仮定）
-        let simd_factor = if simd_width > 1 {
-            1.0 / (simd_width as f32 * 0.85)
-        } else {
-            1.0
-        };
-
-        // アンローリング効果: ループオーバーヘッド削減
-        // unroll_factor倍にループを展開すると、ループ制御コストが1/unroll_factor
-        // ただし効果は小さいので、5%程度の改善と仮定
-        let unroll_effect = if unroll_factor > 1 {
-            1.0 - (0.05 * (unroll_factor as f32).log2())
-        } else {
-            1.0
-        };
-
-        base_factor * simd_factor * unroll_effect
     }
 
     /// AstNode式の演算コストを推定（対数スケール）
@@ -403,23 +359,7 @@ impl GraphCostEstimator for SimpleCostEstimator {
 
         for node in &nodes {
             let log_base_cost = self.node_base_cost(node);
-
-            // 並列化戦略によるコスト削減を適用
-            let log_strategy_factor = if !node.elementwise_strategies.is_empty() {
-                // 各軸の戦略の平均を取る
-                let sum: f32 = node
-                    .elementwise_strategies
-                    .iter()
-                    .map(|s| self.strategy_cost_factor(s))
-                    .sum();
-                let avg = sum / node.elementwise_strategies.len() as f32;
-                avg.ln()
-            } else {
-                0.0 // log(1) = 0
-            };
-
-            // 対数スケールでの乗算: log(base_cost * strategy_factor) = log_base_cost + log_strategy_factor
-            log_costs.push(log_base_cost + log_strategy_factor);
+            log_costs.push(log_base_cost);
 
             // カーネルとしてカウントするノード
             match &node.op {
@@ -435,16 +375,16 @@ impl GraphCostEstimator for SimpleCostEstimator {
                 | GraphOp::FusedElementwise { .. }
                 | GraphOp::Reduce { .. }
                 | GraphOp::Cumulative { .. }
-                | GraphOp::Contiguous { .. }
+                | GraphOp::Contiguous
                 | GraphOp::Pad { .. }
                 | GraphOp::Slice { .. }
                 | GraphOp::Concat { .. }
-                | GraphOp::Rand { .. }
-                | GraphOp::Arange { .. }
+                | GraphOp::Rand
+                | GraphOp::Arange
                 | GraphOp::Cast { .. }
-                | GraphOp::Real { .. }
-                | GraphOp::Imag { .. }
-                | GraphOp::ComplexFromParts { .. } => {
+                | GraphOp::Real
+                | GraphOp::Imag
+                | GraphOp::ComplexFromParts => {
                     kernel_count += 1;
                 }
                 // Elementwiseはfusion対象なのでカウントしない

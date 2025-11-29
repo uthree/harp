@@ -92,7 +92,7 @@ impl LoweringSuggester {
             GraphOp::Elementwise { op, .. } => self.build_elementwise_function(node, op),
             GraphOp::Reduce { op, axis, .. } => self.build_reduce_function(node, op, *axis),
             GraphOp::Cumulative { op, axis, .. } => self.build_cumulative_function(node, op, *axis),
-            GraphOp::Contiguous { .. } => self.build_contiguous_function(node),
+            GraphOp::Contiguous => self.build_contiguous_function(node),
             GraphOp::FusedElementwise { expr, .. } => {
                 self.build_fused_elementwise_function(node, expr)
             }
@@ -111,12 +111,12 @@ impl LoweringSuggester {
             GraphOp::Pad { padding, value } => self.build_pad_function(node, padding, *value),
             GraphOp::Slice { ranges } => self.build_slice_function(node, ranges),
             GraphOp::Concat { axis } => self.build_concat_function(node, *axis),
-            GraphOp::Rand { .. } => self.build_rand_function(node),
-            GraphOp::Arange { .. } => self.build_arange_function(node),
+            GraphOp::Rand => self.build_rand_function(node),
+            GraphOp::Arange => self.build_arange_function(node),
             GraphOp::Cast { target_dtype, .. } => self.build_cast_function(node, target_dtype),
-            GraphOp::Real { .. } => self.build_real_function(node),
-            GraphOp::Imag { .. } => self.build_imag_function(node),
-            GraphOp::ComplexFromParts { .. } => self.build_complex_from_parts_function(node),
+            GraphOp::Real => self.build_real_function(node),
+            GraphOp::Imag => self.build_imag_function(node),
+            GraphOp::ComplexFromParts => self.build_complex_from_parts_function(node),
             GraphOp::Fold { .. } => {
                 // Foldは複雑なので後で実装
                 return None;
@@ -129,12 +129,11 @@ impl LoweringSuggester {
         }?;
 
         // Customノードを作成
-        Some(GraphNode::with_elementwise_strategies(
+        Some(GraphNode::new(
             node.dtype.clone(),
             GraphOp::Custom { ast: function },
             node.src.clone(),
             node.view.clone(),
-            node.elementwise_strategies.clone(),
         ))
     }
 
@@ -185,12 +184,11 @@ impl LoweringSuggester {
                 return node.clone();
             }
 
-            GraphNode::with_elementwise_strategies(
+            GraphNode::new(
                 node.dtype.clone(),
                 node.op.clone(),
                 new_src,
                 node.view.clone(),
-                node.elementwise_strategies.clone(),
             )
         }
 

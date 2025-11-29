@@ -12,8 +12,7 @@ use crate::opt::graph::{
     BeamSearchGraphOptimizer, CompositeSuggester, ConstPropagationSuggester,
     ContiguousInsertionSuggester, FusionSuggester, GraphCostEstimator, KernelMergeCostEstimator,
     KernelMergeSuggester, LoweringSuggester, OptimizationHistory as GraphOptimizationHistory,
-    ParallelStrategyChanger, SimdSuggester, SimpleCostEstimator, TilingSuggester,
-    ViewInsertionSuggester, ViewMergeSuggester,
+    SimpleCostEstimator, TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
 };
 use std::collections::HashMap;
 
@@ -298,8 +297,6 @@ where
             Box::new(TilingSuggester::with_default_tile_sizes()),
             Box::new(ContiguousInsertionSuggester::new()),
             Box::new(FusionSuggester::new()),
-            Box::new(ParallelStrategyChanger::new()),
-            Box::new(SimdSuggester::new()),
             // LoweringSuggesterは最後に追加（他の最適化後にlowering）
             Box::new(LoweringSuggester::new()),
         ])

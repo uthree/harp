@@ -11,16 +11,6 @@
 ### GraphOpの設計
 GraphOpは最適化の段階で最終的に融合されるため、**最適化よりも演算子の種類を減らすこと**を重視しています。例えば、減算は`Add`と`Neg`を組み合わせて表現します。
 
-並列化戦略（`axis_strategies`）は各GraphOpバリアントの一部として保持され、演算の種類と並列化戦略が密接に関連付けられます。
-
-### 並列化戦略（AxisStrategy）
-各軸の並列化方法を制御します：
-- **Sequential**: 逐次実行
-- **Thread**: スレッドレベル並列化
-- **ThreadGroup**: GPU向けスレッドグループ/ブロック並列化
-
-各戦略は`simd_width`パラメータを持ち、SIMD化の有無と幅を制御します（`1`でSIMD化なし、`>=2`でSIMD化）。これにより並列化とSIMDベクトル化を独立制御できます。
-
 ### Cumulative演算の並列化
 Cumulative演算（累積和、累積積など）は逐次依存性が高い演算ですが、**Parallel Scan（Prefix Sum）アルゴリズム**を用いることで効率的に並列化できます。
 
@@ -366,7 +356,7 @@ Custom { ast: ... } -> result  // W("0") + W("1") を累積するReduce関数
 - `mod.rs`: Graph、GraphNode、DType等の基本データ構造
 - `ops.rs`: GraphOp定義と基本的な演算（Elementwise、Reduce、Cumulative等）
 - `node_view_ops.rs`: GraphNodeのView操作メソッド（permute、unsqueeze、squeeze等）
-- `strategy.rs`: 並列化戦略の定義（ElementwiseStrategy、ReduceStrategy、CumulativeStrategy）
+- `strategy.rs`: 並列化戦略の定義（ReduceStrategy、CumulativeStrategy）
 - `visualization.rs`: DOT形式でのグラフ可視化
 
 ### 高レベル演算
@@ -394,7 +384,7 @@ Custom { ast: ... } -> result  // W("0") + W("1") を累積するReduce関数
 - View操作（permute、unsqueeze、squeeze、flip、expand、reshape）
 - View unfold操作（unfold1d、unfold2d、unfold3d）- スライディングウィンドウでの畳み込み用
 - Shape/DType推論
-- 並列化戦略の定義（ElementwiseStrategy、ReduceStrategy、CumulativeStrategy）
+- 並列化戦略の定義（ReduceStrategy、CumulativeStrategy）
 - 融合演算（FusedElementwise、FusedElementwiseReduce、FusedElementwiseCumulative、FusedReduce）
 - カスタム演算（Custom）- 任意のASTノードを埋め込むことでユーザー定義演算を表現
 - 高レベル演算（square、powi、mean、variance、数学関数）

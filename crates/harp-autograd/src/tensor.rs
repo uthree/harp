@@ -395,7 +395,6 @@ impl Tensor {
             dtype,
             GraphOp::Elementwise {
                 op: ElementwiseOp::Log2,
-                elementwise_strategies: None,
             },
             vec![self.data.clone()],
             view,
@@ -411,7 +410,6 @@ impl Tensor {
             dtype,
             GraphOp::Elementwise {
                 op: ElementwiseOp::Exp2,
-                elementwise_strategies: None,
             },
             vec![self.data.clone()],
             view,
@@ -427,7 +425,6 @@ impl Tensor {
             dtype,
             GraphOp::Elementwise {
                 op: ElementwiseOp::Sin,
-                elementwise_strategies: None,
             },
             vec![self.data.clone()],
             view,
@@ -443,7 +440,6 @@ impl Tensor {
             dtype,
             GraphOp::Elementwise {
                 op: ElementwiseOp::Sqrt,
-                elementwise_strategies: None,
             },
             vec![self.data.clone()],
             view,

@@ -75,7 +75,7 @@ impl OpenCLPipeline {
     ///
     /// グラフ最適化は常に有効（LoweringSuggesterによるCustomノード変換が必須）
     fn optimize_graph_internal(&mut self, graph: Graph) -> Graph {
-        let flags = SuggesterFlags::all(); // 並列化・SIMD有効
+        let flags = SuggesterFlags::new(); // 並列化・SIMD有効
         let (optimized, history) = optimize_graph_with_history(
             graph,
             flags,
@@ -126,7 +126,7 @@ impl Pipeline for OpenCLPipeline {
 
     fn optimize_graph(&self, graph: Graph) -> Graph {
         // 並列化・SIMD有効のSuggesterを使用（グラフ最適化は常に有効）
-        let flags = SuggesterFlags::all();
+        let flags = SuggesterFlags::new();
         let (optimized, _history) = optimize_graph_with_history(
             graph,
             flags,

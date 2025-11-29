@@ -293,10 +293,7 @@ impl ConstPropagationSuggester {
         // FusedElementwiseノードを作成
         GraphNode::new(
             original_dtype,
-            GraphOp::FusedElementwise {
-                expr,
-                elementwise_strategies: None,
-            },
+            GraphOp::FusedElementwise { expr },
             non_const_inputs,
             original_view,
         )
@@ -350,12 +347,11 @@ impl ConstPropagationSuggester {
                 return node.clone();
             }
 
-            GraphNode::with_elementwise_strategies(
+            GraphNode::new(
                 node.dtype.clone(),
                 node.op.clone(),
                 new_src,
                 node.view.clone(),
-                node.elementwise_strategies.clone(),
             )
         }
 

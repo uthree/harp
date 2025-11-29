@@ -104,19 +104,6 @@ Graphを最適化。`optimize(&self, graph: Graph) -> Graph`
 - 入力ノードが非contiguousなView（転置、反転など）を持つ
 - ノード自体がViewまたはContiguousノードでない
 
-### ParallelStrategyChanger
-並列化戦略を変更した候補を生成。
-
-**戦略:**
-- Sequential（逐次実行）
-- Thread（スレッド並列）
-- ThreadGroup（スレッドグループ並列、GPU向け）
-
-**バックエンド実装状況:**
-- C backend: 並列化未対応（Sequential戦略のみ）
-- OpenCL backend: Thread/ThreadGroup戦略のコード生成は未実装（TODO）
-- Metal backend: Thread/ThreadGroup戦略をサポート
-
 ### LoweringSuggester
 GraphOpをCustomノード（`AstNode::Function`を保持）に変換する。グラフ最適化の必須コンポーネント。
 

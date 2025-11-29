@@ -66,12 +66,11 @@ impl ViewInsertionSuggester {
         let node_permuted_view = node.view.clone().permute(permutation.clone());
 
         // 転置された入力で新しいノードを作成（ループ順序が変わる）
-        let permuted_node = GraphNode::with_elementwise_strategies(
+        let permuted_node = GraphNode::new(
             node.dtype.clone(),
             node.op.clone(),
             new_src,
             node_permuted_view,
-            node.elementwise_strategies.clone(),
         );
 
         // 出力を逆転置（Viewノード挿入、ゼロコスト）
@@ -133,12 +132,11 @@ impl ViewInsertionSuggester {
                 return node.clone();
             }
 
-            GraphNode::with_elementwise_strategies(
+            GraphNode::new(
                 node.dtype.clone(),
                 node.op.clone(),
                 new_src,
                 node.view.clone(),
-                node.elementwise_strategies.clone(),
             )
         }
 

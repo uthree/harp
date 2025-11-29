@@ -76,7 +76,7 @@ impl Default for Lowerer {
 fn optimize_graph_for_lowering(graph: Graph) -> Graph {
     use crate::backend::pipeline::{SuggesterFlags, optimize_graph_two_phase};
 
-    let flags = SuggesterFlags::single_threaded();
+    let flags = SuggesterFlags::new();
     let cost_estimator = SimpleCostEstimator::new();
 
     // 2段階最適化を実行

@@ -15,7 +15,8 @@ pub mod visualization;
 // Re-export commonly used types
 pub use ops::{CumulativeOp, ElementwiseOp, GraphOp, ReduceOp, custom_placeholders};
 pub use shape::{Expr, View};
-pub use strategy::{CumulativeStrategy, ElementwiseStrategy, ReduceStrategy};
+// Note: ElementwiseStrategy was removed - parallelization is now handled at AST level
+pub use strategy::{CumulativeStrategy, ReduceStrategy};
 
 #[derive(Debug, Clone)]
 pub struct Graph {
@@ -30,7 +31,6 @@ pub struct GraphNodeData {
     pub op: GraphOp,
     pub src: Vec<GraphNode>, // 入力ノード
     pub view: View,
-    pub elementwise_strategies: Vec<ElementwiseStrategy>, // Element-wise演算の各軸の並列化・最適化戦略
 }
 
 #[derive(Debug, Clone)]
@@ -145,42 +145,17 @@ impl Graph {
 }
 impl GraphNode {
     pub fn new(dtype: DType, op: GraphOp, src: Vec<GraphNode>, view: View) -> Self {
-        let ndim = view.ndim();
-        // デフォルトは全軸Sequential（simd_width=1, unroll_factor=1）
-        let elementwise_strategies = vec![ElementwiseStrategy::sequential(); ndim];
         Self(Rc::new(GraphNodeData {
             dtype,
             op,
             src,
             view,
-            elementwise_strategies,
         }))
     }
 
     /// Rcから直接GraphNodeを作成（最適化時に使用）
     pub fn from_rc(rc: Rc<GraphNodeData>) -> Self {
         Self(rc)
-    }
-
-    pub fn with_elementwise_strategies(
-        dtype: DType,
-        op: GraphOp,
-        src: Vec<GraphNode>,
-        view: View,
-        elementwise_strategies: Vec<ElementwiseStrategy>,
-    ) -> Self {
-        assert_eq!(
-            view.ndim(),
-            elementwise_strategies.len(),
-            "elementwise_strategies length must match view ndim"
-        );
-        Self(Rc::new(GraphNodeData {
-            dtype,
-            op,
-            src,
-            view,
-            elementwise_strategies,
-        }))
     }
 
     /// ノードのポインタを取得（トポロジカルソートなどで識別に使用）
@@ -255,14 +230,7 @@ impl GraphNode {
     pub fn rand<E: Into<shape::Expr> + Clone, I: IntoIterator<Item = E>>(shape: I) -> Self {
         let shape_exprs: Vec<shape::Expr> = shape.into_iter().map(|e| e.into()).collect();
         let view = View::contiguous(shape_exprs);
-        Self::new(
-            DType::F32,
-            GraphOp::Rand {
-                elementwise_strategies: None,
-            },
-            vec![],
-            view,
-        )
+        Self::new(DType::F32, GraphOp::Rand {}, vec![], view)
     }
 
     /// 連番テンソル `[0, 1, 2, ..., size-1]` を生成（I32型）
@@ -286,14 +254,7 @@ impl GraphNode {
     pub fn arange<E: Into<shape::Expr>>(size: E) -> Self {
         let size_expr: shape::Expr = size.into();
         let view = View::contiguous(vec![size_expr]);
-        Self::new(
-            DType::I32,
-            GraphOp::Arange {
-                elementwise_strategies: None,
-            },
-            vec![],
-            view,
-        )
+        Self::new(DType::I32, GraphOp::Arange {}, vec![], view)
     }
 
     /// 型変換（キャスト）
@@ -316,10 +277,7 @@ impl GraphNode {
         }
         Self::new(
             target_dtype.clone(),
-            GraphOp::Cast {
-                target_dtype,
-                elementwise_strategies: None,
-            },
+            GraphOp::Cast { target_dtype },
             vec![self.clone()],
             self.view.clone(),
         )
@@ -347,9 +305,7 @@ impl GraphNode {
         );
         Self::new(
             DType::F32,
-            GraphOp::Real {
-                elementwise_strategies: None,
-            },
+            GraphOp::Real {},
             vec![self.clone()],
             self.view.clone(),
         )
@@ -377,9 +333,7 @@ impl GraphNode {
         );
         Self::new(
             DType::F32,
-            GraphOp::Imag {
-                elementwise_strategies: None,
-            },
+            GraphOp::Imag {},
             vec![self.clone()],
             self.view.clone(),
         )
@@ -427,9 +381,7 @@ impl GraphNode {
         );
         Self::new(
             DType::Complex,
-            GraphOp::ComplexFromParts {
-                elementwise_strategies: None,
-            },
+            GraphOp::ComplexFromParts {},
             vec![real.clone(), imag],
             real.view.clone(),
         )
@@ -494,7 +446,6 @@ impl GraphNode {
             dtype,
             ops::GraphOp::Elementwise {
                 op: ops::ElementwiseOp::Recip,
-                elementwise_strategies: None,
             },
             vec![self],
             view,
@@ -509,7 +460,6 @@ impl GraphNode {
             dtype,
             ops::GraphOp::Elementwise {
                 op: ops::ElementwiseOp::Max,
-                elementwise_strategies: None,
             },
             vec![self, other],
             view,

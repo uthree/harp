@@ -62,9 +62,7 @@ impl ContiguousInsertionSuggester {
         let contiguous_view = View::contiguous(input.view.shape().to_vec());
         let contiguous_node = GraphNode::new(
             input.dtype.clone(),
-            GraphOp::Contiguous {
-                elementwise_strategies: None,
-            },
+            GraphOp::Contiguous {},
             vec![input.clone()],
             contiguous_view,
         );
@@ -73,12 +71,11 @@ impl ContiguousInsertionSuggester {
         let mut new_src = node.src.clone();
         new_src[input_index] = contiguous_node;
 
-        GraphNode::with_elementwise_strategies(
+        GraphNode::new(
             node.dtype.clone(),
             node.op.clone(),
             new_src,
             node.view.clone(),
-            node.elementwise_strategies.clone(),
         )
     }
 
@@ -130,12 +127,11 @@ impl ContiguousInsertionSuggester {
                 return node.clone();
             }
 
-            GraphNode::with_elementwise_strategies(
+            GraphNode::new(
                 node.dtype.clone(),
                 node.op.clone(),
                 new_src,
                 node.view.clone(),
-                node.elementwise_strategies.clone(),
             )
         }
 
@@ -187,7 +183,7 @@ impl GraphSuggester for ContiguousInsertionSuggester {
             // ViewノードとContiguousノードはスキップ
             // （Viewノードの前にContiguousを入れても意味がない、
             //  Contiguousノードの前にContiguousを入れても冗長）
-            if matches!(node.op, GraphOp::View(_) | GraphOp::Contiguous { .. }) {
+            if matches!(node.op, GraphOp::View(_) | GraphOp::Contiguous) {
                 continue;
             }
 

@@ -29,7 +29,7 @@ pub mod lowerer;
 pub mod opt;
 
 // Re-export commonly used types from graph module
-pub use graph::{CumulativeStrategy, DType, ElementwiseStrategy, Graph, GraphNode, ReduceStrategy};
+pub use graph::{CumulativeStrategy, DType, Graph, GraphNode, ReduceStrategy};
 
 // Re-export backend traits
 pub use backend::{Buffer, Compiler, Kernel, Renderer};
@@ -50,8 +50,7 @@ pub use lowerer::Lowerer;
 pub mod prelude {
     // Graph types
     pub use crate::graph::{
-        CumulativeStrategy, DType, ElementwiseStrategy, Graph, GraphNode, GraphOp, ReduceOp,
-        ReduceStrategy,
+        CumulativeStrategy, DType, Graph, GraphNode, GraphOp, ReduceOp, ReduceStrategy,
     };
 
     // Graph operations (helper functions)

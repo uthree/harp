@@ -1,4 +1,4 @@
-use crate::graph::{ElementwiseStrategy, Graph, GraphNode, GraphNodeData, GraphOp};
+use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
 use crate::opt::graph::GraphSuggester;
 use std::collections::{HashMap, HashSet};
 
@@ -116,7 +116,6 @@ impl ViewMergeSuggester {
         }
 
         // 入力ノードのviewをViewノードのviewで置き換えた新しいノードを作成
-        // elementwise_strategiesの長さを新しいviewのndimに合わせて調整
         let new_ndim = target_view.ndim();
         let old_ndim = input_node.view.ndim();
 
@@ -127,34 +126,16 @@ impl ViewMergeSuggester {
             return None;
         }
 
-        // スカラー（ndim=0）の場合や、elementwise_strategiesが空の場合はマージをスキップ
-        // （これらは特殊なケースで、elementwise演算の対象外）
-        if new_ndim == 0 || input_node.elementwise_strategies.is_empty() {
+        // スカラー（ndim=0）の場合はマージをスキップ
+        if new_ndim == 0 {
             return None;
         }
 
-        let old_strategies = &input_node.elementwise_strategies;
-        let mut new_strategies = Vec::new();
-
-        for i in 0..new_ndim {
-            if i < old_strategies.len() {
-                // 既存のstrategyを使用
-                new_strategies.push(old_strategies[i].clone());
-            } else {
-                // デフォルトのstrategyを追加（Sequential, simd_width=1, unroll_factor=1）
-                new_strategies.push(ElementwiseStrategy::Sequential {
-                    simd_width: 1,
-                    unroll_factor: 1,
-                });
-            }
-        }
-
-        let new_input = GraphNode::with_elementwise_strategies(
+        let new_input = GraphNode::new(
             input_node.dtype.clone(),
             input_node.op.clone(),
             input_node.src.clone(),
             target_view, // Viewノードのviewを使用
-            new_strategies,
         );
 
         Some(new_input)
@@ -168,30 +149,12 @@ impl ViewMergeSuggester {
         input_node: &GraphNode,
         target_view: crate::graph::shape::View,
     ) -> Option<GraphNode> {
-        let new_ndim = target_view.ndim();
-
-        // elementwise_strategiesを新しい次元数に合わせて調整
-        let mut new_strategies = Vec::new();
-        let old_strategies = &input_node.elementwise_strategies;
-
-        for i in 0..new_ndim {
-            if i < old_strategies.len() {
-                new_strategies.push(old_strategies[i].clone());
-            } else {
-                new_strategies.push(ElementwiseStrategy::Sequential {
-                    simd_width: 1,
-                    unroll_factor: 1,
-                });
-            }
-        }
-
         // Inputノードのviewを新しいviewで置き換えた新しいノードを作成
-        let new_input = GraphNode::with_elementwise_strategies(
+        let new_input = GraphNode::new(
             input_node.dtype.clone(),
             GraphOp::Input,
             vec![], // Inputノードはsrcを持たない
             target_view,
-            new_strategies,
         );
 
         Some(new_input)
@@ -246,12 +209,11 @@ impl ViewMergeSuggester {
                 return node.clone();
             }
 
-            GraphNode::with_elementwise_strategies(
+            GraphNode::new(
                 node.dtype.clone(),
                 node.op.clone(),
                 new_src,
                 node.view.clone(),
-                node.elementwise_strategies.clone(),
             )
         }
 
@@ -336,12 +298,11 @@ impl ViewMergeSuggester {
                 return node.clone();
             }
 
-            GraphNode::with_elementwise_strategies(
+            GraphNode::new(
                 node.dtype.clone(),
                 node.op.clone(),
                 new_src,
                 node.view.clone(),
-                node.elementwise_strategies.clone(),
             )
         }
 

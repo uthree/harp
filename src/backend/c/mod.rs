@@ -74,7 +74,7 @@ impl CPipeline {
     ///
     /// グラフ最適化は常に有効（LoweringSuggesterによるCustomノード変換が必須）
     fn optimize_graph_internal(&mut self, graph: Graph) -> Graph {
-        let flags = SuggesterFlags::single_threaded(); // 並列化・SIMD無効
+        let flags = SuggesterFlags::new(); // 並列化・SIMD無効
         let (optimized, history) = optimize_graph_with_history(
             graph,
             flags,
@@ -125,7 +125,7 @@ impl Pipeline for CPipeline {
 
     fn optimize_graph(&self, graph: Graph) -> Graph {
         // 並列化・SIMD無効のSuggesterを使用（グラフ最適化は常に有効）
-        let flags = SuggesterFlags::single_threaded();
+        let flags = SuggesterFlags::new();
         let (optimized, _history) = optimize_graph_with_history(
             graph,
             flags,
