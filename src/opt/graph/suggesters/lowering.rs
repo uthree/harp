@@ -1154,10 +1154,9 @@ mod tests {
     }
 
     #[test]
-    fn test_beam_search_with_lowering_and_custom_fusion() {
+    fn test_beam_search_with_fusion_and_lowering() {
         use crate::opt::graph::{
-            BeamSearchGraphOptimizer, CompositeSuggester, CustomFusionSuggester,
-            SimpleCostEstimator,
+            BeamSearchGraphOptimizer, CompositeSuggester, FusionSuggester, SimpleCostEstimator,
         };
 
         // (a + b) * c + d というElementwiseチェーンを作成
@@ -1172,9 +1171,9 @@ mod tests {
         let result = mul + d;
         graph.output("result", result);
 
-        // CustomFusionとLoweringの両方を含むSuggester
+        // FusionとLoweringの両方を含むSuggester
         let suggesters: Vec<Box<dyn crate::opt::graph::GraphSuggester>> = vec![
-            Box::new(CustomFusionSuggester::new()),
+            Box::new(FusionSuggester::new()),
             Box::new(LoweringSuggester::new()),
         ];
         let composite = CompositeSuggester::new(suggesters);

@@ -860,7 +860,7 @@ mod tests {
         println!("Custom(Function): {}", custom_function_count);
         println!("Custom(Program): {}", custom_program_count);
 
-        // 3つのElementwise演算があり、CustomFusionSuggesterで全てfusionされて
+        // 3つのElementwise演算があり、FusionSuggesterで全てfusionされて
         // 1つのCustom(Function)になるはず
         // この場合、KernelMergeSuggesterは複数のCustomがないためトリガーされない
         assert!(
@@ -944,8 +944,8 @@ mod tests {
         );
 
         // オプティマイザーはコストが最も低いパスを選択する
-        // CustomFusionSuggesterで全て融合できる場合は1つのCustom(Function)になる
-        // KernelMergeSuggesterはCustomFusionで融合できないケースで有効
+        // FusionSuggesterで全て融合できる場合は1つのCustom(Function)になる
+        // KernelMergeSuggesterはFusionで融合できないケースで有効
         // いずれの場合も、最終的には少なくとも1つのCustomノードが生成される
         assert!(
             custom_function_count >= 1 || custom_program_count >= 1,
@@ -966,7 +966,7 @@ mod tests {
         let d = graph.input("d", DType::F32, vec![10]);
 
         // 2つの独立したCustomノードを作成
-        // これらはCustomFusionSuggesterでは融合できない（依存関係がない）
+        // これらはFusionSuggesterでは融合できない（依存関係がない）
         let custom1 = a.custom_elementwise_binary(b, wildcard("0") + wildcard("1"));
         let custom2 = c.custom_elementwise_binary(d, wildcard("0") * wildcard("1"));
 

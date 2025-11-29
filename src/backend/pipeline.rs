@@ -12,9 +12,9 @@ use crate::opt::ast::{
 };
 use crate::opt::graph::{
     AstOptimizationSuggester, BeamSearchGraphOptimizer, CompositeSuggester,
-    ConstPropagationSuggester, ContiguousInsertionSuggester, CustomFusionSuggester,
-    FusionSuggester, GraphCostEstimator, KernelMergeCostEstimator, KernelMergeSuggester,
-    LoweringSuggester, TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
+    ConstPropagationSuggester, ContiguousInsertionSuggester, FusionSuggester, GraphCostEstimator,
+    KernelMergeCostEstimator, KernelMergeSuggester, LoweringSuggester, TilingSuggester,
+    ViewInsertionSuggester, ViewMergeSuggester,
 };
 
 /// Suggesterの種類を指定するフラグ
@@ -93,7 +93,6 @@ pub fn create_graph_suggester(flags: SuggesterFlags) -> CompositeSuggester {
         Box::new(ConstPropagationSuggester::new()),
         Box::new(TilingSuggester::with_default_tile_sizes()),
         Box::new(ContiguousInsertionSuggester::new()),
-        Box::new(CustomFusionSuggester::new()),
         Box::new(FusionSuggester::new()),
         // LoweringSuggesterは他の最適化後にlowering
         Box::new(LoweringSuggester::new()),

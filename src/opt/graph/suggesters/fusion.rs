@@ -124,6 +124,57 @@ impl FusionSuggester {
         }
     }
 
+    /// AstNode内のWildcardインデックスを再マッピング
+    fn remap_wildcards(
+        expr: &AstNode,
+        old_to_new: &HashMap<usize, usize>,
+    ) -> AstNode {
+        use crate::ast::AstNode::*;
+        match expr {
+            Wildcard(name) => {
+                if let Ok(old_idx) = name.parse::<usize>() {
+                    if let Some(&new_idx) = old_to_new.get(&old_idx) {
+                        wildcard(new_idx.to_string())
+                    } else {
+                        expr.clone()
+                    }
+                } else {
+                    expr.clone()
+                }
+            }
+            // Binary operations
+            Add(a, b) => Add(
+                Box::new(Self::remap_wildcards(a, old_to_new)),
+                Box::new(Self::remap_wildcards(b, old_to_new)),
+            ),
+            Mul(a, b) => Mul(
+                Box::new(Self::remap_wildcards(a, old_to_new)),
+                Box::new(Self::remap_wildcards(b, old_to_new)),
+            ),
+            Rem(a, b) => Rem(
+                Box::new(Self::remap_wildcards(a, old_to_new)),
+                Box::new(Self::remap_wildcards(b, old_to_new)),
+            ),
+            Idiv(a, b) => Idiv(
+                Box::new(Self::remap_wildcards(a, old_to_new)),
+                Box::new(Self::remap_wildcards(b, old_to_new)),
+            ),
+            Max(a, b) => Max(
+                Box::new(Self::remap_wildcards(a, old_to_new)),
+                Box::new(Self::remap_wildcards(b, old_to_new)),
+            ),
+            // Unary operations
+            Recip(a) => Recip(Box::new(Self::remap_wildcards(a, old_to_new))),
+            Log2(a) => Log2(Box::new(Self::remap_wildcards(a, old_to_new))),
+            Exp2(a) => Exp2(Box::new(Self::remap_wildcards(a, old_to_new))),
+            Sin(a) => Sin(Box::new(Self::remap_wildcards(a, old_to_new))),
+            Sqrt(a) => Sqrt(Box::new(Self::remap_wildcards(a, old_to_new))),
+            Cast(a, dtype) => Cast(Box::new(Self::remap_wildcards(a, old_to_new)), dtype.clone()),
+            // 他のノードはそのまま（Const, Var, etc.）
+            _ => expr.clone(),
+        }
+    }
+
     /// Elementwise演算チェーンを検出して融合可能な場合にパターンを返す
     ///
     /// 連続する2つのElementwise演算を融合する
@@ -136,16 +187,16 @@ impl FusionSuggester {
             _ => return None,
         };
 
-        // 入力のうち、少なくとも1つがElementwiseの場合に融合可能
-        let mut found_elementwise_input = false;
+        // 入力のうち、少なくとも1つがElementwiseまたはFusedElementwiseの場合に融合可能
+        let mut found_fusable_input = false;
         for src in &node.src {
-            if matches!(src.op, GraphOp::Elementwise { .. }) {
-                found_elementwise_input = true;
+            if matches!(src.op, GraphOp::Elementwise { .. } | GraphOp::FusedElementwise { .. }) {
+                found_fusable_input = true;
                 break;
             }
         }
 
-        if !found_elementwise_input {
+        if !found_fusable_input {
             return None;
         }
 
@@ -178,6 +229,26 @@ impl FusionSuggester {
                     let sub_expr = Self::elementwise_op_to_ast(op, sub_args);
                     current_args.push(sub_expr);
                 }
+                GraphOp::FusedElementwise { expr, .. } => {
+                    // FusedElementwiseノードの場合、その入力を展開し式を再マッピング
+                    let mut old_to_new: HashMap<usize, usize> = HashMap::new();
+                    for (old_idx, sub_src) in src.src.iter().enumerate() {
+                        let ptr = sub_src.as_ptr();
+                        let new_idx = if let Some(&existing_idx) = input_mapping.get(&ptr) {
+                            existing_idx
+                        } else {
+                            let idx = graph_inputs.len();
+                            input_mapping.insert(ptr, idx);
+                            graph_inputs.push(sub_src.clone());
+                            idx
+                        };
+                        old_to_new.insert(old_idx, new_idx);
+                    }
+
+                    // 式のWildcardインデックスを再マッピング
+                    let remapped_expr = Self::remap_wildcards(expr, &old_to_new);
+                    current_args.push(remapped_expr);
+                }
                 _ => {
                     // 通常の入力の場合
                     let ptr = src.as_ptr();
@@ -201,11 +272,11 @@ impl FusionSuggester {
         // つまり、graph_inputsの数がnodeの直接入力数より少ない = 融合が発生
         if graph_inputs.len() >= node.src.len() {
             // 融合によるメリットがない場合もチェック
-            // 少なくとも1つのElementwise入力が展開されているか確認
+            // 少なくとも1つのElementwiseまたはFusedElementwise入力が展開されているか確認
             let has_expansion = node
                 .src
                 .iter()
-                .any(|s| matches!(&s.op, GraphOp::Elementwise { .. }));
+                .any(|s| matches!(&s.op, GraphOp::Elementwise { .. } | GraphOp::FusedElementwise { .. }));
             if !has_expansion {
                 return None;
             }
@@ -427,10 +498,10 @@ impl GraphSuggester for FusionSuggester {
 
             // Elementwise チェーンを検出して融合
             if let Some((graph_inputs, expr)) = self.detect_elementwise_chain(node) {
-                // 融合されるElementwiseノードの被参照数をチェック
+                // 融合されるElementwiseまたはFusedElementwiseノードの被参照数をチェック
                 // チェーン内の全ノードが1回しか参照されていない場合のみ融合
                 let can_fuse = node.src.iter().all(|src| {
-                    if matches!(src.op, GraphOp::Elementwise { .. }) {
+                    if matches!(src.op, GraphOp::Elementwise { .. } | GraphOp::FusedElementwise { .. }) {
                         let src_ptr = src.as_ptr();
                         let ref_count = ref_counts.get(&src_ptr).copied().unwrap_or(0);
                         ref_count <= 1
