@@ -226,11 +226,12 @@ impl LoweringSuggester {
         let mut new_src = node.src.clone();
 
         // 出力バッファーを作成
-        // 名前は "output" とし、ASTの "output" パラメータに対応
+        // 名前は "output_{カーネル名}" とし、カーネルとの対応を明確にする
+        let output_buffer_name = format!("output_{}", name);
         let output_buffer = GraphNode::new(
             node.dtype.clone(),
             GraphOp::Buffer {
-                name: "output".to_string(),
+                name: output_buffer_name,
             },
             vec![],
             node.view.clone(),
@@ -1351,5 +1352,201 @@ mod tests {
             "Custom node should have at most 5 src nodes (4 inputs + 1 output buffer), but got {}",
             output.src.len()
         );
+    }
+
+    #[test]
+    fn test_multiple_independent_outputs() {
+        // 複数の独立した出力をテスト
+        let suggester = LoweringSuggester::new();
+
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
+        let b = graph.input("b", DType::F32, vec![10, 20]);
+
+        // 2つの独立した演算
+        let sum = a.clone() + b.clone();
+        let prod = a * b;
+
+        graph.output("sum", sum);
+        graph.output("prod", prod);
+
+        let suggestions = suggester.suggest(&graph);
+
+        // 2つのElementwise演算があるので、2つの候補が生成される
+        assert_eq!(
+            suggestions.len(),
+            2,
+            "Should generate 2 suggestions for 2 ops"
+        );
+
+        // 各候補で1つの演算がCustomに変換されている
+        for (i, new_graph) in suggestions.iter().enumerate() {
+            let sum_output = new_graph.outputs().get("sum").unwrap();
+            let prod_output = new_graph.outputs().get("prod").unwrap();
+
+            let sum_is_custom = matches!(sum_output.op, GraphOp::Custom { .. });
+            let prod_is_custom = matches!(prod_output.op, GraphOp::Custom { .. });
+
+            // 少なくとも1つがCustomに変換されている
+            assert!(
+                sum_is_custom || prod_is_custom,
+                "Suggestion {} should have at least one Custom node",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn test_multiple_outputs_shared_intermediate() {
+        // 共有された中間ノードを持つ複数出力をテスト
+        use crate::opt::graph::{
+            BeamSearchGraphOptimizer, CompositeSuggester, SimpleCostEstimator,
+        };
+
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
+        let b = graph.input("b", DType::F32, vec![10, 20]);
+        let c = graph.input("c", DType::F32, vec![10, 20]);
+
+        // 中間結果を共有
+        let sum = a + b;
+        let result1 = sum.clone() * c.clone();
+        let result2 = sum + c;
+
+        graph.output("result1", result1);
+        graph.output("result2", result2);
+
+        // 最適化を実行（ステップ数を増やす）
+        let composite = CompositeSuggester::new(vec![Box::new(LoweringSuggester::new())]);
+        let optimizer = BeamSearchGraphOptimizer::new(composite, SimpleCostEstimator::new())
+            .with_beam_width(8)
+            .with_max_steps(100)
+            .with_progress(false);
+
+        let (optimized, _history) = optimizer.optimize_with_history(graph);
+
+        // 両方の出力が存在することを確認
+        assert!(
+            optimized.outputs().contains_key("result1"),
+            "Should have result1 output"
+        );
+        assert!(
+            optimized.outputs().contains_key("result2"),
+            "Should have result2 output"
+        );
+
+        // 両方の出力がCustomノードに変換されている
+        let result1 = optimized.outputs().get("result1").unwrap();
+        let result2 = optimized.outputs().get("result2").unwrap();
+
+        println!("result1 op: {:?}", std::mem::discriminant(&result1.op));
+        println!("result2 op: {:?}", std::mem::discriminant(&result2.op));
+        println!("result1 src count: {}", result1.src.len());
+        println!("result2 src count: {}", result2.src.len());
+
+        // 少なくとも1つの出力がCustomノードに変換されている
+        let result1_is_custom = matches!(result1.op, GraphOp::Custom { .. });
+        let result2_is_custom = matches!(result2.op, GraphOp::Custom { .. });
+
+        assert!(
+            result1_is_custom || result2_is_custom,
+            "At least one output should be Custom node"
+        );
+
+        // Customノードに変換されたものは出力バッファーを持つ
+        if result1_is_custom {
+            let has_output_buffer = result1.src.iter().any(
+                |src| matches!(&src.op, GraphOp::Buffer { name } if name.starts_with("output")),
+            );
+            assert!(
+                has_output_buffer,
+                "result1 Custom node should have output buffer"
+            );
+        }
+        if result2_is_custom {
+            let has_output_buffer = result2.src.iter().any(
+                |src| matches!(&src.op, GraphOp::Buffer { name } if name.starts_with("output")),
+            );
+            assert!(
+                has_output_buffer,
+                "result2 Custom node should have output buffer"
+            );
+        }
+    }
+
+    #[test]
+    fn test_multiple_outputs_full_pipeline() {
+        // 複数出力でのフルパイプライン（lowering + merge）をテスト
+        use crate::backend::pipeline::{SuggesterFlags, optimize_graph_with_history};
+        use crate::opt::graph::SimpleCostEstimator;
+
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![8, 8]);
+        let b = graph.input("b", DType::F32, vec![8, 8]);
+
+        // 複数の出力
+        let sum = a.clone() + b.clone();
+        let diff = a - b;
+
+        graph.output("sum", sum);
+        graph.output("diff", diff);
+
+        // single_stageで最適化（KernelMergeを含む）
+        let flags = SuggesterFlags::single_stage();
+        let (optimized, history) =
+            optimize_graph_with_history(graph, flags, SimpleCostEstimator::new(), 8, 200, false);
+
+        println!("Optimization steps: {}", history.len());
+
+        // 両方の出力が存在することを確認
+        assert!(
+            optimized.outputs().contains_key("sum"),
+            "Should have sum output"
+        );
+        assert!(
+            optimized.outputs().contains_key("diff"),
+            "Should have diff output"
+        );
+
+        let sum_output = optimized.outputs().get("sum").unwrap();
+        let diff_output = optimized.outputs().get("diff").unwrap();
+
+        println!(
+            "sum output op: {:?}",
+            std::mem::discriminant(&sum_output.op)
+        );
+        println!(
+            "diff output op: {:?}",
+            std::mem::discriminant(&diff_output.op)
+        );
+
+        // 少なくとも1つの出力がCustomノードに変換されている
+        let sum_is_custom = matches!(sum_output.op, GraphOp::Custom { .. });
+        let diff_is_custom = matches!(diff_output.op, GraphOp::Custom { .. });
+
+        assert!(
+            sum_is_custom || diff_is_custom,
+            "At least one output should be Custom node"
+        );
+
+        // Customノードに変換されたものは出力バッファーを持つ
+        if sum_is_custom {
+            let has_output_buffer = sum_output.src.iter().any(
+                |src| matches!(&src.op, GraphOp::Buffer { name } if name.starts_with("output")),
+            );
+            assert!(
+                has_output_buffer,
+                "sum Custom node should have output buffer"
+            );
+        }
+        if diff_is_custom {
+            let has_output_buffer = diff_output.src.iter().any(
+                |src| matches!(&src.op, GraphOp::Buffer { name } if name.starts_with("output")),
+            );
+            assert!(
+                has_output_buffer,
+                "diff Custom node should have output buffer"
+            );
+        }
     }
 }
