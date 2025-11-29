@@ -225,6 +225,52 @@ where
 
             // このステップの最良候補を記録（既に計算したコストを再利用）
             if let Some((best, cost, suggester_name)) = top_candidates.first() {
+                let num_outputs = best.outputs().len();
+                let num_inputs = best.inputs().len();
+
+                // 入力・出力ノード数をログに出力
+                trace!(
+                    "Step {} - {} inputs, {} outputs",
+                    step + 1,
+                    num_inputs,
+                    num_outputs
+                );
+
+                // 出力ノードの演算タイプもログに出力
+                for (name, node) in best.outputs() {
+                    let op_type = format!("{:?}", node.op);
+                    trace!("Step {} - Output '{}': {:?}", step + 1, name, op_type);
+                }
+
+                let step_logs = if self.collect_logs {
+                    log_capture::get_captured_logs()
+                } else {
+                    Vec::new()
+                };
+
+                // スナップショットを記録（早期終了前に必ず記録する）
+                history.add_snapshot(OptimizationSnapshot::with_suggester(
+                    step + 1,
+                    best.clone(),
+                    *cost,
+                    format!(
+                        "[{}] Step {}: {} candidates, beam width {}, outputs: {}",
+                        suggester_name,
+                        step + 1,
+                        num_candidates,
+                        beam.len(),
+                        num_outputs
+                    ),
+                    step_logs,
+                    num_candidates,
+                    suggester_name.clone(),
+                ));
+
+                // このステップのログをクリア（次のステップで新しいログのみを記録するため）
+                if self.collect_logs {
+                    log_capture::clear_logs();
+                }
+
                 // コストが改善されない場合はカウンターを増やす
                 if *cost >= best_cost {
                     no_improvement_count += 1;
@@ -265,49 +311,6 @@ where
                     );
                     best_cost = *cost;
                     global_best = best.clone();
-                }
-                let num_outputs = best.outputs().len();
-                let num_inputs = best.inputs().len();
-
-                // 入力・出力ノード数をログに出力
-                trace!(
-                    "Step {} - {} inputs, {} outputs",
-                    step + 1,
-                    num_inputs,
-                    num_outputs
-                );
-
-                // 出力ノードの演算タイプもログに出力
-                for (name, node) in best.outputs() {
-                    let op_type = format!("{:?}", node.op);
-                    trace!("Step {} - Output '{}': {:?}", step + 1, name, op_type);
-                }
-
-                let step_logs = if self.collect_logs {
-                    log_capture::get_captured_logs()
-                } else {
-                    Vec::new()
-                };
-                history.add_snapshot(OptimizationSnapshot::with_suggester(
-                    step + 1,
-                    best.clone(),
-                    *cost,
-                    format!(
-                        "[{}] Step {}: {} candidates, beam width {}, outputs: {}",
-                        suggester_name,
-                        step + 1,
-                        num_candidates,
-                        beam.len(),
-                        num_outputs
-                    ),
-                    step_logs,
-                    num_candidates,
-                    suggester_name.clone(),
-                ));
-
-                // このステップのログをクリア（次のステップで新しいログのみを記録するため）
-                if self.collect_logs {
-                    log_capture::clear_logs();
                 }
             }
         }

@@ -67,29 +67,22 @@ Graphを最適化。`optimize(&self, graph: Graph) -> Graph`
 演算の融合を提案。
 
 **融合パターン:**
-- 連続するelementwise演算 → FusedElementwise
-- elementwise → reduce → FusedElementwiseReduce
-
-### CustomFusionSuggester
-連続するElementwise演算をGraphOp::Customに融合。さらにElementwise→Reduce、Elementwise→Cumulativeパターンも融合。
-
-**融合パターン:**
-- Elementwiseチェーン → Custom(Elementwise)
-- Elementwise → Reduce → Custom(Reduce)
-- Elementwise → Cumulative → Custom(Cumulative)
-- Custom(Elementwise) → Reduce → Custom(Reduce)
-- Custom(Elementwise) → Cumulative → Custom(Cumulative)
+- 連続するElementwise演算 → FusedElementwise
+- FusedElementwise + Elementwise → FusedElementwise（多段融合）
+- Elementwise → Reduce → FusedElementwiseReduce
 
 **融合条件:**
-- 現在のノードがElementwise/FusedElementwise/Custom(Elementwise)のいずれか
-- 入力の少なくとも1つがElementwise/FusedElementwise/Custom(Elementwise)
+- 現在のノードがElementwiseである
+- 入力の少なくとも1つがElementwiseまたはFusedElementwise
 - 融合対象のノードの被参照数が1（複数回参照されるノードは融合しない）
+
+**多段融合:**
+`((a + b) * c) + d`のような複雑なチェーンでも、FusedElementwise入力を認識して
+さらに融合を進めることができる。ビームサーチにより反復的に適用される。
 
 **効果:**
 - 中間バッファの削減
 - カーネル呼び出し回数の削減
-- 任意のAST式による柔軟な演算表現
-- Reduce/Cumulative演算前のElementwise演算を融合してカーネル効率を向上
 
 ### ViewInsertionSuggester
 - メモリレイアウト最適化のためのView操作挿入
@@ -122,24 +115,34 @@ GraphOpをCustomノード（`AstNode::Function`を保持）に変換する。グ
 - 既にCustomノードでないこと
 
 ### KernelMergeSuggester
-複数のCustomノード（Function/Program）を1つのCustomノード（Program）にマージする。
+依存関係にある2つのCustomノード（Function/Program）をペアワイズでマージする。
+ビームサーチにより最適なマージ順序を探索できる。
+
+**マージ方式: ペアワイズマージ**
+- 1回の`suggest()`呼び出しで、マージ可能な各ペアに対して1つの提案を返す
+- ビームサーチが反復的に適用し、最適なマージ順序を探索
+
+```
+例: 3つのCustomノードのチェーン（a → custom1 → custom2 → custom3）
+Step 1: suggest() → [custom3+custom2をマージ, custom2+custom1をマージ] の2提案
+Step 2: suggest() → 残り1ペアをマージ
+最終: 全てが1つのCustom(Program)に統合
+```
 
 **サポートするマージパターン:**
-- Custom(Function) × N → Custom(Program)
+- Custom(Function) + Custom(Function) → Custom(Program)
 - Custom(Program) + Custom(Function) → Custom(Program)（増分マージ）
 - Custom(Program) + Custom(Program) → Custom(Program)（Program融合）
 
+**マージ条件:**
+- consumer → producer の依存関係があるCustomノードのペア
+- producerの被参照数が1（複数箇所で使われるノードはマージしない）
+
 **効果:**
-- グラフ全体を1つのProgram ASTとして表現
 - 中間バッファの管理を明示的に制御
 - カーネル呼び出し間にバリアを自動挿入（メモリ同期の保証）
 - Lowererはカーネル関数を`AstNode::Kernel`として生成
 - LowererはCustom(Program)を検出した場合、直接返す（パススルー）
-
-**マージ条件:**
-- Custom(Function)が2つ以上、または
-- Custom(Program)が1つ以上かつCustom(Function)が1つ以上、または
-- Custom(Program)が2つ以上
 
 **生成するProgram構造:**
 - 各カーネル関数（kernel_0, kernel_1, ...）

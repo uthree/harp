@@ -125,10 +125,7 @@ impl FusionSuggester {
     }
 
     /// AstNode内のWildcardインデックスを再マッピング
-    fn remap_wildcards(
-        expr: &AstNode,
-        old_to_new: &HashMap<usize, usize>,
-    ) -> AstNode {
+    fn remap_wildcards(expr: &AstNode, old_to_new: &HashMap<usize, usize>) -> AstNode {
         use crate::ast::AstNode::*;
         match expr {
             Wildcard(name) => {
@@ -169,7 +166,10 @@ impl FusionSuggester {
             Exp2(a) => Exp2(Box::new(Self::remap_wildcards(a, old_to_new))),
             Sin(a) => Sin(Box::new(Self::remap_wildcards(a, old_to_new))),
             Sqrt(a) => Sqrt(Box::new(Self::remap_wildcards(a, old_to_new))),
-            Cast(a, dtype) => Cast(Box::new(Self::remap_wildcards(a, old_to_new)), dtype.clone()),
+            Cast(a, dtype) => Cast(
+                Box::new(Self::remap_wildcards(a, old_to_new)),
+                dtype.clone(),
+            ),
             // 他のノードはそのまま（Const, Var, etc.）
             _ => expr.clone(),
         }
@@ -190,7 +190,10 @@ impl FusionSuggester {
         // 入力のうち、少なくとも1つがElementwiseまたはFusedElementwiseの場合に融合可能
         let mut found_fusable_input = false;
         for src in &node.src {
-            if matches!(src.op, GraphOp::Elementwise { .. } | GraphOp::FusedElementwise { .. }) {
+            if matches!(
+                src.op,
+                GraphOp::Elementwise { .. } | GraphOp::FusedElementwise { .. }
+            ) {
                 found_fusable_input = true;
                 break;
             }
@@ -273,10 +276,12 @@ impl FusionSuggester {
         if graph_inputs.len() >= node.src.len() {
             // 融合によるメリットがない場合もチェック
             // 少なくとも1つのElementwiseまたはFusedElementwise入力が展開されているか確認
-            let has_expansion = node
-                .src
-                .iter()
-                .any(|s| matches!(&s.op, GraphOp::Elementwise { .. } | GraphOp::FusedElementwise { .. }));
+            let has_expansion = node.src.iter().any(|s| {
+                matches!(
+                    &s.op,
+                    GraphOp::Elementwise { .. } | GraphOp::FusedElementwise { .. }
+                )
+            });
             if !has_expansion {
                 return None;
             }
@@ -501,7 +506,10 @@ impl GraphSuggester for FusionSuggester {
                 // 融合されるElementwiseまたはFusedElementwiseノードの被参照数をチェック
                 // チェーン内の全ノードが1回しか参照されていない場合のみ融合
                 let can_fuse = node.src.iter().all(|src| {
-                    if matches!(src.op, GraphOp::Elementwise { .. } | GraphOp::FusedElementwise { .. }) {
+                    if matches!(
+                        src.op,
+                        GraphOp::Elementwise { .. } | GraphOp::FusedElementwise { .. }
+                    ) {
                         let src_ptr = src.as_ptr();
                         let ref_count = ref_counts.get(&src_ptr).copied().unwrap_or(0);
                         ref_count <= 1
