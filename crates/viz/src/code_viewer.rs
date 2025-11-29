@@ -2,9 +2,7 @@
 //!
 //! グラフ最適化の結果として生成されたCustom(Program)ノードのコードを表示します。
 
-use harp::ast::renderer::render_ast_with;
-use harp::backend::c::CRenderer;
-use harp::backend::c_like::CLikeRenderer;
+use crate::renderer_selector::{render_with_type, renderer_selector_ui, RendererType};
 use harp::graph::{Graph, GraphNode, GraphOp};
 use harp::opt::graph::OptimizationHistory;
 use std::collections::HashSet;
@@ -12,42 +10,53 @@ use std::collections::HashSet;
 /// コードビューアアプリケーション
 ///
 /// 最適化後のグラフから生成されたコードを表示します。
-pub struct CodeViewerApp<R = CRenderer>
-where
-    R: CLikeRenderer + Clone,
-{
+pub struct CodeViewerApp {
     /// 最適化履歴
     optimization_history: Option<OptimizationHistory>,
-    /// レンダラー
-    renderer: R,
+    /// 現在のレンダラータイプ
+    renderer_type: RendererType,
     /// キャッシュされた最終コード
     cached_code: Option<String>,
+    /// キャッシュされたAST（レンダラー変更時に再レンダリング用）
+    cached_ast: Option<harp::ast::AstNode>,
 }
 
-impl Default for CodeViewerApp<CRenderer> {
+impl Default for CodeViewerApp {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl CodeViewerApp<CRenderer> {
+impl CodeViewerApp {
     /// 新しいCodeViewerAppを作成（デフォルトでCRendererを使用）
     pub fn new() -> Self {
-        Self::with_renderer(CRenderer::new())
+        Self::with_renderer_type(RendererType::default())
     }
-}
 
-impl<R> CodeViewerApp<R>
-where
-    R: CLikeRenderer + Clone,
-{
-    /// カスタムレンダラーを使用してCodeViewerAppを作成
-    pub fn with_renderer(renderer: R) -> Self {
+    /// 指定されたレンダラータイプでCodeViewerAppを作成
+    pub fn with_renderer_type(renderer_type: RendererType) -> Self {
         Self {
             optimization_history: None,
-            renderer,
+            renderer_type,
             cached_code: None,
+            cached_ast: None,
         }
+    }
+
+    /// レンダラータイプを設定
+    pub fn set_renderer_type(&mut self, renderer_type: RendererType) {
+        if self.renderer_type != renderer_type {
+            self.renderer_type = renderer_type;
+            // キャッシュされたASTがあれば再レンダリング
+            if let Some(ref ast) = self.cached_ast {
+                self.cached_code = Some(render_with_type(ast, renderer_type));
+            }
+        }
+    }
+
+    /// 現在のレンダラータイプを取得
+    pub fn renderer_type(&self) -> RendererType {
+        self.renderer_type
     }
 
     /// 最適化履歴を読み込む
@@ -57,9 +66,15 @@ where
             return;
         }
 
-        // 最終ステップのグラフからコードを抽出
+        // 最終ステップのグラフからASTを抽出
         if let Some(last_snapshot) = history.snapshots().last() {
-            self.cached_code = self.extract_code_from_graph(&last_snapshot.graph);
+            self.cached_ast = self.extract_ast_from_graph(&last_snapshot.graph);
+            // キャッシュされたASTからコードを生成
+            if let Some(ref ast) = self.cached_ast {
+                self.cached_code = Some(render_with_type(ast, self.renderer_type));
+            } else {
+                self.cached_code = None;
+            }
         }
 
         self.optimization_history = Some(history);
@@ -69,14 +84,20 @@ where
 
     /// グラフを直接読み込む
     pub fn load_graph(&mut self, graph: Graph) {
-        self.cached_code = self.extract_code_from_graph(&graph);
+        self.cached_ast = self.extract_ast_from_graph(&graph);
+        // キャッシュされたASTからコードを生成
+        if let Some(ref ast) = self.cached_ast {
+            self.cached_code = Some(render_with_type(ast, self.renderer_type));
+        } else {
+            self.cached_code = None;
+        }
         self.optimization_history = None;
 
         log::info!("Graph loaded for code viewer");
     }
 
-    /// グラフからCustom(Program)またはCustom(Function)のコードを抽出
-    fn extract_code_from_graph(&self, graph: &Graph) -> Option<String> {
+    /// グラフからCustom(Program)またはCustom(Function)のASTを抽出
+    fn extract_ast_from_graph(&self, graph: &Graph) -> Option<harp::ast::AstNode> {
         let mut visited = HashSet::new();
         let mut program_ast = None;
         let mut function_asts = Vec::new();
@@ -88,26 +109,14 @@ where
 
         // Custom(Program)があればそれを優先
         if let Some(ast) = program_ast {
-            return Some(render_ast_with(&ast, &self.renderer));
+            return Some(ast);
         }
 
-        // Custom(Function)が複数ある場合は全て連結（重複を除去）
+        // Custom(Function)が複数ある場合は全て連結してProgram化
         if !function_asts.is_empty() {
-            // レンダリングして重複を除去
-            let mut seen_codes = HashSet::new();
-            let mut unique_codes = Vec::new();
-
-            for ast in &function_asts {
-                let code = render_ast_with(ast, &self.renderer);
-                if !seen_codes.contains(&code) {
-                    seen_codes.insert(code.clone());
-                    unique_codes.push(code);
-                }
-            }
-
-            if !unique_codes.is_empty() {
-                return Some(unique_codes.join("\n\n// ================\n\n"));
-            }
+            // 最初のASTを返す（複数ある場合は後で処理）
+            // TODO: 複数のFunctionをProgramにまとめる
+            return Some(function_asts.remove(0));
         }
 
         None
@@ -164,9 +173,19 @@ where
         ui.heading("Code Viewer");
         ui.separator();
 
-        // 統計情報
-        if let Some(ref history) = self.optimization_history {
-            ui.horizontal(|ui| {
+        // レンダラー選択と統計情報
+        ui.horizontal(|ui| {
+            // レンダラー選択
+            if renderer_selector_ui(ui, &mut self.renderer_type) {
+                // レンダラーが変更されたら再レンダリング
+                if let Some(ref ast) = self.cached_ast {
+                    self.cached_code = Some(render_with_type(ast, self.renderer_type));
+                }
+            }
+
+            ui.separator();
+
+            if let Some(ref history) = self.optimization_history {
                 ui.label("Optimization Steps:");
                 ui.label(format!("{}", history.len()));
 
@@ -177,9 +196,9 @@ where
                     ui.label("Final Cost:");
                     ui.label(format!("{:.2}", last.cost));
                 }
-            });
-            ui.separator();
-        }
+            }
+        });
+        ui.separator();
 
         // コード表示
         if let Some(ref code) = self.cached_code {

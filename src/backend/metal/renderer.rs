@@ -4,6 +4,7 @@ use crate::backend::c_like::CLikeRenderer;
 use crate::backend::metal::{LIBLOADING_WRAPPER_NAME, MetalCode};
 
 /// Metal Shading Language用のレンダラー（C++ラッパー方式）
+#[derive(Clone)]
 pub struct MetalRenderer {
     indent_level: usize,
 }

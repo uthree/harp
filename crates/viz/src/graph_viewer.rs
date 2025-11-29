@@ -1,5 +1,6 @@
 //! グラフ構造を可視化するビューア
 
+use crate::renderer_selector::{render_with_type, renderer_selector_ui, RendererType};
 use egui_snarl::{InPin, InPinId, NodeId, OutPin, OutPinId, Snarl};
 use harp::graph::{Graph, GraphNode};
 use harp::opt::graph::OptimizationHistory;
@@ -23,6 +24,8 @@ pub struct GraphViewerApp {
     side_panel_width: f32,
     /// サイドパネルを表示するか
     show_side_panel: bool,
+    /// 現在のレンダラータイプ
+    renderer_type: RendererType,
 }
 
 /// egui-snarl用のノードビュー
@@ -50,8 +53,8 @@ pub struct NodeDetails {
 
     /// 操作の詳細
     pub op_details: String,
-    /// 生成されたコード（Customノードの場合）
-    pub code: Option<String>,
+    /// AST（Customノードの場合、レンダラー変更時に再レンダリング用）
+    pub ast: Option<harp::ast::AstNode>,
 }
 
 impl Default for GraphViewerApp {
@@ -72,7 +75,18 @@ impl GraphViewerApp {
             selected_node: None,
             side_panel_width: 450.0,
             show_side_panel: true,
+            renderer_type: RendererType::default(),
         }
+    }
+
+    /// レンダラータイプを設定
+    pub fn set_renderer_type(&mut self, renderer_type: RendererType) {
+        self.renderer_type = renderer_type;
+    }
+
+    /// 現在のレンダラータイプを取得
+    pub fn renderer_type(&self) -> RendererType {
+        self.renderer_type
     }
 
     /// Harpのグラフを読み込む
@@ -313,9 +327,9 @@ impl GraphViewerApp {
 
         let op_details = format!("{:?}", node.op);
 
-        // Customノードの場合はコードをレンダリング
-        let code = if let harp::graph::GraphOp::Custom { ast } = &node.op {
-            Some(harp::ast::renderer::render_ast(ast))
+        // Customノードの場合はASTを保存（レンダラー変更時に再レンダリング用）
+        let ast = if let harp::graph::GraphOp::Custom { ast } = &node.op {
+            Some(ast.clone())
         } else {
             None
         };
@@ -325,7 +339,7 @@ impl GraphViewerApp {
             shape,
 
             op_details,
-            code,
+            ast,
         };
 
         GraphNodeView {
@@ -451,7 +465,7 @@ impl GraphViewerApp {
     fn get_node_list(&self) -> Vec<(NodeId, String, bool)> {
         let mut nodes = Vec::new();
         for (node_id, node_data) in self.snarl.node_ids() {
-            let has_code = node_data.details.code.is_some();
+            let has_code = node_data.details.ast.is_some();
             nodes.push((node_id, node_data.name.clone(), has_code));
         }
         // 名前でソート（Customノードを先に）
@@ -544,7 +558,10 @@ impl GraphViewerApp {
                     });
 
                 // コードがある場合は全画面で表示
-                if let Some(ref code) = node_data.details.code {
+                if let Some(ref ast) = node_data.details.ast {
+                    // ASTをレンダリング
+                    let code = render_with_type(ast, self.renderer_type);
+
                     ui.separator();
                     ui.horizontal(|ui| {
                         ui.strong("Generated Code");
@@ -556,6 +573,11 @@ impl GraphViewerApp {
                                 log::info!("Code copied to clipboard");
                             }
                         });
+                    });
+
+                    // レンダラー選択
+                    ui.horizontal(|ui| {
+                        renderer_selector_ui(ui, &mut self.renderer_type);
                     });
 
                     ui.separator();
@@ -574,7 +596,7 @@ impl GraphViewerApp {
                                 ui.ctx(),
                                 ui.style(),
                                 &theme,
-                                code,
+                                &code,
                                 "c",
                             );
 
@@ -1071,7 +1093,7 @@ impl egui_snarl::ui::SnarlViewer<GraphNodeView> for GraphNodeViewStyle<'_> {
     ) {
         if let Some(node_data) = snarl.get_node(node) {
             let is_selected = self.selected_node == Some(node);
-            let has_code = node_data.details.code.is_some();
+            let has_code = node_data.details.ast.is_some();
 
             // ノードヘッダー
             ui.horizontal(|ui| {

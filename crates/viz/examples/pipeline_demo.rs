@@ -7,7 +7,7 @@ use harp::ast::helper::wildcard;
 use harp::backend::opencl::{OpenCLCompiler, OpenCLRenderer};
 use harp::backend::{GenericPipeline, OptimizationConfig};
 use harp::graph::{DType, Graph, GraphNode};
-use harp_viz::HarpVizApp;
+use harp_viz::{HarpVizApp, RendererType};
 
 fn main() -> eframe::Result {
     // env_logger::init()の代わりにlog_captureを使う
@@ -107,8 +107,8 @@ fn main() -> eframe::Result {
         "Harp Pipeline Visualizer",
         options,
         Box::new(move |_cc| {
-            // OpenCLRendererを使用してHarpVizAppを作成
-            let mut app = HarpVizApp::with_renderer(OpenCLRenderer::new());
+            // OpenCLレンダラータイプでHarpVizAppを作成
+            let mut app = HarpVizApp::with_renderer_type(RendererType::OpenCL);
 
             // グラフ最適化履歴を読み込む（Phase 1 + Phase 2を結合）
             if let Some(graph_history) = pipeline.histories.combined_graph_history() {

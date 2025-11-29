@@ -161,24 +161,26 @@ let mut app = HarpVizApp::new();
 app.load_graph_optimization_history(history);
 ```
 
-### カスタムレンダラーを使用したコード表示
+### レンダラーの切り替え
 
-`CodeViewerApp`はジェネリックで、任意のバックエンドレンダラーを使用できます：
+レンダラーは実行時に切り替え可能です。利用可能なレンダラータイプ：
+- `RendererType::C` - C言語（CPU、デフォルト）
+- `RendererType::OpenCL` - OpenCL（GPU）
+- `RendererType::Metal` - Metal（Apple GPU）
 
 ```rust
-use harp_viz::CodeViewerApp;
-use harp::backend::metal::MetalRenderer;  // または他のレンダラー
+use harp_viz::{HarpVizApp, RendererType};
 
-// MetalRendererを使用してCode Viewerを作成
-let renderer = MetalRenderer::new();
-let mut code_viewer = CodeViewerApp::with_renderer(renderer);
+// 特定のレンダラータイプで起動
+let mut app = HarpVizApp::with_renderer_type(RendererType::OpenCL);
 
-// 最適化履歴を読み込む
-code_viewer.load_history(history);
-
-// または、デフォルトのCRendererを使用
-let mut code_viewer = CodeViewerApp::new();  // デフォルトでCRendererを使用
+// 実行時にレンダラーを切り替え
+app.set_renderer_type(RendererType::Metal);
 ```
+
+UIからも切り替え可能です：
+- **Graph Viewer**: サイドパネルのノード詳細でRendererドロップダウンを使用
+- **Code Viewer**: 上部のRendererドロップダウンを使用
 
 ### GenericPipelineとの統合
 

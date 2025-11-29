@@ -6,6 +6,7 @@ pub mod code_viewer;
 pub mod diff_viewer;
 pub mod graph_viewer;
 pub mod perf_viewer;
+pub mod renderer_selector;
 
 pub use code_viewer::CodeViewerApp;
 pub use diff_viewer::{
@@ -13,24 +14,18 @@ pub use diff_viewer::{
 };
 pub use graph_viewer::GraphViewerApp;
 pub use perf_viewer::PerfViewerApp;
+pub use renderer_selector::RendererType;
 
-use harp::backend::c::CRenderer;
-use harp::backend::c_like::CLikeRenderer;
-
-/// 可視化アプリケーション全体を統合するメインアプリ（ジェネリックレンダラー対応）
+/// 可視化アプリケーション全体を統合するメインアプリ
 ///
-/// # 型パラメータ
-/// * `R` - ASTをレンダリングするレンダラー（`CLikeRenderer`を実装している必要があります）
-pub struct HarpVizApp<R = CRenderer>
-where
-    R: CLikeRenderer + Clone,
-{
+/// レンダラーは実行時に切り替え可能です。
+pub struct HarpVizApp {
     /// 現在のタブ
     current_tab: VizTab,
     /// グラフビューア
     graph_viewer: GraphViewerApp,
     /// コードビューア（最終的な生成コードを表示）
-    code_viewer: CodeViewerApp<R>,
+    code_viewer: CodeViewerApp,
     /// パフォーマンスビューア
     perf_viewer: PerfViewerApp,
 }
@@ -43,31 +38,59 @@ enum VizTab {
     PerfViewer,
 }
 
-impl Default for HarpVizApp<CRenderer> {
+impl Default for HarpVizApp {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl HarpVizApp<CRenderer> {
+impl HarpVizApp {
     /// 新しいHarpVizAppを作成（デフォルトでCRendererを使用）
     pub fn new() -> Self {
-        Self::with_renderer(CRenderer::new())
+        Self::with_renderer_type(RendererType::default())
     }
-}
 
-impl<R> HarpVizApp<R>
-where
-    R: CLikeRenderer + Clone,
-{
-    /// カスタムレンダラーを使用してHarpVizAppを作成
-    pub fn with_renderer(renderer: R) -> Self {
+    /// 指定されたレンダラータイプでHarpVizAppを作成
+    pub fn with_renderer_type(renderer_type: RendererType) -> Self {
+        let mut graph_viewer = GraphViewerApp::new();
+        graph_viewer.set_renderer_type(renderer_type);
+
         Self {
             current_tab: VizTab::GraphViewer,
-            graph_viewer: GraphViewerApp::new(),
-            code_viewer: CodeViewerApp::with_renderer(renderer),
+            graph_viewer,
+            code_viewer: CodeViewerApp::with_renderer_type(renderer_type),
             perf_viewer: PerfViewerApp::new(),
         }
+    }
+
+    /// 後方互換性のため: カスタムレンダラーを使用してHarpVizAppを作成
+    ///
+    /// 注意: この関数はRendererTypeに基づいてレンダラーを選択します。
+    /// 具体的なレンダラー型は無視され、デフォルトのCRendererが使用されます。
+    /// 特定のレンダラータイプを使用する場合は`with_renderer_type`を使用してください。
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use with_renderer_type() instead for runtime renderer selection"
+    )]
+    pub fn with_renderer<R>(_renderer: R) -> Self
+    where
+        R: harp::backend::c_like::CLikeRenderer + Clone,
+    {
+        // 注意: 渡されたレンダラーは無視され、デフォルトが使用されます
+        Self::new()
+    }
+
+    /// レンダラータイプを設定
+    ///
+    /// すべてのサブコンポーネントのレンダラーも更新されます。
+    pub fn set_renderer_type(&mut self, renderer_type: RendererType) {
+        self.graph_viewer.set_renderer_type(renderer_type);
+        self.code_viewer.set_renderer_type(renderer_type);
+    }
+
+    /// 現在のレンダラータイプを取得
+    pub fn renderer_type(&self) -> RendererType {
+        self.code_viewer.renderer_type()
     }
 
     /// グラフ最適化履歴を読み込む
@@ -168,10 +191,8 @@ where
         pipeline.histories.graph = None;
         pipeline.histories.graph_phase2 = None;
     }
-}
 
-impl HarpVizApp<CRenderer> {
-    /// Pipelineから直接visualizerを起動するヘルパー関数（CRendererを使用）
+    /// Pipelineから直接visualizerを起動するヘルパー関数
     ///
     /// この関数は、GenericPipelineに保存されている最適化履歴を読み込んで、
     /// 可視化ウィンドウを起動します。
@@ -219,7 +240,7 @@ impl HarpVizApp<CRenderer> {
         )
     }
 
-    /// グラフ最適化履歴を読み込んでvisualizerを起動（CRendererを使用）
+    /// グラフ最適化履歴を読み込んでvisualizerを起動
     ///
     /// グラフ最適化履歴を指定して可視化ウィンドウを起動します。
     ///
@@ -256,10 +277,7 @@ impl HarpVizApp<CRenderer> {
     }
 }
 
-impl<R> eframe::App for HarpVizApp<R>
-where
-    R: CLikeRenderer + Clone,
-{
+impl eframe::App for HarpVizApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
@@ -393,5 +411,17 @@ mod tests {
     fn test_harp_viz_app_creation() {
         let app = HarpVizApp::new();
         assert_eq!(app.current_tab, VizTab::GraphViewer);
+    }
+
+    #[test]
+    fn test_renderer_type_selection() {
+        let mut app = HarpVizApp::new();
+        assert_eq!(app.renderer_type(), RendererType::C);
+
+        app.set_renderer_type(RendererType::OpenCL);
+        assert_eq!(app.renderer_type(), RendererType::OpenCL);
+
+        app.set_renderer_type(RendererType::Metal);
+        assert_eq!(app.renderer_type(), RendererType::Metal);
     }
 }
