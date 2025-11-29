@@ -199,6 +199,10 @@ impl Default for ViewInsertionSuggester {
 }
 
 impl GraphSuggester for ViewInsertionSuggester {
+    fn name(&self) -> &'static str {
+        "ViewInsertion"
+    }
+
     fn suggest(&self, graph: &Graph) -> Vec<Graph> {
         let mut suggestions = Vec::new();
         let nodes = self.collect_all_nodes(graph);

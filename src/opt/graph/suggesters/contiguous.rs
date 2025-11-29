@@ -169,6 +169,10 @@ impl Default for ContiguousInsertionSuggester {
 }
 
 impl GraphSuggester for ContiguousInsertionSuggester {
+    fn name(&self) -> &'static str {
+        "ContiguousInsertion"
+    }
+
     fn suggest(&self, graph: &Graph) -> Vec<Graph> {
         let mut suggestions = Vec::new();
         let nodes = self.collect_all_nodes(graph);

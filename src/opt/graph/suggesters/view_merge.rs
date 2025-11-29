@@ -379,6 +379,10 @@ impl Default for ViewMergeSuggester {
 }
 
 impl GraphSuggester for ViewMergeSuggester {
+    fn name(&self) -> &'static str {
+        "ViewMerge"
+    }
+
     fn suggest(&self, graph: &Graph) -> Vec<Graph> {
         let mut suggestions = Vec::new();
         let nodes = self.collect_all_nodes(graph);

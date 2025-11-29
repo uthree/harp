@@ -1,5 +1,5 @@
 use crate::graph::Graph;
-use crate::opt::graph::GraphSuggester;
+use crate::opt::graph::{GraphSuggester, SuggestResult};
 
 /// 複数のSuggesterを組み合わせるSuggester
 pub struct CompositeSuggester {
@@ -19,6 +19,10 @@ impl CompositeSuggester {
 }
 
 impl GraphSuggester for CompositeSuggester {
+    fn name(&self) -> &'static str {
+        "Composite"
+    }
+
     fn suggest(&self, graph: &Graph) -> Vec<Graph> {
         let mut all_suggestions = Vec::new();
 
@@ -29,6 +33,19 @@ impl GraphSuggester for CompositeSuggester {
         }
 
         all_suggestions
+    }
+
+    /// 各内部Suggesterの名前を使ってsuggest_namedを実装
+    fn suggest_named(&self, graph: &Graph) -> Vec<SuggestResult> {
+        let mut all_results = Vec::new();
+
+        // 各Suggesterから候補を収集（それぞれのSuggester名を保持）
+        for suggester in &self.suggesters {
+            let results = suggester.suggest_named(graph);
+            all_results.extend(results);
+        }
+
+        all_results
     }
 }
 
@@ -42,12 +59,20 @@ mod tests {
     struct DummySuggester2;
 
     impl GraphSuggester for DummySuggester1 {
+        fn name(&self) -> &'static str {
+            "Dummy1"
+        }
+
         fn suggest(&self, _graph: &Graph) -> Vec<Graph> {
             vec![Graph::new()] // 1つの候補を返す
         }
     }
 
     impl GraphSuggester for DummySuggester2 {
+        fn name(&self) -> &'static str {
+            "Dummy2"
+        }
+
         fn suggest(&self, _graph: &Graph) -> Vec<Graph> {
             vec![Graph::new(), Graph::new()] // 2つの候補を返す
         }

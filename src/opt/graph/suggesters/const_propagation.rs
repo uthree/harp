@@ -389,6 +389,10 @@ impl Default for ConstPropagationSuggester {
 }
 
 impl GraphSuggester for ConstPropagationSuggester {
+    fn name(&self) -> &'static str {
+        "ConstPropagation"
+    }
+
     fn suggest(&self, graph: &Graph) -> Vec<Graph> {
         let mut suggestions = Vec::new();
         let nodes = self.collect_all_nodes(graph);

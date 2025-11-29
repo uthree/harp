@@ -485,6 +485,18 @@ impl GraphViewerApp {
                     // 現在のステップの説明とコストを表示
                     if let Some(ref history) = self.optimization_history {
                         if let Some(snapshot) = history.get(self.current_step) {
+                            // Suggester名を表示
+                            if let Some(ref suggester_name) = snapshot.suggester_name {
+                                ui.horizontal(|ui| {
+                                    ui.label("Suggester:");
+                                    ui.label(
+                                        egui::RichText::new(suggester_name)
+                                            .color(egui::Color32::from_rgb(100, 200, 150))
+                                            .strong(),
+                                    );
+                                });
+                            }
+
                             ui.horizontal(|ui| {
                                 ui.label("Description:");
                                 ui.label(&snapshot.description);

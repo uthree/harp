@@ -237,6 +237,10 @@ impl SimdSuggester {
 }
 
 impl GraphSuggester for SimdSuggester {
+    fn name(&self) -> &'static str {
+        "Simd"
+    }
+
     fn suggest(&self, graph: &Graph) -> Vec<Graph> {
         let mut suggestions = Vec::new();
         let nodes = self.collect_all_nodes(graph);

@@ -168,6 +168,10 @@ impl ParallelStrategyChanger {
 }
 
 impl GraphSuggester for ParallelStrategyChanger {
+    fn name(&self) -> &'static str {
+        "ParallelStrategy"
+    }
+
     fn suggest(&self, graph: &Graph) -> Vec<Graph> {
         let mut suggestions = Vec::new();
         let nodes = self.collect_all_nodes(graph);

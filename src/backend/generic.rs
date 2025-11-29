@@ -380,7 +380,8 @@ where
                 .with_max_steps(self.graph_config.max_steps / 2) // カーネルマージは少ないステップで十分
                 .with_progress(self.graph_config.show_progress);
 
-            let (phase2_graph, phase2_history) = merge_optimizer.optimize_with_history(phase1_graph);
+            let (phase2_graph, phase2_history) =
+                merge_optimizer.optimize_with_history(phase1_graph);
             if self.collect_histories {
                 self.histories.graph_phase2 = Some(phase2_history);
             }

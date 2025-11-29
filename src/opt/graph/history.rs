@@ -17,6 +17,8 @@ pub struct OptimizationSnapshot {
     pub logs: Vec<String>,
     /// このステップでSuggesterが提案した候補の数
     pub num_candidates: Option<usize>,
+    /// このグラフを提案したSuggesterの名前
+    pub suggester_name: Option<String>,
 }
 
 impl OptimizationSnapshot {
@@ -29,6 +31,7 @@ impl OptimizationSnapshot {
             description,
             logs: Vec::new(),
             num_candidates: None,
+            suggester_name: None,
         }
     }
 
@@ -47,6 +50,7 @@ impl OptimizationSnapshot {
             description,
             logs,
             num_candidates: None,
+            suggester_name: None,
         }
     }
 
@@ -66,6 +70,28 @@ impl OptimizationSnapshot {
             description,
             logs,
             num_candidates: Some(num_candidates),
+            suggester_name: None,
+        }
+    }
+
+    /// Suggester名付きでスナップショットを作成
+    pub fn with_suggester(
+        step: usize,
+        graph: Graph,
+        cost: f32,
+        description: String,
+        logs: Vec<String>,
+        num_candidates: usize,
+        suggester_name: String,
+    ) -> Self {
+        Self {
+            step,
+            graph,
+            cost,
+            description,
+            logs,
+            num_candidates: Some(num_candidates),
+            suggester_name: Some(suggester_name),
         }
     }
 }
@@ -148,6 +174,7 @@ impl OptimizationHistory {
                 description: format!("[{}] {}", phase_name, snapshot.description),
                 logs: snapshot.logs,
                 num_candidates: snapshot.num_candidates,
+                suggester_name: snapshot.suggester_name,
             };
             self.snapshots.push(adjusted_snapshot);
         }

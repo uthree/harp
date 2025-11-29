@@ -479,6 +479,10 @@ impl Default for KernelMergeSuggester {
 }
 
 impl GraphSuggester for KernelMergeSuggester {
+    fn name(&self) -> &'static str {
+        "KernelMerge"
+    }
+
     fn suggest(&self, graph: &Graph) -> Vec<Graph> {
         if let Some(merged_graph) = self.merge_to_program(graph) {
             log::debug!("KernelMergeSuggester: merged multiple Custom nodes into Program");

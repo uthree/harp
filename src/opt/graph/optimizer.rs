@@ -1,6 +1,7 @@
 use crate::graph::Graph;
 use crate::opt::graph::{
     GraphCostEstimator, GraphOptimizer, GraphSuggester, OptimizationHistory, OptimizationSnapshot,
+    SuggestResult,
 };
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, info, trace};
@@ -168,11 +169,11 @@ where
                 pb.set_position(step as u64);
             }
 
-            let mut candidates = Vec::new();
+            let mut candidates: Vec<SuggestResult> = Vec::new();
 
-            // 現在のビーム内の各候補から新しい候補を生成
+            // 現在のビーム内の各候補から新しい候補を生成（Suggester名付き）
             for graph in &beam {
-                let new_candidates = self.suggester.suggest(graph);
+                let new_candidates = self.suggester.suggest_named(graph);
                 candidates.extend(new_candidates);
             }
 
@@ -202,28 +203,28 @@ where
             let num_candidates = candidates.len();
             trace!("Found {} candidates at step {}", num_candidates, step);
 
-            // コストでソートして上位beam_width個を残す
-            let mut candidates_with_cost: Vec<(Graph, f32)> = candidates
+            // コストでソートして上位beam_width個を残す（Suggester名も保持）
+            let mut candidates_with_cost: Vec<(Graph, f32, String)> = candidates
                 .into_iter()
-                .map(|g| {
-                    let cost = self.estimator.estimate(&g);
-                    (g, cost)
+                .map(|result| {
+                    let cost = self.estimator.estimate(&result.graph);
+                    (result.graph, cost, result.suggester_name)
                 })
                 .collect();
 
             candidates_with_cost
                 .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
-            // 上位beam_width個を取得（コスト情報も保持）
-            let top_candidates: Vec<(Graph, f32)> = candidates_with_cost
+            // 上位beam_width個を取得（コスト情報とSuggester名も保持）
+            let top_candidates: Vec<(Graph, f32, String)> = candidates_with_cost
                 .into_iter()
                 .take(self.beam_width)
                 .collect();
 
-            beam = top_candidates.iter().map(|(g, _)| g.clone()).collect();
+            beam = top_candidates.iter().map(|(g, _, _)| g.clone()).collect();
 
             // このステップの最良候補を記録（既に計算したコストを再利用）
-            if let Some((best, cost)) = top_candidates.first() {
+            if let Some((best, cost, suggester_name)) = top_candidates.first() {
                 // コストが改善されない場合はカウンターを増やす
                 if *cost >= best_cost {
                     no_improvement_count += 1;
@@ -287,12 +288,13 @@ where
                 } else {
                     Vec::new()
                 };
-                history.add_snapshot(OptimizationSnapshot::with_candidates(
+                history.add_snapshot(OptimizationSnapshot::with_suggester(
                     step + 1,
                     best.clone(),
                     *cost,
                     format!(
-                        "Step {}: {} candidates, beam width {}, outputs: {}",
+                        "[{}] Step {}: {} candidates, beam width {}, outputs: {}",
+                        suggester_name,
                         step + 1,
                         num_candidates,
                         beam.len(),
@@ -300,6 +302,7 @@ where
                     ),
                     step_logs,
                     num_candidates,
+                    suggester_name.clone(),
                 ));
 
                 // このステップのログをクリア（次のステップで新しいログのみを記録するため）
@@ -365,6 +368,10 @@ mod tests {
     struct DummySuggester;
 
     impl GraphSuggester for DummySuggester {
+        fn name(&self) -> &'static str {
+            "Dummy"
+        }
+
         fn suggest(&self, _graph: &Graph) -> Vec<Graph> {
             // 何も提案しない
             vec![]

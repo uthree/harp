@@ -9,7 +9,16 @@ Graphの実行コストを推定。`estimate(&self, graph: &Graph) -> f64`
 Graphを最適化。`optimize(&self, graph: Graph) -> Graph`
 
 ### GraphSuggester
-書き換え候補を提案（ビームサーチ用）。`suggest(&self, graph: &Graph) -> Vec<Graph>`
+書き換え候補を提案（ビームサーチ用）。
+
+**メソッド:**
+- `name(&self) -> &'static str` - Suggesterの名前を返す
+- `suggest(&self, graph: &Graph) -> Vec<Graph>` - 候補グラフを提案
+- `suggest_named(&self, graph: &Graph) -> Vec<SuggestResult>` - Suggester名付きで候補を提案（デフォルト実装あり）
+
+**SuggestResult構造体:**
+- `graph: Graph` - 提案されたグラフ
+- `suggester_name: String` - 提案したSuggesterの名前
 
 ## コスト推定器
 
@@ -38,6 +47,19 @@ Graphを最適化。`optimize(&self, graph: Graph) -> Graph`
   - `max_depth` - 最大探索深さ（デフォルト: 10）
   - `suggester` - 使用するSuggester
   - `estimator` - 使用するCostEstimator
+- `optimize_with_history()`で最適化履歴を取得可能
+- 各ステップで最良候補を提案したSuggester名を記録
+
+### OptimizationSnapshot
+最適化の各ステップのスナップショット。
+
+**主要フィールド:**
+- `step: usize` - ステップ番号
+- `graph: Graph` - この時点でのグラフ
+- `cost: f32` - コスト推定値
+- `description: String` - ステップの説明
+- `suggester_name: Option<String>` - このグラフを提案したSuggesterの名前
+- `num_candidates: Option<usize>` - 候補数
 
 ## Suggester実装
 
@@ -133,6 +155,9 @@ GraphOpをCustomノード（`AstNode::Function`を保持）に変換する。グ
 
 ### CompositeSuggester
 複数のSuggesterを組み合わせる。
+
+- `suggest_named()`をオーバーライドし、各内部Suggesterの名前を正確に追跡
+- 各Suggesterが提案したグラフには、そのSuggesterの名前が関連付けられる
 
 ## 2段階最適化アーキテクチャ
 

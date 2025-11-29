@@ -374,6 +374,10 @@ impl Default for FusionSuggester {
 }
 
 impl GraphSuggester for FusionSuggester {
+    fn name(&self) -> &'static str {
+        "Fusion"
+    }
+
     fn suggest(&self, graph: &Graph) -> Vec<Graph> {
         let mut suggestions = Vec::new();
         let nodes = self.collect_all_nodes(graph);

@@ -1015,6 +1015,10 @@ impl Default for LoweringSuggester {
 }
 
 impl GraphSuggester for LoweringSuggester {
+    fn name(&self) -> &'static str {
+        "Lowering"
+    }
+
     fn suggest(&self, graph: &Graph) -> Vec<Graph> {
         let mut suggestions = Vec::new();
         let nodes = self.collect_all_nodes(graph);

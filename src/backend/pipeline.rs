@@ -215,8 +215,14 @@ where
     E: GraphCostEstimator,
 {
     // 第1フェーズ: 一般的なグラフ最適化
-    let (phase1_graph, phase1_history) =
-        optimize_graph_with_history(graph, flags, estimator, beam_width, max_steps, show_progress);
+    let (phase1_graph, phase1_history) = optimize_graph_with_history(
+        graph,
+        flags,
+        estimator,
+        beam_width,
+        max_steps,
+        show_progress,
+    );
 
     // 第2フェーズ: カーネルマージ（有効な場合）
     if enable_kernel_merge {
