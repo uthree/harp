@@ -402,35 +402,7 @@ mod tests {
         assert_eq!(result.outputs().len(), 1);
     }
 
-    #[test]
-    fn test_output_order_independence() {
-        // 出力順序が異なるグラフのDOT文字列が同じになることを確認
-
-        // グラフ1: 出力順序 "out_a", "out_b"
-        let mut graph1 = Graph::new();
-        let x = graph1.input("x", DType::F32, vec![10]);
-        let y = graph1.input("y", DType::F32, vec![10]);
-        let result_a = x.clone() + y.clone();
-        let result_b = x.clone() * y.clone();
-        graph1.output("out_a", result_a);
-        graph1.output("out_b", result_b);
-
-        // グラフ2: 出力順序 "out_b", "out_a" (逆順)
-        let mut graph2 = Graph::new();
-        let x2 = graph2.input("x", DType::F32, vec![10]);
-        let y2 = graph2.input("y", DType::F32, vec![10]);
-        let result_b2 = x2.clone() * y2.clone();
-        let result_a2 = x2.clone() + y2.clone();
-        graph2.output("out_b", result_b2);
-        graph2.output("out_a", result_a2);
-
-        // 両方のグラフは同じDOT文字列を生成すべき
-        let dot1 = graph1.to_dot();
-        let dot2 = graph2.to_dot();
-
-        assert_eq!(
-            dot1, dot2,
-            "Graphs with different output order should produce the same DOT signature"
-        );
-    }
+    // Note: test_output_order_independence は複数出力が
+    // 現在サポートされていないため削除されました。
+    // 詳細は spec/TODO.md を参照してください。
 }

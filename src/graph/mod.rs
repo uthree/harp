@@ -111,8 +111,23 @@ impl Graph {
         )
     }
 
-    // 出力ノードを登録
+    /// 出力ノードを登録
+    ///
+    /// # Panics
+    /// 現在の実装では単一出力のみをサポートしています。
+    /// 既に出力が登録されている場合はpanicします。
+    ///
+    /// # Note
+    /// 複数出力のサポートは将来的に実装予定です。
+    /// 詳細は spec/TODO.md を参照してください。
     pub fn output(&mut self, name: &str, output_node: GraphNode) {
+        if !self.outputs.is_empty() {
+            panic!(
+                "Multiple outputs are not yet supported. \
+                 Current implementation only allows a single output. \
+                 See spec/TODO.md for details."
+            );
+        }
         self.outputs.insert(name.to_string(), output_node);
     }
 
