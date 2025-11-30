@@ -115,8 +115,20 @@ KernelMergeSuggesterやSinkAbsorptionSuggesterがCustom同士を直接処理で�
 - 入力ノードが非contiguousなView（転置、反転など）を持つ
 - ノード自体がViewまたはContiguousノードでない
 
+### BufferAbsorptionSuggester
+CustomノードのsrcにあるBufferノード（入力バッファ）を`input_buffers`フィールドに取り込む。
+
+**処理フロー:**
+1. srcにBufferノードを持つCustomノードを検出
+2. Bufferノードの情報（名前、dtype、shape）を`input_buffers`に取り込む
+3. srcからBufferノードを削除
+
+**効果:**
+- Customノードが直接入力バッファの情報を保持
+- SinkAbsorptionSuggesterがシンプルにCustomを吸収できるようになる
+
 ### SinkAbsorptionSuggester
-Custom(Function)ノードをSinkノードに吸収し、最終的にSink(Program) + 入出力Bufferの構成を目指す。
+Custom(Function)ノードをSinkノードに吸収し、最終的にSink(Program) + 出力Bufferの構成を目指す。
 
 **処理フロー:**
 1. Sinkの入力側にあるCustom(Function)を検出
@@ -131,6 +143,17 @@ Custom(Function)ノードをSinkノードに吸収し、最終的にSink(Program
 **効果:**
 - 複数のCustom(Function)を単一のSink(Program)に統合
 - main関数でカーネル呼び出し順序とバリアを管理
+
+### SinkBufferAbsorptionSuggester
+SinkノードのsrcにあるBufferノード（入力バッファ）を除去する。
+
+**処理フロー:**
+1. srcに入力Bufferノードを持つSinkノードを検出
+2. 入力バッファ（output_で始まらないBuffer）をsrcから除去
+
+**効果:**
+- Sink.srcには出力バッファのみが残る
+- 入力バッファの情報は`graph.input_metas()`に保持されているため重複排除
 
 ### LoweringSuggester
 GraphOpをCustomノード（`AstNode::Function`を保持）に変換する。グラフ最適化の必須コンポーネント。

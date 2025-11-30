@@ -14,7 +14,7 @@ use crate::opt::graph::{
     AstOptimizationSuggester, BeamSearchGraphOptimizer, BufferAbsorptionSuggester,
     CompositeSuggester, ContiguousInsertionSuggester, FusionSuggester, GraphCostEstimator,
     KernelMergeCostEstimator, KernelMergeSuggester, LoweringSuggester, SinkAbsorptionSuggester,
-    TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
+    SinkBufferAbsorptionSuggester, TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
 };
 
 /// Suggesterの種類を指定するフラグ
@@ -100,6 +100,8 @@ pub fn create_graph_suggester(flags: SuggesterFlags) -> CompositeSuggester {
         Box::new(BufferAbsorptionSuggester::new()),
         // SinkAbsorptionSuggesterはCustom(Function)をSinkに吸収
         Box::new(SinkAbsorptionSuggester::new()),
+        // SinkBufferAbsorptionSuggesterはSinkの入力Bufferを除去
+        Box::new(SinkBufferAbsorptionSuggester::new()),
     ];
 
     // 単一ステージモードの場合、KernelMergeSuggesterも含める
