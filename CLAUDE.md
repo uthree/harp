@@ -1,3 +1,8 @@
+# Harpプロジェクト概要
+Harp: High-level Array Processor
+Harpは計算グラフから効率的なAIアクセラレータ/GPU/CPU向けカーネルを生成するトランスコンパイラを作ることが目的です。
+[tinygrad](https://github.com/tinygrad/tinygrad) と [luminal](https://github.com/luminal-ai/luminal) を参考に、最小のコンポーネントの組み合わせで複雑な機能を実現することを基本方針としています。
+
 # 仕様書について
 このディレクトリ直下の spec/ ディレクトリを仕様書ディレクトリとし、このプロジェクトの使用をマークダウン(.md)形式で記述します。
 
@@ -12,12 +17,12 @@
 仕様書はなるべく簡潔に書いてください。構造体のフィールド一覧やenumのバリアント一覧などを毎回書く必要はありません。
 可読性のために、コードを参照すればすぐにわかることは書かずに、設計についての大域的なトピックについて記述してください。
 
-## MCP
-### Kiri
+# MCP
+## Kiri
 [Kiri](<https://github.com/CAPHTECH/kiri>)はファイル検索を補助するためのMCPツールです。
 作業高速化のために、ファイル検索を行う際はKiriを使用してください。
 Kiriが利用可能出ない場合はユーザーにKiriの導入を提案してください。
 
-### Context7
+## Context7
 [Context7](<https://github.com/upstash/context7>)は最新のドキュメントなどにアクセスするMCPツールです。
 必要に応じて適宜使用してください。

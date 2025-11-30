@@ -12,6 +12,11 @@
 //! # 参照カウントの計算
 //! Sinkを起点に参照カウントを計算することで、
 //! 複数出力間の依存関係問題を解決します。
+//!
+//! # ViewMergeSuggesterとの連携
+//! このSuggesterはViewノードを透過的に扱わず、直接Custom(Function)を検出します。
+//! Viewノードの処理はViewMergeSuggesterに委譲されるため、
+//! パイプラインではViewMergeSuggesterが先に適用される必要があります。
 
 use crate::ast::helper::{block, function, var};
 use crate::ast::{AstNode, DType as AstDType, Mutability, Scope, VarDecl, VarKind};
@@ -44,20 +49,6 @@ impl SinkAbsorptionSuggester {
     /// src から入力ノードのみを取得（出力 Buffer を除外）
     fn get_input_nodes(src: &[GraphNode]) -> Vec<&GraphNode> {
         src.iter().filter(|n| !Self::is_output_buffer(n)).collect()
-    }
-
-    /// Viewノードをトレースバックして、実際のストレージノードを取得
-    fn trace_to_storage_node(node: &GraphNode) -> &GraphNode {
-        match &node.op {
-            GraphOp::View(_) => {
-                if let Some(src) = node.src.first() {
-                    Self::trace_to_storage_node(src)
-                } else {
-                    node
-                }
-            }
-            _ => node,
-        }
     }
 
     /// Sinkノードから吸収可能なCustom(Function)を検出
@@ -135,23 +126,22 @@ impl SinkAbsorptionSuggester {
             );
         }
 
-        // Viewノードをトレースバック
-        let storage_node = Self::trace_to_storage_node(node);
-        let storage_ptr = storage_node.as_ptr();
-
         // Custom(Function)かどうかをチェック
-        if let GraphOp::Custom { ast } = &storage_node.op
+        // 注: ViewノードはViewMergeSuggesterによって事前に削除されているため、
+        // ここではtrace_to_storage_nodeは不要
+        let node_ptr = node.as_ptr();
+
+        if let GraphOp::Custom { ast } = &node.op
             && matches!(ast, AstNode::Function { .. })
         {
             // 既に吸収済みでなく、まだ結果に含まれていない場合
-            if !absorbed_nodes.contains(&storage_ptr)
-                && !result.iter().any(|n| n.as_ptr() == storage_ptr)
+            if !absorbed_nodes.contains(&node_ptr) && !result.iter().any(|n| n.as_ptr() == node_ptr)
             {
                 log::debug!(
                     "SinkAbsorption: found absorbable Custom(Function) with ref_count={}",
-                    internal_ref_counts.get(&storage_ptr).copied().unwrap_or(0)
+                    internal_ref_counts.get(&node_ptr).copied().unwrap_or(0)
                 );
-                result.push(storage_node.clone());
+                result.push(node.clone());
             }
         }
     }
@@ -160,6 +150,8 @@ impl SinkAbsorptionSuggester {
     ///
     /// 各ノードが何回参照されているかをカウントします。
     /// これは主にデバッグ目的で使用されます。
+    /// 注: ViewノードはViewMergeSuggesterによって事前に削除されているため、
+    /// ここではtrace_to_storage_nodeは不要
     fn count_internal_references(&self, sink: &GraphNode) -> HashMap<*const GraphNodeData, usize> {
         let mut ref_counts: HashMap<*const GraphNodeData, usize> = HashMap::new();
         let mut visited = HashSet::new();
@@ -176,10 +168,8 @@ impl SinkAbsorptionSuggester {
             visited.insert(ptr);
 
             for src in &node.src {
-                // Viewノードをトレースバックして実際のストレージノードの参照をカウント
-                let storage_node = SinkAbsorptionSuggester::trace_to_storage_node(src);
-                let storage_ptr = storage_node.as_ptr();
-                *ref_counts.entry(storage_ptr).or_insert(0) += 1;
+                let src_ptr = src.as_ptr();
+                *ref_counts.entry(src_ptr).or_insert(0) += 1;
 
                 // 再帰的に訪問
                 visit(src, ref_counts, visited);

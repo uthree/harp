@@ -96,7 +96,11 @@ Viewノードを上流ノードにマージしてノード数を削減。
 
 **Custom → View マージの効果:**
 Custom → View → Custom のパターンで、前のCustomにViewを取り込むことで、
-KernelMergeSuggesterがCustom同士を直接マージできるようになる。
+KernelMergeSuggesterやSinkAbsorptionSuggesterがCustom同士を直接処理できるようになる。
+
+**他Suggesterとの連携:**
+- SinkAbsorptionSuggesterはViewを透過的に扱わないため、ViewMergeSuggesterが先に適用される必要がある
+- パイプラインではViewMergeSuggester → SinkAbsorptionSuggesterの順序で配置される
 
 ### ViewInsertionSuggester
 - メモリレイアウト最適化のためのView操作挿入
@@ -110,6 +114,23 @@ KernelMergeSuggesterがCustom同士を直接マージできるようになる。
 **挿入条件:**
 - 入力ノードが非contiguousなView（転置、反転など）を持つ
 - ノード自体がViewまたはContiguousノードでない
+
+### SinkAbsorptionSuggester
+Custom(Function)ノードをSinkノードに吸収し、最終的にSink(Program) + 入出力Bufferの構成を目指す。
+
+**処理フロー:**
+1. Sinkの入力側にあるCustom(Function)を検出
+2. 参照カウントを計算して吸収可能かを判定
+3. 吸収時にProgramにKernelを追加し、main関数を更新
+
+**ViewMergeSuggesterとの連携:**
+- このSuggesterはViewノードを透過的に扱わず、直接Custom(Function)を検出する
+- Viewノードの処理はViewMergeSuggesterに委譲される
+- パイプラインではViewMergeSuggesterが先に適用される必要がある
+
+**効果:**
+- 複数のCustom(Function)を単一のSink(Program)に統合
+- main関数でカーネル呼び出し順序とバリアを管理
 
 ### LoweringSuggester
 GraphOpをCustomノード（`AstNode::Function`を保持）に変換する。グラフ最適化の必須コンポーネント。
