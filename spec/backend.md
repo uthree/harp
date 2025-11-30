@@ -46,8 +46,8 @@ ASTをターゲット言語のソースコードに変換。C言語系の構文�
 Graphを最適化、lower、AST最適化などの一通りの処理をまとめて行うためのtrait。
 
 処理フロー:
-1. **グラフ最適化** (必須): LoweringSuggesterでGraphOpをCustomノードに変換、融合、並列化戦略変更など
-2. **Lowering**: Graph → AST変換（Customノードの展開）
+1. **グラフ最適化** (必須): LoweringSuggesterでGraphOpをKernelノードに変換、融合、並列化戦略変更など
+2. **Lowering**: Graph → AST変換（Kernelノードの展開）
 3. **AST最適化** (オプション):
    - ルールベース最適化（代数的簡約、定数畳み込み）
    - ビームサーチ最適化（ループ変換など）

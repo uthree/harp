@@ -42,7 +42,7 @@ fn main() -> eframe::Result {
         beam_width: 4,
         max_steps: 100,
         show_progress: true,
-        disable_early_termination: true, // 早期終了を無効化
+        enable_early_termination: false, // 早期終了を無効化
     };
 
     println!("  ✓ Pipeline作成完了（統合最適化有効）\n");
@@ -93,13 +93,13 @@ fn main() -> eframe::Result {
 
                     let op_name = match &node.op {
                         harp::graph::GraphOp::Buffer { name } => format!("Buffer({})", name),
-                        harp::graph::GraphOp::Custom { input_buffers, .. } => {
+                        harp::graph::GraphOp::Kernel { input_buffers, .. } => {
                             let buffers = input_buffers
                                 .as_ref()
                                 .map(|b| b.iter().map(|m| m.name.clone()).collect::<Vec<_>>());
                             format!("Custom(input_buffers={:?})", buffers)
                         }
-                        harp::graph::GraphOp::Sink { outputs, .. } => {
+                        harp::graph::GraphOp::ProgramRoot { outputs, .. } => {
                             format!("Sink(outputs={:?})", outputs)
                         }
                         harp::graph::GraphOp::View(_) => "View".to_string(),

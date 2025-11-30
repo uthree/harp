@@ -150,10 +150,10 @@ impl ContiguousInsertionSuggester {
                 .collect();
 
             // 元のSinkのast（Program）とoutputsを保持して新しいSinkを作成
-            if let GraphOp::Sink { ast, outputs } = &old_sink.op {
+            if let GraphOp::ProgramRoot { ast, outputs } = &old_sink.op {
                 let new_sink = GraphNode::new(
                     old_sink.dtype.clone(),
-                    GraphOp::Sink {
+                    GraphOp::ProgramRoot {
                         ast: ast.clone(),
                         outputs: outputs.clone(),
                     },

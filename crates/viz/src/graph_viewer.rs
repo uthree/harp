@@ -347,8 +347,8 @@ impl GraphViewerApp {
 
         // CustomノードまたはSinkノードの場合はASTを保存（レンダラー変更時に再レンダリング用）
         let ast = match &node.op {
-            harp::graph::GraphOp::Custom { ast, .. } => Some(ast.clone()),
-            harp::graph::GraphOp::Sink { ast, .. } => Some(ast.clone()),
+            harp::graph::GraphOp::Kernel { ast, .. } => Some(ast.clone()),
+            harp::graph::GraphOp::ProgramRoot { ast, .. } => Some(ast.clone()),
             _ => None,
         };
 
@@ -384,13 +384,13 @@ impl GraphViewerApp {
             GraphOp::FusedElementwiseReduce { .. } => "FusedER".to_string(),
             GraphOp::FusedElementwiseCumulative { .. } => "FusedEC".to_string(),
             GraphOp::FusedReduce { .. } => "FusedR".to_string(),
-            GraphOp::Custom { .. } => "Custom".to_string(),
+            GraphOp::Kernel { .. } => "Custom".to_string(),
             GraphOp::Pad { .. } => "Pad".to_string(),
             GraphOp::Slice { .. } => "Slice".to_string(),
             GraphOp::Fold { .. } => "Fold".to_string(),
             GraphOp::Rand => "Rand".to_string(),
             GraphOp::Concat { axis } => format!("Concat({})", axis),
-            GraphOp::Sink { outputs, .. } => format!("Sink({})", outputs.join(", ")),
+            GraphOp::ProgramRoot { outputs, .. } => format!("Sink({})", outputs.join(", ")),
             _ => "Unknown".to_string(),
         }
     }

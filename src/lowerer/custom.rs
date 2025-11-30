@@ -1,6 +1,6 @@
 //! Custom ASTのLowering
 //!
-//! GraphOp::Customを処理し、プレースホルダー変数を実際のパラメータに置換します。
+//! GraphOp::Kernelを処理し、プレースホルダー変数を実際のパラメータに置換します。
 //! AstNode::Function または AstNode::Program の両方をサポートします。
 
 use crate::ast::{AstNode, DType as AstDType, VarDecl};

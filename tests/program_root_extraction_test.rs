@@ -1,9 +1,9 @@
-/// SinkノードのProgram抽出テスト
+/// ProgramRootノードのProgram抽出テスト
 ///
-/// SinkAbsorptionSuggesterで生成されたProgramが正しく抽出されることを確認
+/// ProgramRootAbsorptionSuggesterで生成されたProgramが正しく抽出されることを確認
 
 #[test]
-fn test_sink_program_extraction() {
+fn test_program_root_extraction() {
     use harp::backend::GenericPipeline;
     use harp::backend::c::{CCompiler, CRenderer};
     use harp::graph::{DType, Graph};
@@ -56,7 +56,7 @@ fn test_sink_program_extraction() {
 }
 
 #[test]
-fn test_sink_program_extraction_complex() {
+fn test_program_root_extraction_complex() {
     use harp::backend::GenericPipeline;
     use harp::backend::c::{CCompiler, CRenderer};
     use harp::graph::{DType, Graph};

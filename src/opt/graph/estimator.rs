@@ -262,7 +262,7 @@ impl SimpleCostEstimator {
                 let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
                 num_elements.ln() + (3.0 * MEMORY_ACCESS_COST).ln() + lowering_penalty
             }
-            GraphOp::Custom { ast, .. } => {
+            GraphOp::Kernel { ast, .. } => {
                 // Custom関数のコスト計算
                 // CustomノードはLoweringSuggesterによって元の演算から変換されたもの
                 //
@@ -294,7 +294,7 @@ impl SimpleCostEstimator {
                     }
                 }
             }
-            GraphOp::Sink { ast, .. } => {
+            GraphOp::ProgramRoot { ast, .. } => {
                 // Sinkノードのコスト = 含まれるProgramのコスト
                 // SinkはグラフのルートでProgramを保持する
                 let ast_estimator = AstSimpleCostEstimator::new();
@@ -440,7 +440,7 @@ impl GraphCostEstimator for SimpleCostEstimator {
 
             // カーネルとしてカウントするノード
             match &node.op {
-                GraphOp::Custom { ast, .. } => match ast {
+                GraphOp::Kernel { ast, .. } => match ast {
                     crate::ast::AstNode::Function { .. } => kernel_count += 1,
                     crate::ast::AstNode::Program { .. } => has_custom_program = true,
                     _ => {}
@@ -507,7 +507,7 @@ impl GraphCostEstimator for SimpleCostEstimator {
         };
 
         // Sink.srcに入力Bufferがある場合、ペナルティを追加
-        // これにより、SinkBufferAbsorptionSuggesterの適用後にコストが下がる
+        // これにより、ProgramRootBufferAbsorptionSuggesterの適用後にコストが下がる
         // 直接Buffer、またはView→Buffer(input)のパターンを検出（1レベルのみ）
         let sink_buffer_penalty = if let Some(sink) = graph.sink() {
             let input_buffer_count = sink
@@ -528,7 +528,7 @@ impl GraphCostEstimator for SimpleCostEstimator {
                 })
                 .count();
             // 入力Bufferがあると、グラフが整理されていないとみなしてペナルティ
-            // ペナルティを強くしてSinkBufferAbsorptionが選ばれやすくする
+            // ペナルティを強くしてProgramRootBufferAbsorptionが選ばれやすくする
             2.0 * KERNEL_LAUNCH_OVERHEAD.ln() * input_buffer_count as f32
         } else {
             0.0
@@ -612,7 +612,7 @@ impl GraphCostEstimator for KernelMergeCostEstimator {
         let mut total_ast_cost = f32::NEG_INFINITY; // 対数スケールで0
 
         for node in &nodes {
-            if let GraphOp::Custom { ast, .. } = &node.op {
+            if let GraphOp::Kernel { ast, .. } = &node.op {
                 match ast {
                     AstNode::Function { .. } => {
                         custom_function_count += 1;

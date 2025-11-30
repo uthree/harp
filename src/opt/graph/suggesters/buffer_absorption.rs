@@ -8,9 +8,9 @@
 //! 2. Bufferノードの情報を`input_buffers`に取り込む
 //! 3. srcからBufferノードを削除（srcは空になる）
 //!
-//! # SinkAbsorptionSuggesterとの連携
+//! # ProgramRootAbsorptionSuggesterとの連携
 //! このSuggesterの適用後、CustomノードはsrcにBufferを持たなくなるため、
-//! SinkAbsorptionSuggesterはシンプルにCustomを吸収するだけでよくなる。
+//! ProgramRootAbsorptionSuggesterはシンプルにCustomを吸収するだけでよくなる。
 
 use crate::graph::ops::InputBufferMeta;
 use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
@@ -55,7 +55,7 @@ impl BufferAbsorptionSuggester {
         }
 
         // input_buffersがNoneで、srcにBufferを持つCustomノードを検出
-        if let GraphOp::Custom {
+        if let GraphOp::Kernel {
             input_buffers: None,
             ..
         } = &node.op
@@ -74,7 +74,7 @@ impl BufferAbsorptionSuggester {
     fn absorb_buffers(&self, graph: &Graph, custom_node: &GraphNode) -> Option<Graph> {
         // CustomノードのASTを取得
         let ast = match &custom_node.op {
-            GraphOp::Custom {
+            GraphOp::Kernel {
                 ast,
                 input_buffers: None,
             } => ast.clone(),
@@ -114,7 +114,7 @@ impl BufferAbsorptionSuggester {
         // 新しいCustomノードを作成
         let new_custom = GraphNode::new(
             custom_node.dtype.clone(),
-            GraphOp::Custom {
+            GraphOp::Kernel {
                 ast,
                 input_buffers: Some(input_buffers),
             },
@@ -278,7 +278,7 @@ mod tests {
         // 検証: Customノードのinput_buffersが設定されている
         if let Some(ref sink) = absorbed_graph.sink() {
             for src in &sink.src {
-                if let GraphOp::Custom { input_buffers, .. } = &src.op {
+                if let GraphOp::Kernel { input_buffers, .. } = &src.op {
                     eprintln!("Custom node input_buffers: {:?}", input_buffers);
                     assert!(input_buffers.is_some());
                     let buffers = input_buffers.as_ref().unwrap();

@@ -72,7 +72,7 @@ impl KernelMergeSuggester {
     fn collect_custom_nodes(&self, graph: &Graph) -> Vec<GraphNode> {
         self.collect_all_nodes(graph)
             .into_iter()
-            .filter(|node| matches!(&node.op, GraphOp::Custom { .. }))
+            .filter(|node| matches!(&node.op, GraphOp::Kernel { .. }))
             .collect()
     }
 
@@ -112,7 +112,7 @@ impl KernelMergeSuggester {
                 let producer = Self::trace_to_storage_node(producer_or_view);
 
                 // producerがCustomノードかチェック
-                if !matches!(&producer.op, GraphOp::Custom { .. }) {
+                if !matches!(&producer.op, GraphOp::Kernel { .. }) {
                     continue;
                 }
 
@@ -177,7 +177,7 @@ impl KernelMergeSuggester {
     ) -> Option<Graph> {
         // producer と consumer のAST情報を取得
         let (producer_ast, consumer_ast) = match (&producer.op, &consumer.op) {
-            (GraphOp::Custom { ast: p_ast, .. }, GraphOp::Custom { ast: c_ast, .. }) => {
+            (GraphOp::Kernel { ast: p_ast, .. }, GraphOp::Kernel { ast: c_ast, .. }) => {
                 (p_ast, c_ast)
             }
             _ => return None,
@@ -231,7 +231,7 @@ impl KernelMergeSuggester {
         // 新しいCustomノードを作成
         let merged_node = GraphNode::new(
             consumer.dtype.clone(),
-            GraphOp::Custom {
+            GraphOp::Kernel {
                 ast: program,
                 input_buffers: None,
             },
@@ -636,10 +636,10 @@ impl KernelMergeSuggester {
                 .collect();
 
             // 元のSinkのast（Program）とoutputsを保持して新しいSinkを作成
-            if let GraphOp::Sink { ast, outputs } = &old_sink.op {
+            if let GraphOp::ProgramRoot { ast, outputs } = &old_sink.op {
                 let new_sink = GraphNode::new(
                     old_sink.dtype.clone(),
-                    GraphOp::Sink {
+                    GraphOp::ProgramRoot {
                         ast: ast.clone(),
                         outputs: outputs.clone(),
                     },
@@ -706,7 +706,7 @@ impl KernelMergeSuggester {
         let mut program_count = 0;
 
         for node in &nodes {
-            if let GraphOp::Custom { ast, .. } = &node.op {
+            if let GraphOp::Kernel { ast, .. } = &node.op {
                 match ast {
                     AstNode::Function { .. } => function_count += 1,
                     AstNode::Program { .. } => program_count += 1,
@@ -855,7 +855,7 @@ mod tests {
         // Programを検査してバリアが挿入されていることを確認
         let merged = &suggestions[0];
         if let Some(output) = merged.outputs().values().next() {
-            if let GraphOp::Custom { ast, .. } = &output.op {
+            if let GraphOp::Kernel { ast, .. } = &output.op {
                 if let AstNode::Program { functions, .. } = ast {
                     let main_fn = functions.iter().find(|f| {
                         matches!(f, AstNode::Function { name: Some(n), .. } if n == "harp_main")
@@ -924,7 +924,7 @@ mod tests {
                 count_customs(src, visited, fn_count, prog_count);
             }
 
-            if let GraphOp::Custom { ast, .. } = &node.op {
+            if let GraphOp::Kernel { ast, .. } = &node.op {
                 match ast {
                     AstNode::Function { .. } => *fn_count += 1,
                     AstNode::Program { .. } => *prog_count += 1,
@@ -946,7 +946,7 @@ mod tests {
         // Sinkノードも確認
         let mut sink_has_program = false;
         if let Some(sink) = optimized.sink() {
-            if let GraphOp::Sink { ast, .. } = &sink.op {
+            if let GraphOp::ProgramRoot { ast, .. } = &sink.op {
                 if let AstNode::Program { functions, .. } = ast {
                     sink_has_program = !functions.is_empty();
                 }

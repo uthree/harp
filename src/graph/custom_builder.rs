@@ -1,6 +1,6 @@
 //! カスタム関数ビルダー
 //!
-//! GraphOp::Custom 用の AstNode::Function を構築するヘルパー
+//! GraphOp::Kernel 用の AstNode::Function を構築するヘルパー
 
 use crate::ast::{AstNode, DType, Mutability, Scope, helper::*};
 use crate::graph::ops::custom_placeholders as ph;

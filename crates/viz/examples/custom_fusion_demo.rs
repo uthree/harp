@@ -1,6 +1,6 @@
 //! CustomFusionSuggesterによる段階的融合の可視化デモ
 //!
-//! 連続するElementwise演算がGraphOp::Customに段階的に融合される様子を
+//! 連続するElementwise演算がGraphOp::Kernelに段階的に融合される様子を
 //! 可視化します。
 
 use harp::graph::{DType, Graph};
@@ -13,7 +13,7 @@ fn main() -> eframe::Result {
 
     println!("=== CustomFusionSuggester 段階的融合デモ ===\n");
     println!("このデモでは、連続するElementwise演算が");
-    println!("GraphOp::Customに段階的に融合される過程を可視化します。\n");
+    println!("GraphOp::Kernelに段階的に融合される過程を可視化します。\n");
 
     println!("【計算グラフの構造】");
     println!("  入力: a, b, c, d, e (各 [100] のF32テンソル)");
@@ -129,7 +129,7 @@ fn format_op_type(op: &harp::graph::GraphOp) -> String {
         GraphOp::Buffer { name } => name.clone(),
         GraphOp::Const(_) => "Const".to_string(),
         GraphOp::Elementwise { op, .. } => format!("Elementwise({:?})", op),
-        GraphOp::Custom { ast, .. } => {
+        GraphOp::Kernel { ast, .. } => {
             format!("Custom(ast={})", format_ast_brief(ast))
         }
         GraphOp::FusedElementwise { expr, .. } => {

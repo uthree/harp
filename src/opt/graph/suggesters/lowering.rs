@@ -140,7 +140,7 @@ impl LoweringSuggester {
                 | GraphOp::Const(_)
                 | GraphOp::ComplexConst { .. }
                 | GraphOp::View(_)
-                | GraphOp::Custom { .. }
+                | GraphOp::Kernel { .. }
         ) {
             return false;
         }
@@ -246,7 +246,7 @@ impl LoweringSuggester {
 
         Some(GraphNode::new(
             node.dtype.clone(),
-            GraphOp::Custom {
+            GraphOp::Kernel {
                 ast: function,
                 input_buffers: None,
             },
@@ -326,10 +326,10 @@ impl LoweringSuggester {
                 .collect();
 
             // 元のSinkのast（Program）とoutputsを保持して新しいSinkを作成
-            if let GraphOp::Sink { ast, outputs } = &old_sink.op {
+            if let GraphOp::ProgramRoot { ast, outputs } = &old_sink.op {
                 let new_sink = GraphNode::new(
                     old_sink.dtype.clone(),
-                    GraphOp::Sink {
+                    GraphOp::ProgramRoot {
                         ast: ast.clone(),
                         outputs: outputs.clone(),
                     },
@@ -1296,7 +1296,7 @@ impl GraphSuggester for LoweringSuggester {
         let mut lowered_count = 0;
 
         for node in &nodes {
-            if matches!(node.op, GraphOp::Custom { .. }) {
+            if matches!(node.op, GraphOp::Kernel { .. }) {
                 already_custom += 1;
                 continue;
             }
@@ -1355,7 +1355,7 @@ mod tests {
         let new_graph = &suggestions[0];
         let outputs = new_graph.outputs();
         let output = outputs.get("c").unwrap();
-        assert!(matches!(output.op, GraphOp::Custom { .. }));
+        assert!(matches!(output.op, GraphOp::Kernel { .. }));
     }
 
     #[test]
@@ -1374,7 +1374,7 @@ mod tests {
         let new_graph = &suggestions[0];
         let outputs = new_graph.outputs();
         let output = outputs.get("b").unwrap();
-        assert!(matches!(output.op, GraphOp::Custom { .. }));
+        assert!(matches!(output.op, GraphOp::Kernel { .. }));
     }
 
     #[test]
@@ -1438,7 +1438,7 @@ mod tests {
 
         // Customノードに変換されているはず
         assert!(
-            matches!(output.op, GraphOp::Custom { .. }),
+            matches!(output.op, GraphOp::Kernel { .. }),
             "Output should be Custom node, but got {:?}",
             output.op
         );
@@ -1488,7 +1488,7 @@ mod tests {
 
         // Customノードに変換されているはず
         assert!(
-            matches!(output.op, GraphOp::Custom { .. }),
+            matches!(output.op, GraphOp::Kernel { .. }),
             "Output should be Custom node, but got {:?}",
             output.op
         );

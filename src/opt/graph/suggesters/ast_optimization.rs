@@ -58,7 +58,7 @@ impl AstOptimizationSuggester {
                 visit(src, visited, custom_nodes);
             }
 
-            if matches!(node.op, GraphOp::Custom { .. }) {
+            if matches!(node.op, GraphOp::Kernel { .. }) {
                 custom_nodes.push(node.clone());
             }
         }
@@ -160,10 +160,10 @@ impl AstOptimizationSuggester {
                 .collect();
 
             // 元のSinkのast（Program）とoutputsを保持して新しいSinkを作成
-            if let GraphOp::Sink { ast, outputs } = &old_sink.op {
+            if let GraphOp::ProgramRoot { ast, outputs } = &old_sink.op {
                 let new_sink = GraphNode::new(
                     old_sink.dtype.clone(),
-                    GraphOp::Sink {
+                    GraphOp::ProgramRoot {
                         ast: ast.clone(),
                         outputs: outputs.clone(),
                     },
@@ -214,7 +214,7 @@ impl GraphSuggester for AstOptimizationSuggester {
         );
 
         for node in &custom_nodes {
-            if let GraphOp::Custom { ast, input_buffers } = &node.op {
+            if let GraphOp::Kernel { ast, input_buffers } = &node.op {
                 // AstSuggesterを適用
                 let ast_suggestions = self.apply_suggesters_to_ast(ast);
 
@@ -222,7 +222,7 @@ impl GraphSuggester for AstOptimizationSuggester {
                     // 新しいCustomノードを作成
                     let new_node = GraphNode::new(
                         node.dtype.clone(),
-                        GraphOp::Custom {
+                        GraphOp::Kernel {
                             ast: new_ast,
                             input_buffers: input_buffers.clone(),
                         },

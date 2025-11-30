@@ -39,7 +39,7 @@ fn node_ptr(node: &GraphNode) -> *const () {
 /// KernelMergeSuggesterの出力を検出するために使用
 fn find_custom_program(graph: &Graph) -> Option<crate::ast::AstNode> {
     for output in graph.outputs().values() {
-        if let GraphOp::Custom { ast, .. } = &output.op
+        if let GraphOp::Kernel { ast, .. } = &output.op
             && matches!(ast, crate::ast::AstNode::Program { .. })
         {
             return Some(ast.clone());
@@ -49,10 +49,10 @@ fn find_custom_program(graph: &Graph) -> Option<crate::ast::AstNode> {
 }
 
 /// SinkノードからProgramを取得する
-/// SinkAbsorptionSuggesterの出力を検出するために使用
+/// ProgramRootAbsorptionSuggesterの出力を検出するために使用
 fn find_sink_program(graph: &Graph) -> Option<crate::ast::AstNode> {
     if let Some(sink) = graph.sink()
-        && let GraphOp::Sink { ast, .. } = &sink.op
+        && let GraphOp::ProgramRoot { ast, .. } = &sink.op
     {
         // Sinkが空でないProgramを持っている場合のみ返す
         if let crate::ast::AstNode::Program { functions, .. } = ast
@@ -117,7 +117,7 @@ pub(crate) fn lower(graph: Graph) -> crate::ast::AstNode {
     // グラフ最適化を実行（LoweringSuggesterでCustomノードに変換）
     let optimized_graph = optimize_graph_for_lowering(graph);
 
-    // Sink(Program)ノードがあればそれを直接返す（SinkAbsorptionSuggesterの出力）
+    // Sink(Program)ノードがあればそれを直接返す（ProgramRootAbsorptionSuggesterの出力）
     if let Some(program) = find_sink_program(&optimized_graph) {
         log::debug!("Found Sink(Program) node, returning directly");
         return program;
@@ -552,7 +552,7 @@ impl Lowerer {
         node_id: usize,
     ) -> Result<crate::ast::AstNode, String> {
         match &node.op {
-            GraphOp::Custom { ast, .. } => {
+            GraphOp::Kernel { ast, .. } => {
                 // Custom AST（Function または Program）をloweringする
                 // プレースホルダー変数を実際のパラメータに置換
                 self.lower_custom_ast(node, node_id, ast)

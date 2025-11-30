@@ -100,7 +100,7 @@ impl CodeViewerApp {
     fn extract_ast_from_graph(&self, graph: &Graph) -> Option<harp::ast::AstNode> {
         // 1. SinkノードのProgramを最優先で確認
         if let Some(sink) = graph.sink() {
-            if let harp::graph::GraphOp::Sink { ast, .. } = &sink.op {
+            if let harp::graph::GraphOp::ProgramRoot { ast, .. } = &sink.op {
                 if let harp::ast::AstNode::Program { functions, .. } = ast {
                     if !functions.is_empty() {
                         return Some(ast.clone());
@@ -164,7 +164,7 @@ impl CodeViewerApp {
         }
 
         // Customノードの場合はASTを収集
-        if let GraphOp::Custom { ast, .. } = &node.op {
+        if let GraphOp::Kernel { ast, .. } = &node.op {
             // Programかどうかを判定
             if Self::is_program(ast) {
                 *program_ast = Some(ast.clone());

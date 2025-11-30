@@ -348,7 +348,7 @@ impl GraphNode {
         let view = self.view.clone();
         GraphNode::new(
             dtype,
-            GraphOp::Custom {
+            GraphOp::Kernel {
                 ast: function,
                 input_buffers: None,
             },
@@ -368,7 +368,7 @@ impl GraphNode {
 
         GraphNode::new(
             dtype,
-            GraphOp::Custom {
+            GraphOp::Kernel {
                 ast: function,
                 input_buffers: None,
             },
@@ -407,7 +407,7 @@ impl GraphNode {
 
         GraphNode::new(
             dtype,
-            GraphOp::Custom {
+            GraphOp::Kernel {
                 ast: function,
                 input_buffers: None,
             },
@@ -449,7 +449,7 @@ impl GraphNode {
 
         GraphNode::new(
             dtype,
-            GraphOp::Custom {
+            GraphOp::Kernel {
                 ast: function,
                 input_buffers: None,
             },
@@ -497,7 +497,7 @@ impl GraphNode {
 
         GraphNode::new(
             dtype,
-            GraphOp::Custom {
+            GraphOp::Kernel {
                 ast: function,
                 input_buffers: None,
             },
@@ -552,7 +552,7 @@ impl GraphNode {
 
         GraphNode::new(
             dtype,
-            GraphOp::Custom {
+            GraphOp::Kernel {
                 ast: function,
                 input_buffers: None,
             },
@@ -599,7 +599,7 @@ impl GraphNode {
 
         GraphNode::new(
             dtype,
-            GraphOp::Custom {
+            GraphOp::Kernel {
                 ast: function,
                 input_buffers: None,
             },

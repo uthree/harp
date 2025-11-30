@@ -8,7 +8,7 @@
 //!
 //! # BufferAbsorptionSuggesterとの関係
 //! - BufferAbsorptionSuggester: Buffer → Custom の吸収
-//! - SinkBufferAbsorptionSuggester: Buffer → Sink の吸収
+//! - ProgramRootBufferAbsorptionSuggester: Buffer → Sink の吸収
 //!
 //! 入力バッファの情報は既にgraph.input_metas()に保存されているため、
 //! Sinkに別途保持する必要はありません。
@@ -17,9 +17,9 @@ use crate::graph::{Graph, GraphNode, GraphOp};
 use crate::opt::graph::GraphSuggester;
 
 /// SinkノードからBufferノードを除去するSuggester
-pub struct SinkBufferAbsorptionSuggester;
+pub struct ProgramRootBufferAbsorptionSuggester;
 
-impl SinkBufferAbsorptionSuggester {
+impl ProgramRootBufferAbsorptionSuggester {
     pub fn new() -> Self {
         Self
     }
@@ -75,7 +75,7 @@ impl SinkBufferAbsorptionSuggester {
         }
 
         log::debug!(
-            "SinkBufferAbsorption: removing {} nodes (input buffers and View→Buffer patterns) from Sink.src",
+            "ProgramRootBufferAbsorption: removing {} nodes (input buffers and View→Buffer patterns) from Sink.src",
             sink.src.len() - new_src.len()
         );
 
@@ -102,15 +102,15 @@ impl SinkBufferAbsorptionSuggester {
     }
 }
 
-impl Default for SinkBufferAbsorptionSuggester {
+impl Default for ProgramRootBufferAbsorptionSuggester {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl GraphSuggester for SinkBufferAbsorptionSuggester {
+impl GraphSuggester for ProgramRootBufferAbsorptionSuggester {
     fn name(&self) -> &'static str {
-        "SinkBufferAbsorption"
+        "ProgramRootBufferAbsorption"
     }
 
     fn suggest(&self, graph: &Graph) -> Vec<Graph> {
@@ -138,15 +138,15 @@ mod tests {
     use super::*;
     use crate::graph::DType;
     use crate::opt::graph::suggesters::{
-        BufferAbsorptionSuggester, LoweringSuggester, SinkAbsorptionSuggester,
+        BufferAbsorptionSuggester, LoweringSuggester, ProgramRootAbsorptionSuggester,
     };
 
     #[test]
     fn test_sink_buffer_absorption_basic() {
         let lowering = LoweringSuggester::new();
         let buffer_absorber = BufferAbsorptionSuggester::new();
-        let sink_absorber = SinkAbsorptionSuggester::new();
-        let sink_buffer_absorber = SinkBufferAbsorptionSuggester::new();
+        let sink_absorber = ProgramRootAbsorptionSuggester::new();
+        let sink_buffer_absorber = ProgramRootBufferAbsorptionSuggester::new();
 
         // シンプルなElementwise演算グラフ
         let mut graph = Graph::new();
@@ -168,7 +168,7 @@ mod tests {
             eprintln!("Sink src count: {}", sink.src.len());
             for (i, src) in sink.src.iter().enumerate() {
                 let op_name = match &src.op {
-                    GraphOp::Custom { .. } => "Custom".to_string(),
+                    GraphOp::Kernel { .. } => "Custom".to_string(),
                     GraphOp::Buffer { name } => format!("Buffer({})", name),
                     _ => format!("{:?}", std::mem::discriminant(&src.op)),
                 };
@@ -186,7 +186,7 @@ mod tests {
             eprintln!("Sink src count: {}", sink.src.len());
             for (i, src) in sink.src.iter().enumerate() {
                 let op_name = match &src.op {
-                    GraphOp::Custom { .. } => "Custom".to_string(),
+                    GraphOp::Kernel { .. } => "Custom".to_string(),
                     GraphOp::Buffer { name } => format!("Buffer({})", name),
                     _ => format!("{:?}", std::mem::discriminant(&src.op)),
                 };
@@ -194,17 +194,17 @@ mod tests {
             }
         }
 
-        // SinkAbsorptionを適用
+        // ProgramRootAbsorptionを適用
         let sink_absorbed = sink_absorber.suggest(absorbed_graph);
         assert!(!sink_absorbed.is_empty());
         let sink_absorbed_graph = &sink_absorbed[0];
 
-        eprintln!("\n=== After SinkAbsorption ===");
+        eprintln!("\n=== After ProgramRootAbsorption ===");
         if let Some(ref sink) = sink_absorbed_graph.sink() {
             eprintln!("Sink src count: {}", sink.src.len());
             for (i, src) in sink.src.iter().enumerate() {
                 let op_name = match &src.op {
-                    GraphOp::Custom { .. } => "Custom".to_string(),
+                    GraphOp::Kernel { .. } => "Custom".to_string(),
                     GraphOp::Buffer { name } => format!("Buffer({})", name),
                     _ => format!("{:?}", std::mem::discriminant(&src.op)),
                 };
@@ -212,9 +212,9 @@ mod tests {
             }
         }
 
-        // SinkBufferAbsorptionを適用
+        // ProgramRootBufferAbsorptionを適用
         let final_suggestions = sink_buffer_absorber.suggest(sink_absorbed_graph);
-        eprintln!("\n=== After SinkBufferAbsorption ===");
+        eprintln!("\n=== After ProgramRootBufferAbsorption ===");
         eprintln!("Got {} suggestions", final_suggestions.len());
 
         if !final_suggestions.is_empty() {
@@ -223,7 +223,7 @@ mod tests {
                 eprintln!("Sink src count: {}", sink.src.len());
                 for (i, src) in sink.src.iter().enumerate() {
                     let op_name = match &src.op {
-                        GraphOp::Custom { .. } => "Custom".to_string(),
+                        GraphOp::Kernel { .. } => "Custom".to_string(),
                         GraphOp::Buffer { name } => format!("Buffer({})", name),
                         _ => format!("{:?}", std::mem::discriminant(&src.op)),
                     };
@@ -239,7 +239,7 @@ mod tests {
                 );
             }
         } else {
-            // SinkAbsorption後に入力Bufferがなければ提案はない
+            // ProgramRootAbsorption後に入力Bufferがなければ提案はない
             if let Some(ref sink) = sink_absorbed_graph.sink() {
                 let input_buffer_count = sink.src.iter().filter(|s| {
                     matches!(&s.op, GraphOp::Buffer { name } if !name.starts_with("output_"))
@@ -254,7 +254,7 @@ mod tests {
 
     #[test]
     fn test_sink_buffer_absorption_with_view_chain() {
-        let sink_buffer_absorber = SinkBufferAbsorptionSuggester::new();
+        let sink_buffer_absorber = ProgramRootBufferAbsorptionSuggester::new();
 
         // View → Buffer のチェーンをテスト
         let mut graph = Graph::new();
@@ -289,7 +289,7 @@ mod tests {
             }
         }
 
-        // SinkBufferAbsorptionを適用
+        // ProgramRootBufferAbsorptionを適用
         let suggestions = sink_buffer_absorber.suggest(&graph);
         eprintln!("\nGot {} suggestions", suggestions.len());
 
@@ -303,13 +303,11 @@ mod tests {
         let a = graph.input("a", DType::F32, vec![10]);
 
         // Buffer(a) は入力パターン
-        assert!(SinkBufferAbsorptionSuggester::is_input_buffer_pattern(&a));
+        assert!(ProgramRootBufferAbsorptionSuggester::is_input_buffer_pattern(&a));
 
         // View → Buffer(a) のチェーンも入力パターン
         let a_view = a.view(a.view.clone());
-        assert!(SinkBufferAbsorptionSuggester::is_input_buffer_pattern(
-            &a_view
-        ));
+        assert!(ProgramRootBufferAbsorptionSuggester::is_input_buffer_pattern(&a_view));
 
         // 出力バッファは入力パターンではない
         let output_buffer = GraphNode::new(
@@ -320,14 +318,12 @@ mod tests {
             vec![],
             a.view.clone(),
         );
-        assert!(!SinkBufferAbsorptionSuggester::is_input_buffer_pattern(
-            &output_buffer
-        ));
+        assert!(!ProgramRootBufferAbsorptionSuggester::is_input_buffer_pattern(&output_buffer));
     }
 
     #[test]
     fn test_sink_buffer_absorption_preserves_output_buffers() {
-        let sink_buffer_absorber = SinkBufferAbsorptionSuggester::new();
+        let sink_buffer_absorber = ProgramRootBufferAbsorptionSuggester::new();
 
         // 手動でSinkを構築（入力と出力バッファを含む）
         let mut graph = Graph::new();
@@ -348,7 +344,7 @@ mod tests {
             eprintln!("Before: {} input buffers in Sink.src", input_count);
         }
 
-        // SinkBufferAbsorptionを適用
+        // ProgramRootBufferAbsorptionを適用
         let suggestions = sink_buffer_absorber.suggest(&graph);
 
         if !suggestions.is_empty() {

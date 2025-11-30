@@ -170,7 +170,7 @@ impl Graph {
         match &mut self.sink {
             None => {
                 // 最初の出力: Sinkノードを新規作成
-                // 空のProgramを作成（後でSinkAbsorptionSuggesterが関数を追加）
+                // 空のProgramを作成（後でProgramRootAbsorptionSuggesterが関数を追加）
                 let empty_program = AstNode::Program {
                     functions: vec![],
                     entry_point: "harp_main".to_string(),
@@ -178,7 +178,7 @@ impl Graph {
 
                 let sink = GraphNode::new(
                     DType::Unknown, // Sinkは型を持たない
-                    GraphOp::Sink {
+                    GraphOp::ProgramRoot {
                         ast: empty_program,
                         outputs: vec![name],
                     },
@@ -194,14 +194,14 @@ impl Graph {
                 new_src.push(output_node);
 
                 let (ast, mut outputs) = match &existing_sink.op {
-                    GraphOp::Sink { ast, outputs } => (ast.clone(), outputs.clone()),
+                    GraphOp::ProgramRoot { ast, outputs } => (ast.clone(), outputs.clone()),
                     _ => panic!("Expected Sink node"),
                 };
                 outputs.push(name);
 
                 let new_sink = GraphNode::new(
                     DType::Unknown,
-                    GraphOp::Sink { ast, outputs },
+                    GraphOp::ProgramRoot { ast, outputs },
                     new_src,
                     View::contiguous(Vec::<isize>::new()),
                 );
@@ -219,7 +219,7 @@ impl Graph {
         let mut result = BTreeMap::new();
 
         if let Some(sink) = &self.sink
-            && let GraphOp::Sink { outputs, .. } = &sink.op
+            && let GraphOp::ProgramRoot { outputs, .. } = &sink.op
         {
             if sink.src.is_empty() {
                 // 最適化後: srcが空の場合はSink自体を返す
@@ -252,7 +252,7 @@ impl Graph {
     /// 出力名のリストを取得（ソート済み）
     pub fn output_names(&self) -> Vec<String> {
         if let Some(sink) = &self.sink
-            && let GraphOp::Sink { outputs, .. } = &sink.op
+            && let GraphOp::ProgramRoot { outputs, .. } = &sink.op
         {
             let mut names = outputs.clone();
             names.sort();

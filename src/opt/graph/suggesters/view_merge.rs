@@ -122,7 +122,7 @@ impl ViewMergeSuggester {
         // Customノードの場合は特別処理：Viewを出力に取り込む
         // Custom → View → Consumer のパターンを Custom[View適用済み] → Consumer に変換
         // これにより、後続のKernelMergeSuggesterがCustom同士を直接マージできる
-        if matches!(input_node.op, GraphOp::Custom { .. }) {
+        if matches!(input_node.op, GraphOp::Kernel { .. }) {
             return self.merge_custom_view_node(input_node, target_view);
         }
 
@@ -299,10 +299,10 @@ impl ViewMergeSuggester {
                 .collect();
 
             // 元のSinkのast（Program）とoutputsを保持して新しいSinkを作成
-            if let GraphOp::Sink { ast, outputs } = &old_sink.op {
+            if let GraphOp::ProgramRoot { ast, outputs } = &old_sink.op {
                 let new_sink = GraphNode::new(
                     old_sink.dtype.clone(),
-                    GraphOp::Sink {
+                    GraphOp::ProgramRoot {
                         ast: ast.clone(),
                         outputs: outputs.clone(),
                     },
@@ -408,10 +408,10 @@ impl ViewMergeSuggester {
                 .collect();
 
             // 元のSinkのast（Program）とoutputsを保持して新しいSinkを作成
-            if let GraphOp::Sink { ast, outputs } = &old_sink.op {
+            if let GraphOp::ProgramRoot { ast, outputs } = &old_sink.op {
                 let new_sink = GraphNode::new(
                     old_sink.dtype.clone(),
-                    GraphOp::Sink {
+                    GraphOp::ProgramRoot {
                         ast: ast.clone(),
                         outputs: outputs.clone(),
                     },
@@ -695,7 +695,7 @@ mod tests {
         let lowered_outputs = lowered_graph.outputs();
         let result_node = lowered_outputs.get("result").unwrap();
         assert!(
-            matches!(result_node.op, GraphOp::Custom { .. }),
+            matches!(result_node.op, GraphOp::Kernel { .. }),
             "Should be Custom node"
         );
 
@@ -715,7 +715,7 @@ mod tests {
 
         // 結果がCustomノードであることを確認（Viewノードではない）
         assert!(
-            matches!(merged_result.op, GraphOp::Custom { .. }),
+            matches!(merged_result.op, GraphOp::Kernel { .. }),
             "Result should be Custom node after merge, got {:?}",
             merged_result.op
         );

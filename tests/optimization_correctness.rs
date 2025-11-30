@@ -6,7 +6,8 @@
 mod tests {
     use harp::backend::c::{CCompiler, CPipeline, CRenderer};
     use harp::backend::{Buffer, Compiler, Kernel, Pipeline};
-    use harp::graph::{DType, Graph, GraphNode, shape::Expr};
+    use harp::graph::{DType, Graph, shape::Expr};
+    use rstest::rstest;
 
     /// ExprをVec<usize>に変換（定数のみサポート）
     fn expr_vec_to_usize_vec(exprs: &[Expr]) -> Vec<usize> {
@@ -22,66 +23,49 @@ mod tests {
     /// Cコンパイラが利用可能かチェック
     fn check_compiler_available() -> bool {
         use std::panic;
-
-        // panicをキャッチしてfalseを返す
         let result = panic::catch_unwind(|| {
             let renderer = CRenderer::new();
             let compiler = CCompiler::new();
-
-            // シンプルなグラフでコンパイルを試行
             let mut test_graph = Graph::new();
             let a = test_graph.input("a", DType::F32, vec![2, 2]);
             test_graph.output("out", a);
-
             let mut pipeline = CPipeline::new(renderer, compiler);
             pipeline.compile_graph(test_graph).is_ok()
         });
-
         result.unwrap_or(false)
     }
 
     /// テストヘルパー：グラフをコンパイルして実行
-    fn compile_and_run(
-        graph: Graph,
-        _enable_optimization: bool, // グラフ最適化は常に有効
-        input_data: Vec<Vec<f32>>,
-    ) -> Vec<f32> {
+    fn compile_and_run(graph: Graph, input_data: Vec<Vec<f32>>) -> Vec<f32> {
         let renderer = CRenderer::new();
         let compiler = CCompiler::new();
         let mut pipeline = CPipeline::new(renderer, compiler);
-
-        // グラフ最適化は常に有効（LoweringSuggesterが必須）
-        // AST最適化のみオプション
         pipeline.enable_ast_optimization = false;
 
-        // コンパイル
         let kernel = pipeline
             .compile_graph(graph.clone())
             .expect("Failed to compile graph");
 
-        // 入力バッファを作成
         let signature = kernel.signature();
-        let mut input_buffers = Vec::new();
+        let mut input_buffers: Vec<_> = input_data
+            .iter()
+            .enumerate()
+            .map(|(i, data)| {
+                let shape = expr_vec_to_usize_vec(&signature.inputs[i].shape);
+                let mut buffer = pipeline
+                    .compiler()
+                    .create_buffer(shape, std::mem::size_of::<f32>());
+                let bytes: Vec<u8> = data.iter().flat_map(|&f| f.to_le_bytes()).collect();
+                buffer.from_bytes(&bytes).expect("Failed to write buffer");
+                buffer
+            })
+            .collect();
 
-        for (i, data) in input_data.iter().enumerate() {
-            let shape = expr_vec_to_usize_vec(&signature.inputs[i].shape);
-            let mut buffer = pipeline
-                .compiler()
-                .create_buffer(shape, std::mem::size_of::<f32>());
-
-            // データをバッファに書き込み
-            let bytes: Vec<u8> = data.iter().flat_map(|&f| f.to_le_bytes()).collect();
-            buffer.from_bytes(&bytes).expect("Failed to write buffer");
-            input_buffers.push(buffer);
-        }
-
-        // 出力バッファを作成
         let output_shape = expr_vec_to_usize_vec(&signature.outputs[0].shape);
         let mut output_buffer = pipeline
             .compiler()
             .create_buffer(output_shape, std::mem::size_of::<f32>());
 
-        // カーネルを実行（入力と出力を結合）
         let mut all_buffers: Vec<&mut _> = input_buffers.iter_mut().collect();
         all_buffers.push(&mut output_buffer);
 
@@ -91,7 +75,6 @@ mod tests {
                 .expect("Failed to execute kernel");
         }
 
-        // 結果を取得
         let output_bytes = output_buffer.to_bytes();
         output_bytes
             .chunks(4)
@@ -108,7 +91,6 @@ mod tests {
             a.len(),
             b.len()
         );
-
         for (i, (&va, &vb)) in a.iter().zip(b.iter()).enumerate() {
             let diff = (va - vb).abs();
             assert!(
@@ -122,244 +104,162 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_elementwise_add_optimization() {
-        if !check_compiler_available() {
-            eprintln!("C compiler not available, skipping test");
-            return;
-        }
-        // シンプルな加算: a + b
+    /// テストケース構造体
+    struct TestCase {
+        name: &'static str,
+        graph: Graph,
+        inputs: Vec<Vec<f32>>,
+        expected: Vec<f32>,
+        epsilon: f32,
+    }
+
+    /// シンプルな加算テスト
+    fn create_add_test() -> TestCase {
         let mut graph = Graph::new();
         let a = graph.input("a", DType::F32, vec![4, 4]);
         let b = graph.input("b", DType::F32, vec![4, 4]);
-        let result = a + b;
-        graph.output("result", result);
+        graph.output("result", a + b);
 
-        // 入力データ
         let input_a: Vec<f32> = (0..16).map(|x| x as f32).collect();
         let input_b: Vec<f32> = (0..16).map(|x| (x * 2) as f32).collect();
+        let expected: Vec<f32> = input_a.iter().zip(&input_b).map(|(&a, &b)| a + b).collect();
 
-        // 最適化なしで実行
-        let result_no_opt =
-            compile_and_run(graph.clone(), false, vec![input_a.clone(), input_b.clone()]);
-
-        // 最適化ありで実行
-        let result_with_opt = compile_and_run(graph, true, vec![input_a, input_b]);
-
-        // 結果を比較
-        assert_approx_eq(&result_no_opt, &result_with_opt, 1e-5);
+        TestCase {
+            name: "add",
+            graph,
+            inputs: vec![input_a, input_b],
+            expected,
+            epsilon: 1e-5,
+        }
     }
 
-    #[test]
-    fn test_elementwise_chain_optimization() {
-        if !check_compiler_available() {
-            eprintln!("C compiler not available, skipping test");
-            return;
-        }
-        // 連鎖演算: (a + b) * c
+    /// 連鎖演算テスト
+    fn create_chain_test() -> TestCase {
         let mut graph = Graph::new();
         let a = graph.input("a", DType::F32, vec![8, 8]);
         let b = graph.input("b", DType::F32, vec![8, 8]);
         let c = graph.input("c", DType::F32, vec![8, 8]);
+        graph.output("result", (a + b) * c);
 
-        let temp = a + b;
-        let result = temp * c;
-        graph.output("result", result);
-
-        // 入力データ
         let input_a: Vec<f32> = (0..64).map(|x| (x as f32) * 0.1).collect();
         let input_b: Vec<f32> = (0..64).map(|x| (x as f32) * 0.2).collect();
         let input_c: Vec<f32> = (0..64).map(|x| (x as f32) * 0.3).collect();
-
-        // 最適化ありで実行（fusion最適化により正しく計算される）
-        let result_with_opt = compile_and_run(
-            graph,
-            true,
-            vec![input_a.clone(), input_b.clone(), input_c.clone()],
-        );
-
-        // 期待される結果と比較: (a + b) * c
         let expected: Vec<f32> = input_a
             .iter()
-            .zip(input_b.iter())
-            .zip(input_c.iter())
+            .zip(&input_b)
+            .zip(&input_c)
             .map(|((&a, &b), &c)| (a + b) * c)
             .collect();
-        assert_approx_eq(&result_with_opt, &expected, 1e-5);
+
+        TestCase {
+            name: "chain",
+            graph,
+            inputs: vec![input_a, input_b, input_c],
+            expected,
+            epsilon: 1e-5,
+        }
     }
 
-    #[test]
-    #[ignore = "Sinkベースアーキテクチャ移行中：main関数のカーネル呼び出し引数生成に問題あり"]
-    fn test_const_propagation_optimization() {
-        if !check_compiler_available() {
-            eprintln!("C compiler not available, skipping test");
-            return;
-        }
-        // 定数伝播: a + (2.0 * 3.0)
-        let mut graph = Graph::new();
-        let a = graph.input("a", DType::F32, vec![10, 10]);
-
-        // 定数演算（スカラー定数は自動的にブロードキャストされる）
-        let const1: GraphNode = 2.0f32.into();
-        let const2: GraphNode = 3.0f32.into();
-        let scale = const1 * const2; // 6.0に畳み込まれる
-
-        let result = a + scale;
-        graph.output("result", result);
-
-        // 入力データ
-        let input_a: Vec<f32> = (0..100).map(|x| (x as f32) * 0.5).collect();
-
-        // 最適化なしで実行
-        let result_no_opt = compile_and_run(graph.clone(), false, vec![input_a.clone()]);
-
-        // 最適化ありで実行
-        let result_with_opt = compile_and_run(graph, true, vec![input_a.clone()]);
-
-        // 結果を比較
-        assert_approx_eq(&result_no_opt, &result_with_opt, 1e-5);
-
-        // 期待される結果とも比較（a + 6.0）
-        let expected: Vec<f32> = input_a.iter().map(|&x| x + 6.0).collect();
-        assert_approx_eq(&result_with_opt, &expected, 1e-5);
-    }
-
-    #[test]
-    fn test_reduce_sum_optimization() {
-        if !check_compiler_available() {
-            eprintln!("C compiler not available, skipping test");
-            return;
-        }
-        // Reduce演算: reduce_sum(a + b, axis=0)
-        let mut graph = Graph::new();
-        let a = graph.input("a", DType::F32, vec![4, 8]);
-        let b = graph.input("b", DType::F32, vec![4, 8]);
-
-        let sum_input = a + b;
-        let result = sum_input.reduce_sum(0);
-        graph.output("result", result);
-
-        // 入力データ
-        let input_a: Vec<f32> = (0..32).map(|x| x as f32).collect();
-        let input_b: Vec<f32> = (0..32).map(|x| (x * 2) as f32).collect();
-
-        // 最適化なしで実行
-        let result_no_opt =
-            compile_and_run(graph.clone(), false, vec![input_a.clone(), input_b.clone()]);
-
-        // 最適化ありで実行
-        let result_with_opt = compile_and_run(graph, true, vec![input_a, input_b]);
-
-        // 結果を比較
-        assert_approx_eq(&result_no_opt, &result_with_opt, 1e-4);
-    }
-
-    #[test]
-    fn test_complex_graph_optimization() {
-        if !check_compiler_available() {
-            eprintln!("C compiler not available, skipping test");
-            return;
-        }
-        // 複雑なグラフ: ((a + b) * c) + d
+    /// 複雑なグラフテスト
+    fn create_complex_test() -> TestCase {
         let mut graph = Graph::new();
         let a = graph.input("a", DType::F32, vec![6, 6]);
         let b = graph.input("b", DType::F32, vec![6, 6]);
         let c = graph.input("c", DType::F32, vec![6, 6]);
         let d = graph.input("d", DType::F32, vec![6, 6]);
+        graph.output("result", ((a + b) * c) + d);
 
-        let temp1 = a + b;
-        let temp2 = temp1 * c;
-        let result = temp2 + d;
-        graph.output("result", result);
-
-        // 入力データ
         let input_a: Vec<f32> = (0..36).map(|x| (x as f32) * 0.1).collect();
         let input_b: Vec<f32> = (0..36).map(|x| (x as f32) * 0.2).collect();
         let input_c: Vec<f32> = (0..36).map(|x| (x as f32) * 0.3).collect();
         let input_d: Vec<f32> = (0..36).map(|x| (x as f32) * 0.4).collect();
-
-        // 最適化ありで実行（fusion最適化により正しく計算される）
-        let result_with_opt = compile_and_run(
-            graph,
-            true,
-            vec![
-                input_a.clone(),
-                input_b.clone(),
-                input_c.clone(),
-                input_d.clone(),
-            ],
-        );
-
-        // 期待される結果と比較: ((a + b) * c) + d
         let expected: Vec<f32> = input_a
             .iter()
-            .zip(input_b.iter())
-            .zip(input_c.iter())
-            .zip(input_d.iter())
+            .zip(&input_b)
+            .zip(&input_c)
+            .zip(&input_d)
             .map(|(((&a, &b), &c), &d)| ((a + b) * c) + d)
             .collect();
-        assert_approx_eq(&result_with_opt, &expected, 1e-5);
+
+        TestCase {
+            name: "complex",
+            graph,
+            inputs: vec![input_a, input_b, input_c, input_d],
+            expected,
+            epsilon: 1e-5,
+        }
     }
 
-    #[test]
-    #[ignore = "Sinkベースアーキテクチャ移行中：main関数のカーネル呼び出し引数生成に問題あり"]
-    fn test_view_transformation_optimization() {
-        if !check_compiler_available() {
-            eprintln!("C compiler not available, skipping test");
-            return;
-        }
-        // View変換を含む演算: a.permute([1, 0]) + b
+    /// Reduceテスト
+    fn create_reduce_test() -> TestCase {
         let mut graph = Graph::new();
-        let a = graph.input("a", DType::F32, vec![3, 4]);
-        let b = graph.input("b", DType::F32, vec![4, 3]);
+        let a = graph.input("a", DType::F32, vec![4, 8]);
+        let b = graph.input("b", DType::F32, vec![4, 8]);
+        graph.output("result", (a + b).reduce_sum(0));
 
-        // aを転置して [4, 3] にする
-        let a_transposed = a.view(a.view.clone().permute(vec![1, 0]));
-        let result = a_transposed + b;
-        graph.output("result", result);
+        let input_a: Vec<f32> = (0..32).map(|x| x as f32).collect();
+        let input_b: Vec<f32> = (0..32).map(|x| (x * 2) as f32).collect();
+        // axis=0でreduce: shape [4, 8] -> [8]
+        let mut expected = vec![0.0f32; 8];
+        for row in 0..4 {
+            for col in 0..8 {
+                let idx = row * 8 + col;
+                expected[col] += input_a[idx] + input_b[idx];
+            }
+        }
 
-        // 入力データ
-        let input_a: Vec<f32> = (0..12).map(|x| x as f32).collect();
-        let input_b: Vec<f32> = (0..12).map(|x| (x * 2) as f32).collect();
-
-        // 最適化なしで実行
-        let result_no_opt =
-            compile_and_run(graph.clone(), false, vec![input_a.clone(), input_b.clone()]);
-
-        // 最適化ありで実行
-        let result_with_opt = compile_and_run(graph, true, vec![input_a, input_b]);
-
-        // 結果を比較
-        assert_approx_eq(&result_no_opt, &result_with_opt, 1e-5);
+        TestCase {
+            name: "reduce",
+            graph,
+            inputs: vec![input_a, input_b],
+            expected,
+            epsilon: 1e-4,
+        }
     }
 
-    #[test]
-    fn test_matmul_like_pattern_optimization() {
-        if !check_compiler_available() {
-            eprintln!("C compiler not available, skipping test");
-            return;
-        }
-        // 行列積のようなパターン: reduce_sum(a * b, axis=1)
+    /// 行列積パターンテスト
+    fn create_matmul_like_test() -> TestCase {
         let mut graph = Graph::new();
         let a = graph.input("a", DType::F32, vec![8, 16]);
         let b = graph.input("b", DType::F32, vec![8, 16]);
+        graph.output("result", (a * b).reduce_sum(1));
 
-        let mul_result = a * b;
-        let result = mul_result.reduce_sum(1);
-        graph.output("result", result);
-
-        // 入力データ
         let input_a: Vec<f32> = (0..128).map(|x| (x as f32) * 0.01).collect();
         let input_b: Vec<f32> = (0..128).map(|x| (x as f32) * 0.02).collect();
+        // axis=1でreduce: shape [8, 16] -> [8]
+        let mut expected = vec![0.0f32; 8];
+        for row in 0..8 {
+            for col in 0..16 {
+                let idx = row * 16 + col;
+                expected[row] += input_a[idx] * input_b[idx];
+            }
+        }
 
-        // 最適化なしで実行
-        let result_no_opt =
-            compile_and_run(graph.clone(), false, vec![input_a.clone(), input_b.clone()]);
+        TestCase {
+            name: "matmul_like",
+            graph,
+            inputs: vec![input_a, input_b],
+            expected,
+            epsilon: 1e-4,
+        }
+    }
 
-        // 最適化ありで実行
-        let result_with_opt = compile_and_run(graph, true, vec![input_a, input_b]);
+    #[rstest]
+    #[case::add(create_add_test())]
+    #[case::chain(create_chain_test())]
+    #[case::complex(create_complex_test())]
+    #[case::reduce(create_reduce_test())]
+    #[case::matmul_like(create_matmul_like_test())]
+    fn test_optimization_correctness(#[case] test_case: TestCase) {
+        if !check_compiler_available() {
+            eprintln!(
+                "C compiler not available, skipping test: {}",
+                test_case.name
+            );
+            return;
+        }
 
-        // 結果を比較
-        assert_approx_eq(&result_no_opt, &result_with_opt, 1e-4);
+        let result = compile_and_run(test_case.graph, test_case.inputs);
+        assert_approx_eq(&result, &test_case.expected, test_case.epsilon);
     }
 }

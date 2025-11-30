@@ -3,9 +3,9 @@ use crate::graph::shape::View;
 use crate::graph::{CumulativeStrategy, DType, GraphNode, ReduceStrategy};
 use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 
-/// Customノードに取り込まれた入力バッファの情報
+/// Kernelノードに取り込まれた入力バッファの情報
 ///
-/// BufferAbsorptionSuggester適用後、Customノードのsrcから入力Bufferを
+/// BufferAbsorptionSuggester適用後、KernelノードのsrcからBufferを
 /// 取り込んだ際のメタデータを保持します。
 #[derive(Debug, Clone, PartialEq)]
 pub struct InputBufferMeta {
@@ -22,7 +22,7 @@ pub enum GraphOp {
     /// バッファノード（入力または出力）
     ///
     /// 名前付きバッファを表す。Graph.inputs に登録されている場合は外部入力、
-    /// Custom ノードの src に含まれる場合は AST 関数のパラメータに対応する。
+    /// Kernel ノードの src に含まれる場合は AST 関数のパラメータに対応する。
     Buffer {
         name: String, // AST関数のパラメータ名に対応 (e.g., "input0", "output")
     },
@@ -102,10 +102,10 @@ pub enum GraphOp {
     /// 実部と虚部のF32テンソルから複素数テンソルを構築する
     /// 入力: 2つのF32 tensor (real, imag), 出力: Complex tensor (same shape)
     ComplexFromParts,
-    /// カスタムAST演算（カーネル関数専用）
+    /// カーネル演算（単一カーネル関数）
     ///
-    /// `AstNode::Function`のみを保持します。
-    /// 複数カーネルを統合したプログラムはSinkノードで管理されます。
+    /// `AstNode::Function`または`AstNode::Kernel`を保持します。
+    /// 複数カーネルを統合したプログラムはProgramRootノードで管理されます。
     ///
     /// 関数内ではプレースホルダー変数を使用（[`custom_placeholders`]参照）。
     ///
@@ -119,63 +119,31 @@ pub enum GraphOp {
     /// - `input_buffers`がNoneの場合: 入力バッファはsrcから参照される
     /// - `input_buffers`がSomeの場合: BufferAbsorptionSuggester適用後で、
     ///   入力バッファ情報が取り込まれている（srcは空）
-    ///
-    /// # Example
-    /// ```
-    /// use harp::prelude::*;
-    /// use harp::ast::{AstNode, DType as AstDType, Scope, helper::*};
-    /// use harp::graph::ops::custom_placeholders as ph;
-    ///
-    /// let mut graph = Graph::new();
-    /// let x = graph.input("x", DType::F32, vec![10]);
-    ///
-    /// // x^2 を計算するカスタム関数を構築
-    /// let func = function(
-    ///     None::<String>,  // 名前はlowering時に設定
-    ///     vec![],  // パラメータはlowering時に設定
-    ///     AstDType::Tuple(vec![]),
-    ///     range(
-    ///         &ph::ridx(0),
-    ///         const_int(0),
-    ///         const_int(1),
-    ///         var(&ph::shape(0)),
-    ///         block(vec![
-    ///             store(
-    ///                 var(ph::OUTPUT),
-    ///                 var(&ph::ridx(0)),
-    ///                 load(var(&ph::input(0)), var(&ph::ridx(0)), AstDType::F32)
-    ///                   * load(var(&ph::input(0)), var(&ph::ridx(0)), AstDType::F32),
-    ///             ),
-    ///         ], Scope::new()),
-    ///     ),
-    /// );
-    /// let y = x.custom_function(func);
-    /// ```
-    Custom {
+    Kernel {
         /// AstNode::Function（単一カーネル関数）
         ast: crate::ast::AstNode,
         /// 取り込まれた入力バッファの情報（BufferAbsorptionSuggester適用後に設定）
         /// Noneの場合、入力バッファはsrcから参照される
         input_buffers: Option<Vec<InputBufferMeta>>,
     },
-    /// グラフのルートノード（プログラム全体を表現）
+    /// プログラムルートノード（プログラム全体を表現）
     ///
-    /// Sinkノードはグラフの最終出力を統合し、`AstNode::Program`を保持します。
+    /// ProgramRootノードはグラフの最終出力を統合し、`AstNode::Program`を保持します。
     /// - グラフに1つだけ存在（全ての出力を統合）
     /// - srcに入力ノード群と出力Bufferノード群を持つ
-    /// - SinkAbsorptionSuggesterにより、全てのCustomノードを吸収
-    /// - 最終的にSinkノード + 入出力Bufferノードのみがグラフに残る
+    /// - ProgramRootAbsorptionSuggesterにより、全てのKernelノードを吸収
+    /// - 最終的にProgramRootノード + 入出力Bufferノードのみがグラフに残る
     ///
     /// # src構造
     /// `src = [入力ノード群..., 出力Bufferノード群...]`
-    /// - 入力ノード: 計算依存のあるノード（Custom, View, etc.）
+    /// - 入力ノード: 計算依存のあるノード（Kernel, View, etc.）
     /// - 出力Buffer: `outputs`フィールドの順序に対応するBufferノード
     ///
     /// # 使用フロー
-    /// 1. `Graph::output()`呼び出し時にSinkノードが自動作成/更新
-    /// 2. 最適化時にSinkAbsorptionSuggesterがCustomノードを吸収
-    /// 3. Lowerer時にSinkのast（Program）をそのまま返却
-    Sink {
+    /// 1. `Graph::output()`呼び出し時にProgramRootノードが自動作成/更新
+    /// 2. 最適化時にProgramRootAbsorptionSuggesterがKernelノードを吸収
+    /// 3. Lowerer時にProgramRootのast（Program）をそのまま返却
+    ProgramRoot {
         /// AstNode::Program（複数のカーネル関数 + main関数）
         ast: crate::ast::AstNode,
         /// 出力バッファ名のリスト（順序を保持）

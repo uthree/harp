@@ -13,8 +13,9 @@ use crate::opt::ast::{
 use crate::opt::graph::{
     AstOptimizationSuggester, BeamSearchGraphOptimizer, BufferAbsorptionSuggester,
     CompositeSuggester, ContiguousInsertionSuggester, FusionSuggester, GraphCostEstimator,
-    KernelMergeCostEstimator, KernelMergeSuggester, LoweringSuggester, SinkAbsorptionSuggester,
-    SinkBufferAbsorptionSuggester, TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
+    KernelMergeCostEstimator, KernelMergeSuggester, LoweringSuggester,
+    ProgramRootAbsorptionSuggester, ProgramRootBufferAbsorptionSuggester, TilingSuggester,
+    ViewInsertionSuggester, ViewMergeSuggester,
 };
 
 /// Suggesterの種類を指定するフラグ
@@ -98,15 +99,15 @@ pub fn create_graph_suggester(flags: SuggesterFlags) -> CompositeSuggester {
         Box::new(LoweringSuggester::new()),
         // BufferAbsorptionSuggesterはCustomの入力Bufferをinput_buffersフィールドに取り込む
         Box::new(BufferAbsorptionSuggester::new()),
-        // SinkAbsorptionSuggesterはCustom(Function)をSinkに吸収
-        Box::new(SinkAbsorptionSuggester::new()),
-        // SinkBufferAbsorptionSuggesterはSinkの入力Bufferを除去
-        Box::new(SinkBufferAbsorptionSuggester::new()),
+        // ProgramRootAbsorptionSuggesterはCustom(Function)をSinkに吸収
+        Box::new(ProgramRootAbsorptionSuggester::new()),
+        // ProgramRootBufferAbsorptionSuggesterはSinkの入力Bufferを除去
+        Box::new(ProgramRootBufferAbsorptionSuggester::new()),
     ];
 
     // 単一ステージモードの場合、KernelMergeSuggesterも含める
     // これにより、Custom(Program)の増分マージが可能になる
-    // 注: SinkAbsorptionSuggesterが優先され、KernelMergeSuggesterは
+    // 注: ProgramRootAbsorptionSuggesterが優先され、KernelMergeSuggesterは
     // 既存のCustom(Program)マージにのみ使用される
     if flags.include_kernel_merge {
         suggesters.push(Box::new(KernelMergeSuggester::new()));
@@ -311,7 +312,7 @@ where
 /// KernelMergeSuggesterを含む単一のビームサーチで、
 /// fusion, lowering, カーネルマージを統合的に最適化します。
 ///
-/// Custom(Program)の増分マージをサポートするため、
+/// Kernel(Program)の増分マージをサポートするため、
 /// 従来の2ステージ最適化よりも柔軟な最適化が可能です。
 ///
 /// # Arguments

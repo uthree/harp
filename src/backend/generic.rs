@@ -12,8 +12,8 @@ use crate::opt::graph::{
     BeamSearchGraphOptimizer, BufferAbsorptionSuggester, CompositeSuggester,
     ContiguousInsertionSuggester, FusionSuggester, GraphCostEstimator, KernelMergeCostEstimator,
     KernelMergeSuggester, LoweringSuggester, OptimizationHistory as GraphOptimizationHistory,
-    SimpleCostEstimator, SinkAbsorptionSuggester, SinkBufferAbsorptionSuggester, TilingSuggester,
-    ViewInsertionSuggester, ViewMergeSuggester,
+    ProgramRootAbsorptionSuggester, ProgramRootBufferAbsorptionSuggester, SimpleCostEstimator,
+    TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
 };
 use std::collections::HashMap;
 
@@ -30,8 +30,8 @@ pub struct OptimizationConfig {
     pub max_steps: usize,
     /// プログレスバーを表示するか
     pub show_progress: bool,
-    /// 早期終了を無効化するか
-    pub disable_early_termination: bool,
+    /// 早期終了を有効にするか（デフォルト: true）
+    pub enable_early_termination: bool,
 }
 
 impl Default for OptimizationConfig {
@@ -40,7 +40,7 @@ impl Default for OptimizationConfig {
             beam_width: 4,
             max_steps: 10000,
             show_progress: false,
-            disable_early_termination: false,
+            enable_early_termination: true,
         }
     }
 }
@@ -132,7 +132,7 @@ where
 /// 最適化済みグラフからAST Programを抽出する
 ///
 /// 複数の出力がある場合、すべてのカーネルを1つのProgramに統合します。
-/// SinkAbsorptionSuggesterが生成したSink(Program)を直接返すか、
+/// ProgramRootAbsorptionSuggesterが生成したSink(Program)を直接返すか、
 /// KernelMergeSuggesterが生成したCustom(Program)を直接返すか、
 /// Custom(Function)がある場合はLowererを使用してProgramを生成します。
 fn extract_program_from_graph(graph: Graph) -> AstNode {
@@ -140,9 +140,9 @@ fn extract_program_from_graph(graph: Graph) -> AstNode {
     use std::collections::HashSet;
 
     // 1. SinkノードのProgramを最優先で確認
-    // SinkAbsorptionSuggesterが生成した完全なProgramがあればそれを使用
+    // ProgramRootAbsorptionSuggesterが生成した完全なProgramがあればそれを使用
     if let Some(sink) = graph.sink()
-        && let GraphOp::Sink { ast, .. } = &sink.op
+        && let GraphOp::ProgramRoot { ast, .. } = &sink.op
         && let AstNode::Program { functions, .. } = ast
         && !functions.is_empty()
     {
@@ -166,7 +166,7 @@ fn extract_program_from_graph(graph: Graph) -> AstNode {
         }
         visited.insert(ptr);
 
-        if let GraphOp::Custom { ast, .. } = &node.op {
+        if let GraphOp::Kernel { ast, .. } = &node.op {
             match ast {
                 AstNode::Program { .. } => programs.push(ast),
                 AstNode::Function { .. } => functions.push(ast),
@@ -681,10 +681,10 @@ where
             Box::new(LoweringSuggester::new()),
             // BufferAbsorptionSuggesterはCustomノードにBufferを取り込む
             Box::new(BufferAbsorptionSuggester::new()),
-            // SinkAbsorptionSuggesterはCustom(Function)をSinkに吸収
-            Box::new(SinkAbsorptionSuggester::new()),
-            // SinkBufferAbsorptionSuggesterはSinkの入力Bufferを除去
-            Box::new(SinkBufferAbsorptionSuggester::new()),
+            // ProgramRootAbsorptionSuggesterはCustom(Function)をSinkに吸収
+            Box::new(ProgramRootAbsorptionSuggester::new()),
+            // ProgramRootBufferAbsorptionSuggesterはSinkの入力Bufferを除去
+            Box::new(ProgramRootBufferAbsorptionSuggester::new()),
         ])
     }
 
@@ -701,7 +701,7 @@ where
             .with_beam_width(self.graph_config.beam_width)
             .with_max_steps(self.graph_config.max_steps)
             .with_progress(self.graph_config.show_progress)
-            .with_disable_early_termination(self.graph_config.disable_early_termination)
+            .with_early_termination(self.graph_config.enable_early_termination)
     }
 
     /// AST最適化用のSuggesterを作成
@@ -871,7 +871,7 @@ fn count_custom_functions(graph: &Graph) -> usize {
         }
         visited.insert(ptr);
 
-        if let crate::graph::GraphOp::Custom { ast, .. } = &node.op
+        if let crate::graph::GraphOp::Kernel { ast, .. } = &node.op
             && matches!(ast, AstNode::Function { .. })
         {
             *count += 1;
