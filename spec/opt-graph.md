@@ -49,8 +49,10 @@ Graphを最適化。`optimize(&self, graph: Graph) -> Graph`
   - `max_depth` - 最大探索深さ（デフォルト: 10）
   - `suggester` - 使用するSuggester
   - `estimator` - 使用するCostEstimator
+  - `disable_early_termination` - 早期終了を無効化（デフォルト: false）
 - `optimize_with_history()`で最適化履歴を取得可能
 - 各ステップで最良候補を提案したSuggester名を記録
+- 早期終了: コスト改善がない場合に連続で10ステップ経過すると終了（`disable_early_termination`で無効化可能）
 
 ### OptimizationSnapshot
 最適化の各ステップのスナップショット。
