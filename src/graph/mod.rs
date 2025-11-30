@@ -201,8 +201,8 @@ impl Graph {
     pub fn outputs(&self) -> BTreeMap<String, GraphNode> {
         let mut result = BTreeMap::new();
 
-        if let Some(sink) = &self.sink {
-            if let GraphOp::Sink { outputs, .. } = &sink.op {
+        if let Some(sink) = &self.sink
+            && let GraphOp::Sink { outputs, .. } = &sink.op {
                 // srcは [output_node0, output_buffer0, output_node1, output_buffer1, ...] の順
                 // output_node を取り出す
                 for (i, name) in outputs.iter().enumerate() {
@@ -212,7 +212,6 @@ impl Graph {
                     }
                 }
             }
-        }
 
         result
     }
@@ -247,13 +246,12 @@ impl Graph {
 
     /// 出力名のリストを取得（ソート済み）
     pub fn output_names(&self) -> Vec<String> {
-        if let Some(sink) = &self.sink {
-            if let GraphOp::Sink { outputs, .. } = &sink.op {
+        if let Some(sink) = &self.sink
+            && let GraphOp::Sink { outputs, .. } = &sink.op {
                 let mut names = outputs.clone();
                 names.sort();
                 return names;
             }
-        }
         Vec::new()
     }
 

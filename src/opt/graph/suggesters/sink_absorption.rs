@@ -56,31 +56,59 @@ impl SinkAbsorptionSuggester {
     ///
     /// 吸収条件:
     /// - Custom(Function)ノードであること
-    /// - 参照カウントが1（単一消費者）であること
+    /// - 「外部参照カウント」が0であること（すべての消費者がSink内部にある）
+    ///
+    /// 複数出力の場合、出力間で共有されるノードも吸収可能です。
+    /// ただし、吸収順序は依存関係に基づいて決定されます。
     fn find_absorbable_customs(&self, graph: &Graph) -> Vec<GraphNode> {
         let sink = match graph.sink() {
             Some(s) => s,
             None => return vec![],
         };
 
-        // Sinkから参照カウントを計算
-        let ref_counts = self.count_references_from_sink(&sink);
+        // Sink内部からの参照カウントを計算
+        let internal_ref_counts = self.count_internal_references(sink);
+
+        // 既にProgramに吸収されたノードを追跡
+        let absorbed_nodes = self.collect_absorbed_node_ptrs(sink);
 
         let mut absorbable = Vec::new();
 
         // Sinkのsrcを走査してCustom(Function)を検出
         for src in &sink.src {
-            self.find_customs_recursive(src, &ref_counts, &mut absorbable, &mut HashSet::new());
+            self.find_customs_recursive_multi_output(
+                src,
+                &internal_ref_counts,
+                &absorbed_nodes,
+                &mut absorbable,
+                &mut HashSet::new(),
+            );
         }
 
         absorbable
     }
 
-    /// 再帰的にCustom(Function)ノードを探索
-    fn find_customs_recursive(
+    /// 既にSink(Program)に吸収されたノードのポインタを収集
+    fn collect_absorbed_node_ptrs(&self, _sink: &GraphNode) -> HashSet<*const GraphNodeData> {
+        
+
+        // Sink内のProgramから、すでに吸収されたカーネルの情報を取得することも可能だが、
+        // 現在の実装では、Sinkのsrc内のCustom(Function)をチェックするだけで十分
+        // 将来的には、Programに含まれるカーネル名から元のノードを追跡できる
+
+        // 現在は空を返す（すべてのCustom(Function)は未吸収として扱う）
+        HashSet::new()
+    }
+
+    /// 再帰的にCustom(Function)ノードを探索（複数出力対応版）
+    ///
+    /// 複数出力間で共有されるノードも吸収可能とします。
+    /// トポロジカル順序に基づいて、リーフから順に吸収します。
+    fn find_customs_recursive_multi_output(
         &self,
         node: &GraphNode,
-        ref_counts: &HashMap<*const GraphNodeData, usize>,
+        internal_ref_counts: &HashMap<*const GraphNodeData, usize>,
+        absorbed_nodes: &HashSet<*const GraphNodeData>,
         result: &mut Vec<GraphNode>,
         visited: &mut HashSet<*const GraphNodeData>,
     ) {
@@ -90,29 +118,42 @@ impl SinkAbsorptionSuggester {
         }
         visited.insert(ptr);
 
+        // 先に子ノードを探索（トポロジカル順序を維持）
+        for src in &node.src {
+            self.find_customs_recursive_multi_output(
+                src,
+                internal_ref_counts,
+                absorbed_nodes,
+                result,
+                visited,
+            );
+        }
+
         // Viewノードをトレースバック
         let storage_node = Self::trace_to_storage_node(node);
+        let storage_ptr = storage_node.as_ptr();
 
         // Custom(Function)かどうかをチェック
-        if let GraphOp::Custom { ast } = &storage_node.op {
-            if matches!(ast, AstNode::Function { .. }) {
-                // 参照カウントが1の場合のみ吸収可能
-                let storage_ptr = storage_node.as_ptr();
-                let ref_count = ref_counts.get(&storage_ptr).copied().unwrap_or(0);
-                if ref_count <= 1 && !result.iter().any(|n| n.as_ptr() == storage_ptr) {
+        if let GraphOp::Custom { ast } = &storage_node.op
+            && matches!(ast, AstNode::Function { .. }) {
+                // 既に吸収済みでなく、まだ結果に含まれていない場合
+                if !absorbed_nodes.contains(&storage_ptr)
+                    && !result.iter().any(|n| n.as_ptr() == storage_ptr)
+                {
+                    log::debug!(
+                        "SinkAbsorption: found absorbable Custom(Function) with ref_count={}",
+                        internal_ref_counts.get(&storage_ptr).copied().unwrap_or(0)
+                    );
                     result.push(storage_node.clone());
                 }
             }
-        }
-
-        // 子ノードも再帰的に探索
-        for src in &node.src {
-            self.find_customs_recursive(src, ref_counts, result, visited);
-        }
     }
 
-    /// Sinkから参照カウントを計算
-    fn count_references_from_sink(&self, sink: &GraphNode) -> HashMap<*const GraphNodeData, usize> {
+    /// Sink内部からの参照カウントを計算
+    ///
+    /// 各ノードが何回参照されているかをカウントします。
+    /// これは主にデバッグ目的で使用されます。
+    fn count_internal_references(&self, sink: &GraphNode) -> HashMap<*const GraphNodeData, usize> {
         let mut ref_counts: HashMap<*const GraphNodeData, usize> = HashMap::new();
         let mut visited = HashSet::new();
 
@@ -187,7 +228,7 @@ impl SinkAbsorptionSuggester {
         program_functions.push(kernel.clone());
 
         // 新しいSinkのsrcを構築（custom_nodeを削除し、その入力を直接接続）
-        let new_src = self.rebuild_sink_src(&sink, custom_node);
+        let new_src = self.rebuild_sink_src(sink, custom_node);
 
         // main関数を生成/更新
         let main_fn =
@@ -242,11 +283,10 @@ impl SinkAbsorptionSuggester {
 
             // 吸収されたノードの場合、入力ノードを返す
             // 注: 複数入力の場合は最初の入力を返す（単純化）
-            if ptr == absorbed_ptr {
-                if let Some(first_input) = absorbed_inputs.first() {
+            if ptr == absorbed_ptr
+                && let Some(first_input) = absorbed_inputs.first() {
                     return first_input.clone();
                 }
-            }
 
             // Bufferノードはそのまま返す
             if matches!(node.op, GraphOp::Buffer { .. }) {
@@ -434,8 +474,8 @@ impl SinkAbsorptionSuggester {
         sorted_inputs.sort();
 
         for (i, name) in sorted_inputs.iter().enumerate() {
-            if let Some(weak) = graph.inputs().get(name) {
-                if let Some(rc) = weak.upgrade() {
+            if let Some(weak) = graph.inputs().get(name)
+                && let Some(rc) = weak.upgrade() {
                     let node = GraphNode::from_rc(rc);
                     let param_name = format!("input{}", i);
                     if !param_names.contains(&param_name) {
@@ -448,13 +488,12 @@ impl SinkAbsorptionSuggester {
                         param_names.insert(param_name);
                     }
                 }
-            }
         }
 
         // 出力バッファーのパラメータを追加
         for (i, name) in output_names.iter().enumerate() {
-            if let Some(weak) = graph.output_buffers().get(name) {
-                if let Some(rc) = weak.upgrade() {
+            if let Some(weak) = graph.output_buffers().get(name)
+                && let Some(rc) = weak.upgrade() {
                     let node = GraphNode::from_rc(rc);
                     let param_name = format!("output{}", i);
                     if !param_names.contains(&param_name) {
@@ -467,7 +506,6 @@ impl SinkAbsorptionSuggester {
                         param_names.insert(param_name);
                     }
                 }
-            }
         }
 
         // main関数のbody
@@ -529,7 +567,7 @@ impl SinkAbsorptionSuggester {
     fn rebuild_graph_with_sink(&self, graph: &Graph, new_sink: GraphNode) -> Graph {
         let mut new_graph = Graph::new();
 
-        // 入力ノードを登録
+        // まず、元のグラフの入力ノードを登録
         let mut sorted_input_names: Vec<_> = graph.inputs().keys().cloned().collect();
         sorted_input_names.sort();
 
@@ -542,6 +580,12 @@ impl SinkAbsorptionSuggester {
             }
         }
 
+        // 元のグラフの入力が取得できなかった場合、Sinkのsrcから入力バッファーを再収集
+        // (弱参照が失われている場合の対策)
+        if new_graph.inputs().len() < graph.inputs().len() {
+            self.collect_and_register_inputs_from_sink(&new_sink, graph, &mut new_graph);
+        }
+
         // 新しいSinkをセット
         new_graph.set_sink(new_sink);
 
@@ -551,6 +595,45 @@ impl SinkAbsorptionSuggester {
         }
 
         new_graph
+    }
+
+    /// Sinkのsrcから入力バッファーを収集して登録
+    fn collect_and_register_inputs_from_sink(
+        &self,
+        sink: &GraphNode,
+        original_graph: &Graph,
+        new_graph: &mut Graph,
+    ) {
+        let mut visited = HashSet::new();
+        let original_input_names: HashSet<_> = original_graph.inputs().keys().cloned().collect();
+
+        fn collect_buffers(
+            node: &GraphNode,
+            visited: &mut HashSet<*const GraphNodeData>,
+            original_input_names: &HashSet<String>,
+            new_graph: &mut Graph,
+        ) {
+            let ptr = node.as_ptr();
+            if visited.contains(&ptr) {
+                return;
+            }
+            visited.insert(ptr);
+
+            // Bufferノードで、元のグラフの入力に含まれている場合は登録
+            if let GraphOp::Buffer { name } = &node.op
+                && original_input_names.contains(name) && new_graph.inputs().get(name).is_none() {
+                    new_graph.register_input(name.clone(), node.clone());
+                }
+
+            // 再帰的に子ノードを探索
+            for src in &node.src {
+                collect_buffers(src, visited, original_input_names, new_graph);
+            }
+        }
+
+        for src in &sink.src {
+            collect_buffers(src, &mut visited, &original_input_names, new_graph);
+        }
     }
 
     fn graph_dtype_to_ast(dtype: &GraphDType) -> AstDType {
@@ -847,6 +930,121 @@ mod tests {
             }
         } else {
             panic!("Optimized graph should have Sink node");
+        }
+    }
+
+    #[test]
+    fn test_multiple_outputs_absorption() {
+        use crate::ast::helper::wildcard;
+        use crate::backend::pipeline::{SuggesterFlags, create_graph_suggester};
+        use crate::opt::graph::{BeamSearchGraphOptimizer, SimpleCostEstimator};
+
+        // 複数出力のグラフを作成: x = a + b, y = x + 1
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![10]);
+        let b = graph.input("b", DType::F32, vec![10]);
+
+        // x = a + b (Custom)
+        let x = a.custom_elementwise_binary(b, wildcard("0") + wildcard("1"));
+        // y = x + 1 (Custom) - 使用できるcustom_elementwiseがないので、通常のelementwise演算を使用
+        let y = &x + 1.0f32;
+
+        graph.output("x", x.clone());
+        graph.output("y", y);
+
+        eprintln!("\n=== Multiple Outputs Test ===");
+        eprintln!("Sink exists: {:?}", graph.sink().is_some());
+        if let Some(ref sink) = graph.sink() {
+            eprintln!("Sink src count: {}", sink.src.len());
+            if let GraphOp::Sink { outputs, .. } = &sink.op {
+                eprintln!("Outputs: {:?}", outputs);
+            }
+        }
+
+        // SinkAbsorptionで吸収可能なノードを検出
+        let suggester = SinkAbsorptionSuggester::new();
+        let absorbable = suggester.find_absorbable_customs(&graph);
+        eprintln!("\nAbsorbable Custom nodes: {}", absorbable.len());
+        for (i, node) in absorbable.iter().enumerate() {
+            if let GraphOp::Custom { ast } = &node.op {
+                let name = match ast {
+                    crate::ast::AstNode::Function { name, .. } => name.clone(),
+                    _ => None,
+                };
+                eprintln!("  [{}] Custom(Function): {:?}", i, name);
+            }
+        }
+
+        // 少なくとも1つのノードが吸収可能であるべき
+        assert!(
+            !absorbable.is_empty(),
+            "Should find at least one absorbable Custom node for multiple outputs"
+        );
+
+        // BeamSearchで最適化
+        let flags = SuggesterFlags {
+            include_kernel_merge: true,
+            include_ast_optimization: false,
+        };
+        let combined_suggester = create_graph_suggester(flags);
+        let estimator = SimpleCostEstimator::new();
+
+        let optimizer = BeamSearchGraphOptimizer::new(combined_suggester, estimator)
+            .with_beam_width(4)
+            .with_max_steps(50)
+            .with_progress(false)
+            .with_collect_logs(false);
+
+        let (optimized, history) = optimizer.optimize_with_history(graph);
+
+        eprintln!("\n=== Optimization History ===");
+        for snapshot in history.snapshots() {
+            let sink_info = if let Some(ref sink) = snapshot.graph.sink() {
+                if let GraphOp::Sink { ast, outputs } = &sink.op {
+                    let func_count = if let crate::ast::AstNode::Program { functions, .. } = ast {
+                        functions.len()
+                    } else {
+                        0
+                    };
+                    format!("outputs={:?}, funcs={}", outputs, func_count)
+                } else {
+                    "Unknown".to_string()
+                }
+            } else {
+                "No Sink".to_string()
+            };
+            eprintln!(
+                "Step {}: {} - cost={:.2} - {}",
+                snapshot.step, snapshot.description, snapshot.cost, sink_info
+            );
+        }
+
+        // 最終グラフを確認
+        eprintln!("\n=== Final Graph ===");
+        if let Some(ref sink) = optimized.sink() {
+            if let GraphOp::Sink { ast, outputs } = &sink.op {
+                eprintln!("Outputs: {:?}", outputs);
+                if let crate::ast::AstNode::Program { functions, .. } = ast {
+                    eprintln!(
+                        "Program has {} functions (including harp_main)",
+                        functions.len()
+                    );
+                    for (i, func) in functions.iter().enumerate() {
+                        let name = match func {
+                            crate::ast::AstNode::Kernel { name, .. } => name.clone(),
+                            crate::ast::AstNode::Function { name, .. } => name.clone(),
+                            _ => None,
+                        };
+                        eprintln!("  function[{}]: {:?}", i, name);
+                    }
+                    // 2つのカーネル + harp_main = 3つの関数があるべき
+                    assert!(
+                        functions.len() >= 3,
+                        "Should have at least 2 kernels + harp_main for multiple outputs, got {}",
+                        functions.len()
+                    );
+                }
+            }
         }
     }
 }

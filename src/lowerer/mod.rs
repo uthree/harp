@@ -51,16 +51,14 @@ fn find_custom_program(graph: &Graph) -> Option<crate::ast::AstNode> {
 /// SinkノードからProgramを取得する
 /// SinkAbsorptionSuggesterの出力を検出するために使用
 fn find_sink_program(graph: &Graph) -> Option<crate::ast::AstNode> {
-    if let Some(sink) = graph.sink() {
-        if let GraphOp::Sink { ast, .. } = &sink.op {
+    if let Some(sink) = graph.sink()
+        && let GraphOp::Sink { ast, .. } = &sink.op {
             // Sinkが空でないProgramを持っている場合のみ返す
-            if let crate::ast::AstNode::Program { functions, .. } = ast {
-                if !functions.is_empty() {
+            if let crate::ast::AstNode::Program { functions, .. } = ast
+                && !functions.is_empty() {
                     return Some(ast.clone());
                 }
-            }
         }
-    }
     None
 }
 
