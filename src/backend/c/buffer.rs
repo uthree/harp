@@ -273,7 +273,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "ndarray")]
     fn test_buffer_to_ndarray() {
         let mut buffer = CBuffer::with_dtype(vec![2, 3], DType::F32);
 
@@ -293,7 +292,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "ndarray")]
     fn test_buffer_from_ndarray() {
         use ndarray::arr2;
 
@@ -312,7 +310,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "ndarray")]
     fn test_buffer_ndarray_roundtrip() {
         use ndarray::arr3;
 
@@ -341,7 +338,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "ndarray")]
     fn test_buffer_ndarray_shape_mismatch() {
         use ndarray::arr1;
 

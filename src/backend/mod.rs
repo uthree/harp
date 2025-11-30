@@ -105,10 +105,6 @@ pub trait Buffer {
     }
 
     /// バッファの内容をndarrayとして取得（デフォルト実装）
-    ///
-    /// # Feature
-    /// この機能は `ndarray` featureが有効な場合のみ利用可能です
-    #[cfg(feature = "ndarray")]
     fn to_ndarray<T: Clone + 'static>(&self) -> Result<ndarray::ArrayD<T>, String> {
         let shape = self.shape();
         let vec_data = self.to_vec::<T>()?;
@@ -122,10 +118,6 @@ pub trait Buffer {
     }
 
     /// ndarrayからバッファに書き込み（デフォルト実装）
-    ///
-    /// # Feature
-    /// この機能は `ndarray` featureが有効な場合のみ利用可能です
-    #[cfg(feature = "ndarray")]
     #[allow(clippy::wrong_self_convention)]
     fn from_ndarray<T>(&mut self, array: &ndarray::ArrayD<T>) -> Result<(), String>
     where
