@@ -2,7 +2,7 @@
 //!
 //! Custom(Function)ノードをSinkノードに吸収するSuggester。
 //! LoweringSuggesterで生成されたCustom(Function)ノードを順次Sinkに取り込み、
-//! 最終的に Sink(Program) + 入出力Buffer のみの構成を目指します。
+//! 最終的に Sink(Program)のみの構成を目指します。
 //!
 //! # 処理フロー
 //! 1. Sinkの入力側にあるCustom(Function)を検出
@@ -858,6 +858,52 @@ mod tests {
             !absorbed.is_empty(),
             "SinkAbsorption should produce suggestions"
         );
+
+        // 吸収後のSinkの状態を確認
+        let absorbed_graph = &absorbed[0];
+        eprintln!("\n=== Absorbed Graph Details ===");
+        eprintln!(
+            "Input metas: {:?}",
+            absorbed_graph
+                .input_metas()
+                .iter()
+                .map(|m| &m.name)
+                .collect::<Vec<_>>()
+        );
+        if let Some(ref sink) = absorbed_graph.sink() {
+            eprintln!("Sink src count: {}", sink.src.len());
+            for (i, src) in sink.src.iter().enumerate() {
+                let op_name = match &src.op {
+                    GraphOp::Custom { .. } => "Custom".to_string(),
+                    GraphOp::Buffer { name } => format!("Buffer({})", name),
+                    _ => format!("{:?}", src.op),
+                };
+                eprintln!("  src[{}]: {}", i, op_name);
+            }
+            if let GraphOp::Sink { ast, outputs } = &sink.op {
+                eprintln!("Outputs: {:?}", outputs);
+                if let AstNode::Program { functions, .. } = ast {
+                    eprintln!("Program functions: {}", functions.len());
+                    for f in functions {
+                        match f {
+                            AstNode::Function { name, params, .. } => {
+                                eprintln!("  Function {:?}: {} params", name, params.len());
+                                for p in params {
+                                    eprintln!("    - {}", p.name);
+                                }
+                            }
+                            AstNode::Kernel { name, params, .. } => {
+                                eprintln!("  Kernel {:?}: {} params", name, params.len());
+                                for p in params {
+                                    eprintln!("    - {}", p.name);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]
