@@ -32,7 +32,7 @@ fn test_graph_to_dot() {
 #[test]
 fn test_graph_new() {
     let graph = Graph::new();
-    assert_eq!(graph.inputs().len(), 0);
+    assert_eq!(graph.input_metas().len(), 0);
     assert_eq!(graph.outputs().len(), 0);
 }
 
@@ -42,8 +42,8 @@ fn test_input_node_creation() {
     let input = graph.input("x", DType::F32, vec![10, 20]);
 
     // 入力ノードが作成されたことを確認
-    assert_eq!(graph.inputs().len(), 1);
-    assert!(graph.inputs().contains_key("x"));
+    assert_eq!(graph.input_metas().len(), 1);
+    assert!(graph.input_metas().iter().any(|m| m.name == "x"));
 
     // ノードのプロパティを確認
     match input.dtype {
@@ -100,9 +100,9 @@ fn test_multiple_inputs() {
     let input1 = graph.input("x", DType::F32, vec![10]);
     let input2 = graph.input("y", DType::F32, vec![20]);
 
-    assert_eq!(graph.inputs().len(), 2);
-    assert!(graph.inputs().contains_key("x"));
-    assert!(graph.inputs().contains_key("y"));
+    assert_eq!(graph.input_metas().len(), 2);
+    assert!(graph.input_metas().iter().any(|m| m.name == "x"));
+    assert!(graph.input_metas().iter().any(|m| m.name == "y"));
 
     assert_eq!(input1.view.ndim(), 1);
     assert_eq!(input2.view.ndim(), 1);

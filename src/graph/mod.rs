@@ -1,7 +1,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     ops::Deref,
-    rc::{Rc, Weak},
+    rc::Rc,
 };
 pub mod custom_builder;
 pub mod hlops;
@@ -18,12 +18,28 @@ pub use shape::{Expr, View};
 // Note: ElementwiseStrategy was removed - parallelization is now handled at AST level
 pub use strategy::{CumulativeStrategy, ReduceStrategy};
 
+/// 入力バッファのメタデータ
+#[derive(Debug, Clone)]
+pub struct InputMeta {
+    pub name: String,
+    pub dtype: DType,
+    pub shape: Vec<Expr>,
+}
+
+/// 出力バッファのメタデータ
+#[derive(Debug, Clone)]
+pub struct OutputMeta {
+    pub name: String,
+    pub dtype: DType,
+    pub shape: Vec<Expr>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Graph {
-    inputs: HashMap<String, Weak<GraphNodeData>>, // Rcの参照カウントに影響を与えないために、Weak参照で保持する。
-    output_buffers: HashMap<String, Weak<GraphNodeData>>, // 出力Bufferへの弱参照（inputsと対称）
-    sink: Option<GraphNode>,                      // Sinkノード（グラフのルート）
-    shape_var_defaults: HashMap<String, isize>,   // 動的shape変数のデフォルト値（必須）
+    input_metas: Vec<InputMeta>,                // 入力バッファのメタデータ
+    output_metas: Vec<OutputMeta>,              // 出力バッファのメタデータ
+    sink: Option<GraphNode>,                    // Sinkノード（グラフのルート）
+    shape_var_defaults: HashMap<String, isize>, // 動的shape変数のデフォルト値（必須）
 }
 
 #[derive(Debug, Clone)]
@@ -57,8 +73,8 @@ impl Graph {
     // 初期化
     pub fn new() -> Self {
         Self {
-            inputs: HashMap::new(),
-            output_buffers: HashMap::new(),
+            input_metas: Vec::new(),
+            output_metas: Vec::new(),
             sink: None,
             shape_var_defaults: HashMap::new(),
         }
@@ -79,16 +95,21 @@ impl Graph {
         I: IntoIterator<Item = E>,
     {
         let shape: Vec<shape::Expr> = shape.into_iter().map(|e| e.into()).collect();
-        let view = View::contiguous(shape);
+        let view = View::contiguous(shape.clone());
         let node = GraphNode::new(
-            dtype,
+            dtype.clone(),
             GraphOp::Buffer {
                 name: name.to_string(),
             },
             vec![],
             view,
         );
-        self.inputs.insert(name.to_string(), Rc::downgrade(&node.0));
+        // メタデータを登録
+        self.input_metas.push(InputMeta {
+            name: name.to_string(),
+            dtype,
+            shape,
+        });
         node
     }
 
@@ -115,8 +136,9 @@ impl Graph {
 
     /// 出力ノードを登録
     ///
-    /// 出力ノードを登録し、対応する出力Bufferを作成します。
+    /// 出力ノードを登録します。
     /// 複数の出力をサポートしており、各出力に対してSinkノードが更新されます。
+    /// 出力のメタデータ（dtype, shape）は自動的に記録されます。
     ///
     /// # Example
     /// ```
@@ -130,23 +152,19 @@ impl Graph {
     /// graph.output("z", z);  // 2つ目の出力（複数出力サポート）
     /// ```
     pub fn output(&mut self, name: &str, output_node: GraphNode) {
-        // 出力Bufferを作成
-        let output_buffer = Self::buffer(
-            &format!("output_{}", name),
-            output_node.dtype.clone(),
-            output_node.view.shape().to_vec(),
-        );
+        // メタデータを登録
+        self.output_metas.push(OutputMeta {
+            name: name.to_string(),
+            dtype: output_node.dtype.clone(),
+            shape: output_node.view.shape().to_vec(),
+        });
 
-        // output_buffersに登録
-        self.output_buffers
-            .insert(name.to_string(), Rc::downgrade(&output_buffer.0));
-
-        // Sinkノードを作成/更新
-        self.update_sink(name.to_string(), output_node, output_buffer);
+        // Sinkノードを作成/更新（出力Bufferは不要、メタデータで管理）
+        self.update_sink(name.to_string(), output_node);
     }
 
     /// Sinkノードを作成または更新
-    fn update_sink(&mut self, name: String, output_node: GraphNode, output_buffer: GraphNode) {
+    fn update_sink(&mut self, name: String, output_node: GraphNode) {
         use crate::ast::AstNode;
 
         match &mut self.sink {
@@ -164,7 +182,7 @@ impl Graph {
                         ast: empty_program,
                         outputs: vec![name],
                     },
-                    vec![output_node, output_buffer],
+                    vec![output_node], // 出力ノードのみ（Bufferは不要）
                     View::contiguous(Vec::<isize>::new()), // スカラービュー
                 );
 
@@ -172,10 +190,8 @@ impl Graph {
             }
             Some(existing_sink) => {
                 // 追加の出力: 既存Sinkを更新
-                // 既存のsrcと出力リストを取得して新しいものを追加
                 let mut new_src = existing_sink.src.clone();
                 new_src.push(output_node);
-                new_src.push(output_buffer);
 
                 let (ast, mut outputs) = match &existing_sink.op {
                     GraphOp::Sink { ast, outputs } => (ast.clone(), outputs.clone()),
@@ -195,23 +211,30 @@ impl Graph {
         }
     }
 
-    /// 出力ノードのマップを取得（互換性維持用）
+    /// 出力ノードのマップを取得
     ///
     /// Sinkノードから出力情報を再構築してBTreeMapとして返します。
+    /// 最適化後、Sinkのsrcが空の場合はSink自体を出力として返します。
     pub fn outputs(&self) -> BTreeMap<String, GraphNode> {
         let mut result = BTreeMap::new();
 
         if let Some(sink) = &self.sink
-            && let GraphOp::Sink { outputs, .. } = &sink.op {
-                // srcは [output_node0, output_buffer0, output_node1, output_buffer1, ...] の順
-                // output_node を取り出す
+            && let GraphOp::Sink { outputs, .. } = &sink.op
+        {
+            if sink.src.is_empty() {
+                // 最適化後: srcが空の場合はSink自体を返す
+                for name in outputs.iter() {
+                    result.insert(name.clone(), sink.clone());
+                }
+            } else {
+                // srcは [output_node0, output_node1, ...] の順
                 for (i, name) in outputs.iter().enumerate() {
-                    let output_node_idx = i * 2;
-                    if output_node_idx < sink.src.len() {
-                        result.insert(name.clone(), sink.src[output_node_idx].clone());
+                    if i < sink.src.len() {
+                        result.insert(name.clone(), sink.src[i].clone());
                     }
                 }
             }
+        }
 
         result
     }
@@ -221,50 +244,49 @@ impl Graph {
         self.sink.as_ref()
     }
 
-    /// 出力Bufferへのアクセス
-    pub fn output_buffers(&self) -> &HashMap<String, Weak<GraphNodeData>> {
-        &self.output_buffers
-    }
-
     /// Sinkノードを設定（最適化時に使用）
     pub fn set_sink(&mut self, sink: GraphNode) {
-        // output_buffersも更新
-        if let GraphOp::Sink { outputs, .. } = &sink.op {
-            self.output_buffers.clear();
-            // srcは [output_node0, output_buffer0, output_node1, output_buffer1, ...] の順
-            for (i, name) in outputs.iter().enumerate() {
-                let output_buffer_idx = i * 2 + 1;
-                if output_buffer_idx < sink.src.len() {
-                    let buffer = &sink.src[output_buffer_idx];
-                    self.output_buffers
-                        .insert(name.clone(), Rc::downgrade(&buffer.0));
-                }
-            }
-        }
         self.sink = Some(sink);
     }
 
     /// 出力名のリストを取得（ソート済み）
     pub fn output_names(&self) -> Vec<String> {
         if let Some(sink) = &self.sink
-            && let GraphOp::Sink { outputs, .. } = &sink.op {
-                let mut names = outputs.clone();
-                names.sort();
-                return names;
-            }
+            && let GraphOp::Sink { outputs, .. } = &sink.op
+        {
+            let mut names = outputs.clone();
+            names.sort();
+            return names;
+        }
         Vec::new()
     }
 
-    // 入力ノードのマップへのアクセス
-    pub fn inputs(&self) -> &HashMap<String, Weak<GraphNodeData>> {
-        &self.inputs
+    /// 入力メタデータへのアクセス
+    pub fn input_metas(&self) -> &[InputMeta] {
+        &self.input_metas
     }
 
-    // 入力ノードを登録（最適化時に使用）
-    pub fn register_input(&mut self, name: String, input_node: GraphNode) {
-        use std::rc::Rc;
-        let weak_ref = Rc::downgrade(&input_node.0);
-        self.inputs.insert(name, weak_ref);
+    /// 出力メタデータへのアクセス
+    pub fn output_metas(&self) -> &[OutputMeta] {
+        &self.output_metas
+    }
+
+    /// 入力メタデータを登録（最適化時に使用）
+    pub fn register_input_meta(&mut self, name: String, dtype: DType, shape: Vec<Expr>) {
+        // 重複チェック
+        if !self.input_metas.iter().any(|m| m.name == name) {
+            self.input_metas.push(InputMeta { name, dtype, shape });
+        }
+    }
+
+    /// 入力メタデータをコピー（最適化時にグラフを再構築する際に使用）
+    pub fn copy_input_metas_from(&mut self, other: &Graph) {
+        self.input_metas = other.input_metas.clone();
+    }
+
+    /// 出力メタデータをコピー（最適化時にグラフを再構築する際に使用）
+    pub fn copy_output_metas_from(&mut self, other: &Graph) {
+        self.output_metas = other.output_metas.clone();
     }
 
     // shape変数のデフォルト値を設定

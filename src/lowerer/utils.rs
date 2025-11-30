@@ -15,22 +15,20 @@ impl Lowerer {
         let mut outputs = Vec::new();
         let mut shape_vars = HashSet::new();
 
-        // 入力バッファのシグネチャを生成
-        // HashMapの順序は不安定なので、名前でソートして決定論的な順序にする
-        let mut sorted_inputs: Vec<_> = graph.inputs().iter().collect();
-        sorted_inputs.sort_by(|a, b| a.0.cmp(b.0));
+        // 入力バッファのシグネチャを生成（メタデータから）
+        // ソートして決定論的な順序にする
+        let mut sorted_inputs: Vec<_> = graph.input_metas().to_vec();
+        sorted_inputs.sort_by(|a, b| a.name.cmp(&b.name));
 
-        for (name, weak_node) in sorted_inputs {
-            if let Some(node_rc) = weak_node.upgrade() {
-                let shape: Vec<_> = node_rc.view.shape().to_vec();
+        for meta in sorted_inputs {
+            let shape = meta.shape.clone();
 
-                // shape内の変数名を収集
-                for expr in &shape {
-                    Self::collect_shape_vars(expr, &mut shape_vars);
-                }
-
-                inputs.push(BufferSignature::new(name.clone(), shape));
+            // shape内の変数名を収集
+            for expr in &shape {
+                Self::collect_shape_vars(expr, &mut shape_vars);
             }
+
+            inputs.push(BufferSignature::new(meta.name.clone(), shape));
         }
 
         // 出力バッファのシグネチャを生成

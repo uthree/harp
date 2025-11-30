@@ -137,13 +137,9 @@ impl ContiguousInsertionSuggester {
 
         let mut new_graph = Graph::new();
 
-        // 入力ノードを保持（再構築しない - Inputノードは変更されないため）
-        for (name, weak_input) in graph.inputs() {
-            if let Some(rc_node) = weak_input.upgrade() {
-                let input_node = GraphNode::from_rc(rc_node);
-                new_graph.register_input(name.clone(), input_node);
-            }
-        }
+        // 入力・出力メタデータをコピー
+        new_graph.copy_input_metas_from(graph);
+        new_graph.copy_output_metas_from(graph);
 
         // Sinkノードがある場合は、Program構造を保持しながらsrcを再構築
         if let Some(old_sink) = graph.sink() {

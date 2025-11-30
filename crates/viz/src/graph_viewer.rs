@@ -906,33 +906,22 @@ impl GraphViewerApp {
 
                 // グラフ情報を表示
                 if let Some(ref graph) = self.harp_graph {
-                    // Inputs情報
+                    // Inputs情報（メタデータから取得）
                     ui.horizontal(|ui| {
                         ui.label("Inputs:");
-                        ui.label(graph.inputs().len().to_string());
+                        ui.label(graph.input_metas().len().to_string());
                     });
 
                     // 入力ノードの詳細を折りたたみ表示
                     ui.collapsing("Input Nodes", |ui| {
                         // 名前順にソート
-                        let mut input_names: Vec<_> = graph.inputs().keys().cloned().collect();
-                        input_names.sort();
+                        let mut input_metas: Vec<_> = graph.input_metas().to_vec();
+                        input_metas.sort_by(|a, b| a.name.cmp(&b.name));
 
-                        for name in input_names {
-                            if let Some(weak_input) = graph.inputs().get(&name) {
-                                if let Some(rc_node) = weak_input.upgrade() {
-                                    let input_node = GraphNode::from_rc(rc_node);
-                                    let shape_str: Vec<String> = input_node
-                                        .view
-                                        .shape()
-                                        .iter()
-                                        .map(|e| format!("{}", e))
-                                        .collect();
-                                    ui.label(format!("• {} : [{}]", name, shape_str.join(", ")));
-                                } else {
-                                    ui.label(format!("• {} : <dropped>", name));
-                                }
-                            }
+                        for meta in input_metas {
+                            let shape_str: Vec<String> =
+                                meta.shape.iter().map(|e| format!("{}", e)).collect();
+                            ui.label(format!("• {} : [{}]", meta.name, shape_str.join(", ")));
                         }
                     });
 

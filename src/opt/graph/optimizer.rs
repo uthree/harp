@@ -111,7 +111,7 @@ where
         // 初期状態の入力・出力ノード情報をログに出力
         info!(
             "Initial graph: {} inputs, {} outputs, cost={:.2e}",
-            graph.inputs().len(),
+            graph.input_metas().len(),
             graph.outputs().len(),
             initial_cost
         );
@@ -228,7 +228,7 @@ where
             // このステップの最良候補を記録（既に計算したコストを再利用）
             if let Some((best, cost, suggester_name)) = top_candidates.first() {
                 let num_outputs = best.outputs().len();
-                let num_inputs = best.inputs().len();
+                let num_inputs = best.input_metas().len();
 
                 // 入力・出力ノード数をログに出力
                 trace!(

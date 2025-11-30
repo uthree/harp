@@ -52,13 +52,15 @@ fn find_custom_program(graph: &Graph) -> Option<crate::ast::AstNode> {
 /// SinkAbsorptionSuggesterの出力を検出するために使用
 fn find_sink_program(graph: &Graph) -> Option<crate::ast::AstNode> {
     if let Some(sink) = graph.sink()
-        && let GraphOp::Sink { ast, .. } = &sink.op {
-            // Sinkが空でないProgramを持っている場合のみ返す
-            if let crate::ast::AstNode::Program { functions, .. } = ast
-                && !functions.is_empty() {
-                    return Some(ast.clone());
-                }
+        && let GraphOp::Sink { ast, .. } = &sink.op
+    {
+        // Sinkが空でないProgramを持っている場合のみ返す
+        if let crate::ast::AstNode::Program { functions, .. } = ast
+            && !functions.is_empty()
+        {
+            return Some(ast.clone());
         }
+    }
     None
 }
 
@@ -135,25 +137,23 @@ pub(crate) fn lower(graph: Graph) -> crate::ast::AstNode {
     // 各ノードの出力バッファー名を追跡（ノードポインタ → バッファー名）
     let mut node_buffer_map: HashMap<*const (), String> = HashMap::new();
 
-    // 入力ノードのバッファー名を設定
+    // 入力ノードのバッファー名を設定（メタデータから）
     // 決定論的な順序にするため、入力名をアルファベット順にソートする
-    let mut sorted_input_names: Vec<_> = optimized_graph.inputs().keys().cloned().collect();
+    let mut sorted_input_names: Vec<_> = optimized_graph
+        .input_metas()
+        .iter()
+        .map(|m| m.name.clone())
+        .collect();
     sorted_input_names.sort();
 
-    // 入力ノードのポインタを名前にマッピング
+    // 入力ノードのポインタを名前にマッピング（Bufferノードの名前フィールドを使用）
     let mut input_node_by_name: HashMap<String, *const ()> = HashMap::new();
     for generation in &generations {
         for node in generation {
-            if matches!(node.op, GraphOp::Buffer { .. }) {
-                // 入力ノードの名前を見つける
-                for (name, weak_node) in optimized_graph.inputs().iter() {
-                    if let Some(rc_node) = weak_node.upgrade() {
-                        let input_node = GraphNode::from_rc(rc_node);
-                        if node_ptr(&input_node) == node_ptr(node) {
-                            input_node_by_name.insert(name.clone(), node_ptr(node));
-                            break;
-                        }
-                    }
+            if let GraphOp::Buffer { name } = &node.op {
+                // 入力名に含まれているBufferノードをマッピング
+                if sorted_input_names.contains(name) {
+                    input_node_by_name.insert(name.clone(), node_ptr(node));
                 }
             }
         }

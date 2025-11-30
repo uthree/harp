@@ -50,7 +50,7 @@ fn main() -> eframe::Result {
     println!("【2/3】複雑な計算グラフを構築中...");
     let graph = create_complex_computation_graph();
     println!("  ✓ グラフ作成完了");
-    println!("    - 入力数: {}", graph.inputs().len());
+    println!("    - 入力数: {}", graph.input_metas().len());
     println!("    - 出力数: {}", graph.outputs().len());
     println!();
 

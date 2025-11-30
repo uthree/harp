@@ -286,18 +286,9 @@ impl ViewMergeSuggester {
 
         let mut new_graph = Graph::new();
 
-        // 入力ノードを保持（置き換え対象の場合は新しいノードを登録）
-        for (name, weak_input) in graph.inputs() {
-            if let Some(rc_node) = weak_input.upgrade() {
-                let input_node = GraphNode::from_rc(rc_node);
-                // 入力ノードが置き換え対象の場合は新しいノードを登録
-                if let Some(replaced) = node_map.get(&input_node.as_ptr()) {
-                    new_graph.register_input(name.clone(), replaced.clone());
-                } else {
-                    new_graph.register_input(name.clone(), input_node);
-                }
-            }
-        }
+        // 入力・出力メタデータをコピー
+        new_graph.copy_input_metas_from(graph);
+        new_graph.copy_output_metas_from(graph);
 
         // Sinkノードがある場合は、Program構造を保持しながらsrcを再構築
         if let Some(old_sink) = graph.sink() {
@@ -404,17 +395,9 @@ impl ViewMergeSuggester {
 
         let mut new_graph = Graph::new();
 
-        // 入力ノードを登録（置き換え対象の場合は新しいノードを登録）
-        for (name, weak_input) in graph.inputs() {
-            if let Some(rc_node) = weak_input.upgrade() {
-                let input_node = GraphNode::from_rc(rc_node);
-                if let Some(replaced) = node_map.get(&input_node.as_ptr()) {
-                    new_graph.register_input(name.clone(), replaced.clone());
-                } else {
-                    new_graph.register_input(name.clone(), input_node);
-                }
-            }
-        }
+        // 入力・出力メタデータをコピー
+        new_graph.copy_input_metas_from(graph);
+        new_graph.copy_output_metas_from(graph);
 
         // Sinkノードがある場合は、Program構造を保持しながらsrcを再構築
         if let Some(old_sink) = graph.sink() {
@@ -608,10 +591,9 @@ mod tests {
         // Inputノードのviewがpermuteされていることを確認
         assert_eq!(result.view.shape(), &[20.into(), 10.into()]);
 
-        // 入力ノードも更新されていることを確認
-        let input_a = new_graph.inputs().get("a").unwrap().upgrade().unwrap();
-        let input_node = GraphNode::from_rc(input_a);
-        assert_eq!(input_node.view.shape(), &[20.into(), 10.into()]);
+        // 入力メタデータが正しくコピーされていることを確認
+        assert_eq!(new_graph.input_metas().len(), 1);
+        assert_eq!(new_graph.input_metas()[0].name, "a");
     }
 
     #[test]
@@ -720,12 +702,7 @@ mod tests {
         // Viewを適用した新しいグラフを作成
         let permuted = result_node.view(result_node.view.clone().permute(vec![1, 0]));
         let mut graph_with_view = Graph::new();
-        for (name, weak_input) in lowered_graph.inputs() {
-            if let Some(rc_node) = weak_input.upgrade() {
-                let input_node = GraphNode::from_rc(rc_node);
-                graph_with_view.register_input(name.clone(), input_node);
-            }
-        }
+        graph_with_view.copy_input_metas_from(&lowered_graph);
         graph_with_view.output("result", permuted);
 
         // ViewMergeSuggesterでCustom→ViewをCustom[View適用済み]にマージ
