@@ -6,16 +6,47 @@
 
 計算グラフはテンソル演算をDAG（有向非巡回グラフ）として表現します。各ノードは演算または入力データを表し、エッジはデータの流れを表します。
 
-## 制限事項
+## Sinkノードアーキテクチャ
 
-### 単一出力の制限
-**現在の実装では単一出力のみをサポートしています。** `Graph::output()`を複数回呼び出すとpanicします。
+### 複数出力サポート
+tinygradの設計を参考に、**Sinkノード**を導入して複数出力をサポートしています。
 
-この制限の理由：
-- 複数出力ノードがある場合、出力ノードが他の出力の入力として使用されると参照カウントが増加し、`KernelMergeSuggester`でのマージが妨げられる
-- 複数の独立したCustomノードをProgram単位で正しくマージする処理が未実装
+```
+// 複数出力の例
+let y = &x + 1.0f32;
+let z = &x * 2.0f32;
+graph.output("y", y);  // 1つ目の出力
+graph.output("z", z);  // 2つ目の出力（複数出力サポート）
+```
 
-詳細は `spec/TODO.md` を参照してください。
+### Sinkノードの役割
+- **グラフのルート**: Sinkノードがグラフ全体のルートとなり、すべての出力を管理
+- **Programの保持**: `AstNode::Program`を保持し、最適化で生成されたカーネル群をまとめる
+- **参照カウント問題の解決**: Sinkから参照カウントを計算することで、複数出力間の依存関係を正しく扱う
+
+### Graph構造
+```rust
+pub struct Graph {
+    inputs: HashMap<String, Weak<GraphNodeData>>,        // 入力バッファへの弱参照
+    output_buffers: HashMap<String, Weak<GraphNodeData>>, // 出力バッファへの弱参照
+    sink: Option<GraphNode>,                             // Sinkノード（グラフのルート）
+    shape_var_defaults: HashMap<String, isize>,          // 動的shape変数のデフォルト値
+}
+```
+
+### SinkノードのGraphOp
+```rust
+GraphOp::Sink {
+    ast: AstNode,         // AstNode::Program（複数のカーネル関数 + main関数）
+    outputs: Vec<String>, // 出力バッファ名のリスト（順序を保持）
+}
+```
+
+### 最適化フロー
+1. `Graph::output()`呼び出し時にSinkノードを作成/更新
+2. `LoweringSuggester`がGraphOpをCustom(Function)に変換
+3. `SinkAbsorptionSuggester`がCustom(Function)をSinkのProgramに吸収
+4. Lowerer がSinkのProgramを直接返す
 
 ## 設計方針
 
@@ -346,20 +377,20 @@ let custom = x.custom_function(func);
 
 Graph最適化フェーズでは、以下のSuggesterにより段階的に演算が融合されます：
 
-1. **CustomFusionSuggester**: 連続するElementwise演算を`Custom(Function)`に融合
+1. **FusionSuggester**: 連続するElementwise演算を`Custom(Function)`に融合
 2. **LoweringSuggester**: 残りのGraphOpを`Custom(Function)`に変換
-3. **KernelMergeSuggester**: 複数の`Custom(Function)`を`Custom(Program)`にマージ
+3. **SinkAbsorptionSuggester**: `Custom(Function)`をSinkの`Program`に吸収
 
 ```
 // 最適化前
 a + b -> temp
 temp * c -> result
 
-// CustomFusionSuggester適用後
+// FusionSuggester適用後
 Custom { ast: Function } -> result  // (W("0") + W("1")) * W("2") を表現する関数
 
-// KernelMergeSuggester適用後（複数カーネルがある場合）
-Custom { ast: Program } -> result  // 複数カーネルとmain関数を含むプログラム
+// SinkAbsorptionSuggester適用後
+Sink { ast: Program, outputs: ["result"] }  // カーネルとmain関数を含むプログラム
 ```
 
 さらに、Elementwise→ReduceやElementwise→Cumulativeのパターンも融合されます：
@@ -374,6 +405,8 @@ Custom { ast: ... } -> result  // W("0") + W("1") を累積するReduce関数
 ```
 
 これにより、中間バッファの削減とカーネル呼び出し回数の削減が可能です。
+
+**注**: 旧アーキテクチャの`KernelMergeSuggester`は`SinkAbsorptionSuggester`に置き換えられつつあり、将来的に削除される予定です。
 
 ## モジュール構成
 

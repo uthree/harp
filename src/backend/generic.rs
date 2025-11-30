@@ -176,7 +176,8 @@ fn extract_program_from_graph(graph: Graph) -> AstNode {
         }
     }
 
-    for output in graph.outputs().values() {
+    let outputs = graph.outputs();
+    for output in outputs.values() {
         collect_customs(
             output,
             &mut visited,

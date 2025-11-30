@@ -21,7 +21,8 @@ pub use strategy::{CumulativeStrategy, ReduceStrategy};
 #[derive(Debug, Clone)]
 pub struct Graph {
     inputs: HashMap<String, Weak<GraphNodeData>>, // Rcの参照カウントに影響を与えないために、Weak参照で保持する。
-    outputs: BTreeMap<String, GraphNode>,         // BTreeMapでキー順にソートされた順序を保証
+    output_buffers: HashMap<String, Weak<GraphNodeData>>, // 出力Bufferへの弱参照（inputsと対称）
+    sink: Option<GraphNode>,                      // Sinkノード（グラフのルート）
     shape_var_defaults: HashMap<String, isize>,   // 動的shape変数のデフォルト値（必須）
 }
 
@@ -57,7 +58,8 @@ impl Graph {
     pub fn new() -> Self {
         Self {
             inputs: HashMap::new(),
-            outputs: BTreeMap::new(),
+            output_buffers: HashMap::new(),
+            sink: None,
             shape_var_defaults: HashMap::new(),
         }
     }
@@ -113,27 +115,146 @@ impl Graph {
 
     /// 出力ノードを登録
     ///
-    /// # Panics
-    /// 現在の実装では単一出力のみをサポートしています。
-    /// 既に出力が登録されている場合はpanicします。
+    /// 出力ノードを登録し、対応する出力Bufferを作成します。
+    /// 複数の出力をサポートしており、各出力に対してSinkノードが更新されます。
     ///
-    /// # Note
-    /// 複数出力のサポートは将来的に実装予定です。
-    /// 詳細は spec/TODO.md を参照してください。
+    /// # Example
+    /// ```
+    /// use harp::{Graph, DType};
+    ///
+    /// let mut graph = Graph::new();
+    /// let x = graph.input("x", DType::F32, [10]);
+    /// let y = &x + 1.0f32;
+    /// let z = &x * 2.0f32;
+    /// graph.output("y", y);  // 1つ目の出力
+    /// graph.output("z", z);  // 2つ目の出力（複数出力サポート）
+    /// ```
     pub fn output(&mut self, name: &str, output_node: GraphNode) {
-        if !self.outputs.is_empty() {
-            panic!(
-                "Multiple outputs are not yet supported. \
-                 Current implementation only allows a single output. \
-                 See spec/TODO.md for details."
-            );
-        }
-        self.outputs.insert(name.to_string(), output_node);
+        // 出力Bufferを作成
+        let output_buffer = Self::buffer(
+            &format!("output_{}", name),
+            output_node.dtype.clone(),
+            output_node.view.shape().to_vec(),
+        );
+
+        // output_buffersに登録
+        self.output_buffers
+            .insert(name.to_string(), Rc::downgrade(&output_buffer.0));
+
+        // Sinkノードを作成/更新
+        self.update_sink(name.to_string(), output_node, output_buffer);
     }
 
-    // 出力ノードのマップへのアクセス
-    pub fn outputs(&self) -> &BTreeMap<String, GraphNode> {
-        &self.outputs
+    /// Sinkノードを作成または更新
+    fn update_sink(&mut self, name: String, output_node: GraphNode, output_buffer: GraphNode) {
+        use crate::ast::AstNode;
+
+        match &mut self.sink {
+            None => {
+                // 最初の出力: Sinkノードを新規作成
+                // 空のProgramを作成（後でSinkAbsorptionSuggesterが関数を追加）
+                let empty_program = AstNode::Program {
+                    functions: vec![],
+                    entry_point: "harp_main".to_string(),
+                };
+
+                let sink = GraphNode::new(
+                    DType::Unknown, // Sinkは型を持たない
+                    GraphOp::Sink {
+                        ast: empty_program,
+                        outputs: vec![name],
+                    },
+                    vec![output_node, output_buffer],
+                    View::contiguous(Vec::<isize>::new()), // スカラービュー
+                );
+
+                self.sink = Some(sink);
+            }
+            Some(existing_sink) => {
+                // 追加の出力: 既存Sinkを更新
+                // 既存のsrcと出力リストを取得して新しいものを追加
+                let mut new_src = existing_sink.src.clone();
+                new_src.push(output_node);
+                new_src.push(output_buffer);
+
+                let (ast, mut outputs) = match &existing_sink.op {
+                    GraphOp::Sink { ast, outputs } => (ast.clone(), outputs.clone()),
+                    _ => panic!("Expected Sink node"),
+                };
+                outputs.push(name);
+
+                let new_sink = GraphNode::new(
+                    DType::Unknown,
+                    GraphOp::Sink { ast, outputs },
+                    new_src,
+                    View::contiguous(Vec::<isize>::new()),
+                );
+
+                self.sink = Some(new_sink);
+            }
+        }
+    }
+
+    /// 出力ノードのマップを取得（互換性維持用）
+    ///
+    /// Sinkノードから出力情報を再構築してBTreeMapとして返します。
+    pub fn outputs(&self) -> BTreeMap<String, GraphNode> {
+        let mut result = BTreeMap::new();
+
+        if let Some(sink) = &self.sink {
+            if let GraphOp::Sink { outputs, .. } = &sink.op {
+                // srcは [output_node0, output_buffer0, output_node1, output_buffer1, ...] の順
+                // output_node を取り出す
+                for (i, name) in outputs.iter().enumerate() {
+                    let output_node_idx = i * 2;
+                    if output_node_idx < sink.src.len() {
+                        result.insert(name.clone(), sink.src[output_node_idx].clone());
+                    }
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Sinkノードへのアクセス
+    pub fn sink(&self) -> Option<&GraphNode> {
+        self.sink.as_ref()
+    }
+
+    /// 出力Bufferへのアクセス
+    pub fn output_buffers(&self) -> &HashMap<String, Weak<GraphNodeData>> {
+        &self.output_buffers
+    }
+
+    /// Sinkノードを設定（最適化時に使用）
+    pub fn set_sink(&mut self, sink: GraphNode) {
+        // output_buffersも更新
+        if let GraphOp::Sink { outputs, .. } = &sink.op {
+            self.output_buffers.clear();
+            // srcは [output_node0, output_buffer0, output_node1, output_buffer1, ...] の順
+            for (i, name) in outputs.iter().enumerate() {
+                let output_buffer_idx = i * 2 + 1;
+                if output_buffer_idx < sink.src.len() {
+                    let buffer = &sink.src[output_buffer_idx];
+                    self.output_buffers
+                        .insert(name.clone(), Rc::downgrade(&buffer.0));
+                }
+            }
+        }
+        self.sink = Some(sink);
+    }
+
+    /// 出力名のリストを取得（ソート済み）
+    pub fn output_names(&self) -> Vec<String> {
+        if let Some(sink) = &self.sink {
+            if let GraphOp::Sink { outputs, .. } = &sink.op {
+                let mut names = outputs.clone();
+                names.sort();
+                return names;
+            }
+        }
+        Vec::new()
     }
 
     // 入力ノードのマップへのアクセス

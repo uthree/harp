@@ -88,11 +88,10 @@ pub enum GraphOp {
     /// 実部と虚部のF32テンソルから複素数テンソルを構築する
     /// 入力: 2つのF32 tensor (real, imag), 出力: Complex tensor (same shape)
     ComplexFromParts,
-    /// カスタムAST演算
+    /// カスタムAST演算（カーネル関数専用）
     ///
-    /// `AstNode::Function`または`AstNode::Program`を保持し、lowering時にほぼパススルーで使用される。
-    /// - 単一カーネル: `AstNode::Function`を保持
-    /// - 複数カーネル（融合後）: `AstNode::Program`を保持（複数のFunctionとmain関数を含む）
+    /// `AstNode::Function`のみを保持します。
+    /// 複数カーネルを統合したプログラムはSinkノードで管理されます。
     ///
     /// 関数内ではプレースホルダー変数を使用（[`custom_placeholders`]参照）。
     ///
@@ -134,8 +133,31 @@ pub enum GraphOp {
     /// let y = x.custom_function(func);
     /// ```
     Custom {
-        /// AstNode::Function または AstNode::Program
+        /// AstNode::Function（単一カーネル関数）
         ast: crate::ast::AstNode,
+    },
+    /// グラフのルートノード（プログラム全体を表現）
+    ///
+    /// Sinkノードはグラフの最終出力を統合し、`AstNode::Program`を保持します。
+    /// - グラフに1つだけ存在（全ての出力を統合）
+    /// - srcに入力ノード群と出力Bufferノード群を持つ
+    /// - SinkAbsorptionSuggesterにより、全てのCustomノードを吸収
+    /// - 最終的にSinkノード + 入出力Bufferノードのみがグラフに残る
+    ///
+    /// # src構造
+    /// `src = [入力ノード群..., 出力Bufferノード群...]`
+    /// - 入力ノード: 計算依存のあるノード（Custom, View, etc.）
+    /// - 出力Buffer: `outputs`フィールドの順序に対応するBufferノード
+    ///
+    /// # 使用フロー
+    /// 1. `Graph::output()`呼び出し時にSinkノードが自動作成/更新
+    /// 2. 最適化時にSinkAbsorptionSuggesterがCustomノードを吸収
+    /// 3. Lowerer時にSinkのast（Program）をそのまま返却
+    Sink {
+        /// AstNode::Program（複数のカーネル関数 + main関数）
+        ast: crate::ast::AstNode,
+        /// 出力バッファ名のリスト（順序を保持）
+        outputs: Vec<String>,
     },
 }
 

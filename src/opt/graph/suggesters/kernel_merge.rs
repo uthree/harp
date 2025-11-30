@@ -632,7 +632,8 @@ impl KernelMergeSuggester {
         }
 
         // 出力ノードを再構築
-        let mut outputs: Vec<_> = graph.outputs().iter().collect();
+        let outputs_map = graph.outputs();
+        let mut outputs: Vec<_> = outputs_map.iter().collect();
         outputs.sort_by_key(|(name, _)| name.as_str());
 
         for (name, output_node) in outputs {
@@ -918,12 +919,23 @@ mod tests {
             );
         }
 
+        // Sinkノードも確認
+        let mut sink_has_program = false;
+        if let Some(sink) = optimized.sink() {
+            if let GraphOp::Sink { ast, .. } = &sink.op {
+                if let AstNode::Program { functions, .. } = ast {
+                    sink_has_program = !functions.is_empty();
+                }
+            }
+        }
+
         println!("Custom(Function): {}", custom_function_count);
         println!("Custom(Program): {}", custom_program_count);
+        println!("Sink has Program: {}", sink_has_program);
 
         assert!(
-            custom_function_count == 1 || custom_program_count >= 1,
-            "Expected either 1 Custom(Function) after fusion, or 1 Custom(Program) after merge"
+            custom_function_count == 1 || custom_program_count >= 1 || sink_has_program,
+            "Expected either 1 Custom(Function) after fusion, 1 Custom(Program) after merge, or Sink with Program"
         );
     }
 }

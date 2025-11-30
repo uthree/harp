@@ -63,7 +63,8 @@ fn main() -> eframe::Result {
     // 各ステップの説明を表示
     println!("\n【各ステップの詳細】");
     for (i, snapshot) in history.snapshots().iter().enumerate() {
-        let output = snapshot.graph.outputs().get("result").unwrap();
+        let outputs = snapshot.graph.outputs();
+        let output = outputs.get("result").unwrap();
         let op_name = format_op_type(&output.op);
         let num_inputs = output.src.len();
         println!("  Step {}: {} (入力数: {})", i, op_name, num_inputs);
@@ -71,7 +72,8 @@ fn main() -> eframe::Result {
 
     // 最終グラフの出力ノードを確認
     println!("\n【最終グラフの構造】");
-    let final_output = optimized_graph.outputs().get("result").unwrap();
+    let final_outputs = optimized_graph.outputs();
+    let final_output = final_outputs.get("result").unwrap();
     println!("  出力ノード: {}", format_op_type(&final_output.op));
     println!("  入力数: {}", final_output.src.len());
 

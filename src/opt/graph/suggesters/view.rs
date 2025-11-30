@@ -151,7 +151,8 @@ impl ViewInsertionSuggester {
         }
 
         // 出力ノードを名前順でソートして再構築（順序を固定）
-        let mut outputs: Vec<_> = graph.outputs().iter().collect();
+        let outputs_map = graph.outputs();
+        let mut outputs: Vec<_> = outputs_map.iter().collect();
         outputs.sort_by_key(|(name, _)| name.as_str());
 
         for (name, output_node) in outputs {

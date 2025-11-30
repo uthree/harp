@@ -35,7 +35,8 @@ impl Lowerer {
 
         // 出力バッファのシグネチャを生成
         // HashMapの順序は不安定なので、名前でソートして決定論的な順序にする
-        let mut sorted_outputs: Vec<_> = graph.outputs().iter().collect();
+        let outputs_map = graph.outputs();
+        let mut sorted_outputs: Vec<_> = outputs_map.iter().collect();
         sorted_outputs.sort_by(|a, b| a.0.cmp(b.0));
 
         for (name, node) in sorted_outputs {

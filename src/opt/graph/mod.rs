@@ -59,6 +59,6 @@ pub use history::{OptimizationHistory, OptimizationSnapshot};
 pub use optimizer::BeamSearchGraphOptimizer;
 pub use suggesters::{
     AstOptimizationSuggester, CompositeSuggester, ContiguousInsertionSuggester, FusionSuggester,
-    KernelMergeSuggester, LoweringSuggester, TilingSuggester, ViewInsertionSuggester,
-    ViewMergeSuggester,
+    KernelMergeSuggester, LoweringSuggester, SinkAbsorptionSuggester, TilingSuggester,
+    ViewInsertionSuggester, ViewMergeSuggester,
 };

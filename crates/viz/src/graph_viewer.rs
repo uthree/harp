@@ -191,7 +191,8 @@ impl GraphViewerApp {
         let mut visited = HashSet::new();
 
         // 出力ノードから開始してトラバース（位置情報付き）
-        for (output_name, output_node) in graph.outputs() {
+        let outputs = graph.outputs();
+        for (output_name, output_node) in &outputs {
             self.traverse_and_add_node_with_layout(
                 output_node,
                 output_name,
@@ -202,7 +203,7 @@ impl GraphViewerApp {
         }
 
         // エッジを追加
-        for output_node in graph.outputs().values() {
+        for output_node in outputs.values() {
             self.add_edges(output_node, &mut HashSet::new());
         }
     }
@@ -957,13 +958,14 @@ impl GraphViewerApp {
                     });
 
                     // 出力ノードの詳細を折りたたみ表示
+                    let outputs = graph.outputs();
                     ui.collapsing("Output Nodes", |ui| {
                         // 名前順にソート
-                        let mut output_names: Vec<_> = graph.outputs().keys().cloned().collect();
+                        let mut output_names: Vec<_> = outputs.keys().cloned().collect();
                         output_names.sort();
 
                         for name in output_names {
-                            if let Some(output_node) = graph.outputs().get(&name) {
+                            if let Some(output_node) = outputs.get(&name) {
                                 let shape_str: Vec<String> = output_node
                                     .view
                                     .shape()

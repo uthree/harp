@@ -84,7 +84,8 @@ impl Graph {
         }
 
         // 出力ノードを名前順でソートして処理（重複除去のため順序を固定）
-        let mut outputs: Vec<_> = self.outputs.iter().collect();
+        let outputs_map = self.outputs();
+        let mut outputs: Vec<_> = outputs_map.iter().collect();
         outputs.sort_by_key(|(name, _)| name.as_str());
 
         for (output_name, output_node) in outputs {

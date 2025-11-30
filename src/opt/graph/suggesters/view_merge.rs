@@ -106,7 +106,10 @@ impl ViewMergeSuggester {
         // Constノードは単一の値を持つスカラーで、Viewは論理的なアクセスパターンを定義
         // View(Const)パターンをConst[View適用済み]に変換することで、
         // 中間のViewノードを削除できる
-        if matches!(input_node.op, GraphOp::Const(_) | GraphOp::ComplexConst { .. }) {
+        if matches!(
+            input_node.op,
+            GraphOp::Const(_) | GraphOp::ComplexConst { .. }
+        ) {
             return self.merge_const_view_node(input_node, target_view);
         }
 
@@ -297,7 +300,8 @@ impl ViewMergeSuggester {
         }
 
         // 出力ノードを名前順でソートして再構築（順序を固定）
-        let mut outputs: Vec<_> = graph.outputs().iter().collect();
+        let outputs_map = graph.outputs();
+        let mut outputs: Vec<_> = outputs_map.iter().collect();
         outputs.sort_by_key(|(name, _)| name.as_str());
 
         for (name, output_node) in outputs {
@@ -385,7 +389,8 @@ impl ViewMergeSuggester {
         }
 
         // 出力ノードを名前順でソートして再構築
-        let mut outputs: Vec<_> = graph.outputs().iter().collect();
+        let outputs_map = graph.outputs();
+        let mut outputs: Vec<_> = outputs_map.iter().collect();
         outputs.sort_by_key(|(name, _)| name.as_str());
 
         for (name, output_node) in outputs {
@@ -483,7 +488,8 @@ mod tests {
 
         // 提案されたグラフを確認
         let new_graph = &suggestions[0];
-        let result = new_graph.outputs().get("result").unwrap();
+        let outputs = new_graph.outputs();
+        let result = outputs.get("result").unwrap();
 
         // 結果ノードがViewノードではなく、Elementwise(Add)ノードであることを確認
         // （ViewノードがマージされてElementwiseノードに統合されている）
@@ -537,7 +543,8 @@ mod tests {
 
         // 提案されたグラフを確認
         let new_graph = &suggestions[0];
-        let result = new_graph.outputs().get("result").unwrap();
+        let outputs = new_graph.outputs();
+        let result = outputs.get("result").unwrap();
 
         // 結果ノードがInputノードであることを確認（Viewノードが削除された）
         assert!(matches!(result.op, GraphOp::Buffer { .. }));
@@ -575,7 +582,8 @@ mod tests {
 
         // 提案されたグラフを確認
         let new_graph = &suggestions[0];
-        let result = new_graph.outputs().get("result").unwrap();
+        let outputs = new_graph.outputs();
+        let result = outputs.get("result").unwrap();
 
         // 結果ノードがElementwise(Add)ノードであることを確認
         assert!(matches!(result.op, GraphOp::Elementwise { .. }));
@@ -608,7 +616,8 @@ mod tests {
         assert_eq!(suggestions.len(), 1);
 
         let new_graph = &suggestions[0];
-        let result = new_graph.outputs().get("result").unwrap();
+        let outputs = new_graph.outputs();
+        let result = outputs.get("result").unwrap();
 
         // 結果ノードがInputノードであることを確認
         assert!(matches!(result.op, GraphOp::Buffer { .. }));
@@ -645,7 +654,8 @@ mod tests {
         let lowered_graph = &lowered_graphs[0];
 
         // Customノードの出力にViewを適用
-        let result_node = lowered_graph.outputs().get("result").unwrap();
+        let lowered_outputs = lowered_graph.outputs();
+        let result_node = lowered_outputs.get("result").unwrap();
         assert!(
             matches!(result_node.op, GraphOp::Custom { .. }),
             "Should be Custom node"
@@ -667,7 +677,8 @@ mod tests {
         assert_eq!(merged_graphs.len(), 1, "Should produce 1 merged graph");
 
         // マージ後のグラフを確認
-        let merged_result = merged_graphs[0].outputs().get("result").unwrap();
+        let merged_outputs = merged_graphs[0].outputs();
+        let merged_result = merged_outputs.get("result").unwrap();
 
         // 結果がCustomノードであることを確認（Viewノードではない）
         assert!(

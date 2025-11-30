@@ -212,7 +212,8 @@ impl TilingSuggester {
         }
 
         // 出力ノードを名前順でソートして再構築
-        let mut outputs: Vec<_> = graph.outputs().iter().collect();
+        let outputs_map = graph.outputs();
+        let mut outputs: Vec<_> = outputs_map.iter().collect();
         outputs.sort_by_key(|(name, _)| name.as_str());
 
         for (name, output_node) in outputs {
@@ -286,7 +287,8 @@ mod tests {
 
         // 軸0をタイル化した結果を確認
         let graph0 = &suggestions[0];
-        let output0 = graph0.outputs().get("c").unwrap();
+        let outputs0 = graph0.outputs();
+        let output0 = outputs0.get("c").unwrap();
         assert_eq!(
             output0.view.shape(),
             &[Expr::from(2), Expr::from(32), Expr::from(128)]
@@ -294,7 +296,8 @@ mod tests {
 
         // 軸1をタイル化した結果を確認
         let graph1 = &suggestions[1];
-        let output1 = graph1.outputs().get("c").unwrap();
+        let outputs1 = graph1.outputs();
+        let output1 = outputs1.get("c").unwrap();
         assert_eq!(
             output1.view.shape(),
             &[Expr::from(64), Expr::from(4), Expr::from(32)]
@@ -372,7 +375,8 @@ mod tests {
         assert_eq!(suggestions.len(), 1);
 
         let graph0 = &suggestions[0];
-        let output0 = graph0.outputs().get("c").unwrap();
+        let outputs0 = graph0.outputs();
+        let output0 = outputs0.get("c").unwrap();
         assert_eq!(
             output0.view.shape(),
             &[Expr::from(32), Expr::from(2), Expr::from(64)]

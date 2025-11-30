@@ -48,6 +48,22 @@ fn find_custom_program(graph: &Graph) -> Option<crate::ast::AstNode> {
     None
 }
 
+/// SinkノードからProgramを取得する
+/// SinkAbsorptionSuggesterの出力を検出するために使用
+fn find_sink_program(graph: &Graph) -> Option<crate::ast::AstNode> {
+    if let Some(sink) = graph.sink() {
+        if let GraphOp::Sink { ast, .. } = &sink.op {
+            // Sinkが空でないProgramを持っている場合のみ返す
+            if let crate::ast::AstNode::Program { functions, .. } = ast {
+                if !functions.is_empty() {
+                    return Some(ast.clone());
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Viewノードの場合、実際のストレージノードまでトレースバックする
 /// Viewノードはメモリアクセスパターンを記述するだけで、バッファーは持たない
 fn trace_to_storage_node(node: &GraphNode) -> &GraphNode {
@@ -100,6 +116,12 @@ fn optimize_graph_for_lowering(graph: Graph) -> Graph {
 pub(crate) fn lower(graph: Graph) -> crate::ast::AstNode {
     // グラフ最適化を実行（LoweringSuggesterでCustomノードに変換）
     let optimized_graph = optimize_graph_for_lowering(graph);
+
+    // Sink(Program)ノードがあればそれを直接返す（SinkAbsorptionSuggesterの出力）
+    if let Some(program) = find_sink_program(&optimized_graph) {
+        log::debug!("Found Sink(Program) node, returning directly");
+        return program;
+    }
 
     // Custom(Program)ノードがあればそれを直接返す（KernelMergeSuggesterの出力）
     if let Some(program) = find_custom_program(&optimized_graph) {

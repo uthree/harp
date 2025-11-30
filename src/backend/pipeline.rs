@@ -13,8 +13,8 @@ use crate::opt::ast::{
 use crate::opt::graph::{
     AstOptimizationSuggester, BeamSearchGraphOptimizer, CompositeSuggester,
     ContiguousInsertionSuggester, FusionSuggester, GraphCostEstimator, KernelMergeCostEstimator,
-    KernelMergeSuggester, LoweringSuggester, TilingSuggester, ViewInsertionSuggester,
-    ViewMergeSuggester,
+    KernelMergeSuggester, LoweringSuggester, SinkAbsorptionSuggester, TilingSuggester,
+    ViewInsertionSuggester, ViewMergeSuggester,
 };
 
 /// Suggesterの種類を指定するフラグ
@@ -96,10 +96,14 @@ pub fn create_graph_suggester(flags: SuggesterFlags) -> CompositeSuggester {
         Box::new(FusionSuggester::new()),
         // LoweringSuggesterは他の最適化後にlowering
         Box::new(LoweringSuggester::new()),
+        // SinkAbsorptionSuggesterはCustom(Function)をSinkに吸収
+        Box::new(SinkAbsorptionSuggester::new()),
     ];
 
     // 単一ステージモードの場合、KernelMergeSuggesterも含める
     // これにより、Custom(Program)の増分マージが可能になる
+    // 注: SinkAbsorptionSuggesterが優先され、KernelMergeSuggesterは
+    // 既存のCustom(Program)マージにのみ使用される
     if flags.include_kernel_merge {
         suggesters.push(Box::new(KernelMergeSuggester::new()));
     }

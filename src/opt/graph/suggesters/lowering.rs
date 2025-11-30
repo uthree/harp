@@ -310,7 +310,8 @@ impl LoweringSuggester {
             }
         }
 
-        let mut outputs: Vec<_> = graph.outputs().iter().collect();
+        let outputs_map = graph.outputs();
+        let mut outputs: Vec<_> = outputs_map.iter().collect();
         outputs.sort_by_key(|(name, _)| name.as_str());
 
         for (name, output_node) in outputs {
@@ -1208,7 +1209,8 @@ mod tests {
 
         // 候補のグラフでCustomノードが使われていることを確認
         let new_graph = &suggestions[0];
-        let output = new_graph.outputs().get("c").unwrap();
+        let outputs = new_graph.outputs();
+        let output = outputs.get("c").unwrap();
         assert!(matches!(output.op, GraphOp::Custom { .. }));
     }
 
@@ -1226,7 +1228,8 @@ mod tests {
         assert_eq!(suggestions.len(), 1);
 
         let new_graph = &suggestions[0];
-        let output = new_graph.outputs().get("b").unwrap();
+        let outputs = new_graph.outputs();
+        let output = outputs.get("b").unwrap();
         assert!(matches!(output.op, GraphOp::Custom { .. }));
     }
 
@@ -1285,7 +1288,8 @@ mod tests {
         }
 
         // 最適化後のグラフを確認
-        let output = optimized.outputs().get("c").unwrap();
+        let outputs = optimized.outputs();
+        let output = outputs.get("c").unwrap();
         println!("Final output op: {:?}", std::mem::discriminant(&output.op));
 
         // Customノードに変換されているはず
@@ -1333,7 +1337,8 @@ mod tests {
         }
 
         // 最適化後のグラフを確認
-        let output = optimized.outputs().get("result").unwrap();
+        let outputs = optimized.outputs();
+        let output = outputs.get("result").unwrap();
         println!("Final output op: {:?}", std::mem::discriminant(&output.op));
         println!("Final output src count: {}", output.src.len());
 

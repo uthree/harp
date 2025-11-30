@@ -157,8 +157,8 @@ impl AstOptimizationSuggester {
 
         // 出力ノードを再構築
         for (name, output) in graph.outputs() {
-            let new_output = rebuild_node(output, &node_map, &mut visited);
-            new_graph.output(name, new_output);
+            let new_output = rebuild_node(&output, &node_map, &mut visited);
+            new_graph.output(&name, new_output);
         }
 
         // shape変数のデフォルト値をコピー
