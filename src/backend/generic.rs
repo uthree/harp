@@ -162,7 +162,7 @@ fn extract_program_from_graph(graph: Graph) -> AstNode {
         }
         visited.insert(ptr);
 
-        if let GraphOp::Custom { ast } = &node.op {
+        if let GraphOp::Custom { ast, .. } = &node.op {
             match ast {
                 AstNode::Program { .. } => programs.push(ast),
                 AstNode::Function { .. } => functions.push(ast),
@@ -862,7 +862,7 @@ fn count_custom_functions(graph: &Graph) -> usize {
         }
         visited.insert(ptr);
 
-        if let crate::graph::GraphOp::Custom { ast } = &node.op
+        if let crate::graph::GraphOp::Custom { ast, .. } = &node.op
             && matches!(ast, AstNode::Function { .. })
         {
             *count += 1;

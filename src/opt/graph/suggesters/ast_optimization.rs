@@ -214,7 +214,7 @@ impl GraphSuggester for AstOptimizationSuggester {
         );
 
         for node in &custom_nodes {
-            if let GraphOp::Custom { ast } = &node.op {
+            if let GraphOp::Custom { ast, input_buffers } = &node.op {
                 // AstSuggesterを適用
                 let ast_suggestions = self.apply_suggesters_to_ast(ast);
 
@@ -222,7 +222,10 @@ impl GraphSuggester for AstOptimizationSuggester {
                     // 新しいCustomノードを作成
                     let new_node = GraphNode::new(
                         node.dtype.clone(),
-                        GraphOp::Custom { ast: new_ast },
+                        GraphOp::Custom {
+                            ast: new_ast,
+                            input_buffers: input_buffers.clone(),
+                        },
                         node.src.clone(),
                         node.view.clone(),
                     );

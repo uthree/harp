@@ -177,7 +177,9 @@ impl KernelMergeSuggester {
     ) -> Option<Graph> {
         // producer と consumer のAST情報を取得
         let (producer_ast, consumer_ast) = match (&producer.op, &consumer.op) {
-            (GraphOp::Custom { ast: p_ast }, GraphOp::Custom { ast: c_ast }) => (p_ast, c_ast),
+            (GraphOp::Custom { ast: p_ast, .. }, GraphOp::Custom { ast: c_ast, .. }) => {
+                (p_ast, c_ast)
+            }
             _ => return None,
         };
 
@@ -229,7 +231,10 @@ impl KernelMergeSuggester {
         // 新しいCustomノードを作成
         let merged_node = GraphNode::new(
             consumer.dtype.clone(),
-            GraphOp::Custom { ast: program },
+            GraphOp::Custom {
+                ast: program,
+                input_buffers: None,
+            },
             new_inputs,
             consumer.view.clone(),
         );
@@ -701,7 +706,7 @@ impl KernelMergeSuggester {
         let mut program_count = 0;
 
         for node in &nodes {
-            if let GraphOp::Custom { ast } = &node.op {
+            if let GraphOp::Custom { ast, .. } = &node.op {
                 match ast {
                     AstNode::Function { .. } => function_count += 1,
                     AstNode::Program { .. } => program_count += 1,
@@ -850,7 +855,7 @@ mod tests {
         // Programを検査してバリアが挿入されていることを確認
         let merged = &suggestions[0];
         if let Some(output) = merged.outputs().values().next() {
-            if let GraphOp::Custom { ast } = &output.op {
+            if let GraphOp::Custom { ast, .. } = &output.op {
                 if let AstNode::Program { functions, .. } = ast {
                     let main_fn = functions.iter().find(|f| {
                         matches!(f, AstNode::Function { name: Some(n), .. } if n == "harp_main")
@@ -919,7 +924,7 @@ mod tests {
                 count_customs(src, visited, fn_count, prog_count);
             }
 
-            if let GraphOp::Custom { ast } = &node.op {
+            if let GraphOp::Custom { ast, .. } = &node.op {
                 match ast {
                     AstNode::Function { .. } => *fn_count += 1,
                     AstNode::Program { .. } => *prog_count += 1,

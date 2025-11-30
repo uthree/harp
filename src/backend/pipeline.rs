@@ -11,10 +11,10 @@ use crate::opt::ast::{
     Optimizer, RuleBaseOptimizer, RuleBaseSuggester, SimpleCostEstimator as AstSimpleCostEstimator,
 };
 use crate::opt::graph::{
-    AstOptimizationSuggester, BeamSearchGraphOptimizer, CompositeSuggester,
-    ContiguousInsertionSuggester, FusionSuggester, GraphCostEstimator, KernelMergeCostEstimator,
-    KernelMergeSuggester, LoweringSuggester, SinkAbsorptionSuggester, TilingSuggester,
-    ViewInsertionSuggester, ViewMergeSuggester,
+    AstOptimizationSuggester, BeamSearchGraphOptimizer, BufferAbsorptionSuggester,
+    CompositeSuggester, ContiguousInsertionSuggester, FusionSuggester, GraphCostEstimator,
+    KernelMergeCostEstimator, KernelMergeSuggester, LoweringSuggester, SinkAbsorptionSuggester,
+    TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
 };
 
 /// Suggesterの種類を指定するフラグ
@@ -96,6 +96,8 @@ pub fn create_graph_suggester(flags: SuggesterFlags) -> CompositeSuggester {
         Box::new(FusionSuggester::new()),
         // LoweringSuggesterは他の最適化後にlowering
         Box::new(LoweringSuggester::new()),
+        // BufferAbsorptionSuggesterはCustomの入力Bufferをinput_buffersフィールドに取り込む
+        Box::new(BufferAbsorptionSuggester::new()),
         // SinkAbsorptionSuggesterはCustom(Function)をSinkに吸収
         Box::new(SinkAbsorptionSuggester::new()),
     ];

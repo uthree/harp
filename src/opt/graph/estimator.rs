@@ -262,7 +262,7 @@ impl SimpleCostEstimator {
                 let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
                 num_elements.ln() + (3.0 * MEMORY_ACCESS_COST).ln() + lowering_penalty
             }
-            GraphOp::Custom { ast } => {
+            GraphOp::Custom { ast, .. } => {
                 // Custom関数のコスト計算
                 // CustomノードはLoweringSuggesterによって元の演算から変換されたもの
                 //
@@ -440,7 +440,7 @@ impl GraphCostEstimator for SimpleCostEstimator {
 
             // カーネルとしてカウントするノード
             match &node.op {
-                GraphOp::Custom { ast } => match ast {
+                GraphOp::Custom { ast, .. } => match ast {
                     crate::ast::AstNode::Function { .. } => kernel_count += 1,
                     crate::ast::AstNode::Program { .. } => has_custom_program = true,
                     _ => {}
@@ -584,7 +584,7 @@ impl GraphCostEstimator for KernelMergeCostEstimator {
         let mut total_ast_cost = f32::NEG_INFINITY; // 対数スケールで0
 
         for node in &nodes {
-            if let GraphOp::Custom { ast } = &node.op {
+            if let GraphOp::Custom { ast, .. } = &node.op {
                 match ast {
                     AstNode::Function { .. } => {
                         custom_function_count += 1;

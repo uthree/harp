@@ -240,7 +240,10 @@ impl LoweringSuggester {
 
         Some(GraphNode::new(
             node.dtype.clone(),
-            GraphOp::Custom { ast: function },
+            GraphOp::Custom {
+                ast: function,
+                input_buffers: None,
+            },
             new_src,
             node.view.clone(),
         ))

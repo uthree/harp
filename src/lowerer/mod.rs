@@ -39,7 +39,7 @@ fn node_ptr(node: &GraphNode) -> *const () {
 /// KernelMergeSuggesterの出力を検出するために使用
 fn find_custom_program(graph: &Graph) -> Option<crate::ast::AstNode> {
     for output in graph.outputs().values() {
-        if let GraphOp::Custom { ast } = &output.op
+        if let GraphOp::Custom { ast, .. } = &output.op
             && matches!(ast, crate::ast::AstNode::Program { .. })
         {
             return Some(ast.clone());
@@ -552,7 +552,7 @@ impl Lowerer {
         node_id: usize,
     ) -> Result<crate::ast::AstNode, String> {
         match &node.op {
-            GraphOp::Custom { ast } => {
+            GraphOp::Custom { ast, .. } => {
                 // Custom AST（Function または Program）をloweringする
                 // プレースホルダー変数を実際のパラメータに置換
                 self.lower_custom_ast(node, node_id, ast)

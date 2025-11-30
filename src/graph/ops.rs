@@ -3,6 +3,20 @@ use crate::graph::shape::View;
 use crate::graph::{CumulativeStrategy, DType, GraphNode, ReduceStrategy};
 use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 
+/// Customノードに取り込まれた入力バッファの情報
+///
+/// BufferAbsorptionSuggester適用後、Customノードのsrcから入力Bufferを
+/// 取り込んだ際のメタデータを保持します。
+#[derive(Debug, Clone, PartialEq)]
+pub struct InputBufferMeta {
+    /// バッファ名（Graph.input_metas()の名前に対応）
+    pub name: String,
+    /// データ型
+    pub dtype: DType,
+    /// 形状情報（Shape変数を含む場合がある）
+    pub shape: Vec<crate::graph::shape::Expr>,
+}
+
 #[derive(Debug, Clone)]
 pub enum GraphOp {
     /// バッファノード（入力または出力）
@@ -101,6 +115,11 @@ pub enum GraphOp {
     /// - `shape0`, `shape1`, ... : 各軸のサイズ
     /// - `ridx0`, `ridx1`, ... : ループインデックス変数
     ///
+    /// # 入力バッファの管理
+    /// - `input_buffers`がNoneの場合: 入力バッファはsrcから参照される
+    /// - `input_buffers`がSomeの場合: BufferAbsorptionSuggester適用後で、
+    ///   入力バッファ情報が取り込まれている（srcは空）
+    ///
     /// # Example
     /// ```
     /// use harp::prelude::*;
@@ -135,6 +154,9 @@ pub enum GraphOp {
     Custom {
         /// AstNode::Function（単一カーネル関数）
         ast: crate::ast::AstNode,
+        /// 取り込まれた入力バッファの情報（BufferAbsorptionSuggester適用後に設定）
+        /// Noneの場合、入力バッファはsrcから参照される
+        input_buffers: Option<Vec<InputBufferMeta>>,
     },
     /// グラフのルートノード（プログラム全体を表現）
     ///
