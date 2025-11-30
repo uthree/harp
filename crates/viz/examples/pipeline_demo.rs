@@ -264,8 +264,12 @@ fn create_complex_computation_graph() -> Graph {
     let temp2 = temp1 + c; // [M, N]
 
     // 2回目の行列積: matmul(temp2, d) -> [M, P]
-    let result = matmul(temp2, d);
-    graph.output("result", result);
+    let x = matmul(temp2, d);
+
+    // 複数の出力ノードをテストする
+    let y = &x + 1.0f32;
+    graph.output("x", x);
+    graph.output("y", y);
 
     graph
 }
