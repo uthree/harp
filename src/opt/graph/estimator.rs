@@ -508,16 +508,28 @@ impl GraphCostEstimator for SimpleCostEstimator {
 
         // Sink.srcに入力Bufferがある場合、ペナルティを追加
         // これにより、SinkBufferAbsorptionSuggesterの適用後にコストが下がる
+        // 直接Buffer、またはView→Buffer(input)のパターンを検出（1レベルのみ）
         let sink_buffer_penalty = if let Some(sink) = graph.sink() {
             let input_buffer_count = sink
                 .src
                 .iter()
                 .filter(|s| {
-                    matches!(&s.op, GraphOp::Buffer { name } if !name.starts_with("output"))
+                    // 直接入力Buffer
+                    if matches!(&s.op, GraphOp::Buffer { name } if !name.starts_with("output")) {
+                        return true;
+                    }
+                    // View→Buffer(input)パターン（再帰なし、1レベルのみ）
+                    if matches!(&s.op, GraphOp::View(_)) {
+                        return s.src.iter().any(|src| {
+                            matches!(&src.op, GraphOp::Buffer { name } if !name.starts_with("output"))
+                        });
+                    }
+                    false
                 })
                 .count();
             // 入力Bufferがあると、グラフが整理されていないとみなしてペナルティ
-            KERNEL_LAUNCH_OVERHEAD.ln() * input_buffer_count as f32
+            // ペナルティを強くしてSinkBufferAbsorptionが選ばれやすくする
+            2.0 * KERNEL_LAUNCH_OVERHEAD.ln() * input_buffer_count as f32
         } else {
             0.0
         };

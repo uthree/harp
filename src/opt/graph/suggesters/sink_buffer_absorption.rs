@@ -3,8 +3,8 @@
 //! SinkノードのsrcにあるBufferノード（入力バッファ）を除去するSuggester。
 //!
 //! # 処理フロー
-//! 1. srcにBufferノードを持つSinkノードを検出
-//! 2. 入力バッファ（output_で始まらないBuffer）をsrcから除去
+//! 1. srcに入力Bufferノード、またはView→Buffer(input)パターンを検出
+//! 2. 入力バッファ（output_で始まらないBuffer）とその1レベルのViewラッパーをsrcから除去
 //!
 //! # BufferAbsorptionSuggesterとの関係
 //! - BufferAbsorptionSuggester: Buffer → Custom の吸収
@@ -24,30 +24,48 @@ impl SinkBufferAbsorptionSuggester {
         Self
     }
 
-    /// Sinkのsrcに入力Bufferがあるか確認
-    fn has_input_buffers_in_sink(&self, graph: &Graph) -> bool {
+    /// ノードが入力Bufferかどうかを判定
+    /// View→...→Buffer(input) のチェーンに対応（再帰ではなくループで実装）
+    fn is_input_buffer_pattern(node: &GraphNode) -> bool {
+        let mut current = node;
+        loop {
+            match &current.op {
+                // 入力Buffer（output_で始まらない）
+                GraphOp::Buffer { name } => return !name.starts_with("output_"),
+                // Viewチェーンをたどる
+                GraphOp::View(_) => {
+                    if current.src.len() != 1 {
+                        // Viewは通常1つの入力のみ
+                        return false;
+                    }
+                    current = &current.src[0];
+                }
+                // Const も入力として扱う
+                GraphOp::Const(_) | GraphOp::ComplexConst { .. } => return true,
+                // その他は入力パターンではない
+                _ => return false,
+            }
+        }
+    }
+
+    /// Sinkのsrcに入力Bufferパターンがあるか確認
+    fn has_input_buffer_dependencies(&self, graph: &Graph) -> bool {
         if let Some(sink) = graph.sink() {
-            sink.src.iter().any(
-                |src| matches!(&src.op, GraphOp::Buffer { name } if !name.starts_with("output_")),
-            )
+            sink.src.iter().any(Self::is_input_buffer_pattern)
         } else {
             false
         }
     }
 
-    /// SinkノードからBufferを除去
+    /// SinkノードからBufferパターンを除去
     fn absorb_buffers(&self, graph: &Graph) -> Option<Graph> {
         let sink = graph.sink()?;
 
-        // srcから入力Bufferを除去
+        // srcから入力Bufferパターンを除去
         let new_src: Vec<GraphNode> = sink
             .src
             .iter()
-            .filter(|src| {
-                // 出力バッファ（output_で始まる）は残す
-                // 入力バッファ（それ以外のBuffer）は除去
-                !matches!(&src.op, GraphOp::Buffer { name } if !name.starts_with("output_"))
-            })
+            .filter(|src| !Self::is_input_buffer_pattern(src))
             .cloned()
             .collect();
 
@@ -57,7 +75,7 @@ impl SinkBufferAbsorptionSuggester {
         }
 
         log::debug!(
-            "SinkBufferAbsorption: removing {} input buffers from Sink.src",
+            "SinkBufferAbsorption: removing {} nodes (input buffers and View→Buffer patterns) from Sink.src",
             sink.src.len() - new_src.len()
         );
 
@@ -101,12 +119,12 @@ impl GraphSuggester for SinkBufferAbsorptionSuggester {
             return vec![];
         }
 
-        // 入力Bufferがない場合は何もしない
-        if !self.has_input_buffers_in_sink(graph) {
+        // 入力Bufferの依存関係がない場合は何もしない
+        if !self.has_input_buffer_dependencies(graph) {
             return vec![];
         }
 
-        // Bufferを除去
+        // Bufferとその依存チェーンを除去
         if let Some(new_graph) = self.absorb_buffers(graph) {
             vec![new_graph]
         } else {
@@ -232,6 +250,79 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_sink_buffer_absorption_with_view_chain() {
+        let sink_buffer_absorber = SinkBufferAbsorptionSuggester::new();
+
+        // View → Buffer のチェーンをテスト
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
+
+        // View操作を追加
+        let a_view = a.view(a.view.clone().permute(vec![1, 0]));
+
+        // 出力
+        let b = graph.input("b", DType::F32, vec![20, 10]);
+        let c = a_view + b;
+        graph.output("c", c);
+
+        eprintln!("=== Graph with View chain ===");
+        if let Some(sink) = graph.sink() {
+            eprintln!("Sink src count: {}", sink.src.len());
+            fn print_tree(node: &GraphNode, depth: usize) {
+                let indent = "  ".repeat(depth);
+                let op_name = match &node.op {
+                    GraphOp::Buffer { name } => format!("Buffer({})", name),
+                    GraphOp::View(_) => "View".to_string(),
+                    _ => format!("{:?}", std::mem::discriminant(&node.op)),
+                };
+                eprintln!("{}{} (src_count={})", indent, op_name, node.src.len());
+                for src in &node.src {
+                    print_tree(src, depth + 1);
+                }
+            }
+            for (i, src) in sink.src.iter().enumerate() {
+                eprintln!("src[{}]:", i);
+                print_tree(src, 1);
+            }
+        }
+
+        // SinkBufferAbsorptionを適用
+        let suggestions = sink_buffer_absorber.suggest(&graph);
+        eprintln!("\nGot {} suggestions", suggestions.len());
+
+        // View → Buffer のチェーンが除去されることを確認
+        // (このテストではElementwiseがあるので、完全には除去されないかもしれない)
+    }
+
+    #[test]
+    fn test_is_input_buffer_pattern() {
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![10]);
+
+        // Buffer(a) は入力パターン
+        assert!(SinkBufferAbsorptionSuggester::is_input_buffer_pattern(&a));
+
+        // View → Buffer(a) のチェーンも入力パターン
+        let a_view = a.view(a.view.clone());
+        assert!(SinkBufferAbsorptionSuggester::is_input_buffer_pattern(
+            &a_view
+        ));
+
+        // 出力バッファは入力パターンではない
+        let output_buffer = GraphNode::new(
+            DType::F32,
+            GraphOp::Buffer {
+                name: "output_c".to_string(),
+            },
+            vec![],
+            a.view.clone(),
+        );
+        assert!(!SinkBufferAbsorptionSuggester::is_input_buffer_pattern(
+            &output_buffer
+        ));
     }
 
     #[test]

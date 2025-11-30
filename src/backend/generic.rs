@@ -12,8 +12,8 @@ use crate::opt::graph::{
     BeamSearchGraphOptimizer, BufferAbsorptionSuggester, CompositeSuggester,
     ContiguousInsertionSuggester, FusionSuggester, GraphCostEstimator, KernelMergeCostEstimator,
     KernelMergeSuggester, LoweringSuggester, OptimizationHistory as GraphOptimizationHistory,
-    SimpleCostEstimator, SinkAbsorptionSuggester, TilingSuggester, ViewInsertionSuggester,
-    ViewMergeSuggester,
+    SimpleCostEstimator, SinkAbsorptionSuggester, SinkBufferAbsorptionSuggester, TilingSuggester,
+    ViewInsertionSuggester, ViewMergeSuggester,
 };
 use std::collections::HashMap;
 
@@ -30,6 +30,8 @@ pub struct OptimizationConfig {
     pub max_steps: usize,
     /// プログレスバーを表示するか
     pub show_progress: bool,
+    /// 早期終了を無効化するか
+    pub disable_early_termination: bool,
 }
 
 impl Default for OptimizationConfig {
@@ -38,6 +40,7 @@ impl Default for OptimizationConfig {
             beam_width: 4,
             max_steps: 10000,
             show_progress: false,
+            disable_early_termination: false,
         }
     }
 }
@@ -680,6 +683,8 @@ where
             Box::new(BufferAbsorptionSuggester::new()),
             // SinkAbsorptionSuggesterはCustom(Function)をSinkに吸収
             Box::new(SinkAbsorptionSuggester::new()),
+            // SinkBufferAbsorptionSuggesterはSinkの入力Bufferを除去
+            Box::new(SinkBufferAbsorptionSuggester::new()),
         ])
     }
 
@@ -696,6 +701,7 @@ where
             .with_beam_width(self.graph_config.beam_width)
             .with_max_steps(self.graph_config.max_steps)
             .with_progress(self.graph_config.show_progress)
+            .with_disable_early_termination(self.graph_config.disable_early_termination)
     }
 
     /// AST最適化用のSuggesterを作成

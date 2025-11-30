@@ -145,14 +145,18 @@ Custom(Function)ノードをSinkノードに吸収し、最終的にSink(Program
 - main関数でカーネル呼び出し順序とバリアを管理
 
 ### SinkBufferAbsorptionSuggester
-SinkノードのsrcにあるBufferノード（入力バッファ）を除去する。
+SinkノードのsrcにあるBufferノード（入力バッファ）およびその依存チェーンを除去する。
 
 **処理フロー:**
-1. srcに入力Bufferノードを持つSinkノードを検出
-2. 入力バッファ（output_で始まらないBuffer）をsrcから除去
+1. srcに入力BufferノードまたはView→...→Buffer(input)パターンを検出
+2. 入力バッファ（output_で始まらないBuffer）とそのViewチェーンをsrcから除去
+
+**対応パターン（ループ実装、再帰なし）:**
+- 直接入力Buffer: `Buffer(a)`
+- Viewチェーン: `View → Buffer(a)`, `View → View → Buffer(a)` など
 
 **効果:**
-- Sink.srcには出力バッファのみが残る
+- Sink.srcには出力バッファのみが残る（または空になる）
 - 入力バッファの情報は`graph.input_metas()`に保持されているため重複排除
 
 ### LoweringSuggester

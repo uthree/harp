@@ -42,6 +42,7 @@ fn main() -> eframe::Result {
         beam_width: 4,
         max_steps: 100,
         show_progress: true,
+        disable_early_termination: true, // 早期終了を無効化
     };
 
     println!("  ✓ Pipeline作成完了（統合最適化有効）\n");
@@ -72,6 +73,58 @@ fn main() -> eframe::Result {
     // 統合最適化の履歴情報を表示
     let graph_steps = pipeline.histories.graph.as_ref().map_or(0, |h| h.len());
     println!("    - グラフ最適化ステップ数: {}", graph_steps);
+
+    // デバッグ: 最終グラフのSink.srcを確認
+    if let Some(graph_history) = &pipeline.histories.graph {
+        if let Some(final_snapshot) = graph_history.snapshots().last() {
+            if let Some(sink) = final_snapshot.graph.sink() {
+                println!("\n=== Final Graph Sink.src (recursive) ===");
+                fn print_node(
+                    node: &harp::graph::GraphNode,
+                    depth: usize,
+                    visited: &mut std::collections::HashSet<*const harp::graph::GraphNodeData>,
+                ) {
+                    let ptr = node.as_ptr();
+                    if visited.contains(&ptr) {
+                        println!("{}(already visited)", "  ".repeat(depth));
+                        return;
+                    }
+                    visited.insert(ptr);
+
+                    let op_name = match &node.op {
+                        harp::graph::GraphOp::Buffer { name } => format!("Buffer({})", name),
+                        harp::graph::GraphOp::Custom { input_buffers, .. } => {
+                            let buffers = input_buffers
+                                .as_ref()
+                                .map(|b| b.iter().map(|m| m.name.clone()).collect::<Vec<_>>());
+                            format!("Custom(input_buffers={:?})", buffers)
+                        }
+                        harp::graph::GraphOp::Sink { outputs, .. } => {
+                            format!("Sink(outputs={:?})", outputs)
+                        }
+                        harp::graph::GraphOp::View(_) => "View".to_string(),
+                        _ => format!("{:?}", std::mem::discriminant(&node.op)),
+                    };
+                    println!(
+                        "{}{} (src_count={})",
+                        "  ".repeat(depth),
+                        op_name,
+                        node.src.len()
+                    );
+                    for src in &node.src {
+                        print_node(src, depth + 1, visited);
+                    }
+                }
+
+                println!("Sink src count: {}", sink.src.len());
+                let mut visited = std::collections::HashSet::new();
+                for (i, src) in sink.src.iter().enumerate() {
+                    println!("src[{}]:", i);
+                    print_node(src, 1, &mut visited);
+                }
+            }
+        }
+    }
 
     // デバッグ: ログがキャプチャされているか確認
     if let Some(graph_history) = &pipeline.histories.graph {

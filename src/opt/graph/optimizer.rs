@@ -25,6 +25,7 @@ where
     max_steps: usize,
     show_progress: bool,
     collect_logs: bool,
+    disable_early_termination: bool,
 }
 
 impl<S, E> BeamSearchGraphOptimizer<S, E>
@@ -41,6 +42,7 @@ where
             max_steps: 10000,
             show_progress: cfg!(debug_assertions),
             collect_logs: cfg!(debug_assertions),
+            disable_early_termination: false,
         }
     }
 
@@ -75,6 +77,15 @@ where
     /// ログ収集の有効/無効を設定
     pub fn with_collect_logs(mut self, collect: bool) -> Self {
         self.collect_logs = collect;
+        self
+    }
+
+    /// 早期終了の無効化を設定
+    ///
+    /// trueの場合、コスト改善がない場合でも最大ステップ数まで続行します。
+    /// デフォルトはfalse（早期終了有効）。
+    pub fn with_disable_early_termination(mut self, disable: bool) -> Self {
+        self.disable_early_termination = disable;
         self
     }
 }
@@ -281,8 +292,10 @@ where
                         step, cost, best_cost, no_improvement_count, MAX_NO_IMPROVEMENT_STEPS
                     );
 
-                    // 連続で改善がない場合は早期終了
-                    if no_improvement_count >= MAX_NO_IMPROVEMENT_STEPS {
+                    // 連続で改善がない場合は早期終了（ただしdisable_early_terminationがfalseの場合のみ）
+                    if !self.disable_early_termination
+                        && no_improvement_count >= MAX_NO_IMPROVEMENT_STEPS
+                    {
                         info!(
                             "No cost improvement for {} steps - optimization complete",
                             MAX_NO_IMPROVEMENT_STEPS
