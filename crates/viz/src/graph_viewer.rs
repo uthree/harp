@@ -190,21 +190,34 @@ impl GraphViewerApp {
         // 訪問済みノードを追跡
         let mut visited = HashSet::new();
 
-        // 出力ノードから開始してトラバース（位置情報付き）
-        let outputs = graph.outputs();
-        for (output_name, output_node) in &outputs {
+        // Sinkノードがある場合はSinkから開始
+        if let Some(sink_node) = graph.sink() {
             self.traverse_and_add_node_with_layout(
-                output_node,
-                output_name,
+                &sink_node,
+                "",
                 &mut visited,
                 &depths,
                 &mut depth_counters,
             );
-        }
+            // Sinkからエッジを追加
+            self.add_edges(&sink_node, &mut HashSet::new());
+        } else {
+            // Sinkがない場合は従来通り出力ノードから開始
+            let outputs = graph.outputs();
+            for (output_name, output_node) in &outputs {
+                self.traverse_and_add_node_with_layout(
+                    output_node,
+                    output_name,
+                    &mut visited,
+                    &depths,
+                    &mut depth_counters,
+                );
+            }
 
-        // エッジを追加
-        for output_node in outputs.values() {
-            self.add_edges(output_node, &mut HashSet::new());
+            // エッジを追加
+            for output_node in outputs.values() {
+                self.add_edges(output_node, &mut HashSet::new());
+            }
         }
     }
 
@@ -253,19 +266,17 @@ impl GraphViewerApp {
             depth
         }
 
-        // 出力ノードから開始
+        // Sinkノードがある場合はSinkから開始、なければ出力ノードから開始
         let mut visited_global = HashSet::new();
-        for output_node in graph.outputs().values() {
-            calculate_depth(output_node, &mut depths, &mut visited_global);
+        if let Some(sink_node) = graph.sink() {
+            calculate_depth(&sink_node, &mut depths, &mut visited_global);
+        } else {
+            for output_node in graph.outputs().values() {
+                calculate_depth(output_node, &mut depths, &mut visited_global);
+            }
         }
 
         depths
-    }
-
-    /// ノードが出力 Buffer かどうかを判定
-    fn is_output_buffer(node: &GraphNode) -> bool {
-        use harp::graph::GraphOp;
-        matches!(&node.op, GraphOp::Buffer { name } if name.starts_with("output"))
     }
 
     /// ノードをトラバースしてSnarlに追加（階層レイアウト付き）
@@ -279,28 +290,15 @@ impl GraphViewerApp {
     ) {
         let node_ptr = node.as_ptr();
 
-        // 出力 Buffer ノードはスキップ（表示しない）
-        if Self::is_output_buffer(node) {
-            return;
-        }
-
         // 既に訪問済みならスキップ
         if visited.contains(&node_ptr) {
             return;
         }
         visited.insert(node_ptr);
 
-        // 入力ノードを先にトラバース（出力 Buffer を除外）
+        // 入力ノードを先にトラバース
         for input_node in &node.src {
-            if !Self::is_output_buffer(input_node) {
-                self.traverse_and_add_node_with_layout(
-                    input_node,
-                    "",
-                    visited,
-                    depths,
-                    depth_counters,
-                );
-            }
+            self.traverse_and_add_node_with_layout(input_node, "", visited, depths, depth_counters);
         }
 
         // このノードの深さを取得
@@ -347,11 +345,11 @@ impl GraphViewerApp {
 
         let op_details = format!("{:?}", node.op);
 
-        // Customノードの場合はASTを保存（レンダラー変更時に再レンダリング用）
-        let ast = if let harp::graph::GraphOp::Custom { ast } = &node.op {
-            Some(ast.clone())
-        } else {
-            None
+        // CustomノードまたはSinkノードの場合はASTを保存（レンダラー変更時に再レンダリング用）
+        let ast = match &node.op {
+            harp::graph::GraphOp::Custom { ast } => Some(ast.clone()),
+            harp::graph::GraphOp::Sink { ast, .. } => Some(ast.clone()),
+            _ => None,
         };
 
         let details = NodeDetails {
@@ -392,6 +390,7 @@ impl GraphViewerApp {
             GraphOp::Fold { .. } => "Fold".to_string(),
             GraphOp::Rand => "Rand".to_string(),
             GraphOp::Concat { axis } => format!("Concat({})", axis),
+            GraphOp::Sink { outputs, .. } => format!("Sink({})", outputs.join(", ")),
             _ => "Unknown".to_string(),
         }
     }
@@ -403,11 +402,6 @@ impl GraphViewerApp {
         visited: &mut HashSet<*const harp::graph::GraphNodeData>,
     ) {
         let node_ptr = node.as_ptr();
-
-        // 出力 Buffer ノードはスキップ
-        if Self::is_output_buffer(node) {
-            return;
-        }
 
         // 既に訪問済みならスキップ
         if visited.contains(&node_ptr) {
@@ -421,15 +415,8 @@ impl GraphViewerApp {
             None => return,
         };
 
-        // 各入力ノードからこのノードへのエッジを追加（出力 Buffer を除外）
-        // 出力 Buffer は node_mapping に登録されていないため実際にはスキップされるが、
-        // 入力インデックスが正しくなるように明示的にフィルタリング
-        let input_nodes: Vec<_> = node
-            .src
-            .iter()
-            .filter(|n| !Self::is_output_buffer(n))
-            .collect();
-        for (input_idx, input_node) in input_nodes.iter().enumerate() {
+        // 各入力ノードからこのノードへのエッジを追加
+        for (input_idx, input_node) in node.src.iter().enumerate() {
             let from_node_ptr = input_node.as_ptr();
             if let Some(&from_node_id) = self.node_mapping.get(&from_node_ptr) {
                 // エッジを追加（from_node_idの出力0からto_node_idの入力input_idxへ）

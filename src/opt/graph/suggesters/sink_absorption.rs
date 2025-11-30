@@ -582,6 +582,7 @@ impl GraphSuggester for SinkAbsorptionSuggester {
     fn suggest(&self, graph: &Graph) -> Vec<Graph> {
         // Sinkがない場合は何もしない
         if graph.sink().is_none() {
+            log::debug!("SinkAbsorptionSuggester: no Sink node found");
             return vec![];
         }
 
@@ -643,8 +644,209 @@ mod tests {
         let custom = a.custom_elementwise_binary(b, wildcard("0") + wildcard("1"));
         graph.output("c", custom);
 
+        eprintln!("Sink exists: {:?}", graph.sink().is_some());
+        if let Some(ref sink) = graph.sink() {
+            eprintln!("Sink src count: {}", sink.src.len());
+            for (i, src) in sink.src.iter().enumerate() {
+                eprintln!("  src[{}]: {:?}", i, src.op);
+            }
+        }
+
         // Custom(Function)が吸収対象として検出される
         let absorbable = suggester.find_absorbable_customs(&graph);
+        eprintln!("Found {} absorbable Custom nodes", absorbable.len());
+        for (i, node) in absorbable.iter().enumerate() {
+            eprintln!("  absorbable[{}]: {:?}", i, node.op);
+        }
         assert_eq!(absorbable.len(), 1);
+    }
+
+    #[test]
+    fn test_absorb_custom_into_sink() {
+        use crate::ast::helper::wildcard;
+
+        let suggester = SinkAbsorptionSuggester::new();
+
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![10]);
+        let b = graph.input("b", DType::F32, vec![10]);
+
+        // Custom(Function)を作成
+        let custom = a.custom_elementwise_binary(b, wildcard("0") + wildcard("1"));
+        graph.output("c", custom);
+
+        // suggest()を呼び出し
+        let suggestions = suggester.suggest(&graph);
+        eprintln!("Got {} suggestions from SinkAbsorption", suggestions.len());
+
+        // 1つの提案があるはず
+        assert!(
+            !suggestions.is_empty(),
+            "Should have at least one suggestion"
+        );
+
+        let new_graph = &suggestions[0];
+        eprintln!("New graph sink exists: {:?}", new_graph.sink().is_some());
+
+        if let Some(ref sink) = new_graph.sink() {
+            if let GraphOp::Sink { ast, outputs } = &sink.op {
+                eprintln!("Outputs: {:?}", outputs);
+                if let crate::ast::AstNode::Program { functions, .. } = ast {
+                    eprintln!("Program has {} functions", functions.len());
+                    for (i, func) in functions.iter().enumerate() {
+                        let name = match func {
+                            crate::ast::AstNode::Kernel { name, .. } => name.clone(),
+                            crate::ast::AstNode::Function { name, .. } => name.clone(),
+                            _ => None,
+                        };
+                        eprintln!("  function[{}]: {:?}", i, name);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_lowering_then_sink_absorption() {
+        use crate::opt::graph::suggesters::LoweringSuggester;
+
+        let lowering = LoweringSuggester::new();
+        let sink_absorber = SinkAbsorptionSuggester::new();
+
+        // シンプルなElementwise演算グラフ
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![10]);
+        let b = graph.input("b", DType::F32, vec![10]);
+        let c = a + b;
+        graph.output("c", c);
+
+        eprintln!("=== Initial Graph ===");
+        eprintln!("Sink exists: {:?}", graph.sink().is_some());
+
+        // LoweringSuggesterを適用
+        let lowered = lowering.suggest(&graph);
+        eprintln!("\n=== After Lowering ===");
+        eprintln!("Got {} suggestions from Lowering", lowered.len());
+
+        assert!(!lowered.is_empty(), "Lowering should produce suggestions");
+        let lowered_graph = &lowered[0];
+
+        eprintln!(
+            "Lowered graph sink exists: {:?}",
+            lowered_graph.sink().is_some()
+        );
+        if let Some(ref sink) = lowered_graph.sink() {
+            eprintln!("Sink src count: {}", sink.src.len());
+            for (i, src) in sink.src.iter().enumerate() {
+                let op_name = match &src.op {
+                    GraphOp::Custom { .. } => "Custom".to_string(),
+                    GraphOp::Buffer { name } => format!("Buffer({})", name),
+                    GraphOp::Elementwise { op, .. } => format!("Elementwise({:?})", op),
+                    _ => format!("{:?}", src.op),
+                };
+                eprintln!("  src[{}]: {}", i, op_name);
+            }
+        }
+
+        // SinkAbsorptionを適用
+        let absorbed = sink_absorber.suggest(lowered_graph);
+        eprintln!("\n=== After SinkAbsorption ===");
+        eprintln!("Got {} suggestions from SinkAbsorption", absorbed.len());
+
+        if absorbed.is_empty() {
+            // 吸収対象が見つからない場合、理由を調べる
+            let absorbable = sink_absorber.find_absorbable_customs(lowered_graph);
+            eprintln!("Absorbable nodes: {}", absorbable.len());
+        }
+
+        assert!(
+            !absorbed.is_empty(),
+            "SinkAbsorption should produce suggestions"
+        );
+    }
+
+    #[test]
+    fn test_full_optimization_with_beam_search() {
+        use crate::backend::pipeline::{SuggesterFlags, create_graph_suggester};
+        use crate::opt::graph::{BeamSearchGraphOptimizer, SimpleCostEstimator};
+
+        // 複数の演算を含むグラフ: reduce(a + b) + c
+        // Reduceがあると融合されずに2つのCustomノードになる
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![10, 5]);
+        let b = graph.input("b", DType::F32, vec![10, 5]);
+        let c = graph.input("c", DType::F32, vec![10]);
+        let sum = &a + &b;
+        let reduced = sum.reduce_sum(1); // [10]
+        let result = &reduced + &c;
+        graph.output("result", result);
+
+        eprintln!("=== Initial Graph ===");
+        eprintln!("Sink exists: {:?}", graph.sink().is_some());
+
+        // パイプラインと同じ設定でSuggesterを作成
+        let flags = SuggesterFlags {
+            include_kernel_merge: true,
+            include_ast_optimization: false,
+        };
+        let suggester = create_graph_suggester(flags);
+        let estimator = SimpleCostEstimator::new();
+
+        let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
+            .with_beam_width(4)
+            .with_max_steps(20)
+            .with_progress(false)
+            .with_collect_logs(false);
+
+        let (optimized, history) = optimizer.optimize_with_history(graph);
+
+        eprintln!("\n=== Optimization History ===");
+        for snapshot in history.snapshots() {
+            let sink_info = if let Some(ref sink) = snapshot.graph.sink() {
+                if let GraphOp::Sink { ast, outputs } = &sink.op {
+                    let func_count = if let crate::ast::AstNode::Program { functions, .. } = ast {
+                        functions.len()
+                    } else {
+                        0
+                    };
+                    format!("Sink(outputs={:?}, funcs={})", outputs, func_count)
+                } else {
+                    "Unknown".to_string()
+                }
+            } else {
+                "No Sink".to_string()
+            };
+            eprintln!(
+                "Step {}: {} - cost={:.2} - {}",
+                snapshot.step, snapshot.description, snapshot.cost, sink_info
+            );
+        }
+
+        eprintln!("\n=== Final Graph ===");
+        eprintln!("Sink exists: {:?}", optimized.sink().is_some());
+
+        if let Some(ref sink) = optimized.sink() {
+            if let GraphOp::Sink { ast, outputs } = &sink.op {
+                eprintln!("Outputs: {:?}", outputs);
+                if let crate::ast::AstNode::Program { functions, .. } = ast {
+                    eprintln!("Program has {} functions", functions.len());
+                    for (i, func) in functions.iter().enumerate() {
+                        let name = match func {
+                            crate::ast::AstNode::Kernel { name, .. } => name.clone(),
+                            crate::ast::AstNode::Function { name, .. } => name.clone(),
+                            _ => None,
+                        };
+                        eprintln!("  function[{}]: {:?}", i, name);
+                    }
+                    // 最終的にカーネルとmain関数があることを確認
+                    assert!(
+                        functions.len() >= 2,
+                        "Should have at least kernel and harp_main"
+                    );
+                }
+            }
+        } else {
+            panic!("Optimized graph should have Sink node");
+        }
     }
 }

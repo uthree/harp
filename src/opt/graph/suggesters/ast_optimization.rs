@@ -155,10 +155,33 @@ impl AstOptimizationSuggester {
             }
         }
 
-        // 出力ノードを再構築
-        for (name, output) in graph.outputs() {
-            let new_output = rebuild_node(&output, &node_map, &mut visited);
-            new_graph.output(&name, new_output);
+        // Sinkノードがある場合は、Program構造を保持しながらsrcを再構築
+        if let Some(old_sink) = graph.sink() {
+            let new_sink_src: Vec<GraphNode> = old_sink
+                .src
+                .iter()
+                .map(|src| rebuild_node(src, &node_map, &mut visited))
+                .collect();
+
+            // 元のSinkのast（Program）とoutputsを保持して新しいSinkを作成
+            if let GraphOp::Sink { ast, outputs } = &old_sink.op {
+                let new_sink = GraphNode::new(
+                    old_sink.dtype.clone(),
+                    GraphOp::Sink {
+                        ast: ast.clone(),
+                        outputs: outputs.clone(),
+                    },
+                    new_sink_src,
+                    old_sink.view.clone(),
+                );
+                new_graph.set_sink(new_sink);
+            }
+        } else {
+            // Sinkがない場合は従来通りoutputsを使用
+            for (name, output) in graph.outputs() {
+                let new_output = rebuild_node(&output, &node_map, &mut visited);
+                new_graph.output(&name, new_output);
+            }
         }
 
         // shape変数のデフォルト値をコピー

@@ -96,15 +96,38 @@ impl CodeViewerApp {
         log::info!("Graph loaded for code viewer");
     }
 
-    /// グラフからCustom(Program)またはCustom(Function)のASTを抽出
+    /// グラフからSink(Program)、Custom(Program)またはCustom(Function)のASTを抽出
     fn extract_ast_from_graph(&self, graph: &Graph) -> Option<harp::ast::AstNode> {
+        // 1. SinkノードのProgramを最優先で確認
+        if let Some(sink) = graph.sink() {
+            if let harp::graph::GraphOp::Sink { ast, .. } = &sink.op {
+                if let harp::ast::AstNode::Program { functions, .. } = ast {
+                    if !functions.is_empty() {
+                        return Some(ast.clone());
+                    }
+                }
+            }
+        }
+
+        // 2. Custom(Program/Function)を走査してASTを収集
         let mut visited = HashSet::new();
         let mut program_ast = None;
         let mut function_asts = Vec::new();
 
-        // 全ノードを走査してCustomノードを収集
-        for output in graph.outputs().values() {
-            Self::collect_custom_nodes(output, &mut visited, &mut program_ast, &mut function_asts);
+        // Sinkがある場合はSinkのsrcから、ない場合はoutputsから走査
+        if let Some(sink) = graph.sink() {
+            for src in &sink.src {
+                Self::collect_custom_nodes(src, &mut visited, &mut program_ast, &mut function_asts);
+            }
+        } else {
+            for output in graph.outputs().values() {
+                Self::collect_custom_nodes(
+                    output,
+                    &mut visited,
+                    &mut program_ast,
+                    &mut function_asts,
+                );
+            }
         }
 
         // Custom(Program)があればそれを優先

@@ -28,7 +28,16 @@ impl GraphSuggester for CompositeSuggester {
 
         // 各Suggesterから候補を収集
         for suggester in &self.suggesters {
+            log::trace!(
+                "CompositeSuggester: calling suggester '{}'",
+                suggester.name()
+            );
             let suggestions = suggester.suggest(graph);
+            log::trace!(
+                "CompositeSuggester: suggester '{}' returned {} suggestions",
+                suggester.name(),
+                suggestions.len()
+            );
             all_suggestions.extend(suggestions);
         }
 
@@ -41,7 +50,16 @@ impl GraphSuggester for CompositeSuggester {
 
         // 各Suggesterから候補を収集（それぞれのSuggester名を保持）
         for suggester in &self.suggesters {
+            log::trace!(
+                "CompositeSuggester: calling suggest_named for '{}'",
+                suggester.name()
+            );
             let results = suggester.suggest_named(graph);
+            log::trace!(
+                "CompositeSuggester: suggester '{}' returned {} results",
+                suggester.name(),
+                results.len()
+            );
             all_results.extend(results);
         }
 

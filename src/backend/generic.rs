@@ -11,8 +11,8 @@ use crate::opt::ast::{
 use crate::opt::graph::{
     BeamSearchGraphOptimizer, CompositeSuggester, ContiguousInsertionSuggester, FusionSuggester,
     GraphCostEstimator, KernelMergeCostEstimator, KernelMergeSuggester, LoweringSuggester,
-    OptimizationHistory as GraphOptimizationHistory, SimpleCostEstimator, TilingSuggester,
-    ViewInsertionSuggester, ViewMergeSuggester,
+    OptimizationHistory as GraphOptimizationHistory, SimpleCostEstimator, SinkAbsorptionSuggester,
+    TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
 };
 use std::collections::HashMap;
 
@@ -128,25 +128,24 @@ where
 /// 最適化済みグラフからAST Programを抽出する
 ///
 /// 複数の出力がある場合、すべてのカーネルを1つのProgramに統合します。
+/// SinkAbsorptionSuggesterが生成したSink(Program)を直接返すか、
 /// KernelMergeSuggesterが生成したCustom(Program)を直接返すか、
 /// Custom(Function)がある場合はLowererを使用してProgramを生成します。
 fn extract_program_from_graph(graph: Graph) -> AstNode {
     use crate::graph::GraphOp;
     use std::collections::HashSet;
 
-    // デバッグ: 出力ノードのopを表示
-    for (name, output) in graph.outputs() {
-        log::debug!(
-            "extract_program_from_graph: output '{}' op = {:?}",
-            name,
-            std::mem::discriminant(&output.op)
-        );
-        if let GraphOp::Custom { ast } = &output.op {
-            log::debug!("  Custom AST variant: {:?}", std::mem::discriminant(ast));
-        }
+    // 1. SinkノードのProgramを最優先で確認
+    // SinkAbsorptionSuggesterが生成した完全なProgramがあればそれを使用
+    if let Some(sink) = graph.sink()
+        && let GraphOp::Sink { ast, .. } = &sink.op
+        && let AstNode::Program { functions, .. } = ast
+        && !functions.is_empty()
+    {
+        return ast.clone();
     }
 
-    // 全ての出力ノードからCustom(Program/Function)を収集
+    // 2. Custom(Program/Function)を収集（フォールバック）
     let mut collected_programs: Vec<&AstNode> = Vec::new();
     let mut collected_functions: Vec<&AstNode> = Vec::new();
     let mut visited: HashSet<*const crate::graph::GraphNodeData> = HashSet::new();
@@ -674,8 +673,10 @@ where
             Box::new(TilingSuggester::with_default_tile_sizes()),
             Box::new(ContiguousInsertionSuggester::new()),
             Box::new(FusionSuggester::new()),
-            // LoweringSuggesterは最後に追加（他の最適化後にlowering）
+            // LoweringSuggesterは他の最適化後にlowering
             Box::new(LoweringSuggester::new()),
+            // SinkAbsorptionSuggesterはCustom(Function)をSinkに吸収
+            Box::new(SinkAbsorptionSuggester::new()),
         ])
     }
 
@@ -759,6 +760,7 @@ where
             if self.collect_histories {
                 self.histories.graph_phase2 = Some(phase2_history);
             }
+
             phase2_graph
         } else {
             phase1_graph
