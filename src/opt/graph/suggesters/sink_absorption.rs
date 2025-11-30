@@ -371,8 +371,9 @@ impl SinkAbsorptionSuggester {
 
         let absorbed_ptr = absorbed_custom.as_ptr();
         let mut visited = HashSet::new();
+        let mut added_ptrs: HashSet<*const GraphNodeData> = HashSet::new();
 
-        // Sinkのsrcを再構築
+        // Sinkのsrcを再構築（重複を排除）
         for src in &sink.src {
             if let Some(rebuilt) = rebuild_node(
                 src,
@@ -381,7 +382,12 @@ impl SinkAbsorptionSuggester {
                 &mut node_map,
                 &mut visited,
             ) {
-                new_src.push(rebuilt);
+                // 同じノード（ポインタ）が既に追加されている場合はスキップ
+                let rebuilt_ptr = rebuilt.as_ptr();
+                if !added_ptrs.contains(&rebuilt_ptr) {
+                    added_ptrs.insert(rebuilt_ptr);
+                    new_src.push(rebuilt);
+                }
             }
         }
 

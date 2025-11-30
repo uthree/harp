@@ -347,7 +347,7 @@ impl GraphViewerApp {
 
         // CustomノードまたはSinkノードの場合はASTを保存（レンダラー変更時に再レンダリング用）
         let ast = match &node.op {
-            harp::graph::GraphOp::Custom { ast } => Some(ast.clone()),
+            harp::graph::GraphOp::Custom { ast, .. } => Some(ast.clone()),
             harp::graph::GraphOp::Sink { ast, .. } => Some(ast.clone()),
             _ => None,
         };

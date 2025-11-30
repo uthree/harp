@@ -9,10 +9,11 @@ use crate::opt::ast::{
     Optimizer, RuleBaseOptimizer, RuleBaseSuggester, SimpleCostEstimator as AstSimpleCostEstimator,
 };
 use crate::opt::graph::{
-    BeamSearchGraphOptimizer, CompositeSuggester, ContiguousInsertionSuggester, FusionSuggester,
-    GraphCostEstimator, KernelMergeCostEstimator, KernelMergeSuggester, LoweringSuggester,
-    OptimizationHistory as GraphOptimizationHistory, SimpleCostEstimator, SinkAbsorptionSuggester,
-    TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
+    BeamSearchGraphOptimizer, BufferAbsorptionSuggester, CompositeSuggester,
+    ContiguousInsertionSuggester, FusionSuggester, GraphCostEstimator, KernelMergeCostEstimator,
+    KernelMergeSuggester, LoweringSuggester, OptimizationHistory as GraphOptimizationHistory,
+    SimpleCostEstimator, SinkAbsorptionSuggester, TilingSuggester, ViewInsertionSuggester,
+    ViewMergeSuggester,
 };
 use std::collections::HashMap;
 
@@ -675,6 +676,8 @@ where
             Box::new(FusionSuggester::new()),
             // LoweringSuggesterは他の最適化後にlowering
             Box::new(LoweringSuggester::new()),
+            // BufferAbsorptionSuggesterはCustomノードにBufferを取り込む
+            Box::new(BufferAbsorptionSuggester::new()),
             // SinkAbsorptionSuggesterはCustom(Function)をSinkに吸収
             Box::new(SinkAbsorptionSuggester::new()),
         ])

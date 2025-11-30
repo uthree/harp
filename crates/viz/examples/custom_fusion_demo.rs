@@ -29,7 +29,7 @@ fn main() -> eframe::Result {
     let graph = create_elementwise_chain_graph();
     println!(
         "グラフ作成完了: {} 入力, {} 出力\n",
-        graph.inputs().len(),
+        graph.input_metas().len(),
         graph.outputs().len()
     );
 
@@ -129,7 +129,7 @@ fn format_op_type(op: &harp::graph::GraphOp) -> String {
         GraphOp::Buffer { name } => name.clone(),
         GraphOp::Const(_) => "Const".to_string(),
         GraphOp::Elementwise { op, .. } => format!("Elementwise({:?})", op),
-        GraphOp::Custom { ast } => {
+        GraphOp::Custom { ast, .. } => {
             format!("Custom(ast={})", format_ast_brief(ast))
         }
         GraphOp::FusedElementwise { expr, .. } => {

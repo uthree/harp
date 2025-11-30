@@ -164,7 +164,7 @@ impl CodeViewerApp {
         }
 
         // Customノードの場合はASTを収集
-        if let GraphOp::Custom { ast } = &node.op {
+        if let GraphOp::Custom { ast, .. } = &node.op {
             // Programかどうかを判定
             if Self::is_program(ast) {
                 *program_ast = Some(ast.clone());

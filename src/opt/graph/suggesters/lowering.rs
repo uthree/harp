@@ -223,7 +223,13 @@ impl LoweringSuggester {
         // 出力バッファーも含めたsrcを構築
         // 構造: [input0, input1, ..., output_buffer]
         // これにより、lowerer側でsrcとASTパラメータの対応が明確になる
-        let mut new_src = node.src.clone();
+        // 注: 定数ノードと純粋な定数ノードはASTに埋め込まれるため、srcには含めない
+        let mut new_src: Vec<GraphNode> = node
+            .src
+            .iter()
+            .filter(|s| !matches!(s.op, GraphOp::Const(_)) && !self.is_pure_const_node(s))
+            .cloned()
+            .collect();
 
         // 出力バッファーを作成
         // 名前は "output_{カーネル名}" とし、カーネルとの対応を明確にする
@@ -383,11 +389,11 @@ impl LoweringSuggester {
             ElementwiseOp::Sqrt => sqrt(wildcard("0")),
         };
 
-        // 入力数を計算（Constノードを除く）
+        // 入力数を計算（Constノードおよび純粋な定数ノードを除く）
         let num_inputs = node
             .src
             .iter()
-            .filter(|s| !matches!(s.op, GraphOp::Const(_)))
+            .filter(|s| !matches!(s.op, GraphOp::Const(_)) && !self.is_pure_const_node(s))
             .count();
 
         // 定数を埋め込んだ式を構築
@@ -402,15 +408,123 @@ impl LoweringSuggester {
         ))
     }
 
+    /// ノードが「純粋な定数」かどうかをチェック（公開版）
+    ///
+    /// 純粋な定数ノードとは、再帰的にConstノードのみに依存するノードのこと。
+    /// 例: `2.0 * 3.0` は純粋な定数（結果は6.0）
+    fn is_pure_const_node(&self, node: &GraphNode) -> bool {
+        let mut visited = HashSet::new();
+        self.is_pure_const_impl(node, &mut visited)
+    }
+
+    /// ノードが「純粋な定数」かどうかをチェック（内部実装）
+    fn is_pure_const_impl(
+        &self,
+        node: &GraphNode,
+        visited: &mut HashSet<*const GraphNodeData>,
+    ) -> bool {
+        let ptr = node.as_ptr();
+        if visited.contains(&ptr) {
+            return true; // 循環参照を避ける
+        }
+        visited.insert(ptr);
+
+        match &node.op {
+            GraphOp::Const(_) => true,
+            GraphOp::Elementwise { .. } => {
+                // すべてのsrcが純粋な定数なら、このノードも純粋な定数
+                node.src.iter().all(|s| self.is_pure_const_impl(s, visited))
+            }
+            _ => false,
+        }
+    }
+
+    /// 純粋な定数ノードを評価してLiteralを取得
+    ///
+    /// 注: 現時点ではスカラー演算のみサポート
+    fn evaluate_pure_const(&self, node: &GraphNode) -> Option<crate::ast::Literal> {
+        use crate::ast::Literal;
+        use crate::graph::ElementwiseOp;
+
+        match &node.op {
+            GraphOp::Const(lit) => Some(lit.clone()),
+            GraphOp::Elementwise { op } => {
+                match node.src.len() {
+                    1 => {
+                        // 単項演算
+                        let val = self.evaluate_pure_const(&node.src[0])?;
+                        match (op, val) {
+                            (ElementwiseOp::Neg, Literal::F32(v)) => Some(Literal::F32(-v)),
+                            (ElementwiseOp::Neg, Literal::Int(v)) => Some(Literal::Int(-v)),
+                            (ElementwiseOp::Recip, Literal::F32(v)) => Some(Literal::F32(1.0 / v)),
+                            (ElementwiseOp::Sqrt, Literal::F32(v)) => Some(Literal::F32(v.sqrt())),
+                            (ElementwiseOp::Exp2, Literal::F32(v)) => Some(Literal::F32(v.exp2())),
+                            (ElementwiseOp::Log2, Literal::F32(v)) => Some(Literal::F32(v.log2())),
+                            (ElementwiseOp::Sin, Literal::F32(v)) => Some(Literal::F32(v.sin())),
+                            _ => None,
+                        }
+                    }
+                    2 => {
+                        // 二項演算
+                        let left = self.evaluate_pure_const(&node.src[0])?;
+                        let right = self.evaluate_pure_const(&node.src[1])?;
+                        match (op, left, right) {
+                            (ElementwiseOp::Add, Literal::F32(l), Literal::F32(r)) => {
+                                Some(Literal::F32(l + r))
+                            }
+                            (ElementwiseOp::Add, Literal::Int(l), Literal::Int(r)) => {
+                                Some(Literal::Int(l + r))
+                            }
+                            (ElementwiseOp::Mul, Literal::F32(l), Literal::F32(r)) => {
+                                Some(Literal::F32(l * r))
+                            }
+                            (ElementwiseOp::Mul, Literal::Int(l), Literal::Int(r)) => {
+                                Some(Literal::Int(l * r))
+                            }
+                            (ElementwiseOp::Idiv, Literal::Int(l), Literal::Int(r)) => {
+                                Some(Literal::Int(l / r))
+                            }
+                            (ElementwiseOp::Rem, Literal::Int(l), Literal::Int(r)) => {
+                                Some(Literal::Int(l % r))
+                            }
+                            (ElementwiseOp::Max, Literal::F32(l), Literal::F32(r)) => {
+                                Some(Literal::F32(l.max(r)))
+                            }
+                            (ElementwiseOp::Max, Literal::Int(l), Literal::Int(r)) => {
+                                Some(Literal::Int(l.max(r)))
+                            }
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
     /// 定数ノードを式に埋め込む
+    ///
+    /// - 直接のConstノードはそのまま埋め込む
+    /// - 純粋な定数ノード（Constのみに依存するElementwise等）は評価して埋め込む
     fn embed_constants(&self, expr: &AstNode, srcs: &[GraphNode]) -> AstNode {
         let mut mappings = HashMap::new();
         let mut non_const_idx = 0;
 
         for (i, src) in srcs.iter().enumerate() {
             if let GraphOp::Const(lit) = &src.op {
+                // 直接のConstノード
                 mappings.insert(i.to_string(), AstNode::Const(lit.clone()));
             } else {
+                // 純粋な定数ノードかチェックして埋め込む
+                let mut visited = HashSet::new();
+                if self.is_pure_const_impl(src, &mut visited)
+                    && let Some(lit) = self.evaluate_pure_const(src)
+                {
+                    mappings.insert(i.to_string(), AstNode::Const(lit));
+                    continue;
+                }
+
                 // 非Constノードは元のインデックスを維持
                 if non_const_idx != i {
                     mappings.insert(i.to_string(), wildcard(non_const_idx.to_string()));
@@ -607,7 +721,7 @@ impl LoweringSuggester {
         let num_inputs = node
             .src
             .iter()
-            .filter(|s| !matches!(s.op, GraphOp::Const(_)))
+            .filter(|s| !matches!(s.op, GraphOp::Const(_)) && !self.is_pure_const_node(s))
             .count();
 
         let expr_with_consts = self.embed_constants(expr, &node.src);
