@@ -458,7 +458,12 @@ impl GraphCostEstimator for SimpleCostEstimator {
                 | GraphOp::ComplexFromParts => {
                     kernel_count += 1;
                 }
-                // Elementwiseはfusion対象なのでカウントしない
+                // Elementwiseもカーネルとしてカウント
+                // これにより、loweringされていないElementwiseにペナルティが適用され、
+                // 複数出力がある場合もすべてloweringされるようになる
+                GraphOp::Elementwise { .. } => {
+                    kernel_count += 1;
+                }
                 // Input, Const, Viewはカーネルではない
                 _ => {}
             }

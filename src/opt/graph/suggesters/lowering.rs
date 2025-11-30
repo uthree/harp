@@ -1444,34 +1444,34 @@ mod tests {
         println!("result1 src count: {}", result1.src.len());
         println!("result2 src count: {}", result2.src.len());
 
-        // 少なくとも1つの出力がCustomノードに変換されている
-        let result1_is_custom = matches!(result1.op, GraphOp::Custom { .. });
-        let result2_is_custom = matches!(result2.op, GraphOp::Custom { .. });
-
+        // 両方の出力がCustomノードに変換されている
         assert!(
-            result1_is_custom || result2_is_custom,
-            "At least one output should be Custom node"
+            matches!(result1.op, GraphOp::Custom { .. }),
+            "result1 should be Custom node"
+        );
+        assert!(
+            matches!(result2.op, GraphOp::Custom { .. }),
+            "result2 should be Custom node"
         );
 
-        // Customノードに変換されたものは出力バッファーを持つ
-        if result1_is_custom {
-            let has_output_buffer = result1.src.iter().any(
-                |src| matches!(&src.op, GraphOp::Buffer { name } if name.starts_with("output")),
-            );
-            assert!(
-                has_output_buffer,
-                "result1 Custom node should have output buffer"
-            );
-        }
-        if result2_is_custom {
-            let has_output_buffer = result2.src.iter().any(
-                |src| matches!(&src.op, GraphOp::Buffer { name } if name.starts_with("output")),
-            );
-            assert!(
-                has_output_buffer,
-                "result2 Custom node should have output buffer"
-            );
-        }
+        // 両方の出力バッファーが含まれていることを確認
+        let result1_has_output_buffer = result1
+            .src
+            .iter()
+            .any(|src| matches!(&src.op, GraphOp::Buffer { name } if name.starts_with("output")));
+        let result2_has_output_buffer = result2
+            .src
+            .iter()
+            .any(|src| matches!(&src.op, GraphOp::Buffer { name } if name.starts_with("output")));
+
+        assert!(
+            result1_has_output_buffer,
+            "result1 should have output buffer"
+        );
+        assert!(
+            result2_has_output_buffer,
+            "result2 should have output buffer"
+        );
     }
 
     #[test]
@@ -1520,33 +1520,27 @@ mod tests {
             std::mem::discriminant(&diff_output.op)
         );
 
-        // 少なくとも1つの出力がCustomノードに変換されている
-        let sum_is_custom = matches!(sum_output.op, GraphOp::Custom { .. });
-        let diff_is_custom = matches!(diff_output.op, GraphOp::Custom { .. });
-
+        // 両方の出力がCustomノードに変換されている
         assert!(
-            sum_is_custom || diff_is_custom,
-            "At least one output should be Custom node"
+            matches!(sum_output.op, GraphOp::Custom { .. }),
+            "sum should be Custom node"
+        );
+        assert!(
+            matches!(diff_output.op, GraphOp::Custom { .. }),
+            "diff should be Custom node"
         );
 
-        // Customノードに変換されたものは出力バッファーを持つ
-        if sum_is_custom {
-            let has_output_buffer = sum_output.src.iter().any(
-                |src| matches!(&src.op, GraphOp::Buffer { name } if name.starts_with("output")),
-            );
-            assert!(
-                has_output_buffer,
-                "sum Custom node should have output buffer"
-            );
-        }
-        if diff_is_custom {
-            let has_output_buffer = diff_output.src.iter().any(
-                |src| matches!(&src.op, GraphOp::Buffer { name } if name.starts_with("output")),
-            );
-            assert!(
-                has_output_buffer,
-                "diff Custom node should have output buffer"
-            );
-        }
+        // 両方の出力バッファーが含まれていることを確認
+        let sum_has_output_buffer = sum_output
+            .src
+            .iter()
+            .any(|src| matches!(&src.op, GraphOp::Buffer { name } if name.starts_with("output")));
+        let diff_has_output_buffer = diff_output
+            .src
+            .iter()
+            .any(|src| matches!(&src.op, GraphOp::Buffer { name } if name.starts_with("output")));
+
+        assert!(sum_has_output_buffer, "sum should have output buffer");
+        assert!(diff_has_output_buffer, "diff should have output buffer");
     }
 }

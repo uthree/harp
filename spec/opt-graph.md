@@ -27,6 +27,7 @@ Graphを最適化。`optimize(&self, graph: Graph) -> Graph`
 - ノード数ペナルティ項で無限のノード増加を防止
 - `with_node_count_penalty(penalty: f32)`でペナルティ係数を調整可能（デフォルト: 0.5）
 - 複数のCustom(Function)がある場合に追加ペナルティを付与し、単一のCustom(Program)への収束を促進
+- Elementwise演算もカーネルとしてカウントし、複数出力がすべてloweringされることを保証
 
 ### AstBasedCostEstimator（推奨）
 - GraphをASTに変換してコストを推定
