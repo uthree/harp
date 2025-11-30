@@ -102,11 +102,12 @@ impl ViewMergeSuggester {
 
         let input_node = &view_node.src[0];
 
-        // ConstノードはContiguousなViewを持つべきで、
-        // そのviewを変更すると物理メモリレイアウトとの不整合が発生する
-        // Constノードにはマージを適用しない
-        if matches!(input_node.op, GraphOp::Const(_)) {
-            return None;
+        // Constノードの場合: ViewをConstに吸収させる
+        // Constノードは単一の値を持つスカラーで、Viewは論理的なアクセスパターンを定義
+        // View(Const)パターンをConst[View適用済み]に変換することで、
+        // 中間のViewノードを削除できる
+        if matches!(input_node.op, GraphOp::Const(_) | GraphOp::ComplexConst { .. }) {
+            return self.merge_const_view_node(input_node, target_view);
         }
 
         // Inputノードの場合は特別処理：View融合を許可
@@ -190,6 +191,35 @@ impl ViewMergeSuggester {
         Some(new_input)
     }
 
+    /// ConstノードとViewノードをマージ
+    ///
+    /// Constノードに対してViewを直接適用することで、中間のViewノードを削除します。
+    /// Constノードは単一の値を持つスカラーなので、Viewの適用は論理的なブロードキャストを表します。
+    ///
+    /// 例：
+    /// ```text
+    /// Const(1.0, view=[]) -> View(view=[10,10], strides=[0,0]) -> Elementwise
+    /// ```
+    /// を以下のように最適化：
+    /// ```text
+    /// Const(1.0, view=[10,10], strides=[0,0]) -> Elementwise
+    /// ```
+    fn merge_const_view_node(
+        &self,
+        const_node: &GraphNode,
+        target_view: crate::graph::shape::View,
+    ) -> Option<GraphNode> {
+        // ConstノードのviewをViewノードのviewで置き換えた新しいノードを作成
+        let new_const = GraphNode::new(
+            const_node.dtype.clone(),
+            const_node.op.clone(), // Const値を保持
+            vec![],                // Constノードはsrcを持たない
+            target_view,
+        );
+
+        Some(new_const)
+    }
+
     /// グラフ内の特定ノードを置き換えた新しいグラフを作成
     fn replace_node_in_graph(
         &self,
@@ -214,8 +244,12 @@ impl ViewMergeSuggester {
                 return new_node.clone();
             }
 
-            // Inputノードで置き換え対象でない場合はそのまま返す
-            if matches!(node.op, GraphOp::Buffer { .. }) {
+            // Buffer/Const/ComplexConstノードで置き換え対象でない場合はそのまま返す
+            // これらのノードはsrcを持たないため、再帰的な処理は不要
+            if matches!(
+                node.op,
+                GraphOp::Buffer { .. } | GraphOp::Const(_) | GraphOp::ComplexConst { .. }
+            ) {
                 return node.clone();
             }
 

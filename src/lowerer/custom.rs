@@ -49,15 +49,24 @@ impl Lowerer {
         debug!("Lowering custom function");
         debug!("View: {:?}", node.view);
 
-        // srcから入力ノードのみを抽出（出力Bufferを除外）
+        // srcから入力ノードのみを抽出（出力Buffer、Const、ComplexConstを除外）
         // 構造: [input0, input1, ..., output_buffer]
         // 出力Bufferは名前が "output" で始まる GraphOp::Buffer
+        // ConstとComplexConstはバッファを持たないため除外
         let input_nodes: Vec<&GraphNode> = node
             .src
             .iter()
-            .filter(
-                |src| !matches!(&src.op, GraphOp::Buffer { name } if name.starts_with("output")),
-            )
+            .filter(|src| {
+                // 出力Bufferを除外
+                if matches!(&src.op, GraphOp::Buffer { name } if name.starts_with("output")) {
+                    return false;
+                }
+                // Const、ComplexConstノードを除外（値はAST内でインライン化される）
+                if matches!(&src.op, GraphOp::Const(_) | GraphOp::ComplexConst { .. }) {
+                    return false;
+                }
+                true
+            })
             .collect();
 
         // Custom関数が構築された時の次元数を決定

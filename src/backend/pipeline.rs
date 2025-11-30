@@ -12,9 +12,9 @@ use crate::opt::ast::{
 };
 use crate::opt::graph::{
     AstOptimizationSuggester, BeamSearchGraphOptimizer, CompositeSuggester,
-    ConstPropagationSuggester, ContiguousInsertionSuggester, FusionSuggester, GraphCostEstimator,
-    KernelMergeCostEstimator, KernelMergeSuggester, LoweringSuggester, TilingSuggester,
-    ViewInsertionSuggester, ViewMergeSuggester,
+    ContiguousInsertionSuggester, FusionSuggester, GraphCostEstimator, KernelMergeCostEstimator,
+    KernelMergeSuggester, LoweringSuggester, TilingSuggester, ViewInsertionSuggester,
+    ViewMergeSuggester,
 };
 
 /// Suggesterの種類を指定するフラグ
@@ -89,8 +89,8 @@ impl SuggesterFlags {
 pub fn create_graph_suggester(flags: SuggesterFlags) -> CompositeSuggester {
     let mut suggesters: Vec<Box<dyn crate::opt::graph::GraphSuggester>> = vec![
         Box::new(ViewInsertionSuggester::new()),
+        // ViewMergeSuggesterはView(Const)パターンもマージする
         Box::new(ViewMergeSuggester::new()),
-        Box::new(ConstPropagationSuggester::new()),
         Box::new(TilingSuggester::with_default_tile_sizes()),
         Box::new(ContiguousInsertionSuggester::new()),
         Box::new(FusionSuggester::new()),

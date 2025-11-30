@@ -9,10 +9,10 @@ use crate::opt::ast::{
     Optimizer, RuleBaseOptimizer, RuleBaseSuggester, SimpleCostEstimator as AstSimpleCostEstimator,
 };
 use crate::opt::graph::{
-    BeamSearchGraphOptimizer, CompositeSuggester, ConstPropagationSuggester,
-    ContiguousInsertionSuggester, FusionSuggester, GraphCostEstimator, KernelMergeCostEstimator,
-    KernelMergeSuggester, LoweringSuggester, OptimizationHistory as GraphOptimizationHistory,
-    SimpleCostEstimator, TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
+    BeamSearchGraphOptimizer, CompositeSuggester, ContiguousInsertionSuggester, FusionSuggester,
+    GraphCostEstimator, KernelMergeCostEstimator, KernelMergeSuggester, LoweringSuggester,
+    OptimizationHistory as GraphOptimizationHistory, SimpleCostEstimator, TilingSuggester,
+    ViewInsertionSuggester, ViewMergeSuggester,
 };
 use std::collections::HashMap;
 
@@ -668,8 +668,8 @@ where
     fn create_graph_suggester() -> CompositeSuggester {
         CompositeSuggester::new(vec![
             Box::new(ViewInsertionSuggester::new()),
+            // ViewMergeSuggesterはView(Const)パターンもマージする
             Box::new(ViewMergeSuggester::new()),
-            Box::new(ConstPropagationSuggester::new()),
             Box::new(TilingSuggester::with_default_tile_sizes()),
             Box::new(ContiguousInsertionSuggester::new()),
             Box::new(FusionSuggester::new()),
