@@ -1017,6 +1017,15 @@ mod tests {
         eprintln!("Sink exists: {:?}", optimized.sink().is_some());
 
         if let Some(ref sink) = optimized.sink() {
+            eprintln!("Sink src count: {}", sink.src.len());
+            for (i, src) in sink.src.iter().enumerate() {
+                let op_name = match &src.op {
+                    GraphOp::Buffer { name } => format!("Buffer({})", name),
+                    GraphOp::Custom { .. } => "Custom".to_string(),
+                    _ => format!("{:?}", std::mem::discriminant(&src.op)),
+                };
+                eprintln!("  src[{}]: {}", i, op_name);
+            }
             if let GraphOp::Sink { ast, outputs } = &sink.op {
                 eprintln!("Outputs: {:?}", outputs);
                 if let crate::ast::AstNode::Program { functions, .. } = ast {
