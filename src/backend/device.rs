@@ -289,20 +289,6 @@ impl DeviceManager {
 
         Ok(shared)
     }
-
-    /// 全てのPipelineキャッシュをクリア
-    #[allow(dead_code)]
-    fn clear_all_caches(&mut self) {
-        for pipeline in self.pipelines.values() {
-            pipeline.borrow_mut().clear_cache();
-        }
-    }
-
-    /// 登録されているデバイス数を取得
-    #[allow(dead_code)]
-    fn device_count(&self) -> usize {
-        self.pipelines.len()
-    }
 }
 
 /// デバイス非依存のKernelラッパー

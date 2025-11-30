@@ -674,7 +674,7 @@ impl KernelMergeSuggester {
     }
 
     /// グラフ内のCustomノードの統計を取得（テスト用）
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn count_custom_nodes(&self, graph: &Graph) -> (usize, usize) {
         let nodes = self.collect_all_nodes(graph);
         let mut function_count = 0;

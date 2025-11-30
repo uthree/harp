@@ -179,7 +179,6 @@ impl FusionSuggester {
     ///
     /// 連続する2つのElementwise演算を融合する
     /// 例: (a + b) * c -> FusedElementwise([a, b, c], Wildcard("0") + Wildcard("1") * Wildcard("2"))
-    #[allow(dead_code)]
     fn detect_elementwise_chain(&self, node: &GraphNode) -> Option<(Vec<GraphNode>, AstNode)> {
         // このノードがElementwiseでない場合はNone
         let current_op = match &node.op {
