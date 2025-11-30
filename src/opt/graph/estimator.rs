@@ -506,7 +506,23 @@ impl GraphCostEstimator for SimpleCostEstimator {
             0.0
         };
 
-        log_base_cost + penalty + merge_penalty
+        // Sink.srcに入力Bufferがある場合、ペナルティを追加
+        // これにより、SinkBufferAbsorptionSuggesterの適用後にコストが下がる
+        let sink_buffer_penalty = if let Some(sink) = graph.sink() {
+            let input_buffer_count = sink
+                .src
+                .iter()
+                .filter(|s| {
+                    matches!(&s.op, GraphOp::Buffer { name } if !name.starts_with("output"))
+                })
+                .count();
+            // 入力Bufferがあると、グラフが整理されていないとみなしてペナルティ
+            KERNEL_LAUNCH_OVERHEAD.ln() * input_buffer_count as f32
+        } else {
+            0.0
+        };
+
+        log_base_cost + penalty + merge_penalty + sink_buffer_penalty
     }
 }
 
