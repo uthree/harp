@@ -1,14 +1,18 @@
 //! Sink Buffer Absorption Suggester
 //!
-//! SinkノードのsrcにあるBufferノード（入力バッファ）を除去するSuggester。
+//! SinkノードのsrcにあるBufferノード（入力バッファ）とConstノードを除去するSuggester。
 //!
 //! # 処理フロー
-//! 1. srcに入力Bufferノード、またはView→Buffer(input)パターンを検出
-//! 2. 入力バッファ（output_で始まらないBuffer）とその1レベルのViewラッパーをsrcから除去
+//! 1. srcにある直接の入力Bufferノード（output_で始まらない）またはConstを検出
+//! 2. 検出したノードをsrcから除去
+//!
+//! # 設計方針
+//! - Viewノードは処理しない（ViewMergeSuggesterに委譲）
+//! - GraphNodeのviewフィールドにView情報が保持されているため、Viewノードをたどる必要はない
 //!
 //! # BufferAbsorptionSuggesterとの関係
 //! - BufferAbsorptionSuggester: Buffer → Custom の吸収
-//! - ProgramRootBufferAbsorptionSuggester: Buffer → Sink の吸収
+//! - ProgramRootBufferAbsorptionSuggester: Buffer/Const → Sink の除去
 //!
 //! 入力バッファの情報は既にgraph.input_metas()に保存されているため、
 //! Sinkに別途保持する必要はありません。
@@ -24,48 +28,39 @@ impl ProgramRootBufferAbsorptionSuggester {
         Self
     }
 
-    /// ノードが入力Bufferかどうかを判定
-    /// View→...→Buffer(input) のチェーンに対応（再帰ではなくループで実装）
-    fn is_input_buffer_pattern(node: &GraphNode) -> bool {
-        let mut current = node;
-        loop {
-            match &current.op {
-                // 入力Buffer（output_で始まらない）
-                GraphOp::Buffer { name } => return !name.starts_with("output_"),
-                // Viewチェーンをたどる
-                GraphOp::View(_) => {
-                    if current.src.len() != 1 {
-                        // Viewは通常1つの入力のみ
-                        return false;
-                    }
-                    current = &current.src[0];
-                }
-                // Const も入力として扱う
-                GraphOp::Const(_) | GraphOp::ComplexConst { .. } => return true,
-                // その他は入力パターンではない
-                _ => return false,
-            }
+    /// ノードがSinkから除去すべき入力パターンかどうかを判定
+    ///
+    /// 直接のBuffer(入力)またはConstのみを検出します。
+    /// Viewノードはたどりません（ViewMergeSuggesterに委譲）。
+    fn is_removable_input(node: &GraphNode) -> bool {
+        match &node.op {
+            // 入力Buffer（output_で始まらない）
+            GraphOp::Buffer { name } => !name.starts_with("output_"),
+            // Const も除去対象
+            GraphOp::Const(_) | GraphOp::ComplexConst { .. } => true,
+            // その他（Viewを含む）は除去しない
+            _ => false,
         }
     }
 
-    /// Sinkのsrcに入力Bufferパターンがあるか確認
-    fn has_input_buffer_dependencies(&self, graph: &Graph) -> bool {
+    /// Sinkのsrcに除去可能な入力があるか確認
+    fn has_removable_inputs(&self, graph: &Graph) -> bool {
         if let Some(sink) = graph.sink() {
-            sink.src.iter().any(Self::is_input_buffer_pattern)
+            sink.src.iter().any(Self::is_removable_input)
         } else {
             false
         }
     }
 
-    /// SinkノードからBufferパターンを除去
-    fn absorb_buffers(&self, graph: &Graph) -> Option<Graph> {
+    /// Sinkノードから入力Buffer/Constを除去
+    fn remove_inputs(&self, graph: &Graph) -> Option<Graph> {
         let sink = graph.sink()?;
 
-        // srcから入力Bufferパターンを除去
+        // srcから入力Buffer/Constを除去
         let new_src: Vec<GraphNode> = sink
             .src
             .iter()
-            .filter(|src| !Self::is_input_buffer_pattern(src))
+            .filter(|src| !Self::is_removable_input(src))
             .cloned()
             .collect();
 
@@ -75,7 +70,7 @@ impl ProgramRootBufferAbsorptionSuggester {
         }
 
         log::debug!(
-            "ProgramRootBufferAbsorption: removing {} nodes (input buffers and View→Buffer patterns) from Sink.src",
+            "ProgramRootBufferAbsorption: removing {} input nodes (Buffer/Const) from Sink.src",
             sink.src.len() - new_src.len()
         );
 
@@ -119,13 +114,13 @@ impl GraphSuggester for ProgramRootBufferAbsorptionSuggester {
             return vec![];
         }
 
-        // 入力Bufferの依存関係がない場合は何もしない
-        if !self.has_input_buffer_dependencies(graph) {
+        // 除去可能な入力がない場合は何もしない
+        if !self.has_removable_inputs(graph) {
             return vec![];
         }
 
-        // Bufferとその依存チェーンを除去
-        if let Some(new_graph) = self.absorb_buffers(graph) {
+        // 入力Buffer/Constを除去
+        if let Some(new_graph) = self.remove_inputs(graph) {
             vec![new_graph]
         } else {
             vec![]
@@ -253,10 +248,11 @@ mod tests {
     }
 
     #[test]
-    fn test_sink_buffer_absorption_with_view_chain() {
+    fn test_view_nodes_not_removed() {
         let sink_buffer_absorber = ProgramRootBufferAbsorptionSuggester::new();
 
         // View → Buffer のチェーンをテスト
+        // Viewノードは除去されず、ViewMergeSuggesterに委譲される
         let mut graph = Graph::new();
         let a = graph.input("a", DType::F32, vec![10, 20]);
 
@@ -293,23 +289,23 @@ mod tests {
         let suggestions = sink_buffer_absorber.suggest(&graph);
         eprintln!("\nGot {} suggestions", suggestions.len());
 
-        // View → Buffer のチェーンが除去されることを確認
-        // (このテストではElementwiseがあるので、完全には除去されないかもしれない)
+        // Viewノードは除去されない（ViewMergeSuggesterに委譲）
+        // このテストではElementwiseがsinkのsrcにあるので、除去対象がない
     }
 
     #[test]
-    fn test_is_input_buffer_pattern() {
+    fn test_is_removable_input() {
         let mut graph = Graph::new();
         let a = graph.input("a", DType::F32, vec![10]);
 
-        // Buffer(a) は入力パターン
-        assert!(ProgramRootBufferAbsorptionSuggester::is_input_buffer_pattern(&a));
+        // Buffer(a) は除去対象
+        assert!(ProgramRootBufferAbsorptionSuggester::is_removable_input(&a));
 
-        // View → Buffer(a) のチェーンも入力パターン
+        // View → Buffer(a) のViewノードは除去対象ではない
         let a_view = a.view(a.view.clone());
-        assert!(ProgramRootBufferAbsorptionSuggester::is_input_buffer_pattern(&a_view));
+        assert!(!ProgramRootBufferAbsorptionSuggester::is_removable_input(&a_view));
 
-        // 出力バッファは入力パターンではない
+        // 出力バッファは除去対象ではない
         let output_buffer = GraphNode::new(
             DType::F32,
             GraphOp::Buffer {
@@ -318,7 +314,7 @@ mod tests {
             vec![],
             a.view.clone(),
         );
-        assert!(!ProgramRootBufferAbsorptionSuggester::is_input_buffer_pattern(&output_buffer));
+        assert!(!ProgramRootBufferAbsorptionSuggester::is_removable_input(&output_buffer));
     }
 
     #[test]
