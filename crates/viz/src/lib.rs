@@ -63,23 +63,6 @@ impl HarpVizApp {
         }
     }
 
-    /// 後方互換性のため: カスタムレンダラーを使用してHarpVizAppを作成
-    ///
-    /// 注意: この関数はRendererTypeに基づいてレンダラーを選択します。
-    /// 具体的なレンダラー型は無視され、デフォルトのCRendererが使用されます。
-    /// 特定のレンダラータイプを使用する場合は`with_renderer_type`を使用してください。
-    #[deprecated(
-        since = "0.2.0",
-        note = "Use with_renderer_type() instead for runtime renderer selection"
-    )]
-    pub fn with_renderer<R>(_renderer: R) -> Self
-    where
-        R: harp::backend::c_like::CLikeRenderer + Clone,
-    {
-        // 注意: 渡されたレンダラーは無視され、デフォルトが使用されます
-        Self::new()
-    }
-
     /// レンダラータイプを設定
     ///
     /// すべてのサブコンポーネントのレンダラーも更新されます。

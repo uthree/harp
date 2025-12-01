@@ -62,12 +62,6 @@ where
         self
     }
 
-    /// 最大深さを設定（`with_max_steps`のエイリアス）
-    #[deprecated(since = "0.1.0", note = "Use `with_max_steps` instead")]
-    pub fn with_max_depth(self, depth: usize) -> Self {
-        self.with_max_steps(depth)
-    }
-
     /// プログレスバーの表示/非表示を設定
     pub fn with_progress(mut self, show: bool) -> Self {
         self.show_progress = show;

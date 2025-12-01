@@ -814,28 +814,6 @@ impl Tensor {
             .remove("result")
             .ok_or_else(|| "Result not found in outputs".to_string())
     }
-
-    /// このTensorを実行（古いAPI、互換性のため残す）
-    ///
-    /// # 非推奨
-    /// 代わりに`realize()`を使用してください。
-    #[deprecated(since = "0.1.0", note = "Use `realize()` instead")]
-    pub fn realize_with(&self, inputs: HashMap<String, Vec<f32>>) -> Result<Vec<f32>, String> {
-        self.realize(inputs)
-    }
-
-    /// このTensorを実行（古いAPI、互換性のため残す）
-    ///
-    /// # 非推奨
-    /// 代わりに`realize_on()`を使用してください。
-    #[deprecated(since = "0.1.0", note = "Use `realize_on()` instead")]
-    pub fn realize_with_device(
-        &self,
-        inputs: HashMap<String, Vec<f32>>,
-        device: Option<Device>,
-    ) -> Result<Vec<f32>, String> {
-        self.realize_on(inputs, device.unwrap_or(self.device))
-    }
 }
 
 // === 演算子オーバーロード ===

@@ -11,10 +11,9 @@ use crate::opt::ast::{
 use crate::opt::graph::{
     BeamSearchGraphOptimizer, BufferAbsorptionSuggester, CompositeSuggester,
     ContiguousInsertionSuggester, FusionSuggester, GraphCostEstimator, GraphOptimizer,
-    KernelMergeCostEstimator, KernelMergeSuggester, LoweringSuggester,
-    OptimizationHistory as GraphOptimizationHistory, ProgramRootAbsorptionSuggester,
-    ProgramRootBufferAbsorptionSuggester, SimpleCostEstimator, TilingSuggester,
-    ViewInsertionSuggester, ViewMergeSuggester,
+    LoweringSuggester, OptimizationHistory as GraphOptimizationHistory,
+    ProgramRootAbsorptionSuggester, ProgramRootBufferAbsorptionSuggester, SimpleCostEstimator,
+    TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
 };
 use std::collections::HashMap;
 
@@ -125,10 +124,6 @@ where
     pub ast_config: OptimizationConfig,
     /// 最適化履歴を収集するか（DEBUGビルドではデフォルトでtrue、RELEASEビルドではfalse）
     pub collect_histories: bool,
-    /// カーネルマージ（2段階最適化）を有効にするか
-    /// 複数のCustom(Function)を1つのCustom(Program)にマージします
-    #[deprecated(since = "0.3.0", note = "Use `enable_multi_phase` instead")]
-    pub enable_kernel_merge: bool,
     /// マルチフェーズ最適化を有効にするか
     ///
     /// trueの場合、ChainedGraphOptimizerを使用して3フェーズ（Preparation, Lowering, AST）で
@@ -549,7 +544,6 @@ where
     /// AST最適化はデフォルトで無効です。
     ///
     /// 最適化履歴の収集は、DEBUGビルドではデフォルトで有効、RELEASEビルドでは無効です。
-    #[allow(deprecated)]
     pub fn new(renderer: R, compiler: C) -> Self {
         Self {
             renderer,
@@ -560,8 +554,7 @@ where
             enable_ast_optimization: false,
             ast_config: OptimizationConfig::default(),
             collect_histories: cfg!(debug_assertions),
-            enable_kernel_merge: false, // deprecated
-            enable_multi_phase: true,   // デフォルトでマルチフェーズ最適化を有効化
+            enable_multi_phase: true, // デフォルトでマルチフェーズ最適化を有効化
         }
     }
 
@@ -750,8 +743,7 @@ where
     /// - Phase 2 (Lowering): Custom変換、ProgramRoot集約
     /// - Phase 3 (AST Optimization): AST最適化（オプション）
     ///
-    /// `enable_multi_phase`がfalseの場合、従来の単一/2段階最適化を使用
-    #[allow(deprecated)]
+    /// `enable_multi_phase`がfalseの場合、単一ステージ最適化を使用
     fn optimize_graph_internal(&mut self, graph: Graph) -> Graph {
         use crate::backend::pipeline::{MultiPhaseConfig, create_multi_phase_optimizer};
 
@@ -774,45 +766,17 @@ where
 
             optimized_graph
         } else {
-            // 従来の単一/2段階最適化
-            // Phase 1: 一般的なグラフ最適化
+            // 単一ステージ最適化
             let suggester = Self::create_graph_suggester();
             let estimator = SimpleCostEstimator::new();
             let optimizer = self.create_graph_optimizer(suggester, estimator);
 
-            let (phase1_graph, phase1_history) = optimizer.optimize_with_history(graph);
+            let (optimized_graph, history) = optimizer.optimize_with_history(graph);
             if self.collect_histories {
-                self.histories.graph = Some(phase1_history);
+                self.histories.graph = Some(history);
             }
 
-            // Phase 2: カーネルマージ（有効な場合）
-            if self.enable_kernel_merge {
-                // Phase 1完了後のCustom(Function)の数を確認
-                let custom_function_count = count_custom_functions(&phase1_graph);
-                log::info!(
-                    "Phase 1 completed: {} Custom(Function) nodes found. Starting kernel merge.",
-                    custom_function_count
-                );
-
-                let merge_suggester =
-                    CompositeSuggester::new(vec![Box::new(KernelMergeSuggester::new())]);
-                let merge_estimator = KernelMergeCostEstimator::new();
-                let merge_optimizer =
-                    BeamSearchGraphOptimizer::new(merge_suggester, merge_estimator)
-                        .with_beam_width(self.graph_config.beam_width)
-                        .with_max_steps(self.graph_config.max_steps / 2)
-                        .with_progress(self.graph_config.show_progress);
-
-                let (phase2_graph, phase2_history) =
-                    merge_optimizer.optimize_with_history(phase1_graph);
-                if self.collect_histories {
-                    self.histories.graph_phase2 = Some(phase2_history);
-                }
-
-                phase2_graph
-            } else {
-                phase1_graph
-            }
+            optimized_graph
         }
     }
 
@@ -894,40 +858,6 @@ where
 
         program
     }
-}
-
-/// グラフ内のCustom(Function)ノードの数をカウント
-fn count_custom_functions(graph: &Graph) -> usize {
-    use std::collections::HashSet;
-
-    fn visit(
-        node: &crate::graph::GraphNode,
-        visited: &mut HashSet<*const crate::graph::GraphNodeData>,
-        count: &mut usize,
-    ) {
-        let ptr = node.as_ptr();
-        if visited.contains(&ptr) {
-            return;
-        }
-        visited.insert(ptr);
-
-        if let crate::graph::GraphOp::Kernel { ast, .. } = &node.op
-            && matches!(ast, AstNode::Function { .. })
-        {
-            *count += 1;
-        }
-
-        for src in &node.src {
-            visit(src, visited, count);
-        }
-    }
-
-    let mut visited = HashSet::new();
-    let mut count = 0;
-    for output in graph.outputs().values() {
-        visit(output, &mut visited, &mut count);
-    }
-    count
 }
 
 #[cfg(test)]

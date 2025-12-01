@@ -43,7 +43,7 @@ fn main() {
     println!("  ```");
     println!("  let mut inputs = HashMap::new();");
     println!("  inputs.insert(\"x\".to_string(), vec![1.0, 2.0, 3.0, 4.0, 5.0]);");
-    println!("  let result = y.realize_with(inputs)?;");
+    println!("  let result = y.realize(inputs)?;");
     println!("  // result = [5.0, 7.0, 9.0, 11.0, 13.0]");
     println!("  ```");
     println!();
@@ -86,12 +86,12 @@ fn main() {
     // 5. 勾配計算との統合（コンセプト）
     println!("5. Integration with autograd:");
     println!("  forward:");
-    println!("    result = y.realize_with(inputs)?;");
+    println!("    result = y.realize(inputs)?;");
     println!();
     println!("  backward:");
     println!("    loss.backward();");
     println!("    grad = x.grad().unwrap();");
-    println!("    grad_values = grad.realize_with(inputs)?;");
+    println!("    grad_values = grad.realize(inputs)?;");
     println!();
 
     println!("=== Demo Complete ===");
