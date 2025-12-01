@@ -10,10 +10,11 @@ use crate::opt::ast::{
 };
 use crate::opt::graph::{
     BeamSearchGraphOptimizer, BufferAbsorptionSuggester, CompositeSuggester,
-    ContiguousInsertionSuggester, FusionSuggester, GraphCostEstimator, KernelMergeCostEstimator,
-    KernelMergeSuggester, LoweringSuggester, OptimizationHistory as GraphOptimizationHistory,
-    ProgramRootAbsorptionSuggester, ProgramRootBufferAbsorptionSuggester, SimpleCostEstimator,
-    TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
+    ContiguousInsertionSuggester, FusionSuggester, GraphCostEstimator, GraphOptimizer,
+    KernelMergeCostEstimator, KernelMergeSuggester, LoweringSuggester,
+    OptimizationHistory as GraphOptimizationHistory, ProgramRootAbsorptionSuggester,
+    ProgramRootBufferAbsorptionSuggester, SimpleCostEstimator, TilingSuggester,
+    ViewInsertionSuggester, ViewMergeSuggester,
 };
 use std::collections::HashMap;
 
@@ -126,7 +127,16 @@ where
     pub collect_histories: bool,
     /// カーネルマージ（2段階最適化）を有効にするか
     /// 複数のCustom(Function)を1つのCustom(Program)にマージします
+    #[deprecated(since = "0.3.0", note = "Use `enable_multi_phase` instead")]
     pub enable_kernel_merge: bool,
+    /// マルチフェーズ最適化を有効にするか
+    ///
+    /// trueの場合、ChainedGraphOptimizerを使用して3フェーズ（Preparation, Lowering, AST）で
+    /// 段階的に最適化します。各フェーズに専用のコスト推定器を使用するため、
+    /// 目的の異なるコスト推定が干渉する問題を回避できます。
+    ///
+    /// falseの場合、従来の単一ステージ最適化を使用します。
+    pub enable_multi_phase: bool,
 }
 
 /// 最適化済みグラフからAST Programを抽出する
@@ -539,6 +549,7 @@ where
     /// AST最適化はデフォルトで無効です。
     ///
     /// 最適化履歴の収集は、DEBUGビルドではデフォルトで有効、RELEASEビルドでは無効です。
+    #[allow(deprecated)]
     pub fn new(renderer: R, compiler: C) -> Self {
         Self {
             renderer,
@@ -549,7 +560,8 @@ where
             enable_ast_optimization: false,
             ast_config: OptimizationConfig::default(),
             collect_histories: cfg!(debug_assertions),
-            enable_kernel_merge: false, // デフォルトで無効（バグ修正後に有効化予定）
+            enable_kernel_merge: false, // deprecated
+            enable_multi_phase: true,   // デフォルトでマルチフェーズ最適化を有効化
         }
     }
 
@@ -733,46 +745,74 @@ where
 
     /// グラフ最適化の内部処理（履歴付き）
     ///
-    /// 2段階最適化に対応:
-    /// - Phase 1: 一般的なグラフ最適化（fusion, lowering等）
-    /// - Phase 2: カーネルマージ（enable_kernel_mergeが有効な場合）
+    /// `enable_multi_phase`がtrueの場合、3フェーズのマルチフェーズ最適化を使用:
+    /// - Phase 1 (Preparation): グラフ構造の最適化（View挿入、融合など）
+    /// - Phase 2 (Lowering): Custom変換、ProgramRoot集約
+    /// - Phase 3 (AST Optimization): AST最適化（オプション）
+    ///
+    /// `enable_multi_phase`がfalseの場合、従来の単一/2段階最適化を使用
+    #[allow(deprecated)]
     fn optimize_graph_internal(&mut self, graph: Graph) -> Graph {
-        // Phase 1: 一般的なグラフ最適化
-        let suggester = Self::create_graph_suggester();
-        let estimator = SimpleCostEstimator::new();
-        let optimizer = self.create_graph_optimizer(suggester, estimator);
+        use crate::backend::pipeline::{MultiPhaseConfig, create_multi_phase_optimizer};
 
-        let (phase1_graph, phase1_history) = optimizer.optimize_with_history(graph);
-        if self.collect_histories {
-            self.histories.graph = Some(phase1_history);
-        }
-
-        // Phase 2: カーネルマージ（有効な場合）
-        if self.enable_kernel_merge {
-            // Phase 1完了後のCustom(Function)の数を確認
-            let custom_function_count = count_custom_functions(&phase1_graph);
-            log::info!(
-                "Phase 1 completed: {} Custom(Function) nodes found. Starting kernel merge.",
-                custom_function_count
-            );
-
-            let merge_suggester =
-                CompositeSuggester::new(vec![Box::new(KernelMergeSuggester::new())]);
-            let merge_estimator = KernelMergeCostEstimator::new();
-            let merge_optimizer = BeamSearchGraphOptimizer::new(merge_suggester, merge_estimator)
+        if self.enable_multi_phase {
+            // マルチフェーズ最適化を使用
+            let config = MultiPhaseConfig::new()
                 .with_beam_width(self.graph_config.beam_width)
-                .with_max_steps(self.graph_config.max_steps / 2) // カーネルマージは少ないステップで十分
-                .with_progress(self.graph_config.show_progress);
+                .with_max_steps(self.graph_config.max_steps / 2) // 各フェーズのステップ数
+                .with_progress(self.graph_config.show_progress)
+                .with_collect_logs(self.collect_histories)
+                .with_ast_phase(false); // AST最適化はoptimize_ast_internalで別途行う
 
-            let (phase2_graph, phase2_history) =
-                merge_optimizer.optimize_with_history(phase1_graph);
+            let optimizer = create_multi_phase_optimizer(config);
+            let (optimized_graph, history) = optimizer.optimize_with_history(graph);
+
             if self.collect_histories {
-                self.histories.graph_phase2 = Some(phase2_history);
+                self.histories.graph = Some(history);
+                self.histories.graph_phase2 = None; // マルチフェーズでは履歴が統合される
             }
 
-            phase2_graph
+            optimized_graph
         } else {
-            phase1_graph
+            // 従来の単一/2段階最適化
+            // Phase 1: 一般的なグラフ最適化
+            let suggester = Self::create_graph_suggester();
+            let estimator = SimpleCostEstimator::new();
+            let optimizer = self.create_graph_optimizer(suggester, estimator);
+
+            let (phase1_graph, phase1_history) = optimizer.optimize_with_history(graph);
+            if self.collect_histories {
+                self.histories.graph = Some(phase1_history);
+            }
+
+            // Phase 2: カーネルマージ（有効な場合）
+            if self.enable_kernel_merge {
+                // Phase 1完了後のCustom(Function)の数を確認
+                let custom_function_count = count_custom_functions(&phase1_graph);
+                log::info!(
+                    "Phase 1 completed: {} Custom(Function) nodes found. Starting kernel merge.",
+                    custom_function_count
+                );
+
+                let merge_suggester =
+                    CompositeSuggester::new(vec![Box::new(KernelMergeSuggester::new())]);
+                let merge_estimator = KernelMergeCostEstimator::new();
+                let merge_optimizer =
+                    BeamSearchGraphOptimizer::new(merge_suggester, merge_estimator)
+                        .with_beam_width(self.graph_config.beam_width)
+                        .with_max_steps(self.graph_config.max_steps / 2)
+                        .with_progress(self.graph_config.show_progress);
+
+                let (phase2_graph, phase2_history) =
+                    merge_optimizer.optimize_with_history(phase1_graph);
+                if self.collect_histories {
+                    self.histories.graph_phase2 = Some(phase2_history);
+                }
+
+                phase2_graph
+            } else {
+                phase1_graph
+            }
         }
     }
 

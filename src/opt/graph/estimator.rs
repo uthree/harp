@@ -538,6 +538,153 @@ impl GraphCostEstimator for SimpleCostEstimator {
     }
 }
 
+/// Lowering専用のコスト推定器
+///
+/// グラフノードをCustomノードに変換し、最終的に単一のProgramRootノードに
+/// 集約することを強く優先します。
+///
+/// # コスト計算
+/// - 非CustomノードGraphOp（Elementwise, Reduce等）に強いペナルティ
+/// - 複数のCustom(Function)ノードにペナルティ
+/// - 単一のProgramRootノードを持つグラフを強く優先
+pub struct LoweringCostEstimator {
+    /// 非Customノードあたりのペナルティ（対数スケール）
+    non_custom_penalty: f32,
+    /// Custom(Function)あたりのペナルティ（対数スケール）
+    function_penalty: f32,
+}
+
+impl LoweringCostEstimator {
+    pub fn new() -> Self {
+        Self {
+            // 非CustomノードにはLoweringSuggesterを適用すべき
+            non_custom_penalty: KERNEL_LAUNCH_OVERHEAD.ln() * 2.0,
+            // Custom(Function)はProgramRootに吸収されるべき
+            function_penalty: KERNEL_LAUNCH_OVERHEAD.ln(),
+        }
+    }
+
+    /// 非Customノードペナルティを設定
+    pub fn with_non_custom_penalty(mut self, penalty: f32) -> Self {
+        self.non_custom_penalty = penalty;
+        self
+    }
+
+    /// Custom(Function)ペナルティを設定
+    pub fn with_function_penalty(mut self, penalty: f32) -> Self {
+        self.function_penalty = penalty;
+        self
+    }
+
+    fn collect_all_nodes(&self, graph: &Graph) -> Vec<GraphNode> {
+        let mut visited = HashSet::new();
+        let mut nodes = Vec::new();
+
+        fn visit(
+            node: &GraphNode,
+            visited: &mut HashSet<*const crate::graph::GraphNodeData>,
+            nodes: &mut Vec<GraphNode>,
+        ) {
+            let ptr = node.as_ptr();
+            if visited.contains(&ptr) {
+                return;
+            }
+            visited.insert(ptr);
+
+            for src in &node.src {
+                visit(src, visited, nodes);
+            }
+            nodes.push(node.clone());
+        }
+
+        for output in graph.outputs().values() {
+            visit(output, &mut visited, &mut nodes);
+        }
+
+        nodes
+    }
+}
+
+impl Default for LoweringCostEstimator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl GraphCostEstimator for LoweringCostEstimator {
+    fn estimate(&self, graph: &Graph) -> f32 {
+        let nodes = self.collect_all_nodes(graph);
+        let ast_estimator = AstSimpleCostEstimator::new();
+
+        let mut non_custom_count = 0;
+        let mut custom_function_count = 0;
+        let mut has_program_root = false;
+        let mut total_ast_cost = f32::NEG_INFINITY;
+
+        for node in &nodes {
+            match &node.op {
+                // 無視するノード（入力・メタデータのみ）
+                GraphOp::Buffer { .. } | GraphOp::Const(_) | GraphOp::ComplexConst { .. } => {}
+                GraphOp::View(_) => {}
+
+                // Customノード
+                GraphOp::Kernel { ast, .. } => match ast {
+                    AstNode::Function { .. } => {
+                        custom_function_count += 1;
+                        let ast_cost = ast_estimator.estimate(ast);
+                        total_ast_cost = log_sum_exp(total_ast_cost, ast_cost);
+                    }
+                    AstNode::Program { .. } => {
+                        // Custom(Program)はKernelMergeSuggesterによって生成される
+                        let ast_cost = ast_estimator.estimate(ast);
+                        total_ast_cost = log_sum_exp(total_ast_cost, ast_cost);
+                    }
+                    _ => {}
+                },
+
+                // ProgramRootノード（目標状態）
+                GraphOp::ProgramRoot { ast, .. } => {
+                    has_program_root = true;
+                    let ast_cost = ast_estimator.estimate(ast);
+                    total_ast_cost = log_sum_exp(total_ast_cost, ast_cost);
+                }
+
+                // Lowering対象のノード（強いペナルティ）
+                _ => {
+                    non_custom_count += 1;
+                }
+            }
+        }
+
+        // ベースコスト
+        let base_cost = if total_ast_cost == f32::NEG_INFINITY {
+            1.0
+        } else {
+            total_ast_cost
+        };
+
+        // ペナルティ計算
+        // 1. 非Customノードへの強いペナルティ
+        let non_custom_penalty = self.non_custom_penalty * non_custom_count as f32;
+
+        // 2. Custom(Function)へのペナルティ（ProgramRootがない場合のみ）
+        let function_penalty = if !has_program_root && custom_function_count > 0 {
+            self.function_penalty * custom_function_count as f32
+        } else {
+            0.0
+        };
+
+        // 3. ProgramRootがある場合は大きな報酬（負のペナルティ）
+        let program_root_reward = if has_program_root {
+            -KERNEL_LAUNCH_OVERHEAD.ln() * 3.0
+        } else {
+            0.0
+        };
+
+        base_cost + non_custom_penalty + function_penalty + program_root_reward
+    }
+}
+
 /// KernelMerge専用のコスト推定器
 ///
 /// 複数のCustom(Function)を1つのCustom(Program)にマージすることを強く優先します。
