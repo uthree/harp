@@ -402,6 +402,150 @@ where
         let (optimized_graph, _history) = self.optimize_with_history(graph);
         optimized_graph
     }
+
+    fn optimize_with_history(&self, graph: Graph) -> (Graph, OptimizationHistory) {
+        // BeamSearchGraphOptimizer固有のメソッドを呼び出す
+        BeamSearchGraphOptimizer::optimize_with_history(self, graph)
+    }
+}
+
+/// 複数のGraphOptimizerを順番に適用するチェーンオプティマイザ
+///
+/// 各オプティマイザはフェーズ名を持ち、履歴には各フェーズの名前がプレフィックスとして付与されます。
+///
+/// # Example
+///
+/// ```ignore
+/// use harp::opt::graph::{ChainedGraphOptimizer, BeamSearchGraphOptimizer, GraphOptimizer};
+///
+/// let chain = ChainedGraphOptimizer::new()
+///     .add_phase("Lowering", lowering_optimizer)
+///     .add_phase("Fusion", fusion_optimizer);
+///
+/// let (optimized, history) = chain.optimize_with_history(graph);
+/// ```
+pub struct ChainedGraphOptimizer {
+    /// (フェーズ名, オプティマイザ) のリスト
+    phases: Vec<(String, Box<dyn GraphOptimizer>)>,
+}
+
+impl ChainedGraphOptimizer {
+    /// 新しいチェーンオプティマイザを作成
+    pub fn new() -> Self {
+        Self { phases: Vec::new() }
+    }
+
+    /// フェーズを追加
+    ///
+    /// # Arguments
+    /// * `name` - フェーズ名（履歴のプレフィックスとして使用）
+    /// * `optimizer` - このフェーズで使用するオプティマイザ
+    pub fn add_phase<O: GraphOptimizer + 'static>(
+        mut self,
+        name: impl Into<String>,
+        optimizer: O,
+    ) -> Self {
+        self.phases.push((name.into(), Box::new(optimizer)));
+        self
+    }
+
+    /// Boxedオプティマイザでフェーズを追加
+    ///
+    /// # Arguments
+    /// * `name` - フェーズ名（履歴のプレフィックスとして使用）
+    /// * `optimizer` - このフェーズで使用するオプティマイザ（Box化済み）
+    pub fn add_phase_boxed(
+        mut self,
+        name: impl Into<String>,
+        optimizer: Box<dyn GraphOptimizer>,
+    ) -> Self {
+        self.phases.push((name.into(), optimizer));
+        self
+    }
+
+    /// フェーズ数を取得
+    pub fn len(&self) -> usize {
+        self.phases.len()
+    }
+
+    /// フェーズが空かどうか
+    pub fn is_empty(&self) -> bool {
+        self.phases.is_empty()
+    }
+
+    /// 他のオプティマイザをチェーンに追加
+    ///
+    /// 既存のチェーンに新しいフェーズを追加します。
+    /// フェーズ名は自動的に "Phase N" と命名されます。
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let chained = optimizer1
+    ///     .chain(optimizer2)
+    ///     .chain(optimizer3);
+    /// ```
+    pub fn chain<O: GraphOptimizer + 'static>(mut self, other: O) -> Self {
+        let phase_num = self.phases.len() + 1;
+        self.phases
+            .push((format!("Phase {}", phase_num), Box::new(other)));
+        self
+    }
+
+    /// 他のオプティマイザを名前付きでチェーンに追加
+    ///
+    /// # Arguments
+    /// * `name` - 追加するフェーズの名前
+    /// * `other` - 追加するオプティマイザ
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let chained = optimizer1
+    ///     .chain_named("Fusion", optimizer2)
+    ///     .chain_named("Finalize", optimizer3);
+    /// ```
+    pub fn chain_named<O: GraphOptimizer + 'static>(
+        mut self,
+        name: impl Into<String>,
+        other: O,
+    ) -> Self {
+        self.phases.push((name.into(), Box::new(other)));
+        self
+    }
+}
+
+impl Default for ChainedGraphOptimizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl GraphOptimizer for ChainedGraphOptimizer {
+    fn optimize(&self, graph: Graph) -> Graph {
+        let (optimized, _) = self.optimize_with_history(graph);
+        optimized
+    }
+
+    fn optimize_with_history(&self, graph: Graph) -> (Graph, OptimizationHistory) {
+        let mut current_graph = graph;
+        let mut combined_history = OptimizationHistory::new();
+
+        for (phase_name, optimizer) in &self.phases {
+            info!("Starting phase: {}", phase_name);
+
+            let (optimized, phase_history) = optimizer.optimize_with_history(current_graph);
+
+            // フェーズの履歴を結合
+            combined_history.extend_with_phase(phase_history, phase_name);
+
+            current_graph = optimized;
+
+            info!("Completed phase: {}", phase_name);
+        }
+
+        (current_graph, combined_history)
+    }
 }
 
 #[cfg(test)]
@@ -446,4 +590,215 @@ mod tests {
     // Note: test_output_order_independence は複数出力が
     // 現在サポートされていないため削除されました。
     // 詳細は spec/TODO.md を参照してください。
+
+    // 履歴を記録するテスト用Optimizer
+    struct HistoryRecordingOptimizer {
+        phase_id: usize,
+    }
+
+    impl GraphOptimizer for HistoryRecordingOptimizer {
+        fn optimize(&self, graph: Graph) -> Graph {
+            graph
+        }
+
+        fn optimize_with_history(&self, graph: Graph) -> (Graph, OptimizationHistory) {
+            let mut history = OptimizationHistory::new();
+            let cost = 100.0 / (self.phase_id + 1) as f32;
+            history.add_snapshot(OptimizationSnapshot::new(
+                0,
+                graph.clone(),
+                cost,
+                format!("Phase {} step 0", self.phase_id),
+            ));
+            history.add_snapshot(OptimizationSnapshot::with_suggester(
+                1,
+                graph.clone(),
+                cost * 0.9,
+                format!("Phase {} step 1", self.phase_id),
+                vec![format!("Log from phase {}", self.phase_id)],
+                5,
+                format!("PhaseOptimizer{}", self.phase_id),
+            ));
+            (graph, history)
+        }
+    }
+
+    #[test]
+    fn test_chained_optimizer_empty() {
+        let chain = ChainedGraphOptimizer::new();
+        assert!(chain.is_empty());
+        assert_eq!(chain.len(), 0);
+
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![10]);
+        graph.output("out", a);
+
+        let (result, history) = chain.optimize_with_history(graph);
+        assert_eq!(result.outputs().len(), 1);
+        assert!(history.is_empty());
+    }
+
+    #[test]
+    fn test_chained_optimizer_single_phase() {
+        let chain = ChainedGraphOptimizer::new()
+            .add_phase("Phase1", HistoryRecordingOptimizer { phase_id: 1 });
+
+        assert_eq!(chain.len(), 1);
+        assert!(!chain.is_empty());
+
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![10]);
+        graph.output("out", a);
+
+        let (result, history) = chain.optimize_with_history(graph);
+        assert_eq!(result.outputs().len(), 1);
+
+        // 履歴には2つのスナップショットがあるはず
+        assert_eq!(history.len(), 2);
+
+        // フェーズ名がプレフィックスとして付いているか確認
+        let snapshots = history.snapshots();
+        assert!(snapshots[0].description.contains("Phase1"));
+        assert!(snapshots[1].description.contains("Phase1"));
+    }
+
+    #[test]
+    fn test_chained_optimizer_multiple_phases() {
+        let chain = ChainedGraphOptimizer::new()
+            .add_phase("Lowering", HistoryRecordingOptimizer { phase_id: 1 })
+            .add_phase("Fusion", HistoryRecordingOptimizer { phase_id: 2 })
+            .add_phase("Finalize", HistoryRecordingOptimizer { phase_id: 3 });
+
+        assert_eq!(chain.len(), 3);
+
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![10]);
+        graph.output("out", a);
+
+        let (result, history) = chain.optimize_with_history(graph);
+        assert_eq!(result.outputs().len(), 1);
+
+        // 各フェーズから2スナップショット、ただし2番目以降の初期スナップショットはスキップ
+        // Phase1: 2 snapshots (step 0, step 1)
+        // Phase2: 1 snapshot (step 0 skipped, step 1)
+        // Phase3: 1 snapshot (step 0 skipped, step 1)
+        // 合計: 4 snapshots
+        let snapshots = history.snapshots();
+        assert_eq!(snapshots.len(), 4);
+
+        // ステップ番号が連続しているか確認
+        assert_eq!(snapshots[0].step, 0);
+        assert_eq!(snapshots[1].step, 1);
+        assert_eq!(snapshots[2].step, 2);
+        assert_eq!(snapshots[3].step, 3);
+
+        // 各フェーズ名が正しく付与されているか
+        assert!(snapshots[0].description.contains("Lowering"));
+        assert!(snapshots[1].description.contains("Lowering"));
+        assert!(snapshots[2].description.contains("Fusion"));
+        assert!(snapshots[3].description.contains("Finalize"));
+    }
+
+    #[test]
+    fn test_chained_optimizer_with_beam_search() {
+        let suggester = DummySuggester;
+        let estimator = SimpleCostEstimator::new();
+
+        let beam_optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
+            .with_beam_width(5)
+            .with_max_steps(5)
+            .with_progress(false)
+            .with_collect_logs(false);
+
+        let chain = ChainedGraphOptimizer::new().add_phase("BeamSearch", beam_optimizer);
+
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![10]);
+        graph.output("out", a);
+
+        let (result, history) = chain.optimize_with_history(graph);
+        assert_eq!(result.outputs().len(), 1);
+
+        // BeamSearchOptimizerからの履歴が含まれているはず
+        assert!(!history.is_empty());
+    }
+
+    #[test]
+    fn test_chain_method_from_optimizer() {
+        use crate::opt::graph::GraphOptimizer;
+
+        // GraphOptimizerのchainメソッドを使って2つのオプティマイザを結合
+        let opt1 = HistoryRecordingOptimizer { phase_id: 1 };
+        let opt2 = HistoryRecordingOptimizer { phase_id: 2 };
+
+        let chained = opt1.chain(opt2);
+        assert_eq!(chained.len(), 2);
+
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![10]);
+        graph.output("out", a);
+
+        let (result, history) = chained.optimize_with_history(graph);
+        assert_eq!(result.outputs().len(), 1);
+
+        // 両方のフェーズの履歴が含まれているはず
+        let snapshots = history.snapshots();
+        assert!(snapshots.len() >= 2);
+
+        // フェーズ名が "Phase 1", "Phase 2" になっているはず
+        assert!(snapshots[0].description.contains("Phase 1"));
+    }
+
+    #[test]
+    fn test_chain_method_multiple() {
+        use crate::opt::graph::GraphOptimizer;
+
+        // 3つのオプティマイザをメソッドチェーンで結合
+        let opt1 = HistoryRecordingOptimizer { phase_id: 1 };
+        let opt2 = HistoryRecordingOptimizer { phase_id: 2 };
+        let opt3 = HistoryRecordingOptimizer { phase_id: 3 };
+
+        // opt1.chain(opt2) で ChainedGraphOptimizer が返り、
+        // その .chain(opt3) で既存のチェーンに追加される
+        let chained = opt1.chain(opt2).chain(opt3);
+        assert_eq!(chained.len(), 3);
+
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![10]);
+        graph.output("out", a);
+
+        let (result, history) = chained.optimize_with_history(graph);
+        assert_eq!(result.outputs().len(), 1);
+
+        // すべてのフェーズの履歴が含まれているはず
+        let snapshots = history.snapshots();
+        assert!(snapshots.len() >= 3);
+    }
+
+    #[test]
+    fn test_chain_named_method() {
+        use crate::opt::graph::GraphOptimizer;
+
+        let opt1 = HistoryRecordingOptimizer { phase_id: 1 };
+        let opt2 = HistoryRecordingOptimizer { phase_id: 2 };
+        let opt3 = HistoryRecordingOptimizer { phase_id: 3 };
+
+        // chain_namedで名前を指定してチェーン
+        let chained = opt1
+            .chain_named("Lowering", "Fusion", opt2)
+            .chain_named("Finalize", opt3);
+
+        assert_eq!(chained.len(), 3);
+
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![10]);
+        graph.output("out", a);
+
+        let (result, history) = chained.optimize_with_history(graph);
+        assert_eq!(result.outputs().len(), 1);
+
+        // 指定したフェーズ名が使われているはず
+        let snapshots = history.snapshots();
+        assert!(snapshots[0].description.contains("Lowering"));
+    }
 }
