@@ -303,7 +303,9 @@ mod tests {
 
         // View → Buffer(a) のViewノードは除去対象ではない
         let a_view = a.view(a.view.clone());
-        assert!(!ProgramRootBufferAbsorptionSuggester::is_removable_input(&a_view));
+        assert!(!ProgramRootBufferAbsorptionSuggester::is_removable_input(
+            &a_view
+        ));
 
         // 出力バッファは除去対象ではない
         let output_buffer = GraphNode::new(
@@ -314,7 +316,9 @@ mod tests {
             vec![],
             a.view.clone(),
         );
-        assert!(!ProgramRootBufferAbsorptionSuggester::is_removable_input(&output_buffer));
+        assert!(!ProgramRootBufferAbsorptionSuggester::is_removable_input(
+            &output_buffer
+        ));
     }
 
     #[test]

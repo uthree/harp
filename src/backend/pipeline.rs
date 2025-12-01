@@ -168,10 +168,17 @@ pub fn create_graph_preparation_suggester() -> CompositeSuggester {
 ///
 /// Phase 2: グラフノードをCustomノードに変換し、単一のProgramRootに集約
 /// LoweringSuggester、BufferAbsorption、ProgramRootAbsorptionを使用します。
+///
+/// # 設計方針
+/// - ViewMergeSuggesterを含むことで、Lowering後に残るViewをCustomに吸収
+/// - ProgramRootAbsorptionSuggesterはSinkの直接の子のCustomのみを吸収
+/// - この順序により、View -> Custom が Custom[view適用] になってからSinkに吸収される
 pub fn create_lowering_phase_suggester() -> CompositeSuggester {
     CompositeSuggester::new(vec![
         // LoweringSuggesterでGraphOp -> Custom(Function)に変換
         Box::new(LoweringSuggester::new()),
+        // ViewMergeSuggesterでViewをCustomに吸収（Sink -> View -> Custom を Sink -> Custom[view適用] に変換）
+        Box::new(ViewMergeSuggester::new()),
         // BufferAbsorptionでCustomノードに入力Bufferを取り込む
         Box::new(BufferAbsorptionSuggester::new()),
         // ProgramRootAbsorptionでCustom(Function)をSinkに吸収

@@ -32,8 +32,8 @@ fn main() -> eframe::Result {
 
     let mut pipeline = GenericPipeline::new(renderer, compiler);
 
-    // 統合最適化を有効化（グラフ最適化 + カーネルマージ + AST最適化）
-    pipeline.enable_kernel_merge = true;
+    // マルチフェーズ最適化を有効化（グラフ準備 → Lowering → AST最適化）
+    pipeline.enable_multi_phase = true;
     pipeline.enable_ast_optimization = true;
     pipeline.collect_histories = true;
 

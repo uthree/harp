@@ -50,13 +50,13 @@ impl ProgramRootAbsorptionSuggester {
 
     /// Sinkノードから吸収可能なCustom(Function)を検出
     ///
-    /// Sinkの**直接の**子ノードからCustom(Function)を探します。
-    /// Viewノードなどを透過的に辿りません。
+    /// Sinkの子ノードからCustom(Function)を探します。
+    /// Viewノードは1レベルのみ透過します（ViewMergeSuggesterと連携）。
     ///
     /// # 設計方針
-    /// - ViewMergeSuggesterがView -> Custom を Custom[view適用] に変換
-    /// - その後、このSuggesterが直接の子のCustomを吸収
-    /// - これにより各Suggesterの責務が明確に分離される
+    /// - 直接の子がCustom(Function)の場合は即座に吸収
+    /// - 直接の子がViewの場合は、Viewの先にあるCustomを探す（1レベルのみ）
+    /// - 深いネストのViewは透過しない（ViewMergeSuggesterに委譲）
     fn find_absorbable_customs(&self, graph: &Graph) -> Vec<GraphNode> {
         let sink = match graph.sink() {
             Some(s) => s,
@@ -64,25 +64,67 @@ impl ProgramRootAbsorptionSuggester {
         };
 
         let mut absorbable = Vec::new();
+        let mut visited = HashSet::new();
 
-        // Sinkの直接の子ノードのみをチェック（再帰的に探索しない）
+        // Sinkの直接の子ノードをチェック
         for src in &sink.src {
-            if let GraphOp::Kernel { ast, .. } = &src.op
-                && matches!(ast, AstNode::Function { .. })
-            {
-                log::debug!("ProgramRootAbsorption: found absorbable Custom(Function) as direct child");
-                absorbable.push(src.clone());
-            }
+            Self::collect_customs_shallow(src, &mut absorbable, &mut visited);
         }
 
         absorbable
     }
 
-    /// Custom(Function)をSinkに吸収
+    /// 浅い探索でCustom(Function)またはCustom(Program)を収集
+    ///
+    /// Viewノードは1レベルのみ透過し、その先のCustomを収集します。
+    /// 複数のCustomがチェーンしている場合、依存順（リーフ優先）で収集します。
+    ///
+    /// # Note
+    /// Custom(Program)はKernelMergeSuggesterによって作成されることがあり、
+    /// これも吸収対象とする必要があります。
+    fn collect_customs_shallow(
+        node: &GraphNode,
+        result: &mut Vec<GraphNode>,
+        visited: &mut HashSet<*const GraphNodeData>,
+    ) {
+        let ptr = node.as_ptr();
+        if visited.contains(&ptr) {
+            return;
+        }
+        visited.insert(ptr);
+
+        match &node.op {
+            // Custom(Function)またはCustom(Program)を検出
+            GraphOp::Kernel {
+                ast: AstNode::Function { .. } | AstNode::Program { .. },
+                ..
+            } => {
+                // 先にこのCustomのsrcを探索（依存関係順）
+                for src in &node.src {
+                    Self::collect_customs_shallow(src, result, visited);
+                }
+                // 重複チェック
+                if !result.iter().any(|n| n.as_ptr() == ptr) {
+                    log::debug!("ProgramRootAbsorption: found absorbable Custom");
+                    result.push(node.clone());
+                }
+            }
+            // Viewノードは透過（srcを探索）
+            GraphOp::View(_) => {
+                for src in &node.src {
+                    Self::collect_customs_shallow(src, result, visited);
+                }
+            }
+            // Buffer/Const等は無視
+            _ => {}
+        }
+    }
+
+    /// Custom(Function)またはCustom(Program)をSinkに吸収
     fn absorb_custom(&self, graph: &Graph, custom_node: &GraphNode) -> Option<Graph> {
         let sink = graph.sink()?;
 
-        // Custom(Function)のASTを取得
+        // CustomのASTを取得
         let custom_ast = match &custom_node.op {
             GraphOp::Kernel { ast, .. } => ast,
             _ => return None,
@@ -114,19 +156,53 @@ impl ProgramRootAbsorptionSuggester {
             })
             .collect();
 
-        // Custom(Function)をKernelに変換して追加
-        let kernel_info =
-            self.create_kernel_from_function(graph, custom_node, custom_ast, &mut used_names);
-        program_functions.push(kernel_info.ast.clone());
+        // ASTの種類に応じて処理を分岐
+        let kernel_infos = match custom_ast {
+            AstNode::Function { .. } => {
+                // Custom(Function)をKernelに変換して追加
+                let kernel_info = self.create_kernel_from_function(
+                    graph,
+                    custom_node,
+                    custom_ast,
+                    &mut used_names,
+                );
+                program_functions.push(kernel_info.ast.clone());
+                vec![kernel_info]
+            }
+            AstNode::Program { functions, .. } => {
+                // Custom(Program)の全関数をSinkのProgramに追加
+                // harp_main以外の関数を追加（harp_mainは後で再生成）
+                let mut infos = Vec::new();
+                for func in functions {
+                    match func {
+                        AstNode::Kernel { name: Some(n), .. }
+                        | AstNode::Function { name: Some(n), .. }
+                            if n != "harp_main" =>
+                        {
+                            // 名前の重複を避ける
+                            let unique_name = Self::make_unique_name(n, &used_names);
+                            used_names.insert(unique_name.clone());
+
+                            // 関数/カーネルを名前を変更してコピー
+                            let renamed = Self::rename_function(func, &unique_name);
+                            program_functions.push(renamed.clone());
+
+                            // KernelInfoを生成（input_buffer_namesはProgramから取得できないので空）
+                            infos.push(KernelInfo {
+                                ast: renamed,
+                                input_buffer_names: vec![],
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+                infos
+            }
+            _ => return None,
+        };
 
         // 新しいSinkのsrcを構築（custom_nodeを削除し、その入力を直接接続）
         let new_src = self.rebuild_sink_src(sink, custom_node);
-        // TODO: Bufferノードをフィルタリングしてメタデータで管理する
-        // 現状、フィルタリングを有効にするとテストが失敗する
-        // let new_src: Vec<GraphNode> = new_src_raw
-        //     .into_iter()
-        //     .filter(|n| !matches!(&n.op, GraphOp::Buffer { .. }))
-        //     .collect();
 
         // main関数を生成/更新（カーネル引数マッピング情報を渡す）
         let main_fn = self.generate_main_function(
@@ -134,7 +210,7 @@ impl ProgramRootAbsorptionSuggester {
             &new_src,
             &program_functions,
             &output_names,
-            &[kernel_info],
+            &kernel_infos,
         );
 
         // 既存のmain関数を削除して新しいものを追加
@@ -161,6 +237,37 @@ impl ProgramRootAbsorptionSuggester {
 
         // 新しいグラフを構築
         Some(self.rebuild_graph_with_sink(graph, new_sink))
+    }
+
+    /// 関数/カーネルの名前を変更
+    fn rename_function(func: &AstNode, new_name: &str) -> AstNode {
+        match func {
+            AstNode::Kernel {
+                params,
+                return_type,
+                body,
+                thread_group_size,
+                ..
+            } => AstNode::Kernel {
+                name: Some(new_name.to_string()),
+                params: params.clone(),
+                return_type: return_type.clone(),
+                body: body.clone(),
+                thread_group_size: *thread_group_size,
+            },
+            AstNode::Function {
+                params,
+                return_type,
+                body,
+                ..
+            } => AstNode::Function {
+                name: Some(new_name.to_string()),
+                params: params.clone(),
+                return_type: return_type.clone(),
+                body: body.clone(),
+            },
+            other => other.clone(),
+        }
     }
 
     /// Sinkのsrcを再構築（吸収されたCustomノードを出力バッファで置き換え）

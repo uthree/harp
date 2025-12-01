@@ -480,8 +480,8 @@ mod tests {
 
     #[test]
     fn test_custom_view_merge() {
-        use crate::opt::graph::suggesters::LoweringSuggester;
         use crate::opt::graph::GraphSuggester as _;
+        use crate::opt::graph::suggesters::LoweringSuggester;
 
         let view_suggester = ViewMergeSuggester::new();
         let lowering_suggester = LoweringSuggester::new();

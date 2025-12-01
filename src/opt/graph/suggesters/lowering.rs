@@ -227,7 +227,7 @@ impl LoweringSuggester {
         let mut new_src: Vec<GraphNode> = node
             .src
             .iter()
-            .filter(|s| !matches!(s.op, GraphOp::Const(_)) && !self.is_pure_const_node(s))
+            .filter(|s| !matches!(s.op, GraphOp::Const(_)) && !Self::is_pure_const_node(s))
             .cloned()
             .collect();
 
@@ -393,7 +393,7 @@ impl LoweringSuggester {
         let num_inputs = node
             .src
             .iter()
-            .filter(|s| !matches!(s.op, GraphOp::Const(_)) && !self.is_pure_const_node(s))
+            .filter(|s| !matches!(s.op, GraphOp::Const(_)) && !Self::is_pure_const_node(s))
             .count();
 
         // 定数を埋め込んだ式を構築
@@ -412,17 +412,13 @@ impl LoweringSuggester {
     ///
     /// 純粋な定数ノードとは、再帰的にConstノードのみに依存するノードのこと。
     /// 例: `2.0 * 3.0` は純粋な定数（結果は6.0）
-    fn is_pure_const_node(&self, node: &GraphNode) -> bool {
+    fn is_pure_const_node(node: &GraphNode) -> bool {
         let mut visited = HashSet::new();
-        self.is_pure_const_impl(node, &mut visited)
+        Self::is_pure_const_impl(node, &mut visited)
     }
 
     /// ノードが「純粋な定数」かどうかをチェック（内部実装）
-    fn is_pure_const_impl(
-        &self,
-        node: &GraphNode,
-        visited: &mut HashSet<*const GraphNodeData>,
-    ) -> bool {
+    fn is_pure_const_impl(node: &GraphNode, visited: &mut HashSet<*const GraphNodeData>) -> bool {
         let ptr = node.as_ptr();
         if visited.contains(&ptr) {
             return true; // 循環参照を避ける
@@ -433,7 +429,9 @@ impl LoweringSuggester {
             GraphOp::Const(_) => true,
             GraphOp::Elementwise { .. } => {
                 // すべてのsrcが純粋な定数なら、このノードも純粋な定数
-                node.src.iter().all(|s| self.is_pure_const_impl(s, visited))
+                node.src
+                    .iter()
+                    .all(|s| Self::is_pure_const_impl(s, visited))
             }
             _ => false,
         }
@@ -442,7 +440,7 @@ impl LoweringSuggester {
     /// 純粋な定数ノードを評価してLiteralを取得
     ///
     /// 注: 現時点ではスカラー演算のみサポート
-    fn evaluate_pure_const(&self, node: &GraphNode) -> Option<crate::ast::Literal> {
+    fn evaluate_pure_const(node: &GraphNode) -> Option<crate::ast::Literal> {
         use crate::ast::Literal;
         use crate::graph::ElementwiseOp;
 
@@ -452,7 +450,7 @@ impl LoweringSuggester {
                 match node.src.len() {
                     1 => {
                         // 単項演算
-                        let val = self.evaluate_pure_const(&node.src[0])?;
+                        let val = Self::evaluate_pure_const(&node.src[0])?;
                         match (op, val) {
                             (ElementwiseOp::Neg, Literal::F32(v)) => Some(Literal::F32(-v)),
                             (ElementwiseOp::Neg, Literal::Int(v)) => Some(Literal::Int(-v)),
@@ -466,8 +464,8 @@ impl LoweringSuggester {
                     }
                     2 => {
                         // 二項演算
-                        let left = self.evaluate_pure_const(&node.src[0])?;
-                        let right = self.evaluate_pure_const(&node.src[1])?;
+                        let left = Self::evaluate_pure_const(&node.src[0])?;
+                        let right = Self::evaluate_pure_const(&node.src[1])?;
                         match (op, left, right) {
                             (ElementwiseOp::Add, Literal::F32(l), Literal::F32(r)) => {
                                 Some(Literal::F32(l + r))
@@ -518,8 +516,8 @@ impl LoweringSuggester {
             } else {
                 // 純粋な定数ノードかチェックして埋め込む
                 let mut visited = HashSet::new();
-                if self.is_pure_const_impl(src, &mut visited)
-                    && let Some(lit) = self.evaluate_pure_const(src)
+                if Self::is_pure_const_impl(src, &mut visited)
+                    && let Some(lit) = Self::evaluate_pure_const(src)
                 {
                     mappings.insert(i.to_string(), AstNode::Const(lit));
                     continue;
@@ -721,7 +719,7 @@ impl LoweringSuggester {
         let num_inputs = node
             .src
             .iter()
-            .filter(|s| !matches!(s.op, GraphOp::Const(_)) && !self.is_pure_const_node(s))
+            .filter(|s| !matches!(s.op, GraphOp::Const(_)) && !Self::is_pure_const_node(s))
             .count();
 
         let expr_with_consts = self.embed_constants(expr, &node.src);

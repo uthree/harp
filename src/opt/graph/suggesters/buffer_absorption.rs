@@ -26,19 +26,18 @@ impl BufferAbsorptionSuggester {
     }
 
     /// srcにBufferを持つCustomノードを検出
-    fn find_custom_with_buffers(&self, graph: &Graph) -> Vec<GraphNode> {
+    fn find_custom_with_buffers(graph: &Graph) -> Vec<GraphNode> {
         let mut result = Vec::new();
         let mut visited = HashSet::new();
 
         if let Some(sink) = graph.sink() {
-            self.find_customs_recursive(sink, &mut result, &mut visited);
+            Self::find_customs_recursive(sink, &mut result, &mut visited);
         }
 
         result
     }
 
     fn find_customs_recursive(
-        &self,
         node: &GraphNode,
         result: &mut Vec<GraphNode>,
         visited: &mut HashSet<*const GraphNodeData>,
@@ -51,7 +50,7 @@ impl BufferAbsorptionSuggester {
 
         // 子ノードを先に探索
         for src in &node.src {
-            self.find_customs_recursive(src, result, visited);
+            Self::find_customs_recursive(src, result, visited);
         }
 
         // input_buffersがNoneで、srcにBufferを持つCustomノードを検出
@@ -208,7 +207,7 @@ impl GraphSuggester for BufferAbsorptionSuggester {
     }
 
     fn suggest(&self, graph: &Graph) -> Vec<Graph> {
-        let custom_nodes = self.find_custom_with_buffers(graph);
+        let custom_nodes = Self::find_custom_with_buffers(graph);
 
         log::debug!(
             "BufferAbsorption: found {} Custom nodes with buffers to absorb",

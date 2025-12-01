@@ -558,9 +558,13 @@ impl LoweringCostEstimator {
     pub fn new() -> Self {
         Self {
             // 非CustomノードにはLoweringSuggesterを適用すべき
-            non_custom_penalty: KERNEL_LAUNCH_OVERHEAD.ln() * 2.0,
+            // 非常に強いペナルティを設定し、Loweringを常に優先する
+            // 元の値: KERNEL_LAUNCH_OVERHEAD.ln() * 2.0 ≈ 13.8
+            // 新しい値: AST costを上回るように十分大きく設定
+            non_custom_penalty: 100.0,
             // Custom(Function)はProgramRootに吸収されるべき
-            function_penalty: KERNEL_LAUNCH_OVERHEAD.ln(),
+            // こちらは小さめに設定して、Loweringの結果がペナルティで打ち消されないようにする
+            function_penalty: 1.0,
         }
     }
 
