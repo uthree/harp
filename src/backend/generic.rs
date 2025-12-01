@@ -1,5 +1,5 @@
 use crate::ast::AstNode;
-use crate::backend::{Compiler, Pipeline, Renderer, SignedCode};
+use crate::backend::{Compiler, Pipeline, Renderer};
 use crate::graph::Graph;
 use crate::opt::ast::rules::all_rules_with_search;
 use crate::opt::ast::{
@@ -595,9 +595,8 @@ where
         };
 
         // レンダリングとコンパイル
-        let rendered = self.renderer().render(&optimized_program);
-        let code = R::CodeRepr::with_signature(rendered.into(), signature);
-        Ok(self.compiler().compile(&code))
+        let code = self.renderer().render(&optimized_program);
+        Ok(self.compiler().compile(&code, signature))
     }
 
     /// 最適化のみを実行（コンパイルなし、AST履歴を返す）
@@ -660,9 +659,8 @@ where
         };
 
         // レンダリングとコンパイル
-        let rendered = self.renderer().render(&optimized_program);
-        let code = R::CodeRepr::with_signature(rendered.into(), signature);
-        let kernel = self.compiler().compile(&code);
+        let code = self.renderer().render(&optimized_program);
+        let kernel = self.compiler().compile(&code, signature);
         Ok((kernel, optimized_program, all_histories))
     }
 
@@ -949,7 +947,11 @@ mod tests {
             true
         }
 
-        fn compile(&mut self, _code: &Self::CodeRepr) -> Self::Kernel {
+        fn compile(
+            &mut self,
+            _code: &Self::CodeRepr,
+            _signature: crate::backend::KernelSignature,
+        ) -> Self::Kernel {
             DummyKernel
         }
 

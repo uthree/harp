@@ -20,10 +20,13 @@ impl MetalRenderer {
     }
 
     /// シグネチャ付きでプログラムをレンダリング
+    ///
+    /// Note: signatureパラメータは互換性のために残されていますが、
+    /// Code型がsignatureを保持しなくなったため無視されます。
     pub fn render_program_with_signature(
         &mut self,
         program: &AstNode,
-        signature: crate::backend::KernelSignature,
+        _signature: crate::backend::KernelSignature,
     ) -> MetalCode {
         if let AstNode::Program {
             functions,
@@ -48,7 +51,7 @@ impl MetalRenderer {
             // 3. libloading用のエントリーポイント関数を生成
             code.push_str(&self.generate_host_code(entry_point, functions));
 
-            MetalCode::with_signature(code, signature)
+            MetalCode::new(code)
         } else {
             panic!("Expected AstNode::Program");
         }
@@ -340,6 +343,16 @@ impl CLikeRenderer for MetalKernelRenderer {
             _ => format!("{}({})", name, args.join(", ")),
         }
     }
+
+    fn libloading_wrapper_name(&self) -> &'static str {
+        // MetalKernelRendererはカーネルソースのみ生成するため、libloadingラッパーは生成しない
+        ""
+    }
+
+    fn render_libloading_wrapper(&self, _entry_func: &AstNode, _entry_point: &str) -> String {
+        // MetalKernelRendererはカーネルソースのみ生成するため、libloadingラッパーは生成しない
+        String::new()
+    }
 }
 
 // CLikeRendererトレイトの実装
@@ -437,6 +450,21 @@ impl CLikeRenderer for MetalRenderer {
             "exp2" => format!("exp2({})", args.join(", ")),
             "sin" => format!("sin({})", args.join(", ")),
             _ => format!("{}({})", name, args.join(", ")),
+        }
+    }
+
+    fn libloading_wrapper_name(&self) -> &'static str {
+        LIBLOADING_WRAPPER_NAME
+    }
+
+    fn render_libloading_wrapper(&self, entry_func: &AstNode, entry_point: &str) -> String {
+        // MetalRendererは独自のrender_programを使用し、render_program_clikeを使用しないため、
+        // このメソッドは直接呼ばれない。generate_host_codeで同等の処理を行っている。
+        // トレイト要件を満たすためのスタブ実装。
+        if let AstNode::Function { .. } = entry_func {
+            self.generate_host_code(entry_point, std::slice::from_ref(entry_func))
+        } else {
+            String::new()
         }
     }
 }

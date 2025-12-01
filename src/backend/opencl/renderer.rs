@@ -332,6 +332,17 @@ impl CLikeRenderer for OpenCLRenderer {
             None => format!("{}[{}]", ptr_expr, offset_expr),
         }
     }
+
+    fn libloading_wrapper_name(&self) -> &'static str {
+        LIBLOADING_WRAPPER_NAME
+    }
+
+    fn render_libloading_wrapper(&self, _entry_func: &AstNode, _entry_point: &str) -> String {
+        // OpenCLRendererは独自のrender_programを使用し、render_program_clikeを使用しないため、
+        // このメソッドは直接呼ばれない。generate_host_codeで同等の処理を行っている。
+        // トレイト要件を満たすためのスタブ実装。
+        String::new()
+    }
 }
 
 #[cfg(test)]

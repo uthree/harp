@@ -152,7 +152,11 @@ impl Compiler for OpenCLCompiler {
             .is_ok()
     }
 
-    fn compile(&mut self, code: &Self::CodeRepr) -> Self::Kernel {
+    fn compile(
+        &mut self,
+        code: &Self::CodeRepr,
+        signature: crate::backend::KernelSignature,
+    ) -> Self::Kernel {
         // 一時ファイルを作成（適切な拡張子を設定）
         #[cfg(target_os = "macos")]
         let lib_suffix = ".dylib";
@@ -175,9 +179,6 @@ impl Compiler for OpenCLCompiler {
 
         // ライブラリをロード
         let library = unsafe { Library::new(&lib_path).expect("Failed to load compiled library") };
-
-        // シグネチャを取得
-        let signature = code.signature().clone();
 
         // OpenCLKernelを作成
         OpenCLKernel::new(

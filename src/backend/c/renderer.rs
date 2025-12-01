@@ -16,76 +16,7 @@ impl CRenderer {
 
     /// Programをレンダリング
     pub fn render_program(&mut self, program: &AstNode) -> CCode {
-        let mut code = CLikeRenderer::render_program_clike(self, program);
-
-        // libloading用のラッパー関数を生成
-        if let AstNode::Program {
-            functions,
-            entry_point,
-        } = program
-        {
-            // エントリーポイント関数を取得
-            if let Some(entry_func) = functions.iter().find(
-                |f| matches!(f, AstNode::Function { name: Some(name), .. } if name == entry_point),
-            ) {
-                let wrapper = self.generate_libloading_wrapper(entry_func, entry_point);
-                code.push_str(&wrapper);
-            }
-        }
-
-        CCode::new(code)
-    }
-
-    /// libloading用のラッパー関数を生成
-    ///
-    /// libloadingは固定シグネチャ `void f(void** buffers)` を期待するため、
-    /// エントリーポイント関数をラップする関数を生成する。
-    fn generate_libloading_wrapper(&self, entry_func: &AstNode, entry_point: &str) -> String {
-        if let AstNode::Function { params, .. } = entry_func {
-            let mut result = String::new();
-
-            result.push_str("// === libloading Wrapper ===\n");
-            result.push_str(&format!(
-                "void {}(void** buffers) {{\n",
-                LIBLOADING_WRAPPER_NAME
-            ));
-
-            // エントリーポイント関数の呼び出しを生成
-            let mut call_args = Vec::new();
-            let mut buffer_idx = 0;
-
-            for param in params {
-                // ThreadId等の特殊な変数はスキップ（パラメータにならない）
-                match &param.kind {
-                    VarKind::Normal => {
-                        // パラメータの型に基づいてキャストを生成
-                        let type_str = self.render_dtype_backend(&param.dtype);
-                        let mut_str = match param.mutability {
-                            Mutability::Immutable => "const ",
-                            Mutability::Mutable => "",
-                        };
-                        call_args.push(format!(
-                            "({}{})(buffers[{}])",
-                            mut_str, type_str, buffer_idx
-                        ));
-                        buffer_idx += 1;
-                    }
-                    VarKind::ThreadId(_)
-                    | VarKind::GroupId(_)
-                    | VarKind::GroupSize(_)
-                    | VarKind::GridSize(_) => {
-                        // これらはパラメータに含まれないのでスキップ
-                    }
-                }
-            }
-
-            result.push_str(&format!("    {}({});\n", entry_point, call_args.join(", ")));
-            result.push_str("}\n");
-
-            result
-        } else {
-            String::new()
-        }
+        CCode::new(CLikeRenderer::render_program_clike(self, program))
     }
 }
 
@@ -224,6 +155,58 @@ impl CLikeRenderer for CRenderer {
     fn render_vector_load(&self, ptr_expr: &str, offset_expr: &str, dtype: &str) -> String {
         // C言語のキャスト構文を使用
         format!("*({}*)(&{}[{}])", dtype, ptr_expr, offset_expr)
+    }
+
+    fn libloading_wrapper_name(&self) -> &'static str {
+        LIBLOADING_WRAPPER_NAME
+    }
+
+    fn render_libloading_wrapper(&self, entry_func: &AstNode, entry_point: &str) -> String {
+        if let AstNode::Function { params, .. } = entry_func {
+            let mut result = String::new();
+
+            result.push_str("// === libloading Wrapper ===\n");
+            result.push_str(&format!(
+                "void {}(void** buffers) {{\n",
+                self.libloading_wrapper_name()
+            ));
+
+            // エントリーポイント関数の呼び出しを生成
+            let mut call_args = Vec::new();
+            let mut buffer_idx = 0;
+
+            for param in params {
+                // ThreadId等の特殊な変数はスキップ（パラメータにならない）
+                match &param.kind {
+                    VarKind::Normal => {
+                        // パラメータの型に基づいてキャストを生成
+                        let type_str = self.render_dtype_backend(&param.dtype);
+                        let mut_str = match param.mutability {
+                            Mutability::Immutable => "const ",
+                            Mutability::Mutable => "",
+                        };
+                        call_args.push(format!(
+                            "({}{})(buffers[{}])",
+                            mut_str, type_str, buffer_idx
+                        ));
+                        buffer_idx += 1;
+                    }
+                    VarKind::ThreadId(_)
+                    | VarKind::GroupId(_)
+                    | VarKind::GroupSize(_)
+                    | VarKind::GridSize(_) => {
+                        // これらはパラメータに含まれないのでスキップ
+                    }
+                }
+            }
+
+            result.push_str(&format!("    {}({});\n", entry_point, call_args.join(", ")));
+            result.push_str("}\n");
+
+            result
+        } else {
+            String::new()
+        }
     }
 }
 

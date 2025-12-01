@@ -105,10 +105,10 @@ impl Compiler for TestCompiler {
         true
     }
 
-    fn compile(&mut self, code: &Self::CodeRepr) -> Self::Kernel {
+    fn compile(&mut self, code: &Self::CodeRepr, signature: KernelSignature) -> Self::Kernel {
         *self.compile_count.borrow_mut() += 1;
         TestKernel {
-            signature: KernelSignature::empty(),
+            signature,
             code: code.clone(),
         }
     }

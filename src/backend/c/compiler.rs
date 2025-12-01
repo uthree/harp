@@ -154,7 +154,11 @@ impl Compiler for CCompiler {
             .is_ok()
     }
 
-    fn compile(&mut self, code: &Self::CodeRepr) -> Self::Kernel {
+    fn compile(
+        &mut self,
+        code: &Self::CodeRepr,
+        signature: crate::backend::KernelSignature,
+    ) -> Self::Kernel {
         // 一時ファイルを作成（適切な拡張子を設定）
         #[cfg(target_os = "macos")]
         let lib_suffix = ".dylib";
@@ -186,9 +190,6 @@ impl Compiler for CCompiler {
 
         // エントリーポイントを抽出（デバッグ用に保存）
         let _original_entry_point = Self::extract_entry_point(code);
-
-        // シグネチャを取得
-        let signature = code.signature().clone();
 
         // libloading用のラッパー関数名を使用
         CKernel::new(
@@ -224,6 +225,8 @@ mod tests {
     #[test]
     #[ignore] // OpenMPサポートが環境依存のため、CIでは無効化
     fn test_simple_compilation() {
+        use crate::backend::KernelSignature;
+
         let mut compiler = CCompiler::new();
 
         // 簡単なC言語コード
@@ -242,9 +245,10 @@ void kernel_0(float** buffers) {
 "#;
 
         let c_code = CCode::new(code.to_string());
+        let signature = KernelSignature::empty();
 
         // コンパイル
-        let kernel = compiler.compile(&c_code);
+        let kernel = compiler.compile(&c_code, signature);
 
         // カーネルが作成されたことを確認
         assert_eq!(kernel.entry_point(), "kernel_0");
@@ -266,7 +270,7 @@ void kernel_0(float** buffers) {
     fn test_integration_vector_add() {
         use crate::backend::c::CRenderer;
         use crate::graph::{DType as GraphDType, Graph};
-        use crate::lowerer::lower;
+        use crate::lowerer::{Lowerer, lower};
 
         // 1. グラフを作成: a + b
         let mut graph = Graph::new();
@@ -275,32 +279,35 @@ void kernel_0(float** buffers) {
         let result = a + b;
         graph.output("result", result);
 
-        // 2. Lower to AST
+        // 2. Create signature from graph
+        let signature = Lowerer::create_signature(&graph);
+
+        // 3. Lower to AST
         let program = lower(graph);
 
-        // 3. Render to C code
+        // 4. Render to C code
         let mut renderer = CRenderer::new();
         let c_code = renderer.render_program(&program);
 
         println!("Generated C code:\n{}", c_code.as_str());
 
-        // 4. Compile
+        // 5. Compile
         let mut compiler = CCompiler::new();
-        let kernel = compiler.compile(&c_code);
+        let kernel = compiler.compile(&c_code, signature);
 
-        // 5. Create buffers
+        // 6. Create buffers
         let mut input_a = CBuffer::from_f32_vec(vec![1.0f32, 2.0, 3.0, 4.0]);
         let mut input_b = CBuffer::from_f32_vec(vec![10.0f32, 20.0, 30.0, 40.0]);
         let mut output = CBuffer::new(vec![4], std::mem::size_of::<f32>());
 
-        // 6. Execute
+        // 7. Execute
         unsafe {
             kernel
                 .execute(&mut [&mut input_a, &mut input_b, &mut output])
                 .expect("Kernel execution failed");
         }
 
-        // 7. Verify results
+        // 8. Verify results
         let result_vec = output.as_f32_slice().unwrap().to_vec();
         assert_eq!(result_vec, vec![11.0, 22.0, 33.0, 44.0]);
     }
@@ -310,7 +317,7 @@ void kernel_0(float** buffers) {
     fn test_integration_vector_mul() {
         use crate::backend::c::CRenderer;
         use crate::graph::{DType as GraphDType, Graph};
-        use crate::lowerer::lower;
+        use crate::lowerer::{Lowerer, lower};
 
         // 1. グラフを作成: a * b
         let mut graph = Graph::new();
@@ -319,30 +326,33 @@ void kernel_0(float** buffers) {
         let result = a * b;
         graph.output("result", result);
 
-        // 2. Lower to AST
+        // 2. Create signature from graph
+        let signature = Lowerer::create_signature(&graph);
+
+        // 3. Lower to AST
         let program = lower(graph);
 
-        // 3. Render to C code (disable OpenMP header for macOS compatibility)
+        // 4. Render to C code
         let mut renderer = CRenderer::new();
         let c_code = renderer.render_program(&program);
 
-        // 4. Compile (disable OpenMP for macOS compatibility)
+        // 5. Compile
         let mut compiler = CCompiler::new();
-        let kernel = compiler.compile(&c_code);
+        let kernel = compiler.compile(&c_code, signature);
 
-        // 5. Create buffers
+        // 6. Create buffers
         let mut input_a = CBuffer::from_f32_vec(vec![2.0f32, 3.0, 4.0, 5.0]);
         let mut input_b = CBuffer::from_f32_vec(vec![10.0f32, 20.0, 30.0, 40.0]);
         let mut output = CBuffer::new(vec![4], std::mem::size_of::<f32>());
 
-        // 6. Execute
+        // 7. Execute
         unsafe {
             kernel
                 .execute(&mut [&mut input_a, &mut input_b, &mut output])
                 .expect("Kernel execution failed");
         }
 
-        // 7. Verify results
+        // 8. Verify results
         let result_vec = output.as_f32_slice().unwrap().to_vec();
         assert_eq!(result_vec, vec![20.0, 60.0, 120.0, 200.0]);
     }
@@ -352,7 +362,7 @@ void kernel_0(float** buffers) {
     fn test_integration_multi_step_computation() {
         use crate::backend::c::CRenderer;
         use crate::graph::{DType as GraphDType, Graph};
-        use crate::lowerer::lower;
+        use crate::lowerer::{Lowerer, lower};
 
         // 1. グラフを作成: (a + b) * c
         let mut graph = Graph::new();
@@ -363,20 +373,23 @@ void kernel_0(float** buffers) {
         let result = sum_ab * c;
         graph.output("result", result);
 
-        // 2. Lower to AST
+        // 2. Create signature from graph
+        let signature = Lowerer::create_signature(&graph);
+
+        // 3. Lower to AST
         let program = lower(graph);
 
-        // 3. Render to C code (disable OpenMP header for macOS compatibility)
+        // 4. Render to C code
         let mut renderer = CRenderer::new();
         let c_code = renderer.render_program(&program);
 
         println!("Generated C code for multi-step:\n{}", c_code.as_str());
 
-        // 4. Compile (disable OpenMP for macOS compatibility)
+        // 5. Compile
         let mut compiler = CCompiler::new();
-        let kernel = compiler.compile(&c_code);
+        let kernel = compiler.compile(&c_code, signature);
 
-        // 5. Create buffers
+        // 6. Create buffers
         // Note: lowerer orders parameters alphabetically
         // The generated code expects: harp_main(input0, input1, input2, output)
         // where input0=a, input1=b, input2=c (alphabetically sorted)
@@ -385,14 +398,14 @@ void kernel_0(float** buffers) {
         let mut input_c = CBuffer::from_f32_vec(vec![10.0f32, 10.0, 10.0, 10.0]);
         let mut output = CBuffer::new(vec![4], std::mem::size_of::<f32>());
 
-        // 6. Execute
+        // 7. Execute
         unsafe {
             kernel
                 .execute(&mut [&mut input_a, &mut input_b, &mut input_c, &mut output])
                 .expect("Kernel execution failed");
         }
 
-        // 7. Verify results
+        // 8. Verify results
         // Computation: (a + b) * c
         // (1+2)*10=30, (2+3)*10=50, (3+4)*10=70, (4+5)*10=90
         let result_vec = output.as_f32_slice().unwrap().to_vec();
@@ -404,7 +417,7 @@ void kernel_0(float** buffers) {
     fn test_integration_2d_array_add() {
         use crate::backend::c::CRenderer;
         use crate::graph::{DType as GraphDType, Graph};
-        use crate::lowerer::lower;
+        use crate::lowerer::{Lowerer, lower};
 
         // 1. グラフを作成: 2x3 配列の加算
         let mut graph = Graph::new();
@@ -413,30 +426,33 @@ void kernel_0(float** buffers) {
         let result = a + b;
         graph.output("result", result);
 
-        // 2. Lower to AST
+        // 2. Create signature from graph
+        let signature = Lowerer::create_signature(&graph);
+
+        // 3. Lower to AST
         let program = lower(graph);
 
-        // 3. Render to C code (disable OpenMP header for macOS compatibility)
+        // 4. Render to C code
         let mut renderer = CRenderer::new();
         let c_code = renderer.render_program(&program);
 
-        // 4. Compile (disable OpenMP for macOS compatibility)
+        // 5. Compile
         let mut compiler = CCompiler::new();
-        let kernel = compiler.compile(&c_code);
+        let kernel = compiler.compile(&c_code, signature);
 
-        // 5. Create buffers (row-major order)
+        // 6. Create buffers (row-major order)
         let mut input_a = CBuffer::from_f32_vec(vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0]);
         let mut input_b = CBuffer::from_f32_vec(vec![10.0f32, 20.0, 30.0, 40.0, 50.0, 60.0]);
         let mut output = CBuffer::new(vec![2, 3], std::mem::size_of::<f32>());
 
-        // 6. Execute
+        // 7. Execute
         unsafe {
             kernel
                 .execute(&mut [&mut input_a, &mut input_b, &mut output])
                 .expect("Kernel execution failed");
         }
 
-        // 7. Verify results
+        // 8. Verify results
         let result_vec = output.as_f32_slice().unwrap().to_vec();
         assert_eq!(result_vec, vec![11.0, 22.0, 33.0, 44.0, 55.0, 66.0]);
     }

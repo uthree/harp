@@ -20,38 +20,10 @@ pub use opencl::{
 #[cfg(target_os = "macos")]
 pub use metal::{MetalBuffer, MetalCompiler, MetalKernel, MetalPipeline};
 
-/// Signatureを持つコード表現のトレイト
-///
-/// 各バックエンドのCodeRepr型（CCode, MetalCode, OpenCLCode等）が実装する。
-/// これにより、GenericPipelineでSignatureを設定できる。
-pub trait SignedCode: Sized {
-    /// コード文字列とSignatureから新しいインスタンスを作成
-    fn with_signature(code: String, signature: KernelSignature) -> Self;
-
-    /// Signatureへの参照を取得
-    fn signature(&self) -> &KernelSignature;
-}
-
-/// テスト用のSignedCode実装
-///
-/// Stringをそのまま使用するモックRendererのために実装。
-/// Signatureは無視され、空のSignatureが返される。
-impl SignedCode for String {
-    fn with_signature(code: String, _signature: KernelSignature) -> Self {
-        code
-    }
-
-    fn signature(&self) -> &KernelSignature {
-        // 静的なライフタイムを持つ空のSignatureを返す
-        static EMPTY_SIGNATURE: std::sync::OnceLock<KernelSignature> = std::sync::OnceLock::new();
-        EMPTY_SIGNATURE.get_or_init(KernelSignature::empty)
-    }
-}
-
 // レンダラー。
 // Programを受け取って文字列としてレンダリングする
 pub trait Renderer {
-    type CodeRepr: SignedCode + Into<String>;
+    type CodeRepr: Into<String>;
     type Option;
     fn render(&self, program: &crate::ast::AstNode) -> Self::CodeRepr;
     fn is_available(&self) -> bool;
@@ -65,7 +37,7 @@ pub trait Compiler {
     fn new() -> Self;
     fn is_available(&self) -> bool;
     fn with_option(&mut self, _option: Self::Option) {} // default implementation is "do nothing".
-    fn compile(&mut self, code: &Self::CodeRepr) -> Self::Kernel;
+    fn compile(&mut self, code: &Self::CodeRepr, signature: KernelSignature) -> Self::Kernel;
     fn create_buffer(&self, shape: Vec<usize>, element_size: usize) -> Self::Buffer;
 }
 pub trait Buffer {
@@ -223,11 +195,12 @@ pub trait Pipeline {
         graph: crate::graph::Graph,
     ) -> Result<<Self::Compiler as Compiler>::Kernel, Self::Error> {
         // デフォルト実装: 各ステージを順番に実行
+        let signature = crate::lowerer::Lowerer::create_signature(&graph);
         let optimized_graph = self.optimize_graph(graph);
         let program = self.lower_to_program(optimized_graph);
         let optimized_program = self.optimize_program(program);
         let code = self.renderer().render(&optimized_program);
-        Ok(self.compiler().compile(&code))
+        Ok(self.compiler().compile(&code, signature))
     }
 }
 
@@ -550,10 +523,8 @@ mod tests {
             true
         }
 
-        fn compile(&mut self, _code: &Self::CodeRepr) -> Self::Kernel {
-            DummyKernel {
-                signature: KernelSignature::empty(),
-            }
+        fn compile(&mut self, _code: &Self::CodeRepr, signature: KernelSignature) -> Self::Kernel {
+            DummyKernel { signature }
         }
 
         fn create_buffer(&self, shape: Vec<usize>, _element_size: usize) -> Self::Buffer {

@@ -18,54 +18,40 @@ pub const LIBLOADING_WRAPPER_NAME: &str = "__harp_entry";
 pub type OpenCLPipeline = crate::backend::GenericPipeline<OpenCLRenderer, OpenCLCompiler>;
 
 /// OpenCL Cコードを表す型
+///
+/// newtype pattern を使用して、型システムで OpenCL 専用のコードとして扱う。
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OpenCLCode {
-    code: String,
-    signature: crate::backend::KernelSignature,
-}
+pub struct OpenCLCode(String);
 
 impl OpenCLCode {
     /// 新しい OpenCLCode を作成
     pub fn new(code: String) -> Self {
-        Self {
-            code,
-            signature: crate::backend::KernelSignature::empty(),
-        }
-    }
-
-    /// シグネチャ付きで新しい OpenCLCode を作成
-    pub fn with_signature(code: String, signature: crate::backend::KernelSignature) -> Self {
-        Self { code, signature }
+        Self(code)
     }
 
     /// 内部の String への参照を取得
     pub fn as_str(&self) -> &str {
-        &self.code
+        &self.0
     }
 
     /// 内部の String を取得（所有権を移動）
     pub fn into_inner(self) -> String {
-        self.code
-    }
-
-    /// シグネチャへの参照を取得
-    pub fn signature(&self) -> &crate::backend::KernelSignature {
-        &self.signature
+        self.0
     }
 
     /// コードのバイト数を取得
     pub fn len(&self) -> usize {
-        self.code.len()
+        self.0.len()
     }
 
     /// コードが空かどうか
     pub fn is_empty(&self) -> bool {
-        self.code.is_empty()
+        self.0.is_empty()
     }
 
     /// 指定した文字列が含まれているかチェック
     pub fn contains(&self, pat: &str) -> bool {
-        self.code.contains(pat)
+        self.0.contains(pat)
     }
 }
 
@@ -89,16 +75,6 @@ impl AsRef<str> for OpenCLCode {
 
 impl std::fmt::Display for OpenCLCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.code)
-    }
-}
-
-impl crate::backend::SignedCode for OpenCLCode {
-    fn with_signature(code: String, signature: crate::backend::KernelSignature) -> Self {
-        Self { code, signature }
-    }
-
-    fn signature(&self) -> &crate::backend::KernelSignature {
-        &self.signature
+        write!(f, "{}", self.0)
     }
 }
