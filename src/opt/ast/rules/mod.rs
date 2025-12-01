@@ -534,4 +534,217 @@ mod tests {
             _ => panic!("Expected Range node after unwrapping"),
         }
     }
+
+    #[test]
+    fn test_float_constant_folding_in_store() {
+        use crate::ast::{DType, Literal};
+        use crate::opt::ast::{
+            BeamSearchOptimizer, CompositeSuggester, RuleBaseSuggester, SimpleCostEstimator,
+            Suggester,
+        };
+
+        // Store内の定数畳み込み: Store(ptr, offset, ((Load + 3.0) + 5.0) + 8.0)
+        let load_expr = AstNode::Load {
+            ptr: Box::new(var("input")),
+            offset: Box::new(var("idx")),
+            count: 1,
+            dtype: DType::F32,
+        };
+        let value_expr = ((load_expr + const_f32(3.0)) + const_f32(5.0)) + const_f32(8.0);
+
+        let store = AstNode::Store {
+            ptr: Box::new(var("output")),
+            offset: Box::new(var("idx")),
+            value: Box::new(value_expr),
+        };
+
+        println!("Initial Store: {:?}", store);
+
+        // RuleBaseSuggesterからの提案をテスト
+        let rules = all_rules_with_search();
+        let suggester = RuleBaseSuggester::new(rules.clone());
+        let suggestions = suggester.suggest(&store);
+
+        println!("Number of suggestions for Store: {}", suggestions.len());
+        for (i, s) in suggestions.iter().enumerate() {
+            println!("Suggestion {}: {:?}", i, s);
+        }
+
+        // BeamSearchでの最適化
+        let composite_suggester =
+            CompositeSuggester::new(vec![Box::new(RuleBaseSuggester::new(rules))]);
+        let estimator = SimpleCostEstimator::new();
+        let optimizer = BeamSearchOptimizer::new(composite_suggester, estimator)
+            .with_beam_width(4)
+            .with_max_steps(100)
+            .with_progress(false);
+
+        let optimized = optimizer.optimize(store);
+        println!("Optimized Store: {:?}", optimized);
+
+        // 最適化後のvalue部分を確認
+        if let AstNode::Store { value, .. } = &optimized {
+            // value は Load + 16.0 になっているはず
+            match value.as_ref() {
+                AstNode::Add(left, right) => {
+                    println!("Optimized value: {:?} + {:?}", left, right);
+                    // 右側が16.0であることを確認
+                    let is_folded = matches!(right.as_ref(), AstNode::Const(Literal::F32(v)) if (*v - 16.0).abs() < 0.001);
+                    assert!(is_folded, "Expected const 16.0, got {:?}", right);
+                }
+                _ => panic!("Expected Add node in store value, got {:?}", value),
+            }
+        } else {
+            panic!("Expected Store node, got {:?}", optimized);
+        }
+    }
+
+    #[test]
+    fn test_float_constant_folding_in_program() {
+        use crate::ast::{DType, Mutability, VarDecl, VarKind};
+        use crate::opt::ast::{
+            BeamSearchOptimizer, CompositeSuggester, CostEstimator, RuleBaseSuggester,
+            SimpleCostEstimator,
+        };
+
+        // Program内のKernelにある定数畳み込み
+        let load_expr = AstNode::Load {
+            ptr: Box::new(var("input")),
+            offset: Box::new(var("idx")),
+            count: 1,
+            dtype: DType::F32,
+        };
+        let value_expr = ((load_expr + const_f32(3.0)) + const_f32(5.0)) + const_f32(8.0);
+
+        let store = AstNode::Store {
+            ptr: Box::new(var("output")),
+            offset: Box::new(var("idx")),
+            value: Box::new(value_expr),
+        };
+
+        // Rangeループ内にStoreを配置
+        let range = AstNode::Range {
+            var: "idx".to_string(),
+            start: Box::new(const_int(0)),
+            step: Box::new(const_int(1)),
+            stop: Box::new(const_int(64)),
+            body: Box::new(store),
+        };
+
+        // Kernel内にRangeを配置（thread_group_sizeは0で未指定を表す）
+        let kernel = AstNode::Kernel {
+            name: Some("test_kernel".to_string()),
+            params: vec![
+                VarDecl {
+                    name: "input".to_string(),
+                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::Normal,
+                },
+                VarDecl {
+                    name: "output".to_string(),
+                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    mutability: Mutability::Mutable,
+                    kind: VarKind::Normal,
+                },
+            ],
+            return_type: DType::Tuple(vec![]),
+            body: Box::new(range),
+            thread_group_size: 0,
+        };
+
+        // Program内にKernelを配置
+        let program = AstNode::Program {
+            functions: vec![kernel],
+            entry_point: "test_kernel".to_string(),
+        };
+
+        let estimator = SimpleCostEstimator::new();
+        let initial_cost = estimator.estimate(&program);
+
+        // BeamSearchでの最適化
+        let rules = all_rules_with_search();
+        let composite_suggester =
+            CompositeSuggester::new(vec![Box::new(RuleBaseSuggester::new(rules))]);
+        let optimizer = BeamSearchOptimizer::new(composite_suggester, SimpleCostEstimator::new())
+            .with_beam_width(10)
+            .with_max_steps(50)
+            .with_progress(false);
+
+        let optimized = optimizer.optimize(program);
+        let final_cost = SimpleCostEstimator::new().estimate(&optimized);
+
+        // コストが改善されていることを確認
+        assert!(
+            final_cost < initial_cost,
+            "Cost should be reduced: {} < {}",
+            final_cost,
+            initial_cost
+        );
+
+        // 最適化後の式を確認
+        let optimized_str = format!("{:?}", optimized);
+
+        // "F32(16.0)" が含まれていれば定数畳み込みが成功
+        assert!(
+            optimized_str.contains("F32(16.0)"),
+            "Should contain folded constant 16.0"
+        );
+    }
+
+    #[test]
+    fn test_float_constant_folding_with_associativity() {
+        use crate::ast::Literal;
+        use crate::opt::ast::{
+            BeamSearchOptimizer, CompositeSuggester, RuleBaseSuggester, SimpleCostEstimator,
+            Suggester,
+        };
+
+        // ((a + 3.0) + 5.0) + 8.0 → a + 16.0 になることを期待
+        let a = var("a");
+        let expr = ((a.clone() + const_f32(3.0)) + const_f32(5.0)) + const_f32(8.0);
+
+        // RuleBaseSuggesterからの提案をテスト
+        let rules = all_rules_with_search();
+        let suggester = RuleBaseSuggester::new(rules.clone());
+        let suggestions = suggester.suggest(&expr);
+
+        println!("Initial expression: {:?}", expr);
+        println!("Number of suggestions: {}", suggestions.len());
+        for (i, s) in suggestions.iter().enumerate() {
+            println!("Suggestion {}: {:?}", i, s);
+        }
+
+        // BeamSearchでの最適化
+        let composite_suggester =
+            CompositeSuggester::new(vec![Box::new(RuleBaseSuggester::new(rules))]);
+        let estimator = SimpleCostEstimator::new();
+        let optimizer = BeamSearchOptimizer::new(composite_suggester, estimator)
+            .with_beam_width(4)
+            .with_max_steps(100);
+
+        let optimized = optimizer.optimize(expr);
+        println!("Optimized: {:?}", optimized);
+
+        // 結果が a + 16.0 になっていることを確認
+        // (または中間形式でも定数が畳み込まれていれば良い)
+        match &optimized {
+            AstNode::Add(left, right) => {
+                // 左が変数で右が定数16.0、または左が定数16.0で右が変数
+                let is_simplified = matches!(
+                    (left.as_ref(), right.as_ref()),
+                    (AstNode::Var(_), AstNode::Const(Literal::F32(v))) if (*v - 16.0).abs() < 0.001
+                ) || matches!(
+                    (left.as_ref(), right.as_ref()),
+                    (AstNode::Const(Literal::F32(v)), AstNode::Var(_)) if (*v - 16.0).abs() < 0.001
+                );
+                assert!(
+                    is_simplified,
+                    "Expression should be simplified to a + 16.0, got {:?}",
+                    optimized
+                );
+            }
+            _ => panic!("Expected Add node, got {:?}", optimized),
+        }
+    }
 }

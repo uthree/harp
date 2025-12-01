@@ -45,6 +45,14 @@ fn main() -> eframe::Result {
         enable_early_termination: false, // 早期終了を無効化
     };
 
+    // AST最適化の設定
+    pipeline.ast_config = OptimizationConfig {
+        beam_width: 4,
+        max_steps: 100,
+        show_progress: true,
+        enable_early_termination: true,
+    };
+
     println!("  ✓ Pipeline作成完了（統合最適化有効）\n");
 
     // 複雑な計算グラフを作成（複数の演算を含む）
@@ -319,8 +327,10 @@ fn create_complex_computation_graph() -> Graph {
     // 2回目の行列積: matmul(temp2, d) -> [M, P]
     let x = matmul(temp2, d);
 
-    // 複数の出力ノードをテストする
-    let y = &x + 1.0f32;
+    // 複数の出力ノードと定数の計算
+    let y = &x + 3.0f32;
+    let y = &y + 5.0f32;
+    let y = &y + 8.0f32;
     graph.output("x", x);
     graph.output("y", y);
 

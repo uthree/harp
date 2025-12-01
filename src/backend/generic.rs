@@ -6,7 +6,7 @@ use crate::opt::ast::{
     BeamSearchOptimizer as AstBeamSearchOptimizer, CompositeSuggester as AstCompositeSuggester,
     FunctionInliningSuggester, LoopFusionSuggester, LoopInliningSuggester,
     LoopInterchangeSuggester, LoopTilingSuggester, OptimizationHistory as AstOptimizationHistory,
-    Optimizer, RuleBaseOptimizer, RuleBaseSuggester, SimpleCostEstimator as AstSimpleCostEstimator,
+    RuleBaseSuggester, SimpleCostEstimator as AstSimpleCostEstimator,
 };
 use crate::opt::graph::{
     BeamSearchGraphOptimizer, BufferAbsorptionSuggester, CompositeSuggester,
@@ -541,7 +541,7 @@ where
     /// 新しいGenericPipelineを作成
     ///
     /// グラフ最適化は常に有効です（LoweringSuggesterによるCustomノード変換が必須）。
-    /// AST最適化はデフォルトで無効です。
+    /// AST最適化もデフォルトで有効です。
     ///
     /// 最適化履歴の収集は、DEBUGビルドではデフォルトで有効、RELEASEビルドでは無効です。
     pub fn new(renderer: R, compiler: C) -> Self {
@@ -551,7 +551,7 @@ where
             kernel_cache: HashMap::new(),
             histories: OptimizationHistories::default(),
             graph_config: OptimizationConfig::default(),
-            enable_ast_optimization: false,
+            enable_ast_optimization: true, // デフォルトで有効
             ast_config: OptimizationConfig::default(),
             collect_histories: cfg!(debug_assertions),
             enable_multi_phase: true, // デフォルトでマルチフェーズ最適化を有効化
@@ -787,13 +787,11 @@ where
     }
 
     /// AST最適化の内部処理（履歴付き）
+    ///
+    /// ビームサーチ最適化を適用します。
+    /// RuleBaseSuggesterがビームサーチ内に含まれているため、
+    /// 代数的簡約などのルールベース最適化も統合的に探索されます。
     fn optimize_ast_internal(&mut self, program: AstNode) -> (AstNode, AstOptimizationHistory) {
-        // 1. ルールベース最適化（代数的簡約など）を先に適用
-        let rules = all_rules_with_search();
-        let rule_optimizer = RuleBaseOptimizer::new(rules).with_max_iterations(100);
-        let program = rule_optimizer.optimize(program);
-
-        // 2. ビームサーチ最適化を適用
         let suggester = Self::create_ast_suggester();
         let estimator = AstSimpleCostEstimator::new();
         let optimizer = self.create_ast_optimizer(suggester, estimator);
@@ -1040,26 +1038,26 @@ mod tests {
     }
 
     #[test]
-    fn test_ast_optimization_disabled_by_default() {
+    fn test_ast_optimization_enabled_by_default() {
         let renderer = DummyRenderer;
         let compiler = DummyCompiler;
         let pipeline = GenericPipeline::new(renderer, compiler);
 
-        // AST最適化はデフォルトで無効（グラフ最適化は常に有効）
-        assert!(!pipeline.enable_ast_optimization);
+        // AST最適化はデフォルトで有効
+        assert!(pipeline.enable_ast_optimization);
     }
 
     #[test]
-    fn test_enable_ast_optimization() {
+    fn test_disable_ast_optimization() {
         let renderer = DummyRenderer;
         let compiler = DummyCompiler;
         let mut pipeline = GenericPipeline::new(renderer, compiler);
 
-        // フィールドに直接アクセスしてAST最適化を有効化
-        pipeline.enable_ast_optimization = true;
+        // フィールドに直接アクセスしてAST最適化を無効化
+        pipeline.enable_ast_optimization = false;
 
-        // AST最適化が有効になっている
-        assert!(pipeline.enable_ast_optimization);
+        // AST最適化が無効になっている
+        assert!(!pipeline.enable_ast_optimization);
     }
 
     #[test]

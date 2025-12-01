@@ -154,6 +154,7 @@ impl SimpleCostEstimator {
             AstNode::Call { args, .. } => args.iter().map(Self::count_nodes).sum(),
             AstNode::Return { value } => Self::count_nodes(value),
             AstNode::Function { body, .. } => Self::count_nodes(body),
+            AstNode::Kernel { body, .. } => Self::count_nodes(body),
             AstNode::Program { functions, .. } => functions.iter().map(Self::count_nodes).sum(),
             _ => 0, // Const, Var, Barrier, etc.
         };
@@ -323,20 +324,23 @@ impl CostEstimator for SimpleCostEstimator {
                 // 関数定義自体にもコストがかかる（プロローグ/エピローグ、スタックフレーム管理など）
                 log_sum_exp(self.estimate(body), FUNCTION_DEFINITION_OVERHEAD.ln())
             }
+            AstNode::Kernel { body, .. } => {
+                // カーネル本体のコスト + 関数定義オーバーヘッド
+                // カーネルも関数と同様に定義オーバーヘッドがある
+                log_sum_exp(self.estimate(body), FUNCTION_DEFINITION_OVERHEAD.ln())
+            }
             AstNode::Program {
                 functions,
                 entry_point,
             } => {
-                // エントリポイント以外の関数の数に基づいてペナルティを計算
+                // エントリポイント以外の関数/カーネルの数に基づいてペナルティを計算
                 // 未使用の関数が多いほどコストが高くなる（インライン展開を促進）
                 let non_entry_functions = functions
                     .iter()
-                    .filter(|f| {
-                        if let AstNode::Function { name: Some(n), .. } = f {
-                            n != entry_point
-                        } else {
-                            true
-                        }
+                    .filter(|f| match f {
+                        AstNode::Function { name: Some(n), .. } => n != entry_point,
+                        AstNode::Kernel { name: Some(n), .. } => n != entry_point,
+                        _ => true,
                     })
                     .count();
 

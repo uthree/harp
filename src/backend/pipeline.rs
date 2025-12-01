@@ -8,7 +8,7 @@ use crate::opt::ast::{
     BeamSearchOptimizer as AstBeamSearchOptimizer, CompositeSuggester as AstCompositeSuggester,
     FunctionInliningSuggester, LoopFusionSuggester, LoopInliningSuggester,
     LoopInterchangeSuggester, LoopTilingSuggester, OptimizationHistory as AstOptimizationHistory,
-    Optimizer, RuleBaseOptimizer, RuleBaseSuggester, SimpleCostEstimator as AstSimpleCostEstimator,
+    RuleBaseSuggester, SimpleCostEstimator as AstSimpleCostEstimator,
 };
 use crate::opt::graph::{
     AstBasedCostEstimator, AstOptimizationSuggester, BeamSearchGraphOptimizer,
@@ -266,18 +266,16 @@ where
 }
 
 /// AST最適化を実行（履歴付き）
+///
+/// ビームサーチ最適化を適用します。
+/// RuleBaseSuggesterがビームサーチ内に含まれているため、
+/// 代数的簡約などのルールベース最適化も統合的に探索されます。
 pub fn optimize_ast_with_history(
     program: AstNode,
     beam_width: usize,
     max_steps: usize,
     show_progress: bool,
 ) -> (AstNode, AstOptimizationHistory) {
-    // 1. ルールベース最適化（代数的簡約など）を先に適用
-    let rules = all_rules_with_search();
-    let rule_optimizer = RuleBaseOptimizer::new(rules).with_max_iterations(100);
-    let program = rule_optimizer.optimize(program);
-
-    // 2. ビームサーチ最適化を適用
     let suggester = create_ast_suggester();
     let estimator = AstSimpleCostEstimator::new();
     let optimizer =

@@ -271,8 +271,8 @@ impl SimpleCostEstimator {
                 let ast_estimator = AstSimpleCostEstimator::new();
 
                 match ast {
-                    AstNode::Function { .. } | AstNode::Program { .. } => {
-                        // Function/Programの場合、ASTのコストを使用
+                    AstNode::Function { .. } | AstNode::Kernel { .. } | AstNode::Program { .. } => {
+                        // Function/Kernel/Programの場合、ASTのコストを使用
                         let ast_cost = ast_estimator.estimate(ast);
                         // Customノードは複数のグラフノードを1つにまとめるため、
                         // カーネル起動オーバーヘッドの削減効果を反映させる
