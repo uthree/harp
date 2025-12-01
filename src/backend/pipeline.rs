@@ -196,9 +196,9 @@ pub fn create_lowering_phase_suggester() -> CompositeSuggester {
 /// AstOptimizationSuggesterのみを使用します。
 pub fn create_ast_optimization_phase_suggester() -> CompositeSuggester {
     let ast_suggesters = create_ast_suggesters_for_graph();
-    CompositeSuggester::new(vec![Box::new(
-        AstOptimizationSuggester::new(ast_suggesters).with_max_suggestions_per_node(3),
-    )])
+    CompositeSuggester::new(vec![Box::new(AstOptimizationSuggester::new(
+        ast_suggesters,
+    ))])
 }
 
 /// AST最適化用のSuggesterを作成
@@ -454,8 +454,10 @@ pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOpt
         .with_progress(config.show_progress)
         .with_collect_logs(config.collect_logs);
 
-    // チェーンを構築
-    let chain = preparation_optimizer.chain_named("Preparation", "Lowering", lowering_optimizer);
+    // チェーンを構築（各オプティマイザに名前を付けてからchainする）
+    let chain = preparation_optimizer
+        .with_name("Preparation")
+        .chain(lowering_optimizer.with_name("Lowering"));
 
     // Phase 3: AST最適化（オプション）
     if config.enable_ast_phase {
@@ -463,11 +465,11 @@ pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOpt
         let ast_estimator = AstBasedCostEstimator::new(AstSimpleCostEstimator::new());
         let ast_optimizer = BeamSearchGraphOptimizer::new(ast_suggester, ast_estimator)
             .with_beam_width(config.beam_width)
-            .with_max_steps(config.max_steps_per_phase / 2) // AST最適化は少なめに
+            .with_max_steps(config.max_steps_per_phase) // AST最適化は少なめに
             .with_progress(config.show_progress)
             .with_collect_logs(config.collect_logs);
 
-        chain.chain_named("AST Optimization", ast_optimizer)
+        chain.chain(ast_optimizer.with_name("AST Optimization"))
     } else {
         chain
     }

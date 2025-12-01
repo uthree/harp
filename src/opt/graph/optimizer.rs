@@ -470,41 +470,28 @@ impl ChainedGraphOptimizer {
     /// 他のオプティマイザをチェーンに追加
     ///
     /// 既存のチェーンに新しいフェーズを追加します。
-    /// フェーズ名は自動的に "Phase N" と命名されます。
+    /// オプティマイザに`with_name()`で名前が設定されている場合はその名前を使用し、
+    /// 設定されていない場合は "Phase N" と自動命名されます。
     ///
     /// # Example
     ///
     /// ```ignore
-    /// let chained = optimizer1
-    ///     .chain(optimizer2)
-    ///     .chain(optimizer3);
+    /// // 名前付きでチェーン
+    /// let chained = ChainedGraphOptimizer::new()
+    ///     .add_phase("Phase 1", optimizer1)
+    ///     .chain(optimizer2.with_name("Fusion"))
+    ///     .chain(optimizer3.with_name("Finalize"));
+    ///
+    /// // 名前なしでチェーン（自動命名）
+    /// let chained = optimizer1.chain(optimizer2).chain(optimizer3);
     /// ```
     pub fn chain<O: GraphOptimizer + 'static>(mut self, other: O) -> Self {
         let phase_num = self.phases.len() + 1;
-        self.phases
-            .push((format!("Phase {}", phase_num), Box::new(other)));
-        self
-    }
-
-    /// 他のオプティマイザを名前付きでチェーンに追加
-    ///
-    /// # Arguments
-    /// * `name` - 追加するフェーズの名前
-    /// * `other` - 追加するオプティマイザ
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let chained = optimizer1
-    ///     .chain_named("Fusion", optimizer2)
-    ///     .chain_named("Finalize", optimizer3);
-    /// ```
-    pub fn chain_named<O: GraphOptimizer + 'static>(
-        mut self,
-        name: impl Into<String>,
-        other: O,
-    ) -> Self {
-        self.phases.push((name.into(), Box::new(other)));
+        let name = other
+            .name()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("Phase {}", phase_num));
+        self.phases.push((name, Box::new(other)));
         self
     }
 }
@@ -512,6 +499,57 @@ impl ChainedGraphOptimizer {
 impl Default for ChainedGraphOptimizer {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// 名前付きオプティマイザのラッパー
+///
+/// `GraphOptimizer::with_name()`で作成され、チェーン時にフェーズ名として使用されます。
+///
+/// # Example
+///
+/// ```ignore
+/// let named = optimizer.with_name("Preparation");
+/// assert_eq!(named.name(), Some("Preparation"));
+///
+/// let chained = named.chain(other.with_name("Lowering"));
+/// ```
+pub struct NamedOptimizer<O: GraphOptimizer> {
+    inner: O,
+    name: String,
+}
+
+impl<O: GraphOptimizer> NamedOptimizer<O> {
+    /// 新しいNamedOptimizerを作成
+    pub fn new(inner: O, name: impl Into<String>) -> Self {
+        Self {
+            inner,
+            name: name.into(),
+        }
+    }
+
+    /// 内部のオプティマイザへの参照を取得
+    pub fn inner(&self) -> &O {
+        &self.inner
+    }
+
+    /// 内部のオプティマイザを取り出す
+    pub fn into_inner(self) -> O {
+        self.inner
+    }
+}
+
+impl<O: GraphOptimizer> GraphOptimizer for NamedOptimizer<O> {
+    fn name(&self) -> Option<&str> {
+        Some(&self.name)
+    }
+
+    fn optimize(&self, graph: Graph) -> Graph {
+        self.inner.optimize(graph)
+    }
+
+    fn optimize_with_history(&self, graph: Graph) -> (Graph, OptimizationHistory) {
+        self.inner.optimize_with_history(graph)
     }
 }
 
@@ -770,17 +808,18 @@ mod tests {
     }
 
     #[test]
-    fn test_chain_named_method() {
+    fn test_with_name_method() {
         use crate::opt::graph::GraphOptimizer;
 
         let opt1 = HistoryRecordingOptimizer { phase_id: 1 };
         let opt2 = HistoryRecordingOptimizer { phase_id: 2 };
         let opt3 = HistoryRecordingOptimizer { phase_id: 3 };
 
-        // chain_namedで名前を指定してチェーン
+        // with_name()で名前を付けてからchain()でチェーン
         let chained = opt1
-            .chain_named("Lowering", "Fusion", opt2)
-            .chain_named("Finalize", opt3);
+            .with_name("Lowering")
+            .chain(opt2.with_name("Fusion"))
+            .chain(opt3.with_name("Finalize"));
 
         assert_eq!(chained.len(), 3);
 
@@ -794,5 +833,29 @@ mod tests {
         // 指定したフェーズ名が使われているはず
         let snapshots = history.snapshots();
         assert!(snapshots[0].description.contains("Lowering"));
+        assert!(snapshots[2].description.contains("Fusion"));
+        assert!(snapshots[3].description.contains("Finalize"));
+    }
+
+    #[test]
+    fn test_named_optimizer() {
+        use crate::opt::graph::GraphOptimizer;
+
+        let opt = HistoryRecordingOptimizer { phase_id: 1 };
+
+        // 名前なしの場合
+        assert!(opt.name().is_none());
+
+        // 名前を付けた場合
+        let named = opt.with_name("MyOptimizer");
+        assert_eq!(named.name(), Some("MyOptimizer"));
+
+        // 最適化は元のオプティマイザと同じ動作
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![10]);
+        graph.output("out", a);
+
+        let (result, _history) = named.optimize_with_history(graph);
+        assert_eq!(result.outputs().len(), 1);
     }
 }

@@ -7,6 +7,14 @@ use crate::graph::Graph;
 
 /// グラフを最適化するトレイト
 pub trait GraphOptimizer {
+    /// オプティマイザの名前を返す（オプション）
+    ///
+    /// `with_name()`で名前を設定した場合はその名前を返します。
+    /// デフォルトはNone（名前なし）です。
+    fn name(&self) -> Option<&str> {
+        None
+    }
+
     /// グラフを最適化して返す
     fn optimize(&self, graph: Graph) -> Graph;
 
@@ -19,49 +27,53 @@ pub trait GraphOptimizer {
         (optimized, OptimizationHistory::new())
     }
 
-    /// 他のオプティマイザとチェーンする
+    /// オプティマイザに名前を付ける
     ///
-    /// フェーズ名は自動的に "Phase 1", "Phase 2", ... と命名されます。
-    /// 名前を指定したい場合は `chain_named` を使用してください。
+    /// チェーン時にこの名前がフェーズ名として使用されます。
     ///
     /// # Example
     ///
     /// ```ignore
+    /// let chained = preparation_optimizer
+    ///     .with_name("Preparation")
+    ///     .chain(lowering_optimizer.with_name("Lowering"));
+    /// ```
+    fn with_name(self, name: impl Into<String>) -> optimizer::NamedOptimizer<Self>
+    where
+        Self: Sized,
+    {
+        optimizer::NamedOptimizer::new(self, name)
+    }
+
+    /// 他のオプティマイザとチェーンする
+    ///
+    /// 各オプティマイザの`name()`が設定されている場合はその名前を使用し、
+    /// 設定されていない場合は "Phase 1", "Phase 2", ... と自動命名されます。
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // 名前付きでチェーン
+    /// let chained = optimizer1
+    ///     .with_name("Preparation")
+    ///     .chain(optimizer2.with_name("Lowering"));
+    ///
+    /// // 名前なしでチェーン（自動命名）
     /// let chained = optimizer1.chain(optimizer2).chain(optimizer3);
-    /// let result = chained.optimize(graph);
     /// ```
     fn chain<O: GraphOptimizer + 'static>(self, other: O) -> optimizer::ChainedGraphOptimizer
     where
         Self: Sized + 'static,
     {
-        optimizer::ChainedGraphOptimizer::new()
-            .add_phase("Phase 1", self)
-            .add_phase("Phase 2", other)
-    }
+        let self_name = self
+            .name()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "Phase 1".to_string());
+        let other_name = other
+            .name()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "Phase 2".to_string());
 
-    /// 他のオプティマイザと名前付きでチェーンする
-    ///
-    /// # Arguments
-    /// * `self_name` - 自身のフェーズ名
-    /// * `other_name` - 追加するオプティマイザのフェーズ名
-    /// * `other` - 追加するオプティマイザ
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let chained = optimizer1
-    ///     .chain_named("Lowering", "Fusion", optimizer2)
-    ///     .chain_named("", "Finalize", optimizer3);  // 既存チェーンには空文字で
-    /// ```
-    fn chain_named<O: GraphOptimizer + 'static>(
-        self,
-        self_name: impl Into<String>,
-        other_name: impl Into<String>,
-        other: O,
-    ) -> optimizer::ChainedGraphOptimizer
-    where
-        Self: Sized + 'static,
-    {
         optimizer::ChainedGraphOptimizer::new()
             .add_phase(self_name, self)
             .add_phase(other_name, other)
@@ -115,7 +127,7 @@ pub use estimator::{
     AstBasedCostEstimator, KernelMergeCostEstimator, LoweringCostEstimator, SimpleCostEstimator,
 };
 pub use history::{OptimizationHistory, OptimizationSnapshot};
-pub use optimizer::{BeamSearchGraphOptimizer, ChainedGraphOptimizer};
+pub use optimizer::{BeamSearchGraphOptimizer, ChainedGraphOptimizer, NamedOptimizer};
 pub use suggesters::{
     AstOptimizationSuggester, BufferAbsorptionSuggester, CompositeSuggester,
     ContiguousInsertionSuggester, FusionSuggester, KernelMergeSuggester, LoweringSuggester,
