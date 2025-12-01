@@ -6,17 +6,12 @@
 //!
 //! # 処理フロー
 //! 1. Sinkの入力側にあるCustom(Function)を検出
-//! 2. 参照カウントを計算して吸収可能かを判定
-//! 3. 吸収時にProgramにKernelを追加し、main関数を更新
+//! 2. 吸収時にProgramにKernelを追加し、main関数を更新
 //!
-//! # 参照カウントの計算
-//! Sinkを起点に参照カウントを計算することで、
-//! 複数出力間の依存関係問題を解決します。
-//!
-//! # ViewMergeSuggesterとの連携
-//! このSuggesterはViewノードを透過的に扱わず、直接Custom(Function)を検出します。
-//! Viewノードの処理はViewMergeSuggesterに委譲されるため、
-//! パイプラインではViewMergeSuggesterが先に適用される必要があります。
+//! # マルチフェーズ最適化との連携
+//! このSuggesterはLoweringフェーズで使用されます。
+//! PreparationフェーズでViewMergeSuggesterが適用済みのため、
+//! Viewノードは最小限になっており、特別な処理は不要です。
 
 use crate::ast::helper::{block, function, var};
 use crate::ast::{AstNode, DType as AstDType, Mutability, Scope, VarDecl, VarKind};
@@ -54,59 +49,35 @@ impl ProgramRootAbsorptionSuggester {
 
     /// Sinkノードから吸収可能なCustom(Function)を検出
     ///
-    /// 吸収条件:
-    /// - Custom(Function)ノードであること
-    /// - 「外部参照カウント」が0であること（すべての消費者がSink内部にある）
+    /// Sinkの直接の入力からCustom(Function)を探します。
+    /// マルチフェーズ最適化では、ViewMergeSuggesterがPreparationフェーズで
+    /// 適用済みのため、Viewを透過的に辿る必要はありません。
     ///
-    /// 複数出力の場合、出力間で共有されるノードも吸収可能です。
-    /// ただし、吸収順序は依存関係に基づいて決定されます。
+    /// 複数のCustom(Function)がチェーンしている場合、リーフから順に
+    /// 吸収するためにトポロジカル順序で返します。
     fn find_absorbable_customs(&self, graph: &Graph) -> Vec<GraphNode> {
         let sink = match graph.sink() {
             Some(s) => s,
             None => return vec![],
         };
 
-        // Sink内部からの参照カウントを計算
-        let internal_ref_counts = self.count_internal_references(sink);
-
-        // 既にProgramに吸収されたノードを追跡
-        let absorbed_nodes = self.collect_absorbed_node_ptrs(sink);
-
         let mut absorbable = Vec::new();
+        let mut visited = HashSet::new();
 
         // Sinkのsrcを走査してCustom(Function)を検出
         for src in &sink.src {
-            self.find_customs_recursive_multi_output(
-                src,
-                &internal_ref_counts,
-                &absorbed_nodes,
-                &mut absorbable,
-                &mut HashSet::new(),
-            );
+            Self::collect_customs_topological(src, &mut absorbable, &mut visited);
         }
 
         absorbable
     }
 
-    /// 既にSink(Program)に吸収されたノードのポインタを収集
-    fn collect_absorbed_node_ptrs(&self, _sink: &GraphNode) -> HashSet<*const GraphNodeData> {
-        // Sink内のProgramから、すでに吸収されたカーネルの情報を取得することも可能だが、
-        // 現在の実装では、Sinkのsrc内のCustom(Function)をチェックするだけで十分
-        // 将来的には、Programに含まれるカーネル名から元のノードを追跡できる
-
-        // 現在は空を返す（すべてのCustom(Function)は未吸収として扱う）
-        HashSet::new()
-    }
-
-    /// 再帰的にCustom(Function)ノードを探索（複数出力対応版）
+    /// Custom(Function)をトポロジカル順序で収集
     ///
-    /// 複数出力間で共有されるノードも吸収可能とします。
-    /// トポロジカル順序に基づいて、リーフから順に吸収します。
-    fn find_customs_recursive_multi_output(
-        &self,
+    /// 依存関係のあるCustom(Function)を正しい順序で吸収するため、
+    /// 子ノードを先に処理してから親ノードを追加します。
+    fn collect_customs_topological(
         node: &GraphNode,
-        internal_ref_counts: &HashMap<*const GraphNodeData, usize>,
-        absorbed_nodes: &HashSet<*const GraphNodeData>,
         result: &mut Vec<GraphNode>,
         visited: &mut HashSet<*const GraphNodeData>,
     ) {
@@ -118,71 +89,17 @@ impl ProgramRootAbsorptionSuggester {
 
         // 先に子ノードを探索（トポロジカル順序を維持）
         for src in &node.src {
-            self.find_customs_recursive_multi_output(
-                src,
-                internal_ref_counts,
-                absorbed_nodes,
-                result,
-                visited,
-            );
+            Self::collect_customs_topological(src, result, visited);
         }
 
         // Custom(Function)かどうかをチェック
-        // 注: ViewノードはViewMergeSuggesterによって事前に削除されているため、
-        // ここではtrace_to_storage_nodeは不要
-        let node_ptr = node.as_ptr();
-
         if let GraphOp::Kernel { ast, .. } = &node.op
             && matches!(ast, AstNode::Function { .. })
+            && !result.iter().any(|n| n.as_ptr() == ptr)
         {
-            // 既に吸収済みでなく、まだ結果に含まれていない場合
-            if !absorbed_nodes.contains(&node_ptr) && !result.iter().any(|n| n.as_ptr() == node_ptr)
-            {
-                log::debug!(
-                    "ProgramRootAbsorption: found absorbable Custom(Function) with ref_count={}",
-                    internal_ref_counts.get(&node_ptr).copied().unwrap_or(0)
-                );
-                result.push(node.clone());
-            }
+            log::debug!("ProgramRootAbsorption: found absorbable Custom(Function)");
+            result.push(node.clone());
         }
-    }
-
-    /// Sink内部からの参照カウントを計算
-    ///
-    /// 各ノードが何回参照されているかをカウントします。
-    /// これは主にデバッグ目的で使用されます。
-    /// 注: ViewノードはViewMergeSuggesterによって事前に削除されているため、
-    /// ここではtrace_to_storage_nodeは不要
-    fn count_internal_references(&self, sink: &GraphNode) -> HashMap<*const GraphNodeData, usize> {
-        let mut ref_counts: HashMap<*const GraphNodeData, usize> = HashMap::new();
-        let mut visited = HashSet::new();
-
-        fn visit(
-            node: &GraphNode,
-            ref_counts: &mut HashMap<*const GraphNodeData, usize>,
-            visited: &mut HashSet<*const GraphNodeData>,
-        ) {
-            let ptr = node.as_ptr();
-            if visited.contains(&ptr) {
-                return;
-            }
-            visited.insert(ptr);
-
-            for src in &node.src {
-                let src_ptr = src.as_ptr();
-                *ref_counts.entry(src_ptr).or_insert(0) += 1;
-
-                // 再帰的に訪問
-                visit(src, ref_counts, visited);
-            }
-        }
-
-        // Sinkのsrcから探索開始
-        for src in &sink.src {
-            visit(src, &mut ref_counts, &mut visited);
-        }
-
-        ref_counts
     }
 
     /// Custom(Function)をSinkに吸収
