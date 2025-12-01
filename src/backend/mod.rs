@@ -20,10 +20,38 @@ pub use opencl::{
 #[cfg(target_os = "macos")]
 pub use metal::{MetalBuffer, MetalCompiler, MetalKernel, MetalPipeline};
 
+/// Signatureを持つコード表現のトレイト
+///
+/// 各バックエンドのCodeRepr型（CCode, MetalCode, OpenCLCode等）が実装する。
+/// これにより、GenericPipelineでSignatureを設定できる。
+pub trait SignedCode: Sized {
+    /// コード文字列とSignatureから新しいインスタンスを作成
+    fn with_signature(code: String, signature: KernelSignature) -> Self;
+
+    /// Signatureへの参照を取得
+    fn signature(&self) -> &KernelSignature;
+}
+
+/// テスト用のSignedCode実装
+///
+/// Stringをそのまま使用するモックRendererのために実装。
+/// Signatureは無視され、空のSignatureが返される。
+impl SignedCode for String {
+    fn with_signature(code: String, _signature: KernelSignature) -> Self {
+        code
+    }
+
+    fn signature(&self) -> &KernelSignature {
+        // 静的なライフタイムを持つ空のSignatureを返す
+        static EMPTY_SIGNATURE: std::sync::OnceLock<KernelSignature> = std::sync::OnceLock::new();
+        EMPTY_SIGNATURE.get_or_init(KernelSignature::empty)
+    }
+}
+
 // レンダラー。
 // Programを受け取って文字列としてレンダリングする
 pub trait Renderer {
-    type CodeRepr;
+    type CodeRepr: SignedCode + Into<String>;
     type Option;
     fn render(&self, program: &crate::ast::AstNode) -> Self::CodeRepr;
     fn is_available(&self) -> bool;

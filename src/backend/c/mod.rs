@@ -14,158 +14,11 @@ pub use renderer::CRenderer;
 /// ラップする関数を生成する。この定数はレンダラーとコンパイラの両方で使用される。
 pub const LIBLOADING_WRAPPER_NAME: &str = "__harp_entry";
 
-use crate::ast::AstNode;
-use crate::backend::{
-    Compiler, OptimizationConfig, OptimizationHistories, Pipeline, Renderer,
-    pipeline::{SuggesterFlags, optimize_ast_with_history, optimize_graph_with_history},
-};
-use crate::graph::Graph;
-use crate::opt::graph::SimpleCostEstimator;
-use std::collections::HashMap;
-
 /// C言語バックエンド専用のPipeline
 ///
-/// 並列化・SIMD最適化を含まないため、シングルスレッド実行に特化しています。
+/// GenericPipelineの特殊化として定義。
 /// グラフ最適化は常に有効です（LoweringSuggesterによるCustomノード変換が必須）。
-pub struct CPipeline {
-    renderer: CRenderer,
-    compiler: CCompiler,
-    kernel_cache: HashMap<String, CKernel>,
-    pub histories: OptimizationHistories,
-    pub graph_config: OptimizationConfig,
-    pub enable_ast_optimization: bool,
-    pub ast_config: OptimizationConfig,
-    pub collect_histories: bool,
-}
-
-impl CPipeline {
-    /// 新しいCPipelineを作成
-    pub fn new(renderer: CRenderer, compiler: CCompiler) -> Self {
-        Self {
-            renderer,
-            compiler,
-            kernel_cache: HashMap::new(),
-            histories: OptimizationHistories::default(),
-            graph_config: OptimizationConfig::default(),
-            enable_ast_optimization: false,
-            ast_config: OptimizationConfig::default(),
-            collect_histories: cfg!(debug_assertions),
-        }
-    }
-
-    /// キャッシュからKernelを取得
-    pub fn get_cached_kernel(&self, key: &str) -> Option<&CKernel> {
-        self.kernel_cache.get(key)
-    }
-
-    /// グラフをコンパイルし、結果をキャッシュに保存
-    pub fn compile_and_cache(&mut self, key: String, graph: Graph) -> Result<&CKernel, String> {
-        let kernel = self.compile_graph(graph)?;
-        self.kernel_cache.insert(key.clone(), kernel);
-        Ok(self.kernel_cache.get(&key).unwrap())
-    }
-
-    /// キャッシュをクリア
-    pub fn clear_cache(&mut self) {
-        self.kernel_cache.clear();
-    }
-
-    /// グラフ最適化の内部処理（シングルスレッド用）
-    ///
-    /// グラフ最適化は常に有効（LoweringSuggesterによるCustomノード変換が必須）
-    fn optimize_graph_internal(&mut self, graph: Graph) -> Graph {
-        let flags = SuggesterFlags::new(); // 並列化・SIMD無効
-        let (optimized, history) = optimize_graph_with_history(
-            graph,
-            flags,
-            SimpleCostEstimator::new(),
-            self.graph_config.beam_width,
-            self.graph_config.max_steps,
-            self.graph_config.show_progress,
-        );
-
-        if self.collect_histories {
-            self.histories.graph = Some(history);
-        }
-        optimized
-    }
-
-    /// AST最適化の内部処理
-    fn optimize_ast_internal(&mut self, program: AstNode) -> AstNode {
-        if !self.enable_ast_optimization {
-            return program;
-        }
-
-        let (optimized, history) = optimize_ast_with_history(
-            program,
-            self.ast_config.beam_width,
-            self.ast_config.max_steps,
-            self.ast_config.show_progress,
-        );
-
-        if self.collect_histories {
-            self.histories.ast = Some(history);
-        }
-        optimized
-    }
-}
-
-impl Pipeline for CPipeline {
-    type Compiler = CCompiler;
-    type Renderer = CRenderer;
-    type Error = String;
-
-    fn renderer(&self) -> &Self::Renderer {
-        &self.renderer
-    }
-
-    fn compiler(&mut self) -> &mut Self::Compiler {
-        &mut self.compiler
-    }
-
-    fn optimize_graph(&self, graph: Graph) -> Graph {
-        // 並列化・SIMD無効のSuggesterを使用（グラフ最適化は常に有効）
-        let flags = SuggesterFlags::new();
-        let (optimized, _history) = optimize_graph_with_history(
-            graph,
-            flags,
-            SimpleCostEstimator::new(),
-            self.graph_config.beam_width,
-            self.graph_config.max_steps,
-            self.graph_config.show_progress,
-        );
-        optimized
-    }
-
-    fn optimize_program(&self, program: AstNode) -> AstNode {
-        if !self.enable_ast_optimization {
-            return program;
-        }
-
-        let (optimized, _history) = optimize_ast_with_history(
-            program,
-            self.ast_config.beam_width,
-            self.ast_config.max_steps,
-            self.ast_config.show_progress,
-        );
-        optimized
-    }
-
-    fn compile_graph(&mut self, graph: Graph) -> Result<CKernel, String> {
-        // Signatureを作成（最適化前のGraphから）
-        let signature = crate::lowerer::Lowerer::create_signature(&graph);
-
-        let optimized_graph = self.optimize_graph_internal(graph);
-        let program = self.lower_to_program(optimized_graph);
-        let optimized_program = self.optimize_ast_internal(program);
-        let mut code = self.renderer().render(&optimized_program);
-
-        // Signatureを設定
-        code = CCode::with_signature(code.into_inner(), signature);
-
-        Ok(self.compiler().compile(&code))
-    }
-}
+pub type CPipeline = crate::backend::GenericPipeline<CRenderer, CCompiler>;
 
 /// C言語（シングルスレッド）のソースコードを表す型
 ///
@@ -242,5 +95,15 @@ impl AsRef<str> for CCode {
 impl std::fmt::Display for CCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.code)
+    }
+}
+
+impl crate::backend::SignedCode for CCode {
+    fn with_signature(code: String, signature: crate::backend::KernelSignature) -> Self {
+        Self { code, signature }
+    }
+
+    fn signature(&self) -> &crate::backend::KernelSignature {
+        &self.signature
     }
 }

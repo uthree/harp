@@ -1,5 +1,5 @@
 use crate::ast::AstNode;
-use crate::backend::{Compiler, Pipeline, Renderer};
+use crate::backend::{Compiler, Pipeline, Renderer, SignedCode};
 use crate::graph::Graph;
 use crate::opt::ast::rules::all_rules_with_search;
 use crate::opt::ast::{
@@ -577,6 +577,9 @@ where
     /// 最適化が有効な場合、最適化履歴を内部に保存します。
     /// 複数のAST最適化履歴を取得するには、compile_graph_with_all_histories()を使用してください。
     pub fn compile_graph_with_history(&mut self, graph: Graph) -> Result<C::Kernel, String> {
+        // Signatureを作成（最適化前のGraphから）
+        let signature = crate::lowerer::Lowerer::create_signature(&graph);
+
         // グラフ最適化（Phase 1 + Phase 2）
         let optimized_graph = self.optimize_graph_internal(graph);
 
@@ -592,7 +595,8 @@ where
         };
 
         // レンダリングとコンパイル
-        let code = self.renderer().render(&optimized_program);
+        let rendered = self.renderer().render(&optimized_program);
+        let code = R::CodeRepr::with_signature(rendered.into(), signature);
         Ok(self.compiler().compile(&code))
     }
 
@@ -634,6 +638,9 @@ where
         &mut self,
         graph: Graph,
     ) -> CompileWithHistoriesResult<C::Kernel> {
+        // Signatureを作成（最適化前のGraphから）
+        let signature = crate::lowerer::Lowerer::create_signature(&graph);
+
         // グラフ最適化（Phase 1 + Phase 2）
         let optimized_graph = self.optimize_graph_internal(graph);
 
@@ -653,7 +660,8 @@ where
         };
 
         // レンダリングとコンパイル
-        let code = self.renderer().render(&optimized_program);
+        let rendered = self.renderer().render(&optimized_program);
+        let code = R::CodeRepr::with_signature(rendered.into(), signature);
         let kernel = self.compiler().compile(&code);
         Ok((kernel, optimized_program, all_histories))
     }
@@ -857,6 +865,13 @@ where
         let (program, _history) = optimizer.optimize_with_history(program);
 
         program
+    }
+
+    /// グラフをコンパイル
+    ///
+    /// compile_graph_with_historyを呼び出し、Signatureを設定してコンパイルします。
+    fn compile_graph(&mut self, graph: Graph) -> Result<C::Kernel, String> {
+        self.compile_graph_with_history(graph)
     }
 }
 
