@@ -5,13 +5,14 @@
 //! 最終的に Sink(Program)のみの構成を目指します。
 //!
 //! # 処理フロー
-//! 1. Sinkの入力側にあるCustom(Function)を検出
+//! 1. Sinkの**直接の**子ノードからCustom(Function)を検出
 //! 2. 吸収時にProgramにKernelを追加し、main関数を更新
 //!
-//! # マルチフェーズ最適化との連携
-//! このSuggesterはLoweringフェーズで使用されます。
-//! PreparationフェーズでViewMergeSuggesterが適用済みのため、
-//! Viewノードは最小限になっており、特別な処理は不要です。
+//! # 設計方針
+//! - Viewノードは透過しない（ViewMergeSuggesterに委譲）
+//! - Sinkの直接の子ノードのみを吸収対象とする
+//! - `Sink -> View -> Custom`パターンは、先にViewMergeSuggesterが
+//!   `Sink -> Custom[view適用]`に変換してからこのSuggesterで吸収する
 
 use crate::ast::helper::{block, function, var};
 use crate::ast::{AstNode, DType as AstDType, Mutability, Scope, VarDecl, VarKind};
@@ -49,12 +50,13 @@ impl ProgramRootAbsorptionSuggester {
 
     /// Sinkノードから吸収可能なCustom(Function)を検出
     ///
-    /// Sinkの直接の入力からCustom(Function)を探します。
-    /// マルチフェーズ最適化では、ViewMergeSuggesterがPreparationフェーズで
-    /// 適用済みのため、Viewを透過的に辿る必要はありません。
+    /// Sinkの**直接の**子ノードからCustom(Function)を探します。
+    /// Viewノードなどを透過的に辿りません。
     ///
-    /// 複数のCustom(Function)がチェーンしている場合、リーフから順に
-    /// 吸収するためにトポロジカル順序で返します。
+    /// # 設計方針
+    /// - ViewMergeSuggesterがView -> Custom を Custom[view適用] に変換
+    /// - その後、このSuggesterが直接の子のCustomを吸収
+    /// - これにより各Suggesterの責務が明確に分離される
     fn find_absorbable_customs(&self, graph: &Graph) -> Vec<GraphNode> {
         let sink = match graph.sink() {
             Some(s) => s,
@@ -62,44 +64,18 @@ impl ProgramRootAbsorptionSuggester {
         };
 
         let mut absorbable = Vec::new();
-        let mut visited = HashSet::new();
 
-        // Sinkのsrcを走査してCustom(Function)を検出
+        // Sinkの直接の子ノードのみをチェック（再帰的に探索しない）
         for src in &sink.src {
-            Self::collect_customs_topological(src, &mut absorbable, &mut visited);
+            if let GraphOp::Kernel { ast, .. } = &src.op
+                && matches!(ast, AstNode::Function { .. })
+            {
+                log::debug!("ProgramRootAbsorption: found absorbable Custom(Function) as direct child");
+                absorbable.push(src.clone());
+            }
         }
 
         absorbable
-    }
-
-    /// Custom(Function)をトポロジカル順序で収集
-    ///
-    /// 依存関係のあるCustom(Function)を正しい順序で吸収するため、
-    /// 子ノードを先に処理してから親ノードを追加します。
-    fn collect_customs_topological(
-        node: &GraphNode,
-        result: &mut Vec<GraphNode>,
-        visited: &mut HashSet<*const GraphNodeData>,
-    ) {
-        let ptr = node.as_ptr();
-        if visited.contains(&ptr) {
-            return;
-        }
-        visited.insert(ptr);
-
-        // 先に子ノードを探索（トポロジカル順序を維持）
-        for src in &node.src {
-            Self::collect_customs_topological(src, result, visited);
-        }
-
-        // Custom(Function)かどうかをチェック
-        if let GraphOp::Kernel { ast, .. } = &node.op
-            && matches!(ast, AstNode::Function { .. })
-            && !result.iter().any(|n| n.as_ptr() == ptr)
-        {
-            log::debug!("ProgramRootAbsorption: found absorbable Custom(Function)");
-            result.push(node.clone());
-        }
     }
 
     /// Custom(Function)をSinkに吸収
