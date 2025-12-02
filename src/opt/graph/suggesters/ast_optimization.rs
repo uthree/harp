@@ -1,6 +1,6 @@
 //! AST Optimization Suggester
 //!
-//! CustomノードのASTに対してAstSuggesterを適用し、
+//! KernelノードおよびProgramRoot（Sink）ノードのASTに対してAstSuggesterを適用し、
 //! グラフ最適化の枠組みでAST最適化を行うラッパーです。
 //!
 //! これにより、グラフ変換とAST変換を単一のビームサーチで探索でき、
@@ -12,10 +12,10 @@ use crate::opt::ast::Suggester as AstSuggester;
 use crate::opt::graph::GraphSuggester;
 use std::collections::{HashMap, HashSet};
 
-/// CustomノードのASTに対してAstSuggesterを適用するGraphSuggester
+/// KernelノードおよびProgramRootノードのASTに対してAstSuggesterを適用するGraphSuggester
 ///
 /// グラフ最適化の枠組みでAST最適化を行うラッパーです。
-/// lowering後のCustomノードに対してのみ有効です。
+/// lowering後のKernelノード、およびProgramRoot（Sink）ノードに対して有効です。
 pub struct AstOptimizationSuggester {
     /// 使用するAstSuggesterのリスト
     ast_suggesters: Vec<Box<dyn AstSuggester>>,
@@ -187,6 +187,25 @@ impl AstOptimizationSuggester {
 
         new_graph
     }
+
+    /// Sinkノードを置き換えた新しいグラフを作成
+    fn replace_sink_in_graph(&self, graph: &Graph, new_sink: GraphNode) -> Graph {
+        let mut new_graph = Graph::new();
+
+        // 入力・出力メタデータをコピー
+        new_graph.copy_input_metas_from(graph);
+        new_graph.copy_output_metas_from(graph);
+
+        // 新しいSinkを設定
+        new_graph.set_sink(new_sink);
+
+        // shape変数のデフォルト値をコピー
+        for (var_name, default_value) in graph.shape_var_defaults() {
+            new_graph.set_shape_var_default(var_name.clone(), *default_value);
+        }
+
+        new_graph
+    }
 }
 
 impl Default for AstOptimizationSuggester {
@@ -202,36 +221,62 @@ impl GraphSuggester for AstOptimizationSuggester {
 
     fn suggest(&self, graph: &Graph) -> Vec<Graph> {
         let mut suggestions = Vec::new();
+
+        // 1. Kernelノードの最適化
         let custom_nodes = self.collect_custom_nodes(graph);
 
-        if custom_nodes.is_empty() {
-            return suggestions;
+        if !custom_nodes.is_empty() {
+            log::debug!(
+                "AstOptimizationSuggester: found {} Kernel nodes",
+                custom_nodes.len()
+            );
+
+            for node in &custom_nodes {
+                if let GraphOp::Kernel { ast, input_buffers } = &node.op {
+                    // AstSuggesterを適用
+                    let ast_suggestions = self.apply_suggesters_to_ast(ast);
+
+                    for new_ast in ast_suggestions {
+                        // 新しいKernelノードを作成
+                        let new_node = GraphNode::new(
+                            node.dtype.clone(),
+                            GraphOp::Kernel {
+                                ast: new_ast,
+                                input_buffers: input_buffers.clone(),
+                            },
+                            node.src.clone(),
+                            node.view.clone(),
+                        );
+
+                        // グラフを更新
+                        let new_graph = self.replace_node_in_graph(graph, node, new_node);
+                        suggestions.push(new_graph);
+                    }
+                }
+            }
         }
 
-        log::debug!(
-            "AstOptimizationSuggester: found {} Custom nodes",
-            custom_nodes.len()
-        );
+        // 2. ProgramRoot（Sink）ノードの最適化
+        if let Some(sink) = graph.sink() {
+            if let GraphOp::ProgramRoot { ast, outputs } = &sink.op {
+                log::debug!("AstOptimizationSuggester: found ProgramRoot node");
 
-        for node in &custom_nodes {
-            if let GraphOp::Kernel { ast, input_buffers } = &node.op {
-                // AstSuggesterを適用
                 let ast_suggestions = self.apply_suggesters_to_ast(ast);
 
                 for new_ast in ast_suggestions {
-                    // 新しいCustomノードを作成
-                    let new_node = GraphNode::new(
-                        node.dtype.clone(),
-                        GraphOp::Kernel {
+                    // 新しいProgramRootノードを作成
+                    let new_sink = GraphNode::new(
+                        sink.dtype.clone(),
+                        GraphOp::ProgramRoot {
                             ast: new_ast,
-                            input_buffers: input_buffers.clone(),
+                            outputs: outputs.clone(),
                         },
-                        node.src.clone(),
-                        node.view.clone(),
+                        sink.src.clone(),
+                        sink.view.clone(),
                     );
 
                     // グラフを更新
-                    let new_graph = self.replace_node_in_graph(graph, node, new_node);
+                    let new_graph = self.replace_sink_in_graph(graph, new_sink);
                     suggestions.push(new_graph);
                 }
             }
@@ -350,5 +395,155 @@ mod tests {
             suggestions.is_empty(),
             "Should not suggest anything without Custom nodes"
         );
+    }
+
+    #[test]
+    fn test_program_root_optimization() {
+        use crate::backend::pipeline::create_lowering_phase_suggester;
+        use crate::opt::graph::{BeamSearchGraphOptimizer, GraphOptimizer, LoweringCostEstimator};
+
+        let _ = env_logger::try_init();
+
+        // グラフを作成し、loweringしてProgramRootを含むグラフを生成
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![8]);
+
+        // 演算を作成
+        let result = &a + &a;
+        graph.output("result", result);
+
+        // Loweringを実行してProgramRootノードを含むグラフを作成
+        let lowering_suggester = create_lowering_phase_suggester();
+        let lowering_estimator = LoweringCostEstimator::new();
+        let lowering_optimizer =
+            BeamSearchGraphOptimizer::new(lowering_suggester, lowering_estimator)
+                .with_beam_width(4)
+                .with_max_steps(100)
+                .with_progress(false);
+
+        let lowered_graph = lowering_optimizer.optimize(graph);
+
+        // SinkノードがあることとProgramRootであることを確認
+        assert!(
+            lowered_graph.sink().is_some(),
+            "Lowered graph should have a Sink node"
+        );
+        if let Some(sink) = lowered_graph.sink() {
+            assert!(
+                matches!(sink.op, GraphOp::ProgramRoot { .. }),
+                "Sink should be ProgramRoot"
+            );
+        }
+
+        // AstOptimizationSuggesterを作成
+        let rules = all_rules_with_search();
+        let ast_suggester = RuleBaseSuggester::new(rules);
+        let suggester = AstOptimizationSuggester::new(vec![Box::new(ast_suggester)]);
+
+        // 提案を生成（ProgramRootのASTに対して）
+        let suggestions = suggester.suggest(&lowered_graph);
+        println!(
+            "Generated {} suggestions for ProgramRoot AST",
+            suggestions.len()
+        );
+
+        // 提案が生成されることを確認（ASTに最適化可能な部分があれば）
+        // 注: 提案が0の場合もあり得る（すでに最適化されている場合）
+        for new_graph in &suggestions {
+            assert!(
+                new_graph.sink().is_some(),
+                "New graph should have a Sink node"
+            );
+        }
+    }
+
+    #[test]
+    fn test_program_root_with_optimizable_ast() {
+        use crate::ast::Literal;
+
+        let _ = env_logger::try_init();
+
+        // 最適化可能なAST（x + 0 → x）を含むProgramを直接作成
+        let optimizable_ast = AstNode::Program {
+            functions: vec![AstNode::Function {
+                name: Some("test".to_string()),
+                params: vec![],
+                return_type: crate::ast::DType::Int,
+                body: Box::new(AstNode::Return {
+                    value: Box::new(AstNode::Add(
+                        Box::new(AstNode::Var("x".to_string())),
+                        Box::new(AstNode::Const(Literal::Int(0))),
+                    )),
+                }),
+            }],
+            entry_point: "test".to_string(),
+        };
+
+        // ProgramRootノードを含むグラフを作成
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![8]);
+        graph.output("result", a.clone());
+
+        // ProgramRootノードを手動で設定
+        let sink = GraphNode::new(
+            DType::F32,
+            GraphOp::ProgramRoot {
+                ast: optimizable_ast,
+                outputs: vec!["result".to_string()],
+            },
+            vec![a],
+            crate::graph::shape::view::View::contiguous::<i32, Vec<i32>>(vec![]),
+        );
+        graph.set_sink(sink);
+
+        // AstOptimizationSuggesterを作成
+        let rules = all_rules_with_search();
+        let ast_suggester = RuleBaseSuggester::new(rules);
+        let suggester = AstOptimizationSuggester::new(vec![Box::new(ast_suggester)]);
+
+        // 提案を生成
+        let suggestions = suggester.suggest(&graph);
+        println!(
+            "Generated {} suggestions for optimizable ProgramRoot AST",
+            suggestions.len()
+        );
+
+        // x + 0 → x の最適化が提案されるはず
+        assert!(
+            !suggestions.is_empty(),
+            "Should suggest optimizations for x + 0 pattern"
+        );
+
+        // 最初の提案を確認
+        if let Some(new_graph) = suggestions.first() {
+            assert!(
+                new_graph.sink().is_some(),
+                "New graph should have a Sink node"
+            );
+            // 最適化後のASTが変更されていることを確認
+            if let Some(new_sink) = new_graph.sink() {
+                if let GraphOp::ProgramRoot { ast: new_ast, .. } = &new_sink.op {
+                    // 元のASTとは異なるはず
+                    let original_ast = AstNode::Program {
+                        functions: vec![AstNode::Function {
+                            name: Some("test".to_string()),
+                            params: vec![],
+                            return_type: crate::ast::DType::Int,
+                            body: Box::new(AstNode::Return {
+                                value: Box::new(AstNode::Add(
+                                    Box::new(AstNode::Var("x".to_string())),
+                                    Box::new(AstNode::Const(Literal::Int(0))),
+                                )),
+                            }),
+                        }],
+                        entry_point: "test".to_string(),
+                    };
+                    assert_ne!(
+                        new_ast, &original_ast,
+                        "Optimized AST should be different from original"
+                    );
+                }
+            }
+        }
     }
 }
