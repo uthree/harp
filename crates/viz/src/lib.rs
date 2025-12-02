@@ -122,6 +122,21 @@ impl HarpVizApp {
         self.current_tab = VizTab::GraphViewer;
     }
 
+    /// 最適化済みASTを読み込む
+    ///
+    /// AST最適化後のProgramを直接Code Viewerに設定します。
+    /// グラフ履歴からの抽出をバイパスするため、AST最適化の結果が
+    /// 正しくCode Viewerに反映されます。
+    ///
+    /// # Example
+    /// ```ignore
+    /// let (optimized_program, _) = pipeline.optimize_graph_with_all_histories(graph)?;
+    /// app.load_optimized_ast(optimized_program);
+    /// ```
+    pub fn load_optimized_ast(&mut self, ast: harp::ast::AstNode) {
+        self.code_viewer.load_optimized_ast(ast);
+    }
+
     /// GenericPipelineから最適化履歴を読み込む
     ///
     /// GenericPipelineに保存されているグラフ最適化履歴を読み込みます。
@@ -381,7 +396,11 @@ mod tests {
             true
         }
 
-        fn compile(&mut self, _code: &Self::CodeRepr) -> Self::Kernel {
+        fn compile(
+            &mut self,
+            _code: &Self::CodeRepr,
+            _signature: harp::backend::KernelSignature,
+        ) -> Self::Kernel {
             DummyKernel
         }
 

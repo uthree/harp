@@ -176,6 +176,10 @@ fn main() -> eframe::Result {
                 app.load_graph_optimization_history(graph_history);
             }
 
+            // AST最適化済みのProgramをCode Viewerに直接ロード
+            // これにより、Code ViewerにはAST最適化後のコードが表示される
+            app.load_optimized_ast(optimized_program);
+
             Ok(Box::new(app))
         }),
     )

@@ -96,6 +96,16 @@ impl CodeViewerApp {
         log::info!("Graph loaded for code viewer");
     }
 
+    /// 最適化済みASTを直接読み込む
+    ///
+    /// グラフ履歴からの抽出をバイパスして、AST最適化後のProgramを直接設定します。
+    /// これにより、AST最適化の結果がCode Viewerに正しく反映されます。
+    pub fn load_optimized_ast(&mut self, ast: harp::ast::AstNode) {
+        self.cached_ast = Some(ast.clone());
+        self.cached_code = Some(render_with_type(&ast, self.renderer_type));
+        log::info!("Optimized AST loaded for code viewer");
+    }
+
     /// グラフからSink(Program)、Custom(Program)またはCustom(Function)のASTを抽出
     fn extract_ast_from_graph(&self, graph: &Graph) -> Option<harp::ast::AstNode> {
         // 1. SinkノードのProgramを最優先で確認
