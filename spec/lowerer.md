@@ -31,7 +31,7 @@
 
 ## ファイル構成
 - `mod.rs`: コア構造、トポロジカルソート、グラフ最適化呼び出し
-- `kernel.rs`: Kernelノードのlowering
+- `custom.rs`: Kernelノード（Custom AST）のlowering
 - `fold.rs`: Fold演算のlowering
 - `utils.rs`: ユーティリティ関数（オフセット計算、型変換、シグネチャ生成）
 

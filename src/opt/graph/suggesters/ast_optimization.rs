@@ -257,28 +257,28 @@ impl GraphSuggester for AstOptimizationSuggester {
         }
 
         // 2. ProgramRoot（Sink）ノードの最適化
-        if let Some(sink) = graph.sink() {
-            if let GraphOp::ProgramRoot { ast, outputs } = &sink.op {
-                log::debug!("AstOptimizationSuggester: found ProgramRoot node");
+        if let Some(sink) = graph.sink()
+            && let GraphOp::ProgramRoot { ast, outputs } = &sink.op
+        {
+            log::debug!("AstOptimizationSuggester: found ProgramRoot node");
 
-                let ast_suggestions = self.apply_suggesters_to_ast(ast);
+            let ast_suggestions = self.apply_suggesters_to_ast(ast);
 
-                for new_ast in ast_suggestions {
-                    // 新しいProgramRootノードを作成
-                    let new_sink = GraphNode::new(
-                        sink.dtype.clone(),
-                        GraphOp::ProgramRoot {
-                            ast: new_ast,
-                            outputs: outputs.clone(),
-                        },
-                        sink.src.clone(),
-                        sink.view.clone(),
-                    );
+            for new_ast in ast_suggestions {
+                // 新しいProgramRootノードを作成
+                let new_sink = GraphNode::new(
+                    sink.dtype.clone(),
+                    GraphOp::ProgramRoot {
+                        ast: new_ast,
+                        outputs: outputs.clone(),
+                    },
+                    sink.src.clone(),
+                    sink.view.clone(),
+                );
 
-                    // グラフを更新
-                    let new_graph = self.replace_sink_in_graph(graph, new_sink);
-                    suggestions.push(new_graph);
-                }
+                // グラフを更新
+                let new_graph = self.replace_sink_in_graph(graph, new_sink);
+                suggestions.push(new_graph);
             }
         }
 

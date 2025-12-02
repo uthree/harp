@@ -3,6 +3,101 @@ use crate::backend::Renderer;
 use crate::backend::c_like::CLikeRenderer;
 use crate::backend::metal::{LIBLOADING_WRAPPER_NAME, MetalCode};
 
+// ============================================================
+// Metal共通のレンダリングヘルパー関数
+// MetalRendererとMetalKernelRendererの両方で使用
+// ============================================================
+
+/// Metal用のDType変換
+fn render_dtype_metal(dtype: &DType) -> String {
+    match dtype {
+        DType::Bool => "uchar".to_string(),
+        DType::F32 => "float".to_string(),
+        DType::Int => "int".to_string(),
+        DType::Ptr(inner) => format!("device {}*", render_dtype_metal(inner)),
+        DType::Vec(inner, size) => {
+            let base = render_dtype_metal(inner);
+            format!("{}{}", base, size)
+        }
+        DType::Tuple(types) => {
+            if types.is_empty() {
+                "void".to_string()
+            } else {
+                format!("tuple_{}", types.len())
+            }
+        }
+        DType::Unknown => {
+            panic!("Type inference failed: DType::Unknown should not appear in code generation")
+        }
+    }
+}
+
+/// Metal用のバリア命令
+fn render_barrier_metal() -> String {
+    "threadgroup_barrier(mem_flags::mem_threadgroup);".to_string()
+}
+
+/// Metal Shading Languageヘッダー
+fn render_header_metal() -> String {
+    "#include <metal_stdlib>\nusing namespace metal;\n\n".to_string()
+}
+
+/// Metal用の関数修飾子
+fn render_function_qualifier_metal(is_kernel: bool) -> String {
+    if is_kernel {
+        "kernel".to_string()
+    } else {
+        String::new()
+    }
+}
+
+/// Metal用のパラメータ属性
+fn render_param_attribute_metal(param: &VarDecl, is_kernel: bool) -> String {
+    let type_str = render_dtype_metal(&param.dtype);
+    let mut_str = match param.mutability {
+        Mutability::Immutable => "const ",
+        Mutability::Mutable => "",
+    };
+
+    if is_kernel {
+        match &param.kind {
+            VarKind::Normal => {
+                format!("{}{} {}", mut_str, type_str, param.name)
+            }
+            VarKind::ThreadId(_) => {
+                format!("uint {} [[thread_position_in_grid]]", param.name)
+            }
+            VarKind::GroupId(_) => {
+                format!("uint {} [[threadgroup_position_in_grid]]", param.name)
+            }
+            VarKind::GroupSize(_) => {
+                format!("uint {} [[threads_per_threadgroup]]", param.name)
+            }
+            VarKind::GridSize(_) => {
+                format!("uint {} [[threads_per_grid]]", param.name)
+            }
+        }
+    } else {
+        format!("{}{} {}", mut_str, type_str, param.name)
+    }
+}
+
+/// Metal用の数学関数
+fn render_math_func_metal(name: &str, args: &[String]) -> String {
+    match name {
+        "max" => format!("max({})", args.join(", ")),
+        "sqrt" => format!("sqrt({})", args.join(", ")),
+        "log2" => format!("log2({})", args.join(", ")),
+        "exp2" => format!("exp2({})", args.join(", ")),
+        "sin" => format!("sin({})", args.join(", ")),
+        _ => format!("{}({})", name, args.join(", ")),
+    }
+}
+
+// ============================================================
+// MetalRenderer - Objective-C++ + Metal API ホストコード生成
+// ============================================================
+
 /// Metal Shading Language用のレンダラー（C++ラッパー方式）
 #[derive(Clone)]
 pub struct MetalRenderer {
@@ -249,7 +344,7 @@ impl Renderer for MetalKernelRenderer {
     }
 }
 
-// MetalKernelRenderer用のCLikeRenderer実装
+// MetalKernelRenderer用のCLikeRenderer実装（共通ヘルパー関数を使用）
 impl CLikeRenderer for MetalKernelRenderer {
     fn indent_level(&self) -> usize {
         self.indent_level
@@ -260,72 +355,23 @@ impl CLikeRenderer for MetalKernelRenderer {
     }
 
     fn render_dtype_backend(&self, dtype: &DType) -> String {
-        match dtype {
-            DType::Bool => "uchar".to_string(), // Metalではucharを使用
-            DType::F32 => "float".to_string(),
-            DType::Int => "int".to_string(),
-            DType::Ptr(inner) => format!("device {}*", self.render_dtype_backend(inner)),
-            DType::Vec(inner, size) => {
-                let base = self.render_dtype_backend(inner);
-                format!("{}{}", base, size)
-            }
-            DType::Tuple(types) => {
-                if types.is_empty() {
-                    "void".to_string()
-                } else {
-                    format!("tuple_{}", types.len())
-                }
-            }
-            DType::Unknown => {
-                panic!("Type inference failed: DType::Unknown should not appear in code generation")
-            }
-        }
+        render_dtype_metal(dtype)
     }
 
     fn render_barrier_backend(&self) -> String {
-        "threadgroup_barrier(mem_flags::mem_threadgroup);".to_string()
+        render_barrier_metal()
     }
 
     fn render_header(&self) -> String {
-        "#include <metal_stdlib>\nusing namespace metal;\n\n".to_string()
+        render_header_metal()
     }
 
     fn render_function_qualifier(&self, is_kernel: bool) -> String {
-        if is_kernel {
-            "kernel".to_string()
-        } else {
-            String::new()
-        }
+        render_function_qualifier_metal(is_kernel)
     }
 
     fn render_param_attribute(&self, param: &VarDecl, is_kernel: bool) -> String {
-        let type_str = self.render_dtype_backend(&param.dtype);
-        let mut_str = match param.mutability {
-            Mutability::Immutable => "const ",
-            Mutability::Mutable => "",
-        };
-
-        if is_kernel {
-            match &param.kind {
-                VarKind::Normal => {
-                    format!("{}{} {}", mut_str, type_str, param.name)
-                }
-                VarKind::ThreadId(_) => {
-                    format!("uint {} [[thread_position_in_grid]]", param.name)
-                }
-                VarKind::GroupId(_) => {
-                    format!("uint {} [[threadgroup_position_in_grid]]", param.name)
-                }
-                VarKind::GroupSize(_) => {
-                    format!("uint {} [[threads_per_threadgroup]]", param.name)
-                }
-                VarKind::GridSize(_) => {
-                    format!("uint {} [[threads_per_grid]]", param.name)
-                }
-            }
-        } else {
-            format!("{}{} {}", mut_str, type_str, param.name)
-        }
+        render_param_attribute_metal(param, is_kernel)
     }
 
     fn render_thread_var_declarations(&self, _params: &[VarDecl], _indent: &str) -> String {
@@ -334,14 +380,7 @@ impl CLikeRenderer for MetalKernelRenderer {
     }
 
     fn render_math_func(&self, name: &str, args: &[String]) -> String {
-        match name {
-            "max" => format!("max({})", args.join(", ")),
-            "sqrt" => format!("sqrt({})", args.join(", ")),
-            "log2" => format!("log2({})", args.join(", ")),
-            "exp2" => format!("exp2({})", args.join(", ")),
-            "sin" => format!("sin({})", args.join(", ")),
-            _ => format!("{}({})", name, args.join(", ")),
-        }
+        render_math_func_metal(name, args)
     }
 
     fn libloading_wrapper_name(&self) -> &'static str {
@@ -355,7 +394,7 @@ impl CLikeRenderer for MetalKernelRenderer {
     }
 }
 
-// CLikeRendererトレイトの実装
+// CLikeRendererトレイトの実装（共通ヘルパー関数を使用）
 impl CLikeRenderer for MetalRenderer {
     fn indent_level(&self) -> usize {
         self.indent_level
@@ -366,75 +405,23 @@ impl CLikeRenderer for MetalRenderer {
     }
 
     fn render_dtype_backend(&self, dtype: &DType) -> String {
-        match dtype {
-            DType::Bool => "uchar".to_string(), // Metalではucharを使用
-            DType::F32 => "float".to_string(),
-            DType::Int => "int".to_string(),
-            DType::Ptr(inner) => format!("device {}*", self.render_dtype_backend(inner)),
-            DType::Vec(inner, size) => {
-                let base = self.render_dtype_backend(inner);
-                format!("{}{}", base, size)
-            }
-            DType::Tuple(types) => {
-                if types.is_empty() {
-                    "void".to_string()
-                } else {
-                    // Metalはタプル型を直接サポートしないので構造体として表現
-                    format!("tuple_{}", types.len())
-                }
-            }
-            DType::Unknown => {
-                panic!(
-                    "Type inference failed: DType::Unknown should not appear in code generation. This indicates a bug in type inference."
-                )
-            }
-        }
+        render_dtype_metal(dtype)
     }
 
     fn render_barrier_backend(&self) -> String {
-        "threadgroup_barrier(mem_flags::mem_threadgroup);".to_string()
+        render_barrier_metal()
     }
 
     fn render_header(&self) -> String {
-        "#include <metal_stdlib>\nusing namespace metal;\n\n".to_string()
+        render_header_metal()
     }
 
     fn render_function_qualifier(&self, is_kernel: bool) -> String {
-        if is_kernel {
-            "kernel".to_string()
-        } else {
-            String::new()
-        }
+        render_function_qualifier_metal(is_kernel)
     }
 
     fn render_param_attribute(&self, param: &VarDecl, is_kernel: bool) -> String {
-        let type_str = self.render_dtype_backend(&param.dtype);
-        let mut_str = match param.mutability {
-            Mutability::Immutable => "const ",
-            Mutability::Mutable => "",
-        };
-
-        if is_kernel {
-            match &param.kind {
-                VarKind::Normal => {
-                    format!("{}{} {}", mut_str, type_str, param.name)
-                }
-                VarKind::ThreadId(_) => {
-                    format!("uint {} [[thread_position_in_grid]]", param.name)
-                }
-                VarKind::GroupId(_) => {
-                    format!("uint {} [[threadgroup_position_in_grid]]", param.name)
-                }
-                VarKind::GroupSize(_) => {
-                    format!("uint {} [[threads_per_threadgroup]]", param.name)
-                }
-                VarKind::GridSize(_) => {
-                    format!("uint {} [[threads_per_grid]]", param.name)
-                }
-            }
-        } else {
-            format!("{}{} {}", mut_str, type_str, param.name)
-        }
+        render_param_attribute_metal(param, is_kernel)
     }
 
     fn render_thread_var_declarations(&self, _params: &[VarDecl], _indent: &str) -> String {
@@ -443,14 +430,7 @@ impl CLikeRenderer for MetalRenderer {
     }
 
     fn render_math_func(&self, name: &str, args: &[String]) -> String {
-        match name {
-            "max" => format!("max({})", args.join(", ")),
-            "sqrt" => format!("sqrt({})", args.join(", ")),
-            "log2" => format!("log2({})", args.join(", ")),
-            "exp2" => format!("exp2({})", args.join(", ")),
-            "sin" => format!("sin({})", args.join(", ")),
-            _ => format!("{}({})", name, args.join(", ")),
-        }
+        render_math_func_metal(name, args)
     }
 
     fn libloading_wrapper_name(&self) -> &'static str {
