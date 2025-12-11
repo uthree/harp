@@ -11,8 +11,7 @@ use crate::opt::ast::{
     RuleBaseSuggester, SimpleCostEstimator as AstSimpleCostEstimator,
 };
 use crate::opt::graph::{
-    AstBasedCostEstimator, AstOptimizationSuggester, BeamSearchGraphOptimizer,
-    BufferAbsorptionSuggester, ChainedGraphOptimizer, CompositeSuggester,
+    BeamSearchGraphOptimizer, BufferAbsorptionSuggester, ChainedGraphOptimizer, CompositeSuggester,
     ContiguousInsertionSuggester, FusionSuggester, GraphCostEstimator, GraphOptimizer,
     KernelMergeSuggester, LoweringCostEstimator, LoweringSuggester, ProgramRootAbsorptionSuggester,
     ProgramRootBufferAbsorptionSuggester, SimpleCostEstimator, TilingSuggester,
@@ -27,22 +26,15 @@ pub struct SuggesterFlags {
     /// trueの場合、単一ステージでCustom(Function)のマージも行います。
     /// これにより、部分的にloweringされた状態でも増分マージが可能になります。
     pub include_kernel_merge: bool,
-
-    /// AstOptimizationSuggesterを含めるかどうか
-    ///
-    /// trueの場合、CustomノードのASTに対してAST最適化を適用します。
-    /// これにより、グラフ最適化とAST最適化を統合的に探索できます。
-    pub include_ast_optimization: bool,
 }
 
 impl SuggesterFlags {
     /// デフォルトのSuggesterフラグを作成
     ///
-    /// デフォルトではKernelMergeSuggester、AstOptimizationSuggesterは含まれません。
+    /// デフォルトではKernelMergeSuggesterは含まれません。
     pub fn new() -> Self {
         Self {
             include_kernel_merge: false,
-            include_ast_optimization: false,
         }
     }
 
@@ -53,18 +45,6 @@ impl SuggesterFlags {
     pub fn single_stage() -> Self {
         Self {
             include_kernel_merge: true,
-            include_ast_optimization: false,
-        }
-    }
-
-    /// 統合最適化用のフラグを作成
-    ///
-    /// KernelMergeSuggesterとAstOptimizationSuggesterの両方を含み、
-    /// グラフ最適化とAST最適化を単一のビームサーチで探索します。
-    pub fn unified() -> Self {
-        Self {
-            include_kernel_merge: true,
-            include_ast_optimization: true,
         }
     }
 
@@ -73,21 +53,12 @@ impl SuggesterFlags {
         self.include_kernel_merge = include;
         self
     }
-
-    /// AstOptimizationSuggesterを含めるかどうかを設定
-    pub fn with_ast_optimization(mut self, include: bool) -> Self {
-        self.include_ast_optimization = include;
-        self
-    }
 }
 
 /// グラフ最適化用のSuggesterを作成
 ///
 /// `flags.include_kernel_merge`がtrueの場合、KernelMergeSuggesterも含まれ、
 /// 単一ステージでloweringからマージまで行います。
-///
-/// `flags.include_ast_optimization`がtrueの場合、AstOptimizationSuggesterも含まれ、
-/// CustomノードのASTに対してAST最適化を適用します。
 pub fn create_graph_suggester(flags: SuggesterFlags) -> CompositeSuggester {
     let mut suggesters: Vec<Box<dyn crate::opt::graph::GraphSuggester>> = vec![
         Box::new(ViewInsertionSuggester::new()),
@@ -114,28 +85,7 @@ pub fn create_graph_suggester(flags: SuggesterFlags) -> CompositeSuggester {
         suggesters.push(Box::new(KernelMergeSuggester::new()));
     }
 
-    // AST最適化を含める場合、AstOptimizationSuggesterを追加
-    // CustomノードのASTに対してRuleBaseSuggesterなどを適用
-    if flags.include_ast_optimization {
-        let ast_suggesters = create_ast_suggesters_for_graph();
-        suggesters.push(Box::new(
-            AstOptimizationSuggester::new(ast_suggesters).with_max_suggestions_per_node(2),
-        ));
-    }
-
     CompositeSuggester::new(suggesters)
-}
-
-/// グラフ最適化内で使用するAstSuggesterを作成
-fn create_ast_suggesters_for_graph() -> Vec<Box<dyn crate::opt::ast::Suggester>> {
-    vec![
-        // ルールベース最適化（代数的簡約など）
-        Box::new(RuleBaseSuggester::new(all_rules_with_search())),
-        // ループタイリング
-        Box::new(LoopTilingSuggester::with_default_sizes()),
-        // ループ融合
-        Box::new(LoopFusionSuggester::new()),
-    ]
 }
 
 /// カーネルマージ用のSuggesterを作成
@@ -188,17 +138,6 @@ pub fn create_lowering_phase_suggester() -> CompositeSuggester {
         // KernelMergeSuggesterで複数のCustom(Function)をマージ
         Box::new(KernelMergeSuggester::new()),
     ])
-}
-
-/// AST最適化フェーズ用のグラフSuggesterを作成
-///
-/// Phase 3: CustomノードのASTに対してAST最適化を適用
-/// AstOptimizationSuggesterのみを使用します。
-pub fn create_ast_optimization_phase_suggester() -> CompositeSuggester {
-    let ast_suggesters = create_ast_suggesters_for_graph();
-    CompositeSuggester::new(vec![Box::new(AstOptimizationSuggester::new(
-        ast_suggesters,
-    ))])
 }
 
 /// AST最適化用のSuggesterを作成
@@ -342,8 +281,6 @@ pub struct MultiPhaseConfig {
     pub max_steps_per_phase: usize,
     /// 進捗表示フラグ
     pub show_progress: bool,
-    /// AST最適化フェーズを有効にするか
-    pub enable_ast_phase: bool,
     /// ログ収集を有効にするか
     pub collect_logs: bool,
 }
@@ -354,7 +291,6 @@ impl Default for MultiPhaseConfig {
             beam_width: 4,
             max_steps_per_phase: 5000,
             show_progress: false,
-            enable_ast_phase: false,
             collect_logs: cfg!(debug_assertions),
         }
     }
@@ -384,12 +320,6 @@ impl MultiPhaseConfig {
         self
     }
 
-    /// AST最適化フェーズを有効化
-    pub fn with_ast_phase(mut self, enable: bool) -> Self {
-        self.enable_ast_phase = enable;
-        self
-    }
-
     /// ログ収集を設定
     pub fn with_collect_logs(mut self, collect: bool) -> Self {
         self.collect_logs = collect;
@@ -399,7 +329,7 @@ impl MultiPhaseConfig {
 
 /// マルチフェーズグラフ最適化を作成
 ///
-/// 3つのフェーズで段階的にグラフを最適化します：
+/// 2つのフェーズで段階的にグラフを最適化します：
 ///
 /// 1. **Preparation** (グラフ準備): View挿入、融合、タイリングなど
 ///    - コスト推定器: SimpleCostEstimator
@@ -409,9 +339,8 @@ impl MultiPhaseConfig {
 ///    - コスト推定器: LoweringCostEstimator
 ///    - 目的: 単一のProgramRootノードへの変換
 ///
-/// 3. **AST Optimization** (AST最適化、オプション): ループ変換など
-///    - コスト推定器: AstBasedCostEstimator
-///    - 目的: 生成されるコードの品質向上
+/// AST最適化はグラフ最適化とは別のフェーズとして、GenericPipelineで
+/// Lowering完了後に独立して実行されます。
 ///
 /// # Arguments
 /// * `config` - 最適化の設定
@@ -453,29 +382,14 @@ pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOpt
         .with_collect_logs(config.collect_logs);
 
     // チェーンを構築（各オプティマイザに名前を付けてからchainする）
-    let chain = preparation_optimizer
+    preparation_optimizer
         .with_name("Preparation")
-        .chain(lowering_optimizer.with_name("Lowering"));
-
-    // Phase 3: AST最適化（オプション）
-    if config.enable_ast_phase {
-        let ast_suggester = create_ast_optimization_phase_suggester();
-        let ast_estimator = AstBasedCostEstimator::new(AstSimpleCostEstimator::new());
-        let ast_optimizer = BeamSearchGraphOptimizer::new(ast_suggester, ast_estimator)
-            .with_beam_width(config.beam_width)
-            .with_max_steps(config.max_steps_per_phase) // AST最適化は少なめに
-            .with_progress(config.show_progress)
-            .with_collect_logs(config.collect_logs);
-
-        chain.chain(ast_optimizer.with_name("AST Optimization"))
-    } else {
-        chain
-    }
+        .chain(lowering_optimizer.with_name("Lowering"))
 }
 
 /// マルチフェーズグラフ最適化を実行（履歴付き）
 ///
-/// 3つのフェーズで段階的にグラフを最適化し、各フェーズの履歴を結合して返します。
+/// 2つのフェーズで段階的にグラフを最適化し、各フェーズの履歴を結合して返します。
 ///
 /// # Arguments
 /// * `graph` - 最適化対象のグラフ

@@ -63,7 +63,7 @@ Graphを最適化、lower、AST最適化などの一通りの処理をまとめ�
 - グラフ最適化（必須）とAST最適化（オプション）
 
 **設定フィールド:**
-- `enable_ast_optimization`: AST最適化の有効化
+- `enable_ast_optimization`: AST最適化の有効化（Lowering後に独立して適用）
 - `graph_config`: グラフ最適化の設定（ビーム幅、最大ステップ数、プログレス表示）
 - `ast_config`: AST最適化の設定
 - `collect_histories`: 最適化履歴を収集するか（DEBUGビルドでデフォルトtrue、RELEASEビルドでfalse）
@@ -72,7 +72,7 @@ Graphを最適化、lower、AST最適化などの一通りの処理をまとめ�
 ```rust
 let mut pipeline = GenericPipeline::new(renderer, compiler);
 // グラフ最適化は常に有効（LoweringSuggesterが必須）
-pipeline.enable_ast_optimization = true;
+// AST最適化はデフォルトで有効（Lowering後に独立して適用）
 pipeline.graph_config.beam_width = 8;
 ```
 

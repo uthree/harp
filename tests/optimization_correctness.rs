@@ -40,7 +40,6 @@ mod tests {
         let renderer = CRenderer::new();
         let compiler = CCompiler::new();
         let mut pipeline = CPipeline::new(renderer, compiler);
-        pipeline.enable_ast_optimization = false;
 
         let kernel = pipeline
             .compile_graph(graph.clone())

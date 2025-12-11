@@ -984,7 +984,6 @@ mod tests {
         // パイプラインと同じ設定でSuggesterを作成
         let flags = SuggesterFlags {
             include_kernel_merge: true,
-            include_ast_optimization: false,
         };
         let suggester = create_graph_suggester(flags);
         let estimator = SimpleCostEstimator::new();
@@ -1107,7 +1106,6 @@ mod tests {
         // BeamSearchで最適化
         let flags = SuggesterFlags {
             include_kernel_merge: true,
-            include_ast_optimization: false,
         };
         let combined_suggester = create_graph_suggester(flags);
         let estimator = SimpleCostEstimator::new();

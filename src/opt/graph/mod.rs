@@ -129,8 +129,8 @@ pub use estimator::{
 pub use history::{OptimizationHistory, OptimizationSnapshot};
 pub use optimizer::{BeamSearchGraphOptimizer, ChainedGraphOptimizer, NamedOptimizer};
 pub use suggesters::{
-    AstOptimizationSuggester, BufferAbsorptionSuggester, CompositeSuggester,
-    ContiguousInsertionSuggester, FusionSuggester, KernelMergeSuggester, LoweringSuggester,
-    ProgramRootAbsorptionSuggester, ProgramRootBufferAbsorptionSuggester, TilingSuggester,
-    ViewInsertionSuggester, ViewMergeSuggester,
+    BufferAbsorptionSuggester, CompositeSuggester, ContiguousInsertionSuggester, FusionSuggester,
+    KernelMergeSuggester, LoweringSuggester, ProgramRootAbsorptionSuggester,
+    ProgramRootBufferAbsorptionSuggester, TilingSuggester, ViewInsertionSuggester,
+    ViewMergeSuggester,
 };

@@ -759,8 +759,7 @@ where
                 .with_beam_width(self.graph_config.beam_width)
                 .with_max_steps(self.graph_config.max_steps / 2) // 各フェーズのステップ数
                 .with_progress(self.graph_config.show_progress)
-                .with_collect_logs(self.collect_histories)
-                .with_ast_phase(false); // AST最適化はoptimize_ast_internalで別途行う
+                .with_collect_logs(self.collect_histories);
 
             let optimizer = create_multi_phase_optimizer(config);
             let (optimized_graph, history) = optimizer.optimize_with_history(graph);

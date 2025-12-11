@@ -71,7 +71,6 @@ fn test_fused_matmul_lowering() {
     let renderer = CRenderer::new();
     let compiler = CCompiler::new();
     let mut pipeline = GenericPipeline::new(renderer, compiler);
-    pipeline.enable_ast_optimization = false;
 
     let (program, _) = pipeline
         .optimize_graph_with_all_histories(graph)
@@ -129,7 +128,6 @@ fn test_double_matmul_lowering() {
     let renderer = CRenderer::new();
     let compiler = CCompiler::new();
     let mut pipeline = GenericPipeline::new(renderer, compiler);
-    pipeline.enable_ast_optimization = false;
 
     let (program, _) = pipeline
         .optimize_graph_with_all_histories(graph)

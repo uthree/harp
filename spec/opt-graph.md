@@ -13,7 +13,7 @@
 | 推定器 | 用途 |
 |--------|------|
 | SimpleCostEstimator | ノード数とメモリアクセスベースの簡易推定 |
-| AstBasedCostEstimator | ASTに変換して高精度推定（推奨） |
+| LoweringCostEstimator | Loweringフェーズ専用（ProgramRoot集約を促進） |
 | KernelMergeCostEstimator | カーネルマージ最適化専用 |
 
 SimpleCostEstimatorは複数のKernel(Function)にペナルティを付与し、単一のKernel(Program)への収束を促進する。
@@ -37,7 +37,6 @@ SimpleCostEstimatorは複数のKernel(Function)にペナルティを付与し、
 
 ### マージ・統合系
 - **KernelMergeSuggester**: 依存関係のあるKernelをペアワイズでマージ
-- **AstOptimizationSuggester**: KernelのASTにAST最適化を適用
 - **CompositeSuggester**: 複数Suggesterを組み合わせ
 
 ## Suggesterの連携
@@ -65,22 +64,27 @@ ProgramRootBufferAbsorptionSuggester : 入力Bufferの除去
 
 ### SuggesterFlags
 
-| フラグ | kernel_merge | ast_optimization | 説明 |
-|--------|--------------|------------------|------|
-| `new()` | false | false | 基本最適化のみ |
-| `single_stage()` | true | false | 単一ステージ最適化 |
-| `unified()` | true | true | 統合最適化（推奨） |
+| フラグ | kernel_merge | 説明 |
+|--------|--------------|------|
+| `new()` | false | 基本最適化のみ |
+| `single_stage()` | true | 単一ステージ最適化（推奨） |
 
-### 統合最適化（推奨）
+### 単一ステージ最適化（推奨）
 
-`SuggesterFlags::unified()`でグラフ最適化とAST最適化を単一のビームサーチで探索。
+`SuggesterFlags::single_stage()`でKernelMergeSuggesterを含めた最適化を実行。
 
 ```rust
-let flags = SuggesterFlags::unified();
+let flags = SuggesterFlags::single_stage();
 let (graph, history) = optimize_graph_with_history(
     graph, flags, SimpleCostEstimator::new(), 8, 200, true
 );
 ```
+
+### グラフ最適化とAST最適化の分離
+
+グラフ最適化はグラフ構造の変換（融合、View挿入、Lowering）を担当し、
+AST最適化（ループ変換、代数的簡約など）はLowering完了後に独立して実行される。
+この分離により、各最適化フェーズが独立して改善可能な設計となっている。
 
 ## BeamSearchGraphOptimizer
 

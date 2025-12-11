@@ -1,4 +1,3 @@
-pub mod ast_optimization;
 pub mod buffer_absorption;
 pub mod composite;
 pub mod contiguous;
@@ -12,7 +11,6 @@ pub mod view;
 pub mod view_merge;
 
 // Re-export commonly used types
-pub use ast_optimization::AstOptimizationSuggester;
 pub use buffer_absorption::BufferAbsorptionSuggester;
 pub use composite::CompositeSuggester;
 pub use contiguous::ContiguousInsertionSuggester;
