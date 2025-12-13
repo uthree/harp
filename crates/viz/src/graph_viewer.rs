@@ -53,7 +53,7 @@ pub struct NodeDetails {
 
     /// 操作の詳細
     pub op_details: String,
-    /// AST（Customノードの場合、レンダラー変更時に再レンダリング用）
+    /// AST（Kernelノードの場合、レンダラー変更時に再レンダリング用）
     pub ast: Option<harp::ast::AstNode>,
 }
 
@@ -190,8 +190,8 @@ impl GraphViewerApp {
         // 訪問済みノードを追跡
         let mut visited = HashSet::new();
 
-        // Sinkノードがある場合はSinkから開始
-        if let Some(sink_node) = graph.sink() {
+        // ProgramRootノードがある場合はProgramRootから開始
+        if let Some(sink_node) = graph.program_root() {
             self.traverse_and_add_node_with_layout(
                 &sink_node,
                 "",
@@ -199,10 +199,10 @@ impl GraphViewerApp {
                 &depths,
                 &mut depth_counters,
             );
-            // Sinkからエッジを追加
+            // ProgramRootからエッジを追加
             self.add_edges(&sink_node, &mut HashSet::new());
         } else {
-            // Sinkがない場合は従来通り出力ノードから開始
+            // ProgramRootがない場合は従来通り出力ノードから開始
             let outputs = graph.outputs();
             for (output_name, output_node) in &outputs {
                 self.traverse_and_add_node_with_layout(
@@ -266,9 +266,9 @@ impl GraphViewerApp {
             depth
         }
 
-        // Sinkノードがある場合はSinkから開始、なければ出力ノードから開始
+        // ProgramRootノードがある場合はProgramRootから開始、なければ出力ノードから開始
         let mut visited_global = HashSet::new();
-        if let Some(sink_node) = graph.sink() {
+        if let Some(sink_node) = graph.program_root() {
             calculate_depth(&sink_node, &mut depths, &mut visited_global);
         } else {
             for output_node in graph.outputs().values() {
@@ -345,7 +345,7 @@ impl GraphViewerApp {
 
         let op_details = format!("{:?}", node.op);
 
-        // CustomノードまたはSinkノードの場合はASTを保存（レンダラー変更時に再レンダリング用）
+        // KernelノードまたはProgramRootノードの場合はASTを保存（レンダラー変更時に再レンダリング用）
         let ast = match &node.op {
             harp::graph::GraphOp::Kernel { ast, .. } => Some(ast.clone()),
             harp::graph::GraphOp::ProgramRoot { ast, .. } => Some(ast.clone()),
@@ -487,7 +487,7 @@ impl GraphViewerApp {
             let has_code = node_data.details.ast.is_some();
             nodes.push((node_id, node_data.name.clone(), has_code));
         }
-        // 名前でソート（Customノードを先に）
+        // 名前でソート（Kernelノードを先に）
         nodes.sort_by(|a, b| match (a.2, b.2) {
             (true, false) => std::cmp::Ordering::Less,
             (false, true) => std::cmp::Ordering::Greater,
@@ -509,7 +509,7 @@ impl GraphViewerApp {
             .collect();
 
         if custom_nodes.is_empty() {
-            ui.label("No Custom nodes in the current graph.");
+            ui.label("No Kernel nodes in the current graph.");
             return;
         }
 
@@ -631,10 +631,10 @@ impl GraphViewerApp {
             }
         } else {
             ui.add_space(10.0);
-            ui.label("Select a Custom node to view its details and generated code.");
+            ui.label("Select a Kernel node to view its details and generated code.");
             ui.add_space(10.0);
 
-            // Customノードのクイック選択ボタン
+            // Kernelノードのクイック選択ボタン
             ui.label("Quick select:");
             for (node_id, name, has_code) in &custom_nodes {
                 if *has_code && ui.button(format!("🔧 {}", name)).clicked() {
@@ -1106,7 +1106,7 @@ impl egui_snarl::ui::SnarlViewer<GraphNodeView> for GraphNodeViewStyle<'_> {
 
             // ノードヘッダー
             ui.horizontal(|ui| {
-                // 選択状態やCustomノードを示すインジケータ
+                // 選択状態やKernelノードを示すインジケータ
                 if is_selected {
                     ui.label("▶");
                 } else if has_code {
@@ -1120,7 +1120,7 @@ impl egui_snarl::ui::SnarlViewer<GraphNodeView> for GraphNodeViewStyle<'_> {
                     ui.label(&node_data.name);
                 }
 
-                // 選択ボタン（Customノードの場合のみ表示）
+                // 選択ボタン（Kernelノードの場合のみ表示）
                 if has_code {
                     let btn = ui.small_button("📝").on_hover_text("View code in sidebar");
                     if btn.clicked() {

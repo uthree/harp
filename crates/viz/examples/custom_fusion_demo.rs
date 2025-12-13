@@ -23,7 +23,7 @@ fn main() -> eframe::Result {
     println!("    Step 1: (a + b) と * c を融合");
     println!("    Step 2: 結果と - d を融合");
     println!("    Step 3: 結果と / e を融合");
-    println!("    最終: 1つのCustomノード\n");
+    println!("    最終: 1つのKernelノード\n");
 
     // グラフを作成
     let graph = create_elementwise_chain_graph();
@@ -130,7 +130,7 @@ fn format_op_type(op: &harp::graph::GraphOp) -> String {
         GraphOp::Const(_) => "Const".to_string(),
         GraphOp::Elementwise { op, .. } => format!("Elementwise({:?})", op),
         GraphOp::Kernel { ast, .. } => {
-            format!("Custom(ast={})", format_ast_brief(ast))
+            format!("Kernel(ast={})", format_ast_brief(ast))
         }
         GraphOp::FusedElementwise { expr, .. } => {
             format!("FusedElementwise({})", format_ast_brief(expr))

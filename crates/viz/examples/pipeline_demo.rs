@@ -20,8 +20,8 @@ fn main() -> eframe::Result {
     println!("  - View挿入 (転置の最適化)");
     println!("  - 演算の融合 (Fusion)");
     println!("  - 並列化戦略の最適化 (GPU用)");
-    println!("  - Lowering (GraphOp → Custom変換)");
-    println!("  - カーネルマージ (複数Custom → Program統合)");
+    println!("  - Lowering (GraphOp → Kernel変換)");
+    println!("  - カーネルマージ (複数Kernel → Program統合)");
     println!("  - AST最適化 (代数的簡約、ループ最適化)");
     println!("最適化の各ステップがGenericPipelineに記録され、可視化されます。\n");
 
@@ -81,11 +81,11 @@ fn main() -> eframe::Result {
     let graph_steps = pipeline.histories.graph.as_ref().map_or(0, |h| h.len());
     println!("    - グラフ最適化ステップ数: {}", graph_steps);
 
-    // デバッグ: 最終グラフのSink.srcを確認
+    // デバッグ: 最終グラフのProgramRoot.srcを確認
     if let Some(graph_history) = &pipeline.histories.graph {
         if let Some(final_snapshot) = graph_history.snapshots().last() {
-            if let Some(sink) = final_snapshot.graph.sink() {
-                println!("\n=== Final Graph Sink.src (recursive) ===");
+            if let Some(sink) = final_snapshot.graph.program_root() {
+                println!("\n=== Final Graph ProgramRoot.src (recursive) ===");
                 fn print_node(
                     node: &harp::graph::GraphNode,
                     depth: usize,
@@ -104,10 +104,10 @@ fn main() -> eframe::Result {
                             let buffers = input_buffers
                                 .as_ref()
                                 .map(|b| b.iter().map(|m| m.name.clone()).collect::<Vec<_>>());
-                            format!("Custom(input_buffers={:?})", buffers)
+                            format!("Kernel(input_buffers={:?})", buffers)
                         }
                         harp::graph::GraphOp::ProgramRoot { outputs, .. } => {
-                            format!("Sink(outputs={:?})", outputs)
+                            format!("ProgramRoot(outputs={:?})", outputs)
                         }
                         harp::graph::GraphOp::View(_) => "View".to_string(),
                         _ => format!("{:?}", std::mem::discriminant(&node.op)),
@@ -123,7 +123,7 @@ fn main() -> eframe::Result {
                     }
                 }
 
-                println!("Sink src count: {}", sink.src.len());
+                println!("ProgramRoot src count: {}", sink.src.len());
                 let mut visited = std::collections::HashSet::new();
                 for (i, src) in sink.src.iter().enumerate() {
                     println!("src[{}]:", i);

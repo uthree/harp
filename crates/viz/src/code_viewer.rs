@@ -1,6 +1,6 @@
 //! 最終的に生成されたコードを表示するビューア
 //!
-//! グラフ最適化の結果として生成されたCustom(Program)ノードのコードを表示します。
+//! グラフ最適化の結果として生成されたKernel(Program)ノードのコードを表示します。
 
 use crate::renderer_selector::{render_with_type, renderer_selector_ui, RendererType};
 use harp::graph::{Graph, GraphNode, GraphOp};
@@ -106,10 +106,10 @@ impl CodeViewerApp {
         log::info!("Optimized AST loaded for code viewer");
     }
 
-    /// グラフからSink(Program)、Custom(Program)またはCustom(Function)のASTを抽出
+    /// グラフからProgramRoot(Program)、Kernel(Program)またはKernel(Function)のASTを抽出
     fn extract_ast_from_graph(&self, graph: &Graph) -> Option<harp::ast::AstNode> {
-        // 1. SinkノードのProgramを最優先で確認
-        if let Some(sink) = graph.sink() {
+        // 1. ProgramRootノードのProgramを最優先で確認
+        if let Some(sink) = graph.program_root() {
             if let harp::graph::GraphOp::ProgramRoot { ast, .. } = &sink.op {
                 if let harp::ast::AstNode::Program { functions, .. } = ast {
                     if !functions.is_empty() {
@@ -119,13 +119,13 @@ impl CodeViewerApp {
             }
         }
 
-        // 2. Custom(Program/Function)を走査してASTを収集
+        // 2. Kernel(Program/Function)を走査してASTを収集
         let mut visited = HashSet::new();
         let mut program_ast = None;
         let mut function_asts = Vec::new();
 
-        // Sinkがある場合はSinkのsrcから、ない場合はoutputsから走査
-        if let Some(sink) = graph.sink() {
+        // ProgramRootがある場合はProgramRootのsrcから、ない場合はoutputsから走査
+        if let Some(sink) = graph.program_root() {
             for src in &sink.src {
                 Self::collect_custom_nodes(src, &mut visited, &mut program_ast, &mut function_asts);
             }
@@ -140,12 +140,12 @@ impl CodeViewerApp {
             }
         }
 
-        // Custom(Program)があればそれを優先
+        // Kernel(Program)があればそれを優先
         if let Some(ast) = program_ast {
             return Some(ast);
         }
 
-        // Custom(Function)が複数ある場合は全て連結してProgram化
+        // Kernel(Function)が複数ある場合は全て連結してProgram化
         if !function_asts.is_empty() {
             // 最初のASTを返す（複数ある場合は後で処理）
             // TODO: 複数のFunctionをProgramにまとめる
@@ -155,7 +155,7 @@ impl CodeViewerApp {
         None
     }
 
-    /// Customノードを再帰的に収集
+    /// Kernelノードを再帰的に収集
     fn collect_custom_nodes(
         node: &GraphNode,
         visited: &mut HashSet<*const harp::graph::GraphNodeData>,
@@ -173,7 +173,7 @@ impl CodeViewerApp {
             Self::collect_custom_nodes(src, visited, program_ast, function_asts);
         }
 
-        // Customノードの場合はASTを収集
+        // Kernelノードの場合はASTを収集
         if let GraphOp::Kernel { ast, .. } = &node.op {
             // Programかどうかを判定
             if Self::is_program(ast) {
@@ -277,7 +277,7 @@ impl CodeViewerApp {
             ui.add_space(20.0);
 
             ui.label("Tips:");
-            ui.label("  - The graph must be fully lowered (contain Custom nodes)");
+            ui.label("  - The graph must be fully lowered (contain Kernel nodes)");
             ui.label("  - Use single-stage or unified optimization for best results");
         }
     }
