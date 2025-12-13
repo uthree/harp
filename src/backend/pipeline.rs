@@ -2,6 +2,7 @@
 ///
 /// 各バックエンドのPipeline実装で使用される共通機能を提供します。
 use crate::graph::Graph;
+use crate::opt::Selector;
 use crate::opt::ast::{
     CompositeSuggester as AstCompositeSuggester, FunctionInliningSuggester, LoopFusionSuggester,
     LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester,
@@ -232,6 +233,65 @@ pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOpt
         .with_early_termination_threshold(config.early_termination_threshold);
 
     // チェーンを構築（各オプティマイザに名前を付けてからchainする）
+    preparation_optimizer
+        .with_name("Preparation")
+        .chain(lowering_optimizer.with_name("Lowering"))
+}
+
+/// マルチフェーズグラフ最適化を作成（LoweringフェーズにカスタムSelector使用）
+///
+/// `create_multi_phase_optimizer`と同様ですが、LoweringフェーズでカスタムSelectorを使用できます。
+/// GraphRuntimeSelectorを使用した実測値ベースの最適化に使用します。
+///
+/// Phase 1（Preparation）は静的コスト推定を使用し、Phase 2（Lowering）で
+/// カスタムSelectorを使用します。これは、Lowering済みのグラフは実行可能で
+/// 直接計測できるためです。
+///
+/// # Arguments
+/// * `config` - 最適化の設定
+/// * `selector` - Loweringフェーズで使用するカスタムSelector（GraphRuntimeSelectorなど）
+///
+/// # Returns
+/// ChainedGraphOptimizer（LoweringフェーズにカスタムSelectorが設定される）
+///
+/// # Example
+/// ```ignore
+/// use harp::backend::pipeline::{create_multi_phase_optimizer_with_selector, MultiPhaseConfig};
+/// use harp::opt::selector::GraphRuntimeSelector;
+/// use harp::opt::graph::GraphOptimizer;
+///
+/// let selector = GraphRuntimeSelector::new(renderer, compiler, buffer_factory);
+/// let config = MultiPhaseConfig::new().with_beam_width(4);
+/// let optimizer = create_multi_phase_optimizer_with_selector(config, selector);
+/// let (optimized, history) = optimizer.optimize_with_history(graph);
+/// ```
+pub fn create_multi_phase_optimizer_with_selector<Sel>(
+    config: MultiPhaseConfig,
+    selector: Sel,
+) -> ChainedGraphOptimizer
+where
+    Sel: Selector<(Graph, String)> + 'static,
+{
+    // Phase 1: グラフ準備（View挿入、融合など）- 静的コスト推定
+    let preparation_suggester = create_graph_preparation_suggester();
+    let preparation_optimizer = BeamSearchGraphOptimizer::new(preparation_suggester)
+        .with_beam_width(config.beam_width)
+        .with_max_steps(config.max_steps_per_phase)
+        .with_progress(config.show_progress)
+        .with_collect_logs(config.collect_logs)
+        .with_early_termination_threshold(config.early_termination_threshold);
+
+    // Phase 2: Lowering（Kernel変換、ProgramRoot集約）- カスタムSelector使用
+    let lowering_suggester = create_lowering_phase_suggester();
+    let lowering_optimizer = BeamSearchGraphOptimizer::new(lowering_suggester)
+        .with_selector(selector)
+        .with_beam_width(config.beam_width)
+        .with_max_steps(config.max_steps_per_phase)
+        .with_progress(config.show_progress)
+        .with_collect_logs(config.collect_logs)
+        .with_early_termination_threshold(config.early_termination_threshold);
+
+    // チェーンを構築
     preparation_optimizer
         .with_name("Preparation")
         .chain(lowering_optimizer.with_name("Lowering"))

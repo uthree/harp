@@ -56,6 +56,7 @@ impl Kernel for TestKernel {
     }
 }
 
+#[derive(Clone)]
 struct TestRenderer;
 
 impl Renderer for TestRenderer {
@@ -80,6 +81,7 @@ impl Renderer for TestRenderer {
     }
 }
 
+#[derive(Clone)]
 struct TestCompiler {
     compile_count: std::cell::RefCell<usize>,
 }

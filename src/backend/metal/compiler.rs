@@ -61,7 +61,7 @@ impl MetalCompilerOption {
 }
 
 /// Metalコンパイラ（C++ラッパー方式）
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MetalCompiler {
     /// コンパイラのパス（デフォルトは "clang++"）
     compiler_path: String,

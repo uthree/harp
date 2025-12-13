@@ -164,8 +164,9 @@ impl HarpVizApp {
     /// * `PC` - Compilerの型
     pub fn load_from_pipeline<PR, PC>(&mut self, pipeline: &harp::backend::GenericPipeline<PR, PC>)
     where
-        PR: harp::backend::Renderer,
-        PC: harp::backend::Compiler<CodeRepr = PR::CodeRepr>,
+        PR: harp::backend::Renderer + Clone + 'static,
+        PC: harp::backend::Compiler<CodeRepr = PR::CodeRepr> + Clone + 'static,
+        PC::Buffer: 'static,
     {
         // グラフ最適化履歴を読み込む（Phase 1 + Phase 2 を結合）
         if let Some(combined_history) = pipeline.histories.combined_graph_history() {
@@ -191,8 +192,9 @@ impl HarpVizApp {
         &mut self,
         pipeline: &mut harp::backend::GenericPipeline<PR, PC>,
     ) where
-        PR: harp::backend::Renderer,
-        PC: harp::backend::Compiler<CodeRepr = PR::CodeRepr>,
+        PR: harp::backend::Renderer + Clone + 'static,
+        PC: harp::backend::Compiler<CodeRepr = PR::CodeRepr> + Clone + 'static,
+        PC::Buffer: 'static,
     {
         // グラフ最適化履歴を取得（Phase 1 + Phase 2 を結合）
         if let Some(combined_history) = pipeline.histories.combined_graph_history() {
@@ -237,8 +239,9 @@ impl HarpVizApp {
         pipeline: &harp::backend::GenericPipeline<PR, PC>,
     ) -> Result<(), eframe::Error>
     where
-        PR: harp::backend::Renderer,
-        PC: harp::backend::Compiler<CodeRepr = PR::CodeRepr>,
+        PR: harp::backend::Renderer + Clone + 'static,
+        PC: harp::backend::Compiler<CodeRepr = PR::CodeRepr> + Clone + 'static,
+        PC::Buffer: 'static,
     {
         let mut app = Self::new();
         app.load_from_pipeline(pipeline);
@@ -345,6 +348,7 @@ mod tests {
 
     // テスト用のダミー実装
     #[allow(dead_code)]
+    #[derive(Clone)]
     struct DummyRenderer;
 
     impl Renderer for DummyRenderer {
@@ -399,6 +403,7 @@ mod tests {
     }
 
     #[allow(dead_code)]
+    #[derive(Clone)]
     struct DummyCompiler;
 
     impl Compiler for DummyCompiler {

@@ -6,7 +6,7 @@
 //! # 設計思想
 //!
 //! - 静的コストで足切り後、実行時間を計測することで計算コストを削減
-//! - コンパイル結果と実行時間をキャッシュして再計測を回避
+//! - キャッシュなしのシンプルな設計（毎回再計測）
 //! - バッファファクトリをユーザー定義にすることで柔軟なベンチマーク設定が可能
 //!
 //! # Example
@@ -26,21 +26,10 @@
 //! ```
 
 use std::cell::RefCell;
-use std::collections::HashMap;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::time::Instant;
 
 use crate::ast::AstNode;
 use crate::backend::{Compiler, Kernel, KernelSignature, Renderer};
-
-/// コンパイル結果のキャッシュエントリ
-enum CompileResult<K> {
-    /// コンパイル成功
-    Success(K),
-    /// コンパイル失敗
-    Failure,
-}
 
 /// ランタイムコスト評価器
 ///
@@ -54,7 +43,7 @@ enum CompileResult<K> {
 ///
 /// # 内部可変性
 ///
-/// `RefCell`を使用してキャッシュを管理しているため、`&self`で呼び出せます。
+/// `RefCell`を使用してRenderer/Compilerを管理しているため、`&self`で呼び出せます。
 /// ただし、シングルスレッド環境での使用を前提としています。
 pub struct RuntimeCostEstimator<R, C>
 where
@@ -71,17 +60,12 @@ where
     buffer_factory: Box<dyn Fn(&KernelSignature) -> Vec<C::Buffer>>,
     /// 計測回数（デフォルト: 10）
     measurement_count: usize,
-    /// コンパイル結果のキャッシュ（ASTハッシュ → カーネル）
-    compile_cache: RefCell<HashMap<u64, CompileResult<C::Kernel>>>,
-    /// 実行時間のキャッシュ（ASTハッシュ → マイクロ秒）
-    runtime_cache: RefCell<HashMap<u64, f32>>,
 }
 
 impl<R, C> RuntimeCostEstimator<R, C>
 where
     R: Renderer,
     C: Compiler<CodeRepr = R::CodeRepr>,
-    C::Kernel: Clone,
 {
     /// 新しいRuntimeCostEstimatorを作成
     ///
@@ -118,8 +102,6 @@ where
             signature,
             buffer_factory: Box::new(buffer_factory),
             measurement_count: 10,
-            compile_cache: RefCell::new(HashMap::new()),
-            runtime_cache: RefCell::new(HashMap::new()),
         }
     }
 
@@ -134,53 +116,27 @@ where
 
     /// ASTの実行時間を計測（マイクロ秒）
     ///
-    /// 1. キャッシュを確認（ヒットすれば即座に返す）
-    /// 2. コンパイル（キャッシュがなければ新規コンパイル）
-    /// 3. バッファ生成
-    /// 4. 実行時間計測（measurement_count回の平均）
-    /// 5. キャッシュに保存
+    /// 1. コンパイル
+    /// 2. バッファ生成
+    /// 3. 実行時間計測（measurement_count回の平均）
     ///
     /// # Returns
     ///
     /// 実行時間（マイクロ秒）。コンパイル失敗時は`f32::INFINITY`を返します。
     pub fn measure(&self, ast: &AstNode) -> f32 {
-        let hash = Self::hash_ast(ast);
+        // レンダリング
+        let code = self.renderer.borrow().render(ast);
 
-        // 実行時間キャッシュを確認
-        if let Some(&cost) = self.runtime_cache.borrow().get(&hash) {
-            return cost;
-        }
-
-        // コンパイル（キャッシュまたは新規）
-        let kernel = {
-            let mut compile_cache = self.compile_cache.borrow_mut();
-
-            if let Some(result) = compile_cache.get(&hash) {
-                match result {
-                    CompileResult::Success(k) => k.clone(),
-                    CompileResult::Failure => return f32::INFINITY,
-                }
-            } else {
-                // レンダリング
-                let code = self.renderer.borrow().render(ast);
-
-                // コンパイル
-                let kernel = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    self.compiler
-                        .borrow_mut()
-                        .compile(&code, self.signature.clone())
-                }));
-
-                match kernel {
-                    Ok(k) => {
-                        compile_cache.insert(hash, CompileResult::Success(k.clone()));
-                        k
-                    }
-                    Err(_) => {
-                        compile_cache.insert(hash, CompileResult::Failure);
-                        return f32::INFINITY;
-                    }
-                }
+        // コンパイル
+        let kernel = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.compiler
+                .borrow_mut()
+                .compile(&code, self.signature.clone())
+        })) {
+            Ok(k) => k,
+            Err(_) => {
+                log::warn!("Failed to compile AST for measurement");
+                return f32::INFINITY;
             }
         };
 
@@ -199,46 +155,14 @@ where
             let result = unsafe { kernel.execute(&mut buffer_refs) };
 
             if result.is_err() {
-                // 実行失敗
-                self.runtime_cache.borrow_mut().insert(hash, f32::INFINITY);
+                log::warn!("Kernel execution failed during measurement");
                 return f32::INFINITY;
             }
 
             total_time_us += start.elapsed().as_micros();
         }
 
-        let avg_time_us = (total_time_us as f32) / (self.measurement_count as f32);
-
-        // キャッシュに保存
-        self.runtime_cache.borrow_mut().insert(hash, avg_time_us);
-
-        avg_time_us
-    }
-
-    /// キャッシュをクリア
-    ///
-    /// コンパイルキャッシュと実行時間キャッシュの両方をクリアします。
-    pub fn clear_cache(&self) {
-        self.compile_cache.borrow_mut().clear();
-        self.runtime_cache.borrow_mut().clear();
-    }
-
-    /// キャッシュのサイズを取得
-    pub fn cache_size(&self) -> (usize, usize) {
-        (
-            self.compile_cache.borrow().len(),
-            self.runtime_cache.borrow().len(),
-        )
-    }
-
-    /// ASTからハッシュ値を計算
-    fn hash_ast(ast: &AstNode) -> u64 {
-        let mut hasher = DefaultHasher::new();
-        // AstNodeのDebug表現をハッシュ化（簡易的な方法）
-        // より厳密にはAstNodeにHash traitを実装すべきだが、
-        // 現時点ではDebug表現で代用
-        format!("{:?}", ast).hash(&mut hasher);
-        hasher.finish()
+        (total_time_us as f32) / (self.measurement_count as f32)
     }
 }
 

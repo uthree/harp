@@ -15,8 +15,12 @@
 | SimpleCostEstimator | ノード数とメモリアクセスベースの簡易推定 |
 | LoweringCostEstimator | Loweringフェーズ専用（ProgramRoot集約を促進） |
 | KernelMergeCostEstimator | カーネルマージ最適化専用 |
+| GraphRuntimeCostEstimator | 実測値ベースのコスト評価（Lowering→コンパイル→実行） |
 
 SimpleCostEstimatorは複数のKernel(Function)にペナルティを付与し、単一のKernel(Program)への収束を促進する。
+
+GraphRuntimeCostEstimatorはグラフを簡易Loweringした後、コンパイル・実行して実行時間を計測する。
+AST版よりも計測コストが高いため、足切り候補数を少なめに設定することを推奨（デフォルト: 5件）。
 
 ## Suggester一覧
 
@@ -159,6 +163,11 @@ tinygradのような多段階評価を実現するための抽象化：
 |--------|------|
 | StaticCostSelector | コストでソートして上位n件を選択（デフォルト） |
 | MultiStageSelector | メソッドチェーンでn段階の選択パイプラインを構築 |
+| GraphRuntimeSelector | グラフ用の2段階選択（静的コスト足切り→実測値） |
+
+GraphRuntimeSelectorは以下の2段階で候補を選択:
+1. 静的コスト（SimpleCostEstimator）で`pre_filter_count`件に足切り
+2. GraphRuntimeCostEstimatorで実行時間を計測し、最終選択
 
 ### 使用例
 
@@ -174,6 +183,68 @@ let selector = MultiStageSelector::new()
 
 let optimizer = BeamSearchGraphOptimizer::new(suggester)
     .with_selector(selector);
+
+// GraphRuntimeSelectorを使用した実測値ベース選択
+let graph_selector = GraphRuntimeSelector::new(
+    renderer,
+    compiler,
+    |sig| create_buffers(sig),
+)
+.with_pre_filter_count(5)   // 静的コストで5件に足切り
+.with_measurement_count(5); // 5回計測して平均
+
+let optimizer = BeamSearchGraphOptimizer::new(suggester)
+    .with_selector(graph_selector);
 ```
 
 詳細は`src/opt/selector.rs`を参照。設計は[dagopt](https://github.com/uthree/dagopt)を参考にしている。
+
+## GenericPipelineでの統合
+
+GenericPipelineは`set_runtime_buffer_factory()`を呼び出すことで、
+グラフ最適化とAST最適化の両方で自動的にRuntimeSelectorを使用する。
+
+### 型制約
+
+```rust
+pub struct GenericPipeline<R, C>
+where
+    R: Renderer + Clone + 'static,
+    C: Compiler<CodeRepr = R::CodeRepr> + Clone + 'static,
+    C::Buffer: 'static,
+```
+
+RuntimeSelector使用時にRendererとCompilerのクローンが必要なため、`Clone + 'static`制約が必要。
+
+```rust
+use harp::backend::{GenericPipeline, OptimizationConfig};
+use harp::backend::c::{CRenderer, CCompiler, CBuffer};
+
+let mut pipeline = GenericPipeline::new(CRenderer::new(), CCompiler::new());
+
+// RuntimeSelectorを有効化（グラフとAST両方に適用）
+pipeline.set_runtime_buffer_factory(|sig| {
+    sig.inputs.iter()
+        .chain(sig.outputs.iter())
+        .map(|buf_sig| CBuffer::new(/* ... */))
+        .collect()
+});
+
+// 通常のAPIで自動的にRuntimeSelectorが使用される
+let (program, histories) = pipeline.optimize_graph_with_all_histories(graph)?;
+```
+
+### パラメータ
+
+| 設定 | フィールド | デフォルト | 説明 |
+|------|-----------|-----------|------|
+| グラフ最適化 | `graph_config.pre_filter_count` | 10 | 静的コストでの足切り候補数 |
+| グラフ最適化 | `graph_config.measurement_count` | 30 | 実行時間計測の回数 |
+| AST最適化 | `ast_config.pre_filter_count` | 10 | 静的コストでの足切り候補数 |
+| AST最適化 | `ast_config.measurement_count` | 30 | 実行時間計測の回数 |
+
+### 注意点
+
+- キャッシュなしの設計のため、毎回再計測される
+- グラフ最適化ではLoweringを含むため、AST最適化より計測コストが高い
+- `runtime_buffer_factory`が未設定の場合は静的コストにフォールバック

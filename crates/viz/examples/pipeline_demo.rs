@@ -98,10 +98,11 @@ fn main() -> eframe::Result {
     println!();
 
     // 最適化を実行（グラフ最適化 + RuntimeSelectorを使ったAST最適化）
+    // set_runtime_buffer_factory()を呼び出しているため、自動的にRuntimeSelectorが使用される
     println!("[3/3] 最適化を実行中...");
     println!("  - グラフ最適化 + RuntimeSelector AST最適化を同時実行");
     let (optimized_program, ast_histories) = pipeline
-        .optimize_graph_with_runtime_histories(graph)
+        .optimize_graph_with_all_histories(graph)
         .expect("Failed to optimize graph");
     println!("  - 最適化完了");
     println!();

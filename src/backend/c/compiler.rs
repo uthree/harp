@@ -86,7 +86,7 @@ impl CCompilerOption {
 }
 
 /// Cコンパイラ（シングルスレッド実行専用）
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CCompiler {
     /// コンパイラのパス（デフォルトは "gcc" または "clang"）
     compiler_path: String,
