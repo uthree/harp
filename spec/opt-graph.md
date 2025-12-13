@@ -133,9 +133,11 @@ let (optimized, history) = optimizer.optimize_with_history(graph);
 
 ## BeamSearchGraphOptimizer
 
-- `beam_width`: ビーム幅（デフォルト: 5）
-- `max_steps`: 最大探索ステップ（デフォルト: 10）
-- `enable_early_termination`: コスト改善がない場合に早期終了（デフォルト: true）
+- `beam_width`: ビーム幅（デフォルト: 10）
+- `max_steps`: 最大探索ステップ（デフォルト: 10000）
+- `early_termination_threshold`: 早期終了の閾値（改善なしステップ数）
+  - `Some(n)`: n回連続で改善がなければ終了（デフォルト: `Some(10)`）
+  - `None`: 早期終了を無効化
 - `selector`: 候補選択器（デフォルト: `StaticCostSelector`）
 
 詳細は`src/opt/graph/`を参照。

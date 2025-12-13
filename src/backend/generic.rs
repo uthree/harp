@@ -25,8 +25,11 @@ pub struct OptimizationConfig {
     pub max_steps: usize,
     /// プログレスバーを表示するか
     pub show_progress: bool,
-    /// 早期終了を有効にするか（デフォルト: true）
-    pub enable_early_termination: bool,
+    /// 早期終了の閾値（改善なしステップ数）
+    ///
+    /// Some(n): n回連続で改善がなければ終了
+    /// None: 早期終了を無効化
+    pub early_termination_threshold: Option<usize>,
 }
 
 impl Default for OptimizationConfig {
@@ -35,7 +38,7 @@ impl Default for OptimizationConfig {
             beam_width: 4,
             max_steps: 10000,
             show_progress: false,
-            enable_early_termination: true,
+            early_termination_threshold: Some(20), // デフォルト: 20ステップ改善なしで終了
         }
     }
 }
@@ -712,6 +715,7 @@ where
             .with_beam_width(self.ast_config.beam_width)
             .with_max_steps(self.ast_config.max_steps)
             .with_progress(self.ast_config.show_progress)
+            .with_no_improvement_limit(self.ast_config.early_termination_threshold)
     }
 
     /// グラフ最適化の内部処理（履歴付き）
@@ -724,7 +728,7 @@ where
 
         let config = MultiPhaseConfig::new()
             .with_beam_width(self.graph_config.beam_width)
-            .with_max_steps(self.graph_config.max_steps / 2) // 各フェーズのステップ数
+            .with_max_steps(self.graph_config.max_steps) // 各フェーズのステップ数
             .with_progress(self.graph_config.show_progress)
             .with_collect_logs(self.collect_histories);
 

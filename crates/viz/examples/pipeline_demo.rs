@@ -52,17 +52,17 @@ fn main() -> eframe::Result {
     // グラフ最適化の設定
     pipeline.graph_config = OptimizationConfig {
         beam_width: 4,
-        max_steps: 100,
+        max_steps: 10000,
         show_progress: true,
-        enable_early_termination: false, // 早期終了を無効化
+        early_termination_threshold: None, // 早期終了を無効化
     };
 
     // AST最適化の設定
     pipeline.ast_config = OptimizationConfig {
         beam_width: 4,
-        max_steps: 100,
+        max_steps: 10000,
         show_progress: true,
-        enable_early_termination: true,
+        early_termination_threshold: None,
     };
 
     println!("  ✓ Pipeline作成完了（統合最適化有効）\n");
@@ -478,10 +478,10 @@ fn optimize_ast_with_runtime_selector(
     let loop_suggester = create_ast_loop_suggester();
 
     // 実測値ベース最適化（ステップ数は控えめに）
-    let max_steps = config.max_steps.min(20);
+    let max_steps = config.max_steps;
     let runtime_optimizer = AstBeamSearchOptimizer::new(loop_suggester)
         .with_selector(runtime_selector)
-        .with_beam_width(config.beam_width.min(2))
+        .with_beam_width(config.beam_width)
         .with_max_steps(max_steps)
         .with_progress(config.show_progress);
 

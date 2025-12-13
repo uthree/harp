@@ -38,7 +38,11 @@ where
     max_steps: usize,
     show_progress: bool,
     collect_logs: bool,
-    enable_early_termination: bool,
+    /// 早期終了の閾値（改善なしステップ数）
+    ///
+    /// Some(n): n回連続で改善がなければ終了
+    /// None: 早期終了を無効化
+    early_termination_threshold: Option<usize>,
 }
 
 impl<S> BeamSearchGraphOptimizer<S, StaticCostSelector>
@@ -57,7 +61,7 @@ where
             max_steps: 10000,
             show_progress: cfg!(debug_assertions),
             collect_logs: cfg!(debug_assertions),
-            enable_early_termination: true,
+            early_termination_threshold: Some(10), // デフォルト: 10ステップ改善なしで終了
         }
     }
 }
@@ -95,7 +99,7 @@ where
             max_steps: self.max_steps,
             show_progress: self.show_progress,
             collect_logs: self.collect_logs,
-            enable_early_termination: self.enable_early_termination,
+            early_termination_threshold: self.early_termination_threshold,
         }
     }
 
@@ -127,13 +131,25 @@ where
         self
     }
 
-    /// 早期終了の有効/無効を設定
+    /// 早期終了の閾値を設定
     ///
-    /// trueの場合、コスト改善が一定期間ない場合に自動的に最適化を終了します。
+    /// Some(n): n回連続で改善がなければ終了
+    /// None: 早期終了を無効化
+    ///
+    /// デフォルト: Some(10)
+    pub fn with_early_termination_threshold(mut self, threshold: Option<usize>) -> Self {
+        self.early_termination_threshold = threshold;
+        self
+    }
+
+    /// 早期終了の有効/無効を設定（後方互換性のため）
+    ///
+    /// trueの場合、コスト改善が10回連続でない場合に自動的に最適化を終了します。
     /// falseの場合、最大ステップ数まで続行します。
     /// デフォルトはtrue（早期終了有効）。
+    #[deprecated(note = "use with_early_termination_threshold instead")]
     pub fn with_early_termination(mut self, enable: bool) -> Self {
-        self.enable_early_termination = enable;
+        self.early_termination_threshold = if enable { Some(10) } else { None };
         self
     }
 }
@@ -223,9 +239,6 @@ where
         let mut early_terminated = false;
         let mut best_cost = initial_cost;
         let mut no_improvement_count = 0;
-        // loweringとマージが完了するまで十分な回数を許容
-        // コスト改善がなくても、候補がある限りは続行する
-        const MAX_NO_IMPROVEMENT_STEPS: usize = 10;
 
         for step in 0..self.max_steps {
             if let Some(ref pb) = pb {
@@ -338,34 +351,36 @@ where
                 // コストが改善されない場合はカウンターを増やす
                 if *cost >= best_cost {
                     no_improvement_count += 1;
-                    debug!(
-                        "Step {}: no improvement (current={:.2e}, best={:.2e}, {}/{})",
-                        step, cost, best_cost, no_improvement_count, MAX_NO_IMPROVEMENT_STEPS
-                    );
 
-                    // 連続で改善がない場合は早期終了（enable_early_terminationがtrueの場合のみ）
-                    if self.enable_early_termination
-                        && no_improvement_count >= MAX_NO_IMPROVEMENT_STEPS
-                    {
-                        info!(
-                            "No cost improvement for {} steps - optimization complete",
-                            MAX_NO_IMPROVEMENT_STEPS
+                    // 早期終了の判定
+                    if let Some(threshold) = self.early_termination_threshold {
+                        debug!(
+                            "Step {}: no improvement (current={:.2e}, best={:.2e}, {}/{})",
+                            step, cost, best_cost, no_improvement_count, threshold
                         );
-                        if let Some(ref pb) = pb {
-                            pb.finish_and_clear();
-                            let elapsed = start_time.elapsed();
-                            let time_str = if elapsed.as_secs() > 0 {
-                                format!("{:.2}s", elapsed.as_secs_f64())
-                            } else {
-                                format!("{}ms", elapsed.as_millis())
-                            };
-                            println!(
-                                "{:>12} graph optimization in {} (converged)",
-                                "\x1b[1;32mFinished\x1b[0m", time_str
+
+                        // 連続で改善がない場合は早期終了
+                        if no_improvement_count >= threshold {
+                            info!(
+                                "No cost improvement for {} steps - optimization complete",
+                                threshold
                             );
+                            if let Some(ref pb) = pb {
+                                pb.finish_and_clear();
+                                let elapsed = start_time.elapsed();
+                                let time_str = if elapsed.as_secs() > 0 {
+                                    format!("{:.2}s", elapsed.as_secs_f64())
+                                } else {
+                                    format!("{}ms", elapsed.as_millis())
+                                };
+                                println!(
+                                    "{:>12} graph optimization in {} (converged)",
+                                    "\x1b[1;32mFinished\x1b[0m", time_str
+                                );
+                            }
+                            early_terminated = true;
+                            break;
                         }
-                        early_terminated = true;
-                        break;
                     }
                 } else {
                     // コストが改善された場合はカウンターをリセット

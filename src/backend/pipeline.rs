@@ -119,6 +119,11 @@ pub struct MultiPhaseConfig {
     pub show_progress: bool,
     /// ログ収集を有効にするか
     pub collect_logs: bool,
+    /// 早期終了の閾値（改善なしステップ数）
+    ///
+    /// Some(n): n回連続で改善がなければ終了
+    /// None: 早期終了を無効化
+    pub early_termination_threshold: Option<usize>,
 }
 
 impl Default for MultiPhaseConfig {
@@ -128,6 +133,7 @@ impl Default for MultiPhaseConfig {
             max_steps_per_phase: 5000,
             show_progress: false,
             collect_logs: cfg!(debug_assertions),
+            early_termination_threshold: Some(10), // デフォルト: 10ステップ改善なしで終了
         }
     }
 }
@@ -159,6 +165,15 @@ impl MultiPhaseConfig {
     /// ログ収集を設定
     pub fn with_collect_logs(mut self, collect: bool) -> Self {
         self.collect_logs = collect;
+        self
+    }
+
+    /// 早期終了の閾値を設定
+    ///
+    /// Some(n): n回連続で改善がなければ終了
+    /// None: 早期終了を無効化
+    pub fn with_early_termination_threshold(mut self, threshold: Option<usize>) -> Self {
+        self.early_termination_threshold = threshold;
         self
     }
 }
@@ -204,7 +219,8 @@ pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOpt
         .with_beam_width(config.beam_width)
         .with_max_steps(config.max_steps_per_phase)
         .with_progress(config.show_progress)
-        .with_collect_logs(config.collect_logs);
+        .with_collect_logs(config.collect_logs)
+        .with_early_termination_threshold(config.early_termination_threshold);
 
     // Phase 2: Lowering（Kernel変換、ProgramRoot集約）
     let lowering_suggester = create_lowering_phase_suggester();
@@ -212,7 +228,8 @@ pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOpt
         .with_beam_width(config.beam_width)
         .with_max_steps(config.max_steps_per_phase)
         .with_progress(config.show_progress)
-        .with_collect_logs(config.collect_logs);
+        .with_collect_logs(config.collect_logs)
+        .with_early_termination_threshold(config.early_termination_threshold);
 
     // チェーンを構築（各オプティマイザに名前を付けてからchainする）
     preparation_optimizer
@@ -275,7 +292,8 @@ pub fn create_greedy_optimizer(config: MultiPhaseConfig) -> ChainedGraphOptimize
         .with_beam_width(1) // 貪欲法
         .with_max_steps(config.max_steps_per_phase)
         .with_progress(config.show_progress)
-        .with_collect_logs(config.collect_logs);
+        .with_collect_logs(config.collect_logs)
+        .with_early_termination_threshold(config.early_termination_threshold);
 
     // Phase 2: Lowering（Sequential戦略のみ、beam_width=1）
     let lowering_suggester = create_greedy_lowering_suggester();
@@ -283,7 +301,8 @@ pub fn create_greedy_optimizer(config: MultiPhaseConfig) -> ChainedGraphOptimize
         .with_beam_width(1) // 貪欲法
         .with_max_steps(config.max_steps_per_phase)
         .with_progress(config.show_progress)
-        .with_collect_logs(config.collect_logs);
+        .with_collect_logs(config.collect_logs)
+        .with_early_termination_threshold(config.early_termination_threshold);
 
     preparation_optimizer
         .with_name("Preparation (Greedy)")
