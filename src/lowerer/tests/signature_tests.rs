@@ -10,7 +10,7 @@ fn test_create_signature_simple() {
     let a = graph.input("a", GraphDType::F32, vec![10, 20]);
     graph.output("result", a);
 
-    let signature = Lowerer::create_signature(&graph);
+    let signature = create_signature(&graph);
 
     // 入力が1つ
     assert_eq!(signature.inputs.len(), 1);
@@ -44,7 +44,7 @@ fn test_create_signature_with_dynamic_shape() {
     let a = graph.input("a", GraphDType::F32, vec![n.clone(), m.clone()]);
     graph.output("result", a);
 
-    let signature = Lowerer::create_signature(&graph);
+    let signature = create_signature(&graph);
 
     // 入力が1つ
     assert_eq!(signature.inputs.len(), 1);

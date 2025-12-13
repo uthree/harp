@@ -238,7 +238,7 @@ mod tests {
     fn test_integration_vector_add() {
         use crate::backend::c::CRenderer;
         use crate::graph::{DType as GraphDType, Graph};
-        use crate::lowerer::{Lowerer, lower};
+        use crate::lowerer::{create_signature, lower};
 
         // 1. グラフを作成: a + b
         let mut graph = Graph::new();
@@ -248,7 +248,7 @@ mod tests {
         graph.output("result", result);
 
         // 2. Create signature from graph
-        let signature = Lowerer::create_signature(&graph);
+        let signature = create_signature(&graph);
 
         // 3. Lower to AST
         let program = lower(graph);
@@ -285,7 +285,7 @@ mod tests {
     fn test_integration_vector_mul() {
         use crate::backend::c::CRenderer;
         use crate::graph::{DType as GraphDType, Graph};
-        use crate::lowerer::{Lowerer, lower};
+        use crate::lowerer::{create_signature, lower};
 
         // 1. グラフを作成: a * b
         let mut graph = Graph::new();
@@ -295,7 +295,7 @@ mod tests {
         graph.output("result", result);
 
         // 2. Create signature from graph
-        let signature = Lowerer::create_signature(&graph);
+        let signature = create_signature(&graph);
 
         // 3. Lower to AST
         let program = lower(graph);
@@ -330,7 +330,7 @@ mod tests {
     fn test_integration_multi_step_computation() {
         use crate::backend::c::CRenderer;
         use crate::graph::{DType as GraphDType, Graph};
-        use crate::lowerer::{Lowerer, lower};
+        use crate::lowerer::{create_signature, lower};
 
         // 1. グラフを作成: (a + b) * c
         let mut graph = Graph::new();
@@ -342,7 +342,7 @@ mod tests {
         graph.output("result", result);
 
         // 2. Create signature from graph
-        let signature = Lowerer::create_signature(&graph);
+        let signature = create_signature(&graph);
 
         // 3. Lower to AST
         let program = lower(graph);
@@ -385,7 +385,7 @@ mod tests {
     fn test_integration_2d_array_add() {
         use crate::backend::c::CRenderer;
         use crate::graph::{DType as GraphDType, Graph};
-        use crate::lowerer::{Lowerer, lower};
+        use crate::lowerer::{create_signature, lower};
 
         // 1. グラフを作成: 2x3 配列の加算
         let mut graph = Graph::new();
@@ -395,7 +395,7 @@ mod tests {
         graph.output("result", result);
 
         // 2. Create signature from graph
-        let signature = Lowerer::create_signature(&graph);
+        let signature = create_signature(&graph);
 
         // 3. Lower to AST
         let program = lower(graph);

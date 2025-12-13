@@ -31,6 +31,7 @@ SimpleCostEstimatorは複数のKernel(Function)にペナルティを付与し、
 - **LoweringSuggester**: GraphOpをKernel(Function/Kernel)に変換
   - 各演算に対して複数の並列化戦略（`ParallelizationStrategy`）で候補を生成
   - ビームサーチのコスト評価により最適な戦略が選択される
+  - `sequential_only()`モードでSequential戦略のみに制限可能
 - **BufferAbsorptionSuggester**: KernelのsrcにあるBufferを`input_buffers`に取り込む
 
 #### ParallelizationStrategy
@@ -102,6 +103,33 @@ let (graph, history) = optimize_graph_with_history(
 グラフ最適化はグラフ構造の変換（融合、View挿入、Lowering）を担当し、
 AST最適化（ループ変換、代数的簡約など）はLowering完了後に独立して実行される。
 この分離により、各最適化フェーズが独立して改善可能な設計となっている。
+
+### Lowering Optimizer
+
+グラフからProgramへの変換は2種類のOptimizerで行う。
+
+| 関数 | 説明 |
+|------|------|
+| `create_lowering_optimizer(beam_width, max_steps)` | マルチフェーズ最適化（ビームサーチ、複数の並列化戦略） |
+| `create_simple_lowering_optimizer(max_steps)` | 貪欲法で高速（ビーム幅=1、Sequential戦略のみ） |
+
+```rust
+use harp::lowerer::{create_lowering_optimizer, create_simple_lowering_optimizer};
+use harp::opt::graph::GraphOptimizer;
+
+// 通常のOptimizer（最適化あり）
+let optimizer = create_lowering_optimizer(8, 3000);
+let (optimized, history) = optimizer.optimize_with_history(graph);
+
+// 高速Optimizer（実測用）
+let optimizer = create_simple_lowering_optimizer(5000);
+let (optimized, history) = optimizer.optimize_with_history(graph);
+```
+
+`create_simple_lowering_optimizer`の用途:
+- 実行時間の実測によるコスト評価（`MultiStageSelector`との組み合わせ）
+- 最適化の初期候補生成
+- デバッグ・テスト用途
 
 ## BeamSearchGraphOptimizer
 

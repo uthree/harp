@@ -195,7 +195,7 @@ pub trait Pipeline {
         graph: crate::graph::Graph,
     ) -> Result<<Self::Compiler as Compiler>::Kernel, Self::Error> {
         // デフォルト実装: 各ステージを順番に実行
-        let signature = crate::lowerer::Lowerer::create_signature(&graph);
+        let signature = crate::lowerer::create_signature(&graph);
         let optimized_graph = self.optimize_graph(graph);
         let program = self.lower_to_program(optimized_graph);
         let optimized_program = self.optimize_program(program);

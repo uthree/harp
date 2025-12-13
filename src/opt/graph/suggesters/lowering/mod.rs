@@ -23,7 +23,16 @@ pub use parallel::ParallelizationStrategy;
 /// 各計算ノードを等価なKernelノード（AstNode::Functionを保持）に変換します。
 /// これにより、すべての計算がAST関数として統一され、
 /// ASTレベルの最適化が可能になります。
-pub struct LoweringSuggester;
+///
+/// # 並列化戦略
+///
+/// デフォルトでは複数の並列化戦略（Sequential, FlatParallel, MultiDimParallel）で
+/// 候補を生成しますが、`sequential_only()`で逐次実行のみに制限できます。
+/// これは実行時間の実測など、軽量なloweringが必要な場合に有用です。
+pub struct LoweringSuggester {
+    /// Sequentialのみを使用するかどうか
+    sequential_only: bool,
+}
 
 /// カーネル/関数の種類を表すプレフィックス
 #[derive(Debug, Clone, Copy)]
@@ -54,8 +63,34 @@ impl KernelKind {
 }
 
 impl LoweringSuggester {
+    /// 新しいLoweringSuggesterを作成
+    ///
+    /// デフォルトでは複数の並列化戦略で候補を生成します。
     pub fn new() -> Self {
-        LoweringSuggester
+        LoweringSuggester {
+            sequential_only: false,
+        }
+    }
+
+    /// Sequential戦略のみを使用するLoweringSuggesterを作成
+    ///
+    /// 並列化候補を生成せず、逐次実行のみでloweringします。
+    /// 実行時間の実測など、軽量なloweringが必要な場合に使用します。
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let suggester = LoweringSuggester::sequential_only();
+    /// ```
+    pub fn sequential_only() -> Self {
+        LoweringSuggester {
+            sequential_only: true,
+        }
+    }
+
+    /// Sequential専用モードかどうかを返す
+    pub fn is_sequential_only(&self) -> bool {
+        self.sequential_only
     }
 
     /// ノードの種類とshapeからカーネル/関数名を生成
@@ -414,6 +449,11 @@ impl LoweringSuggester {
 
     /// 利用可能な並列化戦略のリストを取得
     fn available_strategies(&self, node: &GraphNode) -> Vec<ParallelizationStrategy> {
+        // Sequential専用モードの場合は逐次のみ
+        if self.sequential_only {
+            return vec![ParallelizationStrategy::Sequential];
+        }
+
         let mut strategies = vec![ParallelizationStrategy::Sequential];
 
         // Elementwise系とReduce系のみ並列化をサポート

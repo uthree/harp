@@ -603,7 +603,7 @@ where
     /// 複数のAST最適化履歴を取得するには、compile_graph_with_all_histories()を使用してください。
     pub fn compile_graph_with_history(&mut self, graph: Graph) -> Result<C::Kernel, String> {
         // Signatureを作成（最適化前のGraphから）
-        let signature = crate::lowerer::Lowerer::create_signature(&graph);
+        let signature = crate::lowerer::create_signature(&graph);
 
         // グラフ最適化（Phase 1 + Phase 2）
         let optimized_graph = self.optimize_graph_internal(graph);
@@ -663,7 +663,7 @@ where
         graph: Graph,
     ) -> CompileWithHistoriesResult<C::Kernel> {
         // Signatureを作成（最適化前のGraphから）
-        let signature = crate::lowerer::Lowerer::create_signature(&graph);
+        let signature = crate::lowerer::create_signature(&graph);
 
         // グラフ最適化（Phase 1 + Phase 2）
         let optimized_graph = self.optimize_graph_internal(graph);

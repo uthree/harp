@@ -190,3 +190,66 @@ fn test_beam_search_with_fusion_and_lowering() {
 
 // Note: 複数出力のテストは現在サポートされていないため削除されました。
 // 詳細は spec/TODO.md を参照してください。
+
+#[test]
+fn test_sequential_only_mode() {
+    let suggester = LoweringSuggester::sequential_only();
+    assert!(suggester.is_sequential_only());
+
+    let mut graph = Graph::new();
+    let a = graph.input("a", DType::F32, vec![10, 20]);
+    let b = graph.input("b", DType::F32, vec![10, 20]);
+    let c = a + b;
+    graph.output("c", c);
+
+    let suggestions = suggester.suggest(&graph);
+
+    // Sequential専用モードでは1つの候補のみ生成される
+    assert_eq!(
+        suggestions.len(),
+        1,
+        "Sequential-only mode should generate exactly 1 candidate, got {}",
+        suggestions.len()
+    );
+
+    // 候補のグラフでKernelノードが使われていることを確認
+    let new_graph = &suggestions[0];
+    let outputs = new_graph.outputs();
+    let output = outputs.get("c").unwrap();
+    assert!(
+        matches!(output.op, GraphOp::Kernel { .. }),
+        "Candidate should use Kernel node"
+    );
+}
+
+#[test]
+fn test_sequential_only_vs_normal() {
+    let normal = LoweringSuggester::new();
+    let sequential = LoweringSuggester::sequential_only();
+
+    assert!(!normal.is_sequential_only());
+    assert!(sequential.is_sequential_only());
+
+    let mut graph = Graph::new();
+    let a = graph.input("a", DType::F32, vec![10, 20]);
+    let b = graph.input("b", DType::F32, vec![10, 20]);
+    let c = a + b;
+    graph.output("c", c);
+
+    let normal_suggestions = normal.suggest(&graph);
+    let sequential_suggestions = sequential.suggest(&graph);
+
+    // 通常モードでは複数の候補が生成される
+    assert!(
+        normal_suggestions.len() > 1,
+        "Normal mode should generate multiple candidates, got {}",
+        normal_suggestions.len()
+    );
+
+    // Sequential専用モードでは1つの候補のみ
+    assert_eq!(
+        sequential_suggestions.len(),
+        1,
+        "Sequential-only mode should generate exactly 1 candidate"
+    );
+}

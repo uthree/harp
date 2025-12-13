@@ -140,6 +140,27 @@ pub fn create_lowering_phase_suggester() -> CompositeSuggester {
     ])
 }
 
+/// 貪欲法Lowering用のSuggesterを作成
+///
+/// 実行時間の実測など、高速なloweringが必要な場合に使用します。
+/// 並列化戦略はSequentialのみに制限され、探索空間を最小限に抑えます。
+///
+/// # 設計方針
+/// - LoweringSuggester::sequential_only()で逐次実行のみに制限
+/// - 他のSuggesterは通常通り使用
+/// - ビームサーチ幅=1との組み合わせで貪欲法として動作
+pub fn create_greedy_lowering_suggester() -> CompositeSuggester {
+    CompositeSuggester::new(vec![
+        // LoweringSuggester::sequential_only()でSequential戦略のみ使用
+        Box::new(LoweringSuggester::sequential_only()),
+        Box::new(ViewMergeSuggester::new()),
+        Box::new(BufferAbsorptionSuggester::new()),
+        Box::new(ProgramRootAbsorptionSuggester::new()),
+        Box::new(ProgramRootBufferAbsorptionSuggester::new()),
+        Box::new(KernelMergeSuggester::new()),
+    ])
+}
+
 /// AST最適化用のSuggesterを作成
 pub fn create_ast_suggester() -> AstCompositeSuggester {
     AstCompositeSuggester::new(vec![
@@ -419,4 +440,177 @@ pub fn optimize_graph_multi_phase(
 ) -> (Graph, crate::opt::graph::OptimizationHistory) {
     let optimizer = create_multi_phase_optimizer(config);
     optimizer.optimize_with_history(graph)
+}
+
+/// 貪欲法グラフ最適化用のOptimizerを作成
+///
+/// 実行時間の実測など、高速なloweringが必要な場合に使用します。
+///
+/// # 特徴
+/// - ビーム幅=1で貪欲法として動作
+/// - LoweringSuggesterはSequential戦略のみ使用
+/// - 探索空間を最小限に抑え、高速にloweringを完了
+///
+/// # Arguments
+/// * `config` - 最適化の設定（beam_widthは1に強制される）
+///
+/// # Returns
+/// ChainedGraphOptimizer
+pub fn create_greedy_optimizer(config: MultiPhaseConfig) -> ChainedGraphOptimizer {
+    // Phase 1: グラフ準備（通常通り、ただしbeam_width=1）
+    let preparation_suggester = create_graph_preparation_suggester();
+    let preparation_estimator = SimpleCostEstimator::new();
+    let preparation_optimizer =
+        BeamSearchGraphOptimizer::new(preparation_suggester, preparation_estimator)
+            .with_beam_width(1) // 貪欲法
+            .with_max_steps(config.max_steps_per_phase)
+            .with_progress(config.show_progress)
+            .with_collect_logs(config.collect_logs);
+
+    // Phase 2: Lowering（Sequential戦略のみ、beam_width=1）
+    let lowering_suggester = create_greedy_lowering_suggester();
+    let lowering_estimator = LoweringCostEstimator::new();
+    let lowering_optimizer = BeamSearchGraphOptimizer::new(lowering_suggester, lowering_estimator)
+        .with_beam_width(1) // 貪欲法
+        .with_max_steps(config.max_steps_per_phase)
+        .with_progress(config.show_progress)
+        .with_collect_logs(config.collect_logs);
+
+    preparation_optimizer
+        .with_name("Preparation (Greedy)")
+        .chain(lowering_optimizer.with_name("Lowering (Greedy)"))
+}
+
+/// 貪欲法グラフ最適化を実行（履歴付き）
+///
+/// ビーム幅=1、Sequential戦略のみで高速にloweringを行います。
+/// 実行時間の実測など、軽量なloweringが必要な場合に使用します。
+///
+/// # Arguments
+/// * `graph` - 最適化対象のグラフ
+/// * `max_steps` - 各フェーズの最大ステップ数
+///
+/// # Returns
+/// (最適化されたグラフ, 結合された最適化履歴)
+///
+/// # Example
+/// ```ignore
+/// use harp::backend::pipeline::optimize_graph_greedy;
+///
+/// let (optimized, history) = optimize_graph_greedy(graph, 5000);
+/// ```
+pub fn optimize_graph_greedy(
+    graph: Graph,
+    max_steps: usize,
+) -> (Graph, crate::opt::graph::OptimizationHistory) {
+    let config = MultiPhaseConfig::new()
+        .with_beam_width(1)
+        .with_max_steps(max_steps)
+        .with_progress(false)
+        .with_collect_logs(false);
+    let optimizer = create_greedy_optimizer(config);
+    optimizer.optimize_with_history(graph)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::{DType, GraphOp};
+    use crate::opt::graph::GraphSuggester;
+
+    #[test]
+    fn test_greedy_lowering_suggester_uses_sequential_only() {
+        let suggester = create_greedy_lowering_suggester();
+
+        // Suggesterの最初の要素がLoweringSuggester::sequential_only()であることを確認
+        // CompositeSuggesterの内部構造にはアクセスできないため、
+        // 実際にsuggestを呼び出して候補数で確認する
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
+        let b = graph.input("b", DType::F32, vec![10, 20]);
+        let c = a + b;
+        graph.output("c", c);
+
+        // 通常のLowering Suggesterを使った場合と比較
+        let normal_suggester = create_lowering_phase_suggester();
+
+        let greedy_suggestions = suggester.suggest(&graph);
+        let normal_suggestions = normal_suggester.suggest(&graph);
+
+        // 貪欲法用Suggesterは候補が少ない（Sequentialのみ）
+        // 通常は複数の並列化戦略が生成される
+        assert!(
+            greedy_suggestions.len() <= normal_suggestions.len(),
+            "Greedy suggester should generate fewer or equal candidates: greedy={}, normal={}",
+            greedy_suggestions.len(),
+            normal_suggestions.len()
+        );
+    }
+
+    #[test]
+    fn test_optimize_graph_greedy_basic() {
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
+        let b = graph.input("b", DType::F32, vec![10, 20]);
+        let c = a + b;
+        graph.output("c", c);
+
+        let (optimized, history) = optimize_graph_greedy(graph, 1000);
+
+        // 最適化履歴が存在することを確認
+        assert!(
+            history.len() > 0,
+            "Optimization history should not be empty"
+        );
+
+        // 最適化後のグラフがProgramRootを持つことを確認
+        // (完全にloweringが完了した場合)
+        if let Some(root) = optimized.program_root() {
+            assert!(
+                matches!(root.op, GraphOp::ProgramRoot { .. }),
+                "Root should be ProgramRoot"
+            );
+        }
+    }
+
+    #[test]
+    fn test_greedy_optimizer_beam_width_is_one() {
+        // 貪欲法オプティマイザのビーム幅が1であることを間接的に確認
+        // ビーム幅=1なので、各ステップで1つの候補のみ保持される
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
+        let b = graph.input("b", DType::F32, vec![10, 20]);
+        let c = a + b;
+        graph.output("c", c);
+
+        let config = MultiPhaseConfig::new()
+            .with_max_steps(100)
+            .with_progress(false);
+        let optimizer = create_greedy_optimizer(config);
+
+        let (optimized, _history) = optimizer.optimize_with_history(graph);
+
+        // 最適化が完了することを確認（パニックしない）
+        let _outputs = optimized.outputs();
+    }
+
+    #[test]
+    fn test_multi_phase_vs_greedy() {
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![10, 20]);
+        let b = graph.input("b", DType::F32, vec![10, 20]);
+        let c = a + b;
+        graph.output("c", c);
+
+        // 両方とも最適化が完了することを確認
+        let multi_phase_config = MultiPhaseConfig::new()
+            .with_beam_width(4)
+            .with_max_steps(1000);
+        let (_multi_phase_result, _) =
+            optimize_graph_multi_phase(graph.clone(), multi_phase_config);
+
+        let (_greedy_result, _) = optimize_graph_greedy(graph, 1000);
+
+        // 両方とも正常に完了（パニックしない）
+    }
 }

@@ -35,7 +35,7 @@ pub use graph::{CumulativeStrategy, DType, Graph, GraphNode, ReduceStrategy};
 pub use backend::{Buffer, Compiler, Kernel, Renderer};
 
 // Re-export lowerer
-pub use lowerer::Lowerer;
+pub use lowerer::{create_lowering_optimizer, create_signature, create_simple_lowering_optimizer};
 
 /// Prelude module with commonly used types and traits
 ///
@@ -63,7 +63,9 @@ pub mod prelude {
     pub use crate::backend::{Buffer, Compiler, Kernel, KernelSignature, Query, QueryBuilder};
 
     // Lowerer
-    pub use crate::lowerer::Lowerer;
+    pub use crate::lowerer::{
+        create_lowering_optimizer, create_signature, create_simple_lowering_optimizer,
+    };
 
     // Shape expressions
     pub use crate::graph::shape::{Expr, View};

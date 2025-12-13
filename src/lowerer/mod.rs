@@ -1,34 +1,105 @@
 //! Lowerer - グラフからASTへの変換
 //!
-//! グラフ最適化（マルチフェーズ最適化）により、すべてのノードが単一のProgramに
-//! 融合されます。Lowererはグラフ最適化を実行し、結果のProgramを返します。
+//! グラフ最適化により、すべてのノードが単一のProgramに融合されます。
+//!
+//! # Optimizer作成関数
+//!
+//! - **create_lowering_optimizer**: マルチフェーズ最適化（ビームサーチ、複数の並列化戦略）
+//! - **create_simple_lowering_optimizer**: 貪欲法で高速（ビーム幅=1、Sequential戦略のみ）
+//!
+//! # 使用例
+//!
+//! ```ignore
+//! use harp::lowerer::{create_lowering_optimizer, create_simple_lowering_optimizer};
+//! use harp::opt::graph::GraphOptimizer;
+//!
+//! // 通常のOptimizer
+//! let optimizer = create_lowering_optimizer(4, 5000);
+//! let (optimized, history) = optimizer.optimize_with_history(graph);
+//!
+//! // 高速なOptimizer（実測用）
+//! let optimizer = create_simple_lowering_optimizer(5000);
+//! let (optimized, history) = optimizer.optimize_with_history(graph);
+//! ```
 
+use crate::backend::pipeline::{
+    MultiPhaseConfig, create_greedy_optimizer, create_multi_phase_optimizer,
+};
 use crate::graph::{Graph, ops::GraphOp};
+use crate::opt::graph::ChainedGraphOptimizer;
 
 // モジュール宣言
-mod utils; // 共通ユーティリティ（create_signature等）
+mod utils;
 
-/// Lowerer構造体
+// 公開エクスポート
+pub use utils::create_signature;
+
+/// Lowering用のGraphOptimizerを作成
 ///
-/// グラフからKernelSignatureを生成するためのユーティリティを提供します。
-/// 実際のlowering処理はグラフ最適化（LoweringSuggester, ProgramRootAbsorptionSuggester）
-/// によって行われます。
-pub struct Lowerer;
-
-impl Lowerer {
-    pub fn new() -> Self {
-        Self
-    }
+/// マルチフェーズ最適化を使用してグラフをProgramに変換するOptimizerを返します。
+/// ビームサーチと複数の並列化戦略により、最適なコードを生成します。
+///
+/// # Arguments
+/// * `beam_width` - ビームサーチの幅
+/// * `max_steps` - 各フェーズの最大ステップ数
+///
+/// # Returns
+/// `ChainedGraphOptimizer`（Preparation → Loweringの2フェーズ）
+pub fn create_lowering_optimizer(beam_width: usize, max_steps: usize) -> ChainedGraphOptimizer {
+    let config = MultiPhaseConfig::new()
+        .with_beam_width(beam_width)
+        .with_max_steps(max_steps)
+        .with_progress(false);
+    create_multi_phase_optimizer(config)
 }
 
-impl Default for Lowerer {
-    fn default() -> Self {
-        Self::new()
-    }
+/// 貪欲法Lowering用のGraphOptimizerを作成
+///
+/// ビーム幅=1、Sequential戦略のみで高速にloweringを行うOptimizerを返します。
+/// 実行時間の実測など、軽量なloweringが必要な場合に使用します。
+///
+/// # Arguments
+/// * `max_steps` - 各フェーズの最大ステップ数
+///
+/// # Returns
+/// `ChainedGraphOptimizer`（貪欲法版）
+///
+/// # 用途
+/// - 実行時間の実測によるコスト評価
+/// - 最適化の初期候補生成
+/// - デバッグ・テスト用途
+pub fn create_simple_lowering_optimizer(max_steps: usize) -> ChainedGraphOptimizer {
+    let config = MultiPhaseConfig::new()
+        .with_beam_width(1)
+        .with_max_steps(max_steps)
+        .with_progress(false);
+    create_greedy_optimizer(config)
 }
+
+// =============================================================================
+// 互換性のための関数
+// =============================================================================
+
+/// GraphをProgramに変換する公開関数
+///
+/// 既存コードとの互換性のために提供されています。
+/// 内部で`create_lowering_optimizer`を使用してGraphをProgramに変換します。
+///
+/// # Panics
+/// グラフ最適化が単一のProgramに収束しなかった場合にパニックします。
+pub(crate) fn lower(graph: Graph) -> crate::ast::AstNode {
+    use crate::opt::graph::GraphOptimizer;
+
+    let optimizer = create_lowering_optimizer(4, 5000);
+    let (optimized_graph, _history) = optimizer.optimize_with_history(graph);
+    extract_program_from_graph(optimized_graph)
+}
+
+// =============================================================================
+// 内部ヘルパー関数
+// =============================================================================
 
 /// グラフ内にKernel(Program)ノードがあれば、そのProgramを返す
-/// KernelMergeSuggesterの出力を検出するために使用
 fn find_custom_program(graph: &Graph) -> Option<crate::ast::AstNode> {
     for output in graph.outputs().values() {
         if let GraphOp::Kernel { ast, .. } = &output.op
@@ -41,63 +112,28 @@ fn find_custom_program(graph: &Graph) -> Option<crate::ast::AstNode> {
 }
 
 /// ProgramRootノードからProgramを取得する
-/// ProgramRootAbsorptionSuggesterの出力を検出するために使用
 fn find_program_root_program(graph: &Graph) -> Option<crate::ast::AstNode> {
     if let Some(root) = graph.program_root()
         && let GraphOp::ProgramRoot { ast, .. } = &root.op
         && matches!(ast, crate::ast::AstNode::Program { .. })
     {
-        // ProgramRootがProgramを持っていれば返す（空のProgramも許可）
-        // 入力をそのまま出力するケースではfunctionsが空になる
         return Some(ast.clone());
     }
     None
 }
 
-/// グラフ最適化を実行する
-///
-/// マルチフェーズ最適化を使用して、グラフを単一のProgramに収束させます。
-/// - Phase 1 (Preparation): グラフ構造の最適化（View挿入、融合など）
-/// - Phase 2 (Lowering): Kernel変換、ProgramRoot集約
-fn optimize_graph_for_lowering(graph: Graph) -> Graph {
-    use crate::backend::pipeline::{MultiPhaseConfig, optimize_graph_multi_phase};
-
-    let config = MultiPhaseConfig::new()
-        .with_beam_width(4)
-        .with_max_steps(5000)
-        .with_progress(false);
-
-    let (optimized_graph, _history) = optimize_graph_multi_phase(graph, config);
-
-    optimized_graph
-}
-
-/// GraphをProgramに変換する公開関数
-///
-/// マルチフェーズ最適化を実行し、単一のProgramに収束させます。
-/// グラフ最適化が収束しなかった場合はパニックします。
-///
-/// # Panics
-/// グラフ最適化が単一のProgramに収束しなかった場合にパニックします。
-/// これは通常、サポートされていないノードタイプがある場合に発生します。
-pub(crate) fn lower(graph: Graph) -> crate::ast::AstNode {
-    // グラフ最適化を実行（マルチフェーズ最適化）
-    let optimized_graph = optimize_graph_for_lowering(graph);
-
-    // ProgramRoot(Program)ノードがあればそれを直接返す（ProgramRootAbsorptionSuggesterの出力）
+/// 最適化済みグラフからProgramを抽出する
+fn extract_program_from_graph(optimized_graph: Graph) -> crate::ast::AstNode {
     if let Some(program) = find_program_root_program(&optimized_graph) {
         log::debug!("Found ProgramRoot(Program) node, returning directly");
         return program;
     }
 
-    // Kernel(Program)ノードがあればそれを直接返す（KernelMergeSuggesterの出力）
     if let Some(program) = find_custom_program(&optimized_graph) {
         log::debug!("Found Kernel(Program) node, returning directly");
         return program;
     }
 
-    // グラフ最適化が収束しなかった場合はエラー
-    // 残っているノードの情報を収集してエラーメッセージに含める
     let remaining_ops: Vec<String> = optimized_graph
         .outputs()
         .values()
