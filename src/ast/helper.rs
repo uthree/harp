@@ -127,28 +127,108 @@ pub fn function(
     }
 }
 
-/// Create a kernel node (GPU kernel function)
+/// Create a kernel node (GPU kernel function) with 3D dispatch configuration
 ///
 /// # Arguments
 /// * `name` - Kernel name (can be None for anonymous kernels)
 /// * `params` - Parameter declarations
 /// * `return_type` - Return type (usually void/unit)
 /// * `body` - Kernel body (typically a Block node)
-/// * `thread_group_size` - Thread group size for parallel execution
+/// * `default_grid_size` - Default grid size (x, y, z) for CallKernel generation
+/// * `default_thread_group_size` - Default thread group size (x, y, z) for CallKernel generation
 pub fn kernel(
     name: Option<impl Into<String>>,
     params: Vec<super::VarDecl>,
     return_type: DType,
     body: AstNode,
-    thread_group_size: usize,
+    default_grid_size: [AstNode; 3],
+    default_thread_group_size: [AstNode; 3],
 ) -> AstNode {
     AstNode::Kernel {
         name: name.map(|n| n.into()),
         params,
         return_type,
         body: Box::new(body),
-        thread_group_size,
+        default_grid_size: [
+            Box::new(default_grid_size[0].clone()),
+            Box::new(default_grid_size[1].clone()),
+            Box::new(default_grid_size[2].clone()),
+        ],
+        default_thread_group_size: [
+            Box::new(default_thread_group_size[0].clone()),
+            Box::new(default_thread_group_size[1].clone()),
+            Box::new(default_thread_group_size[2].clone()),
+        ],
     }
+}
+
+/// Create a kernel node with 1D dispatch configuration (convenience function)
+///
+/// Sets y and z dimensions to 1 automatically.
+pub fn kernel_1d(
+    name: Option<impl Into<String>>,
+    params: Vec<super::VarDecl>,
+    return_type: DType,
+    body: AstNode,
+    default_grid_size: AstNode,
+    default_thread_group_size: AstNode,
+) -> AstNode {
+    let one = const_int(1);
+    kernel(
+        name,
+        params,
+        return_type,
+        body,
+        [default_grid_size, one.clone(), one.clone()],
+        [default_thread_group_size, one.clone(), one],
+    )
+}
+
+/// Create a kernel call node with 3D dispatch configuration
+///
+/// # Arguments
+/// * `name` - Name of the kernel to call
+/// * `args` - Arguments (buffer pointers, etc.)
+/// * `grid_size` - Grid size (x, y, z) - number of thread groups
+/// * `thread_group_size` - Thread group size (x, y, z) - threads per group
+pub fn call_kernel(
+    name: impl Into<String>,
+    args: Vec<AstNode>,
+    grid_size: [AstNode; 3],
+    thread_group_size: [AstNode; 3],
+) -> AstNode {
+    AstNode::CallKernel {
+        name: name.into(),
+        args,
+        grid_size: [
+            Box::new(grid_size[0].clone()),
+            Box::new(grid_size[1].clone()),
+            Box::new(grid_size[2].clone()),
+        ],
+        thread_group_size: [
+            Box::new(thread_group_size[0].clone()),
+            Box::new(thread_group_size[1].clone()),
+            Box::new(thread_group_size[2].clone()),
+        ],
+    }
+}
+
+/// Create a kernel call node with 1D dispatch configuration (convenience function)
+///
+/// Sets y and z dimensions to 1 automatically.
+pub fn call_kernel_1d(
+    name: impl Into<String>,
+    args: Vec<AstNode>,
+    grid_size: AstNode,
+    thread_group_size: AstNode,
+) -> AstNode {
+    let one = const_int(1);
+    call_kernel(
+        name,
+        args,
+        [grid_size, one.clone(), one.clone()],
+        [thread_group_size, one.clone(), one],
+    )
 }
 
 /// Create a program node
@@ -531,7 +611,7 @@ mod tests {
 
     #[test]
     fn test_kernel_helper() {
-        use crate::ast::{DType, Mutability, VarDecl, VarKind};
+        use crate::ast::{DType, Literal, Mutability, VarDecl, VarKind};
 
         let params = vec![VarDecl {
             name: "buffer".to_string(),
@@ -542,12 +622,14 @@ mod tests {
 
         let body = empty_block();
 
+        // Test 3D kernel helper
         let kern = kernel(
             Some("compute_kernel"),
             params.clone(),
             DType::Tuple(vec![]),
-            body,
-            64, // thread_group_size
+            body.clone(),
+            [const_int(16), const_int(16), const_int(1)],
+            [const_int(64), const_int(1), const_int(1)],
         );
 
         match kern {
@@ -555,16 +637,111 @@ mod tests {
                 name,
                 params: kern_params,
                 return_type,
-                thread_group_size,
+                default_grid_size,
+                default_thread_group_size,
                 ..
             } => {
                 assert_eq!(name, Some("compute_kernel".to_string()));
                 assert_eq!(kern_params.len(), 1);
                 assert_eq!(kern_params[0].name, "buffer");
                 assert_eq!(return_type, DType::Tuple(vec![]));
-                assert_eq!(thread_group_size, 64);
+                // Check grid size
+                match default_grid_size[0].as_ref() {
+                    AstNode::Const(Literal::Int(v)) => assert_eq!(*v, 16),
+                    _ => panic!("Expected Int constant for grid_size[0]"),
+                }
+                // Check thread group size
+                match default_thread_group_size[0].as_ref() {
+                    AstNode::Const(Literal::Int(v)) => assert_eq!(*v, 64),
+                    _ => panic!("Expected Int constant for thread_group_size[0]"),
+                }
             }
             _ => panic!("Expected Kernel node"),
+        }
+
+        // Test 1D kernel helper
+        let kern_1d = kernel_1d(
+            Some("simple_kernel"),
+            params,
+            DType::Tuple(vec![]),
+            body,
+            const_int(1024),
+            const_int(64),
+        );
+
+        match kern_1d {
+            AstNode::Kernel {
+                default_grid_size,
+                default_thread_group_size,
+                ..
+            } => {
+                // Y and Z should be 1
+                match default_grid_size[1].as_ref() {
+                    AstNode::Const(Literal::Int(v)) => assert_eq!(*v, 1),
+                    _ => panic!("Expected Int constant 1 for grid_size[1]"),
+                }
+                match default_thread_group_size[1].as_ref() {
+                    AstNode::Const(Literal::Int(v)) => assert_eq!(*v, 1),
+                    _ => panic!("Expected Int constant 1 for thread_group_size[1]"),
+                }
+            }
+            _ => panic!("Expected Kernel node"),
+        }
+    }
+
+    #[test]
+    fn test_call_kernel_helper() {
+        use crate::ast::Literal;
+
+        // Test 3D call_kernel
+        let call = call_kernel(
+            "my_kernel",
+            vec![var("a"), var("b")],
+            [const_int(8), const_int(8), const_int(1)],
+            [const_int(32), const_int(32), const_int(1)],
+        );
+
+        match call {
+            AstNode::CallKernel {
+                name,
+                args,
+                grid_size,
+                thread_group_size,
+            } => {
+                assert_eq!(name, "my_kernel");
+                assert_eq!(args.len(), 2);
+                match grid_size[0].as_ref() {
+                    AstNode::Const(Literal::Int(v)) => assert_eq!(*v, 8),
+                    _ => panic!("Expected Int constant for grid_size[0]"),
+                }
+                match thread_group_size[0].as_ref() {
+                    AstNode::Const(Literal::Int(v)) => assert_eq!(*v, 32),
+                    _ => panic!("Expected Int constant for thread_group_size[0]"),
+                }
+            }
+            _ => panic!("Expected CallKernel node"),
+        }
+
+        // Test 1D call_kernel
+        let call_1d = call_kernel_1d("simple", vec![var("x")], const_int(100), const_int(64));
+
+        match call_1d {
+            AstNode::CallKernel {
+                grid_size,
+                thread_group_size,
+                ..
+            } => {
+                // Y and Z should be 1
+                match grid_size[1].as_ref() {
+                    AstNode::Const(Literal::Int(v)) => assert_eq!(*v, 1),
+                    _ => panic!("Expected Int constant 1 for grid_size[1]"),
+                }
+                match thread_group_size[2].as_ref() {
+                    AstNode::Const(Literal::Int(v)) => assert_eq!(*v, 1),
+                    _ => panic!("Expected Int constant 1 for thread_group_size[2]"),
+                }
+            }
+            _ => panic!("Expected CallKernel node"),
         }
     }
 

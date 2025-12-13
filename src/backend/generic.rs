@@ -1,4 +1,5 @@
 use crate::ast::AstNode;
+use crate::ast::helper::const_int;
 use crate::backend::{Compiler, Pipeline, Renderer};
 use crate::graph::Graph;
 use crate::opt::ast::rules::all_rules_with_search;
@@ -362,27 +363,41 @@ fn merge_customs_into_program(programs: &[&AstNode], functions: &[&AstNode]) -> 
                                 params,
                                 return_type,
                                 body,
-                                thread_group_size,
+                                default_grid_size,
+                                default_thread_group_size,
                                 ..
                             } => AstNode::Kernel {
                                 name: Some(final_name),
                                 params: params.clone(),
                                 return_type: return_type.clone(),
                                 body: body.clone(),
-                                thread_group_size: *thread_group_size,
+                                default_grid_size: default_grid_size.clone(),
+                                default_thread_group_size: default_thread_group_size.clone(),
                             },
                             AstNode::Function {
                                 params,
                                 return_type,
                                 body,
                                 ..
-                            } => AstNode::Kernel {
-                                name: Some(final_name),
-                                params: params.clone(),
-                                return_type: return_type.clone(),
-                                body: body.clone(),
-                                thread_group_size: 64,
-                            },
+                            } => {
+                                let one = const_int(1);
+                                AstNode::Kernel {
+                                    name: Some(final_name),
+                                    params: params.clone(),
+                                    return_type: return_type.clone(),
+                                    body: body.clone(),
+                                    default_grid_size: [
+                                        Box::new(one.clone()),
+                                        Box::new(one.clone()),
+                                        Box::new(one.clone()),
+                                    ],
+                                    default_thread_group_size: [
+                                        Box::new(const_int(64)),
+                                        Box::new(one.clone()),
+                                        Box::new(one),
+                                    ],
+                                }
+                            }
                             _ => continue,
                         };
                         all_kernels.push(updated_kernel);
@@ -438,12 +453,22 @@ fn merge_customs_into_program(programs: &[&AstNode], functions: &[&AstNode]) -> 
             kernel_names.insert(final_name.clone());
             kernel_bodies.insert(body_key, final_name.clone());
 
+            let one = const_int(1);
             all_kernels.push(AstNode::Kernel {
                 name: Some(final_name),
                 params: params.clone(),
                 return_type: return_type.clone(),
                 body: body.clone(),
-                thread_group_size: 64,
+                default_grid_size: [
+                    Box::new(one.clone()),
+                    Box::new(one.clone()),
+                    Box::new(one.clone()),
+                ],
+                default_thread_group_size: [
+                    Box::new(const_int(64)),
+                    Box::new(one.clone()),
+                    Box::new(one),
+                ],
             });
         }
     }

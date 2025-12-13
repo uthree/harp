@@ -309,13 +309,15 @@ impl CseSuggester {
                 params,
                 return_type,
                 body,
-                thread_group_size,
+                default_grid_size,
+                default_thread_group_size,
             } => AstNode::Kernel {
                 name: name.clone(),
                 params: params.clone(),
                 return_type: return_type.clone(),
                 body: Box::new(Self::substitute_expr(body, target, var_name)),
-                thread_group_size: *thread_group_size,
+                default_grid_size: default_grid_size.clone(),
+                default_thread_group_size: default_thread_group_size.clone(),
             },
             AstNode::Program {
                 functions,
@@ -474,7 +476,8 @@ impl CseSuggester {
                 params,
                 return_type,
                 body,
-                thread_group_size,
+                default_grid_size,
+                default_thread_group_size,
             } => self
                 .try_cse_in_ast(body, temp_counter)
                 .map(|new_body| AstNode::Kernel {
@@ -482,7 +485,8 @@ impl CseSuggester {
                     params: params.clone(),
                     return_type: return_type.clone(),
                     body: Box::new(new_body),
-                    thread_group_size: *thread_group_size,
+                    default_grid_size: default_grid_size.clone(),
+                    default_thread_group_size: default_thread_group_size.clone(),
                 }),
 
             AstNode::Program {

@@ -564,6 +564,8 @@ mod tests {
         )];
 
         use crate::ast::Scope;
+        use crate::ast::helper::const_int;
+        let one = const_int(1);
         let func = AstNode::Kernel {
             name: Some("scale_kernel".to_string()),
             params,
@@ -572,7 +574,16 @@ mod tests {
                 statements: body_statements,
                 scope: Box::new(Scope::new()),
             }),
-            thread_group_size: 1,
+            default_grid_size: [
+                Box::new(one.clone()),
+                Box::new(one.clone()),
+                Box::new(one.clone()),
+            ],
+            default_thread_group_size: [
+                Box::new(const_int(64)),
+                Box::new(one.clone()),
+                Box::new(one),
+            ],
         };
 
         let mut renderer = MetalRenderer::new();
@@ -589,6 +600,8 @@ mod tests {
     #[test]
     fn test_render_program() {
         use crate::ast::Scope;
+        use crate::ast::helper::const_int;
+        let one = const_int(1);
 
         // カーネル関数を作成
         let kernel_params = vec![
@@ -624,7 +637,16 @@ mod tests {
                 )],
                 scope: Box::new(Scope::new()),
             }),
-            thread_group_size: 1,
+            default_grid_size: [
+                Box::new(one.clone()),
+                Box::new(one.clone()),
+                Box::new(one.clone()),
+            ],
+            default_thread_group_size: [
+                Box::new(const_int(64)),
+                Box::new(one.clone()),
+                Box::new(one),
+            ],
         };
 
         let program = AstNode::Program {

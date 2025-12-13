@@ -237,6 +237,36 @@ pub trait CLikeRenderer: Renderer {
                 let arg_strs: Vec<String> = args.iter().map(|a| self.render_expr(a)).collect();
                 format!("{}{}({});", self.indent(), name, arg_strs.join(", "))
             }
+            AstNode::CallKernel {
+                name,
+                args,
+                grid_size,
+                thread_group_size,
+            } => {
+                // カーネル呼び出しをレンダリング（dispatch情報をコメントで出力）
+                let arg_strs: Vec<String> = args.iter().map(|a| self.render_expr(a)).collect();
+                let grid = format!(
+                    "({}, {}, {})",
+                    self.render_expr(&grid_size[0]),
+                    self.render_expr(&grid_size[1]),
+                    self.render_expr(&grid_size[2])
+                );
+                let tg = format!(
+                    "({}, {}, {})",
+                    self.render_expr(&thread_group_size[0]),
+                    self.render_expr(&thread_group_size[1]),
+                    self.render_expr(&thread_group_size[2])
+                );
+                format!(
+                    "{}// dispatch: grid={}, thread_group={}\n{}{}({});",
+                    self.indent(),
+                    grid,
+                    tg,
+                    self.indent(),
+                    name,
+                    arg_strs.join(", ")
+                )
+            }
             AstNode::Deallocate { ptr } => {
                 format!("{}free({});", self.indent(), self.render_expr(ptr))
             }

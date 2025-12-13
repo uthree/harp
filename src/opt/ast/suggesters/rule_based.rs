@@ -240,7 +240,8 @@ impl RuleBaseSuggester {
                 params,
                 return_type,
                 body,
-                thread_group_size,
+                default_grid_size,
+                default_thread_group_size,
             } => {
                 // カーネル本体に対してルールを適用
                 for new_body in self.apply_rule_at_all_positions(body, rule) {
@@ -249,7 +250,8 @@ impl RuleBaseSuggester {
                         params: params.clone(),
                         return_type: return_type.clone(),
                         body: Box::new(new_body),
-                        thread_group_size: *thread_group_size,
+                        default_grid_size: default_grid_size.clone(),
+                        default_thread_group_size: default_thread_group_size.clone(),
                     });
                 }
             }

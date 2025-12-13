@@ -105,12 +105,40 @@ GPUカーネル関数を表現します。GPU上で並列実行されます。
 
 ```rust
 AstNode::Kernel {
-    name: Option<String>,       // カーネル名
-    params: Vec<VarDecl>,       // 引数リスト
-    return_type: DType,         // 返り値の型
-    body: Box<AstNode>,         // カーネル本体
-    thread_group_size: usize,   // スレッドグループサイズ
+    name: Option<String>,                     // カーネル名
+    params: Vec<VarDecl>,                     // 引数リスト
+    return_type: DType,                       // 返り値の型
+    body: Box<AstNode>,                       // カーネル本体
+    default_grid_size: [Box<AstNode>; 3],     // 推奨グリッド数 (x, y, z)
+    default_thread_group_size: [Box<AstNode>; 3], // 推奨スレッドグループサイズ (x, y, z)
 }
+```
+
+dispatch設定（`default_grid_size`, `default_thread_group_size`）は3次元で表現されます。1次元/2次元のみ使用する場合は、使わない軸を`1`に設定します。これらの値は`CallKernel`を生成する際のデフォルト/ヒントとして使用されます。
+
+### CallKernel
+GPUカーネルの呼び出しを表現します。実際のdispatch情報を指定します。
+
+```rust
+AstNode::CallKernel {
+    name: String,                       // 呼び出すカーネル名
+    args: Vec<AstNode>,                 // 引数（バッファポインタ等）
+    grid_size: [Box<AstNode>; 3],       // グリッド数 (x, y, z)
+    thread_group_size: [Box<AstNode>; 3], // スレッドグループサイズ (x, y, z)
+}
+```
+
+`Kernel`が定義、`CallKernel`が呼び出しを表現します。同一カーネルを異なるdispatch設定で複数回呼び出すことが可能です。`grid_size`と`thread_group_size`は`AstNode`として表現されるため、実行時に決まる動的な値（例: 入力サイズに依存する計算）も記述できます。
+
+#### ヘルパー関数
+```rust
+// 3D dispatch
+kernel(name, params, return_type, body, default_grid_size, default_thread_group_size)
+call_kernel(name, args, grid_size, thread_group_size)
+
+// 1D dispatch（y, z軸を1に設定）
+kernel_1d(name, params, return_type, body, default_grid_size, default_thread_group_size)
+call_kernel_1d(name, args, grid_size, thread_group_size)
 ```
 
 ### Program

@@ -12,7 +12,7 @@
 //! カーネル呼び出し間には `AstNode::Barrier` を挿入して、
 //! メモリ書き込みの完了を保証します。
 
-use crate::ast::helper::{assign, block, function, var};
+use crate::ast::helper::{assign, block, const_int, function, var};
 use crate::ast::{AstNode, DType as AstDType, Mutability, Scope, VarDecl, VarKind};
 use crate::graph::ops::custom_placeholders as ph;
 use crate::graph::{DType as GraphDType, Graph, GraphNode, GraphNodeData, GraphOp};
@@ -273,7 +273,8 @@ impl KernelMergeSuggester {
                             params,
                             return_type,
                             body,
-                            thread_group_size,
+                            default_grid_size,
+                            default_thread_group_size,
                         } => {
                             // 元の名前を保持、重複時は__nを追加
                             let base_name = name.clone().unwrap_or_else(|| "kernel".to_string());
@@ -284,7 +285,8 @@ impl KernelMergeSuggester {
                                 params: params.clone(),
                                 return_type: return_type.clone(),
                                 body: body.clone(),
-                                thread_group_size: *thread_group_size,
+                                default_grid_size: default_grid_size.clone(),
+                                default_thread_group_size: default_thread_group_size.clone(),
                             });
                         }
                         AstNode::Function {
@@ -299,12 +301,22 @@ impl KernelMergeSuggester {
                                     name.clone().unwrap_or_else(|| "kernel".to_string());
                                 let new_name = Self::make_unique_name(&base_name, used_names);
                                 used_names.insert(new_name.clone());
+                                let one = const_int(1);
                                 kernels.push(AstNode::Kernel {
                                     name: Some(new_name),
                                     params: params.clone(),
                                     return_type: return_type.clone(),
                                     body: body.clone(),
-                                    thread_group_size: 64,
+                                    default_grid_size: [
+                                        Box::new(one.clone()),
+                                        Box::new(one.clone()),
+                                        Box::new(one.clone()),
+                                    ],
+                                    default_thread_group_size: [
+                                        Box::new(const_int(64)),
+                                        Box::new(one.clone()),
+                                        Box::new(one),
+                                    ],
                                 });
                             }
                         }
@@ -410,12 +422,23 @@ impl KernelMergeSuggester {
         };
         let kernel_name = Self::make_unique_name(&base_name, used_names);
 
+        // デフォルト1D dispatch設定
+        let one = const_int(1);
         AstNode::Kernel {
             name: Some(kernel_name),
             params,
             return_type: AstDType::Tuple(vec![]),
             body: Box::new(body),
-            thread_group_size: 64,
+            default_grid_size: [
+                Box::new(one.clone()),
+                Box::new(one.clone()),
+                Box::new(one.clone()),
+            ],
+            default_thread_group_size: [
+                Box::new(const_int(64)),
+                Box::new(one.clone()),
+                Box::new(one),
+            ],
         }
     }
 

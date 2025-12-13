@@ -114,11 +114,21 @@ pub enum AstNode {
 
     // Kernel definition - GPUカーネル定義
     Kernel {
-        name: Option<String>,     // カーネル名
-        params: Vec<VarDecl>,     // 引数リスト
-        return_type: DType,       // 返り値の型（通常はvoid）
-        body: Box<AstNode>,       // カーネル本体（通常はBlock）
-        thread_group_size: usize, // スレッドグループサイズ（並列実行単位）
+        name: Option<String>, // カーネル名
+        params: Vec<VarDecl>, // 引数リスト
+        return_type: DType,   // 返り値の型（通常はvoid）
+        body: Box<AstNode>,   // カーネル本体（通常はBlock）
+        // 推奨dispatch設定（CallKernel生成時のデフォルト/ヒント）
+        default_grid_size: [Box<AstNode>; 3], // グリッド数 (x, y, z)
+        default_thread_group_size: [Box<AstNode>; 3], // スレッドグループサイズ (x, y, z)
+    },
+
+    // Kernel call - GPUカーネル呼び出し
+    CallKernel {
+        name: String,                         // 呼び出すカーネル名
+        args: Vec<AstNode>,                   // 引数（バッファポインタ等）
+        grid_size: [Box<AstNode>; 3],         // グリッド数 (x, y, z)
+        thread_group_size: [Box<AstNode>; 3], // スレッドグループサイズ (x, y, z)
     },
 
     // Program - プログラム全体
@@ -170,7 +180,37 @@ impl AstNode {
             AstNode::Barrier => vec![],
             AstNode::Allocate { size, .. } => vec![size.as_ref()],
             AstNode::Deallocate { ptr } => vec![ptr.as_ref()],
-            AstNode::Function { body, .. } | AstNode::Kernel { body, .. } => vec![body.as_ref()],
+            AstNode::Function { body, .. } => vec![body.as_ref()],
+            AstNode::Kernel {
+                body,
+                default_grid_size,
+                default_thread_group_size,
+                ..
+            } => {
+                let mut children = vec![body.as_ref()];
+                for dim in default_grid_size {
+                    children.push(dim.as_ref());
+                }
+                for dim in default_thread_group_size {
+                    children.push(dim.as_ref());
+                }
+                children
+            }
+            AstNode::CallKernel {
+                args,
+                grid_size,
+                thread_group_size,
+                ..
+            } => {
+                let mut children: Vec<&AstNode> = args.iter().collect();
+                for dim in grid_size {
+                    children.push(dim.as_ref());
+                }
+                for dim in thread_group_size {
+                    children.push(dim.as_ref());
+                }
+                children
+            }
             AstNode::Program { functions, .. } => {
                 functions.iter().map(|node| node as &AstNode).collect()
             }
@@ -282,13 +322,42 @@ impl AstNode {
                 params,
                 return_type,
                 body,
-                thread_group_size,
+                default_grid_size,
+                default_thread_group_size,
             } => AstNode::Kernel {
                 name: name.clone(),
                 params: params.clone(),
                 return_type: return_type.clone(),
                 body: Box::new(f(body)),
-                thread_group_size: *thread_group_size,
+                default_grid_size: [
+                    Box::new(f(&default_grid_size[0])),
+                    Box::new(f(&default_grid_size[1])),
+                    Box::new(f(&default_grid_size[2])),
+                ],
+                default_thread_group_size: [
+                    Box::new(f(&default_thread_group_size[0])),
+                    Box::new(f(&default_thread_group_size[1])),
+                    Box::new(f(&default_thread_group_size[2])),
+                ],
+            },
+            AstNode::CallKernel {
+                name,
+                args,
+                grid_size,
+                thread_group_size,
+            } => AstNode::CallKernel {
+                name: name.clone(),
+                args: args.iter().map(f).collect(),
+                grid_size: [
+                    Box::new(f(&grid_size[0])),
+                    Box::new(f(&grid_size[1])),
+                    Box::new(f(&grid_size[2])),
+                ],
+                thread_group_size: [
+                    Box::new(f(&thread_group_size[0])),
+                    Box::new(f(&thread_group_size[1])),
+                    Box::new(f(&thread_group_size[2])),
+                ],
             },
             AstNode::Program {
                 functions,
@@ -361,6 +430,9 @@ impl AstNode {
             // ここでは関数定義を参照できないので、Unknownを返す
             // Programコンテキストで適切に型チェックする
             AstNode::Call { .. } => DType::Unknown,
+
+            // CallKernel - カーネル呼び出しは値を返さない（unit型）
+            AstNode::CallKernel { .. } => DType::Tuple(vec![]),
 
             // Return - 返す値の型を返す
             AstNode::Return { value } => value.infer_type(),
@@ -488,6 +560,24 @@ impl AstNode {
             AstNode::Call { args, .. } => {
                 for arg in args {
                     arg.check_scope(scope)?;
+                }
+                Ok(())
+            }
+            // CallKernel - 引数とdispatch設定のスコープチェック
+            AstNode::CallKernel {
+                args,
+                grid_size,
+                thread_group_size,
+                ..
+            } => {
+                for arg in args {
+                    arg.check_scope(scope)?;
+                }
+                for dim in grid_size {
+                    dim.check_scope(scope)?;
+                }
+                for dim in thread_group_size {
+                    dim.check_scope(scope)?;
                 }
                 Ok(())
             }

@@ -399,13 +399,15 @@ impl LoopFusionSuggester {
                 params,
                 return_type,
                 body,
-                thread_group_size,
+                default_grid_size,
+                default_thread_group_size,
             } => self.try_fuse_in_ast(body).map(|new_body| AstNode::Kernel {
                 name: name.clone(),
                 params: params.clone(),
                 return_type: return_type.clone(),
                 body: Box::new(new_body),
-                thread_group_size: *thread_group_size,
+                default_grid_size: default_grid_size.clone(),
+                default_thread_group_size: default_thread_group_size.clone(),
             }),
 
             AstNode::Program {

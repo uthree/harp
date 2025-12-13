@@ -631,7 +631,8 @@ mod tests {
             body: Box::new(store),
         };
 
-        // Kernel内にRangeを配置（thread_group_sizeは0で未指定を表す）
+        // Kernel内にRangeを配置（3D dispatch設定）
+        let one = const_int(1);
         let kernel = AstNode::Kernel {
             name: Some("test_kernel".to_string()),
             params: vec![
@@ -650,7 +651,16 @@ mod tests {
             ],
             return_type: DType::Tuple(vec![]),
             body: Box::new(range),
-            thread_group_size: 0,
+            default_grid_size: [
+                Box::new(one.clone()),
+                Box::new(one.clone()),
+                Box::new(one.clone()),
+            ],
+            default_thread_group_size: [
+                Box::new(const_int(64)),
+                Box::new(one.clone()),
+                Box::new(one),
+            ],
         };
 
         // Program内にKernelを配置

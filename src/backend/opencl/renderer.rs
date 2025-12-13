@@ -365,6 +365,7 @@ mod tests {
 
     #[test]
     fn test_kernel_function_with_mixed_params() {
+        use crate::ast::helper::const_int;
         // カーネル関数でThreadIdとNormalパラメータが混在している場合のテスト
         let mut renderer = OpenCLRenderer::new();
 
@@ -395,12 +396,22 @@ mod tests {
             scope: Box::new(scope),
         });
 
+        let one = const_int(1);
         let func = AstNode::Kernel {
             name: Some("test_kernel".to_string()),
             params,
             return_type: DType::Tuple(vec![]),
             body,
-            thread_group_size: 64,
+            default_grid_size: [
+                Box::new(one.clone()),
+                Box::new(one.clone()),
+                Box::new(one.clone()),
+            ],
+            default_thread_group_size: [
+                Box::new(const_int(64)),
+                Box::new(one.clone()),
+                Box::new(one),
+            ],
         };
 
         let rendered = renderer.render_function_node(&func);
@@ -418,6 +429,7 @@ mod tests {
 
     #[test]
     fn test_kernel_function_all_params_filtered() {
+        use crate::ast::helper::const_int;
         // 全パラメータがフィルタされる場合（ThreadId, GroupIdのみ）
         let mut renderer = OpenCLRenderer::new();
 
@@ -442,12 +454,22 @@ mod tests {
             scope: Box::new(scope),
         });
 
+        let one = const_int(1);
         let func = AstNode::Kernel {
             name: Some("empty_params_kernel".to_string()),
             params,
             return_type: DType::Tuple(vec![]),
             body,
-            thread_group_size: 64,
+            default_grid_size: [
+                Box::new(one.clone()),
+                Box::new(one.clone()),
+                Box::new(one.clone()),
+            ],
+            default_thread_group_size: [
+                Box::new(const_int(64)),
+                Box::new(one.clone()),
+                Box::new(one),
+            ],
         };
 
         let rendered = renderer.render_function_node(&func);

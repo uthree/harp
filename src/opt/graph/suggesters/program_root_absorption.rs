@@ -14,7 +14,7 @@
 //! - `ProgramRoot -> View -> Kernel`パターンは、先にViewMergeSuggesterが
 //!   `ProgramRoot -> Kernel[view適用]`に変換してからこのSuggesterで吸収する
 
-use crate::ast::helper::{block, function, var};
+use crate::ast::helper::{block, const_int, function, var};
 use crate::ast::{AstNode, DType as AstDType, Mutability, Scope, VarDecl, VarKind};
 use crate::graph::ops::InputBufferMeta;
 use crate::graph::ops::custom_placeholders as ph;
@@ -246,14 +246,16 @@ impl ProgramRootAbsorptionSuggester {
                 params,
                 return_type,
                 body,
-                thread_group_size,
+                default_grid_size,
+                default_thread_group_size,
                 ..
             } => AstNode::Kernel {
                 name: Some(new_name.to_string()),
                 params: params.clone(),
                 return_type: return_type.clone(),
                 body: body.clone(),
-                thread_group_size: *thread_group_size,
+                default_grid_size: default_grid_size.clone(),
+                default_thread_group_size: default_thread_group_size.clone(),
             },
             AstNode::Function {
                 params,
@@ -504,12 +506,23 @@ impl ProgramRootAbsorptionSuggester {
         let kernel_name = Self::make_unique_name(&base_name, used_names);
         used_names.insert(kernel_name.clone());
 
+        // デフォルト1D dispatch設定（64スレッド/グループ, 1グリッド）
+        let one = const_int(1);
         let ast = AstNode::Kernel {
             name: Some(kernel_name),
             params,
             return_type: AstDType::Tuple(vec![]),
             body: Box::new(body),
-            thread_group_size: 64,
+            default_grid_size: [
+                Box::new(one.clone()),
+                Box::new(one.clone()),
+                Box::new(one.clone()),
+            ],
+            default_thread_group_size: [
+                Box::new(const_int(64)),
+                Box::new(one.clone()),
+                Box::new(one),
+            ],
         };
 
         KernelInfo {

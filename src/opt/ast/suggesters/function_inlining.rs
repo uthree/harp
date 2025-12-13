@@ -402,6 +402,19 @@ impl FunctionInliningSuggester {
                 args: children.to_vec(),
             },
 
+            // CallKernel
+            AstNode::CallKernel {
+                name,
+                grid_size,
+                thread_group_size,
+                ..
+            } => AstNode::CallKernel {
+                name: name.clone(),
+                args: children.to_vec(),
+                grid_size: grid_size.clone(),
+                thread_group_size: thread_group_size.clone(),
+            },
+
             // Return
             AstNode::Return { .. } => AstNode::Return {
                 value: Box::new(children[0].clone()),
@@ -436,14 +449,16 @@ impl FunctionInliningSuggester {
                 name,
                 params,
                 return_type,
-                thread_group_size,
+                default_grid_size,
+                default_thread_group_size,
                 ..
             } => AstNode::Kernel {
                 name: name.clone(),
                 params: params.clone(),
                 return_type: return_type.clone(),
                 body: Box::new(children[0].clone()),
-                thread_group_size: *thread_group_size,
+                default_grid_size: default_grid_size.clone(),
+                default_thread_group_size: default_thread_group_size.clone(),
             },
 
             // Program
@@ -478,20 +493,27 @@ impl FunctionInliningSuggester {
             // 各関数に対してインライン展開を試みる
             for (i, func) in functions.iter().enumerate() {
                 // FunctionとKernelの両方を処理
-                let (name, params, return_type, body, is_kernel, thread_group_size) = match func {
+                let (name, params, return_type, body, kernel_dispatch) = match func {
                     AstNode::Function {
                         name,
                         params,
                         return_type,
                         body,
-                    } => (name, params, return_type, body, false, 0),
+                    } => (name, params, return_type, body, None),
                     AstNode::Kernel {
                         name,
                         params,
                         return_type,
                         body,
-                        thread_group_size,
-                    } => (name, params, return_type, body, true, *thread_group_size),
+                        default_grid_size,
+                        default_thread_group_size,
+                    } => (
+                        name,
+                        params,
+                        return_type,
+                        body,
+                        Some((default_grid_size.clone(), default_thread_group_size.clone())),
+                    ),
                     _ => continue,
                 };
 
@@ -499,13 +521,14 @@ impl FunctionInliningSuggester {
 
                 // 関数本体でインライン展開を試みる
                 if let Some(new_body) = self.try_inline_in_ast(body, &func_map) {
-                    let new_func = if is_kernel {
+                    let new_func = if let Some((grid_size, tg_size)) = kernel_dispatch {
                         AstNode::Kernel {
                             name: name.clone(),
                             params: params.clone(),
                             return_type: return_type.clone(),
                             body: Box::new(new_body),
-                            thread_group_size,
+                            default_grid_size: grid_size,
+                            default_thread_group_size: tg_size,
                         }
                     } else {
                         AstNode::Function {
