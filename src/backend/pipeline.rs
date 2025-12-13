@@ -1,14 +1,10 @@
 /// Pipeline実装のための共通ヘルパー関数
 ///
 /// 各バックエンドのPipeline実装で使用される共通機能を提供します。
-use crate::ast::AstNode;
 use crate::graph::Graph;
-use crate::opt::ast::rules::all_rules_with_search;
 use crate::opt::ast::{
-    BeamSearchOptimizer as AstBeamSearchOptimizer, CompositeSuggester as AstCompositeSuggester,
-    FunctionInliningSuggester, LoopFusionSuggester, LoopInliningSuggester,
-    LoopInterchangeSuggester, LoopTilingSuggester, OptimizationHistory as AstOptimizationHistory,
-    RuleBaseSuggester,
+    CompositeSuggester as AstCompositeSuggester, FunctionInliningSuggester, LoopFusionSuggester,
+    LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester,
 };
 use crate::opt::graph::{
     BeamSearchGraphOptimizer, BufferAbsorptionSuggester, ChainedGraphOptimizer, CompositeSuggester,
@@ -16,84 +12,6 @@ use crate::opt::graph::{
     LoweringSuggester, ProgramRootAbsorptionSuggester, ProgramRootBufferAbsorptionSuggester,
     TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
 };
-
-/// Suggesterの種類を指定するフラグ
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct SuggesterFlags {
-    /// KernelMergeSuggesterを含めるかどうか
-    ///
-    /// trueの場合、単一ステージでKernel(Function)のマージも行います。
-    /// これにより、部分的にloweringされた状態でも増分マージが可能になります。
-    pub include_kernel_merge: bool,
-}
-
-impl SuggesterFlags {
-    /// デフォルトのSuggesterフラグを作成
-    ///
-    /// デフォルトではKernelMergeSuggesterは含まれません。
-    pub fn new() -> Self {
-        Self {
-            include_kernel_merge: false,
-        }
-    }
-
-    /// KernelMergeSuggesterを含む単一ステージ最適化用のフラグを作成
-    ///
-    /// Kernel(Program)の増分マージをサポートし、
-    /// 単一のビームサーチでloweringからマージまで行います。
-    pub fn single_stage() -> Self {
-        Self {
-            include_kernel_merge: true,
-        }
-    }
-
-    /// KernelMergeSuggesterを含めるかどうかを設定
-    pub fn with_kernel_merge(mut self, include: bool) -> Self {
-        self.include_kernel_merge = include;
-        self
-    }
-}
-
-/// グラフ最適化用のSuggesterを作成
-///
-/// `flags.include_kernel_merge`がtrueの場合、KernelMergeSuggesterも含まれ、
-/// 単一ステージでloweringからマージまで行います。
-pub fn create_graph_suggester(flags: SuggesterFlags) -> CompositeSuggester {
-    let mut suggesters: Vec<Box<dyn crate::opt::graph::GraphSuggester>> = vec![
-        Box::new(ViewInsertionSuggester::new()),
-        // ViewMergeSuggesterはView(Const)パターンもマージする
-        Box::new(ViewMergeSuggester::new()),
-        Box::new(TilingSuggester::with_default_tile_sizes()),
-        Box::new(ContiguousInsertionSuggester::new()),
-        Box::new(FusionSuggester::new()),
-        // LoweringSuggesterは他の最適化後にlowering
-        Box::new(LoweringSuggester::new()),
-        // BufferAbsorptionSuggesterはKernelの入力Bufferをinput_buffersフィールドに取り込む
-        Box::new(BufferAbsorptionSuggester::new()),
-        // ProgramRootAbsorptionSuggesterはKernel(Function)をProgramRootに吸収
-        Box::new(ProgramRootAbsorptionSuggester::new()),
-        // ProgramRootBufferAbsorptionSuggesterはProgramRootの入力Bufferを除去
-        Box::new(ProgramRootBufferAbsorptionSuggester::new()),
-    ];
-
-    // 単一ステージモードの場合、KernelMergeSuggesterも含める
-    // これにより、Kernel(Program)の増分マージが可能になる
-    // 注: ProgramRootAbsorptionSuggesterが優先され、KernelMergeSuggesterは
-    // 既存のKernel(Program)マージにのみ使用される
-    if flags.include_kernel_merge {
-        suggesters.push(Box::new(KernelMergeSuggester::new()));
-    }
-
-    CompositeSuggester::new(suggesters)
-}
-
-/// カーネルマージ用のSuggesterを作成
-///
-/// KernelMergeSuggesterのみを含むSuggesterを作成します。
-/// グラフ最適化の第2フェーズで使用します。
-pub fn create_kernel_merge_suggester() -> CompositeSuggester {
-    CompositeSuggester::new(vec![Box::new(KernelMergeSuggester::new())])
-}
 
 // =============================================================================
 // マルチフェーズ最適化用の関数
@@ -160,21 +78,6 @@ pub fn create_greedy_lowering_suggester() -> CompositeSuggester {
     ])
 }
 
-/// AST最適化用のSuggesterを作成
-///
-/// ルールベース最適化とループ最適化を含むすべてのSuggesterを返します。
-/// ルールベース最適化を事前に実行する場合は`create_ast_loop_suggester()`を使用してください。
-pub fn create_ast_suggester() -> AstCompositeSuggester {
-    AstCompositeSuggester::new(vec![
-        Box::new(RuleBaseSuggester::new(all_rules_with_search())),
-        Box::new(LoopTilingSuggester::with_default_sizes()),
-        Box::new(LoopInliningSuggester::with_default_limit()),
-        Box::new(LoopInterchangeSuggester::new()),
-        Box::new(LoopFusionSuggester::new()),
-        Box::new(FunctionInliningSuggester::with_default_limit()),
-    ])
-}
-
 /// ループ最適化用のSuggesterを作成（RuleBaseSuggesterを除く）
 ///
 /// ルールベース最適化を事前に`RuleBaseOptimizer`で実行した後、
@@ -203,102 +106,6 @@ pub fn create_ast_loop_suggester() -> AstCompositeSuggester {
         Box::new(LoopFusionSuggester::new()),
         Box::new(FunctionInliningSuggester::with_default_limit()),
     ])
-}
-
-/// グラフ最適化用のOptimizerを作成・設定
-///
-/// コスト推定にはオプティマイザ内部の`SimpleCostEstimator`が使用されます。
-pub fn create_graph_optimizer(
-    suggester: CompositeSuggester,
-    beam_width: usize,
-    max_steps: usize,
-    show_progress: bool,
-) -> BeamSearchGraphOptimizer<CompositeSuggester> {
-    BeamSearchGraphOptimizer::new(suggester)
-        .with_beam_width(beam_width)
-        .with_max_steps(max_steps)
-        .with_progress(show_progress)
-}
-
-/// AST最適化用のOptimizerを作成・設定
-pub fn create_ast_optimizer(
-    suggester: AstCompositeSuggester,
-    beam_width: usize,
-    max_steps: usize,
-    show_progress: bool,
-) -> AstBeamSearchOptimizer<AstCompositeSuggester> {
-    AstBeamSearchOptimizer::new(suggester)
-        .with_beam_width(beam_width)
-        .with_max_steps(max_steps)
-        .with_progress(show_progress)
-}
-
-/// グラフ最適化を実行（履歴付き）
-///
-/// コスト推定にはオプティマイザ内部の`SimpleCostEstimator`が使用されます。
-pub fn optimize_graph_with_history(
-    graph: Graph,
-    flags: SuggesterFlags,
-    beam_width: usize,
-    max_steps: usize,
-    show_progress: bool,
-) -> (Graph, crate::opt::graph::OptimizationHistory) {
-    let suggester = create_graph_suggester(flags);
-    let optimizer = create_graph_optimizer(suggester, beam_width, max_steps, show_progress);
-    optimizer.optimize_with_history(graph)
-}
-
-/// AST最適化を実行（履歴付き）
-///
-/// ビームサーチ最適化を適用します。
-/// RuleBaseSuggesterがビームサーチ内に含まれているため、
-/// 代数的簡約などのルールベース最適化も統合的に探索されます。
-pub fn optimize_ast_with_history(
-    program: AstNode,
-    beam_width: usize,
-    max_steps: usize,
-    show_progress: bool,
-) -> (AstNode, AstOptimizationHistory) {
-    let suggester = create_ast_suggester();
-    let optimizer = create_ast_optimizer(suggester, beam_width, max_steps, show_progress);
-
-    optimizer.optimize_with_history(program)
-}
-
-/// 単一ステージグラフ最適化を実行（履歴付き）
-///
-/// KernelMergeSuggesterを含む単一のビームサーチで、
-/// fusion, lowering, カーネルマージを統合的に最適化します。
-///
-/// Kernel(Program)の増分マージをサポートするため、
-/// 従来の2ステージ最適化よりも柔軟な最適化が可能です。
-///
-/// # Arguments
-/// * `graph` - 最適化対象のグラフ
-/// * `estimator` - コスト推定器
-/// * `beam_width` - ビームサーチの幅
-/// * `max_steps` - 最大ステップ数
-/// * `show_progress` - 進捗表示フラグ
-///
-/// # Example
-/// ```ignore
-/// use harp::backend::pipeline::optimize_graph_single_stage;
-///
-/// let (optimized, history) = optimize_graph_single_stage(
-///     graph,
-///     8,    // beam_width
-///     200,  // max_steps
-///     true, // show_progress
-/// );
-/// ```
-pub fn optimize_graph_single_stage(
-    graph: Graph,
-    beam_width: usize,
-    max_steps: usize,
-    show_progress: bool,
-) -> (Graph, crate::opt::graph::OptimizationHistory) {
-    let flags = SuggesterFlags::single_stage();
-    optimize_graph_with_history(graph, flags, beam_width, max_steps, show_progress)
 }
 
 /// マルチフェーズグラフ最適化の設定

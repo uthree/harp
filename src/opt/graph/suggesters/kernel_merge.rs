@@ -905,8 +905,8 @@ mod tests {
 
     #[test]
     fn test_kernel_merge_with_optimizer() {
-        use crate::backend::pipeline::{SuggesterFlags, create_graph_suggester};
-        use crate::opt::graph::{BeamSearchGraphOptimizer, GraphOptimizer};
+        use crate::backend::pipeline::{MultiPhaseConfig, create_multi_phase_optimizer};
+        use crate::opt::graph::GraphOptimizer;
 
         let _ = env_logger::try_init();
 
@@ -920,10 +920,12 @@ mod tests {
         let result = &prod + 1.0f32;
         graph.output("result", result);
 
-        let suggester = create_graph_suggester(SuggesterFlags::new());
-        let optimizer = BeamSearchGraphOptimizer::new(suggester)
+        let config = MultiPhaseConfig::new()
             .with_beam_width(4)
-            .with_max_steps(100);
+            .with_max_steps(100)
+            .with_progress(false)
+            .with_collect_logs(false);
+        let optimizer = create_multi_phase_optimizer(config);
 
         let optimized = optimizer.optimize(graph);
 

@@ -47,7 +47,6 @@ fn main() -> eframe::Result {
     let mut pipeline = GenericPipeline::new(renderer, compiler);
 
     // マルチフェーズ最適化を有効化（グラフ準備 → Lowering）
-    pipeline.enable_multi_phase = true;
     pipeline.collect_histories = true;
 
     // グラフ最適化の設定

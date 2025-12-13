@@ -2,20 +2,14 @@ use crate::ast::AstNode;
 use crate::ast::helper::const_int;
 use crate::backend::{Compiler, Pipeline, Renderer};
 use crate::graph::Graph;
-use crate::opt::ast::rules::all_rules_with_search;
+use crate::opt::ast::rules::all_algebraic_rules;
 use crate::opt::ast::{
     BeamSearchOptimizer as AstBeamSearchOptimizer, CompositeSuggester as AstCompositeSuggester,
     FunctionInliningSuggester, LoopFusionSuggester, LoopInliningSuggester,
     LoopInterchangeSuggester, LoopTilingSuggester, OptimizationHistory as AstOptimizationHistory,
-    RuleBaseSuggester,
+    Optimizer as AstOptimizer, RuleBaseOptimizer,
 };
-use crate::opt::graph::{
-    BeamSearchGraphOptimizer, BufferAbsorptionSuggester, CompositeSuggester,
-    ContiguousInsertionSuggester, FusionSuggester, GraphOptimizer, LoweringSuggester,
-    OptimizationHistory as GraphOptimizationHistory, ProgramRootAbsorptionSuggester,
-    ProgramRootBufferAbsorptionSuggester, TilingSuggester, ViewInsertionSuggester,
-    ViewMergeSuggester,
-};
+use crate::opt::graph::{GraphOptimizer, OptimizationHistory as GraphOptimizationHistory};
 use std::collections::HashMap;
 
 /// compile_graph_with_all_historiesの戻り値の型
@@ -125,14 +119,6 @@ where
     pub ast_config: OptimizationConfig,
     /// 最適化履歴を収集するか（DEBUGビルドではデフォルトでtrue、RELEASEビルドではfalse）
     pub collect_histories: bool,
-    /// マルチフェーズ最適化を有効にするか
-    ///
-    /// trueの場合、ChainedGraphOptimizerを使用して3フェーズ（Preparation, Lowering, AST）で
-    /// 段階的に最適化します。各フェーズに専用のコスト推定器を使用するため、
-    /// 目的の異なるコスト推定が干渉する問題を回避できます。
-    ///
-    /// falseの場合、従来の単一ステージ最適化を使用します。
-    pub enable_multi_phase: bool,
 }
 
 /// 最適化済みグラフからAST Programを抽出する
@@ -579,7 +565,6 @@ where
             enable_ast_optimization: true, // デフォルトで有効
             ast_config: OptimizationConfig::default(),
             collect_histories: cfg!(debug_assertions),
-            enable_multi_phase: true, // デフォルトでマルチフェーズ最適化を有効化
         }
     }
 
@@ -704,42 +689,12 @@ where
         self.kernel_cache.remove(key)
     }
 
-    /// グラフ最適化用のSuggesterを作成
-    fn create_graph_suggester() -> CompositeSuggester {
-        CompositeSuggester::new(vec![
-            Box::new(ViewInsertionSuggester::new()),
-            // ViewMergeSuggesterはView(Const)パターンもマージする
-            Box::new(ViewMergeSuggester::new()),
-            Box::new(TilingSuggester::with_default_tile_sizes()),
-            Box::new(ContiguousInsertionSuggester::new()),
-            Box::new(FusionSuggester::new()),
-            // LoweringSuggesterは他の最適化後にlowering
-            Box::new(LoweringSuggester::new()),
-            // BufferAbsorptionSuggesterはKernelノードにBufferを取り込む
-            Box::new(BufferAbsorptionSuggester::new()),
-            // ProgramRootAbsorptionSuggesterはKernel(Function)をProgramRootに吸収
-            Box::new(ProgramRootAbsorptionSuggester::new()),
-            // ProgramRootBufferAbsorptionSuggesterはProgramRootの入力Bufferを除去
-            Box::new(ProgramRootBufferAbsorptionSuggester::new()),
-        ])
-    }
-
-    /// グラフ最適化用のOptimizerを作成・設定
-    fn create_graph_optimizer(
-        &self,
-        suggester: CompositeSuggester,
-    ) -> BeamSearchGraphOptimizer<CompositeSuggester> {
-        BeamSearchGraphOptimizer::new(suggester)
-            .with_beam_width(self.graph_config.beam_width)
-            .with_max_steps(self.graph_config.max_steps)
-            .with_progress(self.graph_config.show_progress)
-            .with_early_termination(self.graph_config.enable_early_termination)
-    }
-
-    /// AST最適化用のSuggesterを作成
-    fn create_ast_suggester() -> AstCompositeSuggester {
+    /// ループ最適化用のSuggesterを作成（RuleBaseSuggesterを除く）
+    ///
+    /// 2段階AST最適化の第2段階で使用。
+    /// 第1段階でRuleBaseOptimizerが適用済みのため、ループ最適化のみを行う。
+    fn create_loop_suggester() -> AstCompositeSuggester {
         AstCompositeSuggester::new(vec![
-            Box::new(RuleBaseSuggester::new(all_rules_with_search())),
             Box::new(LoopTilingSuggester::with_default_sizes()),
             Box::new(LoopInliningSuggester::with_default_limit()),
             Box::new(LoopInterchangeSuggester::new()),
@@ -761,56 +716,44 @@ where
 
     /// グラフ最適化の内部処理（履歴付き）
     ///
-    /// `enable_multi_phase`がtrueの場合、3フェーズのマルチフェーズ最適化を使用:
+    /// マルチフェーズ最適化を使用:
     /// - Phase 1 (Preparation): グラフ構造の最適化（View挿入、融合など）
     /// - Phase 2 (Lowering): Kernel変換、ProgramRoot集約
-    /// - Phase 3 (AST Optimization): AST最適化（オプション）
-    ///
-    /// `enable_multi_phase`がfalseの場合、単一ステージ最適化を使用
     fn optimize_graph_internal(&mut self, graph: Graph) -> Graph {
         use crate::backend::pipeline::{MultiPhaseConfig, create_multi_phase_optimizer};
 
-        if self.enable_multi_phase {
-            // マルチフェーズ最適化を使用
-            let config = MultiPhaseConfig::new()
-                .with_beam_width(self.graph_config.beam_width)
-                .with_max_steps(self.graph_config.max_steps / 2) // 各フェーズのステップ数
-                .with_progress(self.graph_config.show_progress)
-                .with_collect_logs(self.collect_histories);
+        let config = MultiPhaseConfig::new()
+            .with_beam_width(self.graph_config.beam_width)
+            .with_max_steps(self.graph_config.max_steps / 2) // 各フェーズのステップ数
+            .with_progress(self.graph_config.show_progress)
+            .with_collect_logs(self.collect_histories);
 
-            let optimizer = create_multi_phase_optimizer(config);
-            let (optimized_graph, history) = optimizer.optimize_with_history(graph);
+        let optimizer = create_multi_phase_optimizer(config);
+        let (optimized_graph, history) = optimizer.optimize_with_history(graph);
 
-            if self.collect_histories {
-                self.histories.graph = Some(history);
-                self.histories.graph_phase2 = None; // マルチフェーズでは履歴が統合される
-            }
-
-            optimized_graph
-        } else {
-            // 単一ステージ最適化
-            let suggester = Self::create_graph_suggester();
-            let optimizer = self.create_graph_optimizer(suggester);
-
-            let (optimized_graph, history) = optimizer.optimize_with_history(graph);
-            if self.collect_histories {
-                self.histories.graph = Some(history);
-            }
-
-            optimized_graph
+        if self.collect_histories {
+            self.histories.graph = Some(history);
+            self.histories.graph_phase2 = None; // マルチフェーズでは履歴が統合される
         }
+
+        optimized_graph
     }
 
     /// AST最適化の内部処理（履歴付き）
     ///
-    /// ビームサーチ最適化を適用します。
-    /// RuleBaseSuggesterがビームサーチ内に含まれているため、
-    /// 代数的簡約などのルールベース最適化も統合的に探索されます。
+    /// 2段階でAST最適化を適用:
+    /// 1. ルールベース最適化（RuleBaseOptimizer）: 代数的簡約など（高速、ビームサーチなし）
+    /// 2. ループ最適化（BeamSearch）: ループタイリング、融合など
     fn optimize_ast_internal(&mut self, program: AstNode) -> (AstNode, AstOptimizationHistory) {
-        let suggester = Self::create_ast_suggester();
-        let optimizer = self.create_ast_optimizer(suggester);
+        // 第1段階: ルールベース最適化（高速）
+        let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules());
+        let rule_optimized = rule_optimizer.optimize(program);
 
-        let (optimized, history) = optimizer.optimize_with_history(program);
+        // 第2段階: ループ最適化（ビームサーチ）
+        let loop_suggester = Self::create_loop_suggester();
+        let loop_optimizer = self.create_ast_optimizer(loop_suggester);
+        let (optimized, history) = loop_optimizer.optimize_with_history(rule_optimized);
+
         if self.collect_histories {
             self.histories.ast = Some(history.clone());
         }
@@ -837,42 +780,44 @@ where
 
     /// グラフ最適化を実行
     ///
-    /// 以下の最適化を適用（常に有効）：
-    /// 1. ViewInsertionSuggester（Transpose含む）
-    /// 2. FusionSuggester
-    /// 3. ParallelStrategyChanger
-    /// 4. SimdSuggester
-    /// 5. LoweringSuggester（GraphOp → Kernel変換）
+    /// マルチフェーズ最適化を適用（常に有効）：
+    /// - Phase 1 (Preparation): View挿入、融合など
+    /// - Phase 2 (Lowering): GraphOp → Kernel変換
     fn optimize_graph(&self, graph: Graph) -> Graph {
-        let suggester = Self::create_graph_suggester();
-        let optimizer = self.create_graph_optimizer(suggester);
+        use crate::backend::pipeline::{MultiPhaseConfig, create_multi_phase_optimizer};
 
-        let (optimized_graph, history) = optimizer.optimize_with_history(graph);
+        let config = MultiPhaseConfig::new()
+            .with_beam_width(self.graph_config.beam_width)
+            .with_max_steps(self.graph_config.max_steps / 2)
+            .with_progress(self.graph_config.show_progress)
+            .with_collect_logs(false); // &selfなので履歴保存不可
 
-        // 履歴を保存（mutabilityの問題があるため、内部可変性を使う必要がある）
-        // ここでは一旦最適化だけを実行し、履歴の保存は外部で行う
-        // より良い設計のために、後でCell/RefCellを使うことを検討
-        drop(history); // 履歴は今は保存できない
+        let optimizer = create_multi_phase_optimizer(config);
+        let (optimized_graph, _history) = optimizer.optimize_with_history(graph);
 
         optimized_graph
     }
 
     /// プログラム（AST）最適化を実行
     ///
-    /// 有効な場合、Program全体に対して以下の最適化を2段階で適用：
-    /// 1. ルールベース最適化（代数的簡約）
-    /// 2. ビームサーチ最適化（代数的ルール + ループタイル化 + ループインライン展開）
+    /// 有効な場合、Program全体に対して2段階の最適化を適用：
+    /// 1. ルールベース最適化（代数的簡約、高速）
+    /// 2. ループ最適化（ビームサーチ）
     fn optimize_program(&self, program: AstNode) -> AstNode {
         if !self.enable_ast_optimization {
             return program;
         }
 
-        let suggester = Self::create_ast_suggester();
-        let optimizer = self.create_ast_optimizer(suggester);
+        // 第1段階: ルールベース最適化（高速）
+        let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules());
+        let rule_optimized = rule_optimizer.optimize(program);
 
-        let (program, _history) = optimizer.optimize_with_history(program);
+        // 第2段階: ループ最適化（ビームサーチ）
+        let loop_suggester = Self::create_loop_suggester();
+        let loop_optimizer = self.create_ast_optimizer(loop_suggester);
+        let (optimized, _history) = loop_optimizer.optimize_with_history(rule_optimized);
 
-        program
+        optimized
     }
 
     /// グラフをコンパイル

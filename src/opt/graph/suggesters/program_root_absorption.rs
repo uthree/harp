@@ -980,8 +980,8 @@ mod tests {
 
     #[test]
     fn test_full_optimization_with_beam_search() {
-        use crate::backend::pipeline::{SuggesterFlags, create_graph_suggester};
-        use crate::opt::graph::BeamSearchGraphOptimizer;
+        use crate::backend::pipeline::{MultiPhaseConfig, create_multi_phase_optimizer};
+        use crate::opt::graph::GraphOptimizer;
 
         // 複数の演算を含むグラフ: reduce(a + b) + c
         // Reduceがあると融合されずに2つのKernelノードになる
@@ -997,18 +997,14 @@ mod tests {
         eprintln!("=== Initial Graph ===");
         eprintln!("ProgramRoot exists: {:?}", graph.program_root().is_some());
 
-        // パイプラインと同じ設定でSuggesterを作成
-        let flags = SuggesterFlags {
-            include_kernel_merge: true,
-        };
-        let suggester = create_graph_suggester(flags);
-
-        let optimizer = BeamSearchGraphOptimizer::new(suggester)
+        // マルチフェーズ最適化を使用
+        let config = MultiPhaseConfig::new()
             .with_beam_width(4)
             .with_max_steps(20)
             .with_progress(false)
             .with_collect_logs(false);
 
+        let optimizer = create_multi_phase_optimizer(config);
         let (optimized, history) = optimizer.optimize_with_history(graph);
 
         eprintln!("\n=== Optimization History ===");
@@ -1076,8 +1072,8 @@ mod tests {
     #[test]
     fn test_multiple_outputs_absorption() {
         use crate::ast::helper::wildcard;
-        use crate::backend::pipeline::{SuggesterFlags, create_graph_suggester};
-        use crate::opt::graph::BeamSearchGraphOptimizer;
+        use crate::backend::pipeline::{MultiPhaseConfig, create_multi_phase_optimizer};
+        use crate::opt::graph::GraphOptimizer;
 
         // 複数出力のグラフを作成: x = a + b, y = x + 1
         let mut graph = Graph::new();
@@ -1121,18 +1117,14 @@ mod tests {
             "Should find at least one absorbable Kernel node for multiple outputs"
         );
 
-        // BeamSearchで最適化
-        let flags = SuggesterFlags {
-            include_kernel_merge: true,
-        };
-        let combined_suggester = create_graph_suggester(flags);
-
-        let optimizer = BeamSearchGraphOptimizer::new(combined_suggester)
+        // マルチフェーズ最適化を使用
+        let config = MultiPhaseConfig::new()
             .with_beam_width(4)
             .with_max_steps(50)
             .with_progress(false)
             .with_collect_logs(false);
 
+        let optimizer = create_multi_phase_optimizer(config);
         let (optimized, history) = optimizer.optimize_with_history(graph);
 
         eprintln!("\n=== Optimization History ===");
