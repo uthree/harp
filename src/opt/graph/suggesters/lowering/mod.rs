@@ -7,6 +7,7 @@
 mod elementwise;
 mod helpers;
 mod other;
+mod parallel;
 mod reduce;
 
 use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
@@ -15,6 +16,7 @@ use std::collections::{HashMap, HashSet};
 
 // サブモジュールから関数を再エクスポート
 pub use elementwise::is_pure_const_node;
+pub use parallel::ParallelizationStrategy;
 
 /// GraphOpをKernelノードに変換するSuggester
 ///
@@ -161,24 +163,39 @@ impl LoweringSuggester {
         true
     }
 
-    /// GraphOpをKernelノードに変換
-    fn lower_to_custom(&self, node: &GraphNode) -> Option<GraphNode> {
+    /// GraphOpをKernelノードに変換（戦略指定版）
+    fn lower_to_custom(
+        &self,
+        node: &GraphNode,
+        strategy: &ParallelizationStrategy,
+    ) -> Option<GraphNode> {
         let kind = self.get_kernel_kind(&node.op);
-        let name = self.generate_kernel_name(kind, node.view.shape());
+        let base_name = self.generate_kernel_name(kind, node.view.shape());
+        let name = format!("{}_{}", base_name, strategy.suffix());
 
-        let function = match &node.op {
+        let ast = match &node.op {
             GraphOp::Elementwise { op, .. } => {
-                elementwise::build_elementwise_function(node, op, &name)
+                self.build_elementwise_ast(node, op, &name, strategy)
             }
             GraphOp::Reduce { op, axis, .. } => {
-                reduce::build_reduce_function(node, op, *axis, &name)
+                self.build_reduce_ast(node, op, *axis, &name, strategy)
             }
             GraphOp::Cumulative { op, axis, .. } => {
+                // Cumulativeは現時点では逐次のみサポート
+                if !matches!(strategy, ParallelizationStrategy::Sequential) {
+                    return None;
+                }
                 reduce::build_cumulative_function(node, op, *axis, &name)
             }
-            GraphOp::Contiguous => other::build_contiguous_function(node, &name),
+            GraphOp::Contiguous => {
+                // Contiguousは現時点では逐次のみサポート
+                if !matches!(strategy, ParallelizationStrategy::Sequential) {
+                    return None;
+                }
+                other::build_contiguous_function(node, &name)
+            }
             GraphOp::FusedElementwise { expr, .. } => {
-                elementwise::build_fused_elementwise_function(node, expr, &name)
+                self.build_fused_elementwise_ast(node, expr, &name, strategy)
             }
             GraphOp::FusedElementwiseReduce {
                 expr,
@@ -186,6 +203,10 @@ impl LoweringSuggester {
                 axis,
                 ..
             } => {
+                // FusedElementwiseReduceは現時点では逐次のみサポート
+                if !matches!(strategy, ParallelizationStrategy::Sequential) {
+                    return None;
+                }
                 reduce::build_fused_elementwise_reduce_function(node, expr, reduce_op, *axis, &name)
             }
             GraphOp::FusedElementwiseCumulative {
@@ -193,24 +214,73 @@ impl LoweringSuggester {
                 cumulative_op,
                 axis,
                 ..
-            } => reduce::build_fused_elementwise_cumulative_function(
-                node,
-                expr,
-                cumulative_op,
-                *axis,
-                &name,
-            ),
-            GraphOp::Pad { padding, value } => other::build_pad_function(node, padding, *value),
-            GraphOp::Slice { ranges } => other::build_slice_function(node, ranges, &name),
-            GraphOp::Concat { axis } => other::build_concat_function(node, *axis),
-            GraphOp::Rand => other::build_rand_function(node, &name),
-            GraphOp::Arange => other::build_arange_function(node, &name),
+            } => {
+                // FusedElementwiseCumulativeは現時点では逐次のみサポート
+                if !matches!(strategy, ParallelizationStrategy::Sequential) {
+                    return None;
+                }
+                reduce::build_fused_elementwise_cumulative_function(
+                    node,
+                    expr,
+                    cumulative_op,
+                    *axis,
+                    &name,
+                )
+            }
+            GraphOp::Pad { padding, value } => {
+                if !matches!(strategy, ParallelizationStrategy::Sequential) {
+                    return None;
+                }
+                other::build_pad_function(node, padding, *value)
+            }
+            GraphOp::Slice { ranges } => {
+                if !matches!(strategy, ParallelizationStrategy::Sequential) {
+                    return None;
+                }
+                other::build_slice_function(node, ranges, &name)
+            }
+            GraphOp::Concat { axis } => {
+                if !matches!(strategy, ParallelizationStrategy::Sequential) {
+                    return None;
+                }
+                other::build_concat_function(node, *axis)
+            }
+            GraphOp::Rand => {
+                if !matches!(strategy, ParallelizationStrategy::Sequential) {
+                    return None;
+                }
+                other::build_rand_function(node, &name)
+            }
+            GraphOp::Arange => {
+                if !matches!(strategy, ParallelizationStrategy::Sequential) {
+                    return None;
+                }
+                other::build_arange_function(node, &name)
+            }
             GraphOp::Cast { target_dtype, .. } => {
+                if !matches!(strategy, ParallelizationStrategy::Sequential) {
+                    return None;
+                }
                 other::build_cast_function(node, target_dtype, &name)
             }
-            GraphOp::Real => other::build_real_function(node, &name),
-            GraphOp::Imag => other::build_imag_function(node, &name),
-            GraphOp::ComplexFromParts => other::build_complex_from_parts_function(node, &name),
+            GraphOp::Real => {
+                if !matches!(strategy, ParallelizationStrategy::Sequential) {
+                    return None;
+                }
+                other::build_real_function(node, &name)
+            }
+            GraphOp::Imag => {
+                if !matches!(strategy, ParallelizationStrategy::Sequential) {
+                    return None;
+                }
+                other::build_imag_function(node, &name)
+            }
+            GraphOp::ComplexFromParts => {
+                if !matches!(strategy, ParallelizationStrategy::Sequential) {
+                    return None;
+                }
+                other::build_complex_from_parts_function(node, &name)
+            }
             GraphOp::Fold { .. } => {
                 // Foldは複雑なので後で実装
                 return None;
@@ -245,12 +315,129 @@ impl LoweringSuggester {
         Some(GraphNode::new(
             node.dtype.clone(),
             GraphOp::Kernel {
-                ast: function,
+                ast,
                 input_buffers: None,
             },
             new_src,
             node.view.clone(),
         ))
+    }
+
+    /// Elementwise演算のAST生成（戦略に応じて分岐）
+    fn build_elementwise_ast(
+        &self,
+        node: &GraphNode,
+        op: &crate::graph::ElementwiseOp,
+        name: &str,
+        strategy: &ParallelizationStrategy,
+    ) -> Option<crate::ast::AstNode> {
+        match strategy {
+            ParallelizationStrategy::Sequential => {
+                elementwise::build_elementwise_function(node, op, name)
+            }
+            _ => {
+                // 並列版: parallel モジュールを使用
+                let shape = node.view.shape();
+                let ndim = shape.len();
+                let num_inputs = node
+                    .src
+                    .iter()
+                    .filter(|s| !matches!(s.op, GraphOp::Const(_)) && !is_pure_const_node(s))
+                    .count();
+
+                let expr = elementwise::build_elementwise_expr(op);
+                let expr_with_consts = elementwise::embed_constants(&expr, &node.src);
+
+                Some(parallel::build_parallel_elementwise_kernel(
+                    ndim,
+                    num_inputs,
+                    expr_with_consts,
+                    &node.dtype,
+                    name,
+                    strategy,
+                ))
+            }
+        }
+    }
+
+    /// FusedElementwise演算のAST生成（戦略に応じて分岐）
+    fn build_fused_elementwise_ast(
+        &self,
+        node: &GraphNode,
+        expr: &crate::ast::AstNode,
+        name: &str,
+        strategy: &ParallelizationStrategy,
+    ) -> Option<crate::ast::AstNode> {
+        match strategy {
+            ParallelizationStrategy::Sequential => {
+                elementwise::build_fused_elementwise_function(node, expr, name)
+            }
+            _ => {
+                let shape = node.view.shape();
+                let ndim = shape.len();
+                let num_inputs = node
+                    .src
+                    .iter()
+                    .filter(|s| !matches!(s.op, GraphOp::Const(_)) && !is_pure_const_node(s))
+                    .count();
+
+                let expr_with_consts = elementwise::embed_constants(expr, &node.src);
+
+                Some(parallel::build_parallel_elementwise_kernel(
+                    ndim,
+                    num_inputs,
+                    expr_with_consts,
+                    &node.dtype,
+                    name,
+                    strategy,
+                ))
+            }
+        }
+    }
+
+    /// Reduce演算のAST生成（戦略に応じて分岐）
+    fn build_reduce_ast(
+        &self,
+        node: &GraphNode,
+        op: &crate::graph::ReduceOp,
+        axis: usize,
+        name: &str,
+        strategy: &ParallelizationStrategy,
+    ) -> Option<crate::ast::AstNode> {
+        match strategy {
+            ParallelizationStrategy::Sequential => {
+                reduce::build_reduce_function(node, op, axis, name)
+            }
+            _ => parallel::build_parallel_reduce_kernel(node, op, axis, name, strategy),
+        }
+    }
+
+    /// 利用可能な並列化戦略のリストを取得
+    fn available_strategies(&self, node: &GraphNode) -> Vec<ParallelizationStrategy> {
+        let mut strategies = vec![ParallelizationStrategy::Sequential];
+
+        // Elementwise系とReduce系のみ並列化をサポート
+        match &node.op {
+            GraphOp::Elementwise { .. }
+            | GraphOp::FusedElementwise { .. }
+            | GraphOp::Reduce { .. } => {
+                strategies.push(ParallelizationStrategy::FlatParallel);
+
+                // 多次元並列化は次元数に応じて追加
+                let ndim = node.view.shape().len();
+                if ndim >= 1 {
+                    strategies.push(ParallelizationStrategy::MultiDimParallel { parallel_dims: 1 });
+                }
+                if ndim >= 2 {
+                    strategies.push(ParallelizationStrategy::MultiDimParallel { parallel_dims: 2 });
+                }
+            }
+            _ => {
+                // その他の演算は逐次のみ
+            }
+        }
+
+        strategies
     }
 
     /// グラフ内の特定ノードを置き換えた新しいグラフを作成
@@ -386,20 +573,25 @@ impl GraphSuggester for LoweringSuggester {
 
             lowerable_count += 1;
 
-            if let Some(custom_node) = self.lower_to_custom(node) {
-                let new_graph = self.replace_node_in_graph(graph, node, custom_node);
-                suggestions.push(new_graph);
-                lowered_count += 1;
-            } else {
-                log::debug!(
-                    "LoweringSuggester: failed to lower {:?}",
-                    std::mem::discriminant(&node.op)
-                );
+            // 利用可能な全戦略で候補を生成
+            let strategies = self.available_strategies(node);
+            for strategy in &strategies {
+                if let Some(custom_node) = self.lower_to_custom(node, strategy) {
+                    let new_graph = self.replace_node_in_graph(graph, node, custom_node);
+                    suggestions.push(new_graph);
+                    lowered_count += 1;
+                } else {
+                    log::debug!(
+                        "LoweringSuggester: failed to lower {:?} with strategy {:?}",
+                        std::mem::discriminant(&node.op),
+                        strategy
+                    );
+                }
             }
         }
 
         log::debug!(
-            "LoweringSuggester: {} nodes total, {} already custom, {} lowerable, {} lowered",
+            "LoweringSuggester: {} nodes total, {} already custom, {} lowerable, {} lowered candidates",
             nodes.len(),
             already_custom,
             lowerable_count,

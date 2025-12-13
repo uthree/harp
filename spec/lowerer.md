@@ -17,7 +17,8 @@ Graph
   │  - ContiguousInsertionSuggester
   │  - FusionSuggester
   ↓ Phase 2 (Lowering)
-  │  - LoweringSuggester: GraphOp → Kernel(Function)
+  │  - LoweringSuggester: GraphOp → Kernel(Function/Kernel)
+  │    ※各演算に対して複数の並列化戦略で候補を生成
   │  - ViewMergeSuggester: ViewをKernelに吸収
   │  - BufferAbsorptionSuggester: 入力Buffer取り込み
   │  - ProgramRootAbsorptionSuggester: Kernel → ProgramRoot
@@ -64,3 +65,17 @@ AstNode::Program (単一ノードに収束)
 
 ### 未実装
 - FusedReduce演算（タプル出力が必要）
+
+## 並列化サポート
+
+LoweringSuggesterは各演算に対して複数の並列化戦略で候補を生成し、ビームサーチが最適な戦略を選択します。
+
+### 戦略一覧
+- **Sequential**: 逐次実行（CPU向け、Rangeループ使用）
+- **FlatParallel**: 1次元グリッドで全要素を並列処理
+- **MultiDimParallel(n)**: n次元グリッドで並列処理（最大3次元）
+
+### 対応演算
+- Elementwise, FusedElementwise: 全戦略対応
+- Reduce: Sequential, FlatParallel対応
+- その他: Sequentialのみ（順次拡張予定）

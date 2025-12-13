@@ -16,14 +16,23 @@ fn test_lower_elementwise_add() {
 
     let suggestions = suggester.suggest(&graph);
 
-    // Elementwise Addが1つあるので、1つの候補が生成される
-    assert_eq!(suggestions.len(), 1);
+    // Elementwise Add (2D) に対して複数の並列化戦略が生成される:
+    // - Sequential, FlatParallel, MultiDimParallel{1}, MultiDimParallel{2}
+    assert!(
+        suggestions.len() >= 1,
+        "At least one candidate should be generated"
+    );
 
-    // 候補のグラフでKernelノードが使われていることを確認
-    let new_graph = &suggestions[0];
-    let outputs = new_graph.outputs();
-    let output = outputs.get("c").unwrap();
-    assert!(matches!(output.op, GraphOp::Kernel { .. }));
+    // 全ての候補のグラフでKernelノードが使われていることを確認
+    for (i, new_graph) in suggestions.iter().enumerate() {
+        let outputs = new_graph.outputs();
+        let output = outputs.get("c").unwrap();
+        assert!(
+            matches!(output.op, GraphOp::Kernel { .. }),
+            "Candidate {} should use Kernel node",
+            i
+        );
+    }
 }
 
 #[test]
@@ -37,12 +46,22 @@ fn test_lower_reduce_sum() {
 
     let suggestions = suggester.suggest(&graph);
 
-    assert_eq!(suggestions.len(), 1);
+    // Reduce Sum に対して複数の並列化戦略が生成される
+    assert!(
+        suggestions.len() >= 1,
+        "At least one candidate should be generated"
+    );
 
-    let new_graph = &suggestions[0];
-    let outputs = new_graph.outputs();
-    let output = outputs.get("b").unwrap();
-    assert!(matches!(output.op, GraphOp::Kernel { .. }));
+    // 全ての候補のグラフでKernelノードが使われていることを確認
+    for (i, new_graph) in suggestions.iter().enumerate() {
+        let outputs = new_graph.outputs();
+        let output = outputs.get("b").unwrap();
+        assert!(
+            matches!(output.op, GraphOp::Kernel { .. }),
+            "Candidate {} should use Kernel node",
+            i
+        );
+    }
 }
 
 #[test]

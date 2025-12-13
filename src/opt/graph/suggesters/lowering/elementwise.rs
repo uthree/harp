@@ -9,17 +9,9 @@ use std::collections::{HashMap, HashSet};
 
 use super::helpers::{build_contiguous_offset, graph_dtype_to_ast, wrap_with_loops};
 
-/// Elementwise演算の関数を生成
-pub fn build_elementwise_function(
-    node: &GraphNode,
-    op: &ElementwiseOp,
-    name: &str,
-) -> Option<AstNode> {
-    let shape = node.view.shape();
-    let ndim = shape.len();
-
-    // 演算式を構築
-    let expr = match op {
+/// ElementwiseOpから演算式を構築
+pub fn build_elementwise_expr(op: &ElementwiseOp) -> AstNode {
+    match op {
         ElementwiseOp::Add => wildcard("0") + wildcard("1"),
         ElementwiseOp::Mul => wildcard("0") * wildcard("1"),
         ElementwiseOp::Neg => const_f32(-1.0) * wildcard("0"),
@@ -31,7 +23,20 @@ pub fn build_elementwise_function(
         ElementwiseOp::Exp2 => exp2(wildcard("0")),
         ElementwiseOp::Sin => sin(wildcard("0")),
         ElementwiseOp::Sqrt => sqrt(wildcard("0")),
-    };
+    }
+}
+
+/// Elementwise演算の関数を生成
+pub fn build_elementwise_function(
+    node: &GraphNode,
+    op: &ElementwiseOp,
+    name: &str,
+) -> Option<AstNode> {
+    let shape = node.view.shape();
+    let ndim = shape.len();
+
+    // 演算式を構築
+    let expr = build_elementwise_expr(op);
 
     // 入力数を計算（Constノードおよび純粋な定数ノードを除く）
     let num_inputs = node

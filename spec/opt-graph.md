@@ -28,8 +28,25 @@ SimpleCostEstimatorは複数のKernel(Function)にペナルティを付与し、
 - **TilingSuggester**: ループタイリング適用
 
 ### Lowering系
-- **LoweringSuggester**: GraphOpをKernel(Function)に変換
+- **LoweringSuggester**: GraphOpをKernel(Function/Kernel)に変換
+  - 各演算に対して複数の並列化戦略（`ParallelizationStrategy`）で候補を生成
+  - ビームサーチのコスト評価により最適な戦略が選択される
 - **BufferAbsorptionSuggester**: KernelのsrcにあるBufferを`input_buffers`に取り込む
+
+#### ParallelizationStrategy
+
+LoweringSuggesterが生成する並列化戦略：
+
+| 戦略 | 説明 | 生成されるAST |
+|------|------|---------------|
+| Sequential | 逐次実行（CPU向け） | `AstNode::Function` + Rangeループ |
+| FlatParallel | 全要素を線形インデックスで並列処理 | `AstNode::Kernel` (1D grid) |
+| MultiDimParallel(n) | n次元までをスレッドIDで並列化 | `AstNode::Kernel` (nD grid) |
+
+対応演算:
+- **Elementwise/FusedElementwise**: 全戦略対応
+- **Reduce**: Sequential, FlatParallel対応
+- **その他**: Sequentialのみ
 
 ### ProgramRoot関連
 - **ProgramRootAbsorptionSuggester**: Kernel(Function)をProgramRootに吸収
