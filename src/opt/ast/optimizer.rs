@@ -1,5 +1,6 @@
 use crate::ast::AstNode;
 use crate::ast::pat::{AstRewriteRule, AstRewriter};
+use crate::opt::selector::{Selector, StaticCostSelector};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, info, trace};
 use std::rc::Rc;
@@ -44,13 +45,21 @@ impl Optimizer for RuleBaseOptimizer {
 /// 最適化は以下のいずれかの条件で終了します：
 /// - 最大ステップ数(`max_steps`)に達した
 /// - Suggesterから新しい提案がなくなった（これ以上最適化できない）
-pub struct BeamSearchOptimizer<S, E>
+///
+/// # 候補選択
+///
+/// `Selector`により候補選択処理を抽象化しています。
+/// デフォルトは`StaticCostSelector`（静的コストでソートして上位n件を選択）。
+/// `with_selector()`で二段階選択などのカスタム選択器を設定可能。
+pub struct BeamSearchOptimizer<S, E, Sel = StaticCostSelector>
 where
     S: Suggester,
     E: CostEstimator,
+    Sel: Selector<AstNode>,
 {
     suggester: S,
     estimator: E,
+    selector: Sel,
     beam_width: usize,
     max_steps: usize,
     show_progress: bool,
@@ -58,21 +67,51 @@ where
     max_node_count: Option<usize>,
 }
 
-impl<S, E> BeamSearchOptimizer<S, E>
+impl<S, E> BeamSearchOptimizer<S, E, StaticCostSelector>
 where
     S: Suggester,
     E: CostEstimator,
 {
     /// 新しいビームサーチ最適化器を作成
+    ///
+    /// デフォルトでは`StaticCostSelector`を使用します。
     pub fn new(suggester: S, estimator: E) -> Self {
         Self {
             suggester,
             estimator,
+            selector: StaticCostSelector::new(),
             beam_width: 10,
             max_steps: 10000,
             show_progress: cfg!(debug_assertions),
             collect_logs: cfg!(debug_assertions),
             max_node_count: Some(10000), // デフォルトで最大1万ノードに制限
+        }
+    }
+}
+
+impl<S, E, Sel> BeamSearchOptimizer<S, E, Sel>
+where
+    S: Suggester,
+    E: CostEstimator,
+    Sel: Selector<AstNode>,
+{
+    /// カスタム選択器を設定
+    ///
+    /// デフォルトの`StaticCostSelector`の代わりに、
+    /// `TwoStageSelector`などのカスタム選択器を使用できます。
+    pub fn with_selector<NewSel>(self, selector: NewSel) -> BeamSearchOptimizer<S, E, NewSel>
+    where
+        NewSel: Selector<AstNode>,
+    {
+        BeamSearchOptimizer {
+            suggester: self.suggester,
+            estimator: self.estimator,
+            selector,
+            beam_width: self.beam_width,
+            max_steps: self.max_steps,
+            show_progress: self.show_progress,
+            collect_logs: self.collect_logs,
+            max_node_count: self.max_node_count,
         }
     }
 
@@ -114,10 +153,11 @@ where
     }
 }
 
-impl<S, E> BeamSearchOptimizer<S, E>
+impl<S, E, Sel> BeamSearchOptimizer<S, E, Sel>
 where
     S: Suggester,
     E: CostEstimator,
+    Sel: Selector<AstNode>,
 {
     /// 履歴を記録しながら最適化を実行
     pub fn optimize_with_history(&self, ast: AstNode) -> (AstNode, OptimizationHistory) {
@@ -243,15 +283,19 @@ where
             let num_candidates = candidates.len();
             trace!("Found {} candidates at step {}", num_candidates, step);
 
-            // コストでソートして上位beam_width個を残す
-            candidates.sort_by(|a, b| {
-                self.estimator
-                    .estimate(a)
-                    .partial_cmp(&self.estimator.estimate(b))
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
+            // 候補をコスト付きで準備してSelectorで選択
+            let candidates_with_cost: Vec<(AstNode, f32)> = candidates
+                .into_iter()
+                .map(|ast| {
+                    let cost = self.estimator.estimate(&ast);
+                    (ast, cost)
+                })
+                .collect();
 
-            beam = candidates.into_iter().take(self.beam_width).collect();
+            // Selectorで上位beam_width個を選択
+            let selected = self.selector.select(candidates_with_cost, self.beam_width);
+
+            beam = selected.into_iter().map(|(ast, _cost)| ast).collect();
 
             // このステップの最良候補を記録
             if let Some(best) = beam.first() {
@@ -367,10 +411,11 @@ where
     }
 }
 
-impl<S, E> Optimizer for BeamSearchOptimizer<S, E>
+impl<S, E, Sel> Optimizer for BeamSearchOptimizer<S, E, Sel>
 where
     S: Suggester,
     E: CostEstimator,
+    Sel: Selector<AstNode>,
 {
     fn optimize(&self, ast: AstNode) -> AstNode {
         let (optimized, _) = self.optimize_with_history(ast);

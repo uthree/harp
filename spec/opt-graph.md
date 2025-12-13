@@ -108,5 +108,39 @@ AST最適化（ループ変換、代数的簡約など）はLowering完了後に
 - `beam_width`: ビーム幅（デフォルト: 5）
 - `max_steps`: 最大探索ステップ（デフォルト: 10）
 - `enable_early_termination`: コスト改善がない場合に早期終了（デフォルト: true）
+- `selector`: 候補選択器（デフォルト: `StaticCostSelector`）
 
 詳細は`src/opt/graph/`を参照。
+
+## Selector
+
+候補選択処理を抽象化するトレイト。ビームサーチにおいて、コスト付き候補から上位n件を選択する処理をカスタマイズ可能にする。
+
+### 設計意図
+
+tinygradのような二段階評価を実現するための抽象化：
+1. 静的評価で明らかに悪い候補を足切り
+2. 実行時間の実測値で精密に評価
+
+### 実装
+
+| 選択器 | 説明 |
+|--------|------|
+| StaticCostSelector | コストでソートして上位n件を選択（デフォルト） |
+| TwoStageSelector | 静的コストで足切り後、カスタム評価関数で再評価 |
+
+### 使用例
+
+```rust
+// デフォルト（静的コスト選択）
+let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator);
+
+// 二段階選択
+let selector = TwoStageSelector::new(20, |candidate| {
+    measure_runtime(candidate)
+});
+let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
+    .with_selector(selector);
+```
+
+詳細は`src/opt/selector.rs`を参照。

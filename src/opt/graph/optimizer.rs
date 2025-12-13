@@ -3,6 +3,7 @@ use crate::opt::graph::{
     GraphCostEstimator, GraphOptimizer, GraphSuggester, OptimizationHistory, OptimizationSnapshot,
     SuggestResult,
 };
+use crate::opt::selector::{Selector, StaticCostSelector};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, info, trace};
 use std::time::Instant;
@@ -14,13 +15,21 @@ use std::time::Instant;
 /// 最適化は以下のいずれかの条件で終了します：
 /// - 最大ステップ数(`max_steps`)に達した
 /// - Suggesterから新しい提案がなくなった（これ以上最適化できない）
-pub struct BeamSearchGraphOptimizer<S, E>
+///
+/// # 候補選択
+///
+/// `Selector`により候補選択処理を抽象化しています。
+/// デフォルトは`StaticCostSelector`（静的コストでソートして上位n件を選択）。
+/// `with_selector()`で二段階選択などのカスタム選択器を設定可能。
+pub struct BeamSearchGraphOptimizer<S, E, Sel = StaticCostSelector>
 where
     S: GraphSuggester,
     E: GraphCostEstimator,
+    Sel: Selector<(Graph, String)>,
 {
     suggester: S,
     estimator: E,
+    selector: Sel,
     beam_width: usize,
     max_steps: usize,
     show_progress: bool,
@@ -28,21 +37,64 @@ where
     enable_early_termination: bool,
 }
 
-impl<S, E> BeamSearchGraphOptimizer<S, E>
+impl<S, E> BeamSearchGraphOptimizer<S, E, StaticCostSelector>
 where
     S: GraphSuggester,
     E: GraphCostEstimator,
 {
     /// 新しいビームサーチ最適化器を作成
+    ///
+    /// デフォルトでは`StaticCostSelector`を使用します。
     pub fn new(suggester: S, estimator: E) -> Self {
         Self {
             suggester,
             estimator,
+            selector: StaticCostSelector::new(),
             beam_width: 10,
             max_steps: 10000,
             show_progress: cfg!(debug_assertions),
             collect_logs: cfg!(debug_assertions),
             enable_early_termination: true,
+        }
+    }
+}
+
+impl<S, E, Sel> BeamSearchGraphOptimizer<S, E, Sel>
+where
+    S: GraphSuggester,
+    E: GraphCostEstimator,
+    Sel: Selector<(Graph, String)>,
+{
+    /// カスタム選択器を設定
+    ///
+    /// デフォルトの`StaticCostSelector`の代わりに、
+    /// `TwoStageSelector`などのカスタム選択器を使用できます。
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use harp::opt::{TwoStageSelector, BeamSearchGraphOptimizer};
+    ///
+    /// let selector = TwoStageSelector::new(20, |candidate| {
+    ///     measure_runtime(candidate)
+    /// });
+    ///
+    /// let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
+    ///     .with_selector(selector);
+    /// ```
+    pub fn with_selector<NewSel>(self, selector: NewSel) -> BeamSearchGraphOptimizer<S, E, NewSel>
+    where
+        NewSel: Selector<(Graph, String)>,
+    {
+        BeamSearchGraphOptimizer {
+            suggester: self.suggester,
+            estimator: self.estimator,
+            selector,
+            beam_width: self.beam_width,
+            max_steps: self.max_steps,
+            show_progress: self.show_progress,
+            collect_logs: self.collect_logs,
+            enable_early_termination: self.enable_early_termination,
         }
     }
 
@@ -85,10 +137,11 @@ where
     }
 }
 
-impl<S, E> BeamSearchGraphOptimizer<S, E>
+impl<S, E, Sel> BeamSearchGraphOptimizer<S, E, Sel>
 where
     S: GraphSuggester,
     E: GraphCostEstimator,
+    Sel: Selector<(Graph, String)>,
 {
     /// グラフを最適化して、グラフと最適化履歴を返す
     pub fn optimize_with_history(&self, graph: Graph) -> (Graph, OptimizationHistory) {
@@ -211,22 +264,22 @@ where
             let num_candidates = candidates.len();
             trace!("Found {} candidates at step {}", num_candidates, step);
 
-            // コストでソートして上位beam_width個を残す（Suggester名も保持）
-            let mut candidates_with_cost: Vec<(Graph, f32, String)> = candidates
+            // 候補をコスト付きで準備してSelectorで選択
+            let candidates_with_cost: Vec<((Graph, String), f32)> = candidates
                 .into_iter()
                 .map(|result| {
                     let cost = self.estimator.estimate(&result.graph);
-                    (result.graph, cost, result.suggester_name)
+                    ((result.graph, result.suggester_name), cost)
                 })
                 .collect();
 
-            candidates_with_cost
-                .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+            // Selectorで上位beam_width個を選択
+            let selected = self.selector.select(candidates_with_cost, self.beam_width);
 
-            // 上位beam_width個を取得（コスト情報とSuggester名も保持）
-            let top_candidates: Vec<(Graph, f32, String)> = candidates_with_cost
+            // (Graph, f32, String) の形式に戻す
+            let top_candidates: Vec<(Graph, f32, String)> = selected
                 .into_iter()
-                .take(self.beam_width)
+                .map(|((graph, name), cost)| (graph, cost, name))
                 .collect();
 
             beam = top_candidates.iter().map(|(g, _, _)| g.clone()).collect();
@@ -386,10 +439,11 @@ where
     }
 }
 
-impl<S, E> GraphOptimizer for BeamSearchGraphOptimizer<S, E>
+impl<S, E, Sel> GraphOptimizer for BeamSearchGraphOptimizer<S, E, Sel>
 where
     S: GraphSuggester,
     E: GraphCostEstimator,
+    Sel: Selector<(Graph, String)>,
 {
     fn optimize(&self, graph: Graph) -> Graph {
         // optimize_with_history()を呼び出して、グラフだけを返す
