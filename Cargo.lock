@@ -1138,19 +1138,6 @@ dependencies = [
 
 [[package]]
 name = "env_logger"
-version = "0.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cd405aab171cb85d6735e5c8d9db038c17d3ca007a4d2c25f337935c3d90580"
-dependencies = [
- "humantime",
- "is-terminal",
- "log",
- "regex",
- "termcolor",
-]
-
-[[package]]
-name = "env_logger"
 version = "0.11.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c863f0904021b108aa8b2f55046443e6b1ebde8fd4a15c399893aae4fa069f"
@@ -1620,9 +1607,7 @@ dependencies = [
 name = "harp"
 version = "0.1.0"
 dependencies = [
- "env_logger 0.11.8",
- "harp-autograd",
- "harp-nn",
+ "env_logger",
  "indexmap",
  "indicatif",
  "libloading",
@@ -1635,31 +1620,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "harp-autograd"
-version = "0.1.0"
-dependencies = [
- "env_logger 0.10.2",
- "harp",
- "log",
- "ndarray",
-]
-
-[[package]]
 name = "harp-derive"
 version = "0.1.0"
 dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "harp-nn"
-version = "0.1.0"
-dependencies = [
- "harp",
- "harp-autograd",
- "harp-derive",
 ]
 
 [[package]]
@@ -1671,7 +1637,7 @@ dependencies = [
  "egui-snarl",
  "egui_extras",
  "egui_plot",
- "env_logger 0.11.8",
+ "env_logger",
  "harp",
  "log",
  "similar",
@@ -1709,12 +1675,6 @@ name = "hexf-parse"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
-
-[[package]]
-name = "humantime"
-version = "2.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "135b12329e5e3ce057a9f972339ea52bc954fe1e9358ef27f95e89716fbc5424"
 
 [[package]]
 name = "icu_collections"
@@ -1861,17 +1821,6 @@ dependencies = [
  "unicode-width 0.2.2",
  "unit-prefix",
  "web-time",
-]
-
-[[package]]
-name = "is-terminal"
-version = "0.4.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
-dependencies = [
- "hermit-abi",
- "libc",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
