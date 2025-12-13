@@ -1,49 +1,26 @@
 //! 畳み込み演算
 //!
-//! このモジュールは conv1d, conv2d, conv3d などの畳み込み演算を提供します。
+//! このモジュールは統一されたconv/conv_transpose APIを提供します。
 
 use crate::graph::GraphNode;
-use crate::graph::conv::ConvParams;
+use crate::graph::conv::{ConvParams, IntoSpatialParams};
 
 impl GraphNode {
-    /// 1D畳み込み
+    /// 畳み込み演算
+    ///
+    /// N次元畳み込みを統一APIで実行します。次元数は入力形状から自動判定されます。
+    /// groupsはカーネル形状から自動計算されます（groups = C_in / kernel.shape[1]）。
     ///
     /// # 引数
-    /// - `kernel`: 畳み込みカーネル (C_out, C_in/groups, k)
+    /// - `kernel`: 畳み込みカーネル (C_out, C_in/groups, k1, k2, ...)
     /// - `stride`: ストライド
     /// - `dilation`: 膨張率
-    /// - `groups`: グループ数
+    /// - `padding`: パディング（現在は0のみサポート）
     ///
-    /// # 入出力
-    /// - 入力: (C_in, L)
-    /// - カーネル: (C_out, C_in/groups, k)
-    /// - 出力: (C_out, L')
-    pub fn conv1d(
-        self,
-        kernel: GraphNode,
-        stride: usize,
-        dilation: usize,
-        groups: usize,
-    ) -> GraphNode {
-        // kernel_sizeはconv_nd内でkernelから取得されるため、ダミー値を渡す
-        let params = ConvParams::from_1d(1, stride, dilation, groups);
-        self.conv_nd(kernel, &params)
-    }
-
-    /// 2D畳み込み
-    ///
-    /// unfold、elementwise乗算、reduceを組み合わせて2D畳み込みを実装します。
-    ///
-    /// # 引数
-    /// - `kernel`: 畳み込みカーネル (C_out, C_in/groups, kH, kW)
-    /// - `stride`: ストライド (sH, sW)
-    /// - `dilation`: 膨張率 (dH, dW)
-    /// - `groups`: グループ数（1=通常、C_in=depthwise）
-    ///
-    /// # 入出力
-    /// - 入力: (C_in, H, W)
-    /// - カーネル: (C_out, C_in/groups, kH, kW)
-    /// - 出力: (C_out, H', W')
+    /// # 入出力形状
+    /// - 入力: (C_in, L1, L2, ...)
+    /// - カーネル: (C_out, C_in/groups, k1, k2, ...)
+    /// - 出力: (C_out, L1', L2', ...)
     ///
     /// # 例
     /// ```no_run
@@ -53,147 +30,163 @@ impl GraphNode {
     /// let x = graph.input("x", DType::F32, vec![3, 32, 32]);
     /// let kernel = graph.input("kernel", DType::F32, vec![16, 3, 3, 3]);
     ///
-    /// // (3, 32, 32) conv (16, 3, 3, 3) -> (16, 30, 30)
-    /// let output = x.conv2d(kernel, (1, 1), (1, 1), 1);
+    /// // 2D conv: (3, 32, 32) conv (16, 3, 3, 3) -> (16, 30, 30)
+    /// let output = x.conv(kernel, (1, 1), (1, 1), (0, 0));
     /// ```
-    pub fn conv2d(
+    pub fn conv<S: IntoSpatialParams>(
         self,
         kernel: GraphNode,
-        stride: (usize, usize),
-        dilation: (usize, usize),
-        groups: usize,
+        stride: S,
+        dilation: S,
+        padding: S,
     ) -> GraphNode {
-        // kernel_sizeはconv_nd内でkernelから取得されるため、ダミー値を渡す
-        let params = ConvParams::from_2d((1, 1), stride, dilation, groups);
+        let stride_vec = stride.into_vec();
+        let dilation_vec = dilation.into_vec();
+        let padding_vec = padding.into_vec();
+
+        let spatial_dims = self.view.ndim() - 1; // チャネル次元を除く
+
+        // パラメータの次元数を検証
+        assert_eq!(
+            stride_vec.len(),
+            spatial_dims,
+            "stride must have {} elements for {}D conv",
+            spatial_dims,
+            spatial_dims
+        );
+        assert_eq!(
+            dilation_vec.len(),
+            spatial_dims,
+            "dilation must have {} elements for {}D conv",
+            spatial_dims,
+            spatial_dims
+        );
+        assert_eq!(
+            padding_vec.len(),
+            spatial_dims,
+            "padding must have {} elements for {}D conv",
+            spatial_dims,
+            spatial_dims
+        );
+
+        // 現在はpadding=0のみサポート
+        for &p in &padding_vec {
+            assert_eq!(
+                p, 0,
+                "padding must be 0 (padding support not yet implemented)"
+            );
+        }
+
+        // groupsをカーネル形状から自動計算: groups = C_in / kernel.shape[1]
+        let c_in = self.view.shape()[0].expect_usize("C_in must be constant");
+        let c_in_per_group = kernel.view.shape()[1].expect_usize("C_in/groups must be constant");
+        let groups = c_in / c_in_per_group;
+
+        assert!(
+            c_in.is_multiple_of(c_in_per_group),
+            "C_in ({}) must be divisible by kernel's C_in/groups ({})",
+            c_in,
+            c_in_per_group
+        );
+
+        // ダミーのkernel_sizeを設定（conv_nd内でkernelから取得される）
+        let dummy_kernel_size = vec![1; spatial_dims];
+        let params = ConvParams::new(dummy_kernel_size, stride_vec, dilation_vec, groups);
+
         self.conv_nd(kernel, &params)
     }
 
-    /// 3D畳み込み
+    /// 転置畳み込み演算（deconvolution / transposed convolution）
     ///
-    /// unfold、elementwise乗算、reduceを組み合わせて3D畳み込みを実装します。
-    ///
-    /// # 引数
-    /// - `kernel`: 畳み込みカーネル (C_out, C_in/groups, kD, kH, kW)
-    /// - `stride`: ストライド (sD, sH, sW)
-    /// - `dilation`: 膨張率 (dD, dH, dW)
-    /// - `groups`: グループ数（1=通常、C_in=depthwise）
-    ///
-    /// # 入出力
-    /// - 入力: (C_in, D, H, W)
-    /// - カーネル: (C_out, C_in/groups, kD, kH, kW)
-    /// - 出力: (C_out, D', H', W')
-    pub fn conv3d(
-        self,
-        kernel: GraphNode,
-        stride: (usize, usize, usize),
-        dilation: (usize, usize, usize),
-        groups: usize,
-    ) -> GraphNode {
-        // kernel_sizeはconv_nd内でkernelから取得されるため、ダミー値を渡す
-        let params = ConvParams::from_3d((1, 1, 1), stride, dilation, groups);
-        self.conv_nd(kernel, &params)
-    }
-
-    /// 1D転置畳み込み（deconvolution / transposed convolution）
-    ///
-    /// 畳み込みの逆操作を行います。主にアップサンプリングに使用されます。
+    /// N次元転置畳み込みを統一APIで実行します。主にアップサンプリングに使用されます。
+    /// groupsはカーネル形状から自動計算されます。
     ///
     /// # 引数
-    /// - `kernel`: 畳み込みカーネル (C_in, C_out/groups, k)
+    /// - `kernel`: 畳み込みカーネル (C_in, C_out/groups, k1, k2, ...)
     /// - `stride`: ストライド
-    /// - `padding`: パディング - 出力から削られるサイズ
-    /// - `output_padding`: 出力パディング - 出力に追加されるサイズ
     /// - `dilation`: 膨張率
-    /// - `groups`: グループ数
+    /// - `padding`: パディング（出力から削られるサイズ）
     ///
-    /// # 入出力
-    /// - 入力: (C_in, L_in)
-    /// - カーネル: (C_in, C_out/groups, k)
-    /// - 出力: (C_out, L_out)
-    ///   - L_out = (L_in - 1) * s - 2 * p + d * (k - 1) + op + 1
-    pub fn conv_transpose1d(
+    /// # 入出力形状
+    /// - 入力: (C_in, L1_in, L2_in, ...)
+    /// - カーネル: (C_in, C_out/groups, k1, k2, ...)
+    /// - 出力: (C_out, L1_out, L2_out, ...)
+    ///   - L_out = (L_in - 1) * s - 2 * p + d * (k - 1) + 1
+    ///
+    /// # 例
+    /// ```no_run
+    /// use harp::prelude::*;
+    ///
+    /// let mut graph = Graph::new();
+    /// let x = graph.input("x", DType::F32, vec![16, 8, 8]);
+    /// let kernel = graph.input("kernel", DType::F32, vec![16, 3, 3, 3]);
+    ///
+    /// // 2D conv_transpose: (16, 8, 8) -> (3, 16, 16)
+    /// let output = x.conv_transpose(kernel, (2, 2), (1, 1), (0, 0));
+    /// ```
+    pub fn conv_transpose<S: IntoSpatialParams>(
         self,
         kernel: GraphNode,
-        stride: usize,
-        padding: usize,
-        output_padding: usize,
-        dilation: usize,
-        groups: usize,
+        stride: S,
+        dilation: S,
+        padding: S,
     ) -> GraphNode {
-        // kernel_sizeはconv_transpose_nd内でkernelから取得されるため、ダミー値を渡す
-        let params = ConvParams::from_1d(1, stride, dilation, groups);
-        self.conv_transpose_nd(kernel, &params, vec![padding], vec![output_padding])
-    }
+        let stride_vec = stride.into_vec();
+        let dilation_vec = dilation.into_vec();
+        let padding_vec = padding.into_vec();
 
-    /// 2D転置畳み込み（deconvolution / transposed convolution）
-    ///
-    /// 畳み込みの逆操作を行います。主にアップサンプリングに使用されます。
-    ///
-    /// # 引数
-    /// - `kernel`: 畳み込みカーネル (C_in, C_out/groups, kH, kW)
-    /// - `stride`: ストライド (sH, sW)
-    /// - `padding`: パディング (pH, pW) - 出力から削られるサイズ
-    /// - `output_padding`: 出力パディング (opH, opW) - 出力に追加されるサイズ
-    /// - `dilation`: 膨張率 (dH, dW)
-    /// - `groups`: グループ数
-    ///
-    /// # 入出力
-    /// - 入力: (C_in, H_in, W_in)
-    /// - カーネル: (C_in, C_out/groups, kH, kW)
-    /// - 出力: (C_out, H_out, W_out)
-    ///   - H_out = (H_in - 1) * sH - 2 * pH + dH * (kH - 1) + opH + 1
-    ///   - W_out = (W_in - 1) * sW - 2 * pW + dW * (kW - 1) + opW + 1
-    pub fn conv_transpose2d(
-        self,
-        kernel: GraphNode,
-        stride: (usize, usize),
-        padding: (usize, usize),
-        output_padding: (usize, usize),
-        dilation: (usize, usize),
-        groups: usize,
-    ) -> GraphNode {
-        // kernel_sizeはconv_transpose_nd内でkernelから取得されるため、ダミー値を渡す
-        let params = ConvParams::from_2d((1, 1), stride, dilation, groups);
-        self.conv_transpose_nd(
-            kernel,
-            &params,
-            vec![padding.0, padding.1],
-            vec![output_padding.0, output_padding.1],
-        )
-    }
+        let spatial_dims = self.view.ndim() - 1; // チャネル次元を除く
 
-    /// 3D転置畳み込み（deconvolution / transposed convolution）
-    ///
-    /// 畳み込みの逆操作を行います。主にアップサンプリングに使用されます。
-    ///
-    /// # 引数
-    /// - `kernel`: 畳み込みカーネル (C_in, C_out/groups, kD, kH, kW)
-    /// - `stride`: ストライド (sD, sH, sW)
-    /// - `padding`: パディング (pD, pH, pW) - 出力から削られるサイズ
-    /// - `output_padding`: 出力パディング (opD, opH, opW) - 出力に追加されるサイズ
-    /// - `dilation`: 膨張率 (dD, dH, dW)
-    /// - `groups`: グループ数
-    ///
-    /// # 入出力
-    /// - 入力: (C_in, D_in, H_in, W_in)
-    /// - カーネル: (C_in, C_out/groups, kD, kH, kW)
-    /// - 出力: (C_out, D_out, H_out, W_out)
-    pub fn conv_transpose3d(
-        self,
-        kernel: GraphNode,
-        stride: (usize, usize, usize),
-        padding: (usize, usize, usize),
-        output_padding: (usize, usize, usize),
-        dilation: (usize, usize, usize),
-        groups: usize,
-    ) -> GraphNode {
-        // kernel_sizeはconv_transpose_nd内でkernelから取得されるため、ダミー値を渡す
-        let params = ConvParams::from_3d((1, 1, 1), stride, dilation, groups);
-        self.conv_transpose_nd(
-            kernel,
-            &params,
-            vec![padding.0, padding.1, padding.2],
-            vec![output_padding.0, output_padding.1, output_padding.2],
-        )
+        // パラメータの次元数を検証
+        assert_eq!(
+            stride_vec.len(),
+            spatial_dims,
+            "stride must have {} elements for {}D conv_transpose",
+            spatial_dims,
+            spatial_dims
+        );
+        assert_eq!(
+            dilation_vec.len(),
+            spatial_dims,
+            "dilation must have {} elements for {}D conv_transpose",
+            spatial_dims,
+            spatial_dims
+        );
+        assert_eq!(
+            padding_vec.len(),
+            spatial_dims,
+            "padding must have {} elements for {}D conv_transpose",
+            spatial_dims,
+            spatial_dims
+        );
+
+        // conv_transpose のカーネル形状: (C_in, C_out/groups, k1, k2, ...)
+        // 入力のC_inとカーネルのdim 0が一致することを確認
+        let c_in = self.view.shape()[0].expect_usize("C_in must be constant");
+        let kernel_c_in = kernel.view.shape()[0].expect_usize("kernel C_in must be constant");
+
+        // groupsを計算: kernel.shape[0]がC_inなので、groups = 1 と仮定
+        // （grouped conv_transposeの場合、C_in = groups * c_in_per_group）
+        let groups = if c_in == kernel_c_in {
+            1
+        } else {
+            // grouped conv_transposeの場合
+            assert!(
+                c_in.is_multiple_of(kernel_c_in),
+                "C_in ({}) must be divisible by kernel's dim 0 ({})",
+                c_in,
+                kernel_c_in
+            );
+            c_in / kernel_c_in
+        };
+
+        // output_paddingはデフォルトで0
+        let output_padding = vec![0; spatial_dims];
+
+        // ダミーのkernel_sizeを設定（conv_transpose_nd内でkernelから取得される）
+        let dummy_kernel_size = vec![1; spatial_dims];
+        let params = ConvParams::new(dummy_kernel_size, stride_vec, dilation_vec, groups);
+
+        self.conv_transpose_nd(kernel, &params, padding_vec, output_padding)
     }
 }

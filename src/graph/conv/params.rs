@@ -4,6 +4,49 @@
 
 use crate::graph::shape::Expr;
 
+/// スカラーやタプルをVec<usize>に変換するトレイト
+///
+/// 畳み込みパラメータ（stride, dilation, padding）を統一的に扱うために使用します。
+pub trait IntoSpatialParams {
+    fn into_vec(self) -> Vec<usize>;
+}
+
+impl IntoSpatialParams for usize {
+    fn into_vec(self) -> Vec<usize> {
+        vec![self]
+    }
+}
+
+impl IntoSpatialParams for (usize,) {
+    fn into_vec(self) -> Vec<usize> {
+        vec![self.0]
+    }
+}
+
+impl IntoSpatialParams for (usize, usize) {
+    fn into_vec(self) -> Vec<usize> {
+        vec![self.0, self.1]
+    }
+}
+
+impl IntoSpatialParams for (usize, usize, usize) {
+    fn into_vec(self) -> Vec<usize> {
+        vec![self.0, self.1, self.2]
+    }
+}
+
+impl IntoSpatialParams for Vec<usize> {
+    fn into_vec(self) -> Vec<usize> {
+        self
+    }
+}
+
+impl IntoSpatialParams for &[usize] {
+    fn into_vec(self) -> Vec<usize> {
+        self.to_vec()
+    }
+}
+
 /// N次元畳み込みパラメータ
 ///
 /// kernel_size, stride, dilation, groupsを統一的に扱います。

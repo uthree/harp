@@ -5,4 +5,4 @@
 mod ops;
 mod params;
 
-pub use params::ConvParams;
+pub use params::{ConvParams, IntoSpatialParams};
