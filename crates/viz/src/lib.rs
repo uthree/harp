@@ -137,15 +137,27 @@ impl HarpVizApp {
         self.code_viewer.load_optimized_ast(ast);
     }
 
+    /// AST最適化履歴を読み込む
+    ///
+    /// AST最適化の各ステップをCode Viewerで可視化できるようにします。
+    /// Code Viewerタブに切り替え、AST履歴表示モードを有効にします。
+    ///
+    /// # Example
+    /// ```ignore
+    /// let (optimized_ast, ast_history) = ast_optimizer.optimize_with_history(ast);
+    /// app.load_ast_optimization_history(ast_history);
+    /// ```
+    pub fn load_ast_optimization_history(&mut self, history: harp::opt::ast::OptimizationHistory) {
+        self.code_viewer.load_ast_history(history);
+        // Code Viewerタブに切り替え
+        self.current_tab = VizTab::CodeViewer;
+    }
+
     /// GenericPipelineから最適化履歴を読み込む
     ///
-    /// GenericPipelineに保存されているグラフ最適化履歴を読み込みます。
+    /// GenericPipelineに保存されているグラフ最適化履歴とAST最適化履歴を読み込みます。
     /// 2段階最適化（Phase 1 + Phase 2）の履歴は自動的に結合されて表示されます。
     /// 履歴が存在する場合、適切なタブに切り替えます。
-    ///
-    /// # Note
-    /// AST最適化は現在グラフ最適化に統合されているため、
-    /// 別途AST最適化履歴を読み込む必要はありません。
     ///
     /// # 型パラメータ
     /// * `PR` - Rendererの型
@@ -159,6 +171,11 @@ impl HarpVizApp {
         if let Some(combined_history) = pipeline.histories.combined_graph_history() {
             self.load_graph_optimization_history(combined_history);
         }
+
+        // AST最適化履歴を読み込む
+        if let Some(ref ast_history) = pipeline.histories.ast {
+            self.code_viewer.load_ast_history(ast_history.clone());
+        }
     }
 
     /// GenericPipelineから最適化履歴を読み込んで所有権を移動
@@ -166,10 +183,6 @@ impl HarpVizApp {
     /// `load_from_pipeline`と異なり、Pipelineから履歴を取り出して所有権を移動します。
     /// Pipeline内の履歴はクリアされます。
     /// 2段階最適化の履歴は結合されて読み込まれます。
-    ///
-    /// # Note
-    /// AST最適化は現在グラフ最適化に統合されているため、
-    /// 別途AST最適化履歴を読み込む必要はありません。
     ///
     /// # 型パラメータ
     /// * `PR` - Rendererの型
@@ -185,6 +198,12 @@ impl HarpVizApp {
         if let Some(combined_history) = pipeline.histories.combined_graph_history() {
             self.load_graph_optimization_history(combined_history);
         }
+
+        // AST最適化履歴を取得
+        if let Some(ast_history) = pipeline.histories.ast.take() {
+            self.code_viewer.load_ast_history(ast_history);
+        }
+
         // 元の履歴をクリア
         pipeline.histories.graph = None;
         pipeline.histories.graph_phase2 = None;

@@ -65,7 +65,7 @@ fn main() -> eframe::Result {
     // 最適化を一括実行（コンパイルなし）
     println!("【3/3】最適化を実行中...");
     println!("  - 統合グラフ最適化中...");
-    let (optimized_program, _ast_histories) = pipeline
+    let (optimized_program, ast_histories) = pipeline
         .optimize_graph_with_all_histories(graph)
         .expect("Failed to optimize graph");
 
@@ -152,7 +152,7 @@ fn main() -> eframe::Result {
     // 可視化アプリケーションを起動
     println!("\n可視化UIを起動中...");
     println!("  - Graph Viewerタブ: グラフ最適化の履歴を表示");
-    println!("  - Code Viewerタブ: 最終的な生成コードを表示");
+    println!("  - Code Viewerタブ: AST最適化の履歴と最終コードを表示");
     println!("  - 矢印キーで前後のステップに移動できます");
     println!();
 
@@ -175,8 +175,14 @@ fn main() -> eframe::Result {
                 app.load_graph_optimization_history(graph_history);
             }
 
+            // AST最適化履歴を読み込む（Code ViewerでAST最適化の各ステップを表示可能）
+            // 複数のfunction名でAST履歴が記録されている場合は最初の1つを使用
+            if let Some((_, ast_history)) = ast_histories.into_iter().next() {
+                app.load_ast_optimization_history(ast_history);
+            }
+
             // AST最適化済みのProgramをCode Viewerに直接ロード
-            // これにより、Code ViewerにはAST最適化後のコードが表示される
+            // これにより、最終コード表示モードではAST最適化後のコードが表示される
             app.load_optimized_ast(optimized_program);
 
             Ok(Box::new(app))

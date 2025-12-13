@@ -64,3 +64,32 @@ for i { c[i] = ... }  // 上のループとは融合しない
 Kahnのアルゴリズムで世代間にBarrierが挿入されるため、同じ区間内のループは依存関係がないことが保証される。
 
 詳細は`src/opt/ast/`を参照。
+
+## 可視化
+
+Code ViewerはAST最適化の各ステップを可視化する機能を提供する。
+
+### 機能
+
+- ステップナビゲーション（前へ/次へ、最初/最後にジャンプ、矢印キー操作）
+- コスト・候補数遷移グラフ
+- 適用されたルール名の表示
+- 各ステップのデバッグログ
+- コード差分表示（前のステップとの比較）
+- シンタックスハイライト付きコード表示
+
+### 使用方法
+
+```rust
+use harp_viz::HarpVizApp;
+
+// 方法1: GenericPipelineから読み込む
+let mut app = HarpVizApp::new();
+app.load_from_pipeline(&pipeline);  // AST履歴も自動で読み込まれる
+
+// 方法2: AST履歴を直接読み込む
+let (optimized_ast, ast_history) = ast_optimizer.optimize_with_history(ast);
+app.load_ast_optimization_history(ast_history);
+```
+
+詳細は`crates/viz/src/code_viewer.rs`を参照。
