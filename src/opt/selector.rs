@@ -438,13 +438,7 @@ mod tests {
             .then(stage1_eval, 3)
             .then(stage2_eval, 2);
 
-        let candidates = vec![
-            ("a", 0.0),
-            ("b", 0.0),
-            ("c", 0.0),
-            ("d", 0.0),
-            ("e", 0.0),
-        ];
+        let candidates = vec![("a", 0.0), ("b", 0.0), ("c", 0.0), ("d", 0.0), ("e", 0.0)];
 
         let selected = selector.select(candidates, 2);
         assert_eq!(selected.len(), 2);

@@ -2,6 +2,7 @@ use crate::backend::opencl::OpenCLBuffer;
 use crate::backend::{Kernel, KernelSignature};
 use libloading::{Library, Symbol};
 use std::path::PathBuf;
+use std::sync::Arc;
 use tempfile::NamedTempFile;
 
 /// OpenCLカーネルの実行関数の型
@@ -14,27 +15,37 @@ type KernelFn = unsafe extern "C" fn(*mut *mut u8);
 ///
 /// 一時ファイル（コンパイルされた動的ライブラリ）を保持し、
 /// OpenCLKernelがDropされると自動的に削除される
+///
+/// `Clone`を実装しており、複数のインスタンスがライブラリを共有できます。
+/// 実際の実行時にはライブラリを再ロードするため、共有は安全です。
+#[derive(Clone)]
 pub struct OpenCLKernel {
-    _library: Library,
     signature: KernelSignature,
     entry_point: String,
-    /// 一時ファイルを保持（Dropで自動削除）
-    _temp_file: NamedTempFile,
+    /// 一時ファイルを保持（Dropで自動削除、Arcで共有可能）
+    _temp_file: Arc<NamedTempFile>,
 }
 
 impl OpenCLKernel {
     /// 新しいOpenCLKernelを作成
+    ///
+    /// # Arguments
+    /// * `_library` - 動的ライブラリ（下位互換性のため受け取るが内部では使用しない）
+    /// * `signature` - カーネルシグネチャ
+    /// * `entry_point` - エントリーポイント関数名
+    /// * `temp_file` - 一時ファイル（動的ライブラリ）
     pub fn new(
-        library: Library,
+        _library: Library,
         signature: KernelSignature,
         entry_point: String,
         temp_file: NamedTempFile,
     ) -> Self {
+        // _libraryは使用せず、必要時に再ロードする
+        // これによりCloneが可能になる
         Self {
-            _library: library,
             signature,
             entry_point,
-            _temp_file: temp_file,
+            _temp_file: Arc::new(temp_file),
         }
     }
 

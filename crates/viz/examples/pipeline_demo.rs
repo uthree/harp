@@ -2,11 +2,20 @@
 //!
 //! 行列積を含む複雑な計算グラフを作成し、GenericPipelineで最適化を実行して
 //! その過程を可視化します。OpenCLバックエンドを使用してGPU向けコードを生成します。
+//!
+//! ## 実測値を使ったAST最適化
+//! このデモでは、静的コスト推定に加えて、RuntimeSelectorを使った実測値ベースの
+//! AST最適化も行います。静的コストで足切りした後、実際にカーネルを実行して
+//! 実行時間を計測し、最適なAST変換を選択します。
 
 use harp::ast::helper::wildcard;
-use harp::backend::opencl::{OpenCLCompiler, OpenCLRenderer};
-use harp::backend::{GenericPipeline, OptimizationConfig};
+use harp::backend::opencl::{OpenCLBuffer, OpenCLCompiler, OpenCLRenderer};
+use harp::backend::pipeline::create_ast_suggester;
+use harp::backend::{GenericPipeline, KernelSignature, OptimizationConfig};
 use harp::graph::{DType, Graph, GraphNode};
+use harp::lowerer::create_signature;
+use harp::opt::ast::BeamSearchOptimizer as AstBeamSearchOptimizer;
+use harp::opt::selector::RuntimeSelector;
 use harp_viz::{HarpVizApp, RendererType};
 
 fn main() -> eframe::Result {
@@ -23,6 +32,7 @@ fn main() -> eframe::Result {
     println!("  - Lowering (GraphOp → Kernel変換)");
     println!("  - カーネルマージ (複数Kernel → Program統合)");
     println!("  - AST最適化 (代数的簡約、ループ最適化)");
+    println!("  - **実測値ベースのAST最適化 (RuntimeSelector)**");
     println!("最適化の各ステップがGenericPipelineに記録され、可視化されます。\n");
 
     // GenericPipelineを作成（最適化を組み込み）
@@ -55,21 +65,38 @@ fn main() -> eframe::Result {
     println!("  ✓ Pipeline作成完了（統合最適化有効）\n");
 
     // 複雑な計算グラフを作成（複数の演算を含む）
-    println!("【2/3】複雑な計算グラフを構築中...");
+    println!("【2/4】複雑な計算グラフを構築中...");
     let graph = create_complex_computation_graph();
     println!("  ✓ グラフ作成完了");
     println!("    - 入力数: {}", graph.input_metas().len());
     println!("    - 出力数: {}", graph.outputs().len());
+
+    // シグネチャを作成（RuntimeSelectorで使用）
+    let signature = create_signature(&graph);
+    println!(
+        "    - シグネチャ作成完了（入力: {}, 出力: {}）",
+        signature.inputs.len(),
+        signature.outputs.len()
+    );
     println!();
 
-    // 最適化を一括実行（コンパイルなし）
-    println!("【3/3】最適化を実行中...");
-    println!("  - 統合グラフ最適化中...");
-    let (optimized_program, ast_histories) = pipeline
+    // グラフ最適化を実行（AST最適化は無効化）
+    println!("【3/4】グラフ最適化を実行中...");
+    println!("  - 統合グラフ最適化中（AST最適化は後で実測値ベースで実行）...");
+    pipeline.enable_ast_optimization = false; // AST最適化を無効化
+    let (static_optimized_program, _) = pipeline
         .optimize_graph_with_all_histories(graph)
         .expect("Failed to optimize graph");
+    println!("  ✓ グラフ最適化完了");
 
-    println!("  ✓ 最適化完了");
+    // RuntimeSelectorを使ったAST最適化
+    println!("\n【4/4】実測値ベースのAST最適化を実行中...");
+    let (optimized_program, ast_histories) = optimize_ast_with_runtime_selector(
+        static_optimized_program.clone(),
+        signature,
+        &pipeline.ast_config,
+    );
+    println!("  ✓ 実測値ベースAST最適化完了");
 
     // 生成されたOpenCLコードを表示
     println!("\n=== 生成されたOpenCLコード ===");
@@ -176,10 +203,8 @@ fn main() -> eframe::Result {
             }
 
             // AST最適化履歴を読み込む（Code ViewerでAST最適化の各ステップを表示可能）
-            // 複数のfunction名でAST履歴が記録されている場合は最初の1つを使用
-            if let Some((_, ast_history)) = ast_histories.into_iter().next() {
-                app.load_ast_optimization_history(ast_history);
-            }
+            // RuntimeSelectorを使った実測値ベースの最適化履歴
+            app.load_ast_optimization_history(ast_histories);
 
             // AST最適化済みのProgramをCode Viewerに直接ロード
             // これにより、最終コード表示モードではAST最適化後のコードが表示される
@@ -344,6 +369,74 @@ fn create_complex_computation_graph() -> Graph {
     graph.output("y", y);
 
     graph
+}
+
+/// RuntimeSelectorを使ったAST最適化を実行
+///
+/// 静的コストで足切りした後、実際にカーネルを実行して実行時間を計測し、
+/// 最適なAST変換を選択します。
+fn optimize_ast_with_runtime_selector(
+    program: harp::ast::AstNode,
+    signature: KernelSignature,
+    config: &OptimizationConfig,
+) -> (harp::ast::AstNode, harp::opt::ast::OptimizationHistory) {
+    use harp::ast::DType as AstDType;
+    use harp::graph::shape::Expr;
+
+    // バッファファクトリを作成
+    // KernelSignatureから各バッファの情報を取得してOpenCLBufferを生成
+    let buffer_factory = move |sig: &KernelSignature| -> Vec<OpenCLBuffer> {
+        sig.inputs
+            .iter()
+            .chain(sig.outputs.iter())
+            .map(|buf_sig| {
+                // 形状を評価（Expr -> usize）
+                let shape: Vec<usize> = buf_sig
+                    .shape
+                    .iter()
+                    .map(|expr| {
+                        // Exprから定数値を取得（Constでなければデフォルト1）
+                        match expr {
+                            Expr::Const(c) => (*c).max(1) as usize,
+                            _ => 1, // 動的な形状はデフォルト値1を使用
+                        }
+                    })
+                    .collect();
+                // デフォルトはF32（ast::DTypeを使用）
+                OpenCLBuffer::with_dtype(shape, AstDType::F32)
+            })
+            .collect()
+    };
+
+    // RuntimeSelectorを作成
+    let runtime_selector = RuntimeSelector::new(
+        OpenCLRenderer::new(),
+        OpenCLCompiler::new(),
+        signature,
+        buffer_factory,
+    )
+    .with_pre_filter_count(10) // 静的コストで上位10件に足切り
+    .with_measurement_count(5); // 各候補を5回計測して平均を取る
+
+    println!("  - RuntimeSelector設定: 足切り=10件, 計測回数=5回");
+
+    // AST Suggesterを作成
+    let suggester = create_ast_suggester();
+
+    // BeamSearchOptimizerにRuntimeSelectorを設定
+    let optimizer = AstBeamSearchOptimizer::new(suggester)
+        .with_selector(runtime_selector)
+        .with_beam_width(config.beam_width)
+        .with_max_steps(config.max_steps)
+        .with_progress(config.show_progress);
+
+    println!(
+        "  - ビーム幅: {}, 最大ステップ: {}",
+        config.beam_width, config.max_steps
+    );
+
+    // 最適化を実行
+    optimizer.optimize_with_history(program)
 }
 
 /// 最適化の統計情報を表示
