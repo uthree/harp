@@ -2,6 +2,7 @@ pub mod estimator;
 pub mod history;
 pub mod optimizer;
 pub mod rules;
+pub mod runtime_estimator;
 pub mod suggesters;
 pub mod transforms;
 
@@ -29,6 +30,7 @@ pub trait CostEstimator {
 pub use estimator::SimpleCostEstimator;
 pub use history::{OptimizationHistory, OptimizationSnapshot};
 pub use optimizer::{BeamSearchOptimizer, RuleBaseOptimizer};
+pub use runtime_estimator::RuntimeCostEstimator;
 pub use suggesters::{
     CompositeSuggester, CseSuggester, FunctionInliningSuggester, LoopFusionSuggester,
     LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester, RuleBaseSuggester,

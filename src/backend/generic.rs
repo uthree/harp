@@ -951,6 +951,10 @@ mod tests {
         fn signature(&self) -> KernelSignature {
             KernelSignature::empty()
         }
+
+        unsafe fn execute(&self, _buffers: &mut [&mut Self::Buffer]) -> Result<(), String> {
+            Ok(())
+        }
     }
 
     struct DummyCompiler;

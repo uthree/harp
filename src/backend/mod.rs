@@ -153,6 +153,14 @@ pub trait Kernel {
     type Buffer: Buffer;
     fn signature(&self) -> KernelSignature;
 
+    /// カーネルを実行
+    ///
+    /// # Safety
+    ///
+    /// バッファは正しく初期化されている必要があります。
+    /// シグネチャと一致する数・型のバッファを渡す必要があります。
+    unsafe fn execute(&self, buffers: &mut [&mut Self::Buffer]) -> Result<(), String>;
+
     /// QueryBuilderを作成してメソッドチェーンでクエリを構築
     fn query(&self) -> QueryBuilder<'_, Self>
     where
@@ -504,6 +512,10 @@ mod tests {
 
         fn signature(&self) -> KernelSignature {
             self.signature.clone()
+        }
+
+        unsafe fn execute(&self, _buffers: &mut [&mut Self::Buffer]) -> Result<(), String> {
+            Ok(())
         }
     }
 

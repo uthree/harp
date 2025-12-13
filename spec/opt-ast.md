@@ -43,10 +43,63 @@
 
 ## コスト推定
 
-SimpleCostEstimatorは対数スケール（log(CPUサイクル数)）で計算：
+### SimpleCostEstimator
+
+静的コスト推定。対数スケール（log(CPUサイクル数)）で計算：
 - 各演算にCPUサイクル数を割り当て
 - **ループ融合ボーナス**: 境界が揃ったループに減点
 - **ノード数ペナルティ**: ノード爆発を抑制
+
+### RuntimeCostEstimator
+
+実行時間の実測値をコストとして使用する評価器。
+
+- ASTをコンパイル・実行して実行時間（μs）を計測
+- コンパイル結果と実行時間をキャッシュ
+- ジェネリクスでRenderer/Compilerを保持（C, Metal, OpenCL対応）
+
+**パラメータ:**
+- `measurement_count`: 計測回数（デフォルト: 10回、平均を使用）
+
+```rust
+let estimator = RuntimeCostEstimator::new(
+    renderer, compiler, signature,
+    |sig| create_buffers(sig),  // バッファファクトリ（ユーザー定義）
+).with_measurement_count(10);
+```
+
+## Selector（候補選択）
+
+ビームサーチの候補選択を抽象化。
+
+| Selector | 説明 |
+|----------|------|
+| StaticCostSelector | 静的コストでソート（デフォルト） |
+| MultiStageSelector | 多段階選択（足切り→精密評価） |
+| RuntimeSelector | 静的コスト足切り→実行時間計測 |
+
+### RuntimeSelector
+
+2段階評価を行う選択器：
+
+1. **Stage 1**: SimpleCostEstimatorで`pre_filter_count`件に足切り
+2. **Stage 2**: RuntimeCostEstimatorで実行時間計測、`n`件を選択
+
+**パラメータ:**
+- `pre_filter_count`: 足切り候補数（デフォルト: 10件）
+- `measurement_count`: 計測回数（デフォルト: 10回）
+
+```rust
+let selector = RuntimeSelector::new(
+    CRenderer::new(), CCompiler::new(), signature,
+    |sig| create_buffers(sig),
+)
+.with_pre_filter_count(10)
+.with_measurement_count(10);
+
+let optimizer = BeamSearchOptimizer::new(suggester, SimpleCostEstimator::new())
+    .with_selector(selector);
+```
 
 ## Barrierによる依存関係保証
 

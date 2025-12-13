@@ -89,6 +89,34 @@ impl Kernel for OpenCLKernel {
     fn signature(&self) -> KernelSignature {
         self.signature.clone()
     }
+
+    unsafe fn execute(&self, buffers: &mut [&mut Self::Buffer]) -> Result<(), String> {
+        // 動的ライブラリを再ロード（関数ポインタを取得するため）
+        let lib = unsafe {
+            Library::new(self._temp_file.path())
+                .map_err(|e| format!("Failed to load library: {}", e))?
+        };
+
+        // エントリーポイント関数を取得
+        let kernel_fn: Symbol<KernelFn> = unsafe {
+            lib.get(self.entry_point.as_bytes()).map_err(|e| {
+                format!(
+                    "Failed to get kernel function '{}': {}",
+                    self.entry_point, e
+                )
+            })?
+        };
+
+        // バッファポインタの配列を作成
+        let mut buffer_ptrs: Vec<*mut u8> = buffers.iter_mut().map(|b| b.as_mut_ptr()).collect();
+
+        // カーネル関数を呼び出し
+        unsafe {
+            kernel_fn(buffer_ptrs.as_mut_ptr());
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
