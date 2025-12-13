@@ -45,22 +45,22 @@ fn main() -> eframe::Result {
     // グラフ最適化の設定
     pipeline.graph_config = OptimizationConfig {
         beam_width: 4,
-        max_steps: 1000,
-        show_progress: true,
-        early_termination_threshold: Some(10), // 早期終了を無効化
-    };
-
-    // AST最適化の設定
-    pipeline.ast_config = OptimizationConfig {
-        beam_width: 4,
-        max_steps: 50,
+        max_steps: 100,
         show_progress: true,
         early_termination_threshold: Some(10),
+        pre_filter_count: 10,
+        measurement_count: 10,
     };
 
-    // RuntimeSelector用の設定
-    pipeline.runtime_config.pre_filter_count = 3;
-    pipeline.runtime_config.measurement_count = 2;
+    // AST最適化の設定（RuntimeSelector用パラメータも含む）
+    pipeline.ast_config = OptimizationConfig {
+        beam_width: 4,
+        max_steps: 500,
+        show_progress: true,
+        early_termination_threshold: Some(10),
+        pre_filter_count: 3,  // RuntimeSelector: 静的コストで3件に足切り
+        measurement_count: 2, // RuntimeSelector: 2回計測して平均
+    };
 
     // RuntimeSelector用のバッファファクトリを設定
     // これにより、AST最適化時にRuntimeSelectorが自動的に使用される
@@ -85,7 +85,7 @@ fn main() -> eframe::Result {
     println!("  - Pipeline作成完了");
     println!(
         "  - RuntimeSelector有効: pre_filter={}, measurement={}",
-        pipeline.runtime_config.pre_filter_count, pipeline.runtime_config.measurement_count
+        pipeline.ast_config.pre_filter_count, pipeline.ast_config.measurement_count
     );
     println!();
 

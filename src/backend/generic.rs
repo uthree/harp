@@ -32,6 +32,15 @@ pub struct OptimizationConfig {
     /// Some(n): n回連続で改善がなければ終了
     /// None: 早期終了を無効化
     pub early_termination_threshold: Option<usize>,
+    /// 足切り候補数（RuntimeSelector使用時）
+    ///
+    /// RuntimeSelectorを使用する際、静的コストで上位何件に絞り込むかを指定。
+    /// 絞り込み後の候補に対して実行時間を計測する。
+    pub pre_filter_count: usize,
+    /// 計測回数（RuntimeSelector使用時）
+    ///
+    /// RuntimeSelectorを使用する際、各候補の実行時間を何回計測して平均を取るか。
+    pub measurement_count: usize,
 }
 
 impl Default for OptimizationConfig {
@@ -41,50 +50,26 @@ impl Default for OptimizationConfig {
             max_steps: 10000,
             show_progress: false,
             early_termination_threshold: Some(20), // デフォルト: 20ステップ改善なしで終了
+            pre_filter_count: 10,                  // デフォルト: 10件に足切り
+            measurement_count: 30,                 // デフォルト: 30回計測して平均
         }
     }
 }
 
 /// RuntimeSelector（実測値ベース最適化）の設定
-#[derive(Debug, Clone)]
+///
+/// RuntimeSelectorの有効/無効を制御します。
+/// 足切り候補数と計測回数は`OptimizationConfig`で設定します。
+#[derive(Debug, Clone, Default)]
 pub struct RuntimeSelectorConfig {
     /// RuntimeSelectorを有効にするか
     pub enabled: bool,
-    /// 足切り候補数（静的コストで上位何件を残すか）
-    pub pre_filter_count: usize,
-    /// 計測回数（実行時間を何回計測して平均を取るか）
-    pub measurement_count: usize,
-}
-
-impl Default for RuntimeSelectorConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false, // デフォルトでは無効
-            pre_filter_count: 10,
-            measurement_count: 10,
-        }
-    }
 }
 
 impl RuntimeSelectorConfig {
     /// 新しい設定を作成（有効化済み）
     pub fn new() -> Self {
-        Self {
-            enabled: true,
-            ..Default::default()
-        }
-    }
-
-    /// 足切り候補数を設定
-    pub fn with_pre_filter_count(mut self, count: usize) -> Self {
-        self.pre_filter_count = count.max(1);
-        self
-    }
-
-    /// 計測回数を設定
-    pub fn with_measurement_count(mut self, count: usize) -> Self {
-        self.measurement_count = count.max(1);
-        self
+        Self { enabled: true }
     }
 }
 
@@ -998,8 +983,8 @@ where
             signature,
             move |sig: &KernelSignature| buffer_factory(sig),
         )
-        .with_pre_filter_count(self.runtime_config.pre_filter_count)
-        .with_measurement_count(self.runtime_config.measurement_count);
+        .with_pre_filter_count(self.ast_config.pre_filter_count)
+        .with_measurement_count(self.ast_config.measurement_count);
 
         // RuntimeSelectorを使用したビームサーチ
         let optimizer = AstBeamSearchOptimizer::new(loop_suggester)

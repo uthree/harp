@@ -8,13 +8,13 @@ use std::process::Command;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OptimizationLevel {
     /// 最適化なし（-O0）- コンパイル高速、デバッグ向け
-    #[default]
     O0,
     /// 基本的な最適化（-O1）
     O1,
     /// 標準的な最適化（-O2）
     O2,
     /// 積極的な最適化（-O3）
+    #[default]
     O3,
 }
 
