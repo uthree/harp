@@ -161,9 +161,42 @@ pub fn create_greedy_lowering_suggester() -> CompositeSuggester {
 }
 
 /// AST最適化用のSuggesterを作成
+///
+/// ルールベース最適化とループ最適化を含むすべてのSuggesterを返します。
+/// ルールベース最適化を事前に実行する場合は`create_ast_loop_suggester()`を使用してください。
 pub fn create_ast_suggester() -> AstCompositeSuggester {
     AstCompositeSuggester::new(vec![
         Box::new(RuleBaseSuggester::new(all_rules_with_search())),
+        Box::new(LoopTilingSuggester::with_default_sizes()),
+        Box::new(LoopInliningSuggester::with_default_limit()),
+        Box::new(LoopInterchangeSuggester::new()),
+        Box::new(LoopFusionSuggester::new()),
+        Box::new(FunctionInliningSuggester::with_default_limit()),
+    ])
+}
+
+/// ループ最適化用のSuggesterを作成（RuleBaseSuggesterを除く）
+///
+/// ルールベース最適化を事前に`RuleBaseOptimizer`で実行した後、
+/// ループ構造の最適化のみを行う場合に使用します。
+///
+/// # Example
+/// ```ignore
+/// use harp::opt::ast::{RuleBaseOptimizer, BeamSearchOptimizer};
+/// use harp::opt::ast::rules::all_algebraic_rules;
+/// use harp::backend::pipeline::create_ast_loop_suggester;
+///
+/// // 第1段階: ルールベース最適化（高速、ビームサーチなし）
+/// let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules());
+/// let rule_optimized = rule_optimizer.optimize(program);
+///
+/// // 第2段階: ループ最適化（ビームサーチ）
+/// let loop_suggester = create_ast_loop_suggester();
+/// let beam_optimizer = BeamSearchOptimizer::new(loop_suggester);
+/// let final_optimized = beam_optimizer.optimize(rule_optimized);
+/// ```
+pub fn create_ast_loop_suggester() -> AstCompositeSuggester {
+    AstCompositeSuggester::new(vec![
         Box::new(LoopTilingSuggester::with_default_sizes()),
         Box::new(LoopInliningSuggester::with_default_limit()),
         Box::new(LoopInterchangeSuggester::new()),

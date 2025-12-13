@@ -16,9 +16,13 @@ pub use buffer::MetalBuffer;
 pub use kernel::MetalKernel;
 
 #[cfg(target_os = "macos")]
-pub use compiler::MetalCompiler;
+pub use compiler::{MetalCompiler, MetalCompilerOption};
 
 pub use renderer::MetalRenderer;
+
+// OptimizationLevelはCバックエンドからre-export
+#[cfg(target_os = "macos")]
+pub use crate::backend::c::OptimizationLevel;
 
 /// libloading用のラッパー関数名
 ///

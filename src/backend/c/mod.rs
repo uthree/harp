@@ -4,7 +4,7 @@ pub mod kernel;
 pub mod renderer;
 
 pub use buffer::CBuffer;
-pub use compiler::CCompiler;
+pub use compiler::{CCompiler, CCompilerOption, OptimizationLevel};
 pub use kernel::CKernel;
 pub use renderer::CRenderer;
 

@@ -63,6 +63,8 @@ where
     show_progress: bool,
     collect_logs: bool,
     max_node_count: Option<usize>,
+    /// 改善がない場合に早期終了するまでのステップ数（Noneで無効化）
+    max_no_improvement_steps: Option<usize>,
 }
 
 impl<S> BeamSearchOptimizer<S, StaticCostSelector>
@@ -82,6 +84,7 @@ where
             show_progress: cfg!(debug_assertions),
             collect_logs: cfg!(debug_assertions),
             max_node_count: Some(10000), // デフォルトで最大1万ノードに制限
+            max_no_improvement_steps: Some(3), // デフォルトで3ステップ改善なしで終了
         }
     }
 }
@@ -119,6 +122,7 @@ where
             show_progress: self.show_progress,
             collect_logs: self.collect_logs,
             max_node_count: self.max_node_count,
+            max_no_improvement_steps: self.max_no_improvement_steps,
         }
     }
 
@@ -156,6 +160,17 @@ where
     /// Noneを指定すると制限なしになります。
     pub fn with_max_node_count(mut self, max: Option<usize>) -> Self {
         self.max_node_count = max;
+        self
+    }
+
+    /// コスト改善がない場合の早期終了ステップ数を設定
+    ///
+    /// 連続して指定したステップ数だけコストが改善されない場合、最適化を早期終了します。
+    /// Noneを指定すると早期終了を無効化します（max_stepsまで実行）。
+    ///
+    /// デフォルト: Some(3)
+    pub fn with_no_improvement_limit(mut self, steps: Option<usize>) -> Self {
+        self.max_no_improvement_steps = steps;
         self
     }
 }
@@ -236,7 +251,6 @@ where
         let mut actual_steps = 0;
         let mut best_cost = initial_cost;
         let mut no_improvement_count = 0;
-        const MAX_NO_IMPROVEMENT_STEPS: usize = 3;
 
         for step in 0..self.max_steps {
             actual_steps = step;
@@ -314,26 +328,35 @@ where
                 // コストが改善されない場合はカウンターを増やす
                 if *cost >= best_cost {
                     no_improvement_count += 1;
-                    debug!(
-                        "Step {}: no improvement (current={:.2e}, best={:.2e}, {}/{})",
-                        step, cost, best_cost, no_improvement_count, MAX_NO_IMPROVEMENT_STEPS
-                    );
 
-                    // 連続で改善がない場合は早期終了
-                    if no_improvement_count >= MAX_NO_IMPROVEMENT_STEPS {
-                        info!(
-                            "No cost improvement for {} steps - optimization complete",
-                            MAX_NO_IMPROVEMENT_STEPS
+                    // 早期終了の判定
+                    if let Some(max_no_improvement) = self.max_no_improvement_steps {
+                        debug!(
+                            "Step {}: no improvement (current={:.2e}, best={:.2e}, {}/{})",
+                            step, cost, best_cost, no_improvement_count, max_no_improvement
                         );
-                        actual_steps = step;
-                        if let Some(ref pb) = pb {
-                            pb.set_position(step as u64);
-                            pb.set_message(format!(
-                                "no cost improvement for {} steps",
-                                MAX_NO_IMPROVEMENT_STEPS
-                            ));
+
+                        // 連続で改善がない場合は早期終了
+                        if no_improvement_count >= max_no_improvement {
+                            info!(
+                                "No cost improvement for {} steps - optimization complete",
+                                max_no_improvement
+                            );
+                            actual_steps = step;
+                            if let Some(ref pb) = pb {
+                                pb.set_position(step as u64);
+                                pb.set_message(format!(
+                                    "no cost improvement for {} steps",
+                                    max_no_improvement
+                                ));
+                            }
+                            break;
                         }
-                        break;
+                    } else {
+                        debug!(
+                            "Step {}: no improvement (current={:.2e}, best={:.2e})",
+                            step, cost, best_cost
+                        );
                     }
                 } else {
                     // コストが改善された場合はカウンターをリセット

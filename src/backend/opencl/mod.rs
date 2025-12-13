@@ -4,9 +4,12 @@ pub mod kernel;
 pub mod renderer;
 
 pub use buffer::OpenCLBuffer;
-pub use compiler::OpenCLCompiler;
+pub use compiler::{OpenCLCompiler, OpenCLCompilerOption};
 pub use kernel::OpenCLKernel;
 pub use renderer::OpenCLRenderer;
+
+// OptimizationLevelはCバックエンドからre-export
+pub use crate::backend::c::OptimizationLevel;
 
 /// libloading用のラッパー関数名
 pub const LIBLOADING_WRAPPER_NAME: &str = "__harp_entry";

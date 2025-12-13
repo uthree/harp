@@ -332,7 +332,7 @@ impl CodeViewerApp {
                 // 最終コストを表示
                 if let Some(last) = history.snapshots().last() {
                     ui.label("Final Cost:");
-                    ui.label(format!("{:.2}", last.cost));
+                    ui.label(format!("{}", last.cost));
                 }
             }
         });

@@ -1,8 +1,64 @@
 use crate::backend::Compiler;
+use crate::backend::c::OptimizationLevel;
 use crate::backend::metal::{LIBLOADING_WRAPPER_NAME, MetalBuffer, MetalCode, MetalKernel};
 use libloading::Library;
 use std::path::PathBuf;
 use std::process::Command;
+
+/// Metalコンパイラのオプション
+#[derive(Debug, Clone)]
+pub struct MetalCompilerOption {
+    /// 最適化レベル
+    pub optimization_level: OptimizationLevel,
+    /// パイプを使用するか（一時ファイル回避で高速化）
+    pub use_pipe: bool,
+    /// コンパイラのパス（空文字列の場合は自動検出）
+    pub compiler_path: String,
+    /// 追加のコンパイラフラグ
+    pub extra_flags: Vec<String>,
+}
+
+impl Default for MetalCompilerOption {
+    fn default() -> Self {
+        Self {
+            optimization_level: OptimizationLevel::O0,
+            use_pipe: true,
+            compiler_path: String::new(),
+            extra_flags: Vec::new(),
+        }
+    }
+}
+
+impl MetalCompilerOption {
+    /// 新しいオプションを作成
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 最適化レベルを設定
+    pub fn with_optimization_level(mut self, level: OptimizationLevel) -> Self {
+        self.optimization_level = level;
+        self
+    }
+
+    /// パイプ使用の有効/無効を設定
+    pub fn with_pipe(mut self, use_pipe: bool) -> Self {
+        self.use_pipe = use_pipe;
+        self
+    }
+
+    /// コンパイラパスを設定
+    pub fn with_compiler_path(mut self, path: String) -> Self {
+        self.compiler_path = path;
+        self
+    }
+
+    /// 追加のコンパイラフラグを設定
+    pub fn with_extra_flags(mut self, flags: Vec<String>) -> Self {
+        self.extra_flags = flags;
+        self
+    }
+}
 
 /// Metalコンパイラ（C++ラッパー方式）
 #[derive(Debug)]
@@ -13,6 +69,10 @@ pub struct MetalCompiler {
     extra_flags: Vec<String>,
     /// 一時ファイルを保存するディレクトリ
     temp_dir: PathBuf,
+    /// 最適化レベル
+    optimization_level: OptimizationLevel,
+    /// パイプを使用するか（デフォルト: true）
+    use_pipe: bool,
 }
 
 impl MetalCompiler {
@@ -22,6 +82,8 @@ impl MetalCompiler {
             compiler_path: Self::detect_compiler(),
             extra_flags: vec![],
             temp_dir: std::env::temp_dir(),
+            optimization_level: OptimizationLevel::O0, // デフォルトは最適化なし（コンパイル高速化）
+            use_pipe: true,                            // デフォルトでパイプを使用
         }
     }
 
@@ -71,10 +133,15 @@ impl MetalCompiler {
             .arg("-") // 標準入力から読み込み
             .arg("-shared") // 共有ライブラリとしてコンパイル
             .arg("-fPIC") // Position Independent Code
-            .arg("-O2") // 最適化レベル2
-            .arg("-std=c++17") // C++17標準を使用
-            .arg("-o")
-            .arg(output_path);
+            .arg(format!("-O{}", self.optimization_level.as_flag())) // 最適化レベル
+            .arg("-std=c++17"); // C++17標準を使用
+
+        // パイプ使用
+        if self.use_pipe {
+            cmd.arg("-pipe");
+        }
+
+        cmd.arg("-o").arg(output_path);
 
         // Metalフレームワークをリンク（macOS専用）
         #[cfg(target_os = "macos")]
@@ -129,7 +196,7 @@ impl Compiler for MetalCompiler {
     type CodeRepr = MetalCode;
     type Buffer = MetalBuffer;
     type Kernel = MetalKernel;
-    type Option = ();
+    type Option = MetalCompilerOption;
 
     fn new() -> Self {
         MetalCompiler::new()
@@ -141,6 +208,17 @@ impl Compiler for MetalCompiler {
             .arg("--version")
             .output()
             .is_ok()
+    }
+
+    fn with_option(&mut self, option: Self::Option) {
+        self.optimization_level = option.optimization_level;
+        self.use_pipe = option.use_pipe;
+        if !option.compiler_path.is_empty() {
+            self.compiler_path = option.compiler_path;
+        }
+        if !option.extra_flags.is_empty() {
+            self.extra_flags = option.extra_flags;
+        }
     }
 
     fn compile(

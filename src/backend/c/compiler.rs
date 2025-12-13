@@ -4,6 +4,87 @@ use libloading::Library;
 use std::path::PathBuf;
 use std::process::Command;
 
+/// コンパイラの最適化レベル
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OptimizationLevel {
+    /// 最適化なし（-O0）- コンパイル高速、デバッグ向け
+    #[default]
+    O0,
+    /// 基本的な最適化（-O1）
+    O1,
+    /// 標準的な最適化（-O2）
+    O2,
+    /// 積極的な最適化（-O3）
+    O3,
+}
+
+impl OptimizationLevel {
+    /// コンパイラフラグとして使用する数値を返す
+    pub fn as_flag(&self) -> u8 {
+        match self {
+            OptimizationLevel::O0 => 0,
+            OptimizationLevel::O1 => 1,
+            OptimizationLevel::O2 => 2,
+            OptimizationLevel::O3 => 3,
+        }
+    }
+}
+
+/// Cコンパイラのオプション
+#[derive(Debug, Clone)]
+pub struct CCompilerOption {
+    /// 最適化レベル
+    pub optimization_level: OptimizationLevel,
+    /// パイプを使用するか（一時ファイル回避で高速化）
+    pub use_pipe: bool,
+    /// コンパイラのパス（空文字列の場合は自動検出）
+    pub compiler_path: String,
+    /// 追加のコンパイラフラグ
+    pub extra_flags: Vec<String>,
+}
+
+impl Default for CCompilerOption {
+    fn default() -> Self {
+        Self {
+            optimization_level: OptimizationLevel::O0,
+            use_pipe: true,
+            compiler_path: String::new(),
+            extra_flags: Vec::new(),
+        }
+    }
+}
+
+impl CCompilerOption {
+    /// 新しいオプションを作成
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 最適化レベルを設定
+    pub fn with_optimization_level(mut self, level: OptimizationLevel) -> Self {
+        self.optimization_level = level;
+        self
+    }
+
+    /// パイプ使用の有効/無効を設定
+    pub fn with_pipe(mut self, use_pipe: bool) -> Self {
+        self.use_pipe = use_pipe;
+        self
+    }
+
+    /// コンパイラパスを設定
+    pub fn with_compiler_path(mut self, path: String) -> Self {
+        self.compiler_path = path;
+        self
+    }
+
+    /// 追加のコンパイラフラグを設定
+    pub fn with_extra_flags(mut self, flags: Vec<String>) -> Self {
+        self.extra_flags = flags;
+        self
+    }
+}
+
 /// Cコンパイラ（シングルスレッド実行専用）
 #[derive(Debug)]
 pub struct CCompiler {
@@ -13,6 +94,10 @@ pub struct CCompiler {
     extra_flags: Vec<String>,
     /// 一時ファイルを保存するディレクトリ
     temp_dir: PathBuf,
+    /// 最適化レベル
+    optimization_level: OptimizationLevel,
+    /// パイプを使用するか（デフォルト: true）
+    use_pipe: bool,
 }
 
 impl CCompiler {
@@ -22,6 +107,8 @@ impl CCompiler {
             compiler_path: Self::detect_compiler(),
             extra_flags: vec![],
             temp_dir: std::env::temp_dir(),
+            optimization_level: OptimizationLevel::O0, // デフォルトは最適化なし（コンパイル高速化）
+            use_pipe: true,                            // デフォルトでパイプを使用
         }
     }
 
@@ -72,9 +159,14 @@ impl CCompiler {
             .arg("-") // 標準入力から読み込み
             .arg("-shared") // 共有ライブラリとしてコンパイル
             .arg("-fPIC") // Position Independent Code
-            .arg("-O2") // 最適化レベル2
-            .arg("-o")
-            .arg(output_path);
+            .arg(format!("-O{}", self.optimization_level.as_flag())); // 最適化レベル
+
+        // パイプ使用
+        if self.use_pipe {
+            cmd.arg("-pipe");
+        }
+
+        cmd.arg("-o").arg(output_path);
 
         // 追加のフラグ
         for flag in &self.extra_flags {
@@ -140,10 +232,21 @@ impl Compiler for CCompiler {
     type CodeRepr = CCode;
     type Buffer = CBuffer;
     type Kernel = CKernel;
-    type Option = ();
+    type Option = CCompilerOption;
 
     fn new() -> Self {
         CCompiler::new()
+    }
+
+    fn with_option(&mut self, option: Self::Option) {
+        self.optimization_level = option.optimization_level;
+        self.use_pipe = option.use_pipe;
+        if !option.compiler_path.is_empty() {
+            self.compiler_path = option.compiler_path;
+        }
+        if !option.extra_flags.is_empty() {
+            self.extra_flags = option.extra_flags;
+        }
     }
 
     fn is_available(&self) -> bool {

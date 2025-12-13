@@ -1,8 +1,64 @@
 use crate::backend::Compiler;
+use crate::backend::c::OptimizationLevel;
 use crate::backend::opencl::{LIBLOADING_WRAPPER_NAME, OpenCLBuffer, OpenCLCode, OpenCLKernel};
 use libloading::Library;
 use std::path::PathBuf;
 use std::process::Command;
+
+/// OpenCLコンパイラのオプション
+#[derive(Debug, Clone)]
+pub struct OpenCLCompilerOption {
+    /// 最適化レベル
+    pub optimization_level: OptimizationLevel,
+    /// パイプを使用するか（一時ファイル回避で高速化）
+    pub use_pipe: bool,
+    /// コンパイラのパス（空文字列の場合は自動検出）
+    pub compiler_path: String,
+    /// 追加のコンパイラフラグ
+    pub extra_flags: Vec<String>,
+}
+
+impl Default for OpenCLCompilerOption {
+    fn default() -> Self {
+        Self {
+            optimization_level: OptimizationLevel::O0,
+            use_pipe: true,
+            compiler_path: String::new(),
+            extra_flags: Vec::new(),
+        }
+    }
+}
+
+impl OpenCLCompilerOption {
+    /// 新しいオプションを作成
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 最適化レベルを設定
+    pub fn with_optimization_level(mut self, level: OptimizationLevel) -> Self {
+        self.optimization_level = level;
+        self
+    }
+
+    /// パイプ使用の有効/無効を設定
+    pub fn with_pipe(mut self, use_pipe: bool) -> Self {
+        self.use_pipe = use_pipe;
+        self
+    }
+
+    /// コンパイラパスを設定
+    pub fn with_compiler_path(mut self, path: String) -> Self {
+        self.compiler_path = path;
+        self
+    }
+
+    /// 追加のコンパイラフラグを設定
+    pub fn with_extra_flags(mut self, flags: Vec<String>) -> Self {
+        self.extra_flags = flags;
+        self
+    }
+}
 
 /// OpenCLコンパイラ
 #[derive(Debug)]
@@ -13,6 +69,10 @@ pub struct OpenCLCompiler {
     extra_flags: Vec<String>,
     /// 一時ファイルを保存するディレクトリ
     temp_dir: PathBuf,
+    /// 最適化レベル
+    optimization_level: OptimizationLevel,
+    /// パイプを使用するか（デフォルト: true）
+    use_pipe: bool,
 }
 
 impl OpenCLCompiler {
@@ -22,6 +82,8 @@ impl OpenCLCompiler {
             compiler_path: Self::detect_compiler(),
             extra_flags: vec![],
             temp_dir: std::env::temp_dir(),
+            optimization_level: OptimizationLevel::O0, // デフォルトは最適化なし（コンパイル高速化）
+            use_pipe: true,                            // デフォルトでパイプを使用
         }
     }
 
@@ -56,6 +118,21 @@ impl OpenCLCompiler {
         self
     }
 
+    /// 最適化レベルを設定
+    pub fn with_optimization_level(mut self, level: OptimizationLevel) -> Self {
+        self.optimization_level = level;
+        self
+    }
+
+    /// パイプ使用の有効/無効を設定
+    ///
+    /// trueの場合、コンパイル時に-pipeフラグを使用し、
+    /// 一時ファイルの代わりにパイプを使用します。
+    pub fn with_pipe(mut self, use_pipe: bool) -> Self {
+        self.use_pipe = use_pipe;
+        self
+    }
+
     /// OpenCL Cコードをコンパイルして動的ライブラリを生成
     ///
     /// 標準入力経由でコードを渡すことで一時ファイルの作成を回避
@@ -72,9 +149,14 @@ impl OpenCLCompiler {
             .arg("-") // 標準入力から読み込み
             .arg("-shared") // 共有ライブラリとしてコンパイル
             .arg("-fPIC") // Position Independent Code
-            .arg("-O2") // 最適化レベル2
-            .arg("-o")
-            .arg(output_path);
+            .arg(format!("-O{}", self.optimization_level.as_flag())); // 最適化レベル
+
+        // パイプ使用
+        if self.use_pipe {
+            cmd.arg("-pipe");
+        }
+
+        cmd.arg("-o").arg(output_path);
 
         // OpenCLライブラリのリンク（プラットフォーム依存）
         #[cfg(target_os = "macos")]
@@ -138,7 +220,7 @@ impl Compiler for OpenCLCompiler {
     type CodeRepr = OpenCLCode;
     type Buffer = OpenCLBuffer;
     type Kernel = OpenCLKernel;
-    type Option = ();
+    type Option = OpenCLCompilerOption;
 
     fn new() -> Self {
         OpenCLCompiler::new()
@@ -150,6 +232,17 @@ impl Compiler for OpenCLCompiler {
             .arg("--version")
             .output()
             .is_ok()
+    }
+
+    fn with_option(&mut self, option: Self::Option) {
+        self.optimization_level = option.optimization_level;
+        self.use_pipe = option.use_pipe;
+        if !option.compiler_path.is_empty() {
+            self.compiler_path = option.compiler_path;
+        }
+        if !option.extra_flags.is_empty() {
+            self.extra_flags = option.extra_flags;
+        }
     }
 
     fn compile(

@@ -10,11 +10,15 @@
 
 use harp::ast::helper::wildcard;
 use harp::backend::opencl::{OpenCLBuffer, OpenCLCompiler, OpenCLRenderer};
-use harp::backend::pipeline::create_ast_suggester;
+use harp::backend::pipeline::create_ast_loop_suggester;
 use harp::backend::{GenericPipeline, KernelSignature, OptimizationConfig};
 use harp::graph::{DType, Graph, GraphNode};
 use harp::lowerer::create_signature;
-use harp::opt::ast::BeamSearchOptimizer as AstBeamSearchOptimizer;
+use harp::opt::ast::rules::all_algebraic_rules;
+use harp::opt::ast::{
+    BeamSearchOptimizer as AstBeamSearchOptimizer, CostEstimator, Optimizer, RuleBaseOptimizer,
+    SimpleCostEstimator,
+};
 use harp::opt::selector::RuntimeSelector;
 use harp_viz::{HarpVizApp, RendererType};
 
@@ -371,10 +375,15 @@ fn create_complex_computation_graph() -> Graph {
     graph
 }
 
-/// RuntimeSelectorを使ったAST最適化を実行
+/// 2段階AST最適化を実行
 ///
-/// 静的コストで足切りした後、実際にカーネルを実行して実行時間を計測し、
-/// 最適なAST変換を選択します。
+/// 第1段階: ルールベース最適化（高速、ビームサーチなし）
+///   - 定数畳み込み、簡約化、正規化
+///   - RuleBaseOptimizerを直接使用（パターンマッチングの収束まで適用）
+///
+/// 第2段階: 実測値ベース最適化（RuntimeSelector）
+///   - ループ最適化などの構造変換
+///   - 実際にカーネルを実行して最適な変換を選択
 fn optimize_ast_with_runtime_selector(
     program: harp::ast::AstNode,
     signature: KernelSignature,
@@ -382,61 +391,118 @@ fn optimize_ast_with_runtime_selector(
 ) -> (harp::ast::AstNode, harp::opt::ast::OptimizationHistory) {
     use harp::ast::DType as AstDType;
     use harp::graph::shape::Expr;
+    use harp::opt::ast::history::{OptimizationHistory, OptimizationSnapshot};
+
+    // ==========================================================
+    // 第1段階: ルールベース最適化（高速、ビームサーチなし）
+    // ==========================================================
+    println!("\n  【第1段階】ルールベース最適化（パターンマッチング）");
+
+    // 代数的簡約ルールを取得
+    let rules = all_algebraic_rules();
+    println!("    - {} 個のルールを使用", rules.len());
+
+    // RuleBaseOptimizerを直接使用（ビームサーチなし、高速）
+    let rule_optimizer = RuleBaseOptimizer::new(rules).with_max_iterations(100);
+
+    let initial_cost = SimpleCostEstimator::new().estimate(&program);
+    let rule_optimized = rule_optimizer.optimize(program.clone());
+    let after_rule_cost = SimpleCostEstimator::new().estimate(&rule_optimized);
+
+    println!(
+        "    - コスト: {:.2} → {:.2} ({:.1}% 削減)",
+        initial_cost,
+        after_rule_cost,
+        if initial_cost > 0.0 {
+            (initial_cost - after_rule_cost) / initial_cost * 100.0
+        } else {
+            0.0
+        }
+    );
+
+    // 履歴を手動で作成（RuleBaseOptimizerは履歴を返さないため）
+    let mut combined_history = OptimizationHistory::new();
+    combined_history.add_snapshot(OptimizationSnapshot::new(
+        0,
+        program,
+        initial_cost,
+        "Initial AST".to_string(),
+        0,
+        None,
+    ));
+    combined_history.add_snapshot(OptimizationSnapshot::new(
+        1,
+        rule_optimized.clone(),
+        after_rule_cost,
+        "After rule-based optimization".to_string(),
+        0,
+        Some("RuleBaseOptimizer".to_string()),
+    ));
+
+    // ==========================================================
+    // 第2段階: 実測値ベース最適化（RuntimeSelector）
+    // ==========================================================
+    println!("\n  【第2段階】実測値ベース最適化（RuntimeSelector）");
 
     // バッファファクトリを作成
-    // KernelSignatureから各バッファの情報を取得してOpenCLBufferを生成
     let buffer_factory = move |sig: &KernelSignature| -> Vec<OpenCLBuffer> {
         sig.inputs
             .iter()
             .chain(sig.outputs.iter())
             .map(|buf_sig| {
-                // 形状を評価（Expr -> usize）
                 let shape: Vec<usize> = buf_sig
                     .shape
                     .iter()
-                    .map(|expr| {
-                        // Exprから定数値を取得（Constでなければデフォルト1）
-                        match expr {
-                            Expr::Const(c) => (*c).max(1) as usize,
-                            _ => 1, // 動的な形状はデフォルト値1を使用
-                        }
+                    .map(|expr| match expr {
+                        Expr::Const(c) => (*c).max(1) as usize,
+                        _ => 1,
                     })
                     .collect();
-                // デフォルトはF32（ast::DTypeを使用）
                 OpenCLBuffer::with_dtype(shape, AstDType::F32)
             })
             .collect()
     };
 
-    // RuntimeSelectorを作成
+    // RuntimeSelectorを作成（パラメータは控えめに）
     let runtime_selector = RuntimeSelector::new(
         OpenCLRenderer::new(),
         OpenCLCompiler::new(),
         signature,
         buffer_factory,
     )
-    .with_pre_filter_count(10) // 静的コストで上位10件に足切り
-    .with_measurement_count(5); // 各候補を5回計測して平均を取る
+    .with_pre_filter_count(3)
+    .with_measurement_count(2);
 
-    println!("  - RuntimeSelector設定: 足切り=10件, 計測回数=5回");
+    println!("    - 足切り: 3件, 計測回数: 2回");
 
-    // AST Suggesterを作成
-    let suggester = create_ast_suggester();
+    // ループ最適化などの構造変換用Suggester（RuleBaseSuggesterを除く）
+    let loop_suggester = create_ast_loop_suggester();
 
-    // BeamSearchOptimizerにRuntimeSelectorを設定
-    let optimizer = AstBeamSearchOptimizer::new(suggester)
+    // 実測値ベース最適化（ステップ数は控えめに）
+    let max_steps = config.max_steps.min(20);
+    let runtime_optimizer = AstBeamSearchOptimizer::new(loop_suggester)
         .with_selector(runtime_selector)
-        .with_beam_width(config.beam_width)
-        .with_max_steps(config.max_steps)
+        .with_beam_width(config.beam_width.min(2))
+        .with_max_steps(max_steps)
         .with_progress(config.show_progress);
 
     println!(
-        "  - ビーム幅: {}, 最大ステップ: {}",
-        config.beam_width, config.max_steps
+        "    - ビーム幅: {}, 最大ステップ: {}",
+        config.beam_width.min(2),
+        max_steps
     );
 
-    // 最適化を実行
-    optimizer.optimize_with_history(program)
+    let (final_optimized, runtime_history) =
+        runtime_optimizer.optimize_with_history(rule_optimized);
+
+    println!("    - ステップ数: {}", runtime_history.len());
+
+    // 履歴を結合（ルールベース → 実測値ベース）
+    for snapshot in runtime_history.snapshots() {
+        combined_history.add_snapshot(snapshot.clone());
+    }
+
+    (final_optimized, combined_history)
 }
 
 /// 最適化の統計情報を表示
