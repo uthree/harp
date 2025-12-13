@@ -3,7 +3,7 @@
 //! ループのタイル化やループ展開などの複雑なAST変換を提供します。
 
 use crate::ast::{
-    AstNode, Literal, Scope,
+    AstNode, DType, Literal, Mutability, Scope,
     helper::{assign, const_int, empty_block, range, var as helper_var},
 };
 
@@ -189,9 +189,15 @@ pub fn tile_loop(loop_node: &AstNode, tile_size: usize) -> Option<AstNode> {
 
             let inner_body_statements = vec![assign_i, body.as_ref().clone()];
 
+            // 元のループ変数をスコープに宣言（ローカル変数として生成されるように）
+            let mut inner_scope = Scope::new();
+            inner_scope
+                .declare(var.clone(), DType::Int, Mutability::Mutable)
+                .expect("Failed to declare loop variable in inner scope");
+
             let inner_body = AstNode::Block {
                 statements: inner_body_statements,
-                scope: Box::new(Scope::new()),
+                scope: Box::new(inner_scope),
             };
 
             // 内側ループ: for i_inner in 0..tile_size step 1
@@ -220,9 +226,16 @@ pub fn tile_loop(loop_node: &AstNode, tile_size: usize) -> Option<AstNode> {
             // 端数処理ループ: for i_remainder in main_stop..stop step 1
             // ループ本体の中で元の変数名を使うため、代入を追加
             let remainder_assign = assign(var.clone(), helper_var(remainder_var.clone()));
+
+            // 端数ループでも元のループ変数をスコープに宣言
+            let mut remainder_scope = Scope::new();
+            remainder_scope
+                .declare(var.clone(), DType::Int, Mutability::Mutable)
+                .expect("Failed to declare loop variable in remainder scope");
+
             let remainder_body = AstNode::Block {
                 statements: vec![remainder_assign, body.as_ref().clone()],
-                scope: Box::new(Scope::new()),
+                scope: Box::new(remainder_scope),
             };
             let remainder_loop = range(
                 remainder_var,
@@ -545,6 +558,77 @@ mod tests {
             assert_eq!(*right, AstNode::Const(Literal::Int(5)));
         } else {
             panic!("Expected Add node");
+        }
+    }
+
+    #[test]
+    fn test_tile_loop_declares_original_variable() {
+        // 元のループ変数がタイル化後のスコープに宣言されていることを確認
+        // for ridx2 in 0..1024 step 1 { body }
+        let body = Box::new(AstNode::Var("acc".to_string()));
+
+        let original_loop = AstNode::Range {
+            var: "ridx2".to_string(),
+            start: Box::new(AstNode::Const(Literal::Int(0))),
+            step: Box::new(AstNode::Const(Literal::Int(1))),
+            stop: Box::new(AstNode::Const(Literal::Int(1024))),
+            body,
+        };
+
+        let tiled = tile_loop(&original_loop, 128);
+        assert!(tiled.is_some());
+
+        // タイル化結果の構造を確認
+        if let Some(AstNode::Block { statements, .. }) = tiled {
+            // メインループ（外側ループ）を取得
+            if let AstNode::Range {
+                body: outer_body, ..
+            } = &statements[0]
+            {
+                // 内側ループを取得
+                if let AstNode::Range {
+                    body: inner_body, ..
+                } = outer_body.as_ref()
+                {
+                    // 内側ループの本体（Block）を取得
+                    if let AstNode::Block { scope, .. } = inner_body.as_ref() {
+                        // スコープに ridx2 が宣言されていることを確認
+                        let ridx2_decl = scope.get("ridx2");
+                        assert!(
+                            ridx2_decl.is_some(),
+                            "Original loop variable 'ridx2' should be declared in inner body scope"
+                        );
+                        assert_eq!(ridx2_decl.unwrap().dtype, DType::Int);
+                    } else {
+                        panic!("Expected Block node for inner body");
+                    }
+                } else {
+                    panic!("Expected Range node for inner loop");
+                }
+            } else {
+                panic!("Expected Range node for outer loop");
+            }
+
+            // 端数ループも確認
+            if let AstNode::Range {
+                body: remainder_body,
+                ..
+            } = &statements[1]
+            {
+                if let AstNode::Block { scope, .. } = remainder_body.as_ref() {
+                    let ridx2_decl = scope.get("ridx2");
+                    assert!(
+                        ridx2_decl.is_some(),
+                        "Original loop variable 'ridx2' should be declared in remainder body scope"
+                    );
+                } else {
+                    panic!("Expected Block node for remainder body");
+                }
+            } else {
+                panic!("Expected Range node for remainder loop");
+            }
+        } else {
+            panic!("Expected Block node");
         }
     }
 }

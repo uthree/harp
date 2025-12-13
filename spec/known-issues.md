@@ -1,54 +1,42 @@
 # 既知の問題
 
-## ループタイリング時の変数未宣言バグ
+(現時点で既知の問題はありません)
+
+## 修正済みの問題
+
+### ループタイリング時の変数未宣言バグ
 
 **発見日**: 2024-12
+**修正日**: 2024-12
 
-**状態**: 未修正
+**状態**: 修正済み
 
 **症状**:
 AST最適化でループタイリング(`LoopTilingSuggester`)が適用された際、タイル化されたループ変数（例: `ridx2`）が宣言される前に使用されるコードが生成される。
 
-**再現条件**:
-- `RuntimeSelector`による実測値ベース最適化を有効化
-- 1024x1024程度の大きな行列積を最適化
-- タイリングが適用される候補が選択された場合に発生
+**原因**:
+`src/opt/ast/transforms.rs`の`tile_loop`関数で、タイル化後の内側ループ本体のBlockを作成する際に、元のループ変数をスコープに宣言していなかった。
 
-**エラー例**:
-```
-OpenCL build error:
-program_source:11:21: error: use of undeclared identifier 'ridx2'
-                    ridx2 = (ridx2_outer + ridx2_inner);
-                    ^
-```
+```rust
+// 修正前
+let inner_body = AstNode::Block {
+    statements: inner_body_statements,
+    scope: Box::new(Scope::new()),  // 空のスコープ
+};
 
-**生成される問題のあるコード**:
-```c
-for (int ridx2_outer = 0; ridx2_outer < 1024; ridx2_outer += 128) {
-    for (int ridx2_inner = 0; ridx2_inner < 128; ridx2_inner += 1) {
-        ridx2 = (ridx2_outer + ridx2_inner);  // ridx2が未宣言
-        acc = (acc + (input0[...ridx2...] * input1[...ridx2...]));
-    }
-}
-```
+// 修正後
+let mut inner_scope = Scope::new();
+inner_scope
+    .declare(var.clone(), DType::Int, Mutability::Mutable)
+    .expect("Failed to declare loop variable in inner scope");
 
-**期待されるコード**:
-```c
-for (int ridx2_outer = 0; ridx2_outer < 1024; ridx2_outer += 128) {
-    for (int ridx2_inner = 0; ridx2_inner < 128; ridx2_inner += 1) {
-        int ridx2 = (ridx2_outer + ridx2_inner);  // 宣言が必要
-        acc = (acc + (input0[...ridx2...] * input1[...ridx2...]));
-    }
-}
+let inner_body = AstNode::Block {
+    statements: inner_body_statements,
+    scope: Box::new(inner_scope),  // 変数が宣言されたスコープ
+};
 ```
 
-**影響範囲**:
-- `src/opt/ast/suggesters/loop_tiling.rs`
-- OpenCL/C/Metalレンダラー全般
-
-**回避策**:
-`set_runtime_buffer_factory()`を呼び出さず、静的コスト推定のみで最適化を行う。
-
-**調査ポイント**:
-1. `LoopTilingSuggester`がタイル化時に元の変数宣言を保持していない可能性
-2. `AstNode::Assign`の左辺が新規変数の場合の宣言生成ロジック
+**修正内容**:
+1. 内側ループ本体のスコープに元のループ変数を宣言
+2. 端数処理ループ本体のスコープにも同様に宣言を追加
+3. 修正を検証するテストケース`test_tile_loop_declares_original_variable`を追加
