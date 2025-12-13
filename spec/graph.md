@@ -86,13 +86,20 @@ Graph最適化フェーズでは、以下のSuggesterにより段階的に演算
 
 ### 高レベル演算
 - `hlops.rs`: 高レベル演算のヘルパー関数
-- `hlops_conv.rs`: 畳み込み演算
+- `hlops_conv.rs`: 畳み込み演算（conv1d/2d/3d、conv_transpose1d/2d/3dのエントリポイント）
+
+### 畳み込みモジュール (conv/)
+- `conv/mod.rs`: convモジュールの定義
+- `conv/params.rs`: ConvParams構造体（kernel_size, stride, dilation, groups）
+- `conv/ops.rs`: N次元畳み込み実装（conv_nd, conv_transpose_nd）
+
+1D/2D/3D畳み込みは共通のN次元ロジック（conv_nd/conv_transpose_nd）に委譲されます。
 
 ### Shape関連
 - `shape/mod.rs`: Shape関連モジュールの定義
 - `shape/expr.rs`: シンボリック式（Expr）の定義と演算
 - `shape/view.rs`: View構造体と基本操作
-- `shape/view_ops.rs`: View unfold操作
+- `shape/view_ops.rs`: View操作（unfold_nd等）
 
 ## 未実装
 

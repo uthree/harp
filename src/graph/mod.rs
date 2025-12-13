@@ -3,6 +3,7 @@ use std::{
     ops::Deref,
     rc::Rc,
 };
+pub mod conv;
 pub mod custom_builder;
 pub mod hlops;
 pub mod hlops_conv;
@@ -13,6 +14,7 @@ pub mod strategy;
 pub mod visualization;
 
 // Re-export commonly used types
+pub use conv::ConvParams;
 pub use ops::{CumulativeOp, ElementwiseOp, GraphOp, ReduceOp, custom_placeholders};
 pub use shape::{Expr, View};
 // Note: ElementwiseStrategy was removed - parallelization is now handled at AST level

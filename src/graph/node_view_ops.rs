@@ -1,5 +1,6 @@
 // GraphNodeのView関連の操作を提供するモジュール
 
+use crate::graph::conv::ConvParams;
 use crate::graph::shape::{Expr, View};
 use crate::graph::{GraphNode, ops::GraphOp};
 
@@ -66,6 +67,36 @@ impl GraphNode {
         self.view(new_view)
     }
 
+    /// N次元unfold操作（スライディングウィンドウ）
+    ///
+    /// 畳み込みの前処理として、入力から重複するパッチを抽出します。
+    /// 1D/2D/3D unfoldの共通実装です。
+    ///
+    /// # 引数
+    /// - `params`: 畳み込みパラメータ（kernel_size, stride, dilation, groups）
+    ///
+    /// # 入出力形状
+    /// - N次元入力（空間のみ）: (...) -> (k1, k2, ..., L1', L2', ...)
+    /// - (N+1)次元入力（チャネル付き, groups=1）: (C, ...) -> (C, k1, k2, ..., L1', L2', ...)
+    /// - (N+1)次元入力（チャネル付き, groups=g）: (C, ...) -> (g, C/g, k1, k2, ..., L1', L2', ...)
+    ///
+    /// # 例
+    /// ```no_run
+    /// use harp::prelude::*;
+    /// use harp::graph::ConvParams;
+    ///
+    /// let mut graph = Graph::new();
+    /// let x = graph.input("x", DType::F32, vec![3, 32, 32]);
+    ///
+    /// // 2D unfold: (3, 32, 32) -> (3, 3, 3, 30, 30)
+    /// let params = ConvParams::from_2d((3, 3), (1, 1), (1, 1), 1);
+    /// let unfolded = x.unfold_nd(&params);
+    /// ```
+    pub fn unfold_nd(&self, params: &ConvParams) -> Self {
+        let new_view = self.view.clone().unfold_nd(params);
+        self.view(new_view)
+    }
+
     /// 1D unfold操作（スライディングウィンドウ）
     ///
     /// 畳み込みの前処理として、入力から重複するパッチを抽出します。
@@ -113,11 +144,7 @@ impl GraphNode {
         dilation: usize,
         groups: usize,
     ) -> Self {
-        let new_view = self
-            .view
-            .clone()
-            .unfold1d(kernel_size, stride, dilation, groups);
-        self.view(new_view)
+        self.unfold_nd(&ConvParams::from_1d(kernel_size, stride, dilation, groups))
     }
 
     /// 2D unfold操作（スライディングウィンドウ）
@@ -157,11 +184,7 @@ impl GraphNode {
         dilation: (usize, usize),
         groups: usize,
     ) -> Self {
-        let new_view = self
-            .view
-            .clone()
-            .unfold2d(kernel_size, stride, dilation, groups);
-        self.view(new_view)
+        self.unfold_nd(&ConvParams::from_2d(kernel_size, stride, dilation, groups))
     }
 
     /// 3D unfold操作（スライディングウィンドウ）
@@ -198,11 +221,7 @@ impl GraphNode {
         dilation: (usize, usize, usize),
         groups: usize,
     ) -> Self {
-        let new_view = self
-            .view
-            .clone()
-            .unfold3d(kernel_size, stride, dilation, groups);
-        self.view(new_view)
+        self.unfold_nd(&ConvParams::from_3d(kernel_size, stride, dilation, groups))
     }
 
     /// テンソルをパディング
@@ -307,6 +326,49 @@ impl GraphNode {
         )
     }
 
+    /// N次元fold操作（unfoldの逆操作、col2im）
+    ///
+    /// unfoldされたテンソルを元の形状に戻します。
+    /// 重複する部分は加算されます。
+    /// 1D/2D/3D foldの共通実装です。
+    ///
+    /// # 引数
+    /// - `output_size`: 出力サイズ（unfold前の空間サイズ）
+    /// - `params`: 畳み込みパラメータ（kernel_size, stride, dilation, groups）
+    ///
+    /// # 例
+    /// ```no_run
+    /// use harp::prelude::*;
+    /// use harp::graph::ConvParams;
+    ///
+    /// let mut graph = Graph::new();
+    /// let x = graph.input("x", DType::F32, vec![3, 3, 3, 30, 30]);  // unfoldの出力: (C, kH, kW, H', W')
+    ///
+    /// // fold: (3, 3, 3, 30, 30) -> (3, 32, 32)
+    /// let params = ConvParams::from_2d((3, 3), (1, 1), (1, 1), 1);
+    /// let folded = x.fold_nd(vec![32, 32], &params);
+    /// ```
+    pub fn fold_nd(&self, output_size: Vec<usize>, params: &ConvParams) -> Self {
+        let new_shape: Vec<Expr> = output_size
+            .iter()
+            .map(|&s| Expr::from(s as isize))
+            .collect();
+        let new_view = View::contiguous(new_shape);
+
+        Self::new(
+            self.dtype.clone(),
+            GraphOp::Fold {
+                output_size,
+                kernel_size: params.kernel_size.clone(),
+                stride: params.stride.clone(),
+                dilation: params.dilation.clone(),
+                groups: params.groups,
+            },
+            vec![self.clone()],
+            new_view,
+        )
+    }
+
     /// 1D fold操作（unfoldの逆操作、col2im）
     ///
     /// unfoldされたテンソルを元の形状に戻します。
@@ -341,23 +403,9 @@ impl GraphNode {
         dilation: usize,
         groups: usize,
     ) -> Self {
-        let new_shape: Vec<Expr> = output_size
-            .iter()
-            .map(|&s| Expr::from(s as isize))
-            .collect();
-        let new_view = View::contiguous(new_shape);
-
-        Self::new(
-            self.dtype.clone(),
-            GraphOp::Fold {
-                output_size,
-                kernel_size: vec![kernel_size],
-                stride: vec![stride],
-                dilation: vec![dilation],
-                groups,
-            },
-            vec![self.clone()],
-            new_view,
+        self.fold_nd(
+            output_size,
+            &ConvParams::from_1d(kernel_size, stride, dilation, groups),
         )
     }
 
@@ -392,23 +440,9 @@ impl GraphNode {
         dilation: (usize, usize),
         groups: usize,
     ) -> Self {
-        let new_shape: Vec<Expr> = output_size
-            .iter()
-            .map(|&s| Expr::from(s as isize))
-            .collect();
-        let new_view = View::contiguous(new_shape);
-
-        Self::new(
-            self.dtype.clone(),
-            GraphOp::Fold {
-                output_size,
-                kernel_size: vec![kernel_size.0, kernel_size.1],
-                stride: vec![stride.0, stride.1],
-                dilation: vec![dilation.0, dilation.1],
-                groups,
-            },
-            vec![self.clone()],
-            new_view,
+        self.fold_nd(
+            output_size,
+            &ConvParams::from_2d(kernel_size, stride, dilation, groups),
         )
     }
 
@@ -432,23 +466,9 @@ impl GraphNode {
         dilation: (usize, usize, usize),
         groups: usize,
     ) -> Self {
-        let new_shape: Vec<Expr> = output_size
-            .iter()
-            .map(|&s| Expr::from(s as isize))
-            .collect();
-        let new_view = View::contiguous(new_shape);
-
-        Self::new(
-            self.dtype.clone(),
-            GraphOp::Fold {
-                output_size,
-                kernel_size: vec![kernel_size.0, kernel_size.1, kernel_size.2],
-                stride: vec![stride.0, stride.1, stride.2],
-                dilation: vec![dilation.0, dilation.1, dilation.2],
-                groups,
-            },
-            vec![self.clone()],
-            new_view,
+        self.fold_nd(
+            output_size,
+            &ConvParams::from_3d(kernel_size, stride, dilation, groups),
         )
     }
 }

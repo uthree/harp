@@ -1,5 +1,4 @@
 use super::*;
-use crate::shape;
 
 #[test]
 fn test_const_creation() {

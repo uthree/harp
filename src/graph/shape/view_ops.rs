@@ -1,6 +1,177 @@
 use super::{Expr, View};
+use crate::graph::conv::ConvParams;
 
 impl View {
+    /// N次元unfold操作
+    ///
+    /// スライディングウィンドウで入力から重複するパッチを抽出します。
+    /// 1D/2D/3D unfoldの共通実装です。
+    ///
+    /// # 引数
+    /// - `params`: 畳み込みパラメータ（kernel_size, stride, dilation, groups）
+    ///
+    /// # 入出力形状
+    /// - N次元入力（空間のみ）: (...) -> (k1, k2, ..., L1', L2', ...)
+    /// - (N+1)次元入力（チャネル付き, groups=1）: (C, ...) -> (C, k1, k2, ..., L1', L2', ...)
+    /// - (N+1)次元入力（チャネル付き, groups=g）: (C, ...) -> (g, C/g, k1, k2, ..., L1', L2', ...)
+    ///
+    /// 現在はpadding=0のみサポート
+    #[allow(clippy::needless_range_loop)]
+    pub fn unfold_nd(self, params: &ConvParams) -> Self {
+        match self {
+            View::Linear {
+                shape,
+                strides,
+                offset,
+            } => {
+                let spatial_dims = params.ndim();
+                let input_ndim = shape.len();
+
+                // 入力は空間のみ（spatial_dims）か、チャネル付き（spatial_dims + 1）
+                assert!(
+                    input_ndim == spatial_dims || input_ndim == spatial_dims + 1,
+                    "unfold{}d requires {}D or {}D input, got {}D",
+                    spatial_dims,
+                    spatial_dims,
+                    spatial_dims + 1,
+                    input_ndim
+                );
+
+                // dilation >= 1 の検証
+                for &d in &params.dilation {
+                    assert!(d >= 1, "dilation must be >= 1");
+                }
+                assert!(params.groups >= 1, "groups must be >= 1");
+
+                let has_channel = input_ndim == spatial_dims + 1;
+
+                // チャネルなしの場合、groups=1のみ
+                if !has_channel {
+                    assert!(
+                        params.groups == 1,
+                        "groups must be 1 for {}D input",
+                        spatial_dims
+                    );
+                }
+
+                // 実効カーネルサイズと出力サイズを計算
+                let eff_kernel = params.effective_kernel_size();
+                let spatial_start = if has_channel { 1 } else { 0 };
+
+                let output_sizes: Vec<Expr> = (0..spatial_dims)
+                    .map(|i| {
+                        let input_size = &shape[spatial_start + i];
+                        (input_size.clone() - Expr::from(eff_kernel[i] as isize))
+                            / Expr::from(params.stride[i] as isize)
+                            + Expr::from(1)
+                    })
+                    .map(|e| e.simplify())
+                    .collect();
+
+                let (new_shape, new_strides) = if !has_channel {
+                    // 空間のみ: (...) -> (k1, k2, ..., L1', L2', ...)
+                    let mut new_shape = Vec::with_capacity(spatial_dims * 2);
+                    let mut new_strides = Vec::with_capacity(spatial_dims * 2);
+
+                    // カーネルサイズ次元
+                    for i in 0..spatial_dims {
+                        new_shape.push(Expr::from(params.kernel_size[i] as isize));
+                        new_strides.push(
+                            (Expr::from(params.dilation[i] as isize) * strides[i].clone())
+                                .simplify(),
+                        );
+                    }
+                    // 出力サイズ次元
+                    for i in 0..spatial_dims {
+                        new_shape.push(output_sizes[i].clone());
+                        new_strides.push(
+                            (Expr::from(params.stride[i] as isize) * strides[i].clone()).simplify(),
+                        );
+                    }
+
+                    (new_shape, new_strides)
+                } else if params.groups == 1 {
+                    // チャネル付き, groups=1: (C, ...) -> (C, k1, k2, ..., L1', L2', ...)
+                    let mut new_shape = Vec::with_capacity(1 + spatial_dims * 2);
+                    let mut new_strides = Vec::with_capacity(1 + spatial_dims * 2);
+
+                    // チャネル次元
+                    new_shape.push(shape[0].clone());
+                    new_strides.push(strides[0].clone());
+
+                    // カーネルサイズ次元
+                    for i in 0..spatial_dims {
+                        new_shape.push(Expr::from(params.kernel_size[i] as isize));
+                        new_strides.push(
+                            (Expr::from(params.dilation[i] as isize) * strides[1 + i].clone())
+                                .simplify(),
+                        );
+                    }
+                    // 出力サイズ次元
+                    for i in 0..spatial_dims {
+                        new_shape.push(output_sizes[i].clone());
+                        new_strides.push(
+                            (Expr::from(params.stride[i] as isize) * strides[1 + i].clone())
+                                .simplify(),
+                        );
+                    }
+
+                    (new_shape, new_strides)
+                } else {
+                    // チャネル付き, groups=g: (C, ...) -> (g, C/g, k1, k2, ..., L1', L2', ...)
+                    let c_expr = &shape[0];
+
+                    // 定数の場合のみ検証
+                    if let Expr::Const(c) = c_expr {
+                        assert!(
+                            *c % params.groups as isize == 0,
+                            "Number of channels must be divisible by groups"
+                        );
+                    }
+
+                    let c_per_group =
+                        (shape[0].clone() / Expr::from(params.groups as isize)).simplify();
+
+                    let mut new_shape = Vec::with_capacity(2 + spatial_dims * 2);
+                    let mut new_strides = Vec::with_capacity(2 + spatial_dims * 2);
+
+                    // グループ次元
+                    new_shape.push(Expr::from(params.groups as isize));
+                    new_strides.push((c_per_group.clone() * strides[0].clone()).simplify());
+
+                    // グループ内チャネル次元
+                    new_shape.push(c_per_group);
+                    new_strides.push(strides[0].clone());
+
+                    // カーネルサイズ次元
+                    for i in 0..spatial_dims {
+                        new_shape.push(Expr::from(params.kernel_size[i] as isize));
+                        new_strides.push(
+                            (Expr::from(params.dilation[i] as isize) * strides[1 + i].clone())
+                                .simplify(),
+                        );
+                    }
+                    // 出力サイズ次元
+                    for i in 0..spatial_dims {
+                        new_shape.push(output_sizes[i].clone());
+                        new_strides.push(
+                            (Expr::from(params.stride[i] as isize) * strides[1 + i].clone())
+                                .simplify(),
+                        );
+                    }
+
+                    (new_shape, new_strides)
+                };
+
+                View::Linear {
+                    shape: new_shape,
+                    strides: new_strides,
+                    offset,
+                }
+            }
+        }
+    }
+
     /// 1D unfold操作
     ///
     /// スライディングウィンドウで入力から重複するパッチを抽出します。
@@ -48,100 +219,7 @@ impl View {
         dilation: usize,
         groups: usize,
     ) -> Self {
-        match self {
-            View::Linear {
-                shape,
-                strides,
-                offset,
-            } => {
-                assert!(
-                    shape.len() == 1 || shape.len() == 2,
-                    "unfold requires 1D (L,) or 2D (C, L) input"
-                );
-                assert!(dilation >= 1, "dilation must be >= 1");
-                assert!(groups >= 1, "groups must be >= 1");
-
-                let ndim = shape.len();
-                let l_dim = ndim - 1; // 最後の次元がL
-
-                // 実効カーネルサイズ: effective_kernel_size = (k - 1) * d + 1
-                let effective_kernel_size = (kernel_size - 1) * dilation + 1;
-
-                // 出力サイズ: L' = (L - effective_kernel_size) / s + 1
-                let l_out = (shape[l_dim].clone() - Expr::from(effective_kernel_size as isize))
-                    / Expr::from(stride as isize)
-                    + Expr::from(1);
-
-                let (new_shape, new_strides) = if ndim == 1 {
-                    // 1D入力: (L,) -> (k, L')
-                    assert!(groups == 1, "groups must be 1 for 1D input");
-
-                    let shape = vec![Expr::from(kernel_size as isize), l_out.simplify()];
-                    let strides = vec![
-                        (Expr::from(dilation as isize) * strides[0].clone()).simplify(), // k: dilation倍
-                        (Expr::from(stride as isize) * strides[0].clone()).simplify(),   // L'
-                    ];
-                    (shape, strides)
-                } else {
-                    // 2D入力
-                    if groups == 1 {
-                        // groups=1: (C, L) -> (C, k, L')
-                        let shape = vec![
-                            shape[0].clone(),                 // C
-                            Expr::from(kernel_size as isize), // k
-                            l_out.simplify(),                 // L'
-                        ];
-                        let strides = vec![
-                            strides[0].clone(), // C: 元のチャネルstride
-                            (Expr::from(dilation as isize) * strides[1].clone()).simplify(), // k: dilation倍
-                            (Expr::from(stride as isize) * strides[1].clone()).simplify(),   // L'
-                        ];
-                        (shape, strides)
-                    } else {
-                        // groups=g: (C, L) -> (g, C/g, k, L')
-                        // チャネル数がgroupsで割り切れることを確認
-                        let c_expr = &shape[0];
-
-                        // 定数の場合のみ検証
-                        if let Expr::Const(c) = c_expr {
-                            assert!(
-                                *c % groups as isize == 0,
-                                "Number of channels must be divisible by groups"
-                            );
-                        }
-
-                        let c_per_group =
-                            (shape[0].clone() / Expr::from(groups as isize)).simplify();
-
-                        let shape = vec![
-                            Expr::from(groups as isize),      // g
-                            c_per_group.clone(),              // C/g
-                            Expr::from(kernel_size as isize), // k
-                            l_out.simplify(),                 // L'
-                        ];
-
-                        // strides計算:
-                        // グループ: (C/g) * 元のチャネルstride
-                        // チャネル: 元のチャネルstride
-                        // カーネル: dilation * 元のL stride
-                        // 出力位置: stride * 元のL stride
-                        let strides = vec![
-                            (c_per_group * strides[0].clone()).simplify(), // g
-                            strides[0].clone(),                            // C/g
-                            (Expr::from(dilation as isize) * strides[1].clone()).simplify(), // k
-                            (Expr::from(stride as isize) * strides[1].clone()).simplify(), // L'
-                        ];
-                        (shape, strides)
-                    }
-                };
-
-                View::Linear {
-                    shape: new_shape,
-                    strides: new_strides,
-                    offset,
-                }
-            }
-        }
+        self.unfold_nd(&ConvParams::from_1d(kernel_size, stride, dilation, groups))
     }
 
     /// 2D unfold操作
@@ -173,122 +251,7 @@ impl View {
         dilation: (usize, usize),
         groups: usize,
     ) -> Self {
-        match self {
-            View::Linear {
-                shape,
-                strides,
-                offset,
-            } => {
-                assert!(
-                    shape.len() == 2 || shape.len() == 3,
-                    "unfold2d requires 2D (H, W) or 3D (C, H, W) input"
-                );
-                assert!(dilation.0 >= 1 && dilation.1 >= 1, "dilation must be >= 1");
-                assert!(groups >= 1, "groups must be >= 1");
-
-                let ndim = shape.len();
-                let (kh, kw) = kernel_size;
-                let (sh, sw) = stride;
-                let (dh, dw) = dilation;
-
-                // 実効カーネルサイズ
-                let effective_kernel_h = (kh - 1) * dh + 1;
-                let effective_kernel_w = (kw - 1) * dw + 1;
-
-                // 出力サイズ
-                let h_idx = ndim - 2;
-                let w_idx = ndim - 1;
-                let h_out = (shape[h_idx].clone() - Expr::from(effective_kernel_h as isize))
-                    / Expr::from(sh as isize)
-                    + Expr::from(1);
-                let w_out = (shape[w_idx].clone() - Expr::from(effective_kernel_w as isize))
-                    / Expr::from(sw as isize)
-                    + Expr::from(1);
-
-                let (new_shape, new_strides) = if ndim == 2 {
-                    // 2D入力: (H, W) -> (kH, kW, H', W')
-                    assert!(groups == 1, "groups must be 1 for 2D input");
-
-                    let shape = vec![
-                        Expr::from(kh as isize),
-                        Expr::from(kw as isize),
-                        h_out.simplify(),
-                        w_out.simplify(),
-                    ];
-
-                    let strides = vec![
-                        (Expr::from(dh as isize) * strides[0].clone()).simplify(), // kH
-                        (Expr::from(dw as isize) * strides[1].clone()).simplify(), // kW
-                        (Expr::from(sh as isize) * strides[0].clone()).simplify(), // H'
-                        (Expr::from(sw as isize) * strides[1].clone()).simplify(), // W'
-                    ];
-
-                    (shape, strides)
-                } else {
-                    // 3D入力
-                    if groups == 1 {
-                        // groups=1: (C, H, W) -> (C, kH, kW, H', W')
-                        let shape = vec![
-                            shape[0].clone(),
-                            Expr::from(kh as isize),
-                            Expr::from(kw as isize),
-                            h_out.simplify(),
-                            w_out.simplify(),
-                        ];
-
-                        let strides = vec![
-                            strides[0].clone(),                                        // C
-                            (Expr::from(dh as isize) * strides[1].clone()).simplify(), // kH
-                            (Expr::from(dw as isize) * strides[2].clone()).simplify(), // kW
-                            (Expr::from(sh as isize) * strides[1].clone()).simplify(), // H'
-                            (Expr::from(sw as isize) * strides[2].clone()).simplify(), // W'
-                        ];
-
-                        (shape, strides)
-                    } else {
-                        // groups=g: (C, H, W) -> (g, C/g, kH, kW, H', W')
-                        let c_expr = &shape[0];
-
-                        // 定数の場合のみ検証
-                        if let Expr::Const(c) = c_expr {
-                            assert!(
-                                *c % groups as isize == 0,
-                                "Number of channels must be divisible by groups"
-                            );
-                        }
-
-                        let c_per_group =
-                            (shape[0].clone() / Expr::from(groups as isize)).simplify();
-
-                        let shape = vec![
-                            Expr::from(groups as isize),
-                            c_per_group.clone(),
-                            Expr::from(kh as isize),
-                            Expr::from(kw as isize),
-                            h_out.simplify(),
-                            w_out.simplify(),
-                        ];
-
-                        let strides = vec![
-                            (c_per_group * strides[0].clone()).simplify(), // g
-                            strides[0].clone(),                            // C/g
-                            (Expr::from(dh as isize) * strides[1].clone()).simplify(), // kH
-                            (Expr::from(dw as isize) * strides[2].clone()).simplify(), // kW
-                            (Expr::from(sh as isize) * strides[1].clone()).simplify(), // H'
-                            (Expr::from(sw as isize) * strides[2].clone()).simplify(), // W'
-                        ];
-
-                        (shape, strides)
-                    }
-                };
-
-                View::Linear {
-                    shape: new_shape,
-                    strides: new_strides,
-                    offset,
-                }
-            }
-        }
+        self.unfold_nd(&ConvParams::from_2d(kernel_size, stride, dilation, groups))
     }
 
     /// 3D unfold操作
@@ -322,142 +285,7 @@ impl View {
         dilation: (usize, usize, usize),
         groups: usize,
     ) -> Self {
-        match self {
-            View::Linear {
-                shape,
-                strides,
-                offset,
-            } => {
-                assert!(
-                    shape.len() == 3 || shape.len() == 4,
-                    "unfold3d requires 3D (D, H, W) or 4D (C, D, H, W) input"
-                );
-                assert!(
-                    dilation.0 >= 1 && dilation.1 >= 1 && dilation.2 >= 1,
-                    "dilation must be >= 1"
-                );
-                assert!(groups >= 1, "groups must be >= 1");
-
-                let ndim = shape.len();
-                let (kd, kh, kw) = kernel_size;
-                let (sd, sh, sw) = stride;
-                let (dd, dh, dw) = dilation;
-
-                // 実効カーネルサイズ
-                let effective_kernel_d = (kd - 1) * dd + 1;
-                let effective_kernel_h = (kh - 1) * dh + 1;
-                let effective_kernel_w = (kw - 1) * dw + 1;
-
-                // 出力サイズ
-                let d_idx = ndim - 3;
-                let h_idx = ndim - 2;
-                let w_idx = ndim - 1;
-                let d_out = (shape[d_idx].clone() - Expr::from(effective_kernel_d as isize))
-                    / Expr::from(sd as isize)
-                    + Expr::from(1);
-                let h_out = (shape[h_idx].clone() - Expr::from(effective_kernel_h as isize))
-                    / Expr::from(sh as isize)
-                    + Expr::from(1);
-                let w_out = (shape[w_idx].clone() - Expr::from(effective_kernel_w as isize))
-                    / Expr::from(sw as isize)
-                    + Expr::from(1);
-
-                let (new_shape, new_strides) = if ndim == 3 {
-                    // 3D入力: (D, H, W) -> (kD, kH, kW, D', H', W')
-                    assert!(groups == 1, "groups must be 1 for 3D input");
-
-                    let shape = vec![
-                        Expr::from(kd as isize),
-                        Expr::from(kh as isize),
-                        Expr::from(kw as isize),
-                        d_out.simplify(),
-                        h_out.simplify(),
-                        w_out.simplify(),
-                    ];
-
-                    let strides = vec![
-                        (Expr::from(dd as isize) * strides[0].clone()).simplify(), // kD
-                        (Expr::from(dh as isize) * strides[1].clone()).simplify(), // kH
-                        (Expr::from(dw as isize) * strides[2].clone()).simplify(), // kW
-                        (Expr::from(sd as isize) * strides[0].clone()).simplify(), // D'
-                        (Expr::from(sh as isize) * strides[1].clone()).simplify(), // H'
-                        (Expr::from(sw as isize) * strides[2].clone()).simplify(), // W'
-                    ];
-
-                    (shape, strides)
-                } else {
-                    // 4D入力
-                    if groups == 1 {
-                        // groups=1: (C, D, H, W) -> (C, kD, kH, kW, D', H', W')
-                        let shape = vec![
-                            shape[0].clone(),
-                            Expr::from(kd as isize),
-                            Expr::from(kh as isize),
-                            Expr::from(kw as isize),
-                            d_out.simplify(),
-                            h_out.simplify(),
-                            w_out.simplify(),
-                        ];
-
-                        let strides = vec![
-                            strides[0].clone(),                                        // C
-                            (Expr::from(dd as isize) * strides[1].clone()).simplify(), // kD
-                            (Expr::from(dh as isize) * strides[2].clone()).simplify(), // kH
-                            (Expr::from(dw as isize) * strides[3].clone()).simplify(), // kW
-                            (Expr::from(sd as isize) * strides[1].clone()).simplify(), // D'
-                            (Expr::from(sh as isize) * strides[2].clone()).simplify(), // H'
-                            (Expr::from(sw as isize) * strides[3].clone()).simplify(), // W'
-                        ];
-
-                        (shape, strides)
-                    } else {
-                        // groups=g: (C, D, H, W) -> (g, C/g, kD, kH, kW, D', H', W')
-                        let c_expr = &shape[0];
-
-                        // 定数の場合のみ検証
-                        if let Expr::Const(c) = c_expr {
-                            assert!(
-                                *c % groups as isize == 0,
-                                "Number of channels must be divisible by groups"
-                            );
-                        }
-
-                        let c_per_group =
-                            (shape[0].clone() / Expr::from(groups as isize)).simplify();
-
-                        let shape = vec![
-                            Expr::from(groups as isize),
-                            c_per_group.clone(),
-                            Expr::from(kd as isize),
-                            Expr::from(kh as isize),
-                            Expr::from(kw as isize),
-                            d_out.simplify(),
-                            h_out.simplify(),
-                            w_out.simplify(),
-                        ];
-
-                        let strides = vec![
-                            (c_per_group * strides[0].clone()).simplify(), // g
-                            strides[0].clone(),                            // C/g
-                            (Expr::from(dd as isize) * strides[1].clone()).simplify(), // kD
-                            (Expr::from(dh as isize) * strides[2].clone()).simplify(), // kH
-                            (Expr::from(dw as isize) * strides[3].clone()).simplify(), // kW
-                            (Expr::from(sd as isize) * strides[1].clone()).simplify(), // D'
-                            (Expr::from(sh as isize) * strides[2].clone()).simplify(), // H'
-                            (Expr::from(sw as isize) * strides[3].clone()).simplify(), // W'
-                        ];
-
-                        (shape, strides)
-                    }
-                };
-
-                View::Linear {
-                    shape: new_shape,
-                    strides: new_strides,
-                    offset,
-                }
-            }
-        }
+        self.unfold_nd(&ConvParams::from_3d(kernel_size, stride, dilation, groups))
     }
 }
 
@@ -680,7 +508,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "unfold requires 1D (L,) or 2D (C, L) input")]
+    #[should_panic(expected = "unfold1d requires 1D or 2D input, got 3D")]
     fn test_unfold_invalid_ndim() {
         let view = View::contiguous(vec![2, 3, 4]);
         let _ = view.unfold1d(3, 1, 1, 1); // Should panic: 3D入力
