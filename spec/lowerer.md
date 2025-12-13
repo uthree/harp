@@ -1,50 +1,66 @@
 # Lowerer
 
 ## 役割
-計算グラフをASTに変換する層。グラフ最適化（LoweringSuggester）によってKernelノードに変換された計算をASTカーネル関数として出力します。
+計算グラフをASTに変換する層。マルチフェーズ最適化によりグラフを単一のProgramに収束させ、ASTとして出力します。
 
 ## アーキテクチャ
 
-**グラフ最適化は必須**であり、`lower()`関数は自動的にグラフ最適化を実行します。LoweringSuggesterがほとんどのGraphOpを`GraphOp::Kernel`（`AstNode::Function`を保持）に変換するため、Lowererが直接処理するノードは限定されています：
+**グラフ融合によるProgram収束**:
+`lower()`関数はマルチフェーズ最適化を実行し、グラフ全体を単一の`AstNode::Program`に収束させます。
 
-- **Kernel**: LoweringSuggesterで生成（AST関数を展開）
-- **Fold**: LoweringSuggesterでは未対応（直接lowering）
-- **FusedReduce**: タプル出力が必要なため未対応（エラー）
+```
+Graph
+  ↓ Phase 1 (Preparation)
+  │  - ViewInsertionSuggester
+  │  - ViewMergeSuggester
+  │  - TilingSuggester
+  │  - ContiguousInsertionSuggester
+  │  - FusionSuggester
+  ↓ Phase 2 (Lowering)
+  │  - LoweringSuggester: GraphOp → Kernel(Function)
+  │  - ViewMergeSuggester: ViewをKernelに吸収
+  │  - BufferAbsorptionSuggester: 入力Buffer取り込み
+  │  - ProgramRootAbsorptionSuggester: Kernel → ProgramRoot
+  │  - ProgramRootBufferAbsorptionSuggester: 入力Buffer除去
+  │  - KernelMergeSuggester: 複数Kernelをマージ
+  ↓
+AstNode::Program (単一ノードに収束)
+```
 
-## Lowering手順
-1. **グラフ最適化**: LoweringSuggesterでGraphOpをKernelノードに変換
-2. **トポロジカルソート**: Kahnのアルゴリズムで世代別にグループ化
-3. **バッファーマッピング**: 各ノードの出力バッファー名を決定
-4. **カーネル生成**: 各Kernelノードのfunction部分をカーネル関数として出力
-5. **main関数生成**: 中間バッファーの確保・解放、カーネルの順次呼び出し
+## 処理フロー
 
-## バッファー命名
-- グラフ入力ノード → `input0`, `input1`, ...
-- 中間ノード → `tmp0`, `tmp1`, ...
-- グラフ出力ノード → `output`
-
-## 変数命名法則
-- `ridx{n}`: 入力軸インデックス
-- `oidx{n}`: 出力軸インデックス（Reduce用）
-- `alu{n}`: 一時スカラー変数
-- `acc{n}`: アキュムレータ（reduce/cumulative用）
+1. **グラフ最適化**: マルチフェーズ最適化で単一Programに収束
+2. **Program取得**: `ProgramRoot`ノードまたは`Kernel(Program)`ノードからProgramを取得
+3. **エラーハンドリング**: 収束しなかった場合はパニック（未対応ノードタイプの可能性）
 
 ## ファイル構成
-- `mod.rs`: コア構造、トポロジカルソート、グラフ最適化呼び出し
-- `custom.rs`: Kernelノード（Custom AST）のlowering
-- `fold.rs`: Fold演算のlowering
-- `utils.rs`: ユーティリティ関数（オフセット計算、型変換、シグネチャ生成）
+- `mod.rs`: `lower()`関数（マルチフェーズ最適化実行、Program取得）
+- `utils.rs`: ユーティリティ関数（シグネチャ生成）
+
+## Lowerer構造体
+
+`Lowerer`構造体は`create_signature()`メソッドのみを提供します：
+- `Lowerer::create_signature(graph)`: グラフから`KernelSignature`を生成
+
+## 設計上の決定
+
+### グラフ融合への一本化
+以前はトポロジカルソートによる世代別分割をフォールバックとして持っていましたが、現在はマルチフェーズ最適化による単一Program収束に一本化されています。
+
+**理由**:
+- 世代別分割はコードの複雑さを増す
+- マルチフェーズ最適化は単一ノードに収束するまで繰り返すため、フォールバックは不要
+- 並列実行はAST内部のBarrierで表現可能
+
+### 空のProgramの許可
+入力をそのまま出力するだけのグラフ（計算なし）では、`Program`のfunctionsリストが空になります。これは正常な状態として許可されています。
 
 ## 実装状況
 
 ### 実装済み
-- グラフ最適化の自動実行（LoweringSuggesterによるKernelノード変換）
-- Kernelノードのlowering（AST関数の展開）
-- Fold演算のlowering
-- 中間バッファー管理（main関数でのtmp{n}の自動確保・解放）
-- トポロジカルソート（Kahn）
+- マルチフェーズ最適化による単一Program収束
+- ProgramRoot/Kernel(Program)からのProgram取得
 - 動的shape対応のシグネチャ生成
 
 ### 未実装
 - FusedReduce演算（タプル出力が必要）
-- SIMD化のコード生成

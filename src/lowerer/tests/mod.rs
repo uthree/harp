@@ -1,4 +1,6 @@
-// グラフ最適化が必須になったため、lowerer固有のテストは削除
-// LoweringSuggesterのテストは opt/graph/suggesters/lowering.rs にあります
+//! Lowererテスト
+//!
+//! グラフ最適化によるloweringはopt/graph/suggesters/以下でテストされています。
+//! ここではシグネチャ生成のテストのみを行います。
+
 mod signature_tests; // シグネチャ生成テスト（Lowerer::create_signature）
-mod topological_tests; // トポロジカルソート＆コード生成テスト
