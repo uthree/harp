@@ -98,7 +98,20 @@ where
     /// カスタム選択器を設定
     ///
     /// デフォルトの`StaticCostSelector`の代わりに、
-    /// `TwoStageSelector`などのカスタム選択器を使用できます。
+    /// `MultiStageSelector`などのカスタム選択器を使用できます。
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use harp::opt::{MultiStageSelector, BeamSearchOptimizer};
+    ///
+    /// let selector = MultiStageSelector::new()
+    ///     .then(|ast| node_count(ast) as f32, 100)
+    ///     .then(|ast| measure_cost(ast), 10);
+    ///
+    /// let optimizer = BeamSearchOptimizer::new(suggester, estimator)
+    ///     .with_selector(selector);
+    /// ```
     pub fn with_selector<NewSel>(self, selector: NewSel) -> BeamSearchOptimizer<S, E, NewSel>
     where
         NewSel: Selector<AstNode>,

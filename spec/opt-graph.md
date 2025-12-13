@@ -118,16 +118,17 @@ AST最適化（ループ変換、代数的簡約など）はLowering完了後に
 
 ### 設計意図
 
-tinygradのような二段階評価を実現するための抽象化：
+tinygradのような多段階評価を実現するための抽象化：
 1. 静的評価で明らかに悪い候補を足切り
-2. 実行時間の実測値で精密に評価
+2. 中間的なヒューリスティクスで絞り込み
+3. 実行時間の実測値で精密に評価
 
 ### 実装
 
 | 選択器 | 説明 |
 |--------|------|
 | StaticCostSelector | コストでソートして上位n件を選択（デフォルト） |
-| TwoStageSelector | 静的コストで足切り後、カスタム評価関数で再評価 |
+| MultiStageSelector | メソッドチェーンでn段階の選択パイプラインを構築 |
 
 ### 使用例
 
@@ -135,12 +136,14 @@ tinygradのような二段階評価を実現するための抽象化：
 // デフォルト（静的コスト選択）
 let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator);
 
-// 二段階選択
-let selector = TwoStageSelector::new(20, |candidate| {
-    measure_runtime(candidate)
-});
+// 多段階選択（dagoptスタイル）
+let selector = MultiStageSelector::new()
+    .then(|c| static_cost(c), 1000)   // 静的コストで1000件に足切り
+    .then(|c| memory_cost(c), 100)    // メモリコストで100件に絞り込み
+    .then(|c| measure_runtime(c), 10); // 実測で10件を最終選択
+
 let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
     .with_selector(selector);
 ```
 
-詳細は`src/opt/selector.rs`を参照。
+詳細は`src/opt/selector.rs`を参照。設計は[dagopt](https://github.com/uthree/dagopt)を参考にしている。
