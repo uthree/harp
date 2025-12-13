@@ -49,6 +49,11 @@ impl Kernel for TestKernel {
     fn signature(&self) -> KernelSignature {
         self.signature.clone()
     }
+
+    unsafe fn execute(&self, _buffers: &mut [&mut Self::Buffer]) -> Result<(), String> {
+        // テスト用のダミー実装
+        Ok(())
+    }
 }
 
 struct TestRenderer;

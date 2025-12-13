@@ -58,11 +58,10 @@ fn main() {
     use harp::opt::ast::rules::mul_commutative;
     rules.push(mul_commutative());
 
-    // ビームサーチ最適化器を作成
+    // ビームサーチ最適化器を作成（SelectorがCostEstimatorを内包）
     let suggester = RuleBaseSuggester::new(rules);
-    let estimator = SimpleCostEstimator::new();
 
-    let optimizer = BeamSearchOptimizer::new(suggester, estimator)
+    let optimizer = BeamSearchOptimizer::new(suggester)
         .with_beam_width(20) // ビーム幅
         .with_max_steps(20) // 探索深さ（デバッグビルドでは各ステップ200ms待機するため約4秒）
         .with_progress(true); // プログレスバーを表示

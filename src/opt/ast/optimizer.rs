@@ -48,17 +48,15 @@ impl Optimizer for RuleBaseOptimizer {
 ///
 /// # 候補選択
 ///
-/// `Selector`により候補選択処理を抽象化しています。
-/// デフォルトは`StaticCostSelector`（静的コストでソートして上位n件を選択）。
-/// `with_selector()`で二段階選択などのカスタム選択器を設定可能。
-pub struct BeamSearchOptimizer<S, E, Sel = StaticCostSelector>
+/// `Selector`により候補選択・コスト評価を行います。
+/// デフォルトは`StaticCostSelector`（SimpleCostEstimatorでコスト計算、上位n件を選択）。
+/// `RuntimeSelector`を使用すると、静的コストで足切り後に実行時間を計測して選択します。
+pub struct BeamSearchOptimizer<S, Sel = StaticCostSelector>
 where
     S: Suggester,
-    E: CostEstimator,
     Sel: Selector<AstNode>,
 {
     suggester: S,
-    estimator: E,
     selector: Sel,
     beam_width: usize,
     max_steps: usize,
@@ -67,18 +65,17 @@ where
     max_node_count: Option<usize>,
 }
 
-impl<S, E> BeamSearchOptimizer<S, E, StaticCostSelector>
+impl<S> BeamSearchOptimizer<S, StaticCostSelector>
 where
     S: Suggester,
-    E: CostEstimator,
 {
     /// 新しいビームサーチ最適化器を作成
     ///
     /// デフォルトでは`StaticCostSelector`を使用します。
-    pub fn new(suggester: S, estimator: E) -> Self {
+    /// コスト評価はSelector自身が行います。
+    pub fn new(suggester: S) -> Self {
         Self {
             suggester,
-            estimator,
             selector: StaticCostSelector::new(),
             beam_width: 10,
             max_steps: 10000,
@@ -89,36 +86,33 @@ where
     }
 }
 
-impl<S, E, Sel> BeamSearchOptimizer<S, E, Sel>
+impl<S, Sel> BeamSearchOptimizer<S, Sel>
 where
     S: Suggester,
-    E: CostEstimator,
     Sel: Selector<AstNode>,
 {
     /// カスタム選択器を設定
     ///
     /// デフォルトの`StaticCostSelector`の代わりに、
-    /// `MultiStageSelector`などのカスタム選択器を使用できます。
+    /// `RuntimeSelector`などのカスタム選択器を使用できます。
     ///
     /// # Example
     ///
     /// ```ignore
-    /// use harp::opt::{MultiStageSelector, BeamSearchOptimizer};
+    /// use harp::opt::{RuntimeSelector, BeamSearchOptimizer};
     ///
-    /// let selector = MultiStageSelector::new()
-    ///     .then(|ast| node_count(ast) as f32, 100)
-    ///     .then(|ast| measure_cost(ast), 10);
+    /// let selector = RuntimeSelector::new(renderer, compiler, signature, buffer_factory)
+    ///     .with_pre_filter_count(10);
     ///
-    /// let optimizer = BeamSearchOptimizer::new(suggester, estimator)
+    /// let optimizer = BeamSearchOptimizer::new(suggester)
     ///     .with_selector(selector);
     /// ```
-    pub fn with_selector<NewSel>(self, selector: NewSel) -> BeamSearchOptimizer<S, E, NewSel>
+    pub fn with_selector<NewSel>(self, selector: NewSel) -> BeamSearchOptimizer<S, NewSel>
     where
         NewSel: Selector<AstNode>,
     {
         BeamSearchOptimizer {
             suggester: self.suggester,
-            estimator: self.estimator,
             selector,
             beam_width: self.beam_width,
             max_steps: self.max_steps,
@@ -166,16 +160,20 @@ where
     }
 }
 
-impl<S, E, Sel> BeamSearchOptimizer<S, E, Sel>
+impl<S, Sel> BeamSearchOptimizer<S, Sel>
 where
     S: Suggester,
-    E: CostEstimator,
     Sel: Selector<AstNode>,
 {
     /// 履歴を記録しながら最適化を実行
+    ///
+    /// コスト評価はSelectorが行います。履歴記録用のコストはSelectorから返される値を使用します。
     pub fn optimize_with_history(&self, ast: AstNode) -> (AstNode, OptimizationHistory) {
         use crate::opt::ast::estimator::SimpleCostEstimator;
         use crate::opt::log_capture;
+
+        // 履歴記録用の静的コスト推定器
+        let static_estimator = SimpleCostEstimator::new();
 
         // 時間計測を開始
         let start_time = Instant::now();
@@ -193,8 +191,8 @@ where
         let mut history = OptimizationHistory::new();
         let mut beam = vec![ast.clone()];
 
-        // 初期状態を記録
-        let initial_cost = self.estimator.estimate(&ast);
+        // 初期状態を記録（静的コストを使用）
+        let initial_cost = static_estimator.estimate(&ast);
         info!("Initial AST cost: {:.2e}", initial_cost);
         let initial_logs = if self.collect_logs {
             log_capture::get_captured_logs()
@@ -204,6 +202,7 @@ where
 
         // これまでで最良の候補を保持（astを移動する前に初期化）
         let mut global_best = ast.clone();
+        let mut global_best_cost = initial_cost;
 
         history.add_snapshot(OptimizationSnapshot::with_candidates(
             0,
@@ -296,11 +295,11 @@ where
             let num_candidates = candidates.len();
             trace!("Found {} candidates at step {}", num_candidates, step);
 
-            // 候補をコスト付きで準備してSelectorで選択
+            // 候補にコストを付与
             let candidates_with_cost: Vec<(AstNode, f32)> = candidates
                 .into_iter()
                 .map(|ast| {
-                    let cost = self.estimator.estimate(&ast);
+                    let cost = static_estimator.estimate(&ast);
                     (ast, cost)
                 })
                 .collect();
@@ -308,14 +307,12 @@ where
             // Selectorで上位beam_width個を選択
             let selected = self.selector.select(candidates_with_cost, self.beam_width);
 
-            beam = selected.into_iter().map(|(ast, _cost)| ast).collect();
+            beam = selected.iter().map(|(ast, _)| ast.clone()).collect();
 
             // このステップの最良候補を記録
-            if let Some(best) = beam.first() {
-                let cost = self.estimator.estimate(best);
-
+            if let Some((best, cost)) = selected.first() {
                 // コストが改善されない場合はカウンターを増やす
-                if cost >= best_cost {
+                if *cost >= best_cost {
                     no_improvement_count += 1;
                     debug!(
                         "Step {}: no improvement (current={:.2e}, best={:.2e}, {}/{})",
@@ -346,8 +343,9 @@ where
                         "Step {}: cost improved {:.2e} -> {:.2e} ({:+.1}%)",
                         step, best_cost, cost, -improvement_pct
                     );
-                    best_cost = cost;
+                    best_cost = *cost;
                     global_best = best.clone();
+                    global_best_cost = *cost;
                 }
 
                 let step_logs = if self.collect_logs {
@@ -358,7 +356,7 @@ where
                 history.add_snapshot(OptimizationSnapshot::with_candidates(
                     step + 1,
                     best.clone(),
-                    cost,
+                    *cost,
                     format!(
                         "Step {}: {} candidates, beam width {}",
                         step + 1,
@@ -405,9 +403,8 @@ where
             }
         }
 
-        let final_cost = self.estimator.estimate(&global_best);
         let improvement_pct = if initial_cost > 0.0 {
-            (initial_cost - final_cost) / initial_cost * 100.0
+            (initial_cost - global_best_cost) / initial_cost * 100.0
         } else {
             0.0
         };
@@ -415,7 +412,7 @@ where
             "AST optimization complete: {} steps, cost {:.2e} -> {:.2e} ({:+.1}%)",
             actual_steps + 1,
             initial_cost,
-            final_cost,
+            global_best_cost,
             -improvement_pct
         );
 
@@ -424,10 +421,9 @@ where
     }
 }
 
-impl<S, E, Sel> Optimizer for BeamSearchOptimizer<S, E, Sel>
+impl<S, Sel> Optimizer for BeamSearchOptimizer<S, Sel>
 where
     S: Suggester,
-    E: CostEstimator,
     Sel: Selector<AstNode>,
 {
     fn optimize(&self, ast: AstNode) -> AstNode {
@@ -441,7 +437,6 @@ mod tests {
     use super::*;
     use crate::ast::Literal;
     use crate::astpat;
-    use crate::opt::ast::estimator::SimpleCostEstimator;
     use crate::opt::ast::suggesters::RuleBaseSuggester;
 
     #[test]
@@ -480,9 +475,8 @@ mod tests {
         });
 
         let suggester = RuleBaseSuggester::new(vec![rule1, rule2]);
-        let estimator = SimpleCostEstimator::new();
 
-        let optimizer = BeamSearchOptimizer::new(suggester, estimator)
+        let optimizer = BeamSearchOptimizer::new(suggester)
             .with_beam_width(5)
             .with_max_steps(5)
             .with_progress(false); // テスト中はプログレスバーを非表示
@@ -506,9 +500,8 @@ mod tests {
         rules.push(add_commutative());
 
         let suggester = RuleBaseSuggester::new(rules);
-        let estimator = SimpleCostEstimator::new();
 
-        let optimizer = BeamSearchOptimizer::new(suggester, estimator)
+        let optimizer = BeamSearchOptimizer::new(suggester)
             .with_beam_width(10)
             .with_max_steps(10)
             .with_progress(false);
@@ -540,9 +533,8 @@ mod tests {
         });
 
         let suggester = RuleBaseSuggester::new(vec![rule]);
-        let estimator = SimpleCostEstimator::new();
 
-        let optimizer = BeamSearchOptimizer::new(suggester, estimator)
+        let optimizer = BeamSearchOptimizer::new(suggester)
             .with_beam_width(5)
             .with_max_steps(5)
             .with_progress(false);
@@ -560,9 +552,8 @@ mod tests {
         use crate::opt::ast::rules::all_algebraic_rules;
 
         let suggester = RuleBaseSuggester::new(all_algebraic_rules());
-        let estimator = SimpleCostEstimator::new();
 
-        let optimizer = BeamSearchOptimizer::new(suggester, estimator)
+        let optimizer = BeamSearchOptimizer::new(suggester)
             .with_beam_width(10)
             .with_max_steps(10)
             .with_progress(false);
@@ -583,10 +574,9 @@ mod tests {
         rules.push(add_commutative());
 
         let suggester = RuleBaseSuggester::new(rules);
-        let estimator = SimpleCostEstimator::new();
 
         // ビーム幅1（貪欲法）
-        let optimizer = BeamSearchOptimizer::new(suggester, estimator)
+        let optimizer = BeamSearchOptimizer::new(suggester)
             .with_beam_width(1)
             .with_max_steps(10)
             .with_progress(false);
@@ -606,10 +596,9 @@ mod tests {
         use crate::opt::ast::rules::all_algebraic_rules;
 
         let suggester = RuleBaseSuggester::new(all_algebraic_rules());
-        let estimator = SimpleCostEstimator::new();
 
         // 最大ステップ数0（最適化しない）
-        let optimizer = BeamSearchOptimizer::new(suggester, estimator)
+        let optimizer = BeamSearchOptimizer::new(suggester)
             .with_beam_width(10)
             .with_max_steps(0)
             .with_progress(false);
@@ -634,9 +623,8 @@ mod tests {
         });
 
         let suggester = RuleBaseSuggester::new(vec![rule]);
-        let estimator = SimpleCostEstimator::new();
 
-        let optimizer = BeamSearchOptimizer::new(suggester, estimator)
+        let optimizer = BeamSearchOptimizer::new(suggester)
             .with_beam_width(5)
             .with_max_steps(10) // 最大ステップ数は10だが早期終了するはず
             .with_progress(false);
@@ -658,10 +646,9 @@ mod tests {
         rules.push(add_commutative());
 
         let suggester = RuleBaseSuggester::new(rules);
-        let estimator = SimpleCostEstimator::new();
 
         // 非常に大きなビーム幅
-        let optimizer = BeamSearchOptimizer::new(suggester, estimator)
+        let optimizer = BeamSearchOptimizer::new(suggester)
             .with_beam_width(1000)
             .with_max_steps(5)
             .with_progress(false);

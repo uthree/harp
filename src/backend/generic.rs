@@ -7,7 +7,7 @@ use crate::opt::ast::{
     BeamSearchOptimizer as AstBeamSearchOptimizer, CompositeSuggester as AstCompositeSuggester,
     FunctionInliningSuggester, LoopFusionSuggester, LoopInliningSuggester,
     LoopInterchangeSuggester, LoopTilingSuggester, OptimizationHistory as AstOptimizationHistory,
-    RuleBaseSuggester, SimpleCostEstimator as AstSimpleCostEstimator,
+    RuleBaseSuggester,
 };
 use crate::opt::graph::{
     BeamSearchGraphOptimizer, BufferAbsorptionSuggester, CompositeSuggester,
@@ -753,15 +753,11 @@ where
     }
 
     /// AST最適化用のOptimizerを作成・設定
-    fn create_ast_optimizer<E>(
+    fn create_ast_optimizer(
         &self,
         suggester: AstCompositeSuggester,
-        estimator: E,
-    ) -> AstBeamSearchOptimizer<AstCompositeSuggester, E>
-    where
-        E: crate::opt::ast::CostEstimator,
-    {
-        AstBeamSearchOptimizer::new(suggester, estimator)
+    ) -> AstBeamSearchOptimizer<AstCompositeSuggester> {
+        AstBeamSearchOptimizer::new(suggester)
             .with_beam_width(self.ast_config.beam_width)
             .with_max_steps(self.ast_config.max_steps)
             .with_progress(self.ast_config.show_progress)
@@ -817,8 +813,7 @@ where
     /// 代数的簡約などのルールベース最適化も統合的に探索されます。
     fn optimize_ast_internal(&mut self, program: AstNode) -> (AstNode, AstOptimizationHistory) {
         let suggester = Self::create_ast_suggester();
-        let estimator = AstSimpleCostEstimator::new();
-        let optimizer = self.create_ast_optimizer(suggester, estimator);
+        let optimizer = self.create_ast_optimizer(suggester);
 
         let (optimized, history) = optimizer.optimize_with_history(program);
         if self.collect_histories {
@@ -879,8 +874,7 @@ where
         }
 
         let suggester = Self::create_ast_suggester();
-        let estimator = AstSimpleCostEstimator::new();
-        let optimizer = self.create_ast_optimizer(suggester, estimator);
+        let optimizer = self.create_ast_optimizer(suggester);
 
         let (program, _history) = optimizer.optimize_with_history(program);
 

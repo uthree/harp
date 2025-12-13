@@ -539,8 +539,7 @@ mod tests {
     fn test_float_constant_folding_in_store() {
         use crate::ast::{DType, Literal};
         use crate::opt::ast::{
-            BeamSearchOptimizer, CompositeSuggester, RuleBaseSuggester, SimpleCostEstimator,
-            Suggester,
+            BeamSearchOptimizer, CompositeSuggester, RuleBaseSuggester, Suggester,
         };
 
         // Store内の定数畳み込み: Store(ptr, offset, ((Load + 3.0) + 5.0) + 8.0)
@@ -570,11 +569,10 @@ mod tests {
             println!("Suggestion {}: {:?}", i, s);
         }
 
-        // BeamSearchでの最適化
+        // BeamSearchでの最適化（SelectorがCostEstimatorを内包）
         let composite_suggester =
             CompositeSuggester::new(vec![Box::new(RuleBaseSuggester::new(rules))]);
-        let estimator = SimpleCostEstimator::new();
-        let optimizer = BeamSearchOptimizer::new(composite_suggester, estimator)
+        let optimizer = BeamSearchOptimizer::new(composite_suggester)
             .with_beam_width(4)
             .with_max_steps(100)
             .with_progress(false);
@@ -606,6 +604,7 @@ mod tests {
             BeamSearchOptimizer, CompositeSuggester, CostEstimator, RuleBaseSuggester,
             SimpleCostEstimator,
         };
+        // CostEstimator is used for cost comparison only
 
         // Program内のKernelにある定数畳み込み
         let load_expr = AstNode::Load {
@@ -672,11 +671,11 @@ mod tests {
         let estimator = SimpleCostEstimator::new();
         let initial_cost = estimator.estimate(&program);
 
-        // BeamSearchでの最適化
+        // BeamSearchでの最適化（SelectorがCostEstimatorを内包）
         let rules = all_rules_with_search();
         let composite_suggester =
             CompositeSuggester::new(vec![Box::new(RuleBaseSuggester::new(rules))]);
-        let optimizer = BeamSearchOptimizer::new(composite_suggester, SimpleCostEstimator::new())
+        let optimizer = BeamSearchOptimizer::new(composite_suggester)
             .with_beam_width(10)
             .with_max_steps(50)
             .with_progress(false);
@@ -706,8 +705,7 @@ mod tests {
     fn test_float_constant_folding_with_associativity() {
         use crate::ast::Literal;
         use crate::opt::ast::{
-            BeamSearchOptimizer, CompositeSuggester, RuleBaseSuggester, SimpleCostEstimator,
-            Suggester,
+            BeamSearchOptimizer, CompositeSuggester, RuleBaseSuggester, Suggester,
         };
 
         // ((a + 3.0) + 5.0) + 8.0 → a + 16.0 になることを期待
@@ -725,11 +723,10 @@ mod tests {
             println!("Suggestion {}: {:?}", i, s);
         }
 
-        // BeamSearchでの最適化
+        // BeamSearchでの最適化（SelectorがCostEstimatorを内包）
         let composite_suggester =
             CompositeSuggester::new(vec![Box::new(RuleBaseSuggester::new(rules))]);
-        let estimator = SimpleCostEstimator::new();
-        let optimizer = BeamSearchOptimizer::new(composite_suggester, estimator)
+        let optimizer = BeamSearchOptimizer::new(composite_suggester)
             .with_beam_width(4)
             .with_max_steps(100);
 

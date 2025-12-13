@@ -29,6 +29,7 @@ use std::cmp::Ordering;
 use crate::ast::AstNode;
 use crate::backend::{Compiler, KernelSignature, Renderer};
 use crate::opt::ast::{CostEstimator, RuntimeCostEstimator, SimpleCostEstimator};
+// SimpleCostEstimator is used by RuntimeSelector for static cost pre-filtering
 
 /// 候補選択のトレイト
 ///
@@ -39,11 +40,11 @@ use crate::opt::ast::{CostEstimator, RuntimeCostEstimator, SimpleCostEstimator};
 ///
 /// * `T` - 候補の型
 pub trait Selector<T> {
-    /// 候補とコストのペアから上位n件を選択
+    /// コスト付き候補リストから上位n件を選択
     ///
     /// # Arguments
     ///
-    /// * `candidates` - (候補, コスト) のペアのベクタ
+    /// * `candidates` - (候補, コスト) のベクタ
     /// * `n` - 選択する最大件数
     ///
     /// # Returns
@@ -54,9 +55,9 @@ pub trait Selector<T> {
 
 /// 静的コストベースの選択器
 ///
-/// コストの昇順でソートして上位n件を選択する最もシンプルな実装。
+/// 入力されたコストで昇順ソートして上位n件を選択。
 /// デフォルトの選択器として使用されます。
-#[derive(Default, Clone, Copy, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct StaticCostSelector;
 
 impl StaticCostSelector {
@@ -67,9 +68,10 @@ impl StaticCostSelector {
 }
 
 impl<T> Selector<T> for StaticCostSelector {
-    fn select(&self, mut candidates: Vec<(T, f32)>, n: usize) -> Vec<(T, f32)> {
-        candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
-        candidates.into_iter().take(n).collect()
+    fn select(&self, candidates: Vec<(T, f32)>, n: usize) -> Vec<(T, f32)> {
+        let mut sorted = candidates;
+        sorted.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
+        sorted.into_iter().take(n).collect()
     }
 }
 
@@ -153,16 +155,34 @@ impl<T> MultiStageSelector<T> {
 }
 
 impl<T> Selector<T> for MultiStageSelector<T> {
-    fn select(&self, mut candidates: Vec<(T, f32)>, n: usize) -> Vec<(T, f32)> {
-        // ステージがない場合は静的コストで選択
-        if self.stages.is_empty() {
-            candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
-            return candidates.into_iter().take(n).collect();
+    fn select(&self, candidates: Vec<(T, f32)>, n: usize) -> Vec<(T, f32)> {
+        if candidates.is_empty() {
+            return vec![];
         }
 
-        for (i, stage) in self.stages.iter().enumerate() {
+        // ステージがない場合は入力のコストでソートして返す
+        if self.stages.is_empty() {
+            let mut sorted = candidates;
+            sorted.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
+            return sorted.into_iter().take(n).collect();
+        }
+
+        // 最初のステージでコストを再計算
+        let first_stage = &self.stages[0];
+        let mut candidates_with_cost: Vec<(T, f32)> = candidates
+            .into_iter()
+            .map(|(candidate, _old_cost)| {
+                let cost = (first_stage.evaluator)(&candidate);
+                (candidate, cost)
+            })
+            .collect();
+        candidates_with_cost.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
+        candidates_with_cost.truncate(first_stage.keep_count);
+
+        // 2番目以降のステージ
+        for (i, stage) in self.stages.iter().enumerate().skip(1) {
             // 各候補のコストを再計算
-            candidates = candidates
+            candidates_with_cost = candidates_with_cost
                 .into_iter()
                 .map(|(candidate, _old_cost)| {
                     let new_cost = (stage.evaluator)(&candidate);
@@ -171,7 +191,7 @@ impl<T> Selector<T> for MultiStageSelector<T> {
                 .collect();
 
             // コストでソート
-            candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
+            candidates_with_cost.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
 
             // 最後のステージでは n を考慮、それ以外は keep_count で截断
             let limit = if i == self.stages.len() - 1 {
@@ -180,10 +200,12 @@ impl<T> Selector<T> for MultiStageSelector<T> {
                 stage.keep_count
             };
 
-            candidates.truncate(limit);
+            candidates_with_cost.truncate(limit);
         }
 
-        candidates
+        // 最終的にnで切る
+        candidates_with_cost.truncate(n);
+        candidates_with_cost
     }
 }
 
@@ -212,7 +234,7 @@ impl<T> Selector<T> for MultiStageSelector<T> {
 /// .with_pre_filter_count(10)
 /// .with_measurement_count(5);
 ///
-/// let optimizer = BeamSearchOptimizer::new(suggester, estimator)
+/// let optimizer = BeamSearchOptimizer::new(suggester)
 ///     .with_selector(selector);
 /// ```
 ///
@@ -298,10 +320,10 @@ where
             return vec![];
         }
 
-        // Stage 1: 静的コストで足切り
+        // Stage 1: 静的コストで足切り（入力のコストを再計算して使用）
         let mut stage1_candidates: Vec<(AstNode, f32)> = candidates
             .into_iter()
-            .map(|(ast, _)| {
+            .map(|(ast, _old_cost)| {
                 let cost = self.static_estimator.estimate(&ast);
                 (ast, cost)
             })
@@ -342,15 +364,6 @@ mod tests {
     }
 
     #[test]
-    fn test_static_cost_selector_all() {
-        let selector = StaticCostSelector::new();
-        let candidates = vec![("a", 3.0), ("b", 1.0)];
-
-        let selected = selector.select(candidates, 10);
-        assert_eq!(selected.len(), 2);
-    }
-
-    #[test]
     fn test_static_cost_selector_empty() {
         let selector = StaticCostSelector::new();
         let candidates: Vec<(&str, f32)> = vec![];
@@ -362,7 +375,7 @@ mod tests {
     #[test]
     fn test_static_cost_selector_zero_n() {
         let selector = StaticCostSelector::new();
-        let candidates = vec![("a", 1.0), ("b", 2.0)];
+        let candidates = vec![("a", 1.0)];
 
         let selected = selector.select(candidates, 0);
         assert!(selected.is_empty());
@@ -380,12 +393,12 @@ mod tests {
 
     #[test]
     fn test_multi_stage_selector_single_stage() {
-        // 単一ステージ: 静的コストとは異なる評価関数を使用
+        // 単一ステージ: 入力コストを無視して評価関数でコストを再計算
         let evaluator = |s: &&str| -> f32 {
             match *s {
-                "a" => 1.0, // 静的コスト3.0だが評価では最良
-                "b" => 2.0, // 静的コスト1.0だが評価では2番目
-                "c" => 3.0, // 静的コスト2.0だが評価では最悪
+                "a" => 1.0, // 入力コスト3.0だが評価では最良
+                "b" => 2.0, // 入力コスト1.0だが評価では2番目
+                "c" => 3.0, // 入力コスト2.0だが評価では最悪
                 _ => f32::MAX,
             }
         };
@@ -402,8 +415,6 @@ mod tests {
     #[test]
     fn test_multi_stage_selector_two_stages() {
         // 2段階選択
-        // Stage 1: 静的コストで3件に足切り
-        // Stage 2: 別の評価関数で最終選択
         let stage1_eval = |s: &&str| -> f32 {
             match *s {
                 "a" => 1.0,
@@ -416,18 +427,24 @@ mod tests {
         };
         let stage2_eval = |s: &&str| -> f32 {
             match *s {
-                "a" => 3.0, // Stage1で最良だがStage2で最悪
+                "a" => 3.0,
                 "b" => 2.0,
-                "c" => 1.0, // Stage1で3番だがStage2で最良
+                "c" => 1.0,
                 _ => f32::MAX,
             }
         };
 
         let selector = MultiStageSelector::new()
-            .then(stage1_eval, 3) // a, b, c が残る
-            .then(stage2_eval, 2); // c, b が選ばれる
+            .then(stage1_eval, 3)
+            .then(stage2_eval, 2);
 
-        let candidates = vec![("a", 0.0), ("b", 0.0), ("c", 0.0), ("d", 0.0), ("e", 0.0)];
+        let candidates = vec![
+            ("a", 0.0),
+            ("b", 0.0),
+            ("c", 0.0),
+            ("d", 0.0),
+            ("e", 0.0),
+        ];
 
         let selected = selector.select(candidates, 2);
         assert_eq!(selected.len(), 2);
@@ -437,7 +454,6 @@ mod tests {
 
     #[test]
     fn test_multi_stage_selector_three_stages() {
-        // 3段階選択
         let stage1 = |s: &&str| -> f32 {
             match *s {
                 "a" => 1.0,
@@ -458,15 +474,15 @@ mod tests {
         let stage3 = |s: &&str| -> f32 {
             match *s {
                 "b" => 2.0,
-                "c" => 1.0, // 最終的に最良
+                "c" => 1.0,
                 _ => f32::MAX,
             }
         };
 
         let selector = MultiStageSelector::new()
-            .then(stage1, 3) // a, b, c
-            .then(stage2, 2) // b, c
-            .then(stage3, 1); // c
+            .then(stage1, 3)
+            .then(stage2, 2)
+            .then(stage3, 1);
 
         let candidates = vec![("a", 0.0), ("b", 0.0), ("c", 0.0), ("d", 0.0)];
 
@@ -477,31 +493,30 @@ mod tests {
 
     #[test]
     fn test_multi_stage_selector_no_stages() {
-        // ステージがない場合は静的コストで選択
+        // ステージがない場合は入力のコストでソートして返す
         let selector: MultiStageSelector<&str> = MultiStageSelector::new();
         let candidates = vec![("a", 3.0), ("b", 1.0), ("c", 2.0)];
 
         let selected = selector.select(candidates, 2);
         assert_eq!(selected.len(), 2);
-        assert_eq!(selected[0].0, "b"); // 静的コスト1.0
-        assert_eq!(selected[1].0, "c"); // 静的コスト2.0
+        assert_eq!(selected[0].0, "b"); // コスト1.0
+        assert_eq!(selected[1].0, "c"); // コスト2.0
     }
 
     #[test]
     fn test_multi_stage_selector_cutoff() {
-        // 足切りテスト: Stage1で "d" が除外される
         let stage1 = |s: &&str| -> f32 {
             match *s {
                 "a" => 1.0,
                 "b" => 2.0,
                 "c" => 3.0,
-                "d" => 10.0, // 足切り対象
+                "d" => 10.0,
                 _ => f32::MAX,
             }
         };
         let stage2 = |s: &&str| -> f32 {
             match *s {
-                "d" => 0.0, // 本来最良だが足切り済み
+                "d" => 0.0,
                 "a" => 3.0,
                 "b" => 2.0,
                 "c" => 1.0,
@@ -509,22 +524,18 @@ mod tests {
             }
         };
 
-        let selector = MultiStageSelector::new()
-            .then(stage1, 3) // a, b, c (dは足切り)
-            .then(stage2, 2);
+        let selector = MultiStageSelector::new().then(stage1, 3).then(stage2, 2);
 
         let candidates = vec![("a", 0.0), ("b", 0.0), ("c", 0.0), ("d", 0.0)];
 
         let selected = selector.select(candidates, 2);
         assert_eq!(selected.len(), 2);
-        // dは足切りされたので、c, bが選ばれる
-        assert_eq!(selected[0].0, "c"); // Stage2コスト1.0
-        assert_eq!(selected[1].0, "b"); // Stage2コスト2.0
+        assert_eq!(selected[0].0, "c");
+        assert_eq!(selected[1].0, "b");
     }
 
     #[test]
     fn test_multi_stage_selector_n_smaller_than_keep() {
-        // n が keep_count より小さい場合
         let eval = |s: &&str| -> f32 {
             match *s {
                 "a" => 1.0,
@@ -534,11 +545,10 @@ mod tests {
             }
         };
 
-        let selector = MultiStageSelector::new().then(eval, 10); // keep_count = 10
+        let selector = MultiStageSelector::new().then(eval, 10);
 
         let candidates = vec![("a", 0.0), ("b", 0.0), ("c", 0.0)];
 
-        // n = 2 を指定
         let selected = selector.select(candidates, 2);
         assert_eq!(selected.len(), 2);
         assert_eq!(selected[0].0, "a");

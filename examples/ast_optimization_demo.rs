@@ -5,9 +5,7 @@
 use harp::ast::helper::*;
 use harp::ast::renderer::render_ast;
 use harp::ast::{AstNode, Literal};
-use harp::opt::ast::{
-    BeamSearchOptimizer, OptimizationHistory, RuleBaseSuggester, SimpleCostEstimator,
-};
+use harp::opt::ast::{BeamSearchOptimizer, OptimizationHistory, RuleBaseSuggester};
 
 fn main() {
     env_logger::init();
@@ -24,11 +22,8 @@ fn main() {
     let rules = harp::opt::ast::rules::all_algebraic_rules();
     let suggester = RuleBaseSuggester::new(rules);
 
-    // コスト推定器を作成
-    let estimator = SimpleCostEstimator::new();
-
-    // ビームサーチ最適化器を作成
-    let optimizer = BeamSearchOptimizer::new(suggester, estimator)
+    // ビームサーチ最適化器を作成（SelectorがCostEstimatorを内包）
+    let optimizer = BeamSearchOptimizer::new(suggester)
         .with_beam_width(5)
         .with_max_steps(5)
         .with_progress(true);

@@ -97,7 +97,7 @@ let selector = RuntimeSelector::new(
 .with_pre_filter_count(10)
 .with_measurement_count(10);
 
-let optimizer = BeamSearchOptimizer::new(suggester, SimpleCostEstimator::new())
+let optimizer = BeamSearchOptimizer::new(suggester)
     .with_selector(selector);
 ```
 

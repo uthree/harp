@@ -8,7 +8,7 @@ use crate::opt::ast::{
     BeamSearchOptimizer as AstBeamSearchOptimizer, CompositeSuggester as AstCompositeSuggester,
     FunctionInliningSuggester, LoopFusionSuggester, LoopInliningSuggester,
     LoopInterchangeSuggester, LoopTilingSuggester, OptimizationHistory as AstOptimizationHistory,
-    RuleBaseSuggester, SimpleCostEstimator as AstSimpleCostEstimator,
+    RuleBaseSuggester,
 };
 use crate::opt::graph::{
     BeamSearchGraphOptimizer, BufferAbsorptionSuggester, ChainedGraphOptimizer, CompositeSuggester,
@@ -191,17 +191,13 @@ where
 }
 
 /// AST最適化用のOptimizerを作成・設定
-pub fn create_ast_optimizer<E>(
+pub fn create_ast_optimizer(
     suggester: AstCompositeSuggester,
-    estimator: E,
     beam_width: usize,
     max_steps: usize,
     show_progress: bool,
-) -> AstBeamSearchOptimizer<AstCompositeSuggester, E>
-where
-    E: crate::opt::ast::CostEstimator,
-{
-    AstBeamSearchOptimizer::new(suggester, estimator)
+) -> AstBeamSearchOptimizer<AstCompositeSuggester> {
+    AstBeamSearchOptimizer::new(suggester)
         .with_beam_width(beam_width)
         .with_max_steps(max_steps)
         .with_progress(show_progress)
@@ -237,9 +233,7 @@ pub fn optimize_ast_with_history(
     show_progress: bool,
 ) -> (AstNode, AstOptimizationHistory) {
     let suggester = create_ast_suggester();
-    let estimator = AstSimpleCostEstimator::new();
-    let optimizer =
-        create_ast_optimizer(suggester, estimator, beam_width, max_steps, show_progress);
+    let optimizer = create_ast_optimizer(suggester, beam_width, max_steps, show_progress);
 
     optimizer.optimize_with_history(program)
 }
