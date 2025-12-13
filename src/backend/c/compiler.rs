@@ -223,38 +223,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // OpenMPサポートが環境依存のため、CIでは無効化
-    fn test_simple_compilation() {
-        use crate::backend::KernelSignature;
-
-        let mut compiler = CCompiler::new();
-
-        // 簡単なC言語コード
-        let code = r#"
-#include <math.h>
-#include <omp.h>
-#include <stdint.h>
-
-void kernel_0(float** buffers) {
-    float* out = buffers[0];
-    #pragma omp parallel for
-    for (int i = 0; i < 10; i++) {
-        out[i] = i * 2.0f;
-    }
-}
-"#;
-
-        let c_code = CCode::new(code.to_string());
-        let signature = KernelSignature::empty();
-
-        // コンパイル
-        let kernel = compiler.compile(&c_code, signature);
-
-        // カーネルが作成されたことを確認
-        assert_eq!(kernel.entry_point(), "kernel_0");
-    }
-
-    #[test]
     fn test_buffer_creation() {
         use crate::backend::Buffer;
 
