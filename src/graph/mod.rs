@@ -14,7 +14,7 @@ pub mod strategy;
 pub mod visualization;
 
 // Re-export commonly used types
-pub use conv::{ConvParams, IntoSpatialParams};
+pub use conv::IntoSpatialParams;
 pub use ops::{CumulativeOp, ElementwiseOp, GraphOp, ReduceOp, custom_placeholders};
 pub use shape::{Expr, View};
 // Note: ElementwiseStrategy was removed - parallelization is now handled at AST level

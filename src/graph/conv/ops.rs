@@ -7,7 +7,7 @@ use crate::graph::shape::{Expr, View};
 use crate::graph::{GraphNode, GraphOp};
 
 impl GraphNode {
-    /// N次元畳み込み
+    /// N次元畳み込み（内部API）
     ///
     /// unfold、elementwise乗算、reduceを組み合わせてN次元畳み込みを実装します。
     /// 1D/2D/3D畳み込みの共通実装です。
@@ -21,18 +21,16 @@ impl GraphNode {
     /// - カーネル: (C_out, C_in/groups, k1, k2, ...)
     /// - 出力: (C_out, L1', L2', ...)
     ///
-    /// # 例
+    /// 通常は`conv`メソッドを使用してください：
     /// ```no_run
     /// use harp::prelude::*;
-    /// use harp::graph::ConvParams;
     ///
     /// let mut graph = Graph::new();
     /// let x = graph.input("x", DType::F32, vec![3, 32, 32]);
     /// let kernel = graph.input("kernel", DType::F32, vec![16, 3, 3, 3]);
     ///
     /// // 2D conv: (3, 32, 32) conv (16, 3, 3, 3) -> (16, 30, 30)
-    /// let params = ConvParams::from_2d((3, 3), (1, 1), (1, 1), 1);
-    /// let output = x.conv_nd(kernel, &params);
+    /// let output = x.conv(kernel, (1, 1), (1, 1), (0, 0));
     /// ```
     pub fn conv_nd(self, kernel: GraphNode, params: &ConvParams) -> GraphNode {
         let spatial_dims = params.ndim();
@@ -213,7 +211,7 @@ impl GraphNode {
         result.reshape(final_shape)
     }
 
-    /// N次元転置畳み込み（deconvolution / transposed convolution）
+    /// N次元転置畳み込み（内部API）
     ///
     /// 畳み込みの逆操作を行います。主にアップサンプリングに使用されます。
     /// 1D/2D/3D転置畳み込みの共通実装です。
@@ -230,18 +228,16 @@ impl GraphNode {
     /// - 出力: (C_out, L1_out, L2_out, ...)
     ///   - L_out = (L_in - 1) * s - 2 * p + d * (k - 1) + op + 1
     ///
-    /// # 例
+    /// 通常は`conv_transpose`メソッドを使用してください：
     /// ```no_run
     /// use harp::prelude::*;
-    /// use harp::graph::ConvParams;
     ///
     /// let mut graph = Graph::new();
     /// let x = graph.input("x", DType::F32, vec![16, 8, 8]);
     /// let kernel = graph.input("kernel", DType::F32, vec![16, 3, 3, 3]);
     ///
-    /// // 2D conv_transpose: (16, 8, 8) conv_transpose (16, 3, 3, 3) -> (3, 16, 16)
-    /// let params = ConvParams::from_2d((3, 3), (2, 2), (1, 1), 1);
-    /// let output = x.conv_transpose_nd(kernel, &params, vec![0, 0], vec![0, 0]);
+    /// // 2D conv_transpose: (16, 8, 8) -> (3, 16, 16)
+    /// let output = x.conv_transpose(kernel, (2, 2), (1, 1), (0, 0));
     /// ```
     pub fn conv_transpose_nd(
         self,

@@ -5,4 +5,7 @@
 mod ops;
 mod params;
 
-pub use params::{ConvParams, IntoSpatialParams};
+// ConvParamsは内部使用のみ
+pub(crate) use params::ConvParams;
+// IntoSpatialParamsはpublic API（unfold/fold/convで使用）
+pub use params::IntoSpatialParams;

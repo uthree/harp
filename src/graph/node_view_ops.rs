@@ -1,8 +1,9 @@
 // GraphNodeのView関連の操作を提供するモジュール
 
-use crate::graph::conv::ConvParams;
+use crate::graph::GraphNode;
+use crate::graph::conv::{ConvParams, IntoSpatialParams};
+use crate::graph::ops::GraphOp;
 use crate::graph::shape::{Expr, View};
-use crate::graph::{GraphNode, ops::GraphOp};
 
 impl GraphNode {
     /// Viewを変更した新しいノードを作成
@@ -67,161 +68,84 @@ impl GraphNode {
         self.view(new_view)
     }
 
-    /// N次元unfold操作（スライディングウィンドウ）
+    /// unfold操作（スライディングウィンドウ）
     ///
     /// 畳み込みの前処理として、入力から重複するパッチを抽出します。
-    /// 1D/2D/3D unfoldの共通実装です。
-    ///
-    /// # 引数
-    /// - `params`: 畳み込みパラメータ（kernel_size, stride, dilation, groups）
-    ///
-    /// # 入出力形状
-    /// - N次元入力（空間のみ）: (...) -> (k1, k2, ..., L1', L2', ...)
-    /// - (N+1)次元入力（チャネル付き, groups=1）: (C, ...) -> (C, k1, k2, ..., L1', L2', ...)
-    /// - (N+1)次元入力（チャネル付き, groups=g）: (C, ...) -> (g, C/g, k1, k2, ..., L1', L2', ...)
-    ///
-    /// # 例
-    /// ```no_run
-    /// use harp::prelude::*;
-    /// use harp::graph::ConvParams;
-    ///
-    /// let mut graph = Graph::new();
-    /// let x = graph.input("x", DType::F32, vec![3, 32, 32]);
-    ///
-    /// // 2D unfold: (3, 32, 32) -> (3, 3, 3, 30, 30)
-    /// let params = ConvParams::from_2d((3, 3), (1, 1), (1, 1), 1);
-    /// let unfolded = x.unfold_nd(&params);
-    /// ```
-    pub fn unfold_nd(&self, params: &ConvParams) -> Self {
-        let new_view = self.view.clone().unfold_nd(params);
-        self.view(new_view)
-    }
-
-    /// 1D unfold操作（スライディングウィンドウ）
-    ///
-    /// 畳み込みの前処理として、入力から重複するパッチを抽出します。
+    /// 次元数はパラメータから自動判定されます。
     ///
     /// # 引数
     /// - `kernel_size`: ウィンドウサイズ
     /// - `stride`: ストライド（スライディングウィンドウの移動距離）
     /// - `dilation`: 膨張率（カーネル要素間の距離）
-    /// - `groups`: グループ数（チャネルを分割する数、2D入力のみ）
+    /// - `groups`: グループ数（グループ畳み込み用、通常は1）
     ///
-    /// # 入出力
-    /// - 1D入力の場合: (L,) -> (k, L')
-    /// - 2D入力（groups=1）: (C, L) -> (C, k, L')
-    /// - 2D入力（groups=g）: (C, L) -> (g, C/g, k, L')
-    ///
-    /// where:
-    /// - effective_kernel_size = (k - 1) * d + 1
-    /// - L' = (L - effective_kernel_size) / s + 1
+    /// # 入出力形状
+    /// - groups=1の場合:
+    ///   - N次元入力（空間のみ）: (...) -> (k1, k2, ..., L1', L2', ...)
+    ///   - (N+1)次元入力（チャネル付き）: (C, ...) -> (C, k1, k2, ..., L1', L2', ...)
+    /// - groups>1の場合:
+    ///   - (C, ...) -> (groups, C/groups, k1, k2, ..., L1', L2', ...)
     ///
     /// # 例
     /// ```no_run
     /// use harp::prelude::*;
     ///
     /// let mut graph = Graph::new();
-    /// let x = graph.input("x", DType::F32, vec![10]);
     ///
-    /// // 通常のunfold: (10,) -> (3, 8)
-    /// let unfolded = x.unfold1d(3, 1, 1, 1);
+    /// // 1D unfold: (10,) -> (3, 8)
+    /// let x1 = graph.input("x1", DType::F32, vec![10]);
+    /// let unfolded1 = x1.unfold(3, 1, 1, 1);
     ///
-    /// // dilationあり: (10,) -> (3, 6)
-    /// // effective_kernel_size = (3-1)*2+1 = 5
-    /// let unfolded_dilated = x.unfold1d(3, 1, 2, 1);
-    ///
-    /// // グループ畳み込み
-    /// let y = graph.input("y", DType::F32, vec![6, 10]);
-    /// // (6, 10) -> (2, 3, 3, 8) with groups=2
-    /// let grouped = y.unfold1d(3, 1, 1, 2);
-    /// ```
-    ///
-    /// 現在はpadding=0のみサポート
-    pub fn unfold1d(
-        &self,
-        kernel_size: usize,
-        stride: usize,
-        dilation: usize,
-        groups: usize,
-    ) -> Self {
-        self.unfold_nd(&ConvParams::from_1d(kernel_size, stride, dilation, groups))
-    }
-
-    /// 2D unfold操作（スライディングウィンドウ）
-    ///
-    /// 2次元畳み込みの前処理として、入力から重複するパッチを抽出します。
-    ///
-    /// # 引数
-    /// - `kernel_size`: ウィンドウサイズ (kH, kW)
-    /// - `stride`: ストライド (sH, sW)
-    /// - `dilation`: 膨張率 (dH, dW)
-    /// - `groups`: グループ数（3D入力のみ）
-    ///
-    /// # 入出力
-    /// - 2D入力: (H, W) -> (kH, kW, H', W')
-    /// - 3D入力（groups=1）: (C, H, W) -> (C, kH, kW, H', W')
-    /// - 3D入力（groups=g）: (C, H, W) -> (g, C/g, kH, kW, H', W')
-    ///
-    /// # 例
-    /// ```no_run
-    /// use harp::prelude::*;
-    ///
-    /// let mut graph = Graph::new();
-    /// let x = graph.input("x", DType::F32, vec![3, 32, 32]);
-    ///
-    /// // 通常の2D unfold: (3, 32, 32) -> (3, 3, 3, 30, 30)
-    /// let unfolded = x.unfold2d((3, 3), (1, 1), (1, 1), 1);
-    ///
-    /// // depthwise: (3, 32, 32) -> (3, 1, 3, 3, 30, 30)
-    /// let depthwise = x.unfold2d((3, 3), (1, 1), (1, 1), 3);
-    /// ```
-    ///
-    /// 現在はpadding=0のみサポート
-    pub fn unfold2d(
-        &self,
-        kernel_size: (usize, usize),
-        stride: (usize, usize),
-        dilation: (usize, usize),
-        groups: usize,
-    ) -> Self {
-        self.unfold_nd(&ConvParams::from_2d(kernel_size, stride, dilation, groups))
-    }
-
-    /// 3D unfold操作（スライディングウィンドウ）
-    ///
-    /// 3次元畳み込みの前処理として、入力から重複するパッチを抽出します。
-    ///
-    /// # 引数
-    /// - `kernel_size`: ウィンドウサイズ (kD, kH, kW)
-    /// - `stride`: ストライド (sD, sH, sW)
-    /// - `dilation`: 膨張率 (dD, dH, dW)
-    /// - `groups`: グループ数（4D入力のみ）
-    ///
-    /// # 入出力
-    /// - 3D入力: (D, H, W) -> (kD, kH, kW, D', H', W')
-    /// - 4D入力（groups=1）: (C, D, H, W) -> (C, kD, kH, kW, D', H', W')
-    /// - 4D入力（groups=g）: (C, D, H, W) -> (g, C/g, kD, kH, kW, D', H', W')
-    ///
-    /// # 例
-    /// ```no_run
-    /// use harp::prelude::*;
-    ///
-    /// let mut graph = Graph::new();
-    /// let x = graph.input("x", DType::F32, vec![2, 16, 16, 16]);
+    /// // 2D unfold: (3, 32, 32) -> (3, 3, 3, 30, 30)
+    /// let x2 = graph.input("x2", DType::F32, vec![3, 32, 32]);
+    /// let unfolded2 = x2.unfold((3, 3), (1, 1), (1, 1), 1);
     ///
     /// // 3D unfold: (2, 16, 16, 16) -> (2, 3, 3, 3, 14, 14, 14)
-    /// let unfolded = x.unfold3d((3, 3, 3), (1, 1, 1), (1, 1, 1), 1);
-    /// ```
+    /// let x3 = graph.input("x3", DType::F32, vec![2, 16, 16, 16]);
+    /// let unfolded3 = x3.unfold((3, 3, 3), (1, 1, 1), (1, 1, 1), 1);
     ///
-    /// 現在はpadding=0のみサポート
-    pub fn unfold3d(
+    /// // グループ畳み込み: (6, 16, 16) -> (2, 3, 3, 3, 14, 14)
+    /// let x4 = graph.input("x4", DType::F32, vec![6, 16, 16]);
+    /// let unfolded4 = x4.unfold((3, 3), (1, 1), (1, 1), 2);
+    /// ```
+    pub fn unfold<S: IntoSpatialParams>(
         &self,
-        kernel_size: (usize, usize, usize),
-        stride: (usize, usize, usize),
-        dilation: (usize, usize, usize),
+        kernel_size: S,
+        stride: S,
+        dilation: S,
         groups: usize,
     ) -> Self {
-        self.unfold_nd(&ConvParams::from_3d(kernel_size, stride, dilation, groups))
+        let kernel_size_vec = kernel_size.into_vec();
+        let stride_vec = stride.into_vec();
+        let dilation_vec = dilation.into_vec();
+
+        let spatial_dims = kernel_size_vec.len();
+
+        // パラメータの次元数を検証
+        assert_eq!(
+            stride_vec.len(),
+            spatial_dims,
+            "stride must have {} elements",
+            spatial_dims
+        );
+        assert_eq!(
+            dilation_vec.len(),
+            spatial_dims,
+            "dilation must have {} elements",
+            spatial_dims
+        );
+
+        let params = ConvParams::new(kernel_size_vec, stride_vec, dilation_vec, groups);
+        self.unfold_nd(&params)
+    }
+
+    /// N次元unfold操作（内部API）
+    ///
+    /// ConvParamsを使用した低レベルunfold操作。
+    /// conv_ndなど内部実装で使用。
+    pub(crate) fn unfold_nd(&self, params: &ConvParams) -> Self {
+        let new_view = self.view.clone().unfold_nd(params);
+        self.view(new_view)
     }
 
     /// テンソルをパディング
@@ -326,29 +250,73 @@ impl GraphNode {
         )
     }
 
-    /// N次元fold操作（unfoldの逆操作、col2im）
+    /// fold操作（unfoldの逆操作、col2im）
     ///
     /// unfoldされたテンソルを元の形状に戻します。
     /// 重複する部分は加算されます。
-    /// 1D/2D/3D foldの共通実装です。
+    /// 次元数はパラメータから自動判定されます。
     ///
     /// # 引数
     /// - `output_size`: 出力サイズ（unfold前の空間サイズ）
-    /// - `params`: 畳み込みパラメータ（kernel_size, stride, dilation, groups）
+    /// - `kernel_size`: ウィンドウサイズ
+    /// - `stride`: ストライド
+    /// - `dilation`: 膨張率
+    /// - `groups`: グループ数（グループ畳み込み用、通常は1）
     ///
     /// # 例
     /// ```no_run
     /// use harp::prelude::*;
-    /// use harp::graph::ConvParams;
     ///
     /// let mut graph = Graph::new();
-    /// let x = graph.input("x", DType::F32, vec![3, 3, 3, 30, 30]);  // unfoldの出力: (C, kH, kW, H', W')
     ///
-    /// // fold: (3, 3, 3, 30, 30) -> (3, 32, 32)
-    /// let params = ConvParams::from_2d((3, 3), (1, 1), (1, 1), 1);
-    /// let folded = x.fold_nd(vec![32, 32], &params);
+    /// // 1D fold: (2, 3, 8) -> (2, 10)
+    /// let x1 = graph.input("x1", DType::F32, vec![2, 3, 8]);
+    /// let folded1 = x1.fold(vec![2, 10], 3, 1, 1, 1);
+    ///
+    /// // 2D fold: (3, 3, 3, 30, 30) -> (3, 32, 32)
+    /// let x2 = graph.input("x2", DType::F32, vec![3, 3, 3, 30, 30]);
+    /// let folded2 = x2.fold(vec![3, 32, 32], (3, 3), (1, 1), (1, 1), 1);
+    ///
+    /// // 3D fold: (2, 3, 3, 3, 14, 14, 14) -> (2, 16, 16, 16)
+    /// let x3 = graph.input("x3", DType::F32, vec![2, 3, 3, 3, 14, 14, 14]);
+    /// let folded3 = x3.fold(vec![2, 16, 16, 16], (3, 3, 3), (1, 1, 1), (1, 1, 1), 1);
     /// ```
-    pub fn fold_nd(&self, output_size: Vec<usize>, params: &ConvParams) -> Self {
+    pub fn fold<S: IntoSpatialParams>(
+        &self,
+        output_size: Vec<usize>,
+        kernel_size: S,
+        stride: S,
+        dilation: S,
+        groups: usize,
+    ) -> Self {
+        let kernel_size_vec = kernel_size.into_vec();
+        let stride_vec = stride.into_vec();
+        let dilation_vec = dilation.into_vec();
+
+        let spatial_dims = kernel_size_vec.len();
+
+        // パラメータの次元数を検証
+        assert_eq!(
+            stride_vec.len(),
+            spatial_dims,
+            "stride must have {} elements",
+            spatial_dims
+        );
+        assert_eq!(
+            dilation_vec.len(),
+            spatial_dims,
+            "dilation must have {} elements",
+            spatial_dims
+        );
+
+        let params = ConvParams::new(kernel_size_vec, stride_vec, dilation_vec, groups);
+        self.fold_nd(output_size, &params)
+    }
+
+    /// N次元fold操作（内部API）
+    ///
+    /// conv_transpose_ndなど内部実装で使用。
+    pub(crate) fn fold_nd(&self, output_size: Vec<usize>, params: &ConvParams) -> Self {
         let new_shape: Vec<Expr> = output_size
             .iter()
             .map(|&s| Expr::from(s as isize))
@@ -366,109 +334,6 @@ impl GraphNode {
             },
             vec![self.clone()],
             new_view,
-        )
-    }
-
-    /// 1D fold操作（unfoldの逆操作、col2im）
-    ///
-    /// unfoldされたテンソルを元の形状に戻します。
-    /// 重複する部分は加算されます。
-    ///
-    /// # 引数
-    /// - `output_size`: 出力サイズ（unfold前のサイズ）
-    /// - `kernel_size`: カーネルサイズ
-    /// - `stride`: ストライド
-    /// - `dilation`: 膨張率
-    /// - `groups`: グループ数
-    ///
-    /// # 入出力
-    /// - 入力: unfold1dの出力形状
-    /// - 出力: unfold1dの入力形状
-    ///
-    /// # 例
-    /// ```no_run
-    /// use harp::prelude::*;
-    ///
-    /// let mut graph = Graph::new();
-    /// let x = graph.input("x", DType::F32, vec![2, 3, 8]);  // unfoldの出力: (C, k, L')
-    ///
-    /// // fold1d: (2, 3, 8) -> (2, 10)
-    /// let folded = x.fold1d(vec![10], 3, 1, 1, 1);
-    /// ```
-    pub fn fold1d(
-        &self,
-        output_size: Vec<usize>,
-        kernel_size: usize,
-        stride: usize,
-        dilation: usize,
-        groups: usize,
-    ) -> Self {
-        self.fold_nd(
-            output_size,
-            &ConvParams::from_1d(kernel_size, stride, dilation, groups),
-        )
-    }
-
-    /// 2D fold操作（unfoldの逆操作、col2im）
-    ///
-    /// # 引数
-    /// - `output_size`: 出力サイズ（unfold前のサイズ）
-    /// - `kernel_size`: カーネルサイズ (kH, kW)
-    /// - `stride`: ストライド (sH, sW)
-    /// - `dilation`: 膨張率 (dH, dW)
-    /// - `groups`: グループ数
-    ///
-    /// # 入出力
-    /// - 入力: unfold2dの出力形状
-    /// - 出力: unfold2dの入力形状
-    ///
-    /// # 例
-    /// ```no_run
-    /// use harp::prelude::*;
-    ///
-    /// let mut graph = Graph::new();
-    /// let x = graph.input("x", DType::F32, vec![3, 3, 3, 30, 30]);  // unfoldの出力: (C, kH, kW, H', W')
-    ///
-    /// // fold2d: (3, 3, 3, 30, 30) -> (3, 32, 32)
-    /// let folded = x.fold2d(vec![32, 32], (3, 3), (1, 1), (1, 1), 1);
-    /// ```
-    pub fn fold2d(
-        &self,
-        output_size: Vec<usize>,
-        kernel_size: (usize, usize),
-        stride: (usize, usize),
-        dilation: (usize, usize),
-        groups: usize,
-    ) -> Self {
-        self.fold_nd(
-            output_size,
-            &ConvParams::from_2d(kernel_size, stride, dilation, groups),
-        )
-    }
-
-    /// 3D fold操作（unfoldの逆操作、col2im）
-    ///
-    /// # 引数
-    /// - `output_size`: 出力サイズ（unfold前のサイズ）
-    /// - `kernel_size`: カーネルサイズ (kD, kH, kW)
-    /// - `stride`: ストライド (sD, sH, sW)
-    /// - `dilation`: 膨張率 (dD, dH, dW)
-    /// - `groups`: グループ数
-    ///
-    /// # 入出力
-    /// - 入力: unfold3dの出力形状
-    /// - 出力: unfold3dの入力形状
-    pub fn fold3d(
-        &self,
-        output_size: Vec<usize>,
-        kernel_size: (usize, usize, usize),
-        stride: (usize, usize, usize),
-        dilation: (usize, usize, usize),
-        groups: usize,
-    ) -> Self {
-        self.fold_nd(
-            output_size,
-            &ConvParams::from_3d(kernel_size, stride, dilation, groups),
         )
     }
 }
