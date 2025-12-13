@@ -12,9 +12,8 @@ use std::rc::Rc;
 
 #[cfg(target_os = "macos")]
 use crate::backend::metal::{MetalCompiler, MetalKernel, MetalPipeline, MetalRenderer};
-use crate::backend::{
-    c::{CBuffer, CCompiler, CKernel, CPipeline, CRenderer},
-    opencl::{OpenCLBuffer, OpenCLCompiler, OpenCLKernel, OpenCLPipeline, OpenCLRenderer},
+use crate::backend::opencl::{
+    OpenCLBuffer, OpenCLCompiler, OpenCLKernel, OpenCLPipeline, OpenCLRenderer,
 };
 
 /// デバイス指定（PyTorchの torch.device に相当）
@@ -22,8 +21,6 @@ use crate::backend::{
 /// デバイスの種類とインデックス（将来の複数GPU対応用）を保持します。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Device {
-    /// CPUバックエンド (C/C++)
-    Cpu(usize),
     /// Metalバックエンド (macOS GPU)
     #[cfg(target_os = "macos")]
     Metal(usize),
@@ -40,7 +37,7 @@ impl Default for Device {
 
 impl Device {
     /// 利用可能なデバイスを自動選択
-    /// 優先順位: Metal > OpenCL > CPU
+    /// 優先順位: Metal > OpenCL
     pub fn auto_select() -> Self {
         #[cfg(target_os = "macos")]
         {
@@ -50,17 +47,7 @@ impl Device {
             }
         }
 
-        let opencl = OpenCLCompiler::new();
-        if opencl.is_available() {
-            return Self::opencl(0);
-        }
-
-        Self::cpu()
-    }
-
-    /// CPUデバイスを作成
-    pub fn cpu() -> Self {
-        Self::Cpu(0)
+        Self::opencl(0)
     }
 
     /// Metalデバイスを作成 (macOSのみ)
@@ -77,7 +64,6 @@ impl Device {
     /// デバイスが利用可能かチェック
     pub fn is_available(&self) -> bool {
         match self {
-            Self::Cpu(_) => CCompiler::new().is_available(),
             #[cfg(target_os = "macos")]
             Self::Metal(_) => MetalCompiler::new().is_available(),
             Self::OpenCL(_) => OpenCLCompiler::new().is_available(),
@@ -87,7 +73,6 @@ impl Device {
     /// デバイスのインデックスを取得
     pub fn index(&self) -> usize {
         match self {
-            Self::Cpu(index) => *index,
             #[cfg(target_os = "macos")]
             Self::Metal(index) => *index,
             Self::OpenCL(index) => *index,
@@ -124,7 +109,6 @@ impl std::str::FromStr for Device {
         };
 
         match parts[0] {
-            "cpu" => Ok(Self::Cpu(index)),
             #[cfg(target_os = "macos")]
             "metal" => Ok(Self::Metal(index)),
             "opencl" => Ok(Self::OpenCL(index)),
@@ -136,7 +120,6 @@ impl std::str::FromStr for Device {
 impl std::fmt::Display for Device {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Cpu(index) => write!(f, "cpu:{}", index),
             #[cfg(target_os = "macos")]
             Self::Metal(index) => write!(f, "metal:{}", index),
             Self::OpenCL(index) => write!(f, "opencl:{}", index),
@@ -148,7 +131,6 @@ impl std::fmt::Display for Device {
 ///
 /// 内部で各バックエンドのPipelineを保持し、統一的なインターフェースを提供します。
 pub enum DevicePipeline {
-    Cpu(CPipeline),
     #[cfg(target_os = "macos")]
     Metal(MetalPipeline),
     OpenCL(OpenCLPipeline),
@@ -162,11 +144,6 @@ impl DevicePipeline {
         }
 
         match device {
-            Device::Cpu(_) => {
-                let renderer = CRenderer::new();
-                let compiler = CCompiler::new();
-                Ok(Self::Cpu(CPipeline::new(renderer, compiler)))
-            }
             #[cfg(target_os = "macos")]
             Device::Metal(_) => {
                 let renderer = MetalRenderer::new();
@@ -184,10 +161,6 @@ impl DevicePipeline {
     /// グラフをコンパイル
     pub fn compile_graph(&mut self, graph: Graph) -> Result<DeviceKernel, String> {
         match self {
-            Self::Cpu(pipeline) => {
-                let kernel = pipeline.compile_graph(graph)?;
-                Ok(DeviceKernel::Cpu(kernel))
-            }
             #[cfg(target_os = "macos")]
             Self::Metal(pipeline) => {
                 let kernel = pipeline.compile_graph(graph)?;
@@ -203,7 +176,6 @@ impl DevicePipeline {
     /// キャッシュ済みカーネルが存在するか確認
     pub fn has_cached_kernel(&self, key: &str) -> bool {
         match self {
-            Self::Cpu(pipeline) => pipeline.get_cached_kernel(key).is_some(),
             #[cfg(target_os = "macos")]
             Self::Metal(pipeline) => pipeline.get_cached_kernel(key).is_some(),
             Self::OpenCL(pipeline) => pipeline.get_cached_kernel(key).is_some(),
@@ -213,10 +185,6 @@ impl DevicePipeline {
     /// グラフをコンパイルしてキャッシュ
     pub fn compile_and_cache(&mut self, key: String, graph: Graph) -> Result<(), String> {
         match self {
-            Self::Cpu(pipeline) => {
-                pipeline.compile_and_cache(key, graph)?;
-                Ok(())
-            }
             #[cfg(target_os = "macos")]
             Self::Metal(pipeline) => {
                 pipeline.compile_and_cache(key, graph)?;
@@ -232,7 +200,6 @@ impl DevicePipeline {
     /// キャッシュをクリア
     pub fn clear_cache(&mut self) {
         match self {
-            Self::Cpu(pipeline) => pipeline.clear_cache(),
             #[cfg(target_os = "macos")]
             Self::Metal(pipeline) => pipeline.clear_cache(),
             Self::OpenCL(pipeline) => pipeline.clear_cache(),
@@ -293,7 +260,6 @@ impl DeviceManager {
 
 /// デバイス非依存のKernelラッパー
 pub enum DeviceKernel {
-    Cpu(CKernel),
     #[cfg(target_os = "macos")]
     Metal(MetalKernel),
     OpenCL(OpenCLKernel),
@@ -301,7 +267,6 @@ pub enum DeviceKernel {
 
 /// デバイス非依存のBufferラッパー
 pub enum DeviceBuffer {
-    Cpu(CBuffer),
     #[cfg(target_os = "macos")]
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     Metal(crate::backend::metal::MetalBuffer),
@@ -313,7 +278,6 @@ impl DeviceBuffer {
     pub fn to_cpu(&self) -> Result<Vec<u8>, String> {
         use crate::backend::Buffer;
         match self {
-            Self::Cpu(b) => Ok(b.to_bytes()),
             #[cfg(target_os = "macos")]
             Self::Metal(b) => Ok(b.to_bytes()),
             Self::OpenCL(b) => Ok(b.to_bytes()),
@@ -324,7 +288,6 @@ impl DeviceBuffer {
     pub fn to_vec<T: Clone + 'static>(&self) -> Result<Vec<T>, String> {
         use crate::backend::Buffer;
         match self {
-            Self::Cpu(b) => b.to_vec(),
             #[cfg(target_os = "macos")]
             Self::Metal(b) => b.to_vec(),
             Self::OpenCL(b) => b.to_vec(),
@@ -338,10 +301,6 @@ mod tests {
 
     #[test]
     fn test_device_creation() {
-        let cpu = Device::cpu();
-        assert_eq!(cpu, Device::Cpu(0));
-        assert_eq!(cpu.index(), 0);
-
         #[cfg(target_os = "macos")]
         {
             let metal = Device::metal(0);
@@ -356,13 +315,6 @@ mod tests {
 
     #[test]
     fn test_device_from_str() {
-        let cpu: Device = "cpu:0".parse().unwrap();
-        assert_eq!(cpu, Device::Cpu(0));
-        assert_eq!(cpu.index(), 0);
-
-        let cpu_default: Device = "cpu".parse().unwrap();
-        assert_eq!(cpu_default.index(), 0);
-
         #[cfg(target_os = "macos")]
         {
             let metal: Device = "metal:0".parse().unwrap();
@@ -378,9 +330,6 @@ mod tests {
 
     #[test]
     fn test_device_display() {
-        let cpu = Device::cpu();
-        assert_eq!(cpu.to_string(), "cpu:0");
-
         #[cfg(target_os = "macos")]
         {
             let metal = Device::metal(0);
@@ -401,7 +350,7 @@ mod tests {
     #[test]
     fn test_device_singleton() {
         // 同じデバイスに対して同じPipelineが返されることを確認
-        let device = Device::cpu();
+        let device = Device::opencl(0);
 
         let pipeline1 = device.get_pipeline().unwrap();
         let pipeline2 = device.get_pipeline().unwrap();
@@ -414,7 +363,7 @@ mod tests {
     fn test_device_cache_sharing() {
         use crate::graph::DType;
 
-        let device = Device::cpu();
+        let device = Device::opencl(0);
         let pipeline = device.get_pipeline().unwrap();
 
         // キャッシュが空であることを確認

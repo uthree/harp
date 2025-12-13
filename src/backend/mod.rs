@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-pub mod c;
 pub mod c_like;
 pub mod device;
 pub mod generic;
@@ -9,7 +8,6 @@ pub mod opencl;
 pub mod pipeline;
 
 // Re-export commonly used types
-pub use c::{CBuffer, CCode, CCompiler, CKernel, CPipeline, CRenderer};
 pub use device::{Device, DeviceBuffer, DeviceKernel, DevicePipeline, SharedPipeline};
 pub use generic::{
     GenericPipeline, OptimizationConfig, OptimizationHistories, RuntimeSelectorConfig,

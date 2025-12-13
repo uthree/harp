@@ -8,8 +8,8 @@ pub use compiler::{OpenCLCompiler, OpenCLCompilerOption};
 pub use kernel::OpenCLKernel;
 pub use renderer::OpenCLRenderer;
 
-// OptimizationLevelはCバックエンドからre-export
-pub use crate::backend::c::OptimizationLevel;
+// OptimizationLevelはc_likeモジュールからre-export
+pub use crate::backend::c_like::OptimizationLevel;
 
 /// libloading用のラッパー関数名
 pub const LIBLOADING_WRAPPER_NAME: &str = "__harp_entry";

@@ -2,7 +2,36 @@ use crate::ast::{AstNode, DType, Literal, VarDecl};
 use crate::backend::Renderer;
 
 // C言語に近い構文の言語のためのレンダラー
-// Metal, CUDA, C(with OpenMP), OpenCLなどのバックエンドは大体C言語に近い文法を採用しているので、共通化したい。
+// Metal, CUDA, OpenCLなどのバックエンドは大体C言語に近い文法を採用しているので、共通化したい。
+
+/// コンパイラ最適化レベル
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OptimizationLevel {
+    /// 最適化なし（デバッグ向け、コンパイル高速）
+    #[default]
+    O0,
+    /// 基本的な最適化
+    O1,
+    /// 標準的な最適化
+    O2,
+    /// アグレッシブな最適化
+    O3,
+    /// サイズ最適化
+    Os,
+}
+
+impl OptimizationLevel {
+    /// コンパイラフラグとして使用する文字列を返す
+    pub fn as_flag(&self) -> &'static str {
+        match self {
+            OptimizationLevel::O0 => "0",
+            OptimizationLevel::O1 => "1",
+            OptimizationLevel::O2 => "2",
+            OptimizationLevel::O3 => "3",
+            OptimizationLevel::Os => "s",
+        }
+    }
+}
 
 pub trait CLikeRenderer: Renderer {
     // ========== インデント管理（実装側で提供） ==========
@@ -510,12 +539,12 @@ pub trait CLikeRenderer: Renderer {
 mod tests {
     use super::*;
     use crate::ast::{Literal, Mutability, Scope};
-    use crate::backend::c::CRenderer;
+    use crate::backend::opencl::OpenCLRenderer;
 
     #[test]
     #[allow(clippy::approx_constant)]
     fn test_render_literal() {
-        let renderer = CRenderer::new();
+        let renderer = OpenCLRenderer::new();
 
         // 整数
         assert_eq!(renderer.render_literal(&Literal::Int(42)), "42");
@@ -529,7 +558,7 @@ mod tests {
 
     #[test]
     fn test_render_expr_bitwise_operations() {
-        let renderer = CRenderer::new();
+        let renderer = OpenCLRenderer::new();
 
         // BitwiseAnd
         let and_expr = AstNode::BitwiseAnd(
@@ -559,7 +588,7 @@ mod tests {
 
     #[test]
     fn test_render_expr_shift_operations() {
-        let renderer = CRenderer::new();
+        let renderer = OpenCLRenderer::new();
 
         // LeftShift
         let left_shift = AstNode::LeftShift(
@@ -578,7 +607,7 @@ mod tests {
 
     #[test]
     fn test_render_expr_math_operations() {
-        let renderer = CRenderer::new();
+        let renderer = OpenCLRenderer::new();
 
         // Recip
         let recip = AstNode::Recip(Box::new(AstNode::Var("x".to_string())));
@@ -601,7 +630,7 @@ mod tests {
 
     #[test]
     fn test_render_expr_cast() {
-        let renderer = CRenderer::new();
+        let renderer = OpenCLRenderer::new();
 
         let cast = AstNode::Cast(Box::new(AstNode::Var("x".to_string())), DType::Int);
         assert_eq!(renderer.render_expr(&cast), "int(x)");
@@ -609,7 +638,7 @@ mod tests {
 
     #[test]
     fn test_render_expr_load() {
-        let renderer = CRenderer::new();
+        let renderer = OpenCLRenderer::new();
 
         // スカラロード
         let load = AstNode::Load {
@@ -623,7 +652,7 @@ mod tests {
 
     #[test]
     fn test_render_expr_call() {
-        let renderer = CRenderer::new();
+        let renderer = OpenCLRenderer::new();
 
         let call = AstNode::Call {
             name: "foo".to_string(),
@@ -637,7 +666,7 @@ mod tests {
 
     #[test]
     fn test_render_expr_return() {
-        let renderer = CRenderer::new();
+        let renderer = OpenCLRenderer::new();
 
         let ret = AstNode::Return {
             value: Box::new(AstNode::Var("result".to_string())),
@@ -647,7 +676,7 @@ mod tests {
 
     #[test]
     fn test_render_statement_store() {
-        let mut renderer = CRenderer::new();
+        let mut renderer = OpenCLRenderer::new();
 
         let store = AstNode::Store {
             ptr: Box::new(AstNode::Var("arr".to_string())),
@@ -660,7 +689,7 @@ mod tests {
 
     #[test]
     fn test_render_statement_assign() {
-        let mut renderer = CRenderer::new();
+        let mut renderer = OpenCLRenderer::new();
 
         let assign = AstNode::Assign {
             var: "x".to_string(),
@@ -672,7 +701,7 @@ mod tests {
 
     #[test]
     fn test_render_range_loop() {
-        let mut renderer = CRenderer::new();
+        let mut renderer = OpenCLRenderer::new();
 
         let scope = Scope::new();
         let range = AstNode::Range {
@@ -692,7 +721,7 @@ mod tests {
 
     #[test]
     fn test_render_block_with_local_variables() {
-        let mut renderer = CRenderer::new();
+        let mut renderer = OpenCLRenderer::new();
 
         let mut scope = Scope::new();
         scope
@@ -716,18 +745,17 @@ mod tests {
 
     #[test]
     fn test_render_barrier_statement() {
-        let mut renderer = CRenderer::new();
+        let mut renderer = OpenCLRenderer::new();
         let barrier = AstNode::Barrier;
         let rendered = renderer.render_statement(&barrier);
-        // CRendererはシングルスレッドなのでバリアは空
         // 重要なのは、エラーなくレンダリングされること
-        // バリアの内容は各バックエンドで異なる（OpenCLは "barrier(..)", CRendererは空）
-        assert!(rendered.is_empty() || rendered.contains("barrier"));
+        // OpenCLRendererは "barrier(..)" を出力する
+        assert!(rendered.contains("barrier"));
     }
 
     #[test]
     fn test_indent_management() {
-        let mut renderer = CRenderer::new();
+        let mut renderer = OpenCLRenderer::new();
         assert_eq!(renderer.indent_level(), 0);
 
         renderer.inc_indent();

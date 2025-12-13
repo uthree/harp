@@ -629,13 +629,13 @@ where
     ///
     /// ```ignore
     /// use harp::backend::{GenericPipeline, RuntimeSelectorConfig};
-    /// use harp::backend::c::{CRenderer, CCompiler, CBuffer};
+    /// use harp::backend::opencl::{OpenCLRenderer, OpenCLCompiler, OpenCLBuffer};
     ///
-    /// let mut pipeline = GenericPipeline::new(CRenderer::new(), CCompiler::new());
+    /// let mut pipeline = GenericPipeline::new(OpenCLRenderer::new(), OpenCLCompiler::new());
     /// pipeline.set_runtime_buffer_factory(|sig| {
     ///     sig.inputs.iter()
     ///         .chain(sig.outputs.iter())
-    ///         .map(|buf_sig| CBuffer::new(vec![buf_sig.shape[0].expect_const() as usize], 4))
+    ///         .map(|buf_sig| OpenCLBuffer::new(vec![buf_sig.shape[0].expect_const() as usize], 4))
     ///         .collect()
     /// });
     /// ```

@@ -13,8 +13,6 @@ fn main() {
 
     // 1. デバイスの作成と選択
     println!("1. デバイスの作成:");
-    let cpu = Device::cpu();
-    println!("  CPU device: {}", cpu);
 
     #[cfg(target_os = "macos")]
     {
@@ -26,8 +24,8 @@ fn main() {
     println!("  OpenCL device: {}", opencl);
 
     // 文字列からパース
-    let device: Device = "cpu:0".parse().unwrap();
-    println!("  Parsed from string 'cpu:0': {}", device);
+    let device: Device = "opencl:0".parse().unwrap();
+    println!("  Parsed from string 'opencl:0': {}", device);
 
     println!();
 
@@ -40,19 +38,19 @@ fn main() {
 
     // 3. Pipelineの取得と共有
     println!("3. Pipeline共有のデモ:");
-    let device1 = Device::cpu();
+    let device1 = Device::opencl(0);
     let pipeline1 = device1.get_pipeline().unwrap();
     println!("  First pipeline acquired");
 
-    let device2 = Device::cpu();
+    let device2 = Device::opencl(0);
     let pipeline2 = device2.get_pipeline().unwrap();
     println!("  Second pipeline acquired");
 
     // 同じPipelineインスタンスが共有されていることを確認
     if Rc::ptr_eq(&pipeline1, &pipeline2) {
-        println!("  ✓ Pipelines are shared (same instance)");
+        println!("  [OK] Pipelines are shared (same instance)");
     } else {
-        println!("  ✗ Pipelines are NOT shared");
+        println!("  [NG] Pipelines are NOT shared");
     }
     println!();
 
@@ -73,45 +71,43 @@ fn main() {
 
     let result = pipeline1.borrow_mut().compile_and_cache(key.clone(), graph);
     match result {
-        Ok(()) => println!("  ✓ Compilation successful and cached"),
-        Err(e) => println!("  ✗ Compilation failed: {}", e),
+        Ok(()) => println!("  [OK] Compilation successful and cached"),
+        Err(e) => println!("  [NG] Compilation failed: {}", e),
     }
 
     // キャッシュから取得
     if pipeline1.borrow().has_cached_kernel(&key) {
-        println!("  ✓ Kernel found in cache");
+        println!("  [OK] Kernel found in cache");
     } else {
-        println!("  ✗ Kernel NOT found in cache");
+        println!("  [NG] Kernel NOT found in cache");
     }
 
     // 同じデバイスから再度Pipelineを取得してもキャッシュが共有されていることを確認
-    let pipeline3 = Device::cpu().get_pipeline().unwrap();
+    let pipeline3 = Device::opencl(0).get_pipeline().unwrap();
     if pipeline3.borrow().has_cached_kernel(&key) {
-        println!("  ✓ Cache is shared across pipeline instances");
+        println!("  [OK] Cache is shared across pipeline instances");
     } else {
-        println!("  ✗ Cache is NOT shared");
+        println!("  [NG] Cache is NOT shared");
     }
     println!();
 
     // 5. 複数デバイスの管理
     println!("5. 複数デバイスの管理:");
-    let devices = vec![Device::cpu(), Device::opencl(0)];
+    let mut devices = vec![Device::opencl(0)];
 
     #[cfg(target_os = "macos")]
-    let devices = {
-        let mut d = devices;
-        d.push(Device::metal(0));
-        d
-    };
+    {
+        devices.push(Device::metal(0));
+    }
 
     for device in &devices {
         if device.is_available() {
             match device.get_pipeline() {
-                Ok(_) => println!("  ✓ {} pipeline ready", device),
-                Err(e) => println!("  ✗ {} failed: {}", device, e),
+                Ok(_) => println!("  [OK] {} pipeline ready", device),
+                Err(e) => println!("  [NG] {} failed: {}", device, e),
             }
         } else {
-            println!("  - {} not available", device);
+            println!("  [-] {} not available", device);
         }
     }
 

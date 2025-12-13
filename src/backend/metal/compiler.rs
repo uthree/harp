@@ -1,5 +1,5 @@
 use crate::backend::Compiler;
-use crate::backend::c::OptimizationLevel;
+use crate::backend::c_like::OptimizationLevel;
 use crate::backend::metal::{LIBLOADING_WRAPPER_NAME, MetalBuffer, MetalCode, MetalKernel};
 use libloading::Library;
 use std::path::PathBuf;

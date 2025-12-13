@@ -1,8 +1,8 @@
 //! ASTを可読性の高い文字列に変換するモジュール
 
 use super::AstNode;
-use crate::backend::c::CRenderer;
 use crate::backend::c_like::CLikeRenderer;
+use crate::backend::opencl::OpenCLRenderer;
 
 /// ASTを文字列に変換（ジェネリックレンダラー対応）
 ///
@@ -11,10 +11,10 @@ use crate::backend::c_like::CLikeRenderer;
 ///
 /// # 例
 /// ```ignore
-/// use harp::backend::c::CRenderer;
+/// use harp::backend::opencl::OpenCLRenderer;
 /// use harp::ast::renderer::render_ast_with;
 ///
-/// let renderer = CRenderer::new();
+/// let renderer = OpenCLRenderer::new();
 /// let code = render_ast_with(&ast, &renderer);
 /// ```
 pub fn render_ast_with<R>(ast: &AstNode, renderer: &R) -> String
@@ -48,11 +48,11 @@ where
     }
 }
 
-/// ヘルパー関数: ASTを文字列に変換（デフォルトでCRendererを使用）
+/// ヘルパー関数: ASTを文字列に変換（デフォルトでOpenCLRendererを使用）
 ///
 /// より詳細な制御が必要な場合は、`render_ast_with`を使用してください。
 pub fn render_ast(ast: &AstNode) -> String {
-    let renderer = CRenderer::new();
+    let renderer = OpenCLRenderer::new();
     render_ast_with(ast, &renderer)
 }
 
@@ -85,7 +85,8 @@ mod tests {
     #[test]
     fn test_render_sqrt() {
         let ast = sqrt(AstNode::Const(4.0f32.into()));
-        assert_eq!(render_ast(&ast), "sqrtf(4.0f)");
+        // OpenCLRendererは generic な sqrt を使用
+        assert_eq!(render_ast(&ast), "sqrt(4.0f)");
     }
 
     #[test]

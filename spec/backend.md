@@ -8,17 +8,15 @@
 
 ### コアモジュール
 - `mod.rs`: Renderer、Compiler、Kernel、Buffer、Device等の基本trait定義
-- `device.rs`: デバイス抽象化（CPU、GPU等の実行環境）
+- `device.rs`: デバイス抽象化（Metal、OpenCL等の実行環境）
 - `pipeline.rs`: Pipeline trait（グラフからカーネルまでの処理フロー）
 - `generic.rs`: GenericPipeline（任意のRendererとCompilerを組み合わせた汎用実装）
-- `c_like.rs`: C言語系構文の共通レンダリングロジック（CLikeRenderer trait）
+- `c_like.rs`: C言語系構文の共通レンダリングロジック（CLikeRenderer trait）、OptimizationLevel
 
 ### バックエンド実装
 各バックエンドは独立したモジュールとして実装されています：
 
-- `c/`: Cバックエンド（シングルスレッド）
-  - `mod.rs`, `renderer.rs`, `compiler.rs`, `kernel.rs`, `buffer.rs`
-- `metal/`: Metalバックエンド（macOS/iOS GPU）
+- `metal/`: Metalバックエンド（macOS GPU）
   - `mod.rs`, `renderer.rs`, `compiler.rs`, `kernel.rs`, `buffer.rs`
 - `opencl/`: OpenCLバックエンド（クロスプラットフォームGPU）
   - `mod.rs`, `renderer.rs`, `compiler.rs`, `kernel.rs`, `buffer.rs`
@@ -81,41 +79,33 @@ pipeline.graph_config.beam_width = 8;
 
 ## 実装状況
 
-### Metal Backend（macOS/iOS）
+### Metal Backend（macOS）
 MetalのComputePipelineStateを使用してGPUで直接実行。
 
-### C Backend（クロスプラットフォーム、シングルスレッド）
-C言語（シングルスレッド）を使ったリファレンス実装バックエンド。ASTをC言語コードに変換し、動的ライブラリ(.so/.dylib/.dll)としてコンパイルして実行。並列化は行わず、単一スレッドでの実行のみをサポート。
+**実装方式:**
+- Objective-C++でMetal API呼び出しコードを生成
+- clang++でコンパイルし、動的ライブラリとしてロード
 
-**libloading対応:**
-libloadingは固定シグネチャ `fn(*mut *mut u8)` を期待するため、CRendererは自動的にラッパー関数を生成する：
-```c
-// エントリーポイント関数
-void harp_main(const float* input0, float* output) { ... }
+**コンパイラフラグ:**
+- macOS: `-framework Metal -framework Foundation`
 
-// libloading用ラッパー（自動生成）
-void __harp_entry(void** buffers) {
-    harp_main((const float*)(buffers[0]), (float*)(buffers[1]));
-}
-```
-
-**注意事項:**
-- エントリーポイント関数名は "harp_main"（C言語のmain関数との衝突回避）
-- Lowererがパラメータを依存関係順序で配置するため、バッファ順序に注意
-- 並列化はサポートしない（単一スレッドでの実行のみ）
-
-### OpenCL Backend（クロスプラットフォーム、並列実行）
-OpenCLを使ったGPU/並列実行バックエンド。ASTをOpenCLカーネルソース + ホストコードに変換し、動的ライブラリとしてコンパイルして実行。
+### OpenCL Backend（クロスプラットフォーム）
+OpenCLを使ったクロスプラットフォームGPU実行バックエンド。ASTをOpenCLカーネルソース + ホストコードに変換し、動的ライブラリとしてコンパイルして実行。
 
 **実装方式:**
 - OpenCLカーネルソースを文字列リテラルとしてC言語コードに埋め込み
 - ホストコードでOpenCLの初期化、コンパイル、実行を行う
 - libloadingでラッパー関数を呼び出す
 
+**libloading対応:**
+libloadingは固定シグネチャ `fn(*mut *mut u8)` を期待するため、Rendererは自動的にラッパー関数を生成する：
+```c
+// libloading用ラッパー（自動生成）
+void __harp_entry(void** buffers) {
+    // カーネル実行ロジック
+}
+```
+
 **コンパイラフラグ:**
 - macOS: `-framework OpenCL`
 - Linux/Windows: `-lOpenCL`
-
-**現在の実装状況:**
-- 基本的なOpenCL初期化とプログラムビルドのコード生成が実装済み
-- カーネルボディとバッファ管理の実装は未完成（TODO）

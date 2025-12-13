@@ -4,17 +4,14 @@
 
 use harp::ast::renderer::render_ast_with;
 use harp::ast::AstNode;
-use harp::backend::c::CRenderer;
 use harp::backend::metal::MetalRenderer;
 use harp::backend::opencl::OpenCLRenderer;
 
 /// 利用可能なレンダラータイプ
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RendererType {
-    /// C言語レンダラー（シングルスレッド）
-    #[default]
-    C,
     /// OpenCLレンダラー（GPU）
+    #[default]
     OpenCL,
     /// Metalレンダラー（Apple GPU）
     Metal,
@@ -23,13 +20,12 @@ pub enum RendererType {
 impl RendererType {
     /// すべてのレンダラータイプを取得
     pub fn all() -> &'static [RendererType] {
-        &[RendererType::C, RendererType::OpenCL, RendererType::Metal]
+        &[RendererType::OpenCL, RendererType::Metal]
     }
 
     /// 表示名を取得
     pub fn display_name(&self) -> &'static str {
         match self {
-            RendererType::C => "C (CPU)",
             RendererType::OpenCL => "OpenCL (GPU)",
             RendererType::Metal => "Metal (Apple GPU)",
         }
@@ -38,7 +34,6 @@ impl RendererType {
     /// 短い名前を取得
     pub fn short_name(&self) -> &'static str {
         match self {
-            RendererType::C => "C",
             RendererType::OpenCL => "OpenCL",
             RendererType::Metal => "Metal",
         }
@@ -48,10 +43,6 @@ impl RendererType {
 /// 指定されたRendererTypeでASTをレンダリング
 pub fn render_with_type(ast: &AstNode, renderer_type: RendererType) -> String {
     match renderer_type {
-        RendererType::C => {
-            let renderer = CRenderer::new();
-            render_ast_with(ast, &renderer)
-        }
         RendererType::OpenCL => {
             let renderer = OpenCLRenderer::new();
             render_ast_with(ast, &renderer)

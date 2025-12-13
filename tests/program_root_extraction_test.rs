@@ -5,7 +5,7 @@
 #[test]
 fn test_program_root_extraction() {
     use harp::backend::GenericPipeline;
-    use harp::backend::c::{CCompiler, CRenderer};
+    use harp::backend::opencl::{OpenCLCompiler, OpenCLRenderer};
     use harp::graph::{DType, Graph};
 
     // シンプルなグラフ
@@ -21,8 +21,8 @@ fn test_program_root_extraction() {
     );
 
     // パイプラインで最適化
-    let renderer = CRenderer::new();
-    let compiler = CCompiler::new();
+    let renderer = OpenCLRenderer::new();
+    let compiler = OpenCLCompiler::new();
     let mut pipeline = GenericPipeline::new(renderer, compiler);
 
     let (program, _) = pipeline
@@ -60,7 +60,7 @@ fn test_program_root_extraction() {
 #[test]
 fn test_program_root_extraction_complex() {
     use harp::backend::GenericPipeline;
-    use harp::backend::c::{CCompiler, CRenderer};
+    use harp::backend::opencl::{OpenCLCompiler, OpenCLRenderer};
     use harp::graph::{DType, Graph};
 
     // より複雑なグラフ: reduce(a + b) + c
@@ -79,8 +79,8 @@ fn test_program_root_extraction_complex() {
     );
 
     // パイプラインで最適化
-    let renderer = CRenderer::new();
-    let compiler = CCompiler::new();
+    let renderer = OpenCLRenderer::new();
+    let compiler = OpenCLCompiler::new();
     let mut pipeline = GenericPipeline::new(renderer, compiler);
 
     let (program, _) = pipeline

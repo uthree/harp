@@ -20,9 +20,9 @@ pub use compiler::{MetalCompiler, MetalCompilerOption};
 
 pub use renderer::MetalRenderer;
 
-// OptimizationLevelはCバックエンドからre-export
+// OptimizationLevelはc_likeモジュールからre-export
 #[cfg(target_os = "macos")]
-pub use crate::backend::c::OptimizationLevel;
+pub use crate::backend::c_like::OptimizationLevel;
 
 /// libloading用のラッパー関数名
 ///

@@ -223,11 +223,11 @@ impl<T> Selector<T> for MultiStageSelector<T> {
 ///
 /// ```ignore
 /// use harp::opt::selector::RuntimeSelector;
-/// use harp::backend::c::{CRenderer, CCompiler};
+/// use harp::backend::opencl::{OpenCLRenderer, OpenCLCompiler};
 ///
 /// let selector = RuntimeSelector::new(
-///     CRenderer::new(),
-///     CCompiler::new(),
+///     OpenCLRenderer::new(),
+///     OpenCLCompiler::new(),
 ///     signature,
 ///     |sig| create_buffers(sig),
 /// )
@@ -359,11 +359,11 @@ use crate::opt::graph::{
 ///
 /// ```ignore
 /// use harp::opt::selector::GraphRuntimeSelector;
-/// use harp::backend::c::{CRenderer, CCompiler};
+/// use harp::backend::opencl::{OpenCLRenderer, OpenCLCompiler};
 ///
 /// let selector = GraphRuntimeSelector::new(
-///     CRenderer::new(),
-///     CCompiler::new(),
+///     OpenCLRenderer::new(),
+///     OpenCLCompiler::new(),
 ///     |sig| create_buffers(sig),
 /// )
 /// .with_pre_filter_count(5)

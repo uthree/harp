@@ -1,10 +1,10 @@
 use harp::ast::helper::wildcard;
 use harp::backend::GenericPipeline;
+use harp::backend::opencl::{OpenCLCompiler, OpenCLRenderer};
 /// FusedElementwiseReduceを使用した行列積の統合テスト
 ///
 /// View展開とFusedElementwiseReduceを組み合わせた行列積の実装を検証します。
 /// このテストはloweringとコード生成が正しく動作することを確認します。
-use harp::backend::c::{CCompiler, CRenderer};
 use harp::graph::{DType, Graph, GraphNode};
 use harp::prelude::{ReduceOp, fused_elementwise_reduce};
 
@@ -67,9 +67,8 @@ fn test_fused_matmul_lowering() {
     assert_eq!(result_shape[1], 2.into());
 
     // Pipelineを使用してコード生成
-    // グラフ最適化は常に有効（LoweringSuggesterが必須）
-    let renderer = CRenderer::new();
-    let compiler = CCompiler::new();
+    let renderer = OpenCLRenderer::new();
+    let compiler = OpenCLCompiler::new();
     let mut pipeline = GenericPipeline::new(renderer, compiler);
 
     let (program, _) = pipeline
@@ -77,20 +76,17 @@ fn test_fused_matmul_lowering() {
         .expect("Failed to optimize graph");
 
     // コード生成を確認
-    let mut c_renderer = CRenderer::new();
-    let code = c_renderer.render_program(&program);
+    let mut opencl_renderer = OpenCLRenderer::new();
+    let code = opencl_renderer.render_program(&program);
     let code_str = code.to_string();
 
     // グラフ最適化によってCustomノードが生成され、コードが生成されることを確認
-    // LoweringSuggesterが有効なので、元のFusedElementwiseReduceが変換される
-    // 変数名は最適化により異なる場合がある
     println!("Generated code:\n{}", code_str);
 
     // 生成されたコードが空でないことを確認
     assert!(!code_str.is_empty(), "Generated code should not be empty");
 
     // カーネル関数が生成されていることを確認
-    // 新しい命名規則: E_/ER_/C_/R_/O_ + shape
     assert!(
         code_str.contains("ER_") || code_str.contains("E_") || code_str.contains("O_"),
         "Code should contain kernel functions (E_, ER_, O_, etc.)"
@@ -106,9 +102,7 @@ fn test_double_matmul_lowering() {
 
     // 連続した行列積: (A @ B) @ C
     let a = graph.input("A", DType::F32, vec![8, 4]);
-
     let b = graph.input("B", DType::F32, vec![4, 6]);
-
     let c = graph.input("C", DType::F32, vec![6, 3]);
 
     // 1回目のmatmul: A[8,4] @ B[4,6] -> [8,6]
@@ -124,9 +118,8 @@ fn test_double_matmul_lowering() {
     graph.output("result", result);
 
     // Pipelineを使用してコード生成
-    // グラフ最適化は常に有効（LoweringSuggesterが必須）
-    let renderer = CRenderer::new();
-    let compiler = CCompiler::new();
+    let renderer = OpenCLRenderer::new();
+    let compiler = OpenCLCompiler::new();
     let mut pipeline = GenericPipeline::new(renderer, compiler);
 
     let (program, _) = pipeline
@@ -134,8 +127,8 @@ fn test_double_matmul_lowering() {
         .expect("Failed to optimize graph");
 
     // コード生成
-    let mut c_renderer = CRenderer::new();
-    let code = c_renderer.render_program(&program);
+    let mut opencl_renderer = OpenCLRenderer::new();
+    let code = opencl_renderer.render_program(&program);
     let code_str = code.to_string();
 
     println!("Generated code:\n{}", code_str);
@@ -144,18 +137,16 @@ fn test_double_matmul_lowering() {
     assert!(!code_str.is_empty(), "Generated code should not be empty");
 
     // カーネル関数が生成されていることを確認
-    // 新しい命名規則: E_/ER_/C_/R_/O_ + shape
     assert!(
         code_str.contains("ER_") || code_str.contains("E_") || code_str.contains("O_"),
         "Code should contain kernel functions (E_, ER_, O_, etc.)"
     );
 
-    // 中間バッファーの使用はグラフ最適化の結果によって変わる
-    // Sinkベースアーキテクチャでは、最適化の結果によって中間バッファーが不要になる場合がある
-    // 代わりに、harp_mainエントリーポイントが存在することを確認
+    // エントリーポイントが存在することを確認
+    // OpenCLは __harp_entry を使用する
     assert!(
-        code_str.contains("harp_main"),
-        "Should have harp_main entry point"
+        code_str.contains("__harp_entry") || code_str.contains("harp_main"),
+        "Should have entry point function (__harp_entry or harp_main)"
     );
 
     println!("✓ Double matmul lowering test passed");

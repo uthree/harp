@@ -25,7 +25,7 @@ fn test_fold1d_compilation() {
     graph.output("result", folded);
 
     // コンパイルと実行
-    let device = Device::cpu();
+    let device = Device::opencl(0);
     let pipeline = device.get_pipeline().unwrap();
     let mut pipeline = pipeline.borrow_mut();
 
@@ -57,7 +57,7 @@ fn test_fold2d_compilation() {
     graph.output("result", folded);
 
     // コンパイルと実行
-    let device = Device::cpu();
+    let device = Device::opencl(0);
     let pipeline = device.get_pipeline().unwrap();
     let mut pipeline = pipeline.borrow_mut();
 
@@ -89,7 +89,7 @@ fn test_fold3d_compilation() {
     graph.output("result", folded);
 
     // コンパイルと実行
-    let device = Device::cpu();
+    let device = Device::opencl(0);
     let pipeline = device.get_pipeline().unwrap();
     let mut pipeline = pipeline.borrow_mut();
 
