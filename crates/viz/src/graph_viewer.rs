@@ -717,6 +717,25 @@ impl GraphViewerApp {
                         } else if next_clicked {
                             self.next_step();
                         }
+
+                        ui.separator();
+
+                        // 最初と最後にジャンプ
+                        if ui
+                            .add_enabled(current_step > 0, egui::Button::new("⏮ First"))
+                            .clicked()
+                        {
+                            self.goto_step(0);
+                        }
+                        if ui
+                            .add_enabled(
+                                current_step + 1 < history_len,
+                                egui::Button::new("Last ⏭"),
+                            )
+                            .clicked()
+                        {
+                            self.goto_step(history_len - 1);
+                        }
                     });
 
                     // 現在のステップの説明とコストを表示
