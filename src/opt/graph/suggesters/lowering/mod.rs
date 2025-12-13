@@ -314,8 +314,8 @@ impl LoweringSuggester {
         new_graph.copy_input_metas_from(graph);
         new_graph.copy_output_metas_from(graph);
 
-        // Sinkノードがある場合は、Program構造を保持しながらsrcを再構築
-        if let Some(old_sink) = graph.sink() {
+        // ProgramRootノードがある場合は、Program構造を保持しながらsrcを再構築
+        if let Some(old_sink) = graph.program_root() {
             let new_sink_src: Vec<GraphNode> = old_sink
                 .src
                 .iter()
@@ -332,10 +332,10 @@ impl LoweringSuggester {
                     new_sink_src,
                     old_sink.view.clone(),
                 );
-                new_graph.set_sink(new_sink);
+                new_graph.set_program_root(new_sink);
             }
         } else {
-            // Sinkがない場合は従来通りoutputsを使用
+            // ProgramRootがない場合は従来通りoutputsを使用
             let outputs_map = graph.outputs();
             let mut outputs: Vec<_> = outputs_map.iter().collect();
             outputs.sort_by_key(|(name, _)| name.as_str());

@@ -16,7 +16,7 @@
 //! ```
 //!
 //! # 次元数の変更
-//! - Buffer/Const/Custom: 次元数の変更を許可（reshape, unsqueezeなど）
+//! - Buffer/Const/Kernel: 次元数の変更を許可（reshape, unsqueezeなど）
 //! - その他（Elementwise等）: 次元数の変更を許可しない（srcとの整合性の問題）
 
 use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
@@ -94,7 +94,7 @@ impl ViewMergeSuggester {
 
     /// 入力ノードが次元数変更を許可するタイプかどうかを判定
     ///
-    /// Buffer/Const/Custom は次元数の変更を許可する（独立したノードのため）
+    /// Buffer/Const/Kernel は次元数の変更を許可する（独立したノードのため）
     /// Elementwise等は次元数を変更するとsrcとの整合性が崩れるため許可しない
     fn allows_ndim_change(op: &GraphOp) -> bool {
         matches!(
@@ -233,8 +233,8 @@ impl ViewMergeSuggester {
         new_graph.copy_input_metas_from(graph);
         new_graph.copy_output_metas_from(graph);
 
-        // Sinkノードがある場合
-        if let Some(old_sink) = graph.sink() {
+        // ProgramRootノードがある場合
+        if let Some(old_sink) = graph.program_root() {
             let new_sink_src: Vec<GraphNode> = old_sink
                 .src
                 .iter()
@@ -251,10 +251,10 @@ impl ViewMergeSuggester {
                     new_sink_src,
                     old_sink.view.clone(),
                 );
-                new_graph.set_sink(new_sink);
+                new_graph.set_program_root(new_sink);
             }
         } else {
-            // Sinkがない場合
+            // ProgramRootがない場合
             let outputs_map = graph.outputs();
             let mut outputs: Vec<_> = outputs_map.iter().collect();
             outputs.sort_by_key(|(name, _)| name.as_str());
@@ -493,7 +493,7 @@ mod tests {
         let sum = a + b;
         graph.output("result", sum);
 
-        // LoweringSuggesterでCustomノードに変換
+        // LoweringSuggesterでKernelノードに変換
         let lowered_graphs = lowering_suggester.suggest(&graph);
         assert!(
             !lowered_graphs.is_empty(),
@@ -501,12 +501,12 @@ mod tests {
         );
         let lowered_graph = &lowered_graphs[0];
 
-        // Customノードの出力にViewを適用
+        // Kernelノードの出力にViewを適用
         let lowered_outputs = lowered_graph.outputs();
         let result_node = lowered_outputs.get("result").unwrap();
         assert!(
             matches!(result_node.op, GraphOp::Kernel { .. }),
-            "Should be Custom node"
+            "Should be Kernel node"
         );
 
         // Viewを適用した新しいグラフを作成
@@ -515,7 +515,7 @@ mod tests {
         graph_with_view.copy_input_metas_from(lowered_graph);
         graph_with_view.output("result", permuted);
 
-        // ViewMergeSuggesterでCustom→ViewをCustom[View適用済み]にマージ
+        // ViewMergeSuggesterでKernel→ViewをKernel[View適用済み]にマージ
         let merged_graphs = view_suggester.suggest(&graph_with_view);
         assert_eq!(merged_graphs.len(), 1, "Should produce 1 merged graph");
 
@@ -523,10 +523,10 @@ mod tests {
         let merged_outputs = merged_graphs[0].outputs();
         let merged_result = merged_outputs.get("result").unwrap();
 
-        // 結果がCustomノードであることを確認（Viewノードではない）
+        // 結果がKernelノードであることを確認（Viewノードではない）
         assert!(
             matches!(merged_result.op, GraphOp::Kernel { .. }),
-            "Result should be Custom node after merge, got {:?}",
+            "Result should be Kernel node after merge, got {:?}",
             merged_result.op
         );
 
@@ -534,13 +534,13 @@ mod tests {
         assert_eq!(
             merged_result.view.shape(),
             &[20.into(), 10.into()],
-            "Custom node should have permuted view"
+            "Kernel node should have permuted view"
         );
     }
 
     #[test]
     fn test_allows_ndim_change() {
-        // Buffer/Const/Custom は次元数変更を許可
+        // Buffer/Const/Kernel は次元数変更を許可
         assert!(ViewMergeSuggester::allows_ndim_change(&GraphOp::Buffer {
             name: "a".to_string()
         }));

@@ -29,7 +29,7 @@ pub const LIBLOADING_WRAPPER_NAME: &str = "__harp_metal_entry";
 /// Metalバックエンド専用のPipeline
 ///
 /// GenericPipelineの特殊化として定義。
-/// グラフ最適化は常に有効です（LoweringSuggesterによるCustomノード変換が必須）。
+/// グラフ最適化は常に有効です（LoweringSuggesterによるKernelノード変換が必須）。
 #[cfg(target_os = "macos")]
 pub type MetalPipeline = crate::backend::GenericPipeline<MetalRenderer, MetalCompiler>;
 

@@ -104,7 +104,7 @@ impl OptimizationHistories {
 /// ```
 ///
 /// # Note
-/// グラフ最適化は常に有効です（LoweringSuggesterによるCustomノード変換が必須）。
+/// グラフ最適化は常に有効です（LoweringSuggesterによるKernelノード変換が必須）。
 pub struct GenericPipeline<R, C>
 where
     R: Renderer,
@@ -137,16 +137,16 @@ where
 /// 最適化済みグラフからAST Programを抽出する
 ///
 /// 複数の出力がある場合、すべてのカーネルを1つのProgramに統合します。
-/// ProgramRootAbsorptionSuggesterが生成したSink(Program)を直接返すか、
-/// KernelMergeSuggesterが生成したCustom(Program)を直接返すか、
-/// Custom(Function)がある場合はLowererを使用してProgramを生成します。
+/// ProgramRootAbsorptionSuggesterが生成したProgramRoot(Program)を直接返すか、
+/// KernelMergeSuggesterが生成したKernel(Program)を直接返すか、
+/// Kernel(Function)がある場合はLowererを使用してProgramを生成します。
 fn extract_program_from_graph(graph: Graph) -> AstNode {
     use crate::graph::GraphOp;
     use std::collections::HashSet;
 
-    // 1. SinkノードのProgramを最優先で確認
+    // 1. ProgramRootノードのProgramを最優先で確認
     // ProgramRootAbsorptionSuggesterが生成した完全なProgramがあればそれを使用
-    if let Some(sink) = graph.sink()
+    if let Some(sink) = graph.program_root()
         && let GraphOp::ProgramRoot { ast, .. } = &sink.op
         && let AstNode::Program { functions, .. } = ast
         && !functions.is_empty()
@@ -154,7 +154,7 @@ fn extract_program_from_graph(graph: Graph) -> AstNode {
         return ast.clone();
     }
 
-    // 2. Custom(Program/Function)を収集（フォールバック）
+    // 2. Kernel(Program/Function)を収集（フォールバック）
     let mut collected_programs: Vec<&AstNode> = Vec::new();
     let mut collected_functions: Vec<&AstNode> = Vec::new();
     let mut visited: HashSet<*const crate::graph::GraphNodeData> = HashSet::new();
@@ -230,38 +230,38 @@ fn extract_program_from_graph(graph: Graph) -> AstNode {
         }
     }
 
-    // 単一のCustom(Program)のみの場合はそのまま返す
+    // 単一のKernel(Program)のみの場合はそのまま返す
     if collected_programs.len() == 1 && collected_functions.is_empty() {
-        log::debug!("Extracting single Custom(Program) directly from graph");
+        log::debug!("Extracting single Kernel(Program) directly from graph");
         return collected_programs[0].clone();
     }
 
-    // Custom(Function) がある場合は Lowerer を使用
+    // Kernel(Function) がある場合は Lowerer を使用
     // (LoweringSuggester生成のFunctionにはプレースホルダーのみでパラメータがないため、
     //  Lowerer で正しいパラメータを追加する必要がある)
     if !collected_functions.is_empty() {
         log::debug!(
-            "Custom(Function) found ({} functions), using Lowerer to create Program",
+            "Kernel(Function) found ({} functions), using Lowerer to create Program",
             collected_functions.len()
         );
         return crate::lowerer::lower(graph);
     }
 
-    // 複数のCustom(Program)がある場合、全てを1つのProgramに統合
+    // 複数のKernel(Program)がある場合、全てを1つのProgramに統合
     if collected_programs.len() > 1 {
         log::debug!(
-            "Merging {} Custom(Program) nodes into single Program",
+            "Merging {} Kernel(Program) nodes into single Program",
             collected_programs.len()
         );
         return merge_customs_into_program(&collected_programs, &[]);
     }
 
-    // Custom(Program/Function)がない場合はLowererを使用
-    log::debug!("No Custom nodes found, using Lowerer to create Program");
+    // Kernel(Program/Function)がない場合はLowererを使用
+    log::debug!("No Kernel nodes found, using Lowerer to create Program");
     crate::lowerer::lower(graph)
 }
 
-/// 複数のCustomノード（Program/Function）を1つのProgramに統合
+/// 複数のKernelノード（Program/Function）を1つのProgramに統合
 ///
 /// 複数の出力がある場合、同じカーネルが異なるProgram内に含まれることがあります。
 /// この関数はカーネルの重複を検出し、1つのProgramに統合します。
@@ -540,7 +540,7 @@ where
 {
     /// 新しいGenericPipelineを作成
     ///
-    /// グラフ最適化は常に有効です（LoweringSuggesterによるCustomノード変換が必須）。
+    /// グラフ最適化は常に有効です（LoweringSuggesterによるKernelノード変換が必須）。
     /// AST最適化もデフォルトで有効です。
     ///
     /// 最適化履歴の収集は、DEBUGビルドではデフォルトで有効、RELEASEビルドでは無効です。
@@ -583,7 +583,7 @@ where
         // グラフ最適化（Phase 1 + Phase 2）
         let optimized_graph = self.optimize_graph_internal(graph);
 
-        // グラフからAST Programを抽出（Custom(Program)があれば直接使用）
+        // グラフからAST Programを抽出（Kernel(Program)があれば直接使用）
         let program = extract_program_from_graph(optimized_graph);
 
         // AST最適化
@@ -611,7 +611,7 @@ where
         // グラフ最適化（Phase 1 + Phase 2）
         let optimized_graph = self.optimize_graph_internal(graph);
 
-        // グラフからAST Programを抽出（Custom(Program)があれば直接使用）
+        // グラフからAST Programを抽出（Kernel(Program)があれば直接使用）
         let program = extract_program_from_graph(optimized_graph);
 
         // AST最適化（Program全体を最適化）
@@ -643,7 +643,7 @@ where
         // グラフ最適化（Phase 1 + Phase 2）
         let optimized_graph = self.optimize_graph_internal(graph);
 
-        // グラフからAST Programを抽出（Custom(Program)があれば直接使用）
+        // グラフからAST Programを抽出（Kernel(Program)があれば直接使用）
         let program = extract_program_from_graph(optimized_graph);
 
         // AST最適化（Program全体を最適化）
@@ -690,11 +690,11 @@ where
             Box::new(FusionSuggester::new()),
             // LoweringSuggesterは他の最適化後にlowering
             Box::new(LoweringSuggester::new()),
-            // BufferAbsorptionSuggesterはCustomノードにBufferを取り込む
+            // BufferAbsorptionSuggesterはKernelノードにBufferを取り込む
             Box::new(BufferAbsorptionSuggester::new()),
-            // ProgramRootAbsorptionSuggesterはCustom(Function)をSinkに吸収
+            // ProgramRootAbsorptionSuggesterはKernel(Function)をProgramRootに吸収
             Box::new(ProgramRootAbsorptionSuggester::new()),
-            // ProgramRootBufferAbsorptionSuggesterはSinkの入力Bufferを除去
+            // ProgramRootBufferAbsorptionSuggesterはProgramRootの入力Bufferを除去
             Box::new(ProgramRootBufferAbsorptionSuggester::new()),
         ])
     }
@@ -746,7 +746,7 @@ where
     ///
     /// `enable_multi_phase`がtrueの場合、3フェーズのマルチフェーズ最適化を使用:
     /// - Phase 1 (Preparation): グラフ構造の最適化（View挿入、融合など）
-    /// - Phase 2 (Lowering): Custom変換、ProgramRoot集約
+    /// - Phase 2 (Lowering): Kernel変換、ProgramRoot集約
     /// - Phase 3 (AST Optimization): AST最適化（オプション）
     ///
     /// `enable_multi_phase`がfalseの場合、単一ステージ最適化を使用
@@ -827,7 +827,7 @@ where
     /// 2. FusionSuggester
     /// 3. ParallelStrategyChanger
     /// 4. SimdSuggester
-    /// 5. LoweringSuggester（GraphOp → Custom変換）
+    /// 5. LoweringSuggester（GraphOp → Kernel変換）
     fn optimize_graph(&self, graph: Graph) -> Graph {
         let suggester = Self::create_graph_suggester();
         let estimator = SimpleCostEstimator::new();

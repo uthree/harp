@@ -1,23 +1,23 @@
 //! Buffer Absorption Suggester
 //!
-//! CustomノードのsrcにあるBufferノードを取り込み、
+//! KernelノードのsrcにあるBufferノードを取り込み、
 //! `input_buffers`フィールドに設定するSuggester。
 //!
 //! # 処理フロー
-//! 1. srcにBufferノードを持つCustomノードを検出
+//! 1. srcにBufferノードを持つKernelノードを検出
 //! 2. Bufferノードの情報を`input_buffers`に取り込む
 //! 3. srcからBufferノードを削除（srcは空になる）
 //!
 //! # ProgramRootAbsorptionSuggesterとの連携
-//! このSuggesterの適用後、CustomノードはsrcにBufferを持たなくなるため、
-//! ProgramRootAbsorptionSuggesterはシンプルにCustomを吸収するだけでよくなる。
+//! このSuggesterの適用後、KernelノードはsrcにBufferを持たなくなるため、
+//! ProgramRootAbsorptionSuggesterはシンプルにKernelを吸収するだけでよくなる。
 
 use crate::graph::ops::InputBufferMeta;
 use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
 use crate::opt::graph::GraphSuggester;
 use std::collections::{HashMap, HashSet};
 
-/// BufferノードをCustomノードに取り込むSuggester
+/// BufferノードをKernelノードに取り込むSuggester
 pub struct BufferAbsorptionSuggester;
 
 impl BufferAbsorptionSuggester {
@@ -25,12 +25,12 @@ impl BufferAbsorptionSuggester {
         Self
     }
 
-    /// srcにBufferを持つCustomノードを検出
+    /// srcにBufferを持つKernelノードを検出
     fn find_custom_with_buffers(graph: &Graph) -> Vec<GraphNode> {
         let mut result = Vec::new();
         let mut visited = HashSet::new();
 
-        if let Some(sink) = graph.sink() {
+        if let Some(sink) = graph.program_root() {
             Self::find_customs_recursive(sink, &mut result, &mut visited);
         }
 
@@ -53,7 +53,7 @@ impl BufferAbsorptionSuggester {
             Self::find_customs_recursive(src, result, visited);
         }
 
-        // input_buffersがNoneで、srcにBufferを持つCustomノードを検出
+        // input_buffersがNoneで、srcにBufferを持つKernelノードを検出
         if let GraphOp::Kernel {
             input_buffers: None,
             ..
@@ -69,9 +69,9 @@ impl BufferAbsorptionSuggester {
         }
     }
 
-    /// CustomノードにBufferを取り込む
+    /// KernelノードにBufferを取り込む
     fn absorb_buffers(&self, graph: &Graph, custom_node: &GraphNode) -> Option<Graph> {
-        // CustomノードのASTを取得
+        // KernelノードのASTを取得
         let ast = match &custom_node.op {
             GraphOp::Kernel {
                 ast,
@@ -99,7 +99,7 @@ impl BufferAbsorptionSuggester {
                     }
                 }
                 _ => {
-                    // Buffer以外のノード（他のCustomノードなど）はsrcに残す
+                    // Buffer以外のノード（他のKernelノードなど）はsrcに残す
                     new_src.push(src.clone());
                 }
             }
@@ -110,7 +110,7 @@ impl BufferAbsorptionSuggester {
             return None;
         }
 
-        // 新しいCustomノードを作成
+        // 新しいKernelノードを作成
         let new_custom = GraphNode::new(
             custom_node.dtype.clone(),
             GraphOp::Kernel {
@@ -185,10 +185,10 @@ impl BufferAbsorptionSuggester {
 
         let old_ptr = old_node.as_ptr();
 
-        // Sinkノードを再構築
-        if let Some(sink) = graph.sink() {
+        // ProgramRootノードを再構築
+        if let Some(sink) = graph.program_root() {
             let new_sink = rebuild_node(sink, old_ptr, &new_node, &mut node_map);
-            new_graph.set_sink(new_sink);
+            new_graph.set_program_root(new_sink);
         }
 
         new_graph
@@ -210,13 +210,13 @@ impl GraphSuggester for BufferAbsorptionSuggester {
         let custom_nodes = Self::find_custom_with_buffers(graph);
 
         log::debug!(
-            "BufferAbsorption: found {} Custom nodes with buffers to absorb",
+            "BufferAbsorption: found {} Kernel nodes with buffers to absorb",
             custom_nodes.len()
         );
 
         let mut suggestions = Vec::new();
 
-        // 各Customノードに対して1つの提案を生成
+        // 各Kernelノードに対して1つの提案を生成
         for custom_node in &custom_nodes {
             if let Some(new_graph) = self.absorb_buffers(graph, custom_node) {
                 suggestions.push(new_graph);
@@ -247,7 +247,7 @@ mod tests {
         graph.output("c", c);
 
         eprintln!("=== Initial Graph ===");
-        eprintln!("Sink exists: {:?}", graph.sink().is_some());
+        eprintln!("ProgramRoot exists: {:?}", graph.program_root().is_some());
 
         // Loweringを適用
         let lowered = lowering.suggest(&graph);
@@ -255,8 +255,8 @@ mod tests {
         let lowered_graph = &lowered[0];
 
         eprintln!("\n=== After Lowering ===");
-        if let Some(ref sink) = lowered_graph.sink() {
-            eprintln!("Sink src count: {}", sink.src.len());
+        if let Some(ref sink) = lowered_graph.program_root() {
+            eprintln!("ProgramRoot src count: {}", sink.src.len());
             for (i, src) in sink.src.iter().enumerate() {
                 let has_buffer = src
                     .src
@@ -274,11 +274,11 @@ mod tests {
         assert!(!absorbed.is_empty());
         let absorbed_graph = &absorbed[0];
 
-        // 検証: Customノードのinput_buffersが設定されている
-        if let Some(ref sink) = absorbed_graph.sink() {
+        // 検証: Kernelノードのinput_buffersが設定されている
+        if let Some(ref sink) = absorbed_graph.program_root() {
             for src in &sink.src {
                 if let GraphOp::Kernel { input_buffers, .. } = &src.op {
-                    eprintln!("Custom node input_buffers: {:?}", input_buffers);
+                    eprintln!("Kernel node input_buffers: {:?}", input_buffers);
                     assert!(input_buffers.is_some());
                     let buffers = input_buffers.as_ref().unwrap();
                     assert_eq!(buffers.len(), 2); // a と b

@@ -40,7 +40,7 @@ pub struct OutputMeta {
 pub struct Graph {
     input_metas: Vec<InputMeta>,                // 入力バッファのメタデータ
     output_metas: Vec<OutputMeta>,              // 出力バッファのメタデータ
-    sink: Option<GraphNode>,                    // Sinkノード（グラフのルート）
+    program_root: Option<GraphNode>,            // ProgramRootノード（グラフのルート）
     shape_var_defaults: HashMap<String, isize>, // 動的shape変数のデフォルト値（必須）
 }
 
@@ -77,7 +77,7 @@ impl Graph {
         Self {
             input_metas: Vec::new(),
             output_metas: Vec::new(),
-            sink: None,
+            program_root: None,
             shape_var_defaults: HashMap::new(),
         }
     }
@@ -115,10 +115,10 @@ impl Graph {
         node
     }
 
-    /// 名前付きバッファノードを作成（Customノード用）
+    /// 名前付きバッファノードを作成（Kernelノード用）
     ///
     /// Graph.inputsには登録されない内部バッファを作成します。
-    /// 主にCustomノードの出力バッファとして使用されます。
+    /// 主にKernelノードの出力バッファとして使用されます。
     pub fn buffer<E, I>(name: &str, dtype: DType, shape: I) -> GraphNode
     where
         E: Into<shape::Expr> + Clone,
@@ -139,7 +139,7 @@ impl Graph {
     /// 出力ノードを登録
     ///
     /// 出力ノードを登録します。
-    /// 複数の出力をサポートしており、各出力に対してSinkノードが更新されます。
+    /// 複数の出力をサポートしており、各出力に対してProgramRootノードが更新されます。
     /// 出力のメタデータ（dtype, shape）は自動的に記録されます。
     ///
     /// # Example
@@ -161,25 +161,25 @@ impl Graph {
             shape: output_node.view.shape().to_vec(),
         });
 
-        // Sinkノードを作成/更新（出力Bufferは不要、メタデータで管理）
-        self.update_sink(name.to_string(), output_node);
+        // ProgramRootノードを作成/更新（出力Bufferは不要、メタデータで管理）
+        self.update_program_root(name.to_string(), output_node);
     }
 
-    /// Sinkノードを作成または更新
-    fn update_sink(&mut self, name: String, output_node: GraphNode) {
+    /// ProgramRootノードを作成または更新
+    fn update_program_root(&mut self, name: String, output_node: GraphNode) {
         use crate::ast::AstNode;
 
-        match &mut self.sink {
+        match &mut self.program_root {
             None => {
-                // 最初の出力: Sinkノードを新規作成
+                // 最初の出力: ProgramRootノードを新規作成
                 // 空のProgramを作成（後でProgramRootAbsorptionSuggesterが関数を追加）
                 let empty_program = AstNode::Program {
                     functions: vec![],
                     entry_point: "harp_main".to_string(),
                 };
 
-                let sink = GraphNode::new(
-                    DType::Unknown, // Sinkは型を持たない
+                let program_root = GraphNode::new(
+                    DType::Unknown, // ProgramRootは型を持たない
                     GraphOp::ProgramRoot {
                         ast: empty_program,
                         outputs: vec![name],
@@ -188,51 +188,51 @@ impl Graph {
                     View::contiguous(Vec::<isize>::new()), // スカラービュー
                 );
 
-                self.sink = Some(sink);
+                self.program_root = Some(program_root);
             }
-            Some(existing_sink) => {
-                // 追加の出力: 既存Sinkを更新
-                let mut new_src = existing_sink.src.clone();
+            Some(existing_root) => {
+                // 追加の出力: 既存ProgramRootを更新
+                let mut new_src = existing_root.src.clone();
                 new_src.push(output_node);
 
-                let (ast, mut outputs) = match &existing_sink.op {
+                let (ast, mut outputs) = match &existing_root.op {
                     GraphOp::ProgramRoot { ast, outputs } => (ast.clone(), outputs.clone()),
-                    _ => panic!("Expected Sink node"),
+                    _ => panic!("Expected ProgramRoot node"),
                 };
                 outputs.push(name);
 
-                let new_sink = GraphNode::new(
+                let new_root = GraphNode::new(
                     DType::Unknown,
                     GraphOp::ProgramRoot { ast, outputs },
                     new_src,
                     View::contiguous(Vec::<isize>::new()),
                 );
 
-                self.sink = Some(new_sink);
+                self.program_root = Some(new_root);
             }
         }
     }
 
     /// 出力ノードのマップを取得
     ///
-    /// Sinkノードから出力情報を再構築してBTreeMapとして返します。
-    /// 最適化後、Sinkのsrcが空の場合はSink自体を出力として返します。
+    /// ProgramRootノードから出力情報を再構築してBTreeMapとして返します。
+    /// 最適化後、ProgramRootのsrcが空の場合はProgramRoot自体を出力として返します。
     pub fn outputs(&self) -> BTreeMap<String, GraphNode> {
         let mut result = BTreeMap::new();
 
-        if let Some(sink) = &self.sink
-            && let GraphOp::ProgramRoot { outputs, .. } = &sink.op
+        if let Some(root) = &self.program_root
+            && let GraphOp::ProgramRoot { outputs, .. } = &root.op
         {
-            if sink.src.is_empty() {
-                // 最適化後: srcが空の場合はSink自体を返す
+            if root.src.is_empty() {
+                // 最適化後: srcが空の場合はProgramRoot自体を返す
                 for name in outputs.iter() {
-                    result.insert(name.clone(), sink.clone());
+                    result.insert(name.clone(), root.clone());
                 }
             } else {
                 // srcは [output_node0, output_node1, ...] の順
                 for (i, name) in outputs.iter().enumerate() {
-                    if i < sink.src.len() {
-                        result.insert(name.clone(), sink.src[i].clone());
+                    if i < root.src.len() {
+                        result.insert(name.clone(), root.src[i].clone());
                     }
                 }
             }
@@ -241,20 +241,20 @@ impl Graph {
         result
     }
 
-    /// Sinkノードへのアクセス
-    pub fn sink(&self) -> Option<&GraphNode> {
-        self.sink.as_ref()
+    /// ProgramRootノードへのアクセス
+    pub fn program_root(&self) -> Option<&GraphNode> {
+        self.program_root.as_ref()
     }
 
-    /// Sinkノードを設定（最適化時に使用）
-    pub fn set_sink(&mut self, sink: GraphNode) {
-        self.sink = Some(sink);
+    /// ProgramRootノードを設定（最適化時に使用）
+    pub fn set_program_root(&mut self, program_root: GraphNode) {
+        self.program_root = Some(program_root);
     }
 
     /// 出力名のリストを取得（ソート済み）
     pub fn output_names(&self) -> Vec<String> {
-        if let Some(sink) = &self.sink
-            && let GraphOp::ProgramRoot { outputs, .. } = &sink.op
+        if let Some(root) = &self.program_root
+            && let GraphOp::ProgramRoot { outputs, .. } = &root.op
         {
             let mut names = outputs.clone();
             names.sort();

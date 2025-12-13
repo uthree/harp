@@ -1,12 +1,12 @@
 //! Kernel Merge Suggester
 //!
-//! 複数のCustomノード（Function/Program）をペアワイズでマージします。
+//! 複数のKernelノード（Function/Program）をペアワイズでマージします。
 //! ビームサーチによって最適なマージ順序を探索できます。
 //!
 //! # サポートするマージパターン
-//! - Custom(Function) + Custom(Function) → Custom(Program)
-//! - Custom(Program) + Custom(Function) → Custom(Program) (増分マージ)
-//! - Custom(Program) + Custom(Program) → Custom(Program) (Program融合)
+//! - Kernel(Function) + Kernel(Function) → Kernel(Program)
+//! - Kernel(Program) + Kernel(Function) → Kernel(Program) (増分マージ)
+//! - Kernel(Program) + Kernel(Program) → Kernel(Program) (Program融合)
 //!
 //! # バリア挿入
 //! カーネル呼び出し間には `AstNode::Barrier` を挿入して、
@@ -19,7 +19,7 @@ use crate::graph::{DType as GraphDType, Graph, GraphNode, GraphNodeData, GraphOp
 use crate::opt::graph::GraphSuggester;
 use std::collections::{HashMap, HashSet};
 
-/// 複数のCustomノードをペアワイズでマージするSuggester
+/// 複数のKernelノードをペアワイズでマージするSuggester
 pub struct KernelMergeSuggester;
 
 impl KernelMergeSuggester {
@@ -68,7 +68,7 @@ impl KernelMergeSuggester {
         nodes
     }
 
-    /// グラフ内のCustomノードを収集
+    /// グラフ内のKernelノードを収集
     fn collect_custom_nodes(&self, graph: &Graph) -> Vec<GraphNode> {
         self.collect_all_nodes(graph)
             .into_iter()
@@ -93,7 +93,7 @@ impl KernelMergeSuggester {
         }
     }
 
-    /// マージ可能なCustomノードのペアを検出
+    /// マージ可能なKernelノードのペアを検出
     ///
     /// 親ノード（consumer）と子ノード（producer）の関係にあるペアを返す
     /// Viewノードが間に挟まっている場合もトレースバックして検出する
@@ -101,7 +101,7 @@ impl KernelMergeSuggester {
         let custom_nodes = self.collect_custom_nodes(graph);
         let mut pairs = Vec::new();
 
-        // 各Customノードの参照カウントを計算
+        // 各Kernelノードの参照カウントを計算
         let ref_counts = self.count_node_references(graph);
 
         for consumer in &custom_nodes {
@@ -111,7 +111,7 @@ impl KernelMergeSuggester {
                 // Viewノードをトレースバックして実際のストレージノードを取得
                 let producer = Self::trace_to_storage_node(producer_or_view);
 
-                // producerがCustomノードかチェック
+                // producerがKernelノードかチェック
                 if !matches!(&producer.op, GraphOp::Kernel { .. }) {
                     continue;
                 }
@@ -133,7 +133,7 @@ impl KernelMergeSuggester {
 
     /// グラフ内の各ノードの被参照数をカウント
     ///
-    /// Viewノードを透過的に扱い、実際のストレージノード（Custom等）の
+    /// Viewノードを透過的に扱い、実際のストレージノード（Kernel等）の
     /// 被参照数をカウントします。
     fn count_node_references(&self, graph: &Graph) -> HashMap<*const GraphNodeData, usize> {
         let mut ref_counts: HashMap<*const GraphNodeData, usize> = HashMap::new();
@@ -168,7 +168,7 @@ impl KernelMergeSuggester {
         ref_counts
     }
 
-    /// 2つのCustomノードを1つのCustom(Program)にマージ
+    /// 2つのKernelノードを1つのKernel(Program)にマージ
     fn merge_pair(
         &self,
         graph: &Graph,
@@ -209,7 +209,7 @@ impl KernelMergeSuggester {
             entry_point: "harp_main".to_string(),
         };
 
-        // 新しいCustomノードの入力を構築
+        // 新しいKernelノードの入力を構築
         // producer の入力 + consumer の入力（producerと出力Bufferを除く）
         // 出力 Buffer は最後に追加する
         let producer_inputs = Self::get_input_nodes(&producer.src);
@@ -228,7 +228,7 @@ impl KernelMergeSuggester {
             }
         }
 
-        // 新しいCustomノードを作成
+        // 新しいKernelノードを作成
         let merged_node = GraphNode::new(
             consumer.dtype.clone(),
             GraphOp::Kernel {
@@ -256,7 +256,7 @@ impl KernelMergeSuggester {
     ) -> Vec<AstNode> {
         match ast {
             AstNode::Function { .. } => {
-                // Custom(Function) → Kernelに変換、元の名前を保持
+                // Kernel(Function) → Kernelに変換、元の名前を保持
                 let kernel = self.create_kernel_from_function(node, ast, used_names);
                 if let AstNode::Kernel { name: Some(n), .. } = &kernel {
                     used_names.insert(n.clone());
@@ -264,7 +264,7 @@ impl KernelMergeSuggester {
                 vec![kernel]
             }
             AstNode::Program { functions, .. } => {
-                // Custom(Program) → 既存のKernelを抽出（main以外）
+                // Kernel(Program) → 既存のKernelを抽出（main以外）
                 let mut kernels = Vec::new();
                 for func in functions {
                     match func {
@@ -627,15 +627,15 @@ impl KernelMergeSuggester {
         new_graph.copy_input_metas_from(graph);
         new_graph.copy_output_metas_from(graph);
 
-        // Sinkノードがある場合は、Program構造を保持しながらsrcを再構築
-        if let Some(old_sink) = graph.sink() {
+        // ProgramRootノードがある場合は、Program構造を保持しながらsrcを再構築
+        if let Some(old_sink) = graph.program_root() {
             let new_sink_src: Vec<GraphNode> = old_sink
                 .src
                 .iter()
                 .map(|src| rebuild_node(src, &node_map, &mut visited))
                 .collect();
 
-            // 元のSinkのast（Program）とoutputsを保持して新しいSinkを作成
+            // 元のProgramRootのast（Program）とoutputsを保持して新しいProgramRootを作成
             if let GraphOp::ProgramRoot { ast, outputs } = &old_sink.op {
                 let new_sink = GraphNode::new(
                     old_sink.dtype.clone(),
@@ -646,10 +646,10 @@ impl KernelMergeSuggester {
                     new_sink_src,
                     old_sink.view.clone(),
                 );
-                new_graph.set_sink(new_sink);
+                new_graph.set_program_root(new_sink);
             }
         } else {
-            // Sinkがない場合は従来通りoutputsを使用
+            // ProgramRootがない場合は従来通りoutputsを使用
             let outputs_map = graph.outputs();
             let mut outputs: Vec<_> = outputs_map.iter().collect();
             outputs.sort_by_key(|(name, _)| name.as_str());
@@ -698,7 +698,7 @@ impl KernelMergeSuggester {
         size
     }
 
-    /// グラフ内のCustomノードの統計を取得（テスト用）
+    /// グラフ内のKernelノードの統計を取得（テスト用）
     #[cfg(test)]
     pub fn count_custom_nodes(&self, graph: &Graph) -> (usize, usize) {
         let nodes = self.collect_all_nodes(graph);
@@ -784,15 +784,15 @@ mod tests {
         let merged = &suggestions[0];
         let (fn_count, prog_count) = suggester.count_custom_nodes(merged);
 
-        assert_eq!(prog_count, 1, "Should have 1 Custom(Program)");
-        assert_eq!(fn_count, 0, "Should have 0 Custom(Function)");
+        assert_eq!(prog_count, 1, "Should have 1 Kernel(Program)");
+        assert_eq!(fn_count, 0, "Should have 0 Kernel(Function)");
     }
 
     #[test]
     fn test_kernel_merge_pairwise_chain() {
         use crate::ast::helper::wildcard;
 
-        // 3つのCustomノードのチェーン: a -> custom1 -> custom2 -> custom3
+        // 3つのKernelノードのチェーン: a -> custom1 -> custom2 -> custom3
         let mut graph = Graph::new();
         let a = graph.input("a", DType::F32, vec![10]);
         let b = graph.input("b", DType::F32, vec![10]);
@@ -943,9 +943,9 @@ mod tests {
             );
         }
 
-        // Sinkノードも確認
+        // ProgramRootノードも確認
         let mut sink_has_program = false;
-        if let Some(sink) = optimized.sink() {
+        if let Some(sink) = optimized.program_root() {
             if let GraphOp::ProgramRoot { ast, .. } = &sink.op {
                 if let AstNode::Program { functions, .. } = ast {
                     sink_has_program = !functions.is_empty();
@@ -953,13 +953,13 @@ mod tests {
             }
         }
 
-        println!("Custom(Function): {}", custom_function_count);
-        println!("Custom(Program): {}", custom_program_count);
-        println!("Sink has Program: {}", sink_has_program);
+        println!("Kernel(Function): {}", custom_function_count);
+        println!("Kernel(Program): {}", custom_program_count);
+        println!("ProgramRoot has Program: {}", sink_has_program);
 
         assert!(
             custom_function_count == 1 || custom_program_count >= 1 || sink_has_program,
-            "Expected either 1 Custom(Function) after fusion, 1 Custom(Program) after merge, or Sink with Program"
+            "Expected either 1 Kernel(Function) after fusion, 1 Kernel(Program) after merge, or ProgramRoot with Program"
         );
     }
 }

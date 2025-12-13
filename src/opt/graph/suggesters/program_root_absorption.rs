@@ -1,18 +1,18 @@
-//! Sink Absorption Suggester
+//! ProgramRoot Absorption Suggester
 //!
-//! Custom(Function)ノードをSinkノードに吸収するSuggester。
-//! LoweringSuggesterで生成されたCustom(Function)ノードを順次Sinkに取り込み、
-//! 最終的に Sink(Program)のみの構成を目指します。
+//! Kernel(Function)ノードをProgramRootノードに吸収するSuggester。
+//! LoweringSuggesterで生成されたKernel(Function)ノードを順次ProgramRootに取り込み、
+//! 最終的に ProgramRoot(Program)のみの構成を目指します。
 //!
 //! # 処理フロー
-//! 1. Sinkの**直接の**子ノードからCustom(Function)を検出
+//! 1. ProgramRootの**直接の**子ノードからKernel(Function)を検出
 //! 2. 吸収時にProgramにKernelを追加し、main関数を更新
 //!
 //! # 設計方針
 //! - Viewノードは透過しない（ViewMergeSuggesterに委譲）
-//! - Sinkの直接の子ノードのみを吸収対象とする
-//! - `Sink -> View -> Custom`パターンは、先にViewMergeSuggesterが
-//!   `Sink -> Custom[view適用]`に変換してからこのSuggesterで吸収する
+//! - ProgramRootの直接の子ノードのみを吸収対象とする
+//! - `ProgramRoot -> View -> Kernel`パターンは、先にViewMergeSuggesterが
+//!   `ProgramRoot -> Kernel[view適用]`に変換してからこのSuggesterで吸収する
 
 use crate::ast::helper::{block, function, var};
 use crate::ast::{AstNode, DType as AstDType, Mutability, Scope, VarDecl, VarKind};
@@ -22,7 +22,7 @@ use crate::graph::{DType as GraphDType, Graph, GraphNode, GraphNodeData, GraphOp
 use crate::opt::graph::GraphSuggester;
 use std::collections::{HashMap, HashSet};
 
-/// Custom(Function)ノードをSinkに吸収するSuggester
+/// Kernel(Function)ノードをProgramRootに吸収するSuggester
 pub struct ProgramRootAbsorptionSuggester;
 
 /// カーネル情報（AST + 入力バッファ名のマッピング）
@@ -48,17 +48,17 @@ impl ProgramRootAbsorptionSuggester {
         src.iter().filter(|n| !Self::is_output_buffer(n)).collect()
     }
 
-    /// Sinkノードから吸収可能なCustom(Function)を検出
+    /// ProgramRootノードから吸収可能なKernel(Function)を検出
     ///
-    /// Sinkの子ノードからCustom(Function)を探します。
+    /// ProgramRootの子ノードからKernel(Function)を探します。
     /// Viewノードは1レベルのみ透過します（ViewMergeSuggesterと連携）。
     ///
     /// # 設計方針
-    /// - 直接の子がCustom(Function)の場合は即座に吸収
-    /// - 直接の子がViewの場合は、Viewの先にあるCustomを探す（1レベルのみ）
+    /// - 直接の子がKernel(Function)の場合は即座に吸収
+    /// - 直接の子がViewの場合は、Viewの先にあるKernelを探す（1レベルのみ）
     /// - 深いネストのViewは透過しない（ViewMergeSuggesterに委譲）
     fn find_absorbable_customs(&self, graph: &Graph) -> Vec<GraphNode> {
-        let sink = match graph.sink() {
+        let sink = match graph.program_root() {
             Some(s) => s,
             None => return vec![],
         };
@@ -66,7 +66,7 @@ impl ProgramRootAbsorptionSuggester {
         let mut absorbable = Vec::new();
         let mut visited = HashSet::new();
 
-        // Sinkの直接の子ノードをチェック
+        // ProgramRootの直接の子ノードをチェック
         for src in &sink.src {
             Self::collect_customs_shallow(src, &mut absorbable, &mut visited);
         }
@@ -74,13 +74,13 @@ impl ProgramRootAbsorptionSuggester {
         absorbable
     }
 
-    /// 浅い探索でCustom(Function)またはCustom(Program)を収集
+    /// 浅い探索でKernel(Function)またはKernel(Program)を収集
     ///
-    /// Viewノードは1レベルのみ透過し、その先のCustomを収集します。
-    /// 複数のCustomがチェーンしている場合、依存順（リーフ優先）で収集します。
+    /// Viewノードは1レベルのみ透過し、その先のKernelを収集します。
+    /// 複数のKernelがチェーンしている場合、依存順（リーフ優先）で収集します。
     ///
     /// # Note
-    /// Custom(Program)はKernelMergeSuggesterによって作成されることがあり、
+    /// Kernel(Program)はKernelMergeSuggesterによって作成されることがあり、
     /// これも吸収対象とする必要があります。
     fn collect_customs_shallow(
         node: &GraphNode,
@@ -94,18 +94,18 @@ impl ProgramRootAbsorptionSuggester {
         visited.insert(ptr);
 
         match &node.op {
-            // Custom(Function)またはCustom(Program)を検出
+            // Kernel(Function)またはKernel(Program)を検出
             GraphOp::Kernel {
                 ast: AstNode::Function { .. } | AstNode::Program { .. },
                 ..
             } => {
-                // 先にこのCustomのsrcを探索（依存関係順）
+                // 先にこのKernelのsrcを探索（依存関係順）
                 for src in &node.src {
                     Self::collect_customs_shallow(src, result, visited);
                 }
                 // 重複チェック
                 if !result.iter().any(|n| n.as_ptr() == ptr) {
-                    log::debug!("ProgramRootAbsorption: found absorbable Custom");
+                    log::debug!("ProgramRootAbsorption: found absorbable Kernel");
                     result.push(node.clone());
                 }
             }
@@ -120,17 +120,17 @@ impl ProgramRootAbsorptionSuggester {
         }
     }
 
-    /// Custom(Function)またはCustom(Program)をSinkに吸収
+    /// Kernel(Function)またはKernel(Program)をProgramRootに吸収
     fn absorb_custom(&self, graph: &Graph, custom_node: &GraphNode) -> Option<Graph> {
-        let sink = graph.sink()?;
+        let sink = graph.program_root()?;
 
-        // CustomのASTを取得
+        // KernelのASTを取得
         let custom_ast = match &custom_node.op {
             GraphOp::Kernel { ast, .. } => ast,
             _ => return None,
         };
 
-        // 現在のSinkからProgram情報を取得
+        // 現在のProgramRootからProgram情報を取得
         let (mut program_functions, entry_point, output_names) = match &sink.op {
             GraphOp::ProgramRoot { ast, outputs } => {
                 if let AstNode::Program {
@@ -159,7 +159,7 @@ impl ProgramRootAbsorptionSuggester {
         // ASTの種類に応じて処理を分岐
         let kernel_infos = match custom_ast {
             AstNode::Function { .. } => {
-                // Custom(Function)をKernelに変換して追加
+                // Kernel(Function)をKernelに変換して追加
                 let kernel_info = self.create_kernel_from_function(
                     graph,
                     custom_node,
@@ -170,7 +170,7 @@ impl ProgramRootAbsorptionSuggester {
                 vec![kernel_info]
             }
             AstNode::Program { functions, .. } => {
-                // Custom(Program)の全関数をSinkのProgramに追加
+                // Kernel(Program)の全関数をProgramRootのProgramに追加
                 // harp_main以外の関数を追加（harp_mainは後で再生成）
                 let mut infos = Vec::new();
                 for func in functions {
@@ -201,7 +201,7 @@ impl ProgramRootAbsorptionSuggester {
             _ => return None,
         };
 
-        // 新しいSinkのsrcを構築（custom_nodeを削除し、その入力を直接接続）
+        // 新しいProgramRootのsrcを構築（custom_nodeを削除し、その入力を直接接続）
         let new_src = self.rebuild_sink_src(sink, custom_node);
 
         // main関数を生成/更新（カーネル引数マッピング情報を渡す）
@@ -224,7 +224,7 @@ impl ProgramRootAbsorptionSuggester {
             entry_point,
         };
 
-        // 新しいSinkノードを作成
+        // 新しいProgramRootノードを作成
         let new_sink = GraphNode::new(
             sink.dtype.clone(),
             GraphOp::ProgramRoot {
@@ -270,10 +270,10 @@ impl ProgramRootAbsorptionSuggester {
         }
     }
 
-    /// Sinkのsrcを再構築（吸収されたCustomノードを出力バッファで置き換え）
+    /// ProgramRootのsrcを再構築（吸収されたKernelノードを出力バッファで置き換え）
     ///
-    /// BufferAbsorption適用後: Custom.src = [output_buffer]
-    /// BufferAbsorption適用前: Custom.src = [input0, input1, ..., output_buffer]
+    /// BufferAbsorption適用後: Kernel.src = [output_buffer]
+    /// BufferAbsorption適用前: Kernel.src = [input0, input1, ..., output_buffer]
     fn rebuild_sink_src(&self, sink: &GraphNode, absorbed_custom: &GraphNode) -> Vec<GraphNode> {
         let mut new_src = Vec::new();
         let mut node_map: HashMap<*const GraphNodeData, GraphNode> = HashMap::new();
@@ -373,7 +373,7 @@ impl ProgramRootAbsorptionSuggester {
         let mut visited = HashSet::new();
         let mut added_ptrs: HashSet<*const GraphNodeData> = HashSet::new();
 
-        // Sinkのsrcを再構築（重複を排除）
+        // ProgramRootのsrcを再構築（重複を排除）
         for src in &sink.src {
             if let Some(rebuilt) = rebuild_node(
                 src,
@@ -613,7 +613,7 @@ impl ProgramRootAbsorptionSuggester {
             let input_count = Self::get_kernel_input_count(kernel);
 
             if let Some(info) = kernel_info {
-                // カーネルパラメータ順（Custom.src順）でmainパラメータにマッピング
+                // カーネルパラメータ順（Kernel.src順）でmainパラメータにマッピング
                 for buffer_name in &info.input_buffer_names {
                     if let Some(main_param) = buffer_to_main_param.get(buffer_name) {
                         args.push(var(main_param.clone()));
@@ -679,7 +679,7 @@ impl ProgramRootAbsorptionSuggester {
         }
     }
 
-    /// 新しいSinkノードでグラフを再構築
+    /// 新しいProgramRootノードでグラフを再構築
     fn rebuild_graph_with_sink(&self, graph: &Graph, new_sink: GraphNode) -> Graph {
         let mut new_graph = Graph::new();
 
@@ -687,8 +687,8 @@ impl ProgramRootAbsorptionSuggester {
         new_graph.copy_input_metas_from(graph);
         new_graph.copy_output_metas_from(graph);
 
-        // 新しいSinkをセット
-        new_graph.set_sink(new_sink);
+        // 新しいProgramRootをセット
+        new_graph.set_program_root(new_sink);
 
         // shape変数のデフォルト値をコピー
         for (name, value) in graph.shape_var_defaults() {
@@ -725,16 +725,16 @@ impl GraphSuggester for ProgramRootAbsorptionSuggester {
     }
 
     fn suggest(&self, graph: &Graph) -> Vec<Graph> {
-        // Sinkがない場合は何もしない
-        if graph.sink().is_none() {
-            log::debug!("ProgramRootAbsorptionSuggester: no Sink node found");
+        // ProgramRootがない場合は何もしない
+        if graph.program_root().is_none() {
+            log::debug!("ProgramRootAbsorptionSuggester: no ProgramRoot node found");
             return vec![];
         }
 
         let absorbable = self.find_absorbable_customs(graph);
 
         log::debug!(
-            "ProgramRootAbsorptionSuggester: found {} absorbable Custom(Function) nodes",
+            "ProgramRootAbsorptionSuggester: found {} absorbable Kernel(Function) nodes",
             absorbable.len()
         );
 
@@ -742,7 +742,7 @@ impl GraphSuggester for ProgramRootAbsorptionSuggester {
 
         for custom in absorbable {
             if let Some(new_graph) = self.absorb_custom(graph, &custom) {
-                log::debug!("ProgramRootAbsorptionSuggester: absorbed Custom(Function)");
+                log::debug!("ProgramRootAbsorptionSuggester: absorbed Kernel(Function)");
                 suggestions.push(new_graph);
             }
         }
@@ -767,10 +767,10 @@ mod tests {
         let c = a + b;
         graph.output("c", c);
 
-        // Sinkが存在することを確認
-        assert!(graph.sink().is_some());
+        // ProgramRootが存在することを確認
+        assert!(graph.program_root().is_some());
 
-        // まだCustomノードがないので、吸収対象はない
+        // まだKernelノードがないので、吸収対象はない
         let absorbable = suggester.find_absorbable_customs(&graph);
         assert!(absorbable.is_empty());
     }
@@ -785,21 +785,21 @@ mod tests {
         let a = graph.input("a", DType::F32, vec![10]);
         let b = graph.input("b", DType::F32, vec![10]);
 
-        // Custom(Function)を作成
+        // Kernel(Function)を作成
         let custom = a.custom_elementwise_binary(b, wildcard("0") + wildcard("1"));
         graph.output("c", custom);
 
-        eprintln!("Sink exists: {:?}", graph.sink().is_some());
-        if let Some(ref sink) = graph.sink() {
-            eprintln!("Sink src count: {}", sink.src.len());
+        eprintln!("ProgramRoot exists: {:?}", graph.program_root().is_some());
+        if let Some(ref sink) = graph.program_root() {
+            eprintln!("ProgramRoot src count: {}", sink.src.len());
             for (i, src) in sink.src.iter().enumerate() {
                 eprintln!("  src[{}]: {:?}", i, src.op);
             }
         }
 
-        // Custom(Function)が吸収対象として検出される
+        // Kernel(Function)が吸収対象として検出される
         let absorbable = suggester.find_absorbable_customs(&graph);
-        eprintln!("Found {} absorbable Custom nodes", absorbable.len());
+        eprintln!("Found {} absorbable Kernel nodes", absorbable.len());
         for (i, node) in absorbable.iter().enumerate() {
             eprintln!("  absorbable[{}]: {:?}", i, node.op);
         }
@@ -816,7 +816,7 @@ mod tests {
         let a = graph.input("a", DType::F32, vec![10]);
         let b = graph.input("b", DType::F32, vec![10]);
 
-        // Custom(Function)を作成
+        // Kernel(Function)を作成
         let custom = a.custom_elementwise_binary(b, wildcard("0") + wildcard("1"));
         graph.output("c", custom);
 
@@ -834,9 +834,12 @@ mod tests {
         );
 
         let new_graph = &suggestions[0];
-        eprintln!("New graph sink exists: {:?}", new_graph.sink().is_some());
+        eprintln!(
+            "New graph sink exists: {:?}",
+            new_graph.program_root().is_some()
+        );
 
-        if let Some(ref sink) = new_graph.sink() {
+        if let Some(ref sink) = new_graph.program_root() {
             if let GraphOp::ProgramRoot { ast, outputs } = &sink.op {
                 eprintln!("Outputs: {:?}", outputs);
                 if let crate::ast::AstNode::Program { functions, .. } = ast {
@@ -869,7 +872,7 @@ mod tests {
         graph.output("c", c);
 
         eprintln!("=== Initial Graph ===");
-        eprintln!("Sink exists: {:?}", graph.sink().is_some());
+        eprintln!("ProgramRoot exists: {:?}", graph.program_root().is_some());
 
         // LoweringSuggesterを適用
         let lowered = lowering.suggest(&graph);
@@ -881,13 +884,13 @@ mod tests {
 
         eprintln!(
             "Lowered graph sink exists: {:?}",
-            lowered_graph.sink().is_some()
+            lowered_graph.program_root().is_some()
         );
-        if let Some(ref sink) = lowered_graph.sink() {
-            eprintln!("Sink src count: {}", sink.src.len());
+        if let Some(ref sink) = lowered_graph.program_root() {
+            eprintln!("ProgramRoot src count: {}", sink.src.len());
             for (i, src) in sink.src.iter().enumerate() {
                 let op_name = match &src.op {
-                    GraphOp::Kernel { .. } => "Custom".to_string(),
+                    GraphOp::Kernel { .. } => "Kernel".to_string(),
                     GraphOp::Buffer { name } => format!("Buffer({})", name),
                     GraphOp::Elementwise { op, .. } => format!("Elementwise({:?})", op),
                     _ => format!("{:?}", src.op),
@@ -915,7 +918,7 @@ mod tests {
             "ProgramRootAbsorption should produce suggestions"
         );
 
-        // 吸収後のSinkの状態を確認
+        // 吸収後のProgramRootの状態を確認
         let absorbed_graph = &absorbed[0];
         eprintln!("\n=== Absorbed Graph Details ===");
         eprintln!(
@@ -926,11 +929,11 @@ mod tests {
                 .map(|m| &m.name)
                 .collect::<Vec<_>>()
         );
-        if let Some(ref sink) = absorbed_graph.sink() {
-            eprintln!("Sink src count: {}", sink.src.len());
+        if let Some(ref sink) = absorbed_graph.program_root() {
+            eprintln!("ProgramRoot src count: {}", sink.src.len());
             for (i, src) in sink.src.iter().enumerate() {
                 let op_name = match &src.op {
-                    GraphOp::Kernel { .. } => "Custom".to_string(),
+                    GraphOp::Kernel { .. } => "Kernel".to_string(),
                     GraphOp::Buffer { name } => format!("Buffer({})", name),
                     _ => format!("{:?}", src.op),
                 };
@@ -968,7 +971,7 @@ mod tests {
         use crate::opt::graph::{BeamSearchGraphOptimizer, SimpleCostEstimator};
 
         // 複数の演算を含むグラフ: reduce(a + b) + c
-        // Reduceがあると融合されずに2つのCustomノードになる
+        // Reduceがあると融合されずに2つのKernelノードになる
         let mut graph = Graph::new();
         let a = graph.input("a", DType::F32, vec![10, 5]);
         let b = graph.input("b", DType::F32, vec![10, 5]);
@@ -979,7 +982,7 @@ mod tests {
         graph.output("result", result);
 
         eprintln!("=== Initial Graph ===");
-        eprintln!("Sink exists: {:?}", graph.sink().is_some());
+        eprintln!("ProgramRoot exists: {:?}", graph.program_root().is_some());
 
         // パイプラインと同じ設定でSuggesterを作成
         let flags = SuggesterFlags {
@@ -998,19 +1001,19 @@ mod tests {
 
         eprintln!("\n=== Optimization History ===");
         for snapshot in history.snapshots() {
-            let sink_info = if let Some(ref sink) = snapshot.graph.sink() {
+            let sink_info = if let Some(ref sink) = snapshot.graph.program_root() {
                 if let GraphOp::ProgramRoot { ast, outputs } = &sink.op {
                     let func_count = if let crate::ast::AstNode::Program { functions, .. } = ast {
                         functions.len()
                     } else {
                         0
                     };
-                    format!("Sink(outputs={:?}, funcs={})", outputs, func_count)
+                    format!("ProgramRoot(outputs={:?}, funcs={})", outputs, func_count)
                 } else {
                     "Unknown".to_string()
                 }
             } else {
-                "No Sink".to_string()
+                "No ProgramRoot".to_string()
             };
             eprintln!(
                 "Step {}: {} - cost={:.2} - {}",
@@ -1019,14 +1022,17 @@ mod tests {
         }
 
         eprintln!("\n=== Final Graph ===");
-        eprintln!("Sink exists: {:?}", optimized.sink().is_some());
+        eprintln!(
+            "ProgramRoot exists: {:?}",
+            optimized.program_root().is_some()
+        );
 
-        if let Some(ref sink) = optimized.sink() {
-            eprintln!("Sink src count: {}", sink.src.len());
+        if let Some(ref sink) = optimized.program_root() {
+            eprintln!("ProgramRoot src count: {}", sink.src.len());
             for (i, src) in sink.src.iter().enumerate() {
                 let op_name = match &src.op {
                     GraphOp::Buffer { name } => format!("Buffer({})", name),
-                    GraphOp::Kernel { .. } => "Custom".to_string(),
+                    GraphOp::Kernel { .. } => "Kernel".to_string(),
                     _ => format!("{:?}", std::mem::discriminant(&src.op)),
                 };
                 eprintln!("  src[{}]: {}", i, op_name);
@@ -1051,7 +1057,7 @@ mod tests {
                 }
             }
         } else {
-            panic!("Optimized graph should have Sink node");
+            panic!("Optimized graph should have ProgramRoot node");
         }
     }
 
@@ -1066,18 +1072,18 @@ mod tests {
         let a = graph.input("a", DType::F32, vec![10]);
         let b = graph.input("b", DType::F32, vec![10]);
 
-        // x = a + b (Custom)
+        // x = a + b (Kernel)
         let x = a.custom_elementwise_binary(b, wildcard("0") + wildcard("1"));
-        // y = x + 1 (Custom) - 使用できるcustom_elementwiseがないので、通常のelementwise演算を使用
+        // y = x + 1 (Kernel) - 使用できるcustom_elementwiseがないので、通常のelementwise演算を使用
         let y = &x + 1.0f32;
 
         graph.output("x", x.clone());
         graph.output("y", y);
 
         eprintln!("\n=== Multiple Outputs Test ===");
-        eprintln!("Sink exists: {:?}", graph.sink().is_some());
-        if let Some(ref sink) = graph.sink() {
-            eprintln!("Sink src count: {}", sink.src.len());
+        eprintln!("ProgramRoot exists: {:?}", graph.program_root().is_some());
+        if let Some(ref sink) = graph.program_root() {
+            eprintln!("ProgramRoot src count: {}", sink.src.len());
             if let GraphOp::ProgramRoot { outputs, .. } = &sink.op {
                 eprintln!("Outputs: {:?}", outputs);
             }
@@ -1086,21 +1092,21 @@ mod tests {
         // ProgramRootAbsorptionで吸収可能なノードを検出
         let suggester = ProgramRootAbsorptionSuggester::new();
         let absorbable = suggester.find_absorbable_customs(&graph);
-        eprintln!("\nAbsorbable Custom nodes: {}", absorbable.len());
+        eprintln!("\nAbsorbable Kernel nodes: {}", absorbable.len());
         for (i, node) in absorbable.iter().enumerate() {
             if let GraphOp::Kernel { ast, .. } = &node.op {
                 let name = match ast {
                     crate::ast::AstNode::Function { name, .. } => name.clone(),
                     _ => None,
                 };
-                eprintln!("  [{}] Custom(Function): {:?}", i, name);
+                eprintln!("  [{}] Kernel(Function): {:?}", i, name);
             }
         }
 
         // 少なくとも1つのノードが吸収可能であるべき
         assert!(
             !absorbable.is_empty(),
-            "Should find at least one absorbable Custom node for multiple outputs"
+            "Should find at least one absorbable Kernel node for multiple outputs"
         );
 
         // BeamSearchで最適化
@@ -1120,7 +1126,7 @@ mod tests {
 
         eprintln!("\n=== Optimization History ===");
         for snapshot in history.snapshots() {
-            let sink_info = if let Some(ref sink) = snapshot.graph.sink() {
+            let sink_info = if let Some(ref sink) = snapshot.graph.program_root() {
                 if let GraphOp::ProgramRoot { ast, outputs } = &sink.op {
                     let func_count = if let crate::ast::AstNode::Program { functions, .. } = ast {
                         functions.len()
@@ -1132,7 +1138,7 @@ mod tests {
                     "Unknown".to_string()
                 }
             } else {
-                "No Sink".to_string()
+                "No ProgramRoot".to_string()
             };
             eprintln!(
                 "Step {}: {} - cost={:.2} - {}",
@@ -1142,7 +1148,7 @@ mod tests {
 
         // 最終グラフを確認
         eprintln!("\n=== Final Graph ===");
-        if let Some(ref sink) = optimized.sink() {
+        if let Some(ref sink) = optimized.program_root() {
             if let GraphOp::ProgramRoot { ast, outputs } = &sink.op {
                 eprintln!("Outputs: {:?}", outputs);
                 if let crate::ast::AstNode::Program { functions, .. } = ast {

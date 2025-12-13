@@ -42,7 +42,7 @@ impl SimpleCostEstimator {
     pub fn new() -> Self {
         Self {
             // ノード数ペナルティを高く設定して、複数ノードより
-            // 1つのCustomノードへの融合を優先させる
+            // 1つのKernelノードへの融合を優先させる
             node_count_penalty: 0.5,
         }
     }
@@ -94,7 +94,7 @@ impl SimpleCostEstimator {
                 // メモリコピーのコスト = 要素数 × (read + write) × MEMORY_ACCESS_COST
                 // 対数スケール: log(num_elements * 2 * cost) = log(num_elements) + log(2 * cost)
                 let num_elements = self.compute_num_elements(node);
-                // ContiguousもCustomにloweringされるべきなのでペナルティを追加
+                // ContiguousもKernelにloweringされるべきなのでペナルティを追加
                 let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
                 num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln() + lowering_penalty
             }
@@ -106,8 +106,8 @@ impl SimpleCostEstimator {
                 let log_compute_cost = self.elementwise_op_cost(op);
                 // 入力を読み、出力を書く
                 let log_memory_cost = ((node.src.len() as f32 + 1.0) * MEMORY_ACCESS_COST).ln();
-                // ElementwiseはCustomにloweringされるべきなので、大きなペナルティを追加
-                // これによりオプティマイザはElementwiseをCustomに変換する方向に進む
+                // ElementwiseはKernelにloweringされるべきなので、大きなペナルティを追加
+                // これによりオプティマイザはElementwiseをKernelに変換する方向に進む
                 let elementwise_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
                 num_elements.ln()
                     + log_sum_exp(log_compute_cost, log_memory_cost)
@@ -120,7 +120,7 @@ impl SimpleCostEstimator {
                 let log_reduce_cost = self.reduce_op_cost(op);
                 // 入力読み取り + 縮約演算
                 // log(num_elements * (MEMORY_ACCESS_COST + reduce_cost))
-                // ReduceもCustomにloweringされるべきなのでペナルティを追加
+                // ReduceもKernelにloweringされるべきなのでペナルティを追加
                 let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
                 num_elements.ln()
                     + log_sum_exp(MEMORY_ACCESS_COST.ln(), log_reduce_cost)
@@ -133,7 +133,7 @@ impl SimpleCostEstimator {
                 let log_cumulative_cost = 3.0_f32.ln(); // Sumのコスト
                 // 各要素で読み取り + 演算 + 書き込み
                 // log(num_elements * (2 * MEMORY_ACCESS_COST + cumulative_cost))
-                // CumulativeもCustomにloweringされるべきなのでペナルティを追加
+                // CumulativeもKernelにloweringされるべきなのでペナルティを追加
                 let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
                 num_elements.ln()
                     + log_sum_exp((2.0 * MEMORY_ACCESS_COST).ln(), log_cumulative_cost)
@@ -146,7 +146,7 @@ impl SimpleCostEstimator {
                 // 融合により中間バッファへのメモリアクセスが削減される
                 // 入力読み取り + 演算 + 出力書き込みのみ
                 let log_memory_cost = ((node.src.len() as f32 + 1.0) * MEMORY_ACCESS_COST).ln();
-                // FusedElementwiseもCustomにloweringされるべきなのでペナルティを追加
+                // FusedElementwiseもKernelにloweringされるべきなのでペナルティを追加
                 let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
                 num_elements.ln() + log_sum_exp(log_ops_cost, log_memory_cost) + lowering_penalty
             }
@@ -158,7 +158,7 @@ impl SimpleCostEstimator {
                 let log_elementwise_cost = self.ast_expr_cost(expr);
                 let log_reduce_cost = self.reduce_op_cost(reduce_op);
                 // 入力読み取り + elementwise演算 + reduce演算
-                // FusedElementwiseReduceもCustomにloweringされるべきなのでペナルティを追加
+                // FusedElementwiseReduceもKernelにloweringされるべきなのでペナルティを追加
                 let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
                 num_elements.ln()
                     + log_sum_exp_iter(vec![
@@ -175,7 +175,7 @@ impl SimpleCostEstimator {
                 let log_elementwise_cost = self.ast_expr_cost(expr);
                 let log_cumulative_cost = 3.0_f32.ln(); // Sumのコスト
                 // 各要素で読み取り + elementwise演算 + 累積演算 + 書き込み
-                // FusedElementwiseCumulativeもCustomにloweringされるべきなのでペナルティを追加
+                // FusedElementwiseCumulativeもKernelにloweringされるべきなのでペナルティを追加
                 let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
                 num_elements.ln()
                     + log_sum_exp_iter(vec![
@@ -203,7 +203,7 @@ impl SimpleCostEstimator {
                 // Sliceは入力からのコピーのみ（出力要素数ベース）
                 // コスト = 出力要素数 × (read + write) × MEMORY_ACCESS_COST
                 let num_elements = self.compute_num_elements(node);
-                // SliceもCustomにloweringされるべきなのでペナルティを追加
+                // SliceもKernelにloweringされるべきなのでペナルティを追加
                 let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
                 num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln() + lowering_penalty
             }
@@ -224,7 +224,7 @@ impl SimpleCostEstimator {
                 // 乱数生成のコストは比較的高い
                 let num_elements = self.compute_num_elements(node);
                 let log_rand_cost = 10.0_f32.ln(); // 乱数生成は比較的高コスト
-                // RandもCustomにloweringされるべきなのでペナルティを追加
+                // RandもKernelにloweringされるべきなのでペナルティを追加
                 let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
                 num_elements.ln()
                     + log_sum_exp(log_rand_cost, MEMORY_ACCESS_COST.ln())
@@ -234,7 +234,7 @@ impl SimpleCostEstimator {
                 // 連番初期化: 各要素にインデックス値を書き込み
                 // 非常に軽量（書き込みのみ）
                 let num_elements = self.compute_num_elements(node);
-                // ArangeもCustomにloweringされるべきなのでペナルティを追加
+                // ArangeもKernelにloweringされるべきなのでペナルティを追加
                 let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
                 num_elements.ln() + MEMORY_ACCESS_COST.ln() + lowering_penalty
             }
@@ -242,7 +242,7 @@ impl SimpleCostEstimator {
                 // 型変換: 各要素をキャスト
                 // 非常に軽量（読み込み + キャスト + 書き込み）
                 let num_elements = self.compute_num_elements(node);
-                // CastもCustomにloweringされるべきなのでペナルティを追加
+                // CastもKernelにloweringされるべきなのでペナルティを追加
                 let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
                 num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln() + lowering_penalty
             }
@@ -250,7 +250,7 @@ impl SimpleCostEstimator {
                 // 複素数から実部/虚部を抽出
                 // 読み込み + 書き込み（stride 2でのアクセス）
                 let num_elements = self.compute_num_elements(node);
-                // Real/ImagもCustomにloweringされるべきなのでペナルティを追加
+                // Real/ImagもKernelにloweringされるべきなのでペナルティを追加
                 let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
                 num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln() + lowering_penalty
             }
@@ -258,13 +258,13 @@ impl SimpleCostEstimator {
                 // 実部と虚部から複素数を構築
                 // 2つの入力を読み込み + インターリーブして書き込み
                 let num_elements = self.compute_num_elements(node);
-                // ComplexFromPartsもCustomにloweringされるべきなのでペナルティを追加
+                // ComplexFromPartsもKernelにloweringされるべきなのでペナルティを追加
                 let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
                 num_elements.ln() + (3.0 * MEMORY_ACCESS_COST).ln() + lowering_penalty
             }
             GraphOp::Kernel { ast, .. } => {
-                // Custom関数のコスト計算
-                // CustomノードはLoweringSuggesterによって元の演算から変換されたもの
+                // Kernel関数のコスト計算
+                // KernelノードはLoweringSuggesterによって元の演算から変換されたもの
                 //
                 // ASTの内容に基づいてコストを推定する
                 // これにより、AST最適化の効果がグラフのコストに反映される
@@ -274,7 +274,7 @@ impl SimpleCostEstimator {
                     AstNode::Function { .. } | AstNode::Kernel { .. } | AstNode::Program { .. } => {
                         // Function/Kernel/Programの場合、ASTのコストを使用
                         let ast_cost = ast_estimator.estimate(ast);
-                        // Customノードは複数のグラフノードを1つにまとめるため、
+                        // Kernelノードは複数のグラフノードを1つにまとめるため、
                         // カーネル起動オーバーヘッドの削減効果を反映させる
                         // カーネル起動オーバーヘッド = ln(1000) ≈ 6.9
                         // さらに大きな割引を適用してlowering/融合を強く優先させる
@@ -295,8 +295,8 @@ impl SimpleCostEstimator {
                 }
             }
             GraphOp::ProgramRoot { ast, .. } => {
-                // Sinkノードのコスト = 含まれるProgramのコスト
-                // SinkはグラフのルートでProgramを保持する
+                // ProgramRootノードのコスト = 含まれるProgramのコスト
+                // ProgramRootはグラフのルートでProgramを保持する
                 let ast_estimator = AstSimpleCostEstimator::new();
                 ast_estimator.estimate(ast)
             }
@@ -419,7 +419,7 @@ impl Default for SimpleCostEstimator {
 impl GraphCostEstimator for SimpleCostEstimator {
     fn estimate(&self, graph: &Graph) -> f32 {
         let nodes = self.collect_all_nodes(graph);
-        // ノード数ペナルティの計算時、出力Buffer（Custom srcに含まれる出力バッファ）を除外
+        // ノード数ペナルティの計算時、出力Buffer（Kernel srcに含まれる出力バッファ）を除外
         // 出力Bufferは名前が "output" で始まる
         let node_count = nodes
             .iter()
@@ -428,7 +428,7 @@ impl GraphCostEstimator for SimpleCostEstimator {
         let mut log_costs = Vec::new();
 
         // カーネル数をカウント（カーネル起動オーバーヘッド計算用）
-        // Custom(Function)とlowering対象のノード（FusedElementwiseReduceなど）の両方をカウント
+        // Kernel(Function)とlowering対象のノード（FusedElementwiseReduceなど）の両方をカウント
         // これにより、lowering前後でカーネルオーバーヘッドが変わらず、
         // loweringが進むようになる
         let mut kernel_count = 0;
@@ -476,7 +476,7 @@ impl GraphCostEstimator for SimpleCostEstimator {
         }
 
         // カーネル起動オーバーヘッド
-        // Custom(Program)は1つのプログラムとして扱われるため、1回分のオーバーヘッド
+        // Kernel(Program)は1つのプログラムとして扱われるため、1回分のオーバーヘッド
         let kernel_count_f32 = if has_custom_program {
             1.0 // Programは全体で1つのカーネル起動として扱う
         } else if kernel_count > 0 {
@@ -495,8 +495,8 @@ impl GraphCostEstimator for SimpleCostEstimator {
         // これは元のスケールで cost = base_cost * exp(penalty_coefficient * node_count)
         let penalty = self.node_count_penalty * node_count as f32;
 
-        // 複数のCustom(Function)がある場合、強いペナルティを追加
-        // これにより、単一のCustom(Program)への収束を強く優先する
+        // 複数のKernel(Function)がある場合、強いペナルティを追加
+        // これにより、単一のKernel(Program)への収束を強く優先する
         // kernel_count >= 2の場合：マージによりコストが大幅に下がるようにする
         let merge_penalty = if !has_custom_program && kernel_count >= 2 {
             // 2つ以上のカーネルがある場合、大きなペナルティを追加
@@ -506,10 +506,10 @@ impl GraphCostEstimator for SimpleCostEstimator {
             0.0
         };
 
-        // Sink.srcに入力Bufferがある場合、ペナルティを追加
+        // ProgramRoot.srcに入力Bufferがある場合、ペナルティを追加
         // これにより、ProgramRootBufferAbsorptionSuggesterの適用後にコストが下がる
         // 直接Buffer、またはView→Buffer(input)のパターンを検出（1レベルのみ）
-        let sink_buffer_penalty = if let Some(sink) = graph.sink() {
+        let sink_buffer_penalty = if let Some(sink) = graph.program_root() {
             let input_buffer_count = sink
                 .src
                 .iter()
@@ -540,41 +540,41 @@ impl GraphCostEstimator for SimpleCostEstimator {
 
 /// Lowering専用のコスト推定器
 ///
-/// グラフノードをCustomノードに変換し、最終的に単一のProgramRootノードに
+/// グラフノードをKernelノードに変換し、最終的に単一のProgramRootノードに
 /// 集約することを強く優先します。
 ///
 /// # コスト計算
-/// - 非CustomノードGraphOp（Elementwise, Reduce等）に強いペナルティ
-/// - 複数のCustom(Function)ノードにペナルティ
+/// - 非KernelノードGraphOp（Elementwise, Reduce等）に強いペナルティ
+/// - 複数のKernel(Function)ノードにペナルティ
 /// - 単一のProgramRootノードを持つグラフを強く優先
 pub struct LoweringCostEstimator {
-    /// 非Customノードあたりのペナルティ（対数スケール）
+    /// 非Kernelノードあたりのペナルティ（対数スケール）
     non_custom_penalty: f32,
-    /// Custom(Function)あたりのペナルティ（対数スケール）
+    /// Kernel(Function)あたりのペナルティ（対数スケール）
     function_penalty: f32,
 }
 
 impl LoweringCostEstimator {
     pub fn new() -> Self {
         Self {
-            // 非CustomノードにはLoweringSuggesterを適用すべき
+            // 非KernelノードにはLoweringSuggesterを適用すべき
             // 非常に強いペナルティを設定し、Loweringを常に優先する
             // 元の値: KERNEL_LAUNCH_OVERHEAD.ln() * 2.0 ≈ 13.8
             // 新しい値: AST costを上回るように十分大きく設定
             non_custom_penalty: 100.0,
-            // Custom(Function)はProgramRootに吸収されるべき
+            // Kernel(Function)はProgramRootに吸収されるべき
             // こちらは小さめに設定して、Loweringの結果がペナルティで打ち消されないようにする
             function_penalty: 1.0,
         }
     }
 
-    /// 非Customノードペナルティを設定
+    /// 非Kernelノードペナルティを設定
     pub fn with_non_custom_penalty(mut self, penalty: f32) -> Self {
         self.non_custom_penalty = penalty;
         self
     }
 
-    /// Custom(Function)ペナルティを設定
+    /// Kernel(Function)ペナルティを設定
     pub fn with_function_penalty(mut self, penalty: f32) -> Self {
         self.function_penalty = penalty;
         self
@@ -631,7 +631,7 @@ impl GraphCostEstimator for LoweringCostEstimator {
                 GraphOp::Buffer { .. } | GraphOp::Const(_) | GraphOp::ComplexConst { .. } => {}
                 GraphOp::View(_) => {}
 
-                // Customノード
+                // Kernelノード
                 GraphOp::Kernel { ast, .. } => match ast {
                     AstNode::Function { .. } => {
                         custom_function_count += 1;
@@ -639,7 +639,7 @@ impl GraphCostEstimator for LoweringCostEstimator {
                         total_ast_cost = log_sum_exp(total_ast_cost, ast_cost);
                     }
                     AstNode::Program { .. } => {
-                        // Custom(Program)はKernelMergeSuggesterによって生成される
+                        // Kernel(Program)はKernelMergeSuggesterによって生成される
                         let ast_cost = ast_estimator.estimate(ast);
                         total_ast_cost = log_sum_exp(total_ast_cost, ast_cost);
                     }
@@ -668,10 +668,10 @@ impl GraphCostEstimator for LoweringCostEstimator {
         };
 
         // ペナルティ計算
-        // 1. 非Customノードへの強いペナルティ
+        // 1. 非Kernelノードへの強いペナルティ
         let non_custom_penalty = self.non_custom_penalty * non_custom_count as f32;
 
-        // 2. Custom(Function)へのペナルティ（ProgramRootがない場合のみ）
+        // 2. Kernel(Function)へのペナルティ（ProgramRootがない場合のみ）
         let function_penalty = if !has_program_root && custom_function_count > 0 {
             self.function_penalty * custom_function_count as f32
         } else {
@@ -691,28 +691,28 @@ impl GraphCostEstimator for LoweringCostEstimator {
 
 /// KernelMerge専用のコスト推定器
 ///
-/// 複数のCustom(Function)を1つのCustom(Program)にマージすることを強く優先します。
+/// 複数のKernel(Function)を1つのKernel(Program)にマージすることを強く優先します。
 /// グラフ最適化の第2フェーズ（カーネルマージ）で使用します。
 ///
 /// # コスト計算
-/// - Custom(Function)の数に強いペナルティを与える
-/// - Custom(Program)を持つグラフを強く優先する
+/// - Kernel(Function)の数に強いペナルティを与える
+/// - Kernel(Program)を持つグラフを強く優先する
 /// - その他のノードは無視（既にlowering済みの前提）
 pub struct KernelMergeCostEstimator {
-    /// Custom(Function)あたりのペナルティ（対数スケール）
+    /// Kernel(Function)あたりのペナルティ（対数スケール）
     function_penalty: f32,
 }
 
 impl KernelMergeCostEstimator {
     pub fn new() -> Self {
         Self {
-            // 各Custom(Function)に大きなペナルティを与える
+            // 各Kernel(Function)に大きなペナルティを与える
             // これにより、複数FunctionをProgramにマージすることが強く優先される
             function_penalty: 10.0,
         }
     }
 
-    /// Custom(Function)ペナルティを設定
+    /// Kernel(Function)ペナルティを設定
     pub fn with_function_penalty(mut self, penalty: f32) -> Self {
         self.function_penalty = penalty;
         self
@@ -780,7 +780,7 @@ impl GraphCostEstimator for KernelMergeCostEstimator {
             }
         }
 
-        // ASTコストがない（Customノードがない）場合はデフォルト値
+        // ASTコストがない（Kernelノードがない）場合はデフォルト値
         if total_ast_cost == f32::NEG_INFINITY {
             return 1.0;
         }

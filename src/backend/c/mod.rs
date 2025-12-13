@@ -17,7 +17,7 @@ pub const LIBLOADING_WRAPPER_NAME: &str = "__harp_entry";
 /// C言語バックエンド専用のPipeline
 ///
 /// GenericPipelineの特殊化として定義。
-/// グラフ最適化は常に有効です（LoweringSuggesterによるCustomノード変換が必須）。
+/// グラフ最適化は常に有効です（LoweringSuggesterによるKernelノード変換が必須）。
 pub type CPipeline = crate::backend::GenericPipeline<CRenderer, CCompiler>;
 
 /// C言語（シングルスレッド）のソースコードを表す型

@@ -14,7 +14,7 @@ pub const LIBLOADING_WRAPPER_NAME: &str = "__harp_entry";
 /// OpenCLバックエンド専用のPipeline
 ///
 /// GenericPipelineの特殊化として定義。
-/// グラフ最適化は常に有効です（LoweringSuggesterによるCustomノード変換が必須）。
+/// グラフ最適化は常に有効です（LoweringSuggesterによるKernelノード変換が必須）。
 pub type OpenCLPipeline = crate::backend::GenericPipeline<OpenCLRenderer, OpenCLCompiler>;
 
 /// OpenCL Cコードを表す型

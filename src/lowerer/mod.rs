@@ -27,7 +27,7 @@ impl Default for Lowerer {
     }
 }
 
-/// グラフ内にCustom(Program)ノードがあれば、そのProgramを返す
+/// グラフ内にKernel(Program)ノードがあれば、そのProgramを返す
 /// KernelMergeSuggesterの出力を検出するために使用
 fn find_custom_program(graph: &Graph) -> Option<crate::ast::AstNode> {
     for output in graph.outputs().values() {
@@ -40,11 +40,11 @@ fn find_custom_program(graph: &Graph) -> Option<crate::ast::AstNode> {
     None
 }
 
-/// SinkノードからProgramを取得する
+/// ProgramRootノードからProgramを取得する
 /// ProgramRootAbsorptionSuggesterの出力を検出するために使用
-fn find_sink_program(graph: &Graph) -> Option<crate::ast::AstNode> {
-    if let Some(sink) = graph.sink()
-        && let GraphOp::ProgramRoot { ast, .. } = &sink.op
+fn find_program_root_program(graph: &Graph) -> Option<crate::ast::AstNode> {
+    if let Some(root) = graph.program_root()
+        && let GraphOp::ProgramRoot { ast, .. } = &root.op
         && matches!(ast, crate::ast::AstNode::Program { .. })
     {
         // ProgramRootがProgramを持っていれば返す（空のProgramも許可）
@@ -58,7 +58,7 @@ fn find_sink_program(graph: &Graph) -> Option<crate::ast::AstNode> {
 ///
 /// マルチフェーズ最適化を使用して、グラフを単一のProgramに収束させます。
 /// - Phase 1 (Preparation): グラフ構造の最適化（View挿入、融合など）
-/// - Phase 2 (Lowering): Custom変換、ProgramRoot集約
+/// - Phase 2 (Lowering): Kernel変換、ProgramRoot集約
 fn optimize_graph_for_lowering(graph: Graph) -> Graph {
     use crate::backend::pipeline::{MultiPhaseConfig, optimize_graph_multi_phase};
 
@@ -84,15 +84,15 @@ pub(crate) fn lower(graph: Graph) -> crate::ast::AstNode {
     // グラフ最適化を実行（マルチフェーズ最適化）
     let optimized_graph = optimize_graph_for_lowering(graph);
 
-    // Sink(Program)ノードがあればそれを直接返す（ProgramRootAbsorptionSuggesterの出力）
-    if let Some(program) = find_sink_program(&optimized_graph) {
-        log::debug!("Found Sink(Program) node, returning directly");
+    // ProgramRoot(Program)ノードがあればそれを直接返す（ProgramRootAbsorptionSuggesterの出力）
+    if let Some(program) = find_program_root_program(&optimized_graph) {
+        log::debug!("Found ProgramRoot(Program) node, returning directly");
         return program;
     }
 
-    // Custom(Program)ノードがあればそれを直接返す（KernelMergeSuggesterの出力）
+    // Kernel(Program)ノードがあればそれを直接返す（KernelMergeSuggesterの出力）
     if let Some(program) = find_custom_program(&optimized_graph) {
-        log::debug!("Found Custom(Program) node, returning directly");
+        log::debug!("Found Kernel(Program) node, returning directly");
         return program;
     }
 

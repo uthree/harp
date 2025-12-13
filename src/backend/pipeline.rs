@@ -23,7 +23,7 @@ use crate::opt::graph::{
 pub struct SuggesterFlags {
     /// KernelMergeSuggesterを含めるかどうか
     ///
-    /// trueの場合、単一ステージでCustom(Function)のマージも行います。
+    /// trueの場合、単一ステージでKernel(Function)のマージも行います。
     /// これにより、部分的にloweringされた状態でも増分マージが可能になります。
     pub include_kernel_merge: bool,
 }
@@ -40,7 +40,7 @@ impl SuggesterFlags {
 
     /// KernelMergeSuggesterを含む単一ステージ最適化用のフラグを作成
     ///
-    /// Custom(Program)の増分マージをサポートし、
+    /// Kernel(Program)の増分マージをサポートし、
     /// 単一のビームサーチでloweringからマージまで行います。
     pub fn single_stage() -> Self {
         Self {
@@ -69,18 +69,18 @@ pub fn create_graph_suggester(flags: SuggesterFlags) -> CompositeSuggester {
         Box::new(FusionSuggester::new()),
         // LoweringSuggesterは他の最適化後にlowering
         Box::new(LoweringSuggester::new()),
-        // BufferAbsorptionSuggesterはCustomの入力Bufferをinput_buffersフィールドに取り込む
+        // BufferAbsorptionSuggesterはKernelの入力Bufferをinput_buffersフィールドに取り込む
         Box::new(BufferAbsorptionSuggester::new()),
-        // ProgramRootAbsorptionSuggesterはCustom(Function)をSinkに吸収
+        // ProgramRootAbsorptionSuggesterはKernel(Function)をProgramRootに吸収
         Box::new(ProgramRootAbsorptionSuggester::new()),
-        // ProgramRootBufferAbsorptionSuggesterはSinkの入力Bufferを除去
+        // ProgramRootBufferAbsorptionSuggesterはProgramRootの入力Bufferを除去
         Box::new(ProgramRootBufferAbsorptionSuggester::new()),
     ];
 
     // 単一ステージモードの場合、KernelMergeSuggesterも含める
-    // これにより、Custom(Program)の増分マージが可能になる
+    // これにより、Kernel(Program)の増分マージが可能になる
     // 注: ProgramRootAbsorptionSuggesterが優先され、KernelMergeSuggesterは
-    // 既存のCustom(Program)マージにのみ使用される
+    // 既存のKernel(Program)マージにのみ使用される
     if flags.include_kernel_merge {
         suggesters.push(Box::new(KernelMergeSuggester::new()));
     }
@@ -116,26 +116,26 @@ pub fn create_graph_preparation_suggester() -> CompositeSuggester {
 
 /// Loweringフェーズ用のSuggesterを作成
 ///
-/// Phase 2: グラフノードをCustomノードに変換し、単一のProgramRootに集約
+/// Phase 2: グラフノードをKernelノードに変換し、単一のProgramRootに集約
 /// LoweringSuggester、BufferAbsorption、ProgramRootAbsorptionを使用します。
 ///
 /// # 設計方針
-/// - ViewMergeSuggesterを含むことで、Lowering後に残るViewをCustomに吸収
-/// - ProgramRootAbsorptionSuggesterはSinkの直接の子のCustomのみを吸収
-/// - この順序により、View -> Custom が Custom[view適用] になってからSinkに吸収される
+/// - ViewMergeSuggesterを含むことで、Lowering後に残るViewをKernelに吸収
+/// - ProgramRootAbsorptionSuggesterはProgramRootの直接の子のKernelのみを吸収
+/// - この順序により、View -> Kernel が Kernel[view適用] になってからProgramRootに吸収される
 pub fn create_lowering_phase_suggester() -> CompositeSuggester {
     CompositeSuggester::new(vec![
-        // LoweringSuggesterでGraphOp -> Custom(Function)に変換
+        // LoweringSuggesterでGraphOp -> Kernel(Function)に変換
         Box::new(LoweringSuggester::new()),
-        // ViewMergeSuggesterでViewをCustomに吸収（Sink -> View -> Custom を Sink -> Custom[view適用] に変換）
+        // ViewMergeSuggesterでViewをKernelに吸収（ProgramRoot -> View -> Kernel を ProgramRoot -> Kernel[view適用] に変換）
         Box::new(ViewMergeSuggester::new()),
-        // BufferAbsorptionでCustomノードに入力Bufferを取り込む
+        // BufferAbsorptionでKernelノードに入力Bufferを取り込む
         Box::new(BufferAbsorptionSuggester::new()),
-        // ProgramRootAbsorptionでCustom(Function)をSinkに吸収
+        // ProgramRootAbsorptionでKernel(Function)をProgramRootに吸収
         Box::new(ProgramRootAbsorptionSuggester::new()),
-        // ProgramRootBufferAbsorptionでSinkの入力Bufferを除去
+        // ProgramRootBufferAbsorptionでProgramRootの入力Bufferを除去
         Box::new(ProgramRootBufferAbsorptionSuggester::new()),
-        // KernelMergeSuggesterで複数のCustom(Function)をマージ
+        // KernelMergeSuggesterで複数のKernel(Function)をマージ
         Box::new(KernelMergeSuggester::new()),
     ])
 }
@@ -335,7 +335,7 @@ impl MultiPhaseConfig {
 ///    - コスト推定器: SimpleCostEstimator
 ///    - 目的: グラフ構造の最適化
 ///
-/// 2. **Lowering** (Lowering): Custom変換、ProgramRoot集約
+/// 2. **Lowering** (Lowering): Kernel変換、ProgramRoot集約
 ///    - コスト推定器: LoweringCostEstimator
 ///    - 目的: 単一のProgramRootノードへの変換
 ///
@@ -372,7 +372,7 @@ pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOpt
             .with_progress(config.show_progress)
             .with_collect_logs(config.collect_logs);
 
-    // Phase 2: Lowering（Custom変換、ProgramRoot集約）
+    // Phase 2: Lowering（Kernel変換、ProgramRoot集約）
     let lowering_suggester = create_lowering_phase_suggester();
     let lowering_estimator = LoweringCostEstimator::new();
     let lowering_optimizer = BeamSearchGraphOptimizer::new(lowering_suggester, lowering_estimator)

@@ -1,6 +1,6 @@
-//! Sink Buffer Absorption Suggester
+//! ProgramRoot Buffer Absorption Suggester
 //!
-//! SinkノードのsrcにあるBufferノード（入力バッファ）とConstノードを除去するSuggester。
+//! ProgramRootノードのsrcにあるBufferノード（入力バッファ）とConstノードを除去するSuggester。
 //!
 //! # 処理フロー
 //! 1. srcにある直接の入力Bufferノード（output_で始まらない）またはConstを検出
@@ -11,16 +11,16 @@
 //! - GraphNodeのviewフィールドにView情報が保持されているため、Viewノードをたどる必要はない
 //!
 //! # BufferAbsorptionSuggesterとの関係
-//! - BufferAbsorptionSuggester: Buffer → Custom の吸収
-//! - ProgramRootBufferAbsorptionSuggester: Buffer/Const → Sink の除去
+//! - BufferAbsorptionSuggester: Buffer → Kernel の吸収
+//! - ProgramRootBufferAbsorptionSuggester: Buffer/Const → ProgramRoot の除去
 //!
 //! 入力バッファの情報は既にgraph.input_metas()に保存されているため、
-//! Sinkに別途保持する必要はありません。
+//! ProgramRootに別途保持する必要はありません。
 
 use crate::graph::{Graph, GraphNode, GraphOp};
 use crate::opt::graph::GraphSuggester;
 
-/// SinkノードからBufferノードを除去するSuggester
+/// ProgramRootノードからBufferノードを除去するSuggester
 pub struct ProgramRootBufferAbsorptionSuggester;
 
 impl ProgramRootBufferAbsorptionSuggester {
@@ -28,7 +28,7 @@ impl ProgramRootBufferAbsorptionSuggester {
         Self
     }
 
-    /// ノードがSinkから除去すべき入力パターンかどうかを判定
+    /// ノードがProgramRootから除去すべき入力パターンかどうかを判定
     ///
     /// 直接のBuffer(入力)またはConstのみを検出します。
     /// Viewノードはたどりません（ViewMergeSuggesterに委譲）。
@@ -43,18 +43,18 @@ impl ProgramRootBufferAbsorptionSuggester {
         }
     }
 
-    /// Sinkのsrcに除去可能な入力があるか確認
+    /// ProgramRootのsrcに除去可能な入力があるか確認
     fn has_removable_inputs(&self, graph: &Graph) -> bool {
-        if let Some(sink) = graph.sink() {
+        if let Some(sink) = graph.program_root() {
             sink.src.iter().any(Self::is_removable_input)
         } else {
             false
         }
     }
 
-    /// Sinkノードから入力Buffer/Constを除去
+    /// ProgramRootノードから入力Buffer/Constを除去
     fn remove_inputs(&self, graph: &Graph) -> Option<Graph> {
-        let sink = graph.sink()?;
+        let sink = graph.program_root()?;
 
         // srcから入力Buffer/Constを除去
         let new_src: Vec<GraphNode> = sink
@@ -70,11 +70,11 @@ impl ProgramRootBufferAbsorptionSuggester {
         }
 
         log::debug!(
-            "ProgramRootBufferAbsorption: removing {} input nodes (Buffer/Const) from Sink.src",
+            "ProgramRootBufferAbsorption: removing {} input nodes (Buffer/Const) from ProgramRoot.src",
             sink.src.len() - new_src.len()
         );
 
-        // 新しいSinkノードを作成
+        // 新しいProgramRootノードを作成
         let new_sink = GraphNode::new(
             sink.dtype.clone(),
             sink.op.clone(),
@@ -86,7 +86,7 @@ impl ProgramRootBufferAbsorptionSuggester {
         let mut new_graph = Graph::new();
         new_graph.copy_input_metas_from(graph);
         new_graph.copy_output_metas_from(graph);
-        new_graph.set_sink(new_sink);
+        new_graph.set_program_root(new_sink);
 
         // shape変数のデフォルト値をコピー
         for (name, value) in graph.shape_var_defaults() {
@@ -109,8 +109,8 @@ impl GraphSuggester for ProgramRootBufferAbsorptionSuggester {
     }
 
     fn suggest(&self, graph: &Graph) -> Vec<Graph> {
-        // Sinkがない場合は何もしない
-        if graph.sink().is_none() {
+        // ProgramRootがない場合は何もしない
+        if graph.program_root().is_none() {
             return vec![];
         }
 
@@ -151,7 +151,7 @@ mod tests {
         graph.output("c", c);
 
         eprintln!("=== Initial Graph ===");
-        eprintln!("Sink exists: {:?}", graph.sink().is_some());
+        eprintln!("ProgramRoot exists: {:?}", graph.program_root().is_some());
 
         // Loweringを適用
         let lowered = lowering.suggest(&graph);
@@ -159,11 +159,11 @@ mod tests {
         let lowered_graph = &lowered[0];
 
         eprintln!("\n=== After Lowering ===");
-        if let Some(ref sink) = lowered_graph.sink() {
-            eprintln!("Sink src count: {}", sink.src.len());
+        if let Some(ref sink) = lowered_graph.program_root() {
+            eprintln!("ProgramRoot src count: {}", sink.src.len());
             for (i, src) in sink.src.iter().enumerate() {
                 let op_name = match &src.op {
-                    GraphOp::Kernel { .. } => "Custom".to_string(),
+                    GraphOp::Kernel { .. } => "Kernel".to_string(),
                     GraphOp::Buffer { name } => format!("Buffer({})", name),
                     _ => format!("{:?}", std::mem::discriminant(&src.op)),
                 };
@@ -177,11 +177,11 @@ mod tests {
         let absorbed_graph = &absorbed[0];
 
         eprintln!("\n=== After BufferAbsorption ===");
-        if let Some(ref sink) = absorbed_graph.sink() {
-            eprintln!("Sink src count: {}", sink.src.len());
+        if let Some(ref sink) = absorbed_graph.program_root() {
+            eprintln!("ProgramRoot src count: {}", sink.src.len());
             for (i, src) in sink.src.iter().enumerate() {
                 let op_name = match &src.op {
-                    GraphOp::Kernel { .. } => "Custom".to_string(),
+                    GraphOp::Kernel { .. } => "Kernel".to_string(),
                     GraphOp::Buffer { name } => format!("Buffer({})", name),
                     _ => format!("{:?}", std::mem::discriminant(&src.op)),
                 };
@@ -195,11 +195,11 @@ mod tests {
         let sink_absorbed_graph = &sink_absorbed[0];
 
         eprintln!("\n=== After ProgramRootAbsorption ===");
-        if let Some(ref sink) = sink_absorbed_graph.sink() {
-            eprintln!("Sink src count: {}", sink.src.len());
+        if let Some(ref sink) = sink_absorbed_graph.program_root() {
+            eprintln!("ProgramRoot src count: {}", sink.src.len());
             for (i, src) in sink.src.iter().enumerate() {
                 let op_name = match &src.op {
-                    GraphOp::Kernel { .. } => "Custom".to_string(),
+                    GraphOp::Kernel { .. } => "Kernel".to_string(),
                     GraphOp::Buffer { name } => format!("Buffer({})", name),
                     _ => format!("{:?}", std::mem::discriminant(&src.op)),
                 };
@@ -214,11 +214,11 @@ mod tests {
 
         if !final_suggestions.is_empty() {
             let final_graph = &final_suggestions[0];
-            if let Some(ref sink) = final_graph.sink() {
-                eprintln!("Sink src count: {}", sink.src.len());
+            if let Some(ref sink) = final_graph.program_root() {
+                eprintln!("ProgramRoot src count: {}", sink.src.len());
                 for (i, src) in sink.src.iter().enumerate() {
                     let op_name = match &src.op {
-                        GraphOp::Kernel { .. } => "Custom".to_string(),
+                        GraphOp::Kernel { .. } => "Kernel".to_string(),
                         GraphOp::Buffer { name } => format!("Buffer({})", name),
                         _ => format!("{:?}", std::mem::discriminant(&src.op)),
                     };
@@ -230,18 +230,18 @@ mod tests {
                 }).count();
                 assert_eq!(
                     input_buffer_count, 0,
-                    "Input buffers should be removed from Sink.src"
+                    "Input buffers should be removed from ProgramRoot.src"
                 );
             }
         } else {
             // ProgramRootAbsorption後に入力Bufferがなければ提案はない
-            if let Some(ref sink) = sink_absorbed_graph.sink() {
+            if let Some(ref sink) = sink_absorbed_graph.program_root() {
                 let input_buffer_count = sink.src.iter().filter(|s| {
                     matches!(&s.op, GraphOp::Buffer { name } if !name.starts_with("output_"))
                 }).count();
                 assert_eq!(
                     input_buffer_count, 0,
-                    "No suggestions means no input buffers in Sink.src"
+                    "No suggestions means no input buffers in ProgramRoot.src"
                 );
             }
         }
@@ -265,8 +265,8 @@ mod tests {
         graph.output("c", c);
 
         eprintln!("=== Graph with View chain ===");
-        if let Some(sink) = graph.sink() {
-            eprintln!("Sink src count: {}", sink.src.len());
+        if let Some(sink) = graph.program_root() {
+            eprintln!("ProgramRoot src count: {}", sink.src.len());
             fn print_tree(node: &GraphNode, depth: usize) {
                 let indent = "  ".repeat(depth);
                 let op_name = match &node.op {
@@ -325,15 +325,15 @@ mod tests {
     fn test_sink_buffer_absorption_preserves_output_buffers() {
         let sink_buffer_absorber = ProgramRootBufferAbsorptionSuggester::new();
 
-        // 手動でSinkを構築（入力と出力バッファを含む）
+        // 手動でProgramRootを構築（入力と出力バッファを含む）
         let mut graph = Graph::new();
         let a = graph.input("a", DType::F32, vec![10]);
         let b = graph.input("b", DType::F32, vec![10]);
         let c = a + b;
         graph.output("c", c);
 
-        // この時点では Sink.src に入力バッファが含まれている可能性がある
-        if let Some(sink) = graph.sink() {
+        // この時点では ProgramRoot.src に入力バッファが含まれている可能性がある
+        if let Some(sink) = graph.program_root() {
             let input_count = sink
                 .src
                 .iter()
@@ -341,7 +341,7 @@ mod tests {
                     |s| matches!(&s.op, GraphOp::Buffer { name } if !name.starts_with("output_")),
                 )
                 .count();
-            eprintln!("Before: {} input buffers in Sink.src", input_count);
+            eprintln!("Before: {} input buffers in ProgramRoot.src", input_count);
         }
 
         // ProgramRootBufferAbsorptionを適用
@@ -349,7 +349,7 @@ mod tests {
 
         if !suggestions.is_empty() {
             let new_graph = &suggestions[0];
-            if let Some(sink) = new_graph.sink() {
+            if let Some(sink) = new_graph.program_root() {
                 // 入力バッファが除去されていることを確認
                 let input_count = sink.src.iter().filter(|s| {
                     matches!(&s.op, GraphOp::Buffer { name } if !name.starts_with("output_"))
@@ -360,7 +360,10 @@ mod tests {
                 let output_count = sink.src.iter().filter(|s| {
                     matches!(&s.op, GraphOp::Buffer { name } if name.starts_with("output_"))
                 }).count();
-                eprintln!("After: {} output buffers remain in Sink.src", output_count);
+                eprintln!(
+                    "After: {} output buffers remain in ProgramRoot.src",
+                    output_count
+                );
             }
         }
     }
