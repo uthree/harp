@@ -9,8 +9,6 @@ harp/
 ├── Cargo.toml          # ワークスペースルート
 ├── src/                # harp (コアクレート)
 ├── crates/
-│   ├── harp-autograd/  # 自動微分機能
-│   ├── harp-nn/        # ニューラルネットワークモジュール
 │   ├── harp-derive/    # proc-macro (Module derive)
 │   └── viz/            # 可視化ツール (harp-viz)
 ├── examples/           # 使用例
@@ -20,16 +18,6 @@ harp/
 ## クレート依存関係
 
 ```
-                    ┌─────────────┐
-                    │   harp-nn   │
-                    └──────┬──────┘
-                           │
-                           ▼
-                  ┌────────────────┐
-                  │  harp-autograd │
-                  └───────┬────────┘
-                          │
-                          ▼
 ┌──────────┐      ┌───────────────┐
 │ harp-viz │─────▶│     harp      │
 └──────────┘      └───────────────┘
@@ -45,8 +33,6 @@ harp/
 | クレート | 依存先 | 説明 |
 |---------|--------|------|
 | `harp` | - | コアクレート（Graph, AST, Backend, Lowerer, Optimizer） |
-| `harp-autograd` | harp | 自動微分（Tensor, GradFn, backward） |
-| `harp-nn` | harp-autograd, harp-derive | ニューラルネットワーク（Module, Parameter, Optimizer） |
 | `harp-derive` | - | proc-macro（`#[derive(DeriveModule)]`） |
 | `harp-viz` | harp | 計算グラフ可視化 |
 
@@ -65,31 +51,9 @@ harp/
 
 **仕様書:** [graph.md](graph.md), [ast.md](ast.md), [backend.md](backend.md), [lowerer.md](lowerer.md), [opt.md](opt.md)
 
-### harp-autograd
-
-PyTorchライクな自動微分機能を提供。
-
-**主要型:**
-- `Tensor`: 勾配追跡機能付きテンソル
-- `GradFn`: 勾配計算関数trait
-
-**仕様書:** [autograd.md](autograd.md)
-
-### harp-nn
-
-PyTorchの`torch.nn`に相当するニューラルネットワーク機能。
-
-**主要型:**
-- `Module`: ニューラルネットワークモジュールtrait
-- `Parameter`: 学習可能パラメータ（`Tensor`のnewtype）
-- `Optimizer`: 最適化アルゴリズムtrait
-- `SGD`: 確率的勾配降下法
-
-**仕様書:** [nn.md](nn.md)
-
 ### harp-derive
 
-`harp-nn`用のproc-macro。
+proc-macroクレート。
 
 **提供マクロ:**
 - `#[derive(DeriveModule)]`: Module traitの自動実装
@@ -106,41 +70,22 @@ PyTorchの`torch.nn`に相当するニューラルネットワーク機能。
 use harp::prelude::*;
 
 let mut graph = Graph::new();
-let a = graph.input("a").with_dtype(DType::F32).with_shape([10, 20]).build();
-let b = graph.input("b").with_dtype(DType::F32).with_shape([10, 20]).build();
+let a = graph.input("a", DType::F32, vec![10, 20]);
+let b = graph.input("b", DType::F32, vec![10, 20]);
 let result = a + b;
 graph.output("result", result);
 ```
 
-### 自動微分
+### 畳み込み演算
 
 ```rust
 use harp::prelude::*;
-use harp_autograd::Tensor;
 
-let x = Tensor::ones(vec![10, 20]);
-let y = &x * 2.0 + 1.0;
-let loss = y.sum(0).sum(0);
-loss.backward();
+let mut graph = Graph::new();
+let x = graph.input("x", DType::F32, vec![3, 32, 32]);
+let kernel = graph.input("kernel", DType::F32, vec![16, 3, 3, 3]);
 
-let grad = x.grad().unwrap();
-```
-
-### ニューラルネットワーク
-
-```rust
-use harp_nn::{Module, Parameter, impl_module};
-use harp_autograd::Tensor;
-
-struct Linear {
-    weight: Parameter,
-    bias: Parameter,
-}
-
-impl_module! {
-    for Linear {
-        parameters: [weight, bias]
-    }
-}
+// 2D conv: (3, 32, 32) conv (16, 3, 3, 3) -> (16, 30, 30)
+let output = x.conv(kernel, (1, 1), (1, 1), (0, 0));
 ```
 

@@ -80,13 +80,13 @@ Graph最適化フェーズでは、以下のSuggesterにより段階的に演算
 ### コアモジュール
 - `mod.rs`: Graph、GraphNode、DType等の基本データ構造
 - `ops.rs`: GraphOp定義と基本的な演算
-- `node_view_ops.rs`: GraphNodeのView操作メソッド
+- `node_view_ops.rs`: GraphNodeのView操作メソッド（unfold/fold統一API含む）
 - `strategy.rs`: 並列化戦略の定義
 - `visualization.rs`: DOT形式でのグラフ可視化
 
 ### 高レベル演算
 - `hlops.rs`: 高レベル演算のヘルパー関数
-- `hlops_conv.rs`: 畳み込み演算（conv1d/2d/3d、conv_transpose1d/2d/3dのエントリポイント）
+- `hlops_conv.rs`: 畳み込み演算（conv/conv_transpose統一API、次元数は入力形状から自動判定）
 
 ### 畳み込みモジュール (conv/)
 - `conv/mod.rs`: convモジュールの定義
