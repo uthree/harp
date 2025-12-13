@@ -1,7 +1,7 @@
 use crate::graph::Graph;
 use crate::opt::graph::{
     GraphCostEstimator, GraphOptimizer, GraphSuggester, OptimizationHistory, OptimizationSnapshot,
-    SuggestResult,
+    SimpleCostEstimator, SuggestResult,
 };
 use crate::opt::selector::{Selector, StaticCostSelector};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -21,14 +21,18 @@ use std::time::Instant;
 /// `Selector`により候補選択処理を抽象化しています。
 /// デフォルトは`StaticCostSelector`（静的コストでソートして上位n件を選択）。
 /// `with_selector()`で二段階選択などのカスタム選択器を設定可能。
-pub struct BeamSearchGraphOptimizer<S, E, Sel = StaticCostSelector>
+///
+/// # コスト推定
+///
+/// 内部で`SimpleCostEstimator`を使用してコストを計算し、Selectorに渡します。
+/// カスタムのコスト推定が必要な場合は、`Selector`内部でコストを再計算するか、
+/// `MultiStageSelector`を使用してください。
+pub struct BeamSearchGraphOptimizer<S, Sel = StaticCostSelector>
 where
     S: GraphSuggester,
-    E: GraphCostEstimator,
     Sel: Selector<(Graph, String)>,
 {
     suggester: S,
-    estimator: E,
     selector: Sel,
     beam_width: usize,
     max_steps: usize,
@@ -37,18 +41,17 @@ where
     enable_early_termination: bool,
 }
 
-impl<S, E> BeamSearchGraphOptimizer<S, E, StaticCostSelector>
+impl<S> BeamSearchGraphOptimizer<S, StaticCostSelector>
 where
     S: GraphSuggester,
-    E: GraphCostEstimator,
 {
     /// 新しいビームサーチ最適化器を作成
     ///
     /// デフォルトでは`StaticCostSelector`を使用します。
-    pub fn new(suggester: S, estimator: E) -> Self {
+    /// コスト推定には内部で`SimpleCostEstimator`を使用します。
+    pub fn new(suggester: S) -> Self {
         Self {
             suggester,
-            estimator,
             selector: StaticCostSelector::new(),
             beam_width: 10,
             max_steps: 10000,
@@ -59,10 +62,9 @@ where
     }
 }
 
-impl<S, E, Sel> BeamSearchGraphOptimizer<S, E, Sel>
+impl<S, Sel> BeamSearchGraphOptimizer<S, Sel>
 where
     S: GraphSuggester,
-    E: GraphCostEstimator,
     Sel: Selector<(Graph, String)>,
 {
     /// カスタム選択器を設定
@@ -79,16 +81,15 @@ where
     ///     .then(|c| static_cost(&c.0), 100)
     ///     .then(|c| measure_runtime(&c.0), 10);
     ///
-    /// let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
+    /// let optimizer = BeamSearchGraphOptimizer::new(suggester)
     ///     .with_selector(selector);
     /// ```
-    pub fn with_selector<NewSel>(self, selector: NewSel) -> BeamSearchGraphOptimizer<S, E, NewSel>
+    pub fn with_selector<NewSel>(self, selector: NewSel) -> BeamSearchGraphOptimizer<S, NewSel>
     where
         NewSel: Selector<(Graph, String)>,
     {
         BeamSearchGraphOptimizer {
             suggester: self.suggester,
-            estimator: self.estimator,
             selector,
             beam_width: self.beam_width,
             max_steps: self.max_steps,
@@ -137,15 +138,17 @@ where
     }
 }
 
-impl<S, E, Sel> BeamSearchGraphOptimizer<S, E, Sel>
+impl<S, Sel> BeamSearchGraphOptimizer<S, Sel>
 where
     S: GraphSuggester,
-    E: GraphCostEstimator,
     Sel: Selector<(Graph, String)>,
 {
     /// グラフを最適化して、グラフと最適化履歴を返す
     pub fn optimize_with_history(&self, graph: Graph) -> (Graph, OptimizationHistory) {
         use crate::opt::log_capture;
+
+        // 内部でSimpleCostEstimatorを使用
+        let static_estimator = SimpleCostEstimator::new();
 
         // 時間計測を開始
         let start_time = Instant::now();
@@ -164,7 +167,7 @@ where
         let mut beam = vec![graph.clone()];
 
         // 初期状態を記録
-        let initial_cost = self.estimator.estimate(&graph);
+        let initial_cost = static_estimator.estimate(&graph);
         let initial_outputs = graph.outputs().len();
 
         // 初期状態の入力・出力ノード情報をログに出力
@@ -268,7 +271,7 @@ where
             let candidates_with_cost: Vec<((Graph, String), f32)> = candidates
                 .into_iter()
                 .map(|result| {
-                    let cost = self.estimator.estimate(&result.graph);
+                    let cost = static_estimator.estimate(&result.graph);
                     ((result.graph, result.suggester_name), cost)
                 })
                 .collect();
@@ -393,7 +396,7 @@ where
             );
         }
 
-        let final_cost = self.estimator.estimate(&global_best);
+        let final_cost = static_estimator.estimate(&global_best);
         let improvement_pct = if initial_cost > 0.0 {
             (initial_cost - final_cost) / initial_cost * 100.0
         } else {
@@ -439,10 +442,9 @@ where
     }
 }
 
-impl<S, E, Sel> GraphOptimizer for BeamSearchGraphOptimizer<S, E, Sel>
+impl<S, Sel> GraphOptimizer for BeamSearchGraphOptimizer<S, Sel>
 where
     S: GraphSuggester,
-    E: GraphCostEstimator,
     Sel: Selector<(Graph, String)>,
 {
     fn optimize(&self, graph: Graph) -> Graph {
@@ -638,7 +640,7 @@ impl GraphOptimizer for ChainedGraphOptimizer {
 mod tests {
     use super::*;
     use crate::graph::{DType, Graph};
-    use crate::opt::graph::{GraphSuggester, SimpleCostEstimator};
+    use crate::opt::graph::GraphSuggester;
 
     // テスト用のダミーSuggester
     struct DummySuggester;
@@ -657,9 +659,8 @@ mod tests {
     #[test]
     fn test_beam_search_optimizer_no_candidates() {
         let suggester = DummySuggester;
-        let estimator = SimpleCostEstimator::new();
 
-        let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
+        let optimizer = BeamSearchGraphOptimizer::new(suggester)
             .with_beam_width(5)
             .with_max_steps(5)
             .with_progress(false);
@@ -788,9 +789,8 @@ mod tests {
     #[test]
     fn test_chained_optimizer_with_beam_search() {
         let suggester = DummySuggester;
-        let estimator = SimpleCostEstimator::new();
 
-        let beam_optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
+        let beam_optimizer = BeamSearchGraphOptimizer::new(suggester)
             .with_beam_width(5)
             .with_max_steps(5)
             .with_progress(false)

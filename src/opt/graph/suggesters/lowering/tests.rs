@@ -107,7 +107,7 @@ fn test_beam_search_with_lowering() {
     // LoweringSuggesterのみでBeamSearch
     let composite = CompositeSuggester::new(vec![Box::new(LoweringSuggester::new())]);
 
-    let optimizer = BeamSearchGraphOptimizer::new(composite, SimpleCostEstimator::new())
+    let optimizer = BeamSearchGraphOptimizer::new(composite)
         .with_beam_width(4)
         .with_max_steps(10);
 
@@ -133,9 +133,7 @@ fn test_beam_search_with_lowering() {
 
 #[test]
 fn test_beam_search_with_fusion_and_lowering() {
-    use crate::opt::graph::{
-        BeamSearchGraphOptimizer, CompositeSuggester, FusionSuggester, SimpleCostEstimator,
-    };
+    use crate::opt::graph::{BeamSearchGraphOptimizer, CompositeSuggester, FusionSuggester};
 
     // (a + b) * c + d というElementwiseチェーンを作成
     let mut graph = Graph::new();
@@ -156,7 +154,7 @@ fn test_beam_search_with_fusion_and_lowering() {
     ];
     let composite = CompositeSuggester::new(suggesters);
 
-    let optimizer = BeamSearchGraphOptimizer::new(composite, SimpleCostEstimator::new())
+    let optimizer = BeamSearchGraphOptimizer::new(composite)
         .with_beam_width(4)
         .with_max_steps(50);
 

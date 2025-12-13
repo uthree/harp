@@ -981,7 +981,7 @@ mod tests {
     #[test]
     fn test_full_optimization_with_beam_search() {
         use crate::backend::pipeline::{SuggesterFlags, create_graph_suggester};
-        use crate::opt::graph::{BeamSearchGraphOptimizer, SimpleCostEstimator};
+        use crate::opt::graph::BeamSearchGraphOptimizer;
 
         // 複数の演算を含むグラフ: reduce(a + b) + c
         // Reduceがあると融合されずに2つのKernelノードになる
@@ -1002,9 +1002,8 @@ mod tests {
             include_kernel_merge: true,
         };
         let suggester = create_graph_suggester(flags);
-        let estimator = SimpleCostEstimator::new();
 
-        let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
+        let optimizer = BeamSearchGraphOptimizer::new(suggester)
             .with_beam_width(4)
             .with_max_steps(20)
             .with_progress(false)
@@ -1078,7 +1077,7 @@ mod tests {
     fn test_multiple_outputs_absorption() {
         use crate::ast::helper::wildcard;
         use crate::backend::pipeline::{SuggesterFlags, create_graph_suggester};
-        use crate::opt::graph::{BeamSearchGraphOptimizer, SimpleCostEstimator};
+        use crate::opt::graph::BeamSearchGraphOptimizer;
 
         // 複数出力のグラフを作成: x = a + b, y = x + 1
         let mut graph = Graph::new();
@@ -1127,9 +1126,8 @@ mod tests {
             include_kernel_merge: true,
         };
         let combined_suggester = create_graph_suggester(flags);
-        let estimator = SimpleCostEstimator::new();
 
-        let optimizer = BeamSearchGraphOptimizer::new(combined_suggester, estimator)
+        let optimizer = BeamSearchGraphOptimizer::new(combined_suggester)
             .with_beam_width(4)
             .with_max_steps(50)
             .with_progress(false)

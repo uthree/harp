@@ -11,10 +11,10 @@ use crate::opt::ast::{
 };
 use crate::opt::graph::{
     BeamSearchGraphOptimizer, BufferAbsorptionSuggester, CompositeSuggester,
-    ContiguousInsertionSuggester, FusionSuggester, GraphCostEstimator, GraphOptimizer,
-    LoweringSuggester, OptimizationHistory as GraphOptimizationHistory,
-    ProgramRootAbsorptionSuggester, ProgramRootBufferAbsorptionSuggester, SimpleCostEstimator,
-    TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
+    ContiguousInsertionSuggester, FusionSuggester, GraphOptimizer, LoweringSuggester,
+    OptimizationHistory as GraphOptimizationHistory, ProgramRootAbsorptionSuggester,
+    ProgramRootBufferAbsorptionSuggester, TilingSuggester, ViewInsertionSuggester,
+    ViewMergeSuggester,
 };
 use std::collections::HashMap;
 
@@ -725,15 +725,11 @@ where
     }
 
     /// グラフ最適化用のOptimizerを作成・設定
-    fn create_graph_optimizer<E>(
+    fn create_graph_optimizer(
         &self,
         suggester: CompositeSuggester,
-        estimator: E,
-    ) -> BeamSearchGraphOptimizer<CompositeSuggester, E>
-    where
-        E: GraphCostEstimator,
-    {
-        BeamSearchGraphOptimizer::new(suggester, estimator)
+    ) -> BeamSearchGraphOptimizer<CompositeSuggester> {
+        BeamSearchGraphOptimizer::new(suggester)
             .with_beam_width(self.graph_config.beam_width)
             .with_max_steps(self.graph_config.max_steps)
             .with_progress(self.graph_config.show_progress)
@@ -794,8 +790,7 @@ where
         } else {
             // 単一ステージ最適化
             let suggester = Self::create_graph_suggester();
-            let estimator = SimpleCostEstimator::new();
-            let optimizer = self.create_graph_optimizer(suggester, estimator);
+            let optimizer = self.create_graph_optimizer(suggester);
 
             let (optimized_graph, history) = optimizer.optimize_with_history(graph);
             if self.collect_histories {
@@ -850,8 +845,7 @@ where
     /// 5. LoweringSuggester（GraphOp → Kernel変換）
     fn optimize_graph(&self, graph: Graph) -> Graph {
         let suggester = Self::create_graph_suggester();
-        let estimator = SimpleCostEstimator::new();
-        let optimizer = self.create_graph_optimizer(suggester, estimator);
+        let optimizer = self.create_graph_optimizer(suggester);
 
         let (optimized_graph, history) = optimizer.optimize_with_history(graph);
 

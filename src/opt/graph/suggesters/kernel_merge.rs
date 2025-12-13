@@ -906,7 +906,7 @@ mod tests {
     #[test]
     fn test_kernel_merge_with_optimizer() {
         use crate::backend::pipeline::{SuggesterFlags, create_graph_suggester};
-        use crate::opt::graph::{BeamSearchGraphOptimizer, GraphOptimizer, SimpleCostEstimator};
+        use crate::opt::graph::{BeamSearchGraphOptimizer, GraphOptimizer};
 
         let _ = env_logger::try_init();
 
@@ -921,8 +921,7 @@ mod tests {
         graph.output("result", result);
 
         let suggester = create_graph_suggester(SuggesterFlags::new());
-        let estimator = SimpleCostEstimator::new();
-        let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
+        let optimizer = BeamSearchGraphOptimizer::new(suggester)
             .with_beam_width(4)
             .with_max_steps(100);
 

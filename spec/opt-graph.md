@@ -161,8 +161,8 @@ tinygradのような多段階評価を実現するための抽象化：
 ### 使用例
 
 ```rust
-// デフォルト（静的コスト選択）
-let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator);
+// デフォルト（静的コスト選択、内部でSimpleCostEstimatorを使用）
+let optimizer = BeamSearchGraphOptimizer::new(suggester);
 
 // 多段階選択（dagoptスタイル）
 let selector = MultiStageSelector::new()
@@ -170,7 +170,7 @@ let selector = MultiStageSelector::new()
     .then(|c| memory_cost(c), 100)    // メモリコストで100件に絞り込み
     .then(|c| measure_runtime(c), 10); // 実測で10件を最終選択
 
-let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
+let optimizer = BeamSearchGraphOptimizer::new(suggester)
     .with_selector(selector);
 ```
 

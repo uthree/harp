@@ -4,7 +4,7 @@
 //! 可視化します。
 
 use harp::graph::{DType, Graph};
-use harp::opt::graph::{BeamSearchGraphOptimizer, FusionSuggester, SimpleCostEstimator};
+use harp::opt::graph::{BeamSearchGraphOptimizer, FusionSuggester};
 use harp_viz::HarpVizApp;
 
 fn main() -> eframe::Result {
@@ -36,9 +36,8 @@ fn main() -> eframe::Result {
     // CustomFusionSuggesterのみを使って最適化
     println!("【最適化実行中...】");
     let suggester = FusionSuggester::new();
-    let estimator = SimpleCostEstimator::new();
 
-    let optimizer = BeamSearchGraphOptimizer::new(suggester, estimator)
+    let optimizer = BeamSearchGraphOptimizer::new(suggester)
         .with_beam_width(1) // ビーム幅1で1つずつ融合
         .with_max_steps(10)
         .with_progress(true)

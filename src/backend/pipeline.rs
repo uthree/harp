@@ -12,10 +12,9 @@ use crate::opt::ast::{
 };
 use crate::opt::graph::{
     BeamSearchGraphOptimizer, BufferAbsorptionSuggester, ChainedGraphOptimizer, CompositeSuggester,
-    ContiguousInsertionSuggester, FusionSuggester, GraphCostEstimator, GraphOptimizer,
-    KernelMergeSuggester, LoweringCostEstimator, LoweringSuggester, ProgramRootAbsorptionSuggester,
-    ProgramRootBufferAbsorptionSuggester, SimpleCostEstimator, TilingSuggester,
-    ViewInsertionSuggester, ViewMergeSuggester,
+    ContiguousInsertionSuggester, FusionSuggester, GraphOptimizer, KernelMergeSuggester,
+    LoweringSuggester, ProgramRootAbsorptionSuggester, ProgramRootBufferAbsorptionSuggester,
+    TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
 };
 
 /// Suggesterの種類を指定するフラグ
@@ -174,17 +173,15 @@ pub fn create_ast_suggester() -> AstCompositeSuggester {
 }
 
 /// グラフ最適化用のOptimizerを作成・設定
-pub fn create_graph_optimizer<E>(
+///
+/// コスト推定にはオプティマイザ内部の`SimpleCostEstimator`が使用されます。
+pub fn create_graph_optimizer(
     suggester: CompositeSuggester,
-    estimator: E,
     beam_width: usize,
     max_steps: usize,
     show_progress: bool,
-) -> BeamSearchGraphOptimizer<CompositeSuggester, E>
-where
-    E: GraphCostEstimator,
-{
-    BeamSearchGraphOptimizer::new(suggester, estimator)
+) -> BeamSearchGraphOptimizer<CompositeSuggester> {
+    BeamSearchGraphOptimizer::new(suggester)
         .with_beam_width(beam_width)
         .with_max_steps(max_steps)
         .with_progress(show_progress)
@@ -204,20 +201,17 @@ pub fn create_ast_optimizer(
 }
 
 /// グラフ最適化を実行（履歴付き）
-pub fn optimize_graph_with_history<E>(
+///
+/// コスト推定にはオプティマイザ内部の`SimpleCostEstimator`が使用されます。
+pub fn optimize_graph_with_history(
     graph: Graph,
     flags: SuggesterFlags,
-    estimator: E,
     beam_width: usize,
     max_steps: usize,
     show_progress: bool,
-) -> (Graph, crate::opt::graph::OptimizationHistory)
-where
-    E: GraphCostEstimator,
-{
+) -> (Graph, crate::opt::graph::OptimizationHistory) {
     let suggester = create_graph_suggester(flags);
-    let optimizer =
-        create_graph_optimizer(suggester, estimator, beam_width, max_steps, show_progress);
+    let optimizer = create_graph_optimizer(suggester, beam_width, max_steps, show_progress);
     optimizer.optimize_with_history(graph)
 }
 
@@ -256,35 +250,22 @@ pub fn optimize_ast_with_history(
 /// # Example
 /// ```ignore
 /// use harp::backend::pipeline::optimize_graph_single_stage;
-/// use harp::opt::graph::SimpleCostEstimator;
 ///
 /// let (optimized, history) = optimize_graph_single_stage(
 ///     graph,
-///     SimpleCostEstimator::new(),
 ///     8,    // beam_width
 ///     200,  // max_steps
 ///     true, // show_progress
 /// );
 /// ```
-pub fn optimize_graph_single_stage<E>(
+pub fn optimize_graph_single_stage(
     graph: Graph,
-    estimator: E,
     beam_width: usize,
     max_steps: usize,
     show_progress: bool,
-) -> (Graph, crate::opt::graph::OptimizationHistory)
-where
-    E: GraphCostEstimator,
-{
+) -> (Graph, crate::opt::graph::OptimizationHistory) {
     let flags = SuggesterFlags::single_stage();
-    optimize_graph_with_history(
-        graph,
-        flags,
-        estimator,
-        beam_width,
-        max_steps,
-        show_progress,
-    )
+    optimize_graph_with_history(graph, flags, beam_width, max_steps, show_progress)
 }
 
 /// マルチフェーズグラフ最適化の設定
@@ -379,18 +360,15 @@ impl MultiPhaseConfig {
 pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOptimizer {
     // Phase 1: グラフ準備（View挿入、融合など）
     let preparation_suggester = create_graph_preparation_suggester();
-    let preparation_estimator = SimpleCostEstimator::new();
-    let preparation_optimizer =
-        BeamSearchGraphOptimizer::new(preparation_suggester, preparation_estimator)
-            .with_beam_width(config.beam_width)
-            .with_max_steps(config.max_steps_per_phase)
-            .with_progress(config.show_progress)
-            .with_collect_logs(config.collect_logs);
+    let preparation_optimizer = BeamSearchGraphOptimizer::new(preparation_suggester)
+        .with_beam_width(config.beam_width)
+        .with_max_steps(config.max_steps_per_phase)
+        .with_progress(config.show_progress)
+        .with_collect_logs(config.collect_logs);
 
     // Phase 2: Lowering（Kernel変換、ProgramRoot集約）
     let lowering_suggester = create_lowering_phase_suggester();
-    let lowering_estimator = LoweringCostEstimator::new();
-    let lowering_optimizer = BeamSearchGraphOptimizer::new(lowering_suggester, lowering_estimator)
+    let lowering_optimizer = BeamSearchGraphOptimizer::new(lowering_suggester)
         .with_beam_width(config.beam_width)
         .with_max_steps(config.max_steps_per_phase)
         .with_progress(config.show_progress)
@@ -453,18 +431,15 @@ pub fn optimize_graph_multi_phase(
 pub fn create_greedy_optimizer(config: MultiPhaseConfig) -> ChainedGraphOptimizer {
     // Phase 1: グラフ準備（通常通り、ただしbeam_width=1）
     let preparation_suggester = create_graph_preparation_suggester();
-    let preparation_estimator = SimpleCostEstimator::new();
-    let preparation_optimizer =
-        BeamSearchGraphOptimizer::new(preparation_suggester, preparation_estimator)
-            .with_beam_width(1) // 貪欲法
-            .with_max_steps(config.max_steps_per_phase)
-            .with_progress(config.show_progress)
-            .with_collect_logs(config.collect_logs);
+    let preparation_optimizer = BeamSearchGraphOptimizer::new(preparation_suggester)
+        .with_beam_width(1) // 貪欲法
+        .with_max_steps(config.max_steps_per_phase)
+        .with_progress(config.show_progress)
+        .with_collect_logs(config.collect_logs);
 
     // Phase 2: Lowering（Sequential戦略のみ、beam_width=1）
     let lowering_suggester = create_greedy_lowering_suggester();
-    let lowering_estimator = LoweringCostEstimator::new();
-    let lowering_optimizer = BeamSearchGraphOptimizer::new(lowering_suggester, lowering_estimator)
+    let lowering_optimizer = BeamSearchGraphOptimizer::new(lowering_suggester)
         .with_beam_width(1) // 貪欲法
         .with_max_steps(config.max_steps_per_phase)
         .with_progress(config.show_progress)
