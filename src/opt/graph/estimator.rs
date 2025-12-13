@@ -13,6 +13,15 @@ const MEMORY_ACCESS_COST: f32 = 4.0;
 // 複数カーネルよりも1つのProgram/Functionを優先するため、高めに設定
 const KERNEL_LAUNCH_OVERHEAD: f32 = 1000.0;
 
+// GPU並列化の効果が出る最小要素数
+// これより少ない要素数ではカーネル起動オーバーヘッドが支配的
+const GPU_PARALLEL_MIN_ELEMENTS: f32 = 512.0;
+
+// GPU並列化による最大スピードアップ係数（対数スケールでの割引）
+// 実際のスピードアップは要素数とスレッド数に依存するが、
+// ここでは簡略化してコスト削減の上限を設定
+const GPU_PARALLEL_MAX_SPEEDUP_LOG: f32 = 4.5; // exp(4.5) ≈ 100x speedup
+
 /// 簡単なコスト推定器（ノード数とメモリアクセスベース）
 ///
 /// **重要**: このコスト推定器は対数スケール（log(CPUサイクル数)）でコストを返します。
@@ -269,20 +278,43 @@ impl SimpleCostEstimator {
                 // ASTの内容に基づいてコストを推定する
                 // これにより、AST最適化の効果がグラフのコストに反映される
                 let ast_estimator = AstSimpleCostEstimator::new();
+                let num_elements = self.compute_num_elements(node);
 
                 match ast {
-                    AstNode::Function { .. } | AstNode::Kernel { .. } | AstNode::Program { .. } => {
-                        // Function/Kernel/Programの場合、ASTのコストを使用
+                    AstNode::Kernel { .. } => {
+                        // GPU並列カーネル（AstNode::Kernel）の場合
+                        // 並列実行によるスピードアップを考慮
+                        let ast_cost = ast_estimator.estimate(ast);
+
+                        // 要素数に基づく並列化ボーナス
+                        // 要素数が多いほど並列化の効果が大きい
+                        let parallel_bonus = if num_elements >= GPU_PARALLEL_MIN_ELEMENTS {
+                            // スピードアップ係数: min(log(num_elements), max_speedup)
+                            // 対数スケールなので、コストから減算する
+                            num_elements.ln().min(GPU_PARALLEL_MAX_SPEEDUP_LOG)
+                        } else {
+                            // 要素数が少ない場合、並列化のオーバーヘッドの方が大きい
+                            // ペナルティを与える
+                            -KERNEL_LAUNCH_OVERHEAD.ln() * 0.5
+                        };
+
+                        ast_cost - parallel_bonus - 2.0 * KERNEL_LAUNCH_OVERHEAD.ln()
+                    }
+                    AstNode::Function { .. } => {
+                        // CPU逐次実行（AstNode::Function）の場合
+                        // ループを含む逐次処理のコスト
                         let ast_cost = ast_estimator.estimate(ast);
                         // Kernelノードは複数のグラフノードを1つにまとめるため、
                         // カーネル起動オーバーヘッドの削減効果を反映させる
-                        // カーネル起動オーバーヘッド = ln(1000) ≈ 6.9
-                        // さらに大きな割引を適用してlowering/融合を強く優先させる
+                        ast_cost - 3.0 * KERNEL_LAUNCH_OVERHEAD.ln()
+                    }
+                    AstNode::Program { .. } => {
+                        // Programの場合、ASTのコストを使用
+                        let ast_cost = ast_estimator.estimate(ast);
                         ast_cost - 3.0 * KERNEL_LAUNCH_OVERHEAD.ln()
                     }
                     _ => {
                         // その他のAST（Block等）の場合、要素数を考慮
-                        let num_elements = self.compute_num_elements(node);
                         let ast_cost = ast_estimator.estimate(ast);
                         // 要素数とASTコストを組み合わせる
                         // ただし、ASTがループを含む場合は要素数が既に考慮されている可能性がある
@@ -638,6 +670,14 @@ impl GraphCostEstimator for LoweringCostEstimator {
                         let ast_cost = ast_estimator.estimate(ast);
                         total_ast_cost = log_sum_exp(total_ast_cost, ast_cost);
                     }
+                    AstNode::Kernel { .. } => {
+                        // GPU並列カーネル - Functionと同様にカウント
+                        custom_function_count += 1;
+                        let ast_cost = ast_estimator.estimate(ast);
+                        // 並列化ボーナスを適用（LoweringCostEstimatorでも考慮）
+                        let parallel_bonus = GPU_PARALLEL_MAX_SPEEDUP_LOG * 0.5;
+                        total_ast_cost = log_sum_exp(total_ast_cost, ast_cost - parallel_bonus);
+                    }
                     AstNode::Program { .. } => {
                         // Kernel(Program)はKernelMergeSuggesterによって生成される
                         let ast_cost = ast_estimator.estimate(ast);
@@ -890,6 +930,109 @@ mod tests {
 
         // ペナルティありの場合、コストが上昇するはず
         assert!(cost_with_penalty > cost_no_penalty);
+    }
+
+    #[test]
+    fn test_parallel_kernel_preferred_for_large_elements() {
+        use crate::ast::{DType as AstDType, Mutability, Scope, VarDecl, VarKind, helper::*};
+        use crate::graph::shape::Expr;
+
+        let estimator = SimpleCostEstimator::new();
+
+        // 逐次版のKernel (AstNode::Function with Range loops)
+        let sequential_func = function(
+            Some("E_100_100".to_string()),
+            vec![],
+            AstDType::Tuple(vec![]),
+            range(
+                "ridx_0",
+                const_int(0),
+                const_int(1),
+                const_int(100),
+                range(
+                    "ridx_1",
+                    const_int(0),
+                    const_int(1),
+                    const_int(100),
+                    block(
+                        vec![store(
+                            var("output"),
+                            var("ridx_0") * 100 + var("ridx_1"),
+                            load(
+                                var("input0"),
+                                var("ridx_0") * 100 + var("ridx_1"),
+                                AstDType::F32,
+                            ) + load(
+                                var("input1"),
+                                var("ridx_0") * 100 + var("ridx_1"),
+                                AstDType::F32,
+                            ),
+                        )],
+                        Scope::new(),
+                    ),
+                ),
+            ),
+        );
+
+        // 並列版のKernel (AstNode::Kernel without loops)
+        let parallel_kernel = kernel_1d(
+            Some("E_100_100".to_string()),
+            vec![VarDecl {
+                name: "tid".to_string(),
+                dtype: AstDType::Int,
+                mutability: Mutability::Immutable,
+                kind: VarKind::ThreadId(0),
+            }],
+            AstDType::Tuple(vec![]),
+            block(
+                vec![store(
+                    var("output"),
+                    var("tid"),
+                    load(var("input0"), var("tid"), AstDType::F32)
+                        + load(var("input1"), var("tid"), AstDType::F32),
+                )],
+                Scope::new(),
+            ),
+            const_int(10000), // grid_size = total elements
+            const_int(256),   // thread_group_size
+        );
+
+        // GraphNodeとして評価
+        let view = crate::graph::View::contiguous(vec![Expr::Const(100), Expr::Const(100)]);
+
+        let seq_node = GraphNode::new(
+            DType::F32,
+            crate::graph::GraphOp::Kernel {
+                ast: sequential_func,
+                input_buffers: None,
+            },
+            vec![],
+            view.clone(),
+        );
+
+        let par_node = GraphNode::new(
+            DType::F32,
+            crate::graph::GraphOp::Kernel {
+                ast: parallel_kernel,
+                input_buffers: None,
+            },
+            vec![],
+            view,
+        );
+
+        let seq_cost = estimator.node_base_cost(&seq_node);
+        let par_cost = estimator.node_base_cost(&par_node);
+
+        println!("Sequential cost: {}", seq_cost);
+        println!("Parallel cost: {}", par_cost);
+
+        // 大きな要素数では並列版の方がコストが低いはず
+        assert!(
+            par_cost < seq_cost,
+            "Parallel kernel cost ({}) should be lower than sequential function cost ({}) for large elements",
+            par_cost,
+            seq_cost
+        );
     }
 }
 
