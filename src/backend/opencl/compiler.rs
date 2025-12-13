@@ -61,7 +61,7 @@ impl OpenCLCompilerOption {
 }
 
 /// OpenCLコンパイラ
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct OpenCLCompiler {
     /// コンパイラのパス（デフォルトは "gcc" または "clang"）
     compiler_path: String,

@@ -1,6 +1,6 @@
 use crate::ast::AstNode;
 use crate::ast::helper::const_int;
-use crate::backend::{Compiler, Pipeline, Renderer};
+use crate::backend::{Compiler, KernelSignature, Pipeline, Renderer};
 use crate::graph::Graph;
 use crate::opt::ast::rules::all_algebraic_rules;
 use crate::opt::ast::{
@@ -10,7 +10,9 @@ use crate::opt::ast::{
     Optimizer as AstOptimizer, RuleBaseOptimizer,
 };
 use crate::opt::graph::{GraphOptimizer, OptimizationHistory as GraphOptimizationHistory};
+use crate::opt::selector::RuntimeSelector;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// compile_graph_with_all_historiesの戻り値の型
 type CompileWithHistoriesResult<K> =
@@ -40,6 +42,49 @@ impl Default for OptimizationConfig {
             show_progress: false,
             early_termination_threshold: Some(20), // デフォルト: 20ステップ改善なしで終了
         }
+    }
+}
+
+/// RuntimeSelector（実測値ベース最適化）の設定
+#[derive(Debug, Clone)]
+pub struct RuntimeSelectorConfig {
+    /// RuntimeSelectorを有効にするか
+    pub enabled: bool,
+    /// 足切り候補数（静的コストで上位何件を残すか）
+    pub pre_filter_count: usize,
+    /// 計測回数（実行時間を何回計測して平均を取るか）
+    pub measurement_count: usize,
+}
+
+impl Default for RuntimeSelectorConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false, // デフォルトでは無効
+            pre_filter_count: 10,
+            measurement_count: 10,
+        }
+    }
+}
+
+impl RuntimeSelectorConfig {
+    /// 新しい設定を作成（有効化済み）
+    pub fn new() -> Self {
+        Self {
+            enabled: true,
+            ..Default::default()
+        }
+    }
+
+    /// 足切り候補数を設定
+    pub fn with_pre_filter_count(mut self, count: usize) -> Self {
+        self.pre_filter_count = count.max(1);
+        self
+    }
+
+    /// 計測回数を設定
+    pub fn with_measurement_count(mut self, count: usize) -> Self {
+        self.measurement_count = count.max(1);
+        self
     }
 }
 
@@ -120,6 +165,13 @@ where
     pub enable_ast_optimization: bool,
     /// AST最適化の設定
     pub ast_config: OptimizationConfig,
+    /// RuntimeSelector（実測値ベース最適化）の設定
+    pub runtime_config: RuntimeSelectorConfig,
+    /// RuntimeSelector用のバッファファクトリ
+    ///
+    /// KernelSignatureからベンチマーク用バッファを生成する関数。
+    /// runtime_config.enabledがtrueの場合に使用されます。
+    runtime_buffer_factory: Option<Arc<dyn Fn(&KernelSignature) -> Vec<C::Buffer> + Send + Sync>>,
     /// 最適化履歴を収集するか（DEBUGビルドではデフォルトでtrue、RELEASEビルドではfalse）
     pub collect_histories: bool,
 }
@@ -567,8 +619,36 @@ where
             graph_config: OptimizationConfig::default(),
             enable_ast_optimization: true, // デフォルトで有効
             ast_config: OptimizationConfig::default(),
+            runtime_config: RuntimeSelectorConfig::default(),
+            runtime_buffer_factory: None,
             collect_histories: cfg!(debug_assertions),
         }
+    }
+
+    /// RuntimeSelector用のバッファファクトリを設定
+    ///
+    /// 設定すると自動的にruntime_config.enabledがtrueになります。
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use harp::backend::{GenericPipeline, RuntimeSelectorConfig};
+    /// use harp::backend::c::{CRenderer, CCompiler, CBuffer};
+    ///
+    /// let mut pipeline = GenericPipeline::new(CRenderer::new(), CCompiler::new());
+    /// pipeline.set_runtime_buffer_factory(|sig| {
+    ///     sig.inputs.iter()
+    ///         .chain(sig.outputs.iter())
+    ///         .map(|buf_sig| CBuffer::new(vec![buf_sig.shape[0].expect_const() as usize], 4))
+    ///         .collect()
+    /// });
+    /// ```
+    pub fn set_runtime_buffer_factory<F>(&mut self, factory: F)
+    where
+        F: Fn(&KernelSignature) -> Vec<C::Buffer> + Send + Sync + 'static,
+    {
+        self.runtime_buffer_factory = Some(Arc::new(factory));
+        self.runtime_config.enabled = true;
     }
 
     /// キャッシュからKernelを取得
@@ -599,9 +679,42 @@ where
         // グラフからAST Programを抽出（Kernel(Program)があれば直接使用）
         let program = extract_program_from_graph(optimized_graph);
 
-        // AST最適化
+        // AST最適化（静的コスト）
         let optimized_program = if self.enable_ast_optimization {
-            let (program, _history) = self.optimize_ast_internal(program);
+            let (program, _history) = self.optimize_ast_static(program);
+            program
+        } else {
+            program
+        };
+
+        // レンダリングとコンパイル
+        let code = self.renderer().render(&optimized_program);
+        Ok(self.compiler().compile(&code, signature))
+    }
+
+    /// RuntimeSelectorを使用してグラフをコンパイル
+    ///
+    /// RuntimeSelectorが有効な場合、実測値ベースでAST最適化を行います。
+    /// Clone制約が必要です。
+    pub fn compile_graph_with_runtime(&mut self, graph: Graph) -> Result<C::Kernel, String>
+    where
+        R: Clone,
+        C: Clone,
+        C::Kernel: Clone,
+        C::Buffer: 'static,
+    {
+        // Signatureを作成（最適化前のGraphから）
+        let signature = crate::lowerer::create_signature(&graph);
+
+        // グラフ最適化（Phase 1 + Phase 2）
+        let optimized_graph = self.optimize_graph_internal(graph);
+
+        // グラフからAST Programを抽出（Kernel(Program)があれば直接使用）
+        let program = extract_program_from_graph(optimized_graph);
+
+        // AST最適化（RuntimeSelector使用）
+        let optimized_program = if self.enable_ast_optimization {
+            let (program, _history) = self.optimize_ast_with_runtime(program, signature.clone());
             program
         } else {
             program
@@ -627,9 +740,47 @@ where
         // グラフからAST Programを抽出（Kernel(Program)があれば直接使用）
         let program = extract_program_from_graph(optimized_graph);
 
-        // AST最適化（Program全体を最適化）
+        // AST最適化（Program全体を最適化、静的コスト）
         let (program, all_histories) = if self.enable_ast_optimization {
-            let (program, history) = self.optimize_ast_internal(program);
+            let (program, history) = self.optimize_ast_static(program);
+
+            let mut all_histories = HashMap::new();
+            all_histories.insert("program".to_string(), history);
+
+            (program, all_histories)
+        } else {
+            (program, HashMap::new())
+        };
+
+        Ok((program, all_histories))
+    }
+
+    /// RuntimeSelectorを使用して最適化のみを実行（コンパイルなし、AST履歴を返す）
+    ///
+    /// RuntimeSelectorが有効な場合、実測値ベースでAST最適化を行います。
+    /// Clone制約が必要です。
+    pub fn optimize_graph_with_runtime_histories(
+        &mut self,
+        graph: Graph,
+    ) -> Result<(AstNode, HashMap<String, AstOptimizationHistory>), String>
+    where
+        R: Clone,
+        C: Clone,
+        C::Kernel: Clone,
+        C::Buffer: 'static,
+    {
+        // Signatureを作成（最適化前のGraphから）
+        let signature = crate::lowerer::create_signature(&graph);
+
+        // グラフ最適化（Phase 1 + Phase 2）
+        let optimized_graph = self.optimize_graph_internal(graph);
+
+        // グラフからAST Programを抽出（Kernel(Program)があれば直接使用）
+        let program = extract_program_from_graph(optimized_graph);
+
+        // AST最適化（Program全体を最適化、RuntimeSelector使用）
+        let (program, all_histories) = if self.enable_ast_optimization {
+            let (program, history) = self.optimize_ast_with_runtime(program, signature);
 
             let mut all_histories = HashMap::new();
             all_histories.insert("program".to_string(), history);
@@ -659,9 +810,50 @@ where
         // グラフからAST Programを抽出（Kernel(Program)があれば直接使用）
         let program = extract_program_from_graph(optimized_graph);
 
-        // AST最適化（Program全体を最適化）
+        // AST最適化（Program全体を最適化、静的コスト）
         let (optimized_program, all_histories) = if self.enable_ast_optimization {
-            let (program, history) = self.optimize_ast_internal(program);
+            let (program, history) = self.optimize_ast_static(program);
+
+            let mut all_histories = HashMap::new();
+            all_histories.insert("program".to_string(), history);
+
+            (program, all_histories)
+        } else {
+            (program, HashMap::new())
+        };
+
+        // レンダリングとコンパイル
+        let code = self.renderer().render(&optimized_program);
+        let kernel = self.compiler().compile(&code, signature);
+        Ok((kernel, optimized_program, all_histories))
+    }
+
+    /// RuntimeSelectorを使用して最適化履歴を記録しながらグラフをコンパイル（AST履歴を返す）
+    ///
+    /// RuntimeSelectorが有効な場合、実測値ベースでAST最適化を行います。
+    /// Clone制約が必要です。
+    pub fn compile_graph_with_runtime_histories(
+        &mut self,
+        graph: Graph,
+    ) -> CompileWithHistoriesResult<C::Kernel>
+    where
+        R: Clone,
+        C: Clone,
+        C::Kernel: Clone,
+        C::Buffer: 'static,
+    {
+        // Signatureを作成（最適化前のGraphから）
+        let signature = crate::lowerer::create_signature(&graph);
+
+        // グラフ最適化（Phase 1 + Phase 2）
+        let optimized_graph = self.optimize_graph_internal(graph);
+
+        // グラフからAST Programを抽出（Kernel(Program)があれば直接使用）
+        let program = extract_program_from_graph(optimized_graph);
+
+        // AST最適化（Program全体を最適化、RuntimeSelector使用）
+        let (optimized_program, all_histories) = if self.enable_ast_optimization {
+            let (program, history) = self.optimize_ast_with_runtime(program, signature.clone());
 
             let mut all_histories = HashMap::new();
             all_histories.insert("program".to_string(), history);
@@ -743,20 +935,81 @@ where
         optimized_graph
     }
 
-    /// AST最適化の内部処理（履歴付き）
+    /// AST最適化の内部処理（静的コスト版、Clone不要）
     ///
     /// 2段階でAST最適化を適用:
     /// 1. ルールベース最適化（RuleBaseOptimizer）: 代数的簡約など（高速、ビームサーチなし）
     /// 2. ループ最適化（BeamSearch）: ループタイリング、融合など
-    fn optimize_ast_internal(&mut self, program: AstNode) -> (AstNode, AstOptimizationHistory) {
+    ///
+    /// 常に静的コストベースで最適化。RuntimeSelectorは使用しない。
+    fn optimize_ast_static(&mut self, program: AstNode) -> (AstNode, AstOptimizationHistory) {
+        // 第1段階: ルールベース最適化（高速）
+        let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules());
+        let rule_optimized = rule_optimizer.optimize(program);
+
+        // 第2段階: ループ最適化（ビームサーチ、静的コスト）
+        let loop_suggester = Self::create_loop_suggester();
+        let loop_optimizer = self.create_ast_optimizer(loop_suggester);
+        let (optimized, history) = loop_optimizer.optimize_with_history(rule_optimized);
+
+        if self.collect_histories {
+            self.histories.ast = Some(history.clone());
+        }
+        (optimized, history)
+    }
+
+    /// AST最適化の内部処理（RuntimeSelector版、Clone必要）
+    ///
+    /// 2段階でAST最適化を適用:
+    /// 1. ルールベース最適化（RuleBaseOptimizer）: 代数的簡約など（高速、ビームサーチなし）
+    /// 2. ループ最適化（BeamSearch）: ループタイリング、融合など
+    ///
+    /// RuntimeSelectorが有効な場合は、第2段階で実測値ベースの選択を行います。
+    fn optimize_ast_with_runtime(
+        &mut self,
+        program: AstNode,
+        signature: KernelSignature,
+    ) -> (AstNode, AstOptimizationHistory)
+    where
+        R: Clone,
+        C: Clone,
+        C::Kernel: Clone,
+        C::Buffer: 'static,
+    {
+        // RuntimeSelectorが無効なら静的コスト版を使用
+        if !self.runtime_config.enabled || self.runtime_buffer_factory.is_none() {
+            return self.optimize_ast_static(program);
+        }
+
         // 第1段階: ルールベース最適化（高速）
         let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules());
         let rule_optimized = rule_optimizer.optimize(program);
 
         // 第2段階: ループ最適化（ビームサーチ）
         let loop_suggester = Self::create_loop_suggester();
-        let loop_optimizer = self.create_ast_optimizer(loop_suggester);
-        let (optimized, history) = loop_optimizer.optimize_with_history(rule_optimized);
+
+        // RuntimeSelectorを使用した実測値ベース最適化
+        let buffer_factory = Arc::clone(self.runtime_buffer_factory.as_ref().unwrap());
+
+        // RuntimeSelectorを作成
+        let runtime_selector = RuntimeSelector::new(
+            self.renderer.clone(),
+            self.compiler.clone(),
+            signature,
+            move |sig: &KernelSignature| buffer_factory(sig),
+        )
+        .with_pre_filter_count(self.runtime_config.pre_filter_count)
+        .with_measurement_count(self.runtime_config.measurement_count);
+
+        // RuntimeSelectorを使用したビームサーチ
+        let optimizer = AstBeamSearchOptimizer::new(loop_suggester)
+            .with_selector(runtime_selector)
+            .with_beam_width(self.ast_config.beam_width)
+            .with_max_steps(self.ast_config.max_steps)
+            .with_progress(self.ast_config.show_progress)
+            .with_no_improvement_limit(self.ast_config.early_termination_threshold);
+
+        let (optimized, history) = optimizer.optimize_with_history(rule_optimized);
 
         if self.collect_histories {
             self.histories.ast = Some(history.clone());
@@ -826,9 +1079,37 @@ where
 
     /// グラフをコンパイル
     ///
-    /// compile_graph_with_historyを呼び出し、Signatureを設定してコンパイルします。
+    /// RuntimeSelectorを使用しない簡易パスでコンパイルします。
+    /// RuntimeSelectorを使用したい場合は、compile_graph_with_history()を使用してください。
     fn compile_graph(&mut self, graph: Graph) -> Result<C::Kernel, String> {
-        self.compile_graph_with_history(graph)
+        // Signatureを作成（最適化前のGraphから）
+        let signature = crate::lowerer::create_signature(&graph);
+
+        // グラフ最適化（Phase 1 + Phase 2）
+        let optimized_graph = self.optimize_graph_internal(graph);
+
+        // グラフからAST Programを抽出
+        let program = extract_program_from_graph(optimized_graph);
+
+        // AST最適化（静的コストのみ、RuntimeSelectorなし）
+        let optimized_program = if self.enable_ast_optimization {
+            // 第1段階: ルールベース最適化
+            let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules());
+            let rule_optimized = rule_optimizer.optimize(program);
+
+            // 第2段階: ループ最適化（静的コストのみ）
+            let loop_suggester = Self::create_loop_suggester();
+            let loop_optimizer = self.create_ast_optimizer(loop_suggester);
+            let (optimized, _history) = loop_optimizer.optimize_with_history(rule_optimized);
+
+            optimized
+        } else {
+            program
+        };
+
+        // レンダリングとコンパイル
+        let code = self.renderer().render(&optimized_program);
+        Ok(self.compiler().compile(&code, signature))
     }
 }
 

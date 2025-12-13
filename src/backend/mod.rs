@@ -11,7 +11,9 @@ pub mod pipeline;
 // Re-export commonly used types
 pub use c::{CBuffer, CCode, CCompiler, CKernel, CPipeline, CRenderer};
 pub use device::{Device, DeviceBuffer, DeviceKernel, DevicePipeline, SharedPipeline};
-pub use generic::{GenericPipeline, OptimizationConfig, OptimizationHistories};
+pub use generic::{
+    GenericPipeline, OptimizationConfig, OptimizationHistories, RuntimeSelectorConfig,
+};
 pub use metal::{MetalCode, MetalRenderer};
 pub use opencl::{
     OpenCLBuffer, OpenCLCode, OpenCLCompiler, OpenCLKernel, OpenCLPipeline, OpenCLRenderer,
