@@ -1,7 +1,6 @@
 pub mod estimator;
 pub mod history;
 pub mod optimizer;
-pub mod runtime_estimator;
 pub mod selector;
 pub mod suggesters;
 
@@ -130,10 +129,7 @@ pub use estimator::{
 };
 pub use history::{OptimizationHistory, OptimizationSnapshot};
 pub use optimizer::{BeamSearchGraphOptimizer, ChainedGraphOptimizer, NamedOptimizer};
-pub use runtime_estimator::GraphRuntimeCostEstimator;
-pub use selector::{
-    GraphCostSelector, GraphMultiStageSelector, GraphRuntimeSelector, GraphSelector,
-};
+pub use selector::{GraphCostSelector, GraphMultiStageSelector, GraphSelector};
 pub use suggesters::{
     BufferAbsorptionSuggester, CompositeSuggester, ContiguousInsertionSuggester, FusionSuggester,
     KernelMergeSuggester, LoweringSuggester, ProgramRootAbsorptionSuggester,
