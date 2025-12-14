@@ -12,6 +12,37 @@ use crate::error::DslError;
 #[grammar = "grammar.pest"]
 pub struct DslParser;
 
+/// 予約語リスト
+/// これらの識別子は変数名やグラフ名として使用できない
+///
+/// 注意: 型名（f32, i32等）、組み込み関数名（matmul, fused等）、メソッド名（sum等）は
+/// 文脈で区別できるため、予約語に含めていません。
+pub const RESERVED_KEYWORDS: &[&str] = &[
+    // 構文キーワード
+    "graph",
+    "let",
+    "return",
+    // 真偽値リテラル（将来的にブールリテラルとして使用予定）
+    "true",
+    "false",
+];
+
+/// 識別子が予約語かどうかをチェック
+fn check_reserved_keyword(name: &str, pair: &pest::iterators::Pair<Rule>) -> Result<(), DslError> {
+    if RESERVED_KEYWORDS.contains(&name) {
+        let (line, column) = pair.line_col();
+        return Err(DslError::ParseError {
+            line,
+            column,
+            message: format!(
+                "'{}' is a reserved keyword and cannot be used as an identifier",
+                name
+            ),
+        });
+    }
+    Ok(())
+}
+
 /// Parse DSL source code into a module AST
 pub fn parse(source: &str) -> Result<DslModule, DslError> {
     let pairs = DslParser::parse(Rule::module, source).map_err(DslError::from_pest_error)?;
@@ -57,12 +88,16 @@ fn parse_graph_def(pair: pest::iterators::Pair<Rule>) -> Result<DslGraph, DslErr
             Rule::generic_params => {
                 for ident in p.into_inner() {
                     if ident.as_rule() == Rule::ident {
-                        shape_vars.push(ident.as_str().to_string());
+                        let var_name = ident.as_str();
+                        check_reserved_keyword(var_name, &ident)?;
+                        shape_vars.push(var_name.to_string());
                     }
                 }
             }
             Rule::ident => {
-                name = p.as_str().to_string();
+                let graph_name = p.as_str();
+                check_reserved_keyword(graph_name, &p)?;
+                name = graph_name.to_string();
             }
             Rule::param_list => {
                 // Input parameters (before ->)
@@ -121,12 +156,18 @@ fn parse_param_list(pair: pest::iterators::Pair<Rule>) -> Result<Vec<DslParam>, 
 
 fn parse_param(pair: pest::iterators::Pair<Rule>) -> Result<DslParam, DslError> {
     let mut inner = pair.into_inner();
-    let name = inner.next().unwrap().as_str().to_string();
-    let tensor_type = inner.next().unwrap();
+    let name_pair = inner.next().unwrap();
+    let name = name_pair.as_str();
+    check_reserved_keyword(name, &name_pair)?;
 
+    let tensor_type = inner.next().unwrap();
     let (dtype, shape) = parse_tensor_type(tensor_type)?;
 
-    Ok(DslParam { name, dtype, shape })
+    Ok(DslParam {
+        name: name.to_string(),
+        dtype,
+        shape,
+    })
 }
 
 fn parse_tensor_type(
@@ -211,7 +252,11 @@ fn parse_shape_factor(pair: pest::iterators::Pair<Rule>) -> Result<ShapeExpr, Ds
             })?;
             Ok(ShapeExpr::Const(val))
         }
-        Rule::ident => Ok(ShapeExpr::Var(inner.as_str().to_string())),
+        Rule::ident => {
+            let name = inner.as_str();
+            check_reserved_keyword(name, &inner)?;
+            Ok(ShapeExpr::Var(name.to_string()))
+        }
         Rule::shape_expr => parse_shape_expr(inner),
         _ => Err(DslError::ParseError {
             line: 0,
@@ -236,19 +281,30 @@ fn parse_statement(pair: pest::iterators::Pair<Rule>) -> Result<DslStatement, Ds
     match inner.as_rule() {
         Rule::let_statement => {
             let mut parts = inner.into_inner();
-            let name = parts.next().unwrap().as_str().to_string();
+            let name_pair = parts.next().unwrap();
+            let name = name_pair.as_str();
+            check_reserved_keyword(name, &name_pair)?;
             let value = parse_expr(parts.next().unwrap())?;
-            Ok(DslStatement::Let { name, value })
+            Ok(DslStatement::Let {
+                name: name.to_string(),
+                value,
+            })
         }
         Rule::assign_statement => {
             let mut parts = inner.into_inner();
-            let name = parts.next().unwrap().as_str().to_string();
+            let name_pair = parts.next().unwrap();
+            let name = name_pair.as_str();
+            check_reserved_keyword(name, &name_pair)?;
             let value = parse_expr(parts.next().unwrap())?;
-            Ok(DslStatement::Assign { name, value })
+            Ok(DslStatement::Assign {
+                name: name.to_string(),
+                value,
+            })
         }
         Rule::return_statement => {
             let mut parts = inner.into_inner();
             let name = parts.next().unwrap().as_str().to_string();
+            // return文の識別子はチェック不要（変数参照なので）
             Ok(DslStatement::Return { name })
         }
         _ => Err(DslError::ParseError {
@@ -534,10 +590,12 @@ fn parse_array_literal(pair: pest::iterators::Pair<Rule>) -> Result<Vec<DslExpr>
 fn parse_fused_expr(pair: pest::iterators::Pair<Rule>) -> Result<DslExpr, DslError> {
     let mut inner = pair.into_inner();
     let ident_list = inner.next().unwrap();
-    let inputs: Vec<String> = ident_list
-        .into_inner()
-        .map(|p| p.as_str().to_string())
-        .collect();
+    let mut inputs = Vec::new();
+    for p in ident_list.into_inner() {
+        let name = p.as_str();
+        check_reserved_keyword(name, &p)?;
+        inputs.push(name.to_string());
+    }
     let fused_block = inner.next().unwrap();
     let expr = parse_expr(fused_block.into_inner().next().unwrap())?;
 
@@ -550,10 +608,12 @@ fn parse_fused_expr(pair: pest::iterators::Pair<Rule>) -> Result<DslExpr, DslErr
 fn parse_fused_reduce_expr(pair: pest::iterators::Pair<Rule>) -> Result<DslExpr, DslError> {
     let mut inner = pair.into_inner();
     let ident_list = inner.next().unwrap();
-    let inputs: Vec<String> = ident_list
-        .into_inner()
-        .map(|p| p.as_str().to_string())
-        .collect();
+    let mut inputs = Vec::new();
+    for p in ident_list.into_inner() {
+        let name = p.as_str();
+        check_reserved_keyword(name, &p)?;
+        inputs.push(name.to_string());
+    }
 
     let fused_params = inner.next().unwrap();
     let (axis, op) = parse_fused_reduce_params(fused_params)?;
@@ -572,10 +632,12 @@ fn parse_fused_reduce_expr(pair: pest::iterators::Pair<Rule>) -> Result<DslExpr,
 fn parse_fused_cumulative_expr(pair: pest::iterators::Pair<Rule>) -> Result<DslExpr, DslError> {
     let mut inner = pair.into_inner();
     let ident_list = inner.next().unwrap();
-    let inputs: Vec<String> = ident_list
-        .into_inner()
-        .map(|p| p.as_str().to_string())
-        .collect();
+    let mut inputs = Vec::new();
+    for p in ident_list.into_inner() {
+        let name = p.as_str();
+        check_reserved_keyword(name, &p)?;
+        inputs.push(name.to_string());
+    }
 
     let fused_params = inner.next().unwrap();
     let (axis, op) = parse_fused_cumulative_params(fused_params)?;
@@ -745,5 +807,74 @@ mod tests {
         assert_eq!(module.graphs[0].outputs.len(), 1);
         assert_eq!(module.graphs[0].outputs[0].name, "output");
         assert_eq!(module.graphs[0].outputs[0].dtype, DslDType::F32);
+    }
+
+    #[test]
+    fn test_reserved_keyword_in_graph_name() {
+        let source = r#"
+            graph graph(a: f32[N]) -> (b: f32[N]) {
+                b = a
+            }
+        "#;
+        let result = parse(source);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("reserved keyword"));
+    }
+
+    #[test]
+    fn test_reserved_keyword_in_let_variable() {
+        let source = r#"
+            graph test(a: f32[N]) -> (b: f32[N]) {
+                let return = a
+                b = return
+            }
+        "#;
+        let result = parse(source);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("reserved keyword"));
+    }
+
+    #[test]
+    fn test_reserved_keyword_in_param_name() {
+        let source = r#"
+            graph test(let: f32[N]) -> (b: f32[N]) {
+                b = let
+            }
+        "#;
+        let result = parse(source);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("reserved keyword"));
+    }
+
+    #[test]
+    fn test_typename_allowed_as_variable() {
+        // 型名は文脈で区別できるため、変数名として使用可能
+        let source = r#"
+            graph test(a: f32[N]) -> (b: f32[N]) {
+                let f32 = a
+                b = f32
+            }
+        "#;
+        let result = parse(source);
+        assert!(result.is_ok(), "Type names should be allowed as variable names");
+    }
+
+    #[test]
+    fn test_builtin_function_name_allowed_as_variable() {
+        // 組み込み関数名は変数名として使用可能
+        let source = r#"
+            graph test(a: f32[N]) -> (b: f32[N]) {
+                let sum = a
+                b = sum
+            }
+        "#;
+        let result = parse(source);
+        assert!(
+            result.is_ok(),
+            "Built-in function names should be allowed as variable names"
+        );
     }
 }
