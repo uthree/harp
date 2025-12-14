@@ -4,5 +4,5 @@ pub mod graph;
 pub mod log_capture;
 
 // Re-export selector types from their respective modules
-pub use ast::{AstCostSelector, AstSelector, RuntimeSelector};
-pub use graph::{GraphCostSelector, GraphRuntimeSelector, GraphSelector};
+pub use ast::{AstCostSelector, AstMultiStageSelector, AstSelector, RuntimeSelector};
+pub use graph::{GraphCostSelector, GraphMultiStageSelector, GraphRuntimeSelector, GraphSelector};

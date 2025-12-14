@@ -32,7 +32,7 @@ pub use estimator::SimpleCostEstimator;
 pub use history::{OptimizationHistory, OptimizationSnapshot};
 pub use optimizer::{BeamSearchOptimizer, RuleBaseOptimizer};
 pub use runtime_estimator::RuntimeCostEstimator;
-pub use selector::{AstCostSelector, AstSelector, RuntimeSelector};
+pub use selector::{AstCostSelector, AstMultiStageSelector, AstSelector, RuntimeSelector};
 pub use suggesters::{
     CompositeSuggester, CseSuggester, FunctionInliningSuggester, LoopFusionSuggester,
     LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester, RuleBaseSuggester,
