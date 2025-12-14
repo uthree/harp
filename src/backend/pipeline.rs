@@ -238,21 +238,21 @@ pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOpt
         .chain(lowering_optimizer.with_name("Lowering"))
 }
 
-/// マルチフェーズグラフ最適化を作成（LoweringフェーズにカスタムSelector使用）
+/// マルチフェーズグラフ最適化を作成（両フェーズにカスタムSelector使用）
 ///
-/// `create_multi_phase_optimizer`と同様ですが、LoweringフェーズでカスタムSelectorを使用できます。
+/// `create_multi_phase_optimizer`と同様ですが、両フェーズでカスタムSelectorを使用できます。
 /// GraphRuntimeSelectorを使用した実測値ベースの最適化に使用します。
 ///
-/// Phase 1（Preparation）は静的コスト推定を使用し、Phase 2（Lowering）で
-/// カスタムSelectorを使用します。これは、Lowering済みのグラフは実行可能で
-/// 直接計測できるためです。
+/// Phase 1（Preparation）とPhase 2（Lowering）の両方でカスタムSelectorを使用します。
+/// Phase 1でも内部的にLoweringを行って実行時間を計測するため、
+/// メモリアクセスパターンの最適な選択が可能になります。
 ///
 /// # Arguments
 /// * `config` - 最適化の設定
-/// * `selector` - Loweringフェーズで使用するカスタムSelector（GraphRuntimeSelectorなど）
+/// * `selector` - 両フェーズで使用するカスタムSelector（GraphRuntimeSelectorなど）
 ///
 /// # Returns
-/// ChainedGraphOptimizer（LoweringフェーズにカスタムSelectorが設定される）
+/// ChainedGraphOptimizer（両フェーズにカスタムSelectorが設定される）
 ///
 /// # Example
 /// ```ignore
@@ -270,11 +270,12 @@ pub fn create_multi_phase_optimizer_with_selector<Sel>(
     selector: Sel,
 ) -> ChainedGraphOptimizer
 where
-    Sel: Selector<(Graph, String)> + 'static,
+    Sel: Selector<(Graph, String)> + Clone + 'static,
 {
-    // Phase 1: グラフ準備（View挿入、融合など）- 静的コスト推定
+    // Phase 1: グラフ準備（View挿入、融合など）- カスタムSelector使用
     let preparation_suggester = create_graph_preparation_suggester();
     let preparation_optimizer = BeamSearchGraphOptimizer::new(preparation_suggester)
+        .with_selector(selector.clone())
         .with_beam_width(config.beam_width)
         .with_max_steps(config.max_steps_per_phase)
         .with_progress(config.show_progress)

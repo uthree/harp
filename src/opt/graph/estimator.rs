@@ -40,6 +40,7 @@ const GPU_PARALLEL_MAX_SPEEDUP_LOG: f32 = 4.5; // exp(4.5) ≈ 100x speedup
 /// final_cost = log_base_cost + penalty_coefficient * node_count
 /// ```
 /// これは元のスケールで `cost = base_cost * exp(penalty_coefficient * node_count)` に相当します。
+#[derive(Clone, Copy)]
 pub struct SimpleCostEstimator {
     /// ノード数あたりのペナルティ係数（対数スケール、デフォルト: 0.01）
     /// 値が大きいほど、ノード数増加に対するペナルティが強くなります。

@@ -328,12 +328,14 @@ impl LoweringSuggester {
         }?;
 
         // Kernelノードを作成
-        let mut new_src: Vec<GraphNode> = node
+        // srcからView経由でInputまで辿り、対応するBufferノードを収集
+        let non_const_src: Vec<_> = node
             .src
             .iter()
             .filter(|s| !matches!(s.op, GraphOp::Const(_)) && !is_pure_const_node(s))
             .cloned()
             .collect();
+        let mut new_src = helpers::collect_input_buffers(&non_const_src);
 
         // 出力バッファーを作成
         let output_buffer_name = format!("output_{}", name);

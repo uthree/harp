@@ -390,6 +390,20 @@ where
     pre_filter_count: usize,
 }
 
+impl<R, C> Clone for GraphRuntimeSelector<R, C>
+where
+    R: Renderer + Clone,
+    C: Compiler<CodeRepr = R::CodeRepr> + Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            static_estimator: self.static_estimator,
+            runtime_estimator: self.runtime_estimator.clone(),
+            pre_filter_count: self.pre_filter_count,
+        }
+    }
+}
+
 impl<R, C> GraphRuntimeSelector<R, C>
 where
     R: Renderer,
@@ -404,7 +418,7 @@ where
     /// * `buffer_factory` - ベンチマーク用バッファを生成する関数
     pub fn new<F>(renderer: R, compiler: C, buffer_factory: F) -> Self
     where
-        F: Fn(&KernelSignature) -> Vec<C::Buffer> + 'static,
+        F: Fn(&KernelSignature) -> Vec<C::Buffer> + Send + Sync + 'static,
     {
         Self {
             static_estimator: GraphSimpleCostEstimator::new(),

@@ -31,6 +31,7 @@
 //! ```
 
 use std::cell::RefCell;
+use std::sync::Arc;
 use std::time::Instant;
 
 use crate::ast::AstNode;
@@ -63,11 +64,27 @@ where
     /// コンパイラ
     compiler: RefCell<C>,
     /// ベンチマーク用バッファを生成するファクトリ関数
-    buffer_factory: Box<dyn Fn(&KernelSignature) -> Vec<C::Buffer>>,
+    buffer_factory: Arc<dyn Fn(&KernelSignature) -> Vec<C::Buffer> + Send + Sync>,
     /// 計測回数（デフォルト: 5）
     measurement_count: usize,
     /// Loweringの最大ステップ数（デフォルト: 1000）
     lowering_max_steps: usize,
+}
+
+impl<R, C> Clone for GraphRuntimeCostEstimator<R, C>
+where
+    R: Renderer + Clone,
+    C: Compiler<CodeRepr = R::CodeRepr> + Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            renderer: RefCell::new(self.renderer.borrow().clone()),
+            compiler: RefCell::new(self.compiler.borrow().clone()),
+            buffer_factory: Arc::clone(&self.buffer_factory),
+            measurement_count: self.measurement_count,
+            lowering_max_steps: self.lowering_max_steps,
+        }
+    }
 }
 
 impl<R, C> GraphRuntimeCostEstimator<R, C>
@@ -100,12 +117,12 @@ where
     /// ```
     pub fn new<F>(renderer: R, compiler: C, buffer_factory: F) -> Self
     where
-        F: Fn(&KernelSignature) -> Vec<C::Buffer> + 'static,
+        F: Fn(&KernelSignature) -> Vec<C::Buffer> + Send + Sync + 'static,
     {
         Self {
             renderer: RefCell::new(renderer),
             compiler: RefCell::new(compiler),
-            buffer_factory: Box::new(buffer_factory),
+            buffer_factory: Arc::new(buffer_factory),
             measurement_count: 5, // グラフ用はデフォルトを低めに
             lowering_max_steps: 1000,
         }
@@ -144,7 +161,7 @@ where
         let program = match self.lower_graph(graph) {
             Some(p) => p,
             None => {
-                log::warn!("Failed to lower graph for measurement");
+                log::debug!("Failed to lower graph for measurement");
                 return f32::INFINITY;
             }
         };
@@ -161,7 +178,7 @@ where
         })) {
             Ok(k) => k,
             Err(_) => {
-                log::warn!("Failed to compile graph for measurement");
+                log::debug!("Failed to compile graph for measurement");
                 return f32::INFINITY;
             }
         };
@@ -181,7 +198,7 @@ where
             let result = unsafe { kernel.execute(&mut buffer_refs) };
 
             if result.is_err() {
-                log::warn!("Kernel execution failed during measurement");
+                log::debug!("Kernel execution failed during measurement");
                 return f32::INFINITY;
             }
 
