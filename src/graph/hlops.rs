@@ -139,14 +139,22 @@ impl GraphNode {
     /// - a の列数と b の行数が一致しない場合
     ///
     /// # 実装の詳細
-    /// 1. a を [i, k] -> [i, k, 1] に reshape (unsqueeze)
-    /// 2. b を [k, j] -> [1, k, j] に reshape (unsqueeze)
-    /// 3. a と b を broadcast して [i, k, j] にする
-    /// 4. 要素ごとの積を取る: [i, k, j]
-    /// 5. k 軸で reduce_sum: [i, j]
+    /// 1. B を転置: [K, J] -> [J, K]
+    /// 2. A を拡張: [I, K] -> [I, 1, K] -> expand -> [I, J, K]
+    /// 3. B^T を拡張: [J, K] -> [1, J, K] -> expand -> [I, J, K]
+    /// 4. 要素ごとの積: A * B^T -> [I, J, K]
+    /// 5. K軸でreduce_sum: [I, J]
     ///
-    /// Note: 現在の実装ではbroadcastとunsqueezeが必要なため、
-    /// 将来的な実装として残します。
+    /// # Example
+    /// ```
+    /// use harp::prelude::*;
+    ///
+    /// let mut graph = Graph::new();
+    /// let a = graph.input("a", DType::F32, vec![64, 128]); // [I, K]
+    /// let b = graph.input("b", DType::F32, vec![128, 32]); // [K, J]
+    ///
+    /// let c = a.matmul(b); // [I, J] = [64, 32]
+    /// ```
     pub fn matmul(self, other: GraphNode) -> GraphNode {
         let a_shape = self.view.shape();
         let b_shape = other.view.shape();
@@ -155,16 +163,34 @@ impl GraphNode {
         assert_eq!(a_shape.len(), 2, "matmul: first argument must be 2D");
         assert_eq!(b_shape.len(), 2, "matmul: second argument must be 2D");
 
-        // 次元の互換性チェック
+        // 次元の互換性チェック (A[I,K] @ B[K,J])
         assert_eq!(
             a_shape[1], b_shape[0],
             "matmul: incompatible dimensions: {:?} and {:?}",
             a_shape, b_shape
         );
 
-        // TODO: unsqueeze, expand, broadcastの実装が必要
-        // 現在は実装を保留
-        panic!("matmul: not yet implemented - requires unsqueeze and broadcast operations");
+        let i = a_shape[0].clone();
+        let k = a_shape[1].clone();
+        let j = b_shape[1].clone();
+
+        // B^T: [K, J] -> [J, K]
+        let bt = other.view(other.view.clone().permute(vec![1, 0]));
+
+        // A: [I, K] -> [I, 1, K] -> expand -> [I, J, K]
+        let a_exp =
+            self.view(
+                self.view
+                    .clone()
+                    .unsqueeze(1)
+                    .expand(vec![i.clone(), j.clone(), k.clone()]),
+            );
+
+        // B^T: [J, K] -> [1, J, K] -> expand -> [I, J, K]
+        let bt_exp = bt.view(bt.view.clone().unsqueeze(0).expand(vec![i, j, k]));
+
+        // A * B^T -> [I, J, K] -> reduce_sum(axis=2) -> [I, J]
+        reduce_sum(a_exp * bt_exp, 2)
     }
 
     /// バッチ行列積 (3次元テンソル): C[b,i,j] = sum_k(A[b,i,k] * B[b,k,j])
@@ -806,11 +832,44 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "matmul: not yet implemented")]
-    fn test_matmul_not_implemented() {
+    fn test_matmul() {
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![10, 20]); // [I, K]
+        let b = graph.input("b", DType::F32, vec![20, 30]); // [K, J]
+
+        let c = a.matmul(b);
+
+        // 型が保持されていることを確認
+        match c.dtype {
+            DType::F32 => {}
+            _ => panic!("Expected DType::F32"),
+        }
+
+        // 出力形状が [I, J] = [10, 30] であることを確認
+        assert_eq!(c.view.ndim(), 2);
+        assert_eq!(c.view.shape()[0], Expr::from(10));
+        assert_eq!(c.view.shape()[1], Expr::from(30));
+    }
+
+    #[test]
+    fn test_matmul_square() {
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![64, 64]);
+        let b = graph.input("b", DType::F32, vec![64, 64]);
+
+        let c = a.matmul(b);
+
+        assert_eq!(c.view.ndim(), 2);
+        assert_eq!(c.view.shape()[0], Expr::from(64));
+        assert_eq!(c.view.shape()[1], Expr::from(64));
+    }
+
+    #[test]
+    #[should_panic(expected = "matmul: incompatible dimensions")]
+    fn test_matmul_incompatible_dims() {
         let mut graph = Graph::new();
         let a = graph.input("a", DType::F32, vec![10, 20]);
-        let b = graph.input("b", DType::F32, vec![20, 30]);
+        let b = graph.input("b", DType::F32, vec![30, 40]); // K=20 と K=30 が不一致
 
         let _ = a.matmul(b);
     }

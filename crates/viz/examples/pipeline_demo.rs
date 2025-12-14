@@ -3,10 +3,9 @@
 //! 1024x1024の行列積を最適化し、その過程を可視化します。
 //! RuntimeSelectorによる実測値ベース最適化を使用します。
 
-use harp::ast::helper::wildcard;
 use harp::backend::opencl::{OpenCLCompiler, OpenCLRenderer};
 use harp::backend::GenericPipeline;
-use harp::graph::{DType, Graph, GraphNode, ReduceOp};
+use harp::graph::{DType, Graph};
 use harp_viz::{HarpVizApp, RendererType};
 
 fn main() -> eframe::Result {
@@ -59,41 +58,13 @@ fn main() -> eframe::Result {
 }
 
 /// NxN 行列積グラフを作成: C = A @ B
+///
+/// hlopsのmatmulメソッドを使用して高レベルに行列積を表現します。
 fn create_matmul_graph(n: usize) -> Graph {
     let mut graph = Graph::new();
     let a = graph.input("a", DType::F32, vec![n, n]);
     let b = graph.input("b", DType::F32, vec![n, n]);
-    let c = matmul(a, b);
+    let c = a.matmul(b); // 高レベルAPIを使用
     graph.output("c", c);
     graph
-}
-
-/// 行列積: C = A @ B
-fn matmul(a: GraphNode, b: GraphNode) -> GraphNode {
-    use harp::graph::ops::fused_elementwise_reduce;
-
-    let shape_a = a.view.shape();
-    let shape_b = b.view.shape();
-    let (m, k) = (shape_a[0].clone(), shape_a[1].clone());
-    let n = shape_b[1].clone();
-
-    // B^T: [K,N] -> [N,K]
-    let bt = b.view(b.view.clone().permute(vec![1, 0]));
-
-    // broadcast: A[M,1,K], B^T[1,N,K] -> [M,N,K]
-    let a_exp = a.view(
-        a.view
-            .clone()
-            .unsqueeze(1)
-            .expand(vec![m.clone(), n.clone(), k.clone()]),
-    );
-    let bt_exp = bt.view(bt.view.clone().unsqueeze(0).expand(vec![m, n, k]));
-
-    // sum(A * B^T, axes=[2])
-    fused_elementwise_reduce(
-        vec![a_exp, bt_exp],
-        wildcard("0") * wildcard("1"),
-        ReduceOp::Sum,
-        vec![2],
-    )
 }

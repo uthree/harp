@@ -6,6 +6,131 @@ use crate::ast::{
     AstNode, DType, Literal, Mutability, Scope,
     helper::{assign, const_int, empty_block, range, var as helper_var},
 };
+use std::collections::HashSet;
+
+/// AST内のすべての変数名を収集する
+pub fn collect_var_names(ast: &AstNode) -> HashSet<String> {
+    let mut names = HashSet::new();
+    collect_var_names_recursive(ast, &mut names);
+    names
+}
+
+fn collect_var_names_recursive(ast: &AstNode, names: &mut HashSet<String>) {
+    match ast {
+        AstNode::Var(name) => {
+            names.insert(name.clone());
+        }
+        AstNode::Range {
+            var,
+            start,
+            step,
+            stop,
+            body,
+        } => {
+            names.insert(var.clone());
+            collect_var_names_recursive(start, names);
+            collect_var_names_recursive(step, names);
+            collect_var_names_recursive(stop, names);
+            collect_var_names_recursive(body, names);
+        }
+        AstNode::Assign { var, value } => {
+            names.insert(var.clone());
+            collect_var_names_recursive(value, names);
+        }
+        AstNode::Block { statements, .. } => {
+            for stmt in statements {
+                collect_var_names_recursive(stmt, names);
+            }
+        }
+        AstNode::Function { params, body, .. } => {
+            for param in params {
+                names.insert(param.name.clone());
+            }
+            collect_var_names_recursive(body, names);
+        }
+        AstNode::Kernel { params, body, .. } => {
+            for param in params {
+                names.insert(param.name.clone());
+            }
+            collect_var_names_recursive(body, names);
+        }
+        AstNode::Program { functions, .. } => {
+            for func in functions {
+                collect_var_names_recursive(func, names);
+            }
+        }
+        AstNode::Add(a, b)
+        | AstNode::Mul(a, b)
+        | AstNode::Max(a, b)
+        | AstNode::Rem(a, b)
+        | AstNode::Idiv(a, b)
+        | AstNode::BitwiseAnd(a, b)
+        | AstNode::BitwiseOr(a, b)
+        | AstNode::BitwiseXor(a, b)
+        | AstNode::LeftShift(a, b)
+        | AstNode::RightShift(a, b) => {
+            collect_var_names_recursive(a, names);
+            collect_var_names_recursive(b, names);
+        }
+        AstNode::Recip(a)
+        | AstNode::Sqrt(a)
+        | AstNode::Log2(a)
+        | AstNode::Exp2(a)
+        | AstNode::Sin(a)
+        | AstNode::BitwiseNot(a)
+        | AstNode::Cast(a, _) => {
+            collect_var_names_recursive(a, names);
+        }
+        AstNode::Store { ptr, offset, value } => {
+            collect_var_names_recursive(ptr, names);
+            collect_var_names_recursive(offset, names);
+            collect_var_names_recursive(value, names);
+        }
+        AstNode::Load { ptr, offset, .. } => {
+            collect_var_names_recursive(ptr, names);
+            collect_var_names_recursive(offset, names);
+        }
+        AstNode::Call { args, .. } => {
+            for arg in args {
+                collect_var_names_recursive(arg, names);
+            }
+        }
+        AstNode::Return { value } => {
+            collect_var_names_recursive(value, names);
+        }
+        AstNode::Allocate { size, .. } => {
+            collect_var_names_recursive(size, names);
+        }
+        AstNode::Deallocate { ptr } => {
+            collect_var_names_recursive(ptr, names);
+        }
+        AstNode::CallKernel { args, .. } => {
+            for arg in args {
+                collect_var_names_recursive(arg, names);
+            }
+        }
+        // リーフノード
+        AstNode::Const(_) | AstNode::Wildcard(_) | AstNode::Rand | AstNode::Barrier => {}
+    }
+}
+
+/// 使われていない連番のridx変数名を3つ見つける
+///
+/// 既存の変数名と衝突しない `ridxN` 形式の名前を3つ返します。
+fn find_next_ridx_names(used_names: &HashSet<String>) -> (String, String, String) {
+    let mut idx = 0;
+    let mut result = Vec::new();
+
+    while result.len() < 3 {
+        let name = format!("ridx{}", idx);
+        if !used_names.contains(&name) {
+            result.push(name);
+        }
+        idx += 1;
+    }
+
+    (result[0].clone(), result[1].clone(), result[2].clone())
+}
 
 /// ループ回数が固定かつ小さいfor文をインライン展開する
 ///
@@ -38,9 +163,10 @@ pub fn inline_small_loop(loop_node: &AstNode, max_iterations: usize) -> Option<A
             body,
         } => {
             // タイル化されたループの内側・外側ループは展開しない
-            // （_inner/_outer は小さいが多くのループで再利用されるため）
-            // ただし、_remainder（端数処理）は展開を許可
-            if var.contains("_outer") || var.contains("_inner") {
+            // タイル化後のループは本体の最初の文が代入文になっている
+            // 端数処理ループも代入文を含むが、端数は小さいので展開を許可する判断は
+            // 反復回数チェックで行う
+            if is_tiled_loop_body(body) {
                 log::trace!("Skipping inlining for tiled loop component: {}", var);
                 return None;
             }
@@ -118,20 +244,21 @@ pub fn inline_small_loop(loop_node: &AstNode, max_iterations: usize) -> Option<A
 /// # 変換例
 /// ```text
 /// // 元のループ
-/// for i in 0..N step 1 {
-///   body(i)
+/// for ridx0 in 0..N step 1 {
+///   body(ridx0)
 /// }
 ///
-/// // タイル化後
-/// for i_outer in start..(stop/tile_size)*tile_size step tile_size {
-///   for i_inner in 0..tile_size step 1 {
-///     i = i_outer + i_inner
-///     body(i)
+/// // タイル化後（ridx1, ridx2, ridx3は既存変数と衝突しない連番）
+/// for ridx1 in start..(stop/tile_size)*tile_size step tile_size {
+///   for ridx2 in 0..tile_size step 1 {
+///     ridx0 = ridx1 + ridx2
+///     body(ridx0)
 ///   }
 /// }
 /// // 端数処理
-/// for i in (stop/tile_size)*tile_size..stop step 1 {
-///   body(i)
+/// for ridx3 in (stop/tile_size)*tile_size..stop step 1 {
+///   ridx0 = ridx3
+///   body(ridx0)
 /// }
 /// ```
 pub fn tile_loop(loop_node: &AstNode, tile_size: usize) -> Option<AstNode> {
@@ -147,8 +274,9 @@ pub fn tile_loop(loop_node: &AstNode, tile_size: usize) -> Option<AstNode> {
             stop,
             body,
         } => {
-            // 既にタイル化されたループ（_outer, _inner, _remainderを含む変数名）は再度タイル化しない
-            if var.contains("_outer") || var.contains("_inner") || var.contains("_remainder") {
+            // 既にタイル化されたループは再度タイル化しない
+            // タイル化後のループ本体は、最初の文が元変数への代入文になっている
+            if is_tiled_loop_body(body) {
                 log::trace!("Skipping tiling for already tiled loop: {}", var);
                 return None;
             }
@@ -177,14 +305,14 @@ pub fn tile_loop(loop_node: &AstNode, tile_size: usize) -> Option<AstNode> {
                 stop_val
             );
 
-            let outer_var = format!("{}_outer", var);
-            let inner_var = format!("{}_inner", var);
-            let remainder_var = format!("{}_remainder", var);
+            // 既存変数名を収集し、衝突しない連番を取得
+            let used_names = collect_var_names(loop_node);
+            let (outer_var, inner_var, remainder_var) = find_next_ridx_names(&used_names);
 
-            // 内側ループの本体: i = i_outer + i_inner; body(i)
+            // 内側ループの本体: original_var = outer_var + inner_var; body(original_var)
             let i_expr = helper_var(outer_var.clone()) + helper_var(inner_var.clone());
 
-            // i = i_outer + i_inner の代入
+            // original_var = outer_var + inner_var の代入
             let assign_i = assign(var.clone(), i_expr);
 
             let inner_body_statements = vec![assign_i, body.as_ref().clone()];
@@ -200,7 +328,7 @@ pub fn tile_loop(loop_node: &AstNode, tile_size: usize) -> Option<AstNode> {
                 scope: Box::new(inner_scope),
             };
 
-            // 内側ループ: for i_inner in 0..tile_size step 1
+            // 内側ループ: for inner_var in 0..tile_size step 1
             let inner_loop = range(
                 inner_var.clone(),
                 const_int(0),
@@ -214,7 +342,7 @@ pub fn tile_loop(loop_node: &AstNode, tile_size: usize) -> Option<AstNode> {
             let aligned_stop = (stop_val / tile_size) * tile_size;
             let main_stop = const_int(aligned_stop as isize);
 
-            // 外側ループ: for i_outer in start..main_stop step tile_size
+            // 外側ループ: for outer_var in start..main_stop step tile_size
             let outer_loop = range(
                 outer_var.clone(),
                 start.as_ref().clone(),
@@ -223,7 +351,7 @@ pub fn tile_loop(loop_node: &AstNode, tile_size: usize) -> Option<AstNode> {
                 inner_loop,
             );
 
-            // 端数処理ループ: for i_remainder in main_stop..stop step 1
+            // 端数処理ループ: for remainder_var in main_stop..stop step 1
             // ループ本体の中で元の変数名を使うため、代入を追加
             let remainder_assign = assign(var.clone(), helper_var(remainder_var.clone()));
 
@@ -252,6 +380,24 @@ pub fn tile_loop(loop_node: &AstNode, tile_size: usize) -> Option<AstNode> {
             })
         }
         _ => None, // Rangeノードでない場合は変換不可
+    }
+}
+
+/// タイル化されたループの本体かどうかを判定する
+///
+/// タイル化後のループ本体は、最初の文が変数への代入文（`var = expr`）になっている。
+/// この構造を持つループは既にタイル化済みとみなし、再タイル化を防ぐ。
+fn is_tiled_loop_body(body: &AstNode) -> bool {
+    match body {
+        AstNode::Block { statements, .. } => {
+            // 本体の最初の文がAssignノードの場合、タイル化済み
+            if let Some(first_stmt) = statements.first() {
+                matches!(first_stmt, AstNode::Assign { .. })
+            } else {
+                false
+            }
+        }
+        _ => false,
     }
 }
 
@@ -471,6 +617,7 @@ mod tests {
             assert_eq!(statements.len(), 2); // メインループ + 端数ループ
 
             // 最初のstatementがメインループ（外側ループ）
+            // 変数名は既存変数と衝突しない連番ridxになる
             if let AstNode::Range {
                 var,
                 step,
@@ -478,7 +625,8 @@ mod tests {
                 ..
             } = &statements[0]
             {
-                assert_eq!(var, "i_outer");
+                // 変数名はridxN形式（既存変数と衝突しない連番）
+                assert!(var.starts_with("ridx"), "Expected ridxN, got {}", var);
                 assert_eq!(**step, AstNode::Const(Literal::Int(4))); // tile_size
 
                 // 内側ループが存在するか確認
@@ -489,7 +637,8 @@ mod tests {
 
             // 2番目のstatementが端数処理ループ
             if let AstNode::Range { var, .. } = &statements[1] {
-                assert_eq!(var, "i_remainder");
+                // 変数名はridxN形式（既存変数と衝突しない連番）
+                assert!(var.starts_with("ridx"), "Expected ridxN, got {}", var);
             } else {
                 panic!("Expected Range node for remainder loop");
             }
