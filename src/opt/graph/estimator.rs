@@ -26,6 +26,17 @@ const GPU_PARALLEL_MAX_SPEEDUP_LOG: f32 = 4.5; // exp(4.5) ≈ 100x speedup
 // これ以上要素数を増やしても効率が下がる
 const GPU_MEMORY_BANDWIDTH_THRESHOLD: f32 = 10000.0;
 
+// スレッドグループサイズの評価用定数
+// 最適なスレッドグループサイズ（128-256が多くのGPUで効率的）
+const OPTIMAL_THREAD_GROUP_SIZE_MIN: usize = 128;
+const OPTIMAL_THREAD_GROUP_SIZE_MAX: usize = 256;
+
+// ベクトル化によるメモリ効率向上係数（対数スケール）
+// float4はfloat1に比べてメモリバンド幅を効率的に使える
+const VECTOR_WIDTH_2_BONUS_LOG: f32 = 0.3; // exp(0.3) ≈ 1.35x
+const VECTOR_WIDTH_4_BONUS_LOG: f32 = 0.5; // exp(0.5) ≈ 1.65x
+const VECTOR_WIDTH_8_BONUS_LOG: f32 = 0.6; // exp(0.6) ≈ 1.82x
+
 /// 簡単なコスト推定器（ノード数とメモリアクセスベース）
 ///
 /// **重要**: このコスト推定器は対数スケール（log(CPUサイクル数)）でコストを返します。
@@ -300,10 +311,21 @@ impl SimpleCostEstimator {
                 let num_elements = self.compute_num_elements(node);
 
                 match ast {
-                    AstNode::Kernel { .. } => {
+                    AstNode::Kernel {
+                        default_thread_group_size,
+                        body,
+                        ..
+                    } => {
                         // GPU並列カーネル（AstNode::Kernel）の場合
                         // 並列実行によるスピードアップを考慮
                         let ast_cost = ast_estimator.estimate(ast);
+
+                        // スレッドグループサイズを抽出
+                        let thread_group_size =
+                            Self::extract_const_from_ast(&default_thread_group_size[0]);
+
+                        // ベクトル幅を検出（ボディからベクトルロードを探す）
+                        let vector_width = Self::detect_vector_width(body);
 
                         // 要素数（≒スレッド数）に基づく実効スピードアップの計算
                         let parallel_bonus = if num_elements >= GPU_PARALLEL_MIN_ELEMENTS {
@@ -329,7 +351,18 @@ impl SimpleCostEstimator {
                             -KERNEL_LAUNCH_OVERHEAD.ln() * 0.5
                         };
 
-                        ast_cost - parallel_bonus - 2.0 * KERNEL_LAUNCH_OVERHEAD.ln()
+                        // スレッドグループサイズの評価
+                        let thread_group_bonus =
+                            Self::evaluate_thread_group_size(thread_group_size);
+
+                        // ベクトル化の評価
+                        let vector_bonus = Self::evaluate_vector_width(vector_width);
+
+                        ast_cost
+                            - parallel_bonus
+                            - thread_group_bonus
+                            - vector_bonus
+                            - 2.0 * KERNEL_LAUNCH_OVERHEAD.ln()
                     }
                     AstNode::Function { .. } => {
                         // CPU逐次実行（AstNode::Function）の場合
@@ -438,6 +471,101 @@ impl SimpleCostEstimator {
             AstNode::Function { body, .. } => Self::ast_has_loop(body),
             AstNode::Program { functions, .. } => functions.iter().any(Self::ast_has_loop),
             _ => false,
+        }
+    }
+
+    /// ASTノードから定数値を抽出
+    fn extract_const_from_ast(ast: &AstNode) -> Option<usize> {
+        match ast {
+            AstNode::Const(crate::ast::Literal::Int(val)) => Some(*val as usize),
+            _ => None,
+        }
+    }
+
+    /// ASTボディからベクトル幅を検出
+    ///
+    /// ベクトルロード（Load with count > 1）を探して、最大のベクトル幅を返す
+    fn detect_vector_width(ast: &AstNode) -> Option<usize> {
+        fn find_vector_width(ast: &AstNode, max_width: &mut Option<usize>) {
+            match ast {
+                AstNode::Load { count, .. } if *count > 1 => {
+                    let current = max_width.unwrap_or(1);
+                    if *count > current {
+                        *max_width = Some(*count);
+                    }
+                }
+                AstNode::Block { statements, .. } => {
+                    for stmt in statements {
+                        find_vector_width(stmt, max_width);
+                    }
+                }
+                AstNode::Store { value, .. } => {
+                    find_vector_width(value, max_width);
+                }
+                AstNode::Add(left, right)
+                | AstNode::Mul(left, right)
+                | AstNode::Max(left, right)
+                | AstNode::Rem(left, right)
+                | AstNode::Idiv(left, right) => {
+                    find_vector_width(left, max_width);
+                    find_vector_width(right, max_width);
+                }
+                AstNode::Recip(operand)
+                | AstNode::Sqrt(operand)
+                | AstNode::Log2(operand)
+                | AstNode::Exp2(operand)
+                | AstNode::Sin(operand)
+                | AstNode::Cast(operand, _) => {
+                    find_vector_width(operand, max_width);
+                }
+                _ => {}
+            }
+        }
+
+        let mut max_width = None;
+        find_vector_width(ast, &mut max_width);
+        max_width
+    }
+
+    /// スレッドグループサイズを評価
+    ///
+    /// 最適範囲（128-256）に近いほど高いボーナスを返す
+    fn evaluate_thread_group_size(thread_group_size: Option<usize>) -> f32 {
+        match thread_group_size {
+            Some(size) => {
+                if (OPTIMAL_THREAD_GROUP_SIZE_MIN..=OPTIMAL_THREAD_GROUP_SIZE_MAX).contains(&size) {
+                    // 最適範囲：ボーナスなし（基準値）
+                    0.0
+                } else if (64..OPTIMAL_THREAD_GROUP_SIZE_MIN).contains(&size) {
+                    // やや小さい（64-127）：軽いペナルティ
+                    // 一部のGPUでウェーブフロント/ワープを満たせない可能性
+                    -0.1
+                } else if size > OPTIMAL_THREAD_GROUP_SIZE_MAX && size <= 512 {
+                    // やや大きい（257-512）：軽いペナルティ
+                    // レジスタ圧力やオキュパンシーの低下
+                    -0.15
+                } else if size < 64 {
+                    // 小さすぎる：大きなペナルティ
+                    -0.5
+                } else {
+                    // 大きすぎる（512以上）：大きなペナルティ
+                    -0.4
+                }
+            }
+            None => 0.0, // サイズが不明な場合はニュートラル
+        }
+    }
+
+    /// ベクトル幅を評価
+    ///
+    /// ベクトル化によるメモリバンド幅効率向上のボーナスを返す
+    fn evaluate_vector_width(vector_width: Option<usize>) -> f32 {
+        match vector_width {
+            Some(2) => VECTOR_WIDTH_2_BONUS_LOG,
+            Some(4) => VECTOR_WIDTH_4_BONUS_LOG,
+            Some(8) => VECTOR_WIDTH_8_BONUS_LOG,
+            Some(w) if w > 8 => VECTOR_WIDTH_8_BONUS_LOG, // 8以上はfloat8と同等
+            _ => 0.0,                                     // ベクトル化なしまたは不明
         }
     }
 
@@ -1063,6 +1191,230 @@ mod tests {
             "Parallel kernel cost ({}) should be lower than sequential function cost ({}) for large elements",
             par_cost,
             seq_cost
+        );
+    }
+
+    #[test]
+    fn test_thread_group_size_evaluation() {
+        // 最適範囲（128-256）のテスト
+        assert_eq!(
+            SimpleCostEstimator::evaluate_thread_group_size(Some(128)),
+            0.0
+        );
+        assert_eq!(
+            SimpleCostEstimator::evaluate_thread_group_size(Some(256)),
+            0.0
+        );
+        assert_eq!(
+            SimpleCostEstimator::evaluate_thread_group_size(Some(192)),
+            0.0
+        );
+
+        // やや小さい（64-127）
+        let penalty_64 = SimpleCostEstimator::evaluate_thread_group_size(Some(64));
+        assert!(
+            penalty_64 < 0.0,
+            "64 should have negative bonus: {}",
+            penalty_64
+        );
+
+        // やや大きい（257-512）
+        let penalty_512 = SimpleCostEstimator::evaluate_thread_group_size(Some(512));
+        assert!(
+            penalty_512 < 0.0,
+            "512 should have negative bonus: {}",
+            penalty_512
+        );
+
+        // 小さすぎる
+        let penalty_32 = SimpleCostEstimator::evaluate_thread_group_size(Some(32));
+        assert!(
+            penalty_32 < penalty_64,
+            "32 should have larger penalty than 64"
+        );
+
+        // 不明な場合はニュートラル
+        assert_eq!(SimpleCostEstimator::evaluate_thread_group_size(None), 0.0);
+    }
+
+    #[test]
+    fn test_vector_width_evaluation() {
+        // ベクトル幅が大きいほどボーナスが大きい
+        let bonus_2 = SimpleCostEstimator::evaluate_vector_width(Some(2));
+        let bonus_4 = SimpleCostEstimator::evaluate_vector_width(Some(4));
+        let bonus_8 = SimpleCostEstimator::evaluate_vector_width(Some(8));
+
+        assert!(bonus_2 > 0.0, "float2 should have positive bonus");
+        assert!(
+            bonus_4 > bonus_2,
+            "float4 should have more bonus than float2"
+        );
+        assert!(
+            bonus_8 > bonus_4,
+            "float8 should have more bonus than float4"
+        );
+
+        // ベクトル化なしの場合はボーナスなし
+        assert_eq!(SimpleCostEstimator::evaluate_vector_width(None), 0.0);
+        assert_eq!(SimpleCostEstimator::evaluate_vector_width(Some(1)), 0.0);
+    }
+
+    #[test]
+    fn test_parallel_kernel_with_different_thread_group_sizes() {
+        use crate::ast::{DType as AstDType, Mutability, Scope, VarDecl, VarKind, helper::*};
+        use crate::graph::shape::Expr;
+
+        let estimator = SimpleCostEstimator::new();
+
+        // 異なるスレッドグループサイズのカーネルを作成
+        let create_kernel = |tg_size: isize| {
+            kernel_1d(
+                Some("E_test".to_string()),
+                vec![VarDecl {
+                    name: "tid".to_string(),
+                    dtype: AstDType::Int,
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::ThreadId(0),
+                }],
+                AstDType::Tuple(vec![]),
+                block(
+                    vec![store(
+                        var("output"),
+                        var("tid"),
+                        load(var("input0"), var("tid"), AstDType::F32)
+                            + load(var("input1"), var("tid"), AstDType::F32),
+                    )],
+                    Scope::new(),
+                ),
+                const_int(10000),
+                const_int(tg_size),
+            )
+        };
+
+        let view = crate::graph::View::contiguous(vec![Expr::Const(100), Expr::Const(100)]);
+
+        let kernel_256 = create_kernel(256);
+        let kernel_64 = create_kernel(64);
+
+        let node_256 = GraphNode::new(
+            DType::F32,
+            crate::graph::GraphOp::Kernel {
+                ast: kernel_256,
+                input_buffers: None,
+            },
+            vec![],
+            view.clone(),
+        );
+
+        let node_64 = GraphNode::new(
+            DType::F32,
+            crate::graph::GraphOp::Kernel {
+                ast: kernel_64,
+                input_buffers: None,
+            },
+            vec![],
+            view,
+        );
+
+        let cost_256 = estimator.node_base_cost(&node_256);
+        let cost_64 = estimator.node_base_cost(&node_64);
+
+        println!("Cost with thread_group_size=256: {}", cost_256);
+        println!("Cost with thread_group_size=64: {}", cost_64);
+
+        // 最適範囲（256）のコストは、範囲外（64）より低いはず
+        assert!(
+            cost_256 < cost_64,
+            "Optimal thread_group_size (256) should have lower cost than 64"
+        );
+    }
+
+    #[test]
+    fn test_vectorized_kernel_preferred() {
+        use crate::ast::{DType as AstDType, Mutability, Scope, VarDecl, VarKind, helper::*};
+        use crate::graph::shape::Expr;
+
+        let estimator = SimpleCostEstimator::new();
+
+        // スカラー版カーネル
+        let scalar_kernel = kernel_1d(
+            Some("E_scalar".to_string()),
+            vec![VarDecl {
+                name: "tid".to_string(),
+                dtype: AstDType::Int,
+                mutability: Mutability::Immutable,
+                kind: VarKind::ThreadId(0),
+            }],
+            AstDType::Tuple(vec![]),
+            block(
+                vec![store(
+                    var("output"),
+                    var("tid"),
+                    load(var("input0"), var("tid"), AstDType::F32)
+                        + load(var("input1"), var("tid"), AstDType::F32),
+                )],
+                Scope::new(),
+            ),
+            const_int(10000),
+            const_int(256),
+        );
+
+        // ベクトル版カーネル（float4）
+        let vec4_kernel = kernel_1d(
+            Some("E_vec4".to_string()),
+            vec![VarDecl {
+                name: "tid".to_string(),
+                dtype: AstDType::Int,
+                mutability: Mutability::Immutable,
+                kind: VarKind::ThreadId(0),
+            }],
+            AstDType::Tuple(vec![]),
+            block(
+                vec![store(
+                    var("output"),
+                    var("tid"),
+                    // load_vec with count=4
+                    load_vec(var("input0"), var("tid"), 4, AstDType::F32.to_vec(4))
+                        + load_vec(var("input1"), var("tid"), 4, AstDType::F32.to_vec(4)),
+                )],
+                Scope::new(),
+            ),
+            const_int(2500), // grid_size = total_elements / 4
+            const_int(256),
+        );
+
+        let view = crate::graph::View::contiguous(vec![Expr::Const(100), Expr::Const(100)]);
+
+        let scalar_node = GraphNode::new(
+            DType::F32,
+            crate::graph::GraphOp::Kernel {
+                ast: scalar_kernel,
+                input_buffers: None,
+            },
+            vec![],
+            view.clone(),
+        );
+
+        let vec4_node = GraphNode::new(
+            DType::F32,
+            crate::graph::GraphOp::Kernel {
+                ast: vec4_kernel,
+                input_buffers: None,
+            },
+            vec![],
+            view,
+        );
+
+        let scalar_cost = estimator.node_base_cost(&scalar_node);
+        let vec4_cost = estimator.node_base_cost(&vec4_node);
+
+        println!("Scalar kernel cost: {}", scalar_cost);
+        println!("Vectorized (float4) kernel cost: {}", vec4_cost);
+
+        // ベクトル化版の方がコストが低いはず
+        assert!(
+            vec4_cost < scalar_cost,
+            "Vectorized kernel should have lower cost than scalar kernel"
         );
     }
 }
