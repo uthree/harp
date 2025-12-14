@@ -369,6 +369,10 @@ mod tests {
     struct DummyBuffer;
 
     impl Buffer for DummyBuffer {
+        fn allocate(_shape: Vec<usize>, _dtype: harp::ast::DType) -> Self {
+            DummyBuffer
+        }
+
         fn shape(&self) -> Vec<usize> {
             vec![]
         }
@@ -399,6 +403,10 @@ mod tests {
 
         fn signature(&self) -> KernelSignature {
             KernelSignature::empty()
+        }
+
+        unsafe fn execute(&self, _buffers: &mut [&mut Self::Buffer]) -> Result<(), String> {
+            Ok(())
         }
     }
 
@@ -442,12 +450,12 @@ mod tests {
     #[test]
     fn test_renderer_type_selection() {
         let mut app = HarpVizApp::new();
-        assert_eq!(app.renderer_type(), RendererType::C);
-
-        app.set_renderer_type(RendererType::OpenCL);
-        assert_eq!(app.renderer_type(), RendererType::OpenCL);
+        assert_eq!(app.renderer_type(), RendererType::OpenCL); // OpenCLがデフォルト
 
         app.set_renderer_type(RendererType::Metal);
         assert_eq!(app.renderer_type(), RendererType::Metal);
+
+        app.set_renderer_type(RendererType::OpenCL);
+        assert_eq!(app.renderer_type(), RendererType::OpenCL);
     }
 }

@@ -193,14 +193,14 @@ impl GraphViewerApp {
         // ProgramRootノードがある場合はProgramRootから開始
         if let Some(sink_node) = graph.program_root() {
             self.traverse_and_add_node_with_layout(
-                &sink_node,
+                sink_node,
                 "",
                 &mut visited,
                 &depths,
                 &mut depth_counters,
             );
             // ProgramRootからエッジを追加
-            self.add_edges(&sink_node, &mut HashSet::new());
+            self.add_edges(sink_node, &mut HashSet::new());
         } else {
             // ProgramRootがない場合は従来通り出力ノードから開始
             let outputs = graph.outputs();
@@ -269,7 +269,7 @@ impl GraphViewerApp {
         // ProgramRootノードがある場合はProgramRootから開始、なければ出力ノードから開始
         let mut visited_global = HashSet::new();
         if let Some(sink_node) = graph.program_root() {
-            calculate_depth(&sink_node, &mut depths, &mut visited_global);
+            calculate_depth(sink_node, &mut depths, &mut visited_global);
         } else {
             for output_node in graph.outputs().values() {
                 calculate_depth(output_node, &mut depths, &mut visited_global);
@@ -390,7 +390,7 @@ impl GraphViewerApp {
             GraphOp::Fold { .. } => "Fold".to_string(),
             GraphOp::Rand => "Rand".to_string(),
             GraphOp::Concat { axis } => format!("Concat({})", axis),
-            GraphOp::ProgramRoot { .. } => format!("Program"),
+            GraphOp::ProgramRoot { .. } => "Program".to_string(),
             _ => "Unknown".to_string(),
         }
     }
@@ -1020,37 +1020,41 @@ impl GraphViewerApp {
 
                 ui.separator();
 
-                // DOTテキスト（折りたたみ可能）
-                egui::CollapsingHeader::new("DOT Format")
+                // DSLテキスト（折りたたみ可能）
+                egui::CollapsingHeader::new("DSL Format")
                     .default_open(false)
                     .show(ui, |ui| {
                         if let Some(ref graph) = self.harp_graph {
+                            // グラフをDSLに変換
+                            let dsl_text = harp_dsl::decompiler::decompile(graph, "graph");
+
                             // クリップボードにコピーボタン
                             if ui.button("📋 Copy to Clipboard").clicked() {
-                                let dot_text = graph.to_dot();
-                                ui.output_mut(|o| o.copied_text = dot_text);
-                                log::info!("DOT text copied to clipboard");
+                                ui.output_mut(|o| o.copied_text = dsl_text.clone());
+                                log::info!("DSL text copied to clipboard");
                             }
 
                             ui.add_space(5.0);
 
                             // Diff表示（最適化履歴がある場合のみ、折りたたみ可能）
                             if self.optimization_history.is_some() && self.current_step > 0 {
-                                let current_dot = graph.to_dot();
-                                let prev_dot =
+                                let prev_dsl =
                                     self.optimization_history.as_ref().and_then(|history| {
-                                        history
-                                            .get(self.current_step - 1)
-                                            .map(|prev_snapshot| prev_snapshot.graph.to_dot())
+                                        history.get(self.current_step - 1).map(|prev_snapshot| {
+                                            harp_dsl::decompiler::decompile(
+                                                &prev_snapshot.graph,
+                                                "graph",
+                                            )
+                                        })
                                     });
 
-                                if let Some(prev_text) = prev_dot {
+                                if let Some(prev_text) = prev_dsl {
                                     crate::diff_viewer::show_collapsible_diff(
                                         ui,
                                         &prev_text,
-                                        &current_dot,
+                                        &dsl_text,
                                         "Show Diff (Previous -> Current)",
-                                        "graph_dot_diff",
+                                        "graph_dsl_diff",
                                         true, // デフォルトで開く
                                         None,
                                     );
@@ -1059,18 +1063,25 @@ impl GraphViewerApp {
                                 ui.add_space(5.0);
                             }
 
-                            // DOTテキスト本文
-                            let current_dot = graph.to_dot();
+                            // DSLテキスト本文（シンタックスハイライト付き）
                             egui::ScrollArea::both() // 縦横両方にスクロール可能
                                 .max_width(ui.available_width())
                                 .max_height(ui.available_height())
                                 .auto_shrink([false, false]) // 自動縮小を無効化して全幅を使う
                                 .show(ui, |ui| {
-                                    ui.add(
-                                        egui::TextEdit::multiline(&mut current_dot.clone())
-                                            .code_editor()
-                                            .desired_width(f32::INFINITY),
+                                    let theme =
+                                        egui_extras::syntax_highlighting::CodeTheme::from_memory(
+                                            ui.ctx(),
+                                            ui.style(),
+                                        );
+                                    let highlighted = egui_extras::syntax_highlighting::highlight(
+                                        ui.ctx(),
+                                        ui.style(),
+                                        &theme,
+                                        &dsl_text,
+                                        "rust", // DSLはRust風の構文なのでRustハイライトを使用
                                     );
+                                    ui.add(egui::Label::new(highlighted).selectable(true));
                                 });
                         } else {
                             ui.label("No graph loaded");

@@ -11,7 +11,6 @@ pub mod node_view_ops;
 pub mod ops;
 pub mod shape;
 pub mod strategy;
-pub mod visualization;
 
 // Re-export commonly used types
 pub use conv::IntoSpatialParams;

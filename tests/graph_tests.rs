@@ -1,33 +1,5 @@
-use harp::ast;
+use harp::ast::Literal;
 use harp::graph::*;
-
-#[test]
-fn test_graph_to_dot() {
-    let mut graph = Graph::new();
-
-    // 入力ノードを作成
-    let a = graph.input("a", DType::F32, vec![10, 20]);
-
-    let b = graph.input("b", DType::F32, vec![10, 20]);
-
-    // 計算グラフを構築
-    let c = a + b;
-
-    // 出力ノードを登録
-    graph.output("c", c);
-
-    // DOT形式で出力
-    let dot = graph.to_dot();
-
-    // 基本的な構造を確認
-    assert!(dot.contains("digraph G {"));
-    assert!(dot.contains("rankdir=LR"));
-    assert!(dot.contains("Output: c"));
-    assert!(dot.contains("Buffer")); // GraphOp::Buffer
-    assert!(dot.contains("Elementwise"));
-    assert!(dot.contains("DType: F32"));
-    assert!(dot.contains("Shape: [10, 20]"));
-}
 
 #[test]
 fn test_graph_new() {
@@ -616,7 +588,7 @@ fn test_constant_f32() {
 
     // GraphOp::Constであることを確認
     match &const_node.op {
-        GraphOp::Const(crate::ast::Literal::F32(v)) => {
+        GraphOp::Const(Literal::F32(v)) => {
             assert_eq!(*v, 2.5f32);
         }
         _ => panic!("Expected GraphOp::Const with F32 literal"),
@@ -636,7 +608,7 @@ fn test_constant_isize() {
 
     // GraphOp::Constであることを確認
     match &const_node.op {
-        GraphOp::Const(crate::ast::Literal::Int(v)) => {
+        GraphOp::Const(Literal::Int(v)) => {
             assert_eq!(*v, 42);
         }
         _ => panic!("Expected GraphOp::Const with Int literal"),
@@ -653,7 +625,7 @@ fn test_constant_usize() {
 
     // GraphOp::Constであることを確認
     match &const_node.op {
-        GraphOp::Const(crate::ast::Literal::Int(v)) => {
+        GraphOp::Const(Literal::Int(v)) => {
             assert_eq!(*v, 100);
         }
         _ => panic!("Expected GraphOp::Const with Int literal"),

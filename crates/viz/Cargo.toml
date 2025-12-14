@@ -19,6 +19,7 @@ similar = "2.4"
 
 # harpへの参照
 harp = { path = "../.." }
+harp-dsl = { path = "../dsl" }
 
 [dev-dependencies]
 env_logger = "0.11"
