@@ -4,7 +4,7 @@
 
 use crate::ast::{AstNode, DType as AstDType, Scope, helper::*};
 use crate::graph::ops::custom_placeholders as ph;
-use crate::graph::{DType as GraphDType, GraphNode, GraphOp, ReduceOp, View};
+use crate::graph::{CumulativeOp, DType as GraphDType, GraphNode, GraphOp, ReduceOp, View};
 use std::collections::HashSet;
 
 /// GraphのDTypeをAstのDTypeに変換
@@ -36,6 +36,55 @@ pub fn get_reduce_init(dtype: &GraphDType, op: &ReduceOp) -> AstNode {
             GraphDType::I32 => const_int(i32::MIN as isize),
             _ => const_f32(f32::NEG_INFINITY),
         },
+    }
+}
+
+/// アキュムレータの型エイリアス
+pub type AccumulateFn = Box<dyn Fn(AstNode, AstNode) -> AstNode>;
+
+/// Reduce演算のアキュムレータ（初期値と更新関数）を生成
+///
+/// # Arguments
+/// * `op` - Reduce演算の種類
+/// * `dtype` - 出力の型
+///
+/// # Returns
+/// (初期値, 更新関数) のタプル
+pub fn build_reduce_accumulator(op: &ReduceOp, dtype: &GraphDType) -> (AstNode, AccumulateFn) {
+    match op {
+        ReduceOp::Sum => (get_reduce_init(dtype, op), Box::new(|acc, val| acc + val)),
+        ReduceOp::Prod => (get_reduce_init(dtype, op), Box::new(|acc, val| acc * val)),
+        ReduceOp::Max => (get_reduce_init(dtype, op), Box::new(max)),
+    }
+}
+
+/// Cumulative演算のアキュムレータ（初期値と更新関数）を生成
+///
+/// # Arguments
+/// * `op` - Cumulative演算の種類
+/// * `dtype` - 出力の型
+///
+/// # Returns
+/// (初期値, 更新関数) のタプル
+pub fn build_cumulative_accumulator(
+    op: &CumulativeOp,
+    dtype: &GraphDType,
+) -> (AstNode, AccumulateFn) {
+    match op {
+        CumulativeOp::Sum => {
+            let init = match dtype {
+                GraphDType::I32 => const_int(0),
+                _ => const_f32(0.0),
+            };
+            (init, Box::new(|acc, val| acc + val))
+        }
+        CumulativeOp::Prod => {
+            let init = match dtype {
+                GraphDType::I32 => const_int(1),
+                _ => const_f32(1.0),
+            };
+            (init, Box::new(|acc, val| acc * val))
+        }
     }
 }
 

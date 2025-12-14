@@ -64,6 +64,8 @@ LoweringSuggesterが生成する並列化戦略：
 
 FlatParallel戦略は境界チェック（`if (tid < total_elements)`）を含むため、総要素数がスレッドグループサイズで割り切れなくても適用可能。グリッドサイズは自動的にスレッドグループサイズの倍数に切り上げられる。GPUのSIMTアーキテクチャでは境界チェックのオーバーヘッドは最後のグループのみに影響し、パフォーマンスへの影響は最小限。
 
+MultiDimParallel戦略ではスレッドグループサイズが複数軸に分配される。例: `thread_group_size=256, parallel_dims=2` → 各軸`[16, 16, 1]`。各軸に対してネストした境界チェック（`if (tid_0 < shape_0) { if (tid_1 < shape_1) { ... } }`）が適用される。
+
 ```rust
 // デフォルト設定
 let suggester = LoweringSuggester::new();

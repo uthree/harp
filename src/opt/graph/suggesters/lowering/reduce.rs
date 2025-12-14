@@ -10,8 +10,9 @@ use std::collections::HashMap;
 
 use super::helpers::{
     build_contiguous_offset, build_contiguous_offset_excluding_axes,
-    build_contiguous_offset_excluding_axis, get_reduce_init, graph_dtype_to_ast,
-    wrap_with_loops_excluding_axes_with_scope, wrap_with_loops_excluding_axis_with_scope,
+    build_contiguous_offset_excluding_axis, build_cumulative_accumulator, build_reduce_accumulator,
+    graph_dtype_to_ast, wrap_with_loops_excluding_axes_with_scope,
+    wrap_with_loops_excluding_axis_with_scope,
 };
 
 /// Reduce演算の関数を生成
@@ -25,18 +26,7 @@ pub fn build_reduce_function(
     let input_shape = input.view.shape();
     let ndim = input_shape.len();
 
-    let (init_value, accumulate_fn): (AstNode, Box<dyn Fn(AstNode, AstNode) -> AstNode>) = match op
-    {
-        ReduceOp::Sum => (
-            get_reduce_init(&node.dtype, op),
-            Box::new(|acc, val| acc + val),
-        ),
-        ReduceOp::Prod => (
-            get_reduce_init(&node.dtype, op),
-            Box::new(|acc, val| acc * val),
-        ),
-        ReduceOp::Max => (get_reduce_init(&node.dtype, op), Box::new(max)),
-    };
+    let (init_value, accumulate_fn) = build_reduce_accumulator(op, &node.dtype);
 
     let input_offset = build_contiguous_offset(ndim);
     let load_dtype = graph_dtype_to_ast(&input.dtype);
@@ -85,11 +75,7 @@ pub fn build_cumulative_function(
     let input = node.src.first()?;
     let ndim = input.view.shape().len();
 
-    let (init_value, accumulate_fn): (AstNode, Box<dyn Fn(AstNode, AstNode) -> AstNode>) = match op
-    {
-        CumulativeOp::Sum => (const_f32(0.0), Box::new(|acc, val| acc + val)),
-        CumulativeOp::Prod => (const_f32(1.0), Box::new(|acc, val| acc * val)),
-    };
+    let (init_value, accumulate_fn) = build_cumulative_accumulator(op, &node.dtype);
 
     let offset = build_contiguous_offset(ndim);
     let load_dtype = graph_dtype_to_ast(&input.dtype);
@@ -141,18 +127,7 @@ pub fn build_fused_elementwise_reduce_function(
     let input = node.src.first()?;
     let input_shape = input.view.shape();
     let ndim = input_shape.len();
-    let (init_value, accumulate_fn): (AstNode, Box<dyn Fn(AstNode, AstNode) -> AstNode>) =
-        match reduce_op {
-            ReduceOp::Sum => (
-                get_reduce_init(&node.dtype, reduce_op),
-                Box::new(|acc, val| acc + val),
-            ),
-            ReduceOp::Prod => (
-                get_reduce_init(&node.dtype, reduce_op),
-                Box::new(|acc, val| acc * val),
-            ),
-            ReduceOp::Max => (get_reduce_init(&node.dtype, reduce_op), Box::new(max)),
-        };
+    let (init_value, accumulate_fn) = build_reduce_accumulator(reduce_op, &node.dtype);
 
     // 入力のロードを含む式を構築
     let input_offset = build_contiguous_offset(ndim);
@@ -223,11 +198,7 @@ pub fn build_fused_elementwise_cumulative_function(
     let input = node.src.first()?;
     let ndim = input.view.shape().len();
 
-    let (init_value, accumulate_fn): (AstNode, Box<dyn Fn(AstNode, AstNode) -> AstNode>) =
-        match cum_op {
-            CumulativeOp::Sum => (const_f32(0.0), Box::new(|acc, val| acc + val)),
-            CumulativeOp::Prod => (const_f32(1.0), Box::new(|acc, val| acc * val)),
-        };
+    let (init_value, accumulate_fn) = build_cumulative_accumulator(cum_op, &node.dtype);
 
     let offset = build_contiguous_offset(ndim);
     let load_dtype = graph_dtype_to_ast(&input.dtype);

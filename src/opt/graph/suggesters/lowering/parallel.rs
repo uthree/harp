@@ -5,12 +5,48 @@
 use crate::ast::{AstNode, DType as AstDType, Mutability, Scope, VarDecl, VarKind, helper::*};
 use crate::graph::ops::custom_placeholders as ph;
 
-use super::helpers::graph_dtype_to_ast;
+use super::helpers::{build_reduce_accumulator, graph_dtype_to_ast};
 
 /// 切り上げ計算: ceil(a / b)
 fn ceil_div(a: AstNode, b: AstNode) -> AstNode {
     // ceil(a / b) = (a + b - 1) / b
     idiv(a + b.clone() - const_int(1), b)
+}
+
+/// スレッドグループサイズを複数軸に分配する
+///
+/// # Arguments
+/// * `total_size` - 合計スレッドグループサイズ（例: 256）
+/// * `parallel_dims` - 並列化する軸数（1, 2, or 3）
+///
+/// # Returns
+/// 各軸のスレッドグループサイズ [x, y, z]
+///
+/// # Examples
+/// - `distribute_thread_group_size(256, 1)` -> `[256, 1, 1]`
+/// - `distribute_thread_group_size(256, 2)` -> `[16, 16, 1]`
+/// - `distribute_thread_group_size(64, 3)` -> `[4, 4, 4]`
+fn distribute_thread_group_size(total_size: usize, parallel_dims: usize) -> [usize; 3] {
+    match parallel_dims {
+        1 => [total_size, 1, 1],
+        2 => {
+            // sqrt(total_size) を計算し、2の累乗に調整
+            let sqrt = (total_size as f64).sqrt() as usize;
+            // 2の累乗に切り上げ
+            let per_dim = sqrt.next_power_of_two().min(total_size);
+            let y = total_size / per_dim;
+            [per_dim, y.max(1), 1]
+        }
+        3 => {
+            // cbrt(total_size) を計算し、2の累乗に調整
+            let cbrt = (total_size as f64).cbrt().ceil() as usize;
+            let per_dim = cbrt.next_power_of_two().min(16); // 最大16に制限
+            let xy = per_dim * per_dim;
+            let z = (total_size / xy).max(1);
+            [per_dim, per_dim, z]
+        }
+        _ => [total_size, 1, 1],
+    }
 }
 
 /// 並列化戦略
@@ -279,6 +315,9 @@ fn build_multidim_parallel_elementwise_kernel(
     let actual_parallel_dims = parallel_dims.min(ndim).min(3);
     let load_dtype = graph_dtype_to_ast(output_dtype);
 
+    // スレッドグループサイズを複数軸に分配
+    let tg_sizes = distribute_thread_group_size(thread_group_size, actual_parallel_dims);
+
     // スレッドIDパラメータ
     let mut params: Vec<VarDecl> = (0..actual_parallel_dims)
         .map(|axis| VarDecl {
@@ -322,36 +361,39 @@ fn build_multidim_parallel_elementwise_kernel(
     let store_stmt = store(var(ph::OUTPUT), offset, final_expr);
 
     // 逐次ループでラップ（並列軸以降の軸）
-    let body = wrap_sequential_loops(ndim, actual_parallel_dims, vec![store_stmt]);
+    let sequential_body = wrap_sequential_loops(ndim, actual_parallel_dims, vec![store_stmt]);
 
-    // グリッドサイズ: 並列化した軸のサイズ
-    let grid_size: [Box<AstNode>; 3] = match actual_parallel_dims {
-        1 => [
-            Box::new(var(ph::shape(0))),
-            Box::new(const_int(1)),
-            Box::new(const_int(1)),
-        ],
-        2 => [
-            Box::new(var(ph::shape(0))),
-            Box::new(var(ph::shape(1))),
-            Box::new(const_int(1)),
-        ],
-        3 => [
-            Box::new(var(ph::shape(0))),
-            Box::new(var(ph::shape(1))),
-            Box::new(var(ph::shape(2))),
-        ],
-        _ => [
-            Box::new(const_int(1)),
-            Box::new(const_int(1)),
-            Box::new(const_int(1)),
-        ],
+    // 境界チェック付きの本体を構築（ネストしたIfを使用）
+    // if (tid_0 < shape_0) { if (tid_1 < shape_1) { ... } }
+    let mut body = sequential_body;
+    for axis in (0..actual_parallel_dims).rev() {
+        body = if_then(
+            lt(var(format!("tid_{}", axis)), var(ph::shape(axis))),
+            body,
+        );
+    }
+    let body = block(vec![body], Scope::new());
+
+    // グリッドサイズ: スレッドグループサイズの倍数に切り上げ
+    let grid_size: [Box<AstNode>; 3] = {
+        let build_grid_axis = |axis: usize| -> Box<AstNode> {
+            if axis < actual_parallel_dims {
+                let shape = var(ph::shape(axis));
+                let tg = const_int(tg_sizes[axis] as isize);
+                // ceil(shape / tg_size) * tg_size
+                let num_groups = ceil_div(shape, tg.clone());
+                Box::new(num_groups * tg)
+            } else {
+                Box::new(const_int(1))
+            }
+        };
+        [build_grid_axis(0), build_grid_axis(1), build_grid_axis(2)]
     };
 
     let thread_group_size_arr: [Box<AstNode>; 3] = [
-        Box::new(const_int(thread_group_size as isize)),
-        Box::new(const_int(1)),
-        Box::new(const_int(1)),
+        Box::new(const_int(tg_sizes[0] as isize)),
+        Box::new(const_int(tg_sizes[1] as isize)),
+        Box::new(const_int(tg_sizes[2] as isize)),
     ];
 
     AstNode::Kernel {
@@ -460,27 +502,11 @@ fn build_flat_parallel_reduce_kernel(
     axis: usize,
     name: &str,
 ) -> Option<AstNode> {
-    use crate::graph::ReduceOp;
-
     let input = node.src.first()?;
     let input_shape = input.view.shape();
     let ndim = input_shape.len();
 
-    let (init_value, accumulate_fn): (AstNode, Box<dyn Fn(AstNode, AstNode) -> AstNode>) = match op
-    {
-        ReduceOp::Sum => (
-            super::helpers::get_reduce_init(&node.dtype, op),
-            Box::new(|acc, val| acc + val),
-        ),
-        ReduceOp::Prod => (
-            super::helpers::get_reduce_init(&node.dtype, op),
-            Box::new(|acc, val| acc * val),
-        ),
-        ReduceOp::Max => (
-            super::helpers::get_reduce_init(&node.dtype, op),
-            Box::new(max),
-        ),
-    };
+    let (init_value, accumulate_fn) = build_reduce_accumulator(op, &node.dtype);
 
     let load_dtype = graph_dtype_to_ast(&input.dtype);
 
@@ -661,7 +687,7 @@ pub fn build_flat_parallel_fused_elementwise_reduce_kernel(
     axes: &[usize],
     name: &str,
 ) -> Option<AstNode> {
-    use crate::graph::{GraphOp, ReduceOp};
+    use crate::graph::GraphOp;
     use std::collections::HashSet;
 
     if axes.is_empty() {
@@ -673,21 +699,7 @@ pub fn build_flat_parallel_fused_elementwise_reduce_kernel(
     let ndim = input_shape.len();
     let axes_set: HashSet<usize> = axes.iter().copied().collect();
 
-    let (init_value, accumulate_fn): (AstNode, Box<dyn Fn(AstNode, AstNode) -> AstNode>) =
-        match reduce_op {
-            ReduceOp::Sum => (
-                super::helpers::get_reduce_init(&node.dtype, reduce_op),
-                Box::new(|acc, val| acc + val),
-            ),
-            ReduceOp::Prod => (
-                super::helpers::get_reduce_init(&node.dtype, reduce_op),
-                Box::new(|acc, val| acc * val),
-            ),
-            ReduceOp::Max => (
-                super::helpers::get_reduce_init(&node.dtype, reduce_op),
-                Box::new(max),
-            ),
-        };
+    let (init_value, accumulate_fn) = build_reduce_accumulator(reduce_op, &node.dtype);
 
     let load_dtype = graph_dtype_to_ast(&input.dtype);
 
@@ -974,6 +986,106 @@ mod tests {
                     "Grid size should be rounded up (contain Mul): {:?}",
                     grid_x
                 );
+            }
+            _ => panic!("Expected Kernel node"),
+        }
+    }
+
+    #[test]
+    fn test_distribute_thread_group_size_1d() {
+        let result = distribute_thread_group_size(256, 1);
+        assert_eq!(result, [256, 1, 1]);
+
+        let result = distribute_thread_group_size(64, 1);
+        assert_eq!(result, [64, 1, 1]);
+    }
+
+    #[test]
+    fn test_distribute_thread_group_size_2d() {
+        let result = distribute_thread_group_size(256, 2);
+        // sqrt(256) = 16, so [16, 16, 1]
+        assert_eq!(result[0] * result[1], 256);
+        assert_eq!(result[2], 1);
+        // 2の累乗であること
+        assert!(result[0].is_power_of_two());
+        assert!(result[1].is_power_of_two() || result[1] == 1);
+
+        let result = distribute_thread_group_size(64, 2);
+        // sqrt(64) = 8, so [8, 8, 1]
+        assert_eq!(result[0] * result[1], 64);
+        assert_eq!(result[2], 1);
+    }
+
+    #[test]
+    fn test_distribute_thread_group_size_3d() {
+        let result = distribute_thread_group_size(64, 3);
+        // cbrt(64) = 4, so [4, 4, 4]
+        assert_eq!(result[0] * result[1] * result[2], 64);
+        // 各軸が2の累乗であること
+        assert!(result[0].is_power_of_two());
+        assert!(result[1].is_power_of_two());
+    }
+
+    #[test]
+    fn test_multidim_parallel_kernel_has_boundary_check() {
+        use crate::ast::helper::wildcard;
+        use crate::graph::DType as GraphDType;
+
+        let expr = wildcard("0");
+        let kernel =
+            build_multidim_parallel_elementwise_kernel(2, 1, expr, &GraphDType::F32, "test", 2, 256);
+
+        // カーネルの本体にIf文が含まれているか確認
+        match &kernel {
+            AstNode::Kernel { body, .. } => {
+                fn contains_if(node: &AstNode) -> bool {
+                    match node {
+                        AstNode::If { .. } => true,
+                        AstNode::Block { statements, .. } => statements.iter().any(contains_if),
+                        _ => false,
+                    }
+                }
+                assert!(
+                    contains_if(body),
+                    "MultiDim kernel body should contain boundary check (If node)"
+                );
+            }
+            _ => panic!("Expected Kernel node"),
+        }
+    }
+
+    #[test]
+    fn test_multidim_parallel_kernel_distributed_thread_group_size() {
+        use crate::ast::helper::wildcard;
+        use crate::graph::DType as GraphDType;
+
+        let expr = wildcard("0");
+        let kernel =
+            build_multidim_parallel_elementwise_kernel(2, 1, expr, &GraphDType::F32, "test", 2, 256);
+
+        match &kernel {
+            AstNode::Kernel {
+                default_thread_group_size,
+                ..
+            } => {
+                // parallel_dims=2, thread_group_size=256 -> [16, 16, 1]
+                // スレッドグループサイズが両軸に分配されていることを確認
+                match (
+                    default_thread_group_size[0].as_ref(),
+                    default_thread_group_size[1].as_ref(),
+                ) {
+                    (
+                        AstNode::Const(crate::ast::Literal::Int(x)),
+                        AstNode::Const(crate::ast::Literal::Int(y)),
+                    ) => {
+                        // x * y = 256
+                        assert_eq!((*x as usize) * (*y as usize), 256);
+                        // 両方とも1より大きい（分配されている）
+                        assert!(*x > 1, "x should be > 1, got {}", x);
+                        assert!(*y > 1, "y should be > 1, got {}", y);
+                    }
+                    _ => panic!("Expected Const nodes for thread group size"),
+                }
             }
             _ => panic!("Expected Kernel node"),
         }
