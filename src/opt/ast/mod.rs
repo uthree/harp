@@ -34,6 +34,6 @@ pub use selector::{AstCostSelector, AstMultiStageSelector, AstSelector};
 pub use suggesters::{
     CompositeSuggester, CseSuggester, FunctionInliningSuggester, LoopFusionSuggester,
     LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester, RuleBaseSuggester,
-    VariableExpansionSuggester,
+    ThreadPartitionSuggester, VariableExpansionSuggester,
 };
 pub use transforms::{inline_small_loop, tile_loop};

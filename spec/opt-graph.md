@@ -46,13 +46,14 @@ LoweringSuggesterが生成する並列化戦略：
 | 戦略 | 説明 | パラメータ |
 |------|------|-----------|
 | Sequential | 逐次実行（CPU向け） | なし |
-| FlatParallel | 全要素を線形インデックスで並列処理（境界チェック付き） | thread_group_size, vector_width |
-| MultiDimParallel | n次元までをスレッドIDで並列化 | parallel_dims, thread_group_size, vector_width |
+| FlatParallel | 全要素を線形インデックスで1D並列処理（境界チェック付き） | thread_group_size, vector_width |
 
 対応演算:
-- **Elementwise/FusedElementwise**: 全戦略対応（ベクトル化含む）
+- **Elementwise/FusedElementwise**: 両戦略対応（ベクトル化含む）
 - **Reduce**: Sequential, FlatParallel対応（ベクトル化なし）
 - **その他**: Sequentialのみ
+
+多次元グリッドへの変換は、AST最適化フェーズの`ThreadPartitionSuggester`が担当する。
 
 #### LoweringSuggesterの設定
 
@@ -63,8 +64,6 @@ LoweringSuggesterが生成する並列化戦略：
 ベクトル化は総要素数がベクトル幅で割り切れる場合のみ候補に追加される。
 
 FlatParallel戦略は境界チェック（`if (tid < total_elements)`）を含むため、総要素数がスレッドグループサイズで割り切れなくても適用可能。グリッドサイズは自動的にスレッドグループサイズの倍数に切り上げられる。GPUのSIMTアーキテクチャでは境界チェックのオーバーヘッドは最後のグループのみに影響し、パフォーマンスへの影響は最小限。
-
-MultiDimParallel戦略ではスレッドグループサイズが複数軸に分配される。例: `thread_group_size=256, parallel_dims=2` → 各軸`[16, 16, 1]`。各軸に対してネストした境界チェック（`if (tid_0 < shape_0) { if (tid_1 < shape_1) { ... } }`）が適用される。
 
 ```rust
 // デフォルト設定

@@ -49,6 +49,7 @@ mod tests {
     use crate::opt::ast::rules::all_rules_with_search;
     use crate::opt::ast::suggesters::{
         FunctionInliningSuggester, LoopInliningSuggester, LoopTilingSuggester, RuleBaseSuggester,
+        ThreadPartitionSuggester,
     };
 
     #[test]
@@ -198,5 +199,77 @@ mod tests {
 
         // 関数インライン展開とルールベース最適化の候補が生成されるはず
         assert!(!suggestions.is_empty());
+    }
+
+    #[test]
+    fn test_composite_suggester_with_thread_partition() {
+        use crate::ast::helper::*;
+
+        // ThreadPartitionSuggesterを含む統合テスト
+        let suggester = CompositeSuggester::new(vec![
+            Box::new(RuleBaseSuggester::new(all_rules_with_search())),
+            Box::new(ThreadPartitionSuggester::new()),
+        ]);
+
+        // 1D FlatParallel Kernelを作成
+        let body = AstNode::If {
+            condition: Box::new(lt(var("tid"), var("shape_0") * var("shape_1"))),
+            then_body: Box::new(store(var("output"), var("tid"), var("value"))),
+            else_body: None,
+        };
+
+        let kernel = AstNode::Kernel {
+            name: Some("test_kernel".to_string()),
+            params: vec![
+                VarDecl {
+                    name: "tid".to_string(),
+                    dtype: DType::Int,
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::ThreadId(0),
+                },
+                VarDecl {
+                    name: "input_0".to_string(),
+                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::Normal,
+                },
+                VarDecl {
+                    name: "output".to_string(),
+                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    mutability: Mutability::Mutable,
+                    kind: VarKind::Normal,
+                },
+            ],
+            return_type: DType::Tuple(vec![]),
+            body: Box::new(body),
+            default_grid_size: [
+                Box::new(const_int(1024)),
+                Box::new(const_int(1)),
+                Box::new(const_int(1)),
+            ],
+            default_thread_group_size: [
+                Box::new(const_int(256)),
+                Box::new(const_int(1)),
+                Box::new(const_int(1)),
+            ],
+        };
+
+        let suggestions = suggester.suggest(&kernel);
+
+        // ThreadPartitionSuggesterからの候補が生成されるはず
+        assert!(!suggestions.is_empty());
+
+        // 少なくとも1つのKernelがtid_0, tid_1を持つ（多次元化されている）
+        let has_multidim_kernel = suggestions.iter().any(|s| {
+            if let AstNode::Kernel { params, .. } = s {
+                params.iter().any(|p| p.name == "tid_0") && params.iter().any(|p| p.name == "tid_1")
+            } else {
+                false
+            }
+        });
+        assert!(
+            has_multidim_kernel,
+            "Should have multidim partitioned kernel"
+        );
     }
 }

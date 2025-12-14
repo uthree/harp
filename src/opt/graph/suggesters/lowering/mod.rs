@@ -26,7 +26,7 @@ pub use parallel::ParallelizationStrategy;
 ///
 /// # 並列化戦略
 ///
-/// デフォルトでは複数の並列化戦略（Sequential, FlatParallel, MultiDimParallel）で
+/// デフォルトでは複数の並列化戦略（Sequential, FlatParallel）で
 /// 候補を生成しますが、`sequential_only()`で逐次実行のみに制限できます。
 /// これは実行時間の実測など、軽量なloweringが必要な場合に有用です。
 ///
@@ -302,7 +302,6 @@ impl LoweringSuggester {
                 } => parallel::build_flat_parallel_fused_elementwise_reduce_kernel(
                     node, expr, reduce_op, axes, &name,
                 ),
-                ParallelizationStrategy::MultiDimParallel { .. } => None,
             },
             GraphOp::FusedElementwiseCumulative {
                 expr,
@@ -544,25 +543,6 @@ impl LoweringSuggester {
                         }
                     }
                 }
-
-                // 多次元並列化は次元数に応じて追加
-                let ndim = node.view.shape().len();
-                for &tg_size in &self.thread_group_sizes {
-                    if ndim >= 1 {
-                        strategies.push(ParallelizationStrategy::MultiDimParallel {
-                            parallel_dims: 1,
-                            thread_group_size: tg_size,
-                            vector_width: None,
-                        });
-                    }
-                    if ndim >= 2 {
-                        strategies.push(ParallelizationStrategy::MultiDimParallel {
-                            parallel_dims: 2,
-                            thread_group_size: tg_size,
-                            vector_width: None,
-                        });
-                    }
-                }
             }
             GraphOp::Reduce { .. } => {
                 // Reduceは現時点ではベクトル化をサポートしない
@@ -571,22 +551,6 @@ impl LoweringSuggester {
                         thread_group_size: tg_size,
                         vector_width: None,
                     });
-
-                    let ndim = node.view.shape().len();
-                    if ndim >= 1 {
-                        strategies.push(ParallelizationStrategy::MultiDimParallel {
-                            parallel_dims: 1,
-                            thread_group_size: tg_size,
-                            vector_width: None,
-                        });
-                    }
-                    if ndim >= 2 {
-                        strategies.push(ParallelizationStrategy::MultiDimParallel {
-                            parallel_dims: 2,
-                            thread_group_size: tg_size,
-                            vector_width: None,
-                        });
-                    }
                 }
             }
             GraphOp::FusedElementwiseReduce { .. } => {

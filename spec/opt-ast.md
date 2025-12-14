@@ -30,7 +30,24 @@
 | FunctionInliningSuggester | 小さい関数をインライン展開 |
 | CseSuggester | 共通部分式除去 |
 | VariableExpansionSuggester | 変数展開（CSEの逆操作） |
+| ThreadPartitionSuggester | 1D並列Kernelを多次元グリッドに変換 |
 | CompositeSuggester | 複数Suggesterを組み合わせ |
+
+### ThreadPartitionSuggester
+
+LoweringSuggesterで生成された1D FlatParallel Kernelを多次元グリッドに変換する。
+
+**変換内容:**
+- パラメータ: `tid` → `tid_0, tid_1, ...`（ThreadId(0), ThreadId(1), ...）
+- 境界チェック: `if (tid < total)` → ネストした`if (tid_0 < shape_0) { if (tid_1 < shape_1) { ... } }`
+- グリッドサイズ: 各軸で切り上げ
+- スレッドグループサイズ: 指定サイズを軸に分配（例: 256 → [16, 16, 1]）
+
+**パラメータ:**
+- `parallel_dims_options`: 並列化する軸数の候補（デフォルト: [2, 3]）
+- `thread_group_sizes`: スレッドグループサイズの候補（デフォルト: [64, 128, 256]）
+
+形状情報（ndim）はKernel本体内の`shape_N`変数から推測する。
 
 ## 代数的書き換えルール
 
