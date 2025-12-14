@@ -32,6 +32,7 @@ use crate::opt::graph::ChainedGraphOptimizer;
 mod utils;
 
 // 公開エクスポート
+pub use self::extract_program_from_graph as extract_program;
 pub use utils::create_signature;
 
 /// Lowering用のGraphOptimizerを作成
@@ -96,11 +97,11 @@ pub(crate) fn lower(graph: Graph) -> crate::ast::AstNode {
 }
 
 // =============================================================================
-// 内部ヘルパー関数
+// Program抽出関数
 // =============================================================================
 
-/// グラフ内にKernel(Program)ノードがあれば、そのProgramを返す
-fn find_custom_program(graph: &Graph) -> Option<crate::ast::AstNode> {
+/// グラフ内のOutputにKernel(Program)ノードがあれば、そのProgramを返す
+pub fn find_custom_program(graph: &Graph) -> Option<crate::ast::AstNode> {
     for output in graph.outputs().values() {
         if let GraphOp::Kernel { ast, .. } = &output.op
             && matches!(ast, crate::ast::AstNode::Program { .. })
@@ -112,7 +113,7 @@ fn find_custom_program(graph: &Graph) -> Option<crate::ast::AstNode> {
 }
 
 /// ProgramRootノードからProgramを取得する
-fn find_program_root_program(graph: &Graph) -> Option<crate::ast::AstNode> {
+pub fn find_program_root_program(graph: &Graph) -> Option<crate::ast::AstNode> {
     if let Some(root) = graph.program_root()
         && let GraphOp::ProgramRoot { ast, .. } = &root.op
         && matches!(ast, crate::ast::AstNode::Program { .. })
@@ -123,7 +124,13 @@ fn find_program_root_program(graph: &Graph) -> Option<crate::ast::AstNode> {
 }
 
 /// 最適化済みグラフからProgramを抽出する
-fn extract_program_from_graph(optimized_graph: Graph) -> crate::ast::AstNode {
+///
+/// グラフ最適化後、ProgramRootまたはKernel(Program)ノードからASTを取得します。
+/// どちらも見つからない場合はパニックします。
+///
+/// # Panics
+/// グラフ内にProgramRoot(Program)またはKernel(Program)が存在しない場合
+pub fn extract_program_from_graph(optimized_graph: Graph) -> crate::ast::AstNode {
     if let Some(program) = find_program_root_program(&optimized_graph) {
         log::debug!("Found ProgramRoot(Program) node, returning directly");
         return program;

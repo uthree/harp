@@ -16,6 +16,13 @@ struct TestBuffer {
 }
 
 impl Buffer for TestBuffer {
+    fn allocate(shape: Vec<usize>, dtype: harp::ast::DType) -> Self {
+        Self {
+            shape,
+            element_size: dtype.size_in_bytes(),
+        }
+    }
+
     fn shape(&self) -> Vec<usize> {
         self.shape.clone()
     }
