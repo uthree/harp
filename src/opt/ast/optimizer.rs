@@ -430,6 +430,35 @@ where
             -improvement_pct
         );
 
+        // 最終結果が履歴の最後と異なる場合（コスト改善がなかったステップが最後の場合）、
+        // global_bestを最終スナップショットとして追加
+        let last_snapshot_cost = history
+            .snapshots()
+            .last()
+            .map(|s| s.cost)
+            .unwrap_or(f32::MAX);
+        if (global_best_cost - last_snapshot_cost).abs() > f32::EPSILON {
+            let final_logs = if self.collect_logs {
+                log_capture::get_captured_logs()
+            } else {
+                Vec::new()
+            };
+            let final_step = history.len();
+            history.add_snapshot(OptimizationSnapshot::with_candidates(
+                final_step,
+                global_best.clone(),
+                global_best_cost,
+                format!(
+                    "[Final] Best result (cost={:.2e}, improved {:.1}%)",
+                    global_best_cost, improvement_pct
+                ),
+                0,
+                None,
+                final_logs,
+                0,
+            ));
+        }
+
         // これまでで最良の候補を返す
         (global_best, history)
     }
