@@ -15,11 +15,13 @@ pub struct DslParser;
 /// 予約語リスト
 /// これらの識別子は変数名やグラフ名として使用できない
 ///
-/// 注意: 型名（f32, i32等）、組み込み関数名（matmul, fused等）、メソッド名（sum等）は
+/// 注意: 型名（f32, i32等）、組み込み関数名（matmul等）、メソッド名（sum等）は
 /// 文脈で区別できるため、予約語に含めていません。
 pub const RESERVED_KEYWORDS: &[&str] = &[
     // 構文キーワード
     "graph", "let", "return",
+    // fused演算（専用構文を持つため予約語）
+    "fused", "fused_reduce", "fused_cumulative",
     // 真偽値リテラル（将来的にブールリテラルとして使用予定）
     "true", "false",
 ];

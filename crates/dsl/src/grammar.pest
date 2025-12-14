@@ -112,7 +112,9 @@ fused_expr = { "fused" ~ "(" ~ ident_list ~ ")" ~ fused_block }
 fused_reduce_expr = { "fused_reduce" ~ "(" ~ ident_list ~ "," ~ fused_params ~ ")" ~ fused_block }
 fused_cumulative_expr = { "fused_cumulative" ~ "(" ~ ident_list ~ "," ~ fused_params ~ ")" ~ fused_block }
 
-ident_list = { ident ~ ("," ~ ident)* }
+// ident_list: identifiers that are NOT followed by "=" (to distinguish from named_arg)
+ident_list = { ident_not_kwarg ~ ("," ~ ident_not_kwarg)* }
+ident_not_kwarg = { !named_arg ~ ident }
 fused_params = { named_arg ~ ("," ~ named_arg)* }
 fused_block = { "{" ~ expr ~ "}" }
 
