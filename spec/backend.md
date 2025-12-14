@@ -43,14 +43,17 @@ ASTをターゲット言語のソースコードに変換。C言語系の構文�
 ### Pipeline
 Graphを最適化、lower、AST最適化などの一通りの処理をまとめて行うためのtrait。
 
-処理フロー:
-1. **グラフ最適化** (必須): LoweringSuggesterでGraphOpをKernelノードに変換、融合、並列化戦略変更など
-2. **Lowering**: Graph → AST変換（Kernelノードの展開）
-3. **AST最適化** (オプション):
+処理フロー（3フェーズグラフ最適化）:
+1. **Preparation** (グラフ準備): View挿入、融合、タイリングなどのグラフ構造最適化
+2. **Lowering**: 全てのGraphOpノードをKernelノードに変換（並列化戦略の選択を含む）
+3. **Fusion**: 全てのKernelノードをProgramRootに融合（決定論的変換）
+4. **AST最適化**:
    - ルールベース最適化（代数的簡約、定数畳み込み）
    - ビームサーチ最適化（ループ変換など）
-4. **レンダリング**: AST → ソースコード
-5. **コンパイル**: ソースコード → 実行可能カーネル
+5. **レンダリング**: AST → ソースコード
+6. **コンパイル**: ソースコード → 実行可能カーネル
+
+実測値ベース最適化（RuntimeSelector）はPhase 1とPhase 2で使用されます。Phase 3（Fusion）は決定論的な変換のため、RuntimeSelectorは使用されず、ビーム幅=1で高速に処理されます。
 
 #### GenericPipeline
 任意のRendererとCompilerを組み合わせて使用できる汎用Pipeline実装。

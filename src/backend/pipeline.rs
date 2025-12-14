@@ -32,21 +32,46 @@ pub fn create_graph_preparation_suggester() -> CompositeSuggester {
     ])
 }
 
-/// Loweringフェーズ用のSuggesterを作成
+/// Loweringのみのフェーズ用Suggesterを作成
 ///
-/// Phase 2: グラフノードをKernelノードに変換し、単一のProgramRootに集約
-/// LoweringSuggester、BufferAbsorption、ProgramRootAbsorptionを使用します。
+/// Phase 2: 全てのGraphOpノードをKernelノードに変換
 ///
 /// # 設計方針
-/// - ViewMergeSuggesterを含むことで、Lowering後に残るViewをKernelに吸収
-/// - ProgramRootAbsorptionSuggesterはProgramRootの直接の子のKernelのみを吸収
-/// - この順序により、View -> Kernel が Kernel[view適用] になってからProgramRootに吸収される
-pub fn create_lowering_phase_suggester() -> CompositeSuggester {
+/// - LoweringSuggesterでGraphOp → Kernel(Function)に変換
+/// - ViewMergeSuggesterでLowering後に残るViewをKernelに吸収
+/// - 並列化戦略の選択がこのフェーズで行われるため、実測値ベース最適化の対象
+pub fn create_lowering_only_suggester() -> CompositeSuggester {
     CompositeSuggester::new(vec![
         // LoweringSuggesterでGraphOp -> Kernel(Function)に変換
         Box::new(LoweringSuggester::new()),
-        // ViewMergeSuggesterでViewをKernelに吸収（ProgramRoot -> View -> Kernel を ProgramRoot -> Kernel[view適用] に変換）
+        // ViewMergeSuggesterでViewをKernelに吸収
         Box::new(ViewMergeSuggester::new()),
+    ])
+}
+
+/// 貪欲法Lowering用のSuggesterを作成
+///
+/// Sequential戦略のみで高速にLoweringを行います。
+pub fn create_greedy_lowering_only_suggester() -> CompositeSuggester {
+    CompositeSuggester::new(vec![
+        Box::new(LoweringSuggester::sequential_only()),
+        Box::new(ViewMergeSuggester::new()),
+    ])
+}
+
+/// Fusionフェーズ用のSuggesterを作成
+///
+/// Phase 3: 全てのKernelノードを単一のProgramRootに融合
+///
+/// # 設計方針
+/// - BufferAbsorptionでKernelに入力Bufferを取り込む
+/// - ProgramRootAbsorptionでKernel(Function)をProgramRootに吸収
+/// - ProgramRootBufferAbsorptionでProgramRootの入力Bufferを除去
+/// - KernelMergeで複数のKernel(Function)をマージ
+///
+/// このフェーズは実測値ベース最適化の対象外です（決定論的な変換のみ）。
+pub fn create_fusion_suggester() -> CompositeSuggester {
+    CompositeSuggester::new(vec![
         // BufferAbsorptionでKernelノードに入力Bufferを取り込む
         Box::new(BufferAbsorptionSuggester::new()),
         // ProgramRootAbsorptionでKernel(Function)をProgramRootに吸収
@@ -54,27 +79,6 @@ pub fn create_lowering_phase_suggester() -> CompositeSuggester {
         // ProgramRootBufferAbsorptionでProgramRootの入力Bufferを除去
         Box::new(ProgramRootBufferAbsorptionSuggester::new()),
         // KernelMergeSuggesterで複数のKernel(Function)をマージ
-        Box::new(KernelMergeSuggester::new()),
-    ])
-}
-
-/// 貪欲法Lowering用のSuggesterを作成
-///
-/// 実行時間の実測など、高速なloweringが必要な場合に使用します。
-/// 並列化戦略はSequentialのみに制限され、探索空間を最小限に抑えます。
-///
-/// # 設計方針
-/// - LoweringSuggester::sequential_only()で逐次実行のみに制限
-/// - 他のSuggesterは通常通り使用
-/// - ビームサーチ幅=1との組み合わせで貪欲法として動作
-pub fn create_greedy_lowering_suggester() -> CompositeSuggester {
-    CompositeSuggester::new(vec![
-        // LoweringSuggester::sequential_only()でSequential戦略のみ使用
-        Box::new(LoweringSuggester::sequential_only()),
-        Box::new(ViewMergeSuggester::new()),
-        Box::new(BufferAbsorptionSuggester::new()),
-        Box::new(ProgramRootAbsorptionSuggester::new()),
-        Box::new(ProgramRootBufferAbsorptionSuggester::new()),
         Box::new(KernelMergeSuggester::new()),
     ])
 }
@@ -181,15 +185,18 @@ impl MultiPhaseConfig {
 
 /// マルチフェーズグラフ最適化を作成
 ///
-/// 2つのフェーズで段階的にグラフを最適化します：
+/// 3つのフェーズで段階的にグラフを最適化します：
 ///
 /// 1. **Preparation** (グラフ準備): View挿入、融合、タイリングなど
-///    - コスト推定器: SimpleCostEstimator
 ///    - 目的: グラフ構造の最適化
 ///
-/// 2. **Lowering** (Lowering): Kernel変換、ProgramRoot集約
-///    - コスト推定器: LoweringCostEstimator
+/// 2. **Lowering** (Lowering): 全GraphOpをKernelノードに変換
+///    - 目的: 並列化戦略の選択を含むKernel生成
+///    - 実測値ベース最適化の主な対象
+///
+/// 3. **Fusion** (融合): 全KernelをProgramRootに融合
 ///    - 目的: 単一のProgramRootノードへの変換
+///    - 決定論的な変換のため、実測値ベース最適化は不要
 ///
 /// AST最適化はグラフ最適化とは別のフェーズとして、GenericPipelineで
 /// Lowering完了後に独立して実行されます。
@@ -223,8 +230,8 @@ pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOpt
         .with_collect_logs(config.collect_logs)
         .with_early_termination_threshold(config.early_termination_threshold);
 
-    // Phase 2: Lowering（Kernel変換、ProgramRoot集約）
-    let lowering_suggester = create_lowering_phase_suggester();
+    // Phase 2: Lowering（Kernel変換のみ）
+    let lowering_suggester = create_lowering_only_suggester();
     let lowering_optimizer = BeamSearchGraphOptimizer::new(lowering_suggester)
         .with_beam_width(config.beam_width)
         .with_max_steps(config.max_steps_per_phase)
@@ -232,27 +239,37 @@ pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOpt
         .with_collect_logs(config.collect_logs)
         .with_early_termination_threshold(config.early_termination_threshold);
 
+    // Phase 3: Fusion（ProgramRootへの融合）
+    // 決定論的な変換なのでビーム幅=1で十分、早期終了も不要
+    let fusion_suggester = create_fusion_suggester();
+    let fusion_optimizer = BeamSearchGraphOptimizer::new(fusion_suggester)
+        .with_beam_width(1) // 決定論的変換なのでビーム幅1
+        .with_max_steps(config.max_steps_per_phase)
+        .with_progress(config.show_progress)
+        .with_collect_logs(config.collect_logs)
+        .with_early_termination_threshold(Some(1)); // すぐに終了
+
     // チェーンを構築（各オプティマイザに名前を付けてからchainする）
     preparation_optimizer
         .with_name("Preparation")
         .chain(lowering_optimizer.with_name("Lowering"))
+        .chain(fusion_optimizer.with_name("Fusion"))
 }
 
-/// マルチフェーズグラフ最適化を作成（両フェーズにカスタムSelector使用）
+/// マルチフェーズグラフ最適化を作成（Phase 1とPhase 2にカスタムSelector使用）
 ///
-/// `create_multi_phase_optimizer`と同様ですが、両フェーズでカスタムSelectorを使用できます。
+/// `create_multi_phase_optimizer`と同様ですが、Phase 1とPhase 2でカスタムSelectorを使用できます。
 /// GraphRuntimeSelectorを使用した実測値ベースの最適化に使用します。
 ///
-/// Phase 1（Preparation）とPhase 2（Lowering）の両方でカスタムSelectorを使用します。
-/// Phase 1でも内部的にLoweringを行って実行時間を計測するため、
-/// メモリアクセスパターンの最適な選択が可能になります。
+/// Phase 1（Preparation）とPhase 2（Lowering）でカスタムSelectorを使用します。
+/// Phase 3（Fusion）は決定論的な変換のため、Selectorは使用しません。
 ///
 /// # Arguments
 /// * `config` - 最適化の設定
-/// * `selector` - 両フェーズで使用するカスタムSelector（GraphRuntimeSelectorなど）
+/// * `selector` - Phase 1とPhase 2で使用するカスタムSelector（GraphRuntimeSelectorなど）
 ///
 /// # Returns
-/// ChainedGraphOptimizer（両フェーズにカスタムSelectorが設定される）
+/// ChainedGraphOptimizer（Phase 1とPhase 2にカスタムSelectorが設定される）
 ///
 /// # Example
 /// ```ignore
@@ -273,8 +290,8 @@ where
     Sel: Selector<(Graph, String)> + Clone + 'static,
 {
     // Phase 1: グラフ準備（View挿入、融合など）- カスタムSelector使用
-    let preparation_suggester = create_graph_preparation_suggester();
-    let preparation_optimizer = BeamSearchGraphOptimizer::new(preparation_suggester)
+    let graph_optimization_suggester = create_graph_preparation_suggester();
+    let graph_optimizer = BeamSearchGraphOptimizer::new(graph_optimization_suggester)
         .with_selector(selector.clone())
         .with_beam_width(config.beam_width)
         .with_max_steps(config.max_steps_per_phase)
@@ -282,8 +299,8 @@ where
         .with_collect_logs(config.collect_logs)
         .with_early_termination_threshold(config.early_termination_threshold);
 
-    // Phase 2: Lowering（Kernel変換、ProgramRoot集約）- カスタムSelector使用
-    let lowering_suggester = create_lowering_phase_suggester();
+    // Phase 2: Lowering（Kernel変換のみ）- カスタムSelector使用
+    let lowering_suggester = create_lowering_only_suggester();
     let lowering_optimizer = BeamSearchGraphOptimizer::new(lowering_suggester)
         .with_selector(selector)
         .with_beam_width(config.beam_width)
@@ -292,15 +309,25 @@ where
         .with_collect_logs(config.collect_logs)
         .with_early_termination_threshold(config.early_termination_threshold);
 
+    // Phase 3: Fusion（ProgramRootへの融合）- Selector不使用（決定論的変換）
+    let fusion_suggester = create_fusion_suggester();
+    let fusion_optimizer = BeamSearchGraphOptimizer::new(fusion_suggester)
+        .with_beam_width(1) // 決定論的変換なのでビーム幅1
+        .with_max_steps(config.max_steps_per_phase)
+        .with_progress(config.show_progress)
+        .with_collect_logs(config.collect_logs)
+        .with_early_termination_threshold(Some(1)); // すぐに終了
+
     // チェーンを構築
-    preparation_optimizer
-        .with_name("Preparation")
+    graph_optimizer
+        .with_name("Graph Optimization")
         .chain(lowering_optimizer.with_name("Lowering"))
+        .chain(fusion_optimizer.with_name("Fusion"))
 }
 
 /// マルチフェーズグラフ最適化を実行（履歴付き）
 ///
-/// 2つのフェーズで段階的にグラフを最適化し、各フェーズの履歴を結合して返します。
+/// 3つのフェーズで段階的にグラフを最適化し、各フェーズの履歴を結合して返します。
 ///
 /// # Arguments
 /// * `graph` - 最適化対象のグラフ
@@ -347,7 +374,7 @@ pub fn optimize_graph_multi_phase(
 /// # Returns
 /// ChainedGraphOptimizer
 pub fn create_greedy_optimizer(config: MultiPhaseConfig) -> ChainedGraphOptimizer {
-    // Phase 1: グラフ準備（通常通り、ただしbeam_width=1）
+    // Phase 1: グラフ準備（beam_width=1）
     let preparation_suggester = create_graph_preparation_suggester();
     let preparation_optimizer = BeamSearchGraphOptimizer::new(preparation_suggester)
         .with_beam_width(1) // 貪欲法
@@ -357,7 +384,7 @@ pub fn create_greedy_optimizer(config: MultiPhaseConfig) -> ChainedGraphOptimize
         .with_early_termination_threshold(config.early_termination_threshold);
 
     // Phase 2: Lowering（Sequential戦略のみ、beam_width=1）
-    let lowering_suggester = create_greedy_lowering_suggester();
+    let lowering_suggester = create_greedy_lowering_only_suggester();
     let lowering_optimizer = BeamSearchGraphOptimizer::new(lowering_suggester)
         .with_beam_width(1) // 貪欲法
         .with_max_steps(config.max_steps_per_phase)
@@ -365,9 +392,19 @@ pub fn create_greedy_optimizer(config: MultiPhaseConfig) -> ChainedGraphOptimize
         .with_collect_logs(config.collect_logs)
         .with_early_termination_threshold(config.early_termination_threshold);
 
+    // Phase 3: Fusion（ProgramRootへの融合、beam_width=1）
+    let fusion_suggester = create_fusion_suggester();
+    let fusion_optimizer = BeamSearchGraphOptimizer::new(fusion_suggester)
+        .with_beam_width(1) // 決定論的変換
+        .with_max_steps(config.max_steps_per_phase)
+        .with_progress(config.show_progress)
+        .with_collect_logs(config.collect_logs)
+        .with_early_termination_threshold(Some(1)); // すぐに終了
+
     preparation_optimizer
         .with_name("Preparation (Greedy)")
         .chain(lowering_optimizer.with_name("Lowering (Greedy)"))
+        .chain(fusion_optimizer.with_name("Fusion (Greedy)"))
 }
 
 /// 貪欲法グラフ最適化を実行（履歴付き）
@@ -409,7 +446,8 @@ mod tests {
 
     #[test]
     fn test_greedy_lowering_suggester_uses_sequential_only() {
-        let suggester = create_greedy_lowering_suggester();
+        let greedy_suggester = create_greedy_lowering_only_suggester();
+        let normal_suggester = create_lowering_only_suggester();
 
         // Suggesterの最初の要素がLoweringSuggester::sequential_only()であることを確認
         // CompositeSuggesterの内部構造にはアクセスできないため、
@@ -420,10 +458,7 @@ mod tests {
         let c = a + b;
         graph.output("c", c);
 
-        // 通常のLowering Suggesterを使った場合と比較
-        let normal_suggester = create_lowering_phase_suggester();
-
-        let greedy_suggestions = suggester.suggest(&graph);
+        let greedy_suggestions = greedy_suggester.suggest(&graph);
         let normal_suggestions = normal_suggester.suggest(&graph);
 
         // 貪欲法用Suggesterは候補が少ない（Sequentialのみ）
