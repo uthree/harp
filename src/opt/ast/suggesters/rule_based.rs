@@ -290,6 +290,10 @@ impl RuleBaseSuggester {
 }
 
 impl AstSuggester for RuleBaseSuggester {
+    fn name(&self) -> &str {
+        "RuleBased"
+    }
+
     fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
         trace!("RuleBaseSuggester: Generating suggestions for AST");
         let mut suggestions = Vec::new();

@@ -459,6 +459,10 @@ impl Default for LoopFusionSuggester {
 }
 
 impl AstSuggester for LoopFusionSuggester {
+    fn name(&self) -> &str {
+        "LoopFusion"
+    }
+
     fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
         trace!("LoopFusionSuggester: Generating loop fusion suggestions");
         let candidates = self.collect_fusion_candidates(ast);

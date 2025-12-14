@@ -652,6 +652,10 @@ impl FunctionInliningSuggester {
 }
 
 impl AstSuggester for FunctionInliningSuggester {
+    fn name(&self) -> &str {
+        "FunctionInlining"
+    }
+
     fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
         trace!("FunctionInliningSuggester: Generating function inlining suggestions");
         let candidates = self.collect_inlining_candidates(ast);

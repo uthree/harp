@@ -21,6 +21,8 @@ pub struct OptimizationSnapshot {
     pub logs: Vec<String>,
     /// このステップでSuggesterが提案した候補の数
     pub num_candidates: Option<usize>,
+    /// この候補を提案したSuggesterの名前
+    pub suggester_name: Option<String>,
 }
 
 impl OptimizationSnapshot {
@@ -42,6 +44,7 @@ impl OptimizationSnapshot {
             applied_rule,
             logs: Vec::new(),
             num_candidates: None,
+            suggester_name: None,
         }
     }
 
@@ -64,6 +67,7 @@ impl OptimizationSnapshot {
             applied_rule,
             logs,
             num_candidates: None,
+            suggester_name: None,
         }
     }
 
@@ -88,6 +92,33 @@ impl OptimizationSnapshot {
             applied_rule,
             logs,
             num_candidates: Some(num_candidates),
+            suggester_name: None,
+        }
+    }
+
+    /// 候補数とSuggester名付きで新しいスナップショットを作成
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_suggester(
+        step: usize,
+        ast: AstNode,
+        cost: f32,
+        description: String,
+        rank: usize,
+        applied_rule: Option<String>,
+        logs: Vec<String>,
+        num_candidates: usize,
+        suggester_name: Option<String>,
+    ) -> Self {
+        Self {
+            step,
+            ast,
+            cost,
+            description,
+            rank,
+            applied_rule,
+            logs,
+            num_candidates: Some(num_candidates),
+            suggester_name,
         }
     }
 }

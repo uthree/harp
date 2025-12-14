@@ -633,6 +633,10 @@ impl Default for ThreadPartitionSuggester {
 }
 
 impl AstSuggester for ThreadPartitionSuggester {
+    fn name(&self) -> &str {
+        "ThreadPartition"
+    }
+
     fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
         trace!("ThreadPartitionSuggester: Generating partition suggestions");
         let candidates = self.collect_partition_candidates(ast);

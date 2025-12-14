@@ -259,18 +259,18 @@ where
                 pb.set_position(step as u64);
             }
 
-            let mut candidates = Vec::new();
+            let mut candidates_with_name: Vec<(AstNode, String)> = Vec::new();
 
-            // 現在のビーム内の各候補から新しい候補を生成
+            // 現在のビーム内の各候補から新しい候補を生成（Suggester名付き）
             for ast in &beam {
-                let new_candidates = self.suggester.suggest(ast);
-                candidates.extend(new_candidates);
+                let new_candidates = self.suggester.suggest_named(ast);
+                candidates_with_name.extend(new_candidates);
             }
 
             // 最大ノード数制限を適用
-            let original_count = candidates.len();
+            let original_count = candidates_with_name.len();
             if let Some(max_nodes) = self.max_node_count {
-                candidates.retain(|ast| {
+                candidates_with_name.retain(|(ast, _)| {
                     let node_count = SimpleCostEstimator::get_node_count(ast);
                     if node_count > max_nodes {
                         trace!(
@@ -282,16 +282,16 @@ where
                         true
                     }
                 });
-                if candidates.len() < original_count {
+                if candidates_with_name.len() < original_count {
                     debug!(
                         "Filtered out {} candidates exceeding max node count ({})",
-                        original_count - candidates.len(),
+                        original_count - candidates_with_name.len(),
                         max_nodes
                     );
                 }
             }
 
-            if candidates.is_empty() {
+            if candidates_with_name.is_empty() {
                 info!(
                     "No more candidates at step {} - optimization complete",
                     step
@@ -306,8 +306,20 @@ where
             }
 
             // フィルタリング後の候補数を記録
-            let num_candidates = candidates.len();
+            let num_candidates = candidates_with_name.len();
             trace!("Found {} candidates at step {}", num_candidates, step);
+
+            // ASTからSuggester名へのマッピングを構築（Selectorに渡す前に保存）
+            let ast_to_suggester: std::collections::HashMap<String, String> = candidates_with_name
+                .iter()
+                .map(|(ast, name)| (format!("{:?}", ast), name.clone()))
+                .collect();
+
+            // 候補のASTだけを取り出してSelectorに渡す
+            let candidates: Vec<AstNode> = candidates_with_name
+                .into_iter()
+                .map(|(ast, _)| ast)
+                .collect();
 
             // Selectorで上位beam_width個を選択（Selectorが内部でコストを計算）
             let selected = self.selector.select(candidates, self.beam_width);
@@ -367,7 +379,11 @@ where
                 } else {
                     Vec::new()
                 };
-                history.add_snapshot(OptimizationSnapshot::with_candidates(
+
+                // 選択された候補のSuggester名を取得
+                let suggester_name = ast_to_suggester.get(&format!("{:?}", best)).cloned();
+
+                history.add_snapshot(OptimizationSnapshot::with_suggester(
                     step + 1,
                     best.clone(),
                     *cost,
@@ -381,6 +397,7 @@ where
                     None,
                     step_logs,
                     num_candidates,
+                    suggester_name,
                 ));
                 // このステップのログをクリア（次のステップで新しいログのみを記録するため）
                 if self.collect_logs {

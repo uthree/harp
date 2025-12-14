@@ -136,6 +136,10 @@ impl LoopTilingSuggester {
 }
 
 impl AstSuggester for LoopTilingSuggester {
+    fn name(&self) -> &str {
+        "LoopTiling"
+    }
+
     fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
         trace!("LoopTilingSuggester: Generating tiling suggestions");
         let candidates = self.collect_tiling_candidates(ast);
@@ -327,6 +331,10 @@ impl LoopInliningSuggester {
 }
 
 impl AstSuggester for LoopInliningSuggester {
+    fn name(&self) -> &str {
+        "LoopInlining"
+    }
+
     fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
         trace!("LoopInliningSuggester: Generating inlining suggestions");
         let candidates = self.collect_inlining_candidates(ast);
@@ -677,6 +685,10 @@ impl Default for LoopInterchangeSuggester {
 }
 
 impl AstSuggester for LoopInterchangeSuggester {
+    fn name(&self) -> &str {
+        "LoopInterchange"
+    }
+
     fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
         trace!("LoopInterchangeSuggester: Generating loop interchange suggestions");
         let candidates = self.collect_interchange_candidates(ast);

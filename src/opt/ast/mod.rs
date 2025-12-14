@@ -16,8 +16,20 @@ pub trait AstOptimizer {
 
 /// 複数の書き換え候補を提案するトレイト（ビームサーチ用）
 pub trait AstSuggester {
+    /// Suggesterの名前を取得
+    fn name(&self) -> &str;
+
     /// 現在のASTから書き換え可能な候補をすべて提案
     fn suggest(&self, ast: &AstNode) -> Vec<AstNode>;
+
+    /// 候補とともにSuggester名を返す（デフォルト実装）
+    fn suggest_named(&self, ast: &AstNode) -> Vec<(AstNode, String)> {
+        let name = self.name().to_string();
+        self.suggest(ast)
+            .into_iter()
+            .map(|ast| (ast, name.clone()))
+            .collect()
+    }
 }
 
 /// ASTの実行コストを推定するトレイト

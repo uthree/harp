@@ -457,6 +457,10 @@ impl Default for VariableExpansionSuggester {
 }
 
 impl AstSuggester for VariableExpansionSuggester {
+    fn name(&self) -> &str {
+        "VariableExpansion"
+    }
+
     fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
         trace!("VariableExpansionSuggester: Generating expansion suggestions");
         let candidates = self.collect_expansion_candidates(ast);

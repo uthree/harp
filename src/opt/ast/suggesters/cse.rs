@@ -539,6 +539,10 @@ impl Default for CseSuggester {
 }
 
 impl AstSuggester for CseSuggester {
+    fn name(&self) -> &str {
+        "CSE"
+    }
+
     fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
         trace!("CseSuggester: Generating CSE suggestions");
         let candidates = self.collect_cse_candidates(ast);

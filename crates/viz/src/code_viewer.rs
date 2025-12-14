@@ -460,6 +460,18 @@ impl CodeViewerApp {
                 });
             }
 
+            // 提案したSuggester名を表示
+            if let Some(ref suggester_name) = snapshot.suggester_name {
+                ui.horizontal(|ui| {
+                    ui.label("Suggester:");
+                    ui.label(
+                        egui::RichText::new(suggester_name)
+                            .color(egui::Color32::from_rgb(150, 150, 250))
+                            .strong(),
+                    );
+                });
+            }
+
             ui.horizontal(|ui| {
                 ui.label("Description:");
                 ui.label(&snapshot.description);
