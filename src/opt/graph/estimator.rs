@@ -41,6 +41,11 @@ const VECTOR_WIDTH_2_BONUS_LOG: f32 = 0.3; // exp(0.3) ≈ 1.35x
 const VECTOR_WIDTH_4_BONUS_LOG: f32 = 0.5; // exp(0.5) ≈ 1.65x
 const VECTOR_WIDTH_8_BONUS_LOG: f32 = 0.6; // exp(0.6) ≈ 1.82x
 
+// 大きすぎる軸へのペナルティ（タイル化を促進）
+// しきい値を超える軸サイズに対して、対数ペナルティを適用
+const LARGE_AXIS_THRESHOLD: f32 = 256.0; // この値を超えるとペナルティ
+const LARGE_AXIS_PENALTY_WEIGHT: f32 = 0.3; // ペナルティの重み係数
+
 /// 簡単なコスト推定器（ノード数とメモリアクセスベース）
 ///
 /// **重要**: このコスト推定器は対数スケール（log(CPUサイクル数)）でコストを返します。
@@ -316,6 +321,7 @@ impl SimpleCostEstimator {
 
                 match ast {
                     AstNode::Kernel {
+                        default_grid_size,
                         default_thread_group_size,
                         body,
                         ..
@@ -382,11 +388,16 @@ impl SimpleCostEstimator {
                         // ベクトル化の評価
                         let vector_bonus = Self::evaluate_vector_width(vector_width);
 
+                        // 大きすぎる軸へのペナルティ（タイル化を促進）
+                        let large_axis_penalty =
+                            Self::evaluate_large_axis_penalty(default_grid_size);
+
                         ast_cost
                             - parallel_bonus
                             - thread_group_bonus
                             - multidim_bonus
                             - vector_bonus
+                            + large_axis_penalty
                             - 2.0 * KERNEL_LAUNCH_OVERHEAD.ln()
                     }
                     AstNode::Function { .. } => {
@@ -621,6 +632,38 @@ impl SimpleCostEstimator {
             Some(8) => VECTOR_WIDTH_8_BONUS_LOG,
             Some(w) if w > 8 => VECTOR_WIDTH_8_BONUS_LOG, // 8以上はfloat8と同等
             _ => 0.0,                                     // ベクトル化なしまたは不明
+        }
+    }
+
+    /// 大きすぎる軸へのペナルティを評価
+    ///
+    /// グリッドサイズの最大軸がしきい値を超えている場合、
+    /// タイル化を促進するためにペナルティを返す。
+    ///
+    /// ペナルティ = weight * ln(max_axis / threshold) （max_axis > thresholdの場合）
+    fn evaluate_large_axis_penalty(grid_size: &[Box<AstNode>; 3]) -> f32 {
+        // 各軸のグリッドサイズを抽出
+        let axis_sizes: Vec<f32> = grid_size
+            .iter()
+            .filter_map(|ast| Self::extract_const_from_ast(ast).map(|v| v as f32))
+            .collect();
+
+        if axis_sizes.is_empty() {
+            return 0.0;
+        }
+
+        // 最大軸サイズを取得
+        let max_axis = axis_sizes
+            .iter()
+            .copied()
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap_or(0.0);
+
+        // しきい値を超えている場合にペナルティを適用
+        if max_axis > LARGE_AXIS_THRESHOLD {
+            LARGE_AXIS_PENALTY_WEIGHT * (max_axis / LARGE_AXIS_THRESHOLD).ln()
+        } else {
+            0.0
         }
     }
 
@@ -1676,6 +1719,183 @@ mod tests {
             cost.is_finite(),
             "Kernel with boundary check cost should be finite, got: {}",
             cost
+        );
+    }
+
+    #[test]
+    fn test_large_axis_penalty() {
+        use crate::ast::helper::*;
+
+        // しきい値以下のグリッドサイズ（ペナルティなし）
+        let small_grid = [
+            Box::new(const_int(256)),
+            Box::new(const_int(1)),
+            Box::new(const_int(1)),
+        ];
+        let small_penalty = SimpleCostEstimator::evaluate_large_axis_penalty(&small_grid);
+        assert_eq!(small_penalty, 0.0, "Small grid should have no penalty");
+
+        // しきい値を超えるグリッドサイズ（ペナルティあり）
+        let large_grid = [
+            Box::new(const_int(1024)),
+            Box::new(const_int(1)),
+            Box::new(const_int(1)),
+        ];
+        let large_penalty = SimpleCostEstimator::evaluate_large_axis_penalty(&large_grid);
+        assert!(
+            large_penalty > 0.0,
+            "Large grid should have penalty, got: {}",
+            large_penalty
+        );
+
+        // より大きいグリッドサイズはより大きいペナルティ
+        let very_large_grid = [
+            Box::new(const_int(10000)),
+            Box::new(const_int(1)),
+            Box::new(const_int(1)),
+        ];
+        let very_large_penalty = SimpleCostEstimator::evaluate_large_axis_penalty(&very_large_grid);
+        assert!(
+            very_large_penalty > large_penalty,
+            "Very large grid ({}) should have more penalty than large grid ({})",
+            very_large_penalty,
+            large_penalty
+        );
+    }
+
+    #[test]
+    fn test_tiled_kernel_lower_cost() {
+        use crate::ast::{DType as AstDType, Mutability, Scope, VarDecl, VarKind, helper::*};
+        use crate::graph::shape::Expr;
+
+        let estimator = SimpleCostEstimator::new();
+
+        // 大きい1Dカーネル（タイル化されていない）
+        let large_1d_kernel = AstNode::Kernel {
+            name: Some("E_large_1d".to_string()),
+            params: vec![VarDecl {
+                name: "tid".to_string(),
+                dtype: AstDType::Int,
+                mutability: Mutability::Immutable,
+                kind: VarKind::ThreadId(0),
+            }],
+            return_type: AstDType::Tuple(vec![]),
+            body: Box::new(block(
+                vec![store(
+                    var("output"),
+                    var("tid"),
+                    load(var("input0"), var("tid"), AstDType::F32)
+                        + load(var("input1"), var("tid"), AstDType::F32),
+                )],
+                Scope::new(),
+            )),
+            default_grid_size: [
+                Box::new(const_int(10000)), // 大きいグリッド
+                Box::new(const_int(1)),
+                Box::new(const_int(1)),
+            ],
+            default_thread_group_size: [
+                Box::new(const_int(256)),
+                Box::new(const_int(1)),
+                Box::new(const_int(1)),
+            ],
+        };
+
+        // タイル化された2Dカーネル（同じ要素数だが分割されている）
+        let tiled_2d_kernel = AstNode::Kernel {
+            name: Some("E_tiled_2d".to_string()),
+            params: vec![
+                VarDecl {
+                    name: "tid_0".to_string(),
+                    dtype: AstDType::Int,
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::ThreadId(0),
+                },
+                VarDecl {
+                    name: "tid_1".to_string(),
+                    dtype: AstDType::Int,
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::ThreadId(1),
+                },
+            ],
+            return_type: AstDType::Tuple(vec![]),
+            body: Box::new(AstNode::If {
+                condition: Box::new(AstNode::Lt(
+                    Box::new(var("tid_0")),
+                    Box::new(var("shape_0")),
+                )),
+                then_body: Box::new(AstNode::If {
+                    condition: Box::new(AstNode::Lt(
+                        Box::new(var("tid_1")),
+                        Box::new(var("shape_1")),
+                    )),
+                    then_body: Box::new(block(
+                        vec![store(
+                            var("output"),
+                            var("tid_0") * var("shape_1") + var("tid_1"),
+                            load(
+                                var("input0"),
+                                var("tid_0") * var("shape_1") + var("tid_1"),
+                                AstDType::F32,
+                            ) + load(
+                                var("input1"),
+                                var("tid_0") * var("shape_1") + var("tid_1"),
+                                AstDType::F32,
+                            ),
+                        )],
+                        Scope::new(),
+                    )),
+                    else_body: None,
+                }),
+                else_body: None,
+            }),
+            default_grid_size: [
+                Box::new(const_int(100)), // 分割されたグリッド: 100 * 100 = 10000
+                Box::new(const_int(100)),
+                Box::new(const_int(1)),
+            ],
+            default_thread_group_size: [
+                Box::new(const_int(16)),
+                Box::new(const_int(16)),
+                Box::new(const_int(1)),
+            ],
+        };
+
+        let view = crate::graph::View::contiguous(vec![Expr::Const(100), Expr::Const(100)]);
+
+        let large_1d_node = GraphNode::new(
+            DType::F32,
+            crate::graph::GraphOp::Kernel {
+                ast: large_1d_kernel,
+                input_buffers: None,
+            },
+            vec![],
+            view.clone(),
+        );
+
+        let tiled_2d_node = GraphNode::new(
+            DType::F32,
+            crate::graph::GraphOp::Kernel {
+                ast: tiled_2d_kernel,
+                input_buffers: None,
+            },
+            vec![],
+            view,
+        );
+
+        let large_1d_cost = estimator.node_base_cost(&large_1d_node);
+        let tiled_2d_cost = estimator.node_base_cost(&tiled_2d_node);
+
+        println!("Large 1D kernel cost: {}", large_1d_cost);
+        println!("Tiled 2D kernel cost: {}", tiled_2d_cost);
+
+        // タイル化された2Dカーネルの方がコストが低いはず
+        // （大きい軸へのペナルティ + 多次元ボーナス）
+        assert!(
+            tiled_2d_cost < large_1d_cost,
+            "Tiled 2D kernel cost ({}) should be lower than large 1D kernel cost ({})",
+            tiled_2d_cost,
+            large_1d_cost
         );
     }
 }
