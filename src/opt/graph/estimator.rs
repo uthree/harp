@@ -6,46 +6,6 @@ use crate::opt::cost_utils::{log_sum_exp, log_sum_exp_iter};
 use crate::opt::graph::GraphCostEstimator;
 use std::collections::HashSet;
 
-// メモリアクセスのコスト（L1キャッシュヒット想定、CPUサイクル）
-const MEMORY_ACCESS_COST: f32 = 4.0;
-
-// カーネル起動オーバーヘッド（CPUサイクル）
-// 複数カーネルよりも1つのProgram/Functionを優先するため、高めに設定
-const KERNEL_LAUNCH_OVERHEAD: f32 = 1000.0;
-
-// GPU並列化の効果が出る最小要素数
-// これより少ない要素数ではカーネル起動オーバーヘッドが支配的
-const GPU_PARALLEL_MIN_ELEMENTS: f32 = 512.0;
-
-// GPU並列化による最大スピードアップ係数（対数スケールでの割引）
-// 実際のスピードアップは要素数とスレッド数に依存するが、
-// ここでは簡略化してコスト削減の上限を設定
-const GPU_PARALLEL_MAX_SPEEDUP_LOG: f32 = 4.5; // exp(4.5) ≈ 100x speedup
-
-// メモリバンド幅制限が効き始める要素数
-// これ以上要素数を増やしても効率が下がる
-const GPU_MEMORY_BANDWIDTH_THRESHOLD: f32 = 10000.0;
-
-// スレッドグループサイズの評価用定数
-// 最適なスレッドグループサイズ（128-256が多くのGPUで効率的）
-const OPTIMAL_THREAD_GROUP_SIZE_MIN: usize = 128;
-const OPTIMAL_THREAD_GROUP_SIZE_MAX: usize = 256;
-
-// 多次元グリッドのボーナス係数（対数スケール）
-// 多次元グリッドはメモリアクセスパターンが最適化される場合がある
-const MULTIDIM_GRID_BONUS_LOG: f32 = 0.2;
-
-// ベクトル化によるメモリ効率向上係数（対数スケール）
-// float4はfloat1に比べてメモリバンド幅を効率的に使える
-const VECTOR_WIDTH_2_BONUS_LOG: f32 = 0.3; // exp(0.3) ≈ 1.35x
-const VECTOR_WIDTH_4_BONUS_LOG: f32 = 0.5; // exp(0.5) ≈ 1.65x
-const VECTOR_WIDTH_8_BONUS_LOG: f32 = 0.6; // exp(0.6) ≈ 1.82x
-
-// 大きすぎる軸へのペナルティ（タイル化を促進）
-// しきい値を超える軸サイズに対して、対数ペナルティを適用
-const LARGE_AXIS_THRESHOLD: f32 = 256.0; // この値を超えるとペナルティ
-const LARGE_AXIS_PENALTY_WEIGHT: f32 = 0.3; // ペナルティの重み係数
-
 /// 簡単なコスト推定器（ノード数とメモリアクセスベース）
 ///
 /// **重要**: このコスト推定器は対数スケール（log(CPUサイクル数)）でコストを返します。
@@ -64,29 +24,126 @@ const LARGE_AXIS_PENALTY_WEIGHT: f32 = 0.3; // ペナルティの重み係数
 /// final_cost = log_base_cost + penalty_coefficient * node_count
 /// ```
 /// これは元のスケールで `cost = base_cost * exp(penalty_coefficient * node_count)` に相当します。
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct SimpleCostEstimator {
-    /// ノード数あたりのペナルティ係数（対数スケール、デフォルト: 0.01）
-    /// 値が大きいほど、ノード数増加に対するペナルティが強くなります。
-    node_count_penalty: f32,
+    /// ノード数あたりのペナルティ係数（対数スケール）
+    pub node_count_penalty: f32,
+    /// メモリアクセスのコスト（L1キャッシュヒット想定、CPUサイクル）
+    pub memory_access_cost: f32,
+    /// カーネル起動オーバーヘッド（CPUサイクル）
+    pub kernel_launch_overhead: f32,
+    /// GPU並列化の効果が出る最小要素数
+    pub gpu_parallel_min_elements: f32,
+    /// GPU並列化による最大スピードアップ係数（対数スケール）
+    pub gpu_parallel_max_speedup_log: f32,
+    /// メモリバンド幅制限が効き始める要素数
+    pub gpu_memory_bandwidth_threshold: f32,
+    /// 最適なスレッドグループサイズの最小値
+    pub optimal_thread_group_size_min: usize,
+    /// 最適なスレッドグループサイズの最大値
+    pub optimal_thread_group_size_max: usize,
+    /// 多次元グリッドのボーナス係数（対数スケール）
+    pub multidim_grid_bonus_log: f32,
+    /// ベクトル幅2のボーナス係数（対数スケール）
+    pub vector_width_2_bonus_log: f32,
+    /// ベクトル幅4のボーナス係数（対数スケール）
+    pub vector_width_4_bonus_log: f32,
+    /// ベクトル幅8のボーナス係数（対数スケール）
+    pub vector_width_8_bonus_log: f32,
+    /// 大きい軸へのペナルティしきい値
+    pub large_axis_threshold: f32,
+    /// 大きい軸へのペナルティ重み
+    pub large_axis_penalty_weight: f32,
+}
+
+impl Default for SimpleCostEstimator {
+    fn default() -> Self {
+        Self {
+            node_count_penalty: 0.15,
+            memory_access_cost: 4.0,
+            kernel_launch_overhead: 1000.0,
+            gpu_parallel_min_elements: 512.0,
+            gpu_parallel_max_speedup_log: 4.5,
+            gpu_memory_bandwidth_threshold: 10000.0,
+            optimal_thread_group_size_min: 128,
+            optimal_thread_group_size_max: 256,
+            multidim_grid_bonus_log: 0.2,
+            vector_width_2_bonus_log: 0.3,
+            vector_width_4_bonus_log: 0.5,
+            vector_width_8_bonus_log: 0.6,
+            large_axis_threshold: 256.0,
+            large_axis_penalty_weight: 0.3,
+        }
+    }
 }
 
 impl SimpleCostEstimator {
     /// 新しいコスト推定器を作成
     pub fn new() -> Self {
-        Self {
-            // ノード数ペナルティ: 対数スケールで直接加算されるため、
-            // 0.15 * 10ノード = 1.5 → exp(1.5) ≈ 4.5倍のペナルティ
-            // 0.15 * 50ノード = 7.5 → exp(7.5) ≈ 1800倍のペナルティ
-            // 複数ノードより1つのKernelノードへの融合を優先させつつ、
-            // 過剰なペナルティを避ける
-            node_count_penalty: 0.15,
-        }
+        Self::default()
     }
 
     /// ノード数ペナルティ係数を設定
     pub fn with_node_count_penalty(mut self, penalty: f32) -> Self {
         self.node_count_penalty = penalty;
+        self
+    }
+
+    /// メモリアクセスコストを設定
+    pub fn with_memory_access_cost(mut self, cost: f32) -> Self {
+        self.memory_access_cost = cost;
+        self
+    }
+
+    /// カーネル起動オーバーヘッドを設定
+    pub fn with_kernel_launch_overhead(mut self, overhead: f32) -> Self {
+        self.kernel_launch_overhead = overhead;
+        self
+    }
+
+    /// GPU並列化最小要素数を設定
+    pub fn with_gpu_parallel_min_elements(mut self, elements: f32) -> Self {
+        self.gpu_parallel_min_elements = elements;
+        self
+    }
+
+    /// GPU並列化最大スピードアップを設定
+    pub fn with_gpu_parallel_max_speedup_log(mut self, speedup: f32) -> Self {
+        self.gpu_parallel_max_speedup_log = speedup;
+        self
+    }
+
+    /// GPUメモリバンド幅しきい値を設定
+    pub fn with_gpu_memory_bandwidth_threshold(mut self, threshold: f32) -> Self {
+        self.gpu_memory_bandwidth_threshold = threshold;
+        self
+    }
+
+    /// 最適スレッドグループサイズ範囲を設定
+    pub fn with_optimal_thread_group_size_range(mut self, min: usize, max: usize) -> Self {
+        self.optimal_thread_group_size_min = min;
+        self.optimal_thread_group_size_max = max;
+        self
+    }
+
+    /// 多次元グリッドボーナスを設定
+    pub fn with_multidim_grid_bonus_log(mut self, bonus: f32) -> Self {
+        self.multidim_grid_bonus_log = bonus;
+        self
+    }
+
+    /// ベクトル幅ボーナスを設定
+    pub fn with_vector_width_bonuses(mut self, v2: f32, v4: f32, v8: f32) -> Self {
+        self.vector_width_2_bonus_log = v2;
+        self.vector_width_4_bonus_log = v4;
+        self.vector_width_8_bonus_log = v8;
+        self
+    }
+
+    /// 大きい軸ペナルティパラメータを設定
+    pub fn with_large_axis_penalty(mut self, threshold: f32, weight: f32) -> Self {
+        self.large_axis_threshold = threshold;
+        self.large_axis_penalty_weight = weight;
         self
     }
 
@@ -128,13 +185,13 @@ impl SimpleCostEstimator {
                 f32::NEG_INFINITY // log(0)
             }
             GraphOp::Contiguous => {
-                // メモリコピーのコスト = 要素数 × (read + write) × MEMORY_ACCESS_COST
+                // メモリコピーのコスト = 要素数 × (read + write) × self.memory_access_cost
                 // 対数スケール: log(num_elements * 2 * cost) = log(num_elements) + log(2 * cost)
                 // 不連続なメモリを連続に並べ直す都合上、不連続なアクセスが発生するためコストを重めに設定。
                 let num_elements = self.compute_num_elements(node);
                 // ContiguousもKernelにloweringされるべきなのでペナルティを追加
-                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
-                num_elements.ln() + (10.0 * MEMORY_ACCESS_COST).ln() + lowering_penalty
+                let lowering_penalty = self.kernel_launch_overhead.ln();
+                num_elements.ln() + (10.0 * self.memory_access_cost).ln() + lowering_penalty
             }
             GraphOp::Elementwise { op, .. } => {
                 // 演算コスト = 要素数 × (演算コスト + メモリアクセスコスト)
@@ -143,10 +200,11 @@ impl SimpleCostEstimator {
                 let num_elements = self.compute_num_elements(node);
                 let log_compute_cost = self.elementwise_op_cost(op);
                 // 入力を読み、出力を書く
-                let log_memory_cost = ((node.src.len() as f32 + 1.0) * MEMORY_ACCESS_COST).ln();
+                let log_memory_cost =
+                    ((node.src.len() as f32 + 1.0) * self.memory_access_cost).ln();
                 // ElementwiseはKernelにloweringされるべきなので、大きなペナルティを追加
                 // これによりオプティマイザはElementwiseをKernelに変換する方向に進む
-                let elementwise_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
+                let elementwise_penalty = self.kernel_launch_overhead.ln();
                 num_elements.ln()
                     + log_sum_exp(log_compute_cost, log_memory_cost)
                     + elementwise_penalty
@@ -157,11 +215,11 @@ impl SimpleCostEstimator {
                 let num_elements = self.compute_num_elements(input);
                 let log_reduce_cost = self.reduce_op_cost(op);
                 // 入力読み取り + 縮約演算
-                // log(num_elements * (MEMORY_ACCESS_COST + reduce_cost))
+                // log(num_elements * (self.memory_access_cost + reduce_cost))
                 // ReduceもKernelにloweringされるべきなのでペナルティを追加
-                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
+                let lowering_penalty = self.kernel_launch_overhead.ln();
                 num_elements.ln()
-                    + log_sum_exp(MEMORY_ACCESS_COST.ln(), log_reduce_cost)
+                    + log_sum_exp(self.memory_access_cost.ln(), log_reduce_cost)
                     + lowering_penalty
             }
             GraphOp::Cumulative { .. } => {
@@ -170,11 +228,11 @@ impl SimpleCostEstimator {
                 let num_elements = self.compute_num_elements(node);
                 let log_cumulative_cost = 3.0_f32.ln(); // Sumのコスト
                 // 各要素で読み取り + 演算 + 書き込み
-                // log(num_elements * (2 * MEMORY_ACCESS_COST + cumulative_cost))
+                // log(num_elements * (2 * self.memory_access_cost + cumulative_cost))
                 // CumulativeもKernelにloweringされるべきなのでペナルティを追加
-                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
+                let lowering_penalty = self.kernel_launch_overhead.ln();
                 num_elements.ln()
-                    + log_sum_exp((2.0 * MEMORY_ACCESS_COST).ln(), log_cumulative_cost)
+                    + log_sum_exp((2.0 * self.memory_access_cost).ln(), log_cumulative_cost)
                     + lowering_penalty
             }
             GraphOp::FusedElementwise { expr, .. } => {
@@ -183,9 +241,10 @@ impl SimpleCostEstimator {
                 let log_ops_cost = self.ast_expr_cost(expr);
                 // 融合により中間バッファへのメモリアクセスが削減される
                 // 入力読み取り + 演算 + 出力書き込みのみ
-                let log_memory_cost = ((node.src.len() as f32 + 1.0) * MEMORY_ACCESS_COST).ln();
+                let log_memory_cost =
+                    ((node.src.len() as f32 + 1.0) * self.memory_access_cost).ln();
                 // FusedElementwiseもKernelにloweringされるべきなのでペナルティを追加
-                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
+                let lowering_penalty = self.kernel_launch_overhead.ln();
                 num_elements.ln() + log_sum_exp(log_ops_cost, log_memory_cost) + lowering_penalty
             }
             GraphOp::FusedElementwiseReduce {
@@ -197,10 +256,10 @@ impl SimpleCostEstimator {
                 let log_reduce_cost = self.reduce_op_cost(reduce_op);
                 // 入力読み取り + elementwise演算 + reduce演算
                 // FusedElementwiseReduceもKernelにloweringされるべきなのでペナルティを追加
-                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
+                let lowering_penalty = self.kernel_launch_overhead.ln();
                 num_elements.ln()
                     + log_sum_exp_iter(vec![
-                        MEMORY_ACCESS_COST.ln(),
+                        self.memory_access_cost.ln(),
                         log_elementwise_cost,
                         log_reduce_cost,
                     ])
@@ -214,10 +273,10 @@ impl SimpleCostEstimator {
                 let log_cumulative_cost = 3.0_f32.ln(); // Sumのコスト
                 // 各要素で読み取り + elementwise演算 + 累積演算 + 書き込み
                 // FusedElementwiseCumulativeもKernelにloweringされるべきなのでペナルティを追加
-                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
+                let lowering_penalty = self.kernel_launch_overhead.ln();
                 num_elements.ln()
                     + log_sum_exp_iter(vec![
-                        (2.0 * MEMORY_ACCESS_COST).ln(),
+                        (2.0 * self.memory_access_cost).ln(),
                         log_elementwise_cost,
                         log_cumulative_cost,
                     ])
@@ -230,42 +289,42 @@ impl SimpleCostEstimator {
                     log_sum_exp_iter(ops.iter().map(|op| self.reduce_op_cost(op)));
                 // 複数のreduce演算を融合
                 // FusedReduceもKernelにloweringされるべきなのでペナルティを追加
-                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
+                let lowering_penalty = self.kernel_launch_overhead.ln();
                 num_elements.ln()
-                    + log_sum_exp(MEMORY_ACCESS_COST.ln(), log_reduce_cost)
+                    + log_sum_exp(self.memory_access_cost.ln(), log_reduce_cost)
                     + lowering_penalty
             }
             GraphOp::Pad { .. } => {
                 // Padは出力バッファの初期化 + 入力データのコピー
-                // コスト = 出力要素数 × (初期化 + コピー) × MEMORY_ACCESS_COST
+                // コスト = 出力要素数 × (初期化 + コピー) × self.memory_access_cost
                 let num_elements = self.compute_num_elements(node);
                 // PadもKernelにloweringされるべきなのでペナルティを追加
-                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
-                num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln() + lowering_penalty
+                let lowering_penalty = self.kernel_launch_overhead.ln();
+                num_elements.ln() + (2.0 * self.memory_access_cost).ln() + lowering_penalty
             }
             GraphOp::Slice { .. } => {
                 // Sliceは入力からのコピーのみ（出力要素数ベース）
-                // コスト = 出力要素数 × (read + write) × MEMORY_ACCESS_COST
+                // コスト = 出力要素数 × (read + write) × self.memory_access_cost
                 let num_elements = self.compute_num_elements(node);
                 // SliceもKernelにloweringされるべきなのでペナルティを追加
-                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
-                num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln() + lowering_penalty
+                let lowering_penalty = self.kernel_launch_overhead.ln();
+                num_elements.ln() + (2.0 * self.memory_access_cost).ln() + lowering_penalty
             }
             GraphOp::Concat { .. } => {
                 // Concatは全入力からのコピー（出力要素数ベース）
-                // コスト = 出力要素数 × (read + write) × MEMORY_ACCESS_COST
+                // コスト = 出力要素数 × (read + write) × self.memory_access_cost
                 let num_elements = self.compute_num_elements(node);
                 // ConcatもKernelにloweringされるべきなのでペナルティを追加
-                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
-                num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln() + lowering_penalty
+                let lowering_penalty = self.kernel_launch_overhead.ln();
+                num_elements.ln() + (2.0 * self.memory_access_cost).ln() + lowering_penalty
             }
             GraphOp::Fold { .. } => {
                 // Fold: col2im、重複部分の加算が必要
                 // unfold演算の逆操作なので、高コスト
                 let num_elements = self.compute_num_elements(node);
                 // FoldもKernelにloweringされるべきなのでペナルティを追加
-                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
-                num_elements.ln() + (3.0 * MEMORY_ACCESS_COST).ln() + lowering_penalty // 読み込み + 書き込み + 加算
+                let lowering_penalty = self.kernel_launch_overhead.ln();
+                num_elements.ln() + (3.0 * self.memory_access_cost).ln() + lowering_penalty // 読み込み + 書き込み + 加算
             }
             GraphOp::Rand => {
                 // 乱数初期化: 各要素に乱数生成 + 書き込み
@@ -273,9 +332,9 @@ impl SimpleCostEstimator {
                 let num_elements = self.compute_num_elements(node);
                 let log_rand_cost = 10.0_f32.ln(); // 乱数生成は比較的高コスト
                 // RandもKernelにloweringされるべきなのでペナルティを追加
-                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
+                let lowering_penalty = self.kernel_launch_overhead.ln();
                 num_elements.ln()
-                    + log_sum_exp(log_rand_cost, MEMORY_ACCESS_COST.ln())
+                    + log_sum_exp(log_rand_cost, self.memory_access_cost.ln())
                     + lowering_penalty
             }
             GraphOp::Arange => {
@@ -283,32 +342,32 @@ impl SimpleCostEstimator {
                 // 非常に軽量（書き込みのみ）
                 let num_elements = self.compute_num_elements(node);
                 // ArangeもKernelにloweringされるべきなのでペナルティを追加
-                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
-                num_elements.ln() + MEMORY_ACCESS_COST.ln() + lowering_penalty
+                let lowering_penalty = self.kernel_launch_overhead.ln();
+                num_elements.ln() + self.memory_access_cost.ln() + lowering_penalty
             }
             GraphOp::Cast { .. } => {
                 // 型変換: 各要素をキャスト
                 // 非常に軽量（読み込み + キャスト + 書き込み）
                 let num_elements = self.compute_num_elements(node);
                 // CastもKernelにloweringされるべきなのでペナルティを追加
-                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
-                num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln() + lowering_penalty
+                let lowering_penalty = self.kernel_launch_overhead.ln();
+                num_elements.ln() + (2.0 * self.memory_access_cost).ln() + lowering_penalty
             }
             GraphOp::Real | GraphOp::Imag => {
                 // 複素数から実部/虚部を抽出
                 // 読み込み + 書き込み（stride 2でのアクセス）
                 let num_elements = self.compute_num_elements(node);
                 // Real/ImagもKernelにloweringされるべきなのでペナルティを追加
-                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
-                num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln() + lowering_penalty
+                let lowering_penalty = self.kernel_launch_overhead.ln();
+                num_elements.ln() + (2.0 * self.memory_access_cost).ln() + lowering_penalty
             }
             GraphOp::ComplexFromParts => {
                 // 実部と虚部から複素数を構築
                 // 2つの入力を読み込み + インターリーブして書き込み
                 let num_elements = self.compute_num_elements(node);
                 // ComplexFromPartsもKernelにloweringされるべきなのでペナルティを追加
-                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
-                num_elements.ln() + (3.0 * MEMORY_ACCESS_COST).ln() + lowering_penalty
+                let lowering_penalty = self.kernel_launch_overhead.ln();
+                num_elements.ln() + (3.0 * self.memory_access_cost).ln() + lowering_penalty
             }
             GraphOp::Kernel { ast, .. } => {
                 // Kernel関数のコスト計算
@@ -348,49 +407,51 @@ impl SimpleCostEstimator {
                         let vector_width = Self::detect_vector_width(body);
 
                         // 要素数（≒スレッド数）に基づく実効スピードアップの計算
-                        let parallel_bonus = if num_elements >= GPU_PARALLEL_MIN_ELEMENTS {
+                        let parallel_bonus = if num_elements >= self.gpu_parallel_min_elements {
                             // 理想的なスピードアップ = log(num_elements)
                             let ideal_speedup = num_elements.ln();
 
                             // メモリバンド幅による効率低下
                             // 要素数が増えるほどメモリアクセスがボトルネックになる
-                            let memory_efficiency = if num_elements > GPU_MEMORY_BANDWIDTH_THRESHOLD
-                            {
-                                1.0 / (1.0 + (num_elements / GPU_MEMORY_BANDWIDTH_THRESHOLD).ln())
-                            } else {
-                                1.0
-                            };
+                            let memory_efficiency =
+                                if num_elements > self.gpu_memory_bandwidth_threshold {
+                                    1.0 / (1.0
+                                        + (num_elements / self.gpu_memory_bandwidth_threshold).ln())
+                                } else {
+                                    1.0
+                                };
 
                             // 実効スピードアップ = 理想スピードアップ × メモリ効率
-                            (ideal_speedup * memory_efficiency).min(GPU_PARALLEL_MAX_SPEEDUP_LOG)
+                            (ideal_speedup * memory_efficiency)
+                                .min(self.gpu_parallel_max_speedup_log)
                         } else if num_elements > 1.0 {
                             // 小規模でも多少の並列化効果はある
                             (num_elements.ln() * 0.5).max(0.0)
                         } else {
                             // 単一要素: 並列化なし、起動オーバーヘッドがペナルティ
-                            -KERNEL_LAUNCH_OVERHEAD.ln() * 0.5
+                            -self.kernel_launch_overhead.ln() * 0.5
                         };
 
                         // スレッドグループサイズの評価（総サイズベース）
                         let thread_group_bonus = if total_tg_size > 0 {
-                            Self::evaluate_thread_group_size(Some(total_tg_size))
+                            self.evaluate_thread_group_size(Some(total_tg_size))
                         } else {
-                            Self::evaluate_thread_group_size(tg_sizes[0])
+                            self.evaluate_thread_group_size(tg_sizes[0])
                         };
 
                         // 多次元グリッドのボーナス
                         let multidim_bonus = if is_multidim {
-                            MULTIDIM_GRID_BONUS_LOG
+                            self.multidim_grid_bonus_log
                         } else {
                             0.0
                         };
 
                         // ベクトル化の評価
-                        let vector_bonus = Self::evaluate_vector_width(vector_width);
+                        let vector_bonus = self.evaluate_vector_width(vector_width);
 
                         // 大きすぎる軸へのペナルティ（タイル化を促進）
                         let large_axis_penalty =
-                            Self::evaluate_large_axis_penalty(default_grid_size);
+                            self.evaluate_large_axis_penalty(default_grid_size);
 
                         ast_cost
                             - parallel_bonus
@@ -398,7 +459,7 @@ impl SimpleCostEstimator {
                             - multidim_bonus
                             - vector_bonus
                             + large_axis_penalty
-                            - 2.0 * KERNEL_LAUNCH_OVERHEAD.ln()
+                            - 2.0 * self.kernel_launch_overhead.ln()
                     }
                     AstNode::Function { .. } => {
                         // CPU逐次実行（AstNode::Function）の場合
@@ -406,12 +467,12 @@ impl SimpleCostEstimator {
                         let ast_cost = ast_estimator.estimate(ast);
                         // Kernelノードは複数のグラフノードを1つにまとめるため、
                         // カーネル起動オーバーヘッドの削減効果を反映させる
-                        ast_cost - 3.0 * KERNEL_LAUNCH_OVERHEAD.ln()
+                        ast_cost - 3.0 * self.kernel_launch_overhead.ln()
                     }
                     AstNode::Program { .. } => {
                         // Programの場合、ASTのコストを使用
                         let ast_cost = ast_estimator.estimate(ast);
-                        ast_cost - 3.0 * KERNEL_LAUNCH_OVERHEAD.ln()
+                        ast_cost - 3.0 * self.kernel_launch_overhead.ln()
                     }
                     _ => {
                         // その他のAST（Block等）の場合、要素数を考慮
@@ -419,9 +480,9 @@ impl SimpleCostEstimator {
                         // 要素数とASTコストを組み合わせる
                         // ただし、ASTがループを含む場合は要素数が既に考慮されている可能性がある
                         if Self::ast_has_loop(ast) {
-                            ast_cost - 3.0 * KERNEL_LAUNCH_OVERHEAD.ln()
+                            ast_cost - 3.0 * self.kernel_launch_overhead.ln()
                         } else {
-                            num_elements.ln() + ast_cost - 3.0 * KERNEL_LAUNCH_OVERHEAD.ln()
+                            num_elements.ln() + ast_cost - 3.0 * self.kernel_launch_overhead.ln()
                         }
                     }
                 }
@@ -596,17 +657,19 @@ impl SimpleCostEstimator {
     /// スレッドグループサイズを評価
     ///
     /// 最適範囲（128-256）に近いほど高いボーナスを返す
-    fn evaluate_thread_group_size(thread_group_size: Option<usize>) -> f32 {
+    fn evaluate_thread_group_size(&self, thread_group_size: Option<usize>) -> f32 {
         match thread_group_size {
             Some(size) => {
-                if (OPTIMAL_THREAD_GROUP_SIZE_MIN..=OPTIMAL_THREAD_GROUP_SIZE_MAX).contains(&size) {
+                if (self.optimal_thread_group_size_min..=self.optimal_thread_group_size_max)
+                    .contains(&size)
+                {
                     // 最適範囲：ボーナスなし（基準値）
                     0.0
-                } else if (64..OPTIMAL_THREAD_GROUP_SIZE_MIN).contains(&size) {
+                } else if (64..self.optimal_thread_group_size_min).contains(&size) {
                     // やや小さい（64-127）：軽いペナルティ
                     // 一部のGPUでウェーブフロント/ワープを満たせない可能性
                     -0.1
-                } else if size > OPTIMAL_THREAD_GROUP_SIZE_MAX && size <= 512 {
+                } else if size > self.optimal_thread_group_size_max && size <= 512 {
                     // やや大きい（257-512）：軽いペナルティ
                     // レジスタ圧力やオキュパンシーの低下
                     -0.15
@@ -625,13 +688,13 @@ impl SimpleCostEstimator {
     /// ベクトル幅を評価
     ///
     /// ベクトル化によるメモリバンド幅効率向上のボーナスを返す
-    fn evaluate_vector_width(vector_width: Option<usize>) -> f32 {
+    fn evaluate_vector_width(&self, vector_width: Option<usize>) -> f32 {
         match vector_width {
-            Some(2) => VECTOR_WIDTH_2_BONUS_LOG,
-            Some(4) => VECTOR_WIDTH_4_BONUS_LOG,
-            Some(8) => VECTOR_WIDTH_8_BONUS_LOG,
-            Some(w) if w > 8 => VECTOR_WIDTH_8_BONUS_LOG, // 8以上はfloat8と同等
-            _ => 0.0,                                     // ベクトル化なしまたは不明
+            Some(2) => self.vector_width_2_bonus_log,
+            Some(4) => self.vector_width_4_bonus_log,
+            Some(8) => self.vector_width_8_bonus_log,
+            Some(w) if w > 8 => self.vector_width_8_bonus_log, // 8以上はfloat8と同等
+            _ => 0.0,                                          // ベクトル化なしまたは不明
         }
     }
 
@@ -641,7 +704,7 @@ impl SimpleCostEstimator {
     /// タイル化を促進するためにペナルティを返す。
     ///
     /// ペナルティ = weight * ln(max_axis / threshold) （max_axis > thresholdの場合）
-    fn evaluate_large_axis_penalty(grid_size: &[Box<AstNode>; 3]) -> f32 {
+    fn evaluate_large_axis_penalty(&self, grid_size: &[Box<AstNode>; 3]) -> f32 {
         // 各軸のグリッドサイズを抽出
         let axis_sizes: Vec<f32> = grid_size
             .iter()
@@ -660,8 +723,8 @@ impl SimpleCostEstimator {
             .unwrap_or(0.0);
 
         // しきい値を超えている場合にペナルティを適用
-        if max_axis > LARGE_AXIS_THRESHOLD {
-            LARGE_AXIS_PENALTY_WEIGHT * (max_axis / LARGE_AXIS_THRESHOLD).ln()
+        if max_axis > self.large_axis_threshold {
+            self.large_axis_penalty_weight * (max_axis / self.large_axis_threshold).ln()
         } else {
             0.0
         }
@@ -696,12 +759,6 @@ impl SimpleCostEstimator {
         }
 
         nodes
-    }
-}
-
-impl Default for SimpleCostEstimator {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -773,7 +830,7 @@ impl GraphCostEstimator for SimpleCostEstimator {
         } else {
             graph.outputs().len() as f32
         };
-        let log_kernel_overhead = kernel_count_f32.ln() + KERNEL_LAUNCH_OVERHEAD.ln();
+        let log_kernel_overhead = kernel_count_f32.ln() + self.kernel_launch_overhead.ln();
 
         // すべてのコストを合計
         log_costs.push(log_kernel_overhead);
@@ -790,7 +847,7 @@ impl GraphCostEstimator for SimpleCostEstimator {
         let merge_penalty = if !has_custom_program && kernel_count >= 2 {
             // 2つ以上のカーネルがある場合、大きなペナルティを追加
             // これによりKernelMergeSuggesterの提案が採用されやすくなる
-            KERNEL_LAUNCH_OVERHEAD.ln() * (kernel_count as f32 - 1.0)
+            self.kernel_launch_overhead.ln() * (kernel_count as f32 - 1.0)
         } else {
             0.0
         };
@@ -818,7 +875,7 @@ impl GraphCostEstimator for SimpleCostEstimator {
                 .count();
             // 入力Bufferがあると、グラフが整理されていないとみなしてペナルティ
             // ペナルティを強くしてProgramRootBufferAbsorptionが選ばれやすくする
-            2.0 * KERNEL_LAUNCH_OVERHEAD.ln() * input_buffer_count as f32
+            2.0 * self.kernel_launch_overhead.ln() * input_buffer_count as f32
         } else {
             0.0
         };
@@ -841,6 +898,10 @@ pub struct LoweringCostEstimator {
     non_custom_penalty: f32,
     /// Kernel(Function)あたりのペナルティ（対数スケール）
     function_penalty: f32,
+    /// GPU並列化による最大スピードアップ係数（対数スケール）
+    gpu_parallel_max_speedup_log: f32,
+    /// カーネル起動オーバーヘッド（CPUサイクル）
+    kernel_launch_overhead: f32,
 }
 
 impl LoweringCostEstimator {
@@ -848,12 +909,16 @@ impl LoweringCostEstimator {
         Self {
             // 非KernelノードにはLoweringSuggesterを適用すべき
             // 非常に強いペナルティを設定し、Loweringを常に優先する
-            // 元の値: KERNEL_LAUNCH_OVERHEAD.ln() * 2.0 ≈ 13.8
+            // 元の値: kernel_launch_overhead.ln() * 2.0 ≈ 13.8
             // 新しい値: AST costを上回るように十分大きく設定
             non_custom_penalty: 100.0,
             // Kernel(Function)はProgramRootに吸収されるべき
             // こちらは小さめに設定して、Loweringの結果がペナルティで打ち消されないようにする
             function_penalty: 1.0,
+            // GPU並列化最大スピードアップ（SimpleCostEstimatorと同じ）
+            gpu_parallel_max_speedup_log: 4.5,
+            // カーネル起動オーバーヘッド（SimpleCostEstimatorと同じ）
+            kernel_launch_overhead: 1000.0,
         }
     }
 
@@ -932,7 +997,7 @@ impl GraphCostEstimator for LoweringCostEstimator {
                         custom_function_count += 1;
                         let ast_cost = ast_estimator.estimate(ast);
                         // 並列化ボーナスを適用（LoweringCostEstimatorでも考慮）
-                        let parallel_bonus = GPU_PARALLEL_MAX_SPEEDUP_LOG * 0.5;
+                        let parallel_bonus = self.gpu_parallel_max_speedup_log * 0.5;
                         total_ast_cost = log_sum_exp(total_ast_cost, ast_cost - parallel_bonus);
                     }
                     AstNode::Program { .. } => {
@@ -977,7 +1042,7 @@ impl GraphCostEstimator for LoweringCostEstimator {
 
         // 3. ProgramRootがある場合は大きな報酬（負のペナルティ）
         let program_root_reward = if has_program_root {
-            -KERNEL_LAUNCH_OVERHEAD.ln() * 3.0
+            -self.kernel_launch_overhead.ln() * 3.0
         } else {
             0.0
         };
@@ -1294,22 +1359,15 @@ mod tests {
 
     #[test]
     fn test_thread_group_size_evaluation() {
+        let estimator = SimpleCostEstimator::new();
+
         // 最適範囲（128-256）のテスト
-        assert_eq!(
-            SimpleCostEstimator::evaluate_thread_group_size(Some(128)),
-            0.0
-        );
-        assert_eq!(
-            SimpleCostEstimator::evaluate_thread_group_size(Some(256)),
-            0.0
-        );
-        assert_eq!(
-            SimpleCostEstimator::evaluate_thread_group_size(Some(192)),
-            0.0
-        );
+        assert_eq!(estimator.evaluate_thread_group_size(Some(128)), 0.0);
+        assert_eq!(estimator.evaluate_thread_group_size(Some(256)), 0.0);
+        assert_eq!(estimator.evaluate_thread_group_size(Some(192)), 0.0);
 
         // やや小さい（64-127）
-        let penalty_64 = SimpleCostEstimator::evaluate_thread_group_size(Some(64));
+        let penalty_64 = estimator.evaluate_thread_group_size(Some(64));
         assert!(
             penalty_64 < 0.0,
             "64 should have negative bonus: {}",
@@ -1317,7 +1375,7 @@ mod tests {
         );
 
         // やや大きい（257-512）
-        let penalty_512 = SimpleCostEstimator::evaluate_thread_group_size(Some(512));
+        let penalty_512 = estimator.evaluate_thread_group_size(Some(512));
         assert!(
             penalty_512 < 0.0,
             "512 should have negative bonus: {}",
@@ -1325,22 +1383,24 @@ mod tests {
         );
 
         // 小さすぎる
-        let penalty_32 = SimpleCostEstimator::evaluate_thread_group_size(Some(32));
+        let penalty_32 = estimator.evaluate_thread_group_size(Some(32));
         assert!(
             penalty_32 < penalty_64,
             "32 should have larger penalty than 64"
         );
 
         // 不明な場合はニュートラル
-        assert_eq!(SimpleCostEstimator::evaluate_thread_group_size(None), 0.0);
+        assert_eq!(estimator.evaluate_thread_group_size(None), 0.0);
     }
 
     #[test]
     fn test_vector_width_evaluation() {
+        let estimator = SimpleCostEstimator::new();
+
         // ベクトル幅が大きいほどボーナスが大きい
-        let bonus_2 = SimpleCostEstimator::evaluate_vector_width(Some(2));
-        let bonus_4 = SimpleCostEstimator::evaluate_vector_width(Some(4));
-        let bonus_8 = SimpleCostEstimator::evaluate_vector_width(Some(8));
+        let bonus_2 = estimator.evaluate_vector_width(Some(2));
+        let bonus_4 = estimator.evaluate_vector_width(Some(4));
+        let bonus_8 = estimator.evaluate_vector_width(Some(8));
 
         assert!(bonus_2 > 0.0, "float2 should have positive bonus");
         assert!(
@@ -1353,8 +1413,8 @@ mod tests {
         );
 
         // ベクトル化なしの場合はボーナスなし
-        assert_eq!(SimpleCostEstimator::evaluate_vector_width(None), 0.0);
-        assert_eq!(SimpleCostEstimator::evaluate_vector_width(Some(1)), 0.0);
+        assert_eq!(estimator.evaluate_vector_width(None), 0.0);
+        assert_eq!(estimator.evaluate_vector_width(Some(1)), 0.0);
     }
 
     #[test]
@@ -1726,13 +1786,15 @@ mod tests {
     fn test_large_axis_penalty() {
         use crate::ast::helper::*;
 
+        let estimator = SimpleCostEstimator::new();
+
         // しきい値以下のグリッドサイズ（ペナルティなし）
         let small_grid = [
             Box::new(const_int(256)),
             Box::new(const_int(1)),
             Box::new(const_int(1)),
         ];
-        let small_penalty = SimpleCostEstimator::evaluate_large_axis_penalty(&small_grid);
+        let small_penalty = estimator.evaluate_large_axis_penalty(&small_grid);
         assert_eq!(small_penalty, 0.0, "Small grid should have no penalty");
 
         // しきい値を超えるグリッドサイズ（ペナルティあり）
@@ -1741,7 +1803,7 @@ mod tests {
             Box::new(const_int(1)),
             Box::new(const_int(1)),
         ];
-        let large_penalty = SimpleCostEstimator::evaluate_large_axis_penalty(&large_grid);
+        let large_penalty = estimator.evaluate_large_axis_penalty(&large_grid);
         assert!(
             large_penalty > 0.0,
             "Large grid should have penalty, got: {}",
@@ -1754,7 +1816,7 @@ mod tests {
             Box::new(const_int(1)),
             Box::new(const_int(1)),
         ];
-        let very_large_penalty = SimpleCostEstimator::evaluate_large_axis_penalty(&very_large_grid);
+        let very_large_penalty = estimator.evaluate_large_axis_penalty(&very_large_grid);
         assert!(
             very_large_penalty > large_penalty,
             "Very large grid ({}) should have more penalty than large grid ({})",

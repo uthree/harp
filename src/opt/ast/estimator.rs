@@ -2,44 +2,6 @@ use super::CostEstimator;
 use crate::ast::AstNode;
 use crate::opt::cost_utils::{log_sum_exp, log_sum_exp_iter};
 
-// ループのオーバーヘッド（ループカウンタのインクリメント、比較、分岐）
-const OVERHEAD_PER_LOOP: f32 = 2.0;
-
-// メモリアクセスのコスト（L1キャッシュヒット想定）
-const MEMORY_ACCESS_COST: f32 = 4.0;
-
-// 関数呼び出しのオーバーヘッド（スタックフレームの設定、レジスタ退避など）
-const FUNCTION_CALL_OVERHEAD: f32 = 10.0;
-
-// 関数定義のオーバーヘッド（プロローグ/エピローグ生成、シンボルテーブルエントリなど）
-const FUNCTION_DEFINITION_OVERHEAD: f32 = 50.0;
-
-// 同期バリアのコスト（スレッド間の同期待ち）
-const BARRIER_COST: f32 = 100.0;
-
-// 条件分岐のオーバーヘッド（分岐予測ミスを考慮）
-const BRANCH_OVERHEAD: f32 = 5.0;
-
-// 比較演算のコスト（整数比較）
-const COMPARISON_COST: f32 = 1.0;
-
-// 連続ループの境界が揃っている場合のボーナス（融合可能性への報酬）
-const LOOP_FUSION_BONUS: f32 = 50.0;
-
-// GPUカーネル起動オーバーヘッド（CPUサイクル相当）
-const KERNEL_LAUNCH_OVERHEAD: f32 = 1000.0;
-
-// GPU並列化の効果が出る最小グリッドサイズ
-const GPU_PARALLEL_MIN_GRID_SIZE: f32 = 512.0;
-
-// GPU並列化による最大スピードアップ係数（対数スケール）
-// exp(4.5) ≈ 100倍のスピードアップ上限
-const GPU_PARALLEL_MAX_SPEEDUP_LOG: f32 = 4.5;
-
-// メモリバンド幅制限が効き始めるスレッド数
-// これ以上スレッドを増やしても効率が下がる
-const GPU_MEMORY_BANDWIDTH_THRESHOLD: f32 = 10000.0;
-
 /// 簡単なコスト推定器
 ///
 /// **重要**: このコスト推定器は対数スケール（log(CPUサイクル数)）でコストを返します。
@@ -68,22 +30,135 @@ const GPU_MEMORY_BANDWIDTH_THRESHOLD: f32 = 10000.0;
 /// 直接加算されるため、元のスケールでは乗算的な効果があります。
 #[derive(Clone, Debug)]
 pub struct SimpleCostEstimator {
-    /// ノード数あたりのペナルティ係数（対数スケール、デフォルト: 0.01）
-    /// 値が大きいほど、ノード数増加に対するペナルティが強くなります。
-    node_count_penalty: f32,
+    /// ノード数あたりのペナルティ係数（対数スケール）
+    pub node_count_penalty: f32,
+    /// ループのオーバーヘッド（ループカウンタのインクリメント、比較、分岐）
+    pub overhead_per_loop: f32,
+    /// メモリアクセスのコスト（L1キャッシュヒット想定）
+    pub memory_access_cost: f32,
+    /// 関数呼び出しのオーバーヘッド（スタックフレームの設定、レジスタ退避など）
+    pub function_call_overhead: f32,
+    /// 関数定義のオーバーヘッド（プロローグ/エピローグ生成、シンボルテーブルエントリなど）
+    pub function_definition_overhead: f32,
+    /// 同期バリアのコスト（スレッド間の同期待ち）
+    pub barrier_cost: f32,
+    /// 条件分岐のオーバーヘッド（分岐予測ミスを考慮）
+    pub branch_overhead: f32,
+    /// 比較演算のコスト（整数比較）
+    pub comparison_cost: f32,
+    /// 連続ループの境界が揃っている場合のボーナス（融合可能性への報酬）
+    pub loop_fusion_bonus: f32,
+    /// GPUカーネル起動オーバーヘッド（CPUサイクル相当）
+    pub kernel_launch_overhead: f32,
+    /// GPU並列化の効果が出る最小グリッドサイズ
+    pub gpu_parallel_min_grid_size: f32,
+    /// GPU並列化による最大スピードアップ係数（対数スケール）
+    pub gpu_parallel_max_speedup_log: f32,
+    /// メモリバンド幅制限が効き始めるスレッド数
+    pub gpu_memory_bandwidth_threshold: f32,
+}
+
+impl Default for SimpleCostEstimator {
+    fn default() -> Self {
+        Self {
+            node_count_penalty: 0.01,
+            overhead_per_loop: 2.0,
+            memory_access_cost: 4.0,
+            function_call_overhead: 10.0,
+            function_definition_overhead: 50.0,
+            barrier_cost: 100.0,
+            branch_overhead: 5.0,
+            comparison_cost: 1.0,
+            loop_fusion_bonus: 50.0,
+            kernel_launch_overhead: 1000.0,
+            gpu_parallel_min_grid_size: 512.0,
+            gpu_parallel_max_speedup_log: 4.5,
+            gpu_memory_bandwidth_threshold: 10000.0,
+        }
+    }
 }
 
 impl SimpleCostEstimator {
     /// 新しいコスト推定器を作成
     pub fn new() -> Self {
-        Self {
-            node_count_penalty: 0.01, // デフォルト値
-        }
+        Self::default()
     }
 
     /// ノード数ペナルティ係数を設定
     pub fn with_node_count_penalty(mut self, penalty: f32) -> Self {
         self.node_count_penalty = penalty;
+        self
+    }
+
+    /// ループオーバーヘッドを設定
+    pub fn with_overhead_per_loop(mut self, overhead: f32) -> Self {
+        self.overhead_per_loop = overhead;
+        self
+    }
+
+    /// メモリアクセスコストを設定
+    pub fn with_memory_access_cost(mut self, cost: f32) -> Self {
+        self.memory_access_cost = cost;
+        self
+    }
+
+    /// 関数呼び出しオーバーヘッドを設定
+    pub fn with_function_call_overhead(mut self, overhead: f32) -> Self {
+        self.function_call_overhead = overhead;
+        self
+    }
+
+    /// 関数定義オーバーヘッドを設定
+    pub fn with_function_definition_overhead(mut self, overhead: f32) -> Self {
+        self.function_definition_overhead = overhead;
+        self
+    }
+
+    /// バリアコストを設定
+    pub fn with_barrier_cost(mut self, cost: f32) -> Self {
+        self.barrier_cost = cost;
+        self
+    }
+
+    /// 分岐オーバーヘッドを設定
+    pub fn with_branch_overhead(mut self, overhead: f32) -> Self {
+        self.branch_overhead = overhead;
+        self
+    }
+
+    /// 比較演算コストを設定
+    pub fn with_comparison_cost(mut self, cost: f32) -> Self {
+        self.comparison_cost = cost;
+        self
+    }
+
+    /// ループ融合ボーナスを設定
+    pub fn with_loop_fusion_bonus(mut self, bonus: f32) -> Self {
+        self.loop_fusion_bonus = bonus;
+        self
+    }
+
+    /// カーネル起動オーバーヘッドを設定
+    pub fn with_kernel_launch_overhead(mut self, overhead: f32) -> Self {
+        self.kernel_launch_overhead = overhead;
+        self
+    }
+
+    /// GPU並列化最小グリッドサイズを設定
+    pub fn with_gpu_parallel_min_grid_size(mut self, size: f32) -> Self {
+        self.gpu_parallel_min_grid_size = size;
+        self
+    }
+
+    /// GPU並列化最大スピードアップを設定
+    pub fn with_gpu_parallel_max_speedup_log(mut self, speedup: f32) -> Self {
+        self.gpu_parallel_max_speedup_log = speedup;
+        self
+    }
+
+    /// GPUメモリバンド幅しきい値を設定
+    pub fn with_gpu_memory_bandwidth_threshold(mut self, threshold: f32) -> Self {
+        self.gpu_memory_bandwidth_threshold = threshold;
         self
     }
 
@@ -266,14 +341,14 @@ impl SimpleCostEstimator {
             AstNode::Max(_, _) => 2.0_f32.ln(),
 
             // メモリアクセス
-            AstNode::Load { count, .. } => (MEMORY_ACCESS_COST * (*count as f32)).ln(),
-            AstNode::Store { .. } => MEMORY_ACCESS_COST.ln(),
+            AstNode::Load { count, .. } => (self.memory_access_cost * (*count as f32)).ln(),
+            AstNode::Store { .. } => self.memory_access_cost.ln(),
 
             // 型変換（整数↔浮動小数点など）
             AstNode::Cast(_, _) => 2.0_f32.ln(),
 
             // 同期バリア（スレッド間の同期待ち）
-            AstNode::Barrier => BARRIER_COST.ln(),
+            AstNode::Barrier => self.barrier_cost.ln(),
 
             // 乱数生成（比較的高コスト）
             AstNode::Rand => 10.0_f32.ln(),
@@ -283,7 +358,7 @@ impl SimpleCostEstimator {
             AstNode::Deallocate { .. } => 50.0_f32.ln(),
 
             // GPUカーネル呼び出し（非常に高いオーバーヘッド）
-            AstNode::CallKernel { .. } => BARRIER_COST.ln(),
+            AstNode::CallKernel { .. } => self.barrier_cost.ln(),
 
             // 比較演算（高速）
             AstNode::Lt(_, _)
@@ -291,20 +366,14 @@ impl SimpleCostEstimator {
             | AstNode::Gt(_, _)
             | AstNode::Ge(_, _)
             | AstNode::Eq(_, _)
-            | AstNode::Ne(_, _) => COMPARISON_COST.ln(),
+            | AstNode::Ne(_, _) => self.comparison_cost.ln(),
 
             // 条件分岐（分岐予測オーバーヘッドを含む）
-            AstNode::If { .. } => BRANCH_OVERHEAD.ln(),
+            AstNode::If { .. } => self.branch_overhead.ln(),
 
             // その他（変数参照、定数など）
             _ => f32::NEG_INFINITY, // log(0) = -∞
         }
-    }
-}
-
-impl Default for SimpleCostEstimator {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -391,7 +460,7 @@ impl CostEstimator for SimpleCostEstimator {
                     self.estimate(body),
                     self.estimate(step),
                     self.estimate(stop),
-                    OVERHEAD_PER_LOOP.ln(),
+                    self.overhead_per_loop.ln(),
                 ]);
                 log_sum_exp(self.estimate(start), log_loop_count + per_iteration_cost)
             }
@@ -402,7 +471,7 @@ impl CostEstimator for SimpleCostEstimator {
                 let fusable_pairs = Self::count_fusable_loop_pairs(statements);
                 if fusable_pairs > 0 {
                     // ボーナスを減算（対数スケールなので、低いコストが良い）
-                    let bonus = (fusable_pairs as f32 * LOOP_FUSION_BONUS).ln();
+                    let bonus = (fusable_pairs as f32 * self.loop_fusion_bonus).ln();
                     statements_cost - bonus
                 } else {
                     statements_cost
@@ -411,7 +480,7 @@ impl CostEstimator for SimpleCostEstimator {
             AstNode::Call { args, .. } => {
                 // 関数呼び出しは引数の評価コスト + 呼び出しオーバーヘッド
                 let args_cost = log_sum_exp_iter(args.iter().map(|a| self.estimate(a)));
-                log_sum_exp(args_cost, FUNCTION_CALL_OVERHEAD.ln())
+                log_sum_exp(args_cost, self.function_call_overhead.ln())
             }
             // 比較演算
             AstNode::Lt(a, b)
@@ -462,7 +531,7 @@ impl CostEstimator for SimpleCostEstimator {
             AstNode::Function { body, .. } => {
                 // 関数本体のコスト + 関数定義オーバーヘッド
                 // 関数定義自体にもコストがかかる（プロローグ/エピローグ、スタックフレーム管理など）
-                log_sum_exp(self.estimate(body), FUNCTION_DEFINITION_OVERHEAD.ln())
+                log_sum_exp(self.estimate(body), self.function_definition_overhead.ln())
             }
             AstNode::Kernel {
                 body,
@@ -500,22 +569,22 @@ impl CostEstimator for SimpleCostEstimator {
                 };
 
                 // スレッド数に基づく実効スピードアップの計算
-                let parallel_bonus = if total_threads >= GPU_PARALLEL_MIN_GRID_SIZE {
+                let parallel_bonus = if total_threads >= self.gpu_parallel_min_grid_size {
                     // 理想的なスピードアップ = log(threads)
                     let ideal_speedup = total_threads.ln();
 
                     // メモリバンド幅による効率低下
                     // スレッド数が増えるほどメモリアクセスがボトルネックになる
                     // efficiency = 1 / (1 + log(threads / threshold)) for threads > threshold
-                    let memory_efficiency = if total_threads > GPU_MEMORY_BANDWIDTH_THRESHOLD {
-                        1.0 / (1.0 + (total_threads / GPU_MEMORY_BANDWIDTH_THRESHOLD).ln())
+                    let memory_efficiency = if total_threads > self.gpu_memory_bandwidth_threshold {
+                        1.0 / (1.0 + (total_threads / self.gpu_memory_bandwidth_threshold).ln())
                     } else {
                         1.0
                     };
 
                     // 実効スピードアップ = 理想スピードアップ × メモリ効率
                     // ただし上限あり
-                    (ideal_speedup * memory_efficiency).min(GPU_PARALLEL_MAX_SPEEDUP_LOG)
+                    (ideal_speedup * memory_efficiency).min(self.gpu_parallel_max_speedup_log)
                 } else if total_threads > 1.0 {
                     // 小規模でも多少の並列化効果はある
                     // ただし効率は低い（起動オーバーヘッドが相対的に大きい）
@@ -537,8 +606,8 @@ impl CostEstimator for SimpleCostEstimator {
                     body_cost - parallel_bonus,
                     grid_cost,
                     thread_cost,
-                    KERNEL_LAUNCH_OVERHEAD.ln(),
-                    FUNCTION_DEFINITION_OVERHEAD.ln(),
+                    self.kernel_launch_overhead.ln(),
+                    self.function_definition_overhead.ln(),
                 ])
             }
             AstNode::Program {
@@ -567,7 +636,8 @@ impl CostEstimator for SimpleCostEstimator {
                 // 非エントリポイント関数の数に比例したペナルティを追加
                 // 関数が多いほど、コードサイズが大きくなり、キャッシュ効率が悪化する
                 let base_program_cost = if non_entry_functions > 0 {
-                    let penalty = (non_entry_functions as f32 * FUNCTION_DEFINITION_OVERHEAD).ln();
+                    let penalty =
+                        (non_entry_functions as f32 * self.function_definition_overhead).ln();
                     log_sum_exp(functions_cost, penalty)
                 } else {
                     functions_cost
