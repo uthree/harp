@@ -4,6 +4,7 @@ members = [
     "crates/viz",
     "crates/harp-derive",
     "crates/dsl",
+    "crates/harp-cli",
 ]
 resolver = "2"
 

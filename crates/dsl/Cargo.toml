@@ -10,11 +10,6 @@ pest = "2.7"
 pest_derive = "2.7"
 thiserror = "2.0"
 ariadne = "0.5"
-clap = { version = "4.5", features = ["derive"] }
 
 [dev-dependencies]
 insta = "1.42"
-
-[[bin]]
-name = "harpc"
-path = "src/bin/harpc.rs"
