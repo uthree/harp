@@ -29,9 +29,18 @@ pub use parallel::ParallelizationStrategy;
 /// デフォルトでは複数の並列化戦略（Sequential, FlatParallel, MultiDimParallel）で
 /// 候補を生成しますが、`sequential_only()`で逐次実行のみに制限できます。
 /// これは実行時間の実測など、軽量なloweringが必要な場合に有用です。
+///
+/// # 設定可能なパラメータ
+///
+/// - `thread_group_sizes`: スレッドグループサイズの候補リスト
+/// - `vector_widths`: ベクトル幅の候補リスト（空の場合はベクトル化無効）
 pub struct LoweringSuggester {
     /// Sequentialのみを使用するかどうか
     sequential_only: bool,
+    /// スレッドグループサイズの候補リスト
+    thread_group_sizes: Vec<usize>,
+    /// ベクトル幅の候補リスト（空ならベクトル化無効）
+    vector_widths: Vec<usize>,
 }
 
 /// カーネル/関数の種類を表すプレフィックス
@@ -66,9 +75,13 @@ impl LoweringSuggester {
     /// 新しいLoweringSuggesterを作成
     ///
     /// デフォルトでは複数の並列化戦略で候補を生成します。
+    /// - スレッドグループサイズ: [64, 128, 256, 512]
+    /// - ベクトル幅: [2, 4, 8]
     pub fn new() -> Self {
         LoweringSuggester {
             sequential_only: false,
+            thread_group_sizes: vec![64, 128, 256, 512],
+            vector_widths: vec![2, 4, 8],
         }
     }
 
@@ -85,7 +98,48 @@ impl LoweringSuggester {
     pub fn sequential_only() -> Self {
         LoweringSuggester {
             sequential_only: true,
+            thread_group_sizes: vec![],
+            vector_widths: vec![],
         }
+    }
+
+    /// スレッドグループサイズの候補を設定
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let suggester = LoweringSuggester::new()
+    ///     .with_thread_group_sizes(vec![128, 256]);
+    /// ```
+    pub fn with_thread_group_sizes(mut self, sizes: Vec<usize>) -> Self {
+        self.thread_group_sizes = sizes;
+        self
+    }
+
+    /// ベクトル幅の候補を設定
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let suggester = LoweringSuggester::new()
+    ///     .with_vector_widths(vec![4, 8]);
+    /// ```
+    pub fn with_vector_widths(mut self, widths: Vec<usize>) -> Self {
+        self.vector_widths = widths;
+        self
+    }
+
+    /// ベクトル化を無効にする
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let suggester = LoweringSuggester::new()
+    ///     .without_vectorization();
+    /// ```
+    pub fn without_vectorization(mut self) -> Self {
+        self.vector_widths = vec![];
+        self
     }
 
     /// Sequential専用モードかどうかを返す
@@ -242,11 +296,12 @@ impl LoweringSuggester {
                         node, expr, reduce_op, axes, &name,
                     )
                 }
-                ParallelizationStrategy::FlatParallel => {
-                    parallel::build_flat_parallel_fused_elementwise_reduce_kernel(
-                        node, expr, reduce_op, axes, &name,
-                    )
-                }
+                ParallelizationStrategy::FlatParallel {
+                    thread_group_size: _,
+                    vector_width: _,
+                } => parallel::build_flat_parallel_fused_elementwise_reduce_kernel(
+                    node, expr, reduce_op, axes, &name,
+                ),
                 ParallelizationStrategy::MultiDimParallel { .. } => None,
             },
             GraphOp::FusedElementwiseCumulative {
@@ -463,26 +518,86 @@ impl LoweringSuggester {
 
         let mut strategies = vec![ParallelizationStrategy::Sequential];
 
+        // 総要素数を計算（ベクトル化の可否判定に使用）
+        let total_elements = self.calculate_total_elements(node);
+
         // Elementwise系とReduce系のみ並列化をサポート
         match &node.op {
-            GraphOp::Elementwise { .. }
-            | GraphOp::FusedElementwise { .. }
-            | GraphOp::Reduce { .. } => {
-                strategies.push(ParallelizationStrategy::FlatParallel);
+            GraphOp::Elementwise { .. } | GraphOp::FusedElementwise { .. } => {
+                // 各スレッドグループサイズで候補を生成
+                for &tg_size in &self.thread_group_sizes {
+                    // スカラー版
+                    strategies.push(ParallelizationStrategy::FlatParallel {
+                        thread_group_size: tg_size,
+                        vector_width: None,
+                    });
+
+                    // ベクトル化版（要素数が割り切れる場合のみ）
+                    if let Some(total) = total_elements {
+                        for &vec_width in &self.vector_widths {
+                            if total % vec_width == 0 && total >= vec_width {
+                                strategies.push(ParallelizationStrategy::FlatParallel {
+                                    thread_group_size: tg_size,
+                                    vector_width: Some(vec_width),
+                                });
+                            }
+                        }
+                    }
+                }
 
                 // 多次元並列化は次元数に応じて追加
                 let ndim = node.view.shape().len();
-                if ndim >= 1 {
-                    strategies.push(ParallelizationStrategy::MultiDimParallel { parallel_dims: 1 });
+                for &tg_size in &self.thread_group_sizes {
+                    if ndim >= 1 {
+                        strategies.push(ParallelizationStrategy::MultiDimParallel {
+                            parallel_dims: 1,
+                            thread_group_size: tg_size,
+                            vector_width: None,
+                        });
+                    }
+                    if ndim >= 2 {
+                        strategies.push(ParallelizationStrategy::MultiDimParallel {
+                            parallel_dims: 2,
+                            thread_group_size: tg_size,
+                            vector_width: None,
+                        });
+                    }
                 }
-                if ndim >= 2 {
-                    strategies.push(ParallelizationStrategy::MultiDimParallel { parallel_dims: 2 });
+            }
+            GraphOp::Reduce { .. } => {
+                // Reduceは現時点ではベクトル化をサポートしない
+                for &tg_size in &self.thread_group_sizes {
+                    strategies.push(ParallelizationStrategy::FlatParallel {
+                        thread_group_size: tg_size,
+                        vector_width: None,
+                    });
+
+                    let ndim = node.view.shape().len();
+                    if ndim >= 1 {
+                        strategies.push(ParallelizationStrategy::MultiDimParallel {
+                            parallel_dims: 1,
+                            thread_group_size: tg_size,
+                            vector_width: None,
+                        });
+                    }
+                    if ndim >= 2 {
+                        strategies.push(ParallelizationStrategy::MultiDimParallel {
+                            parallel_dims: 2,
+                            thread_group_size: tg_size,
+                            vector_width: None,
+                        });
+                    }
                 }
             }
             GraphOp::FusedElementwiseReduce { .. } => {
                 // FusedElementwiseReduceはFlatParallelのみサポート
                 // 出力軸を並列化し、縮約軸は逐次ループで処理
-                strategies.push(ParallelizationStrategy::FlatParallel);
+                for &tg_size in &self.thread_group_sizes {
+                    strategies.push(ParallelizationStrategy::FlatParallel {
+                        thread_group_size: tg_size,
+                        vector_width: None,
+                    });
+                }
             }
             _ => {
                 // その他の演算は逐次のみ
@@ -490,6 +605,23 @@ impl LoweringSuggester {
         }
 
         strategies
+    }
+
+    /// ノードの総要素数を計算（定数の場合のみ）
+    fn calculate_total_elements(&self, node: &GraphNode) -> Option<usize> {
+        use crate::graph::shape::Expr;
+
+        let shape = node.view.shape();
+        let mut total = 1usize;
+        for dim in shape {
+            match dim {
+                Expr::Const(val) => {
+                    total *= *val as usize;
+                }
+                _ => return None, // シンボリックな軸がある場合は計算不可
+            }
+        }
+        Some(total)
     }
 
     /// グラフ内の特定ノードを置き換えた新しいグラフを作成

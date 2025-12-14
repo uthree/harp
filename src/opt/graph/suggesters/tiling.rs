@@ -32,9 +32,7 @@ impl TilingSuggester {
     }
 
     pub fn with_sizes(tile_sizes: Vec<usize>) -> Self {
-        Self {
-            tile_sizes: tile_sizes,
-        }
+        Self { tile_sizes }
     }
 
     /// グラフ内の全ノードを収集（トポロジカル順）

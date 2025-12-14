@@ -36,22 +36,48 @@ AST版よりも計測コストが高いため、足切り候補数を少なめ�
   - 各演算に対して複数の並列化戦略（`ParallelizationStrategy`）で候補を生成
   - ビームサーチのコスト評価により最適な戦略が選択される
   - `sequential_only()`モードでSequential戦略のみに制限可能
+  - パラメータで候補数をチューニング可能
 - **BufferAbsorptionSuggester**: KernelのsrcにあるBufferを`input_buffers`に取り込む
 
 #### ParallelizationStrategy
 
 LoweringSuggesterが生成する並列化戦略：
 
-| 戦略 | 説明 | 生成されるAST |
-|------|------|---------------|
-| Sequential | 逐次実行（CPU向け） | `AstNode::Function` + Rangeループ |
-| FlatParallel | 全要素を線形インデックスで並列処理 | `AstNode::Kernel` (1D grid) |
-| MultiDimParallel(n) | n次元までをスレッドIDで並列化 | `AstNode::Kernel` (nD grid) |
+| 戦略 | 説明 | パラメータ |
+|------|------|-----------|
+| Sequential | 逐次実行（CPU向け） | なし |
+| FlatParallel | 全要素を線形インデックスで並列処理 | thread_group_size, vector_width |
+| MultiDimParallel | n次元までをスレッドIDで並列化 | parallel_dims, thread_group_size, vector_width |
 
 対応演算:
-- **Elementwise/FusedElementwise**: 全戦略対応
-- **Reduce**: Sequential, FlatParallel対応
+- **Elementwise/FusedElementwise**: 全戦略対応（ベクトル化含む）
+- **Reduce**: Sequential, FlatParallel対応（ベクトル化なし）
 - **その他**: Sequentialのみ
+
+#### LoweringSuggesterの設定
+
+デフォルト値:
+- **thread_group_sizes**: [64, 128, 256, 512]
+- **vector_widths**: [2, 4, 8]（float2/float4/float8に相当）
+
+ベクトル化は総要素数がベクトル幅で割り切れる場合のみ候補に追加される。
+
+```rust
+// デフォルト設定
+let suggester = LoweringSuggester::new();
+
+// カスタム設定
+let suggester = LoweringSuggester::new()
+    .with_thread_group_sizes(vec![128, 256])  // サイズを制限
+    .with_vector_widths(vec![4]);             // float4のみ
+
+// ベクトル化を無効化
+let suggester = LoweringSuggester::new()
+    .without_vectorization();
+
+// 高速化のためSequentialのみ
+let suggester = LoweringSuggester::sequential_only();
+```
 
 ### ProgramRoot関連
 - **ProgramRootAbsorptionSuggester**: Kernel(Function)をProgramRootに吸収

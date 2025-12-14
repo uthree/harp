@@ -12,15 +12,24 @@ use super::helpers::graph_dtype_to_ast;
 pub enum ParallelizationStrategy {
     /// 逐次実行（CPU向け、Rangeループを使用）
     Sequential,
-    /// フラット並列化（1スレッド1要素）
+    /// フラット並列化（1スレッド1要素または複数要素）
     /// 全要素を線形インデックスで並列処理
-    FlatParallel,
+    FlatParallel {
+        /// スレッドグループサイズ（64, 128, 256, 512など）
+        thread_group_size: usize,
+        /// ベクトル幅（None=スカラー, Some(2/4/8)=ベクトル化）
+        vector_width: Option<usize>,
+    },
     /// 多次元並列化
     /// 指定した軸数までをスレッドIDで並列化（例: 2なら2次元グリッド）
     /// 残りの軸は逐次ループ
     MultiDimParallel {
         /// 並列化する軸数（1, 2, または 3）
         parallel_dims: usize,
+        /// スレッドグループサイズ
+        thread_group_size: usize,
+        /// ベクトル幅（None=スカラー, Some(2/4/8)=ベクトル化）
+        vector_width: Option<usize>,
     },
 }
 
@@ -52,19 +61,44 @@ pub fn build_parallel_elementwise_kernel(
                 name,
             )
         }
-        ParallelizationStrategy::FlatParallel => {
-            build_flat_parallel_elementwise_kernel(ndim, num_inputs, expr, output_dtype, name)
+        ParallelizationStrategy::FlatParallel {
+            thread_group_size,
+            vector_width,
+        } => {
+            if let Some(vec_width) = vector_width {
+                build_vectorized_flat_parallel_kernel(
+                    ndim,
+                    num_inputs,
+                    expr,
+                    output_dtype,
+                    name,
+                    *thread_group_size,
+                    *vec_width,
+                )
+            } else {
+                build_flat_parallel_elementwise_kernel(
+                    ndim,
+                    num_inputs,
+                    expr,
+                    output_dtype,
+                    name,
+                    *thread_group_size,
+                )
+            }
         }
-        ParallelizationStrategy::MultiDimParallel { parallel_dims } => {
-            build_multidim_parallel_elementwise_kernel(
-                ndim,
-                num_inputs,
-                expr,
-                output_dtype,
-                name,
-                *parallel_dims,
-            )
-        }
+        ParallelizationStrategy::MultiDimParallel {
+            parallel_dims,
+            thread_group_size,
+            vector_width: _, // MultiDimParallelのベクトル化は後で実装
+        } => build_multidim_parallel_elementwise_kernel(
+            ndim,
+            num_inputs,
+            expr,
+            output_dtype,
+            name,
+            *parallel_dims,
+            *thread_group_size,
+        ),
     }
 }
 
@@ -77,6 +111,7 @@ fn build_flat_parallel_elementwise_kernel(
     expr: AstNode,
     output_dtype: &crate::graph::DType,
     name: &str,
+    thread_group_size: usize,
 ) -> AstNode {
     // tidパラメータ（グローバルスレッドID）
     let tid_param = VarDecl {
@@ -131,7 +166,84 @@ fn build_flat_parallel_elementwise_kernel(
         AstDType::Tuple(vec![]),
         body,
         grid_size,
-        const_int(256), // デフォルトスレッドグループサイズ
+        const_int(thread_group_size as isize),
+    )
+}
+
+/// ベクトル化フラット並列Elementwiseカーネルを生成
+///
+/// float2/float4/float8などでロード/ストアし、1スレッドが複数要素を処理
+fn build_vectorized_flat_parallel_kernel(
+    ndim: usize,
+    num_inputs: usize,
+    expr: AstNode,
+    output_dtype: &crate::graph::DType,
+    name: &str,
+    thread_group_size: usize,
+    vector_width: usize,
+) -> AstNode {
+    // tidパラメータ（グローバルスレッドID）
+    let tid_param = VarDecl {
+        name: "tid".to_string(),
+        dtype: AstDType::Int,
+        mutability: Mutability::Immutable,
+        kind: VarKind::ThreadId(0),
+    };
+
+    // 入力バッファパラメータ
+    let mut params = vec![tid_param];
+    let scalar_dtype = graph_dtype_to_ast(output_dtype);
+    let vec_dtype = scalar_dtype.clone().to_vec(vector_width);
+
+    for i in 0..num_inputs {
+        params.push(VarDecl {
+            name: ph::input(i),
+            dtype: scalar_dtype.clone().to_ptr(),
+            mutability: Mutability::Immutable,
+            kind: VarKind::Normal,
+        });
+    }
+
+    // 出力バッファパラメータ
+    params.push(VarDecl {
+        name: ph::OUTPUT.to_string(),
+        dtype: scalar_dtype.clone().to_ptr(),
+        mutability: Mutability::Mutable,
+        kind: VarKind::Normal,
+    });
+
+    // tidを直接オフセットとして使用（ベクトルロードのため要素位置を計算）
+    let offset = var("tid");
+
+    // 入力をベクトルロードして式を構築
+    let mut mappings = std::collections::HashMap::new();
+    for i in 0..num_inputs {
+        // count=vector_width でベクトルロード
+        let load_node = load_vec(
+            var(ph::input(i)),
+            offset.clone(),
+            vector_width,
+            vec_dtype.clone(),
+        );
+        mappings.insert(i.to_string(), load_node);
+    }
+    let final_expr = expr.substitute(&mappings);
+
+    // ベクトルストア文
+    let store_stmt = store(var(ph::OUTPUT), offset, final_expr);
+    let body = block(vec![store_stmt], Scope::new());
+
+    // グリッドサイズ計算: 全要素数 / vector_width
+    let total_elements = build_total_elements(ndim);
+    let grid_size = total_elements / const_int(vector_width as isize);
+
+    kernel_1d(
+        Some(name.to_string()),
+        params,
+        AstDType::Tuple(vec![]),
+        body,
+        grid_size,
+        const_int(thread_group_size as isize),
     )
 }
 
@@ -145,6 +257,7 @@ fn build_multidim_parallel_elementwise_kernel(
     output_dtype: &crate::graph::DType,
     name: &str,
     parallel_dims: usize,
+    thread_group_size: usize,
 ) -> AstNode {
     let actual_parallel_dims = parallel_dims.min(ndim).min(3);
     let load_dtype = graph_dtype_to_ast(output_dtype);
@@ -218,8 +331,8 @@ fn build_multidim_parallel_elementwise_kernel(
         ],
     };
 
-    let thread_group_size: [Box<AstNode>; 3] = [
-        Box::new(const_int(256)),
+    let thread_group_size_arr: [Box<AstNode>; 3] = [
+        Box::new(const_int(thread_group_size as isize)),
         Box::new(const_int(1)),
         Box::new(const_int(1)),
     ];
@@ -230,7 +343,7 @@ fn build_multidim_parallel_elementwise_kernel(
         return_type: AstDType::Tuple(vec![]),
         body: Box::new(body),
         default_grid_size: grid_size,
-        default_thread_group_size: thread_group_size,
+        default_thread_group_size: thread_group_size_arr,
     }
 }
 
@@ -311,12 +424,15 @@ pub fn build_parallel_reduce_kernel(
         ParallelizationStrategy::Sequential => {
             super::reduce::build_reduce_function(node, op, axis, name)
         }
-        ParallelizationStrategy::FlatParallel => {
-            build_flat_parallel_reduce_kernel(node, op, axis, name)
-        }
-        ParallelizationStrategy::MultiDimParallel { parallel_dims } => {
-            build_multidim_parallel_reduce_kernel(node, op, axis, name, *parallel_dims)
-        }
+        ParallelizationStrategy::FlatParallel {
+            thread_group_size: _,
+            vector_width: _,
+        } => build_flat_parallel_reduce_kernel(node, op, axis, name),
+        ParallelizationStrategy::MultiDimParallel {
+            parallel_dims,
+            thread_group_size: _,
+            vector_width: _,
+        } => build_multidim_parallel_reduce_kernel(node, op, axis, name, *parallel_dims),
     }
 }
 
@@ -735,7 +851,8 @@ mod tests {
         use crate::graph::DType as GraphDType;
 
         let expr = wildcard("0") + wildcard("1");
-        let kernel = build_flat_parallel_elementwise_kernel(2, 2, expr, &GraphDType::F32, "test");
+        let kernel =
+            build_flat_parallel_elementwise_kernel(2, 2, expr, &GraphDType::F32, "test", 256);
 
         match kernel {
             AstNode::Kernel { name, params, .. } => {
@@ -743,6 +860,35 @@ mod tests {
                 // tid + 2 inputs + 1 output = 4 params
                 assert_eq!(params.len(), 4);
                 assert!(matches!(params[0].kind, VarKind::ThreadId(0)));
+            }
+            _ => panic!("Expected Kernel node"),
+        }
+    }
+
+    #[test]
+    fn test_build_vectorized_flat_parallel_elementwise() {
+        use crate::ast::helper::wildcard;
+        use crate::graph::DType as GraphDType;
+
+        let expr = wildcard("0") + wildcard("1");
+        let kernel =
+            build_vectorized_flat_parallel_kernel(2, 2, expr, &GraphDType::F32, "test_vec", 128, 4);
+
+        match kernel {
+            AstNode::Kernel {
+                name,
+                params,
+                default_thread_group_size,
+                ..
+            } => {
+                assert_eq!(name, Some("test_vec".to_string()));
+                // tid + 2 inputs + 1 output = 4 params
+                assert_eq!(params.len(), 4);
+                // thread_group_size should be 128
+                assert!(matches!(
+                    default_thread_group_size[0].as_ref(),
+                    AstNode::Const(crate::ast::Literal::Int(128))
+                ));
             }
             _ => panic!("Expected Kernel node"),
         }
