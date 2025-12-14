@@ -19,11 +19,16 @@ pub struct DslParser;
 /// 文脈で区別できるため、予約語に含めていません。
 pub const RESERVED_KEYWORDS: &[&str] = &[
     // 構文キーワード
-    "graph", "let", "return",
+    "graph",
+    "let",
+    "return",
     // fused演算（専用構文を持つため予約語）
-    "fused", "fused_reduce", "fused_cumulative",
+    "fused",
+    "fused_reduce",
+    "fused_cumulative",
     // 真偽値リテラル（将来的にブールリテラルとして使用予定）
-    "true", "false",
+    "true",
+    "false",
 ];
 
 /// 識別子が予約語かどうかをチェック

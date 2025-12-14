@@ -304,7 +304,7 @@ impl<'a> Decompiler<'a> {
                 let op_name = reduce_op_to_name(reduce_op);
                 let axis = axes.first().copied().unwrap_or(0);
                 let code = format!(
-                    "fused_reduce({}, axis: {}, op: {}) {{ {} }}",
+                    "fused_reduce({}, axis={}, op={}) {{ {} }}",
                     inputs.join(", "),
                     axis,
                     op_name,
@@ -324,7 +324,7 @@ impl<'a> Decompiler<'a> {
                 let expr_str = ast_expr_to_dsl(expr, &inputs);
                 let op_name = cumulative_op_to_name(cumulative_op);
                 let code = format!(
-                    "fused_cumulative({}, axis: {}, op: {}) {{ {} }}",
+                    "fused_cumulative({}, axis={}, op={}) {{ {} }}",
                     inputs.join(", "),
                     axis,
                     op_name,
