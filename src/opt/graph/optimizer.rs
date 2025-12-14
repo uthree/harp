@@ -3,7 +3,8 @@ use crate::opt::graph::{
     GraphCostEstimator, GraphOptimizer, GraphSuggester, OptimizationHistory, OptimizationSnapshot,
     SimpleCostEstimator, SuggestResult,
 };
-use crate::opt::selector::{GraphCostSelector, GraphSelector};
+
+use super::selector::{GraphCostSelector, GraphSelector};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, info, trace};
 use std::time::Instant;

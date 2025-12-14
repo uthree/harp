@@ -9,7 +9,7 @@ use crate::opt::ast::{
     Optimizer as AstOptimizer, RuleBaseOptimizer,
 };
 use crate::opt::graph::{GraphOptimizer, OptimizationHistory as GraphOptimizationHistory};
-use crate::opt::selector::{GraphRuntimeSelector, RuntimeSelector};
+use crate::opt::{GraphRuntimeSelector, RuntimeSelector};
 use std::collections::HashMap;
 
 /// KernelSignatureからベンチマーク用バッファを生成

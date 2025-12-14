@@ -1,6 +1,6 @@
+use super::selector::{AstCostSelector, AstSelector};
 use crate::ast::AstNode;
 use crate::ast::pat::{AstRewriteRule, AstRewriter};
-use crate::opt::selector::{AstCostSelector, AstSelector};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, info, trace};
 use std::rc::Rc;
