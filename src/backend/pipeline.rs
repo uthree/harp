@@ -2,7 +2,6 @@
 ///
 /// 各バックエンドのPipeline実装で使用される共通機能を提供します。
 use crate::graph::Graph;
-use crate::opt::Selector;
 use crate::opt::ast::{
     CompositeSuggester as AstCompositeSuggester, FunctionInliningSuggester, LoopFusionSuggester,
     LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester,
@@ -287,7 +286,7 @@ pub fn create_multi_phase_optimizer_with_selector<Sel>(
     selector: Sel,
 ) -> ChainedGraphOptimizer
 where
-    Sel: Selector<(Graph, String)> + Clone + 'static,
+    Sel: crate::opt::GraphSelector + Clone + 'static,
 {
     // Phase 1: グラフ準備（View挿入、融合など）- カスタムSelector使用
     let graph_optimization_suggester = create_graph_preparation_suggester();

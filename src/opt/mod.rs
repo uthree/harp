@@ -6,5 +6,6 @@ pub mod selector;
 
 // Re-export selector types
 pub use selector::{
-    GraphRuntimeSelector, MultiStageSelector, RuntimeSelector, Selector, StaticCostSelector,
+    AstCostSelector, AstSelector, GraphCostSelector, GraphRuntimeSelector, GraphSelector,
+    RuntimeSelector,
 };

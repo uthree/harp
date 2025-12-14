@@ -18,8 +18,8 @@ fn main() -> eframe::Result {
     pipeline.graph_config.show_progress = true;
     pipeline.ast_config.show_progress = true;
 
-    // 実測値ベース最適化を有効化
-    pipeline.enable_runtime_selector();
+    // 実測値ベース最適化を有効化(するとめっちゃ重くなるので注意)
+    // pipeline.enable_runtime_selector();
 
     // 1024x1024 行列積グラフを作成
     let graph = create_matmul_graph(1024);

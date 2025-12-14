@@ -1,28 +1,25 @@
 //! 候補選択のトレイトと実装
 //!
 //! ビームサーチなどの最適化アルゴリズムで、
-//! コスト付き候補から上位n件を選択する処理を抽象化します。
+//! 候補の評価と選択を抽象化します。
 //!
-//! # 設計意図
+//! # 設計
 //!
-//! tinygradのような多段階評価を可能にするための抽象化です：
-//! 1. 静的評価で明らかに悪い候補を足切り
-//! 2. 中間的なヒューリスティクスで絞り込み
-//! 3. 実行時間の実測値で精密に評価
-//!
-//! # Example
-//!
-//! ```ignore
-//! use harp::opt::selector::{Selector, MultiStageSelector};
-//!
-//! // 3段階選択: 静的コスト→メモリ推定→実測
-//! let selector = MultiStageSelector::new()
-//!     .then(|c| estimate_static_cost(c), 1000)
-//!     .then(|c| estimate_memory(c), 100)
-//!     .then(|c| measure_runtime(c), 10);
-//!
-//! let selected = selector.select(candidates, 5);
+//! ```text
+//! Optimizer
+//!   └── Selector
+//!         └── CostEstimator(s)
 //! ```
+//!
+//! - **CostEstimator**: `estimate` メソッドでコストを計算
+//! - **Selector**: CostEstimatorを内包し、候補のソート・選択ロジックを担当
+//! - **Optimizer**: Selectorのみを持つ（CostEstimatorは直接持たない）
+//!
+//! # Graph用とAST用のSelector
+//!
+//! 型安全性のため、Graph用とAST用で別のtraitを提供しています：
+//! - `GraphSelector`: Graph最適化用（候補は`(Graph, String)`のタプル）
+//! - `AstSelector`: AST最適化用（候補は`AstNode`）
 
 use std::cmp::Ordering;
 
@@ -30,182 +27,162 @@ use crate::ast::AstNode;
 use crate::backend::{Compiler, KernelSignature, Renderer};
 use crate::graph::Graph;
 use crate::opt::ast::{CostEstimator, RuntimeCostEstimator, SimpleCostEstimator};
+use crate::opt::graph::{GraphCostEstimator, SimpleCostEstimator as GraphSimpleCostEstimator};
 
-/// 候補選択のトレイト
+// =============================================================================
+// Graph用Selector
+// =============================================================================
+
+/// Graph最適化用のSelector trait
 ///
-/// ビームサーチなどの最適化アルゴリズムにおいて、
-/// コスト付き候補から上位n件を選択する処理を抽象化します。
-///
-/// # Type Parameters
-///
-/// * `T` - 候補の型
-pub trait Selector<T> {
-    /// コスト付き候補リストから上位n件を選択
-    ///
-    /// # Arguments
-    ///
-    /// * `candidates` - (候補, コスト) のベクタ
-    /// * `n` - 選択する最大件数
-    ///
-    /// # Returns
-    ///
-    /// 選択された (候補, コスト) のベクタ（最大n件）
-    fn select(&self, candidates: Vec<(T, f32)>, n: usize) -> Vec<(T, f32)>;
+/// Graph最適化のビームサーチにおいて、候補の評価と選択を抽象化します。
+/// 候補は`(Graph, String)`のタプルで、Stringは生成元のSuggester名です。
+pub trait GraphSelector {
+    /// 単一候補のコストを推定
+    fn estimate(&self, candidate: &(Graph, String)) -> f32;
+
+    /// 候補リストを評価し、上位n件を選択
+    fn select(&self, candidates: Vec<(Graph, String)>, n: usize) -> Vec<((Graph, String), f32)>;
 }
 
-/// 静的コストベースの選択器
-///
-/// 入力されたコストで昇順ソートして上位n件を選択。
-/// デフォルトの選択器として使用されます。
-#[derive(Default, Clone, Debug)]
-pub struct StaticCostSelector;
+// =============================================================================
+// AST用Selector
+// =============================================================================
 
-impl StaticCostSelector {
-    /// 新しいStaticCostSelectorを作成
-    pub fn new() -> Self {
-        Self
-    }
+/// AST最適化用のSelector trait
+///
+/// AST最適化のビームサーチにおいて、候補の評価と選択を抽象化します。
+pub trait AstSelector {
+    /// 単一候補のコストを推定
+    fn estimate(&self, candidate: &AstNode) -> f32;
+
+    /// 候補リストを評価し、上位n件を選択
+    fn select(&self, candidates: Vec<AstNode>, n: usize) -> Vec<(AstNode, f32)>;
 }
 
-impl<T> Selector<T> for StaticCostSelector {
-    fn select(&self, candidates: Vec<(T, f32)>, n: usize) -> Vec<(T, f32)> {
-        let mut sorted = candidates;
-        sorted.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
-        sorted.into_iter().take(n).collect()
-    }
+/// Graph用の静的コストベース選択器
+///
+/// GraphCostEstimatorを内包し、静的コストで候補をソートして上位n件を選択します。
+/// Graph最適化のデフォルトの選択器として使用されます。
+#[derive(Clone, Debug)]
+pub struct GraphCostSelector<E = GraphSimpleCostEstimator>
+where
+    E: GraphCostEstimator,
+{
+    estimator: E,
 }
 
-/// 選択ステージ
-///
-/// 各ステージは評価関数と残す候補数を持ちます。
-struct SelectionStage<T> {
-    /// 評価関数（候補からコストを計算）
-    evaluator: Box<dyn Fn(&T) -> f32>,
-    /// このステージで残す候補数
-    keep_count: usize,
-}
-
-/// 多段階選択器
-///
-/// メソッドチェーンで複数のステージを構築し、段階的に候補を絞り込みます。
-/// 各ステージでは評価関数によりコストを再計算し、上位keep_count件を残します。
-///
-/// # Example
-///
-/// ```ignore
-/// use harp::opt::selector::{Selector, MultiStageSelector};
-///
-/// // 3段階選択
-/// let selector = MultiStageSelector::new()
-///     .then(|c| static_cost(c), 1000)   // 静的コストで1000件に足切り
-///     .then(|c| memory_cost(c), 100)    // メモリコストで100件に絞り込み
-///     .then(|c| runtime(c), 10);        // 実測で10件を最終選択
-///
-/// let selected = selector.select(candidates, 5);
-/// ```
-///
-/// # 設計
-///
-/// [dagopt](https://github.com/uthree/dagopt)の設計を参考にしています。
-pub struct MultiStageSelector<T> {
-    stages: Vec<SelectionStage<T>>,
-}
-
-impl<T> Default for MultiStageSelector<T> {
+impl Default for GraphCostSelector<GraphSimpleCostEstimator> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<T> MultiStageSelector<T> {
-    /// 新しいMultiStageSelectorを作成
+impl GraphCostSelector<GraphSimpleCostEstimator> {
+    /// 新しいGraphCostSelectorを作成（デフォルトのSimpleCostEstimatorを使用）
     pub fn new() -> Self {
-        Self { stages: vec![] }
-    }
-
-    /// 選択ステージを追加
-    ///
-    /// # Arguments
-    ///
-    /// * `evaluator` - 候補からコストを計算する評価関数
-    /// * `keep_count` - このステージで残す候補数
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let selector = MultiStageSelector::new()
-    ///     .then(|c| c.node_count() as f32, 100)
-    ///     .then(|c| measure_runtime(c), 10);
-    /// ```
-    pub fn then<F>(mut self, evaluator: F, keep_count: usize) -> Self
-    where
-        F: Fn(&T) -> f32 + 'static,
-    {
-        self.stages.push(SelectionStage {
-            evaluator: Box::new(evaluator),
-            keep_count,
-        });
-        self
-    }
-
-    /// ステージ数を取得
-    pub fn stage_count(&self) -> usize {
-        self.stages.len()
+        Self {
+            estimator: GraphSimpleCostEstimator::new(),
+        }
     }
 }
 
-impl<T> Selector<T> for MultiStageSelector<T> {
-    fn select(&self, candidates: Vec<(T, f32)>, n: usize) -> Vec<(T, f32)> {
-        if candidates.is_empty() {
-            return vec![];
-        }
+impl<E> GraphCostSelector<E>
+where
+    E: GraphCostEstimator,
+{
+    /// カスタムのCostEstimatorでGraphCostSelectorを作成
+    pub fn with_estimator(estimator: E) -> Self {
+        Self { estimator }
+    }
 
-        // ステージがない場合は入力のコストでソートして返す
-        if self.stages.is_empty() {
-            let mut sorted = candidates;
-            sorted.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
-            return sorted.into_iter().take(n).collect();
-        }
+    /// 内部のCostEstimatorへの参照を取得
+    pub fn estimator(&self) -> &E {
+        &self.estimator
+    }
+}
 
-        // 最初のステージでコストを再計算
-        let first_stage = &self.stages[0];
-        let mut candidates_with_cost: Vec<(T, f32)> = candidates
+impl<E> GraphSelector for GraphCostSelector<E>
+where
+    E: GraphCostEstimator,
+{
+    fn estimate(&self, candidate: &(Graph, String)) -> f32 {
+        self.estimator.estimate(&candidate.0)
+    }
+
+    fn select(&self, candidates: Vec<(Graph, String)>, n: usize) -> Vec<((Graph, String), f32)> {
+        let mut with_cost: Vec<((Graph, String), f32)> = candidates
             .into_iter()
-            .map(|(candidate, _old_cost)| {
-                let cost = (first_stage.evaluator)(&candidate);
-                (candidate, cost)
+            .map(|c| {
+                let cost = self.estimator.estimate(&c.0);
+                (c, cost)
             })
             .collect();
-        candidates_with_cost.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
-        candidates_with_cost.truncate(first_stage.keep_count);
+        with_cost.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
+        with_cost.into_iter().take(n).collect()
+    }
+}
 
-        // 2番目以降のステージ
-        for (i, stage) in self.stages.iter().enumerate().skip(1) {
-            // 各候補のコストを再計算
-            candidates_with_cost = candidates_with_cost
-                .into_iter()
-                .map(|(candidate, _old_cost)| {
-                    let new_cost = (stage.evaluator)(&candidate);
-                    (candidate, new_cost)
-                })
-                .collect();
+/// AST用の静的コストベース選択器
+///
+/// CostEstimatorを内包し、静的コストで候補をソートして上位n件を選択します。
+/// AST最適化のデフォルトの選択器として使用されます。
+#[derive(Clone, Debug)]
+pub struct AstCostSelector<E = SimpleCostEstimator>
+where
+    E: CostEstimator,
+{
+    estimator: E,
+}
 
-            // コストでソート
-            candidates_with_cost.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
+impl Default for AstCostSelector<SimpleCostEstimator> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-            // 最後のステージでは n を考慮、それ以外は keep_count で截断
-            let limit = if i == self.stages.len() - 1 {
-                n.min(stage.keep_count)
-            } else {
-                stage.keep_count
-            };
-
-            candidates_with_cost.truncate(limit);
+impl AstCostSelector<SimpleCostEstimator> {
+    /// 新しいAstCostSelectorを作成（デフォルトのSimpleCostEstimatorを使用）
+    pub fn new() -> Self {
+        Self {
+            estimator: SimpleCostEstimator::new(),
         }
+    }
+}
 
-        // 最終的にnで切る
-        candidates_with_cost.truncate(n);
-        candidates_with_cost
+impl<E> AstCostSelector<E>
+where
+    E: CostEstimator,
+{
+    /// カスタムのCostEstimatorでAstCostSelectorを作成
+    pub fn with_estimator(estimator: E) -> Self {
+        Self { estimator }
+    }
+
+    /// 内部のCostEstimatorへの参照を取得
+    pub fn estimator(&self) -> &E {
+        &self.estimator
+    }
+}
+
+impl<E> AstSelector for AstCostSelector<E>
+where
+    E: CostEstimator,
+{
+    fn estimate(&self, candidate: &AstNode) -> f32 {
+        self.estimator.estimate(candidate)
+    }
+
+    fn select(&self, candidates: Vec<AstNode>, n: usize) -> Vec<(AstNode, f32)> {
+        let mut with_cost: Vec<(AstNode, f32)> = candidates
+            .into_iter()
+            .map(|c| {
+                let cost = self.estimator.estimate(&c);
+                (c, cost)
+            })
+            .collect();
+        with_cost.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
+        with_cost.into_iter().take(n).collect()
     }
 }
 
@@ -303,20 +280,24 @@ where
     }
 }
 
-impl<R, C> Selector<AstNode> for RuntimeSelector<R, C>
+impl<R, C> AstSelector for RuntimeSelector<R, C>
 where
     R: Renderer,
     C: Compiler<CodeRepr = R::CodeRepr>,
 {
-    fn select(&self, candidates: Vec<(AstNode, f32)>, n: usize) -> Vec<(AstNode, f32)> {
+    fn estimate(&self, candidate: &AstNode) -> f32 {
+        self.static_estimator.estimate(candidate)
+    }
+
+    fn select(&self, candidates: Vec<AstNode>, n: usize) -> Vec<(AstNode, f32)> {
         if candidates.is_empty() {
             return vec![];
         }
 
-        // Stage 1: 静的コストで足切り（入力のコストを再計算して使用）
+        // Stage 1: 静的コストで足切り
         let mut stage1_candidates: Vec<(AstNode, f32)> = candidates
             .into_iter()
-            .map(|(ast, _old_cost)| {
+            .map(|ast| {
                 let cost = self.static_estimator.estimate(&ast);
                 (ast, cost)
             })
@@ -341,9 +322,7 @@ where
     }
 }
 
-use crate::opt::graph::{
-    GraphCostEstimator, GraphRuntimeCostEstimator, SimpleCostEstimator as GraphSimpleCostEstimator,
-};
+use crate::opt::graph::GraphRuntimeCostEstimator;
 
 /// グラフ用ランタイムコストベースの選択器
 ///
@@ -455,24 +434,24 @@ where
     }
 }
 
-impl<R, C> Selector<(Graph, String)> for GraphRuntimeSelector<R, C>
+impl<R, C> GraphSelector for GraphRuntimeSelector<R, C>
 where
     R: Renderer,
     C: Compiler<CodeRepr = R::CodeRepr>,
 {
-    fn select(
-        &self,
-        candidates: Vec<((Graph, String), f32)>,
-        n: usize,
-    ) -> Vec<((Graph, String), f32)> {
+    fn estimate(&self, candidate: &(Graph, String)) -> f32 {
+        self.static_estimator.estimate(&candidate.0)
+    }
+
+    fn select(&self, candidates: Vec<(Graph, String)>, n: usize) -> Vec<((Graph, String), f32)> {
         if candidates.is_empty() {
             return vec![];
         }
 
-        // Stage 1: 静的コストで足切り（入力のコストを再計算して使用）
+        // Stage 1: 静的コストで足切り
         let mut stage1_candidates: Vec<((Graph, String), f32)> = candidates
             .into_iter()
-            .map(|((graph, name), _old_cost)| {
+            .map(|(graph, name)| {
                 let cost = self.static_estimator.estimate(&graph);
                 ((graph, name), cost)
             })
@@ -502,218 +481,77 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_static_cost_selector_basic() {
-        let selector = StaticCostSelector::new();
-        let candidates = vec![("a", 3.0), ("b", 1.0), ("c", 2.0)];
+    fn test_graph_cost_selector_basic() {
+        let selector = GraphCostSelector::new();
+
+        // 空のグラフを複数作成（コストはノード数に基づく）
+        let mut graph1 = Graph::new();
+        let a1 = graph1.input("a", crate::graph::DType::F32, vec![10, 10]);
+        let b1 = graph1.input("b", crate::graph::DType::F32, vec![10, 10]);
+        let _ = a1 + b1;
+
+        let mut graph2 = Graph::new();
+        let a2 = graph2.input("a", crate::graph::DType::F32, vec![10, 10]);
+        let _ = a2.clone() + a2; // 同じノードを再利用
+
+        let candidates = vec![
+            (graph1, "suggester1".to_string()),
+            (graph2, "suggester2".to_string()),
+        ];
 
         let selected = selector.select(candidates, 2);
         assert_eq!(selected.len(), 2);
-        assert_eq!(selected[0].0, "b"); // コスト1.0
-        assert_eq!(selected[1].0, "c"); // コスト2.0
     }
 
     #[test]
-    fn test_static_cost_selector_empty() {
-        let selector = StaticCostSelector::new();
-        let candidates: Vec<(&str, f32)> = vec![];
+    fn test_graph_cost_selector_empty_candidates() {
+        let selector = GraphCostSelector::new();
+        let candidates: Vec<(Graph, String)> = vec![];
 
         let selected = selector.select(candidates, 5);
         assert!(selected.is_empty());
     }
 
     #[test]
-    fn test_static_cost_selector_zero_n() {
-        let selector = StaticCostSelector::new();
-        let candidates = vec![("a", 1.0)];
+    fn test_ast_cost_selector_basic() {
+        use crate::ast::Literal;
 
-        let selected = selector.select(candidates, 0);
-        assert!(selected.is_empty());
-    }
+        let selector = AstCostSelector::new();
 
-    #[test]
-    fn test_static_cost_selector_with_nan() {
-        let selector = StaticCostSelector::new();
-        let candidates = vec![("a", f32::NAN), ("b", 1.0), ("c", 2.0)];
+        // シンプルなASTノードを作成
+        let ast1 = AstNode::Const(Literal::Int(42));
+        let ast2 = AstNode::Const(Literal::F32(3.14));
 
-        let selected = selector.select(candidates, 2);
-        // NaNの扱いは未定義だが、パニックしないことを確認
-        assert_eq!(selected.len(), 2);
-    }
-
-    #[test]
-    fn test_multi_stage_selector_single_stage() {
-        // 単一ステージ: 入力コストを無視して評価関数でコストを再計算
-        let evaluator = |s: &&str| -> f32 {
-            match *s {
-                "a" => 1.0, // 入力コスト3.0だが評価では最良
-                "b" => 2.0, // 入力コスト1.0だが評価では2番目
-                "c" => 3.0, // 入力コスト2.0だが評価では最悪
-                _ => f32::MAX,
-            }
-        };
-
-        let selector = MultiStageSelector::new().then(evaluator, 3);
-        let candidates = vec![("a", 3.0), ("b", 1.0), ("c", 2.0)];
+        let candidates = vec![ast1, ast2];
 
         let selected = selector.select(candidates, 2);
         assert_eq!(selected.len(), 2);
-        assert_eq!(selected[0].0, "a"); // 評価コスト1.0
-        assert_eq!(selected[1].0, "b"); // 評価コスト2.0
     }
 
     #[test]
-    fn test_multi_stage_selector_two_stages() {
-        // 2段階選択
-        let stage1_eval = |s: &&str| -> f32 {
-            match *s {
-                "a" => 1.0,
-                "b" => 2.0,
-                "c" => 3.0,
-                "d" => 4.0,
-                "e" => 5.0,
-                _ => f32::MAX,
-            }
-        };
-        let stage2_eval = |s: &&str| -> f32 {
-            match *s {
-                "a" => 3.0,
-                "b" => 2.0,
-                "c" => 1.0,
-                _ => f32::MAX,
-            }
-        };
-
-        let selector = MultiStageSelector::new()
-            .then(stage1_eval, 3)
-            .then(stage2_eval, 2);
-
-        let candidates = vec![("a", 0.0), ("b", 0.0), ("c", 0.0), ("d", 0.0), ("e", 0.0)];
-
-        let selected = selector.select(candidates, 2);
-        assert_eq!(selected.len(), 2);
-        assert_eq!(selected[0].0, "c"); // Stage2コスト1.0
-        assert_eq!(selected[1].0, "b"); // Stage2コスト2.0
-    }
-
-    #[test]
-    fn test_multi_stage_selector_three_stages() {
-        let stage1 = |s: &&str| -> f32 {
-            match *s {
-                "a" => 1.0,
-                "b" => 2.0,
-                "c" => 3.0,
-                "d" => 4.0,
-                _ => f32::MAX,
-            }
-        };
-        let stage2 = |s: &&str| -> f32 {
-            match *s {
-                "a" => 3.0,
-                "b" => 1.0,
-                "c" => 2.0,
-                _ => f32::MAX,
-            }
-        };
-        let stage3 = |s: &&str| -> f32 {
-            match *s {
-                "b" => 2.0,
-                "c" => 1.0,
-                _ => f32::MAX,
-            }
-        };
-
-        let selector = MultiStageSelector::new()
-            .then(stage1, 3)
-            .then(stage2, 2)
-            .then(stage3, 1);
-
-        let candidates = vec![("a", 0.0), ("b", 0.0), ("c", 0.0), ("d", 0.0)];
-
-        let selected = selector.select(candidates, 1);
-        assert_eq!(selected.len(), 1);
-        assert_eq!(selected[0].0, "c");
-    }
-
-    #[test]
-    fn test_multi_stage_selector_no_stages() {
-        // ステージがない場合は入力のコストでソートして返す
-        let selector: MultiStageSelector<&str> = MultiStageSelector::new();
-        let candidates = vec![("a", 3.0), ("b", 1.0), ("c", 2.0)];
-
-        let selected = selector.select(candidates, 2);
-        assert_eq!(selected.len(), 2);
-        assert_eq!(selected[0].0, "b"); // コスト1.0
-        assert_eq!(selected[1].0, "c"); // コスト2.0
-    }
-
-    #[test]
-    fn test_multi_stage_selector_cutoff() {
-        let stage1 = |s: &&str| -> f32 {
-            match *s {
-                "a" => 1.0,
-                "b" => 2.0,
-                "c" => 3.0,
-                "d" => 10.0,
-                _ => f32::MAX,
-            }
-        };
-        let stage2 = |s: &&str| -> f32 {
-            match *s {
-                "d" => 0.0,
-                "a" => 3.0,
-                "b" => 2.0,
-                "c" => 1.0,
-                _ => f32::MAX,
-            }
-        };
-
-        let selector = MultiStageSelector::new().then(stage1, 3).then(stage2, 2);
-
-        let candidates = vec![("a", 0.0), ("b", 0.0), ("c", 0.0), ("d", 0.0)];
-
-        let selected = selector.select(candidates, 2);
-        assert_eq!(selected.len(), 2);
-        assert_eq!(selected[0].0, "c");
-        assert_eq!(selected[1].0, "b");
-    }
-
-    #[test]
-    fn test_multi_stage_selector_n_smaller_than_keep() {
-        let eval = |s: &&str| -> f32 {
-            match *s {
-                "a" => 1.0,
-                "b" => 2.0,
-                "c" => 3.0,
-                _ => f32::MAX,
-            }
-        };
-
-        let selector = MultiStageSelector::new().then(eval, 10);
-
-        let candidates = vec![("a", 0.0), ("b", 0.0), ("c", 0.0)];
-
-        let selected = selector.select(candidates, 2);
-        assert_eq!(selected.len(), 2);
-        assert_eq!(selected[0].0, "a");
-        assert_eq!(selected[1].0, "b");
-    }
-
-    #[test]
-    fn test_multi_stage_selector_stage_count() {
-        let selector: MultiStageSelector<i32> = MultiStageSelector::new()
-            .then(|_| 0.0, 10)
-            .then(|_| 0.0, 5)
-            .then(|_| 0.0, 2);
-
-        assert_eq!(selector.stage_count(), 3);
-    }
-
-    #[test]
-    fn test_multi_stage_selector_empty_candidates() {
-        let selector = MultiStageSelector::new().then(|_: &&str| 0.0, 10);
-        let candidates: Vec<(&str, f32)> = vec![];
+    fn test_ast_cost_selector_empty_candidates() {
+        let selector = AstCostSelector::new();
+        let candidates: Vec<AstNode> = vec![];
 
         let selected = selector.select(candidates, 5);
         assert!(selected.is_empty());
+    }
+
+    #[test]
+    fn test_ast_cost_selector_limit() {
+        use crate::ast::Literal;
+
+        let selector = AstCostSelector::new();
+
+        let candidates = vec![
+            AstNode::Const(Literal::Int(1)),
+            AstNode::Const(Literal::Int(2)),
+            AstNode::Const(Literal::Int(3)),
+            AstNode::Const(Literal::Int(4)),
+            AstNode::Const(Literal::Int(5)),
+        ];
+
+        let selected = selector.select(candidates, 3);
+        assert_eq!(selected.len(), 3);
     }
 }

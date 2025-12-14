@@ -1,6 +1,6 @@
 use crate::ast::AstNode;
 use crate::ast::pat::{AstRewriteRule, AstRewriter};
-use crate::opt::selector::{Selector, StaticCostSelector};
+use crate::opt::selector::{AstCostSelector, AstSelector};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, info, trace};
 use std::rc::Rc;
@@ -48,13 +48,13 @@ impl Optimizer for RuleBaseOptimizer {
 ///
 /// # 候補選択
 ///
-/// `Selector`により候補選択・コスト評価を行います。
-/// デフォルトは`StaticCostSelector`（SimpleCostEstimatorでコスト計算、上位n件を選択）。
+/// `AstSelector`により候補選択・コスト評価を行います。
+/// デフォルトは`AstCostSelector`（SimpleCostEstimatorでコスト計算、上位n件を選択）。
 /// `RuntimeSelector`を使用すると、静的コストで足切り後に実行時間を計測して選択します。
-pub struct BeamSearchOptimizer<S, Sel = StaticCostSelector>
+pub struct BeamSearchOptimizer<S, Sel = AstCostSelector>
 where
     S: Suggester,
-    Sel: Selector<AstNode>,
+    Sel: AstSelector,
 {
     suggester: S,
     selector: Sel,
@@ -67,18 +67,18 @@ where
     max_no_improvement_steps: Option<usize>,
 }
 
-impl<S> BeamSearchOptimizer<S, StaticCostSelector>
+impl<S> BeamSearchOptimizer<S, AstCostSelector>
 where
     S: Suggester,
 {
     /// 新しいビームサーチ最適化器を作成
     ///
-    /// デフォルトでは`StaticCostSelector`を使用します。
+    /// デフォルトでは`AstCostSelector`を使用します。
     /// コスト評価はSelector自身が行います。
     pub fn new(suggester: S) -> Self {
         Self {
             suggester,
-            selector: StaticCostSelector::new(),
+            selector: AstCostSelector::new(),
             beam_width: 10,
             max_steps: 10000,
             show_progress: cfg!(debug_assertions),
@@ -92,11 +92,11 @@ where
 impl<S, Sel> BeamSearchOptimizer<S, Sel>
 where
     S: Suggester,
-    Sel: Selector<AstNode>,
+    Sel: AstSelector,
 {
     /// カスタム選択器を設定
     ///
-    /// デフォルトの`StaticCostSelector`の代わりに、
+    /// デフォルトの`AstCostSelector`の代わりに、
     /// `RuntimeSelector`などのカスタム選択器を使用できます。
     ///
     /// # Example
@@ -112,7 +112,7 @@ where
     /// ```
     pub fn with_selector<NewSel>(self, selector: NewSel) -> BeamSearchOptimizer<S, NewSel>
     where
-        NewSel: Selector<AstNode>,
+        NewSel: AstSelector,
     {
         BeamSearchOptimizer {
             suggester: self.suggester,
@@ -178,7 +178,7 @@ where
 impl<S, Sel> BeamSearchOptimizer<S, Sel>
 where
     S: Suggester,
-    Sel: Selector<AstNode>,
+    Sel: AstSelector,
 {
     /// 履歴を記録しながら最適化を実行
     ///
@@ -309,17 +309,8 @@ where
             let num_candidates = candidates.len();
             trace!("Found {} candidates at step {}", num_candidates, step);
 
-            // 候補にコストを付与
-            let candidates_with_cost: Vec<(AstNode, f32)> = candidates
-                .into_iter()
-                .map(|ast| {
-                    let cost = static_estimator.estimate(&ast);
-                    (ast, cost)
-                })
-                .collect();
-
-            // Selectorで上位beam_width個を選択
-            let selected = self.selector.select(candidates_with_cost, self.beam_width);
+            // Selectorで上位beam_width個を選択（Selectorが内部でコストを計算）
+            let selected = self.selector.select(candidates, self.beam_width);
 
             beam = selected.iter().map(|(ast, _)| ast.clone()).collect();
 
@@ -447,7 +438,7 @@ where
 impl<S, Sel> Optimizer for BeamSearchOptimizer<S, Sel>
 where
     S: Suggester,
-    Sel: Selector<AstNode>,
+    Sel: AstSelector,
 {
     fn optimize(&self, ast: AstNode) -> AstNode {
         let (optimized, _) = self.optimize_with_history(ast);
