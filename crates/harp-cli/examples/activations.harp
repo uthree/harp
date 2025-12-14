@@ -1,0 +1,50 @@
+// Activation Functions Demo
+// Common activation functions used in neural networks
+
+// ReLU: max(x, 0)
+graph relu(x: f32[N, M]) -> (y: f32[N, M]) {
+    let zero = 0.0
+    y = max(x, zero)
+}
+
+// Sigmoid: 1 / (1 + exp(-x))
+// Using exp2: exp(x) = exp2(x * log2(e))
+graph sigmoid(x: f32[N, M]) -> (y: f32[N, M]) {
+    let log2_e = 1.4427
+    let neg_x = -x
+    let exp_neg = (neg_x * log2_e).exp2()
+    let one = 1.0
+    y = (one + exp_neg).recip()
+}
+
+// Tanh: (exp(x) - exp(-x)) / (exp(x) + exp(-x))
+// Simplified: 2 * sigmoid(2x) - 1
+graph tanh(x: f32[N, M]) -> (y: f32[N, M]) {
+    let two = 2.0
+    let one = 1.0
+    let log2_e = 1.4427
+
+    let x2 = x * two
+    let neg_x2 = -x2
+    let exp_neg = (neg_x2 * log2_e).exp2()
+    let sigmoid_2x = (one + exp_neg).recip()
+
+    y = two * sigmoid_2x - one
+}
+
+// SiLU / Swish: x * sigmoid(x)
+graph silu(x: f32[N, M]) -> (y: f32[N, M]) {
+    let log2_e = 1.4427
+    let neg_x = -x
+    let exp_neg = (neg_x * log2_e).exp2()
+    let one = 1.0
+    let sigmoid_x = (one + exp_neg).recip()
+    y = x * sigmoid_x
+}
+
+// Squared ReLU: max(x, 0)^2
+graph squared_relu(x: f32[N, M]) -> (y: f32[N, M]) {
+    let zero = 0.0
+    let relu_x = max(x, zero)
+    y = relu_x.square()
+}

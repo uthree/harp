@@ -1,0 +1,24 @@
+// Fused Operations Demo
+// Demonstrates fused, fused_reduce, and fused_cumulative operations
+// These operations allow combining multiple elementwise operations into a single kernel
+
+// Fused elementwise: a * b + c (FMA - Fused Multiply-Add)
+graph fma(a: f32[N, M], b: f32[N, M], c: f32[N, M]) -> (y: f32[N, M]) {
+    y = fused(a, b, c) { a * b + c }
+}
+
+// Fused reduce: compute sum of squares along an axis
+graph sum_of_squares(x: f32[N, M]) -> (y: f32[N]) {
+    y = fused_reduce(x, axis=1, op=sum) { x * x }
+}
+
+// Fused reduce: dot product of two vectors
+graph dot_product(a: f32[N], b: f32[N]) -> f32[1] {
+    let prod = fused_reduce(a, b, axis=0, op=sum) { a * b }
+    output = prod.unsqueeze(0)
+}
+
+// Fused cumulative: running weighted sum
+graph cumulative_weighted(x: f32[N], weight: f32[N]) -> (y: f32[N]) {
+    y = fused_cumulative(x, weight, axis=0, op=sum) { x * weight }
+}

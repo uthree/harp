@@ -1,0 +1,37 @@
+// Multi-Layer Perceptron (MLP) Layer
+// Computes: y = ReLU(x @ W1 + b1) @ W2 + b2
+//
+// Note: ReLU is approximated as max(x, 0)
+
+// Single linear layer with ReLU activation
+graph linear_relu(x: f32[B, I], w: f32[I, O], b: f32[O]) -> (y: f32[B, O]) {
+    // Linear: x @ w + b
+    let linear = matmul(x, w)
+    let b_exp = b.unsqueeze(0).expand([B, O])
+    let biased = linear + b_exp
+
+    // ReLU: max(x, 0)
+    let zero = 0.0
+    y = max(biased, zero)
+}
+
+// Two-layer MLP
+graph mlp(
+    x: f32[B, D],
+    w1: f32[D, H],
+    b1: f32[H],
+    w2: f32[H, D],
+    b2: f32[D]
+) -> (y: f32[B, D]) {
+    // First layer with ReLU
+    let h1 = matmul(x, w1)
+    let b1_exp = b1.unsqueeze(0).expand([B, H])
+    let h1_biased = h1 + b1_exp
+    let zero = 0.0
+    let h1_relu = max(h1_biased, zero)
+
+    // Second layer (no activation for output)
+    let h2 = matmul(h1_relu, w2)
+    let b2_exp = b2.unsqueeze(0).expand([B, D])
+    y = h2 + b2_exp
+}

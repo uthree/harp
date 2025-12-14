@@ -1,0 +1,23 @@
+// Softmax function along the last dimension
+// softmax(x) = exp(x - max(x)) / sum(exp(x - max(x)))
+//
+// Note: We use exp2(x * log2(e)) to compute exp(x)
+// where log2(e) ≈ 1.4427
+
+graph softmax(x: f32[N, M]) -> (y: f32[N, M]) {
+    // Compute max for numerical stability
+    let x_max = x.max(dim=1)
+    let x_max_exp = x_max.unsqueeze(1).expand([N, M])
+
+    // Subtract max and compute exp
+    let x_shifted = x - x_max_exp
+    // exp(x) = exp2(x * log2(e)) where log2(e) ≈ 1.4427
+    let log2_e = 1.4427
+    let exp_x = (x_shifted * log2_e).exp2()
+
+    // Compute sum and normalize
+    let sum_exp = exp_x.sum(dim=1)
+    let sum_exp_exp = sum_exp.unsqueeze(1).expand([N, M])
+
+    y = exp_x / sum_exp_exp
+}

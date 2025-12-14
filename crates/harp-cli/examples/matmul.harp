@@ -1,0 +1,6 @@
+// Matrix multiplication
+// Computes C = A @ B where A is [L, M] and B is [M, N]
+
+graph matmul(a: f32[L, M], b: f32[M, N]) -> (c: f32[L, N]) {
+    c = matmul(a, b)
+}

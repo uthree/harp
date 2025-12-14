@@ -1,0 +1,36 @@
+// Reduce Operations Demo
+// Demonstrates various reduction operations along different axes
+
+// Sum reduction along different axes
+graph sum_axis0(x: f32[N, M]) -> (y: f32[M]) {
+    y = x.sum(dim=0)
+}
+
+graph sum_axis1(x: f32[N, M]) -> (y: f32[N]) {
+    y = x.sum(dim=1)
+}
+
+// Product reduction
+graph prod_axis1(x: f32[N, M]) -> (y: f32[N]) {
+    y = x.prod(dim=1)
+}
+
+// Max reduction (useful for max pooling)
+graph max_axis1(x: f32[N, M]) -> (y: f32[N]) {
+    y = x.max(dim=1)
+}
+
+// Mean reduction (useful for average pooling)
+graph mean_axis1(x: f32[N, M]) -> (y: f32[N]) {
+    y = x.mean(dim=1)
+}
+
+// Cumulative sum (useful for prefix sums, running totals)
+graph prefix_sum(x: f32[N]) -> (y: f32[N]) {
+    y = x.cumsum(dim=0)
+}
+
+// Cumulative product
+graph running_product(x: f32[N]) -> (y: f32[N]) {
+    y = x.cumprod(dim=0)
+}
