@@ -49,6 +49,371 @@ fn distribute_thread_group_size(total_size: usize, parallel_dims: usize) -> [usi
     }
 }
 
+//=============================================================================
+// 統一カーネルビルダー
+//=============================================================================
+
+/// スレッド構成
+#[derive(Clone, Debug)]
+pub enum ThreadConfig {
+    /// 1次元フラット並列化（tid = get_global_id(0)）
+    Flat1D,
+    /// 多次元並列化（tid_0, tid_1, tid_2）
+    MultiDim { dims: usize },
+}
+
+/// グリッドサイズ計算方法
+#[derive(Clone, Debug)]
+pub enum GridStrategy {
+    /// フラット: ceil_div(total, tg_size) * tg_size
+    FlatRoundedUp,
+    /// ベクトル化: total / vector_width（境界チェックなし）
+    FlatDividedByVector { vector_width: usize },
+    /// 多次元: 各軸をスレッドグループサイズの倍数に切り上げ
+    MultiDimRoundedUp { parallel_dims: usize },
+    /// Reduce出力: 縮約軸を除いた要素数（将来のReduce統一ビルダー用）
+    #[allow(dead_code)]
+    ReduceOutput { exclude_axes: Vec<usize> },
+}
+
+/// 入力仕様
+#[derive(Clone, Debug)]
+pub enum InputSpec {
+    /// バッファ入力
+    Buffer,
+    /// 定数埋め込み（FusedElementwise等で使用予定）
+    #[allow(dead_code)]
+    Const(crate::ast::Literal),
+}
+
+/// 統一的なカーネル生成設定
+#[derive(Clone, Debug)]
+pub struct ParallelKernelConfig {
+    /// カーネル名
+    pub name: String,
+    /// スレッド構成
+    pub thread_config: ThreadConfig,
+    /// グリッドサイズ計算方法
+    pub grid_strategy: GridStrategy,
+    /// ベクトル幅（None=スカラー）
+    pub vector_width: Option<usize>,
+    /// スレッドグループサイズ
+    pub thread_group_size: usize,
+    /// 境界チェックを行うか
+    pub boundary_check: bool,
+}
+
+/// 統一的な並列Elementwiseカーネルを生成
+///
+/// # Arguments
+/// * `config` - カーネル設定
+/// * `ndim` - テンソル次元数
+/// * `inputs` - 入力仕様のリスト
+/// * `expr` - Elementwise式
+/// * `output_dtype` - 出力の型
+pub fn build_elementwise_kernel(
+    config: &ParallelKernelConfig,
+    ndim: usize,
+    inputs: &[InputSpec],
+    expr: AstNode,
+    output_dtype: &crate::graph::DType,
+) -> AstNode {
+    let load_dtype = graph_dtype_to_ast(output_dtype);
+    let vec_dtype = config
+        .vector_width
+        .map(|w| load_dtype.clone().to_vec(w))
+        .unwrap_or_else(|| load_dtype.clone());
+
+    // パラメータ生成
+    let mut params = build_thread_params(&config.thread_config, config.thread_group_size);
+    let (input_params, buffer_count) = build_input_params(inputs, &load_dtype);
+    params.extend(input_params);
+    params.push(build_output_param(&load_dtype));
+
+    // オフセット計算
+    let offset = build_offset(&config.thread_config, ndim);
+
+    // 入力ロード・式評価（ベクトル化対応）
+    let final_expr = if let Some(vec_width) = config.vector_width {
+        build_load_and_substitute_vec(inputs, &offset, expr, &vec_dtype, vec_width)
+    } else {
+        build_load_and_substitute(inputs, &offset, expr, &vec_dtype, buffer_count)
+    };
+
+    // ストア文
+    let store_stmt = store(var(ph::OUTPUT), offset, final_expr);
+
+    // 逐次ループでラップ（MultiDimの場合）
+    let body_with_loops = match &config.thread_config {
+        ThreadConfig::Flat1D => block(vec![store_stmt], Scope::new()),
+        ThreadConfig::MultiDim { dims } => {
+            wrap_sequential_loops(ndim, (*dims).min(ndim).min(3), vec![store_stmt])
+        }
+    };
+
+    // 境界チェック適用
+    let guarded_body = if config.boundary_check {
+        apply_boundary_check(&config.thread_config, ndim, body_with_loops)
+    } else {
+        body_with_loops
+    };
+    let body = block(vec![guarded_body], Scope::new());
+
+    // グリッドサイズ計算
+    let (grid_size, tg_size) =
+        build_grid_and_tg_size(&config.grid_strategy, &config.thread_config, config, ndim);
+
+    AstNode::Kernel {
+        name: Some(config.name.clone()),
+        params,
+        return_type: AstDType::Tuple(vec![]),
+        body: Box::new(body),
+        default_grid_size: grid_size,
+        default_thread_group_size: tg_size,
+    }
+}
+
+/// スレッドIDパラメータを生成
+fn build_thread_params(config: &ThreadConfig, _thread_group_size: usize) -> Vec<VarDecl> {
+    match config {
+        ThreadConfig::Flat1D => vec![VarDecl {
+            name: "tid".to_string(),
+            dtype: AstDType::Int,
+            mutability: Mutability::Immutable,
+            kind: VarKind::ThreadId(0),
+        }],
+        ThreadConfig::MultiDim { dims } => (0..*dims)
+            .map(|axis| VarDecl {
+                name: format!("tid_{}", axis),
+                dtype: AstDType::Int,
+                mutability: Mutability::Immutable,
+                kind: VarKind::ThreadId(axis),
+            })
+            .collect(),
+    }
+}
+
+/// 入力パラメータを生成（バッファのみ、定数は除外）
+fn build_input_params(inputs: &[InputSpec], load_dtype: &AstDType) -> (Vec<VarDecl>, usize) {
+    let mut params = Vec::new();
+    let mut buffer_idx = 0;
+    for input in inputs {
+        if matches!(input, InputSpec::Buffer) {
+            params.push(VarDecl {
+                name: ph::input(buffer_idx),
+                dtype: load_dtype.clone().to_ptr(),
+                mutability: Mutability::Immutable,
+                kind: VarKind::Normal,
+            });
+            buffer_idx += 1;
+        }
+    }
+    (params, buffer_idx)
+}
+
+/// 出力パラメータを生成
+fn build_output_param(load_dtype: &AstDType) -> VarDecl {
+    VarDecl {
+        name: ph::OUTPUT.to_string(),
+        dtype: load_dtype.clone().to_ptr(),
+        mutability: Mutability::Mutable,
+        kind: VarKind::Normal,
+    }
+}
+
+/// オフセット計算
+fn build_offset(config: &ThreadConfig, ndim: usize) -> AstNode {
+    match config {
+        ThreadConfig::Flat1D => var("tid"),
+        ThreadConfig::MultiDim { dims } => build_hybrid_offset(ndim, (*dims).min(ndim).min(3)),
+    }
+}
+
+/// 入力ロードと式の置換
+fn build_load_and_substitute(
+    inputs: &[InputSpec],
+    offset: &AstNode,
+    expr: AstNode,
+    load_dtype: &AstDType,
+    _buffer_count: usize,
+) -> AstNode {
+    let mut mappings = std::collections::HashMap::new();
+    let mut buffer_idx = 0;
+
+    for (i, input) in inputs.iter().enumerate() {
+        match input {
+            InputSpec::Buffer => {
+                let load_node = load(
+                    var(ph::input(buffer_idx)),
+                    offset.clone(),
+                    load_dtype.clone(),
+                );
+                mappings.insert(i.to_string(), load_node);
+                buffer_idx += 1;
+            }
+            InputSpec::Const(lit) => {
+                mappings.insert(i.to_string(), AstNode::Const(lit.clone()));
+            }
+        }
+    }
+
+    expr.substitute(&mappings)
+}
+
+/// 入力ロードと式の置換（ベクトル版）
+fn build_load_and_substitute_vec(
+    inputs: &[InputSpec],
+    offset: &AstNode,
+    expr: AstNode,
+    vec_dtype: &AstDType,
+    vector_width: usize,
+) -> AstNode {
+    let mut mappings = std::collections::HashMap::new();
+    let mut buffer_idx = 0;
+
+    for (i, input) in inputs.iter().enumerate() {
+        match input {
+            InputSpec::Buffer => {
+                let load_node = load_vec(
+                    var(ph::input(buffer_idx)),
+                    offset.clone(),
+                    vector_width,
+                    vec_dtype.clone(),
+                );
+                mappings.insert(i.to_string(), load_node);
+                buffer_idx += 1;
+            }
+            InputSpec::Const(lit) => {
+                mappings.insert(i.to_string(), AstNode::Const(lit.clone()));
+            }
+        }
+    }
+
+    expr.substitute(&mappings)
+}
+
+/// 境界チェックを適用
+fn apply_boundary_check(config: &ThreadConfig, ndim: usize, body: AstNode) -> AstNode {
+    match config {
+        ThreadConfig::Flat1D => {
+            let total_elements = build_total_elements(ndim);
+            if_then(lt(var("tid"), total_elements), body)
+        }
+        ThreadConfig::MultiDim { dims } => {
+            let actual_dims = (*dims).min(ndim).min(3);
+            let mut result = body;
+            for axis in (0..actual_dims).rev() {
+                result = if_then(
+                    lt(var(format!("tid_{}", axis)), var(ph::shape(axis))),
+                    result,
+                );
+            }
+            result
+        }
+    }
+}
+
+/// グリッドサイズとスレッドグループサイズを計算
+fn build_grid_and_tg_size(
+    strategy: &GridStrategy,
+    thread_config: &ThreadConfig,
+    config: &ParallelKernelConfig,
+    ndim: usize,
+) -> ([Box<AstNode>; 3], [Box<AstNode>; 3]) {
+    let tg_size = config.thread_group_size;
+
+    match strategy {
+        GridStrategy::FlatRoundedUp => {
+            let total = build_total_elements(ndim);
+            let tg = const_int(tg_size as isize);
+            let num_groups = ceil_div(total, tg.clone());
+            let grid = num_groups * tg.clone();
+            (
+                [
+                    Box::new(grid),
+                    Box::new(const_int(1)),
+                    Box::new(const_int(1)),
+                ],
+                [Box::new(tg), Box::new(const_int(1)), Box::new(const_int(1))],
+            )
+        }
+        GridStrategy::FlatDividedByVector { vector_width } => {
+            let total = build_total_elements(ndim);
+            let grid = total / const_int(*vector_width as isize);
+            (
+                [
+                    Box::new(grid),
+                    Box::new(const_int(1)),
+                    Box::new(const_int(1)),
+                ],
+                [
+                    Box::new(const_int(tg_size as isize)),
+                    Box::new(const_int(1)),
+                    Box::new(const_int(1)),
+                ],
+            )
+        }
+        GridStrategy::MultiDimRoundedUp { parallel_dims } => {
+            let actual_dims = (*parallel_dims).min(ndim).min(3);
+            let tg_sizes = distribute_thread_group_size(tg_size, actual_dims);
+
+            let build_grid_axis = |axis: usize| -> Box<AstNode> {
+                if axis < actual_dims {
+                    let shape = var(ph::shape(axis));
+                    let tg = const_int(tg_sizes[axis] as isize);
+                    let num_groups = ceil_div(shape, tg.clone());
+                    Box::new(num_groups * tg)
+                } else {
+                    Box::new(const_int(1))
+                }
+            };
+
+            (
+                [build_grid_axis(0), build_grid_axis(1), build_grid_axis(2)],
+                [
+                    Box::new(const_int(tg_sizes[0] as isize)),
+                    Box::new(const_int(tg_sizes[1] as isize)),
+                    Box::new(const_int(tg_sizes[2] as isize)),
+                ],
+            )
+        }
+        GridStrategy::ReduceOutput { exclude_axes } => {
+            let grid = build_output_elements_excluding_axes(ndim, exclude_axes);
+            // Reduce用のグリッドサイズは1D
+            match thread_config {
+                ThreadConfig::Flat1D => (
+                    [
+                        Box::new(grid),
+                        Box::new(const_int(1)),
+                        Box::new(const_int(1)),
+                    ],
+                    [
+                        Box::new(const_int(tg_size as isize)),
+                        Box::new(const_int(1)),
+                        Box::new(const_int(1)),
+                    ],
+                ),
+                _ => (
+                    [
+                        Box::new(grid),
+                        Box::new(const_int(1)),
+                        Box::new(const_int(1)),
+                    ],
+                    [
+                        Box::new(const_int(tg_size as isize)),
+                        Box::new(const_int(1)),
+                        Box::new(const_int(1)),
+                    ],
+                ),
+            }
+        }
+    }
+}
+
+//=============================================================================
+// 既存の並列化戦略（後方互換性のため維持）
+//=============================================================================
+
 /// 並列化戦略
 #[derive(Clone, Debug, PartialEq)]
 pub enum ParallelizationStrategy {
@@ -155,72 +520,19 @@ fn build_flat_parallel_elementwise_kernel(
     name: &str,
     thread_group_size: usize,
 ) -> AstNode {
-    // tidパラメータ（グローバルスレッドID）
-    let tid_param = VarDecl {
-        name: "tid".to_string(),
-        dtype: AstDType::Int,
-        mutability: Mutability::Immutable,
-        kind: VarKind::ThreadId(0),
+    // 入力仕様を生成（全てバッファ）
+    let inputs: Vec<InputSpec> = (0..num_inputs).map(|_| InputSpec::Buffer).collect();
+
+    let config = ParallelKernelConfig {
+        name: name.to_string(),
+        thread_config: ThreadConfig::Flat1D,
+        grid_strategy: GridStrategy::FlatRoundedUp,
+        vector_width: None,
+        thread_group_size,
+        boundary_check: true,
     };
 
-    // 入力バッファパラメータ
-    let mut params = vec![tid_param];
-    let load_dtype = graph_dtype_to_ast(output_dtype);
-
-    for i in 0..num_inputs {
-        params.push(VarDecl {
-            name: ph::input(i),
-            dtype: load_dtype.clone().to_ptr(),
-            mutability: Mutability::Immutable,
-            kind: VarKind::Normal,
-        });
-    }
-
-    // 出力バッファパラメータ
-    params.push(VarDecl {
-        name: ph::OUTPUT.to_string(),
-        dtype: load_dtype.clone().to_ptr(),
-        mutability: Mutability::Mutable,
-        kind: VarKind::Normal,
-    });
-
-    // tidを直接オフセットとして使用（フラット配列アクセス）
-    let offset = var("tid");
-
-    // 入力をロードして式を構築
-    let mut mappings = std::collections::HashMap::new();
-    for i in 0..num_inputs {
-        let load_node = load(var(ph::input(i)), offset.clone(), load_dtype.clone());
-        mappings.insert(i.to_string(), load_node);
-    }
-    let final_expr = expr.substitute(&mappings);
-
-    // ストア文
-    let store_stmt = store(var(ph::OUTPUT), offset, final_expr);
-
-    // 境界チェック付きの本体
-    // if (tid < total_elements) { store }
-    let total_elements = build_total_elements(ndim);
-    let guarded_store = if_then(
-        lt(var("tid"), total_elements.clone()),
-        block(vec![store_stmt], Scope::new()),
-    );
-    let body = block(vec![guarded_store], Scope::new());
-
-    // グリッドサイズ計算: スレッドグループサイズの倍数に切り上げ
-    // これにより、端数があっても適切にディスパッチできる
-    let tg_size = const_int(thread_group_size as isize);
-    let num_groups = ceil_div(total_elements, tg_size.clone());
-    let grid_size = num_groups * tg_size.clone();
-
-    kernel_1d(
-        Some(name.to_string()),
-        params,
-        AstDType::Tuple(vec![]),
-        body,
-        grid_size,
-        tg_size,
-    )
+    build_elementwise_kernel(&config, ndim, &inputs, expr, output_dtype)
 }
 
 /// ベクトル化フラット並列Elementwiseカーネルを生成
@@ -235,69 +547,19 @@ fn build_vectorized_flat_parallel_kernel(
     thread_group_size: usize,
     vector_width: usize,
 ) -> AstNode {
-    // tidパラメータ（グローバルスレッドID）
-    let tid_param = VarDecl {
-        name: "tid".to_string(),
-        dtype: AstDType::Int,
-        mutability: Mutability::Immutable,
-        kind: VarKind::ThreadId(0),
+    // 入力仕様を生成（全てバッファ）
+    let inputs: Vec<InputSpec> = (0..num_inputs).map(|_| InputSpec::Buffer).collect();
+
+    let config = ParallelKernelConfig {
+        name: name.to_string(),
+        thread_config: ThreadConfig::Flat1D,
+        grid_strategy: GridStrategy::FlatDividedByVector { vector_width },
+        vector_width: Some(vector_width),
+        thread_group_size,
+        boundary_check: false, // ベクトル化版は境界チェックなし
     };
 
-    // 入力バッファパラメータ
-    let mut params = vec![tid_param];
-    let scalar_dtype = graph_dtype_to_ast(output_dtype);
-    let vec_dtype = scalar_dtype.clone().to_vec(vector_width);
-
-    for i in 0..num_inputs {
-        params.push(VarDecl {
-            name: ph::input(i),
-            dtype: scalar_dtype.clone().to_ptr(),
-            mutability: Mutability::Immutable,
-            kind: VarKind::Normal,
-        });
-    }
-
-    // 出力バッファパラメータ
-    params.push(VarDecl {
-        name: ph::OUTPUT.to_string(),
-        dtype: scalar_dtype.clone().to_ptr(),
-        mutability: Mutability::Mutable,
-        kind: VarKind::Normal,
-    });
-
-    // tidを直接オフセットとして使用（ベクトルロードのため要素位置を計算）
-    let offset = var("tid");
-
-    // 入力をベクトルロードして式を構築
-    let mut mappings = std::collections::HashMap::new();
-    for i in 0..num_inputs {
-        // count=vector_width でベクトルロード
-        let load_node = load_vec(
-            var(ph::input(i)),
-            offset.clone(),
-            vector_width,
-            vec_dtype.clone(),
-        );
-        mappings.insert(i.to_string(), load_node);
-    }
-    let final_expr = expr.substitute(&mappings);
-
-    // ベクトルストア文
-    let store_stmt = store(var(ph::OUTPUT), offset, final_expr);
-    let body = block(vec![store_stmt], Scope::new());
-
-    // グリッドサイズ計算: 全要素数 / vector_width
-    let total_elements = build_total_elements(ndim);
-    let grid_size = total_elements / const_int(vector_width as isize);
-
-    kernel_1d(
-        Some(name.to_string()),
-        params,
-        AstDType::Tuple(vec![]),
-        body,
-        grid_size,
-        const_int(thread_group_size as isize),
-    )
+    build_elementwise_kernel(&config, ndim, &inputs, expr, output_dtype)
 }
 
 /// 多次元並列Elementwiseカーネルを生成
@@ -312,98 +574,21 @@ fn build_multidim_parallel_elementwise_kernel(
     parallel_dims: usize,
     thread_group_size: usize,
 ) -> AstNode {
-    let actual_parallel_dims = parallel_dims.min(ndim).min(3);
-    let load_dtype = graph_dtype_to_ast(output_dtype);
+    // 入力仕様を生成（全てバッファ）
+    let inputs: Vec<InputSpec> = (0..num_inputs).map(|_| InputSpec::Buffer).collect();
 
-    // スレッドグループサイズを複数軸に分配
-    let tg_sizes = distribute_thread_group_size(thread_group_size, actual_parallel_dims);
-
-    // スレッドIDパラメータ
-    let mut params: Vec<VarDecl> = (0..actual_parallel_dims)
-        .map(|axis| VarDecl {
-            name: format!("tid_{}", axis),
-            dtype: AstDType::Int,
-            mutability: Mutability::Immutable,
-            kind: VarKind::ThreadId(axis),
-        })
-        .collect();
-
-    // 入力バッファパラメータ
-    for i in 0..num_inputs {
-        params.push(VarDecl {
-            name: ph::input(i),
-            dtype: load_dtype.clone().to_ptr(),
-            mutability: Mutability::Immutable,
-            kind: VarKind::Normal,
-        });
-    }
-
-    // 出力バッファパラメータ
-    params.push(VarDecl {
-        name: ph::OUTPUT.to_string(),
-        dtype: load_dtype.clone().to_ptr(),
-        mutability: Mutability::Mutable,
-        kind: VarKind::Normal,
-    });
-
-    // オフセット計算: 並列軸はtid_N、逐次軸はridx_N
-    let offset = build_hybrid_offset(ndim, actual_parallel_dims);
-
-    // 入力をロードして式を構築
-    let mut mappings = std::collections::HashMap::new();
-    for i in 0..num_inputs {
-        let load_node = load(var(ph::input(i)), offset.clone(), load_dtype.clone());
-        mappings.insert(i.to_string(), load_node);
-    }
-    let final_expr = expr.substitute(&mappings);
-
-    // ストア文
-    let store_stmt = store(var(ph::OUTPUT), offset, final_expr);
-
-    // 逐次ループでラップ（並列軸以降の軸）
-    let sequential_body = wrap_sequential_loops(ndim, actual_parallel_dims, vec![store_stmt]);
-
-    // 境界チェック付きの本体を構築（ネストしたIfを使用）
-    // if (tid_0 < shape_0) { if (tid_1 < shape_1) { ... } }
-    let mut body = sequential_body;
-    for axis in (0..actual_parallel_dims).rev() {
-        body = if_then(
-            lt(var(format!("tid_{}", axis)), var(ph::shape(axis))),
-            body,
-        );
-    }
-    let body = block(vec![body], Scope::new());
-
-    // グリッドサイズ: スレッドグループサイズの倍数に切り上げ
-    let grid_size: [Box<AstNode>; 3] = {
-        let build_grid_axis = |axis: usize| -> Box<AstNode> {
-            if axis < actual_parallel_dims {
-                let shape = var(ph::shape(axis));
-                let tg = const_int(tg_sizes[axis] as isize);
-                // ceil(shape / tg_size) * tg_size
-                let num_groups = ceil_div(shape, tg.clone());
-                Box::new(num_groups * tg)
-            } else {
-                Box::new(const_int(1))
-            }
-        };
-        [build_grid_axis(0), build_grid_axis(1), build_grid_axis(2)]
+    let config = ParallelKernelConfig {
+        name: name.to_string(),
+        thread_config: ThreadConfig::MultiDim {
+            dims: parallel_dims,
+        },
+        grid_strategy: GridStrategy::MultiDimRoundedUp { parallel_dims },
+        vector_width: None,
+        thread_group_size,
+        boundary_check: true,
     };
 
-    let thread_group_size_arr: [Box<AstNode>; 3] = [
-        Box::new(const_int(tg_sizes[0] as isize)),
-        Box::new(const_int(tg_sizes[1] as isize)),
-        Box::new(const_int(tg_sizes[2] as isize)),
-    ];
-
-    AstNode::Kernel {
-        name: Some(name.to_string()),
-        params,
-        return_type: AstDType::Tuple(vec![]),
-        body: Box::new(body),
-        default_grid_size: grid_size,
-        default_thread_group_size: thread_group_size_arr,
-    }
+    build_elementwise_kernel(&config, ndim, &inputs, expr, output_dtype)
 }
 
 /// 全要素数を計算する式を生成
@@ -939,9 +1124,7 @@ mod tests {
                 fn contains_if(node: &AstNode) -> bool {
                     match node {
                         AstNode::If { .. } => true,
-                        AstNode::Block { statements, .. } => {
-                            statements.iter().any(contains_if)
-                        }
+                        AstNode::Block { statements, .. } => statements.iter().any(contains_if),
                         _ => false,
                     }
                 }
@@ -1032,8 +1215,15 @@ mod tests {
         use crate::graph::DType as GraphDType;
 
         let expr = wildcard("0");
-        let kernel =
-            build_multidim_parallel_elementwise_kernel(2, 1, expr, &GraphDType::F32, "test", 2, 256);
+        let kernel = build_multidim_parallel_elementwise_kernel(
+            2,
+            1,
+            expr,
+            &GraphDType::F32,
+            "test",
+            2,
+            256,
+        );
 
         // カーネルの本体にIf文が含まれているか確認
         match &kernel {
@@ -1060,8 +1250,15 @@ mod tests {
         use crate::graph::DType as GraphDType;
 
         let expr = wildcard("0");
-        let kernel =
-            build_multidim_parallel_elementwise_kernel(2, 1, expr, &GraphDType::F32, "test", 2, 256);
+        let kernel = build_multidim_parallel_elementwise_kernel(
+            2,
+            1,
+            expr,
+            &GraphDType::F32,
+            "test",
+            2,
+            256,
+        );
 
         match &kernel {
             AstNode::Kernel {

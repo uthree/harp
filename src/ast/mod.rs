@@ -73,12 +73,12 @@ pub enum AstNode {
     },
 
     // Comparison operations - 比較演算（Bool型を返す）
-    Lt(Box<AstNode>, Box<AstNode>),  // <
-    Le(Box<AstNode>, Box<AstNode>),  // <=
-    Gt(Box<AstNode>, Box<AstNode>),  // >
-    Ge(Box<AstNode>, Box<AstNode>),  // >=
-    Eq(Box<AstNode>, Box<AstNode>),  // ==
-    Ne(Box<AstNode>, Box<AstNode>),  // !=
+    Lt(Box<AstNode>, Box<AstNode>), // <
+    Le(Box<AstNode>, Box<AstNode>), // <=
+    Gt(Box<AstNode>, Box<AstNode>), // >
+    Ge(Box<AstNode>, Box<AstNode>), // >=
+    Eq(Box<AstNode>, Box<AstNode>), // ==
+    Ne(Box<AstNode>, Box<AstNode>), // !=
 
     // Control flow - 制御構文
     Range {
@@ -91,8 +91,8 @@ pub enum AstNode {
 
     /// 条件分岐
     If {
-        condition: Box<AstNode>,        // 条件式（Bool型）
-        then_body: Box<AstNode>,        // 条件が真の場合の処理
+        condition: Box<AstNode>,         // 条件式（Bool型）
+        then_body: Box<AstNode>,         // 条件が真の場合の処理
         else_body: Option<Box<AstNode>>, // 条件が偽の場合の処理（オプション）
     },
 
