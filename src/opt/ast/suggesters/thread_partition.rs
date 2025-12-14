@@ -5,7 +5,7 @@
 //! 多次元並列化構成に変換できます。
 
 use crate::ast::{AstNode, DType, Mutability, VarDecl, VarKind, helper::*};
-use crate::opt::ast::Suggester;
+use crate::opt::ast::AstSuggester;
 use log::{debug, trace};
 
 /// スレッドグループサイズを指定した次元数に分配する
@@ -632,7 +632,7 @@ impl Default for ThreadPartitionSuggester {
     }
 }
 
-impl Suggester for ThreadPartitionSuggester {
+impl AstSuggester for ThreadPartitionSuggester {
     fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
         trace!("ThreadPartitionSuggester: Generating partition suggestions");
         let candidates = self.collect_partition_candidates(ast);

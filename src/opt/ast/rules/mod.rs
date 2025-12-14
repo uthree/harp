@@ -129,7 +129,7 @@ mod tests {
     use super::*;
     use crate::ast::helper::{const_f32, const_int, exp2, idiv, log2, max, recip, rem, sqrt, var};
     use crate::ast::{AstNode, Scope};
-    use crate::opt::ast::Optimizer;
+    use crate::opt::ast::AstOptimizer;
     use crate::opt::ast::RuleBaseOptimizer;
 
     #[test]
@@ -539,7 +539,7 @@ mod tests {
     fn test_float_constant_folding_in_store() {
         use crate::ast::{DType, Literal};
         use crate::opt::ast::{
-            BeamSearchOptimizer, CompositeSuggester, RuleBaseSuggester, Suggester,
+            AstSuggester, BeamSearchOptimizer, CompositeSuggester, RuleBaseSuggester,
         };
 
         // Store内の定数畳み込み: Store(ptr, offset, ((Load + 3.0) + 5.0) + 8.0)
@@ -601,7 +601,7 @@ mod tests {
     fn test_float_constant_folding_in_program() {
         use crate::ast::{DType, Mutability, VarDecl, VarKind};
         use crate::opt::ast::{
-            BeamSearchOptimizer, CompositeSuggester, CostEstimator, RuleBaseSuggester,
+            AstCostEstimator, BeamSearchOptimizer, CompositeSuggester, RuleBaseSuggester,
             SimpleCostEstimator,
         };
         // CostEstimator is used for cost comparison only
@@ -705,7 +705,7 @@ mod tests {
     fn test_float_constant_folding_with_associativity() {
         use crate::ast::Literal;
         use crate::opt::ast::{
-            BeamSearchOptimizer, CompositeSuggester, RuleBaseSuggester, Suggester,
+            AstSuggester, BeamSearchOptimizer, CompositeSuggester, RuleBaseSuggester,
         };
 
         // ((a + 3.0) + 5.0) + 8.0 → a + 16.0 になることを期待

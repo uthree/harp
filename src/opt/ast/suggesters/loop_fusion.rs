@@ -4,7 +4,7 @@
 //! ループのオーバーヘッドを削減します。
 
 use crate::ast::{AstNode, Scope, helper::block};
-use crate::opt::ast::Suggester;
+use crate::opt::ast::AstSuggester;
 use log::{debug, trace};
 
 /// ループ融合を提案するSuggester
@@ -458,7 +458,7 @@ impl Default for LoopFusionSuggester {
     }
 }
 
-impl Suggester for LoopFusionSuggester {
+impl AstSuggester for LoopFusionSuggester {
     fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
         trace!("LoopFusionSuggester: Generating loop fusion suggestions");
         let candidates = self.collect_fusion_candidates(ast);

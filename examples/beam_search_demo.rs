@@ -1,7 +1,7 @@
 use harp::ast::{AstNode, Literal};
 use harp::opt::ast::rules::{add_commutative, all_algebraic_rules};
 use harp::opt::ast::{
-    BeamSearchOptimizer, CostEstimator, Optimizer, RuleBaseSuggester, SimpleCostEstimator,
+    AstCostEstimator, AstOptimizer, BeamSearchOptimizer, RuleBaseSuggester, SimpleCostEstimator,
 };
 
 fn main() {

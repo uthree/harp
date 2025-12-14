@@ -3,7 +3,7 @@
 //! タイル化とインライン展開をビームサーチで使えるようにします。
 
 use crate::ast::AstNode;
-use crate::opt::ast::Suggester;
+use crate::opt::ast::AstSuggester;
 use crate::opt::ast::transforms::{inline_small_loop, tile_loop};
 use log::{debug, trace};
 
@@ -130,7 +130,7 @@ impl LoopTilingSuggester {
     }
 }
 
-impl Suggester for LoopTilingSuggester {
+impl AstSuggester for LoopTilingSuggester {
     fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
         trace!("LoopTilingSuggester: Generating tiling suggestions");
         let candidates = self.collect_tiling_candidates(ast);
@@ -323,7 +323,7 @@ impl LoopInliningSuggester {
     }
 }
 
-impl Suggester for LoopInliningSuggester {
+impl AstSuggester for LoopInliningSuggester {
     fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
         trace!("LoopInliningSuggester: Generating inlining suggestions");
         let candidates = self.collect_inlining_candidates(ast);
@@ -673,7 +673,7 @@ impl Default for LoopInterchangeSuggester {
     }
 }
 
-impl Suggester for LoopInterchangeSuggester {
+impl AstSuggester for LoopInterchangeSuggester {
     fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
         trace!("LoopInterchangeSuggester: Generating loop interchange suggestions");
         let candidates = self.collect_interchange_candidates(ast);

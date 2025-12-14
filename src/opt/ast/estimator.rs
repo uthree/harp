@@ -1,4 +1,4 @@
-use super::CostEstimator;
+use super::AstCostEstimator;
 use crate::ast::AstNode;
 use crate::opt::cost_utils::{log_sum_exp, log_sum_exp_iter};
 
@@ -377,7 +377,7 @@ impl SimpleCostEstimator {
     }
 }
 
-impl CostEstimator for SimpleCostEstimator {
+impl AstCostEstimator for SimpleCostEstimator {
     fn estimate(&self, ast: &AstNode) -> f32 {
         let base_cost = self.base_cost(ast);
 

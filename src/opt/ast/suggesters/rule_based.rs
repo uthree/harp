@@ -1,6 +1,6 @@
 use crate::ast::AstNode;
 use crate::ast::pat::AstRewriteRule;
-use crate::opt::ast::Suggester;
+use crate::opt::ast::AstSuggester;
 use log::{debug, trace};
 use std::collections::HashSet;
 use std::rc::Rc;
@@ -289,7 +289,7 @@ impl RuleBaseSuggester {
     }
 }
 
-impl Suggester for RuleBaseSuggester {
+impl AstSuggester for RuleBaseSuggester {
     fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
         trace!("RuleBaseSuggester: Generating suggestions for AST");
         let mut suggestions = Vec::new();

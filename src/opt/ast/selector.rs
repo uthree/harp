@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use crate::ast::AstNode;
 
-use super::{CostEstimator, SimpleCostEstimator};
+use super::{AstCostEstimator, SimpleCostEstimator};
 
 /// AST最適化用のSelector trait
 ///
@@ -40,7 +40,7 @@ pub trait AstSelector {
 #[derive(Clone, Debug)]
 pub struct AstCostSelector<E = SimpleCostEstimator>
 where
-    E: CostEstimator,
+    E: AstCostEstimator,
 {
     estimator: E,
 }
@@ -62,7 +62,7 @@ impl AstCostSelector<SimpleCostEstimator> {
 
 impl<E> AstCostSelector<E>
 where
-    E: CostEstimator,
+    E: AstCostEstimator,
 {
     /// カスタムのCostEstimatorでAstCostSelectorを作成
     pub fn with_estimator(estimator: E) -> Self {
@@ -77,7 +77,7 @@ where
 
 impl<E> AstSelector for AstCostSelector<E>
 where
-    E: CostEstimator,
+    E: AstCostEstimator,
 {
     fn estimate(&self, candidate: &AstNode) -> f32 {
         self.estimator.estimate(candidate)
@@ -101,7 +101,7 @@ where
 /// 多段階選択の1ステップを表します。
 struct SelectionStage {
     /// このステージで使用するコスト推定器
-    estimator: Arc<dyn CostEstimator + Send + Sync>,
+    estimator: Arc<dyn AstCostEstimator + Send + Sync>,
     /// このステージで残す候補数
     keep: usize,
 }
@@ -152,7 +152,7 @@ impl AstMultiStageSelector {
     /// # Arguments
     /// * `estimator` - このステージで使用するコスト推定器
     /// * `keep` - このステージで残す候補数
-    pub fn then<E: CostEstimator + Send + Sync + 'static>(
+    pub fn then<E: AstCostEstimator + Send + Sync + 'static>(
         mut self,
         estimator: E,
         keep: usize,

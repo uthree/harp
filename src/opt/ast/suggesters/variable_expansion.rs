@@ -19,7 +19,7 @@
 //! - 定数伝播など他の最適化のための準備
 
 use crate::ast::{AstNode, Scope};
-use crate::opt::ast::Suggester;
+use crate::opt::ast::AstSuggester;
 use log::{debug, trace};
 
 /// 変数展開を提案するSuggester
@@ -456,7 +456,7 @@ impl Default for VariableExpansionSuggester {
     }
 }
 
-impl Suggester for VariableExpansionSuggester {
+impl AstSuggester for VariableExpansionSuggester {
     fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
         trace!("VariableExpansionSuggester: Generating expansion suggestions");
         let candidates = self.collect_expansion_candidates(ast);

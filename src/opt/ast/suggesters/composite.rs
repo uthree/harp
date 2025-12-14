@@ -1,21 +1,21 @@
 use crate::ast::AstNode;
-use crate::opt::ast::Suggester;
+use crate::opt::ast::AstSuggester;
 use log::{debug, trace};
 use std::collections::HashSet;
 
 /// 複数のSuggesterを組み合わせるSuggester
 pub struct CompositeSuggester {
-    suggesters: Vec<Box<dyn Suggester>>,
+    suggesters: Vec<Box<dyn AstSuggester>>,
 }
 
 impl CompositeSuggester {
     /// 新しいCompositeSuggesterを作成
-    pub fn new(suggesters: Vec<Box<dyn Suggester>>) -> Self {
+    pub fn new(suggesters: Vec<Box<dyn AstSuggester>>) -> Self {
         Self { suggesters }
     }
 }
 
-impl Suggester for CompositeSuggester {
+impl AstSuggester for CompositeSuggester {
     fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
         trace!("CompositeSuggester: Generating suggestions from multiple suggesters");
         let mut suggestions = Vec::new();

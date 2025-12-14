@@ -7,7 +7,7 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use super::history::{OptimizationHistory, OptimizationSnapshot};
-use super::{CostEstimator, Optimizer, Suggester};
+use super::{AstCostEstimator, AstOptimizer, AstSuggester};
 
 /// ルールベースの最適化器
 pub struct RuleBaseOptimizer {
@@ -29,7 +29,7 @@ impl RuleBaseOptimizer {
     }
 }
 
-impl Optimizer for RuleBaseOptimizer {
+impl AstOptimizer for RuleBaseOptimizer {
     fn optimize(&self, ast: AstNode) -> AstNode {
         info!("AST rule-based optimization started");
         let result = self.rewriter.apply(ast);
@@ -53,7 +53,7 @@ impl Optimizer for RuleBaseOptimizer {
 /// `RuntimeSelector`を使用すると、静的コストで足切り後に実行時間を計測して選択します。
 pub struct BeamSearchOptimizer<S, Sel = AstCostSelector>
 where
-    S: Suggester,
+    S: AstSuggester,
     Sel: AstSelector,
 {
     suggester: S,
@@ -69,7 +69,7 @@ where
 
 impl<S> BeamSearchOptimizer<S, AstCostSelector>
 where
-    S: Suggester,
+    S: AstSuggester,
 {
     /// 新しいビームサーチ最適化器を作成
     ///
@@ -91,7 +91,7 @@ where
 
 impl<S, Sel> BeamSearchOptimizer<S, Sel>
 where
-    S: Suggester,
+    S: AstSuggester,
     Sel: AstSelector,
 {
     /// カスタム選択器を設定
@@ -177,7 +177,7 @@ where
 
 impl<S, Sel> BeamSearchOptimizer<S, Sel>
 where
-    S: Suggester,
+    S: AstSuggester,
     Sel: AstSelector,
 {
     /// 履歴を記録しながら最適化を実行
@@ -464,9 +464,9 @@ where
     }
 }
 
-impl<S, Sel> Optimizer for BeamSearchOptimizer<S, Sel>
+impl<S, Sel> AstOptimizer for BeamSearchOptimizer<S, Sel>
 where
-    S: Suggester,
+    S: AstSuggester,
     Sel: AstSelector,
 {
     fn optimize(&self, ast: AstNode) -> AstNode {

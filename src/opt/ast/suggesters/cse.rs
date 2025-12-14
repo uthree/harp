@@ -14,7 +14,7 @@
 //! ```
 
 use crate::ast::{AstNode, DType, Mutability, Scope};
-use crate::opt::ast::Suggester;
+use crate::opt::ast::AstSuggester;
 use log::{debug, trace};
 use std::collections::HashMap;
 
@@ -538,7 +538,7 @@ impl Default for CseSuggester {
     }
 }
 
-impl Suggester for CseSuggester {
+impl AstSuggester for CseSuggester {
     fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
         trace!("CseSuggester: Generating CSE suggestions");
         let candidates = self.collect_cse_candidates(ast);

@@ -1,6 +1,6 @@
 use crate::ast::AstNode;
 use crate::graph::{ElementwiseOp, Graph, GraphNode, GraphOp};
-use crate::opt::ast::CostEstimator as AstCostEstimator;
+use crate::opt::ast::AstCostEstimator;
 use crate::opt::ast::SimpleCostEstimator as AstSimpleCostEstimator;
 use crate::opt::cost_utils::{log_sum_exp, log_sum_exp_iter};
 use crate::opt::graph::GraphCostEstimator;

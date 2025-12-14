@@ -3,10 +3,10 @@ use crate::backend::{Compiler, Pipeline, Renderer};
 use crate::graph::Graph;
 use crate::opt::ast::rules::all_algebraic_rules;
 use crate::opt::ast::{
-    BeamSearchOptimizer as AstBeamSearchOptimizer, CompositeSuggester as AstCompositeSuggester,
-    FunctionInliningSuggester, LoopFusionSuggester, LoopInliningSuggester,
-    LoopInterchangeSuggester, LoopTilingSuggester, OptimizationHistory as AstOptimizationHistory,
-    Optimizer as AstOptimizer, RuleBaseOptimizer,
+    AstOptimizer, BeamSearchOptimizer as AstBeamSearchOptimizer,
+    CompositeSuggester as AstCompositeSuggester, FunctionInliningSuggester, LoopFusionSuggester,
+    LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester,
+    OptimizationHistory as AstOptimizationHistory, RuleBaseOptimizer,
 };
 use crate::opt::graph::{GraphOptimizer, OptimizationHistory as GraphOptimizationHistory};
 use std::collections::HashMap;
