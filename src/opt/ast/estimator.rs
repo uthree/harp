@@ -20,6 +20,20 @@ const BARRIER_COST: f32 = 100.0;
 // 連続ループの境界が揃っている場合のボーナス（融合可能性への報酬）
 const LOOP_FUSION_BONUS: f32 = 50.0;
 
+// GPUカーネル起動オーバーヘッド（CPUサイクル相当）
+const KERNEL_LAUNCH_OVERHEAD: f32 = 1000.0;
+
+// GPU並列化の効果が出る最小グリッドサイズ
+const GPU_PARALLEL_MIN_GRID_SIZE: f32 = 512.0;
+
+// GPU並列化による最大スピードアップ係数（対数スケール）
+// exp(4.5) ≈ 100倍のスピードアップ上限
+const GPU_PARALLEL_MAX_SPEEDUP_LOG: f32 = 4.5;
+
+// メモリバンド幅制限が効き始めるスレッド数
+// これ以上スレッドを増やしても効率が下がる
+const GPU_MEMORY_BANDWIDTH_THRESHOLD: f32 = 10000.0;
+
 /// 簡単なコスト推定器
 ///
 /// **重要**: このコスト推定器は対数スケール（log(CPUサイクル数)）でコストを返します。
@@ -389,17 +403,74 @@ impl CostEstimator for SimpleCostEstimator {
                 default_thread_group_size,
                 ..
             } => {
-                // カーネル本体のコスト + 関数定義オーバーヘッド
-                // カーネルも関数と同様に定義オーバーヘッドがある
+                // GPUカーネルのコスト計算
+                // カーネル本体は各スレッドで並列実行されるため、
+                // 並列化によるスピードアップを考慮する
                 let body_cost = self.estimate(body);
+
+                // grid_sizeから総スレッド数（並列度）を推定
+                let grid_elements: f32 = default_grid_size
+                    .iter()
+                    .filter_map(|g| match g.as_ref() {
+                        AstNode::Const(lit) => lit.as_usize().map(|v| v as f32),
+                        _ => None,
+                    })
+                    .product();
+                let thread_elements: f32 = default_thread_group_size
+                    .iter()
+                    .filter_map(|t| match t.as_ref() {
+                        AstNode::Const(lit) => lit.as_usize().map(|v| v as f32),
+                        _ => None,
+                    })
+                    .product();
+                let total_threads = if grid_elements > 0.0 && thread_elements > 0.0 {
+                    grid_elements * thread_elements
+                } else if grid_elements > 0.0 {
+                    grid_elements
+                } else {
+                    // 不明な場合は控えめな並列度を想定
+                    1024.0
+                };
+
+                // スレッド数に基づく実効スピードアップの計算
+                let parallel_bonus = if total_threads >= GPU_PARALLEL_MIN_GRID_SIZE {
+                    // 理想的なスピードアップ = log(threads)
+                    let ideal_speedup = total_threads.ln();
+
+                    // メモリバンド幅による効率低下
+                    // スレッド数が増えるほどメモリアクセスがボトルネックになる
+                    // efficiency = 1 / (1 + log(threads / threshold)) for threads > threshold
+                    let memory_efficiency = if total_threads > GPU_MEMORY_BANDWIDTH_THRESHOLD {
+                        1.0 / (1.0 + (total_threads / GPU_MEMORY_BANDWIDTH_THRESHOLD).ln())
+                    } else {
+                        1.0
+                    };
+
+                    // 実効スピードアップ = 理想スピードアップ × メモリ効率
+                    // ただし上限あり
+                    (ideal_speedup * memory_efficiency).min(GPU_PARALLEL_MAX_SPEEDUP_LOG)
+                } else if total_threads > 1.0 {
+                    // 小規模でも多少の並列化効果はある
+                    // ただし効率は低い（起動オーバーヘッドが相対的に大きい）
+                    (total_threads.ln() * 0.5).max(0.0)
+                } else {
+                    // 単一スレッド: 並列化なし
+                    0.0
+                };
+
+                // grid/thread設定の評価コスト（通常は定数なので無視できる）
                 let grid_cost =
                     log_sum_exp_iter(default_grid_size.iter().map(|g| self.estimate(g)));
                 let thread_cost =
                     log_sum_exp_iter(default_thread_group_size.iter().map(|t| self.estimate(t)));
+
+                // 最終コスト = body_cost - parallel_bonus + カーネル起動オーバーヘッド
+                // 並列化ボーナスを減算することで、GPUカーネルが有利になる
                 log_sum_exp_iter(vec![
-                    body_cost,
+                    body_cost - parallel_bonus,
                     grid_cost,
                     thread_cost,
+                    KERNEL_LAUNCH_OVERHEAD.ln(),
                     FUNCTION_DEFINITION_OVERHEAD.ln(),
                 ])
             }
@@ -407,6 +478,11 @@ impl CostEstimator for SimpleCostEstimator {
                 functions,
                 entry_point,
             } => {
+                // 空のプログラムの場合は最小コストを返す
+                if functions.is_empty() {
+                    return 0.0; // log(1) = 0、最小コスト
+                }
+
                 // エントリポイント以外の関数/カーネルの数に基づいてペナルティを計算
                 // 未使用の関数が多いほどコストが高くなる（インライン展開を促進）
                 let non_entry_functions = functions

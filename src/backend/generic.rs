@@ -25,7 +25,6 @@ pub struct OptimizationConfig {
     /// プログレスバーを表示するか
     pub show_progress: bool,
     /// 早期終了の閾値（改善なしステップ数）
-    ///
     /// Some(n): n回連続で改善がなければ終了
     /// None: 早期終了を無効化
     pub early_termination_threshold: Option<usize>,
@@ -37,7 +36,7 @@ impl Default for OptimizationConfig {
             beam_width: 4,
             max_steps: 10000,
             show_progress: false,
-            early_termination_threshold: Some(2), // デフォルト: 2ステップ改善なしで終了
+            early_termination_threshold: Some(5), // デフォルト: 5ステップ改善なしで終了
         }
     }
 }
