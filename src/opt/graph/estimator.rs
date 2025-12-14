@@ -110,10 +110,11 @@ impl SimpleCostEstimator {
             GraphOp::Contiguous => {
                 // メモリコピーのコスト = 要素数 × (read + write) × MEMORY_ACCESS_COST
                 // 対数スケール: log(num_elements * 2 * cost) = log(num_elements) + log(2 * cost)
+                // 不連続なメモリを連続に並べ直す都合上、不連続なアクセスが発生するためコストを重めに設定。
                 let num_elements = self.compute_num_elements(node);
                 // ContiguousもKernelにloweringされるべきなのでペナルティを追加
                 let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
-                num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln() + lowering_penalty
+                num_elements.ln() + (10.0 * MEMORY_ACCESS_COST).ln() + lowering_penalty
             }
             GraphOp::Elementwise { op, .. } => {
                 // 演算コスト = 要素数 × (演算コスト + メモリアクセスコスト)
@@ -1096,7 +1097,7 @@ impl<E: AstCostEstimator> AstBasedCostEstimator<E> {
     pub fn new(ast_estimator: E) -> Self {
         Self {
             ast_estimator,
-            node_count_penalty: 0.05, // 対数スケールでの適切な値
+            node_count_penalty: 0.01, // 対数スケールでの適切な値
         }
     }
 

@@ -179,6 +179,8 @@ impl FusionSuggester {
     ///
     /// 連続する2つのElementwise演算を融合する
     /// 例: (a + b) * c -> FusedElementwise([a, b, c], Wildcard("0") + Wildcard("1") * Wildcard("2"))
+    ///
+    /// NOTE: 連続するView変更の融合はViewMergeSuggesterで行うため、ここでは扱わない
     fn detect_elementwise_chain(&self, node: &GraphNode) -> Option<(Vec<GraphNode>, AstNode)> {
         // このノードがElementwiseでない場合はNone
         let current_op = match &node.op {
@@ -287,44 +289,6 @@ impl FusionSuggester {
         }
 
         Some((graph_inputs, final_expr))
-    }
-
-    /// 連続するView変更を検出
-    ///
-    /// View(v1) -> View(v2) のようなパターンを検出し、View(v2)だけに簡略化
-    fn detect_consecutive_views(&self, node: &GraphNode) -> Option<GraphNode> {
-        // このノードがViewでない場合はNone
-        let final_view = match &node.op {
-            GraphOp::View(v) => v.clone(),
-            _ => return None,
-        };
-
-        // 入力が1つでない場合はパターンに一致しない
-        if node.src.len() != 1 {
-            return None;
-        }
-
-        let input = &node.src[0];
-
-        // 入力もViewの場合、融合可能
-        if matches!(input.op, GraphOp::View(_)) {
-            // さらにその入力（元のデータソース）を取得
-            if input.src.len() == 1 {
-                let original_source = &input.src[0];
-
-                // 最終的なViewだけを適用した新しいノードを作成
-                let fused_node = GraphNode::new(
-                    node.dtype.clone(),
-                    GraphOp::View(final_view),
-                    vec![original_source.clone()],
-                    node.view.clone(),
-                );
-
-                return Some(fused_node);
-            }
-        }
-
-        None
     }
 
     /// Elementwise -> Reduceパターンを検出
@@ -488,21 +452,7 @@ impl GraphSuggester for FusionSuggester {
         let ref_counts = self.count_node_references(graph);
 
         for node in &nodes {
-            // 連続するView変更を検出して融合
-            if let Some(fused_node) = self.detect_consecutive_views(node) {
-                // 融合される中間Viewノードの被参照数をチェック
-                if node.src.len() == 1 {
-                    let input_ptr = node.src[0].as_ptr();
-                    let ref_count = ref_counts.get(&input_ptr).copied().unwrap_or(0);
-                    // 被参照数が1より大きい場合は融合しない
-                    if ref_count > 1 {
-                        continue;
-                    }
-                }
-
-                let new_graph = self.replace_node_in_graph(graph, node, fused_node);
-                suggestions.push(new_graph);
-            }
+            // NOTE: 連続するView変更の融合はViewMergeSuggesterで行う
 
             // Elementwise -> Reduceパターンを検出して融合
             if let Some((graph_inputs, expr, reduce_op, axes)) =

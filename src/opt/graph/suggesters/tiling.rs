@@ -31,7 +31,7 @@ impl TilingSuggester {
 
     /// デフォルトのタイルサイズを使用
     pub fn with_default_tile_sizes() -> Self {
-        Self::new(vec![8, 16, 32, 64, 128])
+        Self::new(vec![32, 64, 128, 256, 512])
     }
 
     /// グラフ内の全ノードを収集（トポロジカル順）

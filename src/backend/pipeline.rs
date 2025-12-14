@@ -27,7 +27,7 @@ pub fn create_view_merge_only_suggester() -> CompositeSuggester {
 
 /// グラフ最適化フェーズ用のSuggesterを作成
 ///
-/// ViewInsertion、Tiling、ContiguousInsertion、Fusionなど、
+/// ViewInsertion、Tiling、ContiguousInsertion、Fusion, ViewMergeなど、
 /// グラフ構造の最適化を行うSuggesterを含みます。
 ///
 /// ViewMergeはこのフェーズには含めず、独立したフェーズとして実行します。
@@ -37,6 +37,7 @@ pub fn create_graph_optimization_suggester() -> CompositeSuggester {
         Box::new(TilingSuggester::with_default_tile_sizes()),
         Box::new(ContiguousInsertionSuggester::new()),
         Box::new(FusionSuggester::new()),
+        Box::new(ViewMergeSuggester::new()),
     ])
 }
 

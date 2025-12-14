@@ -58,13 +58,11 @@ fn main() -> eframe::Result {
 }
 
 /// NxN 行列積グラフを作成: C = A @ B
-///
-/// hlopsのmatmulメソッドを使用して高レベルに行列積を表現します。
 fn create_matmul_graph(n: usize) -> Graph {
     let mut graph = Graph::new();
     let a = graph.input("a", DType::F32, vec![n, n]);
     let b = graph.input("b", DType::F32, vec![n, n]);
-    let c = a.matmul(b); // 高レベルAPIを使用
+    let c = a.matmul(b);
     graph.output("c", c);
     graph
 }
