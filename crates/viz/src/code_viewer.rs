@@ -466,7 +466,7 @@ impl CodeViewerApp {
             });
             ui.horizontal(|ui| {
                 ui.label("Cost:");
-                let cost_str = format!("{:.2e}", snapshot.cost);
+                let cost_str = format!("{}", snapshot.cost);
                 ui.label(cost_str);
 
                 ui.separator();

@@ -760,7 +760,7 @@ impl GraphViewerApp {
                             ui.horizontal(|ui| {
                                 ui.label("Cost:");
                                 // コストは対数スケール（log(CPUサイクル数)）で表示
-                                let cost_str = format!("{:.2}", snapshot.cost);
+                                let cost_str = format!("{}", snapshot.cost);
                                 ui.label(cost_str);
 
                                 ui.separator();
