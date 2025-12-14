@@ -1,8 +1,40 @@
 //! LoweringSuggesterのテスト
 
 use super::*;
-use crate::ast::{DType as AstDType, Scope, helper::*};
-use crate::graph::DType;
+use crate::ast::{AstNode, DType as AstDType, Scope, helper::*};
+use crate::graph::shape::View;
+use crate::graph::{DType, ReduceOp};
+
+/// テスト用: FusedElementwiseReduceノードを作成
+fn test_fused_elementwise_reduce(
+    inputs: Vec<GraphNode>,
+    expr: AstNode,
+    reduce_op: ReduceOp,
+    axes: Vec<usize>,
+) -> GraphNode {
+    let dtype = inputs[0].dtype.clone();
+    let view = inputs[0].view.clone();
+    let mut new_shape = view.shape().to_vec();
+
+    let mut sorted_axes = axes.clone();
+    sorted_axes.sort();
+    for &axis in sorted_axes.iter().rev() {
+        new_shape.remove(axis);
+    }
+    let reduced_view = View::contiguous(new_shape);
+
+    GraphNode::new(
+        dtype,
+        GraphOp::FusedElementwiseReduce {
+            expr,
+            reduce_op,
+            axes: sorted_axes,
+            reduce_strategy: None,
+        },
+        inputs,
+        reduced_view,
+    )
+}
 
 #[test]
 fn test_lower_elementwise_add() {
@@ -191,11 +223,6 @@ fn test_beam_search_with_fusion_and_lowering() {
 
 #[test]
 fn test_lower_fused_elementwise_reduce_parallel() {
-    use crate::ast::AstNode;
-    use crate::ast::helper::wildcard;
-    use crate::graph::ReduceOp;
-    use crate::prelude::fused_elementwise_reduce;
-
     let suggester = LoweringSuggester::new();
 
     // 行列積相当の演算: [M, N, K] で K軸を縮約
@@ -205,7 +232,7 @@ fn test_lower_fused_elementwise_reduce_parallel() {
 
     // FusedElementwiseReduce: multiply + sum over axis 2
     let expr = wildcard("0") * wildcard("1");
-    let c = fused_elementwise_reduce(vec![a, b], expr, ReduceOp::Sum, vec![2]);
+    let c = test_fused_elementwise_reduce(vec![a, b], expr, ReduceOp::Sum, vec![2]);
     graph.output("c", c);
 
     let suggestions = suggester.suggest(&graph);
@@ -255,10 +282,6 @@ fn test_lower_fused_elementwise_reduce_parallel() {
 
 #[test]
 fn test_lower_fused_elementwise_reduce_multiple_axes() {
-    use crate::ast::helper::wildcard;
-    use crate::graph::ReduceOp;
-    use crate::prelude::fused_elementwise_reduce;
-
     let suggester = LoweringSuggester::new();
 
     // 複数軸縮約: [M, N, K1, K2] で K1, K2軸を縮約
@@ -268,7 +291,7 @@ fn test_lower_fused_elementwise_reduce_multiple_axes() {
 
     // FusedElementwiseReduce: multiply + sum over axes 2, 3
     let expr = wildcard("0") * wildcard("1");
-    let c = fused_elementwise_reduce(vec![a, b], expr, ReduceOp::Sum, vec![2, 3]);
+    let c = test_fused_elementwise_reduce(vec![a, b], expr, ReduceOp::Sum, vec![2, 3]);
     graph.output("c", c);
 
     let suggestions = suggester.suggest(&graph);

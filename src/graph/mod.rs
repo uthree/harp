@@ -614,16 +614,6 @@ impl GraphNode {
         ops::cumprod(self.clone(), axis)
     }
 
-    /// elementwise演算の後に累積演算を行う融合ノードを作成
-    pub fn fused_elementwise_cumulative(
-        inputs: Vec<Self>,
-        expr: crate::ast::AstNode,
-        cumulative_op: ops::CumulativeOp,
-        axis: usize,
-    ) -> Self {
-        ops::fused_elementwise_cumulative(inputs, expr, cumulative_op, axis)
-    }
-
     /// 逆数を計算（1/x）
     pub fn recip(self) -> Self {
         let view = self.view.clone();

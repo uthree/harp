@@ -1,8 +1,73 @@
 use crate::ast::{AstNode, helper::wildcard};
-use crate::graph::ops::ElementwiseOp;
+use crate::graph::ops::{ElementwiseOp, ReduceOp};
+use crate::graph::shape::View;
 use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
 use crate::opt::graph::GraphSuggester;
 use std::collections::{HashMap, HashSet};
+
+// === 融合ノード生成ヘルパー関数（内部用） ===
+
+/// 複数のelementwise演算を融合したノードを作成
+fn fused_elementwise(inputs: Vec<GraphNode>, expr: AstNode) -> GraphNode {
+    assert!(
+        !inputs.is_empty(),
+        "fused_elementwise requires at least one input"
+    );
+
+    let dtype = inputs[0].dtype.clone();
+    let view = inputs[0].view.clone();
+
+    GraphNode::new(dtype, GraphOp::FusedElementwise { expr }, inputs, view)
+}
+
+/// elementwise演算とそれに続くreduce演算を融合したノードを作成
+fn fused_elementwise_reduce(
+    inputs: Vec<GraphNode>,
+    expr: AstNode,
+    reduce_op: ReduceOp,
+    axes: Vec<usize>,
+) -> GraphNode {
+    assert!(
+        !inputs.is_empty(),
+        "fused_elementwise_reduce requires at least one input"
+    );
+    assert!(
+        !axes.is_empty(),
+        "fused_elementwise_reduce requires at least one axis"
+    );
+
+    let dtype = inputs[0].dtype.clone();
+    let view = inputs[0].view.clone();
+    let mut new_shape = view.shape().to_vec();
+
+    let mut sorted_axes = axes.clone();
+    sorted_axes.sort();
+    for &axis in &sorted_axes {
+        assert!(
+            axis < new_shape.len() + sorted_axes.iter().filter(|&&a| a < axis).count(),
+            "fused_elementwise_reduce: axis {} is out of bounds for shape {:?}",
+            axis,
+            view.shape()
+        );
+    }
+
+    for &axis in sorted_axes.iter().rev() {
+        new_shape.remove(axis);
+    }
+    let reduced_view = View::contiguous(new_shape);
+
+    GraphNode::new(
+        dtype,
+        GraphOp::FusedElementwiseReduce {
+            expr,
+            reduce_op,
+            axes: sorted_axes,
+            reduce_strategy: None,
+        },
+        inputs,
+        reduced_view,
+    )
+}
 
 /// ノード融合を提案するSuggester
 pub struct FusionSuggester;
@@ -469,12 +534,7 @@ impl GraphSuggester for FusionSuggester {
                 }
 
                 // FusedElementwiseReduceノードを作成
-                let fused_node = crate::graph::ops::fused_elementwise_reduce(
-                    graph_inputs,
-                    expr,
-                    reduce_op,
-                    axes,
-                );
+                let fused_node = fused_elementwise_reduce(graph_inputs, expr, reduce_op, axes);
 
                 let new_graph = self.replace_node_in_graph(graph, node, fused_node);
                 suggestions.push(new_graph);
@@ -502,7 +562,7 @@ impl GraphSuggester for FusionSuggester {
                 }
 
                 // FusedElementwiseノードを作成
-                let fused_node = crate::graph::ops::fused_elementwise(graph_inputs, expr);
+                let fused_node = fused_elementwise(graph_inputs, expr);
 
                 let new_graph = self.replace_node_in_graph(graph, node, fused_node);
                 suggestions.push(new_graph);

@@ -3,7 +3,7 @@
 //! 1D並列化されたGraphOp::Kernel内のAstNode::Kernelを多次元グリッドに変換するSuggester。
 //! グラフレベルで操作することで、dispatch設定の一貫性を保証します。
 
-use crate::ast::{helper::*, AstNode, DType, Mutability, VarDecl, VarKind};
+use crate::ast::{AstNode, DType, Mutability, VarDecl, VarKind, helper::*};
 use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
 use crate::opt::graph::GraphSuggester;
 use log::{debug, trace};
@@ -146,15 +146,14 @@ impl KernelPartitionSuggester {
     /// 1D FlatParallel Kernelかどうかをチェック
     fn is_1d_flat_parallel_kernel(&self, node: &GraphNode) -> bool {
         match &node.op {
-            GraphOp::Kernel { ast, .. } => {
-                if let AstNode::Kernel { params, .. } = ast {
-                    // ThreadId(0)のパラメータが"tid"という名前で存在するかチェック
-                    params
-                        .iter()
-                        .any(|p| p.name == "tid" && matches!(p.kind, VarKind::ThreadId(0)))
-                } else {
-                    false
-                }
+            GraphOp::Kernel {
+                ast: AstNode::Kernel { params, .. },
+                ..
+            } => {
+                // ThreadId(0)のパラメータが"tid"という名前で存在するかチェック
+                params
+                    .iter()
+                    .any(|p| p.name == "tid" && matches!(p.kind, VarKind::ThreadId(0)))
             }
             _ => false,
         }
@@ -163,13 +162,10 @@ impl KernelPartitionSuggester {
     /// Kernel本体から次元数を推測
     fn infer_ndim(&self, node: &GraphNode) -> usize {
         match &node.op {
-            GraphOp::Kernel { ast, .. } => {
-                if let AstNode::Kernel { body, .. } = ast {
-                    self.infer_ndim_from_body(body)
-                } else {
-                    1
-                }
-            }
+            GraphOp::Kernel {
+                ast: AstNode::Kernel { body, .. },
+                ..
+            } => self.infer_ndim_from_body(body),
             _ => 1,
         }
     }
@@ -185,12 +181,10 @@ impl KernelPartitionSuggester {
     fn collect_shape_vars(&self, node: &AstNode, max_dim: &mut usize) {
         match node {
             AstNode::Var(name) => {
-                if let Some(suffix) = name.strip_prefix("shape_") {
-                    if let Ok(dim) = suffix.parse::<usize>() {
-                        if dim > *max_dim {
-                            *max_dim = dim;
-                        }
-                    }
+                if let Some(suffix) = name.strip_prefix("shape_")
+                    && let Ok(dim) = suffix.parse::<usize>()
+                {
+                    *max_dim = (*max_dim).max(dim);
                 }
             }
             // 再帰的に子ノードを探索
@@ -618,11 +612,8 @@ impl KernelPartitionSuggester {
             }
 
             // 入力ノードを再帰的に再構築
-            let new_src: Vec<GraphNode> = node
-                .src
-                .iter()
-                .map(|s| rebuild_node(s, node_map))
-                .collect();
+            let new_src: Vec<GraphNode> =
+                node.src.iter().map(|s| rebuild_node(s, node_map)).collect();
 
             // ポインタ比較で変更があるかチェック
             let src_changed = new_src.len() != node.src.len()
@@ -731,8 +722,8 @@ impl GraphSuggester for KernelPartitionSuggester {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::shape::View;
     use crate::graph::DType as GraphDType;
+    use crate::graph::shape::View;
 
     #[test]
     fn test_distribute_thread_group_size_1d() {
