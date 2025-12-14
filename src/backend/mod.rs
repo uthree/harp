@@ -38,7 +38,13 @@ pub trait Compiler {
     fn compile(&mut self, code: &Self::CodeRepr, signature: KernelSignature) -> Self::Kernel;
     fn create_buffer(&self, shape: Vec<usize>, element_size: usize) -> Self::Buffer;
 }
-pub trait Buffer {
+pub trait Buffer: Sized {
+    /// 指定した形状とデータ型でバッファを確保
+    ///
+    /// RuntimeSelector用の計測バッファ生成などで使用されます。
+    /// バッファの内容は未初期化（またはゼロ初期化）で構いません。
+    fn allocate(shape: Vec<usize>, dtype: crate::ast::DType) -> Self;
+
     /// バッファの形状を取得
     fn shape(&self) -> Vec<usize>;
 
@@ -480,6 +486,10 @@ mod tests {
     }
 
     impl Buffer for DummyBuffer {
+        fn allocate(shape: Vec<usize>, _dtype: crate::ast::DType) -> Self {
+            Self { shape }
+        }
+
         fn shape(&self) -> Vec<usize> {
             self.shape.clone()
         }

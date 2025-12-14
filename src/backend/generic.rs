@@ -1,6 +1,6 @@
 use crate::ast::AstNode;
 use crate::ast::helper::const_int;
-use crate::backend::{Compiler, KernelSignature, Pipeline, Renderer};
+use crate::backend::{Buffer, Compiler, KernelSignature, Pipeline, Renderer};
 use crate::graph::Graph;
 use crate::opt::ast::rules::all_algebraic_rules;
 use crate::opt::ast::{
@@ -12,7 +12,31 @@ use crate::opt::ast::{
 use crate::opt::graph::{GraphOptimizer, OptimizationHistory as GraphOptimizationHistory};
 use crate::opt::selector::{GraphRuntimeSelector, RuntimeSelector};
 use std::collections::HashMap;
-use std::sync::Arc;
+
+/// KernelSignatureからベンチマーク用バッファを生成
+///
+/// RuntimeSelector内部で使用されるヘルパー関数。
+/// 各入出力バッファに対してBuffer::allocateを呼び出して適切なサイズのバッファを確保します。
+/// 計測用なのでデータ型はF32で固定しています（実行時間は型に依存しないため）。
+fn create_buffers_from_signature<B: Buffer>(sig: &KernelSignature) -> Vec<B> {
+    use crate::ast::DType;
+
+    sig.inputs
+        .iter()
+        .chain(sig.outputs.iter())
+        .map(|buf_sig| {
+            let shape: Vec<usize> = buf_sig
+                .shape
+                .iter()
+                .map(|d| {
+                    d.expect_const("buffer shape must be const for runtime measurement") as usize
+                })
+                .collect();
+            // 計測用なので型はF32で固定
+            B::allocate(shape, DType::F32)
+        })
+        .collect()
+}
 
 /// compile_graph_with_all_historiesの戻り値の型
 type CompileWithHistoriesResult<K> =
@@ -34,8 +58,8 @@ pub struct OptimizationConfig {
     pub early_termination_threshold: Option<usize>,
     /// RuntimeSelector（実測値ベース最適化）を有効にするか
     ///
-    /// `true`に設定し、`set_runtime_buffer_factory()`でバッファファクトリを設定すると、
-    /// 実測値ベースの候補選択が有効になります。
+    /// `true`に設定すると、実測値ベースの候補選択が有効になります。
+    /// バッファは`Buffer::allocate`を使用して自動的に生成されます。
     pub enable_runtime_selector: bool,
     /// 足切り候補数（RuntimeSelector使用時）
     ///
@@ -119,8 +143,9 @@ impl OptimizationHistories {
 ///
 /// # RuntimeSelector（実測値ベース最適化）
 ///
-/// `set_runtime_buffer_factory()`を呼び出すと、グラフ最適化とAST最適化の両方で
-/// 実測値ベースの候補選択が有効になります。Clone制約が必要です。
+/// `enable_runtime_selector()`を呼び出すと、グラフ最適化とAST最適化の両方で
+/// 実測値ベースの候補選択が有効になります。
+/// バッファは`Buffer::allocate`を使用して自動的に生成されます。
 ///
 /// # Note
 /// グラフ最適化とAST最適化は常に有効です。
@@ -138,19 +163,12 @@ where
     pub histories: OptimizationHistories,
     /// グラフ最適化の設定
     ///
-    /// RuntimeSelectorを使用する場合は`enable_runtime_selector`を`true`に設定し、
-    /// `set_runtime_buffer_factory()`でバッファファクトリを設定してください。
+    /// RuntimeSelectorを使用する場合は`enable_runtime_selector`を`true`に設定してください。
     pub graph_config: OptimizationConfig,
     /// AST最適化の設定
     ///
-    /// RuntimeSelectorを使用する場合は`enable_runtime_selector`を`true`に設定し、
-    /// `set_runtime_buffer_factory()`でバッファファクトリを設定してください。
+    /// RuntimeSelectorを使用する場合は`enable_runtime_selector`を`true`に設定してください。
     pub ast_config: OptimizationConfig,
-    /// RuntimeSelector用のバッファファクトリ
-    ///
-    /// KernelSignatureからベンチマーク用バッファを生成する関数。
-    /// グラフ最適化とAST最適化の両方で共有されます。
-    runtime_buffer_factory: Option<Arc<dyn Fn(&KernelSignature) -> Vec<C::Buffer> + Send + Sync>>,
     /// 最適化履歴を収集するか（DEBUGビルドではデフォルトでtrue、RELEASEビルドではfalse）
     pub collect_histories: bool,
 }
@@ -597,36 +615,25 @@ where
             histories: OptimizationHistories::default(),
             graph_config: OptimizationConfig::default(),
             ast_config: OptimizationConfig::default(),
-            runtime_buffer_factory: None,
             collect_histories: cfg!(debug_assertions),
         }
     }
 
-    /// RuntimeSelector用のバッファファクトリを設定
+    /// RuntimeSelector（実測値ベース最適化）を有効化
     ///
-    /// 設定すると自動的に`graph_config.enable_runtime_selector`と
-    /// `ast_config.enable_runtime_selector`が`true`になります。
-    /// グラフ最適化とAST最適化の両方で使用されます。
+    /// グラフ最適化とAST最適化の両方で実測値ベースの候補選択が有効になります。
+    /// バッファは`Buffer::allocate`を使用して自動的に生成されます。
     ///
     /// # Example
     ///
     /// ```ignore
     /// use harp::backend::GenericPipeline;
-    /// use harp::backend::opencl::{OpenCLRenderer, OpenCLCompiler, OpenCLBuffer};
+    /// use harp::backend::opencl::{OpenCLRenderer, OpenCLCompiler};
     ///
     /// let mut pipeline = GenericPipeline::new(OpenCLRenderer::new(), OpenCLCompiler::new());
-    /// pipeline.set_runtime_buffer_factory(|sig| {
-    ///     sig.inputs.iter()
-    ///         .chain(sig.outputs.iter())
-    ///         .map(|buf_sig| OpenCLBuffer::new(vec![buf_sig.shape[0].expect_const() as usize], 4))
-    ///         .collect()
-    /// });
+    /// pipeline.enable_runtime_selector();
     /// ```
-    pub fn set_runtime_buffer_factory<F>(&mut self, factory: F)
-    where
-        F: Fn(&KernelSignature) -> Vec<C::Buffer> + Send + Sync + 'static,
-    {
-        self.runtime_buffer_factory = Some(Arc::new(factory));
+    pub fn enable_runtime_selector(&mut self) {
         self.graph_config.enable_runtime_selector = true;
         self.ast_config.enable_runtime_selector = true;
     }
@@ -650,7 +657,7 @@ where
     /// 最適化が有効な場合、最適化履歴を内部に保存します。
     /// 複数のAST最適化履歴を取得するには、compile_graph_with_all_histories()を使用してください。
     ///
-    /// `set_runtime_buffer_factory()`が呼び出されている場合、グラフ最適化とAST最適化の
+    /// `enable_runtime_selector()`が呼び出されている場合、グラフ最適化とAST最適化の
     /// 両方で自動的に実測値ベースの候補選択が有効になります。
     pub fn compile_graph_with_history(&mut self, graph: Graph) -> Result<C::Kernel, String> {
         // Signatureを作成（最適化前のGraphから）
@@ -676,7 +683,7 @@ where
     /// プログラム全体のAST最適化履歴（キー: "program"）と最適化後のProgramを返します。
     /// コンパイルは行わないため、OpenMPなどのランタイムサポートが不要です。
     ///
-    /// `set_runtime_buffer_factory()`が呼び出されている場合、グラフ最適化とAST最適化の
+    /// `enable_runtime_selector()`が呼び出されている場合、グラフ最適化とAST最適化の
     /// 両方で自動的に実測値ベースの候補選択が有効になります。
     pub fn optimize_graph_with_all_histories(
         &mut self,
@@ -705,7 +712,7 @@ where
     /// 最適化が有効な場合、最適化履歴を内部に保存します。
     /// プログラム全体のAST最適化履歴（キー: "program"）と最適化後のProgramを返します。
     ///
-    /// `set_runtime_buffer_factory()`が呼び出されている場合、グラフ最適化とAST最適化の
+    /// `enable_runtime_selector()`が呼び出されている場合、グラフ最適化とAST最適化の
     /// 両方で自動的に実測値ベースの候補選択が有効になります。
     pub fn compile_graph_with_all_histories(
         &mut self,
@@ -779,7 +786,7 @@ where
     /// - Phase 1 (Preparation): グラフ構造の最適化（View挿入、融合など）
     /// - Phase 2 (Lowering): Kernel変換、ProgramRoot集約
     ///
-    /// `graph_config.enable_runtime_selector`が`true`で`runtime_buffer_factory`が設定されている場合、
+    /// `graph_config.enable_runtime_selector`が`true`の場合、
     /// Phase 2でGraphRuntimeSelectorを使用した実測値ベースの候補選択を行います。
     fn optimize_graph_internal(&mut self, graph: Graph) -> Graph {
         use crate::backend::pipeline::{
@@ -794,24 +801,22 @@ where
             .with_collect_logs(self.collect_histories);
 
         // RuntimeSelectorが有効なら実測値ベース最適化
-        let (optimized_graph, history) =
-            if self.graph_config.enable_runtime_selector && self.runtime_buffer_factory.is_some() {
-                let buffer_factory = Arc::clone(self.runtime_buffer_factory.as_ref().unwrap());
-                let graph_runtime_selector = GraphRuntimeSelector::new(
-                    self.renderer.clone(),
-                    self.compiler.clone(),
-                    move |sig: &KernelSignature| buffer_factory(sig),
-                )
-                .with_pre_filter_count(self.graph_config.pre_filter_count)
-                .with_measurement_count(self.graph_config.measurement_count);
+        let (optimized_graph, history) = if self.graph_config.enable_runtime_selector {
+            let graph_runtime_selector = GraphRuntimeSelector::new(
+                self.renderer.clone(),
+                self.compiler.clone(),
+                create_buffers_from_signature::<C::Buffer>,
+            )
+            .with_pre_filter_count(self.graph_config.pre_filter_count)
+            .with_measurement_count(self.graph_config.measurement_count);
 
-                let optimizer =
-                    create_multi_phase_optimizer_with_selector(config, graph_runtime_selector);
-                optimizer.optimize_with_history(graph)
-            } else {
-                let optimizer = create_multi_phase_optimizer(config);
-                optimizer.optimize_with_history(graph)
-            };
+            let optimizer =
+                create_multi_phase_optimizer_with_selector(config, graph_runtime_selector);
+            optimizer.optimize_with_history(graph)
+        } else {
+            let optimizer = create_multi_phase_optimizer(config);
+            optimizer.optimize_with_history(graph)
+        };
 
         if self.collect_histories {
             self.histories.graph = Some(history);
@@ -827,7 +832,7 @@ where
     /// 1. ルールベース最適化（RuleBaseOptimizer）: 代数的簡約など（高速、ビームサーチなし）
     /// 2. ループ最適化（BeamSearch）: ループタイリング、融合など
     ///
-    /// `ast_config.enable_runtime_selector`が`true`で`runtime_buffer_factory`が設定されている場合、
+    /// `ast_config.enable_runtime_selector`が`true`の場合、
     /// 第2段階でRuntimeSelectorを使用した実測値ベースの選択を行います。
     fn optimize_ast_internal(
         &mut self,
@@ -841,32 +846,30 @@ where
         // 第2段階: ループ最適化（ビームサーチ）
         let loop_suggester = Self::create_loop_suggester();
 
-        let (optimized, history) =
-            if self.ast_config.enable_runtime_selector && self.runtime_buffer_factory.is_some() {
-                // RuntimeSelectorを使用した実測値ベース最適化
-                let buffer_factory = Arc::clone(self.runtime_buffer_factory.as_ref().unwrap());
-                let runtime_selector = RuntimeSelector::new(
-                    self.renderer.clone(),
-                    self.compiler.clone(),
-                    signature,
-                    move |sig: &KernelSignature| buffer_factory(sig),
-                )
-                .with_pre_filter_count(self.ast_config.pre_filter_count)
-                .with_measurement_count(self.ast_config.measurement_count);
+        let (optimized, history) = if self.ast_config.enable_runtime_selector {
+            // RuntimeSelectorを使用した実測値ベース最適化
+            let runtime_selector = RuntimeSelector::new(
+                self.renderer.clone(),
+                self.compiler.clone(),
+                signature,
+                create_buffers_from_signature::<C::Buffer>,
+            )
+            .with_pre_filter_count(self.ast_config.pre_filter_count)
+            .with_measurement_count(self.ast_config.measurement_count);
 
-                let optimizer = AstBeamSearchOptimizer::new(loop_suggester)
-                    .with_selector(runtime_selector)
-                    .with_beam_width(self.ast_config.beam_width)
-                    .with_max_steps(self.ast_config.max_steps)
-                    .with_progress(self.ast_config.show_progress)
-                    .with_no_improvement_limit(self.ast_config.early_termination_threshold);
+            let optimizer = AstBeamSearchOptimizer::new(loop_suggester)
+                .with_selector(runtime_selector)
+                .with_beam_width(self.ast_config.beam_width)
+                .with_max_steps(self.ast_config.max_steps)
+                .with_progress(self.ast_config.show_progress)
+                .with_no_improvement_limit(self.ast_config.early_termination_threshold);
 
-                optimizer.optimize_with_history(rule_optimized)
-            } else {
-                // 静的コストベース最適化
-                let loop_optimizer = self.create_ast_optimizer(loop_suggester);
-                loop_optimizer.optimize_with_history(rule_optimized)
-            };
+            optimizer.optimize_with_history(rule_optimized)
+        } else {
+            // 静的コストベース最適化
+            let loop_optimizer = self.create_ast_optimizer(loop_suggester);
+            loop_optimizer.optimize_with_history(rule_optimized)
+        };
 
         if self.collect_histories {
             self.histories.ast = Some(history.clone());
@@ -933,7 +936,7 @@ where
 
     /// グラフをコンパイル
     ///
-    /// `set_runtime_buffer_factory()`が呼び出されている場合、グラフ最適化とAST最適化の
+    /// `enable_runtime_selector()`が呼び出されている場合、グラフ最適化とAST最適化の
     /// 両方で自動的に実測値ベースの候補選択が有効になります。
     fn compile_graph(&mut self, graph: Graph) -> Result<C::Kernel, String> {
         // Signatureを作成（最適化前のGraphから）
@@ -981,6 +984,10 @@ mod tests {
     struct DummyBuffer;
 
     impl Buffer for DummyBuffer {
+        fn allocate(_shape: Vec<usize>, _dtype: crate::ast::DType) -> Self {
+            Self
+        }
+
         fn shape(&self) -> Vec<usize> {
             vec![]
         }

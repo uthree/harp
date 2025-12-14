@@ -86,6 +86,10 @@ impl MetalBuffer {
 }
 
 impl Buffer for MetalBuffer {
+    fn allocate(shape: Vec<usize>, dtype: DType) -> Self {
+        Self::new(shape, dtype.size_in_bytes())
+    }
+
     fn shape(&self) -> Vec<usize> {
         self.shape.clone()
     }

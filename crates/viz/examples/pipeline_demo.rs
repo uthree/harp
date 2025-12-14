@@ -4,7 +4,7 @@
 //! RuntimeSelectorによる実測値ベース最適化を使用します。
 
 use harp::ast::helper::wildcard;
-use harp::backend::opencl::{OpenCLBuffer, OpenCLCompiler, OpenCLRenderer};
+use harp::backend::opencl::{OpenCLCompiler, OpenCLRenderer};
 use harp::backend::GenericPipeline;
 use harp::graph::{DType, Graph, GraphNode, ReduceOp};
 use harp_viz::{HarpVizApp, RendererType};
@@ -18,21 +18,8 @@ fn main() -> eframe::Result {
     pipeline.graph_config.show_progress = true;
     pipeline.ast_config.show_progress = true;
 
-    // RuntimeSelector用のバッファファクトリを設定（実測値ベース最適化を有効化）
-    pipeline.set_runtime_buffer_factory(|sig| {
-        sig.inputs
-            .iter()
-            .chain(sig.outputs.iter())
-            .map(|buf_sig| {
-                let total_size: usize = buf_sig
-                    .shape
-                    .iter()
-                    .map(|d| d.expect_const("buffer shape must be const") as usize)
-                    .product();
-                OpenCLBuffer::new(vec![total_size], 4) // f32 = 4 bytes
-            })
-            .collect()
-    });
+    // 実測値ベース最適化を有効化
+    pipeline.enable_runtime_selector();
 
     // 1024x1024 行列積グラフを作成
     let graph = create_matmul_graph(1024);

@@ -75,13 +75,15 @@ Graphを最適化、lower、AST最適化などの一通りの処理をまとめ�
 - `measurement_count`: RuntimeSelector使用時の計測回数（デフォルト: 10）
 
 **RuntimeSelector（実測値ベース最適化）:**
-`set_runtime_buffer_factory()`でバッファファクトリを設定すると、`graph_config.enable_runtime_selector`と`ast_config.enable_runtime_selector`が自動的に`true`になり、実測値ベースの候補選択が有効になる。
+`enable_runtime_selector()`を呼び出すと、グラフ最適化とAST最適化の両方で実測値ベースの候補選択が有効になる。バッファは`Buffer::allocate`を使用して自動的に生成される。
 
 **使用例:**
 ```rust
 let mut pipeline = GenericPipeline::new(renderer, compiler);
-// グラフ最適化とAST最適化は両方とも常に有効
 pipeline.graph_config.beam_width = 8;
+
+// 実測値ベース最適化を有効化
+pipeline.enable_runtime_selector();
 ```
 
 **最適化履歴:**

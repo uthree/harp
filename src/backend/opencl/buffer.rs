@@ -135,6 +135,10 @@ impl OpenCLBuffer {
 }
 
 impl Buffer for OpenCLBuffer {
+    fn allocate(shape: Vec<usize>, dtype: DType) -> Self {
+        Self::with_dtype(shape, dtype)
+    }
+
     fn shape(&self) -> Vec<usize> {
         self.shape.clone()
     }
