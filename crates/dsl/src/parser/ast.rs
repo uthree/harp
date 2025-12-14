@@ -84,6 +84,9 @@ pub enum ShapeBinOp {
 pub enum DslStatement {
     /// Let binding: let x = expr
     Let { name: String, value: DslExpr },
+    /// Tuple let binding: let (a, b) = expr
+    /// Used for multi-output subgraph calls
+    TupleLet { names: Vec<String>, value: DslExpr },
     /// Assignment: x = expr
     Assign { name: String, value: DslExpr },
     /// Return statement (optional, outputs are implicit)

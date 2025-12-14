@@ -493,6 +493,19 @@ impl SimpleCostEstimator {
                 let ast_estimator = AstSimpleCostEstimator::new();
                 ast_estimator.estimate(ast)
             }
+            GraphOp::SubGraphCall { .. } => {
+                // サブグラフ呼び出しのコスト
+                // 実際のコストはサブグラフの内容に依存するが、
+                // Loweringされるまでは関数呼び出しオーバーヘッドとして推定
+                let num_elements = self.compute_num_elements(node);
+                let call_overhead = self.kernel_launch_overhead.ln();
+                num_elements.ln() + call_overhead
+            }
+            GraphOp::SubGraphOutput { .. } => {
+                // サブグラフ出力の取り出しはほぼゼロコスト
+                // （SubGraphCallの結果から特定の出力を参照するだけ）
+                f32::NEG_INFINITY
+            }
         }
     }
 

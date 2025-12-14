@@ -149,6 +149,56 @@ pub enum GraphOp {
         /// 出力バッファ名のリスト（順序を保持）
         outputs: Vec<String>,
     },
+
+    /// サブグラフ呼び出し
+    ///
+    /// DSLで定義された別のgraph（サブグラフ）を呼び出します。
+    /// サブグラフは`Graph.subgraphs`に登録されており、名前で参照されます。
+    ///
+    /// # srcの構造
+    /// `src = [入力テンソル1, 入力テンソル2, ...]`
+    /// サブグラフの入力パラメータに対応するテンソルが順番に渡されます。
+    ///
+    /// # 複数出力の扱い
+    /// サブグラフが複数出力を持つ場合、このノードは全出力をまとめて表現します。
+    /// 個別の出力を取り出すには`SubGraphOutput`ノードを使用します。
+    ///
+    /// # Loweringフロー
+    /// 1. 内側のサブグラフから先に最適化・Lowering
+    /// 2. SubGraphCallノードは関数呼び出し（Call）に変換
+    /// 3. ProgramRootにサブグラフの関数が追加される
+    SubGraphCall {
+        /// サブグラフ名（Graph.subgraphsのキーに対応）
+        name: String,
+    },
+
+    /// サブグラフの特定出力を取り出す
+    ///
+    /// 複数出力を持つサブグラフから特定の出力を取り出します。
+    ///
+    /// # srcの構造
+    /// `src = [SubGraphCallノード]`
+    /// 対応するSubGraphCallノードへの参照を持ちます。
+    ///
+    /// # 使用例
+    /// ```text
+    /// graph split(x: f32[N]) -> (left: f32[N/2], right: f32[N/2]) { ... }
+    ///
+    /// // DSLでの呼び出し
+    /// let (a, b) = split(input)
+    ///
+    /// // 内部表現
+    /// SubGraphCall { name: "split" }  <- src: [input]
+    ///   |
+    ///   +-- SubGraphOutput { output_index: 0, output_name: "left" }  // a
+    ///   +-- SubGraphOutput { output_index: 1, output_name: "right" } // b
+    /// ```
+    SubGraphOutput {
+        /// 取り出す出力のインデックス（0から開始）
+        output_index: usize,
+        /// 出力名（サブグラフの出力パラメータ名）
+        output_name: String,
+    },
 }
 
 #[derive(Debug, Clone)]

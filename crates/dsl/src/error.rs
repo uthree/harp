@@ -40,6 +40,39 @@ pub enum DslError {
     /// Compilation error
     #[error("Compilation error: {0}")]
     CompilationError(String),
+
+    /// Undefined function/subgraph error
+    #[error("Undefined function or subgraph: {0}")]
+    UndefinedFunction(String),
+
+    /// Subgraph argument count mismatch
+    #[error("Subgraph '{graph_name}' expects {expected} arguments, got {got}")]
+    SubGraphArgumentMismatch {
+        graph_name: String,
+        expected: usize,
+        got: usize,
+    },
+
+    /// Subgraph type mismatch
+    #[error("Subgraph '{graph_name}' parameter '{param_name}': expected {expected}, got {got}")]
+    SubGraphTypeMismatch {
+        graph_name: String,
+        param_name: String,
+        expected: String,
+        got: String,
+    },
+
+    /// Recursion depth exceeded
+    #[error("Recursion depth exceeded for graph '{graph_name}': depth {depth} > max {max_depth}")]
+    RecursionDepthExceeded {
+        graph_name: String,
+        depth: usize,
+        max_depth: usize,
+    },
+
+    /// No main graph found
+    #[error("No 'main' graph found. The entry point must be named 'main'.")]
+    NoMainGraph,
 }
 
 impl DslError {

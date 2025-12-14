@@ -233,6 +233,11 @@ impl LoweringSuggester {
                 | GraphOp::ComplexConst { .. }
                 | GraphOp::View(_)
                 | GraphOp::Kernel { .. }
+                // サブグラフ関連のノードは直接lowerできない
+                // これらは別のグラフを呼び出すメタ演算であり、
+                // 呼び出し先のグラフを個別に最適化する必要がある
+                | GraphOp::SubGraphCall { .. }
+                | GraphOp::SubGraphOutput { .. }
         ) {
             return false;
         }
@@ -381,6 +386,11 @@ impl LoweringSuggester {
             }
             GraphOp::FusedReduce { .. } => {
                 // FusedReduceはタプル出力が必要なので後で実装
+                return None;
+            }
+            GraphOp::SubGraphCall { .. } | GraphOp::SubGraphOutput { .. } => {
+                // サブグラフ関連のノードは直接lowerできない
+                // これらは別のグラフを呼び出すメタ演算
                 return None;
             }
             _ => return None,

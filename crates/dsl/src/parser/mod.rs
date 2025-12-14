@@ -285,14 +285,38 @@ fn parse_statement(pair: pest::iterators::Pair<Rule>) -> Result<DslStatement, Ds
     match inner.as_rule() {
         Rule::let_statement => {
             let mut parts = inner.into_inner();
-            let name_pair = parts.next().unwrap();
-            let name = name_pair.as_str();
-            check_reserved_keyword(name, &name_pair)?;
-            let value = parse_expr(parts.next().unwrap())?;
-            Ok(DslStatement::Let {
-                name: name.to_string(),
-                value,
-            })
+            let first = parts.next().unwrap();
+
+            match first.as_rule() {
+                Rule::tuple_pattern => {
+                    // Tuple let: let (a, b) = expr
+                    let mut names = Vec::new();
+                    for ident in first.into_inner() {
+                        if ident.as_rule() == Rule::ident {
+                            let name = ident.as_str();
+                            check_reserved_keyword(name, &ident)?;
+                            names.push(name.to_string());
+                        }
+                    }
+                    let value = parse_expr(parts.next().unwrap())?;
+                    Ok(DslStatement::TupleLet { names, value })
+                }
+                Rule::ident => {
+                    // Simple let: let x = expr
+                    let name = first.as_str();
+                    check_reserved_keyword(name, &first)?;
+                    let value = parse_expr(parts.next().unwrap())?;
+                    Ok(DslStatement::Let {
+                        name: name.to_string(),
+                        value,
+                    })
+                }
+                _ => Err(DslError::ParseError {
+                    line: 0,
+                    column: 0,
+                    message: format!("Unexpected in let statement: {:?}", first.as_rule()),
+                }),
+            }
         }
         Rule::assign_statement => {
             let mut parts = inner.into_inner();
@@ -883,5 +907,51 @@ mod tests {
             result.is_ok(),
             "Built-in function names should be allowed as variable names"
         );
+    }
+
+    #[test]
+    fn test_parse_tuple_let() {
+        let source = r#"
+            graph main(x: f32[N]) -> (a: f32[N], b: f32[N]) {
+                let (first, second) = split(x)
+                a = first
+                b = second
+            }
+        "#;
+
+        let module = parse(source).expect("Failed to parse tuple let");
+        assert_eq!(module.graphs.len(), 1);
+
+        // Check that the first statement is a TupleLet
+        let first_stmt = &module.graphs[0].body[0];
+        match first_stmt {
+            DslStatement::TupleLet { names, value: _ } => {
+                assert_eq!(names.len(), 2);
+                assert_eq!(names[0], "first");
+                assert_eq!(names[1], "second");
+            }
+            _ => panic!("Expected TupleLet statement, got {:?}", first_stmt),
+        }
+    }
+
+    #[test]
+    fn test_parse_tuple_let_three_elements() {
+        let source = r#"
+            graph main(x: f32[N]) -> (a: f32[N], b: f32[N], c: f32[N]) {
+                let (x1, x2, x3) = triple_split(x)
+                a = x1
+                b = x2
+                c = x3
+            }
+        "#;
+
+        let module = parse(source).expect("Failed to parse tuple let with 3 elements");
+        let first_stmt = &module.graphs[0].body[0];
+        match first_stmt {
+            DslStatement::TupleLet { names, .. } => {
+                assert_eq!(names.len(), 3);
+            }
+            _ => panic!("Expected TupleLet"),
+        }
     }
 }

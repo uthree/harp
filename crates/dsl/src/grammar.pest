@@ -53,7 +53,8 @@ statement = {
     | return_statement
 }
 
-let_statement = { "let" ~ ident ~ "=" ~ expr }
+let_statement = { "let" ~ (tuple_pattern | ident) ~ "=" ~ expr }
+tuple_pattern = { "(" ~ ident ~ ("," ~ ident)+ ~ ")" }
 assign_statement = { ident ~ "=" ~ expr }
 return_statement = { "return" ~ ident }
 

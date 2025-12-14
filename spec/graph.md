@@ -101,9 +101,57 @@ Graph最適化フェーズでは、以下のSuggesterにより段階的に演算
 - `shape/view.rs`: View構造体と基本操作
 - `shape/view_ops.rs`: View操作（unfold_nd等）
 
+## サブグラフ機能
+
+サブグラフ機能により、グラフを関数のように呼び出すことができます。
+
+### 構造
+
+- **Graph.subgraphs**: `HashMap<String, Graph>` - サブグラフを名前で管理
+- **GraphOp::SubGraphCall**: サブグラフ呼び出しを表すノード
+- **GraphOp::SubGraphOutput**: 複数出力サブグラフから特定の出力を取り出すノード
+
+### DSL構文
+
+```harp
+// サブグラフ定義
+graph relu(x: f32[B, N]) -> (y: f32[B, N]) {
+    let zero = 0.0
+    y = max(x, zero)
+}
+
+// メイングラフからサブグラフを呼び出し
+graph main(input: f32[B, D]) -> (output: f32[B, D]) {
+    output = relu(input)
+}
+
+// 複数出力サブグラフのタプル分解
+graph multi_output(x: f32[N]) -> (a: f32[N], b: f32[N]) {
+    a = x + 1.0
+    b = x * 2.0
+}
+
+graph main(input: f32[10]) -> (out1: f32[10], out2: f32[10]) {
+    let (a, b) = multi_output(input)
+    out1 = a
+    out2 = b
+}
+```
+
+### エントリーポイント
+
+- `graph main`がエントリーポイントとして必須
+- mainグラフ以外はすべてサブグラフとして扱われる
+- 再帰呼び出しは許可（デフォルト最大深度: 10）
+
+### 最適化
+
+サブグラフは各グラフが独立して最適化されます。`SubGraphCall`と`SubGraphOutput`ノードはLoweringSuggesterではスキップされ、バックエンドで関数呼び出しとして処理されます。
+
 ## 未実装
 
 - Thread/ThreadGroupレベルの並列実行のLowering
 - ループタイル化（TilingSuggester）
 - 行列乗算（matmul、batch_matmul）
 - 複素数型のReduce/Cumulative演算のLowering
+- サブグラフ呼び出しのバックエンド実装（現在はグラフ構造のみ）

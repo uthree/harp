@@ -1,0 +1,37 @@
+// Subgraph Demo
+// This example demonstrates the subgraph feature where graphs can call
+// other graphs as functions.
+//
+// The 'main' graph is the entry point. All other graphs are subgraphs
+// that can be called from main or other subgraphs.
+
+// ReLU activation function: max(x, 0)
+graph relu(x: f32[B, N]) -> (y: f32[B, N]) {
+    let zero = 0.0
+    y = max(x, zero)
+}
+
+// Linear layer: y = x @ w + b
+graph linear(x: f32[B, I], w: f32[I, O], b: f32[O]) -> (y: f32[B, O]) {
+    let xw = matmul(x, w)
+    let b_exp = b.unsqueeze(0).expand([B, O])
+    y = xw + b_exp
+}
+
+// Two-layer MLP using subgraphs
+// y = relu(linear(relu(linear(x, w1, b1)), w2, b2))
+graph main(
+    x: f32[B, D],
+    w1: f32[D, H],
+    b1: f32[H],
+    w2: f32[H, D],
+    b2: f32[D]
+) -> (y: f32[B, D]) {
+    // First layer: linear + relu
+    let h1 = linear(x, w1, b1)
+    let h1_act = relu(h1)
+
+    // Second layer: linear + relu
+    let h2 = linear(h1_act, w2, b2)
+    y = relu(h2)
+}

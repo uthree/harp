@@ -41,6 +41,7 @@ pub struct Graph {
     output_metas: Vec<OutputMeta>,              // 出力バッファのメタデータ
     program_root: Option<GraphNode>,            // ProgramRootノード（グラフのルート）
     shape_var_defaults: HashMap<String, isize>, // 動的shape変数のデフォルト値（必須）
+    subgraphs: HashMap<String, Graph>,          // サブグラフ定義（DSLのgraph main以外）
 }
 
 #[derive(Debug, Clone)]
@@ -79,6 +80,7 @@ impl Graph {
             output_metas: Vec::new(),
             program_root: None,
             shape_var_defaults: HashMap::new(),
+            subgraphs: HashMap::new(),
         }
     }
 
@@ -299,6 +301,34 @@ impl Graph {
     // shape変数のデフォルト値を取得
     pub fn shape_var_defaults(&self) -> &HashMap<String, isize> {
         &self.shape_var_defaults
+    }
+
+    /// サブグラフを追加
+    ///
+    /// DSLでmain以外のgraphを定義した場合に使用します。
+    /// サブグラフはSubGraphCall演算から参照されます。
+    pub fn add_subgraph(&mut self, name: impl Into<String>, subgraph: Graph) {
+        self.subgraphs.insert(name.into(), subgraph);
+    }
+
+    /// サブグラフを取得
+    pub fn subgraph(&self, name: &str) -> Option<&Graph> {
+        self.subgraphs.get(name)
+    }
+
+    /// サブグラフを可変参照で取得
+    pub fn subgraph_mut(&mut self, name: &str) -> Option<&mut Graph> {
+        self.subgraphs.get_mut(name)
+    }
+
+    /// 全てのサブグラフへのアクセス
+    pub fn subgraphs(&self) -> &HashMap<String, Graph> {
+        &self.subgraphs
+    }
+
+    /// サブグラフをコピー（最適化時にグラフを再構築する際に使用）
+    pub fn copy_subgraphs_from(&mut self, other: &Graph) {
+        self.subgraphs = other.subgraphs.clone();
     }
 
     /// このGraphを実行（tinygradスタイル）
@@ -727,6 +757,58 @@ impl GraphNode {
     /// ```
     pub fn cat(self, other: Self, axis: usize) -> Self {
         ops::concat(vec![self, other], axis)
+    }
+
+    /// サブグラフ呼び出しノードを作成
+    ///
+    /// DSLコンパイラから使用されます。
+    /// サブグラフの全出力をまとめて表現するノードを作成します。
+    ///
+    /// # 引数
+    /// - `name`: サブグラフ名
+    /// - `inputs`: サブグラフへの入力テンソル
+    /// - `output_dtype`: 出力の型（単一出力の場合）または最初の出力の型
+    /// - `output_view`: 出力のView（単一出力の場合）または最初の出力のView
+    pub fn subgraph_call(
+        name: impl Into<String>,
+        inputs: Vec<Self>,
+        output_dtype: DType,
+        output_view: View,
+    ) -> Self {
+        Self::new(
+            output_dtype,
+            GraphOp::SubGraphCall { name: name.into() },
+            inputs,
+            output_view,
+        )
+    }
+
+    /// サブグラフの特定出力を取り出すノードを作成
+    ///
+    /// 複数出力を持つサブグラフから特定の出力を取り出します。
+    ///
+    /// # 引数
+    /// - `subgraph_call`: SubGraphCallノード
+    /// - `output_index`: 取り出す出力のインデックス
+    /// - `output_name`: 出力名
+    /// - `output_dtype`: 出力の型
+    /// - `output_view`: 出力のView
+    pub fn subgraph_output(
+        subgraph_call: Self,
+        output_index: usize,
+        output_name: impl Into<String>,
+        output_dtype: DType,
+        output_view: View,
+    ) -> Self {
+        Self::new(
+            output_dtype,
+            GraphOp::SubGraphOutput {
+                output_index,
+                output_name: output_name.into(),
+            },
+            vec![subgraph_call],
+            output_view,
+        )
     }
 }
 
