@@ -112,8 +112,8 @@ pub fn create_fusion_suggester() -> CompositeSuggester {
 /// ```
 pub fn create_ast_loop_suggester() -> AstCompositeSuggester {
     AstCompositeSuggester::new(vec![
-        Box::new(LoopTilingSuggester::with_default_sizes()),
-        Box::new(LoopInliningSuggester::with_default_limit()),
+        Box::new(LoopTilingSuggester::new()),
+        Box::new(LoopInliningSuggester::new()),
         Box::new(LoopInterchangeSuggester::new()),
         Box::new(LoopFusionSuggester::new()),
         Box::new(FunctionInliningSuggester::with_default_limit()),

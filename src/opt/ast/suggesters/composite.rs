@@ -57,8 +57,8 @@ mod tests {
         // 全ての最適化を含むSuggester
         let suggester = CompositeSuggester::new(vec![
             Box::new(RuleBaseSuggester::new(all_rules_with_search())),
-            Box::new(LoopTilingSuggester::with_default_sizes()),
-            Box::new(LoopInliningSuggester::with_default_limit()),
+            Box::new(LoopTilingSuggester::new()),
+            Box::new(LoopInliningSuggester::new()),
         ]);
 
         // for i in 0..4 step 1 { body }
@@ -105,8 +105,8 @@ mod tests {
     fn test_composite_suggester_loop_only() {
         // ループ最適化のみ
         let suggester = CompositeSuggester::new(vec![
-            Box::new(LoopTilingSuggester::with_default_sizes()),
-            Box::new(LoopInliningSuggester::with_default_limit()),
+            Box::new(LoopTilingSuggester::new()),
+            Box::new(LoopInliningSuggester::new()),
         ]);
 
         // for i in 0..4 step 1 { body }
@@ -131,8 +131,7 @@ mod tests {
     #[test]
     fn test_composite_suggester_custom() {
         // カスタム: インライン展開のみ
-        let suggester =
-            CompositeSuggester::new(vec![Box::new(LoopInliningSuggester::with_default_limit())]);
+        let suggester = CompositeSuggester::new(vec![Box::new(LoopInliningSuggester::new())]);
 
         // for i in 0..4 step 1 { body }
         let body = Box::new(AstNode::Var("x".to_string()));

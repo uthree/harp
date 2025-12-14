@@ -13,6 +13,12 @@ pub struct LoopTilingSuggester {
     tile_sizes: Vec<usize>,
 }
 
+impl Default for LoopTilingSuggester {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LoopTilingSuggester {
     /// 新しいLoopTilingSuggesterを作成
     pub fn new() -> Self {
@@ -151,17 +157,15 @@ pub struct LoopInliningSuggester {
     innermost_only: bool,
 }
 
-impl LoopInliningSuggester {
-    /// 新しいLoopInliningSuggesterを作成
-    pub fn new(max_iterations: usize) -> Self {
-        Self {
-            max_iterations,
-            innermost_only: true, // デフォルトで最内側のみ
-        }
+impl Default for LoopInliningSuggester {
+    fn default() -> Self {
+        Self::new()
     }
+}
 
+impl LoopInliningSuggester {
     /// デフォルトの設定で作成（最大8回まで展開、最内側のみ）
-    pub fn with_default_limit() -> Self {
+    pub fn new() -> Self {
         Self {
             max_iterations: 8,
             innermost_only: true,
@@ -368,7 +372,7 @@ mod tests {
 
     #[test]
     fn test_loop_inlining_suggester() {
-        let suggester = LoopInliningSuggester::with_default_limit();
+        let suggester = LoopInliningSuggester::new();
 
         // for i in 0..4 step 1 { Store(ptr, i, i) }
         let loop_node = range(
@@ -390,7 +394,7 @@ mod tests {
 
     #[test]
     fn test_loop_inlining_suggester_too_large() {
-        let suggester = LoopInliningSuggester::new(4);
+        let suggester = LoopInliningSuggester::new();
 
         // for i in 0..10 step 1 { body }
         let loop_node = range("i", const_int(0), const_int(1), const_int(10), var("x"));
@@ -421,7 +425,7 @@ mod tests {
     #[test]
     fn test_loop_inlining_innermost_only() {
         // innermost_only=true（デフォルト）の場合、外側ループは展開されない
-        let suggester = LoopInliningSuggester::with_default_limit();
+        let suggester = LoopInliningSuggester::new();
 
         // 2重ネストループ: for i in 0..2 { for j in 0..3 { body } }
         let inner_loop = range("j", const_int(0), const_int(1), const_int(3), var("x"));
@@ -440,7 +444,7 @@ mod tests {
     #[test]
     fn test_loop_inlining_all_loops() {
         // innermost_only=falseの場合、すべてのループが展開候補になる
-        let suggester = LoopInliningSuggester::new(10).with_innermost_only(false);
+        let suggester = LoopInliningSuggester::new().with_innermost_only(false);
 
         // 2重ネストループ: for i in 0..2 { for j in 0..3 { body } }
         let inner_loop = range("j", const_int(0), const_int(1), const_int(3), var("x"));
@@ -460,7 +464,7 @@ mod tests {
     #[test]
     fn test_loop_inlining_single_loop() {
         // 単一ループの場合、innermost_onlyの設定に関わらず展開される
-        let suggester = LoopInliningSuggester::with_default_limit();
+        let suggester = LoopInliningSuggester::new();
 
         let single_loop = range("i", const_int(0), const_int(1), const_int(4), var("x"));
 
