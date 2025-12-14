@@ -24,14 +24,17 @@ pub struct TilingSuggester {
 }
 
 impl TilingSuggester {
-    /// 新しいTilingSuggesterを作成
-    pub fn new(tile_sizes: Vec<usize>) -> Self {
-        Self { tile_sizes }
+    /// デフォルトのタイルサイズを使用
+    pub fn new() -> Self {
+        Self {
+            tile_sizes: vec![32, 64, 128, 256, 512],
+        }
     }
 
-    /// デフォルトのタイルサイズを使用
-    pub fn with_default_tile_sizes() -> Self {
-        Self::new(vec![32, 64, 128, 256, 512])
+    pub fn with_sizes(tile_sizes: Vec<usize>) -> Self {
+        Self {
+            tile_sizes: tile_sizes,
+        }
     }
 
     /// グラフ内の全ノードを収集（トポロジカル順）
@@ -251,7 +254,7 @@ impl TilingSuggester {
 
 impl Default for TilingSuggester {
     fn default() -> Self {
-        Self::with_default_tile_sizes()
+        Self::new()
     }
 }
 
@@ -292,7 +295,7 @@ mod tests {
     #[test]
     fn test_tiling_suggester_basic() {
         // tile_size=32 でテスト
-        let suggester = TilingSuggester::new(vec![32]);
+        let suggester = TilingSuggester::with_sizes(vec![32]);
 
         let mut graph = Graph::new();
         let a = graph.input("a", DType::F32, vec![64, 128]);
@@ -330,7 +333,7 @@ mod tests {
 
     #[test]
     fn test_tiling_suggester_no_divisible() {
-        let suggester = TilingSuggester::new(vec![32]);
+        let suggester = TilingSuggester::with_sizes(vec![32]);
 
         let mut graph = Graph::new();
         let a = graph.input("a", DType::F32, vec![63, 127]); // 32で割り切れない
@@ -348,7 +351,7 @@ mod tests {
 
     #[test]
     fn test_tiling_suggester_multiple_tile_sizes() {
-        let suggester = TilingSuggester::new(vec![16, 32]);
+        let suggester = TilingSuggester::with_sizes(vec![16, 32]);
 
         let mut graph = Graph::new();
         let a = graph.input("a", DType::F32, vec![64, 128]);
@@ -366,7 +369,7 @@ mod tests {
 
     #[test]
     fn test_tiling_suggester_skip_input() {
-        let suggester = TilingSuggester::new(vec![32]);
+        let suggester = TilingSuggester::with_sizes(vec![32]);
 
         let mut graph = Graph::new();
         let a = graph.input("a", DType::F32, vec![64, 128]);
@@ -382,7 +385,7 @@ mod tests {
 
     #[test]
     fn test_tiling_suggester_skip_small_axis() {
-        let suggester = TilingSuggester::new(vec![64]);
+        let suggester = TilingSuggester::with_sizes(vec![64]);
 
         let mut graph = Graph::new();
         let a = graph.input("a", DType::F32, vec![32, 128]); // 軸0は64以下
@@ -411,7 +414,7 @@ mod tests {
     fn test_tiling_with_lowering() {
         use crate::lowerer::lower;
 
-        let suggester = TilingSuggester::new(vec![32]);
+        let suggester = TilingSuggester::with_sizes(vec![32]);
 
         let mut graph = Graph::new();
         let a = graph.input("a", DType::F32, vec![64, 128]);

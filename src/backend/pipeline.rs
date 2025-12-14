@@ -17,12 +17,15 @@ use crate::opt::graph::{
 // マルチフェーズ最適化用の関数
 // =============================================================================
 
-/// ViewMergeのみのフェーズ用Suggesterを作成
+/// ViewMergeとFusionのみのフェーズ用Suggesterを作成
 ///
 /// グラフの構築過程で生成された余分なビュー変更を除去します。
 /// 最適化の最初と最後に実行することで、クリーンなグラフ構造を維持します。
 pub fn create_view_merge_only_suggester() -> CompositeSuggester {
-    CompositeSuggester::new(vec![Box::new(ViewMergeSuggester::new())])
+    CompositeSuggester::new(vec![
+        Box::new(ViewMergeSuggester::new()),
+        Box::new(FusionSuggester::new()),
+    ])
 }
 
 /// グラフ最適化フェーズ用のSuggesterを作成
@@ -34,27 +37,10 @@ pub fn create_view_merge_only_suggester() -> CompositeSuggester {
 pub fn create_graph_optimization_suggester() -> CompositeSuggester {
     CompositeSuggester::new(vec![
         Box::new(ViewInsertionSuggester::new()),
-        Box::new(TilingSuggester::with_default_tile_sizes()),
+        Box::new(TilingSuggester::new()),
         Box::new(ContiguousInsertionSuggester::new()),
         Box::new(FusionSuggester::new()),
         Box::new(ViewMergeSuggester::new()),
-    ])
-}
-
-/// グラフ準備フェーズ用のSuggesterを作成（レガシー互換）
-///
-/// Phase 1: グラフ構造の最適化（View挿入、融合、タイリングなど）
-/// Lowering前にグラフ構造を整理するために使用します。
-///
-/// Note: 新しいコードでは `create_view_merge_only_suggester` と
-/// `create_graph_optimization_suggester` を個別に使用することを推奨します。
-pub fn create_graph_preparation_suggester() -> CompositeSuggester {
-    CompositeSuggester::new(vec![
-        Box::new(ViewInsertionSuggester::new()),
-        Box::new(ViewMergeSuggester::new()),
-        Box::new(TilingSuggester::with_default_tile_sizes()),
-        Box::new(ContiguousInsertionSuggester::new()),
-        Box::new(FusionSuggester::new()),
     ])
 }
 
