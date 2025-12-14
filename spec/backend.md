@@ -58,19 +58,29 @@ Graphを最適化、lower、AST最適化などの一通りの処理をまとめ�
 **主要な機能:**
 - コンパイル済みKernelのキャッシュ機能
 - 最適化履歴の収集（可視化ツールとの統合用）
-- グラフ最適化（必須）とAST最適化（オプション）
+- グラフ最適化とAST最適化（両方とも常に有効）
 
 **設定フィールド:**
-- `enable_ast_optimization`: AST最適化の有効化（Lowering後に独立して適用）
-- `graph_config`: グラフ最適化の設定（ビーム幅、最大ステップ数、プログレス表示）
-- `ast_config`: AST最適化の設定
+- `graph_config`: グラフ最適化の設定（OptimizationConfig）
+- `ast_config`: AST最適化の設定（OptimizationConfig）
 - `collect_histories`: 最適化履歴を収集するか（DEBUGビルドでデフォルトtrue、RELEASEビルドでfalse）
+
+**OptimizationConfig:**
+- `beam_width`: ビームサーチの幅（デフォルト: 4）
+- `max_steps`: 最大ステップ数（デフォルト: 10000）
+- `show_progress`: プログレスバー表示（デフォルト: false）
+- `early_termination_threshold`: 早期終了閾値（デフォルト: Some(2)）
+- `enable_runtime_selector`: RuntimeSelector（実測値ベース最適化）を有効化（デフォルト: false）
+- `pre_filter_count`: RuntimeSelector使用時の静的コスト足切り候補数（デフォルト: 4）
+- `measurement_count`: RuntimeSelector使用時の計測回数（デフォルト: 10）
+
+**RuntimeSelector（実測値ベース最適化）:**
+`set_runtime_buffer_factory()`でバッファファクトリを設定すると、`graph_config.enable_runtime_selector`と`ast_config.enable_runtime_selector`が自動的に`true`になり、実測値ベースの候補選択が有効になる。
 
 **使用例:**
 ```rust
 let mut pipeline = GenericPipeline::new(renderer, compiler);
-// グラフ最適化は常に有効（LoweringSuggesterが必須）
-// AST最適化はデフォルトで有効（Lowering後に独立して適用）
+// グラフ最適化とAST最適化は両方とも常に有効
 pipeline.graph_config.beam_width = 8;
 ```
 

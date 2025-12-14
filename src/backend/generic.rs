@@ -32,6 +32,11 @@ pub struct OptimizationConfig {
     /// Some(n): n回連続で改善がなければ終了
     /// None: 早期終了を無効化
     pub early_termination_threshold: Option<usize>,
+    /// RuntimeSelector（実測値ベース最適化）を有効にするか
+    ///
+    /// `true`に設定し、`set_runtime_buffer_factory()`でバッファファクトリを設定すると、
+    /// 実測値ベースの候補選択が有効になります。
+    pub enable_runtime_selector: bool,
     /// 足切り候補数（RuntimeSelector使用時）
     ///
     /// RuntimeSelectorを使用する際、静的コストで上位何件に絞り込むかを指定。
@@ -49,27 +54,11 @@ impl Default for OptimizationConfig {
             beam_width: 4,
             max_steps: 10000,
             show_progress: false,
-            early_termination_threshold: Some(20), // デフォルト: 20ステップ改善なしで終了
-            pre_filter_count: 10,                  // デフォルト: 10件に足切り
-            measurement_count: 30,                 // デフォルト: 30回計測して平均
+            early_termination_threshold: Some(2), // デフォルト: 2ステップ改善なしで終了
+            enable_runtime_selector: false,       // デフォルト: 無効
+            pre_filter_count: 4,                  // デフォルト: 4件に足切り
+            measurement_count: 10,                // デフォルト: 10回計測して平均
         }
-    }
-}
-
-/// RuntimeSelector（実測値ベース最適化）の設定
-///
-/// RuntimeSelectorの有効/無効を制御します。
-/// 足切り候補数と計測回数は`OptimizationConfig`で設定します。
-#[derive(Debug, Clone, Default)]
-pub struct RuntimeSelectorConfig {
-    /// RuntimeSelectorを有効にするか
-    pub enabled: bool,
-}
-
-impl RuntimeSelectorConfig {
-    /// 新しい設定を作成（有効化済み）
-    pub fn new() -> Self {
-        Self { enabled: true }
     }
 }
 
@@ -121,9 +110,6 @@ impl OptimizationHistories {
 /// ```ignore
 /// let mut pipeline = GenericPipeline::new(renderer, compiler);
 ///
-/// // AST最適化を有効化
-/// pipeline.enable_ast_optimization = true;
-///
 /// // 設定のカスタマイズ
 /// pipeline.graph_config.beam_width = 8;
 ///
@@ -137,7 +123,7 @@ impl OptimizationHistories {
 /// 実測値ベースの候補選択が有効になります。Clone制約が必要です。
 ///
 /// # Note
-/// グラフ最適化は常に有効です（LoweringSuggesterによるKernelノード変換が必須）。
+/// グラフ最適化とAST最適化は常に有効です。
 pub struct GenericPipeline<R, C>
 where
     R: Renderer + Clone + 'static,
@@ -151,15 +137,15 @@ where
     /// 最適化履歴
     pub histories: OptimizationHistories,
     /// グラフ最適化の設定
+    ///
+    /// RuntimeSelectorを使用する場合は`enable_runtime_selector`を`true`に設定し、
+    /// `set_runtime_buffer_factory()`でバッファファクトリを設定してください。
     pub graph_config: OptimizationConfig,
-    /// グラフ用RuntimeSelector（実測値ベース最適化）の設定
-    pub graph_runtime_config: RuntimeSelectorConfig,
-    /// AST最適化を有効にするか
-    pub enable_ast_optimization: bool,
     /// AST最適化の設定
+    ///
+    /// RuntimeSelectorを使用する場合は`enable_runtime_selector`を`true`に設定し、
+    /// `set_runtime_buffer_factory()`でバッファファクトリを設定してください。
     pub ast_config: OptimizationConfig,
-    /// AST用RuntimeSelector（実測値ベース最適化）の設定
-    pub runtime_config: RuntimeSelectorConfig,
     /// RuntimeSelector用のバッファファクトリ
     ///
     /// KernelSignatureからベンチマーク用バッファを生成する関数。
@@ -600,8 +586,7 @@ where
 {
     /// 新しいGenericPipelineを作成
     ///
-    /// グラフ最適化は常に有効です（LoweringSuggesterによるKernelノード変換が必須）。
-    /// AST最適化もデフォルトで有効です。
+    /// グラフ最適化とAST最適化は常に有効です。
     ///
     /// 最適化履歴の収集は、DEBUGビルドではデフォルトで有効、RELEASEビルドでは無効です。
     pub fn new(renderer: R, compiler: C) -> Self {
@@ -611,10 +596,7 @@ where
             kernel_cache: HashMap::new(),
             histories: OptimizationHistories::default(),
             graph_config: OptimizationConfig::default(),
-            graph_runtime_config: RuntimeSelectorConfig::default(),
-            enable_ast_optimization: true, // デフォルトで有効
             ast_config: OptimizationConfig::default(),
-            runtime_config: RuntimeSelectorConfig::default(),
             runtime_buffer_factory: None,
             collect_histories: cfg!(debug_assertions),
         }
@@ -622,13 +604,14 @@ where
 
     /// RuntimeSelector用のバッファファクトリを設定
     ///
-    /// 設定すると自動的にruntime_config.enabledとgraph_runtime_config.enabledが
-    /// trueになります。グラフ最適化とAST最適化の両方で使用されます。
+    /// 設定すると自動的に`graph_config.enable_runtime_selector`と
+    /// `ast_config.enable_runtime_selector`が`true`になります。
+    /// グラフ最適化とAST最適化の両方で使用されます。
     ///
     /// # Example
     ///
     /// ```ignore
-    /// use harp::backend::{GenericPipeline, RuntimeSelectorConfig};
+    /// use harp::backend::GenericPipeline;
     /// use harp::backend::opencl::{OpenCLRenderer, OpenCLCompiler, OpenCLBuffer};
     ///
     /// let mut pipeline = GenericPipeline::new(OpenCLRenderer::new(), OpenCLCompiler::new());
@@ -644,8 +627,8 @@ where
         F: Fn(&KernelSignature) -> Vec<C::Buffer> + Send + Sync + 'static,
     {
         self.runtime_buffer_factory = Some(Arc::new(factory));
-        self.runtime_config.enabled = true;
-        self.graph_runtime_config.enabled = true;
+        self.graph_config.enable_runtime_selector = true;
+        self.ast_config.enable_runtime_selector = true;
     }
 
     /// キャッシュからKernelを取得
@@ -680,12 +663,7 @@ where
         let program = extract_program_from_graph(optimized_graph);
 
         // AST最適化（RuntimeSelector自動使用）
-        let optimized_program = if self.enable_ast_optimization {
-            let (program, _history) = self.optimize_ast_internal(program, signature.clone());
-            program
-        } else {
-            program
-        };
+        let (optimized_program, _history) = self.optimize_ast_internal(program, signature.clone());
 
         // レンダリングとコンパイル
         let code = self.renderer().render(&optimized_program);
@@ -714,16 +692,10 @@ where
         let program = extract_program_from_graph(optimized_graph);
 
         // AST最適化（Program全体を最適化、RuntimeSelector自動使用）
-        let (program, all_histories) = if self.enable_ast_optimization {
-            let (program, history) = self.optimize_ast_internal(program, signature);
+        let (program, history) = self.optimize_ast_internal(program, signature);
 
-            let mut all_histories = HashMap::new();
-            all_histories.insert("program".to_string(), history);
-
-            (program, all_histories)
-        } else {
-            (program, HashMap::new())
-        };
+        let mut all_histories = HashMap::new();
+        all_histories.insert("program".to_string(), history);
 
         Ok((program, all_histories))
     }
@@ -749,16 +721,10 @@ where
         let program = extract_program_from_graph(optimized_graph);
 
         // AST最適化（Program全体を最適化、RuntimeSelector自動使用）
-        let (optimized_program, all_histories) = if self.enable_ast_optimization {
-            let (program, history) = self.optimize_ast_internal(program, signature.clone());
+        let (optimized_program, history) = self.optimize_ast_internal(program, signature.clone());
 
-            let mut all_histories = HashMap::new();
-            all_histories.insert("program".to_string(), history);
-
-            (program, all_histories)
-        } else {
-            (program, HashMap::new())
-        };
+        let mut all_histories = HashMap::new();
+        all_histories.insert("program".to_string(), history);
 
         // レンダリングとコンパイル
         let code = self.renderer().render(&optimized_program);
@@ -813,7 +779,7 @@ where
     /// - Phase 1 (Preparation): グラフ構造の最適化（View挿入、融合など）
     /// - Phase 2 (Lowering): Kernel変換、ProgramRoot集約
     ///
-    /// `graph_runtime_config.enabled`が`true`で`runtime_buffer_factory`が設定されている場合、
+    /// `graph_config.enable_runtime_selector`が`true`で`runtime_buffer_factory`が設定されている場合、
     /// Phase 2でGraphRuntimeSelectorを使用した実測値ベースの候補選択を行います。
     fn optimize_graph_internal(&mut self, graph: Graph) -> Graph {
         use crate::backend::pipeline::{
@@ -829,7 +795,7 @@ where
 
         // RuntimeSelectorが有効なら実測値ベース最適化
         let (optimized_graph, history) =
-            if self.graph_runtime_config.enabled && self.runtime_buffer_factory.is_some() {
+            if self.graph_config.enable_runtime_selector && self.runtime_buffer_factory.is_some() {
                 let buffer_factory = Arc::clone(self.runtime_buffer_factory.as_ref().unwrap());
                 let graph_runtime_selector = GraphRuntimeSelector::new(
                     self.renderer.clone(),
@@ -861,7 +827,7 @@ where
     /// 1. ルールベース最適化（RuleBaseOptimizer）: 代数的簡約など（高速、ビームサーチなし）
     /// 2. ループ最適化（BeamSearch）: ループタイリング、融合など
     ///
-    /// `runtime_config.enabled`が`true`で`runtime_buffer_factory`が設定されている場合、
+    /// `ast_config.enable_runtime_selector`が`true`で`runtime_buffer_factory`が設定されている場合、
     /// 第2段階でRuntimeSelectorを使用した実測値ベースの選択を行います。
     fn optimize_ast_internal(
         &mut self,
@@ -876,7 +842,7 @@ where
         let loop_suggester = Self::create_loop_suggester();
 
         let (optimized, history) =
-            if self.runtime_config.enabled && self.runtime_buffer_factory.is_some() {
+            if self.ast_config.enable_runtime_selector && self.runtime_buffer_factory.is_some() {
                 // RuntimeSelectorを使用した実測値ベース最適化
                 let buffer_factory = Arc::clone(self.runtime_buffer_factory.as_ref().unwrap());
                 let runtime_selector = RuntimeSelector::new(
@@ -953,10 +919,6 @@ where
     /// 1. ルールベース最適化（代数的簡約、高速）
     /// 2. ループ最適化（ビームサーチ）
     fn optimize_program(&self, program: AstNode) -> AstNode {
-        if !self.enable_ast_optimization {
-            return program;
-        }
-
         // 第1段階: ルールベース最適化（高速）
         let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules());
         let rule_optimized = rule_optimizer.optimize(program);
@@ -984,12 +946,7 @@ where
         let program = extract_program_from_graph(optimized_graph);
 
         // AST最適化（RuntimeSelector自動使用）
-        let optimized_program = if self.enable_ast_optimization {
-            let (program, _history) = self.optimize_ast_internal(program, signature.clone());
-            program
-        } else {
-            program
-        };
+        let (optimized_program, _history) = self.optimize_ast_internal(program, signature.clone());
 
         // レンダリングとコンパイル
         let code = self.renderer().render(&optimized_program);
@@ -1167,29 +1124,6 @@ mod tests {
 
         // 上書きされるのでサイズは1
         assert_eq!(pipeline.cache_size(), 1);
-    }
-
-    #[test]
-    fn test_ast_optimization_enabled_by_default() {
-        let renderer = DummyRenderer;
-        let compiler = DummyCompiler;
-        let pipeline = GenericPipeline::new(renderer, compiler);
-
-        // AST最適化はデフォルトで有効
-        assert!(pipeline.enable_ast_optimization);
-    }
-
-    #[test]
-    fn test_disable_ast_optimization() {
-        let renderer = DummyRenderer;
-        let compiler = DummyCompiler;
-        let mut pipeline = GenericPipeline::new(renderer, compiler);
-
-        // フィールドに直接アクセスしてAST最適化を無効化
-        pipeline.enable_ast_optimization = false;
-
-        // AST最適化が無効になっている
-        assert!(!pipeline.enable_ast_optimization);
     }
 
     #[test]

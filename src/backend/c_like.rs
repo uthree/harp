@@ -8,13 +8,13 @@ use crate::backend::Renderer;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OptimizationLevel {
     /// 最適化なし（デバッグ向け、コンパイル高速）
-    #[default]
     O0,
     /// 基本的な最適化
     O1,
     /// 標準的な最適化
     O2,
     /// アグレッシブな最適化
+    #[default]
     O3,
     /// サイズ最適化
     Os,
