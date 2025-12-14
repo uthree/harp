@@ -331,7 +331,12 @@ impl FusionSuggester {
     fn detect_elementwise_reduce_pattern(
         &self,
         node: &GraphNode,
-    ) -> Option<(Vec<GraphNode>, AstNode, crate::graph::ops::ReduceOp, usize)> {
+    ) -> Option<(
+        Vec<GraphNode>,
+        AstNode,
+        crate::graph::ops::ReduceOp,
+        Vec<usize>,
+    )> {
         // このノードがReduceでない場合はNone
         let (reduce_op, axis) = match &node.op {
             GraphOp::Reduce { op, axis, .. } => (op.clone(), *axis),
@@ -359,7 +364,7 @@ impl FusionSuggester {
 
         let expr = Self::elementwise_op_to_ast(&elementwise_op, args);
 
-        Some((graph_inputs, expr, reduce_op, axis))
+        Some((graph_inputs, expr, reduce_op, vec![axis]))
     }
 
     /// グラフ内の特定ノードを置き換えた新しいグラフを作成
@@ -500,7 +505,7 @@ impl GraphSuggester for FusionSuggester {
             }
 
             // Elementwise -> Reduceパターンを検出して融合
-            if let Some((graph_inputs, expr, reduce_op, axis)) =
+            if let Some((graph_inputs, expr, reduce_op, axes)) =
                 self.detect_elementwise_reduce_pattern(node)
             {
                 // 融合されるElementwiseノードの被参照数をチェック
@@ -518,7 +523,7 @@ impl GraphSuggester for FusionSuggester {
                     graph_inputs,
                     expr,
                     reduce_op,
-                    axis,
+                    axes,
                 );
 
                 let new_graph = self.replace_node_in_graph(graph, node, fused_node);

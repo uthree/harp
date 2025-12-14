@@ -234,15 +234,21 @@ impl LoweringSuggester {
             GraphOp::FusedElementwiseReduce {
                 expr,
                 reduce_op,
-                axis,
+                axes,
                 ..
-            } => {
-                // FusedElementwiseReduceは現時点では逐次のみサポート
-                if !matches!(strategy, ParallelizationStrategy::Sequential) {
-                    return None;
+            } => match strategy {
+                ParallelizationStrategy::Sequential => {
+                    reduce::build_fused_elementwise_reduce_function(
+                        node, expr, reduce_op, axes, &name,
+                    )
                 }
-                reduce::build_fused_elementwise_reduce_function(node, expr, reduce_op, *axis, &name)
-            }
+                ParallelizationStrategy::FlatParallel => {
+                    parallel::build_flat_parallel_fused_elementwise_reduce_kernel(
+                        node, expr, reduce_op, axes, &name,
+                    )
+                }
+                ParallelizationStrategy::MultiDimParallel { .. } => None,
+            },
             GraphOp::FusedElementwiseCumulative {
                 expr,
                 cumulative_op,
@@ -472,6 +478,11 @@ impl LoweringSuggester {
                 if ndim >= 2 {
                     strategies.push(ParallelizationStrategy::MultiDimParallel { parallel_dims: 2 });
                 }
+            }
+            GraphOp::FusedElementwiseReduce { .. } => {
+                // FusedElementwiseReduceはFlatParallelのみサポート
+                // 出力軸を並列化し、縮約軸は逐次ループで処理
+                strategies.push(ParallelizationStrategy::FlatParallel);
             }
             _ => {
                 // その他の演算は逐次のみ

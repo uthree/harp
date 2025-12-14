@@ -60,20 +60,24 @@ pub fn build_contiguous_offset(ndim: usize) -> AstNode {
 
 /// 特定軸を除いた連続メモリのオフセット計算式を構築（Reduce用）
 pub fn build_contiguous_offset_excluding_axis(ndim: usize, exclude_axis: usize) -> AstNode {
-    if ndim <= 1 {
-        return const_int(0);
-    }
+    build_contiguous_offset_excluding_axes(ndim, &[exclude_axis])
+}
 
-    let output_ndim = ndim - 1;
-    if output_ndim == 0 {
-        return const_int(0);
-    }
+/// 複数の軸を除いた連続メモリのオフセット計算式を構築（複数軸Reduce用）
+pub fn build_contiguous_offset_excluding_axes(ndim: usize, exclude_axes: &[usize]) -> AstNode {
+    use std::collections::HashSet;
+    let exclude_set: HashSet<usize> = exclude_axes.iter().copied().collect();
 
     let mut output_axes = Vec::new();
     for axis in 0..ndim {
-        if axis != exclude_axis {
+        if !exclude_set.contains(&axis) {
             output_axes.push(axis);
         }
+    }
+
+    let output_ndim = output_axes.len();
+    if output_ndim == 0 {
+        return const_int(0);
     }
 
     let mut offset = var(ph::ridx(output_axes[output_ndim - 1]));
@@ -146,6 +150,19 @@ pub fn wrap_with_loops_excluding_axis_with_scope(
     inner_body: Vec<AstNode>,
     scope: Scope,
 ) -> AstNode {
+    wrap_with_loops_excluding_axes_with_scope(ndim, &[exclude_axis], inner_body, scope)
+}
+
+/// 複数軸を除いたネストされたループで本体をラップ（スコープ付き、複数軸対応）
+pub fn wrap_with_loops_excluding_axes_with_scope(
+    ndim: usize,
+    exclude_axes: &[usize],
+    inner_body: Vec<AstNode>,
+    scope: Scope,
+) -> AstNode {
+    use std::collections::HashSet;
+    let exclude_set: HashSet<usize> = exclude_axes.iter().copied().collect();
+
     if ndim == 0 {
         return block(inner_body, scope);
     }
@@ -153,7 +170,7 @@ pub fn wrap_with_loops_excluding_axis_with_scope(
     let mut body = block(inner_body, scope);
 
     for axis in (0..ndim).rev() {
-        if axis == exclude_axis {
+        if exclude_set.contains(&axis) {
             continue;
         }
         body = range(

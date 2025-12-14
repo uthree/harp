@@ -190,6 +190,116 @@ fn test_beam_search_with_fusion_and_lowering() {
 // 詳細は spec/TODO.md を参照してください。
 
 #[test]
+fn test_lower_fused_elementwise_reduce_parallel() {
+    use crate::ast::AstNode;
+    use crate::ast::helper::wildcard;
+    use crate::graph::ReduceOp;
+    use crate::prelude::fused_elementwise_reduce;
+
+    let suggester = LoweringSuggester::new();
+
+    // 行列積相当の演算: [M, N, K] で K軸を縮約
+    let mut graph = Graph::new();
+    let a = graph.input("a", DType::F32, vec![4, 5, 6]); // [M, N, K]
+    let b = graph.input("b", DType::F32, vec![4, 5, 6]);
+
+    // FusedElementwiseReduce: multiply + sum over axis 2
+    let expr = wildcard("0") * wildcard("1");
+    let c = fused_elementwise_reduce(vec![a, b], expr, ReduceOp::Sum, vec![2]);
+    graph.output("c", c);
+
+    let suggestions = suggester.suggest(&graph);
+
+    // FusedElementwiseReduceに対して2つの戦略が生成される:
+    // - Sequential, FlatParallel
+    assert!(
+        suggestions.len() >= 2,
+        "FusedElementwiseReduce should generate at least 2 candidates (Sequential + FlatParallel), got {}",
+        suggestions.len()
+    );
+
+    // 少なくとも1つはKernel（並列カーネル）であることを確認
+    let mut has_kernel = false;
+    let mut has_function = false;
+
+    for new_graph in &suggestions {
+        let outputs = new_graph.outputs();
+        let output = outputs.get("c").unwrap();
+        if let GraphOp::Kernel { ast, .. } = &output.op {
+            match ast {
+                AstNode::Kernel { .. } => has_kernel = true,
+                AstNode::Function { .. } => has_function = true,
+                _ => {}
+            }
+        }
+    }
+
+    assert!(
+        has_function,
+        "Should have at least one Sequential (Function) candidate"
+    );
+    assert!(
+        has_kernel,
+        "Should have at least one FlatParallel (Kernel) candidate"
+    );
+
+    // 出力形状が正しいことを確認: [4, 5] (K軸が縮約された)
+    let first_graph = &suggestions[0];
+    let outputs = first_graph.outputs();
+    let output = outputs.get("c").unwrap();
+    let output_shape = output.view.shape();
+    assert_eq!(output_shape.len(), 2, "Output should be 2D");
+    assert_eq!(output_shape[0], 4.into(), "Output dim 0 should be 4");
+    assert_eq!(output_shape[1], 5.into(), "Output dim 1 should be 5");
+}
+
+#[test]
+fn test_lower_fused_elementwise_reduce_multiple_axes() {
+    use crate::ast::helper::wildcard;
+    use crate::graph::ReduceOp;
+    use crate::prelude::fused_elementwise_reduce;
+
+    let suggester = LoweringSuggester::new();
+
+    // 複数軸縮約: [M, N, K1, K2] で K1, K2軸を縮約
+    let mut graph = Graph::new();
+    let a = graph.input("a", DType::F32, vec![3, 4, 5, 6]); // [M, N, K1, K2]
+    let b = graph.input("b", DType::F32, vec![3, 4, 5, 6]);
+
+    // FusedElementwiseReduce: multiply + sum over axes 2, 3
+    let expr = wildcard("0") * wildcard("1");
+    let c = fused_elementwise_reduce(vec![a, b], expr, ReduceOp::Sum, vec![2, 3]);
+    graph.output("c", c);
+
+    let suggestions = suggester.suggest(&graph);
+
+    // 全ての候補のグラフでKernelノードが使われていることを確認
+    assert!(
+        !suggestions.is_empty(),
+        "Should generate at least one candidate"
+    );
+
+    for (i, new_graph) in suggestions.iter().enumerate() {
+        let outputs = new_graph.outputs();
+        let output = outputs.get("c").unwrap();
+        assert!(
+            matches!(output.op, GraphOp::Kernel { .. }),
+            "Candidate {} should use Kernel node",
+            i
+        );
+    }
+
+    // 出力形状が正しいことを確認: [3, 4] (K1, K2軸が縮約された)
+    let first_graph = &suggestions[0];
+    let outputs = first_graph.outputs();
+    let output = outputs.get("c").unwrap();
+    let output_shape = output.view.shape();
+    assert_eq!(output_shape.len(), 2, "Output should be 2D");
+    assert_eq!(output_shape[0], 3.into(), "Output dim 0 should be 3");
+    assert_eq!(output_shape[1], 4.into(), "Output dim 1 should be 4");
+}
+
+#[test]
 fn test_sequential_only_mode() {
     let suggester = LoweringSuggester::sequential_only();
     assert!(suggester.is_sequential_only());

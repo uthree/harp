@@ -89,11 +89,11 @@ fn matmul(a: GraphNode, b: GraphNode) -> GraphNode {
     );
     let bt_exp = bt.view(bt.view.clone().unsqueeze(0).expand(vec![m, n, k]));
 
-    // sum(A * B^T, axis=2)
+    // sum(A * B^T, axes=[2])
     fused_elementwise_reduce(
         vec![a_exp, bt_exp],
         wildcard("0") * wildcard("1"),
         ReduceOp::Sum,
-        2,
+        vec![2],
     )
 }

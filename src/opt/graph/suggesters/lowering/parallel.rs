@@ -520,6 +520,204 @@ fn build_multidim_parallel_reduce_kernel(
     build_flat_parallel_reduce_kernel(node, op, axis, &format!("{}_{}", name, parallel_dims))
 }
 
+/// FusedElementwiseReduce演算の並列カーネルを生成
+pub fn build_flat_parallel_fused_elementwise_reduce_kernel(
+    node: &crate::graph::GraphNode,
+    expr: &AstNode,
+    reduce_op: &crate::graph::ReduceOp,
+    axes: &[usize],
+    name: &str,
+) -> Option<AstNode> {
+    use crate::graph::{GraphOp, ReduceOp};
+    use std::collections::HashSet;
+
+    if axes.is_empty() {
+        return None;
+    }
+
+    let input = node.src.first()?;
+    let input_shape = input.view.shape();
+    let ndim = input_shape.len();
+    let axes_set: HashSet<usize> = axes.iter().copied().collect();
+
+    let (init_value, accumulate_fn): (AstNode, Box<dyn Fn(AstNode, AstNode) -> AstNode>) =
+        match reduce_op {
+            ReduceOp::Sum => (
+                super::helpers::get_reduce_init(&node.dtype, reduce_op),
+                Box::new(|acc, val| acc + val),
+            ),
+            ReduceOp::Prod => (
+                super::helpers::get_reduce_init(&node.dtype, reduce_op),
+                Box::new(|acc, val| acc * val),
+            ),
+            ReduceOp::Max => (
+                super::helpers::get_reduce_init(&node.dtype, reduce_op),
+                Box::new(max),
+            ),
+        };
+
+    let load_dtype = graph_dtype_to_ast(&input.dtype);
+
+    // スレッドID（出力インデックス）
+    let tid_param = VarDecl {
+        name: "tid".to_string(),
+        dtype: AstDType::Int,
+        mutability: Mutability::Immutable,
+        kind: VarKind::ThreadId(0),
+    };
+
+    let mut params = vec![tid_param];
+
+    // 入力バッファ（定数以外）
+    let mut non_const_idx = 0;
+    for src in &node.src {
+        if !matches!(src.op, GraphOp::Const(_)) && !super::elementwise::is_pure_const_node(src) {
+            params.push(VarDecl {
+                name: ph::input(non_const_idx),
+                dtype: load_dtype.clone().to_ptr(),
+                mutability: Mutability::Immutable,
+                kind: VarKind::Normal,
+            });
+            non_const_idx += 1;
+        }
+    }
+
+    // 出力バッファ
+    params.push(VarDecl {
+        name: ph::OUTPUT.to_string(),
+        dtype: load_dtype.clone().to_ptr(),
+        mutability: Mutability::Mutable,
+        kind: VarKind::Normal,
+    });
+
+    // 出力軸（縮約軸以外）
+    let output_axes: Vec<usize> = (0..ndim).filter(|a| !axes_set.contains(a)).collect();
+    let output_ndim = output_axes.len();
+
+    // アキュムレータ初期化
+    let mut scope = Scope::new();
+    let _ = scope.declare("acc".to_string(), load_dtype.clone(), Mutability::Mutable);
+    let acc_init = assign("acc", init_value);
+
+    // tidから出力インデックスを計算し、入力の基底オフセットを構築
+    let mut base_offset_parts: Vec<(usize, AstNode)> = Vec::new();
+
+    if output_ndim > 0 {
+        let mut remaining = var("tid");
+        for (i, &in_axis) in output_axes.iter().enumerate().rev() {
+            let axis_size = var(ph::shape(in_axis));
+            let idx = if i == 0 {
+                remaining.clone()
+            } else {
+                remaining.clone() % axis_size.clone()
+            };
+            base_offset_parts.push((in_axis, idx));
+            if i > 0 {
+                remaining = idiv(remaining, axis_size);
+            }
+        }
+    }
+
+    // 入力オフセット計算式を構築
+    // base_offset + Σ(ridx[reduce_axis] * stride[reduce_axis])
+    let build_input_offset =
+        |reduce_indices: &std::collections::HashMap<usize, AstNode>| -> AstNode {
+            let mut offset = const_int(0);
+            for axis in 0..ndim {
+                let idx = if axes_set.contains(&axis) {
+                    reduce_indices
+                        .get(&axis)
+                        .cloned()
+                        .unwrap_or_else(|| var(ph::ridx(axis)))
+                } else {
+                    base_offset_parts
+                        .iter()
+                        .find(|(a, _)| *a == axis)
+                        .map(|(_, idx)| idx.clone())
+                        .unwrap_or_else(|| const_int(0))
+                };
+                let stride = build_axis_stride(ndim, axis);
+                offset = offset + idx * stride;
+            }
+            offset
+        };
+
+    let input_offset = build_input_offset(&std::collections::HashMap::new());
+
+    // Elementwise式にロードを埋め込み
+    let mut mappings = std::collections::HashMap::new();
+    let mut non_const_idx = 0;
+    for (i, src) in node.src.iter().enumerate() {
+        if let GraphOp::Const(lit) = &src.op {
+            mappings.insert(i.to_string(), AstNode::Const(lit.clone()));
+        } else if super::elementwise::is_pure_const_node(src) {
+            if let Some(lit) = super::elementwise::evaluate_pure_const(src) {
+                mappings.insert(i.to_string(), AstNode::Const(lit));
+            }
+        } else {
+            let load_node = load(
+                var(ph::input(non_const_idx)),
+                input_offset.clone(),
+                load_dtype.clone(),
+            );
+            mappings.insert(i.to_string(), load_node);
+            non_const_idx += 1;
+        }
+    }
+    let value_expr = expr.substitute(&mappings);
+    let acc_update = assign("acc", accumulate_fn(var("acc"), value_expr));
+
+    // 縮約軸のネストループを生成（内側から外側へ）
+    let mut reduce_loops = block(vec![acc_update], Scope::new());
+    for &axis in axes.iter().rev() {
+        reduce_loops = range(
+            ph::ridx(axis),
+            const_int(0),
+            const_int(1),
+            var(ph::shape(axis)),
+            reduce_loops,
+        );
+    }
+
+    let store_stmt = store(var(ph::OUTPUT), var("tid"), var("acc"));
+
+    let body = block(vec![acc_init, reduce_loops, store_stmt], scope);
+
+    // グリッドサイズ: 出力要素数
+    let grid_size = build_output_elements_excluding_axes(ndim, axes);
+
+    Some(kernel_1d(
+        Some(name.to_string()),
+        params,
+        AstDType::Tuple(vec![]),
+        body,
+        grid_size,
+        const_int(256),
+    ))
+}
+
+/// 複数軸を除いた出力要素数を計算
+fn build_output_elements_excluding_axes(ndim: usize, exclude_axes: &[usize]) -> AstNode {
+    use std::collections::HashSet;
+    let exclude_set: HashSet<usize> = exclude_axes.iter().copied().collect();
+
+    if ndim == 0 {
+        return const_int(1);
+    }
+
+    let mut total: Option<AstNode> = None;
+    for axis in 0..ndim {
+        if !exclude_set.contains(&axis) {
+            let size = var(ph::shape(axis));
+            total = Some(match total {
+                Some(t) => t * size,
+                None => size,
+            });
+        }
+    }
+    total.unwrap_or_else(|| const_int(1))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -74,14 +74,15 @@ impl ProgramRootAbsorptionSuggester {
         absorbable
     }
 
-    /// 浅い探索でKernel(Function)またはKernel(Program)を収集
+    /// 浅い探索でKernel(Function/Kernel/Program)を収集
     ///
     /// Viewノードは1レベルのみ透過し、その先のKernelを収集します。
     /// 複数のKernelがチェーンしている場合、依存順（リーフ優先）で収集します。
     ///
     /// # Note
-    /// Kernel(Program)はKernelMergeSuggesterによって作成されることがあり、
-    /// これも吸収対象とする必要があります。
+    /// - Kernel(Function): Sequential戦略で生成（LoweringSuggester）
+    /// - Kernel(Kernel): Parallel戦略で生成（LoweringSuggester）
+    /// - Kernel(Program): KernelMergeSuggesterで作成
     fn collect_customs_shallow(
         node: &GraphNode,
         result: &mut Vec<GraphNode>,
@@ -94,9 +95,9 @@ impl ProgramRootAbsorptionSuggester {
         visited.insert(ptr);
 
         match &node.op {
-            // Kernel(Function)またはKernel(Program)を検出
+            // Kernel(Function), Kernel(Kernel), またはKernel(Program)を検出
             GraphOp::Kernel {
-                ast: AstNode::Function { .. } | AstNode::Program { .. },
+                ast: AstNode::Function { .. } | AstNode::Kernel { .. } | AstNode::Program { .. },
                 ..
             } => {
                 // 先にこのKernelのsrcを探索（依存関係順）
@@ -168,6 +169,51 @@ impl ProgramRootAbsorptionSuggester {
                 );
                 program_functions.push(kernel_info.ast.clone());
                 vec![kernel_info]
+            }
+            AstNode::Kernel { name, body, .. } => {
+                // Kernel(Kernel)はすでにカーネル形式なので、直接追加
+                // 名前の重複を避ける
+                let base_name = name.clone().unwrap_or_else(|| "kernel".to_string());
+                let unique_name = Self::make_unique_name(&base_name, &used_names);
+                used_names.insert(unique_name.clone());
+
+                // 入力バッファ名を取得
+                let input_buffer_names = self.get_input_buffer_names(custom_node);
+
+                // 入力形状を取得してshape変数を置換
+                let input_shape = self.get_input_shape(custom_node);
+                let mut shape_substitutions: HashMap<String, AstNode> = HashMap::new();
+                for (axis, expr) in input_shape.iter().enumerate() {
+                    let placeholder_name = ph::shape(axis);
+                    let ast_expr: AstNode = expr.clone().into();
+                    shape_substitutions.insert(placeholder_name, ast_expr);
+                }
+                let substituted_body = body.substitute_vars(&shape_substitutions);
+
+                // 名前とbodyを更新したカーネルを作成
+                let updated_kernel = match custom_ast {
+                    AstNode::Kernel {
+                        params,
+                        return_type,
+                        default_grid_size,
+                        default_thread_group_size,
+                        ..
+                    } => AstNode::Kernel {
+                        name: Some(unique_name.clone()),
+                        params: params.clone(),
+                        return_type: return_type.clone(),
+                        body: Box::new(substituted_body),
+                        default_grid_size: default_grid_size.clone(),
+                        default_thread_group_size: default_thread_group_size.clone(),
+                    },
+                    _ => custom_ast.clone(),
+                };
+                program_functions.push(updated_kernel.clone());
+
+                vec![KernelInfo {
+                    ast: updated_kernel,
+                    input_buffer_names,
+                }]
             }
             AstNode::Program { functions, .. } => {
                 // Kernel(Program)の全関数をProgramRootのProgramに追加
@@ -394,6 +440,49 @@ impl ProgramRootAbsorptionSuggester {
         }
 
         new_src
+    }
+
+    /// Kernelノードから入力バッファ名を取得
+    fn get_input_buffer_names(&self, node: &GraphNode) -> Vec<String> {
+        // BufferAbsorptionで取り込まれたinput_buffersを優先的に使用
+        if let GraphOp::Kernel {
+            input_buffers: Some(buffers),
+            ..
+        } = &node.op
+        {
+            return buffers.iter().map(|m| m.name.clone()).collect();
+        }
+
+        // BufferAbsorption前（フォールバック）: srcから入力を取得
+        Self::get_input_nodes(&node.src)
+            .iter()
+            .map(|src| match &src.op {
+                GraphOp::Buffer { name } => name.clone(),
+                _ => format!("intermediate_{}", src.as_ptr() as usize),
+            })
+            .collect()
+    }
+
+    /// Kernelノードから入力形状を取得
+    fn get_input_shape(&self, node: &GraphNode) -> Vec<crate::graph::shape::Expr> {
+        // BufferAbsorptionで取り込まれたinput_buffersを優先的に使用
+        if let GraphOp::Kernel {
+            input_buffers: Some(buffers),
+            ..
+        } = &node.op
+            && let Some(first_buffer) = buffers.first()
+        {
+            return first_buffer.shape.clone();
+        }
+
+        // BufferAbsorption前（フォールバック）: srcから入力を取得
+        let input_nodes = Self::get_input_nodes(&node.src);
+        if !input_nodes.is_empty() {
+            return input_nodes[0].view.shape().to_vec();
+        }
+
+        // フォールバック: ノード自体の形状を使用
+        node.view.shape().to_vec()
     }
 
     /// Kernel関数を作成
@@ -747,7 +836,7 @@ impl GraphSuggester for ProgramRootAbsorptionSuggester {
         let absorbable = self.find_absorbable_customs(graph);
 
         log::debug!(
-            "ProgramRootAbsorptionSuggester: found {} absorbable Kernel(Function) nodes",
+            "ProgramRootAbsorptionSuggester: found {} absorbable Kernel nodes",
             absorbable.len()
         );
 
@@ -755,7 +844,7 @@ impl GraphSuggester for ProgramRootAbsorptionSuggester {
 
         for custom in absorbable {
             if let Some(new_graph) = self.absorb_custom(graph, &custom) {
-                log::debug!("ProgramRootAbsorptionSuggester: absorbed Kernel(Function)");
+                log::debug!("ProgramRootAbsorptionSuggester: absorbed Kernel");
                 suggestions.push(new_graph);
             }
         }

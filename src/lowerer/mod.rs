@@ -132,12 +132,10 @@ pub fn find_program_root_program(graph: &Graph) -> Option<crate::ast::AstNode> {
 /// グラフ内にProgramRoot(Program)またはKernel(Program)が存在しない場合
 pub fn extract_program_from_graph(optimized_graph: Graph) -> crate::ast::AstNode {
     if let Some(program) = find_program_root_program(&optimized_graph) {
-        log::debug!("Found ProgramRoot(Program) node, returning directly");
         return program;
     }
 
     if let Some(program) = find_custom_program(&optimized_graph) {
-        log::debug!("Found Kernel(Program) node, returning directly");
         return program;
     }
 

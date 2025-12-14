@@ -30,16 +30,35 @@ impl OpenCLRenderer {
             code.push_str("\n\n");
 
             // 2. カーネル関数を文字列として生成
+            // AstNode::Kernel (並列) と AstNode::Function (逐次) の両方をサポート
             let mut kernel_sources = Vec::new();
+
             for func in functions {
-                if let AstNode::Kernel {
-                    name: Some(func_name),
-                    ..
-                } = func
-                {
-                    // カーネル関数をOpenCL形式で生成
-                    let kernel_source = self.render_kernel_function(func);
-                    kernel_sources.push((func_name.clone(), kernel_source));
+                match func {
+                    AstNode::Kernel {
+                        name: Some(func_name),
+                        ..
+                    } => {
+                        // 並列カーネル関数をOpenCL形式で生成
+                        let kernel_source = self.render_kernel_function(func);
+                        kernel_sources.push((func_name.clone(), kernel_source));
+                    }
+                    AstNode::Kernel { name: None, .. } => {
+                        log::warn!("OpenCLRenderer: Kernel with no name found");
+                    }
+                    AstNode::Function {
+                        name: Some(func_name),
+                        ..
+                    } => {
+                        // 逐次関数をOpenCLカーネルとして生成
+                        // OpenCLでは逐次関数も__kernelとして実行される
+                        let kernel_source = self.render_sequential_function_as_kernel(func);
+                        kernel_sources.push((func_name.clone(), kernel_source));
+                    }
+                    AstNode::Function { name: None, .. } => {
+                        log::warn!("OpenCLRenderer: Function with no name found");
+                    }
+                    _ => {}
                 }
             }
 
@@ -93,6 +112,55 @@ impl OpenCLRenderer {
     fn render_kernel_function(&mut self, func: &AstNode) -> String {
         // CLikeRendererの共通実装を使用
         self.render_function_node(func)
+    }
+
+    /// 逐次関数をOpenCLカーネルとしてレンダリング
+    ///
+    /// AstNode::FunctionをOpenCLの__kernel関数として変換します。
+    /// 関数本体はそのままレンダリングされ、単一ワークアイテムで実行されます。
+    fn render_sequential_function_as_kernel(&mut self, func: &AstNode) -> String {
+        if let AstNode::Function {
+            name,
+            params,
+            return_type,
+            body,
+        } = func
+        {
+            let mut code = String::new();
+
+            // __kernel修飾子を追加
+            code.push_str("__kernel ");
+
+            // 戻り値型
+            code.push_str(&self.render_dtype_backend(return_type));
+            code.push(' ');
+
+            // 関数名
+            if let Some(n) = name {
+                code.push_str(n);
+            }
+
+            // パラメータ
+            code.push('(');
+            let rendered_params: Vec<String> = params
+                .iter()
+                .map(|p| self.render_param_attribute(p, true))
+                .filter(|s| !s.is_empty())
+                .collect();
+            code.push_str(&rendered_params.join(", "));
+            code.push_str(") {\n");
+
+            // 関数本体をレンダリング
+            *self.indent_level_mut() += 1;
+            code.push_str(&self.render_statement(body));
+            *self.indent_level_mut() -= 1;
+
+            code.push_str("}\n");
+
+            code
+        } else {
+            String::new()
+        }
     }
 
     /// ホストコード（OpenCL初期化 + カーネル実行）を生成
@@ -287,14 +355,45 @@ impl CLikeRenderer for OpenCLRenderer {
 
     fn render_thread_var_declarations(
         &self,
-        _params: &[crate::ast::VarDecl],
+        params: &[crate::ast::VarDecl],
         indent: &str,
     ) -> String {
-        // OpenCLではget_global_id()を使用してスレッドIDを取得
-        format!(
-            "{}int __thread_id = get_global_id(0);\n{}int __local_id = get_local_id(0);\n{}int __group_id = get_group_id(0);\n",
-            indent, indent, indent
-        )
+        use crate::ast::VarKind;
+
+        let mut declarations = String::new();
+
+        // パラメータからThreadId/GroupId等を探し、実際の名前を使用する
+        for param in params {
+            match &param.kind {
+                VarKind::ThreadId(axis) => {
+                    declarations.push_str(&format!(
+                        "{}int {} = get_global_id({});\n",
+                        indent, param.name, axis
+                    ));
+                }
+                VarKind::GroupId(axis) => {
+                    declarations.push_str(&format!(
+                        "{}int {} = get_group_id({});\n",
+                        indent, param.name, axis
+                    ));
+                }
+                VarKind::GroupSize(axis) => {
+                    declarations.push_str(&format!(
+                        "{}int {} = get_local_size({});\n",
+                        indent, param.name, axis
+                    ));
+                }
+                VarKind::GridSize(axis) => {
+                    declarations.push_str(&format!(
+                        "{}int {} = get_global_size({});\n",
+                        indent, param.name, axis
+                    ));
+                }
+                VarKind::Normal => {}
+            }
+        }
+
+        declarations
     }
 
     fn render_math_func(&self, name: &str, args: &[String]) -> String {
@@ -585,11 +684,48 @@ mod tests {
 
     #[test]
     fn test_render_thread_var_declarations() {
-        let renderer = OpenCLRenderer::new();
-        let decls = renderer.render_thread_var_declarations(&[], "    ");
+        use crate::ast::{DType, Mutability, VarDecl, VarKind};
 
-        assert!(decls.contains("get_global_id(0)"));
-        assert!(decls.contains("get_local_id(0)"));
-        assert!(decls.contains("get_group_id(0)"));
+        let renderer = OpenCLRenderer::new();
+
+        // 空のパラメータリストでは何も生成されない
+        let decls = renderer.render_thread_var_declarations(&[], "    ");
+        assert!(decls.is_empty());
+
+        // ThreadIdパラメータがある場合、その名前でget_global_id()を生成
+        let params = vec![VarDecl {
+            name: "tid".to_string(),
+            dtype: DType::Int,
+            kind: VarKind::ThreadId(0),
+            mutability: Mutability::Immutable,
+        }];
+        let decls = renderer.render_thread_var_declarations(&params, "    ");
+        assert!(decls.contains("int tid = get_global_id(0)"));
+
+        // 複数のパラメータタイプ
+        let params = vec![
+            VarDecl {
+                name: "thread_x".to_string(),
+                dtype: DType::Int,
+                kind: VarKind::ThreadId(0),
+                mutability: Mutability::Immutable,
+            },
+            VarDecl {
+                name: "thread_y".to_string(),
+                dtype: DType::Int,
+                kind: VarKind::ThreadId(1),
+                mutability: Mutability::Immutable,
+            },
+            VarDecl {
+                name: "group_x".to_string(),
+                dtype: DType::Int,
+                kind: VarKind::GroupId(0),
+                mutability: Mutability::Immutable,
+            },
+        ];
+        let decls = renderer.render_thread_var_declarations(&params, "    ");
+        assert!(decls.contains("int thread_x = get_global_id(0)"));
+        assert!(decls.contains("int thread_y = get_global_id(1)"));
+        assert!(decls.contains("int group_x = get_group_id(0)"));
     }
 }

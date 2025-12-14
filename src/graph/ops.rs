@@ -54,9 +54,9 @@ pub enum GraphOp {
     FusedElementwiseReduce {
         expr: crate::ast::AstNode,
         reduce_op: ReduceOp,
-        axis: usize,
+        axes: Vec<usize>,
         reduce_strategy: Option<ReduceStrategy>,
-    }, // elementwise -> reduce パターンを融合
+    }, // elementwise -> reduce パターンを融合（複数軸対応）
     FusedElementwiseCumulative {
         expr: crate::ast::AstNode,
         cumulative_op: CumulativeOp,
@@ -65,9 +65,9 @@ pub enum GraphOp {
     }, // elementwise -> cumulative パターンを融合
     FusedReduce {
         ops: Vec<ReduceOp>,
-        axis: usize,
+        axes: Vec<usize>,
         reduce_strategy: Option<ReduceStrategy>,
-    }, // 複数のreduce演算を融合（同じ軸）
+    }, // 複数のreduce演算を融合（複数軸対応）
     Pad {
         padding: Vec<(usize, usize)>, // 各軸の(前, 後)パディング量
         value: f32,                   // パディング値
@@ -630,6 +630,7 @@ pub fn fused_elementwise(inputs: Vec<GraphNode>, expr: crate::ast::AstNode) -> G
 /// elementwise演算とそれに続くreduce演算を融合したノードを作成
 ///
 /// expr内のWildcard("0"), Wildcard("1")等がsrc[0], src[1]に対応します。
+/// 複数軸の縮約をサポート。axesは昇順でソートされている必要があります。
 ///
 /// # 例
 /// ```no_run
@@ -641,30 +642,42 @@ pub fn fused_elementwise(inputs: Vec<GraphNode>, expr: crate::ast::AstNode) -> G
 ///
 /// // reduce_sum(a * b, axis=1) を融合して生成
 /// let expr = wildcard("0") * wildcard("1");
-/// let result = fused_elementwise_reduce(vec![a, b], expr, ReduceOp::Sum, 1);
+/// let result = fused_elementwise_reduce(vec![a, b], expr, ReduceOp::Sum, vec![1]);
 /// ```
 pub fn fused_elementwise_reduce(
     inputs: Vec<GraphNode>,
     expr: crate::ast::AstNode,
     reduce_op: ReduceOp,
-    axis: usize,
+    axes: Vec<usize>,
 ) -> GraphNode {
     if inputs.is_empty() {
         panic!("fused_elementwise_reduce requires at least one input");
     }
+    if axes.is_empty() {
+        panic!("fused_elementwise_reduce requires at least one axis");
+    }
 
     let dtype = inputs[0].dtype.clone();
     let view = inputs[0].view.clone();
-
-    // 指定された軸を縮約した新しいViewを作成
     let mut new_shape = view.shape().to_vec();
-    if axis >= new_shape.len() {
-        panic!(
-            "fused_elementwise_reduce: axis {} is out of bounds for shape {:?}",
-            axis, new_shape
-        );
+
+    // 指定された全ての軸が有効か確認し、降順でremove（インデックスがずれないよう）
+    let mut sorted_axes = axes.clone();
+    sorted_axes.sort();
+    for &axis in &sorted_axes {
+        if axis >= new_shape.len() + sorted_axes.iter().filter(|&&a| a < axis).count() {
+            panic!(
+                "fused_elementwise_reduce: axis {} is out of bounds for shape {:?}",
+                axis,
+                view.shape()
+            );
+        }
     }
-    new_shape.remove(axis);
+
+    // 降順でremoveして新しい形状を計算
+    for &axis in sorted_axes.iter().rev() {
+        new_shape.remove(axis);
+    }
     let reduced_view = View::contiguous(new_shape);
 
     GraphNode::new(
@@ -672,7 +685,7 @@ pub fn fused_elementwise_reduce(
         GraphOp::FusedElementwiseReduce {
             expr,
             reduce_op,
-            axis,
+            axes: sorted_axes,
             reduce_strategy: None,
         },
         inputs,
@@ -815,6 +828,8 @@ pub fn concat(inputs: Vec<GraphNode>, axis: usize) -> GraphNode {
 
 /// 複数のreduce演算を融合したノードを作成
 ///
+/// 複数軸の縮約をサポート。axesは昇順でソートされている必要があります。
+///
 /// # 例
 /// ```no_run
 /// use harp::prelude::*;
@@ -822,26 +837,40 @@ pub fn concat(inputs: Vec<GraphNode>, axis: usize) -> GraphNode {
 /// // 注意: 出力は複数のテンソルになるため、現在の設計では未対応
 /// // 将来的には tuple 出力として実装予定
 /// ```
-pub fn fused_reduce(node: GraphNode, ops: Vec<ReduceOp>, axis: usize) -> GraphNode {
+pub fn fused_reduce(node: GraphNode, ops: Vec<ReduceOp>, axes: Vec<usize>) -> GraphNode {
     let dtype = node.dtype.clone();
     let view = node.view.clone();
 
-    // 指定された軸を縮約した新しいViewを作成
-    let mut new_shape = view.shape().to_vec();
-    if axis >= new_shape.len() {
-        panic!(
-            "fused_reduce: axis {} is out of bounds for shape {:?}",
-            axis, new_shape
-        );
+    if axes.is_empty() {
+        panic!("fused_reduce requires at least one axis");
     }
-    new_shape.remove(axis);
+
+    let mut new_shape = view.shape().to_vec();
+
+    // 指定された全ての軸が有効か確認
+    let mut sorted_axes = axes.clone();
+    sorted_axes.sort();
+    for &axis in &sorted_axes {
+        if axis >= new_shape.len() + sorted_axes.iter().filter(|&&a| a < axis).count() {
+            panic!(
+                "fused_reduce: axis {} is out of bounds for shape {:?}",
+                axis,
+                view.shape()
+            );
+        }
+    }
+
+    // 降順でremoveして新しい形状を計算
+    for &axis in sorted_axes.iter().rev() {
+        new_shape.remove(axis);
+    }
     let reduced_view = View::contiguous(new_shape);
 
     GraphNode::new(
         dtype,
         GraphOp::FusedReduce {
             ops,
-            axis,
+            axes: sorted_axes,
             reduce_strategy: None,
         },
         vec![node],

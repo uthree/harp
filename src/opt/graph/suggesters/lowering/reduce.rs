@@ -9,8 +9,9 @@ use crate::graph::{CumulativeOp, GraphNode, GraphOp, ReduceOp};
 use std::collections::HashMap;
 
 use super::helpers::{
-    build_contiguous_offset, build_contiguous_offset_excluding_axis, get_reduce_init,
-    graph_dtype_to_ast, wrap_with_loops_excluding_axis_with_scope,
+    build_contiguous_offset, build_contiguous_offset_excluding_axes,
+    build_contiguous_offset_excluding_axis, get_reduce_init, graph_dtype_to_ast,
+    wrap_with_loops_excluding_axes_with_scope, wrap_with_loops_excluding_axis_with_scope,
 };
 
 /// Reduce演算の関数を生成
@@ -125,14 +126,18 @@ pub fn build_cumulative_function(
     ))
 }
 
-/// FusedElementwiseReduce演算の関数を生成
+/// FusedElementwiseReduce演算の関数を生成（複数軸対応）
 pub fn build_fused_elementwise_reduce_function(
     node: &GraphNode,
     expr: &AstNode,
     reduce_op: &ReduceOp,
-    axis: usize,
+    axes: &[usize],
     name: &str,
 ) -> Option<AstNode> {
+    if axes.is_empty() {
+        return None;
+    }
+
     let input = node.src.first()?;
     let input_shape = input.view.shape();
     let ndim = input_shape.len();
@@ -170,18 +175,22 @@ pub fn build_fused_elementwise_reduce_function(
     }
     let value_expr = expr.substitute(&mappings);
 
-    let output_offset = build_contiguous_offset_excluding_axis(ndim, axis);
+    let output_offset = build_contiguous_offset_excluding_axes(ndim, axes);
 
     let acc_var = "acc";
     let acc_update = assign(acc_var, accumulate_fn(var(acc_var), value_expr));
 
-    let reduce_loop = range(
-        ph::ridx(axis),
-        const_int(0),
-        const_int(1),
-        var(ph::shape(axis)),
-        block(vec![acc_update], Scope::new()),
-    );
+    // 複数軸の縮約ループを生成（内側から外側へネスト）
+    let mut reduce_loops = block(vec![acc_update], Scope::new());
+    for &axis in axes.iter().rev() {
+        reduce_loops = range(
+            ph::ridx(axis),
+            const_int(0),
+            const_int(1),
+            var(ph::shape(axis)),
+            reduce_loops,
+        );
+    }
 
     let mut scope = Scope::new();
     let _ = scope.declare(
@@ -192,8 +201,8 @@ pub fn build_fused_elementwise_reduce_function(
     let acc_init = assign(acc_var, init_value);
     let store_stmt = store(var(ph::OUTPUT), output_offset, var(acc_var));
 
-    let inner_body = vec![acc_init, reduce_loop, store_stmt];
-    let body = wrap_with_loops_excluding_axis_with_scope(ndim, axis, inner_body, scope);
+    let inner_body = vec![acc_init, reduce_loops, store_stmt];
+    let body = wrap_with_loops_excluding_axes_with_scope(ndim, axes, inner_body, scope);
 
     Some(function(
         Some(name.to_string()),

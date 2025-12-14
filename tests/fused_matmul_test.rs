@@ -40,7 +40,7 @@ fn matmul(a: GraphNode, b: GraphNode) -> GraphNode {
         vec![a_expanded, b_t_expanded],
         expr,
         ReduceOp::Sum,
-        2, // K軸でreduce
+        vec![2], // K軸でreduce
     )
 }
 
