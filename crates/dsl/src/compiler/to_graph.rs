@@ -113,6 +113,11 @@ fn compile_graph_with_context(
     let mut graph = Graph::new();
     let mut env: HashMap<String, GraphNode> = HashMap::new();
 
+    // Register shape variable defaults
+    for (var_name, default_value) in &dsl_graph.shape_vars {
+        graph.set_shape_var_default(var_name.clone(), *default_value);
+    }
+
     // Register inputs
     for input in &dsl_graph.inputs {
         let dtype: DType = input.dtype.into();
@@ -124,17 +129,30 @@ fn compile_graph_with_context(
         env.insert(input.name.clone(), node);
     }
 
-    // Compile body statements
+    // Find and validate return statement
+    let return_names = find_return_statement(&dsl_graph.body, &dsl_graph.name)?;
+
+    // Validate return count matches output count
+    if return_names.len() != dsl_graph.outputs.len() {
+        return Err(DslError::CompilationError(format!(
+            "Graph '{}' has {} outputs but return statement has {} values",
+            dsl_graph.name,
+            dsl_graph.outputs.len(),
+            return_names.len()
+        )));
+    }
+
+    // Compile body statements (excluding return, which is handled separately)
     for stmt in &dsl_graph.body {
         compile_statement_with_context(stmt, &mut env, &mut graph, ctx)?;
     }
 
-    // Register outputs
-    for output in &dsl_graph.outputs {
-        let node = env.get(&output.name).ok_or_else(|| {
+    // Register outputs using return statement names paired with output parameter names
+    for (return_name, output) in return_names.iter().zip(dsl_graph.outputs.iter()) {
+        let node = env.get(return_name).ok_or_else(|| {
             DslError::UndefinedVariable(format!(
-                "Output '{}' not found in environment",
-                output.name
+                "Return value '{}' not found in graph '{}'",
+                return_name, dsl_graph.name
             ))
         })?;
         graph.output(&output.name, node.clone());
@@ -148,10 +166,34 @@ fn compile_graph_with_context(
     Ok(graph)
 }
 
+/// Find and validate return statement in graph body
+fn find_return_statement(body: &[DslStatement], graph_name: &str) -> Result<Vec<String>, DslError> {
+    // Find return statement (should be at the end, but we search all)
+    let return_stmt = body.iter().find_map(|stmt| {
+        if let DslStatement::Return { names } = stmt {
+            Some(names.clone())
+        } else {
+            None
+        }
+    });
+
+    return_stmt.ok_or_else(|| {
+        DslError::CompilationError(format!(
+            "Graph '{}' is missing a return statement",
+            graph_name
+        ))
+    })
+}
+
 /// Compile a single graph definition (for subgraphs, without adding subgraphs to result)
 fn compile_subgraph(dsl_graph: &DslGraph, ctx: &mut CompileContext) -> Result<Graph, DslError> {
     let mut graph = Graph::new();
     let mut env: HashMap<String, GraphNode> = HashMap::new();
+
+    // Register shape variable defaults
+    for (var_name, default_value) in &dsl_graph.shape_vars {
+        graph.set_shape_var_default(var_name.clone(), *default_value);
+    }
 
     // Register inputs
     for input in &dsl_graph.inputs {
@@ -164,17 +206,30 @@ fn compile_subgraph(dsl_graph: &DslGraph, ctx: &mut CompileContext) -> Result<Gr
         env.insert(input.name.clone(), node);
     }
 
+    // Find and validate return statement
+    let return_names = find_return_statement(&dsl_graph.body, &dsl_graph.name)?;
+
+    // Validate return count matches output count
+    if return_names.len() != dsl_graph.outputs.len() {
+        return Err(DslError::CompilationError(format!(
+            "Graph '{}' has {} outputs but return statement has {} values",
+            dsl_graph.name,
+            dsl_graph.outputs.len(),
+            return_names.len()
+        )));
+    }
+
     // Compile body statements
     for stmt in &dsl_graph.body {
         compile_statement_with_context(stmt, &mut env, &mut graph, ctx)?;
     }
 
-    // Register outputs
-    for output in &dsl_graph.outputs {
-        let node = env.get(&output.name).ok_or_else(|| {
+    // Register outputs using return statement names paired with output parameter names
+    for (return_name, output) in return_names.iter().zip(dsl_graph.outputs.iter()) {
+        let node = env.get(return_name).ok_or_else(|| {
             DslError::UndefinedVariable(format!(
-                "Output '{}' not found in environment",
-                output.name
+                "Return value '{}' not found in graph '{}'",
+                return_name, dsl_graph.name
             ))
         })?;
         graph.output(&output.name, node.clone());
@@ -190,13 +245,13 @@ fn compile_statement_with_context(
     ctx: &mut CompileContext,
 ) -> Result<(), DslError> {
     match stmt {
-        DslStatement::Let { name, value } | DslStatement::Assign { name, value } => {
+        DslStatement::Assign { name, value } => {
             let node = compile_expr_with_context(value, env, graph, ctx)?.with_name(name);
             env.insert(name.clone(), node);
         }
-        DslStatement::TupleLet { names, value } => {
-            // Tuple unpacking: let (a, b, c) = subgraph_call(...)
-            compile_tuple_let(names, value, env, graph, ctx)?;
+        DslStatement::TupleAssign { names, value } => {
+            // Tuple unpacking: (a, b, c) = subgraph_call(...)
+            compile_tuple_assign(names, value, env, graph, ctx)?;
         }
         DslStatement::Return { .. } => {
             // Return is handled implicitly through outputs
@@ -205,8 +260,8 @@ fn compile_statement_with_context(
     Ok(())
 }
 
-/// Compile a tuple let statement: let (a, b, c) = subgraph_call(...)
-fn compile_tuple_let(
+/// Compile a tuple assignment: (a, b, c) = subgraph_call(...)
+fn compile_tuple_assign(
     names: &[String],
     value: &DslExpr,
     env: &mut HashMap<String, GraphNode>,
@@ -965,11 +1020,11 @@ fn compile_statement(
     graph: &mut Graph,
 ) -> Result<(), DslError> {
     match stmt {
-        DslStatement::Let { name, value } | DslStatement::Assign { name, value } => {
+        DslStatement::Assign { name, value } => {
             let node = compile_expr(value, env, graph)?.with_name(name);
             env.insert(name.clone(), node);
         }
-        DslStatement::TupleLet { .. } => {
+        DslStatement::TupleAssign { .. } => {
             // Tuple unpacking is not supported in legacy API (no subgraph support)
             return Err(DslError::UnsupportedOperation(
                 "Tuple unpacking requires subgraph support, use compile() instead of compile_legacy()".to_string(),
@@ -1254,8 +1309,9 @@ mod tests {
     #[test]
     fn test_compile_simple_add() {
         let source = r#"
-            graph main(a: f32[N, M], b: f32[N, M]) -> (c: f32[N, M]) {
+            graph<N=10, M=20> main(a: f32[N, M], b: f32[N, M]) -> (c: f32[N, M]) {
                 c = a + b
+                return c
             }
         "#;
 
@@ -1269,9 +1325,9 @@ mod tests {
     #[test]
     fn test_compile_method_chain() {
         let source = r#"
-            graph main(x: f32[N, M]) -> (y: f32[1, N, M]) {
-                let a = x.unsqueeze(0)
-                y = a
+            graph<N=10, M=20> main(x: f32[N, M]) -> (y: f32[1, N, M]) {
+                a = x.unsqueeze(0)
+                return a
             }
         "#;
 
@@ -1285,13 +1341,15 @@ mod tests {
     #[test]
     fn test_compile_subgraph_call() {
         let source = r#"
-            graph relu(x: f32[N, M]) -> (y: f32[N, M]) {
-                let zero = 0.0
-                y = max(x, zero)
+            graph<N=10, M=20> relu(x: f32[N, M]) -> (y: f32[N, M]) {
+                zero = 0.0
+                result = max(x, zero)
+                return result
             }
 
-            graph main(input: f32[B, 256]) -> (output: f32[B, 256]) {
+            graph<B=1> main(input: f32[B, 256]) -> (output: f32[B, 256]) {
                 output = relu(input)
+                return output
             }
         "#;
 
@@ -1307,17 +1365,20 @@ mod tests {
     #[test]
     fn test_compile_nested_subgraph() {
         let source = r#"
-            graph square(x: f32[N]) -> (y: f32[N]) {
-                y = x * x
+            graph<N=10> square(x: f32[N]) -> (y: f32[N]) {
+                result = x * x
+                return result
             }
 
-            graph quad(x: f32[N]) -> (y: f32[N]) {
-                let sq = square(x)
-                y = square(sq)
+            graph<N=10> quad(x: f32[N]) -> (y: f32[N]) {
+                sq = square(x)
+                result = square(sq)
+                return result
             }
 
             graph main(input: f32[10]) -> (output: f32[10]) {
-                output = quad(input)
+                result = quad(input)
+                return result
             }
         "#;
 
@@ -1332,8 +1393,9 @@ mod tests {
     #[test]
     fn test_no_main_graph_error() {
         let source = r#"
-            graph add(a: f32[N], b: f32[N]) -> (c: f32[N]) {
-                c = a + b
+            graph<N=10> add(a: f32[N], b: f32[N]) -> (c: f32[N]) {
+                result = a + b
+                return result
             }
         "#;
 
@@ -1346,8 +1408,9 @@ mod tests {
     #[test]
     fn test_undefined_subgraph_error() {
         let source = r#"
-            graph main(input: f32[N]) -> (output: f32[N]) {
-                output = unknown_func(input)
+            graph<N=10> main(input: f32[N]) -> (output: f32[N]) {
+                result = unknown_func(input)
+                return result
             }
         "#;
 
@@ -1360,12 +1423,14 @@ mod tests {
     #[test]
     fn test_subgraph_argument_mismatch() {
         let source = r#"
-            graph add(a: f32[N], b: f32[N]) -> (c: f32[N]) {
-                c = a + b
+            graph<N=10> add(a: f32[N], b: f32[N]) -> (c: f32[N]) {
+                result = a + b
+                return result
             }
 
             graph main(input: f32[10]) -> (output: f32[10]) {
-                output = add(input)
+                result = add(input)
+                return result
             }
         "#;
 
@@ -1381,8 +1446,9 @@ mod tests {
     #[test]
     fn test_compile_keyword_arg_dim() {
         let source = r#"
-            graph main(x: f32[N, M]) -> (y: f32[N]) {
-                y = x.sum(dim=1)
+            graph<N=10, M=20> main(x: f32[N, M]) -> (y: f32[N]) {
+                result = x.sum(dim=1)
+                return result
             }
         "#;
 
@@ -1394,8 +1460,9 @@ mod tests {
     #[test]
     fn test_compile_keyword_arg_axis() {
         let source = r#"
-            graph main(x: f32[N, M]) -> (y: f32[N]) {
-                y = x.sum(axis=1)
+            graph<N=10, M=20> main(x: f32[N, M]) -> (y: f32[N]) {
+                result = x.sum(axis=1)
+                return result
             }
         "#;
 
@@ -1407,8 +1474,9 @@ mod tests {
     #[test]
     fn test_compile_positional_arg() {
         let source = r#"
-            graph main(x: f32[N, M]) -> (y: f32[N]) {
-                y = x.sum(1)
+            graph<N=10, M=20> main(x: f32[N, M]) -> (y: f32[N]) {
+                result = x.sum(1)
+                return result
             }
         "#;
 
@@ -1420,17 +1488,17 @@ mod tests {
     #[test]
     fn test_tuple_unpacking_multi_output() {
         let source = r#"
-            graph split_add_mul(x: f32[N]) -> (added: f32[N], multiplied: f32[N]) {
-                let one = 1.0
-                let two = 2.0
-                added = x + one
-                multiplied = x * two
+            graph<N=10> split_add_mul(x: f32[N]) -> (added: f32[N], multiplied: f32[N]) {
+                one = 1.0
+                two = 2.0
+                a = x + one
+                m = x * two
+                return a, m
             }
 
             graph main(input: f32[10]) -> (out1: f32[10], out2: f32[10]) {
-                let (a, b) = split_add_mul(input)
-                out1 = a
-                out2 = b
+                (a, b) = split_add_mul(input)
+                return a, b
             }
         "#;
 
@@ -1445,14 +1513,13 @@ mod tests {
     #[test]
     fn test_tuple_unpacking_mismatch_error() {
         let source = r#"
-            graph two_outputs(x: f32[N]) -> (a: f32[N], b: f32[N]) {
-                a = x
-                b = x
+            graph<N=10> two_outputs(x: f32[N]) -> (a: f32[N], b: f32[N]) {
+                return x, x
             }
 
             graph main(input: f32[10]) -> (out: f32[10]) {
-                let (x, y, z) = two_outputs(input)
-                out = x
+                (x, y, z) = two_outputs(input)
+                return x
             }
         "#;
 
@@ -1462,5 +1529,20 @@ mod tests {
         assert!(result.is_err());
         let err_str = result.unwrap_err().to_string();
         assert!(err_str.contains("2 outputs") && err_str.contains("3 elements"));
+    }
+
+    #[test]
+    fn test_shape_var_defaults_registered() {
+        let source = r#"
+            graph<N=32, M=64> main(x: f32[N, M]) -> (y: f32[N, M]) {
+                return x
+            }
+        "#;
+
+        let module = parse(source).expect("Failed to parse");
+        let graph = compile(&module).expect("Failed to compile");
+
+        assert_eq!(graph.shape_var_defaults().get("N"), Some(&32));
+        assert_eq!(graph.shape_var_defaults().get("M"), Some(&64));
     }
 }

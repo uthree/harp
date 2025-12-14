@@ -20,8 +20,10 @@ graph_def = {
 // - A single tensor type: f32[N] (output name defaults to "output")
 return_type = { "(" ~ param_list? ~ ")" | tensor_type }
 
-// Generic parameters: <A, B, C>
-generic_params = { "<" ~ ident ~ ("," ~ ident)* ~ ">" }
+// Generic parameters with default values: <A=1, B=2>
+// All shape variables must have default values
+generic_params = { "<" ~ shape_var_def ~ ("," ~ shape_var_def)* ~ ">" }
+shape_var_def = { ident ~ "=" ~ integer }
 
 // Parameter list
 param_list = { param ~ ("," ~ param)* }
@@ -47,16 +49,22 @@ shape_mul_op = { "*" | "/" | "%" }
 block = { "{" ~ statement* ~ "}" }
 
 // Statements
+// Note: 'let' keyword is not used - all assignments use direct assignment syntax
 statement = {
-    let_statement
+    tuple_assign_statement
     | assign_statement
     | return_statement
 }
 
-let_statement = { "let" ~ (tuple_pattern | ident) ~ "=" ~ expr }
+// Tuple assignment: (a, b) = multi_output_call()
+tuple_assign_statement = { tuple_pattern ~ "=" ~ expr }
 tuple_pattern = { "(" ~ ident ~ ("," ~ ident)+ ~ ")" }
+
+// Simple assignment: x = expr
 assign_statement = { ident ~ "=" ~ expr }
-return_statement = { "return" ~ ident }
+
+// Return statement: return a or return a, b, c
+return_statement = { "return" ~ ident ~ ("," ~ ident)* }
 
 // Expressions
 expr = { comparison }

@@ -13,8 +13,9 @@ pub struct DslModule {
 pub struct DslGraph {
     /// Graph name
     pub name: String,
-    /// Shape variable names (generic parameters)
-    pub shape_vars: Vec<String>,
+    /// Shape variables with default values: (name, default_value)
+    /// All shape variables must have default values
+    pub shape_vars: Vec<(String, isize)>,
     /// Input parameters
     pub inputs: Vec<DslParam>,
     /// Output parameters
@@ -82,15 +83,14 @@ pub enum ShapeBinOp {
 /// Statement in graph body
 #[derive(Debug, Clone)]
 pub enum DslStatement {
-    /// Let binding: let x = expr
-    Let { name: String, value: DslExpr },
-    /// Tuple let binding: let (a, b) = expr
-    /// Used for multi-output subgraph calls
-    TupleLet { names: Vec<String>, value: DslExpr },
-    /// Assignment: x = expr
+    /// Simple assignment: x = expr
     Assign { name: String, value: DslExpr },
-    /// Return statement (optional, outputs are implicit)
-    Return { name: String },
+    /// Tuple assignment: (a, b) = expr
+    /// Used for multi-output subgraph calls
+    TupleAssign { names: Vec<String>, value: DslExpr },
+    /// Return statement: return a or return a, b, c
+    /// Required at the end of each graph to specify outputs
+    Return { names: Vec<String> },
 }
 
 /// Expression

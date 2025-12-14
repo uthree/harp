@@ -2,23 +2,24 @@
 // This example demonstrates tuple unpacking for subgraphs with multiple outputs.
 
 // Split layer: returns both the linear output and the activated output
-graph linear_with_preact(x: f32[B, I], w: f32[I, O], b: f32[O]) -> (preact: f32[B, O], act: f32[B, O]) {
-    let xw = matmul(x, w)
-    let b_exp = b.unsqueeze(0).expand([B, O])
-    preact = xw + b_exp
+graph<B=1, I=1, O=1> linear_with_preact(x: f32[B, I], w: f32[I, O], b: f32[O]) -> (preact: f32[B, O], act: f32[B, O]) {
+    xw = matmul(x, w)
+    b_exp = b.unsqueeze(0).expand([B, O])
+    pre = xw + b_exp
 
-    let zero = 0.0
-    act = max(preact, zero)
+    zero = 0.0
+    activated = max(pre, zero)
+    return pre, activated
 }
 
 // Residual connection: returns both sum and individual components
-graph residual_add(x: f32[B, N], y: f32[B, N]) -> (sum: f32[B, N], original: f32[B, N]) {
-    sum = x + y
-    original = x
+graph<B=1, N=1> residual_add(x: f32[B, N], y: f32[B, N]) -> (sum: f32[B, N], original: f32[B, N]) {
+    s = x + y
+    return s, x
 }
 
 // Main graph using multi-output subgraphs with tuple unpacking
-graph main(
+graph<B=1, D=1, H=1> main(
     x: f32[B, D],
     w1: f32[D, H],
     b1: f32[H],
@@ -26,12 +27,11 @@ graph main(
     b2: f32[D]
 ) -> (output: f32[B, D], preactivation: f32[B, D]) {
     // First layer with tuple unpacking
-    let (pre1, act1) = linear_with_preact(x, w1, b1)
+    (pre1, act1) = linear_with_preact(x, w1, b1)
 
     // Second layer
-    let (pre2, act2) = linear_with_preact(act1, w2, b2)
+    (pre2, act2) = linear_with_preact(act1, w2, b2)
 
-    // Return final output and first preactivation
-    output = act2
-    preactivation = pre2
+    // Return final output and second preactivation
+    return act2, pre2
 }

@@ -113,28 +113,34 @@ Graph最適化フェーズでは、以下のSuggesterにより段階的に演算
 
 ### DSL構文
 
+- 動的Shape変数を使用する場合は、`graph<変数名=デフォルト値>` の形式で宣言が必須
+- 変数への代入は `let` キーワードなしで直接行う
+- 各グラフの最後には `return` 文が必須（単一出力: `return x`、複数出力: `return a, b`）
+
 ```harp
-// サブグラフ定義
-graph relu(x: f32[B, N]) -> (y: f32[B, N]) {
-    let zero = 0.0
-    y = max(x, zero)
+// サブグラフ定義（動的Shape変数B, Nにデフォルト値を指定）
+graph<B=1, N=1> relu(x: f32[B, N]) -> (y: f32[B, N]) {
+    zero = 0.0
+    result = max(x, zero)
+    return result
 }
 
 // メイングラフからサブグラフを呼び出し
-graph main(input: f32[B, D]) -> (output: f32[B, D]) {
-    output = relu(input)
+graph<B=1, D=1> main(input: f32[B, D]) -> (output: f32[B, D]) {
+    result = relu(input)
+    return result
 }
 
 // 複数出力サブグラフのタプル分解
-graph multi_output(x: f32[N]) -> (a: f32[N], b: f32[N]) {
-    a = x + 1.0
-    b = x * 2.0
+graph<N=1> multi_output(x: f32[N]) -> (a: f32[N], b: f32[N]) {
+    r1 = x + 1.0
+    r2 = x * 2.0
+    return r1, r2
 }
 
 graph main(input: f32[10]) -> (out1: f32[10], out2: f32[10]) {
-    let (a, b) = multi_output(input)
-    out1 = a
-    out2 = b
+    (a, b) = multi_output(input)
+    return a, b
 }
 ```
 

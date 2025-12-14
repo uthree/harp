@@ -20,7 +20,6 @@ pub struct DslParser;
 pub const RESERVED_KEYWORDS: &[&str] = &[
     // 構文キーワード
     "graph",
-    "let",
     "return",
     // fused演算（専用構文を持つため予約語）
     "fused",
@@ -90,11 +89,23 @@ fn parse_graph_def(pair: pest::iterators::Pair<Rule>) -> Result<DslGraph, DslErr
     for p in inner {
         match p.as_rule() {
             Rule::generic_params => {
-                for ident in p.into_inner() {
-                    if ident.as_rule() == Rule::ident {
+                for shape_var_def in p.into_inner() {
+                    if shape_var_def.as_rule() == Rule::shape_var_def {
+                        let mut parts = shape_var_def.into_inner();
+                        let ident = parts.next().unwrap();
                         let var_name = ident.as_str();
                         check_reserved_keyword(var_name, &ident)?;
-                        shape_vars.push(var_name.to_string());
+
+                        let default_value: isize =
+                            parts.next().unwrap().as_str().parse().map_err(|_| {
+                                DslError::ParseError {
+                                    line: 0,
+                                    column: 0,
+                                    message: "Invalid default value for shape variable".to_string(),
+                                }
+                            })?;
+
+                        shape_vars.push((var_name.to_string(), default_value));
                     }
                 }
             }
@@ -283,42 +294,23 @@ fn parse_block(pair: pest::iterators::Pair<Rule>) -> Result<Vec<DslStatement>, D
 fn parse_statement(pair: pest::iterators::Pair<Rule>) -> Result<DslStatement, DslError> {
     let inner = pair.into_inner().next().unwrap();
     match inner.as_rule() {
-        Rule::let_statement => {
+        Rule::tuple_assign_statement => {
+            // Tuple assignment: (a, b) = expr
             let mut parts = inner.into_inner();
-            let first = parts.next().unwrap();
-
-            match first.as_rule() {
-                Rule::tuple_pattern => {
-                    // Tuple let: let (a, b) = expr
-                    let mut names = Vec::new();
-                    for ident in first.into_inner() {
-                        if ident.as_rule() == Rule::ident {
-                            let name = ident.as_str();
-                            check_reserved_keyword(name, &ident)?;
-                            names.push(name.to_string());
-                        }
-                    }
-                    let value = parse_expr(parts.next().unwrap())?;
-                    Ok(DslStatement::TupleLet { names, value })
+            let tuple_pattern = parts.next().unwrap();
+            let mut names = Vec::new();
+            for ident in tuple_pattern.into_inner() {
+                if ident.as_rule() == Rule::ident {
+                    let name = ident.as_str();
+                    check_reserved_keyword(name, &ident)?;
+                    names.push(name.to_string());
                 }
-                Rule::ident => {
-                    // Simple let: let x = expr
-                    let name = first.as_str();
-                    check_reserved_keyword(name, &first)?;
-                    let value = parse_expr(parts.next().unwrap())?;
-                    Ok(DslStatement::Let {
-                        name: name.to_string(),
-                        value,
-                    })
-                }
-                _ => Err(DslError::ParseError {
-                    line: 0,
-                    column: 0,
-                    message: format!("Unexpected in let statement: {:?}", first.as_rule()),
-                }),
             }
+            let value = parse_expr(parts.next().unwrap())?;
+            Ok(DslStatement::TupleAssign { names, value })
         }
         Rule::assign_statement => {
+            // Simple assignment: x = expr
             let mut parts = inner.into_inner();
             let name_pair = parts.next().unwrap();
             let name = name_pair.as_str();
@@ -330,10 +322,14 @@ fn parse_statement(pair: pest::iterators::Pair<Rule>) -> Result<DslStatement, Ds
             })
         }
         Rule::return_statement => {
-            let mut parts = inner.into_inner();
-            let name = parts.next().unwrap().as_str().to_string();
-            // return文の識別子はチェック不要（変数参照なので）
-            Ok(DslStatement::Return { name })
+            // return a or return a, b, c
+            let mut names = Vec::new();
+            for ident in inner.into_inner() {
+                if ident.as_rule() == Rule::ident {
+                    names.push(ident.as_str().to_string());
+                }
+            }
+            Ok(DslStatement::Return { names })
         }
         _ => Err(DslError::ParseError {
             line: 0,
@@ -771,7 +767,7 @@ mod tests {
     #[test]
     fn test_parse_simple_graph() {
         let source = r#"
-            graph add(a: f32[N, M], b: f32[N, M]) -> (c: f32[N, M]) {
+            graph<N=1, M=1> add(a: f32[N, M], b: f32[N, M]) -> (c: f32[N, M]) {
                 c = a + b
             }
         "#;
@@ -784,22 +780,25 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_generic_params() {
+    fn test_parse_generic_params_with_defaults() {
         let source = r#"
-            graph<L, M, N> matmul(a: f32[L, M], b: f32[M, N]) -> (c: f32[L, N]) {
+            graph<L=32, M=64, N=128> matmul(a: f32[L, M], b: f32[M, N]) -> (c: f32[L, N]) {
                 c = a
             }
         "#;
 
         let module = parse(source).expect("Failed to parse");
-        assert_eq!(module.graphs[0].shape_vars, vec!["L", "M", "N"]);
+        assert_eq!(module.graphs[0].shape_vars.len(), 3);
+        assert_eq!(module.graphs[0].shape_vars[0], ("L".to_string(), 32));
+        assert_eq!(module.graphs[0].shape_vars[1], ("M".to_string(), 64));
+        assert_eq!(module.graphs[0].shape_vars[2], ("N".to_string(), 128));
     }
 
     #[test]
     fn test_parse_method_chain() {
         let source = r#"
-            graph test(x: f32[N]) -> (y: f32[N]) {
-                let a = x.unsqueeze(0)
+            graph<N=10> test(x: f32[N]) -> (y: f32[N]) {
+                a = x.unsqueeze(0)
                 y = a.sum(1)
             }
         "#;
@@ -811,7 +810,7 @@ mod tests {
     #[test]
     fn test_parse_shape_expr() {
         let source = r#"
-            graph test(x: f32[N * 2, M + 1]) -> (y: f32[N, M]) {
+            graph<N=10, M=20> test(x: f32[N * 2, M + 1]) -> (y: f32[N, M]) {
                 y = x
             }
         "#;
@@ -825,7 +824,7 @@ mod tests {
     fn test_parse_simplified_return() {
         // Test simplified return syntax: -> f32[N, M] instead of -> (output: f32[N, M])
         let source = r#"
-            graph add(a: f32[N, M], b: f32[N, M]) -> f32[N, M] {
+            graph<N=10, M=20> add(a: f32[N, M], b: f32[N, M]) -> f32[N, M] {
                 output = a + b
             }
         "#;
@@ -840,7 +839,7 @@ mod tests {
     #[test]
     fn test_reserved_keyword_in_graph_name() {
         let source = r#"
-            graph graph(a: f32[N]) -> (b: f32[N]) {
+            graph<N=10> graph(a: f32[N]) -> (b: f32[N]) {
                 b = a
             }
         "#;
@@ -851,24 +850,11 @@ mod tests {
     }
 
     #[test]
-    fn test_reserved_keyword_in_let_variable() {
+    fn test_reserved_keyword_in_variable() {
         let source = r#"
-            graph test(a: f32[N]) -> (b: f32[N]) {
-                let return = a
+            graph<N=10> test(a: f32[N]) -> (b: f32[N]) {
+                return = a
                 b = return
-            }
-        "#;
-        let result = parse(source);
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.to_string().contains("reserved keyword"));
-    }
-
-    #[test]
-    fn test_reserved_keyword_in_param_name() {
-        let source = r#"
-            graph test(let: f32[N]) -> (b: f32[N]) {
-                b = let
             }
         "#;
         let result = parse(source);
@@ -881,8 +867,8 @@ mod tests {
     fn test_typename_allowed_as_variable() {
         // 型名は文脈で区別できるため、変数名として使用可能
         let source = r#"
-            graph test(a: f32[N]) -> (b: f32[N]) {
-                let f32 = a
+            graph<N=10> test(a: f32[N]) -> (b: f32[N]) {
+                f32 = a
                 b = f32
             }
         "#;
@@ -897,8 +883,8 @@ mod tests {
     fn test_builtin_function_name_allowed_as_variable() {
         // 組み込み関数名は変数名として使用可能
         let source = r#"
-            graph test(a: f32[N]) -> (b: f32[N]) {
-                let sum = a
+            graph<N=10> test(a: f32[N]) -> (b: f32[N]) {
+                sum = a
                 b = sum
             }
         "#;
@@ -910,48 +896,61 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_tuple_let() {
+    fn test_parse_tuple_assign() {
         let source = r#"
-            graph main(x: f32[N]) -> (a: f32[N], b: f32[N]) {
-                let (first, second) = split(x)
+            graph<N=10> main(x: f32[N]) -> (a: f32[N], b: f32[N]) {
+                (first, second) = split(x)
                 a = first
                 b = second
             }
         "#;
 
-        let module = parse(source).expect("Failed to parse tuple let");
+        let module = parse(source).expect("Failed to parse tuple assignment");
         assert_eq!(module.graphs.len(), 1);
 
-        // Check that the first statement is a TupleLet
+        // Check that the first statement is a TupleAssign
         let first_stmt = &module.graphs[0].body[0];
         match first_stmt {
-            DslStatement::TupleLet { names, value: _ } => {
+            DslStatement::TupleAssign { names, value: _ } => {
                 assert_eq!(names.len(), 2);
                 assert_eq!(names[0], "first");
                 assert_eq!(names[1], "second");
             }
-            _ => panic!("Expected TupleLet statement, got {:?}", first_stmt),
+            _ => panic!("Expected TupleAssign statement, got {:?}", first_stmt),
         }
     }
 
     #[test]
-    fn test_parse_tuple_let_three_elements() {
+    fn test_parse_tuple_assign_three_elements() {
         let source = r#"
-            graph main(x: f32[N]) -> (a: f32[N], b: f32[N], c: f32[N]) {
-                let (x1, x2, x3) = triple_split(x)
+            graph<N=10> main(x: f32[N]) -> (a: f32[N], b: f32[N], c: f32[N]) {
+                (x1, x2, x3) = triple_split(x)
                 a = x1
                 b = x2
                 c = x3
             }
         "#;
 
-        let module = parse(source).expect("Failed to parse tuple let with 3 elements");
+        let module = parse(source).expect("Failed to parse tuple assignment with 3 elements");
         let first_stmt = &module.graphs[0].body[0];
         match first_stmt {
-            DslStatement::TupleLet { names, .. } => {
+            DslStatement::TupleAssign { names, .. } => {
                 assert_eq!(names.len(), 3);
             }
-            _ => panic!("Expected TupleLet"),
+            _ => panic!("Expected TupleAssign"),
         }
+    }
+
+    #[test]
+    fn test_no_shape_vars_graph() {
+        // グラフに動的shapeがない場合は<>を省略可能
+        let source = r#"
+            graph add(a: f32[10, 20], b: f32[10, 20]) -> (c: f32[10, 20]) {
+                c = a + b
+            }
+        "#;
+
+        let module = parse(source).expect("Failed to parse graph without shape vars");
+        assert_eq!(module.graphs[0].shape_vars.len(), 0);
     }
 }

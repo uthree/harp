@@ -3,33 +3,39 @@
 // These operations change how the tensor is viewed without copying data
 
 // Unsqueeze: add a dimension of size 1
-graph add_batch_dim(x: f32[H, W]) -> (y: f32[1, H, W]) {
-    y = x.unsqueeze(0)
+graph<H=1, W=1> add_batch_dim(x: f32[H, W]) -> (y: f32[1, H, W]) {
+    result = x.unsqueeze(0)
+    return result
 }
 
 // Squeeze: remove a dimension of size 1
-graph remove_batch_dim(x: f32[1, H, W]) -> (y: f32[H, W]) {
-    y = x.squeeze(0)
+graph<H=1, W=1> remove_batch_dim(x: f32[1, H, W]) -> (y: f32[H, W]) {
+    result = x.squeeze(0)
+    return result
 }
 
 // Permute: transpose/reorder dimensions
-graph transpose(x: f32[N, M]) -> (y: f32[M, N]) {
-    y = x.permute([1, 0])
+graph<N=1, M=1> transpose(x: f32[N, M]) -> (y: f32[M, N]) {
+    result = x.permute([1, 0])
+    return result
 }
 
 // Expand: broadcast to a larger shape
-graph broadcast_add(x: f32[N, 1], y: f32[M]) -> (z: f32[N, M]) {
-    let y_exp = y.unsqueeze(0).expand([N, M])
-    let x_exp = x.expand([N, M])
-    z = x_exp + y_exp
+graph<N=1, M=1> broadcast_add(x: f32[N, 1], y: f32[M]) -> (z: f32[N, M]) {
+    y_exp = y.unsqueeze(0).expand([N, M])
+    x_exp = x.expand([N, M])
+    result = x_exp + y_exp
+    return result
 }
 
 // Reshape: change the shape while preserving total elements
-graph flatten(x: f32[B, H, W]) -> (y: f32[B, H * W]) {
-    y = x.reshape([B, H * W])
+graph<B=1, H=1, W=1> flatten(x: f32[B, H, W]) -> (y: f32[B, H * W]) {
+    result = x.reshape([B, H * W])
+    return result
 }
 
 // Combined view operations: NCHW to NHWC format conversion
-graph nchw_to_nhwc(x: f32[N, C, H, W]) -> (y: f32[N, H, W, C]) {
-    y = x.permute([0, 2, 3, 1])
+graph<N=1, C=1, H=1, W=1> nchw_to_nhwc(x: f32[N, C, H, W]) -> (y: f32[N, H, W, C]) {
+    result = x.permute([0, 2, 3, 1])
+    return result
 }

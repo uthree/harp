@@ -8,27 +8,28 @@
 //
 // Note: Using concrete feature size (256) for mean computation
 
-graph layer_norm(x: f32[B, 256], gamma: f32[256], beta: f32[256]) -> (y: f32[B, 256]) {
+graph<B=1> layer_norm(x: f32[B, 256], gamma: f32[256], beta: f32[256]) -> (y: f32[B, 256]) {
     // Compute mean along features dimension
-    let mean = x.mean(dim=1)
-    let mean_exp = mean.unsqueeze(1).expand([B, 256])
+    mean = x.mean(dim=1)
+    mean_exp = mean.unsqueeze(1).expand([B, 256])
 
     // Compute variance: E[(x - mean)^2]
-    let x_centered = x - mean_exp
-    let x_sq = x_centered.square()
-    let var = x_sq.mean(dim=1)
+    x_centered = x - mean_exp
+    x_sq = x_centered.square()
+    var = x_sq.mean(dim=1)
 
     // Add epsilon for numerical stability and compute 1/sqrt(var + eps)
-    let eps = 0.00001
-    let var_exp = var.unsqueeze(1).expand([B, 256])
-    let inv_std = (var_exp + eps).rsqrt()
+    eps = 0.00001
+    var_exp = var.unsqueeze(1).expand([B, 256])
+    inv_std = (var_exp + eps).rsqrt()
 
     // Normalize
-    let normalized = x_centered * inv_std
+    normalized = x_centered * inv_std
 
     // Scale and shift with gamma and beta
-    let gamma_exp = gamma.unsqueeze(0).expand([B, 256])
-    let beta_exp = beta.unsqueeze(0).expand([B, 256])
+    gamma_exp = gamma.unsqueeze(0).expand([B, 256])
+    beta_exp = beta.unsqueeze(0).expand([B, 256])
 
-    y = normalized * gamma_exp + beta_exp
+    result = normalized * gamma_exp + beta_exp
+    return result
 }
