@@ -50,6 +50,7 @@ pub struct GraphNodeData {
     pub op: GraphOp,
     pub src: Vec<GraphNode>, // 入力ノード
     pub view: View,
+    pub name: Option<String>, // デバッグ/DSL用のラベル（重複可）
 }
 
 #[derive(Debug, Clone)]
@@ -336,6 +337,24 @@ impl GraphNode {
             op,
             src,
             view,
+            name: None,
+        }))
+    }
+
+    /// 名前付きでノードを作成
+    pub fn new_named(
+        dtype: DType,
+        op: GraphOp,
+        src: Vec<GraphNode>,
+        view: View,
+        name: impl Into<String>,
+    ) -> Self {
+        Self(Rc::new(GraphNodeData {
+            dtype,
+            op,
+            src,
+            view,
+            name: Some(name.into()),
         }))
     }
 
@@ -347,6 +366,33 @@ impl GraphNode {
     /// ノードのポインタを取得（トポロジカルソートなどで識別に使用）
     pub fn as_ptr(&self) -> *const GraphNodeData {
         Rc::as_ptr(&self.0)
+    }
+
+    /// ノードに名前を設定（新しいノードを返す）
+    ///
+    /// DSLからの変換時に変数名を保持するために使用します。
+    /// 名前は重複可能で、デバッグや可読性向上のためのラベルとして機能します。
+    ///
+    /// # 例
+    /// ```
+    /// use harp::graph::{GraphNode, DType};
+    ///
+    /// let node = GraphNode::arange(10).with_name("indices");
+    /// assert_eq!(node.name(), Some("indices"));
+    /// ```
+    pub fn with_name(self, name: impl Into<String>) -> Self {
+        Self(Rc::new(GraphNodeData {
+            dtype: self.dtype.clone(),
+            op: self.op.clone(),
+            src: self.src.clone(),
+            view: self.view.clone(),
+            name: Some(name.into()),
+        }))
+    }
+
+    /// ノードの名前を取得
+    pub fn name(&self) -> Option<&str> {
+        self.0.name.as_deref()
     }
 
     /// スカラー定数ノードを作成

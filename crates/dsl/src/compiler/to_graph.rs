@@ -32,7 +32,9 @@ fn compile_graph(dsl_graph: &DslGraph) -> Result<Graph, DslError> {
         let dtype: DType = input.dtype.into();
         let shape: Vec<harp::graph::shape::Expr> =
             input.shape.iter().map(|s| s.to_harp_expr()).collect();
-        let node = graph.input(&input.name, dtype, shape);
+        let node = graph
+            .input(&input.name, dtype, shape)
+            .with_name(&input.name);
         env.insert(input.name.clone(), node);
     }
 
@@ -62,7 +64,7 @@ fn compile_statement(
 ) -> Result<(), DslError> {
     match stmt {
         DslStatement::Let { name, value } | DslStatement::Assign { name, value } => {
-            let node = compile_expr(value, env, graph)?;
+            let node = compile_expr(value, env, graph)?.with_name(name);
             env.insert(name.clone(), node);
         }
         DslStatement::Return { .. } => {

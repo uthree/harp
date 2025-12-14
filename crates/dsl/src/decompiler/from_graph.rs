@@ -18,6 +18,7 @@ struct Decompiler<'a> {
     name: &'a str,
     var_counter: usize,
     node_names: HashMap<*const GraphNodeData, String>,
+    used_names: HashSet<String>, // 使用済みの変数名を追跡
     output: String,
 }
 
@@ -28,6 +29,7 @@ impl<'a> Decompiler<'a> {
             name,
             var_counter: 0,
             node_names: HashMap::new(),
+            used_names: HashSet::new(),
             output: String::new(),
         }
     }
@@ -201,20 +203,49 @@ impl<'a> Decompiler<'a> {
     }
 
     fn fresh_var(&mut self) -> String {
-        let name = format!("v{}", self.var_counter);
-        self.var_counter += 1;
-        name
+        loop {
+            let name = format!("v{}", self.var_counter);
+            self.var_counter += 1;
+            if !self.used_names.contains(&name) {
+                self.used_names.insert(name.clone());
+                return name;
+            }
+        }
+    }
+
+    /// ノードの名前を取得または生成
+    /// ノードに名前が設定されている場合はそれを使用し、重複時はサフィックスを追加
+    fn get_or_create_name(&mut self, node: &GraphNode) -> String {
+        if let Some(node_name) = node.name() {
+            if !self.used_names.contains(node_name) {
+                self.used_names.insert(node_name.to_string());
+                return node_name.to_string();
+            }
+            // 名前が重複している場合はサフィックスを追加
+            let mut suffix = 1;
+            loop {
+                let name = format!("{}_{}", node_name, suffix);
+                if !self.used_names.contains(&name) {
+                    self.used_names.insert(name.clone());
+                    return name;
+                }
+                suffix += 1;
+            }
+        } else {
+            self.fresh_var()
+        }
     }
 
     fn node_to_dsl(&mut self, node: &GraphNode) -> (String, Option<String>) {
         match &node.op {
             GraphOp::Buffer { name } => {
-                // Input buffer - use the buffer name directly
+                // Input buffer - use the buffer name directly and register it
+                self.used_names.insert(name.clone());
                 (name.clone(), None)
             }
 
             GraphOp::Const(lit) => {
-                let name = self.fresh_var();
+                let name = self.get_or_create_name(node);
                 let code = match lit {
                     harp::ast::Literal::F32(v) => format!("{}", v),
                     harp::ast::Literal::Int(v) => format!("{}", v),
@@ -224,13 +255,13 @@ impl<'a> Decompiler<'a> {
             }
 
             GraphOp::Elementwise { op } => {
-                let name = self.fresh_var();
+                let name = self.get_or_create_name(node);
                 let code = self.elementwise_to_dsl(op, &node.src);
                 (name, Some(code))
             }
 
             GraphOp::Reduce { op, axis, .. } => {
-                let name = self.fresh_var();
+                let name = self.get_or_create_name(node);
                 let src_name = self.get_node_name(&node.src[0]);
                 let method = reduce_op_to_method(op);
                 let code = format!("{}.{}({})", src_name, method, axis);
@@ -238,7 +269,7 @@ impl<'a> Decompiler<'a> {
             }
 
             GraphOp::Cumulative { op, axis, .. } => {
-                let name = self.fresh_var();
+                let name = self.get_or_create_name(node);
                 let src_name = self.get_node_name(&node.src[0]);
                 let method = cumulative_op_to_method(op);
                 let code = format!("{}.{}({})", src_name, method, axis);
@@ -246,7 +277,7 @@ impl<'a> Decompiler<'a> {
             }
 
             GraphOp::View(view) => {
-                let name = self.fresh_var();
+                let name = self.get_or_create_name(node);
                 let src_name = self.get_node_name(&node.src[0]);
                 // Try to identify the view operation
                 let code = self.view_to_dsl(&src_name, &node.src[0], view);
@@ -254,7 +285,7 @@ impl<'a> Decompiler<'a> {
             }
 
             GraphOp::FusedElementwise { expr } => {
-                let name = self.fresh_var();
+                let name = self.get_or_create_name(node);
                 let inputs: Vec<String> = node.src.iter().map(|n| self.get_node_name(n)).collect();
                 let expr_str = ast_expr_to_dsl(expr, &inputs);
                 let code = format!("fused({}) {{ {} }}", inputs.join(", "), expr_str);
@@ -267,7 +298,7 @@ impl<'a> Decompiler<'a> {
                 axes,
                 ..
             } => {
-                let name = self.fresh_var();
+                let name = self.get_or_create_name(node);
                 let inputs: Vec<String> = node.src.iter().map(|n| self.get_node_name(n)).collect();
                 let expr_str = ast_expr_to_dsl(expr, &inputs);
                 let op_name = reduce_op_to_name(reduce_op);
@@ -288,7 +319,7 @@ impl<'a> Decompiler<'a> {
                 axis,
                 ..
             } => {
-                let name = self.fresh_var();
+                let name = self.get_or_create_name(node);
                 let inputs: Vec<String> = node.src.iter().map(|n| self.get_node_name(n)).collect();
                 let expr_str = ast_expr_to_dsl(expr, &inputs);
                 let op_name = cumulative_op_to_name(cumulative_op);
@@ -303,14 +334,14 @@ impl<'a> Decompiler<'a> {
             }
 
             GraphOp::Concat { axis } => {
-                let name = self.fresh_var();
+                let name = self.get_or_create_name(node);
                 let inputs: Vec<String> = node.src.iter().map(|n| self.get_node_name(n)).collect();
                 let code = format!("concat([{}], {})", inputs.join(", "), axis);
                 (name, Some(code))
             }
 
             GraphOp::Pad { padding, value } => {
-                let name = self.fresh_var();
+                let name = self.get_or_create_name(node);
                 let src_name = self.get_node_name(&node.src[0]);
                 let padding_str: Vec<String> = padding
                     .iter()
@@ -321,7 +352,7 @@ impl<'a> Decompiler<'a> {
             }
 
             GraphOp::Slice { ranges } => {
-                let name = self.fresh_var();
+                let name = self.get_or_create_name(node);
                 let src_name = self.get_node_name(&node.src[0]);
                 let ranges_str: Vec<String> = ranges
                     .iter()
@@ -332,7 +363,7 @@ impl<'a> Decompiler<'a> {
             }
 
             GraphOp::Cast { target_dtype } => {
-                let name = self.fresh_var();
+                let name = self.get_or_create_name(node);
                 let src_name = self.get_node_name(&node.src[0]);
                 let dtype = dtype_to_dsl(target_dtype);
                 let code = format!("{}.cast({})", src_name, dtype);
@@ -341,7 +372,7 @@ impl<'a> Decompiler<'a> {
 
             // Unsupported ops get a comment
             _ => {
-                let name = self.fresh_var();
+                let name = self.get_or_create_name(node);
                 let code = format!("/* unsupported: {:?} */", std::mem::discriminant(&node.op));
                 (name, Some(code))
             }
