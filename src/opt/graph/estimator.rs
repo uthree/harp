@@ -31,6 +31,10 @@ const GPU_MEMORY_BANDWIDTH_THRESHOLD: f32 = 10000.0;
 const OPTIMAL_THREAD_GROUP_SIZE_MIN: usize = 128;
 const OPTIMAL_THREAD_GROUP_SIZE_MAX: usize = 256;
 
+// 多次元グリッドのボーナス係数（対数スケール）
+// 多次元グリッドはメモリアクセスパターンが最適化される場合がある
+const MULTIDIM_GRID_BONUS_LOG: f32 = 0.2;
+
 // ベクトル化によるメモリ効率向上係数（対数スケール）
 // float4はfloat1に比べてメモリバンド幅を効率的に使える
 const VECTOR_WIDTH_2_BONUS_LOG: f32 = 0.3; // exp(0.3) ≈ 1.35x
@@ -320,9 +324,19 @@ impl SimpleCostEstimator {
                         // 並列実行によるスピードアップを考慮
                         let ast_cost = ast_estimator.estimate(ast);
 
-                        // スレッドグループサイズを抽出
-                        let thread_group_size =
-                            Self::extract_const_from_ast(&default_thread_group_size[0]);
+                        // スレッドグループサイズを抽出（各軸）
+                        let tg_sizes = [
+                            Self::extract_const_from_ast(&default_thread_group_size[0]),
+                            Self::extract_const_from_ast(&default_thread_group_size[1]),
+                            Self::extract_const_from_ast(&default_thread_group_size[2]),
+                        ];
+
+                        // 総スレッドグループサイズを計算
+                        let total_tg_size = tg_sizes.iter().filter_map(|s| *s).product::<usize>();
+
+                        // 多次元グリッドかどうかを判定（y軸またはz軸が1より大きい）
+                        let is_multidim = tg_sizes[1].is_some_and(|s| s > 1)
+                            || tg_sizes[2].is_some_and(|s| s > 1);
 
                         // ベクトル幅を検出（ボディからベクトルロードを探す）
                         let vector_width = Self::detect_vector_width(body);
@@ -351,9 +365,19 @@ impl SimpleCostEstimator {
                             -KERNEL_LAUNCH_OVERHEAD.ln() * 0.5
                         };
 
-                        // スレッドグループサイズの評価
-                        let thread_group_bonus =
-                            Self::evaluate_thread_group_size(thread_group_size);
+                        // スレッドグループサイズの評価（総サイズベース）
+                        let thread_group_bonus = if total_tg_size > 0 {
+                            Self::evaluate_thread_group_size(Some(total_tg_size))
+                        } else {
+                            Self::evaluate_thread_group_size(tg_sizes[0])
+                        };
+
+                        // 多次元グリッドのボーナス
+                        let multidim_bonus = if is_multidim {
+                            MULTIDIM_GRID_BONUS_LOG
+                        } else {
+                            0.0
+                        };
 
                         // ベクトル化の評価
                         let vector_bonus = Self::evaluate_vector_width(vector_width);
@@ -361,6 +385,7 @@ impl SimpleCostEstimator {
                         ast_cost
                             - parallel_bonus
                             - thread_group_bonus
+                            - multidim_bonus
                             - vector_bonus
                             - 2.0 * KERNEL_LAUNCH_OVERHEAD.ln()
                     }
@@ -470,6 +495,14 @@ impl SimpleCostEstimator {
             AstNode::Block { statements, .. } => statements.iter().any(Self::ast_has_loop),
             AstNode::Function { body, .. } => Self::ast_has_loop(body),
             AstNode::Program { functions, .. } => functions.iter().any(Self::ast_has_loop),
+            AstNode::If {
+                then_body,
+                else_body,
+                ..
+            } => {
+                Self::ast_has_loop(then_body)
+                    || else_body.as_ref().is_some_and(|e| Self::ast_has_loop(e))
+            }
             _ => false,
         }
     }
@@ -517,6 +550,28 @@ impl SimpleCostEstimator {
                 | AstNode::Sin(operand)
                 | AstNode::Cast(operand, _) => {
                     find_vector_width(operand, max_width);
+                }
+                // 条件分岐
+                AstNode::If {
+                    condition,
+                    then_body,
+                    else_body,
+                } => {
+                    find_vector_width(condition, max_width);
+                    find_vector_width(then_body, max_width);
+                    if let Some(else_node) = else_body {
+                        find_vector_width(else_node, max_width);
+                    }
+                }
+                // 比較演算
+                AstNode::Lt(left, right)
+                | AstNode::Le(left, right)
+                | AstNode::Gt(left, right)
+                | AstNode::Ge(left, right)
+                | AstNode::Eq(left, right)
+                | AstNode::Ne(left, right) => {
+                    find_vector_width(left, max_width);
+                    find_vector_width(right, max_width);
                 }
                 _ => {}
             }
@@ -1415,6 +1470,212 @@ mod tests {
         assert!(
             vec4_cost < scalar_cost,
             "Vectorized kernel should have lower cost than scalar kernel"
+        );
+    }
+
+    #[test]
+    fn test_multidim_grid_kernel() {
+        use crate::ast::{DType as AstDType, Mutability, Scope, VarDecl, VarKind, helper::*};
+        use crate::graph::shape::Expr;
+
+        let estimator = SimpleCostEstimator::new();
+
+        // 1Dカーネル（通常）
+        let kernel_1d = AstNode::Kernel {
+            name: Some("E_1d".to_string()),
+            params: vec![VarDecl {
+                name: "tid".to_string(),
+                dtype: AstDType::Int,
+                mutability: Mutability::Immutable,
+                kind: VarKind::ThreadId(0),
+            }],
+            return_type: AstDType::Tuple(vec![]),
+            body: Box::new(block(
+                vec![store(
+                    var("output"),
+                    var("tid"),
+                    load(var("input0"), var("tid"), AstDType::F32)
+                        + load(var("input1"), var("tid"), AstDType::F32),
+                )],
+                Scope::new(),
+            )),
+            default_grid_size: [
+                Box::new(const_int(10000)),
+                Box::new(const_int(1)),
+                Box::new(const_int(1)),
+            ],
+            default_thread_group_size: [
+                Box::new(const_int(256)),
+                Box::new(const_int(1)),
+                Box::new(const_int(1)),
+            ],
+        };
+
+        // 2Dカーネル（多次元グリッド）
+        let kernel_2d = AstNode::Kernel {
+            name: Some("E_2d".to_string()),
+            params: vec![
+                VarDecl {
+                    name: "tid_0".to_string(),
+                    dtype: AstDType::Int,
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::ThreadId(0),
+                },
+                VarDecl {
+                    name: "tid_1".to_string(),
+                    dtype: AstDType::Int,
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::ThreadId(1),
+                },
+            ],
+            return_type: AstDType::Tuple(vec![]),
+            body: Box::new(AstNode::If {
+                condition: Box::new(AstNode::Lt(
+                    Box::new(var("tid_0")),
+                    Box::new(var("shape_0")),
+                )),
+                then_body: Box::new(AstNode::If {
+                    condition: Box::new(AstNode::Lt(
+                        Box::new(var("tid_1")),
+                        Box::new(var("shape_1")),
+                    )),
+                    then_body: Box::new(block(
+                        vec![store(
+                            var("output"),
+                            var("tid_0") * var("shape_1") + var("tid_1"),
+                            load(
+                                var("input0"),
+                                var("tid_0") * var("shape_1") + var("tid_1"),
+                                AstDType::F32,
+                            ) + load(
+                                var("input1"),
+                                var("tid_0") * var("shape_1") + var("tid_1"),
+                                AstDType::F32,
+                            ),
+                        )],
+                        Scope::new(),
+                    )),
+                    else_body: None,
+                }),
+                else_body: None,
+            }),
+            default_grid_size: [
+                Box::new(const_int(112)), // ceil_div(100, 16) * 16
+                Box::new(const_int(112)),
+                Box::new(const_int(1)),
+            ],
+            default_thread_group_size: [
+                Box::new(const_int(16)),
+                Box::new(const_int(16)),
+                Box::new(const_int(1)),
+            ],
+        };
+
+        let view = crate::graph::View::contiguous(vec![Expr::Const(100), Expr::Const(100)]);
+
+        let node_1d = GraphNode::new(
+            DType::F32,
+            crate::graph::GraphOp::Kernel {
+                ast: kernel_1d,
+                input_buffers: None,
+            },
+            vec![],
+            view.clone(),
+        );
+
+        let node_2d = GraphNode::new(
+            DType::F32,
+            crate::graph::GraphOp::Kernel {
+                ast: kernel_2d,
+                input_buffers: None,
+            },
+            vec![],
+            view,
+        );
+
+        let cost_1d = estimator.node_base_cost(&node_1d);
+        let cost_2d = estimator.node_base_cost(&node_2d);
+
+        println!("1D kernel cost: {}", cost_1d);
+        println!("2D kernel cost: {}", cost_2d);
+
+        // 両方のコストが有限であることを確認
+        assert!(cost_1d.is_finite(), "1D kernel cost should be finite");
+        assert!(cost_2d.is_finite(), "2D kernel cost should be finite");
+
+        // 2Dカーネルにはボーナスがあるので、コストが低いはず
+        assert!(
+            cost_2d < cost_1d,
+            "2D kernel cost ({}) should be lower than 1D kernel cost ({}) due to multidim bonus",
+            cost_2d,
+            cost_1d
+        );
+    }
+
+    #[test]
+    fn test_kernel_with_boundary_check_if() {
+        use crate::ast::{DType as AstDType, Mutability, Scope, VarDecl, VarKind, helper::*};
+        use crate::graph::shape::Expr;
+
+        let estimator = SimpleCostEstimator::new();
+
+        // 境界チェック付きカーネル
+        let kernel_with_check = AstNode::Kernel {
+            name: Some("E_with_check".to_string()),
+            params: vec![VarDecl {
+                name: "tid".to_string(),
+                dtype: AstDType::Int,
+                mutability: Mutability::Immutable,
+                kind: VarKind::ThreadId(0),
+            }],
+            return_type: AstDType::Tuple(vec![]),
+            body: Box::new(AstNode::If {
+                condition: Box::new(AstNode::Lt(
+                    Box::new(var("tid")),
+                    Box::new(var("total_elements")),
+                )),
+                then_body: Box::new(block(
+                    vec![store(
+                        var("output"),
+                        var("tid"),
+                        load(var("input0"), var("tid"), AstDType::F32)
+                            + load(var("input1"), var("tid"), AstDType::F32),
+                    )],
+                    Scope::new(),
+                )),
+                else_body: None,
+            }),
+            default_grid_size: [
+                Box::new(const_int(10240)),
+                Box::new(const_int(1)),
+                Box::new(const_int(1)),
+            ],
+            default_thread_group_size: [
+                Box::new(const_int(256)),
+                Box::new(const_int(1)),
+                Box::new(const_int(1)),
+            ],
+        };
+
+        let view = crate::graph::View::contiguous(vec![Expr::Const(100), Expr::Const(100)]);
+
+        let node = GraphNode::new(
+            DType::F32,
+            crate::graph::GraphOp::Kernel {
+                ast: kernel_with_check,
+                input_buffers: None,
+            },
+            vec![],
+            view,
+        );
+
+        let cost = estimator.node_base_cost(&node);
+
+        // コストが有限であることを確認（境界チェックを含むIfが正しく評価される）
+        assert!(
+            cost.is_finite(),
+            "Kernel with boundary check cost should be finite, got: {}",
+            cost
         );
     }
 }

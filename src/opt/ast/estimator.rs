@@ -17,6 +17,12 @@ const FUNCTION_DEFINITION_OVERHEAD: f32 = 50.0;
 // 同期バリアのコスト（スレッド間の同期待ち）
 const BARRIER_COST: f32 = 100.0;
 
+// 条件分岐のオーバーヘッド（分岐予測ミスを考慮）
+const BRANCH_OVERHEAD: f32 = 5.0;
+
+// 比較演算のコスト（整数比較）
+const COMPARISON_COST: f32 = 1.0;
+
 // 連続ループの境界が揃っている場合のボーナス（融合可能性への報酬）
 const LOOP_FUSION_BONUS: f32 = 50.0;
 
@@ -204,6 +210,26 @@ impl SimpleCostEstimator {
             AstNode::Allocate { size, .. } => Self::count_nodes(size),
             AstNode::Deallocate { ptr } => Self::count_nodes(ptr),
             AstNode::Program { functions, .. } => functions.iter().map(Self::count_nodes).sum(),
+            // 比較演算
+            AstNode::Lt(a, b)
+            | AstNode::Le(a, b)
+            | AstNode::Gt(a, b)
+            | AstNode::Ge(a, b)
+            | AstNode::Eq(a, b)
+            | AstNode::Ne(a, b) => Self::count_nodes(a) + Self::count_nodes(b),
+            // 条件分岐
+            AstNode::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                let base = Self::count_nodes(condition) + Self::count_nodes(then_body);
+                if let Some(else_node) = else_body {
+                    base + Self::count_nodes(else_node)
+                } else {
+                    base
+                }
+            }
             _ => 0, // Const, Var, Barrier, Rand, etc.
         };
         1 + children_count
@@ -258,6 +284,17 @@ impl SimpleCostEstimator {
 
             // GPUカーネル呼び出し（非常に高いオーバーヘッド）
             AstNode::CallKernel { .. } => BARRIER_COST.ln(),
+
+            // 比較演算（高速）
+            AstNode::Lt(_, _)
+            | AstNode::Le(_, _)
+            | AstNode::Gt(_, _)
+            | AstNode::Ge(_, _)
+            | AstNode::Eq(_, _)
+            | AstNode::Ne(_, _) => COMPARISON_COST.ln(),
+
+            // 条件分岐（分岐予測オーバーヘッドを含む）
+            AstNode::If { .. } => BRANCH_OVERHEAD.ln(),
 
             // その他（変数参照、定数など）
             _ => f32::NEG_INFINITY, // log(0) = -∞
@@ -375,6 +412,36 @@ impl CostEstimator for SimpleCostEstimator {
                 // 関数呼び出しは引数の評価コスト + 呼び出しオーバーヘッド
                 let args_cost = log_sum_exp_iter(args.iter().map(|a| self.estimate(a)));
                 log_sum_exp(args_cost, FUNCTION_CALL_OVERHEAD.ln())
+            }
+            // 比較演算
+            AstNode::Lt(a, b)
+            | AstNode::Le(a, b)
+            | AstNode::Gt(a, b)
+            | AstNode::Ge(a, b)
+            | AstNode::Eq(a, b)
+            | AstNode::Ne(a, b) => log_sum_exp(self.estimate(a), self.estimate(b)),
+            // 条件分岐
+            AstNode::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                // 条件式 + then節のコスト
+                let condition_cost = self.estimate(condition);
+                let then_cost = self.estimate(then_body);
+
+                // else節がある場合はそのコストも加算
+                // 実行時にはどちらか一方のみ実行されるが、
+                // コスト推定では最悪ケースを考慮
+                let branch_cost = if let Some(else_node) = else_body {
+                    let else_cost = self.estimate(else_node);
+                    // どちらか大きい方を採用（最悪ケース）
+                    log_sum_exp(then_cost, else_cost)
+                } else {
+                    then_cost
+                };
+
+                log_sum_exp(condition_cost, branch_cost)
             }
             AstNode::Return { value } => self.estimate(value),
             AstNode::Allocate { size, .. } => self.estimate(size),
@@ -853,6 +920,152 @@ mod tests {
             cost_large,
             cost_small
         );
+    }
+
+    #[test]
+    fn test_if_node_cost() {
+        let estimator = SimpleCostEstimator::new();
+
+        // 単純なIf文: if (x < 10) { y }
+        let if_node = AstNode::If {
+            condition: Box::new(AstNode::Lt(
+                Box::new(AstNode::Var("x".to_string())),
+                Box::new(AstNode::Const(Literal::Int(10))),
+            )),
+            then_body: Box::new(AstNode::Var("y".to_string())),
+            else_body: None,
+        };
+
+        let cost = estimator.estimate(&if_node);
+        // コストは有限値であるべき
+        assert!(
+            cost.is_finite(),
+            "If node cost should be finite, got: {}",
+            cost
+        );
+
+        // 条件式だけのコストと比較（Ifはオーバーヘッドがある）
+        let condition_only = AstNode::Lt(
+            Box::new(AstNode::Var("x".to_string())),
+            Box::new(AstNode::Const(Literal::Int(10))),
+        );
+        let condition_cost = estimator.estimate(&condition_only);
+
+        assert!(
+            cost > condition_cost,
+            "If node cost ({}) should be greater than condition-only cost ({})",
+            cost,
+            condition_cost
+        );
+    }
+
+    #[test]
+    fn test_comparison_operators_cost() {
+        let estimator = SimpleCostEstimator::new();
+
+        // 各比較演算子のコストをテスト
+        let lt = AstNode::Lt(
+            Box::new(AstNode::Var("a".to_string())),
+            Box::new(AstNode::Var("b".to_string())),
+        );
+        let le = AstNode::Le(
+            Box::new(AstNode::Var("a".to_string())),
+            Box::new(AstNode::Var("b".to_string())),
+        );
+        let gt = AstNode::Gt(
+            Box::new(AstNode::Var("a".to_string())),
+            Box::new(AstNode::Var("b".to_string())),
+        );
+        let ge = AstNode::Ge(
+            Box::new(AstNode::Var("a".to_string())),
+            Box::new(AstNode::Var("b".to_string())),
+        );
+        let eq = AstNode::Eq(
+            Box::new(AstNode::Var("a".to_string())),
+            Box::new(AstNode::Var("b".to_string())),
+        );
+        let ne = AstNode::Ne(
+            Box::new(AstNode::Var("a".to_string())),
+            Box::new(AstNode::Var("b".to_string())),
+        );
+
+        // 全ての比較演算子のコストが有限値であることを確認
+        for (name, node) in [
+            ("Lt", lt),
+            ("Le", le),
+            ("Gt", gt),
+            ("Ge", ge),
+            ("Eq", eq),
+            ("Ne", ne),
+        ] {
+            let cost = estimator.estimate(&node);
+            assert!(
+                cost.is_finite(),
+                "{} cost should be finite, got: {}",
+                name,
+                cost
+            );
+        }
+    }
+
+    #[test]
+    fn test_nested_if_cost() {
+        let estimator = SimpleCostEstimator::new();
+
+        // ネストしたIf: if (a < b) { if (c < d) { x } }
+        let nested_if = AstNode::If {
+            condition: Box::new(AstNode::Lt(
+                Box::new(AstNode::Var("a".to_string())),
+                Box::new(AstNode::Var("b".to_string())),
+            )),
+            then_body: Box::new(AstNode::If {
+                condition: Box::new(AstNode::Lt(
+                    Box::new(AstNode::Var("c".to_string())),
+                    Box::new(AstNode::Var("d".to_string())),
+                )),
+                then_body: Box::new(AstNode::Var("x".to_string())),
+                else_body: None,
+            }),
+            else_body: None,
+        };
+
+        // 単純なIf
+        let simple_if = AstNode::If {
+            condition: Box::new(AstNode::Lt(
+                Box::new(AstNode::Var("a".to_string())),
+                Box::new(AstNode::Var("b".to_string())),
+            )),
+            then_body: Box::new(AstNode::Var("x".to_string())),
+            else_body: None,
+        };
+
+        let nested_cost = estimator.estimate(&nested_if);
+        let simple_cost = estimator.estimate(&simple_if);
+
+        // ネストしたIfの方がコストが高い
+        assert!(
+            nested_cost > simple_cost,
+            "Nested if cost ({}) should be greater than simple if cost ({})",
+            nested_cost,
+            simple_cost
+        );
+    }
+
+    #[test]
+    fn test_node_count_with_if() {
+        // Ifノードを含むノード数のカウント
+        let if_node = AstNode::If {
+            condition: Box::new(AstNode::Lt(
+                Box::new(AstNode::Var("x".to_string())),
+                Box::new(AstNode::Const(Literal::Int(10))),
+            )),
+            then_body: Box::new(AstNode::Var("y".to_string())),
+            else_body: None,
+        };
+
+        // If(1) + Lt(1) + Var(1) + Const(1) + Var(1) = 5
+        let count = SimpleCostEstimator::get_node_count(&if_node);
+        assert_eq!(count, 5);
     }
 
     #[test]

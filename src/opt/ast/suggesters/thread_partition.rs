@@ -225,9 +225,10 @@ impl ThreadPartitionSuggester {
             AstNode::Var(name) => {
                 if let Some(suffix) = name.strip_prefix("shape_")
                     && let Ok(dim) = suffix.parse::<usize>()
-                        && dim > *max_dim {
-                            *max_dim = dim;
-                        }
+                    && dim > *max_dim
+                {
+                    *max_dim = dim;
+                }
             }
             // 再帰的に子ノードを探索
             AstNode::Add(a, b)
