@@ -445,20 +445,27 @@ fn build_fused_ast_expr(expr: &DslExpr, inputs: &[String]) -> Result<AstNode, Ds
 
 // Helper functions for argument extraction
 
-fn get_axis_arg(args: &[DslArg], default: usize) -> Result<usize, DslError> {
+/// Get axis argument from args
+/// Supports: positional (0), keyword (axis=0, dim=0)
+/// Returns None if no args provided (meaning "all axes")
+fn get_optional_axis_arg(args: &[DslArg]) -> Result<Option<usize>, DslError> {
     if args.is_empty() {
-        return Ok(default);
+        return Ok(None);
     }
     match &args[0] {
-        DslArg::Positional(DslExpr::IntLit(v)) => Ok(*v as usize),
+        DslArg::Positional(DslExpr::IntLit(v)) => Ok(Some(*v as usize)),
         DslArg::Named {
             name,
             value: DslArgValue::Expr(DslExpr::IntLit(v)),
-        } if name == "axis" => Ok(*v as usize),
+        } if name == "axis" || name == "dim" => Ok(Some(*v as usize)),
         _ => Err(DslError::InvalidArgument(
-            "Expected axis as integer".to_string(),
+            "Expected axis/dim as integer".to_string(),
         )),
     }
+}
+
+fn get_axis_arg(args: &[DslArg], default: usize) -> Result<usize, DslError> {
+    get_optional_axis_arg(args).map(|opt| opt.unwrap_or(default))
 }
 
 fn get_axes_arg(args: &[DslArg]) -> Result<Vec<usize>, DslError> {
@@ -591,6 +598,48 @@ mod tests {
         let graph = compile(&module).expect("Failed to compile");
 
         assert_eq!(graph.input_metas().len(), 1);
+        assert_eq!(graph.outputs().len(), 1);
+    }
+
+    #[test]
+    fn test_compile_keyword_arg_dim() {
+        // Test dim= keyword argument (Python style)
+        let source = r#"
+            graph test(x: f32[N, M]) -> (y: f32[N]) {
+                y = x.sum(dim=1)
+            }
+        "#;
+
+        let module = parse(source).expect("Failed to parse");
+        let graph = compile(&module).expect("Failed to compile");
+        assert_eq!(graph.outputs().len(), 1);
+    }
+
+    #[test]
+    fn test_compile_keyword_arg_axis() {
+        // Test axis= keyword argument
+        let source = r#"
+            graph test(x: f32[N, M]) -> (y: f32[N]) {
+                y = x.sum(axis=1)
+            }
+        "#;
+
+        let module = parse(source).expect("Failed to parse");
+        let graph = compile(&module).expect("Failed to compile");
+        assert_eq!(graph.outputs().len(), 1);
+    }
+
+    #[test]
+    fn test_compile_positional_arg() {
+        // Test positional argument
+        let source = r#"
+            graph test(x: f32[N, M]) -> (y: f32[N]) {
+                y = x.sum(1)
+            }
+        "#;
+
+        let module = parse(source).expect("Failed to parse");
+        let graph = compile(&module).expect("Failed to compile");
         assert_eq!(graph.outputs().len(), 1);
     }
 }

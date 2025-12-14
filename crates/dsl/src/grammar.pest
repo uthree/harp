@@ -98,7 +98,7 @@ function_call = { ident ~ "(" ~ arg_list? ~ ")" }
 // Argument list
 arg_list = { arg ~ ("," ~ arg)* }
 arg = { named_arg | expr | array_literal }
-named_arg = { ident ~ ":" ~ (expr | array_literal | ident) }
+named_arg = { ident ~ "=" ~ (expr | array_literal | ident) }
 
 // Array literal: [a, b, c] or [1, 2, 3]
 array_literal = { "[" ~ (array_elem ~ ("," ~ array_elem)*)? ~ "]" }
