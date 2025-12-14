@@ -8,7 +8,7 @@ pub mod renderer;
 pub mod scope;
 pub mod types;
 
-// Re-export types for backwards compatibility
+// Re-export commonly used types
 pub use program::{Function, Program};
 pub use scope::{Mutability, Scope, VarDecl, VarKind};
 pub use types::{DType, Literal};

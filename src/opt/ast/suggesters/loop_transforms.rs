@@ -15,15 +15,14 @@ pub struct LoopTilingSuggester {
 
 impl LoopTilingSuggester {
     /// 新しいLoopTilingSuggesterを作成
-    pub fn new(tile_sizes: Vec<usize>) -> Self {
-        Self { tile_sizes }
-    }
-
-    /// デフォルトのタイルサイズで作成
-    pub fn with_default_sizes() -> Self {
+    pub fn new() -> Self {
         Self {
             tile_sizes: vec![2, 3, 4, 5, 7, 8, 16, 32, 64],
         }
+    }
+
+    pub fn with_sizes(tile_sizes: Vec<usize>) -> Self {
+        Self { tile_sizes }
     }
 
     /// AST内の全てのRangeノードを探索してタイル化を試みる
@@ -343,7 +342,7 @@ mod tests {
 
     #[test]
     fn test_loop_tiling_suggester() {
-        let suggester = LoopTilingSuggester::with_default_sizes();
+        let suggester = LoopTilingSuggester::new();
 
         // for i in 0..16 step 1 { Store(ptr, i, i) }
         let loop_node = range(
@@ -404,7 +403,7 @@ mod tests {
 
     #[test]
     fn test_nested_loop_suggestions() {
-        let suggester = LoopTilingSuggester::new(vec![4]);
+        let suggester = LoopTilingSuggester::with_sizes(vec![4]);
 
         // 外側ループ: for i in 0..16 step 1 { 内側ループ }
         // 内側ループ: for j in 0..16 step 1 { body }

@@ -31,9 +31,6 @@ pub enum GridStrategy {
 pub enum InputSpec {
     /// バッファ入力
     Buffer,
-    /// 定数埋め込み（FusedElementwise等で使用予定）
-    #[allow(dead_code)]
-    Const(crate::ast::Literal),
 }
 
 /// 統一的なカーネル生成設定
@@ -169,9 +166,6 @@ fn build_load_and_substitute(
                 mappings.insert(i.to_string(), load_node);
                 buffer_idx += 1;
             }
-            InputSpec::Const(lit) => {
-                mappings.insert(i.to_string(), AstNode::Const(lit.clone()));
-            }
         }
     }
 
@@ -200,9 +194,6 @@ fn build_load_and_substitute_vec(
                 );
                 mappings.insert(i.to_string(), load_node);
                 buffer_idx += 1;
-            }
-            InputSpec::Const(lit) => {
-                mappings.insert(i.to_string(), AstNode::Const(lit.clone()));
             }
         }
     }

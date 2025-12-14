@@ -142,17 +142,6 @@ where
         self.early_termination_threshold = threshold;
         self
     }
-
-    /// 早期終了の有効/無効を設定（後方互換性のため）
-    ///
-    /// trueの場合、コスト改善が10回連続でない場合に自動的に最適化を終了します。
-    /// falseの場合、最大ステップ数まで続行します。
-    /// デフォルトはtrue（早期終了有効）。
-    #[deprecated(note = "use with_early_termination_threshold instead")]
-    pub fn with_early_termination(mut self, enable: bool) -> Self {
-        self.early_termination_threshold = if enable { Some(10) } else { None };
-        self
-    }
 }
 
 impl<S, Sel> BeamSearchGraphOptimizer<S, Sel>
