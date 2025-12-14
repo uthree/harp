@@ -68,7 +68,13 @@ fn collect_var_names_recursive(ast: &AstNode, names: &mut HashSet<String>) {
         | AstNode::BitwiseOr(a, b)
         | AstNode::BitwiseXor(a, b)
         | AstNode::LeftShift(a, b)
-        | AstNode::RightShift(a, b) => {
+        | AstNode::RightShift(a, b)
+        | AstNode::Lt(a, b)
+        | AstNode::Le(a, b)
+        | AstNode::Gt(a, b)
+        | AstNode::Ge(a, b)
+        | AstNode::Eq(a, b)
+        | AstNode::Ne(a, b) => {
             collect_var_names_recursive(a, names);
             collect_var_names_recursive(b, names);
         }
@@ -107,6 +113,17 @@ fn collect_var_names_recursive(ast: &AstNode, names: &mut HashSet<String>) {
         AstNode::CallKernel { args, .. } => {
             for arg in args {
                 collect_var_names_recursive(arg, names);
+            }
+        }
+        AstNode::If {
+            condition,
+            then_body,
+            else_body,
+        } => {
+            collect_var_names_recursive(condition, names);
+            collect_var_names_recursive(then_body, names);
+            if let Some(else_b) = else_body {
+                collect_var_names_recursive(else_b, names);
             }
         }
         // リーフノード

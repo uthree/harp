@@ -10,7 +10,7 @@
 
 **既存の演算の組み合わせで表現可能な演算は、原則としてASTノードに実装しない**という設計方針です。演算子の種類を最小限に抑えることで、ASTの単純性・保守性・一貫性を確保します。
 
-実装されている演算: `Add`, `Mul`, `Recip`, `Rem`, `Idiv`, `Max`, 数学関数（`Sqrt`, `Log2`, `Exp2`, `Sin`）
+実装されている演算: `Add`, `Mul`, `Recip`, `Rem`, `Idiv`, `Max`, 数学関数（`Sqrt`, `Log2`, `Exp2`, `Sin`）, 比較演算（`Lt`, `Le`, `Gt`, `Ge`, `Eq`, `Ne`）
 
 演算子オーバーロードで提供: 減算（`a - b = a + (-b)`）, 除算（`a / b = a * recip(b)`）
 
@@ -21,11 +21,12 @@
 #### 演算ヘルパー（マクロ生成）
 - **二項演算**: `max`, `idiv`, `rem`
 - **単項演算**: `recip`, `sqrt`, `log2`, `exp2`, `sin`
+- **比較演算**: `lt`, `le`, `gt`, `ge`, `eq`, `ne`（Bool型を返す）
 
 #### 構造化ヘルパー
 - **変数**: `var("x")` - 変数参照
 - **定数**: `const_int(42)`, `const_f32(3.14)` - 型付き定数
-- **制御構造**: `range`, `block`, `empty_block` - ループとブロック
+- **制御構造**: `range`, `block`, `empty_block`, `if_then`, `if_then_else` - ループ、ブロック、条件分岐
 - **メモリ操作**: `load`, `load_vec`, `store`, `assign` - メモリアクセス
 - **型変換**: `cast`, `broadcast` - 型変換とSIMDブロードキャスト
 - **プログラム構造**: `function`, `program`, `barrier` - 関数とプログラム
@@ -83,6 +84,19 @@ let expr = 1.0 / var("y");
 
 ### Range
 範囲ベースのループを表現。ループ変数は自動的にスコープに宣言され、親スコープの変数にもアクセス可能です。
+
+### If
+条件分岐を表現。GPUカーネルの境界チェック等に使用されます。
+
+```rust
+AstNode::If {
+    condition: Box<AstNode>,        // 条件式（Bool型）
+    then_body: Box<AstNode>,        // 条件が真の場合の処理
+    else_body: Option<Box<AstNode>>, // 条件が偽の場合の処理（オプション）
+}
+```
+
+GPUのSIMTアーキテクチャでは、スレッドグループ内でプログラムカウンタが共通のため、境界チェックによるオーバーヘッドは最後のグループのみに影響し、全体的なパフォーマンスへの影響は最小限です。
 
 ### Function
 `AstNode`の一つのバリアントとして実装されています。

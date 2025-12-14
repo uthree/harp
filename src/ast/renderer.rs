@@ -38,6 +38,7 @@ where
         | AstNode::Assign { .. }
         | AstNode::Block { .. }
         | AstNode::Range { .. }
+        | AstNode::If { .. }
         | AstNode::Barrier => {
             // 文の場合はインデントなしでレンダリング
             let mut mutable_renderer = renderer.clone();

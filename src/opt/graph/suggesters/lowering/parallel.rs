@@ -7,6 +7,12 @@ use crate::graph::ops::custom_placeholders as ph;
 
 use super::helpers::graph_dtype_to_ast;
 
+/// 切り上げ計算: ceil(a / b)
+fn ceil_div(a: AstNode, b: AstNode) -> AstNode {
+    // ceil(a / b) = (a + b - 1) / b
+    idiv(a + b.clone() - const_int(1), b)
+}
+
 /// 並列化戦略
 #[derive(Clone, Debug, PartialEq)]
 pub enum ParallelizationStrategy {
@@ -155,10 +161,21 @@ fn build_flat_parallel_elementwise_kernel(
 
     // ストア文
     let store_stmt = store(var(ph::OUTPUT), offset, final_expr);
-    let body = block(vec![store_stmt], Scope::new());
 
-    // グリッドサイズ計算: 全要素数
-    let grid_size = build_total_elements(ndim);
+    // 境界チェック付きの本体
+    // if (tid < total_elements) { store }
+    let total_elements = build_total_elements(ndim);
+    let guarded_store = if_then(
+        lt(var("tid"), total_elements.clone()),
+        block(vec![store_stmt], Scope::new()),
+    );
+    let body = block(vec![guarded_store], Scope::new());
+
+    // グリッドサイズ計算: スレッドグループサイズの倍数に切り上げ
+    // これにより、端数があっても適切にディスパッチできる
+    let tg_size = const_int(thread_group_size as isize);
+    let num_groups = ceil_div(total_elements, tg_size.clone());
+    let grid_size = num_groups * tg_size.clone();
 
     kernel_1d(
         Some(name.to_string()),
@@ -166,7 +183,7 @@ fn build_flat_parallel_elementwise_kernel(
         AstDType::Tuple(vec![]),
         body,
         grid_size,
-        const_int(thread_group_size as isize),
+        tg_size,
     )
 }
 
@@ -889,6 +906,74 @@ mod tests {
                     default_thread_group_size[0].as_ref(),
                     AstNode::Const(crate::ast::Literal::Int(128))
                 ));
+            }
+            _ => panic!("Expected Kernel node"),
+        }
+    }
+
+    #[test]
+    fn test_flat_parallel_kernel_has_boundary_check() {
+        use crate::ast::helper::wildcard;
+        use crate::graph::DType as GraphDType;
+
+        let expr = wildcard("0") + wildcard("1");
+        let kernel =
+            build_flat_parallel_elementwise_kernel(2, 2, expr, &GraphDType::F32, "test", 256);
+
+        // カーネルの本体にIf文が含まれているか確認
+        match &kernel {
+            AstNode::Kernel { body, .. } => {
+                // bodyはBlockで、その中にIf文があるはず
+                fn contains_if(node: &AstNode) -> bool {
+                    match node {
+                        AstNode::If { .. } => true,
+                        AstNode::Block { statements, .. } => {
+                            statements.iter().any(contains_if)
+                        }
+                        _ => false,
+                    }
+                }
+                assert!(
+                    contains_if(body),
+                    "Kernel body should contain boundary check (If node)"
+                );
+            }
+            _ => panic!("Expected Kernel node"),
+        }
+    }
+
+    #[test]
+    fn test_ceil_div() {
+        // ceil_div(10, 3) = ceil(10/3) = 4
+        let result = ceil_div(const_int(10), const_int(3));
+        // (10 + 3 - 1) / 3 = 12 / 3 = 4
+        // result should be Idiv(Add(Add(10, 3), -1), 3)
+        assert!(matches!(result, AstNode::Idiv(_, _)));
+    }
+
+    #[test]
+    fn test_grid_size_rounded_up() {
+        use crate::ast::helper::wildcard;
+        use crate::graph::DType as GraphDType;
+
+        let expr = wildcard("0");
+        let kernel =
+            build_flat_parallel_elementwise_kernel(1, 1, expr, &GraphDType::F32, "test", 64);
+
+        // グリッドサイズが切り上げ計算を含んでいることを確認
+        match &kernel {
+            AstNode::Kernel {
+                default_grid_size, ..
+            } => {
+                // grid_size = ceil_div(total_elements, tg_size) * tg_size
+                // which involves Mul and Idiv operations
+                let grid_x = default_grid_size[0].as_ref();
+                // グリッドサイズは Mul を含むはず（切り上げ後の乗算）
+                assert!(
+                    matches!(grid_x, AstNode::Mul(_, _)),
+                    "Grid size should be rounded up (contain Mul): {:?}",
+                    grid_x
+                );
             }
             _ => panic!("Expected Kernel node"),
         }

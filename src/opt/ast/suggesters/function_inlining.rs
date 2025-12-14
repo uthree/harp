@@ -353,6 +353,26 @@ impl FunctionInliningSuggester {
                 AstNode::RightShift(Box::new(children[0].clone()), Box::new(children[1].clone()))
             }
 
+            // 比較演算
+            AstNode::Lt(_, _) => {
+                AstNode::Lt(Box::new(children[0].clone()), Box::new(children[1].clone()))
+            }
+            AstNode::Le(_, _) => {
+                AstNode::Le(Box::new(children[0].clone()), Box::new(children[1].clone()))
+            }
+            AstNode::Gt(_, _) => {
+                AstNode::Gt(Box::new(children[0].clone()), Box::new(children[1].clone()))
+            }
+            AstNode::Ge(_, _) => {
+                AstNode::Ge(Box::new(children[0].clone()), Box::new(children[1].clone()))
+            }
+            AstNode::Eq(_, _) => {
+                AstNode::Eq(Box::new(children[0].clone()), Box::new(children[1].clone()))
+            }
+            AstNode::Ne(_, _) => {
+                AstNode::Ne(Box::new(children[0].clone()), Box::new(children[1].clone()))
+            }
+
             // 単項演算
             AstNode::Recip(_) => AstNode::Recip(Box::new(children[0].clone())),
             AstNode::Sqrt(_) => AstNode::Sqrt(Box::new(children[0].clone())),
@@ -394,6 +414,17 @@ impl FunctionInliningSuggester {
                 step: Box::new(children[1].clone()),
                 stop: Box::new(children[2].clone()),
                 body: Box::new(children[3].clone()),
+            },
+
+            // If
+            AstNode::If { else_body, .. } => AstNode::If {
+                condition: Box::new(children[0].clone()),
+                then_body: Box::new(children[1].clone()),
+                else_body: if else_body.is_some() {
+                    Some(Box::new(children[2].clone()))
+                } else {
+                    None
+                },
             },
 
             // Call

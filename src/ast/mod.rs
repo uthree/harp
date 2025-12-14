@@ -72,6 +72,14 @@ pub enum AstNode {
         scope: Box<Scope>,        // ブロックのスコープ
     },
 
+    // Comparison operations - 比較演算（Bool型を返す）
+    Lt(Box<AstNode>, Box<AstNode>),  // <
+    Le(Box<AstNode>, Box<AstNode>),  // <=
+    Gt(Box<AstNode>, Box<AstNode>),  // >
+    Ge(Box<AstNode>, Box<AstNode>),  // >=
+    Eq(Box<AstNode>, Box<AstNode>),  // ==
+    Ne(Box<AstNode>, Box<AstNode>),  // !=
+
     // Control flow - 制御構文
     Range {
         var: String,         // ループ変数名
@@ -79,6 +87,13 @@ pub enum AstNode {
         step: Box<AstNode>,  // ステップ
         stop: Box<AstNode>,  // 終了値
         body: Box<AstNode>,  // ループ本体（Blockノード）
+    },
+
+    /// 条件分岐
+    If {
+        condition: Box<AstNode>,        // 条件式（Bool型）
+        then_body: Box<AstNode>,        // 条件が真の場合の処理
+        else_body: Option<Box<AstNode>>, // 条件が偽の場合の処理（オプション）
     },
 
     // Function call - 関数呼び出し
@@ -152,7 +167,13 @@ impl AstNode {
             | AstNode::BitwiseOr(left, right)
             | AstNode::BitwiseXor(left, right)
             | AstNode::LeftShift(left, right)
-            | AstNode::RightShift(left, right) => vec![left.as_ref(), right.as_ref()],
+            | AstNode::RightShift(left, right)
+            | AstNode::Lt(left, right)
+            | AstNode::Le(left, right)
+            | AstNode::Gt(left, right)
+            | AstNode::Ge(left, right)
+            | AstNode::Eq(left, right)
+            | AstNode::Ne(left, right) => vec![left.as_ref(), right.as_ref()],
             AstNode::Recip(operand)
             | AstNode::Sqrt(operand)
             | AstNode::Log2(operand)
@@ -175,6 +196,17 @@ impl AstNode {
                 body,
                 ..
             } => vec![start.as_ref(), step.as_ref(), stop.as_ref(), body.as_ref()],
+            AstNode::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                let mut children = vec![condition.as_ref(), then_body.as_ref()];
+                if let Some(else_b) = else_body {
+                    children.push(else_b.as_ref());
+                }
+                children
+            }
             AstNode::Call { args, .. } => args.iter().map(|node| node as &AstNode).collect(),
             AstNode::Return { value } => vec![value.as_ref()],
             AstNode::Barrier => vec![],
@@ -247,6 +279,12 @@ impl AstNode {
             AstNode::RightShift(left, right) => {
                 AstNode::RightShift(Box::new(f(left)), Box::new(f(right)))
             }
+            AstNode::Lt(left, right) => AstNode::Lt(Box::new(f(left)), Box::new(f(right))),
+            AstNode::Le(left, right) => AstNode::Le(Box::new(f(left)), Box::new(f(right))),
+            AstNode::Gt(left, right) => AstNode::Gt(Box::new(f(left)), Box::new(f(right))),
+            AstNode::Ge(left, right) => AstNode::Ge(Box::new(f(left)), Box::new(f(right))),
+            AstNode::Eq(left, right) => AstNode::Eq(Box::new(f(left)), Box::new(f(right))),
+            AstNode::Ne(left, right) => AstNode::Ne(Box::new(f(left)), Box::new(f(right))),
             AstNode::Recip(operand) => AstNode::Recip(Box::new(f(operand))),
             AstNode::Sqrt(operand) => AstNode::Sqrt(Box::new(f(operand))),
             AstNode::Log2(operand) => AstNode::Log2(Box::new(f(operand))),
@@ -290,6 +328,15 @@ impl AstNode {
                 step: Box::new(f(step)),
                 stop: Box::new(f(stop)),
                 body: Box::new(f(body)),
+            },
+            AstNode::If {
+                condition,
+                then_body,
+                else_body,
+            } => AstNode::If {
+                condition: Box::new(f(condition)),
+                then_body: Box::new(f(then_body)),
+                else_body: else_body.as_ref().map(|e| Box::new(f(e))),
             },
             AstNode::Call { name, args } => AstNode::Call {
                 name: name.clone(),
@@ -401,6 +448,14 @@ impl AstNode {
                 }
             }
 
+            // Comparison operations - always return Bool
+            AstNode::Lt(_, _)
+            | AstNode::Le(_, _)
+            | AstNode::Gt(_, _)
+            | AstNode::Ge(_, _)
+            | AstNode::Eq(_, _)
+            | AstNode::Ne(_, _) => DType::Bool,
+
             // Unary operations that preserve type
             AstNode::Recip(operand) | AstNode::BitwiseNot(operand) => operand.infer_type(),
 
@@ -425,6 +480,11 @@ impl AstNode {
 
             // Range - ループは値を返さない（unit型）
             AstNode::Range { .. } => DType::Tuple(vec![]),
+
+            // If - 条件分岐は値を返さない（unit型）
+            // （式としてのif-elseはthen_bodyの型を返すべきだが、
+            //   ここでは制御構文として扱い、副作用のみを期待）
+            AstNode::If { .. } => DType::Tuple(vec![]),
 
             // Call - 関数呼び出しの型は関数定義から推論する必要がある
             // ここでは関数定義を参照できないので、Unknownを返す
@@ -503,7 +563,13 @@ impl AstNode {
             | AstNode::BitwiseOr(left, right)
             | AstNode::BitwiseXor(left, right)
             | AstNode::LeftShift(left, right)
-            | AstNode::RightShift(left, right) => {
+            | AstNode::RightShift(left, right)
+            | AstNode::Lt(left, right)
+            | AstNode::Le(left, right)
+            | AstNode::Gt(left, right)
+            | AstNode::Ge(left, right)
+            | AstNode::Eq(left, right)
+            | AstNode::Ne(left, right) => {
                 left.check_scope(scope)?;
                 right.check_scope(scope)?;
                 Ok(())
@@ -554,6 +620,19 @@ impl AstNode {
                     inner_scope.check_read(var)?;
                 }
 
+                Ok(())
+            }
+            // If - 条件分岐
+            AstNode::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                condition.check_scope(scope)?;
+                then_body.check_scope(scope)?;
+                if let Some(else_b) = else_body {
+                    else_b.check_scope(scope)?;
+                }
                 Ok(())
             }
             // Call - 引数のスコープチェック（関数名の存在確認はProgramレベルで行う）

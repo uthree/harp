@@ -190,6 +190,41 @@ pub trait CLikeRenderer: Renderer {
                     self.render_expr(right)
                 )
             }
+            // Comparison operations
+            AstNode::Lt(left, right) => {
+                format!("({} < {})", self.render_expr(left), self.render_expr(right))
+            }
+            AstNode::Le(left, right) => {
+                format!(
+                    "({} <= {})",
+                    self.render_expr(left),
+                    self.render_expr(right)
+                )
+            }
+            AstNode::Gt(left, right) => {
+                format!("({} > {})", self.render_expr(left), self.render_expr(right))
+            }
+            AstNode::Ge(left, right) => {
+                format!(
+                    "({} >= {})",
+                    self.render_expr(left),
+                    self.render_expr(right)
+                )
+            }
+            AstNode::Eq(left, right) => {
+                format!(
+                    "({} == {})",
+                    self.render_expr(left),
+                    self.render_expr(right)
+                )
+            }
+            AstNode::Ne(left, right) => {
+                format!(
+                    "({} != {})",
+                    self.render_expr(left),
+                    self.render_expr(right)
+                )
+            }
             AstNode::Cast(operand, dtype) => {
                 format!(
                     "{}({})",
@@ -256,6 +291,11 @@ pub trait CLikeRenderer: Renderer {
                 stop,
                 body,
             } => self.render_range(var, start, step, stop, body),
+            AstNode::If {
+                condition,
+                then_body,
+                else_body,
+            } => self.render_if(condition, then_body, else_body.as_deref()),
             AstNode::Return { value } => {
                 format!("{}return {};", self.indent(), self.render_expr(value))
             }
@@ -361,6 +401,44 @@ pub trait CLikeRenderer: Renderer {
         }
         self.dec_indent();
         result.push_str(&format!("{}}}", self.indent()));
+        result
+    }
+
+    /// If文を描画
+    fn render_if(
+        &mut self,
+        condition: &AstNode,
+        then_body: &AstNode,
+        else_body: Option<&AstNode>,
+    ) -> String {
+        let mut result = String::new();
+        result.push_str(&format!(
+            "{}if ({}) {{",
+            self.indent(),
+            self.render_expr(condition)
+        ));
+        result.push('\n');
+        self.inc_indent();
+        let then_str = self.render_statement(then_body);
+        result.push_str(&then_str);
+        if !then_str.ends_with('\n') {
+            result.push('\n');
+        }
+        self.dec_indent();
+        result.push_str(&format!("{}}}", self.indent()));
+
+        if let Some(else_b) = else_body {
+            result.push_str(" else {\n");
+            self.inc_indent();
+            let else_str = self.render_statement(else_b);
+            result.push_str(&else_str);
+            if !else_str.ends_with('\n') {
+                result.push('\n');
+            }
+            self.dec_indent();
+            result.push_str(&format!("{}}}", self.indent()));
+        }
+
         result
     }
 

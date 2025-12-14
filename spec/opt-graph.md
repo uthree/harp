@@ -46,7 +46,7 @@ LoweringSuggesterが生成する並列化戦略：
 | 戦略 | 説明 | パラメータ |
 |------|------|-----------|
 | Sequential | 逐次実行（CPU向け） | なし |
-| FlatParallel | 全要素を線形インデックスで並列処理 | thread_group_size, vector_width |
+| FlatParallel | 全要素を線形インデックスで並列処理（境界チェック付き） | thread_group_size, vector_width |
 | MultiDimParallel | n次元までをスレッドIDで並列化 | parallel_dims, thread_group_size, vector_width |
 
 対応演算:
@@ -61,6 +61,8 @@ LoweringSuggesterが生成する並列化戦略：
 - **vector_widths**: [2, 4, 8]（float2/float4/float8に相当）
 
 ベクトル化は総要素数がベクトル幅で割り切れる場合のみ候補に追加される。
+
+FlatParallel戦略は境界チェック（`if (tid < total_elements)`）を含むため、総要素数がスレッドグループサイズで割り切れなくても適用可能。グリッドサイズは自動的にスレッドグループサイズの倍数に切り上げられる。GPUのSIMTアーキテクチャでは境界チェックのオーバーヘッドは最後のグループのみに影響し、パフォーマンスへの影響は最小限。
 
 ```rust
 // デフォルト設定

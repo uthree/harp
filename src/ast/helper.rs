@@ -27,6 +27,14 @@ impl_binary_helper!(max, Max, "Create a max node: max(a, b)");
 impl_binary_helper!(idiv, Idiv, "Create an integer division node: a / b");
 impl_binary_helper!(rem, Rem, "Create a remainder node: a % b");
 
+// Comparison operation helpers
+impl_binary_helper!(lt, Lt, "Create a less-than comparison: a < b");
+impl_binary_helper!(le, Le, "Create a less-than-or-equal comparison: a <= b");
+impl_binary_helper!(gt, Gt, "Create a greater-than comparison: a > b");
+impl_binary_helper!(ge, Ge, "Create a greater-than-or-equal comparison: a >= b");
+impl_binary_helper!(eq, Eq, "Create an equality comparison: a == b");
+impl_binary_helper!(ne, Ne, "Create a not-equal comparison: a != b");
+
 // Unary operation helpers
 impl_unary_helper!(recip, Recip, "Create a reciprocal node: 1 / a");
 impl_unary_helper!(sqrt, Sqrt, "Create a square root node: sqrt(a)");
@@ -264,6 +272,33 @@ pub fn range(
         step: Box::new(step),
         stop: Box::new(stop),
         body: Box::new(body),
+    }
+}
+
+/// Create an if-then node (without else branch)
+///
+/// # Arguments
+/// * `condition` - Condition expression (Bool type)
+/// * `then_body` - Body to execute if condition is true
+pub fn if_then(condition: AstNode, then_body: AstNode) -> AstNode {
+    AstNode::If {
+        condition: Box::new(condition),
+        then_body: Box::new(then_body),
+        else_body: None,
+    }
+}
+
+/// Create an if-then-else node
+///
+/// # Arguments
+/// * `condition` - Condition expression (Bool type)
+/// * `then_body` - Body to execute if condition is true
+/// * `else_body` - Body to execute if condition is false
+pub fn if_then_else(condition: AstNode, then_body: AstNode, else_body: AstNode) -> AstNode {
+    AstNode::If {
+        condition: Box::new(condition),
+        then_body: Box::new(then_body),
+        else_body: Some(Box::new(else_body)),
     }
 }
 
