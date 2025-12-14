@@ -155,9 +155,42 @@ impl SimpleCostEstimator {
             AstNode::Call { args, .. } => args.iter().map(Self::count_nodes).sum(),
             AstNode::Return { value } => Self::count_nodes(value),
             AstNode::Function { body, .. } => Self::count_nodes(body),
-            AstNode::Kernel { body, .. } => Self::count_nodes(body),
+            AstNode::Kernel {
+                body,
+                default_grid_size,
+                default_thread_group_size,
+                ..
+            } => {
+                Self::count_nodes(body)
+                    + default_grid_size
+                        .iter()
+                        .map(|g| Self::count_nodes(g))
+                        .sum::<usize>()
+                    + default_thread_group_size
+                        .iter()
+                        .map(|t| Self::count_nodes(t))
+                        .sum::<usize>()
+            }
+            AstNode::CallKernel {
+                args,
+                grid_size,
+                thread_group_size,
+                ..
+            } => {
+                args.iter().map(Self::count_nodes).sum::<usize>()
+                    + grid_size
+                        .iter()
+                        .map(|g| Self::count_nodes(g))
+                        .sum::<usize>()
+                    + thread_group_size
+                        .iter()
+                        .map(|t| Self::count_nodes(t))
+                        .sum::<usize>()
+            }
+            AstNode::Allocate { size, .. } => Self::count_nodes(size),
+            AstNode::Deallocate { ptr } => Self::count_nodes(ptr),
             AstNode::Program { functions, .. } => functions.iter().map(Self::count_nodes).sum(),
-            _ => 0, // Const, Var, Barrier, etc.
+            _ => 0, // Const, Var, Barrier, Rand, etc.
         };
         1 + children_count
     }
@@ -201,6 +234,16 @@ impl SimpleCostEstimator {
 
             // 同期バリア（スレッド間の同期待ち）
             AstNode::Barrier => BARRIER_COST.ln(),
+
+            // 乱数生成（比較的高コスト）
+            AstNode::Rand => 10.0_f32.ln(),
+
+            // メモリ確保/解放（高コスト）
+            AstNode::Allocate { .. } => 100.0_f32.ln(),
+            AstNode::Deallocate { .. } => 50.0_f32.ln(),
+
+            // GPUカーネル呼び出し（非常に高いオーバーヘッド）
+            AstNode::CallKernel { .. } => BARRIER_COST.ln(),
 
             // その他（変数参照、定数など）
             _ => f32::NEG_INFINITY, // log(0) = -∞
@@ -320,15 +363,45 @@ impl CostEstimator for SimpleCostEstimator {
                 log_sum_exp(args_cost, FUNCTION_CALL_OVERHEAD.ln())
             }
             AstNode::Return { value } => self.estimate(value),
+            AstNode::Allocate { size, .. } => self.estimate(size),
+            AstNode::Deallocate { ptr } => self.estimate(ptr),
+            AstNode::CallKernel {
+                args,
+                grid_size,
+                thread_group_size,
+                ..
+            } => {
+                // GPUカーネル呼び出しは引数の評価 + grid/threadの設定
+                let args_cost = log_sum_exp_iter(args.iter().map(|a| self.estimate(a)));
+                let grid_cost = log_sum_exp_iter(grid_size.iter().map(|g| self.estimate(g)));
+                let thread_cost =
+                    log_sum_exp_iter(thread_group_size.iter().map(|t| self.estimate(t)));
+                log_sum_exp_iter(vec![args_cost, grid_cost, thread_cost])
+            }
             AstNode::Function { body, .. } => {
                 // 関数本体のコスト + 関数定義オーバーヘッド
                 // 関数定義自体にもコストがかかる（プロローグ/エピローグ、スタックフレーム管理など）
                 log_sum_exp(self.estimate(body), FUNCTION_DEFINITION_OVERHEAD.ln())
             }
-            AstNode::Kernel { body, .. } => {
+            AstNode::Kernel {
+                body,
+                default_grid_size,
+                default_thread_group_size,
+                ..
+            } => {
                 // カーネル本体のコスト + 関数定義オーバーヘッド
                 // カーネルも関数と同様に定義オーバーヘッドがある
-                log_sum_exp(self.estimate(body), FUNCTION_DEFINITION_OVERHEAD.ln())
+                let body_cost = self.estimate(body);
+                let grid_cost =
+                    log_sum_exp_iter(default_grid_size.iter().map(|g| self.estimate(g)));
+                let thread_cost =
+                    log_sum_exp_iter(default_thread_group_size.iter().map(|t| self.estimate(t)));
+                log_sum_exp_iter(vec![
+                    body_cost,
+                    grid_cost,
+                    thread_cost,
+                    FUNCTION_DEFINITION_OVERHEAD.ln(),
+                ])
             }
             AstNode::Program {
                 functions,

@@ -51,9 +51,12 @@ impl SimpleCostEstimator {
     /// 新しいコスト推定器を作成
     pub fn new() -> Self {
         Self {
-            // ノード数ペナルティを高く設定して、複数ノードより
-            // 1つのKernelノードへの融合を優先させる
-            node_count_penalty: 0.5,
+            // ノード数ペナルティ: 対数スケールで直接加算されるため、
+            // 0.15 * 10ノード = 1.5 → exp(1.5) ≈ 4.5倍のペナルティ
+            // 0.15 * 50ノード = 7.5 → exp(7.5) ≈ 1800倍のペナルティ
+            // 複数ノードより1つのKernelノードへの融合を優先させつつ、
+            // 過剰なペナルティを避ける
+            node_count_penalty: 0.15,
         }
     }
 
@@ -201,13 +204,19 @@ impl SimpleCostEstimator {
                 let log_reduce_cost =
                     log_sum_exp_iter(ops.iter().map(|op| self.reduce_op_cost(op)));
                 // 複数のreduce演算を融合
-                num_elements.ln() + log_sum_exp(MEMORY_ACCESS_COST.ln(), log_reduce_cost)
+                // FusedReduceもKernelにloweringされるべきなのでペナルティを追加
+                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
+                num_elements.ln()
+                    + log_sum_exp(MEMORY_ACCESS_COST.ln(), log_reduce_cost)
+                    + lowering_penalty
             }
             GraphOp::Pad { .. } => {
                 // Padは出力バッファの初期化 + 入力データのコピー
                 // コスト = 出力要素数 × (初期化 + コピー) × MEMORY_ACCESS_COST
                 let num_elements = self.compute_num_elements(node);
-                num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln()
+                // PadもKernelにloweringされるべきなのでペナルティを追加
+                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
+                num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln() + lowering_penalty
             }
             GraphOp::Slice { .. } => {
                 // Sliceは入力からのコピーのみ（出力要素数ベース）
@@ -221,13 +230,17 @@ impl SimpleCostEstimator {
                 // Concatは全入力からのコピー（出力要素数ベース）
                 // コスト = 出力要素数 × (read + write) × MEMORY_ACCESS_COST
                 let num_elements = self.compute_num_elements(node);
-                num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln()
+                // ConcatもKernelにloweringされるべきなのでペナルティを追加
+                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
+                num_elements.ln() + (2.0 * MEMORY_ACCESS_COST).ln() + lowering_penalty
             }
             GraphOp::Fold { .. } => {
                 // Fold: col2im、重複部分の加算が必要
                 // unfold演算の逆操作なので、高コスト
                 let num_elements = self.compute_num_elements(node);
-                num_elements.ln() + (3.0 * MEMORY_ACCESS_COST).ln() // 読み込み + 書き込み + 加算
+                // FoldもKernelにloweringされるべきなのでペナルティを追加
+                let lowering_penalty = KERNEL_LAUNCH_OVERHEAD.ln();
+                num_elements.ln() + (3.0 * MEMORY_ACCESS_COST).ln() + lowering_penalty // 読み込み + 書き込み + 加算
             }
             GraphOp::Rand => {
                 // 乱数初期化: 各要素に乱数生成 + 書き込み
