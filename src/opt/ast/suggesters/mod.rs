@@ -4,7 +4,6 @@ pub mod function_inlining;
 pub mod loop_fusion;
 pub mod loop_transforms;
 pub mod rule_based;
-pub mod thread_partition;
 pub mod variable_expansion;
 
 use crate::ast::AstNode;
@@ -17,7 +16,6 @@ pub use function_inlining::FunctionInliningSuggester;
 pub use loop_fusion::LoopFusionSuggester;
 pub use loop_transforms::{LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester};
 pub use rule_based::RuleBaseSuggester;
-pub use thread_partition::ThreadPartitionSuggester;
 pub use variable_expansion::VariableExpansionSuggester;
 
 /// 重複を排除しながら候補リストを作成するヘルパー関数

@@ -38,6 +38,39 @@ AST版よりも計測コストが高いため、足切り候補数を少なめ�
   - `sequential_only()`モードでSequential戦略のみに制限可能
   - パラメータで候補数をチューニング可能
 - **BufferAbsorptionSuggester**: KernelのsrcにあるBufferを`input_buffers`に取り込む
+- **KernelPartitionSuggester**: 1D FlatParallel Kernelを多次元グリッドに分割
+
+#### KernelPartitionSuggester
+
+LoweringSuggesterが生成した1D FlatParallel Kernelを、より効率的な多次元グリッド構成に変換する。
+
+**変換例:**
+```text
+// 変換前 (1D FlatParallel)
+Kernel {
+    params: [tid: ThreadId(0), ...],
+    body: { if (tid < total) { ... } },
+    grid_size: [ceil_div(N, 256) * 256, 1, 1],
+    thread_group_size: [256, 1, 1],
+}
+
+// 変換後 (2D Grid)
+Kernel {
+    params: [tid_0: ThreadId(0), tid_1: ThreadId(1), ...],
+    body: { if (tid_0 < shape_0 && tid_1 < shape_1) { ... } },
+    grid_size: [ceil_div(shape_0, 16) * 16, ceil_div(shape_1, 16) * 16, 1],
+    thread_group_size: [16, 16, 1],
+}
+```
+
+**設計方針:**
+- Loweringフェーズ後、Absorptionフェーズ前に実行
+- GraphOp::Kernelノードに対して直接操作することで、dispatch設定の一貫性を保証
+- `parallel_dims_options`: 並列化する軸数の候補（デフォルト: [2, 3]）
+- `thread_group_sizes`: スレッドグループサイズの候補（デフォルト: [64, 128, 256]）
+
+**関数:**
+- `distribute_thread_group_size(total_size, dims)`: スレッドグループサイズを指定した次元数に均等分配（2のべき乗を維持）
 
 #### ParallelizationStrategy
 
@@ -53,7 +86,7 @@ LoweringSuggesterが生成する並列化戦略：
 - **Reduce**: Sequential, FlatParallel対応（ベクトル化なし）
 - **その他**: Sequentialのみ
 
-多次元グリッドへの変換は、AST最適化フェーズの`ThreadPartitionSuggester`が担当する。
+多次元グリッドへの変換は`KernelPartitionSuggester`が担当する（Loweringフェーズ後、Absorptionフェーズ前に実行）。
 
 #### LoweringSuggesterの設定
 
@@ -102,7 +135,9 @@ ProgramRootAbsorptionSuggesterはViewを透過的に扱わないため、ViewMer
 ```
 FusionSuggester        : Elementwise演算の融合
        ↓
-LoweringSuggester      : GraphOp → Kernel(Function)
+LoweringSuggester      : GraphOp → Kernel(Function/Kernel)
+       ↓
+KernelPartitionSuggester : 1D Kernel → 多次元グリッド
        ↓
 BufferAbsorptionSuggester : 入力Bufferの取り込み
        ↓

@@ -1,12 +1,13 @@
-//! スレッドパーティションSuggester
+//! カーネルパーティションSuggester
 //!
-//! 1D並列化されたKernelを多次元グリッドに変換するSuggesterを提供します。
-//! LoweringSuggesterで生成されたFlatParallel Kernelをより効率的な
-//! 多次元並列化構成に変換できます。
+//! 1D並列化されたGraphOp::Kernel内のAstNode::Kernelを多次元グリッドに変換するSuggester。
+//! グラフレベルで操作することで、dispatch設定の一貫性を保証します。
 
-use crate::ast::{AstNode, DType, Mutability, VarDecl, VarKind, helper::*};
-use crate::opt::ast::AstSuggester;
+use crate::ast::{helper::*, AstNode, DType, Mutability, VarDecl, VarKind};
+use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
+use crate::opt::graph::GraphSuggester;
 use log::{debug, trace};
+use std::collections::HashSet;
 
 /// スレッドグループサイズを指定した次元数に分配する
 ///
@@ -23,9 +24,7 @@ pub fn distribute_thread_group_size(total_size: usize, dims: usize) -> [usize; 3
         1 => [total_size, 1, 1],
         2 => {
             // 2次元: できるだけ正方形に近い分配
-            // sqrt を計算し、2のべき乗に丸める
             let sqrt_approx = (total_size as f64).sqrt() as usize;
-            // 2のべき乗に切り下げ
             let x = sqrt_approx.next_power_of_two() / 2;
             let x = x.max(1);
             let y = total_size / x;
@@ -34,7 +33,6 @@ pub fn distribute_thread_group_size(total_size: usize, dims: usize) -> [usize; 3
         3 => {
             // 3次元: 立方根に近い分配
             let cbrt_approx = (total_size as f64).cbrt() as usize;
-            // 2のべき乗に切り下げ
             let x = cbrt_approx.next_power_of_two() / 2;
             let x = x.max(1);
             let remaining = total_size / x;
@@ -53,39 +51,39 @@ fn ceil_div(a: AstNode, b: AstNode) -> AstNode {
     idiv(a + b.clone() - const_int(1), b)
 }
 
-/// 1D並列KernelをN次元グリッドに分割するSuggester
+/// GraphOp::Kernel内の1D並列Kernelを多次元グリッドに分割するSuggester
 ///
-/// FlatParallel戦略で生成されたKernel（tidによる1D並列）を
-/// 多次元スレッドIDを使用した構成に変換します。
+/// LoweringSuggesterで生成されたFlatParallel Kernelをより効率的な
+/// 多次元並列化構成に変換します。
 ///
 /// # 変換内容
 ///
 /// ```text
 /// // 変換前 (1D FlatParallel)
-/// Kernel {
+/// GraphOp::Kernel { ast: AstNode::Kernel {
 ///     params: [tid: ThreadId(0), ...],
 ///     body: { if (tid < total) { ... } },
 ///     grid_size: [ceil_div(N, 256) * 256, 1, 1],
 ///     thread_group_size: [256, 1, 1],
-/// }
+/// }}
 ///
 /// // 変換後 (2D Grid)
-/// Kernel {
+/// GraphOp::Kernel { ast: AstNode::Kernel {
 ///     params: [tid_0: ThreadId(0), tid_1: ThreadId(1), ...],
 ///     body: { if (tid_0 < shape_0 && tid_1 < shape_1) { ... } },
 ///     grid_size: [ceil_div(shape_0, 16) * 16, ceil_div(shape_1, 16) * 16, 1],
 ///     thread_group_size: [16, 16, 1],
-/// }
+/// }}
 /// ```
-pub struct ThreadPartitionSuggester {
+pub struct KernelPartitionSuggester {
     /// 並列化する軸数の候補
     parallel_dims_options: Vec<usize>,
     /// スレッドグループサイズの候補
     thread_group_sizes: Vec<usize>,
 }
 
-impl ThreadPartitionSuggester {
-    /// 新しいThreadPartitionSuggesterを作成
+impl KernelPartitionSuggester {
+    /// 新しいKernelPartitionSuggesterを作成
     pub fn new() -> Self {
         Self {
             parallel_dims_options: vec![2, 3],
@@ -105,114 +103,78 @@ impl ThreadPartitionSuggester {
         self
     }
 
-    /// ASTからKernelのパーティション候補を収集
-    fn collect_partition_candidates(&self, ast: &AstNode) -> Vec<AstNode> {
-        let mut candidates = Vec::new();
+    /// グラフ内のKernelノードを収集
+    fn collect_kernel_nodes(&self, graph: &Graph) -> Vec<GraphNode> {
+        let mut visited = HashSet::new();
+        let mut kernels = Vec::new();
 
-        match ast {
-            AstNode::Kernel {
-                name,
-                params,
-                return_type,
-                body,
-                default_grid_size,
-                default_thread_group_size,
-            } => {
-                // 1D FlatParallel Kernelかどうかをチェック
-                if self.is_1d_flat_parallel_kernel(params) {
-                    // Kernel本体からndimを推測
-                    let ndim = self.infer_ndim_from_body(body);
-                    trace!(
-                        "ThreadPartitionSuggester: Found 1D kernel '{}' with inferred ndim={}",
-                        name.as_deref().unwrap_or("anonymous"),
-                        ndim
-                    );
+        fn visit(
+            node: &GraphNode,
+            visited: &mut HashSet<*const GraphNodeData>,
+            kernels: &mut Vec<GraphNode>,
+        ) {
+            let ptr = node.as_ptr();
+            if visited.contains(&ptr) {
+                return;
+            }
+            visited.insert(ptr);
 
-                    // 各設定で候補を生成
-                    for &parallel_dims in &self.parallel_dims_options {
-                        if parallel_dims > ndim || parallel_dims < 2 {
-                            continue;
-                        }
+            for src in &node.src {
+                visit(src, visited, kernels);
+            }
 
-                        for &tg_size in &self.thread_group_sizes {
-                            if let Some(partitioned) = self.partition_kernel(
-                                name,
-                                params,
-                                return_type,
-                                body,
-                                default_grid_size,
-                                default_thread_group_size,
-                                parallel_dims,
-                                tg_size,
-                            ) {
-                                candidates.push(partitioned);
-                            }
-                        }
-                    }
-                }
+            if matches!(node.op, GraphOp::Kernel { .. }) {
+                kernels.push(node.clone());
             }
-            AstNode::Program {
-                functions,
-                entry_point,
-            } => {
-                // 各関数/Kernelを再帰的に探索
-                for (i, func) in functions.iter().enumerate() {
-                    for partitioned in self.collect_partition_candidates(func) {
-                        let mut new_functions = functions.clone();
-                        new_functions[i] = partitioned;
-                        candidates.push(AstNode::Program {
-                            functions: new_functions,
-                            entry_point: entry_point.clone(),
-                        });
-                    }
-                }
-            }
-            AstNode::Function {
-                name,
-                params,
-                return_type,
-                body,
-            } => {
-                // 関数本体を再帰的に探索
-                for partitioned in self.collect_partition_candidates(body) {
-                    candidates.push(AstNode::Function {
-                        name: name.clone(),
-                        params: params.clone(),
-                        return_type: return_type.clone(),
-                        body: Box::new(partitioned),
-                    });
-                }
-            }
-            AstNode::Block { statements, scope } => {
-                for (i, stmt) in statements.iter().enumerate() {
-                    for partitioned in self.collect_partition_candidates(stmt) {
-                        let mut new_stmts = statements.clone();
-                        new_stmts[i] = partitioned;
-                        candidates.push(AstNode::Block {
-                            statements: new_stmts,
-                            scope: scope.clone(),
-                        });
-                    }
-                }
-            }
-            _ => {}
         }
 
-        candidates
+        // outputsから走査
+        for output in graph.outputs().values() {
+            visit(output, &mut visited, &mut kernels);
+        }
+
+        // program_rootがあればそこからも走査
+        if let Some(sink) = graph.program_root() {
+            for src in &sink.src {
+                visit(src, &mut visited, &mut kernels);
+            }
+        }
+
+        kernels
     }
 
     /// 1D FlatParallel Kernelかどうかをチェック
-    fn is_1d_flat_parallel_kernel(&self, params: &[VarDecl]) -> bool {
-        // ThreadId(0)のパラメータが"tid"という名前で存在するかチェック
-        params
-            .iter()
-            .any(|p| p.name == "tid" && matches!(p.kind, VarKind::ThreadId(0)))
+    fn is_1d_flat_parallel_kernel(&self, node: &GraphNode) -> bool {
+        match &node.op {
+            GraphOp::Kernel { ast, .. } => {
+                if let AstNode::Kernel { params, .. } = ast {
+                    // ThreadId(0)のパラメータが"tid"という名前で存在するかチェック
+                    params
+                        .iter()
+                        .any(|p| p.name == "tid" && matches!(p.kind, VarKind::ThreadId(0)))
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        }
     }
 
     /// Kernel本体から次元数を推測
-    ///
-    /// shape_0, shape_1, ... の変数参照を探し、最大のインデックスから
-    /// ndimを推測します。
+    fn infer_ndim(&self, node: &GraphNode) -> usize {
+        match &node.op {
+            GraphOp::Kernel { ast, .. } => {
+                if let AstNode::Kernel { body, .. } = ast {
+                    self.infer_ndim_from_body(body)
+                } else {
+                    1
+                }
+            }
+            _ => 1,
+        }
+    }
+
+    /// Kernel本体から次元数を推測
     fn infer_ndim_from_body(&self, body: &AstNode) -> usize {
         let mut max_dim = 0;
         self.collect_shape_vars(body, &mut max_dim);
@@ -223,11 +185,12 @@ impl ThreadPartitionSuggester {
     fn collect_shape_vars(&self, node: &AstNode, max_dim: &mut usize) {
         match node {
             AstNode::Var(name) => {
-                if let Some(suffix) = name.strip_prefix("shape_")
-                    && let Ok(dim) = suffix.parse::<usize>()
-                    && dim > *max_dim
-                {
-                    *max_dim = dim;
+                if let Some(suffix) = name.strip_prefix("shape_") {
+                    if let Ok(dim) = suffix.parse::<usize>() {
+                        if dim > *max_dim {
+                            *max_dim = dim;
+                        }
+                    }
                 }
             }
             // 再帰的に子ノードを探索
@@ -307,18 +270,27 @@ impl ThreadPartitionSuggester {
     }
 
     /// Kernelを多次元グリッドに分割
-    #[allow(clippy::too_many_arguments)]
     fn partition_kernel(
         &self,
-        name: &Option<String>,
-        params: &[VarDecl],
-        return_type: &DType,
-        body: &AstNode,
-        _default_grid_size: &[Box<AstNode>; 3],
-        _default_thread_group_size: &[Box<AstNode>; 3],
+        node: &GraphNode,
         parallel_dims: usize,
         thread_group_size: usize,
-    ) -> Option<AstNode> {
+    ) -> Option<GraphNode> {
+        let GraphOp::Kernel { ast, input_buffers } = &node.op else {
+            return None;
+        };
+
+        let AstNode::Kernel {
+            name,
+            params,
+            return_type,
+            body,
+            ..
+        } = ast
+        else {
+            return None;
+        };
+
         // 新しいパラメータを構築（tidをtid_0, tid_1, ...に置換）
         let mut new_params = Vec::new();
         for param in params {
@@ -354,14 +326,24 @@ impl ThreadPartitionSuggester {
             Box::new(const_int(tg_dist[2] as isize)),
         ];
 
-        Some(AstNode::Kernel {
+        let new_ast = AstNode::Kernel {
             name: name.clone(),
             params: new_params,
             return_type: return_type.clone(),
             body: Box::new(new_body),
             default_grid_size: grid_size,
             default_thread_group_size: new_tg_size,
-        })
+        };
+
+        Some(GraphNode::new(
+            node.dtype.clone(),
+            GraphOp::Kernel {
+                ast: new_ast,
+                input_buffers: input_buffers.clone(),
+            },
+            node.src.clone(),
+            node.view.clone(),
+        ))
     }
 
     /// 本体を変換（tid -> 多次元インデックス）
@@ -375,13 +357,11 @@ impl ThreadPartitionSuggester {
             // tid参照を多次元オフセットに変換
             AstNode::Var(name) if name == "tid" => self.build_linear_offset(parallel_dims, ndim),
 
-            // 比較演算は再帰的に処理
+            // 再帰的に子ノードを変換
             AstNode::Lt(a, b) => AstNode::Lt(
                 Box::new(self.transform_node(a, parallel_dims, ndim)),
                 Box::new(self.transform_node(b, parallel_dims, ndim)),
             ),
-
-            // 再帰的に子ノードを変換
             AstNode::Add(a, b) => AstNode::Add(
                 Box::new(self.transform_node(a, parallel_dims, ndim)),
                 Box::new(self.transform_node(b, parallel_dims, ndim)),
@@ -480,7 +460,6 @@ impl ThreadPartitionSuggester {
             } => {
                 // 境界チェックパターンを検出: if (tid < total) { body }
                 if self.is_boundary_check_condition(condition) && else_body.is_none() {
-                    // 本体を変換してから多次元境界チェックでラップ
                     let transformed_body = self.transform_node(then_body, parallel_dims, ndim);
                     self.build_multidim_boundary_check_if(parallel_dims, transformed_body)
                 } else {
@@ -547,7 +526,6 @@ impl ThreadPartitionSuggester {
 
     /// total_elements（shape_0 * shape_1 * ...）かどうかをチェック
     fn is_total_elements(&self, node: &AstNode) -> bool {
-        // シンプルに: Mul または shape_N変数を含むかチェック
         match node {
             AstNode::Var(name) => name.starts_with("shape_"),
             AstNode::Mul(a, b) => self.is_total_elements(a) || self.is_total_elements(b),
@@ -556,21 +534,15 @@ impl ThreadPartitionSuggester {
     }
 
     /// 多次元インデックスから線形オフセットを計算
-    ///
-    /// offset = tid_0 * stride_0 + tid_1 * stride_1 + ... + tid_(n-1)
     fn build_linear_offset(&self, parallel_dims: usize, ndim: usize) -> AstNode {
         if parallel_dims == 0 || ndim == 0 {
             return const_int(0);
         }
 
-        // 使用する軸数（parallel_dimsとndimの小さい方）
         let actual_dims = parallel_dims.min(ndim);
-
-        // 最後の軸から開始
         let mut offset = var(format!("tid_{}", actual_dims - 1));
 
         for axis in (0..actual_dims - 1).rev() {
-            // stride = shape_(axis+1) * shape_(axis+2) * ... * shape_(actual_dims-1)
             let mut stride = var(format!("shape_{}", axis + 1));
             for inner_axis in (axis + 2)..actual_dims {
                 stride = stride * var(format!("shape_{}", inner_axis));
@@ -582,8 +554,6 @@ impl ThreadPartitionSuggester {
     }
 
     /// 多次元境界チェックのネストしたIf文を構築
-    ///
-    /// if (tid_0 < shape_0) { if (tid_1 < shape_1) { ... } }
     fn build_multidim_boundary_check_if(
         &self,
         parallel_dims: usize,
@@ -593,7 +563,6 @@ impl ThreadPartitionSuggester {
             return inner_body;
         }
 
-        // 内側から外側へ構築
         let mut result = inner_body;
         for dim in (0..parallel_dims).rev() {
             let condition = lt(var(format!("tid_{}", dim)), var(format!("shape_{}", dim)));
@@ -624,25 +593,135 @@ impl ThreadPartitionSuggester {
 
         grid
     }
+
+    /// グラフ内の指定ノードを新しいノードで置換
+    fn replace_node_in_graph(
+        &self,
+        graph: &Graph,
+        old_node: &GraphNode,
+        new_node: GraphNode,
+    ) -> Graph {
+        use std::collections::HashMap;
+
+        let old_ptr = old_node.as_ptr();
+        let mut node_map: HashMap<*const GraphNodeData, GraphNode> = HashMap::new();
+        node_map.insert(old_ptr, new_node);
+
+        // グラフを再構築
+        fn rebuild_node(
+            node: &GraphNode,
+            node_map: &mut HashMap<*const GraphNodeData, GraphNode>,
+        ) -> GraphNode {
+            let ptr = node.as_ptr();
+            if let Some(mapped) = node_map.get(&ptr) {
+                return mapped.clone();
+            }
+
+            // 入力ノードを再帰的に再構築
+            let new_src: Vec<GraphNode> = node
+                .src
+                .iter()
+                .map(|s| rebuild_node(s, node_map))
+                .collect();
+
+            // ポインタ比較で変更があるかチェック
+            let src_changed = new_src.len() != node.src.len()
+                || new_src
+                    .iter()
+                    .zip(node.src.iter())
+                    .any(|(a, b)| a.as_ptr() != b.as_ptr());
+
+            let new_node = if !src_changed {
+                node.clone()
+            } else {
+                GraphNode::new(
+                    node.dtype.clone(),
+                    node.op.clone(),
+                    new_src,
+                    node.view.clone(),
+                )
+            };
+
+            node_map.insert(ptr, new_node.clone());
+            new_node
+        }
+
+        // 出力ノードを再構築
+        let mut new_outputs = HashMap::new();
+        for (name, output) in graph.outputs() {
+            let new_output = rebuild_node(&output, &mut node_map);
+            new_outputs.insert(name.clone(), new_output);
+        }
+
+        // 新しいグラフを作成
+        let mut new_graph = Graph::new();
+        for (name, node) in new_outputs {
+            new_graph.output(&name, node);
+        }
+
+        // program_rootがあれば再構築
+        if let Some(sink) = graph.program_root() {
+            let new_sink = rebuild_node(sink, &mut node_map);
+            new_graph.set_program_root(new_sink);
+        }
+
+        new_graph
+    }
 }
 
-impl Default for ThreadPartitionSuggester {
+impl Default for KernelPartitionSuggester {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl AstSuggester for ThreadPartitionSuggester {
-    fn name(&self) -> &str {
-        "ThreadPartition"
+impl GraphSuggester for KernelPartitionSuggester {
+    fn name(&self) -> &'static str {
+        "KernelPartition"
     }
 
-    fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
-        trace!("ThreadPartitionSuggester: Generating partition suggestions");
-        let candidates = self.collect_partition_candidates(ast);
-        let suggestions = super::deduplicate_candidates(candidates);
+    fn suggest(&self, graph: &Graph) -> Vec<Graph> {
+        trace!("KernelPartitionSuggester: Generating partition suggestions");
+        let mut suggestions = Vec::new();
+
+        let kernel_nodes = self.collect_kernel_nodes(graph);
+        trace!(
+            "KernelPartitionSuggester: Found {} kernel nodes",
+            kernel_nodes.len()
+        );
+
+        for kernel_node in kernel_nodes {
+            // 1D FlatParallel Kernelのみを対象
+            if !self.is_1d_flat_parallel_kernel(&kernel_node) {
+                continue;
+            }
+
+            // ndimを取得
+            let ndim = self.infer_ndim(&kernel_node);
+            trace!(
+                "KernelPartitionSuggester: Processing 1D kernel with ndim={}",
+                ndim
+            );
+
+            for &parallel_dims in &self.parallel_dims_options {
+                if parallel_dims > ndim || parallel_dims < 2 {
+                    continue;
+                }
+
+                for &tg_size in &self.thread_group_sizes {
+                    if let Some(partitioned) =
+                        self.partition_kernel(&kernel_node, parallel_dims, tg_size)
+                    {
+                        let new_graph =
+                            self.replace_node_in_graph(graph, &kernel_node, partitioned);
+                        suggestions.push(new_graph);
+                    }
+                }
+            }
+        }
+
         debug!(
-            "ThreadPartitionSuggester: Generated {} unique suggestions",
+            "KernelPartitionSuggester: Generated {} suggestions",
             suggestions.len()
         );
         suggestions
@@ -652,6 +731,8 @@ impl AstSuggester for ThreadPartitionSuggester {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::graph::shape::View;
+    use crate::graph::DType as GraphDType;
 
     #[test]
     fn test_distribute_thread_group_size_1d() {
@@ -662,120 +743,31 @@ mod tests {
     #[test]
     fn test_distribute_thread_group_size_2d() {
         let result = distribute_thread_group_size(256, 2);
-        // sqrt(256) = 16, so [8, 32] or [16, 16] depending on implementation
         assert_eq!(result[0] * result[1], 256);
         assert_eq!(result[2], 1);
-        // 2の累乗であること
         assert!(result[0].is_power_of_two());
     }
 
     #[test]
     fn test_distribute_thread_group_size_3d() {
         let result = distribute_thread_group_size(64, 3);
-        // cbrt(64) = 4, so approximately [4, 4, 4] or similar
         assert_eq!(result[0] * result[1] * result[2], 64);
-        // 各軸が2の累乗であること
         assert!(result[0].is_power_of_two());
         assert!(result[1].is_power_of_two());
     }
 
     #[test]
     fn test_is_1d_flat_parallel_kernel() {
-        let suggester = ThreadPartitionSuggester::new();
+        let suggester = KernelPartitionSuggester::new();
 
-        let params_1d = vec![
-            VarDecl {
-                name: "tid".to_string(),
-                dtype: DType::Int,
-                mutability: Mutability::Immutable,
-                kind: VarKind::ThreadId(0),
-            },
-            VarDecl {
-                name: "input_0".to_string(),
-                dtype: DType::Ptr(Box::new(DType::F32)),
-                mutability: Mutability::Immutable,
-                kind: VarKind::Normal,
-            },
-        ];
-        assert!(suggester.is_1d_flat_parallel_kernel(&params_1d));
-
-        // 2Dの場合
-        let params_2d = vec![
-            VarDecl {
-                name: "tid_0".to_string(),
-                dtype: DType::Int,
-                mutability: Mutability::Immutable,
-                kind: VarKind::ThreadId(0),
-            },
-            VarDecl {
-                name: "tid_1".to_string(),
-                dtype: DType::Int,
-                mutability: Mutability::Immutable,
-                kind: VarKind::ThreadId(1),
-            },
-        ];
-        assert!(!suggester.is_1d_flat_parallel_kernel(&params_2d));
-    }
-
-    #[test]
-    fn test_infer_ndim_from_body() {
-        use crate::ast::Scope;
-
-        let suggester = ThreadPartitionSuggester::new();
-
-        // shape_0, shape_1 を含む本体
-        let body = AstNode::Block {
-            statements: vec![AstNode::Mul(
-                Box::new(AstNode::Var("shape_0".to_string())),
-                Box::new(AstNode::Var("shape_1".to_string())),
-            )],
-            scope: Box::new(Scope::new()),
-        };
-
-        let ndim = suggester.infer_ndim_from_body(&body);
-        assert_eq!(ndim, 2); // shape_1 が最大なので ndim = 2
-    }
-
-    #[test]
-    fn test_build_linear_offset() {
-        let suggester = ThreadPartitionSuggester::new();
-
-        // 2D: tid_0 * shape_1 + tid_1
-        let offset = suggester.build_linear_offset(2, 2);
-
-        // Mul(Var(tid_0), Var(shape_1)) + Var(tid_1) の形になるはず
-        assert!(matches!(offset, AstNode::Add(_, _)));
-    }
-
-    #[test]
-    fn test_build_multidim_boundary_check_if() {
-        use crate::ast::Scope;
-
-        let suggester = ThreadPartitionSuggester::new();
-
-        // 2D境界チェック: if (tid_0 < shape_0) { if (tid_1 < shape_1) { body } }
-        let inner_body = AstNode::Block {
-            statements: vec![],
-            scope: Box::new(Scope::new()),
-        };
-        let check = suggester.build_multidim_boundary_check_if(2, inner_body);
-
-        // If(Lt(...), If(...)) の形になるはず
-        assert!(matches!(check, AstNode::If { .. }));
-    }
-
-    #[test]
-    fn test_partition_kernel_basic() {
-        let suggester = ThreadPartitionSuggester::new();
-
-        // 簡単な1D Kernelを作成
+        // 1D FlatParallel Kernelを含むGraphNodeを作成
         let body = AstNode::If {
             condition: Box::new(lt(var("tid"), var("shape_0") * var("shape_1"))),
             then_body: Box::new(store(var("output"), var("tid"), var("value"))),
             else_body: None,
         };
 
-        let kernel = AstNode::Kernel {
+        let kernel_ast = AstNode::Kernel {
             name: Some("test_kernel".to_string()),
             params: vec![
                 VarDecl {
@@ -783,12 +775,6 @@ mod tests {
                     dtype: DType::Int,
                     mutability: Mutability::Immutable,
                     kind: VarKind::ThreadId(0),
-                },
-                VarDecl {
-                    name: "input_0".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::F32)),
-                    mutability: Mutability::Immutable,
-                    kind: VarKind::Normal,
                 },
                 VarDecl {
                     name: "output".to_string(),
@@ -811,18 +797,133 @@ mod tests {
             ],
         };
 
-        let suggestions = suggester.suggest(&kernel);
+        let kernel_node = GraphNode::new(
+            GraphDType::F32,
+            GraphOp::Kernel {
+                ast: kernel_ast,
+                input_buffers: None,
+            },
+            vec![],
+            View::contiguous::<i64, _>([]),
+        );
 
-        // 複数の候補が生成されるはず（parallel_dims=2 x thread_group_sizes）
-        assert!(!suggestions.is_empty());
+        assert!(suggester.is_1d_flat_parallel_kernel(&kernel_node));
+    }
 
-        // 最初の候補をチェック
-        if let AstNode::Kernel { params, .. } = &suggestions[0] {
-            // tid_0, tid_1 が追加されているはず
-            let has_tid_0 = params.iter().any(|p| p.name == "tid_0");
-            let has_tid_1 = params.iter().any(|p| p.name == "tid_1");
-            assert!(has_tid_0, "Should have tid_0 parameter");
-            assert!(has_tid_1, "Should have tid_1 parameter");
+    #[test]
+    fn test_infer_ndim() {
+        let suggester = KernelPartitionSuggester::new();
+
+        // shape_0, shape_1 を含むKernel
+        let body = AstNode::Mul(
+            Box::new(AstNode::Var("shape_0".to_string())),
+            Box::new(AstNode::Var("shape_1".to_string())),
+        );
+
+        let kernel_ast = AstNode::Kernel {
+            name: Some("test".to_string()),
+            params: vec![],
+            return_type: DType::Tuple(vec![]),
+            body: Box::new(body),
+            default_grid_size: [
+                Box::new(const_int(1)),
+                Box::new(const_int(1)),
+                Box::new(const_int(1)),
+            ],
+            default_thread_group_size: [
+                Box::new(const_int(1)),
+                Box::new(const_int(1)),
+                Box::new(const_int(1)),
+            ],
+        };
+
+        let kernel_node = GraphNode::new(
+            GraphDType::F32,
+            GraphOp::Kernel {
+                ast: kernel_ast,
+                input_buffers: None,
+            },
+            vec![],
+            View::contiguous::<i64, _>([]),
+        );
+
+        let ndim = suggester.infer_ndim(&kernel_node);
+        assert_eq!(ndim, 2); // shape_1が最大なのでndim = 2
+    }
+
+    #[test]
+    fn test_build_linear_offset() {
+        let suggester = KernelPartitionSuggester::new();
+
+        // 2D: tid_0 * shape_1 + tid_1
+        let offset = suggester.build_linear_offset(2, 2);
+        assert!(matches!(offset, AstNode::Add(_, _)));
+    }
+
+    #[test]
+    fn test_partition_kernel_basic() {
+        let suggester = KernelPartitionSuggester::new();
+
+        // 1D Kernelを含むGraphを作成
+        let body = AstNode::If {
+            condition: Box::new(lt(var("tid"), var("shape_0") * var("shape_1"))),
+            then_body: Box::new(store(var("output"), var("tid"), var("value"))),
+            else_body: None,
+        };
+
+        let kernel_ast = AstNode::Kernel {
+            name: Some("test_kernel".to_string()),
+            params: vec![
+                VarDecl {
+                    name: "tid".to_string(),
+                    dtype: DType::Int,
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::ThreadId(0),
+                },
+                VarDecl {
+                    name: "output".to_string(),
+                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    mutability: Mutability::Mutable,
+                    kind: VarKind::Normal,
+                },
+            ],
+            return_type: DType::Tuple(vec![]),
+            body: Box::new(body),
+            default_grid_size: [
+                Box::new(const_int(1024)),
+                Box::new(const_int(1)),
+                Box::new(const_int(1)),
+            ],
+            default_thread_group_size: [
+                Box::new(const_int(256)),
+                Box::new(const_int(1)),
+                Box::new(const_int(1)),
+            ],
+        };
+
+        let kernel_node = GraphNode::new(
+            GraphDType::F32,
+            GraphOp::Kernel {
+                ast: kernel_ast,
+                input_buffers: None,
+            },
+            vec![],
+            View::contiguous::<i64, _>([]),
+        );
+
+        // partition_kernelを実行
+        let partitioned = suggester.partition_kernel(&kernel_node, 2, 256);
+        assert!(partitioned.is_some());
+
+        let partitioned = partitioned.unwrap();
+        if let GraphOp::Kernel { ast, .. } = &partitioned.op {
+            if let AstNode::Kernel { params, .. } = ast {
+                // tid_0, tid_1 が追加されているはず
+                let has_tid_0 = params.iter().any(|p| p.name == "tid_0");
+                let has_tid_1 = params.iter().any(|p| p.name == "tid_1");
+                assert!(has_tid_0, "Should have tid_0 parameter");
+                assert!(has_tid_1, "Should have tid_1 parameter");
+            }
         }
     }
 }

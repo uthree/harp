@@ -9,8 +9,9 @@ use crate::opt::ast::{
 use crate::opt::graph::{
     BeamSearchGraphOptimizer, BufferAbsorptionSuggester, ChainedGraphOptimizer, CompositeSuggester,
     ContiguousInsertionSuggester, FusionSuggester, GraphOptimizer, KernelMergeSuggester,
-    LoweringSuggester, ProgramRootAbsorptionSuggester, ProgramRootBufferAbsorptionSuggester,
-    TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
+    KernelPartitionSuggester, LoweringSuggester, ProgramRootAbsorptionSuggester,
+    ProgramRootBufferAbsorptionSuggester, TilingSuggester, ViewInsertionSuggester,
+    ViewMergeSuggester,
 };
 
 // =============================================================================
@@ -64,6 +65,19 @@ pub fn create_lowering_only_suggester() -> CompositeSuggester {
 /// Sequential戦略のみで高速にLoweringを行います。
 pub fn create_greedy_lowering_only_suggester() -> CompositeSuggester {
     CompositeSuggester::new(vec![Box::new(LoweringSuggester::sequential_only())])
+}
+
+/// KernelPartitionフェーズ用のSuggesterを作成
+///
+/// LoweringSuggesterで生成された1D FlatParallel Kernelを
+/// 多次元グリッドに分割します。
+///
+/// # 設計方針
+/// - Loweringで生成された1D tid を持つKernelを対象
+/// - 2D/3Dグリッドへの分割候補を生成
+/// - Absorptionの前に実行することで、グラフレベルでdispatch設定の一貫性を保証
+pub fn create_kernel_partition_suggester() -> CompositeSuggester {
+    CompositeSuggester::new(vec![Box::new(KernelPartitionSuggester::new())])
 }
 
 /// Fusionフェーズ用のSuggesterを作成
@@ -192,7 +206,7 @@ impl MultiPhaseConfig {
 
 /// マルチフェーズグラフ最適化を作成
 ///
-/// 5つのフェーズで段階的にグラフを最適化します：
+/// 6つのフェーズで段階的にグラフを最適化します：
 ///
 /// 1. **ViewMerge** (ビューマージ): グラフ構築時に生成された余分なビュー変更を除去
 ///    - 目的: クリーンなグラフ構造の確保
@@ -208,7 +222,11 @@ impl MultiPhaseConfig {
 ///    - 目的: 並列化戦略の選択を含むKernel生成
 ///    - 実測値ベース最適化の主な対象
 ///
-/// 5. **Absorption** (吸収): 全KernelをProgramRootに融合
+/// 5. **KernelPartition** (カーネル分割): 1D FlatParallel Kernelを多次元グリッドに分割
+///    - 目的: GPUの多次元スレッドグリッドを活用
+///    - Absorptionの前に実行することでdispatch設定の一貫性を保証
+///
+/// 6. **Absorption** (吸収): 全KernelをProgramRootに融合
 ///    - 目的: 単一のProgramRootノードへの変換
 ///    - 決定論的な変換のため、実測値ベース最適化は不要
 ///
@@ -270,7 +288,16 @@ pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOpt
         .with_collect_logs(config.collect_logs)
         .with_early_termination_threshold(config.early_termination_threshold);
 
-    // Phase 5: Absorption（ProgramRootへの融合）
+    // Phase 5: KernelPartition（1D Kernelを多次元グリッドに分割）
+    let kernel_partition_suggester = create_kernel_partition_suggester();
+    let kernel_partition_optimizer = BeamSearchGraphOptimizer::new(kernel_partition_suggester)
+        .with_beam_width(config.beam_width)
+        .with_max_steps(config.max_steps_per_phase)
+        .with_progress(config.show_progress)
+        .with_collect_logs(config.collect_logs)
+        .with_early_termination_threshold(config.early_termination_threshold);
+
+    // Phase 6: Absorption（ProgramRootへの融合）
     // 決定論的な変換なのでビーム幅=1で十分、早期終了も不要
     let absorption_suggester = create_fusion_suggester();
     let absorption_optimizer = BeamSearchGraphOptimizer::new(absorption_suggester)
@@ -286,22 +313,23 @@ pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOpt
         .chain(optimization_optimizer.with_name("Optimization"))
         .chain(view_merge_2_optimizer.with_name("ViewMerge (Post-Opt)"))
         .chain(lowering_optimizer.with_name("Lowering"))
+        .chain(kernel_partition_optimizer.with_name("KernelPartition"))
         .chain(absorption_optimizer.with_name("Absorption"))
 }
 
 /// マルチフェーズグラフ最適化を作成（カスタムSelector使用）
 ///
-/// `create_multi_phase_optimizer`と同様ですが、OptimizationフェーズとLoweringフェーズで
+/// `create_multi_phase_optimizer`と同様ですが、Optimization、Lowering、KernelPartitionフェーズで
 /// カスタムSelectorを使用できます。GraphRuntimeSelectorを使用した実測値ベースの最適化に使用します。
 ///
 /// ViewMergeフェーズとAbsorptionフェーズは決定論的な変換のため、Selectorは使用しません。
 ///
 /// # Arguments
 /// * `config` - 最適化の設定
-/// * `selector` - OptimizationとLoweringで使用するカスタムSelector（GraphRuntimeSelectorなど）
+/// * `selector` - Optimization、Lowering、KernelPartitionで使用するカスタムSelector（GraphRuntimeSelectorなど）
 ///
 /// # Returns
-/// ChainedGraphOptimizer（OptimizationとLoweringにカスタムSelectorが設定される）
+/// ChainedGraphOptimizer（Optimization、Lowering、KernelPartitionにカスタムSelectorが設定される）
 ///
 /// # Example
 /// ```ignore
@@ -352,6 +380,16 @@ where
     // Phase 4: Lowering（Kernel変換のみ）- カスタムSelector使用
     let lowering_suggester = create_lowering_only_suggester();
     let lowering_optimizer = BeamSearchGraphOptimizer::new(lowering_suggester)
+        .with_selector(selector.clone())
+        .with_beam_width(config.beam_width)
+        .with_max_steps(config.max_steps_per_phase)
+        .with_progress(config.show_progress)
+        .with_collect_logs(config.collect_logs)
+        .with_early_termination_threshold(config.early_termination_threshold);
+
+    // Phase 5: KernelPartition（1D Kernelを多次元グリッドに分割）- カスタムSelector使用
+    let kernel_partition_suggester = create_kernel_partition_suggester();
+    let kernel_partition_optimizer = BeamSearchGraphOptimizer::new(kernel_partition_suggester)
         .with_selector(selector)
         .with_beam_width(config.beam_width)
         .with_max_steps(config.max_steps_per_phase)
@@ -359,7 +397,7 @@ where
         .with_collect_logs(config.collect_logs)
         .with_early_termination_threshold(config.early_termination_threshold);
 
-    // Phase 5: Absorption（ProgramRootへの融合）- Selector不使用（決定論的変換）
+    // Phase 6: Absorption（ProgramRootへの融合）- Selector不使用（決定論的変換）
     let absorption_suggester = create_fusion_suggester();
     let absorption_optimizer = BeamSearchGraphOptimizer::new(absorption_suggester)
         .with_beam_width(1) // 決定論的変換なのでビーム幅1
@@ -374,12 +412,13 @@ where
         .chain(optimization_optimizer.with_name("Optimization"))
         .chain(view_merge_2_optimizer.with_name("ViewMerge (Post-Opt)"))
         .chain(lowering_optimizer.with_name("Lowering"))
+        .chain(kernel_partition_optimizer.with_name("KernelPartition"))
         .chain(absorption_optimizer.with_name("Absorption"))
 }
 
 /// マルチフェーズグラフ最適化を実行（履歴付き）
 ///
-/// 5つのフェーズで段階的にグラフを最適化し、各フェーズの履歴を結合して返します。
+/// 6つのフェーズで段階的にグラフを最適化し、各フェーズの履歴を結合して返します。
 ///
 /// # Arguments
 /// * `graph` - 最適化対象のグラフ
@@ -462,7 +501,17 @@ pub fn create_greedy_optimizer(config: MultiPhaseConfig) -> ChainedGraphOptimize
         .with_collect_logs(config.collect_logs)
         .with_early_termination_threshold(config.early_termination_threshold);
 
-    // Phase 5: Absorption（ProgramRootへの融合）
+    // Phase 5: KernelPartition（1D Kernelを多次元グリッドに分割）
+    // 貪欲法なのでビーム幅=1で最初の候補のみを選択
+    let kernel_partition_suggester = create_kernel_partition_suggester();
+    let kernel_partition_optimizer = BeamSearchGraphOptimizer::new(kernel_partition_suggester)
+        .with_beam_width(1) // 貪欲法
+        .with_max_steps(config.max_steps_per_phase)
+        .with_progress(config.show_progress)
+        .with_collect_logs(config.collect_logs)
+        .with_early_termination_threshold(config.early_termination_threshold);
+
+    // Phase 6: Absorption（ProgramRootへの融合）
     let absorption_suggester = create_fusion_suggester();
     let absorption_optimizer = BeamSearchGraphOptimizer::new(absorption_suggester)
         .with_beam_width(1) // 決定論的変換
@@ -476,6 +525,7 @@ pub fn create_greedy_optimizer(config: MultiPhaseConfig) -> ChainedGraphOptimize
         .chain(optimization_optimizer.with_name("Optimization (Greedy)"))
         .chain(view_merge_2_optimizer.with_name("ViewMerge (Greedy)"))
         .chain(lowering_optimizer.with_name("Lowering (Greedy)"))
+        .chain(kernel_partition_optimizer.with_name("KernelPartition (Greedy)"))
         .chain(absorption_optimizer.with_name("Absorption (Greedy)"))
 }
 
