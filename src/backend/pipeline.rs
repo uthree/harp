@@ -17,10 +17,36 @@ use crate::opt::graph::{
 // マルチフェーズ最適化用の関数
 // =============================================================================
 
-/// グラフ準備フェーズ用のSuggesterを作成
+/// ViewMergeのみのフェーズ用Suggesterを作成
+///
+/// グラフの構築過程で生成された余分なビュー変更を除去します。
+/// 最適化の最初と最後に実行することで、クリーンなグラフ構造を維持します。
+pub fn create_view_merge_only_suggester() -> CompositeSuggester {
+    CompositeSuggester::new(vec![Box::new(ViewMergeSuggester::new())])
+}
+
+/// グラフ最適化フェーズ用のSuggesterを作成
+///
+/// ViewInsertion、Tiling、ContiguousInsertion、Fusionなど、
+/// グラフ構造の最適化を行うSuggesterを含みます。
+///
+/// ViewMergeはこのフェーズには含めず、独立したフェーズとして実行します。
+pub fn create_graph_optimization_suggester() -> CompositeSuggester {
+    CompositeSuggester::new(vec![
+        Box::new(ViewInsertionSuggester::new()),
+        Box::new(TilingSuggester::with_default_tile_sizes()),
+        Box::new(ContiguousInsertionSuggester::new()),
+        Box::new(FusionSuggester::new()),
+    ])
+}
+
+/// グラフ準備フェーズ用のSuggesterを作成（レガシー互換）
 ///
 /// Phase 1: グラフ構造の最適化（View挿入、融合、タイリングなど）
 /// Lowering前にグラフ構造を整理するために使用します。
+///
+/// Note: 新しいコードでは `create_view_merge_only_suggester` と
+/// `create_graph_optimization_suggester` を個別に使用することを推奨します。
 pub fn create_graph_preparation_suggester() -> CompositeSuggester {
     CompositeSuggester::new(vec![
         Box::new(ViewInsertionSuggester::new()),
@@ -33,18 +59,16 @@ pub fn create_graph_preparation_suggester() -> CompositeSuggester {
 
 /// Loweringのみのフェーズ用Suggesterを作成
 ///
-/// Phase 2: 全てのGraphOpノードをKernelノードに変換
+/// 全てのGraphOpノードをKernelノードに変換します。
 ///
 /// # 設計方針
-/// - LoweringSuggesterでGraphOp → Kernel(Function)に変換
-/// - ViewMergeSuggesterでLowering後に残るViewをKernelに吸収
+/// - LoweringSuggesterでGraphOp → Kernel(Function/Kernel)に変換
 /// - 並列化戦略の選択がこのフェーズで行われるため、実測値ベース最適化の対象
+/// - ViewMergeは独立したフェーズで実行するため、このSuggesterには含めない
 pub fn create_lowering_only_suggester() -> CompositeSuggester {
     CompositeSuggester::new(vec![
-        // LoweringSuggesterでGraphOp -> Kernel(Function)に変換
+        // LoweringSuggesterでGraphOp -> Kernel(Function/Kernel)に変換
         Box::new(LoweringSuggester::new()),
-        // ViewMergeSuggesterでViewをKernelに吸収
-        Box::new(ViewMergeSuggester::new()),
     ])
 }
 
@@ -52,10 +76,7 @@ pub fn create_lowering_only_suggester() -> CompositeSuggester {
 ///
 /// Sequential戦略のみで高速にLoweringを行います。
 pub fn create_greedy_lowering_only_suggester() -> CompositeSuggester {
-    CompositeSuggester::new(vec![
-        Box::new(LoweringSuggester::sequential_only()),
-        Box::new(ViewMergeSuggester::new()),
-    ])
+    CompositeSuggester::new(vec![Box::new(LoweringSuggester::sequential_only())])
 }
 
 /// Fusionフェーズ用のSuggesterを作成
@@ -184,21 +205,25 @@ impl MultiPhaseConfig {
 
 /// マルチフェーズグラフ最適化を作成
 ///
-/// 3つのフェーズで段階的にグラフを最適化します：
+/// 5つのフェーズで段階的にグラフを最適化します：
 ///
-/// 1. **Preparation** (グラフ準備): View挿入、融合、タイリングなど
+/// 1. **ViewMerge** (ビューマージ): グラフ構築時に生成された余分なビュー変更を除去
+///    - 目的: クリーンなグラフ構造の確保
+///
+/// 2. **Optimization** (最適化): View挿入、タイリング、Contiguous挿入、融合など
 ///    - 目的: グラフ構造の最適化
+///    - ViewInsertionはこのフェーズで使用
 ///
-/// 2. **Lowering** (Lowering): 全GraphOpをKernelノードに変換
+/// 3. **ViewMerge** (ビューマージ): 最適化後に残ったビューをマージ
+///    - 目的: Lowering前のクリーンアップ
+///
+/// 4. **Lowering** (Lowering): 全GraphOpをKernelノードに変換
 ///    - 目的: 並列化戦略の選択を含むKernel生成
 ///    - 実測値ベース最適化の主な対象
 ///
-/// 3. **Fusion** (融合): 全KernelをProgramRootに融合
+/// 5. **Absorption** (吸収): 全KernelをProgramRootに融合
 ///    - 目的: 単一のProgramRootノードへの変換
 ///    - 決定論的な変換のため、実測値ベース最適化は不要
-///
-/// AST最適化はグラフ最適化とは別のフェーズとして、GenericPipelineで
-/// Lowering完了後に独立して実行されます。
 ///
 /// # Arguments
 /// * `config` - 最適化の設定
@@ -220,16 +245,36 @@ impl MultiPhaseConfig {
 /// let (optimized, history) = optimizer.optimize_with_history(graph);
 /// ```
 pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOptimizer {
-    // Phase 1: グラフ準備（View挿入、融合など）
-    let preparation_suggester = create_graph_preparation_suggester();
-    let preparation_optimizer = BeamSearchGraphOptimizer::new(preparation_suggester)
+    // Phase 1: ViewMerge（余分なビュー変更を除去）
+    // 決定論的な変換なのでビーム幅=1で十分
+    let view_merge_1_suggester = create_view_merge_only_suggester();
+    let view_merge_1_optimizer = BeamSearchGraphOptimizer::new(view_merge_1_suggester)
+        .with_beam_width(1) // 決定論的変換
+        .with_max_steps(config.max_steps_per_phase)
+        .with_progress(config.show_progress)
+        .with_collect_logs(config.collect_logs)
+        .with_early_termination_threshold(Some(5)); // 早期終了
+
+    // Phase 2: Optimization（グラフ構造の最適化）
+    let optimization_suggester = create_graph_optimization_suggester();
+    let optimization_optimizer = BeamSearchGraphOptimizer::new(optimization_suggester)
         .with_beam_width(config.beam_width)
         .with_max_steps(config.max_steps_per_phase)
         .with_progress(config.show_progress)
         .with_collect_logs(config.collect_logs)
         .with_early_termination_threshold(config.early_termination_threshold);
 
-    // Phase 2: Lowering（Kernel変換のみ）
+    // Phase 3: ViewMerge（最適化後のビューをマージ）
+    // 決定論的な変換なのでビーム幅=1で十分
+    let view_merge_2_suggester = create_view_merge_only_suggester();
+    let view_merge_2_optimizer = BeamSearchGraphOptimizer::new(view_merge_2_suggester)
+        .with_beam_width(1) // 決定論的変換
+        .with_max_steps(config.max_steps_per_phase)
+        .with_progress(config.show_progress)
+        .with_collect_logs(config.collect_logs)
+        .with_early_termination_threshold(Some(5)); // 早期終了
+
+    // Phase 4: Lowering（Kernel変換のみ）
     let lowering_suggester = create_lowering_only_suggester();
     let lowering_optimizer = BeamSearchGraphOptimizer::new(lowering_suggester)
         .with_beam_width(config.beam_width)
@@ -238,10 +283,10 @@ pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOpt
         .with_collect_logs(config.collect_logs)
         .with_early_termination_threshold(config.early_termination_threshold);
 
-    // Phase 3: Fusion（ProgramRootへの融合）
+    // Phase 5: Absorption（ProgramRootへの融合）
     // 決定論的な変換なのでビーム幅=1で十分、早期終了も不要
-    let fusion_suggester = create_fusion_suggester();
-    let fusion_optimizer = BeamSearchGraphOptimizer::new(fusion_suggester)
+    let absorption_suggester = create_fusion_suggester();
+    let absorption_optimizer = BeamSearchGraphOptimizer::new(absorption_suggester)
         .with_beam_width(1) // 決定論的変換なのでビーム幅1
         .with_max_steps(config.max_steps_per_phase)
         .with_progress(config.show_progress)
@@ -249,26 +294,27 @@ pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOpt
         .with_early_termination_threshold(Some(1)); // すぐに終了
 
     // チェーンを構築（各オプティマイザに名前を付けてからchainする）
-    preparation_optimizer
-        .with_name("Preparation")
+    view_merge_1_optimizer
+        .with_name("ViewMerge (Initial)")
+        .chain(optimization_optimizer.with_name("Optimization"))
+        .chain(view_merge_2_optimizer.with_name("ViewMerge (Post-Opt)"))
         .chain(lowering_optimizer.with_name("Lowering"))
-        .chain(fusion_optimizer.with_name("Fusion"))
+        .chain(absorption_optimizer.with_name("Absorption"))
 }
 
-/// マルチフェーズグラフ最適化を作成（Phase 1とPhase 2にカスタムSelector使用）
+/// マルチフェーズグラフ最適化を作成（カスタムSelector使用）
 ///
-/// `create_multi_phase_optimizer`と同様ですが、Phase 1とPhase 2でカスタムSelectorを使用できます。
-/// GraphRuntimeSelectorを使用した実測値ベースの最適化に使用します。
+/// `create_multi_phase_optimizer`と同様ですが、OptimizationフェーズとLoweringフェーズで
+/// カスタムSelectorを使用できます。GraphRuntimeSelectorを使用した実測値ベースの最適化に使用します。
 ///
-/// Phase 1（Preparation）とPhase 2（Lowering）でカスタムSelectorを使用します。
-/// Phase 3（Fusion）は決定論的な変換のため、Selectorは使用しません。
+/// ViewMergeフェーズとAbsorptionフェーズは決定論的な変換のため、Selectorは使用しません。
 ///
 /// # Arguments
 /// * `config` - 最適化の設定
-/// * `selector` - Phase 1とPhase 2で使用するカスタムSelector（GraphRuntimeSelectorなど）
+/// * `selector` - OptimizationとLoweringで使用するカスタムSelector（GraphRuntimeSelectorなど）
 ///
 /// # Returns
-/// ChainedGraphOptimizer（Phase 1とPhase 2にカスタムSelectorが設定される）
+/// ChainedGraphOptimizer（OptimizationとLoweringにカスタムSelectorが設定される）
 ///
 /// # Example
 /// ```ignore
@@ -288,9 +334,18 @@ pub fn create_multi_phase_optimizer_with_selector<Sel>(
 where
     Sel: crate::opt::GraphSelector + Clone + 'static,
 {
-    // Phase 1: グラフ準備（View挿入、融合など）- カスタムSelector使用
-    let graph_optimization_suggester = create_graph_preparation_suggester();
-    let graph_optimizer = BeamSearchGraphOptimizer::new(graph_optimization_suggester)
+    // Phase 1: ViewMerge（余分なビュー変更を除去）- Selector不使用（決定論的変換）
+    let view_merge_1_suggester = create_view_merge_only_suggester();
+    let view_merge_1_optimizer = BeamSearchGraphOptimizer::new(view_merge_1_suggester)
+        .with_beam_width(1) // 決定論的変換
+        .with_max_steps(config.max_steps_per_phase)
+        .with_progress(config.show_progress)
+        .with_collect_logs(config.collect_logs)
+        .with_early_termination_threshold(Some(5)); // 早期終了
+
+    // Phase 2: Optimization（グラフ構造の最適化）- カスタムSelector使用
+    let optimization_suggester = create_graph_optimization_suggester();
+    let optimization_optimizer = BeamSearchGraphOptimizer::new(optimization_suggester)
         .with_selector(selector.clone())
         .with_beam_width(config.beam_width)
         .with_max_steps(config.max_steps_per_phase)
@@ -298,7 +353,16 @@ where
         .with_collect_logs(config.collect_logs)
         .with_early_termination_threshold(config.early_termination_threshold);
 
-    // Phase 2: Lowering（Kernel変換のみ）- カスタムSelector使用
+    // Phase 3: ViewMerge（最適化後のビューをマージ）- Selector不使用（決定論的変換）
+    let view_merge_2_suggester = create_view_merge_only_suggester();
+    let view_merge_2_optimizer = BeamSearchGraphOptimizer::new(view_merge_2_suggester)
+        .with_beam_width(1) // 決定論的変換
+        .with_max_steps(config.max_steps_per_phase)
+        .with_progress(config.show_progress)
+        .with_collect_logs(config.collect_logs)
+        .with_early_termination_threshold(Some(5)); // 早期終了
+
+    // Phase 4: Lowering（Kernel変換のみ）- カスタムSelector使用
     let lowering_suggester = create_lowering_only_suggester();
     let lowering_optimizer = BeamSearchGraphOptimizer::new(lowering_suggester)
         .with_selector(selector)
@@ -308,9 +372,9 @@ where
         .with_collect_logs(config.collect_logs)
         .with_early_termination_threshold(config.early_termination_threshold);
 
-    // Phase 3: Fusion（ProgramRootへの融合）- Selector不使用（決定論的変換）
-    let fusion_suggester = create_fusion_suggester();
-    let fusion_optimizer = BeamSearchGraphOptimizer::new(fusion_suggester)
+    // Phase 5: Absorption（ProgramRootへの融合）- Selector不使用（決定論的変換）
+    let absorption_suggester = create_fusion_suggester();
+    let absorption_optimizer = BeamSearchGraphOptimizer::new(absorption_suggester)
         .with_beam_width(1) // 決定論的変換なのでビーム幅1
         .with_max_steps(config.max_steps_per_phase)
         .with_progress(config.show_progress)
@@ -318,15 +382,17 @@ where
         .with_early_termination_threshold(Some(1)); // すぐに終了
 
     // チェーンを構築
-    graph_optimizer
-        .with_name("Graph Optimization")
+    view_merge_1_optimizer
+        .with_name("ViewMerge (Initial)")
+        .chain(optimization_optimizer.with_name("Optimization"))
+        .chain(view_merge_2_optimizer.with_name("ViewMerge (Post-Opt)"))
         .chain(lowering_optimizer.with_name("Lowering"))
-        .chain(fusion_optimizer.with_name("Fusion"))
+        .chain(absorption_optimizer.with_name("Absorption"))
 }
 
 /// マルチフェーズグラフ最適化を実行（履歴付き）
 ///
-/// 3つのフェーズで段階的にグラフを最適化し、各フェーズの履歴を結合して返します。
+/// 5つのフェーズで段階的にグラフを最適化し、各フェーズの履歴を結合して返します。
 ///
 /// # Arguments
 /// * `graph` - 最適化対象のグラフ
@@ -363,7 +429,7 @@ pub fn optimize_graph_multi_phase(
 /// 実行時間の実測など、高速なloweringが必要な場合に使用します。
 ///
 /// # 特徴
-/// - ビーム幅=1で貪欲法として動作
+/// - 全フェーズでビーム幅=1で貪欲法として動作
 /// - LoweringSuggesterはSequential戦略のみ使用
 /// - 探索空間を最小限に抑え、高速にloweringを完了
 ///
@@ -373,16 +439,34 @@ pub fn optimize_graph_multi_phase(
 /// # Returns
 /// ChainedGraphOptimizer
 pub fn create_greedy_optimizer(config: MultiPhaseConfig) -> ChainedGraphOptimizer {
-    // Phase 1: グラフ準備（beam_width=1）
-    let preparation_suggester = create_graph_preparation_suggester();
-    let preparation_optimizer = BeamSearchGraphOptimizer::new(preparation_suggester)
+    // Phase 1: ViewMerge（余分なビュー変更を除去）
+    let view_merge_1_suggester = create_view_merge_only_suggester();
+    let view_merge_1_optimizer = BeamSearchGraphOptimizer::new(view_merge_1_suggester)
+        .with_beam_width(1) // 貪欲法
+        .with_max_steps(config.max_steps_per_phase)
+        .with_progress(config.show_progress)
+        .with_collect_logs(config.collect_logs)
+        .with_early_termination_threshold(Some(5)); // 早期終了
+
+    // Phase 2: Optimization（グラフ構造の最適化）
+    let optimization_suggester = create_graph_optimization_suggester();
+    let optimization_optimizer = BeamSearchGraphOptimizer::new(optimization_suggester)
         .with_beam_width(1) // 貪欲法
         .with_max_steps(config.max_steps_per_phase)
         .with_progress(config.show_progress)
         .with_collect_logs(config.collect_logs)
         .with_early_termination_threshold(config.early_termination_threshold);
 
-    // Phase 2: Lowering（Sequential戦略のみ、beam_width=1）
+    // Phase 3: ViewMerge（最適化後のビューをマージ）
+    let view_merge_2_suggester = create_view_merge_only_suggester();
+    let view_merge_2_optimizer = BeamSearchGraphOptimizer::new(view_merge_2_suggester)
+        .with_beam_width(1) // 貪欲法
+        .with_max_steps(config.max_steps_per_phase)
+        .with_progress(config.show_progress)
+        .with_collect_logs(config.collect_logs)
+        .with_early_termination_threshold(Some(5)); // 早期終了
+
+    // Phase 4: Lowering（Sequential戦略のみ）
     let lowering_suggester = create_greedy_lowering_only_suggester();
     let lowering_optimizer = BeamSearchGraphOptimizer::new(lowering_suggester)
         .with_beam_width(1) // 貪欲法
@@ -391,19 +475,21 @@ pub fn create_greedy_optimizer(config: MultiPhaseConfig) -> ChainedGraphOptimize
         .with_collect_logs(config.collect_logs)
         .with_early_termination_threshold(config.early_termination_threshold);
 
-    // Phase 3: Fusion（ProgramRootへの融合、beam_width=1）
-    let fusion_suggester = create_fusion_suggester();
-    let fusion_optimizer = BeamSearchGraphOptimizer::new(fusion_suggester)
+    // Phase 5: Absorption（ProgramRootへの融合）
+    let absorption_suggester = create_fusion_suggester();
+    let absorption_optimizer = BeamSearchGraphOptimizer::new(absorption_suggester)
         .with_beam_width(1) // 決定論的変換
         .with_max_steps(config.max_steps_per_phase)
         .with_progress(config.show_progress)
         .with_collect_logs(config.collect_logs)
         .with_early_termination_threshold(Some(1)); // すぐに終了
 
-    preparation_optimizer
-        .with_name("Preparation (Greedy)")
+    view_merge_1_optimizer
+        .with_name("ViewMerge (Greedy)")
+        .chain(optimization_optimizer.with_name("Optimization (Greedy)"))
+        .chain(view_merge_2_optimizer.with_name("ViewMerge (Greedy)"))
         .chain(lowering_optimizer.with_name("Lowering (Greedy)"))
-        .chain(fusion_optimizer.with_name("Fusion (Greedy)"))
+        .chain(absorption_optimizer.with_name("Absorption (Greedy)"))
 }
 
 /// 貪欲法グラフ最適化を実行（履歴付き）
