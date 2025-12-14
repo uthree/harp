@@ -24,22 +24,6 @@ pub enum ParallelizationStrategy {
     },
 }
 
-impl ParallelizationStrategy {
-    /// 戦略名を取得（デバッグ/命名用）
-    pub fn suffix(&self) -> &'static str {
-        match self {
-            ParallelizationStrategy::Sequential => "seq",
-            ParallelizationStrategy::FlatParallel => "flat",
-            ParallelizationStrategy::MultiDimParallel { parallel_dims } => match parallel_dims {
-                1 => "par1d",
-                2 => "par2d",
-                3 => "par3d",
-                _ => "parNd",
-            },
-        }
-    }
-}
-
 /// Elementwise演算の並列カーネルを生成
 ///
 /// # 引数
@@ -539,16 +523,6 @@ fn build_multidim_parallel_reduce_kernel(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_strategy_suffix() {
-        assert_eq!(ParallelizationStrategy::Sequential.suffix(), "seq");
-        assert_eq!(ParallelizationStrategy::FlatParallel.suffix(), "flat");
-        assert_eq!(
-            ParallelizationStrategy::MultiDimParallel { parallel_dims: 2 }.suffix(),
-            "par2d"
-        );
-    }
 
     #[test]
     fn test_build_total_elements() {

@@ -205,8 +205,7 @@ impl LoweringSuggester {
         strategy: &ParallelizationStrategy,
     ) -> Option<GraphNode> {
         let kind = self.get_kernel_kind(&node.op);
-        let base_name = self.generate_kernel_name(kind, node.view.shape());
-        let name = format!("{}_{}", base_name, strategy.suffix());
+        let name = self.generate_kernel_name(kind, node.view.shape());
 
         let ast = match &node.op {
             GraphOp::Elementwise { op, .. } => {
