@@ -6,7 +6,7 @@
 //!
 //! LoopTilingSuggesterとの組み合わせで使用することを想定しています。
 
-use crate::ast::{AstNode, Literal, Scope, helper::lt};
+use crate::ast::{AstNode, Literal, Scope};
 use crate::opt::ast::{AstSuggestResult, AstSuggester};
 
 use super::parallelization_common::{
@@ -40,17 +40,16 @@ use super::parallelization_common::{
 /// // 変換後
 /// Kernel {
 ///     params: [group_id: GroupId(0), local_id: ThreadId(0), ...],
-///     body: If {
-///         condition: group_id < N/tile && local_id < tile,
-///         then: {
-///             ridx0 = group_id * tile + local_id
-///             Store(output, ridx0, Load(input, ridx0))
-///         }
+///     body: {
+///         ridx0 = group_id * tile + local_id
+///         Store(output, ridx0, Load(input, ridx0))
 ///     },
 ///     grid_size: [N/tile, 1, 1],
 ///     thread_group_size: [tile, 1, 1],
 /// }
 /// ```
+///
+/// 境界チェックは不要です（グリッドサイズとスレッドグループサイズで正確に制御）。
 pub struct GroupParallelizationSuggester;
 
 impl GroupParallelizationSuggester {
@@ -185,8 +184,8 @@ impl GroupParallelizationSuggester {
         // 内側ループ変数をlocal_idで置換
         let new_body = substitute_var(&body_with_group, tiled_loop.inner_var, &var(local_id_name));
 
-        // 境界チェック
-        let outer_bound = if matches!(tiled_loop.outer_start, AstNode::Const(Literal::Int(0))) {
+        // グリッドサイズ = 外側ループの反復回数
+        let grid_size_x = if matches!(tiled_loop.outer_start, AstNode::Const(Literal::Int(0))) {
             tiled_loop.outer_stop.clone()
         } else {
             AstNode::Add(
@@ -198,47 +197,32 @@ impl GroupParallelizationSuggester {
             )
         };
 
-        let inner_bound = if matches!(tiled_loop.inner_start, AstNode::Const(Literal::Int(0))) {
-            tiled_loop.inner_stop.clone()
-        } else {
-            AstNode::Add(
-                Box::new(tiled_loop.inner_stop.clone()),
-                Box::new(AstNode::Mul(
-                    Box::new(const_int(-1)),
-                    Box::new(tiled_loop.inner_start.clone()),
-                )),
-            )
-        };
+        // スレッドグループサイズ = 内側ループの反復回数（タイルサイズ）
+        let thread_group_size_x =
+            if matches!(tiled_loop.inner_start, AstNode::Const(Literal::Int(0))) {
+                tiled_loop.inner_stop.clone()
+            } else {
+                AstNode::Add(
+                    Box::new(tiled_loop.inner_stop.clone()),
+                    Box::new(AstNode::Mul(
+                        Box::new(const_int(-1)),
+                        Box::new(tiled_loop.inner_start.clone()),
+                    )),
+                )
+            };
 
-        // group_id < outer_bound && local_id < inner_bound
-        let bound_check = AstNode::BitwiseAnd(
-            Box::new(lt(var(group_id_name), outer_bound.clone())),
-            Box::new(lt(var(local_id_name), inner_bound.clone())),
-        );
-
-        let guarded_body = AstNode::If {
-            condition: Box::new(bound_check),
-            then_body: Box::new(new_body),
-            else_body: None,
-        };
-
-        // スコープを作成
+        // スコープを作成（境界チェック不要：グリッドサイズとスレッドグループサイズで正確に制御）
         let kernel_body = if let AstNode::Block { scope, .. } = tiled_loop.inner_body {
             AstNode::Block {
-                statements: vec![guarded_body],
+                statements: vec![new_body],
                 scope: scope.clone(),
             }
         } else {
             AstNode::Block {
-                statements: vec![guarded_body],
+                statements: vec![new_body],
                 scope: Box::new(Scope::new()),
             }
         };
-
-        // グリッドサイズ = 外側ループの反復回数
-        let grid_size_x = outer_bound;
-        // スレッドグループサイズ = 内側ループの反復回数（タイルサイズ）
-        let thread_group_size_x = inner_bound;
 
         // Kernel paramsを作成（group_id, local_idを先頭に追加）
         let mut kernel_params = vec![
