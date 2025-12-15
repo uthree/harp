@@ -34,10 +34,10 @@ const DEFAULT_THREAD_GROUP_SIZE: usize = 256;
 /// // 変換後
 /// Kernel {
 ///     name: "kernel_0",
-///     params: [tid: ThreadId(0), input: Ptr<F32>, output: Ptr<F32>, N: Int],
+///     params: [gidx0: ThreadId(0), input: Ptr<F32>, output: Ptr<F32>, N: Int],
 ///     body: If {
-///         condition: tid < N,
-///         then: Store(output, tid, Load(input, tid))
+///         condition: gidx0 < N,
+///         then: Store(output, gidx0, Load(input, gidx0))
 ///     },
 ///     grid_size: [ceil_div(N, 256) * 256, 1, 1],
 ///     thread_group_size: [256, 1, 1],
@@ -102,19 +102,19 @@ impl ThreadParallelizationSuggester {
             name
         );
 
-        // スレッドID変数名（tidを使用）
-        let tid_name = "tid";
+        // グローバルスレッドID変数名（gidx0を使用）
+        let gid_name = "gidx0";
 
-        // ループ変数をtidで置換した本体を作成
-        let new_body = substitute_var(loop_body, loop_var, &var(tid_name));
+        // ループ変数をgidx0で置換した本体を作成
+        let new_body = substitute_var(loop_body, loop_var, &var(gid_name));
 
-        // 境界チェック: if tid < stop { new_body }
-        // startが0でない場合は tid + start として扱う必要があるが、
+        // 境界チェック: if gidx0 < stop { new_body }
+        // startが0でない場合は gidx0 + start として扱う必要があるが、
         // 簡略化のためstart=0を前提とする
         let bound_check = if matches!(start.as_ref(), AstNode::Const(Literal::Int(0))) {
-            lt(var(tid_name), stop.as_ref().clone())
+            lt(var(gid_name), stop.as_ref().clone())
         } else {
-            // start != 0 の場合: tid + start < stop => tid < stop - start
+            // start != 0 の場合: gidx0 + start < stop => gidx0 < stop - start
             let range_size = AstNode::Add(
                 Box::new(stop.as_ref().clone()),
                 Box::new(AstNode::Mul(
@@ -122,7 +122,7 @@ impl ThreadParallelizationSuggester {
                     Box::new(start.as_ref().clone()),
                 )),
             );
-            lt(var(tid_name), range_size)
+            lt(var(gid_name), range_size)
         };
 
         let guarded_body = AstNode::If {
@@ -163,15 +163,15 @@ impl ThreadParallelizationSuggester {
         let num_groups = ceil_div(total_iterations, tg_size.clone());
         let grid_size_x = AstNode::Mul(Box::new(num_groups), Box::new(tg_size.clone()));
 
-        // Kernel paramsを作成（tidを先頭に追加）
-        let mut kernel_params = vec![thread_id_param(tid_name, 0)];
+        // Kernel paramsを作成（gidx0を先頭に追加）
+        let mut kernel_params = vec![thread_id_param(gid_name, 0)];
 
         // 元のFunctionのparamsが空の場合、本体から自由変数を収集してパラメータを生成
         if params.is_empty() {
             // kernel_bodyから自由変数を収集
             let free_vars = collect_free_variables(&kernel_body);
-            // tidは除外（既にパラメータとして追加済み）
-            let free_vars: Vec<_> = free_vars.into_iter().filter(|v| v != tid_name).collect();
+            // gidx0は除外（既にパラメータとして追加済み）
+            let free_vars: Vec<_> = free_vars.into_iter().filter(|v| v != gid_name).collect();
             let inferred_params = infer_params_from_placeholders(&free_vars);
             kernel_params.extend(inferred_params);
         } else {
@@ -350,7 +350,7 @@ mod tests {
 
         if let AstNode::Kernel { params, .. } = &result.ast {
             // 最初のパラメータがThreadId
-            assert_eq!(params[0].name, "tid");
+            assert_eq!(params[0].name, "gidx0");
             assert!(matches!(params[0].kind, VarKind::ThreadId(0)));
         }
     }

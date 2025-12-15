@@ -25,7 +25,7 @@ const DEFAULT_MAX_LOCAL_THREADS: usize = 256;
 /// ```text
 /// // 変換前
 /// Kernel {
-///     params: [group_id: GroupId(0), local_id: ThreadId(0), ...],
+///     params: [gidx0: GroupId(0), lidx0: ThreadId(0), ...],
 ///     body: Range { var: "ridx2", start: 0, stop: M, step: 1,
 ///         body: Store(output, ridx2, ...)
 ///     },
@@ -34,7 +34,7 @@ const DEFAULT_MAX_LOCAL_THREADS: usize = 256;
 ///
 /// // 変換後
 /// Kernel {
-///     params: [group_id: GroupId(0), local_id: ThreadId(0), lidx2: LocalId(1), ...],
+///     params: [gidx0: GroupId(0), lidx0: ThreadId(0), lidx2: LocalId(1), ...],
 ///     body: If {
 ///         condition: lidx2 < M,
 ///         then: Store(output, lidx2, ...)
@@ -389,7 +389,7 @@ mod tests {
 
     fn make_kernel_with_inner_loop() -> AstNode {
         // Kernel with an inner Range loop
-        // kernel void test_kernel(group_id, local_id, input, output) {
+        // kernel void test_kernel(gidx0, lidx0, input, output) {
         //     for ridx2 in 0..64 {
         //         output[ridx2] = input[ridx2]
         //     }
@@ -413,13 +413,13 @@ mod tests {
             name: Some("test_kernel".to_string()),
             params: vec![
                 VarDecl {
-                    name: "group_id".to_string(),
+                    name: "gidx0".to_string(),
                     dtype: DType::Int,
                     mutability: Mutability::Immutable,
                     kind: VarKind::GroupId(0),
                 },
                 VarDecl {
-                    name: "local_id".to_string(),
+                    name: "lidx0".to_string(),
                     dtype: DType::Int,
                     mutability: Mutability::Immutable,
                     kind: VarKind::ThreadId(0),

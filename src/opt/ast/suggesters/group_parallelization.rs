@@ -39,9 +39,9 @@ use super::parallelization_common::{
 ///
 /// // 変換後
 /// Kernel {
-///     params: [group_id: GroupId(0), local_id: ThreadId(0), ...],
+///     params: [gidx0: GroupId(0), lidx0: ThreadId(0), ...],
 ///     body: {
-///         ridx0 = group_id * tile + local_id
+///         ridx0 = gidx0 * tile + lidx0
 ///         Store(output, ridx0, Load(input, ridx0))
 ///     },
 ///     grid_size: [N/tile, 1, 1],
@@ -171,17 +171,17 @@ impl GroupParallelizationSuggester {
             name
         );
 
-        // グループID、スレッドID変数名
-        let group_id_name = "group_id";
-        let local_id_name = "local_id";
+        // グループID、ローカルスレッドID変数名（gidx0, lidx0）
+        let group_id_name = "gidx0";
+        let local_id_name = "lidx0";
 
-        // 外側ループ変数をgroup_idで置換
+        // 外側ループ変数をgidx0で置換
         let body_with_group = substitute_var(
             tiled_loop.inner_body,
             tiled_loop.outer_var,
             &var(group_id_name),
         );
-        // 内側ループ変数をlocal_idで置換
+        // 内側ループ変数をlidx0で置換
         let new_body = substitute_var(&body_with_group, tiled_loop.inner_var, &var(local_id_name));
 
         // グリッドサイズ = 外側ループの反復回数
@@ -224,7 +224,7 @@ impl GroupParallelizationSuggester {
             }
         };
 
-        // Kernel paramsを作成（group_id, local_idを先頭に追加）
+        // Kernel paramsを作成（gidx0, lidx0を先頭に追加）
         let mut kernel_params = vec![
             group_id_param(group_id_name, 0),
             thread_id_param(local_id_name, 0),
@@ -234,7 +234,7 @@ impl GroupParallelizationSuggester {
         if params.is_empty() {
             // kernel_bodyから自由変数を収集
             let free_vars = collect_free_variables(&kernel_body);
-            // group_id, local_idは除外（既にパラメータとして追加済み）
+            // gidx0, lidx0は除外（既にパラメータとして追加済み）
             let free_vars: Vec<_> = free_vars
                 .into_iter()
                 .filter(|v| v != group_id_name && v != local_id_name)
@@ -435,9 +435,9 @@ mod tests {
 
         if let AstNode::Kernel { params, .. } = &result.ast {
             // 最初の2つのパラメータがGroupIdとThreadId
-            assert_eq!(params[0].name, "group_id");
+            assert_eq!(params[0].name, "gidx0");
             assert!(matches!(params[0].kind, VarKind::GroupId(0)));
-            assert_eq!(params[1].name, "local_id");
+            assert_eq!(params[1].name, "lidx0");
             assert!(matches!(params[1].kind, VarKind::ThreadId(0)));
         }
     }

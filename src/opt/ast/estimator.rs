@@ -1236,7 +1236,7 @@ mod tests {
             name: Some("local_parallel".to_string()),
             params: vec![
                 VarDecl {
-                    name: "lidx".to_string(),
+                    name: "lidx0".to_string(),
                     dtype: DType::Int,
                     mutability: Mutability::Immutable,
                     kind: VarKind::LocalId(0),
@@ -1259,7 +1259,7 @@ mod tests {
             name: Some("global_parallel".to_string()),
             params: vec![
                 VarDecl {
-                    name: "gidx".to_string(),
+                    name: "gidx0".to_string(),
                     dtype: DType::Int,
                     mutability: Mutability::Immutable,
                     kind: VarKind::GroupId(0),
@@ -1309,13 +1309,13 @@ mod tests {
             name: Some("combined_parallel".to_string()),
             params: vec![
                 VarDecl {
-                    name: "gidx".to_string(),
+                    name: "gidx0".to_string(),
                     dtype: DType::Int,
                     mutability: Mutability::Immutable,
                     kind: VarKind::GroupId(0),
                 },
                 VarDecl {
-                    name: "lidx".to_string(),
+                    name: "lidx0".to_string(),
                     dtype: DType::Int,
                     mutability: Mutability::Immutable,
                     kind: VarKind::LocalId(0),
@@ -1338,7 +1338,7 @@ mod tests {
             name: Some("global_only".to_string()),
             params: vec![
                 VarDecl {
-                    name: "gidx".to_string(),
+                    name: "gidx0".to_string(),
                     dtype: DType::Int,
                     mutability: Mutability::Immutable,
                     kind: VarKind::GroupId(0),
