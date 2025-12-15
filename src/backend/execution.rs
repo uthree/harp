@@ -656,12 +656,6 @@ where
     }
 }
 
-// Type aliases for backward compatibility
-pub type NativePipeline<R, Ctx, Comp> = Pipeline<R, Ctx, Comp>;
-pub type NativePipelineConfig = PipelineConfig;
-pub type NativeOptimizationHistories = OptimizationHistories;
-pub type CompiledNativeKernel<K, B> = CompiledKernel<K, B>;
-
 #[cfg(test)]
 mod tests {
     use super::*;

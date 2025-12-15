@@ -134,5 +134,5 @@ pub use suggesters::{
     BufferAbsorptionSuggester, CompositeSuggester, ContiguousInsertionSuggester, FusionSuggester,
     KernelMergeSuggester, KernelPartitionSuggester, LoweringSuggester,
     ProgramRootAbsorptionSuggester, ProgramRootBufferAbsorptionSuggester,
-    SubGraphInliningSuggester, TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
+    SubgraphInliningSuggester, TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
 };

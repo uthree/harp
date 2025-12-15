@@ -35,8 +35,8 @@ pub use graph::{CumulativeStrategy, DType, Graph, GraphNode, ReduceStrategy};
 pub use backend::Renderer;
 
 // Re-export native backend traits
-pub use backend::native::{
-    KernelConfig, NativeBuffer, NativeCompiler, NativeContext, NativeKernel, NativePipeline,
+pub use backend::{
+    KernelConfig, NativeBuffer, NativeCompiler, NativeContext, NativeKernel, Pipeline,
 };
 
 // Re-export lowerer
@@ -64,7 +64,7 @@ pub mod prelude {
     // Backend traits
     pub use crate::backend::{
         BufferSignature, KernelSignature, NativeBuffer, NativeCompiler, NativeContext,
-        NativeKernel, NativePipeline, Renderer,
+        NativeKernel, Pipeline, Renderer,
     };
 
     // Lowerer

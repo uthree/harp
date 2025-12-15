@@ -108,8 +108,8 @@ Graph最適化フェーズでは、以下のSuggesterにより段階的に演算
 ### 構造
 
 - **Graph.subgraphs**: `HashMap<String, Graph>` - サブグラフを名前で管理
-- **GraphOp::SubGraphCall**: サブグラフ呼び出しを表すノード
-- **GraphOp::SubGraphOutput**: 複数出力サブグラフから特定の出力を取り出すノード
+- **GraphOp::SubgraphCall**: サブグラフ呼び出しを表すノード
+- **GraphOp::SubgraphOutput**: 複数出力サブグラフから特定の出力を取り出すノード
 
 ### DSL構文
 
@@ -152,7 +152,7 @@ graph main(input: f32[10]) -> (out1: f32[10], out2: f32[10]) {
 
 ### 最適化
 
-サブグラフは各グラフが独立して最適化されます。`SubGraphCall`と`SubGraphOutput`ノードはLoweringSuggesterではスキップされ、バックエンドで関数呼び出しとして処理されます。
+サブグラフは各グラフが独立して最適化されます。`SubgraphCall`と`SubgraphOutput`ノードはLoweringSuggesterではスキップされ、バックエンドで関数呼び出しとして処理されます。
 
 ## 未実装
 

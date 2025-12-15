@@ -61,4 +61,3 @@ fn test_create_signature_with_dynamic_shape() {
 
 // Note: test_create_signature_multiple_inputs_outputs は複数出力が
 // 現在サポートされていないため削除されました。
-// 詳細は spec/TODO.md を参照してください。

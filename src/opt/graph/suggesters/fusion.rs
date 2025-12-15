@@ -616,5 +616,4 @@ mod tests {
 
     // Note: test_no_fusion_multiple_references は複数出力が
     // 現在サポートされていないため削除されました。
-    // 詳細は spec/TODO.md を参照してください。
 }

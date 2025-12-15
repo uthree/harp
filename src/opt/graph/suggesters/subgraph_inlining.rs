@@ -1,7 +1,7 @@
 //! SubGraph Inlining Suggester
 //!
 //! サブグラフ呼び出しをインライン展開するSuggester。
-//! SubGraphCallノードを対応するサブグラフの計算ノードで置き換えます。
+//! SubgraphCallノードを対応するサブグラフの計算ノードで置き換えます。
 
 use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
 use crate::opt::graph::GraphSuggester;
@@ -9,26 +9,26 @@ use std::collections::{HashMap, HashSet};
 
 /// サブグラフ呼び出しをインライン展開するSuggester
 ///
-/// SubGraphCallノードを見つけ、対応するサブグラフの計算を
+/// SubgraphCallノードを見つけ、対応するサブグラフの計算を
 /// 呼び出し元グラフに直接埋め込みます。
 ///
 /// # インライン展開の流れ
 ///
-/// 1. SubGraphCallノードを検出
+/// 1. SubgraphCallノードを検出
 /// 2. 対応するサブグラフを取得
 /// 3. サブグラフの入力を実際の引数で置き換え
 /// 4. サブグラフの出力を計算結果に接続
 ///
 /// # 対応するケース
 ///
-/// - 単一出力のサブグラフ: SubGraphCallノードを直接置き換え
-/// - 複数出力のサブグラフ: SubGraphOutputノードも含めて置き換え
-pub struct SubGraphInliningSuggester;
+/// - 単一出力のサブグラフ: SubgraphCallノードを直接置き換え
+/// - 複数出力のサブグラフ: SubgraphOutputノードも含めて置き換え
+pub struct SubgraphInliningSuggester;
 
-impl SubGraphInliningSuggester {
-    /// 新しいSubGraphInliningSuggesterを作成
+impl SubgraphInliningSuggester {
+    /// 新しいSubgraphInliningSuggesterを作成
     pub fn new() -> Self {
-        SubGraphInliningSuggester
+        SubgraphInliningSuggester
     }
 
     /// グラフ内の全ノードを収集（トポロジカル順）
@@ -59,7 +59,7 @@ impl SubGraphInliningSuggester {
         }
 
         if let Some(root) = graph.program_root() {
-            visit(&root, &mut visited, &mut nodes);
+            visit(root, &mut visited, &mut nodes);
         }
 
         nodes
@@ -67,14 +67,14 @@ impl SubGraphInliningSuggester {
 
     /// サブグラフをインライン展開する
     ///
-    /// SubGraphCallノードの入力を使って、サブグラフの計算を再構築します。
+    /// SubgraphCallノードの入力を使って、サブグラフの計算を再構築します。
     fn inline_subgraph(
         &self,
         call_node: &GraphNode,
         subgraph: &Graph,
     ) -> Option<HashMap<String, GraphNode>> {
-        let GraphOp::SubGraphCall { name } = &call_node.op else {
-            log::debug!("inline_subgraph: node is not SubGraphCall");
+        let GraphOp::SubgraphCall { name } = &call_node.op else {
+            log::debug!("inline_subgraph: node is not SubgraphCall");
             return None;
         };
 
@@ -94,7 +94,7 @@ impl SubGraphInliningSuggester {
 
         if input_metas.len() != call_node.src.len() {
             log::warn!(
-                "SubGraphInlining: argument count mismatch. Expected {}, got {}",
+                "SubgraphInlining: argument count mismatch. Expected {}, got {}",
                 input_metas.len(),
                 call_node.src.len()
             );
@@ -136,11 +136,11 @@ impl SubGraphInliningSuggester {
         }
 
         // Bufferノードの場合は入力マッピングをチェック
-        if let GraphOp::Buffer { name } = &node.op {
-            if let Some(actual_input) = input_mapping.get(name) {
-                cache.insert(ptr, actual_input.clone());
-                return actual_input.clone();
-            }
+        if let GraphOp::Buffer { name } = &node.op
+            && let Some(actual_input) = input_mapping.get(name)
+        {
+            cache.insert(ptr, actual_input.clone());
+            return actual_input.clone();
         }
 
         // srcを再構築
@@ -171,7 +171,7 @@ impl SubGraphInliningSuggester {
         new_node
     }
 
-    /// グラフ内のSubGraphCallノードを置き換えた新しいグラフを作成
+    /// グラフ内のSubgraphCallノードを置き換えた新しいグラフを作成
     fn replace_subgraph_call(
         &self,
         graph: &Graph,
@@ -180,11 +180,11 @@ impl SubGraphInliningSuggester {
     ) -> Graph {
         let mut node_map: HashMap<*const GraphNodeData, GraphNode> = HashMap::new();
 
-        // SubGraphCallノードの参照先を特定
+        // SubgraphCallノードの参照先を特定
         let call_ptr = call_node.as_ptr();
 
-        // 単一出力の場合: SubGraphCallノードを直接出力ノードで置き換え
-        // 複数出力の場合: SubGraphOutputノードで個別に置き換えるので、node_mapには入れない
+        // 単一出力の場合: SubgraphCallノードを直接出力ノードで置き換え
+        // 複数出力の場合: SubgraphOutputノードで個別に置き換えるので、node_mapには入れない
         let single_output = if inlined_outputs.len() == 1 {
             let output_node = inlined_outputs.values().next().unwrap().clone();
             node_map.insert(call_ptr, output_node);
@@ -193,8 +193,8 @@ impl SubGraphInliningSuggester {
             false
         };
 
-        // SubGraphOutputノードも処理
-        // SubGraphOutputノードはSubGraphCallを参照しているので、
+        // SubgraphOutputノードも処理
+        // SubgraphOutputノードはSubgraphCallを参照しているので、
         // 対応する出力ノードで置き換える
 
         let mut visited = HashSet::new();
@@ -216,13 +216,14 @@ impl SubGraphInliningSuggester {
                 return new_node.clone();
             }
 
-            // SubGraphOutputノードの場合
-            if let GraphOp::SubGraphOutput { output_name, .. } = &node.op {
-                // このSubGraphOutputが参照しているSubGraphCallを確認
-                if !node.src.is_empty() && node.src[0].as_ptr() == call_ptr {
-                    if let Some(inlined) = inlined_outputs.get(output_name) {
-                        return inlined.clone();
-                    }
+            // SubgraphOutputノードの場合
+            if let GraphOp::SubgraphOutput { output_name, .. } = &node.op {
+                // このSubgraphOutputが参照しているSubgraphCallを確認
+                if !node.src.is_empty()
+                    && node.src[0].as_ptr() == call_ptr
+                    && let Some(inlined) = inlined_outputs.get(output_name)
+                {
+                    return inlined.clone();
                 }
             }
 
@@ -310,15 +311,15 @@ impl SubGraphInliningSuggester {
     }
 }
 
-impl Default for SubGraphInliningSuggester {
+impl Default for SubgraphInliningSuggester {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl GraphSuggester for SubGraphInliningSuggester {
+impl GraphSuggester for SubgraphInliningSuggester {
     fn name(&self) -> &'static str {
-        "SubGraphInlining"
+        "SubgraphInlining"
     }
 
     fn suggest(&self, graph: &Graph) -> Vec<Graph> {
@@ -326,24 +327,24 @@ impl GraphSuggester for SubGraphInliningSuggester {
         let nodes = self.collect_all_nodes(graph);
 
         log::debug!(
-            "SubGraphInlining: collected {} nodes, graph has {} subgraphs",
+            "SubgraphInlining: collected {} nodes, graph has {} subgraphs",
             nodes.len(),
             graph.subgraphs().len()
         );
 
-        // SubGraphCallノードを探す
+        // SubgraphCallノードを探す
         for node in &nodes {
-            if let GraphOp::SubGraphCall { name } = &node.op {
-                log::debug!("SubGraphInlining: found SubGraphCall '{}'", name);
+            if let GraphOp::SubgraphCall { name } = &node.op {
+                log::debug!("SubgraphInlining: found SubgraphCall '{}'", name);
 
                 // 対応するサブグラフを取得
                 let Some(subgraph) = graph.subgraph(name) else {
-                    log::warn!("SubGraphInlining: subgraph '{}' not found in graph", name);
+                    log::warn!("SubgraphInlining: subgraph '{}' not found in graph", name);
                     continue;
                 };
 
                 log::debug!(
-                    "SubGraphInlining: found subgraph '{}' with {} inputs, {} outputs",
+                    "SubgraphInlining: found subgraph '{}' with {} inputs, {} outputs",
                     name,
                     subgraph.input_metas().len(),
                     subgraph.outputs().len()
@@ -352,23 +353,23 @@ impl GraphSuggester for SubGraphInliningSuggester {
                 // サブグラフをインライン展開
                 if let Some(inlined_outputs) = self.inline_subgraph(node, subgraph) {
                     log::debug!(
-                        "SubGraphInlining: successfully inlined '{}' with {} outputs",
+                        "SubgraphInlining: successfully inlined '{}' with {} outputs",
                         name,
                         inlined_outputs.len()
                     );
                     let new_graph = self.replace_subgraph_call(graph, node, inlined_outputs);
                     suggestions.push(new_graph);
-                    // 一度に1つのSubGraphCallのみを展開
-                    // 複数のSubGraphCallがある場合は、次のイテレーションで処理される
+                    // 一度に1つのSubgraphCallのみを展開
+                    // 複数のSubgraphCallがある場合は、次のイテレーションで処理される
                     break;
                 } else {
-                    log::warn!("SubGraphInlining: failed to inline '{}'", name);
+                    log::warn!("SubgraphInlining: failed to inline '{}'", name);
                 }
             }
         }
 
         log::debug!(
-            "SubGraphInlining: returning {} suggestions",
+            "SubgraphInlining: returning {} suggestions",
             suggestions.len()
         );
         suggestions
@@ -382,7 +383,7 @@ mod tests {
 
     #[test]
     fn test_inline_simple_subgraph() {
-        let suggester = SubGraphInliningSuggester::new();
+        let suggester = SubgraphInliningSuggester::new();
 
         // サブグラフを作成: y = x * 2
         let mut subgraph = Graph::new();
@@ -398,7 +399,7 @@ mod tests {
         // サブグラフを追加
         main_graph.add_subgraph("double", subgraph);
 
-        // SubGraphCallノードを作成
+        // SubgraphCallノードを作成
         let call_node = GraphNode::subgraph_call(
             "double",
             vec![a.clone()],
@@ -413,18 +414,18 @@ mod tests {
         // 1つの候補が生成されるはず
         assert_eq!(suggestions.len(), 1);
 
-        // インライン展開後のグラフにSubGraphCallがないことを確認
+        // インライン展開後のグラフにSubgraphCallがないことを確認
         let inlined = &suggestions[0];
         let nodes = suggester.collect_all_nodes(inlined);
         let has_subgraph_call = nodes
             .iter()
-            .any(|n| matches!(n.op, GraphOp::SubGraphCall { .. }));
-        assert!(!has_subgraph_call, "SubGraphCall should be inlined");
+            .any(|n| matches!(n.op, GraphOp::SubgraphCall { .. }));
+        assert!(!has_subgraph_call, "SubgraphCall should be inlined");
     }
 
     #[test]
     fn test_no_suggestion_without_subgraph_call() {
-        let suggester = SubGraphInliningSuggester::new();
+        let suggester = SubgraphInliningSuggester::new();
 
         let mut graph = Graph::new();
         let a = graph.input("a", DType::F32, vec![4]);
@@ -434,13 +435,13 @@ mod tests {
 
         let suggestions = suggester.suggest(&graph);
 
-        // SubGraphCallがないので候補は生成されない
+        // SubgraphCallがないので候補は生成されない
         assert_eq!(suggestions.len(), 0);
     }
 
     #[test]
     fn test_collect_nodes_finds_subgraph_calls() {
-        let suggester = SubGraphInliningSuggester::new();
+        let suggester = SubgraphInliningSuggester::new();
 
         // サブグラフを作成: y = x * 2
         let mut subgraph = Graph::new();
@@ -456,7 +457,7 @@ mod tests {
         // サブグラフを追加
         main_graph.add_subgraph("double", subgraph);
 
-        // SubGraphCallノードを作成
+        // SubgraphCallノードを作成
         let call_node = GraphNode::subgraph_call(
             "double",
             vec![a.clone()],
@@ -468,20 +469,20 @@ mod tests {
         // ノードを収集
         let nodes = suggester.collect_all_nodes(&main_graph);
 
-        // SubGraphCallノードが見つかることを確認
+        // SubgraphCallノードが見つかることを確認
         let subgraph_call_count = nodes
             .iter()
-            .filter(|n| matches!(n.op, GraphOp::SubGraphCall { .. }))
+            .filter(|n| matches!(n.op, GraphOp::SubgraphCall { .. }))
             .count();
         assert!(
             subgraph_call_count > 0,
-            "Should find SubGraphCall nodes in the graph"
+            "Should find SubgraphCall nodes in the graph"
         );
     }
 
     #[test]
     fn test_inline_subgraph_method() {
-        let suggester = SubGraphInliningSuggester::new();
+        let suggester = SubgraphInliningSuggester::new();
 
         // サブグラフを作成: y = x * 2
         let mut subgraph = Graph::new();
@@ -500,7 +501,7 @@ mod tests {
             crate::graph::View::contiguous(vec![4]),
         );
 
-        // SubGraphCallノードを作成
+        // SubgraphCallノードを作成
         let call_node = GraphNode::subgraph_call(
             "double",
             vec![a.clone()],

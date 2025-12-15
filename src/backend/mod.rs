@@ -44,14 +44,12 @@ pub use traits::{KernelConfig, NativeBuffer, NativeCompiler, NativeContext, Nati
 
 // Re-export execution types
 pub use execution::{
-    CompiledKernel, CompiledNativeKernel, KernelSourceRenderer, NativeOptimizationHistories,
-    NativePipeline, NativePipelineConfig, OptimizationHistories, Pipeline, PipelineConfig,
+    CompiledKernel, KernelSourceRenderer, OptimizationHistories, Pipeline, PipelineConfig,
 };
 
 // Re-export sequence types
 pub use sequence::{
-    CompiledNativeProgram, CompiledProgram, IntermediateBufferSpec, KernelCallInfo,
-    ProgramExecutionError,
+    CompiledProgram, IntermediateBufferSpec, KernelCallInfo, ProgramExecutionError,
 };
 
 // Re-export pipeline utilities
@@ -60,46 +58,6 @@ pub use pipeline::{
     create_multi_phase_optimizer, create_multi_phase_optimizer_with_selector,
     optimize_graph_greedy, optimize_graph_multi_phase,
 };
-
-// Backward compatibility: re-export native module types
-// These are deprecated - use the direct imports from backend::* instead
-pub mod native {
-    //! Backward compatibility module
-    //!
-    //! This module is deprecated. Use the types from `backend::*` directly:
-    //! - `backend::NativeContext` instead of `backend::native::NativeContext`
-    //! - `backend::metal::MetalNativeContext` instead of `backend::native::metal::MetalNativeContext`
-    //! - etc.
-
-    pub use crate::backend::execution::{
-        CompiledKernel as CompiledNativeKernel, KernelSourceRenderer, NativeOptimizationHistories,
-        NativePipeline, NativePipelineConfig, OptimizationHistories, Pipeline,
-    };
-    pub use crate::backend::sequence::{
-        CompiledNativeProgram, CompiledProgram, IntermediateBufferSpec, KernelCallInfo,
-        ProgramExecutionError,
-    };
-    pub use crate::backend::traits::{
-        KernelConfig, NativeBuffer, NativeCompiler, NativeContext, NativeKernel,
-    };
-
-    // Re-export backend-specific types for backward compatibility
-    #[cfg(feature = "native-opencl")]
-    pub mod opencl {
-        pub use crate::backend::opencl::{
-            OpenCLNativeBuffer, OpenCLNativeCompiler, OpenCLNativeContext, OpenCLNativeError,
-            OpenCLNativeKernel,
-        };
-    }
-
-    #[cfg(all(feature = "native-metal", target_os = "macos"))]
-    pub mod metal {
-        pub use crate::backend::metal::{
-            MetalNativeBuffer, MetalNativeCompiler, MetalNativeContext, MetalNativeError,
-            MetalNativeKernel,
-        };
-    }
-}
 
 /// Renderer trait for converting AST to source code
 pub trait Renderer {

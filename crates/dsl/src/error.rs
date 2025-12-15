@@ -47,7 +47,7 @@ pub enum DslError {
 
     /// Subgraph argument count mismatch
     #[error("Subgraph '{graph_name}' expects {expected} arguments, got {got}")]
-    SubGraphArgumentMismatch {
+    SubgraphArgumentMismatch {
         graph_name: String,
         expected: usize,
         got: usize,
@@ -55,7 +55,7 @@ pub enum DslError {
 
     /// Subgraph type mismatch
     #[error("Subgraph '{graph_name}' parameter '{param_name}': expected {expected}, got {got}")]
-    SubGraphTypeMismatch {
+    SubgraphTypeMismatch {
         graph_name: String,
         param_name: String,
         expected: String,

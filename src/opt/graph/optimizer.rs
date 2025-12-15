@@ -680,7 +680,6 @@ mod tests {
 
     // Note: test_output_order_independence は複数出力が
     // 現在サポートされていないため削除されました。
-    // 詳細は spec/TODO.md を参照してください。
 
     // 履歴を記録するテスト用Optimizer
     struct HistoryRecordingOptimizer {

@@ -1,6 +1,6 @@
 //! サブグラフを個別カーネルに変換するモジュール
 //!
-//! SubGraphCallノードを検出し、各サブグラフを独立したカーネル関数として
+//! SubgraphCallノードを検出し、各サブグラフを独立したカーネル関数として
 //! 低レベル化します。実行順序はKernelCallメタデータとして保持されます。
 
 use std::collections::HashSet;
@@ -14,18 +14,18 @@ use crate::opt::graph::{GraphOptimizer, OptimizationHistory};
 /// サブグラフを個別カーネルに変換するOptimizer
 ///
 /// # 処理フロー
-/// 1. グラフ内のSubGraphCallノードを検出
+/// 1. グラフ内のSubgraphCallノードを検出
 /// 2. 各サブグラフを独立してlower
 /// 3. カーネル関数としてProgramに追加
 /// 4. 実行順序をKernelCallとして記録
 #[derive(Debug, Clone, Default)]
-pub struct SubGraphLoweringOptimizer {
+pub struct SubgraphLoweringOptimizer {
     /// 最大再帰深度（サブグラフがネストしている場合）
     max_depth: usize,
 }
 
-impl SubGraphLoweringOptimizer {
-    /// 新しいSubGraphLoweringOptimizerを作成
+impl SubgraphLoweringOptimizer {
+    /// 新しいSubgraphLoweringOptimizerを作成
     pub fn new() -> Self {
         Self { max_depth: 10 }
     }
@@ -36,7 +36,7 @@ impl SubGraphLoweringOptimizer {
         self
     }
 
-    /// グラフからSubGraphCallノードを収集
+    /// グラフからSubgraphCallノードを収集
     fn collect_subgraph_calls(graph: &Graph) -> Vec<(String, GraphNode)> {
         let mut visited = HashSet::new();
         let mut calls = Vec::new();
@@ -52,7 +52,7 @@ impl SubGraphLoweringOptimizer {
             }
             visited.insert(ptr);
 
-            if let GraphOp::SubGraphCall { name } = &node.op {
+            if let GraphOp::SubgraphCall { name } = &node.op {
                 // 同名のサブグラフは1回だけ収集
                 if !calls.iter().any(|(n, _)| n == name) {
                     calls.push((name.clone(), node.clone()));
@@ -64,7 +64,7 @@ impl SubGraphLoweringOptimizer {
             }
         }
 
-        // 全出力からSubGraphCallを収集
+        // 全出力からSubgraphCallを収集
         for output in graph.outputs().values() {
             visit(output, &mut visited, &mut calls);
         }
@@ -93,7 +93,7 @@ impl SubGraphLoweringOptimizer {
 
         log::debug!("Lowering subgraph '{}' at depth {}", name, depth);
 
-        // サブグラフ内にさらにSubGraphCallがあるか確認
+        // サブグラフ内にさらにSubgraphCallがあるか確認
         let nested_calls = Self::collect_subgraph_calls(subgraph);
 
         let mut all_kernels = Vec::new();
@@ -255,7 +255,7 @@ impl SubGraphLoweringOptimizer {
         let subgraph_calls = Self::collect_subgraph_calls(graph);
 
         if subgraph_calls.is_empty() {
-            // SubGraphCallがない場合はそのまま返す
+            // SubgraphCallがない場合はそのまま返す
             return Ok(graph.clone());
         }
 
@@ -280,12 +280,12 @@ impl SubGraphLoweringOptimizer {
         }
 
         // 新しいグラフを作成（サブグラフを展開済み）
-        // TODO: SubGraphCallノードをインライン展開するか、
+        // TODO: SubgraphCallノードをインライン展開するか、
         //       中間バッファを通じた呼び出しに変換する
         //       現時点では警告を出してそのまま返す
         log::warn!(
-            "SubGraphLowering: {} subgraph(s) processed, {} kernel(s) generated. \
-             Note: SubGraphCall nodes are not yet replaced in the graph.",
+            "SubgraphLowering: {} subgraph(s) processed, {} kernel(s) generated. \
+             Note: SubgraphCall nodes are not yet replaced in the graph.",
             subgraph_calls.len(),
             all_kernels.len()
         );
@@ -294,16 +294,16 @@ impl SubGraphLoweringOptimizer {
     }
 }
 
-impl GraphOptimizer for SubGraphLoweringOptimizer {
+impl GraphOptimizer for SubgraphLoweringOptimizer {
     fn name(&self) -> Option<&str> {
-        Some("SubGraphLowering")
+        Some("SubgraphLowering")
     }
 
     fn optimize(&self, graph: Graph) -> Graph {
         match self.process_graph(&graph) {
             Ok(optimized) => optimized,
             Err(e) => {
-                log::error!("SubGraphLowering failed: {}", e);
+                log::error!("SubgraphLowering failed: {}", e);
                 graph
             }
         }
@@ -322,13 +322,13 @@ mod tests {
     #[test]
     fn test_collect_subgraph_calls_empty() {
         let graph = Graph::new();
-        let calls = SubGraphLoweringOptimizer::collect_subgraph_calls(&graph);
+        let calls = SubgraphLoweringOptimizer::collect_subgraph_calls(&graph);
         assert!(calls.is_empty());
     }
 
     #[test]
     fn test_subgraph_lowering_optimizer_creation() {
-        let optimizer = SubGraphLoweringOptimizer::new();
+        let optimizer = SubgraphLoweringOptimizer::new();
         assert_eq!(optimizer.max_depth, 10);
 
         let optimizer = optimizer.with_max_depth(5);

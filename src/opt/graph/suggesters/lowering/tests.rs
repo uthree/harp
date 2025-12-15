@@ -219,7 +219,6 @@ fn test_beam_search_with_fusion_and_lowering() {
 }
 
 // Note: 複数出力のテストは現在サポートされていないため削除されました。
-// 詳細は spec/TODO.md を参照してください。
 
 #[test]
 fn test_lower_fused_elementwise_reduce_parallel() {

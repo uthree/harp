@@ -856,7 +856,6 @@ mod tests {
 
     // Note: test_kernel_merge_no_merge_multiple_refs は複数出力が
     // 現在サポートされていないため削除されました。
-    // 詳細は spec/TODO.md を参照してください。
 
     #[test]
     fn test_kernel_merge_with_barriers() {

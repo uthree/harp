@@ -285,9 +285,6 @@ where
     }
 }
 
-// Type alias for backward compatibility
-pub type CompiledNativeProgram<K, B> = CompiledProgram<K, B>;
-
 #[cfg(test)]
 mod tests {
     use super::*;

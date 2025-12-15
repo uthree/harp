@@ -22,7 +22,7 @@ pub use kernel_partition::KernelPartitionSuggester;
 pub use lowering::LoweringSuggester;
 pub use program_root_absorption::ProgramRootAbsorptionSuggester;
 pub use program_root_buffer_absorption::ProgramRootBufferAbsorptionSuggester;
-pub use subgraph_inlining::SubGraphInliningSuggester;
+pub use subgraph_inlining::SubgraphInliningSuggester;
 pub use tiling::TilingSuggester;
 pub use view::ViewInsertionSuggester;
 pub use view_merge::ViewMergeSuggester;

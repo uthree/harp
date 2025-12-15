@@ -236,8 +236,8 @@ impl LoweringSuggester {
                 // サブグラフ関連のノードは直接lowerできない
                 // これらは別のグラフを呼び出すメタ演算であり、
                 // 呼び出し先のグラフを個別に最適化する必要がある
-                | GraphOp::SubGraphCall { .. }
-                | GraphOp::SubGraphOutput { .. }
+                | GraphOp::SubgraphCall { .. }
+                | GraphOp::SubgraphOutput { .. }
         ) {
             return false;
         }
@@ -388,7 +388,7 @@ impl LoweringSuggester {
                 // FusedReduceはタプル出力が必要なので後で実装
                 return None;
             }
-            GraphOp::SubGraphCall { .. } | GraphOp::SubGraphOutput { .. } => {
+            GraphOp::SubgraphCall { .. } | GraphOp::SubgraphOutput { .. } => {
                 // サブグラフ関連のノードは直接lowerできない
                 // これらは別のグラフを呼び出すメタ演算
                 return None;

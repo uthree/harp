@@ -307,7 +307,7 @@ impl Graph {
     /// サブグラフを追加
     ///
     /// DSLでmain以外のgraphを定義した場合に使用します。
-    /// サブグラフはSubGraphCall演算から参照されます。
+    /// サブグラフはSubgraphCall演算から参照されます。
     pub fn add_subgraph(&mut self, name: impl Into<String>, subgraph: Graph) {
         self.subgraphs.insert(name.into(), subgraph);
     }
@@ -330,37 +330,6 @@ impl Graph {
     /// サブグラフをコピー（最適化時にグラフを再構築する際に使用）
     pub fn copy_subgraphs_from(&mut self, other: &Graph) {
         self.subgraphs = other.subgraphs.clone();
-    }
-
-    /// このGraphを実行（tinygradスタイル）
-    ///
-    /// # 引数
-    /// - `inputs`: 入力ノード名 -> データのマッピング
-    ///
-    /// # 戻り値
-    /// 出力ノード名 -> 計算結果のマッピング
-    ///
-    /// 注意: この関数は現在実装されていません。
-    /// GPU実行には `NativePipeline` を直接使用してください。
-    pub fn realize(
-        &self,
-        inputs: HashMap<String, Vec<f32>>,
-    ) -> Result<HashMap<String, Vec<f32>>, String> {
-        self.realize_internal(inputs)
-    }
-
-    /// このGraphを実行（内部実装）
-    ///
-    /// 注意: この関数は現在実装されていません。
-    /// GPU実行には `NativePipeline` を直接使用してください。
-    fn realize_internal(
-        &self,
-        _inputs: HashMap<String, Vec<f32>>,
-    ) -> Result<HashMap<String, Vec<f32>>, String> {
-        Err(
-            "Graph::realize() is not yet fully implemented. Use NativePipeline directly for GPU execution."
-                .to_string(),
-        )
     }
 }
 impl GraphNode {
@@ -781,7 +750,7 @@ impl GraphNode {
     ) -> Self {
         Self::new(
             output_dtype,
-            GraphOp::SubGraphCall { name: name.into() },
+            GraphOp::SubgraphCall { name: name.into() },
             inputs,
             output_view,
         )
@@ -792,7 +761,7 @@ impl GraphNode {
     /// 複数出力を持つサブグラフから特定の出力を取り出します。
     ///
     /// # 引数
-    /// - `subgraph_call`: SubGraphCallノード
+    /// - `subgraph_call`: SubgraphCallノード
     /// - `output_index`: 取り出す出力のインデックス
     /// - `output_name`: 出力名
     /// - `output_dtype`: 出力の型
@@ -806,7 +775,7 @@ impl GraphNode {
     ) -> Self {
         Self::new(
             output_dtype,
-            GraphOp::SubGraphOutput {
+            GraphOp::SubgraphOutput {
                 output_index,
                 output_name: output_name.into(),
             },

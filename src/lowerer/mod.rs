@@ -34,7 +34,7 @@ mod utils;
 
 // 公開エクスポート
 pub use self::extract_program_from_graph as extract_program;
-pub use subgraph_lowering::SubGraphLoweringOptimizer;
+pub use subgraph_lowering::SubgraphLoweringOptimizer;
 pub use utils::create_signature;
 
 /// Lowering用のGraphOptimizerを作成
@@ -133,7 +133,7 @@ pub fn find_program_root_program(graph: &Graph) -> Option<crate::ast::AstNode> {
 /// # Panics
 /// グラフ内にProgramRoot(Program)またはKernel(Program)が存在しない場合
 pub fn extract_program_from_graph(optimized_graph: Graph) -> crate::ast::AstNode {
-    // SubGraphCallノードが残っていないかチェック
+    // SubgraphCallノードが残っていないかチェック
     check_for_unlowered_subgraph_calls(&optimized_graph);
 
     if let Some(program) = find_program_root_program(&optimized_graph) {
@@ -158,7 +158,7 @@ pub fn extract_program_from_graph(optimized_graph: Graph) -> crate::ast::AstNode
     );
 }
 
-/// SubGraphCallノードが残っていないかチェックし、警告を出す
+/// SubgraphCallノードが残っていないかチェックし、警告を出す
 fn check_for_unlowered_subgraph_calls(graph: &Graph) {
     use std::collections::HashSet;
 
@@ -173,7 +173,7 @@ fn check_for_unlowered_subgraph_calls(graph: &Graph) {
         }
         visited.insert(ptr);
 
-        if let GraphOp::SubGraphCall { name } = &node.op
+        if let GraphOp::SubgraphCall { name } = &node.op
             && !subgraph_names.contains(name)
         {
             subgraph_names.push(name.clone());
@@ -197,9 +197,9 @@ fn check_for_unlowered_subgraph_calls(graph: &Graph) {
 
     if !subgraph_names.is_empty() {
         log::warn!(
-            "Graph contains unlowered SubGraphCall nodes: {:?}. \
-             SubGraphCall nodes cannot be directly lowered to kernels. \
-             Consider using the SubGraphInliningSuggester to inline subgraph calls, \
+            "Graph contains unlowered SubgraphCall nodes: {:?}. \
+             SubgraphCall nodes cannot be directly lowered to kernels. \
+             Consider using the SubgraphInliningSuggester to inline subgraph calls, \
              or manually expand subgraph calls before optimization.",
             subgraph_names
         );

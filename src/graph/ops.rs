@@ -161,13 +161,13 @@ pub enum GraphOp {
     ///
     /// # 複数出力の扱い
     /// サブグラフが複数出力を持つ場合、このノードは全出力をまとめて表現します。
-    /// 個別の出力を取り出すには`SubGraphOutput`ノードを使用します。
+    /// 個別の出力を取り出すには`SubgraphOutput`ノードを使用します。
     ///
     /// # Loweringフロー
     /// 1. 内側のサブグラフから先に最適化・Lowering
-    /// 2. SubGraphCallノードは関数呼び出し（Call）に変換
+    /// 2. SubgraphCallノードは関数呼び出し（Call）に変換
     /// 3. ProgramRootにサブグラフの関数が追加される
-    SubGraphCall {
+    SubgraphCall {
         /// サブグラフ名（Graph.subgraphsのキーに対応）
         name: String,
     },
@@ -177,8 +177,8 @@ pub enum GraphOp {
     /// 複数出力を持つサブグラフから特定の出力を取り出します。
     ///
     /// # srcの構造
-    /// `src = [SubGraphCallノード]`
-    /// 対応するSubGraphCallノードへの参照を持ちます。
+    /// `src = [SubgraphCallノード]`
+    /// 対応するSubgraphCallノードへの参照を持ちます。
     ///
     /// # 使用例
     /// ```text
@@ -188,12 +188,12 @@ pub enum GraphOp {
     /// let (a, b) = split(input)
     ///
     /// // 内部表現
-    /// SubGraphCall { name: "split" }  <- src: [input]
+    /// SubgraphCall { name: "split" }  <- src: [input]
     ///   |
-    ///   +-- SubGraphOutput { output_index: 0, output_name: "left" }  // a
-    ///   +-- SubGraphOutput { output_index: 1, output_name: "right" } // b
+    ///   +-- SubgraphOutput { output_index: 0, output_name: "left" }  // a
+    ///   +-- SubgraphOutput { output_index: 1, output_name: "right" } // b
     /// ```
-    SubGraphOutput {
+    SubgraphOutput {
         /// 取り出す出力のインデックス（0から開始）
         output_index: usize,
         /// 出力名（サブグラフの出力パラメータ名）
