@@ -30,7 +30,60 @@
 | FunctionInliningSuggester | 小さい関数をインライン展開 |
 | CseSuggester | 共通部分式除去 |
 | VariableExpansionSuggester | 変数展開（CSEの逆操作） |
+| ThreadParallelizationSuggester | スレッド単位の並列化（Function→Kernel変換） |
+| GroupParallelizationSuggester | グループ単位の並列化（タイル化ループ→Kernel変換） |
 | CompositeSuggester | 複数Suggesterを組み合わせ |
+
+## 並列化Suggester
+
+AST段階でRangeループをKernelに変換して並列化を行う。
+
+### ThreadParallelizationSuggester
+
+Function内の最外側Rangeループを解析し、並列化可能な場合はKernelに変換。
+
+```
+// 変換前
+Function {
+    body: Range { var: "i", start: 0, stop: N,
+        body: Store(output, i, expr)
+    }
+}
+
+// 変換後
+Kernel {
+    params: [tid: ThreadId(0), ...],
+    body: If { condition: tid < N, then: Store(output, tid, expr[i→tid]) },
+    grid_size: [ceil_div(N, 256) * 256, 1, 1],
+    thread_group_size: [256, 1, 1],
+}
+```
+
+**並列化可否の判定:**
+- ループ外変数への書き込みがないこと
+- Store先オフセットがループ変数に依存していること
+
+### GroupParallelizationSuggester
+
+タイル化された2重ループを検出し、外側をGroupId、内側をThreadIdとして並列化。
+LoopTilingSuggesterとの組み合わせで使用。
+
+```
+// タイル化後のループ
+for i_outer in 0..N/tile {
+    for i_inner in 0..tile {
+        body
+    }
+}
+
+// 変換後
+Kernel {
+    params: [group_id: GroupId(0), local_id: ThreadId(0), ...],
+    body: If { condition: group_id < N/tile && local_id < tile, then: body },
+    grid_size: [N/tile, 1, 1],
+    thread_group_size: [tile, 1, 1],
+}
+```
 
 ## 代数的書き換えルール
 

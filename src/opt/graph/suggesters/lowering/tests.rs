@@ -48,23 +48,21 @@ fn test_lower_elementwise_add() {
 
     let suggestions = suggester.suggest(&graph);
 
-    // Elementwise Add (2D) に対して複数の並列化戦略が生成される:
-    // - Sequential, FlatParallel, MultiDimParallel{1}, MultiDimParallel{2}
-    assert!(
-        !suggestions.is_empty(),
-        "At least one candidate should be generated"
+    // Sequential専用モードでは1つの候補が生成される
+    assert_eq!(
+        suggestions.len(),
+        1,
+        "Sequential-only mode should generate exactly 1 candidate"
     );
 
-    // 全ての候補のグラフでKernelノードが使われていることを確認
-    for (i, new_graph) in suggestions.iter().enumerate() {
-        let outputs = new_graph.graph.outputs();
-        let output = outputs.get("c").unwrap();
-        assert!(
-            matches!(output.op, GraphOp::Kernel { .. }),
-            "Candidate {} should use Kernel node",
-            i
-        );
-    }
+    // 候補のグラフでKernelノードが使われていることを確認
+    let new_graph = &suggestions[0].graph;
+    let outputs = new_graph.outputs();
+    let output = outputs.get("c").unwrap();
+    assert!(
+        matches!(output.op, GraphOp::Kernel { .. }),
+        "Candidate should use Kernel node"
+    );
 }
 
 #[test]
@@ -78,22 +76,21 @@ fn test_lower_reduce_sum() {
 
     let suggestions = suggester.suggest(&graph);
 
-    // Reduce Sum に対して複数の並列化戦略が生成される
-    assert!(
-        !suggestions.is_empty(),
-        "At least one candidate should be generated"
+    // Sequential専用モードでは1つの候補が生成される
+    assert_eq!(
+        suggestions.len(),
+        1,
+        "Sequential-only mode should generate exactly 1 candidate"
     );
 
-    // 全ての候補のグラフでKernelノードが使われていることを確認
-    for (i, new_graph) in suggestions.iter().enumerate() {
-        let outputs = new_graph.graph.outputs();
-        let output = outputs.get("b").unwrap();
-        assert!(
-            matches!(output.op, GraphOp::Kernel { .. }),
-            "Candidate {} should use Kernel node",
-            i
-        );
-    }
+    // 候補のグラフでKernelノードが使われていることを確認
+    let new_graph = &suggestions[0].graph;
+    let outputs = new_graph.outputs();
+    let output = outputs.get("b").unwrap();
+    assert!(
+        matches!(output.op, GraphOp::Kernel { .. }),
+        "Candidate should use Kernel node"
+    );
 }
 
 #[test]
@@ -222,7 +219,8 @@ fn test_beam_search_with_fusion_and_lowering() {
 
 #[test]
 fn test_lower_fused_elementwise_reduce_parallel() {
-    let suggester = LoweringSuggester::new();
+    // 並列戦略を有効にしたSuggesterを使用
+    let suggester = LoweringSuggester::with_parallel_strategies();
 
     // 行列積相当の演算: [M, N, K] で K軸を縮約
     let mut graph = Graph::new();
@@ -295,26 +293,23 @@ fn test_lower_fused_elementwise_reduce_multiple_axes() {
 
     let suggestions = suggester.suggest(&graph);
 
-    // 全ての候補のグラフでKernelノードが使われていることを確認
-    assert!(
-        !suggestions.is_empty(),
-        "Should generate at least one candidate"
+    // Sequential専用モードでは1つの候補が生成される
+    assert_eq!(
+        suggestions.len(),
+        1,
+        "Sequential-only mode should generate exactly 1 candidate"
     );
 
-    for (i, new_graph) in suggestions.iter().enumerate() {
-        let outputs = new_graph.graph.outputs();
-        let output = outputs.get("c").unwrap();
-        assert!(
-            matches!(output.op, GraphOp::Kernel { .. }),
-            "Candidate {} should use Kernel node",
-            i
-        );
-    }
+    // 候補のグラフでKernelノードが使われていることを確認
+    let new_graph = &suggestions[0].graph;
+    let outputs = new_graph.outputs();
+    let output = outputs.get("c").unwrap();
+    assert!(
+        matches!(output.op, GraphOp::Kernel { .. }),
+        "Candidate should use Kernel node"
+    );
 
     // 出力形状が正しいことを確認: [3, 4] (K1, K2軸が縮約された)
-    let first_graph = &suggestions[0].graph;
-    let outputs = first_graph.outputs();
-    let output = outputs.get("c").unwrap();
     let output_shape = output.view.shape();
     assert_eq!(output_shape.len(), 2, "Output should be 2D");
     assert_eq!(output_shape[0], 3.into(), "Output dim 0 should be 3");
@@ -353,12 +348,12 @@ fn test_sequential_only_mode() {
 }
 
 #[test]
-fn test_sequential_only_vs_normal() {
-    let normal = LoweringSuggester::new();
-    let sequential = LoweringSuggester::sequential_only();
+fn test_sequential_only_vs_parallel() {
+    let sequential = LoweringSuggester::new();
+    let parallel = LoweringSuggester::with_parallel_strategies();
 
-    assert!(!normal.is_sequential_only());
     assert!(sequential.is_sequential_only());
+    assert!(!parallel.is_sequential_only());
 
     let mut graph = Graph::new();
     let a = graph.input("a", DType::F32, vec![10, 20]);
@@ -366,20 +361,20 @@ fn test_sequential_only_vs_normal() {
     let c = a + b;
     graph.output("c", c);
 
-    let normal_suggestions = normal.suggest(&graph);
     let sequential_suggestions = sequential.suggest(&graph);
+    let parallel_suggestions = parallel.suggest(&graph);
 
-    // 通常モードでは複数の候補が生成される
-    assert!(
-        normal_suggestions.len() > 1,
-        "Normal mode should generate multiple candidates, got {}",
-        normal_suggestions.len()
-    );
-
-    // Sequential専用モードでは1つの候補のみ
+    // Sequential専用モード（デフォルト）では1つの候補のみ
     assert_eq!(
         sequential_suggestions.len(),
         1,
         "Sequential-only mode should generate exactly 1 candidate"
+    );
+
+    // 並列戦略有効モードでは複数の候補が生成される
+    assert!(
+        parallel_suggestions.len() > 1,
+        "Parallel mode should generate multiple candidates, got {}",
+        parallel_suggestions.len()
     );
 }

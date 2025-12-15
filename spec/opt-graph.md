@@ -32,11 +32,10 @@ AST版よりも計測コストが高いため、足切り候補数を少なめ�
 - **TilingSuggester**: ループタイリング適用
 
 ### Lowering系
-- **LoweringSuggester**: GraphOpをKernel(Function/Kernel)に変換
-  - 各演算に対して複数の並列化戦略（`ParallelizationStrategy`）で候補を生成
-  - ビームサーチのコスト評価により最適な戦略が選択される
-  - `sequential_only()`モードでSequential戦略のみに制限可能
-  - パラメータで候補数をチューニング可能
+- **LoweringSuggester**: GraphOpをKernel(Function)に変換
+  - デフォルトでSequential戦略のみで候補を生成
+  - 並列化はAST最適化フェーズ（ThreadParallelizationSuggester、GroupParallelizationSuggester）で行う
+  - テスト用に`with_parallel_strategies()`で複数戦略を有効化可能
 - **BufferAbsorptionSuggester**: KernelのsrcにあるBufferを`input_buffers`に取り込む
 - **KernelPartitionSuggester**: 1D FlatParallel Kernelを多次元グリッドに分割
 
@@ -90,30 +89,27 @@ LoweringSuggesterが生成する並列化戦略：
 
 #### LoweringSuggesterの設定
 
-デフォルト値:
-- **thread_group_sizes**: [64, 128, 256, 512]
-- **vector_widths**: [2, 4, 8]（float2/float4/float8に相当）
-
-ベクトル化は総要素数がベクトル幅で割り切れる場合のみ候補に追加される。
-
-FlatParallel戦略は境界チェック（`if (tid < total_elements)`）を含むため、総要素数がスレッドグループサイズで割り切れなくても適用可能。グリッドサイズは自動的にスレッドグループサイズの倍数に切り上げられる。GPUのSIMTアーキテクチャでは境界チェックのオーバーヘッドは最後のグループのみに影響し、パフォーマンスへの影響は最小限。
+デフォルトではSequential戦略のみで候補を生成する。並列化はAST最適化フェーズで行うことを推奨。
 
 ```rust
-// デフォルト設定
+// デフォルト設定（Sequential戦略のみ）
 let suggester = LoweringSuggester::new();
 
-// カスタム設定
-let suggester = LoweringSuggester::new()
+// 後方互換性のためのエイリアス（new()と同じ）
+let suggester = LoweringSuggester::sequential_only();
+
+// テスト・ベンチマーク用: 並列戦略を有効化
+// - thread_group_sizes: [64, 128, 256, 512]
+// - vector_widths: [2, 4, 8]
+let suggester = LoweringSuggester::with_parallel_strategies();
+
+// カスタム設定（並列戦略有効時のみ意味がある）
+let suggester = LoweringSuggester::with_parallel_strategies()
     .with_thread_group_sizes(vec![128, 256])  // サイズを制限
     .with_vector_widths(vec![4]);             // float4のみ
-
-// ベクトル化を無効化
-let suggester = LoweringSuggester::new()
-    .without_vectorization();
-
-// 高速化のためSequentialのみ
-let suggester = LoweringSuggester::sequential_only();
 ```
+
+FlatParallel戦略は境界チェック（`if (tid < total_elements)`）を含むため、総要素数がスレッドグループサイズで割り切れなくても適用可能。
 
 ### ProgramRoot関連
 - **ProgramRootAbsorptionSuggester**: Kernel(Function)をProgramRootに吸収
@@ -135,15 +131,19 @@ ProgramRootAbsorptionSuggesterはViewを透過的に扱わないため、ViewMer
 ```
 FusionSuggester        : Elementwise演算の融合
        ↓
-LoweringSuggester      : GraphOp → Kernel(Function/Kernel)
-       ↓
-KernelPartitionSuggester : 1D Kernel → 多次元グリッド
+LoweringSuggester      : GraphOp → Kernel(Function) [Sequential]
        ↓
 BufferAbsorptionSuggester : 入力Bufferの取り込み
        ↓
 ProgramRootAbsorptionSuggester : Kernel(Function) → ProgramRoot(Program)
        ↓
 ProgramRootBufferAbsorptionSuggester : 入力Bufferの除去
+       ↓
+=== AST最適化フェーズ ===
+       ↓
+ThreadParallelizationSuggester : Function → Kernel (スレッド並列化)
+       ↓
+LoopTilingSuggester + GroupParallelizationSuggester : グループ並列化
 ```
 
 ## 最適化モード

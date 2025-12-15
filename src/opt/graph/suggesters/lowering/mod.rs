@@ -25,15 +25,15 @@ pub use parallel::ParallelizationStrategy;
 /// これにより、すべての計算がAST関数として統一され、
 /// ASTレベルの最適化が可能になります。
 ///
-/// # 並列化戦略
+/// # 並列化について
 ///
-/// デフォルトでは複数の並列化戦略（Sequential, FlatParallel）で
-/// 候補を生成しますが、`sequential_only()`で逐次実行のみに制限できます。
-/// これは実行時間の実測など、軽量なloweringが必要な場合に有用です。
+/// デフォルトでは逐次実行（Sequential）のみで候補を生成します。
+/// 並列化はASTレベルの最適化（ThreadParallelizationSuggester、
+/// GroupParallelizationSuggester）で行うことを推奨します。
 ///
 /// # 設定可能なパラメータ
 ///
-/// - `thread_group_sizes`: スレッドグループサイズの候補リスト
+/// - `thread_group_sizes`: スレッドグループサイズの候補リスト（並列戦略有効時のみ使用）
 /// - `vector_widths`: ベクトル幅の候補リスト（空の場合はベクトル化無効）
 pub struct LoweringSuggester {
     /// Sequentialのみを使用するかどうか
@@ -75,21 +75,19 @@ impl KernelKind {
 impl LoweringSuggester {
     /// 新しいLoweringSuggesterを作成
     ///
-    /// デフォルトでは複数の並列化戦略で候補を生成します。
-    /// - スレッドグループサイズ: [64, 128, 256, 512]
-    /// - ベクトル幅: [2, 4, 8]
+    /// デフォルトでは逐次実行（Sequential）のみで候補を生成します。
+    /// 並列化はASTレベルの最適化で行うことを推奨します。
     pub fn new() -> Self {
         LoweringSuggester {
-            sequential_only: false,
-            thread_group_sizes: vec![64, 128, 256, 512],
-            vector_widths: vec![2, 4, 8],
+            sequential_only: true,
+            thread_group_sizes: vec![],
+            vector_widths: vec![],
         }
     }
 
     /// Sequential戦略のみを使用するLoweringSuggesterを作成
     ///
-    /// 並列化候補を生成せず、逐次実行のみでloweringします。
-    /// 実行時間の実測など、軽量なloweringが必要な場合に使用します。
+    /// `new()`と同じ動作です（後方互換性のため維持）。
     ///
     /// # Example
     ///
@@ -99,10 +97,20 @@ impl LoweringSuggester {
     /// assert!(suggester.is_sequential_only());
     /// ```
     pub fn sequential_only() -> Self {
+        Self::new()
+    }
+
+    /// 並列戦略を有効にしたLoweringSuggesterを作成
+    ///
+    /// テストやベンチマーク用途で、Graph段階での並列化候補を
+    /// 生成したい場合に使用します。
+    /// - スレッドグループサイズ: [64, 128, 256, 512]
+    /// - ベクトル幅: [2, 4, 8]
+    pub fn with_parallel_strategies() -> Self {
         LoweringSuggester {
-            sequential_only: true,
-            thread_group_sizes: vec![],
-            vector_widths: vec![],
+            sequential_only: false,
+            thread_group_sizes: vec![64, 128, 256, 512],
+            vector_widths: vec![2, 4, 8],
         }
     }
 
