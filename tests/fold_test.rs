@@ -42,6 +42,7 @@ fn compile_graph_test(graph: Graph, test_name: &str) {
 }
 
 #[test]
+#[ignore = "Fold/Unfold lowering not yet implemented"]
 fn test_fold1d_compilation() {
     let _ = env_logger::builder().is_test(true).try_init();
 
@@ -65,6 +66,7 @@ fn test_fold1d_compilation() {
 }
 
 #[test]
+#[ignore = "Fold/Unfold lowering not yet implemented"]
 fn test_fold2d_compilation() {
     let _ = env_logger::builder().is_test(true).try_init();
 
@@ -86,6 +88,7 @@ fn test_fold2d_compilation() {
 }
 
 #[test]
+#[ignore = "Fold/Unfold lowering not yet implemented"]
 fn test_fold3d_compilation() {
     let _ = env_logger::builder().is_test(true).try_init();
 

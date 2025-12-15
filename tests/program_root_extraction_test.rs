@@ -1,6 +1,7 @@
-/// ProgramRootノードのProgram抽出テスト
+/// Program抽出テスト
 ///
-/// ProgramRootAbsorptionSuggesterで生成されたProgramが正しく抽出されることを確認
+/// 最適化後のグラフからProgramが正しく抽出されることを確認
+/// Note: ProgramRootAbsorptionは削除されたため、各KernelがProgramの関数として出力される
 
 #[test]
 fn test_program_root_extraction() {
@@ -49,14 +50,18 @@ fn test_program_root_extraction() {
             }
         }
 
-        // カーネルとmain関数があることを確認
-        assert!(functions.len() >= 2, "Should have at least kernel and main");
+        // 少なくとも1つの関数があることを確認
+        assert!(functions.len() >= 1, "Should have at least one function");
 
-        // harp_mainが存在することを確認
-        let has_main = functions.iter().any(
-            |f| matches!(f, harp::ast::AstNode::Function { name: Some(n), .. } if n == "harp_main"),
-        );
-        assert!(has_main, "Should have harp_main function");
+        // Kernel または Function が存在することを確認
+        // シンプルな演算はFunctionとして、複雑な演算はKernelとして生成される
+        let has_callable = functions.iter().any(|f| {
+            matches!(
+                f,
+                harp::ast::AstNode::Kernel { .. } | harp::ast::AstNode::Function { .. }
+            )
+        });
+        assert!(has_callable, "Should have at least one callable function");
     } else {
         panic!("Expected Program node");
     }
@@ -112,18 +117,18 @@ fn test_program_root_extraction_complex() {
             }
         }
 
-        // カーネルとmain関数があることを確認
-        // 複雑なグラフでは3つ以上の関数（複数カーネル + main）
-        assert!(
-            functions.len() >= 2,
-            "Should have at least kernels and main"
-        );
+        // 少なくとも1つの関数があることを確認
+        assert!(functions.len() >= 1, "Should have at least one function");
 
-        // harp_mainが存在することを確認
-        let has_main = functions.iter().any(
-            |f| matches!(f, harp::ast::AstNode::Function { name: Some(n), .. } if n == "harp_main"),
-        );
-        assert!(has_main, "Should have harp_main function");
+        // Kernel または Function が存在することを確認
+        // シンプルな演算はFunctionとして、複雑な演算はKernelとして生成される
+        let has_callable = functions.iter().any(|f| {
+            matches!(
+                f,
+                harp::ast::AstNode::Kernel { .. } | harp::ast::AstNode::Function { .. }
+            )
+        });
+        assert!(has_callable, "Should have at least one callable function");
     } else {
         panic!("Expected Program node");
     }

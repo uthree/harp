@@ -10,9 +10,8 @@ use crate::opt::ast::{
 use crate::opt::graph::{
     BeamSearchGraphOptimizer, BufferAbsorptionSuggester, ChainedGraphOptimizer, CompositeSuggester,
     ContiguousInsertionSuggester, FusionSuggester, GraphOptimizer, GreedyGraphOptimizer,
-    KernelMergeSuggester, KernelPartitionSuggester, LoweringSuggester,
-    ProgramRootAbsorptionSuggester, ProgramRootBufferAbsorptionSuggester,
-    SubgraphInliningSuggester, TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
+    KernelMergeSuggester, KernelPartitionSuggester, LoweringSuggester, SubgraphInliningSuggester,
+    TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
 };
 
 // =============================================================================
@@ -165,23 +164,20 @@ pub fn create_kernel_partition_suggester() -> CompositeSuggester {
 
 /// Fusionフェーズ用のSuggesterを作成
 ///
-/// Phase 3: 全てのKernelノードを単一のProgramRootに融合
+/// Phase 3: Kernelノードの最終処理
 ///
 /// # 設計方針
 /// - BufferAbsorptionでKernelに入力Bufferを取り込む
-/// - ProgramRootAbsorptionでKernel(Function)をProgramRootに吸収
-/// - ProgramRootBufferAbsorptionでProgramRootの入力Bufferを除去
 /// - KernelMergeで複数のKernel(Function)をマージ
+///
+/// Note: ProgramRootAbsorptionは削除されました。
+/// カーネル実行順序はCompiledProgram.execution_wavesで管理されます。
 ///
 /// このフェーズは実測値ベース最適化の対象外です（決定論的な変換のみ）。
 pub fn create_fusion_suggester() -> CompositeSuggester {
     CompositeSuggester::new(vec![
         // BufferAbsorptionでKernelノードに入力Bufferを取り込む
         Box::new(BufferAbsorptionSuggester::new()),
-        // ProgramRootAbsorptionでKernel(Function)をProgramRootに吸収
-        Box::new(ProgramRootAbsorptionSuggester::new()),
-        // ProgramRootBufferAbsorptionでProgramRootの入力Bufferを除去
-        Box::new(ProgramRootBufferAbsorptionSuggester::new()),
         // KernelMergeSuggesterで複数のKernel(Function)をマージ
         Box::new(KernelMergeSuggester::new()),
     ])

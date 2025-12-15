@@ -110,6 +110,85 @@ pub(crate) fn lower(graph: Graph) -> crate::ast::AstNode {
 // Program抽出関数
 // =============================================================================
 
+use std::collections::HashSet;
+
+/// グラフ内のKernelノードを収集してProgramを作成する
+///
+/// グラフ全体を走査し、全てのKernel(Function)またはKernel(Kernel)ノードを
+/// 収集してProgramとして返します。
+pub fn collect_kernels_as_program(graph: &Graph) -> Option<crate::ast::AstNode> {
+    use crate::ast::AstNode;
+    use crate::graph::GraphNode;
+
+    let mut kernels: Vec<AstNode> = Vec::new();
+    let mut visited: HashSet<*const crate::graph::GraphNodeData> = HashSet::new();
+
+    fn collect_kernels(
+        node: &GraphNode,
+        kernels: &mut Vec<AstNode>,
+        visited: &mut HashSet<*const crate::graph::GraphNodeData>,
+    ) {
+        let ptr = node.as_ptr();
+        if visited.contains(&ptr) {
+            return;
+        }
+        visited.insert(ptr);
+
+        // Kernel(Function) または Kernel(Kernel) を収集
+        if let GraphOp::Kernel { ast, .. } = &node.op {
+            match ast {
+                AstNode::Function { .. } | AstNode::Kernel { .. } => {
+                    // 重複チェック（同名カーネルは1回だけ追加）
+                    let name = match ast {
+                        AstNode::Function { name, .. } => name.clone(),
+                        AstNode::Kernel { name, .. } => name.clone(),
+                        _ => None,
+                    };
+                    let already_exists = kernels.iter().any(|k| {
+                        let existing_name = match k {
+                            AstNode::Function { name, .. } => name.clone(),
+                            AstNode::Kernel { name, .. } => name.clone(),
+                            _ => None,
+                        };
+                        existing_name == name && name.is_some()
+                    });
+                    if !already_exists {
+                        kernels.push(ast.clone());
+                    }
+                }
+                AstNode::Program { functions } => {
+                    // Kernel(Program)の場合は中の関数を展開
+                    for func in functions {
+                        kernels.push(func.clone());
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // 子ノードも走査
+        for src in &node.src {
+            collect_kernels(src, kernels, visited);
+        }
+    }
+
+    // 全出力からKernelを収集
+    for output in graph.outputs().values() {
+        collect_kernels(output, &mut kernels, &mut visited);
+    }
+
+    // ProgramRootからも収集（念のため）
+    if let Some(root) = graph.program_root() {
+        collect_kernels(root, &mut kernels, &mut visited);
+    }
+
+    if kernels.is_empty() {
+        None
+    } else {
+        Some(AstNode::Program { functions: kernels })
+    }
+}
+
 /// グラフ内のOutputにKernel(Program)ノードがあれば、そのProgramを返す
 pub fn find_custom_program(graph: &Graph) -> Option<crate::ast::AstNode> {
     for output in graph.outputs().values() {
@@ -122,32 +201,45 @@ pub fn find_custom_program(graph: &Graph) -> Option<crate::ast::AstNode> {
     None
 }
 
-/// ProgramRootノードからProgramを取得する
+/// ProgramRootノードからProgramを取得する（レガシー互換用）
 pub fn find_program_root_program(graph: &Graph) -> Option<crate::ast::AstNode> {
     if let Some(root) = graph.program_root()
         && let GraphOp::ProgramRoot { ast, .. } = &root.op
-        && matches!(ast, crate::ast::AstNode::Program { .. })
     {
-        return Some(ast.clone());
+        // ProgramRootのastがProgramで、関数が含まれている場合のみ返す
+        if let crate::ast::AstNode::Program { functions } = ast
+            && !functions.is_empty()
+        {
+            return Some(ast.clone());
+        }
     }
     None
 }
 
 /// 最適化済みグラフからProgramを抽出する
 ///
-/// グラフ最適化後、ProgramRootまたはKernel(Program)ノードからASTを取得します。
-/// どちらも見つからない場合はパニックします。
+/// グラフ最適化後、以下の優先順位でASTを取得します：
+/// 1. グラフ内のKernelノードを収集してProgram化
+/// 2. ProgramRoot内のProgram（関数が含まれている場合のみ）
+/// 3. Kernel(Program)ノード
 ///
 /// # Panics
-/// グラフ内にProgramRoot(Program)またはKernel(Program)が存在しない場合
+/// グラフ内にKernelノードが存在しない場合
 pub fn extract_program_from_graph(optimized_graph: Graph) -> crate::ast::AstNode {
     // SubgraphCallノードが残っていないかチェック
     check_for_unlowered_subgraph_calls(&optimized_graph);
 
+    // まずKernelノードを収集してProgram化を試みる
+    if let Some(program) = collect_kernels_as_program(&optimized_graph) {
+        return program;
+    }
+
+    // 次にProgramRootから取得を試みる（レガシー互換）
     if let Some(program) = find_program_root_program(&optimized_graph) {
         return program;
     }
 
+    // 最後にKernel(Program)を探す
     if let Some(program) = find_custom_program(&optimized_graph) {
         return program;
     }

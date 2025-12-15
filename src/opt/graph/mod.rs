@@ -149,7 +149,6 @@ pub use optimizer::{
 pub use selector::{GraphCostSelector, GraphMultiStageSelector, GraphSelector};
 pub use suggesters::{
     BufferAbsorptionSuggester, CompositeSuggester, ContiguousInsertionSuggester, FusionSuggester,
-    KernelMergeSuggester, KernelPartitionSuggester, LoweringSuggester,
-    ProgramRootAbsorptionSuggester, ProgramRootBufferAbsorptionSuggester,
-    SubgraphInliningSuggester, TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
+    KernelMergeSuggester, KernelPartitionSuggester, LoweringSuggester, SubgraphInliningSuggester,
+    TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
 };
