@@ -116,6 +116,9 @@ impl MetalRenderer {
 
     /// シグネチャ付きでプログラムをレンダリング
     ///
+    /// カーネル関数群をMetal Shading Language + ホストコードとして出力します。
+    /// カーネルの実行順序はホスト側（CompiledProgram）で管理されます。
+    ///
     /// Note: signatureパラメータは互換性のために残されていますが、
     /// Code型がsignatureを保持しなくなったため無視されます。
     pub fn render_program_with_signature(
@@ -123,12 +126,7 @@ impl MetalRenderer {
         program: &AstNode,
         _signature: crate::backend::KernelSignature,
     ) -> MetalCode {
-        if let AstNode::Program {
-            functions,
-            entry_point,
-            execution_order,
-        } = program
-        {
+        if let AstNode::Program { functions } = program {
             let mut code = String::new();
 
             // 1. ヘッダー
@@ -144,69 +142,15 @@ impl MetalRenderer {
             code.push_str(&kernel_source);
             code.push_str(")\";\n\n");
 
-            // 3. libloading用のエントリーポイント関数を生成
-            code.push_str(&self.generate_host_code(entry_point, functions));
-
-            // 4. サブグラフ対応: カーネル実行順序をコメントとして出力
-            if !execution_order.is_empty() {
-                code.push_str("\n// === Kernel Execution Order (SubGraph Support) ===\n");
-                code.push_str(
-                    "// The following shows the order in which kernels should be executed:\n",
-                );
-                for (i, kernel_call) in execution_order.iter().enumerate() {
-                    code.push_str(&format!(
-                        "// Step {}: {} (\n",
-                        i + 1,
-                        kernel_call.kernel_name
-                    ));
-                    code.push_str(&format!(
-                        "//   inputs: [{}],\n",
-                        kernel_call.inputs.join(", ")
-                    ));
-                    code.push_str(&format!(
-                        "//   outputs: [{}],\n",
-                        kernel_call.outputs.join(", ")
-                    ));
-                    code.push_str(&format!(
-                        "//   grid_size: [{}, {}, {}],\n",
-                        kernel_call
-                            .grid_size
-                            .first()
-                            .map(|e| format!("{}", e))
-                            .unwrap_or_else(|| "1".to_string()),
-                        kernel_call
-                            .grid_size
-                            .get(1)
-                            .map(|e| format!("{}", e))
-                            .unwrap_or_else(|| "1".to_string()),
-                        kernel_call
-                            .grid_size
-                            .get(2)
-                            .map(|e| format!("{}", e))
-                            .unwrap_or_else(|| "1".to_string()),
-                    ));
-                    code.push_str(&format!(
-                        "//   thread_group_size: [{}, {}, {}]\n",
-                        kernel_call
-                            .thread_group_size
-                            .first()
-                            .map(|e| format!("{}", e))
-                            .unwrap_or_else(|| "1".to_string()),
-                        kernel_call
-                            .thread_group_size
-                            .get(1)
-                            .map(|e| format!("{}", e))
-                            .unwrap_or_else(|| "1".to_string()),
-                        kernel_call
-                            .thread_group_size
-                            .get(2)
-                            .map(|e| format!("{}", e))
-                            .unwrap_or_else(|| "1".to_string()),
-                    ));
-                    code.push_str("// )\n");
-                }
-                code.push_str("// === End Kernel Execution Order ===\n");
-            }
+            // 3. libloading用のホストコード生成（最初のカーネルをデフォルトとして使用）
+            let first_kernel_name = functions
+                .iter()
+                .find_map(|f| match f {
+                    AstNode::Kernel { name: Some(n), .. } => Some(n.clone()),
+                    _ => None,
+                })
+                .unwrap_or_else(|| "unknown_kernel".to_string());
+            code.push_str(&self.generate_host_code(&first_kernel_name, functions));
 
             MetalCode::new(code)
         } else {
@@ -727,8 +671,6 @@ mod tests {
 
         let program = AstNode::Program {
             functions: vec![kernel_func],
-            entry_point: "test_kernel".to_string(),
-            execution_order: vec![],
         };
 
         let mut renderer = MetalRenderer::new();

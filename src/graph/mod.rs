@@ -175,11 +175,7 @@ impl Graph {
             None => {
                 // 最初の出力: ProgramRootノードを新規作成
                 // 空のProgramを作成（後でProgramRootAbsorptionSuggesterが関数を追加）
-                let empty_program = AstNode::Program {
-                    functions: vec![],
-                    entry_point: "harp_main".to_string(),
-                    execution_order: vec![],
-                };
+                let empty_program = AstNode::Program { functions: vec![] };
 
                 let program_root = GraphNode::new(
                     DType::Unknown, // ProgramRootは型を持たない

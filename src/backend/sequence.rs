@@ -126,7 +126,23 @@ impl IntermediateBufferSpec {
 /// A compiled program consisting of multiple kernels
 ///
 /// This represents a complete computation that may require multiple kernel
-/// invocations in sequence. Intermediate buffers are automatically managed.
+/// invocations. Intermediate buffers are automatically managed.
+///
+/// ## Execution Model
+///
+/// `execution_waves` contains groups of kernels organized as follows:
+/// - Inner `Vec<KernelCallInfo>`: Kernels that can execute in parallel
+/// - Outer `Vec`: Sequential waves with implicit barriers between them
+///
+/// ```text
+/// execution_waves = [
+///     // Wave 0: These kernels can run in parallel
+///     [KernelA, KernelB],
+///     // <implicit barrier>
+///     // Wave 1: These depend on Wave 0's results
+///     [KernelC],
+/// ]
+/// ```
 pub struct CompiledProgram<K, B>
 where
     K: NativeKernel<Buffer = B>,
@@ -134,8 +150,10 @@ where
 {
     /// Compiled kernels indexed by name
     pub kernels: HashMap<String, K>,
-    /// Execution order specifying which kernels to run and in what order
-    pub execution_order: Vec<KernelCallInfo>,
+    /// Execution waves: groups of parallel-executable kernels
+    /// - Inner Vec: kernels that can execute in parallel (no dependencies)
+    /// - Outer Vec: sequential waves with implicit barriers between them
+    pub execution_waves: Vec<Vec<KernelCallInfo>>,
     /// Specifications for intermediate buffers
     pub intermediate_buffer_specs: Vec<IntermediateBufferSpec>,
     /// Names of external input buffers
@@ -153,19 +171,41 @@ where
     /// Create a new compiled program
     pub fn new(
         kernels: HashMap<String, K>,
-        execution_order: Vec<KernelCallInfo>,
+        execution_waves: Vec<Vec<KernelCallInfo>>,
         intermediate_buffer_specs: Vec<IntermediateBufferSpec>,
         input_names: Vec<String>,
         output_names: Vec<String>,
     ) -> Self {
         Self {
             kernels,
-            execution_order,
+            execution_waves,
             intermediate_buffer_specs,
             input_names,
             output_names,
             _buffer: PhantomData,
         }
+    }
+
+    /// Create a new compiled program from a flat execution order
+    ///
+    /// Each kernel call becomes its own wave (sequential execution).
+    /// Use this for backwards compatibility or when all kernels must run sequentially.
+    pub fn from_sequential(
+        kernels: HashMap<String, K>,
+        execution_order: Vec<KernelCallInfo>,
+        intermediate_buffer_specs: Vec<IntermediateBufferSpec>,
+        input_names: Vec<String>,
+        output_names: Vec<String>,
+    ) -> Self {
+        // Convert flat list to single-kernel waves
+        let execution_waves = execution_order.into_iter().map(|k| vec![k]).collect();
+        Self::new(
+            kernels,
+            execution_waves,
+            intermediate_buffer_specs,
+            input_names,
+            output_names,
+        )
     }
 
     /// Get the number of kernels in this program
@@ -175,10 +215,24 @@ where
 
     /// Check if this program has multiple kernels
     pub fn is_multi_kernel(&self) -> bool {
-        self.execution_order.len() > 1
+        self.execution_waves.iter().map(|w| w.len()).sum::<usize>() > 1
+    }
+
+    /// Get the total number of kernel calls
+    pub fn total_kernel_calls(&self) -> usize {
+        self.execution_waves.iter().map(|w| w.len()).sum()
+    }
+
+    /// Get the number of execution waves
+    pub fn wave_count(&self) -> usize {
+        self.execution_waves.len()
     }
 
     /// Execute the program with named input and output buffers
+    ///
+    /// Kernels are executed wave by wave, with implicit barriers between waves.
+    /// Within each wave, kernels are currently executed sequentially, but they
+    /// have no dependencies and could be parallelized in future implementations.
     ///
     /// # Arguments
     /// * `context` - The GPU context for allocating intermediate buffers
@@ -202,54 +256,72 @@ where
             intermediate_buffers.insert(spec.name.clone(), buf);
         }
 
-        // Execute each kernel in order
-        for call in &self.execution_order {
-            let kernel = self
-                .kernels
-                .get(&call.kernel_name)
-                .ok_or_else(|| ProgramExecutionError::KernelNotFound(call.kernel_name.clone()))?;
-
-            // Collect input buffer pointers (as raw pointers to avoid borrow issues)
-            let input_ptrs: Vec<*const B> = call
-                .inputs
-                .iter()
-                .map(|name| {
-                    inputs
-                        .get(name)
-                        .map(|b| *b as *const B)
-                        .or_else(|| intermediate_buffers.get(name).map(|b| b as *const B))
-                        .ok_or_else(|| ProgramExecutionError::BufferNotFound(name.clone()))
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-
-            // Collect output buffer pointers
-            let output_ptrs: Vec<*mut B> = call
-                .outputs
-                .iter()
-                .map(|name| {
-                    outputs
-                        .get_mut(name)
-                        .map(|b| *b as *mut B)
-                        .or_else(|| intermediate_buffers.get_mut(name).map(|b| b as *mut B))
-                        .ok_or_else(|| ProgramExecutionError::BufferNotFound(name.clone()))
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-
-            // Convert raw pointers back to references for execution
-            // SAFETY: The pointers are valid for the duration of this scope,
-            // and we ensure no aliasing by checking that inputs and outputs
-            // refer to different buffers.
-            unsafe {
-                let input_refs: Vec<&B> = input_ptrs.iter().map(|p| &**p).collect();
-                let mut output_refs: Vec<&mut B> = output_ptrs.iter().map(|p| &mut **p).collect();
-
-                kernel
-                    .execute(&input_refs, &mut output_refs)
-                    .map_err(ProgramExecutionError::KernelError)?;
+        // Execute each wave of kernels
+        // Kernels within a wave have no dependencies and could run in parallel
+        // An implicit barrier exists between waves
+        for wave in &self.execution_waves {
+            for call in wave {
+                self.execute_kernel_call(call, inputs, outputs, &mut intermediate_buffers)?;
             }
+            // Implicit barrier between waves (handled by GPU synchronization)
         }
 
         // Intermediate buffers are automatically dropped here
+        Ok(())
+    }
+
+    /// Execute a single kernel call
+    fn execute_kernel_call(
+        &self,
+        call: &KernelCallInfo,
+        inputs: &HashMap<String, &B>,
+        outputs: &mut HashMap<String, &mut B>,
+        intermediate_buffers: &mut HashMap<String, B>,
+    ) -> Result<(), ProgramExecutionError<K::Error, B::Error>> {
+        let kernel = self
+            .kernels
+            .get(&call.kernel_name)
+            .ok_or_else(|| ProgramExecutionError::KernelNotFound(call.kernel_name.clone()))?;
+
+        // Collect input buffer pointers (as raw pointers to avoid borrow issues)
+        let input_ptrs: Vec<*const B> = call
+            .inputs
+            .iter()
+            .map(|name| {
+                inputs
+                    .get(name)
+                    .map(|b| *b as *const B)
+                    .or_else(|| intermediate_buffers.get(name).map(|b| b as *const B))
+                    .ok_or_else(|| ProgramExecutionError::BufferNotFound(name.clone()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Collect output buffer pointers
+        let output_ptrs: Vec<*mut B> = call
+            .outputs
+            .iter()
+            .map(|name| {
+                outputs
+                    .get_mut(name)
+                    .map(|b| *b as *mut B)
+                    .or_else(|| intermediate_buffers.get_mut(name).map(|b| b as *mut B))
+                    .ok_or_else(|| ProgramExecutionError::BufferNotFound(name.clone()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Convert raw pointers back to references for execution
+        // SAFETY: The pointers are valid for the duration of this scope,
+        // and we ensure no aliasing by checking that inputs and outputs
+        // refer to different buffers.
+        unsafe {
+            let input_refs: Vec<&B> = input_ptrs.iter().map(|p| &**p).collect();
+            let mut output_refs: Vec<&mut B> = output_ptrs.iter().map(|p| &mut **p).collect();
+
+            kernel
+                .execute(&input_refs, &mut output_refs)
+                .map_err(ProgramExecutionError::KernelError)?;
+        }
+
         Ok(())
     }
 

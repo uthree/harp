@@ -319,17 +319,11 @@ impl CseSuggester {
                 default_grid_size: default_grid_size.clone(),
                 default_thread_group_size: default_thread_group_size.clone(),
             },
-            AstNode::Program {
-                functions,
-                entry_point,
-                execution_order,
-            } => AstNode::Program {
+            AstNode::Program { functions } => AstNode::Program {
                 functions: functions
                     .iter()
                     .map(|f| Self::substitute_expr(f, target, var_name))
                     .collect(),
-                entry_point: entry_point.clone(),
-                execution_order: execution_order.clone(),
             },
             // その他のノードはそのまま返す
             _ => expr.clone(),
@@ -491,11 +485,7 @@ impl CseSuggester {
                     default_thread_group_size: default_thread_group_size.clone(),
                 }),
 
-            AstNode::Program {
-                functions,
-                entry_point,
-                execution_order,
-            } => {
+            AstNode::Program { functions } => {
                 let mut new_functions = Vec::new();
                 let mut changed = false;
 
@@ -511,8 +501,6 @@ impl CseSuggester {
                 if changed {
                     Some(AstNode::Program {
                         functions: new_functions,
-                        entry_point: entry_point.clone(),
-                        execution_order: execution_order.clone(),
                     })
                 } else {
                     None

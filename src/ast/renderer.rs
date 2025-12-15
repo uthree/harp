@@ -17,8 +17,6 @@ use crate::backend::opencl::OpenCLRenderer;
 /// let renderer = OpenCLRenderer::new();
 /// let ast = AstNode::Program {
 ///     functions: vec![],
-///     entry_point: "main".to_string(),
-///     execution_order: vec![],
 /// };
 /// let code = render_ast_with(&ast, &renderer);
 /// ```
@@ -138,13 +136,10 @@ mod tests {
 
         let program = AstNode::Program {
             functions: vec![func],
-            entry_point: "main".to_string(),
-            execution_order: vec![],
         };
 
         let rendered = render_ast(&program);
         // Program全体がレンダリングされることを確認
         assert!(rendered.contains("main"));
-        assert!(rendered.contains("Entry Point"));
     }
 }

@@ -17,13 +17,11 @@ impl OpenCLRenderer {
     }
 
     /// Programをレンダリング
+    ///
+    /// カーネル関数群をOpenCLコードとして出力します。
+    /// カーネルの実行順序はホスト側（CompiledProgram）で管理されます。
     pub fn render_program(&mut self, program: &AstNode) -> OpenCLCode {
-        if let AstNode::Program {
-            functions,
-            entry_point,
-            execution_order,
-        } = program
-        {
+        if let AstNode::Program { functions } = program {
             let mut code = String::new();
 
             // 1. ヘッダー
@@ -34,15 +32,6 @@ impl OpenCLRenderer {
             // AstNode::Kernel (並列) と AstNode::Function (逐次) の両方をサポート
             let mut kernel_sources = Vec::new();
 
-            // エントリーポイント関数を探す
-            let entry_func = functions.iter().find(|f| {
-                matches!(
-                    f,
-                    AstNode::Kernel { name: Some(n), .. } | AstNode::Function { name: Some(n), .. }
-                    if n == entry_point
-                )
-            });
-
             for func in functions {
                 match func {
                     AstNode::Kernel {
@@ -51,7 +40,7 @@ impl OpenCLRenderer {
                     } => {
                         // 並列カーネル関数をOpenCL形式で生成
                         let kernel_source = self.render_kernel_function(func);
-                        kernel_sources.push((func_name.clone(), kernel_source));
+                        kernel_sources.push((func_name.clone(), kernel_source, func));
                     }
                     AstNode::Kernel { name: None, .. } => {
                         log::warn!("OpenCLRenderer: Kernel with no name found");
@@ -63,7 +52,7 @@ impl OpenCLRenderer {
                         // 逐次関数をOpenCLカーネルとして生成
                         // OpenCLでは逐次関数も__kernelとして実行される
                         let kernel_source = self.render_sequential_function_as_kernel(func);
-                        kernel_sources.push((func_name.clone(), kernel_source));
+                        kernel_sources.push((func_name.clone(), kernel_source, func));
                     }
                     AstNode::Function { name: None, .. } => {
                         log::warn!("OpenCLRenderer: Function with no name found");
@@ -73,7 +62,7 @@ impl OpenCLRenderer {
             }
 
             // 3. カーネルソースを文字列リテラルとして埋め込み
-            for (i, (name, source)) in kernel_sources.iter().enumerate() {
+            for (i, (name, source, _)) in kernel_sources.iter().enumerate() {
                 code.push_str(&format!("// Kernel source for {}\n", name));
                 code.push_str(&format!("const char* kernel_source_{} = \n", i));
 
@@ -85,69 +74,13 @@ impl OpenCLRenderer {
                 code.push_str(&format!("\"{}\";\n\n", escaped_source));
             }
 
-            // 4. libloading用のエントリーポイント関数を生成
-            code.push_str(&self.generate_host_code(entry_func, &kernel_sources));
-
-            // 5. サブグラフ対応: カーネル実行順序をコメントとして出力
-            if !execution_order.is_empty() {
-                code.push_str("\n// === Kernel Execution Order (SubGraph Support) ===\n");
-                code.push_str(
-                    "// The following shows the order in which kernels should be executed:\n",
-                );
-                for (i, kernel_call) in execution_order.iter().enumerate() {
-                    code.push_str(&format!(
-                        "// Step {}: {} (\n",
-                        i + 1,
-                        kernel_call.kernel_name
-                    ));
-                    code.push_str(&format!(
-                        "//   inputs: [{}],\n",
-                        kernel_call.inputs.join(", ")
-                    ));
-                    code.push_str(&format!(
-                        "//   outputs: [{}],\n",
-                        kernel_call.outputs.join(", ")
-                    ));
-                    code.push_str(&format!(
-                        "//   grid_size: [{}, {}, {}],\n",
-                        kernel_call
-                            .grid_size
-                            .first()
-                            .map(|e| format!("{}", e))
-                            .unwrap_or_else(|| "1".to_string()),
-                        kernel_call
-                            .grid_size
-                            .get(1)
-                            .map(|e| format!("{}", e))
-                            .unwrap_or_else(|| "1".to_string()),
-                        kernel_call
-                            .grid_size
-                            .get(2)
-                            .map(|e| format!("{}", e))
-                            .unwrap_or_else(|| "1".to_string()),
-                    ));
-                    code.push_str(&format!(
-                        "//   thread_group_size: [{}, {}, {}]\n",
-                        kernel_call
-                            .thread_group_size
-                            .first()
-                            .map(|e| format!("{}", e))
-                            .unwrap_or_else(|| "1".to_string()),
-                        kernel_call
-                            .thread_group_size
-                            .get(1)
-                            .map(|e| format!("{}", e))
-                            .unwrap_or_else(|| "1".to_string()),
-                        kernel_call
-                            .thread_group_size
-                            .get(2)
-                            .map(|e| format!("{}", e))
-                            .unwrap_or_else(|| "1".to_string()),
-                    ));
-                    code.push_str("// )\n");
-                }
-                code.push_str("// === End Kernel Execution Order ===\n");
-            }
+            // 4. libloading用のホストコード生成（最初のカーネルをデフォルトとして使用）
+            let first_kernel = kernel_sources.first().map(|(_, _, func)| *func);
+            let kernel_name_sources: Vec<(String, String)> = kernel_sources
+                .iter()
+                .map(|(name, source, _)| (name.clone(), source.clone()))
+                .collect();
+            code.push_str(&self.generate_host_code(first_kernel, &kernel_name_sources));
 
             OpenCLCode::new(code)
         } else {

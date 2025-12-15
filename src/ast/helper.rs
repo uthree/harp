@@ -242,14 +242,9 @@ pub fn call_kernel_1d(
 /// Create a program node
 ///
 /// # Arguments
-/// * `functions` - List of AstNode::Function
-/// * `entry_point` - Name of the entry point function
-pub fn program(functions: Vec<AstNode>, entry_point: impl Into<String>) -> AstNode {
-    AstNode::Program {
-        functions,
-        entry_point: entry_point.into(),
-        execution_order: vec![],
-    }
+/// * `functions` - List of AstNode::Function or AstNode::Kernel
+pub fn program(functions: Vec<AstNode>) -> AstNode {
+    AstNode::Program { functions }
 }
 
 /// Create a range (for loop) node
@@ -798,16 +793,11 @@ mod tests {
 
         let main_func = function(Some("main"), params, DType::F32, body);
 
-        let prog = program(vec![main_func], "main");
+        let prog = program(vec![main_func]);
 
         match prog {
-            AstNode::Program {
-                functions,
-                entry_point,
-                ..
-            } => {
+            AstNode::Program { functions } => {
                 assert_eq!(functions.len(), 1);
-                assert_eq!(entry_point, "main");
             }
             _ => panic!("Expected Program node"),
         }
@@ -832,24 +822,14 @@ mod tests {
 
         let helper_func = function(Some("helper"), params, DType::F32, body);
 
-        let prog = program(vec![main_func, helper_func], "main");
+        let prog = program(vec![main_func, helper_func]);
 
         // Get function by name
         let found = prog.get_function("helper");
         assert!(found.is_some());
         match found.unwrap() {
             AstNode::Function { name, .. } => {
-                assert_eq!(name, &Some("helper".to_string()));
-            }
-            _ => panic!("Expected Function node"),
-        }
-
-        // Get entry point
-        let entry = prog.get_entry();
-        assert!(entry.is_some());
-        match entry.unwrap() {
-            AstNode::Function { name, .. } => {
-                assert_eq!(name, &Some("main".to_string()));
+                assert_eq!(name.clone(), Some("helper".to_string()));
             }
             _ => panic!("Expected Function node"),
         }

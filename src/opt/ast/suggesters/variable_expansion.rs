@@ -271,17 +271,11 @@ impl VariableExpansionSuggester {
                 default_grid_size: default_grid_size.clone(),
                 default_thread_group_size: default_thread_group_size.clone(),
             },
-            AstNode::Program {
-                functions,
-                entry_point,
-                execution_order,
-            } => AstNode::Program {
+            AstNode::Program { functions } => AstNode::Program {
                 functions: functions
                     .iter()
                     .map(|f| Self::substitute_var(f, var_name, replacement))
                     .collect(),
-                entry_point: entry_point.clone(),
-                execution_order: execution_order.clone(),
             },
             // その他のノードはそのまま返す
             _ => expr.clone(),
@@ -428,11 +422,7 @@ impl VariableExpansionSuggester {
                 }
             }
 
-            AstNode::Program {
-                functions,
-                entry_point,
-                execution_order,
-            } => {
+            AstNode::Program { functions } => {
                 for (i, func) in functions.iter().enumerate() {
                     let child_candidates = self.collect_expansion_candidates(func);
                     for child in child_candidates {
@@ -440,8 +430,6 @@ impl VariableExpansionSuggester {
                         new_functions[i] = child;
                         candidates.push(AstNode::Program {
                             functions: new_functions,
-                            entry_point: entry_point.clone(),
-                            execution_order: execution_order.clone(),
                         });
                     }
                 }

@@ -113,12 +113,7 @@ impl SubgraphLoweringOptimizer {
         let lowered = super::lower(subgraph.clone());
 
         // Programから関数を抽出
-        if let AstNode::Program {
-            functions,
-            execution_order,
-            ..
-        } = lowered
-        {
+        if let AstNode::Program { functions } = lowered {
             // カーネル名をサブグラフ名でプレフィックス
             let prefixed_kernels: Vec<AstNode> = functions
                 .into_iter()
@@ -127,51 +122,46 @@ impl SubgraphLoweringOptimizer {
 
             all_kernels.extend(prefixed_kernels.clone());
 
-            // 実行順序にこのサブグラフのカーネル呼び出しを追加
-            // 既存のexecution_orderがあればそれを使用、なければ生成
-            if execution_order.is_empty() {
-                // 単一カーネルの場合、KernelCallを生成
-                if let Some(AstNode::Kernel {
-                    name: Some(kernel_name),
-                    params,
-                    default_grid_size,
-                    default_thread_group_size,
-                    ..
-                }) = prefixed_kernels.first()
-                {
-                    let inputs: Vec<String> = params
-                        .iter()
-                        .filter(|p| p.name.starts_with("input") || p.name.starts_with("param"))
-                        .map(|p| p.name.clone())
-                        .collect();
+            // カーネル実行順序情報を生成（CompiledProgram.execution_wavesで使用）
+            // Note: 実行順序はCompiledProgramレベルで管理されるが、
+            //       ここでもKernelCallを生成しておく
+            if let Some(AstNode::Kernel {
+                name: Some(kernel_name),
+                params,
+                default_grid_size,
+                default_thread_group_size,
+                ..
+            }) = prefixed_kernels.first()
+            {
+                let inputs: Vec<String> = params
+                    .iter()
+                    .filter(|p| p.name.starts_with("input") || p.name.starts_with("param"))
+                    .map(|p| p.name.clone())
+                    .collect();
 
-                    let outputs: Vec<String> = params
-                        .iter()
-                        .filter(|p| p.name.starts_with("output"))
-                        .map(|p| p.name.clone())
-                        .collect();
+                let outputs: Vec<String> = params
+                    .iter()
+                    .filter(|p| p.name.starts_with("output"))
+                    .map(|p| p.name.clone())
+                    .collect();
 
-                    let grid_size: Vec<Expr> = default_grid_size
-                        .iter()
-                        .map(|g| Self::ast_to_expr(g))
-                        .collect();
+                let grid_size: Vec<Expr> = default_grid_size
+                    .iter()
+                    .map(|g| Self::ast_to_expr(g))
+                    .collect();
 
-                    let thread_group_size: Vec<Expr> = default_thread_group_size
-                        .iter()
-                        .map(|t| Self::ast_to_expr(t))
-                        .collect();
+                let thread_group_size: Vec<Expr> = default_thread_group_size
+                    .iter()
+                    .map(|t| Self::ast_to_expr(t))
+                    .collect();
 
-                    all_execution_order.push(KernelCall::new(
-                        kernel_name.clone(),
-                        inputs,
-                        outputs,
-                        grid_size,
-                        thread_group_size,
-                    ));
-                }
-            } else {
-                // 既存のexecution_orderを追加
-                all_execution_order.extend(execution_order);
+                all_execution_order.push(KernelCall::new(
+                    kernel_name.clone(),
+                    inputs,
+                    outputs,
+                    grid_size,
+                    thread_group_size,
+                ));
             }
         }
 

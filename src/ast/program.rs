@@ -55,10 +55,12 @@ pub struct Function {
 }
 
 /// プログラム全体の構造
+///
+/// 複数のカーネル関数を保持するコンテナです。
+/// カーネルの実行順序はホスト側（CompiledProgram）で管理されます。
 #[derive(Clone, Debug, PartialEq)]
 pub struct Program {
     pub functions: HashMap<String, Function>, // 関数定義の集合
-    pub entry_point: String,                  // エントリーポイントの関数名
 }
 
 impl Function {
@@ -123,10 +125,9 @@ impl Function {
 
 impl Program {
     /// Create a new empty program
-    pub fn new(entry_point: String) -> Self {
+    pub fn new() -> Self {
         Program {
             functions: HashMap::new(),
-            entry_point,
         }
     }
 
@@ -149,24 +150,15 @@ impl Program {
         self.functions.contains_key(name)
     }
 
-    /// Get the entry point function
-    pub fn get_entry(&self) -> Option<&Function> {
-        self.get_function(&self.entry_point)
+    /// Get all function names
+    pub fn function_names(&self) -> impl Iterator<Item = &String> {
+        self.functions.keys()
     }
 
     /// Validate the entire program
-    /// - Check that entry point exists
     /// - Check all function bodies
     /// - Check that all called functions exist
     pub fn validate(&self) -> Result<(), String> {
-        // Check entry point exists
-        if !self.has_function(&self.entry_point) {
-            return Err(format!(
-                "Entry point function '{}' not found",
-                self.entry_point
-            ));
-        }
-
         // Check all function bodies
         for (name, function) in &self.functions {
             function
@@ -177,5 +169,11 @@ impl Program {
         // TODO: Check that all called functions exist (requires traversing AST)
 
         Ok(())
+    }
+}
+
+impl Default for Program {
+    fn default() -> Self {
+        Self::new()
     }
 }

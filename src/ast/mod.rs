@@ -147,10 +147,12 @@ pub enum AstNode {
     },
 
     // Program - プログラム全体
+    /// カーネル関数群を保持するプログラムノード
+    ///
+    /// Graphの最適化・Lowering後、複数のKernelノードが1つのProgramにまとめられます。
+    /// カーネルの実行順序はホスト側（CompiledProgram.execution_waves）で管理されます。
     Program {
         functions: Vec<AstNode>, // AstNode::Function または AstNode::Kernel のリスト
-        entry_point: String,     // エントリーポイントの関数名
-        execution_order: Vec<program::KernelCall>, // カーネル実行順序（サブグラフ対応）
     },
 }
 
@@ -244,7 +246,7 @@ impl AstNode {
                 }
                 children
             }
-            AstNode::Program { functions, .. } => {
+            AstNode::Program { functions } => {
                 functions.iter().map(|node| node as &AstNode).collect()
             }
         }
@@ -407,14 +409,8 @@ impl AstNode {
                     Box::new(f(&thread_group_size[2])),
                 ],
             },
-            AstNode::Program {
-                functions,
-                entry_point,
-                execution_order,
-            } => AstNode::Program {
+            AstNode::Program { functions } => AstNode::Program {
                 functions: functions.iter().map(f).collect(),
-                entry_point: entry_point.clone(),
-                execution_order: execution_order.clone(),
             },
         }
     }
@@ -514,14 +510,8 @@ impl AstNode {
                 return_type.clone()
             }
 
-            // Program - プログラム全体の型はエントリーポイントの返り値の型
-            AstNode::Program { .. } => {
-                if let Some(entry) = self.get_entry() {
-                    entry.infer_type()
-                } else {
-                    DType::Unknown
-                }
-            }
+            // Program - プログラム全体の型はvoid（カーネル群の集合）
+            AstNode::Program { .. } => DType::Tuple(vec![]),
         }
     }
 
@@ -704,16 +694,6 @@ impl AstNode {
             AstNode::Program { functions, .. } => functions.iter().find(|f| {
                 matches!(f, AstNode::Function { name: Some(n), .. } | AstNode::Kernel { name: Some(n), .. } if n == name)
             }),
-            _ => None,
-        }
-    }
-
-    /// Get the entry point function from a Program
-    ///
-    /// Returns None if this is not a Program or if the entry point is not found
-    pub fn get_entry(&self) -> Option<&AstNode> {
-        match self {
-            AstNode::Program { entry_point, .. } => self.get_function(entry_point),
             _ => None,
         }
     }

@@ -204,11 +204,7 @@ impl KernelMergeSuggester {
         kernels.push(main_fn);
 
         // Programを作成
-        let program = AstNode::Program {
-            functions: kernels,
-            entry_point: "harp_main".to_string(),
-            execution_order: vec![],
-        };
+        let program = AstNode::Program { functions: kernels };
 
         // 新しいKernelノードの入力を構築
         // producer の入力 + consumer の入力（producerと出力Bufferを除く）

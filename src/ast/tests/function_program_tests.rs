@@ -71,14 +71,13 @@ fn test_function_infer_return_type() {
 // Program tests
 #[test]
 fn test_program_new() {
-    let program = Program::new("main".to_string());
-    assert_eq!(program.entry_point, "main");
+    let program = Program::new();
     assert_eq!(program.functions.len(), 0);
 }
 
 #[test]
 fn test_program_add_function() {
-    let mut program = Program::new("main".to_string());
+    let mut program = Program::new();
 
     let func = Function::new(vec![], DType::Tuple(vec![]), vec![]).unwrap();
     assert!(program.add_function("main".to_string(), func).is_ok());
@@ -87,7 +86,7 @@ fn test_program_add_function() {
 
 #[test]
 fn test_program_get_function() {
-    let mut program = Program::new("main".to_string());
+    let mut program = Program::new();
     let func = Function::new(vec![], DType::Tuple(vec![]), vec![]).unwrap();
     program.add_function("main".to_string(), func).unwrap();
 
@@ -97,12 +96,12 @@ fn test_program_get_function() {
 
 #[test]
 fn test_program_validate() {
-    let mut program = Program::new("main".to_string());
+    let mut program = Program::new();
 
-    // エントリーポイントがない場合はエラー
-    assert!(program.validate().is_err());
+    // 空のプログラムでも検証は成功する（関数が不正でなければOK）
+    assert!(program.validate().is_ok());
 
-    // エントリーポイントを追加
+    // 関数を追加しても検証が成功する
     let func = Function::new(vec![], DType::Tuple(vec![]), vec![]).unwrap();
     program.add_function("main".to_string(), func).unwrap();
 
@@ -112,7 +111,7 @@ fn test_program_validate() {
 
 #[test]
 fn test_program_with_function_call() {
-    let mut program = Program::new("main".to_string());
+    let mut program = Program::new();
 
     // helper関数: double(x) = x * 2
     let double_func = Function::new(

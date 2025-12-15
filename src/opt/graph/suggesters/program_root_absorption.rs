@@ -132,22 +132,12 @@ impl ProgramRootAbsorptionSuggester {
         };
 
         // 現在のProgramRootからProgram情報を取得
-        let (mut program_functions, entry_point, output_names, execution_order) = match &sink.op {
+        let (mut program_functions, output_names) = match &sink.op {
             GraphOp::ProgramRoot { ast, outputs } => {
-                if let AstNode::Program {
-                    functions,
-                    entry_point,
-                    execution_order,
-                } = ast
-                {
-                    (
-                        functions.clone(),
-                        entry_point.clone(),
-                        outputs.clone(),
-                        execution_order.clone(),
-                    )
+                if let AstNode::Program { functions } = ast {
+                    (functions.clone(), outputs.clone())
                 } else {
-                    (vec![], "harp_main".to_string(), outputs.clone(), vec![])
+                    (vec![], outputs.clone())
                 }
             }
             _ => return None,
@@ -273,8 +263,6 @@ impl ProgramRootAbsorptionSuggester {
         // 新しいProgramを作成
         let new_program = AstNode::Program {
             functions: program_functions,
-            entry_point,
-            execution_order,
         };
 
         // 新しいProgramRootノードを作成
@@ -282,7 +270,7 @@ impl ProgramRootAbsorptionSuggester {
             sink.dtype.clone(),
             GraphOp::ProgramRoot {
                 ast: new_program,
-                outputs: output_names,
+                outputs: output_names.to_vec(),
             },
             new_src,
             sink.view.clone(),

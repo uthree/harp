@@ -3,7 +3,6 @@
 //! This module provides a Pipeline implementation that uses the GPU backends
 //! (OpenCL via `ocl` crate, Metal via `metal` crate).
 
-use crate::ast::program::KernelCall;
 use crate::ast::{AstNode, DType, Literal};
 use crate::backend::KernelSignature;
 use crate::backend::c_like::CLikeRenderer;
@@ -212,12 +211,7 @@ where
         let kernel_source = self.renderer.render_kernel_source(&optimized_program);
 
         // Extract program structure
-        let AstNode::Program {
-            functions,
-            entry_point,
-            execution_order,
-        } = &optimized_program
-        else {
+        let AstNode::Program { functions } = &optimized_program else {
             // Fallback for non-Program nodes: use compile_graph
             let compiled =
                 self.compile_graph_internal(optimized_program, signature.clone(), kernel_source)?;
@@ -225,7 +219,7 @@ where
             let entry_name = "main".to_string();
             return Ok(CompiledProgram::new(
                 HashMap::from([(entry_name, compiled.kernel)]),
-                vec![],
+                vec![], // empty execution_waves
                 vec![],
                 signature.inputs.iter().map(|i| i.name.clone()).collect(),
                 signature.outputs.iter().map(|o| o.name.clone()).collect(),
@@ -247,6 +241,7 @@ where
         // Compile each kernel with its specific config
         let shape_vars = Self::extract_shape_vars(&signature);
         let mut kernels: HashMap<String, Comp::Kernel> = HashMap::new();
+        let mut kernel_call_infos: Vec<KernelCallInfo> = Vec::new();
 
         for func in functions {
             if let AstNode::Kernel {
@@ -267,52 +262,54 @@ where
                     config = config.with_shape_var(var_name.clone(), *value);
                 }
 
-                let kernel = self
-                    .compiler
-                    .compile(&self.context, &kernel_source, config)?;
+                let kernel =
+                    self.compiler
+                        .compile(&self.context, &kernel_source, config.clone())?;
                 kernels.insert(name.clone(), kernel);
+
+                // Create KernelCallInfo for this kernel
+                kernel_call_infos.push(KernelCallInfo::new(
+                    name.clone(),
+                    signature.inputs.iter().map(|i| i.name.clone()).collect(),
+                    signature.outputs.iter().map(|o| o.name.clone()).collect(),
+                    config.global_work_size,
+                    config.local_work_size.unwrap_or([1, 1, 1]),
+                ));
             }
         }
 
-        // If no kernels were found but entry_point exists, try to compile entry_point
+        // If no kernels were found, try to compile a default kernel
         if kernels.is_empty() {
             let config = self.extract_kernel_config(&optimized_program, &signature);
             let kernel = self
                 .compiler
-                .compile(&self.context, &kernel_source, config)?;
-            kernels.insert(entry_point.clone(), kernel);
-        }
+                .compile(&self.context, &kernel_source, config.clone())?;
+            let kernel_name = config.entry_point.clone();
+            kernels.insert(kernel_name.clone(), kernel);
 
-        // Convert execution_order to KernelCallInfo
-        let call_infos = self.convert_execution_order(execution_order, &shape_vars);
-
-        // If no execution order specified, create a single call to entry_point
-        let call_infos = if call_infos.is_empty() && !kernels.is_empty() {
-            let entry = kernels.keys().next().unwrap().clone();
-            let config = kernels
-                .get(&entry)
-                .map(|k| k.config())
-                .cloned()
-                .unwrap_or_else(|| KernelConfig::new(&entry));
-
-            vec![KernelCallInfo::new(
-                entry,
+            kernel_call_infos.push(KernelCallInfo::new(
+                kernel_name,
                 signature.inputs.iter().map(|i| i.name.clone()).collect(),
                 signature.outputs.iter().map(|o| o.name.clone()).collect(),
                 config.global_work_size,
                 config.local_work_size.unwrap_or([1, 1, 1]),
-            )]
-        } else {
-            call_infos
-        };
+            ));
+        }
 
-        // Analyze intermediate buffers
+        // Convert to execution_waves: each kernel in its own wave (sequential execution)
+        // TODO: In the future, analyze dependencies to parallelize independent kernels
+        let execution_waves: Vec<Vec<KernelCallInfo>> =
+            kernel_call_infos.into_iter().map(|k| vec![k]).collect();
+
+        // Analyze intermediate buffers (flatten waves for analysis)
+        let flat_call_infos: Vec<KernelCallInfo> =
+            execution_waves.iter().flatten().cloned().collect();
         let intermediate_specs =
-            self.analyze_intermediate_buffers(&call_infos, &signature, &kernel_names);
+            self.analyze_intermediate_buffers(&flat_call_infos, &signature, &kernel_names);
 
         Ok(CompiledProgram::new(
             kernels,
-            call_infos,
+            execution_waves,
             intermediate_specs,
             signature.inputs.iter().map(|i| i.name.clone()).collect(),
             signature.outputs.iter().map(|o| o.name.clone()).collect(),
@@ -336,29 +333,6 @@ where
             signature,
             _buffer: PhantomData,
         })
-    }
-
-    // Internal: convert execution_order to KernelCallInfo
-    fn convert_execution_order(
-        &self,
-        execution_order: &[KernelCall],
-        shape_vars: &HashMap<String, isize>,
-    ) -> Vec<KernelCallInfo> {
-        execution_order
-            .iter()
-            .map(|call| {
-                let grid_size = evaluate_expr_vec(&call.grid_size, shape_vars);
-                let local_size = evaluate_expr_vec(&call.thread_group_size, shape_vars);
-
-                KernelCallInfo::new(
-                    call.kernel_name.clone(),
-                    call.inputs.clone(),
-                    call.outputs.clone(),
-                    grid_size,
-                    local_size,
-                )
-            })
-            .collect()
     }
 
     // Internal: analyze and identify intermediate buffers
@@ -482,25 +456,34 @@ where
         program: &AstNode,
         signature: &KernelSignature,
     ) -> KernelConfig {
-        // Extract entry point name
-        let entry_point = if let AstNode::Program { entry_point, .. } = program {
-            entry_point.clone()
+        // Find the first kernel function in the program
+        let first_kernel = if let AstNode::Program { functions } = program {
+            functions.iter().find_map(|f| {
+                if let AstNode::Kernel { name: Some(n), .. } = f {
+                    Some((n.clone(), f))
+                } else {
+                    None
+                }
+            })
         } else {
-            "main".to_string()
+            None
         };
 
-        // Try to extract grid/thread_group size from Kernel node
-        if let Some(AstNode::Kernel {
-            default_grid_size,
-            default_thread_group_size,
-            ..
-        }) = program.get_function(&entry_point)
+        // Try to extract grid/thread_group size from first Kernel node
+        if let Some((
+            kernel_name,
+            AstNode::Kernel {
+                default_grid_size,
+                default_thread_group_size,
+                ..
+            },
+        )) = first_kernel
         {
             let shape_vars = Self::extract_shape_vars(signature);
             let grid = evaluate_dispatch_size(default_grid_size, &shape_vars);
             let tg = evaluate_dispatch_size(default_thread_group_size, &shape_vars);
 
-            let mut config = KernelConfig::new(entry_point)
+            let mut config = KernelConfig::new(kernel_name)
                 .with_global_work_size(grid)
                 .with_local_work_size(tg);
 
@@ -528,7 +511,7 @@ where
             .product::<usize>()
             .max(1);
 
-        KernelConfig::new(entry_point).with_global_work_size([total_elements, 1, 1])
+        KernelConfig::new("main").with_global_work_size([total_elements, 1, 1])
     }
 
     /// Extract shape variables from signature
@@ -592,6 +575,7 @@ fn evaluate_ast_expr(ast: &AstNode, shape_vars: &HashMap<String, isize>) -> isiz
 }
 
 /// Evaluate a Vec<Expr> to [usize; 3] for dispatch sizes
+#[allow(dead_code)]
 fn evaluate_expr_vec(exprs: &[Expr], shape_vars: &HashMap<String, isize>) -> [usize; 3] {
     let mut result = [1usize; 3];
     for (i, expr) in exprs.iter().enumerate().take(3) {
@@ -601,6 +585,7 @@ fn evaluate_expr_vec(exprs: &[Expr], shape_vars: &HashMap<String, isize>) -> [us
 }
 
 /// Evaluate a shape Expr to a numeric value
+#[allow(dead_code)]
 fn evaluate_expr(expr: &Expr, shape_vars: &HashMap<String, isize>) -> isize {
     match expr {
         Expr::Const(n) => *n,

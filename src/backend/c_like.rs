@@ -454,13 +454,11 @@ pub trait CLikeRenderer: Renderer {
     }
 
     /// プログラム全体を描画（デフォルト実装）
+    ///
+    /// カーネル関数群のみを出力します。
+    /// カーネルの実行順序はホスト側（CompiledProgram）で管理されます。
     fn render_program_clike(&mut self, program: &AstNode) -> String {
-        let AstNode::Program {
-            functions,
-            entry_point,
-            execution_order,
-        } = program
-        else {
+        let AstNode::Program { functions } = program else {
             panic!("Expected AstNode::Program");
         };
 
@@ -469,13 +467,9 @@ pub trait CLikeRenderer: Renderer {
         // ヘッダー
         result.push_str(&self.render_header());
 
-        // エントリーポイント情報をコメントとして追加
-        result.push_str(&format!("// Entry Point: {}\n\n", entry_point));
-
-        // カーネル関数（kernel_*）とその他の関数を分離
+        // カーネル関数（Kernel）とその他の関数（Function）を分離
         let mut kernel_functions: Vec<_> = Vec::new();
-        let mut other_functions: Vec<_> = Vec::new();
-        let mut entry_func: Option<&AstNode> = None;
+        let mut helper_functions: Vec<_> = Vec::new();
 
         // 関数名を取得するヘルパー関数
         fn get_func_name(func: &AstNode) -> Option<String> {
@@ -487,30 +481,18 @@ pub trait CLikeRenderer: Renderer {
         }
 
         for func in functions {
-            if let Some(name) = get_func_name(func) {
-                if name == *entry_point {
-                    entry_func = Some(func);
-                } else if name.starts_with("kernel_") || matches!(func, AstNode::Kernel { .. }) {
-                    kernel_functions.push(func);
-                } else {
-                    other_functions.push(func);
-                }
+            if matches!(func, AstNode::Kernel { .. }) {
+                kernel_functions.push(func);
+            } else if matches!(func, AstNode::Function { .. }) {
+                helper_functions.push(func);
             }
         }
 
-        // カーネル関数を番号順にソート
-        kernel_functions.sort_by_key(|func| {
-            if let Some(name) = get_func_name(func) {
-                name.strip_prefix("kernel_")
-                    .and_then(|s| s.parse::<usize>().ok())
-                    .unwrap_or(usize::MAX)
-            } else {
-                usize::MAX
-            }
-        });
+        // カーネル関数を名前でソート
+        kernel_functions.sort_by_key(|func| get_func_name(func).unwrap_or_default());
 
-        // その他の関数を名前順にソート
-        other_functions.sort_by_key(|func| get_func_name(func).unwrap_or_default());
+        // ヘルパー関数を名前でソート
+        helper_functions.sort_by_key(|func| get_func_name(func).unwrap_or_default());
 
         // カーネル関数を最初に描画
         if !kernel_functions.is_empty() {
@@ -521,84 +503,13 @@ pub trait CLikeRenderer: Renderer {
             }
         }
 
-        // その他の関数を描画
-        if !other_functions.is_empty() {
+        // ヘルパー関数を描画
+        if !helper_functions.is_empty() {
             result.push_str("// === Helper Functions ===\n");
-            for func in other_functions {
+            for func in helper_functions {
                 result.push_str(&self.render_function_node(func));
                 result.push('\n');
             }
-        }
-
-        // エントリーポイント関数を最後に描画
-        if let Some(func) = entry_func {
-            result.push_str("// === Entry Point Function ===\n");
-            result.push_str(&self.render_function_node(func));
-            result.push('\n');
-
-            // libloading用のラッパー関数を生成
-            result.push_str(&self.render_libloading_wrapper(func, entry_point));
-        }
-
-        // サブグラフ対応: カーネル実行順序をコメントとして出力
-        if !execution_order.is_empty() {
-            result.push_str("\n// === Kernel Execution Order (SubGraph Support) ===\n");
-            result.push_str(
-                "// The following shows the order in which kernels should be executed:\n",
-            );
-            for (i, kernel_call) in execution_order.iter().enumerate() {
-                result.push_str(&format!(
-                    "// Step {}: {} (\n",
-                    i + 1,
-                    kernel_call.kernel_name
-                ));
-                result.push_str(&format!(
-                    "//   inputs: [{}],\n",
-                    kernel_call.inputs.join(", ")
-                ));
-                result.push_str(&format!(
-                    "//   outputs: [{}],\n",
-                    kernel_call.outputs.join(", ")
-                ));
-                result.push_str(&format!(
-                    "//   grid_size: [{}, {}, {}],\n",
-                    kernel_call
-                        .grid_size
-                        .first()
-                        .map(|e| format!("{}", e))
-                        .unwrap_or_else(|| "1".to_string()),
-                    kernel_call
-                        .grid_size
-                        .get(1)
-                        .map(|e| format!("{}", e))
-                        .unwrap_or_else(|| "1".to_string()),
-                    kernel_call
-                        .grid_size
-                        .get(2)
-                        .map(|e| format!("{}", e))
-                        .unwrap_or_else(|| "1".to_string()),
-                ));
-                result.push_str(&format!(
-                    "//   thread_group_size: [{}, {}, {}]\n",
-                    kernel_call
-                        .thread_group_size
-                        .first()
-                        .map(|e| format!("{}", e))
-                        .unwrap_or_else(|| "1".to_string()),
-                    kernel_call
-                        .thread_group_size
-                        .get(1)
-                        .map(|e| format!("{}", e))
-                        .unwrap_or_else(|| "1".to_string()),
-                    kernel_call
-                        .thread_group_size
-                        .get(2)
-                        .map(|e| format!("{}", e))
-                        .unwrap_or_else(|| "1".to_string()),
-                ));
-                result.push_str("// )\n");
-            }
-            result.push_str("// === End Kernel Execution Order ===\n");
         }
 
         result

@@ -610,26 +610,21 @@ impl AstCostEstimator for SimpleCostEstimator {
                     self.function_definition_overhead.ln(),
                 ])
             }
-            AstNode::Program {
-                functions,
-                entry_point,
-                ..
-            } => {
+            AstNode::Program { functions } => {
                 // 空のプログラムの場合は最小コストを返す
                 if functions.is_empty() {
                     return 0.0; // log(1) = 0、最小コスト
                 }
 
-                // エントリポイント以外の関数/カーネルの数に基づいてペナルティを計算
-                // 未使用の関数が多いほどコストが高くなる（インライン展開を促進）
-                let non_entry_functions = functions
+                // 関数/カーネルの数に基づいてペナルティを計算
+                // カーネルが多いほどコストが高くなる（融合を促進）
+                let kernel_count = functions
                     .iter()
-                    .filter(|f| match f {
-                        AstNode::Function { name: Some(n), .. } => n != entry_point,
-                        AstNode::Kernel { name: Some(n), .. } => n != entry_point,
-                        _ => true,
-                    })
+                    .filter(|f| matches!(f, AstNode::Function { .. } | AstNode::Kernel { .. }))
                     .count();
+
+                // 複数のカーネルがある場合、追加のペナルティ（1つは基準として引く）
+                let non_entry_functions = kernel_count.saturating_sub(1);
 
                 // すべての関数のコストの合計
                 let functions_cost = log_sum_exp_iter(functions.iter().map(|f| self.estimate(f)));
@@ -709,8 +704,6 @@ mod tests {
 
         let program_before = AstNode::Program {
             functions: vec![add_one_func, main_with_call],
-            entry_point: "main".to_string(),
-            execution_order: vec![],
         };
 
         // インライン展開後: 1つの関数（mainのみ）
@@ -729,8 +722,6 @@ mod tests {
 
         let program_after = AstNode::Program {
             functions: vec![main_inlined],
-            entry_point: "main".to_string(),
-            execution_order: vec![],
         };
 
         let cost_before = estimator.estimate(&program_before);
@@ -760,8 +751,6 @@ mod tests {
                     value: Box::new(AstNode::Const(Literal::Int(1))),
                 }),
             }],
-            entry_point: "main".to_string(),
-            execution_order: vec![],
         };
 
         // 2つの関数（同じ本体だが関数定義が多い）
@@ -784,8 +773,6 @@ mod tests {
                     }),
                 },
             ],
-            entry_point: "main".to_string(),
-            execution_order: vec![],
         };
 
         let cost_single = estimator.estimate(&single_func);
@@ -878,8 +865,6 @@ mod tests {
 
         let program_before = AstNode::Program {
             functions: vec![write_value_func, main_with_call],
-            entry_point: "main".to_string(),
-            execution_order: vec![],
         };
 
         // インライン展開後
@@ -899,8 +884,6 @@ mod tests {
 
         let program_after = AstNode::Program {
             functions: vec![main_inlined],
-            entry_point: "main".to_string(),
-            execution_order: vec![],
         };
 
         let cost_before = estimator.estimate(&program_before);
@@ -953,8 +936,6 @@ mod tests {
                     value: Box::new(AstNode::Const(Literal::Int(1))),
                 }),
             }],
-            entry_point: "main".to_string(),
-            execution_order: vec![],
         };
 
         let small_node_count = SimpleCostEstimator::get_node_count(&small_program);
@@ -982,8 +963,6 @@ mod tests {
                     scope: Box::new(Scope::new()),
                 }),
             }],
-            entry_point: "main".to_string(),
-            execution_order: vec![],
         };
 
         let large_node_count = SimpleCostEstimator::get_node_count(&large_program);
@@ -1166,8 +1145,6 @@ mod tests {
                     )),
                 }),
             }],
-            entry_point: "main".to_string(),
-            execution_order: vec![],
         };
 
         let cost_no_penalty = estimator_no_penalty.estimate(&program);
