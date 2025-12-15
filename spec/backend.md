@@ -22,7 +22,9 @@
 ### Nativeバックエンド
 - `native/`: Rustから直接GPU APIを呼び出すバックエンド
   - `mod.rs`: モジュール定義とtrait再エクスポート
-  - `traits.rs`: 共通trait定義
+  - `traits.rs`: 共通trait定義（NativeContext, NativeBuffer, NativeKernel, NativeCompiler, KernelConfig）
+  - `pipeline.rs`: NativePipeline、CompiledNativeKernel、AST式評価関数
+  - `sequence.rs`: 複数カーネル順次実行（CompiledNativeProgram, KernelCallInfo, IntermediateBufferSpec）
   - `opencl/`: OpenCLネイティブ実装（`ocl`クレート使用）
   - `metal/`: Metalネイティブ実装（`metal`クレート使用）
 
@@ -110,6 +112,11 @@ GPUメモリバッファ。ホスト⇔デバイス間のデータ転送を提�
 
 #### NativeKernel
 コンパイル済みカーネル。バッファを受け取って実行。
+
+主要メソッド：
+- `execute()`: 設定済みサイズで実行
+- `execute_with_sizes()`: 動的なグリッド/ローカルサイズで実行
+- `config()`: カーネル設定を取得
 
 #### NativeCompiler
 カーネルソースをコンパイルしてNativeKernelを生成。
@@ -205,6 +212,65 @@ let result: Vec<f32> = output.read_vec()?;
     config.show_progress = true;    // プログレス表示
     config.collect_history = true;  // 最適化履歴の収集
 }
+```
+
+### スレッド数・グループ数の決定フロー
+
+カーネル実行時のスレッド数（grid size）とグループサイズ（local/threadgroup size）は以下のフローで決定されます：
+
+1. **Lowering段階**: `AstNode::Kernel`ノードの`default_grid_size`と`default_thread_group_size`に設定
+2. **NativePipeline**: AST Kernelから`KernelConfig`に情報を伝播
+3. **実行時**: `KernelConfig`の値を使用してディスパッチ
+
+**情報フロー:**
+```
+Graph → Lowerer → AST(Kernel) → NativePipeline → KernelConfig → execute
+                   ↓                  ↓
+            default_grid_size    evaluate_dispatch_size()
+            default_thread_group_size   ↓
+                               [usize; 3] (実際のサイズ)
+```
+
+サイズ式（`[Box<AstNode>; 3]`）は`evaluate_ast_expr`関数で評価され、`shape_vars`（シェイプ変数）を参照して具体値に解決されます。
+
+### 複数カーネルの順次実行
+
+最適化の結果、1つのGraphが複数のカーネルに分割されることがあります。`CompiledNativeProgram`はこれらのカーネルを正しい順序で実行する機能を提供します。
+
+**主要型:**
+
+- `KernelCallInfo`: カーネル呼び出し情報（名前、入出力バッファ、グリッドサイズ）
+- `IntermediateBufferSpec`: 中間バッファ仕様（カーネル間で受け渡されるバッファ）
+- `CompiledNativeProgram`: コンパイル済みプログラム（複数カーネル対応）
+
+**使用例:**
+```rust
+// compile_program()は複数カーネルに対応
+let program = pipeline.compile_program(graph)?;
+
+// 名前付きバッファで実行
+let mut inputs = HashMap::new();
+inputs.insert("a".to_string(), &input_a);
+let mut outputs = HashMap::new();
+outputs.insert("out".to_string(), &mut output);
+
+program.execute(&context, &inputs, &mut outputs)?;
+
+// または位置引数で実行（単一カーネルの場合に便利）
+program.execute_positional(&context, &[&input_a], &mut [&mut output])?;
+```
+
+**動的サイズでの実行:**
+
+`NativeKernel`トレイトの`execute_with_sizes`メソッドを使用して、実行時にグリッドサイズとローカルサイズを指定できます：
+
+```rust
+kernel.execute_with_sizes(
+    &[&input],
+    &mut [&mut output],
+    [1024, 1, 1],  // grid_size
+    [64, 1, 1],    // local_size
+)?;
 ```
 
 ### Feature flags

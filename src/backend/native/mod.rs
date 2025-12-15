@@ -26,6 +26,7 @@
 //! ```
 
 mod pipeline;
+mod sequence;
 mod traits;
 
 #[cfg(feature = "native-opencl")]
@@ -34,9 +35,12 @@ pub mod opencl;
 #[cfg(all(feature = "native-metal", target_os = "macos"))]
 pub mod metal;
 
-// Re-export traits
+// Re-export traits and types
 pub use pipeline::{
     CompiledNativeKernel, KernelSourceRenderer, NativeOptimizationHistories, NativePipeline,
     NativePipelineConfig,
+};
+pub use sequence::{
+    CompiledNativeProgram, IntermediateBufferSpec, KernelCallInfo, ProgramExecutionError,
 };
 pub use traits::{KernelConfig, NativeBuffer, NativeCompiler, NativeContext, NativeKernel};

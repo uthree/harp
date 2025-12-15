@@ -38,6 +38,23 @@ impl NativeKernel for MetalNativeKernel {
 
         self.execute_with_buffers(&all_buffers)
     }
+
+    fn execute_with_sizes(
+        &self,
+        inputs: &[&Self::Buffer],
+        outputs: &mut [&mut Self::Buffer],
+        grid_size: [usize; 3],
+        local_size: [usize; 3],
+    ) -> Result<(), Self::Error> {
+        // Combine all buffers for execution
+        let all_buffers: Vec<&MetalNativeBuffer> = inputs
+            .iter()
+            .copied()
+            .chain(outputs.iter().map(|b| &**b))
+            .collect();
+
+        self.execute_with_buffers_and_sizes(&all_buffers, grid_size, local_size)
+    }
 }
 
 impl MetalNativeKernel {
@@ -59,6 +76,28 @@ impl MetalNativeKernel {
         &self,
         buffers: &[&MetalNativeBuffer],
     ) -> Result<(), MetalNativeError> {
+        let gws = self.config.global_work_size;
+        let lws = self.config.local_work_size;
+        self.execute_with_buffers_internal(buffers, gws, lws)
+    }
+
+    /// Execute with explicit buffer references and dispatch sizes
+    pub fn execute_with_buffers_and_sizes(
+        &self,
+        buffers: &[&MetalNativeBuffer],
+        grid_size: [usize; 3],
+        local_size: [usize; 3],
+    ) -> Result<(), MetalNativeError> {
+        self.execute_with_buffers_internal(buffers, grid_size, Some(local_size))
+    }
+
+    /// Internal execution implementation
+    fn execute_with_buffers_internal(
+        &self,
+        buffers: &[&MetalNativeBuffer],
+        grid_size: [usize; 3],
+        local_size: Option<[usize; 3]>,
+    ) -> Result<(), MetalNativeError> {
         // Create command buffer
         let command_buffer = self.command_queue.new_command_buffer();
 
@@ -74,9 +113,7 @@ impl MetalNativeKernel {
         }
 
         // Calculate threadgroup size
-        let gws = self.config.global_work_size;
-
-        let threadgroup_size = if let Some(lws) = self.config.local_work_size {
+        let threadgroup_size = if let Some(lws) = local_size {
             MTLSize::new(lws[0] as u64, lws[1] as u64, lws[2] as u64)
         } else {
             // Use default threadgroup size based on pipeline
@@ -87,11 +124,15 @@ impl MetalNativeKernel {
         };
 
         // Grid size is the total number of threads we want to dispatch
-        let grid_size = MTLSize::new(gws[0] as u64, gws[1] as u64, gws[2] as u64);
+        let mtl_grid_size = MTLSize::new(
+            grid_size[0] as u64,
+            grid_size[1] as u64,
+            grid_size[2] as u64,
+        );
 
         // Dispatch the compute kernel
         // dispatch_threads handles non-uniform threadgroups automatically
-        encoder.dispatch_threads(grid_size, threadgroup_size);
+        encoder.dispatch_threads(mtl_grid_size, threadgroup_size);
 
         // End encoding and commit
         encoder.end_encoding();

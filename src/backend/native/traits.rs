@@ -157,6 +157,30 @@ pub trait NativeKernel: Sized + Clone + Send + Sync {
         inputs: &[&Self::Buffer],
         outputs: &mut [&mut Self::Buffer],
     ) -> Result<(), Self::Error>;
+
+    /// Execute the kernel with explicit grid and local sizes
+    ///
+    /// This allows overriding the default dispatch sizes stored in the kernel config.
+    /// Useful for multi-kernel programs where each invocation may have different sizes.
+    ///
+    /// # Arguments
+    /// * `inputs` - Input buffer references
+    /// * `outputs` - Output buffer references (mutable)
+    /// * `grid_size` - Global work size (total threads to dispatch)
+    /// * `local_size` - Local work size (threads per group)
+    ///
+    /// Default implementation ignores the size parameters and calls `execute`.
+    /// Backends should override this to support dynamic dispatch sizes.
+    fn execute_with_sizes(
+        &self,
+        inputs: &[&Self::Buffer],
+        outputs: &mut [&mut Self::Buffer],
+        _grid_size: [usize; 3],
+        _local_size: [usize; 3],
+    ) -> Result<(), Self::Error> {
+        // Default implementation: ignore sizes and use config's sizes
+        self.execute(inputs, outputs)
+    }
 }
 
 /// Native GPU compiler
