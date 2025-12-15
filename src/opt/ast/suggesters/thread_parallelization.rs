@@ -7,7 +7,8 @@ use crate::ast::{AstNode, Literal, Scope, helper::lt};
 use crate::opt::ast::{AstSuggestResult, AstSuggester};
 
 use super::parallelization_common::{
-    ceil_div, const_int, is_range_parallelizable, substitute_var, thread_id_param, var,
+    ceil_div, collect_free_variables, const_int, infer_params_from_placeholders,
+    is_range_parallelizable, substitute_var, thread_id_param, var,
 };
 
 /// デフォルトのスレッドグループサイズ
@@ -161,7 +162,18 @@ impl ThreadParallelizationSuggester {
 
         // Kernel paramsを作成（tidを先頭に追加）
         let mut kernel_params = vec![thread_id_param(tid_name, 0)];
-        kernel_params.extend(params.iter().cloned());
+
+        // 元のFunctionのparamsが空の場合、本体から自由変数を収集してパラメータを生成
+        if params.is_empty() {
+            // kernel_bodyから自由変数を収集
+            let free_vars = collect_free_variables(&kernel_body);
+            // tidは除外（既にパラメータとして追加済み）
+            let free_vars: Vec<_> = free_vars.into_iter().filter(|v| v != tid_name).collect();
+            let inferred_params = infer_params_from_placeholders(&free_vars);
+            kernel_params.extend(inferred_params);
+        } else {
+            kernel_params.extend(params.iter().cloned());
+        }
 
         Some(AstNode::Kernel {
             name: name.clone(),

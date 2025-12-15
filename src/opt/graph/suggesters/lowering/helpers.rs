@@ -4,10 +4,34 @@
 
 use crate::ast::{AstNode, DType as AstDType, Scope, helper::*};
 use crate::graph::ops::custom_placeholders as ph;
+use crate::graph::shape::Expr;
 use crate::graph::{
     CumulativeOp, DType as GraphDType, GraphNode, GraphNodeData, GraphOp, ReduceOp, View,
 };
 use std::collections::HashSet;
+
+/// Shape式をAstNodeに変換する
+///
+/// 式を簡約して定数になる場合は定数ノードを返し、
+/// そうでない場合はシンボリック変数として返す。
+pub fn shape_expr_to_ast(expr: &Expr) -> AstNode {
+    // From<Expr> for AstNodeが自動的にsimplifyしてConstに変換する
+    expr.clone().into()
+}
+
+/// 指定軸のShape式をAstNodeに変換する
+///
+/// shape配列が利用可能な場合は具体値を使用し、
+/// そうでない場合はプレースホルダー変数を使用する。
+pub fn shape_dim_to_ast(shape: Option<&[Expr]>, axis: usize) -> AstNode {
+    if let Some(s) = shape
+        && axis < s.len()
+    {
+        return shape_expr_to_ast(&s[axis]);
+    }
+    // フォールバック: プレースホルダー変数を使用
+    var(ph::shape(axis))
+}
 
 /// GraphのDTypeをAstのDTypeに変換
 pub fn graph_dtype_to_ast(dtype: &GraphDType) -> AstDType {
@@ -92,6 +116,11 @@ pub fn build_cumulative_accumulator(
 
 /// 連続メモリのオフセット計算式を構築
 pub fn build_contiguous_offset(ndim: usize) -> AstNode {
+    build_contiguous_offset_with_shape(ndim, None)
+}
+
+/// 連続メモリのオフセット計算式を構築（具体的なshapeを使用）
+pub fn build_contiguous_offset_with_shape(ndim: usize, shape: Option<&[Expr]>) -> AstNode {
     if ndim == 0 {
         return const_int(0);
     }
@@ -99,9 +128,9 @@ pub fn build_contiguous_offset(ndim: usize) -> AstNode {
     let mut offset = var(ph::ridx(ndim - 1));
 
     for axis in (0..ndim - 1).rev() {
-        let mut stride = var(ph::shape(axis + 1));
+        let mut stride = shape_dim_to_ast(shape, axis + 1);
         for inner_axis in (axis + 2)..ndim {
-            stride = stride * var(ph::shape(inner_axis));
+            stride = stride * shape_dim_to_ast(shape, inner_axis);
         }
         offset = var(ph::ridx(axis)) * stride + offset;
     }
@@ -110,13 +139,32 @@ pub fn build_contiguous_offset(ndim: usize) -> AstNode {
 }
 
 /// 特定軸を除いた連続メモリのオフセット計算式を構築（Reduce用）
+#[allow(dead_code)]
 pub fn build_contiguous_offset_excluding_axis(ndim: usize, exclude_axis: usize) -> AstNode {
-    build_contiguous_offset_excluding_axes(ndim, &[exclude_axis])
+    build_contiguous_offset_excluding_axes_with_shape(ndim, &[exclude_axis], None)
+}
+
+/// 特定軸を除いた連続メモリのオフセット計算式を構築（Reduce用、具体的なshapeを使用）
+pub fn build_contiguous_offset_excluding_axis_with_shape(
+    ndim: usize,
+    exclude_axis: usize,
+    shape: Option<&[Expr]>,
+) -> AstNode {
+    build_contiguous_offset_excluding_axes_with_shape(ndim, &[exclude_axis], shape)
 }
 
 /// 複数の軸を除いた連続メモリのオフセット計算式を構築（複数軸Reduce用）
+#[allow(dead_code)]
 pub fn build_contiguous_offset_excluding_axes(ndim: usize, exclude_axes: &[usize]) -> AstNode {
-    use std::collections::HashSet;
+    build_contiguous_offset_excluding_axes_with_shape(ndim, exclude_axes, None)
+}
+
+/// 複数の軸を除いた連続メモリのオフセット計算式を構築（複数軸Reduce用、具体的なshapeを使用）
+pub fn build_contiguous_offset_excluding_axes_with_shape(
+    ndim: usize,
+    exclude_axes: &[usize],
+    shape: Option<&[Expr]>,
+) -> AstNode {
     let exclude_set: HashSet<usize> = exclude_axes.iter().copied().collect();
 
     let mut output_axes = Vec::new();
@@ -136,9 +184,9 @@ pub fn build_contiguous_offset_excluding_axes(ndim: usize, exclude_axes: &[usize
     for (out_axis, &in_axis) in output_axes.iter().enumerate().take(output_ndim - 1).rev() {
         let stride = if out_axis + 1 < output_axes.len() {
             let next_in_axis = output_axes[out_axis + 1];
-            let mut s = var(ph::shape(next_in_axis));
+            let mut s = shape_dim_to_ast(shape, next_in_axis);
             for &inner_in_axis in &output_axes[out_axis + 2..] {
-                s = s * var(ph::shape(inner_in_axis));
+                s = s * shape_dim_to_ast(shape, inner_in_axis);
             }
             s
         } else {
@@ -175,6 +223,15 @@ pub fn build_strided_offset(view: &View, ndim: usize) -> AstNode {
 
 /// ネストされたループで本体をラップ
 pub fn wrap_with_loops(ndim: usize, inner_body: Vec<AstNode>) -> AstNode {
+    wrap_with_loops_with_shape(ndim, inner_body, None)
+}
+
+/// ネストされたループで本体をラップ（具体的なshapeを使用）
+pub fn wrap_with_loops_with_shape(
+    ndim: usize,
+    inner_body: Vec<AstNode>,
+    shape: Option<&[Expr]>,
+) -> AstNode {
     if ndim == 0 {
         return block(inner_body, Scope::new());
     }
@@ -186,7 +243,7 @@ pub fn wrap_with_loops(ndim: usize, inner_body: Vec<AstNode>) -> AstNode {
             ph::ridx(axis),
             const_int(0),
             const_int(1),
-            var(ph::shape(axis)),
+            shape_dim_to_ast(shape, axis),
             body,
         );
     }
@@ -195,23 +252,58 @@ pub fn wrap_with_loops(ndim: usize, inner_body: Vec<AstNode>) -> AstNode {
 }
 
 /// 特定軸を除いたネストされたループで本体をラップ（スコープ付き）
+#[allow(dead_code)]
 pub fn wrap_with_loops_excluding_axis_with_scope(
     ndim: usize,
     exclude_axis: usize,
     inner_body: Vec<AstNode>,
     scope: Scope,
 ) -> AstNode {
-    wrap_with_loops_excluding_axes_with_scope(ndim, &[exclude_axis], inner_body, scope)
+    wrap_with_loops_excluding_axes_with_scope_and_shape(
+        ndim,
+        &[exclude_axis],
+        inner_body,
+        scope,
+        None,
+    )
+}
+
+/// 特定軸を除いたネストされたループで本体をラップ（スコープ付き、具体的なshapeを使用）
+pub fn wrap_with_loops_excluding_axis_with_scope_and_shape(
+    ndim: usize,
+    exclude_axis: usize,
+    inner_body: Vec<AstNode>,
+    scope: Scope,
+    shape: Option<&[Expr]>,
+) -> AstNode {
+    wrap_with_loops_excluding_axes_with_scope_and_shape(
+        ndim,
+        &[exclude_axis],
+        inner_body,
+        scope,
+        shape,
+    )
 }
 
 /// 複数軸を除いたネストされたループで本体をラップ（スコープ付き、複数軸対応）
+#[allow(dead_code)]
 pub fn wrap_with_loops_excluding_axes_with_scope(
     ndim: usize,
     exclude_axes: &[usize],
     inner_body: Vec<AstNode>,
     scope: Scope,
 ) -> AstNode {
-    use std::collections::HashSet;
+    wrap_with_loops_excluding_axes_with_scope_and_shape(ndim, exclude_axes, inner_body, scope, None)
+}
+
+/// 複数軸を除いたネストされたループで本体をラップ（スコープ付き、複数軸対応、具体的なshapeを使用）
+pub fn wrap_with_loops_excluding_axes_with_scope_and_shape(
+    ndim: usize,
+    exclude_axes: &[usize],
+    inner_body: Vec<AstNode>,
+    scope: Scope,
+    shape: Option<&[Expr]>,
+) -> AstNode {
     let exclude_set: HashSet<usize> = exclude_axes.iter().copied().collect();
 
     if ndim == 0 {
@@ -228,7 +320,7 @@ pub fn wrap_with_loops_excluding_axes_with_scope(
             ph::ridx(axis),
             const_int(0),
             const_int(1),
-            var(ph::shape(axis)),
+            shape_dim_to_ast(shape, axis),
             body,
         );
     }

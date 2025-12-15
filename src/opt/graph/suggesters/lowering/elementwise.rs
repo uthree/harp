@@ -7,7 +7,11 @@ use crate::graph::ops::custom_placeholders as ph;
 use crate::graph::{DType as GraphDType, ElementwiseOp, GraphNode, GraphNodeData, GraphOp};
 use std::collections::{HashMap, HashSet};
 
-use super::helpers::{build_contiguous_offset, graph_dtype_to_ast, wrap_with_loops};
+use crate::graph::shape::Expr;
+
+use super::helpers::{
+    build_contiguous_offset_with_shape, graph_dtype_to_ast, wrap_with_loops_with_shape,
+};
 
 /// ElementwiseOpから演算式を構築
 pub fn build_elementwise_expr(op: &ElementwiseOp) -> AstNode {
@@ -48,12 +52,13 @@ pub fn build_elementwise_function(
     // 定数を埋め込んだ式を構築
     let expr_with_consts = embed_constants(&expr, &node.src);
 
-    Some(build_elementwise_function_impl(
+    Some(build_elementwise_function_impl_with_shape(
         ndim,
         num_inputs,
         expr_with_consts,
         &node.dtype,
         name,
+        Some(shape),
     ))
 }
 
@@ -73,12 +78,13 @@ pub fn build_fused_elementwise_function(
 
     let expr_with_consts = embed_constants(expr, &node.src);
 
-    Some(build_elementwise_function_impl(
+    Some(build_elementwise_function_impl_with_shape(
         ndim,
         num_inputs,
         expr_with_consts,
         &node.dtype,
         name,
+        Some(shape),
     ))
 }
 
@@ -90,7 +96,19 @@ pub fn build_elementwise_function_impl(
     output_dtype: &GraphDType,
     name: &str,
 ) -> AstNode {
-    let offset = build_contiguous_offset(ndim);
+    build_elementwise_function_impl_with_shape(ndim, num_inputs, expr, output_dtype, name, None)
+}
+
+/// Elementwise関数の実装（具体的なshapeを使用）
+pub fn build_elementwise_function_impl_with_shape(
+    ndim: usize,
+    num_inputs: usize,
+    expr: AstNode,
+    output_dtype: &GraphDType,
+    name: &str,
+    shape: Option<&[Expr]>,
+) -> AstNode {
+    let offset = build_contiguous_offset_with_shape(ndim, shape);
     let load_dtype = graph_dtype_to_ast(output_dtype);
 
     // 入力のロードを含む式を構築
@@ -102,7 +120,7 @@ pub fn build_elementwise_function_impl(
     let final_expr = expr.substitute(&mappings);
 
     let store_stmt = store(var(ph::OUTPUT), offset, final_expr);
-    let body = wrap_with_loops(ndim, vec![store_stmt]);
+    let body = wrap_with_loops_with_shape(ndim, vec![store_stmt], shape);
 
     function(
         Some(name.to_string()),

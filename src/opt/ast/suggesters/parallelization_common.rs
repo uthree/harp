@@ -17,6 +17,8 @@ pub struct LoopAnalyzer {
     loop_var: String,
     /// ループ外で定義された変数への書き込みを検出
     external_writes: HashSet<String>,
+    /// ローカルで宣言された変数（外部書き込みとしてカウントしない）
+    local_vars: HashSet<String>,
     /// Store操作がループ変数に依存しているか
     stores_depend_on_loop_var: bool,
     /// Store操作が存在するか
@@ -29,6 +31,7 @@ impl LoopAnalyzer {
         Self {
             loop_var: loop_var.into(),
             external_writes: HashSet::new(),
+            local_vars: HashSet::new(),
             stores_depend_on_loop_var: false,
             has_stores: false,
         }
@@ -42,8 +45,8 @@ impl LoopAnalyzer {
     fn analyze_recursive(&mut self, node: &AstNode) {
         match node {
             AstNode::Assign { var, value } => {
-                // ループ変数以外への代入は外部書き込み
-                if var != &self.loop_var {
+                // ループ変数またはローカル変数以外への代入は外部書き込み
+                if var != &self.loop_var && !self.local_vars.contains(var) {
                     self.external_writes.insert(var.clone());
                 }
                 self.analyze_recursive(value);
@@ -58,13 +61,18 @@ impl LoopAnalyzer {
                 self.analyze_recursive(offset);
                 self.analyze_recursive(value);
             }
-            AstNode::Block { statements, .. } => {
+            AstNode::Block { statements, scope } => {
+                // Blockのスコープ内で宣言された変数を追跡
+                for var_decl in scope.local_variables() {
+                    self.local_vars.insert(var_decl.name.clone());
+                }
                 for stmt in statements {
                     self.analyze_recursive(stmt);
                 }
             }
-            AstNode::Range { body, .. } => {
-                // ネストしたループの内部も解析
+            AstNode::Range { var, body, .. } => {
+                // ネストしたループの変数もローカルとして扱う
+                self.local_vars.insert(var.clone());
                 self.analyze_recursive(body);
             }
             AstNode::If {
@@ -447,6 +455,245 @@ pub fn var(name: impl Into<String>) -> AstNode {
     AstNode::Var(name.into())
 }
 
+/// AST本体から参照されている未定義変数を収集
+///
+/// ループ変数やスコープ内で宣言されたローカル変数は除外されます。
+pub fn collect_free_variables(body: &AstNode) -> Vec<String> {
+    let mut collector = FreeVariableCollector::new();
+    collector.collect(body);
+    collector.into_variables()
+}
+
+/// Lowering時に生成されるプレースホルダー変数からKernelパラメータを生成
+///
+/// プレースホルダー変数名のパターン:
+/// - `input0`, `input1`, ... -> Ptr<F32>, immutable
+/// - `param0`, `param1`, ... -> Ptr<F32>, immutable
+/// - `output`, `output0`, ... -> Ptr<F32>, mutable (書き込み対象として推測)
+/// - `shape0`, `shape1`, ... -> Int, immutable
+pub fn infer_params_from_placeholders(free_vars: &[String]) -> Vec<VarDecl> {
+    let mut params = Vec::new();
+
+    for var_name in free_vars {
+        let decl = if var_name.starts_with("input") || var_name.starts_with("param") {
+            VarDecl {
+                name: var_name.clone(),
+                dtype: DType::Ptr(Box::new(DType::F32)),
+                mutability: Mutability::Immutable,
+                kind: VarKind::Normal,
+            }
+        } else if var_name.starts_with("output") {
+            VarDecl {
+                name: var_name.clone(),
+                dtype: DType::Ptr(Box::new(DType::F32)),
+                mutability: Mutability::Mutable,
+                kind: VarKind::Normal,
+            }
+        } else if var_name.starts_with("shape") {
+            VarDecl {
+                name: var_name.clone(),
+                dtype: DType::Int,
+                mutability: Mutability::Immutable,
+                kind: VarKind::Normal,
+            }
+        } else {
+            // その他の変数はInt型として扱う
+            VarDecl {
+                name: var_name.clone(),
+                dtype: DType::Int,
+                mutability: Mutability::Immutable,
+                kind: VarKind::Normal,
+            }
+        };
+        params.push(decl);
+    }
+
+    // パラメータをソート（input -> param -> output -> shape -> その他）
+    params.sort_by(|a, b| {
+        let priority = |name: &str| -> usize {
+            if name.starts_with("input") {
+                0
+            } else if name.starts_with("param") {
+                1
+            } else if name.starts_with("output") {
+                2
+            } else if name.starts_with("shape") {
+                3
+            } else {
+                4
+            }
+        };
+        let pa = priority(&a.name);
+        let pb = priority(&b.name);
+        if pa != pb {
+            pa.cmp(&pb)
+        } else {
+            a.name.cmp(&b.name)
+        }
+    });
+
+    params
+}
+
+/// 自由変数（未定義でありながら参照されている変数）を収集するコレクター
+struct FreeVariableCollector {
+    /// 収集された自由変数
+    free_vars: HashSet<String>,
+    /// 現在のスコープで定義されている変数
+    bound_vars: HashSet<String>,
+}
+
+impl FreeVariableCollector {
+    fn new() -> Self {
+        Self {
+            free_vars: HashSet::new(),
+            bound_vars: HashSet::new(),
+        }
+    }
+
+    fn collect(&mut self, node: &AstNode) {
+        self.collect_recursive(node);
+    }
+
+    fn into_variables(self) -> Vec<String> {
+        self.free_vars.into_iter().collect()
+    }
+
+    fn collect_recursive(&mut self, node: &AstNode) {
+        match node {
+            AstNode::Var(name) => {
+                if !self.bound_vars.contains(name) {
+                    self.free_vars.insert(name.clone());
+                }
+            }
+
+            // 変数束縛を行う構造
+            AstNode::Range {
+                var,
+                start,
+                step,
+                stop,
+                body,
+            } => {
+                self.collect_recursive(start);
+                self.collect_recursive(step);
+                self.collect_recursive(stop);
+                // ループ変数をバインド
+                let was_bound = self.bound_vars.insert(var.clone());
+                self.collect_recursive(body);
+                if !was_bound {
+                    self.bound_vars.remove(var);
+                }
+            }
+
+            AstNode::Block { statements, scope } => {
+                // スコープ内のローカル変数をバインド
+                let local_vars: Vec<String> =
+                    scope.local_variables().map(|v| v.name.clone()).collect();
+                for var in &local_vars {
+                    self.bound_vars.insert(var.clone());
+                }
+                for stmt in statements {
+                    self.collect_recursive(stmt);
+                }
+                for var in &local_vars {
+                    self.bound_vars.remove(var);
+                }
+            }
+
+            // 代入（左辺は参照ではない）
+            AstNode::Assign { value, .. } => {
+                self.collect_recursive(value);
+            }
+
+            // 二項演算
+            AstNode::Add(a, b)
+            | AstNode::Mul(a, b)
+            | AstNode::Max(a, b)
+            | AstNode::Rem(a, b)
+            | AstNode::Idiv(a, b)
+            | AstNode::BitwiseAnd(a, b)
+            | AstNode::BitwiseOr(a, b)
+            | AstNode::BitwiseXor(a, b)
+            | AstNode::LeftShift(a, b)
+            | AstNode::RightShift(a, b)
+            | AstNode::Lt(a, b)
+            | AstNode::Le(a, b)
+            | AstNode::Gt(a, b)
+            | AstNode::Ge(a, b)
+            | AstNode::Eq(a, b)
+            | AstNode::Ne(a, b) => {
+                self.collect_recursive(a);
+                self.collect_recursive(b);
+            }
+
+            // 単項演算
+            AstNode::Recip(a)
+            | AstNode::Sqrt(a)
+            | AstNode::Log2(a)
+            | AstNode::Exp2(a)
+            | AstNode::Sin(a)
+            | AstNode::BitwiseNot(a)
+            | AstNode::Cast(a, _) => {
+                self.collect_recursive(a);
+            }
+
+            // メモリ操作
+            AstNode::Load { ptr, offset, .. } => {
+                self.collect_recursive(ptr);
+                self.collect_recursive(offset);
+            }
+            AstNode::Store { ptr, offset, value } => {
+                self.collect_recursive(ptr);
+                self.collect_recursive(offset);
+                self.collect_recursive(value);
+            }
+
+            // 条件分岐
+            AstNode::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                self.collect_recursive(condition);
+                self.collect_recursive(then_body);
+                if let Some(else_b) = else_body {
+                    self.collect_recursive(else_b);
+                }
+            }
+
+            // 関数呼び出し
+            AstNode::Call { args, .. } => {
+                for arg in args {
+                    self.collect_recursive(arg);
+                }
+            }
+
+            // Return
+            AstNode::Return { value } => {
+                self.collect_recursive(value);
+            }
+
+            // メモリ確保
+            AstNode::Allocate { size, .. } => {
+                self.collect_recursive(size);
+            }
+            AstNode::Deallocate { ptr } => {
+                self.collect_recursive(ptr);
+            }
+
+            // リーフノード
+            AstNode::Const(_) | AstNode::Wildcard(_) | AstNode::Rand | AstNode::Barrier => {}
+
+            // Function/Kernel/Program（別のスコープ）
+            AstNode::Function { .. }
+            | AstNode::Kernel { .. }
+            | AstNode::Program { .. }
+            | AstNode::CallKernel { .. } => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -524,5 +771,109 @@ mod tests {
             result,
             AstNode::Add(Box::new(var("tid")), Box::new(const_int(1)))
         );
+    }
+
+    #[test]
+    fn test_parallelizable_with_local_variable() {
+        use crate::ast::{Mutability, Scope};
+
+        // for i in 0..N {
+        //     { acc = 0.0; acc = acc + input[i]; output[i] = acc; }  // accはローカル変数
+        // }
+        // -> 並列化可能（accはスコープ内で宣言されたローカル変数）
+        let mut scope = Scope::new();
+        scope
+            .declare("acc".to_string(), DType::F32, Mutability::Mutable)
+            .unwrap();
+
+        let body = AstNode::Block {
+            statements: vec![
+                AstNode::Assign {
+                    var: "acc".to_string(),
+                    value: Box::new(AstNode::Const(crate::ast::Literal::F32(0.0))),
+                },
+                AstNode::Assign {
+                    var: "acc".to_string(),
+                    value: Box::new(AstNode::Add(
+                        Box::new(var("acc")),
+                        Box::new(load(var("input"), var("i"), DType::F32)),
+                    )),
+                },
+                store(var("output"), var("i"), var("acc")),
+            ],
+            scope: Box::new(scope),
+        };
+
+        let range = AstNode::Range {
+            var: "i".to_string(),
+            start: Box::new(const_int(0)),
+            step: Box::new(const_int(1)),
+            stop: Box::new(var("N")),
+            body: Box::new(body),
+        };
+
+        assert!(is_range_parallelizable(&range));
+    }
+
+    #[test]
+    fn test_parallelizable_nested_loop_with_local_var() {
+        use crate::ast::{Mutability, Scope};
+
+        // for i in 0..N {
+        //     { acc = 0.0;
+        //       for j in 0..M { acc = acc + input[i*M+j]; }
+        //       output[i] = acc;
+        //     }
+        // }
+        // -> 並列化可能（accはローカル、jは内側ループ変数）
+        let mut scope = Scope::new();
+        scope
+            .declare("acc".to_string(), DType::F32, Mutability::Mutable)
+            .unwrap();
+
+        let inner_body = AstNode::Assign {
+            var: "acc".to_string(),
+            value: Box::new(AstNode::Add(
+                Box::new(var("acc")),
+                Box::new(load(
+                    var("input"),
+                    AstNode::Add(
+                        Box::new(AstNode::Mul(Box::new(var("i")), Box::new(var("M")))),
+                        Box::new(var("j")),
+                    ),
+                    DType::F32,
+                )),
+            )),
+        };
+
+        let inner_loop = AstNode::Range {
+            var: "j".to_string(),
+            start: Box::new(const_int(0)),
+            step: Box::new(const_int(1)),
+            stop: Box::new(var("M")),
+            body: Box::new(inner_body),
+        };
+
+        let body = AstNode::Block {
+            statements: vec![
+                AstNode::Assign {
+                    var: "acc".to_string(),
+                    value: Box::new(AstNode::Const(crate::ast::Literal::F32(0.0))),
+                },
+                inner_loop,
+                store(var("output"), var("i"), var("acc")),
+            ],
+            scope: Box::new(scope),
+        };
+
+        let range = AstNode::Range {
+            var: "i".to_string(),
+            start: Box::new(const_int(0)),
+            step: Box::new(const_int(1)),
+            stop: Box::new(var("N")),
+            body: Box::new(body),
+        };
+
+        assert!(is_range_parallelizable(&range));
     }
 }

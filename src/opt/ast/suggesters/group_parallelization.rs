@@ -10,7 +10,8 @@ use crate::ast::{AstNode, Literal, Scope, helper::lt};
 use crate::opt::ast::{AstSuggestResult, AstSuggester};
 
 use super::parallelization_common::{
-    const_int, group_id_param, substitute_var, thread_id_param, var,
+    collect_free_variables, const_int, group_id_param, infer_params_from_placeholders,
+    substitute_var, thread_id_param, var,
 };
 
 /// グループ単位の並列化を提案するSuggester
@@ -244,7 +245,21 @@ impl GroupParallelizationSuggester {
             group_id_param(group_id_name, 0),
             thread_id_param(local_id_name, 0),
         ];
-        kernel_params.extend(params.iter().cloned());
+
+        // 元のFunctionのparamsが空の場合、本体から自由変数を収集してパラメータを生成
+        if params.is_empty() {
+            // kernel_bodyから自由変数を収集
+            let free_vars = collect_free_variables(&kernel_body);
+            // group_id, local_idは除外（既にパラメータとして追加済み）
+            let free_vars: Vec<_> = free_vars
+                .into_iter()
+                .filter(|v| v != group_id_name && v != local_id_name)
+                .collect();
+            let inferred_params = infer_params_from_placeholders(&free_vars);
+            kernel_params.extend(inferred_params);
+        } else {
+            kernel_params.extend(params.iter().cloned());
+        }
 
         Some(AstNode::Kernel {
             name: name.clone(),

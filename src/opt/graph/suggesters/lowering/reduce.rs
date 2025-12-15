@@ -9,10 +9,11 @@ use crate::graph::{CumulativeOp, GraphNode, GraphOp, ReduceOp};
 use std::collections::HashMap;
 
 use super::helpers::{
-    build_contiguous_offset, build_contiguous_offset_excluding_axes,
-    build_contiguous_offset_excluding_axis, build_cumulative_accumulator, build_reduce_accumulator,
-    graph_dtype_to_ast, wrap_with_loops_excluding_axes_with_scope,
-    wrap_with_loops_excluding_axis_with_scope,
+    build_contiguous_offset_excluding_axes_with_shape,
+    build_contiguous_offset_excluding_axis_with_shape, build_contiguous_offset_with_shape,
+    build_cumulative_accumulator, build_reduce_accumulator, graph_dtype_to_ast, shape_dim_to_ast,
+    wrap_with_loops_excluding_axes_with_scope_and_shape,
+    wrap_with_loops_excluding_axis_with_scope_and_shape,
 };
 
 /// Reduce演算の関数を生成
@@ -28,11 +29,12 @@ pub fn build_reduce_function(
 
     let (init_value, accumulate_fn) = build_reduce_accumulator(op, &node.dtype);
 
-    let input_offset = build_contiguous_offset(ndim);
+    let input_offset = build_contiguous_offset_with_shape(ndim, Some(input_shape));
     let load_dtype = graph_dtype_to_ast(&input.dtype);
     let value_expr = load(var(ph::input(0)), input_offset, load_dtype);
 
-    let output_offset = build_contiguous_offset_excluding_axis(ndim, axis);
+    let output_offset =
+        build_contiguous_offset_excluding_axis_with_shape(ndim, axis, Some(input_shape));
 
     let acc_var = "acc";
     let acc_update = assign(acc_var, accumulate_fn(var(acc_var), value_expr));
@@ -41,7 +43,7 @@ pub fn build_reduce_function(
         ph::ridx(axis),
         const_int(0),
         const_int(1),
-        var(ph::shape(axis)),
+        shape_dim_to_ast(Some(input_shape), axis),
         block(vec![acc_update], Scope::new()),
     );
 
@@ -55,7 +57,13 @@ pub fn build_reduce_function(
     let store_stmt = store(var(ph::OUTPUT), output_offset, var(acc_var));
 
     let inner_body = vec![acc_init, reduce_loop, store_stmt];
-    let body = wrap_with_loops_excluding_axis_with_scope(ndim, axis, inner_body, scope);
+    let body = wrap_with_loops_excluding_axis_with_scope_and_shape(
+        ndim,
+        axis,
+        inner_body,
+        scope,
+        Some(input_shape),
+    );
 
     Some(function(
         Some(name.to_string()),
@@ -73,11 +81,12 @@ pub fn build_cumulative_function(
     name: &str,
 ) -> Option<AstNode> {
     let input = node.src.first()?;
-    let ndim = input.view.shape().len();
+    let input_shape = input.view.shape();
+    let ndim = input_shape.len();
 
     let (init_value, accumulate_fn) = build_cumulative_accumulator(op, &node.dtype);
 
-    let offset = build_contiguous_offset(ndim);
+    let offset = build_contiguous_offset_with_shape(ndim, Some(input_shape));
     let load_dtype = graph_dtype_to_ast(&input.dtype);
     let value_expr = load(var(ph::input(0)), offset.clone(), load_dtype);
 
@@ -89,7 +98,7 @@ pub fn build_cumulative_function(
         ph::ridx(axis),
         const_int(0),
         const_int(1),
-        var(ph::shape(axis)),
+        shape_dim_to_ast(Some(input_shape), axis),
         block(vec![acc_update, store_stmt], Scope::new()),
     );
 
@@ -102,7 +111,13 @@ pub fn build_cumulative_function(
     let acc_init = assign(acc_var, init_value);
 
     let inner_body = vec![acc_init, cum_loop];
-    let body = wrap_with_loops_excluding_axis_with_scope(ndim, axis, inner_body, scope);
+    let body = wrap_with_loops_excluding_axis_with_scope_and_shape(
+        ndim,
+        axis,
+        inner_body,
+        scope,
+        Some(input_shape),
+    );
 
     Some(function(
         Some(name.to_string()),
@@ -130,7 +145,7 @@ pub fn build_fused_elementwise_reduce_function(
     let (init_value, accumulate_fn) = build_reduce_accumulator(reduce_op, &node.dtype);
 
     // 入力のロードを含む式を構築
-    let input_offset = build_contiguous_offset(ndim);
+    let input_offset = build_contiguous_offset_with_shape(ndim, Some(input_shape));
     let load_dtype = graph_dtype_to_ast(&input.dtype);
 
     let mut mappings = HashMap::new();
@@ -150,7 +165,8 @@ pub fn build_fused_elementwise_reduce_function(
     }
     let value_expr = expr.substitute(&mappings);
 
-    let output_offset = build_contiguous_offset_excluding_axes(ndim, axes);
+    let output_offset =
+        build_contiguous_offset_excluding_axes_with_shape(ndim, axes, Some(input_shape));
 
     let acc_var = "acc";
     let acc_update = assign(acc_var, accumulate_fn(var(acc_var), value_expr));
@@ -162,7 +178,7 @@ pub fn build_fused_elementwise_reduce_function(
             ph::ridx(axis),
             const_int(0),
             const_int(1),
-            var(ph::shape(axis)),
+            shape_dim_to_ast(Some(input_shape), axis),
             reduce_loops,
         );
     }
@@ -177,7 +193,13 @@ pub fn build_fused_elementwise_reduce_function(
     let store_stmt = store(var(ph::OUTPUT), output_offset, var(acc_var));
 
     let inner_body = vec![acc_init, reduce_loops, store_stmt];
-    let body = wrap_with_loops_excluding_axes_with_scope(ndim, axes, inner_body, scope);
+    let body = wrap_with_loops_excluding_axes_with_scope_and_shape(
+        ndim,
+        axes,
+        inner_body,
+        scope,
+        Some(input_shape),
+    );
 
     Some(function(
         Some(name.to_string()),
@@ -196,11 +218,12 @@ pub fn build_fused_elementwise_cumulative_function(
     name: &str,
 ) -> Option<AstNode> {
     let input = node.src.first()?;
-    let ndim = input.view.shape().len();
+    let input_shape = input.view.shape();
+    let ndim = input_shape.len();
 
     let (init_value, accumulate_fn) = build_cumulative_accumulator(cum_op, &node.dtype);
 
-    let offset = build_contiguous_offset(ndim);
+    let offset = build_contiguous_offset_with_shape(ndim, Some(input_shape));
     let load_dtype = graph_dtype_to_ast(&input.dtype);
 
     let mut mappings = HashMap::new();
@@ -228,7 +251,7 @@ pub fn build_fused_elementwise_cumulative_function(
         ph::ridx(axis),
         const_int(0),
         const_int(1),
-        var(ph::shape(axis)),
+        shape_dim_to_ast(Some(input_shape), axis),
         block(vec![acc_update, store_stmt], Scope::new()),
     );
 
@@ -241,7 +264,13 @@ pub fn build_fused_elementwise_cumulative_function(
     let acc_init = assign(acc_var, init_value);
 
     let inner_body = vec![acc_init, cum_loop];
-    let body = wrap_with_loops_excluding_axis_with_scope(ndim, axis, inner_body, scope);
+    let body = wrap_with_loops_excluding_axis_with_scope_and_shape(
+        ndim,
+        axis,
+        inner_body,
+        scope,
+        Some(input_shape),
+    );
 
     Some(function(
         Some(name.to_string()),
