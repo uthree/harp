@@ -9,12 +9,13 @@
 //! ホスト側でスレッド数・グループ数を正確に設定するため、
 //! 並列化時に境界チェック（if文）は生成しない。
 
-use crate::ast::{AstNode, Literal, Scope, VarDecl, VarKind};
+use crate::ast::{AstNode, Literal, Scope};
 use crate::opt::ast::{AstSuggestResult, AstSuggester};
 
 use super::parallelization_common::{
-    collect_free_variables, const_int, infer_params_from_placeholders, is_range_parallelizable,
-    is_range_thread_parallelizable, local_id_param, substitute_var, thread_id_param, var,
+    collect_free_variables, const_int, find_next_available_axis, infer_params_from_placeholders,
+    is_range_parallelizable, is_range_thread_parallelizable, local_id_param, substitute_var,
+    thread_id_param, var,
 };
 
 /// デフォルトのスレッドグループサイズ
@@ -36,33 +37,6 @@ fn compute_total_iterations(start: &AstNode, stop: &AstNode) -> AstNode {
                 Box::new(start.clone()),
             )),
         )
-    }
-}
-
-/// 次に使用可能な軸を決定
-fn find_next_axis(params: &[VarDecl], kind_filter: fn(&VarKind) -> Option<usize>) -> usize {
-    let mut max_axis = 0;
-    for param in params {
-        if let Some(axis) = kind_filter(&param.kind) {
-            max_axis = max_axis.max(axis + 1);
-        }
-    }
-    max_axis.min(2) // 最大3次元
-}
-
-/// ThreadIdの軸を取得
-fn thread_id_axis(kind: &VarKind) -> Option<usize> {
-    match kind {
-        VarKind::ThreadId(axis) => Some(*axis),
-        _ => None,
-    }
-}
-
-/// LocalIdの軸を取得
-fn local_id_axis(kind: &VarKind) -> Option<usize> {
-    match kind {
-        VarKind::LocalId(axis) => Some(*axis),
-        _ => None,
     }
 }
 
@@ -286,7 +260,8 @@ impl GlobalParallelizationSuggester {
             return None;
         };
 
-        let next_axis = find_next_axis(params, thread_id_axis);
+        // すべてのID種類（ThreadId, LocalId, GroupId）が使用している軸を避ける
+        let next_axis = find_next_available_axis(params)?;
         let gid_name = format!("gidx{}", next_axis);
 
         log::debug!(
@@ -576,7 +551,8 @@ impl LocalParallelizationSuggester {
             return None;
         };
 
-        let next_axis = find_next_axis(params, local_id_axis);
+        // すべてのID種類（ThreadId, LocalId, GroupId）が使用している軸を避ける
+        let next_axis = find_next_available_axis(params)?;
         let lid_name = format!("lidx{}", next_axis);
 
         log::debug!(
@@ -982,7 +958,9 @@ mod tests {
                 .filter(|p| matches!(p.kind, VarKind::LocalId(_)))
                 .collect();
             assert_eq!(local_id_params.len(), 1);
-            assert_eq!(local_id_params[0].name, "lidx0");
+            // make_kernel_with_loopは既にThreadId(0)を持つため、LocalIdはaxis=1を使用
+            assert_eq!(local_id_params[0].name, "lidx1");
+            assert!(matches!(local_id_params[0].kind, VarKind::LocalId(1)));
             // 境界チェックなしでStoreノードになる
             assert!(matches!(body.as_ref(), AstNode::Store { .. }));
         }
@@ -1048,5 +1026,193 @@ mod tests {
         let local_suggester = LocalParallelizationSuggester::new();
         let local_results = local_suggester.suggest(&func);
         assert!(local_results.is_empty());
+    }
+
+    /// 既にLocalIdで並列化されたKernelに対してGlobalParallelizationを適用したとき、
+    /// 軸が衝突しないことを確認するテスト（バグ修正確認）
+    #[test]
+    fn test_global_does_not_overwrite_local_axis() {
+        // LocalId(0)を持つKernelを作成
+        let body = store(
+            var("output"),
+            var("j"),
+            load(var("input"), var("j"), DType::F32),
+        );
+
+        let inner_loop = AstNode::Range {
+            var: "j".to_string(),
+            start: Box::new(const_int(0)),
+            step: Box::new(const_int(1)),
+            stop: Box::new(const_int(64)),
+            body: Box::new(body),
+        };
+
+        let one = const_int(1);
+        let kernel = AstNode::Kernel {
+            name: Some("local_kernel".to_string()),
+            params: vec![
+                VarDecl {
+                    name: "lidx0".to_string(),
+                    dtype: DType::Int,
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::LocalId(0), // LocalId(0)がaxis=0を使用
+                },
+                VarDecl {
+                    name: "input".to_string(),
+                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::Normal,
+                },
+                VarDecl {
+                    name: "output".to_string(),
+                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    mutability: Mutability::Mutable,
+                    kind: VarKind::Normal,
+                },
+            ],
+            return_type: DType::Tuple(vec![]),
+            body: Box::new(inner_loop),
+            default_grid_size: [
+                Box::new(one.clone()),
+                Box::new(one.clone()),
+                Box::new(one.clone()),
+            ],
+            default_thread_group_size: [
+                Box::new(const_int(256)), // LocalId(0)用にサイズ設定済み
+                Box::new(one.clone()),
+                Box::new(one),
+            ],
+        };
+
+        let suggester = GlobalParallelizationSuggester::new();
+        let results = suggester.suggest(&kernel);
+
+        assert_eq!(results.len(), 1);
+
+        if let AstNode::Kernel {
+            params,
+            default_thread_group_size,
+            ..
+        } = &results[0].ast
+        {
+            // LocalId(0)が保持されていることを確認
+            let local_id_params: Vec<_> = params
+                .iter()
+                .filter(|p| matches!(p.kind, VarKind::LocalId(_)))
+                .collect();
+            assert_eq!(local_id_params.len(), 1);
+            assert!(matches!(local_id_params[0].kind, VarKind::LocalId(0)));
+
+            // ThreadIdはaxis=1を使用すべき（axis=0はLocalIdが使用中）
+            let thread_id_params: Vec<_> = params
+                .iter()
+                .filter(|p| matches!(p.kind, VarKind::ThreadId(_)))
+                .collect();
+            assert_eq!(thread_id_params.len(), 1);
+            assert_eq!(thread_id_params[0].name, "gidx1");
+            assert!(matches!(thread_id_params[0].kind, VarKind::ThreadId(1)));
+
+            // thread_group_size[0]がLocalId用の256のまま保持されていることを確認
+            assert!(matches!(
+                default_thread_group_size[0].as_ref(),
+                AstNode::Const(Literal::Int(256))
+            ));
+        } else {
+            panic!("Expected Kernel");
+        }
+    }
+
+    /// 既にThreadIdで並列化されたKernelに対してLocalParallelizationを適用したとき、
+    /// 軸が衝突しないことを確認するテスト
+    #[test]
+    fn test_local_does_not_overwrite_thread_axis() {
+        // ThreadId(0)を持つKernelを作成
+        let body = store(
+            var("output"),
+            var("j"),
+            load(var("input"), var("j"), DType::F32),
+        );
+
+        let inner_loop = AstNode::Range {
+            var: "j".to_string(),
+            start: Box::new(const_int(0)),
+            step: Box::new(const_int(1)),
+            stop: Box::new(const_int(64)),
+            body: Box::new(body),
+        };
+
+        let one = const_int(1);
+        let kernel = AstNode::Kernel {
+            name: Some("thread_kernel".to_string()),
+            params: vec![
+                VarDecl {
+                    name: "gidx0".to_string(),
+                    dtype: DType::Int,
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::ThreadId(0), // ThreadId(0)がaxis=0を使用
+                },
+                VarDecl {
+                    name: "input".to_string(),
+                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::Normal,
+                },
+                VarDecl {
+                    name: "output".to_string(),
+                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    mutability: Mutability::Mutable,
+                    kind: VarKind::Normal,
+                },
+            ],
+            return_type: DType::Tuple(vec![]),
+            body: Box::new(inner_loop),
+            default_grid_size: [
+                Box::new(const_int(1024)), // ThreadId(0)用にサイズ設定済み
+                Box::new(one.clone()),
+                Box::new(one.clone()),
+            ],
+            default_thread_group_size: [
+                Box::new(const_int(256)),
+                Box::new(one.clone()),
+                Box::new(one),
+            ],
+        };
+
+        let suggester = LocalParallelizationSuggester::new();
+        let results = suggester.suggest(&kernel);
+
+        assert_eq!(results.len(), 1);
+
+        if let AstNode::Kernel {
+            params,
+            default_grid_size,
+            ..
+        } = &results[0].ast
+        {
+            // ThreadId(0)が保持されていることを確認
+            let thread_id_params: Vec<_> = params
+                .iter()
+                .filter(|p| matches!(p.kind, VarKind::ThreadId(_)))
+                .collect();
+            assert_eq!(thread_id_params.len(), 1);
+            assert!(matches!(thread_id_params[0].kind, VarKind::ThreadId(0)));
+
+            // LocalIdはaxis=1を使用すべき（axis=0はThreadIdが使用中）
+            let local_id_params: Vec<_> = params
+                .iter()
+                .filter(|p| matches!(p.kind, VarKind::LocalId(_)))
+                .collect();
+            assert_eq!(local_id_params.len(), 1);
+            assert_eq!(local_id_params[0].name, "lidx1");
+            assert!(matches!(local_id_params[0].kind, VarKind::LocalId(1)));
+
+            // grid_size[0]がThreadId用の1024のまま保持されていることを確認
+            assert!(matches!(
+                default_grid_size[0].as_ref(),
+                AstNode::Const(Literal::Int(1024))
+            ));
+        } else {
+            panic!("Expected Kernel");
+        }
     }
 }

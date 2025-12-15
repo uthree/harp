@@ -514,6 +514,36 @@ pub fn const_int(value: isize) -> AstNode {
     AstNode::Const(Literal::Int(value))
 }
 
+/// すべてのID系パラメータ（ThreadId, LocalId, GroupId）が使用している軸を収集
+///
+/// 各軸（0, 1, 2）について使用済みかどうかを返します。
+pub fn collect_used_axes(params: &[VarDecl]) -> [bool; 3] {
+    let mut used = [false; 3];
+    for param in params {
+        let axis = match &param.kind {
+            VarKind::ThreadId(axis) | VarKind::LocalId(axis) | VarKind::GroupId(axis) => {
+                Some(*axis)
+            }
+            _ => None,
+        };
+        if let Some(axis) = axis
+            && axis < 3
+        {
+            used[axis] = true;
+        }
+    }
+    used
+}
+
+/// 次に使用可能な空き軸を取得
+///
+/// ThreadId, LocalId, GroupIdのいずれかが使用している軸を避けて、
+/// 最初の空き軸を返します。すべての軸が使用済みの場合はNoneを返します。
+pub fn find_next_available_axis(params: &[VarDecl]) -> Option<usize> {
+    let used = collect_used_axes(params);
+    used.iter().position(|&is_used| !is_used)
+}
+
 /// 変数参照を生成
 pub fn var(name: impl Into<String>) -> AstNode {
     AstNode::Var(name.into())
