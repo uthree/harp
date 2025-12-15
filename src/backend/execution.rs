@@ -1,15 +1,15 @@
-//! Native Pipeline implementation
+//! GPU Pipeline implementation
 //!
-//! This module provides a Pipeline implementation that uses the native GPU backends
-//! (OpenCL via `ocl` crate, Metal via `metal` crate) without libloading.
+//! This module provides a Pipeline implementation that uses the GPU backends
+//! (OpenCL via `ocl` crate, Metal via `metal` crate).
 
 use crate::ast::program::KernelCall;
 use crate::ast::{AstNode, DType, Literal};
 use crate::backend::KernelSignature;
 use crate::backend::c_like::CLikeRenderer;
-use crate::backend::native::{
-    CompiledNativeProgram, IntermediateBufferSpec, KernelCallInfo, KernelConfig, NativeBuffer,
-    NativeCompiler, NativeContext, NativeKernel,
+use crate::backend::sequence::{CompiledProgram, IntermediateBufferSpec, KernelCallInfo};
+use crate::backend::traits::{
+    KernelConfig, NativeBuffer, NativeCompiler, NativeContext, NativeKernel,
 };
 use crate::graph::Graph;
 use crate::graph::shape::Expr;
@@ -27,18 +27,18 @@ use std::marker::PhantomData;
 /// Trait for renderers that can generate kernel-only source code
 ///
 /// This trait extends CLikeRenderer to provide a method that generates
-/// only the kernel source code (without host code), suitable for native GPU APIs.
+/// only the kernel source code (without host code), suitable for GPU APIs.
 pub trait KernelSourceRenderer: CLikeRenderer {
     /// Render only the kernel source code (without host code)
     ///
     /// Returns the kernel function source that can be passed directly to
-    /// native GPU APIs (OpenCL, Metal).
+    /// GPU APIs (OpenCL, Metal).
     fn render_kernel_source(&mut self, program: &AstNode) -> String;
 }
 
-/// Native Pipeline configuration
+/// Pipeline configuration
 #[derive(Debug, Clone)]
-pub struct NativePipelineConfig {
+pub struct PipelineConfig {
     /// Beam width for graph optimization
     pub graph_beam_width: usize,
     /// Beam width for AST optimization
@@ -51,7 +51,7 @@ pub struct NativePipelineConfig {
     pub collect_history: bool,
 }
 
-impl Default for NativePipelineConfig {
+impl Default for PipelineConfig {
     fn default() -> Self {
         Self {
             graph_beam_width: 4,
@@ -63,25 +63,25 @@ impl Default for NativePipelineConfig {
     }
 }
 
-/// Optimization histories for native pipeline
+/// Optimization histories for pipeline
 #[derive(Debug, Clone, Default)]
-pub struct NativeOptimizationHistories {
+pub struct OptimizationHistories {
     /// Graph optimization history
     pub graph: Option<GraphOptimizationHistory>,
     /// AST optimization history
     pub ast: Option<AstOptimizationHistory>,
 }
 
-/// Native Pipeline for GPU execution without libloading
+/// GPU Pipeline for kernel compilation and execution
 ///
-/// This pipeline uses native GPU APIs (via `ocl` or `metal` crates) directly
+/// This pipeline uses GPU APIs (via `ocl` or `metal` crates) directly
 /// from Rust, eliminating the need for C host code generation and libloading.
 ///
 /// # Type Parameters
 /// * `R` - Renderer type (must implement KernelSourceRenderer)
 /// * `Ctx` - GPU context type
 /// * `Comp` - GPU compiler type
-pub struct NativePipeline<R, Ctx, Comp>
+pub struct Pipeline<R, Ctx, Comp>
 where
     R: KernelSourceRenderer + Clone,
     Ctx: NativeContext,
@@ -90,14 +90,14 @@ where
     renderer: R,
     compiler: Comp,
     context: Ctx,
-    config: NativePipelineConfig,
+    config: PipelineConfig,
     /// Optimization histories
-    pub histories: NativeOptimizationHistories,
+    pub histories: OptimizationHistories,
     /// Compiled kernel cache
     kernel_cache: HashMap<String, Comp::Kernel>,
 }
 
-impl<R, Ctx, Comp, Buf> NativePipeline<R, Ctx, Comp>
+impl<R, Ctx, Comp, Buf> Pipeline<R, Ctx, Comp>
 where
     R: KernelSourceRenderer + Clone,
     Ctx: NativeContext,
@@ -105,14 +105,14 @@ where
     Comp: NativeCompiler<Context = Ctx>,
     Comp::Kernel: NativeKernel<Buffer = Buf> + Clone,
 {
-    /// Create a new native pipeline
+    /// Create a new pipeline
     pub fn new(renderer: R, compiler: Comp, context: Ctx) -> Self {
         Self {
             renderer,
             compiler,
             context,
-            config: NativePipelineConfig::default(),
-            histories: NativeOptimizationHistories::default(),
+            config: PipelineConfig::default(),
+            histories: OptimizationHistories::default(),
             kernel_cache: HashMap::new(),
         }
     }
@@ -123,15 +123,15 @@ where
     }
 
     /// Get mutable reference to the config
-    pub fn config_mut(&mut self) -> &mut NativePipelineConfig {
+    pub fn config_mut(&mut self) -> &mut PipelineConfig {
         &mut self.config
     }
 
-    /// Compile a graph to a native kernel
+    /// Compile a graph to a kernel
     pub fn compile_graph(
         &mut self,
         graph: Graph,
-    ) -> Result<CompiledNativeKernel<Comp::Kernel, Buf>, Comp::Error> {
+    ) -> Result<CompiledKernel<Comp::Kernel, Buf>, Comp::Error> {
         // Create signature from original graph
         let signature = crate::lowerer::create_signature(&graph);
 
@@ -155,7 +155,7 @@ where
             .compiler
             .compile(&self.context, &kernel_source, kernel_config)?;
 
-        Ok(CompiledNativeKernel {
+        Ok(CompiledKernel {
             kernel,
             signature,
             _buffer: PhantomData,
@@ -188,14 +188,14 @@ where
         Buf::allocate(&self.context, shape, dtype)
     }
 
-    /// Compile a graph to a native program (supports multiple kernels)
+    /// Compile a graph to a program (supports multiple kernels)
     ///
     /// This method compiles a graph that may produce multiple kernels after optimization.
-    /// The returned `CompiledNativeProgram` can execute all kernels in the correct order.
+    /// The returned `CompiledProgram` can execute all kernels in the correct order.
     pub fn compile_program(
         &mut self,
         graph: Graph,
-    ) -> Result<CompiledNativeProgram<Comp::Kernel, Buf>, Comp::Error> {
+    ) -> Result<CompiledProgram<Comp::Kernel, Buf>, Comp::Error> {
         // Create signature from original graph
         let signature = crate::lowerer::create_signature(&graph);
 
@@ -223,7 +223,7 @@ where
                 self.compile_graph_internal(optimized_program, signature.clone(), kernel_source)?;
             // Use default entry point name
             let entry_name = "main".to_string();
-            return Ok(CompiledNativeProgram::new(
+            return Ok(CompiledProgram::new(
                 HashMap::from([(entry_name, compiled.kernel)]),
                 vec![],
                 vec![],
@@ -310,7 +310,7 @@ where
         let intermediate_specs =
             self.analyze_intermediate_buffers(&call_infos, &signature, &kernel_names);
 
-        Ok(CompiledNativeProgram::new(
+        Ok(CompiledProgram::new(
             kernels,
             call_infos,
             intermediate_specs,
@@ -325,13 +325,13 @@ where
         program: AstNode,
         signature: KernelSignature,
         kernel_source: String,
-    ) -> Result<CompiledNativeKernel<Comp::Kernel, Buf>, Comp::Error> {
+    ) -> Result<CompiledKernel<Comp::Kernel, Buf>, Comp::Error> {
         let kernel_config = self.extract_kernel_config(&program, &signature);
         let kernel = self
             .compiler
             .compile(&self.context, &kernel_source, kernel_config)?;
 
-        Ok(CompiledNativeKernel {
+        Ok(CompiledKernel {
             kernel,
             signature,
             _buffer: PhantomData,
@@ -627,8 +627,8 @@ fn evaluate_expr(expr: &Expr, shape_vars: &HashMap<String, isize>) -> isize {
     }
 }
 
-/// A compiled native kernel with its signature
-pub struct CompiledNativeKernel<K, B>
+/// A compiled kernel with its signature
+pub struct CompiledKernel<K, B>
 where
     K: NativeKernel<Buffer = B>,
     B: NativeBuffer,
@@ -640,7 +640,7 @@ where
     _buffer: PhantomData<B>,
 }
 
-impl<K, B> CompiledNativeKernel<K, B>
+impl<K, B> CompiledKernel<K, B>
 where
     K: NativeKernel<Buffer = B>,
     B: NativeBuffer,
@@ -656,6 +656,12 @@ where
     }
 }
 
+// Type aliases for backward compatibility
+pub type NativePipeline<R, Ctx, Comp> = Pipeline<R, Ctx, Comp>;
+pub type NativePipelineConfig = PipelineConfig;
+pub type NativeOptimizationHistories = OptimizationHistories;
+pub type CompiledNativeKernel<K, B> = CompiledKernel<K, B>;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -663,8 +669,8 @@ mod tests {
 
     // Basic test to ensure the module compiles
     #[test]
-    fn test_native_pipeline_config_default() {
-        let config = NativePipelineConfig::default();
+    fn test_pipeline_config_default() {
+        let config = PipelineConfig::default();
         assert_eq!(config.graph_beam_width, 4);
         assert_eq!(config.ast_beam_width, 4);
     }

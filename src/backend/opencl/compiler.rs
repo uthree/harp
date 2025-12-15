@@ -2,7 +2,7 @@
 
 use super::context::{OpenCLNativeContext, OpenCLNativeError};
 use super::kernel::OpenCLNativeKernel;
-use crate::backend::native::{KernelConfig, NativeCompiler};
+use crate::backend::traits::{KernelConfig, NativeCompiler};
 use ocl::Program;
 use std::sync::Arc;
 

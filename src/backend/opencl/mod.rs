@@ -1,11 +1,31 @@
 //! OpenCL backend
 //!
-//! This module provides OpenCL kernel source rendering.
-//! The actual GPU execution is handled by the native backend (`native::opencl`).
+//! This module provides OpenCL kernel source rendering
+//! and native GPU execution using the `ocl` crate.
 
 pub mod renderer;
 
+// Native execution components (requires native-opencl feature)
+#[cfg(feature = "native-opencl")]
+mod buffer;
+#[cfg(feature = "native-opencl")]
+mod compiler;
+#[cfg(feature = "native-opencl")]
+mod context;
+#[cfg(feature = "native-opencl")]
+mod kernel;
+
 pub use renderer::OpenCLRenderer;
+
+// Re-export native execution types when feature is enabled
+#[cfg(feature = "native-opencl")]
+pub use buffer::OpenCLNativeBuffer;
+#[cfg(feature = "native-opencl")]
+pub use compiler::OpenCLNativeCompiler;
+#[cfg(feature = "native-opencl")]
+pub use context::{OpenCLNativeContext, OpenCLNativeError};
+#[cfg(feature = "native-opencl")]
+pub use kernel::OpenCLNativeKernel;
 
 // OptimizationLevelはc_likeモジュールからre-export
 pub use crate::backend::c_like::OptimizationLevel;

@@ -1,11 +1,31 @@
 //! Metal backend
 //!
-//! This module provides Metal Shading Language kernel source rendering.
-//! The actual GPU execution is handled by the native backend (`native::metal`).
+//! This module provides Metal Shading Language kernel source rendering
+//! and native GPU execution using the `metal` crate.
 
 pub mod renderer;
 
+// Native execution components (requires native-metal feature and macOS)
+#[cfg(all(feature = "native-metal", target_os = "macos"))]
+mod buffer;
+#[cfg(all(feature = "native-metal", target_os = "macos"))]
+mod compiler;
+#[cfg(all(feature = "native-metal", target_os = "macos"))]
+mod context;
+#[cfg(all(feature = "native-metal", target_os = "macos"))]
+mod kernel;
+
 pub use renderer::MetalRenderer;
+
+// Re-export native execution types when feature is enabled
+#[cfg(all(feature = "native-metal", target_os = "macos"))]
+pub use buffer::MetalNativeBuffer;
+#[cfg(all(feature = "native-metal", target_os = "macos"))]
+pub use compiler::MetalNativeCompiler;
+#[cfg(all(feature = "native-metal", target_os = "macos"))]
+pub use context::{MetalNativeContext, MetalNativeError};
+#[cfg(all(feature = "native-metal", target_os = "macos"))]
+pub use kernel::MetalNativeKernel;
 
 // OptimizationLevelはc_likeモジュールからre-export
 pub use crate::backend::c_like::OptimizationLevel;

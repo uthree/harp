@@ -2,7 +2,7 @@
 
 use super::context::{OpenCLNativeContext, OpenCLNativeError};
 use crate::ast::DType;
-use crate::backend::native::NativeBuffer;
+use crate::backend::traits::NativeBuffer;
 use ocl::{Buffer as OclBuffer, Queue, flags};
 use std::sync::Arc;
 

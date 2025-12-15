@@ -2,7 +2,7 @@
 
 use super::buffer::MetalNativeBuffer;
 use super::context::MetalNativeError;
-use crate::backend::native::{KernelConfig, NativeKernel};
+use crate::backend::traits::{KernelConfig, NativeKernel};
 use metal::{CommandQueue, ComputePipelineState, MTLSize};
 use std::sync::Arc;
 

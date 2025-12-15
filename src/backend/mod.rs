@@ -6,20 +6,19 @@
 //!
 //! The backend is organized into:
 //! - **Renderers**: Convert AST to kernel source code (OpenCL, Metal)
-//! - **Native backends**: Execute kernels using GPU APIs (via `ocl` and `metal` crates)
-//! - **Pipeline**: End-to-end compilation from Graph to executable kernel
+//! - **Traits**: Common interfaces for GPU execution (NativeContext, NativeBuffer, etc.)
+//! - **Execution**: Pipeline for end-to-end compilation from Graph to executable kernel
 //!
 //! ## Usage
 //!
 //! ```ignore
-//! use harp::backend::native::{NativePipeline, NativeContext, NativeCompiler};
-//! use harp::backend::native::opencl::{OpenCLNativeContext, OpenCLNativeCompiler};
-//! use harp::backend::opencl::OpenCLRenderer;
+//! use harp::backend::{Pipeline, NativeContext, NativeCompiler};
+//! use harp::backend::opencl::{OpenCLNativeContext, OpenCLNativeCompiler, OpenCLRenderer};
 //!
 //! let context = OpenCLNativeContext::new()?;
 //! let renderer = OpenCLRenderer::new();
 //! let compiler = OpenCLNativeCompiler::new();
-//! let mut pipeline = NativePipeline::new(renderer, compiler, context);
+//! let mut pipeline = Pipeline::new(renderer, compiler, context);
 //!
 //! let kernel = pipeline.compile_graph(graph)?;
 //! ```
@@ -28,18 +27,31 @@ use std::collections::HashMap;
 
 pub mod c_like;
 pub mod metal;
-pub mod native;
 pub mod opencl;
 pub mod pipeline;
+
+// Core traits and execution modules
+pub mod execution;
+pub mod sequence;
+pub mod traits;
 
 // Re-export commonly used types
 pub use metal::{MetalCode, MetalRenderer};
 pub use opencl::{OpenCLCode, OpenCLRenderer};
 
-// Re-export native backend types
-pub use native::{
-    CompiledNativeKernel, KernelConfig, KernelSourceRenderer, NativeBuffer, NativeCompiler,
-    NativeContext, NativeKernel, NativeOptimizationHistories, NativePipeline, NativePipelineConfig,
+// Re-export core traits
+pub use traits::{KernelConfig, NativeBuffer, NativeCompiler, NativeContext, NativeKernel};
+
+// Re-export execution types
+pub use execution::{
+    CompiledKernel, CompiledNativeKernel, KernelSourceRenderer, NativeOptimizationHistories,
+    NativePipeline, NativePipelineConfig, OptimizationHistories, Pipeline, PipelineConfig,
+};
+
+// Re-export sequence types
+pub use sequence::{
+    CompiledNativeProgram, CompiledProgram, IntermediateBufferSpec, KernelCallInfo,
+    ProgramExecutionError,
 };
 
 // Re-export pipeline utilities
@@ -48,6 +60,46 @@ pub use pipeline::{
     create_multi_phase_optimizer, create_multi_phase_optimizer_with_selector,
     optimize_graph_greedy, optimize_graph_multi_phase,
 };
+
+// Backward compatibility: re-export native module types
+// These are deprecated - use the direct imports from backend::* instead
+pub mod native {
+    //! Backward compatibility module
+    //!
+    //! This module is deprecated. Use the types from `backend::*` directly:
+    //! - `backend::NativeContext` instead of `backend::native::NativeContext`
+    //! - `backend::metal::MetalNativeContext` instead of `backend::native::metal::MetalNativeContext`
+    //! - etc.
+
+    pub use crate::backend::execution::{
+        CompiledKernel as CompiledNativeKernel, KernelSourceRenderer, NativeOptimizationHistories,
+        NativePipeline, NativePipelineConfig, OptimizationHistories, Pipeline,
+    };
+    pub use crate::backend::sequence::{
+        CompiledNativeProgram, CompiledProgram, IntermediateBufferSpec, KernelCallInfo,
+        ProgramExecutionError,
+    };
+    pub use crate::backend::traits::{
+        KernelConfig, NativeBuffer, NativeCompiler, NativeContext, NativeKernel,
+    };
+
+    // Re-export backend-specific types for backward compatibility
+    #[cfg(feature = "native-opencl")]
+    pub mod opencl {
+        pub use crate::backend::opencl::{
+            OpenCLNativeBuffer, OpenCLNativeCompiler, OpenCLNativeContext, OpenCLNativeError,
+            OpenCLNativeKernel,
+        };
+    }
+
+    #[cfg(all(feature = "native-metal", target_os = "macos"))]
+    pub mod metal {
+        pub use crate::backend::metal::{
+            MetalNativeBuffer, MetalNativeCompiler, MetalNativeContext, MetalNativeError,
+            MetalNativeKernel,
+        };
+    }
+}
 
 /// Renderer trait for converting AST to source code
 pub trait Renderer {

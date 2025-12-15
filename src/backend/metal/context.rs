@@ -1,6 +1,6 @@
 //! Metal native context
 
-use crate::backend::native::NativeContext;
+use crate::backend::traits::NativeContext;
 use metal::{CommandQueue, Device};
 use std::sync::Arc;
 

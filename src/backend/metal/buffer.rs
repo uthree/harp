@@ -2,7 +2,7 @@
 
 use super::context::{MetalNativeContext, MetalNativeError};
 use crate::ast::DType;
-use crate::backend::native::NativeBuffer;
+use crate::backend::traits::NativeBuffer;
 use metal::{Buffer as MtlBuffer, MTLResourceOptions};
 use std::sync::Arc;
 
@@ -130,7 +130,7 @@ unsafe impl Sync for MetalNativeBuffer {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::native::NativeContext;
+    use crate::backend::traits::NativeContext;
 
     #[test]
     fn test_metal_buffer_allocation() {

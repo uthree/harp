@@ -1,6 +1,6 @@
 //! OpenCL native context
 
-use crate::backend::native::NativeContext;
+use crate::backend::traits::NativeContext;
 use ocl::{Context, Device, Platform, Queue};
 use std::sync::Arc;
 
@@ -138,8 +138,8 @@ unsafe impl Sync for OpenCLNativeContext {}
 mod tests {
     use super::*;
     use crate::ast::DType;
-    use crate::backend::native::opencl::{OpenCLNativeBuffer, OpenCLNativeCompiler};
-    use crate::backend::native::{KernelConfig, NativeBuffer, NativeCompiler, NativeContext};
+    use crate::backend::opencl::{OpenCLNativeBuffer, OpenCLNativeCompiler};
+    use crate::backend::traits::{KernelConfig, NativeBuffer, NativeCompiler, NativeContext};
 
     #[test]
     fn test_opencl_is_available() {
@@ -201,8 +201,7 @@ mod tests {
 
         // Create a buffer and write data
         let data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
-        let mut buffer =
-            OpenCLNativeBuffer::from_vec(&context, vec![4], DType::F32, &data).unwrap();
+        let buffer = OpenCLNativeBuffer::from_vec(&context, vec![4], DType::F32, &data).unwrap();
 
         // Read data back
         let result: Vec<f32> = buffer.read_vec().unwrap();
@@ -244,7 +243,7 @@ mod tests {
             OpenCLNativeBuffer::from_vec(&context, vec![4], DType::F32, &a_data).unwrap();
         let b_buffer =
             OpenCLNativeBuffer::from_vec(&context, vec![4], DType::F32, &b_data).unwrap();
-        let mut c_buffer = OpenCLNativeBuffer::allocate(&context, vec![4], DType::F32).unwrap();
+        let c_buffer = OpenCLNativeBuffer::allocate(&context, vec![4], DType::F32).unwrap();
 
         // Execute kernel
         let kernel = kernel.unwrap();

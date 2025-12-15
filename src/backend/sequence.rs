@@ -4,8 +4,8 @@
 //! in sequence, supporting subgraph-based compilation where a single Graph
 //! may be split into multiple kernels.
 
-use super::{NativeBuffer, NativeKernel};
 use crate::ast::DType;
+use crate::backend::traits::{NativeBuffer, NativeKernel};
 use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
@@ -123,11 +123,11 @@ impl IntermediateBufferSpec {
     }
 }
 
-/// A compiled native program consisting of multiple kernels
+/// A compiled program consisting of multiple kernels
 ///
 /// This represents a complete computation that may require multiple kernel
 /// invocations in sequence. Intermediate buffers are automatically managed.
-pub struct CompiledNativeProgram<K, B>
+pub struct CompiledProgram<K, B>
 where
     K: NativeKernel<Buffer = B>,
     B: NativeBuffer,
@@ -145,7 +145,7 @@ where
     _buffer: PhantomData<B>,
 }
 
-impl<K, B> CompiledNativeProgram<K, B>
+impl<K, B> CompiledProgram<K, B>
 where
     K: NativeKernel<Buffer = B>,
     B: NativeBuffer,
@@ -284,6 +284,9 @@ where
         self.execute(context, &input_map, &mut output_map)
     }
 }
+
+// Type alias for backward compatibility
+pub type CompiledNativeProgram<K, B> = CompiledProgram<K, B>;
 
 #[cfg(test)]
 mod tests {

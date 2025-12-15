@@ -8,25 +8,23 @@
 
 ### コアモジュール
 - `mod.rs`: Renderer trait、KernelSignature、BufferSignatureの定義
+- `traits.rs`: GPU実行用の共通trait定義（NativeContext, NativeBuffer, NativeKernel, NativeCompiler, KernelConfig）
+- `sequence.rs`: 複数カーネル順次実行（CompiledProgram, KernelCallInfo, IntermediateBufferSpec）
+- `execution.rs`: Pipeline、CompiledKernel、AST式評価関数
 - `pipeline.rs`: 多フェーズ最適化パイプライン（`create_multi_phase_optimizer`, `MultiPhaseConfig`）
 - `c_like.rs`: C言語系構文の共通レンダリングロジック（CLikeRenderer trait）、OptimizationLevel
 
-### レンダラー実装
+### バックエンド実装
 - `metal/`: Metalバックエンド（macOS GPU）
-  - `mod.rs`, `renderer.rs`
+  - `mod.rs`: モジュール定義とre-export
+  - `renderer.rs`: Metal Shading Languageレンダラー
   - `MetalCode`: Metal Shading Languageソースコードを表す型
+  - `buffer.rs`, `context.rs`, `kernel.rs`, `compiler.rs`: GPU実行用の実装（native-metal feature）
 - `opencl/`: OpenCLバックエンド（クロスプラットフォームGPU）
-  - `mod.rs`, `renderer.rs`
+  - `mod.rs`: モジュール定義とre-export
+  - `renderer.rs`: OpenCL Cレンダラー
   - `OpenCLCode`: OpenCL Cコードを表す型
-
-### Nativeバックエンド
-- `native/`: Rustから直接GPU APIを呼び出すバックエンド
-  - `mod.rs`: モジュール定義とtrait再エクスポート
-  - `traits.rs`: 共通trait定義（NativeContext, NativeBuffer, NativeKernel, NativeCompiler, KernelConfig）
-  - `pipeline.rs`: NativePipeline、CompiledNativeKernel、AST式評価関数
-  - `sequence.rs`: 複数カーネル順次実行（CompiledNativeProgram, KernelCallInfo, IntermediateBufferSpec）
-  - `opencl/`: OpenCLネイティブ実装（`ocl`クレート使用）
-  - `metal/`: Metalネイティブ実装（`metal`クレート使用）
+  - `buffer.rs`, `context.rs`, `kernel.rs`, `compiler.rs`: GPU実行用の実装（native-opencl feature）
 
 ## 主要コンポーネント
 
@@ -92,9 +90,9 @@ let optimizer = create_multi_phase_optimizer(config);
 let (optimized_graph, history) = optimizer.optimize_with_history(graph);
 ```
 
-## Nativeバックエンド
+## GPU実行バックエンド
 
-`native`モジュールは、Rustから直接GPU APIを呼び出すバックエンド実装を提供します。
+各バックエンド（Metal、OpenCL）はレンダラーとGPU実行の両方の機能を提供します。
 
 ### 特徴
 
@@ -124,8 +122,8 @@ GPUメモリバッファ。ホスト⇔デバイス間のデータ転送を提�
 ### 使用例（OpenCL）
 
 ```rust
-use harp::backend::native::{KernelConfig, NativeBuffer, NativeCompiler, NativeContext};
-use harp::backend::native::opencl::{OpenCLNativeBuffer, OpenCLNativeCompiler, OpenCLNativeContext};
+use harp::backend::traits::{KernelConfig, NativeBuffer, NativeCompiler, NativeContext};
+use harp::backend::opencl::{OpenCLNativeBuffer, OpenCLNativeCompiler, OpenCLNativeContext};
 
 // コンテキスト作成
 let context = OpenCLNativeContext::new()?;
@@ -155,9 +153,9 @@ kernel.execute_with_buffers(&[&a, &b, &c])?;
 let result: Vec<f32> = c.read_vec()?;  // [6.0, 8.0, 10.0, 12.0]
 ```
 
-### NativePipeline
+### Pipeline
 
-`NativePipeline`は、Graphから直接GPUカーネルを生成・実行するためのパイプラインです。
+`Pipeline`は、Graphから直接GPUカーネルを生成・実行するためのパイプラインです。
 
 **処理フロー:**
 1. Graphの最適化（多フェーズグラフ最適化）
@@ -169,16 +167,15 @@ let result: Vec<f32> = c.read_vec()?;  // [6.0, 8.0, 10.0, 12.0]
 
 **使用例:**
 ```rust
-use harp::backend::native::{NativePipeline, NativeBuffer, NativeCompiler, NativeContext};
-use harp::backend::native::opencl::{OpenCLNativeBuffer, OpenCLNativeCompiler, OpenCLNativeContext};
-use harp::backend::opencl::OpenCLRenderer;
+use harp::backend::{Pipeline, NativeBuffer, NativeCompiler, NativeContext};
+use harp::backend::opencl::{OpenCLNativeBuffer, OpenCLNativeCompiler, OpenCLNativeContext, OpenCLRenderer};
 use harp::graph::{Graph, DType};
 
 // パイプライン作成
 let context = OpenCLNativeContext::new()?;
 let renderer = OpenCLRenderer::new();
 let compiler = OpenCLNativeCompiler::new();
-let mut pipeline = NativePipeline::new(renderer, compiler, context);
+let mut pipeline = Pipeline::new(renderer, compiler, context);
 
 // グラフ作成
 let mut graph = Graph::new();
@@ -219,12 +216,12 @@ let result: Vec<f32> = output.read_vec()?;
 カーネル実行時のスレッド数（grid size）とグループサイズ（local/threadgroup size）は以下のフローで決定されます：
 
 1. **Lowering段階**: `AstNode::Kernel`ノードの`default_grid_size`と`default_thread_group_size`に設定
-2. **NativePipeline**: AST Kernelから`KernelConfig`に情報を伝播
+2. **Pipeline**: AST Kernelから`KernelConfig`に情報を伝播
 3. **実行時**: `KernelConfig`の値を使用してディスパッチ
 
 **情報フロー:**
 ```
-Graph → Lowerer → AST(Kernel) → NativePipeline → KernelConfig → execute
+Graph → Lowerer → AST(Kernel) → Pipeline → KernelConfig → execute
                    ↓                  ↓
             default_grid_size    evaluate_dispatch_size()
             default_thread_group_size   ↓
@@ -235,13 +232,13 @@ Graph → Lowerer → AST(Kernel) → NativePipeline → KernelConfig → execut
 
 ### 複数カーネルの順次実行
 
-最適化の結果、1つのGraphが複数のカーネルに分割されることがあります。`CompiledNativeProgram`はこれらのカーネルを正しい順序で実行する機能を提供します。
+最適化の結果、1つのGraphが複数のカーネルに分割されることがあります。`CompiledProgram`はこれらのカーネルを正しい順序で実行する機能を提供します。
 
 **主要型:**
 
 - `KernelCallInfo`: カーネル呼び出し情報（名前、入出力バッファ、グリッドサイズ）
 - `IntermediateBufferSpec`: 中間バッファ仕様（カーネル間で受け渡されるバッファ）
-- `CompiledNativeProgram`: コンパイル済みプログラム（複数カーネル対応）
+- `CompiledProgram`: コンパイル済みプログラム（複数カーネル対応）
 
 **使用例:**
 ```rust
@@ -275,8 +272,8 @@ kernel.execute_with_sizes(
 
 ### Feature flags
 
-- `native-opencl`: OpenCLネイティブバックエンドを有効化
-- `native-metal`: Metalネイティブバックエンドを有効化（macOSのみ）
+- `native-opencl`: OpenCL GPU実行機能を有効化
+- `native-metal`: Metal GPU実行機能を有効化（macOSのみ）
 
 ## CLI (harpc)
 

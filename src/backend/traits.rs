@@ -1,4 +1,4 @@
-//! Native backend trait definitions
+//! GPU backend trait definitions
 //!
 //! These traits define the interface for GPU backends that directly use
 //! native GPU APIs (OpenCL, Metal) through Rust bindings.
@@ -27,7 +27,7 @@ pub trait NativeContext: Sized + Send + Sync {
     fn device_name(&self) -> String;
 }
 
-/// Native GPU buffer
+/// GPU buffer
 ///
 /// Represents a memory buffer on the GPU device.
 pub trait NativeBuffer: Sized + Clone + Send + Sync {
@@ -138,7 +138,7 @@ impl KernelConfig {
     }
 }
 
-/// Native GPU kernel
+/// GPU kernel
 ///
 /// Represents a compiled compute kernel that can be executed on the GPU.
 pub trait NativeKernel: Sized + Clone + Send + Sync {
@@ -183,7 +183,7 @@ pub trait NativeKernel: Sized + Clone + Send + Sync {
     }
 }
 
-/// Native GPU compiler
+/// GPU kernel compiler
 ///
 /// Compiles kernel source code into executable kernels.
 pub trait NativeCompiler: Sized {

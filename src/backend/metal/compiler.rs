@@ -2,7 +2,7 @@
 
 use super::context::{MetalNativeContext, MetalNativeError};
 use super::kernel::MetalNativeKernel;
-use crate::backend::native::{KernelConfig, NativeCompiler};
+use crate::backend::traits::{KernelConfig, NativeCompiler};
 use metal::CompileOptions;
 use std::sync::Arc;
 
@@ -108,8 +108,8 @@ impl MetalNativeCompiler {
 mod tests {
     use super::*;
     use crate::ast::DType;
-    use crate::backend::native::metal::MetalNativeBuffer;
-    use crate::backend::native::{NativeBuffer, NativeContext};
+    use crate::backend::metal::MetalNativeBuffer;
+    use crate::backend::traits::{NativeBuffer, NativeContext};
 
     #[test]
     fn test_metal_simple_kernel() {
