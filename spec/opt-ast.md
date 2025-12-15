@@ -50,7 +50,8 @@ LocalId（get_local_id）を使用してワークグループ内並列化を行�
 
 ### 対応する変換
 
-両Suggesterとも以下の2種類の変換に対応：
+両Suggesterとも以下の2種類の変換に対応。
+ホスト側でスレッド数・グループ数を正確に設定するため、**境界チェック（if文）は生成しない**。
 
 **Function → Kernel変換:**
 
@@ -58,24 +59,24 @@ LocalId（get_local_id）を使用してワークグループ内並列化を行�
 // 変換前
 Function { body: Range { var: "i", start: 0, stop: N, body: ... } }
 
-// 変換後（Global: ThreadId使用）
-Kernel { params: [gidx0: ThreadId(0), ...], grid_size: [ceil_div(N, 256) * 256, 1, 1], ... }
+// 変換後（Global: ThreadId使用、grid_size=N）
+Kernel { params: [gidx0: ThreadId(0), ...], grid_size: [N, 1, 1], body: ... }
 
-// 変換後（Local: LocalId使用）
-Kernel { params: [lidx0: LocalId(0), ...], thread_group_size: [N, 1, 1], ... }
+// 変換後（Local: LocalId使用、thread_group_size=N）
+Kernel { params: [lidx0: LocalId(0), ...], thread_group_size: [N, 1, 1], body: ... }
 ```
 
 **Kernel内ループ追加並列化:**
 
 ```
 // 変換前
-Kernel { params: [gidx0: ThreadId(0)], body: Range { var: "j", ... } }
+Kernel { params: [gidx0: ThreadId(0)], body: Range { var: "j", stop: M, ... } }
 
-// 変換後（Global: 追加ThreadId）
-Kernel { params: [gidx0: ThreadId(0), gidx1: ThreadId(1)], ... }
+// 変換後（Global: 追加ThreadId、grid_size[1]=M）
+Kernel { params: [gidx0: ThreadId(0), gidx1: ThreadId(1)], grid_size: [.., M, ..], body: ... }
 
-// 変換後（Local: 追加LocalId）
-Kernel { params: [gidx0: ThreadId(0), lidx0: LocalId(0)], ... }
+// 変換後（Local: 追加LocalId、thread_group_size[1]=M）
+Kernel { params: [gidx0: ThreadId(0), lidx0: LocalId(0)], thread_group_size: [.., M, ..], body: ... }
 ```
 
 **並列化可否の判定:**

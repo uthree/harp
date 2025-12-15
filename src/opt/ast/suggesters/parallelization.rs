@@ -5,16 +5,17 @@
 //! - LocalParallelizationSuggester: LocalId使用、動的分岐チェックなし
 //!
 //! 両方のSuggesterがFunction→KernelとKernel内ループ並列化の両方に対応。
+//!
+//! ホスト側でスレッド数・グループ数を正確に設定するため、
+//! 並列化時に境界チェック（if文）は生成しない。
 
 use crate::ast::{AstNode, Literal, Scope, VarDecl, VarKind};
 use crate::opt::ast::{AstSuggestResult, AstSuggester};
 
 use super::parallelization_common::{
-    ceil_div, collect_free_variables, const_int, infer_params_from_placeholders,
-    is_range_parallelizable, is_range_thread_parallelizable, local_id_param, substitute_var,
-    thread_id_param, var,
+    collect_free_variables, const_int, infer_params_from_placeholders, is_range_parallelizable,
+    is_range_thread_parallelizable, local_id_param, substitute_var, thread_id_param, var,
 };
-use crate::ast::helper::lt;
 
 /// デフォルトのスレッドグループサイズ
 const DEFAULT_THREAD_GROUP_SIZE: usize = 256;
@@ -22,22 +23,6 @@ const DEFAULT_THREAD_GROUP_SIZE: usize = 256;
 // ============================================================================
 // 共通ヘルパー関数
 // ============================================================================
-
-/// 境界チェック式を生成
-fn build_bound_check(var_name: &str, start: &AstNode, stop: &AstNode) -> AstNode {
-    if matches!(start, AstNode::Const(Literal::Int(0))) {
-        lt(var(var_name), stop.clone())
-    } else {
-        let range_size = AstNode::Add(
-            Box::new(stop.clone()),
-            Box::new(AstNode::Mul(
-                Box::new(const_int(-1)),
-                Box::new(start.clone()),
-            )),
-        );
-        lt(var(var_name), range_size)
-    }
-}
 
 /// ループの総イテレーション数を計算
 fn compute_total_iterations(start: &AstNode, stop: &AstNode) -> AstNode {
@@ -81,19 +66,11 @@ fn local_id_axis(kind: &VarKind) -> Option<usize> {
     }
 }
 
-/// grid_sizeを更新
-fn update_grid_size(
-    current: &[Box<AstNode>; 3],
-    axis: usize,
-    size: &AstNode,
-    thread_group_size: usize,
-) -> [Box<AstNode>; 3] {
+/// grid_sizeを更新（正確なイテレーション数を設定）
+fn update_grid_size(current: &[Box<AstNode>; 3], axis: usize, size: &AstNode) -> [Box<AstNode>; 3] {
     let mut new_sizes = current.clone();
     if axis < 3 {
-        let tg_size = const_int(thread_group_size as isize);
-        let num_groups = ceil_div(size.clone(), tg_size.clone());
-        let grid_size = AstNode::Mul(Box::new(num_groups), Box::new(tg_size));
-        *new_sizes[axis] = grid_size;
+        *new_sizes[axis] = size.clone();
     }
     new_sizes
 }
@@ -236,31 +213,23 @@ impl GlobalParallelizationSuggester {
         );
 
         let gid_name = "gidx0";
+        // ループ変数をスレッドIDに置換（境界チェックなし）
         let new_body = substitute_var(loop_body, loop_var, &var(gid_name));
-        let bound_check = build_bound_check(gid_name, start, stop);
-
-        let guarded_body = AstNode::If {
-            condition: Box::new(bound_check),
-            then_body: Box::new(new_body),
-            else_body: None,
-        };
 
         let kernel_body = if let AstNode::Block { scope, .. } = loop_body.as_ref() {
             AstNode::Block {
-                statements: vec![guarded_body],
+                statements: vec![new_body],
                 scope: scope.clone(),
             }
         } else {
             AstNode::Block {
-                statements: vec![guarded_body],
+                statements: vec![new_body],
                 scope: Box::new(Scope::new()),
             }
         };
 
+        // grid_sizeは正確なイテレーション数を設定
         let total_iterations = compute_total_iterations(start, stop);
-        let tg_size = const_int(self.thread_group_size as isize);
-        let num_groups = ceil_div(total_iterations, tg_size.clone());
-        let grid_size_x = AstNode::Mul(Box::new(num_groups), Box::new(tg_size.clone()));
 
         let mut kernel_params = vec![thread_id_param(gid_name, 0)];
 
@@ -279,7 +248,7 @@ impl GlobalParallelizationSuggester {
             return_type: return_type.clone(),
             body: Box::new(kernel_body),
             default_grid_size: [
-                Box::new(grid_size_x),
+                Box::new(total_iterations),
                 Box::new(const_int(1)),
                 Box::new(const_int(1)),
             ],
@@ -328,27 +297,16 @@ impl GlobalParallelizationSuggester {
             gid_name
         );
 
+        // ループ変数をスレッドIDに置換（境界チェックなし）
         let new_body = substitute_var(loop_body, loop_var, &var(&gid_name));
-        let bound_check = build_bound_check(&gid_name, start, stop);
-
-        let guarded_body = AstNode::If {
-            condition: Box::new(bound_check),
-            then_body: Box::new(new_body),
-            else_body: None,
-        };
-
-        let new_kernel_body = replace_range_with(body, range_node, guarded_body);
+        let new_kernel_body = replace_range_with(body, range_node, new_body);
 
         let mut new_params = params.clone();
         new_params.push(thread_id_param(&gid_name, next_axis));
 
+        // grid_sizeは正確なイテレーション数を設定
         let total_iterations = compute_total_iterations(start, stop);
-        let new_grid_size = update_grid_size(
-            default_grid_size,
-            next_axis,
-            &total_iterations,
-            self.thread_group_size,
-        );
+        let new_grid_size = update_grid_size(default_grid_size, next_axis, &total_iterations);
 
         // ThreadIdの場合、thread_group_sizeも更新
         let new_thread_group_size = update_thread_group_size(
@@ -546,27 +504,22 @@ impl LocalParallelizationSuggester {
         );
 
         let lid_name = "lidx0";
+        // ループ変数をローカルIDに置換（境界チェックなし）
         let new_body = substitute_var(loop_body, loop_var, &var(lid_name));
-        let bound_check = build_bound_check(lid_name, start, stop);
-
-        let guarded_body = AstNode::If {
-            condition: Box::new(bound_check),
-            then_body: Box::new(new_body),
-            else_body: None,
-        };
 
         let kernel_body = if let AstNode::Block { scope, .. } = loop_body.as_ref() {
             AstNode::Block {
-                statements: vec![guarded_body],
+                statements: vec![new_body],
                 scope: scope.clone(),
             }
         } else {
             AstNode::Block {
-                statements: vec![guarded_body],
+                statements: vec![new_body],
                 scope: Box::new(Scope::new()),
             }
         };
 
+        // thread_group_sizeは正確なイテレーション数を設定
         let total_iterations = compute_total_iterations(start, stop);
 
         let mut kernel_params = vec![local_id_param(lid_name, 0)];
@@ -615,7 +568,6 @@ impl LocalParallelizationSuggester {
 
         let AstNode::Range {
             var: loop_var,
-            start,
             stop,
             body: loop_body,
             ..
@@ -635,20 +587,14 @@ impl LocalParallelizationSuggester {
             lid_name
         );
 
+        // ループ変数をローカルIDに置換（境界チェックなし）
         let new_body = substitute_var(loop_body, loop_var, &var(&lid_name));
-        let bound_check = build_bound_check(&lid_name, start, stop);
-
-        let guarded_body = AstNode::If {
-            condition: Box::new(bound_check),
-            then_body: Box::new(new_body),
-            else_body: None,
-        };
-
-        let new_kernel_body = replace_range_with(body, range_node, guarded_body);
+        let new_kernel_body = replace_range_with(body, range_node, new_body);
 
         let mut new_params = params.clone();
         new_params.push(local_id_param(&lid_name, next_axis));
 
+        // thread_group_sizeは正確なイテレーション数を設定
         let new_thread_group_size =
             update_thread_group_size(default_thread_group_size, next_axis, stop.as_ref());
 
@@ -1037,7 +983,8 @@ mod tests {
                 .collect();
             assert_eq!(local_id_params.len(), 1);
             assert_eq!(local_id_params[0].name, "lidx0");
-            assert!(matches!(body.as_ref(), AstNode::If { .. }));
+            // 境界チェックなしでStoreノードになる
+            assert!(matches!(body.as_ref(), AstNode::Store { .. }));
         }
     }
 
