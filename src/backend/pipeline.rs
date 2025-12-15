@@ -9,10 +9,10 @@ use crate::opt::ast::{
 };
 use crate::opt::graph::{
     BeamSearchGraphOptimizer, BufferAbsorptionSuggester, ChainedGraphOptimizer, CompositeSuggester,
-    ContiguousInsertionSuggester, FusionSuggester, GraphOptimizer, KernelMergeSuggester,
-    KernelPartitionSuggester, LoweringSuggester, ProgramRootAbsorptionSuggester,
-    ProgramRootBufferAbsorptionSuggester, SubgraphInliningSuggester, TilingSuggester,
-    ViewInsertionSuggester, ViewMergeSuggester,
+    ContiguousInsertionSuggester, FusionSuggester, GraphOptimizer, GreedyGraphOptimizer,
+    KernelMergeSuggester, KernelPartitionSuggester, LoweringSuggester,
+    ProgramRootAbsorptionSuggester, ProgramRootBufferAbsorptionSuggester,
+    SubgraphInliningSuggester, TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
 };
 
 // =============================================================================
@@ -369,14 +369,11 @@ pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOpt
     let subgraph_optimizer: Box<dyn GraphOptimizer> = match config.subgraph_mode {
         SubgraphMode::Inline => {
             // インライン展開: SubgraphInliningSuggesterを使用
+            // コスト増加に関わらず展開する必要があるためGreedyGraphOptimizerを使用
             let subgraph_inlining_suggester = create_subgraph_inlining_suggester();
             Box::new(
-                BeamSearchGraphOptimizer::new(subgraph_inlining_suggester)
-                    .with_beam_width(1) // 決定論的変換
+                GreedyGraphOptimizer::new(subgraph_inlining_suggester)
                     .with_max_steps(config.max_steps_per_phase)
-                    .with_progress(config.show_progress)
-                    .with_collect_logs(config.collect_logs)
-                    .with_early_termination_threshold(Some(5))
                     .with_name("SubgraphInlining"),
             )
         }
@@ -420,13 +417,12 @@ pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOpt
         .with_early_termination_threshold(Some(5)); // 早期終了
 
     // Phase 4: Lowering（Kernel変換のみ）
+    // すべてのノードをlowerする必要があるため、GreedyGraphOptimizerを使用
+    // BeamSearchはコストベースで選択するため、matmul等の高コストKernelが選択されない可能性がある
     let lowering_suggester = create_lowering_only_suggester();
-    let lowering_optimizer = BeamSearchGraphOptimizer::new(lowering_suggester)
-        .with_beam_width(config.beam_width)
+    let lowering_optimizer = GreedyGraphOptimizer::new(lowering_suggester)
         .with_max_steps(config.max_steps_per_phase)
-        .with_progress(config.show_progress)
-        .with_collect_logs(config.collect_logs)
-        .with_early_termination_threshold(config.early_termination_threshold);
+        .with_name("Lowering");
 
     // Phase 5: KernelPartition（1D Kernelを多次元グリッドに分割）
     let kernel_partition_suggester = create_kernel_partition_suggester();

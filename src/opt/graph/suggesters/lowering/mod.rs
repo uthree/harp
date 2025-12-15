@@ -259,7 +259,46 @@ impl LoweringSuggester {
             }
         }
 
+        // ソースがすべてlowered済み（Buffer, Kernel, View, Const）であることを確認
+        // これにより、依存関係の順序でloweringが行われる
+        for src in &node.src {
+            if !self.is_lowered_or_passthrough(src) {
+                log::trace!(
+                    "LoweringSuggester: skipping {:?} because source {:?} is not yet lowered",
+                    std::mem::discriminant(&node.op),
+                    std::mem::discriminant(&src.op)
+                );
+                return false;
+            }
+        }
+        log::debug!(
+            "LoweringSuggester: can_lower {:?} = true (all sources are lowered)",
+            std::mem::discriminant(&node.op)
+        );
+
         true
+    }
+
+    /// ノードがlowered済みまたはパススルー（Buffer, Kernel, View, Const）かをチェック
+    fn is_lowered_or_passthrough(&self, node: &GraphNode) -> bool {
+        match &node.op {
+            GraphOp::Buffer { .. }
+            | GraphOp::Const(_)
+            | GraphOp::ComplexConst { .. }
+            | GraphOp::Kernel { .. } => true,
+            GraphOp::View(_) => {
+                // Viewノードはすべてのソースがlowered済みの場合のみパススルー
+                let result = node.src.iter().all(|s| self.is_lowered_or_passthrough(s));
+                if !result {
+                    log::trace!(
+                        "LoweringSuggester: View is NOT passthrough, its source is {:?}",
+                        node.src.first().map(|s| std::mem::discriminant(&s.op))
+                    );
+                }
+                result
+            }
+            _ => false,
+        }
     }
 
     /// GraphOpをKernelノードに変換（戦略指定版）
@@ -613,12 +652,14 @@ impl LoweringSuggester {
         let mut node_map: HashMap<*const GraphNodeData, GraphNode> = HashMap::new();
         node_map.insert(old_node.as_ptr(), new_node);
 
-        let mut visited = HashSet::new();
+        // キャッシュをHashMapに変更（HashSetではなく）
+        // 再構築済みノードをキャッシュして、共有ノードの正しい参照を保持
+        let mut cache: HashMap<*const GraphNodeData, GraphNode> = HashMap::new();
 
         fn rebuild_node(
             node: &GraphNode,
             node_map: &HashMap<*const GraphNodeData, GraphNode>,
-            visited: &mut HashSet<*const GraphNodeData>,
+            cache: &mut HashMap<*const GraphNodeData, GraphNode>,
         ) -> GraphNode {
             let ptr = node.as_ptr();
 
@@ -630,15 +671,15 @@ impl LoweringSuggester {
                 return new_node.clone();
             }
 
-            if visited.contains(&ptr) {
-                return node.clone();
+            // キャッシュをチェック（再構築済みノードを返す）
+            if let Some(cached) = cache.get(&ptr) {
+                return cached.clone();
             }
-            visited.insert(ptr);
 
             let new_src: Vec<GraphNode> = node
                 .src
                 .iter()
-                .map(|src| rebuild_node(src, node_map, visited))
+                .map(|src| rebuild_node(src, node_map, cache))
                 .collect();
 
             let src_changed = new_src
@@ -646,16 +687,20 @@ impl LoweringSuggester {
                 .zip(&node.src)
                 .any(|(a, b)| a.as_ptr() != b.as_ptr());
 
-            if !src_changed {
-                return node.clone();
-            }
+            let result = if !src_changed {
+                node.clone()
+            } else {
+                GraphNode::new(
+                    node.dtype.clone(),
+                    node.op.clone(),
+                    new_src,
+                    node.view.clone(),
+                )
+            };
 
-            GraphNode::new(
-                node.dtype.clone(),
-                node.op.clone(),
-                new_src,
-                node.view.clone(),
-            )
+            // 再構築結果をキャッシュ
+            cache.insert(ptr, result.clone());
+            result
         }
 
         let mut new_graph = Graph::new();
@@ -669,7 +714,7 @@ impl LoweringSuggester {
             let new_sink_src: Vec<GraphNode> = old_sink
                 .src
                 .iter()
-                .map(|src| rebuild_node(src, &node_map, &mut visited))
+                .map(|src| rebuild_node(src, &node_map, &mut cache))
                 .collect();
 
             if let GraphOp::ProgramRoot { ast, outputs } = &old_sink.op {
@@ -691,7 +736,7 @@ impl LoweringSuggester {
             outputs.sort_by_key(|(name, _)| name.as_str());
 
             for (name, output_node) in outputs {
-                let rebuilt = rebuild_node(output_node, &node_map, &mut visited);
+                let rebuilt = rebuild_node(output_node, &node_map, &mut cache);
                 new_graph.output(name, rebuilt);
             }
         }

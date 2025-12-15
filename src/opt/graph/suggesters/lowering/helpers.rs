@@ -4,7 +4,9 @@
 
 use crate::ast::{AstNode, DType as AstDType, Scope, helper::*};
 use crate::graph::ops::custom_placeholders as ph;
-use crate::graph::{CumulativeOp, DType as GraphDType, GraphNode, GraphOp, ReduceOp, View};
+use crate::graph::{
+    CumulativeOp, DType as GraphDType, GraphNode, GraphNodeData, GraphOp, ReduceOp, View,
+};
 use std::collections::HashSet;
 
 /// GraphのDTypeをAstのDTypeに変換
@@ -234,9 +236,10 @@ pub fn wrap_with_loops_excluding_axes_with_scope(
     block(vec![body], Scope::new())
 }
 
-/// srcノードからView経由でInputまで辿り、対応するBufferノードを収集する
+/// srcノードからView経由でInputまで辿り、対応するBufferノードとKernel依存を収集する
 ///
 /// View操作を経由してInputノードまで辿り、各Inputに対応するBufferノードを作成します。
+/// また、依存するKernelノードも収集して実行順序の依存関係を保持します。
 /// 重複するInputは1つのBufferにまとめられます。
 ///
 /// # 重要
@@ -247,43 +250,62 @@ pub fn wrap_with_loops_excluding_axes_with_scope(
 /// * `src_nodes` - 入力ソースノードのスライス
 ///
 /// # Returns
-/// 収集されたBufferノードのベクタ（重複排除済み）
+/// 収集されたBufferノードとKernelノードのベクタ（重複排除済み）
+/// 順序: [入力Bufferノード..., 依存Kernelノード...]
 pub fn collect_input_buffers(src_nodes: &[GraphNode]) -> Vec<GraphNode> {
     let mut input_names = Vec::new();
-    let mut seen = HashSet::new();
+    let mut kernel_deps: Vec<GraphNode> = Vec::new();
+    let mut seen_buffers = HashSet::new();
+    let mut seen_kernels: HashSet<*const GraphNodeData> = HashSet::new();
 
     for src in src_nodes {
         // 各srcノードのviewを"entry view"として保持
         // これがKernelが期待する入力形状
         let entry_view = src.view.clone();
-        collect_inputs_recursive(src, &mut input_names, &mut seen, &entry_view);
+        collect_inputs_recursive(
+            src,
+            &mut input_names,
+            &mut kernel_deps,
+            &mut seen_buffers,
+            &mut seen_kernels,
+            &entry_view,
+        );
     }
 
     // 収集したInputノード情報からBufferノードを作成
-    input_names
+    let mut result: Vec<GraphNode> = input_names
         .into_iter()
         .map(|(name, dtype, view)| GraphNode::new(dtype, GraphOp::Buffer { name }, vec![], view))
-        .collect()
+        .collect();
+
+    // 依存Kernelを追加（実行順序の依存関係を保持）
+    result.extend(kernel_deps);
+
+    result
 }
 
-/// 再帰的に入力Bufferノードを収集する
+/// 再帰的に入力Bufferノードと依存Kernelを収集する
 ///
 /// # Arguments
 /// * `node` - 現在探索中のノード
-/// * `inputs` - 収集された入力情報
-/// * `seen` - 重複排除用のセット
+/// * `inputs` - 収集された入力Buffer情報
+/// * `kernel_deps` - 収集された依存Kernelノード
+/// * `seen_buffers` - Buffer重複排除用のセット
+/// * `seen_kernels` - Kernel重複排除用のセット
 /// * `entry_view` - トレース開始点のview（Kernelが期待する入力形状）
 fn collect_inputs_recursive(
     node: &GraphNode,
     inputs: &mut Vec<(String, crate::graph::DType, View)>,
-    seen: &mut HashSet<String>,
+    kernel_deps: &mut Vec<GraphNode>,
+    seen_buffers: &mut HashSet<String>,
+    seen_kernels: &mut HashSet<*const GraphNodeData>,
     entry_view: &View,
 ) {
     match &node.op {
         GraphOp::Buffer { name } => {
             // 出力バッファー（output_で始まる）は除外
-            if !name.starts_with("output_") && !seen.contains(name) {
-                seen.insert(name.clone());
+            if !name.starts_with("output_") && !seen_buffers.contains(name) {
+                seen_buffers.insert(name.clone());
                 // entry_viewを使用（元のBufferのviewではなく、Kernelが期待する形状）
                 inputs.push((name.clone(), node.dtype.clone(), entry_view.clone()));
             }
@@ -291,17 +313,51 @@ fn collect_inputs_recursive(
         GraphOp::View(_) => {
             // Viewノードの場合、srcを辿る（entry_viewは変更しない）
             for src in &node.src {
-                collect_inputs_recursive(src, inputs, seen, entry_view);
+                collect_inputs_recursive(
+                    src,
+                    inputs,
+                    kernel_deps,
+                    seen_buffers,
+                    seen_kernels,
+                    entry_view,
+                );
             }
         }
         GraphOp::Const(_) => {
             // 定数は無視
         }
-        _ => {
-            // その他のノード（既にKernelに変換済みなど）もsrcを辿る
-            for src in &node.src {
-                collect_inputs_recursive(src, inputs, seen, entry_view);
+        GraphOp::Kernel { .. } => {
+            let ptr = node.as_ptr();
+
+            // 依存Kernelを記録（実行順序の依存関係を保持するため）
+            if !seen_kernels.contains(&ptr) {
+                seen_kernels.insert(ptr);
+                kernel_deps.push(node.clone());
             }
+
+            // Kernelノードの場合、その出力バッファを入力として使用する
+            // Kernelのsrcは [..., 出力バッファ] の形式
+            // 他のノードがKernelに依存する場合、Kernelの出力を読み取る必要がある
+            if let Some(output_buffer) = node.src.last()
+                && let GraphOp::Buffer { name } = &output_buffer.op
+                && !seen_buffers.contains(name)
+            {
+                seen_buffers.insert(name.clone());
+                // entry_viewを使用（Kernelの出力形状を入力として期待）
+                inputs.push((
+                    name.clone(),
+                    output_buffer.dtype.clone(),
+                    entry_view.clone(),
+                ));
+            }
+        }
+        _ => {
+            // まだlowerされていない計算ノード（FusedElementwiseReduce等）は
+            // ここに到達すべきではない - can_lower()で弾かれるべき
+            log::warn!(
+                "collect_input_buffers: unexpected node type {:?}, this node should have been lowered first",
+                std::mem::discriminant(&node.op)
+            );
         }
     }
 }

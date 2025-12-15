@@ -186,6 +186,25 @@ where
         for (name, node) in graph.outputs() {
             let op_type = format!("{:?}", node.op);
             debug!("Initial output '{}': {:?}", name, op_type);
+            // 依存グラフ全体をダンプ
+            fn dump_node(
+                node: &crate::graph::GraphNode,
+                prefix: &str,
+                visited: &mut std::collections::HashSet<*const crate::graph::GraphNodeData>,
+            ) {
+                let ptr = node.as_ptr();
+                if visited.contains(&ptr) {
+                    trace!("{}{:?} (already visited)", prefix, node.op);
+                    return;
+                }
+                visited.insert(ptr);
+                trace!("{}{:?} ({} srcs)", prefix, node.op, node.src.len());
+                for src in &node.src {
+                    dump_node(src, &format!("{}  ", prefix), visited);
+                }
+            }
+            let mut visited = std::collections::HashSet::new();
+            dump_node(&node, "  ", &mut visited);
         }
 
         let initial_logs = if self.collect_logs {
@@ -460,6 +479,135 @@ where
     fn optimize_with_history(&self, graph: Graph) -> (Graph, OptimizationHistory) {
         // BeamSearchGraphOptimizer固有のメソッドを呼び出す
         BeamSearchGraphOptimizer::optimize_with_history(self, graph)
+    }
+}
+
+/// コスト比較なしでサジェスチョンを適用する貪欲最適化器
+///
+/// サブグラフインライン化など、コストが増加しても適用すべき変換に使用します。
+/// 各ステップで最初のサジェスチョンを常に適用し、サジェスチョンがなくなるまで繰り返します。
+///
+/// # Example
+///
+/// ```
+/// use harp::opt::graph::{GreedyGraphOptimizer, GraphOptimizer, SubgraphInliningSuggester};
+/// use harp::graph::{Graph, DType};
+///
+/// let suggester = SubgraphInliningSuggester::new();
+/// let optimizer = GreedyGraphOptimizer::new(suggester)
+///     .with_max_steps(1000);
+///
+/// let mut graph = Graph::new();
+/// let a = graph.input("a", DType::F32, vec![4]);
+/// graph.output("out", a);
+/// let optimized = optimizer.optimize(graph);
+/// ```
+pub struct GreedyGraphOptimizer<S>
+where
+    S: GraphSuggester,
+{
+    suggester: S,
+    max_steps: usize,
+    name: Option<String>,
+}
+
+impl<S> GreedyGraphOptimizer<S>
+where
+    S: GraphSuggester,
+{
+    /// 新しい貪欲最適化器を作成
+    pub fn new(suggester: S) -> Self {
+        Self {
+            suggester,
+            max_steps: 10000,
+            name: None,
+        }
+    }
+
+    /// 最大ステップ数を設定
+    pub fn with_max_steps(mut self, max_steps: usize) -> Self {
+        self.max_steps = max_steps;
+        self
+    }
+
+    /// 名前を設定
+    pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    /// 最適化を実行（履歴付き）
+    pub fn optimize_with_history(&self, mut graph: Graph) -> (Graph, OptimizationHistory) {
+        let mut history = OptimizationHistory::new();
+        let estimator = SimpleCostEstimator::new();
+
+        // 初期状態を記録
+        let initial_cost = estimator.estimate(&graph);
+        history.add_snapshot(OptimizationSnapshot::new(
+            0,
+            graph.clone(),
+            initial_cost,
+            "Initial graph".to_string(),
+        ));
+
+        info!(
+            "GreedyGraphOptimizer: starting (max_steps={})",
+            self.max_steps
+        );
+
+        for step in 0..self.max_steps {
+            // サジェスチョンを取得
+            let suggestions = self.suggester.suggest(&graph);
+
+            if suggestions.is_empty() {
+                info!("GreedyGraphOptimizer: no more suggestions at step {}", step);
+                break;
+            }
+
+            // 最初のサジェスチョンを適用（コスト比較なし）
+            let new_graph = suggestions.into_iter().next().unwrap();
+            let cost = estimator.estimate(&new_graph);
+
+            debug!(
+                "GreedyGraphOptimizer: step {} - applied suggestion (cost: {:.2e})",
+                step, cost
+            );
+
+            history.add_snapshot(OptimizationSnapshot::new(
+                step + 1,
+                new_graph.clone(),
+                cost,
+                format!("Step {} - greedy apply", step + 1),
+            ));
+
+            graph = new_graph;
+        }
+
+        let final_cost = estimator.estimate(&graph);
+        info!(
+            "GreedyGraphOptimizer: complete (final cost: {:.2e})",
+            final_cost
+        );
+
+        (graph, history)
+    }
+}
+
+impl<S> GraphOptimizer for GreedyGraphOptimizer<S>
+where
+    S: GraphSuggester,
+{
+    fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
+
+    fn optimize(&self, graph: Graph) -> Graph {
+        let (optimized, _) = self.optimize_with_history(graph);
+        optimized
+    }
+
+    fn optimize_with_history(&self, graph: Graph) -> (Graph, OptimizationHistory) {
+        GreedyGraphOptimizer::optimize_with_history(self, graph)
     }
 }
 

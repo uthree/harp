@@ -143,7 +143,9 @@ pub use estimator::{
     AstBasedCostEstimator, KernelMergeCostEstimator, LoweringCostEstimator, SimpleCostEstimator,
 };
 pub use history::{OptimizationHistory, OptimizationSnapshot};
-pub use optimizer::{BeamSearchGraphOptimizer, ChainedGraphOptimizer, NamedOptimizer};
+pub use optimizer::{
+    BeamSearchGraphOptimizer, ChainedGraphOptimizer, GreedyGraphOptimizer, NamedOptimizer,
+};
 pub use selector::{GraphCostSelector, GraphMultiStageSelector, GraphSelector};
 pub use suggesters::{
     BufferAbsorptionSuggester, CompositeSuggester, ContiguousInsertionSuggester, FusionSuggester,

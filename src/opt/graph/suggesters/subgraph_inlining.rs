@@ -83,6 +83,9 @@ impl SubgraphInliningSuggester {
             name,
             call_node.src.len()
         );
+        for (i, src) in call_node.src.iter().enumerate() {
+            log::trace!("inline_subgraph: src[{}] = {:?}", i, src.op);
+        }
 
         // サブグラフの入力と呼び出し時の引数をマッピング
         let input_metas = subgraph.input_metas();
@@ -113,8 +116,42 @@ impl SubgraphInliningSuggester {
         let mut output_nodes: HashMap<String, GraphNode> = HashMap::new();
 
         for (output_name, output_node) in subgraph.outputs() {
+            log::trace!(
+                "inline_subgraph: rebuilding output '{}' from {:?}",
+                output_name,
+                output_node.op
+            );
             let rebuilt =
                 self.rebuild_node_with_inputs(&output_node, &input_mapping, &mut node_cache);
+            log::trace!(
+                "inline_subgraph: rebuilt output '{}' is {:?}, has {} srcs",
+                output_name,
+                rebuilt.op,
+                rebuilt.src.len()
+            );
+            // デバッグ: 依存グラフを出力
+            fn count_nodes(
+                node: &GraphNode,
+                visited: &mut std::collections::HashSet<*const GraphNodeData>,
+            ) -> usize {
+                let ptr = node.as_ptr();
+                if visited.contains(&ptr) {
+                    return 0;
+                }
+                visited.insert(ptr);
+                let mut count = 1;
+                for src in &node.src {
+                    count += count_nodes(src, visited);
+                }
+                count
+            }
+            let mut visited = std::collections::HashSet::new();
+            let node_count = count_nodes(&rebuilt, &mut visited);
+            log::debug!(
+                "inline_subgraph: inlined '{}' has {} nodes in dependency graph",
+                output_name,
+                node_count
+            );
             output_nodes.insert(output_name.clone(), rebuilt);
         }
 
@@ -197,22 +234,33 @@ impl SubgraphInliningSuggester {
         // SubgraphOutputノードはSubgraphCallを参照しているので、
         // 対応する出力ノードで置き換える
 
-        let mut visited = HashSet::new();
+        let mut cache: HashMap<*const GraphNodeData, GraphNode> = HashMap::new();
 
         fn rebuild_node(
             node: &GraphNode,
             node_map: &HashMap<*const GraphNodeData, GraphNode>,
             inlined_outputs: &HashMap<String, GraphNode>,
             call_ptr: *const GraphNodeData,
-            visited: &mut HashSet<*const GraphNodeData>,
+            cache: &mut HashMap<*const GraphNodeData, GraphNode>,
         ) -> GraphNode {
             let ptr = node.as_ptr();
+
+            // キャッシュをチェック（再構築済みノードを返す）
+            if let Some(cached) = cache.get(&ptr) {
+                log::trace!("rebuild_node: cache hit for {:?}", node.op);
+                return cached.clone();
+            }
 
             if matches!(node.op, GraphOp::Buffer { .. }) {
                 return node.clone();
             }
 
             if let Some(new_node) = node_map.get(&ptr) {
+                log::trace!(
+                    "rebuild_node: replacing SubgraphCall with inlined output: {:?} -> {:?}",
+                    node.op,
+                    new_node.op
+                );
                 return new_node.clone();
             }
 
@@ -227,15 +275,10 @@ impl SubgraphInliningSuggester {
                 }
             }
 
-            if visited.contains(&ptr) {
-                return node.clone();
-            }
-            visited.insert(ptr);
-
             let new_src: Vec<GraphNode> = node
                 .src
                 .iter()
-                .map(|src| rebuild_node(src, node_map, inlined_outputs, call_ptr, visited))
+                .map(|src| rebuild_node(src, node_map, inlined_outputs, call_ptr, cache))
                 .collect();
 
             let src_changed = new_src
@@ -243,16 +286,25 @@ impl SubgraphInliningSuggester {
                 .zip(&node.src)
                 .any(|(a, b)| a.as_ptr() != b.as_ptr());
 
-            if !src_changed {
-                return node.clone();
-            }
+            let result = if !src_changed {
+                log::trace!("rebuild_node: no src change for {:?}", node.op);
+                node.clone()
+            } else {
+                log::trace!(
+                    "rebuild_node: src changed for {:?}, creating new node",
+                    node.op
+                );
+                GraphNode::new(
+                    node.dtype.clone(),
+                    node.op.clone(),
+                    new_src,
+                    node.view.clone(),
+                )
+            };
 
-            GraphNode::new(
-                node.dtype.clone(),
-                node.op.clone(),
-                new_src,
-                node.view.clone(),
-            )
+            // 再構築結果をキャッシュ
+            cache.insert(ptr, result.clone());
+            result
         }
 
         let mut new_graph = Graph::new();
@@ -274,7 +326,7 @@ impl SubgraphInliningSuggester {
             let new_root_src: Vec<GraphNode> = old_root
                 .src
                 .iter()
-                .map(|src| rebuild_node(src, &node_map, outputs_ref, call_ptr, &mut visited))
+                .map(|src| rebuild_node(src, &node_map, outputs_ref, call_ptr, &mut cache))
                 .collect();
 
             if let GraphOp::ProgramRoot { ast, outputs } = &old_root.op {
@@ -297,7 +349,7 @@ impl SubgraphInliningSuggester {
 
             for (name, output_node) in outputs {
                 let rebuilt =
-                    rebuild_node(output_node, &node_map, outputs_ref, call_ptr, &mut visited);
+                    rebuild_node(output_node, &node_map, outputs_ref, call_ptr, &mut cache);
                 new_graph.output(name, rebuilt);
             }
         }
