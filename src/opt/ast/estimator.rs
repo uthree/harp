@@ -65,12 +65,14 @@ pub struct SimpleCostEstimator {
     pub gpu_parallel_max_speedup_log: f32,
     /// メモリバンド幅制限が効き始めるスレッド数
     pub gpu_memory_bandwidth_threshold: f32,
-    /// ローカル並列化（LocalId）の効率係数（1.0 = 理想的、0.0 = 効果なし）
-    /// ワークグループ内の並列化は共有メモリを活用でき、同期オーバーヘッドが小さい
-    pub local_parallel_efficiency: f32,
-    /// グローバル並列化（GroupId/ThreadId）の効率係数（1.0 = 理想的、0.0 = 効果なし）
+    /// ローカル並列化（LocalId）のオーバーヘッド（対数スケール）
+    /// ワークグループ内の並列化は共有メモリを活用でき、オーバーヘッドが小さい
+    /// 値が小さいほど効率的（0 = 理想的）
+    pub local_parallel_overhead: f32,
+    /// グローバル並列化（GroupId/ThreadId）のオーバーヘッド（対数スケール）
     /// ワークグループ間の並列化はグローバルメモリアクセスが必要で、オーバーヘッドが大きい
-    pub global_parallel_efficiency: f32,
+    /// 値が大きいほど非効率
+    pub global_parallel_overhead: f32,
 }
 
 impl Default for SimpleCostEstimator {
@@ -85,14 +87,12 @@ impl Default for SimpleCostEstimator {
             branch_overhead: 5.0,
             comparison_cost: 1.0,
             loop_fusion_bonus: 50.0,
-            kernel_launch_overhead: 1000.0,
+            kernel_launch_overhead: 10.0,
             gpu_parallel_min_grid_size: 512.0,
             gpu_parallel_max_speedup_log: 4.5,
             gpu_memory_bandwidth_threshold: 10000.0,
-            // ローカル並列化（LocalId）は共有メモリを活用でき、同期が高速
-            local_parallel_efficiency: 0.95,
-            // グローバル並列化（GroupId/ThreadId）はオーバーヘッドが大きい
-            global_parallel_efficiency: 0.7,
+            local_parallel_overhead: 10.0,
+            global_parallel_overhead: 5000.0,
         }
     }
 }
@@ -181,15 +181,15 @@ impl SimpleCostEstimator {
         self
     }
 
-    /// ローカル並列化効率を設定
-    pub fn with_local_parallel_efficiency(mut self, efficiency: f32) -> Self {
-        self.local_parallel_efficiency = efficiency;
+    /// ローカル並列化オーバーヘッドを設定（対数スケール）
+    pub fn with_local_parallel_overhead(mut self, overhead: f32) -> Self {
+        self.local_parallel_overhead = overhead;
         self
     }
 
-    /// グローバル並列化効率を設定
-    pub fn with_global_parallel_efficiency(mut self, efficiency: f32) -> Self {
-        self.global_parallel_efficiency = efficiency;
+    /// グローバル並列化オーバーヘッドを設定（対数スケール）
+    pub fn with_global_parallel_overhead(mut self, overhead: f32) -> Self {
+        self.global_parallel_overhead = overhead;
         self
     }
 
@@ -608,62 +608,26 @@ impl AstCostEstimator for SimpleCostEstimator {
                     1024.0
                 };
 
-                // 並列化効率を決定
-                // LocalIdを使用している場合は高効率、GlobalIdのみの場合は低効率
-                let parallelization_efficiency = if has_local_id && has_global_parallel {
-                    // 両方使用: ローカルとグローバルの両方の効率を組み合わせ
-                    // ローカル並列化の寄与が大きい（相乗効果）
-                    (self.local_parallel_efficiency + self.global_parallel_efficiency) / 2.0 * 1.1 // 多次元並列化ボーナス
+                // 並列化オーバーヘッドを決定（対数スケール）
+                // LocalIdを使用している場合は低オーバーヘッド、GlobalIdのみの場合は高オーバーヘッド
+                let parallelization_overhead = if has_local_id && has_global_parallel {
+                    // 両方使用: 加算
+                    self.local_parallel_overhead * self.global_parallel_overhead
                 } else if has_local_id {
-                    // LocalIdのみ: 高効率（共有メモリ活用、同期が高速）
-                    self.local_parallel_efficiency
+                    // LocalIdのみ
+                    self.local_parallel_overhead
                 } else if has_global_parallel {
-                    // GlobalIdのみ: 低効率（グローバルメモリアクセス、オーバーヘッド大）
-                    self.global_parallel_efficiency
+                    // GlobalIdのみ
+                    self.global_parallel_overhead
                 } else {
-                    // 並列化なし
-                    0.5
+                    //並列化なし 定数倍
+                    1.0
                 };
 
-                // スレッド数に基づく実効スピードアップの計算
-                let parallel_bonus = if total_threads >= self.gpu_parallel_min_grid_size {
-                    // 理想的なスピードアップ = log(threads)
-                    let ideal_speedup = total_threads.ln();
-
-                    // メモリバンド幅による効率低下
-                    // スレッド数が増えるほどメモリアクセスがボトルネックになる
-                    // efficiency = 1 / (1 + log(threads / threshold)) for threads > threshold
-                    let memory_efficiency = if total_threads > self.gpu_memory_bandwidth_threshold {
-                        1.0 / (1.0 + (total_threads / self.gpu_memory_bandwidth_threshold).ln())
-                    } else {
-                        1.0
-                    };
-
-                    // 実効スピードアップ = 理想スピードアップ × メモリ効率 × 並列化効率
-                    // ただし上限あり
-                    (ideal_speedup * memory_efficiency * parallelization_efficiency)
-                        .min(self.gpu_parallel_max_speedup_log)
-                } else if total_threads > 1.0 {
-                    // 小規模でも多少の並列化効果はある
-                    // ただし効率は低い（起動オーバーヘッドが相対的に大きい）
-                    (total_threads.ln() * 0.5 * parallelization_efficiency).max(0.0)
-                } else {
-                    // 単一スレッド: 並列化なし
-                    0.0
-                };
-
-                // grid/thread設定の評価コスト（通常は定数なので無視できる）
-                let grid_cost =
-                    log_sum_exp_iter(default_grid_size.iter().map(|g| self.estimate(g)));
-                let thread_cost =
-                    log_sum_exp_iter(default_thread_group_size.iter().map(|t| self.estimate(t)));
-
-                // 最終コスト = body_cost - parallel_bonus + カーネル起動オーバーヘッド
+                // 最終コスト = カーネル起動オーバーヘッド * body_cost / parallel_bonus
                 // 並列化ボーナスを減算することで、GPUカーネルが有利になる
                 log_sum_exp_iter(vec![
-                    body_cost - parallel_bonus,
-                    grid_cost,
-                    thread_cost,
+                    body_cost + parallelization_overhead.ln() - total_threads.ln(),
                     self.kernel_launch_overhead.ln(),
                     self.function_definition_overhead.ln(),
                 ])
