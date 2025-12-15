@@ -17,10 +17,7 @@ fn test_program_root_extraction() {
     let c = &a + &b;
     graph.output("c", c);
 
-    eprintln!(
-        "Initial graph program_root: {:?}",
-        graph.program_root().is_some()
-    );
+    eprintln!("Initial graph outputs: {}", graph.outputs().len());
 
     // グラフ最適化
     let config = MultiPhaseConfig::new()
@@ -84,10 +81,7 @@ fn test_program_root_extraction_complex() {
     let result = &reduced + &c;
     graph.output("result", result);
 
-    eprintln!(
-        "Initial graph program_root: {:?}",
-        graph.program_root().is_some()
-    );
+    eprintln!("Initial graph outputs: {}", graph.outputs().len());
 
     // グラフ最適化
     let config = MultiPhaseConfig::new()

@@ -650,37 +650,10 @@ impl KernelMergeSuggester {
         new_graph.copy_input_metas_from(graph);
         new_graph.copy_output_metas_from(graph);
 
-        // ProgramRootノードがある場合は、Program構造を保持しながらsrcを再構築
-        if let Some(old_sink) = graph.program_root() {
-            let new_sink_src: Vec<GraphNode> = old_sink
-                .src
-                .iter()
-                .map(|src| rebuild_node(src, &node_map, &mut cache))
-                .collect();
-
-            // 元のProgramRootのast（Program）とoutputsを保持して新しいProgramRootを作成
-            if let GraphOp::ProgramRoot { ast, outputs } = &old_sink.op {
-                let new_sink = GraphNode::new(
-                    old_sink.dtype.clone(),
-                    GraphOp::ProgramRoot {
-                        ast: ast.clone(),
-                        outputs: outputs.clone(),
-                    },
-                    new_sink_src,
-                    old_sink.view.clone(),
-                );
-                new_graph.set_program_root(new_sink);
-            }
-        } else {
-            // ProgramRootがない場合は従来通りoutputsを使用
-            let outputs_map = graph.outputs();
-            let mut outputs: Vec<_> = outputs_map.iter().collect();
-            outputs.sort_by_key(|(name, _)| name.as_str());
-
-            for (name, output_node) in outputs {
-                let rebuilt = rebuild_node(output_node, &node_map, &mut cache);
-                new_graph.output(name, rebuilt);
-            }
+        // 全ての出力ノードを再構築
+        for (name, output_node) in graph.outputs() {
+            let rebuilt = rebuild_node(output_node, &node_map, &mut cache);
+            new_graph.set_output_node(name.clone(), rebuilt);
         }
 
         // shape変数のデフォルト値をコピー
@@ -967,24 +940,12 @@ mod tests {
             );
         }
 
-        // ProgramRootノードも確認
-        let mut sink_has_program = false;
-        if let Some(sink) = optimized.program_root()
-            && let GraphOp::ProgramRoot {
-                ast: AstNode::Program { functions, .. },
-                ..
-            } = &sink.op
-        {
-            sink_has_program = !functions.is_empty();
-        }
-
         println!("Kernel(Function): {}", custom_function_count);
         println!("Kernel(Program): {}", custom_program_count);
-        println!("ProgramRoot has Program: {}", sink_has_program);
 
         assert!(
-            custom_function_count == 1 || custom_program_count >= 1 || sink_has_program,
-            "Expected either 1 Kernel(Function) after fusion, 1 Kernel(Program) after merge, or ProgramRoot with Program"
+            custom_function_count == 1 || custom_program_count >= 1,
+            "Expected either 1 Kernel(Function) after fusion or 1 Kernel(Program) after merge"
         );
     }
 }

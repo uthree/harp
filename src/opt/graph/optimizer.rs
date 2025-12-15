@@ -204,7 +204,7 @@ where
                 }
             }
             let mut visited = std::collections::HashSet::new();
-            dump_node(&node, "  ", &mut visited);
+            dump_node(node, "  ", &mut visited);
         }
 
         let initial_logs = if self.collect_logs {

@@ -105,7 +105,6 @@ pub enum GraphOp {
     /// カーネル演算（単一カーネル関数）
     ///
     /// `AstNode::Function`または`AstNode::Kernel`を保持します。
-    /// 複数カーネルを統合したプログラムはProgramRootノードで管理されます。
     ///
     /// 関数内ではプレースホルダー変数を使用（[`custom_placeholders`]参照）。
     ///
@@ -126,29 +125,6 @@ pub enum GraphOp {
         /// Noneの場合、入力バッファはsrcから参照される
         input_buffers: Option<Vec<InputBufferMeta>>,
     },
-    /// プログラムルートノード（プログラム全体を表現）
-    ///
-    /// ProgramRootノードはグラフの最終出力を統合し、`AstNode::Program`を保持します。
-    /// - グラフに1つだけ存在（全ての出力を統合）
-    /// - srcに入力ノード群と出力Bufferノード群を持つ
-    /// - ProgramRootAbsorptionSuggesterにより、全てのKernelノードを吸収
-    /// - 最終的にProgramRootノード + 入出力Bufferノードのみがグラフに残る
-    ///
-    /// # src構造
-    /// `src = [入力ノード群..., 出力Bufferノード群...]`
-    /// - 入力ノード: 計算依存のあるノード（Kernel, View, etc.）
-    /// - 出力Buffer: `outputs`フィールドの順序に対応するBufferノード
-    ///
-    /// # 使用フロー
-    /// 1. `Graph::output()`呼び出し時にProgramRootノードが自動作成/更新
-    /// 2. 最適化時にProgramRootAbsorptionSuggesterがKernelノードを吸収
-    /// 3. Lowerer時にProgramRootのast（Program）をそのまま返却
-    ProgramRoot {
-        /// AstNode::Program（複数のカーネル関数 + main関数）
-        ast: crate::ast::AstNode,
-        /// 出力バッファ名のリスト（順序を保持）
-        outputs: Vec<String>,
-    },
 
     /// サブグラフ呼び出し
     ///
@@ -166,7 +142,7 @@ pub enum GraphOp {
     /// # Loweringフロー
     /// 1. 内側のサブグラフから先に最適化・Lowering
     /// 2. SubgraphCallノードは関数呼び出し（Call）に変換
-    /// 3. ProgramRootにサブグラフの関数が追加される
+    /// 3. サブグラフの関数がProgramに追加される
     SubgraphCall {
         /// サブグラフ名（Graph.subgraphsのキーに対応）
         name: String,

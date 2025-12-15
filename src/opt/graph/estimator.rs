@@ -487,12 +487,6 @@ impl SimpleCostEstimator {
                     }
                 }
             }
-            GraphOp::ProgramRoot { ast, .. } => {
-                // ProgramRootノードのコスト = 含まれるProgramのコスト
-                // ProgramRootはグラフのルートでProgramを保持する
-                let ast_estimator = AstSimpleCostEstimator::new();
-                ast_estimator.estimate(ast)
-            }
             GraphOp::SubgraphCall { .. } => {
                 // サブグラフ呼び出しのコスト
                 // サブグラフは関数呼び出しとして保持され、独立したカーネルとして低レベル化される
@@ -866,47 +860,17 @@ impl GraphCostEstimator for SimpleCostEstimator {
             0.0
         };
 
-        // ProgramRoot.srcに入力Bufferがある場合、ペナルティを追加
-        // これにより、ProgramRootBufferAbsorptionSuggesterの適用後にコストが下がる
-        // 直接Buffer、またはView→Buffer(input)のパターンを検出（1レベルのみ）
-        let sink_buffer_penalty = if let Some(sink) = graph.program_root() {
-            let input_buffer_count = sink
-                .src
-                .iter()
-                .filter(|s| {
-                    // 直接入力Buffer
-                    if matches!(&s.op, GraphOp::Buffer { name } if !name.starts_with("output")) {
-                        return true;
-                    }
-                    // View→Buffer(input)パターン（再帰なし、1レベルのみ）
-                    if matches!(&s.op, GraphOp::View(_)) {
-                        return s.src.iter().any(|src| {
-                            matches!(&src.op, GraphOp::Buffer { name } if !name.starts_with("output"))
-                        });
-                    }
-                    false
-                })
-                .count();
-            // 入力Bufferがあると、グラフが整理されていないとみなしてペナルティ
-            // ペナルティを強くしてProgramRootBufferAbsorptionが選ばれやすくする
-            2.0 * self.kernel_launch_overhead.ln() * input_buffer_count as f32
-        } else {
-            0.0
-        };
-
-        log_base_cost + penalty + merge_penalty + sink_buffer_penalty
+        log_base_cost + penalty + merge_penalty
     }
 }
 
 /// Lowering専用のコスト推定器
 ///
-/// グラフノードをKernelノードに変換し、最終的に単一のProgramRootノードに
-/// 集約することを強く優先します。
+/// グラフノードをKernelノードに変換することを強く優先します。
 ///
 /// # コスト計算
 /// - 非KernelノードGraphOp（Elementwise, Reduce等）に強いペナルティ
-/// - 複数のKernel(Function)ノードにペナルティ
-/// - 単一のProgramRootノードを持つグラフを強く優先
+/// - 複数のKernel(Function/Kernel)ノードにペナルティ
 pub struct LoweringCostEstimator {
     /// 非Kernelノードあたりのペナルティ（対数スケール）
     non_custom_penalty: f32,
@@ -914,8 +878,6 @@ pub struct LoweringCostEstimator {
     function_penalty: f32,
     /// GPU並列化による最大スピードアップ係数（対数スケール）
     gpu_parallel_max_speedup_log: f32,
-    /// カーネル起動オーバーヘッド（CPUサイクル）
-    kernel_launch_overhead: f32,
 }
 
 impl LoweringCostEstimator {
@@ -923,16 +885,12 @@ impl LoweringCostEstimator {
         Self {
             // 非KernelノードにはLoweringSuggesterを適用すべき
             // 非常に強いペナルティを設定し、Loweringを常に優先する
-            // 元の値: kernel_launch_overhead.ln() * 2.0 ≈ 13.8
-            // 新しい値: AST costを上回るように十分大きく設定
             non_custom_penalty: 100.0,
-            // Kernel(Function)はProgramRootに吸収されるべき
-            // こちらは小さめに設定して、Loweringの結果がペナルティで打ち消されないようにする
+            // 複数のKernel(Function/Kernel)にペナルティ
+            // 小さめに設定して、Loweringの結果がペナルティで打ち消されないようにする
             function_penalty: 1.0,
             // GPU並列化最大スピードアップ（SimpleCostEstimatorと同じ）
             gpu_parallel_max_speedup_log: 4.5,
-            // カーネル起動オーバーヘッド（SimpleCostEstimatorと同じ）
-            kernel_launch_overhead: 1000.0,
         }
     }
 
@@ -990,7 +948,6 @@ impl GraphCostEstimator for LoweringCostEstimator {
 
         let mut non_custom_count = 0;
         let mut custom_function_count = 0;
-        let mut has_program_root = false;
         let mut total_ast_cost = f32::NEG_INFINITY;
 
         for node in &nodes {
@@ -1022,13 +979,6 @@ impl GraphCostEstimator for LoweringCostEstimator {
                     _ => {}
                 },
 
-                // ProgramRootノード（目標状態）
-                GraphOp::ProgramRoot { ast, .. } => {
-                    has_program_root = true;
-                    let ast_cost = ast_estimator.estimate(ast);
-                    total_ast_cost = log_sum_exp(total_ast_cost, ast_cost);
-                }
-
                 // Lowering対象のノード（強いペナルティ）
                 _ => {
                     non_custom_count += 1;
@@ -1047,21 +997,14 @@ impl GraphCostEstimator for LoweringCostEstimator {
         // 1. 非Kernelノードへの強いペナルティ
         let non_custom_penalty = self.non_custom_penalty * non_custom_count as f32;
 
-        // 2. Kernel(Function)へのペナルティ（ProgramRootがない場合のみ）
-        let function_penalty = if !has_program_root && custom_function_count > 0 {
+        // 2. 複数のKernel(Function/Kernel)へのペナルティ
+        let function_penalty = if custom_function_count > 1 {
             self.function_penalty * custom_function_count as f32
         } else {
             0.0
         };
 
-        // 3. ProgramRootがある場合は大きな報酬（負のペナルティ）
-        let program_root_reward = if has_program_root {
-            -self.kernel_launch_overhead.ln() * 3.0
-        } else {
-            0.0
-        };
-
-        base_cost + non_custom_penalty + function_penalty + program_root_reward
+        base_cost + non_custom_penalty + function_penalty
     }
 }
 

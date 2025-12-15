@@ -7,10 +7,6 @@
 //! 1. srcにBufferノードを持つKernelノードを検出
 //! 2. Bufferノードの情報を`input_buffers`に取り込む
 //! 3. srcからBufferノードを削除（srcは空になる）
-//!
-//! # ProgramRootAbsorptionSuggesterとの連携
-//! このSuggesterの適用後、KernelノードはsrcにBufferを持たなくなるため、
-//! ProgramRootAbsorptionSuggesterはシンプルにKernelを吸収するだけでよくなる。
 
 use crate::graph::ops::InputBufferMeta;
 use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
@@ -30,8 +26,9 @@ impl BufferAbsorptionSuggester {
         let mut result = Vec::new();
         let mut visited = HashSet::new();
 
-        if let Some(sink) = graph.program_root() {
-            Self::find_customs_recursive(sink, &mut result, &mut visited);
+        // 全ての出力ノードから探索
+        for output_node in graph.outputs().values() {
+            Self::find_customs_recursive(output_node, &mut result, &mut visited);
         }
 
         result
@@ -185,10 +182,10 @@ impl BufferAbsorptionSuggester {
 
         let old_ptr = old_node.as_ptr();
 
-        // ProgramRootノードを再構築
-        if let Some(sink) = graph.program_root() {
-            let new_sink = rebuild_node(sink, old_ptr, &new_node, &mut node_map);
-            new_graph.set_program_root(new_sink);
+        // 全ての出力ノードを再構築
+        for (name, output_node) in graph.outputs() {
+            let new_output = rebuild_node(output_node, old_ptr, &new_node, &mut node_map);
+            new_graph.set_output_node(name.clone(), new_output);
         }
 
         new_graph
@@ -247,7 +244,7 @@ mod tests {
         graph.output("c", c);
 
         eprintln!("=== Initial Graph ===");
-        eprintln!("ProgramRoot exists: {:?}", graph.program_root().is_some());
+        eprintln!("outputs count: {}", graph.outputs().len());
 
         // Loweringを適用
         let lowered = lowering.suggest(&graph);
@@ -255,9 +252,9 @@ mod tests {
         let lowered_graph = &lowered[0];
 
         eprintln!("\n=== After Lowering ===");
-        if let Some(sink) = lowered_graph.program_root() {
-            eprintln!("ProgramRoot src count: {}", sink.src.len());
-            for (i, src) in sink.src.iter().enumerate() {
+        for (name, output_node) in lowered_graph.outputs() {
+            eprintln!("Output '{}': src count: {}", name, output_node.src.len());
+            for (i, src) in output_node.src.iter().enumerate() {
                 let has_buffer = src
                     .src
                     .iter()
@@ -275,16 +272,14 @@ mod tests {
         let absorbed_graph = &absorbed[0];
 
         // 検証: Kernelノードのinput_buffersが設定されている
-        if let Some(sink) = absorbed_graph.program_root() {
-            for src in &sink.src {
-                if let GraphOp::Kernel { input_buffers, .. } = &src.op {
-                    eprintln!("Kernel node input_buffers: {:?}", input_buffers);
-                    assert!(input_buffers.is_some());
-                    let buffers = input_buffers.as_ref().unwrap();
-                    assert_eq!(buffers.len(), 2); // a と b
-                    assert!(buffers.iter().any(|b| b.name == "a"));
-                    assert!(buffers.iter().any(|b| b.name == "b"));
-                }
+        for output_node in absorbed_graph.outputs().values() {
+            if let GraphOp::Kernel { input_buffers, .. } = &output_node.op {
+                eprintln!("Kernel node input_buffers: {:?}", input_buffers);
+                assert!(input_buffers.is_some());
+                let buffers = input_buffers.as_ref().unwrap();
+                assert_eq!(buffers.len(), 2); // a と b
+                assert!(buffers.iter().any(|b| b.name == "a"));
+                assert!(buffers.iter().any(|b| b.name == "b"));
             }
         }
     }

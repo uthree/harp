@@ -39,7 +39,7 @@ pub struct OutputMeta {
 pub struct Graph {
     input_metas: Vec<InputMeta>,                // 入力バッファのメタデータ
     output_metas: Vec<OutputMeta>,              // 出力バッファのメタデータ
-    program_root: Option<GraphNode>,            // ProgramRootノード（グラフのルート）
+    output_nodes: BTreeMap<String, GraphNode>,  // 出力ノード（名前→ノード）
     shape_var_defaults: HashMap<String, isize>, // 動的shape変数のデフォルト値（必須）
     subgraphs: HashMap<String, Graph>,          // サブグラフ定義（DSLのgraph main以外）
 }
@@ -78,7 +78,7 @@ impl Graph {
         Self {
             input_metas: Vec::new(),
             output_metas: Vec::new(),
-            program_root: None,
+            output_nodes: BTreeMap::new(),
             shape_var_defaults: HashMap::new(),
             subgraphs: HashMap::new(),
         }
@@ -141,7 +141,7 @@ impl Graph {
     /// 出力ノードを登録
     ///
     /// 出力ノードを登録します。
-    /// 複数の出力をサポートしており、各出力に対してProgramRootノードが更新されます。
+    /// 複数の出力をサポートしています。
     /// 出力のメタデータ（dtype, shape）は自動的に記録されます。
     ///
     /// # Example
@@ -163,103 +163,28 @@ impl Graph {
             shape: output_node.view.shape().to_vec(),
         });
 
-        // ProgramRootノードを作成/更新（出力Bufferは不要、メタデータで管理）
-        self.update_program_root(name.to_string(), output_node);
-    }
-
-    /// ProgramRootノードを作成または更新
-    fn update_program_root(&mut self, name: String, output_node: GraphNode) {
-        use crate::ast::AstNode;
-
-        match &mut self.program_root {
-            None => {
-                // 最初の出力: ProgramRootノードを新規作成
-                // 空のProgramを作成（後でProgramRootAbsorptionSuggesterが関数を追加）
-                let empty_program = AstNode::Program { functions: vec![] };
-
-                let program_root = GraphNode::new(
-                    DType::Unknown, // ProgramRootは型を持たない
-                    GraphOp::ProgramRoot {
-                        ast: empty_program,
-                        outputs: vec![name],
-                    },
-                    vec![output_node], // 出力ノードのみ（Bufferは不要）
-                    View::contiguous(Vec::<isize>::new()), // スカラービュー
-                );
-
-                self.program_root = Some(program_root);
-            }
-            Some(existing_root) => {
-                // 追加の出力: 既存ProgramRootを更新
-                let mut new_src = existing_root.src.clone();
-                new_src.push(output_node);
-
-                let (ast, mut outputs) = match &existing_root.op {
-                    GraphOp::ProgramRoot { ast, outputs } => (ast.clone(), outputs.clone()),
-                    _ => panic!("Expected ProgramRoot node"),
-                };
-                outputs.push(name);
-
-                let new_root = GraphNode::new(
-                    DType::Unknown,
-                    GraphOp::ProgramRoot { ast, outputs },
-                    new_src,
-                    View::contiguous(Vec::<isize>::new()),
-                );
-
-                self.program_root = Some(new_root);
-            }
-        }
+        // 出力ノードを直接登録
+        self.output_nodes.insert(name.to_string(), output_node);
     }
 
     /// 出力ノードのマップを取得
-    ///
-    /// ProgramRootノードから出力情報を再構築してBTreeMapとして返します。
-    /// 最適化後、ProgramRootのsrcが空の場合はProgramRoot自体を出力として返します。
-    pub fn outputs(&self) -> BTreeMap<String, GraphNode> {
-        let mut result = BTreeMap::new();
-
-        if let Some(root) = &self.program_root
-            && let GraphOp::ProgramRoot { outputs, .. } = &root.op
-        {
-            if root.src.is_empty() {
-                // 最適化後: srcが空の場合はProgramRoot自体を返す
-                for name in outputs.iter() {
-                    result.insert(name.clone(), root.clone());
-                }
-            } else {
-                // srcは [output_node0, output_node1, ...] の順
-                for (i, name) in outputs.iter().enumerate() {
-                    if i < root.src.len() {
-                        result.insert(name.clone(), root.src[i].clone());
-                    }
-                }
-            }
-        }
-
-        result
+    pub fn outputs(&self) -> &BTreeMap<String, GraphNode> {
+        &self.output_nodes
     }
 
-    /// ProgramRootノードへのアクセス
-    pub fn program_root(&self) -> Option<&GraphNode> {
-        self.program_root.as_ref()
+    /// 出力ノードを設定（最適化時に使用）
+    pub fn set_output_node(&mut self, name: String, node: GraphNode) {
+        self.output_nodes.insert(name, node);
     }
 
-    /// ProgramRootノードを設定（最適化時に使用）
-    pub fn set_program_root(&mut self, program_root: GraphNode) {
-        self.program_root = Some(program_root);
+    /// 出力ノードを一括設定（最適化時に使用）
+    pub fn set_output_nodes(&mut self, nodes: BTreeMap<String, GraphNode>) {
+        self.output_nodes = nodes;
     }
 
     /// 出力名のリストを取得（ソート済み）
     pub fn output_names(&self) -> Vec<String> {
-        if let Some(root) = &self.program_root
-            && let GraphOp::ProgramRoot { outputs, .. } = &root.op
-        {
-            let mut names = outputs.clone();
-            names.sort();
-            return names;
-        }
-        Vec::new()
+        self.output_nodes.keys().cloned().collect()
     }
 
     /// 入力メタデータへのアクセス

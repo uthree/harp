@@ -58,10 +58,6 @@ impl SubgraphInliningSuggester {
             visit(output, &mut visited, &mut nodes);
         }
 
-        if let Some(root) = graph.program_root() {
-            visit(root, &mut visited, &mut nodes);
-        }
-
         nodes
     }
 
@@ -122,7 +118,7 @@ impl SubgraphInliningSuggester {
                 output_node.op
             );
             let rebuilt =
-                self.rebuild_node_with_inputs(&output_node, &input_mapping, &mut node_cache);
+                self.rebuild_node_with_inputs(output_node, &input_mapping, &mut node_cache);
             log::trace!(
                 "inline_subgraph: rebuilt output '{}' is {:?}, has {} srcs",
                 output_name,
@@ -321,37 +317,10 @@ impl SubgraphInliningSuggester {
             &inlined_outputs
         };
 
-        // ProgramRootがある場合は再構築
-        if let Some(old_root) = graph.program_root() {
-            let new_root_src: Vec<GraphNode> = old_root
-                .src
-                .iter()
-                .map(|src| rebuild_node(src, &node_map, outputs_ref, call_ptr, &mut cache))
-                .collect();
-
-            if let GraphOp::ProgramRoot { ast, outputs } = &old_root.op {
-                let new_root = GraphNode::new(
-                    old_root.dtype.clone(),
-                    GraphOp::ProgramRoot {
-                        ast: ast.clone(),
-                        outputs: outputs.clone(),
-                    },
-                    new_root_src,
-                    old_root.view.clone(),
-                );
-                new_graph.set_program_root(new_root);
-            }
-        } else {
-            // outputsから再構築
-            let outputs_map = graph.outputs();
-            let mut outputs: Vec<_> = outputs_map.iter().collect();
-            outputs.sort_by_key(|(name, _)| name.as_str());
-
-            for (name, output_node) in outputs {
-                let rebuilt =
-                    rebuild_node(output_node, &node_map, outputs_ref, call_ptr, &mut cache);
-                new_graph.output(name, rebuilt);
-            }
+        // 出力ノードを再構築
+        for (name, output_node) in graph.outputs() {
+            let rebuilt = rebuild_node(output_node, &node_map, outputs_ref, call_ptr, &mut cache);
+            new_graph.set_output_node(name.clone(), rebuilt);
         }
 
         // shape変数のデフォルト値をコピー
@@ -502,7 +471,7 @@ mod tests {
         let y = x * two;
         subgraph.output("y", y);
 
-        // メイングラフを作成（graph.output経由でProgramRootが自動生成される）
+        // メイングラフを作成
         let mut main_graph = Graph::new();
         let a = main_graph.input("a", DType::F32, vec![4]);
 

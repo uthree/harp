@@ -69,11 +69,6 @@ impl SubgraphLoweringOptimizer {
             visit(output, &mut visited, &mut calls);
         }
 
-        // ProgramRootからも収集
-        if let Some(root) = graph.program_root() {
-            visit(root, &mut visited, &mut calls);
-        }
-
         calls
     }
 

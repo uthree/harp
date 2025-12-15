@@ -170,8 +170,7 @@ pub fn create_kernel_partition_suggester() -> CompositeSuggester {
 /// - BufferAbsorptionでKernelに入力Bufferを取り込む
 /// - KernelMergeで複数のKernel(Function)をマージ
 ///
-/// Note: ProgramRootAbsorptionは削除されました。
-/// カーネル実行順序はCompiledProgram.execution_wavesで管理されます。
+/// Note: カーネル実行順序はCompiledProgram.execution_wavesで管理されます。
 ///
 /// このフェーズは実測値ベース最適化の対象外です（決定論的な変換のみ）。
 pub fn create_fusion_suggester() -> CompositeSuggester {
@@ -337,8 +336,8 @@ impl MultiPhaseConfig {
 ///    - 目的: GPUの多次元スレッドグリッドを活用
 ///    - Absorptionの前に実行することでdispatch設定の一貫性を保証
 ///
-/// 6. **Absorption** (吸収): 全KernelをProgramRootに融合
-///    - 目的: 単一のProgramRootノードへの変換
+/// 6. **Absorption** (吸収): Kernelノードの最終処理
+///    - 目的: Bufferの吸収とKernelのマージ
 ///    - 決定論的な変換のため、実測値ベース最適化は不要
 ///
 /// # Arguments
@@ -429,7 +428,7 @@ pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOpt
         .with_collect_logs(config.collect_logs)
         .with_early_termination_threshold(config.early_termination_threshold);
 
-    // Phase 6: Absorption（ProgramRootへの融合）
+    // Phase 6: Absorption（Bufferの吸収とKernelのマージ）
     // 決定論的な変換なのでビーム幅=1で十分、早期終了も不要
     let absorption_suggester = create_fusion_suggester();
     let absorption_optimizer = BeamSearchGraphOptimizer::new(absorption_suggester)
@@ -554,7 +553,7 @@ where
         .with_collect_logs(config.collect_logs)
         .with_early_termination_threshold(config.early_termination_threshold);
 
-    // Phase 6: Absorption（ProgramRootへの融合）- Selector不使用（決定論的変換）
+    // Phase 6: Absorption（Bufferの吸収とKernelのマージ）- Selector不使用（決定論的変換）
     let absorption_suggester = create_fusion_suggester();
     let absorption_optimizer = BeamSearchGraphOptimizer::new(absorption_suggester)
         .with_beam_width(1) // 決定論的変換なのでビーム幅1
@@ -693,7 +692,7 @@ pub fn create_greedy_optimizer(config: MultiPhaseConfig) -> ChainedGraphOptimize
         .with_collect_logs(config.collect_logs)
         .with_early_termination_threshold(config.early_termination_threshold);
 
-    // Phase 6: Absorption（ProgramRootへの融合）
+    // Phase 6: Absorption（Bufferの吸収とKernelのマージ）
     let absorption_suggester = create_fusion_suggester();
     let absorption_optimizer = BeamSearchGraphOptimizer::new(absorption_suggester)
         .with_beam_width(1) // 決定論的変換
@@ -800,12 +799,12 @@ mod tests {
             "Optimization history should not be empty"
         );
 
-        // 最適化後のグラフがProgramRootを持つことを確認
+        // 最適化後のグラフの出力がKernelノードであることを確認
         // (完全にloweringが完了した場合)
-        if let Some(root) = optimized.program_root() {
+        for output_node in optimized.outputs().values() {
             assert!(
-                matches!(root.op, GraphOp::ProgramRoot { .. }),
-                "Root should be ProgramRoot"
+                matches!(output_node.op, GraphOp::Kernel { .. }),
+                "Output should be Kernel node after optimization"
             );
         }
     }

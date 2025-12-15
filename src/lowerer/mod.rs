@@ -177,11 +177,6 @@ pub fn collect_kernels_as_program(graph: &Graph) -> Option<crate::ast::AstNode> 
         collect_kernels(output, &mut kernels, &mut visited);
     }
 
-    // ProgramRootからも収集（念のため）
-    if let Some(root) = graph.program_root() {
-        collect_kernels(root, &mut kernels, &mut visited);
-    }
-
     if kernels.is_empty() {
         None
     } else {
@@ -201,27 +196,11 @@ pub fn find_custom_program(graph: &Graph) -> Option<crate::ast::AstNode> {
     None
 }
 
-/// ProgramRootノードからProgramを取得する（レガシー互換用）
-pub fn find_program_root_program(graph: &Graph) -> Option<crate::ast::AstNode> {
-    if let Some(root) = graph.program_root()
-        && let GraphOp::ProgramRoot { ast, .. } = &root.op
-    {
-        // ProgramRootのastがProgramで、関数が含まれている場合のみ返す
-        if let crate::ast::AstNode::Program { functions } = ast
-            && !functions.is_empty()
-        {
-            return Some(ast.clone());
-        }
-    }
-    None
-}
-
 /// 最適化済みグラフからProgramを抽出する
 ///
 /// グラフ最適化後、以下の優先順位でASTを取得します：
 /// 1. グラフ内のKernelノードを収集してProgram化
-/// 2. ProgramRoot内のProgram（関数が含まれている場合のみ）
-/// 3. Kernel(Program)ノード
+/// 2. Kernel(Program)ノード
 ///
 /// # Panics
 /// グラフ内にKernelノードが存在しない場合
@@ -234,12 +213,7 @@ pub fn extract_program_from_graph(optimized_graph: Graph) -> crate::ast::AstNode
         return program;
     }
 
-    // 次にProgramRootから取得を試みる（レガシー互換）
-    if let Some(program) = find_program_root_program(&optimized_graph) {
-        return program;
-    }
-
-    // 最後にKernel(Program)を探す
+    // Kernel(Program)を探す
     if let Some(program) = find_custom_program(&optimized_graph) {
         return program;
     }
@@ -289,10 +263,6 @@ fn check_for_unlowered_subgraph_calls(graph: &Graph) {
 
     for output in graph.outputs().values() {
         collect_subgraph_calls(output, &mut visited, &mut subgraph_names);
-    }
-
-    if let Some(root) = graph.program_root() {
-        collect_subgraph_calls(root, &mut visited, &mut subgraph_names);
     }
 
     if !subgraph_names.is_empty() {

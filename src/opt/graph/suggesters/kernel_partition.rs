@@ -133,13 +133,6 @@ impl KernelPartitionSuggester {
             visit(output, &mut visited, &mut kernels);
         }
 
-        // program_rootがあればそこからも走査
-        if let Some(sink) = graph.program_root() {
-            for src in &sink.src {
-                visit(src, &mut visited, &mut kernels);
-            }
-        }
-
         kernels
     }
 
@@ -637,23 +630,13 @@ impl KernelPartitionSuggester {
             new_node
         }
 
-        // 出力ノードを再構築
-        let mut new_outputs = HashMap::new();
-        for (name, output) in graph.outputs() {
-            let new_output = rebuild_node(&output, &mut node_map);
-            new_outputs.insert(name.clone(), new_output);
-        }
-
         // 新しいグラフを作成
         let mut new_graph = Graph::new();
-        for (name, node) in new_outputs {
-            new_graph.output(&name, node);
-        }
 
-        // program_rootがあれば再構築
-        if let Some(sink) = graph.program_root() {
-            let new_sink = rebuild_node(sink, &mut node_map);
-            new_graph.set_program_root(new_sink);
+        // 出力ノードを再構築
+        for (name, output) in graph.outputs() {
+            let new_output = rebuild_node(output, &mut node_map);
+            new_graph.set_output_node(name.clone(), new_output);
         }
 
         new_graph
