@@ -4,6 +4,7 @@ pub mod c_like;
 pub mod device;
 pub mod generic;
 pub mod metal;
+pub mod native;
 pub mod opencl;
 pub mod pipeline;
 

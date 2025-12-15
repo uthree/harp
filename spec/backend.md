@@ -92,6 +92,81 @@ pipeline.enable_runtime_selector();
 **最適化履歴:**
 最適化の各ステップは`OptimizationHistories`に記録され、`pipeline.histories.graph`および`pipeline.histories.ast`からアクセス可能。可視化ツール（harp-viz）で最適化過程を確認できる。
 
+## Nativeバックエンド（新アーキテクチャ）
+
+`native`モジュールは、libloadingを使わずにRustから直接GPU APIを呼び出す新しいバックエンド実装を提供します。
+
+### 特徴
+
+- **libloading不要**: C言語のホストコード生成が不要
+- **Rust型安全性**: GPU操作がRustの型システムで保護される
+- **デバッグ容易性**: Rustコードなのでデバッグが容易
+- **統一API**: OpenCLとMetalで共通のtraitインターフェース
+
+### モジュール構成
+
+- `native/mod.rs`: モジュール定義とtrait再エクスポート
+- `native/traits.rs`: 共通trait定義（NativeContext, NativeBuffer, NativeKernel, NativeCompiler）
+- `native/opencl/`: OpenCLネイティブ実装（`ocl`クレート使用）
+- `native/metal/`: Metalネイティブ実装（`metal`クレート使用）
+
+### 主要trait
+
+#### NativeContext
+GPU実行コンテキスト。デバイスの初期化とリソース管理を担当。
+
+#### NativeBuffer
+GPUメモリバッファ。ホスト⇔デバイス間のデータ転送を提供。
+
+#### NativeKernel
+コンパイル済みカーネル。バッファを受け取って実行。
+
+#### NativeCompiler
+カーネルソースをコンパイルしてNativeKernelを生成。
+
+### 使用例（OpenCL）
+
+```rust
+use harp::backend::native::{KernelConfig, NativeBuffer, NativeCompiler, NativeContext};
+use harp::backend::native::opencl::{OpenCLNativeBuffer, OpenCLNativeCompiler, OpenCLNativeContext};
+
+// コンテキスト作成
+let context = OpenCLNativeContext::new()?;
+
+// カーネルソース
+let source = r#"
+    __kernel void add(__global float* a, __global float* b, __global float* c) {
+        int i = get_global_id(0);
+        c[i] = a[i] + b[i];
+    }
+"#;
+
+// コンパイル
+let compiler = OpenCLNativeCompiler::new();
+let config = KernelConfig::new("add").with_global_work_size([4, 1, 1]);
+let kernel = compiler.compile(&context, source, config)?;
+
+// バッファ作成
+let a = OpenCLNativeBuffer::from_vec(&context, vec![4], DType::F32, &[1.0, 2.0, 3.0, 4.0])?;
+let b = OpenCLNativeBuffer::from_vec(&context, vec![4], DType::F32, &[5.0, 6.0, 7.0, 8.0])?;
+let c = OpenCLNativeBuffer::allocate(&context, vec![4], DType::F32)?;
+
+// 実行
+kernel.execute_with_buffers(&[&a, &b, &c])?;
+
+// 結果読み出し
+let result: Vec<f32> = c.read_vec()?;  // [6.0, 8.0, 10.0, 12.0]
+```
+
+### Feature flags
+
+- `native-opencl`: OpenCLネイティブバックエンドを有効化
+- `native-metal`: Metalネイティブバックエンドを有効化（macOSのみ）
+
+## 従来のバックエンド（libloading方式）
+
+以下は従来のlibloadingベースのバックエンド実装です。
+
 ## 実装状況
 
 ### Metal Backend（macOS）
