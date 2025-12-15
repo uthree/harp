@@ -10,9 +10,8 @@ use harp::opt::ast::rules::all_algebraic_rules;
 use harp::opt::ast::{
     AstOptimizer, BeamSearchOptimizer as AstBeamSearchOptimizer,
     CompositeSuggester as AstCompositeSuggester, FunctionInliningSuggester,
-    GroupParallelizationSuggester, LoopFusionSuggester, LoopInliningSuggester,
-    LoopInterchangeSuggester, LoopTilingSuggester, RuleBaseOptimizer,
-    ThreadParallelizationSuggester,
+    GlobalParallelizationSuggester, LocalParallelizationSuggester, LoopFusionSuggester,
+    LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester, RuleBaseOptimizer,
 };
 use harp::opt::graph::GraphOptimizer;
 use harp_viz::{HarpVizApp, RendererType};
@@ -81,9 +80,9 @@ fn optimize_ast_with_history(
         Box::new(LoopInterchangeSuggester::new()),
         Box::new(LoopFusionSuggester::new()),
         Box::new(FunctionInliningSuggester::with_default_limit()),
-        // 並列化Suggester
-        Box::new(ThreadParallelizationSuggester::new()),
-        Box::new(GroupParallelizationSuggester::new()),
+        // 並列化Suggester（GlobalはThreadId、LocalはLocalIdを使用）
+        Box::new(GlobalParallelizationSuggester::new()),
+        Box::new(LocalParallelizationSuggester::new()),
     ]);
 
     let loop_optimizer = AstBeamSearchOptimizer::new(loop_suggester)

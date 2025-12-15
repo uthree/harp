@@ -30,60 +30,61 @@
 | FunctionInliningSuggester | 小さい関数をインライン展開 |
 | CseSuggester | 共通部分式除去 |
 | VariableExpansionSuggester | 変数展開（CSEの逆操作） |
-| ThreadParallelizationSuggester | スレッド単位の並列化（Function→Kernel変換） |
-| GroupParallelizationSuggester | グループ単位の並列化（タイル化ループ→Kernel変換） |
+| GlobalParallelizationSuggester | ループ並列化（ThreadId使用、動的分岐チェックあり） |
+| LocalParallelizationSuggester | ループ並列化（LocalId使用、動的分岐チェックなし） |
 | CompositeSuggester | 複数Suggesterを組み合わせ |
 
 ## 並列化Suggester
 
-AST段階でRangeループをKernelに変換して並列化を行う。
+AST段階でRangeループをKernelに変換して並列化を行う。2つのSuggesterを提供：
 
-### ThreadParallelizationSuggester
+### GlobalParallelizationSuggester
 
-Function内の最外側Rangeループを解析し、並列化可能な場合はKernelに変換。
+ThreadId（get_global_id）を使用してグローバルスレッド並列化を行う。
+**動的分岐チェック: あり** - ループ内にIf文があると並列化しない。
+
+### LocalParallelizationSuggester
+
+LocalId（get_local_id）を使用してワークグループ内並列化を行う。
+**動的分岐チェック: なし** - If文を含むループも並列化対象。
+
+### 対応する変換
+
+両Suggesterとも以下の2種類の変換に対応：
+
+**Function → Kernel変換:**
 
 ```
 // 変換前
-Function {
-    body: Range { var: "i", start: 0, stop: N,
-        body: Store(output, i, expr)
-    }
-}
+Function { body: Range { var: "i", start: 0, stop: N, body: ... } }
 
-// 変換後
-Kernel {
-    params: [tid: ThreadId(0), ...],
-    body: If { condition: tid < N, then: Store(output, tid, expr[i→tid]) },
-    grid_size: [ceil_div(N, 256) * 256, 1, 1],
-    thread_group_size: [256, 1, 1],
-}
+// 変換後（Global: ThreadId使用）
+Kernel { params: [gidx0: ThreadId(0), ...], grid_size: [ceil_div(N, 256) * 256, 1, 1], ... }
+
+// 変換後（Local: LocalId使用）
+Kernel { params: [lidx0: LocalId(0), ...], thread_group_size: [N, 1, 1], ... }
+```
+
+**Kernel内ループ追加並列化:**
+
+```
+// 変換前
+Kernel { params: [gidx0: ThreadId(0)], body: Range { var: "j", ... } }
+
+// 変換後（Global: 追加ThreadId）
+Kernel { params: [gidx0: ThreadId(0), gidx1: ThreadId(1)], ... }
+
+// 変換後（Local: 追加LocalId）
+Kernel { params: [gidx0: ThreadId(0), lidx0: LocalId(0)], ... }
 ```
 
 **並列化可否の判定:**
 - ループ外変数への書き込みがないこと
 - Store先オフセットがループ変数に依存していること
+- GlobalParallelizationSuggester: 動的分岐（If文）を含まないこと
 
-### GroupParallelizationSuggester
-
-タイル化された2重ループを検出し、外側をGroupId、内側をThreadIdとして並列化。
-LoopTilingSuggesterとの組み合わせで使用。
-
-```
-// タイル化後のループ
-for i_outer in 0..N/tile {
-    for i_inner in 0..tile {
-        body
-    }
-}
-
-// 変換後
-Kernel {
-    params: [group_id: GroupId(0), local_id: ThreadId(0), ...],
-    body: If { condition: group_id < N/tile && local_id < tile, then: body },
-    grid_size: [N/tile, 1, 1],
-    thread_group_size: [tile, 1, 1],
-}
-```
+**LoopInterchangeSuggesterとの組み合わせ:**
+内側ループを並列化したい場合は、LoopInterchangeSuggesterで外側に持ってきてから並列化する。
 
 ## 代数的書き換えルール
 

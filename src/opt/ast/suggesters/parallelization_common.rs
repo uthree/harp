@@ -1,7 +1,6 @@
 //! 並列化Suggester用の共通ユーティリティ
 //!
-//! ThreadParallelizationSuggesterとGroupParallelizationSuggesterで
-//! 共有される書き込み解析や変数置換機能を提供します。
+//! Global/LocalParallelizationSuggesterで使用される書き込み解析や変数置換機能を提供します。
 
 use crate::ast::{AstNode, DType, Literal, Mutability, VarDecl, VarKind};
 use std::collections::HashSet;
@@ -269,21 +268,6 @@ pub fn is_range_thread_parallelizable(range_node: &AstNode) -> bool {
             let mut analyzer = LoopAnalyzer::new(var);
             analyzer.analyze(body);
             analyzer.is_thread_parallelizable()
-        }
-        _ => false,
-    }
-}
-
-/// Rangeループがグループ並列化可能かどうかを判定
-///
-/// 基本の並列化条件のみをチェックします。
-/// グループ間は独立してスケジューリングされるため、動的分岐は許可されます。
-pub fn is_range_group_parallelizable(range_node: &AstNode) -> bool {
-    match range_node {
-        AstNode::Range { var, body, .. } => {
-            let mut analyzer = LoopAnalyzer::new(var);
-            analyzer.analyze(body);
-            analyzer.is_group_parallelizable()
         }
         _ => false,
     }

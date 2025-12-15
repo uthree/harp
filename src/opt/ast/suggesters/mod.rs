@@ -1,13 +1,11 @@
 pub mod composite;
 pub mod cse;
 pub mod function_inlining;
-pub mod group_parallelization;
-pub mod inner_loop_parallelization;
 pub mod loop_fusion;
 pub mod loop_transforms;
+pub mod parallelization;
 pub mod parallelization_common;
 pub mod rule_based;
-pub mod thread_parallelization;
 pub mod variable_expansion;
 
 use crate::ast::AstNode;
@@ -17,12 +15,10 @@ use std::collections::HashSet;
 pub use composite::CompositeSuggester;
 pub use cse::CseSuggester;
 pub use function_inlining::FunctionInliningSuggester;
-pub use group_parallelization::GroupParallelizationSuggester;
-pub use inner_loop_parallelization::InnerLoopParallelizationSuggester;
 pub use loop_fusion::LoopFusionSuggester;
 pub use loop_transforms::{LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester};
+pub use parallelization::{GlobalParallelizationSuggester, LocalParallelizationSuggester};
 pub use rule_based::RuleBaseSuggester;
-pub use thread_parallelization::ThreadParallelizationSuggester;
 pub use variable_expansion::VariableExpansionSuggester;
 
 /// 重複を排除しながら候補リストを作成するヘルパー関数

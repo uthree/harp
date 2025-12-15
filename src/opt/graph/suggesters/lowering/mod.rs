@@ -28,8 +28,7 @@ pub use parallel::ParallelizationStrategy;
 /// # 並列化について
 ///
 /// デフォルトでは逐次実行（Sequential）のみで候補を生成します。
-/// 並列化はASTレベルの最適化（ThreadParallelizationSuggester、
-/// GroupParallelizationSuggester）で行うことを推奨します。
+/// 並列化はASTレベルの最適化（Global/LocalParallelizationSuggester）で行うことを推奨します。
 ///
 /// # 設定可能なパラメータ
 ///

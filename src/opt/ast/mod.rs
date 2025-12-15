@@ -71,8 +71,8 @@ pub use history::{AlternativeCandidate, OptimizationHistory, OptimizationSnapsho
 pub use optimizer::{BeamSearchOptimizer, RuleBaseOptimizer};
 pub use selector::{AstCostSelector, AstMultiStageSelector, AstSelector};
 pub use suggesters::{
-    CompositeSuggester, CseSuggester, FunctionInliningSuggester, GroupParallelizationSuggester,
-    LoopFusionSuggester, LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester,
-    RuleBaseSuggester, ThreadParallelizationSuggester, VariableExpansionSuggester,
+    CompositeSuggester, CseSuggester, FunctionInliningSuggester, GlobalParallelizationSuggester,
+    LocalParallelizationSuggester, LoopFusionSuggester, LoopInliningSuggester,
+    LoopInterchangeSuggester, LoopTilingSuggester, RuleBaseSuggester, VariableExpansionSuggester,
 };
 pub use transforms::{inline_small_loop, tile_loop};

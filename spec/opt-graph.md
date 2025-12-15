@@ -34,7 +34,7 @@ AST版よりも計測コストが高いため、足切り候補数を少なめ�
 ### Lowering系
 - **LoweringSuggester**: GraphOpをKernel(Function)に変換
   - デフォルトでSequential戦略のみで候補を生成
-  - 並列化はAST最適化フェーズ（ThreadParallelizationSuggester、GroupParallelizationSuggester）で行う
+  - 並列化はAST最適化フェーズ（Global/LocalParallelizationSuggester）で行う
   - テスト用に`with_parallel_strategies()`で複数戦略を有効化可能
 - **BufferAbsorptionSuggester**: KernelのsrcにあるBufferを`input_buffers`に取り込む
 - **KernelPartitionSuggester**: 1D FlatParallel Kernelを多次元グリッドに分割
@@ -141,9 +141,9 @@ ProgramRootBufferAbsorptionSuggester : 入力Bufferの除去
        ↓
 === AST最適化フェーズ ===
        ↓
-ThreadParallelizationSuggester : Function → Kernel (スレッド並列化)
+Global/LocalParallelizationSuggester : Function → Kernel (並列化)
        ↓
-LoopTilingSuggester + GroupParallelizationSuggester : グループ並列化
+LoopInterchangeSuggester + Global/LocalParallelizationSuggester : 追加並列化
 ```
 
 ## 最適化モード
