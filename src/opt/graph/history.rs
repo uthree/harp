@@ -11,6 +11,8 @@ pub struct AlternativeCandidate {
     pub cost: f32,
     /// 提案したSuggesterの名前
     pub suggester_name: String,
+    /// 提案の説明
+    pub description: String,
     /// ビーム内の順位（0が最良 = 選択された候補）
     pub rank: usize,
 }

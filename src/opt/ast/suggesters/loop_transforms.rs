@@ -3,8 +3,8 @@
 //! タイル化とインライン展開をビームサーチで使えるようにします。
 
 use crate::ast::AstNode;
-use crate::opt::ast::AstSuggester;
 use crate::opt::ast::transforms::{inline_small_loop, tile_loop};
+use crate::opt::ast::{AstSuggestResult, AstSuggester};
 use log::{debug, trace};
 
 /// ループタイル化を提案するSuggester
@@ -136,7 +136,7 @@ impl AstSuggester for LoopTilingSuggester {
         "LoopTiling"
     }
 
-    fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
+    fn suggest(&self, ast: &AstNode) -> Vec<AstSuggestResult> {
         trace!("LoopTilingSuggester: Generating tiling suggestions");
         let candidates = self.collect_tiling_candidates(ast);
         let suggestions = super::deduplicate_candidates(candidates);
@@ -144,7 +144,11 @@ impl AstSuggester for LoopTilingSuggester {
             "LoopTilingSuggester: Generated {} unique suggestions",
             suggestions.len()
         );
+
         suggestions
+            .into_iter()
+            .map(|ast| AstSuggestResult::with_description(ast, self.name(), "tile loop"))
+            .collect()
     }
 }
 
@@ -327,7 +331,7 @@ impl AstSuggester for LoopInliningSuggester {
         "LoopInlining"
     }
 
-    fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
+    fn suggest(&self, ast: &AstNode) -> Vec<AstSuggestResult> {
         trace!("LoopInliningSuggester: Generating inlining suggestions");
         let candidates = self.collect_inlining_candidates(ast);
         let suggestions = super::deduplicate_candidates(candidates);
@@ -335,7 +339,11 @@ impl AstSuggester for LoopInliningSuggester {
             "LoopInliningSuggester: Generated {} unique suggestions",
             suggestions.len()
         );
+
         suggestions
+            .into_iter()
+            .map(|ast| AstSuggestResult::with_description(ast, self.name(), "inline loop"))
+            .collect()
     }
 }
 
@@ -389,7 +397,7 @@ mod tests {
         assert_eq!(suggestions.len(), 1);
 
         // 展開結果がBlockノードになっているか確認
-        assert!(matches!(suggestions[0], AstNode::Block { .. }));
+        assert!(matches!(suggestions[0].ast, AstNode::Block { .. }));
     }
 
     #[test]
@@ -438,7 +446,7 @@ mod tests {
         assert_eq!(suggestions.len(), 1);
 
         // 展開結果は外側ループが残っているはず
-        assert!(matches!(suggestions[0], AstNode::Range { .. }));
+        assert!(matches!(suggestions[0].ast, AstNode::Range { .. }));
     }
 
     #[test]
@@ -472,7 +480,7 @@ mod tests {
 
         // 単一ループなので展開可能
         assert_eq!(suggestions.len(), 1);
-        assert!(matches!(suggestions[0], AstNode::Block { .. }));
+        assert!(matches!(suggestions[0].ast, AstNode::Block { .. }));
     }
 }
 
@@ -677,7 +685,7 @@ impl AstSuggester for LoopInterchangeSuggester {
         "LoopInterchange"
     }
 
-    fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
+    fn suggest(&self, ast: &AstNode) -> Vec<AstSuggestResult> {
         trace!("LoopInterchangeSuggester: Generating loop interchange suggestions");
         let candidates = self.collect_interchange_candidates(ast);
         let suggestions = super::deduplicate_candidates(candidates);
@@ -685,7 +693,11 @@ impl AstSuggester for LoopInterchangeSuggester {
             "LoopInterchangeSuggester: Generated {} unique suggestions",
             suggestions.len()
         );
+
         suggestions
+            .into_iter()
+            .map(|ast| AstSuggestResult::with_description(ast, self.name(), "interchange loops"))
+            .collect()
     }
 }
 
@@ -728,7 +740,7 @@ mod interchange_tests {
             var: new_outer_var,
             body: new_outer_body,
             ..
-        } = &suggestions[0]
+        } = &suggestions[0].ast
         {
             // 外側がjになっているはず
             assert_eq!(new_outer_var, "j");

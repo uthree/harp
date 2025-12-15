@@ -312,3 +312,28 @@ let (program, histories) = pipeline.optimize_graph_with_all_histories(graph)?;
 - キャッシュなしの設計のため、毎回再計測される
 - グラフ最適化ではLoweringを含むため、AST最適化より計測コストが高い
 - `runtime_buffer_factory`が未設定の場合は静的コストにフォールバック
+
+## 可視化
+
+Graph ViewerはGraph最適化の各ステップを可視化する機能を提供する。
+
+### 機能
+
+- ステップナビゲーション（前へ/次へ、矢印キー操作）
+- グラフのノードグラフ表示（egui_snarl使用）
+- コスト遷移グラフ
+- **候補セレクタ**: ビーム内の全候補を閲覧可能
+  - 選択された候補（rank 0）とその他の候補を切り替え表示
+  - 各候補のコスト、Suggester名、description（変換内容の説明）を表示
+  - ↑/↓キーで候補を切り替え
+
+### 使用方法
+
+```rust
+use harp_viz::HarpVizApp;
+
+let mut app = HarpVizApp::new();
+app.load_from_pipeline(&pipeline);  // Graph履歴も自動で読み込まれる
+```
+
+詳細は`crates/viz/src/graph_viewer.rs`を参照。

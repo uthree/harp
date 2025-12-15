@@ -4,7 +4,7 @@
 //! SubgraphCallノードを対応するサブグラフの計算ノードで置き換えます。
 
 use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
-use crate::opt::graph::GraphSuggester;
+use crate::opt::graph::{GraphSuggester, SuggestResult};
 use std::collections::{HashMap, HashSet};
 
 /// サブグラフ呼び出しをインライン展開するSuggester
@@ -343,7 +343,7 @@ impl GraphSuggester for SubgraphInliningSuggester {
         "SubgraphInlining"
     }
 
-    fn suggest(&self, graph: &Graph) -> Vec<Graph> {
+    fn suggest(&self, graph: &Graph) -> Vec<SuggestResult> {
         let mut suggestions = Vec::new();
         let nodes = self.collect_all_nodes(graph);
 
@@ -379,7 +379,7 @@ impl GraphSuggester for SubgraphInliningSuggester {
                         inlined_outputs.len()
                     );
                     let new_graph = self.replace_subgraph_call(graph, node, inlined_outputs);
-                    suggestions.push(new_graph);
+                    suggestions.push(SuggestResult::new(new_graph, self.name()));
                     // 一度に1つのSubgraphCallのみを展開
                     // 複数のSubgraphCallがある場合は、次のイテレーションで処理される
                     break;
@@ -436,7 +436,7 @@ mod tests {
         assert_eq!(suggestions.len(), 1);
 
         // インライン展開後のグラフにSubgraphCallがないことを確認
-        let inlined = &suggestions[0];
+        let inlined = &suggestions[0].graph;
         let nodes = suggester.collect_all_nodes(inlined);
         let has_subgraph_call = nodes
             .iter()

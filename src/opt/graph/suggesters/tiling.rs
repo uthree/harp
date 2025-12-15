@@ -1,6 +1,6 @@
 use crate::graph::shape::Expr;
 use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
-use crate::opt::graph::GraphSuggester;
+use crate::opt::graph::{GraphSuggester, SuggestResult};
 use std::collections::{HashMap, HashSet};
 
 /// ループのタイル化に相当するView変更を提案するSuggester
@@ -237,7 +237,7 @@ impl GraphSuggester for TilingSuggester {
         "Tiling"
     }
 
-    fn suggest(&self, graph: &Graph) -> Vec<Graph> {
+    fn suggest(&self, graph: &Graph) -> Vec<SuggestResult> {
         let mut suggestions = Vec::new();
         let nodes = self.collect_all_nodes(graph);
 
@@ -251,7 +251,7 @@ impl GraphSuggester for TilingSuggester {
                 for &tile_size in &self.tile_sizes {
                     if let Some(tiled_node) = self.tile_node_axis(node, axis, tile_size) {
                         let new_graph = self.replace_node_in_graph(graph, node, tiled_node);
-                        suggestions.push(new_graph);
+                        suggestions.push(SuggestResult::new(new_graph, self.name()));
                     }
                 }
             }
@@ -287,7 +287,7 @@ mod tests {
         assert_eq!(suggestions.len(), 2);
 
         // 軸0をタイル化した結果を確認
-        let graph0 = &suggestions[0];
+        let graph0 = &suggestions[0].graph;
         let outputs0 = graph0.outputs();
         let output0 = outputs0.get("c").unwrap();
         assert_eq!(
@@ -296,7 +296,7 @@ mod tests {
         );
 
         // 軸1をタイル化した結果を確認
-        let graph1 = &suggestions[1];
+        let graph1 = &suggestions[1].graph;
         let outputs1 = graph1.outputs();
         let output1 = outputs1.get("c").unwrap();
         assert_eq!(
@@ -375,7 +375,7 @@ mod tests {
         // 軸1は128で64の倍数なのでタイル化可能
         assert_eq!(suggestions.len(), 1);
 
-        let graph0 = &suggestions[0];
+        let graph0 = &suggestions[0].graph;
         let outputs0 = graph0.outputs();
         let output0 = outputs0.get("c").unwrap();
         assert_eq!(
@@ -402,7 +402,7 @@ mod tests {
         assert_eq!(suggestions.len(), 2); // 2軸それぞれにタイル化候補
 
         // 最初の候補をloweringしてみる
-        let tiled_graph = suggestions[0].clone();
+        let tiled_graph = suggestions[0].graph.clone();
         let _ast = lower(tiled_graph); // 成功することを期待
     }
 }

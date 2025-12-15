@@ -10,7 +10,7 @@
 
 use crate::graph::ops::InputBufferMeta;
 use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
-use crate::opt::graph::GraphSuggester;
+use crate::opt::graph::{GraphSuggester, SuggestResult};
 use std::collections::{HashMap, HashSet};
 
 /// BufferノードをKernelノードに取り込むSuggester
@@ -203,7 +203,7 @@ impl GraphSuggester for BufferAbsorptionSuggester {
         "BufferAbsorptionSuggester"
     }
 
-    fn suggest(&self, graph: &Graph) -> Vec<Graph> {
+    fn suggest(&self, graph: &Graph) -> Vec<SuggestResult> {
         let custom_nodes = Self::find_custom_with_buffers(graph);
 
         log::debug!(
@@ -216,7 +216,7 @@ impl GraphSuggester for BufferAbsorptionSuggester {
         // 各Kernelノードに対して1つの提案を生成
         for custom_node in &custom_nodes {
             if let Some(new_graph) = self.absorb_buffers(graph, custom_node) {
-                suggestions.push(new_graph);
+                suggestions.push(SuggestResult::new(new_graph, self.name()));
             }
         }
 
@@ -249,7 +249,7 @@ mod tests {
         // Loweringを適用
         let lowered = lowering.suggest(&graph);
         assert!(!lowered.is_empty());
-        let lowered_graph = &lowered[0];
+        let lowered_graph = &lowered[0].graph;
 
         eprintln!("\n=== After Lowering ===");
         for (name, output_node) in lowered_graph.outputs() {
@@ -269,7 +269,7 @@ mod tests {
         eprintln!("Got {} suggestions", absorbed.len());
 
         assert!(!absorbed.is_empty());
-        let absorbed_graph = &absorbed[0];
+        let absorbed_graph = &absorbed[0].graph;
 
         // 検証: Kernelノードのinput_buffersが設定されている
         for output_node in absorbed_graph.outputs().values() {
@@ -298,10 +298,10 @@ mod tests {
         graph.output("c", c);
 
         let lowered = lowering.suggest(&graph);
-        let lowered_graph = &lowered[0];
+        let lowered_graph = &lowered[0].graph;
 
         let absorbed = buffer_absorber.suggest(lowered_graph);
-        let absorbed_graph = &absorbed[0];
+        let absorbed_graph = &absorbed[0].graph;
 
         // 入力メタデータが保持されていることを確認
         assert_eq!(

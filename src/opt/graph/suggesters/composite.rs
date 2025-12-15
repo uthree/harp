@@ -23,38 +23,16 @@ impl GraphSuggester for CompositeSuggester {
         "Composite"
     }
 
-    fn suggest(&self, graph: &Graph) -> Vec<Graph> {
-        let mut all_suggestions = Vec::new();
-
-        // 各Suggesterから候補を収集
-        for suggester in &self.suggesters {
-            log::trace!(
-                "CompositeSuggester: calling suggester '{}'",
-                suggester.name()
-            );
-            let suggestions = suggester.suggest(graph);
-            log::trace!(
-                "CompositeSuggester: suggester '{}' returned {} suggestions",
-                suggester.name(),
-                suggestions.len()
-            );
-            all_suggestions.extend(suggestions);
-        }
-
-        all_suggestions
-    }
-
-    /// 各内部Suggesterの名前を使ってsuggest_namedを実装
-    fn suggest_named(&self, graph: &Graph) -> Vec<SuggestResult> {
+    fn suggest(&self, graph: &Graph) -> Vec<SuggestResult> {
         let mut all_results = Vec::new();
 
         // 各Suggesterから候補を収集（それぞれのSuggester名を保持）
         for suggester in &self.suggesters {
             log::trace!(
-                "CompositeSuggester: calling suggest_named for '{}'",
+                "CompositeSuggester: calling suggest for '{}'",
                 suggester.name()
             );
-            let results = suggester.suggest_named(graph);
+            let results = suggester.suggest(graph);
             log::trace!(
                 "CompositeSuggester: suggester '{}' returned {} results",
                 suggester.name(),
@@ -81,8 +59,12 @@ mod tests {
             "Dummy1"
         }
 
-        fn suggest(&self, _graph: &Graph) -> Vec<Graph> {
-            vec![Graph::new()] // 1つの候補を返す
+        fn suggest(&self, _graph: &Graph) -> Vec<SuggestResult> {
+            vec![SuggestResult::with_description(
+                Graph::new(),
+                "Dummy1",
+                "dummy suggestion 1",
+            )]
         }
     }
 
@@ -91,8 +73,11 @@ mod tests {
             "Dummy2"
         }
 
-        fn suggest(&self, _graph: &Graph) -> Vec<Graph> {
-            vec![Graph::new(), Graph::new()] // 2つの候補を返す
+        fn suggest(&self, _graph: &Graph) -> Vec<SuggestResult> {
+            vec![
+                SuggestResult::with_description(Graph::new(), "Dummy2", "dummy suggestion 2a"),
+                SuggestResult::with_description(Graph::new(), "Dummy2", "dummy suggestion 2b"),
+            ]
         }
     }
 

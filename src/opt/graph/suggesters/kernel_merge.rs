@@ -16,7 +16,7 @@ use crate::ast::helper::const_int;
 use crate::ast::{AstNode, DType as AstDType, Mutability, Scope, VarDecl, VarKind};
 use crate::graph::ops::custom_placeholders as ph;
 use crate::graph::{DType as GraphDType, Graph, GraphNode, GraphNodeData, GraphOp};
-use crate::opt::graph::GraphSuggester;
+use crate::opt::graph::{GraphSuggester, SuggestResult};
 use std::collections::{HashMap, HashSet};
 
 /// 複数のKernelノードをペアワイズでマージするSuggester
@@ -555,7 +555,7 @@ impl GraphSuggester for KernelMergeSuggester {
         "KernelMerge"
     }
 
-    fn suggest(&self, graph: &Graph) -> Vec<Graph> {
+    fn suggest(&self, graph: &Graph) -> Vec<SuggestResult> {
         let pairs = self.find_mergeable_pairs(graph);
 
         log::debug!(
@@ -568,7 +568,7 @@ impl GraphSuggester for KernelMergeSuggester {
         for (consumer, producer) in pairs {
             if let Some(merged_graph) = self.merge_pair(graph, &consumer, &producer) {
                 log::debug!("KernelMergeSuggester: merged pair (consumer -> producer)");
-                suggestions.push(merged_graph);
+                suggestions.push(SuggestResult::new(merged_graph, self.name()));
             }
         }
 
@@ -606,7 +606,7 @@ mod tests {
         assert_eq!(suggestions.len(), 1, "Should produce 1 suggestion");
 
         // マージ後のグラフを確認
-        let merged = &suggestions[0];
+        let merged = &suggestions[0].graph;
         let (fn_count, prog_count) = suggester.count_custom_nodes(merged);
 
         assert_eq!(prog_count, 1, "Should have 1 Kernel(Program)");
@@ -644,7 +644,7 @@ mod tests {
         assert_eq!(suggestions.len(), 2, "Should produce 2 suggestions");
 
         // 1つ目の提案でマージ後、さらにマージ可能
-        let merged_once = &suggestions[0];
+        let merged_once = &suggestions[0].graph;
         let pairs_after = suggester.find_mergeable_pairs(merged_once);
 
         // マージ後も1つのペアが残っているはず
@@ -677,7 +677,7 @@ mod tests {
         assert!(!suggestions.is_empty());
 
         // Programを検査して複数のKernelが含まれることを確認
-        let merged = &suggestions[0];
+        let merged = &suggestions[0].graph;
         if let Some(output) = merged.outputs().values().next()
             && let GraphOp::Kernel {
                 ast: AstNode::Program { functions, .. },

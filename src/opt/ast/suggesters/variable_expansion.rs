@@ -19,7 +19,7 @@
 //! - 定数伝播など他の最適化のための準備
 
 use crate::ast::{AstNode, Scope};
-use crate::opt::ast::AstSuggester;
+use crate::opt::ast::{AstSuggestResult, AstSuggester};
 use log::{debug, trace};
 
 /// 変数展開を提案するSuggester
@@ -453,7 +453,7 @@ impl AstSuggester for VariableExpansionSuggester {
         "VariableExpansion"
     }
 
-    fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
+    fn suggest(&self, ast: &AstNode) -> Vec<AstSuggestResult> {
         trace!("VariableExpansionSuggester: Generating expansion suggestions");
         let candidates = self.collect_expansion_candidates(ast);
         let suggestions = super::deduplicate_candidates(candidates);
@@ -462,7 +462,11 @@ impl AstSuggester for VariableExpansionSuggester {
             "VariableExpansionSuggester: Generated {} unique suggestions",
             suggestions.len()
         );
+
         suggestions
+            .into_iter()
+            .map(|ast| AstSuggestResult::with_description(ast, self.name(), "expand variable"))
+            .collect()
     }
 }
 
@@ -500,7 +504,7 @@ mod tests {
         assert_eq!(suggestions.len(), 1);
 
         // 展開後は1つのstatementのみ（xの代入は削除）
-        if let AstNode::Block { statements, .. } = &suggestions[0] {
+        if let AstNode::Block { statements, .. } = &suggestions[0].ast {
             assert_eq!(statements.len(), 1);
 
             // y = (a * (a + 1)) + (a * (a + 1))
@@ -549,7 +553,7 @@ mod tests {
         assert_eq!(suggestions.len(), 1);
 
         // cse_tmp_0のみ展開される
-        if let AstNode::Block { statements, .. } = &suggestions[0] {
+        if let AstNode::Block { statements, .. } = &suggestions[0].ast {
             assert_eq!(statements.len(), 2); // regular_varの代入 + yの代入
 
             // regular_varの代入は残っている
@@ -624,7 +628,7 @@ mod tests {
         assert_eq!(suggestions.len(), 1);
 
         // 展開後は1つのstatement
-        if let AstNode::Block { statements, .. } = &suggestions[0] {
+        if let AstNode::Block { statements, .. } = &suggestions[0].ast {
             assert_eq!(statements.len(), 1);
         }
     }
@@ -653,7 +657,7 @@ mod tests {
         assert_eq!(suggestions.len(), 1);
 
         // 未使用の代入が削除される
-        if let AstNode::Block { statements, .. } = &suggestions[0] {
+        if let AstNode::Block { statements, .. } = &suggestions[0].ast {
             assert_eq!(statements.len(), 1);
             if let AstNode::Assign { var, .. } = &statements[0] {
                 assert_eq!(var, "y");
@@ -697,7 +701,7 @@ mod tests {
         assert_eq!(suggestions.len(), 1);
 
         // ループ本体で展開されている
-        if let AstNode::Block { statements, .. } = &suggestions[0]
+        if let AstNode::Block { statements, .. } = &suggestions[0].ast
             && let AstNode::Range { body, .. } = &statements[0]
             && let AstNode::Block {
                 statements: inner, ..
@@ -772,7 +776,7 @@ mod tests {
         assert_eq!(suggestions.len(), 1);
 
         // 展開後の構造が元の構造と同じ
-        if let AstNode::Block { statements, .. } = &suggestions[0] {
+        if let AstNode::Block { statements, .. } = &suggestions[0].ast {
             assert_eq!(statements.len(), 1);
             if let AstNode::Assign { var, .. } = &statements[0] {
                 assert_eq!(var, "y");

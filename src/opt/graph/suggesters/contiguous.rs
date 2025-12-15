@@ -1,5 +1,5 @@
 use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp, View};
-use crate::opt::graph::GraphSuggester;
+use crate::opt::graph::{GraphSuggester, SuggestResult};
 use std::collections::{HashMap, HashSet};
 
 /// 非contiguousなViewを持つノードの前にContiguousノードを挿入するSuggester
@@ -170,7 +170,7 @@ impl GraphSuggester for ContiguousInsertionSuggester {
         "ContiguousInsertion"
     }
 
-    fn suggest(&self, graph: &Graph) -> Vec<Graph> {
+    fn suggest(&self, graph: &Graph) -> Vec<SuggestResult> {
         let mut suggestions = Vec::new();
         let nodes = self.collect_all_nodes(graph);
 
@@ -194,7 +194,7 @@ impl GraphSuggester for ContiguousInsertionSuggester {
                     // 非contiguousな入力の前にContiguousノードを挿入
                     let new_node = self.insert_contiguous_before_input(node, input_idx);
                     let new_graph = self.replace_node_in_graph(graph, node, new_node);
-                    suggestions.push(new_graph);
+                    suggestions.push(SuggestResult::new(new_graph, self.name()));
                 }
             }
         }

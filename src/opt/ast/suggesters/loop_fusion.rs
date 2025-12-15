@@ -4,7 +4,7 @@
 //! ループのオーバーヘッドを削減します。
 
 use crate::ast::{AstNode, Scope, helper::block};
-use crate::opt::ast::AstSuggester;
+use crate::opt::ast::{AstSuggestResult, AstSuggester};
 use log::{debug, trace};
 
 /// ループ融合を提案するSuggester
@@ -459,7 +459,7 @@ impl AstSuggester for LoopFusionSuggester {
         "LoopFusion"
     }
 
-    fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
+    fn suggest(&self, ast: &AstNode) -> Vec<AstSuggestResult> {
         trace!("LoopFusionSuggester: Generating loop fusion suggestions");
         let candidates = self.collect_fusion_candidates(ast);
         let suggestions = super::deduplicate_candidates(candidates);
@@ -468,7 +468,11 @@ impl AstSuggester for LoopFusionSuggester {
             "LoopFusionSuggester: Generated {} unique suggestions",
             suggestions.len()
         );
+
         suggestions
+            .into_iter()
+            .map(|ast| AstSuggestResult::with_description(ast, self.name(), "fuse loops"))
+            .collect()
     }
 }
 
@@ -506,7 +510,7 @@ mod tests {
         assert_eq!(suggestions.len(), 1);
 
         // 融合後は1つのRangeになるはず
-        if let AstNode::Block { statements, .. } = &suggestions[0] {
+        if let AstNode::Block { statements, .. } = &suggestions[0].ast {
             assert_eq!(statements.len(), 1);
 
             if let AstNode::Range { body, .. } = &statements[0] {
@@ -555,7 +559,7 @@ mod tests {
         assert_eq!(suggestions.len(), 1);
 
         // 融合後、jはiに置換されるはず
-        if let AstNode::Block { statements, .. } = &suggestions[0]
+        if let AstNode::Block { statements, .. } = &suggestions[0].ast
             && let AstNode::Range { var, body, .. } = &statements[0]
         {
             assert_eq!(var, "i");
@@ -636,7 +640,7 @@ mod tests {
         assert_eq!(suggestions.len(), 1);
 
         // 外側のループ内で内側のループが融合されているはず
-        if let AstNode::Block { statements, .. } = &suggestions[0]
+        if let AstNode::Block { statements, .. } = &suggestions[0].ast
             && let AstNode::Range { body, .. } = &statements[0]
             && let AstNode::Block {
                 statements: inner, ..
@@ -716,7 +720,7 @@ mod tests {
         // loop1とloop2が融合される
         assert_eq!(suggestions.len(), 1);
 
-        if let AstNode::Block { statements, .. } = &suggestions[0] {
+        if let AstNode::Block { statements, .. } = &suggestions[0].ast {
             // Barrierの前に1つのRangeになっているはず
             assert_eq!(statements.len(), 3); // fused_loop, barrier, loop3
             assert!(matches!(statements[0], AstNode::Range { .. }));

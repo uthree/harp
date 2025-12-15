@@ -103,14 +103,30 @@ pub struct SuggestResult {
     pub graph: Graph,
     /// 提案したSuggesterの名前
     pub suggester_name: String,
+    /// 提案の説明（どのような変換を行ったか）
+    pub description: String,
 }
 
 impl SuggestResult {
-    /// 新しいSuggestResultを作成
+    /// 新しいSuggestResultを作成（説明なし）
     pub fn new(graph: Graph, suggester_name: impl Into<String>) -> Self {
         Self {
             graph,
             suggester_name: suggester_name.into(),
+            description: String::new(),
+        }
+    }
+
+    /// 新しいSuggestResultを作成（説明付き）
+    pub fn with_description(
+        graph: Graph,
+        suggester_name: impl Into<String>,
+        description: impl Into<String>,
+    ) -> Self {
+        Self {
+            graph,
+            suggester_name: suggester_name.into(),
+            description: description.into(),
         }
     }
 }
@@ -120,16 +136,8 @@ pub trait GraphSuggester {
     /// Suggesterの名前を返す
     fn name(&self) -> &'static str;
 
-    /// 現在のグラフから書き換え可能な候補をすべて提案
-    fn suggest(&self, graph: &Graph) -> Vec<Graph>;
-
-    /// 現在のグラフから書き換え可能な候補をSuggester名付きで提案
-    fn suggest_named(&self, graph: &Graph) -> Vec<SuggestResult> {
-        self.suggest(graph)
-            .into_iter()
-            .map(|g| SuggestResult::new(g, self.name()))
-            .collect()
-    }
+    /// 現在のグラフから書き換え可能な候補をすべて提案（説明付き）
+    fn suggest(&self, graph: &Graph) -> Vec<SuggestResult>;
 }
 
 /// グラフの実行コストを推定するトレイト

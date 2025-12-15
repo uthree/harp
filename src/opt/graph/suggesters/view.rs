@@ -1,5 +1,5 @@
 use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
-use crate::opt::graph::GraphSuggester;
+use crate::opt::graph::{GraphSuggester, SuggestResult};
 use std::collections::{HashMap, HashSet};
 
 /// View変更ノード（転置）を挿入してループ順序を入れ替えるSuggester
@@ -202,7 +202,7 @@ impl GraphSuggester for ViewInsertionSuggester {
         "ViewInsertion"
     }
 
-    fn suggest(&self, graph: &Graph) -> Vec<Graph> {
+    fn suggest(&self, graph: &Graph) -> Vec<SuggestResult> {
         let mut suggestions = Vec::new();
         let nodes = self.collect_all_nodes(graph);
 
@@ -239,7 +239,7 @@ impl GraphSuggester for ViewInsertionSuggester {
             for permutation in permutations {
                 let new_node = self.insert_transpose_around_node(node, permutation);
                 let new_graph = self.replace_node_in_graph(graph, node, new_node);
-                suggestions.push(new_graph);
+                suggestions.push(SuggestResult::new(new_graph, self.name()));
             }
         }
 

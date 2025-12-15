@@ -5,7 +5,7 @@
 
 use crate::ast::{AstNode, DType, Mutability, VarDecl, VarKind, helper::*};
 use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
-use crate::opt::graph::GraphSuggester;
+use crate::opt::graph::{GraphSuggester, SuggestResult};
 use log::{debug, trace};
 use std::collections::HashSet;
 
@@ -654,7 +654,7 @@ impl GraphSuggester for KernelPartitionSuggester {
         "KernelPartition"
     }
 
-    fn suggest(&self, graph: &Graph) -> Vec<Graph> {
+    fn suggest(&self, graph: &Graph) -> Vec<SuggestResult> {
         trace!("KernelPartitionSuggester: Generating partition suggestions");
         let mut suggestions = Vec::new();
 
@@ -688,7 +688,7 @@ impl GraphSuggester for KernelPartitionSuggester {
                     {
                         let new_graph =
                             self.replace_node_in_graph(graph, &kernel_node, partitioned);
-                        suggestions.push(new_graph);
+                        suggestions.push(SuggestResult::new(new_graph, self.name()));
                     }
                 }
             }

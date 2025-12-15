@@ -423,7 +423,14 @@ impl CodeViewerApp {
                         snapshot
                             .alternatives
                             .iter()
-                            .map(|alt| (alt.rank, alt.cost, alt.suggester_name.clone()))
+                            .map(|alt| {
+                                (
+                                    alt.rank,
+                                    alt.cost,
+                                    alt.suggester_name.clone(),
+                                    alt.description.clone(),
+                                )
+                            })
                             .collect::<Vec<_>>(),
                     ))
                 }
@@ -468,7 +475,7 @@ impl CodeViewerApp {
                             .color(egui::Color32::from_rgb(100, 200, 100))
                             .strong(),
                     );
-                    ui.label(format!("cost={:.2e}", snapshot_cost));
+                    ui.label(format!("cost={:.2}", snapshot_cost));
                 });
                 if let Some(ref name) = suggester_name {
                     ui.label(
@@ -478,17 +485,24 @@ impl CodeViewerApp {
             } else {
                 // 代替候補
                 let alt_idx = viewed_idx - 1;
-                if let Some((rank, cost, ref name)) = alternatives.get(alt_idx) {
+                if let Some((rank, cost, ref name, ref desc)) = alternatives.get(alt_idx) {
                     ui.horizontal(|ui| {
                         ui.label(
                             egui::RichText::new(format!("Rank {}", rank))
                                 .color(egui::Color32::from_rgb(200, 150, 100)),
                         );
-                        ui.label(format!("cost={:.2e}", cost));
+                        ui.label(format!("cost={:.2}", cost));
                     });
                     if let Some(ref name) = name {
                         ui.label(
                             egui::RichText::new(name).color(egui::Color32::from_rgb(150, 150, 200)),
+                        );
+                    }
+                    if !desc.is_empty() {
+                        ui.label(
+                            egui::RichText::new(desc)
+                                .color(egui::Color32::from_rgb(180, 180, 180))
+                                .italics(),
                         );
                     }
                 }
@@ -501,7 +515,7 @@ impl CodeViewerApp {
                 .show(ui, |ui| {
                     // 選択された候補（rank 0）
                     let is_current = viewed_idx == 0;
-                    let text = format!("★ Selected: cost={:.2e}", snapshot_cost);
+                    let text = format!("★ Selected: cost={:.2}", snapshot_cost);
                     let btn = if is_current {
                         egui::Button::new(egui::RichText::new(&text).color(egui::Color32::YELLOW))
                     } else {
@@ -512,10 +526,14 @@ impl CodeViewerApp {
                     }
 
                     // 代替候補
-                    for (idx, (rank, cost, ref name)) in alternatives.iter().enumerate() {
+                    for (idx, (rank, cost, ref name, ref desc)) in alternatives.iter().enumerate() {
                         let is_current = viewed_idx == idx + 1;
                         let name_str = name.as_deref().unwrap_or("unknown");
-                        let text = format!("Rank {}: cost={:.2e} [{}]", rank, cost, name_str);
+                        let text = if desc.is_empty() {
+                            format!("Rank {}: cost={:.2} [{}]", rank, cost, name_str)
+                        } else {
+                            format!("Rank {}: cost={:.2} [{}] - {}", rank, cost, name_str, desc)
+                        };
                         let btn = if is_current {
                             egui::Button::new(
                                 egui::RichText::new(&text).color(egui::Color32::YELLOW),
@@ -577,7 +595,7 @@ impl CodeViewerApp {
                     ui.end_row();
 
                     ui.label("Cost:");
-                    ui.label(format!("{:.2e}", cost));
+                    ui.label(format!("{:.2}", cost));
                     ui.end_row();
 
                     if let Some(ref rule) = applied_rule {

@@ -20,7 +20,7 @@
 //! - その他（Elementwise等）: 次元数の変更を許可しない（srcとの整合性の問題）
 
 use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
-use crate::opt::graph::GraphSuggester;
+use crate::opt::graph::{GraphSuggester, SuggestResult};
 use std::collections::{HashMap, HashSet};
 
 /// Viewノードをマージして、ノード数を削減するSuggester
@@ -262,7 +262,7 @@ impl GraphSuggester for ViewMergeSuggester {
         "ViewMerge"
     }
 
-    fn suggest(&self, graph: &Graph) -> Vec<Graph> {
+    fn suggest(&self, graph: &Graph) -> Vec<SuggestResult> {
         let mut suggestions = Vec::new();
         let nodes = self.collect_all_nodes(graph);
         let ref_counts = self.count_node_references(graph);
@@ -288,7 +288,7 @@ impl GraphSuggester for ViewMergeSuggester {
             // Viewノードをマージ
             if let Some(merged_node) = self.merge_view_node(node) {
                 let new_graph = self.replace_view_in_graph(graph, node, merged_node);
-                suggestions.push(new_graph);
+                suggestions.push(SuggestResult::new(new_graph, self.name()));
             }
         }
 
@@ -323,7 +323,7 @@ mod tests {
         assert_eq!(suggestions.len(), 1);
 
         // 提案されたグラフを確認
-        let new_graph = &suggestions[0];
+        let new_graph = &suggestions[0].graph;
         let outputs = new_graph.outputs();
         let result = outputs.get("result").unwrap();
 
@@ -374,7 +374,7 @@ mod tests {
         assert_eq!(suggestions.len(), 1);
 
         // 提案されたグラフを確認
-        let new_graph = &suggestions[0];
+        let new_graph = &suggestions[0].graph;
         let outputs = new_graph.outputs();
         let result = outputs.get("result").unwrap();
 
@@ -411,7 +411,7 @@ mod tests {
         assert_eq!(suggestions.len(), 1);
 
         // 提案されたグラフを確認
-        let new_graph = &suggestions[0];
+        let new_graph = &suggestions[0].graph;
         let outputs = new_graph.outputs();
         let result = outputs.get("result").unwrap();
 
@@ -444,7 +444,7 @@ mod tests {
         // Input -> View (unsqueeze) の融合が1つ提案される
         assert_eq!(suggestions.len(), 1);
 
-        let new_graph = &suggestions[0];
+        let new_graph = &suggestions[0].graph;
         let outputs = new_graph.outputs();
         let result = outputs.get("result").unwrap();
 
@@ -476,7 +476,7 @@ mod tests {
             !lowered_graphs.is_empty(),
             "LoweringSuggester should produce suggestions"
         );
-        let lowered_graph = &lowered_graphs[0];
+        let lowered_graph = &lowered_graphs[0].graph;
 
         // Kernelノードの出力にViewを適用
         let lowered_outputs = lowered_graph.outputs();
@@ -497,7 +497,7 @@ mod tests {
         assert_eq!(merged_graphs.len(), 1, "Should produce 1 merged graph");
 
         // マージ後のグラフを確認
-        let merged_outputs = merged_graphs[0].outputs();
+        let merged_outputs = merged_graphs[0].graph.outputs();
         let merged_result = merged_outputs.get("result").unwrap();
 
         // 結果がKernelノードであることを確認（Viewノードではない）

@@ -547,7 +547,14 @@ impl GraphViewerApp {
                         snapshot
                             .alternatives
                             .iter()
-                            .map(|alt| (alt.rank, alt.cost, alt.suggester_name.clone()))
+                            .map(|alt| {
+                                (
+                                    alt.rank,
+                                    alt.cost,
+                                    alt.suggester_name.clone(),
+                                    alt.description.clone(),
+                                )
+                            })
                             .collect::<Vec<_>>(),
                     ))
                 }
@@ -592,7 +599,7 @@ impl GraphViewerApp {
                             .color(egui::Color32::from_rgb(100, 200, 100))
                             .strong(),
                     );
-                    ui.label(format!("cost={:.2e}", snapshot_cost));
+                    ui.label(format!("cost={:.2}", snapshot_cost));
                 });
                 if let Some(ref name) = suggester_name {
                     ui.label(
@@ -602,17 +609,24 @@ impl GraphViewerApp {
             } else {
                 // 代替候補
                 let alt_idx = viewed_idx - 1;
-                if let Some((rank, cost, ref name)) = alternatives.get(alt_idx) {
+                if let Some((rank, cost, ref name, ref desc)) = alternatives.get(alt_idx) {
                     ui.horizontal(|ui| {
                         ui.label(
                             egui::RichText::new(format!("Rank {}", rank))
                                 .color(egui::Color32::from_rgb(200, 150, 100)),
                         );
-                        ui.label(format!("cost={:.2e}", cost));
+                        ui.label(format!("cost={:.2}", cost));
                     });
                     ui.label(
                         egui::RichText::new(name).color(egui::Color32::from_rgb(150, 150, 200)),
                     );
+                    if !desc.is_empty() {
+                        ui.label(
+                            egui::RichText::new(desc)
+                                .color(egui::Color32::from_rgb(180, 180, 180))
+                                .italics(),
+                        );
+                    }
                 }
             }
 
@@ -623,7 +637,7 @@ impl GraphViewerApp {
                 .show(ui, |ui| {
                     // 選択された候補（rank 0）
                     let is_current = viewed_idx == 0;
-                    let text = format!("★ Selected: cost={:.2e}", snapshot_cost);
+                    let text = format!("★ Selected: cost={:.2}", snapshot_cost);
                     let btn = if is_current {
                         egui::Button::new(egui::RichText::new(&text).color(egui::Color32::YELLOW))
                     } else {
@@ -634,9 +648,13 @@ impl GraphViewerApp {
                     }
 
                     // 代替候補
-                    for (idx, (rank, cost, ref name)) in alternatives.iter().enumerate() {
+                    for (idx, (rank, cost, ref name, ref desc)) in alternatives.iter().enumerate() {
                         let is_current = viewed_idx == idx + 1;
-                        let text = format!("Rank {}: cost={:.2e} [{}]", rank, cost, name);
+                        let text = if desc.is_empty() {
+                            format!("Rank {}: cost={:.2} [{}]", rank, cost, name)
+                        } else {
+                            format!("Rank {}: cost={:.2} [{}] - {}", rank, cost, name, desc)
+                        };
                         let btn = if is_current {
                             egui::Button::new(
                                 egui::RichText::new(&text).color(egui::Color32::YELLOW),

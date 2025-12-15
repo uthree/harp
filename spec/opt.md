@@ -30,9 +30,31 @@ GenericPipelineでは以下の2段階で実行される：
 
 両階層ともビームサーチを用いた探索ベースの最適化を採用:
 
-1. **Suggester** - 書き換え候補を生成
+1. **Suggester** - 書き換え候補を生成（`SuggestResult`/`AstSuggestResult`を返す）
 2. **Selector** - 候補の評価と選択を担当（CostEstimatorを内包）
 3. **Optimizer** - ビームサーチで最良の変換列を探索
+
+### SuggestResult構造
+
+Suggesterは単なるGraph/ASTではなく、メタ情報を含む構造体を返す：
+
+```rust
+// Graph用
+pub struct SuggestResult {
+    pub graph: Graph,
+    pub suggester_name: String,  // 提案元のSuggester名
+    pub description: String,     // 変換内容の説明
+}
+
+// AST用
+pub struct AstSuggestResult {
+    pub ast: AstNode,
+    pub suggester_name: String,
+    pub description: String,
+}
+```
+
+`description`フィールドには具体的な変換内容を記述できる（例: "Fuse Add and Mul nodes"）。Visualizerで候補を比較する際に有用。
 
 ### Selector設計
 

@@ -57,7 +57,7 @@ fn test_lower_elementwise_add() {
 
     // 全ての候補のグラフでKernelノードが使われていることを確認
     for (i, new_graph) in suggestions.iter().enumerate() {
-        let outputs = new_graph.outputs();
+        let outputs = new_graph.graph.outputs();
         let output = outputs.get("c").unwrap();
         assert!(
             matches!(output.op, GraphOp::Kernel { .. }),
@@ -86,7 +86,7 @@ fn test_lower_reduce_sum() {
 
     // 全ての候補のグラフでKernelノードが使われていることを確認
     for (i, new_graph) in suggestions.iter().enumerate() {
-        let outputs = new_graph.outputs();
+        let outputs = new_graph.graph.outputs();
         let output = outputs.get("b").unwrap();
         assert!(
             matches!(output.op, GraphOp::Kernel { .. }),
@@ -249,7 +249,7 @@ fn test_lower_fused_elementwise_reduce_parallel() {
     let mut has_function = false;
 
     for new_graph in &suggestions {
-        let outputs = new_graph.outputs();
+        let outputs = new_graph.graph.outputs();
         let output = outputs.get("c").unwrap();
         if let GraphOp::Kernel { ast, .. } = &output.op {
             match ast {
@@ -270,7 +270,7 @@ fn test_lower_fused_elementwise_reduce_parallel() {
     );
 
     // 出力形状が正しいことを確認: [4, 5] (K軸が縮約された)
-    let first_graph = &suggestions[0];
+    let first_graph = &suggestions[0].graph;
     let outputs = first_graph.outputs();
     let output = outputs.get("c").unwrap();
     let output_shape = output.view.shape();
@@ -302,7 +302,7 @@ fn test_lower_fused_elementwise_reduce_multiple_axes() {
     );
 
     for (i, new_graph) in suggestions.iter().enumerate() {
-        let outputs = new_graph.outputs();
+        let outputs = new_graph.graph.outputs();
         let output = outputs.get("c").unwrap();
         assert!(
             matches!(output.op, GraphOp::Kernel { .. }),
@@ -312,7 +312,7 @@ fn test_lower_fused_elementwise_reduce_multiple_axes() {
     }
 
     // 出力形状が正しいことを確認: [3, 4] (K1, K2軸が縮約された)
-    let first_graph = &suggestions[0];
+    let first_graph = &suggestions[0].graph;
     let outputs = first_graph.outputs();
     let output = outputs.get("c").unwrap();
     let output_shape = output.view.shape();
@@ -343,7 +343,7 @@ fn test_sequential_only_mode() {
     );
 
     // 候補のグラフでKernelノードが使われていることを確認
-    let new_graph = &suggestions[0];
+    let new_graph = &suggestions[0].graph;
     let outputs = new_graph.outputs();
     let output = outputs.get("c").unwrap();
     assert!(

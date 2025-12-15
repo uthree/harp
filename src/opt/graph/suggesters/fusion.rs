@@ -2,7 +2,7 @@ use crate::ast::{AstNode, helper::wildcard};
 use crate::graph::ops::{ElementwiseOp, ReduceOp};
 use crate::graph::shape::View;
 use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
-use crate::opt::graph::GraphSuggester;
+use crate::opt::graph::{GraphSuggester, SuggestResult};
 use std::collections::{HashMap, HashSet};
 
 // === 融合ノード生成ヘルパー関数（内部用） ===
@@ -487,7 +487,7 @@ impl GraphSuggester for FusionSuggester {
         "Fusion"
     }
 
-    fn suggest(&self, graph: &Graph) -> Vec<Graph> {
+    fn suggest(&self, graph: &Graph) -> Vec<SuggestResult> {
         let mut suggestions = Vec::new();
         let nodes = self.collect_all_nodes(graph);
         let ref_counts = self.count_node_references(graph);
@@ -513,7 +513,7 @@ impl GraphSuggester for FusionSuggester {
                 let fused_node = fused_elementwise_reduce(graph_inputs, expr, reduce_op, axes);
 
                 let new_graph = self.replace_node_in_graph(graph, node, fused_node);
-                suggestions.push(new_graph);
+                suggestions.push(SuggestResult::new(new_graph, self.name()));
             }
 
             // Elementwise チェーンを検出して融合
@@ -541,7 +541,7 @@ impl GraphSuggester for FusionSuggester {
                 let fused_node = fused_elementwise(graph_inputs, expr);
 
                 let new_graph = self.replace_node_in_graph(graph, node, fused_node);
-                suggestions.push(new_graph);
+                suggestions.push(SuggestResult::new(new_graph, self.name()));
             }
         }
 

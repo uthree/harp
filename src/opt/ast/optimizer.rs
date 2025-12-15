@@ -259,18 +259,22 @@ where
                 pb.set_position(step as u64);
             }
 
-            let mut candidates_with_name: Vec<(AstNode, String)> = Vec::new();
+            let mut candidates_with_name: Vec<(AstNode, String, String)> = Vec::new();
 
-            // 現在のビーム内の各候補から新しい候補を生成（Suggester名付き）
+            // 現在のビーム内の各候補から新しい候補を生成
             for ast in &beam {
-                let new_candidates = self.suggester.suggest_named(ast);
-                candidates_with_name.extend(new_candidates);
+                let new_candidates = self.suggester.suggest(ast);
+                candidates_with_name.extend(
+                    new_candidates
+                        .into_iter()
+                        .map(|result| (result.ast, result.suggester_name, result.description)),
+                );
             }
 
             // 最大ノード数制限を適用
             let original_count = candidates_with_name.len();
             if let Some(max_nodes) = self.max_node_count {
-                candidates_with_name.retain(|(ast, _)| {
+                candidates_with_name.retain(|(ast, _, _)| {
                     let node_count = SimpleCostEstimator::get_node_count(ast);
                     if node_count > max_nodes {
                         trace!(
@@ -309,16 +313,21 @@ where
             let num_candidates = candidates_with_name.len();
             trace!("Found {} candidates at step {}", num_candidates, step);
 
-            // ASTからSuggester名へのマッピングを構築（Selectorに渡す前に保存）
+            // ASTからSuggester名・descriptionへのマッピングを構築（Selectorに渡す前に保存）
             let ast_to_suggester: std::collections::HashMap<String, String> = candidates_with_name
                 .iter()
-                .map(|(ast, name)| (format!("{:?}", ast), name.clone()))
+                .map(|(ast, name, _)| (format!("{:?}", ast), name.clone()))
                 .collect();
+            let ast_to_description: std::collections::HashMap<String, String> =
+                candidates_with_name
+                    .iter()
+                    .map(|(ast, _, desc)| (format!("{:?}", ast), desc.clone()))
+                    .collect();
 
             // 候補のASTだけを取り出してSelectorに渡す
             let candidates: Vec<AstNode> = candidates_with_name
                 .into_iter()
-                .map(|(ast, _)| ast)
+                .map(|(ast, _, _)| ast)
                 .collect();
 
             // Selectorで全候補のコストを計算してソート（上位全件取得）
@@ -395,11 +404,15 @@ where
                     .iter()
                     .skip(1)
                     .enumerate()
-                    .map(|(idx, (ast, cost))| AlternativeCandidate {
-                        ast: ast.clone(),
-                        cost: *cost,
-                        suggester_name: ast_to_suggester.get(&format!("{:?}", ast)).cloned(),
-                        rank: idx + 1,
+                    .map(|(idx, (ast, cost))| {
+                        let key = format!("{:?}", ast);
+                        AlternativeCandidate {
+                            ast: ast.clone(),
+                            cost: *cost,
+                            suggester_name: ast_to_suggester.get(&key).cloned(),
+                            description: ast_to_description.get(&key).cloned().unwrap_or_default(),
+                            rank: idx + 1,
+                        }
                     })
                     .collect();
 

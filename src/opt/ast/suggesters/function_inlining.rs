@@ -3,7 +3,7 @@
 //! 小さい関数をインライン展開して、関数呼び出しのオーバーヘッドを削減します。
 
 use crate::ast::AstNode;
-use crate::opt::ast::AstSuggester;
+use crate::opt::ast::{AstSuggestResult, AstSuggester};
 use log::{debug, trace};
 use std::collections::{HashMap, HashSet};
 
@@ -666,7 +666,7 @@ impl AstSuggester for FunctionInliningSuggester {
         "FunctionInlining"
     }
 
-    fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
+    fn suggest(&self, ast: &AstNode) -> Vec<AstSuggestResult> {
         trace!("FunctionInliningSuggester: Generating function inlining suggestions");
         let candidates = self.collect_inlining_candidates(ast);
 
@@ -682,7 +682,11 @@ impl AstSuggester for FunctionInliningSuggester {
             "FunctionInliningSuggester: Generated {} unique suggestions",
             suggestions.len()
         );
+
         suggestions
+            .into_iter()
+            .map(|ast| AstSuggestResult::with_description(ast, self.name(), "inline function"))
+            .collect()
     }
 }
 
@@ -738,7 +742,7 @@ mod tests {
         assert!(!suggestions.is_empty());
 
         // 最初の候補を検証
-        if let AstNode::Program { functions, .. } = &suggestions[0] {
+        if let AstNode::Program { functions, .. } = &suggestions[0].ast {
             // main関数を取得
             let main_func = functions
                 .iter()
@@ -924,7 +928,7 @@ mod tests {
         );
 
         // インライン展開後の構造を確認
-        if let AstNode::Program { functions, .. } = &suggestions[0] {
+        if let AstNode::Program { functions, .. } = &suggestions[0].ast {
             // mainだけになっているはず（kernel_0が削除された場合）
             // または、main内にCallがなくなっているはず
             let main_func = functions
@@ -1025,7 +1029,7 @@ mod tests {
         assert!(!suggestions.is_empty());
 
         // 最初の候補を検証
-        if let AstNode::Program { functions, .. } = &suggestions[0] {
+        if let AstNode::Program { functions, .. } = &suggestions[0].ast {
             // main関数を取得
             let main_func = functions
                 .iter()

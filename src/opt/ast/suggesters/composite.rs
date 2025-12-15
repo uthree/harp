@@ -1,5 +1,5 @@
 use crate::ast::AstNode;
-use crate::opt::ast::AstSuggester;
+use crate::opt::ast::{AstSuggestResult, AstSuggester};
 use log::{debug, trace};
 use std::collections::HashSet;
 
@@ -20,7 +20,7 @@ impl AstSuggester for CompositeSuggester {
         "Composite"
     }
 
-    fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
+    fn suggest(&self, ast: &AstNode) -> Vec<AstSuggestResult> {
         trace!("CompositeSuggester: Generating suggestions from multiple suggesters");
         let mut suggestions = Vec::new();
         let mut seen = HashSet::new();
@@ -29,7 +29,7 @@ impl AstSuggester for CompositeSuggester {
         for suggester in &self.suggesters {
             let candidates = suggester.suggest(ast);
             for candidate in candidates {
-                let candidate_str = format!("{:?}", candidate);
+                let candidate_str = format!("{:?}", candidate.ast);
                 if !seen.contains(&candidate_str) {
                     seen.insert(candidate_str);
                     suggestions.push(candidate);
@@ -39,32 +39,6 @@ impl AstSuggester for CompositeSuggester {
 
         debug!(
             "CompositeSuggester: Generated {} unique suggestions from {} suggesters",
-            suggestions.len(),
-            self.suggesters.len()
-        );
-        suggestions
-    }
-
-    /// 候補とともに元のSuggester名を返す（CompositeSuggester用のオーバーライド）
-    fn suggest_named(&self, ast: &AstNode) -> Vec<(AstNode, String)> {
-        trace!("CompositeSuggester: Generating named suggestions from multiple suggesters");
-        let mut suggestions = Vec::new();
-        let mut seen = HashSet::new();
-
-        // 各Suggesterから候補と名前を収集
-        for suggester in &self.suggesters {
-            let candidates = suggester.suggest_named(ast);
-            for (candidate, name) in candidates {
-                let candidate_str = format!("{:?}", candidate);
-                if !seen.contains(&candidate_str) {
-                    seen.insert(candidate_str);
-                    suggestions.push((candidate, name));
-                }
-            }
-        }
-
-        debug!(
-            "CompositeSuggester: Generated {} unique named suggestions from {} suggesters",
             suggestions.len(),
             self.suggesters.len()
         );

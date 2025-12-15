@@ -14,7 +14,7 @@
 //! ```
 
 use crate::ast::{AstNode, DType, Mutability, Scope};
-use crate::opt::ast::AstSuggester;
+use crate::opt::ast::{AstSuggestResult, AstSuggester};
 use log::{debug, trace};
 use std::collections::HashMap;
 
@@ -535,7 +535,7 @@ impl AstSuggester for CseSuggester {
         "CSE"
     }
 
-    fn suggest(&self, ast: &AstNode) -> Vec<AstNode> {
+    fn suggest(&self, ast: &AstNode) -> Vec<AstSuggestResult> {
         trace!("CseSuggester: Generating CSE suggestions");
         let candidates = self.collect_cse_candidates(ast);
         let suggestions = super::deduplicate_candidates(candidates);
@@ -544,7 +544,13 @@ impl AstSuggester for CseSuggester {
             "CseSuggester: Generated {} unique suggestions",
             suggestions.len()
         );
+
         suggestions
+            .into_iter()
+            .map(|ast| {
+                AstSuggestResult::with_description(ast, self.name(), "extract common subexpression")
+            })
+            .collect()
     }
 }
 
@@ -577,7 +583,7 @@ mod tests {
         assert_eq!(suggestions.len(), 1);
 
         // CSE後は2つのstatementがあるはず（一時変数の代入 + 元の式）
-        if let AstNode::Block { statements, .. } = &suggestions[0] {
+        if let AstNode::Block { statements, .. } = &suggestions[0].ast {
             assert_eq!(statements.len(), 2);
 
             // 最初のstatementは一時変数への代入
@@ -654,7 +660,7 @@ mod tests {
         assert_eq!(suggestions.len(), 1);
 
         // CSE後は3つのstatementがあるはず
-        if let AstNode::Block { statements, .. } = &suggestions[0] {
+        if let AstNode::Block { statements, .. } = &suggestions[0].ast {
             assert_eq!(statements.len(), 3);
         }
     }
@@ -691,7 +697,7 @@ mod tests {
         assert_eq!(suggestions.len(), 1);
 
         // ループ本体のBlock内でCSEが適用されている
-        if let AstNode::Block { statements, .. } = &suggestions[0]
+        if let AstNode::Block { statements, .. } = &suggestions[0].ast
             && let AstNode::Range { body, .. } = &statements[0]
             && let AstNode::Block {
                 statements: inner, ..
@@ -743,7 +749,7 @@ mod tests {
         assert_eq!(suggestions.len(), 1);
 
         // カスタムプレフィックスが使用されている
-        if let AstNode::Block { statements, .. } = &suggestions[0]
+        if let AstNode::Block { statements, .. } = &suggestions[0].ast
             && let AstNode::Assign { var, .. } = &statements[0]
         {
             assert!(

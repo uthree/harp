@@ -257,9 +257,9 @@ where
 
             let mut candidates: Vec<SuggestResult> = Vec::new();
 
-            // 現在のビーム内の各候補から新しい候補を生成（Suggester名付き）
+            // 現在のビーム内の各候補から新しい候補を生成
             for graph in &beam {
-                let new_candidates = self.suggester.suggest_named(graph);
+                let new_candidates = self.suggester.suggest(graph);
                 candidates.extend(new_candidates);
             }
 
@@ -289,10 +289,19 @@ where
             let num_candidates = candidates.len();
             trace!("Found {} candidates at step {}", num_candidates, step);
 
+            // description を保持するためのマッピングを作成
+            let description_map: std::collections::HashMap<usize, String> = candidates
+                .iter()
+                .enumerate()
+                .map(|(i, result)| (i, result.description.clone()))
+                .collect();
+
             // 候補を準備（Selectorが内部でコストを計算）
+            // インデックスをnameに含めてdescriptionを後で取得できるようにする
             let candidates_for_selector: Vec<(Graph, String)> = candidates
                 .into_iter()
-                .map(|result| (result.graph, result.suggester_name))
+                .enumerate()
+                .map(|(i, result)| (result.graph, format!("{}:{}", i, result.suggester_name)))
                 .collect();
 
             // Selectorで全候補のコストを計算してソート（上位全件取得）
@@ -300,10 +309,17 @@ where
                 .selector
                 .select(candidates_for_selector, num_candidates);
 
-            // (Graph, f32, String) の形式に変換
-            let all_candidates: Vec<(Graph, f32, String)> = all_with_cost
+            // (Graph, f32, String, String) の形式に変換 (graph, cost, name, description)
+            let all_candidates: Vec<(Graph, f32, String, String)> = all_with_cost
                 .into_iter()
-                .map(|((graph, name), cost)| (graph, cost, name))
+                .map(|((graph, indexed_name), cost)| {
+                    // "index:name" から分離
+                    let parts: Vec<&str> = indexed_name.splitn(2, ':').collect();
+                    let idx: usize = parts[0].parse().unwrap_or(0);
+                    let name = parts.get(1).unwrap_or(&"").to_string();
+                    let desc = description_map.get(&idx).cloned().unwrap_or_default();
+                    (graph, cost, name, desc)
+                })
                 .collect();
 
             // ビーム用に上位beam_width個を取得
@@ -313,10 +329,13 @@ where
                 .cloned()
                 .collect();
 
-            beam = top_candidates.iter().map(|(g, _, _)| g.clone()).collect();
+            beam = top_candidates
+                .iter()
+                .map(|(g, _, _, _)| g.clone())
+                .collect();
 
             // このステップの最良候補を記録（既に計算したコストを再利用）
-            if let Some((best, cost, suggester_name)) = top_candidates.first() {
+            if let Some((best, cost, suggester_name, _desc)) = top_candidates.first() {
                 let num_outputs = best.outputs().len();
                 let num_inputs = best.input_metas().len();
 
@@ -345,10 +364,11 @@ where
                     .iter()
                     .skip(1)
                     .enumerate()
-                    .map(|(idx, (graph, cost, name))| AlternativeCandidate {
+                    .map(|(idx, (graph, cost, name, desc))| AlternativeCandidate {
                         graph: graph.clone(),
                         cost: *cost,
                         suggester_name: name.clone(),
+                        description: desc.clone(),
                         rank: idx + 1,
                     })
                     .collect();
@@ -586,8 +606,8 @@ where
             }
 
             // 最初のサジェスチョンを適用（コスト比較なし）
-            let new_graph = suggestions.into_iter().next().unwrap();
-            let cost = estimator.estimate(&new_graph);
+            let suggestion = suggestions.into_iter().next().unwrap();
+            let cost = estimator.estimate(&suggestion.graph);
 
             debug!(
                 "GreedyGraphOptimizer: step {} - applied suggestion (cost: {:.2e})",
@@ -596,12 +616,12 @@ where
 
             history.add_snapshot(OptimizationSnapshot::new(
                 step + 1,
-                new_graph.clone(),
+                suggestion.graph.clone(),
                 cost,
                 format!("Step {} - greedy apply", step + 1),
             ));
 
-            graph = new_graph;
+            graph = suggestion.graph;
         }
 
         let final_cost = estimator.estimate(&graph);
@@ -848,7 +868,7 @@ mod tests {
             "Dummy"
         }
 
-        fn suggest(&self, _graph: &Graph) -> Vec<Graph> {
+        fn suggest(&self, _graph: &Graph) -> Vec<SuggestResult> {
             // 何も提案しない
             vec![]
         }
