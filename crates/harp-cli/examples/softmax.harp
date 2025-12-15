@@ -4,7 +4,7 @@
 // Note: We use exp2(x * log2(e)) to compute exp(x)
 // where log2(e) ≈ 1.4427
 
-graph<N=1, M=1> softmax(x: f32[N, M]) -> (y: f32[N, M]) {
+graph<N=1, M=1> main(x: f32[N, M]) -> (y: f32[N, M]) {
     // Compute max for numerical stability
     x_max = x.max(dim=1)
     x_max_exp = x_max.unsqueeze(1).expand([N, M])

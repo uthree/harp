@@ -13,6 +13,7 @@ use harp::opt::ast::{
     CompositeSuggester as AstCompositeSuggester, FunctionInliningSuggester, LoopFusionSuggester,
     LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester, RuleBaseOptimizer,
 };
+use harp::opt::graph::GraphOptimizer;
 use harp_dsl::{compile, decompile, parse};
 
 #[derive(Parser)]
@@ -343,7 +344,7 @@ where
     // Phase 4: Render to code
     let mut renderer = R::default();
     let code = renderer.render_program_clike(&optimized_program);
-    Ok(code.into())
+    Ok(code)
 }
 
 fn optimize_ast(program: harp::ast::AstNode) -> harp::ast::AstNode {

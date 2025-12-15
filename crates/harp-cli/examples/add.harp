@@ -1,7 +1,7 @@
 // Simple element-wise addition
 // Two tensors of the same shape are added together
 
-graph<N=1, M=1> add(a: f32[N, M], b: f32[N, M]) -> (c: f32[N, M]) {
+graph<N=1, M=1> main(a: f32[N, M], b: f32[N, M]) -> (c: f32[N, M]) {
     result = a + b
     return result
 }

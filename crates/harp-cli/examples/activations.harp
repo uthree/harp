@@ -1,8 +1,9 @@
 // Activation Functions Demo
 // Common activation functions used in neural networks
 
+// Main entry point using ReLU
 // ReLU: max(x, 0)
-graph<N=1, M=1> relu(x: f32[N, M]) -> (y: f32[N, M]) {
+graph<N=1, M=1> main(x: f32[N, M]) -> (y: f32[N, M]) {
     zero = 0.0
     result = max(x, zero)
     return result

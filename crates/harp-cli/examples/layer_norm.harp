@@ -8,7 +8,7 @@
 //
 // Note: Using concrete feature size (256) for mean computation
 
-graph<B=1> layer_norm(x: f32[B, 256], gamma: f32[256], beta: f32[256]) -> (y: f32[B, 256]) {
+graph<B=1> main(x: f32[B, 256], gamma: f32[256], beta: f32[256]) -> (y: f32[B, 256]) {
     // Compute mean along features dimension
     mean = x.mean(dim=1)
     mean_exp = mean.unsqueeze(1).expand([B, 256])

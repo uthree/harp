@@ -1,8 +1,8 @@
 // Reduce Operations Demo
 // Demonstrates various reduction operations along different axes
 
-// Sum reduction along different axes
-graph<N=1, M=1> sum_axis0(x: f32[N, M]) -> (y: f32[M]) {
+// Main entry point: Sum reduction along axis 0
+graph<N=1, M=1> main(x: f32[N, M]) -> (y: f32[M]) {
     result = x.sum(dim=0)
     return result
 }

@@ -16,8 +16,8 @@ graph<B=1, I=1, O=1> linear_relu(x: f32[B, I], w: f32[I, O], b: f32[O]) -> (y: f
     return result
 }
 
-// Two-layer MLP
-graph<B=1, D=1, H=1> mlp(
+// Main entry point: Two-layer MLP
+graph<B=1, D=1, H=1> main(
     x: f32[B, D],
     w1: f32[D, H],
     b1: f32[H],

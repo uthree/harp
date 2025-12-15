@@ -2,8 +2,8 @@
 // Demonstrates fused, fused_reduce, and fused_cumulative operations
 // These operations allow combining multiple elementwise operations into a single kernel
 
-// Fused elementwise: a * b + c (FMA - Fused Multiply-Add)
-graph<N=1, M=1> fma(a: f32[N, M], b: f32[N, M], c: f32[N, M]) -> (y: f32[N, M]) {
+// Main entry point - Fused elementwise: a * b + c (FMA - Fused Multiply-Add)
+graph<N=1, M=1> main(a: f32[N, M], b: f32[N, M], c: f32[N, M]) -> (y: f32[N, M]) {
     result = fused(a, b, c) { a * b + c }
     return result
 }

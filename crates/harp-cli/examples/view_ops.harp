@@ -2,8 +2,8 @@
 // Demonstrates tensor shape manipulation operations
 // These operations change how the tensor is viewed without copying data
 
-// Unsqueeze: add a dimension of size 1
-graph<H=1, W=1> add_batch_dim(x: f32[H, W]) -> (y: f32[1, H, W]) {
+// Main entry point: Unsqueeze to add a dimension of size 1
+graph<H=1, W=1> main(x: f32[H, W]) -> (y: f32[1, H, W]) {
     result = x.unsqueeze(0)
     return result
 }
