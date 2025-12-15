@@ -275,7 +275,7 @@ pub fn is_range_thread_parallelizable(range_node: &AstNode) -> bool {
 
 /// AST内の変数を別の式で置換
 ///
-/// ループ変数をThreadIdやGroupIdに置き換える際に使用します。
+/// ループ変数をGroupIdやLocalIdに置き換える際に使用します。
 pub fn substitute_var(ast: &AstNode, var_name: &str, replacement: &AstNode) -> AstNode {
     match ast {
         AstNode::Var(name) if name == var_name => replacement.clone(),
@@ -479,16 +479,6 @@ pub fn ceil_div(a: AstNode, b: AstNode) -> AstNode {
     AstNode::Idiv(Box::new(numerator), Box::new(b))
 }
 
-/// ThreadId変数宣言を作成
-pub fn thread_id_param(name: impl Into<String>, axis: usize) -> VarDecl {
-    VarDecl {
-        name: name.into(),
-        dtype: DType::Int,
-        mutability: Mutability::Immutable,
-        kind: VarKind::ThreadId(axis),
-    }
-}
-
 /// GroupId変数宣言を作成
 pub fn group_id_param(name: impl Into<String>, axis: usize) -> VarDecl {
     VarDecl {
@@ -514,16 +504,14 @@ pub fn const_int(value: isize) -> AstNode {
     AstNode::Const(Literal::Int(value))
 }
 
-/// すべてのID系パラメータ（ThreadId, LocalId, GroupId）が使用している軸を収集
+/// すべてのID系パラメータ（LocalId, GroupId）が使用している軸を収集
 ///
 /// 各軸（0, 1, 2）について使用済みかどうかを返します。
 pub fn collect_used_axes(params: &[VarDecl]) -> [bool; 3] {
     let mut used = [false; 3];
     for param in params {
         let axis = match &param.kind {
-            VarKind::ThreadId(axis) | VarKind::LocalId(axis) | VarKind::GroupId(axis) => {
-                Some(*axis)
-            }
+            VarKind::LocalId(axis) | VarKind::GroupId(axis) => Some(*axis),
             _ => None,
         };
         if let Some(axis) = axis
@@ -537,7 +525,7 @@ pub fn collect_used_axes(params: &[VarDecl]) -> [bool; 3] {
 
 /// 次に使用可能な空き軸を取得
 ///
-/// ThreadId, LocalId, GroupIdのいずれかが使用している軸を避けて、
+/// LocalId, GroupIdのいずれかが使用している軸を避けて、
 /// 最初の空き軸を返します。すべての軸が使用済みの場合はNoneを返します。
 pub fn find_next_available_axis(params: &[VarDecl]) -> Option<usize> {
     let used = collect_used_axes(params);

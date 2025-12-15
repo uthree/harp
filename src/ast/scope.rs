@@ -20,10 +20,12 @@ pub enum Mutability {
 }
 
 /// 変数の種類
+///
+/// GPUカーネルの並列化には GroupId + LocalId を使用します。
+/// グローバルインデックスは `group_id * local_size + local_id` で計算できます。
 #[derive(Clone, Debug, PartialEq)]
 pub enum VarKind {
     Normal,           // 通常の変数/引数
-    ThreadId(usize),  // グローバルスレッドID（軸番号）- get_global_id(axis)
     GroupId(usize),   // グループID（軸番号）- get_group_id(axis)
     LocalId(usize),   // ローカルスレッドID（軸番号）- get_local_id(axis)
     GroupSize(usize), // グループサイズ（軸番号）- get_local_size(axis)

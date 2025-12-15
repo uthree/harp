@@ -573,13 +573,12 @@ impl CLikeRenderer for OpenCLRenderer {
             Mutability::Mutable => "",
         };
 
-        // ThreadId, GroupId, LocalIdなどは関数内でget_global_id()等で取得するため、パラメータには含めない
+        // GroupId, LocalIdなどは関数内でget_group_id()等で取得するため、パラメータには含めない
         match &param.kind {
             VarKind::Normal => {
                 format!("{}{} {}", mut_str, type_str, param.name)
             }
-            VarKind::ThreadId(_)
-            | VarKind::GroupId(_)
+            VarKind::GroupId(_)
             | VarKind::LocalId(_)
             | VarKind::GroupSize(_)
             | VarKind::GridSize(_) => {
@@ -598,15 +597,9 @@ impl CLikeRenderer for OpenCLRenderer {
 
         let mut declarations = String::new();
 
-        // パラメータからThreadId/GroupId/LocalId等を探し、実際の名前を使用する
+        // パラメータからGroupId/LocalId等を探し、実際の名前を使用する
         for param in params {
             match &param.kind {
-                VarKind::ThreadId(axis) => {
-                    declarations.push_str(&format!(
-                        "{}int {} = get_global_id({});\n",
-                        indent, param.name, axis
-                    ));
-                }
                 VarKind::GroupId(axis) => {
                     declarations.push_str(&format!(
                         "{}int {} = get_group_id({});\n",
@@ -740,14 +733,14 @@ mod tests {
     #[test]
     fn test_kernel_function_with_mixed_params() {
         use crate::ast::helper::const_int;
-        // カーネル関数でThreadIdとNormalパラメータが混在している場合のテスト
+        // カーネル関数でGroupIdとNormalパラメータが混在している場合のテスト
         let mut renderer = OpenCLRenderer::new();
 
         let params = vec![
             VarDecl {
-                name: "tid".to_string(),
+                name: "grp".to_string(),
                 dtype: DType::Int,
-                kind: VarKind::ThreadId(0), // フィルタされるべき
+                kind: VarKind::GroupId(0), // フィルタされるべき
                 mutability: Mutability::Immutable,
             },
             VarDecl {
@@ -790,7 +783,7 @@ mod tests {
 
         let rendered = renderer.render_function_node(&func);
 
-        // ThreadIdパラメータはフィルタされ、カンマが正しく処理されること
+        // GroupIdパラメータはフィルタされ、カンマが正しく処理されること
         assert!(rendered.contains("__kernel"));
         assert!(rendered.contains("test_kernel"));
         // パラメータ部分に不正なカンマが無いこと
@@ -804,20 +797,20 @@ mod tests {
     #[test]
     fn test_kernel_function_all_params_filtered() {
         use crate::ast::helper::const_int;
-        // 全パラメータがフィルタされる場合（ThreadId, GroupIdのみ）
+        // 全パラメータがフィルタされる場合（GroupId, LocalIdのみ）
         let mut renderer = OpenCLRenderer::new();
 
         let params = vec![
             VarDecl {
-                name: "tid".to_string(),
+                name: "grp".to_string(),
                 dtype: DType::Int,
-                kind: VarKind::ThreadId(0),
+                kind: VarKind::GroupId(0),
                 mutability: Mutability::Immutable,
             },
             VarDecl {
-                name: "gid".to_string(),
+                name: "lid".to_string(),
                 dtype: DType::Int,
-                kind: VarKind::GroupId(0),
+                kind: VarKind::LocalId(0),
                 mutability: Mutability::Immutable,
             },
         ];
@@ -967,40 +960,40 @@ mod tests {
         let decls = renderer.render_thread_var_declarations(&[], "    ");
         assert!(decls.is_empty());
 
-        // ThreadIdパラメータがある場合、その名前でget_global_id()を生成
+        // GroupIdパラメータがある場合、その名前でget_group_id()を生成
         let params = vec![VarDecl {
-            name: "tid".to_string(),
+            name: "grp".to_string(),
             dtype: DType::Int,
-            kind: VarKind::ThreadId(0),
+            kind: VarKind::GroupId(0),
             mutability: Mutability::Immutable,
         }];
         let decls = renderer.render_thread_var_declarations(&params, "    ");
-        assert!(decls.contains("int tid = get_global_id(0)"));
+        assert!(decls.contains("int grp = get_group_id(0)"));
 
         // 複数のパラメータタイプ
         let params = vec![
-            VarDecl {
-                name: "thread_x".to_string(),
-                dtype: DType::Int,
-                kind: VarKind::ThreadId(0),
-                mutability: Mutability::Immutable,
-            },
-            VarDecl {
-                name: "thread_y".to_string(),
-                dtype: DType::Int,
-                kind: VarKind::ThreadId(1),
-                mutability: Mutability::Immutable,
-            },
             VarDecl {
                 name: "group_x".to_string(),
                 dtype: DType::Int,
                 kind: VarKind::GroupId(0),
                 mutability: Mutability::Immutable,
             },
+            VarDecl {
+                name: "group_y".to_string(),
+                dtype: DType::Int,
+                kind: VarKind::GroupId(1),
+                mutability: Mutability::Immutable,
+            },
+            VarDecl {
+                name: "local_x".to_string(),
+                dtype: DType::Int,
+                kind: VarKind::LocalId(0),
+                mutability: Mutability::Immutable,
+            },
         ];
         let decls = renderer.render_thread_var_declarations(&params, "    ");
-        assert!(decls.contains("int thread_x = get_global_id(0)"));
-        assert!(decls.contains("int thread_y = get_global_id(1)"));
         assert!(decls.contains("int group_x = get_group_id(0)"));
+        assert!(decls.contains("int group_y = get_group_id(1)"));
+        assert!(decls.contains("int local_x = get_local_id(0)"));
     }
 }

@@ -34,7 +34,7 @@ use crate::opt::cost_utils::{log_sum_exp, log_sum_exp_iter};
 /// - ローカル並列化（LocalId）: ワークグループ内のスレッド並列化
 ///   - 共有メモリへのアクセスが高速
 ///   - 同期オーバーヘッドが小さい
-/// - グローバル並列化（GroupId/ThreadId）: ワークグループ間の並列化
+/// - グローバル並列化（GroupId）: ワークグループ間の並列化
 ///   - グローバルメモリへのアクセスが必要
 ///   - 同期オーバーヘッドが大きい
 #[derive(Clone, Debug)]
@@ -69,7 +69,7 @@ pub struct SimpleCostEstimator {
     /// ワークグループ内の並列化は共有メモリを活用でき、オーバーヘッドが小さい
     /// 値が小さいほど効率的（0 = 理想的）
     pub local_parallel_overhead: f32,
-    /// グローバル並列化（GroupId/ThreadId）のオーバーヘッド（対数スケール）
+    /// グローバル並列化（GroupId）のオーバーヘッド（対数スケール）
     /// ワークグループ間の並列化はグローバルメモリアクセスが必要で、オーバーヘッドが大きい
     /// 値が大きいほど非効率
     pub global_parallel_overhead: f32,
@@ -578,11 +578,11 @@ impl AstCostEstimator for SimpleCostEstimator {
 
                 // 並列化の種類を検出
                 // LocalId: ワークグループ内の並列化（効率が高い）
-                // GroupId/ThreadId: ワークグループ間の並列化（オーバーヘッドが大きい）
+                // GroupId: ワークグループ間の並列化（オーバーヘッドが大きい）
                 let has_local_id = params.iter().any(|p| matches!(p.kind, VarKind::LocalId(_)));
                 let has_global_parallel = params
                     .iter()
-                    .any(|p| matches!(p.kind, VarKind::GroupId(_) | VarKind::ThreadId(_)));
+                    .any(|p| matches!(p.kind, VarKind::GroupId(_)));
 
                 // grid_sizeから総スレッド数（並列度）を推定
                 let grid_elements: f32 = default_grid_size
@@ -609,18 +609,19 @@ impl AstCostEstimator for SimpleCostEstimator {
                 };
 
                 // 並列化オーバーヘッドを決定（対数スケール）
-                // LocalIdを使用している場合は低オーバーヘッド、GlobalIdのみの場合は高オーバーヘッド
+                // LocalIdを使用している場合は低オーバーヘッド、GroupIdのみの場合は高オーバーヘッド
+                // LocalId + GroupIdの両方を使用している場合が最も効率的（GPUの設計通りの使用）
                 let parallelization_overhead = if has_local_id && has_global_parallel {
-                    // 両方使用: 加算
-                    self.local_parallel_overhead * self.global_parallel_overhead
+                    // 両方使用: 最も効率的（LocalIdのオーバーヘッドのみ）
+                    self.local_parallel_overhead
                 } else if has_local_id {
-                    // LocalIdのみ
+                    // LocalIdのみ: 効率的
                     self.local_parallel_overhead
                 } else if has_global_parallel {
-                    // GlobalIdのみ
+                    // GroupIdのみ: 非効率（ワークグループ内の並列性を活用できない）
                     self.global_parallel_overhead
                 } else {
-                    //並列化なし 定数倍
+                    // 並列化なし: 定数倍
                     1.0
                 };
 

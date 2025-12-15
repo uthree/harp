@@ -74,7 +74,7 @@ impl Function {
         let mut scope = Scope::new();
         for param in &params {
             // VarKindがNormalの場合のみスコープに宣言
-            // ThreadId/GroupIdなどは組み込み値なのでスコープには登録しない
+            // GroupId/LocalIdなどは組み込み値なのでスコープには登録しない
             if param.kind == VarKind::Normal {
                 scope.declare(
                     param.name.clone(),

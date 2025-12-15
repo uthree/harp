@@ -47,16 +47,16 @@ LoweringSuggesterが生成した1D FlatParallel Kernelを、より効率的な�
 ```text
 // 変換前 (1D FlatParallel)
 Kernel {
-    params: [tid: ThreadId(0), ...],
-    body: { if (tid < total) { ... } },
+    params: [grp: GroupId(0), ...],
+    body: { if (grp < total) { ... } },
     grid_size: [ceil_div(N, 256) * 256, 1, 1],
     thread_group_size: [256, 1, 1],
 }
 
 // 変換後 (2D Grid)
 Kernel {
-    params: [tid_0: ThreadId(0), tid_1: ThreadId(1), ...],
-    body: { if (tid_0 < shape_0 && tid_1 < shape_1) { ... } },
+    params: [grp_0: GroupId(0), grp_1: GroupId(1), ...],
+    body: { if (grp_0 < shape_0 && grp_1 < shape_1) { ... } },
     grid_size: [ceil_div(shape_0, 16) * 16, ceil_div(shape_1, 16) * 16, 1],
     thread_group_size: [16, 16, 1],
 }
@@ -141,9 +141,9 @@ ProgramRootBufferAbsorptionSuggester : 入力Bufferの除去
        ↓
 === AST最適化フェーズ ===
        ↓
-Global/LocalParallelizationSuggester : Function → Kernel (並列化)
+Group/LocalParallelizationSuggester : Function → Kernel (並列化)
        ↓
-LoopInterchangeSuggester + Global/LocalParallelizationSuggester : 追加並列化
+LoopInterchangeSuggester + Group/LocalParallelizationSuggester : 追加並列化
 ```
 
 ## 最適化モード

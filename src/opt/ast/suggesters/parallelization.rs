@@ -1,10 +1,12 @@
 //! ループ並列化を提案するSuggester
 //!
 //! 2つのSuggesterを提供:
-//! - GlobalParallelizationSuggester: ThreadId使用、動的分岐チェックあり
-//! - LocalParallelizationSuggester: LocalId使用、動的分岐チェックなし
+//! - GroupParallelizationSuggester: GroupId使用、グループ単位の並列化、動的分岐チェックあり
+//! - LocalParallelizationSuggester: LocalId使用、ワークグループ内並列化、動的分岐チェックなし
 //!
 //! 両方のSuggesterがFunction→KernelとKernel内ループ並列化の両方に対応。
+//!
+//! グローバルインデックスが必要な場合は `group_id * local_size + local_id` で計算できます。
 //!
 //! ホスト側でスレッド数・グループ数を正確に設定するため、
 //! 並列化時に境界チェック（if文）は生成しない。
@@ -13,9 +15,9 @@ use crate::ast::{AstNode, Literal, Scope};
 use crate::opt::ast::{AstSuggestResult, AstSuggester};
 
 use super::parallelization_common::{
-    collect_free_variables, const_int, find_next_available_axis, infer_params_from_placeholders,
-    is_range_parallelizable, is_range_thread_parallelizable, local_id_param, substitute_var,
-    thread_id_param, var,
+    collect_free_variables, const_int, find_next_available_axis, group_id_param,
+    infer_params_from_placeholders, is_range_parallelizable, is_range_thread_parallelizable,
+    local_id_param, substitute_var, var,
 };
 
 /// デフォルトのスレッドグループサイズ
@@ -93,15 +95,17 @@ fn replace_range_with(node: &AstNode, target_range: &AstNode, replacement: AstNo
 }
 
 // ============================================================================
-// GlobalParallelizationSuggester
+// GroupParallelizationSuggester
 // ============================================================================
 
-/// グローバル並列化を提案するSuggester
+/// グループ単位の並列化を提案するSuggester
 ///
-/// ThreadId（get_global_id）を使用してグローバルスレッド並列化を行います。
+/// GroupId（get_group_id）を使用してワークグループ単位の並列化を行います。
 ///
 /// **動的分岐チェック: あり**
 /// GPUの分岐ダイバージェンスを避けるため、ループ内にIf文があると並列化しません。
+///
+/// グローバルインデックスが必要な場合は `group_id * local_size + local_id` で計算します。
 ///
 /// # 対応する変換
 ///
@@ -110,21 +114,25 @@ fn replace_range_with(node: &AstNode, target_range: &AstNode, replacement: AstNo
 /// // 変換前
 /// Function { body: Range { var: "i", ... } }
 /// // 変換後
-/// Kernel { params: [gidx0: ThreadId(0), ...], ... }
+/// Kernel { params: [grp0: GroupId(0), ...], grid_size: [N, 1, 1], ... }
 /// ```
 ///
-/// ## Kernel内ループ → ThreadId追加
+/// ## Kernel内ループ → GroupId追加
 /// ```text
 /// // 変換前
-/// Kernel { params: [gidx0: ThreadId(0)], body: Range { var: "j", ... } }
+/// Kernel { params: [grp0: GroupId(0)], body: Range { var: "j", ... } }
 /// // 変換後
-/// Kernel { params: [gidx0: ThreadId(0), gidx1: ThreadId(1)], ... }
+/// Kernel { params: [grp0: GroupId(0), grp1: GroupId(1)], ... }
 /// ```
-pub struct GlobalParallelizationSuggester {
+pub struct GroupParallelizationSuggester {
     thread_group_size: usize,
 }
 
-impl GlobalParallelizationSuggester {
+/// 後方互換性のためのエイリアス
+#[deprecated(note = "Use GroupParallelizationSuggester instead")]
+pub type GlobalParallelizationSuggester = GroupParallelizationSuggester;
+
+impl GroupParallelizationSuggester {
     pub fn new() -> Self {
         Self {
             thread_group_size: DEFAULT_THREAD_GROUP_SIZE,
@@ -182,13 +190,13 @@ impl GlobalParallelizationSuggester {
         };
 
         log::debug!(
-            "GlobalParallelization: Converting Function {:?} to Kernel",
+            "GroupParallelization: Converting Function {:?} to Kernel",
             name
         );
 
-        let gid_name = "gidx0";
-        // ループ変数をスレッドIDに置換（境界チェックなし）
-        let new_body = substitute_var(loop_body, loop_var, &var(gid_name));
+        let grp_name = "grp0";
+        // ループ変数をGroupIdに置換（境界チェックなし）
+        let new_body = substitute_var(loop_body, loop_var, &var(grp_name));
 
         let kernel_body = if let AstNode::Block { scope, .. } = loop_body.as_ref() {
             AstNode::Block {
@@ -205,11 +213,11 @@ impl GlobalParallelizationSuggester {
         // grid_sizeは正確なイテレーション数を設定
         let total_iterations = compute_total_iterations(start, stop);
 
-        let mut kernel_params = vec![thread_id_param(gid_name, 0)];
+        let mut kernel_params = vec![group_id_param(grp_name, 0)];
 
         if params.is_empty() {
             let free_vars = collect_free_variables(&kernel_body);
-            let free_vars: Vec<_> = free_vars.into_iter().filter(|v| v != gid_name).collect();
+            let free_vars: Vec<_> = free_vars.into_iter().filter(|v| v != grp_name).collect();
             let inferred_params = infer_params_from_placeholders(&free_vars);
             kernel_params.extend(inferred_params);
         } else {
@@ -260,35 +268,31 @@ impl GlobalParallelizationSuggester {
             return None;
         };
 
-        // すべてのID種類（ThreadId, LocalId, GroupId）が使用している軸を避ける
+        // すべてのID種類（LocalId, GroupId）が使用している軸を避ける
         let next_axis = find_next_available_axis(params)?;
-        let gid_name = format!("gidx{}", next_axis);
+        let grp_name = format!("grp{}", next_axis);
 
         log::debug!(
-            "GlobalParallelization: Adding ThreadId({}) to Kernel {:?}: {} -> {}",
+            "GroupParallelization: Adding GroupId({}) to Kernel {:?}: {} -> {}",
             next_axis,
             name,
             loop_var,
-            gid_name
+            grp_name
         );
 
-        // ループ変数をスレッドIDに置換（境界チェックなし）
-        let new_body = substitute_var(loop_body, loop_var, &var(&gid_name));
+        // ループ変数をGroupIdに置換（境界チェックなし）
+        let new_body = substitute_var(loop_body, loop_var, &var(&grp_name));
         let new_kernel_body = replace_range_with(body, range_node, new_body);
 
         let mut new_params = params.clone();
-        new_params.push(thread_id_param(&gid_name, next_axis));
+        new_params.push(group_id_param(&grp_name, next_axis));
 
         // grid_sizeは正確なイテレーション数を設定
         let total_iterations = compute_total_iterations(start, stop);
         let new_grid_size = update_grid_size(default_grid_size, next_axis, &total_iterations);
 
-        // ThreadIdの場合、thread_group_sizeも更新
-        let new_thread_group_size = update_thread_group_size(
-            default_thread_group_size,
-            next_axis,
-            &const_int(self.thread_group_size as isize),
-        );
+        // GroupIdの場合、thread_group_sizeはデフォルトを維持（LocalIdで別途設定可能）
+        let new_thread_group_size = default_thread_group_size.clone();
 
         Some(AstNode::Kernel {
             name: name.clone(),
@@ -337,7 +341,7 @@ impl GlobalParallelizationSuggester {
                                 functions: new_functions,
                             },
                             self.name(),
-                            format!("Parallelize {} (add ThreadId)", kernel_name),
+                            format!("Parallelize {} (add GroupId)", kernel_name),
                         ));
                     }
                 }
@@ -349,15 +353,15 @@ impl GlobalParallelizationSuggester {
     }
 }
 
-impl Default for GlobalParallelizationSuggester {
+impl Default for GroupParallelizationSuggester {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl AstSuggester for GlobalParallelizationSuggester {
+impl AstSuggester for GroupParallelizationSuggester {
     fn name(&self) -> &str {
-        "GlobalParallelization"
+        "GroupParallelization"
     }
 
     fn suggest(&self, ast: &AstNode) -> Vec<AstSuggestResult> {
@@ -379,7 +383,7 @@ impl AstSuggester for GlobalParallelizationSuggester {
                     vec![AstSuggestResult::with_description(
                         kernel,
                         self.name(),
-                        "Parallelize (add ThreadId)".to_string(),
+                        "Parallelize (add GroupId)".to_string(),
                     )]
                 } else {
                     vec![]
@@ -415,9 +419,9 @@ impl AstSuggester for GlobalParallelizationSuggester {
 /// ## Kernel内ループ → LocalId追加
 /// ```text
 /// // 変換前
-/// Kernel { params: [gidx0: ThreadId(0)], body: Range { var: "j", ... } }
+/// Kernel { params: [grp0: GroupId(0)], body: Range { var: "j", ... } }
 /// // 変換後
-/// Kernel { params: [gidx0: ThreadId(0), lidx0: LocalId(0)], thread_group_size: [256, M, 1] }
+/// Kernel { params: [grp0: GroupId(0), lidx0: LocalId(0)], thread_group_size: [256, M, 1] }
 /// ```
 pub struct LocalParallelizationSuggester;
 
@@ -551,7 +555,7 @@ impl LocalParallelizationSuggester {
             return None;
         };
 
-        // すべてのID種類（ThreadId, LocalId, GroupId）が使用している軸を避ける
+        // すべてのID種類（LocalId, GroupId）が使用している軸を避ける
         let next_axis = find_next_available_axis(params)?;
         let lid_name = format!("lidx{}", next_axis);
 
@@ -781,10 +785,10 @@ mod tests {
             name: Some("test_kernel".to_string()),
             params: vec![
                 VarDecl {
-                    name: "gidx0".to_string(),
+                    name: "grp0".to_string(),
                     dtype: DType::Int,
                     mutability: Mutability::Immutable,
-                    kind: VarKind::ThreadId(0),
+                    kind: VarKind::GroupId(0),
                 },
                 VarDecl {
                     name: "input".to_string(),
@@ -843,10 +847,10 @@ mod tests {
         AstNode::Kernel {
             name: Some("branching_kernel".to_string()),
             params: vec![VarDecl {
-                name: "gidx0".to_string(),
+                name: "grp0".to_string(),
                 dtype: DType::Int,
                 mutability: Mutability::Immutable,
-                kind: VarKind::ThreadId(0),
+                kind: VarKind::GroupId(0),
             }],
             return_type: DType::Tuple(vec![]),
             body: Box::new(inner_loop),
@@ -874,8 +878,8 @@ mod tests {
         assert_eq!(results.len(), 1);
 
         if let AstNode::Kernel { params, .. } = &results[0].ast {
-            assert_eq!(params[0].name, "gidx0");
-            assert!(matches!(params[0].kind, VarKind::ThreadId(0)));
+            assert_eq!(params[0].name, "grp0");
+            assert!(matches!(params[0].kind, VarKind::GroupId(0)));
         }
     }
 
@@ -898,13 +902,13 @@ mod tests {
         assert_eq!(results.len(), 1);
 
         if let AstNode::Kernel { params, .. } = &results[0].ast {
-            let thread_id_params: Vec<_> = params
+            let group_id_params: Vec<_> = params
                 .iter()
-                .filter(|p| matches!(p.kind, VarKind::ThreadId(_)))
+                .filter(|p| matches!(p.kind, VarKind::GroupId(_)))
                 .collect();
-            assert_eq!(thread_id_params.len(), 2);
-            assert_eq!(thread_id_params[1].name, "gidx1");
-            assert!(matches!(thread_id_params[1].kind, VarKind::ThreadId(1)));
+            assert_eq!(group_id_params.len(), 2);
+            assert_eq!(group_id_params[1].name, "grp1");
+            assert!(matches!(group_id_params[1].kind, VarKind::GroupId(1)));
         }
     }
 
@@ -958,7 +962,7 @@ mod tests {
                 .filter(|p| matches!(p.kind, VarKind::LocalId(_)))
                 .collect();
             assert_eq!(local_id_params.len(), 1);
-            // make_kernel_with_loopは既にThreadId(0)を持つため、LocalIdはaxis=1を使用
+            // make_kernel_with_loopは既にGroupId(0)を持つため、LocalIdはaxis=1を使用
             assert_eq!(local_id_params[0].name, "lidx1");
             assert!(matches!(local_id_params[0].kind, VarKind::LocalId(1)));
             // 境界チェックなしでStoreノードになる
@@ -1103,14 +1107,14 @@ mod tests {
             assert_eq!(local_id_params.len(), 1);
             assert!(matches!(local_id_params[0].kind, VarKind::LocalId(0)));
 
-            // ThreadIdはaxis=1を使用すべき（axis=0はLocalIdが使用中）
-            let thread_id_params: Vec<_> = params
+            // GroupIdはaxis=1を使用すべき（axis=0はLocalIdが使用中）
+            let group_id_params: Vec<_> = params
                 .iter()
-                .filter(|p| matches!(p.kind, VarKind::ThreadId(_)))
+                .filter(|p| matches!(p.kind, VarKind::GroupId(_)))
                 .collect();
-            assert_eq!(thread_id_params.len(), 1);
-            assert_eq!(thread_id_params[0].name, "gidx1");
-            assert!(matches!(thread_id_params[0].kind, VarKind::ThreadId(1)));
+            assert_eq!(group_id_params.len(), 1);
+            assert_eq!(group_id_params[0].name, "grp1");
+            assert!(matches!(group_id_params[0].kind, VarKind::GroupId(1)));
 
             // thread_group_size[0]がLocalId用の256のまま保持されていることを確認
             assert!(matches!(
@@ -1122,11 +1126,11 @@ mod tests {
         }
     }
 
-    /// 既にThreadIdで並列化されたKernelに対してLocalParallelizationを適用したとき、
+    /// 既にGroupIdで並列化されたKernelに対してLocalParallelizationを適用したとき、
     /// 軸が衝突しないことを確認するテスト
     #[test]
-    fn test_local_does_not_overwrite_thread_axis() {
-        // ThreadId(0)を持つKernelを作成
+    fn test_local_does_not_overwrite_group_axis() {
+        // GroupId(0)を持つKernelを作成
         let body = store(
             var("output"),
             var("j"),
@@ -1143,13 +1147,13 @@ mod tests {
 
         let one = const_int(1);
         let kernel = AstNode::Kernel {
-            name: Some("thread_kernel".to_string()),
+            name: Some("group_kernel".to_string()),
             params: vec![
                 VarDecl {
-                    name: "gidx0".to_string(),
+                    name: "grp0".to_string(),
                     dtype: DType::Int,
                     mutability: Mutability::Immutable,
-                    kind: VarKind::ThreadId(0), // ThreadId(0)がaxis=0を使用
+                    kind: VarKind::GroupId(0), // GroupId(0)がaxis=0を使用
                 },
                 VarDecl {
                     name: "input".to_string(),
@@ -1167,7 +1171,7 @@ mod tests {
             return_type: DType::Tuple(vec![]),
             body: Box::new(inner_loop),
             default_grid_size: [
-                Box::new(const_int(1024)), // ThreadId(0)用にサイズ設定済み
+                Box::new(const_int(1024)), // GroupId(0)用にサイズ設定済み
                 Box::new(one.clone()),
                 Box::new(one.clone()),
             ],
@@ -1189,15 +1193,15 @@ mod tests {
             ..
         } = &results[0].ast
         {
-            // ThreadId(0)が保持されていることを確認
-            let thread_id_params: Vec<_> = params
+            // GroupId(0)が保持されていることを確認
+            let group_id_params: Vec<_> = params
                 .iter()
-                .filter(|p| matches!(p.kind, VarKind::ThreadId(_)))
+                .filter(|p| matches!(p.kind, VarKind::GroupId(_)))
                 .collect();
-            assert_eq!(thread_id_params.len(), 1);
-            assert!(matches!(thread_id_params[0].kind, VarKind::ThreadId(0)));
+            assert_eq!(group_id_params.len(), 1);
+            assert!(matches!(group_id_params[0].kind, VarKind::GroupId(0)));
 
-            // LocalIdはaxis=1を使用すべき（axis=0はThreadIdが使用中）
+            // LocalIdはaxis=1を使用すべき（axis=0はGroupIdが使用中）
             let local_id_params: Vec<_> = params
                 .iter()
                 .filter(|p| matches!(p.kind, VarKind::LocalId(_)))
@@ -1206,7 +1210,7 @@ mod tests {
             assert_eq!(local_id_params[0].name, "lidx1");
             assert!(matches!(local_id_params[0].kind, VarKind::LocalId(1)));
 
-            // grid_size[0]がThreadId用の1024のまま保持されていることを確認
+            // grid_size[0]がGroupId用の1024のまま保持されていることを確認
             assert!(matches!(
                 default_grid_size[0].as_ref(),
                 AstNode::Const(Literal::Int(1024))

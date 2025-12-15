@@ -64,9 +64,6 @@ fn render_param_attribute_metal(param: &VarDecl, is_kernel: bool) -> String {
             VarKind::Normal => {
                 format!("{}{} {}", mut_str, type_str, param.name)
             }
-            VarKind::ThreadId(_) => {
-                format!("uint {} [[thread_position_in_grid]]", param.name)
-            }
             VarKind::GroupId(_) => {
                 format!("uint {} [[threadgroup_position_in_grid]]", param.name)
             }
@@ -561,10 +558,10 @@ mod tests {
         // 簡単なカーネル: output[tid] = input[tid] * 2.0
         let params = vec![
             VarDecl {
-                name: "tid".to_string(),
+                name: "grp".to_string(),
                 dtype: DType::Int,
                 mutability: Mutability::Immutable,
-                kind: VarKind::ThreadId(0),
+                kind: VarKind::GroupId(0),
             },
             VarDecl {
                 name: "input".to_string(),
@@ -582,8 +579,8 @@ mod tests {
 
         let body_statements = vec![store(
             var("output"),
-            var("tid"),
-            load(var("input"), var("tid"), DType::F32) * AstNode::Const(2.0f32.into()),
+            var("grp"),
+            load(var("input"), var("grp"), DType::F32) * AstNode::Const(2.0f32.into()),
         )];
 
         use crate::ast::Scope;
@@ -615,9 +612,9 @@ mod tests {
         // 基本的な構造をチェック
         assert!(code.contains("kernel"));
         assert!(code.contains("void scale_kernel"));
-        assert!(code.contains("thread_position_in_grid"));
+        assert!(code.contains("threadgroup_position_in_grid"));
         assert!(code.contains("device float*"));
-        assert!(code.contains("output[tid] = (input[tid] * 2.0f)"));
+        assert!(code.contains("output[grp] = (input[grp] * 2.0f)"));
     }
 
     #[test]
@@ -629,10 +626,10 @@ mod tests {
         // カーネル関数を作成
         let kernel_params = vec![
             VarDecl {
-                name: "tid".to_string(),
+                name: "grp".to_string(),
                 dtype: DType::Int,
                 mutability: Mutability::Immutable,
-                kind: VarKind::ThreadId(0),
+                kind: VarKind::GroupId(0),
             },
             VarDecl {
                 name: "input".to_string(),

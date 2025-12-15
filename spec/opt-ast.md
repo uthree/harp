@@ -30,7 +30,7 @@
 | FunctionInliningSuggester | 小さい関数をインライン展開 |
 | CseSuggester | 共通部分式除去 |
 | VariableExpansionSuggester | 変数展開（CSEの逆操作） |
-| GlobalParallelizationSuggester | ループ並列化（ThreadId使用、動的分岐チェックあり） |
+| GroupParallelizationSuggester | ループ並列化（GroupId使用、動的分岐チェックあり） |
 | LocalParallelizationSuggester | ループ並列化（LocalId使用、動的分岐チェックなし） |
 | CompositeSuggester | 複数Suggesterを組み合わせ |
 
@@ -38,9 +38,9 @@
 
 AST段階でRangeループをKernelに変換して並列化を行う。2つのSuggesterを提供：
 
-### GlobalParallelizationSuggester
+### GroupParallelizationSuggester
 
-ThreadId（get_global_id）を使用してグローバルスレッド並列化を行う。
+GroupId（get_group_id）を使用してワークグループ間並列化を行う。
 **動的分岐チェック: あり** - ループ内にIf文があると並列化しない。
 
 ### LocalParallelizationSuggester
@@ -59,8 +59,8 @@ LocalId（get_local_id）を使用してワークグループ内並列化を行�
 // 変換前
 Function { body: Range { var: "i", start: 0, stop: N, body: ... } }
 
-// 変換後（Global: ThreadId使用、grid_size=N）
-Kernel { params: [gidx0: ThreadId(0), ...], grid_size: [N, 1, 1], body: ... }
+// 変換後（Group: GroupId使用、grid_size=N）
+Kernel { params: [grp0: GroupId(0), ...], grid_size: [N, 1, 1], body: ... }
 
 // 変換後（Local: LocalId使用、thread_group_size=N）
 Kernel { params: [lidx0: LocalId(0), ...], thread_group_size: [N, 1, 1], body: ... }
@@ -70,19 +70,19 @@ Kernel { params: [lidx0: LocalId(0), ...], thread_group_size: [N, 1, 1], body: .
 
 ```
 // 変換前
-Kernel { params: [gidx0: ThreadId(0)], body: Range { var: "j", stop: M, ... } }
+Kernel { params: [grp0: GroupId(0)], body: Range { var: "j", stop: M, ... } }
 
-// 変換後（Global: 追加ThreadId、grid_size[1]=M）
-Kernel { params: [gidx0: ThreadId(0), gidx1: ThreadId(1)], grid_size: [.., M, ..], body: ... }
+// 変換後（Group: 追加GroupId、grid_size[1]=M）
+Kernel { params: [grp0: GroupId(0), grp1: GroupId(1)], grid_size: [.., M, ..], body: ... }
 
 // 変換後（Local: 追加LocalId、thread_group_size[1]=M）
-Kernel { params: [gidx0: ThreadId(0), lidx0: LocalId(0)], thread_group_size: [.., M, ..], body: ... }
+Kernel { params: [grp0: GroupId(0), lidx0: LocalId(0)], thread_group_size: [.., M, ..], body: ... }
 ```
 
 **並列化可否の判定:**
 - ループ外変数への書き込みがないこと
 - Store先オフセットがループ変数に依存していること
-- GlobalParallelizationSuggester: 動的分岐（If文）を含まないこと
+- GroupParallelizationSuggester: 動的分岐（If文）を含まないこと
 
 **LoopInterchangeSuggesterとの組み合わせ:**
 内側ループを並列化したい場合は、LoopInterchangeSuggesterで外側に持ってきてから並列化する。

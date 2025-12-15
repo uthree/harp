@@ -446,7 +446,7 @@ pub trait CLikeRenderer: Renderer {
     fn render_param(&self, param: &VarDecl, is_kernel: bool) -> String {
         let attribute = self.render_param_attribute(param, is_kernel);
         if attribute.is_empty() {
-            // パラメータとして含めない（OpenMPのThreadIdなど）
+            // パラメータとして含めない（OpenMPのGroupIdなど）
             String::new()
         } else {
             attribute

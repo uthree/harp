@@ -115,7 +115,7 @@ AstNode::Function {
 ### Kernel
 GPUカーネル関数を表現します。GPU上で並列実行されます。
 
-組み込み変数（`ThreadId`, `GroupId`等）はスコープに登録せず、特別扱いします。
+組み込み変数（`GroupId`, `LocalId`等）はスコープに登録せず、特別扱いします。
 
 ```rust
 AstNode::Kernel {
