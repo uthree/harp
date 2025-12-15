@@ -1,5 +1,5 @@
 use super::AstCostEstimator;
-use crate::ast::AstNode;
+use crate::ast::{AstNode, VarKind};
 use crate::opt::cost_utils::{log_sum_exp, log_sum_exp_iter};
 
 /// 簡単なコスト推定器
@@ -28,6 +28,15 @@ use crate::opt::cost_utils::{log_sum_exp, log_sum_exp_iter};
 /// ノード数に比例するペナルティ項を追加することで、ループ展開などで
 /// ノード数が爆発する変換を抑制できます。ペナルティは対数スケールで
 /// 直接加算されるため、元のスケールでは乗算的な効果があります。
+///
+/// # GPU並列化の効率
+/// GPUの並列化には2つのレベルがあります：
+/// - ローカル並列化（LocalId）: ワークグループ内のスレッド並列化
+///   - 共有メモリへのアクセスが高速
+///   - 同期オーバーヘッドが小さい
+/// - グローバル並列化（GroupId/ThreadId）: ワークグループ間の並列化
+///   - グローバルメモリへのアクセスが必要
+///   - 同期オーバーヘッドが大きい
 #[derive(Clone, Debug)]
 pub struct SimpleCostEstimator {
     /// ノード数あたりのペナルティ係数（対数スケール）
@@ -56,6 +65,12 @@ pub struct SimpleCostEstimator {
     pub gpu_parallel_max_speedup_log: f32,
     /// メモリバンド幅制限が効き始めるスレッド数
     pub gpu_memory_bandwidth_threshold: f32,
+    /// ローカル並列化（LocalId）の効率係数（1.0 = 理想的、0.0 = 効果なし）
+    /// ワークグループ内の並列化は共有メモリを活用でき、同期オーバーヘッドが小さい
+    pub local_parallel_efficiency: f32,
+    /// グローバル並列化（GroupId/ThreadId）の効率係数（1.0 = 理想的、0.0 = 効果なし）
+    /// ワークグループ間の並列化はグローバルメモリアクセスが必要で、オーバーヘッドが大きい
+    pub global_parallel_efficiency: f32,
 }
 
 impl Default for SimpleCostEstimator {
@@ -74,6 +89,10 @@ impl Default for SimpleCostEstimator {
             gpu_parallel_min_grid_size: 512.0,
             gpu_parallel_max_speedup_log: 4.5,
             gpu_memory_bandwidth_threshold: 10000.0,
+            // ローカル並列化（LocalId）は共有メモリを活用でき、同期が高速
+            local_parallel_efficiency: 0.95,
+            // グローバル並列化（GroupId/ThreadId）はオーバーヘッドが大きい
+            global_parallel_efficiency: 0.7,
         }
     }
 }
@@ -159,6 +178,18 @@ impl SimpleCostEstimator {
     /// GPUメモリバンド幅しきい値を設定
     pub fn with_gpu_memory_bandwidth_threshold(mut self, threshold: f32) -> Self {
         self.gpu_memory_bandwidth_threshold = threshold;
+        self
+    }
+
+    /// ローカル並列化効率を設定
+    pub fn with_local_parallel_efficiency(mut self, efficiency: f32) -> Self {
+        self.local_parallel_efficiency = efficiency;
+        self
+    }
+
+    /// グローバル並列化効率を設定
+    pub fn with_global_parallel_efficiency(mut self, efficiency: f32) -> Self {
+        self.global_parallel_efficiency = efficiency;
         self
     }
 
@@ -534,6 +565,7 @@ impl AstCostEstimator for SimpleCostEstimator {
                 log_sum_exp(self.estimate(body), self.function_definition_overhead.ln())
             }
             AstNode::Kernel {
+                params,
                 body,
                 default_grid_size,
                 default_thread_group_size,
@@ -543,6 +575,14 @@ impl AstCostEstimator for SimpleCostEstimator {
                 // カーネル本体は各スレッドで並列実行されるため、
                 // 並列化によるスピードアップを考慮する
                 let body_cost = self.estimate(body);
+
+                // 並列化の種類を検出
+                // LocalId: ワークグループ内の並列化（効率が高い）
+                // GroupId/ThreadId: ワークグループ間の並列化（オーバーヘッドが大きい）
+                let has_local_id = params.iter().any(|p| matches!(p.kind, VarKind::LocalId(_)));
+                let has_global_parallel = params
+                    .iter()
+                    .any(|p| matches!(p.kind, VarKind::GroupId(_) | VarKind::ThreadId(_)));
 
                 // grid_sizeから総スレッド数（並列度）を推定
                 let grid_elements: f32 = default_grid_size
@@ -568,6 +608,23 @@ impl AstCostEstimator for SimpleCostEstimator {
                     1024.0
                 };
 
+                // 並列化効率を決定
+                // LocalIdを使用している場合は高効率、GlobalIdのみの場合は低効率
+                let parallelization_efficiency = if has_local_id && has_global_parallel {
+                    // 両方使用: ローカルとグローバルの両方の効率を組み合わせ
+                    // ローカル並列化の寄与が大きい（相乗効果）
+                    (self.local_parallel_efficiency + self.global_parallel_efficiency) / 2.0 * 1.1 // 多次元並列化ボーナス
+                } else if has_local_id {
+                    // LocalIdのみ: 高効率（共有メモリ活用、同期が高速）
+                    self.local_parallel_efficiency
+                } else if has_global_parallel {
+                    // GlobalIdのみ: 低効率（グローバルメモリアクセス、オーバーヘッド大）
+                    self.global_parallel_efficiency
+                } else {
+                    // 並列化なし
+                    0.5
+                };
+
                 // スレッド数に基づく実効スピードアップの計算
                 let parallel_bonus = if total_threads >= self.gpu_parallel_min_grid_size {
                     // 理想的なスピードアップ = log(threads)
@@ -582,13 +639,14 @@ impl AstCostEstimator for SimpleCostEstimator {
                         1.0
                     };
 
-                    // 実効スピードアップ = 理想スピードアップ × メモリ効率
+                    // 実効スピードアップ = 理想スピードアップ × メモリ効率 × 並列化効率
                     // ただし上限あり
-                    (ideal_speedup * memory_efficiency).min(self.gpu_parallel_max_speedup_log)
+                    (ideal_speedup * memory_efficiency * parallelization_efficiency)
+                        .min(self.gpu_parallel_max_speedup_log)
                 } else if total_threads > 1.0 {
                     // 小規模でも多少の並列化効果はある
                     // ただし効率は低い（起動オーバーヘッドが相対的に大きい）
-                    (total_threads.ln() * 0.5).max(0.0)
+                    (total_threads.ln() * 0.5 * parallelization_efficiency).max(0.0)
                 } else {
                     // 単一スレッド: 並列化なし
                     0.0
@@ -1156,6 +1214,161 @@ mod tests {
             "Expected high penalty cost ({}) > no penalty cost ({})",
             cost_high_penalty,
             cost_no_penalty
+        );
+    }
+
+    #[test]
+    fn test_local_parallel_more_efficient_than_global() {
+        let estimator = SimpleCostEstimator::new();
+
+        let one = Box::new(AstNode::Const(Literal::Int(1)));
+        let thread_count = Box::new(AstNode::Const(Literal::Int(64)));
+
+        // 同じ本体を持つ2つのカーネル
+        let kernel_body = AstNode::Store {
+            ptr: Box::new(AstNode::Var("output".to_string())),
+            offset: Box::new(AstNode::Var("idx".to_string())),
+            value: Box::new(AstNode::Var("idx".to_string())),
+        };
+
+        // LocalId並列化のみのカーネル（ワークグループ内並列化）
+        let kernel_with_local_id = AstNode::Kernel {
+            name: Some("local_parallel".to_string()),
+            params: vec![
+                VarDecl {
+                    name: "lidx".to_string(),
+                    dtype: DType::Int,
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::LocalId(0),
+                },
+                VarDecl {
+                    name: "output".to_string(),
+                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    mutability: Mutability::Mutable,
+                    kind: VarKind::Normal,
+                },
+            ],
+            return_type: DType::Tuple(vec![]),
+            body: Box::new(kernel_body.clone()),
+            default_grid_size: [one.clone(), one.clone(), one.clone()],
+            default_thread_group_size: [thread_count.clone(), one.clone(), one.clone()],
+        };
+
+        // GroupId並列化のみのカーネル（ワークグループ間並列化）
+        let kernel_with_group_id = AstNode::Kernel {
+            name: Some("global_parallel".to_string()),
+            params: vec![
+                VarDecl {
+                    name: "gidx".to_string(),
+                    dtype: DType::Int,
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::GroupId(0),
+                },
+                VarDecl {
+                    name: "output".to_string(),
+                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    mutability: Mutability::Mutable,
+                    kind: VarKind::Normal,
+                },
+            ],
+            return_type: DType::Tuple(vec![]),
+            body: Box::new(kernel_body.clone()),
+            default_grid_size: [thread_count.clone(), one.clone(), one.clone()],
+            default_thread_group_size: [one.clone(), one.clone(), one.clone()],
+        };
+
+        let cost_local = estimator.estimate(&kernel_with_local_id);
+        let cost_global = estimator.estimate(&kernel_with_group_id);
+
+        // LocalId並列化の方がコストが低い（効率が高い）
+        assert!(
+            cost_local < cost_global,
+            "LocalId parallelization cost ({}) should be less than GroupId cost ({})",
+            cost_local,
+            cost_global
+        );
+    }
+
+    #[test]
+    fn test_combined_parallel_better_than_single() {
+        // スピードアップ上限を高く設定してクリップを避ける
+        let estimator = SimpleCostEstimator::new().with_gpu_parallel_max_speedup_log(10.0);
+
+        let one = Box::new(AstNode::Const(Literal::Int(1)));
+        let group_count = Box::new(AstNode::Const(Literal::Int(16)));
+        let thread_count = Box::new(AstNode::Const(Literal::Int(64)));
+
+        let kernel_body = AstNode::Store {
+            ptr: Box::new(AstNode::Var("output".to_string())),
+            offset: Box::new(AstNode::Var("idx".to_string())),
+            value: Box::new(AstNode::Var("idx".to_string())),
+        };
+
+        // LocalId + GroupId両方使用（多次元並列化）
+        let kernel_combined = AstNode::Kernel {
+            name: Some("combined_parallel".to_string()),
+            params: vec![
+                VarDecl {
+                    name: "gidx".to_string(),
+                    dtype: DType::Int,
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::GroupId(0),
+                },
+                VarDecl {
+                    name: "lidx".to_string(),
+                    dtype: DType::Int,
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::LocalId(0),
+                },
+                VarDecl {
+                    name: "output".to_string(),
+                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    mutability: Mutability::Mutable,
+                    kind: VarKind::Normal,
+                },
+            ],
+            return_type: DType::Tuple(vec![]),
+            body: Box::new(kernel_body.clone()),
+            default_grid_size: [group_count.clone(), one.clone(), one.clone()],
+            default_thread_group_size: [thread_count.clone(), one.clone(), one.clone()],
+        };
+
+        // GroupIdのみ使用（同じ総スレッド数: 16 * 64 = 1024）
+        let kernel_global_only = AstNode::Kernel {
+            name: Some("global_only".to_string()),
+            params: vec![
+                VarDecl {
+                    name: "gidx".to_string(),
+                    dtype: DType::Int,
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::GroupId(0),
+                },
+                VarDecl {
+                    name: "output".to_string(),
+                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    mutability: Mutability::Mutable,
+                    kind: VarKind::Normal,
+                },
+            ],
+            return_type: DType::Tuple(vec![]),
+            body: Box::new(kernel_body),
+            default_grid_size: [
+                Box::new(AstNode::Const(Literal::Int(1024))),
+                one.clone(),
+                one.clone(),
+            ],
+            default_thread_group_size: [one.clone(), one.clone(), one.clone()],
+        };
+
+        let cost_combined = estimator.estimate(&kernel_combined);
+        let cost_global_only = estimator.estimate(&kernel_global_only);
+
+        // LocalId + GroupId の組み合わせは、GroupIdのみより効率が良い
+        assert!(
+            cost_combined < cost_global_only,
+            "Combined parallelization cost ({}) should be less than global-only cost ({})",
+            cost_combined,
+            cost_global_only
         );
     }
 }
