@@ -652,14 +652,14 @@ impl GraphNode {
     /// - `shape`: テンソルの形状（静的な`usize`/`isize`または動的な`Expr`を受け付ける）
     ///
     /// # 例
-    /// ```ignore
-    /// use harp::prelude::*;
+    /// ```
+    /// use harp::graph::{GraphNode, Expr};
     ///
     /// // 静的な形状: 2x3の正規乱数テンソル
     /// let randn_node = GraphNode::randn(vec![2, 3]);
     ///
     /// // 動的な形状
-    /// let batch_size = shape::Expr::var("batch");
+    /// let batch_size = Expr::Var("batch".to_string());
     /// let randn_node = GraphNode::randn(vec![batch_size, 64.into()]);
     /// ```
     pub fn randn<E: Into<crate::graph::shape::Expr> + Clone, I: IntoIterator<Item = E>>(

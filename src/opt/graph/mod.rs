@@ -34,7 +34,12 @@ pub trait GraphOptimizer {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// use harp::backend::IdentityOptimizer;
+    /// use harp::opt::graph::GraphOptimizer;
+    ///
+    /// let preparation_optimizer = IdentityOptimizer::new("prep");
+    /// let lowering_optimizer = IdentityOptimizer::new("lower");
     /// let chained = preparation_optimizer
     ///     .with_name("Preparation")
     ///     .chain(lowering_optimizer.with_name("Lowering"));
@@ -53,13 +58,23 @@ pub trait GraphOptimizer {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// use harp::backend::IdentityOptimizer;
+    /// use harp::opt::graph::GraphOptimizer;
+    ///
+    /// let optimizer1 = IdentityOptimizer::new("opt1");
+    /// let optimizer2 = IdentityOptimizer::new("opt2");
+    /// let optimizer3 = IdentityOptimizer::new("opt3");
+    ///
     /// // 名前付きでチェーン
     /// let chained = optimizer1
     ///     .with_name("Preparation")
     ///     .chain(optimizer2.with_name("Lowering"));
     ///
     /// // 名前なしでチェーン（自動命名）
+    /// let optimizer1 = IdentityOptimizer::new("opt1");
+    /// let optimizer2 = IdentityOptimizer::new("opt2");
+    /// let optimizer3 = IdentityOptimizer::new("opt3");
     /// let chained = optimizer1.chain(optimizer2).chain(optimizer3);
     /// ```
     fn chain<O: GraphOptimizer + 'static>(self, other: O) -> optimizer::ChainedGraphOptimizer

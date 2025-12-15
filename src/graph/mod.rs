@@ -451,14 +451,14 @@ impl GraphNode {
     /// - `shape`: テンソルの形状（静的な`usize`/`isize`または動的な`Expr`を受け付ける）
     ///
     /// # 例
-    /// ```ignore
-    /// use harp::prelude::*;
+    /// ```
+    /// use harp::graph::{GraphNode, Expr};
     ///
     /// // 静的な形状: 2x3の乱数テンソル
     /// let rand_node = GraphNode::rand(vec![2, 3]);
     ///
     /// // 動的な形状: Expr型を使用
-    /// let batch_size = shape::Expr::var("batch");
+    /// let batch_size = Expr::Var("batch".to_string());
     /// let rand_node = GraphNode::rand(vec![batch_size, 64.into()]);
     /// ```
     pub fn rand<E: Into<shape::Expr> + Clone, I: IntoIterator<Item = E>>(shape: I) -> Self {
@@ -499,7 +499,9 @@ impl GraphNode {
     /// - `target_dtype`: 変換先の型
     ///
     /// # 例
-    /// ```ignore
+    /// ```
+    /// use harp::graph::{GraphNode, DType};
+    ///
     /// // I32からF32への変換
     /// let indices = GraphNode::arange(5);  // [0, 1, 2, 3, 4] (I32)
     /// let floats = indices.cast(DType::F32);  // [0.0, 1.0, 2.0, 3.0, 4.0] (F32)

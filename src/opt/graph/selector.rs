@@ -6,7 +6,7 @@
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```
 //! use harp::opt::graph::{GraphMultiStageSelector, SimpleCostEstimator};
 //!
 //! // 2段階の選択パイプライン
@@ -123,7 +123,7 @@ impl Clone for SelectionStage {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```
 /// use harp::opt::graph::{GraphMultiStageSelector, SimpleCostEstimator};
 ///
 /// // 2段階の選択パイプライン

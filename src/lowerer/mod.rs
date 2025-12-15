@@ -9,17 +9,25 @@
 //!
 //! # 使用例
 //!
-//! ```ignore
+//! ```
 //! use harp::lowerer::{create_lowering_optimizer, create_simple_lowering_optimizer};
 //! use harp::opt::graph::GraphOptimizer;
+//! use harp::graph::{Graph, DType};
+//!
+//! // テスト用グラフを作成
+//! let mut graph = Graph::new();
+//! let a = graph.input("a", DType::F32, vec![4]);
+//! let b = graph.input("b", DType::F32, vec![4]);
+//! let c = a + b;
+//! graph.output("c", c);
 //!
 //! // 通常のOptimizer
 //! let optimizer = create_lowering_optimizer(4, 5000);
-//! let (optimized, history) = optimizer.optimize_with_history(graph);
+//! let (optimized, _history) = optimizer.optimize_with_history(graph.clone());
 //!
 //! // 高速なOptimizer（実測用）
 //! let optimizer = create_simple_lowering_optimizer(5000);
-//! let (optimized, history) = optimizer.optimize_with_history(graph);
+//! let (optimized, _history) = optimizer.optimize_with_history(graph);
 //! ```
 
 use crate::backend::pipeline::{

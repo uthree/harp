@@ -92,8 +92,10 @@ impl LoweringSuggester {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// use harp::opt::graph::LoweringSuggester;
     /// let suggester = LoweringSuggester::sequential_only();
+    /// assert!(suggester.is_sequential_only());
     /// ```
     pub fn sequential_only() -> Self {
         LoweringSuggester {
@@ -107,7 +109,8 @@ impl LoweringSuggester {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// use harp::opt::graph::LoweringSuggester;
     /// let suggester = LoweringSuggester::new()
     ///     .with_thread_group_sizes(vec![128, 256]);
     /// ```
@@ -120,7 +123,8 @@ impl LoweringSuggester {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// use harp::opt::graph::LoweringSuggester;
     /// let suggester = LoweringSuggester::new()
     ///     .with_vector_widths(vec![4, 8]);
     /// ```
@@ -133,7 +137,8 @@ impl LoweringSuggester {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// use harp::opt::graph::LoweringSuggester;
     /// let suggester = LoweringSuggester::new()
     ///     .without_vectorization();
     /// ```

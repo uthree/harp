@@ -260,7 +260,8 @@ impl AstRewriter {
 /// パターンを構築するヘルパーマクロ
 ///
 /// 使用例:
-/// ```ignore
+/// ```
+/// use harp::astpat;
 /// let rule = astpat!(|a, b| (a + b) => (b + a));
 /// ```
 #[macro_export]

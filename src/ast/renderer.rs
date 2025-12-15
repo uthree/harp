@@ -10,11 +10,16 @@ use crate::backend::opencl::OpenCLRenderer;
 /// * `R` - `CLikeRenderer`を実装するレンダラー
 ///
 /// # 例
-/// ```ignore
+/// ```
 /// use harp::backend::opencl::OpenCLRenderer;
-/// use harp::ast::renderer::render_ast_with;
+/// use harp::ast::{AstNode, renderer::render_ast_with};
 ///
 /// let renderer = OpenCLRenderer::new();
+/// let ast = AstNode::Program {
+///     functions: vec![],
+///     entry_point: "main".to_string(),
+///     execution_order: vec![],
+/// };
 /// let code = render_ast_with(&ast, &renderer);
 /// ```
 pub fn render_ast_with<R>(ast: &AstNode, renderer: &R) -> String

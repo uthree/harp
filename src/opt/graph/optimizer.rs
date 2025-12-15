@@ -469,12 +469,21 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
-/// use harp::opt::graph::{ChainedGraphOptimizer, BeamSearchGraphOptimizer, GraphOptimizer};
+/// ```
+/// use harp::opt::graph::{ChainedGraphOptimizer, GraphOptimizer};
+/// use harp::backend::IdentityOptimizer;
+/// use harp::graph::{Graph, DType};
+///
+/// let lowering_optimizer = IdentityOptimizer::new("lowering");
+/// let fusion_optimizer = IdentityOptimizer::new("fusion");
 ///
 /// let chain = ChainedGraphOptimizer::new()
 ///     .add_phase("Lowering", lowering_optimizer)
 ///     .add_phase("Fusion", fusion_optimizer);
+///
+/// let mut graph = Graph::new();
+/// let a = graph.input("a", DType::F32, vec![4]);
+/// graph.output("out", a);
 ///
 /// let (optimized, history) = chain.optimize_with_history(graph);
 /// ```
@@ -535,7 +544,14 @@ impl ChainedGraphOptimizer {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// use harp::opt::graph::{ChainedGraphOptimizer, GraphOptimizer};
+    /// use harp::backend::IdentityOptimizer;
+    ///
+    /// let optimizer1 = IdentityOptimizer::new("opt1");
+    /// let optimizer2 = IdentityOptimizer::new("opt2");
+    /// let optimizer3 = IdentityOptimizer::new("opt3");
+    ///
     /// // 名前付きでチェーン
     /// let chained = ChainedGraphOptimizer::new()
     ///     .add_phase("Phase 1", optimizer1)
@@ -543,6 +559,9 @@ impl ChainedGraphOptimizer {
     ///     .chain(optimizer3.with_name("Finalize"));
     ///
     /// // 名前なしでチェーン（自動命名）
+    /// let optimizer1 = IdentityOptimizer::new("opt1");
+    /// let optimizer2 = IdentityOptimizer::new("opt2");
+    /// let optimizer3 = IdentityOptimizer::new("opt3");
     /// let chained = optimizer1.chain(optimizer2).chain(optimizer3);
     /// ```
     pub fn chain<O: GraphOptimizer + 'static>(mut self, other: O) -> Self {
@@ -568,7 +587,13 @@ impl Default for ChainedGraphOptimizer {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```
+/// use harp::opt::graph::GraphOptimizer;
+/// use harp::backend::IdentityOptimizer;
+///
+/// let optimizer = IdentityOptimizer::new("opt");
+/// let other = IdentityOptimizer::new("other");
+///
 /// let named = optimizer.with_name("Preparation");
 /// assert_eq!(named.name(), Some("Preparation"));
 ///
