@@ -5,6 +5,7 @@
 //! Kernel演算として統合します。
 
 mod elementwise;
+mod fold;
 mod helpers;
 mod other;
 mod parallel;
@@ -436,10 +437,22 @@ impl LoweringSuggester {
                 }
                 other::build_complex_from_parts_function(node, &name)
             }
-            GraphOp::Fold { .. } => {
-                // Foldは複雑なので後で実装
-                return None;
-            }
+            GraphOp::Fold {
+                output_size,
+                kernel_size,
+                stride,
+                dilation,
+                groups,
+            } => fold::build_fold_kernel(
+                node,
+                output_size,
+                kernel_size,
+                stride,
+                dilation,
+                *groups,
+                &name,
+                strategy,
+            ),
             GraphOp::FusedReduce { .. } => {
                 // FusedReduceはタプル出力が必要なので後で実装
                 return None;

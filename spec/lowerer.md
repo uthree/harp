@@ -93,9 +93,11 @@ harpc --subgraph-mode skip input.harp     # スキップ（デバッグ用）
 - マルチフェーズ最適化による単一Program収束
 - ProgramRoot/Kernel(Program)からのProgram取得
 - 動的shape対応のシグネチャ生成
+- Fold演算（col2im）: Sequential/FlatParallel対応
 
 ### 未実装
 - FusedReduce演算（タプル出力が必要）
+- Fold演算のgroups > 1対応
 
 ## 並列化サポート
 
