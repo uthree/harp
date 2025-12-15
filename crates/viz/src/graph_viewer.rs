@@ -190,34 +190,21 @@ impl GraphViewerApp {
         // 訪問済みノードを追跡
         let mut visited = HashSet::new();
 
-        // ProgramRootノードがある場合はProgramRootから開始
-        if let Some(sink_node) = graph.program_root() {
+        // 出力ノードから開始
+        let outputs = graph.outputs();
+        for (output_name, output_node) in outputs {
             self.traverse_and_add_node_with_layout(
-                sink_node,
-                "",
+                output_node,
+                output_name,
                 &mut visited,
                 &depths,
                 &mut depth_counters,
             );
-            // ProgramRootからエッジを追加
-            self.add_edges(sink_node, &mut HashSet::new());
-        } else {
-            // ProgramRootがない場合は従来通り出力ノードから開始
-            let outputs = graph.outputs();
-            for (output_name, output_node) in &outputs {
-                self.traverse_and_add_node_with_layout(
-                    output_node,
-                    output_name,
-                    &mut visited,
-                    &depths,
-                    &mut depth_counters,
-                );
-            }
+        }
 
-            // エッジを追加
-            for output_node in outputs.values() {
-                self.add_edges(output_node, &mut HashSet::new());
-            }
+        // エッジを追加
+        for output_node in outputs.values() {
+            self.add_edges(output_node, &mut HashSet::new());
         }
     }
 
@@ -266,14 +253,10 @@ impl GraphViewerApp {
             depth
         }
 
-        // ProgramRootノードがある場合はProgramRootから開始、なければ出力ノードから開始
+        // 出力ノードから深さを計算
         let mut visited_global = HashSet::new();
-        if let Some(sink_node) = graph.program_root() {
-            calculate_depth(sink_node, &mut depths, &mut visited_global);
-        } else {
-            for output_node in graph.outputs().values() {
-                calculate_depth(output_node, &mut depths, &mut visited_global);
-            }
+        for output_node in graph.outputs().values() {
+            calculate_depth(output_node, &mut depths, &mut visited_global);
         }
 
         depths
@@ -345,10 +328,9 @@ impl GraphViewerApp {
 
         let op_details = format!("{:?}", node.op);
 
-        // KernelノードまたはProgramRootノードの場合はASTを保存（レンダラー変更時に再レンダリング用）
+        // Kernelノードの場合はASTを保存（レンダラー変更時に再レンダリング用）
         let ast = match &node.op {
             harp::graph::GraphOp::Kernel { ast, .. } => Some(ast.clone()),
-            harp::graph::GraphOp::ProgramRoot { ast, .. } => Some(ast.clone()),
             _ => None,
         };
 
@@ -390,7 +372,6 @@ impl GraphViewerApp {
             GraphOp::Fold { .. } => "Fold".to_string(),
             GraphOp::Rand => "Rand".to_string(),
             GraphOp::Concat { axis } => format!("Concat({})", axis),
-            GraphOp::ProgramRoot { .. } => "Program".to_string(),
             _ => "Unknown".to_string(),
         }
     }

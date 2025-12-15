@@ -182,38 +182,16 @@ impl CodeViewerApp {
         }
     }
 
-    /// グラフからProgramRoot(Program)、Kernel(Program)またはKernel(Function)のASTを抽出
+    /// グラフからKernel(Program)またはKernel(Function)のASTを抽出
     fn extract_ast_from_graph(&self, graph: &Graph) -> Option<harp::ast::AstNode> {
-        // 1. ProgramRootノードのProgramを最優先で確認
-        if let Some(sink) = graph.program_root() {
-            if let harp::graph::GraphOp::ProgramRoot { ast, .. } = &sink.op {
-                if let harp::ast::AstNode::Program { functions, .. } = ast {
-                    if !functions.is_empty() {
-                        return Some(ast.clone());
-                    }
-                }
-            }
-        }
-
-        // 2. Kernel(Program/Function)を走査してASTを収集
+        // Kernel(Program/Function)を走査してASTを収集
         let mut visited = HashSet::new();
         let mut program_ast = None;
         let mut function_asts = Vec::new();
 
-        // ProgramRootがある場合はProgramRootのsrcから、ない場合はoutputsから走査
-        if let Some(sink) = graph.program_root() {
-            for src in &sink.src {
-                Self::collect_custom_nodes(src, &mut visited, &mut program_ast, &mut function_asts);
-            }
-        } else {
-            for output in graph.outputs().values() {
-                Self::collect_custom_nodes(
-                    output,
-                    &mut visited,
-                    &mut program_ast,
-                    &mut function_asts,
-                );
-            }
+        // outputsから走査
+        for output in graph.outputs().values() {
+            Self::collect_custom_nodes(output, &mut visited, &mut program_ast, &mut function_asts);
         }
 
         // Kernel(Program)があればそれを優先
