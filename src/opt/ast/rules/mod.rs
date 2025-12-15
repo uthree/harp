@@ -666,6 +666,7 @@ mod tests {
         let program = AstNode::Program {
             functions: vec![kernel],
             entry_point: "test_kernel".to_string(),
+            execution_order: vec![],
         };
 
         let estimator = SimpleCostEstimator::new();

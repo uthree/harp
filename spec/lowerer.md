@@ -36,7 +36,38 @@ AstNode::Program (単一ノードに収束)
 
 ## ファイル構成
 - `mod.rs`: `lower()`関数（マルチフェーズ最適化実行、Program取得）
+- `subgraph_lowering.rs`: `SubGraphLoweringOptimizer`（サブグラフの個別カーネル化）
 - `utils.rs`: ユーティリティ関数（シグネチャ生成）
+
+## サブグラフの処理
+
+### SubGraphLoweringOptimizer
+サブグラフを個別のカーネル関数として生成するOptimizer。`GraphOptimizer`トレイトを実装。
+
+### サブグラフ処理モード（SubgraphMode）
+パイプライン設定で選択可能な3つのモード：
+
+1. **Inline（デフォルト）**: サブグラフをインライン展開
+   - SubGraphInliningSuggesterを使用
+   - 単一の大きなカーネルを生成
+   - カーネル呼び出しオーバーヘッドなし
+
+2. **SeparateKernels**: サブグラフを個別カーネルとして生成
+   - SubGraphLoweringOptimizerを使用
+   - 各サブグラフが独立した`__kernel`関数になる
+   - `execution_order`で呼び出し順序を管理
+   - コードの再利用性が高い
+
+3. **Skip**: サブグラフ処理をスキップ
+   - デバッグ用
+   - SubGraphCallノードがそのまま残る（警告出力）
+
+### CLIオプション
+```bash
+harpc --subgraph-mode inline input.harp   # デフォルト: インライン展開
+harpc --subgraph-mode separate input.harp # 個別カーネル生成
+harpc --subgraph-mode skip input.harp     # スキップ（デバッグ用）
+```
 
 ## Lowerer構造体
 

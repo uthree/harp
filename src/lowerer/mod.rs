@@ -29,10 +29,12 @@ use crate::graph::{Graph, ops::GraphOp};
 use crate::opt::graph::ChainedGraphOptimizer;
 
 // モジュール宣言
+mod subgraph_lowering;
 mod utils;
 
 // 公開エクスポート
 pub use self::extract_program_from_graph as extract_program;
+pub use subgraph_lowering::SubGraphLoweringOptimizer;
 pub use utils::create_signature;
 
 /// Lowering用のGraphOptimizerを作成
@@ -131,6 +133,9 @@ pub fn find_program_root_program(graph: &Graph) -> Option<crate::ast::AstNode> {
 /// # Panics
 /// グラフ内にProgramRoot(Program)またはKernel(Program)が存在しない場合
 pub fn extract_program_from_graph(optimized_graph: Graph) -> crate::ast::AstNode {
+    // SubGraphCallノードが残っていないかチェック
+    check_for_unlowered_subgraph_calls(&optimized_graph);
+
     if let Some(program) = find_program_root_program(&optimized_graph) {
         return program;
     }
@@ -151,6 +156,54 @@ pub fn extract_program_from_graph(optimized_graph: Graph) -> crate::ast::AstNode
          This may indicate unsupported node types or a bug in the optimization passes.",
         remaining_ops
     );
+}
+
+/// SubGraphCallノードが残っていないかチェックし、警告を出す
+fn check_for_unlowered_subgraph_calls(graph: &Graph) {
+    use std::collections::HashSet;
+
+    fn collect_subgraph_calls(
+        node: &crate::graph::GraphNode,
+        visited: &mut HashSet<*const crate::graph::GraphNodeData>,
+        subgraph_names: &mut Vec<String>,
+    ) {
+        let ptr = node.as_ptr();
+        if visited.contains(&ptr) {
+            return;
+        }
+        visited.insert(ptr);
+
+        if let GraphOp::SubGraphCall { name } = &node.op
+            && !subgraph_names.contains(name)
+        {
+            subgraph_names.push(name.clone());
+        }
+
+        for src in &node.src {
+            collect_subgraph_calls(src, visited, subgraph_names);
+        }
+    }
+
+    let mut visited = HashSet::new();
+    let mut subgraph_names = Vec::new();
+
+    for output in graph.outputs().values() {
+        collect_subgraph_calls(output, &mut visited, &mut subgraph_names);
+    }
+
+    if let Some(root) = graph.program_root() {
+        collect_subgraph_calls(root, &mut visited, &mut subgraph_names);
+    }
+
+    if !subgraph_names.is_empty() {
+        log::warn!(
+            "Graph contains unlowered SubGraphCall nodes: {:?}. \
+             SubGraphCall nodes cannot be directly lowered to kernels. \
+             Consider using the SubGraphInliningSuggester to inline subgraph calls, \
+             or manually expand subgraph calls before optimization.",
+            subgraph_names
+        );
+    }
 }
 
 #[cfg(test)]

@@ -134,6 +134,7 @@ mod tests {
         let program = AstNode::Program {
             functions: vec![func],
             entry_point: "main".to_string(),
+            execution_order: vec![],
         };
 
         let rendered = render_ast(&program);

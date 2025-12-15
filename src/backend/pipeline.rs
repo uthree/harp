@@ -2,6 +2,7 @@
 ///
 /// 各バックエンドのPipeline実装で使用される共通機能を提供します。
 use crate::graph::Graph;
+use crate::lowerer::SubGraphLoweringOptimizer;
 use crate::opt::ast::{
     CompositeSuggester as AstCompositeSuggester, FunctionInliningSuggester, LoopFusionSuggester,
     LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester,
@@ -10,13 +11,95 @@ use crate::opt::graph::{
     BeamSearchGraphOptimizer, BufferAbsorptionSuggester, ChainedGraphOptimizer, CompositeSuggester,
     ContiguousInsertionSuggester, FusionSuggester, GraphOptimizer, KernelMergeSuggester,
     KernelPartitionSuggester, LoweringSuggester, ProgramRootAbsorptionSuggester,
-    ProgramRootBufferAbsorptionSuggester, TilingSuggester, ViewInsertionSuggester,
-    ViewMergeSuggester,
+    ProgramRootBufferAbsorptionSuggester, SubGraphInliningSuggester, TilingSuggester,
+    ViewInsertionSuggester, ViewMergeSuggester,
 };
+
+// =============================================================================
+// ユーティリティオプティマイザ
+// =============================================================================
+
+use crate::opt::graph::OptimizationHistory;
+
+/// 何も変更しないオプティマイザ
+///
+/// グラフをそのまま返す特殊なオプティマイザです。
+/// サブグラフ処理をスキップする場合などに使用します。
+#[derive(Debug, Clone)]
+pub struct IdentityOptimizer {
+    name: String,
+}
+
+impl IdentityOptimizer {
+    pub fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+        }
+    }
+}
+
+impl GraphOptimizer for IdentityOptimizer {
+    fn name(&self) -> Option<&str> {
+        Some(&self.name)
+    }
+
+    fn optimize(&self, graph: Graph) -> Graph {
+        graph
+    }
+
+    fn optimize_with_history(&self, graph: Graph) -> (Graph, OptimizationHistory) {
+        (graph, OptimizationHistory::new())
+    }
+}
+
+// =============================================================================
+// サブグラフ処理モード
+// =============================================================================
+
+/// サブグラフの処理方法を指定するモード
+///
+/// コンパイルパイプラインでSubGraphCallノードをどのように扱うかを決定します。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SubgraphMode {
+    /// サブグラフをインライン展開する
+    ///
+    /// SubGraphCallノードを対応するサブグラフの計算ノードで直接置き換えます。
+    /// これにより、単一の大きなカーネルが生成されます。
+    ///
+    /// **利点**: カーネル呼び出しオーバーヘッドがない
+    /// **欠点**: コードサイズが大きくなる可能性がある
+    #[default]
+    Inline,
+
+    /// サブグラフを個別のカーネル関数として生成する
+    ///
+    /// 各SubGraphCallは独立したカーネル関数として保持され、
+    /// execution_orderで呼び出し順序が管理されます。
+    ///
+    /// **利点**: コードの再利用、モジュール性の維持
+    /// **欠点**: カーネル呼び出しオーバーヘッドがある
+    SeparateKernels,
+
+    /// サブグラフを無視する（SubGraphCallノードを残す）
+    ///
+    /// SubGraphCallノードをそのまま残します。警告が出力されます。
+    /// デバッグや特殊なケースで使用します。
+    Skip,
+}
 
 // =============================================================================
 // マルチフェーズ最適化用の関数
 // =============================================================================
+
+/// サブグラフインライン展開フェーズ用Suggesterを作成
+///
+/// SubGraphCallノードを検出し、対応するサブグラフの計算を
+/// 呼び出し元グラフに直接埋め込みます。
+///
+/// このフェーズは他の最適化の前に実行する必要があります。
+pub fn create_subgraph_inlining_suggester() -> CompositeSuggester {
+    CompositeSuggester::new(vec![Box::new(SubGraphInliningSuggester::new())])
+}
 
 /// ViewMergeとFusionのみのフェーズ用Suggesterを作成
 ///
@@ -150,6 +233,12 @@ pub struct MultiPhaseConfig {
     /// Some(n): n回連続で改善がなければ終了
     /// None: 早期終了を無効化
     pub early_termination_threshold: Option<usize>,
+    /// サブグラフの処理モード
+    ///
+    /// - `Inline`: サブグラフをインライン展開（デフォルト、従来の動作）
+    /// - `SeparateKernels`: サブグラフを個別のカーネル関数として生成
+    /// - `Skip`: サブグラフ処理をスキップ
+    pub subgraph_mode: SubgraphMode,
 }
 
 impl Default for MultiPhaseConfig {
@@ -160,6 +249,7 @@ impl Default for MultiPhaseConfig {
             show_progress: false,
             collect_logs: cfg!(debug_assertions),
             early_termination_threshold: Some(10), // デフォルト: 10ステップ改善なしで終了
+            subgraph_mode: SubgraphMode::default(), // デフォルト: Inline
         }
     }
 }
@@ -202,11 +292,36 @@ impl MultiPhaseConfig {
         self.early_termination_threshold = threshold;
         self
     }
+
+    /// サブグラフの処理モードを設定
+    ///
+    /// # Arguments
+    /// * `mode` - サブグラフの処理方法
+    ///   - `SubgraphMode::Inline`: サブグラフをインライン展開（デフォルト）
+    ///   - `SubgraphMode::SeparateKernels`: サブグラフを個別のカーネル関数として生成
+    ///   - `SubgraphMode::Skip`: サブグラフ処理をスキップ
+    ///
+    /// # Example
+    /// ```ignore
+    /// use harp::backend::pipeline::{MultiPhaseConfig, SubgraphMode};
+    ///
+    /// // サブグラフを個別カーネルとして生成
+    /// let config = MultiPhaseConfig::new()
+    ///     .with_subgraph_mode(SubgraphMode::SeparateKernels);
+    /// ```
+    pub fn with_subgraph_mode(mut self, mode: SubgraphMode) -> Self {
+        self.subgraph_mode = mode;
+        self
+    }
 }
 
 /// マルチフェーズグラフ最適化を作成
 ///
-/// 6つのフェーズで段階的にグラフを最適化します：
+/// 7つのフェーズで段階的にグラフを最適化します：
+///
+/// 0. **SubGraphInlining** (サブグラフインライン展開): サブグラフ呼び出しを展開
+///    - 目的: SubGraphCallノードを実際の計算ノードに変換
+///    - 他の最適化の前に実行する必要がある
 ///
 /// 1. **ViewMerge** (ビューマージ): グラフ構築時に生成された余分なビュー変更を除去
 ///    - 目的: クリーンなグラフ構造の確保
@@ -250,6 +365,31 @@ impl MultiPhaseConfig {
 /// let (optimized, history) = optimizer.optimize_with_history(graph);
 /// ```
 pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOptimizer {
+    // Phase 0: サブグラフ処理（モードによって動作が異なる）
+    let subgraph_optimizer: Box<dyn GraphOptimizer> = match config.subgraph_mode {
+        SubgraphMode::Inline => {
+            // インライン展開: SubGraphInliningSuggesterを使用
+            let subgraph_inlining_suggester = create_subgraph_inlining_suggester();
+            Box::new(
+                BeamSearchGraphOptimizer::new(subgraph_inlining_suggester)
+                    .with_beam_width(1) // 決定論的変換
+                    .with_max_steps(config.max_steps_per_phase)
+                    .with_progress(config.show_progress)
+                    .with_collect_logs(config.collect_logs)
+                    .with_early_termination_threshold(Some(5))
+                    .with_name("SubGraphInlining"),
+            )
+        }
+        SubgraphMode::SeparateKernels => {
+            // 個別カーネル生成: SubGraphLoweringOptimizerを使用
+            Box::new(SubGraphLoweringOptimizer::new())
+        }
+        SubgraphMode::Skip => {
+            // スキップ: 何もしないオプティマイザ
+            Box::new(IdentityOptimizer::new("SubGraphSkip"))
+        }
+    };
+
     // Phase 1: ViewMerge（余分なビュー変更を除去）
     // 決定論的な変換なのでビーム幅=1で十分
     let view_merge_1_suggester = create_view_merge_only_suggester();
@@ -307,14 +447,22 @@ pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOpt
         .with_collect_logs(config.collect_logs)
         .with_early_termination_threshold(Some(1)); // すぐに終了
 
-    // チェーンを構築（各オプティマイザに名前を付けてからchainする）
-    view_merge_1_optimizer
-        .with_name("ViewMerge (Initial)")
-        .chain(optimization_optimizer.with_name("Optimization"))
-        .chain(view_merge_2_optimizer.with_name("ViewMerge (Post-Opt)"))
-        .chain(lowering_optimizer.with_name("Lowering"))
-        .chain(kernel_partition_optimizer.with_name("KernelPartition"))
-        .chain(absorption_optimizer.with_name("Absorption"))
+    // サブグラフ処理フェーズの名前を決定
+    let subgraph_phase_name = match config.subgraph_mode {
+        SubgraphMode::Inline => "SubGraphInlining",
+        SubgraphMode::SeparateKernels => "SubGraphLowering",
+        SubgraphMode::Skip => "SubGraphSkip",
+    };
+
+    // チェーンを構築
+    ChainedGraphOptimizer::new()
+        .add_phase_boxed(subgraph_phase_name, subgraph_optimizer)
+        .add_phase("ViewMerge (Initial)", view_merge_1_optimizer)
+        .add_phase("Optimization", optimization_optimizer)
+        .add_phase("ViewMerge (Post-Opt)", view_merge_2_optimizer)
+        .add_phase("Lowering", lowering_optimizer)
+        .add_phase("KernelPartition", kernel_partition_optimizer)
+        .add_phase("Absorption", absorption_optimizer)
 }
 
 /// マルチフェーズグラフ最適化を作成（カスタムSelector使用）
@@ -349,6 +497,23 @@ pub fn create_multi_phase_optimizer_with_selector<Sel>(
 where
     Sel: crate::opt::GraphSelector + Clone + 'static,
 {
+    // Phase 0: サブグラフ処理（モードによって動作が異なる）- Selector不使用（決定論的変換）
+    let subgraph_optimizer: Box<dyn GraphOptimizer> = match config.subgraph_mode {
+        SubgraphMode::Inline => {
+            let subgraph_inlining_suggester = create_subgraph_inlining_suggester();
+            Box::new(
+                BeamSearchGraphOptimizer::new(subgraph_inlining_suggester)
+                    .with_beam_width(1)
+                    .with_max_steps(config.max_steps_per_phase)
+                    .with_progress(config.show_progress)
+                    .with_collect_logs(config.collect_logs)
+                    .with_early_termination_threshold(Some(5)),
+            )
+        }
+        SubgraphMode::SeparateKernels => Box::new(SubGraphLoweringOptimizer::new()),
+        SubgraphMode::Skip => Box::new(IdentityOptimizer::new("SubGraphSkip")),
+    };
+
     // Phase 1: ViewMerge（余分なビュー変更を除去）- Selector不使用（決定論的変換）
     let view_merge_1_suggester = create_view_merge_only_suggester();
     let view_merge_1_optimizer = BeamSearchGraphOptimizer::new(view_merge_1_suggester)
@@ -406,14 +571,22 @@ where
         .with_collect_logs(config.collect_logs)
         .with_early_termination_threshold(Some(1)); // すぐに終了
 
+    // サブグラフ処理フェーズの名前を決定
+    let subgraph_phase_name = match config.subgraph_mode {
+        SubgraphMode::Inline => "SubGraphInlining",
+        SubgraphMode::SeparateKernels => "SubGraphLowering",
+        SubgraphMode::Skip => "SubGraphSkip",
+    };
+
     // チェーンを構築
-    view_merge_1_optimizer
-        .with_name("ViewMerge (Initial)")
-        .chain(optimization_optimizer.with_name("Optimization"))
-        .chain(view_merge_2_optimizer.with_name("ViewMerge (Post-Opt)"))
-        .chain(lowering_optimizer.with_name("Lowering"))
-        .chain(kernel_partition_optimizer.with_name("KernelPartition"))
-        .chain(absorption_optimizer.with_name("Absorption"))
+    ChainedGraphOptimizer::new()
+        .add_phase_boxed(subgraph_phase_name, subgraph_optimizer)
+        .add_phase("ViewMerge (Initial)", view_merge_1_optimizer)
+        .add_phase("Optimization", optimization_optimizer)
+        .add_phase("ViewMerge (Post-Opt)", view_merge_2_optimizer)
+        .add_phase("Lowering", lowering_optimizer)
+        .add_phase("KernelPartition", kernel_partition_optimizer)
+        .add_phase("Absorption", absorption_optimizer)
 }
 
 /// マルチフェーズグラフ最適化を実行（履歴付き）
@@ -465,6 +638,23 @@ pub fn optimize_graph_multi_phase(
 /// # Returns
 /// ChainedGraphOptimizer
 pub fn create_greedy_optimizer(config: MultiPhaseConfig) -> ChainedGraphOptimizer {
+    // Phase 0: サブグラフ処理（モードによって動作が異なる）
+    let subgraph_optimizer: Box<dyn GraphOptimizer> = match config.subgraph_mode {
+        SubgraphMode::Inline => {
+            let subgraph_inlining_suggester = create_subgraph_inlining_suggester();
+            Box::new(
+                BeamSearchGraphOptimizer::new(subgraph_inlining_suggester)
+                    .with_beam_width(1) // 貪欲法
+                    .with_max_steps(config.max_steps_per_phase)
+                    .with_progress(config.show_progress)
+                    .with_collect_logs(config.collect_logs)
+                    .with_early_termination_threshold(Some(5)),
+            )
+        }
+        SubgraphMode::SeparateKernels => Box::new(SubGraphLoweringOptimizer::new()),
+        SubgraphMode::Skip => Box::new(IdentityOptimizer::new("SubGraphSkip")),
+    };
+
     // Phase 1: ViewMerge（余分なビュー変更を除去）
     let view_merge_1_suggester = create_view_merge_only_suggester();
     let view_merge_1_optimizer = BeamSearchGraphOptimizer::new(view_merge_1_suggester)
@@ -520,13 +710,22 @@ pub fn create_greedy_optimizer(config: MultiPhaseConfig) -> ChainedGraphOptimize
         .with_collect_logs(config.collect_logs)
         .with_early_termination_threshold(Some(1)); // すぐに終了
 
-    view_merge_1_optimizer
-        .with_name("ViewMerge (Greedy)")
-        .chain(optimization_optimizer.with_name("Optimization (Greedy)"))
-        .chain(view_merge_2_optimizer.with_name("ViewMerge (Greedy)"))
-        .chain(lowering_optimizer.with_name("Lowering (Greedy)"))
-        .chain(kernel_partition_optimizer.with_name("KernelPartition (Greedy)"))
-        .chain(absorption_optimizer.with_name("Absorption (Greedy)"))
+    // サブグラフ処理フェーズの名前を決定
+    let subgraph_phase_name = match config.subgraph_mode {
+        SubgraphMode::Inline => "SubGraphInlining (Greedy)",
+        SubgraphMode::SeparateKernels => "SubGraphLowering (Greedy)",
+        SubgraphMode::Skip => "SubGraphSkip (Greedy)",
+    };
+
+    // チェーンを構築
+    ChainedGraphOptimizer::new()
+        .add_phase_boxed(subgraph_phase_name, subgraph_optimizer)
+        .add_phase("ViewMerge (Greedy)", view_merge_1_optimizer)
+        .add_phase("Optimization (Greedy)", optimization_optimizer)
+        .add_phase("ViewMerge (Greedy)", view_merge_2_optimizer)
+        .add_phase("Lowering (Greedy)", lowering_optimizer)
+        .add_phase("KernelPartition (Greedy)", kernel_partition_optimizer)
+        .add_phase("Absorption (Greedy)", absorption_optimizer)
 }
 
 /// 貪欲法グラフ最適化を実行（履歴付き）
@@ -605,7 +804,7 @@ mod tests {
 
         // 最適化履歴が存在することを確認
         assert!(
-            history.len() > 0,
+            !history.is_empty(),
             "Optimization history should not be empty"
         );
 

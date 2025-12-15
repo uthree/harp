@@ -274,12 +274,14 @@ impl VariableExpansionSuggester {
             AstNode::Program {
                 functions,
                 entry_point,
+                execution_order,
             } => AstNode::Program {
                 functions: functions
                     .iter()
                     .map(|f| Self::substitute_var(f, var_name, replacement))
                     .collect(),
                 entry_point: entry_point.clone(),
+                execution_order: execution_order.clone(),
             },
             // その他のノードはそのまま返す
             _ => expr.clone(),
@@ -429,6 +431,7 @@ impl VariableExpansionSuggester {
             AstNode::Program {
                 functions,
                 entry_point,
+                execution_order,
             } => {
                 for (i, func) in functions.iter().enumerate() {
                     let child_candidates = self.collect_expansion_candidates(func);
@@ -438,6 +441,7 @@ impl VariableExpansionSuggester {
                         candidates.push(AstNode::Program {
                             functions: new_functions,
                             entry_point: entry_point.clone(),
+                            execution_order: execution_order.clone(),
                         });
                     }
                 }

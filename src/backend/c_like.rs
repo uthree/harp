@@ -458,6 +458,7 @@ pub trait CLikeRenderer: Renderer {
         let AstNode::Program {
             functions,
             entry_point,
+            execution_order,
         } = program
         else {
             panic!("Expected AstNode::Program");
@@ -537,6 +538,67 @@ pub trait CLikeRenderer: Renderer {
 
             // libloading用のラッパー関数を生成
             result.push_str(&self.render_libloading_wrapper(func, entry_point));
+        }
+
+        // サブグラフ対応: カーネル実行順序をコメントとして出力
+        if !execution_order.is_empty() {
+            result.push_str("\n// === Kernel Execution Order (SubGraph Support) ===\n");
+            result.push_str(
+                "// The following shows the order in which kernels should be executed:\n",
+            );
+            for (i, kernel_call) in execution_order.iter().enumerate() {
+                result.push_str(&format!(
+                    "// Step {}: {} (\n",
+                    i + 1,
+                    kernel_call.kernel_name
+                ));
+                result.push_str(&format!(
+                    "//   inputs: [{}],\n",
+                    kernel_call.inputs.join(", ")
+                ));
+                result.push_str(&format!(
+                    "//   outputs: [{}],\n",
+                    kernel_call.outputs.join(", ")
+                ));
+                result.push_str(&format!(
+                    "//   grid_size: [{}, {}, {}],\n",
+                    kernel_call
+                        .grid_size
+                        .first()
+                        .map(|e| format!("{}", e))
+                        .unwrap_or_else(|| "1".to_string()),
+                    kernel_call
+                        .grid_size
+                        .get(1)
+                        .map(|e| format!("{}", e))
+                        .unwrap_or_else(|| "1".to_string()),
+                    kernel_call
+                        .grid_size
+                        .get(2)
+                        .map(|e| format!("{}", e))
+                        .unwrap_or_else(|| "1".to_string()),
+                ));
+                result.push_str(&format!(
+                    "//   thread_group_size: [{}, {}, {}]\n",
+                    kernel_call
+                        .thread_group_size
+                        .first()
+                        .map(|e| format!("{}", e))
+                        .unwrap_or_else(|| "1".to_string()),
+                    kernel_call
+                        .thread_group_size
+                        .get(1)
+                        .map(|e| format!("{}", e))
+                        .unwrap_or_else(|| "1".to_string()),
+                    kernel_call
+                        .thread_group_size
+                        .get(2)
+                        .map(|e| format!("{}", e))
+                        .unwrap_or_else(|| "1".to_string()),
+                ));
+                result.push_str("// )\n");
+            }
+            result.push_str("// === End Kernel Execution Order ===\n");
         }
 
         result

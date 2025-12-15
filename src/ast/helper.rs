@@ -248,6 +248,7 @@ pub fn program(functions: Vec<AstNode>, entry_point: impl Into<String>) -> AstNo
     AstNode::Program {
         functions,
         entry_point: entry_point.into(),
+        execution_order: vec![],
     }
 }
 
@@ -803,6 +804,7 @@ mod tests {
             AstNode::Program {
                 functions,
                 entry_point,
+                ..
             } => {
                 assert_eq!(functions.len(), 1);
                 assert_eq!(entry_point, "main");

@@ -495,8 +495,9 @@ impl SimpleCostEstimator {
             }
             GraphOp::SubGraphCall { .. } => {
                 // サブグラフ呼び出しのコスト
+                // サブグラフは関数呼び出しとして保持され、独立したカーネルとして低レベル化される
                 // 実際のコストはサブグラフの内容に依存するが、
-                // Loweringされるまでは関数呼び出しオーバーヘッドとして推定
+                // ここでは関数呼び出しオーバーヘッドとして推定
                 let num_elements = self.compute_num_elements(node);
                 let call_overhead = self.kernel_launch_overhead.ln();
                 num_elements.ln() + call_overhead

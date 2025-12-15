@@ -115,6 +115,7 @@ impl LoopTilingSuggester {
             AstNode::Program {
                 functions,
                 entry_point,
+                execution_order,
             } => {
                 // 各関数を再帰的に探索
                 for (i, func) in functions.iter().enumerate() {
@@ -124,6 +125,7 @@ impl LoopTilingSuggester {
                         candidates.push(AstNode::Program {
                             functions: new_functions,
                             entry_point: entry_point.clone(),
+                            execution_order: execution_order.clone(),
                         });
                     }
                 }
@@ -310,6 +312,7 @@ impl LoopInliningSuggester {
             AstNode::Program {
                 functions,
                 entry_point,
+                execution_order,
             } => {
                 // 各関数を再帰的に探索
                 for (i, func) in functions.iter().enumerate() {
@@ -319,6 +322,7 @@ impl LoopInliningSuggester {
                         candidates.push(AstNode::Program {
                             functions: new_functions,
                             entry_point: entry_point.clone(),
+                            execution_order: execution_order.clone(),
                         });
                     }
                 }
@@ -658,6 +662,7 @@ impl LoopInterchangeSuggester {
             AstNode::Program {
                 functions,
                 entry_point,
+                execution_order,
             } => {
                 // 各関数を再帰的に探索
                 for (i, func) in functions.iter().enumerate() {
@@ -667,6 +672,7 @@ impl LoopInterchangeSuggester {
                         candidates.push(AstNode::Program {
                             functions: new_functions,
                             entry_point: entry_point.clone(),
+                            execution_order: execution_order.clone(),
                         });
                     }
                 }

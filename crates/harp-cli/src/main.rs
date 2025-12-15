@@ -6,7 +6,7 @@ use std::io::{self, IsTerminal, Read, Write};
 use std::path::PathBuf;
 
 use harp::backend::c_like::CLikeRenderer;
-use harp::backend::{MultiPhaseConfig, Renderer, create_multi_phase_optimizer};
+use harp::backend::{MultiPhaseConfig, Renderer, SubgraphMode, create_multi_phase_optimizer};
 use harp::opt::ast::rules::all_algebraic_rules;
 use harp::opt::ast::{
     AstOptimizer, BeamSearchOptimizer as AstBeamSearchOptimizer,
@@ -41,6 +41,15 @@ struct Cli {
     /// Embed original DSL source code as comment in output
     #[arg(long, default_value = "false", global = true)]
     embed_source: bool,
+
+    /// Subgraph handling mode
+    ///
+    /// How to process subgraphs in the computation graph:
+    /// - inline: Expand subgraphs inline (default, single large kernel)
+    /// - separate: Generate separate kernel functions for each subgraph
+    /// - skip: Skip subgraph processing (for debugging)
+    #[arg(long, default_value = "inline", global = true, value_enum)]
+    subgraph_mode: CliSubgraphMode,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -108,7 +117,32 @@ enum EmitType {
     Ast,
 }
 
+/// CLI用のサブグラフ処理モード
+#[derive(Clone, Copy, Debug, Default, clap::ValueEnum)]
+enum CliSubgraphMode {
+    /// Expand subgraphs inline (single large kernel)
+    #[default]
+    Inline,
+    /// Generate separate kernel functions for each subgraph
+    Separate,
+    /// Skip subgraph processing (for debugging)
+    Skip,
+}
+
+impl From<CliSubgraphMode> for SubgraphMode {
+    fn from(cli_mode: CliSubgraphMode) -> Self {
+        match cli_mode {
+            CliSubgraphMode::Inline => SubgraphMode::Inline,
+            CliSubgraphMode::Separate => SubgraphMode::SeparateKernels,
+            CliSubgraphMode::Skip => SubgraphMode::Skip,
+        }
+    }
+}
+
 fn main() {
+    // RUST_LOG環境変数でログレベルを制御（例: RUST_LOG=debug）
+    env_logger::init();
+
     let cli = Cli::parse();
 
     if let Err(e) = run(cli) {
@@ -210,6 +244,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 cli.target,
                 cli.emit,
                 cli.embed_source,
+                cli.subgraph_mode.into(),
             )
         }
 
@@ -256,6 +291,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             cli.target,
             cli.emit,
             cli.embed_source,
+            cli.subgraph_mode.into(),
         ),
     }
 }
@@ -266,6 +302,7 @@ fn do_compile(
     target: Target,
     emit: EmitType,
     embed_source: bool,
+    subgraph_mode: SubgraphMode,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (source, _name) = read_source(input)?;
     let graph = compile(&source)?;
@@ -274,8 +311,12 @@ fn do_compile(
         EmitType::Code => {
             // Generate code for the target
             match target {
-                Target::OpenCL => compile_to_code::<harp::backend::opencl::OpenCLRenderer>(graph)?,
-                Target::Metal => compile_to_code::<harp::backend::metal::MetalRenderer>(graph)?,
+                Target::OpenCL => {
+                    compile_to_code::<harp::backend::opencl::OpenCLRenderer>(graph, subgraph_mode)?
+                }
+                Target::Metal => {
+                    compile_to_code::<harp::backend::metal::MetalRenderer>(graph, subgraph_mode)?
+                }
             }
         }
         EmitType::Graph => {
@@ -321,7 +362,10 @@ fn do_compile(
     }
 }
 
-fn compile_to_code<R>(graph: harp::graph::Graph) -> Result<String, Box<dyn std::error::Error>>
+fn compile_to_code<R>(
+    graph: harp::graph::Graph,
+    subgraph_mode: SubgraphMode,
+) -> Result<String, Box<dyn std::error::Error>>
 where
     R: Renderer + CLikeRenderer + Default + Clone + 'static,
 {
@@ -330,7 +374,8 @@ where
         .with_beam_width(4)
         .with_max_steps(5000)
         .with_progress(false)
-        .with_collect_logs(false);
+        .with_collect_logs(false)
+        .with_subgraph_mode(subgraph_mode);
 
     let optimizer = create_multi_phase_optimizer(config);
     let (optimized_graph, _) = optimizer.optimize_with_history(graph);

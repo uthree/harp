@@ -150,6 +150,7 @@ pub enum AstNode {
     Program {
         functions: Vec<AstNode>, // AstNode::Function または AstNode::Kernel のリスト
         entry_point: String,     // エントリーポイントの関数名
+        execution_order: Vec<program::KernelCall>, // カーネル実行順序（サブグラフ対応）
     },
 }
 
@@ -409,9 +410,11 @@ impl AstNode {
             AstNode::Program {
                 functions,
                 entry_point,
+                execution_order,
             } => AstNode::Program {
                 functions: functions.iter().map(f).collect(),
                 entry_point: entry_point.clone(),
+                execution_order: execution_order.clone(),
             },
         }
     }

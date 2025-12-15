@@ -493,9 +493,14 @@ impl FunctionInliningSuggester {
             },
 
             // Program
-            AstNode::Program { entry_point, .. } => AstNode::Program {
+            AstNode::Program {
+                entry_point,
+                execution_order,
+                ..
+            } => AstNode::Program {
                 functions: children.to_vec(),
                 entry_point: entry_point.clone(),
+                execution_order: execution_order.clone(),
             },
         }
     }
@@ -507,6 +512,7 @@ impl FunctionInliningSuggester {
         if let AstNode::Program {
             functions,
             entry_point,
+            execution_order,
         } = ast
         {
             // 関数名→関数定義のマップを作成
@@ -576,6 +582,7 @@ impl FunctionInliningSuggester {
                     candidates.push(AstNode::Program {
                         functions: new_functions,
                         entry_point: entry_point.clone(),
+                        execution_order: execution_order.clone(),
                     });
                 }
             }
@@ -597,6 +604,7 @@ impl FunctionInliningSuggester {
         if let AstNode::Program {
             functions,
             entry_point,
+            execution_order,
         } = ast
         {
             // 使われている関数名を収集
@@ -630,6 +638,7 @@ impl FunctionInliningSuggester {
                 Some(AstNode::Program {
                     functions: new_functions,
                     entry_point: entry_point.clone(),
+                    execution_order: execution_order.clone(),
                 })
             } else {
                 None
@@ -721,6 +730,7 @@ mod tests {
         let program = AstNode::Program {
             functions: vec![add_one_func, main_func],
             entry_point: "main".to_string(),
+            execution_order: vec![],
         };
 
         let suggestions = suggester.suggest(&program);
@@ -794,6 +804,7 @@ mod tests {
         let program = AstNode::Program {
             functions: vec![identity_func, main_func],
             entry_point: "main".to_string(),
+            execution_order: vec![],
         };
 
         let suggestions = suggester.suggest(&program);
@@ -905,6 +916,7 @@ mod tests {
         let program = AstNode::Program {
             functions: vec![kernel_func, main_func],
             entry_point: "main".to_string(),
+            execution_order: vec![],
         };
 
         let suggester = FunctionInliningSuggester::with_default_limit();
@@ -1011,6 +1023,7 @@ mod tests {
         let program = AstNode::Program {
             functions: vec![write_value_func, main_func],
             entry_point: "main".to_string(),
+            execution_order: vec![],
         };
 
         let suggestions = suggester.suggest(&program);

@@ -162,10 +162,26 @@ call_kernel_1d(name, args, grid_size, thread_group_size)
 
 ```rust
 AstNode::Program {
-    functions: Vec<AstNode>,  // Function ノードのリスト
-    entry_point: String,      // エントリーポイント関数名
+    functions: Vec<AstNode>,           // Function/Kernel ノードのリスト
+    entry_point: String,               // エントリーポイント関数名
+    execution_order: Vec<KernelCall>,  // カーネル実行順序（サブグラフ対応）
 }
 ```
+
+#### KernelCall（カーネル呼び出しメタデータ）
+サブグラフを個別カーネルとして生成する場合、各カーネルの呼び出し順序を`KernelCall`で管理します。
+
+```rust
+pub struct KernelCall {
+    pub kernel_name: String,        // 呼び出すカーネル名
+    pub inputs: Vec<String>,        // 入力バッファ名リスト
+    pub outputs: Vec<String>,       // 出力バッファ名リスト
+    pub grid_size: Vec<Expr>,       // グリッドサイズ
+    pub thread_group_size: Vec<Expr>, // スレッドグループサイズ
+}
+```
+
+Rendererは`execution_order`が空でない場合、呼び出し順序をコメントとして出力します。
 
 ### Barrier
 並列実行における同期点。GPU等で全スレッドがこの地点に到達するまで待機し、共有メモリアクセスのデータ競合を防ぎます。

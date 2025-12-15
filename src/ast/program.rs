@@ -3,7 +3,45 @@
 use super::AstNode;
 use super::scope::{Scope, VarDecl, VarKind};
 use super::types::DType;
+use crate::graph::shape::Expr;
 use std::collections::HashMap;
+
+/// カーネル呼び出しメタデータ
+///
+/// ホスト側でカーネルを順次実行するための情報を保持します。
+/// サブグラフが個別カーネルとして生成される場合に使用されます。
+#[derive(Clone, Debug, PartialEq)]
+pub struct KernelCall {
+    /// 呼び出すカーネル名
+    pub kernel_name: String,
+    /// 入力バッファ名リスト
+    pub inputs: Vec<String>,
+    /// 出力バッファ名リスト
+    pub outputs: Vec<String>,
+    /// グリッドサイズ（ワークアイテム数）
+    pub grid_size: Vec<Expr>,
+    /// スレッドグループサイズ（ローカルワークサイズ）
+    pub thread_group_size: Vec<Expr>,
+}
+
+impl KernelCall {
+    /// 新しいKernelCallを作成
+    pub fn new(
+        kernel_name: impl Into<String>,
+        inputs: Vec<String>,
+        outputs: Vec<String>,
+        grid_size: Vec<Expr>,
+        thread_group_size: Vec<Expr>,
+    ) -> Self {
+        Self {
+            kernel_name: kernel_name.into(),
+            inputs,
+            outputs,
+            grid_size,
+            thread_group_size,
+        }
+    }
+}
 
 /// 関数定義（ASTノードではなく、構造体としての関数表現）
 ///

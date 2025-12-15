@@ -178,6 +178,7 @@ impl Graph {
                 let empty_program = AstNode::Program {
                     functions: vec![],
                     entry_point: "harp_main".to_string(),
+                    execution_order: vec![],
                 };
 
                 let program_root = GraphNode::new(

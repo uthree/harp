@@ -224,7 +224,7 @@ mod tests {
 
         // シンプルなASTノードを作成
         let ast1 = AstNode::Const(Literal::Int(42));
-        let ast2 = AstNode::Const(Literal::F32(3.14));
+        let ast2 = AstNode::Const(Literal::F32(2.5));
 
         let candidates = vec![ast1, ast2];
 

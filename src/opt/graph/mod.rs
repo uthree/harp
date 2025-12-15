@@ -133,6 +133,6 @@ pub use selector::{GraphCostSelector, GraphMultiStageSelector, GraphSelector};
 pub use suggesters::{
     BufferAbsorptionSuggester, CompositeSuggester, ContiguousInsertionSuggester, FusionSuggester,
     KernelMergeSuggester, KernelPartitionSuggester, LoweringSuggester,
-    ProgramRootAbsorptionSuggester, ProgramRootBufferAbsorptionSuggester, TilingSuggester,
-    ViewInsertionSuggester, ViewMergeSuggester,
+    ProgramRootAbsorptionSuggester, ProgramRootBufferAbsorptionSuggester,
+    SubGraphInliningSuggester, TilingSuggester, ViewInsertionSuggester, ViewMergeSuggester,
 };

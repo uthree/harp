@@ -221,6 +221,7 @@ mod tests {
         let program = AstNode::Program {
             functions: vec![add_one_func, main_func],
             entry_point: "main".to_string(),
+            execution_order: vec![],
         };
 
         let suggestions = suggester.suggest(&program);

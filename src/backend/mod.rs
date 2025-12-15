@@ -43,7 +43,11 @@ pub use native::{
 };
 
 // Re-export pipeline utilities
-pub use pipeline::{MultiPhaseConfig, create_multi_phase_optimizer};
+pub use pipeline::{
+    IdentityOptimizer, MultiPhaseConfig, SubgraphMode, create_greedy_optimizer,
+    create_multi_phase_optimizer, create_multi_phase_optimizer_with_selector,
+    optimize_graph_greedy, optimize_graph_multi_phase,
+};
 
 /// Renderer trait for converting AST to source code
 pub trait Renderer {

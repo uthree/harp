@@ -21,6 +21,7 @@ impl OpenCLRenderer {
         if let AstNode::Program {
             functions,
             entry_point,
+            execution_order,
         } = program
         {
             let mut code = String::new();
@@ -86,6 +87,67 @@ impl OpenCLRenderer {
 
             // 4. libloading用のエントリーポイント関数を生成
             code.push_str(&self.generate_host_code(entry_func, &kernel_sources));
+
+            // 5. サブグラフ対応: カーネル実行順序をコメントとして出力
+            if !execution_order.is_empty() {
+                code.push_str("\n// === Kernel Execution Order (SubGraph Support) ===\n");
+                code.push_str(
+                    "// The following shows the order in which kernels should be executed:\n",
+                );
+                for (i, kernel_call) in execution_order.iter().enumerate() {
+                    code.push_str(&format!(
+                        "// Step {}: {} (\n",
+                        i + 1,
+                        kernel_call.kernel_name
+                    ));
+                    code.push_str(&format!(
+                        "//   inputs: [{}],\n",
+                        kernel_call.inputs.join(", ")
+                    ));
+                    code.push_str(&format!(
+                        "//   outputs: [{}],\n",
+                        kernel_call.outputs.join(", ")
+                    ));
+                    code.push_str(&format!(
+                        "//   grid_size: [{}, {}, {}],\n",
+                        kernel_call
+                            .grid_size
+                            .first()
+                            .map(|e| format!("{}", e))
+                            .unwrap_or_else(|| "1".to_string()),
+                        kernel_call
+                            .grid_size
+                            .get(1)
+                            .map(|e| format!("{}", e))
+                            .unwrap_or_else(|| "1".to_string()),
+                        kernel_call
+                            .grid_size
+                            .get(2)
+                            .map(|e| format!("{}", e))
+                            .unwrap_or_else(|| "1".to_string()),
+                    ));
+                    code.push_str(&format!(
+                        "//   thread_group_size: [{}, {}, {}]\n",
+                        kernel_call
+                            .thread_group_size
+                            .first()
+                            .map(|e| format!("{}", e))
+                            .unwrap_or_else(|| "1".to_string()),
+                        kernel_call
+                            .thread_group_size
+                            .get(1)
+                            .map(|e| format!("{}", e))
+                            .unwrap_or_else(|| "1".to_string()),
+                        kernel_call
+                            .thread_group_size
+                            .get(2)
+                            .map(|e| format!("{}", e))
+                            .unwrap_or_else(|| "1".to_string()),
+                    ));
+                    code.push_str("// )\n");
+                }
+                code.push_str("// === End Kernel Execution Order ===\n");
+            }
 
             OpenCLCode::new(code)
         } else {

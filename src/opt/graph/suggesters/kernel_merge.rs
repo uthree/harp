@@ -207,6 +207,7 @@ impl KernelMergeSuggester {
         let program = AstNode::Program {
             functions: kernels,
             entry_point: "harp_main".to_string(),
+            execution_order: vec![],
         };
 
         // 新しいKernelノードの入力を構築

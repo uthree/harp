@@ -258,6 +258,7 @@ impl RuleBaseSuggester {
             AstNode::Program {
                 functions,
                 entry_point,
+                execution_order,
             } => {
                 // 各関数に対してルールを適用
                 for (i, func) in functions.iter().enumerate() {
@@ -267,6 +268,7 @@ impl RuleBaseSuggester {
                         results.push(AstNode::Program {
                             functions: new_functions,
                             entry_point: entry_point.clone(),
+                            execution_order: execution_order.clone(),
                         });
                     }
                 }
