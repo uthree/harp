@@ -3,14 +3,20 @@
 //! タイル化とインライン展開をビームサーチで使えるようにします。
 
 use crate::ast::AstNode;
-use crate::opt::ast::transforms::{inline_small_loop, tile_loop};
+use crate::opt::ast::transforms::{inline_small_loop, tile_loop, tile_loop_with_guard};
 use crate::opt::ast::{AstSuggestResult, AstSuggester};
 use log::{debug, trace};
 
 /// ループタイル化を提案するSuggester
+///
+/// 2つのタイル化パターンを生成できます：
+/// 1. 別ループ方式（デフォルト）: 端数処理用の別ループを生成
+/// 2. ガード方式: 内側ループ内でif文による境界チェック
 pub struct LoopTilingSuggester {
     /// 試行するタイルサイズのリスト
     tile_sizes: Vec<usize>,
+    /// ガード方式のパターンも生成するかどうか
+    generate_guard_pattern: bool,
 }
 
 impl Default for LoopTilingSuggester {
@@ -20,15 +26,25 @@ impl Default for LoopTilingSuggester {
 }
 
 impl LoopTilingSuggester {
-    /// 新しいLoopTilingSuggesterを作成
+    /// 新しいLoopTilingSuggesterを作成（両パターン生成）
     pub fn new() -> Self {
         Self {
             tile_sizes: vec![2, 3, 4, 5, 7, 8, 16, 32, 64],
+            generate_guard_pattern: true,
         }
     }
 
     pub fn with_sizes(tile_sizes: Vec<usize>) -> Self {
-        Self { tile_sizes }
+        Self {
+            tile_sizes,
+            generate_guard_pattern: true,
+        }
+    }
+
+    /// ガード方式パターンの生成を有効/無効にする
+    pub fn with_guard_pattern(mut self, generate: bool) -> Self {
+        self.generate_guard_pattern = generate;
+        self
     }
 
     /// AST内の全てのRangeノードを探索してタイル化を試みる
@@ -38,8 +54,16 @@ impl LoopTilingSuggester {
         // 現在のノードがRangeの場合、各タイルサイズで変換を試みる
         if matches!(ast, AstNode::Range { .. }) {
             for &tile_size in &self.tile_sizes {
+                // 別ループ方式（従来のパターン）
                 if let Some(tiled) = tile_loop(ast, tile_size) {
                     candidates.push(tiled);
+                }
+
+                // ガード方式（条件分岐による端数処理）
+                if self.generate_guard_pattern
+                    && let Some(tiled_with_guard) = tile_loop_with_guard(ast, tile_size)
+                {
+                    candidates.push(tiled_with_guard);
                 }
             }
         }

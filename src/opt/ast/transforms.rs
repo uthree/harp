@@ -413,6 +413,167 @@ pub fn tile_loop(loop_node: &AstNode, tile_size: usize) -> Option<AstNode> {
     }
 }
 
+/// ループをガード付きでタイル化する
+///
+/// 端数処理を別ループではなく、内側ループ内のif文で行う方式です。
+/// GPUでは境界チェックのオーバーヘッドが小さいため、この方式が有効な場合があります。
+///
+/// # 引数
+/// * `loop_node` - Rangeノード
+/// * `tile_size` - タイルサイズ
+///
+/// # 変換例
+/// ```text
+/// // 元のループ
+/// for ridx0 in 0..N step 1 {
+///   body(ridx0)
+/// }
+///
+/// // タイル化後（ガード方式）
+/// for ridx1 in 0..ceil_div(N, tile_size) step 1 {
+///   for ridx2 in 0..tile_size step 1 {
+///     ridx0 = ridx1 * tile_size + ridx2
+///     if (ridx0 < N) {
+///       body(ridx0)
+///     }
+///   }
+/// }
+/// ```
+pub fn tile_loop_with_guard(loop_node: &AstNode, tile_size: usize) -> Option<AstNode> {
+    if tile_size <= 1 {
+        return None; // タイル化しない
+    }
+
+    match loop_node {
+        AstNode::Range {
+            var,
+            start,
+            step,
+            stop,
+            body,
+        } => {
+            // 既にタイル化されたループは再度タイル化しない
+            if is_tiled_loop_body(body) {
+                log::trace!("Skipping tiling with guard for already tiled loop: {}", var);
+                return None;
+            }
+
+            // ステップが1の場合のみタイル化可能（簡易実装）
+            let is_step_one = matches!(step.as_ref(), AstNode::Const(Literal::Int(1)));
+            if !is_step_one {
+                log::trace!(
+                    "Skipping tiling with guard for loop with step != 1: {}",
+                    var
+                );
+                return None;
+            }
+
+            // startが0であることを要求（簡易実装）
+            let is_start_zero = matches!(start.as_ref(), AstNode::Const(Literal::Int(0)));
+            if !is_start_zero {
+                log::trace!(
+                    "Skipping tiling with guard for loop with start != 0: {}",
+                    var
+                );
+                return None;
+            }
+
+            // stopは定数でなくてもOK（ガード方式の利点）
+            // ただし定数の場合は値を取得して最適化できる
+            let stop_val = match stop.as_ref() {
+                AstNode::Const(Literal::Int(v)) if *v >= 0 => Some(*v as usize),
+                _ => None, // 変数の場合はNone
+            };
+
+            log::debug!(
+                "Tiling loop with guard: {} with tile_size: {}, stop: {:?}",
+                var,
+                tile_size,
+                stop_val
+            );
+
+            // 既存変数名を収集し、衝突しない連番を取得
+            let used_names = collect_var_names(loop_node);
+            let (outer_var, inner_var, _) = find_next_ridx_names(&used_names);
+
+            // 内側ループの本体: original_var = outer_var * tile_size + inner_var; if (original_var < stop) { body }
+            let i_expr = helper_var(outer_var.clone()) * const_int(tile_size as isize)
+                + helper_var(inner_var.clone());
+
+            // original_var = outer_var * tile_size + inner_var の代入
+            let assign_i = assign(var.clone(), i_expr);
+
+            // 境界チェック: if (original_var < stop) { body }
+            let guard_condition = AstNode::Lt(
+                Box::new(helper_var(var.clone())),
+                Box::new(stop.as_ref().clone()),
+            );
+
+            let guarded_body = AstNode::If {
+                condition: Box::new(guard_condition),
+                then_body: Box::new(body.as_ref().clone()),
+                else_body: None,
+            };
+
+            let inner_body_statements = vec![assign_i, guarded_body];
+
+            // 元のループ変数をスコープに宣言（ローカル変数として生成されるように）
+            let mut inner_scope = Scope::new();
+            inner_scope
+                .declare(var.clone(), DType::Int, Mutability::Mutable)
+                .expect("Failed to declare loop variable in inner scope");
+
+            let inner_body = AstNode::Block {
+                statements: inner_body_statements,
+                scope: Box::new(inner_scope),
+            };
+
+            // 内側ループ: for inner_var in 0..tile_size step 1
+            let inner_loop = range(
+                inner_var.clone(),
+                const_int(0),
+                const_int(1),
+                const_int(tile_size as isize),
+                inner_body,
+            );
+
+            // 外側ループの終了値: ceil_div(stop, tile_size)
+            let outer_stop = if let Some(n) = stop_val {
+                // 定数の場合: (n + tile_size - 1) / tile_size
+                const_int(n.div_ceil(tile_size) as isize)
+            } else {
+                // 変数の場合: (stop + tile_size - 1) / tile_size
+                ceil_div_ast(stop.as_ref().clone(), const_int(tile_size as isize))
+            };
+
+            // 外側ループ: for outer_var in 0..ceil_div(stop, tile_size) step 1
+            let outer_loop = range(
+                outer_var.clone(),
+                const_int(0),
+                const_int(1),
+                outer_stop,
+                inner_loop,
+            );
+
+            Some(outer_loop)
+        }
+        _ => None, // Rangeノードでない場合は変換不可
+    }
+}
+
+/// ceil_div(a, b)を計算するAstNodeを生成
+/// (a + b - 1) / b と等価
+fn ceil_div_ast(a: AstNode, b: AstNode) -> AstNode {
+    // (a + b - 1) / b
+    AstNode::Idiv(
+        Box::new(AstNode::Add(
+            Box::new(a),
+            Box::new(AstNode::Add(Box::new(b.clone()), Box::new(const_int(-1)))),
+        )),
+        Box::new(b),
+    )
+}
+
 /// タイル化されたループの本体かどうかを判定する
 ///
 /// タイル化後のループ本体は、最初の文が変数への代入文（`var = expr`）になっている。
@@ -815,5 +976,128 @@ mod tests {
         } else {
             panic!("Expected Block node for non-divisible case");
         }
+    }
+
+    #[test]
+    fn test_tile_loop_with_guard_simple() {
+        // for i in 0..16 step 1 { Store(ptr, i, i) }
+        let body = Box::new(AstNode::Store {
+            ptr: Box::new(AstNode::Var("ptr".to_string())),
+            offset: Box::new(AstNode::Var("i".to_string())),
+            value: Box::new(AstNode::Var("i".to_string())),
+        });
+
+        let original_loop = AstNode::Range {
+            var: "i".to_string(),
+            start: Box::new(AstNode::Const(Literal::Int(0))),
+            step: Box::new(AstNode::Const(Literal::Int(1))),
+            stop: Box::new(AstNode::Const(Literal::Int(16))),
+            body,
+        };
+
+        let tiled = tile_loop_with_guard(&original_loop, 4);
+        assert!(tiled.is_some());
+
+        // ガード方式では単一の外側ループが返される（端数ループはない）
+        if let Some(AstNode::Range {
+            var,
+            stop,
+            body: outer_body,
+            ..
+        }) = tiled
+        {
+            // 変数名はridxN形式
+            assert!(var.starts_with("ridx"), "Expected ridxN, got {}", var);
+            // 外側ループの終了値: ceil_div(16, 4) = 4
+            assert_eq!(*stop, AstNode::Const(Literal::Int(4)));
+
+            // 内側ループが存在するか確認
+            assert!(matches!(outer_body.as_ref(), AstNode::Range { .. }));
+
+            // 内側ループの本体にIf文が含まれるか確認
+            if let AstNode::Range {
+                body: inner_body, ..
+            } = outer_body.as_ref()
+            {
+                if let AstNode::Block { statements, .. } = inner_body.as_ref() {
+                    // 2つ目の文がIf文（ガード）であること
+                    assert!(statements.len() >= 2);
+                    assert!(
+                        matches!(&statements[1], AstNode::If { .. }),
+                        "Expected If guard in inner body"
+                    );
+                } else {
+                    panic!("Expected Block node for inner body");
+                }
+            }
+        } else {
+            panic!("Expected Range node");
+        }
+    }
+
+    #[test]
+    fn test_tile_loop_with_guard_remainder() {
+        // for i in 0..10 step 1 { body } (10 = 4*2 + 2, 端数あり)
+        let body = Box::new(AstNode::Var("x".to_string()));
+
+        let original_loop = AstNode::Range {
+            var: "i".to_string(),
+            start: Box::new(AstNode::Const(Literal::Int(0))),
+            step: Box::new(AstNode::Const(Literal::Int(1))),
+            stop: Box::new(AstNode::Const(Literal::Int(10))),
+            body,
+        };
+
+        let tiled = tile_loop_with_guard(&original_loop, 4);
+        assert!(tiled.is_some());
+
+        // ガード方式では、端数があっても単一の外側ループ
+        // 外側ループの終了値: ceil_div(10, 4) = 3
+        if let Some(AstNode::Range { stop, .. }) = tiled {
+            assert_eq!(*stop, AstNode::Const(Literal::Int(3)));
+        } else {
+            panic!("Expected Range node");
+        }
+    }
+
+    #[test]
+    fn test_tile_loop_with_guard_variable_stop() {
+        // for i in 0..N step 1 { body } (Nは変数)
+        let body = Box::new(AstNode::Var("x".to_string()));
+
+        let original_loop = AstNode::Range {
+            var: "i".to_string(),
+            start: Box::new(AstNode::Const(Literal::Int(0))),
+            step: Box::new(AstNode::Const(Literal::Int(1))),
+            stop: Box::new(AstNode::Var("N".to_string())),
+            body,
+        };
+
+        let tiled = tile_loop_with_guard(&original_loop, 4);
+        assert!(tiled.is_some());
+
+        // 変数stopでもタイル化できる（ガード方式の利点）
+        if let Some(AstNode::Range { stop, .. }) = tiled {
+            // 外側ループの終了値: ceil_div(N, 4) = (N + 3) / 4
+            assert!(matches!(*stop, AstNode::Idiv(_, _)));
+        } else {
+            panic!("Expected Range node");
+        }
+    }
+
+    #[test]
+    fn test_tile_loop_with_guard_size_one() {
+        let body = Box::new(AstNode::Var("x".to_string()));
+
+        let original_loop = AstNode::Range {
+            var: "i".to_string(),
+            start: Box::new(AstNode::Const(Literal::Int(0))),
+            step: Box::new(AstNode::Const(Literal::Int(1))),
+            stop: Box::new(AstNode::Const(Literal::Int(16))),
+            body,
+        };
+
+        let tiled = tile_loop_with_guard(&original_loop, 1);
+        assert!(tiled.is_none()); // tile_size=1ではタイル化しない
     }
 }

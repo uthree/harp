@@ -70,6 +70,9 @@ fn render_param_attribute_metal(param: &VarDecl, is_kernel: bool) -> String {
             VarKind::GroupId(_) => {
                 format!("uint {} [[threadgroup_position_in_grid]]", param.name)
             }
+            VarKind::LocalId(_) => {
+                format!("uint {} [[thread_position_in_threadgroup]]", param.name)
+            }
             VarKind::GroupSize(_) => {
                 format!("uint {} [[threads_per_threadgroup]]", param.name)
             }

@@ -8,7 +8,7 @@ use crate::opt::ast::{AstSuggestResult, AstSuggester};
 
 use super::parallelization_common::{
     ceil_div, collect_free_variables, const_int, infer_params_from_placeholders,
-    is_range_parallelizable, substitute_var, thread_id_param, var,
+    is_range_thread_parallelizable, substitute_var, thread_id_param, var,
 };
 
 /// デフォルトのスレッドグループサイズ
@@ -76,9 +76,12 @@ impl ThreadParallelizationSuggester {
         // bodyがRangeループか、またはBlockの中にRangeがあるか確認
         let range_node = self.find_outermost_range(body)?;
 
-        // 並列化可能かチェック
-        if !is_range_parallelizable(range_node) {
-            log::trace!("Function {:?}: Range loop is not parallelizable", name);
+        // スレッド並列化可能かチェック（動的分岐を含む場合は不可）
+        if !is_range_thread_parallelizable(range_node) {
+            log::trace!(
+                "Function {:?}: Range loop is not thread-parallelizable",
+                name
+            );
             return None;
         }
 

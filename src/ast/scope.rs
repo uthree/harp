@@ -23,10 +23,11 @@ pub enum Mutability {
 #[derive(Clone, Debug, PartialEq)]
 pub enum VarKind {
     Normal,           // 通常の変数/引数
-    ThreadId(usize),  // スレッドID（軸番号）
-    GroupId(usize),   // グループID（軸番号）
-    GroupSize(usize), // グループサイズ（軸番号）
-    GridSize(usize),  // グリッドサイズ（軸番号）
+    ThreadId(usize),  // グローバルスレッドID（軸番号）- get_global_id(axis)
+    GroupId(usize),   // グループID（軸番号）- get_group_id(axis)
+    LocalId(usize),   // ローカルスレッドID（軸番号）- get_local_id(axis)
+    GroupSize(usize), // グループサイズ（軸番号）- get_local_size(axis)
+    GridSize(usize),  // グリッドサイズ（軸番号）- get_global_size(axis)
 }
 
 /// スコープ管理（変数アクセス制御）

@@ -11,6 +11,7 @@ use std::collections::HashSet;
 /// ループ本体を解析し、以下の条件をチェックします：
 /// 1. ループ外変数への書き込み（Assign）がないこと
 /// 2. Store先のオフセットがループ変数に依存していること（レースコンディション回避）
+/// 3. 動的分岐（If等）の有無（スレッド並列化の場合に考慮）
 #[derive(Debug)]
 pub struct LoopAnalyzer {
     /// ループ変数名
@@ -23,6 +24,8 @@ pub struct LoopAnalyzer {
     stores_depend_on_loop_var: bool,
     /// Store操作が存在するか
     has_stores: bool,
+    /// 動的分岐（If等）が存在するか
+    has_dynamic_branch: bool,
 }
 
 impl LoopAnalyzer {
@@ -34,6 +37,7 @@ impl LoopAnalyzer {
             local_vars: HashSet::new(),
             stores_depend_on_loop_var: false,
             has_stores: false,
+            has_dynamic_branch: false,
         }
     }
 
@@ -80,6 +84,8 @@ impl LoopAnalyzer {
                 then_body,
                 else_body,
             } => {
+                // 動的分岐を検出（GPUでのスレッド並列化時に分岐ダイバージェンスの原因となる）
+                self.has_dynamic_branch = true;
                 self.analyze_recursive(condition);
                 self.analyze_recursive(then_body);
                 if let Some(else_b) = else_body {
@@ -175,7 +181,7 @@ impl LoopAnalyzer {
         }
     }
 
-    /// 並列化可能かどうかを判定
+    /// 並列化可能かどうかを判定（基本条件）
     ///
     /// 条件:
     /// - 外部変数への書き込みがない
@@ -199,13 +205,47 @@ impl LoopAnalyzer {
         true
     }
 
+    /// 動的分岐が含まれるかどうかを返す
+    pub fn has_dynamic_branch(&self) -> bool {
+        self.has_dynamic_branch
+    }
+
+    /// スレッド並列化可能かどうかを判定
+    ///
+    /// 条件:
+    /// - 基本の並列化条件を満たす
+    /// - 動的分岐（If等）が含まれない
+    ///
+    /// GPUでは同一ワープ/SIMD内のスレッドが同じ命令を実行する必要があり、
+    /// 分岐が発生すると分岐ダイバージェンスにより性能が低下します。
+    pub fn is_thread_parallelizable(&self) -> bool {
+        if !self.is_parallelizable() {
+            return false;
+        }
+
+        if self.has_dynamic_branch {
+            log::trace!("Loop not thread-parallelizable: contains dynamic branch");
+            return false;
+        }
+
+        true
+    }
+
+    /// グループ並列化可能かどうかを判定
+    ///
+    /// 基本の並列化条件のみをチェックします。
+    /// グループ間は独立してスケジューリングされるため、動的分岐は許可されます。
+    pub fn is_group_parallelizable(&self) -> bool {
+        self.is_parallelizable()
+    }
+
     /// 外部書き込み変数のリストを取得
     pub fn external_writes(&self) -> &HashSet<String> {
         &self.external_writes
     }
 }
 
-/// Rangeループが並列化可能かどうかを判定
+/// Rangeループが並列化可能かどうかを判定（基本条件）
 ///
 /// Function/Kernel直下のRangeループに対して使用します。
 pub fn is_range_parallelizable(range_node: &AstNode) -> bool {
@@ -214,6 +254,36 @@ pub fn is_range_parallelizable(range_node: &AstNode) -> bool {
             let mut analyzer = LoopAnalyzer::new(var);
             analyzer.analyze(body);
             analyzer.is_parallelizable()
+        }
+        _ => false,
+    }
+}
+
+/// Rangeループがスレッド並列化可能かどうかを判定
+///
+/// 基本の並列化条件に加えて、動的分岐（If等）が含まれないことをチェックします。
+/// GPUでは分岐ダイバージェンスを避けるため、スレッド並列化では分岐を禁止します。
+pub fn is_range_thread_parallelizable(range_node: &AstNode) -> bool {
+    match range_node {
+        AstNode::Range { var, body, .. } => {
+            let mut analyzer = LoopAnalyzer::new(var);
+            analyzer.analyze(body);
+            analyzer.is_thread_parallelizable()
+        }
+        _ => false,
+    }
+}
+
+/// Rangeループがグループ並列化可能かどうかを判定
+///
+/// 基本の並列化条件のみをチェックします。
+/// グループ間は独立してスケジューリングされるため、動的分岐は許可されます。
+pub fn is_range_group_parallelizable(range_node: &AstNode) -> bool {
+    match range_node {
+        AstNode::Range { var, body, .. } => {
+            let mut analyzer = LoopAnalyzer::new(var);
+            analyzer.analyze(body);
+            analyzer.is_group_parallelizable()
         }
         _ => false,
     }
@@ -442,6 +512,16 @@ pub fn group_id_param(name: impl Into<String>, axis: usize) -> VarDecl {
         dtype: DType::Int,
         mutability: Mutability::Immutable,
         kind: VarKind::GroupId(axis),
+    }
+}
+
+/// LocalId変数宣言を作成
+pub fn local_id_param(name: impl Into<String>, axis: usize) -> VarDecl {
+    VarDecl {
+        name: name.into(),
+        dtype: DType::Int,
+        mutability: Mutability::Immutable,
+        kind: VarKind::LocalId(axis),
     }
 }
 

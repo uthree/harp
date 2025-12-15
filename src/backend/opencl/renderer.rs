@@ -573,13 +573,14 @@ impl CLikeRenderer for OpenCLRenderer {
             Mutability::Mutable => "",
         };
 
-        // ThreadId, GroupIdなどは関数内でget_global_id()等で取得するため、パラメータには含めない
+        // ThreadId, GroupId, LocalIdなどは関数内でget_global_id()等で取得するため、パラメータには含めない
         match &param.kind {
             VarKind::Normal => {
                 format!("{}{} {}", mut_str, type_str, param.name)
             }
             VarKind::ThreadId(_)
             | VarKind::GroupId(_)
+            | VarKind::LocalId(_)
             | VarKind::GroupSize(_)
             | VarKind::GridSize(_) => {
                 // これらは関数内で宣言するため、ここでは空文字を返す
@@ -597,7 +598,7 @@ impl CLikeRenderer for OpenCLRenderer {
 
         let mut declarations = String::new();
 
-        // パラメータからThreadId/GroupId等を探し、実際の名前を使用する
+        // パラメータからThreadId/GroupId/LocalId等を探し、実際の名前を使用する
         for param in params {
             match &param.kind {
                 VarKind::ThreadId(axis) => {
@@ -609,6 +610,12 @@ impl CLikeRenderer for OpenCLRenderer {
                 VarKind::GroupId(axis) => {
                     declarations.push_str(&format!(
                         "{}int {} = get_group_id({});\n",
+                        indent, param.name, axis
+                    ));
+                }
+                VarKind::LocalId(axis) => {
+                    declarations.push_str(&format!(
+                        "{}int {} = get_local_id({});\n",
                         indent, param.name, axis
                     ));
                 }
