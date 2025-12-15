@@ -158,6 +158,65 @@ kernel.execute_with_buffers(&[&a, &b, &c])?;
 let result: Vec<f32> = c.read_vec()?;  // [6.0, 8.0, 10.0, 12.0]
 ```
 
+### NativePipeline
+
+`NativePipeline`は、Graphから直接GPUカーネルを生成・実行するためのパイプラインです。GenericPipelineと同様の最適化機能を持ちつつ、libloadingを必要としません。
+
+**処理フロー:**
+1. Graphの最適化（多フェーズグラフ最適化）
+2. AST抽出（lowerer）
+3. ASTの最適化（ルールベース＋ビームサーチ）
+4. カーネルソースのみをレンダリング（`KernelSourceRenderer` trait）
+5. ネイティブコンパイル（`NativeCompiler`）
+6. GPUカーネル実行（`NativeKernel`）
+
+**使用例:**
+```rust
+use harp::backend::native::{NativePipeline, NativeBuffer, NativeCompiler, NativeContext};
+use harp::backend::native::opencl::{OpenCLNativeBuffer, OpenCLNativeCompiler, OpenCLNativeContext};
+use harp::backend::opencl::OpenCLRenderer;
+use harp::graph::{Graph, DType};
+
+// パイプライン作成
+let context = OpenCLNativeContext::new()?;
+let renderer = OpenCLRenderer::new();
+let compiler = OpenCLNativeCompiler::new();
+let mut pipeline = NativePipeline::new(renderer, compiler, context);
+
+// グラフ作成
+let mut graph = Graph::new();
+let a = graph.input("a", DType::F32, vec![1024]);
+let b = graph.input("b", DType::F32, vec![1024]);
+let c = a + b;
+graph.output("out", c);
+
+// コンパイル
+let compiled = pipeline.compile_graph(graph)?;
+
+// バッファ作成・実行
+let mut input_a = OpenCLNativeBuffer::allocate(&pipeline.context(), vec![1024], AstDType::F32)?;
+let mut input_b = OpenCLNativeBuffer::allocate(&pipeline.context(), vec![1024], AstDType::F32)?;
+let mut output = OpenCLNativeBuffer::allocate(&pipeline.context(), vec![1024], AstDType::F32)?;
+
+// データ書き込み・カーネル実行・結果読み出し
+input_a.write_vec(&vec![1.0f32; 1024])?;
+input_b.write_vec(&vec![2.0f32; 1024])?;
+compiled.execute(&[&input_a, &input_b], &mut [&mut output])?;
+let result: Vec<f32> = output.read_vec()?;
+```
+
+**設定:**
+```rust
+{
+    let config = pipeline.config_mut();
+    config.graph_beam_width = 2;    // グラフ最適化のビーム幅
+    config.ast_beam_width = 2;      // AST最適化のビーム幅
+    config.max_steps = 1000;        // 最大最適化ステップ数
+    config.show_progress = true;    // プログレス表示
+    config.collect_history = true;  // 最適化履歴の収集
+}
+```
+
 ### Feature flags
 
 - `native-opencl`: OpenCLネイティブバックエンドを有効化

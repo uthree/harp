@@ -470,6 +470,20 @@ impl Renderer for MetalRenderer {
     }
 }
 
+/// Implementation of KernelSourceRenderer for native Metal backend
+#[cfg(all(feature = "native-metal", target_os = "macos"))]
+impl crate::backend::native::KernelSourceRenderer for MetalRenderer {
+    fn render_kernel_source(&mut self, program: &AstNode) -> String {
+        if let AstNode::Program { functions, .. } = program {
+            // Use the internal MetalKernelRenderer to generate kernel-only source
+            let mut kernel_renderer = MetalKernelRenderer::new();
+            kernel_renderer.render_kernel_source(functions)
+        } else {
+            String::new()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
