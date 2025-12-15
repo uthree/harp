@@ -324,7 +324,7 @@ fn build_fold_kernel_loops_sequential(
     patch_sizes: &[usize],
     spatial_dims: usize,
     has_groups: bool,
-    _groups: usize,
+    groups: usize,
     load_dtype: &AstDType,
     output_coords: &[AstNode],
 ) -> AstNode {
@@ -338,6 +338,7 @@ fn build_fold_kernel_loops_sequential(
         patch_sizes,
         spatial_dims,
         has_groups,
+        groups,
         load_dtype,
         output_coords,
         true, // use ridx variables for kernel indices
@@ -370,7 +371,7 @@ fn build_fold_kernel_loops(
     patch_sizes: &[usize],
     spatial_dims: usize,
     has_groups: bool,
-    _groups: usize,
+    groups: usize,
     load_dtype: &AstDType,
     output_coords: &[AstNode],
 ) -> AstNode {
@@ -384,6 +385,7 @@ fn build_fold_kernel_loops(
         patch_sizes,
         spatial_dims,
         has_groups,
+        groups,
         load_dtype,
         output_coords,
         false, // use coord expressions directly
@@ -416,6 +418,7 @@ fn build_fold_inner_body(
     patch_sizes: &[usize],
     spatial_dims: usize,
     has_groups: bool,
+    groups: usize,
     load_dtype: &AstDType,
     output_coords: &[AstNode],
     use_ridx_for_spatial: bool,
@@ -475,12 +478,19 @@ fn build_fold_inner_body(
     // 入力インデックス計算
     // 入力形状: (C, k1, k2, ..., L1', L2', ...) for groups=1
     // または (groups, C/groups, k1, ..., L1', ...) for groups>1
+    let c_per_group = if has_groups {
+        output_size[0] / groups
+    } else {
+        output_size[0]
+    };
     let input_idx = build_input_index(
         input_shape,
         kernel_size,
         patch_sizes,
         spatial_dims,
         has_groups,
+        groups,
+        c_per_group,
         output_coords,
         &patch_indices,
         use_ridx_for_spatial,
@@ -501,6 +511,15 @@ fn build_fold_inner_body(
 }
 
 /// 入力インデックスを計算
+///
+/// groups=1の場合:
+///   入力形状: (C, k1, k2, ..., L1', L2', ...)
+///   インデックス: c * (k1*k2*...*L1'*L2'*...) + k1_idx * (k2*...*L1'*...) + ... + l1 * L2' + l2
+///
+/// groups>1の場合:
+///   入力形状: (groups, C/groups, k1, k2, ..., L1', L2', ...)
+///   出力チャネル c から: g = c / c_per_group, c_local = c % c_per_group
+///   インデックス: g * (c_per_group*k1*k2*...*L1'*L2'*...) + c_local * (k1*k2*...*L1'*...) + ...
 #[allow(clippy::too_many_arguments)]
 fn build_input_index(
     _input_shape: &[crate::graph::Expr],
@@ -508,14 +527,13 @@ fn build_input_index(
     patch_sizes: &[usize],
     _spatial_dims: usize,
     has_groups: bool,
+    _groups: usize,
+    c_per_group: usize,
     output_coords: &[AstNode],
     patch_indices: &[AstNode],
     use_ridx_for_spatial: bool,
     _output_spatial_start: usize,
 ) -> AstNode {
-    // 入力形状: (C, k1, k2, ..., L1', L2', ...)
-    // インデックス計算: c * (k1*k2*...*L1'*L2'*...) + k1_idx * (k2*...*L1'*...) + ... + l1 * L2' + l2
-
     let channel_coord = if use_ridx_for_spatial {
         var(ph::ridx(0))
     } else {
@@ -526,29 +544,55 @@ fn build_input_index(
     let kernel_total: usize = kernel_size.iter().product();
     let patch_total: usize = patch_sizes.iter().product();
 
-    // チャネル部分
-    let mut idx = channel_coord * const_int((kernel_total * patch_total) as isize);
-
-    // カーネル次元部分
-    for (k_axis, _k_size) in kernel_size.iter().enumerate() {
-        let k_var = var(format!("k{}", k_axis));
-        let k_stride: usize = kernel_size[(k_axis + 1)..].iter().product::<usize>() * patch_total;
-        idx = idx + k_var * const_int(k_stride as isize);
-    }
-
-    // パッチ位置部分
-    for (p_axis, patch_idx) in patch_indices.iter().enumerate() {
-        let p_stride: usize = patch_sizes[(p_axis + 1)..].iter().product();
-        idx = idx + patch_idx.clone() * const_int(p_stride as isize);
-    }
-
-    // groups > 1 の場合は追加の処理が必要（TODO: 後で実装）
     if has_groups {
-        // 現時点ではgroups=1のみサポート
-        log::warn!("Fold with groups > 1 is not fully implemented");
-    }
+        // groups > 1: 入力形状は (groups, C/groups, k1, k2, ..., L1', L2', ...)
+        // 出力チャネル c から g と c_local を計算
+        let group_idx = idiv(channel_coord.clone(), const_int(c_per_group as isize));
+        let c_local = rem(channel_coord, const_int(c_per_group as isize));
 
-    idx
+        // グループ内の要素数
+        let per_group_size = c_per_group * kernel_total * patch_total;
+
+        // インデックス計算
+        let mut idx = group_idx * const_int(per_group_size as isize)
+            + c_local * const_int((kernel_total * patch_total) as isize);
+
+        // カーネル次元部分
+        for (k_axis, _k_size) in kernel_size.iter().enumerate() {
+            let k_var = var(format!("k{}", k_axis));
+            let k_stride: usize =
+                kernel_size[(k_axis + 1)..].iter().product::<usize>() * patch_total;
+            idx = idx + k_var * const_int(k_stride as isize);
+        }
+
+        // パッチ位置部分
+        for (p_axis, patch_idx) in patch_indices.iter().enumerate() {
+            let p_stride: usize = patch_sizes[(p_axis + 1)..].iter().product();
+            idx = idx + patch_idx.clone() * const_int(p_stride as isize);
+        }
+
+        idx
+    } else {
+        // groups = 1: 入力形状は (C, k1, k2, ..., L1', L2', ...)
+        // チャネル部分
+        let mut idx = channel_coord * const_int((kernel_total * patch_total) as isize);
+
+        // カーネル次元部分
+        for (k_axis, _k_size) in kernel_size.iter().enumerate() {
+            let k_var = var(format!("k{}", k_axis));
+            let k_stride: usize =
+                kernel_size[(k_axis + 1)..].iter().product::<usize>() * patch_total;
+            idx = idx + k_var * const_int(k_stride as isize);
+        }
+
+        // パッチ位置部分
+        for (p_axis, patch_idx) in patch_indices.iter().enumerate() {
+            let p_stride: usize = patch_sizes[(p_axis + 1)..].iter().product();
+            idx = idx + patch_idx.clone() * const_int(p_stride as isize);
+        }
+
+        idx
+    }
 }
 
 #[cfg(test)]
@@ -637,5 +681,80 @@ mod tests {
         // L' = (32 - 3) / 2 + 1 = 15
         let patches2 = compute_patch_sizes(&[32, 32], &[3, 3], &[2, 2], &[1, 1], 2);
         assert_eq!(patches2, vec![15, 15]);
+    }
+
+    #[test]
+    fn test_fold_lowering_1d_groups() {
+        let mut graph = Graph::new();
+
+        // 1D fold with groups=2: (2, 2, 3, 8) -> (4, 10)
+        // Input: (groups, C/groups, k, L') = (2, 2, 3, 8)
+        // Output: (C, L) = (4, 10)
+        // kernel_size=3, stride=1, dilation=1, groups=2
+        let x = graph.input("x", DType::F32, vec![2, 2, 3, 8]);
+        let folded = x.fold(vec![4, 10], 3, 1, 1, 2);
+
+        let ast = build_fold_kernel(
+            &folded,
+            &[4, 10],
+            &[3],
+            &[1],
+            &[1],
+            2,
+            "fold_1d_groups",
+            &ParallelizationStrategy::Sequential,
+        );
+
+        assert!(ast.is_some());
+    }
+
+    #[test]
+    fn test_fold_lowering_2d_groups() {
+        let mut graph = Graph::new();
+
+        // 2D fold with groups=2: (2, 2, 3, 3, 6, 6) -> (4, 8, 8)
+        // Input: (groups, C/groups, k1, k2, L1', L2') = (2, 2, 3, 3, 6, 6)
+        // Output: (C, H, W) = (4, 8, 8)
+        // kernel_size=(3,3), stride=(1,1), dilation=(1,1), groups=2
+        let x = graph.input("x", DType::F32, vec![2, 2, 3, 3, 6, 6]);
+        let folded = x.fold(vec![4, 8, 8], (3, 3), (1, 1), (1, 1), 2);
+
+        let ast = build_fold_kernel(
+            &folded,
+            &[4, 8, 8],
+            &[3, 3],
+            &[1, 1],
+            &[1, 1],
+            2,
+            "fold_2d_groups",
+            &ParallelizationStrategy::Sequential,
+        );
+
+        assert!(ast.is_some());
+    }
+
+    #[test]
+    fn test_fold_lowering_parallel_groups() {
+        let mut graph = Graph::new();
+
+        // Parallel fold with groups=2
+        let x = graph.input("x", DType::F32, vec![2, 2, 3, 8]);
+        let folded = x.fold(vec![4, 10], 3, 1, 1, 2);
+
+        let ast = build_fold_kernel(
+            &folded,
+            &[4, 10],
+            &[3],
+            &[1],
+            &[1],
+            2,
+            "fold_parallel_groups",
+            &ParallelizationStrategy::FlatParallel {
+                thread_group_size: 256,
+                vector_width: None,
+            },
+        );
+
+        assert!(ast.is_some());
     }
 }

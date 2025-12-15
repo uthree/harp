@@ -93,11 +93,10 @@ harpc --subgraph-mode skip input.harp     # スキップ（デバッグ用）
 - マルチフェーズ最適化による単一Program収束
 - ProgramRoot/Kernel(Program)からのProgram取得
 - 動的shape対応のシグネチャ生成
-- Fold演算（col2im）: Sequential/FlatParallel対応
+- Fold演算（col2im）: Sequential/FlatParallel対応、groups > 1対応
 
 ### 未実装
 - FusedReduce演算（タプル出力が必要）
-- Fold演算のgroups > 1対応
 
 ## 並列化サポート
 
@@ -111,4 +110,5 @@ LoweringSuggesterは各演算に対して複数の並列化戦略で候補を生
 ### 対応演算
 - Elementwise, FusedElementwise: 全戦略対応
 - Reduce: Sequential, FlatParallel対応
+- Fold: Sequential, FlatParallel対応（groups対応済み）
 - その他: Sequentialのみ（順次拡張予定）

@@ -105,3 +105,46 @@ fn test_fold3d_compilation() {
 
     compile_graph_test(graph, "Fold3d");
 }
+
+#[test]
+fn test_fold1d_groups_compilation() {
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    // Fold1d with groups=2 のテスト
+    let mut graph = Graph::new();
+
+    // 入力: [4, 10] (C_in=4, L=10)
+    let input = graph.input("input", DType::F32, vec![4, 10]);
+
+    // unfold with groups=2: [4, 10] -> [2, 2, 3, 8]
+    // (groups, C/groups, k, L') = (2, 2, 3, 8)
+    let unfolded = input.unfold(3, 1, 1, 2);
+
+    // fold: 元に戻す
+    let folded = unfolded.fold(vec![4, 10], 3, 1, 1, 2);
+
+    graph.output("result", folded);
+
+    compile_graph_test(graph, "Fold1d_groups");
+}
+
+#[test]
+fn test_fold2d_groups_compilation() {
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    // Fold2d with groups=2 のテスト
+    let mut graph = Graph::new();
+
+    // 入力: [4, 8, 8] (C_in=4, H=8, W=8)
+    let input = graph.input("input", DType::F32, vec![4, 8, 8]);
+
+    // unfold with groups=2: [4, 8, 8] -> [2, 2, 3, 3, 6, 6]
+    let unfolded = input.unfold((3, 3), (1, 1), (1, 1), 2);
+
+    // fold: 元に戻す
+    let folded = unfolded.fold(vec![4, 8, 8], (3, 3), (1, 1), (1, 1), 2);
+
+    graph.output("result", folded);
+
+    compile_graph_test(graph, "Fold2d_groups");
+}
