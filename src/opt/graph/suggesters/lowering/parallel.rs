@@ -623,15 +623,42 @@ fn build_reduce_index_calculation(
 
 /// 特定軸のストライドを計算
 fn build_axis_stride(ndim: usize, axis: usize) -> AstNode {
+    build_axis_stride_with_shapes(ndim, axis, None)
+}
+
+fn build_axis_stride_with_shapes(
+    ndim: usize,
+    axis: usize,
+    concrete_shapes: Option<&[usize]>,
+) -> AstNode {
     if axis == ndim - 1 {
         return const_int(1);
     }
 
+    // 具体的なshapeが利用可能な場合は定数を計算
+    if let Some(shapes) = concrete_shapes
+        && shapes.len() >= ndim
+    {
+        let stride: usize = shapes[(axis + 1)..ndim].iter().product();
+        return const_int(stride as isize);
+    }
+
+    // シンボリックな変数を使用
     let mut stride = var(ph::shape(axis + 1));
     for inner_axis in (axis + 2)..ndim {
         stride = stride * var(ph::shape(inner_axis));
     }
     stride
+}
+
+/// 指定された軸のshape値を取得（具体的な値または変数）
+fn get_shape_value(axis: usize, concrete_shapes: Option<&[usize]>) -> AstNode {
+    if let Some(shapes) = concrete_shapes
+        && let Some(&size) = shapes.get(axis)
+    {
+        return const_int(size as isize);
+    }
+    var(ph::shape(axis))
 }
 
 /// 出力要素数を計算（reduce軸を除く）
@@ -725,7 +752,7 @@ pub fn build_flat_parallel_fused_elementwise_reduce_kernel(
     if output_ndim > 0 {
         let mut remaining = var("tid");
         for (i, &in_axis) in output_axes.iter().enumerate().rev() {
-            let axis_size = var(ph::shape(in_axis));
+            let axis_size = get_shape_value(in_axis, concrete_shapes);
             let idx = if i == 0 {
                 remaining.clone()
             } else {
@@ -740,29 +767,23 @@ pub fn build_flat_parallel_fused_elementwise_reduce_kernel(
 
     // 入力オフセット計算式を構築
     // base_offset + Σ(ridx[reduce_axis] * stride[reduce_axis])
-    let build_input_offset =
-        |reduce_indices: &std::collections::HashMap<usize, AstNode>| -> AstNode {
-            let mut offset = const_int(0);
-            for axis in 0..ndim {
-                let idx = if axes_set.contains(&axis) {
-                    reduce_indices
-                        .get(&axis)
-                        .cloned()
-                        .unwrap_or_else(|| var(ph::ridx(axis)))
-                } else {
-                    base_offset_parts
-                        .iter()
-                        .find(|(a, _)| *a == axis)
-                        .map(|(_, idx)| idx.clone())
-                        .unwrap_or_else(|| const_int(0))
-                };
-                let stride = build_axis_stride(ndim, axis);
-                offset = offset + idx * stride;
-            }
-            offset
-        };
-
-    let input_offset = build_input_offset(&std::collections::HashMap::new());
+    let input_offset = {
+        let mut offset = const_int(0);
+        for axis in 0..ndim {
+            let idx = if axes_set.contains(&axis) {
+                var(ph::ridx(axis))
+            } else {
+                base_offset_parts
+                    .iter()
+                    .find(|(a, _)| *a == axis)
+                    .map(|(_, idx)| idx.clone())
+                    .unwrap_or_else(|| const_int(0))
+            };
+            let stride = build_axis_stride_with_shapes(ndim, axis, concrete_shapes);
+            offset = offset + idx * stride;
+        }
+        offset
+    };
 
     // Elementwise式にロードを埋め込み
     let mut mappings = std::collections::HashMap::new();
@@ -794,7 +815,7 @@ pub fn build_flat_parallel_fused_elementwise_reduce_kernel(
             ph::ridx(axis),
             const_int(0),
             const_int(1),
-            var(ph::shape(axis)),
+            get_shape_value(axis, concrete_shapes),
             reduce_loops,
         );
     }
