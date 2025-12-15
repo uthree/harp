@@ -412,12 +412,16 @@ pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOpt
         .with_early_termination_threshold(Some(5)); // 早期終了
 
     // Phase 4: Lowering（Kernel変換のみ）
-    // すべてのノードをlowerする必要があるため、GreedyGraphOptimizerを使用
-    // BeamSearchはコストベースで選択するため、matmul等の高コストKernelが選択されない可能性がある
+    // BeamSearchを使用してコストベースで最適な並列化戦略を選択
+    // SimpleCostEstimatorは並列カーネルにボーナス（コスト減少）を与えるため、
+    // 適切なスレッドグループサイズとベクトル化が選択される
     let lowering_suggester = create_lowering_only_suggester();
-    let lowering_optimizer = GreedyGraphOptimizer::new(lowering_suggester)
+    let lowering_optimizer = BeamSearchGraphOptimizer::new(lowering_suggester)
+        .with_beam_width(config.beam_width)
         .with_max_steps(config.max_steps_per_phase)
-        .with_name("Lowering");
+        .with_progress(config.show_progress)
+        .with_collect_logs(config.collect_logs)
+        .with_early_termination_threshold(config.early_termination_threshold);
 
     // Phase 5: KernelPartition（1D Kernelを多次元グリッドに分割）
     let kernel_partition_suggester = create_kernel_partition_suggester();
