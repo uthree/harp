@@ -348,9 +348,21 @@ impl LoweringSuggester {
                 ParallelizationStrategy::FlatParallel {
                     thread_group_size: _,
                     vector_width: _,
-                } => parallel::build_flat_parallel_fused_elementwise_reduce_kernel(
-                    node, expr, reduce_op, axes, &name,
-                ),
+                } => {
+                    // 入力の具体的なshape値を抽出（利用可能な場合）
+                    let concrete_shapes = node
+                        .src
+                        .first()
+                        .and_then(|input| self.extract_concrete_shapes(input));
+                    parallel::build_flat_parallel_fused_elementwise_reduce_kernel(
+                        node,
+                        expr,
+                        reduce_op,
+                        axes,
+                        &name,
+                        concrete_shapes.as_deref(),
+                    )
+                }
             },
             GraphOp::FusedElementwiseCumulative {
                 expr,
@@ -498,6 +510,9 @@ impl LoweringSuggester {
                 let expr = elementwise::build_elementwise_expr(op);
                 let expr_with_consts = elementwise::embed_constants(&expr, &node.src);
 
+                // 具体的なshape値を抽出（利用可能な場合）
+                let concrete_shapes = self.extract_concrete_shapes(node);
+
                 Some(parallel::build_parallel_elementwise_kernel(
                     ndim,
                     num_inputs,
@@ -505,6 +520,7 @@ impl LoweringSuggester {
                     &node.dtype,
                     name,
                     strategy,
+                    concrete_shapes.as_deref(),
                 ))
             }
         }
@@ -533,6 +549,9 @@ impl LoweringSuggester {
 
                 let expr_with_consts = elementwise::embed_constants(expr, &node.src);
 
+                // 具体的なshape値を抽出（利用可能な場合）
+                let concrete_shapes = self.extract_concrete_shapes(node);
+
                 Some(parallel::build_parallel_elementwise_kernel(
                     ndim,
                     num_inputs,
@@ -540,6 +559,7 @@ impl LoweringSuggester {
                     &node.dtype,
                     name,
                     strategy,
+                    concrete_shapes.as_deref(),
                 ))
             }
         }
@@ -640,6 +660,23 @@ impl LoweringSuggester {
             }
         }
         Some(total)
+    }
+
+    /// ノードのshapeから具体的な値を抽出（全て定数の場合のみ）
+    fn extract_concrete_shapes(&self, node: &GraphNode) -> Option<Vec<usize>> {
+        use crate::graph::shape::Expr;
+
+        let shape = node.view.shape();
+        let mut result = Vec::with_capacity(shape.len());
+        for dim in shape {
+            match dim {
+                Expr::Const(val) if *val >= 0 => {
+                    result.push(*val as usize);
+                }
+                _ => return None, // シンボリックな軸がある場合は抽出不可
+            }
+        }
+        Some(result)
     }
 
     /// グラフ内の特定ノードを置き換えた新しいグラフを作成

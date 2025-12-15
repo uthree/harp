@@ -1,7 +1,8 @@
-use crate::ast::{AstNode, DType};
+use crate::ast::{AstNode, DType, Literal};
 use crate::backend::Renderer;
 use crate::backend::c_like::CLikeRenderer;
 use crate::backend::opencl::{LIBLOADING_WRAPPER_NAME, OpenCLCode};
+use std::collections::HashMap;
 
 /// OpenCLレンダラー
 ///
@@ -9,11 +10,27 @@ use crate::backend::opencl::{LIBLOADING_WRAPPER_NAME, OpenCLCode};
 #[derive(Debug, Clone)]
 pub struct OpenCLRenderer {
     indent_level: usize,
+    /// シェイプ変数のデフォルト値
+    shape_var_defaults: HashMap<String, isize>,
 }
 
 impl OpenCLRenderer {
     pub fn new() -> Self {
-        Self { indent_level: 0 }
+        Self {
+            indent_level: 0,
+            shape_var_defaults: HashMap::new(),
+        }
+    }
+
+    /// シェイプ変数のデフォルト値を設定
+    pub fn with_shape_var_defaults(mut self, defaults: HashMap<String, isize>) -> Self {
+        self.shape_var_defaults = defaults;
+        self
+    }
+
+    /// シェイプ変数のデフォルト値を追加
+    pub fn set_shape_var_default(&mut self, name: impl Into<String>, value: isize) {
+        self.shape_var_defaults.insert(name.into(), value);
     }
 
     /// Programをレンダリング
@@ -403,10 +420,59 @@ impl OpenCLRenderer {
     }
 
     /// 定数式を評価してusize値を取得
+    ///
+    /// 変数（Var）が含まれている場合は`shape_var_defaults`の値で置換してから評価します。
+    /// 評価できない場合は1を返します。
     fn eval_const_expr(&self, expr: &AstNode) -> usize {
+        // まず変数を定数に置換
+        let substituted = if !self.shape_var_defaults.is_empty() {
+            let mappings: HashMap<String, AstNode> = self
+                .shape_var_defaults
+                .iter()
+                .map(|(name, value)| (name.clone(), AstNode::Const(Literal::Int(*value))))
+                .collect();
+            expr.substitute_vars(&mappings)
+        } else {
+            expr.clone()
+        };
+
+        // 簡略化された式を評価
+        self.eval_simplified_expr(&substituted).unwrap_or(1)
+    }
+
+    /// 簡略化された（変数のない）式を評価
+    fn eval_simplified_expr(&self, expr: &AstNode) -> Option<usize> {
         match expr {
-            AstNode::Const(crate::ast::Literal::Int(n)) => *n as usize,
-            _ => 1, // デフォルト値
+            AstNode::Const(Literal::Int(n)) => {
+                if *n >= 0 {
+                    Some(*n as usize)
+                } else {
+                    None
+                }
+            }
+            AstNode::Add(left, right) => {
+                let l = self.eval_simplified_expr(left)?;
+                let r = self.eval_simplified_expr(right)?;
+                Some(l + r)
+            }
+            AstNode::Mul(left, right) => {
+                let l = self.eval_simplified_expr(left)?;
+                let r = self.eval_simplified_expr(right)?;
+                Some(l * r)
+            }
+            AstNode::Idiv(left, right) => {
+                let l = self.eval_simplified_expr(left)?;
+                let r = self.eval_simplified_expr(right)?;
+                if r == 0 { None } else { Some(l / r) }
+            }
+            AstNode::Rem(left, right) => {
+                let l = self.eval_simplified_expr(left)?;
+                let r = self.eval_simplified_expr(right)?;
+                if r == 0 { None } else { Some(l % r) }
+            }
+            // Varが残っている場合はshape_var_defaultsから直接取得を試みる
+            AstNode::Var(name) => self.shape_var_defaults.get(name).map(|v| *v as usize),
+            _ => None,
         }
     }
 }

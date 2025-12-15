@@ -56,12 +56,25 @@ pub struct ParallelKernelConfig {
 /// * `inputs` - 入力仕様のリスト
 /// * `expr` - Elementwise式
 /// * `output_dtype` - 出力の型
+#[allow(dead_code)]
 pub fn build_elementwise_kernel(
     config: &ParallelKernelConfig,
     ndim: usize,
     inputs: &[InputSpec],
     expr: AstNode,
     output_dtype: &crate::graph::DType,
+) -> AstNode {
+    build_elementwise_kernel_with_shapes(config, ndim, inputs, expr, output_dtype, None)
+}
+
+/// 具体的なshape値を使用して並列Elementwiseカーネルを生成（1D並列化）
+pub fn build_elementwise_kernel_with_shapes(
+    config: &ParallelKernelConfig,
+    ndim: usize,
+    inputs: &[InputSpec],
+    expr: AstNode,
+    output_dtype: &crate::graph::DType,
+    concrete_shapes: Option<&[usize]>,
 ) -> AstNode {
     let load_dtype = graph_dtype_to_ast(output_dtype);
     let vec_dtype = config
@@ -96,7 +109,7 @@ pub fn build_elementwise_kernel(
 
     // 境界チェック適用
     let guarded_body = if config.boundary_check {
-        let total_elements = build_total_elements(ndim);
+        let total_elements = build_total_elements_with_shapes(ndim, concrete_shapes);
         if_then(lt(var("tid"), total_elements), body_block)
     } else {
         body_block
@@ -104,7 +117,8 @@ pub fn build_elementwise_kernel(
     let body = block(vec![guarded_body], Scope::new());
 
     // グリッドサイズ計算
-    let (grid_size, tg_size) = build_grid_and_tg_size(&config.grid_strategy, config, ndim);
+    let (grid_size, tg_size) =
+        build_grid_and_tg_size_with_shapes(&config.grid_strategy, config, ndim, concrete_shapes);
 
     AstNode::Kernel {
         name: Some(config.name.clone()),
@@ -202,19 +216,38 @@ fn build_load_and_substitute_vec(
 }
 
 /// グリッドサイズとスレッドグループサイズを計算（1D専用）
+#[allow(dead_code)]
 fn build_grid_and_tg_size(
     strategy: &GridStrategy,
     config: &ParallelKernelConfig,
     ndim: usize,
 ) -> ([Box<AstNode>; 3], [Box<AstNode>; 3]) {
+    build_grid_and_tg_size_with_shapes(strategy, config, ndim, None)
+}
+
+fn build_grid_and_tg_size_with_shapes(
+    strategy: &GridStrategy,
+    config: &ParallelKernelConfig,
+    ndim: usize,
+    concrete_shapes: Option<&[usize]>,
+) -> ([Box<AstNode>; 3], [Box<AstNode>; 3]) {
     let tg_size = config.thread_group_size;
 
     match strategy {
         GridStrategy::FlatRoundedUp => {
-            let total = build_total_elements(ndim);
+            let total = build_total_elements_with_shapes(ndim, concrete_shapes);
             let tg = const_int(tg_size as isize);
-            let num_groups = ceil_div(total, tg.clone());
-            let grid = num_groups * tg.clone();
+
+            // 具体的な値が計算できる場合は直接計算
+            let grid = if let AstNode::Const(crate::ast::Literal::Int(total_val)) = &total {
+                let total_val = *total_val as usize;
+                let num_groups = total_val.div_ceil(tg_size);
+                const_int((num_groups * tg_size) as isize)
+            } else {
+                let num_groups = ceil_div(total, tg.clone());
+                num_groups * tg.clone()
+            };
+
             (
                 [
                     Box::new(grid),
@@ -225,8 +258,16 @@ fn build_grid_and_tg_size(
             )
         }
         GridStrategy::FlatDividedByVector { vector_width } => {
-            let total = build_total_elements(ndim);
-            let grid = total / const_int(*vector_width as isize);
+            let total = build_total_elements_with_shapes(ndim, concrete_shapes);
+
+            // 具体的な値が計算できる場合は直接計算
+            let grid = if let AstNode::Const(crate::ast::Literal::Int(total_val)) = &total {
+                let total_val = *total_val as usize;
+                const_int((total_val / *vector_width) as isize)
+            } else {
+                total / const_int(*vector_width as isize)
+            };
+
             (
                 [
                     Box::new(grid),
@@ -271,6 +312,7 @@ pub enum ParallelizationStrategy {
 /// - `output_dtype`: 出力の型
 /// - `name`: カーネル名
 /// - `strategy`: 並列化戦略
+/// - `concrete_shapes`: 具体的なshape値（利用可能な場合）
 pub fn build_parallel_elementwise_kernel(
     ndim: usize,
     num_inputs: usize,
@@ -278,6 +320,7 @@ pub fn build_parallel_elementwise_kernel(
     output_dtype: &crate::graph::DType,
     name: &str,
     strategy: &ParallelizationStrategy,
+    concrete_shapes: Option<&[usize]>,
 ) -> AstNode {
     match strategy {
         ParallelizationStrategy::Sequential => {
@@ -303,6 +346,7 @@ pub fn build_parallel_elementwise_kernel(
                     name,
                     *thread_group_size,
                     *vec_width,
+                    concrete_shapes,
                 )
             } else {
                 build_flat_parallel_elementwise_kernel(
@@ -312,6 +356,7 @@ pub fn build_parallel_elementwise_kernel(
                     output_dtype,
                     name,
                     *thread_group_size,
+                    concrete_shapes,
                 )
             }
         }
@@ -328,6 +373,7 @@ fn build_flat_parallel_elementwise_kernel(
     output_dtype: &crate::graph::DType,
     name: &str,
     thread_group_size: usize,
+    concrete_shapes: Option<&[usize]>,
 ) -> AstNode {
     // 入力仕様を生成（全てバッファ）
     let inputs: Vec<InputSpec> = (0..num_inputs).map(|_| InputSpec::Buffer).collect();
@@ -340,12 +386,20 @@ fn build_flat_parallel_elementwise_kernel(
         boundary_check: true,
     };
 
-    build_elementwise_kernel(&config, ndim, &inputs, expr, output_dtype)
+    build_elementwise_kernel_with_shapes(
+        &config,
+        ndim,
+        &inputs,
+        expr,
+        output_dtype,
+        concrete_shapes,
+    )
 }
 
 /// ベクトル化フラット並列Elementwiseカーネルを生成
 ///
 /// float2/float4/float8などでロード/ストアし、1スレッドが複数要素を処理
+#[allow(clippy::too_many_arguments)]
 fn build_vectorized_flat_parallel_kernel(
     ndim: usize,
     num_inputs: usize,
@@ -354,6 +408,7 @@ fn build_vectorized_flat_parallel_kernel(
     name: &str,
     thread_group_size: usize,
     vector_width: usize,
+    concrete_shapes: Option<&[usize]>,
 ) -> AstNode {
     // 入力仕様を生成（全てバッファ）
     let inputs: Vec<InputSpec> = (0..num_inputs).map(|_| InputSpec::Buffer).collect();
@@ -366,19 +421,46 @@ fn build_vectorized_flat_parallel_kernel(
         boundary_check: false, // ベクトル化版は境界チェックなし
     };
 
-    build_elementwise_kernel(&config, ndim, &inputs, expr, output_dtype)
+    build_elementwise_kernel_with_shapes(
+        &config,
+        ndim,
+        &inputs,
+        expr,
+        output_dtype,
+        concrete_shapes,
+    )
 }
 
 /// 全要素数を計算する式を生成
+///
+/// 具体的なshape値が提供された場合はそれを使用し、
+/// そうでない場合はシンボリックな変数を使用します。
+#[allow(dead_code)]
 fn build_total_elements(ndim: usize) -> AstNode {
+    build_total_elements_with_shapes(ndim, None)
+}
+
+/// 具体的なshape値を使用して全要素数を計算する式を生成
+fn build_total_elements_with_shapes(ndim: usize, concrete_shapes: Option<&[usize]>) -> AstNode {
     if ndim == 0 {
         return const_int(1);
     }
-    let mut total = var(ph::shape(0));
-    for axis in 1..ndim {
-        total = total * var(ph::shape(axis));
+
+    match concrete_shapes {
+        Some(shapes) if shapes.len() >= ndim => {
+            // 具体的なshape値が全て利用可能な場合
+            let total: usize = shapes[..ndim].iter().product();
+            const_int(total as isize)
+        }
+        _ => {
+            // シンボリックな変数を使用
+            let mut total = var(ph::shape(0));
+            for axis in 1..ndim {
+                total = total * var(ph::shape(axis));
+            }
+            total
+        }
     }
-    total
 }
 
 /// Reduce演算の並列カーネルを生成
@@ -578,6 +660,7 @@ pub fn build_flat_parallel_fused_elementwise_reduce_kernel(
     reduce_op: &crate::graph::ReduceOp,
     axes: &[usize],
     name: &str,
+    concrete_shapes: Option<&[usize]>,
 ) -> Option<AstNode> {
     use crate::graph::GraphOp;
     use std::collections::HashSet;
@@ -721,7 +804,7 @@ pub fn build_flat_parallel_fused_elementwise_reduce_kernel(
     let body = block(vec![acc_init, reduce_loops, store_stmt], scope);
 
     // グリッドサイズ: 出力要素数
-    let grid_size = build_output_elements_excluding_axes(ndim, axes);
+    let grid_size = build_output_elements_excluding_axes_with_shapes(ndim, axes, concrete_shapes);
 
     Some(kernel_1d(
         Some(name.to_string()),
@@ -734,7 +817,17 @@ pub fn build_flat_parallel_fused_elementwise_reduce_kernel(
 }
 
 /// 複数軸を除いた出力要素数を計算
+#[allow(dead_code)]
 fn build_output_elements_excluding_axes(ndim: usize, exclude_axes: &[usize]) -> AstNode {
+    build_output_elements_excluding_axes_with_shapes(ndim, exclude_axes, None)
+}
+
+/// 具体的なshape値を使用して、複数軸を除いた出力要素数を計算
+fn build_output_elements_excluding_axes_with_shapes(
+    ndim: usize,
+    exclude_axes: &[usize],
+    concrete_shapes: Option<&[usize]>,
+) -> AstNode {
     use std::collections::HashSet;
     let exclude_set: HashSet<usize> = exclude_axes.iter().copied().collect();
 
@@ -742,6 +835,21 @@ fn build_output_elements_excluding_axes(ndim: usize, exclude_axes: &[usize]) -> 
         return const_int(1);
     }
 
+    // 具体的な値が利用可能な場合は計算
+    if let Some(shapes) = concrete_shapes
+        && shapes.len() >= ndim
+    {
+        let total: usize = shapes
+            .iter()
+            .take(ndim)
+            .enumerate()
+            .filter(|(axis, _)| !exclude_set.contains(axis))
+            .map(|(_, &size)| size)
+            .product();
+        return const_int(total as isize);
+    }
+
+    // シンボリックな変数を使用
     let mut total: Option<AstNode> = None;
     for axis in 0..ndim {
         if !exclude_set.contains(&axis) {
@@ -773,7 +881,7 @@ mod tests {
 
         let expr = wildcard("0") + wildcard("1");
         let kernel =
-            build_flat_parallel_elementwise_kernel(2, 2, expr, &GraphDType::F32, "test", 256);
+            build_flat_parallel_elementwise_kernel(2, 2, expr, &GraphDType::F32, "test", 256, None);
 
         match kernel {
             AstNode::Kernel { name, params, .. } => {
@@ -792,8 +900,16 @@ mod tests {
         use crate::graph::DType as GraphDType;
 
         let expr = wildcard("0") + wildcard("1");
-        let kernel =
-            build_vectorized_flat_parallel_kernel(2, 2, expr, &GraphDType::F32, "test_vec", 128, 4);
+        let kernel = build_vectorized_flat_parallel_kernel(
+            2,
+            2,
+            expr,
+            &GraphDType::F32,
+            "test_vec",
+            128,
+            4,
+            None,
+        );
 
         match kernel {
             AstNode::Kernel {
@@ -822,7 +938,7 @@ mod tests {
 
         let expr = wildcard("0") + wildcard("1");
         let kernel =
-            build_flat_parallel_elementwise_kernel(2, 2, expr, &GraphDType::F32, "test", 256);
+            build_flat_parallel_elementwise_kernel(2, 2, expr, &GraphDType::F32, "test", 256, None);
 
         // カーネルの本体にIf文が含まれているか確認
         match &kernel {
@@ -860,7 +976,7 @@ mod tests {
 
         let expr = wildcard("0");
         let kernel =
-            build_flat_parallel_elementwise_kernel(1, 1, expr, &GraphDType::F32, "test", 64);
+            build_flat_parallel_elementwise_kernel(1, 1, expr, &GraphDType::F32, "test", 64, None);
 
         // グリッドサイズが切り上げ計算を含んでいることを確認
         match &kernel {
@@ -874,6 +990,41 @@ mod tests {
                 assert!(
                     matches!(grid_x, AstNode::Mul(_, _)),
                     "Grid size should be rounded up (contain Mul): {:?}",
+                    grid_x
+                );
+            }
+            _ => panic!("Expected Kernel node"),
+        }
+    }
+
+    #[test]
+    fn test_grid_size_with_concrete_shapes() {
+        use crate::ast::helper::wildcard;
+        use crate::graph::DType as GraphDType;
+
+        let expr = wildcard("0");
+        let concrete_shapes = vec![100usize, 200usize];
+        let kernel = build_flat_parallel_elementwise_kernel(
+            2,
+            1,
+            expr,
+            &GraphDType::F32,
+            "test",
+            64,
+            Some(&concrete_shapes),
+        );
+
+        // 具体的なshapeが提供された場合、グリッドサイズは定数になるはず
+        match &kernel {
+            AstNode::Kernel {
+                default_grid_size, ..
+            } => {
+                let grid_x = default_grid_size[0].as_ref();
+                // 100 * 200 = 20000 elements
+                // ceil_div(20000, 64) * 64 = 313 * 64 = 20032
+                assert!(
+                    matches!(grid_x, AstNode::Const(crate::ast::Literal::Int(20032))),
+                    "Grid size should be concrete value 20032: {:?}",
                     grid_x
                 );
             }
