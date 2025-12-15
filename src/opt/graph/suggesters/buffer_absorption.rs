@@ -255,7 +255,7 @@ mod tests {
         let lowered_graph = &lowered[0];
 
         eprintln!("\n=== After Lowering ===");
-        if let Some(ref sink) = lowered_graph.program_root() {
+        if let Some(sink) = lowered_graph.program_root() {
             eprintln!("ProgramRoot src count: {}", sink.src.len());
             for (i, src) in sink.src.iter().enumerate() {
                 let has_buffer = src
@@ -275,7 +275,7 @@ mod tests {
         let absorbed_graph = &absorbed[0];
 
         // 検証: Kernelノードのinput_buffersが設定されている
-        if let Some(ref sink) = absorbed_graph.program_root() {
+        if let Some(sink) = absorbed_graph.program_root() {
             for src in &sink.src {
                 if let GraphOp::Kernel { input_buffers, .. } = &src.op {
                     eprintln!("Kernel node input_buffers: {:?}", input_buffers);

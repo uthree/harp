@@ -599,12 +599,12 @@ impl KernelMergeSuggester {
         let mut node_map: HashMap<*const GraphNodeData, GraphNode> = HashMap::new();
         node_map.insert(old_node.as_ptr(), new_node.clone());
 
-        let mut visited = HashSet::new();
+        let mut cache: HashMap<*const GraphNodeData, GraphNode> = HashMap::new();
 
         fn rebuild_node(
             node: &GraphNode,
             node_map: &HashMap<*const GraphNodeData, GraphNode>,
-            visited: &mut HashSet<*const GraphNodeData>,
+            cache: &mut HashMap<*const GraphNodeData, GraphNode>,
         ) -> GraphNode {
             let ptr = node.as_ptr();
 
@@ -617,15 +617,15 @@ impl KernelMergeSuggester {
                 return new_node.clone();
             }
 
-            if visited.contains(&ptr) {
-                return node.clone();
+            // キャッシュを確認（再構築済みノードを返す）
+            if let Some(cached) = cache.get(&ptr) {
+                return cached.clone();
             }
-            visited.insert(ptr);
 
             let new_src: Vec<GraphNode> = node
                 .src
                 .iter()
-                .map(|src| rebuild_node(src, node_map, visited))
+                .map(|src| rebuild_node(src, node_map, cache))
                 .collect();
 
             let src_changed = new_src
@@ -633,16 +633,19 @@ impl KernelMergeSuggester {
                 .zip(&node.src)
                 .any(|(a, b)| a.as_ptr() != b.as_ptr());
 
-            if !src_changed {
-                return node.clone();
-            }
+            let result = if !src_changed {
+                node.clone()
+            } else {
+                GraphNode::new(
+                    node.dtype.clone(),
+                    node.op.clone(),
+                    new_src,
+                    node.view.clone(),
+                )
+            };
 
-            GraphNode::new(
-                node.dtype.clone(),
-                node.op.clone(),
-                new_src,
-                node.view.clone(),
-            )
+            cache.insert(ptr, result.clone());
+            result
         }
 
         let mut new_graph = Graph::new();
@@ -656,7 +659,7 @@ impl KernelMergeSuggester {
             let new_sink_src: Vec<GraphNode> = old_sink
                 .src
                 .iter()
-                .map(|src| rebuild_node(src, &node_map, &mut visited))
+                .map(|src| rebuild_node(src, &node_map, &mut cache))
                 .collect();
 
             // 元のProgramRootのast（Program）とoutputsを保持して新しいProgramRootを作成
@@ -679,7 +682,7 @@ impl KernelMergeSuggester {
             outputs.sort_by_key(|(name, _)| name.as_str());
 
             for (name, output_node) in outputs {
-                let rebuilt = rebuild_node(output_node, &node_map, &mut visited);
+                let rebuilt = rebuild_node(output_node, &node_map, &mut cache);
                 new_graph.output(name, rebuilt);
             }
         }
@@ -877,20 +880,21 @@ mod tests {
 
         // Programを検査してバリアが挿入されていることを確認
         let merged = &suggestions[0];
-        if let Some(output) = merged.outputs().values().next() {
-            if let GraphOp::Kernel { ast, .. } = &output.op {
-                if let AstNode::Program { functions, .. } = ast {
-                    let main_fn = functions.iter().find(|f| {
-                        matches!(f, AstNode::Function { name: Some(n), .. } if n == "harp_main")
-                    });
+        if let Some(output) = merged.outputs().values().next()
+            && let GraphOp::Kernel {
+                ast: AstNode::Program { functions, .. },
+                ..
+            } = &output.op
+        {
+            let main_fn = functions
+                .iter()
+                .find(|f| matches!(f, AstNode::Function { name: Some(n), .. } if n == "harp_main"));
 
-                    assert!(main_fn.is_some(), "Should have harp_main function");
+            assert!(main_fn.is_some(), "Should have harp_main function");
 
-                    if let Some(AstNode::Function { body, .. }) = main_fn {
-                        let has_barrier = contains_barrier(body);
-                        assert!(has_barrier, "Main function should contain barriers");
-                    }
-                }
+            if let Some(AstNode::Function { body, .. }) = main_fn {
+                let has_barrier = contains_barrier(body);
+                assert!(has_barrier, "Main function should contain barriers");
             }
         }
     }
@@ -969,12 +973,13 @@ mod tests {
 
         // ProgramRootノードも確認
         let mut sink_has_program = false;
-        if let Some(sink) = optimized.program_root() {
-            if let GraphOp::ProgramRoot { ast, .. } = &sink.op {
-                if let AstNode::Program { functions, .. } = ast {
-                    sink_has_program = !functions.is_empty();
-                }
-            }
+        if let Some(sink) = optimized.program_root()
+            && let GraphOp::ProgramRoot {
+                ast: AstNode::Program { functions, .. },
+                ..
+            } = &sink.op
+        {
+            sink_has_program = !functions.is_empty();
         }
 
         println!("Kernel(Function): {}", custom_function_count);

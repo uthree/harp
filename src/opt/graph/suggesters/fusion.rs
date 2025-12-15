@@ -406,12 +406,12 @@ impl FusionSuggester {
         let mut node_map: HashMap<*const GraphNodeData, GraphNode> = HashMap::new();
         node_map.insert(old_node.as_ptr(), new_node.clone());
 
-        let mut visited = HashSet::new();
+        let mut cache: HashMap<*const GraphNodeData, GraphNode> = HashMap::new();
 
         fn rebuild_node(
             node: &GraphNode,
             node_map: &HashMap<*const GraphNodeData, GraphNode>,
-            visited: &mut HashSet<*const GraphNodeData>,
+            cache: &mut HashMap<*const GraphNodeData, GraphNode>,
         ) -> GraphNode {
             let ptr = node.as_ptr();
 
@@ -424,15 +424,15 @@ impl FusionSuggester {
                 return new_node.clone();
             }
 
-            if visited.contains(&ptr) {
-                return node.clone();
+            // キャッシュを確認（再構築済みノードを返す）
+            if let Some(cached) = cache.get(&ptr) {
+                return cached.clone();
             }
-            visited.insert(ptr);
 
             let new_src: Vec<GraphNode> = node
                 .src
                 .iter()
-                .map(|src| rebuild_node(src, node_map, visited))
+                .map(|src| rebuild_node(src, node_map, cache))
                 .collect();
 
             let src_changed = new_src
@@ -440,16 +440,19 @@ impl FusionSuggester {
                 .zip(&node.src)
                 .any(|(a, b)| a.as_ptr() != b.as_ptr());
 
-            if !src_changed {
-                return node.clone();
-            }
+            let result = if !src_changed {
+                node.clone()
+            } else {
+                GraphNode::new(
+                    node.dtype.clone(),
+                    node.op.clone(),
+                    new_src,
+                    node.view.clone(),
+                )
+            };
 
-            GraphNode::new(
-                node.dtype.clone(),
-                node.op.clone(),
-                new_src,
-                node.view.clone(),
-            )
+            cache.insert(ptr, result.clone());
+            result
         }
 
         let mut new_graph = Graph::new();
@@ -463,7 +466,7 @@ impl FusionSuggester {
             let new_sink_src: Vec<GraphNode> = old_sink
                 .src
                 .iter()
-                .map(|src| rebuild_node(src, &node_map, &mut visited))
+                .map(|src| rebuild_node(src, &node_map, &mut cache))
                 .collect();
 
             // 元のProgramRootのast（Program）とoutputsを保持して新しいProgramRootを作成
@@ -486,7 +489,7 @@ impl FusionSuggester {
             outputs.sort_by_key(|(name, _)| name.as_str());
 
             for (name, output_node) in outputs {
-                let rebuilt = rebuild_node(output_node, &node_map, &mut visited);
+                let rebuilt = rebuild_node(output_node, &node_map, &mut cache);
                 new_graph.output(name, rebuilt);
             }
         }

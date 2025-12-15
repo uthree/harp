@@ -159,7 +159,7 @@ mod tests {
         let lowered_graph = &lowered[0];
 
         eprintln!("\n=== After Lowering ===");
-        if let Some(ref sink) = lowered_graph.program_root() {
+        if let Some(sink) = lowered_graph.program_root() {
             eprintln!("ProgramRoot src count: {}", sink.src.len());
             for (i, src) in sink.src.iter().enumerate() {
                 let op_name = match &src.op {
@@ -177,7 +177,7 @@ mod tests {
         let absorbed_graph = &absorbed[0];
 
         eprintln!("\n=== After BufferAbsorption ===");
-        if let Some(ref sink) = absorbed_graph.program_root() {
+        if let Some(sink) = absorbed_graph.program_root() {
             eprintln!("ProgramRoot src count: {}", sink.src.len());
             for (i, src) in sink.src.iter().enumerate() {
                 let op_name = match &src.op {
@@ -195,7 +195,7 @@ mod tests {
         let sink_absorbed_graph = &sink_absorbed[0];
 
         eprintln!("\n=== After ProgramRootAbsorption ===");
-        if let Some(ref sink) = sink_absorbed_graph.program_root() {
+        if let Some(sink) = sink_absorbed_graph.program_root() {
             eprintln!("ProgramRoot src count: {}", sink.src.len());
             for (i, src) in sink.src.iter().enumerate() {
                 let op_name = match &src.op {
@@ -214,7 +214,7 @@ mod tests {
 
         if !final_suggestions.is_empty() {
             let final_graph = &final_suggestions[0];
-            if let Some(ref sink) = final_graph.program_root() {
+            if let Some(sink) = final_graph.program_root() {
                 eprintln!("ProgramRoot src count: {}", sink.src.len());
                 for (i, src) in sink.src.iter().enumerate() {
                     let op_name = match &src.op {
@@ -235,7 +235,7 @@ mod tests {
             }
         } else {
             // ProgramRootAbsorption後に入力Bufferがなければ提案はない
-            if let Some(ref sink) = sink_absorbed_graph.program_root() {
+            if let Some(sink) = sink_absorbed_graph.program_root() {
                 let input_buffer_count = sink.src.iter().filter(|s| {
                     matches!(&s.op, GraphOp::Buffer { name } if !name.starts_with("output_"))
                 }).count();

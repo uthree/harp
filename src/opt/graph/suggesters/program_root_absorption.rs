@@ -899,7 +899,7 @@ mod tests {
         graph.output("c", custom);
 
         eprintln!("ProgramRoot exists: {:?}", graph.program_root().is_some());
-        if let Some(ref sink) = graph.program_root() {
+        if let Some(sink) = graph.program_root() {
             eprintln!("ProgramRoot src count: {}", sink.src.len());
             for (i, src) in sink.src.iter().enumerate() {
                 eprintln!("  src[{}]: {:?}", i, src.op);
@@ -948,19 +948,19 @@ mod tests {
             new_graph.program_root().is_some()
         );
 
-        if let Some(ref sink) = new_graph.program_root() {
-            if let GraphOp::ProgramRoot { ast, outputs } = &sink.op {
-                eprintln!("Outputs: {:?}", outputs);
-                if let crate::ast::AstNode::Program { functions, .. } = ast {
-                    eprintln!("Program has {} functions", functions.len());
-                    for (i, func) in functions.iter().enumerate() {
-                        let name = match func {
-                            crate::ast::AstNode::Kernel { name, .. } => name.clone(),
-                            crate::ast::AstNode::Function { name, .. } => name.clone(),
-                            _ => None,
-                        };
-                        eprintln!("  function[{}]: {:?}", i, name);
-                    }
+        if let Some(sink) = new_graph.program_root()
+            && let GraphOp::ProgramRoot { ast, outputs } = &sink.op
+        {
+            eprintln!("Outputs: {:?}", outputs);
+            if let crate::ast::AstNode::Program { functions, .. } = ast {
+                eprintln!("Program has {} functions", functions.len());
+                for (i, func) in functions.iter().enumerate() {
+                    let name = match func {
+                        crate::ast::AstNode::Kernel { name, .. } => name.clone(),
+                        crate::ast::AstNode::Function { name, .. } => name.clone(),
+                        _ => None,
+                    };
+                    eprintln!("  function[{}]: {:?}", i, name);
                 }
             }
         }
@@ -995,7 +995,7 @@ mod tests {
             "Lowered graph sink exists: {:?}",
             lowered_graph.program_root().is_some()
         );
-        if let Some(ref sink) = lowered_graph.program_root() {
+        if let Some(sink) = lowered_graph.program_root() {
             eprintln!("ProgramRoot src count: {}", sink.src.len());
             for (i, src) in sink.src.iter().enumerate() {
                 let op_name = match &src.op {
@@ -1038,7 +1038,7 @@ mod tests {
                 .map(|m| &m.name)
                 .collect::<Vec<_>>()
         );
-        if let Some(ref sink) = absorbed_graph.program_root() {
+        if let Some(sink) = absorbed_graph.program_root() {
             eprintln!("ProgramRoot src count: {}", sink.src.len());
             for (i, src) in sink.src.iter().enumerate() {
                 let op_name = match &src.op {
@@ -1105,7 +1105,7 @@ mod tests {
 
         eprintln!("\n=== Optimization History ===");
         for snapshot in history.snapshots() {
-            let sink_info = if let Some(ref sink) = snapshot.graph.program_root() {
+            let sink_info = if let Some(sink) = snapshot.graph.program_root() {
                 if let GraphOp::ProgramRoot { ast, outputs } = &sink.op {
                     let func_count = if let crate::ast::AstNode::Program { functions, .. } = ast {
                         functions.len()
@@ -1131,7 +1131,7 @@ mod tests {
             optimized.program_root().is_some()
         );
 
-        if let Some(ref sink) = optimized.program_root() {
+        if let Some(sink) = optimized.program_root() {
             eprintln!("ProgramRoot src count: {}", sink.src.len());
             for (i, src) in sink.src.iter().enumerate() {
                 let op_name = match &src.op {
@@ -1186,7 +1186,7 @@ mod tests {
 
         eprintln!("\n=== Multiple Outputs Test ===");
         eprintln!("ProgramRoot exists: {:?}", graph.program_root().is_some());
-        if let Some(ref sink) = graph.program_root() {
+        if let Some(sink) = graph.program_root() {
             eprintln!("ProgramRoot src count: {}", sink.src.len());
             if let GraphOp::ProgramRoot { outputs, .. } = &sink.op {
                 eprintln!("Outputs: {:?}", outputs);
@@ -1225,7 +1225,7 @@ mod tests {
 
         eprintln!("\n=== Optimization History ===");
         for snapshot in history.snapshots() {
-            let sink_info = if let Some(ref sink) = snapshot.graph.program_root() {
+            let sink_info = if let Some(sink) = snapshot.graph.program_root() {
                 if let GraphOp::ProgramRoot { ast, outputs } = &sink.op {
                     let func_count = if let crate::ast::AstNode::Program { functions, .. } = ast {
                         functions.len()
@@ -1247,31 +1247,31 @@ mod tests {
 
         // 最終グラフを確認
         eprintln!("\n=== Final Graph ===");
-        if let Some(ref sink) = optimized.program_root() {
-            if let GraphOp::ProgramRoot { ast, outputs } = &sink.op {
-                eprintln!("Outputs: {:?}", outputs);
-                if let crate::ast::AstNode::Program { functions, .. } = ast {
-                    eprintln!(
-                        "Program has {} functions (including harp_main)",
-                        functions.len()
-                    );
-                    for (i, func) in functions.iter().enumerate() {
-                        let name = match func {
-                            crate::ast::AstNode::Kernel { name, .. } => name.clone(),
-                            crate::ast::AstNode::Function { name, .. } => name.clone(),
-                            _ => None,
-                        };
-                        eprintln!("  function[{}]: {:?}", i, name);
-                    }
-                    // 最低でも1つのカーネル + harp_main = 2つの関数があるべき
-                    // ビームサーチはコストベースで最適化するため、ProgramRootAbsorption後にコストが上がる場合は
-                    // 吸収前の状態が選ばれる可能性がある
-                    assert!(
-                        functions.len() >= 2,
-                        "Should have at least 1 kernel + harp_main, got {}",
-                        functions.len()
-                    );
+        if let Some(sink) = optimized.program_root()
+            && let GraphOp::ProgramRoot { ast, outputs } = &sink.op
+        {
+            eprintln!("Outputs: {:?}", outputs);
+            if let crate::ast::AstNode::Program { functions, .. } = ast {
+                eprintln!(
+                    "Program has {} functions (including harp_main)",
+                    functions.len()
+                );
+                for (i, func) in functions.iter().enumerate() {
+                    let name = match func {
+                        crate::ast::AstNode::Kernel { name, .. } => name.clone(),
+                        crate::ast::AstNode::Function { name, .. } => name.clone(),
+                        _ => None,
+                    };
+                    eprintln!("  function[{}]: {:?}", i, name);
                 }
+                // 最低でも1つのカーネル + harp_main = 2つの関数があるべき
+                // ビームサーチはコストベースで最適化するため、ProgramRootAbsorption後にコストが上がる場合は
+                // 吸収前の状態が選ばれる可能性がある
+                assert!(
+                    functions.len() >= 2,
+                    "Should have at least 1 kernel + harp_main, got {}",
+                    functions.len()
+                );
             }
         }
     }

@@ -51,7 +51,7 @@ fn test_lower_elementwise_add() {
     // Elementwise Add (2D) に対して複数の並列化戦略が生成される:
     // - Sequential, FlatParallel, MultiDimParallel{1}, MultiDimParallel{2}
     assert!(
-        suggestions.len() >= 1,
+        !suggestions.is_empty(),
         "At least one candidate should be generated"
     );
 
@@ -80,7 +80,7 @@ fn test_lower_reduce_sum() {
 
     // Reduce Sum に対して複数の並列化戦略が生成される
     assert!(
-        suggestions.len() >= 1,
+        !suggestions.is_empty(),
         "At least one candidate should be generated"
     );
 

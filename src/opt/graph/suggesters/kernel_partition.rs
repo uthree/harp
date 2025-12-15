@@ -907,14 +907,14 @@ mod tests {
         assert!(partitioned.is_some());
 
         let partitioned = partitioned.unwrap();
-        if let GraphOp::Kernel { ast, .. } = &partitioned.op {
-            if let AstNode::Kernel { params, .. } = ast {
-                // tid_0, tid_1 が追加されているはず
-                let has_tid_0 = params.iter().any(|p| p.name == "tid_0");
-                let has_tid_1 = params.iter().any(|p| p.name == "tid_1");
-                assert!(has_tid_0, "Should have tid_0 parameter");
-                assert!(has_tid_1, "Should have tid_1 parameter");
-            }
+        if let GraphOp::Kernel { ast, .. } = &partitioned.op
+            && let AstNode::Kernel { params, .. } = ast
+        {
+            // tid_0, tid_1 が追加されているはず
+            let has_tid_0 = params.iter().any(|p| p.name == "tid_0");
+            let has_tid_1 = params.iter().any(|p| p.name == "tid_1");
+            assert!(has_tid_0, "Should have tid_0 parameter");
+            assert!(has_tid_1, "Should have tid_1 parameter");
         }
     }
 }
