@@ -40,7 +40,7 @@ pub trait AstCostEstimator {
 
 // Re-export commonly used types
 pub use estimator::SimpleCostEstimator;
-pub use history::{OptimizationHistory, OptimizationSnapshot};
+pub use history::{AlternativeCandidate, OptimizationHistory, OptimizationSnapshot};
 pub use optimizer::{BeamSearchOptimizer, RuleBaseOptimizer};
 pub use selector::{AstCostSelector, AstMultiStageSelector, AstSelector};
 pub use suggesters::{

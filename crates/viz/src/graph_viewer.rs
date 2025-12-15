@@ -26,6 +26,8 @@ pub struct GraphViewerApp {
     show_side_panel: bool,
     /// 現在のレンダラータイプ
     renderer_type: RendererType,
+    /// 表示中の候補インデックス（0=選択された候補、1+=代替候補）
+    viewed_candidate_index: usize,
 }
 
 /// egui-snarl用のノードビュー
@@ -76,6 +78,7 @@ impl GraphViewerApp {
             side_panel_width: 450.0,
             show_side_panel: true,
             renderer_type: RendererType::default(),
+            viewed_candidate_index: 0,
         }
     }
 
@@ -148,6 +151,7 @@ impl GraphViewerApp {
         if let Some(ref history) = self.optimization_history {
             if self.current_step + 1 < history.len() {
                 self.current_step += 1;
+                self.viewed_candidate_index = 0; // ステップ変更時はリセット
                 self.update_graph_from_step();
             }
         }
@@ -157,6 +161,7 @@ impl GraphViewerApp {
     pub fn prev_step(&mut self) {
         if self.current_step > 0 {
             self.current_step -= 1;
+            self.viewed_candidate_index = 0; // ステップ変更時はリセット
             self.update_graph_from_step();
         }
     }
@@ -166,7 +171,57 @@ impl GraphViewerApp {
         if let Some(ref history) = self.optimization_history {
             if step < history.len() {
                 self.current_step = step;
+                self.viewed_candidate_index = 0; // ステップ変更時はリセット
                 self.update_graph_from_step();
+            }
+        }
+    }
+
+    /// 現在のステップの候補総数を取得（選択された候補 + 代替候補）
+    fn get_candidate_count(&self) -> usize {
+        if let Some(ref history) = self.optimization_history {
+            if let Some(snapshot) = history.get(self.current_step) {
+                return 1 + snapshot.alternatives.len(); // 選択された候補 + 代替候補
+            }
+        }
+        1
+    }
+
+    /// 次の候補に切り替え
+    pub fn next_candidate(&mut self) {
+        let count = self.get_candidate_count();
+        if self.viewed_candidate_index + 1 < count {
+            self.viewed_candidate_index += 1;
+            self.update_graph_from_candidate();
+        }
+    }
+
+    /// 前の候補に切り替え
+    pub fn prev_candidate(&mut self) {
+        if self.viewed_candidate_index > 0 {
+            self.viewed_candidate_index -= 1;
+            self.update_graph_from_candidate();
+        }
+    }
+
+    /// 候補変更時のグラフ更新
+    fn update_graph_from_candidate(&mut self) {
+        if let Some(ref history) = self.optimization_history {
+            if let Some(snapshot) = history.get(self.current_step) {
+                let graph = if self.viewed_candidate_index == 0 {
+                    // 選択された候補
+                    snapshot.graph.clone()
+                } else {
+                    // 代替候補
+                    let alt_idx = self.viewed_candidate_index - 1;
+                    if let Some(alt) = snapshot.alternatives.get(alt_idx) {
+                        alt.graph.clone()
+                    } else {
+                        snapshot.graph.clone()
+                    }
+                };
+                self.harp_graph = Some(graph);
+                self.convert_graph_to_snarl();
             }
         }
     }
@@ -479,6 +534,131 @@ impl GraphViewerApp {
 
     /// サイドパネルの内容を表示（ノード詳細）
     fn show_side_panel_content(&mut self, ui: &mut egui::Ui) {
+        // 候補セレクタを表示（代替候補がある場合のみ）
+        // 先に必要なデータを抽出してborrow conflictを回避
+        let candidate_data = self.optimization_history.as_ref().and_then(|history| {
+            history.get(self.current_step).and_then(|snapshot| {
+                if snapshot.alternatives.is_empty() {
+                    None
+                } else {
+                    Some((
+                        snapshot.cost,
+                        snapshot.suggester_name.clone(),
+                        snapshot
+                            .alternatives
+                            .iter()
+                            .map(|alt| (alt.rank, alt.cost, alt.suggester_name.clone()))
+                            .collect::<Vec<_>>(),
+                    ))
+                }
+            })
+        });
+
+        let mut new_candidate_index: Option<usize> = None;
+
+        if let Some((snapshot_cost, suggester_name, alternatives)) = candidate_data {
+            ui.heading("🔀 Candidate Selector");
+            ui.separator();
+
+            let candidate_count = 1 + alternatives.len();
+            let viewed_idx = self.viewed_candidate_index;
+
+            ui.horizontal(|ui| {
+                // 前の候補
+                if ui
+                    .add_enabled(viewed_idx > 0, egui::Button::new("▲"))
+                    .clicked()
+                {
+                    new_candidate_index = Some(viewed_idx.saturating_sub(1));
+                }
+
+                ui.label(format!("Candidate {}/{}", viewed_idx + 1, candidate_count));
+
+                // 次の候補
+                if ui
+                    .add_enabled(viewed_idx + 1 < candidate_count, egui::Button::new("▼"))
+                    .clicked()
+                {
+                    new_candidate_index = Some(viewed_idx + 1);
+                }
+            });
+
+            // 現在の候補情報を表示
+            if viewed_idx == 0 {
+                // 選択された候補
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("★ Selected")
+                            .color(egui::Color32::from_rgb(100, 200, 100))
+                            .strong(),
+                    );
+                    ui.label(format!("cost={:.2e}", snapshot_cost));
+                });
+                if let Some(ref name) = suggester_name {
+                    ui.label(
+                        egui::RichText::new(name).color(egui::Color32::from_rgb(100, 200, 150)),
+                    );
+                }
+            } else {
+                // 代替候補
+                let alt_idx = viewed_idx - 1;
+                if let Some((rank, cost, ref name)) = alternatives.get(alt_idx) {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(format!("Rank {}", rank))
+                                .color(egui::Color32::from_rgb(200, 150, 100)),
+                        );
+                        ui.label(format!("cost={:.2e}", cost));
+                    });
+                    ui.label(
+                        egui::RichText::new(name).color(egui::Color32::from_rgb(150, 150, 200)),
+                    );
+                }
+            }
+
+            // 全候補のリスト（スクロール可能）
+            ui.separator();
+            egui::ScrollArea::vertical()
+                .max_height(150.0)
+                .show(ui, |ui| {
+                    // 選択された候補（rank 0）
+                    let is_current = viewed_idx == 0;
+                    let text = format!("★ Selected: cost={:.2e}", snapshot_cost);
+                    let btn = if is_current {
+                        egui::Button::new(egui::RichText::new(&text).color(egui::Color32::YELLOW))
+                    } else {
+                        egui::Button::new(&text)
+                    };
+                    if ui.add(btn).clicked() {
+                        new_candidate_index = Some(0);
+                    }
+
+                    // 代替候補
+                    for (idx, (rank, cost, ref name)) in alternatives.iter().enumerate() {
+                        let is_current = viewed_idx == idx + 1;
+                        let text = format!("Rank {}: cost={:.2e} [{}]", rank, cost, name);
+                        let btn = if is_current {
+                            egui::Button::new(
+                                egui::RichText::new(&text).color(egui::Color32::YELLOW),
+                            )
+                        } else {
+                            egui::Button::new(&text)
+                        };
+                        if ui.add(btn).clicked() {
+                            new_candidate_index = Some(idx + 1);
+                        }
+                    }
+                });
+
+            ui.separator();
+        }
+
+        // クロージャの外で候補インデックスを更新
+        if let Some(idx) = new_candidate_index {
+            self.viewed_candidate_index = idx;
+            self.update_graph_from_candidate();
+        }
+
         ui.heading("📝 Node Details");
         ui.separator();
 
@@ -627,13 +807,17 @@ impl GraphViewerApp {
 
     /// UIを描画
     pub fn ui(&mut self, ui: &mut egui::Ui) {
-        // キーボード入力処理（左右矢印キー）
+        // キーボード入力処理（左右=ステップ、上下=候補）
         if self.optimization_history.is_some() {
             ui.input(|i| {
                 if i.key_pressed(egui::Key::ArrowLeft) {
                     self.prev_step();
                 } else if i.key_pressed(egui::Key::ArrowRight) {
                     self.next_step();
+                } else if i.key_pressed(egui::Key::ArrowUp) {
+                    self.prev_candidate();
+                } else if i.key_pressed(egui::Key::ArrowDown) {
+                    self.next_candidate();
                 }
             });
         }
@@ -753,6 +937,19 @@ impl GraphViewerApp {
                                     ui.label("-");
                                 }
                             });
+
+                            // 候補切り替えのヒント
+                            if !snapshot.alternatives.is_empty() {
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "↑↓: Switch candidates ({}/{})",
+                                        self.viewed_candidate_index + 1,
+                                        1 + snapshot.alternatives.len()
+                                    ))
+                                    .small()
+                                    .color(egui::Color32::GRAY),
+                                );
+                            }
                         }
                     }
 

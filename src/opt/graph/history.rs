@@ -2,12 +2,25 @@
 
 use crate::graph::Graph;
 
+/// 選択されなかった候補の情報
+#[derive(Clone, Debug)]
+pub struct AlternativeCandidate {
+    /// グラフ
+    pub graph: Graph,
+    /// コスト推定値
+    pub cost: f32,
+    /// 提案したSuggesterの名前
+    pub suggester_name: String,
+    /// ビーム内の順位（0が最良 = 選択された候補）
+    pub rank: usize,
+}
+
 /// 最適化の各ステップのスナップショット
 #[derive(Clone, Debug)]
 pub struct OptimizationSnapshot {
     /// ステップ番号
     pub step: usize,
-    /// この時点でのグラフ
+    /// この時点でのグラフ（選択された候補）
     pub graph: Graph,
     /// このグラフのコスト推定値
     pub cost: f32,
@@ -19,6 +32,8 @@ pub struct OptimizationSnapshot {
     pub num_candidates: Option<usize>,
     /// このグラフを提案したSuggesterの名前
     pub suggester_name: Option<String>,
+    /// 選択されなかった代替候補（rank > 0の候補）
+    pub alternatives: Vec<AlternativeCandidate>,
 }
 
 impl OptimizationSnapshot {
@@ -32,6 +47,7 @@ impl OptimizationSnapshot {
             logs: Vec::new(),
             num_candidates: None,
             suggester_name: None,
+            alternatives: Vec::new(),
         }
     }
 
@@ -51,6 +67,7 @@ impl OptimizationSnapshot {
             logs,
             num_candidates: None,
             suggester_name: None,
+            alternatives: Vec::new(),
         }
     }
 
@@ -71,6 +88,7 @@ impl OptimizationSnapshot {
             logs,
             num_candidates: Some(num_candidates),
             suggester_name: None,
+            alternatives: Vec::new(),
         }
     }
 
@@ -92,6 +110,31 @@ impl OptimizationSnapshot {
             logs,
             num_candidates: Some(num_candidates),
             suggester_name: Some(suggester_name),
+            alternatives: Vec::new(),
+        }
+    }
+
+    /// 代替候補付きでスナップショットを作成
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_alternatives(
+        step: usize,
+        graph: Graph,
+        cost: f32,
+        description: String,
+        logs: Vec<String>,
+        num_candidates: usize,
+        suggester_name: String,
+        alternatives: Vec<AlternativeCandidate>,
+    ) -> Self {
+        Self {
+            step,
+            graph,
+            cost,
+            description,
+            logs,
+            num_candidates: Some(num_candidates),
+            suggester_name: Some(suggester_name),
+            alternatives,
         }
     }
 }
@@ -209,6 +252,7 @@ impl OptimizationHistory {
                 logs: snapshot.logs,
                 num_candidates: snapshot.num_candidates,
                 suggester_name: snapshot.suggester_name,
+                alternatives: snapshot.alternatives,
             };
             self.snapshots.push(adjusted_snapshot);
         }

@@ -142,7 +142,7 @@ pub trait GraphCostEstimator {
 pub use estimator::{
     AstBasedCostEstimator, KernelMergeCostEstimator, LoweringCostEstimator, SimpleCostEstimator,
 };
-pub use history::{OptimizationHistory, OptimizationSnapshot};
+pub use history::{AlternativeCandidate, OptimizationHistory, OptimizationSnapshot};
 pub use optimizer::{
     BeamSearchGraphOptimizer, ChainedGraphOptimizer, GreedyGraphOptimizer, NamedOptimizer,
 };

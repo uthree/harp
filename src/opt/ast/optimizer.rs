@@ -6,7 +6,7 @@ use log::{debug, info, trace};
 use std::rc::Rc;
 use std::time::Instant;
 
-use super::history::{OptimizationHistory, OptimizationSnapshot};
+use super::history::{AlternativeCandidate, OptimizationHistory, OptimizationSnapshot};
 use super::{AstCostEstimator, AstOptimizer, AstSuggester};
 
 /// ルールベースの最適化器
@@ -321,8 +321,15 @@ where
                 .map(|(ast, _)| ast)
                 .collect();
 
-            // Selectorで上位beam_width個を選択（Selectorが内部でコストを計算）
-            let selected = self.selector.select(candidates, self.beam_width);
+            // Selectorで全候補のコストを計算してソート（上位全件取得）
+            let all_with_cost = self.selector.select(candidates, num_candidates);
+
+            // ビーム用に上位beam_width個を取得
+            let selected: Vec<_> = all_with_cost
+                .iter()
+                .take(self.beam_width)
+                .cloned()
+                .collect();
 
             beam = selected.iter().map(|(ast, _)| ast.clone()).collect();
 
@@ -383,7 +390,20 @@ where
                 // 選択された候補のSuggester名を取得
                 let suggester_name = ast_to_suggester.get(&format!("{:?}", best)).cloned();
 
-                history.add_snapshot(OptimizationSnapshot::with_suggester(
+                // 代替候補を構築（rank > 0の全候補、ビームに入らなかったものも含む）
+                let alternatives: Vec<AlternativeCandidate> = all_with_cost
+                    .iter()
+                    .skip(1)
+                    .enumerate()
+                    .map(|(idx, (ast, cost))| AlternativeCandidate {
+                        ast: ast.clone(),
+                        cost: *cost,
+                        suggester_name: ast_to_suggester.get(&format!("{:?}", ast)).cloned(),
+                        rank: idx + 1,
+                    })
+                    .collect();
+
+                history.add_snapshot(OptimizationSnapshot::with_alternatives(
                     step + 1,
                     best.clone(),
                     *cost,
@@ -398,6 +418,7 @@ where
                     step_logs,
                     num_candidates,
                     suggester_name,
+                    alternatives,
                 ));
                 // このステップのログをクリア（次のステップで新しいログのみを記録するため）
                 if self.collect_logs {

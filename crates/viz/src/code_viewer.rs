@@ -30,6 +30,12 @@ pub struct CodeViewerApp {
     cached_ast: Option<harp::ast::AstNode>,
     /// 現在のステップのレンダリング済みコード（AST履歴表示用）
     current_step_code: Option<String>,
+    /// 表示中の候補インデックス（0=選択された候補、1+=代替候補）
+    viewed_candidate_index: usize,
+    /// サイドパネルを表示するか
+    show_side_panel: bool,
+    /// サイドパネルの幅
+    side_panel_width: f32,
 }
 
 impl Default for CodeViewerApp {
@@ -55,6 +61,9 @@ impl CodeViewerApp {
             cached_code: None,
             cached_ast: None,
             current_step_code: None,
+            viewed_candidate_index: 0,
+            show_side_panel: true,
+            side_panel_width: 350.0,
         }
     }
 
@@ -133,6 +142,7 @@ impl CodeViewerApp {
         self.ast_history = Some(history);
         self.ast_current_step = 0;
         self.show_ast_history = true;
+        self.viewed_candidate_index = 0;
 
         // 最初のステップのコードを生成
         self.update_ast_step_code();
@@ -150,6 +160,7 @@ impl CodeViewerApp {
         if let Some(ref history) = self.ast_history {
             if self.ast_current_step + 1 < history.len() {
                 self.ast_current_step += 1;
+                self.viewed_candidate_index = 0; // ステップ変更時はリセット
                 self.update_ast_step_code();
             }
         }
@@ -159,6 +170,7 @@ impl CodeViewerApp {
     pub fn prev_ast_step(&mut self) {
         if self.ast_current_step > 0 {
             self.ast_current_step -= 1;
+            self.viewed_candidate_index = 0; // ステップ変更時はリセット
             self.update_ast_step_code();
         }
     }
@@ -168,8 +180,36 @@ impl CodeViewerApp {
         if let Some(ref history) = self.ast_history {
             if step < history.len() {
                 self.ast_current_step = step;
+                self.viewed_candidate_index = 0; // ステップ変更時はリセット
                 self.update_ast_step_code();
             }
+        }
+    }
+
+    /// 現在のステップの候補総数を取得（選択された候補 + 代替候補）
+    fn get_candidate_count(&self) -> usize {
+        if let Some(ref history) = self.ast_history {
+            if let Some(snapshot) = history.get(self.ast_current_step) {
+                return 1 + snapshot.alternatives.len(); // 選択された候補 + 代替候補
+            }
+        }
+        1
+    }
+
+    /// 次の候補に切り替え
+    pub fn next_candidate(&mut self) {
+        let count = self.get_candidate_count();
+        if self.viewed_candidate_index + 1 < count {
+            self.viewed_candidate_index += 1;
+            self.update_ast_step_code();
+        }
+    }
+
+    /// 前の候補に切り替え
+    pub fn prev_candidate(&mut self) {
+        if self.viewed_candidate_index > 0 {
+            self.viewed_candidate_index -= 1;
+            self.update_ast_step_code();
         }
     }
 
@@ -177,7 +217,19 @@ impl CodeViewerApp {
     fn update_ast_step_code(&mut self) {
         if let Some(ref history) = self.ast_history {
             if let Some(snapshot) = history.get(self.ast_current_step) {
-                self.current_step_code = Some(render_with_type(&snapshot.ast, self.renderer_type));
+                let ast = if self.viewed_candidate_index == 0 {
+                    // 選択された候補
+                    &snapshot.ast
+                } else {
+                    // 代替候補
+                    let alt_idx = self.viewed_candidate_index - 1;
+                    if let Some(alt) = snapshot.alternatives.get(alt_idx) {
+                        &alt.ast
+                    } else {
+                        &snapshot.ast
+                    }
+                };
+                self.current_step_code = Some(render_with_type(ast, self.renderer_type));
             }
         }
     }
@@ -257,22 +309,42 @@ impl CodeViewerApp {
 
     /// UIを描画
     pub fn ui(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Code Viewer");
-        ui.separator();
-
         // AST最適化履歴があるか確認
         let has_ast_history = self.ast_history.is_some();
 
-        // キーボード入力処理（左右矢印キー）- AST履歴表示中のみ
+        // キーボード入力処理（左右=ステップ、上下=候補）- AST履歴表示中のみ
         if has_ast_history && self.show_ast_history {
             ui.input(|i| {
                 if i.key_pressed(egui::Key::ArrowLeft) {
                     self.prev_ast_step();
                 } else if i.key_pressed(egui::Key::ArrowRight) {
                     self.next_ast_step();
+                } else if i.key_pressed(egui::Key::ArrowUp) {
+                    self.prev_candidate();
+                } else if i.key_pressed(egui::Key::ArrowDown) {
+                    self.next_candidate();
                 }
             });
         }
+
+        // ヘッダーとサイドパネルトグルボタン
+        ui.horizontal(|ui| {
+            ui.heading("Code Viewer");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // AST履歴表示中のみサイドパネルトグルを表示
+                if has_ast_history && self.show_ast_history {
+                    let toggle_text = if self.show_side_panel {
+                        "Hide Details ▶"
+                    } else {
+                        "◀ Show Details"
+                    };
+                    if ui.button(toggle_text).clicked() {
+                        self.show_side_panel = !self.show_side_panel;
+                    }
+                }
+            });
+        });
+        ui.separator();
 
         // レンダラー選択とビュー切り替え
         ui.horizontal(|ui| {
@@ -318,10 +390,223 @@ impl CodeViewerApp {
 
         // AST最適化履歴表示モード
         if has_ast_history && self.show_ast_history {
+            // サイドパネルを先に表示（右側）
+            if self.show_side_panel {
+                egui::SidePanel::right("ast_details_panel")
+                    .default_width(self.side_panel_width)
+                    .min_width(250.0)
+                    .max_width(600.0)
+                    .resizable(true)
+                    .show_inside(ui, |ui| {
+                        self.show_side_panel_content(ui);
+                    });
+            }
             self.ui_ast_history(ui);
         } else {
             // 通常モード（最終コード表示）
             self.ui_final_code(ui);
+        }
+    }
+
+    /// サイドパネルの内容を表示（候補セレクタ）
+    fn show_side_panel_content(&mut self, ui: &mut egui::Ui) {
+        // 候補セレクタを表示（代替候補がある場合のみ）
+        // 先に必要なデータを抽出してborrow conflictを回避
+        let candidate_data = self.ast_history.as_ref().and_then(|history| {
+            history.get(self.ast_current_step).and_then(|snapshot| {
+                if snapshot.alternatives.is_empty() {
+                    None
+                } else {
+                    Some((
+                        snapshot.cost,
+                        snapshot.suggester_name.clone(),
+                        snapshot
+                            .alternatives
+                            .iter()
+                            .map(|alt| (alt.rank, alt.cost, alt.suggester_name.clone()))
+                            .collect::<Vec<_>>(),
+                    ))
+                }
+            })
+        });
+
+        let mut new_candidate_index: Option<usize> = None;
+
+        if let Some((snapshot_cost, suggester_name, alternatives)) = candidate_data {
+            ui.heading("🔀 Candidate Selector");
+            ui.separator();
+
+            let candidate_count = 1 + alternatives.len();
+            let viewed_idx = self.viewed_candidate_index;
+
+            ui.horizontal(|ui| {
+                // 前の候補
+                if ui
+                    .add_enabled(viewed_idx > 0, egui::Button::new("▲"))
+                    .clicked()
+                {
+                    new_candidate_index = Some(viewed_idx.saturating_sub(1));
+                }
+
+                ui.label(format!("Candidate {}/{}", viewed_idx + 1, candidate_count));
+
+                // 次の候補
+                if ui
+                    .add_enabled(viewed_idx + 1 < candidate_count, egui::Button::new("▼"))
+                    .clicked()
+                {
+                    new_candidate_index = Some(viewed_idx + 1);
+                }
+            });
+
+            // 現在の候補情報を表示
+            if viewed_idx == 0 {
+                // 選択された候補
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("★ Selected")
+                            .color(egui::Color32::from_rgb(100, 200, 100))
+                            .strong(),
+                    );
+                    ui.label(format!("cost={:.2e}", snapshot_cost));
+                });
+                if let Some(ref name) = suggester_name {
+                    ui.label(
+                        egui::RichText::new(name).color(egui::Color32::from_rgb(100, 200, 150)),
+                    );
+                }
+            } else {
+                // 代替候補
+                let alt_idx = viewed_idx - 1;
+                if let Some((rank, cost, ref name)) = alternatives.get(alt_idx) {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(format!("Rank {}", rank))
+                                .color(egui::Color32::from_rgb(200, 150, 100)),
+                        );
+                        ui.label(format!("cost={:.2e}", cost));
+                    });
+                    if let Some(ref name) = name {
+                        ui.label(
+                            egui::RichText::new(name).color(egui::Color32::from_rgb(150, 150, 200)),
+                        );
+                    }
+                }
+            }
+
+            // 全候補のリスト（スクロール可能）
+            ui.separator();
+            egui::ScrollArea::vertical()
+                .max_height(200.0)
+                .show(ui, |ui| {
+                    // 選択された候補（rank 0）
+                    let is_current = viewed_idx == 0;
+                    let text = format!("★ Selected: cost={:.2e}", snapshot_cost);
+                    let btn = if is_current {
+                        egui::Button::new(egui::RichText::new(&text).color(egui::Color32::YELLOW))
+                    } else {
+                        egui::Button::new(&text)
+                    };
+                    if ui.add(btn).clicked() {
+                        new_candidate_index = Some(0);
+                    }
+
+                    // 代替候補
+                    for (idx, (rank, cost, ref name)) in alternatives.iter().enumerate() {
+                        let is_current = viewed_idx == idx + 1;
+                        let name_str = name.as_deref().unwrap_or("unknown");
+                        let text = format!("Rank {}: cost={:.2e} [{}]", rank, cost, name_str);
+                        let btn = if is_current {
+                            egui::Button::new(
+                                egui::RichText::new(&text).color(egui::Color32::YELLOW),
+                            )
+                        } else {
+                            egui::Button::new(&text)
+                        };
+                        if ui.add(btn).clicked() {
+                            new_candidate_index = Some(idx + 1);
+                        }
+                    }
+                });
+
+            ui.separator();
+        }
+
+        // クロージャの外で候補インデックスを更新
+        if let Some(idx) = new_candidate_index {
+            self.viewed_candidate_index = idx;
+            self.update_ast_step_code();
+        }
+
+        // ステップ情報を表示
+        // 先に必要なデータを抽出
+        let step_info = self.ast_history.as_ref().and_then(|history| {
+            let history_len = history.len();
+            history.get(self.ast_current_step).map(|snapshot| {
+                (
+                    self.ast_current_step,
+                    history_len,
+                    snapshot.cost,
+                    snapshot.applied_rule.clone(),
+                    snapshot.suggester_name.clone(),
+                    snapshot.num_candidates,
+                    snapshot.description.clone(),
+                )
+            })
+        });
+
+        ui.heading("📝 Step Info");
+        ui.separator();
+
+        if let Some((
+            current_step,
+            history_len,
+            cost,
+            applied_rule,
+            suggester,
+            num_candidates,
+            description,
+        )) = step_info
+        {
+            egui::Grid::new("step_info_grid")
+                .num_columns(2)
+                .spacing([10.0, 4.0])
+                .show(ui, |ui| {
+                    ui.label("Step:");
+                    ui.strong(format!("{}/{}", current_step, history_len - 1));
+                    ui.end_row();
+
+                    ui.label("Cost:");
+                    ui.label(format!("{:.2e}", cost));
+                    ui.end_row();
+
+                    if let Some(ref rule) = applied_rule {
+                        ui.label("Rule:");
+                        ui.label(
+                            egui::RichText::new(rule).color(egui::Color32::from_rgb(100, 200, 150)),
+                        );
+                        ui.end_row();
+                    }
+
+                    if let Some(ref suggester_name) = suggester {
+                        ui.label("Suggester:");
+                        ui.label(
+                            egui::RichText::new(suggester_name)
+                                .color(egui::Color32::from_rgb(150, 150, 250)),
+                        );
+                        ui.end_row();
+                    }
+
+                    if let Some(num) = num_candidates {
+                        ui.label("Candidates:");
+                        ui.label(format!("{}", num));
+                        ui.end_row();
+                    }
+                });
+
+            ui.separator();
+            ui.label("Description:");
+            ui.label(&description);
         }
     }
 
@@ -466,6 +751,31 @@ impl CodeViewerApp {
                     ui.label(format!("{}", num_candidates));
                 } else {
                     ui.label("-");
+                }
+
+                // 代替候補がある場合は表示中の候補を表示
+                if !snapshot.alternatives.is_empty() {
+                    ui.separator();
+                    let candidate_count = 1 + snapshot.alternatives.len();
+                    if self.viewed_candidate_index == 0 {
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "Viewing: ★ Selected (1/{})",
+                                candidate_count
+                            ))
+                            .color(egui::Color32::from_rgb(100, 200, 100)),
+                        );
+                    } else {
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "Viewing: Rank {} ({}/{})",
+                                self.viewed_candidate_index,
+                                self.viewed_candidate_index + 1,
+                                candidate_count
+                            ))
+                            .color(egui::Color32::from_rgb(200, 150, 100)),
+                        );
+                    }
                 }
             });
         }

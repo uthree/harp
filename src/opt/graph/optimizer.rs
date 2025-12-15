@@ -1,7 +1,7 @@
 use crate::graph::Graph;
 use crate::opt::graph::{
-    GraphCostEstimator, GraphOptimizer, GraphSuggester, OptimizationHistory, OptimizationSnapshot,
-    SimpleCostEstimator, SuggestResult,
+    AlternativeCandidate, GraphCostEstimator, GraphOptimizer, GraphSuggester, OptimizationHistory,
+    OptimizationSnapshot, SimpleCostEstimator, SuggestResult,
 };
 
 use super::selector::{GraphCostSelector, GraphSelector};
@@ -295,15 +295,22 @@ where
                 .map(|result| (result.graph, result.suggester_name))
                 .collect();
 
-            // Selectorで上位beam_width個を選択（Selectorが内部でコストを計算）
-            let selected = self
+            // Selectorで全候補のコストを計算してソート（上位全件取得）
+            let all_with_cost = self
                 .selector
-                .select(candidates_for_selector, self.beam_width);
+                .select(candidates_for_selector, num_candidates);
 
             // (Graph, f32, String) の形式に変換
-            let top_candidates: Vec<(Graph, f32, String)> = selected
+            let all_candidates: Vec<(Graph, f32, String)> = all_with_cost
                 .into_iter()
                 .map(|((graph, name), cost)| (graph, cost, name))
+                .collect();
+
+            // ビーム用に上位beam_width個を取得
+            let top_candidates: Vec<_> = all_candidates
+                .iter()
+                .take(self.beam_width)
+                .cloned()
                 .collect();
 
             beam = top_candidates.iter().map(|(g, _, _)| g.clone()).collect();
@@ -333,8 +340,21 @@ where
                     Vec::new()
                 };
 
-                // スナップショットを記録（早期終了前に必ず記録する）
-                history.add_snapshot(OptimizationSnapshot::with_suggester(
+                // 代替候補を構築（rank > 0の全候補、ビームに入らなかったものも含む）
+                let alternatives: Vec<AlternativeCandidate> = all_candidates
+                    .iter()
+                    .skip(1)
+                    .enumerate()
+                    .map(|(idx, (graph, cost, name))| AlternativeCandidate {
+                        graph: graph.clone(),
+                        cost: *cost,
+                        suggester_name: name.clone(),
+                        rank: idx + 1,
+                    })
+                    .collect();
+
+                // スナップショットを記録（代替候補付き）
+                history.add_snapshot(OptimizationSnapshot::with_alternatives(
                     step + 1,
                     best.clone(),
                     *cost,
@@ -349,6 +369,7 @@ where
                     step_logs,
                     num_candidates,
                     suggester_name.clone(),
+                    alternatives,
                 ));
 
                 // このステップのログをクリア（次のステップで新しいログのみを記録するため）
