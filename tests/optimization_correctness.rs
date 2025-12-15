@@ -3,9 +3,11 @@
 /// 複雑な計算グラフに対して最適化・コード生成が正しく動作することを確認します。
 #[cfg(test)]
 mod tests {
-    use harp::backend::GenericPipeline;
-    use harp::backend::opencl::{OpenCLCompiler, OpenCLRenderer};
+    use harp::backend::opencl::OpenCLRenderer;
+    use harp::backend::{MultiPhaseConfig, Renderer, create_multi_phase_optimizer};
     use harp::graph::{DType, Graph};
+    use harp::lowerer::extract_program;
+    use harp::opt::graph::GraphOptimizer;
 
     /// テストケース構造体
     struct TestCase {
@@ -80,17 +82,23 @@ mod tests {
 
     /// コード生成が正しく行われることを確認
     fn test_code_generation(test_case: TestCase) {
+        // Phase 1: Graph optimization
+        let config = MultiPhaseConfig::new()
+            .with_beam_width(4)
+            .with_max_steps(1000)
+            .with_progress(false)
+            .with_collect_logs(false);
+
+        let optimizer = create_multi_phase_optimizer(config);
+        let (optimized_graph, _) = optimizer.optimize_with_history(test_case.graph);
+
+        // Phase 2: Lower to AST
+        let program = extract_program(optimized_graph);
+
+        // Phase 3: Render to code
         let renderer = OpenCLRenderer::new();
-        let compiler = OpenCLCompiler::new();
-        let mut pipeline = GenericPipeline::new(renderer, compiler);
-
-        let (program, _) = pipeline
-            .optimize_graph_with_all_histories(test_case.graph)
-            .expect(&format!("Failed to optimize graph: {}", test_case.name));
-
-        let mut opencl_renderer = OpenCLRenderer::new();
-        let code = opencl_renderer.render_program(&program);
-        let code_str = code.to_string();
+        let code = renderer.render(&program);
+        let code_str: String = code.into();
 
         // 生成されたコードが空でないことを確認
         assert!(

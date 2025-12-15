@@ -5,9 +5,14 @@ use std::fs;
 use std::io::{self, IsTerminal, Read, Write};
 use std::path::PathBuf;
 
-use harp::backend::metal::MetalCompiler;
-use harp::backend::opencl::OpenCLCompiler;
-use harp::backend::{GenericPipeline, Renderer};
+use harp::backend::c_like::CLikeRenderer;
+use harp::backend::{MultiPhaseConfig, Renderer, create_multi_phase_optimizer};
+use harp::opt::ast::rules::all_algebraic_rules;
+use harp::opt::ast::{
+    AstOptimizer, BeamSearchOptimizer as AstBeamSearchOptimizer,
+    CompositeSuggester as AstCompositeSuggester, FunctionInliningSuggester, LoopFusionSuggester,
+    LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester, RuleBaseOptimizer,
+};
 use harp_dsl::{compile, decompile, parse};
 
 #[derive(Parser)]
@@ -268,21 +273,8 @@ fn do_compile(
         EmitType::Code => {
             // Generate code for the target
             match target {
-                Target::OpenCL => {
-                    compile_to_code::<harp::backend::opencl::OpenCLRenderer, OpenCLCompiler>(graph)?
-                }
-                Target::Metal => {
-                    #[cfg(target_os = "macos")]
-                    {
-                        compile_to_code::<harp::backend::metal::MetalRenderer, MetalCompiler>(
-                            graph,
-                        )?
-                    }
-                    #[cfg(not(target_os = "macos"))]
-                    {
-                        return Err("Metal backend is only available on macOS".into());
-                    }
-                }
+                Target::OpenCL => compile_to_code::<harp::backend::opencl::OpenCLRenderer>(graph)?,
+                Target::Metal => compile_to_code::<harp::backend::metal::MetalRenderer>(graph)?,
             }
         }
         EmitType::Graph => {
@@ -328,17 +320,52 @@ fn do_compile(
     }
 }
 
-fn compile_to_code<R, C>(graph: harp::graph::Graph) -> Result<String, Box<dyn std::error::Error>>
+fn compile_to_code<R>(graph: harp::graph::Graph) -> Result<String, Box<dyn std::error::Error>>
 where
-    R: Renderer + Default + Clone + 'static,
-    C: harp::backend::Compiler<CodeRepr = R::CodeRepr> + Default + Clone + 'static,
-    C::Buffer: 'static,
+    R: Renderer + CLikeRenderer + Default + Clone + 'static,
 {
-    let mut pipeline = GenericPipeline::new(R::default(), C::default());
+    // Phase 1: Graph optimization
+    let config = MultiPhaseConfig::new()
+        .with_beam_width(4)
+        .with_max_steps(5000)
+        .with_progress(false)
+        .with_collect_logs(false);
 
-    let (program, _) = pipeline.optimize_graph_with_all_histories(graph)?;
+    let optimizer = create_multi_phase_optimizer(config);
+    let (optimized_graph, _) = optimizer.optimize_with_history(graph);
 
-    let renderer = R::default();
-    let code = renderer.render(&program);
+    // Phase 2: Lower to AST
+    let program = harp::lowerer::extract_program(optimized_graph);
+
+    // Phase 3: AST optimization
+    let optimized_program = optimize_ast(program);
+
+    // Phase 4: Render to code
+    let mut renderer = R::default();
+    let code = renderer.render_program_clike(&optimized_program);
     Ok(code.into())
+}
+
+fn optimize_ast(program: harp::ast::AstNode) -> harp::ast::AstNode {
+    // Phase 1: Rule-based optimization
+    let rule_optimizer = RuleBaseOptimizer::new(all_algebraic_rules());
+    let rule_optimized = rule_optimizer.optimize(program);
+
+    // Phase 2: Loop optimization with beam search
+    let loop_suggester = AstCompositeSuggester::new(vec![
+        Box::new(LoopTilingSuggester::new()),
+        Box::new(LoopInliningSuggester::new()),
+        Box::new(LoopInterchangeSuggester::new()),
+        Box::new(LoopFusionSuggester::new()),
+        Box::new(FunctionInliningSuggester::with_default_limit()),
+    ]);
+
+    let loop_optimizer = AstBeamSearchOptimizer::new(loop_suggester)
+        .with_beam_width(4)
+        .with_max_steps(5000)
+        .with_progress(false);
+
+    let (optimized, _) = loop_optimizer.optimize_with_history(rule_optimized);
+
+    optimized
 }

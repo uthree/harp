@@ -7,108 +7,98 @@
 バックエンド関連のコードは以下のように構成されています：
 
 ### コアモジュール
-- `mod.rs`: Renderer、Compiler、Kernel、Buffer、Device等の基本trait定義
-- `device.rs`: デバイス抽象化（Metal、OpenCL等の実行環境）
-- `pipeline.rs`: Pipeline trait（グラフからカーネルまでの処理フロー）
-- `generic.rs`: GenericPipeline（任意のRendererとCompilerを組み合わせた汎用実装）
+- `mod.rs`: Renderer trait、KernelSignature、BufferSignatureの定義
+- `pipeline.rs`: 多フェーズ最適化パイプライン（`create_multi_phase_optimizer`, `MultiPhaseConfig`）
 - `c_like.rs`: C言語系構文の共通レンダリングロジック（CLikeRenderer trait）、OptimizationLevel
 
-### バックエンド実装
-各バックエンドは独立したモジュールとして実装されています：
-
+### レンダラー実装
 - `metal/`: Metalバックエンド（macOS GPU）
-  - `mod.rs`, `renderer.rs`, `compiler.rs`, `kernel.rs`, `buffer.rs`
+  - `mod.rs`, `renderer.rs`
+  - `MetalCode`: Metal Shading Languageソースコードを表す型
 - `opencl/`: OpenCLバックエンド（クロスプラットフォームGPU）
-  - `mod.rs`, `renderer.rs`, `compiler.rs`, `kernel.rs`, `buffer.rs`
+  - `mod.rs`, `renderer.rs`
+  - `OpenCLCode`: OpenCL Cコードを表す型
 
-各バックエンドは共通のtrait（Renderer、Compiler、Kernel、Buffer）を実装しており、バックエンドの切り替えが容易です。
+### Nativeバックエンド
+- `native/`: Rustから直接GPU APIを呼び出すバックエンド
+  - `mod.rs`: モジュール定義とtrait再エクスポート
+  - `traits.rs`: 共通trait定義
+  - `opencl/`: OpenCLネイティブ実装（`ocl`クレート使用）
+  - `metal/`: Metalネイティブ実装（`metal`クレート使用）
 
 ## 主要コンポーネント
 
-### Renderer
-ASTをターゲット言語のソースコードに変換。C言語系の構文を持つ言語（C、Metal、OpenCL）は`CLikeRenderer` traitで共通ロジックを共有。
+### Renderer trait
+ASTをターゲット言語のソースコードに変換するtrait。
 
-### Compiler
-ソースコードをコンパイルしてKernel（実行可能バイナリ）を生成。
+```rust
+pub trait Renderer {
+    type CodeRepr: Into<String>;
+    type Option;
+    fn render(&self, program: &AstNode) -> Self::CodeRepr;
+    fn is_available(&self) -> bool;
+    fn with_option(&mut self, option: Self::Option) {}
+}
+```
 
-### Kernel
-実行可能なカーネル。`KernelSignature`で入出力バッファーの形状情報を保持。
+C言語系の構文を持つ言語（OpenCL、Metal）は`CLikeRenderer` traitで共通ロジックを共有。
 
-### Buffer
-デバイス上のデータバッファー。型情報（dtype）を保持し、バイト列との相互変換、型付きベクタアクセスのデフォルト実装を提供。
+### KernelSignature / BufferSignature
+カーネルの入出力バッファーの形状情報を表す構造体。
 
-### Query
-カーネル実行時の入出力バッファーとshape変数をまとめた構造体。
+```rust
+pub struct KernelSignature {
+    pub inputs: Vec<BufferSignature>,
+    pub outputs: Vec<BufferSignature>,
+    pub shape_vars: HashMap<String, isize>,
+}
 
-### Pipeline
-Graphを最適化、lower、AST最適化などの一通りの処理をまとめて行うためのtrait。
+pub struct BufferSignature {
+    pub name: String,
+    pub shape: Vec<Expr>,
+}
+```
 
-処理フロー（3フェーズグラフ最適化）:
+## パイプライン（最適化フロー）
+
+### MultiPhaseConfig / create_multi_phase_optimizer
+
+Graph最適化を3フェーズで行うためのパイプライン。
+
+**処理フロー:**
 1. **Preparation** (グラフ準備): View挿入、融合、タイリングなどのグラフ構造最適化
 2. **Lowering**: 全てのGraphOpノードをKernelノードに変換（並列化戦略の選択を含む）
 3. **Fusion**: 全てのKernelノードをProgramRootに融合（決定論的変換）
-4. **AST最適化**:
-   - ルールベース最適化（代数的簡約、定数畳み込み）
-   - ビームサーチ最適化（ループ変換など）
-5. **レンダリング**: AST → ソースコード
-6. **コンパイル**: ソースコード → 実行可能カーネル
 
-実測値ベース最適化（RuntimeSelector）はPhase 1とPhase 2で使用されます。Phase 3（Fusion）は決定論的な変換のため、RuntimeSelectorは使用されず、ビーム幅=1で高速に処理されます。
-
-#### GenericPipeline
-任意のRendererとCompilerを組み合わせて使用できる汎用Pipeline実装。
-
-**主要な機能:**
-- コンパイル済みKernelのキャッシュ機能
-- 最適化履歴の収集（可視化ツールとの統合用）
-- グラフ最適化とAST最適化（両方とも常に有効）
-
-**設定フィールド:**
-- `graph_config`: グラフ最適化の設定（OptimizationConfig）
-- `ast_config`: AST最適化の設定（OptimizationConfig）
-- `collect_histories`: 最適化履歴を収集するか（DEBUGビルドでデフォルトtrue、RELEASEビルドでfalse）
-
-**OptimizationConfig:**
+**設定オプション:**
 - `beam_width`: ビームサーチの幅（デフォルト: 4）
 - `max_steps`: 最大ステップ数（デフォルト: 10000）
 - `show_progress`: プログレスバー表示（デフォルト: false）
-- `early_termination_threshold`: 早期終了閾値（デフォルト: Some(2)）
-- `enable_runtime_selector`: RuntimeSelector（実測値ベース最適化）を有効化（デフォルト: false）
-- `pre_filter_count`: RuntimeSelector使用時の静的コスト足切り候補数（デフォルト: 4）
-- `measurement_count`: RuntimeSelector使用時の計測回数（デフォルト: 10）
-
-**RuntimeSelector（実測値ベース最適化）:**
-`enable_runtime_selector()`を呼び出すと、グラフ最適化とAST最適化の両方で実測値ベースの候補選択が有効になる。バッファは`Buffer::allocate`を使用して自動的に生成される。
+- `collect_logs`: 最適化ログの収集（デフォルト: false）
 
 **使用例:**
 ```rust
-let mut pipeline = GenericPipeline::new(renderer, compiler);
-pipeline.graph_config.beam_width = 8;
+use harp::backend::{create_multi_phase_optimizer, MultiPhaseConfig};
+use harp::opt::graph::GraphOptimizer;
 
-// 実測値ベース最適化を有効化
-pipeline.enable_runtime_selector();
+let config = MultiPhaseConfig::new()
+    .with_beam_width(4)
+    .with_max_steps(1000)
+    .with_progress(false);
+
+let optimizer = create_multi_phase_optimizer(config);
+let (optimized_graph, history) = optimizer.optimize_with_history(graph);
 ```
 
-**最適化履歴:**
-最適化の各ステップは`OptimizationHistories`に記録され、`pipeline.histories.graph`および`pipeline.histories.ast`からアクセス可能。可視化ツール（harp-viz）で最適化過程を確認できる。
+## Nativeバックエンド
 
-## Nativeバックエンド（新アーキテクチャ）
-
-`native`モジュールは、libloadingを使わずにRustから直接GPU APIを呼び出す新しいバックエンド実装を提供します。
+`native`モジュールは、Rustから直接GPU APIを呼び出すバックエンド実装を提供します。
 
 ### 特徴
 
-- **libloading不要**: C言語のホストコード生成が不要
 - **Rust型安全性**: GPU操作がRustの型システムで保護される
 - **デバッグ容易性**: Rustコードなのでデバッグが容易
 - **統一API**: OpenCLとMetalで共通のtraitインターフェース
-
-### モジュール構成
-
-- `native/mod.rs`: モジュール定義とtrait再エクスポート
-- `native/traits.rs`: 共通trait定義（NativeContext, NativeBuffer, NativeKernel, NativeCompiler）
-- `native/opencl/`: OpenCLネイティブ実装（`ocl`クレート使用）
-- `native/metal/`: Metalネイティブ実装（`metal`クレート使用）
 
 ### 主要trait
 
@@ -160,7 +150,7 @@ let result: Vec<f32> = c.read_vec()?;  // [6.0, 8.0, 10.0, 12.0]
 
 ### NativePipeline
 
-`NativePipeline`は、Graphから直接GPUカーネルを生成・実行するためのパイプラインです。GenericPipelineと同様の最適化機能を持ちつつ、libloadingを必要としません。
+`NativePipeline`は、Graphから直接GPUカーネルを生成・実行するためのパイプラインです。
 
 **処理フロー:**
 1. Graphの最適化（多フェーズグラフ最適化）
@@ -222,50 +212,32 @@ let result: Vec<f32> = output.read_vec()?;
 - `native-opencl`: OpenCLネイティブバックエンドを有効化
 - `native-metal`: Metalネイティブバックエンドを有効化（macOSのみ）
 
-## 従来のバックエンド（libloading方式）
+## CLI (harpc)
 
-以下は従来のlibloadingベースのバックエンド実装です。
+CLIツール`harpc`を使用して.harpファイルをコンパイルできます。
 
-## 実装状況
+```bash
+# OpenCLカーネルを生成
+harpc input.harp --target opencl
 
-### Metal Backend（macOS）
-MetalのComputePipelineStateを使用してGPUで直接実行。
+# Metal Shading Languageを生成
+harpc input.harp --target metal
 
-**実装方式:**
-- Objective-C++でMetal API呼び出しコードを生成
-- clang++でコンパイルし、動的ライブラリとしてロード
+# 標準入力から読み込み
+cat input.harp | harpc - --target opencl
 
-**コンパイラフラグ:**
-- macOS: `-framework Metal -framework Foundation`
-
-### OpenCL Backend（クロスプラットフォーム）
-OpenCLを使ったクロスプラットフォームGPU実行バックエンド。ASTをOpenCLカーネルソース + ホストコードに変換し、動的ライブラリとしてコンパイルして実行。
-
-**実装方式:**
-- OpenCLカーネルソースを文字列リテラルとしてC言語コードに埋め込み
-- ホストコードでOpenCL APIを直接呼び出し（プラットフォーム/デバイス取得、バッファ作成、カーネルビルド・実行、結果読み出し）
-- libloadingでラッパー関数を呼び出す
-
-**libloading対応:**
-libloadingはRust側からバッファ情報を受け取るシグネチャを使用：
-```c
-// libloading用ラッパー（自動生成）
-void __harp_entry(void** buffers, size_t* sizes, int* is_outputs, int num_buffers) {
-    // OpenCLの初期化
-    // カーネルソースのビルド
-    // OpenCLバッファの作成（Host→Device転送）
-    // カーネル引数設定・実行
-    // 結果の読み出し（Device→Host転送）
-    // リソース解放
-}
+# ソースコードを埋め込んでコメントとして出力
+harpc input.harp --embed-source
 ```
 
-**引数:**
-- `buffers`: ホスト側のバッファポインタの配列
-- `sizes`: 各バッファのバイトサイズ
-- `is_outputs`: 出力バッファかどうかのフラグ（0: 入力、1: 出力）
-- `num_buffers`: バッファの総数
+**オプション:**
+- `--target <opencl|metal>`: 出力ターゲット
+- `--output <FILE>`: 出力ファイル
+- `--emit <code|graph|ast>`: 出力形式
+- `--embed-source`: 元のDSLソースをコメントとして埋め込む
 
-**コンパイラフラグ:**
-- macOS: `-framework OpenCL`
-- Linux/Windows: `-lOpenCL`
+**サブコマンド:**
+- `compile`: ファイルをコンパイル（デフォルト）
+- `check`: 構文チェックのみ
+- `ast`: ASTを出力
+- `fmt`: ソースコードをフォーマット

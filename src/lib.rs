@@ -1,6 +1,6 @@
 //! Harp: A high-performance tensor computation library
 //!
-//! Harpは計算グラフを構築し、様々なバックエンド（Metal等）で実行するライブラリです。
+//! Harpは計算グラフを構築し、様々なバックエンド（OpenCL、Metal等）で実行するライブラリです。
 //!
 //! # 基本的な使い方
 //!
@@ -32,7 +32,12 @@ pub mod opt;
 pub use graph::{CumulativeStrategy, DType, Graph, GraphNode, ReduceStrategy};
 
 // Re-export backend traits
-pub use backend::{Buffer, Compiler, Kernel, Renderer};
+pub use backend::Renderer;
+
+// Re-export native backend traits
+pub use backend::native::{
+    KernelConfig, NativeBuffer, NativeCompiler, NativeContext, NativeKernel, NativePipeline,
+};
 
 // Re-export lowerer
 pub use lowerer::{create_lowering_optimizer, create_signature, create_simple_lowering_optimizer};
@@ -57,7 +62,10 @@ pub mod prelude {
     pub use crate::graph::ops::{max, recip, reduce, reduce_max, reduce_mul, reduce_sum};
 
     // Backend traits
-    pub use crate::backend::{Buffer, Compiler, Kernel, KernelSignature, Query, QueryBuilder};
+    pub use crate::backend::{
+        BufferSignature, KernelSignature, NativeBuffer, NativeCompiler, NativeContext,
+        NativeKernel, NativePipeline, Renderer,
+    };
 
     // Lowerer
     pub use crate::lowerer::{

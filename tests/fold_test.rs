@@ -1,8 +1,45 @@
 /// Fold演算のテスト
 ///
 /// Fold演算（col2im）が正しくコンパイルされることを確認
-use harp::backend::Device;
+use harp::backend::opencl::OpenCLRenderer;
+use harp::backend::{MultiPhaseConfig, Renderer, create_multi_phase_optimizer};
+use harp::lowerer::extract_program;
+use harp::opt::graph::GraphOptimizer;
 use harp::prelude::*;
+
+/// コンパイルテストのヘルパー関数
+fn compile_graph_test(graph: Graph, test_name: &str) {
+    // Phase 1: Graph optimization
+    let config = MultiPhaseConfig::new()
+        .with_beam_width(4)
+        .with_max_steps(1000)
+        .with_progress(false)
+        .with_collect_logs(false);
+
+    let optimizer = create_multi_phase_optimizer(config);
+    let (optimized_graph, _) = optimizer.optimize_with_history(graph);
+
+    // Phase 2: Lower to AST
+    let program = extract_program(optimized_graph);
+
+    // Phase 3: Render to code
+    let renderer = OpenCLRenderer::new();
+    let code = renderer.render(&program);
+    let code_str: String = code.into();
+
+    // コードが生成されていることを確認
+    assert!(
+        !code_str.is_empty(),
+        "{}: Generated code should not be empty",
+        test_name
+    );
+
+    assert!(
+        code_str.contains("__kernel") || code_str.contains("void"),
+        "{}: Code should contain kernel functions",
+        test_name
+    );
+}
 
 #[test]
 fn test_fold1d_compilation() {
@@ -24,18 +61,7 @@ fn test_fold1d_compilation() {
 
     graph.output("result", folded);
 
-    // コンパイルと実行
-    let device = Device::opencl(0);
-    let pipeline = device.get_pipeline().unwrap();
-    let mut pipeline = pipeline.borrow_mut();
-
-    // コンパイル（エラーなく完了すればOK）
-    let result = pipeline.compile_graph(graph);
-    assert!(
-        result.is_ok(),
-        "Fold1d compilation should succeed: {:?}",
-        result.err()
-    );
+    compile_graph_test(graph, "Fold1d");
 }
 
 #[test]
@@ -56,18 +82,7 @@ fn test_fold2d_compilation() {
 
     graph.output("result", folded);
 
-    // コンパイルと実行
-    let device = Device::opencl(0);
-    let pipeline = device.get_pipeline().unwrap();
-    let mut pipeline = pipeline.borrow_mut();
-
-    // コンパイル（エラーなく完了すればOK）
-    let result = pipeline.compile_graph(graph);
-    assert!(
-        result.is_ok(),
-        "Fold2d compilation should succeed: {:?}",
-        result.err()
-    );
+    compile_graph_test(graph, "Fold2d");
 }
 
 #[test]
@@ -88,16 +103,5 @@ fn test_fold3d_compilation() {
 
     graph.output("result", folded);
 
-    // コンパイルと実行
-    let device = Device::opencl(0);
-    let pipeline = device.get_pipeline().unwrap();
-    let mut pipeline = pipeline.borrow_mut();
-
-    // コンパイル（エラーなく完了すればOK）
-    let result = pipeline.compile_graph(graph);
-    assert!(
-        result.is_ok(),
-        "Fold3d compilation should succeed: {:?}",
-        result.err()
-    );
+    compile_graph_test(graph, "Fold3d");
 }

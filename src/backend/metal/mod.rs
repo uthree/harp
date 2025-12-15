@@ -1,41 +1,17 @@
+//! Metal backend
+//!
+//! This module provides Metal Shading Language kernel source rendering.
+//! The actual GPU execution is handled by the native backend (`native::metal`).
+
 pub mod renderer;
-
-#[cfg(target_os = "macos")]
-pub mod buffer;
-
-#[cfg(target_os = "macos")]
-pub mod kernel;
-
-#[cfg(target_os = "macos")]
-pub mod compiler;
-
-#[cfg(target_os = "macos")]
-pub use buffer::MetalBuffer;
-
-#[cfg(target_os = "macos")]
-pub use kernel::MetalKernel;
-
-#[cfg(target_os = "macos")]
-pub use compiler::{MetalCompiler, MetalCompilerOption};
 
 pub use renderer::MetalRenderer;
 
 // OptimizationLevelはc_likeモジュールからre-export
-#[cfg(target_os = "macos")]
 pub use crate::backend::c_like::OptimizationLevel;
 
-/// libloading用のラッパー関数名
-///
-/// libloadingは固定シグネチャを期待するため、エントリーポイント関数を
-/// ラップする関数を生成する。この定数はレンダラーとコンパイラの両方で使用される。
+/// libloading用のラッパー関数名（後方互換性のために残す）
 pub const LIBLOADING_WRAPPER_NAME: &str = "__harp_metal_entry";
-
-/// Metalバックエンド専用のPipeline
-///
-/// GenericPipelineの特殊化として定義。
-/// グラフ最適化は常に有効です（LoweringSuggesterによるKernelノード変換が必須）。
-#[cfg(target_os = "macos")]
-pub type MetalPipeline = crate::backend::GenericPipeline<MetalRenderer, MetalCompiler>;
 
 /// Metal Shading Language のソースコードを表す型
 ///

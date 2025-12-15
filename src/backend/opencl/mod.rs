@@ -1,24 +1,17 @@
-pub mod buffer;
-pub mod compiler;
-pub mod kernel;
+//! OpenCL backend
+//!
+//! This module provides OpenCL kernel source rendering.
+//! The actual GPU execution is handled by the native backend (`native::opencl`).
+
 pub mod renderer;
 
-pub use buffer::OpenCLBuffer;
-pub use compiler::{OpenCLCompiler, OpenCLCompilerOption};
-pub use kernel::OpenCLKernel;
 pub use renderer::OpenCLRenderer;
 
 // OptimizationLevelはc_likeモジュールからre-export
 pub use crate::backend::c_like::OptimizationLevel;
 
-/// libloading用のラッパー関数名
+/// libloading用のラッパー関数名（後方互換性のために残す）
 pub const LIBLOADING_WRAPPER_NAME: &str = "__harp_entry";
-
-/// OpenCLバックエンド専用のPipeline
-///
-/// GenericPipelineの特殊化として定義。
-/// グラフ最適化は常に有効です（LoweringSuggesterによるKernelノード変換が必須）。
-pub type OpenCLPipeline = crate::backend::GenericPipeline<OpenCLRenderer, OpenCLCompiler>;
 
 /// OpenCL Cコードを表す型
 ///

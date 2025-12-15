@@ -338,23 +338,26 @@ impl Graph {
     ///
     /// # 戻り値
     /// 出力ノード名 -> 計算結果のマッピング
+    ///
+    /// 注意: この関数は現在実装されていません。
+    /// GPU実行には `NativePipeline` を直接使用してください。
     pub fn realize(
         &self,
         inputs: HashMap<String, Vec<f32>>,
     ) -> Result<HashMap<String, Vec<f32>>, String> {
-        self.realize_with_device(inputs, None)
+        self.realize_internal(inputs)
     }
 
-    /// このGraphを実行（デバイス指定版）
-    pub fn realize_with_device(
+    /// このGraphを実行（内部実装）
+    ///
+    /// 注意: この関数は現在実装されていません。
+    /// GPU実行には `NativePipeline` を直接使用してください。
+    fn realize_internal(
         &self,
         _inputs: HashMap<String, Vec<f32>>,
-        _device: Option<crate::backend::Device>,
     ) -> Result<HashMap<String, Vec<f32>>, String> {
-        // TODO: 実装を完成させる
-        // 現在は簡易版として、エラーを返す
         Err(
-            "Graph::realize() is not yet fully implemented. Use device pipeline directly for now."
+            "Graph::realize() is not yet fully implemented. Use NativePipeline directly for GPU execution."
                 .to_string(),
         )
     }

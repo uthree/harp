@@ -4,9 +4,10 @@
 
 #[test]
 fn test_program_root_extraction() {
-    use harp::backend::GenericPipeline;
-    use harp::backend::opencl::{OpenCLCompiler, OpenCLRenderer};
+    use harp::backend::{MultiPhaseConfig, create_multi_phase_optimizer};
     use harp::graph::{DType, Graph};
+    use harp::lowerer::extract_program;
+    use harp::opt::graph::GraphOptimizer;
 
     // シンプルなグラフ
     let mut graph = Graph::new();
@@ -20,14 +21,18 @@ fn test_program_root_extraction() {
         graph.program_root().is_some()
     );
 
-    // パイプラインで最適化
-    let renderer = OpenCLRenderer::new();
-    let compiler = OpenCLCompiler::new();
-    let mut pipeline = GenericPipeline::new(renderer, compiler);
+    // グラフ最適化
+    let config = MultiPhaseConfig::new()
+        .with_beam_width(4)
+        .with_max_steps(1000)
+        .with_progress(false)
+        .with_collect_logs(false);
 
-    let (program, _) = pipeline
-        .optimize_graph_with_all_histories(graph)
-        .expect("Failed to optimize");
+    let optimizer = create_multi_phase_optimizer(config);
+    let (optimized_graph, _) = optimizer.optimize_with_history(graph);
+
+    // ASTに変換
+    let program = extract_program(optimized_graph);
 
     // 生成されたProgramを確認
     if let harp::ast::AstNode::Program { functions, .. } = &program {
@@ -59,9 +64,10 @@ fn test_program_root_extraction() {
 
 #[test]
 fn test_program_root_extraction_complex() {
-    use harp::backend::GenericPipeline;
-    use harp::backend::opencl::{OpenCLCompiler, OpenCLRenderer};
+    use harp::backend::{MultiPhaseConfig, create_multi_phase_optimizer};
     use harp::graph::{DType, Graph};
+    use harp::lowerer::extract_program;
+    use harp::opt::graph::GraphOptimizer;
 
     // より複雑なグラフ: reduce(a + b) + c
     let mut graph = Graph::new();
@@ -78,14 +84,18 @@ fn test_program_root_extraction_complex() {
         graph.program_root().is_some()
     );
 
-    // パイプラインで最適化
-    let renderer = OpenCLRenderer::new();
-    let compiler = OpenCLCompiler::new();
-    let mut pipeline = GenericPipeline::new(renderer, compiler);
+    // グラフ最適化
+    let config = MultiPhaseConfig::new()
+        .with_beam_width(4)
+        .with_max_steps(1000)
+        .with_progress(false)
+        .with_collect_logs(false);
 
-    let (program, _) = pipeline
-        .optimize_graph_with_all_histories(graph)
-        .expect("Failed to optimize");
+    let optimizer = create_multi_phase_optimizer(config);
+    let (optimized_graph, _) = optimizer.optimize_with_history(graph);
+
+    // ASTに変換
+    let program = extract_program(optimized_graph);
 
     // 生成されたProgramを確認
     if let harp::ast::AstNode::Program { functions, .. } = &program {
