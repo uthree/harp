@@ -7,9 +7,14 @@ use tempfile::NamedTempFile;
 
 /// OpenCLカーネルの実行関数の型
 ///
-/// カーネル関数は複数のポインタを引数として受け取る
-/// 例: void kernel_entry(void** buffers)
-type KernelFn = unsafe extern "C" fn(*mut *mut u8);
+/// カーネル関数は以下の引数を受け取る:
+/// - buffers: バッファポインタの配列
+/// - sizes: 各バッファのバイトサイズの配列
+/// - is_outputs: 出力バッファかどうかのフラグ配列 (0: 入力, 1: 出力)
+/// - num_buffers: バッファの数
+///
+/// 例: `void __harp_entry(void** buffers, size_t* sizes, int* is_outputs, int num_buffers)`
+type KernelFn = unsafe extern "C" fn(*mut *mut u8, *mut usize, *mut i32, i32);
 
 /// OpenCL用のカーネル
 ///
@@ -75,9 +80,28 @@ impl OpenCLKernel {
         // バッファポインタの配列を作成
         let mut buffer_ptrs: Vec<*mut u8> = buffers.iter_mut().map(|b| b.as_mut_ptr()).collect();
 
+        // バッファサイズの配列を作成
+        let mut sizes: Vec<usize> = buffers.iter().map(|b| b.byte_len()).collect();
+
+        // 出力フラグの配列を作成
+        // シグネチャから入力と出力を判別
+        let num_inputs = self.signature.inputs.len();
+        let mut is_outputs: Vec<i32> = buffers
+            .iter()
+            .enumerate()
+            .map(|(i, _)| if i >= num_inputs { 1 } else { 0 })
+            .collect();
+
+        let num_buffers = buffers.len() as i32;
+
         // カーネル関数を呼び出し
         unsafe {
-            kernel_fn(buffer_ptrs.as_mut_ptr());
+            kernel_fn(
+                buffer_ptrs.as_mut_ptr(),
+                sizes.as_mut_ptr(),
+                is_outputs.as_mut_ptr(),
+                num_buffers,
+            );
         }
 
         Ok(())
@@ -121,9 +145,28 @@ impl Kernel for OpenCLKernel {
         // バッファポインタの配列を作成
         let mut buffer_ptrs: Vec<*mut u8> = buffers.iter_mut().map(|b| b.as_mut_ptr()).collect();
 
+        // バッファサイズの配列を作成
+        let mut sizes: Vec<usize> = buffers.iter().map(|b| b.byte_len()).collect();
+
+        // 出力フラグの配列を作成
+        // シグネチャから入力と出力を判別
+        let num_inputs = self.signature.inputs.len();
+        let mut is_outputs: Vec<i32> = buffers
+            .iter()
+            .enumerate()
+            .map(|(i, _)| if i >= num_inputs { 1 } else { 0 })
+            .collect();
+
+        let num_buffers = buffers.len() as i32;
+
         // カーネル関数を呼び出し
         unsafe {
-            kernel_fn(buffer_ptrs.as_mut_ptr());
+            kernel_fn(
+                buffer_ptrs.as_mut_ptr(),
+                sizes.as_mut_ptr(),
+                is_outputs.as_mut_ptr(),
+                num_buffers,
+            );
         }
 
         Ok(())

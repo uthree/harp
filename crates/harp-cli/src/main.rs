@@ -32,6 +32,10 @@ struct Cli {
     #[arg(long, default_value = "code", global = true)]
     emit: EmitType,
 
+    /// Embed original DSL source code as comment in output
+    #[arg(long, default_value = "false", global = true)]
+    embed_source: bool,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -76,6 +80,16 @@ enum Target {
     #[value(name = "opencl", alias = "cl")]
     OpenCL,
     Metal,
+}
+
+impl Target {
+    /// Get the file extension for this target
+    fn extension(&self) -> &'static str {
+        match self {
+            Target::OpenCL => "c",
+            Target::Metal => "metal",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, clap::ValueEnum)]
@@ -147,6 +161,38 @@ fn write_output(output: Option<&PathBuf>, content: &str) -> Result<(), Box<dyn s
     Ok(())
 }
 
+/// Determine output filename based on input and target
+/// Returns None if output should go to stdout (e.g., when input is from stdin and piping)
+fn determine_output_path(
+    input: Option<&PathBuf>,
+    target: Target,
+    emit: EmitType,
+) -> Option<PathBuf> {
+    // Only auto-generate output path for code emission
+    if !matches!(emit, EmitType::Code) {
+        return None;
+    }
+
+    let ext = target.extension();
+
+    match input {
+        Some(path) if path.to_str() != Some("-") => {
+            // Use input filename with new extension
+            let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("a");
+            Some(PathBuf::from(format!("{}.{}", stem, ext)))
+        }
+        _ => {
+            // stdin or "-": use default "a.{ext}" like C compilers use "a.out"
+            // But only if stdout is a terminal (not piping)
+            if io::stdout().is_terminal() {
+                Some(PathBuf::from(format!("a.{}", ext)))
+            } else {
+                None // Piping to another command, use stdout
+            }
+        }
+    }
+}
+
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     match cli.command {
         // Explicit compile subcommand
@@ -157,6 +203,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 cli.output.as_ref(),
                 cli.target,
                 cli.emit,
+                cli.embed_source,
             )
         }
 
@@ -202,20 +249,22 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             cli.output.as_ref(),
             cli.target,
             cli.emit,
+            cli.embed_source,
         ),
     }
 }
 
 fn do_compile(
     input: Option<&PathBuf>,
-    output: Option<&PathBuf>,
+    explicit_output: Option<&PathBuf>,
     target: Target,
     emit: EmitType,
+    embed_source: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (source, _name) = read_source(input)?;
     let graph = compile(&source)?;
 
-    let result = match emit {
+    let generated = match emit {
         EmitType::Code => {
             // Generate code for the target
             match target {
@@ -245,7 +294,38 @@ fn do_compile(
         }
     };
 
-    write_output(output, &result)
+    // Optionally embed original DSL source as comment
+    let result = if embed_source && matches!(emit, EmitType::Code) {
+        let comment_prefix = match target {
+            Target::OpenCL | Target::Metal => "//",
+        };
+        let mut output = String::new();
+        output.push_str(&format!(
+            "{} === Original Harp DSL Source ===\n",
+            comment_prefix
+        ));
+        for line in source.lines() {
+            output.push_str(&format!("{} {}\n", comment_prefix, line));
+        }
+        output.push_str(&format!("{} === End of Source ===\n\n", comment_prefix));
+        output.push_str(&generated);
+        output
+    } else {
+        generated
+    };
+
+    // Determine output path: use explicit output if provided, otherwise auto-determine
+    let auto_output = determine_output_path(input, target, emit);
+    let output_path = explicit_output.or(auto_output.as_ref());
+
+    // Write output and print message if writing to file
+    if let Some(path) = output_path {
+        fs::write(path, &result)?;
+        eprintln!("Wrote output to: {}", path.display());
+        Ok(())
+    } else {
+        write_output(None, &result)
+    }
 }
 
 fn compile_to_code<R, C>(graph: harp::graph::Graph) -> Result<String, Box<dyn std::error::Error>>

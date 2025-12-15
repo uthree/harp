@@ -109,17 +109,28 @@ OpenCLを使ったクロスプラットフォームGPU実行バックエンド�
 
 **実装方式:**
 - OpenCLカーネルソースを文字列リテラルとしてC言語コードに埋め込み
-- ホストコードでOpenCLの初期化、コンパイル、実行を行う
+- ホストコードでOpenCL APIを直接呼び出し（プラットフォーム/デバイス取得、バッファ作成、カーネルビルド・実行、結果読み出し）
 - libloadingでラッパー関数を呼び出す
 
 **libloading対応:**
-libloadingは固定シグネチャ `fn(*mut *mut u8)` を期待するため、Rendererは自動的にラッパー関数を生成する：
+libloadingはRust側からバッファ情報を受け取るシグネチャを使用：
 ```c
 // libloading用ラッパー（自動生成）
-void __harp_entry(void** buffers) {
-    // カーネル実行ロジック
+void __harp_entry(void** buffers, size_t* sizes, int* is_outputs, int num_buffers) {
+    // OpenCLの初期化
+    // カーネルソースのビルド
+    // OpenCLバッファの作成（Host→Device転送）
+    // カーネル引数設定・実行
+    // 結果の読み出し（Device→Host転送）
+    // リソース解放
 }
 ```
+
+**引数:**
+- `buffers`: ホスト側のバッファポインタの配列
+- `sizes`: 各バッファのバイトサイズ
+- `is_outputs`: 出力バッファかどうかのフラグ（0: 入力、1: 出力）
+- `num_buffers`: バッファの総数
 
 **コンパイラフラグ:**
 - macOS: `-framework OpenCL`

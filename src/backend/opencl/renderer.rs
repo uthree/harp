@@ -33,6 +33,15 @@ impl OpenCLRenderer {
             // AstNode::Kernel (並列) と AstNode::Function (逐次) の両方をサポート
             let mut kernel_sources = Vec::new();
 
+            // エントリーポイント関数を探す
+            let entry_func = functions.iter().find(|f| {
+                matches!(
+                    f,
+                    AstNode::Kernel { name: Some(n), .. } | AstNode::Function { name: Some(n), .. }
+                    if n == entry_point
+                )
+            });
+
             for func in functions {
                 match func {
                     AstNode::Kernel {
@@ -76,7 +85,7 @@ impl OpenCLRenderer {
             }
 
             // 4. libloading用のエントリーポイント関数を生成
-            code.push_str(&self.generate_host_code(entry_point, &kernel_sources));
+            code.push_str(&self.generate_host_code(entry_func, &kernel_sources));
 
             OpenCLCode::new(code)
         } else {
@@ -164,16 +173,57 @@ impl OpenCLRenderer {
     }
 
     /// ホストコード（OpenCL初期化 + カーネル実行）を生成
+    ///
+    /// バッファ情報を元に完全なOpenCLホストコードを生成します。
+    /// シグネチャ: void __harp_entry(void** buffers, size_t* sizes, int* is_outputs, int num_buffers)
     fn generate_host_code(
         &self,
-        _entry_point: &str,
+        entry_func: Option<&AstNode>,
         kernel_sources: &[(String, String)],
     ) -> String {
         let mut code = String::new();
 
+        // エントリー関数からパラメータ情報を取得
+        let (params, grid_size, thread_group_size) = if let Some(func) = entry_func {
+            match func {
+                AstNode::Kernel {
+                    params,
+                    default_grid_size,
+                    default_thread_group_size,
+                    ..
+                } => (
+                    params.clone(),
+                    default_grid_size.clone(),
+                    default_thread_group_size.clone(),
+                ),
+                AstNode::Function { params, .. } => {
+                    use crate::ast::helper::const_int;
+                    let one = const_int(1);
+                    (
+                        params.clone(),
+                        [Box::new(one.clone()), Box::new(one.clone()), Box::new(one)],
+                        [
+                            Box::new(const_int(1)),
+                            Box::new(const_int(1)),
+                            Box::new(const_int(1)),
+                        ],
+                    )
+                }
+                _ => return self.generate_fallback_host_code(kernel_sources),
+            }
+        } else {
+            return self.generate_fallback_host_code(kernel_sources);
+        };
+
+        // バッファパラメータのみをフィルタリング（Ptr型のパラメータ）
+        let buffer_params: Vec<_> = params
+            .iter()
+            .filter(|p| matches!(p.dtype, DType::Ptr(_)))
+            .collect();
+
         code.push_str("// === OpenCL Host Code ===\n");
         code.push_str(&format!(
-            "void {}(void** buffers) {{\n",
+            "void {}(void** buffers, size_t* sizes, int* is_outputs, int num_buffers) {{\n",
             LIBLOADING_WRAPPER_NAME
         ));
         code.push_str("    cl_int err;\n");
@@ -198,7 +248,7 @@ impl OpenCLRenderer {
         );
         code.push_str("    \n");
 
-        // 3. カーネルのビルド（最初のカーネルソースを使用）
+        // 3. カーネルのビルド
         if !kernel_sources.is_empty() {
             code.push_str("    // Build kernel\n");
             code.push_str("    cl_program program = clCreateProgramWithSource(context, 1, &kernel_source_0, NULL, &err);\n");
@@ -212,6 +262,9 @@ impl OpenCLRenderer {
             code.push_str("        clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);\n");
             code.push_str("        fprintf(stderr, \"OpenCL build error:\\n%s\\n\", log);\n");
             code.push_str("        free(log);\n");
+            code.push_str("        clReleaseCommandQueue(queue);\n");
+            code.push_str("        clReleaseContext(context);\n");
+            code.push_str("        return;\n");
             code.push_str("    }\n");
             code.push_str("    \n");
 
@@ -221,24 +274,145 @@ impl OpenCLRenderer {
                 kernel_name
             ));
             code.push_str("    \n");
-        }
 
-        // 4. TODO: バッファの作成とカーネル実行
-        code.push_str("    // TODO: Create buffers and execute kernel\n");
-        code.push_str("    // This is a simplified version - full implementation needed\n");
-        code.push_str("    \n");
+            // 4. OpenCLバッファの作成
+            code.push_str("    // Create OpenCL buffers\n");
+            code.push_str(&format!(
+                "    cl_mem cl_buffers[{}];\n",
+                buffer_params.len().max(1)
+            ));
+            code.push_str("    for (int i = 0; i < num_buffers; i++) {\n");
+            code.push_str("        cl_mem_flags flags = is_outputs[i] ? CL_MEM_READ_WRITE : CL_MEM_READ_ONLY;\n");
+            code.push_str("        cl_buffers[i] = clCreateBuffer(context, flags | CL_MEM_COPY_HOST_PTR, sizes[i], buffers[i], &err);\n");
+            code.push_str("        if (err != CL_SUCCESS) {\n");
+            code.push_str(
+                "            fprintf(stderr, \"Failed to create buffer %d: %d\\n\", i, err);\n",
+            );
+            code.push_str("        }\n");
+            code.push_str("    }\n");
+            code.push_str("    \n");
 
-        // 5. クリーンアップ
-        code.push_str("    // Cleanup\n");
-        if !kernel_sources.is_empty() {
+            // 5. カーネル引数の設定
+            code.push_str("    // Set kernel arguments\n");
+            code.push_str("    for (int i = 0; i < num_buffers; i++) {\n");
+            code.push_str(
+                "        err = clSetKernelArg(kernel, i, sizeof(cl_mem), &cl_buffers[i]);\n",
+            );
+            code.push_str("        if (err != CL_SUCCESS) {\n");
+            code.push_str(
+                "            fprintf(stderr, \"Failed to set kernel arg %d: %d\\n\", i, err);\n",
+            );
+            code.push_str("        }\n");
+            code.push_str("    }\n");
+            code.push_str("    \n");
+
+            // 6. カーネル実行（グリッドサイズ計算）
+            code.push_str("    // Execute kernel\n");
+
+            // グリッドサイズとスレッドグループサイズを評価
+            let grid_x = self.eval_const_expr(&grid_size[0]);
+            let grid_y = self.eval_const_expr(&grid_size[1]);
+            let grid_z = self.eval_const_expr(&grid_size[2]);
+            let group_x = self.eval_const_expr(&thread_group_size[0]);
+            let group_y = self.eval_const_expr(&thread_group_size[1]);
+            let group_z = self.eval_const_expr(&thread_group_size[2]);
+
+            // global_work_size = grid_size * thread_group_size
+            code.push_str(&format!(
+                "    size_t global_work_size[3] = {{{}, {}, {}}};\n",
+                grid_x * group_x,
+                grid_y * group_y,
+                grid_z * group_z
+            ));
+            code.push_str(&format!(
+                "    size_t local_work_size[3] = {{{}, {}, {}}};\n",
+                group_x, group_y, group_z
+            ));
+
+            // 次元数を計算（1以外の値がある次元のみ使用）
+            let work_dim = if grid_z * group_z > 1 {
+                3
+            } else if grid_y * group_y > 1 {
+                2
+            } else {
+                1
+            };
+
+            code.push_str(&format!(
+                "    err = clEnqueueNDRangeKernel(queue, kernel, {}, NULL, global_work_size, local_work_size, 0, NULL, NULL);\n",
+                work_dim
+            ));
+            code.push_str("    if (err != CL_SUCCESS) {\n");
+            code.push_str("        fprintf(stderr, \"Failed to execute kernel: %d\\n\", err);\n");
+            code.push_str("    }\n");
+            code.push_str("    \n");
+
+            // 7. 結果の読み出し（出力バッファのみ）
+            code.push_str("    // Read back output buffers\n");
+            code.push_str("    for (int i = 0; i < num_buffers; i++) {\n");
+            code.push_str("        if (is_outputs[i]) {\n");
+            code.push_str("            err = clEnqueueReadBuffer(queue, cl_buffers[i], CL_TRUE, 0, sizes[i], buffers[i], 0, NULL, NULL);\n");
+            code.push_str("            if (err != CL_SUCCESS) {\n");
+            code.push_str(
+                "                fprintf(stderr, \"Failed to read buffer %d: %d\\n\", i, err);\n",
+            );
+            code.push_str("            }\n");
+            code.push_str("        }\n");
+            code.push_str("    }\n");
+            code.push_str("    \n");
+
+            // 8. OpenCLバッファの解放
+            code.push_str("    // Release OpenCL buffers\n");
+            code.push_str("    for (int i = 0; i < num_buffers; i++) {\n");
+            code.push_str("        clReleaseMemObject(cl_buffers[i]);\n");
+            code.push_str("    }\n");
+            code.push_str("    \n");
+
+            // 9. クリーンアップ
+            code.push_str("    // Cleanup\n");
             code.push_str("    clReleaseKernel(kernel);\n");
             code.push_str("    clReleaseProgram(program);\n");
         }
+
         code.push_str("    clReleaseCommandQueue(queue);\n");
         code.push_str("    clReleaseContext(context);\n");
         code.push_str("}\n");
 
         code
+    }
+
+    /// フォールバック用のホストコード生成（エントリー関数が見つからない場合）
+    fn generate_fallback_host_code(&self, kernel_sources: &[(String, String)]) -> String {
+        let mut code = String::new();
+
+        code.push_str("// === OpenCL Host Code (Fallback) ===\n");
+        code.push_str(&format!(
+            "void {}(void** buffers, size_t* sizes, int* is_outputs, int num_buffers) {{\n",
+            LIBLOADING_WRAPPER_NAME
+        ));
+        code.push_str("    (void)buffers; (void)sizes; (void)is_outputs; (void)num_buffers;\n");
+        code.push_str(
+            "    fprintf(stderr, \"Warning: Fallback host code - kernel execution not implemented\\n\");\n",
+        );
+
+        if !kernel_sources.is_empty() {
+            code.push_str(&format!(
+                "    // Kernel source available: {}\\n\",\n",
+                kernel_sources[0].0
+            ));
+        }
+
+        code.push_str("}\n");
+
+        code
+    }
+
+    /// 定数式を評価してusize値を取得
+    fn eval_const_expr(&self, expr: &AstNode) -> usize {
+        match expr {
+            AstNode::Const(crate::ast::Literal::Int(n)) => *n as usize,
+            _ => 1, // デフォルト値
+        }
     }
 }
 

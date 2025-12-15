@@ -23,6 +23,18 @@ ndarray = "0.16"
 paste = "1.0"  # マクロでの識別子連結用
 tempfile = "3.20"  # 一時ファイル管理用
 
+# Native GPU API backends (new implementation)
+ocl = { version = "0.19", optional = true }  # OpenCL native bindings
+
+[target.'cfg(target_os = "macos")'.dependencies]
+metal = { version = "0.29", optional = true }  # Metal native bindings
+objc = { version = "0.2", optional = true }  # Objective-C runtime for Metal
+
+[features]
+default = []
+native-opencl = ["ocl"]
+native-metal = ["metal", "objc"]
+
 [dev-dependencies]
 env_logger = "0.11"
 serial_test = "3.2"
