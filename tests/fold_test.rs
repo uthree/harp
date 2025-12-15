@@ -148,3 +148,46 @@ fn test_fold2d_groups_compilation() {
 
     compile_graph_test(graph, "Fold2d_groups");
 }
+
+#[test]
+fn test_fold2d_stride_compilation() {
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    // Fold2d with stride=2 のテスト
+    let mut graph = Graph::new();
+
+    // 入力: [3, 8, 8] (C_in=3, H=8, W=8)
+    let input = graph.input("input", DType::F32, vec![3, 8, 8]);
+
+    // unfold with stride=2: [3, 8, 8] -> [3, 3, 3, 3, 3]
+    // L' = (8 - 3) / 2 + 1 = 3
+    let unfolded = input.unfold((3, 3), (2, 2), (1, 1), 1);
+
+    // fold: 元に戻す
+    let folded = unfolded.fold(vec![3, 8, 8], (3, 3), (2, 2), (1, 1), 1);
+
+    graph.output("result", folded);
+
+    compile_graph_test(graph, "Fold2d_stride");
+}
+
+#[test]
+fn test_fold2d_stride_groups_compilation() {
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    // Fold2d with stride=2 and groups=2 のテスト
+    let mut graph = Graph::new();
+
+    // 入力: [4, 8, 8] (C_in=4, H=8, W=8)
+    let input = graph.input("input", DType::F32, vec![4, 8, 8]);
+
+    // unfold with stride=2, groups=2
+    let unfolded = input.unfold((3, 3), (2, 2), (1, 1), 2);
+
+    // fold: 元に戻す
+    let folded = unfolded.fold(vec![4, 8, 8], (3, 3), (2, 2), (1, 1), 2);
+
+    graph.output("result", folded);
+
+    compile_graph_test(graph, "Fold2d_stride_groups");
+}

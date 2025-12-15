@@ -8,11 +8,11 @@
 //! - Kernel(Program) + Kernel(Function) → Kernel(Program) (増分マージ)
 //! - Kernel(Program) + Kernel(Program) → Kernel(Program) (Program融合)
 //!
-//! # バリア挿入
-//! カーネル呼び出し間には `AstNode::Barrier` を挿入して、
-//! メモリ書き込みの完了を保証します。
+//! # 実行順序
+//! カーネルの実行順序はホスト側（CompiledProgram）で管理されます。
+//! AST内にはエントリーポイント関数を生成しません。
 
-use crate::ast::helper::{assign, block, const_int, function, var};
+use crate::ast::helper::const_int;
 use crate::ast::{AstNode, DType as AstDType, Mutability, Scope, VarDecl, VarKind};
 use crate::graph::ops::custom_placeholders as ph;
 use crate::graph::{DType as GraphDType, Graph, GraphNode, GraphNodeData, GraphOp};
@@ -191,19 +191,13 @@ impl KernelMergeSuggester {
         let producer_kernels =
             self.extract_or_create_kernels(producer, producer_ast, &mut used_names);
         kernels.extend(producer_kernels);
-        let producer_kernel_count = kernels.len();
 
         // Consumer側のカーネルを追加
         let consumer_kernels =
             self.extract_or_create_kernels(consumer, consumer_ast, &mut used_names);
         kernels.extend(consumer_kernels);
 
-        // main関数を生成
-        let main_fn =
-            self.generate_main_function(producer, consumer, producer_kernel_count, &kernels);
-        kernels.push(main_fn);
-
-        // Programを作成
+        // Programを作成（harp_mainは生成しない - 実行順序はCompiledProgramで管理）
         let program = AstNode::Program { functions: kernels };
 
         // 新しいKernelノードの入力を構築
@@ -292,30 +286,27 @@ impl KernelMergeSuggester {
                             return_type,
                             body,
                         } => {
-                            // main関数以外をKernelに変換
-                            if name.as_deref() != Some("harp_main") {
-                                let base_name =
-                                    name.clone().unwrap_or_else(|| "kernel".to_string());
-                                let new_name = Self::make_unique_name(&base_name, used_names);
-                                used_names.insert(new_name.clone());
-                                let one = const_int(1);
-                                kernels.push(AstNode::Kernel {
-                                    name: Some(new_name),
-                                    params: params.clone(),
-                                    return_type: return_type.clone(),
-                                    body: body.clone(),
-                                    default_grid_size: [
-                                        Box::new(one.clone()),
-                                        Box::new(one.clone()),
-                                        Box::new(one.clone()),
-                                    ],
-                                    default_thread_group_size: [
-                                        Box::new(const_int(64)),
-                                        Box::new(one.clone()),
-                                        Box::new(one),
-                                    ],
-                                });
-                            }
+                            // FunctionをKernelに変換
+                            let base_name = name.clone().unwrap_or_else(|| "kernel".to_string());
+                            let new_name = Self::make_unique_name(&base_name, used_names);
+                            used_names.insert(new_name.clone());
+                            let one = const_int(1);
+                            kernels.push(AstNode::Kernel {
+                                name: Some(new_name),
+                                params: params.clone(),
+                                return_type: return_type.clone(),
+                                body: body.clone(),
+                                default_grid_size: [
+                                    Box::new(one.clone()),
+                                    Box::new(one.clone()),
+                                    Box::new(one.clone()),
+                                ],
+                                default_thread_group_size: [
+                                    Box::new(const_int(64)),
+                                    Box::new(one.clone()),
+                                    Box::new(one),
+                                ],
+                            });
                         }
                         _ => {}
                     }
@@ -439,152 +430,6 @@ impl KernelMergeSuggester {
         }
     }
 
-    /// main関数を生成
-    fn generate_main_function(
-        &self,
-        producer: &GraphNode,
-        consumer: &GraphNode,
-        producer_kernel_count: usize,
-        all_kernels: &[AstNode],
-    ) -> AstNode {
-        let mut params: Vec<VarDecl> = Vec::new();
-        let mut param_names: HashSet<String> = HashSet::new();
-
-        // Producer の入力バッファー（出力 Buffer を除外）
-        let producer_inputs = Self::get_input_nodes(&producer.src);
-        for (i, src) in producer_inputs.iter().enumerate() {
-            let name = format!("input{}", i);
-            if !param_names.contains(&name) {
-                params.push(VarDecl {
-                    name: name.clone(),
-                    dtype: Self::graph_dtype_to_ast_ptr(&src.dtype),
-                    mutability: Mutability::Immutable,
-                    kind: VarKind::Normal,
-                });
-                param_names.insert(name);
-            }
-        }
-
-        // Consumer の追加入力バッファー（producerと出力Bufferを除く）
-        let mut consumer_input_offset = producer_inputs.len();
-        for src in &consumer.src {
-            // producer と出力 Buffer は除外
-            if src.as_ptr() != producer.as_ptr() && !Self::is_output_buffer(src) {
-                let name = format!("input{}", consumer_input_offset);
-                if !param_names.contains(&name) {
-                    params.push(VarDecl {
-                        name: name.clone(),
-                        dtype: Self::graph_dtype_to_ast_ptr(&src.dtype),
-                        mutability: Mutability::Immutable,
-                        kind: VarKind::Normal,
-                    });
-                    param_names.insert(name);
-                }
-                consumer_input_offset += 1;
-            }
-        }
-
-        // 出力バッファー
-        params.push(VarDecl {
-            name: "output".to_string(),
-            dtype: Self::graph_dtype_to_ast_ptr(&consumer.dtype),
-            mutability: Mutability::Mutable,
-            kind: VarKind::Normal,
-        });
-
-        // main関数のbody
-        let mut statements: Vec<AstNode> = Vec::new();
-        let mut scope = Scope::new();
-
-        // 中間バッファーの確保（producer -> consumer間のデータ用）
-        let tmp_buffer_name = "tmp0".to_string();
-        let producer_output_dtype = Self::graph_dtype_to_ast(&producer.dtype);
-        let producer_output_size = Self::compute_buffer_size(producer);
-
-        let ptr_dtype = AstDType::Ptr(Box::new(producer_output_dtype.clone()));
-        if scope
-            .declare(tmp_buffer_name.clone(), ptr_dtype, Mutability::Mutable)
-            .is_ok()
-        {
-            let alloc_expr = AstNode::Allocate {
-                dtype: Box::new(producer_output_dtype),
-                size: Box::new(producer_output_size),
-            };
-            statements.push(assign(&tmp_buffer_name, alloc_expr));
-        }
-
-        // Producer カーネルの呼び出し
-        for kernel in all_kernels.iter().take(producer_kernel_count) {
-            let kernel_name = Self::get_kernel_name(kernel);
-            let mut args: Vec<AstNode> = Vec::new();
-
-            // 入力バッファー（出力 Buffer を除外した数だけ）
-            for j in 0..producer_inputs.len() {
-                args.push(var(format!("input{}", j)));
-            }
-            // 出力は中間バッファー
-            args.push(var(&tmp_buffer_name));
-
-            statements.push(AstNode::Call {
-                name: kernel_name,
-                args,
-            });
-        }
-
-        // バリア挿入
-        statements.push(AstNode::Barrier);
-
-        // Consumer カーネルの呼び出し
-        let consumer_inputs = Self::get_input_nodes(&consumer.src);
-        for kernel in all_kernels.iter().skip(producer_kernel_count) {
-            let kernel_name = Self::get_kernel_name(kernel);
-
-            // main関数自体は除外
-            if kernel_name == "harp_main" {
-                continue;
-            }
-
-            let mut args: Vec<AstNode> = Vec::new();
-
-            // Consumer の入力を構築（出力 Buffer を除外）
-            // producer の位置には中間バッファーを使用
-            let mut input_idx = producer_inputs.len();
-            for src in consumer_inputs.iter() {
-                if src.as_ptr() == producer.as_ptr() {
-                    args.push(var(&tmp_buffer_name));
-                } else {
-                    args.push(var(format!("input{}", input_idx)));
-                    input_idx += 1;
-                }
-            }
-            // 出力バッファー
-            args.push(var("output"));
-
-            statements.push(AstNode::Call {
-                name: kernel_name,
-                args,
-            });
-        }
-
-        // 中間バッファーの解放
-        statements.push(AstNode::Deallocate {
-            ptr: Box::new(var(&tmp_buffer_name)),
-        });
-
-        let body = block(statements, scope);
-
-        function(Some("harp_main"), params, AstDType::Tuple(vec![]), body)
-    }
-
-    /// カーネル名を取得
-    fn get_kernel_name(kernel: &AstNode) -> String {
-        match kernel {
-            AstNode::Kernel { name: Some(n), .. } => n.clone(),
-            AstNode::Function { name: Some(n), .. } => n.clone(),
-            _ => "unknown".to_string(),
-        }
-    }
-
     /// グラフ内の特定ノードを置き換えた新しいグラフを作成
     fn replace_node_in_graph(
         &self,
@@ -676,22 +521,6 @@ impl KernelMergeSuggester {
 
     fn graph_dtype_to_ast_ptr(dtype: &GraphDType) -> AstDType {
         AstDType::Ptr(Box::new(Self::graph_dtype_to_ast(dtype)))
-    }
-
-    fn compute_buffer_size(node: &GraphNode) -> AstNode {
-        use crate::ast::helper::const_int;
-
-        let shape = node.view.shape();
-        if shape.is_empty() {
-            return const_int(1);
-        }
-
-        let mut size: AstNode = shape[0].clone().into();
-        for dim in &shape[1..] {
-            let dim_ast: AstNode = dim.clone().into();
-            size = size * dim_ast;
-        }
-        size
     }
 
     /// グラフ内のKernelノードの統計を取得（テスト用）
@@ -830,7 +659,7 @@ mod tests {
     // 現在サポートされていないため削除されました。
 
     #[test]
-    fn test_kernel_merge_with_barriers() {
+    fn test_kernel_merge_creates_program_with_kernels() {
         use crate::ast::helper::wildcard;
 
         let mut graph = Graph::new();
@@ -847,7 +676,7 @@ mod tests {
 
         assert!(!suggestions.is_empty());
 
-        // Programを検査してバリアが挿入されていることを確認
+        // Programを検査して複数のKernelが含まれることを確認
         let merged = &suggestions[0];
         if let Some(output) = merged.outputs().values().next()
             && let GraphOp::Kernel {
@@ -855,24 +684,23 @@ mod tests {
                 ..
             } = &output.op
         {
-            let main_fn = functions
+            // 全ての関数がKernelであることを確認（harp_mainは存在しない）
+            let kernel_count = functions
                 .iter()
-                .find(|f| matches!(f, AstNode::Function { name: Some(n), .. } if n == "harp_main"));
+                .filter(|f| matches!(f, AstNode::Kernel { .. }))
+                .count();
 
-            assert!(main_fn.is_some(), "Should have harp_main function");
+            assert!(
+                kernel_count >= 2,
+                "Should have at least 2 kernels, got {}",
+                kernel_count
+            );
 
-            if let Some(AstNode::Function { body, .. }) = main_fn {
-                let has_barrier = contains_barrier(body);
-                assert!(has_barrier, "Main function should contain barriers");
-            }
-        }
-    }
-
-    fn contains_barrier(node: &AstNode) -> bool {
-        match node {
-            AstNode::Barrier => true,
-            AstNode::Block { statements, .. } => statements.iter().any(contains_barrier),
-            _ => node.children().iter().any(|child| contains_barrier(child)),
+            // harp_mainが存在しないことを確認
+            let has_main = functions
+                .iter()
+                .any(|f| matches!(f, AstNode::Function { name: Some(n), .. } if n == "harp_main"));
+            assert!(!has_main, "Should not have harp_main function");
         }
     }
 

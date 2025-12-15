@@ -174,13 +174,7 @@ impl SubgraphLoweringOptimizer {
                 default_grid_size,
                 default_thread_group_size,
             } => {
-                let new_name = name.map(|n| {
-                    if n == "harp_main" {
-                        format!("{}_main", prefix)
-                    } else {
-                        format!("{}_{}", prefix, n)
-                    }
-                });
+                let new_name = name.map(|n| format!("{}_{}", prefix, n));
                 AstNode::Kernel {
                     name: new_name,
                     params,
@@ -196,13 +190,7 @@ impl SubgraphLoweringOptimizer {
                 return_type,
                 body,
             } => {
-                let new_name = name.map(|n| {
-                    if n == "harp_main" {
-                        format!("{}_main", prefix)
-                    } else {
-                        format!("{}_{}", prefix, n)
-                    }
-                });
+                let new_name = name.map(|n| format!("{}_{}", prefix, n));
                 AstNode::Function {
                     name: new_name,
                     params,
