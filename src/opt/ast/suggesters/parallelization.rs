@@ -114,23 +114,19 @@ fn replace_range_with(node: &AstNode, target_range: &AstNode, replacement: AstNo
 /// // 変換前
 /// Function { body: Range { var: "i", ... } }
 /// // 変換後
-/// Kernel { params: [grp0: GroupId(0), ...], grid_size: [N, 1, 1], ... }
+/// Kernel { params: [gidx0: GroupId(0), ...], grid_size: [N, 1, 1], ... }
 /// ```
 ///
 /// ## Kernel内ループ → GroupId追加
 /// ```text
 /// // 変換前
-/// Kernel { params: [grp0: GroupId(0)], body: Range { var: "j", ... } }
+/// Kernel { params: [gidx0: GroupId(0)], body: Range { var: "j", ... } }
 /// // 変換後
-/// Kernel { params: [grp0: GroupId(0), grp1: GroupId(1)], ... }
+/// Kernel { params: [gidx0: GroupId(0), gidx1: GroupId(1)], ... }
 /// ```
 pub struct GroupParallelizationSuggester {
     thread_group_size: usize,
 }
-
-/// 後方互換性のためのエイリアス
-#[deprecated(note = "Use GroupParallelizationSuggester instead")]
-pub type GlobalParallelizationSuggester = GroupParallelizationSuggester;
 
 impl GroupParallelizationSuggester {
     pub fn new() -> Self {
@@ -194,9 +190,9 @@ impl GroupParallelizationSuggester {
             name
         );
 
-        let grp_name = "grp0";
+        let gidx_name = "gidx0";
         // ループ変数をGroupIdに置換（境界チェックなし）
-        let new_body = substitute_var(loop_body, loop_var, &var(grp_name));
+        let new_body = substitute_var(loop_body, loop_var, &var(gidx_name));
 
         let kernel_body = if let AstNode::Block { scope, .. } = loop_body.as_ref() {
             AstNode::Block {
@@ -213,11 +209,11 @@ impl GroupParallelizationSuggester {
         // grid_sizeは正確なイテレーション数を設定
         let total_iterations = compute_total_iterations(start, stop);
 
-        let mut kernel_params = vec![group_id_param(grp_name, 0)];
+        let mut kernel_params = vec![group_id_param(gidx_name, 0)];
 
         if params.is_empty() {
             let free_vars = collect_free_variables(&kernel_body);
-            let free_vars: Vec<_> = free_vars.into_iter().filter(|v| v != grp_name).collect();
+            let free_vars: Vec<_> = free_vars.into_iter().filter(|v| v != gidx_name).collect();
             let inferred_params = infer_params_from_placeholders(&free_vars);
             kernel_params.extend(inferred_params);
         } else {
@@ -270,22 +266,22 @@ impl GroupParallelizationSuggester {
 
         // すべてのID種類（LocalId, GroupId）が使用している軸を避ける
         let next_axis = find_next_available_axis(params)?;
-        let grp_name = format!("grp{}", next_axis);
+        let gidx_name = format!("gidx{}", next_axis);
 
         log::debug!(
             "GroupParallelization: Adding GroupId({}) to Kernel {:?}: {} -> {}",
             next_axis,
             name,
             loop_var,
-            grp_name
+            gidx_name
         );
 
         // ループ変数をGroupIdに置換（境界チェックなし）
-        let new_body = substitute_var(loop_body, loop_var, &var(&grp_name));
+        let new_body = substitute_var(loop_body, loop_var, &var(&gidx_name));
         let new_kernel_body = replace_range_with(body, range_node, new_body);
 
         let mut new_params = params.clone();
-        new_params.push(group_id_param(&grp_name, next_axis));
+        new_params.push(group_id_param(&gidx_name, next_axis));
 
         // grid_sizeは正確なイテレーション数を設定
         let total_iterations = compute_total_iterations(start, stop);
@@ -419,9 +415,9 @@ impl AstSuggester for GroupParallelizationSuggester {
 /// ## Kernel内ループ → LocalId追加
 /// ```text
 /// // 変換前
-/// Kernel { params: [grp0: GroupId(0)], body: Range { var: "j", ... } }
-/// // 変換後
-/// Kernel { params: [grp0: GroupId(0), lidx0: LocalId(0)], thread_group_size: [256, M, 1] }
+/// Kernel { params: [gidx0: GroupId(0)], body: Range { var: "j", ... } }
+/// // 変換後（GroupId(0)が軸0を使用しているため、LocalIdは軸1を使用）
+/// Kernel { params: [gidx0: GroupId(0), lidx1: LocalId(1)], thread_group_size: [256, M, 1] }
 /// ```
 pub struct LocalParallelizationSuggester;
 
@@ -785,7 +781,7 @@ mod tests {
             name: Some("test_kernel".to_string()),
             params: vec![
                 VarDecl {
-                    name: "grp0".to_string(),
+                    name: "gidx0".to_string(),
                     dtype: DType::Int,
                     mutability: Mutability::Immutable,
                     kind: VarKind::GroupId(0),
@@ -847,7 +843,7 @@ mod tests {
         AstNode::Kernel {
             name: Some("branching_kernel".to_string()),
             params: vec![VarDecl {
-                name: "grp0".to_string(),
+                name: "gidx0".to_string(),
                 dtype: DType::Int,
                 mutability: Mutability::Immutable,
                 kind: VarKind::GroupId(0),
@@ -867,26 +863,26 @@ mod tests {
         }
     }
 
-    // GlobalParallelizationSuggester tests
+    // GroupParallelizationSuggester tests
 
     #[test]
-    fn test_global_function_to_kernel() {
+    fn test_group_function_to_kernel() {
         let func = make_simple_function();
-        let suggester = GlobalParallelizationSuggester::new();
+        let suggester = GroupParallelizationSuggester::new();
 
         let results = suggester.suggest(&func);
         assert_eq!(results.len(), 1);
 
         if let AstNode::Kernel { params, .. } = &results[0].ast {
-            assert_eq!(params[0].name, "grp0");
+            assert_eq!(params[0].name, "gidx0");
             assert!(matches!(params[0].kind, VarKind::GroupId(0)));
         }
     }
 
     #[test]
-    fn test_global_rejects_branch() {
+    fn test_group_rejects_branch() {
         let func = make_function_with_branch();
-        let suggester = GlobalParallelizationSuggester::new();
+        let suggester = GroupParallelizationSuggester::new();
 
         let results = suggester.suggest(&func);
         // 動的分岐を含むので並列化しない
@@ -894,9 +890,9 @@ mod tests {
     }
 
     #[test]
-    fn test_global_kernel_inner_loop() {
+    fn test_group_kernel_inner_loop() {
         let kernel = make_kernel_with_loop();
-        let suggester = GlobalParallelizationSuggester::new();
+        let suggester = GroupParallelizationSuggester::new();
 
         let results = suggester.suggest(&kernel);
         assert_eq!(results.len(), 1);
@@ -907,15 +903,15 @@ mod tests {
                 .filter(|p| matches!(p.kind, VarKind::GroupId(_)))
                 .collect();
             assert_eq!(group_id_params.len(), 2);
-            assert_eq!(group_id_params[1].name, "grp1");
+            assert_eq!(group_id_params[1].name, "gidx1");
             assert!(matches!(group_id_params[1].kind, VarKind::GroupId(1)));
         }
     }
 
     #[test]
-    fn test_global_kernel_rejects_branch() {
+    fn test_group_kernel_rejects_branch() {
         let kernel = make_kernel_with_branch_loop();
-        let suggester = GlobalParallelizationSuggester::new();
+        let suggester = GroupParallelizationSuggester::new();
 
         // 動的分岐を含むKernel内ループも並列化しない
         let results = suggester.suggest(&kernel);
@@ -987,7 +983,7 @@ mod tests {
             functions: vec![func],
         };
 
-        let suggester = GlobalParallelizationSuggester::new();
+        let suggester = GroupParallelizationSuggester::new();
         let results = suggester.suggest(&program);
 
         assert_eq!(results.len(), 1);
@@ -1023,19 +1019,19 @@ mod tests {
             body: Box::new(range),
         };
 
-        let global_suggester = GlobalParallelizationSuggester::new();
-        let global_results = global_suggester.suggest(&func);
-        assert!(global_results.is_empty());
+        let group_suggester = GroupParallelizationSuggester::new();
+        let group_results = group_suggester.suggest(&func);
+        assert!(group_results.is_empty());
 
         let local_suggester = LocalParallelizationSuggester::new();
         let local_results = local_suggester.suggest(&func);
         assert!(local_results.is_empty());
     }
 
-    /// 既にLocalIdで並列化されたKernelに対してGlobalParallelizationを適用したとき、
+    /// 既にLocalIdで並列化されたKernelに対してGroupParallelizationを適用したとき、
     /// 軸が衝突しないことを確認するテスト（バグ修正確認）
     #[test]
-    fn test_global_does_not_overwrite_local_axis() {
+    fn test_group_does_not_overwrite_local_axis() {
         // LocalId(0)を持つKernelを作成
         let body = store(
             var("output"),
@@ -1088,7 +1084,7 @@ mod tests {
             ],
         };
 
-        let suggester = GlobalParallelizationSuggester::new();
+        let suggester = GroupParallelizationSuggester::new();
         let results = suggester.suggest(&kernel);
 
         assert_eq!(results.len(), 1);
@@ -1113,7 +1109,7 @@ mod tests {
                 .filter(|p| matches!(p.kind, VarKind::GroupId(_)))
                 .collect();
             assert_eq!(group_id_params.len(), 1);
-            assert_eq!(group_id_params[0].name, "grp1");
+            assert_eq!(group_id_params[0].name, "gidx1");
             assert!(matches!(group_id_params[0].kind, VarKind::GroupId(1)));
 
             // thread_group_size[0]がLocalId用の256のまま保持されていることを確認
@@ -1150,7 +1146,7 @@ mod tests {
             name: Some("group_kernel".to_string()),
             params: vec![
                 VarDecl {
-                    name: "grp0".to_string(),
+                    name: "gidx0".to_string(),
                     dtype: DType::Int,
                     mutability: Mutability::Immutable,
                     kind: VarKind::GroupId(0), // GroupId(0)がaxis=0を使用

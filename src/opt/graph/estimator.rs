@@ -1257,7 +1257,7 @@ mod tests {
         let parallel_kernel = kernel_1d(
             Some("E_100_100".to_string()),
             vec![VarDecl {
-                name: "grp".to_string(),
+                name: "gidx".to_string(),
                 dtype: AstDType::Int,
                 mutability: Mutability::Immutable,
                 kind: VarKind::GroupId(0),
@@ -1266,9 +1266,9 @@ mod tests {
             block(
                 vec![store(
                     var("output"),
-                    var("grp"),
-                    load(var("input0"), var("grp"), AstDType::F32)
-                        + load(var("input1"), var("grp"), AstDType::F32),
+                    var("gidx"),
+                    load(var("input0"), var("gidx"), AstDType::F32)
+                        + load(var("input1"), var("gidx"), AstDType::F32),
                 )],
                 Scope::new(),
             ),
@@ -1386,7 +1386,7 @@ mod tests {
             kernel_1d(
                 Some("E_test".to_string()),
                 vec![VarDecl {
-                    name: "grp".to_string(),
+                    name: "gidx".to_string(),
                     dtype: AstDType::Int,
                     mutability: Mutability::Immutable,
                     kind: VarKind::GroupId(0),
@@ -1395,9 +1395,9 @@ mod tests {
                 block(
                     vec![store(
                         var("output"),
-                        var("grp"),
-                        load(var("input0"), var("grp"), AstDType::F32)
-                            + load(var("input1"), var("grp"), AstDType::F32),
+                        var("gidx"),
+                        load(var("input0"), var("gidx"), AstDType::F32)
+                            + load(var("input1"), var("gidx"), AstDType::F32),
                     )],
                     Scope::new(),
                 ),
@@ -1455,7 +1455,7 @@ mod tests {
         let scalar_kernel = kernel_1d(
             Some("E_scalar".to_string()),
             vec![VarDecl {
-                name: "grp".to_string(),
+                name: "gidx".to_string(),
                 dtype: AstDType::Int,
                 mutability: Mutability::Immutable,
                 kind: VarKind::GroupId(0),
@@ -1464,9 +1464,9 @@ mod tests {
             block(
                 vec![store(
                     var("output"),
-                    var("grp"),
-                    load(var("input0"), var("grp"), AstDType::F32)
-                        + load(var("input1"), var("grp"), AstDType::F32),
+                    var("gidx"),
+                    load(var("input0"), var("gidx"), AstDType::F32)
+                        + load(var("input1"), var("gidx"), AstDType::F32),
                 )],
                 Scope::new(),
             ),
@@ -1478,7 +1478,7 @@ mod tests {
         let vec4_kernel = kernel_1d(
             Some("E_vec4".to_string()),
             vec![VarDecl {
-                name: "grp".to_string(),
+                name: "gidx".to_string(),
                 dtype: AstDType::Int,
                 mutability: Mutability::Immutable,
                 kind: VarKind::GroupId(0),
@@ -1487,10 +1487,10 @@ mod tests {
             block(
                 vec![store(
                     var("output"),
-                    var("grp"),
+                    var("gidx"),
                     // load_vec with count=4
-                    load_vec(var("input0"), var("grp"), 4, AstDType::F32.to_vec(4))
-                        + load_vec(var("input1"), var("grp"), 4, AstDType::F32.to_vec(4)),
+                    load_vec(var("input0"), var("gidx"), 4, AstDType::F32.to_vec(4))
+                        + load_vec(var("input1"), var("gidx"), 4, AstDType::F32.to_vec(4)),
                 )],
                 Scope::new(),
             ),
@@ -1544,7 +1544,7 @@ mod tests {
         let kernel_1d = AstNode::Kernel {
             name: Some("E_1d".to_string()),
             params: vec![VarDecl {
-                name: "grp".to_string(),
+                name: "gidx".to_string(),
                 dtype: AstDType::Int,
                 mutability: Mutability::Immutable,
                 kind: VarKind::GroupId(0),
@@ -1553,9 +1553,9 @@ mod tests {
             body: Box::new(block(
                 vec![store(
                     var("output"),
-                    var("grp"),
-                    load(var("input0"), var("grp"), AstDType::F32)
-                        + load(var("input1"), var("grp"), AstDType::F32),
+                    var("gidx"),
+                    load(var("input0"), var("gidx"), AstDType::F32)
+                        + load(var("input1"), var("gidx"), AstDType::F32),
                 )],
                 Scope::new(),
             )),
@@ -1683,7 +1683,7 @@ mod tests {
         let kernel_with_check = AstNode::Kernel {
             name: Some("E_with_check".to_string()),
             params: vec![VarDecl {
-                name: "grp".to_string(),
+                name: "gidx".to_string(),
                 dtype: AstDType::Int,
                 mutability: Mutability::Immutable,
                 kind: VarKind::GroupId(0),
@@ -1691,15 +1691,15 @@ mod tests {
             return_type: AstDType::Tuple(vec![]),
             body: Box::new(AstNode::If {
                 condition: Box::new(AstNode::Lt(
-                    Box::new(var("grp")),
+                    Box::new(var("gidx")),
                     Box::new(var("total_elements")),
                 )),
                 then_body: Box::new(block(
                     vec![store(
                         var("output"),
-                        var("grp"),
-                        load(var("input0"), var("grp"), AstDType::F32)
-                            + load(var("input1"), var("grp"), AstDType::F32),
+                        var("gidx"),
+                        load(var("input0"), var("gidx"), AstDType::F32)
+                            + load(var("input1"), var("gidx"), AstDType::F32),
                     )],
                     Scope::new(),
                 )),
@@ -1793,7 +1793,7 @@ mod tests {
         let large_1d_kernel = AstNode::Kernel {
             name: Some("E_large_1d".to_string()),
             params: vec![VarDecl {
-                name: "grp".to_string(),
+                name: "gidx".to_string(),
                 dtype: AstDType::Int,
                 mutability: Mutability::Immutable,
                 kind: VarKind::GroupId(0),
@@ -1802,9 +1802,9 @@ mod tests {
             body: Box::new(block(
                 vec![store(
                     var("output"),
-                    var("grp"),
-                    load(var("input0"), var("grp"), AstDType::F32)
-                        + load(var("input1"), var("grp"), AstDType::F32),
+                    var("gidx"),
+                    load(var("input0"), var("gidx"), AstDType::F32)
+                        + load(var("input1"), var("gidx"), AstDType::F32),
                 )],
                 Scope::new(),
             )),

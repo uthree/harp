@@ -84,7 +84,7 @@ pub fn build_elementwise_kernel_with_shapes(
 
     // パラメータ生成（1D: grp単体）
     let mut params = vec![VarDecl {
-        name: "grp".to_string(),
+        name: "gidx".to_string(),
         dtype: AstDType::Int,
         mutability: Mutability::Immutable,
         kind: VarKind::GroupId(0),
@@ -94,7 +94,7 @@ pub fn build_elementwise_kernel_with_shapes(
     params.push(build_output_param(&load_dtype));
 
     // オフセット計算（1D: grp直接使用）
-    let offset = var("grp");
+    let offset = var("gidx");
 
     // 入力ロード・式評価（ベクトル化対応）
     let final_expr = if let Some(vec_width) = config.vector_width {
@@ -110,7 +110,7 @@ pub fn build_elementwise_kernel_with_shapes(
     // 境界チェック適用
     let guarded_body = if config.boundary_check {
         let total_elements = build_total_elements_with_shapes(ndim, concrete_shapes);
-        if_then(lt(var("grp"), total_elements), body_block)
+        if_then(lt(var("gidx"), total_elements), body_block)
     } else {
         body_block
     };
@@ -499,7 +499,7 @@ fn build_flat_parallel_reduce_kernel(
 
     // グループID（出力インデックス）
     let grp_param = VarDecl {
-        name: "grp".to_string(),
+        name: "gidx".to_string(),
         dtype: AstDType::Int,
         mutability: Mutability::Immutable,
         kind: VarKind::GroupId(0),
@@ -544,7 +544,7 @@ fn build_flat_parallel_reduce_kernel(
         block(vec![acc_update], Scope::new()),
     );
 
-    let store_stmt = store(var(ph::OUTPUT), var("grp"), var("acc"));
+    let store_stmt = store(var(ph::OUTPUT), var("gidx"), var("acc"));
 
     let body = block(vec![reduce_loop, store_stmt], local_scope);
 
@@ -594,7 +594,7 @@ fn build_reduce_index_calculation(
     // 各出力軸のインデックスを計算して、入力の基底オフセットを算出
     // 簡略化: tidを出力の線形インデックスとして、各軸のインデックスを計算
     let mut base_offset = const_int(0);
-    let mut remaining = var("grp");
+    let mut remaining = var("gidx");
 
     for (i, &in_axis) in output_axes.iter().enumerate().rev() {
         let axis_size = var(ph::shape(in_axis));
@@ -707,7 +707,7 @@ pub fn build_flat_parallel_fused_elementwise_reduce_kernel(
 
     // グループID（出力インデックス）
     let grp_param = VarDecl {
-        name: "grp".to_string(),
+        name: "gidx".to_string(),
         dtype: AstDType::Int,
         mutability: Mutability::Immutable,
         kind: VarKind::GroupId(0),
@@ -750,7 +750,7 @@ pub fn build_flat_parallel_fused_elementwise_reduce_kernel(
     let mut base_offset_parts: Vec<(usize, AstNode)> = Vec::new();
 
     if output_ndim > 0 {
-        let mut remaining = var("grp");
+        let mut remaining = var("gidx");
         for (i, &in_axis) in output_axes.iter().enumerate().rev() {
             let axis_size = get_shape_value(in_axis, concrete_shapes);
             let idx = if i == 0 {
@@ -820,7 +820,7 @@ pub fn build_flat_parallel_fused_elementwise_reduce_kernel(
         );
     }
 
-    let store_stmt = store(var(ph::OUTPUT), var("grp"), var("acc"));
+    let store_stmt = store(var(ph::OUTPUT), var("gidx"), var("acc"));
 
     let body = block(vec![acc_init, reduce_loops, store_stmt], scope);
 

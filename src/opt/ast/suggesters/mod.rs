@@ -17,7 +17,7 @@ pub use cse::CseSuggester;
 pub use function_inlining::FunctionInliningSuggester;
 pub use loop_fusion::LoopFusionSuggester;
 pub use loop_transforms::{LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester};
-pub use parallelization::{GlobalParallelizationSuggester, LocalParallelizationSuggester};
+pub use parallelization::{GroupParallelizationSuggester, LocalParallelizationSuggester};
 pub use rule_based::RuleBaseSuggester;
 pub use variable_expansion::VariableExpansionSuggester;
 

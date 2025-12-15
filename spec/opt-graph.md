@@ -47,16 +47,16 @@ LoweringSuggesterが生成した1D FlatParallel Kernelを、より効率的な�
 ```text
 // 変換前 (1D FlatParallel)
 Kernel {
-    params: [grp: GroupId(0), ...],
-    body: { if (grp < total) { ... } },
+    params: [gidx: GroupId(0), ...],
+    body: { if (gidx < total) { ... } },
     grid_size: [ceil_div(N, 256) * 256, 1, 1],
     thread_group_size: [256, 1, 1],
 }
 
 // 変換後 (2D Grid)
 Kernel {
-    params: [grp_0: GroupId(0), grp_1: GroupId(1), ...],
-    body: { if (grp_0 < shape_0 && grp_1 < shape_1) { ... } },
+    params: [gidx0: GroupId(0), gidx1: GroupId(1), ...],
+    body: { if (gidx0 < shape_0 && gidx1 < shape_1) { ... } },
     grid_size: [ceil_div(shape_0, 16) * 16, ceil_div(shape_1, 16) * 16, 1],
     thread_group_size: [16, 16, 1],
 }

@@ -738,7 +738,7 @@ mod tests {
 
         let params = vec![
             VarDecl {
-                name: "grp".to_string(),
+                name: "gidx".to_string(),
                 dtype: DType::Int,
                 kind: VarKind::GroupId(0), // フィルタされるべき
                 mutability: Mutability::Immutable,
@@ -802,7 +802,7 @@ mod tests {
 
         let params = vec![
             VarDecl {
-                name: "grp".to_string(),
+                name: "gidx".to_string(),
                 dtype: DType::Int,
                 kind: VarKind::GroupId(0),
                 mutability: Mutability::Immutable,
@@ -962,13 +962,13 @@ mod tests {
 
         // GroupIdパラメータがある場合、その名前でget_group_id()を生成
         let params = vec![VarDecl {
-            name: "grp".to_string(),
+            name: "gidx".to_string(),
             dtype: DType::Int,
             kind: VarKind::GroupId(0),
             mutability: Mutability::Immutable,
         }];
         let decls = renderer.render_thread_var_declarations(&params, "    ");
-        assert!(decls.contains("int grp = get_group_id(0)"));
+        assert!(decls.contains("int gidx = get_group_id(0)"));
 
         // 複数のパラメータタイプ
         let params = vec![

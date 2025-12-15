@@ -61,16 +61,16 @@ fn ceil_div(a: AstNode, b: AstNode) -> AstNode {
 /// ```text
 /// // 変換前 (1D FlatParallel)
 /// GraphOp::Kernel { ast: AstNode::Kernel {
-///     params: [tid: GroupId(0), ...],
-///     body: { if (tid < total) { ... } },
+///     params: [gidx: GroupId(0), ...],
+///     body: { if (gidx < total) { ... } },
 ///     grid_size: [ceil_div(N, 256) * 256, 1, 1],
 ///     thread_group_size: [256, 1, 1],
 /// }}
 ///
 /// // 変換後 (2D Grid)
 /// GraphOp::Kernel { ast: AstNode::Kernel {
-///     params: [grp_0: GroupId(0), grp_1: GroupId(1), ...],
-///     body: { if (grp_0 < shape_0 && grp_1 < shape_1) { ... } },
+///     params: [gidx0: GroupId(0), gidx1: GroupId(1), ...],
+///     body: { if (gidx0 < shape_0 && gidx1 < shape_1) { ... } },
 ///     grid_size: [ceil_div(shape_0, 16) * 16, ceil_div(shape_1, 16) * 16, 1],
 ///     thread_group_size: [16, 16, 1],
 /// }}
@@ -143,10 +143,10 @@ impl KernelPartitionSuggester {
                 ast: AstNode::Kernel { params, .. },
                 ..
             } => {
-                // GroupId(0)のパラメータが"grp"という名前で存在するかチェック
+                // GroupId(0)のパラメータが"gidx"という名前で存在するかチェック
                 params
                     .iter()
-                    .any(|p| p.name == "grp" && matches!(p.kind, VarKind::GroupId(0)))
+                    .any(|p| p.name == "gidx" && matches!(p.kind, VarKind::GroupId(0)))
             }
             _ => false,
         }
@@ -278,14 +278,14 @@ impl KernelPartitionSuggester {
             return None;
         };
 
-        // 新しいパラメータを構築（grpをgrp_0, grp_1, ...に置換）
+        // 新しいパラメータを構築（gidxをgidx0, gidx1, ...に置換）
         let mut new_params = Vec::new();
         for param in params {
-            if param.name == "grp" && matches!(param.kind, VarKind::GroupId(0)) {
+            if param.name == "gidx" && matches!(param.kind, VarKind::GroupId(0)) {
                 // 多次元グループIDに置換
                 for dim in 0..parallel_dims {
                     new_params.push(VarDecl {
-                        name: format!("grp_{}", dim),
+                        name: format!("gidx{}", dim),
                         dtype: DType::Int,
                         mutability: Mutability::Immutable,
                         kind: VarKind::GroupId(dim),
@@ -333,7 +333,7 @@ impl KernelPartitionSuggester {
         ))
     }
 
-    /// 本体を変換（grp -> 多次元インデックス）
+    /// 本体を変換（gidx -> 多次元インデックス）
     fn transform_body(&self, body: &AstNode, parallel_dims: usize, ndim: usize) -> AstNode {
         self.transform_node(body, parallel_dims, ndim)
     }
@@ -341,8 +341,8 @@ impl KernelPartitionSuggester {
     /// ノードを再帰的に変換
     fn transform_node(&self, node: &AstNode, parallel_dims: usize, ndim: usize) -> AstNode {
         match node {
-            // grp参照を多次元オフセットに変換
-            AstNode::Var(name) if name == "grp" => self.build_linear_offset(parallel_dims, ndim),
+            // gidx参照を多次元オフセットに変換
+            AstNode::Var(name) if name == "gidx" => self.build_linear_offset(parallel_dims, ndim),
 
             // 再帰的に子ノードを変換
             AstNode::Lt(a, b) => AstNode::Lt(
@@ -498,17 +498,17 @@ impl KernelPartitionSuggester {
         }
     }
 
-    /// 境界チェック条件（grp < total_elements）かどうかをチェック
+    /// 境界チェック条件（gidx < total_elements）かどうかをチェック
     fn is_boundary_check_condition(&self, condition: &AstNode) -> bool {
         match condition {
-            AstNode::Lt(left, right) => self.is_grp_ref(left) && self.is_total_elements(right),
+            AstNode::Lt(left, right) => self.is_gidx_ref(left) && self.is_total_elements(right),
             _ => false,
         }
     }
 
-    /// grpへの参照かどうかをチェック
-    fn is_grp_ref(&self, node: &AstNode) -> bool {
-        matches!(node, AstNode::Var(name) if name == "grp")
+    /// gidxへの参照かどうかをチェック
+    fn is_gidx_ref(&self, node: &AstNode) -> bool {
+        matches!(node, AstNode::Var(name) if name == "gidx")
     }
 
     /// total_elements（shape_0 * shape_1 * ...）かどうかをチェック
@@ -527,14 +527,14 @@ impl KernelPartitionSuggester {
         }
 
         let actual_dims = parallel_dims.min(ndim);
-        let mut offset = var(format!("grp_{}",actual_dims - 1));
+        let mut offset = var(format!("gidx{}", actual_dims - 1));
 
         for axis in (0..actual_dims - 1).rev() {
             let mut stride = var(format!("shape_{}", axis + 1));
             for inner_axis in (axis + 2)..actual_dims {
                 stride = stride * var(format!("shape_{}", inner_axis));
             }
-            offset = var(format!("grp_{}",axis)) * stride + offset;
+            offset = var(format!("gidx{}", axis)) * stride + offset;
         }
 
         offset
@@ -552,7 +552,7 @@ impl KernelPartitionSuggester {
 
         let mut result = inner_body;
         for dim in (0..parallel_dims).rev() {
-            let condition = lt(var(format!("grp_{}",dim)), var(format!("shape_{}", dim)));
+            let condition = lt(var(format!("gidx{}", dim)), var(format!("shape_{}", dim)));
             result = if_then(condition, result);
         }
 
@@ -736,8 +736,8 @@ mod tests {
 
         // 1D FlatParallel Kernelを含むGraphNodeを作成
         let body = AstNode::If {
-            condition: Box::new(lt(var("grp"), var("shape_0") * var("shape_1"))),
-            then_body: Box::new(store(var("output"), var("grp"), var("value"))),
+            condition: Box::new(lt(var("gidx"), var("shape_0") * var("shape_1"))),
+            then_body: Box::new(store(var("output"), var("gidx"), var("value"))),
             else_body: None,
         };
 
@@ -745,7 +745,7 @@ mod tests {
             name: Some("test_kernel".to_string()),
             params: vec![
                 VarDecl {
-                    name: "grp".to_string(),
+                    name: "gidx".to_string(),
                     dtype: DType::Int,
                     mutability: Mutability::Immutable,
                     kind: VarKind::GroupId(0),
@@ -829,7 +829,7 @@ mod tests {
     fn test_build_linear_offset() {
         let suggester = KernelPartitionSuggester::new();
 
-        // 2D: grp_0 * shape_1 + grp_1
+        // 2D: gidx0 * shape_1 + gidx1
         let offset = suggester.build_linear_offset(2, 2);
         assert!(matches!(offset, AstNode::Add(_, _)));
     }
@@ -840,8 +840,8 @@ mod tests {
 
         // 1D Kernelを含むGraphを作成
         let body = AstNode::If {
-            condition: Box::new(lt(var("grp"), var("shape_0") * var("shape_1"))),
-            then_body: Box::new(store(var("output"), var("grp"), var("value"))),
+            condition: Box::new(lt(var("gidx"), var("shape_0") * var("shape_1"))),
+            then_body: Box::new(store(var("output"), var("gidx"), var("value"))),
             else_body: None,
         };
 
@@ -849,7 +849,7 @@ mod tests {
             name: Some("test_kernel".to_string()),
             params: vec![
                 VarDecl {
-                    name: "grp".to_string(),
+                    name: "gidx".to_string(),
                     dtype: DType::Int,
                     mutability: Mutability::Immutable,
                     kind: VarKind::GroupId(0),
@@ -893,11 +893,11 @@ mod tests {
         if let GraphOp::Kernel { ast, .. } = &partitioned.op
             && let AstNode::Kernel { params, .. } = ast
         {
-            // grp_0, grp_1 が追加されているはず
-            let has_grp_0 = params.iter().any(|p| p.name == "grp_0");
-            let has_grp_1 = params.iter().any(|p| p.name == "grp_1");
-            assert!(has_grp_0, "Should have grp_0 parameter");
-            assert!(has_grp_1, "Should have grp_1 parameter");
+            // gidx0, gidx1 が追加されているはず
+            let has_gidx0 = params.iter().any(|p| p.name == "gidx0");
+            let has_gidx1 = params.iter().any(|p| p.name == "gidx1");
+            assert!(has_gidx0, "Should have gidx0 parameter");
+            assert!(has_gidx1, "Should have gidx1 parameter");
         }
     }
 }

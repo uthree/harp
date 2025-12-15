@@ -580,9 +580,8 @@ impl AstCostEstimator for SimpleCostEstimator {
                 // LocalId: ワークグループ内の並列化（効率が高い）
                 // GroupId: ワークグループ間の並列化（オーバーヘッドが大きい）
                 let has_local_id = params.iter().any(|p| matches!(p.kind, VarKind::LocalId(_)));
-                let has_global_parallel = params
-                    .iter()
-                    .any(|p| matches!(p.kind, VarKind::GroupId(_)));
+                let has_global_parallel =
+                    params.iter().any(|p| matches!(p.kind, VarKind::GroupId(_)));
 
                 // grid_sizeから総スレッド数（並列度）を推定
                 let grid_elements: f32 = default_grid_size

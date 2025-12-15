@@ -60,7 +60,7 @@ LocalId（get_local_id）を使用してワークグループ内並列化を行�
 Function { body: Range { var: "i", start: 0, stop: N, body: ... } }
 
 // 変換後（Group: GroupId使用、grid_size=N）
-Kernel { params: [grp0: GroupId(0), ...], grid_size: [N, 1, 1], body: ... }
+Kernel { params: [gidx0: GroupId(0), ...], grid_size: [N, 1, 1], body: ... }
 
 // 変換後（Local: LocalId使用、thread_group_size=N）
 Kernel { params: [lidx0: LocalId(0), ...], thread_group_size: [N, 1, 1], body: ... }
@@ -70,13 +70,13 @@ Kernel { params: [lidx0: LocalId(0), ...], thread_group_size: [N, 1, 1], body: .
 
 ```
 // 変換前
-Kernel { params: [grp0: GroupId(0)], body: Range { var: "j", stop: M, ... } }
+Kernel { params: [gidx0: GroupId(0)], body: Range { var: "j", stop: M, ... } }
 
 // 変換後（Group: 追加GroupId、grid_size[1]=M）
-Kernel { params: [grp0: GroupId(0), grp1: GroupId(1)], grid_size: [.., M, ..], body: ... }
+Kernel { params: [gidx0: GroupId(0), gidx1: GroupId(1)], grid_size: [.., M, ..], body: ... }
 
-// 変換後（Local: 追加LocalId、thread_group_size[1]=M）
-Kernel { params: [grp0: GroupId(0), lidx0: LocalId(0)], thread_group_size: [.., M, ..], body: ... }
+// 変換後（Local: 追加LocalId、thread_group_size[1]=M、GroupId(0)が軸0を使用しているため軸1を使用）
+Kernel { params: [gidx0: GroupId(0), lidx1: LocalId(1)], thread_group_size: [.., M, ..], body: ... }
 ```
 
 **並列化可否の判定:**

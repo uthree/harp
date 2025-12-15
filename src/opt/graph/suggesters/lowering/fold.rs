@@ -133,7 +133,7 @@ fn build_fold_parallel_kernel(
 
     // パラメータ生成
     let mut params = vec![VarDecl {
-        name: "grp".to_string(),
+        name: "gidx".to_string(),
         dtype: AstDType::Int,
         mutability: Mutability::Immutable,
         kind: VarKind::GroupId(0),
@@ -155,8 +155,8 @@ fn build_fold_parallel_kernel(
         kind: VarKind::Normal,
     });
 
-    // grpから出力座標への変換
-    let coord_exprs = build_grp_to_coords(output_size);
+    // gidxから出力座標への変換
+    let coord_exprs = build_gidx_to_coords(output_size);
 
     // アキュムレータの初期化
     let mut scope = Scope::new();
@@ -180,14 +180,14 @@ fn build_fold_parallel_kernel(
     );
 
     // ストア
-    let store_stmt = store(var(ph::OUTPUT), var("grp"), var("acc"));
+    let store_stmt = store(var(ph::OUTPUT), var("gidx"), var("acc"));
 
     // 境界チェック
     let body_stmts = vec![acc_init, kernel_loops, store_stmt];
     let body_block = block(body_stmts, scope);
 
     let checked_body = if_then(
-        lt(var("grp"), const_int(total_elements as isize)),
+        lt(var("gidx"), const_int(total_elements as isize)),
         body_block,
     );
 
@@ -229,11 +229,11 @@ fn compute_patch_sizes(
         .collect()
 }
 
-/// grpから出力座標への変換式を構築
-fn build_grp_to_coords(output_size: &[usize]) -> Vec<AstNode> {
+/// gidxから出力座標への変換式を構築
+fn build_gidx_to_coords(output_size: &[usize]) -> Vec<AstNode> {
     let ndim = output_size.len();
     let mut coords = Vec::with_capacity(ndim);
-    let mut remaining = var("grp");
+    let mut remaining = var("gidx");
 
     for axis in 0..ndim {
         let stride: usize = output_size[(axis + 1)..].iter().product();
