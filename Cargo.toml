@@ -3,7 +3,7 @@ members = [
     ".",
     "crates/viz",
     "crates/dsl",
-    "crates/harp-cli",
+    "crates/cli",
 ]
 resolver = "2"
 
