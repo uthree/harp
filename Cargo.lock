@@ -1782,6 +1782,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "harp-nn"
+version = "0.1.0"
+
+[[package]]
 name = "harp-viz"
 version = "0.1.0"
 dependencies = [
