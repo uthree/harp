@@ -367,13 +367,8 @@ mod tests {
         // unsqueezeで次元を追加: [10, 20] -> [10, 20, 1]
         let a_unsqueezed = a.view(a.view.clone().unsqueeze(2));
 
-        // expandで次元を拡大: [10, 20, 1] -> [10, 20, 30]
-        use crate::graph::shape::Expr;
-        let a_expanded = a_unsqueezed.view(a_unsqueezed.view.clone().expand(vec![
-            Expr::Const(10),
-            Expr::Const(20),
-            Expr::Const(30),
-        ]));
+        // repeatで次元を拡大: [10, 20, 1] -> [10, 20, 30] (axis 2のサイズ1を30に)
+        let a_expanded = a_unsqueezed.view(a_unsqueezed.view.clone().repeat(2, 30));
 
         let b = graph.input("b", DType::F32, vec![10, 20, 30]);
 

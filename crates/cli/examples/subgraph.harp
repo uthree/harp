@@ -15,7 +15,7 @@ graph<B=1, N=1> relu(x: f32[B, N]) -> (y: f32[B, N]) {
 // Linear layer: y = x @ w + b
 graph<B=1, I=1, O=1> linear(x: f32[B, I], w: f32[I, O], b: f32[O]) -> (y: f32[B, O]) {
     xw = matmul(x, w)
-    b_exp = b.unsqueeze(0).expand([B, O])
+    b_exp = b.unsqueeze(0).repeat(0, B)
     result = xw + b_exp
     return result
 }

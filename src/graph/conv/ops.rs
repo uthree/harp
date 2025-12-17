@@ -112,8 +112,8 @@ impl GraphNode {
             common_shape.push(unfolded.view.shape()[1 + spatial_dims + i].clone());
         }
 
-        let unfolded_broadcasted = unfolded_expanded.expand(common_shape.clone());
-        let kernel_broadcasted = kernel_expanded.expand(common_shape);
+        let unfolded_broadcasted = unfolded_expanded.broadcast_to(common_shape.clone());
+        let kernel_broadcasted = kernel_expanded.broadcast_to(common_shape);
 
         // 乗算
         let mul_result = &unfolded_broadcasted * &kernel_broadcasted;
@@ -190,8 +190,8 @@ impl GraphNode {
             common_shape.push(unfolded.view.shape()[2 + spatial_dims + i].clone());
         }
 
-        let unfolded_broadcasted = unfolded_expanded.expand(common_shape.clone());
-        let kernel_broadcasted = kernel_expanded.expand(common_shape);
+        let unfolded_broadcasted = unfolded_expanded.broadcast_to(common_shape.clone());
+        let kernel_broadcasted = kernel_expanded.broadcast_to(common_shape);
 
         // 乗算
         let mul_result = &unfolded_broadcasted * &kernel_broadcasted;
@@ -397,8 +397,8 @@ impl GraphNode {
             common_shape.push(Expr::from(is as isize));
         }
 
-        let input_bc = input_expanded.expand(common_shape.clone());
-        let kernel_bc = kernel_expanded.expand(common_shape);
+        let input_bc = input_expanded.broadcast_to(common_shape.clone());
+        let kernel_bc = kernel_expanded.broadcast_to(common_shape);
 
         // 乗算: (C_in, C_out, k1, ..., L1_in, ...)
         let multiplied = &input_bc * &kernel_bc;
@@ -511,8 +511,8 @@ impl GraphNode {
             common_shape.push(Expr::from(is as isize));
         }
 
-        let input_bc = input_expanded.expand(common_shape.clone());
-        let kernel_bc = kernel_expanded.expand(common_shape);
+        let input_bc = input_expanded.broadcast_to(common_shape.clone());
+        let kernel_bc = kernel_expanded.broadcast_to(common_shape);
 
         // 乗算: (groups, C_in/groups, C_out/groups, k1, ..., L1_in, ...)
         let multiplied = &input_bc * &kernel_bc;

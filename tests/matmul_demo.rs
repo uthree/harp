@@ -31,14 +31,12 @@ fn test_matmul_demo() {
     let b_view_permuted = b_view_unsqueezed.permute(vec![2, 0, 1]); // [1, 4, 5]
     let b_permuted = b_unsqueezed.view(b_view_permuted.clone());
 
-    // 3. A[3,4,1] → A[3,4,5] (expand)
-    let a_view_broadcast =
-        a_view_expanded.expand(vec![Expr::from(3), Expr::from(4), Expr::from(5)]); // [3, 4, 5]
+    // 3. A[3,4,1] → A[3,4,5] (repeat axis 2 from 1 to 5)
+    let a_view_broadcast = a_view_expanded.repeat(2, 5); // [3, 4, 5]
     let a_broadcast = a_unsqueezed.view(a_view_broadcast.clone());
 
-    // 4. B[1,4,5] → B[3,4,5] (expand)
-    let b_view_broadcast =
-        b_view_permuted.expand(vec![Expr::from(3), Expr::from(4), Expr::from(5)]); // [3, 4, 5]
+    // 4. B[1,4,5] → B[3,4,5] (repeat axis 0 from 1 to 3)
+    let b_view_broadcast = b_view_permuted.repeat(0, 3); // [3, 4, 5]
     let b_broadcast = b_permuted.view(b_view_broadcast.clone());
 
     // 5. 要素ごとの乗算: [3, 4, 5]

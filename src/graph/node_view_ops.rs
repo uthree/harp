@@ -57,15 +57,49 @@ impl GraphNode {
 
     /// ブロードキャストのためにshapeを拡張
     ///
-    /// サイズが1の次元を新しいサイズに拡張します。
-    /// サイズが1でない次元は変更できません。
+    /// 指定した軸を繰り返す（サイズ1の軸のみ対応）
+    ///
+    /// # Arguments
+    /// * `axis` - 繰り返す軸のインデックス
+    /// * `times` - 繰り返し回数（結果のサイズ）
     ///
     /// # パニック
-    /// - rankが変わる場合
-    /// - サイズが1でない次元を変更しようとした場合
-    pub fn expand(&self, new_shape: Vec<Expr>) -> Self {
-        let new_view = self.view.clone().expand(new_shape);
+    /// - 軸が範囲外の場合
+    /// - 指定軸のサイズが1でない場合
+    pub fn repeat(&self, axis: usize, times: impl Into<Expr>) -> Self {
+        let new_view = self.view.clone().repeat(axis, times);
         self.view(new_view)
+    }
+
+    /// 複数軸をブロードキャストして目標形状に拡張
+    ///
+    /// サイズ1の軸を自動検出し、目標形状に合わせて `repeat` をチェーンします。
+    /// サイズ1でない軸は変更されません（目標と一致する必要があります）。
+    ///
+    /// # Arguments
+    /// * `target_shape` - 目標形状
+    ///
+    /// # パニック
+    /// - target_shapeの次元数が現在の次元数と一致しない場合
+    /// - サイズ1でない軸が目標形状と一致しない場合
+    pub fn broadcast_to(&self, target_shape: Vec<Expr>) -> Self {
+        assert_eq!(
+            target_shape.len(),
+            self.view.ndim(),
+            "broadcast_to: target shape must have same ndim"
+        );
+
+        let mut result = self.clone();
+        let current_shape = result.view.shape().to_vec();
+
+        for (axis, (current, target)) in current_shape.iter().zip(target_shape.iter()).enumerate() {
+            if current.is_one() && !target.is_one() {
+                result = result.repeat(axis, target.clone());
+            }
+            // 既にtargetと一致しているか、サイズ1でない場合は何もしない
+        }
+
+        result
     }
 
     /// unfold操作（スライディングウィンドウ）

@@ -124,7 +124,7 @@ impl GraphNode {
                 .view
                 .clone()
                 .unsqueeze(axis)
-                .expand(self.view.shape().to_vec()),
+                .repeat(axis, self.view.shape()[axis].clone()),
         );
 
         // (x - mean)^2 の平均を計算
@@ -171,23 +171,17 @@ impl GraphNode {
         );
 
         let i = a_shape[0].clone();
-        let k = a_shape[1].clone();
+        let _k = a_shape[1].clone();
         let j = b_shape[1].clone();
 
         // B^T: [K, J] -> [J, K]
         let bt = other.view(other.view.clone().permute(vec![1, 0]));
 
-        // A: [I, K] -> [I, 1, K] -> expand -> [I, J, K]
-        let a_exp =
-            self.view(
-                self.view
-                    .clone()
-                    .unsqueeze(1)
-                    .expand(vec![i.clone(), j.clone(), k.clone()]),
-            );
+        // A: [I, K] -> [I, 1, K] -> repeat axis 1 -> [I, J, K]
+        let a_exp = self.view(self.view.clone().unsqueeze(1).repeat(1, j.clone()));
 
-        // B^T: [J, K] -> [1, J, K] -> expand -> [I, J, K]
-        let bt_exp = bt.view(bt.view.clone().unsqueeze(0).expand(vec![i, j, k]));
+        // B^T: [J, K] -> [1, J, K] -> repeat axis 0 -> [I, J, K]
+        let bt_exp = bt.view(bt.view.clone().unsqueeze(0).repeat(0, i));
 
         // A * B^T -> [I, J, K] -> reduce_sum(axis=2) -> [I, J]
         reduce_sum(a_exp * bt_exp, 2)

@@ -135,24 +135,30 @@ impl View {
         }
     }
 
-    pub fn expand(self, new_shape: Vec<Expr>) -> Self {
+    /// 指定した軸を繰り返す（サイズ1の軸のみ対応）
+    ///
+    /// # Arguments
+    /// * `axis` - 繰り返す軸のインデックス
+    /// * `times` - 繰り返し回数（結果のサイズ）
+    ///
+    /// # Panics
+    /// * 軸が範囲外の場合
+    /// * 指定軸のサイズが1でない場合
+    pub fn repeat(self, axis: usize, times: impl Into<Expr>) -> Self {
+        let times = times.into();
         match self {
             View::Linear {
-                shape,
-                strides,
+                mut shape,
+                mut strides,
                 offset,
             } => {
-                assert_eq!(shape.len(), new_shape.len(), "expand must not change rank");
-                let mut new_strides = strides.clone();
-                for i in 0..shape.len() {
-                    if shape[i] != new_shape[i] {
-                        assert!(shape[i].is_one(), "can only expand an axis of size 1");
-                        new_strides[i] = 0.into();
-                    }
-                }
+                assert!(axis < shape.len(), "axis out of bounds");
+                assert!(shape[axis].is_one(), "can only repeat an axis of size 1");
+                shape[axis] = times;
+                strides[axis] = 0.into();
                 View::Linear {
-                    shape: new_shape,
-                    strides: new_strides,
+                    shape,
+                    strides,
                     offset,
                 }
             }
@@ -416,9 +422,9 @@ mod tests {
     }
 
     #[test]
-    fn test_expand() {
+    fn test_repeat() {
         let view = View::contiguous(vec![1, 4]);
-        let expanded = view.expand(vec![Expr::from(3), Expr::from(4)]); // (1, 4) -> (3, 4)
+        let expanded = view.repeat(0, 3); // (1, 4) -> (3, 4), axis 0 repeated 3 times
 
         match expanded {
             View::Linear {
@@ -427,7 +433,7 @@ mod tests {
                 offset,
             } => {
                 assert_eq!(shape, vec![Expr::from(3), Expr::from(4)]);
-                // Stride for expanded axis should be 0
+                // Stride for repeated axis should be 0
                 assert_eq!(strides[0], Expr::from(0));
                 assert_eq!(strides[1], Expr::from(1));
                 assert_eq!(offset, Expr::from(0));
@@ -436,17 +442,17 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "can only expand an axis of size 1")]
-    fn test_expand_non_one_axis() {
+    #[should_panic(expected = "can only repeat an axis of size 1")]
+    fn test_repeat_non_one_axis() {
         let view = View::contiguous(vec![3, 4]);
-        let _ = view.expand(vec![Expr::from(5), Expr::from(4)]); // Should panic
+        let _ = view.repeat(0, 5); // Should panic: axis 0 is size 3, not 1
     }
 
     #[test]
-    #[should_panic(expected = "expand must not change rank")]
-    fn test_expand_wrong_rank() {
+    #[should_panic(expected = "axis out of bounds")]
+    fn test_repeat_invalid_axis() {
         let view = View::contiguous(vec![1, 4]);
-        let _ = view.expand(vec![Expr::from(3), Expr::from(4), Expr::from(5)]); // Should panic
+        let _ = view.repeat(5, 3); // Should panic: axis 5 is out of bounds
     }
 
     #[test]

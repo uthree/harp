@@ -20,10 +20,10 @@ graph<N=1, M=1> transpose(x: f32[N, M]) -> (y: f32[M, N]) {
     return result
 }
 
-// Expand: broadcast to a larger shape
+// Repeat: broadcast size-1 axes to larger size
 graph<N=1, M=1> broadcast_add(x: f32[N, 1], y: f32[M]) -> (z: f32[N, M]) {
-    y_exp = y.unsqueeze(0).expand([N, M])
-    x_exp = x.expand([N, M])
+    y_exp = y.unsqueeze(0).repeat(0, N)
+    x_exp = x.repeat(1, M)
     result = x_exp + y_exp
     return result
 }

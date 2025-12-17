@@ -9,8 +9,8 @@
 //! graph<L, M, N> matmul(a: f32[L, M], b: f32[M, N]) -> (c: f32[L, N]) {
 //!     let a_exp = a.unsqueeze(2)
 //!     let b_exp = b.unsqueeze(0)
-//!     let a_bc = a_exp.expand([L, M, N])
-//!     let b_bc = b_exp.expand([L, M, N])
+//!     let a_bc = a_exp.repeat(2, N)
+//!     let b_bc = b_exp.repeat(0, L)
 //!     let prod = a_bc * b_bc
 //!     c = prod.sum(1)
 //! }

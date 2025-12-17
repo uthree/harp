@@ -7,7 +7,7 @@
 graph<B=1, I=1, O=1> linear_relu(x: f32[B, I], w: f32[I, O], b: f32[O]) -> (y: f32[B, O]) {
     // Linear: x @ w + b
     linear = matmul(x, w)
-    b_exp = b.unsqueeze(0).expand([B, O])
+    b_exp = b.unsqueeze(0).repeat(0, B)
     biased = linear + b_exp
 
     // ReLU: max(x, 0)
@@ -26,14 +26,14 @@ graph<B=1, D=1, H=1> main(
 ) -> (y: f32[B, D]) {
     // First layer with ReLU
     h1 = matmul(x, w1)
-    b1_exp = b1.unsqueeze(0).expand([B, H])
+    b1_exp = b1.unsqueeze(0).repeat(0, B)
     h1_biased = h1 + b1_exp
     zero = 0.0
     h1_relu = max(h1_biased, zero)
 
     // Second layer (no activation for output)
     h2 = matmul(h1_relu, w2)
-    b2_exp = b2.unsqueeze(0).expand([B, D])
+    b2_exp = b2.unsqueeze(0).repeat(0, B)
     result = h2 + b2_exp
     return result
 }

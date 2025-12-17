@@ -476,10 +476,26 @@ impl<'a> Decompiler<'a> {
             // This is a simplified check
         }
 
-        // Check for expand: some strides become 0
-        if new_strides.contains(&Expr::Const(0)) {
-            let shape_str = shape_to_dsl(new_shape);
-            return format!("{}.expand([{}])", src_name, shape_str);
+        // Check for repeat: some strides are 0 with non-1 shape (broadcast expansion)
+        let repeat_axes: Vec<usize> = new_strides
+            .iter()
+            .enumerate()
+            .filter_map(|(i, stride)| {
+                if *stride == Expr::Const(0) && new_shape[i] != Expr::Const(1) {
+                    Some(i)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if !repeat_axes.is_empty() {
+            let mut result = src_name.to_string();
+            for axis in repeat_axes {
+                let times = expr_to_dsl(&new_shape[axis]);
+                result = format!("{}.repeat({}, {})", result, axis, times);
+            }
+            return result;
         }
 
         // Default: generic view operation

@@ -470,9 +470,15 @@ fn compile_method_call(
             let new_view = receiver.view.clone().permute(axes);
             Ok(receiver.view(new_view))
         }
-        "expand" => {
-            let shape = get_shape_arg(args, env, graph)?;
-            Ok(receiver.expand(shape))
+        "repeat" => {
+            if args.len() != 2 {
+                return Err(DslError::InvalidArgument(
+                    "repeat requires 2 arguments: axis and times".to_string(),
+                ));
+            }
+            let axis = get_axis_arg(args, 0)?;
+            let times = get_expr_arg(&args[1])?;
+            Ok(receiver.repeat(axis, times))
         }
         "reshape" => {
             let shape = get_shape_arg(args, env, graph)?;
@@ -867,6 +873,22 @@ fn get_axes_arg(args: &[DslArg]) -> Result<Vec<usize>, DslError> {
             .collect(),
         _ => Err(DslError::InvalidArgument(
             "Expected array of axes".to_string(),
+        )),
+    }
+}
+
+/// Get a single Expr argument (for times parameter in repeat)
+fn get_expr_arg(arg: &DslArg) -> Result<harp::graph::shape::Expr, DslError> {
+    match arg {
+        DslArg::Positional(expr) => match expr {
+            DslExpr::IntLit(v) => Ok(harp::graph::shape::Expr::Const(*v as isize)),
+            DslExpr::Var(name) => Ok(harp::graph::shape::Expr::Var(name.clone())),
+            _ => Err(DslError::InvalidArgument(
+                "Expected integer or var for times argument".to_string(),
+            )),
+        },
+        _ => Err(DslError::InvalidArgument(
+            "Expected positional argument for times".to_string(),
         )),
     }
 }
