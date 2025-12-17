@@ -32,9 +32,47 @@ impl GraphNode {
         )
     }
 
+    /// Viewを連続レイアウトに変換（contiguous化）
+    ///
+    /// 非線形View（IndexExpr）やストライドが不連続なViewを、
+    /// メモリ上で連続したレイアウトに変換します。
+    ///
+    /// # 例
+    /// ```no_run
+    /// use harp::prelude::*;
+    ///
+    /// let mut graph = Graph::new();
+    /// let a = graph.input("a", DType::F32, vec![3, 4]);
+    ///
+    /// // 転置後にcontiguous化
+    /// let transposed = a.view(a.view.clone().permute(vec![1, 0]));
+    /// let contiguous = transposed.contiguous();
+    /// ```
+    pub fn contiguous(&self) -> Self {
+        let new_view = View::contiguous(self.view.shape().to_vec());
+        Self::new(
+            self.dtype.clone(),
+            GraphOp::Contiguous {},
+            vec![self.clone()],
+            new_view,
+        )
+    }
+
+    /// 必要な場合のみcontiguous化
+    ///
+    /// 既にLinear Viewの場合はそのまま返し、IndexExprの場合のみcontiguous化します。
+    fn ensure_linear(&self) -> Self {
+        if self.view.is_linear() {
+            self.clone()
+        } else {
+            self.contiguous()
+        }
+    }
+
     /// テンソルの形状を変更（reshape）
     ///
-    /// 要素数が同じで、現在のViewが連続している場合のみ使用可能です。
+    /// 要素数が同じ場合に使用可能です。
+    /// IndexExpr Viewの場合は自動的にcontiguous化してからreshapeします。
     ///
     /// # 例
     /// ```no_run
@@ -51,8 +89,10 @@ impl GraphNode {
     /// let reshaped = a.reshape(vec![Expr::from(2), Expr::from(6)]);
     /// ```
     pub fn reshape(&self, new_shape: Vec<Expr>) -> Self {
-        let new_view = self.view.clone().reshape(new_shape);
-        self.view(new_view)
+        // IndexExprの場合は自動でcontiguous化
+        let src = self.ensure_linear();
+        let new_view = src.view.clone().reshape(new_shape);
+        src.view(new_view)
     }
 
     /// ブロードキャストのためにshapeを拡張
@@ -177,9 +217,12 @@ impl GraphNode {
     ///
     /// ConvParamsを使用した低レベルunfold操作。
     /// conv_ndなど内部実装で使用。
+    /// IndexExpr Viewの場合は自動的にcontiguous化してからunfoldします。
     pub(crate) fn unfold_nd(&self, params: &ConvParams) -> Self {
-        let new_view = self.view.clone().unfold_nd(params);
-        self.view(new_view)
+        // IndexExprの場合は自動でcontiguous化
+        let src = self.ensure_linear();
+        let new_view = src.view.clone().unfold_nd(params);
+        src.view(new_view)
     }
 
     /// テンソルをパディング
@@ -369,5 +412,79 @@ impl GraphNode {
             vec![self.clone()],
             new_view,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::{DType, Graph};
+
+    #[test]
+    fn test_contiguous() {
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![3, 4]);
+        let contiguous = a.contiguous();
+
+        assert!(matches!(contiguous.op, GraphOp::Contiguous {}));
+        assert_eq!(contiguous.view.shape(), &[Expr::from(3), Expr::from(4)]);
+        assert!(contiguous.view.is_linear());
+    }
+
+    #[test]
+    fn test_reshape_with_index_expr_auto_contiguous() {
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![3, 4]);
+
+        // tile操作でIndexExprに変換
+        let tiled = a.view(a.view.clone().tile(0, 2)); // shape: [6, 4]
+        assert!(!tiled.view.is_linear());
+
+        // reshapeは自動でcontiguous化される（panicしない）
+        let reshaped = tiled.reshape(vec![Expr::from(24)]);
+        assert_eq!(reshaped.view.shape(), &[Expr::from(24)]);
+        assert!(reshaped.view.is_linear());
+
+        // 入力ノードを辿るとContiguousノードがある
+        assert!(matches!(reshaped.src[0].op, GraphOp::Contiguous {}));
+    }
+
+    #[test]
+    fn test_unfold_with_index_expr_auto_contiguous() {
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![10]);
+
+        // tile操作でIndexExprに変換
+        let tiled = a.view(a.view.clone().tile(0, 2)); // shape: [20]
+        assert!(!tiled.view.is_linear());
+
+        // unfoldは自動でcontiguous化される（panicしない）
+        let unfolded = tiled.unfold(3, 1, 1, 1);
+
+        // 入力ノードを辿るとContiguousノードがある
+        // unfolded -> View -> tiled_contiguous -> Contiguous -> tiled -> View -> a
+        let view_src = &unfolded.src[0];
+        assert!(matches!(view_src.op, GraphOp::Contiguous {}));
+    }
+
+    #[test]
+    fn test_reshape_linear_no_contiguous() {
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![3, 4]);
+
+        // LinearのままreshapeするとContiguousノードは挿入されない
+        let reshaped = a.reshape(vec![Expr::from(12)]);
+        // reshaped -> a (Inputノード) であり、Contiguousは挿入されない
+        assert!(!matches!(reshaped.src[0].op, GraphOp::Contiguous {}));
+    }
+
+    #[test]
+    fn test_ensure_linear_idempotent() {
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![3, 4]);
+
+        // 既にLinearなノードにensure_linearを適用しても変わらない
+        let ensured = a.ensure_linear();
+        assert_eq!(a.as_ptr(), ensured.as_ptr());
     }
 }

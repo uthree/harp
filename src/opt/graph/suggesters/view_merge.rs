@@ -94,7 +94,7 @@ impl ViewMergeSuggester {
 
     /// 入力ノードが次元数変更を許可するタイプかどうかを判定
     ///
-    /// Buffer/Const/Kernel は次元数の変更を許可する（独立したノードのため）
+    /// Buffer/Const/Kernel/View は次元数の変更を許可する（独立したノード、またはsrcを持たないため）
     /// Elementwise等は次元数を変更するとsrcとの整合性が崩れるため許可しない
     fn allows_ndim_change(op: &GraphOp) -> bool {
         matches!(
@@ -103,6 +103,7 @@ impl ViewMergeSuggester {
                 | GraphOp::Const(_)
                 | GraphOp::ComplexConst { .. }
                 | GraphOp::Kernel { .. }
+                | GraphOp::View(_)
         )
     }
 
@@ -123,11 +124,14 @@ impl ViewMergeSuggester {
 
         let input_node = &view_node.src[0];
 
-        // 非線形View（IndexExpr）はマージしない
-        // IndexExprの合成は複雑で、現在はサポートしていない
-        if !target_view.is_linear() || !input_node.view.is_linear() {
-            return None;
-        }
+        // ViewMergeは「合成」ではなく「置換」
+        // V2は既にV1から正しく導出されている（例: V1.permute(...)）ため、
+        // V2は完全な変換を含んでおり、入力のViewタイプに関係なくマージ可能
+        //
+        // 例: Buffer(view=V1) -> View(view=V2) -> Consumer
+        // マージ後: Buffer(view=V2) -> Consumer
+        //
+        // V2がIndexExprでもLinearでも、V1からの操作で生成されているので安全
 
         // 次元数変更のチェック
         if !Self::allows_ndim_change(&input_node.op) {
@@ -565,5 +569,107 @@ mod tests {
 
         // Elementwiseノードは次元数変更を許可しないのでマージされない
         assert_eq!(suggestions.len(), 0);
+    }
+
+    #[test]
+    fn test_linear_to_index_expr_merge() {
+        use crate::graph::shape::{Expr, View};
+
+        let suggester = ViewMergeSuggester::new();
+
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![3, 4]);
+
+        // Linear入力にIndexExpr Viewを適用（tile操作）
+        // tile(0, 2): shape [3, 4] -> [6, 4], index_expr = (idx0 % 3) * 4 + idx1
+        let tiled_view = a.view.clone().tile(0, 2);
+        let tiled = a.view(tiled_view);
+
+        graph.output("result", tiled);
+
+        let suggestions = suggester.suggest(&graph);
+
+        // Linear -> IndexExpr のマージが提案される
+        assert_eq!(suggestions.len(), 1);
+
+        // 提案されたグラフを確認
+        let new_graph = &suggestions[0].graph;
+        let outputs = new_graph.outputs();
+        let result = outputs.get("result").unwrap();
+
+        // 結果ノードがBufferノードであることを確認（Viewノードが削除された）
+        assert!(matches!(result.op, GraphOp::Buffer { .. }));
+
+        // BufferノードのviewがIndexExprになっていることを確認
+        assert!(!result.view.is_linear());
+        assert_eq!(result.view.shape(), &[Expr::from(6), Expr::from(4)]);
+
+        // index_exprが正しいことを確認
+        if let View::IndexExpr { index_expr, .. } = &result.view {
+            let expected = (Expr::Idx(0) % Expr::from(3)) * Expr::from(4) + Expr::Idx(1);
+            assert_eq!(index_expr, &expected);
+        } else {
+            panic!("Expected IndexExpr view");
+        }
+    }
+
+    #[test]
+    fn test_index_expr_to_linear_merge() {
+        use crate::graph::shape::{Expr, View};
+
+        let suggester = ViewMergeSuggester::new();
+
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![6]);
+
+        // まずIndexExpr viewを適用
+        let index_expr_view = View::from_index_expr(vec![Expr::from(6)], Expr::Idx(0) % Expr::from(3));
+        let a_with_index_expr = a.view(index_expr_view);
+
+        // 次にLinear viewを適用
+        let permuted_view = View::contiguous(vec![6]);
+        let final_node = a_with_index_expr.view(permuted_view);
+
+        graph.output("result", final_node);
+
+        let suggestions = suggester.suggest(&graph);
+
+        // ViewMergeは「置換」なので、IndexExpr入力でもマージ可能
+        // 両方のViewノードがマージ対象になる
+        assert_eq!(suggestions.len(), 2);
+
+        // 最初の提案: 外側のView(Linear)をIndexExprノードに適用
+        // 2番目の提案: 内側のView(IndexExpr)をBufferノードに適用
+    }
+
+    #[test]
+    fn test_index_expr_chain_merge() {
+        use crate::graph::shape::Expr;
+
+        let suggester = ViewMergeSuggester::new();
+
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![3, 4]);
+
+        // tile -> unsqueeze の連鎖（両方IndexExpr）
+        let tiled = a.view(a.view.clone().tile(0, 2)); // IndexExpr: [6, 4]
+        let unsqueezed = tiled.view(tiled.view.clone().unsqueeze(0)); // IndexExpr: [1, 6, 4]
+
+        graph.output("result", unsqueezed);
+
+        let suggestions = suggester.suggest(&graph);
+
+        // 両方のViewノードがマージ対象
+        assert_eq!(suggestions.len(), 2);
+
+        // マージを適用してグラフを確認
+        let merged_graph = &suggestions[0].graph;
+        let outputs = merged_graph.outputs();
+        let result = outputs.get("result").unwrap();
+
+        // Viewノードが1つ削除されている
+        // 元: Buffer -> View(tile) -> View(unsqueeze)
+        // マージ後のいずれか: Buffer -> View(unsqueeze適用済み) or Buffer[tile適用済み] -> View(unsqueeze)
+        assert_eq!(result.view.shape(), &[Expr::from(1), Expr::from(6), Expr::from(4)]);
     }
 }

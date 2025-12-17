@@ -199,7 +199,6 @@ impl View {
     /// # Panics
     /// * 軸が範囲外の場合
     /// * 指定軸のサイズが1でない場合
-    /// * IndexExpr Viewの場合（未対応）
     pub fn repeat(self, axis: usize, times: impl Into<Expr>) -> Self {
         let times = times.into();
         match self {
@@ -218,8 +217,22 @@ impl View {
                     offset,
                 }
             }
-            View::IndexExpr { .. } => {
-                panic!("repeat is not supported for IndexExpr views")
+            View::IndexExpr {
+                mut shape,
+                index_expr,
+            } => {
+                assert!(axis < shape.len(), "axis out of bounds");
+                assert!(shape[axis].is_one(), "can only repeat an axis of size 1");
+
+                // Idx(axis) を 0 に固定（常に同じ位置を参照）
+                // サイズ1の軸なので、Idx(axis)は常に0だが、明示的に置換
+                let new_index_expr = index_expr.substitute_idx(axis, Expr::from(0));
+                shape[axis] = times;
+
+                View::IndexExpr {
+                    shape,
+                    index_expr: new_index_expr,
+                }
             }
         }
     }
@@ -893,14 +906,49 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "repeat is not supported for IndexExpr views")]
-    fn test_index_expr_repeat_panics() {
-        let view = View::from_index_expr(
-            vec![Expr::from(1), Expr::from(4)],
-            Expr::Idx(1),
+    fn test_index_expr_repeat() {
+        // IndexExprに対するrepeat
+        let view = View::from_index_expr(vec![Expr::from(1), Expr::from(4)], Expr::Idx(1));
+
+        let repeated = view.repeat(0, 3);
+
+        assert_eq!(repeated.shape(), &[Expr::from(3), Expr::from(4)]);
+        assert!(!repeated.is_linear());
+
+        // Idx(0) は 0 に置換される（サイズ1の軸だったので常に0）
+        if let View::IndexExpr { index_expr, .. } = repeated {
+            // 元: Idx(1)
+            // repeat(0, 3)後: Idx(1) （Idx(0)は存在しなかったので変わらず）
+            let expected = Expr::Idx(1);
+            assert_eq!(index_expr, expected);
+        } else {
+            panic!("Expected IndexExpr variant");
+        }
+    }
+
+    #[test]
+    fn test_tile_then_unsqueeze_then_repeat() {
+        // 典型的なユースケース: tile -> unsqueeze -> repeat
+        let view = View::contiguous(vec![3, 4]);
+
+        // tile(0, 2): [3, 4] -> [6, 4], IndexExpr
+        let tiled = view.tile(0, 2);
+        assert_eq!(tiled.shape(), &[Expr::from(6), Expr::from(4)]);
+
+        // unsqueeze(0): [6, 4] -> [1, 6, 4], IndexExpr
+        let unsqueezed = tiled.unsqueeze(0);
+        assert_eq!(
+            unsqueezed.shape(),
+            &[Expr::from(1), Expr::from(6), Expr::from(4)]
         );
 
-        let _ = view.repeat(0, 3); // Should panic
+        // repeat(0, 8): [1, 6, 4] -> [8, 6, 4], IndexExpr
+        let repeated = unsqueezed.repeat(0, 8);
+        assert_eq!(
+            repeated.shape(),
+            &[Expr::from(8), Expr::from(6), Expr::from(4)]
+        );
+        assert!(!repeated.is_linear());
     }
 
     #[test]
