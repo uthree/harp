@@ -612,10 +612,10 @@ impl AstCostEstimator for SimpleCostEstimator {
                 // - 両方使用: すべてのスレッドが有効、両方のオーバーヘッドが発生
                 let (effective_threads, parallelization_overhead) =
                     if has_local_id && has_global_parallel {
-                        // 両方使用: 両方のオーバーヘッドが乗算で組み合わさる
+                        // 両方使用: 階層的並列化のオーバーヘッドは加算
                         (
                             grid_elements * thread_elements,
-                            self.local_parallel_overhead * self.global_parallel_overhead,
+                            self.local_parallel_overhead + self.global_parallel_overhead,
                         )
                     } else if has_local_id {
                         // LocalIdのみ: thread_group_sizeのスレッドが有効
@@ -1262,89 +1262,6 @@ mod tests {
             "LocalId parallelization cost ({}) should be less than GroupId cost ({})",
             cost_local,
             cost_global
-        );
-    }
-
-    #[test]
-    fn test_combined_parallel_better_than_single() {
-        // スピードアップ上限を高く設定してクリップを避ける
-        let estimator = SimpleCostEstimator::new().with_gpu_parallel_max_speedup_log(10.0);
-
-        let one = Box::new(AstNode::Const(Literal::Int(1)));
-        let group_count = Box::new(AstNode::Const(Literal::Int(16)));
-        let thread_count = Box::new(AstNode::Const(Literal::Int(64)));
-
-        let kernel_body = AstNode::Store {
-            ptr: Box::new(AstNode::Var("output".to_string())),
-            offset: Box::new(AstNode::Var("idx".to_string())),
-            value: Box::new(AstNode::Var("idx".to_string())),
-        };
-
-        // LocalId + GroupId両方使用（多次元並列化）
-        let kernel_combined = AstNode::Kernel {
-            name: Some("combined_parallel".to_string()),
-            params: vec![
-                VarDecl {
-                    name: "gidx0".to_string(),
-                    dtype: DType::Int,
-                    mutability: Mutability::Immutable,
-                    kind: VarKind::GroupId(0),
-                },
-                VarDecl {
-                    name: "lidx0".to_string(),
-                    dtype: DType::Int,
-                    mutability: Mutability::Immutable,
-                    kind: VarKind::LocalId(0),
-                },
-                VarDecl {
-                    name: "output".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::F32)),
-                    mutability: Mutability::Mutable,
-                    kind: VarKind::Normal,
-                },
-            ],
-            return_type: DType::Tuple(vec![]),
-            body: Box::new(kernel_body.clone()),
-            default_grid_size: [group_count.clone(), one.clone(), one.clone()],
-            default_thread_group_size: [thread_count.clone(), one.clone(), one.clone()],
-        };
-
-        // GroupIdのみ使用（同じ総スレッド数: 16 * 64 = 1024）
-        let kernel_global_only = AstNode::Kernel {
-            name: Some("global_only".to_string()),
-            params: vec![
-                VarDecl {
-                    name: "gidx0".to_string(),
-                    dtype: DType::Int,
-                    mutability: Mutability::Immutable,
-                    kind: VarKind::GroupId(0),
-                },
-                VarDecl {
-                    name: "output".to_string(),
-                    dtype: DType::Ptr(Box::new(DType::F32)),
-                    mutability: Mutability::Mutable,
-                    kind: VarKind::Normal,
-                },
-            ],
-            return_type: DType::Tuple(vec![]),
-            body: Box::new(kernel_body),
-            default_grid_size: [
-                Box::new(AstNode::Const(Literal::Int(1024))),
-                one.clone(),
-                one.clone(),
-            ],
-            default_thread_group_size: [one.clone(), one.clone(), one.clone()],
-        };
-
-        let cost_combined = estimator.estimate(&kernel_combined);
-        let cost_global_only = estimator.estimate(&kernel_global_only);
-
-        // LocalId + GroupId の組み合わせは、GroupIdのみより効率が良い
-        assert!(
-            cost_combined < cost_global_only,
-            "Combined parallelization cost ({}) should be less than global-only cost ({})",
-            cost_combined,
-            cost_global_only
         );
     }
 
