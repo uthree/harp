@@ -27,6 +27,7 @@
 | LoopInliningSuggester | 小さいループをインライン展開 |
 | LoopInterchangeSuggester | ループ順序の入れ替え |
 | LoopFusionSuggester | 同一境界のループをマージ |
+| FunctionMergeSuggester | 複数FunctionをProgram内で1つに統合 |
 | FunctionInliningSuggester | 小さい関数をインライン展開 |
 | CseSuggester | 共通部分式除去 |
 | VariableExpansionSuggester | 変数展開（CSEの逆操作） |

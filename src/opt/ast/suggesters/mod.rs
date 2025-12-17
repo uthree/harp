@@ -1,6 +1,7 @@
 pub mod composite;
 pub mod cse;
 pub mod function_inlining;
+pub mod function_merge;
 pub mod loop_fusion;
 pub mod loop_transforms;
 pub mod parallelization;
@@ -15,6 +16,7 @@ use std::collections::HashSet;
 pub use composite::CompositeSuggester;
 pub use cse::CseSuggester;
 pub use function_inlining::FunctionInliningSuggester;
+pub use function_merge::FunctionMergeSuggester;
 pub use loop_fusion::LoopFusionSuggester;
 pub use loop_transforms::{LoopInliningSuggester, LoopInterchangeSuggester, LoopTilingSuggester};
 pub use parallelization::{GroupParallelizationSuggester, LocalParallelizationSuggester};
