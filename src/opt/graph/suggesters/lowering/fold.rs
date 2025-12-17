@@ -3,14 +3,13 @@
 //! Unfold後のテンソルを元の形状に戻す操作です。
 //! 重複するパッチ位置は加算されます。
 
-use crate::ast::{AstNode, DType as AstDType, Mutability, Scope, VarDecl, VarKind, helper::*};
+use crate::ast::{AstNode, DType as AstDType, Mutability, Scope, helper::*};
 use crate::graph::GraphNode;
 use crate::graph::ops::custom_placeholders as ph;
 
 use super::helpers::{graph_dtype_to_ast, wrap_with_loops};
-use super::parallel::ParallelizationStrategy;
 
-/// Fold操作のカーネル/関数を生成
+/// Fold操作の関数を生成
 ///
 /// # Arguments
 /// * `node` - Foldノード
@@ -19,46 +18,9 @@ use super::parallel::ParallelizationStrategy;
 /// * `stride` - ストライド
 /// * `dilation` - 膨張率
 /// * `groups` - グループ数
-/// * `name` - カーネル名
-/// * `strategy` - 並列化戦略
+/// * `name` - 関数名
 #[allow(clippy::too_many_arguments)]
-pub fn build_fold_kernel(
-    node: &GraphNode,
-    output_size: &[usize],
-    kernel_size: &[usize],
-    stride: &[usize],
-    dilation: &[usize],
-    groups: usize,
-    name: &str,
-    strategy: &ParallelizationStrategy,
-) -> Option<AstNode> {
-    match strategy {
-        ParallelizationStrategy::Sequential => build_fold_function(
-            node,
-            output_size,
-            kernel_size,
-            stride,
-            dilation,
-            groups,
-            name,
-        ),
-        ParallelizationStrategy::FlatParallel {
-            thread_group_size, ..
-        } => build_fold_parallel_kernel(
-            node,
-            output_size,
-            kernel_size,
-            stride,
-            dilation,
-            groups,
-            name,
-            *thread_group_size,
-        ),
-    }
-}
-
-/// Sequential版: Fold関数を生成
-fn build_fold_function(
+pub fn build_fold_function(
     node: &GraphNode,
     output_size: &[usize],
     kernel_size: &[usize],
@@ -106,108 +68,6 @@ fn build_fold_function(
     ))
 }
 
-/// Parallel版: Fold GPUカーネルを生成
-#[allow(clippy::too_many_arguments)]
-fn build_fold_parallel_kernel(
-    node: &GraphNode,
-    output_size: &[usize],
-    kernel_size: &[usize],
-    stride: &[usize],
-    dilation: &[usize],
-    groups: usize,
-    name: &str,
-    thread_group_size: usize,
-) -> Option<AstNode> {
-    let input = node.src.first()?;
-    let input_shape = input.view.shape();
-    let spatial_dims = kernel_size.len();
-
-    let has_groups = groups > 1;
-    let load_dtype = graph_dtype_to_ast(&input.dtype);
-
-    // パッチ位置サイズを計算
-    let patch_sizes = compute_patch_sizes(output_size, kernel_size, stride, dilation, spatial_dims);
-
-    // 出力要素数
-    let total_elements: usize = output_size.iter().product();
-
-    // パラメータ生成
-    let mut params = vec![VarDecl {
-        name: "gidx".to_string(),
-        dtype: AstDType::Int,
-        mutability: Mutability::Immutable,
-        kind: VarKind::GroupId(0),
-    }];
-
-    // 入力バッファ
-    params.push(VarDecl {
-        name: ph::input(0),
-        dtype: load_dtype.clone().to_ptr(),
-        mutability: Mutability::Immutable,
-        kind: VarKind::Normal,
-    });
-
-    // 出力バッファ
-    params.push(VarDecl {
-        name: ph::OUTPUT.to_string(),
-        dtype: load_dtype.clone().to_ptr(),
-        mutability: Mutability::Mutable,
-        kind: VarKind::Normal,
-    });
-
-    // gidxから出力座標への変換
-    let coord_exprs = build_gidx_to_coords(output_size);
-
-    // アキュムレータの初期化
-    let mut scope = Scope::new();
-    let _ = scope.declare("acc".to_string(), load_dtype.clone(), Mutability::Mutable);
-
-    let acc_init = assign("acc", const_f32(0.0));
-
-    // カーネルループと入力アクセス
-    let kernel_loops = build_fold_kernel_loops(
-        input_shape,
-        output_size,
-        kernel_size,
-        stride,
-        dilation,
-        &patch_sizes,
-        spatial_dims,
-        has_groups,
-        groups,
-        &load_dtype,
-        &coord_exprs,
-    );
-
-    // ストア
-    let store_stmt = store(var(ph::OUTPUT), var("gidx"), var("acc"));
-
-    // 境界チェック
-    let body_stmts = vec![acc_init, kernel_loops, store_stmt];
-    let body_block = block(body_stmts, scope);
-
-    let checked_body = if_then(
-        lt(var("gidx"), const_int(total_elements as isize)),
-        body_block,
-    );
-
-    // グリッドサイズ計算
-    let grid_size = total_elements.div_ceil(thread_group_size) * thread_group_size;
-
-    Some(kernel(
-        Some(name.to_string()),
-        params,
-        AstDType::Tuple(vec![]),
-        block(vec![checked_body], Scope::new()),
-        [const_int(grid_size as isize), const_int(1), const_int(1)],
-        [
-            const_int(thread_group_size as isize),
-            const_int(1),
-            const_int(1),
-        ],
-    ))
-}
-
 /// パッチ位置サイズ（L'）を計算
 /// L' = (output_size - effective_kernel) / stride + 1
 /// effective_kernel = (kernel_size - 1) * dilation + 1
@@ -229,26 +89,7 @@ fn compute_patch_sizes(
         .collect()
 }
 
-/// gidxから出力座標への変換式を構築
-fn build_gidx_to_coords(output_size: &[usize]) -> Vec<AstNode> {
-    let ndim = output_size.len();
-    let mut coords = Vec::with_capacity(ndim);
-    let mut remaining = var("gidx");
-
-    for axis in 0..ndim {
-        let stride: usize = output_size[(axis + 1)..].iter().product();
-        if stride > 1 {
-            coords.push(idiv(remaining.clone(), const_int(stride as isize)));
-            remaining = rem(remaining, const_int(stride as isize));
-        } else {
-            coords.push(remaining.clone());
-        }
-    }
-
-    coords
-}
-
-/// Sequential版のFold本体を構築
+/// Fold本体を構築
 #[allow(clippy::too_many_arguments)]
 fn build_fold_body(
     input_shape: &[crate::graph::Expr],
@@ -275,7 +116,7 @@ fn build_fold_body(
     let output_coords: Vec<AstNode> = (0..output_ndim).map(|i| var(ph::ridx(i))).collect();
 
     // カーネルループを構築
-    let kernel_loops = build_fold_kernel_loops_sequential(
+    let kernel_loops = build_fold_kernel_loops(
         input_shape,
         output_size,
         kernel_size,
@@ -313,54 +154,7 @@ fn build_output_offset(output_size: &[usize]) -> AstNode {
     offset
 }
 
-/// Sequential版: カーネル位置のネストループを構築
-#[allow(clippy::too_many_arguments)]
-fn build_fold_kernel_loops_sequential(
-    input_shape: &[crate::graph::Expr],
-    output_size: &[usize],
-    kernel_size: &[usize],
-    stride: &[usize],
-    dilation: &[usize],
-    patch_sizes: &[usize],
-    spatial_dims: usize,
-    has_groups: bool,
-    groups: usize,
-    load_dtype: &AstDType,
-    output_coords: &[AstNode],
-) -> AstNode {
-    // 最内部: 入力からの読み込みと加算
-    let inner_body = build_fold_inner_body(
-        input_shape,
-        output_size,
-        kernel_size,
-        stride,
-        dilation,
-        patch_sizes,
-        spatial_dims,
-        has_groups,
-        groups,
-        load_dtype,
-        output_coords,
-        true, // use ridx variables for kernel indices
-    );
-
-    // カーネル次元でネストループ
-    let mut body = inner_body;
-    for k_axis in (0..spatial_dims).rev() {
-        let k_var = format!("k{}", k_axis);
-        body = range(
-            k_var,
-            const_int(0),
-            const_int(1),
-            const_int(kernel_size[k_axis] as isize),
-            body,
-        );
-    }
-
-    body
-}
-
-/// Parallel版: カーネル位置のネストループを構築
+/// カーネル位置のネストループを構築
 #[allow(clippy::too_many_arguments)]
 fn build_fold_kernel_loops(
     input_shape: &[crate::graph::Expr],
@@ -388,7 +182,6 @@ fn build_fold_kernel_loops(
         groups,
         load_dtype,
         output_coords,
-        false, // use coord expressions directly
     );
 
     // カーネル次元でネストループ
@@ -420,8 +213,7 @@ fn build_fold_inner_body(
     has_groups: bool,
     groups: usize,
     load_dtype: &AstDType,
-    output_coords: &[AstNode],
-    use_ridx_for_spatial: bool,
+    _output_coords: &[AstNode],
 ) -> AstNode {
     let output_ndim = output_size.len();
     let output_spatial_start = output_ndim - spatial_dims;
@@ -438,11 +230,7 @@ fn build_fold_inner_body(
 
     for s_axis in 0..spatial_dims {
         let k_var = var(format!("k{}", s_axis));
-        let spatial_coord = if use_ridx_for_spatial {
-            var(ph::ridx(output_spatial_start + s_axis))
-        } else {
-            output_coords[output_spatial_start + s_axis].clone()
-        };
+        let spatial_coord = var(ph::ridx(output_spatial_start + s_axis));
 
         // h_offset = h - k * dilation
         let offset_expr =
@@ -491,10 +279,7 @@ fn build_fold_inner_body(
         has_groups,
         groups,
         c_per_group,
-        output_coords,
         &patch_indices,
-        use_ridx_for_spatial,
-        output_spatial_start,
     );
 
     // 入力からロードしてアキュムレート
@@ -529,16 +314,9 @@ fn build_input_index(
     has_groups: bool,
     _groups: usize,
     c_per_group: usize,
-    output_coords: &[AstNode],
     patch_indices: &[AstNode],
-    use_ridx_for_spatial: bool,
-    _output_spatial_start: usize,
 ) -> AstNode {
-    let channel_coord = if use_ridx_for_spatial {
-        var(ph::ridx(0))
-    } else {
-        output_coords[0].clone()
-    };
+    let channel_coord = var(ph::ridx(0));
 
     // カーネル次元とパッチ次元のストライドを計算
     let kernel_total: usize = kernel_size.iter().product();
@@ -609,16 +387,7 @@ mod tests {
         let x = graph.input("x", DType::F32, vec![2, 3, 8]);
         let folded = x.fold(vec![2, 10], 3, 1, 1, 1);
 
-        let ast = build_fold_kernel(
-            &folded,
-            &[2, 10],
-            &[3],
-            &[1],
-            &[1],
-            1,
-            "fold_1d",
-            &ParallelizationStrategy::Sequential,
-        );
+        let ast = build_fold_function(&folded, &[2, 10], &[3], &[1], &[1], 1, "fold_1d");
 
         assert!(ast.is_some());
     }
@@ -632,7 +401,7 @@ mod tests {
         let x = graph.input("x", DType::F32, vec![3, 3, 3, 30, 30]);
         let folded = x.fold(vec![3, 32, 32], (3, 3), (1, 1), (1, 1), 1);
 
-        let ast = build_fold_kernel(
+        let ast = build_fold_function(
             &folded,
             &[3, 32, 32],
             &[3, 3],
@@ -640,31 +409,6 @@ mod tests {
             &[1, 1],
             1,
             "fold_2d",
-            &ParallelizationStrategy::Sequential,
-        );
-
-        assert!(ast.is_some());
-    }
-
-    #[test]
-    fn test_fold_lowering_parallel() {
-        let mut graph = Graph::new();
-
-        let x = graph.input("x", DType::F32, vec![2, 3, 8]);
-        let folded = x.fold(vec![2, 10], 3, 1, 1, 1);
-
-        let ast = build_fold_kernel(
-            &folded,
-            &[2, 10],
-            &[3],
-            &[1],
-            &[1],
-            1,
-            "fold_parallel",
-            &ParallelizationStrategy::FlatParallel {
-                thread_group_size: 256,
-                vector_width: None,
-            },
         );
 
         assert!(ast.is_some());
@@ -694,16 +438,7 @@ mod tests {
         let x = graph.input("x", DType::F32, vec![2, 2, 3, 8]);
         let folded = x.fold(vec![4, 10], 3, 1, 1, 2);
 
-        let ast = build_fold_kernel(
-            &folded,
-            &[4, 10],
-            &[3],
-            &[1],
-            &[1],
-            2,
-            "fold_1d_groups",
-            &ParallelizationStrategy::Sequential,
-        );
+        let ast = build_fold_function(&folded, &[4, 10], &[3], &[1], &[1], 2, "fold_1d_groups");
 
         assert!(ast.is_some());
     }
@@ -719,7 +454,7 @@ mod tests {
         let x = graph.input("x", DType::F32, vec![2, 2, 3, 3, 6, 6]);
         let folded = x.fold(vec![4, 8, 8], (3, 3), (1, 1), (1, 1), 2);
 
-        let ast = build_fold_kernel(
+        let ast = build_fold_function(
             &folded,
             &[4, 8, 8],
             &[3, 3],
@@ -727,32 +462,6 @@ mod tests {
             &[1, 1],
             2,
             "fold_2d_groups",
-            &ParallelizationStrategy::Sequential,
-        );
-
-        assert!(ast.is_some());
-    }
-
-    #[test]
-    fn test_fold_lowering_parallel_groups() {
-        let mut graph = Graph::new();
-
-        // Parallel fold with groups=2
-        let x = graph.input("x", DType::F32, vec![2, 2, 3, 8]);
-        let folded = x.fold(vec![4, 10], 3, 1, 1, 2);
-
-        let ast = build_fold_kernel(
-            &folded,
-            &[4, 10],
-            &[3],
-            &[1],
-            &[1],
-            2,
-            "fold_parallel_groups",
-            &ParallelizationStrategy::FlatParallel {
-                thread_group_size: 256,
-                vector_width: None,
-            },
         );
 
         assert!(ast.is_some());

@@ -88,17 +88,6 @@ pub fn build_fused_elementwise_function(
     ))
 }
 
-/// Elementwise関数の実装
-pub fn build_elementwise_function_impl(
-    ndim: usize,
-    num_inputs: usize,
-    expr: AstNode,
-    output_dtype: &GraphDType,
-    name: &str,
-) -> AstNode {
-    build_elementwise_function_impl_with_shape(ndim, num_inputs, expr, output_dtype, name, None)
-}
-
 /// Elementwise関数の実装（具体的なshapeを使用）
 pub fn build_elementwise_function_impl_with_shape(
     ndim: usize,

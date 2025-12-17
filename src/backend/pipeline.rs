@@ -144,9 +144,9 @@ pub fn create_lowering_only_suggester() -> CompositeSuggester {
 
 /// 貪欲法Lowering用のSuggesterを作成
 ///
-/// Sequential戦略のみで高速にLoweringを行います。
+/// 高速にLoweringを行います。
 pub fn create_greedy_lowering_only_suggester() -> CompositeSuggester {
-    CompositeSuggester::new(vec![Box::new(LoweringSuggester::sequential_only())])
+    CompositeSuggester::new(vec![Box::new(LoweringSuggester::new())])
 }
 
 /// KernelPartitionフェーズ用のSuggesterを作成
@@ -761,29 +761,31 @@ mod tests {
     use crate::opt::graph::GraphSuggester;
 
     #[test]
-    fn test_greedy_lowering_suggester_uses_sequential_only() {
+    fn test_greedy_lowering_suggester() {
         let greedy_suggester = create_greedy_lowering_only_suggester();
-        let normal_suggester = create_lowering_only_suggester();
 
-        // Suggesterの最初の要素がLoweringSuggester::sequential_only()であることを確認
-        // CompositeSuggesterの内部構造にはアクセスできないため、
-        // 実際にsuggestを呼び出して候補数で確認する
         let mut graph = Graph::new();
         let a = graph.input("a", DType::F32, vec![10, 20]);
         let b = graph.input("b", DType::F32, vec![10, 20]);
         let c = a + b;
         graph.output("c", c);
 
-        let greedy_suggestions = greedy_suggester.suggest(&graph);
-        let normal_suggestions = normal_suggester.suggest(&graph);
+        let suggestions = greedy_suggester.suggest(&graph);
 
-        // 貪欲法用Suggesterは候補が少ない（Sequentialのみ）
-        // 通常は複数の並列化戦略が生成される
+        // LoweringSuggesterは1つの候補を生成
+        assert_eq!(
+            suggestions.len(),
+            1,
+            "LoweringSuggester should generate exactly 1 candidate, got {}",
+            suggestions.len()
+        );
+
+        // 生成された候補はKernelノードを含む
+        let outputs = suggestions[0].graph.outputs();
+        let output = outputs.get("c").unwrap();
         assert!(
-            greedy_suggestions.len() <= normal_suggestions.len(),
-            "Greedy suggester should generate fewer or equal candidates: greedy={}, normal={}",
-            greedy_suggestions.len(),
-            normal_suggestions.len()
+            matches!(output.op, GraphOp::Kernel { .. }),
+            "Output should be Kernel node"
         );
     }
 

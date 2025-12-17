@@ -8,7 +8,6 @@ mod elementwise;
 mod fold;
 mod helpers;
 mod other;
-mod parallel;
 mod reduce;
 
 use crate::graph::{Graph, GraphNode, GraphNodeData, GraphOp};
@@ -17,7 +16,6 @@ use std::collections::{HashMap, HashSet};
 
 // サブモジュールから関数を再エクスポート
 pub use elementwise::is_pure_const_node;
-pub use parallel::ParallelizationStrategy;
 
 /// GraphOpをKernelノードに変換するSuggester
 ///
@@ -27,21 +25,9 @@ pub use parallel::ParallelizationStrategy;
 ///
 /// # 並列化について
 ///
-/// デフォルトでは逐次実行（Sequential）のみで候補を生成します。
-/// 並列化はASTレベルの最適化（Global/LocalParallelizationSuggester）で行うことを推奨します。
-///
-/// # 設定可能なパラメータ
-///
-/// - `thread_group_sizes`: スレッドグループサイズの候補リスト（並列戦略有効時のみ使用）
-/// - `vector_widths`: ベクトル幅の候補リスト（空の場合はベクトル化無効）
-pub struct LoweringSuggester {
-    /// Sequentialのみを使用するかどうか
-    sequential_only: bool,
-    /// スレッドグループサイズの候補リスト
-    thread_group_sizes: Vec<usize>,
-    /// ベクトル幅の候補リスト（空ならベクトル化無効）
-    vector_widths: Vec<usize>,
-}
+/// このSuggesterは逐次実行（Sequential）のみで候補を生成します。
+/// 並列化はASTレベルの最適化（Global/LocalParallelizationSuggester）で行います。
+pub struct LoweringSuggester;
 
 /// カーネル/関数の種類を表すプレフィックス
 #[derive(Debug, Clone, Copy)]
@@ -73,91 +59,8 @@ impl KernelKind {
 
 impl LoweringSuggester {
     /// 新しいLoweringSuggesterを作成
-    ///
-    /// デフォルトでは逐次実行（Sequential）のみで候補を生成します。
-    /// 並列化はASTレベルの最適化で行うことを推奨します。
     pub fn new() -> Self {
-        LoweringSuggester {
-            sequential_only: true,
-            thread_group_sizes: vec![],
-            vector_widths: vec![],
-        }
-    }
-
-    /// Sequential戦略のみを使用するLoweringSuggesterを作成
-    ///
-    /// `new()`と同じ動作です（後方互換性のため維持）。
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use harp::opt::graph::LoweringSuggester;
-    /// let suggester = LoweringSuggester::sequential_only();
-    /// assert!(suggester.is_sequential_only());
-    /// ```
-    pub fn sequential_only() -> Self {
-        Self::new()
-    }
-
-    /// 並列戦略を有効にしたLoweringSuggesterを作成
-    ///
-    /// テストやベンチマーク用途で、Graph段階での並列化候補を
-    /// 生成したい場合に使用します。
-    /// - スレッドグループサイズ: [64, 128, 256, 512]
-    /// - ベクトル幅: [2, 4, 8]
-    pub fn with_parallel_strategies() -> Self {
-        LoweringSuggester {
-            sequential_only: false,
-            thread_group_sizes: vec![64, 128, 256, 512],
-            vector_widths: vec![2, 4, 8],
-        }
-    }
-
-    /// スレッドグループサイズの候補を設定
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use harp::opt::graph::LoweringSuggester;
-    /// let suggester = LoweringSuggester::new()
-    ///     .with_thread_group_sizes(vec![128, 256]);
-    /// ```
-    pub fn with_thread_group_sizes(mut self, sizes: Vec<usize>) -> Self {
-        self.thread_group_sizes = sizes;
-        self
-    }
-
-    /// ベクトル幅の候補を設定
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use harp::opt::graph::LoweringSuggester;
-    /// let suggester = LoweringSuggester::new()
-    ///     .with_vector_widths(vec![4, 8]);
-    /// ```
-    pub fn with_vector_widths(mut self, widths: Vec<usize>) -> Self {
-        self.vector_widths = widths;
-        self
-    }
-
-    /// ベクトル化を無効にする
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use harp::opt::graph::LoweringSuggester;
-    /// let suggester = LoweringSuggester::new()
-    ///     .without_vectorization();
-    /// ```
-    pub fn without_vectorization(mut self) -> Self {
-        self.vector_widths = vec![];
-        self
-    }
-
-    /// Sequential専用モードかどうかを返す
-    pub fn is_sequential_only(&self) -> bool {
-        self.sequential_only
+        LoweringSuggester
     }
 
     /// ノードの種類とshapeからカーネル/関数名を生成
@@ -309,148 +212,63 @@ impl LoweringSuggester {
         }
     }
 
-    /// GraphOpをKernelノードに変換（戦略指定版）
-    fn lower_to_custom(
-        &self,
-        node: &GraphNode,
-        strategy: &ParallelizationStrategy,
-    ) -> Option<GraphNode> {
+    /// GraphOpをKernelノードに変換
+    fn lower_to_custom(&self, node: &GraphNode) -> Option<GraphNode> {
         let kind = self.get_kernel_kind(&node.op);
         let name = self.generate_kernel_name(kind, node.view.shape());
 
         let ast = match &node.op {
             GraphOp::Elementwise { op, .. } => {
-                self.build_elementwise_ast(node, op, &name, strategy)
+                elementwise::build_elementwise_function(node, op, &name)
             }
             GraphOp::Reduce { op, axis, .. } => {
-                self.build_reduce_ast(node, op, *axis, &name, strategy)
+                reduce::build_reduce_function(node, op, *axis, &name)
             }
             GraphOp::Cumulative { op, axis, .. } => {
-                // Cumulativeは現時点では逐次のみサポート
-                if !matches!(strategy, ParallelizationStrategy::Sequential) {
-                    return None;
-                }
                 reduce::build_cumulative_function(node, op, *axis, &name)
             }
-            GraphOp::Contiguous => {
-                // Contiguousは現時点では逐次のみサポート
-                if !matches!(strategy, ParallelizationStrategy::Sequential) {
-                    return None;
-                }
-                other::build_contiguous_function(node, &name)
-            }
+            GraphOp::Contiguous => other::build_contiguous_function(node, &name),
             GraphOp::FusedElementwise { expr, .. } => {
-                self.build_fused_elementwise_ast(node, expr, &name, strategy)
+                elementwise::build_fused_elementwise_function(node, expr, &name)
             }
             GraphOp::FusedElementwiseReduce {
                 expr,
                 reduce_op,
                 axes,
                 ..
-            } => match strategy {
-                ParallelizationStrategy::Sequential => {
-                    reduce::build_fused_elementwise_reduce_function(
-                        node, expr, reduce_op, axes, &name,
-                    )
-                }
-                ParallelizationStrategy::FlatParallel {
-                    thread_group_size: _,
-                    vector_width: _,
-                } => {
-                    // 入力の具体的なshape値を抽出（利用可能な場合）
-                    let concrete_shapes = node
-                        .src
-                        .first()
-                        .and_then(|input| self.extract_concrete_shapes(input));
-                    parallel::build_flat_parallel_fused_elementwise_reduce_kernel(
-                        node,
-                        expr,
-                        reduce_op,
-                        axes,
-                        &name,
-                        concrete_shapes.as_deref(),
-                    )
-                }
-            },
+            } => {
+                reduce::build_fused_elementwise_reduce_function(node, expr, reduce_op, axes, &name)
+            }
             GraphOp::FusedElementwiseCumulative {
                 expr,
                 cumulative_op,
                 axis,
                 ..
-            } => {
-                // FusedElementwiseCumulativeは現時点では逐次のみサポート
-                if !matches!(strategy, ParallelizationStrategy::Sequential) {
-                    return None;
-                }
-                reduce::build_fused_elementwise_cumulative_function(
-                    node,
-                    expr,
-                    cumulative_op,
-                    *axis,
-                    &name,
-                )
-            }
-            GraphOp::Pad { padding, value } => {
-                if !matches!(strategy, ParallelizationStrategy::Sequential) {
-                    return None;
-                }
-                other::build_pad_function(node, padding, *value)
-            }
-            GraphOp::Slice { ranges } => {
-                if !matches!(strategy, ParallelizationStrategy::Sequential) {
-                    return None;
-                }
-                other::build_slice_function(node, ranges, &name)
-            }
-            GraphOp::Concat { axis } => {
-                if !matches!(strategy, ParallelizationStrategy::Sequential) {
-                    return None;
-                }
-                other::build_concat_function(node, *axis)
-            }
-            GraphOp::Rand => {
-                if !matches!(strategy, ParallelizationStrategy::Sequential) {
-                    return None;
-                }
-                other::build_rand_function(node, &name)
-            }
-            GraphOp::Arange => {
-                if !matches!(strategy, ParallelizationStrategy::Sequential) {
-                    return None;
-                }
-                other::build_arange_function(node, &name)
-            }
+            } => reduce::build_fused_elementwise_cumulative_function(
+                node,
+                expr,
+                cumulative_op,
+                *axis,
+                &name,
+            ),
+            GraphOp::Pad { padding, value } => other::build_pad_function(node, padding, *value),
+            GraphOp::Slice { ranges } => other::build_slice_function(node, ranges, &name),
+            GraphOp::Concat { axis } => other::build_concat_function(node, *axis),
+            GraphOp::Rand => other::build_rand_function(node, &name),
+            GraphOp::Arange => other::build_arange_function(node, &name),
             GraphOp::Cast { target_dtype, .. } => {
-                if !matches!(strategy, ParallelizationStrategy::Sequential) {
-                    return None;
-                }
                 other::build_cast_function(node, target_dtype, &name)
             }
-            GraphOp::Real => {
-                if !matches!(strategy, ParallelizationStrategy::Sequential) {
-                    return None;
-                }
-                other::build_real_function(node, &name)
-            }
-            GraphOp::Imag => {
-                if !matches!(strategy, ParallelizationStrategy::Sequential) {
-                    return None;
-                }
-                other::build_imag_function(node, &name)
-            }
-            GraphOp::ComplexFromParts => {
-                if !matches!(strategy, ParallelizationStrategy::Sequential) {
-                    return None;
-                }
-                other::build_complex_from_parts_function(node, &name)
-            }
+            GraphOp::Real => other::build_real_function(node, &name),
+            GraphOp::Imag => other::build_imag_function(node, &name),
+            GraphOp::ComplexFromParts => other::build_complex_from_parts_function(node, &name),
             GraphOp::Fold {
                 output_size,
                 kernel_size,
                 stride,
                 dilation,
                 groups,
-            } => fold::build_fold_kernel(
+            } => fold::build_fold_function(
                 node,
                 output_size,
                 kernel_size,
@@ -458,7 +276,6 @@ impl LoweringSuggester {
                 dilation,
                 *groups,
                 &name,
-                strategy,
             ),
             GraphOp::FusedReduce { .. } => {
                 // FusedReduceはタプル出力が必要なので後で実装
@@ -503,200 +320,6 @@ impl LoweringSuggester {
             new_src,
             node.view.clone(),
         ))
-    }
-
-    /// Elementwise演算のAST生成（戦略に応じて分岐）
-    fn build_elementwise_ast(
-        &self,
-        node: &GraphNode,
-        op: &crate::graph::ElementwiseOp,
-        name: &str,
-        strategy: &ParallelizationStrategy,
-    ) -> Option<crate::ast::AstNode> {
-        match strategy {
-            ParallelizationStrategy::Sequential => {
-                elementwise::build_elementwise_function(node, op, name)
-            }
-            _ => {
-                // 並列版: parallel モジュールを使用
-                let shape = node.view.shape();
-                let ndim = shape.len();
-                let num_inputs = node
-                    .src
-                    .iter()
-                    .filter(|s| !matches!(s.op, GraphOp::Const(_)) && !is_pure_const_node(s))
-                    .count();
-
-                let expr = elementwise::build_elementwise_expr(op);
-                let expr_with_consts = elementwise::embed_constants(&expr, &node.src);
-
-                // 具体的なshape値を抽出（利用可能な場合）
-                let concrete_shapes = self.extract_concrete_shapes(node);
-
-                Some(parallel::build_parallel_elementwise_kernel(
-                    ndim,
-                    num_inputs,
-                    expr_with_consts,
-                    &node.dtype,
-                    name,
-                    strategy,
-                    concrete_shapes.as_deref(),
-                ))
-            }
-        }
-    }
-
-    /// FusedElementwise演算のAST生成（戦略に応じて分岐）
-    fn build_fused_elementwise_ast(
-        &self,
-        node: &GraphNode,
-        expr: &crate::ast::AstNode,
-        name: &str,
-        strategy: &ParallelizationStrategy,
-    ) -> Option<crate::ast::AstNode> {
-        match strategy {
-            ParallelizationStrategy::Sequential => {
-                elementwise::build_fused_elementwise_function(node, expr, name)
-            }
-            _ => {
-                let shape = node.view.shape();
-                let ndim = shape.len();
-                let num_inputs = node
-                    .src
-                    .iter()
-                    .filter(|s| !matches!(s.op, GraphOp::Const(_)) && !is_pure_const_node(s))
-                    .count();
-
-                let expr_with_consts = elementwise::embed_constants(expr, &node.src);
-
-                // 具体的なshape値を抽出（利用可能な場合）
-                let concrete_shapes = self.extract_concrete_shapes(node);
-
-                Some(parallel::build_parallel_elementwise_kernel(
-                    ndim,
-                    num_inputs,
-                    expr_with_consts,
-                    &node.dtype,
-                    name,
-                    strategy,
-                    concrete_shapes.as_deref(),
-                ))
-            }
-        }
-    }
-
-    /// Reduce演算のAST生成（戦略に応じて分岐）
-    fn build_reduce_ast(
-        &self,
-        node: &GraphNode,
-        op: &crate::graph::ReduceOp,
-        axis: usize,
-        name: &str,
-        strategy: &ParallelizationStrategy,
-    ) -> Option<crate::ast::AstNode> {
-        match strategy {
-            ParallelizationStrategy::Sequential => {
-                reduce::build_reduce_function(node, op, axis, name)
-            }
-            _ => parallel::build_parallel_reduce_kernel(node, op, axis, name, strategy),
-        }
-    }
-
-    /// 利用可能な並列化戦略のリストを取得
-    fn available_strategies(&self, node: &GraphNode) -> Vec<ParallelizationStrategy> {
-        // Sequential専用モードの場合は逐次のみ
-        if self.sequential_only {
-            return vec![ParallelizationStrategy::Sequential];
-        }
-
-        let mut strategies = vec![ParallelizationStrategy::Sequential];
-
-        // 総要素数を計算（ベクトル化の可否判定に使用）
-        let total_elements = self.calculate_total_elements(node);
-
-        // Elementwise系とReduce系のみ並列化をサポート
-        match &node.op {
-            GraphOp::Elementwise { .. } | GraphOp::FusedElementwise { .. } => {
-                // 各スレッドグループサイズで候補を生成
-                for &tg_size in &self.thread_group_sizes {
-                    // スカラー版
-                    strategies.push(ParallelizationStrategy::FlatParallel {
-                        thread_group_size: tg_size,
-                        vector_width: None,
-                    });
-
-                    // ベクトル化版（要素数が割り切れる場合のみ）
-                    if let Some(total) = total_elements {
-                        for &vec_width in &self.vector_widths {
-                            if total % vec_width == 0 && total >= vec_width {
-                                strategies.push(ParallelizationStrategy::FlatParallel {
-                                    thread_group_size: tg_size,
-                                    vector_width: Some(vec_width),
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-            GraphOp::Reduce { .. } => {
-                // Reduceは現時点ではベクトル化をサポートしない
-                for &tg_size in &self.thread_group_sizes {
-                    strategies.push(ParallelizationStrategy::FlatParallel {
-                        thread_group_size: tg_size,
-                        vector_width: None,
-                    });
-                }
-            }
-            GraphOp::FusedElementwiseReduce { .. } => {
-                // FusedElementwiseReduceはFlatParallelのみサポート
-                // 出力軸を並列化し、縮約軸は逐次ループで処理
-                for &tg_size in &self.thread_group_sizes {
-                    strategies.push(ParallelizationStrategy::FlatParallel {
-                        thread_group_size: tg_size,
-                        vector_width: None,
-                    });
-                }
-            }
-            _ => {
-                // その他の演算は逐次のみ
-            }
-        }
-
-        strategies
-    }
-
-    /// ノードの総要素数を計算（定数の場合のみ）
-    fn calculate_total_elements(&self, node: &GraphNode) -> Option<usize> {
-        use crate::graph::shape::Expr;
-
-        let shape = node.view.shape();
-        let mut total = 1usize;
-        for dim in shape {
-            match dim {
-                Expr::Const(val) => {
-                    total *= *val as usize;
-                }
-                _ => return None, // シンボリックな軸がある場合は計算不可
-            }
-        }
-        Some(total)
-    }
-
-    /// ノードのshapeから具体的な値を抽出（全て定数の場合のみ）
-    fn extract_concrete_shapes(&self, node: &GraphNode) -> Option<Vec<usize>> {
-        use crate::graph::shape::Expr;
-
-        let shape = node.view.shape();
-        let mut result = Vec::with_capacity(shape.len());
-        for dim in shape {
-            match dim {
-                Expr::Const(val) if *val >= 0 => {
-                    result.push(*val as usize);
-                }
-                _ => return None, // シンボリックな軸がある場合は抽出不可
-            }
-        }
-        Some(result)
     }
 
     /// グラフ内の特定ノードを置き換えた新しいグラフを作成
@@ -812,20 +435,15 @@ impl GraphSuggester for LoweringSuggester {
 
             lowerable_count += 1;
 
-            // 利用可能な全戦略で候補を生成
-            let strategies = self.available_strategies(node);
-            for strategy in &strategies {
-                if let Some(custom_node) = self.lower_to_custom(node, strategy) {
-                    let new_graph = self.replace_node_in_graph(graph, node, custom_node);
-                    suggestions.push(SuggestResult::new(new_graph, self.name()));
-                    lowered_count += 1;
-                } else {
-                    log::debug!(
-                        "LoweringSuggester: failed to lower {:?} with strategy {:?}",
-                        std::mem::discriminant(&node.op),
-                        strategy
-                    );
-                }
+            if let Some(custom_node) = self.lower_to_custom(node) {
+                let new_graph = self.replace_node_in_graph(graph, node, custom_node);
+                suggestions.push(SuggestResult::new(new_graph, self.name()));
+                lowered_count += 1;
+            } else {
+                log::debug!(
+                    "LoweringSuggester: failed to lower {:?}",
+                    std::mem::discriminant(&node.op)
+                );
             }
         }
 
