@@ -142,9 +142,11 @@ for (int ridx0 = 0; ridx0 < 10; ridx0++) {
 }
 ```
 
-**対象演算**: Elementwise、FusedElementwise
+**対象演算**: Elementwise、FusedElementwise、FusedElementwiseReduce
 
-**制約**: 最内軸のサイズがSIMD幅より小さい場合はSIMD化されません。
+**制約**:
+- 最内軸のサイズがSIMD幅より小さい場合はSIMD化されません
+- FusedElementwiseReduceは縮約軸が最内軸を含む場合はSIMD化されません（水平加算が必要なため）
 
 ## モジュール構成
 

@@ -335,11 +335,12 @@ impl LoweringSuggester {
         ))
     }
 
-    /// Elementwise演算をSIMD化されたKernelノードに変換
+    /// Elementwise系演算をSIMD化されたKernelノードに変換
     ///
     /// 対応するGraphOp:
     /// - Elementwise
     /// - FusedElementwise
+    /// - FusedElementwiseReduce（縮約軸が最内軸を含まない場合のみ）
     fn lower_to_custom_simd(&self, node: &GraphNode, simd_width: usize) -> Option<GraphNode> {
         let kind = self.get_kernel_kind(&node.op);
         let base_name = self.generate_kernel_name(kind, node.view.shape());
@@ -352,6 +353,14 @@ impl LoweringSuggester {
             GraphOp::FusedElementwise { expr, .. } => {
                 elementwise::build_fused_elementwise_function_simd(node, expr, &name, simd_width)
             }
+            GraphOp::FusedElementwiseReduce {
+                expr,
+                reduce_op,
+                axes,
+                ..
+            } => reduce::build_fused_elementwise_reduce_function_simd(
+                node, expr, reduce_op, axes, &name, simd_width,
+            ),
             // 他のOpはSIMD化しない
             _ => return None,
         }?;
@@ -517,7 +526,9 @@ impl GraphSuggester for LoweringSuggester {
             // SIMD版のSuggestionを生成（Elementwise系のみ）
             if matches!(
                 node.op,
-                GraphOp::Elementwise { .. } | GraphOp::FusedElementwise { .. }
+                GraphOp::Elementwise { .. }
+                    | GraphOp::FusedElementwise { .. }
+                    | GraphOp::FusedElementwiseReduce { .. }
             ) {
                 for &simd_width in &self.simd_widths {
                     if let Some(simd_node) = self.lower_to_custom_simd(node, simd_width) {

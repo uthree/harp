@@ -368,3 +368,62 @@ fn test_simd_reduce_not_applied() {
         suggestions.len()
     );
 }
+
+#[test]
+fn test_simd_fused_elementwise_reduce_not_innermost() {
+    // 縮約軸が最内軸を含まない場合はSIMD化される
+    let suggester = LoweringSuggester::with_simd_widths(vec![4]);
+
+    let mut graph = Graph::new();
+    let a = graph.input("a", DType::F32, vec![3, 4, 128]); // [M, K, N]
+    let b = graph.input("b", DType::F32, vec![3, 4, 128]);
+
+    // FusedElementwiseReduce: multiply + sum over axis 1 (K軸、最内軸ではない)
+    let expr = wildcard("0") * wildcard("1");
+    let c = test_fused_elementwise_reduce(vec![a, b], expr, ReduceOp::Sum, vec![1]);
+    graph.output("c", c);
+
+    let suggestions = suggester.suggest(&graph);
+
+    // スカラー版1つ + SIMD版1つ = 2つ
+    assert_eq!(
+        suggestions.len(),
+        2,
+        "Should generate scalar + SIMD candidates for FusedElementwiseReduce when axis is not innermost, got {}",
+        suggestions.len()
+    );
+
+    // SIMD版の候補を確認
+    let simd_suggestion = suggestions
+        .iter()
+        .find(|s| s.suggester_name.contains("simd"));
+    assert!(
+        simd_suggestion.is_some(),
+        "Should have SIMD candidate for FusedElementwiseReduce"
+    );
+}
+
+#[test]
+fn test_simd_fused_elementwise_reduce_innermost() {
+    // 縮約軸が最内軸を含む場合はSIMD化されない（水平加算が必要になるため）
+    let suggester = LoweringSuggester::with_simd_widths(vec![4]);
+
+    let mut graph = Graph::new();
+    let a = graph.input("a", DType::F32, vec![10, 128]); // [M, K]
+    let b = graph.input("b", DType::F32, vec![10, 128]);
+
+    // FusedElementwiseReduce: multiply + sum over axis 1 (最内軸)
+    let expr = wildcard("0") * wildcard("1");
+    let c = test_fused_elementwise_reduce(vec![a, b], expr, ReduceOp::Sum, vec![1]);
+    graph.output("c", c);
+
+    let suggestions = suggester.suggest(&graph);
+
+    // 最内軸を縮約する場合はSIMD化されないので、スカラー版のみ
+    assert_eq!(
+        suggestions.len(),
+        1,
+        "Should only generate scalar candidate when reduction includes innermost axis, got {}",
+        suggestions.len()
+    );
+}

@@ -8,12 +8,14 @@ use crate::graph::ops::custom_placeholders as ph;
 use crate::graph::{CumulativeOp, GraphNode, GraphOp, ReduceOp};
 use std::collections::HashMap;
 
+use crate::graph::shape::Expr;
+
 use super::helpers::{
     build_contiguous_offset_excluding_axes_with_shape,
     build_contiguous_offset_excluding_axis_with_shape, build_contiguous_offset_with_shape,
     build_cumulative_accumulator, build_reduce_accumulator, graph_dtype_to_ast, shape_dim_to_ast,
     wrap_with_loops_excluding_axes_with_scope_and_shape,
-    wrap_with_loops_excluding_axis_with_scope_and_shape,
+    wrap_with_loops_excluding_axis_with_scope_and_shape, wrap_with_simd_innermost_loop,
 };
 
 /// Reduce演算の関数を生成
@@ -277,5 +279,161 @@ pub fn build_fused_elementwise_cumulative_function(
         vec![],
         AstDType::Tuple(vec![]),
         body,
+    ))
+}
+
+// ============================================================
+// SIMD版関数生成
+// ============================================================
+
+/// FusedElementwiseReduce演算のSIMD版関数を生成
+///
+/// 縮約軸が最内軸を含まない場合のみSIMD化が可能です。
+/// 出力テンソルの最内軸をSIMD化します。
+pub fn build_fused_elementwise_reduce_function_simd(
+    node: &GraphNode,
+    expr: &AstNode,
+    reduce_op: &ReduceOp,
+    axes: &[usize],
+    name: &str,
+    simd_width: usize,
+) -> Option<AstNode> {
+    if axes.is_empty() {
+        return None;
+    }
+
+    let input = node.src.first()?;
+    let input_shape = input.view.shape();
+    let ndim = input_shape.len();
+
+    // 縮約軸が最内軸を含む場合はSIMD化しない（水平加算が必要になるため）
+    let innermost_axis = ndim.saturating_sub(1);
+    if axes.contains(&innermost_axis) {
+        return None;
+    }
+
+    // 出力の最内軸サイズをチェック
+    let output_shape = node.view.shape();
+    if output_shape.is_empty() {
+        return None;
+    }
+    if let Some(Expr::Const(size)) = output_shape.last()
+        && (*size as usize) < simd_width
+    {
+        return None;
+    }
+
+    let (init_value, accumulate_fn) = build_reduce_accumulator(reduce_op, &node.dtype);
+
+    let input_offset = build_contiguous_offset_with_shape(ndim, Some(input_shape));
+    let load_dtype = graph_dtype_to_ast(&input.dtype);
+    let scalar_dtype = graph_dtype_to_ast(&node.dtype);
+    let vec_dtype = scalar_dtype.clone().to_vec(simd_width);
+
+    // SIMD版の縮約ループを構築
+    let simd_reduce_body = {
+        let mut mappings = HashMap::new();
+        let mut non_const_idx = 0;
+        for (i, src) in node.src.iter().enumerate() {
+            if let GraphOp::Const(lit) = &src.op {
+                let scalar_const = AstNode::Const(lit.clone());
+                let vec_const = broadcast(scalar_const, simd_width);
+                mappings.insert(i.to_string(), vec_const);
+            } else {
+                let load_node = load_vec(
+                    var(ph::input(non_const_idx)),
+                    input_offset.clone(),
+                    simd_width,
+                    vec_dtype.clone(),
+                );
+                mappings.insert(i.to_string(), load_node);
+                non_const_idx += 1;
+            }
+        }
+        let value_expr = expr.substitute(&mappings);
+
+        let acc_var = "acc";
+        let acc_update = assign(acc_var, accumulate_fn(var(acc_var), value_expr));
+
+        let mut reduce_loops = block(vec![acc_update], Scope::new());
+        for &axis in axes.iter().rev() {
+            reduce_loops = range(
+                ph::ridx(axis),
+                const_int(0),
+                const_int(1),
+                shape_dim_to_ast(Some(input_shape), axis),
+                reduce_loops,
+            );
+        }
+
+        let output_offset =
+            build_contiguous_offset_excluding_axes_with_shape(ndim, axes, Some(input_shape));
+
+        let vec_init = broadcast(init_value.clone(), simd_width);
+        let acc_init = assign(acc_var, vec_init);
+        let store_stmt = store(var(ph::OUTPUT), output_offset, var(acc_var));
+
+        vec![acc_init, reduce_loops, store_stmt]
+    };
+
+    // スカラー版の縮約ループを構築（テール処理用）
+    let scalar_reduce_body = {
+        let mut mappings = HashMap::new();
+        let mut non_const_idx = 0;
+        for (i, src) in node.src.iter().enumerate() {
+            if let GraphOp::Const(lit) = &src.op {
+                mappings.insert(i.to_string(), AstNode::Const(lit.clone()));
+            } else {
+                let load_node = load(
+                    var(ph::input(non_const_idx)),
+                    input_offset.clone(),
+                    load_dtype.clone(),
+                );
+                mappings.insert(i.to_string(), load_node);
+                non_const_idx += 1;
+            }
+        }
+        let value_expr = expr.substitute(&mappings);
+
+        let acc_var = "acc";
+        let acc_update = assign(acc_var, accumulate_fn(var(acc_var), value_expr));
+
+        let mut reduce_loops = block(vec![acc_update], Scope::new());
+        for &axis in axes.iter().rev() {
+            reduce_loops = range(
+                ph::ridx(axis),
+                const_int(0),
+                const_int(1),
+                shape_dim_to_ast(Some(input_shape), axis),
+                reduce_loops,
+            );
+        }
+
+        let output_offset =
+            build_contiguous_offset_excluding_axes_with_shape(ndim, axes, Some(input_shape));
+
+        let acc_init = assign(acc_var, init_value);
+        let store_stmt = store(var(ph::OUTPUT), output_offset, var(acc_var));
+
+        vec![acc_init, reduce_loops, store_stmt]
+    };
+
+    let output_ndim = output_shape.len();
+    let body = wrap_with_simd_innermost_loop(
+        output_ndim,
+        simd_reduce_body,
+        scalar_reduce_body,
+        Some(output_shape),
+        simd_width,
+    );
+
+    let mut outer_scope = Scope::new();
+    let _ = outer_scope.declare("acc".to_string(), vec_dtype, Mutability::Mutable);
+
+    Some(function(
+        Some(name.to_string()),
+        vec![],
+        AstDType::Tuple(vec![]),
+        block(vec![body], outer_scope),
     ))
 }
