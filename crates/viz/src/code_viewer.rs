@@ -542,6 +542,7 @@ impl CodeViewerApp {
                     history_len,
                     snapshot.cost,
                     snapshot.applied_rule.clone(),
+                    snapshot.path.clone(),
                     snapshot.suggester_name.clone(),
                     snapshot.num_candidates,
                     snapshot.description.clone(),
@@ -557,7 +558,8 @@ impl CodeViewerApp {
             history_len,
             cost,
             applied_rule,
-            suggester,
+            path,
+            suggester_name,
             num_candidates,
             description,
         )) = step_info
@@ -582,21 +584,38 @@ impl CodeViewerApp {
                         ui.end_row();
                     }
 
-                    if let Some(ref suggester_name) = suggester {
-                        ui.label("Suggester:");
-                        ui.label(
-                            egui::RichText::new(suggester_name)
-                                .color(egui::Color32::from_rgb(150, 150, 250)),
-                        );
-                        ui.end_row();
-                    }
-
                     if let Some(num) = num_candidates {
                         ui.label("Candidates:");
                         ui.label(format!("{}", num));
                         ui.end_row();
                     }
                 });
+
+            // 適用されたSuggesterのパス全体を表示
+            if !path.is_empty() {
+                ui.separator();
+                ui.label("Applied Suggesters:");
+                for (i, (name, desc)) in path.iter().enumerate() {
+                    ui.horizontal(|ui| {
+                        ui.label(format!("{}.", i + 1));
+                        ui.label(
+                            egui::RichText::new(name).color(egui::Color32::from_rgb(150, 150, 250)),
+                        );
+                        if !desc.is_empty() {
+                            ui.label(
+                                egui::RichText::new(format!("({})", desc))
+                                    .color(egui::Color32::GRAY)
+                                    .small(),
+                            );
+                        }
+                    });
+                }
+            } else if let Some(ref name) = suggester_name {
+                // pathがない場合はsuggeseter_nameを使用（後方互換性）
+                ui.separator();
+                ui.label("Suggester:");
+                ui.label(egui::RichText::new(name).color(egui::Color32::from_rgb(150, 150, 250)));
+            }
 
             ui.separator();
             ui.label("Description:");
@@ -738,8 +757,37 @@ impl CodeViewerApp {
                 });
             }
 
-            // 提案したSuggester名を表示
-            if let Some(ref suggester_name) = snapshot.suggester_name {
+            // 適用されたSuggesterのパスを表示（直近3件のみ、それ以前は省略）
+            if !snapshot.path.is_empty() {
+                ui.horizontal(|ui| {
+                    ui.label("Applied:");
+                    const MAX_DISPLAY: usize = 3;
+                    let path_len = snapshot.path.len();
+                    let display_path: Vec<&str> = if path_len > MAX_DISPLAY {
+                        // 省略記号 + 直近N件
+                        std::iter::once("...")
+                            .chain(
+                                snapshot.path[path_len - MAX_DISPLAY..]
+                                    .iter()
+                                    .map(|(name, _)| name.as_str()),
+                            )
+                            .collect()
+                    } else {
+                        snapshot
+                            .path
+                            .iter()
+                            .map(|(name, _)| name.as_str())
+                            .collect()
+                    };
+                    let path_str = display_path.join(" -> ");
+                    ui.label(
+                        egui::RichText::new(path_str)
+                            .color(egui::Color32::from_rgb(150, 150, 250))
+                            .strong(),
+                    );
+                });
+            } else if let Some(ref suggester_name) = snapshot.suggester_name {
+                // pathがない場合はsuggeseter_nameを使用（後方互換性）
                 ui.horizontal(|ui| {
                     ui.label("Suggester:");
                     ui.label(

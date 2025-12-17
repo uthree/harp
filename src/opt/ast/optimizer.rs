@@ -382,7 +382,7 @@ where
                 })
                 .collect();
 
-            // このステップの最良候補を記録
+            // このステップの最良候補を処理
             if let Some((best, cost, best_index)) = selected.first() {
                 // 最良候補のパス情報を取得
                 let best_path = candidate_infos
@@ -423,8 +423,13 @@ where
                             step, cost, best_cost
                         );
                     }
+
+                    // ログをクリア（次のステップで新しいログのみを記録するため）
+                    if self.collect_logs {
+                        log_capture::clear_logs();
+                    }
                 } else {
-                    // コストが改善された場合はカウンターをリセット
+                    // コストが改善された場合のみスナップショットを記録
                     no_improvement_count = 0;
                     let improvement_pct = (best_cost - cost) / best_cost * 100.0;
                     info!(
@@ -437,60 +442,63 @@ where
                         path: best_path.clone(),
                     };
                     global_best_cost = *cost;
-                }
 
-                let step_logs = if self.collect_logs {
-                    log_capture::get_captured_logs()
-                } else {
-                    Vec::new()
-                };
+                    // ログを取得
+                    let step_logs = if self.collect_logs {
+                        log_capture::get_captured_logs()
+                    } else {
+                        Vec::new()
+                    };
 
-                // 選択された候補のSuggester名を取得（パスの最後の要素）
-                // パスには初期ASTからこの候補に至るまでの全変換が記録されている
-                let suggester_name = best_path.last().map(|(name, _)| name.clone());
+                    // global_bestのパスからSuggester名を取得（最後に適用されたSuggester）
+                    let suggester_name = global_best.path.last().map(|(name, _)| name.clone());
 
-                // 代替候補を構築（rank > 0の全候補、ビームに入らなかったものも含む）
-                let alternatives: Vec<AlternativeCandidate> = all_with_cost_and_index
-                    .iter()
-                    .skip(1)
-                    .enumerate()
-                    .map(|(idx, (ast, cost, original_index))| {
-                        let (_, desc, path) = candidate_infos
-                            .get(*original_index)
-                            .cloned()
-                            .unwrap_or_default();
-                        // パスの最後の要素からSuggester名を取得
-                        let name = path.last().map(|(n, _)| n.clone()).unwrap_or_default();
-                        AlternativeCandidate {
-                            ast: ast.clone(),
-                            cost: *cost,
-                            suggester_name: Some(name),
-                            description: desc,
-                            rank: idx + 1,
-                        }
-                    })
-                    .collect();
+                    // 代替候補を構築（rank > 0の全候補、ビームに入らなかったものも含む）
+                    let alternatives: Vec<AlternativeCandidate> = all_with_cost_and_index
+                        .iter()
+                        .skip(1)
+                        .enumerate()
+                        .map(|(idx, (ast, cost, original_index))| {
+                            let (_, desc, path) = candidate_infos
+                                .get(*original_index)
+                                .cloned()
+                                .unwrap_or_default();
+                            // パスの最後の要素からSuggester名を取得
+                            let name = path.last().map(|(n, _)| n.clone()).unwrap_or_default();
+                            AlternativeCandidate {
+                                ast: ast.clone(),
+                                cost: *cost,
+                                suggester_name: Some(name),
+                                description: desc,
+                                rank: idx + 1,
+                            }
+                        })
+                        .collect();
 
-                history.add_snapshot(OptimizationSnapshot::with_alternatives(
-                    step + 1,
-                    best.clone(),
-                    *cost,
-                    format!(
-                        "Step {}: {} candidates, beam width {}",
-                        step + 1,
+                    // スナップショットのステップ番号は履歴の現在の長さ（連続した番号）
+                    let snapshot_step = history.len();
+
+                    history.add_snapshot(OptimizationSnapshot::with_alternatives(
+                        snapshot_step,
+                        global_best.ast.clone(),
+                        global_best_cost,
+                        format!(
+                            "Step {}: {} candidates, cost improved",
+                            snapshot_step, num_candidates
+                        ),
+                        0,
+                        None,
+                        step_logs,
                         num_candidates,
-                        beam.len()
-                    ),
-                    0,
-                    None,
-                    step_logs,
-                    num_candidates,
-                    suggester_name,
-                    alternatives,
-                ));
-                // このステップのログをクリア（次のステップで新しいログのみを記録するため）
-                if self.collect_logs {
-                    log_capture::clear_logs();
+                        suggester_name,
+                        alternatives,
+                        global_best.path.clone(),
+                    ));
+
+                    // ログをクリア（次のステップで新しいログのみを記録するため）
+                    if self.collect_logs {
+                        log_capture::clear_logs();
+                    }
                 }
             }
         }
