@@ -27,10 +27,6 @@ pub enum GraphOp {
         name: String, // AST関数のパラメータ名に対応 (e.g., "input0", "output")
     },
     Const(Literal), // 定数ノード, shape=[], ndim=0のスカラーを初期化する。
-    ComplexConst {
-        re: f32,
-        im: f32,
-    }, // 複素数定数ノード (real, imaginary)
     View(View),     // Viewを変更する
     Contiguous,     // Viewに従って要素を並べ直す。
     Elementwise {
@@ -93,15 +89,6 @@ pub enum GraphOp {
     Cast {
         target_dtype: DType,
     },
-    /// 複素数テンソルから実部を取り出す
-    /// 入力: Complex tensor, 出力: F32 tensor (same shape)
-    Real,
-    /// 複素数テンソルから虚部を取り出す
-    /// 入力: Complex tensor, 出力: F32 tensor (same shape)
-    Imag,
-    /// 実部と虚部のF32テンソルから複素数テンソルを構築する
-    /// 入力: 2つのF32 tensor (real, imag), 出力: Complex tensor (same shape)
-    ComplexFromParts,
     /// カーネル演算（単一カーネル関数）
     ///
     /// `AstNode::Function`または`AstNode::Kernel`を保持します。
@@ -371,13 +358,6 @@ impl From<i64> for GraphNode {
 impl From<&GraphNode> for GraphNode {
     fn from(value: &GraphNode) -> Self {
         value.clone()
-    }
-}
-
-// Complex number from tuple (re, im)
-impl From<(f32, f32)> for GraphNode {
-    fn from(value: (f32, f32)) -> Self {
-        GraphNode::complex_constant(value.0, value.1)
     }
 }
 
@@ -981,49 +961,5 @@ mod tests {
 
         // x is still usable
         let _sum = &x + 1.0f32;
-    }
-
-    #[test]
-    fn test_complex_constant() {
-        let node = GraphNode::complex_constant(1.0, 2.0);
-        assert_eq!(node.dtype, DType::Complex);
-        assert!(node.view.shape().is_empty()); // Scalar
-
-        match &node.op {
-            GraphOp::ComplexConst { re, im } => {
-                assert_eq!(*re, 1.0);
-                assert_eq!(*im, 2.0);
-            }
-            _ => panic!("Expected ComplexConst"),
-        }
-    }
-
-    #[test]
-    fn test_complex_from_tuple() {
-        let node: GraphNode = (3.0f32, 4.0f32).into();
-        assert_eq!(node.dtype, DType::Complex);
-        assert!(node.view.shape().is_empty());
-
-        match &node.op {
-            GraphOp::ComplexConst { re, im } => {
-                assert_eq!(*re, 3.0);
-                assert_eq!(*im, 4.0);
-            }
-            _ => panic!("Expected ComplexConst"),
-        }
-    }
-
-    #[test]
-    fn test_complex_constant_from() {
-        let node = GraphNode::complex_constant_from((5.0, -1.0));
-        assert_eq!(node.dtype, DType::Complex);
-
-        match &node.op {
-            GraphOp::ComplexConst { re, im } => {
-                assert_eq!(*re, 5.0);
-                assert_eq!(*im, -1.0);
-            }
-            _ => panic!("Expected ComplexConst"),
-        }
     }
 }

@@ -31,7 +31,7 @@ param = { ident ~ ":" ~ tensor_type }
 
 // Tensor type: f32[N, M] or f32[32, 64]
 tensor_type = { dtype ~ "[" ~ shape_list ~ "]" }
-dtype = { "f32" | "i32" | "bool" | "c64" }
+dtype = { "f32" | "i32" | "bool" }
 shape_list = { shape_expr ~ ("," ~ shape_expr)* }
 
 // Shape expressions (arithmetic on dimensions)

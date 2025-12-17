@@ -41,7 +41,6 @@ pub enum DslDType {
     F32,
     I32,
     Bool,
-    C64,
 }
 
 impl From<DslDType> for DType {
@@ -50,7 +49,6 @@ impl From<DslDType> for DType {
             DslDType::F32 => DType::F32,
             DslDType::I32 => DType::I32,
             DslDType::Bool => DType::Bool,
-            DslDType::C64 => DType::Complex,
         }
     }
 }

@@ -89,7 +89,6 @@ unfold:  IndexExprでpanic  →   unfold:  自動でContiguous挿入
 - `Bool`: ブール型（内部的には8ビット整数）
 - `I32`: 32ビット符号付き整数
 - `F32`: 32ビット浮動小数点
-- `Complex`: 複素数型（インターリーブF32バッファ`[re, im, ...]`で表現）
 - `Unknown`: 型推論前の未確定型
 
 ## Kernelノード
@@ -197,5 +196,4 @@ graph main(input: f32[10]) -> (out1: f32[10], out2: f32[10]) {
 - Thread/ThreadGroupレベルの並列実行のLowering
 - ループタイル化（TilingSuggester）
 - 行列乗算（matmul、batch_matmul）
-- 複素数型のReduce/Cumulative演算のLowering
 - サブグラフ呼び出しのバックエンド実装（現在はグラフ構造のみ）

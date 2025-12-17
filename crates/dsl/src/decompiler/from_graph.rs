@@ -553,7 +553,6 @@ fn dtype_to_dsl(dtype: &DType) -> &'static str {
         DType::F32 => "f32",
         DType::I32 => "i32",
         DType::Bool => "bool",
-        DType::Complex => "c64",
         DType::Unknown => "unknown",
     }
 }

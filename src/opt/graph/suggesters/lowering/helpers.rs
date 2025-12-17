@@ -39,7 +39,6 @@ pub fn graph_dtype_to_ast(dtype: &GraphDType) -> AstDType {
         GraphDType::Bool => AstDType::Bool,
         GraphDType::I32 => AstDType::Int,
         GraphDType::F32 => AstDType::F32,
-        GraphDType::Complex => AstDType::F32, // 複素数は2つのf32として扱う
         GraphDType::Unknown => AstDType::F32,
     }
 }

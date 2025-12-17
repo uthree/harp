@@ -194,7 +194,6 @@ fn parse_tensor_type(
         "f32" => DslDType::F32,
         "i32" => DslDType::I32,
         "bool" => DslDType::Bool,
-        "c64" => DslDType::C64,
         _ => {
             return Err(DslError::ParseError {
                 line: 0,

@@ -146,7 +146,6 @@ impl LoweringSuggester {
             node.op,
             GraphOp::Buffer { .. }
                 | GraphOp::Const(_)
-                | GraphOp::ComplexConst { .. }
                 | GraphOp::View(_)
                 | GraphOp::Kernel { .. }
                 // サブグラフ関連のノードは直接lowerできない
@@ -193,10 +192,7 @@ impl LoweringSuggester {
     /// ノードがlowered済みまたはパススルー（Buffer, Kernel, View, Const）かをチェック
     fn is_lowered_or_passthrough(&self, node: &GraphNode) -> bool {
         match &node.op {
-            GraphOp::Buffer { .. }
-            | GraphOp::Const(_)
-            | GraphOp::ComplexConst { .. }
-            | GraphOp::Kernel { .. } => true,
+            GraphOp::Buffer { .. } | GraphOp::Const(_) | GraphOp::Kernel { .. } => true,
             GraphOp::View(_) => {
                 // Viewノードはすべてのソースがlowered済みの場合のみパススルー
                 let result = node.src.iter().all(|s| self.is_lowered_or_passthrough(s));
@@ -259,9 +255,6 @@ impl LoweringSuggester {
             GraphOp::Cast { target_dtype, .. } => {
                 other::build_cast_function(node, target_dtype, &name)
             }
-            GraphOp::Real => other::build_real_function(node, &name),
-            GraphOp::Imag => other::build_imag_function(node, &name),
-            GraphOp::ComplexFromParts => other::build_complex_from_parts_function(node, &name),
             GraphOp::Fold {
                 output_size,
                 kernel_size,

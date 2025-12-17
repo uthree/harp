@@ -179,7 +179,7 @@ impl SimpleCostEstimator {
     /// 各ノードのベースコストを取得（log(CPUサイクル)）
     fn node_base_cost(&self, node: &GraphNode) -> f32 {
         match &node.op {
-            GraphOp::Buffer { .. } | GraphOp::Const(_) | GraphOp::ComplexConst { .. } => {
+            GraphOp::Buffer { .. } | GraphOp::Const(_) => {
                 // 入力/定数ノードは実行時コストなし（メモリは既に確保済み）
                 f32::NEG_INFINITY // log(0)
             }
@@ -355,22 +355,6 @@ impl SimpleCostEstimator {
                 // CastもKernelにloweringされるべきなのでペナルティを追加
                 let lowering_penalty = self.kernel_launch_overhead.ln();
                 num_elements.ln() + (2.0 * self.memory_access_cost).ln() + lowering_penalty
-            }
-            GraphOp::Real | GraphOp::Imag => {
-                // 複素数から実部/虚部を抽出
-                // 読み込み + 書き込み（stride 2でのアクセス）
-                let num_elements = self.compute_num_elements(node);
-                // Real/ImagもKernelにloweringされるべきなのでペナルティを追加
-                let lowering_penalty = self.kernel_launch_overhead.ln();
-                num_elements.ln() + (2.0 * self.memory_access_cost).ln() + lowering_penalty
-            }
-            GraphOp::ComplexFromParts => {
-                // 実部と虚部から複素数を構築
-                // 2つの入力を読み込み + インターリーブして書き込み
-                let num_elements = self.compute_num_elements(node);
-                // ComplexFromPartsもKernelにloweringされるべきなのでペナルティを追加
-                let lowering_penalty = self.kernel_launch_overhead.ln();
-                num_elements.ln() + (3.0 * self.memory_access_cost).ln() + lowering_penalty
             }
             GraphOp::Kernel { ast, .. } => {
                 // Kernel関数のコスト計算
@@ -815,10 +799,7 @@ impl GraphCostEstimator for SimpleCostEstimator {
                 | GraphOp::Concat { .. }
                 | GraphOp::Rand
                 | GraphOp::Arange
-                | GraphOp::Cast { .. }
-                | GraphOp::Real
-                | GraphOp::Imag
-                | GraphOp::ComplexFromParts => {
+                | GraphOp::Cast { .. } => {
                     kernel_count += 1;
                 }
                 // Elementwiseもカーネルとしてカウント
@@ -956,7 +937,7 @@ impl GraphCostEstimator for LoweringCostEstimator {
         for node in &nodes {
             match &node.op {
                 // 無視するノード（入力・メタデータのみ）
-                GraphOp::Buffer { .. } | GraphOp::Const(_) | GraphOp::ComplexConst { .. } => {}
+                GraphOp::Buffer { .. } | GraphOp::Const(_) => {}
                 GraphOp::View(_) => {}
 
                 // Kernelノード

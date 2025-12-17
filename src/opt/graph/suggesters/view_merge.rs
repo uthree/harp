@@ -101,7 +101,6 @@ impl ViewMergeSuggester {
             op,
             GraphOp::Buffer { .. }
                 | GraphOp::Const(_)
-                | GraphOp::ComplexConst { .. }
                 | GraphOp::Kernel { .. }
                 | GraphOp::View(_)
         )

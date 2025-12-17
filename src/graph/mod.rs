@@ -63,7 +63,6 @@ pub enum DType {
     Bool,    // boolean (internally u8: 0 = false, non-zero = true)
     I32,     // 32-bit signed integer
     F32,     // 32-bit floating point
-    Complex, // complex number (lowered to two F32 values: real and imaginary)
 }
 
 impl Default for Graph {
@@ -339,33 +338,6 @@ impl GraphNode {
         Self::new(dtype, GraphOp::Const(literal), vec![], view)
     }
 
-    /// 複素数スカラー定数ノードを作成
-    ///
-    /// # 例
-    /// ```
-    /// use harp::prelude::*;
-    ///
-    /// // 複素数定数 (1.0 + 2.0i)
-    /// let complex_const = GraphNode::complex_constant(1.0, 2.0);
-    ///
-    /// // タプルから
-    /// let complex_const2 = GraphNode::complex_constant_from((3.0, 4.0));
-    /// ```
-    pub fn complex_constant(re: f32, im: f32) -> Self {
-        let view = View::contiguous(Vec::<isize>::new());
-        Self::new(
-            DType::Complex,
-            GraphOp::ComplexConst { re, im },
-            vec![],
-            view,
-        )
-    }
-
-    /// タプルから複素数スカラー定数ノードを作成
-    pub fn complex_constant_from(value: (f32, f32)) -> Self {
-        Self::complex_constant(value.0, value.1)
-    }
-
     /// 指定した形状の一様乱数テンソルを生成 [0, 1)
     ///
     /// # 引数
@@ -437,110 +409,6 @@ impl GraphNode {
             GraphOp::Cast { target_dtype },
             vec![self.clone()],
             self.view.clone(),
-        )
-    }
-
-    /// 複素数テンソルから実部を取り出す
-    ///
-    /// # 例
-    /// ```
-    /// use harp::graph::{Graph, GraphNode, DType};
-    ///
-    /// let mut graph = Graph::new();
-    /// let z = graph.input("z", DType::Complex, [4]);
-    /// let re = z.real();  // 実部（F32）
-    /// assert_eq!(re.dtype, DType::F32);
-    /// ```
-    ///
-    /// # パニック
-    /// 入力がComplex型でない場合にパニックします。
-    pub fn real(&self) -> Self {
-        assert_eq!(
-            self.dtype,
-            DType::Complex,
-            "real() can only be applied to Complex tensors"
-        );
-        Self::new(
-            DType::F32,
-            GraphOp::Real {},
-            vec![self.clone()],
-            self.view.clone(),
-        )
-    }
-
-    /// 複素数テンソルから虚部を取り出す
-    ///
-    /// # 例
-    /// ```
-    /// use harp::graph::{Graph, GraphNode, DType};
-    ///
-    /// let mut graph = Graph::new();
-    /// let z = graph.input("z", DType::Complex, [4]);
-    /// let im = z.imag();  // 虚部（F32）
-    /// assert_eq!(im.dtype, DType::F32);
-    /// ```
-    ///
-    /// # パニック
-    /// 入力がComplex型でない場合にパニックします。
-    pub fn imag(&self) -> Self {
-        assert_eq!(
-            self.dtype,
-            DType::Complex,
-            "imag() can only be applied to Complex tensors"
-        );
-        Self::new(
-            DType::F32,
-            GraphOp::Imag {},
-            vec![self.clone()],
-            self.view.clone(),
-        )
-    }
-
-    /// 実部と虚部のテンソルから複素数テンソルを構築する
-    ///
-    /// # 引数
-    /// - `real`: 実部（F32テンソル）
-    /// - `imag`: 虚部（F32テンソル）- realと同じshapeである必要がある
-    ///
-    /// # 例
-    /// ```
-    /// use harp::graph::{Graph, GraphNode, DType};
-    ///
-    /// let mut graph = Graph::new();
-    /// let re = graph.input("re", DType::F32, [4]);
-    /// let im = graph.input("im", DType::F32, [4]);
-    /// let z = GraphNode::complex_from_parts(re, im);
-    /// assert_eq!(z.dtype, DType::Complex);
-    /// ```
-    ///
-    /// # パニック
-    /// - realまたはimagがF32型でない場合
-    /// - realとimagのshapeが一致しない場合
-    pub fn complex_from_parts(real: Self, imag: Self) -> Self {
-        assert_eq!(
-            real.dtype,
-            DType::F32,
-            "real part must be F32, got {:?}",
-            real.dtype
-        );
-        assert_eq!(
-            imag.dtype,
-            DType::F32,
-            "imag part must be F32, got {:?}",
-            imag.dtype
-        );
-        assert_eq!(
-            real.view.shape(),
-            imag.view.shape(),
-            "real and imag must have the same shape: {:?} vs {:?}",
-            real.view.shape(),
-            imag.view.shape()
-        );
-        Self::new(
-            DType::Complex,
-            GraphOp::ComplexFromParts {},
-            vec![real.clone(), imag],
-            real.view.clone(),
         )
     }
 

@@ -534,7 +534,6 @@ impl KernelMergeSuggester {
             GraphDType::Bool => AstDType::Bool,
             GraphDType::I32 => AstDType::Int,
             GraphDType::F32 => AstDType::F32,
-            GraphDType::Complex => AstDType::F32,
             GraphDType::Unknown => AstDType::F32,
         }
     }
