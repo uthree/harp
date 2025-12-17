@@ -105,10 +105,7 @@ pub fn create_subgraph_inlining_suggester() -> CompositeSuggester {
 /// グラフの構築過程で生成された余分なビュー変更を除去します。
 /// 最適化の最初と最後に実行することで、クリーンなグラフ構造を維持します。
 pub fn create_view_merge_only_suggester() -> CompositeSuggester {
-    CompositeSuggester::new(vec![
-        Box::new(ViewMergeSuggester::new()),
-        Box::new(FusionSuggester::new()),
-    ])
+    CompositeSuggester::new(vec![Box::new(ViewMergeSuggester::new())])
 }
 
 /// グラフ最適化フェーズ用のSuggesterを作成
