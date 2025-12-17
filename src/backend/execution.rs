@@ -625,6 +625,11 @@ fn evaluate_expr(expr: &Expr, shape_vars: &HashMap<String, isize>) -> isize {
     match expr {
         Expr::Const(n) => *n,
         Expr::Var(name) => shape_vars.get(name).copied().unwrap_or(1),
+        Expr::Idx(_) => {
+            // Idx is used for index expressions in IndexExpr views,
+            // it should not appear in shape evaluation
+            panic!("Expr::Idx cannot be evaluated as a shape expression")
+        }
         Expr::Add(a, b) => evaluate_expr(a, shape_vars) + evaluate_expr(b, shape_vars),
         Expr::Sub(a, b) => evaluate_expr(a, shape_vars) - evaluate_expr(b, shape_vars),
         Expr::Mul(a, b) => evaluate_expr(a, shape_vars) * evaluate_expr(b, shape_vars),

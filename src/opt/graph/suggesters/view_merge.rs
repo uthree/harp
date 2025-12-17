@@ -123,6 +123,12 @@ impl ViewMergeSuggester {
 
         let input_node = &view_node.src[0];
 
+        // 非線形View（IndexExpr）はマージしない
+        // IndexExprの合成は複雑で、現在はサポートしていない
+        if !target_view.is_linear() || !input_node.view.is_linear() {
+            return None;
+        }
+
         // 次元数変更のチェック
         if !Self::allows_ndim_change(&input_node.op) {
             let new_ndim = target_view.ndim();

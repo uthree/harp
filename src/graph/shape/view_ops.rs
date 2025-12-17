@@ -169,6 +169,9 @@ impl View {
                     offset,
                 }
             }
+            View::IndexExpr { .. } => {
+                panic!("unfold is not supported for IndexExpr views")
+            }
         }
     }
 
@@ -301,17 +304,17 @@ mod tests {
         let view = View::contiguous(vec![6]);
         let unfolded = view.unfold1d(3, 1, 1, 1);
 
-        match unfolded {
-            View::Linear {
-                shape,
-                strides,
-                offset,
-            } => {
-                assert_eq!(shape, vec![Expr::from(3), Expr::from(4)]);
-                assert_eq!(strides, vec![Expr::from(1), Expr::from(1)]);
-                assert_eq!(offset, Expr::from(0));
-            }
-        }
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = unfolded
+        else {
+            panic!("Expected Linear view")
+        };
+        assert_eq!(shape, vec![Expr::from(3), Expr::from(4)]);
+        assert_eq!(strides, vec![Expr::from(1), Expr::from(1)]);
+        assert_eq!(offset, Expr::from(0));
     }
 
     #[test]
@@ -322,17 +325,17 @@ mod tests {
         let view = View::contiguous(vec![10]);
         let unfolded = view.unfold1d(3, 2, 1, 1);
 
-        match unfolded {
-            View::Linear {
-                shape,
-                strides,
-                offset,
-            } => {
-                assert_eq!(shape, vec![Expr::from(3), Expr::from(4)]);
-                assert_eq!(strides, vec![Expr::from(1), Expr::from(2)]);
-                assert_eq!(offset, Expr::from(0));
-            }
-        }
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = unfolded
+        else {
+            panic!("Expected Linear view")
+        };
+        assert_eq!(shape, vec![Expr::from(3), Expr::from(4)]);
+        assert_eq!(strides, vec![Expr::from(1), Expr::from(2)]);
+        assert_eq!(offset, Expr::from(0));
     }
 
     #[test]
@@ -343,18 +346,18 @@ mod tests {
         let view = View::contiguous(vec![8]);
         let unfolded = view.unfold1d(3, 1, 2, 1);
 
-        match unfolded {
-            View::Linear {
-                shape,
-                strides,
-                offset,
-            } => {
-                assert_eq!(shape, vec![Expr::from(3), Expr::from(4)]);
-                // カーネル内stride: dilation=2
-                assert_eq!(strides, vec![Expr::from(2), Expr::from(1)]);
-                assert_eq!(offset, Expr::from(0));
-            }
-        }
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = unfolded
+        else {
+            panic!("Expected Linear view")
+        };
+        assert_eq!(shape, vec![Expr::from(3), Expr::from(4)]);
+        // カーネル内stride: dilation=2
+        assert_eq!(strides, vec![Expr::from(2), Expr::from(1)]);
+        assert_eq!(offset, Expr::from(0));
     }
 
     #[test]
@@ -365,19 +368,19 @@ mod tests {
         let view = View::contiguous(vec![3, 6]);
         let unfolded = view.unfold1d(3, 1, 1, 1);
 
-        match unfolded {
-            View::Linear {
-                shape,
-                strides,
-                offset,
-            } => {
-                assert_eq!(shape, vec![Expr::from(3), Expr::from(3), Expr::from(4)]);
-                // 元のstrides: [6, 1]
-                // unfold後: [6, 1, 1]
-                assert_eq!(strides, vec![Expr::from(6), Expr::from(1), Expr::from(1)]);
-                assert_eq!(offset, Expr::from(0));
-            }
-        }
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = unfolded
+        else {
+            panic!("Expected Linear view")
+        };
+        assert_eq!(shape, vec![Expr::from(3), Expr::from(3), Expr::from(4)]);
+        // 元のstrides: [6, 1]
+        // unfold後: [6, 1, 1]
+        assert_eq!(strides, vec![Expr::from(6), Expr::from(1), Expr::from(1)]);
+        assert_eq!(offset, Expr::from(0));
     }
 
     #[test]
@@ -388,19 +391,19 @@ mod tests {
         let view = View::contiguous(vec![2, 10]);
         let unfolded = view.unfold1d(4, 2, 1, 1);
 
-        match unfolded {
-            View::Linear {
-                shape,
-                strides,
-                offset,
-            } => {
-                assert_eq!(shape, vec![Expr::from(2), Expr::from(4), Expr::from(4)]);
-                // 元のstrides: [10, 1]
-                // unfold後: [10, 1, 2]
-                assert_eq!(strides, vec![Expr::from(10), Expr::from(1), Expr::from(2)]);
-                assert_eq!(offset, Expr::from(0));
-            }
-        }
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = unfolded
+        else {
+            panic!("Expected Linear view")
+        };
+        assert_eq!(shape, vec![Expr::from(2), Expr::from(4), Expr::from(4)]);
+        // 元のstrides: [10, 1]
+        // unfold後: [10, 1, 2]
+        assert_eq!(strides, vec![Expr::from(10), Expr::from(1), Expr::from(2)]);
+        assert_eq!(offset, Expr::from(0));
     }
 
     #[test]
@@ -411,19 +414,19 @@ mod tests {
         let view = View::contiguous(vec![2, 12]);
         let unfolded = view.unfold1d(3, 1, 3, 1);
 
-        match unfolded {
-            View::Linear {
-                shape,
-                strides,
-                offset,
-            } => {
-                assert_eq!(shape, vec![Expr::from(2), Expr::from(3), Expr::from(6)]);
-                // 元のstrides: [12, 1]
-                // unfold後: [12, 3, 1] (カーネル内stride=dilation=3)
-                assert_eq!(strides, vec![Expr::from(12), Expr::from(3), Expr::from(1)]);
-                assert_eq!(offset, Expr::from(0));
-            }
-        }
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = unfolded
+        else {
+            panic!("Expected Linear view")
+        };
+        assert_eq!(shape, vec![Expr::from(2), Expr::from(3), Expr::from(6)]);
+        // 元のstrides: [12, 1]
+        // unfold後: [12, 3, 1] (カーネル内stride=dilation=3)
+        assert_eq!(strides, vec![Expr::from(12), Expr::from(3), Expr::from(1)]);
+        assert_eq!(offset, Expr::from(0));
     }
 
     #[test]
@@ -434,28 +437,28 @@ mod tests {
         let view = View::contiguous(vec![6, 10]);
         let unfolded = view.unfold1d(3, 1, 1, 2);
 
-        match unfolded {
-            View::Linear {
-                shape,
-                strides,
-                offset,
-            } => {
-                assert_eq!(
-                    shape,
-                    vec![Expr::from(2), Expr::from(3), Expr::from(3), Expr::from(8)]
-                );
-                // 元のstrides: [10, 1]
-                // グループstride: 3 * 10 = 30
-                // チャネルstride: 10
-                // カーネルstride: 1
-                // 出力位置stride: 1
-                assert_eq!(
-                    strides,
-                    vec![Expr::from(30), Expr::from(10), Expr::from(1), Expr::from(1)]
-                );
-                assert_eq!(offset, Expr::from(0));
-            }
-        }
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = unfolded
+        else {
+            panic!("Expected Linear view")
+        };
+        assert_eq!(
+            shape,
+            vec![Expr::from(2), Expr::from(3), Expr::from(3), Expr::from(8)]
+        );
+        // 元のstrides: [10, 1]
+        // グループstride: 3 * 10 = 30
+        // チャネルstride: 10
+        // カーネルstride: 1
+        // 出力位置stride: 1
+        assert_eq!(
+            strides,
+            vec![Expr::from(30), Expr::from(10), Expr::from(1), Expr::from(1)]
+        );
+        assert_eq!(offset, Expr::from(0));
     }
 
     #[test]
@@ -466,24 +469,24 @@ mod tests {
         let view = View::contiguous(vec![4, 10]);
         let unfolded = view.unfold1d(3, 1, 1, 4);
 
-        match unfolded {
-            View::Linear {
-                shape,
-                strides,
-                offset,
-            } => {
-                assert_eq!(
-                    shape,
-                    vec![Expr::from(4), Expr::from(1), Expr::from(3), Expr::from(8)]
-                );
-                // グループstride: 1 * 10 = 10 (各チャネルが独立)
-                assert_eq!(
-                    strides,
-                    vec![Expr::from(10), Expr::from(10), Expr::from(1), Expr::from(1)]
-                );
-                assert_eq!(offset, Expr::from(0));
-            }
-        }
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = unfolded
+        else {
+            panic!("Expected Linear view")
+        };
+        assert_eq!(
+            shape,
+            vec![Expr::from(4), Expr::from(1), Expr::from(3), Expr::from(8)]
+        );
+        // グループstride: 1 * 10 = 10 (各チャネルが独立)
+        assert_eq!(
+            strides,
+            vec![Expr::from(10), Expr::from(10), Expr::from(1), Expr::from(1)]
+        );
+        assert_eq!(offset, Expr::from(0));
     }
 
     #[test]
@@ -498,13 +501,12 @@ mod tests {
         assert_eq!(unfolded.shape(), &[Expr::from(3), Expr::from(4)]);
 
         // strides確認: 各次元の進み方
-        match unfolded {
-            View::Linear { strides, .. } => {
-                // strides[0]=1: カーネル内で1ステップ進む
-                // strides[1]=1: 出力位置で1ステップ進む
-                assert_eq!(strides, vec![Expr::from(1), Expr::from(1)]);
-            }
-        }
+        let View::Linear { strides, .. } = unfolded else {
+            panic!("Expected Linear view")
+        };
+        // strides[0]=1: カーネル内で1ステップ進む
+        // strides[1]=1: 出力位置で1ステップ進む
+        assert_eq!(strides, vec![Expr::from(1), Expr::from(1)]);
     }
 
     #[test]

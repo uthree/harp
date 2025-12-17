@@ -218,6 +218,11 @@ pub fn build_strided_offset(view: &View, ndim: usize) -> AstNode {
 
             result
         }
+        View::IndexExpr { index_expr, .. } => {
+            // IndexExprはExpr::Idxを含む式で、From<Expr> for AstNodeが
+            // Idx(i)をridx(i)変数に変換する
+            index_expr.clone().into()
+        }
     }
 }
 

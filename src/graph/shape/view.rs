@@ -3,13 +3,20 @@ use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum View {
-    // 線形な処理で表現可能な場合
+    /// 線形な処理で表現可能な場合
+    /// offset = base_offset + Σ(idx[i] * strides[i])
     Linear {
         shape: Vec<Expr>,   // 論理的なテンソルのサイズ
         strides: Vec<Expr>, // 各次元の添え字の係数
         offset: Expr,       // オフセット
     },
-    // TODO: 非線形な場合の処理を実装する
+
+    /// 任意の式でインデックスを計算する場合
+    /// offsetはExprで直接計算される（Idx(0), Idx(1), ... を含む）
+    IndexExpr {
+        shape: Vec<Expr>,   // 論理的なテンソルのサイズ
+        index_expr: Expr,   // インデックス計算式
+    },
 }
 
 impl View {
@@ -39,8 +46,13 @@ impl View {
 
     pub fn shape(&self) -> &[Expr] {
         match self {
-            View::Linear { shape, .. } => shape,
+            View::Linear { shape, .. } | View::IndexExpr { shape, .. } => shape,
         }
+    }
+
+    /// Linearバリアントかどうかを判定
+    pub fn is_linear(&self) -> bool {
+        matches!(self, View::Linear { .. })
     }
 
     pub fn permute(self, axes: Vec<usize>) -> Self {
@@ -65,6 +77,16 @@ impl View {
                     offset,
                 }
             }
+            View::IndexExpr { shape, index_expr } => {
+                // shapeを並べ替え
+                let new_shape: Vec<Expr> = axes.iter().map(|&a| shape[a].clone()).collect();
+                // index_exprのIdx変数を並べ替え
+                let new_index_expr = index_expr.permute_idx(&axes);
+                View::IndexExpr {
+                    shape: new_shape,
+                    index_expr: new_index_expr,
+                }
+            }
         }
     }
 
@@ -84,6 +106,16 @@ impl View {
                     shape,
                     strides,
                     offset,
+                }
+            }
+            View::IndexExpr { mut shape, index_expr } => {
+                // shapeに1を挿入
+                shape.insert(axis, 1.into());
+                // Idx(i) for i >= axis を Idx(i+1) にシフト
+                let new_index_expr = index_expr.shift_idx(axis, 1);
+                View::IndexExpr {
+                    shape,
+                    index_expr: new_index_expr,
                 }
             }
         }
@@ -106,6 +138,19 @@ impl View {
                     shape,
                     strides,
                     offset,
+                }
+            }
+            View::IndexExpr { mut shape, index_expr } => {
+                assert_eq!(shape[axis], 1.into(), "can only squeeze an axis of size 1");
+                // shapeから削除
+                shape.remove(axis);
+                // Idx(axis) を 0 に置換し、Idx(i) for i > axis を Idx(i-1) にシフト
+                let new_index_expr = index_expr
+                    .substitute_idx(axis, Expr::from(0))
+                    .shift_idx(axis + 1, -1);
+                View::IndexExpr {
+                    shape,
+                    index_expr: new_index_expr,
                 }
             }
         }
@@ -132,6 +177,16 @@ impl View {
                     offset: new_offset,
                 }
             }
+            View::IndexExpr { shape, index_expr } => {
+                // Idx(axis) を (shape[axis] - 1 - Idx(axis)) に置換
+                let flipped_idx =
+                    (shape[axis].clone() - Expr::from(1) - Expr::Idx(axis)).simplify();
+                let new_index_expr = index_expr.substitute_idx(axis, flipped_idx);
+                View::IndexExpr {
+                    shape,
+                    index_expr: new_index_expr,
+                }
+            }
         }
     }
 
@@ -144,6 +199,7 @@ impl View {
     /// # Panics
     /// * 軸が範囲外の場合
     /// * 指定軸のサイズが1でない場合
+    /// * IndexExpr Viewの場合（未対応）
     pub fn repeat(self, axis: usize, times: impl Into<Expr>) -> Self {
         let times = times.into();
         match self {
@@ -162,6 +218,9 @@ impl View {
                     offset,
                 }
             }
+            View::IndexExpr { .. } => {
+                panic!("repeat is not supported for IndexExpr views")
+            }
         }
     }
 
@@ -169,6 +228,10 @@ impl View {
     ///
     /// 要素数が一致する新しいshapeに変換します。
     /// 非連続なViewに対してはpanicします。
+    ///
+    /// # Panics
+    /// * 非連続なViewの場合
+    /// * IndexExpr Viewの場合（常に非連続として扱われる）
     pub fn reshape(self, new_shape: Vec<Expr>) -> Self {
         assert!(
             self.is_contiguous(),
@@ -198,12 +261,18 @@ impl View {
 
                 // 新しいshapeで連続したViewを作成（offsetは保持）
                 let mut reshaped = View::contiguous(new_shape);
-                let View::Linear {
-                    offset: ref mut new_offset,
+                if let View::Linear {
+                    offset: new_offset,
                     ..
-                } = reshaped;
-                *new_offset = offset;
+                } = &mut reshaped
+                {
+                    *new_offset = offset;
+                }
                 reshaped
+            }
+            View::IndexExpr { .. } => {
+                // is_contiguous()がfalseを返すので、ここには到達しない
+                unreachable!("IndexExpr views are always non-contiguous")
             }
         }
     }
@@ -211,6 +280,35 @@ impl View {
     pub fn is_contiguous(&self) -> bool {
         match self {
             View::Linear { shape, .. } => *self == View::contiguous(shape.clone()),
+            // IndexExprは常に非連続として扱う
+            View::IndexExpr { .. } => false,
+        }
+    }
+
+    /// IndexExpr Viewを作成
+    ///
+    /// # Arguments
+    /// * `shape` - 論理的な形状
+    /// * `index_expr` - インデックス計算式（Idx(0), Idx(1), ... を含む）
+    ///
+    /// # Examples
+    /// ```
+    /// use harp::graph::shape::{View, Expr};
+    ///
+    /// // 転置を式で表現: offset = idx1 * 4 + idx0
+    /// let view = View::from_index_expr(
+    ///     vec![Expr::from(4), Expr::from(3)],
+    ///     Expr::Idx(1) * Expr::from(4) + Expr::Idx(0),
+    /// );
+    /// ```
+    pub fn from_index_expr<E: Into<Expr> + Clone, I: IntoIterator<Item = E>>(
+        shape: I,
+        index_expr: impl Into<Expr>,
+    ) -> Self {
+        let shape: Vec<Expr> = shape.into_iter().map(|e| e.into()).collect();
+        View::IndexExpr {
+            shape,
+            index_expr: index_expr.into(),
         }
     }
 }
@@ -222,65 +320,65 @@ mod tests {
     #[test]
     fn test_contiguous_1d() {
         let view = View::contiguous(vec![10]);
-        match view {
-            View::Linear {
-                shape,
-                strides,
-                offset,
-            } => {
-                assert_eq!(shape, vec![Expr::from(10)]);
-                assert_eq!(strides, vec![Expr::from(1)]);
-                assert_eq!(offset, Expr::from(0));
-            }
-        }
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = view
+        else {
+            panic!("Expected Linear view")
+        };
+        assert_eq!(shape, vec![Expr::from(10)]);
+        assert_eq!(strides, vec![Expr::from(1)]);
+        assert_eq!(offset, Expr::from(0));
     }
 
     #[test]
     fn test_contiguous_2d() {
         let view = View::contiguous(vec![3, 4]);
-        match view {
-            View::Linear {
-                shape,
-                strides,
-                offset,
-            } => {
-                assert_eq!(shape, vec![Expr::from(3), Expr::from(4)]);
-                assert_eq!(strides, vec![Expr::from(4), Expr::from(1)]);
-                assert_eq!(offset, Expr::from(0));
-            }
-        }
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = view
+        else {
+            panic!("Expected Linear view")
+        };
+        assert_eq!(shape, vec![Expr::from(3), Expr::from(4)]);
+        assert_eq!(strides, vec![Expr::from(4), Expr::from(1)]);
+        assert_eq!(offset, Expr::from(0));
     }
 
     #[test]
     fn test_contiguous_3d() {
         let view = View::contiguous(vec![2, 3, 4]);
-        match view {
-            View::Linear {
-                shape,
-                strides,
-                offset,
-            } => {
-                assert_eq!(shape, vec![Expr::from(2), Expr::from(3), Expr::from(4)]);
-                assert_eq!(strides, vec![Expr::from(12), Expr::from(4), Expr::from(1)]);
-                assert_eq!(offset, Expr::from(0));
-            }
-        }
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = view
+        else {
+            panic!("Expected Linear view")
+        };
+        assert_eq!(shape, vec![Expr::from(2), Expr::from(3), Expr::from(4)]);
+        assert_eq!(strides, vec![Expr::from(12), Expr::from(4), Expr::from(1)]);
+        assert_eq!(offset, Expr::from(0));
     }
 
     #[test]
     fn test_contiguous_empty() {
         let view = View::contiguous(Vec::<isize>::new());
-        match view {
-            View::Linear {
-                shape,
-                strides,
-                offset,
-            } => {
-                assert_eq!(shape.len(), 0);
-                assert_eq!(strides.len(), 0);
-                assert_eq!(offset, Expr::from(0));
-            }
-        }
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = view
+        else {
+            panic!("Expected Linear view")
+        };
+        assert_eq!(shape.len(), 0);
+        assert_eq!(strides.len(), 0);
+        assert_eq!(offset, Expr::from(0));
     }
 
     #[test]
@@ -306,17 +404,17 @@ mod tests {
         let view = View::contiguous(vec![2, 3, 4]);
         let permuted = view.permute(vec![2, 0, 1]); // (2, 3, 4) -> (4, 2, 3)
 
-        match permuted {
-            View::Linear {
-                shape,
-                strides,
-                offset,
-            } => {
-                assert_eq!(shape, vec![Expr::from(4), Expr::from(2), Expr::from(3)]);
-                assert_eq!(strides, vec![Expr::from(1), Expr::from(12), Expr::from(4)]);
-                assert_eq!(offset, Expr::from(0));
-            }
-        }
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = permuted
+        else {
+            panic!("Expected Linear view")
+        };
+        assert_eq!(shape, vec![Expr::from(4), Expr::from(2), Expr::from(3)]);
+        assert_eq!(strides, vec![Expr::from(1), Expr::from(12), Expr::from(4)]);
+        assert_eq!(offset, Expr::from(0));
     }
 
     #[test]
@@ -338,17 +436,17 @@ mod tests {
         let view = View::contiguous(vec![3, 4]);
         let unsqueezed = view.unsqueeze(1); // (3, 4) -> (3, 1, 4)
 
-        match unsqueezed {
-            View::Linear {
-                shape,
-                strides,
-                offset,
-            } => {
-                assert_eq!(shape, vec![Expr::from(3), Expr::from(1), Expr::from(4)]);
-                assert_eq!(strides, vec![Expr::from(4), Expr::from(0), Expr::from(1)]);
-                assert_eq!(offset, Expr::from(0));
-            }
-        }
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = unsqueezed
+        else {
+            panic!("Expected Linear view")
+        };
+        assert_eq!(shape, vec![Expr::from(3), Expr::from(1), Expr::from(4)]);
+        assert_eq!(strides, vec![Expr::from(4), Expr::from(0), Expr::from(1)]);
+        assert_eq!(offset, Expr::from(0));
     }
 
     #[test]
@@ -356,11 +454,10 @@ mod tests {
         let view = View::contiguous(vec![3, 4]);
         let unsqueezed = view.unsqueeze(0); // (3, 4) -> (1, 3, 4)
 
-        match unsqueezed {
-            View::Linear { shape, .. } => {
-                assert_eq!(shape, vec![Expr::from(1), Expr::from(3), Expr::from(4)]);
-            }
-        }
+        let View::Linear { shape, .. } = unsqueezed else {
+            panic!("Expected Linear view")
+        };
+        assert_eq!(shape, vec![Expr::from(1), Expr::from(3), Expr::from(4)]);
     }
 
     #[test]
@@ -368,11 +465,10 @@ mod tests {
         let view = View::contiguous(vec![3, 4]);
         let unsqueezed = view.unsqueeze(2); // (3, 4) -> (3, 4, 1)
 
-        match unsqueezed {
-            View::Linear { shape, .. } => {
-                assert_eq!(shape, vec![Expr::from(3), Expr::from(4), Expr::from(1)]);
-            }
-        }
+        let View::Linear { shape, .. } = unsqueezed else {
+            panic!("Expected Linear view")
+        };
+        assert_eq!(shape, vec![Expr::from(3), Expr::from(4), Expr::from(1)]);
     }
 
     #[test]
@@ -380,17 +476,17 @@ mod tests {
         let view = View::contiguous(vec![3, 1, 4]);
         let squeezed = view.squeeze(1); // (3, 1, 4) -> (3, 4)
 
-        match squeezed {
-            View::Linear {
-                shape,
-                strides,
-                offset,
-            } => {
-                assert_eq!(shape, vec![Expr::from(3), Expr::from(4)]);
-                assert_eq!(strides, vec![Expr::from(4), Expr::from(1)]);
-                assert_eq!(offset, Expr::from(0));
-            }
-        }
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = squeezed
+        else {
+            panic!("Expected Linear view")
+        };
+        assert_eq!(shape, vec![Expr::from(3), Expr::from(4)]);
+        assert_eq!(strides, vec![Expr::from(4), Expr::from(1)]);
+        assert_eq!(offset, Expr::from(0));
     }
 
     #[test]
@@ -405,20 +501,20 @@ mod tests {
         let view = View::contiguous(vec![3, 4]);
         let flipped = view.flip(0); // Flip first axis
 
-        match flipped {
-            View::Linear {
-                shape,
-                strides,
-                offset,
-            } => {
-                assert_eq!(shape, vec![Expr::from(3), Expr::from(4)]);
-                // Stride for axis 0 should be negated
-                assert_eq!(strides[0], Expr::from(-4));
-                assert_eq!(strides[1], Expr::from(1));
-                // Offset should be (3-1) * 4 = 8
-                assert_eq!(offset, Expr::from(8));
-            }
-        }
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = flipped
+        else {
+            panic!("Expected Linear view")
+        };
+        assert_eq!(shape, vec![Expr::from(3), Expr::from(4)]);
+        // Stride for axis 0 should be negated
+        assert_eq!(strides[0], Expr::from(-4));
+        assert_eq!(strides[1], Expr::from(1));
+        // Offset should be (3-1) * 4 = 8
+        assert_eq!(offset, Expr::from(8));
     }
 
     #[test]
@@ -426,19 +522,19 @@ mod tests {
         let view = View::contiguous(vec![1, 4]);
         let expanded = view.repeat(0, 3); // (1, 4) -> (3, 4), axis 0 repeated 3 times
 
-        match expanded {
-            View::Linear {
-                shape,
-                strides,
-                offset,
-            } => {
-                assert_eq!(shape, vec![Expr::from(3), Expr::from(4)]);
-                // Stride for repeated axis should be 0
-                assert_eq!(strides[0], Expr::from(0));
-                assert_eq!(strides[1], Expr::from(1));
-                assert_eq!(offset, Expr::from(0));
-            }
-        }
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = expanded
+        else {
+            panic!("Expected Linear view")
+        };
+        assert_eq!(shape, vec![Expr::from(3), Expr::from(4)]);
+        // Stride for repeated axis should be 0
+        assert_eq!(strides[0], Expr::from(0));
+        assert_eq!(strides[1], Expr::from(1));
+        assert_eq!(offset, Expr::from(0));
     }
 
     #[test]
@@ -489,19 +585,19 @@ mod tests {
 
         let view = View::contiguous(vec![batch.clone(), seq_len.clone()]);
 
-        match view {
-            View::Linear {
-                shape,
-                strides,
-                offset,
-            } => {
-                assert_eq!(shape[0], batch);
-                assert_eq!(shape[1], seq_len.clone());
-                assert_eq!(strides[0], seq_len);
-                assert_eq!(strides[1], Expr::from(1));
-                assert_eq!(offset, Expr::from(0));
-            }
-        }
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = view
+        else {
+            panic!("Expected Linear view")
+        };
+        assert_eq!(shape[0], batch);
+        assert_eq!(shape[1], seq_len.clone());
+        assert_eq!(strides[0], seq_len);
+        assert_eq!(strides[1], Expr::from(1));
+        assert_eq!(offset, Expr::from(0));
     }
 
     #[test]
@@ -510,17 +606,17 @@ mod tests {
         let view = View::contiguous(vec![2, 3, 4]);
         let reshaped = view.reshape(vec![Expr::from(6), Expr::from(4)]);
 
-        match reshaped {
-            View::Linear {
-                shape,
-                strides,
-                offset,
-            } => {
-                assert_eq!(shape, vec![Expr::from(6), Expr::from(4)]);
-                assert_eq!(strides, vec![Expr::from(4), Expr::from(1)]);
-                assert_eq!(offset, Expr::from(0));
-            }
-        }
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = reshaped
+        else {
+            panic!("Expected Linear view")
+        };
+        assert_eq!(shape, vec![Expr::from(6), Expr::from(4)]);
+        assert_eq!(strides, vec![Expr::from(4), Expr::from(1)]);
+        assert_eq!(offset, Expr::from(0));
     }
 
     #[test]
@@ -529,17 +625,17 @@ mod tests {
         let view = View::contiguous(vec![2, 3, 4]);
         let reshaped = view.reshape(vec![Expr::from(24)]);
 
-        match reshaped {
-            View::Linear {
-                shape,
-                strides,
-                offset,
-            } => {
-                assert_eq!(shape, vec![Expr::from(24)]);
-                assert_eq!(strides, vec![Expr::from(1)]);
-                assert_eq!(offset, Expr::from(0));
-            }
-        }
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = reshaped
+        else {
+            panic!("Expected Linear view")
+        };
+        assert_eq!(shape, vec![Expr::from(24)]);
+        assert_eq!(strides, vec![Expr::from(1)]);
+        assert_eq!(offset, Expr::from(0));
     }
 
     #[test]
@@ -548,17 +644,17 @@ mod tests {
         let view = View::contiguous(vec![24]);
         let reshaped = view.reshape(vec![Expr::from(2), Expr::from(3), Expr::from(4)]);
 
-        match reshaped {
-            View::Linear {
-                shape,
-                strides,
-                offset,
-            } => {
-                assert_eq!(shape, vec![Expr::from(2), Expr::from(3), Expr::from(4)]);
-                assert_eq!(strides, vec![Expr::from(12), Expr::from(4), Expr::from(1)]);
-                assert_eq!(offset, Expr::from(0));
-            }
-        }
+        let View::Linear {
+            shape,
+            strides,
+            offset,
+        } = reshaped
+        else {
+            panic!("Expected Linear view")
+        };
+        assert_eq!(shape, vec![Expr::from(2), Expr::from(3), Expr::from(4)]);
+        assert_eq!(strides, vec![Expr::from(12), Expr::from(4), Expr::from(1)]);
+        assert_eq!(offset, Expr::from(0));
     }
 
     #[test]
@@ -587,14 +683,13 @@ mod tests {
             Expr::from(4),
         ]);
 
-        match &tiled {
-            View::Linear { shape, .. } => {
-                assert_eq!(
-                    shape,
-                    &vec![Expr::from(4), Expr::from(3), Expr::from(4), Expr::from(4)]
-                );
-            }
-        }
+        let View::Linear { shape, .. } = &tiled else {
+            panic!("Expected Linear view")
+        };
+        assert_eq!(
+            shape,
+            &vec![Expr::from(4), Expr::from(3), Expr::from(4), Expr::from(4)]
+        );
 
         // Permute to group tiles: (4, 4, 3, 4) for better cache locality
         let permuted = tiled.permute(vec![0, 2, 1, 3]);
@@ -602,5 +697,139 @@ mod tests {
             permuted.shape(),
             &[Expr::from(4), Expr::from(4), Expr::from(3), Expr::from(4)]
         );
+    }
+
+    // IndexExpr tests
+
+    #[test]
+    fn test_index_expr_basic() {
+        // 転置を式で表現: offset = idx1 * 4 + idx0
+        let view = View::from_index_expr(
+            vec![Expr::from(4), Expr::from(3)],
+            Expr::Idx(1) * Expr::from(4) + Expr::Idx(0),
+        );
+
+        assert_eq!(view.shape(), &[Expr::from(4), Expr::from(3)]);
+        assert_eq!(view.ndim(), 2);
+        assert!(!view.is_contiguous());
+        assert!(!view.is_linear());
+    }
+
+    #[test]
+    fn test_index_expr_permute() {
+        // IndexExprに対するpermute
+        // 元: shape=[3, 4], index_expr = Idx(0) * 4 + Idx(1)
+        let view = View::from_index_expr(
+            vec![Expr::from(3), Expr::from(4)],
+            Expr::Idx(0) * Expr::from(4) + Expr::Idx(1),
+        );
+
+        // permute([1, 0]): shape=[4, 3], Idx(0)->Idx(1), Idx(1)->Idx(0)
+        let permuted = view.permute(vec![1, 0]);
+
+        assert_eq!(permuted.shape(), &[Expr::from(4), Expr::from(3)]);
+
+        // 新しいindex_exprは Idx(1) * 4 + Idx(0) になるはず
+        if let View::IndexExpr { index_expr, .. } = permuted {
+            // Idx(0)とIdx(1)が入れ替わっている
+            let expected = Expr::Idx(1) * Expr::from(4) + Expr::Idx(0);
+            assert_eq!(index_expr, expected);
+        } else {
+            panic!("Expected IndexExpr variant");
+        }
+    }
+
+    #[test]
+    fn test_index_expr_unsqueeze() {
+        // IndexExprに対するunsqueeze
+        let view = View::from_index_expr(
+            vec![Expr::from(3), Expr::from(4)],
+            Expr::Idx(0) * Expr::from(4) + Expr::Idx(1),
+        );
+
+        // unsqueeze(1): shape=[3, 1, 4]
+        let unsqueezed = view.unsqueeze(1);
+
+        assert_eq!(
+            unsqueezed.shape(),
+            &[Expr::from(3), Expr::from(1), Expr::from(4)]
+        );
+
+        // index_expr: Idx(0) * 4 + Idx(1) -> Idx(0) * 4 + Idx(2)
+        if let View::IndexExpr { index_expr, .. } = unsqueezed {
+            let expected = Expr::Idx(0) * Expr::from(4) + Expr::Idx(2);
+            assert_eq!(index_expr, expected);
+        } else {
+            panic!("Expected IndexExpr variant");
+        }
+    }
+
+    #[test]
+    fn test_index_expr_squeeze() {
+        // IndexExprに対するsqueeze
+        let view = View::from_index_expr(
+            vec![Expr::from(3), Expr::from(1), Expr::from(4)],
+            Expr::Idx(0) * Expr::from(4) + Expr::Idx(2),
+        );
+
+        // squeeze(1): shape=[3, 4]
+        let squeezed = view.squeeze(1);
+
+        assert_eq!(squeezed.shape(), &[Expr::from(3), Expr::from(4)]);
+
+        // index_expr: Idx(0) * 4 + Idx(2) -> Idx(0) * 4 + Idx(1)
+        // (Idx(1)が0に、Idx(2)がIdx(1)に)
+        if let View::IndexExpr { index_expr, .. } = squeezed {
+            let expected = Expr::Idx(0) * Expr::from(4) + Expr::Idx(1);
+            assert_eq!(index_expr, expected);
+        } else {
+            panic!("Expected IndexExpr variant");
+        }
+    }
+
+    #[test]
+    fn test_index_expr_flip() {
+        // IndexExprに対するflip
+        let view = View::from_index_expr(
+            vec![Expr::from(3), Expr::from(4)],
+            Expr::Idx(0) * Expr::from(4) + Expr::Idx(1),
+        );
+
+        // flip(0): Idx(0) -> (3 - 1 - Idx(0)) = (2 - Idx(0))
+        let flipped = view.flip(0);
+
+        assert_eq!(flipped.shape(), &[Expr::from(3), Expr::from(4)]);
+
+        if let View::IndexExpr { index_expr, .. } = flipped {
+            // (2 - Idx(0)) * 4 + Idx(1) を期待
+            // simplify後の形式を確認
+            let idx0_flipped = Expr::from(2) - Expr::Idx(0);
+            let expected = idx0_flipped * Expr::from(4) + Expr::Idx(1);
+            assert_eq!(index_expr, expected);
+        } else {
+            panic!("Expected IndexExpr variant");
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "repeat is not supported for IndexExpr views")]
+    fn test_index_expr_repeat_panics() {
+        let view = View::from_index_expr(
+            vec![Expr::from(1), Expr::from(4)],
+            Expr::Idx(1),
+        );
+
+        let _ = view.repeat(0, 3); // Should panic
+    }
+
+    #[test]
+    #[should_panic(expected = "reshape can only be applied to contiguous views")]
+    fn test_index_expr_reshape_panics() {
+        let view = View::from_index_expr(
+            vec![Expr::from(3), Expr::from(4)],
+            Expr::Idx(0) * Expr::from(4) + Expr::Idx(1),
+        );
+
+        let _ = view.reshape(vec![Expr::from(12)]); // Should panic
     }
 }

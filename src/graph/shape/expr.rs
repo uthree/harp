@@ -9,6 +9,10 @@ pub enum Expr {
     Const(isize),
     Var(String),
 
+    // ループインデックス変数 (IndexExpr View用)
+    // Idx(0) = ridx0, Idx(1) = ridx1, ...
+    Idx(usize),
+
     // 算術演算
     Add(Box<Self>, Box<Self>),
     Sub(Box<Self>, Box<Self>),
@@ -28,6 +32,11 @@ impl From<Expr> for crate::ast::AstNode {
             Expr::Var(s) => {
                 // 変数を直接ASTのVarに変換
                 AstNode::Var(s)
+            }
+            Expr::Idx(i) => {
+                // ループインデックス変数をridx変数に変換
+                use crate::graph::ops::custom_placeholders as ph;
+                AstNode::Var(ph::ridx(i))
             }
             Expr::Add(l, r) => AstNode::Add(Box::new((*l).into()), Box::new((*r).into())),
             Expr::Sub(l, r) => {
@@ -137,7 +146,7 @@ impl Expr {
 
     fn collect_vars_recursive(&self, vars: &mut std::collections::BTreeSet<String>) {
         match self {
-            Expr::Const(_) => {}
+            Expr::Const(_) | Expr::Idx(_) => {}
             Expr::Var(name) => {
                 vars.insert(name.clone());
             }
@@ -149,6 +158,169 @@ impl Expr {
                 l.collect_vars_recursive(vars);
                 r.collect_vars_recursive(vars);
             }
+        }
+    }
+
+    /// Idx変数を置換する
+    ///
+    /// # Arguments
+    /// * `idx` - 置換するインデックス
+    /// * `replacement` - 置換後の式
+    ///
+    /// # Examples
+    /// ```
+    /// use harp::graph::shape::Expr;
+    ///
+    /// let expr = Expr::Idx(0) * Expr::from(4) + Expr::Idx(1);
+    /// let substituted = expr.substitute_idx(0, Expr::from(5));
+    /// // => 5 * 4 + Idx(1) = 20 + Idx(1)
+    /// ```
+    pub fn substitute_idx(self, idx: usize, replacement: Expr) -> Self {
+        match self {
+            Expr::Idx(i) if i == idx => replacement,
+            Expr::Add(l, r) => {
+                Expr::Add(
+                    Box::new(l.substitute_idx(idx, replacement.clone())),
+                    Box::new(r.substitute_idx(idx, replacement)),
+                )
+            }
+            Expr::Sub(l, r) => {
+                Expr::Sub(
+                    Box::new(l.substitute_idx(idx, replacement.clone())),
+                    Box::new(r.substitute_idx(idx, replacement)),
+                )
+            }
+            Expr::Mul(l, r) => {
+                Expr::Mul(
+                    Box::new(l.substitute_idx(idx, replacement.clone())),
+                    Box::new(r.substitute_idx(idx, replacement)),
+                )
+            }
+            Expr::Div(l, r) => {
+                Expr::Div(
+                    Box::new(l.substitute_idx(idx, replacement.clone())),
+                    Box::new(r.substitute_idx(idx, replacement)),
+                )
+            }
+            Expr::Rem(l, r) => {
+                Expr::Rem(
+                    Box::new(l.substitute_idx(idx, replacement.clone())),
+                    Box::new(r.substitute_idx(idx, replacement)),
+                )
+            }
+            other => other,
+        }
+    }
+
+    /// Idx変数を順列に従って並べ替える
+    ///
+    /// axes[i] = j は「旧軸jが新軸iになる」を意味する。
+    /// したがって Idx(j) -> Idx(inverse_axes[j]) に変換する。
+    ///
+    /// # Arguments
+    /// * `axes` - 順列（axes[new_axis] = old_axis）
+    ///
+    /// # Examples
+    /// ```
+    /// use harp::graph::shape::Expr;
+    ///
+    /// // permute([2, 0, 1]): 旧軸2->新軸0, 旧軸0->新軸1, 旧軸1->新軸2
+    /// let expr = Expr::Idx(0) * Expr::from(12) + Expr::Idx(1) * Expr::from(4) + Expr::Idx(2);
+    /// let permuted = expr.permute_idx(&[2, 0, 1]);
+    /// // Idx(0)->Idx(1), Idx(1)->Idx(2), Idx(2)->Idx(0)
+    /// // => Idx(1) * 12 + Idx(2) * 4 + Idx(0)
+    /// ```
+    pub fn permute_idx(self, axes: &[usize]) -> Self {
+        // inverse_axes[old_axis] = new_axis
+        let mut inverse_axes = vec![0; axes.len()];
+        for (new_axis, &old_axis) in axes.iter().enumerate() {
+            inverse_axes[old_axis] = new_axis;
+        }
+        self.permute_idx_with_inverse(&inverse_axes)
+    }
+
+    fn permute_idx_with_inverse(self, inverse_axes: &[usize]) -> Self {
+        match self {
+            Expr::Idx(i) if i < inverse_axes.len() => Expr::Idx(inverse_axes[i]),
+            Expr::Add(l, r) => {
+                Expr::Add(
+                    Box::new(l.permute_idx_with_inverse(inverse_axes)),
+                    Box::new(r.permute_idx_with_inverse(inverse_axes)),
+                )
+            }
+            Expr::Sub(l, r) => {
+                Expr::Sub(
+                    Box::new(l.permute_idx_with_inverse(inverse_axes)),
+                    Box::new(r.permute_idx_with_inverse(inverse_axes)),
+                )
+            }
+            Expr::Mul(l, r) => {
+                Expr::Mul(
+                    Box::new(l.permute_idx_with_inverse(inverse_axes)),
+                    Box::new(r.permute_idx_with_inverse(inverse_axes)),
+                )
+            }
+            Expr::Div(l, r) => {
+                Expr::Div(
+                    Box::new(l.permute_idx_with_inverse(inverse_axes)),
+                    Box::new(r.permute_idx_with_inverse(inverse_axes)),
+                )
+            }
+            Expr::Rem(l, r) => {
+                Expr::Rem(
+                    Box::new(l.permute_idx_with_inverse(inverse_axes)),
+                    Box::new(r.permute_idx_with_inverse(inverse_axes)),
+                )
+            }
+            other => other,
+        }
+    }
+
+    /// Idx変数をシフトする（unsqueeze/squeeze用）
+    ///
+    /// threshold以上のIdx(i)をIdx(i + delta)に変換する。
+    /// deltaが負の場合はIdx(i - |delta|)になる。
+    ///
+    /// # Arguments
+    /// * `threshold` - この値以上のインデックスをシフト
+    /// * `delta` - シフト量（正または負）
+    pub fn shift_idx(self, threshold: usize, delta: isize) -> Self {
+        match self {
+            Expr::Idx(i) if i >= threshold => {
+                let new_i = (i as isize + delta) as usize;
+                Expr::Idx(new_i)
+            }
+            Expr::Add(l, r) => {
+                Expr::Add(
+                    Box::new(l.shift_idx(threshold, delta)),
+                    Box::new(r.shift_idx(threshold, delta)),
+                )
+            }
+            Expr::Sub(l, r) => {
+                Expr::Sub(
+                    Box::new(l.shift_idx(threshold, delta)),
+                    Box::new(r.shift_idx(threshold, delta)),
+                )
+            }
+            Expr::Mul(l, r) => {
+                Expr::Mul(
+                    Box::new(l.shift_idx(threshold, delta)),
+                    Box::new(r.shift_idx(threshold, delta)),
+                )
+            }
+            Expr::Div(l, r) => {
+                Expr::Div(
+                    Box::new(l.shift_idx(threshold, delta)),
+                    Box::new(r.shift_idx(threshold, delta)),
+                )
+            }
+            Expr::Rem(l, r) => {
+                Expr::Rem(
+                    Box::new(l.shift_idx(threshold, delta)),
+                    Box::new(r.shift_idx(threshold, delta)),
+                )
+            }
+            other => other,
         }
     }
 
@@ -342,6 +514,7 @@ impl fmt::Display for Expr {
         match self {
             Expr::Const(n) => write!(f, "{}", n),
             Expr::Var(s) => write!(f, "{}", s),
+            Expr::Idx(i) => write!(f, "idx{}", i),
             Expr::Add(lhs, rhs) => {
                 // Add parentheses only when necessary
                 let needs_parens_lhs = matches!(**lhs, Expr::Sub(_, _));
@@ -360,7 +533,7 @@ impl fmt::Display for Expr {
                 }
             }
             Expr::Sub(lhs, rhs) => {
-                let needs_parens_rhs = !matches!(**rhs, Expr::Const(_) | Expr::Var(_));
+                let needs_parens_rhs = !matches!(**rhs, Expr::Const(_) | Expr::Var(_) | Expr::Idx(_));
 
                 write!(f, "{}", lhs)?;
                 write!(f, " - ")?;
@@ -388,7 +561,7 @@ impl fmt::Display for Expr {
             }
             Expr::Div(lhs, rhs) => {
                 let needs_parens_lhs = matches!(**lhs, Expr::Add(_, _) | Expr::Sub(_, _));
-                let needs_parens_rhs = !matches!(**rhs, Expr::Const(_) | Expr::Var(_));
+                let needs_parens_rhs = !matches!(**rhs, Expr::Const(_) | Expr::Var(_) | Expr::Idx(_));
 
                 if needs_parens_lhs {
                     write!(f, "({})", lhs)?;
@@ -404,7 +577,7 @@ impl fmt::Display for Expr {
             }
             Expr::Rem(lhs, rhs) => {
                 let needs_parens_lhs = matches!(**lhs, Expr::Add(_, _) | Expr::Sub(_, _));
-                let needs_parens_rhs = !matches!(**rhs, Expr::Const(_) | Expr::Var(_));
+                let needs_parens_rhs = !matches!(**rhs, Expr::Const(_) | Expr::Var(_) | Expr::Idx(_));
 
                 if needs_parens_lhs {
                     write!(f, "({})", lhs)?;
