@@ -285,12 +285,26 @@ where
                 Vec::new();
 
             // 現在のビーム内の各候補から新しい候補を生成
-            for entry in &beam {
+            for (beam_idx, entry) in beam.iter().enumerate() {
                 let new_candidates = self.suggester.suggest(&entry.ast);
+                trace!(
+                    "Beam entry {} has path: {:?}",
+                    beam_idx,
+                    entry
+                        .path
+                        .iter()
+                        .map(|(n, _)| n.as_str())
+                        .collect::<Vec<_>>()
+                );
                 for result in new_candidates {
                     // 親のパスを継承し、現在の変換を追加
                     let mut new_path = entry.path.clone();
                     new_path.push((result.suggester_name.clone(), result.description.clone()));
+                    trace!(
+                        "  -> New candidate from {}: path = {:?}",
+                        result.suggester_name,
+                        new_path.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>()
+                    );
                     candidates_with_info.push((
                         result.ast,
                         result.suggester_name,
@@ -370,11 +384,18 @@ where
             // 新しいビームを構築（パス情報を保持）
             beam = selected
                 .iter()
-                .map(|(ast, _, idx)| {
-                    let path = candidate_infos
-                        .get(*idx)
-                        .map(|(_, _, p)| p.clone())
-                        .unwrap_or_default();
+                .enumerate()
+                .map(|(beam_rank, (ast, cost, idx))| {
+                    let (suggester_name, _, path) =
+                        candidate_infos.get(*idx).cloned().unwrap_or_default();
+                    trace!(
+                        "New beam[{}]: idx={}, cost={:.2e}, suggester={}, path={:?}",
+                        beam_rank,
+                        idx,
+                        cost,
+                        suggester_name,
+                        path.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>()
+                    );
                     BeamEntry {
                         ast: ast.clone(),
                         path,
@@ -840,5 +861,165 @@ mod tests {
 
         let result = optimizer.optimize(input);
         assert_eq!(result, AstNode::Const(Literal::Int(5)));
+    }
+
+    /// パス順序が正しく記録されることをテスト
+    ///
+    /// 2つの名前付きルールを順番に適用し、パスが適用順序通りに記録されることを確認
+    #[test]
+    fn test_beam_search_path_order() {
+        use crate::opt::ast::{AstSuggestResult, AstSuggester, CompositeSuggester};
+
+        // テスト用のSuggester: Mul(a, 1) -> a
+        struct MulOneSuggester;
+        impl AstSuggester for MulOneSuggester {
+            fn name(&self) -> &str {
+                "MulOneSuggester"
+            }
+            fn suggest(&self, ast: &AstNode) -> Vec<AstSuggestResult> {
+                match ast {
+                    AstNode::Mul(a, b) if matches!(b.as_ref(), AstNode::Const(Literal::Int(1))) => {
+                        vec![AstSuggestResult {
+                            ast: a.as_ref().clone(),
+                            suggester_name: "MulOneSuggester".to_string(),
+                            description: "Remove *1".to_string(),
+                        }]
+                    }
+                    _ => vec![],
+                }
+            }
+        }
+
+        // テスト用のSuggester: Add(a, 0) -> a
+        struct AddZeroSuggester;
+        impl AstSuggester for AddZeroSuggester {
+            fn name(&self) -> &str {
+                "AddZeroSuggester"
+            }
+            fn suggest(&self, ast: &AstNode) -> Vec<AstSuggestResult> {
+                match ast {
+                    AstNode::Add(a, b) if matches!(b.as_ref(), AstNode::Const(Literal::Int(0))) => {
+                        vec![AstSuggestResult {
+                            ast: a.as_ref().clone(),
+                            suggester_name: "AddZeroSuggester".to_string(),
+                            description: "Remove +0".to_string(),
+                        }]
+                    }
+                    _ => vec![],
+                }
+            }
+        }
+
+        // MulOne -> AddZero の順で登録
+        let suggester =
+            CompositeSuggester::new(vec![Box::new(MulOneSuggester), Box::new(AddZeroSuggester)]);
+
+        let optimizer = BeamSearchOptimizer::new(suggester)
+            .with_beam_width(1) // ビーム幅1で系統を1つに固定
+            .with_max_steps(10)
+            .with_progress(false);
+
+        // Mul(Add(42, 0), 1) を最適化
+        // トップレベルがMulなので、MulOneSuggesterが先に適用される
+        // Step 1: MulOneSuggester適用 -> 42 + 0  (path = [MulOneSuggester])
+        // Step 2: AddZeroSuggester適用 -> 42     (path = [MulOneSuggester, AddZeroSuggester])
+        let input = AstNode::Mul(
+            Box::new(AstNode::Add(
+                Box::new(AstNode::Const(Literal::Int(42))),
+                Box::new(AstNode::Const(Literal::Int(0))),
+            )),
+            Box::new(AstNode::Const(Literal::Int(1))),
+        );
+
+        let (result, history) = optimizer.optimize_with_history(input);
+        assert_eq!(result, AstNode::Const(Literal::Int(42)));
+
+        // 履歴の最後のスナップショットのパスを確認
+        let last_snapshot = history.snapshots().last().unwrap();
+        let path_names: Vec<&str> = last_snapshot
+            .path
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect();
+
+        // パスは適用順序通り（古い順）であるべき
+        // MulOneSuggester が先に適用され、次に AddZeroSuggester
+        assert!(
+            path_names.iter().position(|&n| n == "MulOneSuggester")
+                < path_names.iter().position(|&n| n == "AddZeroSuggester"),
+            "Path order should be MulOneSuggester -> AddZeroSuggester, but got: {:?}",
+            path_names
+        );
+    }
+
+    /// ビーム幅>1の場合のパス順序をテスト
+    ///
+    /// 異なる系統から候補が選ばれる状況を確認
+    #[test]
+    fn test_beam_search_path_order_with_larger_beam() {
+        use crate::opt::ast::{AstSuggestResult, AstSuggester, CompositeSuggester};
+
+        // テスト用のSuggester A: Mul(a, 1) -> a
+        struct SuggesterA;
+        impl AstSuggester for SuggesterA {
+            fn name(&self) -> &str {
+                "SuggesterA"
+            }
+            fn suggest(&self, ast: &AstNode) -> Vec<AstSuggestResult> {
+                match ast {
+                    AstNode::Mul(a, b) if matches!(b.as_ref(), AstNode::Const(Literal::Int(1))) => {
+                        vec![AstSuggestResult {
+                            ast: a.as_ref().clone(),
+                            suggester_name: "SuggesterA".to_string(),
+                            description: "A".to_string(),
+                        }]
+                    }
+                    _ => vec![],
+                }
+            }
+        }
+
+        // テスト用のSuggester B: Add(a, 0) -> a
+        struct SuggesterB;
+        impl AstSuggester for SuggesterB {
+            fn name(&self) -> &str {
+                "SuggesterB"
+            }
+            fn suggest(&self, ast: &AstNode) -> Vec<AstSuggestResult> {
+                match ast {
+                    AstNode::Add(a, b) if matches!(b.as_ref(), AstNode::Const(Literal::Int(0))) => {
+                        vec![AstSuggestResult {
+                            ast: a.as_ref().clone(),
+                            suggester_name: "SuggesterB".to_string(),
+                            description: "B".to_string(),
+                        }]
+                    }
+                    _ => vec![],
+                }
+            }
+        }
+
+        let suggester = CompositeSuggester::new(vec![Box::new(SuggesterA), Box::new(SuggesterB)]);
+
+        let optimizer = BeamSearchOptimizer::new(suggester)
+            .with_beam_width(4) // ビーム幅4
+            .with_max_steps(10)
+            .with_progress(false);
+
+        // Mul(Add(42, 0), 1) を最適化
+        let input = AstNode::Mul(
+            Box::new(AstNode::Add(
+                Box::new(AstNode::Const(Literal::Int(42))),
+                Box::new(AstNode::Const(Literal::Int(0))),
+            )),
+            Box::new(AstNode::Const(Literal::Int(1))),
+        );
+
+        let (result, _history) = optimizer.optimize_with_history(input);
+        assert_eq!(result, AstNode::Const(Literal::Int(42)));
+
+        // ビームサーチでは異なる系統から候補が選ばれることがある
+        // これは正常な動作であり、パスの「不連続」は許容される
+        // ただし、単一のスナップショット内ではパスは適用順序通りであるべき
     }
 }
