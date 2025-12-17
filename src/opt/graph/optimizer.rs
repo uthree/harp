@@ -9,6 +9,39 @@ use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, info, trace};
 use std::time::Instant;
 
+/// ビームサーチで使用するエントリ
+///
+/// グラフと、そのグラフに至るまでの変換パスを保持します。
+#[derive(Clone)]
+struct BeamEntry {
+    /// グラフ
+    graph: Graph,
+    /// このグラフに至るまでのパス（各ステップの(suggester_name, description)）
+    path: Vec<(String, String)>,
+}
+
+impl BeamEntry {
+    /// 新しいエントリを作成
+    fn new(graph: Graph) -> Self {
+        Self {
+            graph,
+            path: Vec::new(),
+        }
+    }
+
+    /// パスを継承して新しいエントリを作成
+    fn with_path(
+        graph: Graph,
+        parent_path: &[(String, String)],
+        suggester_name: String,
+        description: String,
+    ) -> Self {
+        let mut path = parent_path.to_vec();
+        path.push((suggester_name, description));
+        Self { graph, path }
+    }
+}
+
 /// ビームサーチグラフ最適化器
 ///
 /// # 終了条件
@@ -170,7 +203,7 @@ where
         );
 
         let mut history = OptimizationHistory::new();
-        let mut beam = vec![graph.clone()];
+        let mut beam = vec![BeamEntry::new(graph.clone())];
 
         // 初期状態を記録
         let initial_cost = static_estimator.estimate(&graph);
@@ -214,7 +247,7 @@ where
         };
 
         // これまでで最良の候補を保持（graphを移動する前に初期化）
-        let mut global_best = graph.clone();
+        let mut global_best = BeamEntry::new(graph.clone());
 
         history.add_snapshot(OptimizationSnapshot::with_candidates(
             0,
@@ -255,12 +288,15 @@ where
                 pb.set_position(step as u64);
             }
 
-            let mut candidates: Vec<SuggestResult> = Vec::new();
+            // (SuggestResult, 親のパス) のタプルを保持
+            let mut candidates: Vec<(SuggestResult, Vec<(String, String)>)> = Vec::new();
 
             // 現在のビーム内の各候補から新しい候補を生成
-            for graph in &beam {
-                let new_candidates = self.suggester.suggest(graph);
-                candidates.extend(new_candidates);
+            for entry in &beam {
+                let new_candidates = self.suggester.suggest(&entry.graph);
+                for candidate in new_candidates {
+                    candidates.push((candidate, entry.path.clone()));
+                }
             }
 
             if candidates.is_empty() {
@@ -289,19 +325,26 @@ where
             let num_candidates = candidates.len();
             trace!("Found {} candidates at step {}", num_candidates, step);
 
-            // description を保持するためのマッピングを作成
+            // description と parent_path を保持するためのマッピングを作成
             let description_map: std::collections::HashMap<usize, String> = candidates
                 .iter()
                 .enumerate()
-                .map(|(i, result)| (i, result.description.clone()))
+                .map(|(i, (result, _))| (i, result.description.clone()))
                 .collect();
+
+            let parent_path_map: std::collections::HashMap<usize, Vec<(String, String)>> =
+                candidates
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (_, parent_path))| (i, parent_path.clone()))
+                    .collect();
 
             // 候補を準備（Selectorが内部でコストを計算）
             // インデックスをnameに含めてdescriptionを後で取得できるようにする
             let candidates_for_selector: Vec<(Graph, String)> = candidates
                 .into_iter()
                 .enumerate()
-                .map(|(i, result)| (result.graph, format!("{}:{}", i, result.suggester_name)))
+                .map(|(i, (result, _))| (result.graph, format!("{}:{}", i, result.suggester_name)))
                 .collect();
 
             // Selectorで全候補のコストを計算してソート（上位全件取得）
@@ -309,18 +352,21 @@ where
                 .selector
                 .select(candidates_for_selector, num_candidates);
 
-            // (Graph, f32, String, String) の形式に変換 (graph, cost, name, description)
-            let all_candidates: Vec<(Graph, f32, String, String)> = all_with_cost
-                .into_iter()
-                .map(|((graph, indexed_name), cost)| {
-                    // "index:name" から分離
-                    let parts: Vec<&str> = indexed_name.splitn(2, ':').collect();
-                    let idx: usize = parts[0].parse().unwrap_or(0);
-                    let name = parts.get(1).unwrap_or(&"").to_string();
-                    let desc = description_map.get(&idx).cloned().unwrap_or_default();
-                    (graph, cost, name, desc)
-                })
-                .collect();
+            // (Graph, f32, String, String, parent_path) の形式に変換
+            #[allow(clippy::type_complexity)]
+            let all_candidates: Vec<(Graph, f32, String, String, Vec<(String, String)>)> =
+                all_with_cost
+                    .into_iter()
+                    .map(|((graph, indexed_name), cost)| {
+                        // "index:name" から分離
+                        let parts: Vec<&str> = indexed_name.splitn(2, ':').collect();
+                        let idx: usize = parts[0].parse().unwrap_or(0);
+                        let name = parts.get(1).unwrap_or(&"").to_string();
+                        let desc = description_map.get(&idx).cloned().unwrap_or_default();
+                        let parent_path = parent_path_map.get(&idx).cloned().unwrap_or_default();
+                        (graph, cost, name, desc, parent_path)
+                    })
+                    .collect();
 
             // ビーム用に上位beam_width個を取得
             let top_candidates: Vec<_> = all_candidates
@@ -329,15 +375,22 @@ where
                 .cloned()
                 .collect();
 
+            // BeamEntryに変換（親のパスを継承して新しいステップを追加）
             beam = top_candidates
                 .iter()
-                .map(|(g, _, _, _)| g.clone())
+                .map(|(g, _, name, desc, parent_path)| {
+                    BeamEntry::with_path(g.clone(), parent_path, name.clone(), desc.clone())
+                })
                 .collect();
 
             // このステップの最良候補を記録（既に計算したコストを再利用）
-            if let Some((best, cost, suggester_name, _desc)) = top_candidates.first() {
+            if let Some((best, cost, suggester_name, desc, parent_path)) = top_candidates.first() {
                 let num_outputs = best.outputs().len();
                 let num_inputs = best.input_metas().len();
+
+                // 完全なパスを構築（親のパス + 現在のステップ）
+                let mut full_path = parent_path.clone();
+                full_path.push((suggester_name.clone(), desc.clone()));
 
                 // 入力・出力ノード数をログに出力
                 trace!(
@@ -364,7 +417,7 @@ where
                     .iter()
                     .skip(1)
                     .enumerate()
-                    .map(|(idx, (graph, cost, name, desc))| AlternativeCandidate {
+                    .map(|(idx, (graph, cost, name, desc, _))| AlternativeCandidate {
                         graph: graph.clone(),
                         cost: *cost,
                         suggester_name: name.clone(),
@@ -373,7 +426,7 @@ where
                     })
                     .collect();
 
-                // スナップショットを記録（代替候補付き）
+                // スナップショットを記録（代替候補付き、パス情報含む）
                 history.add_snapshot(OptimizationSnapshot::with_alternatives(
                     step + 1,
                     best.clone(),
@@ -390,6 +443,7 @@ where
                     num_candidates,
                     suggester_name.clone(),
                     alternatives,
+                    full_path.clone(),
                 ));
 
                 // このステップのログをクリア（次のステップで新しいログのみを記録するため）
@@ -440,7 +494,13 @@ where
                         step, best_cost, *cost, -improvement_pct
                     );
                     best_cost = *cost;
-                    global_best = best.clone();
+                    // BeamEntryとして更新（パスも含めて）
+                    global_best = BeamEntry::with_path(
+                        best.clone(),
+                        parent_path,
+                        suggester_name.clone(),
+                        desc.clone(),
+                    );
                 }
             }
         }
@@ -460,7 +520,7 @@ where
             );
         }
 
-        let final_cost = static_estimator.estimate(&global_best);
+        let final_cost = static_estimator.estimate(&global_best.graph);
         let improvement_pct = if initial_cost > 0.0 {
             (initial_cost - final_cost) / initial_cost * 100.0
         } else {
@@ -490,7 +550,7 @@ where
             let final_step = history.len();
             history.add_snapshot(OptimizationSnapshot::with_candidates(
                 final_step,
-                global_best.clone(),
+                global_best.graph.clone(),
                 final_cost,
                 format!(
                     "[Final] Best result (cost={:.2e}, improved {:.1}%)",
@@ -501,8 +561,11 @@ where
             ));
         }
 
+        // 最終結果に至るパスを記録
+        history.set_final_path(global_best.path.clone());
+
         // これまでで最良の候補を返す
-        (global_best, history)
+        (global_best.graph, history)
     }
 }
 

@@ -36,6 +36,8 @@ pub struct OptimizationSnapshot {
     pub suggester_name: Option<String>,
     /// 選択されなかった代替候補（rank > 0の候補）
     pub alternatives: Vec<AlternativeCandidate>,
+    /// このグラフに至るまでの完全なパス（各ステップの(suggester_name, description)）
+    pub path: Vec<(String, String)>,
 }
 
 impl OptimizationSnapshot {
@@ -50,6 +52,7 @@ impl OptimizationSnapshot {
             num_candidates: None,
             suggester_name: None,
             alternatives: Vec::new(),
+            path: Vec::new(),
         }
     }
 
@@ -70,6 +73,7 @@ impl OptimizationSnapshot {
             num_candidates: None,
             suggester_name: None,
             alternatives: Vec::new(),
+            path: Vec::new(),
         }
     }
 
@@ -91,6 +95,7 @@ impl OptimizationSnapshot {
             num_candidates: Some(num_candidates),
             suggester_name: None,
             alternatives: Vec::new(),
+            path: Vec::new(),
         }
     }
 
@@ -113,6 +118,7 @@ impl OptimizationSnapshot {
             num_candidates: Some(num_candidates),
             suggester_name: Some(suggester_name),
             alternatives: Vec::new(),
+            path: Vec::new(),
         }
     }
 
@@ -127,6 +133,7 @@ impl OptimizationSnapshot {
         num_candidates: usize,
         suggester_name: String,
         alternatives: Vec<AlternativeCandidate>,
+        path: Vec<(String, String)>,
     ) -> Self {
         Self {
             step,
@@ -137,6 +144,7 @@ impl OptimizationSnapshot {
             num_candidates: Some(num_candidates),
             suggester_name: Some(suggester_name),
             alternatives,
+            path,
         }
     }
 }
@@ -278,6 +286,7 @@ impl OptimizationHistory {
                 num_candidates: snapshot.num_candidates,
                 suggester_name: snapshot.suggester_name,
                 alternatives: snapshot.alternatives,
+                path: snapshot.path,
             };
             self.snapshots.push(adjusted_snapshot);
         }

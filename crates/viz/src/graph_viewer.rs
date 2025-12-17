@@ -924,8 +924,37 @@ impl GraphViewerApp {
                     // 現在のステップの説明とコストを表示
                     if let Some(ref history) = self.optimization_history {
                         if let Some(snapshot) = history.get(self.current_step) {
-                            // Suggester名を表示
-                            if let Some(ref suggester_name) = snapshot.suggester_name {
+                            // 適用されたSuggesterのパスを表示（直近3件のみ、それ以前は省略）
+                            if !snapshot.path.is_empty() {
+                                ui.horizontal(|ui| {
+                                    ui.label("Applied:");
+                                    const MAX_DISPLAY: usize = 3;
+                                    let path_len = snapshot.path.len();
+                                    let display_path: Vec<&str> = if path_len > MAX_DISPLAY {
+                                        // 省略記号 + 直近N件
+                                        std::iter::once("...")
+                                            .chain(
+                                                snapshot.path[path_len - MAX_DISPLAY..]
+                                                    .iter()
+                                                    .map(|(name, _)| name.as_str()),
+                                            )
+                                            .collect()
+                                    } else {
+                                        snapshot
+                                            .path
+                                            .iter()
+                                            .map(|(name, _)| name.as_str())
+                                            .collect()
+                                    };
+                                    let path_str = display_path.join(" -> ");
+                                    ui.label(
+                                        egui::RichText::new(path_str)
+                                            .color(egui::Color32::from_rgb(150, 150, 250))
+                                            .strong(),
+                                    );
+                                });
+                            } else if let Some(ref suggester_name) = snapshot.suggester_name {
+                                // パスがない場合はSuggester名を表示（後方互換性）
                                 ui.horizontal(|ui| {
                                     ui.label("Suggester:");
                                     ui.label(

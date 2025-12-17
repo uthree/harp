@@ -210,6 +210,43 @@ let (optimized, history) = optimizer.optimize_with_history(graph);
 
 詳細は`src/opt/graph/`を参照。
 
+## 履歴・パス追跡
+
+`OptimizationHistory`は最適化の各ステップを記録し、可視化や分析に使用する。
+
+### OptimizationSnapshot
+
+各ステップの状態を記録：
+- `graph`: その時点でのグラフ
+- `cost`: コスト推定値
+- `suggester_name`: 適用されたSuggesterの名前
+- `path`: このグラフに至るまでの完全なパス（各ステップの`(suggester_name, description)`）
+- `alternatives`: 選択されなかった代替候補
+
+### パス追跡
+
+ビームサーチでは各ステップの最良候補が最終結果に至るとは限らない。`BeamEntry`構造体を使用してパスを追跡し、最終結果に至った実際のパスを`set_final_path()`で記録する。
+
+```rust
+// 最終結果に至るパスを取得
+let final_path = history.final_path();
+for (suggester_name, description) in final_path {
+    println!("{}: {}", suggester_name, description);
+}
+```
+
+### フェーズ結合
+
+複数の最適化フェーズの履歴を結合する場合、`extend_with_phase()`を使用：
+
+```rust
+let mut combined = OptimizationHistory::new();
+combined.extend_with_phase(phase1_history, "Lowering");
+combined.extend_with_phase(phase2_history, "Absorption");
+```
+
+詳細は`src/opt/graph/history.rs`を参照。
+
 ## Selector
 
 候補選択処理を抽象化するトレイト。ビームサーチにおいて、コスト付き候補から上位n件を選択する処理をカスタマイズ可能にする。
@@ -322,6 +359,7 @@ Graph ViewerはGraph最適化の各ステップを可視化する機能を提供
 - ステップナビゲーション（前へ/次へ、矢印キー操作）
 - グラフのノードグラフ表示（egui_snarl使用）
 - コスト遷移グラフ
+- **パス表示**: 各スナップショットに至るまでのSuggester適用パスを表示（直近3件 + 省略記号）
 - **候補セレクタ**: ビーム内の全候補を閲覧可能
   - 選択された候補（rank 0）とその他の候補を切り替え表示
   - 各候補のコスト、Suggester名、description（変換内容の説明）を表示
