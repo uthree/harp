@@ -354,19 +354,24 @@ where
 
             // (Graph, f32, String, String, parent_path) の形式に変換
             #[allow(clippy::type_complexity)]
-            let all_candidates: Vec<(Graph, f32, String, String, Vec<(String, String)>)> =
-                all_with_cost
-                    .into_iter()
-                    .map(|((graph, indexed_name), cost)| {
-                        // "index:name" から分離
-                        let parts: Vec<&str> = indexed_name.splitn(2, ':').collect();
-                        let idx: usize = parts[0].parse().unwrap_or(0);
-                        let name = parts.get(1).unwrap_or(&"").to_string();
-                        let desc = description_map.get(&idx).cloned().unwrap_or_default();
-                        let parent_path = parent_path_map.get(&idx).cloned().unwrap_or_default();
-                        (graph, cost, name, desc, parent_path)
-                    })
-                    .collect();
+            let all_candidates: Vec<(
+                Graph,
+                f32,
+                String,
+                String,
+                Vec<(String, String)>,
+            )> = all_with_cost
+                .into_iter()
+                .map(|((graph, indexed_name), cost)| {
+                    // "index:name" から分離
+                    let parts: Vec<&str> = indexed_name.splitn(2, ':').collect();
+                    let idx: usize = parts[0].parse().unwrap_or(0);
+                    let name = parts.get(1).unwrap_or(&"").to_string();
+                    let desc = description_map.get(&idx).cloned().unwrap_or_default();
+                    let parent_path = parent_path_map.get(&idx).cloned().unwrap_or_default();
+                    (graph, cost, name, desc, parent_path)
+                })
+                .collect();
 
             // ビーム用に上位beam_width個を取得
             let top_candidates: Vec<_> = all_candidates

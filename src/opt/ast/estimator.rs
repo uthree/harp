@@ -91,8 +91,8 @@ impl Default for SimpleCostEstimator {
             gpu_parallel_min_grid_size: 512.0,
             gpu_parallel_max_speedup_log: 4.5,
             gpu_memory_bandwidth_threshold: 10000.0,
-            local_parallel_overhead: 10.0,
-            global_parallel_overhead: 5000.0,
+            local_parallel_overhead: 2.0,
+            global_parallel_overhead: 30.0,
         }
     }
 }
@@ -583,54 +583,57 @@ impl AstCostEstimator for SimpleCostEstimator {
                 let has_global_parallel =
                     params.iter().any(|p| matches!(p.kind, VarKind::GroupId(_)));
 
-                // grid_sizeから総スレッド数（並列度）を推定
+                // grid_sizeから並列度を推定
+                // 変数が含まれる場合はデフォルト値を使用（公平な評価のため統一）
+                const DEFAULT_PARALLEL_SIZE: f32 = 256.0;
+
+                let extract_dim = |node: &AstNode| -> f32 {
+                    match node {
+                        AstNode::Const(lit) => lit
+                            .as_usize()
+                            .map(|v| v as f32)
+                            .unwrap_or(DEFAULT_PARALLEL_SIZE),
+                        _ => DEFAULT_PARALLEL_SIZE, // 変数の場合はデフォルト値を使用
+                    }
+                };
+
                 let grid_elements: f32 = default_grid_size
                     .iter()
-                    .filter_map(|g| match g.as_ref() {
-                        AstNode::Const(lit) => lit.as_usize().map(|v| v as f32),
-                        _ => None,
-                    })
+                    .map(|g| extract_dim(g.as_ref()))
                     .product();
                 let thread_elements: f32 = default_thread_group_size
                     .iter()
-                    .filter_map(|t| match t.as_ref() {
-                        AstNode::Const(lit) => lit.as_usize().map(|v| v as f32),
-                        _ => None,
-                    })
+                    .map(|t| extract_dim(t.as_ref()))
                     .product();
-                let total_threads = if grid_elements > 0.0 && thread_elements > 0.0 {
-                    grid_elements * thread_elements
-                } else if grid_elements > 0.0 {
-                    grid_elements
-                } else {
-                    // 不明な場合は控えめな並列度を想定
-                    1024.0
-                };
 
-                // 並列化オーバーヘッドを決定（対数スケール）
-                // LocalIdを使用している場合は低オーバーヘッド、GroupIdのみの場合は高オーバーヘッド
-                // LocalId + GroupIdの両方を使用している場合が最も効率的（GPUの設計通りの使用）
-                let parallelization_overhead = if has_local_id && has_global_parallel {
-                    // 両方使用: 最も効率的（LocalIdのオーバーヘッドのみ）
-                    self.local_parallel_overhead
-                } else if has_local_id {
-                    // LocalIdのみ: 効率的
-                    self.local_parallel_overhead
-                } else if has_global_parallel {
-                    // GroupIdのみ: 非効率（ワークグループ内の並列性を活用できない）
-                    self.global_parallel_overhead
-                } else {
-                    // 並列化なし: 定数倍
-                    1.0
-                };
+                // 有効スレッド数を並列化の種類に応じて計算
+                // - LocalIdのみ: thread_group_sizeが有効（各ワークグループ内のスレッドが動作）
+                // - GroupIdのみ: grid_sizeが有効（各ワークグループの1スレッドのみが動作）
+                // - 両方使用: すべてのスレッドが有効、両方のオーバーヘッドが発生
+                let (effective_threads, parallelization_overhead) =
+                    if has_local_id && has_global_parallel {
+                        // 両方使用: 両方のオーバーヘッドが乗算で組み合わさる
+                        (
+                            grid_elements * thread_elements,
+                            self.local_parallel_overhead * self.global_parallel_overhead,
+                        )
+                    } else if has_local_id {
+                        // LocalIdのみ: thread_group_sizeのスレッドが有効
+                        (thread_elements, self.local_parallel_overhead)
+                    } else if has_global_parallel {
+                        // GroupIdのみ: grid_sizeのワークグループが有効
+                        // （各グループの1スレッドのみ動作するため、thread_elementsは無効）
+                        (grid_elements, self.global_parallel_overhead)
+                    } else {
+                        // 並列化なし
+                        (1.0, 1.0)
+                    };
 
-                // 最終コスト = カーネル起動オーバーヘッド * body_cost / parallel_bonus
-                // 並列化ボーナスを減算することで、GPUカーネルが有利になる
-                log_sum_exp_iter(vec![
-                    body_cost + parallelization_overhead.ln() - total_threads.ln(),
-                    self.kernel_launch_overhead.ln(),
-                    self.function_definition_overhead.ln(),
-                ])
+                // シンプルなコスト計算:
+                // コスト = body_cost - 並列化ボーナス + オーバーヘッド + カーネル起動コスト
+                body_cost - effective_threads.ln()
+                    + parallelization_overhead.ln()
+                    + self.kernel_launch_overhead.ln()
             }
             AstNode::Program { functions, .. } => {
                 // 空のプログラムの場合は最小コストを返す
@@ -1342,6 +1345,83 @@ mod tests {
             "Combined parallelization cost ({}) should be less than global-only cost ({})",
             cost_combined,
             cost_global_only
+        );
+    }
+
+    /// 変数を含むサイズの場合でもLocalId並列化がGroupId並列化より効率的であることを確認
+    /// これは並列化Suggesterが生成する典型的なパターン（サイズが変数N）をテスト
+    #[test]
+    fn test_local_parallel_with_variable_size_more_efficient_than_global() {
+        let estimator = SimpleCostEstimator::new();
+
+        let one = Box::new(AstNode::Const(Literal::Int(1)));
+        let n = Box::new(AstNode::Var("N".to_string())); // 変数サイズ
+
+        let kernel_body = AstNode::Store {
+            ptr: Box::new(AstNode::Var("output".to_string())),
+            offset: Box::new(AstNode::Var("idx".to_string())),
+            value: Box::new(AstNode::Var("idx".to_string())),
+        };
+
+        // LocalId並列化: grid_size = [1,1,1], thread_group_size = [N,1,1]
+        // LocalParallelizationSuggesterが生成する形式
+        let kernel_local = AstNode::Kernel {
+            name: Some("local_parallel".to_string()),
+            params: vec![
+                VarDecl {
+                    name: "lidx0".to_string(),
+                    dtype: DType::Int,
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::LocalId(0),
+                },
+                VarDecl {
+                    name: "output".to_string(),
+                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    mutability: Mutability::Mutable,
+                    kind: VarKind::Normal,
+                },
+            ],
+            return_type: DType::Tuple(vec![]),
+            body: Box::new(kernel_body.clone()),
+            default_grid_size: [one.clone(), one.clone(), one.clone()],
+            default_thread_group_size: [n.clone(), one.clone(), one.clone()],
+        };
+
+        // GroupId並列化: grid_size = [N,1,1], thread_group_size = [256,1,1]
+        // GroupParallelizationSuggesterが生成する形式
+        let thread_group_size = Box::new(AstNode::Const(Literal::Int(256)));
+        let kernel_global = AstNode::Kernel {
+            name: Some("global_parallel".to_string()),
+            params: vec![
+                VarDecl {
+                    name: "gidx0".to_string(),
+                    dtype: DType::Int,
+                    mutability: Mutability::Immutable,
+                    kind: VarKind::GroupId(0),
+                },
+                VarDecl {
+                    name: "output".to_string(),
+                    dtype: DType::Ptr(Box::new(DType::F32)),
+                    mutability: Mutability::Mutable,
+                    kind: VarKind::Normal,
+                },
+            ],
+            return_type: DType::Tuple(vec![]),
+            body: Box::new(kernel_body),
+            default_grid_size: [n.clone(), one.clone(), one.clone()],
+            default_thread_group_size: [thread_group_size, one.clone(), one.clone()],
+        };
+
+        let cost_local = estimator.estimate(&kernel_local);
+        let cost_global = estimator.estimate(&kernel_global);
+
+        // LocalId並列化の方がコストが低いことを確認
+        // オーバーヘッド: local=10, global=5000なので、同じ並列度ならLocalが有利
+        assert!(
+            cost_local < cost_global,
+            "LocalId parallelization cost ({}) should be less than GroupId cost ({}) even with variable size",
+            cost_local,
+            cost_global
         );
     }
 }

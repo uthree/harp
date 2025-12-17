@@ -68,9 +68,12 @@ impl Default for SimpleCostEstimator {
             optimal_thread_group_size_min: 128,
             optimal_thread_group_size_max: 256,
             multidim_grid_bonus_log: 0.2,
-            vector_width_2_bonus_log: 0.3,
-            vector_width_4_bonus_log: 0.5,
-            vector_width_8_bonus_log: 0.6,
+            // ベクトル幅nの理論的ボーナスはln(n)
+            // グラフとASTの両方で並列化が評価されるため、ボーナスを大きめに設定
+            // ベクトル化によりgrid_sizeが1/nになることを補償するためln(n)*1.4程度
+            vector_width_2_bonus_log: 1.0,  // ln(2) * 1.4 ≈ 0.97 → 1.0
+            vector_width_4_bonus_log: 1.95, // ln(4) * 1.4 ≈ 1.94
+            vector_width_8_bonus_log: 2.9,  // ln(8) * 1.4 ≈ 2.91
             large_axis_threshold: 256.0,
             large_axis_penalty_weight: 0.3,
         }
