@@ -41,9 +41,39 @@ Cumulative演算（累積和、累積積など）は**Parallel Scan（Prefix Sum
 
 ## View
 
-Viewは各軸の添え字からメモリオフセットへの線形変換を表現し、**ゼロコストの転置・次元操作**を実現します。
+Viewは各軸の添え字からメモリオフセットへの変換を表現し、**ゼロコストの転置・次元操作**を実現します。
 
-主なView操作：転置（permute）、次元追加/削除（unsqueeze/squeeze）、反転（flip）、拡張（expand）など。
+### Viewの種類
+
+- **Linear**: 線形変換（shape, strides, offset）。転置、unsqueezeなど多くの操作で使用
+- **IndexExpr**: 任意の式による変換。tile（循環アクセス）、flipなど非線形操作で使用
+
+### 主なView操作
+
+| 操作 | 説明 | 結果のView型 |
+|------|------|-------------|
+| permute | 軸の順序変更（転置） | Linear |
+| unsqueeze/squeeze | 次元追加/削除 | 入力と同じ |
+| flip | 軸方向の反転 | IndexExpr |
+| tile | 循環アクセス（剰余演算） | IndexExpr |
+| repeat | サイズ1の軸を拡張 | 入力と同じ |
+| reshape | 形状変更 | Linear（要連続性） |
+| unfold | スライディングウィンドウ | Linear（要連続性） |
+
+### 自動Contiguous化
+
+View操作の中には連続したメモリレイアウト（Linear View）を前提とするものがあります。GraphNodeレベルでは、これらの操作にIndexExpr Viewを渡した場合、自動的にContiguousノードが挿入されます。
+
+```
+View構造体 (低レベル)          GraphNode構造体 (高レベル)
+─────────────────────          ────────────────────────────
+reshape: IndexExprでpanic  →   reshape: 自動でContiguous挿入
+unfold:  IndexExprでpanic  →   unfold:  自動でContiguous挿入
+```
+
+これにより、ユーザーはメモリレイアウトを意識せずにView操作を連鎖できます。
+
+### 制約
 
 入出力バッファのViewは常にContiguousである必要があります。
 
@@ -88,7 +118,7 @@ Graph最適化フェーズでは、以下のSuggesterにより段階的に演算
 ### コアモジュール
 - `mod.rs`: Graph、GraphNode、DType等の基本データ構造
 - `ops.rs`: GraphOp定義と基本的な演算
-- `node_view_ops.rs`: GraphNodeのView操作メソッド（unfold/fold統一API含む）
+- `node_view_ops.rs`: GraphNodeのView操作メソッド（unfold/fold統一API、contiguous、自動contiguous化）
 - `strategy.rs`: 並列化戦略の定義
 - `visualization.rs`: DOT形式でのグラフ可視化
 
