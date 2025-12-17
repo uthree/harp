@@ -504,7 +504,7 @@ impl GraphViewerApp {
                     collect_from_expr(l, vars);
                     collect_from_expr(r, vars);
                 }
-                Expr::Const(_) => {}
+                Expr::Const(_) | Expr::Idx(_) => {}
             }
         }
 

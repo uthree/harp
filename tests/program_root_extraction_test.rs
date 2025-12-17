@@ -48,7 +48,7 @@ fn test_program_root_extraction() {
         }
 
         // 少なくとも1つの関数があることを確認
-        assert!(functions.len() >= 1, "Should have at least one function");
+        assert!(!functions.is_empty(), "Should have at least one function");
 
         // Kernel または Function が存在することを確認
         // シンプルな演算はFunctionとして、複雑な演算はKernelとして生成される
@@ -112,7 +112,7 @@ fn test_program_root_extraction_complex() {
         }
 
         // 少なくとも1つの関数があることを確認
-        assert!(functions.len() >= 1, "Should have at least one function");
+        assert!(!functions.is_empty(), "Should have at least one function");
 
         // Kernel または Function が存在することを確認
         // シンプルな演算はFunctionとして、複雑な演算はKernelとして生成される

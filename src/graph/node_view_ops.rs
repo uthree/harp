@@ -426,7 +426,7 @@ mod tests {
         let a = graph.input("a", DType::F32, vec![3, 4]);
         let contiguous = a.contiguous();
 
-        assert!(matches!(contiguous.op, GraphOp::Contiguous {}));
+        assert!(matches!(contiguous.op, GraphOp::Contiguous));
         assert_eq!(contiguous.view.shape(), &[Expr::from(3), Expr::from(4)]);
         assert!(contiguous.view.is_linear());
     }
@@ -446,7 +446,7 @@ mod tests {
         assert!(reshaped.view.is_linear());
 
         // 入力ノードを辿るとContiguousノードがある
-        assert!(matches!(reshaped.src[0].op, GraphOp::Contiguous {}));
+        assert!(matches!(reshaped.src[0].op, GraphOp::Contiguous));
     }
 
     #[test]
@@ -464,7 +464,7 @@ mod tests {
         // 入力ノードを辿るとContiguousノードがある
         // unfolded -> View -> tiled_contiguous -> Contiguous -> tiled -> View -> a
         let view_src = &unfolded.src[0];
-        assert!(matches!(view_src.op, GraphOp::Contiguous {}));
+        assert!(matches!(view_src.op, GraphOp::Contiguous));
     }
 
     #[test]
@@ -475,7 +475,7 @@ mod tests {
         // LinearのままreshapeするとContiguousノードは挿入されない
         let reshaped = a.reshape(vec![Expr::from(12)]);
         // reshaped -> a (Inputノード) であり、Contiguousは挿入されない
-        assert!(!matches!(reshaped.src[0].op, GraphOp::Contiguous {}));
+        assert!(!matches!(reshaped.src[0].op, GraphOp::Contiguous));
     }
 
     #[test]
