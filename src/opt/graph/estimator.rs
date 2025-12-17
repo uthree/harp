@@ -448,13 +448,18 @@ impl SimpleCostEstimator {
                             + large_axis_penalty
                             - 2.0 * self.kernel_launch_overhead.ln()
                     }
-                    AstNode::Function { .. } => {
+                    AstNode::Function { body, .. } => {
                         // CPU逐次実行（AstNode::Function）の場合
                         // ループを含む逐次処理のコスト
                         let ast_cost = ast_estimator.estimate(ast);
+
+                        // SIMD化されたFunctionの場合、ベクトル幅ボーナスを適用
+                        let vector_width = Self::detect_vector_width(body);
+                        let vector_bonus = self.evaluate_vector_width(vector_width);
+
                         // Kernelノードは複数のグラフノードを1つにまとめるため、
                         // カーネル起動オーバーヘッドの削減効果を反映させる
-                        ast_cost - 3.0 * self.kernel_launch_overhead.ln()
+                        ast_cost - vector_bonus - 3.0 * self.kernel_launch_overhead.ln()
                     }
                     AstNode::Program { .. } => {
                         // Programの場合、ASTのコストを使用
@@ -639,6 +644,14 @@ impl SimpleCostEstimator {
                 | AstNode::Ne(left, right) => {
                     find_vector_width(left, max_width);
                     find_vector_width(right, max_width);
+                }
+                // ループ（Range）
+                AstNode::Range { body, .. } => {
+                    find_vector_width(body, max_width);
+                }
+                // Function
+                AstNode::Function { body, .. } => {
+                    find_vector_width(body, max_width);
                 }
                 _ => {}
             }
@@ -1899,6 +1912,129 @@ mod tests {
             "Tiled 2D kernel cost ({}) should be lower than large 1D kernel cost ({})",
             tiled_2d_cost,
             large_1d_cost
+        );
+    }
+
+    #[test]
+    fn test_simd_function_preferred() {
+        use crate::ast::{DType as AstDType, Scope, helper::*};
+        use crate::graph::shape::Expr;
+
+        let estimator = SimpleCostEstimator::new();
+
+        // スカラー版 Function（ループでスカラーロード/ストア）
+        let scalar_func = function(
+            Some("E_scalar".to_string()),
+            vec![],
+            AstDType::Tuple(vec![]),
+            range(
+                "ridx_0",
+                const_int(0),
+                const_int(1),
+                const_int(100),
+                range(
+                    "ridx_1",
+                    const_int(0),
+                    const_int(1),
+                    const_int(128),
+                    block(
+                        vec![store(
+                            var("output"),
+                            var("ridx_0") * 128 + var("ridx_1"),
+                            load(
+                                var("input0"),
+                                var("ridx_0") * 128 + var("ridx_1"),
+                                AstDType::F32,
+                            ) + load(
+                                var("input1"),
+                                var("ridx_0") * 128 + var("ridx_1"),
+                                AstDType::F32,
+                            ),
+                        )],
+                        Scope::new(),
+                    ),
+                ),
+            ),
+        );
+
+        // SIMD版 Function（外側ループ + SIMDループ + テールループ）
+        let simd_func = function(
+            Some("E_simd4".to_string()),
+            vec![],
+            AstDType::Tuple(vec![]),
+            range(
+                "ridx_0",
+                const_int(0),
+                const_int(1),
+                const_int(100),
+                block(
+                    vec![
+                        // SIMDループ（step=4, 128要素のうち0..128）
+                        range(
+                            "ridx_1",
+                            const_int(0),
+                            const_int(4), // step=4
+                            const_int(128),
+                            block(
+                                vec![store(
+                                    var("output"),
+                                    var("ridx_0") * 128 + var("ridx_1"),
+                                    // load_vec with count=4
+                                    load_vec(
+                                        var("input0"),
+                                        var("ridx_0") * 128 + var("ridx_1"),
+                                        4,
+                                        AstDType::F32.to_vec(4),
+                                    ) + load_vec(
+                                        var("input1"),
+                                        var("ridx_0") * 128 + var("ridx_1"),
+                                        4,
+                                        AstDType::F32.to_vec(4),
+                                    ),
+                                )],
+                                Scope::new(),
+                            ),
+                        ),
+                    ],
+                    Scope::new(),
+                ),
+            ),
+        );
+
+        let view = crate::graph::View::contiguous(vec![Expr::Const(100), Expr::Const(128)]);
+
+        let scalar_node = GraphNode::new(
+            DType::F32,
+            crate::graph::GraphOp::Kernel {
+                ast: scalar_func,
+                input_buffers: None,
+            },
+            vec![],
+            view.clone(),
+        );
+
+        let simd_node = GraphNode::new(
+            DType::F32,
+            crate::graph::GraphOp::Kernel {
+                ast: simd_func,
+                input_buffers: None,
+            },
+            vec![],
+            view,
+        );
+
+        let scalar_cost = estimator.node_base_cost(&scalar_node);
+        let simd_cost = estimator.node_base_cost(&simd_node);
+
+        println!("Scalar function cost: {}", scalar_cost);
+        println!("SIMD function (float4) cost: {}", simd_cost);
+
+        // SIMD版の方がコストが低いはず（vector_bonusが適用される）
+        assert!(
+            simd_cost < scalar_cost,
+            "SIMD function cost ({}) should be lower than scalar function cost ({})",
+            simd_cost,
+            scalar_cost
         );
     }
 }
