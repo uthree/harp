@@ -241,6 +241,24 @@ impl<'a> Decompiler<'a> {
             GraphOp::Buffer { name } => {
                 // Input buffer - use the buffer name directly and register it
                 self.used_names.insert(name.clone());
+
+                // Check if the buffer's view is non-contiguous (has view transformations)
+                // If so, we need to emit a view operation
+                let meta = self.graph.input_metas().iter().find(|m| &m.name == name);
+
+                if let Some(meta) = meta {
+                    // Create a contiguous view from the original shape to compare
+                    let original_view = harp::graph::shape::View::contiguous(meta.shape.clone());
+
+                    // If the node's view differs from the contiguous original, emit view ops
+                    if node.view != original_view {
+                        let var_name = self.get_or_create_name(node);
+                        // Use original shape for proper view detection
+                        let code = self.view_to_dsl_with_shape(name, &meta.shape, &node.view);
+                        return (var_name, Some(code));
+                    }
+                }
+
                 (name.clone(), None)
             }
 
@@ -439,9 +457,16 @@ impl<'a> Decompiler<'a> {
         src_node: &GraphNode,
         view: &harp::graph::shape::View,
     ) -> String {
-        use harp::graph::shape::View;
+        self.view_to_dsl_with_shape(src_name, src_node.view.shape(), view)
+    }
 
-        let src_shape = src_node.view.shape();
+    fn view_to_dsl_with_shape(
+        &self,
+        src_name: &str,
+        src_shape: &[Expr],
+        view: &harp::graph::shape::View,
+    ) -> String {
+        use harp::graph::shape::View;
         let new_shape = view.shape();
 
         let (new_strides, new_offset) = match view {
@@ -684,5 +709,45 @@ mod tests {
 
         assert!(dsl.contains("graph<"));
         assert!(dsl.contains("M") && dsl.contains("N"));
+    }
+
+    #[test]
+    fn test_decompile_input_with_view() {
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![4, 8]);
+
+        // Create a view with permute (transpose)
+        let a_transposed = a.view(a.view.clone().permute(vec![1, 0]));
+
+        // Use the transposed input in computation
+        let b = graph.input("b", DType::F32, vec![8, 4]);
+        let c = &a_transposed + &b;
+        graph.output("c", c);
+
+        let dsl = decompile(&graph, "transpose_add");
+        println!("=== test_decompile_input_with_view ===\n{}", dsl);
+
+        // Should contain a view operation for the transposed input
+        assert!(dsl.contains(".view(") || dsl.contains(".permute("));
+    }
+
+    #[test]
+    fn test_decompile_input_with_repeat() {
+        let mut graph = Graph::new();
+        let a = graph.input("a", DType::F32, vec![1, 8]);
+
+        // Create a view with repeat (broadcast axis 0 from 1 to 4)
+        let a_repeated = a.view(a.view.clone().repeat(0, 4));
+
+        // Use the repeated input in computation
+        let b = graph.input("b", DType::F32, vec![4, 8]);
+        let c = &a_repeated + &b;
+        graph.output("c", c);
+
+        let dsl = decompile(&graph, "repeat_add");
+        println!("=== test_decompile_input_with_repeat ===\n{}", dsl);
+
+        // Should contain a repeat operation for the broadcasted input
+        assert!(dsl.contains(".repeat(0, 4)"));
     }
 }
