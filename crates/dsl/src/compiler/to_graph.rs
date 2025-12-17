@@ -480,6 +480,18 @@ fn compile_method_call(
             let times = get_expr_arg(&args[1])?;
             Ok(receiver.repeat(axis, times))
         }
+        "tile" => {
+            // tile(axis, times): 配列全体を循環させて繰り返す
+            if args.len() != 2 {
+                return Err(DslError::InvalidArgument(
+                    "tile requires 2 arguments: axis and times".to_string(),
+                ));
+            }
+            let axis = get_axis_arg(args, 0)?;
+            let times = get_expr_arg(&args[1])?;
+            let new_view = receiver.view.clone().tile(axis, times);
+            Ok(receiver.view(new_view))
+        }
         "reshape" => {
             let shape = get_shape_arg(args, env, graph)?;
             Ok(receiver.reshape(shape))
@@ -1333,5 +1345,35 @@ mod tests {
         assert_eq!(graph.outputs().len(), 1);
         let output = graph.outputs().get("y").expect("output not found");
         assert!(!output.view.is_linear());
+    }
+
+    #[test]
+    fn test_compile_tile() {
+        // Test tile method for cyclic repeat
+        let source = r#"
+            graph main(x: f32[3, 4]) -> (y: f32[6, 4]) {
+                result = x.tile(0, 2)
+                return result
+            }
+        "#;
+
+        let module = parse(source).expect("Failed to parse");
+        let graph = compile(&module).expect("Failed to compile");
+
+        assert_eq!(graph.outputs().len(), 1);
+        let output = graph.outputs().get("y").expect("output not found");
+
+        // tile結果はIndexExpr（非線形）になる
+        assert!(!output.view.is_linear());
+        assert!(!output.view.is_contiguous());
+
+        // shapeが正しいことを確認
+        assert_eq!(
+            output.view.shape(),
+            &[
+                harp::graph::shape::Expr::from(6),
+                harp::graph::shape::Expr::from(4)
+            ]
+        );
     }
 }

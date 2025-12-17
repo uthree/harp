@@ -224,6 +224,87 @@ impl View {
         }
     }
 
+    /// 指定した軸を循環させて繰り返す（タイル化）
+    ///
+    /// `repeat`とは異なり、配列全体を循環させて繰り返します。
+    /// - `repeat`: `[1, 2, 3]` (size=1) → 不可能（size=1のみ対応）
+    /// - `tile`: `[1, 2, 3]` → `[1, 2, 3, 1, 2, 3, 1, 2, 3]`（循環）
+    ///
+    /// IndexExprを使用するため、結果は非線形Viewになります。
+    ///
+    /// # Arguments
+    /// * `axis` - タイル化する軸のインデックス
+    /// * `times` - 繰り返し回数
+    ///
+    /// # Panics
+    /// * 軸が範囲外の場合
+    ///
+    /// # Example
+    /// ```
+    /// use harp::graph::shape::{View, Expr};
+    ///
+    /// let view = View::contiguous(vec![3, 4]); // shape: [3, 4]
+    /// let tiled = view.tile(0, 2); // shape: [6, 4], idx0を%3で循環
+    ///
+    /// assert_eq!(tiled.shape(), &[Expr::from(6), Expr::from(4)]);
+    /// assert!(!tiled.is_linear()); // IndexExprになる
+    /// ```
+    pub fn tile(self, axis: usize, times: impl Into<Expr>) -> Self {
+        let times = times.into();
+        let ndim = self.ndim();
+        assert!(axis < ndim, "axis out of bounds");
+
+        match self {
+            View::Linear {
+                shape,
+                strides,
+                offset,
+            } => {
+                let original_size = shape[axis].clone();
+                let new_size = (original_size.clone() * times).simplify();
+
+                // 新しいshapeを作成
+                let mut new_shape = shape.clone();
+                new_shape[axis] = new_size;
+
+                // インデックス式を構築
+                // offset + sum(Idx(i) * stride[i]) ただしaxis番目は Idx(axis) % original_size
+                let mut index_expr = offset;
+                for (i, stride) in strides.iter().enumerate() {
+                    let idx = if i == axis {
+                        // 循環させる軸はモジュロを適用
+                        (Expr::Idx(i) % original_size.clone()).simplify()
+                    } else {
+                        Expr::Idx(i)
+                    };
+                    index_expr = (index_expr + idx * stride.clone()).simplify();
+                }
+
+                View::IndexExpr {
+                    shape: new_shape,
+                    index_expr,
+                }
+            }
+            View::IndexExpr { shape, index_expr } => {
+                let original_size = shape[axis].clone();
+                let new_size = (original_size.clone() * times).simplify();
+
+                // 新しいshapeを作成
+                let mut new_shape = shape;
+                new_shape[axis] = new_size;
+
+                // Idx(axis)を Idx(axis) % original_size に置換
+                let cyclic_idx = (Expr::Idx(axis) % original_size).simplify();
+                let new_index_expr = index_expr.substitute_idx(axis, cyclic_idx);
+
+                View::IndexExpr {
+                    shape: new_shape,
+                    index_expr: new_index_expr,
+                }
+            }
+        }
+    }
+
     /// Reshapeは連続したViewに対してのみ適用可能
     ///
     /// 要素数が一致する新しいshapeに変換します。
@@ -831,5 +912,85 @@ mod tests {
         );
 
         let _ = view.reshape(vec![Expr::from(12)]); // Should panic
+    }
+
+    // tile tests
+
+    #[test]
+    fn test_tile_1d() {
+        // [1, 2, 3] を2回繰り返し -> [1, 2, 3, 1, 2, 3]
+        let view = View::contiguous(vec![3]);
+        let tiled = view.tile(0, 2);
+
+        assert_eq!(tiled.shape(), &[Expr::from(6)]);
+        assert!(!tiled.is_linear()); // IndexExprになる
+
+        // index_expr: Idx(0) % 3
+        if let View::IndexExpr { index_expr, .. } = tiled {
+            let expected = Expr::Idx(0) % Expr::from(3);
+            assert_eq!(index_expr, expected);
+        } else {
+            panic!("Expected IndexExpr variant");
+        }
+    }
+
+    #[test]
+    fn test_tile_2d_axis0() {
+        // shape: [3, 4], tile axis 0 by 2 -> [6, 4]
+        // アクセス: (idx0 % 3) * 4 + idx1
+        let view = View::contiguous(vec![3, 4]);
+        let tiled = view.tile(0, 2);
+
+        assert_eq!(tiled.shape(), &[Expr::from(6), Expr::from(4)]);
+        assert!(!tiled.is_linear());
+
+        if let View::IndexExpr { index_expr, .. } = tiled {
+            // (Idx(0) % 3) * 4 + Idx(1)
+            let expected = (Expr::Idx(0) % Expr::from(3)) * Expr::from(4) + Expr::Idx(1);
+            assert_eq!(index_expr, expected);
+        } else {
+            panic!("Expected IndexExpr variant");
+        }
+    }
+
+    #[test]
+    fn test_tile_2d_axis1() {
+        // shape: [3, 4], tile axis 1 by 3 -> [3, 12]
+        // アクセス: idx0 * 4 + (idx1 % 4)
+        let view = View::contiguous(vec![3, 4]);
+        let tiled = view.tile(1, 3);
+
+        assert_eq!(tiled.shape(), &[Expr::from(3), Expr::from(12)]);
+        assert!(!tiled.is_linear());
+
+        if let View::IndexExpr { index_expr, .. } = tiled {
+            // Idx(0) * 4 + (Idx(1) % 4)
+            let expected = Expr::Idx(0) * Expr::from(4) + (Expr::Idx(1) % Expr::from(4));
+            assert_eq!(index_expr, expected);
+        } else {
+            panic!("Expected IndexExpr variant");
+        }
+    }
+
+    #[test]
+    fn test_tile_on_index_expr() {
+        // IndexExprに対してtile
+        let view = View::from_index_expr(
+            vec![Expr::from(3), Expr::from(4)],
+            Expr::Idx(0) * Expr::from(4) + Expr::Idx(1),
+        );
+
+        let tiled = view.tile(0, 2);
+
+        assert_eq!(tiled.shape(), &[Expr::from(6), Expr::from(4)]);
+        assert!(!tiled.is_linear());
+
+        if let View::IndexExpr { index_expr, .. } = tiled {
+            // Idx(0)が (Idx(0) % 3) に置換される
+            let expected = (Expr::Idx(0) % Expr::from(3)) * Expr::from(4) + Expr::Idx(1);
+            assert_eq!(index_expr, expected);
+        } else {
+            panic!("Expected IndexExpr variant");
+        }
     }
 }
