@@ -257,6 +257,11 @@ pub fn embed_constants(expr: &AstNode, srcs: &[GraphNode]) -> AstNode {
 ///
 /// 最内軸をSIMD化したElementwise演算を生成します。
 /// テール処理も含まれます。
+///
+/// # SIMD化の条件
+/// - 出力と全ての入力の最内軸がメモリ上で連続（stride = 1）であること
+/// - vload/vstoreは連続したメモリアクセスを前提とするため、
+///   transposeなどで最内軸が非連続になっている場合はSIMD化しない
 pub fn build_elementwise_function_simd(
     node: &GraphNode,
     op: &ElementwiseOp,
@@ -274,6 +279,21 @@ pub fn build_elementwise_function_simd(
         && (*size as usize) < simd_width
     {
         return None;
+    }
+
+    // 出力の最内軸が連続でない場合はSIMD化しない
+    if !node.view.is_innermost_contiguous() {
+        return None;
+    }
+
+    // 入力の最内軸が連続でない場合はSIMD化しない（Constノードと純粋な定数ノードを除く）
+    for src in &node.src {
+        if matches!(src.op, GraphOp::Const(_)) || is_pure_const_node(src) {
+            continue;
+        }
+        if !src.view.is_innermost_contiguous() {
+            return None;
+        }
     }
 
     // 演算式を構築
@@ -301,6 +321,9 @@ pub fn build_elementwise_function_simd(
 }
 
 /// FusedElementwise演算のSIMD版関数を生成
+///
+/// # SIMD化の条件
+/// - 出力と全ての入力の最内軸がメモリ上で連続（stride = 1）であること
 pub fn build_fused_elementwise_function_simd(
     node: &GraphNode,
     expr: &AstNode,
@@ -318,6 +341,21 @@ pub fn build_fused_elementwise_function_simd(
         && (*size as usize) < simd_width
     {
         return None;
+    }
+
+    // 出力の最内軸が連続でない場合はSIMD化しない
+    if !node.view.is_innermost_contiguous() {
+        return None;
+    }
+
+    // 入力の最内軸が連続でない場合はSIMD化しない（Constノードと純粋な定数ノードを除く）
+    for src in &node.src {
+        if matches!(src.op, GraphOp::Const(_)) || is_pure_const_node(src) {
+            continue;
+        }
+        if !src.view.is_innermost_contiguous() {
+            return None;
+        }
     }
 
     let num_inputs = node

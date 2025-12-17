@@ -384,6 +384,43 @@ impl View {
         }
     }
 
+    /// 最内軸が連続かどうかをチェック
+    ///
+    /// SIMD（vload/vstore）には最内軸の連続性が必要です。
+    /// 最内軸のstride = 1 であれば連続とみなします。
+    ///
+    /// # Returns
+    /// - `true`: 最内軸が連続（stride = 1）
+    /// - `false`: 最内軸が非連続、または空の場合
+    ///
+    /// # Examples
+    /// ```
+    /// use harp::graph::shape::View;
+    ///
+    /// // 連続したViewは最内軸も連続
+    /// let view = View::contiguous(vec![3, 4]);
+    /// assert!(view.is_innermost_contiguous());
+    ///
+    /// // transposeすると最内軸が非連続になることがある
+    /// let transposed = View::contiguous(vec![3, 4]).permute(vec![1, 0]);
+    /// assert!(!transposed.is_innermost_contiguous());
+    /// ```
+    pub fn is_innermost_contiguous(&self) -> bool {
+        match self {
+            View::Linear { strides, .. } => {
+                if strides.is_empty() {
+                    // 0次元テンソルは連続とみなす
+                    true
+                } else {
+                    // 最内軸のstride = 1 であれば連続
+                    strides.last().map(|s| *s == Expr::from(1)).unwrap_or(true)
+                }
+            }
+            // IndexExprは最内軸の連続性を保証できない
+            View::IndexExpr { .. } => false,
+        }
+    }
+
     /// IndexExpr Viewを作成
     ///
     /// # Arguments
@@ -1045,5 +1082,91 @@ mod tests {
         } else {
             panic!("Expected IndexExpr variant");
         }
+    }
+
+    // is_innermost_contiguous tests
+
+    #[test]
+    fn test_is_innermost_contiguous_contiguous_view() {
+        // 連続したViewは最内軸も連続
+        let view = View::contiguous(vec![3, 4]);
+        assert!(view.is_innermost_contiguous());
+
+        let view_3d = View::contiguous(vec![2, 3, 4]);
+        assert!(view_3d.is_innermost_contiguous());
+    }
+
+    #[test]
+    fn test_is_innermost_contiguous_1d() {
+        let view = View::contiguous(vec![10]);
+        assert!(view.is_innermost_contiguous());
+    }
+
+    #[test]
+    fn test_is_innermost_contiguous_scalar() {
+        // スカラー（0次元）は連続とみなす
+        let view = View::contiguous(Vec::<isize>::new());
+        assert!(view.is_innermost_contiguous());
+    }
+
+    #[test]
+    fn test_is_innermost_contiguous_transpose() {
+        // transpose([1, 0])すると最内軸が非連続になる
+        // 元: shape=[3, 4], strides=[4, 1]
+        // transpose後: shape=[4, 3], strides=[1, 4]
+        // 最内軸(axis 1)のstride = 4 ≠ 1 なので非連続
+        let transposed = View::contiguous(vec![3, 4]).permute(vec![1, 0]);
+        assert!(!transposed.is_innermost_contiguous());
+    }
+
+    #[test]
+    fn test_is_innermost_contiguous_partial_transpose() {
+        // 3Dで最後2軸のみtransposeする場合
+        // 元: shape=[2, 3, 4], strides=[12, 4, 1]
+        // permute([0, 2, 1])後: shape=[2, 4, 3], strides=[12, 1, 4]
+        // 最内軸(axis 2)のstride = 4 ≠ 1 なので非連続
+        let transposed = View::contiguous(vec![2, 3, 4]).permute(vec![0, 2, 1]);
+        assert!(!transposed.is_innermost_contiguous());
+
+        // permute([1, 0, 2])後: shape=[3, 2, 4], strides=[4, 12, 1]
+        // 最内軸(axis 2)のstride = 1 なので連続
+        let transposed2 = View::contiguous(vec![2, 3, 4]).permute(vec![1, 0, 2]);
+        assert!(transposed2.is_innermost_contiguous());
+    }
+
+    #[test]
+    fn test_is_innermost_contiguous_flip() {
+        // flipすると最内軸のstrideが負になる
+        // 元: shape=[3, 4], strides=[4, 1]
+        // flip(1)後: strides=[4, -1]
+        // 最内軸のstride = -1 ≠ 1 なので非連続
+        let flipped = View::contiguous(vec![3, 4]).flip(1);
+        assert!(!flipped.is_innermost_contiguous());
+
+        // 外側軸をflipした場合は最内軸は連続のまま
+        // flip(0)後: strides=[-4, 1]
+        // 最内軸のstride = 1 なので連続
+        let flipped_outer = View::contiguous(vec![3, 4]).flip(0);
+        assert!(flipped_outer.is_innermost_contiguous());
+    }
+
+    #[test]
+    fn test_is_innermost_contiguous_repeat() {
+        // repeatはstride=0を設定するが、最内軸以外なら連続
+        // 元: shape=[1, 4], strides=[4, 1]
+        // repeat(0, 3)後: shape=[3, 4], strides=[0, 1]
+        // 最内軸のstride = 1 なので連続
+        let repeated = View::contiguous(vec![1, 4]).repeat(0, 3);
+        assert!(repeated.is_innermost_contiguous());
+    }
+
+    #[test]
+    fn test_is_innermost_contiguous_index_expr() {
+        // IndexExprは常に非連続として扱う
+        let view = View::from_index_expr(
+            vec![Expr::from(3), Expr::from(4)],
+            Expr::Idx(0) * Expr::from(4) + Expr::Idx(1),
+        );
+        assert!(!view.is_innermost_contiguous());
     }
 }
