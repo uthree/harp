@@ -139,6 +139,22 @@ pub fn create_lowering_only_suggester() -> CompositeSuggester {
     ])
 }
 
+/// Loweringのみのフェーズ用Suggesterを作成（SIMD幅指定付き）
+///
+/// 全てのGraphOpノードをKernelノードに変換します。
+/// SIMD幅が指定されている場合、Elementwise演算のSIMD版も候補として生成します。
+///
+/// # Arguments
+/// * `simd_widths` - SIMD幅候補（空の場合はスカラー版のみ）
+pub fn create_lowering_only_suggester_with_simd(simd_widths: Vec<usize>) -> CompositeSuggester {
+    let suggester = if simd_widths.is_empty() {
+        LoweringSuggester::new()
+    } else {
+        LoweringSuggester::with_simd_widths(simd_widths)
+    };
+    CompositeSuggester::new(vec![Box::new(suggester)])
+}
+
 /// 貪欲法Lowering用のSuggesterを作成
 ///
 /// 高速にLoweringを行います。
@@ -231,6 +247,11 @@ pub struct MultiPhaseConfig {
     /// - `SeparateKernels`: サブグラフを個別のカーネル関数として生成
     /// - `Skip`: サブグラフ処理をスキップ
     pub subgraph_mode: SubgraphMode,
+    /// LoweringSuggesterのSIMD幅候補
+    ///
+    /// 空の場合はスカラー版のみ生成します。
+    /// 例: `vec![4, 8]` で幅4と幅8のSIMD候補を生成
+    pub simd_widths: Vec<usize>,
 }
 
 impl Default for MultiPhaseConfig {
@@ -242,6 +263,7 @@ impl Default for MultiPhaseConfig {
             collect_logs: cfg!(debug_assertions),
             early_termination_threshold: Some(10), // デフォルト: 10ステップ改善なしで終了
             subgraph_mode: SubgraphMode::default(), // デフォルト: Inline
+            simd_widths: vec![],                   // デフォルト: スカラー版のみ
         }
     }
 }
@@ -303,6 +325,24 @@ impl MultiPhaseConfig {
     /// ```
     pub fn with_subgraph_mode(mut self, mode: SubgraphMode) -> Self {
         self.subgraph_mode = mode;
+        self
+    }
+
+    /// SIMD幅候補を設定
+    ///
+    /// LoweringSuggesterがElementwise演算のSIMD版を生成する際に使用する幅を指定します。
+    /// 空の場合はスカラー版のみ生成します。
+    ///
+    /// # Example
+    /// ```ignore
+    /// use harp::backend::pipeline::MultiPhaseConfig;
+    ///
+    /// // 幅4と幅8のSIMD候補を生成
+    /// let config = MultiPhaseConfig::new()
+    ///     .with_simd_widths(vec![4, 8]);
+    /// ```
+    pub fn with_simd_widths(mut self, widths: Vec<usize>) -> Self {
+        self.simd_widths = widths;
         self
     }
 }
@@ -412,7 +452,7 @@ pub fn create_multi_phase_optimizer(config: MultiPhaseConfig) -> ChainedGraphOpt
     // BeamSearchを使用してコストベースで最適な並列化戦略を選択
     // SimpleCostEstimatorは並列カーネルにボーナス（コスト減少）を与えるため、
     // 適切なスレッドグループサイズとベクトル化が選択される
-    let lowering_suggester = create_lowering_only_suggester();
+    let lowering_suggester = create_lowering_only_suggester_with_simd(config.simd_widths.clone());
     let lowering_optimizer = BeamSearchGraphOptimizer::new(lowering_suggester)
         .with_beam_width(config.beam_width)
         .with_max_steps(config.max_steps_per_phase)
@@ -535,7 +575,7 @@ where
         .with_early_termination_threshold(Some(5)); // 早期終了
 
     // Phase 4: Lowering（Kernel変換のみ）- カスタムSelector使用
-    let lowering_suggester = create_lowering_only_suggester();
+    let lowering_suggester = create_lowering_only_suggester_with_simd(config.simd_widths.clone());
     let lowering_optimizer = BeamSearchGraphOptimizer::new(lowering_suggester)
         .with_selector(selector.clone())
         .with_beam_width(config.beam_width)
