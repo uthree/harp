@@ -31,6 +31,12 @@ pub trait AstSelector {
 
     /// 候補リストを評価し、上位n件を選択
     fn select(&self, candidates: Vec<AstNode>, n: usize) -> Vec<(AstNode, f32)>;
+
+    /// 候補リストを評価し、上位n件を選択（元のインデックスを保持）
+    ///
+    /// 返り値は (AST, コスト, 元のインデックス) のタプル
+    fn select_with_indices(&self, candidates: Vec<AstNode>, n: usize)
+    -> Vec<(AstNode, f32, usize)>;
 }
 
 /// AST用の静的コストベース選択器
@@ -84,15 +90,27 @@ where
     }
 
     fn select(&self, candidates: Vec<AstNode>, n: usize) -> Vec<(AstNode, f32)> {
-        let mut with_cost: Vec<(AstNode, f32)> = candidates
+        self.select_with_indices(candidates, n)
             .into_iter()
-            .map(|c| {
+            .map(|(ast, cost, _)| (ast, cost))
+            .collect()
+    }
+
+    fn select_with_indices(
+        &self,
+        candidates: Vec<AstNode>,
+        n: usize,
+    ) -> Vec<(AstNode, f32, usize)> {
+        let mut with_cost_and_index: Vec<(AstNode, f32, usize)> = candidates
+            .into_iter()
+            .enumerate()
+            .map(|(idx, c)| {
                 let cost = self.estimator.estimate(&c);
-                (c, cost)
+                (c, cost, idx)
             })
             .collect();
-        with_cost.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
-        with_cost.into_iter().take(n).collect()
+        with_cost_and_index.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
+        with_cost_and_index.into_iter().take(n).collect()
     }
 }
 
@@ -180,20 +198,40 @@ impl AstSelector for AstMultiStageSelector {
     }
 
     fn select(&self, candidates: Vec<AstNode>, n: usize) -> Vec<(AstNode, f32)> {
+        self.select_with_indices(candidates, n)
+            .into_iter()
+            .map(|(ast, cost, _)| (ast, cost))
+            .collect()
+    }
+
+    fn select_with_indices(
+        &self,
+        candidates: Vec<AstNode>,
+        n: usize,
+    ) -> Vec<(AstNode, f32, usize)> {
         if candidates.is_empty() {
             return vec![];
         }
 
         if self.stages.is_empty() {
             // ステージがない場合はそのまま返す
-            return candidates.into_iter().take(n).map(|c| (c, 0.0)).collect();
+            return candidates
+                .into_iter()
+                .enumerate()
+                .take(n)
+                .map(|(idx, c)| (c, 0.0, idx))
+                .collect();
         }
 
-        let mut current: Vec<(AstNode, f32)> = candidates.into_iter().map(|c| (c, 0.0)).collect();
+        let mut current: Vec<(AstNode, f32, usize)> = candidates
+            .into_iter()
+            .enumerate()
+            .map(|(idx, c)| (c, 0.0, idx))
+            .collect();
 
         for (i, stage) in self.stages.iter().enumerate() {
             // コストを再計算
-            for (ast, cost) in current.iter_mut() {
+            for (ast, cost, _) in current.iter_mut() {
                 *cost = stage.estimator.estimate(ast);
             }
 

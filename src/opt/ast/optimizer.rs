@@ -175,6 +175,20 @@ where
     }
 }
 
+/// 最適化パス：(suggester_name, description)のリスト
+type OptimizationPath = Vec<(String, String)>;
+
+/// 候補情報: (suggester_name, description, path)
+type CandidateInfo = (String, String, OptimizationPath);
+
+/// ビームエントリ：ASTと、そのASTに至るまでの変換パス
+#[derive(Clone, Debug)]
+struct BeamEntry {
+    ast: AstNode,
+    /// このASTに至るまでの変換パス（各ステップでの(suggester_name, description)）
+    path: OptimizationPath,
+}
+
 impl<S, Sel> BeamSearchOptimizer<S, Sel>
 where
     S: AstSuggester,
@@ -204,7 +218,11 @@ where
         );
 
         let mut history = OptimizationHistory::new();
-        let mut beam = vec![ast.clone()];
+        // ビームエントリに変換パスを追加
+        let mut beam = vec![BeamEntry {
+            ast: ast.clone(),
+            path: vec![],
+        }];
 
         // 初期状態を記録（静的コストを使用）
         let initial_cost = static_estimator.estimate(&ast);
@@ -216,7 +234,10 @@ where
         };
 
         // これまでで最良の候補を保持（astを移動する前に初期化）
-        let mut global_best = ast.clone();
+        let mut global_best = BeamEntry {
+            ast: ast.clone(),
+            path: vec![],
+        };
         let mut global_best_cost = initial_cost;
 
         history.add_snapshot(OptimizationSnapshot::with_candidates(
@@ -259,22 +280,30 @@ where
                 pb.set_position(step as u64);
             }
 
-            let mut candidates_with_name: Vec<(AstNode, String, String)> = Vec::new();
+            // 候補: (AST, suggester_name, description, parent_path)
+            let mut candidates_with_info: Vec<(AstNode, String, String, OptimizationPath)> =
+                Vec::new();
 
             // 現在のビーム内の各候補から新しい候補を生成
-            for ast in &beam {
-                let new_candidates = self.suggester.suggest(ast);
-                candidates_with_name.extend(
-                    new_candidates
-                        .into_iter()
-                        .map(|result| (result.ast, result.suggester_name, result.description)),
-                );
+            for entry in &beam {
+                let new_candidates = self.suggester.suggest(&entry.ast);
+                for result in new_candidates {
+                    // 親のパスを継承し、現在の変換を追加
+                    let mut new_path = entry.path.clone();
+                    new_path.push((result.suggester_name.clone(), result.description.clone()));
+                    candidates_with_info.push((
+                        result.ast,
+                        result.suggester_name,
+                        result.description,
+                        new_path,
+                    ));
+                }
             }
 
             // 最大ノード数制限を適用
-            let original_count = candidates_with_name.len();
+            let original_count = candidates_with_info.len();
             if let Some(max_nodes) = self.max_node_count {
-                candidates_with_name.retain(|(ast, _, _)| {
+                candidates_with_info.retain(|(ast, _, _, _)| {
                     let node_count = SimpleCostEstimator::get_node_count(ast);
                     if node_count > max_nodes {
                         trace!(
@@ -286,16 +315,16 @@ where
                         true
                     }
                 });
-                if candidates_with_name.len() < original_count {
+                if candidates_with_info.len() < original_count {
                     debug!(
                         "Filtered out {} candidates exceeding max node count ({})",
-                        original_count - candidates_with_name.len(),
+                        original_count - candidates_with_info.len(),
                         max_nodes
                     );
                 }
             }
 
-            if candidates_with_name.is_empty() {
+            if candidates_with_info.is_empty() {
                 info!(
                     "No more candidates at step {} - optimization complete",
                     step
@@ -310,40 +339,57 @@ where
             }
 
             // フィルタリング後の候補数を記録
-            let num_candidates = candidates_with_name.len();
+            let num_candidates = candidates_with_info.len();
             trace!("Found {} candidates at step {}", num_candidates, step);
 
-            // ASTからSuggester名・descriptionへのマッピングを構築（Selectorに渡す前に保存）
-            let ast_to_suggester: std::collections::HashMap<String, String> = candidates_with_name
+            // 候補情報を分離（インデックスベースで管理）
+            let candidate_infos: Vec<CandidateInfo> = candidates_with_info
                 .iter()
-                .map(|(ast, name, _)| (format!("{:?}", ast), name.clone()))
+                .map(|(_, name, desc, path)| (name.clone(), desc.clone(), path.clone()))
                 .collect();
-            let ast_to_description: std::collections::HashMap<String, String> =
-                candidates_with_name
-                    .iter()
-                    .map(|(ast, _, desc)| (format!("{:?}", ast), desc.clone()))
-                    .collect();
 
             // 候補のASTだけを取り出してSelectorに渡す
-            let candidates: Vec<AstNode> = candidates_with_name
+            let candidates: Vec<AstNode> = candidates_with_info
                 .into_iter()
-                .map(|(ast, _, _)| ast)
+                .map(|(ast, _, _, _)| ast)
                 .collect();
 
             // Selectorで全候補のコストを計算してソート（上位全件取得）
-            let all_with_cost = self.selector.select(candidates, num_candidates);
+            // select_with_indicesを使用してインデックスを保持
+            let all_with_cost_and_index = self
+                .selector
+                .select_with_indices(candidates, num_candidates);
 
             // ビーム用に上位beam_width個を取得
-            let selected: Vec<_> = all_with_cost
+            let selected: Vec<_> = all_with_cost_and_index
                 .iter()
                 .take(self.beam_width)
                 .cloned()
                 .collect();
 
-            beam = selected.iter().map(|(ast, _)| ast.clone()).collect();
+            // 新しいビームを構築（パス情報を保持）
+            beam = selected
+                .iter()
+                .map(|(ast, _, idx)| {
+                    let path = candidate_infos
+                        .get(*idx)
+                        .map(|(_, _, p)| p.clone())
+                        .unwrap_or_default();
+                    BeamEntry {
+                        ast: ast.clone(),
+                        path,
+                    }
+                })
+                .collect();
 
             // このステップの最良候補を記録
-            if let Some((best, cost)) = selected.first() {
+            if let Some((best, cost, best_index)) = selected.first() {
+                // 最良候補のパス情報を取得
+                let best_path = candidate_infos
+                    .get(*best_index)
+                    .map(|(_, _, p)| p.clone())
+                    .unwrap_or_default();
+
                 // コストが改善されない場合はカウンターを増やす
                 if *cost >= best_cost {
                     no_improvement_count += 1;
@@ -386,7 +432,10 @@ where
                         step, best_cost, cost, -improvement_pct
                     );
                     best_cost = *cost;
-                    global_best = best.clone();
+                    global_best = BeamEntry {
+                        ast: best.clone(),
+                        path: best_path.clone(),
+                    };
                     global_best_cost = *cost;
                 }
 
@@ -396,21 +445,27 @@ where
                     Vec::new()
                 };
 
-                // 選択された候補のSuggester名を取得
-                let suggester_name = ast_to_suggester.get(&format!("{:?}", best)).cloned();
+                // 選択された候補のSuggester名を取得（パスの最後の要素）
+                // パスには初期ASTからこの候補に至るまでの全変換が記録されている
+                let suggester_name = best_path.last().map(|(name, _)| name.clone());
 
                 // 代替候補を構築（rank > 0の全候補、ビームに入らなかったものも含む）
-                let alternatives: Vec<AlternativeCandidate> = all_with_cost
+                let alternatives: Vec<AlternativeCandidate> = all_with_cost_and_index
                     .iter()
                     .skip(1)
                     .enumerate()
-                    .map(|(idx, (ast, cost))| {
-                        let key = format!("{:?}", ast);
+                    .map(|(idx, (ast, cost, original_index))| {
+                        let (_, desc, path) = candidate_infos
+                            .get(*original_index)
+                            .cloned()
+                            .unwrap_or_default();
+                        // パスの最後の要素からSuggester名を取得
+                        let name = path.last().map(|(n, _)| n.clone()).unwrap_or_default();
                         AlternativeCandidate {
                             ast: ast.clone(),
                             cost: *cost,
-                            suggester_name: ast_to_suggester.get(&key).cloned(),
-                            description: ast_to_description.get(&key).cloned().unwrap_or_default(),
+                            suggester_name: Some(name),
+                            description: desc,
                             rank: idx + 1,
                         }
                     })
@@ -497,7 +552,7 @@ where
             let final_step = history.len();
             history.add_snapshot(OptimizationSnapshot::with_candidates(
                 final_step,
-                global_best.clone(),
+                global_best.ast.clone(),
                 global_best_cost,
                 format!(
                     "[Final] Best result (cost={:.2e}, improved {:.1}%)",
@@ -510,8 +565,25 @@ where
             ));
         }
 
+        // 最終結果のパス情報を履歴に記録
+        history.set_final_path(global_best.path.clone());
+
+        // 最終結果のパス情報をログに出力（デバッグ用）
+        if !global_best.path.is_empty() {
+            debug!(
+                "Final optimization path ({} steps): {}",
+                global_best.path.len(),
+                global_best
+                    .path
+                    .iter()
+                    .map(|(name, _)| name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" -> ")
+            );
+        }
+
         // これまでで最良の候補を返す
-        (global_best, history)
+        (global_best.ast, history)
     }
 }
 

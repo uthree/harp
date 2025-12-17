@@ -141,11 +141,21 @@ impl OptimizationSnapshot {
     }
 }
 
+/// 最終結果に至る最適化パス
+///
+/// 各要素は (suggester_name, description) のタプル
+pub type FinalOptimizationPath = Vec<(String, String)>;
+
 /// 最適化の履歴全体を保持
 #[derive(Clone, Default, Debug)]
 pub struct OptimizationHistory {
     /// スナップショットのリスト
     snapshots: Vec<OptimizationSnapshot>,
+    /// 最終結果に至る実際のパス
+    ///
+    /// ビームサーチでは各ステップの最良候補が最終結果に至るとは限らない。
+    /// このフィールドは最終結果に実際に至ったパスを記録する。
+    final_path: FinalOptimizationPath,
 }
 
 impl OptimizationHistory {
@@ -153,7 +163,20 @@ impl OptimizationHistory {
     pub fn new() -> Self {
         Self {
             snapshots: Vec::new(),
+            final_path: Vec::new(),
         }
+    }
+
+    /// 最終結果に至るパスを設定
+    ///
+    /// ビームサーチ終了時に、最終結果に至った実際のパスを記録する。
+    pub fn set_final_path(&mut self, path: FinalOptimizationPath) {
+        self.final_path = path;
+    }
+
+    /// 最終結果に至るパスを取得
+    pub fn final_path(&self) -> &FinalOptimizationPath {
+        &self.final_path
     }
 
     /// スナップショットを追加
@@ -257,6 +280,12 @@ impl OptimizationHistory {
                 alternatives: snapshot.alternatives,
             };
             self.snapshots.push(adjusted_snapshot);
+        }
+
+        // 他の履歴のfinal_pathを結合（フェーズ名をプレフィックスとして追加）
+        for (name, desc) in other.final_path {
+            self.final_path
+                .push((format!("[{}] {}", phase_name, name), desc));
         }
     }
 
